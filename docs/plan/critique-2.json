@@ -1,0 +1,61 @@
+{
+  "pass": 2,
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "verification",
+      "issue": "G0 states two incompatible conditions: pass at >=4 bps, red at smaller-than-costs-by-more-than-3x (<1.33 bps). The 1.33-4 bps band has no verdict. No minimum number of qualifying levels and no precision requirement, while the far cheaper G2 demands n>=100 and >=5 days.",
+      "settled": true
+    },
+    {
+      "id": "B2",
+      "axis": "sequencing",
+      "issue": "Step 0.0 depends on 0.1-0.3 but needs the level rule from 1.1, classification from 1.2 and the markout baseline from 2.1; it also skips lob verify, and the rolling-hour percentile of H3 does not exist during the first hour of a one-hour pilot.",
+      "settled": true
+    },
+    {
+      "id": "B3",
+      "axis": "failure-and-rollback",
+      "issue": "No rule for time-aligning a REST snapshot with the WS book, so zero mismatches is unachievable by construction; and no pre-registered rule for a verify failure on the already-recorded week.",
+      "settled": true
+    },
+    {
+      "id": "B4",
+      "axis": "settled-dispute",
+      "issue": "Clustering by UTC day with 7 days gives 5-7 clusters: CRVE is downward-biased and one-sided t=3 on 6 df is p~0.012 not 0.001. No module owns or tests the clustered statistic.",
+      "settled": true
+    },
+    {
+      "id": "B5",
+      "axis": "contracts",
+      "issue": "Step 4.1 produces the RTT that gates G4 but has no module, no subcommand, no test, no entry in Contracts touched, and needs HMAC-SHA256 signing and API keys that no dependency or step provides.",
+      "settled": true
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "Does the local toolchain satisfy hftbacktest MSRV 1.90, and is it pinned?",
+      "answer": "rustc 1.93.1, cargo 1.93.1. No rust-toolchain.toml. Step 0.0 added to pin channel 1.93.1 and rust-version 1.90.",
+      "status": "resolved"
+    },
+    {
+      "id": "R2",
+      "question": "Does zstd 0.14 support one independent frame per block appended into a daily file with a truncated final frame detected?",
+      "answer": "Sidestepped by design rather than checked: Decision 7 now writes a u32 length before each zstd frame, so reading is read-u32, read-that-many-bytes, decompress-one-frame. Truncation shows as a short read. No dependence on multi-frame decoder semantics.",
+      "status": "resolved"
+    },
+    {
+      "id": "R3",
+      "question": "Where are the pass-2 and pass-3 critiques referenced by commits f76c495 and 9caefad?",
+      "answer": "REJECTED. Those commits belong to the repository deleted earlier in the session; the critic read a stale context snapshot. Actual git log holds two commits, e786031 and 12b287c. No artifacts are missing.",
+      "status": "rejected"
+    }
+  ],
+  "human": [
+    "H7 instrument ranking rule",
+    "H8 what a G0 red on one candidate means",
+    "H9 what to do when the primary cell is short of sample"
+  ],
+  "verdict": "revise"
+}
