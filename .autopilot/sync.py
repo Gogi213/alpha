@@ -128,7 +128,12 @@ def serve(state):
         return "удалённая сессия — без сервера"
 
     port, pid = recorded()
-    if port and http_ok(port) and (not pid or is_ours(cmdline(pid))):
+    # Пустой cmdline означает «не смог посмотреть», а не «чужой»: на Windows ps
+    # либо отсутствует, либо печатает не тот формат. Раньше это роняло проверку в
+    # False, порт оказывался занят собственным живым сервером, free_port уходил на
+    # случайный — и каждый вызов плодил ещё один сервер, меняя пользователю ссылку.
+    cmd = cmdline(pid) if pid else ""
+    if port and http_ok(port) and (not pid or not cmd or is_ours(cmd)):
         return "сервер жив: http://localhost:%d/dashboard.html" % port
 
     # Осиротевшие серверы этого же каталога: их никто не убьёт, кроме нас, и

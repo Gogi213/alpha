@@ -1,0 +1,58 @@
+{
+  "pass": 3,
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "verification",
+      "issue": "Markout polarity never defined by formula; Decision 8 predicts down, G0 and G3 require positive. Under the literal reading of step 2.1 both are unsatisfiable by construction.",
+      "settled": true
+    },
+    {
+      "id": "B2",
+      "axis": "verification",
+      "issue": "GC threshold of zero allocations per event is unreachable with the pinned transport: tungstenite-0.24.0 protocol/frame/mod.rs:180 allocates a Vec per frame unconditionally. The plan also never says which run the allocator counter measures.",
+      "settled": true
+    },
+    {
+      "id": "B3",
+      "axis": "state-and-data",
+      "issue": "local_ts is load-bearing and unowned; exch_ts < local_ts is only checked at 6.1, after the unrecoverable week is spent, and no step establishes clock discipline on the recording host.",
+      "settled": true
+    },
+    {
+      "id": "B4",
+      "axis": "settled-dispute",
+      "issue": "Pass-2 B2 included a verify clause that the settled entry dropped: the pilot and the project-terminating G0 still run on a book reconstruction never cross-checked against REST. Cost of the fix is one hour.",
+      "settled": true
+    },
+    {
+      "id": "B5",
+      "axis": "decision-points",
+      "issue": "The slippage model that decides G3 is unspecified - no formula, no number, no Decision row, absent from the pre-registration list - and the done-condition accepts any value.",
+      "settled": true
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "What input container does the hftbacktest Rust crate accept - flat binary of the 8-field Event, or npy/npz?",
+      "answer": "npy/npz only: read_npy_file, read_npz_file, and the crate ships write_npy. Flat binary is not accepted. Event is repr(C, align(64)), eight fields on exactly 64 bytes, last field named fval not faval. Decision 17 records this; no extra npy dependency is needed.",
+      "status": "resolved"
+    }
+  ],
+  "human": [
+    {
+      "id": "H10",
+      "question": "Host for recording and the latency probe (fixes a dangling cross-file reference that also collided with ASSUMPTION H3)"
+    },
+    {
+      "id": "H11",
+      "question": "What 3x costs means in the green threshold"
+    },
+    {
+      "id": "H12",
+      "question": "How deeply to test level-history features in this pass - answered against the critic's own default"
+    }
+  ],
+  "verdict": "revise"
+}
