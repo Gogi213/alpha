@@ -11,14 +11,14 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T03:22:00+04:00",
+  "updatedAt": "2026-09-08T04:05:00+04:00",
   "finishedAt": null,
   "stages": [
     { "id": "preflight", "status": "done", "startedAt": "2026-09-08T01:40:00+04:00", "finishedAt": "2026-09-08T02:05:00+04:00", "note": "репозиторий обнулён, скелет компилируется, rustc 1.93.1" },
     { "id": "manifest",  "status": "done", "startedAt": "2026-09-08T02:05:00+04:00", "finishedAt": "2026-09-08T02:10:00+04:00", "note": "бриф разобран на 10 требований" },
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-08T02:10:00+04:00", "finishedAt": "2026-09-08T02:20:00+04:00", "note": "12 вопросов в OPEN_QUESTIONS.md, ответы батчем в конце" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-08T02:12:00+04:00", "finishedAt": "2026-09-08T02:22:00+04:00", "note": "17 решений, гейты G0-G4 и GC, предрегистрация" },
-    { "id": "plan",      "status": "active", "startedAt": "2026-09-08T02:22:00+04:00", "note": "ревизия 3: 16 блокеров за три прохода; история уровня возвращена в задачу" },
+    { "id": "plan",      "status": "active", "startedAt": "2026-09-08T02:22:00+04:00", "note": "ревизия 6: 20 блокеров за пять проходов, ответы пользователя внесены" },
     { "id": "build",     "status": "pending" },
     { "id": "review",    "status": "pending" },
     { "id": "final",     "status": "pending" }
@@ -41,7 +41,7 @@ window.STATE =
     { "id": "0.6", "title": "lob verify: сверка с REST по u, инварианты, трейды внутри книги", "requirements": ["R06"], "blockedBy": ["0.3"], "wave": 5, "zone": ["src/bybit/verify.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "2.1", "title": "lob markout: формула с сигмой по стороне, база до исчезновения", "requirements": ["R02"], "blockedBy": ["1.2"], "wave": 6, "zone": ["src/lob/markout.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "3.1", "title": "Пилот 2 часа по двум кандидатам, гейт G0 — до недели записи", "requirements": ["R03"], "blockedBy": ["2.1", "0.4", "0.6", "0.5"], "wave": 7, "zone": ["docs/findings/"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
-    { "id": "4.1", "title": "Недельная запись, 7 суток чистого покрытия", "requirements": ["R06"], "blockedBy": ["0.6", "0.5", "3.1"], "wave": 8, "zone": ["data/bybit/"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
+    { "id": "4.1", "title": "Открытая запись + lob watch: флаг по размеру выборки, не по результату", "requirements": ["R06", "R05"], "blockedBy": ["0.6", "0.5", "3.1"], "wave": 8, "zone": ["src/lob/watch.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "7.1", "title": "runs.csv: журнал прогонов, ведётся с пилота", "requirements": ["R05"], "blockedBy": ["3.1"], "wave": 8, "zone": ["docs/plan/"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "5.1", "title": "Разметка недели, гейт G1", "requirements": ["R01"], "blockedBy": ["4.1", "1.2"], "wave": 9, "zone": ["docs/findings/"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "6.1", "title": "lob export: npy через write_npy крейта, exch_ts < local_ts", "requirements": ["R04"], "blockedBy": ["0.2", "4.1"], "wave": 9, "zone": ["src/lob/export.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
@@ -55,18 +55,18 @@ window.STATE =
   "debt": {
     "placeholders": [],
     "assumptions": [
-      "H1 данные собираются самостоятельно, 7 суток",
+      "H1 ОТВЕЧЕНО: пишем сами, запись открытая, стоп по размеру выборки (Decision 21)",
       "H2 инструмент назначается в шаге 0.4",
       "H3 порог крупного уровня: 99-й перцентиль по времени-взвешенной выборке, прогрев 60 минут",
       "H4 комиссии 0.02 / 0.055, круговая мейкер-мейкер 4 bps",
       "H5 объём записи 5-15 ГБ за неделю",
-      "H6 ордер 200 долларов; зелёный при 3x суммарных издержек за неделю и не менее 10 долларов",
+      "H6 ОТВЕЧЕНО: минимальный лот, гейты в bps, зелёный при эдже 3 bps сверх издержек",
       "H7 отбор инструмента: глубина, при равенстве частота событий",
-      "H8 разрыв больше 6 часов или провал verify выбрасывает сутки целиком, потолок 10 суток",
-      "H9 замер RTT на живом счёте, post-only, ключи из переменных окружения",
+      "H8 разрыв или провал verify выбрасывает сутки; потолка нет, флаг просто отодвигается",
+      "H9 ОТВЕЧЕНО: живой счёт, post-only, минимальный размер, ключи из переменных окружения",
       "H10 пилот по двум кандидатам, G0 красный только если оба",
-      "H11 недобор выборки продлевает запись до потолка один раз, потом красный",
-      "H12 хост: VPS в регионе Bybit, часы по NTP, local_ts по возврату из recv"
+      "H11 ОТМЕНЕНО Decision 21: недобор больше не исход, запись идёт до флага",
+      "H12 ОТВЕЧЕНО: VPS в регионе Bybit, часы по NTP, local_ts по возврату из recv"
     ],
     "emptyEnv": ["BYBIT_API_KEY", "BYBIT_API_SECRET"]
   },
@@ -78,7 +78,9 @@ window.STATE =
     "data/bybit не восстановим: часы, verify и пилот стоят до недельной записи",
     "7 суток дают 7 кластеров, поэтому wild cluster bootstrap-t, а не обычная робастная дисперсия",
     "tungstenite выделяет Vec на кадр безусловно: бюджет аллокаций разделён на транспорт и разбор",
-    "переставление уровня остаётся эвристикой и в гейты не входит: агрегат не доказывает тождество заявки"
+    "переставление уровня остаётся эвристикой и в гейты не входит: агрегат не доказывает тождество заявки",
+    "открытая запись требует правила остановки по размеру выборки: lob watch не имеет права считать markout",
+    "бюджет лога 12 байт на событие после zstd: при 4.3 млн обновлений в сутки это 50 МБ против 260 МБ наивных"
   ],
   "reviewers": { "manifestSpec": null, "craft": null },
   "blind": null
