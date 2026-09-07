@@ -1,0 +1,50 @@
+{
+  "pass": 4,
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "decision-points",
+      "issue": "The instrument is never actually chosen: H7 gives a ranking key but no candidate pool and no exclusions. Ranked by top-50 dollar depth the top two are BTCUSDT and ETHUSDT, exactly what the brief cuts. The exclusion clause existed in OPEN_QUESTIONS option A and was dropped when it became an assumption.",
+      "settled": true
+    },
+    {
+      "id": "B2",
+      "axis": "decision-points",
+      "issue": "The round trip is priced two incompatible ways - G0 against maker-maker 4 bps, Decision 15 with a taker exit at 7.5 bps - and the entry order type is never named, so entry at the level price implies a crossing order and an 11 bps round trip.",
+      "settled": true
+    },
+    {
+      "id": "B3",
+      "axis": "verification",
+      "issue": "Step 6.3 backtests a strategy the plan never defines: no trigger, side, exit rule, concurrency cap or queue model, and the step is absent from the pre-registration list, so the strategy would be fixed after the markout numbers are visible.",
+      "settled": true
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "Which queue-position models does the hftbacktest Rust crate expose and which is most conservative?",
+      "answer": "RiskAdverseQueueModel - queue position advances only when trades occur at the same price level, documented as conservative. Also ProbQueueModel with PowerProbQueueFunc 1-3 and LogProbQueueFunc 1-2, and L3FIFOQueueModel for L3 feeds. Decision 20 picks RiskAdverseQueueModel: the probabilistic ones carry a shape parameter that would have to be tuned.",
+      "status": "resolved"
+    },
+    {
+      "id": "R2",
+      "question": "Where do tick size, min order qty, qty step and min notional come from?",
+      "answer": "Bybit /v5/market/instruments-info: priceFilter.tickSize, lotSizeFilter.minOrderQty, lotSizeFilter.qtyStep, lotSizeFilter.minNotionalValue. reqwest is already a dependency, so this is a step and not a new crate. Step 0.4 now owns it and writes instruments.csv.",
+      "status": "resolved"
+    }
+  ],
+  "human": [
+    {
+      "id": "H1",
+      "question": "Disk provisioning and low-space behaviour for the unattended week",
+      "resolved_as": "GC precondition plus hourly sample, abort at 10 percent with a gaps.csv entry"
+    },
+    {
+      "id": "H2",
+      "question": "Which contrast answers the does-history-add question",
+      "resolved_as": "disjoint C2 vs C1 minus C2 as the headline, nested difference and w as a secondary line"
+    }
+  ],
+  "verdict": "revise"
+}
