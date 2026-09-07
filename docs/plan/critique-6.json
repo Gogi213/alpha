@@ -1,0 +1,46 @@
+{
+  "pass": 6,
+  "note": "final verification pass, run after the user's answers were folded in as revision 6",
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "verification",
+      "issue": "Decision 21's trigger fires on n(C1) >= 100 while G2 requires n >= 100 within each cell, and C2 is a strict subset of C1, so n(C2) >= 100 is unreachable at the flag - C2, the cell carrying the history question, could never be tested. G2's undersample branch pointed at H11, cancelled by Decision 21, and Failure and rollback still asserted the removed 10-day cap.",
+      "introduced_by": "revision 6",
+      "settled": true
+    },
+    {
+      "id": "B2",
+      "axis": "decision-points",
+      "issue": "Green had three incompatible definitions after the move to basis points: Goal still adjudicated on weekly PnL, H6 declared that neither the week nor a dollar floor is defined, and H6's own parenthetical gave a gross 10.5 bps threshold that drops the variable slippage of Decision 15.",
+      "introduced_by": "revision 6",
+      "settled": true
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "Does the delta-in-ticks encoding need instrument metadata in each day file, given open-ended recording?",
+      "answer": "Yes, and solved by design rather than by lookup: tickSize and qtyStep go into each daily file header, and a change in either closes the file and opens the next with a gaps.csv entry. Step 0.3 now depends on 0.4 and carries a test on swapped metadata.",
+      "status": "resolved"
+    }
+  ],
+  "human": [
+    {
+      "id": "H1",
+      "question": "Which symbol does the open-ended confirmatory recording cover when both G0 candidates survive",
+      "resolved_as": "the higher-ranked survivor only; the second stays exploratory; the symbol enters the pre-registration list"
+    },
+    {
+      "id": "H2",
+      "question": "The depth floor became non-binding once order size became the minimum lot",
+      "resolved_as": "restated in notional terms - time-weighted median top-50 depth >= $2000"
+    },
+    {
+      "id": "H3",
+      "question": "What is one event in the 12-byte budget",
+      "resolved_as": "one per-level record; budget split into <= 8 bytes per record and <= 150 MB per symbol-day; H5 replaced"
+    }
+  ],
+  "verdict": "revise"
+}
