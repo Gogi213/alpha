@@ -1,0 +1,70 @@
+{
+  "pass": 1,
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "verification",
+      "issue": "Verification section is TBD; nothing checks that the reconstructed order book is correct. 0.1 tests only missed-u resync, 0.5 gaps.csv measures coverage not correctness. No REST cross-check, no invariants, no end-to-end fixture."
+    },
+    {
+      "id": "B2",
+      "axis": "verification",
+      "issue": "Gate G2 not checkable: distance/volatility bucket edges undefined, 'any cell' = tens of simultaneous tests with no correction, cluster unit unnamed while 60s markouts on 20ms events overlap heavily, two-sided test for a directional hypothesis."
+    },
+    {
+      "id": "B3",
+      "axis": "decision-points",
+      "issue": "Three load-bearing definitions not operational: percentile population for H3, level identity on re-creation at same price, markout baseline. For eaten levels the price at disappearance is displaced by the very trades that ate it, so the baseline sets the sign."
+    },
+    {
+      "id": "B4",
+      "axis": "contracts",
+      "issue": "Steps 4.2 and 5.2 violate the Goal's one-command rule: hftbacktest external with its own format and no conversion step; no statistics crate pinned for DSR/PBO/CPCV."
+    },
+    {
+      "id": "B5",
+      "axis": "state-and-data",
+      "issue": "Binary log content model unspecified though frozen at 0.2: raw deltas vs states, UTC-midnight rotation without synthetic snapshot makes every day after the first undecodable alone, mid-file resync snapshot indistinguishable from delta, zstd framing unpinned. data/bybit is unrecoverable."
+    },
+    {
+      "id": "B6",
+      "axis": "sequencing",
+      "issue": "Decision 4 states the cost floor runs before the week of recording; no step implements it. 3.1/3.2 sit after step 2. Following the steps in order violates the plan's own decision."
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "Bybit depth tiers and cadences; brief says 25 levels @20ms",
+      "answer": "tiers 1/50/200/1000 at 10/20/100/200 ms for linear. Brief wrong, Decision 3 stands.",
+      "status": "resolved"
+    },
+    {
+      "id": "R2",
+      "question": "publicTrade fields; cancel-vs-fill discriminator in book stream",
+      "answer": "publicTrade carries T, s, S (aggressor side), v, p, L, i, BT (block trade), seq. Orderbook carries u (update id), seq, cts (matching-engine ts, correlates with trades), ts. size=0 deletes a level, u=1 means service restart. No direct cancel/fill flag: Decision 5 confirmed, refined by aggressor-side filter and BT exclusion.",
+      "status": "resolved"
+    },
+    {
+      "id": "R3",
+      "question": "hftbacktest Rust API and input format",
+      "answer": "Native Rust crate on crates.io, MSRV 1.90+. Input: 8 fields ev, exch_ts, local_ts, px, qty, order_id, ival, faval; flags DEPTH_EVENT / TRADE_EVENT / DEPTH_SNAPSHOT_EVENT / DEPTH_CLEAR_EVENT / BUY_EVENT / SELL_EVENT; exch_ts must be earlier than local_ts.",
+      "status": "resolved"
+    },
+    {
+      "id": "R4",
+      "question": "Statistics dependency for clustered t-stats, DSR, PBO, CPCV",
+      "answer": "None pinned and none suitable. Decision 10: own src/stats/, done-condition reproduces published control values.",
+      "status": "resolved"
+    }
+  ],
+  "human": [
+    "H1 data source",
+    "H2 order size",
+    "H3 recorder and latency host",
+    "H4 real orders for the latency probe",
+    "H5 rule for gaps over 6 hours",
+    "H6 threshold separating green from green-without-capacity"
+  ],
+  "verdict": "revise"
+}
