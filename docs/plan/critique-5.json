@@ -1,0 +1,32 @@
+{
+  "pass": 5,
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "verification",
+      "issue": "G2 requires one-sided wild cluster bootstrap-t p <= 0.005 while Decision 9 fixes 7 UTC-day clusters and never names the weight distribution. With Rademacher weights and G = 7 there are 2^7 = 128 distinct sign vectors, so the finest attainable one-sided p is about 0.0078 > 0.005; 9999 replicates resample that grid, they do not refine it. At the plan's own base case G2 resolves red by arithmetic regardless of the data, and H8 lands back on 7. Hidden by 7.2's done-condition, which asked for nominal size without naming the alpha.",
+      "settled": true
+    }
+  ],
+  "resolvable": [
+    {
+      "id": "R1",
+      "question": "Does publicTrade carry a cts field, or only T plus the message-level ts?",
+      "answer": "No cts on publicTrade. Orderbook carries ts, cts, u, seq; publicTrade carries T, s, S, v, p, L, i, BT, seq. Decision 5 and the 0.6 verify test named a field that does not exist. Corrected to publicTrade.T against orderbook.cts, both matching-engine times.",
+      "status": "resolved"
+    }
+  ],
+  "human": [
+    {
+      "id": "H1",
+      "question": "Population and window for C2's lifetime median",
+      "resolved_as": "within the C1 population, first UTC day of the confirmatory week, never recomputed - the same rule the stratum terciles already use"
+    },
+    {
+      "id": "H2",
+      "question": "Depth measurement protocol for lob pick",
+      "resolved_as": "turnover pre-filter to the top 20 of the middle tercile, then one continuous hour of live orderbook.50 over those; window and UTC start committed as columns"
+    }
+  ],
+  "verdict": "revise"
+}
