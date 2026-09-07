@@ -1,0 +1,45 @@
+{
+  "pass": 7,
+  "note": "verification of revision 7 own edits; all three blockers were introduced by that revision",
+  "blocking": [
+    {
+      "id": "B1",
+      "axis": "sequencing",
+      "issue": "The C2 trigger did not propagate into step 4.1, which still counted n on C1 - the exact counter pass 6 removed from Decision 21. Separately, the flag counted valid days while G2 requires days containing an observation of the cell, so n could concentrate in 9 of 12 days and fire the flag with the G2 condition unmet.",
+      "class": "recorded as fixed, not fixed",
+      "settled": true
+    },
+    {
+      "id": "B2",
+      "axis": "verification",
+      "issue": "The two halves of the byte budget are not jointly satisfiable on the plan own arithmetic: 4.32M messages x 15-40 level records at 8 bytes is 520 MB to 1.4 GB per symbol-day against a 150 MB cap in the same decision.",
+      "settled": true
+    },
+    {
+      "id": "B3",
+      "axis": "decision-points",
+      "issue": "The gross 10.5 bps threshold survived inside H6, one paragraph above the sentence declaring it deleted; SETTLED recorded the deletion as performed. Gross drops slippage, which the plan itself puts at 1-5 bps against a 3 bps margin, so a sample with net -2 bps would read green.",
+      "class": "recorded as fixed, not fixed",
+      "settled": true
+    }
+  ],
+  "resolvable": [],
+  "human": [
+    {
+      "id": "H1",
+      "question": "Which cell carries the verdict when both C1 and C2 pass G2",
+      "resolved_as": "6.3 runs both; C2 is the verdict cell when it passes, C1 otherwise; fixed before the data and added to the pre-registration list"
+    },
+    {
+      "id": "H2",
+      "question": "Is the 2000 dollar depth floor per level or across the top 50",
+      "resolved_as": "per level - median notional per level within the top 50"
+    },
+    {
+      "id": "H3",
+      "question": "What detects a mid-recording change of tickSize or qtyStep",
+      "resolved_as": "both a hot-path modulus check and an hourly instruments-info re-poll on the existing probe timer"
+    }
+  ],
+  "verdict": "revise"
+}
