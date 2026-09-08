@@ -39,9 +39,15 @@
 //!   `(сторона, тик)`. Один и тот же журнал, прогнанный дважды, даёт
 //!   побайтово одинаковый вывод — проверяемое свойство A1/A2 из архитектуры.
 //!
-//! Классификация исхода (`eaten`/`pulled`/`mixed`, шаг 1.2) — не этот модуль:
-//! поле `traded_lots` зарезервировано под объём трейдов против уровня и пока
-//! всегда ноль, максимум размера уже лежит в `size_max`.
+//! Классификация исхода (`eaten`/`pulled`/`mixed`, шаг 1.2) — этот модуль:
+//! объём трейдов с агрессором против уровня копится в `observe_trade`,
+//! на смерти пишется в `traded_lots`, правило 70/20 читает `outcome`.
+//! Блочные сделки в объём не входят; сторона агрессора решает, чей уровень
+//! трейд ест: бид — продавец, аск — покупатель. Склейка по времени матчинга:
+//! у трейда берётся `exch_ms` (время исполнения), у кадра — метка кадра,
+//! подачи вне жизни уровня не считаются. Вызывающий подаёт события
+//! в неубывающем времени матчинга и уже перевёл цену в тики,
+//! а количество — в лоты: здесь только целые, кучи нет.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -80,6 +86,49 @@ pub enum DeathKind {
     LeftTop,
 }
 
+/// Исход уровня по правилу 70/20 из плана (§1.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Объём против уровня ≥ 70% максимума: ликвидность съели.
+    Eaten,
+    /// Объём против уровня ≤ 20% максимума: уровень сняли.
+    Pulled,
+    /// Между 20% и 70%: смешанный исход.
+    Mixed,
+}
+
+/// Правило 70/20 строго целочисленно, без деления: `10 * traded >= 7 * max`
+/// есть eaten, `5 * traded <= max` есть pulled, иначе mixed. Границы
+/// включительные: ровно 70% — eaten, ровно 20% — pulled.
+pub fn classify_outcome(traded_lots: i64, size_max: i64) -> Outcome {
+    let t = traded_lots as i128;
+    let m = size_max as i128;
+    if t * 10 >= m * 7 {
+        Outcome::Eaten
+    } else if t * 5 <= m {
+        Outcome::Pulled
+    } else {
+        Outcome::Mixed
+    }
+}
+
+/// Один трейд ленты, уже переведённый вызывающим в тики и лоты.
+/// Сторона — это сторона агрессора: она выбирает, какой уровень трейд ест.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TradeHit {
+    /// Цена сделки в тиках: обязана совпасть с тиком уровня точь-в-точь.
+    pub tick: i64,
+    /// Размер сделки в лотах.
+    pub lots: i64,
+    /// `true` — агрессор-покупатель (ест аск), `false` — продавец (ест бид).
+    pub aggressor_is_buy: bool,
+    /// Блочная сделка: видимую ликвидность не потребляет, в объём не идёт.
+    pub block: bool,
+    /// Время исполнения на матчинге. Сравнимо с меткой кадра; подачи
+    /// раньше рождения уровня не считаются.
+    pub exch_ms: i64,
+}
+
 /// Запись умершего уровня: ключи, шесть признаков истории и место под 1.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LevelRecord {
@@ -105,8 +154,15 @@ pub struct LevelRecord {
     pub repriced: bool,
     /// Какое из двух правил смерти сработало.
     pub death: DeathKind,
-    /// Объём трейдов против уровня в лотах. Заполняет шаг 1.2, здесь ноль.
+    /// Объём трейдов против уровня в лотах за его жизнь (шаг 1.2).
     pub traded_lots: i64,
+}
+
+impl LevelRecord {
+    /// Исход по правилу 70/20 от накопленного объёма против максимума.
+    pub fn outcome(&self) -> Outcome {
+        classify_outcome(self.traded_lots, self.size_max)
+    }
 }
 
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
@@ -121,6 +177,7 @@ struct Live {
     seen_frame: u64,
     seen_top50: bool,
     seen_size: i64,
+    traded: i64,
 }
 
 /// Трекер уровней. Состояние между кадрами — две карты с предвыделенными
@@ -241,6 +298,7 @@ impl LevelTracker {
                                 seen_frame: frame,
                                 seen_top50: true,
                                 seen_size: ob.size_lots,
+                                traded: 0,
                             },
                         );
                         self.newborns.push((s, ob.tick, ob.size_lots));
@@ -249,14 +307,19 @@ impl LevelTracker {
             }
         }
 
-        // Свип двухфазный: сначала ключи мёртвых в переиспользуемый буфер
-        // (итерация карты уже идёт по возрастанию ключа — порядок выдачи
-        // детерминирован), затем удаление с выдачей. Куча не растёт, пока
-        // хватает ёмкостей буферов.
+        // Свип двухфазный и по своей стороне: кадр несёт одну сторону, и
+        // отсутствие тика читается как ноль только в ней — уровни второй
+        // стороны этот вызов не трогает (иначе бид и аск убивали бы друг друга
+        // по очереди на каждом штампе). Итерация карты уже идёт по возрастанию
+        // ключа — порядок выдачи детерминирован. Куча не растёт, пока хватает
+        // ёмкостей буферов.
         let live = &self.live;
         let sweep = &mut self.sweep;
         sweep.clear();
         for (key, lv) in live.iter() {
+            if key.0 != s {
+                continue;
+            }
             if lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max) {
                 sweep.push(*key);
             }
@@ -296,8 +359,25 @@ impl LevelTracker {
                 repeat_count: lv.repeat,
                 repriced,
                 death: kind,
-                traded_lots: 0,
+                traded_lots: lv.traded,
             });
+        }
+    }
+
+    /// Один трейд ленты. Находит живой уровень той стороны, которую трейд ест
+    /// на этом тике, и добавляет объём — иначе молча пропускает. Блочные,
+    /// нулевые и поданные раньше рождения не считаются. Поиск в карте
+    /// кучу не трогает, внутри — одно целое сложение с насыщением.
+    pub fn observe_trade(&mut self, tr: TradeHit) {
+        if tr.block || tr.lots <= 0 {
+            return;
+        }
+        let key = (u8::from(tr.aggressor_is_buy), tr.tick);
+        if let Some(lv) = self.live.get_mut(&key) {
+            if tr.exch_ms < lv.birth_ms {
+                return;
+            }
+            lv.traded = lv.traded.saturating_add(tr.lots);
         }
     }
 
@@ -619,5 +699,158 @@ mod tests {
         for b in banned {
             assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
         }
+    }
+
+    /// Шаг 1.2: объём трейдов с агрессором против уровня делит исходы ровно
+    /// по правилу 70/20; чужая сторона, блочные сделки и время вне жизни
+    /// уровня в объём не попадают. Склейка — по времени матчинга `T`
+    /// (поле `exch_ms`) против жизни уровня, а не по порядку подачи.
+    #[test]
+    fn aggressor_volume_splits_eaten_pulled_and_mixed() {
+        use Outcome::{Eaten, Mixed, Pulled};
+        let mut tr = LevelTracker::new(cfg());
+        let mut out = Vec::with_capacity(16);
+
+        tr.observe_frame(
+            1000,
+            Side::Bid,
+            &[ob(1000, 200), ob(2000, 200), ob(3000, 200)],
+            &mut out,
+        );
+        tr.observe_frame(1000, Side::Ask, &[ob(4000, 200)], &mut out);
+
+        // Съеден (ровно 70%): 100 + 40 своих, чужое и блочное мимо.
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 100,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 2000,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 500,
+            aggressor_is_buy: true,
+            block: false,
+            exch_ms: 2100,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 500,
+            aggressor_is_buy: false,
+            block: true,
+            exch_ms: 2200,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 50,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 500,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 40,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 3000,
+        });
+        // Снят (ровно 20%).
+        tr.observe_trade(TradeHit {
+            tick: 2000,
+            lots: 40,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 2500,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 2000,
+            lots: 100,
+            aggressor_is_buy: true,
+            block: false,
+            exch_ms: 2600,
+        });
+        // Середина (50%).
+        tr.observe_trade(TradeHit {
+            tick: 3000,
+            lots: 100,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 2500,
+        });
+        // Аск ест только покупатель-агрессор.
+        tr.observe_trade(TradeHit {
+            tick: 4000,
+            lots: 150,
+            aggressor_is_buy: true,
+            block: false,
+            exch_ms: 2500,
+        });
+        tr.observe_trade(TradeHit {
+            tick: 4000,
+            lots: 200,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 2600,
+        });
+
+        tr.observe_frame(
+            4000,
+            Side::Bid,
+            &[ob(1000, 10), ob(2000, 10), ob(3000, 10)],
+            &mut out,
+        );
+        tr.observe_frame(4000, Side::Ask, &[ob(4000, 10)], &mut out);
+
+        assert_eq!(out.len(), 4);
+        let by_tick = |t: i64| out.iter().find(|r| r.price_tick == t).copied().unwrap();
+        let eaten = by_tick(1000);
+        let pulled = by_tick(2000);
+        let mixed = by_tick(3000);
+        let ask_eaten = by_tick(4000);
+        assert_eq!(eaten.traded_lots, 140);
+        assert_eq!(pulled.traded_lots, 40);
+        assert_eq!(mixed.traded_lots, 100);
+        assert_eq!(ask_eaten.traded_lots, 150);
+        assert_eq!(eaten.outcome(), Eaten);
+        assert_eq!(pulled.outcome(), Pulled);
+        assert_eq!(mixed.outcome(), Mixed);
+        assert_eq!(ask_eaten.outcome(), Eaten);
+        assert_eq!(classify_outcome(140, 200), Eaten);
+        assert_eq!(classify_outcome(40, 200), Pulled);
+        assert_eq!(classify_outcome(100, 200), Mixed);
+
+        // Трейд по мёртвому уровню после смерти ни на что не влияет.
+        tr.observe_trade(TradeHit {
+            tick: 1000,
+            lots: 1000,
+            aggressor_is_buy: false,
+            block: false,
+            exch_ms: 5000,
+        });
+        assert_eq!(tr.live_count(), 0);
+        assert_eq!(out.len(), 4);
+    }
+
+    /// Гейт GC для шага 1.2: трейды на живом уровне не аллоцируют —
+    /// только поиск в карте и сложение целых.
+    #[test]
+    fn trades_on_a_live_level_allocate_nothing() {
+        let mut tr = LevelTracker::new(cfg());
+        let mut out = Vec::with_capacity(16);
+        tr.observe_frame(1000, Side::Bid, &[ob(1000, 200)], &mut out);
+        let (_, counts) = crate::alloc_count::measure(|| {
+            for i in 0..1000 {
+                tr.observe_trade(TradeHit {
+                    tick: 1000,
+                    lots: 1,
+                    aggressor_is_buy: false,
+                    block: false,
+                    exch_ms: 1000 + i,
+                });
+            }
+        });
+        assert_eq!(counts.allocations, 0, "трейд обязан не аллоцировать");
+        assert_eq!(tr.live_count(), 1);
     }
 }
