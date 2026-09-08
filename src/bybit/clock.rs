@@ -55,6 +55,11 @@
 use crate::bybit::conn::Clock;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::Duration;
+
+/// Общий HTTP-таймаут шага 0.7 (дефект В-5): 10 секунд — два порядка ниже
+/// часовой каденции. Процесс без присмотра не вправе висеть на сокете дольше.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Порог `|offset|` — done-condition шага 0.5 и строка «Смещение часов» в
 /// таблице гейта GC (`PLAN.md`). Строгое `<`: план формулирует порог как
@@ -600,8 +605,12 @@ impl BybitServerTimeSource {
             .enable_all()
             .build()
             .map_err(|e| ClockError::Transport(e.to_string()))?;
+        let client = reqwest::Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .map_err(|e| ClockError::Transport(e.to_string()))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             runtime,
             url: format!("{}/v5/market/time", base_url.into()),
         })

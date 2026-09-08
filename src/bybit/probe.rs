@@ -31,6 +31,11 @@
 
 use crate::bybit::sign::Credentials;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+/// Общий HTTP-таймаут шага 0.7 (дефект В-5): 10 секунд — два порядка ниже
+/// часовой каденции. Процесс без присмотра не вправе висеть на сокете дольше.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Bybit v5, linear perp (Decision 1) — единственная площадка проекта,
 /// категория запроса не варьируется и потому не параметр.
@@ -314,8 +319,12 @@ impl BybitPrivateRest {
             .enable_all()
             .build()
             .map_err(|e| ProbeError::Transport(e.to_string()))?;
+        let client = reqwest::Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .build()
+            .map_err(|e| ProbeError::Transport(e.to_string()))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
             runtime,
         })

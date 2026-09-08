@@ -21,6 +21,8 @@
 //! дробной частью не переживают округление `f64`, а `minNotionalValue`
 //! (Decision 22) и терцили оборота (Decision 18) сравниваются точно.
 
+use std::time::Duration;
+
 use serde_json::Value;
 
 use crate::bybit::ws::parse_e9;
@@ -40,6 +42,11 @@ pub const CATEGORY_LINEAR: &str = "linear";
 /// потолок страницы (не измеренное число, а константа протокола, как топики
 /// в `ws.rs`); больше страница просто не отдаст, дальше нужен `nextPageCursor`.
 const INSTRUMENTS_PAGE_LIMIT: u32 = 1000;
+
+/// Общий HTTP-таймаут шага 0.7 (дефект В-5): 10 секунд — два порядка ниже
+/// часовой каденции авторитета шагов. Процесс без присмотра не вправе
+/// висеть на сокете дольше.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Глубина REST-снапшота книги для будущего `lob verify` (шаг 0.6, не этот
 /// проход): план сверяет топ-50 живой книги, а этот снапшот обязан заведомо
@@ -154,27 +161,28 @@ pub trait PublicRest {
     fn get(&mut self, path: &str, query: &[(&str, &str)]) -> Result<String, RestError>;
 }
 
-/// Настоящий транспорт. `reqwest` в `Cargo.toml` собран без фичи `blocking`
-/// (см. `probe.rs`), поэтому — свой однопоточный рантайм и `block_on` на
-/// каждый вызов, тем же приёмом, что `BybitPrivateRest`: цена моста ничтожна
-/// на масштабе «несколько запросов на весь `lob pick`», а `#[tokio::main]`
-/// ради синхронного по природе трейта не нужен.
+/// Настоящий транспорт. `reqwest` в `Cargo.toml` собран без фичи `blocking`,
+/// поэтому каждый вызов поднимает эфемерный однопоточный рантайм и делает
+/// `block_on` на нём: цена моста ничтожна на масштабе «несколько запросов
+/// на весь `lob pick`» и «раз в час» авторитета шагов, а `#[tokio::main]`
+/// ради синхронного по природе трейта не нужен. Рантайм в полях НЕ хранится
+/// нарочно (шаг 0.7, вторая паника В-1): дроп `Runtime` изнутри чужого
+/// рантайма паникует «Cannot drop a runtime», и структура с полем-рантаймом
+/// роняла бы любой `#[tokio::test]`, где она создана.
 pub struct BybitPublicRest {
     client: reqwest::Client,
     base_url: String,
-    runtime: tokio::runtime::Runtime,
 }
 
 impl BybitPublicRest {
     pub fn new(base_url: impl Into<String>) -> Result<Self, RestError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
+        let client = reqwest::Client::builder()
+            .timeout(HTTP_TIMEOUT)
             .build()
             .map_err(|e| RestError::Transport(e.to_string()))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
-            runtime,
         })
     }
 }
@@ -190,17 +198,57 @@ impl PublicRest for BybitPublicRest {
             .iter()
             .map(|&(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        self.runtime.block_on(async move {
-            let resp = client
-                .get(url)
-                .query(&pairs)
-                .send()
-                .await
+        // Шаг 0.7 (дефект В-1): `block_on` изнутри чужого рантайма паникует
+        // «Cannot start a runtime from within a runtime». Если вызваны из
+        // async-контекста — уйти на эфемерный ОС-поток со своим рантаймом;
+        // все отказы (спавн, паника потока, транспорт) маппятся в
+        // `RestError::Transport`. Паники нет никогда.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let spawn = std::thread::Builder::new()
+                .name("bybit-rest-get".to_string())
+                .spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| RestError::Transport(e.to_string()))?;
+                    rt.block_on(async move {
+                        let resp = client
+                            .get(url)
+                            .query(&pairs)
+                            .send()
+                            .await
+                            .map_err(|e| RestError::Transport(e.to_string()))?;
+                        resp.text()
+                            .await
+                            .map_err(|e| RestError::Transport(e.to_string()))
+                    })
+                });
+            match spawn {
+                Ok(join) => match join.join() {
+                    Ok(res) => res,
+                    Err(_) => Err(RestError::Transport(
+                        "ОС-поток запроса запаниковал".to_string(),
+                    )),
+                },
+                Err(e) => Err(RestError::Transport(format!("спавн ОС-потока: {e}"))),
+            }
+        } else {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
                 .map_err(|e| RestError::Transport(e.to_string()))?;
-            resp.text()
-                .await
-                .map_err(|e| RestError::Transport(e.to_string()))
-        })
+            rt.block_on(async move {
+                let resp = client
+                    .get(url)
+                    .query(&pairs)
+                    .send()
+                    .await
+                    .map_err(|e| RestError::Transport(e.to_string()))?;
+                resp.text()
+                    .await
+                    .map_err(|e| RestError::Transport(e.to_string()))
+            })
+        }
     }
 }
 
@@ -698,6 +746,41 @@ mod tests {
         assert_eq!(
             fetch_all_linear_instruments(&mut fake).unwrap_err(),
             RestError::Transport("connection reset".to_string())
+        );
+    }
+
+    /// Шаг 0.7 (дефект В-1): настоящий `BybitPublicRest::get`, вызванный
+    /// изнутри tokio-рантайма, обязан вернуть `Err(Transport)`, а не
+    /// запаниковать «Cannot start a runtime from within a runtime».
+    /// Закрытый порт даёт быстрый отказ без сети и без долгого таймаута.
+    #[tokio::test]
+    async fn real_get_inside_runtime_returns_transport_error_not_panic() {
+        let mut rest = BybitPublicRest::new("http://127.0.0.1:9").expect("клиент обязан создаться");
+        let err = rest.get("/v5/market/time", &[]).unwrap_err();
+        assert!(
+            matches!(err, RestError::Transport(_)),
+            "ожидался Transport, получен: {err:?}"
+        );
+    }
+
+    /// Шаг 0.7 (дефект В-5): HTTP-клиенты создаются с таймаутом.
+    /// Проверка — грепом по исходникам, тем же приёмом, что граница
+    /// модулей в `lob/levels.rs`. Литерал собран из частей, чтобы сам
+    /// тест не давал ложное срабатывание.
+    #[test]
+    fn http_clients_are_created_with_a_timeout() {
+        let needle = concat!(".", "timeout(");
+        assert!(
+            include_str!("rest.rs").contains(needle),
+            "rest.rs: клиент без таймаута"
+        );
+        assert!(
+            include_str!("probe.rs").contains(needle),
+            "probe.rs: клиент без таймаута"
+        );
+        assert!(
+            include_str!("clock.rs").contains(needle),
+            "clock.rs: клиент без таймаута"
         );
     }
 }

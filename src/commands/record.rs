@@ -1085,8 +1085,8 @@ enum SessionEnd {
 }
 
 /// Авторитетные шаги из `instruments-info` (холодный детектор). Ошибка сети
-/// или отсутствие символа — это `Steps`, а не паника: часовой тик переживает
-/// её и пробует снова через час.
+/// или отсутствие символа — это `Steps`, а не паника: часовой авторитет
+/// переживает её и пробует снова через час.
 fn refresh_steps(rest: &mut BybitPublicRest, symbol: &str) -> Result<(i64, i64), RecordError> {
     let instruments = fetch_all_linear_instruments(rest)
         .map_err(|e| RecordError::Steps(format!("instruments-info: {e}")))?;
@@ -1096,6 +1096,57 @@ fn refresh_steps(rest: &mut BybitPublicRest, symbol: &str) -> Result<(i64, i64),
         .ok_or_else(|| RecordError::Steps(format!("{symbol}: нет в instruments-info")))?;
     validate_steps(inst.tick_e9, inst.qty_step_e9)?;
     Ok((inst.tick_e9, inst.qty_step_e9))
+}
+
+/// Часовой авторитет шагов в ОС-потоке (шаг 0.7, Decision 24).
+/// Отдельный `std::thread` (НЕ tokio-задача) со своим `BybitPublicRest`:
+/// цикл fetch → `mpsc` → sleep 1h. Внутри ОС-потока `block_on` легален —
+/// чужого рантайма там нет, поэтому вложенный рантайм невозможен.
+/// Цикл записи никогда не ждёт HTTP: он только дренирует канал.
+fn spawn_steps_authority(
+    base_url: String,
+    symbol: String,
+) -> std::sync::mpsc::Receiver<(i64, i64)> {
+    let (tx, rx) = std::sync::mpsc::channel::<(i64, i64)>();
+    let spawned = std::thread::Builder::new()
+        .name("steps-authority".to_string())
+        .spawn(move || {
+            let mut rest = match BybitPublicRest::new(base_url) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("record: авторитет шагов не создался ({e})");
+                    return;
+                }
+            };
+            loop {
+                match refresh_steps(&mut rest, &symbol) {
+                    Ok(steps) => {
+                        if tx.send(steps).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("record: instruments-info недоступен ({e}), повтор через час");
+                    }
+                }
+                std::thread::sleep(Duration::from_secs(HOURLY_REFRESH_SECS));
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("record: авторитет шагов не запустился ({e})");
+    }
+    rx
+}
+
+/// Дрен канала авторитета: забирает всё, возвращает только последнее.
+/// `None` — свежести нет (авторитет ещё не ответил или недоступен):
+/// вызывающий идёт в ветку подавления, а не ждёт сеть.
+fn drain_latest_steps(rx: &mut std::sync::mpsc::Receiver<(i64, i64)>) -> Option<(i64, i64)> {
+    let mut latest = None;
+    while let Ok(v) = rx.try_recv() {
+        latest = Some(v);
+    }
+    latest
 }
 
 /// Время матчинга события в миллисекундах — ось ротации по суткам UTC и ключ
@@ -1112,10 +1163,12 @@ fn event_exch_ms(event: &Event) -> Option<i64> {
 /// Одна сессия сокета: читает канал, ведёт книгу, пишет файл. Возвращается
 /// только на ротацию шагов (перезапуск соединения снаружи), остановку или
 /// Ctrl-C — сама по себе запись открыта и бесконечна (Decision 21).
+/// REST здесь нет: авторитет шагов приходит готовым по `steps_rx` из
+/// ОС-потока (шаг 0.7, Decision 24) — событийный путь HTTP не ждёт никогда.
 #[allow(clippy::too_many_lines)]
 async fn run_session(
     rec: &mut Recorder,
-    rest: &mut BybitPublicRest,
+    steps_rx: &mut std::sync::mpsc::Receiver<(i64, i64)>,
     free_check: &OsFreeSpaceCheck,
     symbol: &str,
     tick_e9: i64,
@@ -1162,14 +1215,16 @@ async fn run_session(
         };
     }
 
-    // Подтверждение горячего подозрения холодным авторитетом. `true` — шаги
-    // действительно сменились: файл уже повёрнут, соединение перезапускается
-    // снаружи. `false` — поток прислал немасштабное при неизменённом
-    // авторитете: событие отброшено, строка (первая на часть) записана.
+    // Подтверждение горячего подозрения холодным авторитетом из ОС-потока
+    // (шаг 0.7, Decision 24): канал дренируется без ожидания сети, берётся
+    // только последнее. Авторитет новее и отличается — ротация; нет свежести
+    // или совпадает — ветка подавления с gaps.csv (шторм считается молча).
     macro_rules! confirm_step_change {
-        ($ts_utc:expr, $detail:expr, $rest:expr) => {{
-            match refresh_steps(&mut *$rest, symbol) {
-                Ok((new_tick, new_step)) if new_tick != rec.tick_e9() || new_step != rec.step_e9() => {
+        ($ts_utc:expr, $detail:expr) => {{
+            match drain_latest_steps(&mut *steps_rx) {
+                Some((new_tick, new_step))
+                    if new_tick != rec.tick_e9() || new_step != rec.step_e9() =>
+                {
                     rec.rotate_on_step_change(new_tick, new_step, &$ts_utc, &$detail)?;
                     conn_task.abort();
                     return Ok(SessionEnd::StepChange {
@@ -1177,17 +1232,12 @@ async fn run_session(
                         step_e9: new_step,
                     });
                 }
-                Ok(_) => {
+                _ => {
                     if !off_step_logged {
                         rec.log_gap(GapKind::BookInvariant, &$ts_utc, &$detail)?;
                         off_step_logged = true;
                     }
                     off_step_suppressed += 1;
-                }
-                Err(e) => {
-                    // Авторитет недоступен — событие уже отброшено выше, файл
-                    // цел; следующий часовой тик попробует снова.
-                    eprintln!("record: instruments-info недоступен ({e}), ротация отложена");
                 }
             }
         }};
@@ -1221,7 +1271,7 @@ async fn run_session(
                                             crate::book::ApplyError::PriceNotOnTick { .. }
                                             | crate::book::ApplyError::QtyNotOnStep { .. } => {
                                                 let detail = format!("снапшот вне шагов: {e:?}");
-                                                confirm_step_change!(ts_utc, detail, rest);
+                                                confirm_step_change!(ts_utc, detail);
                                             }
                                             _ => {
                                                 rec.log_gap(GapKind::BookInvariant, &ts_utc, &format!("снапшот отвергнут: {e:?}"))?;
@@ -1240,7 +1290,7 @@ async fn run_session(
                                             "price {price_e9} / qty {qty_e9} не на шагах {tick_e9}/{step_e9} (u={})",
                                             update.u
                                         );
-                                        confirm_step_change!(ts_utc, detail, rest);
+                                        confirm_step_change!(ts_utc, detail);
                                     }
                                     Err(RecordError::SequenceGap { expected, got }) => {
                                         synced = false;
@@ -1265,7 +1315,7 @@ async fn run_session(
                                         let detail = format!(
                                             "трейд price {price_e9} / qty {qty_e9} не на шагах {tick_e9}/{step_e9}"
                                         );
-                                        confirm_step_change!(ts_utc, detail, rest);
+                                        confirm_step_change!(ts_utc, detail);
                                     }
                                     Err(RecordError::NoSnapshot) => {}
                                     Err(e) => return Err(e),
@@ -1299,8 +1349,9 @@ async fn run_session(
                 }
             }
             _ = hourly.tick() => {
-                // Тот же тик ходит за тремя вещами: место, часы (шаг 0.5
-                // подписывает сюда свой сэмпл), шаги.
+                // Часовой тик: место, итог подавления, flush. Шаги приходят
+                // сами из ОС-потока авторитета — тик их только забирает
+                // (шаг 0.7, Decision 24), сеть здесь не ждётся никогда.
                 match free_check.free_bytes(&rec.root) {
                     Ok(free) if should_stop_on_free_space(free) => {
                         let ts_utc = ts_utc_of_ns(SystemClock.now_ns());
@@ -1318,15 +1369,13 @@ async fn run_session(
                     off_step_suppressed = 0;
                     off_step_logged = false;
                 }
-                match refresh_steps(&mut *rest, symbol) {
-                    Ok((new_tick, new_step)) if new_tick != rec.tick_e9() || new_step != rec.step_e9() => {
+                if let Some((new_tick, new_step)) = drain_latest_steps(&mut *steps_rx) {
+                    if new_tick != rec.tick_e9() || new_step != rec.step_e9() {
                         let ts_utc = ts_utc_of_ns(SystemClock.now_ns());
                         rec.rotate_on_step_change(new_tick, new_step, &ts_utc, &format!("часовой instruments-info: тик {new_tick}, шаг {new_step}"))?;
                         conn_task.abort();
                         return Ok(SessionEnd::StepChange { tick_e9: new_tick, step_e9: new_step });
                     }
-                    Ok(_) => {}
-                    Err(e) => eprintln!("record: часовое обновление шагов пропущено ({e})"),
                 }
                 if let Err(e) = rec.flush() {
                     conn_task.abort();
@@ -1368,12 +1417,22 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
     let day = day_string_of_ns(SystemClock.now_ns()).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut rec = Recorder::open(&root, &args.symbol, tick_e9, step_e9, &day)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut rest =
-        BybitPublicRest::new(args.base_url.clone()).map_err(|e| anyhow::anyhow!("REST: {e}"))?;
+    // Шаг 0.7, Decision 24: часовой авторитет живёт в ОС-потоке со своим
+    // соединением; событийный путь забирает готовое из канала и HTTP не ждёт.
+    let mut steps_rx = spawn_steps_authority(args.base_url.clone(), args.symbol.clone());
 
     let (mut tick, mut step) = (tick_e9, step_e9);
     let stop_reason = loop {
-        match run_session(&mut rec, &mut rest, &free_check, &args.symbol, tick, step).await {
+        match run_session(
+            &mut rec,
+            &mut steps_rx,
+            &free_check,
+            &args.symbol,
+            tick,
+            step,
+        )
+        .await
+        {
             Ok(SessionEnd::StepChange {
                 tick_e9: t,
                 step_e9: s,
@@ -1453,8 +1512,8 @@ pub fn day_index_of_day_str(day: &str) -> Result<i64, RecordError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_gap_row, check_level_step, day_file_path, ensure_gaps_csv, gaps_csv_path,
-        read_gap_rows, GapKind, GapRow, Recorder,
+        append_gap_row, check_level_step, day_file_path, drain_latest_steps, ensure_gaps_csv,
+        gaps_csv_path, read_gap_rows, GapKind, GapRow, Recorder,
     };
 
     const TICK_E9: i64 = 10_000_000; // 0.01
@@ -2044,5 +2103,17 @@ mod tests {
             counts.allocations, 0,
             "горячий путь обязан не аллоцировать после прогрева"
         );
+    }
+
+    /// Шаг 0.7: дрен канала авторитета берёт только последнее, пустой канал —
+    /// `None` (ветка подавления, а не ожидание сети).
+    #[test]
+    fn authority_drain_takes_only_the_latest_and_empty_is_none() {
+        let (tx, mut rx) = std::sync::mpsc::channel::<(i64, i64)>();
+        assert_eq!(drain_latest_steps(&mut rx), None);
+        tx.send((10_000_000, 1_000_000)).unwrap();
+        tx.send((5_000_000, 1_000_000)).unwrap();
+        assert_eq!(drain_latest_steps(&mut rx), Some((5_000_000, 1_000_000)));
+        assert_eq!(drain_latest_steps(&mut rx), None);
     }
 }
