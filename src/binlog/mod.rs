@@ -4,7 +4,8 @@
 //! # Раскладка суточного файла
 //!
 //! ```text
-//! [заголовок: magic(4) | version(1) | tick_e9(8 LE) | step_e9(8 LE)]
+//! [заголовок: magic(4) | version(1) | tick_e9(8 LE) | step_e9(8 LE)
+//!             | max_records_per_frame(4 LE)]
 //! [кадр 0: u32 длина LE | zstd-кадр]   ← синтетический полный снапшот
 //! [кадр 1: u32 длина LE | zstd-кадр]   ← дальше живые дельты потока
 //! [кадр 2: ...]
@@ -17,6 +18,25 @@
 //! ротация происходит по UTC-полуночи посреди потока, и без синтетического
 //! снапшота **в этом же файле** каждые следующие сутки были бы нечитаемы без
 //! состояния предыдущих: ровно то, что Decision 7 объявляет невосстановимым.
+//!
+//! `max_records_per_frame` — добавка ревизии 10 к Decision 23. `Reader`
+//! разжимает тело кадра через bounded zstd API (`bulk::Decompressor::
+//! decompress` с явной ёмкостью, не `stream::decode_all`, который растил бы
+//! буфер до тех пор, пока не кончится вход): ёмкость — это потолок,
+//! вычисленный из `max_records_per_frame` этого же заголовка и минимального
+//! размера закодированной записи (`max_frame_payload_bytes` ниже), и если
+//! распаковка потребовала бы больше, zstd возвращает ошибку **до** того,
+//! как эти байты выделены, а не после. Без потолка испорченный (или
+//! специально подобранный) кадр — маленький на диске, но сильно сжимаемый —
+//! разжался бы в сколь угодно большой буфер: то самое «неограниченная
+//! память» из процесса, который по плану работает неделями без присмотра.
+//! Число берётся из заголовка, а не назначается константой этого модуля —
+//! иначе оно было бы изобретённым числом, что план запрещает везде (Decision
+//! 23). `Writer::write_frame`, симметрично, отказывается писать кадр
+//! длиннее этого потолка — программной ошибкой (`assert!`), а не
+//! результатом: число записей в кадре и число в заголовке выбирает один и
+//! тот же вызывающий код, значит расхождение между ними — его баг батчинга,
+//! а не порча данных, которая приходит с диска или из сети.
 //!
 //! Кадр — это `u32` длина сжатого блока, а не многокадровый zstd-поток:
 //! чтение — «прочитать `u32`, прочитать столько байт, разжать один кадр».
@@ -62,10 +82,27 @@ pub const MAGIC: [u8; 4] = *b"ABLG";
 /// «формат бинарного лога версионируется байтом в заголовке»). Меняется при
 /// любой несовместимой правке раскладки, а не при добавлении новых значений
 /// существующих полей.
-pub const VERSION: u8 = 1;
+///
+/// `2`, не `1`: ревизия 10 Decision 23 добавила поле `max_records_per_frame`
+/// в хвост заголовка, а старый читатель этого не ждёт — несовместимая
+/// правка раскладки обязана поднять версию, иначе файл версии 1 читался бы
+/// байт в байт как версия 2 и хвост заголовка ушёл бы не туда (см. тест
+/// `old_version_file_is_rejected_not_misread`).
+pub const VERSION: u8 = 2;
 
-/// magic(4) + version(1) + tick_e9(8) + step_e9(8).
-const HEADER_LEN: usize = 4 + 1 + 8 + 8;
+/// magic(4) + version(1) — этого достаточно, чтобы решить, версия ли это,
+/// которую понимает остальной код. Читается отдельно от хвоста заголовка
+/// (`HEADER_TAIL_LEN`) и до него: у более старой версии хвост другой длины
+/// и другого смысла, и разбирать его тем же способом значило бы читать
+/// чужие байты как свои вместо понятной ошибки версии.
+const MAGIC_VERSION_LEN: usize = 4 + 1;
+
+/// tick_e9(8) + step_e9(8) + max_records_per_frame(4) — хвост заголовка
+/// ровно текущей версии.
+const HEADER_TAIL_LEN: usize = 8 + 8 + 4;
+
+/// Полная длина заголовка текущей версии.
+const HEADER_LEN: usize = MAGIC_VERSION_LEN + HEADER_TAIL_LEN;
 
 /// Длина префикса кадра — `u32`, как назначено Decision 7.
 const LEN_PREFIX: usize = 4;
@@ -78,6 +115,15 @@ const LEN_PREFIX: usize = 4;
 pub struct Header {
     pub tick_e9: i64,
     pub step_e9: i64,
+    /// Максимум записей в одном кадре (Decision 23, ревизия 10). Число
+    /// выбирает и хранит в заголовке вызывающий (рекордер, шаг 0.3) —
+    /// этот модуль не назначает ему значение по умолчанию: «потолок
+    /// берётся из файла, а не назначается», иначе это было бы изобретённым
+    /// числом. `Writer::write_frame` отказывается писать кадр длиннее
+    /// этого значения; `Reader` использует его, чтобы вычислить потолок
+    /// разжатого тела кадра (`max_frame_payload_bytes`) и не дать
+    /// bounded zstd API выделить память сверх него.
+    pub max_records_per_frame: u32,
 }
 
 fn validate_header(h: Header) -> Result<(), BinlogError> {
@@ -85,10 +131,11 @@ fn validate_header(h: Header) -> Result<(), BinlogError> {
     // здесь заголовок может прийти прямо с диска (`Reader::open`), и файл —
     // недоверенный ввод. Панике здесь взяться неоткуда ни при записи, ни
     // при чтении: обе стороны проверяются одной и той же функцией.
-    if h.tick_e9 <= 0 || h.step_e9 <= 0 {
+    if h.tick_e9 <= 0 || h.step_e9 <= 0 || h.max_records_per_frame == 0 {
         return Err(BinlogError::InvalidHeader {
             tick_e9: h.tick_e9,
             step_e9: h.step_e9,
+            max_records_per_frame: h.max_records_per_frame,
         });
     }
     Ok(())
@@ -146,12 +193,15 @@ pub enum BinlogError {
     UnsupportedVersion {
         got: u8,
     },
-    /// `tick_e9`/`step_e9` не положительны — заголовок сфабрикован или
-    /// повреждён; без этой проверки дельты в тиках молча приобрели бы
-    /// нулевой или отрицательный масштаб.
+    /// `tick_e9`/`step_e9` не положительны, либо `max_records_per_frame`
+    /// нулевой — заголовок сфабрикован или повреждён; без этой проверки
+    /// дельты в тиках молча приобрели бы нулевой или отрицательный
+    /// масштаб, а нулевой потолок сделал бы каждый непустой кадр
+    /// отвергнутым независимо от содержимого.
     InvalidHeader {
         tick_e9: i64,
         step_e9: i64,
+        max_records_per_frame: u32,
     },
     /// Кадр объявил длину, для которой на диске не хватило байт: это
     /// усечённый хвост, а не повреждённое содержимое, и Decision 7 требует
@@ -177,6 +227,20 @@ pub enum BinlogError {
     FrameTooLarge {
         len: usize,
     },
+    /// Разжатое тело кадра не поместилось бы в потолок, вычисленный из
+    /// `max_records_per_frame` заголовка (Decision 23, ревизия 10):
+    /// заявленная длина сжатого кадра на диске правдоподобна, но
+    /// распаковка потребовала бы больше байт, чем потолок разрешает — либо
+    /// кадр честно превышает потолок, либо испорчен так, что разжимаемый
+    /// объём не сходится. Оба случая читаются здесь одинаково: bounded
+    /// zstd API (`Reader::read_frame`) отказывается выделять память сверх
+    /// `ceiling_bytes`, поэтому различить их без превышения самого потолка
+    /// нечем, а превышать его ради диагностики — обходить весь смысл
+    /// проверки.
+    FrameExceedsHeaderCeiling {
+        max_records_per_frame: u32,
+        ceiling_bytes: usize,
+    },
     Io(String),
 }
 
@@ -190,9 +254,14 @@ impl fmt::Display for BinlogError {
             BinlogError::UnsupportedVersion { got } => {
                 write!(f, "неподдерживаемая версия формата: {got}")
             }
-            BinlogError::InvalidHeader { tick_e9, step_e9 } => write!(
+            BinlogError::InvalidHeader {
+                tick_e9,
+                step_e9,
+                max_records_per_frame,
+            } => write!(
                 f,
-                "заголовок неисправен: tick_e9={tick_e9}, step_e9={step_e9}"
+                "заголовок неисправен: tick_e9={tick_e9}, step_e9={step_e9}, \
+                 max_records_per_frame={max_records_per_frame}"
             ),
             BinlogError::ShortRead { context, want, got } => {
                 write!(f, "короткое чтение ({context}): {got} байт из {want}")
@@ -207,6 +276,15 @@ impl fmt::Display for BinlogError {
             BinlogError::FrameTooLarge { len } => {
                 write!(f, "сжатый кадр {len} байт не влезает в u32-префикс")
             }
+            BinlogError::FrameExceedsHeaderCeiling {
+                max_records_per_frame,
+                ceiling_bytes,
+            } => write!(
+                f,
+                "разжатый кадр превысил бы потолок заголовка \
+                 (max_records_per_frame={max_records_per_frame}, {ceiling_bytes} байт) \
+                 либо испорчен так, что разжимаемый объём не сходится"
+            ),
             BinlogError::Io(msg) => write!(f, "ошибка ввода-вывода: {msg}"),
         }
     }
@@ -340,27 +418,85 @@ fn decode_record(buf: &[u8], pos: &mut usize, st: &mut DeltaState) -> Result<Rec
     Ok(record)
 }
 
+/// Длина префикса эпохи кадра — `i64`-метка времени первой записи
+/// (`Writer::write_frame`), которой мерятся дельты времени внутри кадра.
+const FRAME_EPOCH_LEN: usize = 8;
+
 /// Разбирает уже разжатое содержимое кадра целиком — читает записи, пока
 /// не кончится срез. Число записей нигде не хранится отдельно: конец среза
 /// и есть конец кадра, ещё одно поле было бы источником рассогласования.
 fn decode_frame_payload(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
-    if payload.len() < 8 {
-        return Err(BinlogError::Corrupt(
-            "кадр короче эпохи (8 байт)".to_string(),
-        ));
+    if payload.len() < FRAME_EPOCH_LEN {
+        return Err(BinlogError::Corrupt(format!(
+            "кадр короче эпохи ({FRAME_EPOCH_LEN} байт)"
+        )));
     }
-    let epoch_ns = i64::from_le_bytes(payload[0..8].try_into().unwrap());
+    let epoch_ns = i64::from_le_bytes(payload[0..FRAME_EPOCH_LEN].try_into().unwrap());
     let mut st = DeltaState {
         epoch_ns,
         prev_price_ticks: 0,
         prev_qty_lots: 0,
     };
-    let mut pos = 8usize;
+    let mut pos = FRAME_EPOCH_LEN;
     let mut out = Vec::new();
     while pos < payload.len() {
         out.push(decode_record(payload, &mut pos, &mut st)?);
     }
     Ok(out)
+}
+
+/// Число полей одной записи, которые кодирует `encode_record`: `ev`,
+/// четыре дельты (`exch_ts`, `local_ts`, `price`, `qty`), `order_id`,
+/// `ival`, `fval` — ровно восемь. Если у `Record` появится девятое поле,
+/// этой константе и `encode_record`/`decode_record` придётся обновиться
+/// вместе, иначе `cargo test binlog` разойдётся с форматом.
+const RECORD_FIELD_COUNT: usize = 8;
+
+/// Минимальная длина закодированной записи в байтах. LEB128 `uvarint`
+/// значения `0` — ровно один байт `0x00` (`write_uvarint`: цикл пишет байт
+/// и останавливается уже на первой итерации, если `v == 0`), и зигзаг
+/// сводится к тому же `uvarint` после перестановки знака, так что короче
+/// байта варинт по построению кодека быть не может. Восемь полей — минимум
+/// восемь байт на запись, независимо от того, какие значения несёт
+/// настоящий поток: это структурная нижняя граница формата, а не свойство
+/// типичных данных.
+const MIN_RECORD_LEN: usize = RECORD_FIELD_COUNT;
+
+/// Потолок для разжатого тела кадра (Decision 23, ревизия 10): столько байт
+/// максимум может занять кадр из `max_records_per_frame` записей — эпоха
+/// кадра плюс записи по их минимальному размеру. Оба множителя — не
+/// изобретённые числа: `max_records_per_frame` читается из заголовка суток
+/// (`Reader::header`), а `MIN_RECORD_LEN` — из формы `encode_record` в этом
+/// же файле.
+///
+/// `saturating_*`, не обычная арифметика: `max_records_per_frame` приходит
+/// с диска через `Reader::open` и теоретически может нести испорченное
+/// значение, а переполнение при вычислении потолка обязано остаться
+/// числом (насыщенным до `usize::MAX`), а не паникой — той же дисциплины
+/// держится весь этот читатель (см. `corrupt_length_prefix_does_not_pre_allocate_ahead_of_the_stream`).
+///
+/// **Второй потолок, над первым.** Насыщения мало: заголовок — такие же
+/// данные с диска, как и поле длины, и значение около `u32::MAX` дало бы
+/// честно посчитанные тридцать с лишним гигабайт на одну аллокацию. То есть
+/// защита от испорченной длины кадра не защищала от испорченного заголовка,
+/// а процесс по плану работает неделями без присмотра.
+///
+/// Верхняя граница не назначается, а выводится из Decision 23: связывающий
+/// бюджет там — **150 МБ на символ-сутки после сжатия**, и один кадр по
+/// определению не может законно превысить целые сутки. Коэффициент
+/// распаковки для этих данных не задан планом, поэтому берётся заведомо
+/// щедрый десятикратный: получившиеся полтора гигабайта на порядки больше
+/// любого настоящего кадра и на порядки меньше того, чем испорченное поле
+/// способно исчерпать хост.
+const DAY_BUDGET_BYTES: usize = 150 * 1024 * 1024;
+const MAX_DECOMPRESSION_RATIO: usize = 10;
+const HARD_PAYLOAD_CEILING: usize = DAY_BUDGET_BYTES * MAX_DECOMPRESSION_RATIO;
+
+fn max_frame_payload_bytes(max_records_per_frame: u32) -> usize {
+    (max_records_per_frame as usize)
+        .saturating_mul(MIN_RECORD_LEN)
+        .saturating_add(FRAME_EPOCH_LEN)
+        .min(HARD_PAYLOAD_CEILING)
 }
 
 // ---------------------------------------------------------------------
@@ -446,6 +582,7 @@ impl<W: Write> Writer<W> {
         buf[4] = VERSION;
         buf[5..13].copy_from_slice(&header.tick_e9.to_le_bytes());
         buf[13..21].copy_from_slice(&header.step_e9.to_le_bytes());
+        buf[21..25].copy_from_slice(&header.max_records_per_frame.to_le_bytes());
         inner.write_all(&buf)?;
         let compressor = zstd::bulk::Compressor::new(level)?;
         Ok(Self {
@@ -470,6 +607,25 @@ impl<W: Write> Writer<W> {
         let Some(first) = records.first() else {
             return Ok(());
         };
+
+        // Программная ошибка вызывающего, не порча данных — `assert!`, не
+        // `Result` (см. доку модуля и `validate_header`, тот же выбор по
+        // тому же принципу: аргумент приходит из кода, а не с диска). Число
+        // записей в `records` и `max_records_per_frame` заголовка выбирает
+        // один и тот же вызывающий (рекордер, батчинг шага 0.3) — расхождение
+        // между ними может быть только его багом. `debug_assert!` был бы не
+        // тем выбором: рекордер собирается и работает неделями в `--release`,
+        // где `debug_assert!` вырезается, и тогда именно тот кадр, который
+        // должен был упасть здесь немедленно и громко, вместо этого ушёл бы
+        // на диск — а отвергнет его уже `Reader` (`FrameExceedsHeaderCeiling`),
+        // но только при следующем чтении, недели спустя, когда чинить нечего.
+        assert!(
+            records.len() <= self.header.max_records_per_frame as usize,
+            "кадр из {} записей превышает потолок заголовка max_records_per_frame={}: \
+             это баг батчинга вызывающего, а не повреждение данных",
+            records.len(),
+            self.header.max_records_per_frame
+        );
 
         self.scratch.clear();
         // Эпоха кадра — метка первой записи (см. доку модуля): не отдельный
@@ -525,20 +681,47 @@ impl<W: Write> Writer<W> {
 /// «файл кончился между кадрами» (нормально) и «файл кончился на первом
 /// же кадре» (в сутках нет синтетического снапшота — ошибка, см.
 /// `BinlogError::MissingSnapshot`).
-#[derive(Debug)]
+///
+/// `decompressor` переиспользуется между кадрами по той же причине, что и
+/// `compressor` у `Writer` (см. его доку): держит один `DCtx` вместо того,
+/// чтобы заводить новый на каждый вызов. Не заявлено как часть бюджета GC
+/// «ноль на событие» — тот бюджет про путь разбор-и-запись рекордера, а
+/// чтение обслуживает `verify`/`export`/`markout`, но переиспользование
+/// не стоит ничего и держит `Reader` симметричным `Writer`.
 pub struct Reader<R: Read> {
     inner: R,
     header: Header,
     frames_read: u64,
+    decompressor: zstd::bulk::Decompressor<'static>,
+}
+
+impl<R: Read> fmt::Debug for Reader<R> {
+    /// Ручная реализация, не `#[derive]`: `zstd::bulk::Decompressor` не
+    /// реализует `Debug` (см. ту же причину у `Writer` выше).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Reader")
+            .field("header", &self.header)
+            .field("frames_read", &self.frames_read)
+            .finish()
+    }
 }
 
 impl<R: Read> Reader<R> {
     /// Читает и проверяет заголовок. Ничего не помнит о других файлах —
     /// это и есть проверяемое свойство «сутки читаются с первого байта»:
     /// вся нужная для декодирования информация приходит из этого же потока.
+    ///
+    /// Заголовок читается в **два** шага, не один: сначала `magic` и
+    /// `version` (`MAGIC_VERSION_LEN`), и версия проверяется **раньше**,
+    /// чем читается хвост заголовка (`HEADER_TAIL_LEN`). У версии 1 не было
+    /// поля `max_records_per_frame`, и её хвост на 4 байта короче — прочитать
+    /// те же 20 байт из файла версии 1 значило бы принять первые 4 байта
+    /// следующего поля (длину первого кадра) за часть заголовка версии 2:
+    /// тихое неверное чтение вместо понятной ошибки версии (см. тест
+    /// `old_version_file_is_rejected_not_misread`).
     pub fn open(mut inner: R) -> Result<Self, BinlogError> {
-        let mut buf = [0u8; HEADER_LEN];
-        match read_upto(&mut inner, &mut buf)? {
+        let mut prefix = [0u8; MAGIC_VERSION_LEN];
+        match read_upto(&mut inner, &mut prefix)? {
             ReadStatus::Full => {}
             ReadStatus::Partial(got) => {
                 return Err(BinlogError::TruncatedHeader {
@@ -553,24 +736,43 @@ impl<R: Read> Reader<R> {
                 })
             }
         }
-        if buf[0..4] != MAGIC {
+        if prefix[0..4] != MAGIC {
             return Err(BinlogError::BadMagic {
-                got: [buf[0], buf[1], buf[2], buf[3]],
+                got: [prefix[0], prefix[1], prefix[2], prefix[3]],
             });
         }
-        let version = buf[4];
+        let version = prefix[4];
         if version != VERSION {
             return Err(BinlogError::UnsupportedVersion { got: version });
         }
+
+        let mut tail = [0u8; HEADER_TAIL_LEN];
+        match read_upto(&mut inner, &mut tail)? {
+            ReadStatus::Full => {}
+            ReadStatus::Partial(got) => {
+                return Err(BinlogError::TruncatedHeader {
+                    got: MAGIC_VERSION_LEN + got,
+                    want: HEADER_LEN,
+                })
+            }
+            ReadStatus::Eof => {
+                return Err(BinlogError::TruncatedHeader {
+                    got: MAGIC_VERSION_LEN,
+                    want: HEADER_LEN,
+                })
+            }
+        }
         let header = Header {
-            tick_e9: i64::from_le_bytes(buf[5..13].try_into().unwrap()),
-            step_e9: i64::from_le_bytes(buf[13..21].try_into().unwrap()),
+            tick_e9: i64::from_le_bytes(tail[0..8].try_into().unwrap()),
+            step_e9: i64::from_le_bytes(tail[8..16].try_into().unwrap()),
+            max_records_per_frame: u32::from_le_bytes(tail[16..20].try_into().unwrap()),
         };
         validate_header(header)?;
         Ok(Self {
             inner,
             header,
             frames_read: 0,
+            decompressor: zstd::bulk::Decompressor::new()?,
         })
     }
 
@@ -649,8 +851,24 @@ impl<R: Read> Reader<R> {
             }
         }
 
-        let payload = zstd::stream::decode_all(&compressed[..])
-            .map_err(|e| BinlogError::Corrupt(format!("zstd: {e}")))?;
+        // `bulk::Decompressor::decompress` с явной ёмкостью, не
+        // `stream::decode_all`: `decode_all` растит буфер по мере разжатия
+        // и не отказывается сам ни при каком размере — ровно то
+        // «декомпрессия сначала, проверка после» (уже после аллокации),
+        // от которого Decision 23 (ревизия 10) требует уйти. Ёмкость здесь
+        // — потолок из заголовка (`max_frame_payload_bytes`), и если
+        // распаковка требует больше, zstd возвращает ошибку **до** того,
+        // как эти байты выделены (см. `Decompressor::decompress`/`WriteBuf::
+        // write_from` в крейте `zstd-safe`: буфер получает ровно
+        // запрошенную ёмкость один раз и не растёт).
+        let ceiling_bytes = max_frame_payload_bytes(self.header.max_records_per_frame);
+        let payload = self
+            .decompressor
+            .decompress(&compressed, ceiling_bytes)
+            .map_err(|_| BinlogError::FrameExceedsHeaderCeiling {
+                max_records_per_frame: self.header.max_records_per_frame,
+                ceiling_bytes,
+            })?;
         let records = decode_frame_payload(&payload)?;
         self.frames_read += 1;
         Ok(Some(records))
@@ -659,16 +877,55 @@ impl<R: Read> Reader<R> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Заголовок — такие же данные с диска, как и поле длины кадра, и потолок,
+    /// выведенный только из него, испорченным заголовком обходится. Проверяется
+    /// то, что второй потолок существует и связывает: `u32::MAX` записей дали бы
+    /// тридцать с лишним гигабайт, а обязаны упереться в границу из Decision 23.
+    #[test]
+    fn a_corrupt_header_cannot_raise_the_ceiling_past_the_day_budget() {
+        let honest = super::max_frame_payload_bytes(1_000);
+        assert_eq!(
+            honest,
+            1_000 * super::MIN_RECORD_LEN + super::FRAME_EPOCH_LEN,
+            "на честном значении потолок обязан считаться ровно по записям"
+        );
+
+        let corrupt = super::max_frame_payload_bytes(u32::MAX);
+        assert_eq!(
+            corrupt,
+            super::HARD_PAYLOAD_CEILING,
+            "испорченный заголовок обязан упираться в границу, а не в своё произведение"
+        );
+        assert!(
+            (u32::MAX as usize) * super::MIN_RECORD_LEN > corrupt,
+            "иначе тест не проверяет ничего: произведение обязано быть больше границы"
+        );
+    }
+
     use super::*;
     use crate::alloc_count;
 
     const TICK_E9: i64 = 100_000; // 0.0001, как в тестах book.rs
     const STEP_E9: i64 = 1_000_000; // 0.001
 
+    /// Потолок заголовка по умолчанию для тестов, которым сам потолок не
+    /// важен — round trip, границы суток, усечение и т.п. Не значение,
+    /// которое использует рекордер (то назначает вызывающий при создании
+    /// файла, не этот модуль), а запас с большим отступом над самым
+    /// крупным кадром, который где-либо в этом наборе тестов пишется
+    /// одним вызовом `write_frame` через общий `header()` — крупнейший тут
+    /// `PER_FRAME = 20_000` в `round_trips_one_million_events` и в тестах
+    /// аллокаций ниже. Тесты про сам потолок (`..._exceeds_the_header_ceiling`,
+    /// `..._at_exactly_the_maximum`, `writer_refuses_frame_exceeding_...`)
+    /// собирают свой `Header` с маленьким явным значением, а не берут этот.
+    const DEFAULT_TEST_MAX_RECORDS_PER_FRAME: u32 = 1_000_000;
+
     fn header() -> Header {
         Header {
             tick_e9: TICK_E9,
             step_e9: STEP_E9,
+            max_records_per_frame: DEFAULT_TEST_MAX_RECORDS_PER_FRAME,
         }
     }
 
@@ -827,10 +1084,12 @@ mod tests {
         let day1_header = Header {
             tick_e9: 100_000,
             step_e9: 1_000_000,
+            max_records_per_frame: DEFAULT_TEST_MAX_RECORDS_PER_FRAME,
         };
         let day2_header = Header {
             tick_e9: 50_000, // другой шаг цены — как после смены на бирже
             step_e9: 2_000_000,
+            max_records_per_frame: DEFAULT_TEST_MAX_RECORDS_PER_FRAME,
         };
         let day1 = write_all(day1_header, &[vec![rec(ev_snapshot_bid(), 0, 1, 10, 10)]]);
         let day2 = write_all(day2_header, &[vec![rec(ev_snapshot_bid(), 0, 1, 20, 20)]]);
@@ -1221,14 +1480,35 @@ mod tests {
     }
 
     #[test]
-    fn truncated_header_is_an_error() {
-        let bytes = [0u8; HEADER_LEN - 1];
+    fn truncated_header_prefix_is_an_error() {
+        // Короче даже magic+version (`MAGIC_VERSION_LEN`) — усечение обязано
+        // ловиться на первом шаге чтения заголовка, до того как код вообще
+        // пытается истолковать эти байты как magic (см. доку `Reader::open`
+        // про два шага чтения).
+        let bytes = [0u8; MAGIC_VERSION_LEN - 1];
+        let err = Reader::open(&bytes[..]).unwrap_err();
+        assert_eq!(
+            err,
+            BinlogError::TruncatedHeader {
+                got: MAGIC_VERSION_LEN - 1,
+                want: HEADER_LEN,
+            }
+        );
+    }
+
+    #[test]
+    fn truncated_header_tail_is_an_error() {
+        // Magic и версия целы и валидны, хвост (tick_e9/step_e9/
+        // max_records_per_frame) обрезан на один байт — усечение ловится на
+        // втором шаге чтения, не читается как валидные, но сдвинутые байты.
+        let mut bytes = write_all(header(), &[vec![rec(ev_snapshot_bid(), 0, 1, 1, 1)]]);
+        bytes.truncate(HEADER_LEN - 1);
         let err = Reader::open(&bytes[..]).unwrap_err();
         assert_eq!(
             err,
             BinlogError::TruncatedHeader {
                 got: HEADER_LEN - 1,
-                want: HEADER_LEN
+                want: HEADER_LEN,
             }
         );
     }
@@ -1255,7 +1535,8 @@ mod tests {
             Vec::new(),
             Header {
                 tick_e9: 0,
-                step_e9: 1
+                step_e9: 1,
+                max_records_per_frame: DEFAULT_TEST_MAX_RECORDS_PER_FRAME,
             },
             zstd::DEFAULT_COMPRESSION_LEVEL
         )
@@ -1266,6 +1547,232 @@ mod tests {
         bytes[5..13].copy_from_slice(&0i64.to_le_bytes());
         let err = Reader::open(&bytes[..]).unwrap_err();
         assert!(matches!(err, BinlogError::InvalidHeader { .. }));
+    }
+
+    /// `max_records_per_frame = 0` — тот же класс ошибки, что нулевой/
+    /// отрицательный `tick_e9`/`step_e9` выше: заголовок, а не программный
+    /// аргумент, поэтому и здесь `Result`, а не паника (`validate_header`
+    /// общая на запись и чтение).
+    #[test]
+    fn zero_max_records_per_frame_is_rejected_on_write_and_read() {
+        assert!(Writer::create(
+            Vec::new(),
+            Header {
+                tick_e9: TICK_E9,
+                step_e9: STEP_E9,
+                max_records_per_frame: 0,
+            },
+            zstd::DEFAULT_COMPRESSION_LEVEL
+        )
+        .is_err());
+
+        let mut bytes = write_all(header(), &[vec![rec(ev_snapshot_bid(), 0, 1, 1, 1)]]);
+        // Затираем max_records_per_frame заголовка нулём напрямую в байтах
+        // (смещение 21..25, см. `Writer::create`).
+        bytes[21..25].copy_from_slice(&0u32.to_le_bytes());
+        let err = Reader::open(&bytes[..]).unwrap_err();
+        assert!(matches!(err, BinlogError::InvalidHeader { .. }));
+    }
+
+    // -----------------------------------------------------------------
+    // Требование 7 (ревизия 10, Decision 23): потолок разжатого кадра,
+    // вычисленный из `max_records_per_frame` заголовка.
+    // -----------------------------------------------------------------
+
+    /// Кодирует `n` заведомо нулевых записей напрямую через `encode_record`
+    /// — не через `Writer::write_frame`, который сам отказался бы писать
+    /// кадр длиннее заголовочного потолка (см. тест ниже про эту самую
+    /// проверку). Нулевые поля и нулевые дельты дают ровно минимальный
+    /// размер записи (`MIN_RECORD_LEN` = 8 байт: каждое из восьми полей —
+    /// однобайтовый varint нуля), и при этом чрезвычайно легко сжимаются:
+    /// маленький кадр на диске, огромный после распаковки — ровно форма,
+    /// которую и обязан отвергать потолок.
+    fn raw_frame_payload_all_zero(n: usize) -> Vec<u8> {
+        let mut scratch = Vec::new();
+        let epoch_ns = 0i64;
+        scratch.extend_from_slice(&epoch_ns.to_le_bytes());
+        let mut st = DeltaState {
+            epoch_ns,
+            prev_price_ticks: 0,
+            prev_qty_lots: 0,
+        };
+        let zero = rec(0, 0, 0, 0, 0);
+        for _ in 0..n {
+            encode_record(&mut scratch, &zero, &mut st);
+        }
+        scratch
+    }
+
+    /// Заворачивает уже готовую (разжатую) полезную нагрузку в кадр
+    /// формата этого файла: `u32` длина сжатого блока LE, затем сам блок —
+    /// то же самое, что пишет `Writer::write_frame` после кодирования, но
+    /// здесь собрано вручную в обход его проверки потолка (см. доку
+    /// `raw_frame_payload_all_zero`).
+    fn frame_bytes_from_payload(payload: &[u8]) -> Vec<u8> {
+        let compressed = zstd::bulk::compress(payload, zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
+        let len = u32::try_from(compressed.len()).unwrap();
+        let mut out = Vec::with_capacity(LEN_PREFIX + compressed.len());
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&compressed);
+        out
+    }
+
+    #[test]
+    #[should_panic(expected = "превышает потолок заголовка max_records_per_frame")]
+    fn writer_refuses_frame_exceeding_max_records_per_frame() {
+        let max = 2u32;
+        let hdr = Header {
+            tick_e9: TICK_E9,
+            step_e9: STEP_E9,
+            max_records_per_frame: max,
+        };
+        let mut w = Writer::create(Vec::new(), hdr, zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
+        let over_limit: Vec<Record> = (0..(max as i64 + 1))
+            .map(|i| rec(ev_delta_ask(), i, i, i, i))
+            .collect();
+        // Программная ошибка вызывающего (см. доку `Writer::write_frame`) —
+        // тест проверяет, что это паника, а не `Result::Err`.
+        let _ = w.write_frame(&over_limit);
+    }
+
+    /// Кадр ровно на потолке (`records.len() == max_records_per_frame`) —
+    /// граничное значение, а не «за» ним: `Writer` обязан согласиться его
+    /// написать (`<=`, не `<`), и `Reader` обязан прочитать его штатно.
+    #[test]
+    fn frame_at_exactly_the_maximum_still_reads() {
+        let max = 3u32;
+        let hdr = Header {
+            tick_e9: TICK_E9,
+            step_e9: STEP_E9,
+            max_records_per_frame: max,
+        };
+        // Малые значения (все поля кодируются одним байтом: `ev`/`order_id`
+        // < 128, дельты в [-64, 63], `fval = 0.0`) — записи занимают ровно
+        // `MIN_RECORD_LEN` = 8 байт каждая, и разжатое тело кадра совпадает
+        // с потолком (`8 + 3*8 = 32`) байт в байт, не с запасом. Тест
+        // проверяет именно эту границу: `<=`, а не `<`, у сравнения внутри
+        // bounded zstd API. Кадр с тем же числом записей, но с типичными
+        // для потока полями (большие флаги `ev`, дельты времени в наносекундах
+        // между записями одного кадра) занял бы больше 8 байт на запись —
+        // это не противоречие: `max_records_per_frame` в заголовке обязан
+        // выбираться вызывающим (рекордером) с запасом над реальным
+        // байтовым размером его собственных кадров, а не равняться
+        // количеству записей, которое он фактически туда кладёт.
+        let frame: Vec<Record> = (0..max as i64).map(|i| rec(i as u64, i, i, i, i)).collect();
+        let bytes = write_all(hdr, std::slice::from_ref(&frame));
+        let (read_hdr, frames) = read_all(&bytes);
+        assert_eq!(read_hdr, hdr);
+        assert_eq!(
+            frames,
+            vec![frame],
+            "кадр ровно на потолке обязан читаться штатно"
+        );
+    }
+
+    /// Файл версии 1 (до ревизии 10 Decision 23): целый и полный заголовок
+    /// этой версии — magic(4) + version(1) + tick_e9(8) + step_e9(8) = 21
+    /// байт, **без** `max_records_per_frame` и без единого лишнего байта
+    /// сверх. Собран напрямую, потому что текущий `Writer` умеет писать
+    /// только текущую версию.
+    ///
+    /// Длина нарочно ровно 21, не 25 (`HEADER_LEN` версии 2): если бы
+    /// `Reader::open` по-прежнему читал единым куском фиксированные
+    /// `HEADER_LEN` байт (одним чтением на весь заголовок, как до этой
+    /// правки), этих 21 не хватило бы на затребованные 25, и код вернул бы
+    /// `TruncatedHeader` — правдоподобную, но **вводящую в заблуждение**
+    /// ошибку: файл не обрезан, он просто другой, более старой версии.
+    /// Два раздельных чтения (`MAGIC_VERSION_LEN`, затем `HEADER_TAIL_LEN`)
+    /// обязаны поймать несовпадение версии на первом шаге, пятью байтами,
+    /// раньше, чем код вообще спросит про хвост — вот что здесь проверяется.
+    #[test]
+    fn old_version_file_is_rejected_not_misread() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&MAGIC);
+        bytes.push(VERSION - 1);
+        bytes.extend_from_slice(&TICK_E9.to_le_bytes());
+        bytes.extend_from_slice(&STEP_E9.to_le_bytes());
+        assert_eq!(
+            bytes.len(),
+            21,
+            "ровно заголовок версии 1, ни байтом больше"
+        );
+
+        let err = Reader::open(&bytes[..]).unwrap_err();
+        assert_eq!(
+            err,
+            BinlogError::UnsupportedVersion { got: VERSION - 1 },
+            "старая версия обязана называться прямо, а не маскироваться под усечение"
+        );
+    }
+
+    /// Кадр, чья заявленная (сжатая) длина на диске правдоподобна, но
+    /// распаковка которого превышает потолок заголовка: отвергается как
+    /// `Err`, не паника, и — проверено через `alloc_count` — не после того,
+    /// как память под весь разжатый объём уже выделена. Потолок читателя
+    /// (`max_frame_payload_bytes`) сам по себе не бесполезен только если
+    /// он ограничивает именно **аллокацию**, а не служит числом, которое
+    /// код печатает уже после того, как разжал кадр целиком, — это и есть
+    /// разница между bounded API и «разжать, потом проверить».
+    #[test]
+    fn frame_exceeding_the_header_ceiling_is_rejected_without_full_allocation() {
+        let max = 10u32;
+        let hdr = Header {
+            tick_e9: TICK_E9,
+            step_e9: STEP_E9,
+            max_records_per_frame: max,
+        };
+        let expected_ceiling = max_frame_payload_bytes(max);
+        // 8 (эпоха) + 10 записей * 8 байт (минимум) = 88 — записано числом
+        // здесь исключительно для читаемости остальных чисел теста, само
+        // значение проверено равенством `max_frame_payload_bytes(max)` выше.
+        assert_eq!(expected_ceiling, 88);
+
+        let mut file = Writer::create(Vec::new(), hdr, zstd::DEFAULT_COMPRESSION_LEVEL)
+            .unwrap()
+            .into_inner();
+
+        // Сильно за потолком, не впритык: два миллиона одинаковых нулевых
+        // записей дают разжатый объём 8 + 2_000_000*8 = 16_000_008 байт —
+        // примерно в 180 000 раз больше 88-байтового потолка — и при этом
+        // сжимаются в исчезающе малый кадр на диске (проверено ниже).
+        const N: usize = 2_000_000;
+        let payload = raw_frame_payload_all_zero(N);
+        assert_eq!(payload.len(), FRAME_EPOCH_LEN + N * MIN_RECORD_LEN);
+        let frame_on_disk = frame_bytes_from_payload(&payload);
+        // Проверка теста на себе: «заявленная длина правдоподобна» значит
+        // сжатый кадр на диске обязан быть на порядки меньше того, во что
+        // он разжимается (не впритык к потолку — потолок сам по себе
+        // маленький, 88 байт, и сжатый кадр здесь его не меньше), иначе
+        // это тест на что-то другое, не на bounded decompression.
+        assert!(
+            frame_on_disk.len() * 100 < payload.len(),
+            "проверка теста на себе: сжатый кадр ({} байт) обязан быть на порядки \
+             меньше разжатого объёма ({} байт), иначе это не «легко сжимаемая \
+             полезная нагрузка», о которой говорит тест",
+            frame_on_disk.len(),
+            payload.len()
+        );
+        file.extend_from_slice(&frame_on_disk);
+
+        let mut r = Reader::open(&file[..]).unwrap();
+        let (result, counts) = alloc_count::measure(|| r.read_frame());
+        let err = result.expect_err(
+            "кадр, чья распаковка превышает потолок заголовка, обязан быть ошибкой, не Ok",
+        );
+        assert_eq!(
+            err,
+            BinlogError::FrameExceedsHeaderCeiling {
+                max_records_per_frame: max,
+                ceiling_bytes: expected_ceiling,
+            }
+        );
+        assert!(
+            counts.bytes < 50_000,
+            "аллокация обязана остаться в пределах потолка заголовка ({expected_ceiling} байт \
+             в этом тесте), а не расти пропорционально разжатому объёму (16 000 008 байт) — \
+             реально выделено {} байт",
+            counts.bytes
+        );
     }
 
     // -----------------------------------------------------------------

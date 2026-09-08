@@ -57,6 +57,8 @@ pub const MEASUREMENT_WINDOW_SECS: u64 = 3600;
 /// «>= $2000 в номинале на уровень» (Decision 18), в фиксированной точке 1e9
 /// (`ARCHITECTURE.md` A1) — тот же масштаб, что доллары нигде не участвуют
 /// в сравнении гейтов, но здесь именно доллар и есть измеряемая величина.
+/// Decision 18(б), ревизия 10: порог проверяется на бид и на аск **раздельно**
+/// — см. `select_final_two` и doc `DepthSample`.
 pub const DEPTH_FLOOR_USD_E9: i64 = 2_000 * 1_000_000_000;
 
 const LINEAR_QUOTE_COIN: &str = "USDT";
@@ -94,7 +96,9 @@ pub enum PickError {
     /// Покрывает и пустой пул (`len == 0`): причина отказа для вызывающего
     /// одна и та же — данных не хватает для терцилей, а не что-то ещё.
     PoolTooSmallForTerciles { len: usize },
-    /// Ни один измеренный кандидат не прошёл порог глубины.
+    /// Ни один измеренный кандидат не прошёл порог глубины **на обеих
+    /// сторонах** (Decision 18(б), ревизия 10) — толстая сторона не
+    /// засчитывается за тонкую.
     NoSurvivorsAboveDepthFloor {
         floor_usd_e9: i64,
         candidates: usize,
@@ -125,7 +129,7 @@ impl std::fmt::Display for PickError {
                 candidates,
             } => write!(
                 f,
-                "ни один из {candidates} измеренных кандидатов не набрал {} USD медианной глубины на уровень",
+                "ни один из {candidates} измеренных кандидатов не набрал {} USD медианной глубины на уровень на обеих сторонах",
                 *floor_usd_e9 as f64 / 1e9
             ),
             PickError::MinNotionalNotSatisfied {
@@ -162,17 +166,6 @@ pub struct CandidateMeta {
     pub contract_type: String,
     /// `None` — Bybit не прислал `launchTime` (см. `rest::Instrument`).
     pub launch_time_ms: Option<i64>,
-    /// Bybit не публикует признак «токенизированная акция» ни в одном поле
-    /// `instruments-info` — ни выделенного `assetClass`, ни `contractType`,
-    /// который отличал бы такой контракт от обычного linear-перпа. Поэтому
-    /// признак приходит явным входом (`--exclude-tokenized-equity` в
-    /// `PickArgs`), а не жёстким списком тикеров внутри кода: жёсткий список
-    /// был бы ровно тем «списком, который устаревает при смене листингов»,
-    /// от которого Decision 18 явно уходит для терциля, и тем же изобретённым
-    /// числом (точнее, набором строк), который запрещает бриф. На дату
-    /// написания Bybit не листингует такие контракты на linear-perp рынке
-    /// вовсе, поэтому пустой список по умолчанию — не заглушка, а факт.
-    pub is_tokenized_equity: bool,
     pub turnover_24h_usd_e9: i64,
 }
 
@@ -199,7 +192,6 @@ pub fn is_listed_long_enough(launch_time_ms: Option<i64>, now_ms: i64) -> bool {
 pub fn join_candidate_meta(
     instruments: &[Instrument],
     turnover_by_symbol: &HashMap<String, i64>,
-    tokenized_equity_symbols: &HashSet<String>,
 ) -> Vec<CandidateMeta> {
     instruments
         .iter()
@@ -211,7 +203,6 @@ pub fn join_candidate_meta(
                 quote_coin: inst.quote_coin.clone(),
                 contract_type: inst.contract_type.clone(),
                 launch_time_ms: inst.launch_time_ms,
-                is_tokenized_equity: tokenized_equity_symbols.contains(&inst.symbol),
                 turnover_24h_usd_e9,
             })
         })
@@ -250,10 +241,23 @@ fn canonical_asset(base_coin: &str) -> &str {
     base_coin
 }
 
-/// Строит пул Decision 18: linear USDT-перпы, торгуются >= 30 суток, не
-/// токенизированная акция, дубликаты одного актива схлопнуты в один — тот,
-/// у которого выше оборот (актуальный контракт этого актива), при равенстве
-/// оборота — лексикографически меньший символ (детерминизм, не смысл).
+/// Строит пул Decision 18: linear USDT-перпы, торгуются >= 30 суток,
+/// дубликаты одного актива схлопнуты в один — тот, у которого выше оборот
+/// (актуальный контракт этого актива), при равенстве оборота —
+/// лексикографически меньший символ (детерминизм, не смысл).
+///
+/// **Здесь нет фильтра токенизированных акций, и это не пробел.** Ревизии
+/// 4-9 называли их в исключениях отдельным пунктом, что толкало реализацию
+/// к списку тикеров — списку, который колонка «Отвергнуто» этого же решения
+/// прямо запрещает (он устаревает при каждой смене листингов, ровно как
+/// список, от которого Decision 18 уходит для терциля). Ревизия 10 убрала
+/// пункт целиком: у Bybit токенизированные акции — не бессрочные контракты
+/// категории `linear`, поэтому `instruments-info?category=linear`, который
+/// наполняет `candidates` этой функции, их и не возвращает — фильтровать
+/// здесь уже нечего. Если этот комментарий читается после регрессии (тикер
+/// акции всё же попал в выдачу `lob pick`) — чинить нужно категорию
+/// REST-запроса (`fetch_all_linear_instruments`/`rest::CATEGORY_LINEAR`),
+/// а не добавлять сюда список исключений.
 pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> Vec<PoolCandidate> {
     let mut best: BTreeMap<&str, &CandidateMeta> = BTreeMap::new();
     for c in candidates {
@@ -261,9 +265,6 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> Vec<PoolCandidat
             continue;
         }
         if c.contract_type != LINEAR_CONTRACT_TYPE {
-            continue;
-        }
-        if c.is_tokenized_equity {
             continue;
         }
         if !is_listed_long_enough(c.launch_time_ms, now_ms) {
@@ -380,76 +381,98 @@ pub fn median_depth_per_level_usd_e9(level_depths_usd_e9: &[i64]) -> Option<i64>
 }
 
 /// Один замер глубины книги: момент (наносекунды от эпохи Unix — тот же
-/// `local_ts_ns`, что `bybit::conn` ставит до разбора, H12) и номинал каждого
-/// уровня топ-50 в USD·1e9 на этот момент, обеих сторон книги вместе. Decision
-/// 18 говорит «уровней топ-50», не различая сторону — `orderbook.50`
-/// публикует по 50 на сторону, и объединение сторон здесь такое же законное
-/// прочтение фразы, как и разбиение по стороне; порознь план не разбивает
-/// глубину по стороне ни в одном другом гейте, так что асимметричный выбор
-/// (взять только бид или только аск) добавил бы решение, которого в тексте
-/// нет.
+/// `local_ts_ns`, что `bybit::conn` ставит до разбора, H12) и номинал
+/// каждого уровня топ-50 в USD·1e9 на этот момент, **раздельно по стороне**.
+///
+/// Decision 18(б), ревизия 10, закрыла двусмысленность, которую первая
+/// реализация читала иначе: «топ-50» — это пятьдесят уровней **одной**
+/// стороны, а не сто пополам, и порог глубины обязан выполняться на бид и
+/// на аск **независимо**. Причина — операционная, не эстетическая: отдыхать
+/// ордером можно только на одной стороне книги, и объединённая медиана по
+/// сотне уровней прячет систематически тонкую сторону за толстой ровно там,
+/// где заявка и упёрлась бы в исполнение. Раньше здесь было одно поле
+/// `level_notional_usd_e9`, собранное `Iterator::chain` из обеих сторон, —
+/// то самое прочтение, которое ревизия 10 отвергла явно.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepthSample {
     pub at_ns: i64,
-    pub level_notional_usd_e9: Vec<i64>,
+    pub bid_notional_usd_e9: Vec<i64>,
+    pub ask_notional_usd_e9: Vec<i64>,
 }
 
-/// Время-взвешенная медиана глубины по уровням за окно `[samples[0].at_ns,
-/// window_end_ns)` (Decision 18: «глубина считается времени-взвешенно»).
+/// Время-взвешенная медиана глубины **одной стороны** за окно
+/// `[samples[0].at_ns, window_end_ns)` (Decision 18: «глубина считается
+/// времени-взвешенно», Decision 18(б): раздельно по стороне).
 ///
-/// Между двумя последовательными замерами глубина уровня считается
-/// неизменной — так и есть, книга меняется только событием, а не течением
-/// времени, — поэтому вклад замера в среднее взвешен длительностью до
-/// следующего замера (для последнего — до конца окна). Ряды уровней у разных
-/// замеров могут быть разной длины (глубина книги у края топ-50 дрожит) —
-/// недостающий уровень на конкретном замере учитывается как глубина `0` на
-/// этот замер, а не выбрасывается: рост числа уровней в выборке во времени
-/// не должен молча отбрасывать историю замеров, где их было меньше.
+/// **Порядок операций — Decision 18(в), ревизия 10, задаёт его явно и в этом
+/// порядке:** номинал уровня (размер × цена) в каждом снимке — уже готов на
+/// входе, `levels_of(s)` читает его из `DepthSample`, посчитанного раньше;
+/// затем медиана **по уровням этого снимка** — `median_depth_per_level_usd_e9`
+/// ниже, применённая к каждому снимку отдельно, даёт один скаляр на снимок;
+/// и только затем — взвешивание этих скаляров по времени между снимками
+/// (длительностью до следующего снимка, для последнего — до конца окна).
 ///
-/// **Порядок операций — тоже прочтение фразы, а не только сторона книги.**
-/// «Времени-взвешенная медианная глубина» не называет порядок дословно:
-/// здесь для каждой позиции уровня сперва считается взвешенное по времени
-/// среднее её глубины за час (`weighted_sum[lvl] / total_weight_ns`), и уже
-/// затем берётся медиана по этим ~100 усреднённым числам —
-/// `median_depth_per_level_usd_e9`, которая ниже и печатает «медиана по
-/// уровням, не сумма». Симметричное прочтение — на каждом замере взять
-/// медиану по живым уровням этого момента (скаляр), а затем усреднить эти
-/// скаляры по времени — не эквивалентно: медиана и среднее не коммутируют.
-/// Выбранный порядок — тот, что явно называет Decision 18 в скобках про сам
-/// порог: «$2000 в номинале на уровень (медиана **по уровням** топ-50, не
-/// сумма по ним)» — внешняя операция берёт медиану по срезу уровней, то есть
-/// медиана здесь одна, и она — по уровням, а не по времени; никакая
-/// последовательность промежуточных медиан по времени в план не входит.
-pub fn time_weighted_median_depth_usd_e9(
+/// Более ранняя реализация (до ревизии 10, и её собственный doc-комментарий
+/// здесь же аргументировал за неё на нескольких абзацах) делала обратное:
+/// сперва взвешенное по времени среднее для каждой **позиции** уровня за
+/// весь час, и лишь затем медиана по ~50 усреднённым числам. План не считал
+/// этот порядок согласованным нигде до ревизии 10 — предыдущий комментарий
+/// заявлял обратное, ссылаясь на скобку самого Decision 18 как на решённый
+/// вопрос порядка, и это было ошибкой чтения, а не решением плана: скобка
+/// говорит про медиану по уровням против суммы по ним (пункт (а)), а не про
+/// то, в каком порядке эта медиана встречается со временем. Ревизия 10
+/// впервые называет порядок словами и явно отвергает обратный: «номинал от
+/// медианного размера считает деньги по цене, которой на тонкой стороне
+/// может не быть» — здесь этот обратный порядок и недостижим по построению,
+/// потому что на вход уже приходит номинал (размер, уже умноженный на цену
+/// того же снимка), а не размер отдельно от цены.
+///
+/// Побочный эффект правильного порядка: снимкам разной длины (глубина книги
+/// у края топ-50 дрожит) больше не нужно взаимное выравнивание позиций —
+/// медиана каждого снимка берётся по его собственным уровням, и короткий
+/// снимок не голосует «нулевым» уровнем за позицию, которой на бирже не
+/// было. Снимок вовсе без уровней этой стороны (`median_depth_per_level_usd_e9`
+/// возвращает `None` — см. её doc: пустой вход значит «данных нет», а не
+/// «глубина ноль») пропускается целиком и не взвешивается: секундный пробел
+/// на одной стороне внутри часа живого потока не должен обнулять весь замер.
+fn time_weighted_median_for_side(
     samples: &[DepthSample],
     window_end_ns: i64,
+    levels_of: impl Fn(&DepthSample) -> &[i64],
 ) -> Option<i64> {
-    let n_levels = samples
-        .iter()
-        .map(|s| s.level_notional_usd_e9.len())
-        .max()?;
-    if n_levels == 0 {
-        return None;
-    }
-    let mut weighted_sum = vec![0i128; n_levels];
+    let mut weighted_sum: i128 = 0;
     let mut total_weight_ns: i128 = 0;
     for (i, s) in samples.iter().enumerate() {
+        let Some(snapshot_median) = median_depth_per_level_usd_e9(levels_of(s)) else {
+            continue;
+        };
         let next_at = samples.get(i + 1).map_or(window_end_ns, |next| next.at_ns);
         let dt = (next_at - s.at_ns).max(0) as i128;
         total_weight_ns += dt;
-        for (lvl, slot) in weighted_sum.iter_mut().enumerate() {
-            let depth = s.level_notional_usd_e9.get(lvl).copied().unwrap_or(0);
-            *slot += depth as i128 * dt;
-        }
+        weighted_sum += snapshot_median as i128 * dt;
     }
     if total_weight_ns == 0 {
         return None;
     }
-    let level_avgs: Vec<i64> = weighted_sum
-        .iter()
-        .map(|&w| (w / total_weight_ns) as i64)
-        .collect();
-    median_depth_per_level_usd_e9(&level_avgs)
+    Some((weighted_sum / total_weight_ns) as i64)
+}
+
+/// Время-взвешенная медианная глубина стороны **бид** — см.
+/// `time_weighted_median_for_side` про порядок операций.
+pub fn time_weighted_median_bid_depth_usd_e9(
+    samples: &[DepthSample],
+    window_end_ns: i64,
+) -> Option<i64> {
+    time_weighted_median_for_side(samples, window_end_ns, |s| s.bid_notional_usd_e9.as_slice())
+}
+
+/// Время-взвешенная медианная глубина стороны **аск** — см.
+/// `time_weighted_median_for_side` про порядок операций.
+pub fn time_weighted_median_ask_depth_usd_e9(
+    samples: &[DepthSample],
+    window_end_ns: i64,
+) -> Option<i64> {
+    time_weighted_median_for_side(samples, window_end_ns, |s| s.ask_notional_usd_e9.as_slice())
 }
 
 // ---------------------------------------------------------------------------
@@ -464,15 +487,30 @@ pub struct MeasuredCandidate {
     pub symbol: String,
     pub window_start_utc_ms: i64,
     pub window_secs: i64,
-    /// Число событий книги за окно — тот же счётчик, что определяет
-    /// `median_depth_usd_e9` в `time_weighted_median_depth_usd_e9` (там это
-    /// `samples.len()`): каждый принятый апдейт книги — одно событие и один
-    /// замер разом, отдельного счётчика заводить незачем.
+    /// Число событий книги за окно — тот же счётчик, что определяет оба
+    /// поля глубины ниже через `time_weighted_median_{bid,ask}_depth_usd_e9`
+    /// (там это `samples.len()`): каждый принятый апдейт книги — одно
+    /// событие и один замер разом, отдельного счётчика заводить незачем.
     pub events: i64,
-    pub median_depth_usd_e9: i64,
+    /// Decision 18(б), ревизия 10: «топ-50» — пятьдесят уровней одной
+    /// стороны, порог и ранжирование читают обе стороны раздельно, не одно
+    /// объединённое число (см. doc `DepthSample`).
+    pub median_bid_depth_usd_e9: i64,
+    pub median_ask_depth_usd_e9: i64,
     /// Только для печати в таблице (Decision 18: «отчётный оборот никогда не
     /// критерий») — `select_final_two` этого поля не читает вовсе.
     pub reported_turnover_usd_e9: i64,
+}
+
+impl MeasuredCandidate {
+    /// Худшая из двух сторон — связывающая величина и для порога, и для
+    /// ранжирования: отдыхать ордером можно только на одной стороне, и
+    /// именно она определяет, исполнится ли заявка, а не более толстая
+    /// соседняя (см. doc `DepthSample`, Decision 18(б)).
+    pub fn min_side_depth_usd_e9(&self) -> i64 {
+        self.median_bid_depth_usd_e9
+            .min(self.median_ask_depth_usd_e9)
+    }
 }
 
 /// Сравнение по темпу событий без деления и без `f64`: `events / window_secs`
@@ -485,17 +523,22 @@ fn event_rate_cmp(a: &MeasuredCandidate, b: &MeasuredCandidate) -> std::cmp::Ord
     (a.events as i128 * b.window_secs as i128).cmp(&(b.events as i128 * a.window_secs as i128))
 }
 
-/// Финальная стадия Decision 18: порог глубины (не сумма — уже применён на
-/// стадии измерения, `median_depth_usd_e9` это медиана по построению), ранг
-/// по измеренной глубине, при равенстве — по темпу событий, при равенстве и
-/// там — по символу (детерминизм, не смысл). Отчётный оборот здесь не
-/// участвует вовсе, поэтому не может продвинуть кандидата ниже порога.
+/// Финальная стадия Decision 18: порог глубины обязан пройти на **обеих**
+/// сторонах независимо (18(б)) — не сумма и не среднее двух; ранг по
+/// худшей из двух сторон (`min_side_depth_usd_e9`, та же логика, что и
+/// сам порог: толстая сторона не должна прятать тонкую ни в гейте, ни в
+/// ранжировании), при равенстве — по темпу событий, при равенстве и там —
+/// по символу (детерминизм, не смысл). Отчётный оборот здесь не участвует
+/// вовсе, поэтому не может продвинуть кандидата ниже порога.
 pub fn select_final_two(
     measured: &[MeasuredCandidate],
 ) -> Result<Vec<MeasuredCandidate>, PickError> {
     let mut survivors: Vec<&MeasuredCandidate> = measured
         .iter()
-        .filter(|m| m.median_depth_usd_e9 >= DEPTH_FLOOR_USD_E9)
+        .filter(|m| {
+            m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+                && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+        })
         .collect();
     if survivors.is_empty() {
         return Err(PickError::NoSurvivorsAboveDepthFloor {
@@ -504,8 +547,8 @@ pub fn select_final_two(
         });
     }
     survivors.sort_by(|a, b| {
-        b.median_depth_usd_e9
-            .cmp(&a.median_depth_usd_e9)
+        b.min_side_depth_usd_e9()
+            .cmp(&a.min_side_depth_usd_e9())
             .then_with(|| event_rate_cmp(b, a))
             .then_with(|| a.symbol.cmp(&b.symbol))
     });
@@ -550,7 +593,11 @@ pub struct CandidateRow {
     pub window_start_utc_ms: Option<i64>,
     pub window_secs: Option<i64>,
     pub events: Option<i64>,
-    pub median_depth_usd_e9: Option<i64>,
+    /// Decision 18(б), ревизия 10: колонки раздельно по стороне — одно
+    /// объединённое число пряталось бы за толстой стороной.
+    pub median_bid_depth_usd_e9: Option<i64>,
+    pub median_ask_depth_usd_e9: Option<i64>,
+    /// `true`, только если порог пройден на **обеих** сторонах.
     pub above_depth_floor: Option<bool>,
     pub selected_for_pilot: bool,
     pub final_rank: Option<u8>,
@@ -600,8 +647,12 @@ pub fn build_candidate_table(
                 window_start_utc_ms: m.map(|m| m.window_start_utc_ms),
                 window_secs: m.map(|m| m.window_secs),
                 events: m.map(|m| m.events),
-                median_depth_usd_e9: m.map(|m| m.median_depth_usd_e9),
-                above_depth_floor: m.map(|m| m.median_depth_usd_e9 >= DEPTH_FLOOR_USD_E9),
+                median_bid_depth_usd_e9: m.map(|m| m.median_bid_depth_usd_e9),
+                median_ask_depth_usd_e9: m.map(|m| m.median_ask_depth_usd_e9),
+                above_depth_floor: m.map(|m| {
+                    m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+                        && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+                }),
                 selected_for_pilot: selected_rank.contains_key(c.symbol.as_str()),
                 final_rank: selected_rank.get(c.symbol.as_str()).copied(),
             }
@@ -716,23 +767,24 @@ fn level_notional_usd_e9(tick: i64, qty_lots: i64, tick_e9: i64, step_e9: i64) -
     (price_e9 * qty_e9 / 1_000_000_000) as i64
 }
 
-/// Номинал каждого уровня книги обеих сторон в USD·1e9, одним вектором и
-/// одной аллокацией (`DepthSample` несёт обе стороны вместе — см. её doc).
+/// Номинал каждого уровня **одной стороны** книги в USD·1e9, одним вектором
+/// и одной аллокацией: `Book::levels` отдаёт `Map<Range<usize>, _>`, чей
+/// `size_hint` точен, и `collect` резервирует нужный размер заранее.
 ///
-/// Раньше здесь стояли два отдельных вызова этой функции (по одному на
-/// сторону) плюс `Vec::extend`: бид-вектор аллоцируется под точный размер
-/// бид-уровней, и `extend` аском почти всегда заставляет его перевыделяться
-/// заново — три аллокации на принятое обновление книги вместо одной.
-/// `Iterator::chain` вместе с `collect` избегает этого: `Book::levels`
-/// отдаёт `Map<Range<usize>, _>`, чей `size_hint` точен, `Chain` складывает
-/// точные `size_hint` обеих сторон, и `collect` резервирует нужный размер
-/// заранее одним выделением. На часовом замере с `PREFILTER_TOP_N`
-/// параллельными символами это не косметика: событие книги — самый частый
-/// код этого модуля.
-fn book_level_notionals_usd_e9(book: &crate::book::Book, tick_e9: i64, step_e9: i64) -> Vec<i64> {
-    use crate::book::Side;
-    book.levels(Side::Bid)
-        .chain(book.levels(Side::Ask))
+/// Раньше эта функция принимала обе стороны разом (`Iterator::chain` бид с
+/// аском в один вектор) — Decision 18(б), ревизия 10, запрещает объединять
+/// стороны: порог глубины обязан проверяться на каждой независимо (см. doc
+/// `DepthSample`), и общий вектор для этого уже не годится. По одному вызову
+/// на сторону на каждое принятое обновление книги — на часовом замере с
+/// `PREFILTER_TOP_N` параллельными символами это не косметика: событие
+/// книги — самый частый код этого модуля.
+fn book_level_notionals_usd_e9(
+    book: &crate::book::Book,
+    side: crate::book::Side,
+    tick_e9: i64,
+    step_e9: i64,
+) -> Vec<i64> {
+    book.levels(side)
         .map(|(tick, qty_lots)| level_notional_usd_e9(tick, qty_lots, tick_e9, step_e9))
         .collect()
 }
@@ -751,14 +803,15 @@ fn book_level_notionals_usd_e9(book: &crate::book::Book, tick_e9: i64, step_e9: 
 /// символа на величину этой задержки — молча, без ошибки, без следа в
 /// коммитимой таблице. Один и тот же `Instant` для всех задач держит их на
 /// общей временной шкале с `window_end_ns`, которым дальше взвешивается
-/// последний замер каждого символа (`time_weighted_median_depth_usd_e9`).
+/// последний замер каждого символа (`time_weighted_median_bid_depth_usd_e9`,
+/// `time_weighted_median_ask_depth_usd_e9`).
 async fn measure_one_symbol(
     symbol: String,
     tick_e9: i64,
     step_e9: i64,
     deadline: tokio::time::Instant,
 ) -> Vec<DepthSample> {
-    use crate::book::Book;
+    use crate::book::{Book, Side};
     use crate::bybit::conn::{
         BybitPublicLinearConnector, ConnConfig, ConnEvent, Connection, SystemClock,
     };
@@ -791,7 +844,18 @@ async fn measure_one_symbol(
                 if book.apply(&update).is_ok() {
                     samples.push(DepthSample {
                         at_ns: local_ts_ns,
-                        level_notional_usd_e9: book_level_notionals_usd_e9(&book, tick_e9, step_e9),
+                        bid_notional_usd_e9: book_level_notionals_usd_e9(
+                            &book,
+                            Side::Bid,
+                            tick_e9,
+                            step_e9,
+                        ),
+                        ask_notional_usd_e9: book_level_notionals_usd_e9(
+                            &book,
+                            Side::Ask,
+                            tick_e9,
+                            step_e9,
+                        ),
                     });
                 }
             }
@@ -841,7 +905,16 @@ pub async fn measure_prefiltered(
     let mut out = Vec::new();
     for (symbol, reported_turnover_usd_e9, handle) in handles {
         let Ok(samples) = handle.await else { continue };
-        let Some(median_depth_usd_e9) = time_weighted_median_depth_usd_e9(&samples, window_end_ns)
+        // Обе стороны обязаны иметь измерение (Decision 18(б)) — кандидат
+        // без данных на какой-либо из сторон пропускается целиком, так же
+        // как раньше пропускался кандидат без единого объединённого числа.
+        let Some(median_bid_depth_usd_e9) =
+            time_weighted_median_bid_depth_usd_e9(&samples, window_end_ns)
+        else {
+            continue;
+        };
+        let Some(median_ask_depth_usd_e9) =
+            time_weighted_median_ask_depth_usd_e9(&samples, window_end_ns)
         else {
             continue;
         };
@@ -850,7 +923,8 @@ pub async fn measure_prefiltered(
             window_start_utc_ms,
             window_secs: window_secs as i64,
             events: samples.len() as i64,
-            median_depth_usd_e9,
+            median_bid_depth_usd_e9,
+            median_ask_depth_usd_e9,
             reported_turnover_usd_e9,
         });
     }
@@ -889,8 +963,8 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             }
             for m in &report.selected {
                 println!(
-                    "pilot: {} (глубина {} USD·1e-9)",
-                    m.symbol, m.median_depth_usd_e9
+                    "pilot: {} (бид {} / аск {} USD·1e-9)",
+                    m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
                 );
             }
             Ok(())
@@ -910,10 +984,6 @@ pub struct PickArgs {
     /// Куда писать коммитимую таблицу кандидатов (done-condition шага 0.4).
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_out: PathBuf,
-    /// Символы, вручную помеченные как токенизированные акции — см. doc
-    /// `CandidateMeta::is_tokenized_equity`. Пусто по умолчанию.
-    #[arg(long, value_delimiter = ',')]
-    pub exclude_tokenized_equity: Vec<String>,
 }
 
 /// Итог `lob pick`: полная таблица (все промежуточные колонки) и то, что
@@ -953,8 +1023,7 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
         .iter()
         .map(|t| (t.symbol.clone(), t.last_price_e9))
         .collect();
-    let exclude: HashSet<String> = args.exclude_tokenized_equity.iter().cloned().collect();
-    let meta = join_candidate_meta(&instruments, &turnover_by_symbol, &exclude);
+    let meta = join_candidate_meta(&instruments, &turnover_by_symbol);
 
     let now_ms = wall_clock_ms();
     let pool = build_pool(&meta, now_ms);
@@ -1014,7 +1083,6 @@ mod tests {
             quote_coin: "USDT".to_string(),
             contract_type: "LinearPerpetual".to_string(),
             launch_time_ms: Some(0), // «родился на эпохе» — всегда старше 30 суток в тестах
-            is_tokenized_equity: false,
             turnover_24h_usd_e9: turnover,
         }
     }
@@ -1045,7 +1113,7 @@ mod tests {
     #[test]
     fn join_drops_symbols_without_a_ticker() {
         let instruments = vec![no_data_instrument()];
-        let out = join_candidate_meta(&instruments, &HashMap::new(), &HashSet::new());
+        let out = join_candidate_meta(&instruments, &HashMap::new());
         assert!(
             out.is_empty(),
             "без оборота ранжировать нечем — символ выпадает"
@@ -1064,33 +1132,13 @@ mod tests {
         let instruments = vec![has_ticker, no_data_instrument()];
         let turnover = HashMap::from([("HASDATAUSDT".to_string(), e9(1_000))]);
 
-        let out = join_candidate_meta(&instruments, &turnover, &HashSet::new());
+        let out = join_candidate_meta(&instruments, &turnover);
 
         assert_eq!(
             out.iter().map(|c| c.symbol.as_str()).collect::<Vec<_>>(),
             vec!["HASDATAUSDT"],
             "с тикером — остаётся, без тикера — выпадает, оба в одном вызове"
         );
-    }
-
-    #[test]
-    fn join_marks_the_flagged_symbol_as_tokenized_equity() {
-        let instruments = vec![Instrument {
-            symbol: "TSLAUSDT".to_string(),
-            base_coin: "TSLA".to_string(),
-            quote_coin: "USDT".to_string(),
-            contract_type: "LinearPerpetual".to_string(),
-            status: "Trading".to_string(),
-            launch_time_ms: Some(0),
-            tick_e9: 1,
-            min_order_qty_e9: 1,
-            qty_step_e9: 1,
-            min_notional_value_e9: 0,
-        }];
-        let turnover = HashMap::from([("TSLAUSDT".to_string(), e9(1_000))]);
-        let exclude = HashSet::from(["TSLAUSDT".to_string()]);
-        let out = join_candidate_meta(&instruments, &turnover, &exclude);
-        assert!(out[0].is_tokenized_equity);
     }
 
     // -- is_listed_long_enough -------------------------------------------
@@ -1128,11 +1176,65 @@ mod tests {
         assert!(build_pool(&[c], NOW_MS).is_empty());
     }
 
+    /// Требуемый тест (Decision 18, ревизия 10): отдельного правила против
+    /// токенизированных акций больше нет — Bybit не возвращает их в пуле
+    /// категории `linear` вовсе, поэтому фильтровать в коде уже нечего.
+    /// Символ здесь проходит все ОСТАЛЬНЫЕ фильтры пула (USDT,
+    /// LinearPerpetual, достаточный возраст) и обязан остаться: до ревизии
+    /// 10 тот же символ можно было вычеркнуть флагом `is_tokenized_equity`
+    /// (или CLI-флагом `--exclude-tokenized-equity`), которых больше нет ни
+    /// в `CandidateMeta`, ни в `PickArgs`.
+    ///
+    /// **Почему одной проверки `build_pool(&[c], ..).len() == 1` тут
+    /// недостаточно** (и почему первая версия этого теста не ловила
+    /// регрессию, хотя выглядела так, будто должна). Старый механизм можно
+    /// вернуть буквально: добавить в `CandidateMeta` поле
+    /// `is_tokenized_equity: bool`, оставить ему значение по умолчанию
+    /// `false` везде, где структура строится (в т.ч. в `meta()` ниже), и
+    /// вернуть в `build_pool` `if c.is_tokenized_equity { continue }`. Раз
+    /// значение по умолчанию — `false`, фильтр не сработает НИ НА ОДНОМ
+    /// кандидате ни в одном тесте этого файла, и старая версия теста
+    /// (только `build_pool` и длина результата) останется зелёной — список
+    /// исключений, в котором ничего нет (или который никто не заполнил),
+    /// неотличим по наблюдаемому поведению от полного отсутствия механизма.
+    /// Значит, ловить регрессию поведением `build_pool` в принципе нельзя:
+    /// нужно не пускать дело до фильтра вовсе.
+    ///
+    /// Поэтому ниже — исчерпывающая деструктуризация `CandidateMeta` без
+    /// `..`: компилятор требует назвать здесь буквально каждое поле
+    /// структуры. Если у неё когда-нибудь появится новое поле (не
+    /// обязательно `is_tokenized_equity` — любое), эта строка перестанет
+    /// собираться, пока кто-то не впишет его сюда осознанно и не объяснит,
+    /// что с ним делать в `build_pool`. `cargo test` в этом случае падает
+    /// на этапе компиляции раньше, чем успевает запуститься хоть один
+    /// тест, — то есть красный результат гарантирован значением типа, а не
+    /// удачным выбором тестовых данных.
     #[test]
-    fn pool_excludes_tokenized_equity() {
-        let mut c = meta("TSLAUSDT", "TSLA", e9(1_000_000));
-        c.is_tokenized_equity = true;
-        assert!(build_pool(&[c], NOW_MS).is_empty());
+    fn build_pool_includes_a_symbol_that_used_to_be_flagged_as_tokenized_equity() {
+        let c = meta("TSLAUSDT", "TSLA", e9(1_000_000));
+
+        let CandidateMeta {
+            symbol,
+            base_coin,
+            quote_coin,
+            contract_type,
+            launch_time_ms,
+            turnover_24h_usd_e9,
+        } = c.clone();
+        assert_eq!(symbol, "TSLAUSDT");
+        assert_eq!(base_coin, "TSLA");
+        assert_eq!(quote_coin, "USDT");
+        assert_eq!(contract_type, "LinearPerpetual");
+        assert_eq!(launch_time_ms, Some(0));
+        assert_eq!(turnover_24h_usd_e9, e9(1_000_000));
+
+        let pool = build_pool(&[c], NOW_MS);
+        assert_eq!(
+            pool.len(),
+            1,
+            "символа, похожего на токенизированную акцию, нечем больше вычёркивать из пула"
+        );
+        assert_eq!(pool[0].symbol, "TSLAUSDT");
     }
 
     #[test]
@@ -1433,62 +1535,155 @@ mod tests {
         assert_eq!(median_depth_per_level_usd_e9(&levels_eq), Some(i64::MAX));
     }
 
-    // -- time_weighted_median_depth_usd_e9 -----------------------------------
+    // -- time_weighted_median_{bid,ask}_depth_usd_e9 -------------------------
 
     #[test]
     fn time_weighted_median_weighs_by_duration_to_next_sample() {
         // Один уровень: глубина 10 держится 1с, потом 30 держится 3с — среднее
         // взвешенное (10*1 + 30*3)/4 = 25, не простое среднее (10+30)/2=20.
+        // Один уровень на снимок — медиана снимка равна ему самому, порядок
+        // операций (Изменение 2) здесь ничего не меняет.
         let samples = vec![
             DepthSample {
                 at_ns: 0,
-                level_notional_usd_e9: vec![e9(10)],
+                bid_notional_usd_e9: vec![e9(10)],
+                ask_notional_usd_e9: vec![],
             },
             DepthSample {
                 at_ns: 1_000_000_000,
-                level_notional_usd_e9: vec![e9(30)],
+                bid_notional_usd_e9: vec![e9(30)],
+                ask_notional_usd_e9: vec![],
             },
         ];
         let window_end_ns = 4_000_000_000;
         assert_eq!(
-            time_weighted_median_depth_usd_e9(&samples, window_end_ns),
+            time_weighted_median_bid_depth_usd_e9(&samples, window_end_ns),
             Some(e9(25))
         );
     }
 
     #[test]
     fn time_weighted_median_of_empty_samples_is_none_not_a_panic() {
-        assert_eq!(time_weighted_median_depth_usd_e9(&[], 1_000), None);
+        assert_eq!(time_weighted_median_bid_depth_usd_e9(&[], 1_000), None);
+        assert_eq!(time_weighted_median_ask_depth_usd_e9(&[], 1_000), None);
     }
 
+    /// Требуемый тест (Изменение 1): толстый бид не должен просочиться в
+    /// медиану аска через общее хранилище — раньше `DepthSample` нёс обе
+    /// стороны в одном `Vec` (`level_notional_usd_e9`), собранном
+    /// `Iterator::chain`, и наблюдение с сотней толстых бидов подняло бы
+    /// объединённую медиану выше порога, даже если аск тонок или пуст.
     #[test]
-    fn time_weighted_median_handles_ragged_level_counts_without_panicking() {
+    fn time_weighted_median_does_not_pool_the_two_sides() {
+        let samples = vec![DepthSample {
+            at_ns: 0,
+            bid_notional_usd_e9: vec![DEPTH_FLOOR_USD_E9 * 100; 50], // толстый бид
+            ask_notional_usd_e9: vec![e9(1); 50],                    // тонкий аск
+        }];
+        let window_end_ns = 1_000_000_000;
+        assert_eq!(
+            time_weighted_median_bid_depth_usd_e9(&samples, window_end_ns),
+            Some(DEPTH_FLOOR_USD_E9 * 100)
+        );
+        assert_eq!(
+            time_weighted_median_ask_depth_usd_e9(&samples, window_end_ns),
+            Some(e9(1)),
+            "медиана аска обязана считаться по уровням аска, не смешиваться с бидом"
+        );
+    }
+
+    /// Требуемый тест (Изменение 2, Decision 18в ревизии 10): порядок
+    /// операций — сначала медиана по уровням КАЖДОГО снимка, затем
+    /// взвешивание этих скаляров по времени; не наоборот. Числа подобраны
+    /// так, что два порядка дают разный ответ на одних и тех же данных: A
+    /// (3 уровня, короче) и B (2 уровня) получают равный вес по времени
+    /// (1с каждый, window_end = 2с).
+    ///
+    /// Правильный порядок: median(A=[10,20,30]) = 20, median(B=[1000,2000])
+    /// = 1000 + (2000-1000)/2 = 1500; взвешенное среднее по равным весам —
+    /// (20 + 1500) / 2 = 760.
+    ///
+    /// Обратный порядок (сначала взвесить по времени каждую ПОЗИЦИЮ уровня
+    /// за оба снимка — с недостающей позицией B[2], учтённой как 0, — и
+    /// только потом взять медиану по позициям) даёт другое число: позиции
+    /// [505, 1010, 15], медиана 505. Это и есть старое поведение, которое
+    /// ревизия 10 отвергла — `assert_ne!` ниже утверждает, что реализация
+    /// не должна давать этот ответ.
+    #[test]
+    fn time_weighted_median_computes_per_snapshot_median_before_time_weighting() {
         let samples = vec![
             DepthSample {
                 at_ns: 0,
-                level_notional_usd_e9: vec![e9(10), e9(20)],
+                bid_notional_usd_e9: vec![e9(10), e9(20), e9(30)],
+                ask_notional_usd_e9: vec![],
+            },
+            DepthSample {
+                at_ns: 1_000_000_000,
+                bid_notional_usd_e9: vec![e9(1000), e9(2000)],
+                ask_notional_usd_e9: vec![],
+            },
+        ];
+        let window_end_ns = 2_000_000_000;
+
+        assert_eq!(
+            time_weighted_median_bid_depth_usd_e9(&samples, window_end_ns),
+            Some(e9(760)),
+            "медиана каждого снимка обязана считаться первой, до взвешивания по времени"
+        );
+        assert_ne!(
+            time_weighted_median_bid_depth_usd_e9(&samples, window_end_ns),
+            Some(e9(505)),
+            "505 — ответ обратного (отвергнутого ревизией 10) порядка операций"
+        );
+    }
+
+    /// Раньше короткий снимок дополнялся нулём на недостающих ПОЗИЦИЯХ
+    /// уровня, потому что порядок операций был обратным (см. предыдущий
+    /// тест). В правильном порядке (Decision 18в) у каждого снимка — своя
+    /// медиана по своим же уровням, дополнять нечем: снимок короче на один
+    /// уровень просто даёт медиану по тому, что в нём есть, не паникует и
+    /// не голосует «нулевым» уровнем, которого на бирже не было.
+    #[test]
+    fn time_weighted_median_computes_each_snapshot_independently_without_padding() {
+        let samples = vec![
+            DepthSample {
+                at_ns: 0,
+                bid_notional_usd_e9: vec![e9(10), e9(20)],
+                ask_notional_usd_e9: vec![],
             },
             DepthSample {
                 at_ns: 1,
-                level_notional_usd_e9: vec![e9(30)], // на один уровень короче
+                bid_notional_usd_e9: vec![e9(25)], // короче на один уровень
+                ask_notional_usd_e9: vec![],
             },
         ];
-        // Ручной расчёт по документированному правилу («недостающий уровень
-        // считается глубиной 0 на этот замер»), window_end_ns = 2:
-        //   lvl0: (10*1 + 30*1) / 2 = 20   lvl1: (20*1 + 0*1) / 2 = 10
-        //   median([20, 10]) = 10 + (20-10)/2 = 15
-        // `is_some()` пропустил бы и «пронести последнее известное значение
-        // вперёд», и «выбросить укороченный замер», и любую другую
-        // раздутую/заниженную бухгалтерию по недостающему уровню — только
-        // точное число различает их.
-        assert_eq!(time_weighted_median_depth_usd_e9(&samples, 2), Some(e9(15)));
+        // median(A=[10,20]) = 10 + (20-10)/2 = 15; median(B=[25]) = 25.
+        // Равные веса (window_end=2, dtA=dtB=1): (15+25)/2 = 20.
+        assert_eq!(
+            time_weighted_median_bid_depth_usd_e9(&samples, 2),
+            Some(e9(20))
+        );
     }
 
     // -- select_final_two -----------------------------------------------------
 
+    /// Оба борта равны `depth` — совместимо со старым однозначным чтением
+    /// большинства тестов ниже, которые не проверяют асимметрию сторон.
+    /// Асимметричные сценарии используют `measured_sided` напрямую.
     fn measured(
         symbol: &str,
         depth: i64,
+        turnover: i64,
+        events: i64,
+        window_secs: i64,
+    ) -> MeasuredCandidate {
+        measured_sided(symbol, depth, depth, turnover, events, window_secs)
+    }
+
+    fn measured_sided(
+        symbol: &str,
+        bid_depth: i64,
+        ask_depth: i64,
         turnover: i64,
         events: i64,
         window_secs: i64,
@@ -1498,9 +1693,35 @@ mod tests {
             window_start_utc_ms: 0,
             window_secs,
             events,
-            median_depth_usd_e9: depth,
+            median_bid_depth_usd_e9: bid_depth,
+            median_ask_depth_usd_e9: ask_depth,
             reported_turnover_usd_e9: turnover,
         }
+    }
+
+    /// Требуемый тест (Изменение 1, Decision 18б ревизии 10): порог обязан
+    /// выполняться на КАЖДОЙ стороне отдельно — толстый бид не может
+    /// прикрыть тонкий аск. Бид далеко выше порога, аск далеко ниже — со
+    /// старым (объединённым по обеим сторонам) прочтением такой кандидат
+    /// мог пройти отбор, потому что усреднённая по сотне уровней глубина
+    /// оставалась бы выше порога даже с пустым или крайне тонким аском.
+    #[test]
+    fn select_final_two_requires_the_depth_floor_on_both_sides_independently() {
+        let m = vec![measured_sided(
+            "FAT_BID_THIN_ASK",
+            DEPTH_FLOOR_USD_E9 * 10,
+            DEPTH_FLOOR_USD_E9 / 10,
+            0,
+            1,
+            3600,
+        )];
+        assert_eq!(
+            select_final_two(&m).unwrap_err(),
+            PickError::NoSurvivorsAboveDepthFloor {
+                floor_usd_e9: DEPTH_FLOOR_USD_E9,
+                candidates: 1
+            }
+        );
     }
 
     #[test]
@@ -1709,7 +1930,8 @@ mod tests {
         window_start_utc_ms: Option<i64>,
         window_secs: Option<i64>,
         events: Option<i64>,
-        median_depth_usd_e9: Option<i64>,
+        median_bid_depth_usd_e9: Option<i64>,
+        median_ask_depth_usd_e9: Option<i64>,
         above_depth_floor: Option<bool>,
         selected_for_pilot: bool,
         final_rank: Option<u8>,
@@ -1718,11 +1940,42 @@ mod tests {
     /// Требуемый тест: `write_candidate_table_csv` — единственное место, где
     /// строится файл, названный в done-condition шага 0.4 («таблица
     /// кандидатов ... закоммичена»), и до этого теста ни один тест файла не
-    /// доходил до настоящего `csv::Writer`. Одна строка целиком `Some`
-    /// (измеренный, отобранный кандидат), одна — целиком `None`
-    /// (неизмеренный: предфильтр его отсеял до сети) — девять
-    /// `Option`-полей `CandidateRow`, и `None`-ветка — та, что молча ломается
-    /// первой, если формат столбцов когда-нибудь разойдётся со структурой.
+    /// доходил до настоящего `csv::Writer`. Четыре строки — по одной на
+    /// каждую стадию воронки Decision 18, от «не прошёл даже предфильтр» до
+    /// «отобран пилоту»:
+    /// - `MID0USDT` — измеренный, прошёл порог, отобран, `final_rank = 1`;
+    /// - `MID1USDT` — измеренный, прошёл порог, но НЕ отобран
+    ///   (`selected_for_pilot = false`, `final_rank = None`);
+    /// - `MID2USDT` — прошёл предфильтр (`prefiltered = true`), но остался
+    ///   БЕЗ измерения (`measured = false`) — реальный, не синтетический
+    ///   случай: `measure_prefiltered` разослала по сокету на каждый из
+    ///   `PREFILTER_TOP_N` кандидатов, но не для всех из них в `measured`
+    ///   попал результат (соединение оборвалось, символ не набрал ни одного
+    ///   события за час и т. п.) — таких строк без этой стадии в наборе не
+    ///   было ни одной;
+    /// - `TAIL0USDT` — целиком `None`/`false` (предфильтр отсеял его до
+    ///   сети) — та ветка, что молча ломается первой, если формат столбцов
+    ///   когда-нибудь разойдётся со структурой.
+    ///
+    /// **Почему трёх строк (без `MID2USDT`) было недостаточно**, хотя
+    /// прежняя версия этого docstring уже утверждала, что перепутанные
+    /// местами булевы колонки не прошли бы тест незамеченными: `prefiltered`
+    /// и `measured` совпадали в каждой из трёх строк (`true,true` /
+    /// `true,true` / `false,false`) — колонка, которую нечем отличить от
+    /// соседней в каждой строке, где обе стоят рядом, обменом местами не
+    /// повреждается: перепутанные `prefiltered`↔`measured` читаются назад
+    /// как исходные значения именно потому, что они везде одинаковы. `MID1`
+    /// разводил `selected_for_pilot` с этой парой, но саму пару друг с
+    /// другом — нет. `MID2USDT` — единственная строка, где `prefiltered` и
+    /// `measured` расходятся (`true`/`false`), и только с ней перестановка
+    /// этих двух столбцов действительно меняет то, что читается назад.
+    /// Правило на будущее для этого теста: у каждой пары полей одного типа
+    /// должна быть хотя бы одна строка, где их значения различаются — иначе
+    /// обмен местами такой пары для теста не отличим от отсутствия ошибки.
+    ///
+    /// `median_bid_depth_usd_e9` и `median_ask_depth_usd_e9` тоже различны
+    /// внутри каждой измеренной строки (Изменение 1: раздельные колонки по
+    /// стороне) — иначе перепутанные местами бид и аск тоже прошли бы тест.
     #[test]
     fn candidate_table_csv_round_trips_measured_and_unmeasured_rows() {
         let rows = vec![
@@ -1735,10 +1988,41 @@ mod tests {
                 window_start_utc_ms: Some(1_700_000_000_000),
                 window_secs: Some(3600),
                 events: Some(12_345),
-                median_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
+                median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
+                median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
                 above_depth_floor: Some(true),
                 selected_for_pilot: true,
                 final_rank: Some(1),
+            },
+            CandidateRow {
+                symbol: "MID1USDT".to_string(),
+                turnover_24h_usd_e9: e9(900_000),
+                tercile: "middle",
+                prefiltered: true,
+                measured: true,
+                window_start_utc_ms: Some(1_700_000_003_600_000),
+                window_secs: Some(3600),
+                events: Some(999),
+                median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
+                median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
+                above_depth_floor: Some(true),
+                selected_for_pilot: false,
+                final_rank: None,
+            },
+            CandidateRow {
+                symbol: "MID2USDT".to_string(),
+                turnover_24h_usd_e9: e9(500_000),
+                tercile: "middle",
+                prefiltered: true,
+                measured: false,
+                window_start_utc_ms: None,
+                window_secs: None,
+                events: None,
+                median_bid_depth_usd_e9: None,
+                median_ask_depth_usd_e9: None,
+                above_depth_floor: None,
+                selected_for_pilot: false,
+                final_rank: None,
             },
             CandidateRow {
                 symbol: "TAIL0USDT".to_string(),
@@ -1749,7 +2033,8 @@ mod tests {
                 window_start_utc_ms: None,
                 window_secs: None,
                 events: None,
-                median_depth_usd_e9: None,
+                median_bid_depth_usd_e9: None,
+                median_ask_depth_usd_e9: None,
                 above_depth_floor: None,
                 selected_for_pilot: false,
                 final_rank: None,
@@ -1775,10 +2060,41 @@ mod tests {
                     window_start_utc_ms: Some(1_700_000_000_000),
                     window_secs: Some(3600),
                     events: Some(12_345),
-                    median_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
+                    median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
+                    median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
                     above_depth_floor: Some(true),
                     selected_for_pilot: true,
                     final_rank: Some(1),
+                },
+                CandidateRowOwned {
+                    symbol: "MID1USDT".to_string(),
+                    turnover_24h_usd_e9: e9(900_000),
+                    tercile: "middle".to_string(),
+                    prefiltered: true,
+                    measured: true,
+                    window_start_utc_ms: Some(1_700_000_003_600_000),
+                    window_secs: Some(3600),
+                    events: Some(999),
+                    median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
+                    median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
+                    above_depth_floor: Some(true),
+                    selected_for_pilot: false,
+                    final_rank: None,
+                },
+                CandidateRowOwned {
+                    symbol: "MID2USDT".to_string(),
+                    turnover_24h_usd_e9: e9(500_000),
+                    tercile: "middle".to_string(),
+                    prefiltered: true,
+                    measured: false,
+                    window_start_utc_ms: None,
+                    window_secs: None,
+                    events: None,
+                    median_bid_depth_usd_e9: None,
+                    median_ask_depth_usd_e9: None,
+                    above_depth_floor: None,
+                    selected_for_pilot: false,
+                    final_rank: None,
                 },
                 CandidateRowOwned {
                     symbol: "TAIL0USDT".to_string(),
@@ -1789,14 +2105,17 @@ mod tests {
                     window_start_utc_ms: None,
                     window_secs: None,
                     events: None,
-                    median_depth_usd_e9: None,
+                    median_bid_depth_usd_e9: None,
+                    median_ask_depth_usd_e9: None,
                     above_depth_floor: None,
                     selected_for_pilot: false,
                     final_rank: None,
                 },
             ],
-            "неизмеренный кандидат обязан вернуться как None на всех девяти \
-             Option-полях, а не как 0, false или пустая строка, принятая за None"
+            "неизмеренный кандидат обязан вернуться как None на всех Option-полях, \
+             а не как 0, false или пустая строка, принятая за None; и \
+             `prefiltered` с `measured` обязаны читаться назад раздельно (MID2USDT: \
+             prefiltered=true, measured=false)"
         );
     }
 
@@ -1805,6 +2124,14 @@ mod tests {
     /// `format_e9` (не `parse_e9`, отдельная копия — см. её doc) проверяется
     /// здесь на реальном файле, а не только опосредованно через
     /// `format_e9_round_trips_through_parse_e9`.
+    ///
+    /// Изменение 5: `tick_size`, `min_order_qty`, `qty_step` и
+    /// `min_notional_value` — четыре РАЗНЫХ числа, попарно не равных. Раньше
+    /// `min_order_qty_e9` и `qty_step_e9` были одним и тем же значением
+    /// (0.1 == 0.1): перепутанные местами колонки `min_order_qty`/`qty_step`
+    /// в `write_instruments_csv` (или в `InstrumentRow`) прошли бы тест
+    /// незамеченными, потому что оба столбца читались бы как «0.1» в любом
+    /// порядке.
     #[test]
     fn instruments_csv_round_trips_and_is_nonempty() {
         let instruments = vec![Instrument {
@@ -1815,8 +2142,8 @@ mod tests {
             status: "Trading".to_string(),
             launch_time_ms: Some(1_600_000_000_000),
             tick_e9: 10_000_000,
-            min_order_qty_e9: 100_000_000,
-            qty_step_e9: 100_000_000,
+            min_order_qty_e9: 500_000_000,
+            qty_step_e9: 250_000_000,
             min_notional_value_e9: 5_000_000_000,
         }];
 
@@ -1836,25 +2163,27 @@ mod tests {
             vec![InstrumentRow {
                 symbol: "SOLUSDT".to_string(),
                 tick_size: "0.01".to_string(),
-                min_order_qty: "0.1".to_string(),
-                qty_step: "0.1".to_string(),
+                min_order_qty: "0.5".to_string(),
+                qty_step: "0.25".to_string(),
                 min_notional_value: "5".to_string(),
             }]
         );
     }
 
-    // -- book_level_notionals_usd_e9 — одна аллокация на обе стороны --------
+    // -- book_level_notionals_usd_e9 — по одной аллокации на сторону --------
 
-    /// Требуемый тест: раньше это были два вызова (по одному на сторону) плюс
-    /// `Vec::extend`, что почти всегда даёт три аллокации на обновление книги
-    /// (см. doc функции). `alloc_count::measure` — тот же счётчик и тот же
-    /// приём, что уже используют `stats/mod.rs::
+    /// Требуемый тест (Изменение 1): раньше эта функция принимала обе
+    /// стороны разом (`Iterator::chain` бид+аск в один вектор) — Decision
+    /// 18(б), ревизия 10, запрещает объединять стороны, и функция теперь
+    /// читает ровно одну. `alloc_count::measure` — тот же счётчик, что уже
+    /// используют `stats/mod.rs::
     /// the_replication_loop_does_not_allocate_per_replicate`,
-    /// `bybit::clock.rs` и `binlog/mod.rs`: он бы не заметил регресс с одной
-    /// аллокации до трёх, если бы измерялось только количество элементов.
+    /// `bybit::clock.rs` и `binlog/mod.rs`: он бы не заметил регресс до
+    /// `Vec::extend` или до чтения не той стороны, если бы измерялось
+    /// только количество элементов.
     #[test]
-    fn book_level_notionals_usd_e9_collects_both_sides_in_one_allocation() {
-        use crate::book::{Book, Update};
+    fn book_level_notionals_usd_e9_reads_only_the_requested_side_with_one_allocation() {
+        use crate::book::{Book, Side, Update};
 
         let mut book = Book::new(1, 1);
         book.apply(&Update {
@@ -1866,15 +2195,15 @@ mod tests {
         })
         .unwrap();
 
-        let (levels, counts) =
-            crate::alloc_count::measure(|| book_level_notionals_usd_e9(&book, 1, 1));
+        let (bid_levels, bid_counts) =
+            crate::alloc_count::measure(|| book_level_notionals_usd_e9(&book, Side::Bid, 1, 1));
+        assert_eq!(bid_levels.len(), 3, "три уровня бида, ни одного аска");
+        assert_eq!(bid_counts.allocations, 1);
 
-        assert_eq!(levels.len(), 5, "три бида плюс два аска");
-        assert_eq!(
-            counts.allocations, 1,
-            "обе стороны обязаны попасть в один вектор одной аллокацией \
-             через Iterator::chain + collect, не через Vec::extend"
-        );
+        let (ask_levels, ask_counts) =
+            crate::alloc_count::measure(|| book_level_notionals_usd_e9(&book, Side::Ask, 1, 1));
+        assert_eq!(ask_levels.len(), 2, "два уровня аска, ни одного бида");
+        assert_eq!(ask_counts.allocations, 1);
     }
 
     // -- measure_one_symbol — общий дедлайн, не Instant::now() внутри задачи -
@@ -1888,6 +2217,17 @@ mod tests {
     /// реализация принимала `duration: Duration` и считала `Instant::now() +
     /// duration` заново при каждом вызове — с ней это же обращение
     /// проработало бы ещё почти полный `duration`, а не вернулось сразу.
+    ///
+    /// Изменение 4: сам вызов обёрнут в `tokio::time::timeout`, а не голый
+    /// `.await`. Регрессия («дедлайн игнорируется и считается заново от
+    /// текущего момента») заставляет `measure_one_symbol` блокироваться на
+    /// `rx.recv()` без сети и без собственного ограничения по времени —
+    /// без внешнего `timeout` тест тогда не падает красным, а виснет, и CI
+    /// читает зависший тест как таймаут инфраструктуры (обычный ответ —
+    /// ретрай), а не как красный ассерт. Бюджет — секунды, с большим
+    /// запасом над тем, что нужно правильному коду (он обязан вернуться
+    /// немедленно), но много меньше часа, на который способна растянуть
+    /// ожидание регрессия при реальном `MEASUREMENT_WINDOW_SECS`.
     #[tokio::test]
     async fn measure_one_symbol_stops_at_the_shared_deadline_even_if_started_late() {
         let deadline = tokio::time::Instant::now() + Duration::from_millis(40);
@@ -1896,8 +2236,18 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
 
         let began = tokio::time::Instant::now();
-        let samples = measure_one_symbol("SOLUSDT".to_string(), 1, 1, deadline).await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            measure_one_symbol("SOLUSDT".to_string(), 1, 1, deadline),
+        )
+        .await;
         let elapsed = began.elapsed();
+
+        let samples = result.expect(
+            "measure_one_symbol обязана вернуться немедленно на уже истёкшем \
+             дедлайне, а не блокироваться на rx.recv() без таймаута — таймаут \
+             этого теста истёк первым, что и есть регрессия, которую он ловит",
+        );
 
         assert!(
             samples.is_empty(),
@@ -1946,14 +2296,13 @@ mod tests {
                 e9(100 - i),
             ));
         }
-        // Токенизированная акция с высоким оборотом — обязана выпасть уже на
-        // стадии пула, до всякого терциля.
-        let mut stock = meta("AAPLUSDT", "AAPL", e9(5_000_000));
-        stock.is_tokenized_equity = true;
-        candidates.push(stock);
+        // Токенизированных акций в этой вселенной больше нет намеренно
+        // (Изменение 3, Decision 18 ревизии 10): Bybit не возвращает их в
+        // пуле категории `linear`, и симулировать здесь нечего — см. doc
+        // `build_pool` про то, почему в коде нет отдельного фильтра.
 
         let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 18, "AAPL исключена, остальные 18 — в пуле");
+        assert_eq!(pool.len(), 18);
 
         let tercile = middle_tercile(&pool).unwrap();
         assert_eq!(

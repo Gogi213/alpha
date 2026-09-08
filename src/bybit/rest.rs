@@ -42,10 +42,22 @@ pub const CATEGORY_LINEAR: &str = "linear";
 const INSTRUMENTS_PAGE_LIMIT: u32 = 1000;
 
 /// Глубина REST-снапшота книги для будущего `lob verify` (шаг 0.6, не этот
-/// проход): план сверяет топ-50 живой книги, здесь берётся `200` — Bybit
-/// документирует его как потолок `limit` для `linear` — чтобы снапшот заведомо
-/// накрывал топ-50 целиком, а не совпадал с ним по границе случайно.
-pub const ORDERBOOK_SNAPSHOT_LIMIT: u32 = 200;
+/// проход): план сверяет топ-50 живой книги, а этот снапшот обязан заведомо
+/// накрывать топ-50 целиком, а не совпадать с ним по границе случайно.
+///
+/// `1000` — задокументированный Bybit потолок `limit` у `GET
+/// /v5/market/orderbook` для `category=linear` (и `inverse`): репозиторий
+/// `bybit-exchange/docs`, файл `docs/v5/market/orderbook.mdx`, строка
+/// параметра `limit` — ``"linear"&"inverse"`: [`1`, `1000`]. Default: `25`.``
+/// (проверено запросом к живому файлу репозитория, не по памяти). Это не то
+/// же число, что тиры глубины `orderbook.<depth>.<symbol>` **WS**-топика из
+/// Decision 3 `PLAN.md` (`1/50/200/1000`) — совпадение с одним из них
+/// (`200`) в более ранней версии этой константы было именно такой путаницей
+/// двух разных протоколов, не числом из документации REST-эндпоинта. Число
+/// не из `PLAN.md` (план не называет его вовсе, только WS-тиры), поэтому
+/// источник здесь — документированный потолок биржи, тем же приёмом, что
+/// `INSTRUMENTS_PAGE_LIMIT` выше, а не константа из решения плана.
+pub const ORDERBOOK_SNAPSHOT_LIMIT: u32 = 1000;
 
 /// Ошибки REST-клиента. Транспорт и отклонение биржей различены: вызывающий
 /// код (в первую очередь `lob pick`) обязан реагировать по-разному — сетевая
@@ -472,12 +484,17 @@ mod tests {
     /// `tickers_parse_turnover_without_going_through_f64` ниже пином
     /// показывает случай, где `f64`-маршрут дал бы другое число — здесь
     /// проверяется полнота извлечения полей, не сама разница с `f64`.
+    ///
+    /// `tickSize`, `minOrderQty` и `qtyStep` — три разных числа, не общие
+    /// «0.1» на двоих: с одинаковым `minOrderQty`/`qtyStep` (как было раньше)
+    /// перепутанные местами поля в `parse_instrument` прошли бы этот тест
+    /// незамеченными — оба присвоения читали бы то же самое число.
     #[test]
     fn parse_instrument_reads_decision18_and_decision22_fields() {
         let raw = r#"{"symbol":"SOLUSDT","contractType":"LinearPerpetual","status":"Trading",
           "baseCoin":"SOL","quoteCoin":"USDT","launchTime":"1600000000000",
           "priceFilter":{"tickSize":"0.01"},
-          "lotSizeFilter":{"minOrderQty":"0.1","qtyStep":"0.1","minNotionalValue":"5.123456789"}}"#;
+          "lotSizeFilter":{"minOrderQty":"0.1","qtyStep":"0.001","minNotionalValue":"5.123456789"}}"#;
         let v: Value = serde_json::from_str(raw).unwrap();
         let inst = parse_instrument(&v).unwrap();
         assert_eq!(inst.symbol, "SOLUSDT");
@@ -487,7 +504,7 @@ mod tests {
         assert_eq!(inst.launch_time_ms, Some(1_600_000_000_000));
         assert_eq!(inst.tick_e9, 10_000_000);
         assert_eq!(inst.min_order_qty_e9, 100_000_000);
-        assert_eq!(inst.qty_step_e9, 100_000_000);
+        assert_eq!(inst.qty_step_e9, 1_000_000);
         // Девять знаков дробной части — предел `parse_e9`; f64 столько не
         // держит без потерь, поэтому проверяется на целом, не на приближении.
         assert_eq!(inst.min_notional_value_e9, 5_123_456_789);
@@ -654,9 +671,12 @@ mod tests {
         assert!(fake.calls[0]
             .1
             .contains(&("symbol".to_string(), "SOLUSDT".to_string())));
+        // Значение читается из константы, а не задублировано литералом:
+        // тест не должен молча разойтись с `ORDERBOOK_SNAPSHOT_LIMIT`, если
+        // её когда-нибудь изменят вслед за документацией Bybit.
         assert!(fake.calls[0]
             .1
-            .contains(&("limit".to_string(), "200".to_string())));
+            .contains(&("limit".to_string(), ORDERBOOK_SNAPSHOT_LIMIT.to_string())));
     }
 
     #[test]

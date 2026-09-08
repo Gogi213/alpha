@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T14:55:09+04:00",
+  "updatedAt": "2026-09-08T16:09:20+04:00",
   "finishedAt": null,
   "stages": [
     {
@@ -53,7 +53,7 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-08T03:54:10+04:00",
-      "note": "волна 3: binlog, отбор инструмента, дисциплина часов — параллельно"
+      "note": "волна 3 написана: 210 тестов, GC чист. Ревизия 10 плана закрыла 4 неоднозначности"
     },
     {
       "id": "review",
@@ -182,11 +182,15 @@ window.STATE =
       "zone": [
         "src/bybit/binlog.rs"
       ],
-      "status": "in-progress",
+      "status": "review",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "startedAt": "2026-09-08T14:55:08+04:00"
+      "startedAt": "2026-09-08T14:55:08+04:00",
+      "tests": {
+        "passed": 210,
+        "failed": 0
+      }
     },
     {
       "id": "0.4",
@@ -201,11 +205,15 @@ window.STATE =
       "zone": [
         "src/commands/lob.rs"
       ],
-      "status": "in-progress",
+      "status": "review",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "startedAt": "2026-09-08T14:55:09+04:00"
+      "startedAt": "2026-09-08T14:55:09+04:00",
+      "tests": {
+        "passed": 210,
+        "failed": 0
+      }
     },
     {
       "id": "0.5",
@@ -220,11 +228,15 @@ window.STATE =
       "zone": [
         "src/bybit/clock.rs"
       ],
-      "status": "in-progress",
+      "status": "review",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "startedAt": "2026-09-08T14:55:09+04:00"
+      "startedAt": "2026-09-08T14:55:09+04:00",
+      "tests": {
+        "passed": 210,
+        "failed": 0
+      }
     },
     {
       "id": "0.3",
