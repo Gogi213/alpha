@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T03:54:10+04:00",
+  "updatedAt": "2026-09-08T04:08:12+04:00",
   "finishedAt": null,
   "stages": [
     {
@@ -53,7 +53,7 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-08T03:54:10+04:00",
-      "note": "волна 2: начат 0.1 — WS и книга"
+      "note": "0.1: разбор и книга готовы, 22 теста зелёные; остался сокет и local_ts"
     },
     {
       "id": "review",
