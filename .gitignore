@@ -1,3 +1,8 @@
 data/
 target/
 .autopilot/serve.*
+
+# мусор от правок
+*.bak
+*.orig
+*.rej
