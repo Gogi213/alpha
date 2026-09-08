@@ -234,13 +234,19 @@ pub fn trade_in_range(book: &Book, price_tick: i64) -> Option<bool> {
 // Verifier: книга + счётчики трёх проверок в одном месте
 // ---------------------------------------------------------------------------
 
-/// Ошибка выравнивания для проверки 1: без совпадения `u` сравнение нельзя
-/// читать как «книги расходятся» — это другая неисправность.
+/// Ошибка выравнивания для проверки 1: без совпадения ключа сравнение нельзя
+/// читать как «книги расходятся» — это другая неисправность. `NotAligned`
+/// (по `u`) оставлен для совместимости; живой ключ — `seq` (`NotAlignedSeq`):
+/// `u` в WS и REST — два разных счётчика и выровняться не могут никогда.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlignmentError {
     NotAligned {
         book_u: Option<u64>,
         snapshot_u: u64,
+    },
+    NotAlignedSeq {
+        book_seq: Option<u64>,
+        snapshot_seq: u64,
     },
 }
 
@@ -333,6 +339,7 @@ impl Verifier {
 
     /// Проверка 1: книга обязана стоять ровно на `u` снапшота. Не стоит —
     /// `AlignmentError`, а не «грязный дифф»: смешивать эти два исхода запрещено.
+    /// Оставлена для совместимости; живой ключ — `verify_at_seq`.
     pub fn verify_at_u(
         &self,
         snap: &OrderbookSnapshot,
@@ -343,6 +350,23 @@ impl Verifier {
             return Err(AlignmentError::NotAligned {
                 book_u: self.book.last_u(),
                 snapshot_u: snap.u,
+            });
+        }
+        Ok(compare_with_snapshot(&self.book, snap, tick_e9, step_e9))
+    }
+
+    /// Проверка 1 по сквозному `seq`: книга обязана стоять ровно на `seq`
+    /// снапшота. Живой ключ выравнивания (`u` в WS и REST — разные счётчики).
+    pub fn verify_at_seq(
+        &self,
+        snap: &OrderbookSnapshot,
+        tick_e9: i64,
+        step_e9: i64,
+    ) -> Result<SnapshotDiff, AlignmentError> {
+        if self.book.last_seq() != Some(snap.seq) {
+            return Err(AlignmentError::NotAlignedSeq {
+                book_seq: self.book.last_seq(),
+                snapshot_seq: snap.seq,
             });
         }
         Ok(compare_with_snapshot(&self.book, snap, tick_e9, step_e9))
@@ -426,9 +450,11 @@ impl FileReplayer {
         if !self.cur_snapshot {
             self.next_u += 1;
         }
+        // Файл `seq` не хранит: синтетика зеркалит `u` (проверки 2-3, не 1).
         updates.push(Update {
             is_snapshot: self.cur_snapshot,
             u,
+            seq: u,
             cts_ms: self.cur_ts_ns / 1_000_000,
             bids: std::mem::take(&mut self.bids),
             asks: std::mem::take(&mut self.asks),
@@ -664,6 +690,7 @@ mod tests {
         Update {
             is_snapshot: true,
             u,
+            seq: u,
             cts_ms: 1_000,
             bids: vec![(px(100), qty(5)), (px(99), qty(7))],
             asks: vec![(px(101), qty(4)), (px(102), qty(6))],
@@ -674,7 +701,30 @@ mod tests {
         OrderbookSnapshot {
             symbol: "BTCUSDT".to_string(),
             u,
+            seq: u,
             ts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(99), qty(7))],
+            asks: vec![(px(101), qty(4)), (px(102), qty(6))],
+        }
+    }
+
+    fn rest_snapshot_with_seq(u: u64, seq: u64) -> OrderbookSnapshot {
+        OrderbookSnapshot {
+            symbol: "BTCUSDT".to_string(),
+            u,
+            seq,
+            ts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(99), qty(7))],
+            asks: vec![(px(101), qty(4)), (px(102), qty(6))],
+        }
+    }
+
+    fn snapshot_update_with_seq(u: u64, seq: u64) -> Update {
+        Update {
+            is_snapshot: true,
+            u,
+            seq,
+            cts_ms: 1_000,
             bids: vec![(px(100), qty(5)), (px(99), qty(7))],
             asks: vec![(px(101), qty(4)), (px(102), qty(6))],
         }
@@ -731,11 +781,41 @@ mod tests {
     }
 
     #[test]
+    fn seq_alignment_is_the_live_key_u_may_differ() {
+        // Живой случай: WS u и REST u — разные счётчики, seq — один.
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        v.apply_update(&snapshot_update_with_seq(131_900_000, 807_370_000_000))
+            .unwrap();
+        // По старому ключу — рассинхрон, по живому — чисто.
+        let snap = rest_snapshot_with_seq(20_600_000, 807_370_000_000);
+        assert!(v.verify_at_u(&snap, TICK_E9, STEP_E9).is_err());
+        let diff = v.verify_at_seq(&snap, TICK_E9, STEP_E9).unwrap();
+        assert!(diff.is_clean(), "seq совпал — расхождений ноль: {diff:?}");
+    }
+
+    #[test]
+    fn seq_misalignment_is_alignment_error_not_dirty_diff() {
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        v.apply_update(&snapshot_update_with_seq(1, 100)).unwrap();
+        let err = v
+            .verify_at_seq(&rest_snapshot_with_seq(1, 101), TICK_E9, STEP_E9)
+            .unwrap_err();
+        assert_eq!(
+            err,
+            AlignmentError::NotAlignedSeq {
+                book_seq: Some(100),
+                snapshot_seq: 101
+            }
+        );
+    }
+
+    #[test]
     fn delta_before_snapshot_is_sequence_gap() {
         let mut v = Verifier::new(TICK_E9, STEP_E9);
         let up = Update {
             is_snapshot: false,
             u: 7,
+            seq: 7,
             cts_ms: 1_000,
             bids: vec![(px(100), qty(1))],
             asks: vec![],
@@ -751,6 +831,7 @@ mod tests {
         let up = Update {
             is_snapshot: true,
             u: 1,
+            seq: 1,
             cts_ms: 1_000,
             bids: vec![(px(105), qty(1))],
             asks: vec![(px(101), qty(1))],
@@ -923,6 +1004,7 @@ mod tests {
         let delta = Update {
             is_snapshot: false,
             u: 2,
+            seq: 2,
             cts_ms: 2_000,
             bids: vec![(px(100), qty(8))],
             asks: vec![],
@@ -933,6 +1015,7 @@ mod tests {
                 let up = Update {
                     is_snapshot: false,
                     u: k,
+                    seq: k,
                     cts_ms: 2_000 + k as i64,
                     bids: vec![(px(100), qty(8))],
                     asks: vec![],
@@ -979,6 +1062,7 @@ mod tests {
         let up = Update {
             is_snapshot: true,
             u: snap.u,
+            seq: snap.seq,
             cts_ms: snap.ts_ms,
             bids: snap.bids.clone(),
             asks: snap.asks.clone(),
@@ -987,7 +1071,7 @@ mod tests {
         // нет, не выдумываем: сравнение идёт в сырых e9 через книгу с шагом 1.
         let mut v = Verifier::new(1, 1);
         v.apply_update(&up).unwrap();
-        let diff = v.verify_at_u(&snap, 1, 1).unwrap();
+        let diff = v.verify_at_seq(&snap, 1, 1).unwrap();
         assert!(diff.is_clean(), "живой снапшот против себя: {diff:?}");
     }
 }

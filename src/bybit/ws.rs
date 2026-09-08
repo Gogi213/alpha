@@ -127,6 +127,12 @@ pub fn parse_message(raw: &str) -> Result<Vec<Event>, ParseError> {
             .get("u")
             .and_then(|x| x.as_u64())
             .ok_or(ParseError::MissingField("u"))?;
+        // `seq` — сквозной счётчик WS и REST (в отличие от `u`, у которого
+        // в двух каналах два разных счётчика). В контроле потока не участвует.
+        let seq = data
+            .get("seq")
+            .and_then(|x| x.as_u64())
+            .ok_or(ParseError::MissingField("seq"))?;
         // `cts` — время матчинга. У некоторых сообщений его нет; тогда берём `ts`,
         // время формирования, и это ухудшение точности, а не эквивалент.
         let cts_ms = data
@@ -139,6 +145,7 @@ pub fn parse_message(raw: &str) -> Result<Vec<Event>, ParseError> {
         return Ok(vec![Event::Book(Update {
             is_snapshot,
             u,
+            seq,
             cts_ms,
             bids: levels(data, "b")?,
             asks: levels(data, "a")?,
@@ -244,6 +251,7 @@ mod tests {
             Event::Book(u) => {
                 assert!(u.is_snapshot);
                 assert_eq!(u.u, 42);
+                assert_eq!(u.seq, 7);
                 assert_eq!(u.cts_ms, 1699999999999);
                 assert_eq!(u.bids.len(), 2);
                 assert_eq!(u.bids[0], (150_000_000_000, 2_500_000_000));
@@ -261,6 +269,8 @@ mod tests {
         match &evs[0] {
             Event::Book(u) => {
                 assert!(!u.is_snapshot);
+                assert_eq!(u.u, 43);
+                assert_eq!(u.seq, 8);
                 assert_eq!(u.bids, vec![(149_990_000_000, 0)]);
                 assert!(u.asks.is_empty());
             }
@@ -312,10 +322,17 @@ mod tests {
     #[test]
     fn malformed_input_is_an_error_not_a_panic() {
         assert_eq!(parse_message("not json").unwrap_err(), ParseError::NotJson);
-        let no_u = r#"{"topic":"orderbook.50.X","type":"delta","ts":1,"data":{"b":[],"a":[]}}"#;
+        let no_u =
+            r#"{"topic":"orderbook.50.X","type":"delta","ts":1,"data":{"b":[],"a":[],"seq":8}}"#;
         assert_eq!(
             parse_message(no_u).unwrap_err(),
             ParseError::MissingField("u")
+        );
+        let no_seq =
+            r#"{"topic":"orderbook.50.X","type":"delta","ts":1,"data":{"b":[],"a":[],"u":43}}"#;
+        assert_eq!(
+            parse_message(no_seq).unwrap_err(),
+            ParseError::MissingField("seq")
         );
     }
 
@@ -341,7 +358,7 @@ mod tests {
         let mut b = Book::new(10_000_000, 100_000_000); // тик 0.01, шаг 0.1
 
         let snap = r#"{"topic":"orderbook.50.SOLUSDT","type":"snapshot","ts":1,
-          "data":{"b":[["150.00","2.5"],["149.99","1.0"]],"a":[["150.01","3.0"]],"u":42},"cts":10}"#;
+          "data":{"b":[["150.00","2.5"],["149.99","1.0"]],"a":[["150.01","3.0"]],"u":42,"seq":7},"cts":10}"#;
         for ev in parse_message(snap).unwrap() {
             if let Event::Book(u) = ev {
                 b.apply(&u).unwrap();
@@ -350,7 +367,7 @@ mod tests {
         assert_eq!(b.depth(Side::Bid), 2);
 
         let del = r#"{"topic":"orderbook.50.SOLUSDT","type":"delta","ts":2,
-          "data":{"b":[["149.99","0"]],"a":[],"u":43},"cts":11}"#;
+          "data":{"b":[["149.99","0"]],"a":[],"u":43,"seq":8},"cts":11}"#;
         for ev in parse_message(del).unwrap() {
             if let Event::Book(u) = ev {
                 b.apply(&u).unwrap();

@@ -143,11 +143,14 @@ pub struct Ticker {
 
 /// REST-снапшот книги — вход будущего `lob verify` (шаг 0.6): книга,
 /// проигранная от синтетического снапшота, сверяется с этим снапшотом
-/// по `u` (Decision 4 в PLAN.md, done-condition шага 0.6).
+/// по `seq` (сквозной счётчик WS и REST; `u` в двух каналах — два разных
+/// счётчика и для выравнивания не годится).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderbookSnapshot {
     pub symbol: String,
     pub u: u64,
+    /// Сквозной `seq` — ключ выравнивания сверки.
+    pub seq: u64,
     pub ts_ms: i64,
     pub bids: Vec<(i64, i64)>,
     pub asks: Vec<(i64, i64)>,
@@ -401,6 +404,10 @@ pub fn parse_orderbook_snapshot(body: &str) -> Result<OrderbookSnapshot, RestErr
         .get("u")
         .and_then(|x| x.as_u64())
         .ok_or(RestError::MissingField("u"))?;
+    let seq = result
+        .get("seq")
+        .and_then(|x| x.as_u64())
+        .ok_or(RestError::MissingField("seq"))?;
     let ts_ms = result
         .get("ts")
         .and_then(|x| x.as_i64())
@@ -408,6 +415,7 @@ pub fn parse_orderbook_snapshot(body: &str) -> Result<OrderbookSnapshot, RestErr
     Ok(OrderbookSnapshot {
         symbol,
         u,
+        seq,
         ts_ms,
         bids: levels(&result, "b")?,
         asks: levels(&result, "a")?,
@@ -694,10 +702,11 @@ mod tests {
     fn orderbook_snapshot_parses_bids_and_asks_as_exact_integers() {
         let body = r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT",
           "b":[["150.00","2.5"],["149.99","1.0"]],"a":[["150.01","3.0"]],
-          "ts":1700000000000,"u":42}}"#;
+          "ts":1700000000000,"u":42,"seq":807370000000}}"#;
         let snap = parse_orderbook_snapshot(body).unwrap();
         assert_eq!(snap.symbol, "SOLUSDT");
         assert_eq!(snap.u, 42);
+        assert_eq!(snap.seq, 807_370_000_000);
         assert_eq!(snap.ts_ms, 1_700_000_000_000);
         assert_eq!(
             snap.bids,
@@ -711,8 +720,7 @@ mod tests {
 
     #[test]
     fn fetch_orderbook_snapshot_passes_symbol_and_limit() {
-        let body =
-            r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT","b":[],"a":[],"ts":1,"u":1}}"#;
+        let body = r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT","b":[],"a":[],"ts":1,"u":1,"seq":2}}"#;
         let mut fake = FakeRest::with_responses(vec![Ok(body.to_string())]);
         fetch_orderbook_snapshot(&mut fake, "SOLUSDT", ORDERBOOK_SNAPSHOT_LIMIT).unwrap();
         assert_eq!(fake.calls[0].0, ORDERBOOK_PATH);
@@ -729,10 +737,21 @@ mod tests {
 
     #[test]
     fn orderbook_snapshot_missing_u_is_an_error_not_a_panic() {
-        let body = r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT","b":[],"a":[],"ts":1}}"#;
+        let body =
+            r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT","b":[],"a":[],"ts":1,"seq":2}}"#;
         assert_eq!(
             parse_orderbook_snapshot(body).unwrap_err(),
             RestError::MissingField("u")
+        );
+    }
+
+    #[test]
+    fn orderbook_snapshot_missing_seq_is_an_error_not_a_panic() {
+        let body =
+            r#"{"retCode":0,"retMsg":"OK","result":{"s":"SOLUSDT","b":[],"a":[],"ts":1,"u":1}}"#;
+        assert_eq!(
+            parse_orderbook_snapshot(body).unwrap_err(),
+            RestError::MissingField("seq")
         );
     }
 

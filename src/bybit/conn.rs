@@ -811,7 +811,7 @@ mod tests {
                 .join(",")
         };
         format!(
-            r#"{{"topic":"orderbook.50.SOLUSDT","type":"{kind}","ts":{cts_ms},"data":{{"b":[{}],"a":[{}],"u":{u}}},"cts":{cts_ms}}}"#,
+            r#"{{"topic":"orderbook.50.SOLUSDT","type":"{kind}","ts":{cts_ms},"data":{{"b":[{}],"a":[{}],"u":{u},"seq":{u}}},"cts":{cts_ms}}}"#,
             render(bids),
             render(asks)
         )

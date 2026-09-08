@@ -107,6 +107,10 @@ pub struct Book {
     step_e9: i64,
     /// `u` последнего применённого обновления. `None` — книга пуста и ждёт снапшот.
     last_u: Option<u64>,
+    /// `seq` последнего применённого обновления (WS `seq` / REST `seq` — один
+    /// счётчик в обоих каналах, в отличие от `u`). Хранится рядом с `last_u`,
+    /// в sequence-контроле НЕ участвует: поток по-прежнему ведётся по `u`.
+    last_seq: Option<u64>,
     /// `cts` последнего обновления: время матчинга, ключ склейки с лентой сделок.
     /// У `publicTrade` своего `cts` нет, там время матчинга называется `T`.
     last_cts_ms: i64,
@@ -117,6 +121,9 @@ pub struct Book {
 pub struct Update {
     pub is_snapshot: bool,
     pub u: u64,
+    /// Сквозной `seq` Bybit (WS `data.seq` и REST `result.seq` — один счётчик).
+    /// В контроле потока не участвует, только для выравнивания сверки.
+    pub seq: u64,
     pub cts_ms: i64,
     /// Пары (цена в 1e-9, количество в 1e-9).
     pub bids: Vec<(i64, i64)>,
@@ -132,6 +139,7 @@ impl Book {
             tick_e9,
             step_e9,
             last_u: None,
+            last_seq: None,
             last_cts_ms: 0,
         }
     }
@@ -142,6 +150,10 @@ impl Book {
 
     pub fn last_u(&self) -> Option<u64> {
         self.last_u
+    }
+
+    pub fn last_seq(&self) -> Option<u64> {
+        self.last_seq
     }
 
     pub fn last_cts_ms(&self) -> i64 {
@@ -230,6 +242,7 @@ impl Book {
         }
 
         self.last_u = Some(up.u);
+        self.last_seq = Some(up.seq);
         self.last_cts_ms = up.cts_ms;
         Ok(())
     }
@@ -382,6 +395,7 @@ mod tests {
         Update {
             is_snapshot: true,
             u,
+            seq: u,
             cts_ms: 1_000,
             bids: bids.iter().map(|&(p, q)| (px(p), px(q))).collect(),
             asks: asks.iter().map(|&(p, q)| (px(p), px(q))).collect(),
@@ -392,6 +406,7 @@ mod tests {
         Update {
             is_snapshot: false,
             u,
+            seq: u,
             cts_ms: 1_000 + u as i64,
             bids: bids.iter().map(|&(p, q)| (px(p), px(q))).collect(),
             asks: asks.iter().map(|&(p, q)| (px(p), px(q))).collect(),
@@ -523,6 +538,7 @@ mod tests {
         let bad = Update {
             is_snapshot: true,
             u: 10,
+            seq: 10,
             cts_ms: 1,
             bids: vec![(px(1.00005), px(1.0))],
             asks: vec![],
@@ -537,6 +553,7 @@ mod tests {
         let bad = Update {
             is_snapshot: true,
             u: 10,
+            seq: 10,
             cts_ms: 1,
             bids: vec![(px(1.0000), px(0.0005))],
             asks: vec![],
