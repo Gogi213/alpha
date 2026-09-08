@@ -62,7 +62,9 @@ use crate::bybit::conn::{
     BackoffConfig, BybitPublicLinearConnector, Clock, ConnConfig, ConnEvent, Connection,
     SystemClock,
 };
-use crate::bybit::rest::{fetch_all_linear_instruments, BybitPublicRest, BYBIT_MAINNET_URL};
+use crate::bybit::rest::{
+    fetch_all_linear_instruments, BybitPublicRest, PublicRest, BYBIT_MAINNET_URL,
+};
 use crate::bybit::verify_sidecar::{
     offer_book_snapshot, spawn_verify_sidecar, BookFrame, VERIFY_INTERVAL_SECS,
 };
@@ -1093,7 +1095,7 @@ enum SessionEnd {
 /// Авторитетные шаги из `instruments-info` (холодный детектор). Ошибка сети
 /// или отсутствие символа — это `Steps`, а не паника: часовой авторитет
 /// переживает её и пробует снова через час.
-fn refresh_steps(rest: &mut BybitPublicRest, symbol: &str) -> Result<(i64, i64), RecordError> {
+fn refresh_steps<R: PublicRest>(rest: &mut R, symbol: &str) -> Result<(i64, i64), RecordError> {
     let instruments = fetch_all_linear_instruments(rest)
         .map_err(|e| RecordError::Steps(format!("instruments-info: {e}")))?;
     let inst = instruments
@@ -1104,14 +1106,52 @@ fn refresh_steps(rest: &mut BybitPublicRest, symbol: &str) -> Result<(i64, i64),
     Ok((inst.tick_e9, inst.qty_step_e9))
 }
 
+/// Горячий путь будит авторитет, не дожидаясь HTTP (ремонт 0.7 Р1).
+/// `try_send` на канале ёмкостью 1: полный канал — это уже pending
+/// пробуждение, второе не нужно; закрытый — авторитет умер, ждать некого.
+/// Вызов не блокируется никогда — это и держит «ноль HTTP в событийном пути».
+fn request_steps_refresh(wake_tx: &std::sync::mpsc::SyncSender<()>) {
+    let _ = wake_tx.try_send(());
+}
+
+/// Один цикл авторитета: fetch → `mpsc`, затем ожидание до часа или
+/// пробуждения. Общая часть боевого и тестового спавна (ремонт 0.7 Р2) —
+/// источник шагов за трейтом, а не жёсткий `BybitPublicRest` в теле цикла.
+fn run_steps_authority_loop<R: PublicRest>(
+    rest: &mut R,
+    symbol: &str,
+    steps_tx: std::sync::mpsc::Sender<(i64, i64)>,
+    wake_rx: std::sync::mpsc::Receiver<()>,
+) {
+    loop {
+        match refresh_steps(rest, symbol) {
+            Ok(steps) => {
+                if steps_tx.send(steps).is_err() {
+                    break;
+                }
+            }
+            Err(e) => {
+                eprintln!("record: instruments-info недоступен ({e}), повтор через час");
+            }
+        }
+        match wake_rx.recv_timeout(Duration::from_secs(HOURLY_REFRESH_SECS)) {
+            Ok(()) => while wake_rx.try_recv().is_ok() {},
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
 /// Часовой авторитет шагов в ОС-потоке (шаг 0.7, Decision 24).
 /// Отдельный `std::thread` (НЕ tokio-задача) со своим `BybitPublicRest`:
-/// цикл fetch → `mpsc` → sleep 1h. Внутри ОС-потока `block_on` легален —
-/// чужого рантайма там нет, поэтому вложенный рантайм невозможен.
-/// Цикл записи никогда не ждёт HTTP: он только дренирует канал.
+/// цикл fetch → `mpsc` → `recv_timeout` 1h/пробуждение. Внутри ОС-потока
+/// `block_on` легален — чужого рантайма там нет, поэтому вложенный рантайм
+/// невозможен. Цикл записи никогда не ждёт HTTP: он только толкает
+/// `try_send` в канал-будильник и дренирует готовое из канала шагов.
 fn spawn_steps_authority(
     base_url: String,
     symbol: String,
+    wake_rx: std::sync::mpsc::Receiver<()>,
 ) -> std::sync::mpsc::Receiver<(i64, i64)> {
     let (tx, rx) = std::sync::mpsc::channel::<(i64, i64)>();
     let spawned = std::thread::Builder::new()
@@ -1124,24 +1164,62 @@ fn spawn_steps_authority(
                     return;
                 }
             };
-            loop {
-                match refresh_steps(&mut rest, &symbol) {
-                    Ok(steps) => {
-                        if tx.send(steps).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("record: instruments-info недоступен ({e}), повтор через час");
-                    }
-                }
-                std::thread::sleep(Duration::from_secs(HOURLY_REFRESH_SECS));
-            }
+            run_steps_authority_loop(&mut rest, &symbol, tx, wake_rx);
         });
     if let Err(e) = spawned {
         eprintln!("record: авторитет шагов не запустился ({e})");
     }
     rx
+}
+
+/// Тестовый спавн того же цикла с фейковым источником шагов (ремонт 0.7 Р2).
+/// Боевой код его не зовёт — только тесты стыка «подозрение → авторитет →
+/// ротация» без сети.
+#[cfg(test)]
+fn spawn_steps_authority_with_rest<R: PublicRest + Send + 'static>(
+    rest: R,
+    symbol: String,
+    wake_rx: std::sync::mpsc::Receiver<()>,
+) -> std::sync::mpsc::Receiver<(i64, i64)> {
+    let (tx, rx) = std::sync::mpsc::channel::<(i64, i64)>();
+    let spawned = std::thread::Builder::new()
+        .name("steps-authority-test".to_string())
+        .spawn(move || {
+            let mut rest = rest;
+            run_steps_authority_loop(&mut rest, &symbol, tx, wake_rx);
+        });
+    if let Err(e) = spawned {
+        eprintln!("record: тестовый авторитет не запустился ({e})");
+    }
+    rx
+}
+
+/// Решение по горячему подозрению на последнем известном авторитете
+/// (ремонт 0.7 Р2): свежие шаги отличаются — ротация файла со строкой
+/// `step_change`, совпадают или свежести нет — строка подавления
+/// `book_invariant` (первая на часть файла, дальше счётчик у вызывающего).
+/// Возвращает `Some` новых шагов при ротации, `None` при подавлении.
+/// Тот же код зовёт и цикл записи, и тесты стыка — шов один, а не два.
+fn resolve_suspicion(
+    rec: &mut Recorder,
+    latest: Option<(i64, i64)>,
+    ts_utc: &str,
+    detail: &str,
+    logged: &mut bool,
+    suppressed: &mut u64,
+) -> Result<Option<(i64, i64)>, RecordError> {
+    if let Some((new_tick, new_step)) = latest {
+        if new_tick != rec.tick_e9() || new_step != rec.step_e9() {
+            rec.rotate_on_step_change(new_tick, new_step, ts_utc, detail)?;
+            return Ok(Some((new_tick, new_step)));
+        }
+    }
+    if !*logged {
+        rec.log_gap(GapKind::BookInvariant, ts_utc, detail)?;
+        *logged = true;
+    }
+    *suppressed = suppressed.saturating_add(1);
+    Ok(None)
 }
 
 /// Дрен канала авторитета: забирает всё, возвращает только последнее.
@@ -1174,10 +1252,11 @@ fn event_exch_ms(event: &Event) -> Option<i64> {
 /// Та же дисциплина у сверки (шаг 0.8): сессия только шлёт клон книги в
 /// `verify_tx` раз в 5 минут через `try_send`, а REST-снапшот и `verify.csv` —
 /// дело сайдкара `bybit::verify_sidecar` со своим соединением.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn run_session(
     rec: &mut Recorder,
     steps_rx: &mut std::sync::mpsc::Receiver<(i64, i64)>,
+    wake_tx: std::sync::mpsc::SyncSender<()>,
     verify_tx: &tokio::sync::mpsc::Sender<BookFrame>,
     free_check: &OsFreeSpaceCheck,
     symbol: &str,
@@ -1234,29 +1313,27 @@ async fn run_session(
     }
 
     // Подтверждение горячего подозрения холодным авторитетом из ОС-потока
-    // (шаг 0.7, Decision 24): канал дренируется без ожидания сети, берётся
-    // только последнее. Авторитет новее и отличается — ротация; нет свежести
-    // или совпадает — ветка подавления с gaps.csv (шторм считается молча).
+    // (шаг 0.7, Decision 24 + ремонт Р1/Р2): сначала `try_send` в
+    // канал-будильник без ожидания сети, затем дрен готового без ожидания.
+    // Авторитет новее и отличается — ротация; нет свежести или совпадает —
+    // ветка подавления с gaps.csv (шторм считается молча).
     macro_rules! confirm_step_change {
         ($ts_utc:expr, $detail:expr) => {{
-            match drain_latest_steps(&mut *steps_rx) {
-                Some((new_tick, new_step))
-                    if new_tick != rec.tick_e9() || new_step != rec.step_e9() =>
-                {
-                    rec.rotate_on_step_change(new_tick, new_step, &$ts_utc, &$detail)?;
-                    conn_task.abort();
-                    return Ok(SessionEnd::StepChange {
-                        tick_e9: new_tick,
-                        step_e9: new_step,
-                    });
-                }
-                _ => {
-                    if !off_step_logged {
-                        rec.log_gap(GapKind::BookInvariant, &$ts_utc, &$detail)?;
-                        off_step_logged = true;
-                    }
-                    off_step_suppressed += 1;
-                }
+            request_steps_refresh(&wake_tx);
+            let latest = drain_latest_steps(&mut *steps_rx);
+            if let Some((new_tick, new_step)) = resolve_suspicion(
+                rec,
+                latest,
+                &$ts_utc,
+                &$detail,
+                &mut off_step_logged,
+                &mut off_step_suppressed,
+            )? {
+                conn_task.abort();
+                return Ok(SessionEnd::StepChange {
+                    tick_e9: new_tick,
+                    step_e9: new_step,
+                });
             }
         }};
     }
@@ -1455,9 +1532,11 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
     let day = day_string_of_ns(SystemClock.now_ns()).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut rec = Recorder::open(&root, &args.symbol, tick_e9, step_e9, &day)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    // Шаг 0.7, Decision 24: часовой авторитет живёт в ОС-потоке со своим
-    // соединением; событийный путь забирает готовое из канала и HTTP не ждёт.
-    let mut steps_rx = spawn_steps_authority(args.base_url.clone(), args.symbol.clone());
+    // Шаг 0.7, Decision 24 + ремонт Р1: часовой авторитет живёт в ОС-потоке
+    // со своим соединением и каналом-будильником; событийный путь толкает
+    // `try_send` и забирает готовое из канала шагов, HTTP не ждёт никогда.
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel::<()>(1);
+    let mut steps_rx = spawn_steps_authority(args.base_url.clone(), args.symbol.clone(), wake_rx);
     // Шаг 0.8, Decision 24: verify-сайдкар — tokio-задача со своим соединением;
     // сессия шлёт ей клон книги в `verify_tx` и HTTP не ждёт.
     let (verify_tx, verify_handle) =
@@ -1468,6 +1547,7 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
         match run_session(
             &mut rec,
             &mut steps_rx,
+            wake_tx.clone(),
             &verify_tx,
             &free_check,
             &args.symbol,
@@ -1558,7 +1638,8 @@ pub fn day_index_of_day_str(day: &str) -> Result<i64, RecordError> {
 mod tests {
     use super::{
         append_gap_row, check_level_step, day_file_path, drain_latest_steps, ensure_gaps_csv,
-        gaps_csv_path, read_gap_rows, GapKind, GapRow, Recorder,
+        gaps_csv_path, read_gap_rows, request_steps_refresh, resolve_suspicion,
+        spawn_steps_authority_with_rest, GapKind, GapRow, Recorder,
     };
 
     const TICK_E9: i64 = 10_000_000; // 0.01
@@ -2160,5 +2241,162 @@ mod tests {
         tx.send((5_000_000, 1_000_000)).unwrap();
         assert_eq!(drain_latest_steps(&mut rx), Some((5_000_000, 1_000_000)));
         assert_eq!(drain_latest_steps(&mut rx), None);
+    }
+
+    struct FakeStepsRest {
+        responses: std::collections::VecDeque<Result<String, crate::bybit::rest::RestError>>,
+    }
+
+    impl crate::bybit::rest::PublicRest for FakeStepsRest {
+        fn get(
+            &mut self,
+            _path: &str,
+            _query: &[(&str, &str)],
+        ) -> Result<String, crate::bybit::rest::RestError> {
+            self.responses
+                .pop_front()
+                .expect("тест не подготовил столько ответов")
+        }
+    }
+
+    fn fake_instruments_body(symbol: &str, tick: &str, step: &str) -> String {
+        format!(
+            r#"{{"retCode":0,"retMsg":"OK","result":{{"category":"linear","list":[{{"symbol":"{symbol}","contractType":"LinearPerpetual","status":"Trading","baseCoin":"SOL","quoteCoin":"USDT","priceFilter":{{"tickSize":"{tick}"}},"lotSizeFilter":{{"minOrderQty":"0.1","qtyStep":"{step}"}}}}],"nextPageCursor":""}}}}"#
+        )
+    }
+
+    fn fake_steps_rest(bodies: Vec<String>) -> FakeStepsRest {
+        FakeStepsRest {
+            responses: bodies.into_iter().map(Ok).collect(),
+        }
+    }
+
+    /// Ремонт 0.7 Р1 (В-6): подозрение будит авторитет, не блокируя цикл.
+    /// Первая часть — горячий путь не ждёт: `try_send` на полном канале
+    /// возвращается сразу, а не висит до приёма. Вторая — авторитет после
+    /// пробуждения делает второй fetch за секунды, а не через час.
+    #[test]
+    fn suspicion_wakes_authority_without_blocking_hot_path() {
+        let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let old = fake_instruments_body("SOLUSDT", "0.01", "0.001");
+        let new = fake_instruments_body("SOLUSDT", "0.005", "0.001");
+        let steps_rx = spawn_steps_authority_with_rest(
+            fake_steps_rest(vec![old, new]),
+            "SOLUSDT".to_string(),
+            wake_rx,
+        );
+        let first = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("первый fetch обязан прийти без пробуждения");
+        assert_eq!(first, (TICK_E9, STEP_E9));
+
+        let (full_tx, full_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        full_tx.try_send(()).unwrap();
+        let probe_tx = full_tx.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            request_steps_refresh(&probe_tx);
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("горячий путь заблокировался на полном канале-будильнике");
+        drop(full_rx);
+
+        request_steps_refresh(&wake_tx);
+        let second = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("авторитет обязан проснуться по подозрению, а не через час");
+        assert_eq!(second, (5_000_000, STEP_E9));
+    }
+
+    /// Ремонт 0.7 Р2 (В-7): весь стык на фейке — подозрение, ответ авторитета
+    /// с новыми шагами, ротация файла, строка `step_change` в `gaps.csv`.
+    #[test]
+    fn suspicion_with_new_steps_rotates_file_and_leaves_gap_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rec = open_recorder(&dir);
+        let old = fake_instruments_body("SOLUSDT", "0.01", "0.001");
+        let new = fake_instruments_body("SOLUSDT", "0.005", "0.001");
+        let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let mut steps_rx = spawn_steps_authority_with_rest(
+            fake_steps_rest(vec![old, new]),
+            "SOLUSDT".to_string(),
+            wake_rx,
+        );
+        let first = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("первый fetch");
+        assert_eq!(first, (TICK_E9, STEP_E9));
+        drain_latest_steps(&mut steps_rx);
+
+        request_steps_refresh(&wake_tx);
+        let fresh = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("свежие шаги после пробуждения");
+        assert_eq!(fresh, (5_000_000, STEP_E9));
+
+        let mut logged = false;
+        let mut suppressed = 0u64;
+        let rotated = resolve_suspicion(
+            &mut rec,
+            Some(fresh),
+            "2026-09-08T00:00:20Z",
+            "price 150005000000 не на шаге 10000000",
+            &mut logged,
+            &mut suppressed,
+        )
+        .unwrap();
+        assert_eq!(rotated, Some((5_000_000, STEP_E9)));
+        assert_eq!(rec.tick_e9(), 5_000_000);
+        assert_eq!(rec.part(), 2);
+        let gaps = read_gap_rows(&gaps_csv_path(dir.path())).unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].kind, GapKind::StepChange);
+    }
+
+    /// Ремонт 0.7 Р2 (В-7), второй случай: авторитет ответил прежними шагами —
+    /// ротации нет, а строка подавления в `gaps.csv` есть.
+    #[test]
+    fn suspicion_with_same_steps_suppresses_without_rotation_but_leaves_gap_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rec = open_recorder(&dir);
+        let old_a = fake_instruments_body("SOLUSDT", "0.01", "0.001");
+        let old_b = fake_instruments_body("SOLUSDT", "0.01", "0.001");
+        let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let mut steps_rx = spawn_steps_authority_with_rest(
+            fake_steps_rest(vec![old_a, old_b]),
+            "SOLUSDT".to_string(),
+            wake_rx,
+        );
+        let first = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("первый fetch");
+        assert_eq!(first, (TICK_E9, STEP_E9));
+        drain_latest_steps(&mut steps_rx);
+
+        request_steps_refresh(&wake_tx);
+        let fresh = steps_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("второй fetch после пробуждения");
+        assert_eq!(fresh, (TICK_E9, STEP_E9));
+
+        let mut logged = false;
+        let mut suppressed = 0u64;
+        let rotated = resolve_suspicion(
+            &mut rec,
+            Some(fresh),
+            "2026-09-08T00:00:20Z",
+            "price 150005000000 не на шаге 10000000",
+            &mut logged,
+            &mut suppressed,
+        )
+        .unwrap();
+        assert_eq!(rotated, None);
+        assert_eq!(rec.part(), 1, "прежние шаги — не ротация");
+        assert_eq!(suppressed, 1);
+        let gaps = read_gap_rows(&gaps_csv_path(dir.path())).unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].kind, GapKind::BookInvariant);
     }
 }
