@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T05:30:33+04:00",
+  "updatedAt": "2026-09-08T14:55:09+04:00",
   "finishedAt": null,
   "stages": [
     {
@@ -53,7 +53,7 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-08T03:54:10+04:00",
-      "note": "волна 2 закрыта: 89 тестов, GC чист, калибровка бутстрапа прогнана — эмпирический размер 0.00495"
+      "note": "волна 3: binlog, отбор инструмента, дисциплина часов — параллельно"
     },
     {
       "id": "review",
@@ -182,10 +182,11 @@ window.STATE =
       "zone": [
         "src/bybit/binlog.rs"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-08T14:55:08+04:00"
     },
     {
       "id": "0.4",
@@ -200,10 +201,11 @@ window.STATE =
       "zone": [
         "src/commands/lob.rs"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-08T14:55:09+04:00"
     },
     {
       "id": "0.5",
@@ -218,10 +220,11 @@ window.STATE =
       "zone": [
         "src/bybit/clock.rs"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-08T14:55:09+04:00"
     },
     {
       "id": "0.3",

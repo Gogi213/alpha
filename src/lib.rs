@@ -3,8 +3,10 @@
 //! и в живой торговле. Обоснование — `docs/ARCHITECTURE.md`.
 
 pub mod alloc_count;
+pub mod binlog;
 pub mod book;
 pub mod bybit;
+pub mod commands;
 pub mod stats;
 
 /// Гейт GC требует мерить аллокации на горячем пути счётчиком на глобальном
