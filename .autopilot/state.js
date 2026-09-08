@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T16:09:20+04:00",
+  "updatedAt": "2026-09-08T17:08:46+04:00",
   "finishedAt": null,
   "stages": [
     {
@@ -53,7 +53,7 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-08T03:54:10+04:00",
-      "note": "волна 3 написана: 210 тестов, GC чист. Ревизия 10 плана закрыла 4 неоднозначности"
+      "note": "волна 3 закрыта: 219 тестов, GC чист, ревизия 10 плана. Дальше 0.3 lob record и 0.6 lob verify"
     },
     {
       "id": "review",
@@ -182,15 +182,16 @@ window.STATE =
       "zone": [
         "src/bybit/binlog.rs"
       ],
-      "status": "review",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
       "startedAt": "2026-09-08T14:55:08+04:00",
       "tests": {
-        "passed": 210,
+        "passed": 219,
         "failed": 0
-      }
+      },
+      "finishedAt": "2026-09-08T17:08:45+04:00"
     },
     {
       "id": "0.4",
@@ -205,15 +206,16 @@ window.STATE =
       "zone": [
         "src/commands/lob.rs"
       ],
-      "status": "review",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
       "startedAt": "2026-09-08T14:55:09+04:00",
       "tests": {
-        "passed": 210,
+        "passed": 219,
         "failed": 0
-      }
+      },
+      "finishedAt": "2026-09-08T17:08:45+04:00"
     },
     {
       "id": "0.5",
@@ -228,15 +230,16 @@ window.STATE =
       "zone": [
         "src/bybit/clock.rs"
       ],
-      "status": "review",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
       "startedAt": "2026-09-08T14:55:09+04:00",
       "tests": {
-        "passed": 210,
+        "passed": 219,
         "failed": 0
-      }
+      },
+      "finishedAt": "2026-09-08T17:08:46+04:00"
     },
     {
       "id": "0.3",
