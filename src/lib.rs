@@ -7,6 +7,7 @@ pub mod binlog;
 pub mod book;
 pub mod bybit;
 pub mod commands;
+pub mod lob;
 pub mod stats;
 
 /// Гейт GC требует мерить аллокации на горячем пути счётчиком на глобальном
