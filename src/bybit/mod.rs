@@ -5,4 +5,5 @@ pub mod conn;
 pub mod probe;
 pub mod rest;
 pub mod sign;
+pub mod verify;
 pub mod ws;

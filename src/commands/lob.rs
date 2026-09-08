@@ -943,6 +943,9 @@ pub enum LobCommand {
     Pick(PickArgs),
     /// Непрерывная запись потока в суточные файлы (шаг 0.3, Decision 7/23).
     Record(super::record::RecordArgs),
+    /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
+    /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
+    Verify(crate::bybit::verify::VerifyArgs),
 }
 
 /// Диспетчер подкоманд `lob` для будущего `main.rs` (пока не подключён —
@@ -982,6 +985,20 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.files.len(),
                 summary.gaps.len(),
                 summary.stop_reason
+            );
+            Ok(())
+        }
+        LobCommand::Verify(args) => {
+            let summary = crate::bybit::verify::run_verify(&args)?;
+            println!(
+                "verify: files={} updates={} gaps={} invariants={} trades={} out_of_range={} indeterminate={}",
+                summary.files,
+                summary.updates_applied,
+                summary.sequence_gaps,
+                summary.invariant_violations,
+                summary.trades_total,
+                summary.trades_out_of_range,
+                summary.trades_indeterminate,
             );
             Ok(())
         }
