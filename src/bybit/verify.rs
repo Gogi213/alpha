@@ -377,107 +377,147 @@ fn depth_side(ev: u64) -> Option<Side> {
 }
 
 /// Группирует записи суточного файла в обновления книги и точки сделок.
-/// Снапшотные записи собираются в одно обновление со `is_snapshot = true`;
-/// дельты — в обновления с синтетическими строго растущими `u` (счётчик
-/// сбрасывается каждым снапшотом, снапшот идёт с `u = 1` по семантике рестарта
-/// `Book::apply`). Сделки в обновления не входят и возвращаются отдельно.
+/// Одно WS-сообщение — один `Update`: записи одного сообщения делят метку
+/// `exch_ts_ns`, и граница группы проходит по её смене (плюс смена
+/// снапшот/дельта и сделки, которые обновлениями не являются).
+///
+/// Граница по кадрам для группировки ничего не значит: кадр — транспортная
+/// нарезка по числу записей, и одно сообщение обязано лежать в двух кадрах.
+/// Группировка «по кадру» рвала сообщение пополам: бид-половина применялась
+/// отдельным обновлением, книга transiently пересекалась, и реплей живого
+/// 5-минутного файла вставал на 12-м кадре с ложным `Crossed` — при том что
+/// рекордер применяет сообщение всегда целиком (поймано прогоном 3.1).
+/// Поэтому конвертер — структура с состоянием (`FileReplayer`), а не функция
+/// одного среза: незакрытая группа переживает границу кадра.
+///
+/// Счётчик синтетических `u` — тоже сквозной на весь файл: заведённый внутри
+/// вызова, он начинал бы каждый кадр заново (предыдущая итерация той же ошибки).
+/// Снапшот идёт с `u = 1` по семантике рестарта `Book::apply` и сбрасывает
+/// счётчик на 2 — новая эпоха, как вживую.
 ///
 /// Синтетика `u` годится для проверок 2-3, но НЕ для проверки 1: файл `u` не
 /// хранит, и «проверка 1 на файле» была бы сравнением с выдуманным выравниванием.
+pub struct FileReplayer {
+    bids: Vec<(i64, i64)>,
+    asks: Vec<(i64, i64)>,
+    cur_snapshot: bool,
+    cur_ts_ns: i64,
+    has_open: bool,
+    next_u: u64,
+}
+
+impl FileReplayer {
+    pub fn new() -> Self {
+        Self {
+            bids: Vec::new(),
+            asks: Vec::new(),
+            cur_snapshot: false,
+            cur_ts_ns: 0,
+            has_open: false,
+            next_u: 2,
+        }
+    }
+
+    fn flush(&mut self, updates: &mut Vec<Update>) {
+        if !self.has_open {
+            return;
+        }
+        let u = if self.cur_snapshot { 1 } else { self.next_u };
+        if !self.cur_snapshot {
+            self.next_u += 1;
+        }
+        updates.push(Update {
+            is_snapshot: self.cur_snapshot,
+            u,
+            cts_ms: self.cur_ts_ns / 1_000_000,
+            bids: std::mem::take(&mut self.bids),
+            asks: std::mem::take(&mut self.asks),
+        });
+        self.has_open = false;
+    }
+
+    /// Принимает записи очередного кадра. Возвращает закрывшиеся обновления
+    /// и точки сделок; незакрытая группа (одно сообщение, разрезанное границей
+    /// кадра) остаётся внутри и допишется следующим кадром.
+    pub fn push_frame(
+        &mut self,
+        records: &[Record],
+        tick_e9: i64,
+        step_e9: i64,
+        updates: &mut Vec<Update>,
+        trades: &mut Vec<TradePoint>,
+    ) {
+        for r in records {
+            if is_trade_ev(r.ev) {
+                self.flush(updates);
+                trades.push(TradePoint {
+                    tick: r.price_ticks,
+                    block: r.ival != 0,
+                });
+                continue;
+            }
+            let Some(side) = depth_side(r.ev) else {
+                continue;
+            };
+            let snap = is_snapshot_ev(r.ev);
+            // Новое сообщение — новая группа: та же метка времени и тот же
+            // вид кадра продолжают группу, всё остальное её закрывает.
+            // Два разных сообщения с одной меткой (та же миллисекунда) честно
+            // сливаются: порядок внутри миллисекунды всё равно неразличим, а
+            // атомарность спасает от ложного пересечения.
+            if self.has_open && (snap != self.cur_snapshot || r.exch_ts_ns != self.cur_ts_ns) {
+                self.flush(updates);
+            }
+            if snap {
+                self.next_u = 2;
+            }
+            if !self.has_open {
+                self.cur_snapshot = snap;
+                self.cur_ts_ns = r.exch_ts_ns;
+                self.has_open = true;
+            }
+            let qty_e9 = r.qty_lots * step_e9;
+            let px_e9 = r.price_ticks * tick_e9;
+            match side {
+                Side::Bid => self.bids.push((px_e9, qty_e9)),
+                Side::Ask => self.asks.push((px_e9, qty_e9)),
+            }
+        }
+    }
+
+    /// Закрывает остаток потока. Вызывать один раз в конце файла.
+    pub fn finish(&mut self, updates: &mut Vec<Update>) {
+        self.flush(updates);
+    }
+}
+
+impl Default for FileReplayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Одноразовая обёртка над `FileReplayer` для тестов и простых случаев:
+/// весь срез — один поток, счётчик заводится свежим.
 pub fn records_to_updates(
     records: &[Record],
     tick_e9: i64,
     step_e9: i64,
+    next_u: &mut u64,
 ) -> (Vec<Update>, Vec<TradePoint>) {
+    let mut rp = FileReplayer {
+        bids: Vec::new(),
+        asks: Vec::new(),
+        cur_snapshot: false,
+        cur_ts_ns: 0,
+        has_open: false,
+        next_u: *next_u,
+    };
     let mut updates = Vec::new();
     let mut trades = Vec::new();
-    let mut bids: Vec<(i64, i64)> = Vec::new();
-    let mut asks: Vec<(i64, i64)> = Vec::new();
-    let mut cur_snapshot = false;
-    let mut cur_cts_ms = 0i64;
-    let mut has_open = false;
-    let mut next_u: u64 = 2;
-
-    let flush = |bids: &mut Vec<(i64, i64)>,
-                 asks: &mut Vec<(i64, i64)>,
-                 updates: &mut Vec<Update>,
-                 has_open: &mut bool,
-                 cur_snapshot: bool,
-                 cur_cts_ms: i64,
-                 next_u: &mut u64| {
-        if !*has_open {
-            return;
-        }
-        let u = if cur_snapshot { 1 } else { *next_u };
-        if !cur_snapshot {
-            *next_u += 1;
-        }
-        updates.push(Update {
-            is_snapshot: cur_snapshot,
-            u,
-            cts_ms: cur_cts_ms,
-            bids: std::mem::take(bids),
-            asks: std::mem::take(asks),
-        });
-        *has_open = false;
-    };
-
-    for r in records {
-        if is_trade_ev(r.ev) {
-            flush(
-                &mut bids,
-                &mut asks,
-                &mut updates,
-                &mut has_open,
-                cur_snapshot,
-                cur_cts_ms,
-                &mut next_u,
-            );
-            trades.push(TradePoint {
-                tick: r.price_ticks,
-                block: r.ival != 0,
-            });
-            continue;
-        }
-        let Some(side) = depth_side(r.ev) else {
-            continue;
-        };
-        let snap = is_snapshot_ev(r.ev);
-        if has_open && snap != cur_snapshot {
-            flush(
-                &mut bids,
-                &mut asks,
-                &mut updates,
-                &mut has_open,
-                cur_snapshot,
-                cur_cts_ms,
-                &mut next_u,
-            );
-        }
-        if snap {
-            next_u = 2;
-        }
-        if !has_open {
-            cur_snapshot = snap;
-            cur_cts_ms = r.exch_ts_ns / 1_000_000;
-            has_open = true;
-        }
-        let qty_e9 = r.qty_lots * step_e9;
-        let px_e9 = r.price_ticks * tick_e9;
-        match side {
-            Side::Bid => bids.push((px_e9, qty_e9)),
-            Side::Ask => asks.push((px_e9, qty_e9)),
-        }
-    }
-    flush(
-        &mut bids,
-        &mut asks,
-        &mut updates,
-        &mut has_open,
-        cur_snapshot,
-        cur_cts_ms,
-        &mut next_u,
-    );
+    rp.push_frame(records, tick_e9, step_e9, &mut updates, &mut trades);
+    rp.finish(&mut updates);
+    *next_u = rp.next_u;
     (updates, trades)
 }
 
@@ -548,12 +588,23 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
         .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
     let header = reader.header();
     let mut verifier = Verifier::new(header.tick_e9, header.step_e9);
+    // Один конвертер на весь файл: сообщение обязано лежать в двух кадрах,
+    // и незакрытая группа переживает границу кадра внутри него.
+    let mut replayer = FileReplayer::new();
     loop {
         let frame = reader
             .read_frame()
             .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
         let Some(records) = frame else { break };
-        let (updates, trades) = records_to_updates(&records, header.tick_e9, header.step_e9);
+        let mut updates = Vec::new();
+        let mut trades = Vec::new();
+        replayer.push_frame(
+            &records,
+            header.tick_e9,
+            header.step_e9,
+            &mut updates,
+            &mut trades,
+        );
         for up in &updates {
             // Разрыв в файловом реплее означает битый файл, а не рынок:
             // дальше этот файл не идёт, следующий — с чистого Verifier.
@@ -570,6 +621,14 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
         }
         for t in &trades {
             verifier.observe_trade(t.tick);
+        }
+    }
+    // Хвост файла: сообщение, закрывшееся концом потока, а не следующим.
+    let mut tail = Vec::new();
+    replayer.finish(&mut tail);
+    for up in &tail {
+        if verifier.apply_update(up).is_err() {
+            break;
         }
     }
     let s = verifier.stats();
@@ -735,7 +794,8 @@ mod tests {
             rec(LOCAL_BUY_TRADE_EVENT, 100, 1, 2_500_000_000, 0),
             rec(LOCAL_SELL_TRADE_EVENT, 50, 1, 2_600_000_000, 1),
         ];
-        let (updates, trades) = records_to_updates(&records, TICK_E9, STEP_E9);
+        let mut next_u: u64 = 2;
+        let (updates, trades) = records_to_updates(&records, TICK_E9, STEP_E9, &mut next_u);
         assert_eq!(updates.len(), 2, "снапшот и дельта — разные обновления");
         assert!(updates[0].is_snapshot && updates[0].u == 1);
         assert!(!updates[1].is_snapshot && updates[1].u == 2);
@@ -755,6 +815,105 @@ mod tests {
         assert_eq!(v.stats().trades_total, 2);
         assert_eq!(v.stats().trades_out_of_range, 1);
         assert_eq!(v.stats().sequence_gaps, 0);
+    }
+
+    /// Регрессия живого прогона 3.1: счётчик синтетических `u` сквозной на весь
+    /// файл. Раньше он заводился внутри вызова, каждый кадр начинался заново,
+    /// и реплей 5-минутного файла вставал на втором кадре с ложным разрывом.
+    #[test]
+    fn synthetic_u_continues_across_frames() {
+        use crate::binlog::Record;
+        let rec = |ev: u64, ticks: i64, lots: i64| Record {
+            ev,
+            exch_ts_ns: 1_000_000_000,
+            local_ts_ns: 1_000_000_001,
+            price_ticks: ticks,
+            qty_lots: lots,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        };
+        // Кадр 1 — снапшот, кадры 2-3 — дельты, как их отдаёт Reader.
+        let frame1 = vec![
+            rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5),
+            rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, 101, 4),
+        ];
+        let frame2 = vec![rec(LOCAL_BID_DEPTH_EVENT, 100, 6)];
+        let frame3 = vec![rec(LOCAL_ASK_DEPTH_EVENT, 101, 5)];
+        let mut next_u: u64 = 2;
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        for frame in [&frame1, &frame2, &frame3] {
+            let (updates, _) = records_to_updates(frame, TICK_E9, STEP_E9, &mut next_u);
+            for up in &updates {
+                assert!(v.apply_update(up).is_ok(), "ложный разрыв на {up:?}");
+            }
+        }
+        let s = v.stats();
+        assert_eq!(s.updates_applied, 3);
+        assert_eq!(s.sequence_gaps, 0);
+        assert_eq!(next_u, 4, "две дельты съели значения 2 и 3");
+    }
+
+    /// Регрессия живого прогона 3.1, вторая половина: одно WS-сообщение,
+    /// разрезанное границей кадра, обязано собраться в один `Update`.
+    /// Раньше граница кадра рвала сообщение: бид-половина применялась отдельно,
+    /// книга transiently пересекалась, и реплей 5-минутного файла вставал
+    /// на 12-м кадре с ложным `Crossed`.
+    #[test]
+    fn message_split_across_frames_stays_atomic() {
+        use crate::binlog::Record;
+        let rec = |ev: u64, ticks: i64, lots: i64| Record {
+            ev,
+            exch_ts_ns: 2_000_000_000,
+            local_ts_ns: 2_000_000_001,
+            price_ticks: ticks,
+            qty_lots: lots,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        };
+        let snap = vec![
+            rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5),
+            rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, 101, 4),
+        ];
+        // Одно сообщение: новый размер на биде, новый уровень на аске.
+        // Поодиночке вторая половина бессмысленна без первой, а применение
+        // бид-половины отдельным обновлением рвало бы атомарность сообщения.
+        let half1 = vec![rec(LOCAL_BID_DEPTH_EVENT, 100, 6)];
+        let half2 = vec![rec(LOCAL_ASK_DEPTH_EVENT, 103, 4)];
+        let mut rp = FileReplayer::new();
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        let mut ups = Vec::new();
+        let mut trs = Vec::new();
+        rp.push_frame(&snap, TICK_E9, STEP_E9, &mut ups, &mut trs);
+        assert!(ups.is_empty(), "снапшот ждёт конца потока записей");
+        // Половина сообщения выталкивает готовый снапшот, но сама ждёт пару.
+        rp.push_frame(&half1, TICK_E9, STEP_E9, &mut ups, &mut trs);
+        assert_eq!(ups.len(), 1, "вышел только снапшот");
+        assert!(ups[0].is_snapshot);
+        assert!(v.apply_update(&ups[0]).unwrap().is_empty());
+        ups.clear();
+        rp.push_frame(&half2, TICK_E9, STEP_E9, &mut ups, &mut trs);
+        assert!(
+            ups.is_empty(),
+            "сообщение ещё не кончилось — обновлений нет"
+        );
+        // Хвост потока закрывает целое сообщение одним обновлением.
+        let mut tail = Vec::new();
+        rp.finish(&mut tail);
+        assert_eq!(tail.len(), 1, "целое сообщение — одно обновление");
+        assert!(!tail[0].is_snapshot);
+        assert_eq!(
+            tail[0].bids,
+            vec![(px(100), qty(6))],
+            "бид-половина дождалась аск-половины"
+        );
+        assert_eq!(tail[0].asks, vec![(px(103), qty(4))]);
+        for up in &tail {
+            assert!(v.apply_update(up).unwrap().is_empty());
+        }
+        assert_eq!(v.stats().sequence_gaps, 0);
+        assert_eq!(v.stats().invariant_violations, 0);
     }
 
     #[test]
