@@ -6,4 +6,5 @@ pub mod probe;
 pub mod rest;
 pub mod sign;
 pub mod verify;
+pub mod verify_sidecar;
 pub mod ws;

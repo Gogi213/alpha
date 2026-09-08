@@ -23,6 +23,9 @@
 //!                                          по смене шагов посреди суток)
 //! <root>/gaps.csv                          общий журнал разрывов, шапка +
 //!                                          ноль строк в норме
+//! <root>/verify.csv                        сверка книги с REST по `u` раз в 5 минут
+//!                                          (шаг 0.8): пишет сайдкар `bybit::verify_sidecar`,
+//!                                          цикл записи только шлёт клон книги в канал
 //! <root>/instruments.csv                   вход: пишет `lob pick`, читает
 //!                                          `load_steps_for_symbol`
 //! ```
@@ -60,6 +63,9 @@ use crate::bybit::conn::{
     SystemClock,
 };
 use crate::bybit::rest::{fetch_all_linear_instruments, BybitPublicRest, BYBIT_MAINNET_URL};
+use crate::bybit::verify_sidecar::{
+    offer_book_snapshot, spawn_verify_sidecar, BookFrame, VERIFY_INTERVAL_SECS,
+};
 use crate::bybit::ws::{Event, Trade};
 
 // ---------------------------------------------------------------------------
@@ -1165,10 +1171,14 @@ fn event_exch_ms(event: &Event) -> Option<i64> {
 /// Ctrl-C — сама по себе запись открыта и бесконечна (Decision 21).
 /// REST здесь нет: авторитет шагов приходит готовым по `steps_rx` из
 /// ОС-потока (шаг 0.7, Decision 24) — событийный путь HTTP не ждёт никогда.
+/// Та же дисциплина у сверки (шаг 0.8): сессия только шлёт клон книги в
+/// `verify_tx` раз в 5 минут через `try_send`, а REST-снапшот и `verify.csv` —
+/// дело сайдкара `bybit::verify_sidecar` со своим соединением.
 #[allow(clippy::too_many_lines)]
 async fn run_session(
     rec: &mut Recorder,
     steps_rx: &mut std::sync::mpsc::Receiver<(i64, i64)>,
+    verify_tx: &tokio::sync::mpsc::Sender<BookFrame>,
     free_check: &OsFreeSpaceCheck,
     symbol: &str,
     tick_e9: i64,
@@ -1183,6 +1193,9 @@ async fn run_session(
     // защищает оговорка «десятки строк, читает человек».
     let mut off_step_logged = false;
     let mut off_step_suppressed: u64 = 0;
+    // Счётчик дропов verify-снапшотов (шаг 0.8): переполнение канала — дроп
+    // нового кадра, цикл не ждёт никогда.
+    let mut verify_skipped: u64 = 0;
 
     let cfg = ConnConfig {
         symbol: symbol.to_string(),
@@ -1197,6 +1210,11 @@ async fn run_session(
 
     let mut hourly = tokio::time::interval(Duration::from_secs(HOURLY_REFRESH_SECS));
     hourly.tick().await;
+
+    // Тикер verify-сайдкара (шаг 0.8): тот же ритм 5 минут, что тикер самого
+    // сайдкара (`VERIFY_INTERVAL_SECS` — одна константа на обе стороны).
+    let mut verify_ticker = tokio::time::interval(Duration::from_secs(VERIFY_INTERVAL_SECS));
+    verify_ticker.tick().await;
 
     // Горячий путь не форматирует дату на событие: индекс дня — целочисленное
     // деление, строка — только на ротации (раз в сутки, не 50 раз в секунду).
@@ -1348,8 +1366,28 @@ async fn run_session(
                     }
                 }
             }
-            _ = hourly.tick() => {
-                // Часовой тик: место, итог подавления, flush. Шаги приходят
+            _ = verify_ticker.tick() => {
+                // Шаг 0.8, Decision 24: книга — клоном в канал сайдкара через
+                // `try_send`; переполнение — дроп со счётчиком, цикл не ждёт
+                // никогда. Никакого REST в этой ветке: это был бы дефект 0.7
+                // второй раз. Клон — раз в 5 минут, в счётчик аллокаций
+                // горячего пути не входит (тот меряет stage-функции
+                // пособытийно). Шлётся только доверенная книга (`synced`):
+                // в разрыве книга недоверена, и её шов уже лежит в gaps.csv.
+                if synced {
+                    let frame = BookFrame {
+                        book: book.clone(),
+                        tick_e9: rec.tick_e9(),
+                        step_e9: rec.step_e9(),
+                    };
+                    if !offer_book_snapshot(verify_tx, frame, &mut verify_skipped) {
+                        eprintln!(
+                            "record: verify-сайдкар не забрал снапшот (пропусков: {verify_skipped})"
+                        );
+                    }
+                }
+            }
+            _ = hourly.tick() => {                // Часовой тик: место, итог подавления, flush. Шаги приходят
                 // сами из ОС-потока авторитета — тик их только забирает
                 // (шаг 0.7, Decision 24), сеть здесь не ждётся никогда.
                 match free_check.free_bytes(&rec.root) {
@@ -1420,12 +1458,17 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
     // Шаг 0.7, Decision 24: часовой авторитет живёт в ОС-потоке со своим
     // соединением; событийный путь забирает готовое из канала и HTTP не ждёт.
     let mut steps_rx = spawn_steps_authority(args.base_url.clone(), args.symbol.clone());
+    // Шаг 0.8, Decision 24: verify-сайдкар — tokio-задача со своим соединением;
+    // сессия шлёт ей клон книги в `verify_tx` и HTTP не ждёт.
+    let (verify_tx, verify_handle) =
+        spawn_verify_sidecar(args.base_url.clone(), args.symbol.clone(), root.clone());
 
     let (mut tick, mut step) = (tick_e9, step_e9);
     let stop_reason = loop {
         match run_session(
             &mut rec,
             &mut steps_rx,
+            &verify_tx,
             &free_check,
             &args.symbol,
             tick,
@@ -1443,12 +1486,14 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
             Ok(SessionEnd::Stop { reason }) => break reason,
             Err(e) => {
                 let _ = rec.flush();
+                verify_handle.abort();
                 return Err(anyhow::anyhow!("{e}"));
             }
         }
     };
 
     let _ = rec.flush();
+    verify_handle.abort();
     let gaps = read_gap_rows(rec.gaps_path()).unwrap_or_default();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&root)?
         .filter_map(|e| e.ok().map(|e| e.path()))
