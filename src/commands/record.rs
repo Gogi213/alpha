@@ -65,9 +65,7 @@ use crate::bybit::conn::{
 use crate::bybit::rest::{
     fetch_all_linear_instruments, BybitPublicRest, PublicRest, BYBIT_MAINNET_URL,
 };
-use crate::bybit::verify_sidecar::{
-    offer_book_snapshot, spawn_verify_sidecar, BookFrame, VERIFY_INTERVAL_SECS,
-};
+use crate::bybit::verify_sidecar::{offer_verify_update, spawn_verify_sidecar, VerifyMsg};
 use crate::bybit::ws::{Event, Trade};
 
 // ---------------------------------------------------------------------------
@@ -1249,15 +1247,17 @@ fn event_exch_ms(event: &Event) -> Option<i64> {
 /// Ctrl-C — сама по себе запись открыта и бесконечна (Decision 21).
 /// REST здесь нет: авторитет шагов приходит готовым по `steps_rx` из
 /// ОС-потока (шаг 0.7, Decision 24) — событийный путь HTTP не ждёт никогда.
-/// Та же дисциплина у сверки (шаг 0.8): сессия только шлёт клон книги в
-/// `verify_tx` раз в 5 минут через `try_send`, а REST-снапшот и `verify.csv` —
-/// дело сайдкара `bybit::verify_sidecar` со своим соединением.
+/// Та же дисциплина у сверки (шаг 0.8, ремонт Р1/Р2): сессия форвардит КАЖДОЕ
+/// обработанное `Update` в `verify_tx` через `try_send` (дроп+счётчик при
+/// переполнении), а REST-снапшот и `verify.csv` — дело ОС-потока сайдкара
+/// `bybit::verify_sidecar` со своим соединением. Тикера здесь нет: тикает один
+/// сайдкар сном 300с в своём потоке.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 async fn run_session(
     rec: &mut Recorder,
     steps_rx: &mut std::sync::mpsc::Receiver<(i64, i64)>,
     wake_tx: std::sync::mpsc::SyncSender<()>,
-    verify_tx: &tokio::sync::mpsc::Sender<BookFrame>,
+    verify_tx: &std::sync::mpsc::SyncSender<VerifyMsg>,
     free_check: &OsFreeSpaceCheck,
     symbol: &str,
     tick_e9: i64,
@@ -1272,9 +1272,16 @@ async fn run_session(
     // защищает оговорка «десятки строк, читает человек».
     let mut off_step_logged = false;
     let mut off_step_suppressed: u64 = 0;
-    // Счётчик дропов verify-снапшотов (шаг 0.8): переполнение канала — дроп
-    // нового кадра, цикл не ждёт никогда.
+    // Счётчик дропов verify-форварда (шаг 0.8, ремонт): переполнение канала —
+    // дроп нового обновления, цикл не ждёт никогда.
     let mut verify_skipped: u64 = 0;
+    // Новая эпоха для реплики сайдкара (смена шагов инвалидирует её кольцо и
+    // базу). Неблокирующе: полный канал означает, что сайдкар и так отстаёт.
+    offer_verify_update(
+        verify_tx,
+        VerifyMsg::Reset { tick_e9, step_e9 },
+        &mut verify_skipped,
+    );
 
     let cfg = ConnConfig {
         symbol: symbol.to_string(),
@@ -1289,11 +1296,6 @@ async fn run_session(
 
     let mut hourly = tokio::time::interval(Duration::from_secs(HOURLY_REFRESH_SECS));
     hourly.tick().await;
-
-    // Тикер verify-сайдкара (шаг 0.8): тот же ритм 5 минут, что тикер самого
-    // сайдкара (`VERIFY_INTERVAL_SECS` — одна константа на обе стороны).
-    let mut verify_ticker = tokio::time::interval(Duration::from_secs(VERIFY_INTERVAL_SECS));
-    verify_ticker.tick().await;
 
     // Горячий путь не форматирует дату на событие: индекс дня — целочисленное
     // деление, строка — только на ротации (раз в сутки, не 50 раз в секунду).
@@ -1374,6 +1376,17 @@ async fn run_session(
                                         }
                                     }
                                 }
+                                // Непрерывная реплика сайдкара (0.8 Р1): каждое
+                                // обработанное обновление — в канал без ожидания.
+                                if !offer_verify_update(
+                                    verify_tx,
+                                    VerifyMsg::Update(update),
+                                    &mut verify_skipped,
+                                ) {
+                                    eprintln!(
+                                        "record: verify-сайдкар не успевает (пропусков: {verify_skipped})"
+                                    );
+                                }
                             }
                             Event::Book(update) => {
                                 let exch_ts_ns = update.cts_ms.saturating_mul(1_000_000);
@@ -1400,6 +1413,15 @@ async fn run_session(
                                         // в разрыве): сброс нормален, не разрыв.
                                     }
                                     Err(e) => return Err(e),
+                                }
+                                if !offer_verify_update(
+                                    verify_tx,
+                                    VerifyMsg::Update(update),
+                                    &mut verify_skipped,
+                                ) {
+                                    eprintln!(
+                                        "record: verify-сайдкар не успевает (пропусков: {verify_skipped})"
+                                    );
                                 }
                             }
                             Event::Trade(trade) => {
@@ -1440,27 +1462,6 @@ async fn run_session(
                     ConnEvent::Disconnected => {
                         synced = false;
                         rec.log_gap(GapKind::SequenceGap, &ts_utc_of_ns(SystemClock.now_ns()), "транспорт переподключился — шов покрытия")?;
-                    }
-                }
-            }
-            _ = verify_ticker.tick() => {
-                // Шаг 0.8, Decision 24: книга — клоном в канал сайдкара через
-                // `try_send`; переполнение — дроп со счётчиком, цикл не ждёт
-                // никогда. Никакого REST в этой ветке: это был бы дефект 0.7
-                // второй раз. Клон — раз в 5 минут, в счётчик аллокаций
-                // горячего пути не входит (тот меряет stage-функции
-                // пособытийно). Шлётся только доверенная книга (`synced`):
-                // в разрыве книга недоверена, и её шов уже лежит в gaps.csv.
-                if synced {
-                    let frame = BookFrame {
-                        book: book.clone(),
-                        tick_e9: rec.tick_e9(),
-                        step_e9: rec.step_e9(),
-                    };
-                    if !offer_book_snapshot(verify_tx, frame, &mut verify_skipped) {
-                        eprintln!(
-                            "record: verify-сайдкар не забрал снапшот (пропусков: {verify_skipped})"
-                        );
                     }
                 }
             }
@@ -1537,10 +1538,17 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
     // `try_send` и забирает готовое из канала шагов, HTTP не ждёт никогда.
     let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel::<()>(1);
     let mut steps_rx = spawn_steps_authority(args.base_url.clone(), args.symbol.clone(), wake_rx);
-    // Шаг 0.8, Decision 24: verify-сайдкар — tokio-задача со своим соединением;
-    // сессия шлёт ей клон книги в `verify_tx` и HTTP не ждёт.
-    let (verify_tx, verify_handle) =
-        spawn_verify_sidecar(args.base_url.clone(), args.symbol.clone(), root.clone());
+    // Шаг 0.8, Decision 24 + ремонт Р2: verify-сайдкар — ОС-поток со своим
+    // соединением (как авторитет шагов); сессия форвардит ему каждое Update в
+    // `verify_tx` через `try_send` и HTTP не ждёт. Остановка потока — закрытием
+    // канала (все отправители дропнуты), abort невозможен и не нужен.
+    let verify_tx = spawn_verify_sidecar(
+        args.base_url.clone(),
+        args.symbol.clone(),
+        root.clone(),
+        tick_e9,
+        step_e9,
+    );
 
     let (mut tick, mut step) = (tick_e9, step_e9);
     let stop_reason = loop {
@@ -1566,14 +1574,12 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
             Ok(SessionEnd::Stop { reason }) => break reason,
             Err(e) => {
                 let _ = rec.flush();
-                verify_handle.abort();
                 return Err(anyhow::anyhow!("{e}"));
             }
         }
     };
 
     let _ = rec.flush();
-    verify_handle.abort();
     let gaps = read_gap_rows(rec.gaps_path()).unwrap_or_default();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&root)?
         .filter_map(|e| e.ok().map(|e| e.path()))
