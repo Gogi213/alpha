@@ -1,9 +1,11 @@
 //! `lob <подкоманда>` — единственная точка входа для всех чисел отчёта.
 //!
-//! Реализована только `pick` (шаг 0.4 плана, Decision 18): отбор двух
-//! инструментов для пилота. Остальные подкоманды (`record`, `watch`, `verify`,
-//! `levels`, `markout`, `pilot`, `export`, `probe`, `clock`) добавляют другие
-//! шаги плана — здесь стоит только то, что относится к 0.4.
+//! Реализованы `pick` (шаг 0.4 плана, Decision 18): отбор двух
+//! инструментов для пилота — и `record` (шаг 0.3, Decision 7/23):
+//! непрерывная запись потока в суточные файлы. Остальные подкоманды (`watch`,
+//! `verify`, `levels`, `markout`, `pilot`, `export`, `probe`, `clock`)
+//! добавляют другие шаги плана. Чистая логика записи живёт в
+//! `super::record`, здесь — только вариант команды и печать итога.
 //!
 //! # Структура файла и почему она такая
 //!
@@ -939,6 +941,8 @@ pub async fn measure_prefiltered(
 pub enum LobCommand {
     /// Отбор инструментов для пилота (шаг 0.4, Decision 18).
     Pick(PickArgs),
+    /// Непрерывная запись потока в суточные файлы (шаг 0.3, Decision 7/23).
+    Record(super::record::RecordArgs),
 }
 
 /// Диспетчер подкоманд `lob` для будущего `main.rs` (пока не подключён —
@@ -967,6 +971,18 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                     m.symbol, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
                 );
             }
+            Ok(())
+        }
+        LobCommand::Record(args) => {
+            let summary = super::record::run_record(&args)?;
+            println!(
+                "record: {} records={} files={} gaps={} stop={:?}",
+                summary.symbol,
+                summary.records_total,
+                summary.files.len(),
+                summary.gaps.len(),
+                summary.stop_reason
+            );
             Ok(())
         }
     }
