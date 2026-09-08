@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "/c/Users/Георгий/.claude/skills/autopilot",
   "startedAt": "2026-09-08T01:40:00+04:00",
-  "updatedAt": "2026-09-08T04:08:12+04:00",
+  "updatedAt": "2026-09-08T05:30:33+04:00",
   "finishedAt": null,
   "stages": [
     {
@@ -53,7 +53,7 @@ window.STATE =
       "id": "build",
       "status": "active",
       "startedAt": "2026-09-08T03:54:10+04:00",
-      "note": "0.1: разбор и книга готовы, 22 теста зелёные; остался сокет и local_ts"
+      "note": "волна 2 закрыта: 89 тестов, GC чист, калибровка бутстрапа прогнана — эмпирический размер 0.00495"
     },
     {
       "id": "review",
@@ -89,7 +89,6 @@ window.STATE =
       "startedAt": "2026-09-08T03:54:10+04:00",
       "finishedAt": "2026-09-08T03:54:10+04:00",
       "commit": "3b07fa9",
-     
       "retries": 0,
       "repairs": 0,
       "handoffs": 0
@@ -109,11 +108,16 @@ window.STATE =
         "src/bybit/ws.rs",
         "src/book/"
       ],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-08T03:54:10+04:00",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "finishedAt": "2026-09-08T05:30:32+04:00",
+      "tests": {
+        "passed": 89,
+        "failed": 0
+      }
     },
     {
       "id": "7.2",
@@ -128,10 +132,16 @@ window.STATE =
       "zone": [
         "src/stats/"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-08T04:14:27+04:00",
+      "finishedAt": "2026-09-08T05:30:33+04:00",
+      "tests": {
+        "passed": 89,
+        "failed": 0
+      }
     },
     {
       "id": "6.2",
@@ -147,10 +157,16 @@ window.STATE =
       "zone": [
         "src/bybit/probe.rs"
       ],
-      "status": "pending",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
-      "handoffs": 0
+      "handoffs": 0,
+      "startedAt": "2026-09-08T04:14:28+04:00",
+      "finishedAt": "2026-09-08T05:30:33+04:00",
+      "tests": {
+        "passed": 89,
+        "failed": 0
+      }
     },
     {
       "id": "0.2",
