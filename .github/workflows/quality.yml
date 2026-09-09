@@ -37,6 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      # Без этого джоб зелён, ничего не проверив: с тёплым кэшем clippy не
+      # переиспускает диагностику. Чистится только наш крейт — зависимости
+      # остаются в кэше, поэтому цена секунды, а не минуты.
+      - run: cargo clean -p alpha
       - run: |
           cargo clippy --lib --bins -- \
             -D clippy::float_cmp \
@@ -59,6 +63,9 @@ jobs:
       - name: Счёт и сверка с бюджетом
         run: |
           set -o pipefail
+          # См. комментарий в strict-lints: без чистки своего крейта clippy
+          # молчит на тёплом кэше и счёт выходит нулевым.
+          cargo clean -p alpha
           cargo clippy --lib --bins --message-format short -- \
             -W clippy::unwrap_used \
             -W clippy::expect_used \
@@ -71,6 +78,10 @@ jobs:
           echo "срабатываний: $got, бюджет: $budget"
           if [ "$got" -gt "$budget" ]; then
             echo "::error::долг вырос: $got против бюджета $budget"
+            exit 1
+          fi
+          if [ "$got" -eq 0 ] && [ "$budget" -gt 0 ]; then
+            echo "::error::счёт нулевой при ненулевом бюджете — clippy промолчал, проверка ничего не проверила"
             exit 1
           fi
           if [ "$got" -lt "$budget" ]; then
