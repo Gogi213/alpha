@@ -23,7 +23,14 @@ STATE = os.path.join(A, "state.js")
 
 
 def now():
-    return subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
+    try:
+        out = subprocess.run(["date", "-Iseconds"], capture_output=True, text=True).stdout.strip()
+        if out:
+            return out
+    except (OSError, subprocess.SubprocessError):
+        pass
+    from datetime import datetime
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def load():
@@ -32,7 +39,33 @@ def load():
     return head + "=", json.loads(body.strip().rstrip(";"))
 
 
+def recount_requirements(st):
+    """Покрытие брифа — производная от статусов тасков, а не ручное поле.
+
+    Требование закрыто, когда закрыты **все** его таски. Коды берутся с самих
+    тасков (`requirements` тикета), список требований — docs/plan/REQUIREMENTS.md.
+    `total` не трогается: сколько требований в брифе, знает бриф, а не эта функция.
+
+    Зачем производная: поле выставили на manifest и не двигали двое суток, поэтому
+    дашборд показывал 0% при восемнадцати закрытых тасках. Ручной счётчик, который
+    надо помнить обновлять, — это тот же счётчик, который забудут.
+    """
+    req = st.setdefault("requirements", {})
+    by_code = {}
+    for t in st.get("tickets", []):
+        for code in t.get("requirements", []) or []:
+            by_code.setdefault(code, []).append(t.get("status"))
+    done = sum(1 for sts in by_code.values() if sts and all(s == "done" for s in sts))
+    req["inTicket"] = len(by_code)
+    req["done"] = done
+    # Требования без таска: их закрывает спека (Out of scope, решения), не работа.
+    total = req.get("total") or len(by_code)
+    req["inSpec"] = max(0, total - len(by_code))
+    return req
+
+
 def save(head, st):
+    recount_requirements(st)
     st["updatedAt"] = now()
     tmp = STATE + ".tmp"
     with io.open(tmp, "w", encoding="utf-8") as f:

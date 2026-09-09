@@ -1,0 +1,148 @@
+# Живые прогоны против публичного Bybit: короткая запись и сетевые тесты.
+#
+# Зачем в CI, если недельную запись сюда всё равно не унести: пятиминутный
+# прогон ловит ровно тот класс дефектов, который дважды прошёл мимо зелёных
+# юнит-тестов. `verify.csv` с одной шапкой и нулём строк (В-8) и вердикты
+# `mismatch` от позиционного сравнения нашлись живым прогоном, а не набором.
+# Здесь этот прогон становится автоматическим.
+#
+# Ключей не требует и приватных эндпоинтов не трогает: только публичные
+# `market/*` и публичный WS. Живой тест `trade_ws` из набора исключён нарочно —
+# он ставит настоящий ордер боевыми ключами (H9), и место ему на VPS, не тут.
+name: Live
+
+on:
+  schedule:
+    # Раз в сутки. Расписание на публичном репозитории отключается после
+    # долгого простоя — если джоб пропал, разбудить руками через Run workflow.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Длительность записи в минутах"
+        required: false
+        default: "5"
+      symbol:
+        description: "Символ для дымового прогона"
+        required: false
+        default: "SOLUSDT"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke-record:
+    # Символ здесь — дымовой выбор, а не инструмент пилота: инструмент
+    # назначает `lob pick` правилом Decision 18, и R07 запрещает BTC/ETH.
+    # Проверяется работоспособность записи и сверки, а не отбор.
+    name: Запись ${{ github.event.inputs.minutes || 5 }} мин и сверка
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Сборка
+        run: cargo build --release
+
+      - name: Метаданные инструмента в instruments.csv
+        env:
+          SYMBOL: ${{ github.event.inputs.symbol || 'SOLUSDT' }}
+        run: |
+          mkdir -p data/ci
+          curl -sS --fail --max-time 20 \
+            "https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=$SYMBOL" \
+            > /tmp/inst.json
+          jq -er '
+            .result.list[0]
+            | [.symbol, .priceFilter.tickSize, .lotSizeFilter.minOrderQty,
+               .lotSizeFilter.qtyStep, (.lotSizeFilter.minNotionalValue // "5")]
+            | @csv' /tmp/inst.json > /tmp/row.csv
+          echo "symbol,tick_size,min_order_qty,qty_step,min_notional_value" > data/ci/instruments.csv
+          tr -d '"' < /tmp/row.csv >> data/ci/instruments.csv
+          cat data/ci/instruments.csv
+
+      - name: Запись
+        env:
+          SYMBOL: ${{ github.event.inputs.symbol || 'SOLUSDT' }}
+          MINUTES: ${{ github.event.inputs.minutes || '5' }}
+        run: |
+          set -o pipefail
+          # SIGINT — штатный путь остановки (`tokio::signal::ctrl_c`): файлы
+          # сбрасываются, сутки остаются читаемыми. `timeout` возвращает 130,
+          # и это успех, а не отказ.
+          timeout --signal=INT "$(( MINUTES * 60 ))" \
+            ./target/release/alpha lob record --symbol "$SYMBOL" --root data/ci \
+            2>&1 | tee data/ci/record.log || rc=$?
+          if [ "${rc:-0}" -ne 0 ] && [ "${rc:-0}" -ne 130 ]; then
+            echo "record завершился кодом ${rc}"
+            exit "$rc"
+          fi
+
+      - name: Проверка артефактов записи
+        run: |
+          set -e
+          shopt -s nullglob
+          logs=(data/ci/*.binlog)
+          if [ ${#logs[@]} -eq 0 ]; then echo "бинлога нет"; exit 1; fi
+          for f in "${logs[@]}"; do
+            size=$(stat -c%s "$f")
+            echo "$f: $size байт"
+            [ "$size" -gt 0 ] || { echo "пустой бинлог"; exit 1; }
+          done
+
+          # `gaps.csv` в норме — шапка и ноль строк. Разрыв на пятиминутном
+          # прогоне это отказ, а не шум: он означает ресинк или потерю.
+          gaps=$(( $(wc -l < data/ci/gaps.csv) - 1 ))
+          echo "строк в gaps.csv: $gaps"
+          [ "$gaps" -eq 0 ] || { cat data/ci/gaps.csv; exit 1; }
+
+          # Главное. Сверка обязана состояться и обязана сойтись: ноль строк
+          # (В-8) и вердикт, отличный от `ok` (В-8 через позиционное
+          # сравнение), — оба уже случались при зелёном наборе тестов.
+          rows=$(( $(wc -l < data/ci/verify.csv) - 1 ))
+          echo "строк в verify.csv: $rows"
+          cat data/ci/verify.csv
+          [ "$rows" -ge 1 ] || { echo "сверка не состоялась ни разу"; exit 1; }
+          bad=$(tail -n +2 data/ci/verify.csv | awk -F, '$NF != "ok"' | wc -l)
+          [ "$bad" -eq 0 ] || { echo "$bad строк не ok"; exit 1; }
+
+      - name: Файловый реплей записанного
+        env:
+          SYMBOL: ${{ github.event.inputs.symbol || 'SOLUSDT' }}
+        run: ./target/release/alpha lob verify --symbol "$SYMBOL" --root data/ci
+
+      - name: Артефакты прогона
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-run
+          path: |
+            data/ci/verify.csv
+            data/ci/gaps.csv
+            data/ci/instruments.csv
+            data/ci/record.log
+          retention-days: 14
+          if-no-files-found: warn
+
+  live-network-tests:
+    # `#[ignore]`-тесты, которым нужна сеть и не нужны ключи. Ловят дрейф API
+    # биржи — он тут уже кусался: `u` и `seq` оказались разными счётчиками, и
+    # выяснилось это живым прогоном, а не набором.
+    #
+    # Оговорка: NTP-запрос уходит по UDP/123, и на облачных ранерах он может
+    # быть закрыт. Если джоб стабильно красный именно на нём — переносить на
+    # VPS, а не приглушать; тест, который не может выполниться, ничего не
+    # проверяет ни зелёным, ни красным.
+    name: Живые сетевые тесты
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Сверка книги с живым REST
+        run: cargo test --release --lib live_snapshot_compare_via_rest -- --ignored --nocapture
+
+      - name: Часы против NTP и serverTime
+        run: cargo test --release --lib live_round_trip_against_ntp_and_bybit -- --ignored --nocapture

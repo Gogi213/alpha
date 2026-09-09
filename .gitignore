@@ -6,3 +6,4 @@ target/
 *.bak
 *.orig
 *.rej
+.autopilot/*.pid

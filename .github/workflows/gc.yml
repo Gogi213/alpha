@@ -1,0 +1,62 @@
+# Гейт GC на каждом пуше (PLAN.md, раздел «Ремесло и экономность»).
+#
+# Три строки гейта — линт, формат, тесты — до сих пор прогонял агент и сам же
+# отчитывался. Ревизия 14 показала, чем это кончается: семь шагов «done» без
+# единого артефакта при зелёных тестах. CI не отчитывается, он проверяет.
+#
+# Тулчейн не ставится отдельным шагом: `rust-toolchain.toml` пинует 1.93.1 и
+# перечисляет компоненты rustfmt и clippy, поэтому rustup поднимает их сам на
+# первом же вызове cargo. Один источник версии, а не два расходящихся.
+name: GC
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gc-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    # Linux — не для галочки: разработка идёт на Windows, а жить система будет
+    # на VPS (H12). Расхождения уже ловились руками — доставка сигналов и
+    # переносы строк; пусть ловит машина.
+    name: GC (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Формат
+        run: cargo fmt --check
+
+      - name: Линт
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Тесты
+        run: cargo test
+
+  single-worker:
+    # Дефект В-9 (сайдкар блокировал воркер рантайма) не воспроизводится на
+    # многоядерной машине по построению: воркеров столько же, сколько ядер, и
+    # занятый один ничего не останавливает. `TOKIO_WORKER_THREADS=1` сводит
+    # рантайм к одному воркеру — то есть к VPS с одним vCPU, где это и вылезет.
+    name: GC на одном воркере
+    runs-on: ubuntu-latest
+    env:
+      TOKIO_WORKER_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Тесты при одном воркере
+        run: cargo test
