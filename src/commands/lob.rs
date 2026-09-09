@@ -946,6 +946,8 @@ pub enum LobCommand {
     /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
     /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
     Verify(crate::bybit::verify::VerifyArgs),
+    /// Экспорт суток в `npy` для крейта `hftbacktest` (шаг 6.1, Decision 17).
+    Export(crate::lob::export::ExportArgs),
 }
 
 /// Диспетчер подкоманд `lob` для будущего `main.rs` (пока не подключён —
@@ -999,6 +1001,17 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.trades_total,
                 summary.trades_out_of_range,
                 summary.trades_indeterminate,
+            );
+            Ok(())
+        }
+        LobCommand::Export(args) => {
+            let summary = crate::lob::export::run_export(&args)?;
+            println!(
+                "export: files={} events={} defective={} out={}",
+                summary.files,
+                summary.events,
+                summary.defective,
+                summary.out.display()
             );
             Ok(())
         }

@@ -2048,6 +2048,9 @@ mod tests {
             crate::commands::lob::LobCommand::Verify(_) => {
                 panic!("разобралась не та подкоманда")
             }
+            crate::commands::lob::LobCommand::Export(_) => {
+                panic!("разобралась не та подкоманда")
+            }
         }
     }
 
