@@ -12,13 +12,15 @@
 //! # Структура файла и почему она такая
 //!
 //! Часовой замер живого стакана нельзя прогнать в юнит-тесте — ему нужна
-//! сеть и час времени. Поэтому Decision 18 разложен на два слоя:
+//! сеть и час времени. Поэтому Decision 25 разложен на два слоя:
 //!
-//! - **Чистые функции** (`build_pool`, `middle_tercile`, `prefilter_top_n`,
+//! - **Чистые функции** (`build_pool`, `coverage_top50_bps`,
+//!   `eligible_baskets`/`count_eligible_trials`,
 //!   `median_depth_per_level_usd_e9`, `select_final_two`) реализуют само
-//!   правило отбора — пул, терциль, предфильтр, порог глубины, ранжирование —
+//!   правило отбора — пул из десяти после трёх исключений, покрытие топ-50,
+//!   пригодность корзин, порог глубины, ранжирование —
 //!   и не делают ввода-вывода вообще. Они принимают уже готовые данные
-//!   (метаданные инструментов, обороты, измеренную глубину) и проверены
+//!   (метаданные инструментов, тикеры, измеренную глубину) и проверены
 //!   тестами ниже исчерпывающе, в том числе на вырожденных входах.
 //! - **Тонкая оболочка** (`measure_one_symbol`, `measure_prefiltered`,
 //!   `run_pick`) ходит в сеть и час ждёт: она только собирает вход для чистых
@@ -26,7 +28,7 @@
 //!   без сети по той же причине, по которой её нельзя устроить в CI, — и это
 //!   не пробел, а прямое следствие того, что вся логика уже вынесена наружу.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -44,7 +46,7 @@ use crate::bybit::probe::{
     RttSummary, SignedRequest, DEFAULT_RECV_WINDOW_MS, MIN_CYCLES,
 };
 use crate::bybit::rest::{
-    fetch_all_linear_instruments, fetch_linear_tickers, BybitPublicRest, Instrument,
+    fetch_all_linear_instruments, fetch_linear_tickers, BybitPublicRest, Instrument, Ticker,
     BYBIT_MAINNET_URL,
 };
 use crate::bybit::sign::Credentials;
@@ -66,22 +68,22 @@ use crate::lob::watch::{
 use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
 // ---------------------------------------------------------------------------
-// Константы Decision 18. Каждое число здесь — то самое, что названо в тексте
+// Константы Decision 25. Каждое число здесь — то самое, что названо в тексте
 // решения (`PLAN.md`); ничего не подобрано по вкусу этого файла.
+// Правило средней трети Decision 18 заменено ревизией 17 целиком: терцилей,
+// предфильтра «20 верхних» и схлопывания 1000X-дублей больше нет — пул это
+// первые десять оставшихся после трёх исключений. Протокол часового замера
+// глубины и порог $2000 шага 0.4 при этом сохранены (см. `select_final_two`).
 // ---------------------------------------------------------------------------
 
-/// «Торгуются >= 30 суток» (Decision 18).
+/// «Торгуются >= 30 суток» (Decision 18, сохранено Decision 25 как пункт 3).
 pub const MIN_LISTED_DAYS: i64 = 30;
 const MS_PER_DAY: i64 = 24 * 60 * 60 * 1_000;
 
-/// «Средняя треть» — терциль по обороту за 24 часа (Decision 18). Минимум
-/// пула, при котором терцили вообще определены: меньше трёх записей — меньше
-/// одной на треть, и деление не имеет смысла математически, а не только
-/// по вкусу реализации.
-pub const MIN_POOL_FOR_TERCILES: usize = 3;
-
-/// «20 верхних по отчётному обороту» (Decision 18) — предфильтр, не критерий.
-pub const PREFILTER_TOP_N: usize = 20;
+/// Размер пула Decision 25: первые десять оставшихся после трёх исключений —
+/// не «первая десятка минус выбывшие», иначе размер пула плавал бы от того,
+/// сколько неподходящих случайно оказалось наверху.
+pub const POOL_SIZE: usize = 10;
 
 /// «Один непрерывный час живого orderbook.50» (Decision 18, шаг 0.4 плана).
 pub const MEASUREMENT_WINDOW_SECS: u64 = 3600;
@@ -118,19 +120,15 @@ const MEASUREMENT_BACKOFF: crate::bybit::conn::BackoffConfig = crate::bybit::con
 // Ошибки
 // ---------------------------------------------------------------------------
 
-/// Отказ чистой части правила Decision 18. Ни один вариант не паникует —
+/// Отказ чистой части правила Decision 25. Ни один вариант не паникует —
 /// это и есть требование задачи: вырожденный вход обязан вернуть ошибку с
 /// причиной, а не молча посчитать что-то похожее на ответ (тот самый дефект
 /// bootstrap-модуля из `stats/mod.rs`, деливший на нулевую дисперсию).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickError {
-    /// Пул после фильтров и схлопывания дублей меньше `MIN_POOL_FOR_TERCILES`.
-    /// Покрывает и пустой пул (`len == 0`): причина отказа для вызывающего
-    /// одна и та же — данных не хватает для терцилей, а не что-то ещё.
-    PoolTooSmallForTerciles { len: usize },
     /// Ни один измеренный кандидат не прошёл порог глубины **на обеих
-    /// сторонах** (Decision 18(б), ревизия 10) — толстая сторона не
-    /// засчитывается за тонкую.
+    /// сторонах** (протокол шага 0.4, порог Decision 18 сохранён ревизией 17)
+    /// — толстая сторона не засчитывается за тонкую.
     NoSurvivorsAboveDepthFloor {
         floor_usd_e9: i64,
         candidates: usize,
@@ -152,10 +150,6 @@ pub enum PickError {
 impl std::fmt::Display for PickError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PickError::PoolTooSmallForTerciles { len } => write!(
-                f,
-                "пул из {len} инструментов меньше {MIN_POOL_FOR_TERCILES} — терцили не определены"
-            ),
             PickError::NoSurvivorsAboveDepthFloor {
                 floor_usd_e9,
                 candidates,
@@ -188,8 +182,9 @@ impl std::error::Error for PickError {}
 
 /// Всё, что известно про инструмент **до** часового замера глубины: то, что
 /// приносят `instruments-info` и `tickers` (`bybit::rest`), склеенные по
-/// символу. «Уже измеренный кандидат», о котором говорит задача, — это он:
-/// оборот уже есть, глубины ещё нет.
+/// символу. Оборот — для ранжирования пула, шаг цены и последняя цена — для
+/// покрытия топ-50 шага 0.4 (`50 × tickSize / цена × 10⁴`): без них ни
+/// покрытие, ни пригодность корзин Decision 26а не считаются.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateMeta {
     pub symbol: String,
@@ -199,6 +194,8 @@ pub struct CandidateMeta {
     /// `None` — Bybit не прислал `launchTime` (см. `rest::Instrument`).
     pub launch_time_ms: Option<i64>,
     pub turnover_24h_usd_e9: i64,
+    pub tick_e9: i64,
+    pub last_price_e9: i64,
 }
 
 /// `launchTime` отсутствует у части инструментов Bybit (см.
@@ -217,81 +214,164 @@ pub fn is_listed_long_enough(launch_time_ms: Option<i64>, now_ms: i64) -> bool {
     }
 }
 
-/// Склеивает метаданные инструмента с его оборотом. Символ без тикера
-/// отбрасывается — без оборота ранжировать нечем, и включать его в пул
-/// значило бы дать ему явную турникету (в терциле он не мог бы быть меньше
-/// последнего места, но и не должен вообще там появляться без данных).
-pub fn join_candidate_meta(
-    instruments: &[Instrument],
-    turnover_by_symbol: &HashMap<String, i64>,
-) -> Vec<CandidateMeta> {
+/// Склеивает метаданные инструмента с его тикером. Символ без тикера
+/// отбрасывается — без оборота ранжировать нечем, а без цены не считается
+/// покрытие шага 0.4; включать его в пул значило бы дать ему место без данных.
+/// Это не одно из трёх исключений Decision 25 (у него нет `excluded_reason`),
+/// а отсутствие данных: строка без оборота и цены в таблице непроверяема.
+pub fn join_candidate_meta(instruments: &[Instrument], tickers: &[Ticker]) -> Vec<CandidateMeta> {
+    let by_symbol: HashMap<&str, &Ticker> =
+        tickers.iter().map(|t| (t.symbol.as_str(), t)).collect();
     instruments
         .iter()
         .filter_map(|inst| {
-            let turnover_24h_usd_e9 = *turnover_by_symbol.get(&inst.symbol)?;
+            let ticker = by_symbol.get(inst.symbol.as_str())?;
             Some(CandidateMeta {
                 symbol: inst.symbol.clone(),
                 base_coin: inst.base_coin.clone(),
                 quote_coin: inst.quote_coin.clone(),
                 contract_type: inst.contract_type.clone(),
                 launch_time_ms: inst.launch_time_ms,
-                turnover_24h_usd_e9,
+                turnover_24h_usd_e9: ticker.turnover_24h_usd_e9,
+                tick_e9: inst.tick_e9,
+                last_price_e9: ticker.last_price_e9,
             })
         })
         .collect()
 }
 
 // ---------------------------------------------------------------------------
-// Стадия 2: пул — фильтры + схлопывание 1000X-дублей
+// Стадия 2: пул Decision 25 — десять старших по обороту после трёх исключений
 // ---------------------------------------------------------------------------
 
-/// Один инструмент пула после фильтров и схлопывания дублей: то, чем
-/// ранжируется терциль. Метаданные фильтров дальше не нужны — все решения
-/// о допуске приняты в `build_pool`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Один инструмент пула: прошедший все три исключения и вошедший в первые
+/// десять оставшихся по обороту. Шаг цены и последняя цена едут дальше —
+/// по ним `build_candidate_table` считает покрытие топ-50 шага 0.4.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PoolCandidate {
     pub symbol: String,
     pub turnover_24h_usd_e9: i64,
+    pub tick_e9: i64,
+    pub last_price_e9: i64,
+    /// Покрытие топ-50 в bps (`50 × tickSize / цена × 10⁴`, шаг 0.4).
+    /// `None` — делить не на что (неположительный шаг или цена): ноль здесь
+    /// читался бы как «книги нет», а не «цены нет».
+    pub coverage_top50_bps: Option<f64>,
 }
 
-/// Базовый актив без мультипликаторного префикса контракта. Bybit заводит
-/// `1000PEPEUSDT`, `10000SATSUSDT` и т.п. как отдельные символы одного и
-/// того же актива при разном размере контракта; без схлопывания один актив
-/// занимал бы несколько мест в пуле и искажал терцили оборота — актив с
-/// раздутым контрактом просто дублировался бы в ранжировании.
+/// Причина исключения — колонка `excluded_reason` шага 0.4: строка на каждое
+/// исключение, потому что признака некриптового актива в API нет и решение
+/// принимается здесь, а не на бирже.
+pub const EXCLUDED_BTC_ETH: &str = "btc_eth_by_name";
+/// Базовый актив не криптоактив (пункт 2 Decision 25).
+pub const EXCLUDED_NON_CRYPTO: &str = "non_crypto_base";
+/// Возраст контракта < 30 суток (пункт 3 Decision 25).
+pub const EXCLUDED_TOO_YOUNG: &str = "listed_under_30d";
+/// Прошёл все три исключения, но не вошёл в первые десять по обороту.
+/// Не исключение по правилу, а срез ранжирования — без этой строки из
+/// таблицы нельзя проверить, что пул это действительно *первые* десять
+/// оставшихся, а не десять произвольных.
+pub const BELOW_TOP10: &str = "below_top10_by_turnover";
+
+/// Некриптовые базовые активы (пункт 2 Decision 25: акции, ETF, металлы).
+/// У Bybit нет поля, отличающего их от крипты: проверено 2026-09-10,
+/// `AAPLUSDT` это `contractType: LinearPerpetual` со `status: Trading`, ровно
+/// как `SOLUSDT` — поэтому `SETTLED.md` ПЛАН-2, утверждавший, что категория
+/// `linear` такие контракты не возвращает, **неверен**, и решение принимается
+/// здесь, по базовому активу.
 ///
-/// Порядок префиксов важен: длинные проверяются раньше коротких, иначе
-/// `1000000BABYDOGE` ошибочно читался бы как `1000` + `000BABYDOGE`.
-fn canonical_asset(base_coin: &str) -> &str {
-    for prefix in ["1000000", "100000", "10000", "1000"] {
-        if let Some(rest) = base_coin.strip_prefix(prefix) {
-            if !rest.is_empty() {
-                return rest;
-            }
-        }
+/// Состав списка и его происхождение, честно, потому что альтернативы списку
+/// нет (BUSINESS-TASK.md, раздел 2): `AAPL`, `SNDK` — акции, `SOXL` — ETF,
+/// `XAU` — золото из замера 2026-09-10, записанного в Decision 25 и
+/// BUSINESS-TASK §2; `TSLA` — акция, пример токенизированной акции из истории
+/// этого шага. Список неполон по построению: новый листинг некриптового
+/// актива пройдёт фильтр, пока его базу не впишут сюда — это цена отсутствия
+/// признака в API, а не недосмотр реализации.
+pub const NON_CRYPTO_BASES: &[&str] = &["AAPL", "SNDK", "SOXL", "XAU", "TSLA"];
+
+/// Один инструмент, не вошедший в пул, с причиной — строка таблицы
+/// кандидатов шага 0.4. Оборот печатается и у исключённых: иначе из таблицы
+/// нельзя проверить ранжирование («первые десять *оставшихся*»).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExcludedCandidate {
+    pub symbol: String,
+    pub turnover_24h_usd_e9: i64,
+    pub excluded_reason: &'static str,
+}
+
+/// Итог стадии пула: сам пул (≤ `POOL_SIZE`, по убыванию оборота) и все
+/// остальные рассмотренные символы с причинами (по убыванию оборота).
+#[derive(Debug)]
+pub struct PoolOutcome {
+    pub pool: Vec<PoolCandidate>,
+    pub excluded: Vec<ExcludedCandidate>,
+}
+
+/// Покрытие топ-50 в bps по шагу 0.4: `50 × tickSize / цена × 10⁴`.
+/// Ширина одной стороны книги в базисных пунктах — та величина, внутрь
+/// которой Decision 26а требует целиком укладывать корзину расстояния.
+pub fn coverage_top50_bps(tick_e9: i64, last_price_e9: i64) -> Option<f64> {
+    if tick_e9 <= 0 || last_price_e9 <= 0 {
+        return None;
     }
-    base_coin
+    Some(50.0 * tick_e9 as f64 / last_price_e9 as f64 * 1e4)
 }
 
-/// Строит пул Decision 18: linear USDT-перпы, торгуются >= 30 суток,
-/// дубликаты одного актива схлопнуты в один — тот, у которого выше оборот
-/// (актуальный контракт этого актива), при равенстве оборота —
-/// лексикографически меньший символ (детерминизм, не смысл).
+/// Корзины расстояния Decision 26 (bps): метка и верхняя граница.
+/// Границы назначены планом до данных и не пересматриваются.
+pub const DISTANCE_BASKETS: &[(&str, f64)] = &[
+    ("0-1", 1.0),
+    ("1-2.5", 2.5),
+    ("2.5-5", 5.0),
+    ("5-10", 10.0),
+    ("10-25", 25.0),
+];
+
+/// Пригодные корзины расстояния для инструмента (Decision 26а): корзина
+/// пригодна, только если целиком попадает внутрь его покрытия топ-50, то
+/// есть её верхняя граница не выходит за покрытие. Непригодная корзина не
+/// печатается ни строкой таблицы, ни нулём — её там нет, а не «нет сигнала»,
+/// поэтому пустое покрытие (`None`) даёт пустой список, а не все корзины.
+/// Равенство границы покрытию — пригодна: корзина `[a,b)` при покрытии ровно
+/// `b` вся наблюдается.
+pub fn eligible_baskets(coverage_bps: Option<f64>) -> Vec<&'static str> {
+    match coverage_bps {
+        Some(c) => DISTANCE_BASKETS
+            .iter()
+            .filter(|(_, upper)| *upper <= c)
+            .map(|(label, _)| *label)
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Число испытаний для DSR (Decision 26а): количество пригодных пар
+/// (инструмент, корзина), а не номинальный крест. Считается по тем же
+/// покрытиям, что лежат в пуле, — не разбором строк таблицы.
+pub fn count_eligible_trials(pool: &[PoolCandidate]) -> usize {
+    pool.iter()
+        .map(|c| eligible_baskets(c.coverage_top50_bps).len())
+        .sum()
+}
+
+/// Строит пул Decision 25: десять бессрочных USDT-контрактов, старших по
+/// обороту за 24 часа **среди прошедших исключения** — первые десять
+/// оставшихся после фильтра, иначе размер пула плавал бы от того, сколько
+/// неподходящих случайно оказалось наверху. Исключения: (1) BTC и ETH по
+/// имени — прямое указание владельца; (2) некриптовый базовый актив — по
+/// `NON_CRYPTO_BASES`, признака в API нет; (3) возраст < 30 суток.
 ///
-/// **Здесь нет фильтра токенизированных акций, и это не пробел.** Ревизии
-/// 4-9 называли их в исключениях отдельным пунктом, что толкало реализацию
-/// к списку тикеров — списку, который колонка «Отвергнуто» этого же решения
-/// прямо запрещает (он устаревает при каждой смене листингов, ровно как
-/// список, от которого Decision 18 уходит для терциля). Ревизия 10 убрала
-/// пункт целиком: у Bybit токенизированные акции — не бессрочные контракты
-/// категории `linear`, поэтому `instruments-info?category=linear`, который
-/// наполняет `candidates` этой функции, их и не возвращает — фильтровать
-/// здесь уже нечего. Если этот комментарий читается после регрессии (тикер
-/// акции всё же попал в выдачу `lob pick`) — чинить нужно категорию
-/// REST-запроса (`fetch_all_linear_instruments`/`rest::CATEGORY_LINEAR`),
-/// а не добавлять сюда список исключений.
-pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> Vec<PoolCandidate> {
-    let mut best: BTreeMap<&str, &CandidateMeta> = BTreeMap::new();
+/// Приоритет причин при совпадении нескольких — в порядке пунктов плана:
+/// имя, затем базовый актив, затем возраст. Детерминирован и записан здесь,
+/// а не оставлен вызывающему: у символа одна строка в таблице и одна причина.
+///
+/// Фильтры области (не USDT-котировка, не `LinearPerpetual`) — не исключения
+/// Decision 25 и строк не получают: это область запроса `instruments-info`,
+/// а не решение шага 0.4. Пул фиксируется на весь прогон: потерявший
+/// ликвидность посреди записи остаётся в отчёте, а не заменяется.
+pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
+    let mut passing: Vec<&CandidateMeta> = Vec::new();
+    let mut excluded: Vec<ExcludedCandidate> = Vec::new();
     for c in candidates {
         if c.quote_coin != LINEAR_QUOTE_COIN {
             continue;
@@ -299,92 +379,58 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> Vec<PoolCandidat
         if c.contract_type != LINEAR_CONTRACT_TYPE {
             continue;
         }
-        if !is_listed_long_enough(c.launch_time_ms, now_ms) {
-            continue;
+        let reason = if c.base_coin == "BTC" || c.base_coin == "ETH" {
+            Some(EXCLUDED_BTC_ETH)
+        } else if NON_CRYPTO_BASES.contains(&c.base_coin.as_str()) {
+            Some(EXCLUDED_NON_CRYPTO)
+        } else if !is_listed_long_enough(c.launch_time_ms, now_ms) {
+            Some(EXCLUDED_TOO_YOUNG)
+        } else {
+            None
+        };
+        match reason {
+            Some(excluded_reason) => excluded.push(ExcludedCandidate {
+                symbol: c.symbol.clone(),
+                turnover_24h_usd_e9: c.turnover_24h_usd_e9,
+                excluded_reason,
+            }),
+            None => passing.push(c),
         }
-        let key = canonical_asset(&c.base_coin);
-        best.entry(key)
-            .and_modify(|cur| {
-                if c.turnover_24h_usd_e9 > cur.turnover_24h_usd_e9
-                    || (c.turnover_24h_usd_e9 == cur.turnover_24h_usd_e9 && c.symbol < cur.symbol)
-                {
-                    *cur = c;
-                }
-            })
-            .or_insert(c);
     }
-    best.into_values()
-        .map(|c| PoolCandidate {
-            symbol: c.symbol.clone(),
-            turnover_24h_usd_e9: c.turnover_24h_usd_e9,
-        })
-        .collect()
-}
-
-// ---------------------------------------------------------------------------
-// Стадия 3: терциль + предфильтр
-// ---------------------------------------------------------------------------
-
-/// Ранжирует пул по обороту (убывание; при равенстве — по символу, чтобы
-/// терциль не зависел от порядка входного среза) и возвращает срез
-/// отсортированных ссылок.
-fn rank_by_turnover(pool: &[PoolCandidate]) -> Vec<&PoolCandidate> {
-    let mut ranked: Vec<&PoolCandidate> = pool.iter().collect();
-    ranked.sort_by(|a, b| {
+    passing.sort_by(|a, b| {
         b.turnover_24h_usd_e9
             .cmp(&a.turnover_24h_usd_e9)
             .then_with(|| a.symbol.cmp(&b.symbol))
     });
-    ranked
-}
-
-/// Треть, в которую попадает ранг `rank` (считая с нуля, по убыванию
-/// оборота) среди `n` записей: `0` — верхняя треть, `1` — средняя, `2` —
-/// нижняя. `rank * 3 / n` — стандартное целочисленное разбиение на `k`
-/// корзин почти поровну (тот же приём, что `numpy.array_split`): размеры
-/// корзин отличаются не больше чем на один элемент, а остаток `n % 3`
-/// уходит в первые `n % 3` корзин по счёту — то есть в верхнюю треть, и,
-/// если остаток равен двум, ещё и в среднюю; нижняя треть остатка не
-/// получает никогда. Например, при `n = 20` (`20 = 3·6 + 2`) верхняя и
-/// средняя трети получают по семь записей, нижняя — шесть.
-fn tercile_bucket(rank: usize, n: usize) -> u8 {
-    debug_assert!(n > 0 && rank < n);
-    ((rank as u64 * 3) / n as u64) as u8
-}
-
-/// Средняя треть по обороту (Decision 18) — «средний эшелон» брифа: правило,
-/// а не список тикеров, поэтому не устаревает со сменой листингов.
-pub fn middle_tercile(pool: &[PoolCandidate]) -> Result<Vec<PoolCandidate>, PickError> {
-    if pool.len() < MIN_POOL_FOR_TERCILES {
-        return Err(PickError::PoolTooSmallForTerciles { len: pool.len() });
+    let mut pool = Vec::new();
+    for (i, c) in passing.iter().enumerate() {
+        let coverage_top50_bps = coverage_top50_bps(c.tick_e9, c.last_price_e9);
+        if i < POOL_SIZE {
+            pool.push(PoolCandidate {
+                symbol: c.symbol.clone(),
+                turnover_24h_usd_e9: c.turnover_24h_usd_e9,
+                tick_e9: c.tick_e9,
+                last_price_e9: c.last_price_e9,
+                coverage_top50_bps,
+            });
+        } else {
+            excluded.push(ExcludedCandidate {
+                symbol: c.symbol.clone(),
+                turnover_24h_usd_e9: c.turnover_24h_usd_e9,
+                excluded_reason: BELOW_TOP10,
+            });
+        }
     }
-    let ranked = rank_by_turnover(pool);
-    let n = ranked.len();
-    Ok(ranked
-        .into_iter()
-        .enumerate()
-        .filter(|&(rank, _)| tercile_bucket(rank, n) == 1)
-        .map(|(_, c)| c.clone())
-        .collect())
-}
-
-/// Верхние `n` по отчётному обороту внутри терциля — предфильтр Decision 18,
-/// а не критерий: он только сужает круг символов, на которые физически можно
-/// подписаться в рамках лимита топиков одного часа замера, дальше решает
-/// исключительно измеренная глубина.
-pub fn prefilter_top_n(tercile: &[PoolCandidate], n: usize) -> Vec<PoolCandidate> {
-    let mut ranked: Vec<PoolCandidate> = tercile.to_vec();
-    ranked.sort_by(|a, b| {
+    excluded.sort_by(|a, b| {
         b.turnover_24h_usd_e9
             .cmp(&a.turnover_24h_usd_e9)
             .then_with(|| a.symbol.cmp(&b.symbol))
     });
-    ranked.truncate(n);
-    ranked
+    PoolOutcome { pool, excluded }
 }
 
 // ---------------------------------------------------------------------------
-// Стадия 4: измеренная глубина — медиана по уровням, не сумма
+// Стадия 3: измеренная глубина — медиана по уровням, не сумма
 // ---------------------------------------------------------------------------
 
 /// Медиана целочисленной выборки. `None` на пустом входе — отсутствие
@@ -555,7 +601,8 @@ fn event_rate_cmp(a: &MeasuredCandidate, b: &MeasuredCandidate) -> std::cmp::Ord
     (a.events as i128 * b.window_secs as i128).cmp(&(b.events as i128 * a.window_secs as i128))
 }
 
-/// Финальная стадия Decision 18: порог глубины обязан пройти на **обеих**
+/// Финальная стадия протокола шага 0.4 (порог Decision 18, сохранён
+/// ревизией 17): порог глубины обязан пройти на **обеих**
 /// сторонах независимо (18(б)) — не сумма и не среднее двух; ранг по
 /// худшей из двух сторон (`min_side_depth_usd_e9`, та же логика, что и
 /// сам порог: толстая сторона не должна прятать тонкую ни в гейте, ни в
@@ -619,8 +666,19 @@ pub fn min_lot_satisfies_min_notional(
 pub struct CandidateRow {
     pub symbol: String,
     pub turnover_24h_usd_e9: i64,
-    pub tercile: &'static str,
-    pub prefiltered: bool,
+    /// Пусто у членов пула; у остальных — код причины (`EXCLUDED_*`,
+    /// `BELOW_TOP10`). Колонка `excluded_reason` шага 0.4: строка на каждое
+    /// исключение, потому что признака некриптового актива в API нет.
+    pub excluded_reason: String,
+    /// Покрытие топ-50 в bps (шаг 0.4, Decision 26а). Пусто у исключённых:
+    /// покрытие считается только для пула, остальные строки — про причину,
+    /// а не про глубину.
+    pub coverage_top50_bps: Option<f64>,
+    /// Пригодные корзины расстояния (Decision 26а) метками через `;`
+    /// (пусто — ни одна не пригодна либо строка исключённой). Разбор числа
+    /// испытаний для DSR — через `count_eligible_trials` по пулу, а не
+    /// разбором этой строки.
+    pub suitable_baskets: String,
     pub measured: bool,
     pub window_start_utc_ms: Option<i64>,
     pub window_secs: Option<i64>,
@@ -635,28 +693,16 @@ pub struct CandidateRow {
     pub final_rank: Option<u8>,
 }
 
-fn tercile_label(rank: usize, n: usize) -> &'static str {
-    match tercile_bucket(rank, n) {
-        0 => "top",
-        1 => "middle",
-        _ => "bottom",
-    }
-}
-
-/// Собирает полную таблицу: каждая запись пула — строка, со всеми
-/// промежуточными колонками, а не только с двумя выжившими. `measured` несёт
-/// только предфильтрованных (Decision 18 измеряет глубину лишь у 20 верхних
-/// внутри терциля, остальным нечего печатать в колонках глубины).
+/// Собирает полную таблицу: строка на каждый рассмотренный символ — сначала
+/// пул, затем исключённые — внутри каждой группы по убыванию оборота.
+/// Порядок групп фиксирован, а не по общему обороту: BTC/ETH с максимальным
+/// оборотом иначе вставали бы первыми и читались как «первые», хотя они
+/// исключены; пул — первые строки, потому что он и есть результат шага.
 pub fn build_candidate_table(
-    pool: &[PoolCandidate],
-    prefiltered: &[PoolCandidate],
+    outcome: &PoolOutcome,
     measured: &[MeasuredCandidate],
     selected: &[MeasuredCandidate],
 ) -> Vec<CandidateRow> {
-    let ranked = rank_by_turnover(pool);
-    let n = ranked.len();
-    let prefiltered_symbols: HashSet<&str> =
-        prefiltered.iter().map(|c| c.symbol.as_str()).collect();
     let measured_by_symbol: HashMap<&str, &MeasuredCandidate> =
         measured.iter().map(|m| (m.symbol.as_str(), m)).collect();
     let selected_rank: HashMap<&str, u8> = selected
@@ -664,32 +710,54 @@ pub fn build_candidate_table(
         .enumerate()
         .map(|(i, m)| (m.symbol.as_str(), i as u8 + 1))
         .collect();
+    let measured_row = |symbol: &str,
+                        turnover_24h_usd_e9: i64,
+                        excluded_reason: &str,
+                        coverage_top50_bps: Option<f64>,
+                        suitable_baskets: String| {
+        let m = measured_by_symbol.get(symbol).copied();
+        CandidateRow {
+            symbol: symbol.to_string(),
+            turnover_24h_usd_e9,
+            excluded_reason: excluded_reason.to_string(),
+            coverage_top50_bps,
+            suitable_baskets,
+            measured: m.is_some(),
+            window_start_utc_ms: m.map(|m| m.window_start_utc_ms),
+            window_secs: m.map(|m| m.window_secs),
+            events: m.map(|m| m.events),
+            median_bid_depth_usd_e9: m.map(|m| m.median_bid_depth_usd_e9),
+            median_ask_depth_usd_e9: m.map(|m| m.median_ask_depth_usd_e9),
+            above_depth_floor: m.map(|m| {
+                m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+                    && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
+            }),
+            selected_for_pilot: selected_rank.contains_key(symbol),
+            final_rank: selected_rank.get(symbol).copied(),
+        }
+    };
 
-    ranked
-        .into_iter()
-        .enumerate()
-        .map(|(rank, c)| {
-            let m = measured_by_symbol.get(c.symbol.as_str()).copied();
-            CandidateRow {
-                symbol: c.symbol.clone(),
-                turnover_24h_usd_e9: c.turnover_24h_usd_e9,
-                tercile: tercile_label(rank, n),
-                prefiltered: prefiltered_symbols.contains(c.symbol.as_str()),
-                measured: m.is_some(),
-                window_start_utc_ms: m.map(|m| m.window_start_utc_ms),
-                window_secs: m.map(|m| m.window_secs),
-                events: m.map(|m| m.events),
-                median_bid_depth_usd_e9: m.map(|m| m.median_bid_depth_usd_e9),
-                median_ask_depth_usd_e9: m.map(|m| m.median_ask_depth_usd_e9),
-                above_depth_floor: m.map(|m| {
-                    m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-                        && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-                }),
-                selected_for_pilot: selected_rank.contains_key(c.symbol.as_str()),
-                final_rank: selected_rank.get(c.symbol.as_str()).copied(),
-            }
-        })
-        .collect()
+    let mut rows = Vec::with_capacity(outcome.pool.len() + outcome.excluded.len());
+    for c in &outcome.pool {
+        let suitable = eligible_baskets(c.coverage_top50_bps).join(";");
+        rows.push(measured_row(
+            &c.symbol,
+            c.turnover_24h_usd_e9,
+            "",
+            c.coverage_top50_bps,
+            suitable,
+        ));
+    }
+    for e in &outcome.excluded {
+        rows.push(measured_row(
+            &e.symbol,
+            e.turnover_24h_usd_e9,
+            e.excluded_reason,
+            None,
+            String::new(),
+        ));
+    }
+    rows
 }
 
 pub fn write_candidate_table_csv(path: &Path, rows: &[CandidateRow]) -> std::io::Result<()> {
@@ -808,7 +876,7 @@ fn level_notional_usd_e9(tick: i64, qty_lots: i64, tick_e9: i64, step_e9: i64) -
 /// стороны: порог глубины обязан проверяться на каждой независимо (см. doc
 /// `DepthSample`), и общий вектор для этого уже не годится. По одному вызову
 /// на сторону на каждое принятое обновление книги — на часовом замере с
-/// `PREFILTER_TOP_N` параллельными символами это не косметика: событие
+/// `POOL_SIZE` параллельными символами это не косметика: событие
 /// книги — самый частый код этого модуля.
 fn book_level_notionals_usd_e9(
     book: &crate::book::Book,
@@ -828,7 +896,7 @@ fn book_level_notionals_usd_e9(
 ///
 /// `deadline` — монотонный `Instant`, посчитанный **один раз** вызывающим
 /// (`measure_prefiltered`) до того, как запущен хоть один символ, а не
-/// `Instant::now() + duration` внутри этой функции: до `PREFILTER_TOP_N`
+/// `Instant::now() + duration` внутри этой функции: до `POOL_SIZE`
 /// задач планируются и подключаются не одновременно (обычный джиттер
 /// планировщика `tokio`, плюс у каждой свой бэкофф переподключения), и
 /// пересчёт с нуля внутри каждой задачи растягивал бы дедлайн именно этого
@@ -901,9 +969,10 @@ async fn measure_one_symbol(
     samples
 }
 
-/// Замеряет все предфильтрованные символы одновременно (лимит топиков на
-/// соединение — причина, по которой пул сузили до `PREFILTER_TOP_N` заранее,
-/// Decision 18) в течение одного и того же часа, а не по очереди.
+/// Замеряет все символы пула одновременно (лимит топиков на
+/// соединение — причина, по которой пул это десять символов Decision 25,
+/// а не сотни листингов разом) в течение одного и того же часа,
+/// а не по очереди.
 pub async fn measure_prefiltered(
     prefiltered: &[PoolCandidate],
     instruments_by_symbol: &HashMap<String, &Instrument>,
@@ -969,7 +1038,7 @@ pub async fn measure_prefiltered(
 
 #[derive(Debug, Subcommand)]
 pub enum LobCommand {
-    /// Отбор инструментов для пилота (шаг 0.4, Decision 18).
+    /// Отбор инструментов для пилота (шаг 0.4, Decision 25).
     Pick(PickArgs),
     /// Непрерывная запись потока в суточные файлы (шаг 0.3, Decision 7/23).
     Record(super::record::RecordArgs),
@@ -1002,9 +1071,16 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             let report = run_pick(&args)?;
             for row in &report.table {
                 println!(
-                    "{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}",
                     row.symbol,
-                    row.tercile,
+                    if row.excluded_reason.is_empty() {
+                        "POOL"
+                    } else {
+                        row.excluded_reason.as_str()
+                    },
+                    row.coverage_top50_bps
+                        .map(|c| format!("{c:.3}bps"))
+                        .unwrap_or_default(),
                     if row.selected_for_pilot {
                         "SELECTED"
                     } else {
@@ -1144,7 +1220,7 @@ pub struct PickArgs {
     /// Куда писать коммитимую таблицу кандидатов (done-condition шага 0.4).
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_out: PathBuf,
-    /// Длительность окна замера глубины в секундах. План (Decision 18) требует
+    /// Длительность окна замера глубины в секундах. Шаг 0.4 требует
     /// час; значение по умолчанию его и даёт. Параметр существует для дымовых
     /// прогонов при отладке отбора: укорачивать окно в боевом прогоне запрещено
     /// тем же смыслом, что optional stopping в Decision 21.
@@ -1164,7 +1240,7 @@ pub struct PickReport {
 /// `probe.rs`/`rest.rs`: свой рантайм внутри, `block_on` наружу — вызывающему
 /// (будущему `main.rs`) не нужно становиться асинхронным ради одной команды.
 /// Многопоточный рантайм (не `current_thread`, как у `BybitPublicRest`):
-/// `measure_prefiltered` держит до `PREFILTER_TOP_N` живых сокетов
+/// `measure_prefiltered` держит до `POOL_SIZE` живых сокетов
 /// одновременно, и разнести их по нескольким потокам дешевле, чем гонять
 /// такое количество на одном.
 pub fn run_pick(args: &PickArgs) -> anyhow::Result<PickReport> {
@@ -1178,28 +1254,24 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     let tickers = fetch_linear_tickers(&mut rest)?;
     write_instruments_csv(&args.root.join("instruments.csv"), &instruments)?;
 
-    let turnover_by_symbol: HashMap<String, i64> = tickers
-        .iter()
-        .map(|t| (t.symbol.clone(), t.turnover_24h_usd_e9))
-        .collect();
-    // Отдельная карта, не то же поле, что оборот: Decision 22 нужна текущая
-    // цена, а не оборот, и обе карты строятся из одного и того же ответа
-    // `tickers`, полученного ровно один раз.
+    // Отдельная карта, не поле `CandidateMeta`: Decision 22 нужна текущая
+    // цена, и карта строится из того же ответа `tickers`, полученного ровно
+    // один раз выше.
     let last_price_by_symbol: HashMap<String, i64> = tickers
         .iter()
         .map(|t| (t.symbol.clone(), t.last_price_e9))
         .collect();
-    let meta = join_candidate_meta(&instruments, &turnover_by_symbol);
+    let meta = join_candidate_meta(&instruments, &tickers);
 
     let now_ms = wall_clock_ms();
-    let pool = build_pool(&meta, now_ms);
-    let tercile = middle_tercile(&pool)?;
-    let prefiltered = prefilter_top_n(&tercile, PREFILTER_TOP_N);
+    let outcome = build_pool(&meta, now_ms);
 
     let instruments_by_symbol: HashMap<String, &Instrument> =
         instruments.iter().map(|i| (i.symbol.clone(), i)).collect();
+    // Замеряются все десять пула, а не предфильтрованное подмножество:
+    // час живого стакана — протокол шага 0.4, сохранённый ревизией 17.
     let measured =
-        measure_prefiltered(&prefiltered, &instruments_by_symbol, args.window_secs).await;
+        measure_prefiltered(&outcome.pool, &instruments_by_symbol, args.window_secs).await;
     if args.window_secs != MEASUREMENT_WINDOW_SECS {
         eprintln!(
             "pick: ВНИМАНИЕ — окно замера {} с вместо плановых {} с: результат не годится для отбора, только для отладки",
@@ -1226,7 +1298,7 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
 
     // Decision 22, done-condition шага 0.4: у обоих финалистов минимальный
     // лот обязан удовлетворять `minNotionalValue`. Проверяется здесь, а не
-    // раньше — правило Decision 18 ранжирует по глубине и обороту, а не по
+    // раньше — правило отбора ранжирует по глубине и обороту, а не по
     // этому условию, и незачем гонять час замера по кандидату, который потом
     // всё равно не пройдёт эту проверку, но и рано отбрасывать до измерения
     // тоже нельзя: само условие не входит в критерии отбора.
@@ -1250,7 +1322,7 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
         }
     }
 
-    let table = build_candidate_table(&pool, &prefiltered, &measured, &selected);
+    let table = build_candidate_table(&outcome, &measured, &selected);
     write_candidate_table_csv(&args.candidates_out, &table)?;
 
     Ok(PickReport { table, selected })
@@ -1261,6 +1333,16 @@ mod tests {
     use super::*;
 
     fn meta(symbol: &str, base: &str, turnover: i64) -> CandidateMeta {
+        meta_px(symbol, base, turnover, 10_000_000, e9(100))
+    }
+
+    fn meta_px(
+        symbol: &str,
+        base: &str,
+        turnover: i64,
+        tick_e9: i64,
+        last_price_e9: i64,
+    ) -> CandidateMeta {
         CandidateMeta {
             symbol: symbol.to_string(),
             base_coin: base.to_string(),
@@ -1268,6 +1350,16 @@ mod tests {
             contract_type: "LinearPerpetual".to_string(),
             launch_time_ms: Some(0), // «родился на эпохе» — всегда старше 30 суток в тестах
             turnover_24h_usd_e9: turnover,
+            tick_e9,
+            last_price_e9,
+        }
+    }
+
+    fn ticker(symbol: &str, turnover: i64, last_price: i64) -> Ticker {
+        Ticker {
+            symbol: symbol.to_string(),
+            turnover_24h_usd_e9: turnover,
+            last_price_e9: last_price,
         }
     }
 
@@ -1297,7 +1389,7 @@ mod tests {
     #[test]
     fn join_drops_symbols_without_a_ticker() {
         let instruments = vec![no_data_instrument()];
-        let out = join_candidate_meta(&instruments, &HashMap::new());
+        let out = join_candidate_meta(&instruments, &[]);
         assert!(
             out.is_empty(),
             "без оборота ранжировать нечем — символ выпадает"
@@ -1313,16 +1405,33 @@ mod tests {
         let mut has_ticker = no_data_instrument();
         has_ticker.symbol = "HASDATAUSDT".to_string();
         has_ticker.base_coin = "HASDATA".to_string();
+        has_ticker.tick_e9 = 10_000_000;
         let instruments = vec![has_ticker, no_data_instrument()];
-        let turnover = HashMap::from([("HASDATAUSDT".to_string(), e9(1_000))]);
+        let tickers = vec![ticker("HASDATAUSDT", e9(1_000), e9(100))];
 
-        let out = join_candidate_meta(&instruments, &turnover);
+        let out = join_candidate_meta(&instruments, &tickers);
 
         assert_eq!(
             out.iter().map(|c| c.symbol.as_str()).collect::<Vec<_>>(),
             vec!["HASDATAUSDT"],
             "с тикером — остаётся, без тикера — выпадает, оба в одном вызове"
         );
+    }
+
+    #[test]
+    fn join_carries_turnover_tick_and_price_for_coverage() {
+        let mut inst = no_data_instrument();
+        inst.symbol = "SOLUSDT".to_string();
+        inst.base_coin = "SOL".to_string();
+        inst.tick_e9 = 10_000_000;
+        let tickers = vec![ticker("SOLUSDT", e9(1_000), e9(150))];
+
+        let out = join_candidate_meta(&[inst], &tickers);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].turnover_24h_usd_e9, e9(1_000));
+        assert_eq!(out[0].tick_e9, 10_000_000);
+        assert_eq!(out[0].last_price_e9, e9(150));
     }
 
     // -- is_listed_long_enough -------------------------------------------
@@ -1344,58 +1453,70 @@ mod tests {
         assert!(is_listed_long_enough(None, NOW_MS));
     }
 
-    // -- build_pool: фильтры ----------------------------------------------
+    // -- build_pool: область и три исключения Decision 25 ------------------
 
     #[test]
-    fn pool_excludes_non_usdt_quote() {
+    fn pool_excludes_non_usdt_quote_silently() {
         let mut c = meta("BTCUSD", "BTC", e9(1_000_000));
         c.quote_coin = "USD".to_string();
-        assert!(build_pool(&[c], NOW_MS).is_empty());
+        // Область запроса, не исключение Decision 25: строки в таблице нет.
+        let outcome = build_pool(&[c], NOW_MS);
+        assert!(outcome.pool.is_empty());
+        assert!(outcome.excluded.is_empty());
     }
 
     #[test]
-    fn pool_excludes_non_linear_perpetual_contract_type() {
-        let mut c = meta("BTCUSDT", "BTC", e9(1_000_000));
+    fn pool_excludes_non_linear_perpetual_contract_type_silently() {
+        let mut c = meta("SOLUSDT", "SOL", e9(1_000_000));
         c.contract_type = "LinearFutures".to_string();
-        assert!(build_pool(&[c], NOW_MS).is_empty());
+        let outcome = build_pool(&[c], NOW_MS);
+        assert!(outcome.pool.is_empty());
+        assert!(outcome.excluded.is_empty());
     }
 
-    /// Требуемый тест (Decision 18, ревизия 10): отдельного правила против
-    /// токенизированных акций больше нет — Bybit не возвращает их в пуле
-    /// категории `linear` вовсе, поэтому фильтровать в коде уже нечего.
-    /// Символ здесь проходит все ОСТАЛЬНЫЕ фильтры пула (USDT,
-    /// LinearPerpetual, достаточный возраст) и обязан остаться: до ревизии
-    /// 10 тот же символ можно было вычеркнуть флагом `is_tokenized_equity`
-    /// (или CLI-флагом `--exclude-tokenized-equity`), которых больше нет ни
-    /// в `CandidateMeta`, ни в `PickArgs`.
-    ///
-    /// **Почему одной проверки `build_pool(&[c], ..).len() == 1` тут
-    /// недостаточно** (и почему первая версия этого теста не ловила
-    /// регрессию, хотя выглядела так, будто должна). Старый механизм можно
-    /// вернуть буквально: добавить в `CandidateMeta` поле
-    /// `is_tokenized_equity: bool`, оставить ему значение по умолчанию
-    /// `false` везде, где структура строится (в т.ч. в `meta()` ниже), и
-    /// вернуть в `build_pool` `if c.is_tokenized_equity { continue }`. Раз
-    /// значение по умолчанию — `false`, фильтр не сработает НИ НА ОДНОМ
-    /// кандидате ни в одном тесте этого файла, и старая версия теста
-    /// (только `build_pool` и длина результата) останется зелёной — список
-    /// исключений, в котором ничего нет (или который никто не заполнил),
-    /// неотличим по наблюдаемому поведению от полного отсутствия механизма.
-    /// Значит, ловить регрессию поведением `build_pool` в принципе нельзя:
-    /// нужно не пускать дело до фильтра вовсе.
-    ///
-    /// Поэтому ниже — исчерпывающая деструктуризация `CandidateMeta` без
-    /// `..`: компилятор требует назвать здесь буквально каждое поле
-    /// структуры. Если у неё когда-нибудь появится новое поле (не
-    /// обязательно `is_tokenized_equity` — любое), эта строка перестанет
-    /// собираться, пока кто-то не впишет его сюда осознанно и не объяснит,
-    /// что с ним делать в `build_pool`. `cargo test` в этом случае падает
-    /// на этапе компиляции раньше, чем успевает запуститься хоть один
-    /// тест, — то есть красный результат гарантирован значением типа, а не
-    /// удачным выбором тестовых данных.
+    /// Пункт 1 Decision 25: BTC и ETH — по имени. Единственное именное
+    /// исключение, прямое указание владельца («там всё выедено»).
     #[test]
-    fn build_pool_includes_a_symbol_that_used_to_be_flagged_as_tokenized_equity() {
-        let c = meta("TSLAUSDT", "TSLA", e9(1_000_000));
+    fn pool_excludes_btc_and_eth_by_name_with_reason() {
+        let candidates = vec![
+            meta("BTCUSDT", "BTC", e9(10_000_000)),
+            meta("ETHUSDT", "ETH", e9(9_000_000)),
+            meta("SOLUSDT", "SOL", e9(1_000)),
+        ];
+        let outcome = build_pool(&candidates, NOW_MS);
+        assert_eq!(
+            outcome
+                .pool
+                .iter()
+                .map(|c| c.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SOLUSDT"]
+        );
+        let mut reasons: Vec<(&str, &str)> = outcome
+            .excluded
+            .iter()
+            .map(|e| (e.symbol.as_str(), e.excluded_reason))
+            .collect();
+        reasons.sort();
+        assert_eq!(
+            reasons,
+            vec![("BTCUSDT", EXCLUDED_BTC_ETH), ("ETHUSDT", EXCLUDED_BTC_ETH),]
+        );
+    }
+
+    /// Пункт 2 Decision 25: некриптовый базовый актив. Ревизия 17 доказала,
+    /// что признака в API нет (`AAPLUSDT` — `LinearPerpetual`/`Trading`, как
+    /// `SOLUSDT`; `SETTLED.md` ПЛАН-2 неверен), поэтому решение — списком
+    /// `NON_CRYPTO_BASES` здесь, и каждая строка несёт причину.
+    ///
+    /// Исчерпывающая деструктуризация `CandidateMeta` без `..`: компилятор
+    /// требует назвать здесь буквально каждое поле структуры. Если у неё
+    /// когда-нибудь появится новое поле, эта строка перестанет собираться,
+    /// пока кто-то не впишет его сюда осознанно, — красный результат
+    /// гарантирован значением типа, а не удачным выбором тестовых данных.
+    #[test]
+    fn pool_excludes_non_crypto_bases_with_reason() {
+        let c = meta("AAPLUSDT", "AAPL", e9(1_000_000));
 
         let CandidateMeta {
             symbol,
@@ -1404,252 +1525,304 @@ mod tests {
             contract_type,
             launch_time_ms,
             turnover_24h_usd_e9,
+            tick_e9,
+            last_price_e9,
         } = c.clone();
-        assert_eq!(symbol, "TSLAUSDT");
-        assert_eq!(base_coin, "TSLA");
+        assert_eq!(symbol, "AAPLUSDT");
+        assert_eq!(base_coin, "AAPL");
         assert_eq!(quote_coin, "USDT");
         assert_eq!(contract_type, "LinearPerpetual");
         assert_eq!(launch_time_ms, Some(0));
         assert_eq!(turnover_24h_usd_e9, e9(1_000_000));
+        assert_eq!(tick_e9, 10_000_000);
+        assert_eq!(last_price_e9, e9(100));
 
-        let pool = build_pool(&[c], NOW_MS);
-        assert_eq!(
-            pool.len(),
-            1,
-            "символа, похожего на токенизированную акцию, нечем больше вычёркивать из пула"
+        let outcome = build_pool(&[c], NOW_MS);
+        assert!(
+            outcome.pool.is_empty(),
+            "акция обязана выбыть по пункту 2, а не остаться в пуле"
         );
-        assert_eq!(pool[0].symbol, "TSLAUSDT");
+        assert_eq!(outcome.excluded.len(), 1);
+        assert_eq!(outcome.excluded[0].symbol, "AAPLUSDT");
+        assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_NON_CRYPTO);
     }
 
+    /// Тот же пункт 2 на золоте, ETF и второй акции из замера 2026-09-10,
+    /// записанного в Decision 25: `XAUUSDT`, `SOXLUSDT`, `SNDKUSDT`.
     #[test]
-    fn pool_excludes_recently_listed_instruments() {
-        let mut c = meta("NEWUSDT", "NEW", e9(1_000_000));
+    fn pool_excludes_gold_etf_and_stock_from_the_recorded_measurement() {
+        let candidates = vec![
+            meta("XAUUSDT", "XAU", e9(8_000_000)),
+            meta("SOXLUSDT", "SOXL", e9(7_000_000)),
+            meta("SNDKUSDT", "SNDK", e9(6_000_000)),
+            meta("TSLAUSDT", "TSLA", e9(5_000_000)),
+            meta("SOLUSDT", "SOL", e9(1_000)),
+        ];
+        let outcome = build_pool(&candidates, NOW_MS);
+        assert_eq!(
+            outcome
+                .pool
+                .iter()
+                .map(|c| c.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SOLUSDT"]
+        );
+        assert!(
+            outcome
+                .excluded
+                .iter()
+                .all(|e| e.excluded_reason == EXCLUDED_NON_CRYPTO),
+            "все четыре — пункт 2: {outcome:?}"
+        );
+    }
+
+    /// Пункт 3 Decision 25: возраст < 30 суток (правило Decision 18).
+    #[test]
+    fn pool_excludes_recently_listed_instruments_with_reason() {
+        let mut c = meta("PONSUSDT", "PONS", e9(1_000_000));
         c.launch_time_ms = Some(NOW_MS - (MIN_LISTED_DAYS - 1) * MS_PER_DAY);
-        assert!(build_pool(&[c], NOW_MS).is_empty());
+        let outcome = build_pool(&[c], NOW_MS);
+        assert!(outcome.pool.is_empty());
+        assert_eq!(outcome.excluded.len(), 1);
+        assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_TOO_YOUNG);
     }
 
-    // -- build_pool: схлопывание 1000X-дублей ------------------------------
-
+    /// Приоритет причин — в порядке пунктов плана: имя, затем базовый актив,
+    /// затем возраст. У символа одна строка и одна причина.
     #[test]
-    fn dedup_collapses_1000x_variant_into_the_canonical_asset() {
-        let candidates = vec![
-            meta("PEPEUSDT", "PEPE", e9(500)),
-            meta("1000PEPEUSDT", "1000PEPE", e9(2_000)),
-        ];
-        let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 1, "один актив — одна запись в пуле");
-        assert_eq!(
-            pool[0].symbol, "1000PEPEUSDT",
-            "выживает вариант с бОльшим оборотом"
-        );
-        assert_eq!(pool[0].turnover_24h_usd_e9, e9(2_000));
-    }
-
-    #[test]
-    fn dedup_10000x_prefix_also_collapses() {
-        let candidates = vec![
-            meta("SATSUSDT", "SATS", e9(2_000)),
-            meta("10000SATSUSDT", "10000SATS", e9(500)),
-        ];
-        let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 1);
-        assert_eq!(
-            pool[0].symbol, "SATSUSDT",
-            "у него выше оборот — он и выживает"
-        );
-    }
-
-    #[test]
-    fn dedup_does_not_merge_unrelated_assets() {
-        let candidates = vec![
-            meta("PEPEUSDT", "PEPE", e9(500)),
-            meta("BTCUSDT", "BTC", e9(2_000)),
-        ];
-        let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 2, "разные активы не должны схлопнуться");
-    }
-
-    #[test]
-    fn dedup_tie_in_turnover_breaks_by_symbol_deterministically() {
-        let candidates = vec![
-            meta("1000FOOUSDT", "1000FOO", e9(500)),
-            meta("FOOUSDT", "FOO", e9(500)),
-        ];
-        let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 1);
-        // Лексикографически: цифра '1' меньше буквы 'F' в ASCII, поэтому при
-        // точном равенстве оборота (редкий, в основном синтетический случай)
-        // побеждает "1000FOOUSDT" — правило детерминировано, но не выбирает
-        // «каноничный» вариант намеренно: единственная цель тай-брейка —
-        // стабильность между прогонами, не выбор конкретного символа.
-        assert_eq!(pool[0].symbol, "1000FOOUSDT");
-    }
-
-    // -- middle_tercile -----------------------------------------------------
-
-    fn pool_of(pairs: &[(&str, i64)]) -> Vec<PoolCandidate> {
-        pairs
+    fn exclusion_reason_priority_is_name_then_base_then_age() {
+        // Молодой BTC: пункты 1 и 3 сразу — побеждает имя.
+        let mut young_btc = meta("BTCUSDT", "BTC", e9(1_000_000));
+        young_btc.launch_time_ms = Some(NOW_MS);
+        // Молодая акция: пункты 2 и 3 сразу — побеждает базовый актив.
+        let mut young_stock = meta("AAPLUSDT", "AAPL", e9(900_000));
+        young_stock.launch_time_ms = Some(NOW_MS);
+        let outcome = build_pool(&[young_btc, young_stock], NOW_MS);
+        assert!(outcome.pool.is_empty());
+        let mut reasons: Vec<(&str, &str)> = outcome
+            .excluded
             .iter()
-            .map(|&(s, t)| PoolCandidate {
-                symbol: s.to_string(),
-                turnover_24h_usd_e9: t,
-            })
-            .collect()
-    }
-
-    /// Требуемый тест: терциль исключает BTC-подобную запись с максимальным
-    /// оборотом и запись с минимальным оборотом длинного хвоста, оставляя
-    /// средний эшелон.
-    #[test]
-    fn middle_tercile_excludes_top_turnover_and_bottom_turnover() {
-        // Девять записей — три ровные трети (см. doc `tercile_bucket`), чтобы
-        // границы бакетов совпадали с границами групп без остатка, который
-        // сдвигал бы одну запись в соседнюю треть.
-        let pool = pool_of(&[
-            ("BTCUSDT", e9(10_000_000)), // топ, как BTC/ETH — вычёркивается по правилу
-            ("ETHUSDT", e9(5_000_000)),
-            ("BNBUSDT", e9(4_000_000)),
-            ("MIDAUSDT", e9(500_000)),
-            ("MIDBUSDT", e9(400_000)),
-            ("MIDCUSDT", e9(300_000)),
-            ("TAILAUSDT", e9(1_000)),
-            ("TAILBUSDT", e9(500)),
-            ("TAILCUSDT", e9(100)),
-        ]);
-        let middle = middle_tercile(&pool).unwrap();
-        let symbols: HashSet<&str> = middle.iter().map(|c| c.symbol.as_str()).collect();
-        assert_eq!(symbols.len(), 3);
-        assert!(
-            !symbols.contains("BTCUSDT"),
-            "топ по обороту обязан быть исключён"
-        );
-        assert!(
-            !symbols.contains("ETHUSDT"),
-            "топ по обороту обязан быть исключён"
-        );
-        assert!(
-            !symbols.contains("BNBUSDT"),
-            "топ по обороту обязан быть исключён"
-        );
-        assert!(
-            !symbols.contains("TAILCUSDT"),
-            "хвост по обороту обязан быть исключён"
-        );
-        assert!(
-            symbols.contains("MIDAUSDT"),
-            "средний эшелон обязан остаться"
-        );
-        assert!(symbols.contains("MIDBUSDT"));
-        assert!(symbols.contains("MIDCUSDT"));
-    }
-
-    #[test]
-    fn middle_tercile_errors_on_empty_pool() {
-        assert_eq!(
-            middle_tercile(&[]).unwrap_err(),
-            PickError::PoolTooSmallForTerciles { len: 0 }
-        );
-    }
-
-    #[test]
-    fn middle_tercile_errors_on_a_pool_of_two() {
-        let pool = pool_of(&[("A", e9(1)), ("B", e9(2))]);
-        assert_eq!(
-            middle_tercile(&pool).unwrap_err(),
-            PickError::PoolTooSmallForTerciles { len: 2 }
-        );
-    }
-
-    #[test]
-    fn middle_tercile_never_panics_on_a_pool_of_one() {
-        let pool = pool_of(&[("A", e9(1))]);
-        assert_eq!(
-            middle_tercile(&pool).unwrap_err(),
-            PickError::PoolTooSmallForTerciles { len: 1 },
-            "тот же вариант ошибки, что и для пула из двух — не паника и не другой вариант"
-        );
-    }
-
-    #[test]
-    fn middle_tercile_of_exactly_three_keeps_the_single_middle_entry() {
-        let pool = pool_of(&[("TOP", e9(300)), ("MID", e9(200)), ("BOT", e9(100))]);
-        let middle = middle_tercile(&pool).unwrap();
-        assert_eq!(middle.len(), 1);
-        assert_eq!(middle[0].symbol, "MID");
-    }
-
-    #[test]
-    fn middle_tercile_result_does_not_depend_on_input_order() {
-        let sorted = pool_of(&[
-            ("A", e9(600)),
-            ("B", e9(500)),
-            ("C", e9(400)),
-            ("D", e9(300)),
-            ("E", e9(200)),
-            ("F", e9(100)),
-        ]);
-        let mut shuffled = sorted.clone();
-        shuffled.reverse();
-        let m1: HashSet<String> = middle_tercile(&sorted)
-            .unwrap()
-            .into_iter()
-            .map(|c| c.symbol)
+            .map(|e| (e.symbol.as_str(), e.excluded_reason))
             .collect();
-        let m2: HashSet<String> = middle_tercile(&shuffled)
-            .unwrap()
-            .into_iter()
-            .map(|c| c.symbol)
-            .collect();
-        assert_eq!(m1, m2);
-    }
-
-    #[test]
-    fn middle_tercile_ties_in_turnover_break_by_symbol_deterministically() {
-        // Шесть записей с одинаковым оборотом: терциль обязан быть стабилен
-        // по алфавиту, а не по порядку появления во входном срезе.
-        let pool = pool_of(&[
-            ("F", e9(100)),
-            ("D", e9(100)),
-            ("B", e9(100)),
-            ("A", e9(100)),
-            ("C", e9(100)),
-            ("E", e9(100)),
-        ]);
-        let middle = middle_tercile(&pool).unwrap();
-        let symbols: Vec<&str> = middle.iter().map(|c| c.symbol.as_str()).collect();
+        reasons.sort();
         assert_eq!(
-            symbols,
-            vec!["C", "D"],
-            "средняя треть алфавита при равном обороте"
+            reasons,
+            vec![
+                ("AAPLUSDT", EXCLUDED_NON_CRYPTO),
+                ("BTCUSDT", EXCLUDED_BTC_ETH),
+            ]
         );
     }
 
-    // -- prefilter_top_n -----------------------------------------------------
-
+    /// Ядро Decision 25: берутся первые десять **оставшихся**, а не «первая
+    /// десятка минус выбывшие». Три исключения сидят внутри сырого топ-10 —
+    /// пул всё равно из десяти, недобор снизу добрасывается из-за черты.
     #[test]
-    fn prefilter_takes_top_n_by_turnover() {
-        let pool = pool_of(&[("A", e9(3)), ("B", e9(1)), ("C", e9(2))]);
-        let top = prefilter_top_n(&pool, 2);
+    fn pool_takes_first_ten_remaining_not_ten_minus_excluded() {
+        // Сырой топ-13: BTC, ETH и AAPL внутри первой десятки.
+        let mut candidates = vec![
+            meta("BTCUSDT", "BTC", e9(13_000)),
+            meta("ETHUSDT", "ETH", e9(12_000)),
+            meta("AAPLUSDT", "AAPL", e9(11_000)),
+        ];
+        for i in 0..10 {
+            candidates.push(meta(
+                &format!("CRYPTO{i}USDT"),
+                &format!("CRYPTO{i}"),
+                e9(10_000 - i * 100),
+            ));
+        }
+        let outcome = build_pool(&candidates, NOW_MS);
         assert_eq!(
-            top.iter().map(|c| c.symbol.clone()).collect::<Vec<_>>(),
-            vec!["A", "C"]
+            outcome.pool.len(),
+            POOL_SIZE,
+            "пул обязан остаться десяткой, хотя трое из сырого топ-10 выбыли"
+        );
+        assert!(
+            outcome
+                .pool
+                .iter()
+                .all(|c| !["BTCUSDT", "ETHUSDT", "AAPLUSDT"].contains(&c.symbol.as_str())),
+            "исключённые не могут быть в пуле"
+        );
+        // Хвост сырого топ-13 (CRYPTO7-9) добрался в пул именно потому, что
+        // отбор идёт по оставшимся, а не вычитанием из первой десятки.
+        for tail in ["CRYPTO7USDT", "CRYPTO8USDT", "CRYPTO9USDT"] {
+            assert!(
+                outcome.pool.iter().any(|c| c.symbol == tail),
+                "{tail} обязан войти в пул добором снизу"
+            );
+        }
+        // Пул ранжирован по убыванию оборота.
+        let turnovers: Vec<i64> = outcome.pool.iter().map(|c| c.turnover_24h_usd_e9).collect();
+        let mut sorted = turnovers.clone();
+        sorted.sort_by(|a, b| b.cmp(a));
+        assert_eq!(turnovers, sorted);
+    }
+
+    /// Прошедшие фильтр, но не вошедшие в десятку, получают строку с причиной
+    /// среза — иначе «первые десять» непроверяемы по таблице.
+    #[test]
+    fn passing_candidates_below_top_ten_get_a_cutoff_row() {
+        let mut candidates = Vec::new();
+        for i in 0..12 {
+            candidates.push(meta(
+                &format!("C{i:02}USDT"),
+                &format!("C{i:02}"),
+                e9(12_000 - i * 100),
+            ));
+        }
+        let outcome = build_pool(&candidates, NOW_MS);
+        assert_eq!(outcome.pool.len(), 10);
+        assert_eq!(outcome.excluded.len(), 2);
+        assert!(
+            outcome
+                .excluded
+                .iter()
+                .all(|e| e.excluded_reason == BELOW_TOP10),
+            "оба — срез ранжирования: {outcome:?}"
+        );
+        assert_eq!(outcome.excluded[0].symbol, "C10USDT");
+        assert_eq!(outcome.excluded[1].symbol, "C11USDT");
+    }
+
+    /// Равный оборот — детерминированный тай-брейк по символу, а не порядок
+    /// входного среза.
+    #[test]
+    fn pool_tie_in_turnover_breaks_by_symbol_deterministically() {
+        let candidates = vec![
+            meta("BETAUSDT", "BETA", e9(500)),
+            meta("ALPHAUSDT", "ALPHA", e9(500)),
+        ];
+        let forward = build_pool(&candidates, NOW_MS);
+        let mut backward_input = candidates.clone();
+        backward_input.reverse();
+        let backward = build_pool(&backward_input, NOW_MS);
+        assert_eq!(forward.pool[0].symbol, "ALPHAUSDT");
+        assert_eq!(
+            forward.pool.iter().map(|c| &c.symbol).collect::<Vec<_>>(),
+            backward.pool.iter().map(|c| &c.symbol).collect::<Vec<_>>(),
+            "порядок входа не должен влиять на результат"
+        );
+    }
+
+    /// Список некриптовых баз содержит ядро замера 2026-09-10 из Decision 25.
+    /// Ловит молчаливое усыхание списка: пустой `NON_CRYPTO_BASES` неотличим
+    /// по поведению от отсутствия механизма на вселенных без этих символов.
+    #[test]
+    fn non_crypto_list_contains_the_bases_named_in_the_plan() {
+        for base in ["AAPL", "XAU", "SOXL", "SNDK"] {
+            assert!(
+                NON_CRYPTO_BASES.contains(&base),
+                "база {base} из замера Decision 25 обязана быть в списке"
+            );
+        }
+    }
+
+    // -- coverage_top50_bps (шаг 0.4) ----------------------------------------
+
+    fn assert_bps_close(got: Option<f64>, expected: f64) {
+        let got = got.expect("покрытие обязано посчитаться на положительных входе");
+        assert!(
+            (got - expected).abs() < 1e-9,
+            "покрытие {got} bps далеко от ожидаемых {expected} bps"
         );
     }
 
     #[test]
-    fn prefilter_returns_everything_when_fewer_than_n() {
-        let pool = pool_of(&[("A", e9(1))]);
-        let top = prefilter_top_n(&pool, 20);
-        assert_eq!(top.len(), 1);
+    fn coverage_follows_the_plan_formula() {
+        // 50 × 0.01 / 125 × 10⁴ = 40 bps ровно.
+        assert_bps_close(coverage_top50_bps(10_000_000, 125_000_000_000), 40.0);
+    }
+
+    #[test]
+    fn coverage_is_none_without_a_positive_tick_or_price() {
+        assert_eq!(coverage_top50_bps(0, e9(100)), None);
+        assert_eq!(coverage_top50_bps(10_000_000, 0), None);
+        assert_eq!(coverage_top50_bps(-1, e9(100)), None);
+    }
+
+    /// Дефолтный `meta()` (тик 0.01, цена 100) даёт покрытие ровно 50 bps —
+    /// пин, на который опирается сквозной тест таблицы ниже.
+    #[test]
+    fn default_meta_coverage_covers_the_whole_basket_grid() {
+        assert_bps_close(coverage_top50_bps(10_000_000, e9(100)), 50.0);
+    }
+
+    // -- eligible_baskets / count_eligible_trials (Decision 26а) ---------------
+
+    #[test]
+    fn narrow_coverage_admits_only_the_near_baskets() {
+        // Замер 2026-09-10 из Decision 26а: покрытие ZECUSDT — 4.0 bps.
+        assert_eq!(eligible_baskets(Some(4.0)), vec!["0-1", "1-2.5"]);
+    }
+
+    #[test]
+    fn wide_coverage_admits_the_whole_grid() {
+        // Замер 2026-09-10 из Decision 26а: покрытие NEARUSDT — 200.2 bps.
         assert_eq!(
-            top[0], pool[0],
-            "единственный кандидат обязан пройти невредимым, не просто числом один"
+            eligible_baskets(Some(200.2)),
+            vec!["0-1", "1-2.5", "2.5-5", "5-10", "10-25"]
         );
     }
 
     #[test]
-    fn prefilter_of_empty_tercile_is_empty_not_a_panic() {
-        assert!(prefilter_top_n(&[], 20).is_empty());
+    fn sub_tick_coverage_admits_no_basket() {
+        // BTCUSDT из живого прогона ревизии 17а: топ-50 покрывает 0.6 bps —
+        // даже ближайшая корзина [0,1) там не существует целиком.
+        assert!(eligible_baskets(Some(0.6)).is_empty());
+    }
+
+    #[test]
+    fn basket_on_the_exact_boundary_is_eligible() {
+        // Корзина [a,b) при покрытии ровно b вся наблюдается.
+        assert_eq!(eligible_baskets(Some(1.0)), vec!["0-1"]);
+        assert_eq!(
+            eligible_baskets(Some(25.0)),
+            vec!["0-1", "1-2.5", "2.5-5", "5-10", "10-25"]
+        );
+        assert_eq!(
+            eligible_baskets(Some(24.999)),
+            vec!["0-1", "1-2.5", "2.5-5", "5-10"]
+        );
+    }
+
+    #[test]
+    fn unknown_coverage_admits_no_basket_rather_than_all() {
+        // Непригодная корзина не печатается вовсе — ни строкой, ни нулём, —
+        // поэтому неизвестное покрытие даёт пустой список, а не полный:
+        // полный раздувал бы поправку DSR несуществующими испытаниями.
+        assert!(eligible_baskets(None).is_empty());
+    }
+
+    fn pool_member(symbol: &str, coverage_bps: Option<f64>) -> PoolCandidate {
+        PoolCandidate {
+            symbol: symbol.to_string(),
+            turnover_24h_usd_e9: e9(1_000),
+            tick_e9: 10_000_000,
+            last_price_e9: e9(100),
+            coverage_top50_bps: coverage_bps,
+        }
+    }
+
+    #[test]
+    fn eligible_trials_count_sums_suitable_pairs_not_the_nominal_cross() {
+        // ZEC-подобный (2 корзины) + NEAR-подобный (5 корзин) = 7 испытаний,
+        // а не номинальный крест.
+        let pool = vec![
+            pool_member("ZECUSDT", Some(4.0)),
+            pool_member("NEARUSDT", Some(200.2)),
+        ];
+        assert_eq!(count_eligible_trials(&pool), 7);
+    }
+
+    #[test]
+    fn eligible_trials_count_ignores_members_without_coverage() {
+        let pool = vec![
+            pool_member("KNOWNUSDT", Some(5.0)),
+            pool_member("UNKNOWNUSDT", None),
+        ];
+        assert_eq!(count_eligible_trials(&pool), 3);
     }
 
     // -- median_depth_per_level_usd_e9 --------------------------------------
@@ -2098,18 +2271,18 @@ mod tests {
 
     // -- write_candidate_table_csv / write_instruments_csv (CSV round-trip) --
 
-    /// Зеркало `CandidateRow` для чтения назад: `tercile: &'static str` не
-    /// десериализуется (нет `Deserialize` для заимствованной строки с
-    /// произвольным временем жизни из CSV-буфера), поэтому у поля здесь —
-    /// `String`. Остальные поля и их порядок — те же, чтобы сравнение было
-    /// прямым свидетельством того, что `write_candidate_table_csv` пишет
-    /// ровно то, что было передано.
+    /// Зеркало `CandidateRow` для чтения назад: поля и их порядок — те же,
+    /// чтобы сравнение было прямым свидетельством того, что
+    /// `write_candidate_table_csv` пишет ровно то, что было передано.
+    /// `Option<f64>` читается назад как `Option<f64>` тем же `csv`/`serde`:
+    /// пустая ячейка — `None`, число — `Some`, без отдельных правил.
     #[derive(Debug, PartialEq, serde::Deserialize)]
     struct CandidateRowOwned {
         symbol: String,
         turnover_24h_usd_e9: i64,
-        tercile: String,
-        prefiltered: bool,
+        excluded_reason: String,
+        coverage_top50_bps: Option<f64>,
+        suitable_baskets: String,
         measured: bool,
         window_start_utc_ms: Option<i64>,
         window_secs: Option<i64>,
@@ -2125,49 +2298,36 @@ mod tests {
     /// строится файл, названный в done-condition шага 0.4 («таблица
     /// кандидатов ... закоммичена»), и до этого теста ни один тест файла не
     /// доходил до настоящего `csv::Writer`. Четыре строки — по одной на
-    /// каждую стадию воронки Decision 18, от «не прошёл даже предфильтр» до
-    /// «отобран пилоту»:
-    /// - `MID0USDT` — измеренный, прошёл порог, отобран, `final_rank = 1`;
-    /// - `MID1USDT` — измеренный, прошёл порог, но НЕ отобран
+    /// каждую стадию воронки Decision 25, от «член пула, отобран пилоту» до
+    /// «исключён по пункту 2»:
+    /// - `SOLUSDT` — пул (`excluded_reason` пусто), покрытие и корзины
+    ///   посчитаны, измерен, прошёл порог, отобран, `final_rank = 1`;
+    /// - `NEARUSDT` — пул, измерен, прошёл порог, но НЕ отобран
     ///   (`selected_for_pilot = false`, `final_rank = None`);
-    /// - `MID2USDT` — прошёл предфильтр (`prefiltered = true`), но остался
-    ///   БЕЗ измерения (`measured = false`) — реальный, не синтетический
-    ///   случай: `measure_prefiltered` разослала по сокету на каждый из
-    ///   `PREFILTER_TOP_N` кандидатов, но не для всех из них в `measured`
-    ///   попал результат (соединение оборвалось, символ не набрал ни одного
-    ///   события за час и т. п.) — таких строк без этой стадии в наборе не
-    ///   было ни одной;
-    /// - `TAIL0USDT` — целиком `None`/`false` (предфильтр отсеял его до
-    ///   сети) — та ветка, что молча ломается первой, если формат столбцов
-    ///   когда-нибудь разойдётся со структурой.
+    /// - `MID2USDT` — пул, но остался БЕЗ измерения (`measured = false`) —
+    ///   реальный, не синтетический случай: `measure_prefiltered` обошла все
+    ///   десять символов, но не для всех в `measured` попал результат
+    ///   (соединение оборвалось, символ не набрал ни одного события за час
+    ///   и т. п.);
+    /// - `AAPLUSDT` — исключён по пункту 2 (`excluded_reason` непусто,
+    ///   покрытие и глубины — `None`/пусто): та ветка, что молча ломается
+    ///   первой, если формат столбцов когда-нибудь разойдётся со структурой.
     ///
-    /// **Почему трёх строк (без `MID2USDT`) было недостаточно**, хотя
-    /// прежняя версия этого docstring уже утверждала, что перепутанные
-    /// местами булевы колонки не прошли бы тест незамеченными: `prefiltered`
-    /// и `measured` совпадали в каждой из трёх строк (`true,true` /
-    /// `true,true` / `false,false`) — колонка, которую нечем отличить от
-    /// соседней в каждой строке, где обе стоят рядом, обменом местами не
-    /// повреждается: перепутанные `prefiltered`↔`measured` читаются назад
-    /// как исходные значения именно потому, что они везде одинаковы. `MID1`
-    /// разводил `selected_for_pilot` с этой парой, но саму пару друг с
-    /// другом — нет. `MID2USDT` — единственная строка, где `prefiltered` и
-    /// `measured` расходятся (`true`/`false`), и только с ней перестановка
-    /// этих двух столбцов действительно меняет то, что читается назад.
     /// Правило на будущее для этого теста: у каждой пары полей одного типа
     /// должна быть хотя бы одна строка, где их значения различаются — иначе
     /// обмен местами такой пары для теста не отличим от отсутствия ошибки.
-    ///
-    /// `median_bid_depth_usd_e9` и `median_ask_depth_usd_e9` тоже различны
-    /// внутри каждой измеренной строки (Изменение 1: раздельные колонки по
-    /// стороне) — иначе перепутанные местами бид и аск тоже прошли бы тест.
+    /// Здесь: `median_bid_depth_usd_e9` и `median_ask_depth_usd_e9` различны
+    /// внутри каждой измеренной строки, а `excluded_reason` пуста у пула и
+    /// непуста у исключённой — иначе перепутанные колонки прошли бы тест.
     #[test]
     fn candidate_table_csv_round_trips_measured_and_unmeasured_rows() {
         let rows = vec![
             CandidateRow {
-                symbol: "MID0USDT".to_string(),
+                symbol: "SOLUSDT".to_string(),
                 turnover_24h_usd_e9: e9(1_000_000),
-                tercile: "middle",
-                prefiltered: true,
+                excluded_reason: String::new(),
+                coverage_top50_bps: Some(40.0),
+                suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                 measured: true,
                 window_start_utc_ms: Some(1_700_000_000_000),
                 window_secs: Some(3600),
@@ -2179,10 +2339,11 @@ mod tests {
                 final_rank: Some(1),
             },
             CandidateRow {
-                symbol: "MID1USDT".to_string(),
+                symbol: "NEARUSDT".to_string(),
                 turnover_24h_usd_e9: e9(900_000),
-                tercile: "middle",
-                prefiltered: true,
+                excluded_reason: String::new(),
+                coverage_top50_bps: Some(200.2),
+                suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                 measured: true,
                 window_start_utc_ms: Some(1_700_000_003_600_000),
                 window_secs: Some(3600),
@@ -2196,8 +2357,9 @@ mod tests {
             CandidateRow {
                 symbol: "MID2USDT".to_string(),
                 turnover_24h_usd_e9: e9(500_000),
-                tercile: "middle",
-                prefiltered: true,
+                excluded_reason: String::new(),
+                coverage_top50_bps: Some(50.0),
+                suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                 measured: false,
                 window_start_utc_ms: None,
                 window_secs: None,
@@ -2209,10 +2371,11 @@ mod tests {
                 final_rank: None,
             },
             CandidateRow {
-                symbol: "TAIL0USDT".to_string(),
-                turnover_24h_usd_e9: e9(100),
-                tercile: "bottom",
-                prefiltered: false,
+                symbol: "AAPLUSDT".to_string(),
+                turnover_24h_usd_e9: e9(800_000),
+                excluded_reason: EXCLUDED_NON_CRYPTO.to_string(),
+                coverage_top50_bps: None,
+                suitable_baskets: String::new(),
                 measured: false,
                 window_start_utc_ms: None,
                 window_secs: None,
@@ -2236,10 +2399,11 @@ mod tests {
             read_back,
             vec![
                 CandidateRowOwned {
-                    symbol: "MID0USDT".to_string(),
+                    symbol: "SOLUSDT".to_string(),
                     turnover_24h_usd_e9: e9(1_000_000),
-                    tercile: "middle".to_string(),
-                    prefiltered: true,
+                    excluded_reason: String::new(),
+                    coverage_top50_bps: Some(40.0),
+                    suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                     measured: true,
                     window_start_utc_ms: Some(1_700_000_000_000),
                     window_secs: Some(3600),
@@ -2251,10 +2415,11 @@ mod tests {
                     final_rank: Some(1),
                 },
                 CandidateRowOwned {
-                    symbol: "MID1USDT".to_string(),
+                    symbol: "NEARUSDT".to_string(),
                     turnover_24h_usd_e9: e9(900_000),
-                    tercile: "middle".to_string(),
-                    prefiltered: true,
+                    excluded_reason: String::new(),
+                    coverage_top50_bps: Some(200.2),
+                    suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                     measured: true,
                     window_start_utc_ms: Some(1_700_000_003_600_000),
                     window_secs: Some(3600),
@@ -2268,8 +2433,9 @@ mod tests {
                 CandidateRowOwned {
                     symbol: "MID2USDT".to_string(),
                     turnover_24h_usd_e9: e9(500_000),
-                    tercile: "middle".to_string(),
-                    prefiltered: true,
+                    excluded_reason: String::new(),
+                    coverage_top50_bps: Some(50.0),
+                    suitable_baskets: "0-1;1-2.5;2.5-5;5-10;10-25".to_string(),
                     measured: false,
                     window_start_utc_ms: None,
                     window_secs: None,
@@ -2281,10 +2447,11 @@ mod tests {
                     final_rank: None,
                 },
                 CandidateRowOwned {
-                    symbol: "TAIL0USDT".to_string(),
-                    turnover_24h_usd_e9: e9(100),
-                    tercile: "bottom".to_string(),
-                    prefiltered: false,
+                    symbol: "AAPLUSDT".to_string(),
+                    turnover_24h_usd_e9: e9(800_000),
+                    excluded_reason: EXCLUDED_NON_CRYPTO.to_string(),
+                    coverage_top50_bps: None,
+                    suitable_baskets: String::new(),
                     measured: false,
                     window_start_utc_ms: None,
                     window_secs: None,
@@ -2297,9 +2464,8 @@ mod tests {
                 },
             ],
             "неизмеренный кандидат обязан вернуться как None на всех Option-полях, \
-             а не как 0, false или пустая строка, принятая за None; и \
-             `prefiltered` с `measured` обязаны читаться назад раздельно (MID2USDT: \
-             prefiltered=true, measured=false)"
+             а не как 0, false или пустая строка, принятая за None; `excluded_reason` \
+             обязана читаться назад раздельно (пусто у пула, код у исключённой)"
         );
     }
 
@@ -2448,73 +2614,65 @@ mod tests {
 
     // -- пайплайн целиком, синтетическая вселенная ---------------------------
 
-    /// Собирает весь путь Decision 18 от сырых метаданных до финальных двух
+    /// Собирает весь путь Decision 25 от сырых метаданных до финальных двух
     /// на небольшой, но не тривиальной синтетической вселенной — то самое
     /// «структурировано так, что правило — чистая функция», проверенное
-    /// сквозным прогоном, а не только по стадиям порознь.
+    /// сквозным прогоном, а не только по стадиям порознь. Вселенная повторяет
+    /// иллюстрацию BUSINESS-TASK §2: из сырого топа выбывают BTC/ETH по имени,
+    /// акция/золото/ETF по пункту 2 и молодой контракт по пункту 3.
     #[test]
     fn full_pipeline_from_synthetic_universe_matches_hand_computed_result() {
-        // Три группы по шесть — ровные трети (см. doc `tercile_bucket`), так
-        // что группы совпадают с бакетами без остатка на границе.
         let mut candidates = vec![
             meta("BTCUSDT", "BTC", e9(20_000_000)),
             meta("ETHUSDT", "ETH", e9(19_000_000)),
+            meta("AAPLUSDT", "AAPL", e9(18_000_000)),
+            meta("XAUUSDT", "XAU", e9(17_000_000)),
+            meta("SOXLUSDT", "SOXL", e9(16_000_000)),
+            meta("SNDKUSDT", "SNDK", e9(15_000_000)),
         ];
-        for i in 2..6 {
+        let mut young = meta("PONSUSDT", "PONS", e9(14_000_000));
+        young.launch_time_ms = Some(NOW_MS - 9 * MS_PER_DAY);
+        candidates.push(young);
+        for i in 0..10 {
             candidates.push(meta(
-                &format!("BIG{i}USDT"),
-                &format!("BIG{i}"),
-                e9(18_000_000 - i * 1_000_000),
-            ));
-        }
-        for i in 0..6 {
-            candidates.push(meta(
-                &format!("MID{i}USDT"),
-                &format!("MID{i}"),
+                &format!("CRYPTO{i}USDT"),
+                &format!("CRYPTO{i}"),
                 e9(1_000_000 - i * 10_000),
             ));
         }
-        for i in 0..6 {
-            candidates.push(meta(
-                &format!("TAIL{i}USDT"),
-                &format!("TAIL{i}"),
-                e9(100 - i),
-            ));
-        }
-        // Токенизированных акций в этой вселенной больше нет намеренно
-        // (Изменение 3, Decision 18 ревизии 10): Bybit не возвращает их в
-        // пуле категории `linear`, и симулировать здесь нечего — см. doc
-        // `build_pool` про то, почему в коде нет отдельного фильтра.
 
-        let pool = build_pool(&candidates, NOW_MS);
-        assert_eq!(pool.len(), 18);
-
-        let tercile = middle_tercile(&pool).unwrap();
+        let outcome = build_pool(&candidates, NOW_MS);
         assert_eq!(
-            tercile.len(),
-            6,
-            "средняя треть восемнадцати — шесть записей"
+            outcome.pool.len(),
+            POOL_SIZE,
+            "семь исключённых добраны снизу — пул всё равно десятка"
         );
-        assert!(tercile.iter().all(|c| c.symbol.starts_with("MID")));
-
-        let prefiltered = prefilter_top_n(&tercile, PREFILTER_TOP_N);
-        assert_eq!(
-            prefiltered.len(),
-            6,
-            "меньше 20 — предфильтр не режет ничего"
+        assert!(
+            outcome.pool.iter().all(|c| c.symbol.starts_with("CRYPTO")),
+            "в пуле только прошедшая крипта"
         );
+        // Покрытие посчитано уже на стадии пула: дефолтный meta() даёт 50 bps.
+        assert!(
+            outcome
+                .pool
+                .iter()
+                .all(|c| c.coverage_top50_bps == Some(50.0)),
+            "тик 0.01 при цене 100 — это 50 bps у каждого"
+        );
+        assert_eq!(count_eligible_trials(&outcome.pool), 10 * 5);
 
-        // Синтетический замер: MID0 — глубокий и активный, MID1 — глубокий,
-        // но реже торгуется, остальные — ниже порога.
-        let measured: Vec<MeasuredCandidate> = prefiltered
+        // Синтетический замер: CRYPTO0 — глубокий и активный, CRYPTO1 —
+        // глубокий, но реже торгуется, остальные — ниже порога.
+        let measured: Vec<MeasuredCandidate> = outcome
+            .pool
             .iter()
             .map(|c| {
-                let depth = if c.symbol == "MID0USDT" || c.symbol == "MID1USDT" {
+                let depth = if c.symbol == "CRYPTO0USDT" || c.symbol == "CRYPTO1USDT" {
                     DEPTH_FLOOR_USD_E9 + e9(1)
                 } else {
                     DEPTH_FLOOR_USD_E9 - e9(1)
                 };
-                let events = if c.symbol == "MID0USDT" { 500 } else { 100 };
+                let events = if c.symbol == "CRYPTO0USDT" { 500 } else { 100 };
                 measured(&c.symbol, depth, c.turnover_24h_usd_e9, events, 3600)
             })
             .collect();
@@ -2525,23 +2683,47 @@ mod tests {
                 .iter()
                 .map(|c| c.symbol.clone())
                 .collect::<Vec<_>>(),
-            vec!["MID0USDT", "MID1USDT"]
+            vec!["CRYPTO0USDT", "CRYPTO1USDT"]
         );
 
-        let table = build_candidate_table(&pool, &prefiltered, &measured, &selected);
+        let table = build_candidate_table(&outcome, &measured, &selected);
         assert_eq!(
             table.len(),
-            18,
-            "таблица несёт весь пул, не только выживших"
+            outcome.pool.len() + outcome.excluded.len(),
+            "таблица несёт пул и все исключения, не только выживших"
         );
+        // Пул — первые строки.
+        assert!(table[0].excluded_reason.is_empty());
+        assert_eq!(table[0].symbol, outcome.pool[0].symbol);
+        // Исключения — со своими причинами.
+        let reasons: Vec<(&str, &str)> = table
+            .iter()
+            .filter(|r| !r.excluded_reason.is_empty())
+            .map(|r| (r.symbol.as_str(), r.excluded_reason.as_str()))
+            .collect();
+        assert!(reasons.contains(&("BTCUSDT", EXCLUDED_BTC_ETH)));
+        assert!(reasons.contains(&("ETHUSDT", EXCLUDED_BTC_ETH)));
+        assert!(reasons.contains(&("AAPLUSDT", EXCLUDED_NON_CRYPTO)));
+        assert!(reasons.contains(&("XAUUSDT", EXCLUDED_NON_CRYPTO)));
+        assert!(reasons.contains(&("SOXLUSDT", EXCLUDED_NON_CRYPTO)));
+        assert!(reasons.contains(&("SNDKUSDT", EXCLUDED_NON_CRYPTO)));
+        assert!(reasons.contains(&("PONSUSDT", EXCLUDED_TOO_YOUNG)));
+        // Строка пула несёт покрытие, корзины и ранг финалиста.
+        let c0_row = table.iter().find(|r| r.symbol == "CRYPTO0USDT").unwrap();
+        assert!(c0_row.excluded_reason.is_empty());
+        assert_eq!(c0_row.coverage_top50_bps, Some(50.0));
+        assert_eq!(c0_row.suitable_baskets, "0-1;1-2.5;2.5-5;5-10;10-25");
+        assert!(c0_row.measured);
+        assert_eq!(c0_row.above_depth_floor, Some(true));
+        assert!(c0_row.selected_for_pilot);
+        assert_eq!(c0_row.final_rank, Some(1));
+        // Строка исключённой: причина есть, покрытия и замера нет.
         let btc_row = table.iter().find(|r| r.symbol == "BTCUSDT").unwrap();
-        assert_eq!(btc_row.tercile, "top");
+        assert_eq!(btc_row.excluded_reason, EXCLUDED_BTC_ETH);
+        assert_eq!(btc_row.coverage_top50_bps, None);
+        assert!(btc_row.suitable_baskets.is_empty());
+        assert!(!btc_row.measured);
         assert!(!btc_row.selected_for_pilot);
-        let mid0_row = table.iter().find(|r| r.symbol == "MID0USDT").unwrap();
-        assert_eq!(mid0_row.tercile, "middle");
-        assert!(mid0_row.prefiltered);
-        assert!(mid0_row.selected_for_pilot);
-        assert_eq!(mid0_row.final_rank, Some(1));
     }
 }
 
