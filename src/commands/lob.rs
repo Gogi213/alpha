@@ -1143,6 +1143,12 @@ pub struct PickArgs {
     /// Куда писать коммитимую таблицу кандидатов (done-condition шага 0.4).
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_out: PathBuf,
+    /// Длительность окна замера глубины в секундах. План (Decision 18) требует
+    /// час; значение по умолчанию его и даёт. Параметр существует для дымовых
+    /// прогонов при отладке отбора: укорачивать окно в боевом прогоне запрещено
+    /// тем же смыслом, что optional stopping в Decision 21.
+    #[arg(long, default_value_t = MEASUREMENT_WINDOW_SECS)]
+    pub window_secs: u64,
 }
 
 /// Итог `lob pick`: полная таблица (все промежуточные колонки) и то, что
@@ -1191,13 +1197,31 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
 
     let instruments_by_symbol: HashMap<String, &Instrument> =
         instruments.iter().map(|i| (i.symbol.clone(), i)).collect();
-    let measured = measure_prefiltered(
-        &prefiltered,
-        &instruments_by_symbol,
-        MEASUREMENT_WINDOW_SECS,
-    )
-    .await;
-    let selected = select_final_two(&measured)?;
+    let measured =
+        measure_prefiltered(&prefiltered, &instruments_by_symbol, args.window_secs).await;
+    if args.window_secs != MEASUREMENT_WINDOW_SECS {
+        eprintln!(
+            "pick: ВНИМАНИЕ — окно замера {} с вместо плановых {} с: результат не годится для отбора, только для отладки",
+            args.window_secs, MEASUREMENT_WINDOW_SECS
+        );
+    }
+    // Диагностика на пути отказа: какие медианы намерялись, по каждому
+    // кандидату — иначе следующий провал снова виден только как «ни один».
+    // Печать в stderr, не в таблицу: таблица пишется только на успехе.
+    let selected = match select_final_two(&measured) {
+        Ok(sel) => sel,
+        Err(e) => {
+            let mut rows: Vec<&MeasuredCandidate> = measured.iter().collect();
+            rows.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+            for m in rows {
+                eprintln!(
+                    "pick measured: {} events={} bid_med={} ask_med={}",
+                    m.symbol, m.events, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
+                );
+            }
+            return Err(e.into());
+        }
+    };
 
     // Decision 22, done-condition шага 0.4: у обоих финалистов минимальный
     // лот обязан удовлетворять `minNotionalValue`. Проверяется здесь, а не
