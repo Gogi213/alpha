@@ -19,7 +19,7 @@ zstd = "0.14"
 # live тянет iceoryx2 и tokio крейта; он понадобится на шаге живого бота, не сейчас.
 hftbacktest = { version = "0.9.4", default-features = false, features = ["backtest"] }
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 
 [dev-dependencies]
