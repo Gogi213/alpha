@@ -1,9 +1,11 @@
 //! `lob verify` (шаг 0.6 плана): сверка книги с REST по `u`, инварианты, трейды.
 //!
 //! Три проверки PLAN.md 0.6: (1) книга, проигранная ровно до `u` снапшота, сравнивается
-//! с топ-50 REST; (2) инварианты на каждом событии; (3) каждая сделка внутри диапазона,
-//! накрытого книгой. Чистая логика без сети и часов: транспорт и чтение дейлогов —
-//! дело вызывающего (CLI в `src/commands`), сюда приходят разобранные сущности.
+//! с топ-50 REST; (2) инварианты на каждом событии; (3) сделка внутри диапазона,
+//! накрытого книгой, стоит на удерживаемой цене (ревизия 17а: вне диапазона —
+//! доля без порога, нарушение — внутри на недержимой цене). Чистая логика без сети
+//! и часов: транспорт и чтение дейлогов — дело вызывающего (CLI в `src/commands`),
+//! сюда приходят разобранные сущности.
 //!
 //! Оговорка про `u` (важно): суточный файл шага 0.3 `u` не хранит. Точнее, чем
 //! «`order_id`/`ival` заняты»: `order_id` на книжных событиях безусловно ноль
@@ -324,7 +326,7 @@ pub fn check_invariants(book: &Book) -> Vec<InvariantViolation> {
 }
 
 // ---------------------------------------------------------------------------
-// Проверка 3: сделка внутри диапазона книги
+// Проверка 3 (ревизия 17а): сделка внутри диапазона на удерживаемой цене
 // ---------------------------------------------------------------------------
 
 /// Диапазон, накрытый книгой: от худшего удерживаемого бида до худшего
@@ -335,10 +337,18 @@ pub fn book_span_ticks(book: &Book) -> Option<(i64, i64)> {
     Some((min_bid, max_ask))
 }
 
-/// Цена сделки против диапазона книги. `None` — книга пуста: это не нарушение,
-/// а неопределённость, и счётчик у неё отдельный.
+/// Цена сделки против диапазона книги. `None` — книга пуста (или однобока:
+/// спан не строится): это не нарушение, а неопределённость, и счётчик у неё
+/// отдельный.
 pub fn trade_in_range(book: &Book, price_tick: i64) -> Option<bool> {
     book_span_ticks(book).map(|(lo, hi)| price_tick >= lo && price_tick <= hi)
+}
+
+/// Цена удерживается книгой, если тик держит хотя бы одна сторона.
+/// Ревизия 17а: нарушение теста 3 — внутри диапазона на цене, которую не держит
+/// ни одна сторона; сторона сделки в точке проверяется именно так.
+pub fn price_held(book: &Book, price_tick: i64) -> bool {
+    book.qty_lots_at(Side::Bid, price_tick) != 0 || book.qty_lots_at(Side::Ask, price_tick) != 0
 }
 
 // ---------------------------------------------------------------------------
@@ -361,8 +371,9 @@ pub enum AlignmentError {
     },
 }
 
-/// Счётчики прогона. Только целые: доля нарушений считается вызывающим в ppm
-/// (`violations * 1_000_000 / total`), порог 0.1% из плана — это 1000 ppm.
+/// Счётчики прогона. Только целые: доли считаются вызывающим в ppm
+/// (`count * 1_000_000 / total`). Ревизия 17а: порог 0.1% из плана (1000 ppm)
+/// относится к нарушениям; `out_of_range` — доля без порога.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VerifyStats {
     pub updates_applied: u64,
@@ -370,12 +381,23 @@ pub struct VerifyStats {
     pub invariant_violations: u64,
     pub trades_total: u64,
     pub trades_out_of_range: u64,
+    pub trades_violations: u64,
     pub trades_indeterminate: u64,
 }
 
 impl VerifyStats {
-    /// Нарушения проверки 3 в миллионных долях. `None` — сделок не было.
+    /// Нарушения теста 3 (ревизия 17а: внутри диапазона на недержимой цене)
+    /// в миллионных долях. `None` — сделок не было.
     pub fn trade_violation_ppm(&self) -> Option<u64> {
+        if self.trades_total == 0 {
+            return None;
+        }
+        Some(self.trades_violations * 1_000_000 / self.trades_total)
+    }
+
+    /// Доля сделок за границей видимой книги. Порога нет, это свойство глубины.
+    /// `None` — сделок не было.
+    pub fn out_of_range_ppm(&self) -> Option<u64> {
         if self.trades_total == 0 {
             return None;
         }
@@ -438,13 +460,19 @@ impl Verifier {
         }
     }
 
-    /// Отмечает сделку ленты в проверке 3.
+    /// Отмечает сделку ленты в проверке 3 (ревизия 17а, три исхода):
+    /// пустая книга — indeterminate; вне диапазона — `out_of_range` без порога;
+    /// внутри на цене, которую не держит ни одна сторона, — нарушение.
     pub fn observe_trade(&mut self, price_tick: i64) {
         self.stats.trades_total += 1;
         match trade_in_range(&self.book, price_tick) {
-            Some(true) => {}
-            Some(false) => self.stats.trades_out_of_range += 1,
             None => self.stats.trades_indeterminate += 1,
+            Some(false) => self.stats.trades_out_of_range += 1,
+            Some(true) => {
+                if !price_held(&self.book, price_tick) {
+                    self.stats.trades_violations += 1;
+                }
+            }
         }
     }
 
@@ -676,6 +704,8 @@ pub struct VerifyArgs {
 }
 
 /// Итог файлового прогона для печати и `VerifyStats` вызывающему.
+/// Ревизия 17а: `trades_out_of_range` — доля без порога, `trades_violations` —
+/// нарушения теста 3 с порогом < 0.1%.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VerifySummary {
     pub files: usize,
@@ -684,7 +714,26 @@ pub struct VerifySummary {
     pub invariant_violations: u64,
     pub trades_total: u64,
     pub trades_out_of_range: u64,
+    pub trades_violations: u64,
     pub trades_indeterminate: u64,
+}
+
+impl VerifySummary {
+    /// Нарушения теста 3 в ppm. `None` — сделок не было.
+    pub fn violation_ppm(&self) -> Option<u64> {
+        if self.trades_total == 0 {
+            return None;
+        }
+        Some(self.trades_violations * 1_000_000 / self.trades_total)
+    }
+
+    /// Доля вне диапазона в ppm (порога нет). `None` — сделок не было.
+    pub fn out_of_range_ppm(&self) -> Option<u64> {
+        if self.trades_total == 0 {
+            return None;
+        }
+        Some(self.trades_out_of_range * 1_000_000 / self.trades_total)
+    }
 }
 
 /// Прогоняет все суточные файлы символа через проверки 2-3. Проверка 1 здесь
@@ -752,6 +801,7 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
                 summary.invariant_violations += s.invariant_violations;
                 summary.trades_total += s.trades_total;
                 summary.trades_out_of_range += s.trades_out_of_range;
+                summary.trades_violations += s.trades_violations;
                 summary.trades_indeterminate += s.trades_indeterminate;
                 return Ok(());
             }
@@ -774,6 +824,7 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
     summary.invariant_violations += s.invariant_violations;
     summary.trades_total += s.trades_total;
     summary.trades_out_of_range += s.trades_out_of_range;
+    summary.trades_violations += s.trades_violations;
     summary.trades_indeterminate += s.trades_indeterminate;
     Ok(())
 }
@@ -1017,17 +1068,90 @@ mod tests {
 
     #[test]
     fn trades_inside_outside_and_empty_book() {
+        // Ревизия 17а: вне диапазона — доля без порога, порог < 0.1% — к нарушениям.
+        // Книга: биды 100/99, аски 101/102, спан [99, 102].
         let mut v = Verifier::new(TICK_E9, STEP_E9);
         v.observe_trade(100); // пустая книга — неопределённость, не нарушение
         assert_eq!(v.stats().trades_indeterminate, 1);
         assert_eq!(v.stats().trades_out_of_range, 0);
+        assert_eq!(v.stats().trades_violations, 0);
         v.apply_update(&snapshot_update(1)).unwrap();
-        v.observe_trade(100); // внутри спреда
-        v.observe_trade(50); // ниже худшего бида
-        v.observe_trade(500); // выше худшего аска
+        v.observe_trade(100); // держит бид — чисто
+        v.observe_trade(50); // ниже худшего бида — вне диапазона
+        v.observe_trade(500); // выше худшего аска — вне диапазона
         assert_eq!(v.stats().trades_total, 4);
         assert_eq!(v.stats().trades_out_of_range, 2);
-        assert_eq!(v.stats().trade_violation_ppm(), Some(500_000));
+        assert_eq!(v.stats().trades_violations, 0);
+        assert_eq!(v.stats().trade_violation_ppm(), Some(0));
+        assert_eq!(v.stats().out_of_range_ppm(), Some(500_000));
+    }
+
+    #[test]
+    fn trade_out_of_range_is_share_not_violation() {
+        // Живой кейс ревизии 17а (BTCUSDT 5.23%): сделка за границей топ-50 —
+        // свойство глубины, порога у неё нет, в нарушения не идёт.
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        v.apply_update(&snapshot_update(1)).unwrap();
+        v.observe_trade(50);
+        v.observe_trade(500);
+        assert_eq!(v.stats().trades_total, 2);
+        assert_eq!(v.stats().trades_out_of_range, 2);
+        assert_eq!(v.stats().trades_violations, 0);
+        assert_eq!(v.stats().out_of_range_ppm(), Some(1_000_000));
+        assert_eq!(v.stats().trade_violation_ppm(), Some(0));
+    }
+
+    #[test]
+    fn trade_inside_range_on_unheld_price_is_violation() {
+        // Нарушение теста 3: внутри спана [99, 104], но тик не держит ни одна сторона.
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        let up = Update {
+            is_snapshot: true,
+            u: 1,
+            seq: 1,
+            cts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(99), qty(7))],
+            asks: vec![(px(103), qty(4)), (px(104), qty(6))],
+        };
+        v.apply_update(&up).unwrap();
+        v.observe_trade(101);
+        v.observe_trade(102);
+        assert_eq!(v.stats().trades_total, 2);
+        assert_eq!(v.stats().trades_out_of_range, 0);
+        assert_eq!(v.stats().trades_violations, 2);
+        assert_eq!(v.stats().trade_violation_ppm(), Some(1_000_000));
+    }
+
+    #[test]
+    fn trade_inside_range_on_held_price_is_clean() {
+        // Та же книга: 100 держит бид, 103 держит аск — чисто, счётчики стоят.
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        let up = Update {
+            is_snapshot: true,
+            u: 1,
+            seq: 1,
+            cts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(99), qty(7))],
+            asks: vec![(px(103), qty(4)), (px(104), qty(6))],
+        };
+        v.apply_update(&up).unwrap();
+        v.observe_trade(100);
+        v.observe_trade(103);
+        assert_eq!(v.stats().trades_total, 2);
+        assert_eq!(v.stats().trades_out_of_range, 0);
+        assert_eq!(v.stats().trades_violations, 0);
+        assert_eq!(v.stats().trades_indeterminate, 0);
+        assert_eq!(v.stats().trade_violation_ppm(), Some(0));
+    }
+
+    #[test]
+    fn trade_on_empty_book_is_indeterminate() {
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        v.observe_trade(100);
+        assert_eq!(v.stats().trades_total, 1);
+        assert_eq!(v.stats().trades_indeterminate, 1);
+        assert_eq!(v.stats().trades_out_of_range, 0);
+        assert_eq!(v.stats().trades_violations, 0);
     }
 
     #[test]
@@ -1067,9 +1191,13 @@ mod tests {
         for t in &trades {
             v.observe_trade(t.tick);
         }
-        // Книга: бид 100, аск 101. Сделка на 100 внутри, на 50 вне.
+        // Книга: бид 100, аск 101. Сделка на 100 держится бидом (чисто),
+        // на 50 — вне диапазона (доля без порога, не нарушение).
         assert_eq!(v.stats().trades_total, 2);
         assert_eq!(v.stats().trades_out_of_range, 1);
+        assert_eq!(v.stats().trades_violations, 0);
+        assert_eq!(v.stats().trade_violation_ppm(), Some(0));
+        assert_eq!(v.stats().out_of_range_ppm(), Some(500_000));
         assert_eq!(v.stats().sequence_gaps, 0);
     }
 

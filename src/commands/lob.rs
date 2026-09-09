@@ -1035,13 +1035,14 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Verify(args) => {
             let summary = crate::bybit::verify::run_verify(&args)?;
             println!(
-                "verify: files={} updates={} gaps={} invariants={} trades={} out_of_range={} indeterminate={}",
+                "verify: files={} updates={} gaps={} invariants={} trades={} out_of_range={} violations={} indeterminate={}",
                 summary.files,
                 summary.updates_applied,
                 summary.sequence_gaps,
                 summary.invariant_violations,
                 summary.trades_total,
                 summary.trades_out_of_range,
+                summary.trades_violations,
                 summary.trades_indeterminate,
             );
             Ok(())
