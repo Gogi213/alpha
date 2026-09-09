@@ -61,6 +61,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Счёт и сверка с бюджетом
+        env:
+          # Не `always`: цветной вывод вставляет ANSI-коды между словом
+          # `warning` и двоеточием, и счёт по строкам молча выходит нулевым.
+          # Ровно это и случилось на первом прогоне — джоб был зелёным при 157
+          # настоящих срабатываниях, потому что искал подстроку, которой в
+          # раскрашенном выводе нет.
+          CARGO_TERM_COLOR: never
         run: |
           set -o pipefail
           # См. комментарий в strict-lints: без чистки своего крейта clippy
@@ -73,15 +80,18 @@ jobs:
             -W clippy::cast_possible_truncation \
             -W clippy::cast_precision_loss \
             2>&1 | tee /tmp/lints.txt || true
-          got=$(grep -cE "^[^ ].*warning: " /tmp/lints.txt || true)
+          got=$(grep -cE ": warning: " /tmp/lints.txt || true)
           budget=$(tr -d '[:space:]' < .github/lint-budget.txt)
           echo "срабатываний: $got, бюджет: $budget"
           if [ "$got" -gt "$budget" ]; then
             echo "::error::долг вырос: $got против бюджета $budget"
             exit 1
           fi
+          # Ноль при ненулевом бюджете — почти наверняка сломанный счёт, а не
+          # закрытый долг. Когда долг действительно дойдёт до нуля, бюджет в
+          # файле опускается до нуля, и эта проверка сама перестаёт срабатывать.
           if [ "$got" -eq 0 ] && [ "$budget" -gt 0 ]; then
-            echo "::error::счёт нулевой при ненулевом бюджете — clippy промолчал, проверка ничего не проверила"
+            echo "::error::счёт нулевой при ненулевом бюджете — проверка ничего не проверила"
             exit 1
           fi
           if [ "$got" -lt "$budget" ]; then
