@@ -140,7 +140,7 @@ pub fn webb_p_grid_resolution_log10(clusters: u32) -> f64 {
 /// распределение (Webb, 2014): среднее ноль по симметрии, второй момент
 /// `(1.5 + 1 + 0.5) · 2 / 6 = 1`, то есть знаковая инверсия не меняет масштаб
 /// остатков в среднем по репликам, только их знак и «вес».
-fn webb_weight(index: u32) -> f64 {
+pub(crate) fn webb_weight(index: u32) -> f64 {
     debug_assert!(index < WEBB_WEIGHT_VALUES, "индекс веса вне сетки Уэбба");
     match index {
         0 => -(1.5_f64).sqrt(),
