@@ -9,4 +9,5 @@
 pub mod export;
 pub mod levels;
 pub mod markout;
+pub mod markup;
 pub mod watch;
