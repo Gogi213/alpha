@@ -1,0 +1,14 @@
+# Обновления зависимостей. Раз в неделю и пачкой: cargo-крейты этого проекта
+# и сами actions в workflow — забытая на год версия `actions/checkout` это
+# тот же долг, что забытая версия крейта, только менее заметный.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

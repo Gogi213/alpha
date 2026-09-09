@@ -1,0 +1,142 @@
+# Качество кода: то, что можно проверять без биржи.
+#
+# Живые прогоны с облачных ранеров невозможны — Bybit блокирует их страну
+# (SETTLED.md В-13). Но всё, что не требует биржи, проверяется здесь и
+# бесплатно, а «код собирается и тесты зелёные» это далеко не всё.
+#
+# Порог у каждой проверки взят из **замера**, а не назначен: строгие линты
+# денаются только там, где боевой код уже чист, поэтому включение ничего не
+# ломает и с этого дня нарушение невозможно внести. Остальное считается и
+# печатается, чтобы рост был виден.
+name: Quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  strict-lints:
+    # Замер на 2026-09-09: в боевом коде (`--lib --bins`, без тестов) ноль
+    # срабатываний по каждому из этих линтов. Значит запрет бесплатен сегодня
+    # и работает как храповик: внести `panic!` в код, который пишет
+    # невосстановимые данные неделями, больше нельзя молча.
+    #
+    # `--lib --bins` вместо `--all-targets` нарочно: под `cfg(test)` те же
+    # линты дают сотни срабатываний, и это нормально — в тесте `unwrap` и
+    # `panic` уместны, а запрет там означал бы `#[allow]` на каждом модуле.
+    name: Строгие линты (боевой код)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo clippy --lib --bins -- \
+            -D clippy::float_cmp \
+            -D clippy::panic \
+            -D clippy::todo \
+            -D clippy::unimplemented \
+            -D clippy::dbg_macro \
+            -D clippy::mem_forget \
+            -D clippy::exit
+
+  lint-budget:
+    # Линты, которых сегодня слишком много, чтобы запрещать. Джоб не краснеет
+    # от их наличия — он краснеет от их **роста**: числа взяты замером и лежат
+    # в файле рядом. Так долг виден и не размазывается по ревью.
+    name: Бюджет линтов
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Счёт и сверка с бюджетом
+        run: |
+          set -o pipefail
+          cargo clippy --lib --bins --message-format short -- \
+            -W clippy::unwrap_used \
+            -W clippy::expect_used \
+            -W clippy::indexing_slicing \
+            -W clippy::cast_possible_truncation \
+            -W clippy::cast_precision_loss \
+            2>&1 | tee /tmp/lints.txt || true
+          got=$(grep -cE "^[^ ].*warning: " /tmp/lints.txt || true)
+          budget=$(tr -d '[:space:]' < .github/lint-budget.txt)
+          echo "срабатываний: $got, бюджет: $budget"
+          if [ "$got" -gt "$budget" ]; then
+            echo "::error::долг вырос: $got против бюджета $budget"
+            exit 1
+          fi
+          if [ "$got" -lt "$budget" ]; then
+            echo "::notice::долг сократился до $got — опустите .github/lint-budget.txt"
+          fi
+
+  msrv:
+    # `Cargo.toml` объявляет `rust-version = "1.90"`, а `rust-toolchain.toml`
+    # пинует 1.93.1 — то есть заявленный минимум не проверяет ничто. Здесь он
+    # проверяется буквально: сборка на 1.90.
+    name: Заявленный минимум Rust (1.90)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Снять пин тулчейна для этого джоба
+        run: rm -f rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --lib --bins
+
+  deps:
+    # Уязвимости — жёстко. Дубли версий и неиспользуемые зависимости —
+    # печатаются: сегодня восемь пар дублей, и почти все приходят из
+    # `hftbacktest`, то есть чинятся не нами (см. deny.toml).
+    name: Зависимости
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-machete
+      - name: Уязвимости и источники
+        run: cargo deny check advisories sources
+      - name: Дубли версий
+        run: cargo deny check bans || true
+      - name: Неиспользуемые зависимости
+        run: cargo machete || true
+
+  duplication:
+    # Копипаста. Порог высокий нарочно: файлы этого репозитория несут очень
+    # много документации, и низкий порог выдал бы полотно совпадений в
+    # комментариях вместо дублей логики. Отчёт, не отказ.
+    name: Копипаста
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: jscpd
+        run: |
+          npx --yes jscpd src \
+            --min-tokens 120 \
+            --reporters console \
+            --format rust \
+            --gitignore || true
+
+  coverage:
+    # Покрытие печатается, порога пока нет: назначить его числом сейчас
+    # значило бы изобрести число, чего этот проект не делает нигде. Сначала
+    # смотрим факт, потом решаем.
+    name: Покрытие тестами
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo llvm-cov --lib --summary-only
