@@ -10,6 +10,7 @@ pub mod backtest;
 pub mod cells;
 pub mod costs;
 pub mod export;
+pub mod final_metrics;
 pub mod levels;
 pub mod markout;
 pub mod markup;
