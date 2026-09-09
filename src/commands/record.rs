@@ -1656,6 +1656,7 @@ mod tests {
         crate::book::Update {
             is_snapshot: true,
             u: 1,
+            seq: 1,
             cts_ms: 1_757_800_000_000,
             bids: vec![(150_000_000_000, 2_500_000_000)],
             asks: vec![(150_010_000_000, 3_000_000_000)],
@@ -1687,6 +1688,7 @@ mod tests {
         let bad = crate::book::Update {
             is_snapshot: false,
             u: 2,
+            seq: 2,
             cts_ms: 1_757_800_000_020,
             bids: vec![(150_005_000_000, 1_000_000_000)],
             asks: vec![],
@@ -1732,6 +1734,7 @@ mod tests {
         let delta = crate::book::Update {
             is_snapshot: false,
             u: 2,
+            seq: 2,
             cts_ms: 1_757_800_000_020,
             bids: vec![(150_000_000_000, 3_000_000_000)],
             asks: vec![],
@@ -1903,6 +1906,7 @@ mod tests {
         book.apply(&crate::book::Update {
             is_snapshot: true,
             u: 1,
+            seq: 1,
             cts_ms: 0,
             bids: vec![(1_000, 50)],
             asks: vec![(1_100, 60)],
@@ -2057,6 +2061,7 @@ mod tests {
         let delta = crate::book::Update {
             is_snapshot: false,
             u: 2,
+            seq: 2,
             cts_ms: 1_757_800_000_020,
             bids: vec![(150_000_000_000, 1_000_000_000)],
             asks: vec![],
@@ -2100,6 +2105,7 @@ mod tests {
         let skipped = crate::book::Update {
             is_snapshot: false,
             u: 4, // ждали 2
+            seq: 4,
             cts_ms: 1_757_800_000_040,
             bids: vec![(150_000_000_000, 9_000_000_000)],
             asks: vec![],
@@ -2195,6 +2201,7 @@ mod tests {
         let mut upd = crate::book::Update {
             is_snapshot: false,
             u: 2,
+            seq: 2,
             cts_ms: 1_757_800_000_020,
             bids: vec![(150_000_000_000, 3_000_000_000)],
             asks: vec![(150_010_000_000, 4_000_000_000)],
@@ -2209,6 +2216,7 @@ mod tests {
         // Прогрев вне замера: книга, батч и Writer при рабочей ёмкости.
         for k in 0..2_000u64 {
             upd.u = 2 + k;
+            upd.seq = 2 + k;
             rec.stage_book_update(
                 &mut book,
                 &upd,
@@ -2221,6 +2229,7 @@ mod tests {
         let (_, counts) = crate::alloc_count::measure(|| {
             for k in 0..100_000u64 {
                 upd.u = 2_002 + k;
+                upd.seq = 2_002 + k;
                 rec.stage_book_update(
                     &mut book,
                     &upd,
