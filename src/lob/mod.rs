@@ -15,4 +15,5 @@ pub mod levels;
 pub mod markout;
 pub mod markup;
 pub mod runs;
+pub mod shortlist;
 pub mod watch;
