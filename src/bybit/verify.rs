@@ -41,8 +41,9 @@ pub struct LevelMismatch {
     pub book_qty_e9: Option<i64>,
 }
 
-/// Итог сверки. Позиционное сравнение от лучшей цены: позиция `i` книги против
-/// позиции `i` снапшота. Именно так читается порог «ноль расхождений» плана.
+/// Итог сверки. Сравнение объединением тиков (книга ∪ снапшот): один лишний
+/// уровень даёт ровно одно расхождение, а не каскад. Именно так читается
+/// порог «ноль расхождений» плана.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnapshotDiff {
     pub bid_mismatches: Vec<LevelMismatch>,
@@ -59,9 +60,11 @@ impl SnapshotDiff {
     }
 }
 
-/// Позиционное сравнение топ-50 книги с топ-50 снапшота. Сравнение идёт в 1e-9
-/// (тик × `tick_e9`, лот × `step_e9`), поэтому неокруглимо по построению: ни одного
-/// деления здесь нет, и расхождение означает расхождение данных, а не арифметики.
+/// Сравнение объединением тиков топ-50 книги с топ-50 снапшота. Для каждого
+/// тика из объединения: есть в обоих — mismatch при разных qty; только с одной
+/// стороны — mismatch с `None`. Порядок детерминирован: по убыванию тика
+/// внутри каждой стороны. Сравнение идёт в 1e-9, поэтому неокруглимо:
+/// расхождение означает расхождение данных, а не арифметики.
 pub fn compare_with_snapshot(
     book: &Book,
     snap: &OrderbookSnapshot,
@@ -109,10 +112,11 @@ fn top_asks_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> 
     v
 }
 
-/// Позиционное сравнение от лучшей цены: позиция `i` книги против позиции `i`
-/// снапшота. Тик снапшота восстанавливается делением на шаг (снимок биржи
-/// по построению на тиках; неделимый остаток тоже фиксируется как mismatch
-/// количества не будет — он фиксируется несовпадением цены ниже).
+/// Сравнение стороны объединением тиков (книга ∪ снапшот): один лишний уровень
+/// в глубине даёт ровно одно расхождение, а не каскад сдвинутых позиций.
+/// Тик снапшота восстанавливается делением на шаг (снимок биржи по построению
+/// на тиках; неделимый остаток фиксируется как mismatch того же тика).
+/// Порядок детерминирован: по убыванию тика.
 fn compare_side(
     side: Side,
     book: &[(i64, i64, i64)],
@@ -120,32 +124,139 @@ fn compare_side(
     tick_e9: i64,
     mismatches: &mut Vec<LevelMismatch>,
 ) {
-    let n = book.len().max(snap.len());
-    for i in 0..n {
-        match (book.get(i), snap.get(i)) {
-            (Some(&(tick, px_e9, qty_e9)), Some(&(s_px, s_qty))) => {
-                if px_e9 != s_px || qty_e9 != s_qty {
-                    mismatches.push(LevelMismatch {
-                        side,
-                        tick,
-                        snapshot_qty_e9: Some(s_qty),
-                        book_qty_e9: Some(qty_e9),
-                    });
-                }
-            }
-            (Some(&(tick, _, qty_e9)), None) => mismatches.push(LevelMismatch {
+    debug_assert!(tick_e9 > 0);
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut book_map: BTreeMap<i64, i64> = BTreeMap::new();
+    for &(tick, _, qty_e9) in book {
+        book_map.insert(tick, qty_e9);
+    }
+    let mut snap_map: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut off_tick: BTreeSet<i64> = BTreeSet::new();
+    for &(s_px, s_qty) in snap {
+        let tick = s_px.div_euclid(tick_e9);
+        snap_map.insert(tick, s_qty);
+        if s_px.rem_euclid(tick_e9) != 0 {
+            off_tick.insert(tick);
+        }
+    }
+    let mut union: BTreeSet<i64> = BTreeSet::new();
+    union.extend(book_map.keys().copied());
+    union.extend(snap_map.keys().copied());
+    for tick in union.into_iter().rev() {
+        let b = book_map.get(&tick).copied();
+        let s = snap_map.get(&tick).copied();
+        if off_tick.contains(&tick) {
+            mismatches.push(LevelMismatch {
                 side,
                 tick,
-                snapshot_qty_e9: None,
-                book_qty_e9: Some(qty_e9),
-            }),
-            (None, Some(&(s_px, s_qty))) => mismatches.push(LevelMismatch {
+                snapshot_qty_e9: s,
+                book_qty_e9: b,
+            });
+            continue;
+        }
+        if b != s {
+            mismatches.push(LevelMismatch {
                 side,
-                tick: s_px / tick_e9,
-                snapshot_qty_e9: Some(s_qty),
-                book_qty_e9: None,
-            }),
-            (None, None) => {}
+                tick,
+                snapshot_qty_e9: s,
+                book_qty_e9: b,
+            });
+        }
+    }
+}
+
+/// Скобочное сравнение для живого тика: уровень — mismatch, только если
+/// отличается от ОБОИХ состояний (`snap_qty` vs `before_qty` vs `after_qty`,
+/// `None` — отдельное значение). Объединение трёх множеств:
+/// `before` ∪ `after` ∪ snapshot. `book_qty` в строке — qty состояния `before`
+/// (семантика колонки не меняется). `after = None` сводится к обычному
+/// объединению `before` ∪ snapshot.
+pub fn compare_with_bracket(
+    before: &Book,
+    after: Option<&Book>,
+    snap: &OrderbookSnapshot,
+    tick_e9: i64,
+    step_e9: i64,
+) -> SnapshotDiff {
+    debug_assert!(tick_e9 > 0 && step_e9 > 0);
+    let mut out = SnapshotDiff::default();
+    let before_bids = top_bids_e9(before, tick_e9, step_e9);
+    let before_asks = top_asks_e9(before, tick_e9, step_e9);
+    let after_bids = after.map(|b| top_bids_e9(b, tick_e9, step_e9));
+    let after_asks = after.map(|b| top_asks_e9(b, tick_e9, step_e9));
+    compare_side_bracket(
+        Side::Bid,
+        &before_bids,
+        after_bids.as_deref(),
+        &snap.bids,
+        tick_e9,
+        &mut out.bid_mismatches,
+    );
+    compare_side_bracket(
+        Side::Ask,
+        &before_asks,
+        after_asks.as_deref(),
+        &snap.asks,
+        tick_e9,
+        &mut out.ask_mismatches,
+    );
+    out
+}
+
+fn compare_side_bracket(
+    side: Side,
+    before: &[(i64, i64, i64)],
+    after: Option<&[(i64, i64, i64)]>,
+    snap: &[(i64, i64)],
+    tick_e9: i64,
+    mismatches: &mut Vec<LevelMismatch>,
+) {
+    let Some(after_slice) = after else {
+        return compare_side(side, before, snap, tick_e9, mismatches);
+    };
+    debug_assert!(tick_e9 > 0);
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut before_map: BTreeMap<i64, i64> = BTreeMap::new();
+    for &(tick, _, qty_e9) in before {
+        before_map.insert(tick, qty_e9);
+    }
+    let mut after_map: BTreeMap<i64, i64> = BTreeMap::new();
+    for &(tick, _, qty_e9) in after_slice {
+        after_map.insert(tick, qty_e9);
+    }
+    let mut snap_map: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut off_tick: BTreeSet<i64> = BTreeSet::new();
+    for &(s_px, s_qty) in snap {
+        let tick = s_px.div_euclid(tick_e9);
+        snap_map.insert(tick, s_qty);
+        if s_px.rem_euclid(tick_e9) != 0 {
+            off_tick.insert(tick);
+        }
+    }
+    let mut union: BTreeSet<i64> = BTreeSet::new();
+    union.extend(before_map.keys().copied());
+    union.extend(after_map.keys().copied());
+    union.extend(snap_map.keys().copied());
+    for tick in union.into_iter().rev() {
+        let b = before_map.get(&tick).copied();
+        let a = after_map.get(&tick).copied();
+        let s = snap_map.get(&tick).copied();
+        if off_tick.contains(&tick) {
+            mismatches.push(LevelMismatch {
+                side,
+                tick,
+                snapshot_qty_e9: s,
+                book_qty_e9: b,
+            });
+            continue;
+        }
+        if s != b && s != a {
+            mismatches.push(LevelMismatch {
+                side,
+                tick,
+                snapshot_qty_e9: s,
+                book_qty_e9: b,
+            });
         }
     }
 }
@@ -762,6 +873,70 @@ mod tests {
         let diff = v.verify_at_u(&snap, TICK_E9, STEP_E9).unwrap();
         assert_eq!(diff.total(), 1);
         assert_eq!(diff.bid_mismatches[0].snapshot_qty_e9, None);
+    }
+
+    #[test]
+    fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
+        // Живой кейс: один сдвиг в глубине давал 36 позиционных расхождений.
+        // Объединением тиков лишний уровень — ровно один mismatch с `None`.
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        let up = Update {
+            is_snapshot: true,
+            u: 1,
+            seq: 1,
+            cts_ms: 1_000,
+            bids: vec![
+                (px(100), qty(5)),
+                (px(99), qty(7)),
+                (px(98), qty(3)),
+                (px(97), qty(2)),
+            ],
+            asks: vec![(px(101), qty(4)), (px(102), qty(6))],
+        };
+        v.apply_update(&up).unwrap();
+        let snap = OrderbookSnapshot {
+            symbol: "BTCUSDT".to_string(),
+            u: 1,
+            seq: 1,
+            ts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(98), qty(3)), (px(97), qty(2))],
+            asks: vec![(px(101), qty(4)), (px(102), qty(6))],
+        };
+        let diff = v.verify_at_u(&snap, TICK_E9, STEP_E9).unwrap();
+        assert_eq!(diff.total(), 1, "каскад вместо одного: {diff:?}");
+        assert_eq!(diff.bid_mismatches.len(), 1);
+        assert_eq!(diff.bid_mismatches[0].tick, 99);
+        assert_eq!(diff.bid_mismatches[0].snapshot_qty_e9, None);
+        assert_eq!(diff.bid_mismatches[0].book_qty_e9, Some(qty(7)));
+        assert!(diff.ask_mismatches.is_empty());
+    }
+
+    #[test]
+    fn bracket_matches_either_side_is_clean() {
+        let mut before = Verifier::new(TICK_E9, STEP_E9);
+        before.apply_update(&snapshot_update(1)).unwrap();
+        let mut after = Verifier::new(TICK_E9, STEP_E9);
+        let mut up = snapshot_update(1);
+        up.bids[0].1 = qty(9);
+        after.apply_update(&up).unwrap();
+        let mut snap = rest_snapshot(1);
+        snap.bids[0].1 = qty(9);
+        let diff = compare_with_bracket(before.book(), Some(after.book()), &snap, TICK_E9, STEP_E9);
+        assert!(diff.is_clean(), "совпало с after — чисто: {diff:?}");
+    }
+
+    #[test]
+    fn bracket_differs_from_both_is_mismatch() {
+        let mut before = Verifier::new(TICK_E9, STEP_E9);
+        before.apply_update(&snapshot_update(1)).unwrap();
+        let mut after = Verifier::new(TICK_E9, STEP_E9);
+        let mut up = snapshot_update(1);
+        up.bids[0].1 = qty(9);
+        after.apply_update(&up).unwrap();
+        let mut snap = rest_snapshot(1);
+        snap.bids[0].1 = qty(999);
+        let diff = compare_with_bracket(before.book(), Some(after.book()), &snap, TICK_E9, STEP_E9);
+        assert_eq!(diff.total(), 1);
     }
 
     #[test]

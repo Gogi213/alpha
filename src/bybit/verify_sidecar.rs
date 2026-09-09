@@ -46,7 +46,7 @@ use std::time::{Duration, Instant};
 use crate::book::{Book, Update};
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::bybit::rest::{fetch_orderbook_snapshot, BybitPublicRest, PublicRest};
-use crate::bybit::verify::compare_with_snapshot;
+use crate::bybit::verify::{compare_with_bracket, compare_with_snapshot};
 use crate::commands::record::ts_utc_of_ns;
 
 /// Каденция сверки: строка в `verify.csv` раз в 5 минут (шаг 0.8).
@@ -411,6 +411,16 @@ impl VerifyState {
         Some((cloned, actual))
     }
 
+    /// Первое `seq` строго выше цели — верхняя граница скобки. Минимум по кольцу,
+    /// а не первый в порядке прибытия: порядок прибытия и есть порядок `seq`.
+    fn first_seq_above(&self, target_seq: u64) -> Option<u64> {
+        self.ring
+            .iter()
+            .filter(|up| up.seq > target_seq)
+            .map(|up| up.seq)
+            .min()
+    }
+
     fn update_base(&mut self, new_base_seq: u64, new_base_book: Book) {
         self.verified_seq = Some(new_base_seq);
         let u = new_base_book.last_u().unwrap_or(0);
@@ -470,10 +480,13 @@ impl VerifyState {
     }
 
     /// Один тик сверки: fetch → догон до max-seen ≥ `seq_s` → ≤-скан
-    /// (сейв + кольцо) → сравнение → строка.
+    /// (сейв + кольцо) → скобки → строка.
+    /// Нужны ДВА состояния: `before` (новейшее ≤ `seq_s`) и `after` (первое строго
+    /// выше `seq_s`, догон входящим потоком в пределах catch-up таймаута).
+    /// Mismatch — уровень отличается от ОБОИХ состояний; `book_seq` в строке —
+    /// `seq` состояния `before`. Нет `before` (кольцо не покрывает) — `misaligned`;
+    /// нет `after` (таймаут) — решение по одному `before`, а не пропуск.
     /// Строка пишется всегда (отказ, рассинхрон, успех) — пропуска тика нет.
-    /// `book_seq` в строке успеха — `seq` реально сравненного состояния
-    /// (новейший наш апдейт ≤ снапшота), при overshoot меньше `snapshot_seq`.
     /// Чистая от wall-clock функция кроме входящего канала (догон с таймаутом),
     /// поэтому тестируется на фейковом `PublicRest` без сети.
     pub fn verify_tick<R: PublicRest>(
@@ -558,7 +571,80 @@ impl VerifyState {
         let Some((aligned, actual_seq)) = self.replay_to(snapshot_seq) else {
             return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
         };
-        let diff = compare_with_snapshot(&aligned, &snap, self.tick_e9, self.step_e9);
+        let before_diff = compare_with_snapshot(&aligned, &snap, self.tick_e9, self.step_e9);
+        if before_diff.is_clean() {
+            let row = VerifyRow {
+                ts_utc: ts_utc.to_string(),
+                symbol: symbol.to_string(),
+                snapshot_seq: Some(snapshot_seq),
+                book_seq: Some(actual_seq),
+                mismatches: Some(0),
+                verdict: VerifyVerdict::Ok,
+            };
+            append_verify_row(verify_csv, &row)?;
+            self.update_base(actual_seq, aligned);
+            return Ok(row);
+        }
+        // `before` расходится — ищем верхнюю границу скобки. Сначала всё, что
+        // уже приехало во время fetch, затем ждём входящий поток в пределах
+        // существующего catch-up таймаута. Нет `after` — решение по `before`.
+        self.drain_available(rx);
+        if self.dirty {
+            return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
+        }
+        let mut after_book: Option<Book> = None;
+        if let Some(first_above) = self.first_seq_above(snapshot_seq) {
+            if let Some((after, _)) = self.replay_to(first_above) {
+                after_book = Some(after);
+            }
+        }
+        if after_book.is_none() {
+            let deadline = Instant::now() + VERIFY_CATCHUP_TIMEOUT;
+            loop {
+                if self.first_seq_above(snapshot_seq).is_some() {
+                    break;
+                }
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                match rx.recv_timeout(deadline - now) {
+                    Ok(VerifyMsg::Reset { tick_e9, step_e9 }) => {
+                        self.reset(tick_e9, step_e9);
+                        return self.write_misaligned(
+                            symbol,
+                            ts_utc,
+                            Some(snapshot_seq),
+                            verify_csv,
+                        );
+                    }
+                    Ok(VerifyMsg::Update(up)) => {
+                        self.apply_forwarded(up);
+                        if self.dirty {
+                            return self.write_misaligned(
+                                symbol,
+                                ts_utc,
+                                Some(snapshot_seq),
+                                verify_csv,
+                            );
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            if let Some(first_above) = self.first_seq_above(snapshot_seq) {
+                if let Some((after, _)) = self.replay_to(first_above) {
+                    after_book = Some(after);
+                }
+            }
+        }
+        let diff = match after_book {
+            Some(ref after) => {
+                compare_with_bracket(&aligned, Some(after), &snap, self.tick_e9, self.step_e9)
+            }
+            None => before_diff,
+        };
         let row = VerifyRow {
             ts_utc: ts_utc.to_string(),
             symbol: symbol.to_string(),
@@ -573,7 +659,7 @@ impl VerifyState {
         };
         append_verify_row(verify_csv, &row)?;
         // Анатомия расхождения в stderr (раз в 300 с — не спам): первые 5
-        // позиций, чтобы отличать позиционный каскад от дрейфа книги.
+        // уровней, чтобы отличать сдвиг от дрейфа книги.
         if !diff.is_clean() {
             for m in diff
                 .bid_mismatches
@@ -838,6 +924,28 @@ mod tests {
             seq,
             cts_ms: 1_757_800_000_001,
             bids: vec![],
+            asks: vec![],
+        }
+    }
+
+    fn sparse_snapshot_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
+        Update {
+            is_snapshot: true,
+            u,
+            seq,
+            cts_ms: 1_757_800_000_000,
+            bids: vec![(150_000_000_000, bid_qty_e9)],
+            asks: vec![(150_010_000_000, 3_000_000_000)],
+        }
+    }
+
+    fn sparse_delta_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
+        Update {
+            is_snapshot: false,
+            u,
+            seq,
+            cts_ms: 1_757_800_000_001,
+            bids: vec![(150_000_000_000, bid_qty_e9)],
             asks: vec![],
         }
     }
@@ -1236,5 +1344,104 @@ mod tests {
         );
         assert_eq!(rows[0].verdict, VerifyVerdict::RestUnavailable);
         drop(tx);
+    }
+
+    /// Скобки: снапшот между двумя нашими `seq` совпадает с `after`, но не с
+    /// `before` — `Ok` через верхнюю границу, а не ложный `mismatch`.
+    /// `before` на 1_000_000 (2.5), `after` на 1_011_600 (3.5), снапшот на
+    /// 1_005_000 с 3.5. `book_seq` — `seq` состояния `before`.
+    #[test]
+    fn bracket_rescues_when_snapshot_matches_after_not_before() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(1_005_000, "3.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot_with_bid(
+            1_000_000,
+            1000,
+            2_500_000_000,
+        )));
+        state.apply_msg(VerifyMsg::Update(sparse_delta_with_bid(
+            1_011_600,
+            1001,
+            3_500_000_000,
+        )));
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(
+            row.verdict,
+            VerifyVerdict::Ok,
+            "скобки обязаны спасти: {row:?}"
+        );
+        assert_eq!(row.snapshot_seq, Some(1_005_000));
+        assert_eq!(row.book_seq, Some(1_000_000));
+        assert_eq!(row.mismatches, Some(0));
+    }
+
+    /// Скобки: снапшот отличается от ОБОИХ состояний — настоящий `mismatch`,
+    /// а не спасение гонкой. Тот же расклад, снапшот с 999.0.
+    #[test]
+    fn bracket_true_mismatch_when_differs_from_both_states() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(1_005_000, "999.0"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot_with_bid(
+            1_000_000,
+            1000,
+            2_500_000_000,
+        )));
+        state.apply_msg(VerifyMsg::Update(sparse_delta_with_bid(
+            1_011_600,
+            1001,
+            3_500_000_000,
+        )));
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(row.verdict, VerifyVerdict::Mismatch);
+        assert_eq!(row.snapshot_seq, Some(1_005_000));
+        assert_eq!(row.book_seq, Some(1_000_000));
+        assert_eq!(row.mismatches, Some(1));
+    }
+
+    /// Скобки через догон: `after` приезжает входящим потоком уже во время тика.
+    /// Реплика на 7 (2.5), снапшот на 8 с 3.5; дельты 8 (пустая) и 9 (3.5)
+    /// приходят в догоне — `Ok` через дожданную верхнюю границу.
+    #[test]
+    fn bracket_waits_for_after_via_stream_to_ok() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(8, "3.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(snapshot_update(7)));
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            tx.send(VerifyMsg::Update(empty_delta(8))).unwrap();
+            tx.send(VerifyMsg::Update(Update {
+                is_snapshot: false,
+                u: 1_000_000 + 9,
+                seq: 9,
+                cts_ms: 1_757_800_000_001,
+                bids: vec![(150_000_000_000, 3_500_000_000)],
+                asks: vec![],
+            }))
+            .unwrap();
+        });
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(
+            row.verdict,
+            VerifyVerdict::Ok,
+            "дожданный after обязан спасти: {row:?}"
+        );
+        assert_eq!(row.snapshot_seq, Some(8));
+        assert_eq!(row.book_seq, Some(8));
+        assert_eq!(row.mismatches, Some(0));
     }
 }
