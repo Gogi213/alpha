@@ -14,4 +14,5 @@ pub mod final_metrics;
 pub mod levels;
 pub mod markout;
 pub mod markup;
+pub mod runs;
 pub mod watch;
