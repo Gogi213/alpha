@@ -1,11 +1,13 @@
 //! `lob <подкоманда>` — единственная точка входа для всех чисел отчёта.
 //!
-//! Реализованы `pick` (шаг 0.4 плана, Decision 18): отбор двух
-//! инструментов для пилота — и `record` (шаг 0.3, Decision 7/23):
-//! непрерывная запись потока в суточные файлы. Остальные подкоманды (`watch`,
-//! `verify`, `levels`, `markout`, `pilot`, `export`, `probe`, `clock`)
-//! добавляют другие шаги плана. Чистая логика записи живёт в
-//! `super::record`, здесь — только вариант команды и печать итога.
+//! Десять подкоманд (шаг 0.9, Goal: каждое число — одной командой):
+//! `pick` (0.4), `record` (0.3), `verify` (0.6), `export` (6.1) —
+//! существующие; `clock` (0.5), `probe` (6.2), `levels` (1.1, 1.2),
+//! `markout` (2.1), `watch` (4.1), `pilot` (3.1) — тонкие обёртки
+//! поверх уже протестированной логики своих модулей: здесь только
+//! CLI-аргументы, печать артефакта и коды выхода, бизнес-логики нет.
+//! Чистая логика записи живёт в `super::record`, здесь — только вариант
+//! команды и печать итога.
 //!
 //! # Структура файла и почему она такая
 //!
@@ -30,10 +32,38 @@ use std::time::Duration;
 
 use clap::{Args, Subcommand};
 
+use crate::binlog::{Reader, Record};
+use crate::book::{Book, Side};
+use crate::bybit::clock::{
+    check_rows, run as run_clock_loop, BybitServerTimeSource, ClockRow, ReferenceClock, RoundTrip,
+    UdpNtpSource,
+};
+use crate::bybit::conn::SystemClock;
+use crate::bybit::probe::{
+    run_cycles, summarize, BybitPrivateRest, OrderSide, PrivateRest, ProbeError, ProbeParams,
+    RttSummary, SignedRequest, DEFAULT_RECV_WINDOW_MS, MIN_CYCLES,
+};
 use crate::bybit::rest::{
     fetch_all_linear_instruments, fetch_linear_tickers, BybitPublicRest, Instrument,
     BYBIT_MAINNET_URL,
 };
+use crate::bybit::sign::Credentials;
+use crate::bybit::verify::FileReplayer;
+use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
+use crate::commands::record::{gaps_csv_path, read_gap_rows, GapKind};
+use crate::lob::costs::{
+    mean_net_bps, Observation, MAKER_FEE_BPS, ROUNDTRIP_FEES_BPS, TAKER_FEE_BPS,
+};
+use crate::lob::levels::{
+    DeathKind, LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome, TradeHit,
+};
+use crate::lob::markout::{base_before, markouts_for_level, MidSample, HORIZONS_MS};
+use crate::lob::markup::{run_confirmatory, ConfirmatoryDay};
+use crate::lob::runs::log_pilot_run;
+use crate::lob::watch::{
+    is_c1, progress_csv_path, ready_flag_path, require_ready_flag, tally_day, DayTally, WatchState,
+};
+use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
 // ---------------------------------------------------------------------------
 // Константы Decision 18. Каждое число здесь — то самое, что названо в тексте
@@ -948,6 +978,18 @@ pub enum LobCommand {
     Verify(crate::bybit::verify::VerifyArgs),
     /// Экспорт суток в `npy` для крейта `hftbacktest` (шаг 6.1, Decision 17).
     Export(crate::lob::export::ExportArgs),
+    /// Замер смещения часов хоста против NTP и `serverTime` (шаг 0.5).
+    Clock(ClockArgs),
+    /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
+    Probe(ProbeArgs),
+    /// Разметка уровней с шестью признаками истории и классом (шаги 1.1, 1.2).
+    Levels(LevelsArgs),
+    /// Markout уровней на четырёх горизонтах (шаг 2.1).
+    Markout(MarkoutArgs),
+    /// Счётчик n/G для C2, `progress.csv` и `ready.flag` (шаг 4.1).
+    Watch(WatchArgs),
+    /// Пилотная цепочка 1.1 → 1.2 → 2.1 тем же кодом и вердикт G0 (шаг 3.1).
+    Pilot(PilotArgs),
 }
 
 /// Диспетчер подкоманд `lob` для будущего `main.rs` (пока не подключён —
@@ -1012,6 +1054,77 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.events,
                 summary.defective,
                 summary.out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Clock(args) => {
+            let rows = run_clock(&args)?;
+            let violations = check_rows(&rows);
+            println!(
+                "clock: rows={} violations={} out={}",
+                rows.len(),
+                violations.len(),
+                args.root.join("clock.csv").display()
+            );
+            for v in &violations {
+                println!("clock violation: {v:?}");
+            }
+            Ok(())
+        }
+        LobCommand::Probe(args) => {
+            let (summary, out) = run_probe(&args)?;
+            println!(
+                "probe: n={} median_ns={} p95_ns={} out={}",
+                summary.n,
+                summary.median_ns,
+                summary.p95_ns,
+                out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Levels(args) => {
+            let summary = run_levels(&args)?;
+            println!(
+                "levels: days={} levels={} out={}",
+                summary.days,
+                summary.levels,
+                summary.out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Markout(args) => {
+            let summary = run_markout(&args)?;
+            println!(
+                "markout: days={} levels={} out={} {}",
+                summary.days,
+                summary.levels,
+                summary.out.display(),
+                summary.horizon_line,
+            );
+            Ok(())
+        }
+        LobCommand::Watch(args) => {
+            let summary = run_watch(&args)?;
+            println!(
+                "watch: days={} n_c2={} g_c2={} flag={} out={}",
+                summary.days,
+                summary.n_c2,
+                summary.g_c2,
+                summary.flag.as_deref().unwrap_or("not-due"),
+                summary.progress.display()
+            );
+            Ok(())
+        }
+        LobCommand::Pilot(args) => {
+            let summary = run_pilot(&args)?;
+            println!(
+                "pilot: symbol={} n_pulled={} mean_m_10s_bps={:.3} mean_net_bps={:.3} {} runs={}",
+                summary.symbol,
+                summary.n_pulled,
+                summary.mean_m_10s_bps,
+                summary.mean_net_bps,
+                summary.verdict,
+                summary.runs_out.display()
             );
             Ok(())
         }
@@ -2404,5 +2517,1497 @@ mod tests {
         assert!(mid0_row.prefiltered);
         assert!(mid0_row.selected_for_pilot);
         assert_eq!(mid0_row.final_rank, Some(1));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Шаг 0.9: шесть недостающих подкоманд. Каждая — тонкая обёртка поверх уже
+// протестированной логики своего модуля: CLI-аргументы, вызов, печать
+// артефакта, код выхода. Новой бизнес-логики здесь нет; единственная склейка —
+// реплей суточных файлов в книгу и уровни (цепочка 1.1 → 1.2 → 2.1 тем же
+// кодом), которую делят `levels`, `markout`, `watch` и `pilot`.
+// Живые режимы `clock`/`probe` ходят в сеть; `--fixture` прогоняет тот же код
+// (замер, цикл, сводка, CSV) на сценарном источнике без сети — ядро этих
+// команд покрыто на фейке, живые ≥1000 циклов идут вне песочницы.
+// ---------------------------------------------------------------------------
+
+/// Прогрев трекера по умолчанию, мс: 60 минут (`[ASSUMPTION H3]`).
+pub const DEFAULT_WARMUP_MS: i64 = 3_600_000;
+/// Скользящее окно `repeat_count` по умолчанию, мс: час (шаг 1.1).
+pub const DEFAULT_REPEAT_WINDOW_MS: i64 = 3_600_000;
+/// Минимум зачтённых `pulled`-уровней гейта G0 (шаг 3.1).
+pub const G0_MIN_PULLED: u64 = 200;
+
+// ---------------------------------------------------------------------------
+// Общий реплей: суточные файлы символа → записи уровней и срезы середины.
+// ---------------------------------------------------------------------------
+
+/// Одни сутки UTC после реплея: записи уровней и срезы середины.
+struct ReplayDay {
+    day: String,
+    records: Vec<LevelRecord>,
+    mids: Vec<MidSample>,
+}
+
+/// Итог реплея символа: сутки плюс счётчики для замера GC (байт на запись).
+struct ReplayStats {
+    days: Vec<ReplayDay>,
+    bytes: u64,
+    records: u64,
+}
+
+/// Рабочее состояние одних суток: книга и конвертер пересоздаются на каждый
+/// файл (каждый начинается со снапшота), трекер живёт все части суток —
+/// окно `repeat_count` и прогрев считаются по суткам, а не по частям файла.
+struct DayWork {
+    day: String,
+    records: Vec<LevelRecord>,
+    mids: Vec<MidSample>,
+    tracker: LevelTracker,
+}
+
+fn is_trade_ev(ev: u64) -> bool {
+    ev == LOCAL_BUY_TRADE_EVENT || ev == LOCAL_SELL_TRADE_EVENT
+}
+
+/// Трейд записи в трейд трекера. Отображение повторяет контракт писателя
+/// (`record.rs::stage_trade`: `ev` из стороны агрессора, `ival = 1` —
+/// блочная) и читателя (`verify.rs`: блочность из `ival`); своей трактовки
+/// битов здесь нет.
+fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
+    if !is_trade_ev(rec.ev) {
+        return None;
+    }
+    Some(TradeHit {
+        tick: rec.price_ticks,
+        lots: rec.qty_lots,
+        aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
+        block: rec.ival != 0,
+        exch_ms: rec.exch_ts_ns / 1_000_000,
+    })
+}
+
+/// Сутки из имени файла `<SYMBOL>-<день>[-pN].binlog`: первые 10 знаков
+/// остатка. Формат проверяет позже `watch` (`BadDay`), здесь только нарезка.
+fn day_of_filename(prefix: &str, name: &str) -> Option<String> {
+    let rest = name.strip_prefix(prefix)?.strip_suffix(".binlog")?;
+    if rest.len() < 10 {
+        return None;
+    }
+    Some(rest[..10].to_string())
+}
+
+/// Хронологический ключ файла: день, затем часть суток. То же правило, что
+/// `export::part_order_key` (голая лексикография ставит `-p2` раньше начала
+/// суток): имя после префикса — либо день, либо день с `-pN`.
+fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
+    let rest = name.strip_prefix(prefix).unwrap_or(name);
+    let rest = rest.strip_suffix(".binlog").unwrap_or(rest);
+    if let Some(tail) = rest.get(10..) {
+        if let Some(num) = tail.strip_prefix("-p") {
+            if let Ok(part) = num.parse::<u32>() {
+                return (rest[..10].to_string(), part);
+            }
+        }
+    }
+    (rest.to_string(), 1)
+}
+
+/// Применяет обновление к книге и кормит трекер кадром обеих сторон плюс
+/// срезом середины. Вызывается только после успешного `apply`.
+fn feed_frames(
+    book: &Book,
+    tracker: &mut LevelTracker,
+    ts_ms: i64,
+    out: &mut Vec<LevelRecord>,
+    mids: &mut Vec<MidSample>,
+) {
+    for side in [Side::Bid, Side::Ask] {
+        let obs: Vec<LevelObs> = book
+            .levels(side)
+            .enumerate()
+            .map(|(i, (tick, lots))| LevelObs {
+                tick,
+                size_lots: lots,
+                in_top50: i < 50,
+            })
+            .collect();
+        tracker.observe_frame(ts_ms, side, &obs, out);
+    }
+    if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
+        mids.push(MidSample {
+            ts_ms,
+            bid_tick: bid,
+            ask_tick: ask,
+        });
+    }
+}
+
+/// Реплей всех суточных файлов символа тем же кодом, что файловый `verify`:
+/// `Reader` читает кадры, `FileReplayer` группирует записи в обновления,
+/// `Book` их применяет, `LevelTracker` развешивает уровни и трейды.
+/// Разрыв последовательности (`Err` из `apply`) останавливает файл, как в
+/// `verify`: дальше этот файл недоверен, следующий идёт с чистого листа.
+fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result<ReplayStats> {
+    let prefix = format!("{symbol}-");
+    let entries = std::fs::read_dir(root)
+        .map_err(|e| anyhow::anyhow!("корень {} не читается: {e}", root.display()))?;
+    let mut files: Vec<PathBuf> = Vec::new();
+    for e in entries {
+        let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) && name.ends_with(".binlog") {
+            files.push(e.path());
+        }
+    }
+    files.sort_by(|a, b| {
+        let key = |p: &PathBuf| {
+            p.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
+    });
+    if files.is_empty() {
+        anyhow::bail!("нет суточных файлов {prefix}*.binlog в {}", root.display());
+    }
+    let mut stats = ReplayStats {
+        days: Vec::new(),
+        bytes: 0,
+        records: 0,
+    };
+    let mut work: Vec<DayWork> = Vec::new();
+    for path in &files {
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let day = day_of_filename(&prefix, &name)
+            .ok_or_else(|| anyhow::anyhow!("имя {name} не разбирается как сутки"))?;
+        let data = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+        stats.bytes += data.len() as u64;
+        let mut reader = Reader::open(&data[..])
+            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+        let header = reader.header();
+        if work.last().is_none_or(|w| w.day != day) {
+            work.push(DayWork {
+                day,
+                records: Vec::new(),
+                mids: Vec::new(),
+                tracker: LevelTracker::new(cfg),
+            });
+        }
+        let entry = work.last_mut().expect("только что добавлен");
+        let mut book = Book::new(header.tick_e9, header.step_e9);
+        let mut replayer = FileReplayer::new();
+        let mut ups = Vec::new();
+        let mut tps = Vec::new();
+        let mut file_ok = true;
+        loop {
+            let frame = reader
+                .read_frame()
+                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+            let Some(frame_records) = frame else { break };
+            stats.records += frame_records.len() as u64;
+            for rec in &frame_records {
+                ups.clear();
+                tps.clear();
+                replayer.push_frame(
+                    std::slice::from_ref(rec),
+                    header.tick_e9,
+                    header.step_e9,
+                    &mut ups,
+                    &mut tps,
+                );
+                let hit = trade_hit_from_record(rec);
+                debug_assert_eq!(
+                    tps.len(),
+                    usize::from(hit.is_some()),
+                    "разметка сделок обязана совпадать с FileReplayer"
+                );
+                for up in &ups {
+                    if book.apply(up).is_err() {
+                        file_ok = false;
+                        break;
+                    }
+                    feed_frames(
+                        &book,
+                        &mut entry.tracker,
+                        up.cts_ms,
+                        &mut entry.records,
+                        &mut entry.mids,
+                    );
+                }
+                if !file_ok {
+                    break;
+                }
+                if let Some(h) = hit {
+                    entry.tracker.observe_trade(h);
+                }
+            }
+            if !file_ok {
+                break;
+            }
+        }
+        if file_ok {
+            let mut tail = Vec::new();
+            replayer.finish(&mut tail);
+            for up in &tail {
+                if book.apply(up).is_err() {
+                    break;
+                }
+                feed_frames(
+                    &book,
+                    &mut entry.tracker,
+                    up.cts_ms,
+                    &mut entry.records,
+                    &mut entry.mids,
+                );
+            }
+        }
+    }
+    stats.days = work
+        .into_iter()
+        .map(|w| ReplayDay {
+            day: w.day,
+            records: w.records,
+            mids: w.mids,
+        })
+        .collect();
+    Ok(stats)
+}
+
+fn side_name(side: Side) -> &'static str {
+    match side {
+        Side::Bid => "bid",
+        Side::Ask => "ask",
+    }
+}
+
+fn outcome_name(outcome: Outcome) -> &'static str {
+    match outcome {
+        Outcome::Eaten => "eaten",
+        Outcome::Pulled => "pulled",
+        Outcome::Mixed => "mixed",
+    }
+}
+
+fn death_name(death: DeathKind) -> &'static str {
+    match death {
+        DeathKind::BelowFraction => "below_fraction",
+        DeathKind::LeftTop => "left_top",
+    }
+}
+
+fn some_or_empty(v: Option<f64>) -> String {
+    v.map(|x| format!("{x:.6}")).unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// `lob clock` (шаг 0.5).
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob clock`: смещение часов хоста против NTP и `serverTime`,
+/// строка в `clock.csv`. Живой каденс шага — раз в час; команда снимает
+/// `--samples` замеров подряд и выходит (часовая петля — дело рекордера).
+#[derive(Debug, Args)]
+pub struct ClockArgs {
+    /// Корень записи: сюда дописывается `clock.csv`.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// NTP-сервер с портом.
+    #[arg(long, default_value = "pool.ntp.org:123")]
+    pub ntp_server: String,
+    /// REST-хост Bybit v5 для `serverTime`.
+    #[arg(long, default_value = BYBIT_MAINNET_URL)]
+    pub base_url: String,
+    /// Сколько замеров снять подряд.
+    #[arg(long, default_value_t = 1)]
+    pub samples: u64,
+    /// Фикстура без сети: сценарные раунды через те же `sample`/`append_row`.
+    #[arg(long, default_value_t = false)]
+    pub fixture: bool,
+}
+
+/// Тикер на N тактов: решение «когда закончить» снаружи (Decision 21 отдаёт
+/// его `watch`), здесь только счётчик для `clock::run`.
+struct CountTicker {
+    remaining: u64,
+}
+
+impl crate::bybit::clock::Ticker for CountTicker {
+    fn next_tick(&mut self) -> bool {
+        if self.remaining == 0 {
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
+}
+
+/// Сценарный эталон для `--fixture`: та же роль, что `ScriptedSource` в
+/// тестах `clock`, — готовые раунды вместо сети.
+struct FixtureClock {
+    trips: std::collections::VecDeque<RoundTrip>,
+}
+
+impl ReferenceClock for FixtureClock {
+    fn round_trip(&mut self) -> Result<RoundTrip, crate::bybit::clock::ClockError> {
+        self.trips.pop_front().ok_or_else(|| {
+            crate::bybit::clock::ClockError::Transport("фикстура исчерпана".to_string())
+        })
+    }
+}
+
+fn fixture_trips(samples: u64) -> std::collections::VecDeque<RoundTrip> {
+    (0..samples)
+        .map(|i| {
+            let base = 1_000_000_000 + i as i64 * 3_600_000_000_000;
+            RoundTrip {
+                local_send_ns: base,
+                remote_ns: base + 1_000_000,
+                local_recv_ns: base + 2_000_000,
+            }
+        })
+        .collect()
+}
+
+/// Один часовой замер: раунд у обоих эталонов через общий `clock::run`,
+/// строка в `clock.csv`. Возвращает строки для проверки `check_rows`.
+pub fn run_clock(args: &ClockArgs) -> anyhow::Result<Vec<ClockRow>> {
+    let path = args.root.join("clock.csv");
+    let mut ticker = CountTicker {
+        remaining: args.samples,
+    };
+    if args.fixture {
+        let mut ntp = FixtureClock {
+            trips: fixture_trips(args.samples),
+        };
+        let mut bybit = FixtureClock {
+            trips: fixture_trips(args.samples),
+        };
+        return run_clock_loop(&path, &SystemClock, &mut ntp, &mut bybit, &mut ticker)
+            .map_err(|e| anyhow::anyhow!("clock.csv: {e:?}"));
+    }
+    let mut ntp = UdpNtpSource::connect(args.ntp_server.as_str(), Duration::from_secs(10))
+        .map_err(|e| anyhow::anyhow!("NTP {}: {e:?}", args.ntp_server))?;
+    let mut bybit = BybitServerTimeSource::new(args.base_url.clone())
+        .map_err(|e| anyhow::anyhow!("serverTime: {e:?}"))?;
+    run_clock_loop(&path, &SystemClock, &mut ntp, &mut bybit, &mut ticker)
+        .map_err(|e| anyhow::anyhow!("clock.csv: {e:?}"))
+}
+
+// ---------------------------------------------------------------------------
+// `lob probe` (шаг 6.2, Decision 12).
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob probe`: ≥1000 циклов post-only минимального размера далеко
+/// от середины, распределение RTT, медиана и p95. Середину читает вызывающий
+/// с живого стакана и передаёт готовым числом (модуль зонда тик не читает).
+#[derive(Debug, Args)]
+pub struct ProbeArgs {
+    /// Символ, например `SOLUSDT`.
+    #[arg(long)]
+    pub symbol: String,
+    /// Сторона ордера: `buy` или `sell`.
+    #[arg(long, default_value = "buy")]
+    pub side: String,
+    /// `lotSizeFilter.minOrderQty` инструмента (Decision 22).
+    #[arg(long)]
+    pub qty_e9: i64,
+    /// `priceFilter.tickSize` инструмента.
+    #[arg(long)]
+    pub tick_e9: i64,
+    /// Смещение цены от середины в тиках («далеко» — больше спреда).
+    #[arg(long, default_value_t = 100)]
+    pub ticks_from_mid: i64,
+    /// Окно подписи Bybit по умолчанию — пять секунд (документация биржи).
+    #[arg(long, default_value_t = DEFAULT_RECV_WINDOW_MS)]
+    pub recv_window_ms: u32,
+    /// Число циклов, не меньше `MIN_CYCLES` (done-condition шага 6.2).
+    #[arg(long, default_value_t = MIN_CYCLES)]
+    pub cycles: usize,
+    /// Середина книги в момент решения, в 1e-9.
+    #[arg(long)]
+    pub mid_e9: i64,
+    /// REST-хост Bybit v5 (приватные запросы).
+    #[arg(long, default_value = BYBIT_MAINNET_URL)]
+    pub base_url: String,
+    /// Корень для `probe-<symbol>.csv` по умолчанию.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// Куда писать строки циклов (по умолчанию `<root>/probe-<symbol>.csv`).
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    /// Фикстура без сети и без ключей на бирже: консервные ответы через те же
+    /// `run_cycles`/`summarize`. Подпись считается настоящим кодом.
+    #[arg(long, default_value_t = false)]
+    pub fixture: bool,
+}
+
+fn parse_probe_side(s: &str) -> anyhow::Result<OrderSide> {
+    match s.to_ascii_lowercase().as_str() {
+        "buy" => Ok(OrderSide::Buy),
+        "sell" => Ok(OrderSide::Sell),
+        other => Err(anyhow::anyhow!(
+            "сторона обязана быть buy или sell, получено {other}"
+        )),
+    }
+}
+
+/// Консервный транспорт для `--fixture`: успешное создание и успешная отмена
+/// с непустым `orderId` — тот же контракт ответа, что ждёт `run_cycle`.
+struct FixturePrivateRest;
+
+impl PrivateRest for FixturePrivateRest {
+    fn send(&mut self, req: SignedRequest) -> Result<String, ProbeError> {
+        match req.path {
+            "/v5/order/create" | "/v5/order/cancel" => Ok(
+                "{\"retCode\":0,\"retMsg\":\"OK\",\"result\":{\"orderId\":\"fixture-1\"},\"retExtInfo\":{},\"time\":1}"
+                    .to_string(),
+            ),
+            other => Err(ProbeError::Decode(format!(
+                "фикстура не знает путь {other}"
+            ))),
+        }
+    }
+}
+
+/// Прогон зонда: `run_cycles` тем же кодом, что живой замер, сводка —
+/// `summarize`, строки циклов — в CSV. Меньше `MIN_CYCLES` — отказ тем же
+/// вариантом ошибки, что `probe::probe`.
+pub fn run_probe(args: &ProbeArgs) -> anyhow::Result<(RttSummary, PathBuf)> {
+    if args.cycles < MIN_CYCLES {
+        return Err(anyhow::anyhow!(
+            "{:?}",
+            ProbeError::TooFewCycles {
+                requested: args.cycles,
+                minimum: MIN_CYCLES,
+            }
+        ));
+    }
+    let creds = Credentials::from_env()
+        .map_err(|e| anyhow::anyhow!("ключи: {e:?} — выставьте BYBIT_API_KEY/BYBIT_API_SECRET"))?;
+    let params = ProbeParams {
+        symbol: args.symbol.clone(),
+        side: parse_probe_side(&args.side)?,
+        qty_e9: args.qty_e9,
+        tick_e9: args.tick_e9,
+        ticks_from_mid: args.ticks_from_mid,
+        recv_window_ms: args.recv_window_ms,
+    };
+    let mid = args.mid_e9;
+    let cycles = if args.fixture {
+        let mut fx = FixturePrivateRest;
+        run_cycles(&mut fx, &creds, &params, || mid, args.cycles)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?
+    } else {
+        let mut rest =
+            BybitPrivateRest::new(args.base_url.clone()).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        run_cycles(&mut rest, &creds, &params, || mid, args.cycles)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?
+    };
+    let summary = summarize(&cycles);
+    let out = args
+        .out
+        .clone()
+        .unwrap_or_else(|| args.root.join(format!("probe-{}.csv", args.symbol)));
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut w = csv::Writer::from_path(&out)?;
+    w.write_record(["cycle", "rtt_ns"])?;
+    for (i, c) in cycles.iter().enumerate() {
+        w.write_record([i.to_string(), c.rtt_ns().to_string()])?;
+    }
+    w.flush()?;
+    Ok((summary, out))
+}
+
+// ---------------------------------------------------------------------------
+// `lob levels` (шаги 1.1, 1.2).
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob levels`: читает суточные файлы, пишет уровни с шестью
+/// признаками истории и классом исхода. Порог `H3` — параметр без умолчания:
+/// выдуманного числа здесь быть не должно, значение предрегистрируется.
+#[derive(Debug, Args)]
+pub struct LevelsArgs {
+    /// Корень записи: суточные файлы `<SYMBOL>-*.binlog`.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// Символ, например `SOLUSDT`.
+    #[arg(long)]
+    pub symbol: String,
+    /// Порог рождения H3 в лотах: размер строго больше.
+    #[arg(long)]
+    pub h3_lots: i64,
+    /// Прогрев в мс: рождения раньше него отслеживаются, но не печатаются.
+    #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
+    pub warmup_ms: i64,
+    /// Скользящее окно `repeat_count` в мс.
+    #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
+    pub repeat_window_ms: i64,
+    /// Куда писать уровни (по умолчанию `<root>/levels-<symbol>.csv`).
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+}
+
+/// Итог `lob levels` для печати диспетчером.
+pub struct LevelsSummary {
+    pub days: usize,
+    pub levels: usize,
+    pub out: PathBuf,
+}
+
+/// Разметка символа реплеем из `replay_symbol` — тем же кодом, что
+/// подтверждающий прогон, — и запись уровней с классом в CSV.
+pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
+    let cfg = LevelsConfig {
+        h3_lots: args.h3_lots,
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    let out = args
+        .out
+        .clone()
+        .unwrap_or_else(|| args.root.join(format!("levels-{}.csv", args.symbol)));
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut w = csv::Writer::from_path(&out)?;
+    w.write_record([
+        "day_utc",
+        "side",
+        "price_tick",
+        "birth_ms",
+        "death_ms",
+        "lifetime_ms",
+        "size_max",
+        "time_to_max_ms",
+        "size_monotonic",
+        "repeat_count",
+        "repriced",
+        "death",
+        "traded_lots",
+        "outcome",
+    ])?;
+    let mut n = 0usize;
+    for day in &replay.days {
+        for r in &day.records {
+            w.write_record([
+                day.day.clone(),
+                side_name(r.side).to_string(),
+                r.price_tick.to_string(),
+                r.birth_ms.to_string(),
+                r.death_ms.to_string(),
+                r.lifetime_ms.to_string(),
+                r.size_max.to_string(),
+                r.time_to_max_ms.to_string(),
+                r.size_monotonic.to_string(),
+                r.repeat_count.to_string(),
+                r.repriced.to_string(),
+                death_name(r.death).to_string(),
+                r.traded_lots.to_string(),
+                outcome_name(r.outcome()).to_string(),
+            ])?;
+            n += 1;
+        }
+    }
+    w.flush()?;
+    Ok(LevelsSummary {
+        days: replay.days.len(),
+        levels: n,
+        out,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// `lob markout` (шаг 2.1, Decision 14).
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob markout`: `m` на четырёх горизонтах по Decision 14.
+/// С `--confirmatory` читает ровно сутки из `ready.flag` и без флага
+/// отказывается стартовать ненулевым кодом (Decision 21): это механическая
+/// защита от optional stopping, а не обещание не подглядывать.
+#[derive(Debug, Args)]
+pub struct MarkoutArgs {
+    /// Корень записи: суточные файлы `<SYMBOL>-*.binlog`.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// Символ, например `SOLUSDT`.
+    #[arg(long)]
+    pub symbol: String,
+    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    #[arg(long)]
+    pub h3_lots: i64,
+    /// Прогрев в мс.
+    #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
+    pub warmup_ms: i64,
+    /// Скользящее окно `repeat_count` в мс.
+    #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
+    pub repeat_window_ms: i64,
+    /// Куда писать markout (по умолчанию `<root>/markout-<symbol>.csv`).
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    /// Подтверждающий режим: сутки ровно из флага, без флага — отказ.
+    #[arg(long, default_value_t = false)]
+    pub confirmatory: bool,
+    /// Путь к `ready.flag` (по умолчанию `<root>/ready.flag`).
+    #[arg(long)]
+    pub flag: Option<PathBuf>,
+    /// Медиана `lifetime_ms` популяции C1 по первым суткам (Decision 16):
+    /// нужна только в `--confirmatory` для счётчиков суток.
+    #[arg(long)]
+    pub median_lifetime_ms: Option<i64>,
+}
+
+/// Итог `lob markout` для печати диспетчером.
+pub struct MarkoutSummary {
+    pub days: usize,
+    pub levels: usize,
+    pub out: PathBuf,
+    pub horizon_line: String,
+}
+
+/// Среднее доступных значений горизонта одной строкой: отсутствие данных —
+/// `n/a`, а не ноль (нет будущего — не нулевой сдвиг).
+fn horizon_stat(name: &str, values: &[f64]) -> String {
+    if values.is_empty() {
+        return format!("{name}: n/a");
+    }
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    format!("{name}: n={} mean={mean:.3}bps", values.len())
+}
+
+fn write_markout_csv(out: &Path, days: &[ReplayDay]) -> anyhow::Result<(usize, [Vec<f64>; 4])> {
+    debug_assert_eq!(
+        HORIZONS_MS,
+        [100, 1_000, 10_000, 60_000],
+        "порядок колонок обязан совпадать с горизонтами"
+    );
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut w = csv::Writer::from_path(out)?;
+    w.write_record([
+        "day_utc",
+        "side",
+        "price_tick",
+        "birth_ms",
+        "death_ms",
+        "outcome",
+        "m_100ms",
+        "m_1s",
+        "m_10s",
+        "m_60s",
+    ])?;
+    let mut n = 0usize;
+    let mut per_horizon: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    for day in days {
+        for r in &day.records {
+            let ms = markouts_for_level(r, &day.mids);
+            for (i, slot) in per_horizon.iter_mut().enumerate() {
+                if let Some(v) = ms[i] {
+                    slot.push(v);
+                }
+            }
+            w.write_record([
+                day.day.clone(),
+                side_name(r.side).to_string(),
+                r.price_tick.to_string(),
+                r.birth_ms.to_string(),
+                r.death_ms.to_string(),
+                outcome_name(r.outcome()).to_string(),
+                some_or_empty(ms[0]),
+                some_or_empty(ms[1]),
+                some_or_empty(ms[2]),
+                some_or_empty(ms[3]),
+            ])?;
+            n += 1;
+        }
+    }
+    w.flush()?;
+    Ok((n, per_horizon))
+}
+
+fn horizon_line(per_horizon: &[Vec<f64>; 4]) -> String {
+    format!(
+        "{}; {}; {}; {}",
+        horizon_stat("m_100ms", &per_horizon[0]),
+        horizon_stat("m_1s", &per_horizon[1]),
+        horizon_stat("m_10s", &per_horizon[2]),
+        horizon_stat("m_60s", &per_horizon[3]),
+    )
+}
+
+/// Разведочный markout: все сутки корня, флаг не требуется и не читается.
+fn run_markout_exploratory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
+    let cfg = LevelsConfig {
+        h3_lots: args.h3_lots,
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    let out = args
+        .out
+        .clone()
+        .unwrap_or_else(|| args.root.join(format!("markout-{}.csv", args.symbol)));
+    let (n, per_horizon) = write_markout_csv(&out, &replay.days)?;
+    Ok(MarkoutSummary {
+        days: replay.days.len(),
+        levels: n,
+        out,
+        horizon_line: horizon_line(&per_horizon),
+    })
+}
+
+/// Подтверждающий markout: первым делом флаг (без него — отказ до всякого
+/// markout), дальше ровно сутки из списка флага через общий
+/// `markup::run_confirmatory`. Счётчики суток — тем же `tally_day`, что
+/// `watch`: предикат годности один на весь документ.
+fn run_markout_confirmatory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
+    let flag_path = args
+        .flag
+        .clone()
+        .unwrap_or_else(|| ready_flag_path(&args.root));
+    // Первым делом флаг, до всякого markout: без него — отказ, а не пустая
+    // выборка (тот же порядок, что `markup::run_confirmatory`).
+    let flag = require_ready_flag(&flag_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let median = args.median_lifetime_ms.ok_or_else(|| {
+        anyhow::anyhow!("--confirmatory требует --median-lifetime-ms (Decision 16)")
+    })?;
+    let cfg = LevelsConfig {
+        h3_lots: args.h3_lots,
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    let tallies = day_tallies(&args.root, &args.symbol, &replay.days, median)?;
+    let mut cdays: Vec<ConfirmatoryDay<'_>> = Vec::new();
+    for want in &flag.days {
+        let day = replay
+            .days
+            .iter()
+            .find(|d| &d.day == want)
+            .ok_or_else(|| anyhow::anyhow!("сутки {want} из флага не найдены среди реплея"))?;
+        let tally = tallies
+            .iter()
+            .find(|t| &t.day_utc == want)
+            .ok_or_else(|| anyhow::anyhow!("счётчик суток {want} не собрался"))?;
+        cdays.push(ConfirmatoryDay {
+            tally,
+            records: &day.records,
+            mids: &day.mids,
+        });
+    }
+    let report = run_confirmatory(&flag_path, &cdays).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let out = args.out.clone().unwrap_or_else(|| {
+        args.root
+            .join(format!("markout-confirmatory-{}.csv", args.symbol))
+    });
+    let selected: Vec<ReplayDay> = replay
+        .days
+        .into_iter()
+        .filter(|d| flag.days.iter().any(|w| w == &d.day))
+        .collect();
+    let (n, _) = write_markout_csv(&out, &selected)?;
+    Ok(MarkoutSummary {
+        days: report.days_used.len(),
+        levels: n,
+        out,
+        horizon_line: report.summary_line(),
+    })
+}
+
+/// Точка входа `lob markout`: разведочный режим пишет `m` на четырёх
+/// горизонтах, подтверждающий — идёт через флаг и вердикт G1.
+pub fn run_markout(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
+    if args.confirmatory {
+        run_markout_confirmatory(args)
+    } else {
+        run_markout_exploratory(args)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Счётчики суток для `watch` и подтверждающего `markout`.
+// ---------------------------------------------------------------------------
+
+/// Собирает `DayTally` из реплея тем же `tally_day`, что читает G2.
+/// Качество суток — из файлов корня: `gaps.csv` (разрыв > 6 часов) и
+/// `verify.csv` шага 0.8 (расхождения теста 1). Отсутствующие файлы — ноль
+/// строк, а не ошибка: сутки без проверок негодны по правилу `day_eligible`
+/// (ноль проверок — не годно), и это честный красный, а не падение команды.
+///
+/// Правила отображения (консервативные, задокументированы здесь, а не
+/// размазаны по вызывающим):
+/// - разрыв: любая строка `SequenceGap`/`LowSpace` этих суток и символа —
+///   сутки с разрывом (длительности в строке нет, поэтому любое такое
+///   событие суток считается старшим);
+/// - verify: знаменатель — строки с решённым сравнением (`Ok`/`Mismatch`),
+///   числитель — строки `Mismatch`; `Misaligned`/`RestUnavailable` —
+///   неопределённые, как `trades_indeterminate` в `verify`.
+fn day_tallies(
+    root: &Path,
+    symbol: &str,
+    days: &[ReplayDay],
+    median_lifetime_ms: i64,
+) -> anyhow::Result<Vec<DayTally>> {
+    let gaps = read_gap_rows(&gaps_csv_path(root)).map_err(|e| anyhow::anyhow!("gaps.csv: {e}"))?;
+    let verify_rows =
+        read_verify_rows(&verify_csv_path(root)).map_err(|e| anyhow::anyhow!("verify.csv: {e}"))?;
+    days.iter()
+        .map(|day| {
+            let gap = gaps.iter().any(|g| {
+                g.symbol == symbol
+                    && g.ts_utc.starts_with(&day.day)
+                    && matches!(g.kind, GapKind::SequenceGap | GapKind::LowSpace)
+            });
+            let mut basis = 0u64;
+            let mut violations = 0u64;
+            for row in verify_rows
+                .iter()
+                .filter(|r| r.symbol == symbol && r.ts_utc.starts_with(&day.day))
+            {
+                match row.verdict {
+                    VerifyVerdict::Ok => basis += 1,
+                    VerifyVerdict::Mismatch => {
+                        basis += 1;
+                        violations += 1;
+                    }
+                    VerifyVerdict::Misaligned | VerifyVerdict::RestUnavailable => {}
+                }
+            }
+            Ok(tally_day(
+                symbol,
+                &day.day,
+                &day.records,
+                median_lifetime_ms,
+                gap,
+                violations,
+                basis,
+            ))
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// `lob watch` (шаг 4.1, Decision 21).
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob watch`: считает `n` и `G` для C2, пишет `progress.csv` и
+/// выставляет `ready.flag`. Markout не вычисляет ни в каком виде: видит
+/// только счётчики через `tally_day`/`WatchState`.
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    /// Корень записи: суточные файлы, `progress.csv`, `ready.flag`.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// Символ подтверждающей записи (H10: один на всё состояние).
+    #[arg(long)]
+    pub symbol: String,
+    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    #[arg(long)]
+    pub h3_lots: i64,
+    /// Прогрев в мс.
+    #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
+    pub warmup_ms: i64,
+    /// Скользящее окно `repeat_count` в мс.
+    #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
+    pub repeat_window_ms: i64,
+    /// Медиана `lifetime_ms` популяции C1 по первым суткам (Decision 16).
+    #[arg(long)]
+    pub median_lifetime_ms: i64,
+    /// Момент выставления флага строкой UTC (по умолчанию — сейчас).
+    #[arg(long)]
+    pub now_utc: Option<String>,
+}
+
+/// Итог `lob watch` для печати диспетчером.
+pub struct WatchSummary {
+    pub days: usize,
+    pub n_c2: u64,
+    pub g_c2: u64,
+    /// Сутки выборки через запятую, если флаг выставлен этим прогоном.
+    pub flag: Option<String>,
+    pub progress: PathBuf,
+}
+
+/// Суточный шаг целиком тем же кодом, что живая запись: принять сутки,
+/// переписать прогресс, при срабатывании триггера выставить флаг — ровно
+/// один раз (`WatchState::observe_day`).
+pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
+    let cfg = LevelsConfig {
+        h3_lots: args.h3_lots,
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    let tallies = day_tallies(
+        &args.root,
+        &args.symbol,
+        &replay.days,
+        args.median_lifetime_ms,
+    )?;
+    let now = args
+        .now_utc
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let mut state = WatchState::new(&args.symbol, args.median_lifetime_ms);
+    let mut flag: Option<String> = None;
+    for tally in &tallies {
+        let outcome = state
+            .observe_day(&args.root, tally.clone(), &now)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if let Some(f) = outcome.flag {
+            flag = Some(f.days.join(","));
+        }
+    }
+    Ok(WatchSummary {
+        days: tallies.len(),
+        n_c2: state.n_c2_total(),
+        g_c2: state.g_c2(),
+        flag,
+        progress: progress_csv_path(&args.root),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// `lob pilot` (шаг 3.1) и гейт G0.
+// ---------------------------------------------------------------------------
+
+/// Аргументы `lob pilot`: цепочка 1.1 → 1.2 → 2.1 тем же кодом, что
+/// подтверждающий прогон, сверка комиссий с H4, замер байт на запись,
+/// вердикт G0 и строка в `runs.csv`. CPU и RSS — только живой замер
+/// (шаг 3.1): на фикстуре печатаются как `live-only`, в вердикт не входят.
+#[derive(Debug, Args)]
+pub struct PilotArgs {
+    /// Корень записи: суточные файлы кандидата.
+    #[arg(long, default_value = "data/bybit")]
+    pub root: PathBuf,
+    /// Кандидат, например `SOLUSDT` (по строке на кандидата, H10).
+    #[arg(long)]
+    pub symbol: String,
+    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    #[arg(long)]
+    pub h3_lots: i64,
+    /// Прогрев в мс.
+    #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
+    pub warmup_ms: i64,
+    /// Скользящее окно `repeat_count` в мс.
+    #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
+    pub repeat_window_ms: i64,
+    /// Комиссия мейкера в bps: обязана совпасть с H4, иначе стоп.
+    #[arg(long, default_value_t = MAKER_FEE_BPS)]
+    pub maker_fee_bps: f64,
+    /// Комиссия тейкера в bps: обязана совпасть с H4, иначе стоп.
+    #[arg(long, default_value_t = TAKER_FEE_BPS)]
+    pub taker_fee_bps: f64,
+    /// Журнал прогонов (канонический путь шага 7.1).
+    #[arg(long, default_value = "docs/plan/runs.csv")]
+    pub runs_out: PathBuf,
+    /// Момент строки журнала UTC (по умолчанию — сейчас).
+    #[arg(long)]
+    pub now_utc: Option<String>,
+}
+
+/// Итог `lob pilot` для печати диспетчером.
+pub struct PilotSummary {
+    pub symbol: String,
+    pub n_pulled: u64,
+    pub mean_m_10s_bps: f64,
+    pub mean_net_bps: f64,
+    pub verdict: String,
+    pub runs_out: PathBuf,
+}
+
+/// Пилот тем же кодом, что подтверждающий прогон: реплей → `is_c1` (шаг 1.2
+/// поверх 1.1) → markout на 10 с (шаг 2.1) → издержки Decision 15 на каждом
+/// наблюдении отдельно. Гейт G0 дословно: ≥200 зачтённых `pulled`-уровней
+/// **и** средний `m` на 10 с не ниже полных круговых издержек — 7.5 bps
+/// комиссий плюс проскальзывание. Сравнение идёт через средний net
+/// (`mean_net_bps >= 0`): среднее разностей равно разности средних на тех же
+/// наблюдениях, а строгость к отсутствующим данным наследуется вызовом.
+pub fn run_pilot(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
+    if args.maker_fee_bps != MAKER_FEE_BPS || args.taker_fee_bps != TAKER_FEE_BPS {
+        anyhow::bail!(
+            "комиссии сменились (мейкер {} тейкер {} против H4 {MAKER_FEE_BPS}/{TAKER_FEE_BPS}): предположение H4 требует перепроверки, пилот остановлен",
+            args.maker_fee_bps,
+            args.taker_fee_bps
+        );
+    }
+    debug_assert_eq!(
+        HORIZONS_MS[2], 10_000,
+        "индекс горизонта 10 с обязан указывать на 10 000 мс"
+    );
+    let cfg = LevelsConfig {
+        h3_lots: args.h3_lots,
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    let mut observations: Vec<Observation> = Vec::new();
+    let mut m_sum = 0.0f64;
+    for day in &replay.days {
+        for rec in &day.records {
+            if !is_c1(rec) {
+                continue;
+            }
+            let Some(m) = markouts_for_level(rec, &day.mids)[2] else {
+                continue;
+            };
+            let Some((base_ts, base2x)) = base_before(&day.mids, rec.death_ms) else {
+                continue;
+            };
+            let target = base_ts.saturating_add(HORIZONS_MS[2]);
+            let mut exit: Option<MidSample> = None;
+            for s in &day.mids {
+                if s.ts_ms <= target {
+                    exit = Some(*s);
+                } else {
+                    break;
+                }
+            }
+            let Some(x) = exit else { continue };
+            observations.push(Observation {
+                m_bps: m,
+                spread_ticks_exit: x.ask_tick - x.bid_tick,
+                mid2x_base: base2x,
+            });
+            m_sum += m;
+        }
+    }
+    let n_pulled = observations.len() as u64;
+    let mean_m = if n_pulled > 0 {
+        m_sum / n_pulled as f64
+    } else {
+        0.0
+    };
+    let mean_net = mean_net_bps(&observations);
+    let verdict = if n_pulled < G0_MIN_PULLED {
+        format!("G0 RED (sparse): зачтено {n_pulled} pulled при минимуме {G0_MIN_PULLED}")
+    } else {
+        match mean_net {
+            Some(v) if v.is_finite() && v >= 0.0 => {
+                format!("G0 pass: {n_pulled} pulled, средний net {v:.3}bps >= 0")
+            }
+            _ => "G0 RED: средний net ниже полных круговых издержек".to_string(),
+        }
+    };
+    let mean_net_print = mean_net.unwrap_or(0.0);
+    let bytes_per_record = if replay.records > 0 {
+        replay.bytes as f64 / replay.records as f64
+    } else {
+        0.0
+    };
+    let now = args
+        .now_utc
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let detail = format!(
+        "n_pulled={n_pulled} mean_m_10s_bps={mean_m:.3} mean_net_bps={mean_net_print:.3} fees_bps={ROUNDTRIP_FEES_BPS} verdict={verdict} bytes_per_record={bytes_per_record:.1} cpu=rss=live-only"
+    );
+    log_pilot_run(&args.runs_out, &args.symbol, &now, &detail)
+        .map_err(|e| anyhow::anyhow!("runs.csv: {e}"))?;
+    Ok(PilotSummary {
+        symbol: args.symbol.clone(),
+        n_pulled,
+        mean_m_10s_bps: mean_m,
+        mean_net_bps: mean_net_print,
+        verdict,
+        runs_out: args.runs_out.clone(),
+    })
+}
+
+#[cfg(test)]
+mod ticket09_tests {
+    use super::*;
+    use crate::binlog::{Header, Writer};
+    use crate::bybit::verify_sidecar::{append_verify_row, VerifyRow};
+    use crate::lob::runs::{read_run_rows, RunKind};
+    use hftbacktest::types::{
+        LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT,
+        LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+    };
+
+    const FIX_TICK_E9: i64 = 10_000_000; // 0.01
+    const FIX_STEP_E9: i64 = 1_000_000; // 0.001
+
+    fn test_header() -> Header {
+        Header {
+            tick_e9: FIX_TICK_E9,
+            step_e9: FIX_STEP_E9,
+            max_records_per_frame: 4096,
+        }
+    }
+
+    fn depth_rec(ev: u64, ts_ms: i64, tick: i64, lots: i64) -> Record {
+        Record {
+            ev,
+            exch_ts_ns: ts_ms * 1_000_000,
+            local_ts_ns: ts_ms * 1_000_000 + 500_000,
+            price_ticks: tick,
+            qty_lots: lots,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        }
+    }
+
+    fn snap_frame(ts_ms: i64, bids: &[(i64, i64)], asks: &[(i64, i64)]) -> Vec<Record> {
+        let mut out = Vec::new();
+        for &(tick, lots) in bids {
+            out.push(depth_rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, ts_ms, tick, lots));
+        }
+        for &(tick, lots) in asks {
+            out.push(depth_rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, ts_ms, tick, lots));
+        }
+        out
+    }
+
+    fn delta_frame(ts_ms: i64, bids: &[(i64, i64)], asks: &[(i64, i64)]) -> Vec<Record> {
+        let mut out = Vec::new();
+        for &(tick, lots) in bids {
+            out.push(depth_rec(LOCAL_BID_DEPTH_EVENT, ts_ms, tick, lots));
+        }
+        for &(tick, lots) in asks {
+            out.push(depth_rec(LOCAL_ASK_DEPTH_EVENT, ts_ms, tick, lots));
+        }
+        out
+    }
+
+    fn write_day(root: &Path, symbol: &str, day: &str, frames: &[Vec<Record>]) {
+        let mut w = Writer::create(Vec::new(), test_header(), 1).unwrap();
+        for f in frames {
+            w.write_frame(f).unwrap();
+        }
+        w.flush().unwrap();
+        let buf = w.into_inner();
+        std::fs::write(root.join(format!("{symbol}-{day}.binlog")), &buf).unwrap();
+    }
+
+    fn levels_args(root: &Path) -> LevelsArgs {
+        LevelsArgs {
+            root: root.to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_lots: 5,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+        }
+    }
+
+    /// Три уровня: съеден (ровно 70% — граница `eaten`), смешанный, снят.
+    /// Лучший бид нигде не догоняет лучший аск: книга не пересекается.
+    fn three_level_frames() -> Vec<Vec<Record>> {
+        vec![
+            snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(105, 10)]),
+            vec![
+                depth_rec(LOCAL_SELL_TRADE_EVENT, 500, 98, 7),
+                depth_rec(LOCAL_SELL_TRADE_EVENT, 500, 99, 5),
+            ],
+            delta_frame(1000, &[(96, 10), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
+            delta_frame(2000, &[(96, 1), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
+        ]
+    }
+
+    #[test]
+    fn lob_help_lists_all_ten_subcommands() {
+        #[derive(clap::Parser)]
+        struct TestCli {
+            #[command(subcommand)]
+            cmd: LobCommand,
+        }
+        use clap::CommandFactory;
+        let mut top = TestCli::command();
+        top.build();
+        let mut sorted: Vec<String> = top
+            .get_subcommands()
+            .map(|s| s.get_name().to_string())
+            .filter(|n| n != "help")
+            .collect();
+        sorted.sort();
+        let expected = [
+            "clock", "export", "levels", "markout", "pick", "pilot", "probe", "record", "verify",
+            "watch",
+        ];
+        assert_eq!(
+            sorted,
+            expected.iter().map(ToString::to_string).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn clock_fixture_writes_a_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = ClockArgs {
+            root: dir.path().to_path_buf(),
+            ntp_server: "127.0.0.1:1".to_string(),
+            base_url: "http://127.0.0.1:1".to_string(),
+            samples: 2,
+            fixture: true,
+        };
+        let rows = run_clock(&args).unwrap();
+        assert_eq!(rows.len(), 2);
+        let read_back = crate::bybit::clock::read_rows(&dir.path().join("clock.csv")).unwrap();
+        assert_eq!(read_back.len(), 2);
+        assert_eq!(read_back[0].ntp_offset_ns, Some(0));
+        assert!(check_rows(&read_back).is_empty());
+    }
+
+    fn probe_args(root: &Path, cycles: usize) -> ProbeArgs {
+        ProbeArgs {
+            symbol: "SOLUSDT".to_string(),
+            side: "buy".to_string(),
+            qty_e9: 1_000_000,
+            tick_e9: FIX_TICK_E9,
+            ticks_from_mid: 100,
+            recv_window_ms: 5000,
+            cycles,
+            mid_e9: 100_000_000_000,
+            base_url: "http://127.0.0.1:1".to_string(),
+            root: root.to_path_buf(),
+            out: None,
+            fixture: true,
+        }
+    }
+
+    #[test]
+    fn probe_fixture_writes_distribution() {
+        crate::bybit::sign::with_cleared_env(|| {
+            std::env::set_var(crate::bybit::sign::API_KEY_VAR, "fixture");
+            std::env::set_var(crate::bybit::sign::API_SECRET_VAR, "fixture");
+            let dir = tempfile::tempdir().unwrap();
+            let (summary, out) = run_probe(&probe_args(dir.path(), 1000)).unwrap();
+            assert_eq!(summary.n, 1000);
+            assert!(summary.median_ns > 0);
+            assert!(summary.p95_ns >= summary.median_ns);
+            assert!(out.exists());
+        });
+    }
+
+    #[test]
+    fn probe_rejects_fewer_than_1000_cycles() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(run_probe(&probe_args(dir.path(), 10)).is_err());
+    }
+
+    #[test]
+    fn levels_fixture_writes_classified_levels() {
+        let dir = tempfile::tempdir().unwrap();
+        write_day(dir.path(), "SOLUSDT", "2026-09-08", &three_level_frames());
+        let summary = run_levels(&levels_args(dir.path())).unwrap();
+        assert_eq!(summary.levels, 4);
+        let text = std::fs::read_to_string(&summary.out).unwrap();
+        for col in [
+            "lifetime_ms",
+            "size_max",
+            "time_to_max_ms",
+            "size_monotonic",
+            "repeat_count",
+            "repriced",
+        ] {
+            assert!(text.contains(col), "нет колонки {col}");
+        }
+        for class in ["eaten", "mixed", "pulled"] {
+            assert!(text.contains(class), "нет класса {class}");
+        }
+    }
+
+    #[test]
+    fn markout_fixture_writes_four_horizons() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut frames = three_level_frames();
+        // Хвост середин до 72 с теми же размерами: ни рождений, ни смертей,
+        // но будущие срезы для всех горизонтов есть.
+        for k in 1..=7 {
+            frames.push(delta_frame(
+                2000 + k * 10_000,
+                &[(96, 1), (98, 1), (99, 1), (100, 1)],
+                &[(105, 10)],
+            ));
+        }
+        write_day(dir.path(), "SOLUSDT", "2026-09-08", &frames);
+        let args = MarkoutArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_lots: 5,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+            confirmatory: false,
+            flag: None,
+            median_lifetime_ms: None,
+        };
+        let summary = run_markout(&args).unwrap();
+        assert_eq!(summary.levels, 4);
+        let mut reader = csv::Reader::from_path(&summary.out).unwrap();
+        let headers = reader.headers().unwrap().clone();
+        let col = |name: &str| {
+            headers
+                .iter()
+                .position(|h| h == name)
+                .unwrap_or_else(|| panic!("нет колонки {name}"))
+        };
+        let (m10, tick_col) = (col("m_10s"), col("price_tick"));
+        for name in ["m_100ms", "m_1s", "m_10s", "m_60s"] {
+            col(name);
+        }
+        let mut seen_10s = false;
+        for rec in reader.records() {
+            let rec = rec.unwrap();
+            if &rec[tick_col] == "98" {
+                let v: f64 = rec[m10].parse().expect("у уровня 98 обязан быть m на 10 с");
+                assert!(v.is_finite());
+                seen_10s = true;
+            }
+        }
+        assert!(seen_10s, "строка уровня 98 не найдена");
+    }
+
+    #[test]
+    fn markout_confirmatory_without_flag_is_err() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = MarkoutArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_lots: 5,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+            confirmatory: true,
+            flag: None,
+            median_lifetime_ms: Some(60_000),
+        };
+        assert!(run_markout(&args).is_err());
+        assert!(dispatch(LobCommand::Markout(args)).is_err());
+    }
+
+    /// Двенадцать суток по 12 рождений на одной цене внутри часа: повторы
+    /// 0..11, C2 (повтор ≥ 2) — 9 зачтённых в сутки, итого n=108, G=12.
+    fn watch_day_frames() -> Vec<Vec<Record>> {
+        let mut frames = vec![snap_frame(0, &[(100, 10)], &[(101, 10)])];
+        for i in 1..=11i64 {
+            frames.push(delta_frame(i * 180_000 - 60_000, &[(100, 1)], &[(101, 10)]));
+            frames.push(delta_frame(i * 180_000, &[(100, 10)], &[(101, 10)]));
+        }
+        frames
+    }
+
+    #[test]
+    fn watch_fixture_writes_progress_and_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let frames = watch_day_frames();
+        for d in 0..12 {
+            let day = format!("2026-09-{:02}", 8 + d);
+            write_day(dir.path(), "SOLUSDT", &day, &frames);
+            append_verify_row(
+                &crate::bybit::verify_sidecar::verify_csv_path(dir.path()),
+                &VerifyRow {
+                    ts_utc: format!("{day}T00:05:00Z"),
+                    symbol: "SOLUSDT".to_string(),
+                    snapshot_seq: Some(1),
+                    book_seq: Some(1),
+                    mismatches: Some(0),
+                    verdict: VerifyVerdict::Ok,
+                },
+            )
+            .unwrap();
+        }
+        let args = WatchArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_lots: 5,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            median_lifetime_ms: 3_600_000,
+            now_utc: Some("2026-09-20T00:00:00Z".to_string()),
+        };
+        let summary = run_watch(&args).unwrap();
+        assert_eq!(summary.days, 12);
+        assert_eq!(summary.n_c2, 108);
+        assert_eq!(summary.g_c2, 12);
+        assert!(summary.flag.is_some());
+        assert!(dir.path().join("ready.flag").exists());
+        let flag = require_ready_flag(&dir.path().join("ready.flag")).unwrap();
+        assert_eq!(flag.n_c2, 108);
+        assert_eq!(flag.g, 12);
+        let progress = std::fs::read_to_string(&summary.progress).unwrap();
+        assert_eq!(progress.lines().count(), 13, "шапка плюс строка на сутки");
+    }
+
+    /// Скользящая лесенка: лучший бид падает 2 тика/с, спред 2 тика.
+    /// Кадры 1..=129 хоронят по 2 `pulled`-бида; ушедшие уровни несут
+    /// size 0 (как пишет рекордер), иначе книга пересеклась бы. У смертей
+    /// до 119 с есть будущее на 10 с — 240 зачтённых при нисходящем тренде.
+    fn pilot_frames() -> Vec<Vec<Record>> {
+        let mut frames = Vec::new();
+        for k in 0..130i64 {
+            let best = 1000 - 2 * k;
+            let mut bids: Vec<(i64, i64)> = (0..10).map(|j| (best - j, 10)).collect();
+            let mut asks = vec![(best + 2, 10)];
+            if k > 0 {
+                // Ушедшие наверх тики явно удаляются нулевым размером.
+                bids.push((best + 2, 0));
+                bids.push((best + 1, 0));
+                asks.push((best + 4, 0));
+            }
+            let ts = k * 1000;
+            frames.push(if k == 0 {
+                snap_frame(ts, &bids, &asks)
+            } else {
+                delta_frame(ts, &bids, &asks)
+            });
+        }
+        frames
+    }
+
+    fn pilot_args(root: &Path) -> PilotArgs {
+        PilotArgs {
+            root: root.to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_lots: 5,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            maker_fee_bps: 2.0,
+            taker_fee_bps: 5.5,
+            runs_out: root.join("runs.csv"),
+            now_utc: Some("2026-09-08T00:00:00Z".to_string()),
+        }
+    }
+
+    #[test]
+    fn pilot_fixture_writes_verdict_and_runs_row() {
+        let dir = tempfile::tempdir().unwrap();
+        write_day(dir.path(), "SOLUSDT", "2026-09-08", &pilot_frames());
+        let summary = run_pilot(&pilot_args(dir.path())).unwrap();
+        assert_eq!(summary.n_pulled, 258);
+        assert!(
+            summary.verdict.starts_with("G0 pass"),
+            "{}",
+            summary.verdict
+        );
+        let rows = read_run_rows(&dir.path().join("runs.csv")).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, RunKind::Pilot);
+        assert_eq!(rows[0].symbol, "SOLUSDT");
+        assert!(rows[0].detail.contains("G0 pass"));
+    }
+
+    #[test]
+    fn pilot_rejects_changed_fees() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut args = pilot_args(dir.path());
+        args.taker_fee_bps = 6.0;
+        assert!(run_pilot(&args).is_err());
     }
 }

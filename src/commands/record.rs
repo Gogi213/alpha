@@ -2051,6 +2051,24 @@ mod tests {
             crate::commands::lob::LobCommand::Export(_) => {
                 panic!("разобралась не та подкоманда")
             }
+            crate::commands::lob::LobCommand::Clock(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Probe(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Levels(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Markout(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Watch(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Pilot(_) => {
+                panic!("разобралась не та подкоманда")
+            }
         }
     }
 
