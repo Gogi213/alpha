@@ -6,6 +6,7 @@
 //! отдавать тики и лоты: наша книга через `Book::levels` на реплее, модели
 //! очереди крейта в бэктесте и живой торговле (A7 — одна логика на все режимы).
 
+pub mod backtest;
 pub mod cells;
 pub mod costs;
 pub mod export;
