@@ -78,10 +78,12 @@ jobs:
           fi
 
   msrv:
-    # `Cargo.toml` объявляет `rust-version = "1.90"`, а `rust-toolchain.toml`
-    # пинует 1.93.1 — то есть заявленный минимум не проверяет ничто. Здесь он
-    # проверяется буквально: сборка на 1.90.
-    name: Заявленный минимум Rust (1.90)
+    # `rust-toolchain.toml` пинует 1.93.1, а `Cargo.toml` объявляет минимум —
+    # и до этого джоба минимум не проверяло ничто. Первый же прогон показал,
+    # что заявленные «1.90» были неверны: `hftbacktest@0.9.4 requires rustc
+    # 1.91.1`, то есть собраться на 1.90 нельзя в принципе (SETTLED В-14).
+    # Число исправлено на настоящее, и теперь оно проверяется сборкой.
+    name: Заявленный минимум Rust (1.91.1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +91,7 @@ jobs:
         run: rm -f rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.90"
+          toolchain: "1.91.1"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --lib --bins
 
