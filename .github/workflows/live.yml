@@ -40,7 +40,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  geo-probe:
+    # Bybit режет доступ по стране на уровне CloudFront (диагноз diag.yml:
+    # 403 и без, и с браузерным UA). Ловить это красным на каждом прогоне —
+    # шум, а не сигнал: живые джобы скипаются там, где биржа недоступна.
+    # Долговременное решение — self-hosted ранер на VPS из H12, откуда живёт
+    # и запись; этот гейт — чтобы CI оставался честным до тех пор.
+    name: Доступность Bybit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      blocked: ${{ steps.p.outputs.blocked }}
+    steps:
+      - id: p
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+            https://api.bybit.com/v5/market/time) || code=000
+          if [ "$code" = "200" ]; then
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "bybit http: $code"
+
   smoke-record:
+    needs: [geo-probe]
+    if: needs.geo-probe.outputs.blocked != 'true'
     # Символ здесь — дымовой выбор, а не инструмент пилота: инструмент
     # назначает `lob pick` правилом Decision 18, и R07 запрещает BTC/ETH.
     # Проверяется работоспособность записи и сверки, а не отбор.
@@ -135,6 +160,8 @@ jobs:
           if-no-files-found: warn
 
   live-network-tests:
+    needs: [geo-probe]
+    if: needs.geo-probe.outputs.blocked != 'true'
     # `#[ignore]`-тесты, которым нужна сеть и не нужны ключи. Ловят дрейф API
     # биржи — он тут уже кусался: `u` и `seq` оказались разными счётчиками, и
     # выяснилось это живым прогоном, а не набором.
