@@ -10,16 +10,27 @@
 //! обработанное `Update` через `try_send`, переполнение — дроп+счётчик, как
 //! кадры раньше. Цикл никогда не ждёт HTTP.
 //!
-//! Сайдкар держит непрерывную реплику книги + базу (`seq` и клон после последней
-//! удачной сверки) + кольцо последних обновлений с кепом по байтам (~32МБ).
-//! Сверка на тике: fetch snapshot → `seq_s`; если `seq_s > replica.seq` — ждать
-//! догона входящим потоком с таймаутом ~5с; если `seq_s <= replica.seq` —
-//! переиграть кольцо от базы до `seq_s` на клоне. Совпало — сравнить и обновить
-//! базу; переполнение кольца, протухшая база, таймаут, разрыв `u` в форварде
-//! (грязная реплика → перебазироваться) — строка `misaligned`, а не пропуск.
+//! Сайдкар держит непрерывную реплику книги + сейвы (`seq`, `u`, клон книги
+//! каждые N=100 применённых апдейтов или 2с, последние ~64) + кольцо ВСЕХ наших
+//! апдейтов с момента старейшего сейва с кепом по байтам (~32МБ).
+//! Сверка на тике: fetch snapshot → `seq_s`; дождаться (таймаут ~5с), пока
+//! max-seen-`seq` ≥ `seq_s`; найти новейший сейв с `seq` ≤ `seq_s`; переиграть
+//! кольцо (`seq` в (`save.seq`, `seq_s`]) на клоне с проверкой `u`-непрерывности
+//! от `save.u`. Совпало — сравнить; `book_seq` в строке = `seq` реально
+//! сравненного состояния (может быть < `snapshot_seq` при overshoot: снапшот
+//! между двумя нашими `seq`, книга нашего символа при этом не менялась).
+//! Нет сейва ≤ `seq_s` (снапшот старше истории), дыра в `u` на отрезке, таймаут,
+//! разрыв `u` в форварде (грязная реплика) — строка `misaligned`, а не пропуск.
 //! Первая строка — вскоре после первого снапшота (первый тик сразу по готовности
 //! реплики, дальше каждые 300с). `Misaligned` остаётся только для настоящей
 //! гонки, а не режимом по умолчанию.
+//!
+//! Почему ≤-скан, а не точное равенство: `seq` — ГЛОБАЛЬНЫЙ кросс-счётчик биржи
+//! (скачет +40..160 на одно сообщение нашего символа, ~2000/с), наши апдейты
+//! разрежены в `seq`-пространстве. Точное `replica_seq == snapshot_seq` не
+//! наступает почти никогда, а backward-replay с требованием `seq` подряд
+//! (`expected = base+1`) невозможен в принципе. Корректное состояние для
+//! снапшота@`seq_s` = книга после ВСЕХ наших апдейтов с `seq` ≤ `seq_s`.
 //!
 //! Ключ выравнивания — сквозной `seq` (WS `seq` и REST `seq` — один счётчик).
 //! `u` в двух каналах — два разных счётчика (WS +21/с, REST +5/с) и выровняться
@@ -58,6 +69,18 @@ pub const VERIFY_RING_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// сразу писать `misaligned` (дефект В-8: `u` уходит вперёд на ~17 за RTT).
 pub const VERIFY_CATCHUP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Каденция сейвов: каждые N применённых апдейтов — (seq,u,клон книги).
+/// При разреженном глобальном `seq` сейв — единственная точка, от которой можно
+/// переиграть ≤-сканом до снапшота без требования `seq` подряд.
+pub const VERIFY_SAVE_EVERY_N: usize = 100;
+
+/// Сколько последних сейвов держать. Кольцо при этом хранит ВСЕ наши апдейты
+/// с момента старейшего сейва (плюс 32МБ-кеп), иначе старые сейвы недостижимы.
+pub const VERIFY_SAVE_KEEP: usize = 64;
+
+/// Время между сейвами, если апдейтов мало (тихий символ): сейв не реже раз в 2с.
+pub const VERIFY_SAVE_INTERVAL: Duration = Duration::from_secs(2);
+
 /// Вердикт одной сверки. Сериализуется snake_case — те же слова в файле, что
 /// в варианте (дрейф ловит тест `verify_header_is_stable`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -74,7 +97,12 @@ pub enum VerifyVerdict {
     RestUnavailable,
 }
 
-/// Одна строка `verify.csv`.
+/// Одна строка `verify.csv`. Формат и колонки стабильны (ловит тест
+/// `verify_header_is_stable`): `snapshot_seq` — `seq` REST-снапшота,
+/// `book_seq` — `seq` РЕАЛЬНО сравненного состояния книги (новейший наш апдейт
+/// с `seq` ≤ `snapshot_seq` после сейв+кольцо переигрывания). При overshoot
+/// (снапшот между двумя нашими `seq`) `book_seq` < `snapshot_seq` — это норма,
+/// а не рассинхрон: книга нашего символа между нашими событиями не меняется.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VerifyRow {
     pub ts_utc: String,
@@ -185,19 +213,32 @@ pub fn offer_verify_update(
 // Реплика сайдкара: живая книга + база + кольцо
 // ---------------------------------------------------------------------------
 
-/// Непрерывная реплика книги в сайдкаре: живая книга, база после последней
-/// удачной сверки и кольцо последних обновлений для переигрывания назад.
-/// Выравнивание — по сквозному `seq`; `u`-контроль потока внутри `Book`
+/// Сейв реплики: состояние книги после всех наших апдейтов с `seq` ≤ `seq`.
+/// `u` нужен для проверки непрерывности при переигрывании от сейва
+/// (`Book::apply` ведёт поток по `u`, `seq` в контроле не участвует).
+#[derive(Debug, Clone)]
+struct Save {
+    seq: u64,
+    u: u64,
+    book: Book,
+}
+
+/// Непрерывная реплика книги в сайдкаре: живая книга, сейвы для ≤-скана
+/// и кольцо последних обновлений для переигрывания вперёд от сейва.
+/// Выравнивание — по сквозному `seq` через ≤-скан (глобальный кросс-счётчик,
+/// наши апдейты разрежены); `u`-контроль потока внутри `Book`
 /// (включая рестарт `u == 1`) при этом не тронут.
 pub struct VerifyState {
     replica: Book,
     tick_e9: i64,
     step_e9: i64,
-    base_seq: Option<u64>,
-    base_book: Option<Book>,
+    saves: VecDeque<Save>,
+    verified_seq: Option<u64>,
     ring: VecDeque<Update>,
     ring_bytes: usize,
     dirty: bool,
+    updates_since_save: usize,
+    last_save_at: Option<Instant>,
 }
 
 impl VerifyState {
@@ -206,11 +247,13 @@ impl VerifyState {
             replica: Book::new(tick_e9, step_e9),
             tick_e9,
             step_e9,
-            base_seq: None,
-            base_book: None,
+            saves: VecDeque::new(),
+            verified_seq: None,
             ring: VecDeque::new(),
             ring_bytes: 0,
             dirty: false,
+            updates_since_save: 0,
+            last_save_at: None,
         }
     }
 
@@ -227,7 +270,7 @@ impl VerifyState {
     }
 
     pub fn base_seq(&self) -> Option<u64> {
-        self.base_seq
+        self.verified_seq
     }
 
     pub fn ring_len(&self) -> usize {
@@ -245,10 +288,11 @@ impl VerifyState {
         64 + (up.bids.len() + up.asks.len()) * 16
     }
 
-    /// Применяет форварднутое обновление к реплике. Успех — в кольцо с кепом;
-    /// снапшот/рестарт (`is_snapshot` или `u == 1`) начинает новую эпоху:
-    /// кольцо и база чистой эпохи инвалидируются. Ошибка применения (разрыв
-    /// `u`, пересечение, шаги) — грязная реплика и сброс базы.
+    /// Применяет форварднутое обновление к реплике. Успех — в кольцо с кепом +
+    /// периодический сейв (каждые N или 2с); снапшот/рестарт (`is_snapshot` или
+    /// `u == 1`) начинает новую эпоху: кольцо и сейвы чистой эпохи
+    /// инвалидируются, затем сразу сейв нового начала. Ошибка применения
+    /// (разрыв `u`, пересечение, шаги) — грязная реплика и сброс сейвов.
     fn apply_forwarded(&mut self, up: Update) {
         let is_reset = up.is_snapshot || up.u == 1;
         match self.replica.apply(&up) {
@@ -256,9 +300,11 @@ impl VerifyState {
                 if is_reset {
                     self.ring.clear();
                     self.ring_bytes = 0;
+                    self.saves.clear();
+                    self.verified_seq = None;
                     self.dirty = false;
-                    self.base_seq = None;
-                    self.base_book = None;
+                    self.updates_since_save = 0;
+                    self.push_save();
                 } else {
                     let bytes = Self::update_bytes(&up);
                     self.ring.push_back(up);
@@ -267,20 +313,68 @@ impl VerifyState {
                         if let Some(old) = self.ring.pop_front() {
                             self.ring_bytes =
                                 self.ring_bytes.saturating_sub(Self::update_bytes(&old));
+                            let evicted_seq = old.seq;
+                            self.saves.retain(|s| s.seq >= evicted_seq);
                         } else {
                             break;
                         }
                     }
+                    self.updates_since_save += 1;
+                    self.maybe_save();
                 }
             }
             Err(_) => {
                 self.dirty = true;
-                self.base_seq = None;
-                self.base_book = None;
+                self.saves.clear();
+                self.verified_seq = None;
+                self.updates_since_save = 0;
+                self.last_save_at = None;
                 if is_reset {
                     self.ring.clear();
                     self.ring_bytes = 0;
                 }
+            }
+        }
+    }
+
+    fn push_save(&mut self) {
+        let (Some(seq), Some(u)) = (self.replica.last_seq(), self.replica.last_u()) else {
+            return;
+        };
+        let book = self.replica.clone();
+        self.saves.push_back(Save { seq, u, book });
+        self.updates_since_save = 0;
+        self.last_save_at = Some(Instant::now());
+        while self.saves.len() > VERIFY_SAVE_KEEP {
+            self.saves.pop_front();
+            if let Some(oldest) = self.saves.front() {
+                let floor = oldest.seq;
+                let mut kept_bytes = 0;
+                self.ring.retain(|up| {
+                    if up.seq > floor {
+                        kept_bytes += Self::update_bytes(up);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                self.ring_bytes = kept_bytes;
+            }
+        }
+    }
+
+    fn maybe_save(&mut self) {
+        if self.saves.is_empty() {
+            self.push_save();
+            return;
+        }
+        if self.updates_since_save >= VERIFY_SAVE_EVERY_N {
+            self.push_save();
+            return;
+        }
+        if let Some(at) = self.last_save_at {
+            if at.elapsed() >= VERIFY_SAVE_INTERVAL {
+                self.push_save();
             }
         }
     }
@@ -291,54 +385,69 @@ impl VerifyState {
         }
     }
 
-    /// Переигрывает кольцо от базы до `target_seq` на клоне. `None` — базы нет,
-    /// цель старше базы (протухла), дыра в последовательности `seq` или ошибка
-    /// применения: честный `misaligned`, а не выдумка.
-    fn replay_to(&self, target_seq: u64) -> Option<Book> {
-        let base_seq = self.base_seq?;
-        let base_book = self.base_book.as_ref()?;
-        if target_seq < base_seq {
-            return None;
-        }
-        if target_seq == base_seq {
-            return Some(base_book.clone());
-        }
-        let mut cloned = base_book.clone();
-        let mut expected = base_seq + 1;
+    /// Переигрывает кольцо от новейшего сейва с `seq` ≤ цели до цели на клоне.
+    /// Возвращает книгу состояния «все наши апдейты с `seq` ≤ цели» плюс `seq`
+    /// реально сравненного состояния (может быть < цели при overshoot).
+    /// `None` — нет сейва ≤ цели (снапшот старше истории) или ошибка применения
+    /// на отрезке (дыра в `u`): честный `misaligned`, а не выдумка.
+    /// `seq` подряд НЕ требуется: `seq` глобальный и разрежен, непрерывность
+    /// проверяется только по `u` через `Book::apply` от `save.u`.
+    fn replay_to(&self, target_seq: u64) -> Option<(Book, u64)> {
+        let save = self.saves.iter().rev().find(|s| s.seq <= target_seq)?;
+        let mut cloned = save.book.clone();
+        let mut actual = save.seq;
         for up in &self.ring {
-            if up.seq <= base_seq {
+            if up.seq <= save.seq {
                 continue;
             }
             if up.seq > target_seq {
-                break;
-            }
-            if up.seq != expected {
-                return None;
+                continue;
             }
             if cloned.apply(up).is_err() {
                 return None;
             }
-            expected += 1;
+            actual = up.seq;
         }
-        if expected != target_seq + 1 {
-            return None;
-        }
-        Some(cloned)
+        Some((cloned, actual))
     }
 
     fn update_base(&mut self, new_base_seq: u64, new_base_book: Book) {
-        self.base_seq = Some(new_base_seq);
-        self.base_book = Some(new_base_book);
-        let mut kept_bytes = 0;
-        self.ring.retain(|up| {
-            if up.seq > new_base_seq {
-                kept_bytes += Self::update_bytes(up);
-                true
-            } else {
-                false
+        self.verified_seq = Some(new_base_seq);
+        let u = new_base_book.last_u().unwrap_or(0);
+        if let Some(existing) = self.saves.iter_mut().find(|s| s.seq == new_base_seq) {
+            existing.book = new_base_book;
+            existing.u = u;
+            return;
+        }
+        let pos = self
+            .saves
+            .iter()
+            .position(|s| s.seq > new_base_seq)
+            .unwrap_or(self.saves.len());
+        self.saves.insert(
+            pos,
+            Save {
+                seq: new_base_seq,
+                u,
+                book: new_base_book,
+            },
+        );
+        while self.saves.len() > VERIFY_SAVE_KEEP {
+            self.saves.pop_front();
+            if let Some(oldest) = self.saves.front() {
+                let floor = oldest.seq;
+                let mut kept_bytes = 0;
+                self.ring.retain(|up| {
+                    if up.seq > floor {
+                        kept_bytes += Self::update_bytes(up);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                self.ring_bytes = kept_bytes;
             }
-        });
-        self.ring_bytes = kept_bytes;
+        }
     }
 
     fn write_misaligned(
@@ -360,8 +469,11 @@ impl VerifyState {
         Ok(row)
     }
 
-    /// Один тик сверки: fetch → выравнивание по `seq` → сравнение → строка.
+    /// Один тик сверки: fetch → догон до max-seen ≥ `seq_s` → ≤-скан
+    /// (сейв + кольцо) → сравнение → строка.
     /// Строка пишется всегда (отказ, рассинхрон, успех) — пропуска тика нет.
+    /// `book_seq` в строке успеха — `seq` реально сравненного состояния
+    /// (новейший наш апдейт ≤ снапшота), при overshoot меньше `snapshot_seq`.
     /// Чистая от wall-clock функция кроме входящего канала (догон с таймаутом),
     /// поэтому тестируется на фейковом `PublicRest` без сети.
     pub fn verify_tick<R: PublicRest>(
@@ -392,14 +504,16 @@ impl VerifyState {
         if self.dirty {
             return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
         }
-        let Some(replica_seq) = self.replica_seq() else {
-            return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
+        let needs_catchup = match self.replica_seq() {
+            None => true,
+            Some(replica_seq) => replica_seq < snapshot_seq,
         };
-        if snapshot_seq > replica_seq {
+        if needs_catchup {
             let deadline = Instant::now() + VERIFY_CATCHUP_TIMEOUT;
             loop {
-                if self.replica_seq() == Some(snapshot_seq) {
-                    break;
+                match self.replica_seq() {
+                    Some(cur) if cur >= snapshot_seq => break,
+                    _ => {}
                 }
                 let now = Instant::now();
                 if now >= deadline {
@@ -430,45 +544,18 @@ impl VerifyState {
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            if self.replica_seq() != Some(snapshot_seq) {
+            let caught_up = match self.replica_seq() {
+                Some(cur) => cur >= snapshot_seq,
+                None => false,
+            };
+            if !caught_up {
                 return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
             }
-            let diff = compare_with_snapshot(&self.replica, &snap, self.tick_e9, self.step_e9);
-            let row = VerifyRow {
-                ts_utc: ts_utc.to_string(),
-                symbol: symbol.to_string(),
-                snapshot_seq: Some(snapshot_seq),
-                book_seq: Some(snapshot_seq),
-                mismatches: Some(diff.total() as u64),
-                verdict: if diff.is_clean() {
-                    VerifyVerdict::Ok
-                } else {
-                    VerifyVerdict::Mismatch
-                },
-            };
-            append_verify_row(verify_csv, &row)?;
-            self.update_base(snapshot_seq, self.replica.clone());
-            return Ok(row);
+            if self.dirty {
+                return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
+            }
         }
-        if snapshot_seq == replica_seq {
-            let diff = compare_with_snapshot(&self.replica, &snap, self.tick_e9, self.step_e9);
-            let row = VerifyRow {
-                ts_utc: ts_utc.to_string(),
-                symbol: symbol.to_string(),
-                snapshot_seq: Some(snapshot_seq),
-                book_seq: Some(snapshot_seq),
-                mismatches: Some(diff.total() as u64),
-                verdict: if diff.is_clean() {
-                    VerifyVerdict::Ok
-                } else {
-                    VerifyVerdict::Mismatch
-                },
-            };
-            append_verify_row(verify_csv, &row)?;
-            self.update_base(snapshot_seq, self.replica.clone());
-            return Ok(row);
-        }
-        let Some(aligned) = self.replay_to(snapshot_seq) else {
+        let Some((aligned, actual_seq)) = self.replay_to(snapshot_seq) else {
             return self.write_misaligned(symbol, ts_utc, Some(snapshot_seq), verify_csv);
         };
         let diff = compare_with_snapshot(&aligned, &snap, self.tick_e9, self.step_e9);
@@ -476,7 +563,7 @@ impl VerifyState {
             ts_utc: ts_utc.to_string(),
             symbol: symbol.to_string(),
             snapshot_seq: Some(snapshot_seq),
-            book_seq: Some(snapshot_seq),
+            book_seq: Some(actual_seq),
             mismatches: Some(diff.total() as u64),
             verdict: if diff.is_clean() {
                 VerifyVerdict::Ok
@@ -485,7 +572,22 @@ impl VerifyState {
             },
         };
         append_verify_row(verify_csv, &row)?;
-        self.update_base(snapshot_seq, aligned);
+        // Анатомия расхождения в stderr (раз в 300 с — не спам): первые 5
+        // позиций, чтобы отличать позиционный каскад от дрейфа книги.
+        if !diff.is_clean() {
+            for m in diff
+                .bid_mismatches
+                .iter()
+                .chain(diff.ask_mismatches.iter())
+                .take(5)
+            {
+                eprintln!(
+                    "verify mismatch: side={:?} tick={} snap_qty={:?} book_qty={:?}",
+                    m.side, m.tick, m.snapshot_qty_e9, m.book_qty_e9
+                );
+            }
+        }
+        self.update_base(actual_seq, aligned);
         Ok(row)
     }
 }
@@ -718,6 +820,28 @@ mod tests {
         }
     }
 
+    fn sparse_snapshot(seq: u64, u: u64) -> Update {
+        Update {
+            is_snapshot: true,
+            u,
+            seq,
+            cts_ms: 1_757_800_000_000,
+            bids: vec![(150_000_000_000, 2_500_000_000)],
+            asks: vec![(150_010_000_000, 3_000_000_000)],
+        }
+    }
+
+    fn sparse_delta(seq: u64, u: u64) -> Update {
+        Update {
+            is_snapshot: false,
+            u,
+            seq,
+            cts_ms: 1_757_800_000_001,
+            bids: vec![],
+            asks: vec![],
+        }
+    }
+
     fn verify_direct_in_tmp(rest: &mut FakeRest, book: &Book) -> (tempfile::TempDir, VerifyRow) {
         let dir = tempfile::tempdir().unwrap();
         let csv = verify_csv_path(dir.path());
@@ -947,6 +1071,96 @@ mod tests {
         assert_eq!(row.snapshot_seq, Some(5));
         assert_eq!(row.mismatches, None);
         assert_eq!(read_verify_rows(&csv).unwrap().len(), 2);
+    }
+
+    /// Ремонт Р1: overshoot — снапшот между двумя нашими seq даёт `Ok` через
+    /// сейв+кольцо. Наши seq 1_000_000 и 1_011_600 (разрыв 11.6K как вживую),
+    /// `u` подряд (1000, 1001); снапшот на 1_005_000 тем же содержимым —
+    /// состояние для него = книга после 1_000_000, `book_seq` = 1_000_000.
+    #[test]
+    fn overshoot_between_sparse_seqs_is_ok_via_save_and_ring() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(1_005_000, "2.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot(1_000_000, 1000)));
+        state.apply_msg(VerifyMsg::Update(sparse_delta(1_011_600, 1001)));
+        assert_eq!(state.replica_seq(), Some(1_011_600));
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(
+            row.verdict,
+            VerifyVerdict::Ok,
+            "overshoot обязан дать Ok: {row:?}"
+        );
+        assert_eq!(row.snapshot_seq, Some(1_005_000));
+        assert_eq!(row.book_seq, Some(1_000_000));
+        assert_eq!(row.mismatches, Some(0));
+    }
+
+    /// Точное попадание при разреженном `seq`: снапшот ровно на нашем seq —
+    /// `Ok` с `book_seq` равным снапшоту.
+    #[test]
+    fn exact_hit_on_sparse_seq_is_ok() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(1_011_600, "2.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot(1_000_000, 1000)));
+        state.apply_msg(VerifyMsg::Update(sparse_delta(1_011_600, 1001)));
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(row.verdict, VerifyVerdict::Ok);
+        assert_eq!(row.snapshot_seq, Some(1_011_600));
+        assert_eq!(row.book_seq, Some(1_011_600));
+    }
+
+    /// Снапшот старше сейвов — честный `misaligned`: сейв на 1_000_000,
+    /// снапшот на 999_000 — переиграть не из чего.
+    #[test]
+    fn snapshot_older_than_saves_is_misaligned() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(999_000, "2.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot(1_000_000, 1000)));
+        state.apply_msg(VerifyMsg::Update(sparse_delta(1_011_600, 1001)));
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(row.verdict, VerifyVerdict::Misaligned);
+        assert_eq!(row.snapshot_seq, Some(999_000));
+        assert_eq!(row.mismatches, None);
+    }
+
+    /// Дыра в `u` на отрезке — честный `misaligned`: чистая реплика на
+    /// 1_011_600 (u=1002), но середина кольца (1_005_000, u=1001) потеряна
+    /// (эвикция/переполнение) — переигрывание от сейва 1_000_000 рвётся по `u`.
+    #[test]
+    fn u_gap_on_replay_segment_is_misaligned() {
+        let mut rest = FakeRest::with_responses(vec![Ok(snapshot_body(1_011_600, "2.5"))]);
+        let dir = tempfile::tempdir().unwrap();
+        let csv = verify_csv_path(dir.path());
+        let (_tx, rx) = std::sync::mpsc::sync_channel::<VerifyMsg>(16);
+        let mut state = VerifyState::new(TICK_E9, STEP_E9);
+        state.apply_msg(VerifyMsg::Update(sparse_snapshot(1_000_000, 1000)));
+        state.apply_msg(VerifyMsg::Update(sparse_delta(1_005_000, 1001)));
+        state.apply_msg(VerifyMsg::Update(sparse_delta(1_011_600, 1002)));
+        assert_eq!(state.replica_seq(), Some(1_011_600));
+        assert!(!state.is_dirty());
+        // Симулируем эвикцию середины кольца: реплика цела, а отрезок дырявый.
+        state.ring.retain(|up| up.seq != 1_005_000);
+        let row = state
+            .verify_tick(&mut rest, &rx, SYMBOL, TS_UTC, &csv)
+            .unwrap();
+        assert_eq!(row.verdict, VerifyVerdict::Misaligned);
+        assert_eq!(row.snapshot_seq, Some(1_011_600));
+        assert_eq!(row.mismatches, None);
     }
 
     /// Грязная реплика (разрыв `u` в форварде) — честный `misaligned` строкой,
