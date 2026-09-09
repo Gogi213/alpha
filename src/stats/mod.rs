@@ -161,16 +161,16 @@ pub(crate) fn webb_weight(index: u32) -> f64 {
 /// что его использует. Алгоритм — ровно splitmix64 Виньи (2015): golden-ratio
 /// приращение состояния плюс два раунда xorshift-умножения, стандартный выбор
 /// для «маленького быстрого детерминированного источника», не для криптографии.
-struct SplitMix64 {
+pub(crate) struct SplitMix64 {
     state: u64,
 }
 
 impl SplitMix64 {
-    fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
-    fn next_u64(&mut self) -> u64 {
+    pub(crate) fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.state;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);

@@ -43,7 +43,9 @@
 
 use crate::lob::levels::LevelRecord;
 use crate::lob::watch::{day_eligible, is_c1, is_c2, DayTally, TRIGGER_G, TRIGGER_N_C2};
-use crate::stats::{webb_p_grid_resolution, wild_cluster_bootstrap_t, BootstrapError, GATE_ALPHA};
+use crate::stats::{
+    webb_p_grid_resolution, wild_cluster_bootstrap_t, BootstrapError, SplitMix64, GATE_ALPHA,
+};
 
 // ---------------------------------------------------------------------------
 // Константы шага 5.2. Каждое число — из плана.
@@ -77,13 +79,12 @@ pub const EXPLORATION_NOT_IN_GATES: &str =
 
 /// Шесть точек распределения Уэбба (Decision 9): `-√1.5, -1, -√0.5, √0.5, 1,
 /// √1.5`. Те же значения, что использует `stats`: интервал контраста обязан
-/// идти по тем же кластерным репликам, что p-тесты ячеек, а генератор `stats`
-/// приватен и шаг 5.2 не вправе трогать чужой модуль ради доступа к нему.
-/// Алгоритм источника — SplitMix64 Виньи (те же константы, что в `stats`,
-/// это опубликованный алгоритм, а не деталь реализации): при том же seed,
-/// том же `G` и том же порядке суток поток весов совпадает с потоком
-/// p-тестов пореплико. Дублируется только источник реплик; t-статистика
-/// здесь не пересчитывается — контраст бутстрапит разность средних напрямую.
+/// идти по тем же кластерным репликам, что p-тесты ячеек, поэтому источник
+/// реплик — общий `crate::stats::SplitMix64` (вторая копия удалена: детектор
+/// копипасты её не видел, потому что обёртки назывались по-разному).
+/// Таблица точек при этом своя, `WEBB_POINTS`: `stats` отдаёт только функцию
+/// `webb_weight`, а порядок индексации задаёт вызывающий. Побитовое совпадение
+/// потоков держит тест `webb_points_match_stats_bit_for_bit`.
 const WEBB_POINTS: [f64; 6] = [
     -1.224_744_871_391_589,
     -1.0,
@@ -93,27 +94,11 @@ const WEBB_POINTS: [f64; 6] = [
     1.224_744_871_391_589,
 ];
 
-/// Детерминированный SplitMix64: seed один — поток весов один (A2).
-struct CellRng {
-    state: u64,
-}
-
-impl CellRng {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    fn next_webb(&mut self) -> f64 {
-        WEBB_POINTS[(self.next_u64() % WEBB_POINTS.len() as u64) as usize]
-    }
+/// Очередной вес Уэбба из общего генератора. Порядок `next_u64 % 6` — тот же,
+/// что `SplitMix64::next_webb_weight` в `stats`, поэтому при том же seed поток
+/// совпадает пореплико (A2).
+fn next_webb(rng: &mut SplitMix64) -> f64 {
+    WEBB_POINTS[(rng.next_u64() % WEBB_POINTS.len() as u64) as usize]
 }
 
 // ---------------------------------------------------------------------------
@@ -864,12 +849,12 @@ fn disjoint_contrast(
     if replications == 0 {
         diffs.push(diff);
     } else {
-        let mut rng = CellRng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         for _ in 0..replications {
             let mut boot_c2 = 0.0;
             let mut boot_rest = 0.0;
             for d in day_sums {
-                let w = rng.next_webb();
+                let w = next_webb(&mut rng);
                 boot_c2 += w * d.0;
                 boot_rest += w * d.2;
             }
@@ -1594,7 +1579,6 @@ mod tests {
     ///
     /// Запрещённые фрагменты собраны из частей: литерал целиком триггерил бы
     /// эту же проверку сам на себя.
-    #[test]
     /// Веса Уэбба записаны здесь и в `stats` **разными выражениями**: там
     /// `(1.5).sqrt()` и `(0.5).sqrt()` считаются в рантайме, здесь стоят
     /// литерал и `FRAC_1_SQRT_2`. Комментарий к `WEBB_POINTS` утверждает, что
@@ -1623,6 +1607,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn module_stays_detached_from_transport_and_clocks() {
         const SRC: &str = include_str!("cells.rs");
         let banned = [
