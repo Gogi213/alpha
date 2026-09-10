@@ -475,7 +475,10 @@ pub fn gap_day_share_ppm(tallies: &[DayTally]) -> Option<u64> {
     }
     let gap = tallies.iter().filter(|t| t.has_gap_over_6h).count() as u128;
     let total = tallies.len() as u128;
-    Some((gap * 1_000_000 / total) as u64)
+    // Итоговый каст точен: частное — доля в миллионных (≤ 1e6).
+    #[allow(clippy::cast_possible_truncation)]
+    let ppm = (gap * 1_000_000 / total) as u64;
+    Some(ppm)
 }
 
 /// Укладывается ли доля в бюджет done 4.1: строго меньше `GAP_SHARE_MAX_PPM`.

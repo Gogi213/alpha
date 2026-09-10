@@ -142,7 +142,10 @@ fn share_ppm(part: u64, total: u64) -> Option<u64> {
     if total == 0 {
         return None;
     }
-    Some((part as u128 * PPM_UNIT / total as u128) as u64)
+    // Итоговый каст точен: частное — доля в миллионных (≤ 1e6) по построению.
+    #[allow(clippy::cast_possible_truncation)]
+    let ppm = (part as u128 * PPM_UNIT / total as u128) as u64;
+    Some(ppm)
 }
 
 impl ClassCounts {

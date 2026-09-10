@@ -407,6 +407,8 @@ pub enum ProbeError {
 /// `Instant` — `Instant` ничего не говорит о том, «какой сейчас час по UTC»,
 /// а подписи нужно именно это. Не переиспользуется циклом ниже — см. его
 /// комментарий: там та же функция была бы уже дефектом, а не удобством.
+/// Каст точен до 2262 года (миллисекунды эпохи ~1.7e12 против `i64::MAX`).
+#[allow(clippy::cast_possible_truncation)]
 fn wall_clock_timestamp_ms() -> Result<i64, ProbeError> {
     Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -441,7 +443,9 @@ impl Cycle {
     /// в отрицательное на непорядке аргументов (насыщается нулём) — здесь
     /// это не подстраховка от бага, а следствие самого выбора `Instant`
     /// (см. doc `Cycle`): порядок `order_sent ≤ ack_received` и так гарантирован
-    /// однопоточным вызовом `run_cycle` ниже.
+    /// однопоточным вызовом `run_cycle` ниже. Каст точен: RTT — миллисекунды,
+    /// `i64` наносекунд хватает на 292 года.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn rtt_ns(&self) -> i64 {
         self.ack_received.duration_since(self.order_sent).as_nanos() as i64
     }

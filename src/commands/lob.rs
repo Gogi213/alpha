@@ -149,11 +149,15 @@ impl std::fmt::Display for PickError {
             PickError::NoSurvivorsAboveDepthFloor {
                 floor_usd_e9,
                 candidates,
-            } => write!(
-                f,
-                "ни один из {candidates} измеренных кандидатов не набрал {} USD медианной глубины на уровень на обеих сторонах",
-                *floor_usd_e9 as f64 / 1e9
-            ),
+            } => {
+                // Деньги e9 (~1e12) точны в f64; это печать, не арифметика.
+                #[allow(clippy::cast_precision_loss)]
+                let floor_usd = *floor_usd_e9 as f64 / 1e9;
+                write!(
+                    f,
+                    "ни один из {candidates} измеренных кандидатов не набрал {floor_usd} USD медианной глубины на уровень на обеих сторонах",
+                )
+            }
         }
     }
 }
@@ -313,7 +317,10 @@ pub fn coverage_top50_bps(tick_e9: i64, last_price_e9: i64) -> Option<f64> {
     if tick_e9 <= 0 || last_price_e9 <= 0 {
         return None;
     }
-    Some(50.0 * tick_e9 as f64 / last_price_e9 as f64 * 1e4)
+    // Масштабы e9 (~1e4–1e14) точны в f64; формула — та же, что в отчёте.
+    #[allow(clippy::cast_precision_loss)]
+    let (tick, price) = (tick_e9 as f64, last_price_e9 as f64);
+    Some(50.0 * tick / price * 1e4)
 }
 
 /// Корзины расстояния Decision 26 (bps): метка и верхняя граница.
@@ -519,6 +526,10 @@ pub struct DepthSample {
 /// возвращает `None` — см. её doc: пустой вход значит «данных нет», а не
 /// «глубина ноль») пропускается целиком и не взвешивается: секундный пробел
 /// на одной стороне внутри часа живого потока не должен обнулять весь замер.
+///
+/// Каст итога точен: частное — средневзвешенная медиана (~1e9–1e15 e9),
+/// далеко от границ `i64`.
+#[allow(clippy::cast_possible_truncation)]
 fn time_weighted_median_for_side(
     samples: &[DepthSample],
     window_end_ns: i64,
@@ -690,7 +701,9 @@ pub fn order_size_22a(
 /// `level_notional_usd_e9` ниже, — произведение в 1e18, обратно к 1e9 делением.
 /// Колонка таблицы, не гейт: на markout размер не влияет (гейты в bps), на
 /// `fill` влияет через позицию в очереди — поэтому разброс $5–12.42 печатается,
-/// а не усредняется.
+/// а не усредняется. Каст точен: частное — номинал долларового порядка (~1e10
+/// e9), далеко от границ `i64`.
+#[allow(clippy::cast_possible_truncation)]
 fn order_size_notional_usd_e9(order_qty_e9: i64, last_price_e9: i64) -> i64 {
     (order_qty_e9 as i128 * last_price_e9 as i128 / 1_000_000_000) as i64
 }
@@ -746,6 +759,10 @@ pub struct CandidateRow {
 /// Порядок групп фиксирован, а не по общему обороту: BTC/ETH с максимальным
 /// оборотом иначе вставали бы первыми и читались как «первые», хотя они
 /// исключены; пул — первые строки, потому что он и есть результат шага.
+///
+/// Каст ранга точен: выбранных ≤ размера пула (≤ 10 по Decision 25), `u8`
+/// хватает с запасом в двадцать пять раз.
+#[allow(clippy::cast_possible_truncation)]
 pub fn build_candidate_table(
     outcome: &PoolOutcome,
     measured: &[MeasuredCandidate],
@@ -924,6 +941,9 @@ fn wall_clock_ms() -> i64 {
 /// символу (`bybit::conn::ConnConfig`), поэтому передаются вызывающим, а не
 /// читаются из `Book` — у неё нет публичного геттера этих полей, и заводить
 /// его здесь означало бы менять чужой файл (`book/mod.rs`) ради этой оболочки.
+/// Итоговый каст точен: частное — номинал долларового порядка (~1e9–1e15 e9);
+/// пределы `i128` промежуточных шагов разобраны в `event_rate_cmp` выше.
+#[allow(clippy::cast_possible_truncation)]
 fn level_notional_usd_e9(tick: i64, qty_lots: i64, tick_e9: i64, step_e9: i64) -> i64 {
     let price_e9 = tick as i128 * tick_e9 as i128;
     let qty_e9 = qty_lots as i128 * step_e9 as i128;
@@ -1035,6 +1055,13 @@ async fn measure_one_symbol(
     samples
 }
 
+/// Конец окна замера в тех же наносекундах. Сумма точна до 2262 года:
+/// старт ~1.7e18 плюс окно часового порядка против `i64::MAX` ~9.2e18.
+#[allow(clippy::cast_possible_truncation)]
+fn window_end_ns(window_start_ns: i64, duration: Duration) -> i64 {
+    window_start_ns + duration.as_nanos() as i64
+}
+
 /// Замеряет все символы пула одновременно (лимит топиков на
 /// соединение — причина, по которой пул это десять символов Decision 25,
 /// а не сотни листингов разом) в течение одного и того же часа,
@@ -1047,7 +1074,7 @@ pub async fn measure_prefiltered(
     let window_start_utc_ms = wall_clock_ms();
     let window_start_ns = wall_clock_ns();
     let duration = Duration::from_secs(window_secs);
-    let window_end_ns = window_start_ns + duration.as_nanos() as i64;
+    let window_end_ns = window_end_ns(window_start_ns, duration);
     // Один и тот же дедлайн для всех символов — см. doc `measure_one_symbol`
     // про то, почему он не пересчитывается внутри каждой задачи.
     let deadline = tokio::time::Instant::now() + duration;
@@ -3517,7 +3544,7 @@ fn horizon_stat(name: &str, values: &[f64]) -> String {
     if values.is_empty() {
         return format!("{name}: n/a");
     }
-    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let mean = values.iter().sum::<f64>() / crate::stats::count_f64(values.len());
     format!("{name}: n={} mean={mean:.3}bps", values.len())
 }
 
@@ -3921,9 +3948,9 @@ pub fn run_pilot(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
             m_sum += m;
         }
     }
-    let n_pulled = observations.len() as u64;
+    let n_pulled = crate::stats::count_u64(observations.len());
     let mean_m = if n_pulled > 0 {
-        m_sum / n_pulled as f64
+        m_sum / crate::stats::count_f64_u64(n_pulled)
     } else {
         0.0
     };
@@ -3940,7 +3967,7 @@ pub fn run_pilot(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     };
     let mean_net_print = mean_net.unwrap_or(0.0);
     let bytes_per_record = if replay.records > 0 {
-        replay.bytes as f64 / replay.records as f64
+        crate::stats::count_f64_u64(replay.bytes) / crate::stats::count_f64_u64(replay.records)
     } else {
         0.0
     };

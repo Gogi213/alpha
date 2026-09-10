@@ -425,6 +425,8 @@ const FRAME_EPOCH_LEN: usize = 8;
 /// Разбирает уже разжатое содержимое кадра целиком — читает записи, пока
 /// не кончится срез. Число записей нигде не хранится отдельно: конец среза
 /// и есть конец кадра, ещё одно поле было бы источником рассогласования.
+/// Срез эпохи доказан guard выше (`len < FRAME_EPOCH_LEN` возвращается).
+#[allow(clippy::indexing_slicing)]
 fn decode_frame_payload(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
     if payload.len() < FRAME_EPOCH_LEN {
         return Err(BinlogError::Corrupt(format!(

@@ -181,7 +181,9 @@ pub fn pnl_curve_bps(fills: &[Fill]) -> Option<Vec<f64>> {
 /// один не посчитался (см. `pnl_curve_bps`).
 pub fn mean_net_bps(fills: &[Fill]) -> Option<f64> {
     let curve = pnl_curve_bps(fills)?;
-    curve.last().map(|last| last / fills.len() as f64)
+    curve
+        .last()
+        .map(|last| last / crate::stats::count_f64(fills.len()))
 }
 
 // ---------------------------------------------------------------------------

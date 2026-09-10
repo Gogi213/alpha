@@ -44,7 +44,8 @@
 use crate::lob::levels::LevelRecord;
 use crate::lob::watch::{day_eligible, is_c1, is_c2, DayTally, TRIGGER_G, TRIGGER_N_C2};
 use crate::stats::{
-    webb_p_grid_resolution, wild_cluster_bootstrap_t, BootstrapError, SplitMix64, GATE_ALPHA,
+    count_f64, count_f64_u64, count_u64, webb_p_grid_resolution, wild_cluster_bootstrap_t,
+    BootstrapError, SplitMix64, GATE_ALPHA,
 };
 
 // ---------------------------------------------------------------------------
@@ -96,8 +97,9 @@ const WEBB_POINTS: [f64; 6] = [
 
 /// Очередной вес Уэбба из общего генератора. Порядок `next_u64 % 6` — тот же,
 /// что `SplitMix64::next_webb_weight` в `stats`, поэтому при том же seed поток
-/// совпадает пореплико (A2). Индекс доказуемо < 6 по построению остатка.
-#[allow(clippy::indexing_slicing)]
+/// совпадает пореплико (A2). Индекс доказуемо < 6 по построению остатка
+/// на любом указателе.
+#[allow(clippy::indexing_slicing, clippy::cast_possible_truncation)]
 fn next_webb(rng: &mut SplitMix64) -> f64 {
     WEBB_POINTS[(rng.next_u64() % WEBB_POINTS.len() as u64) as usize]
 }
@@ -477,6 +479,9 @@ fn median_f64(values: &[f64]) -> Option<f64> {
 }
 
 /// Среднее. `None` — значений нет. Конечность входа проверена вызывающим.
+/// Деление на длину точное: счётчик элементов коллекции в памяти, порядков
+/// миллионов максимум — далеко от 2^53, где f64 теряет целые.
+#[allow(clippy::cast_precision_loss)]
 fn mean_f64(values: &[f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -488,7 +493,13 @@ fn mean_f64(values: &[f64]) -> Option<f64> {
 /// интерполяция между соседями. Вызывающий гарантирует непустоту и `q`
 /// внутри [0, 1] (проверено `debug_assert`); индексы `lo`/`hi` лежат в
 /// `0..len` по построению `pos`, `get` здесь — мёртвый код ради линта.
-#[allow(clippy::indexing_slicing)]
+/// Касты точные: `len` — длина среза в памяти (< 2^53 всегда, иначе его негде
+/// держать), `pos` — в `[0, len)`, усечение к `usize` отбрасывает только дробь.
+#[allow(
+    clippy::indexing_slicing,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation
+)]
 fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
     debug_assert!(!sorted.is_empty(), "квантиль пустого распределения");
     debug_assert!((0.0..=1.0).contains(&q), "уровень квантиля вне [0,1]");
@@ -622,7 +633,7 @@ pub fn decide_cell(
         }
         Err(BootstrapError::GridTooCoarse { clusters, .. }) => {
             return CellVerdict::MethodRed(MethodReason::GridTooCoarse {
-                g: clusters as u64,
+                g: count_u64(clusters),
                 resolution,
             });
         }
@@ -828,6 +839,9 @@ pub fn run_cells(
 
 /// Статистики одной ячейки поверх отобранных (кластер, markout) пар.
 /// p — вызовом `stats` по Decision 9; разрешение — той же сетки Уэбба.
+/// Касты точные: счётчики наблюдений и кластеров живут в памяти (порядки
+/// тысяч, не 2^32/2^64) — исчерпать цель значило бы не влезть в RAM раньше.
+#[allow(clippy::cast_possible_truncation)]
 fn cell_stats(observations: &[(i64, f64)], replications: u32, seed: u64) -> CellStats {
     let values: Vec<f64> = observations.iter().map(|(_, v)| *v).collect();
     let clusters: usize = {
@@ -836,9 +850,9 @@ fn cell_stats(observations: &[(i64, f64)], replications: u32, seed: u64) -> Cell
         seen.dedup();
         seen.len()
     };
-    let g = clusters as u64;
+    let g = count_u64(clusters);
     CellStats {
-        n: values.len() as u64,
+        n: count_u64(values.len()),
         g,
         mean: mean_f64(&values),
         median: median_f64(&values),
@@ -853,6 +867,9 @@ fn cell_stats(observations: &[(i64, f64)], replications: u32, seed: u64) -> Cell
 /// в фиксированном порядке: одна и та же реплика одним и тем же весом
 /// взвешивает обе группы — «те же кластерные реплики» буквально.
 /// `None` — пуста C2 или пуст контроль.
+/// Деление на счётчики точное: числа наблюдений в памяти, далеко от 2^53.
+/// Ёмкость из `u32`: `u32` вкладывается в `usize` на всех целях со std.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 fn disjoint_contrast(
     day_sums: &[(f64, u64, f64, u64)],
     replications: u32,
@@ -872,8 +889,8 @@ fn disjoint_contrast(
     if n_c2 == 0 || n_rest == 0 {
         return None;
     }
-    let mean_c2 = tot_c2 / n_c2 as f64;
-    let mean_rest = tot_rest / n_rest as f64;
+    let mean_c2 = tot_c2 / count_f64_u64(n_c2);
+    let mean_rest = tot_rest / count_f64_u64(n_rest);
     let diff = mean_c2 - mean_rest;
     let mut diffs = Vec::with_capacity(replications as usize);
     if replications == 0 {
@@ -888,7 +905,7 @@ fn disjoint_contrast(
                 boot_c2 += w * d.0;
                 boot_rest += w * d.2;
             }
-            let b = boot_c2 / n_c2 as f64 - boot_rest / n_rest as f64;
+            let b = boot_c2 / count_f64_u64(n_c2) - boot_rest / count_f64_u64(n_rest);
             // Веса и суммы конечны по построению входа: вырожденная реплика
             // здесь невозможна арифметически, проверка — страховка A2.
             debug_assert!(b.is_finite(), "бутстрап-разность обязана быть конечной");
@@ -917,12 +934,12 @@ fn nested_aux(obs_c1: &[(i64, f64)], obs_c2: &[(i64, f64)]) -> Option<NestedAux>
     let (m1, m2) = (mean_f64(&v1), mean_f64(&v2));
     match (m1, m2) {
         (Some(mean_c1), Some(mean_c2)) => Some(NestedAux {
-            n_c1: v1.len() as u64,
-            n_c2: v2.len() as u64,
+            n_c1: count_u64(v1.len()),
+            n_c2: count_u64(v2.len()),
             mean_c1,
             mean_c2,
             nested_diff: mean_c2 - mean_c1,
-            w: v2.len() as f64 / v1.len() as f64,
+            w: count_f64(v2.len()) / count_f64(v1.len()),
         }),
         _ => None,
     }

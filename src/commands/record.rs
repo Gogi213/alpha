@@ -1608,6 +1608,8 @@ pub const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
 /// гасит недели записи.
 pub fn day_string_of_ns(ts_ns: i64) -> Result<String, RecordError> {
     let secs = ts_ns.div_euclid(1_000_000_000);
+    // Остаток доказуемо < 1e9 < u32::MAX по построению `rem_euclid`.
+    #[allow(clippy::cast_possible_truncation)]
     let nanos = ts_ns.rem_euclid(1_000_000_000) as u32;
     let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nanos)
         .ok_or(RecordError::BadTimestamp { ts_ns })?;
@@ -1619,6 +1621,8 @@ pub fn day_string_of_ns(ts_ns: i64) -> Result<String, RecordError> {
 /// строка-деталь не имеет права ронять запись разрыва, которую оформляет.
 pub fn ts_utc_of_ns(ts_ns: i64) -> String {
     let secs = ts_ns.div_euclid(1_000_000_000);
+    // Тот же доказанный остаток, что в `day_string_of_ns` выше.
+    #[allow(clippy::cast_possible_truncation)]
     let nanos = ts_ns.rem_euclid(1_000_000_000) as u32;
     chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nanos)
         .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))

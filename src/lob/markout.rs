@@ -75,6 +75,9 @@ pub fn future_asof(mids: &[MidSample], base_ts: i64, horizon_ms: i64) -> Option<
 
 /// Сырая доходность середины в bps без полярности по стороне:
 /// `(fut - base) / base * 10^4`. `None` при неположительной базе.
+/// Касты точные: разности цен в e9 — порядков 1e13 максимум, база положительна
+/// и того же масштаба; оба далеко от 2^53.
+#[allow(clippy::cast_precision_loss)]
 pub fn raw_return_bps(base2x: i64, fut2x: i64) -> Option<f64> {
     if base2x <= 0 {
         return None;
@@ -86,7 +89,8 @@ pub fn raw_return_bps(base2x: i64, fut2x: i64) -> Option<f64> {
 /// Markout по Decision 14: сырая доходность со знаком стороны.
 /// Бид подразумевает шорт (`s = -1`), аск — лонг (`s = +1`).
 /// `None` при неположительной базе. Целые до деления: разность и знак
-/// складываются в целых, деление одно.
+/// складываются в целых, деление одно. Касты — та же точность, что выше.
+#[allow(clippy::cast_precision_loss)]
 pub fn markout_bps(side: Side, base2x: i64, fut2x: i64) -> Option<f64> {
     if base2x <= 0 {
         return None;

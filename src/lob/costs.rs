@@ -33,6 +33,7 @@
 //! Модуль не хранит состояния и не выделяет память.
 
 use crate::lob::cells::G2Verdict;
+use crate::stats::count_f64;
 
 /// Комиссия мейкера, bps (H4: 0.02%).
 pub const MAKER_FEE_BPS: f64 = 2.0;
@@ -69,7 +70,11 @@ pub fn slippage_bps(spread_ticks_exit: i64, mid2x_base: i64) -> Option<f64> {
         return None;
     }
     let num = (i128::from(spread_ticks_exit) + 2) * 10_000;
-    Some(num as f64 / mid2x_base as f64)
+    // Числитель — тики единиц–десятков × 10⁴ (~1e5–1e6), знаменатель —
+    // удвоенная середина в e9 (~1e13–1e14): оба точны в f64 (< 2^53).
+    #[allow(clippy::cast_precision_loss)]
+    let (num_f, den_f) = (num as f64, mid2x_base as f64);
+    Some(num_f / den_f)
 }
 
 /// Полные издержки круга в bps: 7.5 комиссий плюс проскальзывание.
@@ -101,7 +106,7 @@ pub fn mean_net_bps(observations: &[Observation]) -> Option<f64> {
     for o in observations {
         sum += net_bps(o.m_bps, o.spread_ticks_exit, o.mid2x_base)?;
     }
-    Some(sum / observations.len() as f64)
+    Some(sum / count_f64(observations.len()))
 }
 
 /// Вердиктная ячейка по Decision 20: C2, если прошла, иначе C1.

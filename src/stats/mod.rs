@@ -184,9 +184,34 @@ impl SplitMix64 {
     /// из шести значений на одно повторение источника вероятнее прочих на долю
     /// порядка `6 / 2^64` — неразличимо на 9999 репликах ни при каком `alpha`
     /// из этого документа.
+    /// Индекс доказуемо < 6 по построению остатка — на любом указателе.
+    #[allow(clippy::cast_possible_truncation)]
     fn next_webb_weight(&mut self) -> f64 {
         webb_weight((self.next_u64() % WEBB_WEIGHT_VALUES as u64) as u32)
     }
+}
+
+/// Счётчик коллекции в `f64` / `u64` — единственные аудированные точки таких
+/// преобразований для статистики. Точны, пока счётчик < 2^53 / укладывается
+/// в 64 бита: счётчики здесь — длины срезов и числа испытаний в памяти,
+/// порядков единиц–миллионов. Исчерпать предел значило бы не влезть в RAM
+/// на десятки порядков раньше.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn count_f64(n: usize) -> f64 {
+    n as f64
+}
+
+/// См. `count_f64`: та же точка для счётчиков, уже живущих в `u64`
+/// (сводки по суткам с насыщающим сложением).
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn count_f64_u64(n: u64) -> f64 {
+    n as f64
+}
+
+/// См. `count_f64`: та же аудированная точка для целочисленных счётчиков.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn count_u64(n: usize) -> u64 {
+    n as u64
 }
 
 /// Группирует наблюдения по кластеру (сутки UTC). `BTreeMap`, а не
@@ -256,6 +281,10 @@ fn summarize_clusters(groups: &BTreeMap<i64, Vec<f64>>) -> Vec<ClusterSummary> {
 /// Проверка результата — дело вызывающего кода, не этой функции: для
 /// наблюдённого `t` это отказ (`DegenerateVariance`), для `t*` реплики —
 /// решение, разобранное в комментарии над циклом реплик.
+///
+/// Касты счётчиков в `f64` точные: `n` — число наблюдений в памяти, `g` —
+/// число суток; оба порядков единиц–тысяч, далеко от 2^53.
+#[allow(clippy::cast_precision_loss)]
 fn cluster_robust_t_from_summary(clusters: &[ClusterSummary], weights: &[f64]) -> f64 {
     debug_assert_eq!(
         clusters.len(),
@@ -293,6 +322,9 @@ fn cluster_robust_t_from_summary(clusters: &[ClusterSummary], weights: &[f64]) -
 /// Возвращает `Err`, а не паникует и не занижает вердикт молча, в двух
 /// случаях: кластеров меньше минимума, или сетка p грубее `alpha` — оба
 /// прописаны в PLAN.md как методический, а не рыночный отказ.
+///
+/// Каст ниже точен: кластеров — дни в памяти (единицы), далеко от 2^32.
+#[allow(clippy::cast_possible_truncation)]
 pub fn wild_cluster_bootstrap_t(
     observations: &[(i64, f64)],
     replications: u32,

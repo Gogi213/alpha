@@ -414,12 +414,15 @@ pub struct WsCycle {
 
 impl WsCycle {
     /// RTT приёма: отправка кадра → ответный кадр trade-сокета.
+    /// Касты точные: RTT — миллисекунды против 292 лет диапазона `i64` в нс.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn rtt_ack_ns(&self) -> i64 {
         self.ack_received.duration_since(self.order_sent).as_nanos() as i64
     }
     /// RTT исполнения: отправка кадра → подтверждение приватным стримом
     /// `order`/`execution`. Та же база, другая третья метка — обе печатаются
     /// раздельно, в G4 идёт та, что соответствует модели очереди.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn rtt_exec_ns(&self) -> i64 {
         self.exec_received
             .duration_since(self.order_sent)

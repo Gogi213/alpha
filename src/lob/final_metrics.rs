@@ -27,6 +27,7 @@
 use std::path::Path;
 
 use crate::lob::backtest::{roundtrip_net_bps, Fill};
+use crate::stats::count_f64;
 
 /// Постоянная Эйлера–Маскерони γ: вес между двумя квантилями в формуле
 /// ожидаемого Sharpe под нулём (Bailey — López de Prado, 2014).
@@ -70,7 +71,7 @@ pub fn moments(xs: &[f64]) -> Option<Moments> {
     if xs.len() < 2 || xs.iter().any(|x| !x.is_finite()) {
         return None;
     }
-    let n = xs.len() as f64;
+    let n = count_f64(xs.len());
     let mean = xs.iter().sum::<f64>() / n;
     let (mut m2, mut m3, mut m4) = (0.0, 0.0, 0.0);
     for x in xs {
@@ -199,12 +200,12 @@ pub fn expected_sharpe_under_null(trial_sharpes: &[f64]) -> Option<f64> {
         0 => None,
         1 => Some(0.0),
         n => {
-            let mean = trial_sharpes.iter().sum::<f64>() / n as f64;
+            let mean = trial_sharpes.iter().sum::<f64>() / count_f64(n);
             let var = trial_sharpes
                 .iter()
                 .map(|s| (s - mean) * (s - mean))
                 .sum::<f64>()
-                / (n - 1) as f64;
+                / count_f64(n - 1);
             if !var.is_finite() || var < 0.0 {
                 return None;
             }
@@ -212,7 +213,7 @@ pub fn expected_sharpe_under_null(trial_sharpes: &[f64]) -> Option<f64> {
                 // Все испытания одинаковы — разброса отбирать не из чего.
                 return Some(0.0);
             }
-            let nf = n as f64;
+            let nf = count_f64(n);
             let q1 = normal_inv_cdf(1.0 - 1.0 / nf);
             let q2 = normal_inv_cdf(1.0 - 1.0 / (nf * std::f64::consts::E));
             Some(var.sqrt() * ((1.0 - EULER_MASCHERONI) * q1 + EULER_MASCHERONI * q2))
@@ -245,7 +246,7 @@ pub fn dsr(
         return None;
     }
     Some(normal_cdf(
-        (observed_sr - sr0) * ((num_obs - 1) as f64).sqrt() / denom_sq.sqrt(),
+        (observed_sr - sr0) * (count_f64(num_obs - 1)).sqrt() / denom_sq.sqrt(),
     ))
 }
 
@@ -294,8 +295,8 @@ fn sharpe_over_blocks(
     if n == 0 {
         return 0.0;
     }
-    let mean = sum / n as f64;
-    let var = sumsq / n as f64 - mean * mean;
+    let mean = sum / count_f64(n);
+    let var = sumsq / count_f64(n) - mean * mean;
     if var > 0.0 {
         mean / var.sqrt()
     } else if mean > 0.0 {
@@ -381,7 +382,7 @@ pub fn pbo(trials: &[Vec<f64>], partitions: usize) -> Option<f64> {
                 equal += 1;
             }
         }
-        if (worse as f64 + 0.5 * equal as f64 + 0.5) / (n as f64) < 0.5 {
+        if (count_f64(worse) + 0.5 * count_f64(equal) + 0.5) / (count_f64(n)) < 0.5 {
             below += 1;
         }
         total += 1;
@@ -389,7 +390,7 @@ pub fn pbo(trials: &[Vec<f64>], partitions: usize) -> Option<f64> {
     if total == 0 {
         return None;
     }
-    Some(below as f64 / total as f64)
+    Some(count_f64(below) / count_f64(total))
 }
 
 // ---------------------------------------------------------------------------
@@ -450,7 +451,7 @@ pub fn cpcv_mean_oos_sharpe(per_trade_net: &[f64], params: CpcvParams) -> Option
     if scored == 0 {
         return None;
     }
-    Some(sum / scored as f64)
+    Some(sum / count_f64(scored))
 }
 
 // ---------------------------------------------------------------------------
