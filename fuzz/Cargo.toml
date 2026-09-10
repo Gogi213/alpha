@@ -11,6 +11,10 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 alpha = { path = ".." }
 
+[[bin]]
+name = "reader"
+path = "fuzz_targets/reader.rs"
+
 # Отдельный крейт вне рабочей области корня: фаззинг собирается только
 # nightly-тулчейном в своём джобе (Decision 30) и никогда не касается
 # rust-toolchain.toml и боевого пути.
