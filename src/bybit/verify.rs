@@ -1349,6 +1349,40 @@ mod tests {
         assert_eq!(v.stats().invariant_violations, 0);
     }
 
+    /// Золотой корпус Decision 29: короткий живой захват в `tests/fixtures/`.
+    /// Пинит ИНВАРИАНТЫ, а не побайтовый дамп: дамп заморозил бы и сегодняшние
+    /// ошибки, а проект их уже трижды фиксировал зелёными. Файл —
+    /// `BTCUSDT-2026-09-09.binlog`, 5.5 минут живой ленты, 428 КБ.
+    #[test]
+    fn live_fixture_replays_clean_on_invariants() {
+        let summary = match run_verify(&VerifyArgs {
+            symbol: "BTCUSDT".to_string(),
+            root: std::path::PathBuf::from("tests/fixtures"),
+        }) {
+            Ok(s) => s,
+            Err(e) => panic!("фикстура обязана читаться: {e:?}"),
+        };
+        assert_eq!(summary.files, 1, "в корпусе ровно один файл");
+        assert!(
+            summary.updates_applied > 1000,
+            "реплей обязан что-то применить, а не vacuous-pass: {}",
+            summary.updates_applied
+        );
+        assert!(
+            summary.trades_total > 1000,
+            "сделки обязаны быть: {}",
+            summary.trades_total
+        );
+        assert_eq!(summary.sequence_gaps, 0, "разрывов нет");
+        assert_eq!(summary.invariant_violations, 0, "инварианты целы");
+        assert_eq!(
+            summary.trades_violations, 0,
+            "нарушений теста 3 (17б) нет — легитимные сделки не флагуются"
+        );
+        // out_of_range НЕ пинится: это свойство глубины момента, а не
+        // инвариант — сегодня 5%, завтра 15%, и оба числа честны.
+    }
+
     #[test]
     fn steady_updates_allocate_nothing() {
         let mut v = Verifier::new(TICK_E9, STEP_E9);
