@@ -15,7 +15,7 @@
 //! `hmac`/`hashlib` и `openssl dgst -sha256 -hmac`: ни та, ни другая
 //! реализация не этот крейт, так что сверка не тавтологична.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;

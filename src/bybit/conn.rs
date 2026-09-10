@@ -508,7 +508,9 @@ impl Transport for WsTransport {
         use futures::SinkExt;
         async move {
             self.stream
-                .send(tokio_tungstenite::tungstenite::Message::Text(msg))
+                // 0.30: `Text` несёт `Utf8Bytes`, конверсия из `String`
+                // тотальна (UTF-8 в UTF-8, не парсинг).
+                .send(tokio_tungstenite::tungstenite::Message::Text(msg.into()))
                 .await
                 .map_err(|e| TransportError::Io(e.to_string()))
         }
@@ -520,7 +522,11 @@ impl Transport for WsTransport {
         async move {
             loop {
                 match self.stream.next().await {
-                    Some(Ok(TungsteniteMessage::Text(text))) => return Ok(Frame::Text(text)),
+                    // 0.30: `Text` несёт `Utf8Bytes`; `as_str` — вид без
+                    // копии, `to_string` — копия уже валидного UTF-8.
+                    Some(Ok(TungsteniteMessage::Text(text))) => {
+                        return Ok(Frame::Text(text.as_str().to_string()))
+                    }
                     Some(Ok(TungsteniteMessage::Close(_))) | None => return Ok(Frame::Closed),
                     // Ping/Pong/Binary/сырой Frame — не протокол Bybit поверх
                     // этого канала; WS-пинг `tungstenite` обслуживает сам,

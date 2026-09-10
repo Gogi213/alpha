@@ -1151,7 +1151,9 @@ mod tests {
         .unwrap();
         let sent = Instant::now();
         stream
-            .send(tokio_tungstenite::tungstenite::Message::Text(create.frame))
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                create.frame.into(),
+            ))
             .await
             .expect("отправка order.create");
         let ack_raw = tokio::time::timeout(std::time::Duration::from_secs(10), stream.next())
@@ -1175,7 +1177,9 @@ mod tests {
         )
         .unwrap();
         stream
-            .send(tokio_tungstenite::tungstenite::Message::Text(cancel.frame))
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                cancel.frame.into(),
+            ))
             .await
             .expect("отправка order.cancel");
         let cancel_raw = tokio::time::timeout(std::time::Duration::from_secs(10), stream.next())

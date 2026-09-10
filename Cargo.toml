@@ -6,7 +6,7 @@ rust-version = "1.91.1"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,8 +19,8 @@ zstd = "0.14"
 # live тянет iceoryx2 и tokio крейта; он понадобится на шаге живого бота, не сейчас.
 hftbacktest = { version = "0.9.4", default-features = false, features = ["backtest"] }
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 
 [dev-dependencies]
 tempfile = "3"
