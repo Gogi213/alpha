@@ -465,8 +465,16 @@ fn parse_ntp_response(
     }
     // Transmit Timestamp — последнее 64-битное поле пакета: 32 бита секунд
     // с 1900-01-01, 32 бита дробной части секунды как Q32 (RFC 5905 §6).
-    let secs = u32::from_be_bytes(response[40..44].try_into().unwrap());
-    let frac = u32::from_be_bytes(response[44..48].try_into().unwrap());
+    let secs = u32::from_be_bytes(
+        response[40..44]
+            .try_into()
+            .map_err(|_| ClockError::Decode("NTP: поле секунд не легло в u32".to_string()))?,
+    );
+    let frac = u32::from_be_bytes(
+        response[44..48]
+            .try_into()
+            .map_err(|_| ClockError::Decode("NTP: дробная часть не легла в u32".to_string()))?,
+    );
     let unix_secs = i64::from(secs) - NTP_UNIX_EPOCH_DELTA_SECS;
     // frac / 2^32 секунд → наносекунды. `u64` держит `u32::MAX * 1e9`
     // (~4.3e18) без переполнения (`u64::MAX` ~1.8e19) до сдвига.

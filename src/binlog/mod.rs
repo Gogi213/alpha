@@ -431,7 +431,11 @@ fn decode_frame_payload(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
             "кадр короче эпохи ({FRAME_EPOCH_LEN} байт)"
         )));
     }
-    let epoch_ns = i64::from_le_bytes(payload[0..FRAME_EPOCH_LEN].try_into().unwrap());
+    let epoch_ns = i64::from_le_bytes(
+        payload[0..FRAME_EPOCH_LEN]
+            .try_into()
+            .map_err(|_| BinlogError::Corrupt("эпоха кадра не легла в i64".into()))?,
+    );
     let mut st = DeltaState {
         epoch_ns,
         prev_price_ticks: 0,
@@ -763,9 +767,21 @@ impl<R: Read> Reader<R> {
             }
         }
         let header = Header {
-            tick_e9: i64::from_le_bytes(tail[0..8].try_into().unwrap()),
-            step_e9: i64::from_le_bytes(tail[8..16].try_into().unwrap()),
-            max_records_per_frame: u32::from_le_bytes(tail[16..20].try_into().unwrap()),
+            tick_e9: i64::from_le_bytes(
+                tail[0..8]
+                    .try_into()
+                    .map_err(|_| BinlogError::Corrupt("tick заголовка не лёг в i64".into()))?,
+            ),
+            step_e9: i64::from_le_bytes(
+                tail[8..16]
+                    .try_into()
+                    .map_err(|_| BinlogError::Corrupt("step заголовка не лёг в i64".into()))?,
+            ),
+            max_records_per_frame: u32::from_le_bytes(
+                tail[16..20]
+                    .try_into()
+                    .map_err(|_| BinlogError::Corrupt("потолок кадра не лёг в u32".into()))?,
+            ),
         };
         validate_header(header)?;
         Ok(Self {

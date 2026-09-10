@@ -3027,7 +3027,9 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
                 tracker: LevelTracker::new(cfg),
             });
         }
-        let entry = work.last_mut().expect("только что добавлен");
+        let entry = work
+            .last_mut()
+            .ok_or_else(|| anyhow::anyhow!("рабочий день только что добавлен, а его нет"))?;
         let mut book = Book::new(header.tick_e9, header.step_e9);
         let mut replayer = FileReplayer::new();
         let mut ups = Vec::new();

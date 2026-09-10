@@ -51,10 +51,14 @@ impl std::fmt::Debug for Credentials {
 }
 
 /// Ошибка чтения ключей. Несёт только имя переменной, никогда значение —
-/// значения тут просто нет, читать было нечего.
+// значения тут просто нет, читать было нечего.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialsError {
     Missing(&'static str),
+    /// `new_from_slice` вернул отказ. Для SHA256 недостижимо (ключ любой
+    /// длины), но тип у конструктора `Result`, и выдумывать панику вместо
+    /// варианта значило бы вернуть долг, который этот тикет гасит.
+    MacUnusable,
 }
 
 impl Credentials {
@@ -95,16 +99,21 @@ impl Credentials {
     /// Подпись v5: `timestamp + api_key + recv_window + body` (см. doc
     /// модуля). HMAC-SHA256, hex в нижнем регистре — оба требования задаёт
     /// сама биржа, не наш выбор.
-    pub fn sign(&self, timestamp_ms: i64, recv_window_ms: u32, body: &str) -> String {
+    pub fn sign(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+    ) -> Result<String, CredentialsError> {
         let payload = format!("{timestamp_ms}{}{recv_window_ms}{body}", self.api_key);
         // Ключ HMAC-SHA256 годится любой длины (короткий паддится нулями до
         // блока по определению алгоритма), поэтому `new_from_slice` не
         // может отказать по значению секрета — только по причинам, которых
         // у sha256-семейства попросту нет.
         let mut mac = HmacSha256::new_from_slice(self.api_secret.as_bytes())
-            .expect("HMAC-SHA256 принимает ключ любой длины");
+            .map_err(|_| CredentialsError::MacUnusable)?;
         mac.update(payload.as_bytes());
-        hex_lower(&mac.finalize().into_bytes())
+        Ok(hex_lower(&mac.finalize().into_bytes()))
     }
 }
 
@@ -199,7 +208,7 @@ mod tests {
     fn signature_matches_bybit_v5_formula_known_answer() {
         let creds = Credentials::for_test("XXXXXXXXXX", "XXXXXXXXXX");
         let body = r#"{"category":"option"}"#;
-        let sig = creds.sign(1_658_385_579_423, 5000, body);
+        let sig = creds.sign(1_658_385_579_423, 5000, body).unwrap();
         assert_eq!(
             sig,
             "ff137e622dc52629f41b52ea614eab59502e2b0663f153c528cb570379c469b7"
@@ -212,18 +221,22 @@ mod tests {
     #[test]
     fn signature_changes_when_any_ingredient_changes() {
         let creds = Credentials::for_test("k", "s");
-        let base = creds.sign(1, 5000, "{}");
-        assert_ne!(base, creds.sign(1, 5000, r#"{"x":1}"#), "тело");
-        assert_ne!(base, creds.sign(1, 6000, "{}"), "recv_window");
-        assert_ne!(base, creds.sign(2, 5000, "{}"), "timestamp");
+        let base = creds.sign(1, 5000, "{}").unwrap();
+        assert_ne!(base, creds.sign(1, 5000, r#"{"x":1}"#).unwrap(), "тело");
+        assert_ne!(base, creds.sign(1, 6000, "{}").unwrap(), "recv_window");
+        assert_ne!(base, creds.sign(2, 5000, "{}").unwrap(), "timestamp");
         assert_ne!(
             base,
-            Credentials::for_test("k2", "s").sign(1, 5000, "{}"),
+            Credentials::for_test("k2", "s")
+                .sign(1, 5000, "{}")
+                .unwrap(),
             "api_key"
         );
         assert_ne!(
             base,
-            Credentials::for_test("k", "s2").sign(1, 5000, "{}"),
+            Credentials::for_test("k", "s2")
+                .sign(1, 5000, "{}")
+                .unwrap(),
             "секрет"
         );
     }

@@ -331,9 +331,15 @@ impl LevelTracker {
             .saturating_add(self.cfg.warmup_ms);
         let live = &mut self.live;
         for (ks, tick) in self.sweep.drain(..) {
-            let lv = live
-                .remove(&(ks, tick))
-                .expect("ключ только что найден в свипе");
+            // Ключ только что найден в свипе, который построен обходом `live`
+            // выше без единой вставки между, — отсутствие было бы дефектом
+            // логики, а не данных. Паники при этом нет по режиму линтов:
+            // в релизе дефект даст пропуск уровня (видимый), а в дебаге —
+            // срабатывание ассёрта ниже.
+            debug_assert!(live.contains_key(&(ks, tick)));
+            let Some(lv) = live.remove(&(ks, tick)) else {
+                continue;
+            };
             if lv.birth_ms < warm_end {
                 continue;
             }

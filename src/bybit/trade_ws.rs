@@ -178,7 +178,7 @@ pub fn build_create_frame(
     mid_price_e9: i64,
     req_id: &str,
     timestamp_ms: i64,
-) -> WsSignedFrame {
+) -> Result<WsSignedFrame, TradeWsError> {
     let price_e9 = probe::far_price_e9(
         mid_price_e9,
         params.tick_e9,
@@ -194,9 +194,11 @@ pub fn build_create_frame(
         price: format_e9(price_e9),
         time_in_force: TIME_IN_FORCE,
     };
-    let args_json = serde_json::to_string(&args)
-        .expect("сериализация фиксированной структуры не может отказать");
-    let signature_hex = creds.sign(timestamp_ms, params.recv_window_ms, &args_json);
+    let args_json =
+        serde_json::to_string(&args).map_err(|e| TradeWsError::Decode(e.to_string()))?;
+    let signature_hex = creds
+        .sign(timestamp_ms, params.recv_window_ms, &args_json)
+        .map_err(TradeWsError::Credentials)?;
     let header = WsHeader {
         api_key: creds.api_key().to_string(),
         timestamp: timestamp_ms.to_string(),
@@ -209,12 +211,12 @@ pub fn build_create_frame(
         op: OP_CREATE,
         args: vec![args],
     })
-    .expect("сериализация фиксированной структуры не может отказать");
-    WsSignedFrame {
+    .map_err(|e| TradeWsError::Decode(e.to_string()))?;
+    Ok(WsSignedFrame {
         op: OP_CREATE,
         req_id: req_id.to_string(),
         frame,
-    }
+    })
 }
 
 /// Кадр `order.cancel` для немедленного снятия (`[ASSUMPTION H9]`).
@@ -224,15 +226,17 @@ pub fn build_cancel_frame(
     order_id: &str,
     req_id: &str,
     timestamp_ms: i64,
-) -> WsSignedFrame {
+) -> Result<WsSignedFrame, TradeWsError> {
     let args = CancelArgs {
         category: CATEGORY,
         symbol: params.symbol.clone(),
         order_id: order_id.to_string(),
     };
-    let args_json = serde_json::to_string(&args)
-        .expect("сериализация фиксированной структуры не может отказать");
-    let signature_hex = creds.sign(timestamp_ms, params.recv_window_ms, &args_json);
+    let args_json =
+        serde_json::to_string(&args).map_err(|e| TradeWsError::Decode(e.to_string()))?;
+    let signature_hex = creds
+        .sign(timestamp_ms, params.recv_window_ms, &args_json)
+        .map_err(TradeWsError::Credentials)?;
     let header = WsHeader {
         api_key: creds.api_key().to_string(),
         timestamp: timestamp_ms.to_string(),
@@ -245,12 +249,12 @@ pub fn build_cancel_frame(
         op: OP_CANCEL,
         args: vec![args],
     })
-    .expect("сериализация фиксированной структуры не может отказать");
-    WsSignedFrame {
+    .map_err(|e| TradeWsError::Decode(e.to_string()))?;
+    Ok(WsSignedFrame {
         op: OP_CANCEL,
         req_id: req_id.to_string(),
         frame,
-    }
+    })
 }
 
 /// Ответный кадр trade-сокета: `{"op","reqId","retCode","retMsg","data":...}`.
@@ -437,7 +441,7 @@ pub fn run_ws_cycle<T: WsTradeTransport>(
 ) -> Result<WsCycle, TradeWsError> {
     let tick_observed = Instant::now();
 
-    let create = build_create_frame(creds, params, mid_price_e9, req_id, wall_timestamp_ms());
+    let create = build_create_frame(creds, params, mid_price_e9, req_id, wall_timestamp_ms())?;
     let order_sent = Instant::now();
     transport.send(create.frame)?;
     let ack_raw = transport.recv()?;
@@ -477,7 +481,7 @@ pub fn run_ws_cycle<T: WsTradeTransport>(
         &order_id,
         &cancel_req_id,
         wall_timestamp_ms(),
-    );
+    )?;
     transport.send(cancel.frame)?;
     let cancel_raw = transport.recv()?;
     let cancel_ack = parse_ack_frame(&cancel_raw, OP_CANCEL, &cancel_req_id)?;
@@ -712,7 +716,7 @@ mod tests {
     #[test]
     fn create_frame_carries_post_only_far_price_and_signed_header() {
         let params = test_params();
-        let frame = build_create_frame(&test_creds(), &params, MID_E9, "ws-000001", TS_MS);
+        let frame = build_create_frame(&test_creds(), &params, MID_E9, "ws-000001", TS_MS).unwrap();
 
         assert_eq!(frame.op, OP_CREATE);
         let v: serde_json::Value = serde_json::from_str(&frame.frame).unwrap();
@@ -746,7 +750,8 @@ mod tests {
             "order-7",
             "ws-2-cancel",
             TS_MS,
-        );
+        )
+        .unwrap();
         let v: serde_json::Value = serde_json::from_str(&frame.frame).unwrap();
         assert_eq!(v["op"], OP_CANCEL);
         assert_eq!(v["reqId"], "ws-2-cancel");
@@ -759,7 +764,7 @@ mod tests {
     #[test]
     fn signed_frame_debug_output_contains_neither_key_nor_secret() {
         let creds = Credentials::for_test("visible-ws-key", "s3cr3t-ws-do-not-leak");
-        let frame = build_create_frame(&creds, &test_params(), MID_E9, "ws-1", TS_MS);
+        let frame = build_create_frame(&creds, &test_params(), MID_E9, "ws-1", TS_MS).unwrap();
         let printed = format!("{frame:?}");
         assert!(
             !printed.contains("visible-ws-key"),
@@ -1139,7 +1144,8 @@ mod tests {
             mid_price_e9,
             "live-000001",
             wall_timestamp_ms(),
-        );
+        )
+        .unwrap();
         let sent = Instant::now();
         stream
             .send(tokio_tungstenite::tungstenite::Message::Text(create.frame))
@@ -1163,7 +1169,8 @@ mod tests {
             &ack.order_id,
             "live-000001-cancel",
             wall_timestamp_ms(),
-        );
+        )
+        .unwrap();
         stream
             .send(tokio_tungstenite::tungstenite::Message::Text(cancel.frame))
             .await

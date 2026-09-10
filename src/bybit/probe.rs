@@ -278,10 +278,12 @@ fn sign_request(
     path: &'static str,
     recv_window_ms: u32,
     body: String,
-) -> SignedRequest {
-    let timestamp_ms = wall_clock_timestamp_ms();
-    let signature_hex = creds.sign(timestamp_ms, recv_window_ms, &body);
-    SignedRequest {
+) -> Result<SignedRequest, ProbeError> {
+    let timestamp_ms = wall_clock_timestamp_ms()?;
+    let signature_hex = creds
+        .sign(timestamp_ms, recv_window_ms, &body)
+        .map_err(ProbeError::Credentials)?;
+    Ok(SignedRequest {
         path,
         headers: RequestHeaders {
             api_key: creds.api_key().to_string(),
@@ -290,7 +292,7 @@ fn sign_request(
             signature_hex,
         },
         body,
-    }
+    })
 }
 
 /// Транспорт приватного REST, отделённый от `reqwest`: цикл зонда — подпись
@@ -392,6 +394,10 @@ pub enum ProbeError {
         ret_code: i32,
         ret_msg: String,
     },
+    /// Системные часы раньше эпохи Unix: мёртвая RTC или несконфигурированная
+    /// VM. Подпись требует настенное время, выдумывать его из нуля значило бы
+    /// слать бирже заведомо неверный timestamp (см. `wall_clock_timestamp_ms`).
+    WallClockBeforeEpoch,
 }
 
 /// Время эпохи в миллисекундах — **только** для `X-BAPI-TIMESTAMP`: подпись
@@ -401,11 +407,11 @@ pub enum ProbeError {
 /// `Instant` — `Instant` ничего не говорит о том, «какой сейчас час по UTC»,
 /// а подписи нужно именно это. Не переиспользуется циклом ниже — см. его
 /// комментарий: там та же функция была бы уже дефектом, а не удобством.
-fn wall_clock_timestamp_ms() -> i64 {
-    std::time::SystemTime::now()
+fn wall_clock_timestamp_ms() -> Result<i64, ProbeError> {
+    Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("системные часы обязаны быть после эпохи Unix")
-        .as_millis() as i64
+        .map_err(|_| ProbeError::WallClockBeforeEpoch)?
+        .as_millis() as i64)
 }
 
 /// Три метки одного цикла — `Instant`, не показания настенных часов.
@@ -468,14 +474,14 @@ pub fn run_cycle<R: PrivateRest>(
         price: format_e9(price_e9),
         time_in_force: TIME_IN_FORCE,
     };
-    let create_body_json = serde_json::to_string(&create_body)
-        .expect("сериализация фиксированной структуры не может отказать");
+    let create_body_json =
+        serde_json::to_string(&create_body).map_err(|e| ProbeError::Decode(e.to_string()))?;
     let create_req = sign_request(
         creds,
         CREATE_ORDER_PATH,
         params.recv_window_ms,
         create_body_json,
-    );
+    )?;
 
     let order_sent = std::time::Instant::now();
     let create_resp = client.send(create_req)?;
@@ -496,14 +502,14 @@ pub fn run_cycle<R: PrivateRest>(
         symbol: params.symbol.clone(),
         order_id: order_id.clone(),
     };
-    let cancel_body_json = serde_json::to_string(&cancel_body)
-        .expect("сериализация фиксированной структуры не может отказать");
+    let cancel_body_json =
+        serde_json::to_string(&cancel_body).map_err(|e| ProbeError::Decode(e.to_string()))?;
     let cancel_req = sign_request(
         creds,
         CANCEL_ORDER_PATH,
         params.recv_window_ms,
         cancel_body_json,
-    );
+    )?;
     let cancel_resp = client.send(cancel_req)?;
     let cancel_envelope: RestEnvelope =
         serde_json::from_str(&cancel_resp).map_err(|e| ProbeError::Decode(e.to_string()))?;
@@ -726,7 +732,8 @@ mod tests {
             CREATE_ORDER_PATH,
             DEFAULT_RECV_WINDOW_MS,
             "{}".to_string(),
-        );
+        )
+        .unwrap();
 
         let printed_headers = format!("{:?}", req.headers);
         let printed_request = format!("{req:?}");
