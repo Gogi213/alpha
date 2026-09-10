@@ -129,21 +129,17 @@ pub enum PickError {
     /// Ни один измеренный кандидат не прошёл порог глубины **на обеих
     /// сторонах** (протокол шага 0.4, порог Decision 18 сохранён ревизией 17)
     /// — толстая сторона не засчитывается за тонкую.
+    ///
+    /// Других вариантов отказа у чистой части нет нарочно: прежняя
+    /// `MinNotionalNotSatisfied` (Decision 22, «минимальный лот обязан покрыть
+    /// `minNotionalValue`, иначе ошибка») отменена ревизией 17б — на восьми из
+    /// десяти инструментов пула минимальный лот дешевле $5, и это свойство
+    /// пула, а не брак отбора. Вместо отказа считается размер-22а
+    /// (`order_size_22a`) на инструмент, а разброс номинала идёт колонкой
+    /// таблицы, не условием приёмки.
     NoSurvivorsAboveDepthFloor {
         floor_usd_e9: i64,
         candidates: usize,
-    },
-    /// Decision 22: минимальный лот финалиста не покрывает `minNotionalValue`
-    /// по последней цене. done-condition шага 0.4 требует это как условие
-    /// приёмки, а не только как справочную колонку — план не описывает, что
-    /// делать со следующим по рангу кандидатом в этом случае, поэтому отказ
-    /// явной ошибкой честнее, чем тихая подмена на кандидата, которого
-    /// правило не выбирало.
-    MinNotionalNotSatisfied {
-        symbol: String,
-        min_order_qty_e9: i64,
-        last_price_e9: i64,
-        min_notional_value_e9: i64,
     },
 }
 
@@ -157,18 +153,6 @@ impl std::fmt::Display for PickError {
                 f,
                 "ни один из {candidates} измеренных кандидатов не набрал {} USD медианной глубины на уровень на обеих сторонах",
                 *floor_usd_e9 as f64 / 1e9
-            ),
-            PickError::MinNotionalNotSatisfied {
-                symbol,
-                min_order_qty_e9,
-                last_price_e9,
-                min_notional_value_e9,
-            } => write!(
-                f,
-                "{symbol}: минимальный лот {} по цене {} даёт номинал ниже minNotionalValue {} (Decision 22)",
-                *min_order_qty_e9 as f64 / 1e9,
-                *last_price_e9 as f64 / 1e9,
-                *min_notional_value_e9 as f64 / 1e9
             ),
         }
     }
@@ -196,6 +180,11 @@ pub struct CandidateMeta {
     pub turnover_24h_usd_e9: i64,
     pub tick_e9: i64,
     pub last_price_e9: i64,
+    /// `lotSizeFilter` из `instruments-info` — вход размера-22а: без них ни
+    /// размер, ни его номинал для колонки таблицы не считаются.
+    pub min_order_qty_e9: i64,
+    pub qty_step_e9: i64,
+    pub min_notional_value_e9: i64,
 }
 
 /// `launchTime` отсутствует у части инструментов Bybit (см.
@@ -235,6 +224,9 @@ pub fn join_candidate_meta(instruments: &[Instrument], tickers: &[Ticker]) -> Ve
                 turnover_24h_usd_e9: ticker.turnover_24h_usd_e9,
                 tick_e9: inst.tick_e9,
                 last_price_e9: ticker.last_price_e9,
+                min_order_qty_e9: inst.min_order_qty_e9,
+                qty_step_e9: inst.qty_step_e9,
+                min_notional_value_e9: inst.min_notional_value_e9,
             })
         })
         .collect()
@@ -253,6 +245,13 @@ pub struct PoolCandidate {
     pub turnover_24h_usd_e9: i64,
     pub tick_e9: i64,
     pub last_price_e9: i64,
+    /// `lotSizeFilter` из `instruments-info` (через `CandidateMeta`) — вход
+    /// размера-22а и колонки номинала таблицы. Едут в пуле тем же приёмом,
+    /// что шаг цены и последняя цена для покрытия: без них размер на
+    /// инструмент не посчитать.
+    pub min_order_qty_e9: i64,
+    pub qty_step_e9: i64,
+    pub min_notional_value_e9: i64,
     /// Покрытие топ-50 в bps (`50 × tickSize / цена × 10⁴`, шаг 0.4).
     /// `None` — делить не на что (неположительный шаг или цена): ноль здесь
     /// читался бы как «книги нет», а не «цены нет».
@@ -412,6 +411,9 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
                 tick_e9: c.tick_e9,
                 last_price_e9: c.last_price_e9,
                 coverage_top50_bps,
+                min_order_qty_e9: c.min_order_qty_e9,
+                qty_step_e9: c.qty_step_e9,
+                min_notional_value_e9: c.min_notional_value_e9,
             });
         } else {
             excluded.push(ExcludedCandidate {
@@ -634,26 +636,59 @@ pub fn select_final_two(
     Ok(survivors.into_iter().take(2).cloned().collect())
 }
 
-/// Decision 22: минимальный лот обязан покрывать `minNotionalValue` по
-/// последней цене. `minNotionalValue` — в валюте котировки (USDT),
-/// `minOrderQty` — в базовом активе: без цены их не сравнить, поэтому
+/// Decision 22а (ревизия 17б): размер — **наименьшее количество, допустимое
+/// биржей**: `max(minOrderQty, ceil(minNotionalValue / (qtyStep × цена)) ×
+/// qtyStep)`. Не изобретённое число, а вывод из двух правил площадки; прежняя
+/// формулировка Decision 22 («минимальный лот, с проверкой чека отказом»)
+/// отменена — на восьми из десяти инструментов пула минимальный лот дешевле
+/// $5, и отказом это не чинится.
+///
+/// Всё в целых 1e9 (A1), округление вверх — целочисленным `div_ceil`, без
+/// `f64`: шаг × цена порядка $0.002 (IOST) делит $5 с остатком в девятом знаке,
+/// и плавающая точка на границе «ровно N шагов / N шагов плюс единица»
+/// отвечает неверно. `minNotionalValue == 0` означает «дополнительного
+/// минимума нет» (см. `rest::Instrument::min_notional_value_e9`) — ответом
+/// сразу минимальный лот. Неположительные шаг или цена — данных для чека нет
+/// (деления не на что), ответом тоже минимальный лот, а не паника: размер
+/// обязан вернуться на любом входе, отказом он не является по построению.
+///
 /// `last_price_e9` — отдельный аргумент, не поле `Instrument` (там его нет —
-/// это свойство тикера в моменте, не статика контракта). `minNotionalValue
-/// == 0` означает «дополнительного минимума нет» (см. `rest::Instrument::
-/// min_notional_value_e9`) и тривиально выполнено.
-pub fn min_lot_satisfies_min_notional(
+/// это свойство тикера в моменте, не статика контракта), тем же приёмом, что
+/// прежняя проверка Decision 22.
+pub fn order_size_22a(
     min_order_qty_e9: i64,
-    last_price_e9: i64,
+    qty_step_e9: i64,
     min_notional_value_e9: i64,
-) -> bool {
-    if min_notional_value_e9 <= 0 {
-        return true;
+    last_price_e9: i64,
+) -> i64 {
+    if min_notional_value_e9 <= 0 || qty_step_e9 <= 0 || last_price_e9 <= 0 {
+        return min_order_qty_e9;
     }
-    // Оба множителя уже в масштабе 1e9 (A1); произведение — в 1e18, обратно
-    // к 1e9 делением на 1e9 — тот же приём, что `book_level_notionals_usd_e9`
-    // ниже, без плавающей точки.
-    let notional_e9 = (min_order_qty_e9 as i128 * last_price_e9 as i128 / 1_000_000_000) as i64;
-    notional_e9 >= min_notional_value_e9
+    // Число шагов чека: ceil(minNotional / (step × price)).
+    // minNotional реал. = min_notional_value_e9/1e9; step × price реал. =
+    // qty_step_e9 × last_price_e9/1e18; частное = min_notional_value_e9 × 1e9
+    // / (qty_step_e9 × last_price_e9) — числитель и знаменатель в i128, где
+    // произведение двух величин 1e9 (1e18) не переполняется с запасом во много
+    // порядков, тем же приёмом, что `level_notional_usd_e9` ниже.
+    // Округление вверх — явной формулой `(a + b - 1) / b`: оба операнда здесь
+    // строго положительны (проверено выше), `a + b - 1` в i128 не переполняется
+    // на всём диапазоне i64-входов (`div_ceil` на этом тулчейне нестабилен —
+    // `int_roundings`, — формулой тот же ответ без фичи).
+    let num = min_notional_value_e9 as i128 * 1_000_000_000;
+    let den = qty_step_e9 as i128 * last_price_e9 as i128;
+    let steps = (num + den - 1) / den;
+    let sized_e9 = steps * qty_step_e9 as i128;
+    let sized_e9 = i64::try_from(sized_e9).unwrap_or(i64::MAX);
+    sized_e9.max(min_order_qty_e9)
+}
+
+/// Номинал размера-22а в USD·1e9 целиком в целых (A1): тот же приём, что
+/// `level_notional_usd_e9` ниже, — произведение в 1e18, обратно к 1e9 делением.
+/// Колонка таблицы, не гейт: на markout размер не влияет (гейты в bps), на
+/// `fill` влияет через позицию в очереди — поэтому разброс $5–12.42 печатается,
+/// а не усредняется.
+fn order_size_notional_usd_e9(order_qty_e9: i64, last_price_e9: i64) -> i64 {
+    (order_qty_e9 as i128 * last_price_e9 as i128 / 1_000_000_000) as i64
 }
 
 // ---------------------------------------------------------------------------
@@ -689,6 +724,15 @@ pub struct CandidateRow {
     pub median_ask_depth_usd_e9: Option<i64>,
     /// `true`, только если порог пройден на **обеих** сторонах.
     pub above_depth_floor: Option<bool>,
+    /// Размер-22а в базовом активе, 1e9 (Decision 22а, ревизия 17б). `Some` у
+    /// членов пула — считается из метаданных инструмента и цены, измерения
+    /// глубины не требует; `None` у исключённых (строка — про причину, а не
+    /// про размер).
+    pub order_size_e9: Option<i64>,
+    /// Номинал размера-22а в USD·1e9 — колонка done-condition шага 0.4
+    /// («колонка с номиналом размера»): разброс $5–12.42 печатается, не
+    /// усредняется; на markout не влияет. `None` — там же, где и размер.
+    pub order_size_notional_usd_e9: Option<i64>,
     pub selected_for_pilot: bool,
     pub final_rank: Option<u8>,
 }
@@ -714,7 +758,9 @@ pub fn build_candidate_table(
                         turnover_24h_usd_e9: i64,
                         excluded_reason: &str,
                         coverage_top50_bps: Option<f64>,
-                        suitable_baskets: String| {
+                        suitable_baskets: String,
+                        order_size_e9: Option<i64>,
+                        order_size_notional_usd_e9: Option<i64>| {
         let m = measured_by_symbol.get(symbol).copied();
         CandidateRow {
             symbol: symbol.to_string(),
@@ -722,6 +768,8 @@ pub fn build_candidate_table(
             excluded_reason: excluded_reason.to_string(),
             coverage_top50_bps,
             suitable_baskets,
+            order_size_e9,
+            order_size_notional_usd_e9,
             measured: m.is_some(),
             window_start_utc_ms: m.map(|m| m.window_start_utc_ms),
             window_secs: m.map(|m| m.window_secs),
@@ -740,12 +788,23 @@ pub fn build_candidate_table(
     let mut rows = Vec::with_capacity(outcome.pool.len() + outcome.excluded.len());
     for c in &outcome.pool {
         let suitable = eligible_baskets(c.coverage_top50_bps).join(";");
+        // Размер-22а на инструмент: из статики контракта и цены тикера, без
+        // измерения — поэтому колонка заполнена и у неизмеренных членов пула.
+        let order_size_e9 = order_size_22a(
+            c.min_order_qty_e9,
+            c.qty_step_e9,
+            c.min_notional_value_e9,
+            c.last_price_e9,
+        );
+        let order_size_notional_usd_e9 = order_size_notional_usd_e9(order_size_e9, c.last_price_e9);
         rows.push(measured_row(
             &c.symbol,
             c.turnover_24h_usd_e9,
             "",
             c.coverage_top50_bps,
             suitable,
+            Some(order_size_e9),
+            Some(order_size_notional_usd_e9),
         ));
     }
     for e in &outcome.excluded {
@@ -755,6 +814,8 @@ pub fn build_candidate_table(
             e.excluded_reason,
             None,
             String::new(),
+            None,
+            None,
         ));
     }
     rows
@@ -807,8 +868,9 @@ struct InstrumentRow {
     min_notional_value: String,
 }
 
-/// `instruments.csv` (done-condition шага 0.4: «непуст», и минимальный лот
-/// обоих финалистов удовлетворяет `minNotionalValue`, Decision 22) — пишется
+/// `instruments.csv` (done-condition шага 0.4: «непуст», и размер-22а обоих
+/// финалистов посчитан из этих полей и укладывается в правила биржи,
+/// Decision 22а) — пишется
 /// для **всего** прошедшего REST пула, не только для выбранных: `lob probe`
 /// и `lob record` читают эти же метаданные для любого символа, который
 /// когда-либо попадёт в запись, а не только для сегодняшнего победителя.
@@ -1254,13 +1316,6 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     let tickers = fetch_linear_tickers(&mut rest)?;
     write_instruments_csv(&args.root.join("instruments.csv"), &instruments)?;
 
-    // Отдельная карта, не поле `CandidateMeta`: Decision 22 нужна текущая
-    // цена, и карта строится из того же ответа `tickers`, полученного ровно
-    // один раз выше.
-    let last_price_by_symbol: HashMap<String, i64> = tickers
-        .iter()
-        .map(|t| (t.symbol.clone(), t.last_price_e9))
-        .collect();
     let meta = join_candidate_meta(&instruments, &tickers);
 
     let now_ms = wall_clock_ms();
@@ -1296,32 +1351,10 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
         }
     };
 
-    // Decision 22, done-condition шага 0.4: у обоих финалистов минимальный
-    // лот обязан удовлетворять `minNotionalValue`. Проверяется здесь, а не
-    // раньше — правило отбора ранжирует по глубине и обороту, а не по
-    // этому условию, и незачем гонять час замера по кандидату, который потом
-    // всё равно не пройдёт эту проверку, но и рано отбрасывать до измерения
-    // тоже нельзя: само условие не входит в критерии отбора.
-    for m in &selected {
-        let Some(inst) = instruments_by_symbol.get(&m.symbol) else {
-            continue;
-        };
-        let last_price_e9 = last_price_by_symbol.get(&m.symbol).copied().unwrap_or(0);
-        if !min_lot_satisfies_min_notional(
-            inst.min_order_qty_e9,
-            last_price_e9,
-            inst.min_notional_value_e9,
-        ) {
-            return Err(PickError::MinNotionalNotSatisfied {
-                symbol: m.symbol.clone(),
-                min_order_qty_e9: inst.min_order_qty_e9,
-                last_price_e9,
-                min_notional_value_e9: inst.min_notional_value_e9,
-            }
-            .into());
-        }
-    }
-
+    // Decision 22а, done-condition шага 0.4: размер считается на инструмент
+    // (`order_size_22a` внутри `build_candidate_table` ниже) и всегда
+    // допустим по построению — путём отказа он не является, прежняя проверка
+    // Decision 22 с ошибкой `MinNotionalNotSatisfied` отменена ревизией 17б.
     let table = build_candidate_table(&outcome, &measured, &selected);
     write_candidate_table_csv(&args.candidates_out, &table)?;
 
@@ -1352,6 +1385,11 @@ mod tests {
             turnover_24h_usd_e9: turnover,
             tick_e9,
             last_price_e9,
+            // SOL-подобный лот: 0.1 при шаге 0.1, чек $5 — минимальный лот
+            // ($10 при цене 100) чек покрывает, размер-22а равен ему же.
+            min_order_qty_e9: 100_000_000,
+            qty_step_e9: 100_000_000,
+            min_notional_value_e9: e9(5),
         }
     }
 
@@ -1527,6 +1565,9 @@ mod tests {
             turnover_24h_usd_e9,
             tick_e9,
             last_price_e9,
+            min_order_qty_e9,
+            qty_step_e9,
+            min_notional_value_e9,
         } = c.clone();
         assert_eq!(symbol, "AAPLUSDT");
         assert_eq!(base_coin, "AAPL");
@@ -1536,6 +1577,9 @@ mod tests {
         assert_eq!(turnover_24h_usd_e9, e9(1_000_000));
         assert_eq!(tick_e9, 10_000_000);
         assert_eq!(last_price_e9, e9(100));
+        assert_eq!(min_order_qty_e9, 100_000_000);
+        assert_eq!(qty_step_e9, 100_000_000);
+        assert_eq!(min_notional_value_e9, e9(5));
 
         let outcome = build_pool(&[c], NOW_MS);
         assert!(
@@ -1802,6 +1846,9 @@ mod tests {
             tick_e9: 10_000_000,
             last_price_e9: e9(100),
             coverage_top50_bps: coverage_bps,
+            min_order_qty_e9: 100_000_000,
+            qty_step_e9: 100_000_000,
+            min_notional_value_e9: e9(5),
         }
     }
 
@@ -2198,41 +2245,86 @@ mod tests {
         assert_eq!(select_final_two(&m).unwrap().len(), 1);
     }
 
-    // -- min_lot_satisfies_min_notional (Decision 22) ------------------------
+    // -- order_size_22a (Decision 22а, ревизия 17б) ---------------------------
+    //
+    // Прежних тестов `min_lot_*` (отказ `MinNotionalNotSatisfied`) больше нет:
+    // путь отказа отменён — вместо ошибки считается размер. Границы округления
+    // вверх проверяются соседними значениями ±1 единица 1e9: f64-маршрут на
+    // таких границах отвечает неверно, целочисленный обязан различать.
 
     #[test]
-    fn min_lot_notional_passes_when_it_exceeds_the_requirement() {
-        // 0.1 SOL (100_000_000 в масштабе 1e9) @ $150 = $15, требование $5.
-        assert!(min_lot_satisfies_min_notional(100_000_000, e9(150), e9(5)));
+    fn order_size_22a_returns_min_lot_when_it_already_covers_notional() {
+        // 0.1 SOL @ $150: шаг × цена = $15, чек $5 — хватает одного шага,
+        // размер равен минимальному лоту, номинал $15.
+        let size = order_size_22a(100_000_000, 100_000_000, e9(5), e9(150));
+        assert_eq!(size, 100_000_000);
+        assert_eq!(order_size_notional_usd_e9(size, e9(150)), e9(15));
+    }
+
+    /// Кейс `IOSTUSDT` из `SETTLED.md` В-25: минимальный лот (~$0.002, один
+    /// шаг) до чека $5 — 2539 шагов. Цена 0.00196928 даёт шаг × цена ровно
+    /// столько, что 2538 шагов ($4.99803…) чека не хватает, а 2539 ($5.00000…)
+    /// хватает; отображаемый номинал лота при этом $0.002 с округлением.
+    #[test]
+    fn order_size_22a_rounds_up_to_whole_steps_iost_case() {
+        let size = order_size_22a(1_000_000_000, 1_000_000_000, e9(5), 1_969_280);
+        assert_eq!(size, 2_539_000_000_000, "2539 шагов, не 2538 и не 2540");
+        // Минимальность: сам размер чек проходит, минус один шаг — нет.
+        assert!(order_size_notional_usd_e9(size, 1_969_280) >= e9(5));
+        assert!(
+            order_size_notional_usd_e9(size - 1_000_000_000, 1_969_280) < e9(5),
+            "размер обязан быть наименьшим допустимым, не первым попавшимся"
+        );
     }
 
     #[test]
-    fn min_lot_notional_fails_when_it_falls_short() {
-        // 0.001 BTC @ $20 = $0.02, требование $5 — не хватает на два порядка.
-        assert!(!min_lot_satisfies_min_notional(1_000_000, e9(20), e9(5)));
+    fn order_size_22a_exact_division_needs_no_extra_step() {
+        // Шаг × цена = ровно $1, чек $5 — ровно 5 шагов, шестой не нужен.
+        assert_eq!(order_size_22a(e9(1), e9(1), e9(5), e9(1)), e9(5));
     }
 
     #[test]
-    fn min_lot_notional_exactly_at_the_boundary_passes() {
-        // Ровно требование — нестрогое ">=", а не строгое "> ".
-        assert!(min_lot_satisfies_min_notional(e9(1), e9(1), e9(1)));
+    fn order_size_22a_one_unit_over_the_boundary_takes_another_step() {
+        // Чек $5 + одна единица 1e9 при шаге × цене $1: пять шагов дают ровно
+        // $5 — одной единицы не хватает, нужен шестой.
+        assert_eq!(order_size_22a(e9(1), e9(1), 5_000_000_001, e9(1)), e9(6));
     }
 
     #[test]
-    fn min_lot_notional_zero_requirement_is_trivially_satisfied() {
-        assert!(min_lot_satisfies_min_notional(1, 1, 0));
+    fn order_size_22a_one_unit_under_the_boundary_stays() {
+        // Чек $5 − одна единица: пяти шагов хватает, шестой не нужен.
+        assert_eq!(order_size_22a(e9(1), e9(1), 4_999_999_999, e9(1)), e9(5));
     }
 
     #[test]
-    fn min_lot_notional_does_not_overflow_on_large_realistic_values() {
-        // Дорогой актив с крупным минимальным лотом — всё ещё далеко от
-        // переполнения i128 (см. doc функции: произведение уходит в 1e18,
-        // а i128 держит на много порядков больше).
-        assert!(min_lot_satisfies_min_notional(
-            e9(1_000),
-            e9(1_000_000),
-            e9(5)
-        ));
+    fn order_size_22a_zero_notional_means_no_extra_minimum() {
+        // Отсутствие чека у старых инструментов (см. `rest::Instrument`) —
+        // ответом сразу минимальный лот.
+        assert_eq!(
+            order_size_22a(100_000_000, 100_000_000, 0, e9(150)),
+            100_000_000
+        );
+    }
+
+    #[test]
+    fn order_size_22a_without_price_or_step_falls_back_to_min_lot() {
+        // Делить не на что — размер обязан вернуться, а не запаниковать.
+        assert_eq!(
+            order_size_22a(100_000_000, 100_000_000, e9(5), 0),
+            100_000_000
+        );
+        assert_eq!(order_size_22a(100_000_000, 0, e9(5), e9(150)), 100_000_000);
+    }
+
+    #[test]
+    fn order_size_22a_does_not_overflow_on_large_realistic_values() {
+        // Дорогой актив с крупным минимальным лотом — произведение уходит в
+        // 1e18, а i128 держит на много порядков больше (см. doc функции).
+        // Шаг × цена = $10^9, чек $5 — хватает одного шага: ответ — лот.
+        assert_eq!(
+            order_size_22a(e9(1_000), e9(1_000), e9(5), e9(1_000_000)),
+            e9(1_000)
+        );
     }
 
     // -- format_e9 -------------------------------------------------------
@@ -2290,6 +2382,8 @@ mod tests {
         median_bid_depth_usd_e9: Option<i64>,
         median_ask_depth_usd_e9: Option<i64>,
         above_depth_floor: Option<bool>,
+        order_size_e9: Option<i64>,
+        order_size_notional_usd_e9: Option<i64>,
         selected_for_pilot: bool,
         final_rank: Option<u8>,
     }
@@ -2317,8 +2411,10 @@ mod tests {
     /// должна быть хотя бы одна строка, где их значения различаются — иначе
     /// обмен местами такой пары для теста не отличим от отсутствия ошибки.
     /// Здесь: `median_bid_depth_usd_e9` и `median_ask_depth_usd_e9` различны
-    /// внутри каждой измеренной строки, а `excluded_reason` пуста у пула и
-    /// непуста у исключённой — иначе перепутанные колонки прошли бы тест.
+    /// внутри каждой измеренной строки, `order_size_e9` и
+    /// `order_size_notional_usd_e9` различны внутри каждой строки пула, а
+    /// `excluded_reason` пуста у пула и непуста у исключённой — иначе
+    /// перепутанные колонки прошли бы тест.
     #[test]
     fn candidate_table_csv_round_trips_measured_and_unmeasured_rows() {
         let rows = vec![
@@ -2335,6 +2431,8 @@ mod tests {
                 median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
                 median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
                 above_depth_floor: Some(true),
+                order_size_e9: Some(100_000_000),
+                order_size_notional_usd_e9: Some(15_000_000_000),
                 selected_for_pilot: true,
                 final_rank: Some(1),
             },
@@ -2351,6 +2449,8 @@ mod tests {
                 median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
                 median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
                 above_depth_floor: Some(true),
+                order_size_e9: Some(500_000_000),
+                order_size_notional_usd_e9: Some(7_500_000_000),
                 selected_for_pilot: false,
                 final_rank: None,
             },
@@ -2367,6 +2467,10 @@ mod tests {
                 median_bid_depth_usd_e9: None,
                 median_ask_depth_usd_e9: None,
                 above_depth_floor: None,
+                // Размер из метаданных и цены, измерения не требует — поэтому
+                // заполнен и у неизмеренного члена пула, в отличие от глубин.
+                order_size_e9: Some(1_000_000_000),
+                order_size_notional_usd_e9: Some(5_000_000_000),
                 selected_for_pilot: false,
                 final_rank: None,
             },
@@ -2383,6 +2487,8 @@ mod tests {
                 median_bid_depth_usd_e9: None,
                 median_ask_depth_usd_e9: None,
                 above_depth_floor: None,
+                order_size_e9: None,
+                order_size_notional_usd_e9: None,
                 selected_for_pilot: false,
                 final_rank: None,
             },
@@ -2411,6 +2517,8 @@ mod tests {
                     median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
                     median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
                     above_depth_floor: Some(true),
+                    order_size_e9: Some(100_000_000),
+                    order_size_notional_usd_e9: Some(15_000_000_000),
                     selected_for_pilot: true,
                     final_rank: Some(1),
                 },
@@ -2427,6 +2535,8 @@ mod tests {
                     median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
                     median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
                     above_depth_floor: Some(true),
+                    order_size_e9: Some(500_000_000),
+                    order_size_notional_usd_e9: Some(7_500_000_000),
                     selected_for_pilot: false,
                     final_rank: None,
                 },
@@ -2443,6 +2553,8 @@ mod tests {
                     median_bid_depth_usd_e9: None,
                     median_ask_depth_usd_e9: None,
                     above_depth_floor: None,
+                    order_size_e9: Some(1_000_000_000),
+                    order_size_notional_usd_e9: Some(5_000_000_000),
                     selected_for_pilot: false,
                     final_rank: None,
                 },
@@ -2459,13 +2571,17 @@ mod tests {
                     median_bid_depth_usd_e9: None,
                     median_ask_depth_usd_e9: None,
                     above_depth_floor: None,
+                    order_size_e9: None,
+                    order_size_notional_usd_e9: None,
                     selected_for_pilot: false,
                     final_rank: None,
                 },
             ],
-            "неизмеренный кандидат обязан вернуться как None на всех Option-полях, \
-             а не как 0, false или пустая строка, принятая за None; `excluded_reason` \
-             обязана читаться назад раздельно (пусто у пула, код у исключённой)"
+            "неизмеренный кандидат обязан вернуться как None на всех Option-полях \
+             замера, а не как 0, false или пустая строка, принятая за None; \
+             `excluded_reason` обязана читаться назад раздельно (пусто у пула, \
+             код у исключённой); размер-22а при этом заполнен и у неизмеренного \
+             члена пула (считается без замера) и пуст только у исключённой"
         );
     }
 
@@ -2717,13 +2833,19 @@ mod tests {
         assert_eq!(c0_row.above_depth_floor, Some(true));
         assert!(c0_row.selected_for_pilot);
         assert_eq!(c0_row.final_rank, Some(1));
-        // Строка исключённой: причина есть, покрытия и замера нет.
+        // Размер-22а на дефолтном meta(): лот 0.1 при цене 100 — $10, чек $5
+        // покрыт одним шагом, размер равен лоту, номинал $10.
+        assert_eq!(c0_row.order_size_e9, Some(100_000_000));
+        assert_eq!(c0_row.order_size_notional_usd_e9, Some(10_000_000_000));
+        // Строка исключённой: причина есть, покрытия, замера и размера нет.
         let btc_row = table.iter().find(|r| r.symbol == "BTCUSDT").unwrap();
         assert_eq!(btc_row.excluded_reason, EXCLUDED_BTC_ETH);
         assert_eq!(btc_row.coverage_top50_bps, None);
         assert!(btc_row.suitable_baskets.is_empty());
         assert!(!btc_row.measured);
         assert!(!btc_row.selected_for_pilot);
+        assert_eq!(btc_row.order_size_e9, None);
+        assert_eq!(btc_row.order_size_notional_usd_e9, None);
     }
 }
 

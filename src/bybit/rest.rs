@@ -98,8 +98,9 @@ impl std::fmt::Display for RestError {
 impl std::error::Error for RestError {}
 
 /// Один инструмент из `instruments-info` — только поля, которые использует
-/// Decision 18 (пул, дедуп, `H6`/`H10`) и Decision 22 (минимальный лот против
-/// `minNotionalValue`). Цена и размер — целые 1e-9 (см. doc модуля).
+/// Decision 18 (пул, дедуп, `H6`/`H10`) и Decision 22а (размер как наименьшее
+/// допустимое количество: `minOrderQty`, `qtyStep`, `minNotionalValue`).
+/// Цена и размер — целые 1e-9 (см. doc модуля).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instrument {
     pub symbol: String,
@@ -130,10 +131,9 @@ pub struct InstrumentsPage {
 }
 
 /// Один тикер `market/tickers`: оборот — ради ранжирования Decision 18,
-/// последняя цена — единственный способ проверить Decision 22 («минимальный
-/// лот удовлетворяет `minNotionalValue`»): `minNotionalValue` в
+/// последняя цена — вход формулы размера Decision 22а (`minNotionalValue` в
 /// `instruments-info` задан в валюте котировки, а `minOrderQty` — в базовом
-/// активе, и без текущей цены их не сравнить вовсе.
+/// активе, и без текущей цены их не сравнить вовсе).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ticker {
     pub symbol: String,
