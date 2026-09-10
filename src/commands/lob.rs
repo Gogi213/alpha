@@ -444,6 +444,10 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
 /// глубины неотрицательны, поэтому `b >= a` после сортировки и `b - a` не
 /// переполняет `i64` там, где `a + b` могло бы (оба значения могут быть
 /// сколь угодно велики по отдельности, но их разность — нет).
+///
+/// Индексы ниже доказаны guard (`n ≥ 1`): нечёт — середина, чёт (`n ≥ 2`) —
+/// два средних. Проверка через `get` здесь — мёртвый код ради линта.
+#[allow(clippy::indexing_slicing)]
 pub fn median_depth_per_level_usd_e9(level_depths_usd_e9: &[i64]) -> Option<i64> {
     if level_depths_usd_e9.is_empty() {
         return None;
@@ -3546,8 +3550,8 @@ fn write_markout_csv(out: &Path, days: &[ReplayDay]) -> anyhow::Result<(usize, [
     for day in days {
         for r in &day.records {
             let ms = markouts_for_level(r, &day.mids);
-            for (i, slot) in per_horizon.iter_mut().enumerate() {
-                if let Some(v) = ms[i] {
+            for (slot, v) in per_horizon.iter_mut().zip(ms) {
+                if let Some(v) = v {
                     slot.push(v);
                 }
             }

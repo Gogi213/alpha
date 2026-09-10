@@ -96,7 +96,8 @@ const WEBB_POINTS: [f64; 6] = [
 
 /// Очередной вес Уэбба из общего генератора. Порядок `next_u64 % 6` — тот же,
 /// что `SplitMix64::next_webb_weight` в `stats`, поэтому при том же seed поток
-/// совпадает пореплико (A2).
+/// совпадает пореплико (A2). Индекс доказуемо < 6 по построению остатка.
+#[allow(clippy::indexing_slicing)]
 fn next_webb(rng: &mut SplitMix64) -> f64 {
     WEBB_POINTS[(rng.next_u64() % WEBB_POINTS.len() as u64) as usize]
 }
@@ -452,10 +453,15 @@ fn median_i64_upper(sorted: &mut [i64]) -> Option<i64> {
         return None;
     }
     sorted.sort_unstable();
-    Some(sorted[sorted.len() / 2])
+    // Индекс доказуемо в границах: guard даёт len ≥ 1.
+    #[allow(clippy::indexing_slicing)]
+    let m = sorted[sorted.len() / 2];
+    Some(m)
 }
 
-/// Медиана markout: при чётном n — среднее двух средних.
+/// Медиана markout: при чётном n — среднее двух средних. Guard даёт len ≥ 1
+/// (чётный случай — автоматически ≥ 2), индексы доказаны им.
+#[allow(clippy::indexing_slicing)]
 fn median_f64(values: &[f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -480,7 +486,9 @@ fn mean_f64(values: &[f64]) -> Option<f64> {
 
 /// Квантиль уровня `q` на отсортированном по возрастанию срезе, линейная
 /// интерполяция между соседями. Вызывающий гарантирует непустоту и `q`
-/// внутри [0, 1].
+/// внутри [0, 1] (проверено `debug_assert`); индексы `lo`/`hi` лежат в
+/// `0..len` по построению `pos`, `get` здесь — мёртвый код ради линта.
+#[allow(clippy::indexing_slicing)]
 fn quantile_sorted(sorted: &[f64], q: f64) -> f64 {
     debug_assert!(!sorted.is_empty(), "квантиль пустого распределения");
     debug_assert!((0.0..=1.0).contains(&q), "уровень квантиля вне [0,1]");
@@ -508,11 +516,16 @@ fn fmt_opt(v: Option<f64>) -> String {
 
 /// Порядок суток по возрастанию `day_utc` (индексы входа). Первые сутки UTC —
 /// минимальная дата среди годных, а не первые в срезе: порядок подачи
-/// на медиану не влияет.
+/// на медиану не влияет. Без индексного синтаксиса: сортируются пары
+/// (дата, индекс), индексы из них извлекаются.
 fn order_by_day(days: &[CellDay<'_>]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..days.len()).collect();
-    order.sort_by(|&a, &b| days[a].tally.day_utc.cmp(&days[b].tally.day_utc));
-    order
+    let mut keyed: Vec<(&str, usize)> = days
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.tally.day_utc.as_str(), i))
+        .collect();
+    keyed.sort_by(|a, b| a.0.cmp(b.0));
+    keyed.into_iter().map(|(_, i)| i).collect()
 }
 
 /// Проверяет вход целиком: непустоту, попарные длины, годность каждых суток
@@ -556,7 +569,12 @@ fn validate_days(days: &[CellDay<'_>]) -> Result<Vec<usize>, CellsError> {
 /// Возвращает пару (первые сутки, медиана).
 pub fn median_lifetime_c1_first_day(days: &[CellDay<'_>]) -> Result<(String, i64), CellsError> {
     let order = validate_days(days)?;
-    let first = &days[order[0]];
+    // `order` зеркалит вход один в один (та же длина, проверено выше) —
+    // первого элемента не может не быть, но синтаксис за это не отвечает.
+    let first = order
+        .first()
+        .and_then(|&di| days.get(di))
+        .ok_or(CellsError::NoEligibleDays)?;
     let mut lifetimes: Vec<i64> = first
         .records
         .iter()
@@ -731,7 +749,13 @@ pub fn run_cells_with_median(
     let mut day_sums: Vec<(f64, u64, f64, u64)> = Vec::with_capacity(order.len());
     let mut missing: u64 = 0;
     for (cluster, &di) in order.iter().enumerate() {
-        let day = &days[di];
+        // `order` — перестановка индексов того же среза (проверено
+        // `validate_days` выше), чужому индексу взяться неоткуда; `get`
+        // вместо прямого доступа, чтобы синтаксис не отвечал за инвариант.
+        let Some(day) = days.get(di) else {
+            debug_assert!(false, "порядок построен не по этим суткам");
+            continue;
+        };
         let key = cluster as i64;
         let mut sum_c2 = 0.0;
         let mut cnt_c2: u64 = 0;
@@ -769,7 +793,13 @@ pub fn run_cells_with_median(
 
     Ok(CellsReport {
         median_lifetime_ms,
-        first_day_utc: days[order[0]].tally.day_utc.clone(),
+        // Первые сутки — те же, по которым медиана: `order` непуст по
+        // `validate_days`, `get` вместо индекса на случай рассинхрона.
+        first_day_utc: order
+            .first()
+            .and_then(|&di| days.get(di))
+            .map(|d| d.tally.day_utc.clone())
+            .ok_or(CellsError::NoEligibleDays)?,
         c1,
         c2,
         c1_verdict,

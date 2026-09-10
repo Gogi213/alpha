@@ -391,16 +391,22 @@ impl CellBacktest {
             self.incomplete
         ));
         match pnl_curve_bps(&self.fills) {
-            Some(curve) => {
-                let last = curve[curve.len() - 1];
-                let min = curve.iter().fold(f64::INFINITY, |a, b| a.min(*b));
-                lines.push(format!(
-                    "{name} pnl_bps: n={} final={:.4} min={:.4}",
-                    curve.len(),
-                    last,
-                    min
-                ));
-            }
+            // `Some` здесь всегда непуст (`pnl_curve_bps` возвращает `None`
+            // на пустом входе), но индекс последнего через `len() - 1` —
+            // паникующий синтаксис ради доказанного факта; `last()` тот же
+            // факт без синтаксиса, за который отвечает вызывающий.
+            Some(curve) => match curve.last() {
+                Some(&last) => {
+                    let min = curve.iter().fold(f64::INFINITY, |a, b| a.min(*b));
+                    lines.push(format!(
+                        "{name} pnl_bps: n={} final={:.4} min={:.4}",
+                        curve.len(),
+                        last,
+                        min
+                    ));
+                }
+                None => lines.push(format!("{name} pnl_bps: none (no fills)")),
+            },
             None => lines.push(format!("{name} pnl_bps: none (no fills)")),
         }
         lines.push(format!(

@@ -128,11 +128,15 @@ fn read_var(name: &'static str) -> Result<String, CredentialsError> {
 /// байта — заводить ради него ещё одну зависимость дороже, чем эти десять
 /// строк, а `Cargo.toml` в этом проходе не наш файл.
 fn hex_lower(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    // Ветвлением вместо таблицы: ниббл всегда < 16 по построению масок
+    // вызывающего (`b >> 4`, `b & 0x0f`), total без индексации и без паники.
+    fn nibble(n: u8) -> char {
+        (if n < 10 { b'0' + n } else { b'a' + (n - 10) }) as char
+    }
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        out.push(DIGITS[(b >> 4) as usize] as char);
-        out.push(DIGITS[(b & 0x0f) as usize] as char);
+        out.push(nibble(b >> 4));
+        out.push(nibble(b & 0x0f));
     }
     out
 }

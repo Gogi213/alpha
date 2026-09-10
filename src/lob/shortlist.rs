@@ -184,12 +184,15 @@ pub struct CalendarSplit {
 
 fn day_format_ok(day: &str) -> bool {
     let b = day.as_bytes();
+    // Все обращения через `get`: длина проверяется здесь же, а не выше.
     b.len() == 10
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[..4].iter().all(u8::is_ascii_digit)
-        && b[5..7].iter().all(u8::is_ascii_digit)
-        && b[8..10].iter().all(u8::is_ascii_digit)
+        && b.get(4) == Some(&b'-')
+        && b.get(7) == Some(&b'-')
+        && b.get(..4).is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+        && b.get(5..7)
+            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+        && b.get(8..10)
+            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
 }
 
 /// Делит сутки по календарю 60/40 до анализа. Вход может идти в любом
@@ -206,18 +209,25 @@ pub fn split_calendar(days: &[String]) -> Result<CalendarSplit, ShortlistError> 
     }
     let mut sorted = days.to_vec();
     sorted.sort();
-    if sorted.windows(2).any(|w| w[0] == w[1]) {
+    // Окно из двух сравнивается паттерном, не индексом: `windows(2)` всегда
+    // даёт ровно два элемента, и матчинг это выражает без паникующего синтаксиса.
+    if sorted.windows(2).any(|w| matches!(w, [a, b] if a == b)) {
         let dup = sorted
             .windows(2)
-            .find(|w| w[0] == w[1])
-            .map_or_else(|| "?".to_string(), |w| w[0].clone());
+            .find_map(|w| match w {
+                [a, b] if a == b => Some(a.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "?".to_string());
         return Err(ShortlistError::DuplicateDay { day: dup });
     }
     let expl_len = sorted.len() * EXPLORATORY_NUMER / EXPLORATORY_DENOM;
     let expl_len = expl_len.clamp(1, sorted.len() - 1);
+    // `split_at` вместо срезов: граница доказана clamp выше (1..len).
+    let (exploratory, confirmatory) = sorted.split_at(expl_len);
     Ok(CalendarSplit {
-        confirmatory: sorted[expl_len..].to_vec(),
-        exploratory: sorted[..expl_len].to_vec(),
+        confirmatory: confirmatory.to_vec(),
+        exploratory: exploratory.to_vec(),
     })
 }
 

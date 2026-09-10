@@ -448,7 +448,10 @@ fn parse_ntp_response(
     // сервер сам помечает свой ответ как не заслуживающий доверия
     // (RFC 5905 §7.3) — использовать такую метку для дисциплины часов
     // значит опираться на то, что источник прямо назвал ненадёжным.
-    let leap_indicator = response[0] >> 6;
+    let leap_indicator = response
+        .first()
+        .map(|b| b >> 6)
+        .ok_or_else(|| ClockError::Decode("короткий ответ NTP: нет первого байта".to_string()))?;
     if leap_indicator == 0b11 {
         return Err(ClockError::Decode(
             "NTP: leap indicator = 3, сервер не синхронизирован".to_string(),
@@ -457,7 +460,10 @@ fn parse_ntp_response(
     // stratum = 0 — "kiss-o'-death": сервер отказал в ответе (перегрузка,
     // ограничение частоты и т.п., RFC 5905 §7.4) вместо реального времени;
     // тело такого пакета формально валидно, но метка в нём не время.
-    let stratum = response[1];
+    let stratum = response
+        .get(1)
+        .copied()
+        .ok_or_else(|| ClockError::Decode("короткий ответ NTP: нет stratum".to_string()))?;
     if stratum == 0 {
         return Err(ClockError::Decode(
             "NTP: stratum = 0 (kiss-o'-death), сервер отказал в ответе".to_string(),
@@ -466,12 +472,16 @@ fn parse_ntp_response(
     // Transmit Timestamp — последнее 64-битное поле пакета: 32 бита секунд
     // с 1900-01-01, 32 бита дробной части секунды как Q32 (RFC 5905 §6).
     let secs = u32::from_be_bytes(
-        response[40..44]
+        response
+            .get(40..44)
+            .ok_or_else(|| ClockError::Decode("короткий ответ NTP: нет поля секунд".to_string()))?
             .try_into()
             .map_err(|_| ClockError::Decode("NTP: поле секунд не легло в u32".to_string()))?,
     );
     let frac = u32::from_be_bytes(
-        response[44..48]
+        response
+            .get(44..48)
+            .ok_or_else(|| ClockError::Decode("короткий ответ NTP: нет дробной части".to_string()))?
             .try_into()
             .map_err(|_| ClockError::Decode("NTP: дробная часть не легла в u32".to_string()))?,
     );
@@ -538,7 +548,10 @@ impl ReferenceClock for UdpNtpSource {
             .recv(&mut response)
             .map_err(|e| ClockError::Transport(e.to_string()))?;
         let local_recv_ns = crate::bybit::conn::SystemClock.now_ns();
-        parse_ntp_response(&response[..n], local_send_ns, local_recv_ns)
+        let body = response
+            .get(..n)
+            .ok_or_else(|| ClockError::Transport("NTP: длина ответа вне буфера".to_string()))?;
+        parse_ntp_response(body, local_send_ns, local_recv_ns)
     }
 }
 

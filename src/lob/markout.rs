@@ -108,7 +108,11 @@ pub fn markouts_for_level(level: &LevelRecord, mids: &[MidSample]) -> [Option<f6
         return [None, None, None, None];
     };
     std::array::from_fn(|i| {
-        let fut2x = future_asof(mids, base_ts, HORIZONS_MS[i])?;
+        // Индекс доказуемо в границах (`from_fn` идёт ровно по `0..4` при
+        // длине 4), но `get` здесь бесплатен и тотален: недостижимая ветвь
+        // даёт пропуск горизонта, а не панику.
+        let h = *HORIZONS_MS.get(i)?;
+        let fut2x = future_asof(mids, base_ts, h)?;
         markout_bps(level.side, base2x, fut2x)
     })
 }

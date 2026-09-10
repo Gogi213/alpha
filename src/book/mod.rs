@@ -58,6 +58,11 @@ impl HalfBook {
     /// что «все котировки по этой цене исполнены или сняты».
     ///
     /// Аллокаций нет, пока не превышена ёмкость: `insert` в `Vec` — это memmove.
+    ///
+    /// Индексы из `binary_search_by` доказаны самим поиском (`Ok(i)` — внутри),
+    /// проверка через `get` в горячем пути стоила бы ветвление на каждое
+    /// событие книги (гейт GC меряет именно этот путь).
+    #[allow(clippy::indexing_slicing)]
     fn set(&mut self, tick: i64, qty: i64) {
         match self.levels.binary_search_by(|probe| probe.0.cmp(&tick)) {
             Ok(i) => {
@@ -75,6 +80,7 @@ impl HalfBook {
         }
     }
 
+    #[allow(clippy::indexing_slicing)]
     fn qty_at(&self, tick: i64) -> i64 {
         match self.levels.binary_search_by(|probe| probe.0.cmp(&tick)) {
             Ok(i) => self.levels[i].1,
@@ -359,6 +365,11 @@ impl PartialEq for Book {
 impl Eq for Book {}
 
 /// Итератор по уровням от лучшей цены вглубь. Нужен разметке уровней и `verify`.
+///
+/// Индексы доказаны счётчиком (`i` идёт ровно по `0..n` длины своей стороны);
+/// вариант через `rev()`/`Box<dyn>` стоил бы аллокацию или второй тип
+/// итератора на каждый вызов горячего пути ради того же факта.
+#[allow(clippy::indexing_slicing)]
 impl Book {
     pub fn levels(&self, side: Side) -> impl Iterator<Item = (i64, i64)> + '_ {
         let bids = &self.bids.levels;

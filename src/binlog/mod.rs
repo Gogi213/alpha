@@ -517,6 +517,12 @@ enum ReadStatus {
 /// успел прочитать, а формату нужно различать «ровно ноль байт — конец
 /// файла» и «часть кадра есть, но не вся — усечение» (Decision 7). Читает
 /// через `read()` в цикле именно ради этого различия.
+///
+/// Срез `buf[filled..]` доказуемо в границах: условие цикла держит
+/// `filled < buf.len()`. Развёртка в `get` невозможна без смены контракта
+/// чтения (`Read::read` требует `&mut [u8]`), поэтому заглушка именная,
+/// на функцию.
+#[allow(clippy::indexing_slicing)]
 fn read_upto<R: Read>(r: &mut R, buf: &mut [u8]) -> io::Result<ReadStatus> {
     if buf.is_empty() {
         return Ok(ReadStatus::Full);
@@ -801,6 +807,11 @@ impl<R: Read> Reader<R> {
     /// байт внутри объявленной длины кадра — `ShortRead`, никогда не
     /// `Ok(None)` и никогда не паника (Decision 7: усечение обязано быть
     /// видно как короткое чтение, а не как молчаливый пустой хвост).
+    ///
+    /// Срезы чанка ниже доказаны: `want ≤ READ_CHUNK = chunk.len()` через
+    /// `min`, `n` из `Partial(n)` не превышает запрошенного по контракту
+    /// `read_upto`; проверка через `get` в цикле ввода-вывода — мёртвый код.
+    #[allow(clippy::indexing_slicing)]
     pub fn read_frame(&mut self) -> Result<Option<Vec<Record>>, BinlogError> {
         let mut len_buf = [0u8; LEN_PREFIX];
         match read_upto(&mut self.inner, &mut len_buf)? {

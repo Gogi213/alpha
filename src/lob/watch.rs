@@ -357,58 +357,64 @@ fn bad_flag(reason: String) -> WatchError {
 fn day_format_ok(day: &str) -> bool {
     let b = day.as_bytes();
     b.len() == 10
-        && b[4] == b'-'
-        && b[7] == b'-'
-        && b[..4].iter().all(u8::is_ascii_digit)
-        && b[5..7].iter().all(u8::is_ascii_digit)
-        && b[8..10].iter().all(u8::is_ascii_digit)
+        && b.get(4) == Some(&b'-')
+        && b.get(7) == Some(&b'-')
+        && b.get(..4).is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+        && b.get(5..7)
+            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+        && b.get(8..10)
+            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+}
+
+fn kv(line: &str) -> Result<(&str, &str), WatchError> {
+    line.split_once('=')
+        .ok_or_else(|| bad_flag(format!("строка без знака равенства: {line}")))
 }
 
 fn parse_ready_flag(text: &str) -> Result<ReadyFlag, WatchError> {
     let lines: Vec<&str> = text.lines().collect();
-    if lines.len() != 5 {
-        return Err(bad_flag(format!("жду 5 строк, вижу {}", lines.len())));
-    }
-    let mut keys: Vec<&str> = Vec::with_capacity(5);
-    let mut vals: Vec<&str> = Vec::with_capacity(5);
-    for line in &lines {
-        let Some((k, v)) = line.split_once('=') else {
-            return Err(bad_flag(format!("строка без знака равенства: {line}")));
-        };
-        keys.push(k);
-        vals.push(v);
-    }
-    if keys != ["symbol", "n_c2", "g", "ready_at_utc", "days"] {
+    // Пять строк ровно: паттерн разбирает и проверяет длину одним движением,
+    // дальше — именованные переменные вместо индексов.
+    let [l0, l1, l2, l3, l4] = match lines.as_slice() {
+        [a, b, c, d, e] => [*a, *b, *c, *d, *e],
+        _ => return Err(bad_flag(format!("жду 5 строк, вижу {}", lines.len()))),
+    };
+    let (k0, symbol) = kv(l0)?;
+    let (k1, n_c2_s) = kv(l1)?;
+    let (k2, g_s) = kv(l2)?;
+    let (k3, ready_at) = kv(l3)?;
+    let (k4, days_s) = kv(l4)?;
+    if (k0, k1, k2, k3, k4) != ("symbol", "n_c2", "g", "ready_at_utc", "days") {
         return Err(bad_flag(
             "ключи обязаны идти порядком symbol,n_c2,g,ready_at_utc,days".to_string(),
         ));
     }
-    if vals[0].is_empty() {
+    if symbol.is_empty() {
         return Err(bad_flag("пустой symbol".to_string()));
     }
-    let n_c2: u64 = vals[1]
+    let n_c2: u64 = n_c2_s
         .parse()
-        .map_err(|_| bad_flag(format!("n_c2 не число: {}", vals[1])))?;
-    let g: u64 = vals[2]
+        .map_err(|_| bad_flag(format!("n_c2 не число: {n_c2_s}")))?;
+    let g: u64 = g_s
         .parse()
-        .map_err(|_| bad_flag(format!("g не число: {}", vals[2])))?;
-    if vals[3].is_empty() {
+        .map_err(|_| bad_flag(format!("g не число: {g_s}")))?;
+    if ready_at.is_empty() {
         return Err(bad_flag("пустая метка времени".to_string()));
     }
-    let days: Vec<String> = vals[4].split(',').map(str::to_string).collect();
+    let days: Vec<String> = days_s.split(',').map(str::to_string).collect();
     if days.iter().any(|d| !day_format_ok(d)) {
         return Err(bad_flag("список суток содержит не YYYY-MM-DD".to_string()));
     }
-    if days.windows(2).any(|w| w[0] >= w[1]) {
+    if days.windows(2).any(|w| matches!(w, [a, b] if a >= b)) {
         return Err(bad_flag(
             "сутки обязаны идти строго по возрастанию".to_string(),
         ));
     }
     Ok(ReadyFlag {
-        symbol: vals[0].to_string(),
+        symbol: symbol.to_string(),
         n_c2,
         g,
-        ready_at_utc: vals[3].to_string(),
+        ready_at_utc: ready_at.to_string(),
         days,
     })
 }

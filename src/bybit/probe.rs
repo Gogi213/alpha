@@ -571,6 +571,10 @@ pub fn percentile_ns(samples: &[i64], p: u8) -> i64 {
 /// перцентиля (медиану и p95) одной и той же выборки: через `percentile_ns`
 /// это были бы два независимых `to_vec()` и `sort_unstable()` ради одного и
 /// того же порядка — две аллокации и два O(n log n) там, где вопрос один.
+///
+/// Индекс ниже доказуемо в границах (asserts дают n ≥ 1 и p ∈ 1..=100,
+/// откуда rank ∈ 1..=n), проверка через `get` — мёртвый код ради линта.
+#[allow(clippy::indexing_slicing)]
 fn percentile_of_sorted(sorted: &[i64], p: u8) -> i64 {
     assert!(!sorted.is_empty(), "перцентиль пустой выборки не определён");
     assert!(

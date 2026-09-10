@@ -274,11 +274,15 @@ fn sharpe_over_blocks(
     let mut n = 0usize;
     let mut sum = 0.0;
     let mut sumsq = 0.0;
-    for b in 0..partitions {
+    // Чанки вместо срезов `[b*bl..(b+1)*bl]`: вызывающие передают ряды,
+    // длина которых кратна покрытию (`periods`, строки равной длины), так что
+    // первые `partitions` чанков — те же данные без паникующего синтаксиса.
+    // Хвост, не кратный чанку, отбрасывается обеими версиями одинаково.
+    for (b, chunk) in trial.chunks_exact(block_len).enumerate().take(partitions) {
         if !select(b) {
             continue;
         }
-        for x in &trial[b * block_len..(b + 1) * block_len] {
+        for x in chunk {
             if !x.is_finite() {
                 return 0.0;
             }
@@ -329,7 +333,6 @@ pub fn pbo(trials: &[Vec<f64>], partitions: usize) -> Option<f64> {
     if block_len == 0 {
         return None;
     }
-    let usable = block_len * partitions;
     let rest = partitions - 1;
     let want = partitions / 2 - 1;
     let n = trials.len();
@@ -343,22 +346,23 @@ pub fn pbo(trials: &[Vec<f64>], partitions: usize) -> Option<f64> {
         let mut best = 0;
         let mut best_v = f64::NEG_INFINITY;
         for (i, trial) in trials.iter().enumerate() {
-            let v = sharpe_over_blocks(&trial[..usable], block_len, partitions, is_block);
+            let v = sharpe_over_blocks(trial, block_len, partitions, is_block);
             if v > best_v {
                 best_v = v;
                 best = i;
             }
         }
-        let picked = sharpe_over_blocks(&trials[best][..usable], block_len, partitions, |b| {
-            !is_block(b)
-        });
+        // `best` — только из индексов `enumerate` по непустому `trials`
+        // (длина ≥ 2 проверена выше), вне диапазона ему взяться неоткуда.
+        #[allow(clippy::indexing_slicing)]
+        let picked = sharpe_over_blocks(&trials[best], block_len, partitions, |b| !is_block(b));
         let mut worse = 0usize;
         let mut equal = 0usize;
         for (j, trial) in trials.iter().enumerate() {
             if j == best {
                 continue;
             }
-            let v = sharpe_over_blocks(&trial[..usable], block_len, partitions, |b| !is_block(b));
+            let v = sharpe_over_blocks(trial, block_len, partitions, |b| !is_block(b));
             // Точное равенство float здесь не небрежность, и `float_cmp`
             // заглушен сознательно. PBO делит вес ничьей пополам
             // (`0.5 * equal` ниже), а ничья возникает не «случайно
@@ -433,6 +437,10 @@ pub fn cpcv_mean_oos_sharpe(per_trade_net: &[f64], params: CpcvParams) -> Option
     let mut scored = 0usize;
     for k in 0..folds {
         let base = k * fold_len;
+        // Границы доказаны выше: `kept = fold_len - purge - embargo ≥ 2`,
+        // откуда `base + purge + kept = base + fold_len - embargo ≤ len`
+        // (k < folds, fold_len = len / folds). Срез тотален по построению.
+        #[allow(clippy::indexing_slicing)]
         let fold = &per_trade_net[base + purge..base + fold_len - embargo];
         if let Some(s) = sharpe_ratio(fold) {
             sum += s;
