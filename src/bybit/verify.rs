@@ -345,8 +345,9 @@ pub fn trade_in_range(book: &Book, price_tick: i64) -> Option<bool> {
 }
 
 /// Цена удерживается книгой, если тик держит хотя бы одна сторона.
-/// Ревизия 17а: нарушение теста 3 — внутри диапазона на цене, которую не держит
-/// ни одна сторона; сторона сделки в точке проверяется именно так.
+/// Ревизия 17б: для нарушения теста 3 этого мало — в L2 между уровнями бывают
+/// пустые тики, и сделка по такому тику в момент, когда уровень уже съеден, —
+/// норма, а не брак. Нарушение — цена, которую книга НИ РАЗУ не держала.
 pub fn price_held(book: &Book, price_tick: i64) -> bool {
     book.qty_lots_at(Side::Bid, price_tick) != 0 || book.qty_lots_at(Side::Ask, price_tick) != 0
 }
@@ -386,8 +387,8 @@ pub struct VerifyStats {
 }
 
 impl VerifyStats {
-    /// Нарушения теста 3 (ревизия 17а: внутри диапазона на недержимой цене)
-    /// в миллионных долях. `None` — сделок не было.
+    /// Нарушения теста 3 (ревизия 17б: внутри диапазона на цене, которую книга
+    /// ни разу не держала за время покрытия) в миллионных долях. `None` — сделок не было.
     pub fn trade_violation_ppm(&self) -> Option<u64> {
         if self.trades_total == 0 {
             return None;
@@ -411,6 +412,10 @@ impl VerifyStats {
 pub struct Verifier {
     book: Book,
     stats: VerifyStats,
+    /// Каждый тик, который книга держала хоть раз за время покрытия (ревизия
+    /// 17б). Только вставки и проверки вхождения — порядок обхода не влияет
+    /// ни на что, детерминизм A2 не задет. Память — тысячи distinct тиков.
+    ever_held: std::collections::HashSet<i64>,
 }
 
 impl Verifier {
@@ -418,6 +423,7 @@ impl Verifier {
         Self {
             book: Book::new(tick_e9, step_e9),
             stats: VerifyStats::default(),
+            ever_held: std::collections::HashSet::new(),
         }
     }
 
@@ -438,6 +444,14 @@ impl Verifier {
         match self.book.apply(up) {
             Ok(()) => {
                 self.stats.updates_applied += 1;
+                // Все удерживаемые тики — в историю покрытия (ревизия 17б).
+                // Пустой срез уровней невозможен: apply с нулевыми размерами
+                // уровни удаляет, а не хранит.
+                for side in [Side::Bid, Side::Ask] {
+                    for (tick, _) in self.book.levels(side) {
+                        self.ever_held.insert(tick);
+                    }
+                }
                 let v = check_invariants(&self.book);
                 self.stats.invariant_violations += v.len() as u64;
                 Ok(v)
@@ -460,16 +474,18 @@ impl Verifier {
         }
     }
 
-    /// Отмечает сделку ленты в проверке 3 (ревизия 17а, три исхода):
+    /// Отмечает сделку ленты в проверке 3 (ревизия 17б, три исхода):
     /// пустая книга — indeterminate; вне диапазона — `out_of_range` без порога;
-    /// внутри на цене, которую не держит ни одна сторона, — нарушение.
+    /// внутри на цене, которую книга НИ РАЗУ не держала за время покрытия, —
+    /// нарушение. Цена, удерживаемая сейчас или державшаяся раньше (пустой тик
+    /// между уровнями, съеденный уровень), — не нарушение.
     pub fn observe_trade(&mut self, price_tick: i64) {
         self.stats.trades_total += 1;
         match trade_in_range(&self.book, price_tick) {
             None => self.stats.trades_indeterminate += 1,
             Some(false) => self.stats.trades_out_of_range += 1,
             Some(true) => {
-                if !price_held(&self.book, price_tick) {
+                if !self.ever_held.contains(&price_tick) {
                     self.stats.trades_violations += 1;
                 }
             }
@@ -704,8 +720,8 @@ pub struct VerifyArgs {
 }
 
 /// Итог файлового прогона для печати и `VerifyStats` вызывающему.
-/// Ревизия 17а: `trades_out_of_range` — доля без порога, `trades_violations` —
-/// нарушения теста 3 с порогом < 0.1%.
+/// Ревизия 17б: `trades_out_of_range` — доля без порога, `trades_violations` —
+/// нарушения теста 3 (цена ни разу не держалась) с порогом < 0.1%.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VerifySummary {
     pub files: usize,
@@ -1102,8 +1118,9 @@ mod tests {
     }
 
     #[test]
-    fn trade_inside_range_on_unheld_price_is_violation() {
-        // Нарушение теста 3: внутри спана [99, 104], но тик не держит ни одна сторона.
+    fn trade_inside_range_on_never_held_price_is_violation() {
+        // Нарушение теста 3 (ревизия 17б): внутри спана [99, 104], тики 101/102
+        // книга ни разу не держала — ни сейчас, ни раньше.
         let mut v = Verifier::new(TICK_E9, STEP_E9);
         let up = Update {
             is_snapshot: true,
@@ -1120,6 +1137,38 @@ mod tests {
         assert_eq!(v.stats().trades_out_of_range, 0);
         assert_eq!(v.stats().trades_violations, 2);
         assert_eq!(v.stats().trade_violation_ppm(), Some(1_000_000));
+    }
+
+    #[test]
+    fn trade_on_emptied_tick_is_clean_under_17b() {
+        // Различие 17а → 17б: тик 100 книга держала (снапшот), потом уровень
+        // съели целиком (дельта с нулём). Сделка по нему после — норма:
+        // пустой тик между уровнями и доедание — штатная механика L2.
+        // По букве 17а это было бы нарушением (не держит сейчас).
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        let snap = Update {
+            is_snapshot: true,
+            u: 1,
+            seq: 1,
+            cts_ms: 1_000,
+            bids: vec![(px(100), qty(5)), (px(99), qty(7))],
+            asks: vec![(px(103), qty(4)), (px(104), qty(6))],
+        };
+        v.apply_update(&snap).unwrap();
+        let eaten = Update {
+            is_snapshot: false,
+            u: 2,
+            seq: 2,
+            cts_ms: 2_000,
+            bids: vec![(px(100), qty(0))],
+            asks: vec![],
+        };
+        v.apply_update(&eaten).unwrap();
+        v.observe_trade(100);
+        assert_eq!(v.stats().trades_total, 1);
+        assert_eq!(v.stats().trades_out_of_range, 0);
+        assert_eq!(v.stats().trades_violations, 0);
+        assert_eq!(v.stats().trade_violation_ppm(), Some(0));
     }
 
     #[test]
