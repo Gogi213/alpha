@@ -86,6 +86,9 @@ impl SystemClock {
     /// в отрицательную метку, а не в аварийную остановку. Число будет заведомо
     /// неверным, но обнаружить и сообщить о сломанных часах хоста — работа
     /// `lob clock` (шаг 0.5, `ARCHITECTURE.md`), а не горячего пути `recv`.
+    /// Касты точные для дат до 2262 года (`as_nanos` ~1.7e18 сейчас против
+    /// `i64::MAX` ~9.2e18).
+    #[allow(clippy::cast_possible_truncation)]
     fn ns_since_epoch(now: SystemTime) -> i64 {
         match now.duration_since(UNIX_EPOCH) {
             // `as_nanos()` — `u128`; для дат до 2262 года влезает в `i64` без

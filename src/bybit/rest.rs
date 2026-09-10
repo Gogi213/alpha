@@ -271,6 +271,9 @@ fn decimal_field(v: &Value, key: &'static str) -> Result<i64, RestError> {
 /// не обязана класть в `result` то, что ждёт разбор на отклонении.
 fn parse_envelope(body: &str) -> Result<Value, RestError> {
     let v: Value = serde_json::from_str(body).map_err(|e| RestError::Decode(e.to_string()))?;
+    // Коды биржи — маленькие целые (0, пятизначные); усечение невозможно
+    // на любом диапазоне, который Bybit способен вернуть.
+    #[allow(clippy::cast_possible_truncation)]
     let ret_code = v
         .get("retCode")
         .and_then(|x| x.as_i64())
