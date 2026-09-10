@@ -1,0 +1,54 @@
+# Фаззинг читателя бинлога (Decision 30): единственное исключение из пина
+# шага 0.0. Nightly живёт только в этом джобе: rust-toolchain.toml не трогает,
+# в боевой путь ничего из fuzz/ не собирается. Короткий прогон без накопленного
+# корпуса — дымовой тест, поэтому корпус кэшируется между прогонами, а сиды
+# лежат в репозитории (fuzz/corpus/reader).
+name: Fuzz
+
+on:
+  push:
+    paths:
+      - "fuzz/**"
+      - "src/binlog/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    # Раз в неделю длиннее: накопленный корпус + свежий код.
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Лимит времени фаззинга в секундах"
+        required: false
+        default: "120"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz-reader:
+    name: binlog Reader
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nightly только для фаззинга
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+
+      - name: cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Накопленный корпус
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/reader
+          # Раз в неделю — свежий ключ, старый корпус не тащим вечно.
+          key: fuzz-reader-${{ github.run_id }}
+          restore-keys: fuzz-reader-
+
+      - name: Прогон
+        env:
+          SECONDS: ${{ github.event.inputs.seconds || '120' }}
+        # libfuzzer сам пишет новые входы в fuzz/corpus/reader — кэш выше их
+        # подберёт в конце прогона.
+        run: cargo +nightly fuzz run reader --fuzz-dir fuzz -- -max_total_time=$SECONDS -print_final_stats=1

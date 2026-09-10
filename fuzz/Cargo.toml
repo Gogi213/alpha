@@ -1,0 +1,17 @@
+[package]
+name = "alpha-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+alpha = { path = ".." }
+
+# Отдельный крейт вне рабочей области корня: фаззинг собирается только
+# nightly-тулчейном в своём джобе (Decision 30) и никогда не касается
+# rust-toolchain.toml и боевого пути.
+[workspace]

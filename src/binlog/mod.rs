@@ -1104,6 +1104,31 @@ mod tests {
         }
     }
 
+    /// Сид-корпус фаззера (`fuzz/corpus/reader`) гоняется и в стабильном
+    /// наборе: ни один вход не вправе ронять читатель — ни паникой, ни
+    /// бесконечностью. Потолок кадров тот же, что в фазз-таргете.
+    #[test]
+    fn fuzz_seed_corpus_never_panics_nor_hangs() {
+        let mut names: Vec<_> = std::fs::read_dir("fuzz/corpus/reader")
+            .expect("сид-корпус обязан существовать")
+            .map(|e| e.unwrap().path())
+            .collect();
+        names.sort();
+        assert!(!names.is_empty(), "пустой корпус ничего не проверяет");
+        for path in names {
+            let data = std::fs::read(&path).unwrap();
+            let Ok(mut reader) = Reader::open(&data[..]) else {
+                continue;
+            };
+            let _ = reader.header();
+            let mut frames = 0usize;
+            while let Ok(Some(_)) = reader.read_frame() {
+                frames += 1;
+                assert!(frames < 4096, "вход {:?} не заканчивается", path);
+            }
+        }
+    }
+
     // -----------------------------------------------------------------
     // Требование 2: сутки читаются с первого байта без предыдущих суток.
     // -----------------------------------------------------------------
