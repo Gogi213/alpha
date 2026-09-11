@@ -254,6 +254,37 @@ pub enum ConnEvent {
     Disconnected,
 }
 
+/// Куда `Connection::run` отдаёт разобранные события — трейт-шов, а не
+/// голый `mpsc::Sender<ConnEvent>` (таск 20, находка профиля пула:
+/// `feed::live::LiveFeed` раньше заводил на КАЖДОЕ соединение собственный
+/// канал плюс отдельную задачу-таск, чья единственная работа — приклеить
+/// индекс инструмента и переслать во второй, общий канал; на восьми
+/// соединениях это восемь лишних задач и двойной проход каждого события
+/// через `mpsc` на одном ОС-потоке, и замер (`lob session`, `queue_p99_ns`)
+/// поймал этот виток дороже самого разбора JSON — `918.6` мкс против
+/// `686.0` на живой сессии `data/recording-eco/20260911T182544Z-before`).
+/// `impl Future<..> + Send`, не `async fn` в трейте — та же причина, что и у
+/// `Transport`/`TransportConnector`/`Backoff` этого файла: обычный `async
+/// fn` в трейте не даёт `+ Send` на результате, а без него `Connection::run`
+/// нельзя передать в `tokio::spawn`.
+pub trait ConnSink: Send {
+    fn send_event(&self, ev: ConnEvent) -> impl Future<Output = ()> + Send;
+}
+
+/// Прежнее поведение, без изменений: `commands::record`, `commands::lob::
+/// pick::measure` и тесты этого файла заводят простой `mpsc::channel::
+/// <ConnEvent>` и передают `Sender` в `Connection::run` напрямую — им
+/// пересылка не нужна, потребитель уже знает свой единственный символ.
+/// Ошибка отправки (получатель закрылся) проглатывается тем же способом,
+/// каким её раньше проглатывал каждый отдельный вызов `out.send(..).await`
+/// внутри `run_with_backoff`/`handle_raw` — получатель мог закрыться
+/// осознанно, это не повод ронять поток ввода-вывода.
+impl ConnSink for mpsc::Sender<ConnEvent> {
+    async fn send_event(&self, ev: ConnEvent) {
+        let _ = self.send(ev).await;
+    }
+}
+
 /// Формат пинга задан протоколом Bybit, а не `PLAN.md`: `{"op":"ping"}` без
 /// топика. Не в `ws.rs` — тот файл не мой, и там это было бы разбором
 /// входящего, а это исходящее сообщение транспорта, как `sub_orderbook` и
@@ -303,14 +334,14 @@ impl<C: TransportConnector> Connection<C> {
     /// Тонкая обёртка над `run_with_backoff` с настоящим ожиданием
     /// (`RealBackoff`) — прод не видит разницы, только тесты подменяют
     /// планировщик задержки, чтобы не зависеть от настоящих часов (FIX 2).
-    pub async fn run(self, clock: impl Clock + 'static, out: mpsc::Sender<ConnEvent>) {
+    pub async fn run(self, clock: impl Clock + 'static, out: impl ConnSink + 'static) {
         self.run_with_backoff(clock, out, RealBackoff).await;
     }
 
     async fn run_with_backoff(
         mut self,
         clock: impl Clock + 'static,
-        out: mpsc::Sender<ConnEvent>,
+        out: impl ConnSink + 'static,
         backoff: impl Backoff,
     ) {
         let mut attempt: u32 = 0;
@@ -397,8 +428,7 @@ impl<C: TransportConnector> Connection<C> {
                                 let events = match ws::parse_message(&raw) {
                                     Ok(evs) => evs,
                                     Err(err) => {
-                                        let _ = out
-                                            .send(ConnEvent::ParseFailed { local_ts_ns, err })
+                                        out.send_event(ConnEvent::ParseFailed { local_ts_ns, err })
                                             .await;
                                         continue;
                                     }
@@ -419,14 +449,14 @@ impl<C: TransportConnector> Connection<C> {
                                 }
                             }
                             Ok(Frame::Closed) | Err(_) => {
-                                let _ = out.send(ConnEvent::Disconnected).await;
+                                out.send_event(ConnEvent::Disconnected).await;
                                 break;
                             }
                         }
                     }
                     _ = ping_due.tick() => {
                         if transport.send_text(ping_message()).await.is_err() {
-                            let _ = out.send(ConnEvent::Disconnected).await;
+                            out.send_event(ConnEvent::Disconnected).await;
                             break;
                         }
                     }
@@ -461,14 +491,14 @@ impl<C: TransportConnector> Connection<C> {
     /// (отправка ресинка в уже мёртвый сокет не удалась). Разбор (и обе
     /// метки, `local_ts_ns` до него и `parsed_ts_ns` сразу после) сделан
     /// вызывающим кодом в `run` — см. комментарий там.
-    async fn handle_raw(
+    async fn handle_raw<O: ConnSink>(
         events: Vec<Event>,
         local_ts_ns: i64,
         parsed_ts_ns: i64,
         session: &mut Session,
         symbol: &str,
         transport: &mut C::Transport,
-        out: &mpsc::Sender<ConnEvent>,
+        out: &O,
     ) -> bool {
         for event in events {
             if let Event::Book(update) = &event {
@@ -499,17 +529,17 @@ impl<C: TransportConnector> Connection<C> {
                             // имеют права быть невидимыми снаружи этого файла.
                             match &err {
                                 ApplyError::SequenceGap { expected, got } => {
-                                    let _ = out
-                                        .send(ConnEvent::SequenceGap {
-                                            expected: *expected,
-                                            got: *got,
-                                        })
-                                        .await;
+                                    out.send_event(ConnEvent::SequenceGap {
+                                        expected: *expected,
+                                        got: *got,
+                                    })
+                                    .await;
                                 }
                                 _ => {
-                                    let _ = out
-                                        .send(ConnEvent::BookInvariantViolated { err: err.clone() })
-                                        .await;
+                                    out.send_event(ConnEvent::BookInvariantViolated {
+                                        err: err.clone(),
+                                    })
+                                    .await;
                                 }
                             }
                             if transport
@@ -527,7 +557,7 @@ impl<C: TransportConnector> Connection<C> {
                                 // код, размечающий границы сессии по
                                 // `Disconnected`, одну из трёх смертей не увидит
                                 // никогда — раньше именно так и было.
-                                let _ = out.send(ConnEvent::Disconnected).await;
+                                out.send_event(ConnEvent::Disconnected).await;
                                 return false;
                             }
                         }
@@ -546,13 +576,12 @@ impl<C: TransportConnector> Connection<C> {
             // принять сообщение — сам факт, что было что переслать, уже
             // случился и не зависит от состояния канала на другом конце.
             session.productive = true;
-            let _ = out
-                .send(ConnEvent::Message {
-                    local_ts_ns,
-                    parsed_ts_ns,
-                    event,
-                })
-                .await;
+            out.send_event(ConnEvent::Message {
+                local_ts_ns,
+                parsed_ts_ns,
+                event,
+            })
+            .await;
         }
         true
     }

@@ -143,6 +143,31 @@ pub struct SessionSummary {
     /// длиной 0 или сплошные `Gap`): перцентиль пустой выборки не число, а
     /// изобретённое значение (правило 1 `interfaces.md`), печатать нечего.
     pub parse_p99_ns: Option<i64>,
+    /// `p99` времени между «кадр разобран» (`parsed_ts_ns`, метка в `bybit::
+    /// conn::Connection::run`) и «кадр дошёл до потока решений»
+    /// (`feed.next_event()` вернула его в `run_session`) — наносекунды.
+    /// Таск 20: `parse_p99_ns` — синхронный разбор (`parsed_ts_ns -
+    /// local_ts_ns`, ни одного `.await` между двумя метками, `bybit/conn.rs`
+    /// строки вокруг `let local_ts_ns = clock.now_ns()` — комментарий на
+    /// месте), очередь рантайма в него не входит уже сегодня; это поле —
+    /// отдельный замер именно очереди (канал одного соединения → пересылка →
+    /// общий канал → `blocking_recv` потока решений), чтобы не гадать, а
+    /// назвать числом. `None` при пустой выборке, тем же правилом, что и
+    /// `parse_p99_ns`.
+    pub queue_p99_ns: Option<i64>,
+    /// Средний и максимальный CPU (% одного ядра) за сессию — гейт GC «CPU <
+    /// 5% ядра суммарно» (`PLAN.md` 6.1). `avg` — по двум концевым замерам
+    /// кумулятивного CPU-времени процесса (`sample_resources`, точно на всё
+    /// время сессии); `max` — по периодическим замерам раз в 30 с
+    /// (`spawn_resource_sampler`), тем же способом, что уже печатался в
+    /// stderr. `None`, если `sample_resources` недоступен на этой ОС.
+    pub cpu_pct_avg: Option<f64>,
+    pub cpu_pct_max: Option<f64>,
+    /// RSS в начале и в конце сессии, байты — гейт GC «RSS раз в 30 с,
+    /// плоский»: разница `rss_bytes_end - rss_bytes_start` и есть число,
+    /// которым эта плоскость проверяется, а не оставляется читателю stderr.
+    pub rss_bytes_start: Option<u64>,
+    pub rss_bytes_end: Option<u64>,
     pub out: PathBuf,
     /// `true`, пока `--minutes` держится в отладочной фазе (`< 3600` с —
     /// час, тот же порог, что `commands::lob::DEFAULT_REPEAT_WINDOW_MS`
@@ -226,8 +251,15 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     let pool = load_pool(&args.pool_instruments)?;
     // GC на десяти сразу: CPU, RSS раз в 30 с (критерий приёмки таска 04,
     // handoff-04-1 ТУПИК 4). Фоновый поток, не в горячем пути — печатает и
-    // забывается, `run_session` его не ждёт.
-    spawn_resource_sampler();
+    // копит `%` для `cpu_pct_max`; `run_session` его не ждёт.
+    let cpu_samples = spawn_resource_sampler();
+    // Концевые замеры (таск 20): RSS «в начале/конце» и средний CPU за всю
+    // сессию — `(cpu_end - cpu_start) / wall_s`, точнее, чем усреднение
+    // периодических `%` сэмплера, потому что не теряет неполные интервалы на
+    // краях пятиминутного окна.
+    let resources_pid = std::process::id();
+    let resources_start = sample_resources(resources_pid);
+    let resources_wall_start = std::time::Instant::now();
 
     // День решается один раз, до открытия файлов: `verify`/`levels`/
     // `markout` (`bybit::verify::run_verify`, `mod.rs::replay_symbol_*`)
@@ -281,11 +313,19 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     // считается по `bybit::probe::percentile_ns` — тот же перцентиль
     // «ближайший ранг», что уже мерит RTT, не второй расчёт того же самого.
     let mut parse_latencies_ns: Vec<i64> = Vec::new();
+    // Очередь (таск 20, критерий 2): «от разбора до потока решений» —
+    // отдельно от «разбора» самого по себе. Метка ставится тем же
+    // `SystemClock`, что и `local_ts_ns`/`parsed_ts_ns` внутри `bybit::conn`
+    // (`LiveFeed::spawn` подаёт `SystemClock` явно — один домен часов, не
+    // второй, см. `spawn_with_clock`), сразу как только `feed.next_event()`
+    // вернула событие потоку решений.
+    let mut queue_latencies_ns: Vec<i64> = Vec::new();
 
     while SystemClock.now_ns() < deadline_ns {
         let Some(event) = feed.next_event() else {
             break;
         };
+        let recv_ts_ns = SystemClock.now_ns();
         match event {
             Event::Market {
                 symbol,
@@ -295,6 +335,15 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
             } => {
                 if let Some(latency_ns) = parse_latency_ns {
                     parse_latencies_ns.push(latency_ns);
+                    // `recv_ts_ns - local_ts_ns` — весь путь «recv() до
+                    // потока решений»; вычитаем уже посчитанный чистый разбор
+                    // (`latency_ns`), остаток — канал одного соединения,
+                    // пересылка в общий канал, ожидание `blocking_recv`.
+                    // `.max(0)` — не прячет отрицательный хвост, а не даёт
+                    // редкому дребезгу часов (`SystemClock` не монотонны)
+                    // испортить перцентиль отрицательным значением, которого
+                    // очередь физически не может быть.
+                    queue_latencies_ns.push((recv_ts_ns - local_ts_ns - latency_ns).max(0));
                 }
                 let Some(state) = states.get_mut(symbol as usize) else {
                     continue;
@@ -345,6 +394,44 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
             parse_latencies_ns.len()
         );
     }
+    let queue_p99_ns = if queue_latencies_ns.is_empty() {
+        None
+    } else {
+        Some(crate::bybit::probe::percentile_ns(&queue_latencies_ns, 99))
+    };
+    if let Some(p99) = queue_p99_ns {
+        eprintln!(
+            "session: очередь (разбор → поток решений) — p99 {:.1} мкс по {} кадрам",
+            p99 as f64 / 1000.0,
+            queue_latencies_ns.len()
+        );
+    }
+
+    let resources_end = sample_resources(resources_pid);
+    let (cpu_pct_avg, rss_bytes_start, rss_bytes_end) = match (resources_start, resources_end) {
+        (Some((cpu0, rss0)), Some((cpu1, rss1))) => {
+            let wall_s = resources_wall_start.elapsed().as_secs_f64();
+            let avg = if wall_s > 0.0 {
+                Some((cpu1 - cpu0).max(0.0) / wall_s * 100.0)
+            } else {
+                None
+            };
+            (avg, Some(rss0), Some(rss1))
+        }
+        _ => (None, None, None),
+    };
+    let cpu_pct_max = cpu_samples
+        .lock()
+        .ok()
+        .and_then(|v| v.iter().copied().reduce(f64::max));
+    if let (Some(avg), Some(start), Some(end)) = (cpu_pct_avg, rss_bytes_start, rss_bytes_end) {
+        eprintln!(
+            "session: CPU средний {avg:.1}% ядра (бюджет `PLAN.md` 6.1: < 5%); RSS начало \
+             {:.1} МиБ, конец {:.1} МиБ",
+            start as f64 / (1024.0 * 1024.0),
+            end as f64 / (1024.0 * 1024.0)
+        );
+    }
 
     let duration_s = args.minutes.saturating_mul(60);
     let summary = SessionSummary {
@@ -356,6 +443,11 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         gaps,
         clock_samples,
         parse_p99_ns,
+        queue_p99_ns,
+        cpu_pct_avg,
+        cpu_pct_max,
+        rss_bytes_start,
+        rss_bytes_end,
         out: args.root.clone(),
         debug: is_debug_session(duration_s),
     };
@@ -436,8 +528,17 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
 /// сторонней зависимости (`sysinfo` не в `Cargo.toml`, добавлять нельзя —
 /// `interfaces.md`): то, что уже даёт ОС — `Get-Process` на Windows,
 /// `/proc/self/{stat,status}` на Linux.
-fn spawn_resource_sampler() {
+/// Запускает фоновый сэмплер и возвращает точку, куда он копит каждый
+/// посчитанный `%` CPU — `run_session` читает её после цикла, чтобы
+/// `cpu_pct_max` в `session.json` был числом, а не только строкой в stderr
+/// (таск 20, критерий приёмки 1: «если сэмплер не пишет CPU/RSS в файл —
+/// добавь запись»). Поток не присоединяется (как и раньше) — печатает,
+/// копит и забывается; `run_session` не ждёт его, только читает `Mutex`
+/// один раз в самом конце.
+fn spawn_resource_sampler() -> std::sync::Arc<std::sync::Mutex<Vec<f64>>> {
     let pid = std::process::id();
+    let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let out = samples.clone();
     std::thread::spawn(move || {
         let mut prev: Option<(std::time::Instant, f64)> = None;
         loop {
@@ -449,10 +550,11 @@ fn spawn_resource_sampler() {
                         Some((prev_at, prev_cpu)) => {
                             let wall_s = now.duration_since(prev_at).as_secs_f64();
                             if wall_s > 0.0 {
-                                format!(
-                                    "{:.1}% ядра",
-                                    (cpu_seconds - prev_cpu).max(0.0) / wall_s * 100.0
-                                )
+                                let pct = (cpu_seconds - prev_cpu).max(0.0) / wall_s * 100.0;
+                                if let Ok(mut v) = out.lock() {
+                                    v.push(pct);
+                                }
+                                format!("{pct:.1}% ядра")
                             } else {
                                 "н/д (нулевой интервал)".to_string()
                             }
@@ -461,7 +563,7 @@ fn spawn_resource_sampler() {
                     };
                     prev = Some((now, cpu_seconds));
                     eprintln!(
-                        "session: ресурсы — CPU {cpu_line}, RSS {:.1} МБ",
+                        "session: ресурсы — CPU {cpu_line}, RSS {:.1} МиБ",
                         rss_bytes as f64 / (1024.0 * 1024.0)
                     );
                 }
@@ -469,6 +571,7 @@ fn spawn_resource_sampler() {
             }
         }
     });
+    samples
 }
 
 /// Кумулятивное время CPU в секундах (пользователь+система с момента

@@ -39,7 +39,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::bybit::conn::{
-    BackoffConfig, BybitPublicLinearConnector, Clock, ConnConfig, ConnEvent, Connection,
+    BackoffConfig, BybitPublicLinearConnector, Clock, ConnConfig, ConnEvent, ConnSink, Connection,
     SystemClock, TransportConnector,
 };
 
@@ -102,6 +102,34 @@ pub fn print_topic_budget(pool: &[PoolMember]) {
             "session: пул не влез бы в одно подключение — используется несколько \
              (уже используется: одно подключение на инструмент)"
         );
+    }
+}
+
+/// `ConnSink` (`bybit::conn`), который приклеивает индекс инструмента и
+/// шлёт прямо в общий канал `LiveFeed` — таск 20: раньше между `Connection::
+/// run` и этим общим каналом стояли ещё один канал на соединение и отдельная
+/// задача-пересыльщик (`while let Some(ev) = conn_rx.recv().await { out.send
+/// ((idx, ev)).await }`), единственная работа которой была тегирование;
+/// на восьми соединениях это восемь лишних задач планировщика и двойной
+/// `mpsc`-переход на каждое сообщение одного ОС-потока. Замер (`lob
+/// session`, `queue_p99_ns`, живая сессия `data/recording-eco/
+/// 20260911T182544Z-before`) поймал именно этот виток дороже самого разбора
+/// JSON: `918.6` мкс p99 против `686.0` мкс p99 разбора. `send_event`
+/// клонирует `Sender` (атомарный инкремент счётчика `Arc`, не аллокация
+/// кучи для данных) вместо второго `mpsc::send`/`recv` — дешевле и на один
+/// меньше `.await`-точку на событие.
+struct TaggedSink {
+    idx: u8,
+    tx: mpsc::Sender<(u8, ConnEvent)>,
+}
+
+impl ConnSink for TaggedSink {
+    fn send_event(&self, ev: ConnEvent) -> impl std::future::Future<Output = ()> + Send {
+        let idx = self.idx;
+        let tx = self.tx.clone();
+        async move {
+            let _ = tx.send((idx, ev)).await;
+        }
     }
 }
 
@@ -190,18 +218,12 @@ impl LiveFeed {
                         ping_interval: LIVE_PING_INTERVAL,
                         backoff: LIVE_BACKOFF,
                     };
-                    let (conn_tx, mut conn_rx) =
-                        mpsc::channel::<ConnEvent>(CHANNEL_CAPACITY_PER_SYMBOL);
-                    let out = tx.clone();
-                    tasks.push(tokio::spawn(async move {
-                        while let Some(ev) = conn_rx.recv().await {
-                            if out.send((idx, ev)).await.is_err() {
-                                break;
-                            }
-                        }
-                    }));
+                    let sink = TaggedSink {
+                        idx,
+                        tx: tx.clone(),
+                    };
                     let conn = Connection::new(connector, cfg);
-                    tasks.push(tokio::spawn(conn.run(clock.clone(), conn_tx)));
+                    tasks.push(tokio::spawn(conn.run(clock.clone(), sink)));
                 }
                 drop(tx);
                 for t in tasks {
