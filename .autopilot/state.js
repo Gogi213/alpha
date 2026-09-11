@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-11T16:45:00+04:00",
+  "updatedAt": "2026-09-11T18:10:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
 
@@ -21,13 +21,13 @@ window.STATE =
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-11T00:45:00+04:00", "finishedAt": "2026-09-11T01:55:00+04:00", "note": "три ответа владельца: продукт — бот; 5 минут — тесты; форма — autopilot. Две развилки: CLUSDT, G_min" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-11T01:00:00+04:00", "finishedAt": "2026-09-11T02:03:00+04:00", "note": "вторая редакция: 49 историй, шесть швов; 17 находок G2 внесены; повторный G2 запущен" },
     { "id": "plan",      "status": "done", "startedAt": "2026-09-11T01:10:00+04:00", "finishedAt": "2026-09-11T02:05:00+04:00", "note": "15 тасков в 7 волн; G3 в обе стороны" },
-    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "Волна 4 закрыта: T10 f8ef502, T11 44aef30. T12 в полёте; T13 — после T12; T09(б) — после T13 (G-DEBUG, боевые окна, k и ключи владельца); T14 — последний. 11 из 15 готово + 09 наполовину" },
+    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "T12 закоммичен d905f19. T13 в полёте (вердикт в шапке, DSR/PBO/CPCV, FillModel из бэктеста, G по суткам, тест на час в runs.csv); затем T09(б) и T14. 12 из 15 готово + 09 наполовину" },
     { "id": "review",    "status": "active", "startedAt": "2026-09-11T03:33:00+04:00", "note": "три постоянных ревьюера (R-A/R-B/R-C) с волны 2; 4 таска прошли; 1 ремонт (T06), 12 concerns накоплено" },
     { "id": "final",     "status": "pending" }
   ],
 
   "requirements": {
-    "total": 85, "done": 54, "inTicket": 27, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
+    "total": 85, "done": 58, "inTicket": 23, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
     "note": "done узкое: механизм есть, тесты зелёные, служит редакции 3 без изменений. Ни одного артефакта задачи на диске нет."
   },
 
@@ -44,8 +44,8 @@ window.STATE =
     { "id": "15", "title": "Горячий путь: on_event под Bot<MD>, ордер до триггера, G-LAT, dry-run", "requirements": ["R09","R74i","R78","R79","R80","A04"], "blockedBy": ["01","04"], "wave": 3, "zone": ["src/lob/strategy.rs","src/bybit/trade_ws.rs","src/commands/lob/react.rs"], "status": "done", "startedAt": "2026-09-11T09:15:00+04:00", "finishedAt": "2026-09-11T12:55:00+04:00", "tests": "530 passed, 0 failed, 5 ignored (126dd4d+15 изолированно)", "commit": "1b8b682", "review": { "R-A": "нет; R74i/R78/R79 partial — живые числа G-LAT требуют ключей (долг владельца)", "R-B": "1 blocking: аллокация в сборке ордера на событие → буферы + rebuild только при смене цены; остаток sign.rs → concerns", "R-C": "та же находка → снята; секреты не текут" }, "retries": 0, "repairs": 1, "handoffs": 0 },
     { "id": "10", "title": "lob profiles: таблица профилей", "requirements": ["R01","R15","R55","R57","R58","R59","R65","R66"], "blockedBy": ["03","06","15"], "wave": 4, "zone": ["src/commands/lob/profiles.rs"], "status": "done", "startedAt": "2026-09-11T13:05:00+04:00", "finishedAt": "2026-09-11T15:40:00+04:00", "tests": "548 passed, 0 failed, 5 ignored (7ef26dd+10 изолированно)", "commit": "f8ef502", "review": { "R-A": "1 blocking: fill=1.0 из заглушки как факт → FillModel/not_measured/fill_model=none; снято", "R-B": "нет; 1066 строк, шапка → concerns", "R-C": "1 blocking: raw с .abs() против §11.5 → знаковый; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
     { "id": "11", "title": "lob backtest: отчёт на N профилей, та же on_event", "requirements": ["R03","R09","R10","R11","R59","R80"], "blockedBy": ["03","15"], "wave": 4, "zone": ["src/lob/backtest.rs","src/commands/lob/backtest.rs"], "status": "done", "startedAt": "2026-09-11T13:05:00+04:00", "finishedAt": "2026-09-11T16:45:00+04:00", "tests": "552 passed, 0 failed, 5 ignored (f8ef502+11 изолированно)", "commit": "44aef30", "review": { "R-A": "1 blocking: читатель --profiles-csv на старой схеме ProfileRow → формат таска 10; R11 done", "R-B": "та же находка; снята", "R-C": "1 blocking: артефакт без шапки/debug → шапка + --debug; order_qty докстрока → обязательный флаг; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
-    { "id": "12", "title": "Сбор сессиями, шорт-лист, подтверждение", "requirements": ["R44","R45","R46","R47","R48","R56","R59","R67","R77i"], "blockedBy": ["07","10"], "wave": 5, "zone": ["docs/findings/","src/commands/lob/shortlist.rs"], "status": "in-progress", "startedAt": "2026-09-11T15:50:00+04:00", "retries": 0, "repairs": 0, "handoffs": 0 },
-    { "id": "13", "title": "Вердикт в шапке шорт-листа, DSR подключён", "requirements": ["R47","R49","R50","R51","R52","R53","R54","R59","R68","A03"], "blockedBy": ["11","12"], "wave": 6, "zone": ["src/commands/lob/shortlist.rs","src/lob/final_metrics.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
+    { "id": "12", "title": "Сбор сессиями, шорт-лист, подтверждение", "requirements": ["R44","R45","R46","R47","R48","R56","R59","R67","R77i"], "blockedBy": ["07","10"], "wave": 5, "zone": ["docs/findings/","src/commands/lob/shortlist.rs"], "status": "done", "startedAt": "2026-09-11T15:50:00+04:00", "finishedAt": "2026-09-11T18:05:00+04:00", "tests": "558 passed, 0 failed, 5 ignored (44aef30+12 изолированно)", "commit": "d905f19", "review": { "R-A": "нет; R44/R47/R67/R77i partial — данные и G/hour_tests → T13, календарь владельца", "R-B": "нет; чтение по позиции → починено по дозапросу; ScratchRoot → concerns", "R-C": "1 blocking: шапка shortlist.md G>=12 против G_MIN=7 → из констант; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
+    { "id": "13", "title": "Вердикт в шапке шорт-листа, DSR подключён", "requirements": ["R47","R49","R50","R51","R52","R53","R54","R59","R68","A03"], "blockedBy": ["11","12"], "wave": 6, "zone": ["src/commands/lob/shortlist.rs","src/lob/final_metrics.rs"], "status": "in-progress", "startedAt": "2026-09-11T18:10:00+04:00", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "14", "title": "Чистка репозитория и память проекта", "requirements": ["R65","R70","R71","R73"], "blockedBy": ["13"], "wave": 7, "zone": ["data/",".autopilot/","."], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 }
   ],
 
@@ -61,7 +61,7 @@ window.STATE =
     { "id": "G-POWER-B", "status": "pending", "note": "замеренный Шарп против требуемого — таск 09. Разведка: −0.40 / −0.32 / +0.24 против ≈2.7" },
     { "id": "G0",        "status": "pending", "note": "таск 09" },
     { "id": "G1",        "status": "pending", "note": "eaten и pulled ≥ 5%. Разведка: eaten 2.3% / 7.1% / 1.5%" },
-    { "id": "G2-в",      "status": "pending", "note": "шорт-лист заморожен — таск 12" },
+    { "id": "G2-в",      "status": "pending", "note": "механизм заморозки — T12 d905f19; сам шорт-лист — после сбора по календарю" },
     { "id": "G3-в",      "status": "pending", "note": "net_fill с поправкой DSR — таск 13" },
     { "id": "G4-в",      "status": "pending", "note": "механизм: обе кривые PnL (median и p95 RTT), G4 по обеим — T11 44aef30; числа — после боевых сессий" },
     { "id": "РВ-М",      "status": "pending", "note": "методическое перед вердиктом" }
@@ -113,7 +113,11 @@ window.STATE =
     { "ticket": "10", "file": "src/lob/shortlist.rs ProfileRow/write_profiles_csv", "what": "старая схема колонок не совпадает с таском 10 — рискует остаться мёртвым кодом; снести в таске 14 (R-A)", "kind": "structural" },
     { "ticket": "11", "file": "src/commands/lob/backtest.rs --debug", "what": "метка debug по флагу вызывающего, не по длине окна (как levels); читать session.json.duration_s — на будущее; отдельного теста на шапку/debug нет (R-C)", "kind": "craft" },
     { "ticket": "11", "file": "src/lob/backtest.rs 1309 строк, src/commands/lob/backtest.rs 579", "what": "крупные файлы, потолок не назначен (R-B)", "kind": "structural" },
-    { "ticket": "11", "file": "src/commands/lob/backtest.rs --order-qty-e9", "what": "не читается из instruments.csv/order_size_22a автоматически — обязательный флаг; проводка — таск 13/09б (R-C)", "kind": "craft" }
+    { "ticket": "11", "file": "src/commands/lob/backtest.rs --order-qty-e9", "what": "не читается из instruments.csv/order_size_22a автоматически — обязательный флаг; проводка — таск 13/09б (R-C)", "kind": "craft" },
+    { "ticket": "12", "file": "src/commands/lob/shortlist.rs --freeze-commit", "what": "строка-метка, не проверяется как git-хеш и порядок в git log не проверяется рантаймом — аудируемо человеком; проверка через git cat-file -e — решение владельца (R-A)", "kind": "craft" },
+    { "ticket": "12", "file": "src/commands/lob/shortlist.rs:463-485 read_profile_table", "what": "читает таблицу профилей по позиционным индексам, не по имени колонки — сдвиг колонок в profiles.rs собьёт net_fill тихо; свести к паттерну backtest.rs::read_table (по имени) — таск 13 (R-B)", "kind": "craft" },
+    { "ticket": "12", "file": "src/commands/lob/shortlist.rs ScratchRoot", "what": "копия/хардлинк каталогов сессий во времянку на каждый прогон, до трёх — на многодневных данных дорого; пересмотреть (R-B)", "kind": "structural" },
+    { "ticket": "13", "file": ".autopilot/…/tickets/13-report-and-dsr.md", "what": "критерий «вклад истории контрастом C2 против C1» — из отменённой модели, в манифесте/спеке требования нет; снят при запуске", "kind": "plan-cut" }
   ],
 
   "debt": [
@@ -141,5 +145,5 @@ window.STATE =
   },
 
   "blind": null,
-  "tests": { "passed": 552, "failed": 0, "ignored": 5, "at": "2026-09-11T16:45:00+04:00" }
+  "tests": { "passed": 558, "failed": 0, "ignored": 5, "at": "2026-09-11T18:05:00+04:00" }
 }
