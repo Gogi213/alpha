@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-11T14:20:00+04:00",
+  "updatedAt": "2026-09-11T16:45:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
 
@@ -21,13 +21,13 @@ window.STATE =
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-11T00:45:00+04:00", "finishedAt": "2026-09-11T01:55:00+04:00", "note": "три ответа владельца: продукт — бот; 5 минут — тесты; форма — autopilot. Две развилки: CLUSDT, G_min" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-11T01:00:00+04:00", "finishedAt": "2026-09-11T02:03:00+04:00", "note": "вторая редакция: 49 историй, шесть швов; 17 находок G2 внесены; повторный G2 запущен" },
     { "id": "plan",      "status": "done", "startedAt": "2026-09-11T01:10:00+04:00", "finishedAt": "2026-09-11T02:05:00+04:00", "note": "15 тасков в 7 волн; G3 в обе стороны" },
-    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "T09(а) закоммичен 7ef26dd — сквозной отладочный прогон до markout прошёл 8/8. T09 остаётся in-progress до части (б). В полёте T10, T11. 9 из 15 готово + 09 наполовину" },
+    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "Волна 4 закрыта: T10 f8ef502, T11 44aef30. T12 в полёте; T13 — после T12; T09(б) — после T13 (G-DEBUG, боевые окна, k и ключи владельца); T14 — последний. 11 из 15 готово + 09 наполовину" },
     { "id": "review",    "status": "active", "startedAt": "2026-09-11T03:33:00+04:00", "note": "три постоянных ревьюера (R-A/R-B/R-C) с волны 2; 4 таска прошли; 1 ремонт (T06), 12 concerns накоплено" },
     { "id": "final",     "status": "pending" }
   ],
 
   "requirements": {
-    "total": 85, "done": 43, "inTicket": 38, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
+    "total": 85, "done": 54, "inTicket": 27, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
     "note": "done узкое: механизм есть, тесты зелёные, служит редакции 3 без изменений. Ни одного артефакта задачи на диске нет."
   },
 
@@ -42,9 +42,9 @@ window.STATE =
     { "id": "07", "title": "lob watch на сессиях", "requirements": ["R39","R42","R49","R77i"], "blockedBy": ["01","04"], "wave": 3, "zone": ["src/lob/watch.rs"], "status": "done", "startedAt": "2026-09-11T08:50:00+04:00", "finishedAt": "2026-09-11T11:10:00+04:00", "tests": "488 passed, 0 failed, 5 ignored (3147a32+07 изолированно)", "commit": "4073927", "review": { "R-A": "1 blocking: охрана --confirmatory на старом флаге → проводка require_session_ready_flag; R49 done", "R-B": "нет; дубль trade_hit_from_record, n_c2/g_c2, 1801 строк → concerns", "R-C": "clean" }, "retries": 0, "repairs": 1, "handoffs": 0 },
     { "id": "09", "title": "Пилот: отладка ≤5 мин, затем два часа; G-DEBUG, G0, G-POWER-B", "requirements": ["R40","R51","R68","R78","R81","A01"], "blockedBy": ["01","02","08"], "wave": 3, "zone": ["src/commands/lob/pilot.rs"], "status": "in-progress", "startedAt": "2026-09-11T11:30:00+04:00", "commit": "7ef26dd (часть а)", "tests": "542 passed, 0 failed, 5 ignored (1b8b682+09а изолированно)", "review": { "R-A": "нет; R78/R81 done, R40/A01 partial → (б)", "R-B": "нет; реплей ×3–4, 1087 строк → concerns", "R-C": "1 blocking: G0 по сырому m без проскальзывания → net ≥ 0; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
     { "id": "15", "title": "Горячий путь: on_event под Bot<MD>, ордер до триггера, G-LAT, dry-run", "requirements": ["R09","R74i","R78","R79","R80","A04"], "blockedBy": ["01","04"], "wave": 3, "zone": ["src/lob/strategy.rs","src/bybit/trade_ws.rs","src/commands/lob/react.rs"], "status": "done", "startedAt": "2026-09-11T09:15:00+04:00", "finishedAt": "2026-09-11T12:55:00+04:00", "tests": "530 passed, 0 failed, 5 ignored (126dd4d+15 изолированно)", "commit": "1b8b682", "review": { "R-A": "нет; R74i/R78/R79 partial — живые числа G-LAT требуют ключей (долг владельца)", "R-B": "1 blocking: аллокация в сборке ордера на событие → буферы + rebuild только при смене цены; остаток sign.rs → concerns", "R-C": "та же находка → снята; секреты не текут" }, "retries": 0, "repairs": 1, "handoffs": 0 },
-    { "id": "10", "title": "lob profiles: таблица профилей", "requirements": ["R01","R15","R55","R57","R58","R59","R65","R66"], "blockedBy": ["03","06","15"], "wave": 4, "zone": ["src/commands/lob/profiles.rs"], "status": "in-progress", "startedAt": "2026-09-11T13:05:00+04:00", "retries": 0, "repairs": 0, "handoffs": 0 },
-    { "id": "11", "title": "lob backtest: отчёт на N профилей, та же on_event", "requirements": ["R03","R09","R10","R11","R59","R80"], "blockedBy": ["03","15"], "wave": 4, "zone": ["src/lob/backtest.rs","src/commands/lob/backtest.rs"], "status": "in-progress", "startedAt": "2026-09-11T13:05:00+04:00", "retries": 0, "repairs": 0, "handoffs": 0 },
-    { "id": "12", "title": "Сбор сессиями, шорт-лист, подтверждение", "requirements": ["R44","R45","R46","R47","R48","R56","R59","R67","R77i"], "blockedBy": ["07","10"], "wave": 5, "zone": ["docs/findings/","src/commands/lob/shortlist.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
+    { "id": "10", "title": "lob profiles: таблица профилей", "requirements": ["R01","R15","R55","R57","R58","R59","R65","R66"], "blockedBy": ["03","06","15"], "wave": 4, "zone": ["src/commands/lob/profiles.rs"], "status": "done", "startedAt": "2026-09-11T13:05:00+04:00", "finishedAt": "2026-09-11T15:40:00+04:00", "tests": "548 passed, 0 failed, 5 ignored (7ef26dd+10 изолированно)", "commit": "f8ef502", "review": { "R-A": "1 blocking: fill=1.0 из заглушки как факт → FillModel/not_measured/fill_model=none; снято", "R-B": "нет; 1066 строк, шапка → concerns", "R-C": "1 blocking: raw с .abs() против §11.5 → знаковый; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
+    { "id": "11", "title": "lob backtest: отчёт на N профилей, та же on_event", "requirements": ["R03","R09","R10","R11","R59","R80"], "blockedBy": ["03","15"], "wave": 4, "zone": ["src/lob/backtest.rs","src/commands/lob/backtest.rs"], "status": "done", "startedAt": "2026-09-11T13:05:00+04:00", "finishedAt": "2026-09-11T16:45:00+04:00", "tests": "552 passed, 0 failed, 5 ignored (f8ef502+11 изолированно)", "commit": "44aef30", "review": { "R-A": "1 blocking: читатель --profiles-csv на старой схеме ProfileRow → формат таска 10; R11 done", "R-B": "та же находка; снята", "R-C": "1 blocking: артефакт без шапки/debug → шапка + --debug; order_qty докстрока → обязательный флаг; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
+    { "id": "12", "title": "Сбор сессиями, шорт-лист, подтверждение", "requirements": ["R44","R45","R46","R47","R48","R56","R59","R67","R77i"], "blockedBy": ["07","10"], "wave": 5, "zone": ["docs/findings/","src/commands/lob/shortlist.rs"], "status": "in-progress", "startedAt": "2026-09-11T15:50:00+04:00", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "13", "title": "Вердикт в шапке шорт-листа, DSR подключён", "requirements": ["R47","R49","R50","R51","R52","R53","R54","R59","R68","A03"], "blockedBy": ["11","12"], "wave": 6, "zone": ["src/commands/lob/shortlist.rs","src/lob/final_metrics.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "14", "title": "Чистка репозитория и память проекта", "requirements": ["R65","R70","R71","R73"], "blockedBy": ["13"], "wave": 7, "zone": ["data/",".autopilot/","."], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 }
   ],
@@ -63,7 +63,7 @@ window.STATE =
     { "id": "G1",        "status": "pending", "note": "eaten и pulled ≥ 5%. Разведка: eaten 2.3% / 7.1% / 1.5%" },
     { "id": "G2-в",      "status": "pending", "note": "шорт-лист заморожен — таск 12" },
     { "id": "G3-в",      "status": "pending", "note": "net_fill с поправкой DSR — таск 13" },
-    { "id": "G4-в",      "status": "pending", "note": "PnL на медианном и p95 RTT — таск 11" },
+    { "id": "G4-в",      "status": "pending", "note": "механизм: обе кривые PnL (median и p95 RTT), G4 по обеим — T11 44aef30; числа — после боевых сессий" },
     { "id": "РВ-М",      "status": "pending", "note": "методическое перед вердиктом" }
   ],
 
@@ -109,7 +109,11 @@ window.STATE =
     { "ticket": "15", "file": "src/commands/lob/react.rs", "what": "триггер react — смена лучшего тика, не density-сигнал levels; осознанное упрощение замера, документировано (R-A, R-B)", "kind": "craft" },
     { "ticket": "09", "file": "src/commands/lob/pilot.rs run_pilot_debug", "what": "нет регресс-теста «--debug не пишет runs.csv» — свойство держится конструкцией (log_pilot_run только в battle); добавить в 09(б) (R-A)", "kind": "craft" },
     { "ticket": "09", "file": "src/commands/lob/pilot.rs process_instrument", "what": "реплей инструмента 3–4 раза (floor/percentile/markout/агрегация), потому что run_markout не возвращает сырые наблюдения — не горячий путь; свести в 09(б) (R-B)", "kind": "structural" },
-    { "ticket": "09", "file": "src/commands/lob/pilot.rs", "what": "1087 строк — потолок на файл не назначен; структурно (R-B)", "kind": "structural" }
+    { "ticket": "09", "file": "src/commands/lob/pilot.rs", "what": "1087 строк — потолок на файл не назначен; структурно (R-B)", "kind": "structural" },
+    { "ticket": "10", "file": "src/lob/shortlist.rs ProfileRow/write_profiles_csv", "what": "старая схема колонок не совпадает с таском 10 — рискует остаться мёртвым кодом; снести в таске 14 (R-A)", "kind": "structural" },
+    { "ticket": "11", "file": "src/commands/lob/backtest.rs --debug", "what": "метка debug по флагу вызывающего, не по длине окна (как levels); читать session.json.duration_s — на будущее; отдельного теста на шапку/debug нет (R-C)", "kind": "craft" },
+    { "ticket": "11", "file": "src/lob/backtest.rs 1309 строк, src/commands/lob/backtest.rs 579", "what": "крупные файлы, потолок не назначен (R-B)", "kind": "structural" },
+    { "ticket": "11", "file": "src/commands/lob/backtest.rs --order-qty-e9", "what": "не читается из instruments.csv/order_size_22a автоматически — обязательный флаг; проводка — таск 13/09б (R-C)", "kind": "craft" }
   ],
 
   "debt": [
@@ -137,5 +141,5 @@ window.STATE =
   },
 
   "blind": null,
-  "tests": { "passed": 542, "failed": 0, "ignored": 5, "at": "2026-09-11T14:20:00+04:00" }
+  "tests": { "passed": 552, "failed": 0, "ignored": 5, "at": "2026-09-11T16:45:00+04:00" }
 }
