@@ -293,3 +293,28 @@ cargo run --release -- lob <подкоманда>
 - `final_metrics::jackknife_sensitivity` — джекнайф-по-суткам (A03), механизм протестирован.
 - Отладочный прогон (`data/shortlist-debug/shortlist-2026-09-11-t13.md`): `trials=147, shortlisted=29, confirmatory: пропущена` — «недостаточно данных», не красный про рынок.
 - **Открыто → таск 16:** `FillModel` поверх `lob::backtest` **не реализован** — `observed_sharpe`/DSR/PBO/CPCV/jackknife печатают `none`, `Confirmed` недостижим; нужна структура `BacktestFillModel` (книжный поток сессии, не только `mids`) и подключение к `run_profiles_over`/`run_profiles_with_fill_model`.
+
+## Из таска 16 — `BacktestFillModel`: путь к `Confirmed`
+
+- `profiles::FillModel` += `fn prime_session(&self, symbol, binlog_path, &[LevelRecord]) {}` (умолчание — no-op, `NoFillModel` без изменений, dyn-safe): модель гоняет бэктест по сессии **один раз** (`drive_profile`), `filled` отвечает из кэша по `(side, price_tick, birth_ms)`.
+- `commands::lob::backtest::BacktestFillModel::new(median_rtt_ns, p95_rtt_ns, order_qty_e9)`, `label = "backtest"`; `filled` — по настоящему исполнению `RiskAdverseQueueModel`, `None` вне окна.
+- `profiles::resolve_fill_model(Option<i64> × 3) -> Result<Box<dyn FillModel>>` — все три флага или ни одного (ошибка иначе). `lob profiles` / `lob shortlist` получили `--median-rtt-ns --p95-rtt-ns --order-qty-e9` (без умолчаний). `profiles-<дата>.csv` — 28 колонок, добавлена `observed_sharpe`.
+- Шапка шорт-листа: `dsr` — число (`dsr_for_trial_count` по лучшей `Confirmed`), `jackknife` — leave-one-day-out (нужно ≥ 7 подтверждающих суток, сквозной тест отсутствует); **`pbo`/`cpcv_oos_sharpe` — по-прежнему `None`**: нужен конвейер «испытания × периоды», не вместился (открыто).
+- Отладочный прогон (`fill_model=backtest`, `debug`): `fill`/`net_fill` реальные (в основном ≈ 0 на 3–5 минутах), `observed_sharpe` — в основном `none` (мало исполнений на профиль); RTT для отладки — `lob probe --fixture` с фиктивным значением переменной `BYBIT_API_KEY` (не ключ) — числа отладочные, не данные.
+
+## Из таска 09(б) — полная цепочка, G-DEBUG
+
+- `lob pilot --debug` += `--candidates-csv` (умолчание `docs/plan/candidates.csv`), `--median-rtt-ns`/`--p95-rtt-ns` (`Option<i64>`, без умолчания — только запасной источник). RTT: `probe-<SYMBOL>.csv` → `clock.csv` (`bybit_rtt_ns`) → флаги (`resolve_backtest_rtt_ns`). Лот: `compute_order_qty_e9` = `order_size_22a` по полям `instruments.csv` + последняя цена из `levels-floor` CSV.
+- Вердикт G-DEBUG: `session → verify → levels → markout → profiles → backtest прошла без дефекта на N/M` | `упала на шаге X`.
+- `process_instrument(…, counted_tail_minutes: Option<f64>)` — боевой путь передаёт `Some(BATTLE_COUNTED_TAIL_MINUTES)` («считается второй час», §11), `--debug` — `None`; фильтр читает готовые `levels-*.csv` (`count_rows_with_birth_after`), шестого реплея нет.
+- `stage2_preregistration_skeleton()` — печать имён полей предрегистрации этапа 2 (В-29) в конце боевого пути, без чисел.
+- Регресс-тест: `--debug` не создаёт `runs.csv`.
+- **G-DEBUG пройден:** живой прогон `data/pilot-debug/20260911T084259Z/`, 8 инструментов, ~2 мин: цепочка 8/8 без дефекта, `verify = ok` у всех, `runs.csv` не создан; G4 RED на всех профилях бэктеста (тонкий эдж на минутах — ожидаемо, не дефект).
+- Открыто: повторный реплей инструмента (до 5 на инструмент) остаётся — `run_verify`/`run_levels`/`run_markout` возвращают только сводки; свести — таск 14 или отдельный. **Боевой пилот не запускался**: нужны `k` (`lob pick --h3-k`) и `BYBIT_API_KEY`/`BYBIT_API_SECRET` (для `lob probe`/G-LAT) от владельца.
+
+## Из ремонта таска 15 — `lob react`: один домен часов, G-LAT замерен
+
+- `feed::live::LiveFeed::spawn_with_clock<K: Clock + Clone + Send + 'static>(pool, clock)` — прод-вход с явным `Clock`; `spawn()`/`spawn_with()` без изменений (`SystemClock`, `lob session` не тронут). `run_react` делит один `MonotonicClock::start()` между `Feed` (метки `recv`/после разбора) и стадиями книга/триггер/send, и дедлайном прогона — все пять меток монотонные, один домен.
+- `ReactSample`: `parse_ns`/`book_ns`/`full_ns` — на **каждом** событии книги; `trigger_ns`/`order_ns` → `Option<TriggerLatency>` — на срабатываниях; `full_ns` = recv → send на срабатывании, иначе recv → книга. `ReactReport.gated` — по `n` «весь путь» ≥ 1000 **событий**; при `triggers < 1000` — честная строка малого `n`. CSV: `event, is_trigger, …` на строку.
+- `ClockDomainFault`: отрицательная длительность любой стадии — `FAIL: clock domain`, отчёт не строится (регресс-тест, красный на прежнем коде).
+- **Живой замер (`data/react-debug/20260911T113637Z/`, SOLUSDT, 5 мин, dry-run):** events = 9649, triggers = 63; разбор p99 = 68.7 мкс; книга p99 = 222.5 мкс (калибровочный суббюджет 50 мкс — пересматривается по замеру, PLAN 3.1); триггер p99 = 0.5 мкс; send p99 = 0.2 мкс; **весь путь p99 = 278.8 мкс < 5 мс — G-LAT PASS**; все четыре горизонта `reachable`. RTT хоста — не измерен (`lob probe` ставит реальные ордера — владелец).
