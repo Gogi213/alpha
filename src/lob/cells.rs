@@ -844,58 +844,83 @@ fn cell_stats(observations: &[(i64, f64)], replications: u32, seed: u64) -> Cell
     }
 }
 
+/// Общий шов совместного кластерного бутстрапа двух рядов, расширяемый под
+/// разные статистики: дизъюнктный контраст ниже соединяет два взвешенных
+/// средних вычитанием, совместный интервал `net_fill` (`joint_product_interval`,
+/// таск 03, R08/R50) — умножением. Реплика одна на обе серии: один и тот же
+/// вес Уэбба взвешивает суммы обоих рядов за те же сутки — «совместный
+/// ресэмплинг», а не два независимых. `day_sums` — по суткам `(числитель
+/// ряда A, знаменатель ряда A, числитель ряда B, знаменатель ряда B)` в
+/// фиксированном порядке. Знаменатели не переразвешиваются репликой — тот
+/// же приём, что у `cluster_robust_t_from_summary` в `stats`: реплика
+/// перетряхивает числители, а не сами счётчики наблюдений.
+/// `None` — любой из рядов пуст (нулевой знаменатель).
+/// Возвращает `(среднее A, знаменатель A, среднее B, знаменатель B, точка
+/// = combine(среднее A, среднее B), реплики combine, отсортированные по
+/// возрастанию)`.
+/// Деление на счётчики точное: числа наблюдений в памяти, далеко от 2^53.
+/// Ёмкость из `u32`: `u32` вкладывается в `usize` на всех целях со std.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn joint_two_series_bootstrap(
+    day_sums: &[(f64, u64, f64, u64)],
+    replications: u32,
+    seed: u64,
+    combine: impl Fn(f64, f64) -> f64,
+) -> Option<(f64, u64, f64, u64, f64, Vec<f64>)> {
+    let (tot_a, n_a, tot_b, n_b) =
+        day_sums
+            .iter()
+            .fold((0.0, 0u64, 0.0, 0u64), |(sa, ca, sb, cb), d| {
+                (
+                    sa + d.0,
+                    ca.saturating_add(d.1),
+                    sb + d.2,
+                    cb.saturating_add(d.3),
+                )
+            });
+    if n_a == 0 || n_b == 0 {
+        return None;
+    }
+    let mean_a = tot_a / count_f64_u64(n_a);
+    let mean_b = tot_b / count_f64_u64(n_b);
+    let point = combine(mean_a, mean_b);
+    let mut reps = Vec::with_capacity(replications as usize);
+    if replications == 0 {
+        reps.push(point);
+    } else {
+        let mut rng = SplitMix64::new(seed);
+        for _ in 0..replications {
+            let mut boot_a = 0.0;
+            let mut boot_b = 0.0;
+            for d in day_sums {
+                let w = next_webb(&mut rng);
+                boot_a += w * d.0;
+                boot_b += w * d.2;
+            }
+            let r = combine(boot_a / count_f64_u64(n_a), boot_b / count_f64_u64(n_b));
+            // Веса и суммы конечны по построению входа: вырожденная реплика
+            // здесь невозможна арифметически, проверка — страховка A2.
+            debug_assert!(r.is_finite(), "совместная реплика обязана быть конечной");
+            reps.push(r);
+        }
+    }
+    reps.sort_by(|a, b| a.total_cmp(b));
+    Some((mean_a, n_a, mean_b, n_b, point, reps))
+}
+
 /// Дизъюнктный контраст: точечная оценка — разность пуловых средних;
 /// интервал — процентили wild cluster bootstrap разности на весах Уэбба.
 /// `day_sums` — (сумма C2, число C2, сумма контроля, число контроля) по суткам
 /// в фиксированном порядке: одна и та же реплика одним и тем же весом
 /// взвешивает обе группы — «те же кластерные реплики» буквально.
 /// `None` — пуста C2 или пуст контроль.
-/// Деление на счётчики точное: числа наблюдений в памяти, далеко от 2^53.
-/// Ёмкость из `u32`: `u32` вкладывается в `usize` на всех целях со std.
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 fn disjoint_contrast(
     day_sums: &[(f64, u64, f64, u64)],
     replications: u32,
     seed: u64,
 ) -> Option<DisjointContrast> {
-    let (tot_c2, n_c2, tot_rest, n_rest) =
-        day_sums
-            .iter()
-            .fold((0.0, 0u64, 0.0, 0u64), |(s2, c2, sr, cr), d| {
-                (
-                    s2 + d.0,
-                    c2.saturating_add(d.1),
-                    sr + d.2,
-                    cr.saturating_add(d.3),
-                )
-            });
-    if n_c2 == 0 || n_rest == 0 {
-        return None;
-    }
-    let mean_c2 = tot_c2 / count_f64_u64(n_c2);
-    let mean_rest = tot_rest / count_f64_u64(n_rest);
-    let diff = mean_c2 - mean_rest;
-    let mut diffs = Vec::with_capacity(replications as usize);
-    if replications == 0 {
-        diffs.push(diff);
-    } else {
-        let mut rng = SplitMix64::new(seed);
-        for _ in 0..replications {
-            let mut boot_c2 = 0.0;
-            let mut boot_rest = 0.0;
-            for d in day_sums {
-                let w = next_webb(&mut rng);
-                boot_c2 += w * d.0;
-                boot_rest += w * d.2;
-            }
-            let b = boot_c2 / count_f64_u64(n_c2) - boot_rest / count_f64_u64(n_rest);
-            // Веса и суммы конечны по построению входа: вырожденная реплика
-            // здесь невозможна арифметически, проверка — страховка A2.
-            debug_assert!(b.is_finite(), "бутстрап-разность обязана быть конечной");
-            diffs.push(b);
-        }
-    }
-    diffs.sort_by(|a, b| a.total_cmp(b));
+    let (mean_c2, n_c2, mean_rest, n_rest, diff, diffs) =
+        joint_two_series_bootstrap(day_sums, replications, seed, |a, b| a - b)?;
     Some(DisjointContrast {
         n_c2,
         n_rest,
@@ -904,6 +929,61 @@ fn disjoint_contrast(
         diff,
         ci_low: quantile_sorted(&diffs, CONTRAST_CI_LOW_Q),
         ci_high: quantile_sorted(&diffs, CONTRAST_CI_HIGH_Q),
+        replications,
+        seed,
+    })
+}
+
+/// Итог совместного интервала произведения двух средних (таск 03, R08/R50):
+/// расширение `joint_two_series_bootstrap` с `combine = умножение` вместо
+/// вычитания дизъюнктного контраста. Публична только сигнатура, нужная
+/// `costs::net_fill_interval` — сама статистика (среднее A × среднее B)
+/// нейтральна к тому, что именно A и B значат для вызывающего.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct JointProduct {
+    /// Знаменатель ряда A (например, число исполнившихся входов).
+    pub n_a: u64,
+    /// Знаменатель ряда B (например, общее число попыток).
+    pub n_b: u64,
+    /// Среднее ряда A по наблюдённым (невзвешенным) суммам.
+    pub mean_a: f64,
+    /// Среднее ряда B по наблюдённым (невзвешенным) суммам.
+    pub mean_b: f64,
+    /// Точка: `mean_a * mean_b` на наблюдённых данных.
+    pub point: f64,
+    /// Нижний перцентиль совместных реплик `combine` на уровне `alpha`
+    /// (односторонний: то, что сравнивается с нулём в вызывающем гейте).
+    pub lower: f64,
+    /// Число реплик.
+    pub replications: u32,
+    /// Seed реплик.
+    pub seed: u64,
+}
+
+/// Совместный интервал произведения `mean_a * mean_b` на общих кластерных
+/// репликах Уэбба — то же расширение `joint_two_series_bootstrap`, что и
+/// `disjoint_contrast`, с `combine = умножение`. `alpha` — односторонний
+/// уровень нижнего перцентиля, обязательный параметр: спека (R08/R50) не
+/// называет число для этого гейта, в отличие от `stats::GATE_ALPHA`
+/// (зафиксированной альфы гейта G2) — вызывающий обязан передать своё.
+/// `None` — любой из рядов пуст.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn joint_product_interval(
+    day_sums: &[(f64, u64, f64, u64)],
+    alpha: f64,
+    replications: u32,
+    seed: u64,
+) -> Option<JointProduct> {
+    debug_assert!((0.0..=1.0).contains(&alpha), "альфа интервала вне [0,1]");
+    let (mean_a, n_a, mean_b, n_b, point, reps) =
+        joint_two_series_bootstrap(day_sums, replications, seed, |a, b| a * b)?;
+    Some(JointProduct {
+        n_a,
+        n_b,
+        mean_a,
+        mean_b,
+        point,
+        lower: quantile_sorted(&reps, alpha),
         replications,
         seed,
     })
@@ -1155,6 +1235,40 @@ mod tests {
         assert!(text.contains("C2 vs C1\\C2"), "печать: {text}");
         assert!(text.contains("aux nested(C2-C1)"), "печать: {text}");
         assert!(text.contains("w=0.4000"), "печать: {text}");
+    }
+
+    /// Таск 03 (R08/R50): `joint_product_interval` — расширение того же шва,
+    /// что дизъюнктный контраст, с `combine = умножение`. Два кластера
+    /// (сутки) с известными числами проверяют формулу буквально:
+    /// `mean_a = (10+20)/(4+6) = 3.0`, `mean_b = (5+15)/(4+6) = 2.0`,
+    /// точка `= 6.0`. Разные seed обязаны дать разные (но конечные) нижние
+    /// границы — иначе seed декоративен, как и у `wild_cluster_bootstrap_t`.
+    #[test]
+    fn joint_product_interval_matches_hand_computed_point_and_reacts_to_seed() {
+        let day_sums = [(10.0, 4u64, 5.0, 4u64), (20.0, 6u64, 15.0, 6u64)];
+        let jp = joint_product_interval(&day_sums, 0.05, TEST_REPLICATIONS, CELLS_SEED)
+            .expect("обе серии непусты");
+        assert_eq!((jp.n_a, jp.n_b), (10, 10));
+        assert!(close(jp.mean_a, 3.0), "mean_a = 30/10");
+        assert!(close(jp.mean_b, 2.0), "mean_b = 20/10");
+        assert!(close(jp.point, 6.0), "точка = mean_a*mean_b = 3*2");
+        assert!(jp.lower.is_finite(), "нижняя граница обязана быть конечной");
+        assert!(
+            jp.lower <= jp.point,
+            "нижний перцентиль не может быть выше точки на положительном сигнале"
+        );
+
+        let other_seed = joint_product_interval(&day_sums, 0.05, TEST_REPLICATIONS, CELLS_SEED + 1)
+            .expect("обе серии непусты");
+        assert_ne!(
+            jp.lower, other_seed.lower,
+            "другой seed обязан дать другую реплику нижней границы"
+        );
+
+        assert_eq!(
+            joint_product_interval(&[], 0.05, TEST_REPLICATIONS, CELLS_SEED),
+            None
+        );
     }
 
     /// Константные данные — вырожденная дисперсия, а не ложный зелёный:
