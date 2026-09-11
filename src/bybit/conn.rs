@@ -195,7 +195,17 @@ pub struct ConnConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnEvent {
     /// Одно событие потока, `local_ts_ns` — метка, поставленная до разбора.
-    Message { local_ts_ns: i64, event: Event },
+    /// `parsed_ts_ns` — вторая метка через тот же `Clock`, поставленная
+    /// сразу после `ws::parse_message` (таск 04, суббюджет «разбор»
+    /// `PLAN.md` 3.1: `p99 < 200 мкс`); `parsed_ts_ns - local_ts_ns` —
+    /// длительность разбора одного сырого кадра. До этого поля суббюджет
+    /// разбора был неизмерим отсюда вовсе — единственная метка стояла до
+    /// разбора, и ничего не стояло после (handoff-04-1, ТУПИК 3).
+    Message {
+        local_ts_ns: i64,
+        parsed_ts_ns: i64,
+        event: Event,
+    },
     /// Сырой фрейм не разобрался. Метка всё равно есть — она берётся до
     /// разбора и не зависит от его исхода; иначе этот вариант доказывал бы,
     /// что `local_ts` ставится после разбора, а не до.
@@ -335,9 +345,30 @@ impl<C: TransportConnector> Connection<C> {
                                 // единственного вызова `parse_message` ниже.
                                 // Это и есть `H12`: точка "сразу после recv".
                                 let local_ts_ns = clock.now_ns();
+                                // Разбор — синхронный вызов, ни одного `.await`
+                                // между `local_ts_ns` и `parsed_ts_ns`, поэтому
+                                // сделан здесь, а не внутри `handle_raw`: только
+                                // так вторая метка (таск 04, суббюджет «разбор»,
+                                // `PLAN.md` 3.1) берётся через `&clock` без
+                                // необходимости проносить ссылку на `Clock`
+                                // через границу `.await` `handle_raw` — общий
+                                // параметр `impl Clock + 'static` не обязан быть
+                                // `Sync`, а ссылка, живущая поперёк чужого
+                                // `.await`, обязана.
+                                let events = match ws::parse_message(&raw) {
+                                    Ok(evs) => evs,
+                                    Err(err) => {
+                                        let _ = out
+                                            .send(ConnEvent::ParseFailed { local_ts_ns, err })
+                                            .await;
+                                        continue;
+                                    }
+                                };
+                                let parsed_ts_ns = clock.now_ns();
                                 let alive = Self::handle_raw(
-                                    &raw,
+                                    events,
                                     local_ts_ns,
+                                    parsed_ts_ns,
                                     &mut session,
                                     &self.cfg.symbol,
                                     &mut transport,
@@ -383,26 +414,21 @@ impl<C: TransportConnector> Connection<C> {
         }
     }
 
-    /// Разбирает один сырой фрейм, применяет обновления книги к локальной
-    /// книге сессии и решает, пересылать ли событие наружу. Возвращает
-    /// `false`, если сессию нужно закрывать (отправка резинка в уже мёртвый
-    /// сокет не удалась).
+    /// Обрабатывает уже разобранные события одного сырого фрейма: применяет
+    /// обновления книги к локальной книге сессии и решает, пересылать ли
+    /// событие наружу. Возвращает `false`, если сессию нужно закрывать
+    /// (отправка ресинка в уже мёртвый сокет не удалась). Разбор (и обе
+    /// метки, `local_ts_ns` до него и `parsed_ts_ns` сразу после) сделан
+    /// вызывающим кодом в `run` — см. комментарий там.
     async fn handle_raw(
-        raw: &str,
+        events: Vec<Event>,
         local_ts_ns: i64,
+        parsed_ts_ns: i64,
         session: &mut Session,
         symbol: &str,
         transport: &mut C::Transport,
         out: &mpsc::Sender<ConnEvent>,
     ) -> bool {
-        let events = match ws::parse_message(raw) {
-            Ok(evs) => evs,
-            Err(err) => {
-                let _ = out.send(ConnEvent::ParseFailed { local_ts_ns, err }).await;
-                return true;
-            }
-        };
-
         for event in events {
             if let Event::Book(update) = &event {
                 match session.book.apply(update) {
@@ -479,7 +505,13 @@ impl<C: TransportConnector> Connection<C> {
             // принять сообщение — сам факт, что было что переслать, уже
             // случился и не зависит от состояния канала на другом конце.
             session.productive = true;
-            let _ = out.send(ConnEvent::Message { local_ts_ns, event }).await;
+            let _ = out
+                .send(ConnEvent::Message {
+                    local_ts_ns,
+                    parsed_ts_ns,
+                    event,
+                })
+                .await;
         }
         true
     }
@@ -926,7 +958,9 @@ mod tests {
 
         for ev in events {
             match ev {
-                ConnEvent::Message { local_ts_ns, event } => {
+                ConnEvent::Message {
+                    local_ts_ns, event, ..
+                } => {
                     let exch_ts_ns = match event {
                         Event::Book(u) => u.cts_ms * 1_000_000,
                         Event::Trade(t) => t.exch_ms * 1_000_000,
@@ -1321,12 +1355,16 @@ mod tests {
     /// прочитаны один раз на сессию и разошлись по всем событиям": константа
     /// тоже монотонна нестрого. `CountingClock` закрывает именно это: каждое
     /// показание уникально по построению, поэтому строгий рост доказывает, что
-    /// `now_ns()` вызывается заново на каждый кадр, а не переиспользуется, а
-    /// сверка счётчика с числом кадров доказывает, что он не вызывается и
-    /// ЛИШНИЙ раз тоже (иначе значения росли бы шагом >1, но сам факт строгого
-    /// роста этого не поймал бы — ловит только сверка со счётчиком фреймов).
+    /// `now_ns()` вызывается заново на каждый кадр, а не переиспользуется.
+    ///
+    /// Таск 04 добавил вторую метку, `parsed_ts_ns`, сразу после
+    /// `ws::parse_message` (суббюджет «разбор», `PLAN.md` 3.1) — на каждый
+    /// успешно распарсенный кадр (все четыре здесь — валидные `orderbook`)
+    /// часы теперь читаются ровно дважды, не один раз; сверка счётчика с
+    /// `2 * n_frames` доказывает, что ни одного лишнего чтения сверх этих
+    /// двух не просочилось.
     #[tokio::test]
-    async fn local_ts_advances_exactly_once_per_completed_recv_and_is_strictly_increasing() {
+    async fn local_ts_advances_exactly_twice_per_completed_recv_and_is_strictly_increasing() {
         let frames = vec![
             Ok(Frame::Text(orderbook_msg(
                 "snapshot",
@@ -1379,9 +1417,10 @@ mod tests {
         );
         assert_eq!(
             calls.load(std::sync::atomic::Ordering::SeqCst) as usize,
-            n_frames,
-            "часы обязаны читаться ровно один раз на каждый завершившийся recv — не реже \
-             (одно чтение на сессию не прошло бы строгий рост) и не чаще"
+            n_frames * 2,
+            "часы обязаны читаться ровно дважды на каждый успешно распарсенный recv \
+             (`local_ts_ns` до разбора, `parsed_ts_ns` сразу после) — не реже (одно \
+             чтение на сессию не прошло бы строгий рост) и не чаще"
         );
     }
 

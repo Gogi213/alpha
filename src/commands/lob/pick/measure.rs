@@ -148,6 +148,7 @@ async fn measure_one_symbol(
             Ok(Some(ConnEvent::Message {
                 local_ts_ns,
                 event: Event::Book(update),
+                ..
             })) => {
                 if book.apply(&update).is_ok() {
                     samples.push(DepthSample {

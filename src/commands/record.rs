@@ -1180,7 +1180,9 @@ async fn run_session(
                     return Ok(SessionEnd::Stop { reason: StopReason::ChannelClosed });
                 };
                 match conn_event {
-                    ConnEvent::Message { local_ts_ns, event } => {
+                    ConnEvent::Message {
+                        local_ts_ns, event, ..
+                    } => {
                         if let Some(exch_ms) = event_exch_ms(&event) {
                             let exch_ts_ns = exch_ms.saturating_mul(1_000_000);
                             rotate_day_if_needed!(exch_ts_ns);
@@ -1840,6 +1842,9 @@ mod tests {
                 panic!("разобралась не та подкоманда")
             }
             crate::commands::lob::LobCommand::Pilot(_) => {
+                panic!("разобралась не та подкоманда")
+            }
+            crate::commands::lob::LobCommand::Session(_) => {
                 panic!("разобралась не та подкоманда")
             }
         }

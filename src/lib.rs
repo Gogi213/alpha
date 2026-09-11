@@ -7,6 +7,7 @@ pub mod binlog;
 pub mod book;
 pub mod bybit;
 pub mod commands;
+pub mod feed;
 pub mod lob;
 pub mod stats;
 

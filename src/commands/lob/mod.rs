@@ -68,6 +68,7 @@ pub mod pick;
 pub mod pilot;
 pub mod probe;
 mod record;
+pub mod session;
 mod verify;
 pub mod watch;
 
@@ -77,6 +78,7 @@ pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
 pub use pilot::{run_pilot, PilotArgs};
 pub use probe::{run_probe, ProbeArgs};
+pub use session::{run_session, SessionArgs};
 pub use watch::{run_watch, WatchArgs};
 
 // ---------------------------------------------------------------------------
@@ -454,6 +456,9 @@ pub enum LobCommand {
     Watch(WatchArgs),
     /// Пилотная цепочка 1.1 -> 1.2 -> 2.1 тем же кодом и вердикт G0 (шаг 3.1).
     Pilot(PilotArgs),
+    /// Сессия 5-15 минут по всему пулу одновременно, один `Feed` на
+    /// рекордер и (таск 15) на стратегию (таск 04, история 7).
+    Session(SessionArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -562,6 +567,19 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.mean_net_bps,
                 summary.verdict,
                 summary.runs_out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Session(args) => {
+            let summary = run_session(&args)?;
+            println!(
+                "session: instruments={} start_hour_utc={} records={} gaps={} clock_samples={} out={}",
+                summary.instruments.len(),
+                summary.start_hour_utc,
+                summary.records_total,
+                summary.gaps,
+                summary.clock_samples,
+                summary.out.display()
             );
             Ok(())
         }
@@ -679,8 +697,8 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "clock", "export", "levels", "markout", "pick", "pilot", "probe", "record", "verify",
-            "watch",
+            "clock", "export", "levels", "markout", "pick", "pilot", "probe", "record", "session",
+            "verify", "watch",
         ];
         assert_eq!(
             sorted,
