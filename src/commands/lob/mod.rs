@@ -60,6 +60,7 @@ use crate::lob::markout::MidSample;
 use crate::lob::watch::{tally_day, DayTally};
 use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
+pub mod backtest;
 pub mod clock;
 mod export;
 pub mod levels;
@@ -75,6 +76,7 @@ pub mod session;
 mod verify;
 pub mod watch;
 
+pub use backtest::{run_backtest, BacktestArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use levels::{run_levels, LevelsArgs};
 pub use markout::{run_markout, MarkoutArgs};
@@ -473,6 +475,9 @@ pub enum LobCommand {
     /// Таблица профилей `docs/findings/profiles-<дата>.csv` — первый из трёх
     /// артефактов задачи (таск 10, история 44).
     Profiles(ProfilesArgs),
+    /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
+    /// второй из трёх артефактов задачи (таск 11, история 32–34).
+    Backtest(BacktestArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -624,6 +629,18 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
+        LobCommand::Backtest(args) => {
+            let summary = run_backtest(&args)?;
+            println!(
+                "backtest: profiles={} pass={} red={} out={} pnl_out={}",
+                summary.profiles,
+                summary.pass,
+                summary.red,
+                summary.out.display(),
+                summary.pnl_out.display()
+            );
+            Ok(())
+        }
     }
 }
 
@@ -738,8 +755,8 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "profiles",
-            "react", "record", "session", "verify", "watch",
+            "backtest", "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe",
+            "profiles", "react", "record", "session", "verify", "watch",
         ];
         assert_eq!(
             sorted,
