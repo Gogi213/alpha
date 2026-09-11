@@ -66,6 +66,7 @@ pub mod levels;
 pub mod markout;
 pub mod pick;
 pub mod pilot;
+pub mod power;
 pub mod probe;
 mod record;
 pub mod session;
@@ -77,6 +78,7 @@ pub use levels::{run_levels, LevelsArgs};
 pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
 pub use pilot::{run_pilot, PilotArgs};
+pub use power::{run_power, PowerArgs};
 pub use probe::{run_probe, ProbeArgs};
 pub use session::{run_session, SessionArgs};
 pub use watch::{run_watch, WatchArgs};
@@ -456,6 +458,8 @@ pub enum LobCommand {
     Watch(WatchArgs),
     /// Пилотная цепочка 1.1 -> 1.2 -> 2.1 тем же кодом и вердикт G0 (шаг 3.1).
     Pilot(PilotArgs),
+    /// Гейт G-POWER-A: `N`, `SR0`, требуемый Шарп до сбора данных (история 43).
+    Power(PowerArgs),
     /// Сессия 5-15 минут по всему пулу одновременно, один `Feed` на
     /// рекордер и (таск 15) на стратегию (таск 04, история 7).
     Session(SessionArgs),
@@ -570,6 +574,18 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
+        LobCommand::Power(args) => {
+            let summary = run_power(&args)?;
+            println!(
+                "power: n={} sr0={:.4} required_sharpe={:.4} dsr_target={:.2} num_obs={}",
+                summary.n,
+                summary.sr0,
+                summary.required_sharpe,
+                summary.dsr_target,
+                summary.num_obs
+            );
+            Ok(())
+        }
         LobCommand::Session(args) => {
             let summary = run_session(&args)?;
             println!(
@@ -681,7 +697,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lob_help_lists_all_ten_subcommands() {
+    fn lob_help_lists_all_subcommands() {
         #[derive(clap::Parser)]
         struct TestCli {
             #[command(subcommand)]
@@ -697,8 +713,8 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "clock", "export", "levels", "markout", "pick", "pilot", "probe", "record", "session",
-            "verify", "watch",
+            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "record",
+            "session", "verify", "watch",
         ];
         assert_eq!(
             sorted,

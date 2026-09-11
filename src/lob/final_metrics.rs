@@ -221,6 +221,38 @@ pub fn expected_sharpe_under_null(trial_sharpes: &[f64]) -> Option<f64> {
     }
 }
 
+/// Синтетическая выборка длины `n` с точным нулевым средним и точной
+/// выборочной дисперсией `1.0` (делитель `n−1`, как в `expected_sharpe_
+/// under_null`): один элемент `(n−1)/√n`, остальные `n−1` — `−1/√n`. Сумма
+/// нулевая по построению, сумма квадратов даёт дисперсию ровно `1` —
+/// проверено тестом ниже, а не принято на веру.
+fn unit_variance_trials(n: usize) -> Vec<f64> {
+    if n < 2 {
+        return vec![0.0; n];
+    }
+    let nf = count_f64(n);
+    let mut trials = vec![-1.0 / nf.sqrt(); n];
+    trials[0] = (nf - 1.0) / nf.sqrt();
+    trials
+}
+
+/// `SR0` для гейта G-POWER-A (`PLAN.md` §6): до первой сессии сбора пробных
+/// Sharpe не существует, только их число `n` из шага отбора
+/// (`shortlist::nominal_grid_size`/`total_trials`). `expected_sharpe_
+/// under_null` требует сам срез, а не только его длину — здесь ему
+/// передаётся синтетический срез с выборочной дисперсией, принятой равной
+/// единице: стандартное допущение под нулевой гипотезой, когда дисперсия
+/// пробных Sharpe ещё не измерена (Bailey — López de Prado, 2014, тот же
+/// параметр `V`, стоящий здесь `1` за неимением измерения — не занижает и не
+/// завышает поправку сам по себе, единица — нейтральный масштаб). Формула
+/// SR0 не дублируется: это обёртка, не вторая реализация. `None` — `n = 0`.
+pub fn expected_sharpe_under_null_for_trial_count(n: usize) -> Option<f64> {
+    if n == 0 {
+        return None;
+    }
+    expected_sharpe_under_null(&unit_variance_trials(n))
+}
+
 /// Deflated Sharpe Ratio: вероятность, что истинный Sharpe положителен с
 /// поправкой на `N` испытаний, `Φ((SR − SR0)·√(T−1) / √(1 − skew·SR +
 /// (kurt−1)/4·SR²))`. `num_obs` — число покруговых наблюдений `T` (не число
@@ -255,6 +287,43 @@ pub fn dsr(
 pub fn dsr_from_returns(returns: &[f64], trial_sharpes: &[f64]) -> Option<f64> {
     let m = moments(returns)?;
     dsr(m.mean / m.std, m.n, m.skew, m.kurtosis, trial_sharpes)
+}
+
+/// Требуемый Шарп на наблюдение для гейта G-POWER-A: наименьший `x`, при
+/// котором `dsr(x, num_obs, 0.0, 3.0, …)` (с `SR0` из
+/// `expected_sharpe_under_null_for_trial_count(n_trials)`) достигает
+/// `dsr_target`. Скошенность `0` и эксцесс `3.0` — нормальный ряд (`Moments`
+/// нормирует так же — нормальный ряд даёт `3.0`, не `0.0`); до сбора данных
+/// другой оценки формы распределения нет.
+///
+/// `dsr` вырождается при этих `skew`/`kurtosis` в `Φ((x−SR0)·√(T−1) /
+/// √(1+0.5·x²)) = dsr_target`, `z = Φ⁻¹(dsr_target)` — квадратное уравнение
+/// `(T−1−0.5·z²)·x² − 2·(T−1)·SR0·x + ((T−1)·SR0² − z²) = 0`; решение —
+/// больший корень (тот, где `x − SR0` того же знака, что `z`), численный
+/// поиск здесь не нужен. `None` — `num_obs < 2`, `dsr_target` вне `(0, 1)`,
+/// `n_trials` без `SR0` или коэффициент при `x²` неположителен (`z` слишком
+/// велик относительно `T`).
+pub fn required_sharpe_for_dsr(n_trials: usize, num_obs: usize, dsr_target: f64) -> Option<f64> {
+    if num_obs < 2 || !dsr_target.is_finite() || !(0.0..1.0).contains(&dsr_target) {
+        return None;
+    }
+    let sr0 = expected_sharpe_under_null_for_trial_count(n_trials)?;
+    let z = normal_inv_cdf(dsr_target);
+    if !z.is_finite() {
+        return None;
+    }
+    let t1 = count_f64(num_obs - 1);
+    let a = t1 - 0.5 * z * z;
+    if a <= 0.0 {
+        return None;
+    }
+    let b = -2.0 * t1 * sr0;
+    let c = t1 * sr0 * sr0 - z * z;
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return None;
+    }
+    Some((-b + disc.sqrt()) / (2.0 * a))
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +734,74 @@ mod tests {
         assert_eq!(dsr(2.0, 252, 0.0, -3.0, &[1.0]), None);
         assert_eq!(dsr_from_returns(&[1.0, 1.0, 1.0, 1.0], &[1.0]), None);
         assert_eq!(dsr_from_returns(&[], &[1.0]), None);
+    }
+
+    /// `unit_variance_trials` — точная выборочная дисперсия `1.0` (делитель
+    /// `n−1`), не приближённая: гейт G-POWER-A печатает `SR0` без
+    /// пробных прогонов, и это единственное, что делает такую печать честной.
+    #[test]
+    fn unit_variance_trials_has_exact_sample_variance_one() {
+        for n in [2usize, 3, 5, 42, 179] {
+            let trials = unit_variance_trials(n);
+            assert_eq!(trials.len(), n);
+            let mean = trials.iter().sum::<f64>() / count_f64(n);
+            assert!(close(mean, 0.0, 1e-9), "n={n} mean={mean}");
+            let var =
+                trials.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / count_f64(n - 1);
+            assert!(close(var, 1.0, 1e-9), "n={n} var={var}");
+        }
+    }
+
+    /// Критерий приёмки таска 05: `SR0` гейта G-POWER-A на известном `N`
+    /// совпадает с ручным расчётом по формуле из докстроки
+    /// `expected_sharpe_under_null` при `V = 1` — обёртка не меняет формулу.
+    #[test]
+    fn sr0_for_trial_count_matches_hand_formula() {
+        for n in [1usize, 2, 42, 179] {
+            let nf = count_f64(n);
+            let expected = if n <= 1 {
+                0.0
+            } else {
+                let q1 = normal_inv_cdf(1.0 - 1.0 / nf);
+                let q2 = normal_inv_cdf(1.0 - 1.0 / (nf * std::f64::consts::E));
+                (1.0 - EULER_MASCHERONI) * q1 + EULER_MASCHERONI * q2
+            };
+            let got = expected_sharpe_under_null_for_trial_count(n).unwrap();
+            assert!(
+                close(got, expected, 1e-9),
+                "n={n} got={got} expected={expected}"
+            );
+        }
+        assert_eq!(expected_sharpe_under_null_for_trial_count(0), None);
+    }
+
+    /// Критерий приёмки таска 05: при `N = 1` требуемый Шарп совпадает с
+    /// недефлированным порогом — при одном испытании `SR0 = 0` и квадратное
+    /// уравнение вырождается в `x = z/√(T−1−0.5·z²)` без штрафа за отбор.
+    #[test]
+    fn required_sharpe_at_n_one_matches_undeflated_threshold() {
+        let z = normal_inv_cdf(0.95);
+        let t1 = 99.0; // num_obs - 1 = 100 - 1
+        let undeflated = z / (t1 - 0.5 * z * z).sqrt();
+        let got = required_sharpe_for_dsr(1, 100, 0.95).unwrap();
+        assert!(
+            close(got, undeflated, 1e-9),
+            "got={got} undeflated={undeflated}"
+        );
+        // Подставленный назад в dsr() с тем же (нулевым) SR0 обязан дать
+        // ровно 0.95 — независимая проверка через сам гейт, не переформулировка.
+        let back = dsr(got, 100, 0.0, 3.0, &[0.0]).unwrap();
+        assert!(close(back, 0.95, 1e-6), "back={back}");
+    }
+
+    /// Больше испытаний — выше планка: требуемый Шарп при 179 испытаниях
+    /// обязан быть строго больше, чем при одном (штраф за множественность
+    /// работает в правильную сторону и здесь, не только в `dsr`).
+    #[test]
+    fn required_sharpe_grows_with_trial_count() {
+        let one = required_sharpe_for_dsr(1, 100, 0.95).unwrap();
+        let many = required_sharpe_for_dsr(179, 100, 0.95).unwrap();
+        assert!(many > one, "one={one} many={many}");
     }
 
     /// PBO = 1.0, когда IS-победитель заучил IS-блоки и валится на OOS: при

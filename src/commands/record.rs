@@ -1844,6 +1844,9 @@ mod tests {
             crate::commands::lob::LobCommand::Pilot(_) => {
                 panic!("разобралась не та подкоманда")
             }
+            crate::commands::lob::LobCommand::Power(_) => {
+                panic!("разобралась не та подкоманда")
+            }
             crate::commands::lob::LobCommand::Session(_) => {
                 panic!("разобралась не та подкоманда")
             }
