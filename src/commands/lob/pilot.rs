@@ -16,7 +16,9 @@
 //! ещё не назначен владельцем (`interfaces.md`, «Из таска 08»). Код и тесты
 //! на синтетике — ниже; «за второй час» (§11) теперь фильтр, не открытый
 //! пункт: `process_instrument` считает ставку/доли/`m`/`net` только по
-//! хвосту в `BATTLE_COUNTED_TAIL_MINUTES` минут от конца выборки —
+//! хвосту в `battle_counted_tail_minutes(window_minutes)` минут от конца
+//! выборки — половина длительности записи, не второй час фиксированно
+//! (решение владельца 2026-09-12: пилот бывает короче двух часов) —
 //! `counted_tail_cutoff_ms` ниже. Реплей самого символа (шаги `verify` →
 //! `levels`×2 → `markout`) при этом не сводится к одному проходу:
 //! `run_verify`/`run_levels`/`run_markout` (`bybit/verify.rs`,
@@ -253,13 +255,18 @@ pub fn sessions_needed_for_profile(
     Some(sessions.max(1))
 }
 
-/// «Второй час» §11 — сколько минут с хвоста боевого прогона считаются в
-/// замер. Плановое решение (`PLAN.md` §11, «два часа, считается второй»),
-/// не изобретённое число: `run_pilot_battle` передаёт его в
-/// `process_instrument`, который через `counted_tail_cutoff_ms` режет
-/// ставку/доли исходов/`m`/`net` по хвосту в эти минуты от последнего среза
-/// середины реплея — первый час прогрева в замер не входит.
-pub const BATTLE_COUNTED_TAIL_MINUTES: u64 = 60;
+/// Сколько минут с хвоста боевого прогона считаются в замер: половина
+/// длительности записи (решение владельца 2026-09-12, заменяет прежнюю
+/// константу `BATTLE_COUNTED_TAIL_MINUTES = 60`). §11 плана называет частный
+/// случай — «два часа, считается второй» — эта функция его обобщает:
+/// `120.0 → 60.0` (ровно второй час, как в §11), `30.0 → 15.0` (текущий
+/// пилот владельца — 30 минут, не два часа). `run_pilot_battle` передаёт
+/// результат в `process_instrument`, который через `counted_tail_cutoff_ms`
+/// режет ставку/доли исходов/`m`/`net` по хвосту в эти минуты от последнего
+/// среза середины реплея — первая половина (прогрев) в замер не входит.
+pub fn battle_counted_tail_minutes(window_minutes: f64) -> f64 {
+    window_minutes / 2.0
+}
 
 /// Путь `runs_out`, которым `run_profiles_and_backtest_chain` зовёт `lob
 /// profiles` внутри `--debug`-цепочки: `allow_unverified: true` гарантирует,
@@ -325,13 +332,13 @@ pub struct InstrumentMetrics {
 /// (интерфейс таска 07): в `--debug` это исходный каталог сессии, в
 /// боевом пути — тот же `verify_root`.
 ///
-/// `counted_tail_minutes` — «второй час» §11: `None` (режим `--debug`) не
+/// `counted_tail_minutes` — половина §11: `None` (режим `--debug`) не
 /// фильтрует ничего, вся выборка под `window_minutes` целиком; `Some(t)`
-/// (боевой путь, `BATTLE_COUNTED_TAIL_MINUTES`) режет ставку `H3` в обоих
-/// режимах, доли исходов, `m`/`net`/Шарп по хвосту в `t` минут от последнего
-/// среза середины реплея (`counted_tail_cutoff_ms`) — первый час прогрева не
-/// входит в замер, только он определяет знаменатель ставки вместо
-/// `window_minutes`.
+/// (боевой путь, `t = battle_counted_tail_minutes(window_minutes)`) режет
+/// ставку `H3` в обоих режимах, доли исходов, `m`/`net`/Шарп по хвосту в `t`
+/// минут от последнего среза середины реплея (`counted_tail_cutoff_ms`) —
+/// первая половина (прогрев) не входит в замер, только она определяет
+/// знаменатель ставки вместо `window_minutes`.
 pub fn process_instrument(
     verify_root: &Path,
     marker_dir: &Path,
@@ -1190,7 +1197,8 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let session_summary = run_session(&SessionArgs {
         pool_instruments: pool_instruments.clone(),
         root: session_dir.clone(),
-        minutes,
+        minutes: Some(minutes),
+        pilot_minutes: None,
         base_url: args.base_url.clone(),
         ntp_addr: args.ntp_addr.clone(),
     })?;
@@ -1535,7 +1543,7 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
             args.warmup_ms,
             args.repeat_window_ms,
             window_minutes,
-            Some(count_f64_u64(BATTLE_COUNTED_TAIL_MINUTES)),
+            Some(battle_counted_tail_minutes(window_minutes)),
         )
         .map_err(|f| anyhow::anyhow!("{symbol}: {f}"))?;
         println!("pilot battle: {}", format_instrument_line(&m));
@@ -1613,7 +1621,7 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
             symbol,
             args.repeat_window_ms,
             window_minutes,
-            Some(count_f64_u64(BATTLE_COUNTED_TAIL_MINUTES)),
+            Some(battle_counted_tail_minutes(window_minutes)),
         ) {
             Ok(rows) => k_grid_per_instrument.push((symbol.clone(), rows)),
             Err(e) => println!("pilot k-grid: {symbol} — упал: {e}"),
@@ -1679,6 +1687,18 @@ mod tests {
         assert_eq!(sessions_needed_for_profile(0.0, 10.0, 100), None);
         assert_eq!(sessions_needed_for_profile(-1.0, 10.0, 100), None);
         assert_eq!(sessions_needed_for_profile(1.0, 0.0, 100), None);
+    }
+
+    /// Решение владельца 2026-09-12: хвост боевого пилота, засчитанный в
+    /// замер, — половина длительности записи, не второй час фиксированно
+    /// (прежняя `BATTLE_COUNTED_TAIL_MINUTES = 60`). §11 плана называет
+    /// частный случай двухчасового пилота (120 → 60, ровно второй час);
+    /// тридцатиминутный пилот владельца (30 → 15) — тот же расчёт, не второе
+    /// правило.
+    #[test]
+    fn battle_counted_tail_minutes_is_half_the_window() {
+        assert_eq!(battle_counted_tail_minutes(120.0), 60.0);
+        assert_eq!(battle_counted_tail_minutes(30.0), 15.0);
     }
 
     #[test]

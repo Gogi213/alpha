@@ -752,6 +752,27 @@ impl VerifySummary {
     }
 }
 
+/// Хронологический ключ файла `<SYMBOL>-<день>[-pN].binlog`: день, потом
+/// часть суток. Голая лексикография (`Vec::sort()` на именах) ставит `-p2`
+/// раньше файла без суффикса — `-` (0x2D) < `.` (0x2E) в ASCII, значит
+/// `SOLUSDT-2026-09-08-p2.binlog` меньше `SOLUSDT-2026-09-08.binlog` как
+/// строка. Таск 22: `commands::lob::mod::file_order_key` уже решает это для
+/// `replay_symbol_over_configs`/`session_binlog_for`; `bybit` не зависит от
+/// `commands` (граница слоёв, `CLAUDE.md`), поэтому здесь — тот же расчёт по
+/// тому же правилу, не второй способ его же придумать.
+fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
+    let rest = name.strip_prefix(prefix).unwrap_or(name);
+    let rest = rest.strip_suffix(".binlog").unwrap_or(rest);
+    if let Some(tail) = rest.get(10..) {
+        if let Some(num) = tail.strip_prefix("-p") {
+            if let Ok(part) = num.parse::<u32>() {
+                return (rest[..10].to_string(), part);
+            }
+        }
+    }
+    (rest.to_string(), 1)
+}
+
 /// Прогоняет все суточные файлы символа через проверки 2-3. Проверка 1 здесь
 /// невозможна по построению (у файла нет `u`) и не выполняется молча как
 /// «чисто»: она отсутствует в отчёте вообще, а не со значением ноль.
@@ -767,7 +788,14 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
             files.push(e.path());
         }
     }
-    files.sort();
+    files.sort_by(|a, b| {
+        let key = |p: &PathBuf| {
+            p.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
+    });
     if files.is_empty() {
         // Таск 19, тот же приём, что `commands::lob::mod::
         // replay_symbol_over_configs`/`session_binlog_for`: каталог

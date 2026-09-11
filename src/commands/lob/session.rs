@@ -13,14 +13,12 @@ use std::time::Duration;
 
 use clap::Args;
 
-use crate::binlog::{Header, Record, Writer};
+use crate::binlog::{Record, Writer};
 use crate::book::{Book, Side};
 use crate::bybit::clock::{append_row, sample, BybitServerTimeSource, ClockRow, UdpNtpSource};
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::bybit::rest::BYBIT_MAINNET_URL;
-use crate::commands::record::{
-    append_gap_row, ensure_gaps_csv, gaps_csv_path, GapKind, GapRow, ZSTD_LEVEL,
-};
+use crate::commands::record::{append_gap_row, ensure_gaps_csv, gaps_csv_path, GapKind, GapRow};
 use crate::feed::live::{LiveFeed, PoolMember};
 use crate::feed::{Event, Feed};
 
@@ -32,9 +30,21 @@ use crate::feed::{Event, Feed};
 pub const MIN_MINUTES: u64 = 5;
 pub const MAX_MINUTES: u64 = 15;
 
-/// Аргументы `lob session`. Ни у `minutes`, ни у путей нет правдоподобного
-/// умолчания (правило 1 `interfaces.md`: параметр без умолчания лучше
-/// изобретённого) — пул и место записи владелец называет каждый раз.
+/// Границы `--pilot-minutes` (таск 22): пилот §11 плана — режим вне лимита
+/// сессии сбора, поэтому отдельный флаг, а не число вне диапазона
+/// `--minutes`. Нижняя граница — просто «дольше, чем сессия сбора»
+/// (`MAX_MINUTES + 1`, не второе изобретённое число); верхняя — гейт G0
+/// плана («у медианного инструмента < 200 уровней — пилот продлевается до
+/// 6 часов один раз», ревизия 17б, `docs/plan/SETTLED.md` В-29). Сама длина
+/// пилота — решение владельца по факту (2026-09-12: 30 минут, не два часа
+/// первой редакции §11) и в код не зашита, только эти границы.
+pub const MIN_PILOT_MINUTES: u32 = MAX_MINUTES as u32 + 1;
+pub const MAX_PILOT_MINUTES: u32 = 360;
+
+/// Аргументы `lob session`. Ни у `minutes`/`pilot_minutes`, ни у путей нет
+/// правдоподобного умолчания (правило 1 `interfaces.md`: параметр без
+/// умолчания лучше изобретённого) — пул и место записи владелец называет
+/// каждый раз.
 #[derive(Debug, Args)]
 pub struct SessionArgs {
     /// `instruments.csv` последнего `lob pick` — колонки `symbol,tick_size,
@@ -47,11 +57,21 @@ pub struct SessionArgs {
     /// о сессии.
     #[arg(long)]
     pub root: PathBuf,
-    /// Длина сессии. Диапазон `MIN_MINUTES..=MAX_MINUTES` — решение
-    /// владельца (история 7), не умолчание этого файла; `run_session`
-    /// отклоняет значения вне него до всякой сети.
-    #[arg(long)]
-    pub minutes: u64,
+    /// Длина сессии сбора. Диапазон `MIN_MINUTES..=MAX_MINUTES` — решение
+    /// владельца (история 7), не умолчание этого файла; `resolve_duration`
+    /// отклоняет значения вне него до всякой сети. Взаимоисключающий с
+    /// `--pilot-minutes` (`clap conflicts_with`); ровно один из двух
+    /// обязателен — эту половину условия clap не выражает, её проверяет
+    /// `resolve_duration`.
+    #[arg(long, conflicts_with = "pilot_minutes")]
+    pub minutes: Option<u64>,
+    /// Длина пилота §11 плана, минуты — режим вне лимита сессии сбора
+    /// (`MIN_PILOT_MINUTES..=MAX_PILOT_MINUTES`, doc констант). Пилот
+    /// печатает `pilot: <n> мин` в stderr и несёт `session.json.pilot =
+    /// true`, `pilot_minutes = <n>` — всё остальное (пул, `gaps.csv`,
+    /// `clock.csv`, CPU/RSS, p99 разбора/очереди) как у обычной сессии.
+    #[arg(long, conflicts_with = "minutes")]
+    pub pilot_minutes: Option<u32>,
     /// REST-хост Bybit v5 для одного замера `serverTime` в `clock.csv`.
     #[arg(long, default_value = BYBIT_MAINNET_URL)]
     pub base_url: String,
@@ -60,6 +80,43 @@ pub struct SessionArgs {
     /// H12` («часы дисциплинируются NTP»), без выбора конкретного адреса.
     #[arg(long, default_value = "pool.ntp.org:123")]
     pub ntp_addr: String,
+}
+
+/// Ровно один из `--minutes`/`--pilot-minutes` — `clap conflicts_with`
+/// запрещает оба разом, но не делает ни один обязательным сам по себе (оба
+/// `Option`, оба флага так или иначе опциональны для парсера); эта функция
+/// закрывает вторую половину условия и проверяет диапазон до сети и диска
+/// (тот же приём, что раньше был инлайн-проверкой `--minutes` в начале
+/// `run_session`). Возвращает `(длина в минутах, Some(n) — если пилот)`.
+fn resolve_duration(args: &SessionArgs) -> anyhow::Result<(u64, Option<u32>)> {
+    match (args.minutes, args.pilot_minutes) {
+        (Some(_), Some(_)) => {
+            unreachable!("clap conflicts_with запрещает --minutes и --pilot-minutes разом")
+        }
+        (Some(minutes), None) => {
+            if !(MIN_MINUTES..=MAX_MINUTES).contains(&minutes) {
+                anyhow::bail!(
+                    "--minutes обязан быть в {MIN_MINUTES}..={MAX_MINUTES} (история 7, R38: «от \
+                     пяти до пятнадцати минут»): получено {minutes}"
+                );
+            }
+            Ok((minutes, None))
+        }
+        (None, Some(pilot_minutes)) => {
+            if !(MIN_PILOT_MINUTES..=MAX_PILOT_MINUTES).contains(&pilot_minutes) {
+                anyhow::bail!(
+                    "--pilot-minutes обязан быть в {MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES} \
+                     (PLAN.md §11, гейт G0: «продление до 6 часов один раз»): получено \
+                     {pilot_minutes}"
+                );
+            }
+            Ok((u64::from(pilot_minutes), Some(pilot_minutes)))
+        }
+        (None, None) => anyhow::bail!(
+            "нужен ровно один флаг: --minutes <{MIN_MINUTES}..={MAX_MINUTES}> для сессии сбора \
+             или --pilot-minutes <{MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES}> для пилота §11"
+        ),
+    }
 }
 
 /// Одна строка `symbol,tick_size,...` из `instruments.csv` — читаем только
@@ -128,8 +185,25 @@ fn hftbacktest_flags(side: Side, is_snapshot: bool) -> u64 {
     }
 }
 
+/// Один файл-часть в `session.json.binlog_files` (таск 22, критерий
+/// приёмки «перечисляет части и их `started_utc`»). Список накапливается
+/// через все прогоны `lob session` в один `--root`: вторая сессия тех же
+/// суток дописывает свои части к уже существующим (`run_session` перечитывает
+/// прежний `session.json`, если он есть и разбирается) — тот же принцип
+/// «ничего не затирается», что уже применяет `record::claim_part` к самим
+/// бинлогам.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BinlogPart {
+    pub symbol: String,
+    pub part: u32,
+    pub started_utc: String,
+}
+
 /// Итог `lob session`: то, что печатается и что легло в запись о сессии.
-#[derive(Debug, serde::Serialize)]
+/// `Deserialize` — не только для читателей, но и для самого `run_session`:
+/// вторая сессия в те же сутки перечитывает предыдущий файл, чтобы
+/// накопить `binlog_files`, не потеряв историю прежних частей.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SessionSummary {
     pub started_utc: String,
     pub start_hour_utc: u32,
@@ -178,6 +252,24 @@ pub struct SessionSummary {
     /// «любой тестовый прогон — не дольше 5 минут (фаза отладки, результат —
     /// не данные)»).
     pub debug: bool,
+    /// Таск 22: `true`, когда сессия — пилот §11 (`--pilot-minutes`), не
+    /// сессия сбора (`--minutes`). Пилот на сегодняшнем решении владельца
+    /// (30 минут) остаётся `debug = false` только при длине ≥ 1 часа — на
+    /// коротком пилоте оба поля различаются по смыслу: `pilot` называет
+    /// режим CLI, `debug` — фазу проекта (`is_debug_session`), не одно и то
+    /// же измерение.
+    #[serde(default)]
+    pub pilot: bool,
+    /// Длина пилота в минутах, если `pilot`; `None` у обычной сессии сбора.
+    #[serde(default)]
+    pub pilot_minutes: Option<u32>,
+    /// Части, записанные во все прогоны `lob session` в этот `--root`, по
+    /// порядку появления (не по порядку чтения `session_binlog_for` — та
+    /// сортирует по имени файла, эта хронология по факту вызовов). Пусто у
+    /// файлов старого формата (`#[serde(default)]` — таск 17 уже принял
+    /// этот приём для обратной совместимости `ready.flag`).
+    #[serde(default)]
+    pub binlog_files: Vec<BinlogPart>,
 }
 
 /// Отладочная сессия — короче часа. Чистая функция от `duration_s`, а не
@@ -224,28 +316,44 @@ fn hour_utc_of_ns(ts_ns: i64) -> u32 {
         .unwrap_or(0)
 }
 
-/// Путь файла сессии символа — то же имя, часть 1 (`day_file_path(.., 1)`),
-/// что и суточный файл `lob record`: `<root>/<SYMBOL>-<день UTC старта>.binlog`.
-/// Сессия не ротирует файл посреди себя (`R38`: 5–15 минут разом), поэтому
-/// части 2+ здесь не бывает. Чистая функция дня от `started_ns` — вынесена
-/// из `run_session`, чтобы имя проверялось без сети (таск 19, находка G4:
-/// `verify`/`levels`/`markout` искали `<SYMBOL>-<день>.binlog` там, где
-/// сессия писала `<SYMBOL>.binlog` без даты).
-fn session_binlog_path(root: &Path, symbol: &str, started_ns: i64) -> anyhow::Result<PathBuf> {
-    let day = crate::commands::record::day_string_of_ns(started_ns)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    Ok(crate::commands::record::day_file_path(
-        root, symbol, &day, 1,
-    ))
+/// Открывает файл части символа под `root` на сутки `day`: следующий
+/// свободный номер (`record::claim_part`, тот же поиск, что уже ротирует
+/// `lob record`), ничего не затирает — вторая сессия тех же суток получает
+/// `-p2`, не перезаписывает первую (таск 22, критерий 2). Раньше
+/// (`session_binlog_path`, до таска 22) сессия всегда писала часть 1 жёстко
+/// — единственный прогон суток был допущением, которое владелец снял
+/// (В-32: «одна-две сессии в сутки»). Вынесена из `run_session`, чтобы сам
+/// механизм открытия проверялся без сети (`run_session` берёт `Feed` из
+/// живого сокета, тестам сеть недоступна, `CLAUDE.md`).
+fn claim_symbol_binlog(
+    root: &Path,
+    symbol: &str,
+    day: &str,
+    tick_e9: i64,
+    step_e9: i64,
+) -> anyhow::Result<(Writer<std::fs::File>, u32)> {
+    crate::commands::record::claim_part(root, symbol, day, 1, tick_e9, step_e9)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+}
+
+/// Читает `binlog_files` уже существующего `session.json` под `root`, если
+/// он есть и разбирается — вторая сессия тех же суток дописывает свои части
+/// к этой истории, не начинает список заново (doc `SessionSummary::
+/// binlog_files`). Нет файла, не читается, старый формат без поля — пустой
+/// список (`#[serde(default)]` уже прощает последнее), не ошибка: это
+/// лучшее усилие по накоплению истории, а не критерий приёмки сам по себе.
+fn read_previous_binlog_files(root: &Path) -> Vec<BinlogPart> {
+    std::fs::read_to_string(root.join("session.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<SessionSummary>(&s).ok())
+        .map(|old| old.binlog_files)
+        .unwrap_or_default()
 }
 
 pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
-    if args.minutes < MIN_MINUTES || args.minutes > MAX_MINUTES {
-        anyhow::bail!(
-            "--minutes обязан быть в {MIN_MINUTES}..={MAX_MINUTES} (история 7, R38: «от пяти \
-             до пятнадцати минут»): получено {}",
-            args.minutes
-        );
+    let (minutes, pilot_minutes) = resolve_duration(args)?;
+    if let Some(pm) = pilot_minutes {
+        eprintln!("session: pilot: {pm} мин (PLAN.md §11)");
     }
     std::fs::create_dir_all(&args.root)?;
     let pool = load_pool(&args.pool_instruments)?;
@@ -270,18 +378,30 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     let started_ns = SystemClock.now_ns();
     let started_utc = crate::commands::record::ts_utc_of_ns(started_ns);
     let start_hour_utc = hour_utc_of_ns(started_ns);
+    let day = crate::commands::record::day_string_of_ns(started_ns)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // Части в сутках (таск 22): каждый символ отдельно берёт следующий
+    // свободный номер — вторая сессия суток пишет `-p2` рядом с `-p1` первой,
+    // не поверх неё. Прежняя история накопленных частей (если `root` уже
+    // видел прогон сегодня) читается один раз до цикла и дописывается новыми
+    // записями — `session.json.binlog_files` не теряет прежние части при
+    // перезаписи файла в конце функции.
+    let mut binlog_files = read_previous_binlog_files(&args.root);
     let mut states: Vec<SymbolState> = Vec::with_capacity(pool.len());
     for member in &pool {
-        let path = session_binlog_path(&args.root, &member.symbol, started_ns)?;
-        let file = std::fs::File::create(&path)?;
-        let header = Header {
-            tick_e9: member.tick_e9,
-            step_e9: member.step_e9,
-            max_records_per_frame: crate::commands::record::MAX_RECORDS_PER_FRAME,
-        };
-        let writer =
-            Writer::create(file, header, ZSTD_LEVEL).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let (writer, part) = claim_symbol_binlog(
+            &args.root,
+            &member.symbol,
+            &day,
+            member.tick_e9,
+            member.step_e9,
+        )?;
+        binlog_files.push(BinlogPart {
+            symbol: member.symbol.clone(),
+            part,
+            started_utc: started_utc.clone(),
+        });
         states.push(SymbolState {
             member: member.clone(),
             book: Book::new(member.tick_e9, member.step_e9),
@@ -304,8 +424,8 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     }
 
     let mut feed = LiveFeed::spawn(pool.clone());
-    let deadline_ns = started_ns
-        + i64::try_from(args.minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000;
+    let deadline_ns =
+        started_ns + i64::try_from(minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000;
     let mut gaps: u64 = 0;
     // Суббюджет «разбор» (`PLAN.md` 3.1, `p99 < 200 мкс`) — критерий приёмки
     // таска 04 «задержка разбора». Одно значение на кадр (`feed::Event::
@@ -433,7 +553,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         );
     }
 
-    let duration_s = args.minutes.saturating_mul(60);
+    let duration_s = minutes.saturating_mul(60);
     let summary = SessionSummary {
         started_utc,
         start_hour_utc,
@@ -450,6 +570,9 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         rss_bytes_end,
         out: args.root.clone(),
         debug: is_debug_session(duration_s),
+        pilot: pilot_minutes.is_some(),
+        pilot_minutes,
+        binlog_files,
     };
     let record_path = args.root.join("session.json");
     std::fs::write(&record_path, serde_json::to_string_pretty(&summary)?)?;
@@ -636,6 +759,8 @@ fn sample_resources(_pid: u32) -> Option<(f64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::binlog::Header;
+    use crate::commands::record::ZSTD_LEVEL;
     use crate::feed::replay::ReplayFeed;
     use hftbacktest::types::{
         LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
@@ -792,7 +917,19 @@ mod tests {
         SessionArgs {
             pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
             root: PathBuf::from("does/not/exist/root"),
-            minutes,
+            minutes: Some(minutes),
+            pilot_minutes: None,
+            base_url: BYBIT_MAINNET_URL.to_string(),
+            ntp_addr: "pool.ntp.org:123".to_string(),
+        }
+    }
+
+    fn args_with_pilot_minutes(pilot_minutes: u32) -> SessionArgs {
+        SessionArgs {
+            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            root: PathBuf::from("does/not/exist/root"),
+            minutes: None,
+            pilot_minutes: Some(pilot_minutes),
             base_url: BYBIT_MAINNET_URL.to_string(),
             ntp_addr: "pool.ntp.org:123".to_string(),
         }
@@ -832,6 +969,89 @@ mod tests {
         }
     }
 
+    /// Таск 22, критерий 1: `--pilot-minutes` вне
+    /// `MIN_PILOT_MINUTES..=MAX_PILOT_MINUTES` — ошибка до сети/диска, тем
+    /// же приёмом, что `--minutes` уже проверяется.
+    #[test]
+    fn run_session_rejects_pilot_minutes_outside_range_before_touching_disk() {
+        for bad in [0, MIN_PILOT_MINUTES - 1, MAX_PILOT_MINUTES + 1, 1000] {
+            let err = run_session(&args_with_pilot_minutes(bad))
+                .expect_err("вне диапазона обязана быть ошибка");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("--pilot-minutes") && msg.contains(&bad.to_string()),
+                "сообщение обязано называть флаг и полученное значение {bad}: {msg}"
+            );
+        }
+    }
+
+    /// Граничные значения пилота (16 и 360) обязаны пройти проверку
+    /// диапазона и провалиться дальше, на отсутствующем `instruments.csv`.
+    #[test]
+    fn run_session_accepts_boundary_pilot_minutes_and_proceeds_past_validation() {
+        for ok in [MIN_PILOT_MINUTES, MAX_PILOT_MINUTES] {
+            let err =
+                run_session(&args_with_pilot_minutes(ok)).expect_err("несуществующий пул — ошибка");
+            let msg = err.to_string();
+            assert!(
+                !msg.contains("--pilot-minutes"),
+                "{ok} — валидная граница, ошибка обязана быть не про --pilot-minutes: {msg}"
+            );
+        }
+    }
+
+    /// `resolve_duration`: ни `--minutes`, ни `--pilot-minutes` — вторая
+    /// половина условия «ровно один обязателен», которую `clap
+    /// conflicts_with` не выражает (он только запрещает оба разом).
+    #[test]
+    fn resolve_duration_requires_exactly_one_of_minutes_or_pilot_minutes() {
+        let args = SessionArgs {
+            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            root: PathBuf::from("does/not/exist/root"),
+            minutes: None,
+            pilot_minutes: None,
+            base_url: BYBIT_MAINNET_URL.to_string(),
+            ntp_addr: "pool.ntp.org:123".to_string(),
+        };
+        let err = resolve_duration(&args).expect_err("ни один флаг не задан — обязана быть ошибка");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--minutes") && msg.contains("--pilot-minutes"),
+            "сообщение обязано назвать оба флага: {msg}"
+        );
+    }
+
+    /// `--minutes`/`--pilot-minutes` — `clap conflicts_with`: заданы оба
+    /// разом на самом парсере, не на уже собранной структуре
+    /// (`resolve_duration` эту комбинацию в принципе не видит).
+    #[test]
+    fn cli_rejects_minutes_and_pilot_minutes_given_together() {
+        #[derive(Debug, clap::Parser)]
+        struct TestCli {
+            #[command(subcommand)]
+            cmd: super::super::LobCommand,
+        }
+        use clap::Parser as _;
+        let err = TestCli::try_parse_from([
+            "t",
+            "session",
+            "--pool-instruments",
+            "instruments.csv",
+            "--root",
+            "root",
+            "--minutes",
+            "10",
+            "--pilot-minutes",
+            "30",
+        ])
+        .expect_err("--minutes и --pilot-minutes разом обязаны конфликтовать");
+        assert_eq!(
+            err.kind(),
+            clap::error::ErrorKind::ArgumentConflict,
+            "{err}"
+        );
+    }
+
     /// `session.json.debug` — чистая функция от длительности (таск 17,
     /// пункт 5б): `true`, пока сессия короче часа (`CLAUDE.md`: тестовый
     /// прогон — фаза отладки, результат не данные), `false` начиная ровно с
@@ -851,23 +1071,80 @@ mod tests {
     // `markout` (слепая приёмка G4).
     // -----------------------------------------------------------------
 
-    /// Ожидаемое имя — независимый разбор `1_757_800_000_000_000_000` как
-    /// `2025-09-13`, взятый из уже существующего оракула
-    /// `commands::record::tests::day_string_of_ns_uses_utc_not_the_hosts_timezone`
-    /// (не пересчитан этим тестом заново): `session_binlog_path` обязана
-    /// давать ровно ту же дату и то же имя, что `day_file_path(.., 1)`.
+    /// `claim_symbol_binlog` первой сессии суток обязана давать часть 1 —
+    /// ровно то же имя, что и прежняя жёсткая `session_binlog_path`
+    /// (`day_file_path(.., 1)`), до таска 22 единственный случай.
     #[test]
-    fn session_binlog_path_carries_the_utc_start_day() {
-        let root = PathBuf::from("data/session-debug");
-        let path = session_binlog_path(&root, "SOLUSDT", 1_757_800_000_000_000_000).unwrap();
+    fn claim_symbol_binlog_gives_part_one_on_a_fresh_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_writer, part) = claim_symbol_binlog(
+            dir.path(),
+            "SOLUSDT",
+            "2025-09-13",
+            TEST_TICK_E9,
+            TEST_STEP_E9,
+        )
+        .unwrap();
+        assert_eq!(part, 1);
+        assert!(
+            crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2025-09-13", 1)
+                .is_file()
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Таск 22: несколько сессий в те же сутки — `claim_symbol_binlog`
+    // обязана отдать следующий свободный номер, не затирая прежний файл;
+    // `session_binlog_for` (`mod.rs`) обязана прочитать обе части подряд.
+    // -----------------------------------------------------------------
+
+    /// Критерий приёмки 2 дословно: «две сессии подряд в один каталог дают
+    /// два файла и обе читаются». Читает содержимое обоих файлов (не только
+    /// их наличие) через `session_binlog_for`, чтобы отличить «часть 2
+    /// существует» от «часть 2 несёт свои собственные, а не чужие данные».
+    #[test]
+    fn two_sessions_in_a_row_into_one_directory_produce_two_parts_both_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let day = "2026-09-08";
+
+        let (mut w1, part1) =
+            claim_symbol_binlog(root, "SOLUSDT", day, TEST_TICK_E9, TEST_STEP_E9).unwrap();
+        w1.write_frame(&[rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 0, 100, 1)])
+            .unwrap();
+        w1.flush().unwrap();
+
+        let (mut w2, part2) =
+            claim_symbol_binlog(root, "SOLUSDT", day, TEST_TICK_E9, TEST_STEP_E9).unwrap();
+        w2.write_frame(&[rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 0, 200, 2)])
+            .unwrap();
+        w2.flush().unwrap();
+
+        assert_eq!(part1, 1, "первая сессия суток — часть 1, не затёрта");
+        assert_eq!(part2, 2, "вторая сессия суток — новая часть, не часть 1");
+
+        let paths = super::super::session_binlog_for(root, "SOLUSDT").unwrap();
+        assert_eq!(paths.len(), 2, "обе части присутствуют");
         assert_eq!(
-            path,
-            crate::commands::record::day_file_path(&root, "SOLUSDT", "2025-09-13", 1)
+            paths[0],
+            crate::commands::record::day_file_path(root, "SOLUSDT", day, 1)
         );
         assert_eq!(
-            path.file_name().and_then(|n| n.to_str()),
-            Some("SOLUSDT-2025-09-13.binlog")
+            paths[1],
+            crate::commands::record::day_file_path(root, "SOLUSDT", day, 2)
         );
+
+        // "обе читаются": часть 1 несёт price_ticks=100, часть 2 — 200, в
+        // том порядке, в котором `session_binlog_for` их вернула.
+        for (path, expected_tick) in [(&paths[0], 100i64), (&paths[1], 200i64)] {
+            let data = std::fs::read(path).unwrap();
+            let mut reader = crate::binlog::Reader::open(&data[..]).unwrap();
+            let frame = reader
+                .read_frame()
+                .unwrap()
+                .expect("часть обязана нести свой кадр");
+            assert_eq!(frame[0].price_ticks, expected_tick);
+        }
     }
 
     /// Слепая приёмка G4: каталог, размеченный так, как `run_session`

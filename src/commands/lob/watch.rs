@@ -224,57 +224,64 @@ fn feed_session_frame(
     }
 }
 
-/// Реплеит один файл сессии (не сутки из нескольких файлов, как
-/// `mod.rs::replay_symbol` — сессия уже ровно один файл) в записи уровней.
-/// Трекер заводится с чистого листа на каждую сессию: между сессиями
-/// реальный разрыв записи, продолжать окно повторов/прогрев через него —
-/// не свойство данных, а совпадение по счёту, поэтому не переносится.
-fn replay_session_binlog(path: &Path, cfg: LevelsConfig) -> anyhow::Result<Vec<LevelRecord>> {
-    let data = std::fs::read(path)
-        .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-    let mut reader = Reader::open(&data[..])
-        .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
-    let header = reader.header();
-    let mut book = Book::new(header.tick_e9, header.step_e9);
+/// Реплеит все бинлоги одной сессии в записи уровней — с таска 22 их может
+/// быть несколько (`session_binlog_for`, части суток `-p2`, `-p3`, …),
+/// прогоняются подряд одним трекером (одна сессия — один непрерывный поток
+/// по построению критерия приёмки таска 22). Книга и `FileReplayer` — заново
+/// на каждый файл: каждая часть несёт собственный снапшот в начале, тот же
+/// приём, что `mod.rs::replay_symbol_over_configs` уже применяет к частям
+/// суток `lob record`. Трекер заводится с чистого листа на каждую *сессию*
+/// (не часть): между сессиями реальный разрыв записи, продолжать окно
+/// повторов/прогрев через него — не свойство данных, а совпадение по счёту,
+/// поэтому не переносится.
+fn replay_session_binlog(paths: &[PathBuf], cfg: LevelsConfig) -> anyhow::Result<Vec<LevelRecord>> {
     let mut tracker = LevelTracker::new(cfg);
-    let mut replayer = FileReplayer::new();
     let mut records = Vec::new();
-    let mut ups = Vec::new();
-    let mut tps = Vec::new();
-    'frames: loop {
-        let frame = reader
-            .read_frame()
-            .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
-        let Some(frame_records) = frame else { break };
-        for rec in &frame_records {
-            ups.clear();
-            tps.clear();
-            replayer.push_frame(
-                std::slice::from_ref(rec),
-                header.tick_e9,
-                header.step_e9,
-                &mut ups,
-                &mut tps,
-            );
-            let hit = trade_hit_from_record(rec);
-            for up in &ups {
-                if book.apply(up).is_err() {
-                    break 'frames;
+    for path in paths {
+        let data = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+        let mut reader = Reader::open(&data[..])
+            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+        let header = reader.header();
+        let mut book = Book::new(header.tick_e9, header.step_e9);
+        let mut replayer = FileReplayer::new();
+        let mut ups = Vec::new();
+        let mut tps = Vec::new();
+        'frames: loop {
+            let frame = reader
+                .read_frame()
+                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+            let Some(frame_records) = frame else { break };
+            for rec in &frame_records {
+                ups.clear();
+                tps.clear();
+                replayer.push_frame(
+                    std::slice::from_ref(rec),
+                    header.tick_e9,
+                    header.step_e9,
+                    &mut ups,
+                    &mut tps,
+                );
+                let hit = trade_hit_from_record(rec);
+                for up in &ups {
+                    if book.apply(up).is_err() {
+                        break 'frames;
+                    }
+                    feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
                 }
-                feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
-            }
-            if let Some(h) = hit {
-                tracker.observe_trade(h);
+                if let Some(h) = hit {
+                    tracker.observe_trade(h);
+                }
             }
         }
-    }
-    let mut tail = Vec::new();
-    replayer.finish(&mut tail);
-    for up in &tail {
-        if book.apply(up).is_err() {
-            break;
+        let mut tail = Vec::new();
+        replayer.finish(&mut tail);
+        for up in &tail {
+            if book.apply(up).is_err() {
+                break;
+            }
+            feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
         }
-        feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
     }
     Ok(records)
 }
@@ -308,12 +315,12 @@ pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
         // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`) — нет файла
         // для запрошенного символа в этой сессии означает «не сессия этого
         // символа», не ошибку (doc модуля).
-        let Ok(binlog) = super::session_binlog_for(&dir, &args.symbol) else {
+        let Ok(binlog_paths) = super::session_binlog_for(&dir, &args.symbol) else {
             continue;
         };
         let verified = read_verify_marker(&dir.join(format!("verify-{}.status", args.symbol)));
         let n = if verified {
-            let records = replay_session_binlog(&binlog, cfg)?;
+            let records = replay_session_binlog(&binlog_paths, cfg)?;
             records.iter().filter(|r| profile.matches(r)).count() as u64
         } else {
             0

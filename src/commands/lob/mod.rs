@@ -517,18 +517,17 @@ fn feed_frames_multi(
 /// конфигураций разом, как в `verify`: дальше этот файл недоверен,
 /// следующий идёт с чистого листа. Возвращает `ReplayStats` в том же
 /// порядке, что `cfgs`.
-fn replay_symbol_over_configs(
-    root: &Path,
-    symbol: &str,
-    cfgs: &[LevelsConfig],
-) -> anyhow::Result<Vec<ReplayStats>> {
-    anyhow::ensure!(
-        !cfgs.is_empty(),
-        "replay_symbol_over_configs: пустая сетка конфигураций"
-    );
+/// Все `<SYMBOL>-*.binlog` каталога, хронологически (день, потом часть) —
+/// общий шаг `replay_symbol_over_configs` (запись `lob record`, много суток)
+/// и `session_binlog_for` (запись `lob session`, с таска 22 — тоже может
+/// нести несколько суток и несколько частей на сутки: владелец пишет одну-две
+/// сессии в сутки в тот же `--root`, не одну на весь каталог). Пустой список
+/// не ошибка здесь — у обоих вызывающих свой текст на пустоту (общий на
+/// «нет файлов вовсе», разный на подсказку про старый недатированный формат).
+fn list_symbol_binlogs(dir: &Path, symbol: &str) -> anyhow::Result<Vec<PathBuf>> {
     let prefix = format!("{symbol}-");
-    let entries = std::fs::read_dir(root)
-        .map_err(|e| anyhow::anyhow!("корень {} не читается: {e}", root.display()))?;
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| anyhow::anyhow!("каталог {} не читается: {e}", dir.display()))?;
     let mut files: Vec<PathBuf> = Vec::new();
     for e in entries {
         let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
@@ -545,6 +544,20 @@ fn replay_symbol_over_configs(
         };
         file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
     });
+    Ok(files)
+}
+
+fn replay_symbol_over_configs(
+    root: &Path,
+    symbol: &str,
+    cfgs: &[LevelsConfig],
+) -> anyhow::Result<Vec<ReplayStats>> {
+    anyhow::ensure!(
+        !cfgs.is_empty(),
+        "replay_symbol_over_configs: пустая сетка конфигураций"
+    );
+    let prefix = format!("{symbol}-");
+    let files = list_symbol_binlogs(root, symbol)?;
     if files.is_empty() {
         // Таск 19, критерий 4: каталог старого формата (до таска 19 `lob
         // session` писала `<SYMBOL>.binlog` без даты) не должен молча
@@ -700,64 +713,39 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
         .expect("replay_symbol_over_configs с одним cfg обязан вернуть один ReplayStats"))
 }
 
-/// Резолвер имени бинлога **одной** сессии (таск 19, находка G4: до этого
-/// таска три читателя — `profiles.rs`, `watch.rs`, `backtest.rs` — открывали
-/// файл по литералу `<SYMBOL>.binlog`, а `lob session` с этого таска пишет
-/// `<SYMBOL>-<день>.binlog`; `pilot.rs` держал костыль-копию под старым
-/// именем, чтобы свести раскладки — эта функция снимает костыль, замыкая
-/// всех читателей на один резолвер). В отличие от
-/// `replay_symbol_over_configs` выше (одна `--root` запись `lob record`,
-/// возможно много суточных файлов на символ, части `-pN`), здесь `dir` —
-/// каталог одной сессии `lob session`: ровно один прогон, значит не больше
-/// одного файла `<symbol>-<день>.binlog` в ней.
+/// Резолвер бинлогов сессии (таск 19, находка G4; список частей — таск 22).
+/// До таска 22 каталог `lob session` нёс не больше одного файла на символ
+/// (ровно один прогон). С этого таска `lob session --root` можно вызывать
+/// несколько раз в те же сутки (В-32, «одна-две сессии в сутки») и часть
+/// суток больше не единственная: `session_binlog_path`/`claim_part` отдают
+/// следующий свободный номер вместо `part = 1` жёстко, ничего не затирая, а
+/// эта функция возвращает **все** файлы символа в каталоге по порядку записи
+/// — день, потом часть внутри дня (`list_symbol_binlogs`, тот же ключ
+/// `file_order_key`, что уже сортирует много-частевую запись `lob record`
+/// выше) — читатели проигрывают их подряд как один поток.
 ///
-/// - Один такой файл — это и есть бинлог сессии.
+/// - Один и больше датированных файлов — это и есть бинлоги сессии, в
+///   хронологическом порядке.
 /// - Ни одного, но есть файл старого формата `<symbol>.binlog` без даты —
 ///   явная ошибка с именем файла и советом переименовать (не тихое «нет
 ///   файлов», см. `replay_symbol_over_configs`/`bybit::verify::run_verify`
 ///   выше — тот же приём).
 /// - Ни одного и старого формата тоже нет — общая ошибка «нет бинлога».
-/// - Больше одного — ошибка с перечислением: сессия пишет файл ровно один
-///   раз, несколько означает путаницу каталогов, а не законный случай.
-pub(crate) fn session_binlog_for(dir: &Path, symbol: &str) -> anyhow::Result<PathBuf> {
-    let prefix = format!("{symbol}-");
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| anyhow::anyhow!("каталог {} не читается: {e}", dir.display()))?;
-    let mut matches: Vec<PathBuf> = Vec::new();
-    for e in entries {
-        let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) && name.ends_with(".binlog") {
-            matches.push(e.path());
-        }
-    }
-    matches.sort();
-    match matches.len() {
-        1 => Ok(matches.remove(0)),
-        0 => {
-            let undated = dir.join(format!("{symbol}.binlog"));
-            if undated.is_file() {
-                anyhow::bail!(
-                    "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
-                     `{symbol}-<дата>.binlog` ({} в {})",
-                    undated.display(),
-                    dir.display()
-                );
-            }
-            anyhow::bail!("нет бинлога для `{symbol}` в {}", dir.display());
-        }
-        _ => {
-            let names = matches
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
+pub(crate) fn session_binlog_for(dir: &Path, symbol: &str) -> anyhow::Result<Vec<PathBuf>> {
+    let files = list_symbol_binlogs(dir, symbol)?;
+    if files.is_empty() {
+        let undated = dir.join(format!("{symbol}.binlog"));
+        if undated.is_file() {
             anyhow::bail!(
-                "несколько файлов `{prefix}*.binlog` в {}: {names}",
+                "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
+                 `{symbol}-<дата>.binlog` ({} в {})",
+                undated.display(),
                 dir.display()
             );
         }
+        anyhow::bail!("нет бинлога для `{symbol}` в {}", dir.display());
     }
+    Ok(files)
 }
 
 fn side_name(side: Side) -> &'static str {
@@ -1113,13 +1101,28 @@ pub(crate) mod test_support {
         day: &str,
         frames: &[Vec<Record>],
     ) {
+        write_day_part(root, symbol, day, 1, frames);
+    }
+
+    /// Как `write_day`, но на именованную часть суток (таск 22: вторая
+    /// сессия тех же суток пишет `-p2`, `-p3`, … вместо затирания первой —
+    /// `record::day_file_path` тот же резолвер имени, что и боевой код,
+    /// не второй расчёт того же самого).
+    pub(crate) fn write_day_part(
+        root: &std::path::Path,
+        symbol: &str,
+        day: &str,
+        part: u32,
+        frames: &[Vec<Record>],
+    ) {
         let mut w = Writer::create(Vec::new(), test_header(), 1).unwrap();
         for f in frames {
             w.write_frame(f).unwrap();
         }
         w.flush().unwrap();
         let buf = w.into_inner();
-        std::fs::write(root.join(format!("{symbol}-{day}.binlog")), &buf).unwrap();
+        let path = crate::commands::record::day_file_path(root, symbol, day, part);
+        std::fs::write(path, &buf).unwrap();
     }
 
     /// Три уровня: съеден (ровно 70% — граница `eaten`), смешанный, снят.
@@ -1325,8 +1328,8 @@ mod tests {
     fn session_binlog_for_finds_the_single_dated_file() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
-        let path = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
-        assert_eq!(path, dir.path().join("SOLUSDT-2026-09-08.binlog"));
+        let paths = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
+        assert_eq!(paths, vec![dir.path().join("SOLUSDT-2026-09-08.binlog")]);
     }
 
     #[test]
@@ -1352,17 +1355,47 @@ mod tests {
         );
     }
 
+    /// Таск 22, критерий 3: несколько сессий в те же сутки (`-p2`, `-p3`, …)
+    /// — не ошибка «путаница каталогов» (старое поведение таска 19), а список
+    /// частей в порядке записи. `-p2` голой лексикографией сортировался бы
+    /// раньше файла без суффикса (`-` < `.` в ASCII) — тест ловит именно
+    /// инверсию, а не только «оба файла присутствуют».
     #[test]
-    fn session_binlog_for_refuses_to_guess_among_several_dated_files() {
+    fn session_binlog_for_orders_same_day_parts_by_part_number_not_lexicographically() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
-        std::fs::write(dir.path().join("SOLUSDT-2026-09-09.binlog"), b"stub").unwrap();
-        let err = session_binlog_for(dir.path(), "SOLUSDT").unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("SOLUSDT-2026-09-08.binlog") && msg.contains("SOLUSDT-2026-09-09.binlog"),
-            "ошибка обязана перечислить оба файла, не выбрать один молча: {msg}"
+        let p1 = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 1);
+        let p2 = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 2);
+        let p3 = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 3);
+        // Порядок записи на диск — намеренно не по возрастанию имени, чтобы
+        // тест не мог случайно совпасть с порядком `std::fs::read_dir`.
+        std::fs::write(&p2, b"stub").unwrap();
+        std::fs::write(&p3, b"stub").unwrap();
+        std::fs::write(&p1, b"stub").unwrap();
+        let paths = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
+        assert_eq!(
+            paths,
+            vec![p1, p2, p3],
+            "части одних суток — по возрастанию номера"
         );
+    }
+
+    /// Таск 22: каталог теперь может нести несколько суток (владелец гоняет
+    /// `lob session` в тот же `--root` день за днём) — сортировка сперва по
+    /// дате, потом по части внутри даты.
+    #[test]
+    fn session_binlog_for_orders_multiple_days_by_date_then_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let day1_p1 =
+            crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 1);
+        let day1_p2 =
+            crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 2);
+        let day2_p1 =
+            crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-09", 1);
+        std::fs::write(&day2_p1, b"stub").unwrap();
+        std::fs::write(&day1_p2, b"stub").unwrap();
+        std::fs::write(&day1_p1, b"stub").unwrap();
+        let paths = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
+        assert_eq!(paths, vec![day1_p1, day1_p2, day2_p1]);
     }
 
     #[test]

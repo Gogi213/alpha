@@ -108,16 +108,22 @@ pub struct BacktestSummary {
 
 /// Прогоняет бэктест на всех профилях `signals_csv` и пишет оба артефакта.
 pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
-    let binlog_path = super::session_binlog_for(&args.session_root, &args.symbol)?;
-    let (tick_e9, step_e9) = read_tick_step(&binlog_path)?;
+    let binlog_paths = super::session_binlog_for(&args.session_root, &args.symbol)?;
+    let (tick_e9, step_e9) = read_tick_step(&binlog_paths[0])?;
     let tick_size = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
     let order_qty = args.order_qty_e9 as f64 / 1e9;
 
-    let mut feed = open_replay_feed(&binlog_path)?;
-    let events = events_from_feed(&mut feed);
+    // Таск 22: сессия может нести несколько частей — читаются подряд как
+    // один поток (`events_from_paths`), не только первая.
+    let events = events_from_paths(&binlog_paths)?;
     if events.is_empty() {
-        anyhow::bail!("бинлог {} пуст или не разобрался", binlog_path.display());
+        let names = binlog_paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!("бинлог(и) {names} пусты или не разобрались");
     }
 
     let signals = read_signals(&args.signals_csv)?;
@@ -193,6 +199,20 @@ fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs::File>> {
     let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
     ReplayFeed::open(0, file).map_err(|e| anyhow::anyhow!("бинлог {}: {e:?}", path.display()))
+}
+
+/// События крейта по всем частям сессии подряд (таск 22: `session_binlog_for`
+/// отдаёт список, не один файл) — конкатенация, не второй `Feed`: `feed/`
+/// вне зоны этого таска, а `ReplayFeed` не читает несколько файлов сам
+/// (каждый несёт собственный заголовок), поэтому склейка на уровне уже
+/// переведённых событий, здесь, а не в `feed::replay`.
+fn events_from_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
+    let mut events = Vec::new();
+    for path in paths {
+        let mut feed = open_replay_feed(path)?;
+        events.extend(events_from_feed(&mut feed));
+    }
+    Ok(events)
 }
 
 // ---------------------------------------------------------------------------
@@ -321,17 +341,25 @@ impl BacktestFillModel {
 }
 
 impl FillModel for BacktestFillModel {
-    fn prime_session(&self, symbol: &str, binlog_path: &Path, records: &[LevelRecord]) {
+    /// Таск 22: сессия может нести несколько частей (`session_binlog_for`) —
+    /// тик/лот берутся из заголовка первой части (части одной сессии не
+    /// меняют шаги, в отличие от ротации `lob record` по смене шагов), а
+    /// событийный поток — конкатенация всех частей по порядку
+    /// (`events_from_paths`), один прогон движка на всю сессию, как раньше
+    /// на один файл.
+    fn prime_session(&self, symbol: &str, binlog_paths: &[PathBuf], records: &[LevelRecord]) {
         if records.is_empty() {
             return;
         }
-        let Ok((tick_e9, step_e9)) = read_tick_step(binlog_path) else {
+        let Some(first) = binlog_paths.first() else {
             return;
         };
-        let Ok(mut feed) = open_replay_feed(binlog_path) else {
+        let Ok((tick_e9, step_e9)) = read_tick_step(first) else {
             return;
         };
-        let events = events_from_feed(&mut feed);
+        let Ok(events) = events_from_paths(binlog_paths) else {
+            return;
+        };
         self.prime_from_events(
             symbol,
             &events,

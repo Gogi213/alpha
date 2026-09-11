@@ -291,62 +291,68 @@ fn distinct_session_days(dirs: &[PathBuf]) -> Vec<String> {
     days.into_iter().collect()
 }
 
-/// Реплеит один файл сессии (не сутки из нескольких файлов, как
-/// `mod.rs::replay_symbol` — сессия уже ровно один файл) в записи уровней и
+/// Реплеит все бинлоги одной сессии — с таска 22 их может быть несколько
+/// (`session_binlog_for`, части суток `-p2`, `-p3`, …) — в записи уровней и
 /// срезы середины разом: кормит книгу и трекер общим `super::feed_frames`,
-/// сделки — общим `super::trade_hit_from_record`. Трекер — с чистого листа:
-/// между сессиями реальный разрыв записи (тот же довод, что у
-/// `commands::lob::watch::replay_session_binlog`).
+/// сделки — общим `super::trade_hit_from_record`. Трекер общий на все части
+/// (одна сессия — один непрерывный поток по построению критерия приёмки
+/// таска 22, «части читаются подряд как один поток»); книга и `FileReplayer`
+/// заводятся заново на каждый файл — тем же приёмом, что `mod.rs::
+/// replay_symbol_over_configs` уже применяет к частям суток `lob record`
+/// (каждый файл несёт собственный снапшот в начале, продолжать старую книгу
+/// через границу файла было бы чтением чужого состояния).
 fn replay_one_session_binlog(
-    path: &Path,
+    paths: &[PathBuf],
     cfg: LevelsConfig,
 ) -> anyhow::Result<(Vec<LevelRecord>, Vec<MidSample>)> {
-    let data = std::fs::read(path)
-        .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-    let mut reader = Reader::open(&data[..])
-        .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
-    let header = reader.header();
-    let mut book = Book::new(header.tick_e9, header.step_e9);
     let mut tracker = LevelTracker::new(cfg);
-    let mut replayer = FileReplayer::new();
     let mut records = Vec::new();
     let mut mids = Vec::new();
-    let mut ups = Vec::new();
-    let mut tps = Vec::new();
-    'frames: loop {
-        let frame = reader
-            .read_frame()
-            .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
-        let Some(frame_records) = frame else { break };
-        for rec in &frame_records {
-            ups.clear();
-            tps.clear();
-            replayer.push_frame(
-                std::slice::from_ref(rec),
-                header.tick_e9,
-                header.step_e9,
-                &mut ups,
-                &mut tps,
-            );
-            let hit = trade_hit_from_record(rec);
-            for up in &ups {
-                if book.apply(up).is_err() {
-                    break 'frames;
+    for path in paths {
+        let data = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+        let mut reader = Reader::open(&data[..])
+            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+        let header = reader.header();
+        let mut book = Book::new(header.tick_e9, header.step_e9);
+        let mut replayer = FileReplayer::new();
+        let mut ups = Vec::new();
+        let mut tps = Vec::new();
+        'frames: loop {
+            let frame = reader
+                .read_frame()
+                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+            let Some(frame_records) = frame else { break };
+            for rec in &frame_records {
+                ups.clear();
+                tps.clear();
+                replayer.push_frame(
+                    std::slice::from_ref(rec),
+                    header.tick_e9,
+                    header.step_e9,
+                    &mut ups,
+                    &mut tps,
+                );
+                let hit = trade_hit_from_record(rec);
+                for up in &ups {
+                    if book.apply(up).is_err() {
+                        break 'frames;
+                    }
+                    feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
                 }
-                feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
-            }
-            if let Some(h) = hit {
-                tracker.observe_trade(h);
+                if let Some(h) = hit {
+                    tracker.observe_trade(h);
+                }
             }
         }
-    }
-    let mut tail = Vec::new();
-    replayer.finish(&mut tail);
-    for up in &tail {
-        if book.apply(up).is_err() {
-            break;
+        let mut tail = Vec::new();
+        replayer.finish(&mut tail);
+        for up in &tail {
+            if book.apply(up).is_err() {
+                break;
+            }
+            feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
         }
-        feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
     }
     Ok((records, mids))
 }
@@ -455,7 +461,11 @@ fn read_coverage(
 /// операция: `NoFillModel` и любая модель, которой сессия не нужна, его не
 /// переопределяют.
 pub trait FillModel {
-    fn prime_session(&self, _symbol: &str, _binlog_path: &Path, _records: &[LevelRecord]) {}
+    /// Таск 22: `_binlog_paths` — все части сессии в порядке записи
+    /// (`session_binlog_for`), не один файл — модель, которой нужен книжный
+    /// поток (`BacktestFillModel`), обязана прогнать их подряд как один
+    /// поток, а не только первую часть.
+    fn prime_session(&self, _symbol: &str, _binlog_paths: &[PathBuf], _records: &[LevelRecord]) {}
 
     fn filled(&self, symbol: &str, rec: &LevelRecord, mids: &[MidSample]) -> Option<bool>;
     fn label(&self) -> &'static str;
@@ -1074,19 +1084,21 @@ pub fn run_profiles_with_fill_model(
             // здесь, на обходе многих каталогов подряд, это тоже мягкий
             // пропуск — не рвать всю таблицу профилей из-за одного
             // каталога.
-            let Ok(binlog) = super::session_binlog_for(dir, symbol) else {
+            let Ok(binlog_paths) = super::session_binlog_for(dir, symbol) else {
                 continue;
             };
             let verified = read_verify_marker(&dir.join(format!("verify-{symbol}.status")));
             if !verified && !args.allow_unverified {
                 continue;
             }
-            let (records, mids) = replay_one_session_binlog(&binlog, cfg)?;
+            let (records, mids) = replay_one_session_binlog(&binlog_paths, cfg)?;
             // Один прогон движка на сессию (таск 16, doc `FillModel::
             // prime_session`): модель, которой нужен книжный поток, гонит
             // `lob::backtest` здесь и кэширует ответы; `filled` ниже только
-            // читает кэш.
-            fill_model.prime_session(symbol, &binlog, &records);
+            // читает кэш. Таск 22: сессия может нести несколько частей —
+            // модель получает все пути и сама склеивает событийный поток
+            // (`BacktestFillModel::prime_session`).
+            fill_model.prime_session(symbol, &binlog_paths, &records);
             let day_utc = meta.started_utc.get(..10).unwrap_or_default().to_string();
             let day_id = day_index.id(&day_utc);
             for rec in &records {
