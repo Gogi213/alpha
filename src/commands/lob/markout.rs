@@ -10,7 +10,9 @@ use clap::Args;
 use crate::lob::levels::LevelsConfig;
 use crate::lob::markout::{markouts_for_level, HORIZONS_MS};
 use crate::lob::markup::{run_confirmatory, ConfirmatoryDay};
-use crate::lob::watch::{ready_flag_path, require_ready_flag};
+use crate::lob::watch::{
+    ready_flag_path, require_ready_flag, require_session_ready_flag, session_ready_flag_path,
+};
 
 use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{
@@ -61,6 +63,11 @@ pub struct MarkoutArgs {
     /// нужна только в `--confirmatory` для счётчиков суток.
     #[arg(long)]
     pub median_lifetime_ms: Option<i64>,
+    /// Вердиктный профиль (таск 07, `crate::lob::watch`/`shortlist::build_profile_grid`):
+    /// только для `--confirmatory` — без него читать `ready-<symbol>-<profile>.flag`
+    /// (`SessionReadyFlag`) не по чему, и команда отказывается стартовать.
+    #[arg(long)]
+    pub profile: Option<String>,
 }
 
 /// Итог `lob markout` для печати диспетчером.
@@ -171,12 +178,24 @@ fn run_markout_exploratory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary>
 /// `markup::run_confirmatory`. Счётчики суток — тем же `tally_day`, что
 /// `watch`: предикат годности один на весь документ.
 fn run_markout_confirmatory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
+    // Таск 07: подтверждающий прогон обязан требовать сессионный флаг
+    // готовности (`WatchSample`/`SessionReadyFlag` — счётчик n/G на
+    // сессиях), не только старый `ready.flag` модели C1/C2 ниже — иначе
+    // честная остановка сессионного счётчика этот вход вообще не охраняет.
+    // Первым делом, до всякого markout и до старого флага.
+    let profile = args.profile.clone().ok_or_else(|| {
+        anyhow::anyhow!("--confirmatory требует --profile (таск 07: сессионный флаг готовности)")
+    })?;
+    let session_flag_path = session_ready_flag_path(&args.root, &args.symbol, &profile);
+    require_session_ready_flag(&session_flag_path)
+        .map_err(|e| anyhow::anyhow!("сессионный флаг готовности: {e}"))?;
+
     let flag_path = args
         .flag
         .clone()
         .unwrap_or_else(|| ready_flag_path(&args.root));
-    // Первым делом флаг, до всякого markout: без него — отказ, а не пустая
-    // выборка (тот же порядок, что `markup::run_confirmatory`).
+    // Дальше — старый флаг, до всякого markout: без него — отказ, а не
+    // пустая выборка (тот же порядок, что `markup::run_confirmatory`).
     let flag = require_ready_flag(&flag_path).map_err(|e| anyhow::anyhow!("{e}"))?;
     let median = args.median_lifetime_ms.ok_or_else(|| {
         anyhow::anyhow!("--confirmatory требует --median-lifetime-ms (Decision 16)")
@@ -264,6 +283,7 @@ mod tests {
             confirmatory: false,
             flag: None,
             median_lifetime_ms: None,
+            profile: None,
         };
         let summary = run_markout(&args).unwrap();
         assert_eq!(summary.levels, 4);
@@ -305,8 +325,91 @@ mod tests {
             confirmatory: true,
             flag: None,
             median_lifetime_ms: Some(60_000),
+            profile: Some("marginal:outcome=pulled".to_string()),
         };
         assert!(run_markout(&args).is_err());
         assert!(super::super::dispatch(super::super::LobCommand::Markout(args)).is_err());
+    }
+
+    /// Таск 07: `--confirmatory` обязан требовать сессионный флаг готовности
+    /// (`ready-<symbol>-<profile>.flag`) отдельно от старого `ready.flag` —
+    /// без него отказ ненулевым кодом до всякого markout, даже если старый
+    /// флаг и все данные в порядке; с обоими флагами прогон обязан пройти.
+    #[test]
+    fn markout_confirmatory_requires_session_ready_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut frames = super::super::test_support::three_level_frames();
+        for k in 1..=7 {
+            frames.push(super::super::test_support::delta_frame(
+                2000 + k * 10_000,
+                &[(96, 1), (98, 1), (99, 1), (100, 1)],
+                &[(105, 10)],
+            ));
+        }
+        super::super::test_support::write_day(dir.path(), "SOLUSDT", "2026-09-08", &frames);
+        crate::bybit::verify_sidecar::append_verify_row(
+            &crate::bybit::verify_sidecar::verify_csv_path(dir.path()),
+            &crate::bybit::verify_sidecar::VerifyRow {
+                ts_utc: "2026-09-08T00:05:00Z".to_string(),
+                symbol: "SOLUSDT".to_string(),
+                snapshot_seq: Some(1),
+                book_seq: Some(1),
+                mismatches: Some(0),
+                verdict: crate::bybit::verify_sidecar::VerifyVerdict::Ok,
+            },
+        )
+        .unwrap();
+        crate::lob::watch::write_ready_flag(
+            &dir.path().join("ready.flag"),
+            &crate::lob::watch::ReadyFlag {
+                symbol: "SOLUSDT".to_string(),
+                n_c2: 100,
+                g: 1,
+                ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
+                days: vec!["2026-09-08".to_string()],
+            },
+        )
+        .unwrap();
+        let args = MarkoutArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+            confirmatory: true,
+            flag: None,
+            median_lifetime_ms: Some(60_000),
+            profile: Some("marginal:outcome=pulled".to_string()),
+        };
+        // Старый флаг и данные в порядке, сессионного флага ещё нет.
+        // `MarkoutSummary` не несёт `Debug` (вне зоны этой правки — не
+        // добавляю), поэтому без `expect_err`: явный match.
+        match run_markout(&args) {
+            Err(e) => assert!(
+                format!("{e}").contains("сессионный флаг"),
+                "сообщение обязано называть причину: {e}"
+            ),
+            Ok(_) => panic!("без сессионного флага обязан быть отказ"),
+        }
+
+        crate::lob::watch::write_session_ready_flag(
+            &crate::lob::watch::session_ready_flag_path(
+                dir.path(),
+                "SOLUSDT",
+                "marginal:outcome=pulled",
+            ),
+            &crate::lob::watch::SessionReadyFlag {
+                symbol: "SOLUSDT".to_string(),
+                profile_id: "marginal:outcome=pulled".to_string(),
+                n: 100,
+                g: 7,
+                ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
+                days: vec!["2026-09-08".to_string()],
+            },
+        )
+        .unwrap();
+        run_markout(&args).expect("с обоими флагами --confirmatory обязан пройти");
     }
 }
