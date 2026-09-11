@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-11T03:33:00+04:00",
+  "updatedAt": "2026-09-11T04:30:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
 
@@ -21,18 +21,18 @@ window.STATE =
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-11T00:45:00+04:00", "finishedAt": "2026-09-11T01:55:00+04:00", "note": "три ответа владельца: продукт — бот; 5 минут — тесты; форма — autopilot. Две развилки: CLUSDT, G_min" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-11T01:00:00+04:00", "finishedAt": "2026-09-11T02:03:00+04:00", "note": "вторая редакция: 49 историй, шесть швов; 17 находок G2 внесены; повторный G2 запущен" },
     { "id": "plan",      "status": "done", "startedAt": "2026-09-11T01:10:00+04:00", "finishedAt": "2026-09-11T02:05:00+04:00", "note": "15 тасков в 7 волн; G3 в обе стороны" },
-    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "волна 1: таск 01 — ревью дало 4 blocking, дозапрос свежему исполнителю (разрез pick.rs, docstring H10, В-29) — 0 из 15 готово" },
-    { "id": "review",    "status": "pending", "note": "пять осей + семь запретов горячего пути; три постоянных ревьюера; десять обязательных раундов" },
+    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "ОСТАНОВЛЕНО владельцем 2026-09-11 04:30 на логической точке: таск 01 закоммичен (3cc2e62), волна 2 не начата (исполнители 02/03/04 сняты на чтении, правок нет). Продолжать с запуска T02, T03, T04 — 1 из 15 готово" },
+    { "id": "review",    "status": "active", "startedAt": "2026-09-11T03:33:00+04:00", "note": "пять осей + семь запретов горячего пути; три постоянных ревьюера; десять обязательных раундов" },
     { "id": "final",     "status": "pending" }
   ],
 
   "requirements": {
-    "total": 85, "done": 8, "inTicket": 73, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
+    "total": 85, "done": 12, "inTicket": 69, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
     "note": "done узкое: механизм есть, тесты зелёные, служит редакции 3 без изменений. Ни одного артефакта задачи на диске нет."
   },
 
   "tickets": [
-    { "id": "01", "title": "Вычистить отменённое и разрезать commands/lob.rs", "requirements": ["R18","R19","R32","R37","R43","R49","R71","R73"], "blockedBy": [], "wave": 1, "zone": ["src/","docs/plan/"], "status": "repair", "startedAt": "2026-09-11T02:20:00+04:00", "returnedAt": "2026-09-11T03:32:00+04:00", "tests": "448 passed, 0 failed, 5 ignored", "retries": 0, "repairs": 1, "handoffs": 0, "review": { "R-A": "1 blocking: pick.rs 2666 строк", "R-B": "нет; 2 находки: docstring H10 в pilot.rs/watch.rs", "R-C": "3 blocking: pick.rs; D-H3 против §9; G0 продление без записи" } },
+    { "id": "01", "title": "Вычистить отменённое и разрезать commands/lob.rs", "requirements": ["R18","R19","R32","R37","R43","R49","R71","R73"], "blockedBy": [], "wave": 1, "zone": ["src/","docs/plan/"], "status": "done", "startedAt": "2026-09-11T02:20:00+04:00", "finishedAt": "2026-09-11T04:20:00+04:00", "tests": "448 passed, 0 failed, 5 ignored", "commit": "3cc2e62", "retries": 0, "repairs": 1, "handoffs": 0, "review": { "R-A": "1 blocking: pick.rs 2666 строк → закрыто ремонтом", "R-B": "нет; docstring H10 → закрыто", "R-C": "3 blocking: pick.rs → закрыто; D-H3 против §9 → D02/В-29; G0 продление → источник ревизия 17б", "repair": "ложная тревога по watch.rs::day_eligible — снятие has_gap_over_6h из годности есть критерий таска 01, сделано первым проходом, не ремонтом" } },
     { "id": "02", "title": "H3 в двух режимах; размер как ось", "requirements": ["R14","R40"], "blockedBy": ["01"], "wave": 2, "zone": ["src/lob/levels.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "03", "title": "net_fill: формула и совместный интервал", "requirements": ["R02","R05","R06","R07","R08","R50"], "blockedBy": ["01"], "wave": 2, "zone": ["src/lob/costs.rs","src/stats/mod.rs","src/lob/cells.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "04", "title": "lob session: сессия по пулу — и это Feed бота", "requirements": ["R12","R37","R38","R41","R43","R75i","R78","R79","R80"], "blockedBy": ["01"], "wave": 2, "zone": ["src/commands/record.rs","src/commands/lob/session.rs","src/feed/"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0 },
@@ -55,7 +55,7 @@ window.STATE =
     { "id": "G2",        "status": "passed",  "note": "дважды: 17 + 5 находок, все внесены. D01 снят по уточнению владельца: ≤5 мин — фаза отладки, окно repeat_count — скользящий час по §3" },
     { "id": "G-DEBUG",   "status": "pending", "note": "сквозной отладочный прогон ≤5 мин без дефекта — граница между отладкой и двухчасовым пилотом §11" },
     { "id": "G3",        "status": "passed",  "note": "15 тасков; трассировка в обе стороны" },
-    { "id": "GC",        "status": "pending", "note": "каждый таск с кодом" },
+    { "id": "GC",        "status": "passing", "note": "таск 01: clippy 0, fmt 0, 448 тестов; аллокации и реакционный путь — с таска 04/15" },
     { "id": "G-LAT",     "status": "pending", "note": "реакционный путь p99 < 5 мс на живом потоке — таск 15" },
     { "id": "G-POWER-A", "status": "pending", "note": "N, SR0, требуемый Шарп — таск 05" },
     { "id": "G-POWER-B", "status": "pending", "note": "замеренный Шарп против требуемого — таск 09. Разведка: −0.40 / −0.32 / +0.24 против ≈2.7" },
