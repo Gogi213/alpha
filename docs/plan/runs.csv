@@ -1,0 +1,9 @@
+ts_utc,symbol,kind,detail
+2026-09-11T23:12:12.188907300+00:00,SOLUSDT,pilot,battle rate_floor_per_hour=9256.000 eaten=0.043 pulled=0.899 mixed=0.057 m10s_n=2314 m10s_mean=0.434bps sharpe=0.124 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,ADAUSDT,pilot,battle rate_floor_per_hour=1556.000 eaten=0.057 pulled=0.897 mixed=0.046 m10s_n=389 m10s_mean=1.230bps sharpe=0.223 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,XRPUSDT,pilot,battle rate_floor_per_hour=12180.000 eaten=0.042 pulled=0.918 mixed=0.040 m10s_n=3045 m10s_mean=0.338bps sharpe=0.101 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,DOGEUSDT,pilot,battle rate_floor_per_hour=7020.000 eaten=0.040 pulled=0.912 mixed=0.048 m10s_n=1755 m10s_mean=0.517bps sharpe=0.139 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,HYPEUSDT,pilot,battle rate_floor_per_hour=9568.000 eaten=0.072 pulled=0.866 mixed=0.062 m10s_n=2392 m10s_mean=0.389bps sharpe=0.052 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,NEARUSDT,pilot,battle rate_floor_per_hour=4612.000 eaten=0.062 pulled=0.864 mixed=0.074 m10s_n=1153 m10s_mean=0.682bps sharpe=0.083 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,PUMPFUNUSDT,pilot,battle rate_floor_per_hour=8080.000 eaten=0.048 pulled=0.900 mixed=0.052 m10s_n=2020 m10s_mean=0.531bps sharpe=0.074 sessions_pulled_profile=1
+2026-09-11T23:12:12.188907300+00:00,ENAUSDT,pilot,battle rate_floor_per_hour=23396.000 eaten=0.082 pulled=0.847 mixed=0.071 m10s_n=5849 m10s_mean=0.809bps sharpe=0.123 sessions_pulled_profile=1

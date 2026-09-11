@@ -88,7 +88,7 @@ use super::levels::{run_levels, LevelsArgs};
 use super::markout::{run_markout, MarkoutArgs};
 use super::pick::{h3_lots_floor, order_size_22a};
 use super::profiles::{run_profiles, ProfilesArgs};
-use super::session::{run_session, SessionArgs};
+use super::session::{run_session, SessionArgs, SessionSummary};
 use super::{
     median_trade_lots_for_symbol, replay_symbol, replay_symbol_over_configs,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
@@ -129,8 +129,11 @@ pub struct PilotArgs {
     /// NTP-эталон для того же замера — только `--debug`.
     #[arg(long, default_value = "pool.ntp.org:123")]
     pub ntp_addr: String,
-    /// Часы боевого пилота (§11: два, считается второй) — только боевой
-    /// путь; используется для ставки в час при печати.
+    /// Запасная длина боевого окна в часах — только когда в `--root` ещё
+    /// нет `session.json` (`resolve_battle_window_minutes`). Обычный боевой
+    /// путь читает длину из самой сессии — `session.json.pilot_minutes`
+    /// (`--pilot-minutes` у `lob session`, например 30 — не выражается
+    /// целыми часами) или `duration_s / 60`; этот флаг её не перекрывает.
     #[arg(long, default_value_t = 2)]
     pub hours: u64,
     /// Прогрев в мс: только режим `percentile` внутри `H3` (`floor` не
@@ -266,6 +269,29 @@ pub fn sessions_needed_for_profile(
 /// среза середины реплея — первая половина (прогрев) в замер не входит.
 pub fn battle_counted_tail_minutes(window_minutes: f64) -> f64 {
     window_minutes / 2.0
+}
+
+/// Длина боевого окна для `process_instrument`/`k_grid_for_instrument`:
+/// каталог сессии знает свою собственную длину, `--hours` не может её
+/// перекрыть и не должен. Источник — `session.json` под `root` (тот же
+/// файл, что пишет `lob session`): `pilot_minutes`, если сессия шла через
+/// `--pilot-minutes` (таск 22, В-33 — «30 минут» владельца, не выражается
+/// в целых часах), иначе `duration_s / 60` для обычной сессии сбора.
+/// `--hours` остаётся **только** запасным путём — когда `session.json`
+/// отсутствует или не разбирается (каталог ещё не содержит записи, либо
+/// старый формат до таска 04): тогда окно назначает вызывающий флагом, как
+/// до этой правки.
+fn resolve_battle_window_minutes(root: &Path, hours: u64) -> f64 {
+    std::fs::read_to_string(root.join("session.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<SessionSummary>(&s).ok())
+        .map(|summary| {
+            summary
+                .pilot_minutes
+                .map(f64::from)
+                .unwrap_or_else(|| count_f64_u64(summary.duration_s) / 60.0)
+        })
+        .unwrap_or_else(|| count_f64_u64(hours.saturating_mul(60)))
 }
 
 /// Путь `runs_out`, которым `run_profiles_and_backtest_chain` зовёт `lob
@@ -1525,7 +1551,7 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("боевой пилот требует --pool-instruments"))?;
     let symbols = read_pool_symbols(pool_instruments)?;
-    let window_minutes = count_f64_u64(args.hours.saturating_mul(60));
+    let window_minutes = resolve_battle_window_minutes(&args.root, args.hours);
     let now = args
         .now_utc
         .clone()
@@ -1699,6 +1725,56 @@ mod tests {
     fn battle_counted_tail_minutes_is_half_the_window() {
         assert_eq!(battle_counted_tail_minutes(120.0), 60.0);
         assert_eq!(battle_counted_tail_minutes(30.0), 15.0);
+    }
+
+    /// Шаг 0 таска 09(в): `--hours` не может выразить 30 минут
+    /// (`hours: u64`). Боевое окно обязано прийти из `session.json` самого
+    /// каталога — `pilot_minutes = 30` → окно 30 минут, зачётный хвост
+    /// (`battle_counted_tail_minutes`) — 15.
+    #[test]
+    fn battle_window_reads_pilot_minutes_from_session_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("session.json"),
+            r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":1800,
+               "instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,
+               "parse_p99_ns":0,"queue_p99_ns":0,"cpu_pct_avg":0.0,"cpu_pct_max":0.0,
+               "rss_bytes_start":0,"rss_bytes_end":0,"out":".","debug":true,
+               "pilot":true,"pilot_minutes":30}"#,
+        )
+        .unwrap();
+        let window = resolve_battle_window_minutes(dir.path(), 2);
+        assert_eq!(
+            window, 30.0,
+            "pilot_minutes из session.json обязан победить --hours"
+        );
+        assert_eq!(battle_counted_tail_minutes(window), 15.0);
+    }
+
+    /// Сессия без `pilot_minutes` (обычный `lob session --minutes`) — окно
+    /// из `duration_s / 60`, а не из `--hours`.
+    #[test]
+    fn battle_window_falls_back_to_duration_s_when_not_a_pilot_session() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("session.json"),
+            r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":600,
+               "instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,
+               "parse_p99_ns":0,"queue_p99_ns":0,"cpu_pct_avg":0.0,"cpu_pct_max":0.0,
+               "rss_bytes_start":0,"rss_bytes_end":0,"out":".","debug":true}"#,
+        )
+        .unwrap();
+        let window = resolve_battle_window_minutes(dir.path(), 2);
+        assert_eq!(window, 10.0);
+    }
+
+    /// Нет `session.json` под `root` вовсе (каталог ещё не содержит
+    /// записи) — `--hours` остаётся запасным путём, как до этой правки.
+    #[test]
+    fn battle_window_falls_back_to_hours_when_session_json_is_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let window = resolve_battle_window_minutes(dir.path(), 2);
+        assert_eq!(window, 120.0);
     }
 
     #[test]
