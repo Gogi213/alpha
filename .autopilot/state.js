@@ -1,7 +1,7 @@
 window.STATE =
 {
   "slug": "lob-density-ed3",
-  "dir": "2026-09-11-lob-density-ed3--wip",
+  "dir": "2026-09-11-lob-density-ed3",
   "title": "Бот по плотностям стакана. Фаза 1 — вердикт по профилям",
   "mode": "semi",
   "depth": "deep",
@@ -11,8 +11,8 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-12T03:30:00+04:00",
-  "finishedAt": null,
+  "updatedAt": "2026-09-12T05:40:00+04:00",
+  "finishedAt": "2026-09-12T05:40:00+04:00",
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
 
   "stages": [
@@ -21,13 +21,13 @@ window.STATE =
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-11T00:45:00+04:00", "finishedAt": "2026-09-11T01:55:00+04:00", "note": "три ответа владельца: продукт — бот; 5 минут — тесты; форма — autopilot. Две развилки: CLUSDT, G_min" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-11T01:00:00+04:00", "finishedAt": "2026-09-11T02:03:00+04:00", "note": "вторая редакция: 49 историй, шесть швов; 17 находок G2 внесены; повторный G2 запущен" },
     { "id": "plan",      "status": "done", "startedAt": "2026-09-11T01:10:00+04:00", "finishedAt": "2026-09-11T02:05:00+04:00", "note": "15 тасков в 7 волн; G3 в обе стороны" },
-    { "id": "build",     "status": "done", "startedAt": "2026-09-11T02:20:00+04:00", "note": "Все 18 тасков закоммичены (последний 50969d8). Идёт приёмка: слепая проверка по брифу (G4), отчёт", "finishedAt": "2026-09-12T03:30:00+04:00" },
+    { "id": "build",     "status": "done", "startedAt": "2026-09-11T02:20:00+04:00", "note": "19 тасков закоммичены, последний a61f988 (из слепой приёмки). Сборка сдана", "finishedAt": "2026-09-12T03:30:00+04:00" },
     { "id": "review",    "status": "done", "startedAt": "2026-09-11T03:33:00+04:00", "note": "три оси на каждом из 18 тасков (R-A/R-B/R-C, преемники после перезапуска на 17/18); 11 ремонтов по BLOCKING, все закрыты; 60 concerns → триаж §1a: таск 17 (fix now) + отчёт", "finishedAt": "2026-09-12T03:30:00+04:00" },
-    { "id": "final",     "status": "active", "startedAt": "2026-09-12T03:30:00+04:00" }
+    { "id": "final",     "status": "done", "startedAt": "2026-09-12T03:30:00+04:00", "finishedAt": "2026-09-12T05:40:00+04:00", "note": "сдан 2026-09-12: слепая приёмка G4 — 5 расхождений, одно починено (таск 19), четыре в отчёте; память CLAUDE.md, 12 ADR; каталог прогона без --wip" }
   ],
 
   "requirements": {
-    "total": 85, "done": 66, "inTicket": 15, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
+    "total": 85, "done": 70, "inTicket": 11, "deferred": 4, "dropped": 0, "placeholder": 0, "open": 0,
     "note": "done узкое: механизм есть, тесты зелёные, служит редакции 3 без изменений. Ни одного артефакта задачи на диске нет."
   },
 
@@ -49,6 +49,7 @@ window.STATE =
     { "id": "16", "title": "FillModel поверх бэктеста: путь к Confirmed", "requirements": ["R06","R07","R08","R50","R67"], "blockedBy": ["10","11","12","13"], "wave": 6, "zone": ["src/commands/lob/backtest.rs","src/commands/lob/profiles.rs","src/commands/lob/shortlist.rs"], "status": "done", "startedAt": "2026-09-11T19:40:00+04:00", "finishedAt": "2026-09-11T21:30:00+04:00", "tests": "565 passed, 0 failed, 5 ignored (9d7dd50+16)", "commit": "1fc8fc3", "review": { "R-A": "нет; PBO/CPCV — отдельный таск", "R-B": "нет; сквозной тест Confirmed, дубль флагов → concerns", "R-C": "нет; блок; ключ-заглушка не в артефактах" }, "retries": 0, "repairs": 0, "handoffs": 0, "note": "добавлен по BLOCKERS таска 13" },
     { "id": "17", "title": "Долг ремесла: триаж concerns", "requirements": ["R71","R73","R79","R80"], "blockedBy": ["16"], "wave": 7, "zone": ["src/**"], "status": "done", "startedAt": "2026-09-11T23:20:00+04:00", "finishedAt": "2026-09-12T02:25:00+04:00", "tests": "558 passed, 0 failed, 5 ignored (cdd9a06+17 изолированно)", "commit": "b49d6b1", "review": { "R-B": "нет (преемник); ready.flag формат, disjoint_contrast pub без вызывающего, критерий «те же артефакты» проверен статически → concerns", "R-C": "нет (преемник); чисто" }, "retries": 0, "repairs": 0, "handoffs": 2, "note": "Phase 8 §1a: fix-now из concerns — сдвоенный код (3+ таска), Args, снос C1/C2, sign_into без аллокаций, мелочи с тестами" },
     { "id": "18", "title": "Динамический порог H3: сетка k в пилоте", "requirements": ["R14","R40","D05"], "blockedBy": ["09","17"], "wave": 7, "zone": ["src/commands/lob/pilot.rs","src/commands/lob/levels.rs"], "status": "done", "startedAt": "2026-09-12T02:30:00+04:00", "finishedAt": "2026-09-12T03:25:00+04:00", "tests": "571 passed, 0 failed, 5 ignored (b49d6b1+18 изолированно)", "commit": "50969d8", "review": { "R-B": "нет; feed_frames дублирует feed_frames_multi, pilot.rs 2287 строк → concerns", "R-C": "нет; ceil→floor в interfaces поправлено" }, "retries": 0, "repairs": 0, "handoffs": 0, "note": "В-30/D05 — методология вместо числа k" },
+    { "id": "19", "title": "lob session пишет файлы, которые читают остальные команды", "requirements": ["R12","R38","R59"], "blockedBy": ["04","18"], "wave": 7, "zone": ["src/commands/lob/session.rs","src/commands/lob/pilot.rs"], "status": "done", "startedAt": "2026-09-12T04:20:00+04:00", "finishedAt": "2026-09-12T05:20:00+04:00", "tests": "581 passed, 0 failed, 5 ignored (50969d8+19 изолированно)", "commit": "a61f988", "review": { "R-B": "нет; мягкий пропуск старого формата в profiles/watch без счётчика → concerns" }, "retries": 0, "repairs": 0, "handoffs": 1, "note": "из слепой приёмки G4: имя бинлога сессии не совпадает с тем, что читают команды" },
     { "id": "14", "title": "Чистка репозитория и память проекта", "requirements": ["R65","R70","R71","R73"], "blockedBy": ["13"], "wave": 7, "zone": ["data/",".autopilot/","."], "status": "done", "startedAt": "2026-09-11T22:50:00+04:00", "finishedAt": "2026-09-12T00:20:00+04:00", "tests": "571 passed, 0 failed, 5 ignored", "commit": "cdd9a06", "review": { "R-B": "1 blocking: память утверждала --h3-mode у pilot — снято; числа README сверены" }, "retries": 0, "repairs": 0, "handoffs": 0 }
   ],
 
@@ -138,7 +139,10 @@ window.STATE =
     { "ticket": "17", "file": "src/commands/lob/markout.rs --median-lifetime-ms", "what": "обязательный флаг, значение не используется после сноса C1/C2 — снять при следующем касании --help (R-C)", "kind": "craft" },
     { "ticket": "17", "file": "tests", "what": "сквозной тест profiles→shortlist→Confirmed через BacktestFillModel не написан — нужна фикстура ≥100 исполнений на ≥7 суток", "kind": "test-gap" },
     { "ticket": "18", "file": "src/commands/lob/mod.rs feed_frames / feed_frames_multi", "what": "feed_frames дублирует блок сбора LevelObs вместо делегирования feed_frames_multi с одноэлементными срезами (R-B)", "kind": "structural" },
-    { "ticket": "18", "file": "src/commands/lob/pilot.rs", "what": "2287 строк, пять забот в одном файле — Divergent Change, разрез при следующем касании (R-B)", "kind": "structural" }
+    { "ticket": "18", "file": "src/commands/lob/pilot.rs", "what": "2287 строк, пять забот в одном файле — Divergent Change, разрез при следующем касании (R-B)", "kind": "structural" },
+    { "ticket": "19", "file": "src/commands/lob/{profiles,watch}.rs", "what": "старый недатированный бинлог при сканировании многих сессий пропускается молча без счётчика — печатать «сессий пропущено: старый формат» (R-B)", "kind": "craft" },
+    { "ticket": "G4", "file": "src/commands/lob/session.rs parse_p99_ns", "what": "живой lob session по 8 инструментам: разбор p99 = 1136.6 мкс (221 406 кадров) против суббюджета 200 мкс; на одном инструменте lob react даёт 68.7 мкс — профилирование разбора под пулом; общий бюджет 5 мс не нарушен", "kind": "data" },
+    { "ticket": "G4", "file": "R57 окно «сейчас»", "what": "profiles/shortlist читают все подкаталоги root без окна фиксированной длины по сессиям; длина окна нигде не печатается — открытый вопрос владельцу: длина окна (сутки/сессии) назначается до данных", "kind": "open" }
   ],
 
   "debt": [
@@ -165,6 +169,17 @@ window.STATE =
     "sharpe_m_10s": { "SOLUSDT": -0.40, "NEARUSDT": -0.32, "ZECUSDT": 0.24 }, "required_sharpe": 2.7
   },
 
-  "blind": null,
-  "tests": { "passed": 571, "failed": 0, "ignored": 5, "at": "2026-09-12T03:25:00+04:00" }
+  "blind": {
+    "at": "2026-09-12T04:00:00+04:00", "artifacts": "data/acceptance-20260911T155044Z/",
+    "drift": [
+      { "req": "R12/R38 запись сессиями", "manifest": "done", "blind": "частично", "what": "lob session пишет <SYMBOL>.binlog, команды анализа ждут <SYMBOL>-<дата>.binlog — сценарий запись→анализ руками обрывается; мост только в pilot", "fix": "таск 19" },
+      { "req": "R79 «быстро сразу»", "manifest": "in-ticket", "blind": "частично", "what": "живой lob session по 8 инструментам: разбор p99 = 1136.6 мкс по 221 406 кадрам против суббюджета 200 мкс (в 6 раз); lob react на одном инструменте давал 68.7 мкс", "fix": "отчёт: суббюджет пересматривается по замеру (PLAN 3.1), общий 5 мс не нарушен; профилирование разбора на пуле — следующий заход" },
+      { "req": "R47 PBO/CPCV", "manifest": "done (DSR)", "blind": "частично", "what": "PBO/CPCV — функции есть и протестированы, в lob shortlist захардкожены None (нет матрицы испытания×периоды)", "fix": "отчёт + отдельный таск после боевых данных" },
+      { "req": "R57 окно «сейчас»", "manifest": "in-ticket", "blind": "нет", "what": "profiles/shortlist читают все подкаталоги root без окна фиксированной длины; длина окна нигде не печатается (repeat_window — другая ось)", "fix": "отчёт: открытый вопрос владельцу — длина окна в сутках/сессиях назначается до данных" },
+      { "req": "R45 заморозка коммитом", "manifest": "done", "blind": "частично", "what": "--freeze-commit не проверяется по git log — защита через обязательность файла заморозки", "fix": "отчёт (concerns T12)" }
+    ],
+    "not_in_brief": [ "внутреннее деление RedInsufficientPower/RedNoEdge — детализация красного (A03/R68), в текст вердикта схлопывается" ],
+    "live_run": "один, 5 мин, lob session: records=1587882 gaps=0, 8 инструментов, без ключей"
+  },
+  "tests": { "passed": 581, "failed": 0, "ignored": 5, "at": "2026-09-12T05:40:00+04:00" }
 }

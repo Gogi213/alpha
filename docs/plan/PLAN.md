@@ -2,7 +2,7 @@
 
 **Прогон:** `2026-09-11-lob-density-ed3`, вторая редакция плана за день.
 **Задача:** `docs/plan/BUSINESS-TASK.md`, редакция 3, плюс дополнения владельца
-от 2026-09-11 (`.autopilot/2026-09-11-lob-density-ed3--wip/2026-09-11-brief.md`).
+от 2026-09-11 (`.autopilot/2026-09-11-lob-density-ed3/2026-09-11-brief.md`).
 **Основание:** `docs/plan/REVIEW-2026-09-11.md` (пять ревью) и разведка
 `docs/plan/RECON-2026-09-11.md` (три инструмента пула, живые данные).
 **Воркфлоу:** `autopilot` (https://github.com/nick-vels/skills).
@@ -590,7 +590,7 @@ dry-run ≤ 5 мин.** Зона `src/lob/strategy.rs`, `src/bybit/trade_ws.rs`,
 
 ## 13. Где что лежит
 
-- Задача дословно и дополнения — `.autopilot/2026-09-11-lob-density-ed3--wip/2026-09-11-brief.md`
+- Задача дословно и дополнения — `.autopilot/2026-09-11-lob-density-ed3/2026-09-11-brief.md`
 - Манифест, спека, границы, эталоны, таски — там же
 - Ревью-0 — `docs/plan/REVIEW-2026-09-11.md` · Разведка — `docs/plan/RECON-2026-09-11.md`
 - Журнал решений — `docs/plan/SETTLED.md` · Архитектура — `docs/ARCHITECTURE.md`

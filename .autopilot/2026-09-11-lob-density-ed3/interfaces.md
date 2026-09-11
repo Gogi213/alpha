@@ -336,3 +336,11 @@ cargo run --release -- lob <подкоманда>
 - `pilot::K_GRID: [f64; 5] = [2, 5, 10, 20, 50]` (предрегистрированная сетка, В-30); `k_grid_for_instrument` (один реплей на инструмент), `summarize_k_grid`, `choose_k` — наименьшее `k`, при котором медианный инструмент даёт ≥ 200 уровней за зачтённый час (G0; в `--debug` экстраполяция `rate/min × 60` с меткой `[debug]`) **и** `eaten ≥ 5 %` (G1 — `markup::G1_MIN_SHARE_NUM/_DEN`); иначе `k: не определим` — красный по построению. Печать `pilot k-grid: …` по инструментам и медиане; `percentile` — рядом.
 - `stage2_preregistration_skeleton(Option<(&str, f64)>)` — заполняет `h3_mode`/`h3_k` числами при выбранном `k`; остальные поля — `<…>` до боевого пилота.
 - Открыто: `--debug` не берёт готовую сессию с диска — сетка на отладке гонялась только на синтетике; боевые числа `k` — двухчасовой пилот.
+
+## Из таска 19 — имя бинлога сессии (из слепой приёмки G4)
+
+- `lob session` пишет `<SYMBOL>-<день UTC старта>.binlog` (`session.rs::session_binlog_path` над `record::day_file_path`); `session.json` без изменений.
+- Один резолвер для всех читателей: `commands::lob::session_binlog_for(dir, symbol) -> anyhow::Result<PathBuf>` — единственный датированный файл; только недатированный `<SYMBOL>.binlog` → ошибка «запись старого формата, переименуйте в `<SYMBOL>-<дата>.binlog`»; ничего → «нет бинлога для `<SYMBOL>` в `<dir>`»; несколько датированных → перечисление. Используют `profiles.rs`, `watch.rs` (ошибка = мягкий пропуск каталога, как раньше «не этот символ»), `backtest.rs` (ошибка пробрасывается); `bybit/verify.rs` — свой префиксный поиск (слой ниже `commands`), то же сообщение на недатированный формат; `mod.rs::replay_symbol_over_configs` — то же.
+- `pilot.rs`: костыль `alias_dated_binlogs_for_legacy_readers`/`stage_session_for_replay` снят; `copy_pool_instruments_csv` — только копия `instruments.csv` в каталог сессии; цепочка `--debug` работает на датированных файлах напрямую (без `replay/`).
+- Тест: каталог `session` → `verify` → `levels` → `profiles` → `watch` → `backtest` без ручных шагов.
+- Старые каталоги `data/session-debug/…`, `data/pilot-debug/*/session/` с `<SYMBOL>.binlog` — отвергаются с подсказкой (в `profiles`/`watch` при сканировании многих сессий — пропускаются молча, как «не этот символ»).

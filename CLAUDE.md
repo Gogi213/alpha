@@ -23,7 +23,7 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
   черновик, устарела; актуальное дерево модулей — ниже)
 - `.autopilot/state.js` — состояние прогона (таски, волны, гейты); дашборд —
   `python .autopilot/sync.py`, затем `http://localhost:<порт из .autopilot/serve.pid>/dashboard.html`
-- `.autopilot/2026-09-11-lob-density-ed3--wip/` — манифест, спека, границы
+- `.autopilot/2026-09-11-lob-density-ed3/` — манифест, спека, границы
   (`interfaces.md` — карта того, что построено таском за таском; читать исполнителю
   первым), эталоны, таски
 
@@ -31,7 +31,7 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 571 passed, 0 failed, 5 ignored на конец волны 6
+cargo test --release 2>&1 | tail -30        # 581 passed, 0 failed, 5 ignored на a61f988 (все 19 тасков)
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
 ./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
@@ -95,10 +95,10 @@ src/
 | Команда | Артефакт |
 |---|---|
 | `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул**, отобранный ранг) + `docs/plan/candidates.csv` (все кандидаты, причина исключения по каждому) |
-| `lob session --pool-instruments --root --minutes` | каталог сессии: `.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` |
+| `lob session --pool-instruments --root --minutes` (5..15, иначе ошибка; `session.json.debug = duration_s < 3600`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
 | `lob verify` | `verify.csv`, `verify-<SYMBOL>.status` (`ok`/`fail`) — читает `watch`/`pilot` |
-| `lob levels --h3-mode floor\|percentile` | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
+| `lob levels --h3-mode floor\|percentile [--h3-k <f64>]` (`--h3-k`: пол = `floor(k × median_trade_lots)` из `instruments.csv` на лету; только с `floor`) | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
 | `lob markout` | `markout-<SYMBOL>.csv` — движение на четырёх горизонтах |
 | `lob watch` | `progress-<symbol>-<profile>.csv`, `ready-<symbol>-<profile>.flag` |
 | `lob power` | stdout: `n= sr0= required_sharpe= dsr_target= num_obs=` — гейт G-POWER-A, до сбора данных |
@@ -119,7 +119,7 @@ src/
 `Instant::now()`/`SystemTime` только через трейт `Clock`, `async` с захватом
 состояния в потоке решений, REST в событийном цикле, сборка/подпись ордера после
 триггера, `f64` для цены/размера, `BTreeMap`/`HashMap` на пути события) —
-полный текст и обоснование в `.autopilot/2026-09-11-lob-density-ed3--wip/interfaces.md`.
+полный текст и обоснование в `.autopilot/2026-09-11-lob-density-ed3/interfaces.md`.
 Изобретённое число запрещено — измеримое измеряется, назначаемое — коммитом.
 Расстояние только в bps, никогда в тиках. Шаг не закрыт, пока не существует
 названный артефакт на диске. Секреты — только имена переменных (`BYBIT_API_KEY`,
@@ -136,15 +136,28 @@ src/
 - `instruments.csv` в корне записи = **уже отобранный пул** (десять на боевом окне,
   меньше на отладочном — ниже порога глубины отсеиваются), не список всех
   кандидатов; пишет `lob pick`, читают `lob session`/`levels`/`record`/`power`
-- `k` (`lob pick --h3-k`) не назначен владельцем — отладочные прогоны шли с `k=1.0`
-  как нейтральной заглушкой, это не решение; без него боевой пилот не запускался
+- `k` для пола `H3` — **не число, а процедура** (`SETTLED.md` В-30 / D05): `lob pilot`
+  считает ставку уровней и долю `eaten` для сетки `K_GRID = [2, 5, 10, 20, 50]` (один
+  реплей на инструмент) и берёт наименьшее `k`, при котором медианный инструмент
+  проходит G0 (≥ 200 уровней/зачтённый час) и G1 (`eaten` ≥ 5 %); нет такого — «k: не
+  определим» (красный по построению). Отладочные `instruments.csv` писались с `k=1.0`
+  как заглушкой; боевое `k` появится из двухчасового пилота и уйдёт в предрегистрацию
+  этапа 2 вместе с режимом `H3`
 - `lob probe` ставит реальные post-only ордера на бирже — не гонять без надобности
-- `src/bybit/conn.rs::connect_then_close_without_forwarding_a_message_does_not_reset_backoff`
-  флакует под нагрузкой (зависит от таймингов бэкоффа), не от логики — при красном
-  скачке перегоняй изолированно перед тем как искать регресс
+- `conn.rs` бэкофф переподключения — за приватным трейтом `Backoff`; тест переподключения
+  детерминирован (`RecordingBackoff`), реального времени не ждёт
 - `lob profiles`/`lob backtest`/`lob shortlist` требуют RTT (`--median-rtt-ns`/
   `--p95-rtt-ns`) и лот (`--order-qty-e9`) обязательными флагами без умолчания —
   источник: `lob probe`/`clock.csv`, не изобретать парсер по умолчанию
+- `ready-<symbol>-<profile>.flag` — формат `key=value`, ключ `n` (был `n_c2` до сноса C1/C2
+  таском 17); единственный читатель — `lob markout --confirmatory`
+- общие CLI-структуры: `commands::lob::H3Args` (`--h3-mode`, `--h3-lots`) и `ExecutionArgs`
+  (`--median-rtt-ns`, `--p95-rtt-ns`, `--order-qty-e9`) через `#[command(flatten)]`;
+  `lob backtest` держит свои обязательные флаги отдельно
+- бинлог сессии ищется одним резолвером `commands::lob::session_binlog_for(dir, symbol)`:
+  `<SYMBOL>-<дата>.binlog`; старый недатированный `<SYMBOL>.binlog` (записи до таска 19 в
+  `data/session-debug`, `data/pilot-debug/*/session`) отвергается с подсказкой переименовать
+  (`profiles`/`watch` при сканировании многих сессий такой каталог молча пропускают)
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален
 - Bybit отдаёт `403` с части стран (CloudFront); с этой машины доступ есть
 
