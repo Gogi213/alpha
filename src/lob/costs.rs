@@ -1,4 +1,4 @@
-//! Издержки и проскальзывание по Decision 15, гейт G3 (план, §5.3).
+//! Издержки и проскальзывание по Decision 15 (план, §5.3).
 //!
 //! Вход — мейкер у своей стороны спреда без улучшения (тип ордера —
 //! Decision 19); выход — тейкер с издержкой в один тик против позиции плюс
@@ -25,14 +25,17 @@
 //! из markout без смены базы. Спред — наблюдённый в момент выхода
 //! (`ask_exit − bid_exit` в тиках, потребитель: `book`).
 //!
-//! Гейт G3 буквально: `m` после издержек положителен в вердиктной ячейке
-//! (Decision 20: C2, если прошла, иначе C1). Иначе красный: сигнал есть,
-//! эджа нет. Зелёный порог H6 (средний net ≥ 3 bps) здесь только читается
-//! константой — финальный вердикт не здесь.
+//! Вердикт «эдж после издержек положителен» больше не выносится здесь
+//! (таск 17 снял `VerdictCell`/`G3Verdict`/`select_verdict_cell`/`decide_g3*`
+//! — построены под отменённую ячеечную модель C1/C2 §5.2, `interfaces.md`
+//! «Что построено под отменённый дизайн»; ни один вызывающий не читал их —
+//! живой вердикт на очереди даёт `backtest::G4Verdict`/`decide_g4`).
+//! Зелёный порог H6 (`GREEN_NET_BPS`, средний net ≥ 3 bps) остаётся здесь
+//! просто числом: `shortlist` сравнивает с ним готовый `net_fill`.
 //!
 //! Модуль не хранит состояния и не выделяет память.
 
-use crate::lob::cells::{joint_product_interval, G2Verdict};
+use crate::lob::cells::joint_product_interval;
 use crate::stats::{count_f64, count_f64_u64};
 use std::collections::BTreeMap;
 
@@ -250,93 +253,6 @@ pub fn net_fill_interval(
     })
 }
 
-/// Вердиктная ячейка по Decision 20: C2, если прошла, иначе C1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VerdictCell {
-    /// Вердикт выносит C1.
-    C1,
-    /// Вердикт выносит C2.
-    C2,
-}
-
-impl std::fmt::Display for VerdictCell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VerdictCell::C1 => write!(f, "C1"),
-            VerdictCell::C2 => write!(f, "C2"),
-        }
-    }
-}
-
-/// Выбор вердиктной ячейки по флагу прохода C2.
-pub fn select_verdict_cell(c2_passed: bool) -> VerdictCell {
-    if c2_passed {
-        VerdictCell::C2
-    } else {
-        VerdictCell::C1
-    }
-}
-
-/// Тот же выбор поверх вердикта G2: C2 тогда и только тогда, когда G2
-/// зафиксировал её проход; методический и рыночный красный G2 прохода C2
-/// не содержат и ведут на C1. G3 перепроверкой G2 не занимается.
-pub fn select_verdict_cell_from_g2(g2: &G2Verdict) -> VerdictCell {
-    match g2 {
-        G2Verdict::Pass { c2_passed, .. } => select_verdict_cell(*c2_passed),
-        G2Verdict::RedMarket | G2Verdict::RedMethodology(_) => VerdictCell::C1,
-    }
-}
-
-/// Вердикт гейта G3. Положительность строгая и конечная, как знак среднего
-/// в 5.2: ноль и неконечность — не проход.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum G3Verdict {
-    /// Средний net вердиктной ячейки положителен.
-    Pass,
-    /// Иначе красный: сигнал есть, эджа нет (включая отсутствие данных).
-    Red,
-}
-
-impl G3Verdict {
-    /// Проход гейта — зелёный свет дальше по подтверждающему прогону.
-    pub fn is_pass(self) -> bool {
-        matches!(self, G3Verdict::Pass)
-    }
-}
-
-impl std::fmt::Display for G3Verdict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            G3Verdict::Pass => write!(f, "G3 pass: mean net>0 in verdict cell"),
-            G3Verdict::Red => write!(f, "G3 RED: сигнал есть, эджа нет"),
-        }
-    }
-}
-
-/// Решение G3 строго по формулировке: средний net вердиктной ячейки
-/// положителен — проход, иначе (включая `None`) красный.
-pub fn decide_g3(mean_net_verdict_cell: Option<f64>) -> G3Verdict {
-    match mean_net_verdict_cell {
-        Some(v) if v.is_finite() && v > 0.0 => G3Verdict::Pass,
-        _ => G3Verdict::Red,
-    }
-}
-
-/// Связка Decision 20 + G3: выбор ячейки по проходу C2 и вердикт по её
-/// среднему net. Возвращает пару (ячейка, вердикт).
-pub fn decide_g3_from_cells(
-    mean_net_c1: Option<f64>,
-    mean_net_c2: Option<f64>,
-    c2_passed: bool,
-) -> (VerdictCell, G3Verdict) {
-    let cell = select_verdict_cell(c2_passed);
-    let mean = match cell {
-        VerdictCell::C1 => mean_net_c1,
-        VerdictCell::C2 => mean_net_c2,
-    };
-    (cell, decide_g3(mean))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,70 +340,19 @@ mod tests {
         );
     }
 
-    /// Гейт G3 буквально: положителен — проход; ноль, минус и отсутствие
-    /// данных — красный «сигнал есть, эджа нет».
+    /// H6 — число само по себе: 3 bps, и никакая функция этого модуля не
+    /// принимает по нему решение (таск 17 снял вердиктную ячейку C1/C2 и
+    /// гейт G3, который раньше стоял на этом месте — см. докстрока модуля).
+    /// `net_bps` ниже зелёного порога остаётся валидным числом, не отказом:
+    /// сравнение с порогом — дело вызывающего (`shortlist`).
     #[test]
-    fn g3_passes_only_on_positive_verdict_mean() {
-        assert!(decide_g3(Some(0.1)).is_pass());
-        assert!(!decide_g3(Some(0.0)).is_pass());
-        assert!(!decide_g3(Some(-0.1)).is_pass());
-        assert!(!decide_g3(None).is_pass());
-        assert!(!decide_g3(Some(f64::NAN)).is_pass());
-        assert!(!decide_g3(Some(f64::INFINITY)).is_pass());
-        assert_eq!(decide_g3(Some(1.0)), G3Verdict::Pass);
-        assert_eq!(decide_g3(None), G3Verdict::Red);
-    }
-
-    /// Decision 20: вердиктная ячейка — C2, если прошла, иначе C1.
-    /// Та же развилка поверх вердикта G2.
-    #[test]
-    fn verdict_cell_is_c2_only_when_c2_passed() {
-        assert_eq!(select_verdict_cell(true), VerdictCell::C2);
-        assert_eq!(select_verdict_cell(false), VerdictCell::C1);
-        assert_eq!(
-            select_verdict_cell_from_g2(&G2Verdict::Pass {
-                c1_passed: true,
-                c2_passed: true
-            }),
-            VerdictCell::C2
-        );
-        assert_eq!(
-            select_verdict_cell_from_g2(&G2Verdict::Pass {
-                c1_passed: true,
-                c2_passed: false
-            }),
-            VerdictCell::C1
-        );
-        assert_eq!(
-            select_verdict_cell_from_g2(&G2Verdict::RedMarket),
-            VerdictCell::C1
-        );
-    }
-
-    /// Связка: при прошедшей C2 читается её net, иначе — net C1.
-    #[test]
-    fn g3_from_cells_reads_the_verdict_cell_only() {
-        // C2 прошла, но её net отрицателен — красный, хотя C1 положительна.
-        let (cell, verdict) = decide_g3_from_cells(Some(5.0), Some(-1.0), true);
-        assert_eq!(cell, VerdictCell::C2);
-        assert_eq!(verdict, G3Verdict::Red);
-        // C2 не прошла — читается C1.
-        let (cell, verdict) = decide_g3_from_cells(Some(5.0), Some(-1.0), false);
-        assert_eq!(cell, VerdictCell::C1);
-        assert_eq!(verdict, G3Verdict::Pass);
-    }
-
-    /// H6 только читается: зелёный ≥ 3 bps, а G3 проходит уже при > 0.
-    /// Net 1.0 — проход G3, но не зелёный: вердикты не смешиваются.
-    #[test]
-    fn green_threshold_is_read_not_decided_here() {
+    fn green_threshold_is_a_number_not_a_verdict_here() {
         assert!(close(GREEN_NET_BPS, 3.0));
         let probe = net_bps(10.0, 1, 20_000).expect("синтетика обязана посчитаться");
         assert!(
-            decide_g3(Some(probe)).is_pass(),
-            "G3 проходит ниже зелёного"
+            probe.is_finite() && probe < GREEN_NET_BPS,
+            "ниже зелёного, но конечно"
         );
-        assert!(probe < GREEN_NET_BPS, "но зелёным это не является");
     }
 
     /// Отказы вместо нулей: плохая база, отрицательный спред, неконечный m,

@@ -212,11 +212,13 @@ pub trait OrderSigner {
     /// `sign`) в `out`, не аллоцируя на стороне вызывающего (дозапрос
     /// ревью таска 15, ось Craft, запрет 1: `ReadyMakerOrder::rebuild` не
     /// вправе аллоцировать после прогрева). Реализация по умолчанию зовёт
-    /// `sign` и копирует байты — годится для `Credentials`: аллокация там
-    /// уже сидит внутри `sign.rs` (не в зоне этого таска, трогать нельзя),
-    /// и эта реализация её не устраивает по новой, а наследует как есть.
-    /// Тестовый фейк (`commands/lob/react.rs`, этот файл) переопределяет
-    /// метод без единой аллокации — это и проверяет счётчик `alloc_count`.
+    /// `sign` и копирует байты — аллоцирующий запасной путь для реализаций,
+    /// которым лень писать буферный HMAC. `Credentials` (ниже) его больше
+    /// не наследует: таск 17 закрыл долг из `interfaces.md` («Из ремонта
+    /// таска 15») буферной реализацией в `bybit::sign::Credentials::
+    /// sign_into` — ноль аллокаций доказан тестом `credentials_sign_into_
+    /// allocates_nothing_after_warmup` (`sign.rs`) на настоящих ключах, не
+    /// только на тестовом фейке `ZeroAllocSigner` этого файла.
     fn sign_into(
         &self,
         timestamp_ms: i64,
@@ -247,6 +249,20 @@ impl OrderSigner for Credentials {
 
     fn api_key(&self) -> &str {
         Credentials::api_key(self)
+    }
+
+    /// Переопределяет реализацию по умолчанию: `Credentials::sign_into`
+    /// пишет HMAC прямо в `out` без склейки payload в `String` (`sign.rs`),
+    /// так что боевой подписант больше не аллоцирует на каждый вызов —
+    /// не только тестовый `ZeroAllocSigner` ниже.
+    fn sign_into(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+        out: &mut [u8; 64],
+    ) -> Result<(), CredentialsError> {
+        Credentials::sign_into(self, timestamp_ms, recv_window_ms, body, out)
     }
 }
 

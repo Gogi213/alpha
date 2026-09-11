@@ -1000,100 +1000,13 @@ pub fn log_hour_test(
 }
 
 // ---------------------------------------------------------------------------
-// Выход profiles-<дата>.csv: полная таблица без отсева.
-// ---------------------------------------------------------------------------
-
-/// Строка таблицы профилей: разведочные числа §4 плюс флаг шорт-листа.
-/// Числа приходят от вызывающего (`cells`/`costs`/очередь); модуль их только
-/// печатает. Непригодных профилей здесь нет по построению входа.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ProfileRow {
-    /// Идентификатор из `build_profile_grid`.
-    pub profile_id: String,
-    /// Наблюдений на разведочной.
-    pub n_expl: u64,
-    /// Годных суток на разведочной.
-    pub g_expl: u64,
-    /// Доля `eaten`.
-    pub eaten_share: Option<f64>,
-    /// Доля `pulled`.
-    pub pulled_share: Option<f64>,
-    /// Доля `mixed`.
-    pub mixed_share: Option<f64>,
-    /// Markout 100 мс, bps.
-    pub m_100ms: Option<f64>,
-    /// Markout 1 с, bps.
-    pub m_1s: Option<f64>,
-    /// Markout 10 с, bps (горизонт вердиктной ячейки).
-    pub m_10s: Option<f64>,
-    /// Markout 60 с, bps.
-    pub m_60s: Option<f64>,
-    /// Чистый результат после круговых издержек, bps.
-    pub net_bps: Option<f64>,
-    /// Доля исполнившихся входов за 2 с.
-    pub fill: Option<f64>,
-    /// `net`, взвешенный на `fill`.
-    pub net_fill: Option<f64>,
-    /// Нижняя граница интервала `net_fill`, bps.
-    pub net_fill_lower: Option<f64>,
-    /// Вошёл ли профиль в замороженный шорт-лист.
-    pub in_shortlist: bool,
-}
-
-/// Шапка `profiles-<дата>.csv` — те же имена и в том же порядке, что поля
-/// `ProfileRow`. Пишется вручную: дрейф ловит тест.
-pub const PROFILES_HEADER: [&str; 15] = [
-    "profile_id",
-    "n_expl",
-    "g_expl",
-    "eaten_share",
-    "pulled_share",
-    "mixed_share",
-    "m_100ms",
-    "m_1s",
-    "m_10s",
-    "m_60s",
-    "net_bps",
-    "fill",
-    "net_fill",
-    "net_fill_lower",
-    "in_shortlist",
-];
-
-/// Пишет полную таблицу профилей (строка на каждый пригодный профиль).
-pub fn write_profiles_csv(path: &Path, rows: &[ProfileRow]) -> Result<(), ShortlistError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let file = File::create(path)?;
-    let mut w = csv::WriterBuilder::new()
-        .has_headers(false)
-        .from_writer(file);
-    w.write_record(PROFILES_HEADER)?;
-    for row in rows {
-        w.serialize(row)?;
-    }
-    w.flush()?;
-    Ok(())
-}
-
-/// Читает таблицу профилей. Пустой или отсутствующий файл — ноль строк.
-pub fn read_profiles_csv(path: &Path) -> Result<Vec<ProfileRow>, ShortlistError> {
-    if std::fs::metadata(path)
-        .map(|m| m.len() == 0)
-        .unwrap_or(true)
-    {
-        return Ok(Vec::new());
-    }
-    let mut r = csv::Reader::from_path(path)?;
-    r.deserialize::<ProfileRow>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ShortlistError::from)
-}
-
-// ---------------------------------------------------------------------------
 // Выход shortlist-<дата>.md.
 // ---------------------------------------------------------------------------
+//
+// Черновая `profiles-<дата>.csv` (`ProfileRow`, 15 колонок) сняты таском 17:
+// боевую таблицу профилей пишет `commands::lob::profiles` (таск 10, 28
+// колонок, `observed_sharpe` из таска 16) — этот черновик её не читал и не
+// писал ни разу, только держал место до появления настоящей реализации.
 
 /// Гейт вердикта в шапке шорт-листа (`PLAN.md` раздел 6): гейт G3-в на
 /// подтверждающей. Числа для DSR/PBO/CPCV/`G`/`p`/джекнайфа собирает
@@ -1736,50 +1649,6 @@ mod tests {
         assert!(rows[0].detail.contains("hour_test"));
         assert!(rows[0].detail.contains("marginal:side=bid"));
         assert_eq!(crate::lob::runs::count_trials(&rows), 1);
-    }
-
-    fn sample_profile_row(id: &str, in_shortlist: bool) -> ProfileRow {
-        ProfileRow {
-            profile_id: id.to_string(),
-            n_expl: 150,
-            g_expl: 9,
-            eaten_share: Some(0.2),
-            pulled_share: Some(0.7),
-            mixed_share: Some(0.1),
-            m_100ms: Some(1.0),
-            m_1s: Some(2.0),
-            m_10s: Some(4.0),
-            m_60s: Some(3.0),
-            net_bps: Some(1.5),
-            fill: Some(0.5),
-            net_fill: Some(0.75),
-            net_fill_lower: Some(0.1),
-            in_shortlist,
-        }
-    }
-
-    /// Формат profiles CSV: шапка побайтово, круговой проход, пустой файл —
-    /// ноль строк. Живых данных в песочнице нет: только синтетика.
-    #[test]
-    fn profiles_csv_format_round_trips_with_stable_header() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("profiles-2026-05-20.csv");
-        let rows = vec![
-            sample_profile_row("cross:A|pulled|[0,1)", true),
-            sample_profile_row("marginal:side=bid", false),
-        ];
-        write_profiles_csv(&path, &rows).expect("писатель");
-        let text = std::fs::read_to_string(&path).unwrap();
-        let header = text.lines().next().expect("шапка обязана быть");
-        assert_eq!(
-            header,
-            "profile_id,n_expl,g_expl,eaten_share,pulled_share,mixed_share,m_100ms,m_1s,m_10s,m_60s,net_bps,fill,net_fill,net_fill_lower,in_shortlist"
-        );
-        assert_eq!(read_profiles_csv(&path).expect("круговой проход"), rows);
-        assert_eq!(
-            read_profiles_csv(&dir.path().join("нет.csv")).expect("нет файла"),
-            Vec::new()
-        );
     }
 
     /// Формат shortlist MD: число испытаний, коммит, отпечаток, порог,

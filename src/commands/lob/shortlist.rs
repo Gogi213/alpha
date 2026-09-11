@@ -121,8 +121,8 @@ use crate::lob::shortlist::{
 };
 use crate::stats;
 
-use super::levels::H3ModeArg;
 use super::profiles::{resolve_fill_model, run_profiles_with_fill_model, ProfilesArgs};
+use super::{ExecutionArgs, H3Args};
 use super::{DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 // ---------------------------------------------------------------------------
@@ -140,12 +140,9 @@ pub struct ShortlistArgs {
     /// Полная таблица кандидатов (`lob pick`) — источник `coverage_top50_bps`.
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_csv: PathBuf,
-    /// Режим порога H3: `floor` | `percentile`, без умолчания.
-    #[arg(long)]
-    pub h3_mode: H3ModeArg,
-    /// Порог рождения H3 в лотах: только режим `percentile`.
-    #[arg(long)]
-    pub h3_lots: Option<i64>,
+    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
+    #[command(flatten)]
+    pub h3: H3Args,
     /// Прогрев в мс, на сессию.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -182,19 +179,14 @@ pub struct ShortlistArgs {
     /// которым фиксирует шорт-лист.
     #[arg(long)]
     pub freeze_commit: Option<String>,
-    /// Медианная замеренная RTT исполнения, нс — та же тройка, что `lob
-    /// profiles`/`lob backtest` (`resolve_fill_model`, таск 16): заданы все
-    /// три — разведочная/подтверждающая гоняются с `BacktestFillModel`
-    /// (`observed_sharpe`/`fill`/`net_fill` становятся числами, DSR в
-    /// вердикте зачитывается); не задан ни один — `NoFillModel`, как раньше.
-    #[arg(long)]
-    pub median_rtt_ns: Option<i64>,
-    /// 95-й перцентиль той же замеренной RTT — см. `median_rtt_ns`.
-    #[arg(long)]
-    pub p95_rtt_ns: Option<i64>,
-    /// Размер круга в 1e-9 лотов (Decision 22) — см. `median_rtt_ns`.
-    #[arg(long)]
-    pub order_qty_e9: Option<i64>,
+    /// Тройка `BacktestFillModel`: `--median-rtt-ns`, `--p95-rtt-ns`,
+    /// `--order-qty-e9` (общие с `profiles`, `resolve_fill_model`, таск 16):
+    /// заданы все три — разведочная/подтверждающая гоняются с
+    /// `BacktestFillModel` (`observed_sharpe`/`fill`/`net_fill` становятся
+    /// числами, DSR в вердикте зачитывается); не задан ни один —
+    /// `NoFillModel`, как раньше.
+    #[command(flatten)]
+    pub execution: ExecutionArgs,
 }
 
 /// Итог `lob shortlist` для печати диспетчером.
@@ -582,21 +574,22 @@ fn run_profiles_over(
     let profiles_args = ProfilesArgs {
         root,
         candidates_csv: base.candidates_csv.clone(),
-        h3_mode: base.h3_mode,
-        h3_lots: base.h3_lots,
+        h3: base.h3,
         warmup_ms: base.warmup_ms,
         repeat_window_ms: base.repeat_window_ms,
         allow_unverified,
         out: Some(out),
         now_utc: base.now_utc.clone(),
         runs_out,
-        median_rtt_ns: base.median_rtt_ns,
-        p95_rtt_ns: base.p95_rtt_ns,
-        order_qty_e9: base.order_qty_e9,
+        execution: base.execution,
     };
     // Та же тройка RTT/лота, та же модель — на разведочной, подтверждающей и
     // отладке (таск 16, `resolve_fill_model` — общая точка с `lob profiles`).
-    let model = resolve_fill_model(base.median_rtt_ns, base.p95_rtt_ns, base.order_qty_e9)?;
+    let model = resolve_fill_model(
+        base.execution.median_rtt_ns,
+        base.execution.p95_rtt_ns,
+        base.execution.order_qty_e9,
+    )?;
     let summary = run_profiles_with_fill_model(&profiles_args, model.as_ref())?;
     Ok(summary.out)
 }
@@ -976,6 +969,7 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::lob::H3ModeArg;
 
     fn write_instruments_csv(root: &Path, symbols: &[&str]) {
         let mut text =
@@ -1018,8 +1012,10 @@ mod tests {
         ShortlistArgs {
             root: root.to_path_buf(),
             candidates_csv,
-            h3_mode: H3ModeArg::Floor,
-            h3_lots: None,
+            h3: H3Args {
+                h3_mode: H3ModeArg::Floor,
+                h3_lots: None,
+            },
             warmup_ms: 0,
             repeat_window_ms: super::super::DEFAULT_REPEAT_WINDOW_MS,
             allow_unverified: false,
@@ -1029,9 +1025,11 @@ mod tests {
             preregistration: root.join("preregistration.md"),
             freeze_out: root.join("shortlist-frozen.txt"),
             freeze_commit: Some("deadbeef".to_string()),
-            median_rtt_ns: None,
-            p95_rtt_ns: None,
-            order_qty_e9: None,
+            execution: ExecutionArgs {
+                median_rtt_ns: None,
+                p95_rtt_ns: None,
+                order_qty_e9: None,
+            },
         }
     }
 

@@ -261,6 +261,35 @@ impl Feed for LiveFeed {
     }
 }
 
+// -----------------------------------------------------------------------
+// Грепом по образцу `lob/levels.rs::module_stays_detached_from_transport_
+// clocks_and_approx_numbers`: горячий путь не вправе звать часы напрямую,
+// представлять цену или размер числом с плавающей запятой, ни держать
+// книгу в хеш-отображении (таск 17, долг таска 15 — «Из ремонта таска 15»,
+// греп-тест раньше был только у `strategy.rs`/`react.rs`).
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod hot_path_guard {
+    /// `std::time::Duration` (реконнект-бэкофф на ОС-потоке ввода-вывода,
+    /// запрет 3 — не решающий поток) — не запрещён, поэтому банится только
+    /// прямой вызов часов, а не сам модуль `std::time`. Строки собраны из
+    /// частей — иначе литерал триггерил бы эту же проверку сам на себя.
+    #[test]
+    fn module_never_calls_the_wall_clock_or_uses_float_prices_or_hashmaps() {
+        const SRC: &str = include_str!("live.rs");
+        let banned = [
+            concat!("Inst", "ant::now"),
+            concat!("System", "Time::now"),
+            concat!("f", "64"),
+            concat!("Hash", "Map"),
+        ];
+        for b in banned {
+            assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

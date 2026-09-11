@@ -73,12 +73,13 @@ use crate::lob::shortlist::CONFIRM_MIN_N;
 use crate::stats::{count_f64, count_f64_u64, count_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
 use super::backtest::{run_backtest, BacktestArgs};
-use super::levels::{resolve_h3_mode, run_levels, H3ModeArg, LevelsArgs};
+use super::levels::{run_levels, LevelsArgs};
 use super::markout::{run_markout, MarkoutArgs};
 use super::pick::order_size_22a;
 use super::profiles::{run_profiles, ProfilesArgs};
 use super::session::{run_session, SessionArgs};
 use super::{replay_symbol, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED};
+use super::{resolve_h3_mode, ExecutionArgs, H3Args, H3ModeArg};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -381,8 +382,10 @@ pub fn process_instrument(
     let floor_summary = run_levels(&LevelsArgs {
         root: verify_root.to_path_buf(),
         symbol: symbol.to_string(),
-        h3_mode: H3ModeArg::Floor,
-        h3_lots: None,
+        h3: H3Args {
+            h3_mode: H3ModeArg::Floor,
+            h3_lots: None,
+        },
         warmup_ms,
         repeat_window_ms,
         out: Some(verify_root.join(format!("levels-floor-{symbol}.csv"))),
@@ -392,8 +395,10 @@ pub fn process_instrument(
     let percentile_summary = run_levels(&LevelsArgs {
         root: verify_root.to_path_buf(),
         symbol: symbol.to_string(),
-        h3_mode: H3ModeArg::Percentile,
-        h3_lots: Some(floor_h3_lots),
+        h3: H3Args {
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(floor_h3_lots),
+        },
         warmup_ms,
         repeat_window_ms,
         out: Some(verify_root.join(format!("levels-percentile-{symbol}.csv"))),
@@ -408,8 +413,10 @@ pub fn process_instrument(
     run_markout(&MarkoutArgs {
         root: verify_root.to_path_buf(),
         symbol: symbol.to_string(),
-        h3_mode: H3ModeArg::Floor,
-        h3_lots: None,
+        h3: H3Args {
+            h3_mode: H3ModeArg::Floor,
+            h3_lots: None,
+        },
         warmup_ms,
         repeat_window_ms,
         out: Some(verify_root.join(format!("markout-{symbol}.csv"))),
@@ -760,20 +767,16 @@ fn read_probe_rtts(path: &Path) -> Option<Vec<i64>> {
     }
 }
 
-/// Круги `clock.csv` (`bybit/clock.rs`, `lob session`) — колонка
-/// `bybit_rtt_ns` по имени: REST round-trip той же сессии, запасной
-/// источник, когда авторизованный `lob probe` не гонялся (нужны ключи).
-#[derive(Debug, serde::Deserialize)]
-struct ClockRttRow {
-    bybit_rtt_ns: i64,
-}
-
+/// `clock.csv` (`bybit::clock`, `lob session`), колонка `bybit_rtt_ns`:
+/// REST round-trip той же сессии, запасной источник, когда авторизованный
+/// `lob probe` не гонялся (нужны ключи). Фильтр над общим `read_rows`
+/// (таск 17 — не второй парсер того же файла), строки без замера (`None`,
+/// сеть не ответила) отсутствуют в выдаче, а не превращаются в `0`.
 fn read_clock_bybit_rtts(path: &Path) -> Option<Vec<i64>> {
-    let mut r = csv::Reader::from_path(path).ok()?;
-    let vals: Vec<i64> = r
-        .deserialize::<ClockRttRow>()
-        .filter_map(Result::ok)
-        .map(|row| row.bybit_rtt_ns)
+    let rows = crate::bybit::clock::read_rows(path).ok()?;
+    let vals: Vec<i64> = rows
+        .into_iter()
+        .filter_map(|row| row.bybit_rtt_ns)
         .collect();
     if vals.is_empty() {
         None
@@ -849,17 +852,21 @@ fn run_profiles_and_backtest_chain(
     let profiles_result = run_profiles(&ProfilesArgs {
         root: pilot_root.to_path_buf(),
         candidates_csv: candidates_csv.to_path_buf(),
-        h3_mode: H3ModeArg::Floor,
-        h3_lots: None,
+        h3: H3Args {
+            h3_mode: H3ModeArg::Floor,
+            h3_lots: None,
+        },
         warmup_ms,
         repeat_window_ms,
         allow_unverified: true,
         out: Some(profiles_out.clone()),
         now_utc: Some(now.to_string()),
         runs_out: pilot_root.join(DEBUG_CHAIN_RUNS_SENTINEL),
-        median_rtt_ns: None,
-        p95_rtt_ns: None,
-        order_qty_e9: None,
+        execution: ExecutionArgs {
+            median_rtt_ns: None,
+            p95_rtt_ns: None,
+            order_qty_e9: None,
+        },
     });
     match &profiles_result {
         Ok(s) => lines.push(format!(

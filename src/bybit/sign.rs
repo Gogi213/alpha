@@ -115,6 +115,34 @@ impl Credentials {
         mac.update(payload.as_bytes());
         Ok(hex_lower(&mac.finalize().into_bytes()))
     }
+
+    /// Та же подпись v5, без единой аллокации (таск 17, запрет 1 горячего
+    /// пути). Не делегирует `sign` выше: там `format!` склеивает payload в
+    /// одну `String`, а `hex_lower` возвращает `String` — обе аллоцируют, и
+    /// именно от этого зависит `bybit::trade_ws::OrderSigner::sign_into`,
+    /// раз `Credentials` — его боевая реализация (`impl OrderSigner for
+    /// Credentials`, `trade_ws.rs`). Формула та же: HMAC кормится теми же
+    /// четырьмя кусками по отдельности через несколько `update` — порядок
+    /// байт на входе алгоритма от этого не меняется, что и доказывает
+    /// `sign_into_matches_sign_for_the_same_inputs` ниже сверкой с `sign`.
+    pub fn sign_into(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+        out: &mut [u8; 64],
+    ) -> Result<(), CredentialsError> {
+        let mut mac = HmacSha256::new_from_slice(self.api_secret.as_bytes())
+            .map_err(|_| CredentialsError::MacUnusable)?;
+        let mut ts_buf = [0u8; 20];
+        mac.update(write_i64(timestamp_ms, &mut ts_buf));
+        mac.update(self.api_key.as_bytes());
+        let mut rw_buf = [0u8; 10];
+        mac.update(write_u32(recv_window_ms, &mut rw_buf));
+        mac.update(body.as_bytes());
+        hex_lower_into(&mac.finalize().into_bytes(), out);
+        Ok(())
+    }
 }
 
 fn read_var(name: &'static str) -> Result<String, CredentialsError> {
@@ -124,21 +152,77 @@ fn read_var(name: &'static str) -> Result<String, CredentialsError> {
     }
 }
 
+// Ветвлением вместо таблицы: ниббл всегда < 16 по построению масок
+// вызывающего (`b >> 4`, `b & 0x0f`), total без индексации и без паники.
+fn nibble(n: u8) -> u8 {
+    if n < 10 {
+        b'0' + n
+    } else {
+        b'a' + (n - 10)
+    }
+}
+
 /// Ручной hex вместо отдельного крейта: одно место использования на 32
 /// байта — заводить ради него ещё одну зависимость дороже, чем эти десять
 /// строк, а `Cargo.toml` в этом проходе не наш файл.
 fn hex_lower(bytes: &[u8]) -> String {
-    // Ветвлением вместо таблицы: ниббл всегда < 16 по построению масок
-    // вызывающего (`b >> 4`, `b & 0x0f`), total без индексации и без паники.
-    fn nibble(n: u8) -> char {
-        (if n < 10 { b'0' + n } else { b'a' + (n - 10) }) as char
-    }
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        out.push(nibble(b >> 4));
-        out.push(nibble(b & 0x0f));
+        out.push(nibble(b >> 4) as char);
+        out.push(nibble(b & 0x0f) as char);
     }
     out
+}
+
+/// `hex_lower` в предвыделенный буфер вместо `String` — единственная
+/// разница с ним; `out.len() == bytes.len() * 2` для HMAC-SHA256 (32 байта
+/// дайджеста → 64 hex-символа) гарантирует вызывающий типом `[u8; 64]`.
+fn hex_lower_into(bytes: &[u8], out: &mut [u8; 64]) {
+    debug_assert_eq!(bytes.len() * 2, out.len(), "дайджест не 32 байта");
+    for (i, b) in bytes.iter().enumerate() {
+        out[i * 2] = nibble(b >> 4);
+        out[i * 2 + 1] = nibble(b & 0x0f);
+    }
+}
+
+/// Десятичные ASCII-цифры `value` в `buf`, без аллокации; знак — только для
+/// отрицательных (сюда не должны прилетать, но тип `timestamp_ms` — `i64`,
+/// а не `u64`, и функция обязана быть тотальной, не паникующей на границе).
+/// `i64::MIN..=i64::MAX` умещается в 20 байт буфера (19 цифр + знак).
+fn write_i64(value: i64, buf: &mut [u8; 20]) -> &[u8] {
+    if value == 0 {
+        buf[0] = b'0';
+        return &buf[..1];
+    }
+    let neg = value < 0;
+    let mut n = value.unsigned_abs();
+    let mut i = buf.len();
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    if neg {
+        i -= 1;
+        buf[i] = b'-';
+    }
+    &buf[i..]
+}
+
+/// Тот же приём для `recv_window_ms: u32` (10 цифр хватает на `u32::MAX`).
+fn write_u32(value: u32, buf: &mut [u8; 10]) -> &[u8] {
+    if value == 0 {
+        buf[0] = b'0';
+        return &buf[..1];
+    }
+    let mut n = value;
+    let mut i = buf.len();
+    while n > 0 {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    &buf[i..]
 }
 
 /// Синхронизация тестов, трогающих `BYBIT_API_KEY`/`BYBIT_API_SECRET`:
@@ -299,6 +383,87 @@ mod tests {
             std::env::set_var(API_SECRET_VAR, "secret");
             let creds = Credentials::from_env().unwrap();
             assert_eq!(creds.api_key(), "key");
+        });
+    }
+
+    /// `sign_into` не имеет права разойтись с `sign` — доказывается сверкой
+    /// на нескольких входах, включая отрицательный `timestamp_ms` (тип
+    /// допускает, `write_i64` обязан отдать знак) и `recv_window_ms = 0`
+    /// (короткий путь в `write_u32`), а не только "круглые" значения из
+    /// `signature_matches_bybit_v5_formula_known_answer`.
+    #[test]
+    fn sign_into_matches_sign_for_the_same_inputs() {
+        let cases: &[(i64, u32, &str, &str, &str)] = &[
+            (
+                1_658_385_579_423,
+                5000,
+                r#"{"category":"option"}"#,
+                "XXXXXXXXXX",
+                "XXXXXXXXXX",
+            ),
+            (1, 5000, "{}", "k", "s"),
+            (0, 0, "", "k2", "s2"),
+            (-42, 100, r#"{"x":1}"#, "key", "secret"),
+        ];
+        for (ts, rw, body, key, secret) in cases {
+            let creds = Credentials::for_test(key, secret);
+            let want = creds.sign(*ts, *rw, body).unwrap();
+            let mut got = [0u8; 64];
+            creds.sign_into(*ts, *rw, body, &mut got).unwrap();
+            assert_eq!(
+                std::str::from_utf8(&got).unwrap(),
+                want,
+                "sign_into разошёлся с sign на {ts}/{rw}/{body:?}"
+            );
+        }
+    }
+
+    /// Гейт GC / запрет 1 горячего пути: `Credentials::sign_into` — боевая
+    /// реализация `OrderSigner::sign_into` (`bybit/trade_ws.rs`), и до этого
+    /// таска аллокация была доказана нулевой только для тестового фейка
+    /// (`interfaces.md`, «Из ремонта таска 15», «реальный `Credentials::
+    /// sign_into` делегирует старому `sign()`… буферный HMAC в `sign.rs` —
+    /// таск 14»). Ключи — тестовые значения переменных окружения, выставленные
+    /// внутри теста под `ENV_LOCK` (`with_cleared_env`), а не то, что стоит в
+    /// окружении настоящего прогона: тест не вправе зависеть ни от реальных
+    /// ключей трейдера, ни от их отсутствия.
+    #[test]
+    fn credentials_sign_into_allocates_nothing_after_warmup() {
+        with_cleared_env(|| {
+            std::env::set_var(API_KEY_VAR, "test-key-for-alloc-count");
+            std::env::set_var(API_SECRET_VAR, "test-secret-for-alloc-count");
+            let creds = Credentials::from_env().unwrap();
+            let mut out = [0u8; 64];
+
+            // Прогрев — первый вызов годится на любые ленивые инициализации.
+            creds
+                .sign_into(
+                    1_700_000_000_000,
+                    5000,
+                    r#"{"category":"linear"}"#,
+                    &mut out,
+                )
+                .unwrap();
+
+            const MEASURED: i64 = 1_000_000;
+            let mut total_allocations = 0u64;
+            for i in 0..MEASURED {
+                let (_, counts) = crate::alloc_count::measure(|| {
+                    creds
+                        .sign_into(
+                            1_700_000_000_000 + i,
+                            5000,
+                            r#"{"category":"linear"}"#,
+                            &mut out,
+                        )
+                        .unwrap()
+                });
+                total_allocations += counts.allocations;
+            }
+            assert_eq!(
+                total_allocations, 0,
+                "sign_into реального Credentials аллоцировал после прогрева"
+            );
         });
     }
 }

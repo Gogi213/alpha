@@ -17,18 +17,21 @@
 //! себя: кто и когда продвигает часы стороны — решает вызывающий (тест ниже
 //! и, в фазе 2, реальный live-цикл), а не эта функция.
 //!
-//! `best_prices` ниже — небольшая копия одноимённого приватного хелпера
-//! `lob::backtest` (шесть строк: две проверки `INVALID_MIN`/`INVALID_MAX`),
-//! а не импорт: там он не публичный, а вынесение его наружу — правка чужого
-//! файла (`backtest.rs`, зона таска 11), не разрешённая этим тикетом.
+//! `best_prices` ниже — единственная реализация в `src/` (находка ревью,
+//! таск 17): `lob::backtest` больше не держит одноимённый приватный хелпер
+//! (снесён при переработке движка на очередь), так что копировать здесь
+//! нечего — оставлена своя, потому что вызывающему (`on_event`) нужна ровно
+//! эта проверка `INVALID_MIN`/`INVALID_MAX` перед тем же `entry_price`/
+//! `exit_price` из `lob::backtest`.
 
 use hftbacktest::depth::{MarketDepth, INVALID_MAX, INVALID_MIN};
 use hftbacktest::types::{Bot, OrdType, Side as HbtSide, TimeInForce};
 
 use crate::lob::backtest::{entry_price, entry_side, exit_price, ENTRY_TTL_NS, HOLD_NS};
 
-/// Копия `backtest::best_prices` (приватна там же, см. doc модуля выше):
-/// лучшие цены стороны как `(bid, ask)`, `None` — книга неполна.
+/// Лучшие цены стороны как `(bid, ask)`, `None` — книга неполна
+/// (`best_bid_tick`/`best_ask_tick` ещё на `INVALID_MIN`/`INVALID_MAX`,
+/// до первого снапшота).
 fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
     if depth.best_bid_tick() == INVALID_MIN || depth.best_ask_tick() == INVALID_MAX {
         return None;
@@ -275,10 +278,26 @@ mod hot_path_guard {
     /// проверяет себя (`levels.rs::module_stays_detached_from_transport_
     /// clocks_and_approx_numbers`). Строки собраны из частей — иначе
     /// литерал триггерил бы проверку сам на себя.
+    ///
+    /// Запрет 7 (книга — не хеш-отображение) добавлен таском 17 через два
+    /// токена, не через голое имя типа: голое имя ловило бы легитимный
+    /// `HashMapMarketDepth` — синтетическую книгу крейта `hftbacktest`,
+    /// которой `mod tests` ниже кормит `Backtest` в шве 6 (`ARCHITECTURE.md`,
+    /// `interfaces.md` «Швы для тестов»). Запрет 6 (цена/размер не числом с
+    /// плавающей запятой) сюда сознательно не включён: `MarketDepth` крейта
+    /// `hftbacktest` сама отдаёт `best_bid`/`best_ask` этим типом — это
+    /// граница A9 («стратегия та же в `Backtest` и в `LiveBot`»), а не наше
+    /// изобретённое число; запрет целится в собственное хранение цены/лота
+    /// этого крейта, которого здесь нет.
     #[test]
-    fn module_never_calls_the_wall_clock_directly() {
+    fn module_never_calls_the_wall_clock_or_uses_a_hashmap_for_the_book() {
         const SRC: &str = include_str!("strategy.rs");
-        let banned = [concat!("Inst", "ant::now"), concat!("System", "Time::now")];
+        let banned = [
+            concat!("Inst", "ant::now"),
+            concat!("System", "Time::now"),
+            concat!("Hash", "Map<"),
+            concat!("Hash", "Map::"),
+        ];
         for b in banned {
             assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
         }

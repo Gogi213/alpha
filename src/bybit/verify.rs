@@ -543,7 +543,7 @@ fn is_snapshot_ev(ev: u64) -> bool {
     ev == LOCAL_BID_DEPTH_SNAPSHOT_EVENT || ev == LOCAL_ASK_DEPTH_SNAPSHOT_EVENT
 }
 
-fn is_trade_ev(ev: u64) -> bool {
+pub(crate) fn is_trade_ev(ev: u64) -> bool {
     ev == LOCAL_BUY_TRADE_EVENT || ev == LOCAL_SELL_TRADE_EVENT
 }
 

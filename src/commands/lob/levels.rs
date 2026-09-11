@@ -1,111 +1,24 @@
 //! `lob levels` — CLI-обёртка разметки уровней (шаги 1.1, 1.2). Сам трекер —
 //! `crate::lob::levels`; реплей суточных файлов в него — общий с `markout`,
 //! `watch`, `pilot` код `super::replay_symbol` (мод. `mod.rs`). Режим `H3`
-//! (план D-H3, таск 02) собран здесь: `H3ModeArg`, разбор `instruments.csv`
-//! для `floor` и `resolve_h3_mode` — `markout`/`pilot`/`watch` переиспользуют
-//! их через `super::levels`, чтобы не дублировать чтение файла трижды.
+//! (план D-H3, таск 02) — `H3ModeArg`/`resolve_h3_mode`/`h3_lots_for_symbol`
+//! — переехал в `super` (`mod.rs`, таск 17 — общий код нескольких подкоманд
+//! не может лежать в файле одной из них); эта команда просто зовёт его.
+//!
+//! # `debug` в шапке ниже пяти минут
+//! Прогон короче окна `repeat_count` метит первую строку CSV предупреждением
+//! — критерий приёмки таска 02 (`short_run_marks_csv_header_with_debug_warning`).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Args;
 
-use crate::commands::record::instruments_csv_path;
-use crate::lob::levels::{H3Mode, LevelsConfig};
+use crate::lob::levels::LevelsConfig;
 
 use super::{
-    death_name, outcome_name, replay_symbol, side_name, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
+    death_name, outcome_name, replay_symbol, resolve_h3_mode, side_name, H3Args,
+    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
-
-// ---------------------------------------------------------------------------
-// Режим `H3`: флаг без умолчания (план D-H3) + чтение пола `floor` из
-// `instruments.csv`. Общее для `levels`, `markout`, `pilot`, `watch`.
-// ---------------------------------------------------------------------------
-
-/// Режим порога `H3`, флагом CLI. Явный выбор — умолчания нет: какой режим
-/// входит в предрегистрацию, решает двухчасовой пилот, не эта команда.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum H3ModeArg {
-    /// Пол в лотах из `instruments.csv`, без прогрева — режим отладки.
-    Floor,
-    /// 99-й перцентиль по скользящему часу, прогрев 60 мин — прежнее
-    /// определение; порог измерен заранее и приходит через `--h3-lots`.
-    Percentile,
-}
-
-/// Строка `instruments.csv`, нужная режиму `floor`: символ и колонка
-/// `h3_lots` (пишет отдельный шаг сборки пула, план D-H3). `h3_lots` читается
-/// строкой — у большинства символов колонка сейчас пуста, парсинг в целое
-/// откладывается до найденной строки нужного символа.
-#[derive(Debug, serde::Deserialize)]
-struct H3FloorRow {
-    symbol: String,
-    h3_lots: String,
-}
-
-/// Пол `H3` символа из `instruments.csv`: нет файла, нет колонки, нет
-/// символа или значение не положительное — понятная ошибка с ненулевым
-/// кодом выхода, а не молчаливый ноль (критерий приёмки таска 02).
-fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i64> {
-    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
-    // ось Craft) — терпит метку `debug` первой строкой, голый
-    // `csv::Reader::from_path` читал бы её как заголовок вместо настоящего.
-    let mut r = super::pick::instruments_csv_reader(instruments_csv).map_err(|e| {
-        anyhow::anyhow!(
-            "{}: {e} — режиму floor нужен instruments.csv с колонкой h3_lots \
-             (пишет отдельный шаг сборки пула)",
-            instruments_csv.display()
-        )
-    })?;
-    let headers = r.headers()?.clone();
-    anyhow::ensure!(
-        headers.iter().any(|h| h == "h3_lots"),
-        "{}: нет колонки h3_lots (пишет отдельный шаг сборки пула)",
-        instruments_csv.display()
-    );
-    for row in r.deserialize::<H3FloorRow>() {
-        let row = row?;
-        if row.symbol != symbol {
-            continue;
-        }
-        let raw = row.h3_lots.trim();
-        let v: i64 = raw
-            .parse()
-            .map_err(|_| anyhow::anyhow!("{symbol}: h3_lots {raw:?} в instruments.csv не целое"))?;
-        anyhow::ensure!(
-            v > 0,
-            "{symbol}: h3_lots обязан быть положителен, получено {v}"
-        );
-        return Ok(v);
-    }
-    anyhow::bail!(
-        "{symbol}: нет строки в {} (режим floor)",
-        instruments_csv.display()
-    );
-}
-
-/// Режим `H3` из флага: `floor` читает пол из `instruments.csv` корня
-/// записи, `percentile` берёт заранее измеренный порог из `--h3-lots`
-/// (обязателен в этом режиме — измерение вне этой команды).
-pub fn resolve_h3_mode(
-    root: &Path,
-    symbol: &str,
-    mode: H3ModeArg,
-    h3_lots: Option<i64>,
-) -> anyhow::Result<H3Mode> {
-    match mode {
-        H3ModeArg::Floor => Ok(H3Mode::Floor {
-            h3_lots: h3_lots_for_symbol(&instruments_csv_path(root), symbol)?,
-        }),
-        H3ModeArg::Percentile => {
-            let h3_lots = h3_lots.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "--h3-lots обязателен в режиме percentile: порог измеряется заранее"
-                )
-            })?;
-            Ok(H3Mode::Percentile { h3_lots })
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // `lob levels` (шаги 1.1, 1.2).
@@ -122,14 +35,9 @@ pub struct LevelsArgs {
     /// Символ, например `SOLUSDT`.
     #[arg(long)]
     pub symbol: String,
-    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3).
-    #[arg(long)]
-    pub h3_mode: H3ModeArg,
-    /// Порог рождения H3 в лотах: только режим `percentile` — заранее
-    /// измеренный 99-й перцентиль. `floor` берёт число из `instruments.csv`
-    /// и этот флаг игнорирует.
-    #[arg(long)]
-    pub h3_lots: Option<i64>,
+    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
+    #[command(flatten)]
+    pub h3: H3Args,
     /// Прогрев в мс: только режим `percentile`; `floor` не читает.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -165,7 +73,7 @@ fn day_span_ms(day: &super::ReplayDay) -> i64 {
 /// CSV: `repeat_count` в таких сутках занижен, данными это не является
 /// (критерий приёмки таска 02).
 pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
-    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3.h3_mode, args.h3.h3_lots)?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
@@ -250,13 +158,17 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::lob::H3ModeArg;
+    use crate::commands::record::instruments_csv_path;
 
     fn levels_args(root: &std::path::Path) -> LevelsArgs {
         LevelsArgs {
             root: root.to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -338,8 +250,8 @@ mod tests {
         );
         write_instruments_csv_with_h3_lots(dir.path(), "SOLUSDT", 5);
         let mut args = levels_args(dir.path());
-        args.h3_mode = H3ModeArg::Floor;
-        args.h3_lots = None;
+        args.h3.h3_mode = H3ModeArg::Floor;
+        args.h3.h3_lots = None;
         let summary = run_levels(&args).unwrap();
         assert_eq!(
             summary.levels, 4,
@@ -360,8 +272,8 @@ mod tests {
             &super::super::test_support::three_level_frames(),
         );
         let mut args = levels_args(dir.path());
-        args.h3_mode = H3ModeArg::Floor;
-        args.h3_lots = None;
+        args.h3.h3_mode = H3ModeArg::Floor;
+        args.h3.h3_lots = None;
         let err = run_levels(&args).unwrap_err();
         assert!(
             err.to_string().contains("h3_lots") || err.to_string().contains("instruments.csv"),
@@ -386,8 +298,8 @@ mod tests {
         )
         .unwrap();
         let mut args = levels_args(dir.path());
-        args.h3_mode = H3ModeArg::Floor;
-        args.h3_lots = None;
+        args.h3.h3_mode = H3ModeArg::Floor;
+        args.h3.h3_lots = None;
         let err = run_levels(&args).unwrap_err();
         assert!(
             err.to_string().contains("h3_lots"),
@@ -407,7 +319,7 @@ mod tests {
             &super::super::test_support::three_level_frames(),
         );
         let mut args = levels_args(dir.path());
-        args.h3_lots = None;
+        args.h3.h3_lots = None;
         let err = run_levels(&args).unwrap_err();
         assert!(
             err.to_string().contains("h3-lots") || err.to_string().contains("percentile"),

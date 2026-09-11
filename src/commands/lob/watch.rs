@@ -41,16 +41,15 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
-use crate::binlog::{Reader, Record};
+use crate::binlog::Reader;
 use crate::book::{Book, Side};
 use crate::bybit::verify::FileReplayer;
-use crate::lob::levels::{LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome, TradeHit};
+use crate::lob::levels::{LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome};
 use crate::lob::shortlist::{repeat_bucket, REPEAT_LABELS};
 use crate::lob::watch::{session_progress_csv_path, SessionTally, WatchSample};
-use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
-use super::levels::{resolve_h3_mode, H3ModeArg};
-use super::{DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
+use super::{resolve_h3_mode, H3Args};
+use super::{trade_hit_from_record, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 // ---------------------------------------------------------------------------
 // `lob watch` (таск 07): счётчик n/G на сессиях для одного профиля.
@@ -71,14 +70,10 @@ pub struct WatchArgs {
     /// Идентификатор вердиктного профиля (см. doc модуля).
     #[arg(long)]
     pub profile: String,
-    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3,
+    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд,
     /// тот же выбор, что у `levels`).
-    #[arg(long)]
-    pub h3_mode: H3ModeArg,
-    /// Порог рождения H3 в лотах: только режим `percentile`; `floor` берёт
-    /// число из `instruments.csv` в корне.
-    #[arg(long)]
-    pub h3_lots: Option<i64>,
+    #[command(flatten)]
+    pub h3: H3Args,
     /// Прогрев в мс, на сессию (каждая сессия реплеится с чистого трекера —
     /// между сессиями реальный разрыв записи, продолжать окно повторов
     /// через него бессмысленно).
@@ -92,14 +87,13 @@ pub struct WatchArgs {
     pub now_utc: Option<String>,
 }
 
-/// Итог `lob watch` для печати диспетчером (`commands/lob/mod.rs::dispatch`,
-/// вне зоны таска 07 — поля названы `n_c2`/`g_c2` по историческим причинам:
-/// печать в `dispatch` их называет так и таск 07 её не трогает; значения —
-/// `n`/`G` текущего профиля, не C1/C2 отменённого дизайна).
+/// Итог `lob watch` для печати диспетчером (`commands/lob/mod.rs::dispatch`).
+/// `n`/`g` — счётчик текущего вердиктного профиля (`WatchSample`), не ячеек
+/// C1/C2 отменённого дизайна (таск 17 переименовал поля вслед за сносом).
 pub struct WatchSummary {
     pub days: usize,
-    pub n_c2: u64,
-    pub g_c2: u64,
+    pub n: u64,
+    pub g: u64,
     /// Сутки выборки через запятую, если флаг выставлен этим прогоном.
     pub flag: Option<String>,
     pub progress: PathBuf,
@@ -210,19 +204,6 @@ fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
-    if rec.ev != LOCAL_BUY_TRADE_EVENT && rec.ev != LOCAL_SELL_TRADE_EVENT {
-        return None;
-    }
-    Some(TradeHit {
-        tick: rec.price_ticks,
-        lots: rec.qty_lots,
-        aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
-        block: rec.ival != 0,
-        exch_ms: rec.exch_ts_ns / 1_000_000,
-    })
-}
-
 fn feed_session_frame(
     book: &Book,
     tracker: &mut LevelTracker,
@@ -308,7 +289,7 @@ fn replay_session_binlog(path: &Path, cfg: LevelsConfig) -> anyhow::Result<Vec<L
 /// считается ни в каком виде.
 pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
     let profile = ProfileMatcher::parse(&args.profile, &args.symbol)?;
-    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3.h3_mode, args.h3.h3_lots)?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
@@ -357,8 +338,8 @@ pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
     }
     Ok(WatchSummary {
         days: sample.days_len(),
-        n_c2: sample.n_total(),
-        g_c2: sample.g() as u64,
+        n: sample.n_total(),
+        g: sample.g() as u64,
         flag,
         progress: session_progress_csv_path(&args.root, &args.symbol, &args.profile),
     })
@@ -367,7 +348,8 @@ pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::binlog::{Header, Writer};
+    use crate::binlog::{Header, Record, Writer};
+    use crate::commands::lob::H3ModeArg;
 
     fn write_session_dir(
         root: &Path,
@@ -448,8 +430,10 @@ mod tests {
             root: root.to_path_buf(),
             symbol: "SOLUSDT".to_string(),
             profile: "marginal:outcome=pulled".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(1),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(1),
+            },
             warmup_ms: 0,
             repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
             now_utc: Some("2026-06-01T00:00:00Z".to_string()),
@@ -457,10 +441,10 @@ mod tests {
         let summary = run_watch(&args).expect("прогон watch");
         assert_eq!(summary.days, 8, "восемь суток, включая негодные");
         assert_eq!(
-            summary.n_c2, 14,
+            summary.n, 14,
             "по два pulled на каждую из семи годных сессий"
         );
-        assert_eq!(summary.g_c2, 7);
+        assert_eq!(summary.g, 7);
         assert!(
             summary.flag.is_none(),
             "n=14 не достигает CONFIRM_MIN_N=100 — не готово"
@@ -544,8 +528,10 @@ mod tests {
             root: root.to_path_buf(),
             symbol: "NEARUSDT".to_string(),
             profile: "marginal:side=bid".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(1),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(1),
+            },
             warmup_ms: 0,
             repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
             now_utc: Some("2026-06-01T00:00:00Z".to_string()),
@@ -554,6 +540,6 @@ mod tests {
         // NEARUSDT.binlog, значит суток вовсе нет, а не ошибка.
         let summary = run_watch(&args).expect("прогон watch без сессий символа — не ошибка");
         assert_eq!(summary.days, 0);
-        assert_eq!(summary.n_c2, 0);
+        assert_eq!(summary.n, 0);
     }
 }

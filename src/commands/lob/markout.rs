@@ -14,11 +14,11 @@ use crate::lob::watch::{
     ready_flag_path, require_ready_flag, require_session_ready_flag, session_ready_flag_path,
 };
 
-use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{
     day_tallies, outcome_name, replay_symbol, side_name, some_or_empty, ReplayDay,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
+use super::{resolve_h3_mode, H3Args};
 
 // ---------------------------------------------------------------------------
 // `lob markout` (шаг 2.1, Decision 14).
@@ -36,14 +36,10 @@ pub struct MarkoutArgs {
     /// Символ, например `SOLUSDT`.
     #[arg(long)]
     pub symbol: String,
-    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3,
+    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд,
     /// тот же выбор, что у `levels`).
-    #[arg(long)]
-    pub h3_mode: H3ModeArg,
-    /// Порог рождения H3 в лотах: только режим `percentile` (тот же смысл,
-    /// что у `levels`); `floor` берёт число из `instruments.csv`.
-    #[arg(long)]
-    pub h3_lots: Option<i64>,
+    #[command(flatten)]
+    pub h3: H3Args,
     /// Прогрев в мс.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -160,7 +156,7 @@ fn horizon_line(per_horizon: &[Vec<f64>; 4]) -> String {
 
 /// Разведочный markout: все сутки корня, флаг не требуется и не читается.
 fn run_markout_exploratory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
-    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3.h3_mode, args.h3.h3_lots)?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
@@ -212,17 +208,21 @@ fn run_markout_confirmatory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary
     // Дальше — старый флаг, до всякого markout: без него — отказ, а не
     // пустая выборка (тот же порядок, что `markup::run_confirmatory`).
     let flag = require_ready_flag(&flag_path).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let median = args.median_lifetime_ms.ok_or_else(|| {
+    // `--median-lifetime-ms` остаётся обязательным флагом (поведение команды
+    // не меняется), но само число больше не нужно ни одному вычислению:
+    // таск 17 снял счёт по ячейкам исхода-и-истории, для которого эта медиана
+    // и заводилась (Decision 16 — снятое). `_` спереди — не забытая проводка.
+    let _median = args.median_lifetime_ms.ok_or_else(|| {
         anyhow::anyhow!("--confirmatory требует --median-lifetime-ms (Decision 16)")
     })?;
-    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3.h3_mode, args.h3.h3_lots)?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
     let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
-    let tallies = day_tallies(&args.root, &args.symbol, &replay.days, median)?;
+    let tallies = day_tallies(&args.root, &args.symbol, &replay.days)?;
     let mut cdays: Vec<ConfirmatoryDay<'_>> = Vec::new();
     for want in &flag.days {
         let day = replay
@@ -272,6 +272,7 @@ pub fn run_markout(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::lob::H3ModeArg;
 
     #[test]
     fn markout_fixture_writes_four_horizons() {
@@ -290,8 +291,10 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -333,8 +336,10 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -380,7 +385,7 @@ mod tests {
             &dir.path().join("ready.flag"),
             &crate::lob::watch::ReadyFlag {
                 symbol: "SOLUSDT".to_string(),
-                n_c2: 100,
+                n: 100,
                 g: 1,
                 ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
                 days: vec!["2026-09-08".to_string()],
@@ -390,8 +395,10 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -477,7 +484,7 @@ mod tests {
             &dir.path().join("ready.flag"),
             &crate::lob::watch::ReadyFlag {
                 symbol: "SOLUSDT".to_string(),
-                n_c2: 100,
+                n: 100,
                 g: 1,
                 ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
                 days: vec!["2026-09-08".to_string()],
@@ -506,8 +513,10 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -538,8 +547,10 @@ mod tests {
         let args_ok = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_mode: H3ModeArg::Percentile,
-            h3_lots: Some(5),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(5),
+            },
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,

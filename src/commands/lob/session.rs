@@ -24,6 +24,14 @@ use crate::commands::record::{
 use crate::feed::live::{LiveFeed, PoolMember};
 use crate::feed::{Event, Feed};
 
+/// Граница `--minutes` — брифу владельца дословно: «данные набираются
+/// короткими сессиями — от пяти до пятнадцати минут по всему пулу
+/// одновременно» (история 7, `R38`, `docs/plan/BUSINESS-TASK.md`). Не
+/// умолчание и не изобретённое число этого файла — предел приходит из
+/// текста задачи, не из кода.
+pub const MIN_MINUTES: u64 = 5;
+pub const MAX_MINUTES: u64 = 15;
+
 /// Аргументы `lob session`. Ни у `minutes`, ни у путей нет правдоподобного
 /// умолчания (правило 1 `interfaces.md`: параметр без умолчания лучше
 /// изобретённого) — пул и место записи владелец называет каждый раз.
@@ -37,8 +45,9 @@ pub struct SessionArgs {
     /// `gaps.csv`, `clock.csv`, запись о сессии.
     #[arg(long)]
     pub root: PathBuf,
-    /// Длина сессии. Диапазон 5..15 — решение владельца (история 7), не
-    /// умолчание этого файла.
+    /// Длина сессии. Диапазон `MIN_MINUTES..=MAX_MINUTES` — решение
+    /// владельца (история 7), не умолчание этого файла; `run_session`
+    /// отклоняет значения вне него до всякой сети.
     #[arg(long)]
     pub minutes: u64,
     /// REST-хост Bybit v5 для одного замера `serverTime` в `clock.csv`.
@@ -133,6 +142,24 @@ pub struct SessionSummary {
     /// изобретённое значение (правило 1 `interfaces.md`), печатать нечего.
     pub parse_p99_ns: Option<i64>,
     pub out: PathBuf,
+    /// `true`, пока `--minutes` держится в отладочной фазе (`< 3600` с —
+    /// час, тот же порог, что `commands::lob::DEFAULT_REPEAT_WINDOW_MS`
+    /// (3 600 000 мс) уже называет окном повторов, не второе изобретённое
+    /// число). Сегодня `MAX_MINUTES = 15` не даёт `duration_s` дорасти до
+    /// часа — поле всегда `true` на этой границе; `false` существует на
+    /// случай, если владелец поднимет потолок для боевого сбора (`CLAUDE.md`:
+    /// «любой тестовый прогон — не дольше 5 минут (фаза отладки, результат —
+    /// не данные)»).
+    pub debug: bool,
+}
+
+/// Отладочная сессия — короче часа. Чистая функция от `duration_s`, а не
+/// прямая проверка `args.minutes < 60` внутри `run_session`: так у неё есть
+/// собственный тест на обе ветки (`< 3600` и `>= 3600`), даже пока
+/// `MAX_MINUTES = 15` не даёт второй ветке случиться через CLI.
+fn is_debug_session(duration_s: u64) -> bool {
+    const HOUR_S: u64 = 3600;
+    duration_s < HOUR_S
 }
 
 /// Дописывает один часовой замер в `clock.csv` — best-effort: сеть (NTP,
@@ -171,6 +198,13 @@ fn hour_utc_of_ns(ts_ns: i64) -> u32 {
 }
 
 pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
+    if args.minutes < MIN_MINUTES || args.minutes > MAX_MINUTES {
+        anyhow::bail!(
+            "--minutes обязан быть в {MIN_MINUTES}..={MAX_MINUTES} (история 7, R38: «от пяти \
+             до пятнадцати минут»): получено {}",
+            args.minutes
+        );
+    }
     std::fs::create_dir_all(&args.root)?;
     let pool = load_pool(&args.pool_instruments)?;
     // GC на десяти сразу: CPU, RSS раз в 30 с (критерий приёмки таска 04,
@@ -288,16 +322,18 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         );
     }
 
+    let duration_s = args.minutes.saturating_mul(60);
     let summary = SessionSummary {
         started_utc,
         start_hour_utc,
-        duration_s: args.minutes.saturating_mul(60),
+        duration_s,
         instruments: states.iter().map(|s| s.member.symbol.clone()).collect(),
         records_total,
         gaps,
         clock_samples,
         parse_p99_ns,
         out: args.root.clone(),
+        debug: is_debug_session(duration_s),
     };
     let record_path = args.root.join("session.json");
     std::fs::write(&record_path, serde_json::to_string_pretty(&summary)?)?;
@@ -623,5 +659,62 @@ mod tests {
             measured_allocations, 0,
             "write_market_event обязана не аллоцировать после прогрева на 10^6 событий"
         );
+    }
+
+    fn args_with_minutes(minutes: u64) -> SessionArgs {
+        SessionArgs {
+            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            root: PathBuf::from("does/not/exist/root"),
+            minutes,
+            base_url: BYBIT_MAINNET_URL.to_string(),
+            ntp_addr: "pool.ntp.org:123".to_string(),
+        }
+    }
+
+    /// История 7 / R38 дословно: «от пяти до пятнадцати минут». Значение вне
+    /// `MIN_MINUTES..=MAX_MINUTES` обязано провалиться на самой первой строке
+    /// `run_session` — до `create_dir_all`/`load_pool` — иначе сообщение об
+    /// ошибке пришло бы от отсутствующего `instruments.csv`, а не от границы
+    /// `--minutes`, и звало бы сеть/диск раньше проверки диапазона.
+    #[test]
+    fn run_session_rejects_minutes_outside_five_to_fifteen_before_touching_disk() {
+        for bad in [0, MIN_MINUTES - 1, MAX_MINUTES + 1, 60] {
+            let err =
+                run_session(&args_with_minutes(bad)).expect_err("вне 5..=15 обязана быть ошибка");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("--minutes") && msg.contains(&bad.to_string()),
+                "сообщение обязано называть флаг и полученное значение {bad}: {msg}"
+            );
+        }
+    }
+
+    /// Граничные значения (5 и 15) обязаны пройти проверку диапазона и
+    /// провалиться дальше, на отсутствующем `instruments.csv` — не на
+    /// сообщении про `--minutes`. Так тест ловит и «отклоняет legit
+    /// значения», и «ошибка не о границе» одним прогоном.
+    #[test]
+    fn run_session_accepts_boundary_minutes_and_proceeds_past_validation() {
+        for ok in [MIN_MINUTES, MAX_MINUTES] {
+            let err = run_session(&args_with_minutes(ok)).expect_err("несуществующий пул — ошибка");
+            let msg = err.to_string();
+            assert!(
+                !msg.contains("--minutes"),
+                "{ok} — валидная граница, ошибка обязана быть не про --minutes: {msg}"
+            );
+        }
+    }
+
+    /// `session.json.debug` — чистая функция от длительности (таск 17,
+    /// пункт 5б): `true`, пока сессия короче часа (`CLAUDE.md`: тестовый
+    /// прогон — фаза отладки, результат не данные), `false` начиная ровно с
+    /// часа. `MAX_MINUTES = 15` не даёт этой ветке случиться через сегодняшний
+    /// CLI — тест бьёт по самой функции, не по `run_session`.
+    #[test]
+    fn is_debug_session_true_under_an_hour_false_at_and_past_it() {
+        assert!(is_debug_session(0));
+        assert!(is_debug_session(3_599));
+        assert!(!is_debug_session(3_600));
+        assert!(!is_debug_session(3_601));
     }
 }

@@ -468,9 +468,6 @@ mod tests {
         DayTally {
             symbol: symbol.to_string(),
             day_utc: day.to_string(),
-            n_c1: 1,
-            n_c2: 1,
-            has_gap_over_6h: false,
             verify_test1_violations: 0,
             verify_basis_points: 50_000,
         }
@@ -480,7 +477,7 @@ mod tests {
         let path = dir.join("ready.flag");
         let flag = ReadyFlag {
             symbol: symbol.to_string(),
-            n_c2: 100,
+            n: 100,
             g: days.len() as u64,
             ready_at_utc: "2026-01-01T00:00:00Z".to_string(),
             days: days.iter().map(|s| s.to_string()).collect(),

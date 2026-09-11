@@ -803,10 +803,23 @@ pub fn format_report(rep: &ReactReport) -> String {
 
 #[cfg(test)]
 mod hot_path_guard {
+    /// Запрет 7 добавлен таском 17 через `<`/`::`, не голым именем типа —
+    /// тот же приём, что `strategy.rs` (см. его докстроку), на случай если
+    /// сюда однажды прирастёт синтетическая книга крейта `hftbacktest` по
+    /// имени `HashMapMarketDepth`; сегодня файл вообще не упоминает
+    /// хеш-отображения, но проверка не должна зависеть от этого совпадения.
+    /// Запрет 6 сюда не включён по той же причине, что у `strategy.rs`:
+    /// `f64` здесь — доля времени горизонта (`UNREACHABLE_THRESHOLD`), не
+    /// цена и не размер.
     #[test]
-    fn module_never_calls_the_wall_clock_directly_in_the_measured_loop() {
+    fn module_never_calls_the_wall_clock_or_uses_a_hashmap_for_the_book() {
         const SRC: &str = include_str!("react.rs");
-        let banned = [concat!("Inst", "ant::now"), concat!("System", "Time::now")];
+        let banned = [
+            concat!("Inst", "ant::now"),
+            concat!("System", "Time::now"),
+            concat!("Hash", "Map<"),
+            concat!("Hash", "Map::"),
+        ];
         for b in banned {
             assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
         }

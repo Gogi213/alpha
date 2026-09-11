@@ -169,6 +169,28 @@ impl BackoffConfig {
     }
 }
 
+/// Планировщик задержки перед следующей попыткой подключения — то же
+/// назначение для бэкоффа, какое `Clock` уже даёт для меток времени:
+/// подменяемый источник, без которого тест FIX 2 (счётчик попыток не
+/// сбрасывается) не отличить от гонки с настоящими часами. `tokio::time::
+/// pause` сюда не подключить без фичи `test-util` в `Cargo.toml`, а она вне
+/// зоны этого таска — поэтому подмена собственная, не крейтовая: тестовый
+/// `Backoff` не спит по-настоящему вовсе, а лишь записывает запрошенную
+/// задержку (`RecordingBackoff`, `mod tests`).
+trait Backoff: Send {
+    fn wait(&self, dur: Duration) -> impl Future<Output = ()> + Send;
+}
+
+/// Продовая реализация — настоящее ожидание, без него `run` вело бы себя
+/// иначе, чем сейчас.
+struct RealBackoff;
+
+impl Backoff for RealBackoff {
+    fn wait(&self, dur: Duration) -> impl Future<Output = ()> + Send {
+        tokio::time::sleep(dur)
+    }
+}
+
 /// Конфигурация одного подключения. Каждое поле — то, что план не задаёт
 /// числом и что этот файл не имеет права выдумать: символ и шаги цены/размера
 /// приходят из отбора инструмента (шаг 0.4, `instruments.csv`), интервал
@@ -277,13 +299,28 @@ impl<C: TransportConnector> Connection<C> {
     /// закрыть `out`, после чего `send` начнёт возвращать ошибку, которую этот
     /// цикл молча игнорирует, а не паникует на ней (получатель мог закрыться
     /// осознанно, это не повод ронять поток ввода-вывода).
-    pub async fn run(mut self, clock: impl Clock + 'static, out: mpsc::Sender<ConnEvent>) {
+    ///
+    /// Тонкая обёртка над `run_with_backoff` с настоящим ожиданием
+    /// (`RealBackoff`) — прод не видит разницы, только тесты подменяют
+    /// планировщик задержки, чтобы не зависеть от настоящих часов (FIX 2).
+    pub async fn run(self, clock: impl Clock + 'static, out: mpsc::Sender<ConnEvent>) {
+        self.run_with_backoff(clock, out, RealBackoff).await;
+    }
+
+    async fn run_with_backoff(
+        mut self,
+        clock: impl Clock + 'static,
+        out: mpsc::Sender<ConnEvent>,
+        backoff: impl Backoff,
+    ) {
         let mut attempt: u32 = 0;
         loop {
             let mut transport = match self.connector.connect().await {
                 Ok(t) => t,
                 Err(_) => {
-                    tokio::time::sleep(self.cfg.backoff.delay_for_attempt(attempt)).await;
+                    backoff
+                        .wait(self.cfg.backoff.delay_for_attempt(attempt))
+                        .await;
                     attempt = attempt.saturating_add(1);
                     continue;
                 }
@@ -313,7 +350,9 @@ impl<C: TransportConnector> Connection<C> {
                     .await
                     .is_ok();
             if !subscribed {
-                tokio::time::sleep(self.cfg.backoff.delay_for_attempt(attempt)).await;
+                backoff
+                    .wait(self.cfg.backoff.delay_for_attempt(attempt))
+                    .await;
                 attempt = attempt.saturating_add(1);
                 continue;
             }
@@ -410,7 +449,9 @@ impl<C: TransportConnector> Connection<C> {
             } else {
                 attempt = attempt.saturating_add(1);
             }
-            tokio::time::sleep(self.cfg.backoff.delay_for_attempt(attempt)).await;
+            backoff
+                .wait(self.cfg.backoff.delay_for_attempt(attempt))
+                .await;
         }
     }
 
@@ -744,50 +785,26 @@ mod tests {
     /// Коннектор, который на каждый `connect()` выдаёт новый транспорт,
     /// закрывающийся немедленно (`Frame::Closed`, ни одного текстового кадра —
     /// то самое "принял рукопожатие и тут же разорвал", которое проверяет
-    /// FIX 2), и запоминает момент вызова. Session-по-сценарию (как у
-    /// `ScriptedConnector`) здесь не годится: конечная очередь рано или
-    /// поздно кончается, и `connect()` начинает возвращать `Err` — путь,
-    /// который был корректен и ДО FIX 2 (растущий бэкофф на неудачном
-    /// коннекте никогда не был багом), и он замаскировал бы дефект, который
-    /// тест обязан ловить, — бэкофф выглядел бы растущим по совершенно другой,
-    /// не относящейся к делу причине. Поэтому сессии здесь не кончаются
-    /// никогда. Настоящие часы (`std::time::Instant`), а не пауза
-    /// `tokio::time` — фича `test-util` тестам этого файла не подключена
-    /// (файл не мой, доступ к `Cargo.toml` не мой), и не стоит того, чтобы
-    /// её просить ради одного теста.
-    struct AlwaysCloseImmediatelyConnector {
-        connect_times: Arc<Mutex<Vec<std::time::Instant>>>,
-    }
-
-    impl AlwaysCloseImmediatelyConnector {
-        fn new() -> (Self, Arc<Mutex<Vec<std::time::Instant>>>) {
-            let connect_times = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    connect_times: connect_times.clone(),
-                },
-                connect_times,
-            )
-        }
-    }
+    /// FIX 2). Session-по-сценарию (как у `ScriptedConnector`) здесь не
+    /// годится: конечная очередь рано или поздно кончается, и `connect()`
+    /// начинает возвращать `Err` — путь, который был корректен и ДО FIX 2
+    /// (растущий бэкофф на неудачном коннекте никогда не был багом), и он
+    /// замаскировал бы дефект, который тест обязан ловить, — бэкофф выглядел
+    /// бы растущим по совершенно другой, не относящейся к делу причине.
+    /// Поэтому сессии здесь не кончаются никогда. Момент вызова `connect()`
+    /// коннектор больше не запоминает — тест FIX 2 читает запрошенные
+    /// задержки бэкоффа через подменяемый `Backoff`, а не настоящие часы
+    /// (`std::time::Instant`), поэтому и считать не нужно.
+    struct AlwaysCloseImmediatelyConnector;
 
     impl TransportConnector for AlwaysCloseImmediatelyConnector {
         type Transport = ScriptedTransport;
 
-        fn connect(
-            &mut self,
-        ) -> impl Future<Output = Result<ScriptedTransport, TransportError>> + Send {
-            let connect_times = self.connect_times.clone();
-            async move {
-                connect_times
-                    .lock()
-                    .unwrap()
-                    .push(std::time::Instant::now());
-                Ok(ScriptedTransport {
-                    inbox: VecDeque::from(vec![Ok(Frame::Closed)]),
-                    sent: Arc::new(Mutex::new(Vec::new())),
-                })
-            }
+        async fn connect(&mut self) -> Result<ScriptedTransport, TransportError> {
+            Ok(ScriptedTransport {
+                inbox: VecDeque::from(vec![Ok(Frame::Closed)]),
+                sent: Arc::new(Mutex::new(Vec::new())),
+            })
         }
     }
 
@@ -1275,19 +1292,50 @@ mod tests {
         );
     }
 
+    /// Бэкофф, который не ждёт по-настоящему: записывает запрошенную
+    /// задержку и сразу возвращает готовое будущее — ровно то, что нужно
+    /// FIX 2, доказанному ниже без единой миллисекунды настоящего времени.
+    /// После `halt_after` записей возвращает будущее, которое не завершается
+    /// никогда (`std::future::pending`) — цикл `Connection::run_with_backoff`
+    /// сам останавливается на достаточном числе раундов вместо того, чтобы
+    /// тест гадал, сколько реальных миллисекунд ждать, пока раунды накопятся.
+    struct RecordingBackoff {
+        waited: Arc<Mutex<Vec<Duration>>>,
+        halt_after: usize,
+    }
+
+    impl Backoff for RecordingBackoff {
+        fn wait(&self, dur: Duration) -> impl Future<Output = ()> + Send {
+            let stop = {
+                let mut guard = self.waited.lock().unwrap();
+                guard.push(dur);
+                guard.len() >= self.halt_after
+            };
+            async move {
+                if stop {
+                    std::future::pending::<()>().await;
+                }
+            }
+        }
+    }
+
     /// FIX 2. Сервер, который принимает рукопожатие и тут же рвёт соединение
     /// (рейт-лимит, сброс нагрузки, дефектный прокси), не должен держать цикл
-    /// на полу бэкоффа вечно. Ни одна из шести сессий не пересылает ни одного
-    /// сообщения (только мгновенный `Frame::Closed`), поэтому счётчик попыток
-    /// обязан расти от раунда к раунду, а не сбрасываться по одному лишь факту
-    /// успешной подписки. Настоящие часы, не пауза `tokio::time` — см.
-    /// комментарий на `TimestampingConnector`.
+    /// на полу бэкоффа вечно. Ни одна из сессий `AlwaysCloseImmediatelyConnector`
+    /// не пересылает ни одного сообщения (только мгновенный `Frame::Closed`),
+    /// поэтому счётчик попыток обязан расти от раунда к раунду, а не
+    /// сбрасываться по одному лишь факту успешной подписки.
     ///
-    /// Сравниваем не каждую пару соседних задержек (реальные часы под
-    /// нагрузкой CI дают дребезг в районе потолка — 150мс иногда мерится как
-    /// 145 или 175), а раннюю фазу роста против плато: первая задержка обязана
-    /// быть у пола, последующие — заметно выше и обязаны ОСТАВАТЬСЯ там, а не
-    /// проваливаться обратно к полу, как было бы при сбросе счётчика.
+    /// Раньше тест мерил настоящие интервалы `std::time::Instant` между
+    /// вызовами `connect()` — реальные часы под нагрузкой CI время от времени
+    /// дают дребезг ровно там, где порог не рассчитан на него (наблюдалось:
+    /// первая задержка 64мс при пороге «< 60мс у пола ~3мс»). `RecordingBackoff`
+    /// убирает настоящее время из проверки целиком: `run_with_backoff` зовёт
+    /// `backoff.wait(delay_for_attempt(attempt))`, и это ровно то значение,
+    /// что здесь читается — без побочного шума планировщика ОС. `tokio::time::
+    /// timeout` ниже — не источник данных для проверки, а только защита от
+    /// зависания на сломанном коде (тот же приём, что уже даёт `collect_n`
+    /// в FIX 1).
     #[tokio::test]
     async fn connect_then_close_without_forwarding_a_message_does_not_reset_backoff() {
         let mut cfg = test_cfg("SOLUSDT");
@@ -1296,27 +1344,45 @@ mod tests {
             max: Duration::from_millis(150),
             multiplier: 5,
         };
-        let (connector, connect_times) = AlwaysCloseImmediatelyConnector::new();
+        const SAMPLES: usize = 8;
+        let waited: Arc<Mutex<Vec<Duration>>> = Arc::new(Mutex::new(Vec::new()));
+        let backoff = RecordingBackoff {
+            waited: waited.clone(),
+            halt_after: SAMPLES,
+        };
         let (tx, _rx) = mpsc::channel(16);
-        let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
-
-        // Бюджет с большим запасом: при исправленном бэкоффе несколько раундов
-        // укладываются в районе секунды (3+15+75+150+150+... мс плюс шедулинг),
-        // при сломанном — счётчик каждый раз падает на пол в 3мс. Разница на
-        // порядок, а не в разы, поэтому запас не даёт багу "тоже успеть". Сессии
-        // здесь не кончаются никогда (см. `AlwaysCloseImmediatelyConnector`),
-        // поэтому весь рост задержки объясняется только тем, что проверяет
-        // этот тест, а не побочным путём "коннектор исчерпан".
-        tokio::time::sleep(Duration::from_millis(1200)).await;
-        handle.abort();
-
-        let times = connect_times.lock().unwrap().clone();
-        assert!(
-            times.len() >= 5,
-            "ожидались хотя бы 5 попыток подключения за 1.2с, получено {}",
-            times.len()
+        let handle = tokio::spawn(
+            Connection::new(AlwaysCloseImmediatelyConnector, cfg).run_with_backoff(
+                SystemClock,
+                tx,
+                backoff,
+            ),
         );
-        let gaps: Vec<Duration> = times.windows(2).map(|w| w[1] - w[0]).collect();
+
+        // Планировщик здесь не спит по-настоящему (`RecordingBackoff`), так
+        // что `SAMPLES` задержек собираются за считаные переключения задачи —
+        // `yield_now` отдаёт управление рантайму ровно затем, чтобы дать
+        // спавнутой задаче продвинуться, не полагаясь на реальное время;
+        // `timeout` — только потолок на случай, если код сломан и цикл
+        // никогда не доходит до `SAMPLES` записей.
+        let collected = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if waited.lock().unwrap().len() >= SAMPLES {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        handle.abort();
+        collected.expect("сбор образцов бэкоффа завис — цикл не дошёл до SAMPLES раундов");
+
+        let gaps = waited.lock().unwrap().clone();
+        assert!(
+            gaps.len() >= 5,
+            "ожидались хотя бы 5 задержек, получено {}",
+            gaps.len()
+        );
         assert!(
             gaps[0] < Duration::from_millis(60),
             "первая задержка обязана быть у пола (~3мс): {gaps:?}"

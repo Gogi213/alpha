@@ -139,8 +139,8 @@ use crate::lob::shortlist::{
 };
 use crate::stats::{count_f64, count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
-use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{feed_frames, outcome_name, side_name, trade_hit_from_record};
+use super::{resolve_h3_mode, ExecutionArgs, H3Args, H3ModeArg};
 
 /// Seed совместного бутстрапа (`net_fill_interval`) — то же число, с которым
 /// уже вызывает его боевой пилот (`commands::lob::pilot::run_pilot_battle`):
@@ -674,12 +674,9 @@ pub struct ProfilesArgs {
     /// Полная таблица кандидатов (`lob pick`) — источник `coverage_top50_bps`.
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_csv: PathBuf,
-    /// Режим порога H3: `floor` | `percentile`, без умолчания.
-    #[arg(long)]
-    pub h3_mode: H3ModeArg,
-    /// Порог рождения H3 в лотах: только режим `percentile`.
-    #[arg(long)]
-    pub h3_lots: Option<i64>,
+    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
+    #[command(flatten)]
+    pub h3: H3Args,
     /// Прогрев в мс, на сессию.
     #[arg(long, default_value_t = super::DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -700,23 +697,10 @@ pub struct ProfilesArgs {
     /// Журнал испытаний (шаг 7.1) — только боевой режим.
     #[arg(long, default_value = "docs/plan/runs.csv")]
     pub runs_out: PathBuf,
-    /// Медианная замеренная RTT исполнения, нс — параметр `BacktestFillModel`
-    /// (таск 16), тот же смысл и источник, что `lob backtest
-    /// --median-rtt-ns` (D-RTT: `lob probe`/`clock.csv`). Обязана быть задана
-    /// вместе с `--p95-rtt-ns`/`--order-qty-e9` — все три сразу включают
-    /// модель исполнения поверх `lob::backtest` (`resolve_fill_model`); без
-    /// всех трёх (умолчание — не задан ни один) команда остаётся на
-    /// `NoFillModel`, как раньше. Задавать только часть тройки — ошибка:
-    /// изобретать недостающее число запрещено (§9).
-    #[arg(long)]
-    pub median_rtt_ns: Option<i64>,
-    /// 95-й перцентиль той же замеренной RTT — см. `median_rtt_ns`.
-    #[arg(long)]
-    pub p95_rtt_ns: Option<i64>,
-    /// Размер круга в 1e-9 лотов — минимальный лот площадки (Decision 22,
-    /// тот же смысл, что `lob backtest --order-qty-e9`) — см. `median_rtt_ns`.
-    #[arg(long)]
-    pub order_qty_e9: Option<i64>,
+    /// Тройка `BacktestFillModel`: `--median-rtt-ns`, `--p95-rtt-ns`,
+    /// `--order-qty-e9` (общие для `profiles`/`shortlist`).
+    #[command(flatten)]
+    pub execution: ExecutionArgs,
 }
 
 /// Итог `lob profiles` для печати диспетчером.
@@ -908,7 +892,11 @@ fn default_out_path(now: &str) -> PathBuf {
 /// этот вызов на `run_profiles_with_fill_model(args, &RealModel::new(..))` —
 /// сама сборка сетки и запись CSV не изменится ни строкой.
 pub fn run_profiles(args: &ProfilesArgs) -> anyhow::Result<ProfilesSummary> {
-    let model = resolve_fill_model(args.median_rtt_ns, args.p95_rtt_ns, args.order_qty_e9)?;
+    let model = resolve_fill_model(
+        args.execution.median_rtt_ns,
+        args.execution.p95_rtt_ns,
+        args.execution.order_qty_e9,
+    )?;
     run_profiles_with_fill_model(args, model.as_ref())
 }
 
@@ -964,7 +952,7 @@ pub fn run_profiles_with_fill_model(
     let mut day_index = DayIndex::default();
 
     for symbol in &pool {
-        let mode = resolve_h3_mode(&args.root, symbol, args.h3_mode, args.h3_lots)?;
+        let mode = resolve_h3_mode(&args.root, symbol, args.h3.h3_mode, args.h3.h3_lots)?;
         let h3_lots_value = match mode {
             H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
         };
@@ -1025,7 +1013,7 @@ pub fn run_profiles_with_fill_model(
     writeln!(
         file,
         "# lob profiles: h3_mode={} warmup_ms={} repeat_window_ms={} alpha={GATE_ALPHA} replications={BOOTSTRAP_REPLICATIONS} seed={BOOTSTRAP_SEED} fill_model={fill_model_label}{debug_suffix}",
-        h3_mode_label(args.h3_mode),
+        h3_mode_label(args.h3.h3_mode),
         args.warmup_ms,
         args.repeat_window_ms,
     )?;
@@ -1159,18 +1147,82 @@ mod tests {
         ProfilesArgs {
             root: root.to_path_buf(),
             candidates_csv,
-            h3_mode: H3ModeArg::Floor,
-            h3_lots: None,
+            h3: H3Args {
+                h3_mode: H3ModeArg::Floor,
+                h3_lots: None,
+            },
             warmup_ms: 0,
             repeat_window_ms: super::super::DEFAULT_REPEAT_WINDOW_MS,
             allow_unverified: false,
             out: Some(out),
             now_utc: Some("2026-09-08T00:00:00Z".to_string()),
             runs_out: root.join("runs.csv"),
-            median_rtt_ns: None,
-            p95_rtt_ns: None,
-            order_qty_e9: None,
+            execution: ExecutionArgs {
+                median_rtt_ns: None,
+                p95_rtt_ns: None,
+                order_qty_e9: None,
+            },
         }
+    }
+
+    /// Таск 17, пункт 5г: `hour_dependence_test` отказывает («сутки < G_MIN»)
+    /// на фикстурах остального файла — они держат один-два дня. Здесь семь
+    /// **разных** суток одного профиля (`marginal:instrument=SOLUSDT`) с
+    /// разным часом старта (`start_hour_utc = d`) и разным движением цены
+    /// (ask сдвигается на `2*d` тиков внутри горизонта 10 с той же сессии) —
+    /// день и наблюдение линейно связаны тем же приёмом, что
+    /// `shortlist::hour_dependence_test_rejects_strong_known_trend`, только
+    /// через настоящий бинлог, а не готовый `HourDayObservation`. Уровень:
+    /// рождается снапшотом (бид 100@10, аск 200@10), в 1с бид падает до 1
+    /// лота — `5*1 < 10` (`below_fraction`) роняет его немедленно
+    /// (`DeathKind::BelowFraction`), база markout — срез в момент рождения
+    /// (t=0, mid=300); в 9с (≤ горизонта 10с от базы) аск подтягивается на
+    /// `2*d` тиков — `future_asof` подхватывает его до цели `10_000`мс,
+    /// `m_10s` растёт вместе с `d`. Критерий — не число `p`, а сам факт: цепочка
+    /// дошла до `Ok`, и `log_hour_test` дописал строку `runs.csv`.
+    #[test]
+    fn hour_dependence_test_reaches_ok_with_seven_days_and_logs_a_runs_csv_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+
+        for d in 1..=7i64 {
+            let shift = 2 * d;
+            let frames = vec![
+                super::super::test_support::snap_frame(0, &[(100, 10)], &[(200, 10)]),
+                super::super::test_support::delta_frame(1_000, &[(100, 1)], &[]),
+                super::super::test_support::delta_frame(9_000, &[], &[(200 - shift, 10)]),
+            ];
+            write_session_dir(
+                root,
+                &format!("day-{d}"),
+                "SOLUSDT",
+                &format!("2026-09-0{d}T00:00:00Z"),
+                d as u32,
+                true,
+                &frames,
+            );
+        }
+
+        let out = root.join("profiles.csv");
+        let args = base_args(root, candidates_csv, out.clone());
+        run_profiles(&args).expect("боевой прогон на семи сутках");
+
+        let rows = crate::lob::runs::read_run_rows(&args.runs_out).unwrap();
+        let hour_rows: Vec<_> = rows
+            .iter()
+            .filter(|r| {
+                r.detail
+                    .starts_with("hour_test marginal:instrument=SOLUSDT ")
+            })
+            .collect();
+        assert!(
+            !hour_rows.is_empty(),
+            "семь суток с разными часами и разным движением обязаны довести \
+             hour_dependence_test до Ok и дать строку hour_test в runs.csv: {rows:?}"
+        );
     }
 
     /// Критерий приёмки таска 10, буквально: снести файл, прогнать команду

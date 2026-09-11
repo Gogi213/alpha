@@ -4,28 +4,23 @@
 //! записей по `(is_snapshot, exch_ts_ns)` уже реализована и проверена там
 //! (сверка книги, `interfaces.md` шов 3); писать её второй раз здесь было
 //! бы Reinvention (пятое правило `interfaces.md`). Сделки восстанавливаются
-//! отдельно, напрямую из бит `Record::ev` — `FileReplayer::push_frame` для
-//! своей задачи (проверка «сделка внутри диапазона книги») хранит только
-//! цену и флаг блочности, а `Feed` живой стороны отдаёт сделку целиком
-//! (сторона, размер, время), и это тот же разбор бит, что уже стоит в
-//! `commands::lob::trade_hit_from_record` (не переиспользуется напрямую:
-//! функция приватна модулю `commands::lob`, а внутри моего файла это три
-//! строки, не отдельная логика).
+//! отдельно, напрямую из бит `Record::ev` — предикат `bybit::verify::
+//! is_trade_ev` общий с `commands::lob` (таск 17), а сборка `WsEvent::Trade`
+//! здесь своя: `FileReplayer::push_frame` для своей задачи (проверка «сделка
+//! внутри диапазона книги») хранит только цену и флаг блочности, а `Feed`
+//! живой стороны отдаёт сделку целиком (сторона, размер, время) — другая
+//! форма результата, не переиспользуемая как функция.
 
 use std::collections::VecDeque;
 use std::io::Read;
 
-use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
+use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
 
 use crate::binlog::{self, BinlogError, Record};
-use crate::bybit::verify::FileReplayer;
+use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::ws::{Event as WsEvent, Trade};
 
 use super::{Event, Feed};
-
-fn is_trade_ev(ev: u64) -> bool {
-    ev == LOCAL_BUY_TRADE_EVENT || ev == LOCAL_SELL_TRADE_EVENT
-}
 
 /// `Feed` с одного суточного файла бинлога одного инструмента пула.
 pub struct ReplayFeed<R: Read> {
@@ -136,6 +131,33 @@ impl<R: Read> Feed for ReplayFeed<R> {
                     self.done = true;
                 }
             }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// Грепом по образцу `lob/levels.rs::module_stays_detached_from_transport_
+// clocks_and_approx_numbers`: горячий путь не вправе звать часы напрямую,
+// представлять цену или размер числом с плавающей запятой, ни держать
+// книгу в хеш-отображении (таск 17, долг таска 15 — «Из ремонта таска 15»,
+// греп-тест раньше был только у `strategy.rs`/`react.rs`).
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod hot_path_guard {
+    /// Строки собраны из частей — иначе литерал триггерил бы эту же
+    /// проверку сам на себя.
+    #[test]
+    fn module_never_calls_the_wall_clock_or_uses_float_prices_or_hashmaps() {
+        const SRC: &str = include_str!("replay.rs");
+        let banned = [
+            concat!("Inst", "ant::now"),
+            concat!("System", "Time::now"),
+            concat!("f", "64"),
+            concat!("Hash", "Map"),
+        ];
+        for b in banned {
+            assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
         }
     }
 }

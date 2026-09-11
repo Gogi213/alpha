@@ -50,15 +50,15 @@ use clap::Subcommand;
 use crate::binlog::{Reader, Record};
 use crate::book::{Book, Side};
 use crate::bybit::clock::check_rows;
-use crate::bybit::verify::FileReplayer;
+use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
-use crate::commands::record::{gaps_csv_path, read_gap_rows, GapKind};
+use crate::commands::record::instruments_csv_path;
 use crate::lob::levels::{
-    DeathKind, LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome, TradeHit,
+    DeathKind, H3Mode, LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome, TradeHit,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::watch::{tally_day, DayTally};
-use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
+use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
 
 pub mod backtest;
 pub mod clock;
@@ -110,6 +110,159 @@ pub const DEFAULT_REPEAT_WINDOW_MS: i64 = 3_600_000;
 pub const G0_MIN_PULLED: u64 = 200;
 
 // ---------------------------------------------------------------------------
+// Режим `H3`: флаг без умолчания (план D-H3) + чтение пола `floor` из
+// `instruments.csv`. Общее для `levels`, `markout`, `pilot`, `watch`,
+// `profiles`, `shortlist` (переехало из `levels.rs` — таск 17, общий код
+// нескольких подкоманд не может лежать в файле одной из них).
+// ---------------------------------------------------------------------------
+
+/// Режим порога `H3`, флагом CLI. Явный выбор — умолчания нет: какой режим
+/// входит в предрегистрацию, решает двухчасовой пилот, не эта команда.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum H3ModeArg {
+    /// Пол в лотах из `instruments.csv`, без прогрева — режим отладки.
+    Floor,
+    /// 99-й перцентиль по скользящему часу, прогрев 60 мин — прежнее
+    /// определение; порог измерен заранее и приходит через `--h3-lots`.
+    Percentile,
+}
+
+/// Флаги режима `H3` (`--h3-mode`, `--h3-lots`), `#[command(flatten)]` в
+/// `levels`/`markout`/`watch`/`profiles`/`shortlist` (таск 17: те же два
+/// флага дословно определялись в пяти файлах). `lob pilot` не флаттенит
+/// это: он гоняет обе ветки `H3` внутри одного прогона, а не выбирает одну
+/// флагом CLI.
+#[derive(Debug, Clone, Copy, clap::Args)]
+pub struct H3Args {
+    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3).
+    #[arg(long)]
+    pub h3_mode: H3ModeArg,
+    /// Порог рождения H3 в лотах: только режим `percentile` — заранее
+    /// измеренный 99-й перцентиль. `floor` берёт число из `instruments.csv`
+    /// и этот флаг вместе с `floor` — ошибка (`resolve_h3_mode`), не игнор.
+    #[arg(long)]
+    pub h3_lots: Option<i64>,
+}
+
+/// Тройка флагов `BacktestFillModel` (`--median-rtt-ns`, `--p95-rtt-ns`,
+/// `--order-qty-e9`) — `#[command(flatten)]` в `profiles`/`shortlist`
+/// (таск 17: тройка дословно определялась в обоих файлах). Все три
+/// опциональны и включают модель исполнения только вместе
+/// (`resolve_fill_model`); не заданы — `NoFillModel`, как раньше.
+///
+/// `lob backtest` **не** флаттенит эту структуру: там та же тройка —
+/// обязательные флаги без умолчания (нет `NoFillModel`, бэктест не бывает
+/// без RTT/лота), а `Option<i64>` здесь убрал бы `--median-rtt-ns` и соседей
+/// из строки `Usage` как обязательные — заметная перемена `--help`, которую
+/// критерий приёмки таска 17 запрещает. Общая структура для настоящего
+/// разного контракта CLI (обязательно/опционально) была бы либо тем же
+/// изменением поведения, либо второй структурой с другим именем — то есть
+/// не тем упрощением, которого просит пункт 2.
+#[derive(Debug, Clone, Copy, clap::Args)]
+pub struct ExecutionArgs {
+    /// Медианная замеренная RTT исполнения, нс — параметр `BacktestFillModel`
+    /// (таск 16), тот же смысл и источник, что `lob backtest
+    /// --median-rtt-ns` (D-RTT: `lob probe`/`clock.csv`). Обязана быть задана
+    /// вместе с `--p95-rtt-ns`/`--order-qty-e9` — все три сразу включают
+    /// модель исполнения поверх `lob::backtest` (`resolve_fill_model`); без
+    /// всех трёх (умолчание — не задан ни один) команда остаётся на
+    /// `NoFillModel`, как раньше. Задавать только часть тройки — ошибка:
+    /// изобретать недостающее число запрещено (§9).
+    #[arg(long)]
+    pub median_rtt_ns: Option<i64>,
+    /// 95-й перцентиль той же замеренной RTT — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub p95_rtt_ns: Option<i64>,
+    /// Размер круга в 1e-9 лотов — минимальный лот площадки (Decision 22,
+    /// тот же смысл, что `lob backtest --order-qty-e9`) — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub order_qty_e9: Option<i64>,
+}
+
+/// Строка `instruments.csv`, нужная режиму `floor`: символ и колонка
+/// `h3_lots` (пишет отдельный шаг сборки пула, план D-H3). `h3_lots` читается
+/// строкой — у большинства символов колонка сейчас пуста, парсинг в целое
+/// откладывается до найденной строки нужного символа.
+#[derive(Debug, serde::Deserialize)]
+struct H3FloorRow {
+    symbol: String,
+    h3_lots: String,
+}
+
+/// Пол `H3` символа из `instruments.csv`: нет файла, нет колонки, нет
+/// символа или значение не положительное — понятная ошибка с ненулевым
+/// кодом выхода, а не молчаливый ноль (критерий приёмки таска 02).
+fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i64> {
+    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
+    // ось Craft) — терпит метку `debug` первой строкой, голый
+    // `csv::Reader::from_path` читал бы её как заголовок вместо настоящего.
+    let mut r = pick::instruments_csv_reader(instruments_csv).map_err(|e| {
+        anyhow::anyhow!(
+            "{}: {e} — режиму floor нужен instruments.csv с колонкой h3_lots \
+             (пишет отдельный шаг сборки пула)",
+            instruments_csv.display()
+        )
+    })?;
+    let headers = r.headers()?.clone();
+    anyhow::ensure!(
+        headers.iter().any(|h| h == "h3_lots"),
+        "{}: нет колонки h3_lots (пишет отдельный шаг сборки пула)",
+        instruments_csv.display()
+    );
+    for row in r.deserialize::<H3FloorRow>() {
+        let row = row?;
+        if row.symbol != symbol {
+            continue;
+        }
+        let raw = row.h3_lots.trim();
+        let v: i64 = raw
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{symbol}: h3_lots {raw:?} в instruments.csv не целое"))?;
+        anyhow::ensure!(
+            v > 0,
+            "{symbol}: h3_lots обязан быть положителен, получено {v}"
+        );
+        return Ok(v);
+    }
+    anyhow::bail!(
+        "{symbol}: нет строки в {} (режим floor)",
+        instruments_csv.display()
+    );
+}
+
+/// Режим `H3` из флага: `floor` читает пол из `instruments.csv` корня
+/// записи, `percentile` берёт заранее измеренный порог из `--h3-lots`
+/// (обязателен в этом режиме — измерение вне этой команды). `--h3-lots`
+/// вместе с `floor` — громкая ошибка (таск 17, критерий приёмки), а не
+/// молчаливый игнор значения, которое `floor` не читает.
+pub fn resolve_h3_mode(
+    root: &Path,
+    symbol: &str,
+    mode: H3ModeArg,
+    h3_lots: Option<i64>,
+) -> anyhow::Result<H3Mode> {
+    match mode {
+        H3ModeArg::Floor => {
+            anyhow::ensure!(
+                h3_lots.is_none(),
+                "--h3-lots несовместим с --h3-mode floor: порог берётся из instruments.csv"
+            );
+            Ok(H3Mode::Floor {
+                h3_lots: h3_lots_for_symbol(&instruments_csv_path(root), symbol)?,
+            })
+        }
+        H3ModeArg::Percentile => {
+            let h3_lots = h3_lots.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--h3-lots обязателен в режиме percentile: порог измеряется заранее"
+                )
+            })?;
+            Ok(H3Mode::Percentile { h3_lots })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Общий реплей: суточные файлы символа → записи уровней и срезы середины.
 // ---------------------------------------------------------------------------
 
@@ -135,10 +288,6 @@ struct DayWork {
     records: Vec<LevelRecord>,
     mids: Vec<MidSample>,
     tracker: LevelTracker,
-}
-
-fn is_trade_ev(ev: u64) -> bool {
-    ev == LOCAL_BUY_TRADE_EVENT || ev == LOCAL_SELL_TRADE_EVENT
 }
 
 /// Трейд записи в трейд трекера. Отображение повторяет контракт писателя
@@ -381,36 +530,20 @@ fn some_or_empty(v: Option<f64>) -> String {
 // Счётчики суток для `watch` и подтверждающего `markout`.
 // ---------------------------------------------------------------------------
 
-/// Собирает `DayTally` из реплея тем же `tally_day`, что читает G2.
-/// Качество суток — из файлов корня: `gaps.csv` (разрыв > 6 часов) и
-/// `verify.csv` шага 0.8 (расхождения теста 1). Отсутствующие файлы — ноль
-/// строк, а не ошибка: сутки без проверок негодны по правилу `day_eligible`
-/// (ноль проверок — не годно), и это честный красный, а не падение команды.
+/// Собирает `DayTally` из реплея тем же `tally_day`, что читает G1.
+/// Качество суток — из `verify.csv` шага 0.8 (расхождения теста 1) в корне
+/// записи. Отсутствующий файл — ноль строк, а не ошибка: сутки без проверок
+/// негодны по правилу `day_eligible` (ноль проверок — не годно), и это
+/// честный красный, а не падение команды.
 ///
-/// Правила отображения (консервативные, задокументированы здесь, а не
-/// размазаны по вызывающим):
-/// - разрыв: любая строка `SequenceGap` этих суток и символа — сутки с
-///   разрывом (длительности в строке нет, поэтому любое такое событие суток
-///   считается старшим);
-/// - verify: знаменатель — строки с решённым сравнением (`Ok`/`Mismatch`),
-///   числитель — строки `Mismatch`; `Misaligned`/`RestUnavailable` —
-///   неопределённые, как `trades_indeterminate` в `verify`.
-fn day_tallies(
-    root: &Path,
-    symbol: &str,
-    days: &[ReplayDay],
-    median_lifetime_ms: i64,
-) -> anyhow::Result<Vec<DayTally>> {
-    let gaps = read_gap_rows(&gaps_csv_path(root)).map_err(|e| anyhow::anyhow!("gaps.csv: {e}"))?;
+/// Знаменатель доли — строки с решённым сравнением (`Ok`/`Mismatch`),
+/// числитель — строки `Mismatch`; `Misaligned`/`RestUnavailable` —
+/// неопределённые, как `trades_indeterminate` в `verify`.
+fn day_tallies(root: &Path, symbol: &str, days: &[ReplayDay]) -> anyhow::Result<Vec<DayTally>> {
     let verify_rows =
         read_verify_rows(&verify_csv_path(root)).map_err(|e| anyhow::anyhow!("verify.csv: {e}"))?;
     days.iter()
         .map(|day| {
-            let gap = gaps.iter().any(|g| {
-                g.symbol == symbol
-                    && g.ts_utc.starts_with(&day.day)
-                    && matches!(g.kind, GapKind::SequenceGap)
-            });
             let mut basis = 0u64;
             let mut violations = 0u64;
             for row in verify_rows
@@ -426,15 +559,7 @@ fn day_tallies(
                     VerifyVerdict::Misaligned | VerifyVerdict::RestUnavailable => {}
                 }
             }
-            Ok(tally_day(
-                symbol,
-                &day.day,
-                &day.records,
-                median_lifetime_ms,
-                gap,
-                violations,
-                basis,
-            ))
+            Ok(tally_day(symbol, &day.day, violations, basis))
         })
         .collect()
 }
@@ -573,10 +698,10 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Watch(args) => {
             let summary = run_watch(&args)?;
             println!(
-                "watch: days={} n_c2={} g_c2={} flag={} out={}",
+                "watch: days={} n={} g={} flag={} out={}",
                 summary.days,
-                summary.n_c2,
-                summary.g_c2,
+                summary.n,
+                summary.g,
                 summary.flag.as_deref().unwrap_or("not-due"),
                 summary.progress.display()
             );
@@ -673,7 +798,7 @@ pub(crate) mod test_support {
     use crate::binlog::{Header, Writer};
     use hftbacktest::types::{
         LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT,
-        LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+        LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_SELL_TRADE_EVENT,
     };
 
     pub(crate) const FIX_TICK_E9: i64 = 10_000_000; // 0.01
@@ -743,8 +868,8 @@ pub(crate) mod test_support {
         vec![
             snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(105, 10)]),
             vec![
-                depth_rec(super::LOCAL_SELL_TRADE_EVENT, 500, 98, 7),
-                depth_rec(super::LOCAL_SELL_TRADE_EVENT, 500, 99, 5),
+                depth_rec(LOCAL_SELL_TRADE_EVENT, 500, 98, 7),
+                depth_rec(LOCAL_SELL_TRADE_EVENT, 500, 99, 5),
             ],
             delta_frame(1000, &[(96, 10), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
             delta_frame(2000, &[(96, 1), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
@@ -755,6 +880,19 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Критерий приёмки таска 17: `--h3-lots` вместе с `--h3-mode floor` —
+    /// громкая ошибка (`resolve_h3_mode` — общий шов пяти подкоманд), не
+    /// молчаливый игнор значения, которое `floor` не читает.
+    #[test]
+    fn resolve_h3_mode_rejects_h3_lots_with_floor() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = resolve_h3_mode(dir.path(), "SOLUSDT", H3ModeArg::Floor, Some(5)).unwrap_err();
+        assert!(
+            err.to_string().contains("h3-lots") || err.to_string().contains("floor"),
+            "сообщение обязано назвать конфликт --h3-lots/--h3-mode floor: {err}"
+        );
+    }
 
     #[test]
     fn lob_help_lists_all_subcommands() {
