@@ -230,6 +230,62 @@ fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i6
     );
 }
 
+/// Строка `instruments.csv`, нужная относительному порогу `--h3-k` (таск 18,
+/// В-30/D05): символ и колонка `median_trade_lots` — пишет `lob pick`
+/// (таск 08), та же колонка, что несёт `h3_lots`/`k` рядом.
+#[derive(Debug, serde::Deserialize)]
+struct MedianTradeLotsRow {
+    symbol: String,
+    median_trade_lots: String,
+}
+
+/// Медиана размера сделки символа из `instruments.csv` — вход
+/// `pick::h3_lots_floor` для `--h3-k`/сетки `pilot::K_GRID` (таск 18,
+/// В-30/D05). Нет файла, нет колонки, нет строки символа или значение не
+/// положительное — понятная ошибка (тот же приём, что `h3_lots_for_symbol`),
+/// не молчаливый ноль.
+pub(crate) fn median_trade_lots_for_symbol(
+    instruments_csv: &Path,
+    symbol: &str,
+) -> anyhow::Result<i64> {
+    let mut r = pick::instruments_csv_reader(instruments_csv).map_err(|e| {
+        anyhow::anyhow!(
+            "{}: {e} — --h3-k нужен instruments.csv с колонкой median_trade_lots (пишет lob pick)",
+            instruments_csv.display()
+        )
+    })?;
+    let headers = r.headers()?.clone();
+    anyhow::ensure!(
+        headers.iter().any(|h| h == "median_trade_lots"),
+        "{}: нет колонки median_trade_lots (пишет lob pick)",
+        instruments_csv.display()
+    );
+    for row in r.deserialize::<MedianTradeLotsRow>() {
+        let row = row?;
+        if row.symbol != symbol {
+            continue;
+        }
+        let raw = row.median_trade_lots.trim();
+        anyhow::ensure!(
+            !raw.is_empty(),
+            "{symbol}: median_trade_lots не измерена в {} (окно lob pick не поймало сделок)",
+            instruments_csv.display()
+        );
+        let v: i64 = raw.parse().map_err(|_| {
+            anyhow::anyhow!("{symbol}: median_trade_lots {raw:?} в instruments.csv не целое")
+        })?;
+        anyhow::ensure!(
+            v > 0,
+            "{symbol}: median_trade_lots обязана быть положительна, получено {v}"
+        );
+        return Ok(v);
+    }
+    anyhow::bail!(
+        "{symbol}: нет строки в {} (median_trade_lots)",
+        instruments_csv.display()
+    );
+}
+
 /// Режим `H3` из флага: `floor` читает пол из `instruments.csv` корня
 /// записи, `percentile` берёт заранее измеренный порог из `--h3-lots`
 /// (обязателен в этом режиме — измерение вне этой команды). `--h3-lots`
@@ -241,17 +297,55 @@ pub fn resolve_h3_mode(
     mode: H3ModeArg,
     h3_lots: Option<i64>,
 ) -> anyhow::Result<H3Mode> {
+    resolve_h3_mode_with_k(root, symbol, mode, h3_lots, None)
+}
+
+/// Как `resolve_h3_mode`, плюс относительный порог `--h3-k` (таск 18,
+/// В-30/D05): `k` действует только вместе с `floor` — порог `h3_lots =
+/// floor(k × median_trade_lots)` (`pick::h3_lots_floor`), медиана — из той
+/// же строки `instruments.csv`, что несёт колонку `h3_lots`. Без `--h3-k` —
+/// прежнее поведение (`resolve_h3_mode` делегирует сюда с `h3_k = None`,
+/// колонка `h3_lots` целиком). `--h3-k` вместе с `percentile` — громкая
+/// ошибка: `k` параметризует только относительный порог `floor`, у
+/// `percentile` свой заранее измеренный перцентиль (критерий приёмки
+/// таска 18). Единственный вызывающий сегодня — `lob levels`; сетка
+/// `pilot::K_GRID` зовёт `pick::h3_lots_floor`/`median_trade_lots_for_symbol`
+/// напрямую, минуя эту обёртку (ей нужно пять порогов за один реплей, не
+/// один).
+pub fn resolve_h3_mode_with_k(
+    root: &Path,
+    symbol: &str,
+    mode: H3ModeArg,
+    h3_lots: Option<i64>,
+    h3_k: Option<f64>,
+) -> anyhow::Result<H3Mode> {
     match mode {
         H3ModeArg::Floor => {
             anyhow::ensure!(
                 h3_lots.is_none(),
                 "--h3-lots несовместим с --h3-mode floor: порог берётся из instruments.csv"
             );
-            Ok(H3Mode::Floor {
-                h3_lots: h3_lots_for_symbol(&instruments_csv_path(root), symbol)?,
-            })
+            let instruments_csv = instruments_csv_path(root);
+            let h3_lots = match h3_k {
+                Some(k) => {
+                    let median = median_trade_lots_for_symbol(&instruments_csv, symbol)?;
+                    pick::h3_lots_floor(Some(median), k).ok_or_else(|| {
+                        anyhow::anyhow!("{symbol}: h3_lots_floor(k={k}) не посчитался")
+                    })?
+                }
+                None => h3_lots_for_symbol(&instruments_csv, symbol)?,
+            };
+            anyhow::ensure!(
+                h3_lots > 0,
+                "{symbol}: h3_lots (k={h3_k:?}) обязан быть положителен, получено {h3_lots}"
+            );
+            Ok(H3Mode::Floor { h3_lots })
         }
         H3ModeArg::Percentile => {
+            anyhow::ensure!(
+                h3_k.is_none(),
+                "--h3-k несовместим с --h3-mode percentile: k параметризует только floor (В-30/D05)"
+            );
             let h3_lots = h3_lots.ok_or_else(|| {
                 anyhow::anyhow!(
                     "--h3-lots обязателен в режиме percentile: порог измеряется заранее"
@@ -280,14 +374,19 @@ struct ReplayStats {
     records: u64,
 }
 
-/// Рабочее состояние одних суток: книга и конвертер пересоздаются на каждый
-/// файл (каждый начинается со снапшота), трекер живёт все части суток —
-/// окно `repeat_count` и прогрев считаются по суткам, а не по частям файла.
+/// Рабочее состояние одних суток при нескольких конфигурациях `H3` разом
+/// (таск 18, В-30/D05: сетка `pilot::K_GRID` — пять порогов за один
+/// декодированный проход, не пять реплеев): книга и конвертер пересоздаются
+/// на каждый файл (каждый начинается со снапшота), трекеры живут все части
+/// суток — окно `repeat_count` и прогрев считаются по суткам. `mids` один на
+/// сутки — срез середины не зависит от конфигурации `H3`, только `records`
+/// и трекеры множатся по числу конфигураций. `replay_symbol` — частный
+/// случай с одной конфигурацией, реализован через `replay_symbol_over_configs`.
 struct DayWork {
     day: String,
-    records: Vec<LevelRecord>,
+    records: Vec<Vec<LevelRecord>>,
     mids: Vec<MidSample>,
-    tracker: LevelTracker,
+    trackers: Vec<LevelTracker>,
 }
 
 /// Трейд записи в трейд трекера. Отображение повторяет контракт писателя
@@ -334,7 +433,11 @@ fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
 }
 
 /// Применяет обновление к книге и кормит трекер кадром обеих сторон плюс
-/// срезом середины. Вызывается только после успешного `apply`.
+/// срезом середины. Вызывается только после успешного `apply`. Одна
+/// конфигурация — частный случай `feed_frames_multi` (таск 18), но
+/// оставлена отдельной функцией: `profiles.rs::run_profiles_with_fill_model`
+/// (вне зоны таска 18, «не трогать») зовёт её напрямую с одним трекером,
+/// вторая сигнатура (`&mut [LevelTracker]`) поменяла бы её вызов.
 fn feed_frames(
     book: &Book,
     tracker: &mut LevelTracker,
@@ -363,12 +466,66 @@ fn feed_frames(
     }
 }
 
-/// Реплей всех суточных файлов символа тем же кодом, что файловый `verify`:
-/// `Reader` читает кадры, `FileReplayer` группирует записи в обновления,
-/// `Book` их применяет, `LevelTracker` развешивает уровни и трейды.
-/// Разрыв последовательности (`Err` из `apply`) останавливает файл, как в
-/// `verify`: дальше этот файл недоверен, следующий идёт с чистого листа.
-fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result<ReplayStats> {
+/// Применяет обновление к книге и кормит **все** трекеры кадром обеих
+/// сторон плюс общим срезом середины (таск 18: `LevelObs` не зависит от
+/// порога `H3`, поэтому строится один раз на кадр и раздаётся всем
+/// трекерам — не по разу на конфигурацию). Вызывается только после
+/// успешного `apply`.
+fn feed_frames_multi(
+    book: &Book,
+    trackers: &mut [LevelTracker],
+    ts_ms: i64,
+    out: &mut [Vec<LevelRecord>],
+    mids: &mut Vec<MidSample>,
+) {
+    debug_assert_eq!(
+        trackers.len(),
+        out.len(),
+        "трекер и выход обязаны идти парой"
+    );
+    for side in [Side::Bid, Side::Ask] {
+        let obs: Vec<LevelObs> = book
+            .levels(side)
+            .enumerate()
+            .map(|(i, (tick, lots))| LevelObs {
+                tick,
+                size_lots: lots,
+                in_top50: i < 50,
+            })
+            .collect();
+        for (tracker, out) in trackers.iter_mut().zip(out.iter_mut()) {
+            tracker.observe_frame(ts_ms, side, &obs, out);
+        }
+    }
+    if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
+        mids.push(MidSample {
+            ts_ms,
+            bid_tick: bid,
+            ask_tick: ask,
+        });
+    }
+}
+
+/// Реплей всех суточных файлов символа сразу через несколько конфигураций
+/// `H3` (таск 18, критерий приёмки «за один реплей на инструмент, не
+/// пять»): декодирование бинлога, применение к книге — один проход по
+/// файлам и кадрам, тем же кодом, что файловый `verify` (`Reader` читает
+/// кадры, `FileReplayer` группирует их в обновления, `Book` их применяет);
+/// `LevelTracker` на каждую конфигурацию развешивает уровни и трейды
+/// независимо, кормится одними и теми же кадрами (`feed_frames_multi`).
+/// Разрыв последовательности (`Err` из `apply`) останавливает файл для всех
+/// конфигураций разом, как в `verify`: дальше этот файл недоверен,
+/// следующий идёт с чистого листа. Возвращает `ReplayStats` в том же
+/// порядке, что `cfgs`.
+fn replay_symbol_over_configs(
+    root: &Path,
+    symbol: &str,
+    cfgs: &[LevelsConfig],
+) -> anyhow::Result<Vec<ReplayStats>> {
+    anyhow::ensure!(
+        !cfgs.is_empty(),
+        "replay_symbol_over_configs: пустая сетка конфигураций"
+    );
     let prefix = format!("{symbol}-");
     let entries = std::fs::read_dir(root)
         .map_err(|e| anyhow::anyhow!("корень {} не читается: {e}", root.display()))?;
@@ -391,11 +548,20 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
     if files.is_empty() {
         anyhow::bail!("нет суточных файлов {prefix}*.binlog в {}", root.display());
     }
-    let mut stats = ReplayStats {
-        days: Vec::new(),
-        bytes: 0,
-        records: 0,
-    };
+    // Счётчики GC (байт/записей) — по одному экземпляру на конфигурацию,
+    // хотя декодирование общее: значения совпадут у всех, но `+=` читает
+    // поле, а не только пишет его (та же идиома, что у `replay_symbol` до
+    // этого таска — единственная актуальная альтернатива читать поле
+    // разом после цикла тем же способом, каким это уже делает `ReplayStats
+    // .days` ниже).
+    let mut out: Vec<ReplayStats> = cfgs
+        .iter()
+        .map(|_| ReplayStats {
+            days: Vec::new(),
+            bytes: 0,
+            records: 0,
+        })
+        .collect();
     let mut work: Vec<DayWork> = Vec::new();
     for path in &files {
         let name = path
@@ -406,16 +572,18 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
             .ok_or_else(|| anyhow::anyhow!("имя {name} не разбирается как сутки"))?;
         let data = std::fs::read(path)
             .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-        stats.bytes += data.len() as u64;
+        for s in &mut out {
+            s.bytes += data.len() as u64;
+        }
         let mut reader = Reader::open(&data[..])
             .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
         let header = reader.header();
         if work.last().is_none_or(|w| w.day != day) {
             work.push(DayWork {
                 day,
-                records: Vec::new(),
+                records: cfgs.iter().map(|_| Vec::new()).collect(),
                 mids: Vec::new(),
-                tracker: LevelTracker::new(cfg),
+                trackers: cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
             });
         }
         let entry = work
@@ -431,7 +599,9 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
                 .read_frame()
                 .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
             let Some(frame_records) = frame else { break };
-            stats.records += frame_records.len() as u64;
+            for s in &mut out {
+                s.records += frame_records.len() as u64;
+            }
             for rec in &frame_records {
                 ups.clear();
                 tps.clear();
@@ -453,9 +623,9 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
                         file_ok = false;
                         break;
                     }
-                    feed_frames(
+                    feed_frames_multi(
                         &book,
-                        &mut entry.tracker,
+                        &mut entry.trackers,
                         up.cts_ms,
                         &mut entry.records,
                         &mut entry.mids,
@@ -465,7 +635,9 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
                     break;
                 }
                 if let Some(h) = hit {
-                    entry.tracker.observe_trade(h);
+                    for tracker in &mut entry.trackers {
+                        tracker.observe_trade(h);
+                    }
                 }
             }
             if !file_ok {
@@ -479,9 +651,9 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
                 if book.apply(up).is_err() {
                     break;
                 }
-                feed_frames(
+                feed_frames_multi(
                     &book,
-                    &mut entry.tracker,
+                    &mut entry.trackers,
                     up.cts_ms,
                     &mut entry.records,
                     &mut entry.mids,
@@ -489,15 +661,30 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
             }
         }
     }
-    stats.days = work
-        .into_iter()
-        .map(|w| ReplayDay {
-            day: w.day,
-            records: w.records,
-            mids: w.mids,
-        })
-        .collect();
-    Ok(stats)
+    // Раскладка по конфигурации (таск 18): `w.records[i]` — уровни i-й
+    // конфигурации за эти сутки, `w.mids` общий и клонируется в каждую
+    // раскладку (срез середины не зависит от `H3`, дороже перечитать бинлог
+    // ради него ещё раз, чем скопировать уже посчитанный вектор).
+    for w in work {
+        for (i, records) in w.records.into_iter().enumerate() {
+            out[i].days.push(ReplayDay {
+                day: w.day.clone(),
+                records,
+                mids: w.mids.clone(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Реплей всех суточных файлов символа одной конфигурацией `H3` — частный
+/// случай `replay_symbol_over_configs` с сеткой из одного элемента
+/// (таск 18: код декодирования один, конфигураций может быть несколько).
+fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result<ReplayStats> {
+    let mut out = replay_symbol_over_configs(root, symbol, std::slice::from_ref(&cfg))?;
+    Ok(out
+        .pop()
+        .expect("replay_symbol_over_configs с одним cfg обязан вернуть один ReplayStats"))
 }
 
 fn side_name(side: Side) -> &'static str {
@@ -891,6 +1078,120 @@ mod tests {
         assert!(
             err.to_string().contains("h3-lots") || err.to_string().contains("floor"),
             "сообщение обязано назвать конфликт --h3-lots/--h3-mode floor: {err}"
+        );
+    }
+
+    /// Критерий приёмки таска 18 (В-30/D05): `--h3-k` вместе с
+    /// `--h3-mode percentile` — громкая ошибка, `k` параметризует только
+    /// относительный порог `floor`.
+    #[test]
+    fn resolve_h3_mode_with_k_rejects_h3_k_with_percentile() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = resolve_h3_mode_with_k(
+            dir.path(),
+            "SOLUSDT",
+            H3ModeArg::Percentile,
+            Some(5),
+            Some(2.0),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("h3-k") || err.to_string().contains("percentile"),
+            "сообщение обязано назвать конфликт --h3-k/--h3-mode percentile: {err}"
+        );
+    }
+
+    /// `--h3-k` с `floor` считает `h3_lots = floor(k × median_trade_lots)`
+    /// из колонки `instruments.csv`, не колонку `h3_lots` (та пустая в этой
+    /// фикстуре — читатель обязан её не тронуть).
+    #[test]
+    fn resolve_h3_mode_with_k_computes_floor_from_median_trade_lots() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            instruments_csv_path(dir.path()),
+            "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots,k,median_trade_lots\n\
+             SOLUSDT,0.01,0.1,0.1,5,,,7\n",
+        )
+        .unwrap();
+        let mode = resolve_h3_mode_with_k(dir.path(), "SOLUSDT", H3ModeArg::Floor, None, Some(1.5))
+            .unwrap();
+        assert_eq!(mode, H3Mode::Floor { h3_lots: 10 }, "floor(1.5*7) = 10");
+    }
+
+    #[test]
+    fn median_trade_lots_for_symbol_reads_the_column() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            instruments_csv_path(dir.path()),
+            "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots,k,median_trade_lots\n\
+             SOLUSDT,0.01,0.1,0.1,5,10,2.0,7\n",
+        )
+        .unwrap();
+        assert_eq!(
+            median_trade_lots_for_symbol(&instruments_csv_path(dir.path()), "SOLUSDT").unwrap(),
+            7
+        );
+    }
+
+    #[test]
+    fn median_trade_lots_for_symbol_errors_without_the_column() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            instruments_csv_path(dir.path()),
+            "symbol,tick_size,min_order_qty,qty_step,min_notional_value\nSOLUSDT,0.01,0.1,0.1,5\n",
+        )
+        .unwrap();
+        let err =
+            median_trade_lots_for_symbol(&instruments_csv_path(dir.path()), "SOLUSDT").unwrap_err();
+        assert!(
+            err.to_string().contains("median_trade_lots"),
+            "сообщение обязано назвать недостающую колонку: {err}"
+        );
+    }
+
+    /// Критерий приёмки таска 18: сетка `k` пилота кормится одним
+    /// декодированием бинлога, не пятью — `replay_symbol_over_configs` на
+    /// нескольких порогах разом обязан дать те же числа, что отдельные
+    /// вызовы `replay_symbol` на каждом пороге по отдельности, и разный
+    /// порог обязан дать разный (не больший при большем пороге) счёт
+    /// уровней на этой фикстуре.
+    #[test]
+    fn replay_symbol_over_configs_matches_single_config_replay_per_threshold() {
+        let dir = tempfile::tempdir().unwrap();
+        test_support::write_day(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-08",
+            &test_support::three_level_frames(),
+        );
+        let cfg_low = LevelsConfig {
+            mode: H3Mode::Floor { h3_lots: 1 },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+        };
+        let cfg_high = LevelsConfig {
+            mode: H3Mode::Floor { h3_lots: 9 },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+        };
+        let multi =
+            replay_symbol_over_configs(dir.path(), "SOLUSDT", &[cfg_low, cfg_high]).unwrap();
+        let single_low = replay_symbol(dir.path(), "SOLUSDT", cfg_low).unwrap();
+        let single_high = replay_symbol(dir.path(), "SOLUSDT", cfg_high).unwrap();
+        assert_eq!(multi.len(), 2);
+        assert_eq!(
+            multi[0].days[0].records.len(),
+            single_low.days[0].records.len()
+        );
+        assert_eq!(
+            multi[1].days[0].records.len(),
+            single_high.days[0].records.len()
+        );
+        assert!(
+            multi[1].days[0].records.len() <= multi[0].days[0].records.len(),
+            "выше порог — не больше рождений: {} vs {}",
+            multi[1].days[0].records.len(),
+            multi[0].days[0].records.len()
         );
     }
 

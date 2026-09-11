@@ -16,7 +16,7 @@ use clap::Args;
 use crate::lob::levels::LevelsConfig;
 
 use super::{
-    death_name, outcome_name, replay_symbol, resolve_h3_mode, side_name, H3Args,
+    death_name, outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name, H3Args,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 
@@ -38,6 +38,16 @@ pub struct LevelsArgs {
     /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
     #[command(flatten)]
     pub h3: H3Args,
+    /// Множитель относительного порога `floor` (таск 18, В-30/D05):
+    /// `h3_lots = floor(k × median_trade_lots)` из `instruments.csv`
+    /// (`lob pick`), а не готовая колонка `h3_lots`. Только `--h3-mode
+    /// floor`; вместе с `percentile` — ошибка (`resolve_h3_mode_with_k`).
+    /// Не поле `H3Args`: та структура флаттенится в `markout`/`watch`/
+    /// `profiles`/`shortlist` (таск 17), а добавление обязательного (по
+    /// смыслу) поля туда потребовало бы правки всех точек `H3Args {...}` в
+    /// тех файлах — вне зоны и границ таска 18 («не трогать»).
+    #[arg(long)]
+    pub h3_k: Option<f64>,
     /// Прогрев в мс: только режим `percentile`; `floor` не читает.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -73,7 +83,13 @@ fn day_span_ms(day: &super::ReplayDay) -> i64 {
 /// CSV: `repeat_count` в таких сутках занижен, данными это не является
 /// (критерий приёмки таска 02).
 pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
-    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3.h3_mode, args.h3.h3_lots)?;
+    let mode = resolve_h3_mode_with_k(
+        &args.root,
+        &args.symbol,
+        args.h3.h3_mode,
+        args.h3.h3_lots,
+        args.h3_k,
+    )?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
@@ -169,6 +185,7 @@ mod tests {
                 h3_mode: H3ModeArg::Percentile,
                 h3_lots: Some(5),
             },
+            h3_k: None,
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -256,6 +273,72 @@ mod tests {
         assert_eq!(
             summary.levels, 4,
             "floor с h3_lots=5 из instruments.csv обязан дать тот же результат, что percentile с --h3-lots 5"
+        );
+    }
+
+    /// `instruments.csv` с колонкой `median_trade_lots`, без готового
+    /// `h3_lots` — фикстура `--h3-k` (таск 18, В-30/D05).
+    fn write_instruments_csv_with_median_trade_lots(
+        root: &std::path::Path,
+        symbol: &str,
+        median_trade_lots: i64,
+    ) {
+        std::fs::write(
+            instruments_csv_path(root),
+            format!(
+                "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots,k,median_trade_lots\n\
+                 {symbol},0.01,0.1,0.1,5,,,{median_trade_lots}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Критерий приёмки таска 18: `--h3-mode floor --h3-k <f64>` считает
+    /// порог как `floor(k × median_trade_lots)` из `instruments.csv` на
+    /// лету, не колонку `h3_lots` (пустая в этой фикстуре) — тот же
+    /// результат, что `floor_mode_reads_h3_lots_from_instruments_csv` даёт
+    /// готовой колонкой `h3_lots=5` (здесь `k=1.0 × median=5 → 5`).
+    #[test]
+    fn floor_mode_with_h3_k_computes_threshold_from_median_trade_lots() {
+        let dir = tempfile::tempdir().unwrap();
+        super::super::test_support::write_day(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-08",
+            &super::super::test_support::three_level_frames(),
+        );
+        write_instruments_csv_with_median_trade_lots(dir.path(), "SOLUSDT", 5);
+        let mut args = levels_args(dir.path());
+        args.h3.h3_mode = H3ModeArg::Floor;
+        args.h3.h3_lots = None;
+        args.h3_k = Some(1.0);
+        let summary = run_levels(&args).unwrap();
+        assert_eq!(
+            summary.levels, 4,
+            "k=1.0 × median=5 обязан дать тот же порог 5, что готовая колонка h3_lots=5"
+        );
+    }
+
+    /// Критерий приёмки таска 18: `--h3-k` вместе с `--h3-mode percentile`
+    /// — громкая ошибка, `k` параметризует только относительный порог
+    /// `floor` (В-30/D05).
+    #[test]
+    fn h3_k_with_percentile_mode_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        super::super::test_support::write_day(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-08",
+            &super::super::test_support::three_level_frames(),
+        );
+        let mut args = levels_args(dir.path());
+        args.h3.h3_mode = H3ModeArg::Percentile;
+        args.h3.h3_lots = Some(5);
+        args.h3_k = Some(2.0);
+        let err = run_levels(&args).unwrap_err();
+        assert!(
+            err.to_string().contains("h3-k") || err.to_string().contains("percentile"),
+            "сообщение обязано указать на конфликт --h3-k/--h3-mode percentile: {err}"
         );
     }
 

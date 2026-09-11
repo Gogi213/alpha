@@ -75,10 +75,13 @@ use crate::stats::{count_f64, count_f64_u64, count_u64, BOOTSTRAP_REPLICATIONS, 
 use super::backtest::{run_backtest, BacktestArgs};
 use super::levels::{run_levels, LevelsArgs};
 use super::markout::{run_markout, MarkoutArgs};
-use super::pick::order_size_22a;
+use super::pick::{h3_lots_floor, order_size_22a};
 use super::profiles::{run_profiles, ProfilesArgs};
 use super::session::{run_session, SessionArgs};
-use super::{replay_symbol, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED};
+use super::{
+    median_trade_lots_for_symbol, replay_symbol, replay_symbol_over_configs,
+    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
+};
 use super::{resolve_h3_mode, ExecutionArgs, H3Args, H3ModeArg};
 
 // ---------------------------------------------------------------------------
@@ -386,6 +389,7 @@ pub fn process_instrument(
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
         },
+        h3_k: None,
         warmup_ms,
         repeat_window_ms,
         out: Some(verify_root.join(format!("levels-floor-{symbol}.csv"))),
@@ -399,6 +403,7 @@ pub fn process_instrument(
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(floor_h3_lots),
         },
+        h3_k: None,
         warmup_ms,
         repeat_window_ms,
         out: Some(verify_root.join(format!("levels-percentile-{symbol}.csv"))),
@@ -593,6 +598,221 @@ fn format_instrument_line(m: &InstrumentMetrics) -> String {
         format_opt(m.sharpe),
         if m.verify_ok { "ok" } else { "fail" },
     )
+}
+
+// ---------------------------------------------------------------------------
+// Сетка `k` (таск 18, `SETTLED.md` В-30, `manifest.md` D05): владелец на
+// вопрос о числе `k` — «не знаю надо методологию определения динамического
+// порога сформулировать», методологию сформулировал оркестратор и записал
+// как В-30. `k` не назначается рукой: двухчасовой пилот считает ставку
+// уровней в минуту и долю `eaten` по предрегистрированной сетке и берёт
+// наименьшее `k`, при котором медианный инструмент проходит G0 (`PLAN.md`
+// §6: ≥ 200 уровней за зачтённый час) и G1 (§6: `eaten` ≥ 5%). Один реплей
+// на инструмент, не пять: `k_grid_for_instrument` читает
+// `median_trade_lots` один раз и кормит все пять порогов
+// `super::replay_symbol_over_configs` разом — та функция декодирует бинлог
+// один раз и раздаёт кадры пяти трекерам (`interfaces.md`, «Из таска 18»).
+// ---------------------------------------------------------------------------
+
+/// Предрегистрированная сетка `k` (`SETTLED.md` В-30, `manifest.md` D05):
+/// «k выбирает двухчасовой пилот ... по предрегистрированной сетке k ∈ {2,
+/// 5, 10, 20, 50}». Не изобретённое число: сетка зафиксирована методологией
+/// до всякого прогона, владелец явно отказался назначать `k` рукой.
+pub const K_GRID: [f64; 5] = [2.0, 5.0, 10.0, 20.0, 50.0];
+
+/// Доля `eaten` гейта G1 (`PLAN.md` §6: «`eaten` и `pulled` обе ≥ 5%») —
+/// переиспользует уже закоммиченный гейт `lob::markup::G1_MIN_SHARE_NUM`/
+/// `_DEN` (1/20), а не второй литерал `0.05`: изобретённое число запрещено,
+/// а этот порог уже назначен и живёт в одном месте (`markup.rs`, гейт G1
+/// исхода уровня — то же число из того же пункта плана, не совпадение).
+fn g1_min_eaten_share() -> f64 {
+    count_f64_u64(crate::lob::markup::G1_MIN_SHARE_NUM)
+        / count_f64_u64(crate::lob::markup::G1_MIN_SHARE_DEN)
+}
+
+/// Одна строка сетки `k` одного инструмента: число уровней, ставка в
+/// минуту и доля `eaten` при пороге `h3_lots = floor(k × median_trade_lots)`.
+#[derive(Debug, Clone, Copy)]
+pub struct KGridInstrumentRow {
+    pub k: f64,
+    pub levels: usize,
+    pub rate_per_min: f64,
+    pub eaten_share: f64,
+}
+
+/// Сетка `k` одного инструмента, один реплей бинлога (критерий приёмки
+/// таска 18: «за один реплей на инструмент», не пять): `median_trade_lots`
+/// читается один раз из `instruments.csv` (`super::
+/// median_trade_lots_for_symbol`), пороги `h3_lots` для всех пяти `k` из
+/// `K_GRID` собираются в пять `LevelsConfig::Floor`, и `super::
+/// replay_symbol_over_configs` кормит все пять трекеров кадрами одного
+/// декодирования. Хвостовой фильтр («второй час» §11) — тот же приём, что
+/// `process_instrument`/`counted_tail_cutoff_ms`: `None` — вся выборка
+/// (`--debug`), `Some(t)` — только хвост в `t` минут (боевой путь).
+fn k_grid_for_instrument(
+    root: &Path,
+    symbol: &str,
+    repeat_window_ms: i64,
+    window_minutes: f64,
+    counted_tail_minutes: Option<f64>,
+) -> anyhow::Result<Vec<KGridInstrumentRow>> {
+    let instruments_csv = crate::commands::record::instruments_csv_path(root);
+    let median = median_trade_lots_for_symbol(&instruments_csv, symbol)?;
+    let cfgs: Vec<LevelsConfig> = K_GRID
+        .iter()
+        .map(|&k| {
+            let h3_lots = h3_lots_floor(Some(median), k)
+                .ok_or_else(|| anyhow::anyhow!("{symbol}: h3_lots_floor(k={k}) не посчитался"))?;
+            anyhow::ensure!(
+                h3_lots > 0,
+                "{symbol}: h3_lots(k={k}) обязан быть положителен (медиана={median}), получено {h3_lots}"
+            );
+            Ok(LevelsConfig {
+                mode: H3Mode::Floor { h3_lots },
+                warmup_ms: 0,
+                repeat_window_ms,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let replay_per_k = replay_symbol_over_configs(root, symbol, &cfgs)?;
+
+    let global_max_ts_ms = replay_per_k[0]
+        .days
+        .iter()
+        .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
+        .max();
+    let cutoff_ms = counted_tail_cutoff_ms(global_max_ts_ms, counted_tail_minutes);
+    let effective_minutes = match (cutoff_ms, counted_tail_minutes) {
+        (Some(_), Some(t)) => t,
+        _ => window_minutes,
+    };
+    let effective_minutes = if effective_minutes > 0.0 {
+        effective_minutes
+    } else {
+        f64::INFINITY
+    };
+
+    let mut rows = Vec::with_capacity(K_GRID.len());
+    for (i, &k) in K_GRID.iter().enumerate() {
+        let mut levels = 0usize;
+        let mut eaten = 0usize;
+        for day in &replay_per_k[i].days {
+            for rec in &day.records {
+                if cutoff_ms.is_some_and(|c| rec.birth_ms < c) {
+                    continue;
+                }
+                levels += 1;
+                if rec.outcome() == Outcome::Eaten {
+                    eaten += 1;
+                }
+            }
+        }
+        let eaten_share = if levels > 0 {
+            count_f64(eaten) / count_f64(levels)
+        } else {
+            0.0
+        };
+        rows.push(KGridInstrumentRow {
+            k,
+            levels,
+            rate_per_min: count_f64(levels) / effective_minutes,
+            eaten_share,
+        });
+    }
+    Ok(rows)
+}
+
+/// Одна строка сводки `k -> rate/eaten/G0/G1` по медианному инструменту
+/// пула (критерий приёмки таска 18).
+#[derive(Debug, Clone, Copy)]
+pub struct KGridSummaryRow {
+    pub k: f64,
+    pub median_rate_per_hour: f64,
+    pub median_eaten_share: f64,
+    pub g0_pass: bool,
+    pub g1_pass: bool,
+}
+
+/// Сводка по пулу: медиана ставки (в час) и доли `eaten` на каждый `k`
+/// сетки — тот же приём «медианный инструмент», что `g0_verdict` уже
+/// использует для ставки `H3`. G0/G1 — гейты §6 плана.
+pub fn summarize_k_grid(
+    per_instrument: &[(String, Vec<KGridInstrumentRow>)],
+) -> Vec<KGridSummaryRow> {
+    let g1_threshold = g1_min_eaten_share();
+    (0..K_GRID.len())
+        .map(|i| {
+            let mut rates: Vec<f64> = per_instrument
+                .iter()
+                .map(|(_, rows)| rows[i].rate_per_min * 60.0)
+                .collect();
+            let mut eatens: Vec<f64> = per_instrument
+                .iter()
+                .map(|(_, rows)| rows[i].eaten_share)
+                .collect();
+            rates.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            eatens.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let median_rate = median(&rates).unwrap_or(0.0);
+            let median_eaten = median(&eatens).unwrap_or(0.0);
+            KGridSummaryRow {
+                k: K_GRID[i],
+                median_rate_per_hour: median_rate,
+                median_eaten_share: median_eaten,
+                g0_pass: median_rate >= count_f64_u64(G0_MIN_PULLED),
+                g1_pass: median_eaten >= g1_threshold,
+            }
+        })
+        .collect()
+}
+
+/// Выбор `k` (таск 18, В-30/D05): наименьшее `k` сетки (сетка уже по
+/// возрастанию), при котором медианный инструмент проходит оба гейта
+/// разом. Нет такого — `None`: печатается как «не определим», отдельно от
+/// красного про рынок (критерий приёмки).
+pub fn choose_k(summary: &[KGridSummaryRow]) -> Option<f64> {
+    summary.iter().find(|r| r.g0_pass && r.g1_pass).map(|r| r.k)
+}
+
+/// Печать таблицы `k -> rate/eaten/G0/G1` — по инструментам и по
+/// медианному инструменту (критерий приёмки таска 18): `debug` — метка
+/// `[debug]` на каждой строке, потому что ставка в `--debug` —
+/// экстраполяция `rate/min × 60` на прогоне короче часа, не измеренный час
+/// (боевой путь мерит настоящий зачтённый час/хвост — без метки).
+fn format_k_grid_lines(
+    per_instrument: &[(String, Vec<KGridInstrumentRow>)],
+    summary: &[KGridSummaryRow],
+    debug: bool,
+) -> Vec<String> {
+    let debug_suffix = if debug { " [debug]" } else { "" };
+    let mut lines = Vec::new();
+    for (symbol, rows) in per_instrument {
+        for row in rows {
+            lines.push(format!(
+                "pilot k-grid: {symbol} k={:.1} levels={} rate={:.3}/min eaten_share={:.3}{debug_suffix}",
+                row.k, row.levels, row.rate_per_min, row.eaten_share
+            ));
+        }
+    }
+    for row in summary {
+        lines.push(format!(
+            "pilot k-grid: median k={:.1} rate_per_hour={:.1} eaten_share={:.3} G0={} G1={}{debug_suffix}",
+            row.k,
+            row.median_rate_per_hour,
+            row.median_eaten_share,
+            if row.g0_pass { "pass" } else { "fail" },
+            if row.g1_pass { "pass" } else { "fail" },
+        ));
+    }
+    match choose_k(summary) {
+        Some(k) => lines.push(format!(
+            "pilot k-grid: k выбран={k:.1} (h3 floor, G0 и G1 пройдены на медианном инструменте){debug_suffix}"
+        )),
+        None => lines.push(format!(
+            "pilot k-grid: k: не определим (порог не задан по данным){debug_suffix}"
+        )),
+    }
+    lines
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,6 +1249,30 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         println!("{line}");
     }
 
+    // Сетка k (таск 18, В-30/D05): один реплей на инструмент
+    // (`replay_symbol_over_configs`, не пять), ставка/eaten по каждому k
+    // из `K_GRID`; в `--debug` окно короче часа — ставка экстраполирована
+    // (метка `[debug]` в печати), выбор здесь не является боевым вердиктом.
+    let mut k_grid_per_instrument: Vec<(String, Vec<KGridInstrumentRow>)> = Vec::new();
+    for symbol in &session_summary.instruments {
+        match k_grid_for_instrument(
+            &replay_dir,
+            symbol,
+            args.repeat_window_ms,
+            minutes as f64,
+            None,
+        ) {
+            Ok(rows) => k_grid_per_instrument.push((symbol.clone(), rows)),
+            Err(e) => println!("pilot k-grid: {symbol} — упал: {e}"),
+        }
+    }
+    if !k_grid_per_instrument.is_empty() {
+        let k_grid_summary = summarize_k_grid(&k_grid_per_instrument);
+        for line in format_k_grid_lines(&k_grid_per_instrument, &k_grid_summary, true) {
+            println!("{line}");
+        }
+    }
+
     // Хвост цепочки G-DEBUG: profiles по всему пулу, затем backtest на
     // сигналах каждого символа (шаг 09(б)) — первый дефект тут учитывается
     // только если per-instrument цепочка выше уже прошла без дефекта (тот
@@ -1234,23 +1478,41 @@ pub fn power_b_gap(measured_sharpe: f64, required_sharpe: f64) -> f64 {
 /// пилота и **до** первой сессии сбора — режим `H3` и его `k`, границы оси
 /// повторяемости, глубина креста профилей, число сессий на профиль,
 /// правило остановки в сессиях, хост и его RTT. Печатает только **форму** —
-/// имена полей и откуда каждое берётся, ни одного числа: числа даёт
-/// исключительно боевой (не отладочный, не синтетический) пилот, а этот
-/// таск его не запускает («k» для `--h3-k` и ключи для G-LAT — у владельца,
-/// см. `CONCERNS`). Подставлять правдоподобные числа здесь запрещено §9
-/// плана («изобретённое число запрещено везде»).
-pub fn stage2_preregistration_skeleton() -> String {
+/// имена полей и откуда каждое берётся, ни одного числа, за одним
+/// исключением (таск 18, В-30/D05): `selected_h3` — пара `(режим, k)`,
+/// которую даёт сетка `K_GRID` этого же боевого пилота (`choose_k`), а не
+/// изобретённое число; `None` — сетка не выбрала ни один `k` («не
+/// определим» — красный по построению), и строки остаются плейсхолдером,
+/// как раньше. Остальные поля числа не получают: их источник (`lob probe`,
+/// границы повторяемости, …) этот таск не считает — см. `CONCERNS`.
+pub fn stage2_preregistration_skeleton(selected_h3: Option<(&str, f64)>) -> String {
+    let h3_mode_line = match selected_h3 {
+        Some((mode, _)) => {
+            format!("  h3_mode: {mode} — наименьшее k сетки K_GRID (В-30/D05), прошедшее G0 и G1 на этом пилоте")
+        }
+        None => "  h3_mode: <floor|percentile — какой дал заявленный G0/G-POWER-B на этом пилоте>"
+            .to_string(),
+    };
+    let h3_k_line = match selected_h3 {
+        Some((_, k)) => {
+            format!("  h3_k: {k} — наименьшее k сетки K_GRID (В-30/D05), прошедшее G0 и G1 на этом пилоте")
+        }
+        None => {
+            "  h3_k: <k для --h3-k — сравнение ставок floor/percentile на этом пилоте>".to_string()
+        }
+    };
     [
-        "предрегистрация, этап 2 (В-29) — коммитом после боевого пилота, до первой сессии сбора:",
-        "  h3_mode: <floor|percentile — какой дал заявленный G0/G-POWER-B на этом пилоте>",
-        "  h3_k: <k для --h3-k — сравнение ставок floor/percentile на этом пилоте>",
-        "  repeat_axis_bounds: <границы корзин повторяемости 1 / 2 / >=3 — по распределению repeat_count>",
-        "  profile_grid_depth: <глубина креста профилей — из ставки уровней в минуту>",
-        "  sessions_per_profile: <sessions_needed_for_profile(ставка, длина сессии, CONFIRM_MIN_N)>",
-        "  stopping_rule_sessions: <правило остановки сбора в сессиях>",
-        "  host_id: <хост, на котором мерялась RTT>",
-        "  rtt_median_ns / rtt_p95_ns: <lob probe / clock.csv этого пилота>",
-        "  committed_after_pilot_run: <путь и момент боевого пилота, который дал эти числа>",
+        "предрегистрация, этап 2 (В-29) — коммитом после боевого пилота, до первой сессии сбора:"
+            .to_string(),
+        h3_mode_line,
+        h3_k_line,
+        "  repeat_axis_bounds: <границы корзин повторяемости 1 / 2 / >=3 — по распределению repeat_count>".to_string(),
+        "  profile_grid_depth: <глубина креста профилей — из ставки уровней в минуту>".to_string(),
+        "  sessions_per_profile: <sessions_needed_for_profile(ставка, длина сессии, CONFIRM_MIN_N)>".to_string(),
+        "  stopping_rule_sessions: <правило остановки сбора в сессиях>".to_string(),
+        "  host_id: <хост, на котором мерялась RTT>".to_string(),
+        "  rtt_median_ns / rtt_p95_ns: <lob probe / clock.csv этого пилота>".to_string(),
+        "  committed_after_pilot_run: <путь и момент боевого пилота, который дал эти числа>".to_string(),
     ]
     .join("\n")
 }
@@ -1345,7 +1607,35 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         power_summary.required_sharpe
     );
 
-    for line in stage2_preregistration_skeleton().lines() {
+    // Сетка k (таск 18, В-30/D05): один реплей на инструмент
+    // (`replay_symbol_over_configs`), хвост «второй час» §11 — тот же
+    // фильтр, что `process_instrument` уже применяет к остальным числам
+    // боевого пути. Выбор здесь — вход предрегистрации этапа 2, не второй
+    // вердикт G0/G1 (тот уже напечатан выше, по базовому floor-порогу пула).
+    let mut k_grid_per_instrument: Vec<(String, Vec<KGridInstrumentRow>)> = Vec::new();
+    for symbol in &symbols {
+        match k_grid_for_instrument(
+            &args.root,
+            symbol,
+            args.repeat_window_ms,
+            window_minutes,
+            Some(count_f64_u64(BATTLE_COUNTED_TAIL_MINUTES)),
+        ) {
+            Ok(rows) => k_grid_per_instrument.push((symbol.clone(), rows)),
+            Err(e) => println!("pilot k-grid: {symbol} — упал: {e}"),
+        }
+    }
+    let chosen_k = if k_grid_per_instrument.is_empty() {
+        None
+    } else {
+        let k_grid_summary = summarize_k_grid(&k_grid_per_instrument);
+        for line in format_k_grid_lines(&k_grid_per_instrument, &k_grid_summary, false) {
+            println!("{line}");
+        }
+        choose_k(&k_grid_summary)
+    };
+
+    for line in stage2_preregistration_skeleton(chosen_k.map(|k| ("floor", k))).lines() {
         println!("pilot battle: {line}");
     }
 
@@ -1486,6 +1776,162 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    // -----------------------------------------------------------------
+    // Сетка `k` (таск 18, В-30/D05): `k_grid_for_instrument`,
+    // `summarize_k_grid`, `choose_k`, `format_k_grid_lines` — синтетика.
+    // -----------------------------------------------------------------
+
+    fn write_instruments_csv_with_median_trade_lots(
+        root: &std::path::Path,
+        symbol: &str,
+        median_trade_lots: i64,
+    ) {
+        std::fs::write(
+            crate::commands::record::instruments_csv_path(root),
+            format!(
+                "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots,k,median_trade_lots\n\
+                 {symbol},0.01,0.1,0.1,5,,,{median_trade_lots}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Критерий приёмки таска 18: ставка (число рождённых уровней) не
+    /// растёт с `k` — фикстура `three_level_frames` рождает уровни только
+    /// при размере строго больше порога, максимум размера в ней — 10 лотов,
+    /// так что при `median_trade_lots=1` пороги `K_GRID` дают `[2,5,10,20,
+    /// 50]`: рождения есть на `k=2,5` (порог < 10) и ровно ноль на `k>=10`
+    /// (порог рождения строгий — 10 не рождает уровень с максимумом 10).
+    #[test]
+    fn k_grid_for_instrument_rate_is_non_increasing_in_k() {
+        let dir = tempfile::tempdir().unwrap();
+        super::super::test_support::write_day(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-08",
+            &super::super::test_support::three_level_frames(),
+        );
+        write_instruments_csv_with_median_trade_lots(dir.path(), "SOLUSDT", 1);
+        let rows = k_grid_for_instrument(dir.path(), "SOLUSDT", 3_600_000, 5.0, None)
+            .expect("сетка обязана посчитаться на фикстуре");
+        assert_eq!(rows.len(), K_GRID.len());
+        for pair in rows.windows(2) {
+            assert!(
+                pair[0].levels >= pair[1].levels,
+                "ставка обязана не расти с k: {rows:?}"
+            );
+        }
+        assert!(rows[0].levels > 0, "на малом k уровни обязаны рождаться");
+        assert!(
+            rows.last().unwrap().levels == 0,
+            "на k=50 (порог 50 > максимума фикстуры 10) уровни не рождаются: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn choose_k_picks_the_smallest_k_that_passes_both_gates() {
+        let summary = vec![
+            KGridSummaryRow {
+                k: 2.0,
+                median_rate_per_hour: 500.0,
+                median_eaten_share: 0.01,
+                g0_pass: true,
+                g1_pass: false,
+            },
+            KGridSummaryRow {
+                k: 5.0,
+                median_rate_per_hour: 300.0,
+                median_eaten_share: 0.06,
+                g0_pass: true,
+                g1_pass: true,
+            },
+            KGridSummaryRow {
+                k: 10.0,
+                median_rate_per_hour: 100.0,
+                median_eaten_share: 0.08,
+                g0_pass: false,
+                g1_pass: true,
+            },
+        ];
+        assert_eq!(
+            choose_k(&summary),
+            Some(5.0),
+            "k=2 проваливает G1, k=5 — первый, прошедший оба гейта разом"
+        );
+    }
+
+    /// Критерий приёмки таска 18: нет `k`, прошедшего оба гейта разом —
+    /// `choose_k` обязан вернуть `None` («не определим», красный по
+    /// построению, не про рынок).
+    #[test]
+    fn choose_k_returns_none_when_no_k_passes_both_gates() {
+        let summary = vec![
+            KGridSummaryRow {
+                k: 2.0,
+                median_rate_per_hour: 500.0,
+                median_eaten_share: 0.01,
+                g0_pass: true,
+                g1_pass: false,
+            },
+            KGridSummaryRow {
+                k: 50.0,
+                median_rate_per_hour: 50.0,
+                median_eaten_share: 0.09,
+                g0_pass: false,
+                g1_pass: true,
+            },
+        ];
+        assert_eq!(choose_k(&summary), None);
+    }
+
+    #[test]
+    fn format_k_grid_lines_names_the_chosen_k_or_says_not_determined() {
+        let passing = vec![KGridSummaryRow {
+            k: 5.0,
+            median_rate_per_hour: 300.0,
+            median_eaten_share: 0.06,
+            g0_pass: true,
+            g1_pass: true,
+        }];
+        let chosen = format_k_grid_lines(&[], &passing, false);
+        assert!(chosen.iter().any(|l| l.contains("выбран=5")), "{chosen:?}");
+
+        let failing = vec![KGridSummaryRow {
+            k: 5.0,
+            median_rate_per_hour: 300.0,
+            median_eaten_share: 0.01,
+            g0_pass: true,
+            g1_pass: false,
+        }];
+        let none = format_k_grid_lines(&[], &failing, true);
+        assert!(
+            none.iter()
+                .any(|l| l.contains("не определим") && l.contains("[debug]")),
+            "{none:?}"
+        );
+    }
+
+    /// Критерий приёмки таска 18: выбранные режим и `k` заполняют
+    /// `stage2_preregistration_skeleton` числами, остальные поля остаются
+    /// плейсхолдером.
+    #[test]
+    fn stage2_preregistration_skeleton_fills_h3_mode_and_k_when_selected() {
+        let text = stage2_preregistration_skeleton(Some(("floor", 5.0)));
+        assert!(text.contains("h3_mode: floor"), "{text}");
+        assert!(text.contains("h3_k: 5"), "{text}");
+        assert!(
+            text.contains("repeat_axis_bounds: <"),
+            "остальные поля обязаны остаться плейсхолдером: {text}"
+        );
+    }
+
+    #[test]
+    fn stage2_preregistration_skeleton_keeps_placeholders_when_not_selected() {
+        let text = stage2_preregistration_skeleton(None);
+        assert!(text.contains("h3_mode: <floor|percentile"), "{text}");
+        assert!(text.contains("h3_k: <k для --h3-k"), "{text}");
     }
 
     #[test]
