@@ -9,6 +9,7 @@ use clap::Args;
 use crate::lob::levels::LevelsConfig;
 use crate::lob::watch::{progress_csv_path, WatchState};
 
+use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{day_tallies, replay_symbol, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 // ---------------------------------------------------------------------------
@@ -28,9 +29,14 @@ pub struct WatchArgs {
     /// не только на одного назначенного из двух.
     #[arg(long)]
     pub symbol: String,
-    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3,
+    /// тот же выбор, что у `levels`).
     #[arg(long)]
-    pub h3_lots: i64,
+    pub h3_mode: H3ModeArg,
+    /// Порог рождения H3 в лотах: только режим `percentile` (тот же смысл,
+    /// что у `levels`); `floor` берёт число из `instruments.csv`.
+    #[arg(long)]
+    pub h3_lots: Option<i64>,
     /// Прогрев в мс.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -59,8 +65,9 @@ pub struct WatchSummary {
 /// переписать прогресс, при срабатывании триггера выставить флаг — ровно
 /// один раз (`WatchState::observe_day`).
 pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
     let cfg = LevelsConfig {
-        h3_lots: args.h3_lots,
+        mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
@@ -144,7 +151,8 @@ mod tests {
         let args = WatchArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_lots: 5,
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             median_lifetime_ms: 3_600_000,

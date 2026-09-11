@@ -12,6 +12,7 @@ use crate::lob::markout::{markouts_for_level, HORIZONS_MS};
 use crate::lob::markup::{run_confirmatory, ConfirmatoryDay};
 use crate::lob::watch::{ready_flag_path, require_ready_flag};
 
+use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{
     day_tallies, outcome_name, replay_symbol, side_name, some_or_empty, ReplayDay,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
@@ -33,9 +34,14 @@ pub struct MarkoutArgs {
     /// Символ, например `SOLUSDT`.
     #[arg(long)]
     pub symbol: String,
-    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3,
+    /// тот же выбор, что у `levels`).
     #[arg(long)]
-    pub h3_lots: i64,
+    pub h3_mode: H3ModeArg,
+    /// Порог рождения H3 в лотах: только режим `percentile` (тот же смысл,
+    /// что у `levels`); `floor` берёт число из `instruments.csv`.
+    #[arg(long)]
+    pub h3_lots: Option<i64>,
     /// Прогрев в мс.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -140,8 +146,9 @@ fn horizon_line(per_horizon: &[Vec<f64>; 4]) -> String {
 
 /// Разведочный markout: все сутки корня, флаг не требуется и не читается.
 fn run_markout_exploratory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary> {
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
     let cfg = LevelsConfig {
-        h3_lots: args.h3_lots,
+        mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
@@ -174,8 +181,9 @@ fn run_markout_confirmatory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary
     let median = args.median_lifetime_ms.ok_or_else(|| {
         anyhow::anyhow!("--confirmatory требует --median-lifetime-ms (Decision 16)")
     })?;
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
     let cfg = LevelsConfig {
-        h3_lots: args.h3_lots,
+        mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
@@ -248,7 +256,8 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_lots: 5,
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,
@@ -288,7 +297,8 @@ mod tests {
         let args = MarkoutArgs {
             root: dir.path().to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_lots: 5,
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             out: None,

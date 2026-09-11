@@ -14,6 +14,7 @@ use crate::lob::markout::{base_before, markouts_for_level, MidSample, HORIZONS_M
 use crate::lob::runs::log_pilot_run;
 use crate::lob::watch::is_c1;
 
+use super::levels::{resolve_h3_mode, H3ModeArg};
 use super::{replay_symbol, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED};
 
 // ---------------------------------------------------------------------------
@@ -33,9 +34,14 @@ pub struct PilotArgs {
     /// пула (см. `PickReport`/`runs.rs`), не на двух назначенных.
     #[arg(long)]
     pub symbol: String,
-    /// Порог рождения H3 в лотах (тот же, что у `levels`).
+    /// Режим порога H3: `floor` | `percentile`, без умолчания (план D-H3,
+    /// тот же выбор, что у `levels`).
     #[arg(long)]
-    pub h3_lots: i64,
+    pub h3_mode: H3ModeArg,
+    /// Порог рождения H3 в лотах: только режим `percentile` (тот же смысл,
+    /// что у `levels`); `floor` берёт число из `instruments.csv`.
+    #[arg(long)]
+    pub h3_lots: Option<i64>,
     /// Прогрев в мс.
     #[arg(long, default_value_t = DEFAULT_WARMUP_MS)]
     pub warmup_ms: i64,
@@ -85,8 +91,9 @@ pub fn run_pilot(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         HORIZONS_MS[2], 10_000,
         "индекс горизонта 10 с обязан указывать на 10 000 мс"
     );
+    let mode = resolve_h3_mode(&args.root, &args.symbol, args.h3_mode, args.h3_lots)?;
     let cfg = LevelsConfig {
-        h3_lots: args.h3_lots,
+        mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
@@ -199,7 +206,8 @@ mod tests {
         PilotArgs {
             root: root.to_path_buf(),
             symbol: "SOLUSDT".to_string(),
-            h3_lots: 5,
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
             warmup_ms: 0,
             repeat_window_ms: 3_600_000,
             maker_fee_bps: 2.0,

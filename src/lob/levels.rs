@@ -34,7 +34,9 @@
 //! - Прогрев: рождения раньше `первый_кадр + warmup_ms` отслеживаются (нужны
 //!   для `repeat_count`), но в выборку не попадают. Уровень, видимый уже в
 //!   первом кадре с размером выше порога, считается рождённым в первом кадре:
-//!   более ранней метки у реплея нет.
+//!   более ранней метки у реплея нет. **В режиме `floor` (`H3Mode`) прогрева
+//!   нет вовсе** — эмиссия начинается с первого рождения; `warmup_ms`
+//!   конфигурации в этом режиме не читается (план D-H3, таск 02).
 //! - Порядок выдачи детерминирован: смерти одного кадра идут по возрастанию
 //!   `(сторона, тик)`. Один и тот же журнал, прогнанный дважды, даёт
 //!   побайтово одинаковый вывод — проверяемое свойство A1/A2 из архитектуры.
@@ -53,15 +55,45 @@ use std::collections::{BTreeMap, VecDeque};
 
 use crate::book::Side;
 
-/// Конфигурация трекера. Порог `H3` и окно часа — параметры, а не хардкод:
-/// их предрегистрированные значения подставляет вызывающий шагом позже.
+/// Как задан порог `H3` — план D-H3 (таск 02): два режима, какой войдёт в
+/// предрегистрацию, решает двухчасовой пилот, не этот код. Явный выбор без
+/// умолчания — вызывающий (`commands/lob`) обязан подставить один из двух.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum H3Mode {
+    /// Пол в лотах — из `instruments.csv` (пишет отдельный шаг сборки пула),
+    /// **без прогрева**: уровень эмитится с первого рождения. Рабочий режим
+    /// отладки — держит `levels > 0` на прогонах короче часа.
+    Floor { h3_lots: i64 },
+    /// Порог — заранее измеренный 99-й перцентиль `size_max` по
+    /// времени-взвешенной выборке за скользящий час (измерение — вне этого
+    /// модуля, число приходит параметром, как раньше). Прогрев `warmup_ms`
+    /// действует как в прежнем определении: рождения раньше него
+    /// отслеживаются, но не эмитируются.
+    Percentile { h3_lots: i64 },
+}
+
+impl H3Mode {
+    /// Порог рождения в лотах — общий для обоих режимов кусок конфигурации.
+    fn h3_lots(self) -> i64 {
+        match self {
+            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
+        }
+    }
+}
+
+/// Конфигурация трекера. Порог `H3` — режим (см. `H3Mode`), окно часа —
+/// параметр, а не хардкод: предрегистрированные значения подставляет
+/// вызывающий шагом позже.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LevelsConfig {
-    /// Порог рождения в лотах: уровень рождается при размере строго больше.
-    pub h3_lots: i64,
-    /// Прогрев в миллисекундах: рождения раньше него не попадают в выборку.
+    /// Режим порога `H3`: `floor` или `percentile`, без умолчания.
+    pub mode: H3Mode,
+    /// Прогрев в миллисекундах: в режиме `percentile` рождения раньше него
+    /// не попадают в выборку. В режиме `floor` не читается — там прогрева
+    /// нет по определению режима.
     pub warmup_ms: i64,
-    /// Скользящее окно `repeat_count` в миллисекундах.
+    /// Скользящее окно `repeat_count` в миллисекундах — общее для обоих
+    /// режимов, план §3: «скользящий час».
     pub repeat_window_ms: i64,
 }
 
@@ -224,7 +256,7 @@ impl LevelTracker {
     /// Создаёт трекер. Порог должен быть положителен, окно — тоже, прогрев
     /// неотрицателен: нулевой порог рождал бы уровень из пустого места.
     pub fn new(cfg: LevelsConfig) -> Self {
-        assert!(cfg.h3_lots > 0, "порог H3 обязан быть положителен");
+        assert!(cfg.mode.h3_lots() > 0, "порог H3 обязан быть положителен");
         assert!(cfg.warmup_ms >= 0, "прогрев не может быть отрицателен");
         assert!(
             cfg.repeat_window_ms > 0,
@@ -262,7 +294,7 @@ impl LevelTracker {
         }
         self.frame += 1;
         let frame = self.frame;
-        let h3 = self.cfg.h3_lots;
+        let h3 = self.cfg.mode.h3_lots();
         let window = self.cfg.repeat_window_ms;
         let s = side_key(side);
 
@@ -328,7 +360,7 @@ impl LevelTracker {
         let warm_end = self
             .start_ms
             .unwrap_or(ts_ms)
-            .saturating_add(self.cfg.warmup_ms);
+            .saturating_add(self.effective_warmup_ms());
         let live = &mut self.live;
         for (ks, tick) in self.sweep.drain(..) {
             // Ключ только что найден в свипе, который построен обходом `live`
@@ -387,6 +419,16 @@ impl LevelTracker {
         }
     }
 
+    /// Прогрев, который реально действует на эмиссию: `floor` — всегда ноль
+    /// (режим отладки, без прогрева по определению), `percentile` — как
+    /// сконфигурировано. `cfg.warmup_ms` в режиме `floor` не читается.
+    fn effective_warmup_ms(&self) -> i64 {
+        match self.cfg.mode {
+            H3Mode::Floor { .. } => 0,
+            H3Mode::Percentile { .. } => self.cfg.warmup_ms,
+        }
+    }
+
     /// Сколько рождений уже было на этом ключе строго внутри окна, и запись
     /// текущего. Очередь чистится спереди: старые рождения выпадают сами.
     fn count_prior_births(&mut self, key: (u8, i64), ts_ms: i64, window_ms: i64) -> u32 {
@@ -408,10 +450,23 @@ mod tests {
     const H3: i64 = 100;
     const HOUR_MS: i64 = 3_600_000;
 
+    /// `percentile` с прогревом 0 — прежнее поведение до режима `floor`:
+    /// используется во всех тестах жизненного цикла, которым режим не важен.
     fn cfg() -> LevelsConfig {
         LevelsConfig {
-            h3_lots: H3,
+            mode: H3Mode::Percentile { h3_lots: H3 },
             warmup_ms: 0,
+            repeat_window_ms: HOUR_MS,
+        }
+    }
+
+    /// `floor` с тем же порогом — прогрев в конфиге стоит намеренно большим:
+    /// тест на разницу режимов обязан доказывать, что `floor` его не читает,
+    /// а не просто подставлять 0 и совпасть с `percentile` по умолчанию.
+    fn cfg_floor() -> LevelsConfig {
+        LevelsConfig {
+            mode: H3Mode::Floor { h3_lots: H3 },
+            warmup_ms: HOUR_MS,
             repeat_window_ms: HOUR_MS,
         }
     }
@@ -590,13 +645,78 @@ mod tests {
         );
     }
 
+    /// Реплей тех же восьми кадров, что и синтетика с четырьмя известными
+    /// уровнями выше, — фиксирует то, что различает `H3Mode` по плану D-H3:
+    /// `warmup_ms` в конфиге стоит намеренно больше всего диапазона фикстуры.
+    fn replay_four_known_levels(cfg: LevelsConfig) -> Vec<LevelRecord> {
+        let mut tr = LevelTracker::new(cfg);
+        let mut out = Vec::with_capacity(16);
+        tr.observe_frame(
+            1000,
+            Side::Bid,
+            &[ob(1000, 120), ob(2000, 110), ob(3000, 130)],
+            &mut out,
+        );
+        tr.observe_frame(
+            2000,
+            Side::Bid,
+            &[ob(1000, 150), ob(2000, 90), ob(3000, 130)],
+            &mut out,
+        );
+        tr.observe_frame(
+            3000,
+            Side::Bid,
+            &[ob(1000, 180), ob(2000, 200), ob(3000, 140)],
+            &mut out,
+        );
+        tr.observe_frame(
+            4000,
+            Side::Bid,
+            &[ob(1000, 30), ob_out(2000, 60), ob(3000, 140)],
+            &mut out,
+        );
+        tr.observe_frame(5000, Side::Bid, &[ob(1000, 160), ob(3000, 28)], &mut out);
+        tr.observe_frame(6000, Side::Bid, &[ob(1000, 170), ob(3000, 27)], &mut out);
+        tr.observe_frame(7000, Side::Bid, &[ob(1000, 10), ob(1001, 150)], &mut out);
+        tr.observe_frame(8000, Side::Bid, &[], &mut out);
+        out
+    }
+
+    /// Синтетика с четырьмя известными уровнями (план D-H3, таск 02) — для
+    /// обоих режимов `H3`, с прогревом в конфиге больше всего диапазона
+    /// фикстуры (8000 мс против часового `warmup_ms`): `floor` обязан
+    /// эмитировать все пять записей (прогрева у него нет по определению
+    /// режима), `percentile` с тем же конфигом — ни одной (прогрев не истёк).
+    /// Это и есть разница режимов, которую нельзя было увидеть на `warmup_ms
+    /// == 0` — там оба режима совпадают тривиально.
+    #[test]
+    fn floor_mode_ignores_warmup_percentile_mode_respects_it() {
+        let floor_out = replay_four_known_levels(cfg_floor());
+        assert_eq!(
+            floor_out.len(),
+            5,
+            "floor: без прогрева фикстура эмитит все пять уровней, как при warmup_ms=0"
+        );
+
+        let percentile_cfg = LevelsConfig {
+            mode: H3Mode::Percentile { h3_lots: H3 },
+            warmup_ms: HOUR_MS,
+            repeat_window_ms: HOUR_MS,
+        };
+        let percentile_out = replay_four_known_levels(percentile_cfg);
+        assert!(
+            percentile_out.is_empty(),
+            "percentile: часовой прогрев не истёк за 8 секунд фикстуры — эмиссии нет"
+        );
+    }
+
     /// Прогрев 60 минут (H3): уровень, рождённый до конца прогрева, в выборке
     /// отсутствует — но его рождение считается для `repeat_count` позднего
     /// уровня на той же цене: рождался он буквально.
     #[test]
     fn warmup_births_are_tracked_but_not_emitted() {
         let cfg = LevelsConfig {
-            h3_lots: H3,
+            mode: H3Mode::Percentile { h3_lots: H3 },
             warmup_ms: HOUR_MS,
             repeat_window_ms: HOUR_MS,
         };
