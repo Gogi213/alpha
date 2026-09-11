@@ -18,7 +18,8 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
   дополнения — в `.autopilot/…/2026-09-11-brief.md`, раздел «Дополнения»
 - `docs/plan/REVIEW-2026-09-11.md` — что в коде остаётся / чинится / сносится (РВ-0)
 - `docs/plan/RECON-2026-09-11.md` — разведка: три инструмента пула × 5 мин
-- `docs/plan/SETTLED.md` — журнал решений (В-1…В-29)
+- `docs/plan/SETTLED.md` — журнал решений (В-1…В-33; В-30 — `k` выбирает пилот, В-31 — окно «сейчас», В-32 — диск под сессии, В-33 — хвост пилота)
+- `docs/findings/` — **боевые артефакты**: `recording-2026-09-11.md` (запись доказана на 3×5 мин), `pilot-2026-09-11.md` (первый пилот 30 мин — красный про рынок); `docs/plan/runs.csv` — журнал испытаний (8 строк пилота)
 - `docs/ARCHITECTURE.md` — A1–A9, обязательные к соблюдению (раскладка дерева там —
   черновик, устарела; актуальное дерево модулей — ниже)
 - `.autopilot/state.js` — состояние прогона (таски, волны, гейты); дашборд —
@@ -31,7 +32,7 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 581 passed, 0 failed, 5 ignored на a61f988 (все 19 тасков)
+cargo test --release 2>&1 | tail -30        # 596 passed, 0 failed, 5 ignored на 16f91ce (22 таска + пилот)
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
 ./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
@@ -95,7 +96,7 @@ src/
 | Команда | Артефакт |
 |---|---|
 | `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул**, отобранный ранг) + `docs/plan/candidates.csv` (все кандидаты, причина исключения по каждому) |
-| `lob session --pool-instruments --root --minutes` (5..15, иначе ошибка; `session.json.debug = duration_s < 3600`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
+| `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
 | `lob verify` | `verify.csv`, `verify-<SYMBOL>.status` (`ok`/`fail`) — читает `watch`/`pilot` |
 | `lob levels --h3-mode floor\|percentile [--h3-k <f64>]` (`--h3-k`: пол = `floor(k × median_trade_lots)` из `instruments.csv` на лету; только с `floor`) | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
@@ -106,12 +107,14 @@ src/
 | `lob backtest --median-rtt-ns --p95-rtt-ns --order-qty-e9` | `docs/findings/backtest-<дата>.csv` + `-pnl.csv` (кривые median/p95) |
 | `lob shortlist --preregistration --freeze-out --freeze-commit` | `docs/findings/shortlist-<дата>.md` + `shortlist-frozen.txt` (заморозка), предрегистрация границы 60/40 |
 | `lob pilot --debug` | цепочка `session→verify→levels→markout→profiles→backtest`, объявляет G-DEBUG |
+| `lob pilot` (боевой) на каталоге `lob session --pilot-minutes` | ставки уровней, `k`-сетка и выбор (В-30), G0, G-POWER-B против `lob power`, строки в `docs/plan/runs.csv`; окно — из `session.json`, зачётный хвост — вторая половина (В-33); `instruments.csv` надо скопировать в `--root` руками |
 | `lob react` | стадийные латентности (разбор/книга/триггер/ордер/весь путь), объявляет G-LAT (нужно ≥1000 срабатываний) |
 | `lob probe` | **ставит настоящие post-only ордера на бирже** — RTT полного цикла |
 
-`docs/findings/` пока не существует на диске: ни одного боевого прогона (не
-`--debug`) ещё не было — все данные под `data/` (gitignored). Реальный `lob pick`
-запускался: `data/pick22a`, `data/pick25` (отладочное окно 300 с, не заморожен).
+`docs/findings/` содержит только вердикты записи и пилота; `profiles-*`/`backtest-*`/
+`shortlist-*` боевых ещё нет — сбор сессиями не начинался. Пул в `instruments.csv` —
+отладочный (8 из окна 300 с, `k=1.0` заглушка), боевой `lob pick --window-secs 3600`
+не запускался. Боевые данные: `data/pilot-battle/20260911T224019Z/` (30 мин, gitignored).
 
 ## Правила, которые ловят ревью
 
@@ -139,10 +142,10 @@ src/
 - `k` для пола `H3` — **не число, а процедура** (`SETTLED.md` В-30 / D05): `lob pilot`
   считает ставку уровней и долю `eaten` для сетки `K_GRID = [2, 5, 10, 20, 50]` (один
   реплей на инструмент) и берёт наименьшее `k`, при котором медианный инструмент
-  проходит G0 (≥ 200 уровней/зачтённый час) и G1 (`eaten` ≥ 5 %); нет такого — «k: не
-  определим» (красный по построению). Отладочные `instruments.csv` писались с `k=1.0`
-  как заглушкой; боевое `k` появится из двухчасового пилота и уйдёт в предрегистрацию
-  этапа 2 вместе с режимом `H3`
+  проходит G0 (≥ 200 уровней/зачтённый час) и G1 (`eaten` ≥ 5 %). **Пилот 30 мин
+  2026-09-11: `k` не определим** — `eaten` на медианном < 5 % при всех `k`; G0 edge RED
+  (`net` −9 bps), G-POWER-B RED (Шарп 2.26 vs 3.06). Дальше — решение владельца:
+  принять красный / 2-часовой пилот (даст `percentile`) / пересмотреть правило 70/20
 - `lob probe` ставит реальные post-only ордера на бирже — не гонять без надобности
 - `conn.rs` бэкофф переподключения — за приватным трейтом `Backoff`; тест переподключения
   детерминирован (`RecordingBackoff`), реального времени не ждёт
@@ -158,6 +161,11 @@ src/
   `<SYMBOL>-<дата>.binlog`; старый недатированный `<SYMBOL>.binlog` (записи до таска 19 в
   `data/session-debug`, `data/pilot-debug/*/session`) отвергается с подсказкой переименовать
   (`profiles`/`watch` при сканировании многих сессий такой каталог молча пропускают)
+- сутки (`day_utc`) в `profiles`/`watch` пока берутся из `session.json` каталога, не из
+  части — каталог с частями за двое суток атрибутирует всё последним днём; таск 23
+  (до многодневного сбора)
+- GC на пилоте 30 мин: NTP offset 79 мс (порог 5), parse p99 400 мкс (порог 200), RSS
+  4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален
 - Bybit отдаёт `403` с части стран (CloudFront); с этой машины доступ есть
 
