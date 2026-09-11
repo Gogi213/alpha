@@ -20,9 +20,10 @@
 //!    консервативнее, чем гадать, к какой половине их приписать.
 //! 2. **Разведочная таблица.** `run_profiles_with_fill_model`
 //!    (`commands::lob::profiles`, таск 10) — без правок, тем же кодом, что
-//!    `lob profiles`, с `NoFillModel` (сегодня в дереве нет модели
-//!    исполнения — см. `interfaces.md`, «Из таска 10») — прогоняется на
-//!    подмножестве сессий, чьи сутки входят в разведочную половину. Модуль
+//!    `lob profiles`, с моделью исполнения от `resolve_fill_model` (таск 16:
+//!    `BacktestFillModel`, если задана тройка RTT/лота, иначе `NoFillModel`,
+//!    как раньше) — прогоняется на подмножестве сессий, чьи сутки входят в
+//!    разведочную половину. Модуль
 //!    сканирует **все** подкаталоги переданного `--root` как сессии и зоны
 //!    этого таска не может править, поэтому дневной фильтр — не правка
 //!    `profiles.rs`, а отдельный каталог-времянка с жёсткими ссылками
@@ -74,19 +75,18 @@
 //! первый (тест `production_run_freezes_boundary_once_and_writes_frozen_
 //! list`).
 //!
-//! # `fill`/`net_fill`/`observed_sharpe` — `not_measured`/`None` до бэктеста
+//! # `fill`/`net_fill`/`observed_sharpe` — модель исполнения (таск 16)
 //!
-//! `NoFillModel` — единственная модель исполнения, которую этот вызов
-//! подставляет в `run_profiles_with_fill_model` (`interfaces.md`, «Из
-//! таска 10»): три денежные колонки печатают литерал `not_measured`, здесь
-//! читаются как `None`, `ConfProfile::observed_sharpe` — всегда `None` —
-//! статус `confirmed` недостижим, пока реализация `FillModel` поверх
-//! `lob::backtest` не подставлена в этот вызов (открытый пункт (3) таска 12,
-//! остаётся открытым и после таска 13). `net_bps` (после издержек, без веса
-//! на исполнение) в таблице печатается всегда — то, что называет ticket
-//! «отбор по net»: человек, читающий `shortlist-<дата>.md`, видит `net_bps`
-//! и может судить о профиле сам, пока формальный `net_fill`-гейт не
-//! заработает.
+//! `resolve_fill_model` (`commands::lob::profiles`) решает, что подставить в
+//! `run_profiles_with_fill_model` из тройки `--median-rtt-ns`/
+//! `--p95-rtt-ns`/`--order-qty-e9`: заданы все три — `BacktestFillModel`
+//! поверх `lob::backtest` (три денежные колонки и `observed_sharpe` —
+//! реальные числа, `confirmed` достижим через `decide_profile`); не задан ни
+//! один — `NoFillModel`, как в тасках 10–13 (`not_measured`/`None`,
+//! `confirmed` недостижим). `net_bps` (после издержек, без веса на
+//! исполнение) в таблице печатается всегда независимо от модели — то, что
+//! называет ticket «отбор по net»: человек, читающий `shortlist-<дата>.md`,
+//! видит `net_bps` и может судить о профиле сам, даже без модели исполнения.
 //!
 //! # Тест на час суток — подключён (таск 13, было CONCERNS у таска 12)
 //!
@@ -112,6 +112,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use clap::Args;
 
 use crate::commands::record::instruments_csv_path;
+use crate::lob::final_metrics;
 use crate::lob::shortlist::{
     best_confirmed_net_fill, build_profile_grid, confirmatory_table, decide_verdict,
     freeze_shortlist, select_shortlist, split_calendar, trials_from_runs_csv, write_shortlist_md,
@@ -121,7 +122,7 @@ use crate::lob::shortlist::{
 use crate::stats;
 
 use super::levels::H3ModeArg;
-use super::profiles::{run_profiles_with_fill_model, NoFillModel, ProfilesArgs};
+use super::profiles::{resolve_fill_model, run_profiles_with_fill_model, ProfilesArgs};
 use super::{DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
 // ---------------------------------------------------------------------------
@@ -181,6 +182,19 @@ pub struct ShortlistArgs {
     /// которым фиксирует шорт-лист.
     #[arg(long)]
     pub freeze_commit: Option<String>,
+    /// Медианная замеренная RTT исполнения, нс — та же тройка, что `lob
+    /// profiles`/`lob backtest` (`resolve_fill_model`, таск 16): заданы все
+    /// три — разведочная/подтверждающая гоняются с `BacktestFillModel`
+    /// (`observed_sharpe`/`fill`/`net_fill` становятся числами, DSR в
+    /// вердикте зачитывается); не задан ни один — `NoFillModel`, как раньше.
+    #[arg(long)]
+    pub median_rtt_ns: Option<i64>,
+    /// 95-й перцентиль той же замеренной RTT — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub p95_rtt_ns: Option<i64>,
+    /// Размер круга в 1e-9 лотов (Decision 22) — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub order_qty_e9: Option<i64>,
 }
 
 /// Итог `lob shortlist` для печати диспетчером.
@@ -513,6 +527,12 @@ struct ProfilesTableRow {
     /// колонки не читались бы этим полем без `default`.
     #[serde(default)]
     g: u64,
+    /// Наблюдаемый Шарп исполнившихся входов (таск 16) — та же колонка,
+    /// дописанная `profiles.rs` следом за `g`; `#[serde(default)]` — файлы
+    /// таска 13 без неё читаются как `""`, что `parse_measured_f64` уже
+    /// понимает как отсутствие числа.
+    #[serde(default)]
+    observed_sharpe: String,
 }
 
 struct ProfileNums {
@@ -520,6 +540,7 @@ struct ProfileNums {
     g: u64,
     net_fill: Option<f64>,
     net_fill_lower: Option<f64>,
+    observed_sharpe: Option<f64>,
 }
 
 fn parse_measured_f64(s: &str) -> Option<f64> {
@@ -544,6 +565,7 @@ fn read_profile_table(path: &Path) -> anyhow::Result<BTreeMap<String, ProfileNum
                 g: row.g,
                 net_fill: parse_measured_f64(&row.net_fill),
                 net_fill_lower: parse_measured_f64(&row.net_fill_lower),
+                observed_sharpe: parse_measured_f64(&row.observed_sharpe),
             },
         );
     }
@@ -568,8 +590,14 @@ fn run_profiles_over(
         out: Some(out),
         now_utc: base.now_utc.clone(),
         runs_out,
+        median_rtt_ns: base.median_rtt_ns,
+        p95_rtt_ns: base.p95_rtt_ns,
+        order_qty_e9: base.order_qty_e9,
     };
-    let summary = run_profiles_with_fill_model(&profiles_args, &NoFillModel)?;
+    // Та же тройка RTT/лота, та же модель — на разведочной, подтверждающей и
+    // отладке (таск 16, `resolve_fill_model` — общая точка с `lob profiles`).
+    let model = resolve_fill_model(base.median_rtt_ns, base.p95_rtt_ns, base.order_qty_e9)?;
+    let summary = run_profiles_with_fill_model(&profiles_args, model.as_ref())?;
     Ok(summary.out)
 }
 
@@ -793,15 +821,13 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         args,
     )?;
     let conf_table = read_profile_table(&conf_csv)?;
-    // `G` теперь реален (ремонт по ревью таска 12, открытый пункт (1)):
-    // `profiles.rs` считает годные сутки на профиль и несёт их колонкой `g`.
-    // `observed_sharpe` остаётся `None` — эта команда прогоняет
-    // `run_profiles_over` с `NoFillModel` (см. doc модуля, «fill/net_fill —
-    // not_measured до бэктеста»): без реальной модели исполнения поверх
-    // `lob::backtest` Шарп круговых net не из чего посчитать, и
-    // `decide_profile` честно печатает `unconfirmed`, а не подделывает
-    // `confirmed` (открытый пункт (3) остаётся: подключение реализации
-    // `FillModel` поверх `lob::backtest` к этому вызову).
+    // `G` реален (ремонт по ревью таска 12, открытый пункт (1)): `profiles.rs`
+    // считает годные сутки на профиль и несёт их колонкой `g`. `observed_sharpe`
+    // (таск 16) — та же таблица, следующая колонка: реальное число, когда
+    // `--median-rtt-ns`/`--p95-rtt-ns`/`--order-qty-e9` включили
+    // `BacktestFillModel` (`resolve_fill_model`); без тройки — по-прежнему
+    // `None` (`NoFillModel`, `not_measured` в файле), и `decide_profile`
+    // честно печатает `unconfirmed`, а не подделывает `confirmed`.
     let order_size_usd = read_order_size_usd(&args.candidates_csv, &pool)?;
     let conf_profiles: Vec<ConfProfile> = frozen
         .ids()
@@ -814,7 +840,7 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
                 g: nums.map_or(0, |p| p.g),
                 net_fill: nums.and_then(|p| p.net_fill),
                 net_fill_lower: nums.and_then(|p| p.net_fill_lower),
-                observed_sharpe: None,
+                observed_sharpe: nums.and_then(|p| p.observed_sharpe),
                 order_size_usd: symbol_from_profile_id(id)
                     .and_then(|s| order_size_usd.get(s))
                     .copied(),
@@ -825,13 +851,96 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let verdict = decide_verdict(&rows);
 
-    // Шапка (критерий приёмки таска 13): значение вердикта, DSR/PBO/CPCV
-    // (`None` — честно, пока `observed_sharpe`/реальный бэктест не
-    // подключены), фактический `G` (максимум среди измеренных строк — тот,
-    // на котором вердикт мог состояться), разрешение сетки Уэбба на этом
-    // `G`, джекнайф-по-суткам (A03) — механизм есть
-    // (`final_metrics::jackknife_sensitivity`), но входные точки требуют тех
-    // же реальных `net_fill`, что и DSR, поэтому пока `None` тем же путём.
+    // DSR в шапке (таск 16): тот же профиль, что выносит `value_bps`
+    // (`best_confirmed_net_fill` — лучший подтверждённый по `net_fill`), тем
+    // же порогом, что `decide_profile` уже применил к нему
+    // (`final_metrics::dsr_for_trial_count`, skew/kurtosis нормального ряда —
+    // тот же нейтральный выбор, что `required_sharpe_for_dsr`, без пробных
+    // Шарпов всех `N` испытаний). `None`, если подтверждённого профиля нет
+    // или его Шарп/`n` не измерены.
+    let best_confirmed_profile = rows
+        .iter()
+        .filter(|r| r.status == ConfirmStatus::Confirmed)
+        .filter_map(|r| conf_profiles.iter().find(|p| p.id == r.id).map(|p| (r, p)))
+        .max_by(|(a, _), (b, _)| {
+            a.net_fill
+                .unwrap_or(f64::NEG_INFINITY)
+                .total_cmp(&b.net_fill.unwrap_or(f64::NEG_INFINITY))
+        });
+    let dsr = best_confirmed_profile.and_then(|(_, p)| {
+        let sr = p.observed_sharpe?;
+        final_metrics::dsr_for_trial_count(sr, p.n as usize, 0.0, 3.0, trials)
+    });
+    // PBO/CPCV процедуры отбора (R47: «проверяют процедуру отбора, а не
+    // выбранный профиль») требуют матрицу «испытания × периоды»/ряд
+    // покруговых net по всей разведочной сетке — таблица профилей несёт
+    // только агрегаты (`n`, `net_fill`, `observed_sharpe`), не сырые
+    // покруговые ряды по каждому из ~150+ испытаний. Собрать эту матрицу —
+    // отдельный конвейер (агрегация `fill_obs` по общим периодам календаря на
+    // каждый id сетки), которого таск 16 не строит: `None`, честно, а не
+    // подмена оценкой одного профиля (CONCERNS).
+    let pbo = None;
+    let cpcv_oos_sharpe = None;
+
+    // Джекнайф-по-суткам (A03): пересчитывает `best_confirmed_net_fill` на
+    // подтверждающей без одних суток за раз (тем же `run_profiles_over`, во
+    // времянку, не новое испытание — doc `final_metrics::jackknife_sensitivity`:
+    // «вызывающий считает их отдельными прогонами»). Меньше двух суток на
+    // подтверждающей — исключать не из чего, `None`.
+    let jackknife = if split.confirmatory.len() >= 2 {
+        let mut leave_one_out = Vec::new();
+        for excluded in &split.confirmatory {
+            let subset_days: Vec<String> = split
+                .confirmatory
+                .iter()
+                .filter(|d| *d != excluded)
+                .cloned()
+                .collect();
+            let loo_scratch = ScratchRoot::new(&format!("loo-{excluded}"))?;
+            build_filtered_root(loo_scratch.path(), &instruments_csv, &by_day, &subset_days)?;
+            let loo_runs_scratch = ScratchRoot::new(&format!("loo-runs-{excluded}"))?;
+            let loo_csv = run_profiles_over(
+                loo_scratch.path().to_path_buf(),
+                loo_runs_scratch.path().join("runs.csv"),
+                loo_runs_scratch.path().join("profiles-loo.csv"),
+                false,
+                args,
+            )?;
+            let loo_table = read_profile_table(&loo_csv)?;
+            let loo_profiles: Vec<ConfProfile> = frozen
+                .ids()
+                .iter()
+                .map(|id| {
+                    let nums = loo_table.get(id);
+                    ConfProfile {
+                        id: id.clone(),
+                        n: nums.map(|p| p.n).unwrap_or(0),
+                        g: nums.map_or(0, |p| p.g),
+                        net_fill: nums.and_then(|p| p.net_fill),
+                        net_fill_lower: nums.and_then(|p| p.net_fill_lower),
+                        observed_sharpe: nums.and_then(|p| p.observed_sharpe),
+                        order_size_usd: symbol_from_profile_id(id)
+                            .and_then(|s| order_size_usd.get(s))
+                            .copied(),
+                    }
+                })
+                .collect();
+            if let Ok(loo_rows) = confirmatory_table(Some(&frozen), &loo_profiles, trials) {
+                if let Some(v) = best_confirmed_net_fill(&loo_rows) {
+                    leave_one_out.push((excluded.clone(), v));
+                }
+            }
+        }
+        final_metrics::jackknife_sensitivity(&leave_one_out)
+    } else {
+        None
+    };
+
+    // Шапка (критерий приёмки таска 13, числа — таск 16): значение вердикта,
+    // DSR реален, когда есть подтверждённый профиль; PBO/CPCV — см. выше;
+    // фактический `G` (максимум среди измеренных строк — тот, на котором
+    // вердикт мог состояться), разрешение сетки Уэбба на этом `G`,
+    // джекнайф-по-суткам — реален при ≥ 2 сутках подтверждающей.
     let g_for_header = rows
         .iter()
         .filter(|r| r.status != ConfirmStatus::InsufficientData)
@@ -839,13 +948,13 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .max();
     let header = VerdictHeader {
         value_bps: best_confirmed_net_fill(&rows),
-        dsr: None,
-        pbo: None,
-        cpcv_oos_sharpe: None,
+        dsr,
+        pbo,
+        cpcv_oos_sharpe,
         g: g_for_header,
         #[allow(clippy::cast_possible_truncation)]
         p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
-        jackknife: None,
+        jackknife,
     };
 
     let out = args
@@ -920,6 +1029,9 @@ mod tests {
             preregistration: root.join("preregistration.md"),
             freeze_out: root.join("shortlist-frozen.txt"),
             freeze_commit: Some("deadbeef".to_string()),
+            median_rtt_ns: None,
+            p95_rtt_ns: None,
+            order_qty_e9: None,
         }
     }
 

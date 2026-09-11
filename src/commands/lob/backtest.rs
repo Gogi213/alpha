@@ -14,6 +14,7 @@
 //! `bid`/`ask` (Decision 14) и момент срабатывания в мс, тот же смысл, что
 //! колонка `birth_ms` артефакта `lob levels`.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -21,17 +22,22 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use crate::binlog;
+use crate::book::Side;
 use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
     build_backtest, build_profile_report, drive_profile, pnl_curve_bps, BacktestReport,
     DriveConfig, Signal, TableEstimate, SIGMA_LONG, SIGMA_SHORT,
 };
+use crate::lob::levels::LevelRecord;
+use crate::lob::markout::MidSample;
 use hftbacktest::types::{
     Event as HbtEvent, EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT,
     EXCH_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
     LOCAL_BUY_TRADE_EVENT, LOCAL_EVENT, LOCAL_SELL_TRADE_EVENT,
 };
+
+use super::profiles::FillModel;
 
 // ---------------------------------------------------------------------------
 // `lob backtest` (шаг 6.3, история 32–34).
@@ -185,6 +191,161 @@ fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs::File>> {
     let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
     ReplayFeed::open(0, file).map_err(|e| anyhow::anyhow!("бинлог {}: {e:?}", path.display()))
+}
+
+// ---------------------------------------------------------------------------
+// `BacktestFillModel` (таск 16) — `profiles::FillModel` поверх `lob::backtest`:
+// соединяет таблицу профилей/шорт-лист с настоящей моделью очереди
+// (`RiskAdverseQueueModel`), закрывая BLOCKERS таска 13 («требует реального
+// книжного потока сессии, не только `mids`»).
+// ---------------------------------------------------------------------------
+
+/// σ по стороне книги (Decision 14) — тот же выбор, что `read_signals` делает
+/// из строки `bid`/`ask` `signals_csv`.
+fn sigma_of(side: Side) -> i8 {
+    match side {
+        Side::Bid => SIGMA_SHORT,
+        Side::Ask => SIGMA_LONG,
+    }
+}
+
+/// Естественный ключ уровня внутри одного символа (`interfaces.md`:
+/// `LevelRecord` — «рождение, сторона, цена»). `birth_ms` — эпоховые мс
+/// (`up.cts_ms` источника, не относительное время сессии), поэтому пары
+/// разных сессий одного символа не сталкиваются: кэш общий на всю модель, не
+/// per-сессия.
+type LevelKey = (String, i8, i64, i64);
+
+fn level_key(symbol: &str, rec: &LevelRecord) -> LevelKey {
+    (
+        symbol.to_string(),
+        sigma_of(rec.side),
+        rec.price_tick,
+        rec.birth_ms,
+    )
+}
+
+/// `FillModel` (`commands::lob::profiles`) поверх `lob::backtest`: гоняет
+/// `strategy::on_event` через настоящую очередь `RiskAdverseQueueModel` на
+/// книжном потоке сессии (не только `mids`) и отвечает `filled` по кэшу,
+/// заполненному `prime_session` — один прогон движка на сессию
+/// (`interfaces.md`, BLOCKERS таска 13), не на уровень.
+///
+/// Сигналы этого прогона — **все** размеченные уровни сессии в порядке
+/// таймлайна, а не только уровни одного профиля: одна позиция за раз
+/// (`drive_profile`) моделируется на настоящем потоке сигналов стратегии, а
+/// не на подмножестве, отфильтрованном по оси профиля — иначе два разных
+/// профиля (например `marginal:side=bid` и `marginal:size=…`), которым
+/// принадлежит один и тот же уровень, увидели бы разные занятости позиции по
+/// одному и тому же событию.
+///
+/// RTT — median/p95 (те же обязательные параметры, что `lob backtest`, без
+/// умолчания, §9). `filled()` решает по медианной: тот же выбор, что уже
+/// сделан `TableComparison`/`compare_with_table` («по медианной — основной
+/// сценарий»). `p95_rtt_ns` сохранён для симметрии CLI и возможного будущего
+/// потребителя (`p95_rtt_ns()`) — сегодня решение `filled()` не меняет.
+#[derive(Debug)]
+pub struct BacktestFillModel {
+    median_rtt_ns: i64,
+    p95_rtt_ns: i64,
+    order_qty_e9: i64,
+    cache: RefCell<BTreeMap<LevelKey, bool>>,
+}
+
+impl BacktestFillModel {
+    pub fn new(median_rtt_ns: i64, p95_rtt_ns: i64, order_qty_e9: i64) -> Self {
+        Self {
+            median_rtt_ns,
+            p95_rtt_ns,
+            order_qty_e9,
+            cache: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// 95-й перцентиль RTT, задан вместе с медианной (см. doc структуры).
+    pub fn p95_rtt_ns(&self) -> i64 {
+        self.p95_rtt_ns
+    }
+
+    /// Прогоняет движок один раз на уже переведённый в события крейта поток
+    /// (тестовый шов: `prime_session` собирает `events`/`tick`/`lot` из
+    /// файла и зовёт этот метод — юнит-тест кормит синтетику напрямую, без
+    /// файла бинлога).
+    fn prime_from_events(
+        &self,
+        symbol: &str,
+        events: &[HbtEvent],
+        tick_size: f64,
+        lot_size: f64,
+        records: &[LevelRecord],
+    ) {
+        if events.is_empty() || records.is_empty() {
+            return;
+        }
+        let order_qty = self.order_qty_e9 as f64 / 1e9;
+        let cfg = DriveConfig {
+            order_qty,
+            first_order_id: 1,
+        };
+        let signals: Vec<Signal> = records
+            .iter()
+            .map(|r| Signal {
+                t0_ns: r.birth_ms.saturating_mul(1_000_000),
+                sigma: sigma_of(r.side),
+            })
+            .collect();
+        let mut bt = build_backtest(events, tick_size, lot_size, self.median_rtt_ns);
+        let Ok(run) = drive_profile(&mut bt, 0, &signals, &cfg) else {
+            return;
+        };
+        // `drive_profile` сортирует сигналы по `t0_ns` стабильно и кладёт
+        // ровно одну `FillObservation` на сигнал из этого порядка, пока не
+        // упрётся в конец данных (`incomplete`) — тогда хвост остаётся без
+        // наблюдения. Тот же стабильный порядок на исходных индексах
+        // восстанавливает, какая запись какому наблюдению отвечает, без
+        // повторного прогона движка (см. doc структуры).
+        let mut order_idx: Vec<usize> = (0..records.len()).collect();
+        order_idx.sort_by_key(|&i| signals[i].t0_ns);
+
+        let mut cache = self.cache.borrow_mut();
+        for (k, obs) in run.observations.iter().enumerate() {
+            let Some(&orig) = order_idx.get(k) else {
+                break;
+            };
+            let rec = &records[orig];
+            cache.insert(level_key(symbol, rec), obs.filled);
+        }
+    }
+}
+
+impl FillModel for BacktestFillModel {
+    fn prime_session(&self, symbol: &str, binlog_path: &Path, records: &[LevelRecord]) {
+        if records.is_empty() {
+            return;
+        }
+        let Ok((tick_e9, step_e9)) = read_tick_step(binlog_path) else {
+            return;
+        };
+        let Ok(mut feed) = open_replay_feed(binlog_path) else {
+            return;
+        };
+        let events = events_from_feed(&mut feed);
+        self.prime_from_events(
+            symbol,
+            &events,
+            tick_e9 as f64 / 1e9,
+            step_e9 as f64 / 1e9,
+            records,
+        );
+    }
+
+    fn filled(&self, symbol: &str, rec: &LevelRecord, _mids: &[MidSample]) -> Option<bool> {
+        self.cache.borrow().get(&level_key(symbol, rec)).copied()
+    }
+
+    fn label(&self) -> &'static str {
+        "backtest"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +707,123 @@ mod tests {
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
+    }
+
+    // -----------------------------------------------------------------------
+    // `BacktestFillModel` (таск 16) на синтетическом потоке `hftbacktest`
+    // напрямую (`prime_from_events`) — тот же приём фикстур, что
+    // `lob::backtest::tests` (сборка `Event` руками, без файла бинлога): это
+    // тестовый шов, названный doc `prime_from_events`, не второй разбор
+    // формата.
+    // -----------------------------------------------------------------------
+
+    fn depth_ev(bid: bool) -> u64 {
+        if bid {
+            LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT
+        } else {
+            LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT
+        }
+    }
+
+    fn trade_ev(sell: bool) -> u64 {
+        if sell {
+            LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
+        } else {
+            LOCAL_BUY_TRADE_EVENT | EXCH_BUY_TRADE_EVENT
+        }
+    }
+
+    fn depth_at(exch_ts: i64, bid: bool, px: f64, qty: f64) -> HbtEvent {
+        HbtEvent {
+            ev: depth_ev(bid),
+            exch_ts,
+            local_ts: exch_ts + 500,
+            px,
+            qty,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        }
+    }
+
+    fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> HbtEvent {
+        HbtEvent {
+            ev: trade_ev(sell) | EXCH_EVENT | LOCAL_EVENT,
+            exch_ts,
+            local_ts: exch_ts + 500,
+            px,
+            qty,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        }
+    }
+
+    fn ask_level(price_tick: i64, birth_ms: i64) -> LevelRecord {
+        LevelRecord {
+            side: Side::Ask,
+            price_tick,
+            birth_ms,
+            death_ms: birth_ms + 1,
+            lifetime_ms: 1,
+            size_max: 1,
+            time_to_max_ms: 0,
+            size_monotonic: true,
+            repeat_count: 0,
+            repriced: false,
+            death: crate::lob::levels::DeathKind::BelowFraction,
+            traded_lots: 0,
+        }
+    }
+
+    /// Секунда в наносекундах — тот же приём читаемости, что
+    /// `lob::backtest::tests::S`.
+    const S: i64 = 1_000_000_000;
+
+    /// Критерий приёмки таска 16: синтетический поток с известными
+    /// исполнениями — вход А исполняется за 2 с (сделки съедают очередь),
+    /// вход Б не встречает сделок и снимается по таймауту. Оба сигнала гонит
+    /// **один** прогон `prime_from_events` (не по одному на уровень —
+    /// BLOCKERS таска 13), `filled` читает готовый кэш.
+    #[test]
+    fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
+        let feed = [
+            depth_at(0, true, 100.0, 5.0),
+            depth_at(0, false, 101.0, 5.0),
+            // Вход А (born t=S, аск-уровень → long): сделки на бид съедают
+            // очередь мейкера за 2 с (тот же сценарий, что
+            // `lob::backtest::tests::driver_closes_a_maker_round_trip_on_
+            // synthetic_feed`).
+            trade_at(S + S / 2, true, 100.0, 3.0),
+            trade_at(S + 4 * S / 5, true, 100.0, 3.0),
+            depth_at(10 * S + 9 * S / 10, true, 101.0, 5.0),
+            depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
+            // Вход Б (born t=20*S): книга валидна, но между рождением и
+            // t+2с сделок нет — обязан снятся по таймауту.
+            depth_at(30 * S, false, 103.0, 5.0),
+        ];
+        let records = [ask_level(100, 1000), ask_level(200, 20_000)];
+
+        let model = BacktestFillModel::new(1_000_000, 2_000_000, 100_000_000);
+        model.prime_from_events("SOLUSDT", &feed, 1.0, 1.0, &records);
+
+        assert_eq!(
+            model.filled("SOLUSDT", &records[0], &[]),
+            Some(true),
+            "вход А обязан исполниться — очередь съедена за 2 с"
+        );
+        assert_eq!(
+            model.filled("SOLUSDT", &records[1], &[]),
+            Some(false),
+            "вход Б обязан не исполниться — сделок не было"
+        );
+        // Уровень, которого не было в сессии, — не измерен, не ложный ноль.
+        let unseen = ask_level(300, 999_999);
+        assert_eq!(model.filled("SOLUSDT", &unseen, &[]), None);
+        // Тот же уровень другого символа — отдельный ключ, не измерен.
+        assert_eq!(model.filled("ETHUSDT", &records[0], &[]), None);
+        assert_eq!(model.label(), "backtest");
+        assert_eq!(model.p95_rtt_ns(), 2_000_000);
     }
 
     /// Снапшот, потерявший уровень против предыдущего снапшота, обязан

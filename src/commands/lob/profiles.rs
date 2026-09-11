@@ -127,6 +127,7 @@ use crate::lob::costs::{
     fill_rate, format_fill_column, mean_net_bps, net_bps as cost_net_bps, net_fill_bps,
     net_fill_interval, FillObservation, Observation,
 };
+use crate::lob::final_metrics::sharpe_ratio;
 use crate::lob::levels::{H3Mode, LevelRecord, LevelTracker, LevelsConfig, Outcome};
 use crate::lob::markout::{
     base_before, future_asof, markouts_for_level, raw_return_bps, MidSample, HORIZONS_MS,
@@ -425,7 +426,19 @@ fn read_coverage(
 /// поверх `lob::backtest`). `label()` идёт в шапку артефакта
 /// (`fill_model=…`) — имя источника, а не число, чтобы читатель не принял
 /// `not_measured` за рыночный ноль.
+///
+/// `prime_session` (таск 16) — точка, которой модель, которой нужен настоящий
+/// книжный поток сессии (а не только `mids`), гоняет бэктест **один раз на
+/// сессию** и кэширует результат: `run_profiles_with_fill_model` вызывает его
+/// сразу после реплея каждой сессии, до цикла по уровням, передавая тот же
+/// путь к бинлогу и полный список размеченных уровней этой сессии
+/// (`interfaces.md`, BLOCKERS таска 13 — «требует реального книжного потока
+/// сессии… не перезапуская движок на каждый уровень»). Умолчание — пустая
+/// операция: `NoFillModel` и любая модель, которой сессия не нужна, его не
+/// переопределяют.
 pub trait FillModel {
+    fn prime_session(&self, _symbol: &str, _binlog_path: &Path, _records: &[LevelRecord]) {}
+
     fn filled(&self, symbol: &str, rec: &LevelRecord, mids: &[MidSample]) -> Option<bool>;
     fn label(&self) -> &'static str;
 }
@@ -687,6 +700,23 @@ pub struct ProfilesArgs {
     /// Журнал испытаний (шаг 7.1) — только боевой режим.
     #[arg(long, default_value = "docs/plan/runs.csv")]
     pub runs_out: PathBuf,
+    /// Медианная замеренная RTT исполнения, нс — параметр `BacktestFillModel`
+    /// (таск 16), тот же смысл и источник, что `lob backtest
+    /// --median-rtt-ns` (D-RTT: `lob probe`/`clock.csv`). Обязана быть задана
+    /// вместе с `--p95-rtt-ns`/`--order-qty-e9` — все три сразу включают
+    /// модель исполнения поверх `lob::backtest` (`resolve_fill_model`); без
+    /// всех трёх (умолчание — не задан ни один) команда остаётся на
+    /// `NoFillModel`, как раньше. Задавать только часть тройки — ошибка:
+    /// изобретать недостающее число запрещено (§9).
+    #[arg(long)]
+    pub median_rtt_ns: Option<i64>,
+    /// 95-й перцентиль той же замеренной RTT — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub p95_rtt_ns: Option<i64>,
+    /// Размер круга в 1e-9 лотов — минимальный лот площадки (Decision 22,
+    /// тот же смысл, что `lob backtest --order-qty-e9`) — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub order_qty_e9: Option<i64>,
 }
 
 /// Итог `lob profiles` для печати диспетчером.
@@ -744,7 +774,7 @@ fn horizon_columns(agg: &HorizonAgg) -> HorizonColumns {
 /// открытый пункт (1) для таска 13). `g` — новая, дописанная в конец колонка:
 /// `commands::lob::shortlist::read_profile_table` матчит по имени, а не по
 /// позиции (доктрока там же), так что дописывание в конец не ломает читателя.
-const HEADER: [&str; 27] = [
+const HEADER: [&str; 28] = [
     "profile_id",
     "n",
     "eaten_share",
@@ -772,6 +802,7 @@ const HEADER: [&str; 27] = [
     "net_fill_lower",
     "session_start_hours_utc",
     "g",
+    "observed_sharpe",
 ];
 
 /// `measured` — есть ли активная модель исполнения (`FillModel::label() !=
@@ -821,6 +852,24 @@ fn write_row(
         )
     };
     let hours: Vec<String> = agg.hours.iter().map(ToString::to_string).collect();
+    // `observed_sharpe` (таск 16) — Шарп круговых net **исполнившихся**
+    // входов (`fill_obs` фильтрован по `filled == true`), в единицах на
+    // наблюдение — то же самое множество наблюдений, из которого уже
+    // считаются `fill`/`net_fill`/`net_fill_lower` (doc `FillModel`, «из тех
+    // же наблюдений», ticket 16). `not_measured` без активной модели
+    // (`measured == false`, `fill_obs` тогда и так пуст); `none` — модель
+    // активна, но исполнений меньше двух (`sharpe_ratio` требует дисперсию).
+    let observed_sharpe_col = if measured {
+        let filled_net: Vec<f64> = agg
+            .fill_obs
+            .iter()
+            .filter(|o| o.filled)
+            .map(|o| o.net_bps)
+            .collect();
+        fmt_opt(sharpe_ratio(&filled_net))
+    } else {
+        NOT_MEASURED.to_string()
+    };
 
     let mut record = vec![
         id.to_string(),
@@ -841,6 +890,7 @@ fn write_row(
     record.push(net_fill_lower_col);
     record.push(hours.join(","));
     record.push(agg.days.len().to_string());
+    record.push(observed_sharpe_col);
     w.write_record(record)?;
     Ok(())
 }
@@ -858,7 +908,35 @@ fn default_out_path(now: &str) -> PathBuf {
 /// этот вызов на `run_profiles_with_fill_model(args, &RealModel::new(..))` —
 /// сама сборка сетки и запись CSV не изменится ни строкой.
 pub fn run_profiles(args: &ProfilesArgs) -> anyhow::Result<ProfilesSummary> {
-    run_profiles_with_fill_model(args, &NoFillModel)
+    let model = resolve_fill_model(args.median_rtt_ns, args.p95_rtt_ns, args.order_qty_e9)?;
+    run_profiles_with_fill_model(args, model.as_ref())
+}
+
+/// Строит модель исполнения из тройки RTT/лота площадки (таск 16): заданы все
+/// три — `BacktestFillModel` поверх `lob::backtest` (`fill_model=backtest`
+/// шапки); не задан ни один — `NoFillModel`, как до этого таска. Задать
+/// только часть тройки — отказ: у RTT/лота нет правдоподобного умолчания
+/// (§9), а тройка нужна вся, чтобы вообще собрать бэктест-модель. Общая точка
+/// для `lob profiles` (`run_profiles`), `lob shortlist`
+/// (`commands::lob::shortlist::run_profiles_over`) и `pilot --debug`
+/// (`pilot.rs` передаёт `None`-тройку намеренно — лот площадки там per-symbol,
+/// не один на пул).
+pub fn resolve_fill_model(
+    median_rtt_ns: Option<i64>,
+    p95_rtt_ns: Option<i64>,
+    order_qty_e9: Option<i64>,
+) -> anyhow::Result<Box<dyn FillModel>> {
+    match (median_rtt_ns, p95_rtt_ns, order_qty_e9) {
+        (Some(median), Some(p95), Some(qty)) => Ok(Box::new(
+            super::backtest::BacktestFillModel::new(median, p95, qty),
+        )),
+        (None, None, None) => Ok(Box::new(NoFillModel)),
+        _ => anyhow::bail!(
+            "--median-rtt-ns/--p95-rtt-ns/--order-qty-e9 обязаны быть заданы все втроём или ни \
+             один — модель исполнения либо задана целиком (числа измерены), либо не задана \
+             вовсе (§9: изобретённое число запрещено)"
+        ),
+    }
 }
 
 /// То же самое, но с явной моделью исполнения — семь осей, сетка
@@ -908,6 +986,11 @@ pub fn run_profiles_with_fill_model(
                 continue;
             }
             let (records, mids) = replay_one_session_binlog(&binlog, cfg)?;
+            // Один прогон движка на сессию (таск 16, doc `FillModel::
+            // prime_session`): модель, которой нужен книжный поток, гонит
+            // `lob::backtest` здесь и кэширует ответы; `filled` ниже только
+            // читает кэш.
+            fill_model.prime_session(symbol, &binlog, &records);
             let day_utc = meta.started_utc.get(..10).unwrap_or_default().to_string();
             let day_id = day_index.id(&day_utc);
             for rec in &records {
@@ -1084,6 +1167,9 @@ mod tests {
             out: Some(out),
             now_utc: Some("2026-09-08T00:00:00Z".to_string()),
             runs_out: root.join("runs.csv"),
+            median_rtt_ns: None,
+            p95_rtt_ns: None,
+            order_qty_e9: None,
         }
     }
 
@@ -1379,5 +1465,112 @@ mod tests {
             (raw_bid_100 + raw_ask_100).abs() < 1e-9,
             "величины противоположны и равны по модулю: {raw_bid_100} vs {raw_ask_100}"
         );
+    }
+
+    /// Таск 16: `observed_sharpe` — Шарп **только исполнившихся** наблюдений
+    /// (`filled == true`), посчитанный вручную по трём известным числам, не
+    /// вызовом `sharpe_ratio` (формула не подтверждает сама себя). Четвёртое
+    /// наблюдение (`filled == false`) обязано быть исключено.
+    #[test]
+    fn observed_sharpe_column_matches_hand_computed_sharpe_of_filled_observations() {
+        let mut agg = ProfileAgg {
+            eaten: 3,
+            ..ProfileAgg::default()
+        };
+        agg.fill_obs = vec![
+            FillObservation {
+                day_cluster: 0,
+                net_bps: 10.0,
+                filled: true,
+            },
+            FillObservation {
+                day_cluster: 0,
+                net_bps: -2.0,
+                filled: true,
+            },
+            FillObservation {
+                day_cluster: 1,
+                net_bps: 999.0,
+                filled: false,
+            },
+            FillObservation {
+                day_cluster: 1,
+                net_bps: 6.0,
+                filled: true,
+            },
+        ];
+        let filled = [10.0_f64, -2.0, 6.0];
+        let mean = filled.iter().sum::<f64>() / 3.0;
+        let var = filled.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / 3.0;
+        let expected_sharpe = mean / var.sqrt();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("row.csv");
+        {
+            let file = std::fs::File::create(&path).unwrap();
+            let mut w = csv::WriterBuilder::new()
+                .has_headers(false)
+                .from_writer(file);
+            write_row(&mut w, "marginal:test", &agg, true).unwrap();
+            w.flush().unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let cols: Vec<&str> = text.trim_end().split(',').collect();
+        let printed: f64 = cols
+            .last()
+            .expect("строка не пуста")
+            .parse()
+            .expect("observed_sharpe обязан быть числом при measured=true");
+        assert!(
+            (printed - expected_sharpe).abs() < 1e-6,
+            "printed={printed} expected={expected_sharpe}"
+        );
+    }
+
+    /// Без активной модели (`measured=false`) `observed_sharpe` печатает
+    /// `not_measured` буквально, тем же приёмом, что `fill`/`net_fill` —
+    /// критерий приёмки таска 16, а не молчаливый `none`.
+    #[test]
+    fn observed_sharpe_is_not_measured_without_a_fill_model() {
+        let agg = ProfileAgg {
+            eaten: 1,
+            fill_obs: vec![FillObservation {
+                day_cluster: 0,
+                net_bps: 5.0,
+                filled: true,
+            }],
+            ..ProfileAgg::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("row.csv");
+        {
+            let file = std::fs::File::create(&path).unwrap();
+            let mut w = csv::WriterBuilder::new()
+                .has_headers(false)
+                .from_writer(file);
+            write_row(&mut w, "marginal:test", &agg, false).unwrap();
+            w.flush().unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.trim_end().ends_with("not_measured"), "{text}");
+    }
+
+    /// `resolve_fill_model` (таск 16): тройка RTT/лота задаётся вся или не
+    /// задаётся вовсе — частичная тройка отказывает, а не молча берёт
+    /// `NoFillModel` или изобретает недостающее число.
+    #[test]
+    fn resolve_fill_model_requires_all_three_or_none() {
+        assert_eq!(
+            resolve_fill_model(None, None, None).unwrap().label(),
+            "none"
+        );
+        assert_eq!(
+            resolve_fill_model(Some(1_000_000), Some(2_000_000), Some(100_000_000))
+                .unwrap()
+                .label(),
+            "backtest"
+        );
+        assert!(resolve_fill_model(Some(1_000_000), None, None).is_err());
+        assert!(resolve_fill_model(None, Some(1_000_000), Some(1)).is_err());
     }
 }
