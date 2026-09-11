@@ -344,3 +344,10 @@ cargo run --release -- lob <подкоманда>
 - `pilot.rs`: костыль `alias_dated_binlogs_for_legacy_readers`/`stage_session_for_replay` снят; `copy_pool_instruments_csv` — только копия `instruments.csv` в каталог сессии; цепочка `--debug` работает на датированных файлах напрямую (без `replay/`).
 - Тест: каталог `session` → `verify` → `levels` → `profiles` → `watch` → `backtest` без ручных шагов.
 - Старые каталоги `data/session-debug/…`, `data/pilot-debug/*/session/` с `<SYMBOL>.binlog` — отвергаются с подсказкой (в `profiles`/`watch` при сканировании многих сессий — пропускаются молча, как «не этот символ»).
+
+## Из таска 21 — окно «сейчас» (R57, из слепой приёмки)
+
+- Окно — предрегистрированный интервал, не число: `lob::shortlist::PreregisteredWindow { start, end, exploratory, confirmatory }`, `load_or_write_window(path, &days_now, window_end)` — из файла `--preregistration` (write-once; `window_end` дописывается один раз через `--window-end`, если в файле нет конца), `window_length_days`.
+- `ProfilesArgs += preregistration: Option<PathBuf>` (`--preregistration`, обязателен без `--allow-unverified` — иначе ошибка «окно не определено»), `window_end: Option<String>`. Сессии вне окна не читаются; `sessions_outside_window=<n>` печатается.
+- Шапка `profiles-*.csv` и `shortlist-*.md`: `window: <start>..<end> days=<n> sessions=<n> sessions_outside_window=<n> exploratory=<d1>..<d2> confirmatory=<d3>..<d4>` | `window: debug (all sessions)` (`profiles::format_window_line`, `VerdictHeader.window`).
+- Тесты: сессия вне окна не меняет ни одной строки; write-once `window_end`; шапка. `pilot.rs` — две строки умолчаний (`allow_unverified: true` → окно обходится).
