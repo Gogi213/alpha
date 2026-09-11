@@ -52,7 +52,8 @@ cargo run --release -- lob <подкоманда>
    Время приходит через трейт `Clock` (`ARCHITECTURE.md` A2). `levels.rs:689`
    грепает собственный исходник — делай так же.
 3. **`async` с захватом состояния** в решающем потоке — нет. Один поток решений,
-   `crossbeam` от потока ввода-вывода (A3).
+   канал от потока ввода-вывода (A3) — `tokio::sync::mpsc` + `blocking_recv()`,
+   пока `crossbeam` нет в списке зависимостей (D04).
 4. **REST в любой ветке событийного цикла** — ноль, включая редкие.
    Вызов из `select!` останавливает разбор на весь round-trip; при вложенном
    рантайме роняет процесс (`SETTLED.md` В-1).
@@ -174,3 +175,40 @@ cargo run --release -- lob <подкоманда>
 - `grep -rn "H10" src/` — пуст. Модель двух кандидатов не упоминается нигде как действующая.
 - `docs/plan/SETTLED.md` В-29 — предрегистрация в два этапа (до пилота / после пилота, до первой сессии сбора).
 - Документы: `docs/plan/REQUIREMENTS.md` переписан; `SETTLED.md` ПЛАН-2 — эррата в строке; `docs/plan/archive/` — `OPEN_QUESTIONS.md`, `critique-*.json`, `README.md`.
+
+## Из таска 02 — `H3` в двух режимах
+
+- `lob::levels::H3Mode { Floor { h3_lots: i64 }, Percentile { h3_lots: i64 } }`; `LevelsConfig { mode: H3Mode, warmup_ms, repeat_window_ms }` — поле `h3_lots` напрямую больше не существует.
+- `commands::lob::levels::H3ModeArg` (clap `ValueEnum`: `floor` | `percentile`); `resolve_h3_mode(root, symbol, mode, Option<i64>) -> anyhow::Result<H3Mode>`; `h3_lots_for_symbol` — чтение колонки `h3_lots` из `instruments.csv` в корне записи (колонку пишет таск 08). `markout`/`pilot`/`watch` зовут их через `super::levels::`.
+- CLI `lob levels|markout|pilot|watch`: `--h3-mode` **обязателен, умолчания нет**; `--h3-lots` — `Option<i64>`, только для `percentile`; `floor` берёт `h3_lots` из `instruments.csv`, без него — ненулевой код.
+- Прогон короче `repeat_window_ms`: первая строка CSV `# lob levels: debug — …` и тот же текст в stderr. Результат такого прогона — не данные.
+- Проверка на разведке: `floor` (`h3_lots=1`) на `data/recon5/SOLUSDT` → `levels=531`; `percentile` → `levels=0` с `debug`.
+
+## Из таска 03 — `net_fill` и совместный интервал
+
+- `costs::FillObservation { day_cluster: i64, net_bps: f64, filled: bool }` — одно наблюдение (вход по уровню).
+- `costs::net_fill_bps(&[FillObservation]) -> Option<f64>` — Σ netᵢ·fillᵢ / N; `costs::fill_rate(&[FillObservation]) -> Option<f64>`; `costs::format_fill_column(Option<f64>) -> String` — колонка `fill` для CSV, печатать **всегда** (проводка — таски 06/10).
+- `costs::net_fill_interval(&[FillObservation], alpha: f64, replications: u32, seed: u64) -> Option<NetFillInterval { n_filled, n_total, point_bps, lower_bps, replications, seed }>` — совместный бутстрап пары `(net, fill)`, один вес Уэбба на обе серии, произведение на реплику. **`alpha` — обязательный параметр без умолчания**; `lower_bps` — то, что сравнивается с нулём.
+- `cells::joint_product_interval(day_sums, alpha, replications, seed) -> Option<JointProduct>` (`pub(crate)`) — расширение `disjoint_contrast` через общий `joint_two_series_bootstrap`; второй ресэмплер не писать.
+- `stats/mod.rs` не менялся: веса Уэбба и `SplitMix64` переиспользованы.
+- Открыто: `filled` не различает «не успел за 2 с» и «позиция уже открыта» — причина пропуска (история 36) — таск 09/11.
+
+## Из таска 06 — маргиналы семи осей, повторяемость 1/2/≥3, час суток
+
+- Структура испытаний — Decision 26/26а (`SETTLED.md` В-18): `shortlist::build_profile_grid` — маргиналы по каждой оси плюс один крест инструмент × исход × расстояние по пригодным парам, id `cross:{sym}|{outcome}|{dist}`; непригодная корзина в выводе отсутствует. Полного семиосевого креста **нет** и не будет (D03).
+- `shortlist::nominal_grid_size` — из длин массивов осей: маргиналы `(n+19)` + `n·15` = 179 на десять инструментов (было 178; +1 — третья корзина повторяемости).
+- `shortlist::REPEAT_LABELS = ["1","2",">=3"]`, `repeat_bucket(u32)`: `0→"1"`, `1→"2"`, `_→">=3"` — `repeat_count` из `lob/levels.rs` считает прошлые рождения (0-based).
+- `shortlist::hour_dependence_test(&[HourDayObservation { day, hour_utc, value }], replications, seed) -> Result<f64, HourTestError>` — wild-cluster bootstrap-t (`stats::wild_cluster_bootstrap_t`) по суточному произведению `(hour − mean)·(value − mean)`, двусторонний; H0 — нет линейной зависимости от часа; α = `stats::GATE_ALPHA`. `log_hour_test` / `total_trials` пишут в `runs.csv` тем же путём, что `log_profile_trials` — каждый тест на час есть строка `runs.csv`; число испытаний = число строк.
+- `ProfileRow` не менялся; `fill`/`net_fill` считает таск 03, проводка колонки — таск 10.
+- Открыто: докстрока `stats::GATE_ALPHA` привязана к отменённой поправке C1/C2 — поправить владельцу `stats/` (таск 13).
+
+## Из таска 04 — `lob session` и `Feed` бота
+
+- `src/feed/`: `trait Feed { fn next_event(&mut self) -> Option<Event> }` — две реализации: `feed::replay::ReplayFeed` (бинлог через `bybit::verify::FileReplayer`) и `feed::live::LiveFeed` (N соединений `bybit::conn::Connection` на одном однопоточном рантайме в одном ОС-потоке, `tokio::sync::mpsc` + `blocking_recv()` в поток решений — то же отступление от `crossbeam`, что уже стоит в `conn.rs`). Вызывающий код не различает источник. Таск 15 подключает `on_event` к этому же `Feed`.
+- `feed::Event::Market { symbol: u8 (индекс в пуле, не String), local_ts_ns, parse_latency_ns: Option<i64>, payload }` — символ по индексу знает вызывающий (`session.rs` держит `Vec<SymbolState>` в порядке `LiveFeed::spawn`).
+- `bybit::conn::ConnEvent::Message { local_ts_ns, parsed_ts_ns, event }` — вторая метка `Clock` сразу после разбора; из неё суббюджет «разбор» (`PLAN.md` 3.1).
+- CLI: `lob session --pool-instruments <instruments.csv> --root <dir> --minutes <5..15> [--base-url] [--ntp-addr]` — весь пул одновременно, по `.binlog` на инструмент, `gaps.csv`, `clock.csv` (≥ 1 строка за сессию), `session.json { started_utc, start_hour_utc, duration_s, instruments, records_total, gaps, clock_samples, parse_p99_ns, out }`. Лимит топиков Bybit проверен по документации (futures — без числового предела, 21000 символов `args`) и печатается `feed::live::print_topic_budget`.
+- Остановка по времени — через `Clock`, не `Instant::now()`; CPU/RSS раз в 30 с — фоновый ОС-поток (Windows `Get-Process`, Linux `/proc/self/status`), не в горячем пути.
+- Аллокации: `write_market_event` — скретч-буфер в `SymbolState`, тест `alloc_count` на 10⁶ событий через `ReplayFeed`. `FileReplayer` (`bybit/verify.rs`) аллоцирует через `mem::take` — вне зоны, отдельная находка.
+- Первый живой замер (5 мин, `debug`): `parse_p99_ns` = 251.8 мкс против калибровочного суббюджета 200 мкс (`PLAN.md` 3.1 допускает пересмотр суббюджетов по замеру; общий бюджет 5 мс — нет). Пул для прогона собран вручную из 10 строк `data/pick22a/instruments.csv` (файл ~863 строки до таска 08).
+- `src/commands/lob/pick/measure.rs` — механическая правка под `ConnEvent::Message { parsed_ts_ns }` (зона таска 08, поведение не менялось).
