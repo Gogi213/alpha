@@ -97,9 +97,22 @@
 //! строкой `runs.csv` (`shortlist::log_profile_trials`) — испытание, как и
 //! любой посчитанный профиль (спека «Профиль», R29/R46). Отладочный режим
 //! файл не трогает (история 13, тот же принцип, что `pilot --debug`).
-//! Тест на час суток (`shortlist::hour_dependence_test`) в это испытание не
-//! входит: критерии приёмки таска называют только `log_profile_trials`,
-//! проводка часового теста — вне зоны (см. CONCERNS в возврате).
+//!
+//! Тест на час суток (`shortlist::hour_dependence_test`, ремонт по ревью
+//! таска 12, открытый пункт (2) для таска 13) идёт в тот же журнал одной
+//! строкой на профиль (`shortlist::log_hour_test`) — на горизонте
+//! вердиктной ячейки (10 с), кластер — сутки, значение — среднее `m_10s` за
+//! эти сутки, час — средний час старта сессий этих суток
+//! (`ProfileAgg::hour_day_sums`). Методический отказ теста (суток меньше
+//! `G_MIN`, сетка Уэбба грубее альфы, наблюдаемая вырождена) не пишется:
+//! как и непригодная корзина сетки, такое испытание не состоялось и не
+//! входит в `total_trials`.
+//!
+//! `G` (годных суток на профиль, ремонт по ревью таска 12, открытый пункт
+//! (1) для таска 13) — новая колонка `g` в конце шапки
+//! (`ProfileAgg::days`): число различных суток, на которые пришлось хотя бы
+//! одно наблюдение профиля. `commands::lob::shortlist` берёт её вместо
+//! прежнего захардкоженного нуля для `decide_profile`/подтверждающей шапки.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write as _;
@@ -119,8 +132,9 @@ use crate::lob::markout::{
     base_before, future_asof, markouts_for_level, raw_return_bps, MidSample, HORIZONS_MS,
 };
 use crate::lob::shortlist::{
-    build_profile_grid, log_profile_trials, repeat_bucket, InstrumentCoverage, DISTANCE_BOUNDS_BPS,
-    DISTANCE_LABELS, LIFETIME_LABELS, SIZE_LABELS,
+    build_profile_grid, hour_dependence_test, log_hour_test, log_profile_trials, repeat_bucket,
+    HourDayObservation, InstrumentCoverage, DISTANCE_BOUNDS_BPS, DISTANCE_LABELS, LIFETIME_LABELS,
+    SIZE_LABELS,
 };
 use crate::stats::{count_f64, count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
@@ -463,6 +477,20 @@ struct ProfileAgg {
     /// `NoFillModel`/`fill_model`).
     fill_obs: Vec<FillObservation>,
     hours: BTreeSet<u32>,
+    /// Годные сутки, на которые пришлось хотя бы одно наблюдение этого
+    /// профиля — `G` для `shortlist::decide_profile`/подтверждающей шапки
+    /// (ремонт по ревью таска 12, открытый пункт (1) для таска 13:
+    /// `docs/findings/profiles-*.csv` раньше не несло числа суток на
+    /// профиль, и `G` на подтверждающей был захардкожен нулём).
+    days: BTreeSet<i64>,
+    /// Сутки → (сумма часов старта, число наблюдений часа, сумма `m_10s`) —
+    /// вход теста на зависимость от часа суток (`shortlist::
+    /// hour_dependence_test`, ticket 06/13): один кластер — одни сутки,
+    /// значение — среднее `m_10s` за эти сутки (тот же горизонт, что идёт в
+    /// гейт G2 через `net_obs`), час — средний час старта сессий этих суток
+    /// (doc `HourDayObservation`: «при нескольких сессиях за сутки — среднее
+    /// их часов»).
+    hour_day_sums: BTreeMap<i64, (f64, u32, f64)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -484,6 +512,7 @@ fn apply_observation(
         Outcome::Mixed => agg.mixed += 1,
     }
     agg.hours.insert(start_hour_utc);
+    agg.days.insert(day_id);
     for (i, h) in HORIZONS_MS.iter().enumerate() {
         let Some(m) = m_by_horizon[i] else { continue };
         agg.horizons[i].m_obs.push(FillObservation {
@@ -502,6 +531,12 @@ fn apply_observation(
         }
     }
     if let (Some(m10), Some((base_ts, base2x))) = (m_by_horizon[2], base) {
+        // Тест на час суток (`shortlist::hour_dependence_test`) — на том же
+        // горизонте 10 с, что и `net_obs` ниже (вердиктная ячейка G2).
+        let hour_entry = agg.hour_day_sums.entry(day_id).or_insert((0.0, 0, 0.0));
+        hour_entry.0 += f64::from(start_hour_utc);
+        hour_entry.1 += 1;
+        hour_entry.2 += m10;
         if let Some(exit) = mid_sample_asof(mids, base_ts, HORIZONS_MS[2]) {
             let spread = exit.ask_tick - exit.bid_tick;
             agg.net_obs.push(Observation {
@@ -705,8 +740,11 @@ fn horizon_columns(agg: &HorizonAgg) -> HorizonColumns {
 
 /// Шапка `profiles-<дата>.csv`: 5 общих колонок плюс 4 на каждый из четырёх
 /// горизонтов (`m`, нижняя граница, сырое движение, флаг `unreachable`)
-/// плюс деньги плюс час старта сессий.
-const HEADER: [&str; 26] = [
+/// плюс деньги плюс час старта сессий плюс `g` (ремонт по ревью таска 12,
+/// открытый пункт (1) для таска 13). `g` — новая, дописанная в конец колонка:
+/// `commands::lob::shortlist::read_profile_table` матчит по имени, а не по
+/// позиции (доктрока там же), так что дописывание в конец не ломает читателя.
+const HEADER: [&str; 27] = [
     "profile_id",
     "n",
     "eaten_share",
@@ -733,6 +771,7 @@ const HEADER: [&str; 26] = [
     "net_fill",
     "net_fill_lower",
     "session_start_hours_utc",
+    "g",
 ];
 
 /// `measured` — есть ли активная модель исполнения (`FillModel::label() !=
@@ -801,6 +840,7 @@ fn write_row(
     record.push(net_fill_col);
     record.push(net_fill_lower_col);
     record.push(hours.join(","));
+    record.push(agg.days.len().to_string());
     w.write_record(record)?;
     Ok(())
 }
@@ -917,6 +957,29 @@ pub fn run_profiles_with_fill_model(
 
     if !args.allow_unverified {
         log_profile_trials(&args.runs_out, &now, &grid)?;
+        // Тест на зависимость от часа суток (ticket 06/13, `interfaces.md`
+        // «Из таска 12», открытый пункт (2)): каждый посчитанный тест на час
+        // — своя строка `runs.csv`, тем же видом испытания, что профиль
+        // (`total_trials` считает строки, не сетку отдельно). Отказ
+        // (`HourTestError`) не пишется: методический отказ («суток мало»,
+        // «сетка Уэбба грубее альфы», «наблюдаемая вырождена») не есть
+        // испытание, как непригодная корзина сетки — её тоже нет в выходе.
+        for (id, agg) in &profiles {
+            let obs: Vec<HourDayObservation> = agg
+                .hour_day_sums
+                .iter()
+                .map(
+                    |(&day, &(hour_sum, hour_n, value_sum))| HourDayObservation {
+                        day,
+                        hour_utc: hour_sum / f64::from(hour_n),
+                        value: value_sum / f64::from(hour_n),
+                    },
+                )
+                .collect();
+            if let Ok(p) = hour_dependence_test(&obs, BOOTSTRAP_REPLICATIONS, BOOTSTRAP_SEED) {
+                log_hour_test(&args.runs_out, &now, id, p)?;
+            }
+        }
     }
 
     Ok(ProfilesSummary {

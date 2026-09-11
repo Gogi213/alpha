@@ -53,46 +53,50 @@
 //!    — не исчезает (Decision 27, п. «профиль… идёт в отчёт как не
 //!    подтверждённый»).
 //!
-//! # `G` на подтверждающей не измеряется этим таском — CONCERNS
+//! # `G` на подтверждающей — реален (таск 13, было CONCERNS у таска 12)
 //!
 //! `decide_profile` (`crate::lob::shortlist`) зачитывает профиль только при
 //! `n >= 100` **и** `G >= G_MIN` — число годных суток, различных для этого
-//! конкретного профиля. `docs/findings/profiles-*.csv` (`profiles.rs`, зона
-//! таска 10, не трогается этим таском) не несёт колонку с числом суток на
-//! профиль — только множество часов старта сессий. Точный `G` по семи осям
-//! (включая `cross:`/`size`/`life`/`dist`, для которых нужны срезы середины
-//! при рождении уровня) требует либо правки `profiles.rs`, либо отдельного
-//! почсуточного прохода по всей сетке — вне бюджета этого таска. Решение:
-//! `g = 0` **везде** на подтверждающей — не «ноль суток измерено», а
-//! «не измерено» в консервативную сторону: `decide_profile` тогда честно
-//! печатает `insufficient`, а не подделывает `confirmed`/`unconfirmed`
-//! числом, которого нет (тот же принцип, что отверг плейсхолдер `filled =
-//! true` в ревью таска 10). Таск 13 (или отдельный таск на `profiles.rs`)
-//! обязан связать это с настоящим счётчиком суток на профиль.
+//! конкретного профиля. `docs/findings/profiles-*.csv` (`profiles.rs`) несёт
+//! колонку `g`, дописанную в конец шапки (ремонт по ревью таска 12,
+//! открытый пункт (1)): число различных суток, на которые пришлось хотя бы
+//! одно наблюдение профиля (`ProfileAgg::days`). Этот файл читает её через
+//! `ProfilesTableRow::g` и подставляет в `ConfProfile`/`ExplProfile` вместо
+//! прежнего захардкоженного нуля.
 //!
-//! # `fill`/`net_fill` — `not_measured` до бэктеста (таск 11/13)
+//! # DSR по фактическому `N` — порог больше не «выше нуля» (таск 13)
 //!
-//! `NoFillModel` — единственная модель исполнения, доступная сегодня
-//! (`interfaces.md`, «Из таска 10»): три денежные колонки печатают литерал
-//! `not_measured`, здесь читаются как `None`, и `net_fill_lower` у любого
-//! профиля на подтверждающей поэтому тоже `None` — статус `confirmed`
-//! недостижим, пока `lob backtest` (таск 11/13) не подставит настоящую
-//! модель в `run_profiles_with_fill_model`. `net_bps` (после издержек, без
-//! веса на исполнение) в таблице печатается всегда — то, что называет
-//! ticket «отбор по net»: человек, читающий `shortlist-<дата>.md`, видит
-//! `net_bps` и может судить о профиле сам, пока формальный `net_fill`-гейт
-//! не заработает.
+//! `decide_profile` требует не только `net_fill_lower > 0`, но и
+//! `observed_sharpe >= required_sharpe_for_dsr(total_trials, n, DSR_TARGET)`
+//! (R47, `final_metrics`). `total_trials` здесь — фактические строки
+//! `runs.csv` (`trials_from_runs_csv`), не номинал сетки: журнал копится
+//! через прогоны, и второй боевой прогон честно видит больше испытаний, чем
+//! первый (тест `production_run_freezes_boundary_once_and_writes_frozen_
+//! list`).
 //!
-//! # Тест на час суток не подключён — CONCERNS
+//! # `fill`/`net_fill`/`observed_sharpe` — `not_measured`/`None` до бэктеста
 //!
-//! `shortlist::hour_dependence_test`/`log_hour_test` (таск 06) существуют, но
-//! этот таск их не вызывает: критерии приёмки называют только «строка на
-//! каждый посчитанный профиль» (`log_profile_trials`, уже дёргается
-//! `profiles.rs`), а число часовых тестов на профиль требует почасовой
-//! разбивки наблюдений, которой сегодня в `profiles.rs` тоже нет (тот же
-//! пробел, что и `G`). `total_trials(grid_len, hour_tests)` вызывается с
-//! `hour_tests = 0` — печатаемое число испытаний сегодня равно длине сетки,
-//! не сетке-плюс-часовые-тесты. Открыто для следующего таска.
+//! `NoFillModel` — единственная модель исполнения, которую этот вызов
+//! подставляет в `run_profiles_with_fill_model` (`interfaces.md`, «Из
+//! таска 10»): три денежные колонки печатают литерал `not_measured`, здесь
+//! читаются как `None`, `ConfProfile::observed_sharpe` — всегда `None` —
+//! статус `confirmed` недостижим, пока реализация `FillModel` поверх
+//! `lob::backtest` не подставлена в этот вызов (открытый пункт (3) таска 12,
+//! остаётся открытым и после таска 13). `net_bps` (после издержек, без веса
+//! на исполнение) в таблице печатается всегда — то, что называет ticket
+//! «отбор по net»: человек, читающий `shortlist-<дата>.md`, видит `net_bps`
+//! и может судить о профиле сам, пока формальный `net_fill`-гейт не
+//! заработает.
+//!
+//! # Тест на час суток — подключён (таск 13, было CONCERNS у таска 12)
+//!
+//! `shortlist::hour_dependence_test`/`log_hour_test` (таск 06) вызывает
+//! `profiles.rs` — по одной строке `runs.csv` на профиль, у которого тест
+//! состоялся (ремонт по ревью таска 12, открытый пункт (2)); методический
+//! отказ теста (суток меньше `G_MIN`, сетка Уэбба грубее альфы, наблюдаемая
+//! вырождена) не пишется, как и непригодная корзина сетки. `total_trials`
+//! этого файла берёт фактические строки `runs.csv`, поэтому часовые тесты
+//! уже учтены без отдельного параметра.
 //!
 //! # Отладочный режим (`--allow-unverified`)
 //!
@@ -109,10 +113,12 @@ use clap::Args;
 
 use crate::commands::record::instruments_csv_path;
 use crate::lob::shortlist::{
-    build_profile_grid, confirmatory_table, decide_verdict, freeze_shortlist, select_shortlist,
-    split_calendar, total_trials, write_shortlist_md, CalendarSplit, ConfProfile, ExplProfile,
-    FrozenShortlist, InstrumentCoverage,
+    best_confirmed_net_fill, build_profile_grid, confirmatory_table, decide_verdict,
+    freeze_shortlist, select_shortlist, split_calendar, trials_from_runs_csv, write_shortlist_md,
+    CalendarSplit, ConfProfile, ConfirmStatus, ExplProfile, FrozenShortlist, InstrumentCoverage,
+    VerdictHeader,
 };
+use crate::stats;
 
 use super::levels::H3ModeArg;
 use super::profiles::{run_profiles_with_fill_model, NoFillModel, ProfilesArgs};
@@ -297,6 +303,48 @@ fn read_coverage(
         .collect()
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct OrderSizeRow {
+    symbol: String,
+    order_size_notional_usd_e9: Option<i64>,
+}
+
+/// Размер ордера в долларах на символ (`candidates.csv`, Decision 22) —
+/// справочные долларовые колонки шапки (R54), ни в один гейт не входят.
+/// Символ без строки или без измеренного размера просто отсутствует в карте
+/// (не отказ): доллар — необязательная справка, а не критерий.
+fn read_order_size_usd(
+    candidates_csv: &Path,
+    pool: &[String],
+) -> anyhow::Result<BTreeMap<String, f64>> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(candidates_csv)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", candidates_csv.display()))?;
+    let mut out = BTreeMap::new();
+    for row in r.deserialize::<OrderSizeRow>() {
+        let row = row?;
+        if let Some(usd_e9) = row.order_size_notional_usd_e9 {
+            if pool.contains(&row.symbol) {
+                #[allow(clippy::cast_precision_loss)]
+                out.insert(row.symbol, usd_e9 as f64 / 1e9);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Извлекает единственный символ из id сетки — только `cross:<SYM>|…` и
+/// `marginal:instrument=<SYM>` привязаны к одному инструменту; остальные
+/// маргиналы (`side`/`outcome`/`size`/`life`/`repeat`) размера ордера не
+/// имеют по построению (`None`, не отказ).
+fn symbol_from_profile_id(id: &str) -> Option<&str> {
+    if let Some(rest) = id.strip_prefix("cross:") {
+        return rest.split('|').next();
+    }
+    id.strip_prefix("marginal:instrument=")
+}
+
 // ---------------------------------------------------------------------------
 // Каталог-времянка: подмножество суток под отдельным корнем, чтобы
 // `run_profiles_with_fill_model` (сканирует все подкаталоги `--root`) увидел
@@ -459,10 +507,17 @@ struct ProfilesTableRow {
     n: u64,
     net_fill: String,
     net_fill_lower: String,
+    /// Годные сутки на профиль (ремонт по ревью таска 12, открытый пункт (1)
+    /// для таска 13) — `profiles.rs` дописывает колонку в конец шапки
+    /// (`HEADER`), матч здесь по имени, не по позиции, старые файлы без
+    /// колонки не читались бы этим полем без `default`.
+    #[serde(default)]
+    g: u64,
 }
 
 struct ProfileNums {
     n: u64,
+    g: u64,
     net_fill: Option<f64>,
     net_fill_lower: Option<f64>,
 }
@@ -486,6 +541,7 @@ fn read_profile_table(path: &Path) -> anyhow::Result<BTreeMap<String, ProfileNum
             row.profile_id,
             ProfileNums {
                 n: row.n,
+                g: row.g,
                 net_fill: parse_measured_f64(&row.net_fill),
                 net_fill_lower: parse_measured_f64(&row.net_fill_lower),
             },
@@ -668,7 +724,6 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
     let pool = read_pool_symbols(&instruments_csv)?;
     let coverages = read_coverage(&args.candidates_csv, &pool)?;
     let grid = build_profile_grid(&coverages).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let trials = total_trials(grid.len(), 0);
 
     if args.allow_unverified {
         return run_shortlist_debug(args, &date, &grid);
@@ -679,7 +734,11 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
     let days: Vec<String> = by_day.keys().cloned().collect();
     let split = load_or_write_boundary(&args.preregistration, &days)?;
 
-    // Разведочная: боевой прогон — пишет runs.csv (испытания реальны).
+    // Разведочная: боевой прогон — пишет runs.csv (испытания реальны),
+    // включая тесты на час (`profiles.rs`, ремонт по ревью таска 12,
+    // открытый пункт (2)). Число испытаний для DSR (R47) — фактические
+    // строки журнала, а не номинал сетки: `trials_from_runs_csv`, не
+    // `total_trials(grid.len(), 0)`.
     let expl_scratch = ScratchRoot::new("expl")?;
     build_filtered_root(
         expl_scratch.path(),
@@ -695,12 +754,18 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         args,
     )?;
     let expl_table = read_profile_table(&expl_csv)?;
+    let trials = trials_from_runs_csv(&args.runs_out).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}: журнал испытаний не читается — DSR не из чего дефлировать",
+            args.runs_out.display()
+        )
+    })?;
     let expl_profiles: Vec<ExplProfile> = grid
         .iter()
         .map(|id| ExplProfile {
             id: id.clone(),
             n: expl_table.get(id).map(|p| p.n).unwrap_or(0),
-            g: 0,
+            g: expl_table.get(id).map_or(0, |p| p.g),
         })
         .collect();
     let ids = select_shortlist(&expl_profiles);
@@ -728,7 +793,16 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         args,
     )?;
     let conf_table = read_profile_table(&conf_csv)?;
-    // `g = 0` везде: «не измерено», не «ноль суток» (doc модуля, CONCERNS).
+    // `G` теперь реален (ремонт по ревью таска 12, открытый пункт (1)):
+    // `profiles.rs` считает годные сутки на профиль и несёт их колонкой `g`.
+    // `observed_sharpe` остаётся `None` — эта команда прогоняет
+    // `run_profiles_over` с `NoFillModel` (см. doc модуля, «fill/net_fill —
+    // not_measured до бэктеста»): без реальной модели исполнения поверх
+    // `lob::backtest` Шарп круговых net не из чего посчитать, и
+    // `decide_profile` честно печатает `unconfirmed`, а не подделывает
+    // `confirmed` (открытый пункт (3) остаётся: подключение реализации
+    // `FillModel` поверх `lob::backtest` к этому вызову).
+    let order_size_usd = read_order_size_usd(&args.candidates_csv, &pool)?;
     let conf_profiles: Vec<ConfProfile> = frozen
         .ids()
         .iter()
@@ -737,21 +811,49 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
             ConfProfile {
                 id: id.clone(),
                 n: nums.map(|p| p.n).unwrap_or(0),
-                g: 0,
+                g: nums.map_or(0, |p| p.g),
                 net_fill: nums.and_then(|p| p.net_fill),
                 net_fill_lower: nums.and_then(|p| p.net_fill_lower),
+                observed_sharpe: None,
+                order_size_usd: symbol_from_profile_id(id)
+                    .and_then(|s| order_size_usd.get(s))
+                    .copied(),
             }
         })
         .collect();
-    let rows =
-        confirmatory_table(Some(&frozen), &conf_profiles).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let rows = confirmatory_table(Some(&frozen), &conf_profiles, trials)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let verdict = decide_verdict(&rows);
+
+    // Шапка (критерий приёмки таска 13): значение вердикта, DSR/PBO/CPCV
+    // (`None` — честно, пока `observed_sharpe`/реальный бэктест не
+    // подключены), фактический `G` (максимум среди измеренных строк — тот,
+    // на котором вердикт мог состояться), разрешение сетки Уэбба на этом
+    // `G`, джекнайф-по-суткам (A03) — механизм есть
+    // (`final_metrics::jackknife_sensitivity`), но входные точки требуют тех
+    // же реальных `net_fill`, что и DSR, поэтому пока `None` тем же путём.
+    let g_for_header = rows
+        .iter()
+        .filter(|r| r.status != ConfirmStatus::InsufficientData)
+        .map(|r| r.g)
+        .max();
+    let header = VerdictHeader {
+        value_bps: best_confirmed_net_fill(&rows),
+        dsr: None,
+        pbo: None,
+        cpcv_oos_sharpe: None,
+        g: g_for_header,
+        #[allow(clippy::cast_possible_truncation)]
+        p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
+        jackknife: None,
+    };
 
     let out = args
         .out
         .clone()
         .unwrap_or_else(|| PathBuf::from(format!("docs/findings/shortlist-{date}.md")));
-    write_shortlist_md(&out, &date, &frozen, &rows, verdict).map_err(|e| anyhow::anyhow!("{e}"))?;
+    write_shortlist_md(&out, &date, &frozen, &rows, verdict, &header)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     Ok(ShortlistSummary {
         out,
@@ -929,7 +1031,12 @@ mod tests {
             2 * summary.trials,
             "второй боевой прогон — ещё по строке на id сетки (append, не перезапись)"
         );
-        assert_eq!(summary2.trials, summary.trials);
+        // `trials` теперь идёт из фактических строк `runs.csv` (R47), а не
+        // из номинала сетки: журнал копится через прогоны (append, не
+        // перезапись), поэтому второй прогон честно видит вдвое больше
+        // испытаний, чем первый — то самое «поправка по фактическому N»,
+        // которое требует ticket 13, а не постоянное число от состава пула.
+        assert_eq!(summary2.trials, 2 * summary.trials);
     }
 
     /// Без `--freeze-commit` боевой прогон обязан отказать: изобретать

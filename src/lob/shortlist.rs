@@ -45,6 +45,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::lob::costs::GREEN_NET_BPS;
+use crate::lob::final_metrics::{required_sharpe_for_dsr, DSR_TARGET};
 use crate::lob::runs::{append_run_row, RunKind, RunRow};
 use crate::stats::{self, BootstrapError, GATE_ALPHA, G_MIN};
 
@@ -519,6 +520,21 @@ pub struct ConfProfile {
     pub net_fill: Option<f64>,
     /// Нижняя граница интервала `net_fill`, bps.
     pub net_fill_lower: Option<f64>,
+    /// Наблюдаемый Шарп (среднее/стандартное отклонение) круговых net этого
+    /// профиля на подтверждающей, в единицах на наблюдение — тот же смысл,
+    /// что `final_metrics::sharpe_ratio`. `None`, пока источник (реальная
+    /// модель исполнения поверх `lob::backtest`, а не `NoFillModel`) не
+    /// измерил круги: поправку на множественность не из чего считать, и
+    /// профиль не подтверждается по построению `decide_profile` — то же
+    /// правило, что раньше держало `not_measured`.
+    pub observed_sharpe: Option<f64>,
+    /// Размер ордера пула в долларах (`instruments.csv`/`candidates.csv`,
+    /// Decision 22) — источник двух справочных долларовых колонок таблицы
+    /// (R54: «доллары — справочными колонками, ни в один гейт не входят»).
+    /// `None` для профилей, не привязанных к одному инструменту (маргиналы
+    /// `side`/`outcome`/`size`/`life`/`repeat` — доллар не определён без
+    /// единственного размера ордера).
+    pub order_size_usd: Option<f64>,
 }
 
 /// Статус профиля на подтверждающей. Печатаются все три: красивый на
@@ -543,14 +559,42 @@ impl std::fmt::Display for ConfirmStatus {
     }
 }
 
-/// Решает статус одного профиля строго по §7: сначала зачёт по `n`/`G`,
-/// затем знак низа интервала (конечный и строго положительный).
-pub fn decide_profile(n: u64, g: u64, net_fill_lower: Option<f64>) -> ConfirmStatus {
+/// Решает статус одного профиля по §7 плюс поправка на множественность
+/// (R47, R51–R53, `PLAN.md` гейт G3-в): сначала зачёт по `n`/`G`, затем знак
+/// низа интервала (необходимое условие, как раньше), и только затем —
+/// поправка DSR по фактическому числу испытаний `total_trials` (таск 05:
+/// `final_metrics::required_sharpe_for_dsr`). «Нижняя граница выше нуля»
+/// сама по себе больше не вердикт: тест `confirm_status_requires_dsr_
+/// correction_not_just_positive_lower_bound` ловит именно это — критерий
+/// приёмки таска 13 буквально.
+///
+/// `observed_sharpe` — наблюдаемый Шарп круговых net на подтверждающей
+/// (`ConfProfile::observed_sharpe`); `None` (модель исполнения не измеряла
+/// круги — сегодня `NoFillModel`/бэктест не подключён к этому вызову) даёт
+/// `Unconfirmed`, а не `Confirmed`: отсутствие измерения не может подтвердить
+/// профиль (тот же принцип, что раньше отверг `net_fill_lower = None`).
+pub fn decide_profile(
+    n: u64,
+    g: u64,
+    net_fill_lower: Option<f64>,
+    observed_sharpe: Option<f64>,
+    total_trials: usize,
+) -> ConfirmStatus {
     if n < CONFIRM_MIN_N || g < G_MIN as u64 {
         return ConfirmStatus::InsufficientData;
     }
-    match net_fill_lower {
-        Some(v) if v.is_finite() && v > 0.0 => ConfirmStatus::Confirmed,
+    let lower_positive = matches!(net_fill_lower, Some(v) if v.is_finite() && v > 0.0);
+    if !lower_positive {
+        return ConfirmStatus::Unconfirmed;
+    }
+    let Some(sr) = observed_sharpe else {
+        return ConfirmStatus::Unconfirmed;
+    };
+    if !sr.is_finite() {
+        return ConfirmStatus::Unconfirmed;
+    }
+    match required_sharpe_for_dsr(total_trials, n as usize, DSR_TARGET) {
+        Some(required) if sr >= required => ConfirmStatus::Confirmed,
         _ => ConfirmStatus::Unconfirmed,
     }
 }
@@ -571,6 +615,8 @@ pub struct ConfirmRow {
     pub net_fill_lower: Option<f64>,
     /// Статус.
     pub status: ConfirmStatus,
+    /// Размер ордера в долларах — см. `ConfProfile::order_size_usd`.
+    pub order_size_usd: Option<f64>,
 }
 
 impl ConfirmRow {
@@ -578,16 +624,34 @@ impl ConfirmRow {
     pub fn is_confirmed(&self) -> bool {
         self.status == ConfirmStatus::Confirmed
     }
+    /// `net_fill` в долларах на круг ордера пула (R54: справочная величина,
+    /// ни в один гейт не входит) — `None`, когда не измерен `net_fill` или
+    /// профиль не привязан к одному инструменту.
+    pub fn net_fill_usd(&self) -> Option<f64> {
+        match (self.net_fill, self.order_size_usd) {
+            (Some(nf), Some(sz)) if nf.is_finite() && sz.is_finite() => Some(nf * sz / 10_000.0),
+            _ => None,
+        }
+    }
+    /// Порог `GREEN_NET_BPS` (H6) в долларах на тот же размер ордера —
+    /// справочная величина рядом с `net_fill_usd` для сравнения на глаз.
+    pub fn green_threshold_usd(&self) -> Option<f64> {
+        self.order_size_usd
+            .filter(|sz| sz.is_finite())
+            .map(|sz| GREEN_NET_BPS * sz / 10_000.0)
+    }
     /// Строка таблицы отчёта.
     pub fn format_line(&self) -> String {
         format!(
-            "{}: n={} G={} net_fill={} lower={} status={}",
+            "{}: n={} G={} net_fill={} lower={} status={} net_fill_usd={} green_threshold_usd={}",
             self.id,
             self.n,
             self.g,
             fmt_opt(self.net_fill),
             fmt_opt(self.net_fill_lower),
-            self.status
+            self.status,
+            fmt_opt(self.net_fill_usd()),
+            fmt_opt(self.green_threshold_usd()),
         )
     }
 }
@@ -603,10 +667,13 @@ fn fmt_opt(v: Option<f64>) -> String {
 /// заморозку (`None` — отказ); затем проверяет, что каждый поданный профиль
 /// входит в список (чужой — отказ); затем печатает строку на каждый профиль
 /// списка, включая отсутствующие в подаче (они идут с нулями как
-/// `insufficient`, а не исчезают).
+/// `insufficient`, а не исчезают). `total_trials` — фактическое число
+/// испытаний из `runs.csv` (R47): тот же `N`, которым `decide_profile`
+/// двигает порог для каждой строки.
 pub fn confirmatory_table(
     frozen: Option<&FrozenShortlist>,
     conf: &[ConfProfile],
+    total_trials: usize,
 ) -> Result<Vec<ConfirmRow>, ShortlistError> {
     let frozen = require_frozen(frozen)?;
     for p in conf {
@@ -625,7 +692,8 @@ pub fn confirmatory_table(
                 g: p.g,
                 net_fill: p.net_fill,
                 net_fill_lower: p.net_fill_lower,
-                status: decide_profile(p.n, p.g, p.net_fill_lower),
+                status: decide_profile(p.n, p.g, p.net_fill_lower, p.observed_sharpe, total_trials),
+                order_size_usd: p.order_size_usd,
             }),
             None => rows.push(ConfirmRow {
                 id: id.clone(),
@@ -634,38 +702,67 @@ pub fn confirmatory_table(
                 net_fill: None,
                 net_fill_lower: None,
                 status: ConfirmStatus::InsufficientData,
+                order_size_usd: None,
             }),
         }
     }
     Ok(rows)
 }
 
-/// Вердикт шага 5.4 по подтверждающей (шкала Goal): красный — ни один профиль
-/// не подтверждён; зелёный без ёмкости — подтверждённые есть, но лучший
-/// `net_fill` ниже H6 (3 bps); зелёный — лучший не ниже H6.
+/// Вердикт шага 5.4 по подтверждающей (спека «Решение», R51–R53): три
+/// предрегистрированных исхода. Красный расщеплён на два по R68/РВ-М —
+/// «красный по нехватке мощности печатается иначе, чем красный про рынок»:
+/// `RedInsufficientPower` — ни одна строка не набрала `n`/`G` даже на то,
+/// чтобы её измерить; `RedNoEdge` — измерение состоялось (хотя бы одна строка
+/// прошла `n`/`G`), но эджа нет. Не различать их значило бы одинаково
+/// печатать «данных не хватило» и «идея проверена и не работает» — а это
+/// разные результаты для владельца (ticket 13, критерий приёмки).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShortlistVerdict {
-    /// Ни один профиль не подтверждён.
-    RedNoConfirm,
+    /// Ни одна строка не набрала `n >= 100` и `G >= G_MIN`: измерения не было.
+    RedInsufficientPower,
+    /// Измерение состоялось, но ни один профиль не подтверждён.
+    RedNoEdge,
     /// Эдж есть, работу не окупает.
     GreenThin,
     /// Прошедший профиль с `net_fill >= H6`.
     Green,
 }
 
+impl ShortlistVerdict {
+    /// `true` — красный (оба варианта): используется, где различие причины
+    /// не нужно (например, счётчик прохода в CLI).
+    pub fn is_red(self) -> bool {
+        matches!(
+            self,
+            ShortlistVerdict::RedInsufficientPower | ShortlistVerdict::RedNoEdge
+        )
+    }
+}
+
 impl std::fmt::Display for ShortlistVerdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ShortlistVerdict::RedNoConfirm => write!(f, "RED: ни один профиль не подтверждён"),
+            ShortlistVerdict::RedInsufficientPower => {
+                write!(
+                    f,
+                    "RED (insufficient power): n/G/N ниже порога — измерения не было"
+                )
+            }
+            ShortlistVerdict::RedNoEdge => {
+                write!(f, "RED (market): измерено, ни один профиль не подтверждён")
+            }
             ShortlistVerdict::GreenThin => write!(f, "GREEN-thin: эдж есть, ёмкости нет"),
             ShortlistVerdict::Green => write!(f, "GREEN: net_fill>=H6"),
         }
     }
 }
 
-/// Выносит вердикт только по подтверждающим строкам. Разведочные числа сюда
-/// не входят даже аргументами.
-pub fn decide_verdict(rows: &[ConfirmRow]) -> ShortlistVerdict {
+/// Лучший `net_fill` среди подтверждённых строк — то же число, которое несёт
+/// вердикт (`decide_verdict`) и шапка отчёта (`VerdictHeader::value_bps`);
+/// вынесено отдельно, чтобы вызывающий CLI не пересчитывал вердикт заново
+/// ради одного числа.
+pub fn best_confirmed_net_fill(rows: &[ConfirmRow]) -> Option<f64> {
     let mut best: Option<f64> = None;
     for r in rows {
         if r.is_confirmed() {
@@ -676,10 +773,25 @@ pub fn decide_verdict(rows: &[ConfirmRow]) -> ShortlistVerdict {
             }
         }
     }
+    best
+}
+
+/// Выносит вердикт только по подтверждающим строкам. Разведочные числа сюда
+/// не входят даже аргументами. Различение красного (R68) смотрит на статусы
+/// строк: если хотя бы одна дошла до измерения (`Unconfirmed` или
+/// `Confirmed` — обе значат «n/G набраны, DSR-проверка состоялась»), красный
+/// — про рынок; если все строки `InsufficientData` (включая пустую таблицу),
+/// красный — про нехватку мощности.
+pub fn decide_verdict(rows: &[ConfirmRow]) -> ShortlistVerdict {
+    let best = best_confirmed_net_fill(rows);
+    let any_measured = rows
+        .iter()
+        .any(|r| r.status != ConfirmStatus::InsufficientData);
     match best {
-        None => ShortlistVerdict::RedNoConfirm,
         Some(v) if v >= GREEN_NET_BPS => ShortlistVerdict::Green,
         Some(_) => ShortlistVerdict::GreenThin,
+        None if any_measured => ShortlistVerdict::RedNoEdge,
+        None => ShortlistVerdict::RedInsufficientPower,
     }
 }
 
@@ -983,8 +1095,38 @@ pub fn read_profiles_csv(path: &Path) -> Result<Vec<ProfileRow>, ShortlistError>
 // Выход shortlist-<дата>.md.
 // ---------------------------------------------------------------------------
 
+/// Гейт вердикта в шапке шорт-листа (`PLAN.md` раздел 6): гейт G3-в на
+/// подтверждающей. Числа для DSR/PBO/CPCV/`G`/`p`/джекнайфа собирает
+/// вызывающий (`commands::lob::shortlist`) — этот модуль их не измеряет,
+/// только печатает, включая честный `none`, когда измерения не было (тот же
+/// принцип, что `not_measured` у `fill`/`net_fill`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct VerdictHeader {
+    /// `net_fill` профиля, который выносит вердикт (лучший подтверждённый,
+    /// либо лучший измеренный, если подтверждённых нет) — `None`, если
+    /// измерений не было вовсе.
+    pub value_bps: Option<f64>,
+    /// Deflated Sharpe Ratio (R47, `final_metrics::dsr`/`dsr_for_trial_count`).
+    pub dsr: Option<f64>,
+    /// Probability of Backtest Overfitting процедуры отбора.
+    pub pbo: Option<f64>,
+    /// Средний OOS Sharpe CPCV процедуры отбора.
+    pub cpcv_oos_sharpe: Option<f64>,
+    /// Фактическое число годных суток, которым вынесен вердикт.
+    pub g: Option<u64>,
+    /// Достижимое разрешение сетки Уэбба `p` при этом `G`
+    /// (`stats::webb_p_grid_resolution`).
+    pub p_grid_resolution: Option<f64>,
+    /// Джекнайф-по-суткам чувствительность (A03) — `None`, если суток для
+    /// исключения меньше двух или измерения не было.
+    pub jackknife: Option<crate::lob::final_metrics::JackknifeSensitivity>,
+}
+
 /// Пишет шорт-лист: профили с подтверждающими числами, фактическое число
-/// испытаний и поправка, с которой взят порог, плюс вердикт подтверждающей.
+/// испытаний и поправка, с которой взят порог, плюс вердикт подтверждающей
+/// в трёх предрегистрированных исходах (R50–R54, R68) с гейтом, значением,
+/// порогом, `N`, DSR/PBO/CPCV, `G`, `p` и джекнайфом (A03) — отдельного
+/// файла-отчёта нет (§5 задачи), всё это — шапка данного файла.
 #[allow(clippy::too_many_arguments)]
 pub fn write_shortlist_md(
     path: &Path,
@@ -992,28 +1134,62 @@ pub fn write_shortlist_md(
     frozen: &FrozenShortlist,
     rows: &[ConfirmRow],
     verdict: ShortlistVerdict,
+    header: &VerdictHeader,
 ) -> Result<(), ShortlistError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut text = String::new();
     text.push_str(&format!("# Shortlist {date}\n"));
+    text.push_str(&format!(
+        "outcome: {verdict} gate=G3-в value_bps={} green_threshold_bps={GREEN_NET_BPS}\n",
+        fmt_opt(header.value_bps),
+    ));
     text.push_str(&format!("trials: {}\n", frozen.trials()));
     text.push_str(&format!("freeze_commit: {}\n", frozen.commit()));
     text.push_str(&format!("fingerprint: {}\n", frozen.fingerprint_hex()));
     text.push_str(&format!(
         "threshold: n>={CONFIRM_MIN_N} G>={G_MIN} net_fill_lower>0 (DSR by actual trials)\n"
     ));
-    text.push_str("| profile_id | n_conf | g_conf | net_fill | lower | status |\n");
+    text.push_str(&format!(
+        "dsr_target: {DSR_TARGET} dsr={} pbo={} cpcv_oos_sharpe={}\n",
+        fmt_opt(header.dsr),
+        fmt_opt(header.pbo),
+        fmt_opt(header.cpcv_oos_sharpe),
+    ));
+    text.push_str(&format!(
+        "G: {} p_grid_resolution: {}\n",
+        header
+            .g
+            .map_or_else(|| "none".to_string(), |g| g.to_string()),
+        fmt_opt(header.p_grid_resolution),
+    ));
+    match &header.jackknife {
+        Some(j) => text.push_str(&format!(
+            "jackknife_by_day: min={:.4} max={:.4} range={:.4} n={}\n",
+            j.min,
+            j.max,
+            j.range,
+            j.leave_one_out.len()
+        )),
+        None => text.push_str("jackknife_by_day: none\n"),
+    }
+    // Долларовые колонки — справочные (R54), в гейт не входят: вердикт и
+    // `status` решены только по `net_fill`/`net_fill_lower` в bps выше.
+    text.push_str(
+        "| profile_id | n_conf | g_conf | net_fill | lower | status | net_fill_usd | green_threshold_usd |\n",
+    );
     for r in rows {
         text.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
             r.id,
             r.n,
             r.g,
             fmt_opt(r.net_fill),
             fmt_opt(r.net_fill_lower),
-            r.status
+            r.status,
+            fmt_opt(r.net_fill_usd()),
+            fmt_opt(r.green_threshold_usd()),
         ));
     }
     text.push_str(&format!("verdict: {verdict}\n"));
@@ -1209,9 +1385,11 @@ mod tests {
             g: 12,
             net_fill: Some(5.0),
             net_fill_lower: Some(1.0),
+            observed_sharpe: None,
+            order_size_usd: None,
         }];
         assert_eq!(
-            confirmatory_table(None, &conf),
+            confirmatory_table(None, &conf, 178),
             Err(ShortlistError::NotFrozen)
         );
         assert_eq!(require_frozen(None), Err(ShortlistError::NotFrozen));
@@ -1235,9 +1413,11 @@ mod tests {
             g: 12,
             net_fill: Some(5.0),
             net_fill_lower: Some(1.0),
+            observed_sharpe: None,
+            order_size_usd: None,
         }];
         assert_eq!(
-            confirmatory_table(Some(&frozen), &conf),
+            confirmatory_table(Some(&frozen), &conf, 178),
             Err(ShortlistError::OutOfShortlist {
                 id: "b".to_string()
             })
@@ -1256,7 +1436,7 @@ mod tests {
         let ids = select_shortlist(&expl);
         let frozen = freeze_shortlist(&ids, "commit-beautiful", 178);
         // На подтверждающей профиля нет вовсе: подача пуста.
-        let rows = confirmatory_table(Some(&frozen), &[]).expect("подтв");
+        let rows = confirmatory_table(Some(&frozen), &[], 178).expect("подтв");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "cross:SOLUSDT|pulled|[0,1)");
         assert_eq!(rows[0].n, 0);
@@ -1264,30 +1444,78 @@ mod tests {
         assert!(!rows[0].is_confirmed());
         let line = rows[0].format_line();
         assert!(line.contains("cross:SOLUSDT|pulled|[0,1)"), "{line}");
-        // Вердикт по такой таблице — красный, а не тишина.
-        assert_eq!(decide_verdict(&rows), ShortlistVerdict::RedNoConfirm);
+        // Вердикт по такой таблице — красный по нехватке мощности (R68):
+        // измерения не было вовсе, а не «идея проверена и не работает».
+        assert_eq!(
+            decide_verdict(&rows),
+            ShortlistVerdict::RedInsufficientPower
+        );
     }
 
-    /// Статусы §7: зачёт по n/G, затем знак низа интервала.
+    /// Статусы §7 плюс поправка DSR (R47, критерий приёмки таска 13): зачёт
+    /// по n/G, затем знак низа интервала, и только затем — DSR по
+    /// фактическому `total_trials`. `required_sharpe_for_dsr(1, 100,
+    /// DSR_TARGET)` — при одном испытании поправки на отбор почти нет
+    /// (перепроверено в `final_metrics.rs`), это и есть «почти
+    /// недефлированный» порог сравнения.
     #[test]
-    fn confirm_status_reads_counts_then_lower_bound() {
-        assert_eq!(decide_profile(100, 12, Some(0.1)), ConfirmStatus::Confirmed);
+    fn confirm_status_reads_counts_then_lower_bound_then_dsr() {
+        let required_at_one_trial = required_sharpe_for_dsr(1, 100, DSR_TARGET).unwrap();
         assert_eq!(
-            decide_profile(99, 12, Some(5.0)),
+            decide_profile(100, 12, Some(0.1), Some(required_at_one_trial + 0.01), 1),
+            ConfirmStatus::Confirmed
+        );
+        assert_eq!(
+            decide_profile(99, 12, Some(5.0), Some(10.0), 1),
             ConfirmStatus::InsufficientData
         );
         assert_eq!(
-            decide_profile(100, 6, Some(5.0)),
+            decide_profile(100, 6, Some(5.0), Some(10.0), 1),
             ConfirmStatus::InsufficientData
         );
+        // Низ интервала неположителен — необходимое условие не выполнено,
+        // Шарп даже не сравнивается.
         assert_eq!(
-            decide_profile(100, 12, Some(0.0)),
+            decide_profile(100, 12, Some(0.0), Some(10.0), 1),
             ConfirmStatus::Unconfirmed
         );
-        assert_eq!(decide_profile(100, 12, None), ConfirmStatus::Unconfirmed);
         assert_eq!(
-            decide_profile(100, 12, Some(f64::NAN)),
+            decide_profile(100, 12, None, Some(10.0), 1),
             ConfirmStatus::Unconfirmed
+        );
+        assert_eq!(
+            decide_profile(100, 12, Some(f64::NAN), Some(10.0), 1),
+            ConfirmStatus::Unconfirmed
+        );
+        // Низ положителен, но Шарп не измерен (модель исполнения не
+        // подключена) — подтвердить нечем.
+        assert_eq!(
+            decide_profile(100, 12, Some(0.1), None, 1),
+            ConfirmStatus::Unconfirmed
+        );
+        // Низ положителен, Шарп измерен, но ниже требуемого при этом N.
+        assert_eq!(
+            decide_profile(100, 12, Some(0.1), Some(required_at_one_trial - 0.01), 1),
+            ConfirmStatus::Unconfirmed
+        );
+    }
+
+    /// Критерий приёмки таска 13 буквально: «нижняя граница выше нуля» сама
+    /// по себе больше не вердикт — порог обязан двигаться фактическим `N`.
+    /// Тот же наблюдаемый Шарп, которого хватает при одном испытании,
+    /// обязан перестать подтверждать профиль при 179 испытаниях.
+    #[test]
+    fn confirm_status_requires_dsr_correction_not_just_positive_lower_bound() {
+        let sr = required_sharpe_for_dsr(1, 100, DSR_TARGET).unwrap() + 0.01;
+        assert_eq!(
+            decide_profile(100, 12, Some(0.1), Some(sr), 1),
+            ConfirmStatus::Confirmed,
+            "при одном испытании этого Шарпа обязано хватать"
+        );
+        assert_eq!(
+            decide_profile(100, 12, Some(0.1), Some(sr), 179),
+            ConfirmStatus::Unconfirmed,
+            "тот же Шарп при 179 испытаниях обязан не пройти — порог сдвинулся DSR"
         );
     }
 
@@ -1298,14 +1526,16 @@ mod tests {
     #[test]
     fn confirm_status_accepts_exactly_g_min_good_days() {
         assert_eq!(G_MIN, 7);
+        let required = required_sharpe_for_dsr(1, 100, DSR_TARGET).unwrap();
         assert_eq!(
-            decide_profile(100, G_MIN as u64, Some(0.1)),
+            decide_profile(100, G_MIN as u64, Some(0.1), Some(required + 0.01), 1),
             ConfirmStatus::Confirmed
         );
     }
 
-    /// Вердикт выносит подтверждающая: красный без подтверждённых, тонкий
-    /// зелёный ниже H6, полный зелёный не ниже H6.
+    /// Вердикт выносит подтверждающая: красный без подтверждённых (про
+    /// рынок — измерение состоялось), тонкий зелёный ниже H6, полный
+    /// зелёный не ниже H6.
     #[test]
     fn verdict_comes_from_confirmatory_only() {
         assert!(close(GREEN_NET_BPS, 3.0));
@@ -1316,9 +1546,10 @@ mod tests {
             net_fill: Some(-1.0),
             net_fill_lower: Some(-2.0),
             status: ConfirmStatus::Unconfirmed,
+            order_size_usd: None,
         }];
-        assert_eq!(decide_verdict(&red), ShortlistVerdict::RedNoConfirm);
-        assert_eq!(decide_verdict(&[]), ShortlistVerdict::RedNoConfirm);
+        assert_eq!(decide_verdict(&red), ShortlistVerdict::RedNoEdge);
+        assert_eq!(decide_verdict(&[]), ShortlistVerdict::RedInsufficientPower);
         let thin = vec![ConfirmRow {
             id: "a".to_string(),
             n: 150,
@@ -1326,8 +1557,11 @@ mod tests {
             net_fill: Some(2.9),
             net_fill_lower: Some(0.5),
             status: ConfirmStatus::Confirmed,
+            order_size_usd: Some(10_000.0),
         }];
         assert_eq!(decide_verdict(&thin), ShortlistVerdict::GreenThin);
+        assert!(close(thin[0].net_fill_usd().unwrap(), 2.9));
+        assert!(close(thin[0].green_threshold_usd().unwrap(), 3.0));
         let green = vec![ConfirmRow {
             id: "a".to_string(),
             n: 150,
@@ -1335,8 +1569,14 @@ mod tests {
             net_fill: Some(3.0),
             net_fill_lower: Some(0.5),
             status: ConfirmStatus::Confirmed,
+            order_size_usd: None,
         }];
         assert_eq!(decide_verdict(&green), ShortlistVerdict::Green);
+        assert_eq!(
+            green[0].net_fill_usd(),
+            None,
+            "без размера ордера доллары не считаются"
+        );
     }
 
     /// Все посчитанные профили идут в runs.csv, и число строк равно
@@ -1564,6 +1804,7 @@ mod tests {
                 net_fill: Some(4.0),
                 net_fill_lower: Some(1.0),
                 status: ConfirmStatus::Confirmed,
+                order_size_usd: Some(10_000.0),
             },
             ConfirmRow {
                 id: "cross:B|eaten|[1,2.5)".to_string(),
@@ -1572,10 +1813,30 @@ mod tests {
                 net_fill: None,
                 net_fill_lower: None,
                 status: ConfirmStatus::InsufficientData,
+                order_size_usd: None,
             },
         ];
-        write_shortlist_md(&path, "2026-05-20", &frozen, &rows, ShortlistVerdict::Green)
-            .expect("писатель");
+        let header = VerdictHeader {
+            value_bps: Some(4.0),
+            dsr: Some(0.97),
+            pbo: Some(0.2),
+            cpcv_oos_sharpe: Some(1.1),
+            g: Some(12),
+            p_grid_resolution: Some(stats::webb_p_grid_resolution(12)),
+            jackknife: crate::lob::final_metrics::jackknife_sensitivity(&[
+                ("2026-05-18".to_string(), 3.8),
+                ("2026-05-19".to_string(), 4.2),
+            ]),
+        };
+        write_shortlist_md(
+            &path,
+            "2026-05-20",
+            &frozen,
+            &rows,
+            ShortlistVerdict::Green,
+            &header,
+        )
+        .expect("писатель");
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("trials: 178"), "{text}");
         assert!(text.contains("freeze_commit: abc123"), "{text}");
@@ -1584,6 +1845,27 @@ mod tests {
             "отпечаток: {text}"
         );
         assert!(text.contains("net_fill_lower>0"), "{text}");
+        assert!(
+            text.contains("outcome: GREEN") && text.contains("gate=G3-в"),
+            "исход с гейтом обязан быть в шапке: {text}"
+        );
+        assert!(
+            text.contains(&format!("dsr_target: {DSR_TARGET}")),
+            "{text}"
+        );
+        assert!(text.contains("dsr=0.9700"), "{text}");
+        assert!(text.contains("pbo=0.2000"), "{text}");
+        assert!(text.contains("cpcv_oos_sharpe=1.1000"), "{text}");
+        assert!(text.contains("G: 12"), "{text}");
+        assert!(text.contains("jackknife_by_day: min=3.8000"), "{text}");
+        assert!(
+            text.contains("net_fill_usd") && text.contains("green_threshold_usd"),
+            "справочные долларовые колонки обязаны быть в таблице: {text}"
+        );
+        assert!(
+            text.contains("| cross:A|pulled|[0,1) | 150 | 12 | 4.0000 | 1.0000 | confirmed | 4.0000 | 3.0000 |"),
+            "доллар на 10000$ ордере при net_fill=4bps: {text}"
+        );
         // Ревью: порог в шапке обязан идти из тех же констант, что
         // `decide_profile` (`CONFIRM_MIN_N`/`G_MIN`), не литералом — таск 01
         // снёс отдельный `CONFIRM_MIN_G = 12`, и шапка обязана меняться
@@ -1632,7 +1914,10 @@ mod tests {
                 g: 12,
                 net_fill: Some(1.0),
                 net_fill_lower: Some(0.2),
+                observed_sharpe: Some(5.0),
+                order_size_usd: Some(9_926.0),
             }],
+            25,
         )
         .expect("подтв");
         let line = format!(

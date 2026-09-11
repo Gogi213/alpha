@@ -326,6 +326,89 @@ pub fn required_sharpe_for_dsr(n_trials: usize, num_obs: usize, dsr_target: f64)
     Some((-b + disc.sqrt()) / (2.0 * a))
 }
 
+/// Целевой DSR вердикта (гейт G3-в, `PLAN.md` раздел 6; тот же плановый
+/// уровень, что `commands::lob::power::POWER_DSR_TARGET` для G-POWER-A —
+/// число одно и то же по плану, но эта константа не импортируется оттуда:
+/// `power.rs` вне зоны этого таска, а `0.95` здесь не новое число, а то же
+/// значение из `PLAN.md` («требуемый Шарп… для DSR = 0.95»), названное второй
+/// именованной константой в её собственном модуле).
+pub const DSR_TARGET: f64 = 0.95;
+
+/// DSR наблюдаемого Шарпа при известном числе испытаний, без явного среза
+/// пробных Шарпов — та же нейтральная замена `V = 1` (единичная дисперсия
+/// пробных Шарпов), что уже несёт `expected_sharpe_under_null_for_trial_count`
+/// для гейта G-POWER-A, применённая к полному `dsr()`, а не только к его
+/// `SR0`. Не вторая формула: тот же `dsr()`, тот же синтетический срез
+/// `unit_variance_trials(n_trials)`, только явно параметризованный числом
+/// испытаний вместо готового среза — ровно то, что нужно вердикту таска 13,
+/// когда пробные Шарпы всех `N` испытаний физически не посчитаны (это заняло
+/// бы `N` дополнительных прогонов бэктеста), а их число уже есть в
+/// `runs.csv`. `None` — см. `dsr`/`expected_sharpe_under_null_for_trial_count`.
+pub fn dsr_for_trial_count(
+    observed_sr: f64,
+    num_obs: usize,
+    skew: f64,
+    kurtosis: f64,
+    n_trials: usize,
+) -> Option<f64> {
+    dsr(
+        observed_sr,
+        num_obs,
+        skew,
+        kurtosis,
+        &unit_variance_trials(n_trials),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Джекнайф-по-суткам (A03): устойчивость точечной оценки к исключению одних
+// суток-кластера. Не бутстрап и не гейт — диагностика рядом с вердиктом
+// (`PLAN.md` В-2: «джекнайф-по-суткам чувствительность» печатается всегда,
+// когда есть за что: вердикт при `G = G_MIN` не назовёшь честным без неё).
+// ---------------------------------------------------------------------------
+
+/// Одна точка джекнайфа: оценка при исключённых сутках `excluded_day` вместо
+/// самого значения — воспроизводимость важнее произвольной сортировки.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JackknifeSensitivity {
+    /// Точечные оценки без одних суток, по одной на исключённые сутки.
+    pub leave_one_out: Vec<(String, f64)>,
+    /// Наименьшая из оценок.
+    pub min: f64,
+    /// Наибольшая из оценок.
+    pub max: f64,
+    /// Размах `max - min`: чем он шире, тем меньше можно доверять точечной
+    /// оценке на границе `G = G_MIN` (одни сутки решают исход).
+    pub range: f64,
+}
+
+/// Джекнайф-по-суткам из уже посчитанных оценок «без суток X» (вызывающий —
+/// `commands::lob::shortlist` — считает их отдельными прогонами
+/// `run_profiles_with_fill_model` на времянке без одних суток; этот модуль
+/// формул повторного счёта не вводит, только сводит готовые числа).
+/// `None` — меньше двух оценок: без исключения одних суток чувствительность
+/// не из чего мерить (единственная оценка «без суток X» ничем не
+/// отличается от точечной оценки на всех сутках).
+pub fn jackknife_sensitivity(leave_one_out: &[(String, f64)]) -> Option<JackknifeSensitivity> {
+    if leave_one_out.len() < 2 || leave_one_out.iter().any(|(_, v)| !v.is_finite()) {
+        return None;
+    }
+    let min = leave_one_out
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::INFINITY, f64::min);
+    let max = leave_one_out
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(f64::NEG_INFINITY, f64::max);
+    Some(JackknifeSensitivity {
+        leave_one_out: leave_one_out.to_vec(),
+        min,
+        max,
+        range: max - min,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // PBO.
 // ---------------------------------------------------------------------------
@@ -1029,6 +1112,43 @@ mod tests {
         assert!(text.contains("dsr="), "DSR: {text}");
         assert!(text.contains("pbo="), "PBO: {text}");
         assert!(text.contains("cpcv_oos_sharpe="), "CPCV: {text}");
+    }
+
+    /// `dsr_for_trial_count` — та же формула, что `dsr` на синтетическом
+    /// срезе `unit_variance_trials`, не переформулировка: подстановка того же
+    /// среза напрямую в `dsr` обязана дать то же число.
+    #[test]
+    fn dsr_for_trial_count_matches_dsr_on_unit_variance_trials() {
+        let direct = dsr(1.2, 100, 0.0, 3.0, &unit_variance_trials(50));
+        let via_wrapper = dsr_for_trial_count(1.2, 100, 0.0, 3.0, 50);
+        assert_eq!(direct, via_wrapper);
+        assert!(via_wrapper.unwrap().is_finite());
+    }
+
+    /// Джекнайф: три оценки дают известные `min`/`max`/`range`; меньше двух
+    /// оценок или неконечное число — отказ, а не подделанная чувствительность.
+    #[test]
+    fn jackknife_sensitivity_reports_known_range() {
+        let points = vec![
+            ("2026-05-01".to_string(), 3.0),
+            ("2026-05-02".to_string(), 1.0),
+            ("2026-05-03".to_string(), 4.0),
+        ];
+        let got = jackknife_sensitivity(&points).expect("три точки — достаточно");
+        assert!(close(got.min, 1.0, 1e-12));
+        assert!(close(got.max, 4.0, 1e-12));
+        assert!(close(got.range, 3.0, 1e-12));
+        assert_eq!(got.leave_one_out, points);
+        assert_eq!(
+            jackknife_sensitivity(&[("2026-05-01".to_string(), 1.0)]),
+            None,
+            "одна точка — не из чего мерить чувствительность"
+        );
+        assert_eq!(
+            jackknife_sensitivity(&[("a".to_string(), 1.0), ("b".to_string(), f64::NAN)]),
+            None,
+            "неконечная оценка — отказ, а не подделанный размах"
+        );
     }
 
     /// Журнал 7.1 кормит число испытаний: два пилота и перезапуск — три
