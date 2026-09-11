@@ -68,6 +68,7 @@ pub mod pick;
 pub mod pilot;
 pub mod power;
 pub mod probe;
+pub mod react;
 mod record;
 pub mod session;
 mod verify;
@@ -80,6 +81,7 @@ pub use pick::{run_pick, write_instruments_csv, PickArgs};
 pub use pilot::{run_pilot, PilotArgs};
 pub use power::{run_power, PowerArgs};
 pub use probe::{run_probe, ProbeArgs};
+pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
 pub use watch::{run_watch, WatchArgs};
 
@@ -463,6 +465,9 @@ pub enum LobCommand {
     /// Сессия 5-15 минут по всему пулу одновременно, один `Feed` на
     /// рекордер и (таск 15) на стратегию (таск 04, история 7).
     Session(SessionArgs),
+    /// Замер реакционного пути и гейт G-LAT, dry-run без ордеров (таск 15,
+    /// история 14).
+    React(ReactArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -599,6 +604,11 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
+        LobCommand::React(args) => {
+            let report = run_react(&args)?;
+            println!("{}", react::format_report(&report));
+            Ok(())
+        }
     }
 }
 
@@ -713,8 +723,8 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "record",
-            "session", "verify", "watch",
+            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "react",
+            "record", "session", "verify", "watch",
         ];
         assert_eq!(
             sorted,

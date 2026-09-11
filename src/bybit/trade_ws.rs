@@ -23,7 +23,7 @@
 
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::bybit::probe::{self, OrderSide, ProbeParams};
-use crate::bybit::sign::Credentials;
+use crate::bybit::sign::{Credentials, CredentialsError};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
@@ -81,6 +81,31 @@ fn format_e9(v: i64) -> String {
         s.insert(0, '-');
     }
     s
+}
+
+/// То же самое, что `format_e9`, но пишет в переданный буфер вместо
+/// возврата новой `String` — единственный способ не аллоцировать на каждую
+/// пересборку `ReadyMakerOrder` (дозапрос ревью таска 15, запрет 1). `buf`
+/// не очищается здесь — вызывающий решает, когда: `rebuild` ниже чистит
+/// перед каждым использованием и держит ёмкость между вызовами.
+/// Тест `format_e9_into_matches_format_e9` держит обе копии на одном значении.
+fn format_e9_into(buf: &mut String, v: i64) {
+    use std::fmt::Write as _;
+    let neg = v < 0;
+    let uv = v.unsigned_abs();
+    let int_part = uv / 1_000_000_000;
+    let frac_part = uv % 1_000_000_000;
+    if neg {
+        buf.push('-');
+    }
+    let _ = write!(buf, "{int_part}");
+    if frac_part != 0 {
+        buf.push('.');
+        let _ = write!(buf, "{frac_part:09}");
+        while buf.ends_with('0') {
+            buf.pop();
+        }
+    }
 }
 
 fn side_str(side: OrderSide) -> &'static str {
@@ -169,40 +194,97 @@ impl std::fmt::Debug for WsSignedFrame {
     }
 }
 
-/// Кадр `order.create`: post-only минимального размера далеко от середины.
-/// Цена — `probe::far_price_e9` (та же функция, что в 6.2: ордер тот же),
-/// размер — `params.qty_e9` (минимальный лот, Decision 22).
-pub fn build_create_frame(
-    creds: &Credentials,
-    params: &ProbeParams,
-    mid_price_e9: i64,
+/// Шов D-ОРДЕР (таск 15): абстракция подписи, а не конкретный `Credentials`.
+/// Продовая реализация ниже просто делегирует настоящим ключам; тестовая
+/// (`commands/lob/react.rs`, этот файл) оборачивает её счётчиком вызовов —
+/// единственный способ доказать «подпись не вызывается из ветки
+/// срабатывания», как того требует критерий приёмки, без парсинга логов.
+pub trait OrderSigner {
+    fn sign(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+    ) -> Result<String, CredentialsError>;
+    fn api_key(&self) -> &str;
+
+    /// Пишет hex-подпись (64 ASCII-символа HMAC-SHA256, тот же алфавит, что
+    /// `sign`) в `out`, не аллоцируя на стороне вызывающего (дозапрос
+    /// ревью таска 15, ось Craft, запрет 1: `ReadyMakerOrder::rebuild` не
+    /// вправе аллоцировать после прогрева). Реализация по умолчанию зовёт
+    /// `sign` и копирует байты — годится для `Credentials`: аллокация там
+    /// уже сидит внутри `sign.rs` (не в зоне этого таска, трогать нельзя),
+    /// и эта реализация её не устраивает по новой, а наследует как есть.
+    /// Тестовый фейк (`commands/lob/react.rs`, этот файл) переопределяет
+    /// метод без единой аллокации — это и проверяет счётчик `alloc_count`.
+    fn sign_into(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+        out: &mut [u8; 64],
+    ) -> Result<(), CredentialsError> {
+        let hex = self.sign(timestamp_ms, recv_window_ms, body)?;
+        let bytes = hex.as_bytes();
+        let n = bytes.len().min(out.len());
+        out[..n].copy_from_slice(&bytes[..n]);
+        for b in &mut out[n..] {
+            *b = b'0';
+        }
+        Ok(())
+    }
+}
+
+impl OrderSigner for Credentials {
+    fn sign(
+        &self,
+        timestamp_ms: i64,
+        recv_window_ms: u32,
+        body: &str,
+    ) -> Result<String, CredentialsError> {
+        Credentials::sign(self, timestamp_ms, recv_window_ms, body)
+    }
+
+    fn api_key(&self) -> &str {
+        Credentials::api_key(self)
+    }
+}
+
+/// Кадр `order.create` по явно заданной цене. Тело — общее для двух вызывающих
+/// с разными правилами цены: `build_create_frame` (ниже, `far_price_e9` —
+/// нарочно прочь от книги, зонд 6.2/6.4) и `refresh_ready_maker_order`
+/// (таск 15, D-ОРДЕР — нарочно **на** своей стороне спреда). Разошедшиеся
+/// копии тела кадра — тот класс дефекта, что `SETTLED.md` уже ловил в других
+/// файлах; здесь одна реализация на оба правила цены.
+#[allow(clippy::too_many_arguments)]
+pub fn build_create_frame_at_price<S: OrderSigner>(
+    signer: &S,
+    symbol: &str,
+    side: OrderSide,
+    qty_e9: i64,
+    price_e9: i64,
+    recv_window_ms: u32,
     req_id: &str,
     timestamp_ms: i64,
 ) -> Result<WsSignedFrame, TradeWsError> {
-    let price_e9 = probe::far_price_e9(
-        mid_price_e9,
-        params.tick_e9,
-        params.ticks_from_mid,
-        params.side,
-    );
     let args = CreateArgs {
         category: CATEGORY,
-        symbol: params.symbol.clone(),
-        side: side_str(params.side),
+        symbol: symbol.to_string(),
+        side: side_str(side),
         order_type: ORDER_TYPE,
-        qty: format_e9(params.qty_e9),
+        qty: format_e9(qty_e9),
         price: format_e9(price_e9),
         time_in_force: TIME_IN_FORCE,
     };
     let args_json =
         serde_json::to_string(&args).map_err(|e| TradeWsError::Decode(e.to_string()))?;
-    let signature_hex = creds
-        .sign(timestamp_ms, params.recv_window_ms, &args_json)
+    let signature_hex = signer
+        .sign(timestamp_ms, recv_window_ms, &args_json)
         .map_err(TradeWsError::Credentials)?;
     let header = WsHeader {
-        api_key: creds.api_key().to_string(),
+        api_key: signer.api_key().to_string(),
         timestamp: timestamp_ms.to_string(),
-        recv_window: params.recv_window_ms.to_string(),
+        recv_window: recv_window_ms.to_string(),
         sign: signature_hex,
     };
     let frame = serde_json::to_string(&WsRequest {
@@ -219,9 +301,37 @@ pub fn build_create_frame(
     })
 }
 
+/// Кадр `order.create`: post-only минимального размера далеко от середины.
+/// Цена — `probe::far_price_e9` (та же функция, что в 6.2: ордер тот же),
+/// размер — `params.qty_e9` (минимальный лот, Decision 22).
+pub fn build_create_frame<S: OrderSigner>(
+    signer: &S,
+    params: &ProbeParams,
+    mid_price_e9: i64,
+    req_id: &str,
+    timestamp_ms: i64,
+) -> Result<WsSignedFrame, TradeWsError> {
+    let price_e9 = probe::far_price_e9(
+        mid_price_e9,
+        params.tick_e9,
+        params.ticks_from_mid,
+        params.side,
+    );
+    build_create_frame_at_price(
+        signer,
+        &params.symbol,
+        params.side,
+        params.qty_e9,
+        price_e9,
+        params.recv_window_ms,
+        req_id,
+        timestamp_ms,
+    )
+}
+
 /// Кадр `order.cancel` для немедленного снятия (`[ASSUMPTION H9]`).
-pub fn build_cancel_frame(
-    creds: &Credentials,
+pub fn build_cancel_frame<S: OrderSigner>(
+    signer: &S,
     params: &ProbeParams,
     order_id: &str,
     req_id: &str,
@@ -234,11 +344,11 @@ pub fn build_cancel_frame(
     };
     let args_json =
         serde_json::to_string(&args).map_err(|e| TradeWsError::Decode(e.to_string()))?;
-    let signature_hex = creds
+    let signature_hex = signer
         .sign(timestamp_ms, params.recv_window_ms, &args_json)
         .map_err(TradeWsError::Credentials)?;
     let header = WsHeader {
-        api_key: creds.api_key().to_string(),
+        api_key: signer.api_key().to_string(),
         timestamp: timestamp_ms.to_string(),
         recv_window: params.recv_window_ms.to_string(),
         sign: signature_hex,
@@ -255,6 +365,209 @@ pub fn build_cancel_frame(
         req_id: req_id.to_string(),
         frame,
     })
+}
+
+/// Те же три типа кадра, что `CreateArgs`/`WsHeader`/`WsRequest` выше, но
+/// с заимствованными полями вместо `String`/`Vec` — единственная форма,
+/// которая позволяет `ReadyMakerOrder::rebuild` не аллоцировать ничего,
+/// кроме уже выделенных буферов (дозапрос ревью таска 15, запрет 1).
+/// `args` — массив `[_; 1]`, не `Vec`: единственный элемент, и массив не
+/// аллоцирует, где `Vec` аллоцировал бы на каждую пересборку.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateArgsRef<'a> {
+    category: &'static str,
+    symbol: &'a str,
+    side: &'static str,
+    order_type: &'static str,
+    qty: &'a str,
+    price: &'a str,
+    time_in_force: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+struct WsHeaderRef<'a> {
+    #[serde(rename = "X-BAPI-API-KEY")]
+    api_key: &'a str,
+    #[serde(rename = "X-BAPI-TIMESTAMP")]
+    timestamp: &'a str,
+    #[serde(rename = "X-BAPI-RECV-WINDOW")]
+    recv_window: &'a str,
+    #[serde(rename = "X-BAPI-SIGN")]
+    sign: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+struct WsRequestRef<'a> {
+    #[serde(rename = "reqId")]
+    req_id: &'a str,
+    header: WsHeaderRef<'a>,
+    op: &'static str,
+    args: [CreateArgsRef<'a>; 1],
+}
+
+/// Ордер до триггера (D-ОРДЕР, таск 15): payload собран и подписан заранее,
+/// под цену **на своей стороне спреда** (не `far_price_e9` — та нарочно
+/// уводит цену прочь от книги, здесь наоборот: вход мейкером у своей стороны,
+/// цена известна заранее из последнего обновления книги).
+///
+/// **Запрет 1 (дозапрос ревью).** Каждое поле кадра — либо `&'static str`,
+/// либо буфер, который `rebuild` чистит (`.clear()`, ёмкость остаётся) и
+/// заполняет заново: `qty_buf`/`price_buf`/`timestamp_buf`/`recv_window_buf`
+/// через `format_e9_into`/`write!`, `sig_hex` — фиксированный массив (подпись
+/// всегда 64 hex-байта), `args_body_buf`/`frame_buf` — через
+/// `serde_json::to_writer` вместо `serde_json::to_string`. Вызывающий
+/// (`commands/lob/react.rs`) обязан звать `rebuild` только когда цена своей
+/// стороны спреда реально изменилась (`if changed`), не на каждое обновление
+/// книги — иначе даже нулевая аллокация внутри не спасает от лишней подписи
+/// на каждый тик. `send_ready_maker_order` — только `send` уже готового
+/// кадра, не трогает ни один из этих буферов: тест `rebuild_signs_only_
+/// when_called_send_never_signs` доказывает счётчиком через `OrderSigner`-
+/// фейк, что срабатывание не подписывает.
+pub struct ReadyMakerOrder {
+    price_e9: i64,
+    args_body_buf: Vec<u8>,
+    sig_hex: [u8; 64],
+    frame_buf: Vec<u8>,
+    req_id_buf: String,
+    timestamp_buf: String,
+    recv_window_buf: String,
+    qty_buf: String,
+    price_buf: String,
+}
+
+impl ReadyMakerOrder {
+    /// Ёмкость с запасом: любое реалистичное числовое поле (цена, размер,
+    /// таймстамп, счётчик `reqId`) в разы короче — рост буфера после первой
+    /// сборки не нужен, а лишний запас дешевле, чем гоняться за границей.
+    pub fn new() -> Self {
+        Self {
+            price_e9: 0,
+            args_body_buf: Vec::with_capacity(256),
+            sig_hex: [b'0'; 64],
+            frame_buf: Vec::with_capacity(512),
+            req_id_buf: String::with_capacity(48),
+            timestamp_buf: String::with_capacity(24),
+            recv_window_buf: String::with_capacity(24),
+            qty_buf: String::with_capacity(32),
+            price_buf: String::with_capacity(32),
+        }
+    }
+
+    pub fn price_e9(&self) -> i64 {
+        self.price_e9
+    }
+
+    /// Итоговый кадр как строка — `serde_json::to_writer` пишет валидный
+    /// UTF-8 в `Vec<u8>` по построению, `expect` не паникующий на практике.
+    pub fn frame_str(&self) -> &str {
+        std::str::from_utf8(&self.frame_buf).expect("serde_json пишет валидный UTF-8")
+    }
+
+    /// Пересобирает и переподписывает ордер под текущую цену своей стороны
+    /// спреда, целиком в уже выделенных буферах. Вызывающий обязан звать
+    /// это только когда цена реально изменилась — см. doc структуры.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rebuild<S: OrderSigner>(
+        &mut self,
+        signer: &S,
+        symbol: &str,
+        side: OrderSide,
+        qty_e9: i64,
+        price_e9: i64,
+        recv_window_ms: u32,
+        req_id: &str,
+        timestamp_ms: i64,
+    ) -> Result<(), TradeWsError> {
+        self.price_e9 = price_e9;
+
+        self.qty_buf.clear();
+        format_e9_into(&mut self.qty_buf, qty_e9);
+        self.price_buf.clear();
+        format_e9_into(&mut self.price_buf, price_e9);
+
+        self.args_body_buf.clear();
+        serde_json::to_writer(
+            &mut self.args_body_buf,
+            &CreateArgsRef {
+                category: CATEGORY,
+                symbol,
+                side: side_str(side),
+                order_type: ORDER_TYPE,
+                qty: &self.qty_buf,
+                price: &self.price_buf,
+                time_in_force: TIME_IN_FORCE,
+            },
+        )
+        .map_err(|e| TradeWsError::Decode(e.to_string()))?;
+        let body_str = std::str::from_utf8(&self.args_body_buf)
+            .map_err(|e| TradeWsError::Decode(e.to_string()))?;
+
+        self.timestamp_buf.clear();
+        {
+            use std::fmt::Write as _;
+            let _ = write!(self.timestamp_buf, "{timestamp_ms}");
+        }
+        self.recv_window_buf.clear();
+        {
+            use std::fmt::Write as _;
+            let _ = write!(self.recv_window_buf, "{recv_window_ms}");
+        }
+
+        signer
+            .sign_into(timestamp_ms, recv_window_ms, body_str, &mut self.sig_hex)
+            .map_err(TradeWsError::Credentials)?;
+        let sign_str = std::str::from_utf8(&self.sig_hex).expect("sign_into пишет hex-ASCII");
+
+        self.req_id_buf.clear();
+        self.req_id_buf.push_str(req_id);
+
+        self.frame_buf.clear();
+        serde_json::to_writer(
+            &mut self.frame_buf,
+            &WsRequestRef {
+                req_id: &self.req_id_buf,
+                header: WsHeaderRef {
+                    api_key: signer.api_key(),
+                    timestamp: &self.timestamp_buf,
+                    recv_window: &self.recv_window_buf,
+                    sign: sign_str,
+                },
+                op: OP_CREATE,
+                args: [CreateArgsRef {
+                    category: CATEGORY,
+                    symbol,
+                    side: side_str(side),
+                    order_type: ORDER_TYPE,
+                    qty: &self.qty_buf,
+                    price: &self.price_buf,
+                    time_in_force: TIME_IN_FORCE,
+                }],
+            },
+        )
+        .map_err(|e| TradeWsError::Decode(e.to_string()))?;
+        Ok(())
+    }
+}
+
+impl Default for ReadyMakerOrder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Триггер: только `send` уже готового кадра. Не пересобирает payload и не
+/// зовёт подпись — тест `rebuild_signs_only_when_called_send_never_signs`
+/// ниже доказывает это счётчиком через `OrderSigner`-фейк, а не чтением
+/// этого тела глазами. `.to_string()` здесь — вне измеряемого пути: dry-run
+/// `lob react` этот кадр вовсе не отправляет (метка вместо `send`,
+/// критерий приёмки «ни одного ордера»), функция нужна только тесту и,
+/// в будущем, живому исполнению.
+pub fn send_ready_maker_order<T: WsTradeTransport>(
+    transport: &mut T,
+    ready: &ReadyMakerOrder,
+) -> Result<(), TradeWsError> {
+    transport.send(ready.frame_str().to_string())
 }
 
 /// Ответный кадр trade-сокета: `{"op","reqId","retCode","retMsg","data":...}`.
@@ -641,6 +954,7 @@ pub fn probe_ws<T: WsTradeTransport>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::collections::VecDeque;
 
     struct FakeWs {
@@ -1096,6 +1410,249 @@ mod tests {
             );
             assert!(fake.sent.is_empty(), "без ключей ни один кадр не уходит");
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // D-ОРДЕР (таск 15): payload собран и подписан до триггера, триггер
+    // делает только `send`.
+    // -----------------------------------------------------------------------
+
+    /// `OrderSigner`-фейк, считающий вызовы `sign`: единственный способ
+    /// доказать критерий приёмки «подпись не вызывается из ветки
+    /// срабатывания» — не чтением тела функции глазами, а счётчиком.
+    struct CountingSigner<'a> {
+        inner: &'a Credentials,
+        calls: Cell<u32>,
+    }
+
+    impl OrderSigner for CountingSigner<'_> {
+        fn sign(
+            &self,
+            timestamp_ms: i64,
+            recv_window_ms: u32,
+            body: &str,
+        ) -> Result<String, CredentialsError> {
+            self.calls.set(self.calls.get() + 1);
+            self.inner.sign(timestamp_ms, recv_window_ms, body)
+        }
+
+        fn api_key(&self) -> &str {
+            self.inner.api_key()
+        }
+    }
+
+    #[test]
+    fn build_create_frame_at_price_carries_the_exact_price_given() {
+        let params = test_params();
+        let own_side_price_e9 = 100_010_000_000; // на своей стороне спреда, не far_price_e9
+        let frame = build_create_frame_at_price(
+            &test_creds(),
+            &params.symbol,
+            params.side,
+            params.qty_e9,
+            own_side_price_e9,
+            params.recv_window_ms,
+            "r-1",
+            TS_MS,
+        )
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&frame.frame).unwrap();
+        assert_eq!(v["args"][0]["price"], format_e9(own_side_price_e9));
+        assert_eq!(v["args"][0]["qty"], format_e9(params.qty_e9));
+    }
+
+    /// Критерий приёмки таска 15 буквально: подготовка (`ReadyMakerOrder::
+    /// rebuild`) подписывает; отправка (`send_ready_maker_order`) — нет.
+    /// Счётчик `sign` не двигается между «после подготовки» и «после
+    /// отправки», хотя кадр реально уходит транспорту.
+    #[test]
+    fn trigger_branch_sends_a_ready_frame_without_resigning_it() {
+        let creds = test_creds();
+        let signer = CountingSigner {
+            inner: &creds,
+            calls: Cell::new(0),
+        };
+        let params = test_params();
+
+        let mut ready = ReadyMakerOrder::new();
+        ready
+            .rebuild(
+                &signer,
+                &params.symbol,
+                params.side,
+                params.qty_e9,
+                100_010_000_000,
+                params.recv_window_ms,
+                "react-1",
+                TS_MS,
+            )
+            .unwrap();
+        let calls_after_rebuild = signer.calls.get();
+        assert!(calls_after_rebuild >= 1, "подготовка обязана подписывать");
+
+        let mut fake = FakeWs::with_frames(Vec::new());
+        let sent_frame = ready.frame_str().to_string();
+        send_ready_maker_order(&mut fake, &ready).unwrap();
+
+        assert_eq!(
+            signer.calls.get(),
+            calls_after_rebuild,
+            "триггер не имеет права подписывать повторно"
+        );
+        assert_eq!(fake.sent, vec![sent_frame]);
+    }
+
+    /// Дозапрос ревью таска 15 буквально: «подписывает только при смене
+    /// цены, триггер — никогда». Вызывающий (`commands/lob/react.rs`) зовёт
+    /// `rebuild` только внутри `if changed` — здесь это выражено явно: цикл
+    /// ниже зовёт `rebuild` дважды (цена реально другая оба раза), счётчик
+    /// подписи равен двум, не трём и не нулю; срабатывание в конце не
+    /// добавляет ни одной.
+    #[test]
+    fn rebuild_signs_only_when_called_send_never_signs() {
+        let creds = test_creds();
+        let signer = CountingSigner {
+            inner: &creds,
+            calls: Cell::new(0),
+        };
+        let params = test_params();
+        let mut ready = ReadyMakerOrder::new();
+
+        for (i, price_e9) in [100_000_000_000i64, 100_010_000_000]
+            .into_iter()
+            .enumerate()
+        {
+            ready
+                .rebuild(
+                    &signer,
+                    &params.symbol,
+                    params.side,
+                    params.qty_e9,
+                    price_e9,
+                    params.recv_window_ms,
+                    &format!("react-{i}"),
+                    TS_MS,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            signer.calls.get(),
+            2,
+            "подпись — по разу на каждый вызов rebuild, не более"
+        );
+
+        let mut fake = FakeWs::with_frames(Vec::new());
+        send_ready_maker_order(&mut fake, &ready).unwrap();
+        assert_eq!(
+            signer.calls.get(),
+            2,
+            "срабатывание не добавило ни одной подписи"
+        );
+    }
+
+    #[test]
+    fn format_e9_into_matches_format_e9() {
+        for &v in &[
+            150_010_000_000i64,
+            1_000_000,
+            12_345_678_900_000,
+            1,
+            -150_010_000_000,
+            0,
+        ] {
+            let mut buf = String::new();
+            format_e9_into(&mut buf, v);
+            assert_eq!(buf, format_e9(v), "расхождение на {v}");
+        }
+    }
+
+    /// Фейк-подписант, пишущий фиксированный hex прямо в буфер — ни одной
+    /// аллокации (дозапрос ревью: тест `alloc_count` на `rebuild` обязан
+    /// доказать нулевые аллокации после первой сборки, а сквозь реальный
+    /// `Credentials` этого не проверить — `sign.rs` не в зоне этого таска
+    /// и его собственная аллокация остаётся его делом).
+    struct ZeroAllocSigner {
+        api_key: String,
+    }
+
+    impl OrderSigner for ZeroAllocSigner {
+        fn sign(
+            &self,
+            _timestamp_ms: i64,
+            _recv_window_ms: u32,
+            _body: &str,
+        ) -> Result<String, CredentialsError> {
+            unreachable!("тест зовёт только sign_into")
+        }
+        fn api_key(&self) -> &str {
+            &self.api_key
+        }
+        fn sign_into(
+            &self,
+            _timestamp_ms: i64,
+            _recv_window_ms: u32,
+            _body: &str,
+            out: &mut [u8; 64],
+        ) -> Result<(), CredentialsError> {
+            out.fill(b'a');
+            Ok(())
+        }
+    }
+
+    /// Запрет 1 (дозапрос ревью): после первой сборки `rebuild` не
+    /// аллоцирует — ни в JSON-теле, ни в подписи, ни в итоговом кадре.
+    /// Первый вызов (прогрев) годится на рост ёмкости буферов; 10⁶
+    /// последующих — только на том же наборе цен (реалистичный размер
+    /// строк не растёт), поэтому ёмкость не тронута ни разу.
+    #[test]
+    fn rebuild_allocates_nothing_after_the_first_call() {
+        const WARMUP: usize = 1;
+        const MEASURED: usize = 1_000_000;
+
+        let signer = ZeroAllocSigner {
+            api_key: "test-key".to_string(),
+        };
+        let params = test_params();
+        let mut ready = ReadyMakerOrder::new();
+        let prices = [100_000_000_000i64, 100_010_000_000, 99_990_000_000];
+
+        for i in 0..WARMUP {
+            ready
+                .rebuild(
+                    &signer,
+                    &params.symbol,
+                    params.side,
+                    params.qty_e9,
+                    prices[i % prices.len()],
+                    params.recv_window_ms,
+                    "react-warmup",
+                    TS_MS,
+                )
+                .unwrap();
+        }
+
+        let mut total_allocations = 0u64;
+        for i in 0..MEASURED {
+            let (_, counts) = crate::alloc_count::measure(|| {
+                ready
+                    .rebuild(
+                        &signer,
+                        &params.symbol,
+                        params.side,
+                        params.qty_e9,
+                        prices[i % prices.len()],
+                        params.recv_window_ms,
+                        "react-fixed",
+                        TS_MS,
+                    )
+                    .unwrap()
+            });
+            total_allocations += counts.allocations;
+        }
+        assert_eq!(
+            total_allocations, 0,
+            "rebuild аллоцировал после прогрева — запрет 1 interfaces.md"
+        );
     }
 
     /// Живой прогон 6.4: один реальный цикл create → ack → cancel → ack по

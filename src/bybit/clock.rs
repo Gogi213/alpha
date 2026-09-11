@@ -660,10 +660,84 @@ impl ReferenceClock for BybitServerTimeSource {
     }
 }
 
+/// Метки реакционного пути (таск 15, `interfaces.md`: «монотонные через
+/// трейт `Clock`, не `SystemTime`»). `SystemClock` намеренно не гарантирует
+/// монотонность — его собственная документация называет цену: сравнимость с
+/// биржевой эпохой ценой возможного отката при коррекции NTP. Стадии `lob
+/// react` (`recv → разбор → книга → триггер → send`) сравнивают метки только
+/// между собой, в пределах одного прогона, и такой откат превратил бы
+/// длительность стадии в отрицательное число — что и проверяет тест ниже.
+///
+/// Реализация — единственное место в этом проходе, где `Instant` вызывается
+/// напрямую: сама точка, где монотонность заводится. Горячий путь
+/// (`lob/strategy.rs`, `commands/lob/react.rs`) вызывает только
+/// `Clock::now_ns()` — им запрещён прямой вызов `Instant::now()`
+/// (`interfaces.md`, запрет 2), и это проверяется грепом их собственного
+/// исходника, как `levels.rs` проверяет себя.
+#[derive(Debug, Clone, Copy)]
+pub struct MonotonicClock {
+    origin: std::time::Instant,
+    origin_epoch_ns: i64,
+}
+
+impl MonotonicClock {
+    /// Заводит начало отсчёта один раз: `Instant::now()` — точка опоры,
+    /// `SystemClock` — во сколько эпохи Unix она пришлась, только для того,
+    /// чтобы печатаемые метки были на что похожи. Разность двух вызовов
+    /// `now_ns()` этого экземпляра ниже не зависит от того, насколько точно
+    /// угадана эта точка — сдвиг общий для обеих меток и сокращается.
+    pub fn start() -> Self {
+        Self {
+            origin: std::time::Instant::now(),
+            origin_epoch_ns: crate::bybit::conn::SystemClock.now_ns(),
+        }
+    }
+}
+
+impl Clock for MonotonicClock {
+    fn now_ns(&self) -> i64 {
+        let elapsed_ns = i64::try_from(self.origin.elapsed().as_nanos()).unwrap_or(i64::MAX);
+        self.origin_epoch_ns.saturating_add(elapsed_ns)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    // ---- MonotonicClock -------------------------------------------------
+
+    /// Требуемое свойство (таск 15): последовательные метки одного экземпляра
+    /// не убывают — то, что откат `SystemClock` при коррекции NTP не может
+    /// гарантировать (см. doc `MonotonicClock`), и то, что стадии `lob react`
+    /// обязаны получить, иначе длительность стадии может выйти отрицательной.
+    #[test]
+    fn monotonic_clock_never_goes_backwards_across_many_reads() {
+        let clock = MonotonicClock::start();
+        let mut prev = clock.now_ns();
+        for _ in 0..10_000 {
+            let now = clock.now_ns();
+            assert!(now >= prev, "метка обязана не убывать: {now} < {prev}");
+            prev = now;
+        }
+    }
+
+    /// Метка растёт вместе с настоящим временем (не заморожена, не случайна):
+    /// сон между двумя чтениями обязан дать положительную разницу порядка
+    /// длины сна, а не ноль и не что попало.
+    #[test]
+    fn monotonic_clock_advances_by_roughly_the_elapsed_sleep() {
+        let clock = MonotonicClock::start();
+        let before = clock.now_ns();
+        std::thread::sleep(Duration::from_millis(20));
+        let after = clock.now_ns();
+        let delta_ns = after - before;
+        assert!(
+            delta_ns >= 10_000_000,
+            "20мс сна обязаны отразиться в метке, получили {delta_ns}нс"
+        );
+    }
     use std::collections::VecDeque;
 
     fn rt(local_send_ns: i64, remote_ns: i64, local_recv_ns: i64) -> RoundTrip {
