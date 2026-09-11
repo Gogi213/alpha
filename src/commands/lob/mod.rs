@@ -68,6 +68,7 @@ pub mod pick;
 pub mod pilot;
 pub mod power;
 pub mod probe;
+pub mod profiles;
 pub mod react;
 mod record;
 pub mod session;
@@ -81,6 +82,7 @@ pub use pick::{run_pick, write_instruments_csv, PickArgs};
 pub use pilot::{run_pilot, PilotArgs};
 pub use power::{run_power, PowerArgs};
 pub use probe::{run_probe, ProbeArgs};
+pub use profiles::{run_profiles, ProfilesArgs};
 pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
 pub use watch::{run_watch, WatchArgs};
@@ -468,6 +470,9 @@ pub enum LobCommand {
     /// Замер реакционного пути и гейт G-LAT, dry-run без ордеров (таск 15,
     /// история 14).
     React(ReactArgs),
+    /// Таблица профилей `docs/findings/profiles-<дата>.csv` — первый из трёх
+    /// артефактов задачи (таск 10, история 44).
+    Profiles(ProfilesArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -609,6 +614,16 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             println!("{}", react::format_report(&report));
             Ok(())
         }
+        LobCommand::Profiles(args) => {
+            let summary = run_profiles(&args)?;
+            println!(
+                "profiles: rows={} debug={} out={}",
+                summary.rows,
+                summary.debug,
+                summary.out.display()
+            );
+            Ok(())
+        }
     }
 }
 
@@ -723,8 +738,8 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "react",
-            "record", "session", "verify", "watch",
+            "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe", "profiles",
+            "react", "record", "session", "verify", "watch",
         ];
         assert_eq!(
             sorted,
