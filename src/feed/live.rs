@@ -39,8 +39,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::bybit::conn::{
-    BackoffConfig, BybitPublicLinearConnector, ConnConfig, ConnEvent, Connection, SystemClock,
-    TransportConnector,
+    BackoffConfig, BybitPublicLinearConnector, Clock, ConnConfig, ConnEvent, Connection,
+    SystemClock, TransportConnector,
 };
 
 use super::{Event, Feed};
@@ -115,19 +115,53 @@ pub struct LiveFeed {
 }
 
 impl LiveFeed {
-    /// Продовый вход: одно подключение на инструмент, реальный сокет.
+    /// Продовый вход: одно подключение на инструмент, реальный сокет,
+    /// системные часы (`SystemClock`) — прежнее поведение, потребитель не
+    /// собирает свои метки этапов из отдельного `Clock` (`lob session`).
     pub fn spawn(pool: Vec<PoolMember>) -> Self {
-        Self::spawn_with(pool, |_member| BybitPublicLinearConnector)
+        Self::spawn_with_clock(pool, SystemClock)
+    }
+
+    /// Продовый вход с явно поданным `Clock` (ремонт таска 15, `interfaces.md`
+    /// «Из таска 15»: домен часов). Живой `lob react` ставит свои метки
+    /// книги/триггера/send через `bybit::clock::MonotonicClock` — если
+    /// `local_ts_ns`/`parsed_ts_ns` этого `Feed` при этом идут через
+    /// `SystemClock`, разность стадий смешивает два разных источника
+    /// времени и становится бессмысленной (на Windows `SystemTime` вдобавок
+    /// не гарантированно монотонны). Подавая сюда тот же экземпляр
+    /// `MonotonicClock`, что и стадии `react`, все пять меток одного пути
+    /// оказываются в одном домене.
+    pub fn spawn_with_clock<K>(pool: Vec<PoolMember>, clock: K) -> Self
+    where
+        K: Clock + Clone + Send + 'static,
+    {
+        Self::spawn_with_clock_and_connector(pool, |_member| BybitPublicLinearConnector, clock)
     }
 
     /// Обобщённый вход (шов теста 1, `interfaces.md`: `Transport` —
     /// фейковый сокет). `make_connector` вызывается один раз на инструмент,
     /// на старте — как и продовый путь, который каждому `Connection` даёт
-    /// свой `BybitPublicLinearConnector`.
-    pub fn spawn_with<C, F>(pool: Vec<PoolMember>, mut make_connector: F) -> Self
+    /// свой `BybitPublicLinearConnector`. Часы — `SystemClock`, как и прежде;
+    /// `spawn_with_clock_and_connector` — тот же приём с явным `Clock`.
+    pub fn spawn_with<C, F>(pool: Vec<PoolMember>, make_connector: F) -> Self
     where
         C: TransportConnector + 'static,
         F: FnMut(&PoolMember) -> C,
+    {
+        Self::spawn_with_clock_and_connector(pool, make_connector, SystemClock)
+    }
+
+    /// Общее ядро `spawn`/`spawn_with`/`spawn_with_clock`: и транспорт, и
+    /// часы — параметры, ничего больше в теле не меняется.
+    fn spawn_with_clock_and_connector<C, F, K>(
+        pool: Vec<PoolMember>,
+        mut make_connector: F,
+        clock: K,
+    ) -> Self
+    where
+        C: TransportConnector + 'static,
+        F: FnMut(&PoolMember) -> C,
+        K: Clock + Clone + Send + 'static,
     {
         print_topic_budget(&pool);
         let capacity = CHANNEL_CAPACITY_PER_SYMBOL.saturating_mul(pool.len().max(1));
@@ -167,7 +201,7 @@ impl LiveFeed {
                         }
                     }));
                     let conn = Connection::new(connector, cfg);
-                    tasks.push(tokio::spawn(conn.run(SystemClock, conn_tx)));
+                    tasks.push(tokio::spawn(conn.run(clock.clone(), conn_tx)));
                 }
                 drop(tx);
                 for t in tasks {
@@ -308,5 +342,53 @@ mod tests {
             matches!(second, Event::Market { symbol: 0, .. }),
             "второй, валидный кадр обязан дойти как Market после потерянного первого: {second:?}"
         );
+    }
+
+    /// Часы, поставленные в `Clock`, а не вычислены заново. Счётчик
+    /// возвращает малые, заведомо не похожие на `SystemTime` значения
+    /// (реальная эпоха — порядка 10^18 нс в 2026 году); если `local_ts_ns`
+    /// пришёл маленьким, `Connection::run` использовал именно этот `Clock`,
+    /// а не жёстко зашитый `SystemClock` — ровно то, что чинит домен часов
+    /// таска 15 (`interfaces.md`, «Из таска 15»): `lob react` обязан подать
+    /// свой `MonotonicClock` сюда же, что и ставит стадии книги/триггера/
+    /// send, иначе `local_ts_ns`/`parsed_ts_ns` остаются в чужом домене.
+    #[derive(Clone)]
+    struct FakeSeqClock(Arc<std::sync::atomic::AtomicI64>);
+
+    impl crate::bybit::conn::Clock for FakeSeqClock {
+        fn now_ns(&self) -> i64 {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[test]
+    fn spawn_with_clock_feeds_the_injected_clock_into_the_connection() {
+        let snapshot = r#"{"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1,"data":{"s":"BTCUSDT","b":[["100.0","1.0"]],"a":[],"u":1,"seq":1}}"#;
+        let inbox = Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(
+            snapshot.to_string(),
+        ))])));
+        let pool = vec![PoolMember {
+            symbol: "BTCUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }];
+        let clock = FakeSeqClock(Arc::new(std::sync::atomic::AtomicI64::new(0)));
+        let mut feed = LiveFeed::spawn_with_clock_and_connector(
+            pool,
+            |_m| OneShotConnector {
+                inbox: inbox.clone(),
+            },
+            clock,
+        );
+
+        let ev = feed.next_event().expect("снапшот обязан дойти");
+        match ev {
+            Event::Market { local_ts_ns, .. } => assert!(
+                local_ts_ns < 1_000_000,
+                "метка обязана прийти из инжектированных часов ({local_ts_ns}), \
+                 не из SystemClock (тот дал бы ~10^18)"
+            ),
+            other => panic!("ждали Market, получили {other:?}"),
+        }
     }
 }

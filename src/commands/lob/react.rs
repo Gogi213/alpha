@@ -145,14 +145,52 @@ fn resolve_host_id(explicit: Option<&str>) -> String {
 // Измерение одного срабатывания.
 // ---------------------------------------------------------------------------
 
-/// Пять меток одного срабатывания, наносекунды. `parse_ns` — `None`, когда
+/// Метки одного события книги, наносекунды. `parse_ns` — `None`, когда
 /// `Feed` не измерил разбор (`feed::Event::Market::parse_latency_ns`,
 /// `Some` только в живом режиме, `interfaces.md`): печатать здесь ноль
 /// значило бы измеренное там, где ничего не измерялось (правило 1).
+///
+/// **Счёт (ремонт таска 15 по ревью).** `parse_ns`/`book_ns` — на **каждом**
+/// событии книги, дошедшем до `Book::apply`: 8 379 событий за пять минут
+/// достаточно для честного p99 этих двух стадий, а срабатываний (смена
+/// лучшего тика) на том же прогоне было только 63. `trigger` — `Some`
+/// только на срабатывании и несёт «весь путь» (`recv → send`) вместе с
+/// `trigger_ns`/`order_ns`.
+///
+/// **Дозапрос ревью (BLOCKING, ось Предрегистрация).** `full_ns` раньше жил
+/// прямо в `ReactSample` и на событиях без срабатывания подставлялся как
+/// `recv → книга` под тем же именем, что `recv → send` срабатываний — смесь
+/// в одной серии занижала p99 «весь путь» и делала тривиальным порог
+/// `≥ 1000` и `horizon_reach`, которые `PLAN.md` 3.1 привязывает буквально
+/// к строке «recv → кадр отдан сокету» (на данных прогона
+/// `data/react-debug/20260911T113637Z/`: смешанный p99 = 278 800 нс против
+/// настоящего p99 срабатываний = 1 769 800 нс — на порядок разные числа).
+/// Теперь `full_ns` живёт только внутри `TriggerLatency`, где он и означает
+/// ровно то, что называет план: `recv → книга` для событий без
+/// срабатывания печатается отдельной строкой `recv→книга (все события)`,
+/// под своим именем, в общий `full` не входит.
+///
+/// Все метки одного события — из **одного** экземпляра `Clock`
+/// (`interfaces.md`, «Из таска 15»): `parse_ns` приходит от `Feed`, который
+/// в живом прогоне обязан получать тот же `MonotonicClock`, что и
+/// `stage_clock` здесь (`feed::live::LiveFeed::spawn_with_clock`) — иначе
+/// разность стадий смешивает два разных источника времени и превращается в
+/// отрицательные числа без физического смысла (`finish_report` эту находку
+/// ловит, см. `check_no_negative_durations`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ReactSample {
     pub parse_ns: Option<i64>,
     pub book_ns: i64,
+    pub trigger: Option<TriggerLatency>,
+}
+
+/// Метки решения, `send` и «весь путь» — только на срабатывании (смена
+/// лучшего тика своей стороны), не на каждом событии. `full_ns` —
+/// буквально `recv → send`, то, что `PLAN.md` 3.1 называет «recv → кадр
+/// отдан сокету»; событий без срабатывания в этой серии нет (дозапрос
+/// ревью выше).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TriggerLatency {
     pub trigger_ns: i64,
     pub order_ns: i64,
     pub full_ns: i64,
@@ -207,8 +245,15 @@ pub struct ReactReport {
     pub gated: bool,
     pub parse: Option<StageSummary>,
     pub book: Option<StageSummary>,
+    /// `recv → книга` на **всех** событиях книги, не только срабатываниях —
+    /// информационная строка под своим именем (дозапрос ревью: не `full`).
+    pub recv_to_book: Option<StageSummary>,
     pub trigger: Option<StageSummary>,
     pub order: Option<StageSummary>,
+    /// «Весь путь» — **только** срабатывания (`recv → send`), гейт G-LAT и
+    /// `horizons` считаются по этой серии и только ей (дозапрос ревью,
+    /// BLOCKING: смешивать с `recv → книга` событий без срабатывания
+    /// запрещено — план 3.1 называет «recv → кадр отдан сокету» буквально).
     pub full_path: Option<StageSummary>,
     pub g_lat_pass: Option<bool>,
     pub horizons: Vec<HorizonReach>,
@@ -289,19 +334,31 @@ pub fn process_event<S: OrderSigner>(
     if state.book.apply(&update).is_err() {
         return;
     }
+    // «Книга» — на каждом событии, дошедшем сюда, не только на срабатывании
+    // (ремонт таска 15 по ревью, `interfaces.md` «Из таска 15»).
     let t_book = stage_clock.now_ns();
+    let book_ns = t_book.saturating_sub(t_parsed);
+
     let (Some(bid), Some(ask)) = (
         state.book.best_bid_tick_opt(),
         state.book.best_ask_tick_opt(),
     ) else {
+        // Одной стороны книги ещё нет — срабатывание невозможно, но разбор
+        // и книга уже измерены. Нет `trigger` — нет и `full_ns` (дозапрос
+        // ревью: «весь путь» существует только у срабатываний).
+        samples.push(ReactSample {
+            parse_ns: parse_latency_ns,
+            book_ns,
+            trigger: None,
+        });
         return;
     };
     let top = (bid, ask);
     let changed = state.last_top != Some(top);
-    if !changed {
-        return;
-    }
-    if state.ready_warm {
+    // Срабатывание — реальная смена тика **и** уже готовый ордер (иначе
+    // самый первый снапшот, готовящий `state.ready` впервые, сам стал бы
+    // ложным срабатыванием без предварительно собранного payload).
+    if changed && state.ready_warm {
         let t_trigger = stage_clock.now_ns();
         // Dry-run: `send` заменён меткой — ни кадра транспорту, ни ордера
         // (критерий приёмки). `state.ready` не трогается здесь ничем: ни
@@ -309,11 +366,23 @@ pub fn process_event<S: OrderSigner>(
         let t_send = stage_clock.now_ns();
         samples.push(ReactSample {
             parse_ns: parse_latency_ns,
-            book_ns: t_book.saturating_sub(t_parsed),
-            trigger_ns: t_trigger.saturating_sub(t_book),
-            order_ns: t_send.saturating_sub(t_trigger),
-            full_ns: t_send.saturating_sub(t_recv),
+            book_ns,
+            trigger: Some(TriggerLatency {
+                trigger_ns: t_trigger.saturating_sub(t_book),
+                order_ns: t_send.saturating_sub(t_trigger),
+                full_ns: t_send.saturating_sub(t_recv),
+            }),
         });
+    } else {
+        samples.push(ReactSample {
+            parse_ns: parse_latency_ns,
+            book_ns,
+            trigger: None,
+        });
+    }
+
+    if !changed {
+        return;
     }
     state.last_top = Some(top);
 
@@ -386,6 +455,10 @@ pub fn run_react_over_feed<S: OrderSigner>(
     (samples, events)
 }
 
+/// Одна строка на **событие**, не на срабатывание (ремонт таска 15 по
+/// ревью): `is_trigger`/`trigger_ns`/`order_ns` пусты, когда событие не было
+/// срабатыванием, — так же честно, как `parse_ns` пуст, когда `Feed` его не
+/// измерил.
 fn write_react_csv(path: &Path, samples: &[ReactSample]) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -394,7 +467,8 @@ fn write_react_csv(path: &Path, samples: &[ReactSample]) -> anyhow::Result<()> {
     }
     let mut w = csv::Writer::from_path(path)?;
     w.write_record([
-        "trigger",
+        "event",
+        "is_trigger",
         "parse_ns",
         "book_ns",
         "trigger_ns",
@@ -404,11 +478,18 @@ fn write_react_csv(path: &Path, samples: &[ReactSample]) -> anyhow::Result<()> {
     for (i, s) in samples.iter().enumerate() {
         w.write_record([
             i.to_string(),
+            s.trigger.is_some().to_string(),
             s.parse_ns.map(|v| v.to_string()).unwrap_or_default(),
             s.book_ns.to_string(),
-            s.trigger_ns.to_string(),
-            s.order_ns.to_string(),
-            s.full_ns.to_string(),
+            s.trigger
+                .map(|t| t.trigger_ns.to_string())
+                .unwrap_or_default(),
+            s.trigger
+                .map(|t| t.order_ns.to_string())
+                .unwrap_or_default(),
+            // `full_ns` — только у срабатываний (дозапрос ревью): пусто, не
+            // подменено значением `recv → книга` события без срабатывания.
+            s.trigger.map(|t| t.full_ns.to_string()).unwrap_or_default(),
         ])?;
     }
     w.flush()?;
@@ -463,17 +544,100 @@ pub fn run_react(args: &ReactArgs) -> anyhow::Result<ReactReport> {
         tick_e9: args.tick_e9,
         step_e9: args.step_e9,
     }];
-    let mut feed = LiveFeed::spawn(pool);
+    // Один и тот же `MonotonicClock` — и для меток `Feed` (`local_ts_ns`/
+    // `parsed_ts_ns`), и для стадий книги/триггера/send ниже (ремонт таска
+    // 15, `interfaces.md` «Из таска 15»): иначе `local_ts_ns` идёт через
+    // `SystemClock`, а стадии — через `MonotonicClock`, и разность доменов
+    // ничего не измеряет. Дедлайн прогона считаем той же монотонной шкалой
+    // — `SystemTime` не гарантированно монотонны на Windows (см. докстрока
+    // `bybit::conn::SystemClock`) и способны как оборвать прогон раньше
+    // времени, так и не остановить его вовсе.
     let stage_clock = MonotonicClock::start();
-    let deadline_ns = SystemClock.now_ns()
+    let mut feed = LiveFeed::spawn_with_clock(pool, stage_clock);
+    let deadline_ns = stage_clock.now_ns()
         + i64::try_from(args.minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000;
 
     let (samples, events) =
         run_react_over_feed(&mut feed, &cfg, &creds, &args.symbol, &stage_clock, || {
-            SystemClock.now_ns() >= deadline_ns
+            stage_clock.now_ns() >= deadline_ns
         });
 
     finish_report(args, samples, events)
+}
+
+/// Дефект прогона, не число (ремонт таска 15 по ревью): отрицательная
+/// длительность любой стадии значит, что метки события пришли не из одного
+/// домена часов (`interfaces.md`, «Из таска 15») — `finish_report` обязана
+/// отказать здесь, а не напечатать отрицательное число в отчёте.
+///
+/// Собственный тип, не `anyhow::anyhow!` на месте: тест обязан проверять
+/// текст `FAIL: clock domain` и конкретную стадию, не блуждать по строке.
+/// Ручной `Display`/`Error`, не `thiserror` — в зависимостях `interfaces.md`
+/// его нет, а недостающая зависимость это `BLOCKED`, не установка.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClockDomainFault {
+    pub stage: &'static str,
+    pub index: usize,
+    pub value: i64,
+}
+
+impl std::fmt::Display for ClockDomainFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FAIL: clock domain — стадия «{}» отрицательна на событии {} ({} нс); метки \
+             recv/разбор и метки книги/триггера/send пришли не из одного Clock \
+             (interfaces.md, «Из таска 15»)",
+            self.stage, self.index, self.value
+        )
+    }
+}
+
+impl std::error::Error for ClockDomainFault {}
+
+fn check_no_negative_durations(samples: &[ReactSample]) -> Result<(), ClockDomainFault> {
+    for (index, s) in samples.iter().enumerate() {
+        if let Some(p) = s.parse_ns {
+            if p < 0 {
+                return Err(ClockDomainFault {
+                    stage: "разбор",
+                    index,
+                    value: p,
+                });
+            }
+        }
+        if s.book_ns < 0 {
+            return Err(ClockDomainFault {
+                stage: "книга",
+                index,
+                value: s.book_ns,
+            });
+        }
+        if let Some(t) = s.trigger {
+            if t.trigger_ns < 0 {
+                return Err(ClockDomainFault {
+                    stage: "триггер",
+                    index,
+                    value: t.trigger_ns,
+                });
+            }
+            if t.order_ns < 0 {
+                return Err(ClockDomainFault {
+                    stage: "ордер(send)",
+                    index,
+                    value: t.order_ns,
+                });
+            }
+            if t.full_ns < 0 {
+                return Err(ClockDomainFault {
+                    stage: "весь путь",
+                    index,
+                    value: t.full_ns,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn finish_report(
@@ -481,29 +645,65 @@ fn finish_report(
     samples: Vec<ReactSample>,
     events: u64,
 ) -> anyhow::Result<ReactReport> {
-    let triggers = samples.len() as u64;
+    check_no_negative_durations(&samples)?;
+
+    let triggers = samples.iter().filter(|s| s.trigger.is_some()).count() as u64;
     let out = args
         .out
         .clone()
         .unwrap_or_else(|| args.root.join(format!("react-{}.csv", args.symbol)));
     write_react_csv(&out, &samples)?;
 
-    let gated = triggers >= MIN_TRIGGERS_FOR_GATE;
     let parse: Vec<i64> = samples.iter().filter_map(|s| s.parse_ns).collect();
     let book: Vec<i64> = samples.iter().map(|s| s.book_ns).collect();
-    let trigger: Vec<i64> = samples.iter().map(|s| s.trigger_ns).collect();
-    let order: Vec<i64> = samples.iter().map(|s| s.order_ns).collect();
-    let full: Vec<i64> = samples.iter().map(|s| s.full_ns).collect();
+    // Информационная строка «сколько времени уходит на recv → книга по всем
+    // событиям», не только срабатываниям — под своим именем, не `full`
+    // (см. докстрока `ReactSample`). `recv → книга` = `parse_ns + book_ns`:
+    // `book_ns` уже `t_book - t_parsed`, а `t_parsed = t_recv + parse_ns`,
+    // значит сумма — ровно `t_book - t_recv`, без отдельной метки.
+    let recv_to_book: Vec<i64> = samples
+        .iter()
+        .map(|s| s.book_ns.saturating_add(s.parse_ns.unwrap_or(0)))
+        .collect();
+    let trigger: Vec<i64> = samples
+        .iter()
+        .filter_map(|s| s.trigger.map(|t| t.trigger_ns))
+        .collect();
+    let order: Vec<i64> = samples
+        .iter()
+        .filter_map(|s| s.trigger.map(|t| t.order_ns))
+        .collect();
+    // «Весь путь» — ТОЛЬКО срабатывания (дозапрос ревью, BLOCKING): смешивать
+    // с `recv → книга` событий без срабатывания запрещено — план 3.1
+    // называет эту серию буквально «recv → кадр отдан сокету», и смесь с
+    // куда более коротким `recv → книга` большинства событий занижает p99,
+    // тривиализируя и порог `≥ 1000`, и `horizon_reach`.
+    let full: Vec<i64> = samples
+        .iter()
+        .filter_map(|s| s.trigger.map(|t| t.full_ns))
+        .collect();
 
     let full_summary = summarize_stage(&full);
+    // Порог «≥ 1000» для G-LAT — по срабатываниям, как в `PLAN.md` 3.1
+    // («живой поток, ≥ 1000 срабатываний»), не по событиям книги: `full`
+    // существует только у срабатываний, так что `full_summary.n == triggers`
+    // всегда, но порог явно завязан на `triggers`, а не на случайное
+    // совпадение размеров серий.
+    let gated = triggers >= MIN_TRIGGERS_FOR_GATE;
     let g_lat_pass = if gated {
         full_summary.map(|s| s.p99_ns < G_LAT_BUDGET_NS)
     } else {
         None
     };
-    let horizons = full_summary
-        .map(|s| horizon_reach(s.p99_ns))
-        .unwrap_or_default();
+    // Горизонт не объявляется без объявленного гейта — недостаточно
+    // срабатываний означает недостаточно данных и для `horizon_reach`.
+    let horizons = if gated {
+        full_summary
+            .map(|s| horizon_reach(s.p99_ns))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let probe_rtt_ns = match &args.probe_csv {
         Some(p) => read_probe_rtt(p)?,
@@ -516,6 +716,7 @@ fn finish_report(
         gated,
         parse: summarize_stage(&parse),
         book: summarize_stage(&book),
+        recv_to_book: summarize_stage(&recv_to_book),
         trigger: summarize_stage(&trigger),
         order: summarize_stage(&order),
         full_path: full_summary,
@@ -552,6 +753,7 @@ pub fn format_report(rep: &ReactReport) -> String {
     };
     lines.push(stage("разбор", &rep.parse));
     lines.push(stage("книга", &rep.book));
+    lines.push(stage("recv→книга (все события)", &rep.recv_to_book));
     lines.push(stage("триггер", &rep.trigger));
     lines.push(stage("ордер(send)", &rep.order));
     lines.push(stage("весь путь", &rep.full_path));
@@ -564,18 +766,25 @@ pub fn format_report(rep: &ReactReport) -> String {
             "G-LAT: FAIL (p99 >= {} мс)",
             G_LAT_BUDGET_NS / 1_000_000
         )),
-        None => lines.push("G-LAT: не объявлен (недостаточно срабатываний)".to_string()),
+        None => lines.push(format!(
+            "G-LAT: не объявлен (triggers={} < {MIN_TRIGGERS_FOR_GATE})",
+            rep.triggers
+        )),
     }
-    for h in &rep.horizons {
-        lines.push(format!(
-            "horizon {}ms: {}",
-            h.horizon_ms,
-            if h.reachable {
-                "reachable"
-            } else {
-                "unreachable"
-            }
-        ));
+    if rep.gated {
+        for h in &rep.horizons {
+            lines.push(format!(
+                "horizon {}ms: {}",
+                h.horizon_ms,
+                if h.reachable {
+                    "reachable"
+                } else {
+                    "unreachable"
+                }
+            ));
+        }
+    } else {
+        lines.push("horizon: не объявлен".to_string());
     }
     lines.push(format!(
         "host={} probe_rtt={}",
@@ -729,21 +938,35 @@ mod tests {
             run_react_over_feed(&mut feed, &cfg(), &creds, "SOLUSDT", &clock, || false);
 
         assert_eq!(processed, 4, "все четыре события обязаны быть прочитаны");
+        // «Книга»/«разбор» — на КАЖДОМ событии (ремонт таска 15 по ревью):
+        // все четыре события дают образец, а не только два срабатывания.
         assert_eq!(
             samples.len(),
+            4,
+            "книга/разбор считаются на каждом событии: {samples:?}"
+        );
+        for s in &samples {
+            assert!(s.book_ns >= 0, "{s:?}");
+            if let Some(t) = s.trigger {
+                assert!(
+                    t.trigger_ns >= 0 && t.order_ns >= 0 && t.full_ns >= 0,
+                    "{t:?}"
+                );
+            }
+        }
+        let triggers: Vec<_> = samples.iter().filter(|s| s.trigger.is_some()).collect();
+        assert_eq!(
+            triggers.len(),
             2,
             "срабатывания только на реальную смену тика: {samples:?}"
         );
-        for s in &samples {
-            assert!(s.book_ns >= 0 && s.trigger_ns >= 0 && s.order_ns >= 0 && s.full_ns >= 0);
-        }
         assert_eq!(
-            samples[0].parse_ns,
+            triggers[0].parse_ns,
             Some(160_000),
             "срабатывание 1 — кадр в 2с"
         );
         assert_eq!(
-            samples[1].parse_ns,
+            triggers[1].parse_ns,
             Some(170_000),
             "срабатывание 2 — кадр в 3с"
         );
@@ -772,8 +995,16 @@ mod tests {
         let creds = test_creds();
         let (samples, _) =
             run_react_over_feed(&mut feed, &cfg(), &creds, "SOLUSDT", &clock, || false);
-        assert_eq!(samples.len(), 1, "готовность уже на снапшоте: {samples:?}");
-        assert_eq!(samples[0].parse_ns, Some(150_000));
+        // Оба события дают образец «книга»/«разбор»; срабатывание — только
+        // второе (первая реальная смена тика после снапшота).
+        assert_eq!(
+            samples.len(),
+            2,
+            "книга/разбор на каждом событии: {samples:?}"
+        );
+        let triggers: Vec<_> = samples.iter().filter(|s| s.trigger.is_some()).collect();
+        assert_eq!(triggers.len(), 1, "готовность уже на снапшоте: {samples:?}");
+        assert_eq!(triggers[0].parse_ns, Some(150_000));
     }
 
     /// `should_stop` останавливает чтение немедленно — ядро не эксплуатирует
@@ -872,11 +1103,14 @@ mod tests {
         let cfg = cfg();
         let clock = MonotonicClock::start();
         let mut state = ReactCoreState::new(cfg.tick_e9, cfg.step_e9);
-        // Ёмкость с запасом заранее: иначе рост `Vec` из-за собственных
-        // срабатываний теста реаллоцировал бы внутри измеряемого окна и
-        // проверял бы сценарий, а не `process_event` (та же ловушка, что
-        // `ReadyMakerOrder`'s буферы решают через `with_capacity`).
-        let mut samples = Vec::with_capacity(20_000);
+        // Ёмкость с запасом заранее, ровно на все проходы обоих циклов:
+        // `process_event` теперь пишет образец на КАЖДОЕ событие (не только
+        // на срабатывание, ремонт таска 15 по ревью), значит `samples`
+        // растёт на единицу каждый вызов — `WARMUP + MEASURED` целиком,
+        // иначе рост `Vec` реаллоцировал бы внутри измеряемого окна и
+        // проверял бы рост буфера, а не `process_event` (та же ловушка,
+        // что `ReadyMakerOrder`'s буферы решают через `with_capacity`).
+        let mut samples = Vec::with_capacity(WARMUP + MEASURED);
 
         for i in 0..WARMUP {
             process_event(
@@ -906,15 +1140,65 @@ mod tests {
             });
             total_allocations += counts.allocations;
         }
+        let trigger_count = samples.iter().filter(|s| s.trigger.is_some()).count();
         assert!(
-            samples.len() > MIN_TRIGGERS_FOR_GATE as usize,
-            "сценарий обязан дать много срабатываний внутри измеряемого окна: {}",
-            samples.len()
+            trigger_count > MIN_TRIGGERS_FOR_GATE as usize,
+            "сценарий обязан дать много срабатываний внутри измеряемого окна: {trigger_count}"
+        );
+        assert_eq!(
+            samples.len(),
+            WARMUP + MEASURED,
+            "книга/разбор — на каждом событии, не только на срабатывании"
         );
         assert_eq!(
             total_allocations, 0,
             "process_event аллоцировал после прогрева — запрет 1 interfaces.md"
         );
+    }
+
+    /// Ремонт таска 15 по ревью: отрицательная стадия — дефект прогона
+    /// (метки recv/разбор и метки книги/триггера/send пришли не из одного
+    /// `Clock`), не число для печати. На прежнем коде (без
+    /// `check_no_negative_durations`) `finish_report` тихо построила бы
+    /// отчёт с `book_ns = -49_100` — этот тест обязан был бы упасть на нём:
+    /// `is_ok()` был бы `true`, а не `false`.
+    #[test]
+    fn a_negative_stage_fails_the_report_instead_of_printing_it() {
+        let mut samples: Vec<ReactSample> = (0..MIN_TRIGGERS_FOR_GATE)
+            .map(|_| ReactSample {
+                parse_ns: Some(50_000),
+                book_ns: 10_000,
+                trigger: Some(TriggerLatency {
+                    trigger_ns: 5_000,
+                    order_ns: 5_000,
+                    full_ns: 1_000_000,
+                }),
+            })
+            .collect();
+        // Ровно симптом живого прогона `data/react-debug/20260911T110318Z/`:
+        // «книга» отрицательна, когда метки идут не из одного домена часов.
+        samples[3].book_ns = -49_100;
+        let args = ReactArgs {
+            symbol: "SOLUSDT".to_string(),
+            tick_e9: 10_000_000,
+            step_e9: 1_000_000,
+            side: "buy".to_string(),
+            qty_e9: 1_000_000,
+            recv_window_ms: 5_000,
+            minutes: 5,
+            root: std::env::temp_dir(),
+            out: Some(std::env::temp_dir().join("react-test-negative.csv")),
+            host_id: None,
+            probe_csv: None,
+        };
+        let result = finish_report(&args, samples, MIN_TRIGGERS_FOR_GATE);
+        let err = result.expect_err("отрицательная стадия обязана провалить сборку отчёта");
+        let message = format!("{err}");
+        assert!(
+            message.contains("FAIL: clock domain"),
+            "сообщение обязано называть дефект честно, не число: {message}"
+        );
+        assert!(message.contains("книга"), "{message}");
     }
 
     /// Пустая выборка не печатает выдуманных чисел (правило 1
@@ -952,9 +1236,11 @@ mod tests {
             .map(|_| ReactSample {
                 parse_ns: Some(50_000),
                 book_ns: 10_000,
-                trigger_ns: 5_000,
-                order_ns: 5_000,
-                full_ns: 1_000_000, // 1мс — под бюджетом 5мс
+                trigger: Some(TriggerLatency {
+                    trigger_ns: 5_000,
+                    order_ns: 5_000,
+                    full_ns: 1_000_000, // 1мс — под бюджетом 5мс
+                }),
             })
             .collect();
         let args = ReactArgs {
@@ -991,9 +1277,11 @@ mod tests {
             .map(|_| ReactSample {
                 parse_ns: Some(50_000),
                 book_ns: 10_000,
-                trigger_ns: 5_000,
-                order_ns: 5_000,
-                full_ns: 30_000_000,
+                trigger: Some(TriggerLatency {
+                    trigger_ns: 5_000,
+                    order_ns: 5_000,
+                    full_ns: 30_000_000,
+                }),
             })
             .collect();
         let args = ReactArgs {
@@ -1014,6 +1302,67 @@ mod tests {
         let h1000 = rep.horizons.iter().find(|h| h.horizon_ms == 1_000).unwrap();
         assert!(!h100.reachable, "{h100:?}");
         assert!(h1000.reachable, "{h1000:?}");
+    }
+
+    /// Дозапрос ревью (BLOCKING, ось Предрегистрация): «весь путь» — только
+    /// срабатывания. 5000 событий книги, из которых только 10 —
+    /// срабатывания: гейт не объявляется (10 < 1000), несмотря на то что
+    /// событий книги куда больше тысячи, и `full_path.n` обязан быть 10, не
+    /// 5000 — смешение серий занизило бы p99 и объявило бы гейт там, где
+    /// план требует ≥ 1000 срабатываний, а не событий.
+    #[test]
+    fn full_path_series_counts_only_triggers_not_all_book_events() {
+        let mut samples: Vec<ReactSample> = (0..4_990)
+            .map(|_| ReactSample {
+                parse_ns: Some(20_000),
+                book_ns: 40_000,
+                trigger: None,
+            })
+            .collect();
+        samples.extend((0..10).map(|_| ReactSample {
+            parse_ns: Some(20_000),
+            book_ns: 40_000,
+            trigger: Some(TriggerLatency {
+                trigger_ns: 300,
+                order_ns: 100,
+                full_ns: 90_000,
+            }),
+        }));
+        let args = ReactArgs {
+            symbol: "SOLUSDT".to_string(),
+            tick_e9: 10_000_000,
+            step_e9: 1_000_000,
+            side: "buy".to_string(),
+            qty_e9: 1_000_000,
+            recv_window_ms: 5_000,
+            minutes: 5,
+            root: std::env::temp_dir(),
+            out: Some(std::env::temp_dir().join("react-test-mixing.csv")),
+            host_id: None,
+            probe_csv: None,
+        };
+        let rep = finish_report(&args, samples, 5_000).unwrap();
+        assert!(
+            !rep.gated,
+            "10 срабатываний < 1000 — гейт не объявляется несмотря на 5000 событий книги"
+        );
+        assert_eq!(
+            rep.full_path.unwrap().n,
+            10,
+            "«весь путь» — только срабатывания, событие без срабатывания в эту серию не входит"
+        );
+        assert_eq!(rep.g_lat_pass, None);
+        assert!(
+            rep.horizons.is_empty(),
+            "горизонт не объявляется без объявленного гейта: {:?}",
+            rep.horizons
+        );
+        // Информационная строка «recv → книга» — по всем 5000 событиям, под
+        // своим именем, не смешана с «весь путь».
+        assert_eq!(rep.recv_to_book.unwrap().n, 5_000);
+        let printed = format_report(&rep);
+        assert!(printed.contains("triggers=10 < 1000"), "{printed}");
+        assert!(printed.contains("horizon: не объявлен"), "{printed}");
     }
 
     /// `--minutes` за пределами `1..=MAX_MINUTES` отклоняется до сети (нет
