@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-12T01:10:00+04:00",
+  "updatedAt": "2026-09-12T03:30:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
 
@@ -21,9 +21,9 @@ window.STATE =
     { "id": "briefing",  "status": "done", "startedAt": "2026-09-11T00:45:00+04:00", "finishedAt": "2026-09-11T01:55:00+04:00", "note": "три ответа владельца: продукт — бот; 5 минут — тесты; форма — autopilot. Две развилки: CLUSDT, G_min" },
     { "id": "spec",      "status": "done", "startedAt": "2026-09-11T01:00:00+04:00", "finishedAt": "2026-09-11T02:03:00+04:00", "note": "вторая редакция: 49 историй, шесть швов; 17 находок G2 внесены; повторный G2 запущен" },
     { "id": "plan",      "status": "done", "startedAt": "2026-09-11T01:10:00+04:00", "finishedAt": "2026-09-11T02:05:00+04:00", "note": "15 тасков в 7 волн; G3 в обе стороны" },
-    { "id": "build",     "status": "active", "startedAt": "2026-09-11T02:20:00+04:00", "note": "Сессия перезапущена 2026-09-12: третий контекст T17 (пункт 5) потерян — перезапуск; ревьюеры заново. T18 (динамический H3, В-30) — после T17. Затем слепая приёмка и отчёт. 16 из 18 готово" },
-    { "id": "review",    "status": "active", "startedAt": "2026-09-11T03:33:00+04:00", "note": "три постоянных ревьюера (R-A/R-B/R-C) с волны 2; 4 таска прошли; 1 ремонт (T06), 12 concerns накоплено" },
-    { "id": "final",     "status": "pending" }
+    { "id": "build",     "status": "done", "startedAt": "2026-09-11T02:20:00+04:00", "note": "Все 18 тасков закоммичены (последний 50969d8). Идёт приёмка: слепая проверка по брифу (G4), отчёт", "finishedAt": "2026-09-12T03:30:00+04:00" },
+    { "id": "review",    "status": "done", "startedAt": "2026-09-11T03:33:00+04:00", "note": "три оси на каждом из 18 тасков (R-A/R-B/R-C, преемники после перезапуска на 17/18); 11 ремонтов по BLOCKING, все закрыты; 60 concerns → триаж §1a: таск 17 (fix now) + отчёт", "finishedAt": "2026-09-12T03:30:00+04:00" },
+    { "id": "final",     "status": "active", "startedAt": "2026-09-12T03:30:00+04:00" }
   ],
 
   "requirements": {
@@ -47,8 +47,8 @@ window.STATE =
     { "id": "12", "title": "Сбор сессиями, шорт-лист, подтверждение", "requirements": ["R44","R45","R46","R47","R48","R56","R59","R67","R77i"], "blockedBy": ["07","10"], "wave": 5, "zone": ["docs/findings/","src/commands/lob/shortlist.rs"], "status": "done", "startedAt": "2026-09-11T15:50:00+04:00", "finishedAt": "2026-09-11T18:05:00+04:00", "tests": "558 passed, 0 failed, 5 ignored (44aef30+12 изолированно)", "commit": "d905f19", "review": { "R-A": "нет; R44/R47/R67/R77i partial — данные и G/hour_tests → T13, календарь владельца", "R-B": "нет; чтение по позиции → починено по дозапросу; ScratchRoot → concerns", "R-C": "1 blocking: шапка shortlist.md G>=12 против G_MIN=7 → из констант; снято" }, "retries": 0, "repairs": 1, "handoffs": 0 },
     { "id": "13", "title": "Вердикт в шапке шорт-листа, DSR подключён", "requirements": ["R47","R49","R50","R51","R52","R53","R54","R59","R68","A03"], "blockedBy": ["11","12"], "wave": 6, "zone": ["src/commands/lob/shortlist.rs","src/lob/final_metrics.rs"], "status": "done", "startedAt": "2026-09-11T18:10:00+04:00", "finishedAt": "2026-09-11T19:35:00+04:00", "tests": "561 passed, 0 failed, 5 ignored (d905f19+13 изолированно)", "commit": "9d7dd50", "review": { "R-A": "нет; Confirmed недостижим без FillModel → таск 16", "R-B": "нет; ветка Ok часового теста не под тестом → concerns", "R-C": "clean" }, "retries": 0, "repairs": 0, "handoffs": 0 },
     { "id": "16", "title": "FillModel поверх бэктеста: путь к Confirmed", "requirements": ["R06","R07","R08","R50","R67"], "blockedBy": ["10","11","12","13"], "wave": 6, "zone": ["src/commands/lob/backtest.rs","src/commands/lob/profiles.rs","src/commands/lob/shortlist.rs"], "status": "done", "startedAt": "2026-09-11T19:40:00+04:00", "finishedAt": "2026-09-11T21:30:00+04:00", "tests": "565 passed, 0 failed, 5 ignored (9d7dd50+16)", "commit": "1fc8fc3", "review": { "R-A": "нет; PBO/CPCV — отдельный таск", "R-B": "нет; сквозной тест Confirmed, дубль флагов → concerns", "R-C": "нет; блок; ключ-заглушка не в артефактах" }, "retries": 0, "repairs": 0, "handoffs": 0, "note": "добавлен по BLOCKERS таска 13" },
-    { "id": "17", "title": "Долг ремесла: триаж concerns", "requirements": ["R71","R73","R79","R80"], "blockedBy": ["16"], "wave": 7, "zone": ["src/**"], "status": "in-progress", "startedAt": "2026-09-11T23:20:00+04:00", "retries": 0, "repairs": 0, "handoffs": 2, "note": "Phase 8 §1a: fix-now из concerns — сдвоенный код (3+ таска), Args, снос C1/C2, sign_into без аллокаций, мелочи с тестами" },
-    { "id": "18", "title": "Динамический порог H3: сетка k в пилоте", "requirements": ["R14","R40","D05"], "blockedBy": ["09","17"], "wave": 7, "zone": ["src/commands/lob/pilot.rs","src/commands/lob/levels.rs"], "status": "pending", "retries": 0, "repairs": 0, "handoffs": 0, "note": "В-30/D05 — методология вместо числа k" },
+    { "id": "17", "title": "Долг ремесла: триаж concerns", "requirements": ["R71","R73","R79","R80"], "blockedBy": ["16"], "wave": 7, "zone": ["src/**"], "status": "done", "startedAt": "2026-09-11T23:20:00+04:00", "finishedAt": "2026-09-12T02:25:00+04:00", "tests": "558 passed, 0 failed, 5 ignored (cdd9a06+17 изолированно)", "commit": "b49d6b1", "review": { "R-B": "нет (преемник); ready.flag формат, disjoint_contrast pub без вызывающего, критерий «те же артефакты» проверен статически → concerns", "R-C": "нет (преемник); чисто" }, "retries": 0, "repairs": 0, "handoffs": 2, "note": "Phase 8 §1a: fix-now из concerns — сдвоенный код (3+ таска), Args, снос C1/C2, sign_into без аллокаций, мелочи с тестами" },
+    { "id": "18", "title": "Динамический порог H3: сетка k в пилоте", "requirements": ["R14","R40","D05"], "blockedBy": ["09","17"], "wave": 7, "zone": ["src/commands/lob/pilot.rs","src/commands/lob/levels.rs"], "status": "done", "startedAt": "2026-09-12T02:30:00+04:00", "finishedAt": "2026-09-12T03:25:00+04:00", "tests": "571 passed, 0 failed, 5 ignored (b49d6b1+18 изолированно)", "commit": "50969d8", "review": { "R-B": "нет; feed_frames дублирует feed_frames_multi, pilot.rs 2287 строк → concerns", "R-C": "нет; ceil→floor в interfaces поправлено" }, "retries": 0, "repairs": 0, "handoffs": 0, "note": "В-30/D05 — методология вместо числа k" },
     { "id": "14", "title": "Чистка репозитория и память проекта", "requirements": ["R65","R70","R71","R73"], "blockedBy": ["13"], "wave": 7, "zone": ["data/",".autopilot/","."], "status": "done", "startedAt": "2026-09-11T22:50:00+04:00", "finishedAt": "2026-09-12T00:20:00+04:00", "tests": "571 passed, 0 failed, 5 ignored", "commit": "cdd9a06", "review": { "R-B": "1 blocking: память утверждала --h3-mode у pilot — снято; числа README сверены" }, "retries": 0, "repairs": 0, "handoffs": 0 }
   ],
 
@@ -71,9 +71,9 @@ window.STATE =
   ],
 
   "reviewers": {
-    "R-A": { "axes": ["manifest","spec"], "handle": "agent acde3c11b529e4135, spawned 2026-09-11T04:12 волна 2", "lifetime": "до границы волны" },
-    "R-B": { "axes": ["craft"],           "handle": "agent a6fce5029a2c0557f, spawned 2026-09-11T04:12 волна 2", "lifetime": "весь прогон" },
-    "R-C": { "axes": ["data","prereg"],   "handle": "agent a16f59270e1d9f178, spawned 2026-09-11T04:13 волна 2", "lifetime": "весь прогон, освежать нельзя" }
+    "R-A": { "axes": ["manifest","spec"], "handle": "потерян при перезапуске 2026-09-12; для T17/T18 не заводился — оси Манифест закрывает слепая приёмка", "lifetime": "до границы волны" },
+    "R-B": { "axes": ["craft"],           "handle": "agent ae4b8b8f7e6f6c2ca (преемник, 2026-09-12; прежний a6fce5029a2c0557f потерян при перезапуске)", "lifetime": "весь прогон" },
+    "R-C": { "axes": ["data","prereg"],   "handle": "agent a59385754fa669d45 (преемник, 2026-09-12; прежний a16f59270e1d9f178 потерян при перезапуске — против правила «освежать нельзя», вынужденно)", "lifetime": "весь прогон, освежать нельзя" }
   },
 
   "coverage": { "findings": 22, "acted": 22, "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены" },
@@ -132,7 +132,13 @@ window.STATE =
     { "ticket": "15", "file": "src/commands/lob/react.rs стадия «книга»", "what": "отрицательные длительности на всех строках живого прогона — метка после разбора (parsed_ts_ns, SystemClock) и метки MonotonicClock в разных доменах; весь путь и горизонты непригодны; ремонт", "kind": "defect" },
     { "ticket": "15", "file": "src/commands/lob/react.rs триггер", "what": "117 срабатываний за 5 мин на SOLUSDT при требовании ≥1000 — план исходил из неверной оценки частоты смены лучшего тика; G-LAT за ≤5 мин не объявляем; решение: считать этапы разбор/книга на каждом событии, триггер/send — на срабатываниях, порог 1000 — по событиям пути", "kind": "plan-cut" },
     { "ticket": "15", "file": "src/commands/lob/probe.rs", "what": "lob probe меряет RTT реальными post-only ордерами create+cancel (Decision 12, H9) на живом аккаунте — не dry-run; оркестратор и исполнители его не запускают; запуск — владелец сам", "kind": "owner-action" },
-    { "ticket": "09", "file": "src/commands/lob/pilot.rs read_clock_bybit_rtts", "what": "дублирует публичный bybit::clock::read_rows вместо фильтрации его результата (R-B)", "kind": "structural" }
+    { "ticket": "09", "file": "src/commands/lob/pilot.rs read_clock_bybit_rtts", "what": "дублирует публичный bybit::clock::read_rows вместо фильтрации его результата (R-B)", "kind": "structural" },
+    { "ticket": "17", "file": "src/lob/cells.rs disjoint_contrast", "what": "стал pub без вызывающего ради dead_code — уместнее #[allow(dead_code)] с комментарием (R-B)", "kind": "craft" },
+    { "ticket": "17", "file": "src/lob/watch.rs ReadyFlag", "what": "ключ n_c2→n в текстовом формате ready.flag — смена формата артефакта; единственный читатель синхронизирован (R-B)", "kind": "craft" },
+    { "ticket": "17", "file": "src/commands/lob/markout.rs --median-lifetime-ms", "what": "обязательный флаг, значение не используется после сноса C1/C2 — снять при следующем касании --help (R-C)", "kind": "craft" },
+    { "ticket": "17", "file": "tests", "what": "сквозной тест profiles→shortlist→Confirmed через BacktestFillModel не написан — нужна фикстура ≥100 исполнений на ≥7 суток", "kind": "test-gap" },
+    { "ticket": "18", "file": "src/commands/lob/mod.rs feed_frames / feed_frames_multi", "what": "feed_frames дублирует блок сбора LevelObs вместо делегирования feed_frames_multi с одноэлементными срезами (R-B)", "kind": "structural" },
+    { "ticket": "18", "file": "src/commands/lob/pilot.rs", "what": "2287 строк, пять забот в одном файле — Divergent Change, разрез при следующем касании (R-B)", "kind": "structural" }
   ],
 
   "debt": [
@@ -160,5 +166,5 @@ window.STATE =
   },
 
   "blind": null,
-  "tests": { "passed": 571, "failed": 0, "ignored": 5, "at": "2026-09-11T22:40:00+04:00" }
+  "tests": { "passed": 571, "failed": 0, "ignored": 5, "at": "2026-09-12T03:25:00+04:00" }
 }
