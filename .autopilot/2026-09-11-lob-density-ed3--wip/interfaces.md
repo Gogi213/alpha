@@ -212,3 +212,30 @@ cargo run --release -- lob <подкоманда>
 - Аллокации: `write_market_event` — скретч-буфер в `SymbolState`, тест `alloc_count` на 10⁶ событий через `ReplayFeed`. `FileReplayer` (`bybit/verify.rs`) аллоцирует через `mem::take` — вне зоны, отдельная находка.
 - Первый живой замер (5 мин, `debug`): `parse_p99_ns` = 251.8 мкс против калибровочного суббюджета 200 мкс (`PLAN.md` 3.1 допускает пересмотр суббюджетов по замеру; общий бюджет 5 мс — нет). Пул для прогона собран вручную из 10 строк `data/pick22a/instruments.csv` (файл ~863 строки до таска 08).
 - `src/commands/lob/pick/measure.rs` — механическая правка под `ConnEvent::Message { parsed_ts_ns }` (зона таска 08, поведение не менялось).
+
+## Из таска 05 — `lob power`, гейт G-POWER-A
+
+- CLI `lob power [--root <PATH>] [--hour-tests <usize>]` — ноль данных; stdout одной строкой: `power: n=<usize> sr0=<f64.4> required_sharpe=<f64.4> dsr_target=<f64.2> num_obs=<usize>`. На пуле из десяти: `n=179 sr0=2.7291 required_sharpe=3.1306 dsr_target=0.95 num_obs=100`.
+- `commands::lob::power::{run_power, PowerArgs, PowerSummary { n, sr0, required_sharpe, dsr_target, num_obs }}` — таск 09 сравнивает с замеренным Шарпом (G-POWER-B), таск 13 печатает в шапке.
+- `lob::final_metrics::expected_sharpe_under_null_for_trial_count(n) -> Option<f64>` и `required_sharpe_for_dsr(n_trials, num_obs, dsr_target) -> Option<f64>` — обёртки над `expected_sharpe_under_null` / `dsr`, формулу не дублируют. `SR0` при допущении `V = 1` (единичная дисперсия пробных Шарпов — нулевая нормировка Bailey–López de Prado без пробных данных, в докстроке).
+- `N` = `shortlist::nominal_grid_size(pool_size)` — номинал при полной пригодности; когда `instruments.csv` получит `coverage_bps` (таск 08), источником становится `build_profile_grid` по пригодным парам — таск 09 переключает.
+
+## Из таска 07 — `lob watch` на сессиях
+
+- Годность суток: `lob::watch::session_day_eligible(&SessionDay) -> bool` — «≥ 1 сессия суток состоялась и прошла сверку»; сессия без сверки выбрасывается целиком; единственная несверенная сессия → сутки не кластер. Старый предикат «разрыв > 6 ч» не используется.
+- Маркер сверки сессии: `<session_dir>/verify-<SYMBOL>.status`, содержимое ровно `ok` — **пишет таск 09** (после `lob verify`), `watch` только читает.
+- Счётчик: `lob::watch::WatchSample { n_total(), g(), is_due() }` на пару `(symbol, profile_id)`, кормится `SessionTally { session_id, day_utc, start_hour_utc, symbol, verified, n }`; `is_due()` = `n ≥ shortlist::CONFIRM_MIN_N (100)` и `G ≥ stats::G_MIN (7)` — тот же код у гейта и у отчёта (тест на общей фикстуре).
+- Артефакты: `progress-<symbol>-<profile>.csv` (`day_utc, symbol, profile_id, session_start_hours_utc, sessions, n, eligible`) — строка на сутки с часами старта сессий; флаг готовности `ready-<symbol>-<profile>.flag` через `SessionReadyFlag` / `require_session_ready_flag` — `lob markout --confirmatory` обязан требовать его (проводка в `markout.rs` — см. ревью).
+- `commands::lob::watch::{WatchArgs, run_watch, WatchSummary}` — обход сессий по `session.json`, реплей одного файла, классификатор профиля. Сегодня классифицирует только маргиналы `side/outcome/repeat/instrument`; `cross:`/`dist`/`size`/`life` требуют середины при рождении уровня — таск 12 кормит `WatchSample` через полную сетку.
+- `lob watch` не вычисляет markout (греп-тест).
+- Старая машинерия C1/C2 (`is_c1`/`is_c2`/`TRIGGER_*`/`DayTally`/`day_eligible`/`WatchState`/`ReadyFlag`) не тронута — ею ещё пользуются `cells.rs`, `pilot.rs`, `markup.rs`, `mod.rs::day_tallies`; снос — таск 14.
+
+## Из таска 08 — `lob pick` начисто, пол `H3`
+
+- CLI `lob pick --window-secs <u64, обязателен> --h3-k <f64, обязателен> [--instruments-out <path>=instruments.csv] [--root --candidates-out --base-url]`. Окно ≠ 3600 → первая строка `candidates.csv`/`instruments.csv` и stderr: `# debug: окно N с — результат не годится для отбора, только для отладки`; при 3600 — тишина (юнит-тест `h3::debug_window_warning`).
+- `instruments.csv` (корень): прежние колонки + `h3_lots, k, median_trade_lots, window_start_utc_ms, window_secs`; `h3_lots = floor(k × median_trade_lots)` (лоты, целое), медиана — `publicTrade` тем же окном. Читатели (`levels::h3_lots_for_symbol`, `record.rs`) терпят строку `#`.
+- **`k` — числа нет ни в задаче, ни в спеке, ни в плане**: обязательный флаг без умолчания; отладочный прогон шёл с `k = 1.0` (пол = медиана) как нейтральной заглушкой — **не решение**; боевое значение — владелец, до боевого прогона таска 09.
+- `CLUSDT` (`CL` — нефть WTI) в `pool::NON_CRYPTO_BASES` — исключён, причина колонкой `candidates.csv` (В-1, умолчание владельца).
+- Новые швы: `pool::base_coins_considered_until_pool_complete` (печать всех базовых активов, которых правило видело до десятого выжившего), `coverage::book_already_costs` (строка отчёта, Decision 26б), `h3::{h3_lots_floor, debug_window_warning, H3FloorInfo}`.
+- Отладочный прогон 300 с: `data/pick-debug/20260911T030316Z/`; десять измеренных: ADA, DOGE, ENA, HYPE, IOST, NEAR, PUMPFUN, SOL, XRP, ZEC. Боевое окно 3600 с и заморозка — таск 09 после G-DEBUG, той же командой.
+- **Ремонт по ревью:** `instruments.csv` (корень и `--instruments-out`) содержит **только пул** — строки `selected_for_pilot` в порядке ранга (на отладочном окне 300 с — 8: ZEC/IOST ниже порога глубины), с колонками `h3`; полный список — `docs/plan/candidates.csv`. Единственный читатель `instruments.csv` — `pick::table::instruments_csv_reader(path) -> csv::Result<Reader<File>>` (терпит `#`), им пользуются `levels::h3_lots_for_symbol`, `record::load_steps_for_symbol`, `session::load_pool`, `power::pool_size`; `pick::table::instruments_for_pool(instruments, selected) -> Vec<Instrument>` — фильтр до выживших. `lob power --root .` на нём → `n=147` (8 инструментов).
