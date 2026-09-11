@@ -494,9 +494,9 @@ const MIN_RECORD_LEN: usize = RECORD_FIELD_COUNT;
 /// щедрый десятикратный: получившиеся полтора гигабайта на порядки больше
 /// любого настоящего кадра и на порядки меньше того, чем испорченное поле
 /// способно исчерпать хост.
-const DAY_BUDGET_BYTES: usize = 150 * 1024 * 1024;
+const COMPRESSED_DAY_CEILING_BYTES: usize = 150 * 1024 * 1024;
 const MAX_DECOMPRESSION_RATIO: usize = 10;
-const HARD_PAYLOAD_CEILING: usize = DAY_BUDGET_BYTES * MAX_DECOMPRESSION_RATIO;
+const HARD_PAYLOAD_CEILING: usize = COMPRESSED_DAY_CEILING_BYTES * MAX_DECOMPRESSION_RATIO;
 
 fn max_frame_payload_bytes(max_records_per_frame: u32) -> usize {
     (max_records_per_frame as usize)

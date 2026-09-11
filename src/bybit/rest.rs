@@ -98,7 +98,7 @@ impl std::fmt::Display for RestError {
 impl std::error::Error for RestError {}
 
 /// Один инструмент из `instruments-info` — только поля, которые использует
-/// Decision 18 (пул, дедуп, `H6`/`H10`) и Decision 22а (размер как наименьшее
+/// Decision 18 (пул, дедуп, `H6`) и Decision 22а (размер как наименьшее
 /// допустимое количество: `minOrderQty`, `qtyStep`, `minNotionalValue`).
 /// Цена и размер — целые 1e-9 (см. doc модуля).
 #[derive(Debug, Clone, PartialEq, Eq)]

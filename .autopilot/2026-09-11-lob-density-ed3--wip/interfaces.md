@@ -131,7 +131,7 @@ cargo run --release -- lob <подкоманда>
 | бутстрап-t, Уэбб, разрешение сетки | | `stats/mod.rs` |
 | **совместный ресэмплинг двух серий** — расширять, не писать | `disjoint_contrast` | `lob/cells.rs` |
 | журнал испытаний | `RunRow`, `append_run_row` | `lob/runs.rs` |
-| пул по правилу — **верно** | `build_pool` | `commands/lob.rs` |
+| пул по правилу — **верно** | `build_pool` | `commands/lob/pick/pool.rs` |
 | сплит 60/40, пригодность, заморозка, `ProfileRow` с `fill`/`net_fill` | | `lob/shortlist.rs` |
 | движок бэктеста на `Bot<MD>` | `backtest.rs:506` | `lob/backtest.rs` |
 | экспорт `npy` | | `lob/export.rs` |
@@ -157,3 +157,20 @@ cargo run --release -- lob <подкоманда>
 никогда не снимает требование — невозможное требование есть вопрос владельцу.
 Идея по ходу — `A##` с родителем. Отклонение от спеки без `D##` — находка оси
 Спека, каким бы хорошим ни был повод.
+
+---
+
+# Что уже построено
+
+## Из таска 01 — вычистка и разрез
+
+- `src/commands/lob/` — каталог-модуль вместо одного файла: `mod.rs` (`LobCommand`, `dispatch`, общие `replay_symbol`, `ReplayStats`/`ReplayDay`, `side_name`/`outcome_name`/`death_name`, `DEFAULT_WARMUP_MS`/`DEFAULT_REPEAT_WINDOW_MS`, `day_tallies`, `#[cfg(test)] test_support`) + `pick.rs`, `record.rs`, `verify.rs`, `export.rs`, `clock.rs`, `probe.rs`, `levels.rs`, `markout.rs`, `watch.rs`, `pilot.rs`. Каждая подкоманда — свой файл, своя зона.
+- **`crate::stats::G_MIN: usize = 7`** — единственная константа минимума кластеров. `MIN_CLUSTERS` и `shortlist::CONFIRM_MIN_G` больше не существуют — бери `G_MIN`.
+- `select_final_two` → `survivors_above_depth_floor` — возвращает **всех** членов пула выше порога глубины, не двух. Таск 08 переделывает отбор целиком.
+- `cells::distance_bucket` / `DistanceBucket` (в тиках) — удалены. Расстояние только в bps через `shortlist::DISTANCE_BOUNDS_BPS`.
+- Гейты свободного места и `DAY_BUDGET_BYTES` — удалены из `record.rs`. Дискового потолка нет.
+- `watch::has_gap_over_6h` — больше не предикат годности суток; таск 07 переписывает годность.
+- `src/commands/lob/pick/` — подкаталог (ремонт по ревью): `mod.rs` — `PickArgs`, `PickReport`, `run_pick`/`run_pick_async`, реэкспорты; `pool.rs` — `build_pool`, исключения, `NON_CRYPTO_BASES`, `CandidateMeta`; `coverage.rs` — `coverage_top50_bps`, `eligible_baskets`, `count_eligible_trials`; `depth.rs` — `DepthSample`, `MeasuredCandidate`, `survivors_above_depth_floor`, `PickError`, `DEPTH_FLOOR_USD_E9`; `measure.rs` — сетевая оболочка (`measure_prefiltered`, `measure_one_symbol`); `order_size.rs` — `order_size_22a`; `table.rs` — `CandidateRow`, `build_candidate_table`, `write_candidate_table_csv`, `write_instruments_csv`. Все файлы ≤ 690 строк. Таск 08 работает внутри этого каталога.
+- `grep -rn "H10" src/` — пуст. Модель двух кандидатов не упоминается нигде как действующая.
+- `docs/plan/SETTLED.md` В-29 — предрегистрация в два этапа (до пилота / после пилота, до первой сессии сбора).
+- Документы: `docs/plan/REQUIREMENTS.md` переписан; `SETTLED.md` ПЛАН-2 — эррата в строке; `docs/plan/archive/` — `OPEN_QUESTIONS.md`, `critique-*.json`, `README.md`.

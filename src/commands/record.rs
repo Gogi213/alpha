@@ -9,8 +9,8 @@
 //! `stage_trade` до любого изменения книги и файла): одна целочисленная
 //! операция `%` на уже разобранном поле. Ловит первое же затронутое событие —
 //! без него цены в дельтах тихо поехали бы по масштабу в невосстановимых
-//! данных. Холодный путь (часовой таймер в `run_record`, тот же, что ходит за
-//! свободным местом): перечитывает `/v5/market/instruments-info` и даёт
+//! данных. Холодный путь (часовой таймер в `run_record`): перечитывает
+//! `/v5/market/instruments-info` и даёт
 //! авторитетные значения для заголовка следующего файла. Без него ротация не
 //! сработала бы никогда — горячий детектор знает, что шаг не тот, но не знает,
 //! какой тот.
@@ -73,18 +73,6 @@ use crate::bybit::ws::{Event, Trade};
 // эксплуатационных выборов этого файла.
 // ---------------------------------------------------------------------------
 
-/// Связывающий бюджет Decision 23: ≤ 150 МБ на символ-сутки после zstd.
-/// Именно его потребляет диск и именно он питает правило свободного места.
-pub const DAY_BUDGET_BYTES: u64 = 150 * 1024 * 1024;
-
-/// Старт запрещён при свободном месте меньше `МБ_в_сутки × 14` (строка
-/// «Свободное место» гейта GC). Абсолютный порог: у открытой записи нет
-/// горизонта, запас обязан покрывать недели без присмотра.
-pub const START_FREE_BYTES_REQUIRED: u64 = DAY_BUDGET_BYTES * 14;
-
-/// Падение ниже `МБ_в_сутки × 2` — остановка с записью в `gaps.csv`.
-pub const STOP_FREE_BYTES_REQUIRED: u64 = DAY_BUDGET_BYTES * 2;
-
 /// Потолок записей в одном кадре — он же `max_records_per_frame` заголовка
 /// (Decision 23, ревизия 10: потолок берётся из файла, а выбирает и хранит
 /// его вызывающий, то есть этот рекордер). Значение — эксплуатационный выбор
@@ -105,10 +93,10 @@ pub const FRAME_TARGET_RECORDS: usize = 1_000;
 /// `binlog::Writer::create` — уровень там параметр именно поэтому).
 pub const ZSTD_LEVEL: i32 = zstd::DEFAULT_COMPRESSION_LEVEL;
 
-/// Период часового таймера: свободное место, `clock.csv` (шаг 0.5, хук — см.
-/// `run_session`) и перечитывание `instruments-info`. Один таймер на всё —
-/// три часовых будильника дрейфовали бы друг относительно друга и будили
-/// процесс трижды в час вместо одного раза.
+/// Период часового таймера: `clock.csv` (шаг 0.5, хук — см. `run_session`) и
+/// перечитывание `instruments-info`. Один таймер на оба — два часовых
+/// будильника дрейфовали бы друг относительно друга и будили процесс дважды
+/// в час вместо одного раза.
 pub const HOURLY_REFRESH_SECS: u64 = 3_600;
 
 /// Пинг WS: Bybit рвёт молчащее соединение по своему таймауту (факт протокола,
@@ -148,11 +136,6 @@ pub enum RecordError {
     /// запись (та же дисциплина, что `validate_header` в `binlog`, но здесь
     /// аргумент приходит из кода вызывающего, а не с диска — см. её doc).
     BadSteps { tick_e9: i64, step_e9: i64 },
-    /// Предстартовый гейт: свободного места меньше `START_FREE_BYTES_REQUIRED`.
-    SpaceDenied {
-        free_bytes: u64,
-        required_bytes: u64,
-    },
     /// Кадр не записался / не сжался.
     Binlog(String),
     /// Живое событие до первого снапшота файла. Ошибка программирования
@@ -201,13 +184,6 @@ impl std::fmt::Display for RecordError {
                     "шаги неположительны: tick_e9={tick_e9}, step_e9={step_e9}"
                 )
             }
-            RecordError::SpaceDenied {
-                free_bytes,
-                required_bytes,
-            } => write!(
-                f,
-                "старт запрещён: свободно {free_bytes} байт, нужно {required_bytes}"
-            ),
             RecordError::Binlog(e) => write!(f, "бинлог: {e}"),
             RecordError::NoSnapshot => {
                 write!(f, "живое событие до первого снапшота файла")
@@ -337,8 +313,6 @@ pub enum GapKind {
     BookInvariant,
     /// Кадр транспорта не разобрался: событие потеряно до книги.
     ParseError,
-    /// Свободное место упало ниже `STOP_FREE_BYTES_REQUIRED`: остановка.
-    LowSpace,
 }
 
 /// Одна строка `gaps.csv`. Колонки: момент (UTC, RFC 3339), символ, причина,
@@ -900,144 +874,6 @@ pub fn load_steps_for_symbol(
 }
 
 // ---------------------------------------------------------------------------
-// Свободное место: предстартовый запрет и остановка с записью в gaps.csv.
-// ---------------------------------------------------------------------------
-
-/// Предстартовый гейт GC: свободно меньше `START_FREE_BYTES_REQUIRED` —
-/// старт запрещён явной ошибкой, а не надеждой, что места хватит.
-pub fn check_start_free_space(free_bytes: u64) -> Result<(), RecordError> {
-    if free_bytes < START_FREE_BYTES_REQUIRED {
-        return Err(RecordError::SpaceDenied {
-            free_bytes,
-            required_bytes: START_FREE_BYTES_REQUIRED,
-        });
-    }
-    Ok(())
-}
-
-/// Часовой сэмпл: свободно ниже `STOP_FREE_BYTES_REQUIRED` — остановка с
-/// записью `low_space` в `gaps.csv`. Строго ниже: ровно на границе запись
-/// ещё продолжается.
-pub fn should_stop_on_free_space(free_bytes: u64) -> bool {
-    free_bytes < STOP_FREE_BYTES_REQUIRED
-}
-
-/// Источник свободного места. Трейт, а не прямой вызов ОС — по той же причине,
-/// что `Clock` в `bybit::conn`: гейты проверяются сценарными числами без
-/// настоящего диска (см. тесты ниже), а ОС вызывается только в бою.
-pub trait FreeSpaceCheck {
-    fn free_bytes(&self, dir: &Path) -> io::Result<u64>;
-}
-
-/// Свободное место от ОС, без новых зависимостей: прямых FFI-вызовов хватает —
-/// `GetDiskFreeSpaceExW` на Windows, `statvfs` на Linux (единственная боевая
-/// платформа по H12 — VPS; dev-платформа — Windows). Другим Unix — честная
-/// ошибка «не поддерживается», а не выдуманное число.
-pub struct OsFreeSpaceCheck;
-
-#[cfg(windows)]
-mod os_space {
-    use super::Path;
-    use std::io;
-    use std::os::windows::ffi::OsStrExt;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetDiskFreeSpaceExW(
-            dir: *const u16,
-            free_to_caller: *mut u64,
-            total: *mut u64,
-            total_free: *mut u64,
-        ) -> i32;
-    }
-
-    pub(super) fn free_bytes(dir: &Path) -> io::Result<u64> {
-        let wide: Vec<u16> = dir
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let mut free: u64 = 0;
-        // SAFETY: `wide` — NUL-терминированный UTF-16, живёт до конца вызова;
-        // `&mut free` — валидный указатель на запись; остальные out-параметры
-        // не нужны и передаются NULL, что API разрешает явно.
-        let ok = unsafe {
-            GetDiskFreeSpaceExW(
-                wide.as_ptr(),
-                &mut free,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(free)
-    }
-}
-
-#[cfg(target_os = "linux")]
-mod os_space {
-    use super::Path;
-    use std::ffi::CString;
-    use std::io;
-    use std::os::raw::c_char;
-    use std::os::unix::ffi::OsStrExt;
-
-    /// Подмножество `struct statvfs` glibc, достаточное для свободного места.
-    /// Порядок и ширина первых пяти полей — часть стабильного ABI Linux.
-    #[repr(C)]
-    struct Statvfs {
-        f_bsize: u64,
-        f_frsize: u64,
-        f_blocks: u64,
-        f_bfree: u64,
-        f_bavail: u64,
-    }
-
-    extern "C" {
-        fn statvfs(path: *const c_char, buf: *mut Statvfs) -> i32;
-    }
-
-    pub(super) fn free_bytes(dir: &Path) -> io::Result<u64> {
-        let c = CString::new(dir.as_os_str().as_bytes())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "путь содержит NUL-байт"))?;
-        let mut st = std::mem::MaybeUninit::<Statvfs>::uninit();
-        // SAFETY: `c` — валидная C-строка до конца вызова; `st` — выделенная,
-        // но неинициализированная память ровно под `Statvfs`, которую `statvfs`
-        // целиком записывает при возврате 0. Читаем её только в этом случае.
-        let rc = unsafe { statvfs(c.as_ptr(), st.as_mut_ptr()) };
-        if rc != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let st = unsafe { st.assume_init() };
-        Ok(st.f_bavail.saturating_mul(st.f_frsize))
-    }
-}
-
-#[cfg(not(any(windows, target_os = "linux")))]
-mod os_space {
-    use super::Path;
-    use std::io;
-
-    pub(super) fn free_bytes(dir: &Path) -> io::Result<u64> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            format!(
-                "свободное место не измеряется на этой платформе: {}",
-                dir.display()
-            ),
-        ))
-    }
-}
-
-impl FreeSpaceCheck for OsFreeSpaceCheck {
-    fn free_bytes(&self, dir: &Path) -> io::Result<u64> {
-        os_space::free_bytes(dir)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Живой контур: сокет → книга → файл. Тонкая оболочка (как `run_pick` в
 // `lob.rs`): вся проверяемая логика выше — в чистых функциях и `Recorder`,
 // здесь только сеть, часы и ожидание. Без сети не тестируется по той же
@@ -1063,9 +899,6 @@ pub struct RecordArgs {
 /// долг/факт (шаг ведёт учёт остановок с причиной).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
-    /// Свободное место ниже `STOP_FREE_BYTES_REQUIRED`, строка `low_space`
-    /// уже в `gaps.csv`.
-    LowSpace,
     /// `Ctrl-C`: файлы сброшены, сутки читаемы (заканчиваются между кадрами).
     Interrupted,
     /// Канал от сокета закрылся — `Connection::run` сам не возвращается,
@@ -1258,7 +1091,6 @@ async fn run_session(
     steps_rx: &mut std::sync::mpsc::Receiver<(i64, i64)>,
     wake_tx: std::sync::mpsc::SyncSender<()>,
     verify_tx: &std::sync::mpsc::SyncSender<VerifyMsg>,
-    free_check: &OsFreeSpaceCheck,
     symbol: &str,
     tick_e9: i64,
     step_e9: i64,
@@ -1468,17 +1300,6 @@ async fn run_session(
             _ = hourly.tick() => {                // Часовой тик: место, итог подавления, flush. Шаги приходят
                 // сами из ОС-потока авторитета — тик их только забирает
                 // (шаг 0.7, Decision 24), сеть здесь не ждётся никогда.
-                match free_check.free_bytes(&rec.root) {
-                    Ok(free) if should_stop_on_free_space(free) => {
-                        let ts_utc = ts_utc_of_ns(SystemClock.now_ns());
-                        rec.log_gap(GapKind::LowSpace, &ts_utc, &format!("свободно {free} байт — остановка"))?;
-                        rec.flush()?;
-                        conn_task.abort();
-                        return Ok(SessionEnd::Stop { reason: StopReason::LowSpace });
-                    }
-                    Ok(_) => {}
-                    Err(e) => eprintln!("record: место не измерилось ({e}), продолжаем"),
-                }
                 if off_step_suppressed > 0 {
                     let ts_utc = ts_utc_of_ns(SystemClock.now_ns());
                     rec.log_gap(GapKind::BookInvariant, &ts_utc, &format!("подавлено немасштабных событий за час: {}", off_step_suppressed))?;
@@ -1521,15 +1342,6 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
     let (tick_e9, step_e9) = load_steps_for_symbol(&instruments_csv_path(&root), &args.symbol)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // Предстартовый гейт GC. Неизмеримое место — предупреждение, а не старт
-    // вслепую молча и не запрет без причины: на поддерживаемых платформах
-    // (Windows/Linux) измерение обязано работать, и его отказ виден в логе.
-    let free_check = OsFreeSpaceCheck;
-    match free_check.free_bytes(&root) {
-        Ok(free) => check_start_free_space(free).map_err(|e| anyhow::anyhow!("{e}"))?,
-        Err(e) => eprintln!("record: предстартовое место не измерилось ({e}), продолжаем"),
-    }
-
     let day = day_string_of_ns(SystemClock.now_ns()).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut rec = Recorder::open(&root, &args.symbol, tick_e9, step_e9, &day)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -1557,7 +1369,6 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
             &mut steps_rx,
             wake_tx.clone(),
             &verify_tx,
-            &free_check,
             &args.symbol,
             tick,
             step,
@@ -1965,52 +1776,6 @@ mod tests {
             super::load_steps_for_symbol(&path, "NOSUCHUSDT").is_err(),
             "чужой символ — ошибка, а не шаги соседа"
         );
-    }
-
-    /// Предстартовый гейт: ниже `×14` — запрет с числами, ровно на границе и
-    /// выше — старт. Граница включается: «меньше» запрещает, «равно» ещё нет.
-    #[test]
-    fn start_is_refused_below_fourteen_day_budgets_and_allowed_at_the_line() {
-        assert_eq!(
-            super::START_FREE_BYTES_REQUIRED,
-            super::DAY_BUDGET_BYTES * 14
-        );
-        let denied =
-            super::check_start_free_space(super::START_FREE_BYTES_REQUIRED - 1).unwrap_err();
-        assert_eq!(
-            denied,
-            super::RecordError::SpaceDenied {
-                free_bytes: super::START_FREE_BYTES_REQUIRED - 1,
-                required_bytes: super::START_FREE_BYTES_REQUIRED,
-            }
-        );
-        assert!(super::check_start_free_space(super::START_FREE_BYTES_REQUIRED).is_ok());
-        assert!(super::check_start_free_space(u64::MAX).is_ok());
-    }
-
-    /// Часовой сэмпл: строго ниже `×2` — остановка, ровно на границе — ещё
-    /// продолжение («падение ниже», не «до»).
-    #[test]
-    fn hourly_sample_stops_strictly_below_two_day_budgets() {
-        assert_eq!(super::STOP_FREE_BYTES_REQUIRED, super::DAY_BUDGET_BYTES * 2);
-        assert!(super::should_stop_on_free_space(
-            super::STOP_FREE_BYTES_REQUIRED - 1
-        ));
-        assert!(!super::should_stop_on_free_space(
-            super::STOP_FREE_BYTES_REQUIRED
-        ));
-        assert!(!super::should_stop_on_free_space(u64::MAX));
-    }
-
-    /// ОС действительно отдаёт свободное место живого каталога, а не ошибку
-    /// обёртки. Только там, где измерение реализовано (Windows/Linux).
-    #[cfg(any(windows, target_os = "linux"))]
-    #[test]
-    fn os_reports_free_space_for_a_live_directory() {
-        use super::{FreeSpaceCheck, OsFreeSpaceCheck};
-        let dir = tempfile::tempdir().unwrap();
-        let free = OsFreeSpaceCheck.free_bytes(dir.path()).unwrap();
-        assert!(free > 0, "у живого каталога обязано быть свободное место");
     }
 
     /// Индекс строки дня совпадает с целочисленным делением меток — иначе

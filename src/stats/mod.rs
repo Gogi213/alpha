@@ -29,10 +29,16 @@
 
 use std::collections::BTreeMap;
 
-/// Минимум кластеров (Decision 21, применяется к выводу через Decision 9):
-/// ниже него выборка не набрана по построению флага `lob watch`, и это
+/// Минимум кластеров, единственное объявление во всём документе (спека
+/// редакции 3, §9: назначаемое число — до данных и коммитом, один раз).
+/// Ниже него выборка не набрана по построению флага `lob watch`, и это
 /// дефект счётчика, а не рыночный исход — вердикт не выносится вовсе.
-pub const MIN_CLUSTERS: usize = 12;
+/// Значение выведено, не подобрано: при `G = 7` весовые вектора Уэбба
+/// (`k = 6`) дают `6^7 = 279 936` — с запасом тоньше альфы гейта G2 (см.
+/// docs модуля выше), тогда как радемахеровские (`k = 2`) на этом же `G`
+/// дают только `128` — грубее альфы арифметически. `lob/shortlist.rs`
+/// сводит свой прежний отдельный порог к этой же константе.
+pub const G_MIN: usize = 7;
 
 /// Число реплик wild-бутстрапа (Decision 9). Фиксировано планом, а не
 /// подобрано: тесты, которым нужна скорость, передают своё меньшее число —
@@ -58,7 +64,7 @@ pub const WEBB_WEIGHT_VALUES: u32 = 6;
 /// красный, а не рыночный», гейт G2).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BootstrapError {
-    /// Кластеров меньше `MIN_CLUSTERS`. При открытой записи (Decision 21) это
+    /// Кластеров меньше `G_MIN`. При открытой записи (Decision 21) это
     /// значит, что `lob watch` выставил флаг неверно, и раньше починки счётчика
     /// вердикт не выносится вовсе — не «недобор как исход», а дефект.
     TooFewClusters { clusters: usize, minimum: usize },
@@ -334,10 +340,10 @@ pub fn wild_cluster_bootstrap_t(
     let groups = group_by_cluster(observations);
     let clusters = groups.len();
 
-    if clusters < MIN_CLUSTERS {
+    if clusters < G_MIN {
         return Err(BootstrapError::TooFewClusters {
             clusters,
-            minimum: MIN_CLUSTERS,
+            minimum: G_MIN,
         });
     }
 
@@ -634,20 +640,32 @@ mod tests {
         assert_ne!(p1, p2);
     }
 
-    /// Меньше `MIN_CLUSTERS` кластеров обязано вернуть отказ, а не число и не
+    /// Меньше `G_MIN` кластеров обязано вернуть отказ, а не число и не
     /// панику: PLAN.md явно требует различимого «методического красного»
     /// именно как значение, которое вызывающий код обязан проверить.
     #[test]
     fn below_minimum_cluster_count_refuses_instead_of_returning_a_p_value() {
-        let data: Vec<(i64, f64)> = (0..11).map(|day| (day, 1.0)).collect();
+        let data: Vec<(i64, f64)> = (0..6).map(|day| (day, 1.0)).collect();
         let err = wild_cluster_bootstrap_t(&data, 99, GATE_ALPHA, 1).unwrap_err();
         assert_eq!(
             err,
             BootstrapError::TooFewClusters {
-                clusters: 11,
-                minimum: MIN_CLUSTERS
+                clusters: 6,
+                minimum: G_MIN
             }
         );
+    }
+
+    /// Ровно `G_MIN` (7, спека редакции 3, таск 01: `MIN_CLUSTERS`/
+    /// `CONFIRM_MIN_G` сведены к этой одной константе) обязано пройти отказ
+    /// по числу кластеров — граница включает минимум, а не только то, что
+    /// выше него. Раньше эта же выборка отказала бы: старое значение порога
+    /// (12) исключало ровно семь кластеров.
+    #[test]
+    fn exactly_g_min_clusters_passes_the_cluster_count_gate() {
+        assert_eq!(G_MIN, 7, "порог назначен спекой, не подобран этим тестом");
+        let data = synthetic_clusters(G_MIN as i64, 8, 3.0, 1.0, 7);
+        assert!(wild_cluster_bootstrap_t(&data, 999, GATE_ALPHA, 1).is_ok());
     }
 
     /// Альфа тоньше достижимой сетки Уэбба обязана вернуть отказ, а не молча

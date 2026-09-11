@@ -405,29 +405,12 @@ impl std::fmt::Display for G2Verdict {
 // ---------------------------------------------------------------------------
 // Разведочная таблица: разметка вне гейтов.
 // ---------------------------------------------------------------------------
-
-/// Слой дистанции из 5.2: границы фиксируются до прогона.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DistanceBucket {
-    /// 1–5 тиков (полоса ячеек C1/C2).
-    Near,
-    /// 6–20 тиков.
-    Mid,
-    /// 21+ тиков.
-    Far,
-}
-
-/// Слой дистанции по числу тиков. Ноль тиков на практике не встречается
-/// (уровень на своей цене уже не «дистанция») и относится к ближнему слою.
-pub fn distance_bucket(dist_ticks: u32) -> DistanceBucket {
-    if dist_ticks <= 5 {
-        DistanceBucket::Near
-    } else if dist_ticks <= 20 {
-        DistanceBucket::Mid
-    } else {
-        DistanceBucket::Far
-    }
-}
+//
+// Слой дистанции по числу тиков (`DistanceBucket`/`distance_bucket`,
+// границы 5/20 тиков) отменён спекой редакции 3, §4: расстояние — только
+// в bps, тик остаётся исключительно внутренним представлением цены.
+// Замена — `shortlist::distance_bucket_eligible` (bps-границы, назначенные
+// до данных).
 
 /// Метка терциля разведки по замороженным границам: ниже `b1` — 0, ниже `b2`
 /// — 1, иначе 2. Границы приходят готовыми (посчитаны по первым суткам и
@@ -1491,16 +1474,16 @@ mod tests {
     fn bad_inputs_are_errors_not_verdicts() {
         let recs = shared_c1_c2_fixture();
         let mos = vec![Some(6.0); 8];
-        let mut gapped = eligible_tally("2026-04-01");
-        gapped.has_gap_over_6h = true;
+        let mut not_eligible = eligible_tally("2026-04-01");
+        not_eligible.verify_basis_points = 0;
         let days = [CellDay {
-            tally: &gapped,
+            tally: &not_eligible,
             records: &recs,
             markouts_10s: &mos,
         }];
         assert_eq!(
             run_cells_with_median(&days, 10_000, TEST_REPLICATIONS, CELLS_SEED)
-                .expect_err("разрыв H8"),
+                .expect_err("ноль проверок verify — сутки не годны"),
             CellsError::DayNotEligible {
                 day: "2026-04-01".to_string(),
             }
@@ -1555,11 +1538,6 @@ mod tests {
     /// Записи, различающиеся лишь внегейтовыми полями, дают тот же вердикт.
     #[test]
     fn exploration_strata_do_not_enter_gates() {
-        assert_eq!(distance_bucket(1), DistanceBucket::Near);
-        assert_eq!(distance_bucket(5), DistanceBucket::Near);
-        assert_eq!(distance_bucket(6), DistanceBucket::Mid);
-        assert_eq!(distance_bucket(20), DistanceBucket::Mid);
-        assert_eq!(distance_bucket(21), DistanceBucket::Far);
         assert_eq!(tercile_label(5, 10, 20), 0);
         assert_eq!(tercile_label(10, 10, 20), 1);
         assert_eq!(tercile_label(20, 10, 20), 2);

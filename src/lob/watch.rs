@@ -17,9 +17,13 @@
 //!
 //! Правила состава выборки:
 //!
-//! - H8: разрыв записи больше 6 часов или сутки, не прошедшие verify,
-//!   выбрасываются целиком и кластером не считаются.
-//! - H10: подтверждающая запись идёт по одному символу; чужой символ
+//! - Сутки, не прошедшие verify (доля расхождений теста 1 не строго меньше
+//!   0.01%), выбрасываются целиком и кластером не считаются. Разрыв записи
+//!   больше 6 часов (`has_gap_over_6h`, H8) сам по себе годность больше не
+//!   решает (таск 01) — поле остаётся печатаемым фактом на сутки, а сам
+//!   предикат разрыва перепишет таск 07.
+//! - `WatchState` держит ровно одного кандидата пула за раз — по инстансу на
+//!   символ, не общее состояние сразу на несколько; чужой символ
 //!   отвергается ошибкой, а не смешивается в одни сутки.
 //! - C2 есть строгое подмножество C1, поэтому из условий C2 следуют условия C1:
 //!   годные сутки с наблюдением C2 суть годные сутки с наблюдением C1.
@@ -77,7 +81,8 @@ pub enum WatchError {
     Io(String),
     /// `progress.csv` не разобрался как CSV.
     Csv(String),
-    /// Чужой символ при состоянии на один символ (H10).
+    /// Чужой символ при состоянии на один символ — `WatchState` держит ровно
+    /// одного кандидата пула.
     SymbolMismatch { expected: String, got: String },
     /// Те же сутки поданы дважды: строка на сутки обязана быть одна.
     DuplicateDay { day: String },
@@ -161,7 +166,8 @@ pub fn is_c2(rec: &LevelRecord, median_lifetime_ms: i64) -> bool {
 /// Единица наблюдений — `LevelRecord` из `levels.rs`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DayTally {
-    /// Символ подтверждающей записи (H10: один на всё состояние).
+    /// Символ подтверждающей записи — один на состояние, по инстансу
+    /// `DayTally`/`WatchState` на каждого кандидата пула.
     pub symbol: String,
     /// Сутки UTC как `YYYY-MM-DD`.
     pub day_utc: String,
@@ -177,7 +183,7 @@ pub struct DayTally {
     pub verify_basis_points: u64,
 }
 
-/// Общий предикат годности суток на весь документ (Decision 21, H8).
+/// Общий предикат годности суток на весь документ (Decision 21).
 ///
 /// Единственная реализация: её читают и `watch` (шаг 4.1), и G2 (шаг 5.2).
 /// Шаг 5.2 обязан переиспользовать эту функцию, а не писать свою.
@@ -187,13 +193,12 @@ pub struct DayTally {
 /// а не здесь, — иначе флаг считал бы годные сутки без наблюдений
 /// (дефект, закрытый в Decision 21).
 ///
-/// Условия: нет разрыва больше 6 часов (H8) и доля расхождений теста 1
-/// строго меньше 0.01% (done 4.1). Ноль проверок — не годно: доказательств
-/// чистоты нет, и отсутствие данных не есть чистые данные.
+/// Условие: доля расхождений теста 1 строго меньше 0.01% (done 4.1). Ноль
+/// проверок — не годно: доказательств чистоты нет, и отсутствие данных не
+/// есть чистые данные. `has_gap_over_6h` (H8) больше не решает годность —
+/// поле остаётся на `DayTally`/`ProgressRow` как печатаемый факт, а сам
+/// предикат разрыва переписывает таск 07 (спека редакции 3).
 pub fn day_eligible(t: &DayTally) -> bool {
-    if t.has_gap_over_6h {
-        return false;
-    }
     if t.verify_basis_points == 0 {
         return false;
     }
@@ -323,7 +328,7 @@ pub fn read_progress_rows(path: &Path) -> Result<Vec<ProgressRow>, WatchError> {
 /// остаются отложенной выборкой и сюда не входят.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadyFlag {
-    /// Символ подтверждающей записи (H10).
+    /// Символ подтверждающей записи — тот же кандидат, что и в `DayTally`.
     pub symbol: String,
     /// Сумма `n_c2` по годным суткам выборки. Не меньше `TRIGGER_N_C2`.
     pub n_c2: u64,
@@ -465,9 +470,10 @@ pub fn require_ready_flag(path: &Path) -> Result<ReadyFlag, WatchError> {
 
 /// Доля суток с флагом разрыва больше 6 часов среди всех учтённых суток,
 /// в миллионных долях целыми: 1% — это 10 000 ppm. `None` — суток нет.
-/// Сутки с разрывом годными не являются (H8), поэтому эта доля — верхняя
-/// оценка потерь записи; порог done 4.1 — строго меньше 1%.
-/// Разрывы короче 6 часов внутри годных суток эта доля не покрывает:
+/// Учитывается сам факт разрыва (H8), не годность: `has_gap_over_6h` больше
+/// не решает годность суток (таск 01) — эта доля отдельный бюджет-ориентир
+/// done 4.1, строго меньше 1%, независимый от `day_eligible`.
+/// Разрывы короче 6 часов внутри суток эта доля не покрывает:
 /// их суммарное время читается по `gaps.csv` напрямую.
 pub fn gap_day_share_ppm(tallies: &[DayTally]) -> Option<u64> {
     if tallies.is_empty() {
@@ -500,7 +506,8 @@ pub struct ObserveOutcome {
     pub flag: Option<ReadyFlag>,
 }
 
-/// Состояние открытой записи на один символ (H10). Суммы и `G` считаются
+/// Состояние открытой записи на один символ — по инстансу на каждого
+/// кандидата пула, не общее на несколько сразу. Суммы и `G` считаются
 /// только по годным суткам: мусор в зачёт не идёт, а отодвигает флаг.
 #[derive(Debug)]
 pub struct WatchState {
@@ -584,8 +591,9 @@ impl WatchState {
         !self.flag_written && self.n_c2_total() >= TRIGGER_N_C2 && self.g_c2() >= TRIGGER_G
     }
 
-    /// Принимает сутки: один символ (H10), формат суток, одна строка на сутки,
-    /// инвариант C2⊂C1. Нарушение любого — ошибка, молчаливого пути нет.
+    /// Принимает сутки: один символ (тот, на который заведён этот
+    /// `WatchState`), формат суток, одна строка на сутки, инвариант C2⊂C1.
+    /// Нарушение любого — ошибка, молчаливого пути нет.
     pub fn push_tally(&mut self, tally: DayTally) -> Result<(), WatchError> {
         if tally.symbol != self.symbol {
             return Err(WatchError::SymbolMismatch {
@@ -776,11 +784,11 @@ mod tests {
     }
 
     #[test]
-    fn eligibility_encodes_h8_and_test1_threshold() {
+    fn eligibility_encodes_test1_threshold_and_ignores_the_gap_flag() {
         assert!(day_eligible(&tally(false, 0, 50_000)), "чистые сутки годны");
         assert!(
-            !day_eligible(&tally(true, 0, 50_000)),
-            "H8: разрыв больше 6 часов"
+            day_eligible(&tally(true, 0, 50_000)),
+            "has_gap_over_6h больше не решает годность (таск 07 перепишет предикат разрыва)"
         );
         assert!(
             !day_eligible(&tally(false, 1, 10_000)),
@@ -807,9 +815,11 @@ mod tests {
         let root = dir.path();
         let mut st = WatchState::new("TST", MEDIAN_MS);
         assert!(st.is_empty());
-        // Двое суток-мусора: разрыв и провал verify. Даже с большим n_c2
-        // в зачёт не идут, а отодвигают флаг.
-        let junk_gap = DayTally {
+        // Сутки с разрывом (`has_gap_over_6h`) больше не отбрасываются
+        // предикатом годности — гейт остаётся только на verify (таск 01;
+        // сам предикат разрыва перепишет таск 07). Сутки провала verify
+        // остаются мусором: даже с большим n_c2 в зачёт не идут.
+        let gap_flagged_but_eligible = DayTally {
             day_utc: "2026-01-01".to_string(),
             n_c1: 60,
             n_c2: 50,
@@ -824,12 +834,16 @@ mod tests {
             verify_basis_points: 10_000,
             ..tally(false, 0, 50_000)
         };
-        st.observe_day(root, junk_gap, "2026-01-03T00:00:00Z")
-            .expect("мусор тоже пишется в прогресс");
+        st.observe_day(root, gap_flagged_but_eligible, "2026-01-03T00:00:00Z")
+            .expect("сутки с разрывом тоже пишутся в прогресс");
         st.observe_day(root, junk_verify, "2026-01-03T00:00:00Z")
             .expect("мусор тоже пишется в прогресс");
         assert!(!st.is_due());
-        assert_eq!(st.g_c2(), 0);
+        assert_eq!(
+            st.g_c2(),
+            1,
+            "разрыв больше не исключает сутки — только провал verify"
+        );
         for d in 3..=14u32 {
             let day = format!("2026-01-{d:02}");
             let t = DayTally {
@@ -841,18 +855,25 @@ mod tests {
             let out = st
                 .observe_day(root, t, "2026-02-01T00:00:00Z")
                 .expect("сутки копятся");
-            if d < 14 {
+            if d < 13 {
                 assert!(out.flag.is_none(), "флаг раньше двенадцатых годных суток");
-            } else {
+            } else if d == 13 {
+                // Годные сутки к этому моменту: 2026-01-01 (разрыв, но годна)
+                // плюс одиннадцать суток цикла — уже двенадцать.
                 let flag = out.flag.expect("двенадцатые годные сутки выставляют флаг");
-                assert_eq!(flag.n_c2, 108, "мусорные 100 наблюдений в сумму не вошли");
+                assert_eq!(flag.n_c2, 149, "50 (2026-01-01) + 11 * 9 из цикла");
                 assert_eq!(flag.g, 12);
                 assert_eq!(flag.days.len(), 12);
-                assert_eq!(flag.days[0], "2026-01-03");
+                assert_eq!(flag.days[0], "2026-01-01");
+            } else {
+                assert!(
+                    out.flag.is_none(),
+                    "флаг уже выставлен, повторно не выставляется"
+                );
             }
         }
         assert_eq!(st.len(), 14);
-        assert_eq!(st.n_c2_total(), 108);
+        assert_eq!(st.n_c2_total(), 158, "50 (2026-01-01) + 12 * 9 из цикла");
         // Монотонность Decision 21: условия C1 выполнены сами.
         assert!(st.n_c1_total() >= TRIGGER_N_C2);
         assert!(st.g_c1() >= TRIGGER_G);
@@ -865,15 +886,18 @@ mod tests {
         let raw_after = std::fs::read(ready_flag_path(root)).expect("флаг лежит");
         assert_eq!(raw_before, raw_after, "флаг не перезаписывается");
         let back = require_ready_flag(&ready_flag_path(root)).expect("флаг читается");
-        assert_eq!(back.n_c2, 108);
+        assert_eq!(back.n_c2, 149);
         assert_eq!(back.g, 12);
         assert_eq!(back.days.len(), 12);
-        // progress.csv — строка на сутки, мусор помечен негодным.
+        // progress.csv — строка на сутки; провал verify помечен негодным,
+        // разрыв сам по себе — нет.
         let rows = read_progress_rows(&progress_csv_path(root)).expect("прогресс читается");
         assert_eq!(rows.len(), 14, "строка на сутки");
-        assert_eq!(rows.iter().filter(|r| r.eligible).count(), 12);
+        assert_eq!(rows.iter().filter(|r| r.eligible).count(), 13);
         assert_eq!(rows[0].day_utc, "2026-01-01");
-        assert!(!rows[0].eligible);
+        assert!(rows[0].eligible, "разрыв не отменяет годность");
+        assert_eq!(rows[1].day_utc, "2026-01-02");
+        assert!(!rows[1].eligible, "провал verify всё ещё отменяет годность");
     }
 
     #[test]
@@ -906,7 +930,7 @@ mod tests {
             symbol: "OTHER".to_string(),
             ..tally(false, 0, 50_000)
         };
-        assert!(st.push_tally(foreign).is_err(), "H10: чужой символ");
+        assert!(st.push_tally(foreign).is_err(), "чужой символ отвергается");
         let bad_day = DayTally {
             day_utc: "01.01.2026".to_string(),
             ..tally(false, 0, 50_000)

@@ -32,7 +32,7 @@
 
 ## Критерии приёмки
 
-- [ ] `src/commands/lob.rs` разрезан на `src/commands/lob/{mod,pick,record,verify,export,clock,probe,levels,markout,watch,pilot}.rs`; ни один файл больше 900 строк
+- [ ] `src/commands/lob.rs` разрезан на `src/commands/lob/{mod,pick,record,verify,export,clock,probe,levels,markout,watch,pilot}.rs`; ни один файл больше 900 строк. **Уточнение после первого прохода:** если одна подкоманда не укладывается в 900 строк, она становится подкаталогом — `src/commands/lob/pick/{mod,…}.rs` по ответственностям (правило пула, замер глубины, размер ордера, покрытие корзин, оболочка CLI); тесты переезжают со своими функциями. Потолок 900 важнее списка из одиннадцати имён
 - [ ] `grep -rn "select_final_two" src/` пуст
 - [ ] `MIN_CLUSTERS` и `CONFIRM_MIN_G` сведены к одной константе `G_MIN`, объявленной ровно в одном месте; значение 7
 - [ ] `grep -rn "DAY_BUDGET_BYTES\|START_FREE_BYTES_REQUIRED\|STOP_FREE_BYTES_REQUIRED" src/` пуст

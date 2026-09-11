@@ -40,6 +40,7 @@ use std::path::Path;
 
 use crate::lob::costs::GREEN_NET_BPS;
 use crate::lob::runs::{append_run_row, RunKind, RunRow};
+use crate::stats::G_MIN;
 
 // ---------------------------------------------------------------------------
 // Доли деления и пороги. Каждое число — из плана.
@@ -55,15 +56,12 @@ pub const EXPLORATORY_DENOM: usize = 5;
 pub const MIN_DAYS_FOR_SPLIT: usize = 2;
 
 /// Порог шорт-листа на разведочной: `n >= 100`. G-порог на разведочной не
-/// проверяется: правило §7 (G >= 12) задано для подтверждающей, а
+/// проверяется: правило §7 (`G >= G_MIN`) задано для подтверждающей, а
 /// разведочный фрагмент короче полного периода по построению.
 pub const SHORTLIST_MIN_N_EXPL: u64 = 100;
 
 /// Порог зачёта профиля на подтверждающей (§7): `n >= 100`.
 pub const CONFIRM_MIN_N: u64 = 100;
-
-/// Порог зачёта профиля на подтверждающей (§7): `G >= 12` годных суток.
-pub const CONFIRM_MIN_G: u64 = 12;
 
 // ---------------------------------------------------------------------------
 // Сетка профилей (Decision 26): границы назначены здесь, до данных.
@@ -494,7 +492,7 @@ pub enum ConfirmStatus {
     Confirmed,
     /// Достаточно данных, но эджа нет (низ неположителен или отсутствует).
     Unconfirmed,
-    /// Недобор (`n < 100` или `G < 12`, включая отсутствие профиля вовсе).
+    /// Недобор (`n < 100` или `G < G_MIN`, включая отсутствие профиля вовсе).
     InsufficientData,
 }
 
@@ -511,7 +509,7 @@ impl std::fmt::Display for ConfirmStatus {
 /// Решает статус одного профиля строго по §7: сначала зачёт по `n`/`G`,
 /// затем знак низа интервала (конечный и строго положительный).
 pub fn decide_profile(n: u64, g: u64, net_fill_lower: Option<f64>) -> ConfirmStatus {
-    if n < CONFIRM_MIN_N || g < CONFIRM_MIN_G {
+    if n < CONFIRM_MIN_N || g < G_MIN as u64 {
         return ConfirmStatus::InsufficientData;
     }
     match net_fill_lower {
@@ -1047,7 +1045,7 @@ mod tests {
             ConfirmStatus::InsufficientData
         );
         assert_eq!(
-            decide_profile(100, 11, Some(5.0)),
+            decide_profile(100, 6, Some(5.0)),
             ConfirmStatus::InsufficientData
         );
         assert_eq!(
@@ -1058,6 +1056,19 @@ mod tests {
         assert_eq!(
             decide_profile(100, 12, Some(f64::NAN)),
             ConfirmStatus::Unconfirmed
+        );
+    }
+
+    /// Ровно `G_MIN` (7, таск 01: `CONFIRM_MIN_G` сведён к этой константе,
+    /// объявленной в `stats::G_MIN`) обязано зачитываться, а не отказывать —
+    /// граница включает минимум. Прежний отдельный порог этого модуля (12)
+    /// отказал бы ровно на семи годных сутках.
+    #[test]
+    fn confirm_status_accepts_exactly_g_min_good_days() {
+        assert_eq!(G_MIN, 7);
+        assert_eq!(
+            decide_profile(100, G_MIN as u64, Some(0.1)),
+            ConfirmStatus::Confirmed
         );
     }
 
