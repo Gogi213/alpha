@@ -351,3 +351,11 @@ cargo run --release -- lob <подкоманда>
 - `ProfilesArgs += preregistration: Option<PathBuf>` (`--preregistration`, обязателен без `--allow-unverified` — иначе ошибка «окно не определено»), `window_end: Option<String>`. Сессии вне окна не читаются; `sessions_outside_window=<n>` печатается.
 - Шапка `profiles-*.csv` и `shortlist-*.md`: `window: <start>..<end> days=<n> sessions=<n> sessions_outside_window=<n> exploratory=<d1>..<d2> confirmatory=<d3>..<d4>` | `window: debug (all sessions)` (`profiles::format_window_line`, `VerdictHeader.window`).
 - Тесты: сессия вне окна не меняет ни одной строки; write-once `window_end`; шапка. `pilot.rs` — две строки умолчаний (`allow_unverified: true` → окно обходится).
+
+## Из таска 22 — запись для пилота, части в сутках
+
+- `lob session --pilot-minutes <16..=360>` (взаимоисключающий с `--minutes 5..=15`; ровно один обязателен; 360 = 6 ч из G0 «продление до 6 часов») — режим пилота §11; `session.json.pilot = true`, `pilot_minutes`; stderr `pilot: <n> мин`.
+- Части в сутках: `session.rs::claim_symbol_binlog` через `record::claim_part` — `<SYM>-<day>.binlog`, затем `-p2`, `-p3`…; ничего не затирается; `session.json.binlog_files: Vec<BinlogPart { symbol, part, started_utc }>` накапливается при повторном открытии корня.
+- `commands::lob::session_binlog_for(dir, symbol) -> anyhow::Result<Vec<PathBuf>>` — все сутки × части по порядку (сутки, затем часть; `-p2` после голого файла); читатели (`replay_symbol_over_configs`, `profiles`, `watch`, `backtest`, `verify` — свой `file_order_key`) читают части подряд как один поток (трекер продолжается, книга/реплеер сбрасываются на файл). `FillModel::prime_session`, `replay_session_binlog` принимают `&[PathBuf]`.
+- `pilot::battle_counted_tail_minutes(window_minutes) = window_minutes / 2` — зачётная часть = вторая половина записи (для 2 ч — второй час §11; для 30 мин — последние 15). Константа `BATTLE_COUNTED_TAIL_MINUTES` снята.
+- Живая проверка: сессия 5 мин, 8/8, 213 034 записи, 0 gaps; каталог удалён.
