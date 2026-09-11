@@ -8,7 +8,8 @@
 //! # Вход
 //!
 //! `--root` — каталог с `instruments.csv` (пул, `lob pick`) и подкаталогом на
-//! каждую сессию (`lob session`, таск 04): `session.json`, `<SYMBOL>.binlog`,
+//! каждую сессию (`lob session`, таск 04): `session.json`,
+//! `<SYMBOL>-<день>.binlog` (таск 19, резолвер `super::session_binlog_for`),
 //! маркер сверки `verify-<SYMBOL>.status` (таск 07/09). По умолчанию сессия
 //! без маркера `ok` пропускается целиком (fail-closed, тот же приём, что у
 //! `commands::lob::watch`); `--allow-unverified` снимает это требование для
@@ -965,10 +966,17 @@ pub fn run_profiles_with_fill_model(
             let Some(meta) = read_session_meta(dir) else {
                 continue;
             };
-            let binlog = dir.join(format!("{symbol}.binlog"));
-            if !binlog.is_file() {
+            // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`, ровно
+            // один прогон `lob session`) — нет файла для этого символа в
+            // этой сессии означает «не сессия этого символа», не ошибку
+            // (doc модуля, тот же приём, что `watch.rs`); резолвер также
+            // не молчит про старый формат/путаницу нескольких файлов, но
+            // здесь, на обходе многих каталогов подряд, это тоже мягкий
+            // пропуск — не рвать всю таблицу профилей из-за одного
+            // каталога.
+            let Ok(binlog) = super::session_binlog_for(dir, symbol) else {
                 continue;
-            }
+            };
             let verified = read_verify_marker(&dir.join(format!("verify-{symbol}.status")));
             if !verified && !args.allow_unverified {
                 continue;
@@ -1137,7 +1145,11 @@ mod tests {
             w.write_frame(f).unwrap();
         }
         w.flush().unwrap();
-        std::fs::write(dir.join(format!("{symbol}.binlog")), w.into_inner()).unwrap();
+        // Таск 19: `lob session` пишет `<SYMBOL>-<день>.binlog`, не
+        // `<SYMBOL>.binlog` — фикстура следует той же раскладке, которую
+        // теперь ждёт `session_binlog_for`.
+        let day = &started_utc[..10];
+        std::fs::write(dir.join(format!("{symbol}-{day}.binlog")), w.into_inner()).unwrap();
         if verified {
             std::fs::write(dir.join(format!("verify-{symbol}.status")), "ok").unwrap();
         }

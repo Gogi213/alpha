@@ -9,10 +9,10 @@
 //!
 //! `--root <dir>` — каталог, где лежит **по одному подкаталогу на каждую
 //! сессию** `lob session --root <dir>/<session_id>` (таск 04): в каждом —
-//! `session.json` (`started_utc`, `start_hour_utc`, …), `<SYMBOL>.binlog` на
-//! инструмент, `gaps.csv`, `clock.csv`. Подкаталоги без `session.json` или
-//! без `<SYMBOL>.binlog` для запрошенного символа молча пропускаются — это
-//! не сессия этого символа, не ошибка.
+//! `session.json` (`started_utc`, `start_hour_utc`, …), `<SYMBOL>-<день>.binlog`
+//! на инструмент (таск 19, резолвер `super::session_binlog_for`), `gaps.csv`,
+//! `clock.csv`. Подкаталоги без `session.json` или без бинлога запрошенного
+//! символа молча пропускаются — это не сессия этого символа, не ошибка.
 //!
 //! # Вердикт verify для сессии — файл-маркер таска 07
 //!
@@ -305,10 +305,12 @@ pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
         let Some(meta) = read_session_meta(&dir) else {
             continue;
         };
-        let binlog = dir.join(format!("{}.binlog", args.symbol));
-        if !binlog.is_file() {
+        // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`) — нет файла
+        // для запрошенного символа в этой сессии означает «не сессия этого
+        // символа», не ошибку (doc модуля).
+        let Ok(binlog) = super::session_binlog_for(&dir, &args.symbol) else {
             continue;
-        }
+        };
         let verified = read_verify_marker(&dir.join(format!("verify-{}.status", args.symbol)));
         let n = if verified {
             let records = replay_session_binlog(&binlog, cfg)?;
@@ -377,7 +379,11 @@ mod tests {
             w.write_frame(f).expect("кадр пишется");
         }
         w.flush().expect("сброс");
-        std::fs::write(dir.join(format!("{symbol}.binlog")), w.into_inner())
+        // Таск 19: `lob session` пишет `<SYMBOL>-<день>.binlog`, не
+        // `<SYMBOL>.binlog` — фикстура следует той же раскладке, которую
+        // теперь ждёт `session_binlog_for`.
+        let day = &started_utc[..10];
+        std::fs::write(dir.join(format!("{symbol}-{day}.binlog")), w.into_inner())
             .expect("бинлог пишется");
         if verified {
             std::fs::write(dir.join(format!("verify-{symbol}.status")), "ok")

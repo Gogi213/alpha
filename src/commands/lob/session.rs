@@ -41,8 +41,10 @@ pub struct SessionArgs {
     /// min_order_qty,qty_step,min_notional_value` (`CLAUDE.md`, «грабли»).
     #[arg(long)]
     pub pool_instruments: PathBuf,
-    /// Корень сессии: по файлу `<SYMBOL>.binlog` на инструмент,
-    /// `gaps.csv`, `clock.csv`, запись о сессии.
+    /// Корень сессии: по файлу `<SYMBOL>-<день UTC старта>.binlog` на
+    /// инструмент (то же имя, что читают `verify`/`levels`/`markout` —
+    /// `commands::record::day_file_path`), `gaps.csv`, `clock.csv`, запись
+    /// о сессии.
     #[arg(long)]
     pub root: PathBuf,
     /// Длина сессии. Диапазон `MIN_MINUTES..=MAX_MINUTES` — решение
@@ -197,6 +199,21 @@ fn hour_utc_of_ns(ts_ns: i64) -> u32 {
         .unwrap_or(0)
 }
 
+/// Путь файла сессии символа — то же имя, часть 1 (`day_file_path(.., 1)`),
+/// что и суточный файл `lob record`: `<root>/<SYMBOL>-<день UTC старта>.binlog`.
+/// Сессия не ротирует файл посреди себя (`R38`: 5–15 минут разом), поэтому
+/// части 2+ здесь не бывает. Чистая функция дня от `started_ns` — вынесена
+/// из `run_session`, чтобы имя проверялось без сети (таск 19, находка G4:
+/// `verify`/`levels`/`markout` искали `<SYMBOL>-<день>.binlog` там, где
+/// сессия писала `<SYMBOL>.binlog` без даты).
+fn session_binlog_path(root: &Path, symbol: &str, started_ns: i64) -> anyhow::Result<PathBuf> {
+    let day = crate::commands::record::day_string_of_ns(started_ns)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(crate::commands::record::day_file_path(
+        root, symbol, &day, 1,
+    ))
+}
+
 pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     if args.minutes < MIN_MINUTES || args.minutes > MAX_MINUTES {
         anyhow::bail!(
@@ -212,9 +229,19 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     // забывается, `run_session` его не ждёт.
     spawn_resource_sampler();
 
+    // День решается один раз, до открытия файлов: `verify`/`levels`/
+    // `markout` (`bybit::verify::run_verify`, `mod.rs::replay_symbol_*`)
+    // ищут `<SYMBOL>-<день>.binlog` тем же префиксным поиском, что читает
+    // `lob record` (таск 19, `interfaces.md` «Из таска 19»); называть файл
+    // без даты означало бы, что эти команды не находят свежую сессию без
+    // ручного переименования (слепая приёмка G4).
+    let started_ns = SystemClock.now_ns();
+    let started_utc = crate::commands::record::ts_utc_of_ns(started_ns);
+    let start_hour_utc = hour_utc_of_ns(started_ns);
+
     let mut states: Vec<SymbolState> = Vec::with_capacity(pool.len());
     for member in &pool {
-        let path = args.root.join(format!("{}.binlog", member.symbol));
+        let path = session_binlog_path(&args.root, &member.symbol, started_ns)?;
         let file = std::fs::File::create(&path)?;
         let header = Header {
             tick_e9: member.tick_e9,
@@ -239,9 +266,6 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     ensure_gaps_csv(&gaps_path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let clock_path = args.root.join("clock.csv");
 
-    let started_ns = SystemClock.now_ns();
-    let started_utc = crate::commands::record::ts_utc_of_ns(started_ns);
-    let start_hour_utc = hour_utc_of_ns(started_ns);
     let mut clock_samples: u64 = 0;
     if take_clock_sample(args, 0, &clock_path)? {
         clock_samples += 1;
@@ -716,5 +740,83 @@ mod tests {
         assert!(is_debug_session(3_599));
         assert!(!is_debug_session(3_600));
         assert!(!is_debug_session(3_601));
+    }
+
+    // -----------------------------------------------------------------
+    // Таск 19: `lob session` пишет `<SYMBOL>-<день>.binlog`, не
+    // `<SYMBOL>.binlog` — то имя, которое читают `verify`/`levels`/
+    // `markout` (слепая приёмка G4).
+    // -----------------------------------------------------------------
+
+    /// Ожидаемое имя — независимый разбор `1_757_800_000_000_000_000` как
+    /// `2025-09-13`, взятый из уже существующего оракула
+    /// `commands::record::tests::day_string_of_ns_uses_utc_not_the_hosts_timezone`
+    /// (не пересчитан этим тестом заново): `session_binlog_path` обязана
+    /// давать ровно ту же дату и то же имя, что `day_file_path(.., 1)`.
+    #[test]
+    fn session_binlog_path_carries_the_utc_start_day() {
+        let root = PathBuf::from("data/session-debug");
+        let path = session_binlog_path(&root, "SOLUSDT", 1_757_800_000_000_000_000).unwrap();
+        assert_eq!(
+            path,
+            crate::commands::record::day_file_path(&root, "SOLUSDT", "2025-09-13", 1)
+        );
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("SOLUSDT-2025-09-13.binlog")
+        );
+    }
+
+    /// Слепая приёмка G4: каталог, размеченный так, как `run_session`
+    /// раскладывает файлы начиная с этого таска (`<SYMBOL>-<день>.binlog`,
+    /// день часть 1 — та же `day_file_path`, что доказал предыдущий тест),
+    /// читается `verify`/`levels` без ручного переименования. Фикстура
+    /// собрана публичной `test_support::write_day` (тот же шов, что
+    /// `pilot.rs::process_instrument` уже использует для этой пары команд),
+    /// не вызовом `run_session` целиком — та сама открывает `LiveFeed`
+    /// (живой сокет), офлайн-тестам сеть недоступна (`CLAUDE.md`).
+    #[test]
+    fn directory_named_like_a_fresh_session_reads_through_verify_and_levels_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let day = "2026-09-08";
+
+        super::super::test_support::write_day(
+            root,
+            "SOLUSDT",
+            day,
+            &super::super::test_support::three_level_frames(),
+        );
+        std::fs::write(
+            crate::commands::record::instruments_csv_path(root),
+            "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots\n\
+             SOLUSDT,0.01,0.1,0.1,5,5\n",
+        )
+        .unwrap();
+
+        let vs = crate::bybit::verify::run_verify(&crate::bybit::verify::VerifyArgs {
+            symbol: "SOLUSDT".to_string(),
+            root: root.to_path_buf(),
+        })
+        .expect("verify обязан найти суточный файл сессии без переименования");
+        assert_eq!(vs.files, 1, "ровно один суточный файл сессии");
+
+        let ls = super::super::levels::run_levels(&super::super::levels::LevelsArgs {
+            root: root.to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3: super::super::H3Args {
+                h3_mode: super::super::H3ModeArg::Floor,
+                h3_lots: None,
+            },
+            h3_k: None,
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: Some(root.join("levels-SOLUSDT.csv")),
+        })
+        .expect("levels обязан найти суточный файл сессии без переименования");
+        assert!(
+            ls.levels > 0,
+            "фикстура three_level_frames обязана дать хотя бы один уровень"
+        );
     }
 }

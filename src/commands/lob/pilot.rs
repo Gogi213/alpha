@@ -42,16 +42,25 @@
 //! `debug_chain_after_process_instrument_backtests_and_never_writes_runs_csv`
 //! ниже проверяет это на синтетике (долг ревью 09(а)).
 //!
-//! # Раскладка `lob session` против `replay_symbol`
+//! # Раскладка `lob session` — таск 19
 //!
-//! `lob session --root <dir>` пишет `<dir>/<SYMBOL>.binlog` — один файл без
-//! суток (таск 04). `replay_symbol`/`levels`/`markout`/`bybit::verify::
-//! run_verify` читают `<SYMBOL>-<день>[-pN].binlog` (таск 01). Мост —
-//! `stage_session_for_replay`: копия (не перезапись) файлов сессии под
-//! именем с сутками в отдельный подкаталог `replay/`, плюс копия
-//! `instruments.csv` пула (нужна режиму `floor`). Оригинал сессии остаётся
-//! нетронутым — маркер сверки пишется рядом с ним, как того требует
-//! `interfaces.md` («Из таска 07»), а не рядом с копией.
+//! `lob session --root <dir>` пишет `<dir>/<SYMBOL>-<день>.binlog` (таск 19:
+//! то же имя, часть 1, что `commands::record::day_file_path`) —
+//! `replay_symbol`/`levels`/`markout`/`bybit::verify::run_verify` находят
+//! его напрямую префиксным поиском, без переименования: `process_instrument`
+//! ниже зовёт их с `verify_root = marker_dir = session_dir`, отдельного
+//! подкаталога `replay/` для этой пары больше нет (мост
+//! `stage_session_for_replay` снят).
+//!
+//! `lob backtest --session-root` (`backtest.rs::run_backtest`) и обход
+//! сессий у `profiles.rs`/`watch.rs` тоже находят `<SYMBOL>-<день>.binlog`
+//! напрямую — все четыре читателя замкнуты на один резолвер,
+//! `super::session_binlog_for` (таск 19, часть 2); отдельного алиаса без
+//! даты для них больше не требуется, `alias_dated_binlogs_for_legacy_readers`
+//! снята. `copy_pool_instruments_csv` ниже остаётся: копия
+//! `instruments.csv` пула в `session_dir` нужна режиму `floor`
+//! (`resolve_h3_mode`) и подсчёту лота (`compute_order_qty_e9`) — про имя
+//! бинлога она не знает и не заменяет собой резолвер.
 
 use std::path::{Path, PathBuf};
 
@@ -841,26 +850,17 @@ fn read_pool_symbols(instruments_csv: &Path) -> anyhow::Result<Vec<String>> {
     Ok(out)
 }
 
-/// Мост между раскладкой `lob session` (`<SYMBOL>.binlog`, без суток) и
-/// раскладкой `replay_symbol`/`verify`/`levels`/`markout`
-/// (`<SYMBOL>-<день>.binlog`): копия каждого файла пула плюс
-/// `instruments.csv` (нужен режиму `floor`). Оригиналы сессии не трогает.
-fn stage_session_for_replay(
-    session_dir: &Path,
-    replay_dir: &Path,
-    pool_instruments: &Path,
-    day: &str,
-    symbols: &[String],
-) -> anyhow::Result<()> {
-    std::fs::create_dir_all(replay_dir)?;
-    std::fs::copy(pool_instruments, replay_dir.join("instruments.csv"))
-        .map_err(|e| anyhow::anyhow!("копия instruments.csv в {}: {e}", replay_dir.display()))?;
-    for symbol in symbols {
-        let src = session_dir.join(format!("{symbol}.binlog"));
-        let dst = replay_dir.join(format!("{symbol}-{day}.binlog"));
-        std::fs::copy(&src, &dst)
-            .map_err(|e| anyhow::anyhow!("копия {} -> {}: {e}", src.display(), dst.display()))?;
-    }
+/// Копия `instruments.csv` пула в `session_dir` — нужна режиму `floor`
+/// (`resolve_h3_mode`) и подсчёту лота (`compute_order_qty_e9` в цепочке
+/// ниже), которые читают его рядом с бинлогом символа, а не берут
+/// `--pool-instruments` напрямую. Про имя бинлога не знает: раньше (до
+/// таска 19, часть 2) эта же функция ещё и клала алиас `<SYMBOL>.binlog`
+/// без даты для `backtest.rs`/`profiles.rs`/`watch.rs` —
+/// `alias_dated_binlogs_for_legacy_readers` снята, все три находят
+/// `<SYMBOL>-<день>.binlog` напрямую через `super::session_binlog_for`.
+fn copy_pool_instruments_csv(session_dir: &Path, pool_instruments: &Path) -> anyhow::Result<()> {
+    std::fs::copy(pool_instruments, session_dir.join("instruments.csv"))
+        .map_err(|e| anyhow::anyhow!("копия instruments.csv в {}: {e}", session_dir.display()))?;
     Ok(())
 }
 
@@ -1033,10 +1033,11 @@ fn resolve_backtest_rtt_ns(
 /// Хвост цепочки G-DEBUG после `verify -> levels -> markout` (шаг 09(б)):
 /// `lob profiles --allow-unverified` по всему пулу, затем `lob backtest
 /// --debug` на сигналах каждого символа. Принимает уже готовый `pilot_root`
-/// (`session/`, `replay/` с копией `instruments.csv` внутри — из
-/// `stage_session_for_replay`) — не сетевая, тестируется на синтетике.
-/// Возвращает напечатанные строки и первый найденный дефект (тем же
-/// протоколом, что цикл `process_instrument` в `run_pilot_debug`).
+/// (`session/` с настоящими `<SYMBOL>-<день>.binlog` и копией
+/// `instruments.csv` внутри — из `copy_pool_instruments_csv`) — не сетевая,
+/// тестируется на синтетике. Возвращает напечатанные строки и первый
+/// найденный дефект (тем же протоколом, что цикл `process_instrument` в
+/// `run_pilot_debug`).
 fn run_profiles_and_backtest_chain(
     pilot_root: &Path,
     symbols: &[String],
@@ -1050,10 +1051,9 @@ fn run_profiles_and_backtest_chain(
     let mut lines = Vec::new();
     let mut first_defect: Option<String> = None;
     let session_dir = pilot_root.join("session");
-    let replay_dir = pilot_root.join("replay");
 
     if let Err(e) = std::fs::copy(
-        replay_dir.join("instruments.csv"),
+        session_dir.join("instruments.csv"),
         pilot_root.join("instruments.csv"),
     ) {
         let msg = format!("instruments.csv для profiles: {e}");
@@ -1102,8 +1102,8 @@ fn run_profiles_and_backtest_chain(
     let profiles_csv_for_comparison = profiles_result.is_ok().then(|| profiles_out.clone());
 
     for symbol in symbols {
-        let levels_csv = replay_dir.join(format!("levels-floor-{symbol}.csv"));
-        let signals_csv = replay_dir.join(format!("signals-{symbol}.csv"));
+        let levels_csv = session_dir.join(format!("levels-floor-{symbol}.csv"));
+        let signals_csv = session_dir.join(format!("signals-{symbol}.csv"));
         let profile_id = format!("debug:{symbol}");
         let last_price_tick =
             match write_signals_csv_from_levels(&levels_csv, &signals_csv, &profile_id) {
@@ -1120,7 +1120,7 @@ fn run_profiles_and_backtest_chain(
             ));
             continue;
         };
-        let instruments_csv = replay_dir.join("instruments.csv");
+        let instruments_csv = session_dir.join("instruments.csv");
         let order_qty_e9 = match compute_order_qty_e9(&instruments_csv, symbol, last_price_tick) {
             Ok(v) => v,
             Err(e) => {
@@ -1150,8 +1150,8 @@ fn run_profiles_and_backtest_chain(
             p95_rtt_ns,
             order_qty_e9,
             profiles_csv: profiles_csv_for_comparison.clone(),
-            out: Some(replay_dir.join(format!("backtest-{symbol}.csv"))),
-            pnl_out: Some(replay_dir.join(format!("backtest-{symbol}-pnl.csv"))),
+            out: Some(session_dir.join(format!("backtest-{symbol}.csv"))),
+            pnl_out: Some(session_dir.join(format!("backtest-{symbol}-pnl.csv"))),
             debug: true,
         });
         match bt {
@@ -1180,7 +1180,6 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     })?;
     std::fs::create_dir_all(&args.root)?;
     let session_dir = args.root.join("session");
-    let replay_dir = args.root.join("replay");
 
     let session_summary = run_session(&SessionArgs {
         pool_instruments: pool_instruments.clone(),
@@ -1189,23 +1188,12 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         base_url: args.base_url.clone(),
         ntp_addr: args.ntp_addr.clone(),
     })?;
-    let day = session_summary
-        .started_utc
-        .get(..10)
-        .unwrap_or("1970-01-01")
-        .to_string();
-    stage_session_for_replay(
-        &session_dir,
-        &replay_dir,
-        pool_instruments,
-        &day,
-        &session_summary.instruments,
-    )?;
+    copy_pool_instruments_csv(&session_dir, pool_instruments)?;
 
     let mut reports: Vec<(String, Result<InstrumentMetrics, StepFailure>)> = Vec::new();
     for symbol in &session_summary.instruments {
         let outcome = process_instrument(
-            &replay_dir,
+            &session_dir,
             &session_dir,
             symbol,
             args.warmup_ms,
@@ -1256,7 +1244,7 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let mut k_grid_per_instrument: Vec<(String, Vec<KGridInstrumentRow>)> = Vec::new();
     for symbol in &session_summary.instruments {
         match k_grid_for_instrument(
-            &replay_dir,
+            &session_dir,
             symbol,
             args.repeat_window_ms,
             minutes as f64,
@@ -2046,31 +2034,31 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // `stage_session_for_replay` — чистая файловая операция, без сети.
+    // `copy_pool_instruments_csv` — чистая файловая операция, без сети
+    // (таск 19, часть 2: замена `alias_dated_binlogs_for_legacy_readers` —
+    // алиас без даты снят, `backtest.rs`/`profiles.rs`/`watch.rs` находят
+    // `<SYMBOL>-<день>.binlog` напрямую через `super::session_binlog_for`).
     // -----------------------------------------------------------------
 
     #[test]
-    fn stage_session_for_replay_copies_binlogs_and_instruments_csv_with_day_suffix() {
+    fn copy_pool_instruments_csv_copies_the_pool_table_and_leaves_the_dated_binlog_untouched() {
         let session_dir = tempfile::tempdir().unwrap();
-        let replay_dir = tempfile::tempdir().unwrap();
         let pool_csv = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(pool_csv.path(), "symbol,h3_lots\nSOLUSDT,5\n").unwrap();
-        std::fs::write(session_dir.path().join("SOLUSDT.binlog"), b"stub").unwrap();
-        stage_session_for_replay(
-            session_dir.path(),
-            replay_dir.path(),
-            pool_csv.path(),
-            "2026-09-08",
-            &["SOLUSDT".to_string()],
-        )
-        .unwrap();
-        assert!(replay_dir
+        // Настоящий файл сессии — таск 19: `lob session` пишет дату
+        // (`day_file_path(.., 1)`, та же функция, что и таск 19 в `session.rs`).
+        let real =
+            crate::commands::record::day_file_path(session_dir.path(), "SOLUSDT", "2026-09-08", 1);
+        std::fs::write(&real, b"stub").unwrap();
+        copy_pool_instruments_csv(session_dir.path(), pool_csv.path()).unwrap();
+        assert!(session_dir.path().join("instruments.csv").is_file());
+        // Файл с датой остаётся на месте и без пары без даты рядом —
+        // алиаса больше нет.
+        assert!(session_dir
             .path()
             .join("SOLUSDT-2026-09-08.binlog")
             .is_file());
-        assert!(replay_dir.path().join("instruments.csv").is_file());
-        // Оригинал сессии остаётся нетронутым.
-        assert!(session_dir.path().join("SOLUSDT.binlog").is_file());
+        assert!(!session_dir.path().join("SOLUSDT.binlog").exists());
     }
 
     // -----------------------------------------------------------------
@@ -2161,32 +2149,32 @@ mod tests {
 
     // -----------------------------------------------------------------
     // `run_profiles_and_backtest_chain` — хвост G-DEBUG после markout (09(б)).
-    // Не сетевая: строит ровно ту раскладку `session/`+`replay/`, которую
-    // `run_pilot_debug` готовит на настоящей сессии, синтетикой.
+    // Не сетевая: строит ровно ту раскладку `session/` (таск 19: один
+    // каталог, без `replay/`), которую `run_pilot_debug` готовит на
+    // настоящей сессии, синтетикой.
     // -----------------------------------------------------------------
 
     #[test]
     fn debug_chain_backtests_each_symbol_and_never_writes_a_runs_csv() {
         let root = tempfile::tempdir().unwrap();
         let pilot_root = root.path();
-        let replay_dir = pilot_root.join("replay");
         let session_dir = pilot_root.join("session");
-        std::fs::create_dir_all(&replay_dir).unwrap();
         std::fs::create_dir_all(&session_dir).unwrap();
 
+        // Раскладка `lob session` начиная с таска 19: `<SYMBOL>-<день>.binlog`.
         super::super::test_support::write_day(
-            &replay_dir,
+            &session_dir,
             "SOLUSDT",
             "2026-09-08",
             &super::super::test_support::three_level_frames(),
         );
-        write_instruments_csv_with_h3_lots(&replay_dir, "SOLUSDT", 5);
+        write_instruments_csv_with_h3_lots(&session_dir, "SOLUSDT", 5);
 
-        // `process_instrument` пишет levels-floor/-percentile/markout в
-        // `replay_dir` и маркер сверки в `session_dir` — та же раскладка,
-        // что `run_pilot_debug` готовит перед вызовом цепочки.
+        // `process_instrument` пишет levels-floor/-percentile/markout и
+        // маркер сверки прямо в `session_dir` — verify_root == marker_dir,
+        // мост `stage_session_for_replay` снят (таск 19).
         let m = process_instrument(
-            &replay_dir,
+            &session_dir,
             &session_dir,
             "SOLUSDT",
             0,
@@ -2200,12 +2188,9 @@ mod tests {
             "фикстура обязана дать хотя бы один уровень"
         );
 
-        // Раскладка `lob session`: `<SYMBOL>.binlog` без суток + `session.json`.
-        std::fs::copy(
-            replay_dir.join("SOLUSDT-2026-09-08.binlog"),
-            session_dir.join("SOLUSDT.binlog"),
-        )
-        .unwrap();
+        // Таск 19, часть 2: `backtest.rs::run_backtest` находит
+        // `SOLUSDT-2026-09-08.binlog` напрямую через `super::
+        // session_binlog_for` — алиас без даты больше не нужен здесь.
         std::fs::write(
             session_dir.join("session.json"),
             r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":300,"instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,"parse_p99_ns":0,"out":"."}"#,
@@ -2243,6 +2228,32 @@ mod tests {
         assert!(
             !pilot_root.join("runs.csv").exists(),
             "debug-цепочка не обязана писать runs.csv нигде"
+        );
+
+        // Таск 19, критерий приёмки: `session -> verify -> levels ->
+        // profiles -> watch -> backtest` на каталоге, который писала
+        // `lob session`, без ручных шагов. `verify`/`levels` — уже выше
+        // через `process_instrument`; `profiles`/`backtest` — уже выше
+        // через `run_profiles_and_backtest_chain`; `watch` — здесь, на том
+        // же `pilot_root`/`session_dir`, тем же резолвером
+        // `super::session_binlog_for`, что и остальные трое.
+        let watch_summary = super::super::watch::run_watch(&super::super::watch::WatchArgs {
+            root: pilot_root.to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            profile: "marginal:instrument=SOLUSDT".to_string(),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Floor,
+                h3_lots: None,
+            },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            now_utc: Some("2026-09-08T00:00:00Z".to_string()),
+        })
+        .expect("watch обязан найти сессию без ручного переименования бинлога");
+        assert_eq!(watch_summary.days, 1, "ровно одни сутки в фикстуре");
+        assert!(
+            watch_summary.n > 0,
+            "фикстура обязана дать хотя бы одно наблюдение профиля"
         );
     }
 

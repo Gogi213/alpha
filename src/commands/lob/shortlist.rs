@@ -1004,7 +1004,13 @@ mod tests {
             w.write_frame(f).unwrap();
         }
         w.flush().unwrap();
-        std::fs::write(dir.join(format!("{symbol}.binlog")), w.into_inner()).unwrap();
+        // Таск 19: `lob session` пишет `<SYMBOL>-<день>.binlog`, не
+        // `<SYMBOL>.binlog` — эта фикстура течёт через настоящий
+        // `profiles::run_profiles_with_fill_model` (`run_profiles_over`),
+        // так что раскладка обязана совпасть с тем, что ждёт
+        // `session_binlog_for`.
+        let day = &started_utc[..10];
+        std::fs::write(dir.join(format!("{symbol}-{day}.binlog")), w.into_inner()).unwrap();
         std::fs::write(dir.join(format!("verify-{symbol}.status")), "ok").unwrap();
     }
 

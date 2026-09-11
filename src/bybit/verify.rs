@@ -769,6 +769,25 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
     }
     files.sort();
     if files.is_empty() {
+        // Таск 19, тот же приём, что `commands::lob::mod::
+        // replay_symbol_over_configs`/`session_binlog_for`: каталог
+        // старого формата (до таска 19 `lob session` писала
+        // `<SYMBOL>.binlog` без даты) не должен выглядеть как «нет
+        // суточных файлов» — владелец переименовывает руками, но обязан
+        // узнать об этом из сообщения, не из тишины. Резолвер `commands::
+        // lob` сюда не завозится (`bybit` не зависит от `commands` —
+        // граница слоёв), поэтому проверка своя, тем же текстом ошибки.
+        let undated = args.root.join(format!("{}.binlog", args.symbol));
+        if undated.is_file() {
+            anyhow::bail!(
+                "файл `{}.binlog` без даты — запись старого формата, переименуйте в \
+                 `{}-<дата>.binlog` ({} в {})",
+                args.symbol,
+                args.symbol,
+                undated.display(),
+                args.root.display()
+            );
+        }
         anyhow::bail!(
             "нет суточных файлов {}-*.binlog в {}",
             args.symbol,
@@ -1381,6 +1400,44 @@ mod tests {
         );
         // out_of_range НЕ пинится: это свойство глубины момента, а не
         // инвариант — сегодня 5%, завтра 15%, и оба числа честны.
+    }
+
+    /// Таск 19, тот же критерий, что `commands::lob::mod::
+    /// undated_symbol_binlog_fails_with_an_explicit_rename_message_not_silent_no_files`:
+    /// каталог старого формата (файл без даты) обязан провалиться с явным
+    /// советом переименовать, не с общим «нет суточных файлов».
+    #[test]
+    fn run_verify_reports_the_undated_legacy_file_by_name_with_a_rename_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT.binlog"), b"stub").unwrap();
+        let err = run_verify(&VerifyArgs {
+            symbol: "SOLUSDT".to_string(),
+            root: dir.path().to_path_buf(),
+        })
+        .expect_err("файл без даты обязан провалить run_verify");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("SOLUSDT.binlog") && msg.contains("переименуйте"),
+            "сообщение обязано назвать файл и посоветовать переименование: {msg}"
+        );
+    }
+
+    /// Тот же каталог без вообще никакого файла символа — сообщение
+    /// остаётся прежним, общим «нет суточных файлов» (регресс-тест против
+    /// того, чтобы находка старого формата подменила собой пустой каталог).
+    #[test]
+    fn run_verify_without_any_symbol_file_still_gets_the_generic_no_daily_files_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = run_verify(&VerifyArgs {
+            symbol: "SOLUSDT".to_string(),
+            root: dir.path().to_path_buf(),
+        })
+        .expect_err("пустой каталог обязан провалить run_verify");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("нет суточных файлов") && !msg.contains("переименуйте"),
+            "без файла вовсе сообщение обязано остаться общим: {msg}"
+        );
     }
 
     #[test]

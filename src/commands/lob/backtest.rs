@@ -5,9 +5,10 @@
 //! тянет транспорт и площадку» держится тестом-грепом в `lob/backtest.rs`,
 //! а перевод одного формата в другой поэтому живёт здесь, а не там.
 //!
-//! Вход — `ReplayFeed` по бинлогу одной сессии одного символа
-//! (`data/session-debug/<ts>/<SYMBOL>.binlog`, `data/recon5/<SYMBOL>/…` —
-//! отладочные, метка `debug`, `CLAUDE.md`). Сигналы (какие уровни торговать
+//! Вход — `ReplayFeed` по бинлогу одной сессии одного символа (таск 19:
+//! `<SYMBOL>-<день>.binlog`, резолвер `super::session_binlog_for`;
+//! `data/session-debug/<ts>/…`, `data/recon5/<SYMBOL>/…` — отладочные,
+//! метка `debug`, `CLAUDE.md`). Сигналы (какие уровни торговать
 //! и какой стороной) приходят отдельным CSV — этот файл их не размечает и
 //! не классифицирует по осям семи профилей (это `lob levels`/будущая
 //! проводка таска 12); здесь только: `profile_id,side,birth_ms` — сторона
@@ -47,7 +48,8 @@ use super::profiles::FillModel;
 /// произвольное число профилей.
 #[derive(Debug, Args)]
 pub struct BacktestArgs {
-    /// Корень сессии: файл `<SYMBOL>.binlog` (см. `lob session`).
+    /// Корень сессии: файл `<SYMBOL>-<день>.binlog` (см. `lob session`,
+    /// резолвер `super::session_binlog_for`).
     #[arg(long)]
     pub session_root: PathBuf,
     /// Символ, например `SOLUSDT`.
@@ -106,7 +108,7 @@ pub struct BacktestSummary {
 
 /// Прогоняет бэктест на всех профилях `signals_csv` и пишет оба артефакта.
 pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
-    let binlog_path = args.session_root.join(format!("{}.binlog", args.symbol));
+    let binlog_path = super::session_binlog_for(&args.session_root, &args.symbol)?;
     let (tick_e9, step_e9) = read_tick_step(&binlog_path)?;
     let tick_size = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;

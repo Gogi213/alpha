@@ -546,6 +546,19 @@ fn replay_symbol_over_configs(
         file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
     });
     if files.is_empty() {
+        // Таск 19, критерий 4: каталог старого формата (до таска 19 `lob
+        // session` писала `<SYMBOL>.binlog` без даты) не должен молча
+        // выглядеть как «нет суточных файлов» — владелец переименовывает
+        // руками, но узнать об этом обязан из сообщения, не из тишины.
+        let undated = root.join(format!("{symbol}.binlog"));
+        if undated.is_file() {
+            anyhow::bail!(
+                "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
+                 `{symbol}-<дата>.binlog` ({} в {})",
+                undated.display(),
+                root.display()
+            );
+        }
         anyhow::bail!("нет суточных файлов {prefix}*.binlog в {}", root.display());
     }
     // Счётчики GC (байт/записей) — по одному экземпляру на конфигурацию,
@@ -685,6 +698,66 @@ fn replay_symbol(root: &Path, symbol: &str, cfg: LevelsConfig) -> anyhow::Result
     Ok(out
         .pop()
         .expect("replay_symbol_over_configs с одним cfg обязан вернуть один ReplayStats"))
+}
+
+/// Резолвер имени бинлога **одной** сессии (таск 19, находка G4: до этого
+/// таска три читателя — `profiles.rs`, `watch.rs`, `backtest.rs` — открывали
+/// файл по литералу `<SYMBOL>.binlog`, а `lob session` с этого таска пишет
+/// `<SYMBOL>-<день>.binlog`; `pilot.rs` держал костыль-копию под старым
+/// именем, чтобы свести раскладки — эта функция снимает костыль, замыкая
+/// всех читателей на один резолвер). В отличие от
+/// `replay_symbol_over_configs` выше (одна `--root` запись `lob record`,
+/// возможно много суточных файлов на символ, части `-pN`), здесь `dir` —
+/// каталог одной сессии `lob session`: ровно один прогон, значит не больше
+/// одного файла `<symbol>-<день>.binlog` в ней.
+///
+/// - Один такой файл — это и есть бинлог сессии.
+/// - Ни одного, но есть файл старого формата `<symbol>.binlog` без даты —
+///   явная ошибка с именем файла и советом переименовать (не тихое «нет
+///   файлов», см. `replay_symbol_over_configs`/`bybit::verify::run_verify`
+///   выше — тот же приём).
+/// - Ни одного и старого формата тоже нет — общая ошибка «нет бинлога».
+/// - Больше одного — ошибка с перечислением: сессия пишет файл ровно один
+///   раз, несколько означает путаницу каталогов, а не законный случай.
+pub(crate) fn session_binlog_for(dir: &Path, symbol: &str) -> anyhow::Result<PathBuf> {
+    let prefix = format!("{symbol}-");
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| anyhow::anyhow!("каталог {} не читается: {e}", dir.display()))?;
+    let mut matches: Vec<PathBuf> = Vec::new();
+    for e in entries {
+        let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) && name.ends_with(".binlog") {
+            matches.push(e.path());
+        }
+    }
+    matches.sort();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => {
+            let undated = dir.join(format!("{symbol}.binlog"));
+            if undated.is_file() {
+                anyhow::bail!(
+                    "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
+                     `{symbol}-<дата>.binlog` ({} в {})",
+                    undated.display(),
+                    dir.display()
+                );
+            }
+            anyhow::bail!("нет бинлога для `{symbol}` в {}", dir.display());
+        }
+        _ => {
+            let names = matches
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "несколько файлов `{prefix}*.binlog` в {}: {names}",
+                dir.display()
+            );
+        }
+    }
 }
 
 fn side_name(side: Side) -> &'static str {
@@ -1192,6 +1265,103 @@ mod tests {
             "выше порог — не больше рождений: {} vs {}",
             multi[1].days[0].records.len(),
             multi[0].days[0].records.len()
+        );
+    }
+
+    /// Таск 19, критерий 4: каталог старого формата (до таска 19 `lob
+    /// session` писала `<SYMBOL>.binlog` без даты) обязан провалиться с
+    /// явным сообщением про переименование, не с общим «нет суточных
+    /// файлов» — иначе владелец ищет разгадку не там.
+    #[test]
+    fn undated_symbol_binlog_fails_with_an_explicit_rename_message_not_silent_no_files() {
+        let dir = tempfile::tempdir().unwrap();
+        // Старая раскладка `lob session` (до таска 19): файл без даты.
+        std::fs::write(dir.path().join("SOLUSDT.binlog"), b"stub").unwrap();
+        let cfg = LevelsConfig {
+            mode: H3Mode::Floor { h3_lots: 1 },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+        };
+        let err = match replay_symbol(dir.path(), "SOLUSDT", cfg) {
+            Ok(_) => panic!("файл без даты обязан провалить реплей"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("SOLUSDT.binlog") && msg.contains("переименуйте"),
+            "сообщение обязано назвать файл и посоветовать переименование: {msg}"
+        );
+    }
+
+    /// Тот же каталог без вообще никакого файла символа — сообщение
+    /// остаётся прежним, общим «нет суточных файлов» (регресс-тест против
+    /// того, чтобы находка старого формата подменила собой пустой каталог).
+    #[test]
+    fn missing_symbol_files_still_get_the_generic_no_daily_files_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = LevelsConfig {
+            mode: H3Mode::Floor { h3_lots: 1 },
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+        };
+        let err = match replay_symbol(dir.path(), "SOLUSDT", cfg) {
+            Ok(_) => panic!("пустой каталог обязан провалить реплей"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("нет суточных файлов") && !msg.contains("переименуйте"),
+            "без файла вовсе сообщение обязано остаться общим: {msg}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // `session_binlog_for` — резолвер одной сессии (таск 19, часть 2):
+    // `profiles.rs`/`watch.rs`/`backtest.rs`/`bybit::verify` замыкаются на
+    // него вместо литерала `<SYMBOL>.binlog` или своей копии поиска.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn session_binlog_for_finds_the_single_dated_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
+        let path = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
+        assert_eq!(path, dir.path().join("SOLUSDT-2026-09-08.binlog"));
+    }
+
+    #[test]
+    fn session_binlog_for_reports_the_undated_legacy_file_by_name_with_a_rename_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT.binlog"), b"stub").unwrap();
+        let err = session_binlog_for(dir.path(), "SOLUSDT").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("SOLUSDT.binlog") && msg.contains("переименуйте"),
+            "сообщение обязано назвать файл и посоветовать переименование: {msg}"
+        );
+    }
+
+    #[test]
+    fn session_binlog_for_reports_nothing_found_when_the_symbol_never_appears() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = session_binlog_for(dir.path(), "SOLUSDT").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("SOLUSDT") && !msg.contains("переименуйте"),
+            "без файла вовсе сообщение не обязано упоминать переименование: {msg}"
+        );
+    }
+
+    #[test]
+    fn session_binlog_for_refuses_to_guess_among_several_dated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
+        std::fs::write(dir.path().join("SOLUSDT-2026-09-09.binlog"), b"stub").unwrap();
+        let err = session_binlog_for(dir.path(), "SOLUSDT").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("SOLUSDT-2026-09-08.binlog") && msg.contains("SOLUSDT-2026-09-09.binlog"),
+            "ошибка обязана перечислить оба файла, не выбрать один молча: {msg}"
         );
     }
 
