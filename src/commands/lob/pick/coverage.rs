@@ -47,6 +47,15 @@ pub fn eligible_baskets(coverage_bps: Option<f64>) -> Vec<&'static str> {
     }
 }
 
+/// Decision 26б: вся видимая книга топ-50 у инструмента уже дешевле круговых
+/// издержек (`crate::lob::costs::ROUNDTRIP_FEES_BPS`) — исторический пример
+/// `ZECUSDT`. Инструмент не исключается этим фактом (Decision 26а решает
+/// пригодность корзин отдельно), но факт печатается строкой отчёта, а не
+/// колонкой (история 5 спеки, `R21`, `R22`, `R25`).
+pub fn book_already_costs(coverage_bps: Option<f64>) -> bool {
+    coverage_bps.is_some_and(|c| c < crate::lob::costs::ROUNDTRIP_FEES_BPS)
+}
+
 /// Число испытаний для DSR (Decision 26а): количество пригодных пар
 /// (инструмент, корзина), а не номинальный крест. Считается по тем же
 /// покрытиям, что лежат в пуле, — не разбором строк таблицы.
@@ -171,5 +180,23 @@ mod tests {
             pool_member("UNKNOWNUSDT", None),
         ];
         assert_eq!(count_eligible_trials(&pool), 3);
+    }
+
+    // -- book_already_costs (Decision 26б) -----------------------------------
+
+    #[test]
+    fn book_already_costs_below_roundtrip_fees() {
+        // ZECUSDT, В-23: покрытие 4.0 bps — меньше круговых издержек 7.5 bps.
+        assert!(book_already_costs(Some(4.0)));
+    }
+
+    #[test]
+    fn book_wider_than_roundtrip_fees_does_not_already_cost() {
+        assert!(!book_already_costs(Some(50.0)));
+    }
+
+    #[test]
+    fn book_already_costs_is_false_without_coverage() {
+        assert!(!book_already_costs(None));
     }
 }

@@ -208,6 +208,11 @@ pub struct MeasuredCandidate {
     /// Только для печати в таблице (Decision 18: «отчётный оборот никогда не
     /// критерий») — `survivors_above_depth_floor` этого поля не читает вовсе.
     pub reported_turnover_usd_e9: i64,
+    /// Медиана размера сделки в лотах за то же окно (план D-H3, таск 08) —
+    /// вход `super::h3::h3_lots_floor`. `None` — окно не поймало ни одной
+    /// неблочной сделки: не порог отбора, `survivors_above_depth_floor` это
+    /// поле не читает.
+    pub median_trade_lots: Option<i64>,
 }
 
 impl MeasuredCandidate {
@@ -502,6 +507,7 @@ mod tests {
             median_bid_depth_usd_e9: bid_depth,
             median_ask_depth_usd_e9: ask_depth,
             reported_turnover_usd_e9: turnover,
+            median_trade_lots: None,
         }
     }
 

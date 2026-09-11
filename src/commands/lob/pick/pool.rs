@@ -148,10 +148,12 @@ pub const BELOW_TOP10: &str = "below_top10_by_turnover";
 /// нет (BUSINESS-TASK.md, раздел 2): `AAPL`, `SNDK` — акции, `SOXL` — ETF,
 /// `XAU` — золото из замера 2026-09-10, записанного в Decision 25 и
 /// BUSINESS-TASK §2; `TSLA` — акция, пример токенизированной акции из истории
-/// этого шага. Список неполон по построению: новый листинг некриптового
-/// актива пройдёт фильтр, пока его базу не впишут сюда — это цена отсутствия
-/// признака в API, а не недосмотр реализации.
-pub const NON_CRYPTO_BASES: &[&str] = &["AAPL", "SNDK", "SOXL", "XAU", "TSLA"];
+/// этого шага; `CL` — `CLUSDT`, тикер нефти WTI (спека, «Открытые места»:
+/// умолчание владельца — исключить до подтверждения одним словом). Список
+/// неполон по построению: новый листинг некриптового актива пройдёт фильтр,
+/// пока его базу не впишут сюда — это цена отсутствия признака в API, а не
+/// недосмотр реализации.
+pub const NON_CRYPTO_BASES: &[&str] = &["AAPL", "SNDK", "SOXL", "XAU", "TSLA", "CL"];
 
 /// Один инструмент, не вошедший в пул, с причиной — строка таблицы
 /// кандидатов шага 0.4. Оборот печатается и у исключённых: иначе из таблицы
@@ -186,6 +188,24 @@ pub struct PoolOutcome {
 /// Decision 25 и строк не получают: это область запроса `instruments-info`,
 /// а не решение шага 0.4. Пул фиксируется на весь прогон: потерявший
 /// ликвидность посреди записи остаётся в отчёте, а не заменяется.
+/// Причина одного из трёх исключений Decision 25 — или `None`, если
+/// кандидат проходит все три. Общая для `build_pool` (размечает всю область)
+/// и `base_coins_considered_until_pool_complete` (останавливается на
+/// десятом прошедшем): обе обязаны видеть одно и то же решение на одном и
+/// том же кандидате, иначе список «увиденных до десятого» разошёлся бы с
+/// причинами в таблице.
+fn exclusion_reason(c: &CandidateMeta, now_ms: i64) -> Option<&'static str> {
+    if c.base_coin == "BTC" || c.base_coin == "ETH" {
+        Some(EXCLUDED_BTC_ETH)
+    } else if NON_CRYPTO_BASES.contains(&c.base_coin.as_str()) {
+        Some(EXCLUDED_NON_CRYPTO)
+    } else if !is_listed_long_enough(c.launch_time_ms, now_ms) {
+        Some(EXCLUDED_TOO_YOUNG)
+    } else {
+        None
+    }
+}
+
 pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
     let mut passing: Vec<&CandidateMeta> = Vec::new();
     let mut excluded: Vec<ExcludedCandidate> = Vec::new();
@@ -196,15 +216,7 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
         if c.contract_type != LINEAR_CONTRACT_TYPE {
             continue;
         }
-        let reason = if c.base_coin == "BTC" || c.base_coin == "ETH" {
-            Some(EXCLUDED_BTC_ETH)
-        } else if NON_CRYPTO_BASES.contains(&c.base_coin.as_str()) {
-            Some(EXCLUDED_NON_CRYPTO)
-        } else if !is_listed_long_enough(c.launch_time_ms, now_ms) {
-            Some(EXCLUDED_TOO_YOUNG)
-        } else {
-            None
-        };
+        let reason = exclusion_reason(c, now_ms);
         match reason {
             Some(excluded_reason) => excluded.push(ExcludedCandidate {
                 symbol: c.symbol.clone(),
@@ -247,6 +259,43 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
             .then_with(|| a.symbol.cmp(&b.symbol))
     });
     PoolOutcome { pool, excluded }
+}
+
+/// Базовые активы **всех** кандидатов, которых правило рассмотрело по пути к
+/// десятому выжившему (история 2 спеки, `R28`–`R31`) — не «первые N», а
+/// ровно те, кого правило увидело: идёт по той же области (USDT-линейный
+/// перп) в том же порядке убывания оборота, что и сам пул, и на каждом шаге
+/// проверяет то же самое исключение (`exclusion_reason`), пока не наберёт
+/// десятый прошедший все три. Кандидаты ниже него по обороту не входят —
+/// они не были нужны, чтобы найти десятого, в отличие от `BELOW_TOP10`
+/// внутри `build_pool`, которая размечает вообще всех прошедших, каким бы
+/// низким ни был их оборот. Меньше десяти прошедших во всей области —
+/// возвращает всех рассмотренных: десятого не существует.
+pub fn base_coins_considered_until_pool_complete(
+    candidates: &[CandidateMeta],
+    now_ms: i64,
+) -> Vec<String> {
+    let mut region: Vec<&CandidateMeta> = candidates
+        .iter()
+        .filter(|c| c.quote_coin == LINEAR_QUOTE_COIN && c.contract_type == LINEAR_CONTRACT_TYPE)
+        .collect();
+    region.sort_by(|a, b| {
+        b.turnover_24h_usd_e9
+            .cmp(&a.turnover_24h_usd_e9)
+            .then_with(|| a.symbol.cmp(&b.symbol))
+    });
+    let mut seen = Vec::new();
+    let mut passing = 0usize;
+    for c in region {
+        seen.push(c.base_coin.clone());
+        if exclusion_reason(c, now_ms).is_none() {
+            passing += 1;
+            if passing == POOL_SIZE {
+                break;
+            }
+        }
+    }
+    seen
 }
 
 #[cfg(test)]
@@ -649,5 +698,64 @@ mod tests {
                 "база {base} из замера Decision 25 обязана быть в списке"
             );
         }
+    }
+
+    /// Открытые места спеки: `CLUSDT` (`baseCoin = "CL"`, тикер нефти WTI)
+    /// исключается по умолчанию, тем же путём, что и прочие некриптовые базы.
+    #[test]
+    fn clusdt_is_excluded_as_non_crypto_by_default() {
+        assert!(NON_CRYPTO_BASES.contains(&"CL"));
+        let candidates = vec![meta("CLUSDT", "CL", e9(1_000_000))];
+        let outcome = build_pool(&candidates, NOW_MS);
+        assert!(outcome.pool.is_empty());
+        assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_NON_CRYPTO);
+    }
+
+    // -- base_coins_considered_until_pool_complete (история 2) --------------
+
+    /// Тот же сценарий, что и сквозной тест `mod.rs`: семь исключённых по
+    /// обороту выше десятки CRYPTO*. Правило обязано увидеть ровно
+    /// семнадцать баз — семь исключённых плюс десять пула — и не дальше:
+    /// одиннадцатый CRYPTO (ниже десятого по обороту) в списке уже не нужен.
+    #[test]
+    fn considered_bases_stop_right_after_the_tenth_survivor() {
+        let mut candidates = vec![
+            meta("BTCUSDT", "BTC", e9(20_000_000)),
+            meta("ETHUSDT", "ETH", e9(19_000_000)),
+            meta("AAPLUSDT", "AAPL", e9(18_000_000)),
+        ];
+        let mut young = meta("PONSUSDT", "PONS", e9(17_000_000));
+        young.launch_time_ms = Some(NOW_MS - 9 * 24 * 60 * 60 * 1_000);
+        candidates.push(young);
+        for i in 0..12 {
+            candidates.push(meta(
+                &format!("CRYPTO{i}USDT"),
+                &format!("CRYPTO{i}"),
+                e9(1_000_000 - i * 10_000),
+            ));
+        }
+
+        let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS);
+        assert_eq!(
+            seen,
+            vec![
+                "BTC", "ETH", "AAPL", "PONS", "CRYPTO0", "CRYPTO1", "CRYPTO2", "CRYPTO3",
+                "CRYPTO4", "CRYPTO5", "CRYPTO6", "CRYPTO7", "CRYPTO8", "CRYPTO9"
+            ],
+            "четыре исключённых по обороту выше пула плюс ровно десять пула — \
+             CRYPTO10/CRYPTO11 ниже десятого выжившего и правилу не были нужны"
+        );
+    }
+
+    /// Меньше десяти прошедших во всей вселенной — десятого нет, возвращены
+    /// все рассмотренные, без паники на недостающем индексе.
+    #[test]
+    fn considered_bases_returns_everyone_when_pool_never_completes() {
+        let candidates = vec![
+            meta("ONEUSDT", "ONE", e9(100)),
+            meta("BTCUSDT", "BTC", e9(90)),
+        ];
+        let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS);
+        assert_eq!(seen, vec!["ONE", "BTC"]);
     }
 }

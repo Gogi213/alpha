@@ -11,6 +11,7 @@ use crate::bybit::rest::Instrument;
 
 use super::coverage::eligible_baskets;
 use super::depth::{MeasuredCandidate, DEPTH_FLOOR_USD_E9};
+use super::h3::H3FloorInfo;
 use super::order_size::{order_size_22a, order_size_notional_usd_e9};
 use super::pool::PoolOutcome;
 
@@ -142,11 +143,24 @@ pub fn build_candidate_table(
     rows
 }
 
-pub fn write_candidate_table_csv(path: &Path, rows: &[CandidateRow]) -> std::io::Result<()> {
+/// `debug_label` — предупреждение отладочного окна (`super::h3::
+/// debug_window_warning`), первой строкой файла как комментарий `#`:
+/// `None` на боевом окне, ничего не пишет (критерий приёмки таска 08—
+/// коммитимая таблица боевого прогона без метки debug).
+pub fn write_candidate_table_csv(
+    path: &Path,
+    rows: &[CandidateRow],
+    debug_label: Option<&str>,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut w = csv::Writer::from_path(path)?;
+    let mut file = std::fs::File::create(path)?;
+    if let Some(msg) = debug_label {
+        use std::io::Write as _;
+        writeln!(file, "# {msg}")?;
+    }
+    let mut w = csv::Writer::from_writer(file);
     for row in rows {
         w.serialize(row)?;
     }
@@ -207,6 +221,103 @@ pub fn write_instruments_csv(path: &Path, instruments: &[Instrument]) -> std::io
             min_order_qty: format_e9(inst.min_order_qty_e9),
             qty_step: format_e9(inst.qty_step_e9),
             min_notional_value: format_e9(inst.min_notional_value_e9),
+        })?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Строка `instruments.csv` с полом `H3` (план D-H3, таск 08): те же пять
+/// колонок, что и `InstrumentRow`, плюс `h3_lots`/`k`/`median_trade_lots` и
+/// время окна замера. Пустые `Option` — символ вне измеренного пула: колонка
+/// существует (`h3_lots_for_symbol`, таск 02, ищет её по имени), значения
+/// нет — не 0, тем же приёмом, что и у прочих замеров этого шага.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct InstrumentRowWithH3 {
+    symbol: String,
+    tick_size: String,
+    min_order_qty: String,
+    qty_step: String,
+    min_notional_value: String,
+    h3_lots: Option<i64>,
+    k: Option<f64>,
+    median_trade_lots: Option<i64>,
+    window_start_utc_ms: Option<i64>,
+    window_secs: Option<i64>,
+}
+
+/// `instruments.csv` с полом `H3` — коммитимый вывод `lob pick` (критерий
+/// приёмки таска 08): пишется для **всего** прошедшего REST пула, как и
+/// `write_instruments_csv`, но с `h3_lots`/`k`/`median_trade_lots` там, где
+/// символ измерен (`h3_by_symbol`). `debug_label` — та же метка отладочного
+/// окна первой строкой (`#`), что и в `write_candidate_table_csv`.
+/// Подмножество инструментов ровно с теми символами, что вошли в
+/// `selected` — выжившие порога глубины (`super::depth::
+/// survivors_above_depth_floor`), а не весь пул и тем более не вся
+/// вселенная REST. Дозапрос по ревью таска 08 (ось Манифест, R33 «пул
+/// фиксируется»): `instruments.csv` корня обязан нести только пул — иначе
+/// `session.rs::load_pool` подписал бы `lob session` на всю вселенную
+/// инструментов, а `power.rs::pool_size` посчитал бы `N` для DSR по её
+/// размеру, а не по пулу. Порядок — порядок `selected` (уже отранжирован
+/// по глубине), не порядок исходного REST-ответа; символ без записи в
+/// `instruments` (сеть не вернула метаданные) пропускается молча — та же
+/// причина, что `join_candidate_meta` уже отбрасывает символ без тикера.
+pub fn instruments_for_pool(
+    instruments: &[Instrument],
+    selected: &[MeasuredCandidate],
+) -> Vec<Instrument> {
+    let by_symbol: HashMap<&str, &Instrument> =
+        instruments.iter().map(|i| (i.symbol.as_str(), i)).collect();
+    selected
+        .iter()
+        .filter_map(|m| by_symbol.get(m.symbol.as_str()).map(|i| (*i).clone()))
+        .collect()
+}
+
+/// Единственный читатель `instruments.csv` во всём дереве (дозапрос по
+/// ревью таска 08, ось Craft): окно короче боевого пишет метку `debug`
+/// первой строкой (`# ...`, `write_candidate_table_csv`/этот файл), и
+/// голый `csv::Reader::from_path` читает её как заголовок вместо
+/// настоящего — `session.rs::load_pool` и `power.rs::pool_size` падали
+/// ровно на этом. Все читатели `instruments.csv` (`levels::
+/// h3_lots_for_symbol`, `record::load_steps_for_symbol`,
+/// `session::load_pool`, `power::pool_size`) обязаны идти через эту
+/// функцию, а не заводить свой `csv::Reader::from_path` — второй
+/// нетерпимый к `#` ридер воспроизвёл бы тот же дефект под другим именем.
+pub fn instruments_csv_reader(path: &Path) -> csv::Result<csv::Reader<std::fs::File>> {
+    csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(path)
+}
+
+pub fn write_instruments_csv_with_h3(
+    path: &Path,
+    instruments: &[Instrument],
+    h3_by_symbol: &HashMap<String, H3FloorInfo>,
+    debug_label: Option<&str>,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(path)?;
+    if let Some(msg) = debug_label {
+        use std::io::Write as _;
+        writeln!(file, "# {msg}")?;
+    }
+    let mut w = csv::Writer::from_writer(file);
+    for inst in instruments {
+        let h3 = h3_by_symbol.get(&inst.symbol);
+        w.serialize(InstrumentRowWithH3 {
+            symbol: inst.symbol.clone(),
+            tick_size: format_e9(inst.tick_e9),
+            min_order_qty: format_e9(inst.min_order_qty_e9),
+            qty_step: format_e9(inst.qty_step_e9),
+            min_notional_value: format_e9(inst.min_notional_value_e9),
+            h3_lots: h3.map(|h| h.h3_lots),
+            k: h3.map(|h| h.k),
+            median_trade_lots: h3.map(|h| h.median_trade_lots),
+            window_start_utc_ms: h3.map(|h| h.window_start_utc_ms),
+            window_secs: h3.map(|h| h.window_secs),
         })?;
     }
     w.flush()?;
@@ -367,7 +478,7 @@ mod tests {
         ];
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        write_candidate_table_csv(tmp.path(), &rows).unwrap();
+        write_candidate_table_csv(tmp.path(), &rows, None).unwrap();
 
         let mut reader = csv::Reader::from_path(tmp.path()).unwrap();
         let read_back: Vec<CandidateRowOwned> =
@@ -457,6 +568,57 @@ mod tests {
         );
     }
 
+    /// Критерий приёмки таска 08: окно короче боевого несёт предупреждение
+    /// `debug` первой строкой CSV (та же метка, что и в stderr) — и обычный
+    /// `csv::Reader` без настройки `.comment` эту строку читает как заголовок,
+    /// потому и нужен `ReaderBuilder::comment` на стороне читателя (сделано в
+    /// `h3_lots_for_symbol`/`load_steps_for_symbol`), что этот тест и
+    /// проверяет: данные читаются обратно **сквозь** метку, а не вместо неё.
+    #[test]
+    fn candidate_table_csv_carries_the_debug_label_as_a_leading_comment() {
+        let rows = vec![CandidateRow {
+            symbol: "SOLUSDT".to_string(),
+            turnover_24h_usd_e9: e9(1),
+            excluded_reason: String::new(),
+            coverage_top50_bps: Some(50.0),
+            suitable_baskets: "0-1".to_string(),
+            measured: true,
+            window_start_utc_ms: Some(1),
+            window_secs: Some(300),
+            events: Some(1),
+            median_bid_depth_usd_e9: Some(1),
+            median_ask_depth_usd_e9: Some(1),
+            above_depth_floor: Some(true),
+            order_size_e9: Some(1),
+            order_size_notional_usd_e9: Some(1),
+            selected_for_pilot: true,
+            final_rank: Some(1),
+        }];
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        write_candidate_table_csv(
+            tmp.path(),
+            &rows,
+            Some("debug: окно 300 с — результат не годится для отбора, только для отладки"),
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        let first_line = content.lines().next().unwrap();
+        assert!(
+            first_line.starts_with('#') && first_line.contains("debug"),
+            "первая строка обязана нести метку debug, получено: {first_line:?}"
+        );
+
+        let mut reader = csv::ReaderBuilder::new()
+            .comment(Some(b'#'))
+            .from_path(tmp.path())
+            .unwrap();
+        let read_back: Vec<CandidateRowOwned> =
+            reader.deserialize().collect::<Result<_, _>>().unwrap();
+        assert_eq!(read_back.len(), 1);
+        assert_eq!(read_back[0].symbol, "SOLUSDT");
+    }
+
     /// Требуемый тест: `write_instruments_csv` — то, что done-condition шага
     /// 0.4 называет «`instruments.csv` непуст». Круглый путь через
     /// `format_e9` (не `parse_e9`, отдельная копия — см. её doc) проверяется
@@ -506,5 +668,192 @@ mod tests {
                 min_notional_value: "5".to_string(),
             }]
         );
+    }
+
+    // -- write_instruments_csv_with_h3 (план D-H3, таск 08) ------------------
+
+    fn instrument(symbol: &str) -> Instrument {
+        Instrument {
+            symbol: symbol.to_string(),
+            base_coin: symbol.trim_end_matches("USDT").to_string(),
+            quote_coin: "USDT".to_string(),
+            contract_type: "LinearPerpetual".to_string(),
+            status: "Trading".to_string(),
+            launch_time_ms: Some(1_600_000_000_000),
+            tick_e9: 10_000_000,
+            min_order_qty_e9: 100_000_000,
+            qty_step_e9: 100_000_000,
+            min_notional_value_e9: 5_000_000_000,
+        }
+    }
+
+    /// Критерий приёмки таска 08: `h3_lots`/`k`/`median_trade_lots` — колонки
+    /// `instruments.csv`, заполненные у измеренного символа и пустые (`None`,
+    /// не 0) у неизмеренного — таск 02 (`h3_lots_for_symbol`) ищет строку по
+    /// имени символа, а не по позиции, поэтому наличие пустой строки другого
+    /// символа не должно быть отличимо от отсутствия измерения для него.
+    #[test]
+    fn instruments_csv_with_h3_fills_measured_symbols_and_leaves_others_empty() {
+        let instruments = vec![instrument("SOLUSDT"), instrument("UNMEASUREDUSDT")];
+        let mut h3_by_symbol = HashMap::new();
+        h3_by_symbol.insert(
+            "SOLUSDT".to_string(),
+            H3FloorInfo {
+                k: 1.5,
+                median_trade_lots: 7,
+                h3_lots: 10,
+                window_start_utc_ms: 1_700_000_000_000,
+                window_secs: 3600,
+            },
+        );
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        write_instruments_csv_with_h3(tmp.path(), &instruments, &h3_by_symbol, None).unwrap();
+
+        let mut reader = csv::Reader::from_path(tmp.path()).unwrap();
+        let read_back: Vec<InstrumentRowWithH3> =
+            reader.deserialize().collect::<Result<_, _>>().unwrap();
+        let sol = read_back.iter().find(|r| r.symbol == "SOLUSDT").unwrap();
+        assert_eq!(sol.h3_lots, Some(10));
+        assert_eq!(sol.k, Some(1.5));
+        assert_eq!(sol.median_trade_lots, Some(7));
+        assert_eq!(sol.window_secs, Some(3600));
+
+        let other = read_back
+            .iter()
+            .find(|r| r.symbol == "UNMEASUREDUSDT")
+            .unwrap();
+        assert_eq!(other.h3_lots, None);
+        assert_eq!(other.k, None);
+        assert_eq!(other.median_trade_lots, None);
+    }
+
+    /// Отладочное окно несёт ту же метку `#`-комментарием первой строкой, что
+    /// и `write_candidate_table_csv` — читатель со включённым `.comment`
+    /// (`h3_lots_for_symbol`, `load_steps_for_symbol`) обязан пройти сквозь
+    /// неё к настоящему заголовку.
+    #[test]
+    fn instruments_csv_with_h3_carries_the_debug_label_as_a_leading_comment() {
+        let instruments = vec![instrument("SOLUSDT")];
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        write_instruments_csv_with_h3(
+            tmp.path(),
+            &instruments,
+            &HashMap::new(),
+            Some("debug: окно 300 с — результат не годится для отбора, только для отладки"),
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(content.lines().next().unwrap().starts_with("# debug"));
+
+        let mut reader = csv::ReaderBuilder::new()
+            .comment(Some(b'#'))
+            .from_path(tmp.path())
+            .unwrap();
+        let read_back: Vec<InstrumentRowWithH3> =
+            reader.deserialize().collect::<Result<_, _>>().unwrap();
+        assert_eq!(read_back.len(), 1);
+        assert_eq!(read_back[0].symbol, "SOLUSDT");
+    }
+
+    // -- instruments_csv_reader (дозапрос по ревью таска 08, ось Craft) ------
+
+    /// Требуемый тест: единственный читатель `instruments.csv` обязан пройти
+    /// сквозь баннер `debug` к настоящему заголовку — это ровно то, на чём
+    /// падали `session.rs::load_pool` и `power.rs::pool_size` до перевода
+    /// на эту функцию (голый `csv::Reader::from_path` читал баннер как
+    /// заголовок).
+    #[test]
+    fn instruments_csv_reader_skips_the_leading_debug_banner() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            tmp.path(),
+            "# debug: окно 300 с — результат не годится для отбора, только для отладки\n\
+             symbol,tick_size,min_order_qty,qty_step,min_notional_value\n\
+             SOLUSDT,0.01,0.1,0.1,5\n",
+        )
+        .unwrap();
+
+        let mut r = instruments_csv_reader(tmp.path()).unwrap();
+        let headers = r.headers().unwrap().clone();
+        assert_eq!(headers.get(0), Some("symbol"), "заголовок, не баннер");
+        let rows: Vec<InstrumentRow> = r.deserialize().collect::<Result<_, _>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![InstrumentRow {
+                symbol: "SOLUSDT".to_string(),
+                tick_size: "0.01".to_string(),
+                min_order_qty: "0.1".to_string(),
+                qty_step: "0.1".to_string(),
+                min_notional_value: "5".to_string(),
+            }]
+        );
+    }
+
+    /// Без баннера читатель ведёт себя как обычный `csv::Reader` — терпимость
+    /// к `#` не требует, чтобы файл его нёс.
+    #[test]
+    fn instruments_csv_reader_works_without_a_banner_too() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(
+            tmp.path(),
+            "symbol,tick_size,min_order_qty,qty_step,min_notional_value\n\
+             SOLUSDT,0.01,0.1,0.1,5\n",
+        )
+        .unwrap();
+
+        let mut r = instruments_csv_reader(tmp.path()).unwrap();
+        let rows: Vec<InstrumentRow> = r.deserialize().collect::<Result<_, _>>().unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    // -- instruments_for_pool (дозапрос по ревью таска 08, ось Манифест) -----
+
+    fn measured_min(symbol: &str) -> MeasuredCandidate {
+        MeasuredCandidate {
+            symbol: symbol.to_string(),
+            window_start_utc_ms: 0,
+            window_secs: 300,
+            events: 1,
+            median_bid_depth_usd_e9: 0,
+            median_ask_depth_usd_e9: 0,
+            reported_turnover_usd_e9: 0,
+            median_trade_lots: None,
+        }
+    }
+
+    /// R33 «пул фиксируется»: только символы `selected` едут в
+    /// `instruments.csv`, в порядке `selected` — не все инструменты, что
+    /// сеть вернула, и не порядок REST-ответа.
+    #[test]
+    fn instruments_for_pool_keeps_only_selected_symbols_in_their_order() {
+        let instruments = vec![
+            instrument("ZECUSDT"),
+            instrument("SOLUSDT"),
+            instrument("NEARUSDT"),
+        ];
+        // `selected` называет SOLUSDT первым, хотя во входе он второй —
+        // ZECUSDT не прошёл порог глубины и не входит в `selected` вовсе.
+        let selected = vec![measured_min("SOLUSDT"), measured_min("NEARUSDT")];
+
+        let pool = instruments_for_pool(&instruments, &selected);
+        assert_eq!(
+            pool.iter().map(|i| i.symbol.as_str()).collect::<Vec<_>>(),
+            vec!["SOLUSDT", "NEARUSDT"],
+            "ZECUSDT не выжил порог глубины — его не должно быть в instruments.csv"
+        );
+    }
+
+    /// Символ из `selected`, для которого сеть не вернула метаданные
+    /// инструмента, пропускается молча, а не паникой — тот же приём, что
+    /// `join_candidate_meta` уже применяет к символу без тикера.
+    #[test]
+    fn instruments_for_pool_silently_skips_a_selected_symbol_missing_from_instruments() {
+        let instruments = vec![instrument("SOLUSDT")];
+        let selected = vec![measured_min("SOLUSDT"), measured_min("GHOSTUSDT")];
+        let pool = instruments_for_pool(&instruments, &selected);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool[0].symbol, "SOLUSDT");
     }
 }

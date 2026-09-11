@@ -59,7 +59,10 @@ pub struct PowerSummary {
 /// эту колонку) — номинальная сетка (`nominal_grid_size`) не требует
 /// ничего сверх числа инструментов пула.
 fn pool_size(instruments_csv: &std::path::Path) -> anyhow::Result<usize> {
-    let mut r = csv::Reader::from_path(instruments_csv).map_err(|e| {
+    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
+    // ось Craft) — терпит метку `debug` первой строкой, голый
+    // `csv::Reader::from_path` читал бы её как заголовок и падал здесь же.
+    let mut r = super::pick::instruments_csv_reader(instruments_csv).map_err(|e| {
         anyhow::anyhow!(
             "{}: {e} — lob power читает пул из instruments.csv (пишет lob pick)",
             instruments_csv.display()

@@ -852,7 +852,10 @@ pub fn load_steps_for_symbol(
     instruments_csv: &Path,
     symbol: &str,
 ) -> Result<(i64, i64), RecordError> {
-    let mut r = csv::Reader::from_path(instruments_csv)?;
+    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
+    // ось Craft) — терпит метку `debug` первой строкой, голый
+    // `csv::Reader::from_path` читал бы её как заголовок.
+    let mut r = crate::commands::lob::pick::instruments_csv_reader(instruments_csv)?;
     for row in r.deserialize::<InstrumentStepsRow>() {
         let row: InstrumentStepsRow = row?;
         if row.symbol != symbol {

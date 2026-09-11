@@ -62,8 +62,11 @@ struct InstrumentRow {
 }
 
 fn load_pool(path: &Path) -> anyhow::Result<Vec<PoolMember>> {
-    let mut r =
-        csv::Reader::from_path(path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
+    // ось Craft) — терпит метку `debug` первой строкой, голый
+    // `csv::Reader::from_path` читал бы её как заголовок и падал здесь же.
+    let mut r = super::pick::instruments_csv_reader(path)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
     let mut pool = Vec::new();
     for row in r.deserialize::<InstrumentRow>() {
         let row = row.map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;

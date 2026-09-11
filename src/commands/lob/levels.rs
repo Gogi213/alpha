@@ -46,7 +46,10 @@ struct H3FloorRow {
 /// символа или значение не положительное — понятная ошибка с ненулевым
 /// кодом выхода, а не молчаливый ноль (критерий приёмки таска 02).
 fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i64> {
-    let mut r = csv::Reader::from_path(instruments_csv).map_err(|e| {
+    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
+    // ось Craft) — терпит метку `debug` первой строкой, голый
+    // `csv::Reader::from_path` читал бы её как заголовок вместо настоящего.
+    let mut r = super::pick::instruments_csv_reader(instruments_csv).map_err(|e| {
         anyhow::anyhow!(
             "{}: {e} — режиму floor нужен instruments.csv с колонкой h3_lots \
              (пишет отдельный шаг сборки пула)",

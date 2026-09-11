@@ -97,10 +97,40 @@ fn book_level_notionals_usd_e9(
         .collect()
 }
 
-/// Один символ: подключается, копит замеры глубины до `deadline`, отдаёт их
-/// оболочке выше для усреднения по времени. Разрыв последовательности `u`
-/// внутри `bybit::conn::Connection` уже разрешается ресинком самим
-/// соединением — здесь достаточно применять только успешные апдейты книги.
+/// Итог замера одного символа: замеры глубины книги (как раньше) плюс лоты
+/// неблочных сделок ленты — вход медианы размера сделки (план D-H3, таск
+/// 08). Одно соединение на оба: `Connection::run` уже подписывает разом
+/// `orderbook.50` и `publicTrade` (`conn.rs`), второго канала заводить не
+/// нужно — то самое «можно тем же окном, что замер глубины» из таска.
+#[derive(Debug, Default)]
+struct SymbolMeasurement {
+    depth_samples: Vec<DepthSample>,
+    /// Блочные (`BT`) исключены — они не проедают видимую книгу и не годятся
+    /// мерить типичный размер потока, та же причина, что исключает их из
+    /// разметки уровней (`lob/levels.rs`).
+    trade_lots: Vec<i64>,
+}
+
+/// Лоты одной сделки для медианы размера сделки (план D-H3, таск 08) —
+/// `None` для блочных: блочная сделка не проедает видимую книгу и не годится
+/// мерить типичный размер потока, та же причина, что исключает их из
+/// разметки уровней (`lob/levels.rs`). Масштаб — тот же перевод decimal→лоты,
+/// что `book::Book::to_lots` уже делает для книги (A1); здесь не через
+/// `Result`, потому что не хот-путь и кандидат с кривым размером сделки
+/// пропускается молча, а не роняет часовой замер.
+fn trade_lots_for_median(trade: &crate::bybit::ws::Trade, step_e9: i64) -> Option<i64> {
+    if trade.block {
+        None
+    } else {
+        Some(trade.qty_e9 / step_e9)
+    }
+}
+
+/// Один символ: подключается, копит замеры глубины и лоты сделок до
+/// `deadline`, отдаёт их оболочке выше для усреднения по времени и медианы.
+/// Разрыв последовательности `u` внутри `bybit::conn::Connection` уже
+/// разрешается ресинком самим соединением — здесь достаточно применять
+/// только успешные апдейты книги.
 ///
 /// `deadline` — монотонный `Instant`, посчитанный **один раз** вызывающим
 /// (`measure_prefiltered`) до того, как запущен хоть один символ, а не
@@ -118,7 +148,7 @@ async fn measure_one_symbol(
     tick_e9: i64,
     step_e9: i64,
     deadline: tokio::time::Instant,
-) -> Vec<DepthSample> {
+) -> SymbolMeasurement {
     use crate::book::{Book, Side};
     use crate::bybit::conn::{
         BybitPublicLinearConnector, ConnConfig, ConnEvent, Connection, SystemClock,
@@ -137,7 +167,7 @@ async fn measure_one_symbol(
     let conn_task = tokio::spawn(conn.run(SystemClock, tx));
 
     let mut book = Book::new(tick_e9, step_e9);
-    let mut samples = Vec::new();
+    let mut out = SymbolMeasurement::default();
 
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
@@ -151,7 +181,7 @@ async fn measure_one_symbol(
                 ..
             })) => {
                 if book.apply(&update).is_ok() {
-                    samples.push(DepthSample {
+                    out.depth_samples.push(DepthSample {
                         at_ns: local_ts_ns,
                         bid_notional_usd_e9: book_level_notionals_usd_e9(
                             &book,
@@ -168,6 +198,14 @@ async fn measure_one_symbol(
                     });
                 }
             }
+            Ok(Some(ConnEvent::Message {
+                event: Event::Trade(trade),
+                ..
+            })) => {
+                if let Some(lots) = trade_lots_for_median(&trade, step_e9) {
+                    out.trade_lots.push(lots);
+                }
+            }
             Ok(Some(_)) => {}
             Ok(None) => break,
             Err(_) => break, // истекло `remaining` — окно замера кончилось
@@ -175,7 +213,7 @@ async fn measure_one_symbol(
     }
 
     conn_task.abort();
-    samples
+    out
 }
 
 /// Конец окна замера в тех же наносекундах. Сумма точна до 2262 года:
@@ -221,7 +259,10 @@ pub async fn measure_prefiltered(
 
     let mut out = Vec::new();
     for (symbol, reported_turnover_usd_e9, handle) in handles {
-        let Ok(samples) = handle.await else { continue };
+        let Ok(measurement) = handle.await else {
+            continue;
+        };
+        let samples = measurement.depth_samples;
         // Обе стороны обязаны иметь измерение (Decision 18(б)) — кандидат
         // без данных на какой-либо из сторон пропускается целиком, так же
         // как раньше пропускался кандидат без единого объединённого числа.
@@ -235,6 +276,12 @@ pub async fn measure_prefiltered(
         else {
             continue;
         };
+        // Переиспользует ту же реализацию медианы, что и глубина
+        // (`super::depth::median_depth_per_level_usd_e9`): величина другая
+        // (лоты, не USD·1e9), формула та же (сортировка, средний элемент
+        // либо среднее двух средних) — второй реализации не заводим.
+        let median_trade_lots =
+            super::depth::median_depth_per_level_usd_e9(&measurement.trade_lots);
         out.push(MeasuredCandidate {
             symbol,
             window_start_utc_ms,
@@ -243,6 +290,7 @@ pub async fn measure_prefiltered(
             median_bid_depth_usd_e9,
             median_ask_depth_usd_e9,
             reported_turnover_usd_e9,
+            median_trade_lots,
         });
     }
     out
@@ -251,6 +299,36 @@ pub async fn measure_prefiltered(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- trade_lots_for_median (план D-H3, таск 08) --------------------------
+
+    fn trade(qty_e9: i64, block: bool) -> crate::bybit::ws::Trade {
+        crate::bybit::ws::Trade {
+            exch_ms: 0,
+            price_e9: 100_000_000_000,
+            qty_e9,
+            aggressor_is_buy: true,
+            block,
+        }
+    }
+
+    #[test]
+    fn trade_lots_for_median_converts_decimal_qty_to_lots() {
+        // 1.5 базового актива при шаге 0.1 — пятнадцать лотов.
+        assert_eq!(
+            trade_lots_for_median(&trade(1_500_000_000, false), 100_000_000),
+            Some(15)
+        );
+    }
+
+    #[test]
+    fn trade_lots_for_median_excludes_block_trades() {
+        assert_eq!(
+            trade_lots_for_median(&trade(1_500_000_000, true), 100_000_000),
+            None,
+            "блочная сделка не проедает видимую книгу — не вход медианы"
+        );
+    }
 
     // -- wall_clock_ns/wall_clock_ms — не переизобретают исправленную панику --
 
@@ -349,14 +427,14 @@ mod tests {
         .await;
         let elapsed = began.elapsed();
 
-        let samples = result.expect(
+        let measurement = result.expect(
             "measure_one_symbol обязана вернуться немедленно на уже истёкшем \
              дедлайне, а не блокироваться на rx.recv() без таймаута — таймаут \
              этого теста истёк первым, что и есть регрессия, которую он ловит",
         );
 
         assert!(
-            samples.is_empty(),
+            measurement.depth_samples.is_empty() && measurement.trade_lots.is_empty(),
             "дедлайн уже в прошлом на момент вызова — цикл не должен успеть ни одного замера"
         );
         assert!(

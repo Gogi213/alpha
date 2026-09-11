@@ -40,26 +40,33 @@ use crate::bybit::rest::{
 
 mod coverage;
 mod depth;
+mod h3;
 mod measure;
 mod order_size;
 mod pool;
 mod table;
 
-pub use coverage::{count_eligible_trials, coverage_top50_bps, eligible_baskets, DISTANCE_BASKETS};
+pub use coverage::{
+    book_already_costs, count_eligible_trials, coverage_top50_bps, eligible_baskets,
+    DISTANCE_BASKETS,
+};
 pub use depth::{
     median_depth_per_level_usd_e9, survivors_above_depth_floor, DepthSample, MeasuredCandidate,
     PickError, DEPTH_FLOOR_USD_E9,
 };
 pub use depth::{time_weighted_median_ask_depth_usd_e9, time_weighted_median_bid_depth_usd_e9};
+pub use h3::{debug_window_warning, h3_lots_floor, H3FloorInfo};
 pub use measure::{measure_prefiltered, MEASUREMENT_WINDOW_SECS};
 pub use order_size::order_size_22a;
 pub use pool::{
-    build_pool, is_listed_long_enough, join_candidate_meta, CandidateMeta, ExcludedCandidate,
-    PoolCandidate, PoolOutcome, BELOW_TOP10, EXCLUDED_BTC_ETH, EXCLUDED_NON_CRYPTO,
-    EXCLUDED_TOO_YOUNG, MIN_LISTED_DAYS, NON_CRYPTO_BASES, POOL_SIZE,
+    base_coins_considered_until_pool_complete, build_pool, is_listed_long_enough,
+    join_candidate_meta, CandidateMeta, ExcludedCandidate, PoolCandidate, PoolOutcome, BELOW_TOP10,
+    EXCLUDED_BTC_ETH, EXCLUDED_NON_CRYPTO, EXCLUDED_TOO_YOUNG, MIN_LISTED_DAYS, NON_CRYPTO_BASES,
+    POOL_SIZE,
 };
 pub use table::{
-    build_candidate_table, write_candidate_table_csv, write_instruments_csv, CandidateRow,
+    build_candidate_table, instruments_csv_reader, instruments_for_pool, write_candidate_table_csv,
+    write_instruments_csv, write_instruments_csv_with_h3, CandidateRow,
 };
 
 use measure::wall_clock_ms;
@@ -74,18 +81,33 @@ pub struct PickArgs {
     /// подставляют другой (см. `bybit::rest::BybitPublicRest`).
     #[arg(long, default_value = BYBIT_MAINNET_URL)]
     pub base_url: String,
-    /// Куда писать `instruments.csv` (Decision 7: рядом с записью, не в git).
+    /// Куда писать рабочий `instruments.csv` (Decision 7: рядом с записью,
+    /// не в git) — то, что читают `lob record`/`lob levels --h3-mode floor`
+    /// в этой же сессии.
     #[arg(long, default_value = "data/bybit")]
     pub root: PathBuf,
     /// Куда писать коммитимую таблицу кандидатов (done-condition шага 0.4).
     #[arg(long, default_value = "docs/plan/candidates.csv")]
     pub candidates_out: PathBuf,
-    /// Длительность окна замера глубины в секундах. Шаг 0.4 требует
-    /// час; значение по умолчанию его и даёт. Параметр существует для дымовых
-    /// прогонов при отладке отбора: укорачивать окно в боевом прогоне запрещено
-    /// тем же смыслом, что optional stopping в Decision 21.
-    #[arg(long, default_value_t = MEASUREMENT_WINDOW_SECS)]
+    /// Куда писать коммитимую заморозку `instruments.csv` (критерий приёмки
+    /// таска 08: «`candidates.csv` и `instruments.csv` закоммичены») —
+    /// отдельно от `--root`, тот не в git (Decision 7).
+    #[arg(long, default_value = "instruments.csv")]
+    pub instruments_out: PathBuf,
+    /// Длительность окна замера глубины и ленты сделок в секундах.
+    /// Без умолчания (поправка оркестратора к таску 08, фаза отладки —
+    /// `PLAN.md` D-ОТЛАДКА): боевой отбор требует `MEASUREMENT_WINDOW_SECS`
+    /// (3600 с) — любое другое значение годится только для отладки конвейера
+    /// и помечается `debug` в stderr и в шапке коммитимых CSV
+    /// (`h3::debug_window_warning`), а не для заморозки пула.
+    #[arg(long)]
     pub window_secs: u64,
+    /// Множитель `k` формулы пола `H3` (план D-H3): `h3_lots = floor(k ×
+    /// median_trade_lots)`. Без умолчания — ни `PLAN.md`, ни спека числа не
+    /// называют, назначается владельцем до данных (изобретённое число
+    /// запрещено, `interfaces.md`).
+    #[arg(long)]
+    pub h3_k: f64,
 }
 
 /// Итог `lob pick`: полная таблица (все промежуточные колонки) и подмножество
@@ -109,28 +131,61 @@ pub fn run_pick(args: &PickArgs) -> anyhow::Result<PickReport> {
 }
 
 async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
+    // Поправка оркестратора к таску 08 (фаза отладки, `PLAN.md` D-ОТЛАДКА):
+    // окно короче боевого не годится для заморозки пула — метка идёт и в
+    // stderr, и первой строкой (`#`) в оба коммитимых CSV ниже.
+    let debug_label = debug_window_warning(args.window_secs);
+    if let Some(msg) = &debug_label {
+        eprintln!("pick: {msg}");
+    }
+
     let mut rest = BybitPublicRest::new(args.base_url.clone())?;
     let instruments = fetch_all_linear_instruments(&mut rest)?;
     let tickers = fetch_linear_tickers(&mut rest)?;
-    write_instruments_csv(&args.root.join("instruments.csv"), &instruments)?;
+    // Инструментов ~863 из REST-ответа сюда не идёт вовсе (дозапрос по
+    // ревью таска 08, ось Манифест, R33 «пул фиксируется»): единственная
+    // запись `instruments.csv` — ниже, после отбора, и несёт только пул.
+    // Полный список остаётся в `docs/plan/candidates.csv`.
 
     let meta = join_candidate_meta(&instruments, &tickers);
-
     let now_ms = wall_clock_ms();
+
+    // История 2 спеки (R28–R31): базовые активы ровно тех кандидатов,
+    // которых правило увидело по пути к десятому выжившему — не всех 863.
+    println!(
+        "pick: базовые активы кандидатов до десятого выжившего: {}",
+        base_coins_considered_until_pool_complete(&meta, now_ms).join(",")
+    );
+
     let outcome = build_pool(&meta, now_ms);
+    // Единственный источник N для DSR (Decision 26а, В-23): число пригодных
+    // пар (инструмент, корзина) по пулу — таск 09/13 берут это число, не
+    // номинальный крест.
+    println!(
+        "pick: пригодных пар (инструмент, корзина) = {}",
+        count_eligible_trials(&outcome.pool)
+    );
+    // Decision 26б: факт печатается строкой, инструмент не исключается.
+    for c in &outcome.pool {
+        if book_already_costs(c.coverage_top50_bps) {
+            println!(
+                "pick: {} — вся видимая книга топ-50 уже дешевле круговых издержек \
+                 ({:.3} bps < {} bps), инструмент не исключается",
+                c.symbol,
+                c.coverage_top50_bps.unwrap_or_default(),
+                crate::lob::costs::ROUNDTRIP_FEES_BPS
+            );
+        }
+    }
 
     let instruments_by_symbol: HashMap<String, &Instrument> =
         instruments.iter().map(|i| (i.symbol.clone(), i)).collect();
     // Замеряются все десять пула, а не предфильтрованное подмножество:
     // час живого стакана — протокол шага 0.4, сохранённый ревизией 17.
+    // Тем же окном и тем же соединением копится лента `publicTrade` — вход
+    // медианы размера сделки пола H3 (план D-H3, таск 08).
     let measured =
         measure_prefiltered(&outcome.pool, &instruments_by_symbol, args.window_secs).await;
-    if args.window_secs != MEASUREMENT_WINDOW_SECS {
-        eprintln!(
-            "pick: ВНИМАНИЕ — окно замера {} с вместо плановых {} с: результат не годится для отбора, только для отладки",
-            args.window_secs, MEASUREMENT_WINDOW_SECS
-        );
-    }
     // Диагностика на пути отказа: какие медианы намерялись, по каждому
     // кандидату — иначе следующий провал снова виден только как «ни один».
     // Печать в stderr, не в таблицу: таблица пишется только на успехе.
@@ -149,12 +204,51 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
         }
     };
 
+    // Пол H3 на измеренный инструмент: floor(k × медиана размера сделки),
+    // колонки instruments.csv (критерий приёмки таска 08). Символ без
+    // медианы (окно не поймало ни одной неблочной сделки) остаётся без
+    // h3_lots — не 0.
+    let h3_by_symbol: HashMap<String, H3FloorInfo> = measured
+        .iter()
+        .filter_map(|m| {
+            let median_trade_lots = m.median_trade_lots?;
+            let h3_lots = h3_lots_floor(Some(median_trade_lots), args.h3_k)?;
+            Some((
+                m.symbol.clone(),
+                H3FloorInfo {
+                    k: args.h3_k,
+                    median_trade_lots,
+                    h3_lots,
+                    window_start_utc_ms: m.window_start_utc_ms,
+                    window_secs: m.window_secs,
+                },
+            ))
+        })
+        .collect();
+    // Только пул: `session.rs::load_pool` подписывает `lob session` на
+    // каждую строку этого файла, а `power.rs::pool_size` считает по числу
+    // строк `N` для DSR — вся вселенная REST здесь не годится ни для того,
+    // ни для другого (дозапрос по ревью таска 08, ось Манифест).
+    let pool_instruments = instruments_for_pool(&instruments, &selected);
+    write_instruments_csv_with_h3(
+        &args.root.join("instruments.csv"),
+        &pool_instruments,
+        &h3_by_symbol,
+        debug_label.as_deref(),
+    )?;
+    write_instruments_csv_with_h3(
+        &args.instruments_out,
+        &pool_instruments,
+        &h3_by_symbol,
+        debug_label.as_deref(),
+    )?;
+
     // Decision 22а, done-condition шага 0.4: размер считается на инструмент
     // (`order_size_22a` внутри `build_candidate_table` ниже) и всегда
     // допустим по построению — путём отказа он не является, прежняя проверка
     // Decision 22 с ошибкой `MinNotionalNotSatisfied` отменена ревизией 17б.
     let table = build_candidate_table(&outcome, &measured, &selected);
-    write_candidate_table_csv(&args.candidates_out, &table)?;
+    write_candidate_table_csv(&args.candidates_out, &table, debug_label.as_deref())?;
 
     Ok(PickReport { table, selected })
 }
@@ -219,6 +313,7 @@ mod tests {
             median_bid_depth_usd_e9: depth,
             median_ask_depth_usd_e9: depth,
             reported_turnover_usd_e9: turnover,
+            median_trade_lots: None,
         }
     }
 
