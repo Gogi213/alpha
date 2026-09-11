@@ -14,10 +14,33 @@
 //! этим тасков против сети** — план (`docs/plan/PLAN.md`, D-ОТЛАДКА)
 //! возвращает боевые окна только после гейта G-DEBUG, а `k` для `--h3-k`
 //! ещё не назначен владельцем (`interfaces.md`, «Из таска 08»). Код и тесты
-//! на синтетике — ниже; посчитанное «за второй час» окно (§11: «считается
-//! второй час») этой правкой **не фильтруется** — вся выборка под `--root`
-//! идёт в замер целиком; хвостовой фильтр по времени — открытый пункт для
-//! того, кто включит боевой прогон (см. `BATTLE_COUNTED_TAIL_MINUTES`).
+//! на синтетике — ниже; «за второй час» (§11) теперь фильтр, не открытый
+//! пункт: `process_instrument` считает ставку/доли/`m`/`net` только по
+//! хвосту в `BATTLE_COUNTED_TAIL_MINUTES` минут от конца выборки —
+//! `counted_tail_cutoff_ms` ниже. Реплей самого символа (шаги `verify` →
+//! `levels`×2 → `markout`) при этом не сводится к одному проходу:
+//! `run_verify`/`run_levels`/`run_markout` (`bybit/verify.rs`,
+//! `commands/lob/levels.rs`, `commands/lob/markout.rs` — вне зоны этого
+//! таска) возвращают только сводку (`VerifySummary`/`LevelsSummary`/
+//! `MarkoutSummary`), не `Vec<LevelRecord>`/`Vec<MidSample>` — свести 4–5
+//! проходов в один значило бы менять их публичные подписи, что запрещено
+//! границами таска (см. CONCERNS).
+//!
+//! # `--debug`: полная цепочка G-DEBUG (часть 09(б))
+//!
+//! После `markout` для каждого символа — `lob profiles --allow-unverified`
+//! один раз на весь пул (`run_profiles_and_backtest_chain`), затем `lob
+//! backtest --debug` на каждый символ: сигналы — уровни из уже написанного
+//! `levels-floor-<SYMBOL>.csv` (весь профиль — один `profile_id =
+//! debug:<SYMBOL>`, разметка по семи осям — таск 12/16, не эта команда), RTT
+//! — `probe-<SYMBOL>.csv`/`clock.csv` сессии, если есть, иначе флаги
+//! `--median-rtt-ns`/`--p95-rtt-ns` без умолчания; лот —
+//! `pick::order_size_22a` от полей `instruments.csv` пула и последней цены
+//! из того же `levels-floor` файла (`resolve_backtest_rtt_ns`,
+//! `compute_order_qty_e9`). Ни профили (`--allow-unverified`), ни бэктест
+//! (нет `--runs-out` в его аргументах) не пишут `runs.csv` — тест
+//! `debug_chain_after_process_instrument_backtests_and_never_writes_runs_csv`
+//! ниже проверяет это на синтетике (долг ревью 09(а)).
 //!
 //! # Раскладка `lob session` против `replay_symbol`
 //!
@@ -34,8 +57,10 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
+use crate::bybit::probe::percentile_ns;
 use crate::bybit::rest::BYBIT_MAINNET_URL;
 use crate::bybit::verify::{run_verify, VerifyArgs};
+use crate::bybit::ws::parse_e9;
 use crate::lob::costs::{
     mean_net_bps, net_fill_interval, FillObservation, Observation, MAKER_FEE_BPS,
     ROUNDTRIP_FEES_BPS, TAKER_FEE_BPS,
@@ -47,8 +72,11 @@ use crate::lob::runs::log_pilot_run;
 use crate::lob::shortlist::CONFIRM_MIN_N;
 use crate::stats::{count_f64, count_f64_u64, count_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
+use super::backtest::{run_backtest, BacktestArgs};
 use super::levels::{resolve_h3_mode, run_levels, H3ModeArg, LevelsArgs};
 use super::markout::{run_markout, MarkoutArgs};
+use super::pick::order_size_22a;
+use super::profiles::{run_profiles, ProfilesArgs};
 use super::session::{run_session, SessionArgs};
 use super::{replay_symbol, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED};
 
@@ -110,6 +138,22 @@ pub struct PilotArgs {
     /// Момент строки журнала/отчёта UTC (по умолчанию — сейчас).
     #[arg(long)]
     pub now_utc: Option<String>,
+    /// Полная таблица кандидатов (`lob pick`, таск 08) — источник
+    /// `coverage_top50_bps` для шага `lob profiles` внутри `--debug`-цепочки
+    /// (`interfaces.md`, «Из таска 10»). Без флага — тот же путь по
+    /// умолчанию, что у `lob profiles` само́й.
+    #[arg(long, default_value = "docs/plan/candidates.csv")]
+    pub candidates_csv: PathBuf,
+    /// Медианная RTT исполнения для шага `lob backtest` внутри
+    /// `--debug`-цепочки — только запасной путь, когда в каталоге сессии нет
+    /// ни `probe-<symbol>.csv` (`lob probe`), ни `clock.csv`
+    /// (`resolve_backtest_rtt_ns`). Без умолчания: изобретённое число
+    /// запрещено (§9 плана).
+    #[arg(long)]
+    pub median_rtt_ns: Option<i64>,
+    /// 95-й перцентиль той же запасной RTT — см. `median_rtt_ns`.
+    #[arg(long)]
+    pub p95_rtt_ns: Option<i64>,
 }
 
 /// Итог `lob pilot` для печати диспетчером (`commands/lob/mod.rs::dispatch`,
@@ -130,6 +174,48 @@ pub struct PilotSummary {
 
 fn is_positive_finite(x: f64) -> bool {
     x.is_finite() && x > 0.0
+}
+
+/// «Второй час» §11, дословно: последняя метка реплея минус хвост в
+/// `tail_minutes` минут. `None` при отсутствующем реплее (пустая выборка —
+/// фильтр не определён, не паника) или отсутствующем/неположительном
+/// `tail_minutes` (режим `--debug`, где хвост не запрашивается) — в обоих
+/// случаях вызывающий обязан считать выборку целиком, не отрезанной.
+fn counted_tail_cutoff_ms(max_ts_ms: Option<i64>, tail_minutes: Option<f64>) -> Option<i64> {
+    let max_ts_ms = max_ts_ms?;
+    let tail_minutes = tail_minutes?;
+    if !is_positive_finite(tail_minutes) {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let tail_ms = (tail_minutes * 60_000.0) as i64;
+    Some(max_ts_ms.saturating_sub(tail_ms))
+}
+
+/// Строка `levels-*.csv` (`commands::lob::levels::run_levels`), только то,
+/// что здесь нужно — колонка `birth_ms` по имени, остальные игнорируются
+/// (тот же приём, что `PoolSymbolRow` ниже).
+#[derive(Debug, serde::Deserialize)]
+struct BirthMsRow {
+    birth_ms: i64,
+}
+
+/// Считает строки `levels-*.csv` с `birth_ms >= cutoff_ms` (или все, если
+/// `cutoff_ms` — `None`) — пересчёт ставки по хвосту без второго реплея
+/// бинлога: файл уже написан `run_levels` тем же счётом.
+fn count_rows_with_birth_after(csv_path: &Path, cutoff_ms: Option<i64>) -> anyhow::Result<usize> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(csv_path)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", csv_path.display()))?;
+    let mut n = 0usize;
+    for row in r.deserialize::<BirthMsRow>() {
+        let row = row.map_err(|e| anyhow::anyhow!("{}: {e}", csv_path.display()))?;
+        if cutoff_ms.is_none_or(|c| row.birth_ms >= c) {
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// Число сессий, нужное профилю, чтобы набрать `CONFIRM_MIN_N` (100)
@@ -156,10 +242,19 @@ pub fn sessions_needed_for_profile(
 
 /// «Второй час» §11 — сколько минут с хвоста боевого прогона считаются в
 /// замер. Плановое решение (`PLAN.md` §11, «два часа, считается второй»),
-/// не изобретённое число: но фильтр по времени в `process_instrument`
-/// этой правкой **не подключён** — открытый пункт, см. doc модуля и
-/// `CONCERNS` таска 09.
+/// не изобретённое число: `run_pilot_battle` передаёт его в
+/// `process_instrument`, который через `counted_tail_cutoff_ms` режет
+/// ставку/доли исходов/`m`/`net` по хвосту в эти минуты от последнего среза
+/// середины реплея — первый час прогрева в замер не входит.
 pub const BATTLE_COUNTED_TAIL_MINUTES: u64 = 60;
+
+/// Путь `runs_out`, которым `run_profiles_and_backtest_chain` зовёт `lob
+/// profiles` внутри `--debug`-цепочки: `allow_unverified: true` гарантирует,
+/// что `run_profiles` его не тронет (`profiles.rs`: «отладочный режим файл
+/// не трогает») — имя нарочно недвусмысленное, регресс-тест
+/// `debug_chain_after_process_instrument_backtests_and_never_writes_runs_csv`
+/// проверяет, что файл с этим именем не появляется (долг ревью 09(а)).
+const DEBUG_CHAIN_RUNS_SENTINEL: &str = "profiles-runs-should-never-exist.csv";
 
 // ---------------------------------------------------------------------------
 // Общий замер одного инструмента: сверка, оба режима `H3`, markout — тем же
@@ -216,6 +311,14 @@ pub struct InstrumentMetrics {
 /// `replay_symbol`); `marker_dir` — куда лечь `verify-<SYMBOL>.status`
 /// (интерфейс таска 07): в `--debug` это исходный каталог сессии, в
 /// боевом пути — тот же `verify_root`.
+///
+/// `counted_tail_minutes` — «второй час» §11: `None` (режим `--debug`) не
+/// фильтрует ничего, вся выборка под `window_minutes` целиком; `Some(t)`
+/// (боевой путь, `BATTLE_COUNTED_TAIL_MINUTES`) режет ставку `H3` в обоих
+/// режимах, доли исходов, `m`/`net`/Шарп по хвосту в `t` минут от последнего
+/// среза середины реплея (`counted_tail_cutoff_ms`) — первый час прогрева не
+/// входит в замер, только он определяет знаменатель ставки вместо
+/// `window_minutes`.
 pub fn process_instrument(
     verify_root: &Path,
     marker_dir: &Path,
@@ -223,6 +326,7 @@ pub fn process_instrument(
     warmup_ms: i64,
     repeat_window_ms: i64,
     window_minutes: f64,
+    counted_tail_minutes: Option<f64>,
 ) -> Result<InstrumentMetrics, StepFailure> {
     debug_assert_eq!(
         HORIZONS_MS[2], 10_000,
@@ -326,6 +430,20 @@ pub fn process_instrument(
     };
     let replay = replay_symbol(verify_root, symbol, cfg).map_err(step("markout"))?;
 
+    // «Второй час» (§11): хвост в `counted_tail_minutes` от последнего среза
+    // середины реплея — `None`/пустой реплей не фильтрует (см. doc
+    // `counted_tail_cutoff_ms`).
+    let global_max_ts_ms = replay
+        .days
+        .iter()
+        .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
+        .max();
+    let cutoff_ms = counted_tail_cutoff_ms(global_max_ts_ms, counted_tail_minutes);
+    let effective_minutes = match (cutoff_ms, counted_tail_minutes) {
+        (Some(_), Some(t)) => t,
+        _ => window_minutes,
+    };
+
     let mut eaten = 0usize;
     let mut pulled = 0usize;
     let mut mixed = 0usize;
@@ -333,6 +451,9 @@ pub fn process_instrument(
     let mut net_observations: Vec<Observation> = Vec::new();
     for day in &replay.days {
         for rec in &day.records {
+            if cutoff_ms.is_some_and(|c| rec.birth_ms < c) {
+                continue;
+            }
             match rec.outcome() {
                 Outcome::Eaten => eaten += 1,
                 Outcome::Pulled => pulled += 1,
@@ -385,6 +506,9 @@ pub fn process_instrument(
         .enumerate()
         .flat_map(|(day_idx, day)| {
             day.records.iter().filter_map(move |rec| {
+                if cutoff_ms.is_some_and(|c| rec.birth_ms < c) {
+                    return None;
+                }
                 markouts_for_level(rec, &day.mids)[2].map(|m| FillObservation {
                     day_cluster: day_idx as i64,
                     net_bps: m,
@@ -395,19 +519,33 @@ pub fn process_instrument(
         .collect();
     let interval = net_fill_interval(&interval_obs, GATE_ALPHA, BOOTSTRAP_REPLICATIONS, 0);
 
-    let window_minutes = if window_minutes > 0.0 {
-        window_minutes
+    let effective_minutes = if effective_minutes > 0.0 {
+        effective_minutes
     } else {
         f64::INFINITY
+    };
+    // Ставка `H3` по хвосту: без фильтра — итог `run_levels` целиком (как
+    // раньше); с фильтром — пересчёт по уже написанному `levels-*.csv`
+    // (`birth_ms`), а не второй реплей бинлога (`count_rows_with_birth_after`
+    // читает файл, который `run_levels` только что сам написал).
+    let levels_floor_count = match cutoff_ms {
+        Some(c) => count_rows_with_birth_after(&floor_summary.out, Some(c))
+            .map_err(step("levels_floor"))?,
+        None => floor_summary.levels,
+    };
+    let levels_percentile_count = match cutoff_ms {
+        Some(c) => count_rows_with_birth_after(&percentile_summary.out, Some(c))
+            .map_err(step("levels_percentile"))?,
+        None => percentile_summary.levels,
     };
     Ok(InstrumentMetrics {
         symbol: symbol.to_string(),
         verify_ok,
         verify_summary_line,
-        levels_floor: floor_summary.levels,
-        levels_percentile: percentile_summary.levels,
-        levels_per_min_floor: count_f64(floor_summary.levels) / window_minutes,
-        levels_per_min_percentile: count_f64(percentile_summary.levels) / window_minutes,
+        levels_floor: levels_floor_count,
+        levels_percentile: levels_percentile_count,
+        levels_per_min_floor: count_f64(levels_floor_count) / effective_minutes,
+        levels_per_min_percentile: count_f64(levels_percentile_count) / effective_minutes,
         share_eaten: share_of(eaten),
         share_pulled: share_of(pulled),
         share_mixed: share_of(mixed),
@@ -499,6 +637,310 @@ fn stage_session_for_replay(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Хвост `--debug`-цепочки (09(б)): `lob profiles --allow-unverified` по
+// всему пулу, затем `lob backtest --debug` на сигналах каждого символа —
+// сигналы из уже написанного `levels-floor-<SYMBOL>.csv` (`run_levels`),
+// RTT из `probe-<SYMBOL>.csv`/`clock.csv` сессии или флагов, лот —
+// `order_size_22a` от `instruments.csv` пула. Не сетевая: работает на уже
+// готовых каталогах — тестируется на синтетике той же фикстурой, что
+// `process_instrument`.
+// ---------------------------------------------------------------------------
+
+/// Строка `levels-floor-<SYMBOL>.csv`, только нужные здесь колонки по
+/// имени: сторона — уже строка `bid`/`ask` (`side_name`, `levels.rs`), тот
+/// же алфавит, что ждёт `lob backtest --signals-csv`.
+#[derive(Debug, serde::Deserialize)]
+struct LevelsRowForSignals {
+    side: String,
+    birth_ms: i64,
+    price_tick: i64,
+}
+
+/// Сигналы `lob backtest` (`profile_id,side,birth_ms`) из уже написанного
+/// `levels-floor-<SYMBOL>.csv` — один `profile_id` на весь символ
+/// (`debug:<symbol>`): разметка по семи осям — таск 12/16, не эта команда,
+/// а цель здесь — доказать, что цепочка `profiles → backtest` собирается и
+/// проходит, не назначить вердиктный профиль. Возвращает `price_tick`
+/// последней строки (нужен для `order_size_22a` — «последняя цена» без
+/// второго реплея) или `None`, если строк не было (нечего торговать —
+/// вызывающий обязан пропустить бэктест этого символа, не считать дефектом).
+fn write_signals_csv_from_levels(
+    levels_csv: &Path,
+    signals_csv: &Path,
+    profile_id: &str,
+) -> anyhow::Result<Option<i64>> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(levels_csv)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", levels_csv.display()))?;
+    let mut w = csv::Writer::from_path(signals_csv)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", signals_csv.display()))?;
+    w.write_record(["profile_id", "side", "birth_ms"])?;
+    let mut last_price_tick = None;
+    for row in r.deserialize::<LevelsRowForSignals>() {
+        let row = row.map_err(|e| anyhow::anyhow!("{}: {e}", levels_csv.display()))?;
+        w.write_record([profile_id, &row.side, &row.birth_ms.to_string()])?;
+        last_price_tick = Some(row.price_tick);
+    }
+    w.flush()?;
+    Ok(last_price_tick)
+}
+
+/// Поля `instruments.csv` пула, нужные `order_size_22a` (Decision 22): лот и
+/// шаг лота площадки, минимальный чек. Читает по имени колонки через
+/// `pick::instruments_csv_reader` — единственный терпимый к `#`-баннеру
+/// ридер этого файла (`interfaces.md`, «Из таска 08»).
+fn read_lot_fields(instruments_csv: &Path, symbol: &str) -> anyhow::Result<(i64, i64, i64)> {
+    #[derive(Debug, serde::Deserialize)]
+    struct Row {
+        symbol: String,
+        min_order_qty: String,
+        qty_step: String,
+        min_notional_value: String,
+    }
+    let mut r = super::pick::instruments_csv_reader(instruments_csv)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", instruments_csv.display()))?;
+    for row in r.deserialize::<Row>() {
+        let row = row.map_err(|e| anyhow::anyhow!("{}: {e}", instruments_csv.display()))?;
+        if row.symbol != symbol {
+            continue;
+        }
+        let min_order_qty_e9 = parse_e9(&row.min_order_qty)
+            .ok_or_else(|| anyhow::anyhow!("{symbol}: min_order_qty не разобрался"))?;
+        let qty_step_e9 = parse_e9(&row.qty_step)
+            .ok_or_else(|| anyhow::anyhow!("{symbol}: qty_step не разобрался"))?;
+        let min_notional_value_e9 = parse_e9(&row.min_notional_value)
+            .ok_or_else(|| anyhow::anyhow!("{symbol}: min_notional_value не разобрался"))?;
+        return Ok((min_order_qty_e9, qty_step_e9, min_notional_value_e9));
+    }
+    anyhow::bail!("{symbol}: нет в {}", instruments_csv.display())
+}
+
+/// Лот `lob backtest --order-qty-e9` (Decision 22а): `order_size_22a` от
+/// полей `instruments.csv` пула и последней цены из `levels-floor` (в
+/// тиках — `tick_e9` от `load_steps_for_symbol`, то же измерение, что
+/// `record.rs` использует для шагов записи, не второй реплей ради цены).
+fn compute_order_qty_e9(
+    instruments_csv: &Path,
+    symbol: &str,
+    last_price_tick: i64,
+) -> anyhow::Result<i64> {
+    let (tick_e9, _step_e9) =
+        crate::commands::record::load_steps_for_symbol(instruments_csv, symbol)
+            .map_err(|e| anyhow::anyhow!("{symbol}: шаги: {e:?}"))?;
+    let (min_order_qty_e9, qty_step_e9, min_notional_value_e9) =
+        read_lot_fields(instruments_csv, symbol)?;
+    let last_price_e9 = last_price_tick.saturating_mul(tick_e9);
+    Ok(order_size_22a(
+        min_order_qty_e9,
+        qty_step_e9,
+        min_notional_value_e9,
+        last_price_e9,
+    ))
+}
+
+/// Круги RTT `probe-<SYMBOL>.csv` (`lob probe`) — колонка `rtt_ns` по имени.
+#[derive(Debug, serde::Deserialize)]
+struct ProbeCycleRow {
+    rtt_ns: i64,
+}
+
+fn read_probe_rtts(path: &Path) -> Option<Vec<i64>> {
+    let mut r = csv::Reader::from_path(path).ok()?;
+    let vals: Vec<i64> = r
+        .deserialize::<ProbeCycleRow>()
+        .filter_map(Result::ok)
+        .map(|row| row.rtt_ns)
+        .collect();
+    if vals.is_empty() {
+        None
+    } else {
+        Some(vals)
+    }
+}
+
+/// Круги `clock.csv` (`bybit/clock.rs`, `lob session`) — колонка
+/// `bybit_rtt_ns` по имени: REST round-trip той же сессии, запасной
+/// источник, когда авторизованный `lob probe` не гонялся (нужны ключи).
+#[derive(Debug, serde::Deserialize)]
+struct ClockRttRow {
+    bybit_rtt_ns: i64,
+}
+
+fn read_clock_bybit_rtts(path: &Path) -> Option<Vec<i64>> {
+    let mut r = csv::Reader::from_path(path).ok()?;
+    let vals: Vec<i64> = r
+        .deserialize::<ClockRttRow>()
+        .filter_map(Result::ok)
+        .map(|row| row.bybit_rtt_ns)
+        .collect();
+    if vals.is_empty() {
+        None
+    } else {
+        Some(vals)
+    }
+}
+
+/// RTT `lob backtest --median-rtt-ns/--p95-rtt-ns` (D-RTT): `probe-<symbol>.
+/// csv` сессии, если есть, иначе `clock.csv` той же сессии, иначе явные
+/// флаги без умолчания — измеренное всегда предпочтено назначенному (§9
+/// плана). Отказ без всех трёх — громкий, не молчаливая подстановка.
+fn resolve_backtest_rtt_ns(
+    session_dir: &Path,
+    symbol: &str,
+    explicit_median_rtt_ns: Option<i64>,
+    explicit_p95_rtt_ns: Option<i64>,
+) -> anyhow::Result<(i64, i64, &'static str)> {
+    if let Some(rtts) = read_probe_rtts(&session_dir.join(format!("probe-{symbol}.csv"))) {
+        return Ok((percentile_ns(&rtts, 50), percentile_ns(&rtts, 95), "probe"));
+    }
+    if let Some(rtts) = read_clock_bybit_rtts(&session_dir.join("clock.csv")) {
+        return Ok((percentile_ns(&rtts, 50), percentile_ns(&rtts, 95), "clock"));
+    }
+    match (explicit_median_rtt_ns, explicit_p95_rtt_ns) {
+        (Some(m), Some(p)) => Ok((m, p, "flag")),
+        _ => anyhow::bail!(
+            "{symbol}: RTT не измерена (нет probe-{symbol}.csv/clock.csv в {}) — передайте --median-rtt-ns/--p95-rtt-ns",
+            session_dir.display()
+        ),
+    }
+}
+
+/// Хвост цепочки G-DEBUG после `verify -> levels -> markout` (шаг 09(б)):
+/// `lob profiles --allow-unverified` по всему пулу, затем `lob backtest
+/// --debug` на сигналах каждого символа. Принимает уже готовый `pilot_root`
+/// (`session/`, `replay/` с копией `instruments.csv` внутри — из
+/// `stage_session_for_replay`) — не сетевая, тестируется на синтетике.
+/// Возвращает напечатанные строки и первый найденный дефект (тем же
+/// протоколом, что цикл `process_instrument` в `run_pilot_debug`).
+fn run_profiles_and_backtest_chain(
+    pilot_root: &Path,
+    symbols: &[String],
+    warmup_ms: i64,
+    repeat_window_ms: i64,
+    candidates_csv: &Path,
+    explicit_rtt_ns: (Option<i64>, Option<i64>),
+    now: &str,
+) -> (Vec<String>, Option<String>) {
+    let (explicit_median_rtt_ns, explicit_p95_rtt_ns) = explicit_rtt_ns;
+    let mut lines = Vec::new();
+    let mut first_defect: Option<String> = None;
+    let session_dir = pilot_root.join("session");
+    let replay_dir = pilot_root.join("replay");
+
+    if let Err(e) = std::fs::copy(
+        replay_dir.join("instruments.csv"),
+        pilot_root.join("instruments.csv"),
+    ) {
+        let msg = format!("instruments.csv для profiles: {e}");
+        lines.push(format!("pilot debug: profiles — упал: {msg}"));
+        return (lines, Some(format!("profiles: {msg}")));
+    }
+
+    let profiles_out = pilot_root.join("profiles-debug.csv");
+    // Тройка RTT/лота площадки (таск 16, `resolve_fill_model`) здесь
+    // намеренно не задаётся: она одна на весь пул, а лот (`order_size_22a`)
+    // у каждого символа свой (см. `compute_order_qty_e9` ниже, для шага
+    // `backtest`) — подставлять единый лот на пул значило бы изобретать
+    // число для символов, для которых он не измерен. `profiles` остаётся на
+    // `NoFillModel` (`fill_model=none`), а вердикт по исполнению даёт
+    // отдельный шаг `backtest` ниже, per-symbol.
+    let profiles_result = run_profiles(&ProfilesArgs {
+        root: pilot_root.to_path_buf(),
+        candidates_csv: candidates_csv.to_path_buf(),
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        warmup_ms,
+        repeat_window_ms,
+        allow_unverified: true,
+        out: Some(profiles_out.clone()),
+        now_utc: Some(now.to_string()),
+        runs_out: pilot_root.join(DEBUG_CHAIN_RUNS_SENTINEL),
+        median_rtt_ns: None,
+        p95_rtt_ns: None,
+        order_qty_e9: None,
+    });
+    match &profiles_result {
+        Ok(s) => lines.push(format!(
+            "pilot debug: profiles rows={} out={}",
+            s.rows,
+            s.out.display()
+        )),
+        Err(e) => {
+            lines.push(format!("pilot debug: profiles — упал: {e}"));
+            first_defect.get_or_insert_with(|| format!("profiles: {e}"));
+        }
+    }
+    let profiles_csv_for_comparison = profiles_result.is_ok().then(|| profiles_out.clone());
+
+    for symbol in symbols {
+        let levels_csv = replay_dir.join(format!("levels-floor-{symbol}.csv"));
+        let signals_csv = replay_dir.join(format!("signals-{symbol}.csv"));
+        let profile_id = format!("debug:{symbol}");
+        let last_price_tick =
+            match write_signals_csv_from_levels(&levels_csv, &signals_csv, &profile_id) {
+                Ok(v) => v,
+                Err(e) => {
+                    lines.push(format!("pilot debug: {symbol} backtest — сигналы: {e}"));
+                    first_defect.get_or_insert_with(|| format!("backtest:{symbol}: сигналы: {e}"));
+                    continue;
+                }
+            };
+        let Some(last_price_tick) = last_price_tick else {
+            lines.push(format!(
+                "pilot debug: {symbol} backtest — пропущен, нет сигналов (0 уровней floor)"
+            ));
+            continue;
+        };
+        let instruments_csv = replay_dir.join("instruments.csv");
+        let order_qty_e9 = match compute_order_qty_e9(&instruments_csv, symbol, last_price_tick) {
+            Ok(v) => v,
+            Err(e) => {
+                lines.push(format!("pilot debug: {symbol} backtest — лот: {e}"));
+                first_defect.get_or_insert_with(|| format!("backtest:{symbol}: лот: {e}"));
+                continue;
+            }
+        };
+        let (median_rtt_ns, p95_rtt_ns, rtt_source) = match resolve_backtest_rtt_ns(
+            &session_dir,
+            symbol,
+            explicit_median_rtt_ns,
+            explicit_p95_rtt_ns,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                lines.push(format!("pilot debug: {symbol} backtest — RTT: {e}"));
+                first_defect.get_or_insert_with(|| format!("backtest:{symbol}: RTT: {e}"));
+                continue;
+            }
+        };
+        let bt = run_backtest(&BacktestArgs {
+            session_root: session_dir.clone(),
+            symbol: symbol.clone(),
+            signals_csv,
+            median_rtt_ns,
+            p95_rtt_ns,
+            order_qty_e9,
+            profiles_csv: profiles_csv_for_comparison.clone(),
+            out: Some(replay_dir.join(format!("backtest-{symbol}.csv"))),
+            pnl_out: Some(replay_dir.join(format!("backtest-{symbol}-pnl.csv"))),
+            debug: true,
+        });
+        match bt {
+            Ok(s) => lines.push(format!(
+                "pilot debug: {symbol} backtest rtt_source={rtt_source} median_rtt_ns={median_rtt_ns} p95_rtt_ns={p95_rtt_ns} order_qty_e9={order_qty_e9} profiles={} pass={} red={}",
+                s.profiles, s.pass, s.red
+            )),
+            Err(e) => {
+                lines.push(format!("pilot debug: {symbol} backtest — упал: {e}"));
+                first_defect.get_or_insert_with(|| format!("backtest:{symbol}: {e}"));
+            }
+        }
+    }
+    (lines, first_defect)
+}
+
 fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let pool_instruments = args.pool_instruments.as_ref().ok_or_else(|| {
         anyhow::anyhow!("--debug требует --pool-instruments (instruments.csv последнего lob pick)")
@@ -542,6 +984,7 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
             args.warmup_ms,
             args.repeat_window_ms,
             minutes as f64,
+            None,
         );
         reports.push((symbol.clone(), outcome));
     }
@@ -578,14 +1021,39 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     for line in &lines {
         println!("{line}");
     }
+
+    // Хвост цепочки G-DEBUG: profiles по всему пулу, затем backtest на
+    // сигналах каждого символа (шаг 09(б)) — первый дефект тут учитывается
+    // только если per-instrument цепочка выше уже прошла без дефекта (тот
+    // же принцип «первый дефект побеждает», что и в цикле над `reports`).
+    let now = args
+        .now_utc
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let (chain_lines, chain_defect) = run_profiles_and_backtest_chain(
+        &args.root,
+        &session_summary.instruments,
+        args.warmup_ms,
+        args.repeat_window_ms,
+        &args.candidates_csv,
+        (args.median_rtt_ns, args.p95_rtt_ns),
+        &now,
+    );
+    for line in &chain_lines {
+        println!("{line}");
+    }
+    if first_defect.is_none() {
+        first_defect = chain_defect;
+    }
+
     let verdict = match &first_defect {
         None => format!(
-            "pilot debug: G-DEBUG-цепочка session -> verify -> levels -> markout прошла без дефекта на {}/{} инструментах",
+            "pilot debug: G-DEBUG-цепочка session -> verify -> levels -> markout -> profiles -> backtest прошла без дефекта на {}/{} инструментах",
             reports.iter().filter(|(_, o)| o.is_ok()).count(),
             reports.len()
         ),
         Some(defect) => format!(
-            "pilot debug: цепочка упала — {defect} (остальные инструменты обработаны независимо, см. строки выше)"
+            "pilot debug: цепочка упала на шаге {defect} (остальные шаги/инструменты обработаны независимо, см. строки выше)"
         ),
     };
     println!("{verdict}");
@@ -754,6 +1222,32 @@ pub fn power_b_gap(measured_sharpe: f64, required_sharpe: f64) -> f64 {
     required_sharpe - measured_sharpe
 }
 
+/// Каркас предрегистрации, этап 2 (`SETTLED.md` В-29, `PLAN.md` §9): что
+/// войдёт в файл, который владелец коммитит **после** двухчасового боевого
+/// пилота и **до** первой сессии сбора — режим `H3` и его `k`, границы оси
+/// повторяемости, глубина креста профилей, число сессий на профиль,
+/// правило остановки в сессиях, хост и его RTT. Печатает только **форму** —
+/// имена полей и откуда каждое берётся, ни одного числа: числа даёт
+/// исключительно боевой (не отладочный, не синтетический) пилот, а этот
+/// таск его не запускает («k» для `--h3-k` и ключи для G-LAT — у владельца,
+/// см. `CONCERNS`). Подставлять правдоподобные числа здесь запрещено §9
+/// плана («изобретённое число запрещено везде»).
+pub fn stage2_preregistration_skeleton() -> String {
+    [
+        "предрегистрация, этап 2 (В-29) — коммитом после боевого пилота, до первой сессии сбора:",
+        "  h3_mode: <floor|percentile — какой дал заявленный G0/G-POWER-B на этом пилоте>",
+        "  h3_k: <k для --h3-k — сравнение ставок floor/percentile на этом пилоте>",
+        "  repeat_axis_bounds: <границы корзин повторяемости 1 / 2 / >=3 — по распределению repeat_count>",
+        "  profile_grid_depth: <глубина креста профилей — из ставки уровней в минуту>",
+        "  sessions_per_profile: <sessions_needed_for_profile(ставка, длина сессии, CONFIRM_MIN_N)>",
+        "  stopping_rule_sessions: <правило остановки сбора в сессиях>",
+        "  host_id: <хост, на котором мерялась RTT>",
+        "  rtt_median_ns / rtt_p95_ns: <lob probe / clock.csv этого пилота>",
+        "  committed_after_pilot_run: <путь и момент боевого пилота, который дал эти числа>",
+    ]
+    .join("\n")
+}
+
 fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let pool_instruments = args
         .pool_instruments
@@ -778,6 +1272,7 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
             args.warmup_ms,
             args.repeat_window_ms,
             window_minutes,
+            Some(count_f64_u64(BATTLE_COUNTED_TAIL_MINUTES)),
         )
         .map_err(|f| anyhow::anyhow!("{symbol}: {f}"))?;
         println!("pilot battle: {}", format_instrument_line(&m));
@@ -842,6 +1337,10 @@ fn run_pilot_battle(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         "pilot battle: G-POWER-B measured_sharpe={measured_sharpe:.4} required_sharpe={:.4} gap={gap:.4}",
         power_summary.required_sharpe
     );
+
+    for line in stage2_preregistration_skeleton().lines() {
+        println!("pilot battle: {line}");
+    }
 
     let verdict = format!("{g0}; G-POWER-B gap={gap:.4}");
     Ok(PilotSummary {
@@ -993,8 +1492,16 @@ mod tests {
         );
         write_instruments_csv_with_h3_lots(dir.path(), "SOLUSDT", 5);
         let marker_dir = tempfile::tempdir().unwrap();
-        let m = process_instrument(dir.path(), marker_dir.path(), "SOLUSDT", 0, 3_600_000, 5.0)
-            .expect("цепочка обязана пройти на фикстуре");
+        let m = process_instrument(
+            dir.path(),
+            marker_dir.path(),
+            "SOLUSDT",
+            0,
+            3_600_000,
+            5.0,
+            None,
+        )
+        .expect("цепочка обязана пройти на фикстуре");
         assert_eq!(
             m.levels_floor, 4,
             "три уровня фикстуры дают 4 записи (одна reprice)"
@@ -1022,9 +1529,67 @@ mod tests {
         // Без instruments.csv режим floor обязан назвать шаг levels_floor,
         // не упасть где попало.
         let marker_dir = tempfile::tempdir().unwrap();
-        let err = process_instrument(dir.path(), marker_dir.path(), "SOLUSDT", 0, 3_600_000, 5.0)
-            .unwrap_err();
+        let err = process_instrument(
+            dir.path(),
+            marker_dir.path(),
+            "SOLUSDT",
+            0,
+            3_600_000,
+            5.0,
+            None,
+        )
+        .unwrap_err();
         assert_eq!(err.step, "levels_floor");
+    }
+
+    /// Регресс на фильтр «второй час» (§11, `counted_tail_cutoff_ms`): тот
+    /// же фикстурный реплей, но с хвостом настолько узким, что от последнего
+    /// среза середины (ts=2000, `three_level_frames`) в него попадают только
+    /// уровни, рождённые практически на самом хвосте — строго меньше, чем
+    /// без фильтра (`None` выше даёт `levels_floor=4`). Доказывает, что
+    /// `Some(tail)` действительно режет выборку, а не только меняет знаменатель.
+    #[test]
+    fn process_instrument_counted_tail_filters_out_early_births() {
+        let dir = tempfile::tempdir().unwrap();
+        super::super::test_support::write_day(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-08",
+            &super::super::test_support::three_level_frames(),
+        );
+        write_instruments_csv_with_h3_lots(dir.path(), "SOLUSDT", 5);
+        let marker_dir = tempfile::tempdir().unwrap();
+
+        let unfiltered = process_instrument(
+            dir.path(),
+            marker_dir.path(),
+            "SOLUSDT",
+            0,
+            3_600_000,
+            5.0,
+            None,
+        )
+        .expect("цепочка обязана пройти без фильтра");
+        assert_eq!(unfiltered.levels_floor, 4);
+
+        // Хвост в 0.0001 минуты (6мс) от ts=2000 — cutoff=1994: почти все
+        // записи фикстуры (рождённые на ts<=1000) обязаны выпасть.
+        let filtered = process_instrument(
+            dir.path(),
+            marker_dir.path(),
+            "SOLUSDT",
+            0,
+            3_600_000,
+            5.0,
+            Some(0.0001),
+        )
+        .expect("цепочка обязана пройти с фильтром");
+        assert!(
+            filtered.levels_floor < unfiltered.levels_floor,
+            "хвостовой фильтр обязан уменьшить счёт: {} vs {}",
+            filtered.levels_floor,
+            unfiltered.levels_floor
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1086,6 +1651,9 @@ mod tests {
             taker_fee_bps: TAKER_FEE_BPS,
             runs_out: root.join("runs.csv"),
             now_utc: Some("2026-09-08T00:00:00Z".to_string()),
+            candidates_csv: PathBuf::from("docs/plan/candidates.csv"),
+            median_rtt_ns: None,
+            p95_rtt_ns: None,
         }
     }
 
@@ -1136,5 +1704,131 @@ mod tests {
         args.minutes = None;
         let err = run_pilot(&args).unwrap_err();
         assert!(err.to_string().contains("minutes"), "{err}");
+    }
+
+    // -----------------------------------------------------------------
+    // `run_profiles_and_backtest_chain` — хвост G-DEBUG после markout (09(б)).
+    // Не сетевая: строит ровно ту раскладку `session/`+`replay/`, которую
+    // `run_pilot_debug` готовит на настоящей сессии, синтетикой.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn debug_chain_backtests_each_symbol_and_never_writes_a_runs_csv() {
+        let root = tempfile::tempdir().unwrap();
+        let pilot_root = root.path();
+        let replay_dir = pilot_root.join("replay");
+        let session_dir = pilot_root.join("session");
+        std::fs::create_dir_all(&replay_dir).unwrap();
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        super::super::test_support::write_day(
+            &replay_dir,
+            "SOLUSDT",
+            "2026-09-08",
+            &super::super::test_support::three_level_frames(),
+        );
+        write_instruments_csv_with_h3_lots(&replay_dir, "SOLUSDT", 5);
+
+        // `process_instrument` пишет levels-floor/-percentile/markout в
+        // `replay_dir` и маркер сверки в `session_dir` — та же раскладка,
+        // что `run_pilot_debug` готовит перед вызовом цепочки.
+        let m = process_instrument(
+            &replay_dir,
+            &session_dir,
+            "SOLUSDT",
+            0,
+            3_600_000,
+            5.0,
+            None,
+        )
+        .expect("цепочка verify->levels->markout обязана пройти на фикстуре");
+        assert!(
+            m.levels_floor > 0,
+            "фикстура обязана дать хотя бы один уровень"
+        );
+
+        // Раскладка `lob session`: `<SYMBOL>.binlog` без суток + `session.json`.
+        std::fs::copy(
+            replay_dir.join("SOLUSDT-2026-09-08.binlog"),
+            session_dir.join("SOLUSDT.binlog"),
+        )
+        .unwrap();
+        std::fs::write(
+            session_dir.join("session.json"),
+            r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":300,"instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,"parse_p99_ns":0,"out":"."}"#,
+        )
+        .unwrap();
+
+        let candidates_csv = pilot_root.join("candidates.csv");
+        std::fs::write(&candidates_csv, "symbol,coverage_top50_bps\nSOLUSDT,50.0\n").unwrap();
+
+        let (lines, defect) = run_profiles_and_backtest_chain(
+            pilot_root,
+            &["SOLUSDT".to_string()],
+            0,
+            3_600_000,
+            &candidates_csv,
+            (Some(1_000_000), Some(2_000_000)),
+            "2026-09-08T00:00:00Z",
+        );
+        assert!(
+            defect.is_none(),
+            "цепочка обязана пройти: {defect:?} / {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("backtest")),
+            "обязана быть строка про backtest: {lines:?}"
+        );
+        assert!(
+            pilot_root.join("profiles-debug.csv").is_file(),
+            "profiles обязан написать артефакт"
+        );
+        assert!(
+            !pilot_root.join(DEBUG_CHAIN_RUNS_SENTINEL).exists(),
+            "profiles внутри debug-цепочки не обязан писать runs.csv (allow_unverified=true)"
+        );
+        assert!(
+            !pilot_root.join("runs.csv").exists(),
+            "debug-цепочка не обязана писать runs.csv нигде"
+        );
+    }
+
+    #[test]
+    fn resolve_backtest_rtt_ns_prefers_probe_then_clock_then_explicit_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_dir = dir.path();
+
+        // Ни probe, ни clock, ни флагов — громкая ошибка, не тихая подстановка.
+        assert!(resolve_backtest_rtt_ns(session_dir, "SOLUSDT", None, None).is_err());
+
+        // Только явные флаги.
+        let (m, p, src) = resolve_backtest_rtt_ns(session_dir, "SOLUSDT", Some(10), Some(20))
+            .expect("флаги обязаны сработать без probe/clock");
+        assert_eq!((m, p, src), (10, 20, "flag"));
+
+        // `clock.csv` перебивает флаги, если он есть.
+        std::fs::write(
+            session_dir.join("clock.csv"),
+            "sample_index,local_ts_ns,ntp_offset_ns,ntp_rtt_ns,ntp_error,bybit_offset_ns,bybit_rtt_ns,bybit_error\n\
+             0,1,0,0,,0,100,\n\
+             1,2,0,0,,0,200,\n",
+        )
+        .unwrap();
+        let (m, _p, src) = resolve_backtest_rtt_ns(session_dir, "SOLUSDT", Some(10), Some(20))
+            .expect("clock.csv обязан сработать");
+        assert_eq!(src, "clock");
+        // Перцентиль ближайшего ранга (`percentile_of_sorted`, `bybit/probe.rs`):
+        // rank = ceil(50 × 2 / 100) = 1 -> первый элемент отсортированной пары.
+        assert_eq!(m, 100);
+
+        // `probe-<symbol>.csv` перебивает и clock.csv, и флаги.
+        std::fs::write(
+            session_dir.join("probe-SOLUSDT.csv"),
+            "cycle,rtt_ns\n0,50\n1,60\n",
+        )
+        .unwrap();
+        let (_m, _p, src) = resolve_backtest_rtt_ns(session_dir, "SOLUSDT", Some(10), Some(20))
+            .expect("probe csv обязан сработать");
+        assert_eq!(src, "probe");
     }
 }
