@@ -1001,7 +1001,9 @@ pub fn write_shortlist_md(
     text.push_str(&format!("trials: {}\n", frozen.trials()));
     text.push_str(&format!("freeze_commit: {}\n", frozen.commit()));
     text.push_str(&format!("fingerprint: {}\n", frozen.fingerprint_hex()));
-    text.push_str("threshold: n>=100 G>=12 net_fill_lower>0 (DSR by actual trials)\n");
+    text.push_str(&format!(
+        "threshold: n>={CONFIRM_MIN_N} G>={G_MIN} net_fill_lower>0 (DSR by actual trials)\n"
+    ));
     text.push_str("| profile_id | n_conf | g_conf | net_fill | lower | status |\n");
     for r in rows {
         text.push_str(&format!(
@@ -1582,6 +1584,14 @@ mod tests {
             "отпечаток: {text}"
         );
         assert!(text.contains("net_fill_lower>0"), "{text}");
+        // Ревью: порог в шапке обязан идти из тех же констант, что
+        // `decide_profile` (`CONFIRM_MIN_N`/`G_MIN`), не литералом — таск 01
+        // снёс отдельный `CONFIRM_MIN_G = 12`, и шапка обязана меняться
+        // вместе с `G_MIN`, а не расходиться с проверкой.
+        assert!(
+            text.contains(&format!("threshold: n>={CONFIRM_MIN_N} G>={G_MIN} ")),
+            "порог обязан быть собран из CONFIRM_MIN_N/G_MIN, не литералом: {text}"
+        );
         assert!(text.contains("cross:A|pulled|[0,1)"), "{text}");
         assert!(
             text.contains("cross:B|eaten|[1,2.5)"),

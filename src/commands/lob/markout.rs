@@ -68,6 +68,13 @@ pub struct MarkoutArgs {
     /// (`SessionReadyFlag`) не по чему, и команда отказывается стартовать.
     #[arg(long)]
     pub profile: Option<String>,
+    /// Замороженный шорт-лист (таск 12, `lob shortlist --freeze-out`): только
+    /// для `--confirmatory` — без него или с профилем не из списка команда
+    /// отказывается стартовать (Decision 27/28: заморозка коммитом обязана
+    /// предшествовать первому чтению подтверждающей, механически, не по
+    /// договорённости).
+    #[arg(long)]
+    pub shortlist: Option<PathBuf>,
 }
 
 /// Итог `lob markout` для печати диспетчером.
@@ -190,6 +197,14 @@ fn run_markout_confirmatory(args: &MarkoutArgs) -> anyhow::Result<MarkoutSummary
     require_session_ready_flag(&session_flag_path)
         .map_err(|e| anyhow::anyhow!("сессионный флаг готовности: {e}"))?;
 
+    // Таск 12: заморозка шорт-листа — механическая проверка, не обещание.
+    // Профиль вне замороженного списка (или список ещё не существует)
+    // отказывает здесь же, до всякого markout.
+    let shortlist_path = args.shortlist.clone().ok_or_else(|| {
+        anyhow::anyhow!("--confirmatory требует --shortlist (таск 12: заморозка коммитом)")
+    })?;
+    super::shortlist::require_shortlist_member(&shortlist_path, &profile)?;
+
     let flag_path = args
         .flag
         .clone()
@@ -284,6 +299,7 @@ mod tests {
             flag: None,
             median_lifetime_ms: None,
             profile: None,
+            shortlist: None,
         };
         let summary = run_markout(&args).unwrap();
         assert_eq!(summary.levels, 4);
@@ -326,6 +342,7 @@ mod tests {
             flag: None,
             median_lifetime_ms: Some(60_000),
             profile: Some("marginal:outcome=pulled".to_string()),
+            shortlist: None,
         };
         assert!(run_markout(&args).is_err());
         assert!(super::super::dispatch(super::super::LobCommand::Markout(args)).is_err());
@@ -382,6 +399,7 @@ mod tests {
             flag: None,
             median_lifetime_ms: Some(60_000),
             profile: Some("marginal:outcome=pulled".to_string()),
+            shortlist: Some(dir.path().join("shortlist-frozen.txt")),
         };
         // Старый флаг и данные в порядке, сессионного флага ещё нет.
         // `MarkoutSummary` не несёт `Debug` (вне зоны этой правки — не
@@ -410,6 +428,127 @@ mod tests {
             },
         )
         .unwrap();
-        run_markout(&args).expect("с обоими флагами --confirmatory обязан пройти");
+        // Без замороженного шорт-листа (файл ещё не существует) — всё ещё
+        // отказ, теперь по заморозке, не по сессионному флагу.
+        match run_markout(&args) {
+            Err(e) => assert!(
+                format!("{e}").contains("заморозка"),
+                "сообщение обязано называть причину: {e}"
+            ),
+            Ok(_) => panic!("без файла шорт-листа обязан быть отказ"),
+        }
+        std::fs::write(
+            args.shortlist.as_ref().unwrap(),
+            "marginal:outcome=pulled\n",
+        )
+        .unwrap();
+        run_markout(&args).expect("с обоими флагами и шорт-листом --confirmatory обязан пройти");
+    }
+
+    /// Критерий приёмки таска 12, буквально: `lob markout --confirmatory` на
+    /// профиле вне замороженного шорт-листа завершается ненулевым кодом, даже
+    /// когда сессионный флаг готовности и все данные в порядке. Заморозка —
+    /// механизм, а не обещание.
+    #[test]
+    fn markout_confirmatory_rejects_profile_outside_frozen_shortlist() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut frames = super::super::test_support::three_level_frames();
+        for k in 1..=7 {
+            frames.push(super::super::test_support::delta_frame(
+                2000 + k * 10_000,
+                &[(96, 1), (98, 1), (99, 1), (100, 1)],
+                &[(105, 10)],
+            ));
+        }
+        super::super::test_support::write_day(dir.path(), "SOLUSDT", "2026-09-08", &frames);
+        crate::bybit::verify_sidecar::append_verify_row(
+            &crate::bybit::verify_sidecar::verify_csv_path(dir.path()),
+            &crate::bybit::verify_sidecar::VerifyRow {
+                ts_utc: "2026-09-08T00:05:00Z".to_string(),
+                symbol: "SOLUSDT".to_string(),
+                snapshot_seq: Some(1),
+                book_seq: Some(1),
+                mismatches: Some(0),
+                verdict: crate::bybit::verify_sidecar::VerifyVerdict::Ok,
+            },
+        )
+        .unwrap();
+        crate::lob::watch::write_ready_flag(
+            &dir.path().join("ready.flag"),
+            &crate::lob::watch::ReadyFlag {
+                symbol: "SOLUSDT".to_string(),
+                n_c2: 100,
+                g: 1,
+                ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
+                days: vec!["2026-09-08".to_string()],
+            },
+        )
+        .unwrap();
+        crate::lob::watch::write_session_ready_flag(
+            &crate::lob::watch::session_ready_flag_path(
+                dir.path(),
+                "SOLUSDT",
+                "marginal:outcome=pulled",
+            ),
+            &crate::lob::watch::SessionReadyFlag {
+                symbol: "SOLUSDT".to_string(),
+                profile_id: "marginal:outcome=pulled".to_string(),
+                n: 100,
+                g: 7,
+                ready_at_utc: "2026-09-09T00:00:00Z".to_string(),
+                days: vec!["2026-09-08".to_string()],
+            },
+        )
+        .unwrap();
+        let shortlist_path = dir.path().join("shortlist-frozen.txt");
+        // Заморожен другой профиль — не тот, что запрашивает --profile.
+        std::fs::write(&shortlist_path, "marginal:side=bid\n").unwrap();
+        let args = MarkoutArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+            confirmatory: true,
+            flag: None,
+            median_lifetime_ms: Some(60_000),
+            profile: Some("marginal:outcome=pulled".to_string()),
+            shortlist: Some(shortlist_path.clone()),
+        };
+        match run_markout(&args) {
+            Err(e) => assert!(
+                format!("{e}").contains("шорт-лист"),
+                "сообщение обязано называть причину: {e}"
+            ),
+            Ok(_) => panic!("профиль вне шорт-листа обязан отказать"),
+        }
+        assert!(
+            super::super::dispatch(super::super::LobCommand::Markout(args)).is_err(),
+            "код выхода команды обязан быть ненулевым"
+        );
+
+        // Тот же профиль, добавленный в список, — обязан пройти.
+        std::fs::write(
+            &shortlist_path,
+            "marginal:side=bid\nmarginal:outcome=pulled\n",
+        )
+        .unwrap();
+        let args_ok = MarkoutArgs {
+            root: dir.path().to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            h3_mode: H3ModeArg::Percentile,
+            h3_lots: Some(5),
+            warmup_ms: 0,
+            repeat_window_ms: 3_600_000,
+            out: None,
+            confirmatory: true,
+            flag: None,
+            median_lifetime_ms: Some(60_000),
+            profile: Some("marginal:outcome=pulled".to_string()),
+            shortlist: Some(shortlist_path),
+        };
+        run_markout(&args_ok).expect("профиль из шорт-листа обязан пройти");
     }
 }

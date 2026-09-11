@@ -73,6 +73,7 @@ pub mod profiles;
 pub mod react;
 mod record;
 pub mod session;
+pub mod shortlist;
 mod verify;
 pub mod watch;
 
@@ -87,6 +88,7 @@ pub use probe::{run_probe, ProbeArgs};
 pub use profiles::{run_profiles, ProfilesArgs};
 pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
+pub use shortlist::{run_shortlist, ShortlistArgs};
 pub use watch::{run_watch, WatchArgs};
 
 // ---------------------------------------------------------------------------
@@ -478,6 +480,10 @@ pub enum LobCommand {
     /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
     /// второй из трёх артефактов задачи (таск 11, история 32–34).
     Backtest(BacktestArgs),
+    /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
+    /// невиденных данных — третий из трёх артефактов задачи (таск 12,
+    /// история 24–28, 42).
+    Shortlist(ShortlistArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -641,6 +647,18 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
+        LobCommand::Shortlist(args) => {
+            let summary = run_shortlist(&args)?;
+            println!(
+                "shortlist: trials={} shortlisted={} debug={} verdict={} out={}",
+                summary.trials,
+                summary.shortlisted,
+                summary.debug,
+                summary.verdict.as_deref().unwrap_or("n/a (debug)"),
+                summary.out.display()
+            );
+            Ok(())
+        }
     }
 }
 
@@ -755,8 +773,22 @@ mod tests {
             .collect();
         sorted.sort();
         let expected = [
-            "backtest", "clock", "export", "levels", "markout", "pick", "pilot", "power", "probe",
-            "profiles", "react", "record", "session", "verify", "watch",
+            "backtest",
+            "clock",
+            "export",
+            "levels",
+            "markout",
+            "pick",
+            "pilot",
+            "power",
+            "probe",
+            "profiles",
+            "react",
+            "record",
+            "session",
+            "shortlist",
+            "verify",
+            "watch",
         ];
         assert_eq!(
             sorted,

@@ -313,6 +313,7 @@ pub fn process_instrument(
         flag: None,
         median_lifetime_ms: None,
         profile: None,
+        shortlist: None,
     })
     .map_err(step("markout"))?;
 
