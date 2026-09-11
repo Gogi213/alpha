@@ -7,11 +7,17 @@
 //! DSR дефлирует по фактическому числу; вердикт выносит подтверждающая.
 //!
 //! Сетка профилей — Decision 26: маргиналы по каждой оси (для пула из десяти
-//! это 28) плюс предрегистрированный крест инструмент × исход × расстояние
-//! (150 при полной пригодности). Пригодность корзин — Decision 26а: пара
-//! инструмент × корзина существует, только если корзина целиком внутри
-//! покрытия топ-50 инструмента; непригодная корзина не печатается ни строкой,
-//! ни нулём — её нет, и в число испытаний она не входит.
+//! это 29: семь осей, повторяемость трёхзначна — ticket 06) плюс единственный
+//! предрегистрированный крест инструмент × исход × расстояние (150 при
+//! полной пригодности). Полный крест по всем семи осям разбирался и отменён
+//! ревью R-C: семь осей R17 — оси маргиналов и признаки профиля, а не полный
+//! крест (`SETTLED.md` В-18, Decision 26/26а, `PLAN.md` D-ИСПЫТАНИЯ).
+//! Пригодность корзин — Decision 26а: пара инструмент × корзина существует,
+//! только если корзина целиком внутри покрытия топ-50 инструмента;
+//! непригодная корзина не печатается ни строкой, ни нулём — её нет, и в
+//! число испытаний она не входит. Тест на зависимость от часа суток (ниже)
+//! — тоже испытание и тоже строка `runs.csv`: спека «Профиль» считает число
+//! испытаний как «пригодные пары плюс маргиналы плюс тесты на час суток».
 //!
 //! Откуда берутся входы (модуль ничего не меряет сам):
 //!
@@ -40,7 +46,7 @@ use std::path::Path;
 
 use crate::lob::costs::GREEN_NET_BPS;
 use crate::lob::runs::{append_run_row, RunKind, RunRow};
-use crate::stats::G_MIN;
+use crate::stats::{self, BootstrapError, GATE_ALPHA, G_MIN};
 
 // ---------------------------------------------------------------------------
 // Доли деления и пороги. Каждое число — из плана.
@@ -92,10 +98,25 @@ pub const SIDE_LABELS: [&str; 2] = ["bid", "ask"];
 /// Исходы уровня.
 pub const OUTCOME_LABELS: [&str; 3] = ["eaten", "pulled", "mixed"];
 
-/// Корзины повторяемости: ровно один повтор и два и более.
-pub const REPEAT_SINGLE_LABEL: &str = "1";
-/// Метка корзины «два и более».
-pub const REPEAT_MULTI_LABEL: &str = ">=2";
+/// Корзины повторяемости на цене за скользящее окно (бриф §3, ticket 06):
+/// ровно один, ровно два, три и более. `LevelRecord::repeat_count`
+/// (`lob/levels`) считает прошлые рождения на этой цене и стороне; граница
+/// назначена здесь, до данных, и не пересматривается (R61).
+pub const REPEAT_LABELS: [&str; 3] = ["1", "2", ">=3"];
+
+/// Классифицирует счётчик повторов в корзину `REPEAT_LABELS`. Чистое
+/// огрубление: `repeat_count` приходит уже посчитанным `lob/levels`, здесь
+/// он только раскладывается по корзине.
+pub fn repeat_bucket(repeat_count: u32) -> &'static str {
+    // `repeat_count` (`lob/levels.rs`) считает прошлые рождения 0-based:
+    // первое появление на цене — 0, второе — 1, и так далее. Поэтому
+    // «ровно один раз» — `repeat_count == 0`, не `<= 1`.
+    match repeat_count {
+        0 => REPEAT_LABELS[0],
+        1 => REPEAT_LABELS[1],
+        _ => REPEAT_LABELS[2],
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Ошибки. Один тип на модуль, паники нет.
@@ -277,16 +298,20 @@ fn marginal_ids(symbols: &[String]) -> Vec<String> {
     for s in LIFETIME_LABELS {
         out.push(format!("marginal:life={s}"));
     }
-    out.push(format!("marginal:repeat={REPEAT_SINGLE_LABEL}"));
-    out.push(format!("marginal:repeat{REPEAT_MULTI_LABEL}"));
+    for s in REPEAT_LABELS {
+        out.push(format!("marginal:repeat={s}"));
+    }
     for s in OUTCOME_LABELS {
         out.push(format!("marginal:outcome={s}"));
     }
     out
 }
 
-/// Строит сетку профилей: маргиналы по каждой оси плюс пригодный крест
-/// инструмент × исход × расстояние. Непригодные пары отсутствуют в выходе
+/// Строит сетку профилей: маргиналы по каждой оси плюс единственный
+/// предрегистрированный крест инструмент × исход × расстояние на пригодных
+/// корзинах расстояния (`SETTLED.md` В-18, Decision 26/26а, `PLAN.md`
+/// D-ИСПЫТАНИЯ — семь осей R17 суть оси маргиналов и признаки профиля, а не
+/// полный крест: R-C ревью таска 06). Непригодные пары отсутствуют в выходе
 /// вовсе (не нули): вызывающий не посчитает их, не запишет в `runs.csv` и не
 /// подставит в DSR. Порядок выхода — по возрастанию строки (детерминирован).
 pub fn build_profile_grid(coverages: &[InstrumentCoverage]) -> Result<Vec<String>, ShortlistError> {
@@ -317,10 +342,22 @@ pub fn build_profile_grid(coverages: &[InstrumentCoverage]) -> Result<Vec<String
     Ok(out)
 }
 
-/// Номинальный размер сетки при полной пригодности: `N + 18` маргиналов
-/// плюс `N × 15` креста. Для пула из десяти — 28 + 150 = 178 (Decision 26).
+/// Номинальный размер сетки при полной пригодности всех корзин расстояния:
+/// маргиналы (по одной на инструмент плюс по одной на корзину каждой из
+/// остальных шести осей — повторяемость теперь трёхзначна) плюс крест
+/// инструмент × исход × расстояние на каждый инструмент. Формула считается
+/// от размеров самих массивов корзин, а не отдельным числом: для пула из
+/// десяти при полной пригодности — 29 + 150 = 179.
 pub fn nominal_grid_size(n_instruments: usize) -> usize {
-    n_instruments + 18 + n_instruments * 15
+    let marginals = n_instruments
+        + SIDE_LABELS.len()
+        + SIZE_LABELS.len()
+        + DISTANCE_LABELS.len()
+        + LIFETIME_LABELS.len()
+        + REPEAT_LABELS.len()
+        + OUTCOME_LABELS.len();
+    let cross_per_instrument = OUTCOME_LABELS.len() * DISTANCE_LABELS.len();
+    marginals + n_instruments * cross_per_instrument
 }
 
 /// Фактическое число испытаний — длина построенной сетки (Decision 26а:
@@ -678,6 +715,178 @@ pub fn trials_from_runs_csv(path: &Path) -> Option<usize> {
     crate::lob::runs::trials_from_runs_csv(path)
 }
 
+/// Число испытаний, которое ведёт модуль: пригодная сетка плюс тесты на
+/// час — ровно формула спеки «Профиль» («пригодные пары плюс маргиналы плюс
+/// тесты на час суток»). Печатается рядом с шорт-листом; тест сверяет его со
+/// строками `runs.csv` на одной фикстуре.
+pub fn total_trials(grid_len: usize, hour_tests: usize) -> usize {
+    grid_len + hour_tests
+}
+
+// ---------------------------------------------------------------------------
+// Тест на зависимость от часа суток (спека «Профиль»; бриф §6а: «час старта
+// каждой сессии печатается, и разведка обязана показать, зависит ли профиль
+// от часа»). Статистика, нуль и альфа объявляются здесь (ticket 06) и оттуда
+// идут в предрегистрацию этапа 1 (`SETTLED.md` В-29, `PLAN.md` §9).
+// ---------------------------------------------------------------------------
+
+/// Одна сутки — один кластер (Decision 9 сохраняет кластеризацию по суткам
+/// при переходе на короткие сессии: `2026-09-11-brief.md` §6а). `hour_utc` —
+/// час старта для этого профиля в эти сутки (при нескольких сессиях за
+/// сутки — среднее их часов; усредняет вызывающий, модуль ничего не меряет
+/// само). `value` — headline-наблюдаемая профиля в эти сутки, тот же знак и
+/// те же единицы (bps), что markout, идущий в гейт G2.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HourDayObservation {
+    /// Сутки как кластер: целое, не с плавающей точкой (A1), как кластер
+    /// `stats::wild_cluster_bootstrap_t`.
+    pub day: i64,
+    /// Час старта UTC за эти сутки, `[0, 24)`.
+    pub hour_utc: f64,
+    /// Наблюдаемая профиля за эти сутки, bps.
+    pub value: f64,
+}
+
+/// Отказ теста на час: тот же методический смысл, что `BootstrapError` гейта
+/// G2 — «сетка учёта не даёт вынести число», а не рыночный ноль.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HourTestError {
+    /// Суток меньше `G_MIN`.
+    TooFewDays { days: usize, minimum: usize },
+    /// Достижимое разрешение сетки Уэбба грубее альфы.
+    GridTooCoarse {
+        days: usize,
+        resolution: f64,
+        alpha: f64,
+    },
+    /// Наблюдаемая не варьируется: знаменатель теста — ноль.
+    DegenerateVariance { days: usize },
+}
+
+impl std::fmt::Display for HourTestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HourTestError::TooFewDays { days, minimum } => {
+                write!(f, "суток {days}, для теста на час нужно минимум {minimum}")
+            }
+            HourTestError::GridTooCoarse {
+                days,
+                resolution,
+                alpha,
+            } => write!(
+                f,
+                "суток {days}: разрешение сетки {resolution} грубее альфы {alpha}"
+            ),
+            HourTestError::DegenerateVariance { days } => {
+                write!(f, "суток {days}: наблюдаемая не варьируется по кластерам")
+            }
+        }
+    }
+}
+
+impl std::error::Error for HourTestError {}
+
+fn map_bootstrap_error(e: BootstrapError) -> HourTestError {
+    match e {
+        BootstrapError::TooFewClusters { clusters, minimum } => HourTestError::TooFewDays {
+            days: clusters,
+            minimum,
+        },
+        BootstrapError::GridTooCoarse {
+            clusters,
+            resolution,
+            alpha,
+        } => HourTestError::GridTooCoarse {
+            days: clusters,
+            resolution,
+            alpha,
+        },
+        BootstrapError::DegenerateVariance { clusters } => {
+            HourTestError::DegenerateVariance { days: clusters }
+        }
+    }
+}
+
+/// Тест на зависимость профиля от часа суток.
+///
+/// **Статистика**: кластерный (по суткам) бутстрап-t на весах Уэбба —
+/// та же машина, что гейт G2 (`stats::wild_cluster_bootstrap_t`, Decision 9),
+/// применённая к другой наблюдаемой: кросс-произведению
+/// `(час_суток − средний час) × (value − среднее value)` по суткам. Одна
+/// сутки — одно значение кросс-произведения — один кластер: перебор знаков
+/// Уэбба по суткам эквивалентен рандомизационному тесту нулевой линейной
+/// связи часа и наблюдаемой (H0 ниже), не изобретённой заново статистике —
+/// это стандартный приём (тест корреляции знаковой перестановкой), собранный
+/// из уже объявленных частей.
+///
+/// **Нуль `H0`**: между часом старта суток и наблюдаемой профиля нет
+/// линейной связи — среднее кросс-произведение по суткам равно нулю.
+/// Двусторонний, в отличие от гейта G2: Decision 14 фиксирует знак markout
+/// заранее, а для часа предсказанного направления нет. Двусторонний `p`
+/// получается удвоением меньшего из двух односторонних `p`
+/// (`wild_cluster_bootstrap_t` на прямом и на отрицательном рядах,
+/// стандартный приём получения двустороннего `p` из одностороннего теста).
+///
+/// **Альфа**: `stats::GATE_ALPHA` — единственная объявленная альфа во всём
+/// плане (см. документацию модуля `stats`); отдельной альфы для этого теста
+/// нигде не назначено, а назначать вторую самому — вторая изобретённая
+/// константа там, где годится уже названная (§9 задачи).
+///
+/// Возвращает `Err`, а не подделывает число, когда суток меньше `G_MIN`,
+/// сетка Уэбба грубее альфы, или наблюдаемая не варьируется — три ровно те
+/// же методические причины отказа, что и у гейта G2.
+pub fn hour_dependence_test(
+    observations: &[HourDayObservation],
+    replications: u32,
+    seed: u64,
+) -> Result<f64, HourTestError> {
+    if observations.is_empty() {
+        return Err(HourTestError::TooFewDays {
+            days: 0,
+            minimum: G_MIN,
+        });
+    }
+    let n = observations.len() as f64;
+    let mean_hour: f64 = observations.iter().map(|o| o.hour_utc).sum::<f64>() / n;
+    let mean_value: f64 = observations.iter().map(|o| o.value).sum::<f64>() / n;
+    let products: Vec<(i64, f64)> = observations
+        .iter()
+        .map(|o| (o.day, (o.hour_utc - mean_hour) * (o.value - mean_value)))
+        .collect();
+    let negated: Vec<(i64, f64)> = products.iter().map(|&(d, v)| (d, -v)).collect();
+
+    let p_pos = stats::wild_cluster_bootstrap_t(&products, replications, GATE_ALPHA, seed)
+        .map_err(map_bootstrap_error)?;
+    let p_neg = stats::wild_cluster_bootstrap_t(&negated, replications, GATE_ALPHA, seed)
+        .map_err(map_bootstrap_error)?;
+    Ok((2.0 * p_pos.min(p_neg)).min(1.0))
+}
+
+/// Пишет тест на час в журнал испытаний: испытание, как и любой посчитанный
+/// профиль (спека «Профиль»: «плюс тесты на час суток» в числе для DSR).
+/// `RunKind::Confirmatory` — тот же вид строки, что `log_profile_trials`,
+/// потому что оба считаются испытанием одинаково (`RunKind::counts_as_trial`).
+pub fn log_hour_test(
+    path: &Path,
+    ts_utc: &str,
+    profile_id: &str,
+    p_two_sided: f64,
+) -> Result<(), ShortlistError> {
+    append_run_row(
+        path,
+        &RunRow {
+            ts_utc: ts_utc.to_string(),
+            symbol: String::new(),
+            kind: RunKind::Confirmatory,
+            detail: format!("hour_test {profile_id} p={p_two_sided:.6} alpha={GATE_ALPHA}"),
+        },
+    )
+    .map_err(|e| match e {
+        crate::lob::runs::RunsError::Io(s) => ShortlistError::Io(s),
+        crate::lob::runs::RunsError::Csv(s) => ShortlistError::Csv(s),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Выход profiles-<дата>.csv: полная таблица без отсева.
 // ---------------------------------------------------------------------------
@@ -884,16 +1093,24 @@ mod tests {
         assert_eq!(split.confirmatory.len(), 1);
     }
 
-    /// Decision 26 буквально: десять инструментов при полной пригодности дают
-    /// 28 маргиналов + 150 креста = 178 испытаний.
+    /// R-C ревью таска 06: маргиналы по каждой оси (повторяемость теперь
+    /// трёхзначна — 29 на десять инструментов) плюс единственный
+    /// предрегистрированный крест инструмент × исход × расстояние (150 при
+    /// полной пригодности) — не полный крест семи осей. Формула и
+    /// построенная сетка обязаны совпасть.
     #[test]
-    fn nominal_grid_is_28_plus_150_for_ten_instruments() {
-        assert_eq!(nominal_grid_size(10), 178);
+    fn nominal_grid_is_29_plus_150_for_ten_instruments() {
+        assert_eq!(nominal_grid_size(10), 179);
         let grid = build_profile_grid(&ten_coverages_all_wide()).expect("сетка");
-        assert_eq!(grid.len(), 178, "маргиналы 28 + крест 150");
-        assert_eq!(actual_trials(&grid), 178);
+        assert_eq!(
+            grid.len(),
+            179,
+            "маргиналы 29 + крест инструмент×исход×расстояние 150"
+        );
+        assert_eq!(actual_trials(&grid), 179);
         assert!(grid.contains(&"marginal:side=bid".to_string()));
         assert!(grid.contains(&"marginal:dist=[0,1)".to_string()));
+        assert!(grid.contains(&"marginal:repeat=2".to_string()));
         assert!(grid.contains(&"cross:SOLUSDT|pulled|[0,1)".to_string()));
     }
 
@@ -906,9 +1123,9 @@ mod tests {
             coverage_bps: 4.0,
         }];
         let grid = build_profile_grid(&coverages).expect("сетка");
-        // Маргиналы для одного инструмента: 1 + 18 = 19.
+        // Маргиналы для одного инструмента: 1 + 19 = 20 (повторяемость трёхзначна).
         // Крест: пригодны [0,1) и [1,2.5) × 3 исхода = 6.
-        assert_eq!(grid.len(), 19 + 6, "дальние корзины отсутствуют: {grid:?}");
+        assert_eq!(grid.len(), 20 + 6, "дальние корзины отсутствуют: {grid:?}");
         for bad in ["[2.5,5)", "[5,10)", "[10,25)"] {
             assert!(
                 !grid.contains(&format!("cross:ZECUSDT|pulled|{bad}")),
@@ -931,6 +1148,19 @@ mod tests {
                 symbol: "X".to_string()
             })
         );
+    }
+
+    /// Повторяемость — трёхзначная (`1`, `2`, `>=3`), не двузначная: спека
+    /// «Профиль» и бриф §3 буквально требуют три корзины. `repeat_count`
+    /// считает прошлые рождения 0-based (`lob/levels.rs`), поэтому «ровно
+    /// один раз» — `repeat_count == 0`, не `<= 1`.
+    #[test]
+    fn repeat_axis_has_three_buckets() {
+        assert_eq!(REPEAT_LABELS, ["1", "2", ">=3"]);
+        assert_eq!(repeat_bucket(0), "1");
+        assert_eq!(repeat_bucket(1), "2");
+        assert_eq!(repeat_bucket(2), ">=3");
+        assert_eq!(repeat_bucket(100), ">=3");
     }
 
     /// Граница пригодности включительно: hi == coverage наблюдаемо.
@@ -1115,13 +1345,13 @@ mod tests {
         let path = dir.path().join("runs.csv");
         let grid = build_profile_grid(&ten_coverages_all_wide()).expect("сетка");
         log_profile_trials(&path, "2026-05-20T00:00:00Z", &grid).expect("журнал");
-        assert_eq!(trials_from_runs_csv(&path), Some(178));
-        assert!(require_dsr_trials(178, grid.len()).is_ok());
+        assert_eq!(trials_from_runs_csv(&path), Some(grid.len()));
+        assert!(require_dsr_trials(grid.len(), grid.len()).is_ok());
         assert_eq!(
-            require_dsr_trials(150, grid.len()),
+            require_dsr_trials(grid.len() - 28, grid.len()),
             Err(ShortlistError::TrialsMismatch {
-                expected: 178,
-                got: 150
+                expected: grid.len(),
+                got: grid.len() - 28
             })
         );
         // Урезанная сетка (непригодные исключены) даёт меньше строк.
@@ -1133,7 +1363,137 @@ mod tests {
         let path2 = dir.path().join("runs2.csv");
         log_profile_trials(&path2, "2026-05-20T00:00:00Z", &grid2).expect("журнал");
         assert_eq!(trials_from_runs_csv(&path2), Some(grid2.len()));
-        assert!(grid2.len() < 178);
+        assert!(grid2.len() < grid.len());
+    }
+
+    /// Обязательный тест ticket 06: число испытаний, которое печатает модуль
+    /// (`total_trials`: сетка плюс тесты на час), совпадает с числом строк
+    /// `runs.csv` на общей фикстуре — и профили, и тесты на час идут в один
+    /// журнал одной и той же строкой-испытанием.
+    #[test]
+    fn module_trial_count_matches_runs_csv_row_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runs.csv");
+        let narrow = vec![InstrumentCoverage {
+            symbol: "ZECUSDT".to_string(),
+            coverage_bps: 4.0,
+        }];
+        let grid = build_profile_grid(&narrow).expect("сетка");
+        log_profile_trials(&path, "2026-05-20T00:00:00Z", &grid).expect("журнал профилей");
+        let hour_test_ids = ["marginal:instrument=ZECUSDT", "cross:ZECUSDT|..."];
+        for id in hour_test_ids {
+            log_hour_test(&path, "2026-05-20T00:05:00Z", id, 0.5).expect("журнал часа");
+        }
+        let printed = total_trials(grid.len(), hour_test_ids.len());
+        assert_eq!(trials_from_runs_csv(&path), Some(printed));
+    }
+
+    /// Известная величина, посчитанная вручную: `value = 10 × hour_utc` на
+    /// семи сутках (`hour_utc = 1..7`) даёт кросс-произведение
+    /// `10 × (hour − 4)²` по каждым суткам — `[90, 40, 10, 0, 10, 40, 90]`,
+    /// строго неотрицательное и явно ненулевое в среднем. Сильная линейная
+    /// связь обязана быть отвергнута на альфе гейта.
+    #[test]
+    fn hour_dependence_test_rejects_strong_known_trend() {
+        let obs: Vec<HourDayObservation> = (1..=7)
+            .map(|d| HourDayObservation {
+                day: d,
+                hour_utc: d as f64,
+                value: 10.0 * d as f64,
+            })
+            .collect();
+        let p = hour_dependence_test(&obs, 999, 7).expect("семь суток — минимум набран");
+        assert!(
+            p <= GATE_ALPHA,
+            "сильный линейный тренд обязан пройти альфу гейта: p={p}"
+        );
+    }
+
+    /// Известная величина: `value = (hour − 4)²` — чётная функция от
+    /// отклонения часа, само отклонение часа — нечётная функция, поэтому
+    /// сумма их произведений по семи суткам равна нулю ровно по симметрии
+    /// (`Σ [-15,0,3,0,-3,0,15] = 0`), не по случайности данных. Наблюдаемая
+    /// при этом варьируется (не вырождена), так что тест обязан вернуть
+    /// число, а не отказ, и это число не должно проходить альфу.
+    #[test]
+    fn hour_dependence_test_does_not_reject_symmetric_no_trend() {
+        let obs: Vec<HourDayObservation> = (1..=7)
+            .map(|d| {
+                let dev = d as f64 - 4.0;
+                HourDayObservation {
+                    day: d,
+                    hour_utc: d as f64,
+                    value: dev * dev,
+                }
+            })
+            .collect();
+        let p = hour_dependence_test(&obs, 999, 11).expect("наблюдаемая варьируется");
+        assert!(
+            p > GATE_ALPHA,
+            "кросс-произведение по симметрии в среднем нулевое: p={p} обязан быть больше альфы"
+        );
+    }
+
+    /// Наблюдаемая, тождественно равная по всем суткам, вырождает
+    /// кросс-произведение в ноль на каждой сутки — знаменатель теста ноль,
+    /// и это методический отказ (как `BootstrapError::DegenerateVariance` у
+    /// гейта G2), а не подделанное число.
+    #[test]
+    fn hour_dependence_test_refuses_on_degenerate_variance() {
+        let obs: Vec<HourDayObservation> = (1..=7)
+            .map(|d| HourDayObservation {
+                day: d,
+                hour_utc: d as f64,
+                value: 5.0,
+            })
+            .collect();
+        assert_eq!(
+            hour_dependence_test(&obs, 999, 1),
+            Err(HourTestError::DegenerateVariance { days: 7 })
+        );
+    }
+
+    /// Меньше `G_MIN` суток — тот же методический отказ, что у гейта G2, а
+    /// не заниженное число.
+    #[test]
+    fn hour_dependence_test_refuses_below_g_min_days() {
+        let obs: Vec<HourDayObservation> = (1..=6)
+            .map(|d| HourDayObservation {
+                day: d,
+                hour_utc: d as f64,
+                value: 10.0 * d as f64,
+            })
+            .collect();
+        assert_eq!(
+            hour_dependence_test(&obs, 999, 1),
+            Err(HourTestError::TooFewDays {
+                days: 6,
+                minimum: G_MIN
+            })
+        );
+        assert_eq!(
+            hour_dependence_test(&[], 999, 1),
+            Err(HourTestError::TooFewDays {
+                days: 0,
+                minimum: G_MIN
+            })
+        );
+    }
+
+    /// Формат журнала: тест на час пишется `RunKind::Confirmatory` — тем же
+    /// видом строки, что и профиль, — и это испытание считается в
+    /// `count_trials`.
+    #[test]
+    fn hour_test_log_line_counts_as_trial() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runs.csv");
+        log_hour_test(&path, "2026-05-20T00:00:00Z", "marginal:side=bid", 0.12).expect("журнал");
+        let rows = crate::lob::runs::read_run_rows(&path).expect("чтение");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, RunKind::Confirmatory);
+        assert!(rows[0].detail.contains("hour_test"));
+        assert!(rows[0].detail.contains("marginal:side=bid"));
+        assert_eq!(crate::lob::runs::count_trials(&rows), 1);
     }
 
     fn sample_profile_row(id: &str, in_shortlist: bool) -> ProfileRow {
