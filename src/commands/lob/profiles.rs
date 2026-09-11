@@ -134,9 +134,9 @@ use crate::lob::markout::{
     base_before, future_asof, markouts_for_level, raw_return_bps, MidSample, HORIZONS_MS,
 };
 use crate::lob::shortlist::{
-    build_profile_grid, hour_dependence_test, log_hour_test, log_profile_trials, repeat_bucket,
-    HourDayObservation, InstrumentCoverage, DISTANCE_BOUNDS_BPS, DISTANCE_LABELS, LIFETIME_LABELS,
-    SIZE_LABELS,
+    build_profile_grid, hour_dependence_test, load_or_write_window, log_hour_test,
+    log_profile_trials, repeat_bucket, window_length_days, HourDayObservation, InstrumentCoverage,
+    PreregisteredWindow, DISTANCE_BOUNDS_BPS, DISTANCE_LABELS, LIFETIME_LABELS, SIZE_LABELS,
 };
 use crate::stats::{count_f64, count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
 
@@ -272,6 +272,23 @@ fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     }
     dirs.sort();
     Ok(dirs)
+}
+
+/// Различные сутки `session.json::started_utc` среди подкаталогов, по
+/// возрастанию — вход `load_or_write_window` для первой записи файла
+/// предрегистрации (тот же вход, что `split_calendar` уже берёт у
+/// `commands::lob::shortlist`).
+fn distinct_session_days(dirs: &[PathBuf]) -> Vec<String> {
+    let mut days: BTreeSet<String> = BTreeSet::new();
+    for dir in dirs {
+        if let Some(meta) = read_session_meta(dir) {
+            let day = meta.started_utc.get(..10).unwrap_or_default();
+            if !day.is_empty() {
+                days.insert(day.to_string());
+            }
+        }
+    }
+    days.into_iter().collect()
 }
 
 /// Реплеит один файл сессии (не сутки из нескольких файлов, как
@@ -702,6 +719,19 @@ pub struct ProfilesArgs {
     /// `--order-qty-e9` (общие для `profiles`/`shortlist`).
     #[command(flatten)]
     pub execution: ExecutionArgs,
+    /// Файл-предрегистрация окна «сейчас» (ticket 21, R57) — та же граница
+    /// разведочная/подтверждающая, тот же файл, что `lob shortlist
+    /// --preregistration`: первый прогон пишет, следующие — читают
+    /// (`crate::lob::shortlist::load_or_write_window`). Обязателен без
+    /// `--allow-unverified` — без него окно не определено, ошибка, не тихое
+    /// «все сессии».
+    #[arg(long)]
+    pub preregistration: Option<PathBuf>,
+    /// Конец окна «сейчас», только когда файл предрегистрации несёт одну
+    /// границу без конца (`confirmatory:` пуста) — дописывается в файл один
+    /// раз, тем же приёмом, что сама граница.
+    #[arg(long)]
+    pub window_end: Option<String>,
 }
 
 /// Итог `lob profiles` для печати диспетчером.
@@ -710,6 +740,33 @@ pub struct ProfilesSummary {
     pub rows: usize,
     pub out: PathBuf,
     pub debug: bool,
+}
+
+/// Строка `window: …` шапки (ticket 21, R57) — общий формат для
+/// `profiles-<дата>.csv` и `shortlist-<дата>.md`
+/// (`commands::lob::shortlist::run_shortlist` печатает её той же функцией):
+/// `debug (all sessions)` в отладке, иначе границы плюс длина в сутках
+/// (из границ, не из числа сессий), число сессий внутри/вне окна и сама
+/// пара разведочная/подтверждающая, из которой окно выведено.
+pub(crate) fn format_window_line(
+    window: &Option<PreregisteredWindow>,
+    sessions_in_window: usize,
+    sessions_outside_window: usize,
+) -> anyhow::Result<String> {
+    let Some(w) = window else {
+        return Ok("window: debug (all sessions)".to_string());
+    };
+    let days = window_length_days(w).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let expl_start = w.exploratory.first().cloned().unwrap_or_default();
+    let expl_end = w.exploratory.last().cloned().unwrap_or_default();
+    let conf_start = w.confirmatory.first().cloned().unwrap_or_default();
+    let conf_end = w.confirmatory.last().cloned().unwrap_or_default();
+    Ok(format!(
+        "window: {}..{} days={days} sessions={sessions_in_window} \
+         sessions_outside_window={sessions_outside_window} exploratory={expl_start}..{expl_end} \
+         confirmatory={conf_start}..{conf_end}",
+        w.start, w.end
+    ))
 }
 
 fn h3_mode_label(mode: H3ModeArg) -> &'static str {
@@ -952,6 +1009,40 @@ pub fn run_profiles_with_fill_model(
     let dirs = session_dirs(&args.root)?;
     let mut day_index = DayIndex::default();
 
+    // Окно «сейчас» (ticket 21, R57): слепая приёмка поймала эту функцию на
+    // чтении всех подкаталогов `root` без окна — длина нигде не назначалась
+    // до данных. Отладочный вход (`--allow-unverified`) не сужает окно (doc
+    // модуля: «данными не является»); боевой вход обязан назвать файл
+    // предрегистрации, иначе это тихое «все сессии», которое и поймало
+    // ревью — громкая ошибка вместо него.
+    let window = if args.allow_unverified {
+        None
+    } else {
+        let Some(preregistration) = &args.preregistration else {
+            anyhow::bail!(
+                "--preregistration обязателен без --allow-unverified — окно «сейчас» не \
+                 определено (R57, не тихое «все сессии»)"
+            );
+        };
+        let days_now = distinct_session_days(&dirs);
+        Some(
+            load_or_write_window(preregistration, &days_now, args.window_end.as_deref())
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+        )
+    };
+    let mut sessions_outside_window = 0usize;
+    let mut sessions_in_window = 0usize;
+    for dir in &dirs {
+        let Some(meta) = read_session_meta(dir) else {
+            continue;
+        };
+        let day = meta.started_utc.get(..10).unwrap_or_default();
+        match &window {
+            Some(w) if !w.contains_day(day) => sessions_outside_window += 1,
+            _ => sessions_in_window += 1,
+        }
+    }
+
     for symbol in &pool {
         let mode = resolve_h3_mode(&args.root, symbol, args.h3.h3_mode, args.h3.h3_lots)?;
         let h3_lots_value = match mode {
@@ -966,6 +1057,15 @@ pub fn run_profiles_with_fill_model(
             let Some(meta) = read_session_meta(dir) else {
                 continue;
             };
+            // Окно «сейчас»: сутки вне окна не читаются вовсе (не только не
+            // считаются) — проверка до резолвера бинлога, симметрично
+            // `sessions_outside_window` выше.
+            let day_utc_peek = meta.started_utc.get(..10).unwrap_or_default();
+            if let Some(w) = &window {
+                if !w.contains_day(day_utc_peek) {
+                    continue;
+                }
+            }
             // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`, ровно
             // один прогон `lob session`) — нет файла для этого символа в
             // этой сессии означает «не сессия этого символа», не ошибку
@@ -1024,6 +1124,11 @@ pub fn run_profiles_with_fill_model(
         h3_mode_label(args.h3.h3_mode),
         args.warmup_ms,
         args.repeat_window_ms,
+    )?;
+    writeln!(
+        file,
+        "# {}",
+        format_window_line(&window, sessions_in_window, sessions_outside_window)?
     )?;
     let mut w = csv::WriterBuilder::new()
         .has_headers(false)
@@ -1155,6 +1260,20 @@ mod tests {
         }
     }
 
+    /// Окно «сейчас» (ticket 21) для тестов, которым сам механизм окна
+    /// безразличен: широкий диапазон, заведомо накрывающий любую дату
+    /// фикстур этого файла (2000..2099), написан один раз — так тесты не
+    /// обязаны держать по двое суток ради `split_calendar`. Не переписывает
+    /// файл, если он уже существует: тесты самого окна пишут свой, более
+    /// узкий, файл до вызова `base_args`.
+    fn write_wide_preregistration(root: &Path) -> PathBuf {
+        let path = root.join("preregistration.md");
+        if !path.is_file() {
+            std::fs::write(&path, "exploratory: 2000-01-01\nconfirmatory: 2099-12-31\n").unwrap();
+        }
+        path
+    }
+
     fn base_args(root: &Path, candidates_csv: PathBuf, out: PathBuf) -> ProfilesArgs {
         ProfilesArgs {
             root: root.to_path_buf(),
@@ -1174,6 +1293,8 @@ mod tests {
                 p95_rtt_ns: None,
                 order_qty_e9: None,
             },
+            preregistration: Some(write_wide_preregistration(root)),
+            window_end: None,
         }
     }
 
@@ -1438,6 +1559,151 @@ mod tests {
             assert_eq!(row.get(24), Some("not_measured"), "net_fill_lower: {row:?}");
         }
         assert!(rows > 0, "таблица не пуста");
+    }
+
+    /// Тело CSV без `#`-комментариев шапки — сравнение строк без учёта
+    /// изменчивых счётчиков окна (`sessions=`/`sessions_outside_window=`).
+    fn csv_body_without_header_comments(text: &str) -> String {
+        text.lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Критерий приёмки ticket 21 (R57), буквально: добавление сессии за
+    /// пределами окна не меняет ни одной строки таблицы. Окно — узкая
+    /// граница `[2026-05-01, 2026-05-02]` из файла предрегистрации; первая
+    /// сессия внутри окна, вторая (добавленная между прогонами) — на
+    /// 2026-06-15, далеко снаружи. `sessions_outside_window` в шапке
+    /// поднимается с 0 до 1, но ни одна строка данных не сдвигается.
+    #[test]
+    fn session_outside_window_does_not_change_any_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+        let preregistration = root.join("preregistration.md");
+        std::fs::write(
+            &preregistration,
+            "exploratory: 2026-05-01\nconfirmatory: 2026-05-02\n",
+        )
+        .unwrap();
+
+        let frames = super::super::test_support::three_level_frames();
+        write_session_dir(
+            root,
+            "2026-05-01T020000Z",
+            "SOLUSDT",
+            "2026-05-01T02:00:00Z",
+            2,
+            true,
+            &frames,
+        );
+
+        let mut args = base_args(root, candidates_csv, root.join("profiles.csv"));
+        args.preregistration = Some(preregistration.clone());
+        args.now_utc = Some("2026-06-20T00:00:00Z".to_string());
+
+        run_profiles(&args).expect("первый прогон, окно уже заморожено файлом");
+        let text_before = std::fs::read_to_string(args.out.clone().unwrap()).unwrap();
+        let header_before = text_before.lines().find(|l| l.starts_with("# window:"));
+        assert!(
+            header_before.is_some_and(|l| l.contains("sessions_outside_window=0")),
+            "{text_before}"
+        );
+
+        // Сессия далеко за пределами окна, добавленная между прогонами.
+        write_session_dir(
+            root,
+            "2026-06-15T020000Z",
+            "SOLUSDT",
+            "2026-06-15T02:00:00Z",
+            3,
+            true,
+            &frames,
+        );
+        run_profiles(&args).expect("второй прогон, окно то же самое");
+        let text_after = std::fs::read_to_string(args.out.clone().unwrap()).unwrap();
+        let header_after = text_after.lines().find(|l| l.starts_with("# window:"));
+        assert!(
+            header_after.is_some_and(|l| l.contains("sessions_outside_window=1")),
+            "сессия вне окна обязана быть учтена в счётчике, не прочитана: {text_after}"
+        );
+
+        assert_eq!(
+            csv_body_without_header_comments(&text_before),
+            csv_body_without_header_comments(&text_after),
+            "сессия за пределами окна не обязана менять ни одну строку таблицы"
+        );
+    }
+
+    /// Шапка `profiles-<дата>.csv` несёт `window: …` с границами, длиной в
+    /// сутках (из границ файла, не из числа сессий) и парой разведочная/
+    /// подтверждающая, из которой окно выведено.
+    #[test]
+    fn profiles_header_prints_window_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+        let preregistration = root.join("preregistration.md");
+        std::fs::write(
+            &preregistration,
+            "exploratory: 2026-05-01,2026-05-02\nconfirmatory: 2026-05-03,2026-05-04\n",
+        )
+        .unwrap();
+        let frames = super::super::test_support::three_level_frames();
+        write_session_dir(
+            root,
+            "2026-05-01T020000Z",
+            "SOLUSDT",
+            "2026-05-01T02:00:00Z",
+            2,
+            true,
+            &frames,
+        );
+
+        let mut args = base_args(root, candidates_csv, root.join("profiles.csv"));
+        args.preregistration = Some(preregistration);
+        run_profiles(&args).expect("боевой прогон с окном");
+
+        let text = std::fs::read_to_string(args.out.clone().unwrap()).unwrap();
+        let window_line = text
+            .lines()
+            .find(|l| l.starts_with("# window:"))
+            .expect(&text);
+        assert!(
+            window_line.contains("window: 2026-05-01..2026-05-04 days=4"),
+            "{window_line}"
+        );
+        assert!(
+            window_line.contains("exploratory=2026-05-01..2026-05-02"),
+            "{window_line}"
+        );
+        assert!(
+            window_line.contains("confirmatory=2026-05-03..2026-05-04"),
+            "{window_line}"
+        );
+    }
+
+    /// Критерий приёмки ticket 21: без `--preregistration` и без
+    /// `--allow-unverified` окно не определено — громкая ошибка, а не тихое
+    /// «все сессии».
+    #[test]
+    fn missing_preregistration_without_allow_unverified_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+
+        let mut args = base_args(root, candidates_csv, root.join("profiles.csv"));
+        args.preregistration = None;
+
+        let err = run_profiles(&args).expect_err("окно не определено без файла предрегистрации");
+        assert!(err.to_string().contains("--preregistration"), "{err}");
     }
 
     /// `PLAN.md` §11 п.5: зеркальная пара (бид/аск с противоположным

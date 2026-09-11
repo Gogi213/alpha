@@ -1087,6 +1087,12 @@ fn run_profiles_and_backtest_chain(
             p95_rtt_ns: None,
             order_qty_e9: None,
         },
+        // Окно «сейчас» (ticket 21, R57): не нужно здесь — `allow_unverified:
+        // true` выше уже снимает требование окна (doc `profiles.rs`); поля
+        // добавлены только чтобы этот литерал остался исчерпывающим после
+        // добавления `--preregistration`/`--window-end` в `ProfilesArgs`.
+        preregistration: None,
+        window_end: None,
     });
     match &profiles_result {
         Ok(s) => lines.push(format!(

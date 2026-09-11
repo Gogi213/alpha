@@ -252,6 +252,161 @@ pub fn split_calendar(days: &[String]) -> Result<CalendarSplit, ShortlistError> 
 }
 
 // ---------------------------------------------------------------------------
+// Окно «сейчас» (R57, ticket 21): слепая приёмка поймала `profiles`/
+// `shortlist` на чтении всех подкаталогов `root` без окна — «сейчас»
+// читалось как скользящее окно фиксированной длины, длина нигде не
+// назначалась до данных и не печаталась. Решение: «сейчас» — интервал
+// `[window_start, window_end]` по суткам UTC, выведенный из уже
+// зафиксированной пары разведочная/подтверждающая (та же граница, тот же
+// файл, тот же приём write-once, что `CalendarSplit`/В-29) — не новое число,
+// а прямое следствие уже решённой границы. `window_start` — первая дата
+// `exploratory:`, `window_end` — последняя дата `confirmatory:`; файл с
+// одной границей без конца (`confirmatory:` пуста или отсутствует) требует
+// `--window-end` вызывающего и дописывает его один раз, тем же приёмом, что
+// сама граница.
+// ---------------------------------------------------------------------------
+
+/// Окно «сейчас»: границы по суткам UTC плюс исходная пара разведочная/
+/// подтверждающая, из которой они выведены (нужна шапке артефакта —
+/// `exploratory=d1..d2 confirmatory=d3..d4`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreregisteredWindow {
+    /// Первая дата разведочной части — начало окна.
+    pub start: String,
+    /// Последняя дата подтверждающей части (или `--window-end`) — конец окна.
+    pub end: String,
+    /// Разведочные сутки, по возрастанию.
+    pub exploratory: Vec<String>,
+    /// Подтверждающие сутки, по возрастанию (может быть пуст только сразу
+    /// после дозаписи `--window-end` в файл с одной границей).
+    pub confirmatory: Vec<String>,
+}
+
+impl PreregisteredWindow {
+    /// Сутки внутри окна — датное сравнение по границам, не членство в
+    /// дискретном списке: сессия суток, для которых `lob pick`/`session`
+    /// ничего не писали в файл предрегистрации (её там просто нет), но
+    /// которые лежат между `start` и `end`, всё равно внутри окна.
+    pub fn contains_day(&self, day: &str) -> bool {
+        day >= self.start.as_str() && day <= self.end.as_str()
+    }
+}
+
+fn parse_ymd(day: &str) -> Result<chrono::NaiveDate, ShortlistError> {
+    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| ShortlistError::BadDay {
+        day: day.to_string(),
+    })
+}
+
+/// Длина окна в календарных сутках, включительно — из границ файла, не из
+/// числа сессий, которые под них попали (критерий приёмки ticket 21: длина
+/// не меняется от данных).
+pub fn window_length_days(window: &PreregisteredWindow) -> Result<i64, ShortlistError> {
+    let start = parse_ymd(&window.start)?;
+    let end = parse_ymd(&window.end)?;
+    Ok((end - start).num_days() + 1)
+}
+
+fn split_csv_list_window(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Разбирает `exploratory:`/`confirmatory:` из текста файла предрегистрации
+/// — тот же формат, что пишет `commands::lob::shortlist::load_or_write_boundary`
+/// (тексты обоих файлов взаимно читаемы: какая бы команда ни написала файл
+/// первой, вторая прочитает его без изменений).
+fn parse_boundary_lines_window(text: &str) -> (Vec<String>, Vec<String>) {
+    let mut exploratory = Vec::new();
+    let mut confirmatory = Vec::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("exploratory: ") {
+            exploratory = split_csv_list_window(rest);
+        } else if let Some(rest) = line.strip_prefix("confirmatory: ") {
+            confirmatory = split_csv_list_window(rest);
+        }
+    }
+    (exploratory, confirmatory)
+}
+
+/// Загружает окно «сейчас» из файла предрегистрации, либо пишет его впервые
+/// (write-once, тот же приём, что граница разведочная/подтверждающая,
+/// В-29): 60/40 по суткам, видимым под `root` на момент первого прогона.
+/// Файл, уже существующий, только читается — новые сутки, появившиеся под
+/// `root` позже, не двигают уже зафиксированное окно.
+///
+/// Файл с одной границей без конца (`confirmatory:` пуста или отсутствует —
+/// не бывает из-под `split_calendar`, только из хендкрафченного/более
+/// раннего файла) требует `window_end`: без него — отказ «окно не
+/// определено», не тихое «все сессии»; с ним — конец дописывается в файл
+/// один раз (`confirmatory: <window_end>`) и дальше читается как обычно.
+pub fn load_or_write_window(
+    path: &Path,
+    days_now: &[String],
+    window_end: Option<&str>,
+) -> Result<PreregisteredWindow, ShortlistError> {
+    if path.is_file() {
+        let text = std::fs::read_to_string(path)?;
+        let (exploratory, confirmatory) = parse_boundary_lines_window(&text);
+        if exploratory.is_empty() {
+            return Err(ShortlistError::Io(format!(
+                "{}: файл предрегистрации не разобрался (нет строки exploratory:)",
+                path.display()
+            )));
+        }
+        let start = exploratory.first().cloned().unwrap_or_default();
+        let (end, confirmatory) = if let Some(last) = confirmatory.last() {
+            (last.clone(), confirmatory)
+        } else {
+            let we = window_end.ok_or_else(|| {
+                ShortlistError::Io(format!(
+                    "{}: файл предрегистрации несёт только границу без конца — нужен \
+                     --window-end (окно «сейчас» не определено)",
+                    path.display()
+                ))
+            })?;
+            let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
+            writeln!(f, "confirmatory: {we}")?;
+            (we.to_string(), vec![we.to_string()])
+        };
+        return Ok(PreregisteredWindow {
+            start,
+            end,
+            exploratory,
+            confirmatory,
+        });
+    }
+    let split = split_calendar(days_now)?;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let text = format!(
+        "# lob profiles/shortlist: окно «сейчас» — граница разведочная/\n\
+         # подтверждающая по календарю, назначена до анализа и заморожена\n\
+         # (R57, SETTLED.md В-29). Файл не переписывается, пока не удалён\n\
+         # вручную — это и есть заморозка окна.\n\
+         exploratory: {}\n\
+         confirmatory: {}\n",
+        split.exploratory.join(","),
+        split.confirmatory.join(","),
+    );
+    std::fs::write(path, &text)?;
+    let start = split.exploratory.first().cloned().unwrap_or_default();
+    let end = split.confirmatory.last().cloned().unwrap_or_default();
+    Ok(PreregisteredWindow {
+        start,
+        end,
+        exploratory: split.exploratory,
+        confirmatory: split.confirmatory,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Сетка профилей и пригодность (Decision 26, 26а).
 // ---------------------------------------------------------------------------
 
@@ -1033,6 +1188,12 @@ pub struct VerdictHeader {
     /// Джекнайф-по-суткам чувствительность (A03) — `None`, если суток для
     /// исключения меньше двух или измерения не было.
     pub jackknife: Option<crate::lob::final_metrics::JackknifeSensitivity>,
+    /// Строка `window: …` (ticket 21, R57) — готовая, форматирует
+    /// вызывающий (`commands::lob::profiles::format_window_line`, общий
+    /// формат с `profiles-<дата>.csv`): `window: debug (all sessions)` в
+    /// отладке, иначе границы, длина в сутках и пара разведочная/
+    /// подтверждающая, из которой окно выведено.
+    pub window: String,
 }
 
 /// Пишет шорт-лист: профили с подтверждающими числами, фактическое число
@@ -1058,6 +1219,7 @@ pub fn write_shortlist_md(
         "outcome: {verdict} gate=G3-в value_bps={} green_threshold_bps={GREEN_NET_BPS}\n",
         fmt_opt(header.value_bps),
     ));
+    text.push_str(&format!("{}\n", header.window));
     text.push_str(&format!("trials: {}\n", frozen.trials()));
     text.push_str(&format!("freeze_commit: {}\n", frozen.commit()));
     text.push_str(&format!("fingerprint: {}\n", frozen.fingerprint_hex()));
@@ -1182,6 +1344,54 @@ mod tests {
         let split = split_calendar(&two).expect("двое суток делятся");
         assert_eq!(split.exploratory.len(), 1);
         assert_eq!(split.confirmatory.len(), 1);
+    }
+
+    /// Ticket 21 (R57): файл без файла на диске пишется впервые тем же
+    /// сплитом 60/40, что `split_calendar`, и несёт обе даты границ.
+    #[test]
+    fn load_or_write_window_writes_once_from_split_calendar() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preregistration.md");
+        let ten_days = days("2026-05-", 1, 10);
+        let window =
+            load_or_write_window(&path, &ten_days, None).expect("первый прогон пишет файл");
+        assert_eq!(window.start, "2026-05-01");
+        assert_eq!(window.end, "2026-05-10");
+        assert_eq!(window_length_days(&window).unwrap(), 10);
+
+        // Новые сутки под root не двигают уже зафиксированное окно — файл
+        // только читается дальше.
+        let more_days = days("2026-05-", 1, 20);
+        let window2 =
+            load_or_write_window(&path, &more_days, None).expect("второй прогон читает файл");
+        assert_eq!(window2, window, "окно зафиксировано первым прогоном");
+    }
+
+    /// Ticket 21 (R57): файл с одной границей без конца (`confirmatory:`
+    /// отсутствует) требует `--window-end` и дописывает его в файл один
+    /// раз — второй прогон с другим значением флага его не двигает.
+    #[test]
+    fn load_or_write_window_requires_and_writes_window_end_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preregistration.md");
+        std::fs::write(&path, "exploratory: 2026-05-01,2026-05-02\n").unwrap();
+
+        assert!(
+            load_or_write_window(&path, &[], None).is_err(),
+            "без --window-end окно не определено"
+        );
+
+        let window = load_or_write_window(&path, &[], Some("2026-05-09"))
+            .expect("с --window-end окно определяется и дописывается");
+        assert_eq!(window.end, "2026-05-09");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("confirmatory: 2026-05-09"), "{text}");
+
+        // Второй прогон с другим значением флага не двигает уже дописанный
+        // конец — тот же приём write-once, что граница целиком.
+        let window2 = load_or_write_window(&path, &[], Some("2026-05-20"))
+            .expect("второй прогон читает уже дописанный конец");
+        assert_eq!(window2.end, "2026-05-09", "конец окна дописан один раз");
     }
 
     /// R-C ревью таска 06: маргиналы по каждой оси (повторяемость теперь
@@ -1696,6 +1906,10 @@ mod tests {
                 ("2026-05-18".to_string(), 3.8),
                 ("2026-05-19".to_string(), 4.2),
             ]),
+            window: "window: 2026-05-01..2026-05-20 days=20 sessions=12 \
+                     sessions_outside_window=0 exploratory=2026-05-01..2026-05-15 \
+                     confirmatory=2026-05-16..2026-05-20"
+                .to_string(),
         };
         write_shortlist_md(
             &path,

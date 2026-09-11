@@ -117,11 +117,13 @@ use crate::lob::shortlist::{
     best_confirmed_net_fill, build_profile_grid, confirmatory_table, decide_verdict,
     freeze_shortlist, select_shortlist, split_calendar, trials_from_runs_csv, write_shortlist_md,
     CalendarSplit, ConfProfile, ConfirmStatus, ExplProfile, FrozenShortlist, InstrumentCoverage,
-    VerdictHeader,
+    PreregisteredWindow, VerdictHeader,
 };
 use crate::stats;
 
-use super::profiles::{resolve_fill_model, run_profiles_with_fill_model, ProfilesArgs};
+use super::profiles::{
+    format_window_line, resolve_fill_model, run_profiles_with_fill_model, ProfilesArgs,
+};
 use super::{ExecutionArgs, H3Args};
 use super::{DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
@@ -564,11 +566,35 @@ fn read_profile_table(path: &Path) -> anyhow::Result<BTreeMap<String, ProfileNum
     Ok(out)
 }
 
+/// Пишет во времянку окно «сейчас» (ticket 21), накрывающее ровно те сутки,
+/// которые уже отобраны в `dest_root` (`build_filtered_root`): нижняя и
+/// верхняя дата поданного списка. `run_profiles_with_fill_model` требует
+/// `--preregistration` в боевом режиме (R57 — окно не назначается молча);
+/// этот файл — не второе окно поверх уже решённого сплита, а его же
+/// граница, переданная тем же файловым каналом, что `lob profiles` ждёт
+/// напрямую: фильтрация уже произошла через содержимое каталога-времянки, а
+/// этот файл лишь не даёт внутреннему вызову отказать по отсутствию окна.
+fn write_full_coverage_preregistration(
+    dest_root: &Path,
+    days: &[String],
+) -> anyhow::Result<PathBuf> {
+    let path = dest_root.join("window-preregistration.md");
+    let first = days.iter().min().cloned().unwrap_or_default();
+    let last = days.iter().max().cloned().unwrap_or_default();
+    std::fs::write(
+        &path,
+        format!("exploratory: {first}\nconfirmatory: {last}\n"),
+    )?;
+    Ok(path)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_profiles_over(
     root: PathBuf,
     runs_out: PathBuf,
     out: PathBuf,
     allow_unverified: bool,
+    preregistration: Option<PathBuf>,
     base: &ShortlistArgs,
 ) -> anyhow::Result<PathBuf> {
     let profiles_args = ProfilesArgs {
@@ -582,6 +608,8 @@ fn run_profiles_over(
         now_utc: base.now_utc.clone(),
         runs_out,
         execution: base.execution,
+        preregistration,
+        window_end: None,
     };
     // Та же тройка RTT/лота, та же модель — на разведочной, подтверждающей и
     // отладке (таск 16, `resolve_fill_model` — общая точка с `lob profiles`).
@@ -673,6 +701,7 @@ fn write_debug_report(
     text.push_str(&format!(
         "# lob shortlist (debug): {date} — не данные, только отладка\n"
     ));
+    text.push_str("window: debug (all sessions)\n");
     text.push_str(&format!("trials: {trials}\n"));
     text.push_str(&format!("shortlisted (n>=100): {}\n", ids.len()));
     text.push_str("confirmatory: пропущена — один период, делить не на что\n");
@@ -710,6 +739,7 @@ fn run_shortlist_debug(
         scratch_runs.path().join("runs.csv"),
         profiles_out,
         true,
+        None,
         args,
     )?;
     let table = read_profile_table(&csv_path)?;
@@ -767,11 +797,14 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         &by_day,
         &split.exploratory,
     )?;
+    let expl_preregistration =
+        write_full_coverage_preregistration(expl_scratch.path(), &split.exploratory)?;
     let expl_csv = run_profiles_over(
         expl_scratch.path().to_path_buf(),
         args.runs_out.clone(),
         expl_scratch.path().join("profiles-exploratory.csv"),
         false,
+        Some(expl_preregistration),
         args,
     )?;
     let expl_table = read_profile_table(&expl_csv)?;
@@ -806,11 +839,14 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         &split.confirmatory,
     )?;
     let conf_runs_scratch = ScratchRoot::new("conf-runs")?;
+    let conf_preregistration =
+        write_full_coverage_preregistration(conf_scratch.path(), &split.confirmatory)?;
     let conf_csv = run_profiles_over(
         conf_scratch.path().to_path_buf(),
         conf_runs_scratch.path().join("runs.csv"),
         conf_runs_scratch.path().join("profiles-confirmatory.csv"),
         false,
+        Some(conf_preregistration),
         args,
     )?;
     let conf_table = read_profile_table(&conf_csv)?;
@@ -892,11 +928,14 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
             let loo_scratch = ScratchRoot::new(&format!("loo-{excluded}"))?;
             build_filtered_root(loo_scratch.path(), &instruments_csv, &by_day, &subset_days)?;
             let loo_runs_scratch = ScratchRoot::new(&format!("loo-runs-{excluded}"))?;
+            let loo_preregistration =
+                write_full_coverage_preregistration(loo_scratch.path(), &subset_days)?;
             let loo_csv = run_profiles_over(
                 loo_scratch.path().to_path_buf(),
                 loo_runs_scratch.path().join("runs.csv"),
                 loo_runs_scratch.path().join("profiles-loo.csv"),
                 false,
+                Some(loo_preregistration),
                 args,
             )?;
             let loo_table = read_profile_table(&loo_csv)?;
@@ -939,6 +978,33 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .filter(|r| r.status != ConfirmStatus::InsufficientData)
         .map(|r| r.g)
         .max();
+    // Окно «сейчас» (ticket 21, R57) — то же самое, выведенное из уже
+    // решённой границы `split` (файл предрегистрации), не новое число:
+    // границы — крайние даты `exploratory`/`confirmatory`, сессии
+    // внутри/вне — по тем же суткам `by_day`, что уже строили времянки выше.
+    let window_bounds = PreregisteredWindow {
+        start: split.exploratory.first().cloned().unwrap_or_default(),
+        end: split.confirmatory.last().cloned().unwrap_or_default(),
+        exploratory: split.exploratory.clone(),
+        confirmatory: split.confirmatory.clone(),
+    };
+    let window_days: std::collections::BTreeSet<&String> = split
+        .exploratory
+        .iter()
+        .chain(split.confirmatory.iter())
+        .collect();
+    let sessions_in_window: usize = by_day
+        .iter()
+        .filter(|(d, _)| window_days.contains(d))
+        .map(|(_, v)| v.len())
+        .sum();
+    let total_valid_sessions: usize = by_day.values().map(Vec::len).sum();
+    let sessions_outside_window = total_valid_sessions.saturating_sub(sessions_in_window);
+    let window_line = format_window_line(
+        &Some(window_bounds),
+        sessions_in_window,
+        sessions_outside_window,
+    )?;
     let header = VerdictHeader {
         value_bps: best_confirmed_net_fill(&rows),
         dsr,
@@ -948,6 +1014,7 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         #[allow(clippy::cast_possible_truncation)]
         p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
         jackknife,
+        window: window_line,
     };
 
     let out = args
