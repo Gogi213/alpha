@@ -284,3 +284,12 @@ cargo run --release -- lob <подкоманда>
 - `ScratchRoot`/`build_filtered_root` — фильтр сессий по суткам через временный каталог (копия/линк каталогов сессий; на многодневных данных — дорого, пересмотреть).
 - Отладочный прогон на `data/pilot-debug/20260911T040154Z/`: `trials=147, shortlisted=29, debug=true` → `data/shortlist-debug/` (не коммитится).
 - **Открыто для таска 13:** (1) `G` (сутки на профиль) на подтверждающей не меряется — `profiles.rs` не несёт число суток на профиль, `g = 0` → сегодня всё `insufficient` (консервативно, «confirmed» не выдумывается); нужен счётчик суток на профиль (расширение `profiles.rs`/`WatchSample` таска 07); (2) `hour_dependence_test`/`log_hour_test` не подключены к `runs.csv` (`hour_tests = 0` в `total_trials`); (3) `FillModel` = `NoFillModel` → `fill*` `not_measured`, `confirmed` недостижим до `FillModel` поверх `lob backtest`.
+
+## Из таска 13 — вердикт в шапке шорт-листа, DSR в вердикте
+
+- Шапка `shortlist-<дата>.md`: `outcome: RED insufficient | RED market | GREEN-thin | GREEN  gate=G3-в value_bps=.. green_threshold_bps=3` / `trials / freeze_commit / fingerprint / threshold` (из констант) / `dsr_target=0.95 dsr=.. pbo=.. cpcv_oos_sharpe=..` / `G: .. p_grid_resolution: ..` / `jackknife_by_day: min/max/range | none`; таблица + справочные `net_fill_usd`, `green_threshold_usd` (вне гейта).
+- `lob::shortlist::ShortlistVerdict { RedInsufficientPower, RedNoEdge, GreenThin, Green }` — красный по мощности печатается иначе, чем красный про рынок (R68). `decide_profile(n, g, net_fill_lower, observed_sharpe, total_trials)` — порог двигается DSR по фактическому `N`: `final_metrics::{DSR_TARGET, dsr_for_trial_count, required_sharpe_for_dsr}`; «нижняя граница > 0 без поправки» — больше не вердикт.
+- `G` по суткам на профиль — `profiles.rs` колонка `g` (`ProfileAgg::days`, HEADER col 27). Тест на час — `hour_dependence_test` → `log_hour_test` в `runs.csv`; `total_trials` = `trials_from_runs_csv` (реальные строки, не номинал).
+- `final_metrics::jackknife_sensitivity` — джекнайф-по-суткам (A03), механизм протестирован.
+- Отладочный прогон (`data/shortlist-debug/shortlist-2026-09-11-t13.md`): `trials=147, shortlisted=29, confirmatory: пропущена` — «недостаточно данных», не красный про рынок.
+- **Открыто → таск 16:** `FillModel` поверх `lob::backtest` **не реализован** — `observed_sharpe`/DSR/PBO/CPCV/jackknife печатают `none`, `Confirmed` недостижим; нужна структура `BacktestFillModel` (книжный поток сессии, не только `mids`) и подключение к `run_profiles_over`/`run_profiles_with_fill_model`.
