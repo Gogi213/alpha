@@ -49,24 +49,44 @@
 //! (`PLAN.md`, Out of scope). Замер идёт от границы `ws.rs`, как `steady_frames`
 //! в `src/lob/levels.rs` меряет от границы кадров, а не от сокета.
 
-use std::fs::{File, OpenOptions};
-use std::io;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Args;
 
-use crate::binlog::{Header, Record};
+use crate::binlog::Record;
 use crate::book::{Book, Side, Update};
 use crate::bybit::conn::{
     BackoffConfig, BybitPublicLinearConnector, Clock, ConnConfig, ConnEvent, Connection,
     SystemClock,
 };
-use crate::bybit::rest::{
-    fetch_all_linear_instruments, BybitPublicRest, PublicRest, BYBIT_MAINNET_URL,
-};
+use crate::bybit::rest::BYBIT_MAINNET_URL;
 use crate::bybit::verify_sidecar::{offer_verify_update, spawn_verify_sidecar, VerifyMsg};
 use crate::bybit::ws::{Event, Trade};
+
+mod errors;
+mod gaps;
+mod paths;
+mod steps;
+
+// Внешние пути `commands::record::…` не меняются: подмодули — раскладка
+// файла, а не новые имена. Приватное, что зовут `Recorder`/`run_record` и
+// тесты через `super::`, — тем же списком, без `pub`.
+pub use errors::{RecordError, StepViolation};
+pub use gaps::{append_gap_row, ensure_gaps_csv, read_gap_rows, GapKind, GapRow};
+pub(crate) use paths::{claim_part, claim_part_with};
+pub use paths::{
+    day_file_path, day_index_of_day_str, day_string_of_ns, gaps_csv_path, instruments_csv_path,
+    ts_utc_of_ns, NS_PER_DAY,
+};
+#[cfg(test)]
+use steps::spawn_steps_authority_with_rest;
+pub use steps::{check_level_step, load_steps_for_symbol};
+use steps::{
+    drain_latest_steps, request_steps_refresh, resolve_suspicion, spawn_steps_authority,
+    validate_steps,
+};
 
 // ---------------------------------------------------------------------------
 // Константы. Каждое число — из `PLAN.md`, кроме явно помеченных
@@ -133,306 +153,6 @@ const RECORD_BACKOFF: BackoffConfig = BackoffConfig {
 /// поэтому 4096 кадров — это часы запаса против всплесков, а не минуты.
 const CHANNEL_CAPACITY: usize = 4_096;
 
-// ---------------------------------------------------------------------------
-// Ошибки. Один тип на весь модуль: и сбой ввода-вывода, и отторгнутое событие.
-// ---------------------------------------------------------------------------
-
-/// Отказ рекордера. Ни один вариант не паникует: процесс рассчитан на недели
-/// без присмотра, и вырожденный вход обязан вернуться ошибкой с причиной.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RecordError {
-    /// Файл не открылся / не записался / не закрылся.
-    Io(String),
-    /// `gaps.csv` / `instruments.csv` не разобрались как CSV.
-    Csv(String),
-    /// `instruments.csv`: нет файла, нет символа, не число, неположительный шаг.
-    Steps(String),
-    /// Шаги из кода/REST, а не из файла: нулевой или отрицательный масштаб —
-    /// дельты в тиках с таким масштабом молча неверны, поэтому отказ, а не
-    /// запись (та же дисциплина, что `validate_header` в `binlog`, но здесь
-    /// аргумент приходит из кода вызывающего, а не с диска — см. её doc).
-    BadSteps { tick_e9: i64, step_e9: i64 },
-    /// Кадр не записался / не сжался.
-    Binlog(String),
-    /// Живое событие до первого снапшота файла. Ошибка программирования
-    /// вызывающего (порядок «снапшот первым» — контракт `Recorder`), а не
-    /// порча данных: событие отбрасывается loudly, файл остаётся валидным
-    /// (заголовок + ноль кадров), и следующий читатель скажет `MissingSnapshot`,
-    /// а не прочитает обрезанные сутки как полные.
-    NoSnapshot,
-    /// Горячий детектор: цена не кратна сохранённому тику или размер — шагу.
-    /// Первое же затронутое событие; ни книга, ни файл не тронуты.
-    Step {
-        price_e9: i64,
-        qty_e9: i64,
-        tick_e9: i64,
-        step_e9: i64,
-    },
-    /// Разрыв `u` последовательности Bybit. Книга больше не доверена;
-    /// соединение уже шлёт ресинк-подписку само (`bybit::conn`), рекордер
-    /// только фиксирует строку в `gaps.csv` и ждёт свежий снапшот.
-    SequenceGap { expected: u64, got: u64 },
-    /// Книга пересеклась после применения. Та же реакция, что на разрыв:
-    /// строка в `gaps.csv`, ожидание снапшота, без ротации файла.
-    Crossed {
-        best_bid_tick: i64,
-        best_ask_tick: i64,
-    },
-    /// Исчерпаны номера частей суток. Практически недостижимо (часть — это
-    /// ротация по смене шагов внутри одних суток), но молча перезаписать
-    /// часть 1 было бы потерей данных, поэтому явная ошибка.
-    TooManyParts { day: String },
-    /// Строка суток — не `YYYY-MM-DD`.
-    BadDay { day: String },
-    /// Метка времени вне диапазона календаря при форматировании дня/`ts_utc`.
-    BadTimestamp { ts_ns: i64 },
-}
-
-impl std::fmt::Display for RecordError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RecordError::Io(e) => write!(f, "ввод-вывод: {e}"),
-            RecordError::Csv(e) => write!(f, "CSV: {e}"),
-            RecordError::Steps(e) => write!(f, "шаги инструмента: {e}"),
-            RecordError::BadSteps { tick_e9, step_e9 } => {
-                write!(
-                    f,
-                    "шаги неположительны: tick_e9={tick_e9}, step_e9={step_e9}"
-                )
-            }
-            RecordError::Binlog(e) => write!(f, "бинлог: {e}"),
-            RecordError::NoSnapshot => {
-                write!(f, "живое событие до первого снапшота файла")
-            }
-            RecordError::Step {
-                price_e9,
-                qty_e9,
-                tick_e9,
-                step_e9,
-            } => write!(
-                f,
-                "цена {price_e9} не на тике {tick_e9} или размер {qty_e9} не на шаге {step_e9}"
-            ),
-            RecordError::SequenceGap { expected, got } => {
-                write!(f, "разрыв u: ждали {expected}, пришло {got}")
-            }
-            RecordError::Crossed {
-                best_bid_tick,
-                best_ask_tick,
-            } => write!(
-                f,
-                "книга пересеклась: бид {best_bid_tick} >= аск {best_ask_tick}"
-            ),
-            RecordError::TooManyParts { day } => {
-                write!(f, "исчерпаны номера частей суток {day}")
-            }
-            RecordError::BadDay { day } => {
-                write!(f, "сутки не разобрались как YYYY-MM-DD: {day}")
-            }
-            RecordError::BadTimestamp { ts_ns } => {
-                write!(f, "метка {ts_ns} нс вне диапазона календаря")
-            }
-        }
-    }
-}
-
-impl std::error::Error for RecordError {}
-
-impl From<io::Error> for RecordError {
-    fn from(e: io::Error) -> Self {
-        RecordError::Io(e.to_string())
-    }
-}
-
-impl From<csv::Error> for RecordError {
-    fn from(e: csv::Error) -> Self {
-        RecordError::Csv(e.to_string())
-    }
-}
-
-impl From<crate::binlog::BinlogError> for RecordError {
-    fn from(e: crate::binlog::BinlogError) -> Self {
-        RecordError::Binlog(e.to_string())
-    }
-}
-
-/// Нарушение шагов одной пары цена/размер — то, что возвращает горячий
-/// детектор до упаковки в `RecordError`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StepViolation {
-    pub price_e9: i64,
-    pub qty_e9: i64,
-    pub tick_e9: i64,
-    pub step_e9: i64,
-}
-
-impl From<StepViolation> for RecordError {
-    fn from(v: StepViolation) -> Self {
-        RecordError::Step {
-            price_e9: v.price_e9,
-            qty_e9: v.qty_e9,
-            tick_e9: v.tick_e9,
-            step_e9: v.step_e9,
-        }
-    }
-}
-
-fn validate_steps(tick_e9: i64, step_e9: i64) -> Result<(), RecordError> {
-    if tick_e9 <= 0 || step_e9 <= 0 {
-        return Err(RecordError::BadSteps { tick_e9, step_e9 });
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Имена файлов.
-// ---------------------------------------------------------------------------
-
-/// Путь суточного файла. Часть 1 — каноническое имя без суффикса; ротации по
-/// смене шагов внутри тех же суток получают `-p2`, `-p3`, … — перезаписать
-/// часть 1 новым заголовком было бы потерей уже записанных суток.
-pub fn day_file_path(root: &Path, symbol: &str, day: &str, part: u32) -> PathBuf {
-    if part <= 1 {
-        root.join(format!("{symbol}-{day}.binlog"))
-    } else {
-        root.join(format!("{symbol}-{day}-p{part}.binlog"))
-    }
-}
-
-/// `gaps.csv` — один на корень, на все символы и сутки: десятки строк, читает
-/// человек (Decision 23: CSV только для метаданных-обочин).
-pub fn gaps_csv_path(root: &Path) -> PathBuf {
-    root.join("gaps.csv")
-}
-
-/// `instruments.csv` — пишет `lob pick`, читает запись (шаги для заголовка).
-pub fn instruments_csv_path(root: &Path) -> PathBuf {
-    root.join("instruments.csv")
-}
-
-// ---------------------------------------------------------------------------
-// gaps.csv: шапка всегда, строки только на разрывах.
-// ---------------------------------------------------------------------------
-
-/// Причина строки в `gaps.csv`. Сериализуется snake_case и читается назад тем
-/// же именем — переименование варианта без `serde(rename)` молча разойдётся
-/// со старыми файлами, поэтому имена зафиксированы тестом `gap_row_round_trips`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GapKind {
-    /// Смена `tickSize`/`qtyStep`: файл закрыт, открыт следующий, заголовок
-    /// нового несёт новые шаги.
-    StepChange,
-    /// Разрыв `u`: событие пропущено, книга ждёт снапшота.
-    SequenceGap,
-    /// Пересечение книги или немасштабное нарушение инварианта.
-    BookInvariant,
-    /// Кадр транспорта не разобрался: событие потеряно до книги.
-    ParseError,
-    /// Кадр не записался на диск (таск 25): потерян целый батч — до
-    /// `FRAME_TARGET_RECORDS` записей, молчать нельзя.
-    WriteFailed,
-}
-
-/// Одна строка `gaps.csv`. Колонки: момент (UTC, RFC 3339), символ, причина,
-/// человекочитаемая деталь (какое поле, какие значения, какие пороги).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GapRow {
-    pub ts_utc: String,
-    pub symbol: String,
-    pub kind: GapKind,
-    pub detail: String,
-}
-
-/// Шапка `gaps.csv` — те же имена и в том же порядке, что поля `GapRow`.
-/// Ручная запись, а не `serialize` пустой строки: `csv` пишет шапку только на
-/// первом `serialize`, а файл с нулём строк обязан шапку уже нести
-/// (done-condition 0.3: «`gaps.csv` с нулём строк» — это шапка без данных,
-/// а не отсутствующий файл). Дрейф имён ловит `gap_row_round_trips`.
-const GAPS_HEADER: [&str; 4] = ["ts_utc", "symbol", "kind", "detail"];
-
-/// Создаёт `gaps.csv` с шапкой, если его нет или он пуст. Существующий
-/// непустой файл не трогает — часовой замер не имеет права терять уже
-/// записанные разрывы (тот же приём, что `clock::append_row`).
-pub fn ensure_gaps_csv(path: &Path) -> Result<(), RecordError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let needs_header = std::fs::metadata(path)
-        .map(|m| m.len() == 0)
-        .unwrap_or(true);
-    if needs_header {
-        // `truncate(false)` явно: файл здесь либо отсутствует, либо нулевой
-        // длины (проверено выше) — усекать нечего, и это зафиксировано
-        // вызовом, а не умолчанием `OpenOptions`.
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
-        let mut w = csv::WriterBuilder::new()
-            .has_headers(false)
-            .from_writer(file);
-        w.write_record(GAPS_HEADER)?;
-        w.flush()?;
-    }
-    Ok(())
-}
-
-/// Дописывает строку. Шапка пишется тем же вызовом, если файла не было, —
-/// вызывающему не нужно помнить про `ensure_gaps_csv` отдельно.
-pub fn append_gap_row(path: &Path, row: &GapRow) -> Result<(), RecordError> {
-    ensure_gaps_csv(path)?;
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
-    let mut w = csv::WriterBuilder::new()
-        .has_headers(false)
-        .from_writer(file);
-    w.serialize(row)?;
-    w.flush()?;
-    Ok(())
-}
-
-/// Читает все строки. Пустого файла (ноль байт, без шапки) здесь быть не
-/// должно после `ensure_gaps_csv`, но если он подсунут напрямую — это ноль
-/// строк, а не ошибка разбора: отсутствие данных не есть повреждённые данные.
-pub fn read_gap_rows(path: &Path) -> Result<Vec<GapRow>, RecordError> {
-    if std::fs::metadata(path)
-        .map(|m| m.len() == 0)
-        .unwrap_or(true)
-    {
-        return Ok(Vec::new());
-    }
-    let mut r = csv::Reader::from_path(path)?;
-    r.deserialize::<GapRow>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(RecordError::from)
-}
-
-// ---------------------------------------------------------------------------
-// Горячий детектор смены шагов: одна целочисленная операция на поле.
-// ---------------------------------------------------------------------------
-
-/// Проверяет, что цена кратна сохранённому тику, а размер — сохранённому шагу.
-/// Вызывается на уже разобранных `i64` до изменения книги и файла — первое же
-/// затронутое событие даёт `Err`, а не тихую запись по неверному масштабу.
-/// Ноль аллокаций: только `%` и сравнение.
-pub fn check_level_step(
-    price_e9: i64,
-    qty_e9: i64,
-    tick_e9: i64,
-    step_e9: i64,
-) -> Result<(), StepViolation> {
-    if price_e9 % tick_e9 != 0 || qty_e9 % step_e9 != 0 {
-        return Err(StepViolation {
-            price_e9,
-            qty_e9,
-            tick_e9,
-            step_e9,
-        });
-    }
-    Ok(())
-}
-
 /// Флаг события книги по стороне и виду кадра — те же биты, что использует
 /// экспортёр (шаг 6.1) и тесты `binlog`: снапшот несёт бит `DEPTH_SNAPSHOT`,
 /// дельта — `DEPTH`, сторона — `BUY` (бид) / `SELL` (аск), всё — `LOCAL`.
@@ -478,54 +198,6 @@ pub struct Recorder {
     has_snapshot: bool,
     records_in_file: u64,
     records_total: u64,
-}
-
-/// Первая свободная часть суток начиная с `from`: часть 1, если файла нет
-/// (обычный случай), иначе `-p2`, `-p3`, … — перезапись занятого имени была
-/// бы потерей данных. `pub(crate)`: таск 22 переиспользует её из
-/// `commands::lob::session` — второй сессии в те же сутки нужен тот же поиск
-/// свободного номера, что уже применяет `lob record`, а не свой расчёт.
-pub(crate) fn claim_part(
-    root: &Path,
-    symbol: &str,
-    day: &str,
-    from: u32,
-    tick_e9: i64,
-    step_e9: i64,
-) -> Result<(crate::binlog::Writer<File>, u32), RecordError> {
-    claim_part_with(root, symbol, day, from, tick_e9, step_e9, |file| file)
-}
-
-/// То же, что `claim_part`, но приёмник файла выбирает вызывающий (таск 25):
-/// `lob session` заворачивает `File` в свой покадровый буфер, `lob record`
-/// пишет в голый `File` — один цикл поиска свободного номера части на
-/// обоих, а не две копии.
-pub(crate) fn claim_part_with<W: std::io::Write>(
-    root: &Path,
-    symbol: &str,
-    day: &str,
-    from: u32,
-    tick_e9: i64,
-    step_e9: i64,
-    wrap: impl FnOnce(File) -> W,
-) -> Result<(crate::binlog::Writer<W>, u32), RecordError> {
-    let mut part = from.max(1);
-    loop {
-        let path = day_file_path(root, symbol, day, part);
-        if !path.exists() {
-            let file = File::create(&path)?;
-            let header = Header {
-                tick_e9,
-                step_e9,
-                max_records_per_frame: MAX_RECORDS_PER_FRAME,
-            };
-            let writer = crate::binlog::Writer::create(wrap(file), header, ZSTD_LEVEL)?;
-            return Ok((writer, part));
-        }
-        part = part.checked_add(1).ok_or(RecordError::TooManyParts {
-            day: day.to_string(),
-        })?;
-    }
 }
 
 impl Recorder {
@@ -860,53 +532,6 @@ impl Recorder {
 }
 
 // ---------------------------------------------------------------------------
-// Шаги из instruments.csv (пишет `lob pick`, шаг 0.4).
-// ---------------------------------------------------------------------------
-
-/// Строка `instruments.csv` — только колонки, нужные записи. Остальные
-/// (`min_order_qty`, `min_notional_value`, …) игнорируются разбором, но их
-/// наличие в файле обязательно: файл читается по именам заголовков, и
-/// перепутанные колонки дали бы чужие шаги молча — от этого страхует тест
-/// `steps_come_from_the_right_columns`, где все четыре числа различны.
-#[derive(serde::Deserialize)]
-struct InstrumentStepsRow {
-    symbol: String,
-    tick_size: String,
-    qty_step: String,
-}
-
-/// `(tick_e9, step_e9)` символа из `instruments.csv`. Тот же масштаб 1e-9 и
-/// тот же разбор `parse_e9`, что книга и живой поток (A1) — три независимых
-/// масштаба здесь разошлись бы при переносе константы.
-pub fn load_steps_for_symbol(
-    instruments_csv: &Path,
-    symbol: &str,
-) -> Result<(i64, i64), RecordError> {
-    // Единственный читатель `instruments.csv` (дозапрос по ревью таска 08,
-    // ось Craft) — терпит метку `debug` первой строкой, голый
-    // `csv::Reader::from_path` читал бы её как заголовок.
-    let mut r = crate::commands::lob::pick::instruments_csv_reader(instruments_csv)?;
-    for row in r.deserialize::<InstrumentStepsRow>() {
-        let row: InstrumentStepsRow = row?;
-        if row.symbol != symbol {
-            continue;
-        }
-        let tick_e9 = crate::bybit::ws::parse_e9(row.tick_size.trim()).ok_or_else(|| {
-            RecordError::Steps(format!("{symbol}: tick_size не разобрался как число"))
-        })?;
-        let step_e9 = crate::bybit::ws::parse_e9(row.qty_step.trim()).ok_or_else(|| {
-            RecordError::Steps(format!("{symbol}: qty_step не разобрался как число"))
-        })?;
-        validate_steps(tick_e9, step_e9)?;
-        return Ok((tick_e9, step_e9));
-    }
-    Err(RecordError::Steps(format!(
-        "{symbol}: нет в {} — сначала `lob pick`",
-        instruments_csv.display()
-    )))
-}
-
-// ---------------------------------------------------------------------------
 // Живой контур: сокет → книга → файл. Тонкая оболочка (как `run_pick` в
 // `lob.rs`): вся проверяемая логика выше — в чистых функциях и `Recorder`,
 // здесь только сеть, часы и ожидание. Без сети не тестируется по той же
@@ -954,147 +579,6 @@ pub struct RecordSummary {
 enum SessionEnd {
     StepChange { tick_e9: i64, step_e9: i64 },
     Stop { reason: StopReason },
-}
-
-/// Авторитетные шаги из `instruments-info` (холодный детектор). Ошибка сети
-/// или отсутствие символа — это `Steps`, а не паника: часовой авторитет
-/// переживает её и пробует снова через час.
-fn refresh_steps<R: PublicRest>(rest: &mut R, symbol: &str) -> Result<(i64, i64), RecordError> {
-    let instruments = fetch_all_linear_instruments(rest)
-        .map_err(|e| RecordError::Steps(format!("instruments-info: {e}")))?;
-    let inst = instruments
-        .iter()
-        .find(|i| i.symbol == symbol)
-        .ok_or_else(|| RecordError::Steps(format!("{symbol}: нет в instruments-info")))?;
-    validate_steps(inst.tick_e9, inst.qty_step_e9)?;
-    Ok((inst.tick_e9, inst.qty_step_e9))
-}
-
-/// Горячий путь будит авторитет, не дожидаясь HTTP (ремонт 0.7 Р1).
-/// `try_send` на канале ёмкостью 1: полный канал — это уже pending
-/// пробуждение, второе не нужно; закрытый — авторитет умер, ждать некого.
-/// Вызов не блокируется никогда — это и держит «ноль HTTP в событийном пути».
-fn request_steps_refresh(wake_tx: &std::sync::mpsc::SyncSender<()>) {
-    let _ = wake_tx.try_send(());
-}
-
-/// Один цикл авторитета: fetch → `mpsc`, затем ожидание до часа или
-/// пробуждения. Общая часть боевого и тестового спавна (ремонт 0.7 Р2) —
-/// источник шагов за трейтом, а не жёсткий `BybitPublicRest` в теле цикла.
-fn run_steps_authority_loop<R: PublicRest>(
-    rest: &mut R,
-    symbol: &str,
-    steps_tx: std::sync::mpsc::Sender<(i64, i64)>,
-    wake_rx: std::sync::mpsc::Receiver<()>,
-) {
-    loop {
-        match refresh_steps(rest, symbol) {
-            Ok(steps) => {
-                if steps_tx.send(steps).is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                eprintln!("record: instruments-info недоступен ({e}), повтор через час");
-            }
-        }
-        match wake_rx.recv_timeout(Duration::from_secs(HOURLY_REFRESH_SECS)) {
-            Ok(()) => while wake_rx.try_recv().is_ok() {},
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-}
-
-/// Часовой авторитет шагов в ОС-потоке (шаг 0.7, Decision 24).
-/// Отдельный `std::thread` (НЕ tokio-задача) со своим `BybitPublicRest`:
-/// цикл fetch → `mpsc` → `recv_timeout` 1h/пробуждение. Внутри ОС-потока
-/// `block_on` легален — чужого рантайма там нет, поэтому вложенный рантайм
-/// невозможен. Цикл записи никогда не ждёт HTTP: он только толкает
-/// `try_send` в канал-будильник и дренирует готовое из канала шагов.
-fn spawn_steps_authority(
-    base_url: String,
-    symbol: String,
-    wake_rx: std::sync::mpsc::Receiver<()>,
-) -> std::sync::mpsc::Receiver<(i64, i64)> {
-    let (tx, rx) = std::sync::mpsc::channel::<(i64, i64)>();
-    let spawned = std::thread::Builder::new()
-        .name("steps-authority".to_string())
-        .spawn(move || {
-            let mut rest = match BybitPublicRest::new(base_url) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("record: авторитет шагов не создался ({e})");
-                    return;
-                }
-            };
-            run_steps_authority_loop(&mut rest, &symbol, tx, wake_rx);
-        });
-    if let Err(e) = spawned {
-        eprintln!("record: авторитет шагов не запустился ({e})");
-    }
-    rx
-}
-
-/// Тестовый спавн того же цикла с фейковым источником шагов (ремонт 0.7 Р2).
-/// Боевой код его не зовёт — только тесты стыка «подозрение → авторитет →
-/// ротация» без сети.
-#[cfg(test)]
-fn spawn_steps_authority_with_rest<R: PublicRest + Send + 'static>(
-    rest: R,
-    symbol: String,
-    wake_rx: std::sync::mpsc::Receiver<()>,
-) -> std::sync::mpsc::Receiver<(i64, i64)> {
-    let (tx, rx) = std::sync::mpsc::channel::<(i64, i64)>();
-    let spawned = std::thread::Builder::new()
-        .name("steps-authority-test".to_string())
-        .spawn(move || {
-            let mut rest = rest;
-            run_steps_authority_loop(&mut rest, &symbol, tx, wake_rx);
-        });
-    if let Err(e) = spawned {
-        eprintln!("record: тестовый авторитет не запустился ({e})");
-    }
-    rx
-}
-
-/// Решение по горячему подозрению на последнем известном авторитете
-/// (ремонт 0.7 Р2): свежие шаги отличаются — ротация файла со строкой
-/// `step_change`, совпадают или свежести нет — строка подавления
-/// `book_invariant` (первая на часть файла, дальше счётчик у вызывающего).
-/// Возвращает `Some` новых шагов при ротации, `None` при подавлении.
-/// Тот же код зовёт и цикл записи, и тесты стыка — шов один, а не два.
-fn resolve_suspicion(
-    rec: &mut Recorder,
-    latest: Option<(i64, i64)>,
-    ts_utc: &str,
-    detail: &str,
-    logged: &mut bool,
-    suppressed: &mut u64,
-) -> Result<Option<(i64, i64)>, RecordError> {
-    if let Some((new_tick, new_step)) = latest {
-        if new_tick != rec.tick_e9() || new_step != rec.step_e9() {
-            rec.rotate_on_step_change(new_tick, new_step, ts_utc, detail)?;
-            return Ok(Some((new_tick, new_step)));
-        }
-    }
-    if !*logged {
-        rec.log_gap(GapKind::BookInvariant, ts_utc, detail)?;
-        *logged = true;
-    }
-    *suppressed = suppressed.saturating_add(1);
-    Ok(None)
-}
-
-/// Дрен канала авторитета: забирает всё, возвращает только последнее.
-/// `None` — свежести нет (авторитет ещё не ответил или недоступен):
-/// вызывающий идёт в ветку подавления, а не ждёт сеть.
-fn drain_latest_steps(rx: &mut std::sync::mpsc::Receiver<(i64, i64)>) -> Option<(i64, i64)> {
-    let mut latest = None;
-    while let Ok(v) = rx.try_recv() {
-        latest = Some(v);
-    }
-    latest
 }
 
 /// Время матчинга события в миллисекундах — ось ротации по суткам UTC и ключ
@@ -1449,55 +933,6 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
         files,
         stop_reason,
     })
-}
-
-/// Наносекунд в сутках UTC. Деление целочисленное — горячий путь сравнивает
-/// дни этим же делителем без форматирования строк (см. `run_record`).
-pub const NS_PER_DAY: i64 = 86_400 * 1_000_000_000;
-
-/// Календарная дата UTC (`YYYY-MM-DD`) метки в наносекундах. Ошибка вместо
-/// паники на внедиапазонной метке: метка приходит из сети/часов, а паника
-/// гасит недели записи.
-pub fn day_string_of_ns(ts_ns: i64) -> Result<String, RecordError> {
-    let secs = ts_ns.div_euclid(1_000_000_000);
-    // Остаток доказуемо < 1e9 < u32::MAX по построению `rem_euclid`.
-    #[allow(clippy::cast_possible_truncation)]
-    let nanos = ts_ns.rem_euclid(1_000_000_000) as u32;
-    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nanos)
-        .ok_or(RecordError::BadTimestamp { ts_ns })?;
-    Ok(dt.format("%Y-%m-%d").to_string())
-}
-
-/// Момент UTC для `ts_utc` в `gaps.csv` (RFC 3339). Тотальная: на
-/// внедиапазонной метке пишет сырые наносекунды с префиксом, а не падает, —
-/// строка-деталь не имеет права ронять запись разрыва, которую оформляет.
-pub fn ts_utc_of_ns(ts_ns: i64) -> String {
-    let secs = ts_ns.div_euclid(1_000_000_000);
-    // Тот же доказанный остаток, что в `day_string_of_ns` выше.
-    #[allow(clippy::cast_possible_truncation)]
-    let nanos = ts_ns.rem_euclid(1_000_000_000) as u32;
-    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, nanos)
-        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
-        .unwrap_or_else(|| format!("nanos:{ts_ns}"))
-}
-
-/// Индекс суток UTC (целые дни от эпохи) строки `YYYY-MM-DD`. Нужен горячему
-/// пути: сравнение индексов — целочисленное деление без форматирования строк
-/// на событие; строка форматируется только на ротации.
-pub fn day_index_of_day_str(day: &str) -> Result<i64, RecordError> {
-    let date =
-        chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| RecordError::BadDay {
-            day: day.to_string(),
-        })?;
-    // Дни от эпохи через публичную арифметику дат, а не через приватный
-    // счётчик эры: 1970-01-01 даёт ровно 0, что проверяет тест. `expect`
-    // здесь невозможен по режиму линтов, поэтому невероятная ветвь
-    // (календарь без 1970-01-01) возвращается той же ошибкой, что и кривой
-    // вход, — с фиксированной строкой вместо пользовательского ввода.
-    let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).ok_or_else(|| RecordError::BadDay {
-        day: "1970-01-01".to_string(),
-    })?;
-    Ok(date.signed_duration_since(epoch).num_days())
 }
 
 #[cfg(test)]
