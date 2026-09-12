@@ -1046,10 +1046,14 @@ window.STATE =
       "blockedBy": [],
       "wave": 12,
       "zone": ["src/lob/levels.rs", "src/commands/lob/replay.rs", "src/commands/lob/touches.rs", "src/commands/lob/mod.rs", "CLAUDE.md", "docs/COMMANDS.md"],
-      "status": "in_progress",
+      "status": "done",
       "startedAt": "2026-09-13T01:20:00+04:00",
-      "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "владелец 2026-09-13: расшифровки dizzi/станок — «это важно очень», BTC/ETH нет (В-42). Третий тип записи TouchRecord + lob touches CSV; оси в сетку — после отдельной предрегистрации"
+      "finishedAt": "2026-09-13T02:40:00+04:00",
+      "tests": "665 passed, 0 failed, 5 ignored; clippy -D warnings, fmt чисто",
+      "commit": "8ae4f0d + 2c9d5b4 (фикс по ревью, В-43)",
+      "review": {"R-A": "Манифест да, критерии done; concerns: 75 % касаний — рождение лучшей ценой (доопределение), stack_levels вырожден при отладочном пороге, подход анкерован на base_ts", "R-B": "горячий путь чист; concerns: три копии (touch_markout_bps, dist_bps, CLI-пролог), level_birth_ms vs birth_ms, арность колонок", "R-C": "BLOCKING: база markout строго до start_ms несла шаг кадра касания (−1 тик на всех горизонтах, 18/18); назначено исполнителем: касание с рождения, stack по всей стороне"},
+      "retries": 0, "repairs": 1, "handoffs": 0,
+      "note": "владелец 2026-09-13: расшифровки dizzi/станок — «это важно очень», BTC/ETH нет (В-42). TouchRecord + lob touches CSV. По ревью (В-43): база — срез на start_ms, касание только у уровня, жившего до кадра; общий signed_return_bps и distance_bps_at_birth; birth_ms; арность из одного места. Живьём t34 SOL: 18 касаний (было 72). Остаток в concerns: stack_levels без окна расстояния, CLI-пролог трёх подкоманд, проверка размера на старте касания"
     },
     {
       "id": "36",
@@ -1058,7 +1062,8 @@ window.STATE =
       "blockedBy": ["35"],
       "wave": 12,
       "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/dashboard_page.html", "src/lob/touch_axes.rs"],
-      "status": "pending",
+      "status": "in_progress",
+      "startedAt": "2026-09-13T02:45:00+04:00",
       "retries": 0, "repairs": 0, "handoffs": 0,
       "note": "владелец 2026-09-13: «обновляем дашборд и делаем идею»; оси В-44, метки касаний на картине"
     },
