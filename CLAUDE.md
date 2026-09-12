@@ -159,7 +159,9 @@ src/
   детерминирован (`RecordingBackoff`), реального времени не ждёт
 - `lob profiles`/`lob backtest`/`lob shortlist` требуют RTT (`--median-rtt-ns`/
   `--p95-rtt-ns`) и лот (`--order-qty-e9`) обязательными флагами без умолчания —
-  источник: `lob probe`/`clock.csv`, не изобретать парсер по умолчанию
+  источник: `lob probe`/`clock.csv`, не изобретать парсер по умолчанию. **До замера
+  владелец назначил 20 мс (В-37):** `--median-rtt-ns 20000000 --p95-rtt-ns 20000000`,
+  шапка артефакта обязана печатать `rtt=assumed(20ms, В-37)`
 - `ready-<symbol>-<profile>.flag` — формат `key=value`, ключ `n` (был `n_c2` до сноса C1/C2
   таском 17); единственный читатель — `lob markout --confirmatory`
 - общие CLI-структуры: `commands::lob::H3Args` (`--h3-mode`, `--h3-lots`) и `ExecutionArgs`

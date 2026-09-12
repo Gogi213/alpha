@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-13T06:20:00+04:00",
+  "updatedAt": "2026-09-13T06:50:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -963,6 +963,17 @@ window.STATE =
       "status": "pending",
       "retries": 0, "repairs": 0, "handoffs": 0,
       "note": "аудит «сессии → олвейс-он» п.1: час из части — константа на сутки"
+    },
+    {
+      "id": "31",
+      "title": "Сетка задержек в бэктесте: точка безубыточности вместо одного RTT",
+      "requirements": ["R28", "R29", "R30", "R31"],
+      "blockedBy": ["29", "30"],
+      "wave": 12,
+      "zone": ["src/commands/lob/backtest.rs", "src/commands/lob/profiles.rs", "src/commands/lob/shortlist.rs", "src/lob/costs.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-12: RTT 20 мс принят за факт (В-37), реальный ордер не ставить; net_fill по сетке задержек, rtt_break_even_ms в шапке"
     },
     {
       "id": "14",
