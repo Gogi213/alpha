@@ -395,3 +395,30 @@ cargo run --release -- lob <подкоманда>
 - `bybit::verify::verify_file(&Path) -> anyhow::Result<VerifySummary>` — аддитивно, обёртка над `verify_one_file` (`files = 1`); `run_verify` не тронут (остался в тестах).
 - stdout `lob verify`: строка на часть `verify: part=<файл> day=<YYYY-MM-DD> part_no=<n> …`, затем прежняя сводка `verify: files=…` байт-в-байт, затем `verify: status=ok|fail marker=<путь>`.
 - `verify.csv` — сайдкар записи (`bybit::verify_sidecar`), не команда; `CLAUDE.md` таблица приведена к факту.
+
+## Из таска 27 — пул по задаче (В-35)
+
+- `lob pick`: пул = три исключения §2 → ранг по обороту → ровно десять; глубина не отсеивает. `pick::depth::DepthCheck { Ok, BelowFloor, NotMeasured }`, `depth_check(Option<&MeasuredCandidate>)`; колонка `depth_check` в `instruments.csv` (последняя) и `candidates.csv` (вместо `above_depth_floor`); `excluded_reason ∈ {btc_eth_by_name, non_crypto_base, listed_under_30d, rank_beyond_pool}`. `survivors_above_depth_floor`, `PickError` удалены. Читатели `instruments.csv` — по именам колонок, хвостовая колонка безвредна.
+- Боевой пул (`lob pick --window-secs 3600 --h3-k 1.0`, 2026-09-12 13:22:59Z): SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI; `below_floor` у ZEC/STORJ/LSK.
+
+## Из таска 28 — коллектор на 761 инструменте
+
+- `lob session --all-instruments` (conflicts_with `--pool-instruments`; список — `rest::fetch_all_linear_instruments`, без исключений §2). `SessionArgs.pool_instruments: Option<PathBuf>`, `all_instruments: bool`.
+- `conn::{SymbolSpec, PoolConnConfig, MAX_ARGS_CHARS = 21_000, MAX_CONNECTIONS_PER_5MIN = 500, ORDERBOOK_DEPTH}` (pub(crate)); `Connection::new(connector, impl Into<PoolConnConfig>)`; книга и `resyncing` — на инструмент; маршрут по символу топика — двоичный поиск. `ConnSink::send_event(&self, symbol_idx: u16, ev)`; `ConnEvent::Disconnected { first_of_socket }` — веер на каждый инструмент сокета; `ConnEvent::Unrouted`.
+- `feed::live::plan_connections(pool) -> Result<Vec<Vec<u16>>, LayoutError { EmptyPool, PoolTooLarge }>` — жадная набивка сокета до `MAX_ARGS_CHARS`; поток ввода-вывода на сокет, один поток решений, один `mpsc` (A3, D04); `LiveFeed::spawn* -> Result`. `feed::Event.symbol: u16`; `GapKind += DisconnectedSameSocket, Unrouted`; `session.json += unrouted`; `session_json_dirty` — одна запись после ротации всех инструментов.
+- `ws::parse_message_into -> Result<Option<&str>, ParseError>` (символ топика), `ws::sub_pool`, `ws::pool_args_chars` (арифметика); `sub_trades` снят.
+- Замер (`collector-2026-09-12.md`, «761»): 8 → 761: CPU 2.0 → 24.2 % (0.253 → 0.032 %/инстр.), RSS 17.8 → 159.5 МиБ (215 КиБ/инстр.), 6.9 КБ/мин/инстр., байт/запись 6.38, parse p99 87 мкс, queue p99 27.8 мс (долг живого бота), 7.75 ГБ/сутки.
+
+## Из таска 29 — PBO и CPCV
+
+- `commands::lob::shortlist`: матрица «профиль сетки × сутки окна», ячейка `net_bps`, `NaN` при `n = 0`; строки с `NaN` снимаются до расчёта (`excluded_nan_rows`). PBO — `final_metrics::pbo` с `REPORT_PBO_PARTITIONS = 8` (≥ 8 суток). CPCV — `final_metrics::cpcv_selection_oos_sharpe(trials, REPORT_CPCV_PARAMS { folds: 2, purge: 0, embargo: 0 }, select)`: отбор заново на IS-сутках каждой складки (лучший по среднему `net`), Sharpe по OOS выбранного.
+- Шапка `shortlist-*.md`: `pbo=<число|n/a (причина)> cpcv_oos_sharpe=<…> (selection: …)`, `pbo_gate: none` (порога в задаче/плане нет — число без вердикта), `pbo_matrix: rows= days= excluded_nan_rows= cell=net_bps`. `VerdictHeader += pbo_na, cpcv_na, cpcv_selection, pbo_matrix`. Цена: `run_profiles_over` на каждые сутки окна.
+
+## Из таска 30 — ось часа под олвейс-он (В-36)
+
+- `profiles-*.csv` += `level_hours_utc` (час UTC рождения уровня, `birth_ms`) сразу за `session_start_hours_utc` (та остаётся метаданными записи); `observed_sharpe` — последняя. Тест на час — наблюдения (сутки, час рождения), кластер — сутки. `ProfileAgg.level_hours`, `hour_day_sums: BTreeMap<(i64,u32),(u32,f64)>`.
+
+## Из таска 32 — дашборд на localhost (R87, В-38) — ревью не проведено (лимит сессии)
+
+- `lob dashboard --root <каталог> --out <dir> [--h3-mode floor] [--watch <с>]` → `index.html` (самодостаточный, без внешних URL) + `data.json`; `tools/serve_dashboard.py <out> [--port N]` — `http.server` на 127.0.0.1. Полный реплей бинлогов на каждый пересчёт (~3.5 мин на 8 × 2.3 ч).
+- `data.json`: `collector{alive, checks[{label,value,threshold,source,verdict}], …}`, `checkpoints[{minutes: 30|60|720, reached, levels_per_hour_median, eaten_share_median, m10s_*_bps, net_bps, conclusion, caveat}]`, `instruments[]`, `glossary[]`, `where_we_are{gates, pilot, audit, next}` — статический текст в `dashboard.rs`, обновлять таском, меняющим состояние. RTT — `assumed_rtt_ms = 20` (В-37).

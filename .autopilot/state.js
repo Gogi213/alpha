@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-13T06:50:00+04:00",
+  "updatedAt": "2026-09-13T22:45:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -68,13 +68,13 @@ window.STATE =
       "id": "final",
       "status": "active",
       "startedAt": "2026-09-12T03:30:00+04:00",
-      "note": "сдан 2026-09-12; волны 8–9 после сдачи: T20–T23. Волна 10 (владелец 2026-09-12): T24–T26, коллектор запущен 2026-09-12 12:24Z. Волна 11 по аудиту против задачи: T27 пул, T28 коллектор на 500, T29 PBO/CPCV, T30 ось часа"
+      "note": "сдан 2026-09-12; волны 8–9 после сдачи: T20–T23. Волна 10 (владелец 2026-09-12): T24–T26, коллектор запущен 2026-09-12 12:24Z. Волна 11 по аудиту против задачи сдана (T27–T30, 647 тестов); T32 дашборд — код и живой localhost, ревью не проведено (лимит); T31 pending. Коллектор олвейс-он на старой восьмёрке с 2026-09-12 12:24Z, перезапуск на боевой десятке — вопрос владельцу"
     }
   ],
   "requirements": {
-    "total": 89,
-    "done": 73,
-    "inTicket": 11,
+    "total": 90,
+    "done": 78,
+    "inTicket": 7,
     "deferred": 4,
     "dropped": 1,
     "placeholder": 0,
@@ -924,10 +924,14 @@ window.STATE =
       "blockedBy": [],
       "wave": 11,
       "zone": ["src/commands/lob/pick/"],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-13T06:20:00+04:00",
+      "finishedAt": "2026-09-13T22:40:00+04:00",
+      "tests": "647 passed, 0 failed, 5 ignored (слитое дерево волны 11)",
+      "commit": "4942d5c",
+      "review": {"R-A/R-B/R-C": "одним ревьюером: блокирующих нет; PickReport.selected пропускает not_measured в stdout, двойное соединение пул×замер, устаревший doc mod.rs:31 → concerns"},
       "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "аудит п.1: DEPTH_FLOOR_USD_E9 отсеивает ZECUSDT/IOSTUSDT — §2/§3/§9 запрещают; плюс боевой lob pick на час"
+      "note": "аудит п.1: DEPTH_FLOOR_USD_E9 отсеивал ZECUSDT/IOSTUSDT — §2/§3/§9 запрещают; боевой lob pick на час: SOL,ZEC,XRP,HYPE,NEAR,STORJ,DOGE,ENA,LSK,SUI"
     },
     {
       "id": "28",
@@ -936,9 +940,13 @@ window.STATE =
       "blockedBy": ["25"],
       "wave": 11,
       "zone": ["src/commands/lob/session.rs", "src/feed/live.rs", "src/bybit/conn.rs", "src/bybit/ws.rs"],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-13T06:20:00+04:00",
-      "retries": 0, "repairs": 0, "handoffs": 0,
+      "finishedAt": "2026-09-13T22:40:00+04:00",
+      "tests": "647 passed, 0 failed, 5 ignored (слитое дерево волны 11)",
+      "commit": "36683c2",
+      "review": {"R-A/R-B": "R86 done; 4 manifest + 7 spec не блокирующих", "R-C": "1 blocking (разрыв сокета доходил до одного инструмента) закрыт дозапросом; остаток → concerns"},
+      "retries": 0, "repairs": 1, "handoffs": 0,
       "note": "владелец: «писать не 10 монет а например 500 также эффективно и экономно» — замер 8 vs 500 живьём, раскладка подписок/потоков по лимитам Bybit"
     },
     {
@@ -948,10 +956,14 @@ window.STATE =
       "blockedBy": [],
       "wave": 11,
       "zone": ["src/commands/lob/shortlist.rs", "src/lob/final_metrics.rs", "src/lob/runs.rs"],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-13T06:20:00+04:00",
-      "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "аудит п.3: shortlist.rs:907-908 let pbo = None — матрица испытания × сутки"
+      "finishedAt": "2026-09-13T22:40:00+04:00",
+      "tests": "647 passed, 0 failed, 5 ignored (слитое дерево волны 11)",
+      "commit": "add3ebe",
+      "review": {"R-A/R-B/R-C": "CPCV partial (по профилю, не по процедуре) + NaN-искажение закрыты дозапросом; остаток doc-drift → concerns"},
+      "retries": 0, "repairs": 1, "handoffs": 0,
+      "note": "аудит п.3: shortlist.rs:907-908 let pbo = None — матрица испытания × сутки. Ревью: CPCV считался по одному профилю, не по процедуре отбора (§6.4 п.4, В-19 — дефект формулировки таска); NaN-ячейки давали Sharpe 0 → дозапрос"
     },
     {
       "id": "30",
@@ -960,7 +972,12 @@ window.STATE =
       "blockedBy": [],
       "wave": 11,
       "zone": ["src/commands/lob/profiles.rs", "src/commands/lob/watch.rs"],
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-09-13T07:30:00+04:00",
+      "finishedAt": "2026-09-13T22:40:00+04:00",
+      "tests": "647 passed, 0 failed, 5 ignored (слитое дерево волны 11)",
+      "commit": "1882d43",
+      "review": {"R-A/R-B/R-C": "R41 done; равный вес ячеек (сутки, час) и устаревший doc lob/shortlist.rs → concerns"},
       "retries": 0, "repairs": 0, "handoffs": 0,
       "note": "аудит «сессии → олвейс-он» п.1: час из части — константа на сутки"
     },
@@ -974,6 +991,20 @@ window.STATE =
       "status": "pending",
       "retries": 0, "repairs": 0, "handoffs": 0,
       "note": "владелец 2026-09-12: RTT 20 мс принят за факт (В-37), реальный ордер не ставить, сетки не надо («пусть будет 20 на все»); шапка печатает assumed"
+    },
+    {
+      "id": "32",
+      "title": "Дашборд проекта на localhost",
+      "requirements": ["R87", "R85"],
+      "blockedBy": [],
+      "wave": 11,
+      "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/mod.rs", "tools/serve_dashboard.py"],
+      "status": "review",
+      "startedAt": "2026-09-13T08:10:00+04:00",
+      "tests": "647 passed, 0 failed, 5 ignored",
+      "commit": "T32 (закоммичен без ревью — лимит сессии 429; ревью повторить)",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-12: «повесить что то на локалхост чтобы я хоть что то понимал»; живой: http://127.0.0.1:8765/index.html (dashboard pid в data/dashboard/dashboard.pid, сервер — serve.pid); контрольные точки 30 мин / 1 ч / 12 ч (В-38)"
     },
     {
       "id": "14",
@@ -1114,6 +1145,42 @@ window.STATE =
     "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены"
   },
   "concerns": [
+    {
+      "ticket": "28",
+      "file": "src/commands/lob/session.rs:889-895, :1044; src/bybit/conn.rs:492, :722; src/feed/live.rs (тест ресинка)",
+      "what": "session_json_dirty сбрасывается до результата записи — отказ rename откладывает свежие части в binlog_files до часа (файлы есть, данные целы); крах в ≤10 с после ротации оставляет части вне перечня — окно не названо в findings; Connection::new оставил u16::try_from(..).unwrap_or(u16::MAX); Unrouted считается на событие, doc говорит «кадров»; тест ресинка не проверяет, что B во время ресинка A получает свою переподписку; doc socket_index()/теста resync_resubscribe устарели",
+      "kind": "silent-narrowing"
+    },
+    {
+      "ticket": "30",
+      "file": "src/commands/lob/profiles.rs:582, src/lob/shortlist.rs:1096, :1014, :1176",
+      "what": "тест на час: оценка — среднее по ячейкам (сутки, час), ячейка с одним уровнем весит как с тысячей, олвейс-он сутки (24 ячейки) весят больше 5-минутных (1) — взвесить на n или назвать выбор в doc/В-36; doc hour_dependence_test/HourDayObservation в lob/shortlist.rs устарел («одна сутки — одно значение», «час старта», «28 колонок»); hour_utc_of_ms дублирует session.rs hour_utc_of_ns; обоснование В-36 пересказано 5 раз в profiles.rs",
+      "kind": "doc-drift"
+    },
+    {
+      "ticket": "29",
+      "file": "src/commands/lob/shortlist.rs:586, :1188, :1592; src/lob/shortlist.rs:1196, :1927",
+      "what": "после дозапроса: doc описывает снятое поведение (Sharpe 0 при NaN, cpcv_series_profile), фикстура писателя шапки на мёртвом формате trials=…cells_nan=, сквозной тест пришпилил excluded_nan_rows=27 (хрупко по мощности сетки); шапка не говорит, что PBO/CPCV описывают подвыборку с полным покрытием; select получает всю матрицу — протечка в OOS возможна по форме шва",
+      "kind": "doc-drift"
+    },
+    {
+      "ticket": "28",
+      "file": "src/feed/live.rs:100; docs/findings/collector-2026-09-12.md:386",
+      "what": "«поток ввода-вывода на соединение» не сравнён с «2 соединения в одном current_thread» при росте очереди 1.9 → 27.8 мс; «×8–10 дешевле» не нормировано на активность (на запись CPU ×2.6, байт −15 %) — оговорка по дозапросу",
+      "kind": "evidence"
+    },
+    {
+      "ticket": "29",
+      "file": "src/commands/lob/shortlist.rs:713, :1140",
+      "what": "четвёртый экземпляр четвёрки ScratchRoot → build_filtered_root → write_full_coverage_preregistration → run_profiles_over → read_profile_table (разведочная, подтверждающая, джекнайф, матрица PBO); стоимость O(сутки × прогон сетки) — profiles.rs агрегирует по всему корню, суточное разрешение только повтором прогона",
+      "kind": "structural"
+    },
+    {
+      "ticket": "29",
+      "file": "src/lob/shortlist.rs:1195, src/commands/lob/shortlist.rs:628",
+      "what": "data clump (Option<f64>, Option<String>) «измерено / почему нет» дважды — нужен тип; ячейка матрицы PBO — net_bps без модели исполнения, вердикт/DSR — на net_fill: два разных ряда в одном артефакте, колонка названа в строке pbo_matrix по дозапросу",
+      "kind": "structural"
+    },
     {
       "ticket": "26",
       "file": "src/commands/lob/verify.rs:106, src/bybit/verify.rs:779, src/commands/lob/watch.rs:23, src/commands/lob/session.rs:2300",
@@ -1806,9 +1873,9 @@ window.STATE =
     "live_run": "один, 5 мин, lob session: records=1587882 gaps=0, 8 инструментов, без ключей"
   },
   "tests": {
-    "passed": 630,
+    "passed": 647,
     "failed": 0,
     "ignored": 5,
-    "at": "2026-09-13T05:05:00+04:00"
+    "at": "2026-09-13T22:40:00+04:00"
   }
 }

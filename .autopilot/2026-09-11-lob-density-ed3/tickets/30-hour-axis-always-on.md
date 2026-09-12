@@ -4,7 +4,7 @@
 **Blocked by:** —
 **Зона:** `src/commands/lob/profiles.rs` (`accumulate_level`, `hour_dependence_test`, колонка `session_start_hours_utc`), `src/commands/lob/watch.rs` (`SessionTally.start_hour_utc` — только если тест на час читает его), `docs/plan/SETTLED.md` (В-36). Не трогать: `session.rs`, `shortlist.rs` (таск 29), `pick/**` (таск 27).
 **Волна:** 11
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 

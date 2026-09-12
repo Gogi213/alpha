@@ -4,7 +4,7 @@
 **Blocked by:** 25
 **Зона:** `src/commands/lob/session.rs`, `src/feed/live.rs`, `src/bybit/conn.rs`, `src/bybit/ws.rs`, `src/commands/lob/pick/measure.rs` (только чтение списка инструментов биржи, если нужен `--all-instruments`), `src/commands/lob/mod.rs` (CLI), `tests/collector_bench.rs`. Не трогать: `pick/pool.rs`/`depth.rs` (таск 27), формат бинлога, читатели, `src/lob/**`.
 **Волна:** 11
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 

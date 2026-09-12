@@ -4,7 +4,7 @@
 **Blocked by:** —
 **Зона:** `src/commands/lob/pick/**` (`pool.rs`, `depth.rs`, `table.rs`, `mod.rs`), `docs/plan/SETTLED.md` (решение В-35), `CLAUDE.md` (грабли про пул). Не трогать: `session.rs`, `feed/`, `bybit/`, читатели.
 **Волна:** 11
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 

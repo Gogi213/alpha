@@ -4,7 +4,7 @@
 **Blocked by:** —
 **Зона:** `src/commands/lob/shortlist.rs` (сборка матрицы «испытания × периоды», вызов), `src/lob/final_metrics.rs` (только если API `pbo`/`cpcv_mean_oos_sharpe` не хватает — аддитивно), `src/lob/runs.rs` (если испытаниям нужен ряд по периодам). Не трогать: `profiles.rs`, `session.rs`, `pick/**`.
 **Волна:** 11
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 
