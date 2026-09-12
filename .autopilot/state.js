@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-13T05:05:00+04:00",
+  "updatedAt": "2026-09-13T06:20:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -68,13 +68,13 @@ window.STATE =
       "id": "final",
       "status": "active",
       "startedAt": "2026-09-12T03:30:00+04:00",
-      "note": "сдан 2026-09-12; волны 8–9 после сдачи: T20–T23. Волна 10 (владелец 2026-09-12): T24 супероптимизация коллектора → T25 олвейс-он коллектор → запуск и анализ по накопленному"
+      "note": "сдан 2026-09-12; волны 8–9 после сдачи: T20–T23. Волна 10 (владелец 2026-09-12): T24–T26, коллектор запущен 2026-09-12 12:24Z. Волна 11 по аудиту против задачи: T27 пул, T28 коллектор на 500, T29 PBO/CPCV, T30 ось часа"
     }
   ],
   "requirements": {
-    "total": 88,
+    "total": 89,
     "done": 73,
-    "inTicket": 10,
+    "inTicket": 11,
     "deferred": 4,
     "dropped": 1,
     "placeholder": 0,
@@ -916,6 +916,53 @@ window.STATE =
       "repairs": 0,
       "handoffs": 0,
       "note": "из ревью T25: verify-<SYMBOL>.status пишет только lob pilot; profiles/watch без маркера сутки не читают"
+    },
+    {
+      "id": "27",
+      "title": "Пул по задаче: первые десять, глубина — строка отчёта",
+      "requirements": ["R03", "R09", "R66"],
+      "blockedBy": [],
+      "wave": 11,
+      "zone": ["src/commands/lob/pick/"],
+      "status": "in-progress",
+      "startedAt": "2026-09-13T06:20:00+04:00",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "аудит п.1: DEPTH_FLOOR_USD_E9 отсеивает ZECUSDT/IOSTUSDT — §2/§3/§9 запрещают; плюс боевой lob pick на час"
+    },
+    {
+      "id": "28",
+      "title": "Коллектор на 500 инструментов: та же цена за монету",
+      "requirements": ["R86", "R83", "R84"],
+      "blockedBy": ["25"],
+      "wave": 11,
+      "zone": ["src/commands/lob/session.rs", "src/feed/live.rs", "src/bybit/conn.rs", "src/bybit/ws.rs"],
+      "status": "in-progress",
+      "startedAt": "2026-09-13T06:20:00+04:00",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец: «писать не 10 монет а например 500 также эффективно и экономно» — замер 8 vs 500 живьём, раскладка подписок/потоков по лимитам Bybit"
+    },
+    {
+      "id": "29",
+      "title": "PBO и CPCV в вердикте: заглушки None снять",
+      "requirements": ["R47", "R68"],
+      "blockedBy": [],
+      "wave": 11,
+      "zone": ["src/commands/lob/shortlist.rs", "src/lob/final_metrics.rs", "src/lob/runs.rs"],
+      "status": "in-progress",
+      "startedAt": "2026-09-13T06:20:00+04:00",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "аудит п.3: shortlist.rs:907-908 let pbo = None — матрица испытания × сутки"
+    },
+    {
+      "id": "30",
+      "title": "Ось «час» под олвейс-он: час рождения уровня",
+      "requirements": ["R41", "R84"],
+      "blockedBy": [],
+      "wave": 11,
+      "zone": ["src/commands/lob/profiles.rs", "src/commands/lob/watch.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "аудит «сессии → олвейс-он» п.1: час из части — константа на сутки"
     },
     {
       "id": "14",
