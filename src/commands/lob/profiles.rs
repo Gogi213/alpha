@@ -104,9 +104,22 @@
 //! Тест на час суток (`shortlist::hour_dependence_test`, ремонт по ревью
 //! таска 12, открытый пункт (2) для таска 13) идёт в тот же журнал одной
 //! строкой на профиль (`shortlist::log_hour_test`) — на горизонте
-//! вердиктной ячейки (10 с), кластер — сутки, значение — среднее `m_10s` за
-//! эти сутки, час — средний час старта сессий этих суток
-//! (`ProfileAgg::hour_day_sums`). Методический отказ теста (суток меньше
+//! вердиктной ячейки (10 с), кластер — сутки, наблюдение внутри суток —
+//! **час рождения уровня** (`LevelRecord.birth_ms`, UTC), значение —
+//! среднее `m_10s` за эти сутки и час (`ProfileAgg::hour_day_sums`).
+//!
+//! Час рождения, а не час старта сессии (таск 30, В-36, аудит
+//! `docs/findings/audit-2026-09-12.md` «Сессии → олвейс-он» п. 1): бриф §6а
+//! требует показать, зависит ли профиль от часа, и писался под сессии 5–15
+//! мин, где сессия целиком лежит в одном часе и «час старта» = «час
+//! наблюдения». С олвейс-он коллектором (В-34) часть одна на сутки, её час
+//! старта — полночь каждые сутки, ось становится константой, ковариация с
+//! наблюдаемой — ноль, и тест печатал бы «зависимости от часа нет» ровно
+//! тогда, когда покрытие круглосуточное. Час рождения уровня совпадает со
+//! старым числом на коротких сессиях (с точностью до границы часа) и
+//! остаётся осью на непрерывной записи. `session_start_hours_utc` при этом
+//! из таблицы не убрана — она описывает **запись**, а не наблюдение, и в
+//! тест не входит. Методический отказ теста (суток меньше
 //! `G_MIN`, сетка Уэбба грубее альфы, наблюдаемая вырождена) не пишется:
 //! как и непригодная корзина сетки, такое испытание не состоялось и не
 //! входит в `total_trials`.
@@ -196,6 +209,20 @@ fn distance_bucket(dist_bps: f64) -> Option<&'static str> {
 fn distance_bps_at_birth(mids: &[MidSample], rec: &LevelRecord) -> Option<f64> {
     let (_, mid2x) = base_before(mids, rec.birth_ms.saturating_add(1))?;
     raw_return_bps(mid2x, rec.price_tick.saturating_mul(2)).map(f64::abs)
+}
+
+/// Час UTC метки времени биржи в миллисекундах — ось «час» профиля (В-36).
+///
+/// Целочисленно (`div_euclid`/`rem_euclid`), как всё время в проекте (A1),
+/// и тотально: `rem_euclid` даёт `[0, 24)` при любом знаке аргумента, так
+/// что метка до эпохи (в данных не бывает, но арифметика не имеет права
+/// зависеть от этого) не даёт отрицательного часа. Часовых поясов здесь нет
+/// вовсе: биржа отдаёт UTC, и весь проект живёт в UTC.
+fn hour_utc_of_ms(ts_ms: i64) -> u32 {
+    const MS_PER_HOUR: i64 = 3_600_000;
+    const HOURS_PER_DAY: i64 = 24;
+    let hour = ts_ms.div_euclid(MS_PER_HOUR).rem_euclid(HOURS_PER_DAY);
+    u32::try_from(hour).expect("rem_euclid(24) лежит в [0, 24)")
 }
 
 /// Срез середины как есть на `base_ts + horizon_ms` — тот же поиск, что
@@ -522,21 +549,37 @@ struct ProfileAgg {
     /// `FillModel::filled` возвращает `Some` (см. doc выше про
     /// `NoFillModel`/`fill_model`).
     fill_obs: Vec<FillObservation>,
+    /// Часы старта частей записи, в которых наблюдался профиль — колонка
+    /// `session_start_hours_utc`. **Информация о записи, не ось** (таск 30,
+    /// В-36): под олвейс-он часть одна на сутки, её час старта — полночь
+    /// каждые сутки, то есть константа, и построенная на нём ось часа
+    /// вырождалась в «зависимости от часа нет» при круглосуточном покрытии
+    /// (`docs/findings/audit-2026-09-12.md`, «Сессии → олвейс-он» п. 1).
+    /// Колонка остаётся: чем записаны сутки — 5-минутной сессией в 02 UTC
+    /// или непрерывным коллектором с полуночи — читателю таблицы видно
+    /// только отсюда.
     hours: BTreeSet<u32>,
+    /// Часы UTC **рождения уровней** профиля (`LevelRecord.birth_ms`) — ось
+    /// «час» брифа §6а и колонка `level_hours_utc` (В-36). У сессии 5–15 мин
+    /// совпадает с часом старта части с точностью до границы часа; у
+    /// олвейс-она несёт настоящий разброс.
+    level_hours: BTreeSet<u32>,
     /// Годные сутки, на которые пришлось хотя бы одно наблюдение этого
     /// профиля — `G` для `shortlist::decide_profile`/подтверждающей шапки
     /// (ремонт по ревью таска 12, открытый пункт (1) для таска 13:
     /// `docs/findings/profiles-*.csv` раньше не несло числа суток на
     /// профиль, и `G` на подтверждающей был захардкожен нулём).
     days: BTreeSet<i64>,
-    /// Сутки → (сумма часов старта, число наблюдений часа, сумма `m_10s`) —
-    /// вход теста на зависимость от часа суток (`shortlist::
-    /// hour_dependence_test`, ticket 06/13): один кластер — одни сутки,
-    /// значение — среднее `m_10s` за эти сутки (тот же горизонт, что идёт в
-    /// гейт G2 через `net_obs`), час — средний час старта сессий этих суток
-    /// (doc `HourDayObservation`: «при нескольких сессиях за сутки — среднее
-    /// их часов»).
-    hour_day_sums: BTreeMap<i64, (f64, u32, f64)>,
+    /// (сутки, час рождения) → (число наблюдений, сумма `m_10s`) — вход
+    /// теста на зависимость от часа суток (`shortlist::hour_dependence_test`,
+    /// ticket 06/13/30). Кластер по-прежнему сутки (Decision 9,
+    /// `HourDayObservation.day`), но наблюдение внутри суток — **час**:
+    /// `wild_cluster_bootstrap_t` группирует по кластеру сам и принимает
+    /// сколько угодно наблюдений одного кластера, а одно усреднённое
+    /// значение на сутки под олвейс-оном стёрло бы весь разброс часов (все
+    /// сутки дали бы средний час ≈ 11.5). Значение — среднее `m_10s` за эти
+    /// сутки и час (тот же горизонт, что идёт в гейт G2 через `net_obs`).
+    hour_day_sums: BTreeMap<(i64, u32), (u32, f64)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -557,7 +600,10 @@ fn apply_observation(
         Outcome::Pulled => agg.pulled += 1,
         Outcome::Mixed => agg.mixed += 1,
     }
+    // Час старта части — про запись; ось часа — про уровень (В-36).
+    let level_hour = hour_utc_of_ms(rec.birth_ms);
     agg.hours.insert(start_hour_utc);
+    agg.level_hours.insert(level_hour);
     agg.days.insert(day_id);
     for (i, h) in HORIZONS_MS.iter().enumerate() {
         let Some(m) = m_by_horizon[i] else { continue };
@@ -578,11 +624,14 @@ fn apply_observation(
     }
     if let (Some(m10), Some((base_ts, base2x))) = (m_by_horizon[2], base) {
         // Тест на час суток (`shortlist::hour_dependence_test`) — на том же
-        // горизонте 10 с, что и `net_obs` ниже (вердиктная ячейка G2).
-        let hour_entry = agg.hour_day_sums.entry(day_id).or_insert((0.0, 0, 0.0));
-        hour_entry.0 += f64::from(start_hour_utc);
-        hour_entry.1 += 1;
-        hour_entry.2 += m10;
+        // горизонте 10 с, что и `net_obs` ниже (вердиктная ячейка G2), и по
+        // часу рождения уровня, а не старта части (В-36).
+        let hour_entry = agg
+            .hour_day_sums
+            .entry((day_id, level_hour))
+            .or_insert((0, 0.0));
+        hour_entry.0 += 1;
+        hour_entry.1 += m10;
         if let Some(exit) = mid_sample_asof(mids, base_ts, HORIZONS_MS[2]) {
             let spread = exit.ask_tick - exit.bid_tick;
             agg.net_obs.push(Observation {
@@ -831,7 +880,18 @@ fn horizon_columns(agg: &HorizonAgg) -> HorizonColumns {
 /// открытый пункт (1) для таска 13). `g` — новая, дописанная в конец колонка:
 /// `commands::lob::shortlist::read_profile_table` матчит по имени, а не по
 /// позиции (доктрока там же), так что дописывание в конец не ломает читателя.
-const HEADER: [&str; 28] = [
+///
+/// `level_hours_utc` (таск 30, В-36) — часы UTC рождения уровней, то есть
+/// **ось** «час» (§6а брифа) и вход `hour_dependence_test`. Стоит рядом с
+/// `session_start_hours_utc`, которая осталась и в осях не участвует: это
+/// часы старта частей записи, под олвейс-оном — константа
+/// (`ProfileAgg::hours`). Вставка в середину, а не в конец, безопасна по той
+/// же причине, что и дописывание: оба читателя таблицы
+/// (`shortlist::read_profile_table`, `backtest::read_table`) матчат колонки
+/// по имени и лишние пропускают (их доктроки говорят это прямо), ни ту, ни
+/// другую колонку часа не читают, — а `observed_sharpe` остаётся последней,
+/// как её и проверяют тесты таска 16.
+const HEADER: [&str; 29] = [
     "profile_id",
     "n",
     "eaten_share",
@@ -858,6 +918,7 @@ const HEADER: [&str; 28] = [
     "net_fill",
     "net_fill_lower",
     "session_start_hours_utc",
+    "level_hours_utc",
     "g",
     "observed_sharpe",
 ];
@@ -909,6 +970,7 @@ fn write_row(
         )
     };
     let hours: Vec<String> = agg.hours.iter().map(ToString::to_string).collect();
+    let level_hours: Vec<String> = agg.level_hours.iter().map(ToString::to_string).collect();
     // `observed_sharpe` (таск 16) — Шарп круговых net **исполнившихся**
     // входов (`fill_obs` фильтрован по `filled == true`), в единицах на
     // наблюдение — то же самое множество наблюдений, из которого уже
@@ -946,6 +1008,7 @@ fn write_row(
     record.push(net_fill_col);
     record.push(net_fill_lower_col);
     record.push(hours.join(","));
+    record.push(level_hours.join(","));
     record.push(agg.days.len().to_string());
     record.push(observed_sharpe_col);
     w.write_record(record)?;
@@ -1168,16 +1231,17 @@ pub fn run_profiles_with_fill_model(
         // «сетка Уэбба грубее альфы», «наблюдаемая вырождена») не есть
         // испытание, как непригодная корзина сетки — её тоже нет в выходе.
         for (id, agg) in &profiles {
+            // Наблюдение — (сутки, час рождения); кластер — сутки, и одних
+            // суток может быть несколько наблюдений (В-36, doc
+            // `ProfileAgg::hour_day_sums`).
             let obs: Vec<HourDayObservation> = agg
                 .hour_day_sums
                 .iter()
-                .map(
-                    |(&day, &(hour_sum, hour_n, value_sum))| HourDayObservation {
-                        day,
-                        hour_utc: hour_sum / f64::from(hour_n),
-                        value: value_sum / f64::from(hour_n),
-                    },
-                )
+                .map(|(&(day, hour), &(n, value_sum))| HourDayObservation {
+                    day,
+                    hour_utc: f64::from(hour),
+                    value: value_sum / f64::from(n),
+                })
                 .collect();
             if let Ok(p) = hour_dependence_test(&obs, BOOTSTRAP_REPLICATIONS, BOOTSTRAP_SEED) {
                 log_hour_test(&args.runs_out, &now, id, p)?;
@@ -1317,21 +1381,118 @@ mod tests {
         }
     }
 
+    /// Метка `YYYY-MM-DDTHH:MM:SSZ` в миллисекундах от эпохи. Час рождения
+    /// уровня (В-36) читается из `birth_ms` как настоящий час UTC, поэтому
+    /// фикстуры часа обязаны нести настоящие метки, а не смещение от нуля.
+    fn epoch_ms(rfc3339: &str) -> i64 {
+        chrono::DateTime::parse_from_rfc3339(rfc3339)
+            .unwrap()
+            .timestamp_millis()
+    }
+
+    /// Один уровень, рождённый в названный час UTC: снапшот (бид 100@10,
+    /// аск 200@10) — рождение; через 1 с бид падает до 1 лота, `5*1 < 10`
+    /// (`below_fraction`) роняет его немедленно (`DeathKind::BelowFraction`),
+    /// база markout — срез в момент рождения; в 9 с (≤ горизонта 10 с от
+    /// базы) аск подтягивается на `shift` тиков — `future_asof` подхватывает
+    /// его до цели `10_000` мс, и `m_10s` растёт вместе с `shift`.
+    fn hour_frames(at_utc: &str, shift: i64) -> Vec<Vec<crate::binlog::Record>> {
+        let base = epoch_ms(at_utc);
+        vec![
+            super::super::test_support::snap_frame(base, &[(100, 10)], &[(200, 10)]),
+            super::super::test_support::delta_frame(base + 1_000, &[(100, 1)], &[]),
+            super::super::test_support::delta_frame(base + 9_000, &[], &[(200 - shift, 10)]),
+        ]
+    }
+
+    /// Критерий приёмки таска 30 (аудит 2026-09-12, «Сессии → олвейс-он»
+    /// п. 1; В-36): олвейс-он каталог — **одна часть на сутки**, час старта
+    /// части один и тот же (полночь UTC), а уровни рождаются в разных часах
+    /// внутри суток. На прежней оси (час старта части) ось часа была
+    /// константой `0`: кросс-произведение `(час − средний час)` — ноль на
+    /// каждом наблюдении, `hour_dependence_test` вырождался
+    /// (`DegenerateVariance`) и строки `hour_test` в `runs.csv` не было —
+    /// «зависимости от часа нет» при круглосуточном покрытии. На оси часа
+    /// рождения уровня те же данные дают разброс часов (по два часа на
+    /// сутки, `d` и `d+12`), тест доходит до `Ok` и пишет испытание.
+    /// `session_start_hours_utc` при этом остаётся информацией о записи и
+    /// печатает ту самую константу.
+    #[test]
+    fn always_on_day_gives_the_hour_axis_the_hours_of_level_birth_not_the_part_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+
+        let session = root.join("always-on");
+        std::fs::create_dir_all(&session).unwrap();
+        let mut parts: Vec<String> = Vec::new();
+        for d in 1..=7i64 {
+            let day = format!("2026-05-0{d}");
+            let mut frames: Vec<Vec<crate::binlog::Record>> = Vec::new();
+            for hour in [d, d + 12] {
+                frames.extend(hour_frames(&format!("{day}T{hour:02}:00:00Z"), hour));
+            }
+            write_part_binlog(&session, "SOLUSDT", &day, 1, &frames);
+            parts.push(format!(
+                "{{\"symbol\":\"SOLUSDT\",\"part\":1,\"started_utc\":\"{day}T00:00:00Z\"}}"
+            ));
+        }
+        let json = format!(
+            "{{\"started_utc\":\"2026-05-07T00:00:00Z\",\"start_hour_utc\":0,\
+             \"instruments\":[\"SOLUSDT\"],\"binlog_files\":[{}]}}",
+            parts.join(",")
+        );
+        std::fs::write(session.join("session.json"), json).unwrap();
+        std::fs::write(session.join("verify-SOLUSDT.status"), "ok").unwrap();
+
+        let args = base_args(root, candidates_csv, root.join("profiles.csv"));
+        run_profiles(&args).expect("прогон по олвейс-он каталогу");
+        let text = std::fs::read_to_string(args.out.clone().unwrap()).unwrap();
+        let ids = column(&text, "profile_id");
+        let i = ids
+            .iter()
+            .position(|x| x == "marginal:instrument=SOLUSDT")
+            .expect("маргинал по инструменту всегда есть в сетке");
+        assert_eq!(
+            column(&text, "session_start_hours_utc")[i],
+            "0",
+            "час старта части под олвейс-оном — константа, и это \
+             информация о записи, а не ось:\n{text}"
+        );
+        assert_eq!(
+            column(&text, "level_hours_utc")[i],
+            "1,2,3,4,5,6,7,13,14,15,16,17,18,19",
+            "ось часа — часы рождения уровней (по два на сутки), не час \
+             старта части:\n{text}"
+        );
+
+        let rows = crate::lob::runs::read_run_rows(&args.runs_out).unwrap();
+        assert!(
+            rows.iter().any(|r| r
+                .detail
+                .starts_with("hour_test marginal:instrument=SOLUSDT ")),
+            "разброс часов рождения обязан довести hour_dependence_test до \
+             Ok и дать строку hour_test в runs.csv: {rows:?}"
+        );
+    }
+
     /// Таск 17, пункт 5г: `hour_dependence_test` отказывает («сутки < G_MIN»)
     /// на фикстурах остального файла — они держат один-два дня. Здесь семь
     /// **разных** суток одного профиля (`marginal:instrument=SOLUSDT`) с
-    /// разным часом старта (`start_hour_utc = d`) и разным движением цены
-    /// (ask сдвигается на `2*d` тиков внутри горизонта 10 с той же сессии) —
-    /// день и наблюдение линейно связаны тем же приёмом, что
-    /// `shortlist::hour_dependence_test_rejects_strong_known_trend`, только
-    /// через настоящий бинлог, а не готовый `HourDayObservation`. Уровень:
-    /// рождается снапшотом (бид 100@10, аск 200@10), в 1с бид падает до 1
-    /// лота — `5*1 < 10` (`below_fraction`) роняет его немедленно
-    /// (`DeathKind::BelowFraction`), база markout — срез в момент рождения
-    /// (t=0, mid=300); в 9с (≤ горизонта 10с от базы) аск подтягивается на
-    /// `2*d` тиков — `future_asof` подхватывает его до цели `10_000`мс,
-    /// `m_10s` растёт вместе с `d`. Критерий — не число `p`, а сам факт: цепочка
-    /// дошла до `Ok`, и `log_hour_test` дописал строку `runs.csv`.
+    /// разным часом сессии (`start_hour_utc = d`, и вся сессия внутри этого
+    /// часа) и разным движением цены (ask сдвигается на `2*d` тиков внутри
+    /// горизонта 10 с той же сессии) — день и наблюдение линейно связаны тем
+    /// же приёмом, что `shortlist::hour_dependence_test_rejects_strong_known_trend`,
+    /// только через настоящий бинлог, а не готовый `HourDayObservation`.
+    /// Критерий — не число `p`, а сам факт: цепочка дошла до `Ok`, и
+    /// `log_hour_test` дописал строку `runs.csv`.
+    ///
+    /// Он же — тест совместимости оси часа (таск 30, В-36): короткая сессия
+    /// 5–15 мин целиком лежит в одном часе, поэтому час рождения уровня и
+    /// час старта части совпадают, и переход на новую ось не меняет ни
+    /// результат теста, ни печатаемые часы.
     #[test]
     fn hour_dependence_test_reaches_ok_with_seven_days_and_logs_a_runs_csv_row() {
         let dir = tempfile::tempdir().unwrap();
@@ -1341,17 +1502,13 @@ mod tests {
         write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
 
         for d in 1..=7i64 {
-            let shift = 2 * d;
-            let frames = vec![
-                super::super::test_support::snap_frame(0, &[(100, 10)], &[(200, 10)]),
-                super::super::test_support::delta_frame(1_000, &[(100, 1)], &[]),
-                super::super::test_support::delta_frame(9_000, &[], &[(200 - shift, 10)]),
-            ];
+            let started_utc = format!("2026-09-0{d}T{d:02}:00:00Z");
+            let frames = hour_frames(&started_utc, 2 * d);
             write_session_dir(
                 root,
                 &format!("day-{d}"),
                 "SOLUSDT",
-                &format!("2026-09-0{d}T00:00:00Z"),
+                &started_utc,
                 d as u32,
                 true,
                 &frames,
@@ -1375,6 +1532,21 @@ mod tests {
             "семь суток с разными часами и разным движением обязаны довести \
              hour_dependence_test до Ok и дать строку hour_test в runs.csv: {rows:?}"
         );
+
+        let text = std::fs::read_to_string(out).unwrap();
+        let ids = column(&text, "profile_id");
+        let i = ids
+            .iter()
+            .position(|x| x == "marginal:instrument=SOLUSDT")
+            .expect("маргинал по инструменту всегда есть в сетке");
+        let level_hours = column(&text, "level_hours_utc");
+        let start_hours = column(&text, "session_start_hours_utc");
+        assert_eq!(
+            level_hours[i], start_hours[i],
+            "сессия внутри одного часа: час рождения уровня совпадает с \
+             часом старта части, ось часа не изменилась\n{text}"
+        );
+        assert_eq!(level_hours[i], "1,2,3,4,5,6,7", "часы семи сессий\n{text}");
     }
 
     /// Критерий приёмки таска 10, буквально: снести файл, прогнать команду
