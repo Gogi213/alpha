@@ -553,7 +553,7 @@ pub fn run_react(args: &ReactArgs) -> anyhow::Result<ReactReport> {
     // `bybit::conn::SystemClock`) и способны как оборвать прогон раньше
     // времени, так и не остановить его вовсе.
     let stage_clock = MonotonicClock::start();
-    let mut feed = LiveFeed::spawn_with_clock(pool, stage_clock);
+    let mut feed = LiveFeed::spawn_with_clock(pool, stage_clock)?;
     let deadline_ns = stage_clock.now_ns()
         + i64::try_from(args.minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000;
 

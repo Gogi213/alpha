@@ -1197,7 +1197,8 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
     let session_dir = args.root.join("session");
 
     let session_summary = run_session(&SessionArgs {
-        pool_instruments: pool_instruments.clone(),
+        pool_instruments: Some(pool_instruments.clone()),
+        all_instruments: false,
         root: session_dir.clone(),
         minutes: Some(minutes),
         pilot_minutes: None,

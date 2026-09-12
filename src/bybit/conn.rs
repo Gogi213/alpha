@@ -35,7 +35,7 @@ use tokio::time::MissedTickBehavior;
 /// Глубина стакана из шага 0.1 плана: буквально `orderbook.50.<symbol>`. Не
 /// параметр — это не измеренное число и не порог, а часть протокола, которую
 /// задаёт сам план, дословно.
-const ORDERBOOK_DEPTH: u32 = 50;
+pub(crate) const ORDERBOOK_DEPTH: u32 = 50;
 
 /// Источник времени для `local_ts`. Трейт, а не прямой вызов часов — по той же
 /// причине, что `ARCHITECTURE.md` A2 даёт этому пути (рекордер, без `Bot`
@@ -210,6 +210,74 @@ pub struct ConnConfig {
     pub backoff: BackoffConfig,
 }
 
+/// Один инструмент мультиплексированного соединения (таск 28): к символу и
+/// его шагам добавлен **глобальный** индекс в пуле вызывающего — тот же
+/// `u16`, которым `feed::Event` метит событие. Соединение не знает, как
+/// вызывающий раскладывает пул по сокетам, и не имеет права придумывать
+/// свою нумерацию: маршрут события — этот индекс, отданный сюда снаружи.
+#[derive(Debug, Clone)]
+pub struct SymbolSpec {
+    pub symbol: String,
+    pub tick_e9: i64,
+    pub step_e9: i64,
+    pub index: u16,
+}
+
+/// Конфигурация соединения, несущего топики **многих** инструментов
+/// (таск 28). Прежний одно-символьный `ConnConfig` — её частный случай
+/// (`From`), поэтому `commands::record` и `commands::lob::pick::measure`
+/// не менялись: `Connection::new` принимает оба.
+///
+/// Почему вообще много символов на сокет: Bybit v5 документирует
+/// «Do not build over 500 connections in 5 minutes. This is counted per
+/// WebSocket domain» — при одном сокете на инструмент пул в 500
+/// инструментов расходует весь пятиминутный бюджет соединений домена
+/// одним стартом, и любой шторм переподключений уже не влезает. Предел,
+/// который на самом деле ограничивает подписки одного сокета, другой:
+/// «For one public connection, you cannot have length of "args" array over
+/// 21,000 characters» (`MAX_ARGS_CHARS`), а числа `args` в запросе для
+/// Futures нет вовсе («No args limit for Futures and Spread for now»).
+#[derive(Debug, Clone)]
+pub struct PoolConnConfig {
+    pub symbols: Vec<SymbolSpec>,
+    /// Bybit требует периодический `{"op":"ping"}`, иначе сервер рвёт
+    /// соединение по своему таймауту (документированное поведение биржи,
+    /// не число из `PLAN.md` — поэтому параметр, а не константа здесь).
+    pub ping_interval: Duration,
+    pub backoff: BackoffConfig,
+}
+
+/// Предел суммарной длины массива `args` **одного публичного соединения**
+/// Bybit v5, дословно: «For one public connection, you cannot have length
+/// of "args" array over 21,000 characters»
+/// (`https://bybit-exchange.github.io/docs/v5/ws/connect`, проверено
+/// 2026-09-12). Факт протокола, не измеренное и не назначенное число: он и
+/// задаёт, сколько инструментов влезает в сокет (`feed::live::
+/// plan_connections`).
+pub(crate) const MAX_ARGS_CHARS: usize = 21_000;
+
+/// Бюджет **создания** соединений Bybit v5, дословно: «Do not build over
+/// 500 connections in 5 minutes. This is counted per WebSocket domain».
+/// Верхняя граница числа сокетов, которые вправе открыть один процесс
+/// (с запасом на переподключения) — печатается раскладкой, чтобы её
+/// нарушение было видно числом, а не отказом биржи.
+pub(crate) const MAX_CONNECTIONS_PER_5MIN: usize = 500;
+
+impl From<ConnConfig> for PoolConnConfig {
+    fn from(cfg: ConnConfig) -> Self {
+        Self {
+            symbols: vec![SymbolSpec {
+                symbol: cfg.symbol,
+                tick_e9: cfg.tick_e9,
+                step_e9: cfg.step_e9,
+                index: 0,
+            }],
+            ping_interval: cfg.ping_interval,
+            backoff: cfg.backoff,
+        }
+    }
+}
+
 /// Событие, которое соединение отдаёт наружу. Вызывающий код сам решает, что
 /// с ним делать (собственную книгу вести, писать в бинлог, считать метрики) —
 /// этот файл знает только протокол Bybit и сокет, а не то, что происходит с
@@ -251,7 +319,23 @@ pub enum ConnEvent {
     /// пересечения книги, а не только факт «что-то не так».
     BookInvariantViolated { err: ApplyError },
     /// Сокет закрылся (сервером или сетью). Переподключение уже запущено.
-    Disconnected,
+    /// Событие приходит **на каждый инструмент** этого сокета: на
+    /// мультиплексированном соединении (таск 28) молчание для остальных
+    /// означало бы, что они не сбросят `synced` и продолжат писать дельты
+    /// в книгу, которой больше нет. `first_of_socket` отделяет сам разрыв
+    /// (его и считает `session.json.reconnects` — один на сокет) от его
+    /// копий по инструментам. Выбор «строка `gaps.csv` на инструмент», а не
+    /// «одна строка с перечнем»: у `gaps.csv` символ — колонка, и покрытие
+    /// инструмента считается по его собственным строкам.
+    Disconnected { first_of_socket: bool },
+    /// Рыночный кадр, чей топик не сопоставлен ни одному инструменту этого
+    /// сокета (таск 28). Наружу как рынок он пойти не может — приписать его
+    /// «индексу сокета» значило бы записать чужой стакан в бинлог первого
+    /// инструмента соединения, — но и исчезать молча не вправе: этот
+    /// вариант его считает (`session.json.unrouted`). В норме не
+    /// встречается: подписки сокета и его список инструментов — одно и то
+    /// же множество.
+    Unrouted { local_ts_ns: i64 },
 }
 
 /// Куда `Connection::run` отдаёт разобранные события — трейт-шов, а не
@@ -267,8 +351,14 @@ pub enum ConnEvent {
 /// `Transport`/`TransportConnector`/`Backoff` этого файла: обычный `async
 /// fn` в трейте не даёт `+ Send` на результате, а без него `Connection::run`
 /// нельзя передать в `tokio::spawn`.
+/// `symbol_idx` — глобальный индекс инструмента в пуле вызывающего
+/// (`SymbolSpec::index`), таск 28: одно соединение несёт топики многих
+/// инструментов, и получатель обязан узнать инструмент из самого события,
+/// а не из того, какому соединению принадлежит канал. Одно-символьному
+/// вызывающему (`commands::record`, `pick::measure`) индекс не нужен — их
+/// реализация ниже его игнорирует, `--help` и поведение не изменились.
 pub trait ConnSink: Send {
-    fn send_event(&self, ev: ConnEvent) -> impl Future<Output = ()> + Send;
+    fn send_event(&self, symbol_idx: u16, ev: ConnEvent) -> impl Future<Output = ()> + Send;
 }
 
 /// Прежнее поведение, без изменений: `commands::record`, `commands::lob::
@@ -280,7 +370,7 @@ pub trait ConnSink: Send {
 /// внутри `run_with_backoff`/`handle_raw` — получатель мог закрыться
 /// осознанно, это не повод ронять поток ввода-вывода.
 impl ConnSink for mpsc::Sender<ConnEvent> {
-    async fn send_event(&self, ev: ConnEvent) {
+    async fn send_event(&self, _symbol_idx: u16, ev: ConnEvent) {
         let _ = self.send(ev).await;
     }
 }
@@ -301,11 +391,16 @@ fn ping_message() -> String {
 /// сессии одного сокета, а не что-то концептуально разное, так что это ещё и
 /// более честная группировка, а не обход линта.
 struct Session {
-    book: Book,
+    /// Книга на каждый инструмент соединения, в порядке `cfg.symbols`
+    /// (таск 28: сокет несёт топики многих инструментов, у каждого своя
+    /// последовательность `u`). Предвыделенный `Vec`, индекс — слот
+    /// маршрута; ни `HashMap`, ни аллокации на событие.
+    books: Vec<Book>,
     /// Не даёт слать повторную ресинк-подписку на каждую следующую дельту,
     /// пока мы уже ждём снапшот — иначе разрыв на секунду превратился бы в
-    /// шторм из сотен подписок в секунду.
-    resyncing: bool,
+    /// шторм из сотен подписок в секунду. Флаг **на инструмент**: ресинк
+    /// одного символа не должен глушить ресинк соседа по сокету.
+    resyncing: Vec<bool>,
     /// Ставится в `true`, как только сессия переслала наружу хоть одно
     /// `ConnEvent::Message`. Решает судьбу счётчика бэкоффа в `run` — сервер,
     /// который принимает рукопожатие и тут же рвёт соединение, не должен
@@ -313,15 +408,104 @@ struct Session {
     productive: bool,
 }
 
-/// Одно подключение: символ, состояние ресинка и сокет за `TransportConnector`.
+/// Одно подключение: инструменты, состояние ресинка и сокет за
+/// `TransportConnector`.
 pub struct Connection<C: TransportConnector> {
     connector: C,
-    cfg: ConnConfig,
+    cfg: PoolConnConfig,
+    /// Маршрут «символ топика → слот в `cfg.symbols`»: отсортированный по
+    /// имени массив, поиск двоичный (`log2 500 ≈ 9` сравнений). Не
+    /// `HashMap` — запрет 7 горячего пути; строится один раз в `new`, на
+    /// событие не аллоцирует.
+    route: Vec<(Box<str>, u16)>,
+}
+
+/// Метки и маршрут одного сырого кадра — три значения, которые
+/// `handle_raw` получает от `run`. Отдельной структурой, а не тремя
+/// аргументами: список аргументов `handle_raw` иначе перевалил бы за
+/// предел clippy (`too_many_arguments`), а все три описывают ровно один
+/// кадр.
+struct FrameMeta<'a> {
+    local_ts_ns: i64,
+    parsed_ts_ns: i64,
+    /// Символ из топика (`ws::parse_message_into`). `None` — топик без
+    /// символа (`pong`, ответ на подписку) или неразобранное имя.
+    symbol: Option<&'a str>,
+}
+
+/// Заимствованный вид маршрута одного соединения: инструменты и
+/// отсортированная таблица имён. Отдельным типом, а не методами на
+/// `Connection`, ровно по одной причине: `&Connection<C>`, живущий поперёк
+/// `.await`, требовал бы `C: Sync` от каждого транспорта — а маршрут не
+/// зависит от транспорта вовсе и `Sync` сам по себе.
+#[derive(Clone, Copy)]
+struct Route<'a> {
+    symbols: &'a [SymbolSpec],
+    table: &'a [(Box<str>, u16)],
+}
+
+impl Route<'_> {
+    /// Слот инструмента по имени из топика. `None` — топик не наш
+    /// (`pong`, подтверждение подписки) или символ этому сокету не
+    /// принадлежит (биржа прислала чужое — не наше дело чинить).
+    fn slot_of(&self, symbol: &str) -> Option<usize> {
+        self.table
+            .binary_search_by(|probe| probe.0.as_ref().cmp(symbol))
+            .ok()
+            .map(|i| usize::from(self.table[i].1))
+    }
+
+    /// Глобальный индекс инструмента для событий без символа (`pong`,
+    /// `Disconnected`, неразобранный кадр): первый инструмент соединения.
+    /// Придумывать «индекс никого» нельзя — `feed::Event` метит символом
+    /// каждое событие; а такие события несут не рынок, а состояние сокета,
+    /// и по сокету они и атрибутируются.
+    fn socket_index(&self) -> u16 {
+        self.symbols.first().map_or(0, |s| s.index)
+    }
+
+    /// Разрыв сокета — событие каждого его инструмента (см. doc
+    /// `ConnEvent::Disconnected`).
+    async fn broadcast_disconnected<O: ConnSink>(&self, out: &O) {
+        for (i, spec) in self.symbols.iter().enumerate() {
+            out.send_event(
+                spec.index,
+                ConnEvent::Disconnected {
+                    first_of_socket: i == 0,
+                },
+            )
+            .await;
+        }
+    }
 }
 
 impl<C: TransportConnector> Connection<C> {
-    pub fn new(connector: C, cfg: ConnConfig) -> Self {
-        Self { connector, cfg }
+    pub fn new(connector: C, cfg: impl Into<PoolConnConfig>) -> Self {
+        let cfg: PoolConnConfig = cfg.into();
+        let mut route: Vec<(Box<str>, u16)> = cfg
+            .symbols
+            .iter()
+            .enumerate()
+            .map(|(slot, s)| {
+                (
+                    s.symbol.as_str().into(),
+                    u16::try_from(slot).unwrap_or(u16::MAX),
+                )
+            })
+            .collect();
+        route.sort_by(|a, b| a.0.cmp(&b.0));
+        Self {
+            connector,
+            cfg,
+            route,
+        }
+    }
+
+    fn route(&self) -> Route<'_> {
+        Route {
+            symbols: &self.cfg.symbols,
+            table: &self.route,
+        }
     }
 
     /// Основной цикл: подключение → две подписки → чтение с пересылкой в
@@ -373,19 +557,27 @@ impl<C: TransportConnector> Connection<C> {
             // ровно тем сигналом, который эта структура и объединяет: все три
             // описывают состояние ОДНОЙ сессии, а не что-то из разных миров.
             let mut session = Session {
-                book: Book::new(self.cfg.tick_e9, self.cfg.step_e9),
-                resyncing: false,
+                books: self
+                    .cfg
+                    .symbols
+                    .iter()
+                    .map(|s| Book::new(s.tick_e9, s.step_e9))
+                    .collect(),
+                resyncing: vec![false; self.cfg.symbols.len()],
                 productive: false,
             };
 
+            // Одна подписка на весь набор инструментов сокета вместо двух
+            // сообщений на инструмент (таск 28): для linear Bybit v5 не
+            // ограничивает число `args` в запросе, ограничена только их
+            // суммарная длина на соединение (`MAX_ARGS_CHARS`) — её
+            // соблюдает раскладка вызывающего.
+            let route = self.route();
+            let names: Vec<&str> = route.symbols.iter().map(|s| s.symbol.as_str()).collect();
             let subscribed = transport
-                .send_text(ws::sub_orderbook(ORDERBOOK_DEPTH, &self.cfg.symbol))
+                .send_text(ws::sub_pool(ORDERBOOK_DEPTH, &names))
                 .await
-                .is_ok()
-                && transport
-                    .send_text(ws::sub_trades(&self.cfg.symbol))
-                    .await
-                    .is_ok();
+                .is_ok();
             if !subscribed {
                 backoff
                     .wait(self.cfg.backoff.delay_for_attempt(attempt))
@@ -431,18 +623,27 @@ impl<C: TransportConnector> Connection<C> {
                                 // параметр `impl Clock + 'static` не обязан быть
                                 // `Sync`, а ссылка, живущая поперёк чужого
                                 // `.await`, обязана.
-                                if let Err(err) = ws::parse_message_into(&raw, &mut events) {
-                                    out.send_event(ConnEvent::ParseFailed { local_ts_ns, err })
+                                let symbol = match ws::parse_message_into(&raw, &mut events) {
+                                    Ok(symbol) => symbol,
+                                    Err(err) => {
+                                        out.send_event(
+                                            route.socket_index(),
+                                            ConnEvent::ParseFailed { local_ts_ns, err },
+                                        )
                                         .await;
-                                    continue;
-                                }
+                                        continue;
+                                    }
+                                };
                                 let parsed_ts_ns = clock.now_ns();
                                 let alive = Self::handle_raw(
                                     &mut events,
-                                    local_ts_ns,
-                                    parsed_ts_ns,
+                                    FrameMeta {
+                                        local_ts_ns,
+                                        parsed_ts_ns,
+                                        symbol,
+                                    },
+                                    route,
                                     &mut session,
-                                    &self.cfg.symbol,
                                     &mut transport,
                                     &out,
                                 )
@@ -452,14 +653,14 @@ impl<C: TransportConnector> Connection<C> {
                                 }
                             }
                             Ok(Frame::Closed) | Err(_) => {
-                                out.send_event(ConnEvent::Disconnected).await;
+                                route.broadcast_disconnected(&out).await;
                                 break;
                             }
                         }
                     }
                     _ = ping_due.tick() => {
                         if transport.send_text(ping_message()).await.is_err() {
-                            out.send_event(ConnEvent::Disconnected).await;
+                            route.broadcast_disconnected(&out).await;
                             break;
                         }
                     }
@@ -496,18 +697,36 @@ impl<C: TransportConnector> Connection<C> {
     /// вызывающим кодом в `run` — см. комментарий там.
     async fn handle_raw<O: ConnSink>(
         events: &mut Vec<Event>,
-        local_ts_ns: i64,
-        parsed_ts_ns: i64,
+        meta: FrameMeta<'_>,
+        route: Route<'_>,
         session: &mut Session,
-        symbol: &str,
         transport: &mut C::Transport,
         out: &O,
     ) -> bool {
+        let FrameMeta {
+            local_ts_ns,
+            parsed_ts_ns,
+            symbol,
+        } = meta;
+        // Маршрут кадра — один двоичный поиск на кадр, не на событие:
+        // все события одного сырого сообщения принадлежат одному топику.
+        let slot = symbol.and_then(|s| route.slot_of(s));
+        let idx = slot.map_or_else(|| route.socket_index(), |slot| route.symbols[slot].index);
         for event in events.drain(..) {
-            if let Event::Book(update) = &event {
-                match session.book.apply(update) {
+            // Рынок без известного маршрута наружу не идёт (приписать его
+            // «индексу сокета» значило бы записать чужой стакан в бинлог
+            // первого инструмента соединения), но и не исчезает молча —
+            // `Unrouted` его считает. Служебное (`Other`: pong,
+            // подтверждение подписки) символа не имеет и идёт по сокету.
+            if slot.is_none() && !matches!(event, Event::Other) {
+                out.send_event(route.socket_index(), ConnEvent::Unrouted { local_ts_ns })
+                    .await;
+                continue;
+            }
+            if let (Event::Book(update), Some(slot)) = (&event, slot) {
+                match session.books[slot].apply(update) {
                     Ok(()) => {
-                        session.resyncing = false;
+                        session.resyncing[slot] = false;
                     }
                     Err(err) => {
                         // Любая ошибка `apply` — не только `SequenceGap` — по
@@ -518,8 +737,8 @@ impl<C: TransportConnector> Connection<C> {
                         // подписку на каждую следующую дельту, пока мы уже
                         // ждём снапшот — иначе разрыв на секунду превратился
                         // бы в шторм из сотен подписок в секунду.
-                        if !session.resyncing {
-                            session.resyncing = true;
+                        if !session.resyncing[slot] {
+                            session.resyncing[slot] = true;
                             // `SequenceGap` несёт свои `expected`/`got` в
                             // отдельном варианте `ConnEvent` уже давно; три
                             // остальных варианта `ApplyError` раньше здесь не
@@ -532,21 +751,30 @@ impl<C: TransportConnector> Connection<C> {
                             // имеют права быть невидимыми снаружи этого файла.
                             match &err {
                                 ApplyError::SequenceGap { expected, got } => {
-                                    out.send_event(ConnEvent::SequenceGap {
-                                        expected: *expected,
-                                        got: *got,
-                                    })
+                                    out.send_event(
+                                        idx,
+                                        ConnEvent::SequenceGap {
+                                            expected: *expected,
+                                            got: *got,
+                                        },
+                                    )
                                     .await;
                                 }
                                 _ => {
-                                    out.send_event(ConnEvent::BookInvariantViolated {
-                                        err: err.clone(),
-                                    })
+                                    out.send_event(
+                                        idx,
+                                        ConnEvent::BookInvariantViolated { err: err.clone() },
+                                    )
                                     .await;
                                 }
                             }
+                            // Ресинк — только по этому инструменту: сосед
+                            // по сокету свою последовательность не терял.
                             if transport
-                                .send_text(ws::sub_orderbook(ORDERBOOK_DEPTH, symbol))
+                                .send_text(ws::sub_orderbook(
+                                    ORDERBOOK_DEPTH,
+                                    &route.symbols[slot].symbol,
+                                ))
                                 .await
                                 .is_err()
                             {
@@ -560,7 +788,7 @@ impl<C: TransportConnector> Connection<C> {
                                 // код, размечающий границы сессии по
                                 // `Disconnected`, одну из трёх смертей не увидит
                                 // никогда — раньше именно так и было.
-                                out.send_event(ConnEvent::Disconnected).await;
+                                route.broadcast_disconnected(out).await;
                                 return false;
                             }
                         }
@@ -579,11 +807,14 @@ impl<C: TransportConnector> Connection<C> {
             // принять сообщение — сам факт, что было что переслать, уже
             // случился и не зависит от состояния канала на другом конце.
             session.productive = true;
-            out.send_event(ConnEvent::Message {
-                local_ts_ns,
-                parsed_ts_ns,
-                event,
-            })
+            out.send_event(
+                idx,
+                ConnEvent::Message {
+                    local_ts_ns,
+                    parsed_ts_ns,
+                    event,
+                },
+            )
             .await;
         }
         true
@@ -1211,7 +1442,12 @@ mod tests {
             } => assert_eq!(u.u, 10),
             other => panic!("{other:?}"),
         }
-        assert_eq!(events[1], ConnEvent::Disconnected);
+        assert_eq!(
+            events[1],
+            ConnEvent::Disconnected {
+                first_of_socket: true
+            }
+        );
         match &events[2] {
             ConnEvent::Message {
                 event: Event::Book(u),
@@ -1265,7 +1501,7 @@ mod tests {
     /// не умеет проваливать конкретную отправку, поэтому раньше `handle_raw`
     /// мог молча вернуть `false` на неудавшемся ресинке, и ни один тест этого
     /// не замечал. Счёт вызовов `send_text`: 1 — `sub_orderbook` при входе в
-    /// сессию, 2 — `sub_trades`, 3 — повторная `sub_orderbook` на ресинке после
+    /// сессию, 2 — повторная `sub_orderbook` на ресинке после
     /// разрыва `u`; проваливаем именно третий.
     #[tokio::test]
     async fn resync_resubscribe_send_failure_still_emits_disconnected() {
@@ -1289,7 +1525,11 @@ mod tests {
             transport: Some(SendFailsOnCall {
                 inbox: VecDeque::from(frames),
                 send_calls: 0,
-                fail_on_call: 3,
+                // Отправка №1 — подписка на весь набор сокета одним
+                // сообщением (`ws::sub_pool`, таск 28; до него подписок было
+                // две — стакан и лента — и ресинк был третьей отправкой),
+                // №2 — ресинк-подписка, которая и обязана упасть.
+                fail_on_call: 2,
             }),
         };
         let (tx, mut rx) = mpsc::channel(16);
@@ -1318,7 +1558,9 @@ mod tests {
         );
         assert_eq!(
             events[2],
-            ConnEvent::Disconnected,
+            ConnEvent::Disconnected {
+                first_of_socket: true
+            },
             "неудавшаяся отправка ресинка — тоже смерть сокета и обязана дать Disconnected, \
              как и два других пути в select!"
         );

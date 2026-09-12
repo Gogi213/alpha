@@ -71,8 +71,18 @@ pub const MAX_PILOT_MINUTES: u32 = 360;
 pub struct SessionArgs {
     /// `instruments.csv` последнего `lob pick` — колонки `symbol,tick_size,
     /// min_order_qty,qty_step,min_notional_value` (`CLAUDE.md`, «грабли»).
-    #[arg(long)]
-    pub pool_instruments: PathBuf,
+    /// Взаимоисключающий с `--all-instruments`; ровно один обязателен.
+    #[arg(long, conflicts_with = "all_instruments")]
+    pub pool_instruments: Option<PathBuf>,
+    /// Писать **все** linear USDT-перпетуалы биржи, без отбора (таск 28,
+    /// R86: «писать не 10 монет а например 500 также эффективно и
+    /// экономно»). Список — `instruments-info` тем же путём, что у `lob
+    /// pick` (`bybit::rest::fetch_all_linear_instruments`), фильтр — только
+    /// «linear USDT-перпетуал в торгах»: исключения §2 (пул анализа) здесь
+    /// **не применяются** — это запись, а не отбор. `tick_e9`/`step_e9` —
+    /// из того же ответа, не из CSV.
+    #[arg(long, conflicts_with = "pool_instruments")]
+    pub all_instruments: bool,
     /// Корень сессии: по файлу `<SYMBOL>-<день UTC старта>.binlog` на
     /// инструмент (то же имя, что читают `verify`/`levels`/`markout` —
     /// `commands::record::day_file_path`), `gaps.csv`, `clock.csv`, запись
@@ -204,6 +214,66 @@ fn load_pool(path: &Path) -> anyhow::Result<Vec<PoolMember>> {
     Ok(pool)
 }
 
+/// Пул сессии: либо готовый `instruments.csv` (`--pool-instruments`), либо
+/// весь список биржи (`--all-instruments`, таск 28). Ровно один — вторую
+/// половину условия `clap conflicts_with` не выражает, как и у
+/// `--minutes`/`--pilot-minutes`/`--always-on`.
+fn resolve_pool(args: &SessionArgs) -> anyhow::Result<Vec<PoolMember>> {
+    match (&args.pool_instruments, args.all_instruments) {
+        (Some(path), false) => load_pool(path),
+        (None, true) => load_pool_all(&args.base_url),
+        (None, false) => anyhow::bail!(
+            "нужен ровно один флаг пула: --pool-instruments <instruments.csv> (пул `lob pick`) \
+             или --all-instruments (все linear USDT-перпетуалы биржи, R86)"
+        ),
+        // Не `unreachable!`: `run_session` зовут и программно
+        // (`pilot.rs`), минуя разбор `clap`, и тогда `conflicts_with`
+        // ничего не гарантирует — паника вместо ошибки уронила бы пилот.
+        (Some(_), true) => anyhow::bail!(
+            "--pool-instruments и --all-instruments взаимоисключающие: задан ровно один"
+        ),
+    }
+}
+
+/// Признаки linear USDT-перпетуала в торгах — те же три поля
+/// `instruments-info`, по которым отбирает `pick::pool` (`quote_coin`,
+/// `contract_type`, `status`). Здесь они стоят отдельно нарочно: пул
+/// анализа применяет сверх них исключения §2 (не-крипто база, молодые
+/// контракты, дедуп), запись — нет.
+const LINEAR_QUOTE_COIN: &str = "USDT";
+const LINEAR_CONTRACT_TYPE: &str = "LinearPerpetual";
+const TRADING_STATUS: &str = "Trading";
+
+fn load_pool_all(base_url: &str) -> anyhow::Result<Vec<PoolMember>> {
+    let mut client = crate::bybit::rest::BybitPublicRest::new(base_url)
+        .map_err(|e| anyhow::anyhow!("instruments-info: {e:?}"))?;
+    let all = crate::bybit::rest::fetch_all_linear_instruments(&mut client)
+        .map_err(|e| anyhow::anyhow!("instruments-info: {e:?}"))?;
+    let considered = all.len();
+    let pool: Vec<PoolMember> = all
+        .into_iter()
+        .filter(|i| {
+            i.quote_coin == LINEAR_QUOTE_COIN
+                && i.contract_type == LINEAR_CONTRACT_TYPE
+                && i.status == TRADING_STATUS
+        })
+        .map(|i| PoolMember {
+            symbol: i.symbol,
+            tick_e9: i.tick_e9,
+            step_e9: i.qty_step_e9,
+        })
+        .collect();
+    if pool.is_empty() {
+        anyhow::bail!("instruments-info вернул {considered} инструментов, ни один не linear USDT-перпетуал в торгах");
+    }
+    eprintln!(
+        "session: --all-instruments — {} из {considered} записей instruments-info \
+         (linear/{LINEAR_QUOTE_COIN}/{LINEAR_CONTRACT_TYPE}/{TRADING_STATUS}, без исключений §2)",
+        pool.len()
+    );
+    Ok(pool)
+}
+
 /// Приёмник файла части (таск 25): кадр целиком копится здесь и уходит на
 /// диск **одним** `write_all` по `flush` — файл на диске всегда кончается
 /// на границе кадра (кроме краха посреди самого системного вызова), и
@@ -327,7 +397,7 @@ impl std::io::Write for FrameSink {
 }
 
 /// Состояние одного инструмента пула: своя книга, свой файл. Индекс в этом
-/// `Vec` — тот же `symbol: u8`, которым `Feed` метит каждое событие
+/// `Vec` — тот же `symbol: u16`, которым `Feed` метит каждое событие
 /// (`interfaces.md`: тег события — не строка, лукап по строке на каждое
 /// событие был бы `HashMap` на пути события, запрет 7).
 struct SymbolState {
@@ -488,6 +558,12 @@ pub struct SessionSummary {
     /// них сутки записи нечем оценить; каждый — строка `gaps.csv`.
     #[serde(default)]
     pub reconnects: u64,
+    /// Рыночных кадров, чей топик не сопоставлен ни одному инструменту
+    /// своего сокета (таск 28, `bybit::conn::ConnEvent::Unrouted`). Строки
+    /// `gaps.csv` у них нет — неизвестно, чьи это данные, а колонка
+    /// `symbol` там обязательна; поэтому счётчик. В норме ноль.
+    #[serde(default)]
+    pub unrouted: u64,
     #[serde(default)]
     pub resyncs: u64,
     /// Кадров, не записавшихся на диск (сумма по инструментам) — таск 25.
@@ -660,6 +736,11 @@ struct SessionCtx {
     gaps: u64,
     reconnects: u64,
     resyncs: u64,
+    unrouted: u64,
+    /// Ротация суток изменила `binlog_files`, а `session.json` ещё не
+    /// переписан — пишет первый тик после ротации, один раз на всех
+    /// (таск 28, см. `on_tick`).
+    session_json_dirty: bool,
     // Суббюджет «разбор» (`PLAN.md` 3.1, `p99 < 200 мкс`) и очередь
     // (таск 20) — гистограммы фиксированной ёмкости (таск 24), не `Vec`
     // всех замеров: RSS плоский на любой длине прогона.
@@ -722,6 +803,8 @@ impl SessionCtx {
             gaps: 0,
             reconnects: 0,
             resyncs: 0,
+            unrouted: 0,
+            session_json_dirty: false,
             parse_latencies_ns: LatencyHistogram::new(),
             queue_latencies_ns: LatencyHistogram::new(),
             samples: Arc::new(Mutex::new(Vec::new())),
@@ -800,7 +883,15 @@ impl SessionCtx {
     /// раз в `HOURLY_REFRESH_SECS` — `session.json` и одна строка stderr.
     fn on_tick(&mut self, ts_ns: i64) {
         self.flush_all(ts_ns);
-        if ts_ns - self.last_hourly_ns >= HOURLY_REFRESH_SECS as i64 * 1_000_000_000 {
+        let hourly_due = ts_ns - self.last_hourly_ns >= HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
+        // Отложенная ротацией запись (см. `open_next_part`) — одна на все
+        // ротации этого тика; если тут же наступил час, пишет часовая ветка.
+        if self.session_json_dirty && !hourly_due {
+            self.session_json_dirty = false;
+            self.write_session_json_or_log(ts_ns);
+        }
+        if hourly_due {
+            self.session_json_dirty = false;
             self.last_hourly_ns = ts_ns;
             self.hours_reported += 1;
             let Some(summary) = self.write_session_json_or_log(ts_ns) else {
@@ -830,7 +921,8 @@ impl SessionCtx {
     /// Периодический `session.json` — best-effort: отказ `rename` (читатель
     /// живого каталога держит файл открытым без share-delete — ровно
     /// сценарий «анализ по накопленному») — строка stderr и `gaps.csv`,
-    /// цикл продолжается, следующая попытка — через час или на ротации.
+    /// цикл продолжается, следующая попытка — через час или на первом
+    /// тике после ротации суток.
     /// Один отказ не останавливает суточный коллектор без сброса.
     fn write_session_json_or_log(&mut self, ts_ns: i64) -> Option<SessionSummary> {
         match self.write_session_json(false) {
@@ -943,7 +1035,13 @@ impl SessionCtx {
                 );
             }
         }
-        self.write_session_json_or_log(local_ts_ns);
+        // Не пишем `session.json` здесь (таск 28): на 761 инструменте одна
+        // полночь — 761 ротация, и запись на каждой означала бы 761
+        // сериализацию списка из 761 части (99 КБ) — ≈ 75 МБ на диск за
+        // секунду потоком решений, в котором стоит очередь событий. Ротация
+        // только помечает; пишет первый тик после неё, не позже
+        // `FRAME_LOSS_WINDOW_SECS`, один раз на всех.
+        self.session_json_dirty = true;
         Ok(())
     }
 
@@ -998,6 +1096,7 @@ impl SessionCtx {
             always_on: self.plan == SessionPlan::AlwaysOn,
             reconnects: self.reconnects,
             resyncs: self.resyncs,
+            unrouted: self.unrouted,
             frames_failed: self.states.iter().map(|s| s.frames_failed).sum(),
             bytes_written: self
                 .states
@@ -1081,9 +1180,17 @@ fn run_session_loop(feed: &mut dyn Feed, ctx: &mut SessionCtx) -> anyhow::Result
                 kind,
                 detail,
             } => {
+                // Неразрешённый маршрут — не строка `gaps.csv`: у неё
+                // колонка `symbol` обязательна, а чей это кадр — как раз и
+                // неизвестно. Считаем отдельно и печатаем в сводке.
+                if kind == FeedGapKind::Unrouted {
+                    ctx.unrouted += 1;
+                    continue;
+                }
                 ctx.gaps += 1;
                 let idx = symbol as usize;
                 let record_kind = match kind {
+                    FeedGapKind::Unrouted => unreachable!("отсеян выше"),
                     FeedGapKind::ParseFailed => GapKind::ParseError,
                     FeedGapKind::SequenceGap => {
                         ctx.resyncs += 1;
@@ -1094,9 +1201,15 @@ fn run_session_loop(feed: &mut dyn Feed, ctx: &mut SessionCtx) -> anyhow::Result
                         GapKind::BookInvariant
                     }
                     FeedGapKind::Disconnected => {
+                        // Один разрыв сокета — одно переподключение, сколько
+                        // бы инструментов сокет ни нёс (таск 28): копии по
+                        // остальным инструментам приходят
+                        // `DisconnectedSameSocket` и дают только свою строку
+                        // `gaps.csv` и свой сброс `synced`.
                         ctx.reconnects += 1;
                         GapKind::SequenceGap
                     }
+                    FeedGapKind::DisconnectedSameSocket => GapKind::SequenceGap,
                 };
                 if kind != FeedGapKind::ParseFailed {
                     if let Some(state) = ctx.states.get_mut(idx) {
@@ -1124,7 +1237,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         ),
         SessionPlan::Timed { .. } => {}
     }
-    let pool = load_pool(&args.pool_instruments)?;
+    let pool = resolve_pool(args)?;
     let started_ns = SystemClock.now_ns();
     let mut ctx = SessionCtx::open(&args.root, &pool, plan, started_ns)?;
     // Первая запись `session.json` — сразу: живой каталог с первой минуты
@@ -1141,7 +1254,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         ctx.clock_samples.clone(),
     );
 
-    let mut feed = LiveFeed::spawn_with_ticks(pool, Duration::from_secs(FRAME_LOSS_WINDOW_SECS));
+    let mut feed = LiveFeed::spawn_with_ticks(pool, Duration::from_secs(FRAME_LOSS_WINDOW_SECS))?;
     feed.stop_handle().stop_on_ctrl_c();
     // Писатели сброшены и `session.json` закрыт внутри цикла — до любого
     // сетевого вызова ниже: второй Ctrl+C (`exit(130)`) во время ожидания
@@ -1189,14 +1302,15 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         eprintln!(
             "session: CPU средний {avg:.1}% ядра (бюджет `PLAN.md` 6.1: < 5%); RSS начало \
              {:.1} МиБ, конец {:.1} МиБ; сэмплов {}; байт {}; reconnects={} resyncs={} \
-             frames_failed={}",
+             frames_failed={} unrouted={}",
             start as f64 / (1024.0 * 1024.0),
             end as f64 / (1024.0 * 1024.0),
             summary.samples.len(),
             summary.bytes_written,
             summary.reconnects,
             summary.resyncs,
-            summary.frames_failed
+            summary.frames_failed,
+            summary.unrouted
         );
     }
     Ok(summary)
@@ -2057,7 +2171,8 @@ mod tests {
 
     fn args_with_minutes(minutes: u64) -> SessionArgs {
         SessionArgs {
-            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            pool_instruments: Some(PathBuf::from("does/not/exist/instruments.csv")),
+            all_instruments: false,
             root: PathBuf::from("does/not/exist/root"),
             minutes: Some(minutes),
             pilot_minutes: None,
@@ -2069,7 +2184,8 @@ mod tests {
 
     fn args_with_pilot_minutes(pilot_minutes: u32) -> SessionArgs {
         SessionArgs {
-            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            pool_instruments: Some(PathBuf::from("does/not/exist/instruments.csv")),
+            all_instruments: false,
             root: PathBuf::from("does/not/exist/root"),
             minutes: None,
             pilot_minutes: Some(pilot_minutes),
@@ -2150,7 +2266,8 @@ mod tests {
     #[test]
     fn resolve_duration_requires_exactly_one_of_minutes_or_pilot_minutes() {
         let args = SessionArgs {
-            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            pool_instruments: Some(PathBuf::from("does/not/exist/instruments.csv")),
+            all_instruments: false,
             root: PathBuf::from("does/not/exist/root"),
             minutes: None,
             pilot_minutes: None,
@@ -2371,7 +2488,7 @@ mod tests {
         }
     }
 
-    fn book_event(symbol: u8, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: u64) -> Event {
+    fn book_event(symbol: u16, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: u64) -> Event {
         Event::Market {
             symbol,
             local_ts_ns,
@@ -2688,6 +2805,45 @@ mod tests {
         );
     }
 
+    /// Таск 28. Разрыв мультиплексированного сокета доходит до каждого его
+    /// инструмента: строк `gaps.csv` — по инструменту, а `reconnects` — один
+    /// на сокет (копии приходят `DisconnectedSameSocket`). Кадр с
+    /// неразрешённым топиком считается отдельно (`unrouted`) и строки
+    /// `gaps.csv` не получает — у неё колонка `symbol` обязательна, а чей
+    /// это кадр, неизвестно.
+    #[test]
+    fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let gap = |symbol, kind| Event::Gap {
+            symbol,
+            local_ts_ns: NOON_NS,
+            kind,
+            detail: "разрыв".to_string(),
+        };
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(gap(0, FeedGapKind::Disconnected)),
+            Step::Ev(gap(0, FeedGapKind::DisconnectedSameSocket)),
+            Step::Ev(gap(0, FeedGapKind::Unrouted)),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 20_000_000_000,
+            }),
+        ]));
+        let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+        assert_eq!(
+            (summary.reconnects, summary.gaps, summary.unrouted),
+            (1, 2, 1),
+            "один разрыв сокета, две строки gaps.csv, один неразрешённый кадр"
+        );
+        let gaps = std::fs::read_to_string(gaps_csv_path(&root)).unwrap();
+        assert_eq!(
+            gaps.lines().count(),
+            3,
+            "заголовок и две строки разрыва, неразрешённого кадра там нет: {gaps}"
+        );
+    }
+
     /// Переподключение и ресинк — числом в `session.json` и строкой в
     /// `gaps.csv` каждый: без них сутки записи нечем оценить.
     #[test]
@@ -2750,7 +2906,8 @@ mod tests {
             );
         }
         let args = SessionArgs {
-            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            pool_instruments: Some(PathBuf::from("does/not/exist/instruments.csv")),
+            all_instruments: false,
             root: PathBuf::from("does/not/exist/root"),
             minutes: None,
             pilot_minutes: None,

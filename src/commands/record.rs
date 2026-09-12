@@ -1326,7 +1326,13 @@ async fn run_session(
                         // поймал), пересечение — своей веткой выше.
                         synced = false;
                     }
-                    ConnEvent::Disconnected => {
+                    // Таск 28: у одно-символьного рекордера сокет несёт
+                    // один инструмент, поэтому веер `first_of_socket`
+                    // здесь всегда `true` и на учёт не влияет; `Unrouted`
+                    // не встречается вовсе — подписки сокета и его
+                    // единственный символ совпадают.
+                    ConnEvent::Unrouted { .. } => {}
+                    ConnEvent::Disconnected { .. } => {
                         synced = false;
                         rec.log_gap(GapKind::SequenceGap, &ts_utc_of_ns(SystemClock.now_ns()), "транспорт переподключился — шов покрытия")?;
                     }

@@ -24,7 +24,7 @@ use super::{Event, Feed};
 
 /// `Feed` с одного суточного файла бинлога одного инструмента пула.
 pub struct ReplayFeed<R: Read> {
-    symbol: u8,
+    symbol: u16,
     tick_e9: i64,
     step_e9: i64,
     reader: binlog::Reader<R>,
@@ -37,7 +37,7 @@ pub struct ReplayFeed<R: Read> {
 impl<R: Read> ReplayFeed<R> {
     /// `symbol` — тот же индекс пула, под которым файл писала `lob session`
     /// (см. doc модуля `feed`: тег события не имеет права быть `String`).
-    pub fn open(symbol: u8, inner: R) -> Result<Self, BinlogError> {
+    pub fn open(symbol: u16, inner: R) -> Result<Self, BinlogError> {
         let reader = binlog::Reader::open(inner)?;
         let header = reader.header();
         Ok(Self {

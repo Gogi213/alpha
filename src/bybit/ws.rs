@@ -46,13 +46,13 @@
 //! `String` сырого кадра в `tungstenite` (`PLAN.md` 6.1: «транспорт ≤ 1 на
 //! кадр, принято»).
 //!
-//! Какой из двух типов пробовать, решает `fast_topic_kind` — дешёвая
+//! Какой из двух типов пробовать, решает `fast_topic` — дешёвая
 //! проверка префикса `{"topic":"<префикс>` **в начале** сообщения без
 //! разбора: в протоколе Bybit `topic` всегда идёт первым полем компактного
 //! (без пробелов) JSON — то же самое подтверждают все фикстуры тестов ниже и
 //! разведка `docs/plan/RECON-2026-09-11.md`. Всё, что этому образцу не
 //! отвечает (пробелы после двоеточий, `topic` не первым полем, вовсе без
-//! `topic`), идёт фолбэком `probe_topic_kind` (таск 25, ревью таска 24):
+//! `topic`), идёт фолбэком `probe_topic` (таск 25, ревью таска 24):
 //! типизированный разбор верхнего объекта до поля `topic` — и никакое
 //! строковое поле или вложенный ключ `topic` быстрый путь не обманут,
 //! потому что он смотрит только на самое начало. Сама проверка структуры
@@ -60,7 +60,11 @@
 //! поля) остаётся за `serde_json` — префикс лишь выбирает, какую форму
 //! пробовать, а корректность проверяет типизированный разбор. Ошибки формы
 //! при валидном JSON — `BadShape`/`MissingField`/`BadNumber` по
-//! `serde_json::Error::classify()`; `NotJson` — только синтаксис.
+//! `serde_json::Error::classify()`; `NotJson` — только синтаксис. Обе
+//! функции отдают заодно **символ** топика (суффикс после последней точки):
+//! мультиплексированное соединение таска 28 маршрутизирует им сообщение к
+//! книге своего инструмента, и другого места, где символ уже прочитан, на
+//! горячем пути нет.
 
 use crate::book::Update;
 
@@ -170,11 +174,32 @@ fn topic_kind(topic: &str) -> TopicKind {
     }
 }
 
+/// Вид топика и его символ. Символ — суффикс после последней точки
+/// (`orderbook.50.SOLUSDT` → `SOLUSDT`, `publicTrade.SOLUSDT` → `SOLUSDT`):
+/// формат имени топика задан протоколом Bybit v5, не этим файлом. Нужен
+/// мультиплексированному соединению (таск 28): один сокет несёт топики
+/// многих инструментов, и маршрут события — суффикс его топика, а не
+/// конфигурация соединения. `None` — топик не наш (`Other`) или пустой
+/// суффикс.
+fn split_topic(topic: &str) -> (TopicKind, Option<&str>) {
+    let kind = topic_kind(topic);
+    let symbol = match kind {
+        TopicKind::Book | TopicKind::Trade => topic.rsplit('.').next().filter(|s| !s.is_empty()),
+        TopicKind::Other => None,
+    };
+    (kind, symbol)
+}
+
 /// Быстрый путь (см. doc модуля): компактное сообщение площадки начинается
-/// ровно с `{"topic":"`. `None` — образец не совпал, решает фолбэк.
-fn fast_topic_kind(raw: &str) -> Option<TopicKind> {
+/// ровно с `{"topic":"`. Значение топика кончается закрывающей кавычкой —
+/// её позиция и даёт границу символа без разбора остального сообщения.
+/// `None` — образец не совпал (в том числе кавычка не нашлась), решает
+/// фолбэк.
+fn fast_topic(raw: &str) -> Option<(TopicKind, Option<&str>)> {
     const KEY: &str = "{\"topic\":\"";
-    raw.strip_prefix(KEY).map(topic_kind)
+    let rest = raw.strip_prefix(KEY)?;
+    let end = rest.find('"')?;
+    Some(split_topic(&rest[..end]))
 }
 
 /// Фолбэк: верхний объект читается типизированно до поля `topic`
@@ -184,13 +209,53 @@ fn fast_topic_kind(raw: &str) -> Option<TopicKind> {
 #[derive(serde::Deserialize)]
 struct TopicProbe<'a> {
     #[serde(borrow)]
-    topic: Option<std::borrow::Cow<'a, str>>,
+    topic: Option<CowStr<'a>>,
 }
 
-fn probe_topic_kind(raw: &str) -> Result<TopicKind, ParseError> {
+/// `Cow<'a, str>`, который заимствует, когда может. Голый
+/// `#[serde(borrow)] Option<Cow<'a, str>>` serde разворачивает в обычный
+/// `String` (специальный разбор у него есть только для `Cow` без
+/// `Option`) — символ топика тогда не пережил бы собственную строку, и
+/// маршрут фолбэка всегда был бы `None` (это и поймал тест
+/// `parse_returns_the_topic_symbol_for_both_book_and_trade`).
+struct CowStr<'a>(std::borrow::Cow<'a, str>);
+
+impl<'de: 'a, 'a> serde::Deserialize<'de> for CowStr<'a> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V<'a>(std::marker::PhantomData<&'a ()>);
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for V<'a> {
+            type Value = CowStr<'a>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("строку topic")
+            }
+            fn visit_borrowed_str<E>(self, v: &'de str) -> Result<CowStr<'a>, E> {
+                Ok(CowStr(std::borrow::Cow::Borrowed(v)))
+            }
+            fn visit_str<E>(self, v: &str) -> Result<CowStr<'a>, E> {
+                Ok(CowStr(std::borrow::Cow::Owned(v.to_string())))
+            }
+            fn visit_string<E>(self, v: String) -> Result<CowStr<'a>, E> {
+                Ok(CowStr(std::borrow::Cow::Owned(v)))
+            }
+        }
+        d.deserialize_str(V(std::marker::PhantomData))
+    }
+}
+
+fn probe_topic(raw: &str) -> Result<(TopicKind, Option<&str>), ParseError> {
     let probe: TopicProbe =
         serde_json::from_str(raw).map_err(|e| classify_json_error(&e, "topic"))?;
-    Ok(probe.topic.as_deref().map_or(TopicKind::Other, topic_kind))
+    Ok(match probe.topic.map(|c| c.0) {
+        // Заимствованное значение живёт столько же, сколько само сообщение
+        // — символ отдаётся срезом, без своей строки на событие.
+        Some(std::borrow::Cow::Borrowed(t)) => split_topic(t),
+        // Экранирование внутри имени топика протокол Bybit не порождает:
+        // вид сообщения ещё определим, а маршрут по такому имени — нет
+        // (срез не переживёт собственную строку). Честнее отдать `None`,
+        // чем строить `String` на событие.
+        Some(std::borrow::Cow::Owned(t)) => (topic_kind(&t), None),
+        None => (TopicKind::Other, None),
+    })
 }
 
 /// Первая ёмкость `Vec` уровней одной стороны. Дельта `orderbook.50` несёт
@@ -412,18 +477,21 @@ impl<'de> serde::de::Visitor<'de> for TradeListInto<'_> {
 /// соединение); `parse_message` ниже — обёртка для тестов и вызывающих без
 /// своего буфера. На `Err` содержимое `out` не определено (частично
 /// разобранная лента) — вызывающий не читает его, следующий вызов очистит.
-pub fn parse_message_into(raw: &str, out: &mut Vec<Event>) -> Result<(), ParseError> {
+pub fn parse_message_into<'a>(
+    raw: &'a str,
+    out: &mut Vec<Event>,
+) -> Result<Option<&'a str>, ParseError> {
     out.clear();
-    let (kind, validated) = match fast_topic_kind(raw) {
-        Some(kind) => (kind, false),
-        None => (probe_topic_kind(raw)?, true),
+    let ((kind, symbol), validated) = match fast_topic(raw) {
+        Some(found) => (found, false),
+        None => (probe_topic(raw)?, true),
     };
     match kind {
         TopicKind::Book => {
             let msg: RawOrderbookMsg =
                 serde_json::from_str(raw).map_err(|e| classify_json_error(&e, "orderbook"))?;
             out.push(Event::Book(orderbook_update(msg)?));
-            Ok(())
+            Ok(symbol)
         }
         TopicKind::Trade => {
             let mut de = serde_json::Deserializer::from_str(raw);
@@ -436,7 +504,7 @@ pub fn parse_message_into(raw: &str, out: &mut Vec<Event>) -> Result<(), ParseEr
             if let Some(err) = outcome.bad {
                 return Err(err);
             }
-            Ok(())
+            Ok(symbol)
         }
         TopicKind::Other => {
             // Неизвестный топик с быстрого пути — сообщение обязано остаться
@@ -447,7 +515,7 @@ pub fn parse_message_into(raw: &str, out: &mut Vec<Event>) -> Result<(), ParseEr
                     .map_err(|_| ParseError::NotJson)?;
             }
             out.push(Event::Other);
-            Ok(())
+            Ok(symbol)
         }
     }
 }
@@ -470,11 +538,56 @@ pub fn sub_orderbook(depth: u32, symbol: &str) -> String {
     )
 }
 
-pub fn sub_trades(symbol: &str) -> String {
-    format!(
-        r#"{{"op":"subscribe","args":["publicTrade.{symbol}"]}}"#,
-        symbol = symbol
-    )
+/// Длина `args` подписки на один инструмент — оба топика, как их считает
+/// Bybit: имя топика без кавычек и запятых (проверка предела 21 000
+/// символов ведётся по содержимому массива `args`, `bybit::conn::
+/// MAX_ARGS_CHARS`). Функция здесь, а не у вызывающего, потому что имена
+/// топиков — протокол этого файла.
+pub fn pool_args_chars(depth: u32, symbol: &str) -> usize {
+    // Арифметика, не `format!`: функция зовётся на каждый инструмент
+    // раскладки (761 раз на старте), и строить ради длины две временные
+    // строки незачем. Совпадение с реально отправленным `args` держит тест
+    // `pool_args_chars_matches_the_topics_sub_pool_actually_sends`.
+    ORDERBOOK_TOPIC_PREFIX.len()
+        + decimal_len(depth)
+        + 1
+        + symbol.len()
+        + TRADE_TOPIC_PREFIX.len()
+        + symbol.len()
+}
+
+const ORDERBOOK_TOPIC_PREFIX: &str = "orderbook.";
+const TRADE_TOPIC_PREFIX: &str = "publicTrade.";
+
+fn decimal_len(depth: u32) -> usize {
+    let mut n = 1;
+    let mut v = depth;
+    while v >= 10 {
+        v /= 10;
+        n += 1;
+    }
+    n
+}
+
+/// Одна подписка на много инструментов сразу: `orderbook.<depth>.<sym>` и
+/// `publicTrade.<sym>` каждого — в один массив `args` одного сообщения.
+/// Для linear (Futures) Bybit v5 не ограничивает **число** `args` в запросе
+/// («No args limit for Futures and Spread for now»), ограничена только
+/// суммарная длина `args` **соединения** (21 000 символов) — её считает
+/// вызывающий раскладкой пула (`feed::live::plan_connections`), не эта
+/// функция.
+pub fn sub_pool(depth: u32, symbols: &[&str]) -> String {
+    let mut s = String::from(r#"{"op":"subscribe","args":["#);
+    for (i, sym) in symbols.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            r#""{ORDERBOOK_TOPIC_PREFIX}{depth}.{sym}","{TRADE_TOPIC_PREFIX}{sym}""#
+        ));
+    }
+    s.push_str("]}");
+    s
 }
 
 #[cfg(test)]
@@ -605,6 +718,30 @@ mod tests {
     /// Топик, не совпадающий ни с одним известным префиксом, но валидный
     /// JSON — обязан молча стать `Other`, а не ошибкой: неизвестный топик не
     /// то же самое, что сломанное сообщение.
+    /// Таск 28: маршрут мультиплексированного сокета — символ из топика,
+    /// и его отдаёт тот же разбор, что уже прочитал сообщение. Ожидаемые
+    /// значения — из имён топиков протокола, не из кода под тестом.
+    #[test]
+    fn parse_returns_the_topic_symbol_for_both_book_and_trade() {
+        let mut out = Vec::new();
+        let book = r#"{"topic":"orderbook.50.SOLUSDT","type":"delta","ts":1,"data":{"b":[],"a":[],"u":2,"seq":2}}"#;
+        assert_eq!(parse_message_into(book, &mut out).unwrap(), Some("SOLUSDT"));
+        let trade = r#"{"topic":"publicTrade.PUMPFUNUSDT","type":"snapshot","ts":1,"data":[{"T":1,"s":"PUMPFUNUSDT","S":"Buy","v":"1.0","p":"1.0","i":"x","BT":false}]}"#;
+        assert_eq!(
+            parse_message_into(trade, &mut out).unwrap(),
+            Some("PUMPFUNUSDT")
+        );
+        // Не компактное сообщение идёт фолбэком — символ обязан дойти и там.
+        let spaced = r#"{ "topic" : "orderbook.50.XRPUSDT", "type": "delta", "ts": 1, "data": {"b":[],"a":[],"u":2,"seq":2}}"#;
+        assert_eq!(
+            parse_message_into(spaced, &mut out).unwrap(),
+            Some("XRPUSDT")
+        );
+        // Служебное сообщение символа не несёт — и не обязано.
+        let pong = r#"{"op":"pong","success":true}"#;
+        assert_eq!(parse_message_into(pong, &mut out).unwrap(), None);
+    }
+
     #[test]
     fn unknown_topic_is_other_not_an_error() {
         let raw = r#"{"topic":"kline.1.SOLUSDT","data":{"whatever":1}}"#;
@@ -757,9 +894,29 @@ mod tests {
             r#"{"op":"subscribe","args":["orderbook.50.SOLUSDT"]}"#
         );
         assert_eq!(
-            sub_trades("SOLUSDT"),
-            r#"{"op":"subscribe","args":["publicTrade.SOLUSDT"]}"#
+            sub_pool(50, &["SOLUSDT", "XRPUSDT"]),
+            r#"{"op":"subscribe","args":["orderbook.50.SOLUSDT","publicTrade.SOLUSDT","orderbook.50.XRPUSDT","publicTrade.XRPUSDT"]}"#
         );
+    }
+
+    /// Таск 28: раскладка соединений считает длину `args` арифметикой
+    /// (`pool_args_chars`), а на сокет уходит то, что построил `sub_pool` —
+    /// разойдись они, предел 21 000 проверялся бы не по тому, что реально
+    /// отправлено. Ожидаемое значение берётся из **отправленного**
+    /// сообщения: имена топиков вырезаются из готового JSON и суммируются.
+    #[test]
+    fn pool_args_chars_matches_the_topics_sub_pool_actually_sends() {
+        let symbols = ["SOLUSDT", "PUMPFUNUSDT", "1000000BABYDOGEUSDT"];
+        for depth in [1u32, 50, 500] {
+            let msg = sub_pool(depth, &symbols);
+            let inner = msg
+                .split_once('[')
+                .and_then(|(_, rest)| rest.rsplit_once(']'))
+                .expect("массив args");
+            let sent: usize = inner.0.split(',').map(|t| t.trim_matches('"').len()).sum();
+            let counted: usize = symbols.iter().map(|s| pool_args_chars(depth, s)).sum();
+            assert_eq!(counted, sent, "depth={depth}");
+        }
     }
 
     /// Сквозной случай: разобранные сообщения применяются к книге и дают
