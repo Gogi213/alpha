@@ -1040,6 +1040,18 @@ window.STATE =
       "note": "владелец 2026-09-12: «нужно чтобы можно было добавлять на запись без перезапуска» (В-40). Новые символы — новым соединением, instruments.csv в --root — живой список, mtime на Tick. Живьём: SOL+XRP, ZEC дописан на 52-й с, подхвачен через 10 с, verify ok. По ревью починено: discard_opened на любом отказе партии, индексы проверяются и партия отбрасывается вместо assert; в доку — «несколько монет одной записью». Остаток в concerns: thread::Builder вместо spawn, ёмкость канала после add, сокет на партию (print_topic_budget), tick/step известного символа"
     },
     {
+      "id": "35",
+      "title": "Касания уровней и признаки практиков",
+      "requirements": ["R90"],
+      "blockedBy": [],
+      "wave": 12,
+      "zone": ["src/lob/levels.rs", "src/commands/lob/replay.rs", "src/commands/lob/touches.rs", "src/commands/lob/mod.rs", "CLAUDE.md", "docs/COMMANDS.md"],
+      "status": "in_progress",
+      "startedAt": "2026-09-13T01:20:00+04:00",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-13: расшифровки dizzi/станок — «это важно очень», BTC/ETH нет (В-42). Третий тип записи TouchRecord + lob touches CSV; оси в сетку — после отдельной предрегистрации"
+    },
+    {
       "id": "14",
       "title": "Чистка репозитория и память проекта",
       "requirements": [
