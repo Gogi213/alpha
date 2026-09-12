@@ -32,7 +32,8 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 607 passed, 0 failed, 5 ignored (23 таска + пилот)
+cargo test --release 2>&1 | tail -30        # 615 passed, 0 failed, 5 ignored (24 таска + пилот)
+cargo test --release --test collector_bench -- --ignored --nocapture   # бенч разбора: медиана/p99, аллокаций на сообщение
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
 ./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
@@ -167,6 +168,10 @@ src/
   «сейчас» фильтрует по суткам части
 - GC на пилоте 30 мин: NTP offset 79 мс (порог 5), parse p99 400 мкс (порог 200), RSS
   4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
+- коллектор (T24): `ws::parse_message_into` без `serde_json::Value`, `lob session` копит кадры
+  до `FRAME_TARGET_RECORDS` за `BufWriter` — крах теряет до батча; p99 разбора/очереди — из
+  гистограммы (`LatencyHistogram`, ≤ 1.5625 %), не из `Vec`; замер до/после —
+  `docs/findings/collector-2026-09-12.md`
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален
 - Bybit отдаёт `403` с части стран (CloudFront); с этой машины доступ есть
 

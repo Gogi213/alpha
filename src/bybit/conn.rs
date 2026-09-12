@@ -345,6 +345,12 @@ impl<C: TransportConnector> Connection<C> {
         backoff: impl Backoff,
     ) {
         let mut attempt: u32 = 0;
+        // Один буфер событий на соединение, переживает и сообщения, и
+        // переподключения (таск 24): `ws::parse_message_into` очищает его и
+        // наполняет заново на каждый кадр, так что список событий после
+        // первого сообщения не аллоцирует — а `handle_raw` вычерпывает его
+        // `drain`, не забирая владение.
+        let mut events: Vec<Event> = Vec::new();
         loop {
             let mut transport = match self.connector.connect().await {
                 Ok(t) => t,
@@ -412,7 +418,7 @@ impl<C: TransportConnector> Connection<C> {
                         match frame {
                             Ok(Frame::Text(raw)) => {
                                 // Метка ставится здесь и нигде позже — до
-                                // единственного вызова `parse_message` ниже.
+                                // единственного вызова `parse_message_into` ниже.
                                 // Это и есть `H12`: точка "сразу после recv".
                                 let local_ts_ns = clock.now_ns();
                                 // Разбор — синхронный вызов, ни одного `.await`
@@ -425,17 +431,14 @@ impl<C: TransportConnector> Connection<C> {
                                 // параметр `impl Clock + 'static` не обязан быть
                                 // `Sync`, а ссылка, живущая поперёк чужого
                                 // `.await`, обязана.
-                                let events = match ws::parse_message(&raw) {
-                                    Ok(evs) => evs,
-                                    Err(err) => {
-                                        out.send_event(ConnEvent::ParseFailed { local_ts_ns, err })
-                                            .await;
-                                        continue;
-                                    }
-                                };
+                                if let Err(err) = ws::parse_message_into(&raw, &mut events) {
+                                    out.send_event(ConnEvent::ParseFailed { local_ts_ns, err })
+                                        .await;
+                                    continue;
+                                }
                                 let parsed_ts_ns = clock.now_ns();
                                 let alive = Self::handle_raw(
-                                    events,
+                                    &mut events,
                                     local_ts_ns,
                                     parsed_ts_ns,
                                     &mut session,
@@ -492,7 +495,7 @@ impl<C: TransportConnector> Connection<C> {
     /// метки, `local_ts_ns` до него и `parsed_ts_ns` сразу после) сделан
     /// вызывающим кодом в `run` — см. комментарий там.
     async fn handle_raw<O: ConnSink>(
-        events: Vec<Event>,
+        events: &mut Vec<Event>,
         local_ts_ns: i64,
         parsed_ts_ns: i64,
         session: &mut Session,
@@ -500,7 +503,7 @@ impl<C: TransportConnector> Connection<C> {
         transport: &mut C::Transport,
         out: &O,
     ) -> bool {
-        for event in events {
+        for event in events.drain(..) {
             if let Event::Book(update) = &event {
                 match session.book.apply(update) {
                     Ok(()) => {

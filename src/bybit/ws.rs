@@ -10,6 +10,51 @@
 //! - `publicTrade.<symbol>` несёт `T` (время исполнения), `S` (сторона агрессора),
 //!   `v`, `p`, `i`, `BT` (блочная сделка) и `seq`. **Поля `cts` у него нет** —
 //!   ключ склейки с книгой это `T` против `orderbook.cts`, оба времени матчинга.
+//!
+//! ## Разбор без DOM (таск 24)
+//!
+//! До этого места `parse_message` строило `serde_json::Value` — дерево с
+//! аллокацией на каждый узел (объект, массив, строка) — на **каждое**
+//! сообщение, и только из готового дерева читало нужные несколько полей.
+//! Замер `docs/findings/recording-2026-09-11.md`/`pilot-2026-09-11.md`
+//! назвал это основной стоимостью разбора (`parse_p99_ns` 400–850 мкс на
+//! пуле против калибровочного суббюджета `PLAN.md` 3.1 в 200 мкс).
+//!
+//! Теперь сообщение разбирается прямо в типизированные структуры
+//! (`RawOrderbookMsg`, `LevelsE9`, `TradesInto` ниже) через `serde_json` —
+//! `serde_json` строит `Value` только когда его об этом явно просят
+//! (`serde_json::Value` как тип назначения); при разборе в конкретный тип он
+//! читает поля напрямую в целевые слоты, ни разу не создавая обобщённый узел
+//! дерева. Строковые поля (`p`, `v`, `S`, необязательный `type`) взяты как
+//! `&str` — заимствование из `raw`, а не копия: ни цена, ни размер, ни сторона
+//! не содержат экранирования в протоколе площадки, так что заимствование
+//! всегда успешно. Уровни книги и сделки разбираются визиторами **на лету**:
+//! пара `["цена","размер"]` превращается в `(i64, i64)` в момент чтения, без
+//! промежуточного `Vec<(&str, &str)>`; сделка кладётся прямо в
+//! переиспользуемый `Vec<Event>` вызывающего (`parse_message_into`), без
+//! промежуточного `Vec<RawTradeItem>`.
+//!
+//! Что остаётся аллоцировать после прогрева, по видам сообщений (число —
+//! `tests/collector_bench.rs` и гейт `session.rs::parse_book_write_path_
+//! allocations_per_message_after_warmup`): книжное сообщение — по одному
+//! `Vec<(i64, i64)>` на **непустую** сторону (`book::Update` владеет
+//! `bids`/`asks` и уходит владельцем в канал `ConnEvent::Message` — тип не в
+//! зоне таска 24, менять нельзя; дельта с одной пустой стороной — одна
+//! аллокация, снапшот 50+50 — по три роста на сторону сверх первой, см.
+//! `LEVELS_INITIAL_CAPACITY`); лента сделок — ноль; служебное сообщение —
+//! ноль; список событий — ноль (буфер вызывающего). Сверх этого — одна
+//! `String` сырого кадра в `tungstenite` (`PLAN.md` 6.1: «транспорт ≤ 1 на
+//! кадр, принято»).
+//!
+//! Какой из двух типов пробовать, решает `topic_starts_with` — дешёвая
+//! проверка подстроки `"topic":"<префикс>` без разбора: в протоколе Bybit
+//! `topic` всегда идёт первым полем компактного (без пробелов) JSON без
+//! экранирования — то же самое подтверждают все фикстуры тестов ниже и
+//! разведка `docs/plan/RECON-2026-09-11.md`. Сама проверка структуры
+//! (порядок полей, экранирование внутри строк, отсутствующие необязательные
+//! поля) остаётся за `serde_json`, а не за этой подстрокой — подстрока лишь
+//! выбирает, какую типизированную форму пробовать первой, а корректность
+//! разбора проверяет типизированный разбор, а не она.
 
 use crate::book::Update;
 
@@ -89,106 +134,274 @@ pub fn parse_e9(s: &str) -> Option<i64> {
     Some(if neg { -v } else { v })
 }
 
-fn levels(v: &serde_json::Value, key: &'static str) -> Result<Vec<(i64, i64)>, ParseError> {
-    let arr = match v.get(key) {
-        Some(serde_json::Value::Array(a)) => a,
-        None => return Ok(Vec::new()),
-        Some(_) => return Err(ParseError::MissingField(key)),
-    };
-    let mut out = Vec::with_capacity(arr.len());
-    for pair in arr {
-        let p = pair
-            .get(0)
-            .and_then(|x| x.as_str())
-            .ok_or(ParseError::MissingField("level price"))?;
-        let q = pair
-            .get(1)
-            .and_then(|x| x.as_str())
-            .ok_or(ParseError::MissingField("level size"))?;
-        let price = parse_e9(p).ok_or(ParseError::BadNumber("level price"))?;
-        let qty = parse_e9(q).ok_or(ParseError::BadNumber("level size"))?;
-        out.push((price, qty));
+/// Проверка подстроки, решающая, какую типизированную форму разбора пробовать
+/// (см. doc модуля). Не заглядывает внутрь `data` и не проверяет структуру —
+/// это остаётся за `serde_json` ниже.
+fn topic_starts_with(raw: &str, prefix: &str) -> bool {
+    const KEY: &str = "\"topic\":\"";
+    match raw.find(KEY) {
+        Some(at) => raw[at + KEY.len()..].starts_with(prefix),
+        None => false,
     }
-    Ok(out)
 }
 
-/// Разбирает одно текстовое сообщение публичного потока.
-pub fn parse_message(raw: &str) -> Result<Vec<Event>, ParseError> {
-    let v: serde_json::Value = serde_json::from_str(raw).map_err(|_| ParseError::NotJson)?;
+/// Первая ёмкость `Vec` уровней одной стороны. Дельта `orderbook.50` несёт
+/// 1–5 уровней на сторону (фикстура таска 24, `tests/collector_bench.rs`, и
+/// разведка `docs/plan/RECON-2026-09-11.md`); восемь — ближайшая степень
+/// двойки сверху: одна аллокация на сторону без роста. Снапшот (50 на
+/// сторону) дорастает удвоениями 8→16→32→64 — три роста, но снапшот приходит
+/// раз на соединение/ресинк, не на каждое сообщение. Пустая сторона (`[]`,
+/// частый случай дельты) не аллоцирует вовсе — резерв берётся при первой паре.
+/// `serde_json` не даёт `size_hint` для массивов, поэтому число уровней до
+/// разбора неизвестно.
+const LEVELS_INITIAL_CAPACITY: usize = 8;
 
-    let topic = match v.get("topic").and_then(|t| t.as_str()) {
-        Some(t) => t,
-        None => return Ok(vec![Event::Other]),
-    };
+/// Пары `[цена, размер]` одной стороны, разобранные в целые 1e-9 **прямо из
+/// потока** `serde_json` — без промежуточного `Vec<(&str, &str)>` и второго
+/// прохода. Единственная аллокация на сторону — сам `Vec<(i64, i64)>`, и её
+/// несёт `book::Update` (тип не в зоне таска 24): он уходит владельцем в
+/// канал `ConnEvent::Message`, поэтому ни переиспользовать, ни занять из
+/// скретча его нельзя, не меняя `book::Update` и `ConnEvent`.
+///
+/// Плохое число не роняет разбор ошибкой `serde` с потерей имени поля:
+/// визитор дочитывает массив (иначе JSON останется недочитанным и `serde_json`
+/// доложит синтаксическую ошибку вместо настоящей причины), а `bad` несёт имя
+/// поля для `ParseError::BadNumber` — тот же вариант ошибки, что и до таска 24.
+#[derive(Default)]
+struct LevelsE9 {
+    pairs: Vec<(i64, i64)>,
+    bad: Option<&'static str>,
+}
 
-    if topic.starts_with("orderbook.") {
-        let data = v.get("data").ok_or(ParseError::MissingField("data"))?;
-        let u = data
-            .get("u")
-            .and_then(|x| x.as_u64())
-            .ok_or(ParseError::MissingField("u"))?;
-        // `seq` — сквозной счётчик WS и REST (в отличие от `u`, у которого
-        // в двух каналах два разных счётчика). В контроле потока не участвует.
-        let seq = data
-            .get("seq")
-            .and_then(|x| x.as_u64())
-            .ok_or(ParseError::MissingField("seq"))?;
-        // `cts` — время матчинга. У некоторых сообщений его нет; тогда берём `ts`,
-        // время формирования, и это ухудшение точности, а не эквивалент.
-        let cts_ms = data
-            .get("cts")
-            .and_then(|x| x.as_i64())
-            .or_else(|| v.get("cts").and_then(|x| x.as_i64()))
-            .or_else(|| v.get("ts").and_then(|x| x.as_i64()))
-            .ok_or(ParseError::MissingField("cts"))?;
-        let is_snapshot = v.get("type").and_then(|x| x.as_str()) == Some("snapshot");
-        return Ok(vec![Event::Book(Update {
-            is_snapshot,
-            u,
-            seq,
-            cts_ms,
-            bids: levels(data, "b")?,
-            asks: levels(data, "a")?,
-        })]);
-    }
-
-    if topic.starts_with("publicTrade") {
-        let arr = match v.get("data") {
-            Some(serde_json::Value::Array(a)) => a,
-            _ => return Err(ParseError::MissingField("data")),
-        };
-        let mut out = Vec::with_capacity(arr.len());
-        for t in arr {
-            let exch_ms = t
-                .get("T")
-                .and_then(|x| x.as_i64())
-                .ok_or(ParseError::MissingField("T"))?;
-            let price_e9 = t
-                .get("p")
-                .and_then(|x| x.as_str())
-                .and_then(parse_e9)
-                .ok_or(ParseError::BadNumber("p"))?;
-            let qty_e9 = t
-                .get("v")
-                .and_then(|x| x.as_str())
-                .and_then(parse_e9)
-                .ok_or(ParseError::BadNumber("v"))?;
-            let side = t
-                .get("S")
-                .and_then(|x| x.as_str())
-                .ok_or(ParseError::MissingField("S"))?;
-            out.push(Event::Trade(Trade {
-                exch_ms,
-                price_e9,
-                qty_e9,
-                aggressor_is_buy: side.eq_ignore_ascii_case("buy"),
-                block: t.get("BT").and_then(|x| x.as_bool()).unwrap_or(false),
-            }));
+impl<'de> serde::Deserialize<'de> for LevelsE9 {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct LevelsVisitor;
+        impl<'de> serde::de::Visitor<'de> for LevelsVisitor {
+            type Value = LevelsE9;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("массив пар [\"цена\", \"размер\"]")
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<LevelsE9, A::Error> {
+                let mut out = LevelsE9::default();
+                while let Some((p, q)) = seq.next_element::<(&'de str, &'de str)>()? {
+                    if out.bad.is_some() {
+                        continue;
+                    }
+                    if out.pairs.capacity() == 0 {
+                        out.pairs.reserve_exact(LEVELS_INITIAL_CAPACITY);
+                    }
+                    match (parse_e9(p), parse_e9(q)) {
+                        (Some(price), Some(qty)) => out.pairs.push((price, qty)),
+                        (None, _) => out.bad = Some("level price"),
+                        (Some(_), None) => out.bad = Some("level size"),
+                    }
+                }
+                Ok(out)
+            }
         }
-        return Ok(out);
+        d.deserialize_seq(LevelsVisitor)
     }
+}
 
-    Ok(vec![Event::Other])
+/// Часть `orderbook.<depth>.<symbol>`, которая нужна разбору — сам объект
+/// `data`. Остальные поля (`s` и т.п.) не читаются вовсе: `serde_json`
+/// молча пропускает незнакомые ключи, не строя для них узел дерева.
+#[derive(serde::Deserialize)]
+struct RawOrderbookData {
+    u: Option<u64>,
+    seq: Option<u64>,
+    cts: Option<i64>,
+    #[serde(default)]
+    b: LevelsE9,
+    #[serde(default)]
+    a: LevelsE9,
+}
+
+#[derive(serde::Deserialize)]
+struct RawOrderbookMsg<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Option<&'a str>,
+    ts: Option<i64>,
+    cts: Option<i64>,
+    data: Option<RawOrderbookData>,
+}
+
+fn orderbook_update(msg: RawOrderbookMsg) -> Result<Update, ParseError> {
+    let data = msg.data.ok_or(ParseError::MissingField("data"))?;
+    let u = data.u.ok_or(ParseError::MissingField("u"))?;
+    // `seq` — сквозной счётчик WS и REST (в отличие от `u`, у которого
+    // в двух каналах два разных счётчика). В контроле потока не участвует.
+    let seq = data.seq.ok_or(ParseError::MissingField("seq"))?;
+    // `cts` — время матчинга. У некоторых сообщений его нет; тогда берём `ts`,
+    // время формирования, и это ухудшение точности, а не эквивалент.
+    let cts_ms = data
+        .cts
+        .or(msg.cts)
+        .or(msg.ts)
+        .ok_or(ParseError::MissingField("cts"))?;
+    if let Some(field) = data.b.bad.or(data.a.bad) {
+        return Err(ParseError::BadNumber(field));
+    }
+    Ok(Update {
+        is_snapshot: msg.kind == Some("snapshot"),
+        u,
+        seq,
+        cts_ms,
+        bids: data.b.pairs,
+        asks: data.a.pairs,
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct RawTradeItem<'a> {
+    #[serde(rename = "T")]
+    exch_ms: Option<i64>,
+    #[serde(rename = "p", borrow)]
+    price: Option<&'a str>,
+    #[serde(rename = "v", borrow)]
+    qty: Option<&'a str>,
+    #[serde(rename = "S", borrow)]
+    side: Option<&'a str>,
+    #[serde(rename = "BT", default)]
+    block: bool,
+}
+
+fn trade_from_raw(t: &RawTradeItem) -> Result<Trade, ParseError> {
+    let exch_ms = t.exch_ms.ok_or(ParseError::MissingField("T"))?;
+    let price_e9 = t
+        .price
+        .and_then(parse_e9)
+        .ok_or(ParseError::BadNumber("p"))?;
+    let qty_e9 = t.qty.and_then(parse_e9).ok_or(ParseError::BadNumber("v"))?;
+    let side = t.side.ok_or(ParseError::MissingField("S"))?;
+    Ok(Trade {
+        exch_ms,
+        price_e9,
+        qty_e9,
+        aggressor_is_buy: side.eq_ignore_ascii_case("buy"),
+        block: t.block,
+    })
+}
+
+/// Итог разбора `publicTrade`: сами сделки уже лежат в буфере вызывающего,
+/// здесь — только то, что превращается в `ParseError`.
+#[derive(Default)]
+struct TradeOutcome {
+    saw_data: bool,
+    bad: Option<ParseError>,
+}
+
+/// Сид разбора `publicTrade`: каждая сделка кладётся **прямо в `out`** —
+/// переиспользуемый `Vec<Event>` вызывающего — без промежуточного
+/// `Vec<RawTradeItem>`; после прогрева сообщение ленты не аллоцирует
+/// вовсе. Верхний объект читается ключ за ключом: `data` — сидом списка,
+/// всё остальное (`topic`, `type`, `ts`) пропускается `IgnoredAny` без
+/// единого узла дерева.
+struct TradesInto<'v>(&'v mut Vec<Event>);
+
+impl<'de> serde::de::DeserializeSeed<'de> for TradesInto<'_> {
+    type Value = TradeOutcome;
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<TradeOutcome, D::Error> {
+        d.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for TradesInto<'_> {
+    type Value = TradeOutcome;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("сообщение publicTrade с массивом data")
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<TradeOutcome, A::Error> {
+        let out = self.0;
+        let mut outcome = TradeOutcome::default();
+        while let Some(key) = map.next_key::<&'de str>()? {
+            if key == "data" {
+                outcome.saw_data = true;
+                outcome.bad = map.next_value_seed(TradeListInto(&mut *out))?;
+            } else {
+                map.next_value::<serde::de::IgnoredAny>()?;
+            }
+        }
+        Ok(outcome)
+    }
+}
+
+struct TradeListInto<'v>(&'v mut Vec<Event>);
+
+impl<'de> serde::de::DeserializeSeed<'de> for TradeListInto<'_> {
+    type Value = Option<ParseError>;
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
+        d.deserialize_seq(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for TradeListInto<'_> {
+    type Value = Option<ParseError>;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("массив сделок publicTrade")
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let mut bad = None;
+        while let Some(t) = seq.next_element::<RawTradeItem<'de>>()? {
+            if bad.is_some() {
+                continue;
+            }
+            match trade_from_raw(&t) {
+                Ok(trade) => self.0.push(Event::Trade(trade)),
+                Err(e) => bad = Some(e),
+            }
+        }
+        Ok(bad)
+    }
+}
+
+/// Разбор в переиспользуемый буфер вызывающего: `out` очищается (`clear` —
+/// длина в ноль, ёмкость цела) и получает события сообщения. Единственный
+/// горячий вход (`bybit::conn::Connection::run` держит один `Vec<Event>` на
+/// соединение); `parse_message` ниже — обёртка для тестов и вызывающих без
+/// своего буфера. На `Err` содержимое `out` не определено (частично
+/// разобранная лента) — вызывающий не читает его, следующий вызов очистит.
+pub fn parse_message_into(raw: &str, out: &mut Vec<Event>) -> Result<(), ParseError> {
+    out.clear();
+    if topic_starts_with(raw, "orderbook.") {
+        let msg: RawOrderbookMsg = serde_json::from_str(raw).map_err(|_| ParseError::NotJson)?;
+        out.push(Event::Book(orderbook_update(msg)?));
+        return Ok(());
+    }
+    if topic_starts_with(raw, "publicTrade") {
+        let mut de = serde_json::Deserializer::from_str(raw);
+        let outcome = serde::de::DeserializeSeed::deserialize(TradesInto(out), &mut de)
+            .map_err(|_| ParseError::NotJson)?;
+        de.end().map_err(|_| ParseError::NotJson)?;
+        if !outcome.saw_data {
+            return Err(ParseError::MissingField("data"));
+        }
+        if let Some(err) = outcome.bad {
+            return Err(err);
+        }
+        return Ok(());
+    }
+    // Ни один из двух известных топиков — но сообщение обязано остаться
+    // валидным JSON (иначе это `NotJson`, не тихий `Other`). `IgnoredAny`
+    // проверяет структуру целиком, не строя ни одного узла дерева.
+    match serde_json::from_str::<serde::de::IgnoredAny>(raw) {
+        Ok(_) => {
+            out.push(Event::Other);
+            Ok(())
+        }
+        Err(_) => Err(ParseError::NotJson),
+    }
+}
+
+/// Разбирает одно текстовое сообщение публичного потока в свежий `Vec` —
+/// обёртка над `parse_message_into` для тех, у кого нет своего буфера.
+pub fn parse_message(raw: &str) -> Result<Vec<Event>, ParseError> {
+    let mut out = Vec::new();
+    parse_message_into(raw, &mut out)?;
+    Ok(out)
 }
 
 /// Сообщения подписки. Отдельными функциями, чтобы они были в тестах, а не
@@ -307,6 +520,20 @@ mod tests {
         }
     }
 
+    /// `BT` не обязан присутствовать — по документации это не всегда
+    /// отдаваемое поле; отсутствие обязано читаться как «не блочная», не
+    /// как ошибка разбора.
+    #[test]
+    fn public_trade_without_bt_field_defaults_to_not_block() {
+        let raw = r#"{"topic":"publicTrade.SOLUSDT","type":"snapshot","ts":1,
+          "data":[{"T":1,"s":"SOLUSDT","S":"Buy","v":"1.0","p":"1.0"}]}"#;
+        let evs = parse_message(raw).unwrap();
+        match evs[0] {
+            Event::Trade(t) => assert!(!t.block),
+            _ => panic!("ожидалась сделка"),
+        }
+    }
+
     #[test]
     fn service_messages_are_ignored_not_failed() {
         assert_eq!(
@@ -319,9 +546,21 @@ mod tests {
         );
     }
 
+    /// Топик, не совпадающий ни с одним известным префиксом, но валидный
+    /// JSON — обязан молча стать `Other`, а не ошибкой: неизвестный топик не
+    /// то же самое, что сломанное сообщение.
+    #[test]
+    fn unknown_topic_is_other_not_an_error() {
+        let raw = r#"{"topic":"kline.1.SOLUSDT","data":{"whatever":1}}"#;
+        assert_eq!(parse_message(raw).unwrap(), vec![Event::Other]);
+    }
+
     #[test]
     fn malformed_input_is_an_error_not_a_panic() {
-        assert_eq!(parse_message("not json").unwrap_err(), ParseError::NotJson);
+        assert_eq!(
+            parse_message("not json at all").unwrap_err(),
+            ParseError::NotJson
+        );
         let no_u =
             r#"{"topic":"orderbook.50.X","type":"delta","ts":1,"data":{"b":[],"a":[],"seq":8}}"#;
         assert_eq!(
@@ -334,6 +573,55 @@ mod tests {
             parse_message(no_seq).unwrap_err(),
             ParseError::MissingField("seq")
         );
+    }
+
+    /// Ни `data.cts`, ни верхний `cts` не заданы — разбор обязан упасть на
+    /// `ts`, а не потерять запись молча (та же цепочка, что была раньше:
+    /// `data.cts` → верхний `cts` → верхний `ts`).
+    #[test]
+    fn missing_cts_falls_back_to_top_level_ts() {
+        let raw = r#"{"topic":"orderbook.50.X","type":"delta","ts":777,
+          "data":{"b":[],"a":[],"u":1,"seq":1}}"#;
+        let evs = parse_message(raw).unwrap();
+        match &evs[0] {
+            Event::Book(u) => assert_eq!(u.cts_ms, 777),
+            other => panic!("ожидалось обновление книги, получено {other:?}"),
+        }
+    }
+
+    /// Порядок полей внутри объекта — не часть контракта: `data` перед
+    /// `topic`, `seq`/`u` в обратном порядке относительно всех остальных
+    /// фикстур этого файла обязаны разобраться так же, как и обычный порядок.
+    #[test]
+    fn field_order_inside_objects_does_not_matter() {
+        let raw = r#"{"data":{"seq":9,"a":[],"u":44,"b":[["1.0","2.0"]]},"cts":5,"ts":1,
+          "type":"delta","topic":"orderbook.50.X"}"#;
+        let evs = parse_message(raw).unwrap();
+        match &evs[0] {
+            Event::Book(u) => {
+                assert_eq!(u.u, 44);
+                assert_eq!(u.seq, 9);
+                assert_eq!(u.cts_ms, 5);
+                assert_eq!(u.bids, vec![(1_000_000_000, 2_000_000_000)]);
+            }
+            other => panic!("ожидалось обновление книги, получено {other:?}"),
+        }
+    }
+
+    /// Экранированная кавычка внутри значения поля, которое разбор не
+    /// читает вовсе (`i`, идентификатор сделки), не обязана ломать поиск
+    /// нужных полей — экранирование внутри JSON-строк остаётся заботой
+    /// `serde_json`, а не подстрочного пика темы.
+    #[test]
+    fn escaped_quote_in_an_unread_field_does_not_break_parsing() {
+        let raw = r#"{"topic":"publicTrade.SOLUSDT","type":"snapshot","ts":1,
+          "data":[{"T":1,"s":"SOLUSDT","S":"Buy","v":"1.0","p":"1.0",
+                   "i":"trade-\"quoted\"-id","BT":false}]}"#;
+        let evs = parse_message(raw).unwrap();
+        match evs[0] {
+            Event::Trade(t) => assert_eq!(t.price_e9, 1_000_000_000),
+            _ => panic!("ожидалась сделка"),
+        }
     }
 
     #[test]

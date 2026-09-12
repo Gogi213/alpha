@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-12T20:10:00+04:00",
+  "updatedAt": "2026-09-12T22:40:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -68,15 +68,15 @@ window.STATE =
       "id": "final",
       "status": "active",
       "startedAt": "2026-09-12T03:30:00+04:00",
-      "note": "сдан 2026-09-12; волна 8 после сдачи: T20 запись доказана, T21 окно «сейчас». Длинные прогоны ждут «го» владельца"
+      "note": "сдан 2026-09-12; волны 8–9 после сдачи: T20–T23. Волна 10 (владелец 2026-09-12): T24 супероптимизация коллектора → T25 олвейс-он коллектор → запуск и анализ по накопленному"
     }
   ],
   "requirements": {
-    "total": 85,
-    "done": 70,
-    "inTicket": 11,
+    "total": 88,
+    "done": 69,
+    "inTicket": 14,
     "deferred": 4,
-    "dropped": 0,
+    "dropped": 1,
     "placeholder": 0,
     "open": 0,
     "note": "done узкое: механизм есть, тесты зелёные, служит редакции 3 без изменений. Ни одного артефакта задачи на диске нет."
@@ -824,6 +824,57 @@ window.STATE =
       "note": "из ревью R-C таска 22: day_utc из session.json каталога, а не части — ломает кластер суток при многодневном --root. Сделано: session_parts_for/group_parts_by_day/session_days_in_dir в mod.rs; profiles/watch реплеят по суткам, час старта от части; shortlist::group_by_day ставит каталог под каждыми его сутками (зона расширена)"
     },
     {
+      "id": "24",
+      "title": "Коллектор: супероптимизация горячего пути записи",
+      "requirements": [
+        "R83",
+        "R79",
+        "R80"
+      ],
+      "blockedBy": [
+        "23"
+      ],
+      "wave": 10,
+      "zone": [
+        "src/bybit/ws.rs",
+        "src/bybit/conn.rs",
+        "src/feed/live.rs",
+        "src/commands/lob/session.rs",
+        "src/binlog/mod.rs"
+      ],
+      "status": "review",
+      "startedAt": "2026-09-12T22:40:00+04:00",
+      "retries": 0,
+      "repairs": 0,
+      "handoffs": 1,
+      "note": "исполнитель 1 упал по API (403 oauth_org_not_allowed на claude-sonnet-5) посреди правки ws.rs/session.rs без handoff-файла; дерево компилируется; преемник на opus читает git diff как handoff. Владелец 2026-09-12: «начать с оптимизации коллектора. супер оптимизировать». Найдено чтением: serde_json::Value на сообщение, zstd-кадр на сообщение, Vec всех задержек (рост RSS), вторая книга в session.rs"
+    },
+    {
+      "id": "25",
+      "title": "Олвейс-он коллектор: крутится сутками, экономно",
+      "requirements": [
+        "R84",
+        "R85",
+        "R39"
+      ],
+      "blockedBy": [
+        "24"
+      ],
+      "wave": 10,
+      "zone": [
+        "src/commands/lob/session.rs",
+        "src/commands/record.rs",
+        "src/feed/live.rs",
+        "src/commands/lob/mod.rs",
+        "src/main.rs"
+      ],
+      "status": "pending",
+      "retries": 0,
+      "repairs": 0,
+      "handoffs": 0,
+      "note": "владелец 2026-09-12: «повесить олвейсон коллектор, но супер экономный» — снимает R37/R38; ротация по суткам UTC, периодический session.json, Ctrl+C, анализ по живому каталогу"
+    },
+    {
       "id": "14",
       "title": "Чистка репозитория и память проекта",
       "requirements": [
@@ -962,6 +1013,84 @@ window.STATE =
     "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены"
   },
   "concerns": [
+    {
+      "ticket": "24",
+      "file": "src/bybit/ws.rs:140",
+      "what": "быстрый путь topic_starts_with без фолбэка: валидный, но некомпактный JSON книги (пробел после двоеточия) тихо становится Event::Other, не Book/ParseFailed — прежний DOM-разбор это читал. Передано в T25 критерием (фолбэк через serde либо ParseFailed, тест на некомпактный JSON)",
+      "kind": "silent-narrowing"
+    },
+    {
+      "ticket": "24",
+      "file": "src/bybit/ws.rs:370",
+      "what": "любая ошибка формы при валидном JSON (data не объект, u строкой) — NotJson вместо MissingField/BadNumber; gaps.csv получит ложный диагноз. Передано в T25: serde_json::Error::classify() Data → MissingField/BadNumber, Syntax/Eof → NotJson, с тестом",
+      "kind": "diagnostics"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:734",
+      "what": "ошибка write_frame проглатывается, квант потери вырос с 1–5 записей до ~1000, следа нет. Передано в T25: frames_failed в session.json / строка gaps.csv",
+      "kind": "silent-narrowing"
+    },
+    {
+      "ticket": "24",
+      "file": "src/bybit/ws.rs:157",
+      "what": "LEVELS_INITIAL_CAPACITY = 8 сослана на RECON, где такого счёта нет; честная ссылка — 230 681 записей / 58 495 кадров ≈ 3.9 на сообщение (collector-2026-09-12.md) или «предположение фикстуры»",
+      "kind": "invented-citation"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:775, src/commands/lob/session.rs:1266, tests/collector_bench.rs:137",
+      "what": "LatencyHistogram приватен в session.rs (react.rs считает те же p99 по Vec — получит вторую копию); третья копия SplitMix64 при crate::stats::SplitMix64; свой percentile в бенче при probe::percentile_ns. Вынести гистограмму в stats/ или bybit/probe, тесты/бенч — на общие примитивы",
+      "kind": "reinvention"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:1210",
+      "what": "тест гистограммы — один перцентиль на одной октаве; нужны случайные значения на ≥ 3 октавах, эталон probe::percentile_ns, p ∈ {50,90,99}, 0 ≤ точный − гистограмма ≤ RESOLUTION_PCT × точный",
+      "kind": "test-weak"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:749",
+      "what": "таймер сброса кадра = HOURLY_REFRESH_SECS (3600 с) — обоснован как период clock.csv, не как окно потери при крахе; в сессии ≤ 6 ч не срабатывает ни разу, тихий инструмент теряет до 1000 записей. Передано в T25 явным критерием (окно потери названо и измерено)",
+      "kind": "data"
+    },
+    {
+      "ticket": "24",
+      "file": "docs/findings/collector-2026-09-12.md:143",
+      "what": "вердикт «RSS плоский» стоит на 30-с сэмплах stderr, которых нет в артефакте на диске (session.json: старт→конец 4.9→16.1 МиБ, старт взят до открытия сокетов). Передано в T25: периодический session.json несёт ряд RSS-сэмплов",
+      "kind": "evidence"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:348",
+      "what": "claim_symbol_binlog повторяет цикл record::claim_part ради BufWriter — interfaces.md («через record::claim_part») и doc record.rs:480 теперь неточны; обобщить claim_part по W: Write или привести doc к факту",
+      "kind": "reinvention"
+    },
+    {
+      "ticket": "24",
+      "file": "src/bybit/ws.rs:559",
+      "what": "класс ошибки для кривой формы data/b сменился MissingField → NotJson (телеметрия ParseFailed теряет имя поля); фикстура «not json» заменена без причины",
+      "kind": "behaviour"
+    },
+    {
+      "ticket": "24",
+      "file": "docs/findings/collector-2026-09-12.md:123",
+      "what": "остаток 1–2 аллокации на книжное сообщение (Vec в book::Update, владеющая пересылка ConnEvent) — красная строка GC «ноль на событие» без D##; ноль — фиксированная ёмкость 50+50 в book::Update, вне зоны 24; решить D## или таском после запуска",
+      "kind": "gc"
+    },
+    {
+      "ticket": "24",
+      "file": "src/commands/lob/session.rs:1135",
+      "what": "тест батчинга — round-trip binlog::Reader по Record плюс живой lob verify, а не session_binlog_for + FileReplayer со сравнением книги, как требовал критерий",
+      "kind": "test-narrowing"
+    },
+    {
+      "ticket": "24",
+      "file": "tests/collector_bench.rs",
+      "what": "генератор фикстур (SplitMix64 + сборщики сообщений) продублирован в бенче и в тестах session.rs; тест LatencyHistogram стоит на приватных внутренностях",
+      "kind": "structural"
+    },
     {
       "ticket": "23",
       "file": "src/commands/lob/profiles.rs",

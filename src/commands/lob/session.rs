@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use clap::Args;
 
-use crate::binlog::{Record, Writer};
-use crate::book::{Book, Side};
+use crate::binlog::{Header, Record, Writer};
+use crate::book::Side;
 use crate::bybit::clock::{append_row, sample, BybitServerTimeSource, ClockRow, UdpNtpSource};
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::bybit::rest::BYBIT_MAINNET_URL;
@@ -160,8 +160,7 @@ fn load_pool(path: &Path) -> anyhow::Result<Vec<PoolMember>> {
 /// событие был бы `HashMap` на пути события, запрет 7).
 struct SymbolState {
     member: PoolMember,
-    book: Book,
-    writer: Writer<std::fs::File>,
+    writer: Writer<std::io::BufWriter<std::fs::File>>,
     records_written: u64,
     /// Скретч-буфер `write_market_event` — переиспользуется на каждое
     /// событие вместо `Vec::new()`, иначе горячий путь аллоцирует ровно там,
@@ -170,6 +169,19 @@ struct SymbolState {
     /// `orderbook.50` снапшот обеих сторон, 50+50 записей; `.clear()` в
     /// начале `write_market_event` не освобождает ёмкость, только длину.
     scratch: Vec<Record>,
+    /// Накопитель кадра (таск 24, критерий «батчинг как в `lob record`»):
+    /// `write_market_event` переносит `scratch` сюда через `Vec::append`
+    /// (перемещение элементов, не копия — `scratch` пустеет, ёмкость цела) и
+    /// пишет кадр `binlog::Writer`, только когда здесь накопилось
+    /// `FRAME_TARGET_RECORDS` записей или подошёл периодический сброс
+    /// (`FLUSH_INTERVAL_NS` в `run_session`). Раньше здесь писался кадр на
+    /// **каждое** сообщение (один `write_frame` + два `write_all` на голый
+    /// `File`) — `docs/findings/collector-2026-09-12.md`, «Замер до»: кадр
+    /// из 1–5 записей почти не сжимается, накладные кадра больше полезных
+    /// байт. Ёмкость с запасом на самое крупное сообщение (128 записей,
+    /// см. `scratch`) сверх порога — чтобы приход этого сообщения ровно на
+    /// границе порога не вызвал перевыделение до `flush_symbol_batch`.
+    batch: Vec<Record>,
 }
 
 fn hftbacktest_flags(side: Side, is_snapshot: bool) -> u64 {
@@ -325,15 +337,43 @@ fn hour_utc_of_ns(ts_ns: i64) -> u32 {
 /// (В-32: «одна-две сессии в сутки»). Вынесена из `run_session`, чтобы сам
 /// механизм открытия проверялся без сети (`run_session` берёт `Feed` из
 /// живого сокета, тестам сеть недоступна, `CLAUDE.md`).
+/// То же имя и та же политика номера части, что `commands::record::
+/// claim_part` (первая свободная часть суток, ничего не затирается) — но
+/// поверх `BufWriter`, не голого `File` (таск 24, критерий «`File` за
+/// `BufWriter`»): `claim_part` возвращает `Writer<File>` и делить его общую
+/// с `lob record` реализацию ради типа буфера значило бы менять зону
+/// `record.rs` сверх «переиспользовать константы батчинга», поэтому здесь —
+/// тот же поиск свободного номера заново, на пяти строках, а не другая
+/// политика.
 fn claim_symbol_binlog(
     root: &Path,
     symbol: &str,
     day: &str,
     tick_e9: i64,
     step_e9: i64,
-) -> anyhow::Result<(Writer<std::fs::File>, u32)> {
-    crate::commands::record::claim_part(root, symbol, day, 1, tick_e9, step_e9)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))
+) -> anyhow::Result<(Writer<std::io::BufWriter<std::fs::File>>, u32)> {
+    let mut part: u32 = 1;
+    loop {
+        let path = crate::commands::record::day_file_path(root, symbol, day, part);
+        if !path.exists() {
+            let file = std::fs::File::create(&path)?;
+            let header = Header {
+                tick_e9,
+                step_e9,
+                max_records_per_frame: crate::commands::record::MAX_RECORDS_PER_FRAME,
+            };
+            let writer = Writer::create(
+                std::io::BufWriter::new(file),
+                header,
+                crate::commands::record::ZSTD_LEVEL,
+            )
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            return Ok((writer, part));
+        }
+        part = part
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("{symbol}: слишком много частей суток {day}"))?;
+    }
 }
 
 /// Читает `binlog_files` уже существующего `session.json` под `root`, если
@@ -404,13 +444,17 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         });
         states.push(SymbolState {
             member: member.clone(),
-            book: Book::new(member.tick_e9, member.step_e9),
             writer,
             records_written: 0,
             // 50 бид + 50 аск — самый крупный кадр потока (`orderbook.50`
             // снапшот); запас, чтобы `.push` внутри `write_market_event`
             // не перевыделял на первом же снапшоте.
             scratch: Vec::with_capacity(128),
+            // `FRAME_TARGET_RECORDS` плюс тот же запас на самое крупное
+            // сообщение — `Vec::append` из `scratch` не перевыделяет, даже
+            // если порог пересечён ровно этим сообщением (флаш случится
+            // сразу после, но до него длина временно больше порога).
+            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
         });
     }
 
@@ -429,17 +473,25 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     let mut gaps: u64 = 0;
     // Суббюджет «разбор» (`PLAN.md` 3.1, `p99 < 200 мкс`) — критерий приёмки
     // таска 04 «задержка разбора». Одно значение на кадр (`feed::Event::
-    // Market::parse_latency_ns`, `Some` только в живом режиме); `p99`
-    // считается по `bybit::probe::percentile_ns` — тот же перцентиль
-    // «ближайший ранг», что уже мерит RTT, не второй расчёт того же самого.
-    let mut parse_latencies_ns: Vec<i64> = Vec::new();
+    // Market::parse_latency_ns`, `Some` только в живом режиме); перцентиль —
+    // гистограмма фиксированной ёмкости (таск 24), не `Vec` всех замеров:
+    // на многочасовом пилоте `Vec<i64>` рос без потолка (`docs/findings/
+    // collector-2026-09-12.md`, «Замер до» — рост RSS не плоский), а
+    // гистограмма — фиксированный массив `LatencyHistogram::TOTAL_BINS`
+    // бинов, аллоцированный один раз здесь и никогда не растущий.
+    let mut parse_latencies_ns = LatencyHistogram::new();
     // Очередь (таск 20, критерий 2): «от разбора до потока решений» —
     // отдельно от «разбора» самого по себе. Метка ставится тем же
     // `SystemClock`, что и `local_ts_ns`/`parsed_ts_ns` внутри `bybit::conn`
     // (`LiveFeed::spawn` подаёт `SystemClock` явно — один домен часов, не
     // второй, см. `spawn_with_clock`), сразу как только `feed.next_event()`
     // вернула событие потоку решений.
-    let mut queue_latencies_ns: Vec<i64> = Vec::new();
+    let mut queue_latencies_ns = LatencyHistogram::new();
+    // Периодический сброс кадра (таск 24, критерий «плюс по таймеру») —
+    // `FLUSH_INTERVAL_NS` (doc там же); проверяется раз за итерацию цикла,
+    // без своего таймера/потока — сравнение двух `i64`, не аллокация и не
+    // системный вызов сверх уже взятого `recv_ts_ns`.
+    let mut last_periodic_flush_ns = started_ns;
 
     while SystemClock.now_ns() < deadline_ns {
         let Some(event) = feed.next_event() else {
@@ -454,7 +506,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
                 payload,
             } => {
                 if let Some(latency_ns) = parse_latency_ns {
-                    parse_latencies_ns.push(latency_ns);
+                    parse_latencies_ns.record(latency_ns);
                     // `recv_ts_ns - local_ts_ns` — весь путь «recv() до
                     // потока решений»; вычитаем уже посчитанный чистый разбор
                     // (`latency_ns`), остаток — канал одного соединения,
@@ -463,7 +515,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
                     // редкому дребезгу часов (`SystemClock` не монотонны)
                     // испортить перцентиль отрицательным значением, которого
                     // очередь физически не может быть.
-                    queue_latencies_ns.push((recv_ts_ns - local_ts_ns - latency_ns).max(0));
+                    queue_latencies_ns.record((recv_ts_ns - local_ts_ns - latency_ns).max(0));
                 }
                 let Some(state) = states.get_mut(symbol as usize) else {
                     continue;
@@ -490,6 +542,18 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
                 let _ = append_gap_row(&gaps_path, &row);
             }
         }
+        if recv_ts_ns - last_periodic_flush_ns >= FLUSH_INTERVAL_NS {
+            for state in &mut states {
+                flush_symbol_batch(state);
+                // Как `record::Recorder::flush`: кадр — и следом буфер файла
+                // в ОС, иначе периодический сброс оставлял бы кадр в
+                // `BufWriter` до закрытия. Ошибка — best-effort, как в
+                // `flush_symbol_batch`; финальный `flush` в конце сессии
+                // её вернёт.
+                let _ = state.writer.flush();
+            }
+            last_periodic_flush_ns = recv_ts_ns;
+        }
     }
 
     if take_clock_sample(args, 1, &clock_path)? {
@@ -498,27 +562,22 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
 
     let mut records_total = 0u64;
     for state in &mut states {
+        flush_symbol_batch(state);
         state.writer.flush()?;
         records_total += state.records_written;
     }
 
-    let parse_p99_ns = if parse_latencies_ns.is_empty() {
-        None
-    } else {
-        Some(crate::bybit::probe::percentile_ns(&parse_latencies_ns, 99))
-    };
+    let parse_p99_ns = parse_latencies_ns.percentile(99);
     if let Some(p99) = parse_p99_ns {
         eprintln!(
-            "session: разбор — p99 {:.1} мкс по {} кадрам (бюджет `PLAN.md` 3.1: < 200 мкс)",
+            "session: разбор — p99 {:.1} мкс по {} кадрам (бюджет `PLAN.md` 3.1: < 200 мкс; \
+             гистограмма, разрешение ~{:.1}%)",
             p99 as f64 / 1000.0,
-            parse_latencies_ns.len()
+            parse_latencies_ns.len(),
+            LatencyHistogram::RESOLUTION_PCT
         );
     }
-    let queue_p99_ns = if queue_latencies_ns.is_empty() {
-        None
-    } else {
-        Some(crate::bybit::probe::percentile_ns(&queue_latencies_ns, 99))
-    };
+    let queue_p99_ns = queue_latencies_ns.percentile(99);
     if let Some(p99) = queue_p99_ns {
         eprintln!(
             "session: очередь (разбор → поток решений) — p99 {:.1} мкс по {} кадрам",
@@ -579,10 +638,26 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     Ok(summary)
 }
 
-/// Одна книжная запись/сделка -> кадр из одной записи в файл инструмента.
-/// Кадр на событие, не батч, — сессия отладочная (`R78`, `≤5 минут`), не
-/// продовый рекордер (`commands::record` копит кадр батчем ради байт на
-/// запись; здесь простота цикла важнее на этом шаге, см. `CONCERNS`).
+/// Одна книжная запись/сделка -> в накопитель кадра инструмента
+/// (`SymbolState::batch`), кадр на диск — только по `flush_symbol_batch`
+/// (порог `FRAME_TARGET_RECORDS` или периодический таймер в `run_session`,
+/// таск 24). Раньше эта функция сама писала `binlog::Writer::write_frame`
+/// на **каждое** сообщение — `docs/findings/collector-2026-09-12.md`,
+/// «Замер до»: кадр из 1–5 записей почти не сжимается, накладные кадра
+/// больше полезных байт.
+///
+/// Вторая книга снята (таск 24, критерий 5): раньше здесь применялось
+/// `state.book.apply(&update)` — свежая `Book`, независимая от книги
+/// `bybit::conn::Connection`, которая уже провела то же `apply` над тем же
+/// `update` до пересылки события в канал (`bybit/conn.rs::handle_raw`,
+/// ветка ошибки не пересылает событие вовсе — `continue`). Эта функция
+/// получает только события, для которых `apply` уже прошло успешно на
+/// книге источника; вторая книга проверяла бы ту же последовательность
+/// обновлений над идентично инициализированной книгой (тот же `tick_e9`/
+/// `step_e9`, тот же порядок событий) и не могла разойтись с первым
+/// результатом — двойная работа без второго исхода, не вторая проверка.
+/// Ни одно поле `Record` не читает состояние книги: цена/размер строятся
+/// из самого `update`/`trade`, не из накопленных уровней.
 fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate::bybit::ws::Event) {
     use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
@@ -598,9 +673,6 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
     let records = &mut state.scratch;
     match payload {
         crate::bybit::ws::Event::Book(update) => {
-            if state.book.apply(&update).is_err() {
-                return;
-            }
             let exch_ts_ns = update.cts_ms.saturating_mul(1_000_000);
             for (side, levels) in [(Side::Bid, &update.bids), (Side::Ask, &update.asks)] {
                 for (price_e9, qty_e9) in levels {
@@ -638,8 +710,145 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
     if state.scratch.is_empty() {
         return;
     }
-    if state.writer.write_frame(&state.scratch).is_ok() {
-        state.records_written += state.scratch.len() as u64;
+    // Перемещение элементов из `scratch` в `batch` (не копия): `scratch`
+    // остаётся с прежней ёмкостью и нулевой длиной, `batch` растёт до
+    // порога, а не пишется кадром сразу.
+    state.batch.append(&mut state.scratch);
+    if state.batch.len() >= crate::commands::record::FRAME_TARGET_RECORDS {
+        flush_symbol_batch(state);
+    }
+}
+
+/// Пишет накопленный `batch` одним кадром `binlog::Writer` и опустошает его
+/// (`.clear()` — длина в ноль, ёмкость цела). Пустой батч — no-op, тот же
+/// контракт, что `binlog::Writer::write_frame`/`commands::record::Recorder::
+/// flush_frame` уже держат: пустая запись не несёт события. Ошибка записи
+/// проглатывается тем же способом, каким её раньше проглатывал каждый
+/// вызов `write_frame` внутри `write_market_event` (best-effort — крах
+/// одного кадра не должен ронять всю сессию на живом потоке); `run_session`
+/// отдельно возвращает ошибку из `state.writer.flush()` при закрытии файла.
+fn flush_symbol_batch(state: &mut SymbolState) {
+    if state.batch.is_empty() {
+        return;
+    }
+    if state.writer.write_frame(&state.batch).is_ok() {
+        state.records_written += state.batch.len() as u64;
+    }
+    state.batch.clear();
+}
+
+/// Периодический сброс кадра по времени (таск 24, критерий «плюс по
+/// таймеру») — не изобретённое число: тот же интервал, что `commands::
+/// record::HOURLY_REFRESH_SECS` уже использует для своего периодического
+/// `Recorder::flush()` (там же — часовой авторитет и часовая ротация,
+/// тот самый таймер, которым продовый рекордер ограничивает окно потери
+/// при крахе). Сессия `lob session --minutes` (5–15 мин) почти никогда не
+/// достигает этого порога — предохранитель нужен многочасовому пилоту
+/// (`--pilot-minutes`, до 6 часов) на тихом инструменте, где
+/// `FRAME_TARGET_RECORDS` может не набраться сам по себе за час.
+const FLUSH_INTERVAL_NS: i64 = crate::commands::record::HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
+
+/// Гистограмма фиксированной ёмкости для перцентилей задержки (таск 24,
+/// критерий «не `Vec` всех замеров»): `Vec<i64>` копил один `i64` на **каждое**
+/// сообщение сессии без потолка — `docs/findings/collector-2026-09-12.md`,
+/// «Замер до»: рост RSS на пилоте не был плоским, и это одна из накопленных
+/// причин (`391 403` кадров × 2 счётчика × 8 байт на пятиминутке, часы на
+/// многочасовом пилоте). Здесь — фиксированный массив `TOTAL_BINS` бинов,
+/// аллоцированный один раз при создании (`[u64; N]` внутри структуры, не
+/// `Vec`) и никогда не растущий: `record`/`percentile` не аллоцируют.
+///
+/// Бины — логарифмическая шкала по основанию 2 на целых числах (без `f64`
+/// и без `log2` на горячем пути): октава — позиция старшего бита значения,
+/// внутри октавы `BINS_PER_OCTAVE` = 64 линейных под-бинов по следующим
+/// `SUB_BITS` = 6 битам. Бин `(октава, sub)` покрывает
+/// `[(64 + sub) · 2^(октава − 6), (65 + sub) · 2^(октава − 6))`, откуда его
+/// относительная ширина — `1 / (64 + sub)`, то есть **не хуже 1/64 = 1.5625%
+/// от значения** (`RESOLUTION_PCT`, точная верхняя граница, не оценка).
+/// `OCTAVES` = 48 переживает удвоения от 1 нс до 2^48 нс (≈ 78 часов) —
+/// заведомо больше, чем длина любой сессии, включая шестичасовой пилот;
+/// значение вне диапазона насыщает в крайний бин, не паникует. Перцентиль —
+/// «ближайший ранг» (`rank = ceil(p/100 · n)`, 1-based), тот же метод, что
+/// `bybit::probe::percentile_of_sorted` уже применяет к отсортированному
+/// `Vec` RTT — не второй, несовместимый расчёт того же самого; отдаваемое
+/// значение — нижняя граница найденного бина, поэтому оно не выше точного
+/// перцентиля и не ниже его больше, чем на ширину бина (см. выше).
+struct LatencyHistogram {
+    bins: [u64; Self::TOTAL_BINS],
+    count: u64,
+}
+
+impl LatencyHistogram {
+    const SUB_BITS: u32 = 6;
+    const BINS_PER_OCTAVE: u32 = 1 << Self::SUB_BITS;
+    const OCTAVES: u32 = 48;
+    const TOTAL_BINS: usize = (Self::BINS_PER_OCTAVE * Self::OCTAVES) as usize;
+    /// Разрешение бина в процентах — печатается рядом с перцентилем, чтобы
+    /// число в `session.json`/stderr несло свою собственную точность, а не
+    /// выглядело точнее, чем оно есть.
+    #[allow(clippy::cast_precision_loss)]
+    const RESOLUTION_PCT: f64 = 100.0 / Self::BINS_PER_OCTAVE as f64;
+
+    fn new() -> Self {
+        Self {
+            bins: [0u64; Self::TOTAL_BINS],
+            count: 0,
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn bin_of(ns: i64) -> usize {
+        if ns <= 0 {
+            return 0;
+        }
+        let v = ns as u64;
+        let octave = 63 - v.leading_zeros();
+        if octave >= Self::OCTAVES {
+            return Self::TOTAL_BINS - 1;
+        }
+        let mask = u64::from(Self::BINS_PER_OCTAVE - 1);
+        let sub = if octave >= Self::SUB_BITS {
+            (v >> (octave - Self::SUB_BITS)) & mask
+        } else {
+            (v << (Self::SUB_BITS - octave)) & mask
+        };
+        (octave * Self::BINS_PER_OCTAVE) as usize + sub as usize
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    fn bin_lower_bound_ns(bin: usize) -> i64 {
+        let octave = (bin / Self::BINS_PER_OCTAVE as usize) as u32;
+        let sub = (bin % Self::BINS_PER_OCTAVE as usize) as u64;
+        let mantissa = u64::from(Self::BINS_PER_OCTAVE) | sub;
+        let v = if octave >= Self::SUB_BITS {
+            mantissa << (octave - Self::SUB_BITS)
+        } else {
+            mantissa >> (Self::SUB_BITS - octave)
+        };
+        v as i64
+    }
+
+    fn record(&mut self, ns: i64) {
+        self.bins[Self::bin_of(ns)] += 1;
+        self.count += 1;
+    }
+
+    fn len(&self) -> u64 {
+        self.count
+    }
+
+    fn percentile(&self, p: u8) -> Option<i64> {
+        if self.count == 0 {
+            return None;
+        }
+        let rank = (u64::from(p) * self.count).div_ceil(100).max(1);
+        let mut seen: u64 = 0;
+        for (bin, &c) in self.bins.iter().enumerate() {
+            seen += c;
+            if seen >= rank {
+                return Some(Self::bin_lower_bound_ns(bin));
+            }
+        }
+        Some(Self::bin_lower_bound_ns(Self::TOTAL_BINS - 1))
     }
 }
 
@@ -759,7 +968,6 @@ fn sample_resources(_pid: u32) -> Option<(f64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::binlog::Header;
     use crate::commands::record::ZSTD_LEVEL;
     use crate::feed::replay::ReplayFeed;
     use hftbacktest::types::{
@@ -839,17 +1047,17 @@ mod tests {
             step_e9: TEST_STEP_E9,
             max_records_per_frame: crate::commands::record::MAX_RECORDS_PER_FRAME,
         };
-        let writer = Writer::create(file, header, ZSTD_LEVEL).unwrap();
+        let writer = Writer::create(std::io::BufWriter::new(file), header, ZSTD_LEVEL).unwrap();
         SymbolState {
             member: PoolMember {
                 symbol: "SYM".to_string(),
                 tick_e9: TEST_TICK_E9,
                 step_e9: TEST_STEP_E9,
             },
-            book: Book::new(TEST_TICK_E9, TEST_STEP_E9),
             writer,
             records_written: 0,
             scratch: Vec::with_capacity(128),
+            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
         }
     }
 
@@ -911,6 +1119,297 @@ mod tests {
             measured_allocations, 0,
             "write_market_event обязана не аллоцировать после прогрева на 10^6 событий"
         );
+    }
+
+    /// Таск 24, критерий «батчинг записи»: пишет 2500 событий книги через
+    /// настоящий файловый `Writer` (`claim_symbol_binlog`, тот же путь, что
+    /// `run_session`), читает файл обратно `binlog::Reader` и проверяет два
+    /// свойства разом — (1) кадров на диске на порядки меньше, чем событий
+    /// (батчинг реально произошёл, а не осталась запись на событие под
+    /// другим именем переменной), (2) все записи читаются обратно в том же
+    /// порядке и с тем же содержимым, что построено напрямую из событий —
+    /// границы кадра не меняют то, что видит читатель (`bybit::verify::
+    /// FileReplayer` группирует по `(вид, exch_ts_ns)`, не по кадру, тот же
+    /// принцип проверяется здесь на уровне сырых `Record`).
+    #[test]
+    fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
+        const N: i64 = 2_500;
+        let dir = tempfile::tempdir().unwrap();
+        let (writer, part) = claim_symbol_binlog(
+            dir.path(),
+            "SOLUSDT",
+            "2026-09-12",
+            TEST_TICK_E9,
+            TEST_STEP_E9,
+        )
+        .unwrap();
+        assert_eq!(part, 1);
+        let mut state = SymbolState {
+            member: PoolMember {
+                symbol: "SOLUSDT".to_string(),
+                tick_e9: TEST_TICK_E9,
+                step_e9: TEST_STEP_E9,
+            },
+            writer,
+            records_written: 0,
+            scratch: Vec::with_capacity(128),
+            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
+        };
+
+        let mut expected_ticks = Vec::with_capacity(N as usize);
+        for i in 0..N {
+            let update = crate::book::Update {
+                is_snapshot: false,
+                u: i as u64 + 1,
+                seq: i as u64 + 1,
+                cts_ms: i,
+                bids: vec![(TEST_TICK_E9 * (100 + i), TEST_STEP_E9)],
+                asks: vec![],
+            };
+            expected_ticks.push(100 + i);
+            write_market_event(&mut state, i * 1_000, crate::bybit::ws::Event::Book(update));
+        }
+        flush_symbol_batch(&mut state);
+        state.writer.flush().unwrap();
+        assert_eq!(state.records_written, N as u64);
+
+        let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-12", 1);
+        let bytes = std::fs::read(&path).unwrap();
+        let mut reader = crate::binlog::Reader::open(&bytes[..]).unwrap();
+        let mut frames = 0u64;
+        let mut got_ticks = Vec::with_capacity(N as usize);
+        while let Some(frame) = reader.read_frame().unwrap() {
+            frames += 1;
+            for rec in frame {
+                got_ticks.push(rec.price_ticks);
+            }
+        }
+        assert_eq!(
+            got_ticks, expected_ticks,
+            "порядок и содержимое обязаны совпасть"
+        );
+        assert!(
+            frames <= 4,
+            "{N} событий по одному кадру на событие дали бы {N} кадров; батчинг обязан \
+             уместить их в единицы кадров (порог {}), получено {frames}",
+            crate::commands::record::FRAME_TARGET_RECORDS
+        );
+        assert!(
+            frames >= 2,
+            "2500 записей при пороге {} обязаны дать хотя бы два кадра (не один гигантский), \
+             получено {frames}",
+            crate::commands::record::FRAME_TARGET_RECORDS
+        );
+    }
+
+    /// `LatencyHistogram`: перцентиль на известной синтетике — 100 значений
+    /// `1..=100` (микросекунды в наносекундах), p99 обязан попасть в бин,
+    /// чья нижняя граница не выше истинного значения (99 000 нс) и не ниже
+    /// его больше, чем на ширину бина (`RESOLUTION_PCT`).
+    #[test]
+    fn latency_histogram_p99_is_within_bin_resolution_of_the_true_value() {
+        let mut h = LatencyHistogram::new();
+        assert_eq!(h.percentile(99), None, "пустая гистограмма — не число");
+        for v in 1..=100i64 {
+            h.record(v * 1_000);
+        }
+        assert_eq!(h.len(), 100);
+        let p99 = h
+            .percentile(99)
+            .expect("100 значений — перцентиль обязан быть числом");
+        let true_value = 99_000i64;
+        assert!(
+            p99 <= true_value,
+            "перцентиль — нижняя граница бина, обязан быть не выше истинного значения: \
+             {p99} > {true_value}"
+        );
+        let tolerance = (true_value as f64 * LatencyHistogram::RESOLUTION_PCT / 100.0) as i64 + 1;
+        assert!(
+            true_value - p99 <= tolerance,
+            "отклонение {} превышает разрешение бина {tolerance}",
+            true_value - p99
+        );
+    }
+
+    /// Таск 24, критерий «аллокаций на сообщение после прогрева на пути
+    /// разбор → книга → запись — измерено `alloc_count`-гейтом»: 10⁶
+    /// сообщений в формате площадки (дельты 0–5 уровней на сторону, лента
+    /// 1–10 сделок каждое десятое сообщение, снапшот 50+50 раз в 100 000)
+    /// через `ws::parse_message_into` (буфер вызывающего, как в
+    /// `bybit::conn`), `Book::apply` (книга `conn.rs`) и `write_market_event`
+    /// — те же три шага, что проходит живой кадр до диска. Текст сообщения
+    /// строится **до** замера (в бою его выделяет `tungstenite` —
+    /// «транспорт ≤ 1 на кадр, принято», `PLAN.md` 6.1), замер — только три
+    /// шага. Ожидаемые числа названы заранее, не подсмотрены: книжное
+    /// сообщение — по одному `Vec<(i64, i64)>` на **непустую** сторону
+    /// (`book::Update` владеет `bids`/`asks`, doc модуля `ws.rs`), лента —
+    /// ноль, снапшот — восемь (две стороны × (первая ёмкость + три роста
+    /// 8→16→32→64, `ws::LEVELS_INITIAL_CAPACITY`)). Средние по видам
+    /// печатаются в stderr — их кладёт в таблицу
+    /// `docs/findings/collector-2026-09-12.md`.
+    #[test]
+    fn parse_book_write_path_allocations_per_message_after_warmup() {
+        use crate::book::Book;
+        use crate::bybit::ws::{parse_message_into, Event as WsEvent};
+
+        const WARMUP: usize = 2_000;
+        const MEASURED: usize = 1_000_000;
+        const SNAPSHOT_EVERY: usize = 100_000;
+        // Тик 0.01 — как у цен фикстуры с двумя знаками: 50 уровней через
+        // 0.01 = 50 тиков, внутри кольца книги (`book::CAPACITY` = 128).
+        const TICK_E9: i64 = 10_000_000;
+        const STEP_E9: i64 = 1_000_000;
+        const SNAPSHOT: usize = 0;
+        const DELTA: usize = 1;
+        const TRADES: usize = 2;
+
+        struct Rng(u64);
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                let mut z = self.0;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                z ^ (z >> 31)
+            }
+            fn below(&mut self, n: u64) -> u64 {
+                self.next() % n
+            }
+        }
+        fn levels(rng: &mut Rng, start_cents: u64, n: usize, ascending: bool) -> String {
+            let mut out = String::from("[");
+            for i in 0..n {
+                if i > 0 {
+                    out.push(',');
+                }
+                let cents = if ascending {
+                    start_cents + i as u64
+                } else {
+                    start_cents - i as u64
+                };
+                let milli = 1 + rng.below(50_000);
+                out.push_str(&format!(
+                    "[\"{}.{:02}\",\"{}.{:03}\"]",
+                    cents / 100,
+                    cents % 100,
+                    milli / 1000,
+                    milli % 1000
+                ));
+            }
+            out.push(']');
+            out
+        }
+        fn book_msg(kind: &str, bids: &str, asks: &str, u: u64) -> String {
+            format!(
+                "{{\"topic\":\"orderbook.50.SOLUSDT\",\"type\":\"{kind}\",\"ts\":{},\
+                 \"data\":{{\"s\":\"SOLUSDT\",\"b\":{bids},\"a\":{asks},\"u\":{u},\
+                 \"seq\":{}}},\"cts\":{}}}",
+                1_757_600_000_000u64 + u,
+                u * 7,
+                1_757_599_999_999u64 + u
+            )
+        }
+        fn trades_msg(rng: &mut Rng, u: u64) -> String {
+            let n = 1 + rng.below(10) as usize;
+            let mut items = String::new();
+            for i in 0..n {
+                if i > 0 {
+                    items.push(',');
+                }
+                let side = if rng.below(2) == 0 { "Buy" } else { "Sell" };
+                let milli = 1 + rng.below(50_000);
+                let cents = 15_000 + rng.below(10);
+                let id = rng.next();
+                items.push_str(&format!(
+                    "{{\"T\":{},\"s\":\"SOLUSDT\",\"S\":\"{side}\",\"v\":\"{}.{:03}\",\
+                     \"p\":\"{}.{:02}\",\"L\":\"PlusTick\",\"i\":\"{id:016x}\",\"BT\":false}}",
+                    1_757_600_000_000u64 + u,
+                    milli / 1000,
+                    milli % 1000,
+                    cents / 100,
+                    cents % 100
+                ));
+            }
+            format!(
+                "{{\"topic\":\"publicTrade.SOLUSDT\",\"type\":\"snapshot\",\"ts\":{},\
+                 \"data\":[{items}]}}",
+                1_757_600_000_000u64 + u
+            )
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = fresh_state(dir.path());
+        let mut book = Book::new(TICK_E9, STEP_E9);
+        let mut events: Vec<WsEvent> = Vec::new();
+        let mut rng = Rng(0x5EED_2026_0912);
+        let mut u: u64 = 0;
+
+        let mut allocs_by_kind = [0u64; 3];
+        let mut max_by_kind = [0u64; 3];
+        let mut n_by_kind = [0u64; 3];
+        for i in 0..(WARMUP + MEASURED) {
+            let (kind, raw, expected_book_allocs) = if i % SNAPSHOT_EVERY == 0 {
+                u += 1;
+                let bids = levels(&mut rng, 15_000, 50, false);
+                let asks = levels(&mut rng, 15_001, 50, true);
+                (SNAPSHOT, book_msg("snapshot", &bids, &asks, u), Some(8))
+            } else if i % 10 == 9 {
+                (TRADES, trades_msg(&mut rng, u), None)
+            } else {
+                u += 1;
+                let nb = rng.below(6) as usize;
+                let na = rng.below(6) as usize;
+                let bid_start = 15_000 - rng.below(20);
+                let ask_start = 15_001 + rng.below(20);
+                let bids = levels(&mut rng, bid_start, nb, false);
+                let asks = levels(&mut rng, ask_start, na, true);
+                let non_empty_sides = u64::from(nb > 0) + u64::from(na > 0);
+                (
+                    DELTA,
+                    book_msg("delta", &bids, &asks, u),
+                    Some(non_empty_sides),
+                )
+            };
+            let (_, counts) = crate::alloc_count::measure(|| {
+                parse_message_into(&raw, &mut events).expect("фикстура обязана разбираться");
+                for ev in events.drain(..) {
+                    if let WsEvent::Book(update) = &ev {
+                        book.apply(update)
+                            .expect("фикстура — валидная последовательность u");
+                    }
+                    write_market_event(&mut state, 1, ev);
+                }
+            });
+            if i < WARMUP {
+                continue;
+            }
+            let allocs = counts.allocations;
+            n_by_kind[kind] += 1;
+            allocs_by_kind[kind] += allocs;
+            max_by_kind[kind] = max_by_kind[kind].max(allocs);
+            if let Some(expected) = expected_book_allocs {
+                assert_eq!(
+                    allocs, expected,
+                    "сообщение #{i}: книжное сообщение обязано аллоцировать ровно по одному \
+                     Vec на непустую сторону (снапшот — 8), получено {allocs}: {raw}"
+                );
+            }
+        }
+        assert_eq!(
+            max_by_kind[TRADES], 0,
+            "лента сделок после прогрева не аллоцирует — сделки идут прямо в буфер вызывающего"
+        );
+        for (name, kind) in [("snapshot", SNAPSHOT), ("delta", DELTA), ("trades", TRADES)] {
+            eprintln!(
+                "alloc gate: {name}: n={} allocs_per_msg_avg={:.3} max={}",
+                n_by_kind[kind],
+                allocs_by_kind[kind] as f64 / n_by_kind[kind].max(1) as f64,
+                max_by_kind[kind]
+            );
+        }
+        flush_symbol_batch(&mut state);
+        state.writer.flush().unwrap();
+        assert!(state.records_written > 0);
     }
 
     fn args_with_minutes(minutes: u64) -> SessionArgs {
