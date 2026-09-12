@@ -112,6 +112,17 @@ fn open_symbol_state(root: &Path, member: &PoolMember, day: &str) -> anyhow::Res
     })
 }
 
+/// Партия не состоялась (таск 34): закрыть уже открытые части и убрать их
+/// файлы, чтобы в каталоге не остались пустые заголовки, а повтор не получил
+/// `-p2`.
+fn discard_opened(root: &Path, day: &str, opened: Vec<SymbolState>) {
+    for state in opened {
+        let path = day_file_path(root, &state.member.symbol, day, state.part);
+        drop(state);
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Читает `binlog_files` уже существующего `session.json` под `root`, если
 /// он есть и разбирается — вторая сессия тех же суток дописывает свои части
 /// к этой истории, не начинает список заново (doc `SessionSummary::
@@ -298,6 +309,7 @@ impl SessionCtx {
                         member.symbol,
                         self.pool_path.display()
                     );
+                    discard_opened(&self.root, &day, opened);
                     return;
                 }
             }
@@ -310,27 +322,29 @@ impl SessionCtx {
                      удалены, повтор при следующем изменении {}",
                     self.pool_path.display()
                 );
-                for state in opened {
-                    let path = day_file_path(&self.root, &state.member.symbol, &day, state.part);
-                    drop(state);
-                    let _ = std::fs::remove_file(path);
-                }
+                discard_opened(&self.root, &day, opened);
                 return;
             }
         };
-        assert_eq!(
-            indices.len(),
-            opened.len(),
-            "feed.add вернул не столько индексов, сколько инструментов подано"
-        );
-        let started_utc = ts_utc_of_ns(ts_ns);
-        for (state, idx) in opened.into_iter().zip(indices) {
-            assert_eq!(
-                usize::from(idx),
-                self.states.len(),
-                "индекс нового инструмента обязан совпасть с его позицией в states — \
-                 иначе кадр уйдёт в чужой файл"
+        // Индекс нового инструмента обязан совпасть с его позицией в `states`
+        // — иначе кадр ушёл бы в чужой файл. `LiveFeed` это гарантирует по
+        // построению; чужая реализация `DynamicPool` может нарушить, и
+        // суточный коллектор на это не паникует: партия отбрасывается, а
+        // события этих индексов цикл пропускает (`idx >= states.len()`).
+        let expected: Vec<u16> = (0..opened.len())
+            .map(|i| u16::try_from(self.states.len() + i).unwrap_or(u16::MAX))
+            .collect();
+        if indices != expected {
+            eprintln!(
+                "session: партия не добавлена — источник вернул индексы {indices:?}, \
+                 ожидались {expected:?}; файлы частей удалены, события этих индексов \
+                 не пишутся"
             );
+            discard_opened(&self.root, &day, opened);
+            return;
+        }
+        let started_utc = ts_utc_of_ns(ts_ns);
+        for state in opened {
             eprintln!(
                 "session: добавлен {} (tick={}, step={}) — файл {}",
                 state.member.symbol,

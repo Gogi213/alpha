@@ -29,8 +29,9 @@ cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 17 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): до Ctrl+C в его консоли; instruments.csv скопировать в --root
 ./target/release/alpha.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
-# докинуть монету в идущую запись (T34): дописать строку в <root>/instruments.csv — подхват ≤ 10 с,
-# свой <SYMBOL>-<день>.binlog и своё соединение; удаление строки не поддерживается (запись идёт)
+# докинуть монеты в идущую запись (T34): дописать строки в <root>/instruments.csv — подхват ≤ 10 с,
+# свои <SYMBOL>-<день>.binlog и одно соединение на партию (несколько монет — одной записью файла);
+# удаление строки не поддерживается (запись идёт)
 grep '^ZECUSDT,' instruments.csv >> data/always-on/<ts>/instruments.csv
 # дашборд «Монеты и плотности» (T33): вотчер живёт с копии data/dashboard/alpha-dashboard.exe
 ./target-ci/release/alpha.exe lob dashboard --root data/always-on/<ts> --out data/dashboard [--watch 120] [--h3-k 10]

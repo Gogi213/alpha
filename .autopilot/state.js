@@ -1030,10 +1030,14 @@ window.STATE =
       "blockedBy": [],
       "wave": 12,
       "zone": ["src/feed/mod.rs", "src/feed/live.rs", "src/feed/replay.rs", "src/commands/lob/session.rs", "src/commands/lob/session/", "CLAUDE.md", "docs/COMMANDS.md"],
-      "status": "in_progress",
+      "status": "done",
       "startedAt": "2026-09-13T00:05:00+04:00",
-      "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "владелец 2026-09-12: «нужно чтобы можно было добавлять на запись без перезапуска» (В-40). Новые символы — новым соединением, instruments.csv в --root — живой список, проверка mtime на Tick"
+      "finishedAt": "2026-09-13T00:55:00+04:00",
+      "tests": "654 passed, 0 failed, 5 ignored; clippy -D warnings, fmt чисто",
+      "commit": "d338328 + фикс по ревью",
+      "review": {"R-A": "Манифест да, все критерии done; BLOCKING нет", "R-B": "горячий путь чист, BLOCKING нет; concerns: сирота-файл при отказе на N-м символе партии, assert в релизе, thread::spawn без Result, сокет на каждую партию, смена tick/step известного символа молчит", "R-C": "разметка/снапшот тем же путём, числа с источником, BLOCKING нет; concerns: ёмкость канала не растёт после add, слежение только по mtime, батчить строки одной записью"},
+      "retries": 0, "repairs": 1, "handoffs": 0,
+      "note": "владелец 2026-09-12: «нужно чтобы можно было добавлять на запись без перезапуска» (В-40). Новые символы — новым соединением, instruments.csv в --root — живой список, mtime на Tick. Живьём: SOL+XRP, ZEC дописан на 52-й с, подхвачен через 10 с, verify ok. По ревью починено: discard_opened на любом отказе партии, индексы проверяются и партия отбрасывается вместо assert; в доку — «несколько монет одной записью». Остаток в concerns: thread::Builder вместо spawn, ёмкость канала после add, сокет на партию (print_topic_budget), tick/step известного символа"
     },
     {
       "id": "14",
