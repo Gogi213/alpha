@@ -134,8 +134,11 @@ pub const EXCLUDED_TOO_YOUNG: &str = "listed_under_30d";
 /// Прошёл все три исключения, но не вошёл в первые десять по обороту.
 /// Не исключение по правилу, а срез ранжирования — без этой строки из
 /// таблицы нельзя проверить, что пул это действительно *первые* десять
-/// оставшихся, а не десять произвольных.
-pub const BELOW_TOP10: &str = "below_top10_by_turnover";
+/// оставшихся, а не десять произвольных. Имя кода отличает его от трёх
+/// `EXCLUDED_*` намеренно (таск 27): `excluded_reason` несёт исключения по
+/// правилам §2 и этот срез ранга — и ничего больше; глубина в эту колонку
+/// не попадает никогда, у неё своя `depth_check` (BUSINESS-TASK §9).
+pub const RANK_BEYOND_POOL: &str = "rank_beyond_pool";
 
 /// Некриптовые базовые активы (пункт 2 Decision 25: акции, ETF, металлы).
 /// У Bybit нет поля, отличающего их от крипты: проверено 2026-09-10,
@@ -249,7 +252,7 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
             excluded.push(ExcludedCandidate {
                 symbol: c.symbol.clone(),
                 turnover_24h_usd_e9: c.turnover_24h_usd_e9,
-                excluded_reason: BELOW_TOP10,
+                excluded_reason: RANK_BEYOND_POOL,
             });
         }
     }
@@ -267,7 +270,7 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
 /// перп) в том же порядке убывания оборота, что и сам пул, и на каждом шаге
 /// проверяет то же самое исключение (`exclusion_reason`), пока не наберёт
 /// десятый прошедший все три. Кандидаты ниже него по обороту не входят —
-/// они не были нужны, чтобы найти десятого, в отличие от `BELOW_TOP10`
+/// они не были нужны, чтобы найти десятого, в отличие от `RANK_BEYOND_POOL`
 /// внутри `build_pool`, которая размечает вообще всех прошедших, каким бы
 /// низким ни был их оборот. Меньше десяти прошедших во всей области —
 /// возвращает всех рассмотренных: десятого не существует.
@@ -660,7 +663,7 @@ mod tests {
             outcome
                 .excluded
                 .iter()
-                .all(|e| e.excluded_reason == BELOW_TOP10),
+                .all(|e| e.excluded_reason == RANK_BEYOND_POOL),
             "оба — срез ранжирования: {outcome:?}"
         );
         assert_eq!(outcome.excluded[0].symbol, "C10USDT");

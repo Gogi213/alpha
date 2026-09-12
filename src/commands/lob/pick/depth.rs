@@ -1,63 +1,23 @@
-//! `lob pick` — измеренная глубина книги: модель значений и порог отбора
-//! (шаг 0.4, Decision 18). Чистые функции — медиана по уровням снимка,
-//! время-взвешенное усреднение по стороне, ранжирование и порог глубины
-//! (`survivors_above_depth_floor`) — не делают ввода-вывода; сетевой сбор
-//! самих замеров (подключение, копление `DepthSample` за час) — `super::measure`.
+//! `lob pick` — измеренная глубина книги: модель значений и **проверка**
+//! глубины (шаг 0.4, Decision 18). Чистые функции — медиана по уровням
+//! снимка, время-взвешенное усреднение по стороне и вердикт `depth_check` —
+//! не делают ввода-вывода; сетевой сбор самих замеров (подключение,
+//! копление `DepthSample` за час) — `super::measure`.
+//!
+//! Таск 27 снял здесь отбор: глубина больше не решает состав пула
+//! (BUSINESS-TASK §9 «час живой глубины остаётся как проверка, а не как
+//! критерий отбора», §2 «первые десять оставшихся», §3 про `ZECUSDT`;
+//! `SETTLED.md` В-35). Функция `survivors_above_depth_floor` и её ошибка
+//! `PickError::NoSurvivorsAboveDepthFloor` удалены: состав пула — целиком
+//! дело `super::pool`.
 
 /// «>= $2000 в номинале на уровень» (Decision 18), в фиксированной точке 1e9
 /// (`ARCHITECTURE.md` A1) — тот же масштаб, что доллары нигде не участвуют
 /// в сравнении гейтов, но здесь именно доллар и есть измеряемая величина.
 /// Decision 18(б), ревизия 10: порог проверяется на бид и на аск **раздельно**
-/// — см. `survivors_above_depth_floor` и doc `DepthSample`.
+/// — см. `depth_check` и doc `DepthSample`. С таска 27 это порог отчётной
+/// метки, не отбора.
 pub const DEPTH_FLOOR_USD_E9: i64 = 2_000 * 1_000_000_000;
-
-// ---------------------------------------------------------------------------
-// Ошибки
-// ---------------------------------------------------------------------------
-
-/// Отказ чистой части правила Decision 25. Ни один вариант не паникует —
-/// это и есть требование задачи: вырожденный вход обязан вернуть ошибку с
-/// причиной, а не молча посчитать что-то похожее на ответ (тот самый дефект
-/// bootstrap-модуля из `stats/mod.rs`, деливший на нулевую дисперсию).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PickError {
-    /// Ни один измеренный кандидат не прошёл порог глубины **на обеих
-    /// сторонах** (протокол шага 0.4, порог Decision 18 сохранён ревизией 17)
-    /// — толстая сторона не засчитывается за тонкую.
-    ///
-    /// Других вариантов отказа у чистой части нет нарочно: прежняя
-    /// `MinNotionalNotSatisfied` (Decision 22, «минимальный лот обязан покрыть
-    /// `minNotionalValue`, иначе ошибка») отменена ревизией 17б — на восьми из
-    /// десяти инструментов пула минимальный лот дешевле $5, и это свойство
-    /// пула, а не брак отбора. Вместо отказа считается размер-22а
-    /// (`order_size_22a`) на инструмент, а разброс номинала идёт колонкой
-    /// таблицы, не условием приёмки.
-    NoSurvivorsAboveDepthFloor {
-        floor_usd_e9: i64,
-        candidates: usize,
-    },
-}
-
-impl std::fmt::Display for PickError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PickError::NoSurvivorsAboveDepthFloor {
-                floor_usd_e9,
-                candidates,
-            } => {
-                // Деньги e9 (~1e12) точны в f64; это печать, не арифметика.
-                #[allow(clippy::cast_precision_loss)]
-                let floor_usd = *floor_usd_e9 as f64 / 1e9;
-                write!(
-                    f,
-                    "ни один из {candidates} измеренных кандидатов не набрал {floor_usd} USD медианной глубины на уровень на обеих сторонах",
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for PickError {}
 
 /// Медиана целочисленной выборки. `None` на пустом входе — отсутствие
 /// уровней означает «данных нет», а не «глубина ноль»: подстановка нуля
@@ -187,9 +147,9 @@ pub fn time_weighted_median_ask_depth_usd_e9(
     time_weighted_median_for_side(samples, window_end_ns, |s| s.ask_notional_usd_e9.as_slice())
 }
 
-/// Кандидат с готовым измерением — вход последней стадии правила. Всё, что
-/// нужно для ранжирования и для строки коммитимой таблицы (Decision 18,
-/// done-condition шага 0.4: «окно замера» — колонка таблицы).
+/// Кандидат с готовым измерением — вход проверки глубины и строки
+/// коммитимой таблицы (Decision 18, done-condition шага 0.4: «окно замера» —
+/// колонка таблицы).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MeasuredCandidate {
     pub symbol: String,
@@ -206,12 +166,11 @@ pub struct MeasuredCandidate {
     pub median_bid_depth_usd_e9: i64,
     pub median_ask_depth_usd_e9: i64,
     /// Только для печати в таблице (Decision 18: «отчётный оборот никогда не
-    /// критерий») — `survivors_above_depth_floor` этого поля не читает вовсе.
+    /// критерий») — `depth_check` этого поля не читает вовсе.
     pub reported_turnover_usd_e9: i64,
     /// Медиана размера сделки в лотах за то же окно (план D-H3, таск 08) —
     /// вход `super::h3::h3_lots_floor`. `None` — окно не поймало ни одной
-    /// неблочной сделки: не порог отбора, `survivors_above_depth_floor` это
-    /// поле не читает.
+    /// неблочной сделки: не порог отбора, `depth_check` это поле не читает.
     pub median_trade_lots: Option<i64>,
 }
 
@@ -226,49 +185,55 @@ impl MeasuredCandidate {
     }
 }
 
-/// Сравнение по темпу событий без деления и без `f64`: `events / window_secs`
-/// у `a` против того же у `b` — это `a.events * b.window_secs` против
-/// `b.events * a.window_secs` (оба `window_secs > 0` по построению замера).
-/// `i128`: `i64::MAX * i64::MAX ≈ 8.5·10^37` меньше `i128::MAX ≈ 1.7·10^38` —
-/// произведение не переполняется на всём диапазоне `i64`, значит и на любых
-/// реалистичных счётчиках событий и длительностях подавно.
-fn event_rate_cmp(a: &MeasuredCandidate, b: &MeasuredCandidate) -> std::cmp::Ordering {
-    (a.events as i128 * b.window_secs as i128).cmp(&(b.events as i128 * a.window_secs as i128))
+/// Вердикт часового замера глубины по одному инструменту пула — **строка
+/// отчёта, не критерий отбора** (BUSINESS-TASK §9: «час живой глубины
+/// остаётся как проверка, а не как критерий отбора»; §2: пул — «первые
+/// десять оставшихся» после трёх исключений по правилам; §3: `ZECUSDT` «не
+/// исключается … и это печатается строкой отчёта»). До таска 27 порог
+/// `DEPTH_FLOOR_USD_E9` резал пул до восьми — аудит 2026-09-12 назвал это
+/// единственным прямым противоречием задаче; решение — `SETTLED.md` В-35.
+///
+/// Три состояния, и `NotMeasured` не сливается с `BelowFloor`: символ, по
+/// которому окно не собрало ни одного замера стороны (оборванное
+/// соединение, мёртвая лента), и символ с тонкой книгой — разные факты, и
+/// в отчёте они обязаны различаться.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DepthCheck {
+    /// Медианная глубина не ниже `DEPTH_FLOOR_USD_E9` на **обеих** сторонах.
+    Ok,
+    /// Замер есть, но хотя бы одна сторона ниже порога (Decision 18б:
+    /// толстая сторона не засчитывается за тонкую).
+    BelowFloor,
+    /// Замера нет — `measure_prefiltered` не вернула кандидата вовсе.
+    NotMeasured,
 }
 
-/// Финальная стадия протокола шага 0.4 (порог Decision 18, сохранён
-/// ревизией 17): порог глубины обязан пройти на **обеих**
-/// сторонах независимо (18(б)) — не сумма и не среднее двух; ранг по
-/// худшей из двух сторон (`min_side_depth_usd_e9`, та же логика, что и
-/// сам порог: толстая сторона не должна прятать тонкую ни в гейте, ни в
-/// ранжировании), при равенстве — по темпу событий, при равенстве и там —
-/// по символу (детерминизм, не смысл). Отчётный оборот здесь не участвует
-/// вовсе, поэтому не может продвинуть кандидата ниже порога. Пул не сужается
-/// до фиксированного числа финалистов: возвращаются все прошедшие порог,
-/// ранжированные, — заморозка состава пула решена спекой редакции 3.
-pub fn survivors_above_depth_floor(
-    measured: &[MeasuredCandidate],
-) -> Result<Vec<MeasuredCandidate>, PickError> {
-    let mut survivors: Vec<&MeasuredCandidate> = measured
-        .iter()
-        .filter(|m| {
-            m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-                && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-        })
-        .collect();
-    if survivors.is_empty() {
-        return Err(PickError::NoSurvivorsAboveDepthFloor {
-            floor_usd_e9: DEPTH_FLOOR_USD_E9,
-            candidates: measured.len(),
-        });
+impl DepthCheck {
+    /// Значение колонки `depth_check` в `instruments.csv` и `candidates.csv`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DepthCheck::Ok => "ok",
+            DepthCheck::BelowFloor => "below_floor",
+            DepthCheck::NotMeasured => "not_measured",
+        }
     }
-    survivors.sort_by(|a, b| {
-        b.min_side_depth_usd_e9()
-            .cmp(&a.min_side_depth_usd_e9())
-            .then_with(|| event_rate_cmp(b, a))
-            .then_with(|| a.symbol.cmp(&b.symbol))
-    });
-    Ok(survivors.into_iter().cloned().collect())
+
+    /// Требует ли метка строки предупреждения в stdout (`lob pick`) —
+    /// «инструмент остаётся в пуле, глубина ниже порога».
+    pub fn is_warning(self) -> bool {
+        !matches!(self, DepthCheck::Ok)
+    }
+}
+
+/// Проверка глубины по инструменту пула: `None` — замера нет вовсе.
+/// Возвращает метку, не решение: ни один вызывающий не имеет права
+/// выбрасывать кандидата по её значению (см. doc `DepthCheck`).
+pub fn depth_check(measured: Option<&MeasuredCandidate>) -> DepthCheck {
+    match measured {
+        None => DepthCheck::NotMeasured,
+        Some(m) if m.min_side_depth_usd_e9() >= DEPTH_FLOOR_USD_E9 => DepthCheck::Ok,
+        Some(_) => DepthCheck::BelowFloor,
+    }
 }
 
 #[cfg(test)]
@@ -476,20 +441,7 @@ mod tests {
         );
     }
 
-    // -- survivors_above_depth_floor -----------------------------------------------------
-
-    /// Оба борта равны `depth` — совместимо со старым однозначным чтением
-    /// большинства тестов ниже, которые не проверяют асимметрию сторон.
-    /// Асимметричные сценарии используют `measured_sided` напрямую.
-    fn measured(
-        symbol: &str,
-        depth: i64,
-        turnover: i64,
-        events: i64,
-        window_secs: i64,
-    ) -> MeasuredCandidate {
-        measured_sided(symbol, depth, depth, turnover, events, window_secs)
-    }
+    // -- depth_check и его вход (таск 27) ------------------------------------
 
     fn measured_sided(
         symbol: &str,
@@ -511,158 +463,51 @@ mod tests {
         }
     }
 
-    /// Требуемый тест (Изменение 1, Decision 18б ревизии 10): порог обязан
-    /// выполняться на КАЖДОЙ стороне отдельно — толстый бид не может
-    /// прикрыть тонкий аск. Бид далеко выше порога, аск далеко ниже — со
-    /// старым (объединённым по обеим сторонам) прочтением такой кандидат
-    /// мог пройти отбор, потому что усреднённая по сотне уровней глубина
-    /// оставалась бы выше порога даже с пустым или крайне тонким аском.
+    // -- depth_check (таск 27, §9: проверка, а не критерий отбора) -----------
+
+    /// Критерий приёмки таска 27 (BUSINESS-TASK §9: «час живой глубины
+    /// остаётся как проверка, а не как критерий отбора»): глубина ниже
+    /// порога — метка отчёта, и у неё ровно три состояния. Замер есть и
+    /// обе стороны не ниже порога — `ok`; замер есть, любая сторона ниже —
+    /// `below_floor` (толстая сторона не прикрывает тонкую, Decision 18б);
+    /// замера нет вовсе — `not_measured`, а не `below_floor`: оборвавшееся
+    /// соединение и тонкая книга — разные факты, и слитые в один они
+    /// сделали бы отчёт неотличимым от прежнего отсева.
     #[test]
-    fn survivors_above_depth_floor_requires_the_depth_floor_on_both_sides_independently() {
-        let m = vec![measured_sided(
-            "FAT_BID_THIN_ASK",
-            DEPTH_FLOOR_USD_E9 * 10,
-            DEPTH_FLOOR_USD_E9 / 10,
+    fn depth_check_labels_the_three_states_separately() {
+        let at_floor = measured_sided(
+            "AT_FLOOR",
+            DEPTH_FLOOR_USD_E9,
+            DEPTH_FLOOR_USD_E9,
             0,
             1,
             3600,
-        )];
-        assert_eq!(
-            survivors_above_depth_floor(&m).unwrap_err(),
-            PickError::NoSurvivorsAboveDepthFloor {
-                floor_usd_e9: DEPTH_FLOOR_USD_E9,
-                candidates: 1
-            }
         );
-    }
-
-    #[test]
-    fn survivors_above_depth_floor_excludes_candidates_below_the_depth_floor() {
-        let m = vec![
-            measured("HI", DEPTH_FLOOR_USD_E9 + 1, 0, 10, 3600),
-            measured("LO", DEPTH_FLOOR_USD_E9 - 1, 0, 10, 3600),
-        ];
-        let out = survivors_above_depth_floor(&m).unwrap();
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].symbol, "HI");
-    }
-
-    #[test]
-    fn survivors_above_depth_floor_errors_when_all_candidates_are_below_the_floor() {
-        let m = vec![measured("A", DEPTH_FLOOR_USD_E9 - 1, 0, 1, 3600)];
-        assert_eq!(
-            survivors_above_depth_floor(&m).unwrap_err(),
-            PickError::NoSurvivorsAboveDepthFloor {
-                floor_usd_e9: DEPTH_FLOOR_USD_E9,
-                candidates: 1
-            }
+        let thin_ask = measured_sided(
+            "THIN_ASK",
+            DEPTH_FLOOR_USD_E9 * 10,
+            DEPTH_FLOOR_USD_E9 - 1,
+            0,
+            1,
+            3600,
         );
-    }
-
-    #[test]
-    fn survivors_above_depth_floor_on_empty_input_is_an_error_not_a_panic() {
-        assert!(survivors_above_depth_floor(&[]).is_err());
-    }
-
-    /// Требуемый тест: отчётный оборот не может продвинуть кандидата ниже
-    /// порога глубины — победитель определяется исключительно измеренной
-    /// глубиной среди тех, кто прошёл порог.
-    #[test]
-    fn reported_turnover_cannot_promote_a_candidate_below_the_depth_floor() {
-        let m = vec![
-            measured(
-                "HUGE_TURNOVER_THIN_BOOK",
-                DEPTH_FLOOR_USD_E9 - 1,
-                e9(999_999_999),
-                1000,
-                3600,
-            ),
-            measured(
-                "SMALL_TURNOVER_DEEP_BOOK",
-                DEPTH_FLOOR_USD_E9 + 1,
-                e9(1),
-                1,
-                3600,
-            ),
-        ];
-        let out = survivors_above_depth_floor(&m).unwrap();
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].symbol, "SMALL_TURNOVER_DEEP_BOOK");
-    }
-
-    #[test]
-    fn survivors_above_depth_floor_ranks_survivors_by_measured_depth_descending() {
-        let m = vec![
-            measured("LOW", DEPTH_FLOOR_USD_E9 + 100, 0, 1, 3600),
-            measured("HIGH", DEPTH_FLOOR_USD_E9 + 999, 0, 1, 3600),
-            measured("MID", DEPTH_FLOOR_USD_E9 + 500, 0, 1, 3600),
-        ];
-        let out = survivors_above_depth_floor(&m).unwrap();
-        assert_eq!(
-            out.iter().map(|c| c.symbol.clone()).collect::<Vec<_>>(),
-            vec!["HIGH", "MID", "LOW"],
-            "все прошедшие порог возвращаются, без сужения до фиксированного числа"
+        let thin_bid = measured_sided(
+            "THIN_BID",
+            DEPTH_FLOOR_USD_E9 - 1,
+            DEPTH_FLOOR_USD_E9 * 10,
+            0,
+            1,
+            3600,
         );
-    }
 
-    /// Требуемый тест: равная измеренная глубина — победитель по темпу
-    /// событий, а не по порядку появления во входном срезе.
-    #[test]
-    fn ties_in_depth_break_by_event_rate_deterministically() {
-        let depth = DEPTH_FLOOR_USD_E9 + 1;
-        let slow = measured("SLOW", depth, 0, 10, 3600); // 10 событий/час
-        let fast = measured("FAST", depth, 0, 100, 3600); // 100 событий/час
-        let forward = survivors_above_depth_floor(&[slow.clone(), fast.clone()]).unwrap();
-        let backward = survivors_above_depth_floor(&[fast, slow]).unwrap();
-        assert_eq!(forward[0].symbol, "FAST");
-        assert_eq!(
-            forward.iter().map(|c| c.symbol.clone()).collect::<Vec<_>>(),
-            backward
-                .iter()
-                .map(|c| c.symbol.clone())
-                .collect::<Vec<_>>(),
-            "порядок входа не должен влиять на результат"
-        );
-    }
+        assert_eq!(depth_check(Some(&at_floor)), DepthCheck::Ok);
+        assert_eq!(depth_check(Some(&thin_ask)), DepthCheck::BelowFloor);
+        assert_eq!(depth_check(Some(&thin_bid)), DepthCheck::BelowFloor);
+        assert_eq!(depth_check(None), DepthCheck::NotMeasured);
 
-    #[test]
-    fn ties_in_depth_and_event_rate_break_by_symbol() {
-        let depth = DEPTH_FLOOR_USD_E9 + 1;
-        let m = vec![
-            measured("Z", depth, 0, 10, 3600),
-            measured("A", depth, 0, 10, 3600),
-        ];
-        let out = survivors_above_depth_floor(&m).unwrap();
-        assert_eq!(out[0].symbol, "A");
-    }
-
-    #[test]
-    fn event_rate_comparison_does_not_overflow_on_extreme_counters() {
-        let depth = DEPTH_FLOOR_USD_E9 + 1;
-        let extreme = measured("EXTREME", depth, 0, i64::MAX, 1);
-        let normal = measured("NORMAL", depth, 0, 1, 1);
-        let out = survivors_above_depth_floor(&[extreme, normal]).unwrap();
-        assert_eq!(
-            out[0].symbol, "EXTREME",
-            "не должно паниковать и обязано ранжировать верно"
-        );
-    }
-
-    #[test]
-    fn survivors_above_depth_floor_returns_one_when_only_one_candidate_survives() {
-        let m = vec![measured("ONLY", DEPTH_FLOOR_USD_E9 + 1, 0, 1, 3600)];
-        assert_eq!(survivors_above_depth_floor(&m).unwrap().len(), 1);
-    }
-
-    /// Таск 01: сужение пула до фиксированного числа финалистов удалено —
-    /// прежняя функция переименована в `survivors_above_depth_floor` и
-    /// больше не режет вывод. Пять кандидатов, все выше порога, обязаны
-    /// вернуться все пять, а не два.
-    #[test]
-    fn survivors_above_depth_floor_does_not_cap_the_pool_at_two() {
-        let m: Vec<MeasuredCandidate> = (0..5)
-            .map(|i| measured(&format!("SYM{i}"), DEPTH_FLOOR_USD_E9 + 1 + i, 0, 1, 3600))
-            .collect();
-        assert_eq!(survivors_above_depth_floor(&m).unwrap().len(), 5);
+        // Метки — то, что уезжает колонкой `depth_check` в оба CSV.
+        assert_eq!(DepthCheck::Ok.as_str(), "ok");
+        assert_eq!(DepthCheck::BelowFloor.as_str(), "below_floor");
+        assert_eq!(DepthCheck::NotMeasured.as_str(), "not_measured");
     }
 }

@@ -9,9 +9,10 @@
 //! - `coverage` — покрытие топ-50 книги в bps и пригодность корзин
 //!   расстояния Decision 26а (`coverage_top50_bps`, `eligible_baskets`,
 //!   `count_eligible_trials`).
-//! - `depth` — модель измеренной глубины и порог отбора: медиана по уровням
-//!   снимка, время-взвешенное усреднение по стороне, `MeasuredCandidate`,
-//!   `survivors_above_depth_floor`.
+//! - `depth` — модель измеренной глубины и её **проверка**: медиана по
+//!   уровням снимка, время-взвешенное усреднение по стороне,
+//!   `MeasuredCandidate`, `depth_check`. Отбора здесь нет с таска 27:
+//!   глубина не решает состав пула (BUSINESS-TASK §9, `SETTLED.md` В-35).
 //! - `measure` — тонкая сетевая оболочка часового замера (`measure_one_symbol`,
 //!   `measure_prefiltered`): собирает вход для `depth`, сама не решает ничего.
 //! - `order_size` — размер ордера по формуле биржи, Decision 22а (`order_size_22a`).
@@ -51,8 +52,8 @@ pub use coverage::{
     DISTANCE_BASKETS,
 };
 pub use depth::{
-    median_depth_per_level_usd_e9, survivors_above_depth_floor, DepthSample, MeasuredCandidate,
-    PickError, DEPTH_FLOOR_USD_E9,
+    depth_check, median_depth_per_level_usd_e9, DepthCheck, DepthSample, MeasuredCandidate,
+    DEPTH_FLOOR_USD_E9,
 };
 pub use depth::{time_weighted_median_ask_depth_usd_e9, time_weighted_median_bid_depth_usd_e9};
 pub use h3::{debug_window_warning, h3_lots_floor, H3FloorInfo};
@@ -60,9 +61,9 @@ pub use measure::{measure_prefiltered, MEASUREMENT_WINDOW_SECS};
 pub use order_size::order_size_22a;
 pub use pool::{
     base_coins_considered_until_pool_complete, build_pool, is_listed_long_enough,
-    join_candidate_meta, CandidateMeta, ExcludedCandidate, PoolCandidate, PoolOutcome, BELOW_TOP10,
+    join_candidate_meta, CandidateMeta, ExcludedCandidate, PoolCandidate, PoolOutcome,
     EXCLUDED_BTC_ETH, EXCLUDED_NON_CRYPTO, EXCLUDED_TOO_YOUNG, MIN_LISTED_DAYS, NON_CRYPTO_BASES,
-    POOL_SIZE,
+    POOL_SIZE, RANK_BEYOND_POOL,
 };
 pub use table::{
     build_candidate_table, instruments_csv_reader, instruments_for_pool, write_candidate_table_csv,
@@ -110,9 +111,14 @@ pub struct PickArgs {
     pub h3_k: f64,
 }
 
-/// Итог `lob pick`: полная таблица (все промежуточные колонки) и подмножество
-/// пула, прошедшее порог глубины (см. doc `survivors_above_depth_floor`);
-/// ошибка возможна и после сети, не только до неё.
+/// Итог `lob pick`: полная таблица (все промежуточные колонки) и члены пула,
+/// по которым час замера что-то вернул, в порядке ранга пула.
+///
+/// Таск 27: `selected` больше не «прошедшие порог глубины» — состав пула
+/// решают только исключения §2 и ранг по обороту, а глубина едет колонкой
+/// `depth_check`. Здесь остаются лишь **измеренные** члены пула, потому что
+/// у неизмеренного нет чисел глубины для печати; кто в пуле на самом деле —
+/// говорит `table` (`selected_for_pilot` ровно у десяти).
 pub struct PickReport {
     pub table: Vec<CandidateRow>,
     pub selected: Vec<MeasuredCandidate>,
@@ -186,23 +192,66 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     // медианы размера сделки пола H3 (план D-H3, таск 08).
     let measured =
         measure_prefiltered(&outcome.pool, &instruments_by_symbol, args.window_secs).await;
-    // Диагностика на пути отказа: какие медианы намерялись, по каждому
-    // кандидату — иначе следующий провал снова виден только как «ни один».
-    // Печать в stderr, не в таблицу: таблица пишется только на успехе.
-    let selected = match survivors_above_depth_floor(&measured) {
-        Ok(sel) => sel,
-        Err(e) => {
-            let mut rows: Vec<&MeasuredCandidate> = measured.iter().collect();
-            rows.sort_by(|a, b| a.symbol.cmp(&b.symbol));
-            for m in rows {
-                eprintln!(
-                    "pick measured: {} events={} bid_med={} ask_med={}",
-                    m.symbol, m.events, m.median_bid_depth_usd_e9, m.median_ask_depth_usd_e9
-                );
-            }
-            return Err(e.into());
+    let measured_by_symbol: HashMap<&str, &MeasuredCandidate> =
+        measured.iter().map(|m| (m.symbol.as_str(), m)).collect();
+
+    // Час живой глубины — проверка, а не критерий отбора (BUSINESS-TASK §9,
+    // `SETTLED.md` В-35): вердикт печатается строкой на каждый инструмент
+    // пула и колонкой `depth_check` в обоих CSV; из пула никто не выбывает.
+    // Это ровно то место, где до таска 27 стоял отсев, оставлявший восемь
+    // из десяти и выбрасывавший `ZECUSDT`, которого §3 защищает поимённо.
+    let depth_by_symbol: HashMap<String, DepthCheck> = outcome
+        .pool
+        .iter()
+        .map(|c| {
+            (
+                c.symbol.clone(),
+                depth_check(measured_by_symbol.get(c.symbol.as_str()).copied()),
+            )
+        })
+        .collect();
+    for (rank, c) in outcome.pool.iter().enumerate() {
+        let check = depth_by_symbol
+            .get(&c.symbol)
+            .copied()
+            .unwrap_or(DepthCheck::NotMeasured);
+        let m = measured_by_symbol.get(c.symbol.as_str()).copied();
+        println!(
+            "pick pool: {} {} depth_check={} bid_med={} ask_med={} events={}",
+            rank + 1,
+            c.symbol,
+            check.as_str(),
+            m.map_or_else(
+                || "-".to_string(),
+                |m| m.median_bid_depth_usd_e9.to_string()
+            ),
+            m.map_or_else(
+                || "-".to_string(),
+                |m| m.median_ask_depth_usd_e9.to_string()
+            ),
+            m.map_or_else(|| "-".to_string(), |m| m.events.to_string()),
+        );
+        if check.is_warning() {
+            println!(
+                "pick: {} — глубина {} против порога {} USD на уровень; \
+                 инструмент остаётся в пуле, это строка отчёта, а не критерий отбора (§9)",
+                c.symbol,
+                check.as_str(),
+                DEPTH_FLOOR_USD_E9 / 1_000_000_000,
+            );
         }
-    };
+    }
+    // Порядок пула — ранг по обороту (`build_pool`); в `selected` едут те его
+    // члены, по которым час что-то намерил.
+    let selected: Vec<MeasuredCandidate> = outcome
+        .pool
+        .iter()
+        .filter_map(|c| {
+            measured_by_symbol
+                .get(c.symbol.as_str())
+                .map(|m| (*m).clone())
+        })
+        .collect();
 
     // Пол H3 на измеренный инструмент: floor(k × медиана размера сделки),
     // колонки instruments.csv (критерий приёмки таска 08). Символ без
@@ -229,17 +278,19 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     // каждую строку этого файла, а `power.rs::pool_size` считает по числу
     // строк `N` для DSR — вся вселенная REST здесь не годится ни для того,
     // ни для другого (дозапрос по ревью таска 08, ось Манифест).
-    let pool_instruments = instruments_for_pool(&instruments, &selected);
+    let pool_instruments = instruments_for_pool(&instruments, &outcome.pool);
     write_instruments_csv_with_h3(
         &args.root.join("instruments.csv"),
         &pool_instruments,
         &h3_by_symbol,
+        &depth_by_symbol,
         debug_label.as_deref(),
     )?;
     write_instruments_csv_with_h3(
         &args.instruments_out,
         &pool_instruments,
         &h3_by_symbol,
+        &depth_by_symbol,
         debug_label.as_deref(),
     )?;
 
@@ -247,7 +298,7 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     // (`order_size_22a` внутри `build_candidate_table` ниже) и всегда
     // допустим по построению — путём отказа он не является, прежняя проверка
     // Decision 22 с ошибкой `MinNotionalNotSatisfied` отменена ревизией 17б.
-    let table = build_candidate_table(&outcome, &measured, &selected);
+    let table = build_candidate_table(&outcome, &measured);
     write_candidate_table_csv(&args.candidates_out, &table, debug_label.as_deref())?;
 
     Ok(PickReport { table, selected })
@@ -380,20 +431,31 @@ mod tests {
             })
             .collect();
 
-        let selected = survivors_above_depth_floor(&measured).unwrap();
-        assert_eq!(
-            selected
-                .iter()
-                .map(|c| c.symbol.clone())
-                .collect::<Vec<_>>(),
-            vec!["CRYPTO0USDT", "CRYPTO1USDT"]
-        );
-
-        let table = build_candidate_table(&outcome, &measured, &selected);
+        let table = build_candidate_table(&outcome, &measured);
         assert_eq!(
             table.len(),
             outcome.pool.len() + outcome.excluded.len(),
             "таблица несёт пул и все исключения, не только выживших"
+        );
+        // Таск 27 (§2 «первые десять оставшихся», §9 «час живой глубины —
+        // проверка, а не критерий отбора»): отобраны ровно десять членов
+        // пула, хотя порог глубины прошли только двое.
+        assert_eq!(
+            table
+                .iter()
+                .filter(|r| r.selected_for_pilot)
+                .map(|r| r.symbol.clone())
+                .collect::<Vec<_>>(),
+            outcome
+                .pool
+                .iter()
+                .map(|c| c.symbol.clone())
+                .collect::<Vec<_>>(),
+            "отобран весь пул, в порядке ранга по обороту"
+        );
+        assert_eq!(
+            table.iter().filter(|r| r.selected_for_pilot).count(),
+            POOL_SIZE
         );
         // Пул — первые строки.
         assert!(table[0].excluded_reason.is_empty());
@@ -417,9 +479,15 @@ mod tests {
         assert_eq!(c0_row.coverage_top50_bps, Some(50.0));
         assert_eq!(c0_row.suitable_baskets, "0-1;1-2.5;2.5-5;5-10;10-25");
         assert!(c0_row.measured);
-        assert_eq!(c0_row.above_depth_floor, Some(true));
+        assert_eq!(c0_row.depth_check, "ok");
         assert!(c0_row.selected_for_pilot);
         assert_eq!(c0_row.final_rank, Some(1));
+        // Тонкая книга — метка, а не выбытие: CRYPTO2 ниже порога, но в пуле.
+        let c2_row = table.iter().find(|r| r.symbol == "CRYPTO2USDT").unwrap();
+        assert_eq!(c2_row.depth_check, "below_floor");
+        assert!(c2_row.selected_for_pilot);
+        assert_eq!(c2_row.final_rank, Some(3));
+        assert!(c2_row.excluded_reason.is_empty());
         // Размер-22а на дефолтном meta(): лот 0.1 при цене 100 — $10, чек $5
         // покрыт одним шагом, размер равен лоту, номинал $10.
         assert_eq!(c0_row.order_size_e9, Some(100_000_000));
@@ -433,5 +501,92 @@ mod tests {
         assert!(!btc_row.selected_for_pilot);
         assert_eq!(btc_row.order_size_e9, None);
         assert_eq!(btc_row.order_size_notional_usd_e9, None);
+        assert!(
+            btc_row.depth_check.is_empty(),
+            "исключённого никто не мерил — метки глубины у него нет вовсе"
+        );
+    }
+
+    /// Критерий приёмки таска 27, дословно: «кандидат с глубиной ниже порога
+    /// в первой десятке по рангу — в пуле с `depth_check=below_floor`».
+    /// Фикстура повторяет `ZECUSDT` из BUSINESS-TASK §3 — инструмент с очень
+    /// узкой книгой (вся видимая глубина дешевле круговых издержек), который
+    /// задача защищает поимённо: «Инструмент не исключается … и это
+    /// печатается строкой отчёта». До таска 27 порог `DEPTH_FLOOR_USD_E9`
+    /// выбрасывал его из пула, оставляя восемь вместо десяти (аудит
+    /// 2026-09-12, `SETTLED.md` В-35).
+    ///
+    /// Проверяется весь путь, а не только `build_pool`: пул → таблица →
+    /// подмножество `instruments.csv`. Тонкий инструмент обязан выжить во
+    /// всех трёх, потому что до таска 27 он выпадал именно на третьем.
+    #[test]
+    fn a_thin_book_inside_the_top_ten_stays_in_the_pool_with_below_floor() {
+        // Второй по обороту — ZEC-подобный: книга тоньше порога на обеих
+        // сторонах. Первый и остальные восемь — толще.
+        let mut candidates = vec![meta("SOLUSDT", "SOL", e9(10_000_000))];
+        candidates.push(meta("ZECUSDT", "ZEC", e9(9_000_000)));
+        for i in 0..8 {
+            candidates.push(meta(
+                &format!("CRYPTO{i}USDT"),
+                &format!("CRYPTO{i}"),
+                e9(1_000_000 - i * 10_000),
+            ));
+        }
+        // Одиннадцатый — прошёл все правила, но не влез по рангу.
+        candidates.push(meta("SPILLUSDT", "SPILL", e9(1)));
+
+        let outcome = build_pool(&candidates, NOW_MS);
+        assert_eq!(outcome.pool.len(), POOL_SIZE);
+
+        let measured: Vec<MeasuredCandidate> = outcome
+            .pool
+            .iter()
+            .map(|c| {
+                let depth = if c.symbol == "ZECUSDT" {
+                    DEPTH_FLOOR_USD_E9 - e9(1)
+                } else {
+                    DEPTH_FLOOR_USD_E9 + e9(1)
+                };
+                measured(&c.symbol, depth, c.turnover_24h_usd_e9, 100, 3600)
+            })
+            .collect();
+
+        let table = build_candidate_table(&outcome, &measured);
+        let zec = table.iter().find(|r| r.symbol == "ZECUSDT").unwrap();
+        assert!(
+            zec.excluded_reason.is_empty(),
+            "тонкая книга — не исключение по правилу"
+        );
+        assert_eq!(zec.depth_check, "below_floor");
+        assert!(zec.selected_for_pilot, "§3: инструмент не исключается");
+        assert_eq!(zec.final_rank, Some(2), "ранг — по обороту, не по глубине");
+        assert_eq!(table.iter().filter(|r| r.selected_for_pilot).count(), 10);
+
+        // Не влезший по рангу — своим кодом, не одним из трёх правил.
+        let spill = table.iter().find(|r| r.symbol == "SPILLUSDT").unwrap();
+        assert_eq!(spill.excluded_reason, RANK_BEYOND_POOL);
+        assert!(!spill.selected_for_pilot);
+
+        // `instruments.csv` (то, на что подпишется `lob session`) несёт
+        // все десять, включая тонкого.
+        let instruments: Vec<Instrument> = outcome
+            .pool
+            .iter()
+            .map(|c| Instrument {
+                symbol: c.symbol.clone(),
+                base_coin: c.symbol.trim_end_matches("USDT").to_string(),
+                quote_coin: "USDT".to_string(),
+                contract_type: "LinearPerpetual".to_string(),
+                status: "Trading".to_string(),
+                launch_time_ms: Some(0),
+                tick_e9: c.tick_e9,
+                min_order_qty_e9: c.min_order_qty_e9,
+                qty_step_e9: c.qty_step_e9,
+                min_notional_value_e9: c.min_notional_value_e9,
+            })
+            .collect();
+        let pool_instruments = instruments_for_pool(&instruments, &outcome.pool);
+        assert_eq!(pool_instruments.len(), POOL_SIZE);
+        assert!(pool_instruments.iter().any(|i| i.symbol == "ZECUSDT"));
     }
 }

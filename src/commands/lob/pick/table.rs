@@ -10,18 +10,20 @@ use std::path::Path;
 use crate::bybit::rest::Instrument;
 
 use super::coverage::eligible_baskets;
-use super::depth::{MeasuredCandidate, DEPTH_FLOOR_USD_E9};
+use super::depth::{depth_check, DepthCheck, MeasuredCandidate};
 use super::h3::H3FloorInfo;
 use super::order_size::{order_size_22a, order_size_notional_usd_e9};
-use super::pool::PoolOutcome;
+use super::pool::{PoolCandidate, PoolOutcome};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CandidateRow {
     pub symbol: String,
     pub turnover_24h_usd_e9: i64,
-    /// Пусто у членов пула; у остальных — код причины (`EXCLUDED_*`,
-    /// `BELOW_TOP10`). Колонка `excluded_reason` шага 0.4: строка на каждое
-    /// исключение, потому что признака некриптового актива в API нет.
+    /// Пусто у членов пула; у остальных — код причины: три исключения по
+    /// правилам §2 (`EXCLUDED_*`) либо срез ранга (`RANK_BEYOND_POOL`).
+    /// Колонка `excluded_reason` шага 0.4: строка на каждое исключение,
+    /// потому что признака некриптового актива в API нет. Глубина сюда не
+    /// попадает никогда (таск 27) — у неё своя `depth_check`.
     pub excluded_reason: String,
     /// Покрытие топ-50 в bps (шаг 0.4, Decision 26а). Пусто у исключённых:
     /// покрытие считается только для пула, остальные строки — про причину,
@@ -40,8 +42,14 @@ pub struct CandidateRow {
     /// объединённое число пряталось бы за толстой стороной.
     pub median_bid_depth_usd_e9: Option<i64>,
     pub median_ask_depth_usd_e9: Option<i64>,
-    /// `true`, только если порог пройден на **обеих** сторонах.
-    pub above_depth_floor: Option<bool>,
+    /// Вердикт часового замера: `ok` | `below_floor` | `not_measured`
+    /// (`super::depth::DepthCheck`), пусто у строк вне пула — их никто не
+    /// мерил. **Строка отчёта, не критерий отбора** (BUSINESS-TASK §9):
+    /// `below_floor` не убирает инструмент из пула и не гасит
+    /// `selected_for_pilot`. До таска 27 здесь стояла `above_depth_floor`,
+    /// и её `false` означал исключение из пула — ровно то противоречие
+    /// задаче, которое назвал аудит 2026-09-12 (`SETTLED.md` В-35).
+    pub depth_check: String,
     /// Размер-22а в базовом активе, 1e9 (Decision 22а, ревизия 17б). `Some` у
     /// членов пула — считается из метаданных инструмента и цены, измерения
     /// глубины не требует; `None` у исключённых (строка — про причину, а не
@@ -61,28 +69,30 @@ pub struct CandidateRow {
 /// оборотом иначе вставали бы первыми и читались как «первые», хотя они
 /// исключены; пул — первые строки, потому что он и есть результат шага.
 ///
-/// Каст ранга точен: выбранных ≤ размера пула (≤ 10 по Decision 25), `u8`
-/// хватает с запасом в двадцать пять раз.
+/// **Отобран пилоту — весь пул, и только он** (таск 27, BUSINESS-TASK §2
+/// «первые десять оставшихся»): `selected_for_pilot` и `final_rank` идут от
+/// членства в `outcome.pool` и от ранга по обороту внутри него, а не от
+/// замера глубины. Замер даёт только колонку `depth_check`. Раньше здесь
+/// был третий аргумент `selected` — выжившие порога глубины, — и он резал
+/// пул до восьми (аудит 2026-09-12, `SETTLED.md` В-35).
+///
+/// Каст ранга точен: пул ≤ `POOL_SIZE` (10 по Decision 25), `u8` хватает
+/// с запасом в двадцать пять раз.
 #[allow(clippy::cast_possible_truncation)]
 pub fn build_candidate_table(
     outcome: &PoolOutcome,
     measured: &[MeasuredCandidate],
-    selected: &[MeasuredCandidate],
 ) -> Vec<CandidateRow> {
     let measured_by_symbol: HashMap<&str, &MeasuredCandidate> =
         measured.iter().map(|m| (m.symbol.as_str(), m)).collect();
-    let selected_rank: HashMap<&str, u8> = selected
-        .iter()
-        .enumerate()
-        .map(|(i, m)| (m.symbol.as_str(), i as u8 + 1))
-        .collect();
     let measured_row = |symbol: &str,
                         turnover_24h_usd_e9: i64,
                         excluded_reason: &str,
                         coverage_top50_bps: Option<f64>,
                         suitable_baskets: String,
                         order_size_e9: Option<i64>,
-                        order_size_notional_usd_e9: Option<i64>| {
+                        order_size_notional_usd_e9: Option<i64>,
+                        pool_rank: Option<u8>| {
         let m = measured_by_symbol.get(symbol).copied();
         CandidateRow {
             symbol: symbol.to_string(),
@@ -98,17 +108,20 @@ pub fn build_candidate_table(
             events: m.map(|m| m.events),
             median_bid_depth_usd_e9: m.map(|m| m.median_bid_depth_usd_e9),
             median_ask_depth_usd_e9: m.map(|m| m.median_ask_depth_usd_e9),
-            above_depth_floor: m.map(|m| {
-                m.median_bid_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-                    && m.median_ask_depth_usd_e9 >= DEPTH_FLOOR_USD_E9
-            }),
-            selected_for_pilot: selected_rank.contains_key(symbol),
-            final_rank: selected_rank.get(symbol).copied(),
+            // Строка вне пула не мерилась и метки не получает — пусто, а не
+            // `not_measured`: «не мерили, потому что исключён» и «мерили и не
+            // домерили» — разные факты.
+            depth_check: match pool_rank {
+                Some(_) => depth_check(m).as_str().to_string(),
+                None => String::new(),
+            },
+            selected_for_pilot: pool_rank.is_some(),
+            final_rank: pool_rank,
         }
     };
 
     let mut rows = Vec::with_capacity(outcome.pool.len() + outcome.excluded.len());
-    for c in &outcome.pool {
+    for (i, c) in outcome.pool.iter().enumerate() {
         let suitable = eligible_baskets(c.coverage_top50_bps).join(";");
         // Размер-22а на инструмент: из статики контракта и цены тикера, без
         // измерения — поэтому колонка заполнена и у неизмеренных членов пула.
@@ -127,6 +140,7 @@ pub fn build_candidate_table(
             suitable,
             Some(order_size_e9),
             Some(order_size_notional_usd_e9),
+            Some(i as u8 + 1),
         ));
     }
     for e in &outcome.excluded {
@@ -136,6 +150,7 @@ pub fn build_candidate_table(
             e.excluded_reason,
             None,
             String::new(),
+            None,
             None,
             None,
         ));
@@ -244,6 +259,12 @@ struct InstrumentRowWithH3 {
     median_trade_lots: Option<i64>,
     window_start_utc_ms: Option<i64>,
     window_secs: Option<i64>,
+    /// Вердикт часового замера глубины: `ok` | `below_floor` |
+    /// `not_measured` (таск 27). Строка отчёта, не критерий: инструмент с
+    /// `below_floor` стоит в этом файле наравне с остальными — иначе
+    /// `session.rs::load_pool` не подписался бы на него, а задача (§2, §3)
+    /// требует ровно обратного.
+    depth_check: String,
 }
 
 /// `instruments.csv` с полом `H3` — коммитимый вывод `lob pick` (критерий
@@ -251,26 +272,25 @@ struct InstrumentRowWithH3 {
 /// `write_instruments_csv`, но с `h3_lots`/`k`/`median_trade_lots` там, где
 /// символ измерен (`h3_by_symbol`). `debug_label` — та же метка отладочного
 /// окна первой строкой (`#`), что и в `write_candidate_table_csv`.
-/// Подмножество инструментов ровно с теми символами, что вошли в
-/// `selected` — выжившие порога глубины (`super::depth::
-/// survivors_above_depth_floor`), а не весь пул и тем более не вся
-/// вселенная REST. Дозапрос по ревью таска 08 (ось Манифест, R33 «пул
-/// фиксируется»): `instruments.csv` корня обязан нести только пул — иначе
-/// `session.rs::load_pool` подписал бы `lob session` на всю вселенную
-/// инструментов, а `power.rs::pool_size` посчитал бы `N` для DSR по её
-/// размеру, а не по пулу. Порядок — порядок `selected` (уже отранжирован
-/// по глубине), не порядок исходного REST-ответа; символ без записи в
-/// `instruments` (сеть не вернула метаданные) пропускается молча — та же
-/// причина, что `join_candidate_meta` уже отбрасывает символ без тикера.
-pub fn instruments_for_pool(
-    instruments: &[Instrument],
-    selected: &[MeasuredCandidate],
-) -> Vec<Instrument> {
+/// Подмножество инструментов ровно с теми символами, что вошли в **пул**
+/// (`super::pool::build_pool` — первые десять оставшихся по обороту после
+/// трёх исключений §2), а не вся вселенная REST. Дозапрос по ревью таска 08
+/// (ось Манифест, R33 «пул фиксируется»): `instruments.csv` корня обязан
+/// нести только пул — иначе `session.rs::load_pool` подписал бы `lob
+/// session` на всю вселенную инструментов, а `power.rs::pool_size` посчитал
+/// бы `N` для DSR по её размеру, а не по пулу.
+///
+/// Таск 27: вход — пул, а не выжившие порога глубины. Порядок — ранг пула
+/// по обороту (порядок `build_pool`), не порядок REST-ответа и не порядок
+/// по измеренной глубине: глубина ничего не решает (BUSINESS-TASK §9).
+/// Символ без записи в `instruments` (сеть не вернула метаданные)
+/// пропускается молча — та же причина, что `join_candidate_meta` уже
+/// отбрасывает символ без тикера.
+pub fn instruments_for_pool(instruments: &[Instrument], pool: &[PoolCandidate]) -> Vec<Instrument> {
     let by_symbol: HashMap<&str, &Instrument> =
         instruments.iter().map(|i| (i.symbol.as_str(), i)).collect();
-    selected
-        .iter()
-        .filter_map(|m| by_symbol.get(m.symbol.as_str()).map(|i| (*i).clone()))
+    pool.iter()
+        .filter_map(|c| by_symbol.get(c.symbol.as_str()).map(|i| (*i).clone()))
         .collect()
 }
 
@@ -290,10 +310,15 @@ pub fn instruments_csv_reader(path: &Path) -> csv::Result<csv::Reader<std::fs::F
         .from_path(path)
 }
 
+/// `depth_by_symbol` — вердикт часового замера на символ (таск 27): символа
+/// нет в карте — `not_measured`. Карта, а не поле `H3FloorInfo`: пол `H3`
+/// есть только у символа с лентой сделок, а метка глубины обязана быть у
+/// каждой строки файла.
 pub fn write_instruments_csv_with_h3(
     path: &Path,
     instruments: &[Instrument],
     h3_by_symbol: &HashMap<String, H3FloorInfo>,
+    depth_by_symbol: &HashMap<String, DepthCheck>,
     debug_label: Option<&str>,
 ) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
@@ -318,6 +343,12 @@ pub fn write_instruments_csv_with_h3(
             median_trade_lots: h3.map(|h| h.median_trade_lots),
             window_start_utc_ms: h3.map(|h| h.window_start_utc_ms),
             window_secs: h3.map(|h| h.window_secs),
+            depth_check: depth_by_symbol
+                .get(&inst.symbol)
+                .copied()
+                .unwrap_or(DepthCheck::NotMeasured)
+                .as_str()
+                .to_string(),
         })?;
     }
     w.flush()?;
@@ -326,6 +357,7 @@ pub fn write_instruments_csv_with_h3(
 
 #[cfg(test)]
 mod tests {
+    use super::super::depth::DEPTH_FLOOR_USD_E9;
     use super::super::pool::EXCLUDED_NON_CRYPTO;
     use super::*;
 
@@ -364,7 +396,7 @@ mod tests {
         events: Option<i64>,
         median_bid_depth_usd_e9: Option<i64>,
         median_ask_depth_usd_e9: Option<i64>,
-        above_depth_floor: Option<bool>,
+        depth_check: String,
         order_size_e9: Option<i64>,
         order_size_notional_usd_e9: Option<i64>,
         selected_for_pilot: bool,
@@ -379,13 +411,15 @@ mod tests {
     /// «исключён по пункту 2»:
     /// - `SOLUSDT` — пул (`excluded_reason` пусто), покрытие и корзины
     ///   посчитаны, измерен, прошёл порог, отобран, `final_rank = 1`;
-    /// - `NEARUSDT` — пул, измерен, прошёл порог, но НЕ отобран
-    ///   (`selected_for_pilot = false`, `final_rank = None`);
-    /// - `MID2USDT` — пул, но остался БЕЗ измерения (`measured = false`) —
-    ///   реальный, не синтетический случай: `measure_prefiltered` обошла все
-    ///   десять символов, но не для всех в `measured` попал результат
-    ///   (соединение оборвалось, символ не набрал ни одного события за час
-    ///   и т. п.);
+    /// - `NEARUSDT` — пул, измерен, глубина НИЖЕ порога, и всё равно отобран
+    ///   (`depth_check = below_floor`, `selected_for_pilot = true`) — таск 27,
+    ///   BUSINESS-TASK §9: глубина не критерий отбора;
+    /// - `MID2USDT` — пул, но остался БЕЗ измерения
+    ///   (`measured = false`, `depth_check = not_measured`) — реальный, не
+    ///   синтетический случай: `measure_prefiltered` обошла все десять
+    ///   символов, но не для всех в `measured` попал результат (соединение
+    ///   оборвалось, символ не набрал ни одного события за час и т. п.);
+    ///   отбора он тоже не теряет;
     /// - `AAPLUSDT` — исключён по пункту 2 (`excluded_reason` непусто,
     ///   покрытие и глубины — `None`/пусто): та ветка, что молча ломается
     ///   первой, если формат столбцов когда-нибудь разойдётся со структурой.
@@ -413,7 +447,7 @@ mod tests {
                 events: Some(12_345),
                 median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
                 median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
-                above_depth_floor: Some(true),
+                depth_check: "ok".to_string(),
                 order_size_e9: Some(100_000_000),
                 order_size_notional_usd_e9: Some(15_000_000_000),
                 selected_for_pilot: true,
@@ -429,13 +463,13 @@ mod tests {
                 window_start_utc_ms: Some(1_700_000_003_600_000),
                 window_secs: Some(3600),
                 events: Some(999),
-                median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
-                median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
-                above_depth_floor: Some(true),
+                median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 - e9(3)),
+                median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 - e9(4)),
+                depth_check: "below_floor".to_string(),
                 order_size_e9: Some(500_000_000),
                 order_size_notional_usd_e9: Some(7_500_000_000),
-                selected_for_pilot: false,
-                final_rank: None,
+                selected_for_pilot: true,
+                final_rank: Some(2),
             },
             CandidateRow {
                 symbol: "MID2USDT".to_string(),
@@ -449,13 +483,13 @@ mod tests {
                 events: None,
                 median_bid_depth_usd_e9: None,
                 median_ask_depth_usd_e9: None,
-                above_depth_floor: None,
+                depth_check: "not_measured".to_string(),
                 // Размер из метаданных и цены, измерения не требует — поэтому
                 // заполнен и у неизмеренного члена пула, в отличие от глубин.
                 order_size_e9: Some(1_000_000_000),
                 order_size_notional_usd_e9: Some(5_000_000_000),
-                selected_for_pilot: false,
-                final_rank: None,
+                selected_for_pilot: true,
+                final_rank: Some(3),
             },
             CandidateRow {
                 symbol: "AAPLUSDT".to_string(),
@@ -469,7 +503,7 @@ mod tests {
                 events: None,
                 median_bid_depth_usd_e9: None,
                 median_ask_depth_usd_e9: None,
-                above_depth_floor: None,
+                depth_check: String::new(),
                 order_size_e9: None,
                 order_size_notional_usd_e9: None,
                 selected_for_pilot: false,
@@ -499,7 +533,7 @@ mod tests {
                     events: Some(12_345),
                     median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(1)),
                     median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(2)),
-                    above_depth_floor: Some(true),
+                    depth_check: "ok".to_string(),
                     order_size_e9: Some(100_000_000),
                     order_size_notional_usd_e9: Some(15_000_000_000),
                     selected_for_pilot: true,
@@ -515,13 +549,13 @@ mod tests {
                     window_start_utc_ms: Some(1_700_000_003_600_000),
                     window_secs: Some(3600),
                     events: Some(999),
-                    median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(3)),
-                    median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 + e9(4)),
-                    above_depth_floor: Some(true),
+                    median_bid_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 - e9(3)),
+                    median_ask_depth_usd_e9: Some(DEPTH_FLOOR_USD_E9 - e9(4)),
+                    depth_check: "below_floor".to_string(),
                     order_size_e9: Some(500_000_000),
                     order_size_notional_usd_e9: Some(7_500_000_000),
-                    selected_for_pilot: false,
-                    final_rank: None,
+                    selected_for_pilot: true,
+                    final_rank: Some(2),
                 },
                 CandidateRowOwned {
                     symbol: "MID2USDT".to_string(),
@@ -535,11 +569,11 @@ mod tests {
                     events: None,
                     median_bid_depth_usd_e9: None,
                     median_ask_depth_usd_e9: None,
-                    above_depth_floor: None,
+                    depth_check: "not_measured".to_string(),
                     order_size_e9: Some(1_000_000_000),
                     order_size_notional_usd_e9: Some(5_000_000_000),
-                    selected_for_pilot: false,
-                    final_rank: None,
+                    selected_for_pilot: true,
+                    final_rank: Some(3),
                 },
                 CandidateRowOwned {
                     symbol: "AAPLUSDT".to_string(),
@@ -553,7 +587,7 @@ mod tests {
                     events: None,
                     median_bid_depth_usd_e9: None,
                     median_ask_depth_usd_e9: None,
-                    above_depth_floor: None,
+                    depth_check: String::new(),
                     order_size_e9: None,
                     order_size_notional_usd_e9: None,
                     selected_for_pilot: false,
@@ -564,7 +598,9 @@ mod tests {
              замера, а не как 0, false или пустая строка, принятая за None; \
              `excluded_reason` обязана читаться назад раздельно (пусто у пула, \
              код у исключённой); размер-22а при этом заполнен и у неизмеренного \
-             члена пула (считается без замера) и пуст только у исключённой"
+             члена пула (считается без замера) и пуст только у исключённой; \
+             `depth_check` — три метки у пула и пусто у исключённой, и ни одна \
+             из них не гасит `selected_for_pilot` (таск 27, §9)"
         );
     }
 
@@ -588,7 +624,7 @@ mod tests {
             events: Some(1),
             median_bid_depth_usd_e9: Some(1),
             median_ask_depth_usd_e9: Some(1),
-            above_depth_floor: Some(true),
+            depth_check: "ok".to_string(),
             order_size_e9: Some(1),
             order_size_notional_usd_e9: Some(1),
             selected_for_pilot: true,
@@ -708,7 +744,16 @@ mod tests {
         );
 
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        write_instruments_csv_with_h3(tmp.path(), &instruments, &h3_by_symbol, None).unwrap();
+        let mut depth_by_symbol = HashMap::new();
+        depth_by_symbol.insert("SOLUSDT".to_string(), DepthCheck::BelowFloor);
+        write_instruments_csv_with_h3(
+            tmp.path(),
+            &instruments,
+            &h3_by_symbol,
+            &depth_by_symbol,
+            None,
+        )
+        .unwrap();
 
         let mut reader = csv::Reader::from_path(tmp.path()).unwrap();
         let read_back: Vec<InstrumentRowWithH3> =
@@ -739,6 +784,7 @@ mod tests {
         write_instruments_csv_with_h3(
             tmp.path(),
             &instruments,
+            &HashMap::new(),
             &HashMap::new(),
             Some("debug: окно 300 с — результат не годится для отбора, только для отладки"),
         )
@@ -810,50 +856,102 @@ mod tests {
 
     // -- instruments_for_pool (дозапрос по ревью таска 08, ось Манифест) -----
 
-    fn measured_min(symbol: &str) -> MeasuredCandidate {
-        MeasuredCandidate {
+    fn pool_candidate(symbol: &str, turnover_24h_usd_e9: i64) -> PoolCandidate {
+        PoolCandidate {
             symbol: symbol.to_string(),
-            window_start_utc_ms: 0,
-            window_secs: 300,
-            events: 1,
-            median_bid_depth_usd_e9: 0,
-            median_ask_depth_usd_e9: 0,
-            reported_turnover_usd_e9: 0,
-            median_trade_lots: None,
+            turnover_24h_usd_e9,
+            tick_e9: 10_000_000,
+            last_price_e9: 100_000_000_000,
+            min_order_qty_e9: 100_000_000,
+            qty_step_e9: 100_000_000,
+            min_notional_value_e9: 5_000_000_000,
+            coverage_top50_bps: Some(50.0),
         }
     }
 
-    /// R33 «пул фиксируется»: только символы `selected` едут в
-    /// `instruments.csv`, в порядке `selected` — не все инструменты, что
-    /// сеть вернула, и не порядок REST-ответа.
+    /// R33 «пул фиксируется»: в `instruments.csv` едут символы **пула** и в
+    /// его порядке (ранг по обороту) — не вся вселенная REST и не порядок
+    /// REST-ответа. Таск 27: тонкая книга больше не выбрасывает символ
+    /// отсюда — `ZECUSDT` в пуле, значит и в файле, на который подпишется
+    /// `lob session` (BUSINESS-TASK §2/§3).
     #[test]
-    fn instruments_for_pool_keeps_only_selected_symbols_in_their_order() {
+    fn instruments_for_pool_keeps_the_pool_in_rank_order() {
         let instruments = vec![
             instrument("ZECUSDT"),
             instrument("SOLUSDT"),
             instrument("NEARUSDT"),
         ];
-        // `selected` называет SOLUSDT первым, хотя во входе он второй —
-        // ZECUSDT не прошёл порог глубины и не входит в `selected` вовсе.
-        let selected = vec![measured_min("SOLUSDT"), measured_min("NEARUSDT")];
+        // Пул называет SOLUSDT первым, хотя во входе он второй; NEARUSDT в
+        // пул не вошёл вовсе.
+        let pool = vec![pool_candidate("SOLUSDT", 10), pool_candidate("ZECUSDT", 9)];
 
-        let pool = instruments_for_pool(&instruments, &selected);
+        let selected = instruments_for_pool(&instruments, &pool);
         assert_eq!(
-            pool.iter().map(|i| i.symbol.as_str()).collect::<Vec<_>>(),
-            vec!["SOLUSDT", "NEARUSDT"],
-            "ZECUSDT не выжил порог глубины — его не должно быть в instruments.csv"
+            selected
+                .iter()
+                .map(|i| i.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SOLUSDT", "ZECUSDT"],
+            "порядок — ранг пула; NEARUSDT вне пула, ZECUSDT в нём"
         );
     }
 
-    /// Символ из `selected`, для которого сеть не вернула метаданные
-    /// инструмента, пропускается молча, а не паникой — тот же приём, что
+    /// Символ пула, для которого сеть не вернула метаданные инструмента,
+    /// пропускается молча, а не паникой — тот же приём, что
     /// `join_candidate_meta` уже применяет к символу без тикера.
     #[test]
-    fn instruments_for_pool_silently_skips_a_selected_symbol_missing_from_instruments() {
+    fn instruments_for_pool_silently_skips_a_pool_symbol_missing_from_instruments() {
         let instruments = vec![instrument("SOLUSDT")];
-        let selected = vec![measured_min("SOLUSDT"), measured_min("GHOSTUSDT")];
-        let pool = instruments_for_pool(&instruments, &selected);
-        assert_eq!(pool.len(), 1);
-        assert_eq!(pool[0].symbol, "SOLUSDT");
+        let pool = vec![
+            pool_candidate("SOLUSDT", 10),
+            pool_candidate("GHOSTUSDT", 9),
+        ];
+        let selected = instruments_for_pool(&instruments, &pool);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].symbol, "SOLUSDT");
+    }
+
+    /// Критерий приёмки таска 27: `instruments.csv` — тот файл, по которому
+    /// `lob session` подписывается на пул, — несёт колонку `depth_check`, и
+    /// инструмент с `below_floor` стоит в нём наравне с прошедшим порог.
+    /// Символ пула без замера получает `not_measured`, а не пустую ячейку:
+    /// читателю нужна метка, а не догадка.
+    #[test]
+    fn instruments_csv_carries_depth_check_and_keeps_a_below_floor_symbol() {
+        let instruments = vec![
+            instrument("SOLUSDT"),
+            instrument("ZECUSDT"),
+            instrument("DARKUSDT"),
+        ];
+        let mut depth_by_symbol = HashMap::new();
+        depth_by_symbol.insert("SOLUSDT".to_string(), DepthCheck::Ok);
+        depth_by_symbol.insert("ZECUSDT".to_string(), DepthCheck::BelowFloor);
+        // DARKUSDT в карте нет вовсе — час не намерил по нему ничего.
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        write_instruments_csv_with_h3(
+            tmp.path(),
+            &instruments,
+            &HashMap::new(),
+            &depth_by_symbol,
+            None,
+        )
+        .unwrap();
+
+        let mut reader = csv::Reader::from_path(tmp.path()).unwrap();
+        let read_back: Vec<InstrumentRowWithH3> =
+            reader.deserialize().collect::<Result<_, _>>().unwrap();
+        assert_eq!(
+            read_back
+                .iter()
+                .map(|r| (r.symbol.as_str(), r.depth_check.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("SOLUSDT", "ok"),
+                ("ZECUSDT", "below_floor"),
+                ("DARKUSDT", "not_measured"),
+            ],
+            "все три символа пула обязаны быть в файле, метка — колонкой"
+        );
     }
 }
