@@ -27,8 +27,11 @@ cargo test --release --target-dir target-ci 2>&1 | tail -5   # 654 passed, 0 fai
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 17 подкоманд, таблица — docs/COMMANDS.md
-# олвейс-он коллектор (В-34): до Ctrl+C в его консоли; instruments.csv скопировать в --root
-./target/release/alpha.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
+# олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
+cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
+./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
+# штатная остановка (В-41): файл <root>/stop — на ближайшем тике сброс писателей, session.json closed=true
+touch data/always-on/<ts>/stop
 # докинуть монеты в идущую запись (T34): дописать строки в <root>/instruments.csv — подхват ≤ 10 с,
 # свои <SYMBOL>-<день>.binlog и одно соединение на партию (несколько монет — одной записью файла);
 # удаление строки не поддерживается (запись идёт)
@@ -115,7 +118,7 @@ G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **р�
 - бинлог сессии ищется одним резолвером `commands::lob::session_binlog_for`; сутки и час — у
   каждой части (`session_parts_for`)
 - олвейс-он: кадр на диске не реже 10 с, читатели не видят только хвост ≤ 10 с; `session.json`
-  между часовыми записями — стартовый; Ctrl+C доходит только из настоящей консоли
+  между часовыми записями — стартовый; остановка — файл `<root>/stop` (Ctrl+C из оболочек агента не доходит)
 - `lob dashboard` перечитывает все бинлоги при каждом расчёте (8 × 5.5 ч — 15 с); порог — из
   `instruments.csv` каталога записи (у идущего — отладочный); «жив/нет» — по росту бинлогов
   между двумя расчётами

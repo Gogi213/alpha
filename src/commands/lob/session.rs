@@ -211,6 +211,9 @@ impl SessionCtx {
         }
         let gaps_path = gaps_csv_path(root);
         ensure_gaps_csv(&gaps_path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // Старый `stop` прошлой сессии этого каталога не должен остановить
+        // новую на первом же тике.
+        let _ = std::fs::remove_file(root.join("stop"));
         let deadline_ns = match plan {
             SessionPlan::Timed { minutes, .. } => Some(
                 started_ns
@@ -427,6 +430,16 @@ impl SessionCtx {
     /// Тик таймера рантайма (таск 25): сброс кадров всех инструментов —
     /// окно потери `FRAME_LOSS_WINDOW_SECS` держится и при полной тишине;
     /// раз в `HOURLY_REFRESH_SECS` — `session.json` и одна строка stderr.
+    /// `<root>/stop` — файл-команда остановки; удаляется на старте сессии,
+    /// чтобы старый файл не остановил новую запись на первом тике.
+    fn stop_path(&self) -> PathBuf {
+        self.root.join("stop")
+    }
+
+    fn stop_requested(&self) -> bool {
+        self.stop_path().is_file()
+    }
+
     fn on_tick(&mut self, ts_ns: i64) {
         self.flush_all(ts_ns);
         let hourly_due = ts_ns - self.last_hourly_ns >= HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
@@ -770,6 +783,18 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
             Event::Tick { local_ts_ns } => {
                 ctx.on_tick(local_ts_ns);
                 ctx.check_pool_file(feed, local_ts_ns);
+                // Штатная остановка файлом (В-41): Ctrl+C доходит только из
+                // настоящей консоли, а коллектор запускают из оболочек агента;
+                // `<root>/stop` на тике — тот же выход, что `None` от `Feed`:
+                // сброс писателей, `session.json closed=true`. Одна проверка
+                // метаданных раз в `FRAME_LOSS_WINDOW_SECS`, не на событие.
+                if ctx.stop_requested() {
+                    eprintln!(
+                        "session: найден {} — штатная остановка",
+                        ctx.stop_path().display()
+                    );
+                    break;
+                }
             }
         }
     }

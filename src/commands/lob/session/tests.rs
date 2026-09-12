@@ -1481,3 +1481,46 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
         "после добавления — ноль аллокаций на событие рынка"
     );
 }
+
+/// В-41: `<root>/stop` останавливает сессию на ближайшем тике штатно —
+/// `closed = true`, события после него не читаются; старый `stop` на старте
+/// удаляется и новую сессию не останавливает.
+#[test]
+fn a_stop_file_ends_the_session_on_the_next_tick_and_is_cleared_on_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::write(root.join("stop"), "").unwrap();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    assert!(
+        !root.join("stop").exists(),
+        "старый stop обязан быть удалён на старте"
+    );
+    let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+    let stop_root = root.clone();
+    let consumed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let consumed_probe = consumed.clone();
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + window_ns,
+        }),
+        Step::Probe(Box::new(move || {
+            std::fs::write(stop_root.join("stop"), "").unwrap();
+        })),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 2 * window_ns,
+        }),
+        Step::Probe(Box::new(move || {
+            consumed_probe.store(true, std::sync::atomic::Ordering::SeqCst);
+        })),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 3 * window_ns,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    assert!(summary.closed, "stop обязан дать штатное закрытие");
+    assert!(
+        !consumed.load(std::sync::atomic::Ordering::SeqCst),
+        "после stop цикл не должен читать следующие события"
+    );
+}
