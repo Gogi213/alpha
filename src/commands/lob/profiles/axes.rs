@@ -4,7 +4,7 @@
 //! `profiles.rs`), поэтому лежат отдельно от накопления и записи CSV.
 
 use crate::lob::levels::LevelRecord;
-use crate::lob::markout::{base_before, raw_return_bps, MidSample};
+use crate::lob::markout::MidSample;
 use crate::lob::shortlist::{DISTANCE_BOUNDS_BPS, DISTANCE_LABELS, LIFETIME_LABELS, SIZE_LABELS};
 
 // ---------------------------------------------------------------------------
@@ -43,13 +43,11 @@ pub(crate) fn distance_bucket(dist_bps: f64) -> Option<&'static str> {
         .map(|(_, label)| *label)
 }
 
-/// Расстояние до середины в bps на срезе строго до рождения уровня — тот же
-/// приём, что `markout::base_before` использует для смерти (`death_ms`),
-/// сдвинутый на рождение (`birth_ms + 1`, чтобы включить срез ровно в момент
-/// рождения). `None` — до рождения не было ни одного среза книги.
+/// Расстояние до середины в bps на срезе строго до рождения уровня — один
+/// расчёт с колонкой `dist_bps` касаний (таск 35, ревью В-43):
+/// `markout::distance_bps_at_birth`, здесь только от полей записи смерти.
 pub(crate) fn distance_bps_at_birth(mids: &[MidSample], rec: &LevelRecord) -> Option<f64> {
-    let (_, mid2x) = base_before(mids, rec.birth_ms.saturating_add(1))?;
-    raw_return_bps(mid2x, rec.price_tick.saturating_mul(2)).map(f64::abs)
+    crate::lob::markout::distance_bps_at_birth(mids, rec.birth_ms, rec.price_tick)
 }
 
 /// Час UTC метки времени биржи в миллисекундах — ось «час» профиля (В-36).

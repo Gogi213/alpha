@@ -677,22 +677,35 @@ fn round_zeros_counts_trailing_decimal_zeros_up_to_three() {
     assert_eq!(round_zeros(i64::MIN), 0);
 }
 
-/// Уровень, родившийся сразу лучшей ценой, касается с кадра рождения:
-/// фронтрана нет (ноль), максимум «до» — размер рождения. Аск — та же
-/// логика, индекс 0 — низший тик; `stack_levels` включает сам уровень.
+/// В-43: рождение лучшей ценой — не касание, и пока уровень остаётся лучшим
+/// с рождения, касания нет; ушёл с лучшей цены и вернулся — касание с
+/// индексом 0, фронтран — лоты, стоявшие перед ним на последнем кадре до
+/// возврата. Аск — та же логика, индекс 0 — низший тик; `stack_levels`
+/// включает сам уровень.
 #[test]
-fn a_level_born_at_the_best_price_touches_from_birth_without_frontrun() {
+fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
     let mut tr = LevelTracker::new(cfg_touch());
     let mut out = Vec::with_capacity(16);
     let mut touches = Vec::with_capacity(16);
     let a = Side::Ask;
     tr.observe_frame_with_touches(1000, a, &[ob(200, 10), ob(201, 3)], &mut out, &mut touches);
     tr.observe_frame_with_touches(2000, a, &[ob(200, 15), ob(201, 3)], &mut out, &mut touches);
-    assert!(touches.is_empty());
+    // Ушёл с лучшей цены: конца касания нет — его и не было.
     tr.observe_frame_with_touches(
         3000,
         a,
         &[ob(199, 2), ob(200, 15), ob(201, 3)],
+        &mut out,
+        &mut touches,
+    );
+    assert!(touches.is_empty(), "родился лучшим и ушёл — касаний ноль");
+    // Вернулся — касание 0.
+    tr.observe_frame_with_touches(4000, a, &[ob(200, 15), ob(201, 3)], &mut out, &mut touches);
+    assert!(touches.is_empty());
+    tr.observe_frame_with_touches(
+        5000,
+        a,
+        &[ob(199, 4), ob(200, 15), ob(201, 3)],
         &mut out,
         &mut touches,
     );
@@ -702,21 +715,49 @@ fn a_level_born_at_the_best_price_touches_from_birth_without_frontrun() {
             side: Side::Ask,
             price_tick: 200,
             touch_index: 0,
-            start_ms: 1000,
-            end_ms: 3000,
-            duration_ms: 2000,
+            start_ms: 4000,
+            end_ms: 5000,
+            duration_ms: 1000,
             level_birth_ms: 1000,
-            size_at_touch: 10,
-            size_max_before: 10,
+            size_at_touch: 15,
+            size_max_before: 15,
             traded_during: 0,
-            frontrun_lots: 0,
+            frontrun_lots: 2,
             round_zeros: 2,
             ended_by_death: false,
             stack_levels: 1,
         }]
     );
-    assert_eq!(touches[0].age_ms(), 0);
+    assert_eq!(touches[0].age_ms(), 3000);
     assert!(out.is_empty());
+}
+
+/// В-43, кадры одной миллисекунды — один момент: уровень, родившийся не
+/// лучшим и ставший лучшим другим кадром той же метки, читается как
+/// родившийся лучшим — касания нет ни в этом кадре, ни пока он остаётся
+/// лучшим; после ухода и возврата — касание 0.
+#[test]
+fn becoming_best_within_the_birth_millisecond_is_not_a_touch() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    tr.observe_frame_with_touches(1000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(1000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(3000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    assert!(touches.is_empty());
+    tr.observe_frame_with_touches(4000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(5000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    assert_eq!(touches.len(), 1);
+    assert_eq!(
+        (
+            touches[0].touch_index,
+            touches[0].start_ms,
+            touches[0].frontrun_lots
+        ),
+        (0, 4000, 3)
+    );
 }
 
 /// Касания уровней прогрева считаются (индекс растёт), но не эмитируются —
@@ -732,12 +773,16 @@ fn warmup_touches_are_tracked_but_not_emitted() {
     let mut out = Vec::with_capacity(16);
     let mut touches = Vec::with_capacity(16);
     let b = Side::Bid;
-    tr.observe_frame_with_touches(1000, b, &[ob(100, 10)], &mut out, &mut touches);
-    tr.observe_frame_with_touches(2000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    // Прогревный 100: родился не лучшим, стал лучшим, ушёл — касание было,
+    // записи нет.
+    tr.observe_frame_with_touches(1000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(3000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
     assert!(
         touches.is_empty(),
         "касание прогревного уровня не эмитируется"
     );
+    // 102 после прогрева: родился лучшим (не касание), ушёл, вернулся, ушёл.
     tr.observe_frame_with_touches(
         7000,
         b,
@@ -752,13 +797,40 @@ fn warmup_touches_are_tracked_but_not_emitted() {
         &mut out,
         &mut touches,
     );
+    tr.observe_frame_with_touches(
+        9000,
+        b,
+        &[ob(102, 10), ob(101, 3), ob(100, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        10_000,
+        b,
+        &[ob(103, 3), ob(102, 10), ob(101, 3), ob(100, 10)],
+        &mut out,
+        &mut touches,
+    );
     assert_eq!(touches.len(), 1);
     assert_eq!((touches[0].price_tick, touches[0].touch_index), (102, 0));
+    assert_eq!((touches[0].start_ms, touches[0].frontrun_lots), (9000, 3));
     assert_eq!(
         touches[0].stack_levels, 2,
         "102 и прогревный 100 — оба живы и не ниже H3"
     );
-    assert!(out.is_empty());
+    // 102 снят (смерть без касания — оно уже кончилось), 100 снова лучший:
+    // второе касание прогревного уровня — по-прежнему без записи.
+    tr.observe_frame_with_touches(11_000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(
+        12_000,
+        b,
+        &[ob(101, 3), ob(100, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!(out.len(), 1, "смерть 102");
+    assert_eq!(out[0].price_tick, 102);
 }
 
 /// Гейт GC таска 35: кадры с касаниями — начало и конец на каждом кадре,

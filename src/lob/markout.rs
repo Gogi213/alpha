@@ -17,16 +17,20 @@
 //! История подаётся вызывающим срезом в неубывающем времени; этот модуль
 //! не хранит состояния и не выделяет память.
 //!
-//! # Markout касания (таск 35)
+//! # Markout касания (таск 35, В-43)
 //!
-//! У касания (`levels::TouchRecord`) база — последний срез строго до
-//! `start_ms` (тот же `base_before`), горизонты те же `HORIZONS_MS`, но
+//! У касания (`levels::TouchRecord`) база — срез **как есть на `start_ms`**
+//! (последний с меткой `<= start_ms`, `touch_base`), **не** «строго до»:
+//! уровень становится лучшей ценой потому, что середина шагнула на него, и
+//! база «строго до» несла бы шаг самого кадра касания как −1 тик на всех
+//! горизонтах (В-43, R-C). Горизонты те же `HORIZONS_MS` от метки базы, а
 //! знак — **«в сторону отскока»** (`touch_markout_bps`): бид — плюс, если
 //! середина пошла **вверх**. Это противоположно `markout_bps` смерти: там
 //! исчезновение бида подразумевает шорт (опора ушла — цена вниз), здесь
 //! бид выстоял под ценой — ставка на то, что цена от него отойдёт. Подход
-//! (`approach_bps`) — сдвиг середины за `APPROACH_MS` до начала касания,
-//! знак «к уровню»: плюс — цена шла на уровень.
+//! (`approach_bps`) — сдвиг середины от среза как есть на `start_ms − N`
+//! (`APPROACH_MS`) до той же базы, знак «к уровню»: плюс — цена шла на
+//! уровень.
 
 use crate::book::Side;
 use crate::lob::levels::{LevelRecord, TouchRecord};
@@ -100,21 +104,38 @@ pub fn raw_return_bps(base2x: i64, fut2x: i64) -> Option<f64> {
     Some(diff / base2x as f64 * BPS_SCALE)
 }
 
-/// Markout по Decision 14: сырая доходность со знаком стороны.
-/// Бид подразумевает шорт (`s = -1`), аск — лонг (`s = +1`).
-/// `None` при неположительной базе. Целые до деления: разность и знак
-/// складываются в целых, деление одно. Касты — та же точность, что выше.
+/// Доходность середины в bps со знаком `sigma`: `sigma * (fut - base) / base
+/// * 10^4`. Одна арифметика под двумя полярностями — смерти (`markout_bps`)
+/// и касания (`touch_markout_bps`). `None` при неположительной базе. Целые
+/// до деления: разность и знак складываются в целых, деление одно — нулевой
+/// сдвиг даёт `+0.0` при любом знаке. Касты — та же точность, что выше.
 #[allow(clippy::cast_precision_loss)]
-pub fn markout_bps(side: Side, base2x: i64, fut2x: i64) -> Option<f64> {
+fn signed_return_bps(sigma: i128, base2x: i64, fut2x: i64) -> Option<f64> {
     if base2x <= 0 {
         return None;
     }
+    let signed_diff = sigma * (fut2x as i128 - base2x as i128);
+    Some(signed_diff as f64 / base2x as f64 * BPS_SCALE)
+}
+
+/// Markout по Decision 14: сырая доходность со знаком стороны.
+/// Бид подразумевает шорт (`s = -1`), аск — лонг (`s = +1`).
+/// `None` при неположительной базе.
+pub fn markout_bps(side: Side, base2x: i64, fut2x: i64) -> Option<f64> {
     let sigma: i128 = match side {
         Side::Bid => -1,
         Side::Ask => 1,
     };
-    let signed_diff = sigma * (fut2x as i128 - base2x as i128);
-    Some(signed_diff as f64 / base2x as f64 * BPS_SCALE)
+    signed_return_bps(sigma, base2x, fut2x)
+}
+
+/// Расстояние уровня до середины в bps на срезе строго до его рождения —
+/// ось `distance` профилей и колонка `dist_bps` касаний: `birth_ms + 1`,
+/// чтобы включить срез ровно в момент рождения; модуль, не знак. `None` —
+/// до рождения не было ни одного среза книги.
+pub fn distance_bps_at_birth(mids: &[MidSample], birth_ms: i64, price_tick: i64) -> Option<f64> {
+    let (_, mid2x) = base_before(mids, birth_ms.saturating_add(1))?;
+    raw_return_bps(mid2x, price_tick.saturating_mul(2)).map(f64::abs)
 }
 
 /// Markout уровня на всех горизонтах: база строго до смерти, будущее —
@@ -135,33 +156,36 @@ pub fn markouts_for_level(level: &LevelRecord, mids: &[MidSample]) -> [Option<f6
     })
 }
 
-/// Markout касания: знак «в сторону отскока» — ровно минус `markout_bps`.
-/// Бид: середина вверх — плюс (цена отошла от бида); аск: середина вниз —
-/// плюс. Почему не тот же знак, что у смерти: смерть бида читается как
-/// «опора ушла, цена вниз» (шорт, `s = -1`), касание — «опора выстояла,
-/// цена от неё отскочит» (лонг от бида, `s = +1`). Отдельная функция, а не
-/// параметр знака, чтобы полярность смерти нельзя было перепутать с
-/// полярностью касания молча. Знак кладётся в целых до деления, а не
-/// отрицанием результата: нулевой сдвиг остаётся `+0.0`, не `-0.0` в CSV.
-/// `None` при неположительной базе. Касты — та же точность, что выше.
-#[allow(clippy::cast_precision_loss)]
+/// Markout касания: знак «в сторону отскока» — ровно минус `markout_bps`,
+/// та же арифметика `signed_return_bps`. Бид: середина вверх — плюс (цена
+/// отошла от бида); аск: середина вниз — плюс. Почему не тот же знак, что у
+/// смерти: смерть бида читается как «опора ушла, цена вниз» (шорт,
+/// `s = -1`), касание — «опора выстояла, цена от неё отскочит» (лонг от
+/// бида, `s = +1`). Отдельная функция, а не параметр знака, чтобы
+/// полярность смерти нельзя было перепутать с полярностью касания молча.
+/// `None` при неположительной базе.
 pub fn touch_markout_bps(side: Side, base2x: i64, fut2x: i64) -> Option<f64> {
-    if base2x <= 0 {
-        return None;
-    }
     let sigma: i128 = match side {
         Side::Bid => 1,
         Side::Ask => -1,
     };
-    let signed_diff = sigma * (fut2x as i128 - base2x as i128);
-    Some(signed_diff as f64 / base2x as f64 * BPS_SCALE)
+    signed_return_bps(sigma, base2x, fut2x)
 }
 
-/// Markout касания на всех горизонтах: база строго до `start_ms`, будущее —
-/// как есть на `t0 + h`, где `t0` — метка базы; знак — `touch_markout_bps`.
-/// Нет базы или нет будущего на горизонте — `None`, как у смерти.
+/// База касания (В-43): срез как есть на `start_ms` — последний с меткой
+/// не позже `start_ms`, середина уже с уровнем на лучшей цене. Возвращает
+/// пару (метка базы, удвоенная середина базы), как `base_before`.
+pub fn touch_base(mids: &[MidSample], start_ms: i64) -> Option<(i64, i64)> {
+    let s = sample_asof(mids, start_ms, 0)?;
+    Some((s.ts_ms, mid_double_tick(s.bid_tick, s.ask_tick)))
+}
+
+/// Markout касания на всех горизонтах: база — `touch_base` (как есть на
+/// `start_ms`), будущее — как есть на `t0 + h`, где `t0` — метка базы;
+/// знак — `touch_markout_bps`. Нет базы или нет будущего на горизонте —
+/// `None`, как у смерти.
 pub fn markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f64>; 4] {
-    let Some((base_ts, base2x)) = base_before(mids, touch.start_ms) else {
+    let Some((base_ts, base2x)) = touch_base(mids, touch.start_ms) else {
         return [None, None, None, None];
     };
     std::array::from_fn(|i| {
@@ -173,14 +197,14 @@ pub fn markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f6
 
 /// Подход к уровню: сдвиг середины за `back_ms` до касания в bps, знак «к
 /// уровню» — плюс, если цена шла на уровень (к биду — вниз, к аску —
-/// вверх). Конец окна — срез строго до `start_ms` (`base_before`), начало —
-/// срез как есть на `t0 − back_ms` (`sample_asof` с отрицательным сдвигом);
-/// раньше первого среза окна нет — `None`. Знак «к уровню» совпадает со
-/// знаком `markout_bps` (бид: `s = -1`, движение вниз — плюс), поэтому
-/// формула та же, с началом окна в роли базы.
+/// вверх). Конец окна — та же база, что у markout касания (`touch_base`,
+/// как есть на `start_ms`), начало — срез как есть на `start_ms − back_ms`
+/// (`sample_asof` с отрицательным сдвигом); раньше первого среза окна нет —
+/// `None`. Знак «к уровню» совпадает со знаком `markout_bps` (бид: `s = -1`,
+/// движение вниз — плюс), поэтому формула та же, с началом окна в роли базы.
 pub fn approach_bps(side: Side, mids: &[MidSample], start_ms: i64, back_ms: i64) -> Option<f64> {
-    let (end_ts, end2x) = base_before(mids, start_ms)?;
-    let from2x = future_asof(mids, end_ts, back_ms.checked_neg()?)?;
+    let (_, end2x) = touch_base(mids, start_ms)?;
+    let from2x = future_asof(mids, start_ms, back_ms.checked_neg()?)?;
     markout_bps(side, from2x, end2x)
 }
 

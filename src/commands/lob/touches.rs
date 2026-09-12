@@ -5,12 +5,14 @@
 //! реплей суточных файлов — общий с `levels`/`markout` `super::replay_symbol`
 //! (`ReplayDay.touches`). Здесь только флаги, CSV и код выхода.
 //!
-//! Колонки: запись касания как есть плюс `age_ms` (возраст уровня на момент
-//! касания), `dist_bps` (расстояние уровня до середины при его рождении — тот
-//! же расчёт, что ось `distance` у `profiles`), markout на четырёх горизонтах
-//! `HORIZONS_MS` со знаком «в сторону отскока», подход за `APPROACH_MS`
-//! (1 с, 10 с) со знаком «к уровню». Пустая ячейка — нет данных (нет среза
-//! до касания или на горизонте), не ноль.
+//! Колонки: запись касания как есть (`birth_ms` — рождение уровня, как в
+//! `levels-*.csv`) плюс `age_ms` (возраст уровня на момент касания),
+//! `dist_bps` (расстояние уровня до середины при его рождении — один расчёт с
+//! осью `distance` у `profiles`, `markout::distance_bps_at_birth`), markout на
+//! четырёх горизонтах `HORIZONS_MS` от среза как есть на `start_ms` (В-43) со
+//! знаком «в сторону отскока», подход за `APPROACH_MS` (1 с, 10 с) со знаком
+//! «к уровню». Пустая ячейка — нет данных (нет среза на момент касания или
+//! на горизонте), не ноль.
 
 use std::path::PathBuf;
 
@@ -18,8 +20,7 @@ use clap::Args;
 
 use crate::lob::levels::LevelsConfig;
 use crate::lob::markout::{
-    approaches_for_touch, base_before, markouts_for_touch, raw_return_bps, MidSample, APPROACH_MS,
-    HORIZONS_MS,
+    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, APPROACH_MS, HORIZONS_MS,
 };
 
 use super::{
@@ -65,8 +66,14 @@ pub struct TouchesSummary {
     pub out: PathBuf,
 }
 
-/// Заголовок CSV: запись касания как есть, затем производные.
-pub(crate) const TOUCHES_COLUMNS: [&str; 23] = [
+/// Ширина строки CSV — один источник арности для заголовка и строки:
+/// расхождение не компилируется.
+const TOUCHES_WIDTH: usize = 23;
+
+/// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
+/// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
+/// рождение).
+pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "day_utc",
     "side",
     "price_tick",
@@ -74,7 +81,7 @@ pub(crate) const TOUCHES_COLUMNS: [&str; 23] = [
     "start_ms",
     "end_ms",
     "duration_ms",
-    "level_birth_ms",
+    "birth_ms",
     "age_ms",
     "size_at_touch",
     "size_max_before",
@@ -91,16 +98,6 @@ pub(crate) const TOUCHES_COLUMNS: [&str; 23] = [
     "approach_1s",
     "approach_10s",
 ];
-
-/// Расстояние уровня до середины в bps на срезе строго до его рождения —
-/// тот же расчёт, что `profiles::axes::distance_bps_at_birth` (ось
-/// `distance` профилей), только от полей касания, а не `LevelRecord`:
-/// `birth_ms + 1`, чтобы включить срез ровно в момент рождения; `None` —
-/// до рождения не было ни одного среза книги.
-fn dist_bps_at_birth(mids: &[MidSample], birth_ms: i64, price_tick: i64) -> Option<f64> {
-    let (_, mid2x) = base_before(mids, birth_ms.saturating_add(1))?;
-    raw_return_bps(mid2x, price_tick.saturating_mul(2)).map(f64::abs)
-}
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
 /// касаний в CSV. Порядок строк — порядок выдачи трекера внутри суток.
@@ -144,7 +141,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         for t in &day.touches {
             let ms = markouts_for_touch(t, &day.mids);
             let ap = approaches_for_touch(t, &day.mids);
-            w.write_record([
+            let row: [String; TOUCHES_WIDTH] = [
                 day.day.clone(),
                 side_name(t.side).to_string(),
                 t.price_tick.to_string(),
@@ -161,14 +158,19 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 t.round_zeros.to_string(),
                 t.ended_by_death.to_string(),
                 t.stack_levels.to_string(),
-                some_or_empty(dist_bps_at_birth(&day.mids, t.level_birth_ms, t.price_tick)),
+                some_or_empty(distance_bps_at_birth(
+                    &day.mids,
+                    t.level_birth_ms,
+                    t.price_tick,
+                )),
                 some_or_empty(ms[0]),
                 some_or_empty(ms[1]),
                 some_or_empty(ms[2]),
                 some_or_empty(ms[3]),
                 some_or_empty(ap[0]),
                 some_or_empty(ap[1]),
-            ])?;
+            ];
+            w.write_record(row)?;
             n += 1;
         }
     }

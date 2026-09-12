@@ -230,7 +230,43 @@ fn a_bid_touch_followed_by_a_rising_mid_has_positive_markout() {
         None,
         "неположительная база"
     );
-    assert_eq!(markouts_for_touch(&touch(Side::Bid, 0), &mids), [None; 4]);
+    assert_eq!(
+        markouts_for_touch(&touch(Side::Bid, -1), &mids),
+        [None; 4],
+        "до первого среза базы нет"
+    );
+}
+
+/// В-43: база касания — срез как есть на `start_ms`, включая шаг самого
+/// кадра касания. Как на живом потоке (`feed_frames_multi` пишет срез после
+/// кадра), середина шагнула вниз на бид ровно в `start_ms` и дальше стоит:
+/// `m == 0` на всех горизонтах. Прежняя база «строго до `start_ms`» дала бы
+/// −1 тик на всех горизонтах — шаг кадра, не отскок (R-C).
+#[test]
+fn the_touch_base_is_the_mid_as_of_start_ms_including_the_step_onto_the_level() {
+    let mids = vec![
+        sample(0, 20_000),
+        sample(1_000, 19_998),
+        sample(1_100, 19_998),
+        sample(2_000, 19_998),
+        sample(11_000, 19_998),
+        sample(61_000, 19_998),
+    ];
+    let bid = touch(Side::Bid, 1_000);
+    assert_eq!(touch_base(&mids, 1_000), Some((1_000, 19_998)));
+    for (h, v) in HORIZONS_MS.iter().zip(markouts_for_touch(&bid, &mids)) {
+        assert_eq!(v, Some(0.0), "горизонт {h}: сдвига после касания нет");
+    }
+    let (old_ts, old2x) = base_before(&mids, 1_000).expect("срез строго до есть");
+    assert_eq!((old_ts, old2x), (0, 20_000));
+    let stale = touch_markout_bps(Side::Bid, old2x, 19_998).expect("база положительна");
+    assert!(stale < 0.0, "прежняя база несла шаг кадра: {stale}");
+    // Подход — от среза как есть на `start_ms − N` до той же базы: шаг вниз
+    // на бид за секунду до касания — плюс; десяти секунд до касания в этой
+    // записи нет — окна нет, а не ноль.
+    let [a1, a10] = approaches_for_touch(&bid, &mids);
+    assert!(a1.expect("секунда до касания есть") > 0.0);
+    assert_eq!(a10, None);
 }
 
 /// Критерий приёмки таска 35: середина падала на бид перед касанием —
