@@ -1094,6 +1094,28 @@ window.STATE =
       "note": "план сделки как данные в одной on_event (A6); вход P±1 тик, стоп за тик, тейк 1:1, дедлайн 60 с (В-44); rtt=assumed(20ms, В-37)"
     },
     {
+      "id": "35b",
+      "title": "Фронтран за секунду до касания, swept_lots, завал в окне (В-45)",
+      "requirements": ["R90"],
+      "blockedBy": ["37"],
+      "wave": 12,
+      "zone": ["src/lob/levels.rs", "src/commands/lob/touches.rs", "src/commands/lob/dashboard.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "ревью T36: корзина фронтрана 0 пуста по построению (0/44 086) → В-45"
+    },
+    {
+      "id": "41",
+      "title": "Дашборд-сетка: canvas-график на монету по всей истории",
+      "requirements": ["R87", "R88", "R90"],
+      "blockedBy": ["35b"],
+      "wave": 12,
+      "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/dashboard_page.html"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-13: «сетку супер экономичных, но достаточно интерактивных графиков … кроме сетки ниче не оставлять»; canvas, зум/панорама по всей истории, файл на монету"
+    },
+    {
       "id": "14",
       "title": "Чистка репозитория и память проекта",
       "requirements": [
