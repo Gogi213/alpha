@@ -4,7 +4,7 @@
 **Blocked by:** 25
 **Зона:** `src/commands/lob/verify.rs`, `src/commands/lob/pilot.rs` (только переиспользование `process_instrument`/записи маркера — одна функция, не вторая копия), `CLAUDE.md` (таблица артефактов, строка `lob verify`)
 **Волна:** 10
-**Status:** ready
+**Status:** done
 
 ## Что должно заработать
 

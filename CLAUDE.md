@@ -32,7 +32,7 @@ Rust-проект: записать стакан Bybit олвейс-он кол�
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 627 passed, 0 failed, 5 ignored (25 тасков + пилот; +2 ignored бенча collector_bench)
+cargo test --release 2>&1 | tail -30        # 630 passed, 0 failed, 5 ignored (26 тасков + пилот; +2 ignored бенча collector_bench)
 cargo test --release --test collector_bench -- --ignored --nocapture   # бенч разбора: медиана/p99, аллокаций на сообщение
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
@@ -105,7 +105,7 @@ src/
 | `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул**, отобранный ранг) + `docs/plan/candidates.csv` (все кандидаты, причина исключения по каждому) |
 | `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`) **или** `--always-on` (В-34: без дедлайна, до Ctrl+C; новые сутки UTC — новая часть с синтетическим снапшотом; `session.json` на старте / раз в час / на ротации / на остановке (`closed`), `samples` RSS/CPU, `reconnects`/`resyncs`/`frames_failed`/`bytes_written`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
-| `lob verify` | `verify.csv`, `verify-<SYMBOL>.status` (`ok`/`fail`) — читает `watch`/`pilot` |
+| `lob verify --symbol --root` | `<root>/verify-<SYMBOL>.status` — ровно `ok`/`fail`, маркер сверки сессии, который читают `profiles`/`watch` (без `ok` сутки не читаются, fail-closed); сверка по всем частям символа (`session_binlog_for`), строка stdout на часть с сутками; маркер пишет одна функция `commands::lob::verify::verify_and_mark` — ею же `lob pilot`. `verify.csv` — сайдкар записи (`bybit::verify_sidecar`), не эта команда |
 | `lob levels --h3-mode floor\|percentile [--h3-k <f64>]` (`--h3-k`: пол = `floor(k × median_trade_lots)` из `instruments.csv` на лету; только с `floor`) | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
 | `lob markout` | `markout-<SYMBOL>.csv` — движение на четырёх горизонтах |
 | `lob watch` | `progress-<symbol>-<profile>.csv`, `ready-<symbol>-<profile>.flag` |

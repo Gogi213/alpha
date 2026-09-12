@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-13T04:30:00+04:00",
+  "updatedAt": "2026-09-13T05:05:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -73,8 +73,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 88,
-    "done": 72,
-    "inTicket": 11,
+    "done": 73,
+    "inTicket": 10,
     "deferred": 4,
     "dropped": 1,
     "placeholder": 0,
@@ -904,8 +904,14 @@ window.STATE =
         "src/commands/lob/verify.rs",
         "src/commands/lob/pilot.rs"
       ],
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-09-13T04:30:00+04:00",
+      "finishedAt": "2026-09-13T05:05:00+04:00",
+      "tests": "630 passed, 0 failed, 5 ignored",
+      "commit": "T26",
+      "review": {
+        "R-A/R-B/R-C": "три оси одним ревьюером (дифф 4 файла): блокирующих нет; verify_file вне зоны — аддитивно, зафиксировано в interfaces; ручная сумма восьми полей VerifySummary, устаревшие докстроки watch.rs/session.rs → concerns"
+      },
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
@@ -1050,6 +1056,12 @@ window.STATE =
     "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены"
   },
   "concerns": [
+    {
+      "ticket": "26",
+      "file": "src/commands/lob/verify.rs:106, src/bybit/verify.rs:779, src/commands/lob/watch.rs:23, src/commands/lob/session.rs:2300",
+      "what": "сумма восьми полей VerifySummary вручную вне типа (новое поле выпадет молча — нужен merge/AddAssign у типа); verify_file(..)? возвращает Err до записи маркера — недекодируемая часть оставляет прежний ok на месте (fail-closed держится отсутствием файла); run_verify остался только в тестах — две обходки одних файлов; докстроки watch.rs/session.rs про «маркер пишет pilot» устарели",
+      "kind": "structural"
+    },
     {
       "ticket": "25",
       "file": "src/commands/lob/session.rs:~770 (flush_symbol → open_next_part)",
@@ -1736,9 +1748,9 @@ window.STATE =
     "live_run": "один, 5 мин, lob session: records=1587882 gaps=0, 8 инструментов, без ключей"
   },
   "tests": {
-    "passed": 627,
+    "passed": 630,
     "failed": 0,
     "ignored": 5,
-    "at": "2026-09-13T04:10:00+04:00"
+    "at": "2026-09-13T05:05:00+04:00"
   }
 }

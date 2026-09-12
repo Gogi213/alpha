@@ -830,6 +830,18 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
     Ok(summary)
 }
 
+/// Проверки 2-3 по **одному** файлу (части записи, таск 22) — `files = 1`.
+/// Вход для читателей, которые сами нашли части символа своим резолвером
+/// (`commands::lob::verify::verify_and_mark` через `session_binlog_for`,
+/// таск 26) и хотят сводку на каждую часть, не сумму по каталогу;
+/// `run_verify` выше — тот же `verify_one_file`, только по своему обходу.
+pub fn verify_file(path: &Path) -> anyhow::Result<VerifySummary> {
+    let mut summary = VerifySummary::default();
+    verify_one_file(path, &mut summary)?;
+    summary.files = 1;
+    Ok(summary)
+}
+
 fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<()> {
     let data = std::fs::read(path)
         .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;

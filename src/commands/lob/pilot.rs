@@ -3,7 +3,8 @@
 //! **`--debug`** (R78, D-ОТЛАДКА): весь пул из `instruments.csv` разом,
 //! ≤ 5 минут, гейт **G-DEBUG**. Цепочка — `lob session` (сеть, весь пул) →
 //! `lob verify` на каждый инструмент, с маркером сверки `verify-<SYMBOL>.status`
-//! (интерфейс таска 07, `crate::lob::watch`, пишет этот файл) → `lob levels`
+//! (интерфейс таска 07, `crate::lob::watch`; пишет его общая
+//! `commands::lob::verify::verify_and_mark`, таск 26) → `lob levels`
 //! в обоих режимах `H3` → `lob markout`. Результат несёт `debug` и не пишет
 //! `runs.csv` — не данные ни для вердикта, ни для предрегистрации (история 13).
 //!
@@ -21,7 +22,7 @@
 //! (решение владельца 2026-09-12: пилот бывает короче двух часов) —
 //! `counted_tail_cutoff_ms` ниже. Реплей самого символа (шаги `verify` →
 //! `levels`×2 → `markout`) при этом не сводится к одному проходу:
-//! `run_verify`/`run_levels`/`run_markout` (`bybit/verify.rs`,
+//! `verify_and_mark`/`run_levels`/`run_markout` (`commands/lob/verify.rs`,
 //! `commands/lob/levels.rs`, `commands/lob/markout.rs` — вне зоны этого
 //! таска) возвращают только сводку (`VerifySummary`/`LevelsSummary`/
 //! `MarkoutSummary`), не `Vec<LevelRecord>`/`Vec<MidSample>` — свести 4–5
@@ -48,7 +49,7 @@
 //!
 //! `lob session --root <dir>` пишет `<dir>/<SYMBOL>-<день>.binlog` (таск 19:
 //! то же имя, часть 1, что `commands::record::day_file_path`) —
-//! `replay_symbol`/`levels`/`markout`/`bybit::verify::run_verify` находят
+//! `replay_symbol`/`levels`/`markout`/`verify::verify_and_mark` находят
 //! его напрямую префиксным поиском, без переименования: `process_instrument`
 //! ниже зовёт их с `verify_root = marker_dir = session_dir`, отдельного
 //! подкаталога `replay/` для этой пары больше нет (мост
@@ -70,7 +71,6 @@ use clap::Args;
 
 use crate::bybit::probe::percentile_ns;
 use crate::bybit::rest::BYBIT_MAINNET_URL;
-use crate::bybit::verify::{run_verify, VerifyArgs};
 use crate::bybit::ws::parse_e9;
 use crate::lob::costs::{
     mean_net_bps, net_fill_interval, FillObservation, Observation, MAKER_FEE_BPS,
@@ -385,37 +385,13 @@ pub fn process_instrument(
         }
     };
 
-    let vs = run_verify(&VerifyArgs {
-        symbol: symbol.to_string(),
-        root: verify_root.to_path_buf(),
-    })
-    .map_err(step("verify"))?;
-    // «Прошла сверку целиком» (`interfaces.md`, доку `watch.rs`) — по тому,
-    // что файловый режим вообще может проверить (сверка по `u` — только
-    // живой поток, здесь её нет): инварианты книги (тест 2) и то, что цена
-    // сделки хоть раз держалась (тест 3). `trades_out_of_range`/
-    // `trades_indeterminate` — отдельные, не булевы метрики, в вердикт
-    // маркера не входят (та же трактовка, что `day_tallies` в `mod.rs`).
-    let verify_ok =
-        vs.sequence_gaps == 0 && vs.invariant_violations == 0 && vs.trades_violations == 0;
-    let marker_path = marker_dir.join(format!("verify-{symbol}.status"));
-    std::fs::write(&marker_path, if verify_ok { "ok" } else { "fail" }).map_err(|e| {
-        StepFailure {
-            step: "verify",
-            message: format!("маркер {}: {e}", marker_path.display()),
-        }
-    })?;
-    let verify_summary_line = format!(
-        "files={} updates={} gaps={} invariants={} trades={} out_of_range={} violations={} indeterminate={}",
-        vs.files,
-        vs.updates_applied,
-        vs.sequence_gaps,
-        vs.invariant_violations,
-        vs.trades_total,
-        vs.trades_out_of_range,
-        vs.trades_violations,
-        vs.trades_indeterminate,
-    );
+    // Сверка и маркер `verify-<SYMBOL>.status` — тем же кодом, что
+    // `lob verify` (таск 26: `super::verify::verify_and_mark` — единственная
+    // функция записи маркера; вердикт — `VerifyStatus::of`, там же).
+    let report =
+        super::verify::verify_and_mark(verify_root, marker_dir, symbol).map_err(step("verify"))?;
+    let verify_ok = report.status.is_ok();
+    let verify_summary_line = super::verify::format_summary(&report.total);
 
     let floor_h3_lots = match resolve_h3_mode(verify_root, symbol, H3ModeArg::Floor, None)
         .map_err(step("levels_floor"))?
