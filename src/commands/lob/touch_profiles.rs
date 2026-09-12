@@ -9,7 +9,9 @@
 //!
 //! Это отбор кандидатов: markout касания «в сторону отскока» на четырёх
 //! горизонтах `HORIZONS_MS` от среза как есть на `start_ms` (В-43,
-//! `markout::markouts_for_touch`) с бутстрап-интервалом. `net`/`net_fill`
+//! `markout::markouts_for_touch_outside`: горизонт не длиннее касания —
+//! `within_touch`, ≈ 0 по построению — в среднее и интервал не входит,
+//! В-45 (2)) с бутстрап-интервалом. `net`/`net_fill`
 //! здесь **нет** — они у сделки-отскока в бэктесте (таск 38, В-44
 //! «Сделка-отскок»): markout отбирает, бэктест выносит вердикт (задача,
 //! «Зачем бэктест»). RTT в markout не входит — `rtt=assumed(...)` в шапке
@@ -28,7 +30,9 @@
 //! `verify-<SYMBOL>.status == ok` обязателен для сессии (fail-closed, как у
 //! `profiles`); `--allow-unverified` снимает требование для отладочных
 //! данных и обязан нести метку `debug` в шапке — такой прогон данными не
-//! является и `runs.csv` не пишет.
+//! является и `runs.csv` не пишет. Боевой режим без `--preregistration` —
+//! **отказ**, как у `profiles` (R57: окно «сейчас» не определено — не
+//! тихое «все сессии»).
 //!
 //! # Оси, корзины, кластер
 //!
@@ -46,14 +50,22 @@
 //! `profiles::BOOTSTRAP_SEED`, напечатаны в шапке. Верхняя граница — та же
 //! функция на наблюдениях с обратным знаком (квантиль с линейной
 //! интерполяцией симметричен: нижняя граница `−m` есть минус верхняя `m`),
-//! не второй бутстрап и не второе число.
+//! не второй бутстрап и не второе число. Обе границы — **односторонние
+//! на `alpha` каждая**, не одна двусторонняя: шапка так и говорит. При
+//! `n_days < stats::G_MIN` границы печатаются `none` (ревью T37): число на
+//! одном-двух кластерах — арифметика весов Уэбба (`[m/2, 3m/2]` на одном
+//! кластере), не данные; точка `m` печатается всегда.
 //!
 //! # Число испытаний
 //!
-//! Длина сетки (`touch_grid_size`: `(26 + 6) × (инструментов + 1)`) идёт в
-//! `runs.csv` по строке на id (`runs::log_touch_profile_trials`) — тот же
-//! учёт, что у сетки смертей, чтобы DSR в шортлисте видел и эти испытания
-//! (В-44). Журнал, не перезапись: повторный прогон — вторая партия строк.
+//! В `runs.csv` идут **только корзины с `n > 0`** (`runs::log_trials` с
+//! префиксом `TOUCH_PROFILE_TRIAL_PREFIX`), то есть только инструменты,
+//! реально прочитанные (`verify ok`), а не список пула: В-18
+//! «несуществующая корзина не испытание» (ревью T37). Таблица при этом
+//! полная — строки `n = 0` остаются с `none`. Число испытаний печатается в
+//! шапке (`trials=`) и в stdout. Тот же учёт, что у сетки смертей, чтобы
+//! DSR в шортлисте видел и эти испытания (В-44). Журнал, не перезапись:
+//! повторный прогон — вторая партия строк.
 //!
 //! # Окно
 //!
@@ -61,9 +73,11 @@
 //! `shortlist` (`shortlist::load_or_write_window`, R57): сутки вне окна в
 //! таблицу не входят (фильтр по суткам части после реплея — `replay_symbol`
 //! читает каталог целиком, отдельного реплея по суткам у него нет), шапка
-//! печатает `format_window_line`. Без файла окно **не предрегистрировано**
-//! — шапка печатает это словами вместе с фактическим диапазоном суток и
-//! числом сессий, не тихое «все сессии».
+//! печатает `format_window_line`. В боевом режиме флаг **обязателен** — без
+//! него отказ; в отладке (`--allow-unverified`) окно не сужается, как у
+//! `profiles` («данными не является»), шапка печатает `window: not
+//! preregistered` словами вместе с фактическим диапазоном суток и числом
+//! сессий.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
@@ -73,14 +87,16 @@ use clap::Args;
 
 use crate::lob::costs::{net_fill_interval, FillObservation};
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
-use crate::lob::markout::{approaches_for_touch, markouts_for_touch, MidSample, HORIZONS_MS};
-use crate::lob::runs::log_touch_profile_trials;
+use crate::lob::markout::{
+    approaches_for_touch, markouts_for_touch_outside, MidSample, HORIZONS_MS,
+};
+use crate::lob::runs::{log_trials, TOUCH_PROFILE_TRIAL_PREFIX};
 use crate::lob::shortlist::{load_or_write_window, PreregisteredWindow};
 use crate::lob::touch_axes::{
     age_bucket, approach_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_cross_id,
     touch_index_bucket, touch_marginal_id, touch_outcome, touch_profile_grid, POOL_SCOPE,
 };
-use crate::stats::{count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
+use crate::stats::{count_f64, count_f64_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
 use super::profiles::{
     distinct_session_days, format_window_line, h3_mode_label, hour_utc_of_ms, lifetime_bucket,
@@ -118,7 +134,8 @@ pub struct TouchProfilesArgs {
     #[arg(long, default_value_t = DEFAULT_REPEAT_WINDOW_MS)]
     pub repeat_window_ms: i64,
     /// Отладочный вход без маркеров сверки: метка `debug` в шапке,
-    /// `runs.csv` не пишется.
+    /// `runs.csv` не пишется, окно не сужается (`--preregistration` не
+    /// читается, как у `profiles`).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
     /// Куда писать (по умолчанию `docs/findings/touch-profiles-<дата>.csv`).
@@ -131,8 +148,8 @@ pub struct TouchProfilesArgs {
     #[arg(long, default_value = "docs/plan/runs.csv")]
     pub runs_out: PathBuf,
     /// Файл-предрегистрация окна «сейчас» — тот же, что у `lob profiles`/
-    /// `shortlist` (R57). Без него окно не предрегистрировано — шапка
-    /// печатает это словами и фактический диапазон суток.
+    /// `shortlist` (R57). Обязателен без `--allow-unverified` — иначе окно
+    /// не определено, ошибка, не тихое «все сессии».
     #[arg(long)]
     pub preregistration: Option<PathBuf>,
     /// Конец окна для файла предрегистрации с одной границей (как у
@@ -142,7 +159,9 @@ pub struct TouchProfilesArgs {
 }
 
 /// Итог `lob touch-profiles` для печати диспетчером: строк таблицы,
-/// касаний прочитано, строк испытаний дописано в `runs.csv` (0 в отладке).
+/// касаний прочитано, испытаний — корзин с `n > 0`, столько же строк
+/// дописано в `runs.csv` (0 в отладке: такой прогон испытанием не
+/// является, журнал не пишется).
 #[derive(Debug)]
 pub struct TouchProfilesSummary {
     pub rows: usize,
@@ -302,15 +321,23 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
         .collect();
 
     let dirs = session_roots(&args.root)?;
-    let window: Option<PreregisteredWindow> = match &args.preregistration {
-        Some(path) => {
-            let days_now = distinct_session_days(&dirs);
-            Some(
-                load_or_write_window(path, &days_now, args.window_end.as_deref())
-                    .map_err(|e| anyhow::anyhow!("{e}"))?,
-            )
-        }
-        None => None,
+    // Окно «сейчас» (R57), как у `profiles`: отладочный вход окно не
+    // сужает (данными не является); боевой обязан назвать файл
+    // предрегистрации — иначе это тихое «все сессии», громкая ошибка.
+    let window: Option<PreregisteredWindow> = if args.allow_unverified {
+        None
+    } else {
+        let Some(path) = &args.preregistration else {
+            anyhow::bail!(
+                "--preregistration обязателен без --allow-unverified — окно «сейчас» не \
+                 определено (R57, не тихое «все сессии»)"
+            );
+        };
+        let days_now = distinct_session_days(&dirs);
+        Some(
+            load_or_write_window(path, &days_now, args.window_end.as_deref())
+                .map_err(|e| anyhow::anyhow!("{e}"))?,
+        )
     };
     // Счёт сессий по парам (каталог, сутки), как у `profiles` (таск 23).
     let mut sessions_in_window = 0usize;
@@ -367,7 +394,8 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
                 for t in &day.touches {
                     touches_total += 1;
                     let labels = touch_labels(t, &day.mids, h3_lots);
-                    let m = markouts_for_touch(t, &day.mids);
+                    // Горизонт внутри касания — не наблюдение (В-45 (2)).
+                    let m = markouts_for_touch_outside(t, &day.mids);
                     let hour = hour_utc_of_ms(t.start_ms);
                     for scope in [POOL_SCOPE, symbol.as_str()] {
                         for id in touch_ids(scope, &labels) {
@@ -392,15 +420,28 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
             std::fs::create_dir_all(parent)?;
         }
     }
+    // Испытания — только корзины с наблюдениями (В-18): непрочитанный
+    // инструмент даёт `n = 0` по всей своей области и в журнал не идёт.
+    let trial_ids: Vec<String> = profiles
+        .iter()
+        .filter(|(_, agg)| agg.n > 0)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let trials = if args.allow_unverified {
+        0
+    } else {
+        trial_ids.len()
+    };
     let mut file = std::fs::File::create(&out)?;
     let debug_suffix = if args.allow_unverified { " debug" } else { "" };
     let h3_k = args.h3_k.map(|k| format!(" h3_k={k}")).unwrap_or_default();
     writeln!(
         file,
-        "# lob touch-profiles: h3_mode={}{h3_k} warmup_ms={} repeat_window_ms={} alpha={GATE_ALPHA} replications={BOOTSTRAP_REPLICATIONS} seed={BOOTSTRAP_SEED}{debug_suffix}",
+        "# lob touch-profiles: h3_mode={}{h3_k} warmup_ms={} repeat_window_ms={} alpha={GATE_ALPHA} replications={BOOTSTRAP_REPLICATIONS} seed={BOOTSTRAP_SEED} bounds=lower/upper one-sided alpha each, none below g_min={G_MIN} days trials={}{debug_suffix}",
         h3_mode_label(args.h3.h3_mode),
         args.warmup_ms,
         args.repeat_window_ms,
+        trials,
     )?;
     let window_line = match &window {
         Some(_) => format_window_line(&window, sessions_in_window, sessions_outside_window)?,
@@ -422,12 +463,9 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
     }
     w.flush()?;
 
-    let trials = if args.allow_unverified {
-        0
-    } else {
-        log_touch_profile_trials(&args.runs_out, &now, &grid)?;
-        grid.len()
-    };
+    if !args.allow_unverified {
+        log_trials(&args.runs_out, &now, TOUCH_PROFILE_TRIAL_PREFIX, &trial_ids)?;
+    }
 
     Ok(TouchProfilesSummary {
         rows: profiles.len(),
@@ -443,8 +481,9 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
 // ---------------------------------------------------------------------------
 
 /// Шапка `touch-profiles-<дата>.csv`: id, число касаний, доля отскоков,
-/// по три колонки на горизонт (`m`, нижняя и верхняя границы), годные
-/// сутки, часы UTC начала касаний.
+/// по три колонки на горизонт (`m`, нижняя и верхняя границы — `none` при
+/// `n_days < G_MIN`), годные сутки, часы UTC начала касаний
+/// (`touch_hours_utc` — момент наблюдения касания, не рождения уровня).
 pub(crate) const HEADER: [&str; 17] = [
     "profile_id",
     "n",
@@ -462,7 +501,7 @@ pub(crate) const HEADER: [&str; 17] = [
     "m_60000ms_lower",
     "m_60000ms_upper",
     "n_days",
-    "level_hours_utc",
+    "touch_hours_utc",
 ];
 
 fn fmt_opt(v: Option<f64>) -> String {
@@ -475,8 +514,18 @@ fn fmt_opt(v: Option<f64>) -> String {
 /// `m` с границами на одном горизонте: точка и нижняя — `net_fill_interval`
 /// как у `profiles`; верхняя — та же функция на наблюдениях с обратным
 /// знаком, взятая с минусом (doc модуля, `negate` без `-0.0`). `None` —
-/// наблюдений на горизонте нет.
-fn horizon_columns(obs: &[FillObservation]) -> (Option<f64>, Option<f64>, Option<f64>) {
+/// наблюдений на горизонте нет. Кластеров-суток меньше `G_MIN` — границы
+/// `None`, точка — среднее (ревью T37: интервал на одном кластере —
+/// арифметика весов, не данные; бутстрап тогда и не гоняется).
+fn horizon_columns(
+    obs: &[FillObservation],
+    n_days: usize,
+) -> (Option<f64>, Option<f64>, Option<f64>) {
+    if n_days < G_MIN {
+        let point = (!obs.is_empty())
+            .then(|| obs.iter().map(|o| o.net_bps).sum::<f64>() / count_f64(obs.len()));
+        return (point, None, None);
+    }
     let lower_side = net_fill_interval(obs, GATE_ALPHA, BOOTSTRAP_REPLICATIONS, BOOTSTRAP_SEED);
     let negated: Vec<FillObservation> = obs
         .iter()
@@ -508,7 +557,7 @@ fn write_row(w: &mut csv::Writer<std::fs::File>, id: &str, agg: &TouchAgg) -> an
     let share_bounced = (agg.n > 0).then(|| count_f64_u64(agg.bounced) / count_f64_u64(agg.n));
     let mut record = vec![id.to_string(), agg.n.to_string(), fmt_opt(share_bounced)];
     for obs in &agg.horizons {
-        let (m, lower, upper) = horizon_columns(obs);
+        let (m, lower, upper) = horizon_columns(obs, agg.days.len());
         record.push(fmt_opt(m));
         record.push(fmt_opt(lower));
         record.push(fmt_opt(upper));

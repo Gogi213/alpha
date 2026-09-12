@@ -7,7 +7,7 @@
 `CLAUDE.md`, `docs/COMMANDS.md`. **Не трогать:** `profiles/` (сетка смертей), `shortlist`,
 `levels.rs`, `session.rs`.
 **Волна:** 12
-**Status:** done
+**Status:** done (ревью 2026-09-13 отработано)
 
 ## Что должно заработать
 
@@ -48,4 +48,14 @@ markout не входит) — не печатать лишнего.
 - Отклонения от текста тикета: `--candidates-csv` не заведён — покрытие книги ни в одну ось касаний не входит (оси В-44 без расстояния; корзины подхода — сдвиг середины, не позиция в книге), пул читается из `instruments.csv` корня; интервал — `costs::net_fill_interval` с `filled = true` (тот же приём, что `m_lower` у `profiles`; `stats::wild_cluster_bootstrap_t` даёт p-значение, не интервал, и отказывает при `G < 7` — критерий «`n_days = 2`, `m` в границах» им не выполним), верхняя граница — та же функция на наблюдениях с обратным знаком; `--preregistration` необязателен — без файла шапка печатает `window: not preregistered <первые>..<последние> days= sessions=` словами (на `t34` одни сутки — `split_calendar` окна не построит); `--root` принимает и сам каталог сессии (`session.json` в нём), не только корень с подкаталогами.
 - Живьём: `data/session-debug/t34`, ZEC (`verify ok`, 5 мин, `h3_lots = 4`) — 75 касаний, 16 отскочили (21 %), `m_10s` отскоков +3.07 bps, проели −1.02; все возрастом `< 10 мин`, все первые; интервал на одних сутках вырожден (один кластер) — наблюдение, не вердикт. Журнал живой проверки — во времянку (`--runs-out`), `docs/plan/runs.csv` не тронут: сессия отладочная (`session.json.debug = true`).
 - 680 тестов (673 + 7), clippy `-D warnings` ноль, `fmt --check` чисто; `levels.rs`/`replay.rs`/`session.rs`/`profiles/` (кроме видимости `pub(super)` → `pub(crate)` у шести функций) не тронуты.
+
+## Ревью (2026-09-13) — дозапрос отработан
+
+- [x] **BLOCKING** — без `--preregistration` в боевом режиме **отказ**, как у `profiles` (та же строка ошибки R57); `--allow-unverified` → окно не сужается (файл не читается, как у `profiles`), метка `debug`, `runs.csv` не пишется, `trials=0`. Тест `battle_mode_without_preregistration_is_refused` (ни таблицы, ни журнала); `allow_unverified_…` проверяет, что названный файл окно не сузил. Прежнее «`--preregistration` необязателен» из «Отклонений» снято.
+- [x] (1) ячейки `within_touch` (В-45 (2)) — вне среднего и интервала: `markout::markouts_for_touch_outside` вместо `markouts_for_touch`; фикстура тестов — касания по 500 мс, `m_100ms` = `none` при наличии среза (`interval_brackets_…`).
+- [x] (2) фантомные испытания: в `runs.csv` — только id с `n > 0` (`profiles.iter().filter(n > 0)`), то есть только инструменты, реально прочитанные (`verify ok`), не пул; шапка печатает `trials=N`, stdout — тот же счёт. Тест: второй инструмент пула без сессии — 32 строки таблицы, 0 строк журнала; `ids` журнала == id таблицы с `n > 0`. Живьём на t34: 46 испытаний (23 `pool` + 23 ZEC) вместо 128.
+- [x] (3) `n_days < stats::G_MIN` → `lower`/`upper` = `none`, точка `m` — среднее (бутстрап не гоняется); шапка: `bounds=lower/upper one-sided alpha each, none below g_min=7 days`. Тесты: двое суток — `none`; семь сверенных суток (`seven_day_root`) — `lower < m < upper`, `n_days = 7`, `0.000000` не `-0.000000` у проеденных.
+- [x] (4) колонка `level_hours_utc` → `touch_hours_utc` (`HEADER`, тест на имя и на отсутствие старого).
+- [x] (5) `lob::runs::log_trials(path, ts, prefix, ids)` — один писатель: `shortlist::log_profile_trials` делегирует с `PROFILE_TRIAL_PREFIX = "profile"`, `touch-profiles` зовёт с `TOUCH_PROFILE_TRIAL_PREFIX = "touch_profile"`; `log_touch_profile_trials` снесён; тест `trials_append_one_confirmatory_row_per_id_with_the_callers_prefix_and_accumulate` (оба префикса, пустой список — ни строки).
+- 686 тестов (685 + 1), clippy `-D warnings` ноль, `fmt --check` чисто; одна сборка (`target-ci`). Живьём: `lob touch-profiles --root data/session-debug/t34 --h3-mode floor` без файла — отказ; с `--preregistration` (окно 2026-09-12) — 128 строк, 75 касаний ZEC, `trials=46`, интервалы `none` (1 < 7), `touch_hours_utc = 20`; журнал — во времянку.
 

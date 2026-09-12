@@ -46,7 +46,7 @@ use std::path::Path;
 
 use crate::lob::costs::GREEN_NET_BPS;
 use crate::lob::final_metrics::{required_sharpe_for_dsr, DSR_TARGET};
-use crate::lob::runs::{append_run_row, RunKind, RunRow};
+use crate::lob::runs::{append_run_row, log_trials, RunKind, RunRow, PROFILE_TRIAL_PREFIX};
 use crate::stats::{self, BootstrapError, GATE_ALPHA, G_MIN};
 
 // ---------------------------------------------------------------------------
@@ -981,23 +981,13 @@ pub fn decide_verdict(rows: &[ConfirmRow]) -> ShortlistVerdict {
 /// Пишет в журнал по строке на каждый посчитанный профиль (все пригодные, не
 /// только шорт-лист). Вид строки — подтверждающий прогон: каждая строка
 /// входит в число испытаний DSR. Метку времени строкой передаёт вызывающий.
+/// Писатель — общий с профилями касаний (`runs::log_trials`, префикс
+/// `PROFILE_TRIAL_PREFIX`).
 pub fn log_profile_trials(path: &Path, ts_utc: &str, ids: &[String]) -> Result<(), ShortlistError> {
-    for id in ids {
-        append_run_row(
-            path,
-            &RunRow {
-                ts_utc: ts_utc.to_string(),
-                symbol: String::new(),
-                kind: RunKind::Confirmatory,
-                detail: format!("profile {id}"),
-            },
-        )
-        .map_err(|e| match e {
-            crate::lob::runs::RunsError::Io(s) => ShortlistError::Io(s),
-            crate::lob::runs::RunsError::Csv(s) => ShortlistError::Csv(s),
-        })?;
-    }
-    Ok(())
+    log_trials(path, ts_utc, PROFILE_TRIAL_PREFIX, ids).map_err(|e| match e {
+        crate::lob::runs::RunsError::Io(s) => ShortlistError::Io(s),
+        crate::lob::runs::RunsError::Csv(s) => ShortlistError::Csv(s),
+    })
 }
 
 /// Число испытаний для DSR/PBO из журнала (тонкая обёртка: правило «что

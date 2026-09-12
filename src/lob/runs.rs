@@ -230,16 +230,26 @@ pub fn log_pilot_run(
     )
 }
 
-/// Профили касаний (таск 37, В-44): по строке на каждый id сетки
-/// `lob::touch_axes::touch_profile_grid` — испытание, как и профиль сетки
-/// смертей (`shortlist::log_profile_trials`, тот же `RunKind::Confirmatory`,
-/// тот же счёт `count_trials`), чтобы DSR в шортлисте видел и эти
-/// испытания. Деталь — `touch_profile <id>`: отличима от `profile <id>`
-/// смертей по префиксу, число строк — длина сетки. Журнал, не перезапись:
-/// повторный прогон дописывает вторую партию строк.
-pub fn log_touch_profile_trials(
+/// Префикс детали строки испытания профиля сетки смертей: `profile <id>`
+/// (`shortlist::log_profile_trials`).
+pub const PROFILE_TRIAL_PREFIX: &str = "profile";
+
+/// Префикс детали строки испытания профиля касаний (таск 37, В-44):
+/// `touch_profile <id>` — отличим от смертей по префиксу.
+pub const TOUCH_PROFILE_TRIAL_PREFIX: &str = "touch_profile";
+
+/// Журнал испытаний профилей — один писатель на обе сетки (смертей и
+/// касаний, ревью T37): по строке `RunKind::Confirmatory` с деталью
+/// `<prefix> <id>` на каждый id — каждая входит в число испытаний DSR
+/// (`count_trials`). Что считается испытанием, решает вызывающий: В-18
+/// «несуществующая корзина не испытание» — `profiles`/`touch-profiles`
+/// подают только корзины с наблюдениями. Журнал, не перезапись:
+/// повторный прогон дописывает вторую партию строк. Метку времени строкой
+/// передаёт вызывающий.
+pub fn log_trials(
     path: &Path,
     ts_utc: &str,
+    prefix: &str,
     ids: &[String],
 ) -> Result<(), RunsError> {
     for id in ids {
@@ -249,7 +259,7 @@ pub fn log_touch_profile_trials(
                 ts_utc: ts_utc.to_string(),
                 symbol: String::new(),
                 kind: RunKind::Confirmatory,
-                detail: format!("touch_profile {id}"),
+                detail: format!("{prefix} {id}"),
             },
         )?;
     }
@@ -386,28 +396,47 @@ mod tests {
         assert_eq!(trials_from_runs_csv(&path), Some(1));
     }
 
-    /// Профили касаний (таск 37): строка на id сетки, каждая — испытание;
-    /// повторный вызов дописывает вторую партию, не перезаписывает первую.
+    /// Один писатель на обе сетки (ревью T37): строка на id с префиксом
+    /// вызывающего, каждая — подтверждающее испытание; повторный вызов
+    /// дописывает вторую партию, не перезаписывает первую; пустой список —
+    /// ни одной строки.
     #[test]
-    fn touch_profile_trials_append_one_confirmatory_row_per_id_and_accumulate() {
+    fn trials_append_one_confirmatory_row_per_id_with_the_callers_prefix_and_accumulate() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("runs.csv");
         let ids = vec![
             "pool:marginal:side=bid".to_string(),
             "pool:cross:bounced|[0,10m)".to_string(),
         ];
-        log_touch_profile_trials(&path, "2026-09-13T00:00:00Z", &ids).unwrap();
+        log_trials(
+            &path,
+            "2026-09-13T00:00:00Z",
+            TOUCH_PROFILE_TRIAL_PREFIX,
+            &ids,
+        )
+        .unwrap();
         let rows = read_run_rows(&path).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.kind == RunKind::Confirmatory));
         assert_eq!(rows[0].detail, "touch_profile pool:marginal:side=bid");
         assert_eq!(rows[1].detail, "touch_profile pool:cross:bounced|[0,10m)");
         assert_eq!(trials_from_runs_csv(&path), Some(2));
-        log_touch_profile_trials(&path, "2026-09-13T01:00:00Z", &ids).unwrap();
+        log_trials(
+            &path,
+            "2026-09-13T01:00:00Z",
+            PROFILE_TRIAL_PREFIX,
+            &ids[..1],
+        )
+        .unwrap();
+        let rows = read_run_rows(&path).unwrap();
+        assert_eq!(rows.len(), 3, "журнал, не перезапись");
+        assert_eq!(rows[2].detail, "profile pool:marginal:side=bid");
+        assert_eq!(trials_from_runs_csv(&path), Some(3));
+        log_trials(&path, "2026-09-13T02:00:00Z", PROFILE_TRIAL_PREFIX, &[]).unwrap();
         assert_eq!(
             trials_from_runs_csv(&path),
-            Some(4),
-            "журнал, не перезапись"
+            Some(3),
+            "пустой список — ни строки"
         );
     }
 }
