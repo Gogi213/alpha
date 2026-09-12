@@ -1901,6 +1901,9 @@ mod tests {
             crate::commands::lob::LobCommand::Shortlist(_) => {
                 panic!("разобралась не та подкоманда")
             }
+            crate::commands::lob::LobCommand::Dashboard(_) => {
+                panic!("разобралась не та подкоманда")
+            }
         }
     }
 

@@ -62,6 +62,7 @@ use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
 
 pub mod backtest;
 pub mod clock;
+pub mod dashboard;
 mod export;
 pub mod levels;
 pub mod markout;
@@ -79,6 +80,7 @@ pub mod watch;
 
 pub use backtest::{run_backtest, BacktestArgs};
 pub use clock::{run_clock, ClockArgs};
+pub use dashboard::{run_dashboard, DashboardArgs};
 pub use levels::{run_levels, LevelsArgs};
 pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
@@ -984,6 +986,10 @@ pub enum LobCommand {
     /// невиденных данных — третий из трёх артефактов задачи (таск 12,
     /// история 24–28, 42).
     Shortlist(ShortlistArgs),
+    /// Страница проекта на localhost: что пишет коллектор, что уже насчитано
+    /// по накопленному и где мы по гейтам (таск 32, R87). Только чтение
+    /// каталога записи; `index.html` и `data.json` — в `--out`.
+    Dashboard(DashboardArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -1118,6 +1124,22 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.clock_samples,
                 summary.out.display()
             );
+            Ok(())
+        }
+        LobCommand::Dashboard(args) => {
+            let summary = run_dashboard(&args)?;
+            println!(
+                "dashboard: instruments={} alive={} html={} json={}",
+                summary.instruments,
+                match summary.alive {
+                    Some(true) => "yes",
+                    Some(false) => "no",
+                    None => "unknown",
+                },
+                summary.html.display(),
+                summary.json.display()
+            );
+            println!("dashboard: {}", summary.alive_reason);
             Ok(())
         }
         LobCommand::React(args) => {
@@ -1702,6 +1724,7 @@ mod tests {
         let expected = [
             "backtest",
             "clock",
+            "dashboard",
             "export",
             "levels",
             "markout",

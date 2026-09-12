@@ -32,11 +32,14 @@ Rust-проект: записать стакан Bybit олвейс-он кол�
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 630 passed, 0 failed, 5 ignored (26 тасков + пилот; +2 ignored бенча collector_bench)
+cargo test --release 2>&1 | tail -30        # 647 passed, 0 failed, 5 ignored (30 тасков + пилот; +2 ignored бенча collector_bench)
 cargo test --release --test collector_bench -- --ignored --nocapture   # бенч разбора: медиана/p99, аллокаций на сообщение
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
-./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
+./target/release/alpha.exe lob --help       # 17 подкоманд, см. таблицу артефактов ниже
+# дашборд проекта (T32, R87): страница в data/dashboard/, сервер печатает порт и адрес
+./target/release/alpha.exe lob dashboard --root data/always-on/<ts> --out data/dashboard [--watch 600]
+python tools/serve_dashboard.py data/dashboard        # → http://127.0.0.1:<порт>/index.html; открыть в браузере
 
 # олвейс-он коллектор (В-34): запуск — до Ctrl+C; instruments.csv скопировать в --root для levels/pilot
 mkdir data/always-on/<ts> && cp instruments.csv data/always-on/<ts>/
@@ -102,7 +105,7 @@ src/
 
 | Команда | Артефакт |
 |---|---|
-| `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул**, отобранный ранг) + `docs/plan/candidates.csv` (все кандидаты, причина исключения по каждому) |
+| `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул** — ровно десять, ранг по обороту) + `docs/plan/candidates.csv` (все кандидаты, причина по каждому). Оба несут колонку `depth_check` (`ok`/`below_floor`/`not_measured`): глубина — проверка, не критерий отбора (В-35) |
 | `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`) **или** `--always-on` (В-34: без дедлайна, до Ctrl+C; новые сутки UTC — новая часть с синтетическим снапшотом; `session.json` на старте / раз в час / на ротации / на остановке (`closed`), `samples` RSS/CPU, `reconnects`/`resyncs`/`frames_failed`/`bytes_written`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
 | `lob verify --symbol --root` | `<root>/verify-<SYMBOL>.status` — ровно `ok`/`fail`, маркер сверки сессии, который читают `profiles`/`watch` (без `ok` сутки не читаются, fail-closed); сверка по всем частям символа (`session_binlog_for`), строка stdout на часть с сутками; маркер пишет одна функция `commands::lob::verify::verify_and_mark` — ею же `lob pilot`. `verify.csv` — сайдкар записи (`bybit::verify_sidecar`), не эта команда |
@@ -117,12 +120,20 @@ src/
 | `lob pilot` (боевой) на каталоге `lob session --pilot-minutes` | ставки уровней, `k`-сетка и выбор (В-30), G0, G-POWER-B против `lob power`, строки в `docs/plan/runs.csv`; окно — из `session.json`, зачётный хвост — вторая половина (В-33); `instruments.csv` надо скопировать в `--root` руками |
 | `lob react` | стадийные латентности (разбор/книга/триггер/ордер/весь путь), объявляет G-LAT (нужно ≥1000 срабатываний) |
 | `lob probe` | **ставит настоящие post-only ордера на бирже** — RTT полного цикла |
+| `lob dashboard --root --out [--h3-mode floor] [--h3-lots] [--watch N]` | `<out>/index.html` + `<out>/data.json` (T32, R87) — страница для владельца, только чтение `--root`: «Коллектор сейчас» (жив/нет по росту бинлогов между двумя расчётами и по `closed`; записей, байт, КБ/мин, ГБ/сутки-прикидка, байт/запись по снимку `session.json`, gaps/reconnects/resyncs/frames_failed, CPU/RSS, parse p99, NTP offset — пороги только из `PLAN.md` 6.1 / В-34, у каждого числа подпись и источник), контрольные точки 30 мин / 1 ч / 12 ч (В-38: по первым N минутам записи — уровней/час, `eaten`, `m_10s` по исходам, `net`; `rtt=assumed(20ms, В-37)`; оговорка «суток < G_MIN» текстом), таблица по инструментам (реплей `replay_symbol` — тот же код, что `levels`/`markout`, последние ≤ 10 с не видны), «Где мы» (гейты, пилот, аудит, дальше — статический текст с датой `WHERE_WE_ARE_AS_OF`) |
 
 `docs/findings/` содержит только вердикты записи и пилота; `profiles-*`/`backtest-*`/
 `shortlist-*` боевых ещё нет — суточный олвейс-он ещё не запускался (владелец, после
-вердикта экономии в `collector-2026-09-12.md`). Пул в `instruments.csv` —
-отладочный (8 из окна 300 с, `k=1.0` заглушка), боевой `lob pick --window-secs 3600`
-не запускался. Боевые данные: `data/pilot-battle/20260911T224019Z/` (30 мин, gitignored).
+вердикта экономии в `collector-2026-09-12.md`). Пул в `instruments.csv` — **боевой**
+(`lob pick --window-secs 3600 --h3-k 1.0`, окно 2026-09-12 13:22 UTC, без метки
+`debug`): SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI — десять, ранг по
+обороту; `depth_check` = `below_floor` у ZEC/STORJ/LSK (в пуле, В-35), `ok` у семи.
+`k = 1.0` — по-прежнему заглушка (В-30: `k` выбирает пилот; `median_trade_lots` в
+файле, пересчёт пола любым `k` — на лету через `lob levels --h3-k`). Идущий
+олвейс-он `data/always-on/20260912T122440Z/` пишет **старый отладочный** пул из
+восьми (ADA, PUMPFUN вместо ZEC, STORJ, LSK, SUI) — расхождение с боевым пулом,
+решение владельца. Боевые данные: `data/pilot-battle/20260911T224019Z/` (30 мин,
+gitignored).
 
 ## Правила, которые ловят ревью
 
@@ -144,9 +155,13 @@ src/
   `floor` берёт `h3_lots` из `instruments.csv`, `percentile` требует часа прогрева
   (`--warmup-ms`, умолчание 3 600 000 — на 5-минутной записи даёт `levels=0`,
   это прогрев, не баг; для отладки `--warmup-ms 0`)
-- `instruments.csv` в корне записи = **уже отобранный пул** (десять на боевом окне,
-  меньше на отладочном — ниже порога глубины отсеиваются), не список всех
-  кандидатов; пишет `lob pick`, читают `lob session`/`levels`/`record`/`power`
+- `instruments.csv` в корне записи = **уже отобранный пул** — ровно десять, если
+  правилам §2 (BTC/ETH, некрипта, < 30 суток) прошли хотя бы десять кандидатов, —
+  не список всех кандидатов; пишет `lob pick`, читают `lob session`/`levels`/
+  `record`/`power`. Глубина ниже `DEPTH_FLOOR_USD_E9` ($2000/уровень) **никого не
+  отсеивает** (В-35, §9): она колонка `depth_check` в обоих CSV и строка stdout;
+  `excluded_reason` в `candidates.csv` несёт только три кода правил и срез ранга
+  `rank_beyond_pool`
 - `k` для пола `H3` — **не число, а процедура** (`SETTLED.md` В-30 / D05): `lob pilot`
   считает ставку уровней и долю `eaten` для сетки `K_GRID = [2, 5, 10, 20, 50]` (один
   реплей на инструмент) и берёт наименьшее `k`, при котором медианный инструмент
@@ -189,6 +204,17 @@ src/
   замеру, не менять без бенча `collector_bench` (`--ignored`); Ctrl+C доходит до процесса
   только из настоящей консоли — потомки агентских/сервисных оболочек наследуют «Ctrl+C
   игнорировать» (`SetConsoleCtrlHandler(NULL, TRUE)`), тогда остановить его штатно нельзя
+- `lob dashboard` перечитывает **все** бинлоги каталога при каждом расчёте (~25 с на
+  инструмент на 2 ч записи, линейно с длиной записи; 8 инструментов × 2.3 ч = 3.5 мин):
+  `--watch N` спит N с **после** расчёта — для суточного каталога ставить сотни секунд, не 30;
+  страница сама перечитывает `data.json` раз в 30 с независимо от этого. `--h3-mode` здесь
+  единственный с умолчанием (`floor`): с `percentile` страница на 30-й минуте была бы пустой
+  (час прогрева). «Жив/нет» — по росту бинлогов между двумя расчётами: первый расчёт честно
+  печатает «не знаю», второй (или `--watch`) — ответ; `closed=true` — «остановлен». Блок
+  «Где мы» — статический текст в `dashboard.rs`, его правит таск, который меняет состояние
+  (гейт сдвинулся — обнови строку и дату). Сервер `tools/serve_dashboard.py` слушает только
+  127.0.0.1, порт свободный (печатается) или `--port`; страница открывается и с `file://`
+  (данные встроены в `index.html`, `fetch` тогда молча не работает)
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален
 - Bybit отдаёт `403` с части стран (CloudFront); с этой машины доступ есть
 
