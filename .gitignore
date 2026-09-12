@@ -7,3 +7,4 @@ target/
 *.orig
 *.rej
 .autopilot/*.pid
+.claude/worktrees/
