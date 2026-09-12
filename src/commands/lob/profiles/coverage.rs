@@ -20,7 +20,7 @@ struct PoolSymbolRow {
 
 /// Символы пула из `instruments.csv` корня (таск 08) — единственный читатель
 /// `pick::instruments_csv_reader`, терпит метку `debug` первой строкой.
-pub(super) fn read_pool_symbols(instruments_csv: &Path) -> anyhow::Result<Vec<String>> {
+pub(crate) fn read_pool_symbols(instruments_csv: &Path) -> anyhow::Result<Vec<String>> {
     let mut r = instruments_csv_reader(instruments_csv).map_err(|e| {
         anyhow::anyhow!(
             "{}: {e} — lob profiles читает пул из instruments.csv",

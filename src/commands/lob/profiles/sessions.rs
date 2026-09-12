@@ -20,13 +20,13 @@ use crate::lob::markout::MidSample;
 // функции — не `pub`, а зона этого таска не трогает файл watch.rs).
 // ---------------------------------------------------------------------------
 
-pub(super) fn read_verify_marker(path: &Path) -> bool {
+pub(crate) fn read_verify_marker(path: &Path) -> bool {
     std::fs::read_to_string(path)
         .map(|s| s.trim() == "ok")
         .unwrap_or(false)
 }
 
-pub(super) fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+pub(crate) fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let entries = std::fs::read_dir(root)
         .map_err(|e| anyhow::anyhow!("корень {} не читается: {e}", root.display()))?;
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -47,7 +47,7 @@ pub(super) fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
 /// С таска 23 сутки — по датированным частям каталога
 /// (`super::session_days_in_dir`), не по `started_utc` его `session.json`:
 /// каталог с частями за D и D+1 даёт обе даты.
-pub(super) fn distinct_session_days(dirs: &[PathBuf]) -> Vec<String> {
+pub(crate) fn distinct_session_days(dirs: &[PathBuf]) -> Vec<String> {
     let mut days: BTreeSet<String> = BTreeSet::new();
     for dir in dirs {
         days.extend(session_days_in_dir(dir));

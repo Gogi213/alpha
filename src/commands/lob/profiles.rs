@@ -152,18 +152,26 @@ mod sessions;
 mod table;
 
 pub use accumulate::{FillModel, NoFillModel};
-pub(crate) use axes::{distance_bps_at_birth, distance_bucket, lifetime_bucket, size_bucket};
-pub(crate) use table::format_window_line;
+pub(crate) use axes::{
+    distance_bps_at_birth, distance_bucket, hour_utc_of_ms, lifetime_bucket, size_bucket,
+};
+// Таск 37: `lob touch-profiles` читает тот же каталог сессий тем же кодом
+// (пул, маркер сверки, подкаталоги, сутки для окна, метка режима `H3`) —
+// ре-экспорт с видимостью крейта, сами функции не менялись.
+pub(crate) use coverage::read_pool_symbols;
+pub(crate) use sessions::{distinct_session_days, read_verify_marker, session_dirs};
+pub(crate) use table::{format_window_line, h3_mode_label};
 
 use accumulate::{accumulate_level, DayIndex, ProfileAgg};
-use coverage::{read_coverage, read_pool_symbols};
-use sessions::{distinct_session_days, read_verify_marker, replay_one_session_day, session_dirs};
-use table::{default_out_path, h3_mode_label, write_row, HEADER};
+use coverage::read_coverage;
+use sessions::replay_one_session_day;
+use table::{default_out_path, write_row, HEADER};
 
 /// Seed совместного бутстрапа (`net_fill_interval`) — то же число, с которым
 /// уже вызывает его боевой пилот (`commands::lob::pilot::run_pilot_battle`):
-/// не второе изобретённое, а то же самое, напечатанное в шапке.
-const BOOTSTRAP_SEED: u64 = 0;
+/// не второе изобретённое, а то же самое, напечатанное в шапке. Профили
+/// касаний (таск 37) берут его отсюда — один seed на обе таблицы.
+pub(crate) const BOOTSTRAP_SEED: u64 = 0;
 
 // ---------------------------------------------------------------------------
 // CLI.

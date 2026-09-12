@@ -47,7 +47,7 @@ pub(crate) fn format_window_line(
     ))
 }
 
-pub(super) fn h3_mode_label(mode: H3ModeArg) -> &'static str {
+pub(crate) fn h3_mode_label(mode: H3ModeArg) -> &'static str {
     match mode {
         H3ModeArg::Floor => "floor",
         H3ModeArg::Percentile => "percentile",

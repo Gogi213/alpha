@@ -57,7 +57,7 @@ pub(crate) fn distance_bps_at_birth(mids: &[MidSample], rec: &LevelRecord) -> Op
 /// что метка до эпохи (в данных не бывает, но арифметика не имеет права
 /// зависеть от этого) не даёт отрицательного часа. Часовых поясов здесь нет
 /// вовсе: биржа отдаёт UTC, и весь проект живёт в UTC.
-pub(super) fn hour_utc_of_ms(ts_ms: i64) -> u32 {
+pub(crate) fn hour_utc_of_ms(ts_ms: i64) -> u32 {
     const MS_PER_HOUR: i64 = 3_600_000;
     const HOURS_PER_DAY: i64 = 24;
     let hour = ts_ms.div_euclid(MS_PER_HOUR).rem_euclid(HOURS_PER_DAY);

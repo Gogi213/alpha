@@ -25,8 +25,15 @@
 //!
 //! Все функции чистые, без ввода-вывода и без аллокаций; метки — `&'static
 //! str`, чтобы таблица дашборда и CSV профилей печатали одно и то же слово.
+//!
+//! Сетка профилей касаний (таск 37, `lob touch-profiles`) — тоже здесь,
+//! [`touch_profile_grid`]: маргиналы девяти осей плюс один крест исход ×
+//! возраст, на каждый инструмент пула и на пул целиком; её длина — число
+//! испытаний, которое идёт в `runs.csv` (В-44: «сумма корзин маргиналов +
+//! крест»). Полного креста осей нет и не будет — тот же принцип, что у
+//! сетки смертей (В-18/D03).
 
-use crate::lob::shortlist::DISTANCE_BOUNDS_BPS;
+use crate::lob::shortlist::{DISTANCE_BOUNDS_BPS, LIFETIME_LABELS, SIDE_LABELS, SIZE_LABELS};
 
 // ---------------------------------------------------------------------------
 // Возраст уровня на момент касания
@@ -198,6 +205,79 @@ pub fn touch_outcome(ended_by_death: bool) -> &'static str {
     } else {
         TOUCH_OUTCOME_LABELS[0]
     }
+}
+
+// ---------------------------------------------------------------------------
+// Сетка профилей касаний (таск 37)
+// ---------------------------------------------------------------------------
+
+/// Девять осей касания В-44 в фиксированном порядке — имя оси в id профиля
+/// и её корзины. Единственный перечень: из него строится сетка
+/// (`touch_profile_grid`), по нему же считается её длина
+/// (`touch_grid_size`) — число испытаний не назначается отдельным числом.
+/// Сторона, размер и длительность — те же метки, что у смертей
+/// (`shortlist::SIDE_LABELS`/`SIZE_LABELS`/`LIFETIME_LABELS`, В-44).
+pub const TOUCH_AXES: [(&str, &[&str]); 9] = [
+    ("side", &SIDE_LABELS),
+    ("size", &SIZE_LABELS),
+    ("age", &AGE_LABELS),
+    ("frontrun", &FRONTRUN_LABELS),
+    ("round", &ROUND_LABELS),
+    ("index", &TOUCH_INDEX_LABELS),
+    ("approach", &APPROACH_LABELS),
+    ("duration", &LIFETIME_LABELS),
+    ("outcome", &TOUCH_OUTCOME_LABELS),
+];
+
+/// Область «весь пул» в id профиля касания — рядом с областями-инструментами.
+pub const POOL_SCOPE: &str = "pool";
+
+/// Id маргинала: `<область>:marginal:<ось>=<корзина>`, область — символ
+/// инструмента или [`POOL_SCOPE`].
+pub fn touch_marginal_id(scope: &str, axis: &str, label: &str) -> String {
+    format!("{scope}:marginal:{axis}={label}")
+}
+
+/// Id клетки единственного креста исход × возраст:
+/// `<область>:cross:<исход>|<возраст>` (В-44: «главный тезис практиков —
+/// старая плотность отскакивает»).
+pub fn touch_cross_id(scope: &str, outcome: &str, age: &str) -> String {
+    format!("{scope}:cross:{outcome}|{age}")
+}
+
+/// Сетка профилей касаний: для пула целиком и для каждого инструмента —
+/// маргинал на каждую корзину каждой из девяти осей плюс крест исход ×
+/// возраст (`TOUCH_OUTCOME_LABELS` × `AGE_LABELS`). Порядок — по возрастанию
+/// строки, без повторов (детерминирован, как `shortlist::build_profile_grid`).
+/// Пустой пул даёт только область `pool`.
+pub fn touch_profile_grid(symbols: &[String]) -> Vec<String> {
+    let mut scopes: Vec<&str> = vec![POOL_SCOPE];
+    scopes.extend(symbols.iter().map(String::as_str));
+    let mut out = Vec::with_capacity(scopes.len() * touch_grid_size(0));
+    for scope in scopes {
+        for (axis, labels) in TOUCH_AXES {
+            for label in labels {
+                out.push(touch_marginal_id(scope, axis, label));
+            }
+        }
+        for outcome in TOUCH_OUTCOME_LABELS {
+            for age in AGE_LABELS {
+                out.push(touch_cross_id(scope, outcome, age));
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Длина сетки для `n_instruments` инструментов — из длин самих массивов
+/// корзин, не отдельным числом: `(Σ корзин осей + клеток креста) ×
+/// (n_instruments + 1)`; для пула из десяти — `(26 + 6) × 11 = 352`.
+pub fn touch_grid_size(n_instruments: usize) -> usize {
+    let marginals: usize = TOUCH_AXES.iter().map(|(_, labels)| labels.len()).sum();
+    let cross = TOUCH_OUTCOME_LABELS.len() * AGE_LABELS.len();
+    (marginals + cross) * (n_instruments + 1)
 }
 
 /// `i64` лотов → `f64` для доли: единственный каст модуля, вне горячего пути.

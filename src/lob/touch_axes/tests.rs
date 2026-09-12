@@ -102,3 +102,57 @@ fn touch_outcome_is_bounced_unless_the_level_died() {
     assert_eq!(touch_outcome(true), "eaten");
     assert_eq!(TOUCH_OUTCOME_LABELS, ["bounced", "eaten"]);
 }
+
+/// Сетка профилей касаний (таск 37): на каждую область — пул и каждый
+/// инструмент — по маргиналу на корзину каждой из девяти осей плюс крест
+/// исход × возраст; длина — из длин массивов корзин, для десяти
+/// инструментов `(26 + 6) × 11 = 352`; порядок детерминирован, повторов нет.
+#[test]
+fn touch_profile_grid_has_marginals_and_the_outcome_age_cross_per_scope() {
+    let symbols = vec!["ZECUSDT".to_string(), "SOLUSDT".to_string()];
+    let grid = touch_profile_grid(&symbols);
+    assert_eq!(grid.len(), touch_grid_size(2));
+    assert_eq!(
+        touch_grid_size(0),
+        32,
+        "26 корзин девяти осей + 6 клеток креста"
+    );
+    assert_eq!(touch_grid_size(10), 352);
+    let mut sorted = grid.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(grid, sorted, "по возрастанию, без повторов");
+    for scope in ["pool", "SOLUSDT", "ZECUSDT"] {
+        for (axis, labels) in TOUCH_AXES {
+            for label in labels {
+                let id = touch_marginal_id(scope, axis, label);
+                assert!(grid.contains(&id), "нет маргинала {id}");
+            }
+        }
+        for outcome in TOUCH_OUTCOME_LABELS {
+            for age in AGE_LABELS {
+                let id = touch_cross_id(scope, outcome, age);
+                assert!(grid.contains(&id), "нет клетки {id}");
+            }
+        }
+    }
+    assert_eq!(
+        touch_marginal_id("pool", "side", "bid"),
+        "pool:marginal:side=bid"
+    );
+    assert_eq!(
+        touch_cross_id("ZECUSDT", "bounced", "[1h,inf)"),
+        "ZECUSDT:cross:bounced|[1h,inf)"
+    );
+    assert_eq!(
+        touch_profile_grid(&[]).len(),
+        touch_grid_size(0),
+        "пустой пул — только область pool"
+    );
+    let axes: Vec<&str> = TOUCH_AXES.iter().map(|(a, _)| *a).collect();
+    assert_eq!(
+        axes,
+        ["side", "size", "age", "frontrun", "round", "index", "approach", "duration", "outcome"],
+        "девять осей В-44 в фиксированном порядке"
+    );
+}

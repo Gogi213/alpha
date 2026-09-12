@@ -23,10 +23,10 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 665 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 680 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 18 подкоманд, таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
@@ -56,7 +56,7 @@ src/
   feed/        trait Feed; replay (бинлог), live (N сокетов, один ОС-поток)
   lob/         чистая логика: levels, markout, costs, cells, shortlist, final_metrics, watch,
                strategy (единственная стратегия), runs, export, markup,
-               touch_axes (корзины осей касаний В-44 — единственное место, T36/T37)
+               touch_axes (корзины осей касаний В-44 и сетка профилей касаний — единственное место, T36/T37)
   stats/       bootstrap-t на весах Уэбба
   commands/
     record.rs              Recorder, run_record; record/{errors,gaps,paths,steps}
@@ -68,6 +68,7 @@ src/
     lob/profiles.rs        run_profiles; profiles/{axes,accumulate,coverage,sessions,table}
     lob/dashboard.rs       данные страницы (уровни + блок касаний, T36); dashboard_page.html — сама страница (include_str!)
     lob/touches.rs         run_touches — касания живых уровней → touches-<SYMBOL>.csv (T35, В-42)
+    lob/touch_profiles.rs  run_touch_profiles — профили касаний → docs/findings/touch-profiles-<дата>.csv (T37, В-44)
     lob/pick/, react.rs, power.rs, backtest.rs, shortlist.rs, watch.rs, …
 ```
 
@@ -86,7 +87,11 @@ markout от среза как есть на `start_ms` со знаком «в �
 G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **реальные ордера**.
 `lob dashboard` → `index.html` + `data.json` (с T36 — блок «Касания: цена дошла до плотности»: исход
 отскочила/проели на касании с `m` «в сторону отскока», оси В-44 из `lob::touch_axes`, крест исход × возраст,
-метки касаний на картине часа; касания — из `ReplayDay.touches` того же реплея).
+метки касаний на картине часа; касания — из `ReplayDay.touches` того же реплея). `lob touch-profiles` (T37) →
+`docs/findings/touch-profiles-<дата>.csv`: маргиналы девяти осей В-44 + крест исход × возраст по пулу и по
+инструменту, `m` «в сторону отскока» с интервалом по суткам (без `net`/`net_fill` — они у сделки-отскока,
+T38), число испытаний (`(26 + 6) × (инструментов + 1)`) — строками `runs.csv`; `--root` — корень сессий
+или сам каталог сессии.
 
 Состояние: боевой пул `instruments.csv` — SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI
 (`k = 1.0` — заглушка, В-30). Идущий олвейс-он `data/always-on/20260912T122440Z/` пишет **старую

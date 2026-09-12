@@ -445,6 +445,7 @@ fn lob_help_lists_all_subcommands() {
         "record",
         "session",
         "shortlist",
+        "touch-profiles",
         "touches",
         "verify",
         "watch",

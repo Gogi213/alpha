@@ -230,6 +230,32 @@ pub fn log_pilot_run(
     )
 }
 
+/// Профили касаний (таск 37, В-44): по строке на каждый id сетки
+/// `lob::touch_axes::touch_profile_grid` — испытание, как и профиль сетки
+/// смертей (`shortlist::log_profile_trials`, тот же `RunKind::Confirmatory`,
+/// тот же счёт `count_trials`), чтобы DSR в шортлисте видел и эти
+/// испытания. Деталь — `touch_profile <id>`: отличима от `profile <id>`
+/// смертей по префиксу, число строк — длина сетки. Журнал, не перезапись:
+/// повторный прогон дописывает вторую партию строк.
+pub fn log_touch_profile_trials(
+    path: &Path,
+    ts_utc: &str,
+    ids: &[String],
+) -> Result<(), RunsError> {
+    for id in ids {
+        append_run_row(
+            path,
+            &RunRow {
+                ts_utc: ts_utc.to_string(),
+                symbol: String::new(),
+                kind: RunKind::Confirmatory,
+                detail: format!("touch_profile {id}"),
+            },
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +384,30 @@ mod tests {
         assert_eq!(rows[0].kind, RunKind::Pilot);
         assert_eq!(rows[0].symbol, "SOLUSDT");
         assert_eq!(trials_from_runs_csv(&path), Some(1));
+    }
+
+    /// Профили касаний (таск 37): строка на id сетки, каждая — испытание;
+    /// повторный вызов дописывает вторую партию, не перезаписывает первую.
+    #[test]
+    fn touch_profile_trials_append_one_confirmatory_row_per_id_and_accumulate() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runs.csv");
+        let ids = vec![
+            "pool:marginal:side=bid".to_string(),
+            "pool:cross:bounced|[0,10m)".to_string(),
+        ];
+        log_touch_profile_trials(&path, "2026-09-13T00:00:00Z", &ids).unwrap();
+        let rows = read_run_rows(&path).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.kind == RunKind::Confirmatory));
+        assert_eq!(rows[0].detail, "touch_profile pool:marginal:side=bid");
+        assert_eq!(rows[1].detail, "touch_profile pool:cross:bounced|[0,10m)");
+        assert_eq!(trials_from_runs_csv(&path), Some(2));
+        log_touch_profile_trials(&path, "2026-09-13T01:00:00Z", &ids).unwrap();
+        assert_eq!(
+            trials_from_runs_csv(&path),
+            Some(4),
+            "журнал, не перезапись"
+        );
     }
 }
