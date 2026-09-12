@@ -1,26 +1,48 @@
-//! `lob session` — сессия по всему пулу одновременно (таск 04, история 7).
+//! `lob session` — сессия по всему пулу одновременно (таск 04, история 7)
+//! и олвейс-он коллектор (таск 25, В-34: «повесить олвейсон коллектор, но
+//! супер экономный»).
 //!
 //! Тонкая оболочка поверх `feed::live::LiveFeed`: сама сессия не решает,
-//! откуда идут события — она держит `&mut dyn Feed` и не отличила бы живой
-//! сокет от `feed::replay::ReplayFeed`, если бы получила его вместо (это и
-//! есть критерий приёмки «вызывающий код не различает», `interfaces.md`).
-//! Один поток решений читает `Feed::next_event()` в цикле, без `async`,
-//! без `tokio` в этой функции — только вызов, который сам блокируется на
-//! канале (`ARCHITECTURE.md` A3).
+//! откуда идут события — ядро `run_session_loop` держит `&mut dyn Feed` и
+//! не отличило бы живой сокет от `feed::replay::ReplayFeed`, если бы
+//! получило его вместо (это и есть критерий приёмки «вызывающий код не
+//! различает», `interfaces.md`; тесты этого файла кормят ядро сценарным
+//! `Feed`). Один поток решений читает `Feed::next_event()` в цикле, без
+//! `async`, без `tokio` в этой функции — только вызов, который сам
+//! блокируется на канале (`ARCHITECTURE.md` A3).
+//!
+//! Периодика (таск 25) — **по таймеру рантайма, не по приходу события**:
+//! живой `Feed` шлёт `Event::Tick` раз в `record::FRAME_LOSS_WINDOW_SECS`
+//! даже при полном молчании пула; на тике сбрасываются накопленные кадры
+//! (окно потери при крахе — этот же период), раз в
+//! `record::HOURLY_REFRESH_SECS` переписывается `session.json` и печатается
+//! одна строка сводки. Остановка — `None` от `Feed` (Ctrl+C через
+//! `feed::live::StopHandle`, тот же путь, что сигнал-заменитель в тестах).
+//! Сутки UTC — новая часть `<SYMBOL>-<день>.binlog` через `record::
+//! claim_part_with`, первым кадром — синтетический снапшот книги, как у
+//! `lob record`.
 
+use std::fs::File;
+use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clap::Args;
 
-use crate::binlog::{Header, Record, Writer};
-use crate::book::Side;
+use crate::binlog::{Record, Writer};
+use crate::book::{Book, Side};
 use crate::bybit::clock::{append_row, sample, BybitServerTimeSource, ClockRow, UdpNtpSource};
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::bybit::rest::BYBIT_MAINNET_URL;
-use crate::commands::record::{append_gap_row, ensure_gaps_csv, gaps_csv_path, GapKind, GapRow};
+use crate::commands::record::{
+    append_gap_row, claim_part_with, day_string_of_ns, ensure_gaps_csv, event_exch_ms,
+    gaps_csv_path, ts_utc_of_ns, GapKind, GapRow, FRAME_LOSS_WINDOW_SECS, FRAME_TARGET_RECORDS,
+    HOURLY_REFRESH_SECS, NS_PER_DAY,
+};
 use crate::feed::live::{LiveFeed, PoolMember};
-use crate::feed::{Event, Feed};
+use crate::feed::{Event, Feed, GapKind as FeedGapKind};
 
 /// Граница `--minutes` — брифу владельца дословно: «данные набираются
 /// короткими сессиями — от пяти до пятнадцати минут по всему пулу
@@ -60,18 +82,26 @@ pub struct SessionArgs {
     /// Длина сессии сбора. Диапазон `MIN_MINUTES..=MAX_MINUTES` — решение
     /// владельца (история 7), не умолчание этого файла; `resolve_duration`
     /// отклоняет значения вне него до всякой сети. Взаимоисключающий с
-    /// `--pilot-minutes` (`clap conflicts_with`); ровно один из двух
-    /// обязателен — эту половину условия clap не выражает, её проверяет
-    /// `resolve_duration`.
-    #[arg(long, conflicts_with = "pilot_minutes")]
+    /// `--pilot-minutes`/`--always-on` (`clap conflicts_with`); ровно один
+    /// из трёх обязателен — эту половину условия clap не выражает, её
+    /// проверяет `resolve_duration`.
+    #[arg(long, conflicts_with_all = ["pilot_minutes", "always_on"])]
     pub minutes: Option<u64>,
     /// Длина пилота §11 плана, минуты — режим вне лимита сессии сбора
     /// (`MIN_PILOT_MINUTES..=MAX_PILOT_MINUTES`, doc констант). Пилот
     /// печатает `pilot: <n> мин` в stderr и несёт `session.json.pilot =
     /// true`, `pilot_minutes = <n>` — всё остальное (пул, `gaps.csv`,
     /// `clock.csv`, CPU/RSS, p99 разбора/очереди) как у обычной сессии.
-    #[arg(long, conflicts_with = "minutes")]
+    #[arg(long, conflicts_with_all = ["minutes", "always_on"])]
     pub pilot_minutes: Option<u32>,
+    /// Олвейс-он коллектор (таск 25, В-34): без дедлайна, до Ctrl+C;
+    /// новые сутки UTC — новая часть файла на инструмент; `session.json` и
+    /// `clock.csv` переписываются раз в час (`record::HOURLY_REFRESH_SECS`)
+    /// и на остановке. `session.json.always_on = true`. Сам по себе ничего
+    /// не ограничивает по времени — правило владельца «не дольше 5 минут до
+    /// вердикта экономии» соблюдает оператор (`timeout`/Ctrl+C).
+    #[arg(long, conflicts_with_all = ["minutes", "pilot_minutes"])]
+    pub always_on: bool,
     /// REST-хост Bybit v5 для одного замера `serverTime` в `clock.csv`.
     #[arg(long, default_value = BYBIT_MAINNET_URL)]
     pub base_url: String,
@@ -82,27 +112,39 @@ pub struct SessionArgs {
     pub ntp_addr: String,
 }
 
-/// Ровно один из `--minutes`/`--pilot-minutes` — `clap conflicts_with`
-/// запрещает оба разом, но не делает ни один обязательным сам по себе (оба
-/// `Option`, оба флага так или иначе опциональны для парсера); эта функция
-/// закрывает вторую половину условия и проверяет диапазон до сети и диска
-/// (тот же приём, что раньше был инлайн-проверкой `--minutes` в начале
-/// `run_session`). Возвращает `(длина в минутах, Some(n) — если пилот)`.
-fn resolve_duration(args: &SessionArgs) -> anyhow::Result<(u64, Option<u32>)> {
-    match (args.minutes, args.pilot_minutes) {
-        (Some(_), Some(_)) => {
-            unreachable!("clap conflicts_with запрещает --minutes и --pilot-minutes разом")
-        }
-        (Some(minutes), None) => {
+/// Режим прогона, разрешённый из трёх взаимоисключающих флагов.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionPlan {
+    /// `--minutes` (сессия сбора) или `--pilot-minutes` (пилот §11):
+    /// дедлайн через `minutes`.
+    Timed {
+        minutes: u64,
+        pilot_minutes: Option<u32>,
+    },
+    /// `--always-on`: без дедлайна, до `None` от `Feed` (Ctrl+C).
+    AlwaysOn,
+}
+
+/// Ровно один из `--minutes`/`--pilot-minutes`/`--always-on` — `clap
+/// conflicts_with` запрещает любые два разом, но не делает ни один
+/// обязательным сам по себе; эта функция закрывает вторую половину условия
+/// и проверяет диапазон до сети и диска (тот же приём, что раньше был
+/// инлайн-проверкой `--minutes` в начале `run_session`).
+fn resolve_duration(args: &SessionArgs) -> anyhow::Result<SessionPlan> {
+    match (args.minutes, args.pilot_minutes, args.always_on) {
+        (Some(minutes), None, false) => {
             if !(MIN_MINUTES..=MAX_MINUTES).contains(&minutes) {
                 anyhow::bail!(
                     "--minutes обязан быть в {MIN_MINUTES}..={MAX_MINUTES} (история 7, R38: «от \
                      пяти до пятнадцати минут»): получено {minutes}"
                 );
             }
-            Ok((minutes, None))
+            Ok(SessionPlan::Timed {
+                minutes,
+                pilot_minutes: None,
+            })
         }
-        (None, Some(pilot_minutes)) => {
+        (None, Some(pilot_minutes), false) => {
             if !(MIN_PILOT_MINUTES..=MAX_PILOT_MINUTES).contains(&pilot_minutes) {
                 anyhow::bail!(
                     "--pilot-minutes обязан быть в {MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES} \
@@ -110,11 +152,19 @@ fn resolve_duration(args: &SessionArgs) -> anyhow::Result<(u64, Option<u32>)> {
                      {pilot_minutes}"
                 );
             }
-            Ok((u64::from(pilot_minutes), Some(pilot_minutes)))
+            Ok(SessionPlan::Timed {
+                minutes: u64::from(pilot_minutes),
+                pilot_minutes: Some(pilot_minutes),
+            })
         }
-        (None, None) => anyhow::bail!(
-            "нужен ровно один флаг: --minutes <{MIN_MINUTES}..={MAX_MINUTES}> для сессии сбора \
-             или --pilot-minutes <{MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES}> для пилота §11"
+        (None, None, true) => Ok(SessionPlan::AlwaysOn),
+        (None, None, false) => anyhow::bail!(
+            "нужен ровно один флаг: --minutes <{MIN_MINUTES}..={MAX_MINUTES}> для сессии сбора, \
+             --pilot-minutes <{MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES}> для пилота §11 или \
+             --always-on для олвейс-он коллектора (В-34)"
+        ),
+        _ => unreachable!(
+            "clap conflicts_with запрещает --minutes/--pilot-minutes/--always-on разом"
         ),
     }
 }
@@ -154,14 +204,163 @@ fn load_pool(path: &Path) -> anyhow::Result<Vec<PoolMember>> {
     Ok(pool)
 }
 
+/// Приёмник файла части (таск 25): кадр целиком копится здесь и уходит на
+/// диск **одним** `write_all` по `flush` — файл на диске всегда кончается
+/// на границе кадра (кроме краха посреди самого системного вызова), и
+/// анализ по накопленному (`verify`/`levels`/`markout` читают живой
+/// каталог, а их `Reader` на обрезанном кадре отдаёт `ShortRead`, не
+/// «до последнего полного») видит только целые кадры. `BufWriter` таска 24
+/// этого не давал: его буфер переполнялся посреди кадра и оставлял на диске
+/// длину без тела до следующего сброса. Цена та же — один системный вызов
+/// на кадр; ёмкость буфера — по факту первых кадров, дальше не растёт.
+pub(crate) struct FrameSink {
+    file: Box<dyn SinkFile>,
+    buf: Vec<u8>,
+    bytes_written: u64,
+    /// Запись упала **и** откат к границе кадра не удался: с этого места
+    /// файл нечитаем (`Reader` отдаст `ShortRead`), приёмник больше ничего
+    /// не пишет — вызывающий закрывает часть и берёт следующую
+    /// (`SessionCtx::flush_symbol`).
+    boundary_lost: bool,
+}
+
+/// Файл под `FrameSink`: `File` в бою, двойник с падающей записью в
+/// тестах. Сверх `Write` — одна операция: вернуть файл на границу
+/// последнего целого кадра после неудавшейся записи.
+pub(crate) trait SinkFile: std::io::Write {
+    /// Обрезать файл до `len` байт и поставить курсор на этот конец
+    /// (`set_len` один курсор не двигает: следующая запись за старым EOF
+    /// дописала бы нули).
+    fn truncate_to(&mut self, len: u64) -> std::io::Result<()>;
+}
+
+impl SinkFile for File {
+    fn truncate_to(&mut self, len: u64) -> std::io::Result<()> {
+        self.set_len(len)?;
+        self.seek(SeekFrom::Start(len)).map(|_| ())
+    }
+}
+
+/// Самый крупный кадр этой сессии: порог батча плюс самое крупное
+/// сообщение (снапшот 50+50 — 128 с запасом, см. `SymbolState::scratch`) —
+/// то же слагаемое, что у ёмкости `batch`; синтетический снапшот ротации
+/// (≤ 256 записей) заведомо меньше.
+const SESSION_MAX_FRAME_RECORDS: usize = FRAME_TARGET_RECORDS + 128;
+
+impl FrameSink {
+    pub(crate) fn new(file: File) -> Self {
+        Self::over(Box::new(file))
+    }
+
+    /// Приёмник над любым `SinkFile` — шов для теста с падающей записью.
+    pub(crate) fn over(file: Box<dyn SinkFile>) -> Self {
+        Self {
+            file,
+            // Резерв по верхней границе формата один раз — иначе первый же
+            // кадр крупнее всех предыдущих перевыделял бы буфер посреди
+            // прогона (гейт «ноль аллокаций после прогрева»).
+            buf: Vec::with_capacity(crate::binlog::max_frame_bytes_on_disk(
+                SESSION_MAX_FRAME_RECORDS,
+            )),
+            bytes_written: 0,
+            boundary_lost: false,
+        }
+    }
+
+    /// Байт ушло на диск через этот приёмник (заголовок включительно).
+    pub(crate) fn bytes_written(&self) -> u64 {
+        self.bytes_written
+    }
+
+    /// См. поле `boundary_lost`.
+    pub(crate) fn boundary_lost(&self) -> bool {
+        self.boundary_lost
+    }
+}
+
+impl std::io::Write for FrameSink {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    /// Кадр — одним `write_all`. Ошибка: буфер пустеет в любом исходе
+    /// (вызывающий уже считает кадр потерянным, повтор смешал бы порядок),
+    /// а файл откатывается на `bytes_written` — границу последнего целого
+    /// кадра: частичная запись оставила бы на диске обрывок, и следующий
+    /// кадр, дописанный следом, сделал бы часть нечитаемой с этого места
+    /// (`ShortRead`). Если и откат не удался — `boundary_lost`, дальше
+    /// приёмник ничего не пишет.
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.boundary_lost {
+            self.buf.clear();
+            return Err(std::io::Error::other(
+                "граница кадра потеряна — часть закрыта, нужна следующая",
+            ));
+        }
+        if self.buf.is_empty() {
+            return self.file.flush();
+        }
+        let len = self.buf.len() as u64;
+        let written = self
+            .file
+            .write_all(&self.buf)
+            .and_then(|()| self.file.flush());
+        self.buf.clear();
+        match written {
+            Ok(()) => {
+                self.bytes_written += len;
+                Ok(())
+            }
+            Err(e) => match self.file.truncate_to(self.bytes_written) {
+                Ok(()) => Err(e),
+                Err(t) => {
+                    self.boundary_lost = true;
+                    Err(std::io::Error::new(
+                        e.kind(),
+                        format!("{e}; откат к границе кадра не удался: {t}"),
+                    ))
+                }
+            },
+        }
+    }
+}
+
 /// Состояние одного инструмента пула: своя книга, свой файл. Индекс в этом
 /// `Vec` — тот же `symbol: u8`, которым `Feed` метит каждое событие
 /// (`interfaces.md`: тег события — не строка, лукап по строке на каждое
 /// событие был бы `HashMap` на пути события, запрет 7).
 struct SymbolState {
     member: PoolMember,
-    writer: Writer<std::io::BufWriter<std::fs::File>>,
+    writer: Writer<FrameSink>,
+    /// Номер части и индекс суток текущего файла (`ts / NS_PER_DAY`, как
+    /// `record::Recorder::day_index` — целочисленное деление на событие,
+    /// строка даты только на ротации).
+    part: u32,
+    day_index: i64,
+    /// Книга инструмента — ради синтетического снапшота первым кадром
+    /// новых суток (таск 25, как `record::Recorder::ensure_day` +
+    /// `on_snapshot`): без него файл суток начинался бы с дельт, и
+    /// `verify`/`levels` отбросили бы сутки целиком. Таск 24 снял вторую
+    /// книгу как лишнюю проверку — здесь она не проверка, а источник
+    /// первого кадра; `apply` на дельту — ноль аллокаций (гейт таска 24).
+    book: Book,
+    /// Книга доверена с последнего снапшота биржи (сброс на любом `Gap`
+    /// ресинка/переподключения).
+    synced: bool,
+    /// В текущем файле уже лежит первый кадр-снапшот; до него дельты и
+    /// сделки в файл не идут (`record::RecordError::NoSnapshot`, тот же
+    /// контракт) — иначе сутки нечитаемы.
+    has_snapshot: bool,
     records_written: u64,
+    /// Ротация суток не удалась (`claim_part_with`): следующая попытка не
+    /// раньше этой метки — окно `FRAME_LOSS_WINDOW_SECS`, чтобы отказ диска
+    /// не давал строку `gaps.csv` на каждое событие; до неё события новых
+    /// суток идут в текущую часть.
+    rotate_retry_after_ns: i64,
+    /// Кадров, которые не записались (таск 25): каждый — строка `gaps.csv`
+    /// `write_failed`, квант потери — до `FRAME_TARGET_RECORDS` записей.
+    frames_failed: u64,
     /// Скретч-буфер `write_market_event` — переиспользуется на каждое
     /// событие вместо `Vec::new()`, иначе горячий путь аллоцирует ровно там,
     /// где гейт GC требует ноль (`interfaces.md`, запрет 1; было ТУПИКОМ 1
@@ -173,14 +372,13 @@ struct SymbolState {
     /// `write_market_event` переносит `scratch` сюда через `Vec::append`
     /// (перемещение элементов, не копия — `scratch` пустеет, ёмкость цела) и
     /// пишет кадр `binlog::Writer`, только когда здесь накопилось
-    /// `FRAME_TARGET_RECORDS` записей или подошёл периодический сброс
-    /// (`FLUSH_INTERVAL_NS` в `run_session`). Раньше здесь писался кадр на
-    /// **каждое** сообщение (один `write_frame` + два `write_all` на голый
-    /// `File`) — `docs/findings/collector-2026-09-12.md`, «Замер до»: кадр
-    /// из 1–5 записей почти не сжимается, накладные кадра больше полезных
-    /// байт. Ёмкость с запасом на самое крупное сообщение (128 записей,
-    /// см. `scratch`) сверх порога — чтобы приход этого сообщения ровно на
-    /// границе порога не вызвал перевыделение до `flush_symbol_batch`.
+    /// `FRAME_TARGET_RECORDS` записей или пришёл тик (`Event::Tick`, окно
+    /// `FRAME_LOSS_WINDOW_SECS`). Раньше здесь писался кадр на **каждое**
+    /// сообщение — `docs/findings/collector-2026-09-12.md`, «Замер до»:
+    /// кадр из 1–5 записей почти не сжимается. Ёмкость с запасом на самое
+    /// крупное сообщение (128 записей, см. `scratch`) сверх порога — чтобы
+    /// приход этого сообщения ровно на границе порога не вызвал
+    /// перевыделение до `flush_symbol_batch`.
     batch: Vec<Record>,
 }
 
@@ -203,12 +401,22 @@ fn hftbacktest_flags(side: Side, is_snapshot: bool) -> u64 {
 /// суток дописывает свои части к уже существующим (`run_session` перечитывает
 /// прежний `session.json`, если он есть и разбирается) — тот же принцип
 /// «ничего не затирается», что уже применяет `record::claim_part` к самим
-/// бинлогам.
+/// бинлогам. Олвейс-он (таск 25) дописывает часть на каждой ротации суток.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BinlogPart {
     pub symbol: String,
     pub part: u32,
     pub started_utc: String,
+}
+
+/// Один замер ресурсов процесса (таск 25, ревью таска 24: ряд в артефакте,
+/// не в stderr). `cpu_pct` — `%` одного ядра между этим и предыдущим
+/// замером; `None` у первого (не с чем сравнить).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ResourceSample {
+    pub ts_utc: String,
+    pub rss_bytes: u64,
+    pub cpu_pct: Option<f64>,
 }
 
 /// Итог `lob session`: то, что печатается и что легло в запись о сессии.
@@ -219,6 +427,8 @@ pub struct BinlogPart {
 pub struct SessionSummary {
     pub started_utc: String,
     pub start_hour_utc: u32,
+    /// Фактическая длительность на момент записи файла (таск 25: у
+    /// олвейс-он растёт от часа к часу; у сессии сбора — окно целиком).
     pub duration_s: u64,
     pub instruments: Vec<String>,
     pub records_total: u64,
@@ -244,9 +454,9 @@ pub struct SessionSummary {
     /// Средний и максимальный CPU (% одного ядра) за сессию — гейт GC «CPU <
     /// 5% ядра суммарно» (`PLAN.md` 6.1). `avg` — по двум концевым замерам
     /// кумулятивного CPU-времени процесса (`sample_resources`, точно на всё
-    /// время сессии); `max` — по периодическим замерам раз в 30 с
-    /// (`spawn_resource_sampler`), тем же способом, что уже печатался в
-    /// stderr. `None`, если `sample_resources` недоступен на этой ОС.
+    /// время сессии); `max` — по периодическим замерам ряда `samples`
+    /// (`spawn_resource_sampler`: 30-с первый час, часовые дальше). `None`, если
+    /// `sample_resources` недоступен на этой ОС.
     pub cpu_pct_avg: Option<f64>,
     pub cpu_pct_max: Option<f64>,
     /// RSS в начале и в конце сессии, байты — гейт GC «RSS раз в 30 с,
@@ -255,26 +465,50 @@ pub struct SessionSummary {
     pub rss_bytes_start: Option<u64>,
     pub rss_bytes_end: Option<u64>,
     pub out: PathBuf,
-    /// `true`, пока `--minutes` держится в отладочной фазе (`< 3600` с —
+    /// `true`, пока `duration_s` держится в отладочной фазе (`< 3600` с —
     /// час, тот же порог, что `commands::lob::DEFAULT_REPEAT_WINDOW_MS`
     /// (3 600 000 мс) уже называет окном повторов, не второе изобретённое
-    /// число). Сегодня `MAX_MINUTES = 15` не даёт `duration_s` дорасти до
-    /// часа — поле всегда `true` на этой границе; `false` существует на
-    /// случай, если владелец поднимет потолок для боевого сбора (`CLAUDE.md`:
-    /// «любой тестовый прогон — не дольше 5 минут (фаза отладки, результат —
-    /// не данные)»).
+    /// число). У олвейс-он коллектора становится `false` с первого часа
+    /// (`CLAUDE.md`: «любой тестовый прогон — не дольше 5 минут (фаза
+    /// отладки, результат — не данные)»).
     pub debug: bool,
     /// Таск 22: `true`, когда сессия — пилот §11 (`--pilot-minutes`), не
-    /// сессия сбора (`--minutes`). Пилот на сегодняшнем решении владельца
-    /// (30 минут) остаётся `debug = false` только при длине ≥ 1 часа — на
-    /// коротком пилоте оба поля различаются по смыслу: `pilot` называет
-    /// режим CLI, `debug` — фазу проекта (`is_debug_session`), не одно и то
-    /// же измерение.
+    /// сессия сбора (`--minutes`). `pilot` называет режим CLI, `debug` —
+    /// фазу проекта (`is_debug_session`), не одно и то же измерение.
     #[serde(default)]
     pub pilot: bool,
     /// Длина пилота в минутах, если `pilot`; `None` у обычной сессии сбора.
     #[serde(default)]
     pub pilot_minutes: Option<u32>,
+    /// Таск 25: `true` у олвейс-он коллектора (`--always-on`).
+    #[serde(default)]
+    pub always_on: bool,
+    /// Переподключений транспорта за прогон (`Gap::Disconnected`) и ресинков
+    /// книги снапшотом (`Gap::SequenceGap`/`BookInvariant`) — таск 25: без
+    /// них сутки записи нечем оценить; каждый — строка `gaps.csv`.
+    #[serde(default)]
+    pub reconnects: u64,
+    #[serde(default)]
+    pub resyncs: u64,
+    /// Кадров, не записавшихся на диск (сумма по инструментам) — таск 25.
+    #[serde(default)]
+    pub frames_failed: u64,
+    /// Байт на диске по всем частям этого прогона (заголовки включительно)
+    /// — байт/мин и байт/запись считаются отсюда, не `du`.
+    #[serde(default)]
+    pub bytes_written: u64,
+    /// Момент этой записи файла (RFC 3339) и признак финальной: `closed =
+    /// false` у периодических (час, ротация), `true` — после остановки.
+    #[serde(default)]
+    pub updated_utc: String,
+    #[serde(default)]
+    pub closed: bool,
+    /// Ряд RSS/CPU (`spawn_resource_sampler`): раз в `RESOURCE_SAMPLE_SECS`
+    /// первый час, дальше раз в `HOURLY_REFRESH_SECS` (`resource_sample_
+    /// period`) — вердикт «плоский» стоит на этом ряду в артефакте (ревью
+    /// таска 24), и ряд не растёт без потолка на олвейс-он.
+    #[serde(default)]
+    pub samples: Vec<ResourceSample>,
     /// Части, записанные во все прогоны `lob session` в этот `--root`, по
     /// порядку появления (не по порядку чтения `session_binlog_for` — та
     /// сортирует по имени файла, эта хронология по факту вызовов). Пусто у
@@ -286,36 +520,59 @@ pub struct SessionSummary {
 
 /// Отладочная сессия — короче часа. Чистая функция от `duration_s`, а не
 /// прямая проверка `args.minutes < 60` внутри `run_session`: так у неё есть
-/// собственный тест на обе ветки (`< 3600` и `>= 3600`), даже пока
-/// `MAX_MINUTES = 15` не даёт второй ветке случиться через CLI.
+/// собственный тест на обе ветки (`< 3600` и `>= 3600`).
 fn is_debug_session(duration_s: u64) -> bool {
     const HOUR_S: u64 = 3600;
     duration_s < HOUR_S
 }
 
-/// Дописывает один часовой замер в `clock.csv` — best-effort: сеть (NTP,
-/// REST) недоступна вне событийного пути этой функции (A9), и провал
-/// замера не роняет сессию, только не даёт строки. Критерий приёмки — «не
-/// реже раза за сессию», поэтому вызывается один раз до цикла и один раз
-/// после.
-fn take_clock_sample(args: &SessionArgs, idx: u64, clock_csv: &Path) -> anyhow::Result<bool> {
-    let mut ntp = match UdpNtpSource::connect(args.ntp_addr.as_str(), Duration::from_secs(2)) {
+/// Дописывает один замер в `clock.csv` — best-effort: провал замера не
+/// роняет сессию, только не даёт строки. Сеть (NTP, REST) — **не** в
+/// событийном цикле (A9, запрет 4): зовётся из `spawn_clock_sampler` (свой
+/// ОС-поток, раз в `HOURLY_REFRESH_SECS`) и один раз после цикла.
+fn take_clock_sample(ntp_addr: &str, base_url: &str, idx: u64, clock_csv: &Path) -> bool {
+    let mut ntp = match UdpNtpSource::connect(ntp_addr, Duration::from_secs(2)) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("session: clock — NTP {} недоступен: {e:?}", args.ntp_addr);
-            return Ok(false);
+            eprintln!("session: clock — NTP {ntp_addr} недоступен: {e:?}");
+            return false;
         }
     };
-    let mut bybit = match BybitServerTimeSource::new(args.base_url.clone()) {
+    let mut bybit = match BybitServerTimeSource::new(base_url.to_string()) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("session: clock — Bybit serverTime недоступен: {e:?}");
-            return Ok(false);
+            return false;
         }
     };
     let row: ClockRow = sample(idx, &SystemClock, &mut ntp, &mut bybit);
-    append_row(clock_csv, &row).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    Ok(true)
+    match append_row(clock_csv, &row) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("session: clock.csv не дописался: {e:?}");
+            false
+        }
+    }
+}
+
+/// Часовой замер `clock.csv` в своём ОС-потоке (таск 25): первый — сразу,
+/// дальше раз в `HOURLY_REFRESH_SECS` (тот же часовой таймер, что у
+/// `lob record` — «`clock.csv` (шаг 0.5)», doc константы). Счётчик удачных
+/// строк — наружу атомиком; поток не присоединяется, живёт до конца
+/// процесса, как сэмплер ресурсов.
+fn spawn_clock_sampler(
+    ntp_addr: String,
+    base_url: String,
+    clock_csv: PathBuf,
+    count: Arc<AtomicU64>,
+) {
+    std::thread::spawn(move || loop {
+        let idx = count.load(Ordering::Relaxed);
+        if take_clock_sample(&ntp_addr, &base_url, idx, &clock_csv) {
+            count.fetch_add(1, Ordering::Relaxed);
+        }
+        std::thread::sleep(Duration::from_secs(HOURLY_REFRESH_SECS));
+    });
 }
 
 /// Час старта UTC (история 8, `R41`) — колонка запись о сессии обязана
@@ -329,51 +586,47 @@ fn hour_utc_of_ns(ts_ns: i64) -> u32 {
 }
 
 /// Открывает файл части символа под `root` на сутки `day`: следующий
-/// свободный номер (`record::claim_part`, тот же поиск, что уже ротирует
-/// `lob record`), ничего не затирает — вторая сессия тех же суток получает
-/// `-p2`, не перезаписывает первую (таск 22, критерий 2). Раньше
-/// (`session_binlog_path`, до таска 22) сессия всегда писала часть 1 жёстко
-/// — единственный прогон суток был допущением, которое владелец снял
-/// (В-32: «одна-две сессии в сутки»). Вынесена из `run_session`, чтобы сам
-/// механизм открытия проверялся без сети (`run_session` берёт `Feed` из
-/// живого сокета, тестам сеть недоступна, `CLAUDE.md`).
-/// То же имя и та же политика номера части, что `commands::record::
-/// claim_part` (первая свободная часть суток, ничего не затирается) — но
-/// поверх `BufWriter`, не голого `File` (таск 24, критерий «`File` за
-/// `BufWriter`»): `claim_part` возвращает `Writer<File>` и делить его общую
-/// с `lob record` реализацию ради типа буфера значило бы менять зону
-/// `record.rs` сверх «переиспользовать константы батчинга», поэтому здесь —
-/// тот же поиск свободного номера заново, на пяти строках, а не другая
-/// политика.
+/// свободный номер через `record::claim_part_with` (таск 25 — один цикл
+/// поиска на `lob record` и `lob session`, приёмник — `FrameSink`), ничего
+/// не затирает — вторая сессия тех же суток получает `-p2`, не
+/// перезаписывает первую (таск 22, критерий 2).
 fn claim_symbol_binlog(
     root: &Path,
     symbol: &str,
     day: &str,
     tick_e9: i64,
     step_e9: i64,
-) -> anyhow::Result<(Writer<std::io::BufWriter<std::fs::File>>, u32)> {
-    let mut part: u32 = 1;
-    loop {
-        let path = crate::commands::record::day_file_path(root, symbol, day, part);
-        if !path.exists() {
-            let file = std::fs::File::create(&path)?;
-            let header = Header {
-                tick_e9,
-                step_e9,
-                max_records_per_frame: crate::commands::record::MAX_RECORDS_PER_FRAME,
-            };
-            let writer = Writer::create(
-                std::io::BufWriter::new(file),
-                header,
-                crate::commands::record::ZSTD_LEVEL,
-            )
-            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            return Ok((writer, part));
-        }
-        part = part
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("{symbol}: слишком много частей суток {day}"))?;
-    }
+) -> anyhow::Result<(Writer<FrameSink>, u32)> {
+    claim_part_with(root, symbol, day, 1, tick_e9, step_e9, FrameSink::new)
+        .map_err(|e| anyhow::anyhow!("{symbol}: {e}"))
+}
+
+fn open_symbol_state(root: &Path, member: &PoolMember, day: &str) -> anyhow::Result<SymbolState> {
+    let (writer, part) =
+        claim_symbol_binlog(root, &member.symbol, day, member.tick_e9, member.step_e9)?;
+    let day_index = crate::commands::record::day_index_of_day_str(day)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", member.symbol))?;
+    Ok(SymbolState {
+        member: member.clone(),
+        writer,
+        part,
+        day_index,
+        book: Book::new(member.tick_e9, member.step_e9),
+        synced: false,
+        has_snapshot: false,
+        records_written: 0,
+        rotate_retry_after_ns: i64::MIN,
+        frames_failed: 0,
+        // 50 бид + 50 аск — самый крупный кадр потока (`orderbook.50`
+        // снапшот); запас, чтобы `.push` внутри `write_market_event`
+        // не перевыделял на первом же снапшоте.
+        scratch: Vec::with_capacity(128),
+        // `FRAME_TARGET_RECORDS` плюс тот же запас на самое крупное
+        // сообщение — `Vec::append` из `scratch` не перевыделяет, даже
+        // если порог пересечён ровно этим сообщением (флаш случится
+        // сразу после, но до него длина временно больше порога).
+        batch: Vec::with_capacity(SESSION_MAX_FRAME_RECORDS),
+    })
 }
 
 /// Читает `binlog_files` уже существующего `session.json` под `root`, если
@@ -390,114 +643,398 @@ fn read_previous_binlog_files(root: &Path) -> Vec<BinlogPart> {
         .unwrap_or_default()
 }
 
-pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
-    let (minutes, pilot_minutes) = resolve_duration(args)?;
-    if let Some(pm) = pilot_minutes {
-        eprintln!("session: pilot: {pm} мин (PLAN.md §11)");
+/// Всё состояние прогона между событиями — то, что ядру `run_session_loop`
+/// нужно кроме самого `Feed`. Открывается без сети (`open`), поэтому тесты
+/// собирают его на временном каталоге и кормят сценарным `Feed`.
+struct SessionCtx {
+    root: PathBuf,
+    plan: SessionPlan,
+    started_ns: i64,
+    started_utc: String,
+    start_hour_utc: u32,
+    /// `None` у олвейс-он: конец — только `None` от `Feed`.
+    deadline_ns: Option<i64>,
+    states: Vec<SymbolState>,
+    binlog_files: Vec<BinlogPart>,
+    gaps_path: PathBuf,
+    gaps: u64,
+    reconnects: u64,
+    resyncs: u64,
+    // Суббюджет «разбор» (`PLAN.md` 3.1, `p99 < 200 мкс`) и очередь
+    // (таск 20) — гистограммы фиксированной ёмкости (таск 24), не `Vec`
+    // всех замеров: RSS плоский на любой длине прогона.
+    parse_latencies_ns: LatencyHistogram,
+    queue_latencies_ns: LatencyHistogram,
+    samples: Arc<Mutex<Vec<ResourceSample>>>,
+    clock_samples: Arc<AtomicU64>,
+    resources_pid: u32,
+    resources_start: Option<(f64, u64)>,
+    resources_wall_start: std::time::Instant,
+    last_hourly_ns: i64,
+    hours_reported: u64,
+}
+
+impl SessionCtx {
+    fn open(
+        root: &Path,
+        pool: &[PoolMember],
+        plan: SessionPlan,
+        started_ns: i64,
+    ) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(root)?;
+        let started_utc = ts_utc_of_ns(started_ns);
+        let start_hour_utc = hour_utc_of_ns(started_ns);
+        // День решается один раз, до открытия файлов: `verify`/`levels`/
+        // `markout` ищут `<SYMBOL>-<день>.binlog` (таск 19); дальше сутки
+        // ведёт ротация по времени биржи (`rotate_symbol_day`).
+        let day = day_string_of_ns(started_ns).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut binlog_files = read_previous_binlog_files(root);
+        let mut states = Vec::with_capacity(pool.len());
+        for member in pool {
+            let state = open_symbol_state(root, member, &day)?;
+            binlog_files.push(BinlogPart {
+                symbol: member.symbol.clone(),
+                part: state.part,
+                started_utc: started_utc.clone(),
+            });
+            states.push(state);
+        }
+        let gaps_path = gaps_csv_path(root);
+        ensure_gaps_csv(&gaps_path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let deadline_ns = match plan {
+            SessionPlan::Timed { minutes, .. } => Some(
+                started_ns
+                    + i64::try_from(minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000,
+            ),
+            SessionPlan::AlwaysOn => None,
+        };
+        let resources_pid = std::process::id();
+        Ok(Self {
+            root: root.to_path_buf(),
+            plan,
+            started_ns,
+            started_utc,
+            start_hour_utc,
+            deadline_ns,
+            states,
+            binlog_files,
+            gaps_path,
+            gaps: 0,
+            reconnects: 0,
+            resyncs: 0,
+            parse_latencies_ns: LatencyHistogram::new(),
+            queue_latencies_ns: LatencyHistogram::new(),
+            samples: Arc::new(Mutex::new(Vec::new())),
+            clock_samples: Arc::new(AtomicU64::new(0)),
+            resources_pid,
+            resources_start: sample_resources(resources_pid),
+            resources_wall_start: std::time::Instant::now(),
+            last_hourly_ns: started_ns,
+            hours_reported: 0,
+        })
     }
-    std::fs::create_dir_all(&args.root)?;
-    let pool = load_pool(&args.pool_instruments)?;
-    // GC на десяти сразу: CPU, RSS раз в 30 с (критерий приёмки таска 04,
-    // handoff-04-1 ТУПИК 4). Фоновый поток, не в горячем пути — печатает и
-    // копит `%` для `cpu_pct_max`; `run_session` его не ждёт.
-    let cpu_samples = spawn_resource_sampler();
-    // Концевые замеры (таск 20): RSS «в начале/конце» и средний CPU за всю
-    // сессию — `(cpu_end - cpu_start) / wall_s`, точнее, чем усреднение
-    // периодических `%` сэмплера, потому что не теряет неполные интервалы на
-    // краях пятиминутного окна.
-    let resources_pid = std::process::id();
-    let resources_start = sample_resources(resources_pid);
-    let resources_wall_start = std::time::Instant::now();
 
-    // День решается один раз, до открытия файлов: `verify`/`levels`/
-    // `markout` (`bybit::verify::run_verify`, `mod.rs::replay_symbol_*`)
-    // ищут `<SYMBOL>-<день>.binlog` тем же префиксным поиском, что читает
-    // `lob record` (таск 19, `interfaces.md` «Из таска 19»); называть файл
-    // без даты означало бы, что эти команды не находят свежую сессию без
-    // ручного переименования (слепая приёмка G4).
-    let started_ns = SystemClock.now_ns();
-    let started_utc = crate::commands::record::ts_utc_of_ns(started_ns);
-    let start_hour_utc = hour_utc_of_ns(started_ns);
-    let day = crate::commands::record::day_string_of_ns(started_ns)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    /// Строка `gaps.csv`; `symbol: None` — событие всей сессии (`session.json`
+    /// не переписан), колонка `symbol` пустая.
+    fn log_gap(&self, symbol: Option<usize>, kind: GapKind, ts_utc: String, detail: String) {
+        let row = GapRow {
+            ts_utc,
+            symbol: symbol
+                .and_then(|i| self.states.get(i))
+                .map(|s| s.member.symbol.clone())
+                .unwrap_or_default(),
+            kind,
+            detail,
+        };
+        let _ = append_gap_row(&self.gaps_path, &row);
+    }
 
-    // Части в сутках (таск 22): каждый символ отдельно берёт следующий
-    // свободный номер — вторая сессия суток пишет `-p2` рядом с `-p1` первой,
-    // не поверх неё. Прежняя история накопленных частей (если `root` уже
-    // видел прогон сегодня) читается один раз до цикла и дописывается новыми
-    // записями — `session.json.binlog_files` не теряет прежние части при
-    // перезаписи файла в конце функции.
-    let mut binlog_files = read_previous_binlog_files(&args.root);
-    let mut states: Vec<SymbolState> = Vec::with_capacity(pool.len());
-    for member in &pool {
+    /// Кадр одного инструмента на диск; неудача — счётчик, строка
+    /// `gaps.csv` `write_failed` и очищенный батч (повтор той же записи в
+    /// следующий кадр смешал бы порядок). Файл при этом остаётся на границе
+    /// кадра (`FrameSink::flush`); если и откат не удался — часть закрыта,
+    /// инструмент получает следующую часть тех же суток.
+    fn flush_symbol(&mut self, idx: usize, now_ns: i64) {
+        let Some(state) = self.states.get_mut(idx) else {
+            return;
+        };
+        if let Err(e) = flush_symbol_batch(state) {
+            let detail =
+                format!("кадр не записался ({e}) — потеряно до {FRAME_TARGET_RECORDS} записей");
+            self.log_gap(
+                Some(idx),
+                GapKind::WriteFailed,
+                ts_utc_of_ns(now_ns),
+                detail,
+            );
+            if self.states[idx].writer.get_ref().boundary_lost() {
+                let day_index = self.states[idx].day_index;
+                match self.open_next_part(idx, day_index, now_ns, now_ns) {
+                    Ok(()) => eprintln!(
+                        "session: {}: граница кадра потеряна — часть переоткрыта (p{})",
+                        self.states[idx].member.symbol, self.states[idx].part
+                    ),
+                    Err(e) => {
+                        let detail = format!("часть не переоткрыта после потери границы: {e}");
+                        eprintln!("session: {}: {detail}", self.states[idx].member.symbol);
+                        self.log_gap(
+                            Some(idx),
+                            GapKind::WriteFailed,
+                            ts_utc_of_ns(now_ns),
+                            detail,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn flush_all(&mut self, now_ns: i64) {
+        for idx in 0..self.states.len() {
+            self.flush_symbol(idx, now_ns);
+        }
+    }
+
+    /// Тик таймера рантайма (таск 25): сброс кадров всех инструментов —
+    /// окно потери `FRAME_LOSS_WINDOW_SECS` держится и при полной тишине;
+    /// раз в `HOURLY_REFRESH_SECS` — `session.json` и одна строка stderr.
+    fn on_tick(&mut self, ts_ns: i64) {
+        self.flush_all(ts_ns);
+        if ts_ns - self.last_hourly_ns >= HOURLY_REFRESH_SECS as i64 * 1_000_000_000 {
+            self.last_hourly_ns = ts_ns;
+            self.hours_reported += 1;
+            let Some(summary) = self.write_session_json_or_log(ts_ns) else {
+                return;
+            };
+            let last = summary.samples.last();
+            eprintln!(
+                "session: час {} — records={} bytes={} gaps={} reconnects={} resyncs={} \
+                 frames_failed={} rss={} cpu={}",
+                self.hours_reported,
+                summary.records_total,
+                summary.bytes_written,
+                summary.gaps,
+                summary.reconnects,
+                summary.resyncs,
+                summary.frames_failed,
+                last.map_or("н/д".to_string(), |s| format!(
+                    "{:.1} МиБ",
+                    s.rss_bytes as f64 / (1024.0 * 1024.0)
+                )),
+                last.and_then(|s| s.cpu_pct)
+                    .map_or("н/д".to_string(), |c| format!("{c:.1}%")),
+            );
+        }
+    }
+
+    /// Периодический `session.json` — best-effort: отказ `rename` (читатель
+    /// живого каталога держит файл открытым без share-delete — ровно
+    /// сценарий «анализ по накопленному») — строка stderr и `gaps.csv`,
+    /// цикл продолжается, следующая попытка — через час или на ротации.
+    /// Один отказ не останавливает суточный коллектор без сброса.
+    fn write_session_json_or_log(&mut self, ts_ns: i64) -> Option<SessionSummary> {
+        match self.write_session_json(false) {
+            Ok(summary) => Some(summary),
+            Err(e) => {
+                let detail = format!("session.json не переписан: {e}");
+                eprintln!("session: {detail} — следующая попытка через час или на ротации");
+                self.log_gap(None, GapKind::WriteFailed, ts_utc_of_ns(ts_ns), detail);
+                None
+            }
+        }
+    }
+
+    /// Финализация на любом выходе из цикла (`None` от `Feed` — Ctrl+C или
+    /// конец сценария, дедлайн `Timed`): сброс писателей и финальный
+    /// `session.json` с `closed = true` — **до** чего угодно сетевого
+    /// (`run_session`: замер часов после, best-effort; второй Ctrl+C во
+    /// время ожидания NTP уже ничего не теряет).
+    fn finalize(&mut self) -> anyhow::Result<SessionSummary> {
+        let now_ns = SystemClock.now_ns();
+        self.flush_all(now_ns);
+        self.write_session_json(true)
+    }
+
+    /// Ротация по суткам UTC (таск 25, как `record::Recorder::ensure_day`):
+    /// сутки события биржи **позже** суток файла инструмента — недописанный
+    /// батч кадром в старые сутки, новая часть новых суток
+    /// (`open_next_part`). Только вперёд: опоздавшее событие прошлых суток
+    /// (сделка с `T` раньше `cts` уже принятой дельты) идёт в текущую
+    /// часть — иначе части D/D+1 чередовались бы `-p2/-p3` на каждом таком
+    /// событии. Отказ ротации — строка stderr и `gaps.csv`, события идут в
+    /// текущую часть, повтор не раньше `FRAME_LOSS_WINDOW_SECS`; цикл не
+    /// останавливается. Полночь — не разрыв, строки в `gaps.csv` нет.
+    fn rotate_symbol_day(&mut self, idx: usize, exch_ts_ns: i64, local_ts_ns: i64) {
+        let day_index = exch_ts_ns.div_euclid(NS_PER_DAY);
+        let Some(state) = self.states.get(idx) else {
+            return;
+        };
+        if day_index <= state.day_index || local_ts_ns < state.rotate_retry_after_ns {
+            return;
+        }
+        self.flush_symbol(idx, local_ts_ns);
+        if let Err(e) = self.open_next_part(idx, day_index, exch_ts_ns, local_ts_ns) {
+            let state = &mut self.states[idx];
+            state.rotate_retry_after_ns =
+                local_ts_ns.saturating_add(FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000);
+            let detail = format!(
+                "ротация суток не удалась: {e} — события идут в часть p{} прежних суток, \
+                 повтор через {FRAME_LOSS_WINDOW_SECS} с",
+                state.part
+            );
+            eprintln!("session: {}: {detail}", state.member.symbol);
+            self.log_gap(
+                Some(idx),
+                GapKind::WriteFailed,
+                ts_utc_of_ns(local_ts_ns),
+                detail,
+            );
+        }
+    }
+
+    /// Следующая свободная часть суток `day_index` для инструмента
+    /// (`claim_part_with`, ничего не затирается): общий шов ротации по
+    /// полуночи и переоткрытия после потерянной границы кадра. Первым
+    /// кадром — синтетический снапшот книги, если она доверена (`synced`);
+    /// иначе файл ждёт снапшота биржи, как при старте. `started_ns` —
+    /// `started_utc` части в `binlog_files`; `session.json` переписывается
+    /// сразу (best-effort) — `binlog_files` читают `profiles`/`watch`.
+    fn open_next_part(
+        &mut self,
+        idx: usize,
+        day_index: i64,
+        started_ns: i64,
+        local_ts_ns: i64,
+    ) -> anyhow::Result<()> {
+        let day = day_string_of_ns(day_index.saturating_mul(NS_PER_DAY))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let state = &mut self.states[idx];
         let (writer, part) = claim_symbol_binlog(
-            &args.root,
-            &member.symbol,
+            &self.root,
+            &state.member.symbol,
             &day,
-            member.tick_e9,
-            member.step_e9,
+            state.member.tick_e9,
+            state.member.step_e9,
         )?;
-        binlog_files.push(BinlogPart {
-            symbol: member.symbol.clone(),
+        // Старый приёмник закрывается вместе с прежним `Writer` — его буфер
+        // уже пуст после сброса у вызывающего.
+        state.writer = writer;
+        state.part = part;
+        state.day_index = day_index;
+        state.has_snapshot = false;
+        state.batch.clear();
+        self.binlog_files.push(BinlogPart {
+            symbol: state.member.symbol.clone(),
             part,
-            started_utc: started_utc.clone(),
+            started_utc: ts_utc_of_ns(started_ns),
         });
-        states.push(SymbolState {
-            member: member.clone(),
-            writer,
-            records_written: 0,
-            // 50 бид + 50 аск — самый крупный кадр потока (`orderbook.50`
-            // снапшот); запас, чтобы `.push` внутри `write_market_event`
-            // не перевыделял на первом же снапшоте.
-            scratch: Vec::with_capacity(128),
-            // `FRAME_TARGET_RECORDS` плюс тот же запас на самое крупное
-            // сообщение — `Vec::append` из `scratch` не перевыделяет, даже
-            // если порог пересечён ровно этим сообщением (флаш случится
-            // сразу после, но до него длина временно больше порога).
-            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
-        });
+        if state.synced {
+            push_book_snapshot(state, started_ns, local_ts_ns);
+            // Не `flush_symbol`: та на потерянной границе переоткрыла бы
+            // часть снова — рекурсия на мёртвом диске.
+            if let Err(e) = flush_symbol_batch(state) {
+                let detail =
+                    format!("кадр не записался ({e}) — потеряно до {FRAME_TARGET_RECORDS} записей");
+                self.log_gap(
+                    Some(idx),
+                    GapKind::WriteFailed,
+                    ts_utc_of_ns(local_ts_ns),
+                    detail,
+                );
+            }
+        }
+        self.write_session_json_or_log(local_ts_ns);
+        Ok(())
     }
 
-    let gaps_path = gaps_csv_path(&args.root);
-    ensure_gaps_csv(&gaps_path).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let clock_path = args.root.join("clock.csv");
-
-    let mut clock_samples: u64 = 0;
-    if take_clock_sample(args, 0, &clock_path)? {
-        clock_samples += 1;
+    /// Пишет `session.json` — через временный файл и `rename`, чтобы
+    /// читатель живого каталога не застал полфайла.
+    fn write_session_json(&self, closed: bool) -> anyhow::Result<SessionSummary> {
+        let now_ns = SystemClock.now_ns();
+        let duration_s =
+            u64::try_from((now_ns - self.started_ns).max(0) / 1_000_000_000).unwrap_or(0);
+        let samples = self.samples.lock().map(|v| v.clone()).unwrap_or_default();
+        let resources_end = sample_resources(self.resources_pid);
+        let (cpu_pct_avg, rss_bytes_start, rss_bytes_end) =
+            match (self.resources_start, resources_end) {
+                (Some((cpu0, rss0)), Some((cpu1, rss1))) => {
+                    let wall_s = self.resources_wall_start.elapsed().as_secs_f64();
+                    let avg = if wall_s > 0.0 {
+                        Some((cpu1 - cpu0).max(0.0) / wall_s * 100.0)
+                    } else {
+                        None
+                    };
+                    (avg, Some(rss0), Some(rss1))
+                }
+                _ => (None, None, None),
+            };
+        let cpu_pct_max = samples.iter().filter_map(|s| s.cpu_pct).reduce(f64::max);
+        let (pilot, pilot_minutes) = match self.plan {
+            SessionPlan::Timed { pilot_minutes, .. } => (pilot_minutes.is_some(), pilot_minutes),
+            SessionPlan::AlwaysOn => (false, None),
+        };
+        let summary = SessionSummary {
+            started_utc: self.started_utc.clone(),
+            start_hour_utc: self.start_hour_utc,
+            duration_s,
+            instruments: self
+                .states
+                .iter()
+                .map(|s| s.member.symbol.clone())
+                .collect(),
+            records_total: self.states.iter().map(|s| s.records_written).sum(),
+            gaps: self.gaps,
+            clock_samples: self.clock_samples.load(Ordering::Relaxed),
+            parse_p99_ns: self.parse_latencies_ns.percentile(99),
+            queue_p99_ns: self.queue_latencies_ns.percentile(99),
+            cpu_pct_avg,
+            cpu_pct_max,
+            rss_bytes_start,
+            rss_bytes_end,
+            out: self.root.clone(),
+            debug: is_debug_session(duration_s),
+            pilot,
+            pilot_minutes,
+            always_on: self.plan == SessionPlan::AlwaysOn,
+            reconnects: self.reconnects,
+            resyncs: self.resyncs,
+            frames_failed: self.states.iter().map(|s| s.frames_failed).sum(),
+            bytes_written: self
+                .states
+                .iter()
+                .map(|s| s.writer.get_ref().bytes_written())
+                .sum(),
+            updated_utc: ts_utc_of_ns(now_ns),
+            closed,
+            samples,
+            binlog_files: self.binlog_files.clone(),
+        };
+        let final_path = self.root.join("session.json");
+        let tmp_path = self.root.join("session.json.tmp");
+        std::fs::write(&tmp_path, serde_json::to_string_pretty(&summary)?)?;
+        std::fs::rename(&tmp_path, &final_path)?;
+        Ok(summary)
     }
+}
 
-    let mut feed = LiveFeed::spawn(pool.clone());
-    let deadline_ns =
-        started_ns + i64::try_from(minutes.saturating_mul(60)).unwrap_or(i64::MAX) * 1_000_000_000;
-    let mut gaps: u64 = 0;
-    // Суббюджет «разбор» (`PLAN.md` 3.1, `p99 < 200 мкс`) — критерий приёмки
-    // таска 04 «задержка разбора». Одно значение на кадр (`feed::Event::
-    // Market::parse_latency_ns`, `Some` только в живом режиме); перцентиль —
-    // гистограмма фиксированной ёмкости (таск 24), не `Vec` всех замеров:
-    // на многочасовом пилоте `Vec<i64>` рос без потолка (`docs/findings/
-    // collector-2026-09-12.md`, «Замер до» — рост RSS не плоский), а
-    // гистограмма — фиксированный массив `LatencyHistogram::TOTAL_BINS`
-    // бинов, аллоцированный один раз здесь и никогда не растущий.
-    let mut parse_latencies_ns = LatencyHistogram::new();
-    // Очередь (таск 20, критерий 2): «от разбора до потока решений» —
-    // отдельно от «разбора» самого по себе. Метка ставится тем же
-    // `SystemClock`, что и `local_ts_ns`/`parsed_ts_ns` внутри `bybit::conn`
-    // (`LiveFeed::spawn` подаёт `SystemClock` явно — один домен часов, не
-    // второй, см. `spawn_with_clock`), сразу как только `feed.next_event()`
-    // вернула событие потоку решений.
-    let mut queue_latencies_ns = LatencyHistogram::new();
-    // Периодический сброс кадра (таск 24, критерий «плюс по таймеру») —
-    // `FLUSH_INTERVAL_NS` (doc там же); проверяется раз за итерацию цикла,
-    // без своего таймера/потока — сравнение двух `i64`, не аллокация и не
-    // системный вызов сверх уже взятого `recv_ts_ns`.
-    let mut last_periodic_flush_ns = started_ns;
-
-    while SystemClock.now_ns() < deadline_ns {
+/// Ядро прогона над любым `Feed` (A5): события → файлы, тики → сброс и
+/// периодика, `None` → выход и финализация (`SessionCtx::finalize`: сброс
+/// писателей, финальный `session.json` `closed = true`) — внутри шва, на
+/// любом выходе из цикла. Периодические отказы (`session.json`, ротация,
+/// кадр) цикл не останавливают — строка stderr и `gaps.csv`. Дедлайн
+/// `Timed` проверяется на каждом событии **и тике** — при молчании пула
+/// сессия сбора всё равно кончится не позже `FRAME_LOSS_WINDOW_SECS` после
+/// срока.
+fn run_session_loop(feed: &mut dyn Feed, ctx: &mut SessionCtx) -> anyhow::Result<SessionSummary> {
+    loop {
+        if let Some(deadline_ns) = ctx.deadline_ns {
+            if SystemClock.now_ns() >= deadline_ns {
+                break;
+            }
+        }
         let Some(event) = feed.next_event() else {
             break;
         };
-        let recv_ts_ns = SystemClock.now_ns();
         match event {
             Event::Market {
                 symbol,
@@ -506,7 +1043,8 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
                 payload,
             } => {
                 if let Some(latency_ns) = parse_latency_ns {
-                    parse_latencies_ns.record(latency_ns);
+                    let recv_ts_ns = SystemClock.now_ns();
+                    ctx.parse_latencies_ns.record(latency_ns);
                     // `recv_ts_ns - local_ts_ns` — весь путь «recv() до
                     // потока решений»; вычитаем уже посчитанный чистый разбор
                     // (`latency_ns`), остаток — канал одного соединения,
@@ -515,150 +1053,201 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
                     // редкому дребезгу часов (`SystemClock` не монотонны)
                     // испортить перцентиль отрицательным значением, которого
                     // очередь физически не может быть.
-                    queue_latencies_ns.record((recv_ts_ns - local_ts_ns - latency_ns).max(0));
+                    ctx.queue_latencies_ns
+                        .record((recv_ts_ns - local_ts_ns - latency_ns).max(0));
                 }
-                let Some(state) = states.get_mut(symbol as usize) else {
+                let idx = symbol as usize;
+                if idx >= ctx.states.len() {
                     continue;
-                };
-                write_market_event(state, local_ts_ns, payload);
+                }
+                if let Some(exch_ms) = event_exch_ms(&payload) {
+                    ctx.rotate_symbol_day(idx, exch_ms.saturating_mul(1_000_000), local_ts_ns);
+                }
+                if let Err(e) = write_market_event(&mut ctx.states[idx], local_ts_ns, payload) {
+                    let detail = format!(
+                        "кадр не записался ({e:?}) — потеряно до {FRAME_TARGET_RECORDS} записей"
+                    );
+                    ctx.log_gap(
+                        Some(idx),
+                        GapKind::WriteFailed,
+                        ts_utc_of_ns(local_ts_ns),
+                        detail,
+                    );
+                }
             }
             Event::Gap {
                 symbol,
                 local_ts_ns,
+                kind,
                 detail,
             } => {
-                gaps += 1;
-                let sym_name = states
-                    .get(symbol as usize)
-                    .map(|s| s.member.symbol.clone())
-                    .unwrap_or_default();
-                let ts_utc = crate::commands::record::ts_utc_of_ns(local_ts_ns);
-                let row = GapRow {
-                    ts_utc,
-                    symbol: sym_name,
-                    kind: GapKind::ParseError,
-                    detail,
+                ctx.gaps += 1;
+                let idx = symbol as usize;
+                let record_kind = match kind {
+                    FeedGapKind::ParseFailed => GapKind::ParseError,
+                    FeedGapKind::SequenceGap => {
+                        ctx.resyncs += 1;
+                        GapKind::SequenceGap
+                    }
+                    FeedGapKind::BookInvariant => {
+                        ctx.resyncs += 1;
+                        GapKind::BookInvariant
+                    }
+                    FeedGapKind::Disconnected => {
+                        ctx.reconnects += 1;
+                        GapKind::SequenceGap
+                    }
                 };
-                let _ = append_gap_row(&gaps_path, &row);
+                if kind != FeedGapKind::ParseFailed {
+                    if let Some(state) = ctx.states.get_mut(idx) {
+                        state.synced = false;
+                    }
+                }
+                ctx.log_gap(Some(idx), record_kind, ts_utc_of_ns(local_ts_ns), detail);
             }
-        }
-        if recv_ts_ns - last_periodic_flush_ns >= FLUSH_INTERVAL_NS {
-            for state in &mut states {
-                flush_symbol_batch(state);
-                // Как `record::Recorder::flush`: кадр — и следом буфер файла
-                // в ОС, иначе периодический сброс оставлял бы кадр в
-                // `BufWriter` до закрытия. Ошибка — best-effort, как в
-                // `flush_symbol_batch`; финальный `flush` в конце сессии
-                // её вернёт.
-                let _ = state.writer.flush();
-            }
-            last_periodic_flush_ns = recv_ts_ns;
+            Event::Tick { local_ts_ns } => ctx.on_tick(local_ts_ns),
         }
     }
+    ctx.finalize()
+}
 
-    if take_clock_sample(args, 1, &clock_path)? {
-        clock_samples += 1;
+pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
+    let plan = resolve_duration(args)?;
+    match plan {
+        SessionPlan::Timed {
+            pilot_minutes: Some(pm),
+            ..
+        } => eprintln!("session: pilot: {pm} мин (PLAN.md §11)"),
+        SessionPlan::AlwaysOn => eprintln!(
+            "session: always-on — до Ctrl+C; сброс кадров раз в {FRAME_LOSS_WINDOW_SECS} с, \
+             session.json/clock.csv раз в {HOURLY_REFRESH_SECS} с и на остановке (В-34)"
+        ),
+        SessionPlan::Timed { .. } => {}
+    }
+    let pool = load_pool(&args.pool_instruments)?;
+    let started_ns = SystemClock.now_ns();
+    let mut ctx = SessionCtx::open(&args.root, &pool, plan, started_ns)?;
+    // Первая запись `session.json` — сразу: живой каталог с первой минуты
+    // выглядит сессией для `profiles`/`watch` (`binlog_files`, часы частей).
+    ctx.write_session_json(false)?;
+    // GC на десяти сразу: CPU, RSS по `resource_sample_period` — фоновый
+    // поток, не в горячем пути; ряд — в `session.json.samples`, не в stderr
+    // (таск 25).
+    spawn_resource_sampler(ctx.samples.clone());
+    spawn_clock_sampler(
+        args.ntp_addr.clone(),
+        args.base_url.clone(),
+        args.root.join("clock.csv"),
+        ctx.clock_samples.clone(),
+    );
+
+    let mut feed = LiveFeed::spawn_with_ticks(pool, Duration::from_secs(FRAME_LOSS_WINDOW_SECS));
+    feed.stop_handle().stop_on_ctrl_c();
+    // Писатели сброшены и `session.json` закрыт внутри цикла — до любого
+    // сетевого вызова ниже: второй Ctrl+C (`exit(130)`) во время ожидания
+    // NTP/REST (до ~12 с при упавшей сети) батчей уже не теряет.
+    let mut summary = run_session_loop(&mut feed, &mut ctx)?;
+    drop(feed);
+
+    // Финальный замер часов — после цикла, не в нём (A9), best-effort;
+    // удачный — ещё одна финальная запись, чтобы `clock_samples` был
+    // точен; её отказ вердикт не меняет (первая финальная уже на диске).
+    let idx = ctx.clock_samples.load(Ordering::Relaxed);
+    if take_clock_sample(
+        &args.ntp_addr,
+        &args.base_url,
+        idx,
+        &args.root.join("clock.csv"),
+    ) {
+        ctx.clock_samples.fetch_add(1, Ordering::Relaxed);
+        if let Ok(with_clock) = ctx.write_session_json(true) {
+            summary = with_clock;
+        }
     }
 
-    let mut records_total = 0u64;
-    for state in &mut states {
-        flush_symbol_batch(state);
-        state.writer.flush()?;
-        records_total += state.records_written;
-    }
-
-    let parse_p99_ns = parse_latencies_ns.percentile(99);
-    if let Some(p99) = parse_p99_ns {
+    if let Some(p99) = summary.parse_p99_ns {
         eprintln!(
             "session: разбор — p99 {:.1} мкс по {} кадрам (бюджет `PLAN.md` 3.1: < 200 мкс; \
              гистограмма, разрешение ~{:.1}%)",
             p99 as f64 / 1000.0,
-            parse_latencies_ns.len(),
+            ctx.parse_latencies_ns.len(),
             LatencyHistogram::RESOLUTION_PCT
         );
     }
-    let queue_p99_ns = queue_latencies_ns.percentile(99);
-    if let Some(p99) = queue_p99_ns {
+    if let Some(p99) = summary.queue_p99_ns {
         eprintln!(
             "session: очередь (разбор → поток решений) — p99 {:.1} мкс по {} кадрам",
             p99 as f64 / 1000.0,
-            queue_latencies_ns.len()
+            ctx.queue_latencies_ns.len()
         );
     }
-
-    let resources_end = sample_resources(resources_pid);
-    let (cpu_pct_avg, rss_bytes_start, rss_bytes_end) = match (resources_start, resources_end) {
-        (Some((cpu0, rss0)), Some((cpu1, rss1))) => {
-            let wall_s = resources_wall_start.elapsed().as_secs_f64();
-            let avg = if wall_s > 0.0 {
-                Some((cpu1 - cpu0).max(0.0) / wall_s * 100.0)
-            } else {
-                None
-            };
-            (avg, Some(rss0), Some(rss1))
-        }
-        _ => (None, None, None),
-    };
-    let cpu_pct_max = cpu_samples
-        .lock()
-        .ok()
-        .and_then(|v| v.iter().copied().reduce(f64::max));
-    if let (Some(avg), Some(start), Some(end)) = (cpu_pct_avg, rss_bytes_start, rss_bytes_end) {
+    if let (Some(avg), Some(start), Some(end)) = (
+        summary.cpu_pct_avg,
+        summary.rss_bytes_start,
+        summary.rss_bytes_end,
+    ) {
         eprintln!(
             "session: CPU средний {avg:.1}% ядра (бюджет `PLAN.md` 6.1: < 5%); RSS начало \
-             {:.1} МиБ, конец {:.1} МиБ",
+             {:.1} МиБ, конец {:.1} МиБ; сэмплов {}; байт {}; reconnects={} resyncs={} \
+             frames_failed={}",
             start as f64 / (1024.0 * 1024.0),
-            end as f64 / (1024.0 * 1024.0)
+            end as f64 / (1024.0 * 1024.0),
+            summary.samples.len(),
+            summary.bytes_written,
+            summary.reconnects,
+            summary.resyncs,
+            summary.frames_failed
         );
     }
-
-    let duration_s = minutes.saturating_mul(60);
-    let summary = SessionSummary {
-        started_utc,
-        start_hour_utc,
-        duration_s,
-        instruments: states.iter().map(|s| s.member.symbol.clone()).collect(),
-        records_total,
-        gaps,
-        clock_samples,
-        parse_p99_ns,
-        queue_p99_ns,
-        cpu_pct_avg,
-        cpu_pct_max,
-        rss_bytes_start,
-        rss_bytes_end,
-        out: args.root.clone(),
-        debug: is_debug_session(duration_s),
-        pilot: pilot_minutes.is_some(),
-        pilot_minutes,
-        binlog_files,
-    };
-    let record_path = args.root.join("session.json");
-    std::fs::write(&record_path, serde_json::to_string_pretty(&summary)?)?;
     Ok(summary)
 }
 
-/// Одна книжная запись/сделка -> в накопитель кадра инструмента
-/// (`SymbolState::batch`), кадр на диск — только по `flush_symbol_batch`
-/// (порог `FRAME_TARGET_RECORDS` или периодический таймер в `run_session`,
-/// таск 24). Раньше эта функция сама писала `binlog::Writer::write_frame`
-/// на **каждое** сообщение — `docs/findings/collector-2026-09-12.md`,
-/// «Замер до»: кадр из 1–5 записей почти не сжимается, накладные кадра
-/// больше полезных байт.
+/// Синтетический полный снапшот из книги инструмента первым кадром новых
+/// суток (таск 25, Decision 7 / `record::Recorder::on_snapshot`): по
+/// записи на уровень обеих сторон, флаги снапшота.
+fn push_book_snapshot(state: &mut SymbolState, exch_ts_ns: i64, local_ts_ns: i64) {
+    state.batch.clear();
+    for side in [Side::Bid, Side::Ask] {
+        for (tick, lots) in state.book.levels(side) {
+            state.batch.push(Record {
+                ev: hftbacktest_flags(side, true),
+                exch_ts_ns,
+                local_ts_ns,
+                price_ticks: tick,
+                qty_lots: lots,
+                order_id: 0,
+                ival: 0,
+                fval: 0.0,
+            });
+        }
+    }
+    state.has_snapshot = true;
+}
+
+/// Одна книжная запись/сделка → в накопитель кадра инструмента
+/// (`SymbolState::batch`); кадр на диск — `flush_symbol_batch` по порогу
+/// `FRAME_TARGET_RECORDS` или сразу на снапшоте (как `Recorder::
+/// on_snapshot`: первый кадр файла не ждёт тика); третий повод — тик
+/// (`SessionCtx::on_tick`). Раньше эта функция сама писала `binlog::
+/// Writer::write_frame` на **каждое** сообщение — `docs/findings/
+/// collector-2026-09-12.md`, «Замер до». `Err` — кадр не записался
+/// (счётчик `frames_failed` уже увеличен, батч очищен).
 ///
-/// Вторая книга снята (таск 24, критерий 5): раньше здесь применялось
-/// `state.book.apply(&update)` — свежая `Book`, независимая от книги
-/// `bybit::conn::Connection`, которая уже провела то же `apply` над тем же
-/// `update` до пересылки события в канал (`bybit/conn.rs::handle_raw`,
-/// ветка ошибки не пересылает событие вовсе — `continue`). Эта функция
-/// получает только события, для которых `apply` уже прошло успешно на
-/// книге источника; вторая книга проверяла бы ту же последовательность
-/// обновлений над идентично инициализированной книгой (тот же `tick_e9`/
-/// `step_e9`, тот же порядок событий) и не могла разойтись с первым
-/// результатом — двойная работа без второго исхода, не вторая проверка.
+/// Книга инструмента (`state.book`) ведётся ради синтетического снапшота
+/// на ротации суток (таск 25), не как вторая проверка: `bybit::conn::
+/// handle_raw` уже применил то же обновление к своей книге и не пересылает
+/// ничего, что не прошло `apply`, поэтому `apply` здесь на той же
+/// последовательности не может дать другого исхода (таск 24) — а если даёт
+/// (`Err`), это дефект, и книга помечается недоверенной, не молчит.
+/// До первого снапшота в файле дельты и сделки не пишутся (как `record::
+/// RecordError::NoSnapshot`): файл, начатый с дельт, нечитаем целиком.
 /// Ни одно поле `Record` не читает состояние книги: цена/размер строятся
-/// из самого `update`/`trade`, не из накопленных уровней.
-fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate::bybit::ws::Event) {
+/// из самого `update`/`trade`.
+fn write_market_event(
+    state: &mut SymbolState,
+    local_ts_ns: i64,
+    payload: crate::bybit::ws::Event,
+) -> Result<(), crate::binlog::BinlogError> {
     use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
     // `.clear()` truncates length, keeps capacity — this is the fix for
@@ -670,10 +1259,30 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
     // proves the fix end to end through this exact function, fed by a
     // synthetic `ReplayFeed` over 10⁶ events.
     state.scratch.clear();
-    let records = &mut state.scratch;
+    let mut is_snapshot = false;
     match payload {
         crate::bybit::ws::Event::Book(update) => {
+            match state.book.apply(&update) {
+                Ok(()) => {
+                    if update.is_snapshot {
+                        state.synced = true;
+                    }
+                }
+                Err(_) => {
+                    state.synced = false;
+                }
+            }
+            if update.is_snapshot {
+                // Снапшот биржи открывает файл (или продолжает его после
+                // ресинка) — своим кадром, сразу: незакрытый батч дельт
+                // уходит кадром первым, как в `Recorder::on_snapshot`.
+                is_snapshot = true;
+                state.has_snapshot = true;
+            } else if !state.has_snapshot {
+                return Ok(());
+            }
             let exch_ts_ns = update.cts_ms.saturating_mul(1_000_000);
+            let records = &mut state.scratch;
             for (side, levels) in [(Side::Bid, &update.bids), (Side::Ask, &update.asks)] {
                 for (price_e9, qty_e9) in levels {
                     records.push(Record {
@@ -690,7 +1299,10 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
             }
         }
         crate::bybit::ws::Event::Trade(trade) => {
-            records.push(Record {
+            if !state.has_snapshot {
+                return Ok(());
+            }
+            state.scratch.push(Record {
                 ev: if trade.aggressor_is_buy {
                     LOCAL_BUY_TRADE_EVENT
                 } else {
@@ -708,45 +1320,49 @@ fn write_market_event(state: &mut SymbolState, local_ts_ns: i64, payload: crate:
         crate::bybit::ws::Event::Other => {}
     }
     if state.scratch.is_empty() {
-        return;
+        return Ok(());
     }
     // Перемещение элементов из `scratch` в `batch` (не копия): `scratch`
     // остаётся с прежней ёмкостью и нулевой длиной, `batch` растёт до
     // порога, а не пишется кадром сразу.
     state.batch.append(&mut state.scratch);
-    if state.batch.len() >= crate::commands::record::FRAME_TARGET_RECORDS {
-        flush_symbol_batch(state);
+    if is_snapshot || state.batch.len() >= FRAME_TARGET_RECORDS {
+        flush_symbol_batch(state)?;
     }
+    Ok(())
 }
 
-/// Пишет накопленный `batch` одним кадром `binlog::Writer` и опустошает его
-/// (`.clear()` — длина в ноль, ёмкость цела). Пустой батч — no-op, тот же
-/// контракт, что `binlog::Writer::write_frame`/`commands::record::Recorder::
-/// flush_frame` уже держат: пустая запись не несёт события. Ошибка записи
-/// проглатывается тем же способом, каким её раньше проглатывал каждый
-/// вызов `write_frame` внутри `write_market_event` (best-effort — крах
-/// одного кадра не должен ронять всю сессию на живом потоке); `run_session`
-/// отдельно возвращает ошибку из `state.writer.flush()` при закрытии файла.
-fn flush_symbol_batch(state: &mut SymbolState) {
+/// Пишет накопленный `batch` одним кадром `binlog::Writer` и сразу
+/// сбрасывает приёмник (`FrameSink::flush` — один `write_all` на кадр:
+/// файл на диске кончается на границе кадра), опустошает батч (`.clear()`
+/// — длина в ноль, ёмкость цела). Пустой батч — no-op, тот же контракт, что
+/// `binlog::Writer::write_frame`. Ошибка — наружу: вызывающий считает
+/// `frames_failed` и пишет строку `gaps.csv` (таск 25, ревью таска 24:
+/// квант потери ~1000 записей, молчать нельзя); батч очищается в любом
+/// случае.
+fn flush_symbol_batch(state: &mut SymbolState) -> Result<(), crate::binlog::BinlogError> {
     if state.batch.is_empty() {
-        return;
+        return Ok(());
     }
-    if state.writer.write_frame(&state.batch).is_ok() {
-        state.records_written += state.batch.len() as u64;
-    }
+    let n = state.batch.len() as u64;
+    let result = state.writer.write_frame(&state.batch).and_then(|()| {
+        state
+            .writer
+            .flush()
+            .map_err(crate::binlog::BinlogError::from)
+    });
     state.batch.clear();
+    match result {
+        Ok(()) => {
+            state.records_written += n;
+            Ok(())
+        }
+        Err(e) => {
+            state.frames_failed += 1;
+            Err(e)
+        }
+    }
 }
-
-/// Периодический сброс кадра по времени (таск 24, критерий «плюс по
-/// таймеру») — не изобретённое число: тот же интервал, что `commands::
-/// record::HOURLY_REFRESH_SECS` уже использует для своего периодического
-/// `Recorder::flush()` (там же — часовой авторитет и часовая ротация,
-/// тот самый таймер, которым продовый рекордер ограничивает окно потери
-/// при крахе). Сессия `lob session --minutes` (5–15 мин) почти никогда не
-/// достигает этого порога — предохранитель нужен многочасовому пилоту
-/// (`--pilot-minutes`, до 6 часов) на тихом инструменте, где
-/// `FRAME_TARGET_RECORDS` может не набраться сам по себе за час.
-const FLUSH_INTERVAL_NS: i64 = crate::commands::record::HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
 
 /// Гистограмма фиксированной ёмкости для перцентилей задержки (таск 24,
 /// критерий «не `Vec` всех замеров»): `Vec<i64>` копил один `i64` на **каждое**
@@ -852,58 +1468,69 @@ impl LatencyHistogram {
     }
 }
 
-/// Печатает CPU (% одного ядра — критерий GC "< 5% ядра суммарно",
-/// `PLAN.md`, раздел GC) и RSS в stderr раз в 30 с. Фоновый ОС-поток —
-/// приём `bybit::verify_sidecar` ("поток откреплён", `JoinHandle` наружу
-/// не идёт: остановка вместе с процессом, а не по сигналу); не в горячем
-/// пути, туда попадает только раз в 30 с сна и один вызов ОС. Без
-/// сторонней зависимости (`sysinfo` не в `Cargo.toml`, добавлять нельзя —
-/// `interfaces.md`): то, что уже даёт ОС — `Get-Process` на Windows,
-/// `/proc/self/{stat,status}` на Linux.
-/// Запускает фоновый сэмплер и возвращает точку, куда он копит каждый
-/// посчитанный `%` CPU — `run_session` читает её после цикла, чтобы
-/// `cpu_pct_max` в `session.json` был числом, а не только строкой в stderr
-/// (таск 20, критерий приёмки 1: «если сэмплер не пишет CPU/RSS в файл —
-/// добавь запись»). Поток не присоединяется (как и раньше) — печатает,
-/// копит и забывается; `run_session` не ждёт его, только читает `Mutex`
-/// один раз в самом конце.
-fn spawn_resource_sampler() -> std::sync::Arc<std::sync::Mutex<Vec<f64>>> {
+/// Период замера CPU/RSS в первый час — гейт GC `PLAN.md` 6.1 дословно:
+/// «RSS раз в 30 с в течение прогона, плоский». Тот же шаг, которым
+/// измерены все прогоны до сих пор (таск 20, пилот, таск 24) — ряды
+/// сравнимы между собой.
+const RESOURCE_SAMPLE_SECS: u64 = 30;
+
+/// Расписание замеров ряда `samples` по прошедшему времени прогона (таск
+/// 25, олвейс-он): первый час — раз в `RESOURCE_SAMPLE_SECS` (гейт 6.1,
+/// окно, в котором и живут все 5-минутные замеры), дальше — раз в
+/// `HOURLY_REFRESH_SECS`, вместе с переписыванием `session.json`. Без
+/// прореживания ряд рос бы без потолка — 2 880 замеров в сутки, ≈ 130 Б
+/// каждый в JSON и ≈ 100 Б в памяти: сотни КБ в сутки в файле, который
+/// переписывается целиком каждый час, и медленный рост RSS у процесса,
+/// чей гейт — «RSS плоский» (тот же довод, которым таск 24 заменил `Vec`
+/// задержек гистограммой). Между двумя часовыми записями `session.json`
+/// 30-секундный ряд до диска и так не доходил — часовая точка и есть
+/// разрешение артефакта после первого часа; потолок — 120 + 24 замера в
+/// сутки. Оба периода существующие, новых чисел нет.
+fn resource_sample_period(elapsed_s: u64) -> Duration {
+    if elapsed_s < HOURLY_REFRESH_SECS {
+        Duration::from_secs(RESOURCE_SAMPLE_SECS)
+    } else {
+        Duration::from_secs(HOURLY_REFRESH_SECS)
+    }
+}
+
+/// Замер CPU (% одного ядра — критерий GC "< 5% ядра суммарно",
+/// `PLAN.md`, раздел GC) и RSS по расписанию `resource_sample_period` — в
+/// ряд `session.json.samples` (таск 25: не stderr — «одна строка в час», не
+/// строка на замер). `cpu_pct` — среднее между двумя соседними замерами
+/// ряда (30 с в первый час, час дальше). Фоновый ОС-поток — приём
+/// `bybit::verify_sidecar` ("поток откреплён", `JoinHandle` наружу не идёт:
+/// остановка вместе с процессом, а не по сигналу); не в горячем пути, туда
+/// попадает только сон и один вызов ОС. Без сторонней зависимости
+/// (`sysinfo` не в `Cargo.toml`, добавлять нельзя — `interfaces.md`): то,
+/// что уже даёт ОС — `Get-Process` на Windows, `/proc/self/{stat,status}`
+/// на Linux.
+fn spawn_resource_sampler(out: Arc<Mutex<Vec<ResourceSample>>>) {
     let pid = std::process::id();
-    let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let out = samples.clone();
     std::thread::spawn(move || {
+        let started = std::time::Instant::now();
         let mut prev: Option<(std::time::Instant, f64)> = None;
         loop {
-            std::thread::sleep(Duration::from_secs(30));
-            match sample_resources(pid) {
-                Some((cpu_seconds, rss_bytes)) => {
-                    let now = std::time::Instant::now();
-                    let cpu_line = match prev {
-                        Some((prev_at, prev_cpu)) => {
-                            let wall_s = now.duration_since(prev_at).as_secs_f64();
-                            if wall_s > 0.0 {
-                                let pct = (cpu_seconds - prev_cpu).max(0.0) / wall_s * 100.0;
-                                if let Ok(mut v) = out.lock() {
-                                    v.push(pct);
-                                }
-                                format!("{pct:.1}% ядра")
-                            } else {
-                                "н/д (нулевой интервал)".to_string()
-                            }
-                        }
-                        None => "н/д (первый замер)".to_string(),
-                    };
-                    prev = Some((now, cpu_seconds));
-                    eprintln!(
-                        "session: ресурсы — CPU {cpu_line}, RSS {:.1} МиБ",
-                        rss_bytes as f64 / (1024.0 * 1024.0)
-                    );
-                }
-                None => eprintln!("session: замер CPU/RSS недоступен на этой ОС"),
+            std::thread::sleep(resource_sample_period(started.elapsed().as_secs()));
+            let Some((cpu_seconds, rss_bytes)) = sample_resources(pid) else {
+                eprintln!("session: замер CPU/RSS недоступен на этой ОС");
+                return;
+            };
+            let now = std::time::Instant::now();
+            let cpu_pct = prev.and_then(|(prev_at, prev_cpu)| {
+                let wall_s = now.duration_since(prev_at).as_secs_f64();
+                (wall_s > 0.0).then(|| (cpu_seconds - prev_cpu).max(0.0) / wall_s * 100.0)
+            });
+            prev = Some((now, cpu_seconds));
+            if let Ok(mut v) = out.lock() {
+                v.push(ResourceSample {
+                    ts_utc: ts_utc_of_ns(SystemClock.now_ns()),
+                    rss_bytes,
+                    cpu_pct,
+                });
             }
         }
     });
-    samples
 }
 
 /// Кумулятивное время CPU в секундах (пользователь+система с момента
@@ -968,12 +1595,13 @@ fn sample_resources(_pid: u32) -> Option<(f64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::record::ZSTD_LEVEL;
+    use crate::binlog::Header;
     use crate::feed::replay::ReplayFeed;
     use hftbacktest::types::{
         LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
         LOCAL_BUY_TRADE_EVENT,
     };
+    use std::collections::VecDeque;
 
     const TEST_TICK_E9: i64 = 1_000_000;
     const TEST_STEP_E9: i64 = 1_000_000;
@@ -1039,25 +1667,34 @@ mod tests {
         w.into_inner()
     }
 
-    fn fresh_state(root: &Path) -> SymbolState {
-        let path = root.join("SYM.binlog");
-        let file = std::fs::File::create(&path).unwrap();
-        let header = Header {
+    const TEST_DAY: &str = "2026-09-12";
+
+    fn test_member(symbol: &str) -> PoolMember {
+        PoolMember {
+            symbol: symbol.to_string(),
             tick_e9: TEST_TICK_E9,
             step_e9: TEST_STEP_E9,
-            max_records_per_frame: crate::commands::record::MAX_RECORDS_PER_FRAME,
-        };
-        let writer = Writer::create(std::io::BufWriter::new(file), header, ZSTD_LEVEL).unwrap();
+        }
+    }
+
+    fn fresh_state(root: &Path) -> SymbolState {
+        open_symbol_state(root, &test_member("SYM"), TEST_DAY).unwrap()
+    }
+
+    fn state_with_writer(symbol: &str, writer: Writer<FrameSink>, part: u32) -> SymbolState {
         SymbolState {
-            member: PoolMember {
-                symbol: "SYM".to_string(),
-                tick_e9: TEST_TICK_E9,
-                step_e9: TEST_STEP_E9,
-            },
+            member: test_member(symbol),
             writer,
+            part,
+            day_index: crate::commands::record::day_index_of_day_str(TEST_DAY).unwrap(),
+            book: Book::new(TEST_TICK_E9, TEST_STEP_E9),
+            synced: false,
+            has_snapshot: false,
             records_written: 0,
+            rotate_retry_after_ns: i64::MIN,
+            frames_failed: 0,
             scratch: Vec::with_capacity(128),
-            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
+            batch: Vec::with_capacity(FRAME_TARGET_RECORDS + 128),
         }
     }
 
@@ -1098,13 +1735,13 @@ mod tests {
                     payload,
                     ..
                 } => return (local_ts_ns, payload),
-                Event::Gap { .. } => continue,
+                Event::Gap { .. } | Event::Tick { .. } => continue,
             }
         };
 
         for _ in 0..WARMUP_EVENTS {
             let (local_ts_ns, payload) = next_market_event();
-            write_market_event(&mut state, local_ts_ns, payload);
+            write_market_event(&mut state, local_ts_ns, payload).unwrap();
         }
 
         let mut measured_allocations = 0u64;
@@ -1144,22 +1781,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(part, 1);
-        let mut state = SymbolState {
-            member: PoolMember {
-                symbol: "SOLUSDT".to_string(),
-                tick_e9: TEST_TICK_E9,
-                step_e9: TEST_STEP_E9,
-            },
-            writer,
-            records_written: 0,
-            scratch: Vec::with_capacity(128),
-            batch: Vec::with_capacity(crate::commands::record::FRAME_TARGET_RECORDS + 128),
-        };
+        let mut state = state_with_writer("SOLUSDT", writer, part);
 
         let mut expected_ticks = Vec::with_capacity(N as usize);
         for i in 0..N {
+            // Первое обновление — снапшот: файл, начатый с дельт, нечитаем
+            // (`has_snapshot`, тот же контракт, что `Recorder::NoSnapshot`).
             let update = crate::book::Update {
-                is_snapshot: false,
+                is_snapshot: i == 0,
                 u: i as u64 + 1,
                 seq: i as u64 + 1,
                 cts_ms: i,
@@ -1167,9 +1796,10 @@ mod tests {
                 asks: vec![],
             };
             expected_ticks.push(100 + i);
-            write_market_event(&mut state, i * 1_000, crate::bybit::ws::Event::Book(update));
+            write_market_event(&mut state, i * 1_000, crate::bybit::ws::Event::Book(update))
+                .unwrap();
         }
-        flush_symbol_batch(&mut state);
+        flush_symbol_batch(&mut state).unwrap();
         state.writer.flush().unwrap();
         assert_eq!(state.records_written, N as u64);
 
@@ -1189,7 +1819,7 @@ mod tests {
             "порядок и содержимое обязаны совпасть"
         );
         assert!(
-            frames <= 4,
+            frames <= 5,
             "{N} событий по одному кадру на событие дали бы {N} кадров; батчинг обязан \
              уместить их в единицы кадров (порог {}), получено {frames}",
             crate::commands::record::FRAME_TARGET_RECORDS
@@ -1206,6 +1836,19 @@ mod tests {
     /// `1..=100` (микросекунды в наносекундах), p99 обязан попасть в бин,
     /// чья нижняя граница не выше истинного значения (99 000 нс) и не ниже
     /// его больше, чем на ширину бина (`RESOLUTION_PCT`).
+    /// Таск 25: ряд `samples` олвейс-он не растёт без потолка — раз в
+    /// `RESOURCE_SAMPLE_SECS` (гейт GC `PLAN.md` 6.1: «RSS раз в 30 с»)
+    /// первый час, дальше раз в `HOURLY_REFRESH_SECS` (существующий часовой
+    /// период, с которым и переписывается `session.json`). Ожидаемые числа —
+    /// из таблицы 6.1 и doc `HOURLY_REFRESH_SECS`, не из кода под тестом.
+    #[test]
+    fn resource_sample_period_is_30s_in_the_first_hour_then_hourly() {
+        assert_eq!(resource_sample_period(0), Duration::from_secs(30));
+        assert_eq!(resource_sample_period(3_599), Duration::from_secs(30));
+        assert_eq!(resource_sample_period(3_600), Duration::from_secs(3_600));
+        assert_eq!(resource_sample_period(86_400), Duration::from_secs(3_600));
+    }
+
     #[test]
     fn latency_histogram_p99_is_within_bin_resolution_of_the_true_value() {
         let mut h = LatencyHistogram::new();
@@ -1377,7 +2020,7 @@ mod tests {
                         book.apply(update)
                             .expect("фикстура — валидная последовательность u");
                     }
-                    write_market_event(&mut state, 1, ev);
+                    write_market_event(&mut state, 1, ev).unwrap();
                 }
             });
             if i < WARMUP {
@@ -1407,7 +2050,7 @@ mod tests {
                 max_by_kind[kind]
             );
         }
-        flush_symbol_batch(&mut state);
+        flush_symbol_batch(&mut state).unwrap();
         state.writer.flush().unwrap();
         assert!(state.records_written > 0);
     }
@@ -1418,6 +2061,7 @@ mod tests {
             root: PathBuf::from("does/not/exist/root"),
             minutes: Some(minutes),
             pilot_minutes: None,
+            always_on: false,
             base_url: BYBIT_MAINNET_URL.to_string(),
             ntp_addr: "pool.ntp.org:123".to_string(),
         }
@@ -1429,6 +2073,7 @@ mod tests {
             root: PathBuf::from("does/not/exist/root"),
             minutes: None,
             pilot_minutes: Some(pilot_minutes),
+            always_on: false,
             base_url: BYBIT_MAINNET_URL.to_string(),
             ntp_addr: "pool.ntp.org:123".to_string(),
         }
@@ -1509,6 +2154,7 @@ mod tests {
             root: PathBuf::from("does/not/exist/root"),
             minutes: None,
             pilot_minutes: None,
+            always_on: false,
             base_url: BYBIT_MAINNET_URL.to_string(),
             ntp_addr: "pool.ntp.org:123".to_string(),
         };
@@ -1697,5 +2343,421 @@ mod tests {
             ls.levels > 0,
             "фикстура three_level_frames обязана дать хотя бы один уровень"
         );
+    }
+    // -----------------------------------------------------------------
+    // Таск 25: олвейс-он — ядро над сценарным `Feed` (A5: вызывающий не
+    // различает источник), без сети.
+    // -----------------------------------------------------------------
+
+    enum Step {
+        Ev(Event),
+        Probe(Box<dyn FnMut()>),
+    }
+
+    /// Сценарный `Feed`: события по списку; `Probe` выполняется между
+    /// событиями — так тест смотрит на диск **во время** прогона, а не
+    /// после финального сброса, и отличает «кадр лёг по тику» от «кадр лёг
+    /// при закрытии».
+    struct ScriptedFeed(VecDeque<Step>);
+
+    impl Feed for ScriptedFeed {
+        fn next_event(&mut self) -> Option<Event> {
+            loop {
+                match self.0.pop_front()? {
+                    Step::Ev(e) => return Some(e),
+                    Step::Probe(mut f) => f(),
+                }
+            }
+        }
+    }
+
+    fn book_event(symbol: u8, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: u64) -> Event {
+        Event::Market {
+            symbol,
+            local_ts_ns,
+            parse_latency_ns: None,
+            payload: crate::bybit::ws::Event::Book(crate::book::Update {
+                is_snapshot,
+                u,
+                seq: u,
+                cts_ms,
+                bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
+                asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
+            }),
+        }
+    }
+
+    fn frames_on_disk(path: &Path) -> Vec<Vec<Record>> {
+        let data = std::fs::read(path).unwrap();
+        let mut reader = crate::binlog::Reader::open(&data[..]).unwrap();
+        let mut out = Vec::new();
+        while let Some(frame) = reader.read_frame().unwrap() {
+            out.push(frame);
+        }
+        out
+    }
+
+    fn always_on_ctx(root: &Path, started_ns: i64) -> SessionCtx {
+        SessionCtx::open(
+            root,
+            &[test_member("SYM")],
+            SessionPlan::AlwaysOn,
+            started_ns,
+        )
+        .unwrap()
+    }
+
+    /// 2026-09-12T12:00:00Z в наносекундах — сутки `TEST_DAY`.
+    const NOON_NS: i64 = 1_789_214_400 * 1_000_000_000;
+
+    /// Критерий «тихий инструмент даёт кадр на диске не позже окна» и
+    /// «сброс — по таймеру рантайма»: снапшот, одна дельта, потом только тик
+    /// — проба между тиком и концом прогона обязана увидеть дельту кадром
+    /// на диске (2 кадра: снапшот, дельта), хотя финального сброса ещё не
+    /// было. До таска 25 дельта ждала часового таймера или конца сессии.
+    #[test]
+    fn silent_instrument_frame_reaches_disk_on_the_tick_not_at_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let path = crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 1);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let seen_probe = seen.clone();
+        let probe_path = path.clone();
+        let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+            Step::Ev(book_event(
+                0,
+                NOON_NS + 1,
+                NOON_NS / 1_000_000 + 1,
+                false,
+                2,
+            )),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + window_ns,
+            }),
+            Step::Probe(Box::new(move || {
+                *seen_probe.lock().unwrap() = frames_on_disk(&probe_path).len();
+            })),
+        ]));
+        run_session_loop(&mut feed, &mut ctx).unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            2,
+            "после тика на диске обязаны лежать оба кадра — снапшот и дельта"
+        );
+    }
+
+    /// Критерий «ноль событий → session.json на диске не позже окна» плюс
+    /// остановка сигналом-заменителем: `None` от `Feed` (то, во что
+    /// `StopHandle::stop` превращает Ctrl+C) — финальный `session.json` с
+    /// `closed = true`, `always_on = true`; до него — периодический с
+    /// `closed = false`, уже читаемый.
+    #[test]
+    fn zero_events_still_writes_session_json_and_stop_closes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let mid = std::sync::Arc::new(std::sync::Mutex::new(None::<SessionSummary>));
+        let mid_probe = mid.clone();
+        let probe_root = root.clone();
+        let hour_ns = HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + hour_ns,
+            }),
+            Step::Probe(Box::new(move || {
+                let text = std::fs::read_to_string(probe_root.join("session.json")).unwrap();
+                *mid_probe.lock().unwrap() = Some(serde_json::from_str(&text).unwrap());
+            })),
+        ]));
+        // Финальная запись — дело шва, не теста: `None` от `Feed` обязан
+        // закрыть `session.json` сам.
+        let final_summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+        let mid = mid
+            .lock()
+            .unwrap()
+            .take()
+            .expect("часовой тик обязан переписать session.json");
+        assert!(
+            mid.always_on && !mid.closed,
+            "периодическая запись — не финальная"
+        );
+        assert!(
+            final_summary.closed,
+            "после None от Feed — финальная запись"
+        );
+        assert_eq!(final_summary.records_total, 0);
+        let on_disk: SessionSummary =
+            serde_json::from_str(&std::fs::read_to_string(root.join("session.json")).unwrap())
+                .unwrap();
+        assert!(on_disk.closed && on_disk.always_on);
+    }
+
+    /// Ротация по суткам UTC: событие биржи следующих суток открывает новую
+    /// часть (`claim_part_with`, часть 1 новых суток), первым кадром —
+    /// синтетический снапшот книги (обе стороны), затем сама дельта;
+    /// `binlog_files` получает вторую часть с `started_utc` новых суток;
+    /// `session_binlog_for` читает обе части по порядку.
+    #[test]
+    fn always_on_rotates_at_utc_midnight_with_a_synthetic_snapshot_first() {
+        use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let next_day_ns = NOON_NS + 12 * 3600 * 1_000_000_000 + 1_000_000;
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+            Step::Ev(book_event(
+                0,
+                NOON_NS + 1,
+                NOON_NS / 1_000_000 + 1,
+                false,
+                2,
+            )),
+            Step::Ev(book_event(
+                0,
+                next_day_ns,
+                next_day_ns / 1_000_000,
+                false,
+                3,
+            )),
+        ]));
+        let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+        let paths = super::super::session_binlog_for(&root, "SYM").unwrap();
+        assert_eq!(paths.len(), 2, "две части: сутки D и D+1");
+        assert_eq!(
+            paths[1],
+            crate::commands::record::day_file_path(&root, "SYM", "2026-09-13", 1)
+        );
+        let frames = frames_on_disk(&paths[1]);
+        assert!(frames.len() >= 2, "снапшот и дельта: {}", frames.len());
+        let first = &frames[0];
+        assert_eq!(
+            first.len(),
+            2,
+            "синтетический снапшот — по записи на уровень"
+        );
+        assert_eq!(first[0].ev, LOCAL_BID_DEPTH_SNAPSHOT_EVENT);
+        assert_eq!(first[0].price_ticks, 100);
+        assert_eq!(first[1].ev, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT);
+        assert_eq!(first[1].price_ticks, 110);
+        assert_eq!(summary.binlog_files.len(), 2);
+        assert!(summary.binlog_files[1]
+            .started_utc
+            .starts_with("2026-09-13"));
+        assert_eq!(summary.binlog_files[1].part, 1);
+        let parts = super::super::session_parts_for(&root, "SYM").unwrap();
+        assert_eq!(parts[1].day_utc, "2026-09-13");
+        assert_eq!(parts[1].start_hour_utc, 0);
+    }
+
+    /// Ротация только вперёд: после ухода в сутки D+1 опоздавшее событие
+    /// суток D (сделка с `T` раньше `cts` принятой дельты) пишется в
+    /// текущую часть D+1 — новой части `-p2` суток D не появляется,
+    /// `binlog_files` не растёт, запись лежит в файле D+1 со своей меткой.
+    #[test]
+    fn late_event_of_the_previous_day_stays_in_the_current_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let next_day_ns = NOON_NS + 12 * 3600 * 1_000_000_000 + 1_000_000;
+        let late_ms = NOON_NS / 1_000_000 + 2;
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+            Step::Ev(book_event(
+                0,
+                next_day_ns,
+                next_day_ns / 1_000_000,
+                false,
+                2,
+            )),
+            Step::Ev(book_event(0, next_day_ns + 1, late_ms, false, 3)),
+        ]));
+        let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+        assert_eq!(summary.binlog_files.len(), 2, "D и D+1, без -p2 для D");
+        let paths = super::super::session_binlog_for(&root, "SYM").unwrap();
+        assert_eq!(paths.len(), 2);
+        let frames = frames_on_disk(&paths[1]);
+        let last = frames.last().unwrap();
+        assert_eq!(
+            last.last().unwrap().exch_ts_ns,
+            late_ms * 1_000_000,
+            "опоздавшее событие — в части D+1"
+        );
+        assert!(
+            !crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 2).exists(),
+            "части -p2 прежних суток быть не должно"
+        );
+    }
+
+    /// Файл под приёмником, роняющий N-й `write_all` посреди кадра
+    /// (половина байт на диск, потом ошибка) — то, что делает диск при
+    /// нехватке места или отвале тома.
+    struct HalfFailingFile {
+        inner: File,
+        writes: u32,
+        fail_on: u32,
+    }
+
+    impl std::io::Write for HalfFailingFile {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            if self.writes == self.fail_on {
+                self.inner.write_all(&buf[..buf.len() / 2])?;
+                return Err(std::io::Error::other("диск: нет места"));
+            }
+            self.inner.write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl SinkFile for HalfFailingFile {
+        fn truncate_to(&mut self, len: u64) -> std::io::Result<()> {
+            self.inner.truncate_to(len)
+        }
+    }
+
+    /// Ревью таска 25: упавшая запись кадра не оставляет обрывка на диске.
+    /// Снапшот (кадр 1), дельта → тик (кадр 2 падает на половине), дельта →
+    /// тик (кадр 3): `frames_failed = 1`, ровно одна строка `write_failed`
+    /// в `gaps.csv`, а файл читается `Reader` целиком до конца — два
+    /// кадра, снапшот и третий, без `ShortRead`.
+    #[test]
+    fn failed_frame_write_truncates_to_frame_boundary_and_the_part_stays_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let sink_dir = tempfile::tempdir().unwrap();
+        // Заголовок копится в буфере приёмника до первого сброса и уходит
+        // одним `write_all` со снапшотом (№1); дельты — №2 (падает), №3.
+        let (writer, part) = claim_part_with(
+            sink_dir.path(),
+            "SYM",
+            TEST_DAY,
+            1,
+            TEST_TICK_E9,
+            TEST_STEP_E9,
+            |file| {
+                FrameSink::over(Box::new(HalfFailingFile {
+                    inner: file,
+                    writes: 0,
+                    fail_on: 2,
+                }))
+            },
+        )
+        .unwrap();
+        ctx.states[0].writer = writer;
+        ctx.states[0].part = part;
+        let ms = NOON_NS / 1_000_000;
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(book_event(0, NOON_NS, ms, true, 1)),
+            Step::Ev(book_event(0, NOON_NS + 1, ms + 1, false, 2)),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 10_000_000_000,
+            }),
+            Step::Ev(book_event(0, NOON_NS + 2, ms + 2, false, 3)),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 20_000_000_000,
+            }),
+        ]));
+        let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+        assert_eq!(summary.frames_failed, 1);
+        let gaps = std::fs::read_to_string(gaps_csv_path(&root)).unwrap();
+        assert_eq!(
+            gaps.matches("write_failed").count(),
+            1,
+            "одна строка write_failed: {gaps}"
+        );
+        let path = crate::commands::record::day_file_path(sink_dir.path(), "SYM", TEST_DAY, 1);
+        let frames = frames_on_disk(&path);
+        assert_eq!(
+            frames.len(),
+            2,
+            "снапшот и третий кадр, обрывка второго нет"
+        );
+        assert_eq!(frames[1][0].exch_ts_ns, (ms + 2) * 1_000_000);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            summary.bytes_written,
+            "файл кончается ровно на границе последнего целого кадра"
+        );
+    }
+
+    /// Переподключение и ресинк — числом в `session.json` и строкой в
+    /// `gaps.csv` каждый: без них сутки записи нечем оценить.
+    #[test]
+    fn reconnects_and_resyncs_are_counted_and_logged() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let mut ctx = always_on_ctx(&root, NOON_NS);
+        let gap = |kind, detail: &str| Event::Gap {
+            symbol: 0,
+            local_ts_ns: NOON_NS,
+            kind,
+            detail: detail.to_string(),
+        };
+        let mut feed = ScriptedFeed(VecDeque::from(vec![
+            Step::Ev(gap(FeedGapKind::Disconnected, "транспорт переподключился")),
+            Step::Ev(gap(FeedGapKind::SequenceGap, "разрыв u")),
+            Step::Ev(gap(FeedGapKind::BookInvariant, "книга нарушена")),
+            Step::Ev(gap(FeedGapKind::ParseFailed, "кадр не разобрался")),
+        ]));
+        run_session_loop(&mut feed, &mut ctx).unwrap();
+        let summary = ctx.write_session_json(true).unwrap();
+        assert_eq!(summary.reconnects, 1);
+        assert_eq!(summary.resyncs, 2);
+        assert_eq!(summary.gaps, 4);
+        let rows = crate::commands::record::read_gap_rows(&gaps_csv_path(&root)).unwrap();
+        assert_eq!(rows.len(), 4, "строка на каждый разрыв");
+        assert_eq!(rows[0].kind, GapKind::SequenceGap);
+        assert_eq!(rows[1].kind, GapKind::SequenceGap);
+        assert_eq!(rows[2].kind, GapKind::BookInvariant);
+        assert_eq!(rows[3].kind, GapKind::ParseError);
+    }
+
+    /// `--always-on` взаимоисключающий с `--minutes`/`--pilot-minutes` на
+    /// самом парсере; `resolve_duration` даёт `AlwaysOn` без дедлайна.
+    #[test]
+    fn always_on_conflicts_with_timed_flags_and_resolves_without_deadline() {
+        #[derive(Debug, clap::Parser)]
+        struct TestCli {
+            #[command(subcommand)]
+            cmd: super::super::LobCommand,
+        }
+        use clap::Parser as _;
+        for other in [["--minutes", "10"], ["--pilot-minutes", "30"]] {
+            let err = TestCli::try_parse_from([
+                "t",
+                "session",
+                "--pool-instruments",
+                "instruments.csv",
+                "--root",
+                "root",
+                "--always-on",
+                other[0],
+                other[1],
+            ])
+            .expect_err("--always-on с таймированным флагом обязан конфликтовать");
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{err}"
+            );
+        }
+        let args = SessionArgs {
+            pool_instruments: PathBuf::from("does/not/exist/instruments.csv"),
+            root: PathBuf::from("does/not/exist/root"),
+            minutes: None,
+            pilot_minutes: None,
+            always_on: true,
+            base_url: BYBIT_MAINNET_URL.to_string(),
+            ntp_addr: "pool.ntp.org:123".to_string(),
+        };
+        assert_eq!(resolve_duration(&args).unwrap(), SessionPlan::AlwaysOn);
     }
 }

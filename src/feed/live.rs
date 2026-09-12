@@ -43,7 +43,7 @@ use crate::bybit::conn::{
     SystemClock, TransportConnector,
 };
 
-use super::{Event, Feed};
+use super::{Event, Feed, GapKind};
 
 /// Один инструмент пула для живого потока: символ и шаги его цены/размера
 /// из `instruments.csv` (сам пул задача 04 не выбирает — берёт готовым от
@@ -120,7 +120,7 @@ pub fn print_topic_budget(pool: &[PoolMember]) {
 /// меньше `.await`-точку на событие.
 struct TaggedSink {
     idx: u8,
-    tx: mpsc::Sender<(u8, ConnEvent)>,
+    tx: mpsc::Sender<Item>,
 }
 
 impl ConnSink for TaggedSink {
@@ -128,8 +128,64 @@ impl ConnSink for TaggedSink {
         let idx = self.idx;
         let tx = self.tx.clone();
         async move {
-            let _ = tx.send((idx, ev)).await;
+            let _ = tx.send(Item::Conn(idx, ev)).await;
         }
+    }
+}
+
+/// Элемент общего канала (таск 25): событие соединения, тик таймера
+/// рантайма ввода-вывода или остановка. Все три идут одной очередью FIFO —
+/// `Stop` доходит до потока решений **после** всего, что было прислано
+/// раньше него, поэтому остановка ничего не теряет из уже принятого.
+enum Item {
+    Conn(u8, ConnEvent),
+    Tick { ts_ns: i64 },
+    Stop,
+}
+
+/// Ручка остановки живого `Feed` (таск 25): `stop()` кладёт `Item::Stop`
+/// в общий канал, после чего `next_event` вернёт `None` — ту же
+/// «сессия закончилась», которую вызывающий и так обязан обрабатывать.
+/// Это и есть сигнал-заменитель для тестов: остановка по Ctrl+C
+/// (`stop_on_ctrl_c`) идёт тем же путём, не своим.
+#[derive(Clone)]
+pub struct StopHandle {
+    tx: mpsc::Sender<Item>,
+}
+
+impl StopHandle {
+    /// Блокирующая отправка: ждёт места в очереди, а не роняет остановку
+    /// на полном канале (`try_send` на 32 768 накопленных событиях
+    /// потерял бы её молча). Зовётся не из async-контекста.
+    pub fn stop(&self) {
+        let _ = self.tx.blocking_send(Item::Stop);
+    }
+
+    /// Ctrl+C → `stop()`. Отдельный ОС-поток со своим однопоточным
+    /// рантаймом только ради `tokio::signal::ctrl_c` (`tokio` уже с
+    /// `signal` в `Cargo.toml`, новой зависимости нет): ни рантайм
+    /// ввода-вывода, ни поток решений сигнал не слушают. Второе нажатие —
+    /// аварийный выход кодом 130 (128 + SIGINT, соглашение оболочек, не
+    /// изобретённое число): после регистрации обработчика Ctrl+C больше не
+    /// убивает процесс сам, и если мягкая остановка застряла, оператору
+    /// нужен выход, а не зависший терминал.
+    pub fn stop_on_ctrl_c(self) {
+        std::thread::spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                return;
+            };
+            if runtime.block_on(tokio::signal::ctrl_c()).is_err() {
+                return;
+            }
+            eprintln!("session: Ctrl+C — останавливаюсь (второе нажатие — аварийный выход)");
+            self.stop();
+            if runtime.block_on(tokio::signal::ctrl_c()).is_ok() {
+                std::process::exit(130);
+            }
+        });
     }
 }
 
@@ -138,7 +194,16 @@ impl ConnSink for TaggedSink {
 /// (`blocking_recv`) — ровно то разделение, которое `ARCHITECTURE.md` A3
 /// называет «один поток решений, ввод-вывод отдельно».
 pub struct LiveFeed {
-    rx: mpsc::Receiver<(u8, ConnEvent)>,
+    rx: mpsc::Receiver<Item>,
+    /// Клон отправителя для `stop_handle` — сам канал закрывается только
+    /// вместе с `LiveFeed`, отправители соединений живут на потоке
+    /// ввода-вывода.
+    tx: mpsc::Sender<Item>,
+    /// Те же часы, что метят `local_ts_ns` в соединениях: метка `Gap` без
+    /// собственного времени (`Disconnected`, разрыв `u`) ставится здесь,
+    /// в том же домене, а не нулём.
+    now_ns: Box<dyn Fn() -> i64 + Send>,
+    stopped: bool,
     _io_thread: std::thread::JoinHandle<()>,
 }
 
@@ -148,6 +213,27 @@ impl LiveFeed {
     /// собирает свои метки этапов из отдельного `Clock` (`lob session`).
     pub fn spawn(pool: Vec<PoolMember>) -> Self {
         Self::spawn_with_clock(pool, SystemClock)
+    }
+
+    /// Продовый вход с тиком таймера (таск 25): раз в `tick` рантайм
+    /// ввода-вывода кладёт в общий канал `Event::Tick` — и при полном
+    /// молчании пула (сеть упала, бэкофф) поток решений просыпается не
+    /// позже `tick`. Период задаёт вызывающий: это его окно потери
+    /// (`commands::record::FRAME_LOSS_WINDOW_SECS`), не свойство сокета.
+    pub fn spawn_with_ticks(pool: Vec<PoolMember>, tick: Duration) -> Self {
+        Self::spawn_with_clock_and_connector_and_ticks(
+            pool,
+            |_member| BybitPublicLinearConnector,
+            SystemClock,
+            Some(tick),
+        )
+    }
+
+    /// Ручка остановки — см. `StopHandle`.
+    pub fn stop_handle(&self) -> StopHandle {
+        StopHandle {
+            tx: self.tx.clone(),
+        }
     }
 
     /// Продовый вход с явно поданным `Clock` (ремонт таска 15, `interfaces.md`
@@ -183,8 +269,24 @@ impl LiveFeed {
     /// часы — параметры, ничего больше в теле не меняется.
     fn spawn_with_clock_and_connector<C, F, K>(
         pool: Vec<PoolMember>,
+        make_connector: F,
+        clock: K,
+    ) -> Self
+    where
+        C: TransportConnector + 'static,
+        F: FnMut(&PoolMember) -> C,
+        K: Clock + Clone + Send + 'static,
+    {
+        Self::spawn_with_clock_and_connector_and_ticks(pool, make_connector, clock, None)
+    }
+
+    /// Шов теста для тика и остановки (таск 25): фейковый транспорт, свои
+    /// часы, свой период тика.
+    pub(crate) fn spawn_with_clock_and_connector_and_ticks<C, F, K>(
+        pool: Vec<PoolMember>,
         mut make_connector: F,
         clock: K,
+        tick: Option<Duration>,
     ) -> Self
     where
         C: TransportConnector + 'static,
@@ -193,7 +295,11 @@ impl LiveFeed {
     {
         print_topic_budget(&pool);
         let capacity = CHANNEL_CAPACITY_PER_SYMBOL.saturating_mul(pool.len().max(1));
-        let (tx, rx) = mpsc::channel::<(u8, ConnEvent)>(capacity);
+        let (tx, rx) = mpsc::channel::<Item>(capacity);
+        let stop_tx = tx.clone();
+        let gap_clock = clock.clone();
+        let tick_clock = clock.clone();
+        let tick_tx = tx.clone();
         let connectors: Vec<(u8, PoolMember, C)> = pool
             .into_iter()
             .enumerate()
@@ -225,6 +331,25 @@ impl LiveFeed {
                     let conn = Connection::new(connector, cfg);
                     tasks.push(tokio::spawn(conn.run(clock.clone(), sink)));
                 }
+                if let Some(period) = tick {
+                    // Таймер рантайма, не «по приходу события»: первый тик
+                    // `interval` отдаёт сразу — пропускаем его, дальше ровно
+                    // раз в `period`. Отставший потребитель (полный канал)
+                    // получает тики реже — `MissedTickBehavior::Delay`, не
+                    // очередь из тиков.
+                    tasks.push(tokio::spawn(async move {
+                        let mut ticker = tokio::time::interval(period);
+                        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                        ticker.tick().await;
+                        loop {
+                            ticker.tick().await;
+                            let ts_ns = tick_clock.now_ns();
+                            if tick_tx.send(Item::Tick { ts_ns }).await.is_err() {
+                                return;
+                            }
+                        }
+                    }));
+                }
                 drop(tx);
                 for t in tasks {
                     let _ = t.await;
@@ -234,6 +359,9 @@ impl LiveFeed {
 
         Self {
             rx,
+            tx: stop_tx,
+            now_ns: Box::new(move || gap_clock.now_ns()),
+            stopped: false,
             _io_thread: io_thread,
         }
     }
@@ -247,7 +375,19 @@ impl Feed for LiveFeed {
         // используют это, обрывая задачи вместо мягкой остановки, как и
         // `commands::record` не даёт `Connection::run` останавливаться
         // иначе, кроме как через `conn_task.abort()` снаружи).
-        let (idx, conn_event) = self.rx.blocking_recv()?;
+        if self.stopped {
+            return None;
+        }
+        let (idx, conn_event) = match self.rx.blocking_recv()? {
+            Item::Conn(idx, ev) => (idx, ev),
+            Item::Tick { ts_ns } => return Some(Event::Tick { local_ts_ns: ts_ns }),
+            Item::Stop => {
+                // Остановка окончательна: соединения продолжают слать в
+                // канал, но после `Stop` поток закрыт для вызывающего.
+                self.stopped = true;
+                return None;
+            }
+        };
         Some(match conn_event {
             ConnEvent::Message {
                 local_ts_ns,
@@ -262,22 +402,26 @@ impl Feed for LiveFeed {
             ConnEvent::ParseFailed { local_ts_ns, err } => Event::Gap {
                 symbol: idx,
                 local_ts_ns,
+                kind: GapKind::ParseFailed,
                 detail: format!("кадр не разобрался: {err:?}"),
             },
             ConnEvent::SequenceGap { expected, got } => Event::Gap {
                 symbol: idx,
-                local_ts_ns: 0,
-                detail: format!("разрыв u: ждали {expected}, пришло {got}"),
+                local_ts_ns: (self.now_ns)(),
+                kind: GapKind::SequenceGap,
+                detail: format!("разрыв u: ждали {expected}, пришло {got} — ресинк снапшотом"),
             },
             ConnEvent::BookInvariantViolated { err } => Event::Gap {
                 symbol: idx,
-                local_ts_ns: 0,
-                detail: format!("книга нарушена: {err:?}"),
+                local_ts_ns: (self.now_ns)(),
+                kind: GapKind::BookInvariant,
+                detail: format!("книга нарушена: {err:?} — ресинк снапшотом"),
             },
             ConnEvent::Disconnected => Event::Gap {
                 symbol: idx,
-                local_ts_ns: 0,
-                detail: "сокет переподключился".to_string(),
+                local_ts_ns: (self.now_ns)(),
+                kind: GapKind::Disconnected,
+                detail: "транспорт переподключился — шов покрытия".to_string(),
             },
         })
     }
@@ -441,5 +585,50 @@ mod tests {
             ),
             other => panic!("ждали Market, получили {other:?}"),
         }
+    }
+
+    /// Таск 25: при полном молчании транспорта (`pending` навсегда) поток
+    /// решений всё равно просыпается тиком таймера рантайма не позже
+    /// периода, а `StopHandle::stop()` (сигнал-заменитель Ctrl+C) заканчивает
+    /// поток `None` — и окончательно: следующий вызов тоже `None`.
+    #[test]
+    fn silent_transport_still_ticks_and_stop_ends_the_feed_for_good() {
+        let inbox = Arc::new(Mutex::new(VecDeque::new()));
+        let pool = vec![PoolMember {
+            symbol: "BTCUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }];
+        let clock = FakeSeqClock(Arc::new(std::sync::atomic::AtomicI64::new(0)));
+        let mut feed = LiveFeed::spawn_with_clock_and_connector_and_ticks(
+            pool,
+            |_m| OneShotConnector {
+                inbox: inbox.clone(),
+            },
+            clock,
+            Some(Duration::from_millis(20)),
+        );
+        // Транспорт молчит вечно (`pending`): если тик не по таймеру, этот
+        // вызов не вернётся вовсе — зависший тест и есть красный.
+        let first = feed
+            .next_event()
+            .expect("тик обязан прийти без единого кадра");
+        assert!(
+            matches!(first, Event::Tick { .. }),
+            "молчащий транспорт даёт тик, не что-то другое: {first:?}"
+        );
+
+        feed.stop_handle().stop();
+        // До `Stop` в очереди могут стоять тики — вычерпываем их, `None`
+        // обязан наступить, а не зависнуть.
+        let mut seen_none = false;
+        for _ in 0..1000 {
+            if feed.next_event().is_none() {
+                seen_none = true;
+                break;
+            }
+        }
+        assert!(seen_none, "после stop() поток обязан закончиться None");
+        assert!(feed.next_event().is_none(), "остановка окончательна");
     }
 }

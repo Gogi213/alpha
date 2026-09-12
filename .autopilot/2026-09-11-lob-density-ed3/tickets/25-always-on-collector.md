@@ -4,7 +4,7 @@
 **Blocked by:** 24
 **Зона:** `src/commands/lob/session.rs`, `src/commands/record.rs` (ротация по суткам — переиспользование `claim_part`/`day_file_path`; обобщить `claim_part` по приёмнику, чтобы `session.rs` не держал вторую копию цикла), `src/bybit/ws.rs` (только фолбэк `topic` и классификация ошибок — из ревью таска 24), `src/feed/live.rs`, `src/bybit/conn.rs` (только если нужен хук «соединение молчит»), `src/commands/lob/mod.rs` (CLI), `src/main.rs` (Ctrl+C). Не трогать: формат бинлога, читатели, `src/lob/**`.
 **Волна:** 10
-**Status:** ready (после 24)
+**Status:** done
 
 ## Что должно заработать
 

@@ -235,3 +235,68 @@ fn parse_message_bench() {
         );
     }
 }
+
+/// Таск 25: уровень zstd — по замеру, не по умолчанию библиотеки. Одна и та
+/// же реальная пятиминутная запись (`data/collector/*-after/`, таск 24)
+/// перекодируется кадрами по `FRAME_TARGET_RECORDS` на уровнях 1/3/6/9:
+/// байт на запись и наносекунд сжатия на запись. Без `data/` — пропуск с
+/// сообщением (данные не коммитятся).
+/// `cargo test --release --test collector_bench zstd_level -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn zstd_level_bytes_per_record_and_cpu_on_a_real_binlog() {
+    use alpha::binlog::{Reader, Writer};
+    use alpha::commands::record::FRAME_TARGET_RECORDS;
+    let Some(dir) = std::fs::read_dir("data/collector")
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| p.to_string_lossy().ends_with("-after"))
+    else {
+        eprintln!("zstd bench: нет data/collector/*-after — пропуск");
+        return;
+    };
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "binlog"))
+        .collect();
+    files.sort();
+    let mut total_records = 0usize;
+    let mut per_level: [(i32, usize, u128); 4] = [(1, 0, 0), (3, 0, 0), (6, 0, 0), (9, 0, 0)];
+    for path in &files {
+        let data = std::fs::read(path).unwrap();
+        let mut reader = Reader::open(&data[..]).unwrap();
+        let header = reader.header();
+        let mut records = Vec::new();
+        while let Some(frame) = reader.read_frame().unwrap() {
+            records.extend(frame);
+        }
+        total_records += records.len();
+        for slot in per_level.iter_mut() {
+            let mut w = Writer::create(Vec::new(), header, slot.0).unwrap();
+            let t0 = std::time::Instant::now();
+            for chunk in records.chunks(FRAME_TARGET_RECORDS) {
+                w.write_frame(chunk).unwrap();
+            }
+            slot.2 += t0.elapsed().as_nanos();
+            slot.1 += w.into_inner().len();
+        }
+    }
+    eprintln!(
+        "zstd bench: {} файлов, {} записей из {}",
+        files.len(),
+        total_records,
+        dir.display()
+    );
+    for (level, bytes, ns) in per_level {
+        eprintln!(
+            "zstd level {level}: {:.3} байт/запись, {:.1} нс/запись сжатия, {bytes} байт",
+            bytes as f64 / total_records.max(1) as f64,
+            ns as f64 / total_records.max(1) as f64
+        );
+    }
+}

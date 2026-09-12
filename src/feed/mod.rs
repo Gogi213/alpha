@@ -45,12 +45,33 @@ pub enum Event {
         parse_latency_ns: Option<i64>,
         payload: crate::bybit::ws::Event,
     },
-    /// Кадр потерян. `detail` — то же, что легло бы строкой `gaps.csv`.
+    /// Кадр потерян. `detail` — то же, что легло бы строкой `gaps.csv`;
+    /// `kind` — причина по классам (таск 25): вызывающий считает
+    /// переподключения и ресинки за прогон числом, а не разбором строки.
     Gap {
         symbol: u8,
         local_ts_ns: i64,
+        kind: GapKind,
         detail: String,
     },
+    /// Тик таймера источника (таск 25): живой `Feed` шлёт его раз в
+    /// `tick` (`live::LiveFeed::spawn_with_ticks`), даже когда рынок и сеть
+    /// молчат — единственный способ дать вызывающему периодический сброс
+    /// кадра и проверку дедлайна «по таймеру рантайма, не по приходу
+    /// события». Реплей тика не шлёт: у бинлога нет своего настенного
+    /// времени. `local_ts_ns` — тот же `Clock`, что метит `Market`.
+    Tick { local_ts_ns: i64 },
+}
+
+/// Класс потерянного кадра — один в один варианты `bybit::conn::ConnEvent`,
+/// кроме `Message`. `Disconnected` — переподключение транспорта;
+/// `SequenceGap`/`BookInvariant` — книга источника ушла на ресинк снапшотом.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GapKind {
+    ParseFailed,
+    SequenceGap,
+    BookInvariant,
+    Disconnected,
 }
 
 /// A5: итератор, а не колбэк. Одна и та же сигнатура обслуживает и

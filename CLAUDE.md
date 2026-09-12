@@ -4,8 +4,8 @@
 
 ## Что это
 
-Rust-проект: записать стакан Bybit сессиями (5–15 мин, весь пул из 10 инструментов
-разом), разметить крупные уровни, посчитать профили (семь осей), вынести вердикт
+Rust-проект: записать стакан Bybit олвейс-он коллектором (В-34: сутки — часть,
+весь пул разом; сессии 5–15 мин остались режимом отладки), разметить крупные уровни, посчитать профили (семь осей), вынести вердикт
 бэктестом с моделью очереди. Архитектура — под живого бота с первого дня: одна
 стратегия `lob::strategy::on_event<MD: MarketDepth, B: Bot<MD>>` идёт и в
 `Backtest`, и в `LiveBot` крейта `hftbacktest` без правок (шов доказан тестом на
@@ -18,8 +18,8 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
   дополнения — в `.autopilot/…/2026-09-11-brief.md`, раздел «Дополнения»
 - `docs/plan/REVIEW-2026-09-11.md` — что в коде остаётся / чинится / сносится (РВ-0)
 - `docs/plan/RECON-2026-09-11.md` — разведка: три инструмента пула × 5 мин
-- `docs/plan/SETTLED.md` — журнал решений (В-1…В-33; В-30 — `k` выбирает пилот, В-31 — окно «сейчас», В-32 — диск под сессии, В-33 — хвост пилота)
-- `docs/findings/` — **боевые артефакты**: `recording-2026-09-11.md` (запись доказана на 3×5 мин), `pilot-2026-09-11.md` (первый пилот 30 мин — красный про рынок); `docs/plan/runs.csv` — журнал испытаний (8 строк пилота)
+- `docs/plan/SETTLED.md` — журнал решений (В-1…В-34; В-30 — `k` выбирает пилот, В-31 — окно «сейчас», В-32 — диск под сессии, В-33 — хвост пилота, В-34 — олвейс-он коллектор)
+- `docs/findings/` — **боевые артефакты**: `recording-2026-09-11.md` (запись доказана на 3×5 мин), `pilot-2026-09-11.md` (первый пилот 30 мин — красный про рынок), `collector-2026-09-12.md` (коллектор до/после и олвейс-он 5 мин: байт/запись 7.27, CPU 1.7 %, zstd 1); `docs/plan/runs.csv` — журнал испытаний (8 строк пилота)
 - `docs/ARCHITECTURE.md` — A1–A9, обязательные к соблюдению (раскладка дерева там —
   черновик, устарела; актуальное дерево модулей — ниже)
 - `.autopilot/state.js` — состояние прогона (таски, волны, гейты); дашборд —
@@ -32,11 +32,17 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 615 passed, 0 failed, 5 ignored (24 таска + пилот)
+cargo test --release 2>&1 | tail -30        # 627 passed, 0 failed, 5 ignored (25 тасков + пилот; +2 ignored бенча collector_bench)
 cargo test --release --test collector_bench -- --ignored --nocapture   # бенч разбора: медиана/p99, аллокаций на сообщение
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
 ./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
+
+# олвейс-он коллектор (В-34): запуск — до Ctrl+C; instruments.csv скопировать в --root для levels/pilot
+mkdir data/always-on/<ts> && cp instruments.csv data/always-on/<ts>/
+./target/release/alpha.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
+# остановка — Ctrl+C один раз в его терминале: сброс писателей, clock.csv, session.json closed=true, код 0
+# (второе нажатие — аварийный выход 130; `timeout`/kill — не Ctrl+C: финального session.json не будет)
 ```
 
 Релизная сборка с нуля ~4 мин; инкрементально — секунды. Тесты офлайн (сеть только
@@ -97,7 +103,7 @@ src/
 | Команда | Артефакт |
 |---|---|
 | `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул**, отобранный ранг) + `docs/plan/candidates.csv` (все кандидаты, причина исключения по каждому) |
-| `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
+| `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`) **или** `--always-on` (В-34: без дедлайна, до Ctrl+C; новые сутки UTC — новая часть с синтетическим снапшотом; `session.json` на старте / раз в час / на ротации / на остановке (`closed`), `samples` RSS/CPU, `reconnects`/`resyncs`/`frames_failed`/`bytes_written`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
 | `lob verify` | `verify.csv`, `verify-<SYMBOL>.status` (`ok`/`fail`) — читает `watch`/`pilot` |
 | `lob levels --h3-mode floor\|percentile [--h3-k <f64>]` (`--h3-k`: пол = `floor(k × median_trade_lots)` из `instruments.csv` на лету; только с `floor`) | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
@@ -113,7 +119,8 @@ src/
 | `lob probe` | **ставит настоящие post-only ордера на бирже** — RTT полного цикла |
 
 `docs/findings/` содержит только вердикты записи и пилота; `profiles-*`/`backtest-*`/
-`shortlist-*` боевых ещё нет — сбор сессиями не начинался. Пул в `instruments.csv` —
+`shortlist-*` боевых ещё нет — суточный олвейс-он ещё не запускался (владелец, после
+вердикта экономии в `collector-2026-09-12.md`). Пул в `instruments.csv` —
 отладочный (8 из окна 300 с, `k=1.0` заглушка), боевой `lob pick --window-secs 3600`
 не запускался. Боевые данные: `data/pilot-battle/20260911T224019Z/` (30 мин, gitignored).
 
@@ -169,9 +176,17 @@ src/
 - GC на пилоте 30 мин: NTP offset 79 мс (порог 5), parse p99 400 мкс (порог 200), RSS
   4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
 - коллектор (T24): `ws::parse_message_into` без `serde_json::Value`, `lob session` копит кадры
-  до `FRAME_TARGET_RECORDS` за `BufWriter` — крах теряет до батча; p99 разбора/очереди — из
-  гистограммы (`LatencyHistogram`, ≤ 1.5625 %), не из `Vec`; замер до/после —
-  `docs/findings/collector-2026-09-12.md`
+  до `FRAME_TARGET_RECORDS`; p99 разбора/очереди — из гистограммы (`LatencyHistogram`,
+  ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/findings/collector-2026-09-12.md`
+- олвейс-он (T25): кадр уходит на диск одним `write_all` (`FrameSink`) и не реже
+  `record::FRAME_LOSS_WINDOW_SECS = 10` с по тику рантайма (`feed::Event::Tick`) — файл
+  всегда на границе кадра, `verify`/`levels`/`markout` читают живой каталог, пока коллектор
+  пишет (у формата нет трейлера), не видят только последние ≤ 10 с; `session.json` между
+  часовыми записями — стартовый (`records_total = 0`), не «нет данных»; `samples` — раз в
+  30 с первый час, потом раз в час (`resource_sample_period`); `record::ZSTD_LEVEL = 1` по
+  замеру, не менять без бенча `collector_bench` (`--ignored`); Ctrl+C доходит до процесса
+  только из настоящей консоли — потомки агентских/сервисных оболочек наследуют «Ctrl+C
+  игнорировать» (`SetConsoleCtrlHandler(NULL, TRUE)`), тогда остановить его штатно нельзя
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален
 - Bybit отдаёт `403` с части стран (CloudFront); с этой машины доступ есть
 

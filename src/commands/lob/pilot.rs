@@ -1225,6 +1225,7 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         root: session_dir.clone(),
         minutes: Some(minutes),
         pilot_minutes: None,
+        always_on: false,
         base_url: args.base_url.clone(),
         ntp_addr: args.ntp_addr.clone(),
     })?;

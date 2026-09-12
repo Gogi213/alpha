@@ -46,15 +46,21 @@
 //! `String` сырого кадра в `tungstenite` (`PLAN.md` 6.1: «транспорт ≤ 1 на
 //! кадр, принято»).
 //!
-//! Какой из двух типов пробовать, решает `topic_starts_with` — дешёвая
-//! проверка подстроки `"topic":"<префикс>` без разбора: в протоколе Bybit
-//! `topic` всегда идёт первым полем компактного (без пробелов) JSON без
-//! экранирования — то же самое подтверждают все фикстуры тестов ниже и
-//! разведка `docs/plan/RECON-2026-09-11.md`. Сама проверка структуры
+//! Какой из двух типов пробовать, решает `fast_topic_kind` — дешёвая
+//! проверка префикса `{"topic":"<префикс>` **в начале** сообщения без
+//! разбора: в протоколе Bybit `topic` всегда идёт первым полем компактного
+//! (без пробелов) JSON — то же самое подтверждают все фикстуры тестов ниже и
+//! разведка `docs/plan/RECON-2026-09-11.md`. Всё, что этому образцу не
+//! отвечает (пробелы после двоеточий, `topic` не первым полем, вовсе без
+//! `topic`), идёт фолбэком `probe_topic_kind` (таск 25, ревью таска 24):
+//! типизированный разбор верхнего объекта до поля `topic` — и никакое
+//! строковое поле или вложенный ключ `topic` быстрый путь не обманут,
+//! потому что он смотрит только на самое начало. Сама проверка структуры
 //! (порядок полей, экранирование внутри строк, отсутствующие необязательные
-//! поля) остаётся за `serde_json`, а не за этой подстрокой — подстрока лишь
-//! выбирает, какую типизированную форму пробовать первой, а корректность
-//! разбора проверяет типизированный разбор, а не она.
+//! поля) остаётся за `serde_json` — префикс лишь выбирает, какую форму
+//! пробовать, а корректность проверяет типизированный разбор. Ошибки формы
+//! при валидном JSON — `BadShape`/`MissingField`/`BadNumber` по
+//! `serde_json::Error::classify()`; `NotJson` — только синтаксис.
 
 use crate::book::Update;
 
@@ -85,9 +91,22 @@ pub struct Trade {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
+    /// Синтаксис (`serde_json` `Category::Syntax`/`Eof`/`Io`) — не JSON.
     NotJson,
     MissingField(&'static str),
     BadNumber(&'static str),
+    /// Валидный JSON неверной формы (`Category::Data`: объект вместо
+    /// массива, строка вместо числа) — какая форма ожидалась, в аргументе.
+    BadShape(&'static str),
+}
+
+/// `serde_json` → `ParseError` по классу: только синтаксис — `NotJson`,
+/// валидный JSON неверной формы — `BadShape(form)`.
+fn classify_json_error(e: &serde_json::Error, form: &'static str) -> ParseError {
+    match e.classify() {
+        serde_json::error::Category::Data => ParseError::BadShape(form),
+        _ => ParseError::NotJson,
+    }
 }
 
 /// Разбирает десятичную строку в целое 1e-9 без промежуточного `f64`.
@@ -134,15 +153,44 @@ pub fn parse_e9(s: &str) -> Option<i64> {
     Some(if neg { -v } else { v })
 }
 
-/// Проверка подстроки, решающая, какую типизированную форму разбора пробовать
-/// (см. doc модуля). Не заглядывает внутрь `data` и не проверяет структуру —
-/// это остаётся за `serde_json` ниже.
-fn topic_starts_with(raw: &str, prefix: &str) -> bool {
-    const KEY: &str = "\"topic\":\"";
-    match raw.find(KEY) {
-        Some(at) => raw[at + KEY.len()..].starts_with(prefix),
-        None => false,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TopicKind {
+    Book,
+    Trade,
+    Other,
+}
+
+fn topic_kind(topic: &str) -> TopicKind {
+    if topic.starts_with("orderbook.") {
+        TopicKind::Book
+    } else if topic.starts_with("publicTrade") {
+        TopicKind::Trade
+    } else {
+        TopicKind::Other
     }
+}
+
+/// Быстрый путь (см. doc модуля): компактное сообщение площадки начинается
+/// ровно с `{"topic":"`. `None` — образец не совпал, решает фолбэк.
+fn fast_topic_kind(raw: &str) -> Option<TopicKind> {
+    const KEY: &str = "{\"topic\":\"";
+    raw.strip_prefix(KEY).map(topic_kind)
+}
+
+/// Фолбэк: верхний объект читается типизированно до поля `topic`
+/// (остальные поля — `IgnoredAny`, без узлов дерева), заодно проверяется
+/// синтаксис всего сообщения. `Cow` — значение с экранированием не
+/// заимствуется и разбирается в свою строку, а не падает.
+#[derive(serde::Deserialize)]
+struct TopicProbe<'a> {
+    #[serde(borrow)]
+    topic: Option<std::borrow::Cow<'a, str>>,
+}
+
+fn probe_topic_kind(raw: &str) -> Result<TopicKind, ParseError> {
+    let probe: TopicProbe =
+        serde_json::from_str(raw).map_err(|e| classify_json_error(&e, "topic"))?;
+    Ok(probe.topic.as_deref().map_or(TopicKind::Other, topic_kind))
 }
 
 /// Первая ёмкость `Vec` уровней одной стороны. Дельта `orderbook.50` несёт
@@ -366,33 +414,41 @@ impl<'de> serde::de::Visitor<'de> for TradeListInto<'_> {
 /// разобранная лента) — вызывающий не читает его, следующий вызов очистит.
 pub fn parse_message_into(raw: &str, out: &mut Vec<Event>) -> Result<(), ParseError> {
     out.clear();
-    if topic_starts_with(raw, "orderbook.") {
-        let msg: RawOrderbookMsg = serde_json::from_str(raw).map_err(|_| ParseError::NotJson)?;
-        out.push(Event::Book(orderbook_update(msg)?));
-        return Ok(());
-    }
-    if topic_starts_with(raw, "publicTrade") {
-        let mut de = serde_json::Deserializer::from_str(raw);
-        let outcome = serde::de::DeserializeSeed::deserialize(TradesInto(out), &mut de)
-            .map_err(|_| ParseError::NotJson)?;
-        de.end().map_err(|_| ParseError::NotJson)?;
-        if !outcome.saw_data {
-            return Err(ParseError::MissingField("data"));
+    let (kind, validated) = match fast_topic_kind(raw) {
+        Some(kind) => (kind, false),
+        None => (probe_topic_kind(raw)?, true),
+    };
+    match kind {
+        TopicKind::Book => {
+            let msg: RawOrderbookMsg =
+                serde_json::from_str(raw).map_err(|e| classify_json_error(&e, "orderbook"))?;
+            out.push(Event::Book(orderbook_update(msg)?));
+            Ok(())
         }
-        if let Some(err) = outcome.bad {
-            return Err(err);
+        TopicKind::Trade => {
+            let mut de = serde_json::Deserializer::from_str(raw);
+            let outcome = serde::de::DeserializeSeed::deserialize(TradesInto(out), &mut de)
+                .map_err(|e| classify_json_error(&e, "publicTrade"))?;
+            de.end().map_err(|_| ParseError::NotJson)?;
+            if !outcome.saw_data {
+                return Err(ParseError::MissingField("data"));
+            }
+            if let Some(err) = outcome.bad {
+                return Err(err);
+            }
+            Ok(())
         }
-        return Ok(());
-    }
-    // Ни один из двух известных топиков — но сообщение обязано остаться
-    // валидным JSON (иначе это `NotJson`, не тихий `Other`). `IgnoredAny`
-    // проверяет структуру целиком, не строя ни одного узла дерева.
-    match serde_json::from_str::<serde::de::IgnoredAny>(raw) {
-        Ok(_) => {
+        TopicKind::Other => {
+            // Неизвестный топик с быстрого пути — сообщение обязано остаться
+            // валидным JSON (иначе это `NotJson`, не тихий `Other`);
+            // фолбэк уже прочитал его целиком, второй проход не нужен.
+            if !validated {
+                serde_json::from_str::<serde::de::IgnoredAny>(raw)
+                    .map_err(|_| ParseError::NotJson)?;
+            }
             out.push(Event::Other);
             Ok(())
         }
-        Err(_) => Err(ParseError::NotJson),
     }
 }
 
@@ -622,6 +678,76 @@ mod tests {
             Event::Trade(t) => assert_eq!(t.price_e9, 1_000_000_000),
             _ => panic!("ожидалась сделка"),
         }
+    }
+
+    /// Ревью таска 24 (а): валидный, но некомпактный JSON (пробелы после
+    /// двоеточий — быстрый путь не совпадает) обязан разобраться фолбэком
+    /// как книга/лента, а не уйти в `Other`/`NotJson`.
+    #[test]
+    fn non_compact_json_falls_back_to_typed_topic_and_parses() {
+        let book = r#"{"topic": "orderbook.50.X", "type": "delta", "ts": 1,
+          "data": {"b": [], "a": [["1.5", "2"]], "u": 43, "seq": 8}, "cts": 9}"#;
+        match &parse_message(book).unwrap()[0] {
+            Event::Book(u) => {
+                assert_eq!(u.u, 43);
+                assert_eq!(u.asks, vec![(1_500_000_000, 2_000_000_000)]);
+            }
+            other => panic!("ожидалась книга, получено {other:?}"),
+        }
+        let trade = r#"{ "topic" : "publicTrade.X", "type": "snapshot", "ts": 1,
+          "data": [{"T": 5, "s": "X", "S": "Sell", "v": "1.0", "p": "2.0"}] }"#;
+        match parse_message(trade).unwrap()[0] {
+            Event::Trade(t) => {
+                assert_eq!(t.exch_ms, 5);
+                assert!(!t.aggressor_is_buy);
+            }
+            _ => panic!("ожидалась сделка"),
+        }
+    }
+
+    /// Ревью таска 24 (а): поле перед `topic`, чьё содержимое похоже на
+    /// `"topic":"orderbook.` — строковое (с экранированием) и вложенный
+    /// ключ `topic` внутри объекта — не обязано подменить настоящий
+    /// верхний `topic`: сообщение — лента, и разобраться обязано лентой.
+    #[test]
+    fn lookalike_topic_before_the_real_one_does_not_fool_the_dispatch() {
+        let string_field = r#"{"note":"\"topic\":\"orderbook.50.X\"","topic":"publicTrade.X",
+          "type":"snapshot","ts":1,"data":[{"T":7,"s":"X","S":"Buy","v":"1.0","p":"3.0"}]}"#;
+        let nested_key = r#"{"meta":{"topic":"orderbook.50.X"},"topic":"publicTrade.X",
+          "type":"snapshot","ts":1,"data":[{"T":7,"s":"X","S":"Buy","v":"1.0","p":"3.0"}]}"#;
+        for raw in [string_field, nested_key] {
+            match parse_message(raw).unwrap()[0] {
+                Event::Trade(t) => assert_eq!(t.exch_ms, 7),
+                _ => panic!("ожидалась сделка: {raw}"),
+            }
+        }
+    }
+
+    /// Ревью таска 24 (б): валидный JSON неверной формы — не `NotJson`.
+    /// `data` книги массивом, `data` ленты объектом, `topic` числом.
+    #[test]
+    fn valid_json_of_the_wrong_shape_is_not_reported_as_not_json() {
+        let cases = [
+            (
+                r#"{"topic":"orderbook.50.X","type":"delta","ts":1,"data":[]}"#,
+                "orderbook",
+            ),
+            (
+                r#"{"topic":"publicTrade.X","type":"snapshot","ts":1,"data":{}}"#,
+                "publicTrade",
+            ),
+            (r#"{"a":1,"topic":5}"#, "topic"),
+        ];
+        for (raw, form) in cases {
+            let err = parse_message(raw).unwrap_err();
+            assert_ne!(err, ParseError::NotJson, "{raw}");
+            assert_eq!(err, ParseError::BadShape(form), "{raw}");
+        }
+        assert_eq!(
+            parse_message(r#"{"topic":"orderbook.50.X","data":{"u":1"#).unwrap_err(),
+            ParseError::NotJson,
+            "обрыв синтаксиса остаётся NotJson"
+        );
     }
 
     #[test]

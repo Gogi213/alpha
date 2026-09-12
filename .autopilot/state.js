@@ -11,7 +11,7 @@ window.STATE =
   "memoryFile": "CLAUDE.md",
   "skillDir": "~/.claude/skills/autopilot",
   "startedAt": "2026-09-11T00:20:00+04:00",
-  "updatedAt": "2026-09-12T22:40:00+04:00",
+  "updatedAt": "2026-09-13T04:10:00+04:00",
   "finishedAt": null,
   "note": "Вторая редакция плана за день. Владелец поправил три вещи: архитектура сразу под бота; система быстрая с первого дня; тестовые прогоны не дольше 5 минут. Плюс разведка на трёх инструментах пула: данные не совпали с ожиданием по определению «крупного» уровня — H3 переопределён как пол. Прогон 2026-09-08 закрыт, его состояние в archive/.",
   "stages": [
@@ -73,8 +73,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 88,
-    "done": 69,
-    "inTicket": 14,
+    "done": 72,
+    "inTicket": 11,
     "deferred": 4,
     "dropped": 1,
     "placeholder": 0,
@@ -842,8 +842,15 @@ window.STATE =
         "src/commands/lob/session.rs",
         "src/binlog/mod.rs"
       ],
-      "status": "review",
+      "status": "done",
       "startedAt": "2026-09-12T22:40:00+04:00",
+      "finishedAt": "2026-09-13T01:40:00+04:00",
+      "tests": "615 passed, 0 failed, 5 ignored",
+      "commit": "ac5ca69",
+      "review": {
+        "R-A/R-B": "manifest R83/R79/R80 done; 4 находки manifest, 4 spec — не блокирующие (таймер сброса 3600 с, RSS без артефакта, claim_part продублирован, класс ошибки NotJson)",
+        "R-C": "13 находок craft, не блокирующие: фолбэк topic для некомпактного JSON, классификация ошибок, write_frame молчит, гистограмма приватна, третья копия SplitMix64; безопасность олвейс-он передана в T25"
+      },
       "retries": 0,
       "repairs": 0,
       "handoffs": 1,
@@ -868,10 +875,18 @@ window.STATE =
         "src/commands/lob/mod.rs",
         "src/main.rs"
       ],
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-09-13T01:45:00+04:00",
+      "finishedAt": "2026-09-13T04:10:00+04:00",
+      "tests": "627 passed, 0 failed, 5 ignored",
+      "commit": "T25",
+      "review": {
+        "R-A/R-B": "1 blocking (выдуманный артефакт verify-SOLUSDT.status в findings) — закрыт; 3 manifest + 5 spec не блокирующих → concerns",
+        "R-C": "2 blocking (полкадра на диске при ошибке сброса; ошибка session.json/ротации роняет цикл без финализации) + порядок финализации + ротация вперёд — закрыты дозапросом; 6 не блокирующих → concerns"
+      },
       "retries": 0,
-      "repairs": 0,
-      "handoffs": 0,
+      "repairs": 1,
+      "handoffs": 1,
       "note": "владелец 2026-09-12: «повесить олвейсон коллектор, но супер экономный» — снимает R37/R38; ротация по суткам UTC, периодический session.json, Ctrl+C, анализ по живому каталогу"
     },
     {
@@ -1013,6 +1028,48 @@ window.STATE =
     "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены"
   },
   "concerns": [
+    {
+      "ticket": "25",
+      "file": "src/commands/lob/session.rs:~770 (flush_symbol → open_next_part)",
+      "what": "при переоткрытии части после потерянной границы синтетический снапшот получает exch_ts_ns = локальный now_ns (смешение доменов часов, NTP offset ~140 мс); метка биржи должна быть последним виденным cts/T инструмента",
+      "kind": "clock-domain"
+    },
+    {
+      "ticket": "25",
+      "file": "CLAUDE.md:108, src/commands/lob/verify.rs",
+      "what": "таблица артефактов приписывает lob verify файлы verify.csv/verify-<SYMBOL>.status — verify.csv пишет сайдкар при записи, маркер — только lob pilot; для анализа олвейс-он данных profiles/watch маркера не получат → T26",
+      "kind": "doc-vs-code"
+    },
+    {
+      "ticket": "25",
+      "file": "src/commands/lob/session.rs (push_book_snapshot, часовые расписания, вторая Book)",
+      "what": "push_book_snapshot — вторая копия record::Recorder::on_snapshot; три независимых часовых расписания (поток clock.csv, сэмплер, on_tick) с гонкой idx на финальном замере — record.rs держит один таймер; вторая Book на инструмент вернулась ради снапшота ротации (apply дважды на дельту) — цена включена в 1.71 % CPU, но снятое таском 24 вернулось",
+      "kind": "reinvention"
+    },
+    {
+      "ticket": "25",
+      "file": "src/commands/lob/session.rs:918, src/feed/live.rs:420",
+      "what": "Disconnected ложится в gaps.csv как sequence_gap (как record.rs) — reconnects по kind не посчитать, тест закрепляет подмену; нужен свой GapKind",
+      "kind": "diagnostics"
+    },
+    {
+      "ticket": "25",
+      "file": "src/commands/lob/session.rs (rotate_symbol_day при !synced), docs/findings",
+      "what": "новая часть суток остаётся 0 байт до снапшота биржи — живой читатель падает на Reader::open в этом окне, не «до последнего кадра»; окно не названо в findings",
+      "kind": "doc-gap"
+    },
+    {
+      "ticket": "25",
+      "file": "src/feed/live.rs:595",
+      "what": "тест без тика блокирует next_event навсегда — CI виснет, не краснеет; нужно ограниченное ожидание",
+      "kind": "test-hang"
+    },
+    {
+      "ticket": "25",
+      "file": "src/bybit/ws.rs (ParseError::BadShape), session.json.samples",
+      "what": "BadShape вместо MissingField/BadNumber по classify() — обосновано (Category::Data их не разделяет), но не записано как отклонение от тикета; «потолок 120 + 24/сутки» — линейный рост, не потолок",
+      "kind": "wording"
+    },
     {
       "ticket": "24",
       "file": "src/bybit/ws.rs:140",
@@ -1657,9 +1714,9 @@ window.STATE =
     "live_run": "один, 5 мин, lob session: records=1587882 gaps=0, 8 инструментов, без ключей"
   },
   "tests": {
-    "passed": 607,
+    "passed": 627,
     "failed": 0,
     "ignored": 5,
-    "at": "2026-09-12T22:10:00+04:00"
+    "at": "2026-09-13T04:10:00+04:00"
   }
 }

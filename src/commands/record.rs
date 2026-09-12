@@ -88,10 +88,26 @@ pub const MAX_RECORDS_PER_FRAME: u32 = 20_000;
 /// литералом в теле цикла.
 pub const FRAME_TARGET_RECORDS: usize = 1_000;
 
-/// Уровень zstd суточных файлов. Не изобретённое число: дефолт библиотеки до
-/// пилота 3.1, который назначает его измерением байта на запись (см. doc
-/// `binlog::Writer::create` — уровень там параметр именно поэтому).
-pub const ZSTD_LEVEL: i32 = zstd::DEFAULT_COMPRESSION_LEVEL;
+/// Окно потери при крахе, секунды — то самое «кадр раз в ~10 секунд живого
+/// потока» из doc `FRAME_TARGET_RECORDS`, названное константой (таск 25):
+/// `lob session` сбрасывает накопленный кадр по тику таймера рантайма не
+/// реже этого окна, поэтому тихий инструмент (или весь пул при молчании
+/// сети) держит в памяти не больше окна, а не до часового таймера. Число не
+/// новое — оно уже было обоснованием порога записей; здесь оно становится
+/// границей по времени для того же компромисса «потерянные секунды при
+/// крахе против степени сжатия мелких кадров».
+pub const FRAME_LOSS_WINDOW_SECS: u64 = 10;
+
+/// Уровень zstd суточных файлов. Назначен измерением (таск 25, бенч
+/// `tests/collector_bench.rs::zstd_level_bytes_per_record_and_cpu_on_a_real_
+/// binlog` на `data/collector/20260912T011109Z-after`, 8 файлов, 182 641
+/// запись): уровень 1 — 7.245 Б/запись при 170 нс/запись; 3 (прежний
+/// дефолт библиотеки) — 7.307 при 215; 6 — 6.908 при 475; 9 — 6.839 при
+/// 824. Уровень 1 строго лучше прежнего по обеим осям; 6/9 покупают
+/// −5…6 % байт за 2.8–4.8× CPU сжатия и большие контексты на инструмент —
+/// при дисковом бюджете без потолка (В-32) и коллекторе «супер экономном»
+/// по CPU/RSS выбран 1. Числа — в `docs/findings/collector-2026-09-12.md`.
+pub const ZSTD_LEVEL: i32 = 1;
 
 /// Период часового таймера: `clock.csv` (шаг 0.5, хук — см. `run_session`) и
 /// перечитывание `instruments-info`. Один таймер на оба — два часовых
@@ -313,6 +329,9 @@ pub enum GapKind {
     BookInvariant,
     /// Кадр транспорта не разобрался: событие потеряно до книги.
     ParseError,
+    /// Кадр не записался на диск (таск 25): потерян целый батч — до
+    /// `FRAME_TARGET_RECORDS` записей, молчать нельзя.
+    WriteFailed,
 }
 
 /// Одна строка `gaps.csv`. Колонки: момент (UTC, RFC 3339), символ, причина,
@@ -461,20 +480,6 @@ pub struct Recorder {
     records_total: u64,
 }
 
-fn open_day_writer(
-    path: &Path,
-    tick_e9: i64,
-    step_e9: i64,
-) -> Result<crate::binlog::Writer<File>, RecordError> {
-    let file = File::create(path)?;
-    let header = Header {
-        tick_e9,
-        step_e9,
-        max_records_per_frame: MAX_RECORDS_PER_FRAME,
-    };
-    crate::binlog::Writer::create(file, header, ZSTD_LEVEL).map_err(RecordError::from)
-}
-
 /// Первая свободная часть суток начиная с `from`: часть 1, если файла нет
 /// (обычный случай), иначе `-p2`, `-p3`, … — перезапись занятого имени была
 /// бы потерей данных. `pub(crate)`: таск 22 переиспользует её из
@@ -488,11 +493,34 @@ pub(crate) fn claim_part(
     tick_e9: i64,
     step_e9: i64,
 ) -> Result<(crate::binlog::Writer<File>, u32), RecordError> {
+    claim_part_with(root, symbol, day, from, tick_e9, step_e9, |file| file)
+}
+
+/// То же, что `claim_part`, но приёмник файла выбирает вызывающий (таск 25):
+/// `lob session` заворачивает `File` в свой покадровый буфер, `lob record`
+/// пишет в голый `File` — один цикл поиска свободного номера части на
+/// обоих, а не две копии.
+pub(crate) fn claim_part_with<W: std::io::Write>(
+    root: &Path,
+    symbol: &str,
+    day: &str,
+    from: u32,
+    tick_e9: i64,
+    step_e9: i64,
+    wrap: impl FnOnce(File) -> W,
+) -> Result<(crate::binlog::Writer<W>, u32), RecordError> {
     let mut part = from.max(1);
     loop {
         let path = day_file_path(root, symbol, day, part);
         if !path.exists() {
-            return Ok((open_day_writer(&path, tick_e9, step_e9)?, part));
+            let file = File::create(&path)?;
+            let header = Header {
+                tick_e9,
+                step_e9,
+                max_records_per_frame: MAX_RECORDS_PER_FRAME,
+            };
+            let writer = crate::binlog::Writer::create(wrap(file), header, ZSTD_LEVEL)?;
+            return Ok((writer, part));
         }
         part = part.checked_add(1).ok_or(RecordError::TooManyParts {
             day: day.to_string(),
@@ -1072,7 +1100,7 @@ fn drain_latest_steps(rx: &mut std::sync::mpsc::Receiver<(i64, i64)>) -> Option<
 /// Время матчинга события в миллисекундах — ось ротации по суткам UTC и ключ
 /// склейки с лентой (Decision 5: `cts` стакана против `T` трейдов). `Other`
 /// времени не несёт и сутки не двигает.
-fn event_exch_ms(event: &Event) -> Option<i64> {
+pub(crate) fn event_exch_ms(event: &Event) -> Option<i64> {
     match event {
         Event::Book(u) => Some(u.cts_ms),
         Event::Trade(t) => Some(t.exch_ms),

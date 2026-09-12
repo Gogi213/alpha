@@ -468,6 +468,22 @@ const RECORD_FIELD_COUNT: usize = 8;
 /// типичных данных.
 const MIN_RECORD_LEN: usize = RECORD_FIELD_COUNT;
 
+/// Максимальная длина закодированной записи: восемь полей, каждое —
+/// LEB128-варинт `u64` не длиннее десяти байт (64 бита по семь на байт —
+/// `ceil(64 / 7) = 10`, свойство кодека, не данных). Верхняя граница
+/// формата — из неё считается `max_frame_bytes_on_disk`.
+const MAX_RECORD_LEN: usize = RECORD_FIELD_COUNT * 10;
+
+/// Верхняя граница байт одного кадра **на диске** для `records` записей:
+/// префикс длины плюс `compress_bound` zstd от эпохи и записей максимальной
+/// длины. Вызывающий (таск 25, `commands::lob::session::FrameSink`)
+/// резервирует по ней буфер один раз — ноль аллокаций на кадр после старта
+/// вне зависимости от того, какой кадр окажется самым крупным.
+pub fn max_frame_bytes_on_disk(records: usize) -> usize {
+    let raw = FRAME_EPOCH_LEN.saturating_add(records.saturating_mul(MAX_RECORD_LEN));
+    LEN_PREFIX.saturating_add(zstd::zstd_safe::compress_bound(raw))
+}
+
 /// Потолок для разжатого тела кадра (Decision 23, ревизия 10): столько байт
 /// максимум может занять кадр из `max_records_per_frame` записей — эпоха
 /// кадра плюс записи по их минимальному размеру. Оба множителя — не
@@ -678,6 +694,12 @@ impl<W: Write> Writer<W> {
 
     pub fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
+    }
+
+    /// Приёмник как есть — вызывающему нужны его счётчики (байты на диске,
+    /// таск 25), формат не задет.
+    pub fn get_ref(&self) -> &W {
+        &self.inner
     }
 
     pub fn into_inner(self) -> W {
