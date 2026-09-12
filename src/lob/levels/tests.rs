@@ -532,3 +532,273 @@ fn trades_on_a_live_level_allocate_nothing() {
     assert_eq!(counts.allocations, 0, "трейд обязан не аллоцировать");
     assert_eq!(tr.live_count(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Касания (таск 35, В-42).
+// ---------------------------------------------------------------------------
+
+/// Порог из тикета: `H3 = 5`, уровень — 10 лотов.
+fn cfg_touch() -> LevelsConfig {
+    LevelsConfig {
+        mode: H3Mode::Percentile { h3_lots: 5 },
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+    }
+}
+
+fn touch_rec(
+    tick: i64,
+    touch_index: u32,
+    span: (i64, i64),
+    sizes: (i64, i64),
+    frontrun: i64,
+    ended_by_death: bool,
+    stack: u32,
+) -> TouchRecord {
+    TouchRecord {
+        side: Side::Bid,
+        price_tick: tick,
+        touch_index,
+        start_ms: span.0,
+        end_ms: span.1,
+        duration_ms: span.1 - span.0,
+        level_birth_ms: 1000,
+        size_at_touch: sizes.0,
+        size_max_before: sizes.1,
+        traded_during: 0,
+        frontrun_lots: frontrun,
+        round_zeros: round_zeros(tick),
+        ended_by_death,
+        stack_levels: stack,
+    }
+}
+
+/// Критерий приёмки таска 35, фикстура тикета: бид-уровень 100 (10 лотов,
+/// `H3 = 5`), лучший бид 101 (3 лота — не уровень). Кадр, где 101 исчез, —
+/// уровень стал лучшим, касание началось; кадр, где 101 вернулся, — касание
+/// кончилось, `touch_index = 0`, `frontrun_lots` — лоты 101 с последнего
+/// кадра до касания, `traded_during` — сделка внутри касания; повтор —
+/// `touch_index = 1`; смерть во время касания (в том же кадре, где 101
+/// вернулся, — смерть имеет приоритет) — `ended_by_death`, `end_ms` —
+/// `death_ms` записи смерти. `stack_levels` считает только живые уровни
+/// стороны с размером не ниже `H3`: 97 жив (4 — ровно 20 % от 20), но 4 < 5 —
+/// не считается. Смерти уровней при этом — прежние.
+#[test]
+fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    tr.observe_frame_with_touches(
+        1000,
+        b,
+        &[ob(101, 3), ob(100, 10), ob(99, 2), ob(98, 7), ob(97, 20)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(tr.live_count(), 3, "уровни 100, 98, 97");
+    assert!(
+        touches.is_empty(),
+        "лучшая цена 101 — не уровень, касания нет"
+    );
+    // 101 исчез — 100 лучший: касание идёт, записи ещё нет.
+    tr.observe_frame_with_touches(
+        2000,
+        b,
+        &[ob(100, 12), ob(99, 2), ob(98, 7), ob(97, 4)],
+        &mut out,
+        &mut touches,
+    );
+    assert!(touches.is_empty(), "касание идёт — записи нет до конца");
+    tr.observe_trade(TradeHit {
+        tick: 100,
+        lots: 4,
+        aggressor_is_buy: false,
+        block: false,
+        exch_ms: 2500,
+    });
+    // 101 вернулся — касание 0 кончилось уходом с лучшей цены.
+    tr.observe_frame_with_touches(
+        3000,
+        b,
+        &[ob(101, 4), ob(100, 12), ob(99, 2), ob(98, 7), ob(97, 4)],
+        &mut out,
+        &mut touches,
+    );
+    let mut want = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 2);
+    want.traded_during = 4;
+    assert_eq!(touches, vec![want]);
+    assert!(out.is_empty(), "смертей нет");
+    touches.clear();
+    // Повтор: 101 исчез снова — касание 1; фронтран — 4 лота 101 с кадра 3000.
+    tr.observe_frame_with_touches(
+        4000,
+        b,
+        &[ob(100, 12), ob(99, 2), ob(98, 7), ob(97, 4)],
+        &mut out,
+        &mut touches,
+    );
+    assert!(touches.is_empty());
+    // 101 вернулся и в том же кадре 100 упал до 1 лота (< 20 % от 12):
+    // смерть, а не уход с лучшей цены.
+    tr.observe_frame_with_touches(
+        5000,
+        b,
+        &[ob(101, 4), ob(100, 1), ob(99, 2), ob(98, 7), ob(97, 4)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(
+        touches,
+        vec![touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 2)]
+    );
+    assert_eq!(out.len(), 1, "смерть 100");
+    assert_eq!(out[0].price_tick, 100);
+    assert_eq!(out[0].death, DeathKind::BelowFraction);
+    assert_eq!(touches[0].end_ms, out[0].death_ms);
+    assert_eq!(
+        out[0].traded_lots, 4,
+        "объём смерти — за всю жизнь, как раньше"
+    );
+    assert_eq!(tr.live_count(), 2, "98 и 97 живы");
+}
+
+/// Число нулей в конце десятичной записи тика — критерий приёмки:
+/// `100 → 2`, `1010 → 1`, `1234 → 0`; потолок «3+»; ноль и знак.
+#[test]
+fn round_zeros_counts_trailing_decimal_zeros_up_to_three() {
+    assert_eq!(round_zeros(100), 2);
+    assert_eq!(round_zeros(1010), 1);
+    assert_eq!(round_zeros(1234), 0);
+    assert_eq!(round_zeros(1000), 3);
+    assert_eq!(round_zeros(120_000), ROUND_ZEROS_CAP);
+    assert_eq!(round_zeros(0), 0);
+    assert_eq!(round_zeros(-100), 2);
+    assert_eq!(round_zeros(i64::MIN), 0);
+}
+
+/// Уровень, родившийся сразу лучшей ценой, касается с кадра рождения:
+/// фронтрана нет (ноль), максимум «до» — размер рождения. Аск — та же
+/// логика, индекс 0 — низший тик; `stack_levels` включает сам уровень.
+#[test]
+fn a_level_born_at_the_best_price_touches_from_birth_without_frontrun() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let a = Side::Ask;
+    tr.observe_frame_with_touches(1000, a, &[ob(200, 10), ob(201, 3)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, a, &[ob(200, 15), ob(201, 3)], &mut out, &mut touches);
+    assert!(touches.is_empty());
+    tr.observe_frame_with_touches(
+        3000,
+        a,
+        &[ob(199, 2), ob(200, 15), ob(201, 3)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(
+        touches,
+        vec![TouchRecord {
+            side: Side::Ask,
+            price_tick: 200,
+            touch_index: 0,
+            start_ms: 1000,
+            end_ms: 3000,
+            duration_ms: 2000,
+            level_birth_ms: 1000,
+            size_at_touch: 10,
+            size_max_before: 10,
+            traded_during: 0,
+            frontrun_lots: 0,
+            round_zeros: 2,
+            ended_by_death: false,
+            stack_levels: 1,
+        }]
+    );
+    assert_eq!(touches[0].age_ms(), 0);
+    assert!(out.is_empty());
+}
+
+/// Касания уровней прогрева считаются (индекс растёт), но не эмитируются —
+/// тот же режим, что у их смертей; уровень, родившийся после прогрева,
+/// эмитирует касание с индексом 0.
+#[test]
+fn warmup_touches_are_tracked_but_not_emitted() {
+    let mut tr = LevelTracker::new(LevelsConfig {
+        mode: H3Mode::Percentile { h3_lots: 5 },
+        warmup_ms: 5000,
+        repeat_window_ms: HOUR_MS,
+    });
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    tr.observe_frame_with_touches(1000, b, &[ob(100, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, b, &[ob(101, 3), ob(100, 10)], &mut out, &mut touches);
+    assert!(
+        touches.is_empty(),
+        "касание прогревного уровня не эмитируется"
+    );
+    tr.observe_frame_with_touches(
+        7000,
+        b,
+        &[ob(102, 10), ob(101, 3), ob(100, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        8000,
+        b,
+        &[ob(103, 3), ob(102, 10), ob(101, 3), ob(100, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!((touches[0].price_tick, touches[0].touch_index), (102, 0));
+    assert_eq!(
+        touches[0].stack_levels, 2,
+        "102 и прогревный 100 — оба живы и не ниже H3"
+    );
+    assert!(out.is_empty());
+}
+
+/// Гейт GC таска 35: кадры с касаниями — начало и конец на каждом кадре,
+/// сделки внутри — после прогрева не аллоцируют; то же для `observe_frame`
+/// без выхода касаний (буфер-заглушка переиспользуется).
+#[test]
+fn touching_frames_allocate_nothing() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    let with_best = [ob(101, 3), ob(100, 10), ob(98, 7)];
+    let level_best = [ob(100, 10), ob(98, 7)];
+    // Прогрев: рождения, касание, конец касания растягивают буферы.
+    tr.observe_frame_with_touches(1000, b, &with_best, &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, b, &level_best, &mut out, &mut touches);
+    tr.observe_frame_with_touches(3000, b, &with_best, &mut out, &mut touches);
+    tr.observe_frame(4000, b, &level_best, &mut out);
+    tr.observe_frame(5000, b, &with_best, &mut out);
+    assert_eq!(touches.len(), 1);
+    touches.clear();
+
+    let (_, counts) = crate::alloc_count::measure(|| {
+        for i in 0..1000i64 {
+            let ts = 6000 + 2 * i;
+            tr.observe_frame_with_touches(ts, b, &level_best, &mut out, &mut touches);
+            tr.observe_trade(TradeHit {
+                tick: 100,
+                lots: 1,
+                aggressor_is_buy: false,
+                block: false,
+                exch_ms: ts,
+            });
+            tr.observe_frame_with_touches(ts + 1, b, &with_best, &mut out, &mut touches);
+            touches.clear();
+            tr.observe_frame(ts + 1, b, &level_best, &mut out);
+            tr.observe_frame(ts + 1, b, &with_best, &mut out);
+        }
+    });
+    assert_eq!(counts.allocations, 0, "касания обязаны не аллоцировать");
+    assert_eq!(tr.live_count(), 2);
+    assert!(out.is_empty(), "смертей не было");
+}

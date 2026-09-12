@@ -16,12 +16,27 @@
 //!
 //! История подаётся вызывающим срезом в неубывающем времени; этот модуль
 //! не хранит состояния и не выделяет память.
+//!
+//! # Markout касания (таск 35)
+//!
+//! У касания (`levels::TouchRecord`) база — последний срез строго до
+//! `start_ms` (тот же `base_before`), горизонты те же `HORIZONS_MS`, но
+//! знак — **«в сторону отскока»** (`touch_markout_bps`): бид — плюс, если
+//! середина пошла **вверх**. Это противоположно `markout_bps` смерти: там
+//! исчезновение бида подразумевает шорт (опора ушла — цена вниз), здесь
+//! бид выстоял под ценой — ставка на то, что цена от него отойдёт. Подход
+//! (`approach_bps`) — сдвиг середины за `APPROACH_MS` до начала касания,
+//! знак «к уровню»: плюс — цена шла на уровень.
 
 use crate::book::Side;
-use crate::lob::levels::LevelRecord;
+use crate::lob::levels::{LevelRecord, TouchRecord};
 
 /// Горизонты замера, мс: 100 мс, 1 с, 10 с, 60 с.
 pub const HORIZONS_MS: [i64; 4] = [100, 1_000, 10_000, 60_000];
+
+/// Окна подхода к уровню, мс: 1 с и 10 с до касания — `HORIZONS_MS[1]`,
+/// `HORIZONS_MS[2]` (таск 35, из существующих горизонтов, не новое число).
+pub const APPROACH_MS: [i64; 2] = [HORIZONS_MS[1], HORIZONS_MS[2]];
 
 /// Множитель перевода доли в базисные пункты.
 const BPS_SCALE: f64 = 10_000.0;
@@ -117,6 +132,63 @@ pub fn markouts_for_level(level: &LevelRecord, mids: &[MidSample]) -> [Option<f6
         let h = *HORIZONS_MS.get(i)?;
         let fut2x = future_asof(mids, base_ts, h)?;
         markout_bps(level.side, base2x, fut2x)
+    })
+}
+
+/// Markout касания: знак «в сторону отскока» — ровно минус `markout_bps`.
+/// Бид: середина вверх — плюс (цена отошла от бида); аск: середина вниз —
+/// плюс. Почему не тот же знак, что у смерти: смерть бида читается как
+/// «опора ушла, цена вниз» (шорт, `s = -1`), касание — «опора выстояла,
+/// цена от неё отскочит» (лонг от бида, `s = +1`). Отдельная функция, а не
+/// параметр знака, чтобы полярность смерти нельзя было перепутать с
+/// полярностью касания молча. Знак кладётся в целых до деления, а не
+/// отрицанием результата: нулевой сдвиг остаётся `+0.0`, не `-0.0` в CSV.
+/// `None` при неположительной базе. Касты — та же точность, что выше.
+#[allow(clippy::cast_precision_loss)]
+pub fn touch_markout_bps(side: Side, base2x: i64, fut2x: i64) -> Option<f64> {
+    if base2x <= 0 {
+        return None;
+    }
+    let sigma: i128 = match side {
+        Side::Bid => 1,
+        Side::Ask => -1,
+    };
+    let signed_diff = sigma * (fut2x as i128 - base2x as i128);
+    Some(signed_diff as f64 / base2x as f64 * BPS_SCALE)
+}
+
+/// Markout касания на всех горизонтах: база строго до `start_ms`, будущее —
+/// как есть на `t0 + h`, где `t0` — метка базы; знак — `touch_markout_bps`.
+/// Нет базы или нет будущего на горизонте — `None`, как у смерти.
+pub fn markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f64>; 4] {
+    let Some((base_ts, base2x)) = base_before(mids, touch.start_ms) else {
+        return [None, None, None, None];
+    };
+    std::array::from_fn(|i| {
+        let h = *HORIZONS_MS.get(i)?;
+        let fut2x = future_asof(mids, base_ts, h)?;
+        touch_markout_bps(touch.side, base2x, fut2x)
+    })
+}
+
+/// Подход к уровню: сдвиг середины за `back_ms` до касания в bps, знак «к
+/// уровню» — плюс, если цена шла на уровень (к биду — вниз, к аску —
+/// вверх). Конец окна — срез строго до `start_ms` (`base_before`), начало —
+/// срез как есть на `t0 − back_ms` (`sample_asof` с отрицательным сдвигом);
+/// раньше первого среза окна нет — `None`. Знак «к уровню» совпадает со
+/// знаком `markout_bps` (бид: `s = -1`, движение вниз — плюс), поэтому
+/// формула та же, с началом окна в роли базы.
+pub fn approach_bps(side: Side, mids: &[MidSample], start_ms: i64, back_ms: i64) -> Option<f64> {
+    let (end_ts, end2x) = base_before(mids, start_ms)?;
+    let from2x = future_asof(mids, end_ts, back_ms.checked_neg()?)?;
+    markout_bps(side, from2x, end2x)
+}
+
+/// Подход касания на окнах `APPROACH_MS` (1 с, 10 с).
+pub fn approaches_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f64>; 2] {
+    std::array::from_fn(|i| {
+        let back = *APPROACH_MS.get(i)?;
+        approach_bps(touch.side, mids, touch.start_ms, back)
     })
 }
 

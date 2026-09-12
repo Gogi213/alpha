@@ -23,10 +23,10 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 654 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 663 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 17 подкоманд, таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 18 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
@@ -66,6 +66,7 @@ src/
     lob/pilot.rs           run_pilot; pilot/{k_grid,metrics,gates,inputs,chain}
     lob/profiles.rs        run_profiles; profiles/{axes,accumulate,coverage,sessions,table}
     lob/dashboard.rs       данные страницы; dashboard_page.html — сама страница (include_str!)
+    lob/touches.rs         run_touches — касания живых уровней → touches-<SYMBOL>.csv (T35, В-42)
     lob/pick/, react.rs, power.rs, backtest.rs, shortlist.rs, watch.rs, …
 ```
 
@@ -77,7 +78,8 @@ src/
 `lob pick` → `instruments.csv` (пул, ровно десять, `depth_check` — проверка, не отбор, В-35) +
 `docs/plan/candidates.csv`. `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
 `session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются).
-`lob levels`/`markout`/`watch` → CSV на инструмент. `lob profiles`/`backtest`/`shortlist` →
+`lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
+markout со знаком «в сторону отскока», T35). `lob profiles`/`backtest`/`shortlist` →
 `docs/findings/*-<дата>.*` (RTT и лот — обязательные флаги; В-37: `--median-rtt-ns 20000000
 --p95-rtt-ns 20000000`, шапка `rtt=assumed(20ms, В-37)`). `lob pilot` → `k`-сетка, G0,
 G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **реальные ордера**.

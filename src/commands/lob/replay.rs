@@ -9,7 +9,9 @@ use crate::binlog::{Reader, Record};
 use crate::book::{Book, Side};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
-use crate::lob::levels::{LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TradeHit};
+use crate::lob::levels::{
+    LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord, TradeHit,
+};
 use crate::lob::markout::MidSample;
 use crate::lob::watch::{tally_day, DayTally};
 use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
@@ -20,10 +22,12 @@ use super::parts::{day_of_filename, list_symbol_binlogs};
 // Общий реплей: суточные файлы символа → записи уровней и срезы середины.
 // ---------------------------------------------------------------------------
 
-/// Одни сутки UTC после реплея: записи уровней и срезы середины.
+/// Одни сутки UTC после реплея: записи уровней, касания живых уровней
+/// (таск 35) и срезы середины.
 pub(crate) struct ReplayDay {
     pub(crate) day: String,
     pub(crate) records: Vec<LevelRecord>,
+    pub(crate) touches: Vec<TouchRecord>,
     pub(crate) mids: Vec<MidSample>,
 }
 
@@ -51,6 +55,7 @@ pub(crate) struct ReplayStats {
 struct DayWork {
     day: String,
     records: Vec<Vec<LevelRecord>>,
+    touches: Vec<Vec<TouchRecord>>,
     mids: Vec<MidSample>,
     trackers: Vec<LevelTracker>,
 }
@@ -77,7 +82,9 @@ pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
 /// конфигурация — частный случай `feed_frames_multi` (таск 18), но
 /// оставлена отдельной функцией: `profiles.rs::run_profiles_with_fill_model`
 /// (вне зоны таска 18, «не трогать») зовёт её напрямую с одним трекером,
-/// вторая сигнатура (`&mut [LevelTracker]`) поменяла бы её вызов.
+/// вторая сигнатура (`&mut [LevelTracker]`) поменяла бы её вызов. Касания
+/// (таск 35) здесь не собираются — `observe_frame` их отбрасывает; читатель
+/// касаний — `replay_symbol_over_configs` через `feed_frames_multi`.
 pub(crate) fn feed_frames(
     book: &Book,
     tracker: &mut LevelTracker,
@@ -109,19 +116,26 @@ pub(crate) fn feed_frames(
 /// Применяет обновление к книге и кормит **все** трекеры кадром обеих
 /// сторон плюс общим срезом середины (таск 18: `LevelObs` не зависит от
 /// порога `H3`, поэтому строится один раз на кадр и раздаётся всем
-/// трекерам — не по разу на конфигурацию). Вызывается только после
-/// успешного `apply`.
+/// трекерам — не по разу на конфигурацию). Касания (таск 35) — в
+/// `touches`, по вектору на конфигурацию, как `out`. Вызывается только
+/// после успешного `apply`.
 fn feed_frames_multi(
     book: &Book,
     trackers: &mut [LevelTracker],
     ts_ms: i64,
     out: &mut [Vec<LevelRecord>],
+    touches: &mut [Vec<TouchRecord>],
     mids: &mut Vec<MidSample>,
 ) {
     debug_assert_eq!(
         trackers.len(),
         out.len(),
         "трекер и выход обязаны идти парой"
+    );
+    debug_assert_eq!(
+        trackers.len(),
+        touches.len(),
+        "трекер и выход касаний обязаны идти парой"
     );
     for side in [Side::Bid, Side::Ask] {
         let obs: Vec<LevelObs> = book
@@ -133,8 +147,12 @@ fn feed_frames_multi(
                 in_top50: i < 50,
             })
             .collect();
-        for (tracker, out) in trackers.iter_mut().zip(out.iter_mut()) {
-            tracker.observe_frame(ts_ms, side, &obs, out);
+        for ((tracker, out), touches) in trackers
+            .iter_mut()
+            .zip(out.iter_mut())
+            .zip(touches.iter_mut())
+        {
+            tracker.observe_frame_with_touches(ts_ms, side, &obs, out, touches);
         }
     }
     if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
@@ -225,6 +243,7 @@ pub(crate) fn replay_symbol_over_configs(
             work.push(DayWork {
                 day,
                 records: cfgs.iter().map(|_| Vec::new()).collect(),
+                touches: cfgs.iter().map(|_| Vec::new()).collect(),
                 mids: Vec::new(),
                 trackers: cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
             });
@@ -271,6 +290,7 @@ pub(crate) fn replay_symbol_over_configs(
                         &mut entry.trackers,
                         up.cts_ms,
                         &mut entry.records,
+                        &mut entry.touches,
                         &mut entry.mids,
                     );
                 }
@@ -299,6 +319,7 @@ pub(crate) fn replay_symbol_over_configs(
                     &mut entry.trackers,
                     up.cts_ms,
                     &mut entry.records,
+                    &mut entry.touches,
                     &mut entry.mids,
                 );
             }
@@ -317,10 +338,11 @@ pub(crate) fn replay_symbol_over_configs(
                 tracker.live_levels(&mut s.open);
             }
         }
-        for (i, records) in w.records.into_iter().enumerate() {
+        for (i, (records, touches)) in w.records.into_iter().zip(w.touches).enumerate() {
             out[i].days.push(ReplayDay {
                 day: w.day.clone(),
                 records,
+                touches,
                 mids: w.mids.clone(),
             });
         }

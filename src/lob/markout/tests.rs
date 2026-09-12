@@ -176,3 +176,98 @@ fn module_stays_detached_from_transport_and_clocks() {
         assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
     }
 }
+
+fn touch(side: Side, start_ms: i64) -> TouchRecord {
+    TouchRecord {
+        side,
+        price_tick: 1000,
+        touch_index: 0,
+        start_ms,
+        end_ms: start_ms + 500,
+        duration_ms: 500,
+        level_birth_ms: 0,
+        size_at_touch: 200,
+        size_max_before: 200,
+        traded_during: 0,
+        frontrun_lots: 0,
+        round_zeros: 3,
+        ended_by_death: false,
+        stack_levels: 1,
+    }
+}
+
+/// Критерий приёмки таска 35: середина после касания выше — бид-касание
+/// даёт `m > 0` (знак «в сторону отскока», противоположный смерти: тот же
+/// тренд для смерти бида даёт `m < 0`); аск на том же тренде — `m < 0`.
+/// База — последний срез строго до `start_ms`, как у смерти; будущее —
+/// как есть на `t0 + h` — точные значения линейного тренда.
+#[test]
+fn a_bid_touch_followed_by_a_rising_mid_has_positive_markout() {
+    let mids = vec![
+        sample(0, 20_000),
+        sample(100, 20_002),
+        sample(1_000, 20_020),
+        sample(10_000, 20_200),
+        sample(60_000, 21_200),
+    ];
+    let bid = touch(Side::Bid, 50);
+    let got = markouts_for_touch(&bid, &mids);
+    let want = [1.0, 10.0, 100.0, 600.0];
+    for (i, h) in HORIZONS_MS.iter().enumerate() {
+        let v = got[i].expect("будущее есть на каждом горизонте");
+        assert!(v > 0.0 && close(v, want[i]), "горизонт {h}: got {v}");
+    }
+    let death = markouts_for_level(&level(Side::Bid, 50), &mids);
+    for (t, d) in got.iter().zip(death) {
+        assert!(close(t.unwrap(), -d.unwrap()), "касание — минус смерть");
+    }
+    let ask = markouts_for_touch(&touch(Side::Ask, 50), &mids);
+    for v in ask {
+        assert!(v.unwrap() < 0.0, "аск на росте — против отскока");
+    }
+    assert_eq!(
+        touch_markout_bps(Side::Bid, 0, 1),
+        None,
+        "неположительная база"
+    );
+    assert_eq!(markouts_for_touch(&touch(Side::Bid, 0), &mids), [None; 4]);
+}
+
+/// Критерий приёмки таска 35: середина падала на бид перед касанием —
+/// `approach_1s > 0` (знак «к уровню»); за 10 с — тоже, если падала и там;
+/// раньше первого среза окна нет — `None`, а не ноль. Аск на том же
+/// падении — отрицательный подход: цена уходила от него.
+#[test]
+fn a_mid_falling_onto_the_bid_gives_positive_approach() {
+    // Падение 20 единиц удвоенной шкалы за секунду, 200 за десять.
+    let mids = vec![
+        sample(0, 20_200),
+        sample(9_000, 20_020),
+        sample(10_000, 20_000),
+        sample(10_500, 20_000),
+    ];
+    let bid = touch(Side::Bid, 10_001);
+    let [a1, a10] = approaches_for_touch(&bid, &mids);
+    let a1 = a1.expect("секунда до касания есть");
+    let a10 = a10.expect("десять секунд до касания есть");
+    assert!(
+        a1 > 0.0 && close(a1, 20.0 / 20_020.0 * 10_000.0),
+        "approach_1s = {a1}"
+    );
+    assert!(
+        a10 > 0.0 && close(a10, 200.0 / 20_200.0 * 10_000.0),
+        "approach_10s = {a10}"
+    );
+    let ask = approaches_for_touch(&touch(Side::Ask, 10_001), &mids);
+    assert!(
+        ask[0].unwrap() < 0.0 && ask[1].unwrap() < 0.0,
+        "аск: цена уходила"
+    );
+    // Касание в 1 мс: база — первый срез (0), секунда до него — раньше
+    // записи, окна нет.
+    assert_eq!(
+        approaches_for_touch(&touch(Side::Bid, 1), &mids),
+        [None, None]
+    );
+    assert_eq!(APPROACH_MS, [HORIZONS_MS[1], HORIZONS_MS[2]]);
+}

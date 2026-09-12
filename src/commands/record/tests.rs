@@ -400,6 +400,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::Dashboard(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::Touches(_) => {
+            panic!("разобралась не та подкоманда")
+        }
     }
 }
 

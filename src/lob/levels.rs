@@ -50,6 +50,44 @@
 //! подачи вне жизни уровня не считаются. Вызывающий подаёт события
 //! в неубывающем времени матчинга и уже перевёл цену в тики,
 //! а количество — в лоты: здесь только целые, кучи нет.
+//!
+//! # Касания (таск 35, В-42)
+//!
+//! Третий тип записи рядом со смертью — **касание** живого уровня
+//! (`TouchRecord`): практики торгуют не смерть плотности, а подход цены к
+//! ней и отскок (`docs/findings/practitioners-2026-09-13.md`, §1). Правила
+//! назначены до данных, числа — только из существующих констант:
+//!
+//! - Касание **начинается** в кадре, где живой уровень оказался **лучшей
+//!   ценой своей стороны** — наблюдением с индексом 0 в кадре. Кадр идёт от
+//!   лучшей цены вглубь — тот же контракт, на котором у вызывающего стоит
+//!   `in_top50 = i < 50` (`Book::levels`), второго порядка здесь нет.
+//!   Уровень, родившийся сразу лучшей ценой, касается с кадра рождения.
+//! - Касание **заканчивается** в кадре, где уровень перестал быть лучшей
+//!   ценой (появилась цена лучше), либо смертью уровня — тогда
+//!   `ended_by_death`, `end_ms` — кадр смерти. Смерть и уход с лучшей цены
+//!   в одном кадре читаются как смерть: конец касания ждёт свипа.
+//! - Один уровень касается сколько угодно раз, `touch_index` 0, 1, 2…;
+//!   касания уровней прогрева считаются (индекс растёт), но не эмитируются —
+//!   тот же режим, что у их смертей.
+//! - `frontrun_lots` — сумма лотов той же стороны **строго лучше** уровня по
+//!   цене на **последнем кадре до** касания (в кадре касания уровень сам
+//!   лучшая цена, лучше него ничего нет): префикс кадра до индекса уровня,
+//!   запоминается на каждом наблюдении, читается в момент начала.
+//!   Уровень, родившийся лучшей ценой, фронтрана не имеет — ноль.
+//! - `size_max_before` — максимум размера до кадра начала; `size_at_touch` —
+//!   размер в кадре начала; `traded_during` — объём против уровня,
+//!   накопленный `observe_trade` между началом и концом.
+//! - `stack_levels` — сколько уровней той же стороны живы после кадра начала
+//!   с размером не ниже `H3` (сам коснувшийся уровень входит, если его размер
+//!   не ниже `H3`); считается по состоянию после свипа этого кадра.
+//! - `round_zeros` — число нулей в конце `price_tick` в десятичной записи,
+//!   0/1/2/3+ (`round_zeros`).
+//! - Порядок выдачи детерминирован: касания умерших за кадр — в порядке
+//!   `(сторона, тик)` вместе с их смертями, затем касания выживших — в
+//!   порядке кадра. Горячий путь тот же: состояние касания — несколько целых
+//!   в `Live`, ключи с событием касания копятся в предвыделенном буфере,
+//!   записи уходят в `&mut Vec<TouchRecord>` вызывающего.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -215,6 +253,87 @@ pub struct LiveLevel {
     pub traded_lots: i64,
 }
 
+/// Запись касания живого уровня (таск 35, В-42): уровень стал лучшей ценой
+/// своей стороны и перестал ею быть — или умер, не перестав. Правила — в
+/// документации модуля («Касания»). Уровень при этом жив и в `LevelRecord`
+/// не попадает ничем — поэтому запись отдельная.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TouchRecord {
+    /// Сторона книги.
+    pub side: Side,
+    /// Цена в тиках.
+    pub price_tick: i64,
+    /// Порядковый номер касания у этого уровня: 0, 1, 2…
+    pub touch_index: u32,
+    /// Кадр начала касания, мс.
+    pub start_ms: i64,
+    /// Кадр конца касания (уход с лучшей цены или смерть), мс.
+    pub end_ms: i64,
+    /// `end_ms − start_ms`.
+    pub duration_ms: i64,
+    /// Кадр рождения уровня, мс: возраст на момент касания —
+    /// `start_ms − level_birth_ms`.
+    pub level_birth_ms: i64,
+    /// Размер в лотах в кадре начала.
+    pub size_at_touch: i64,
+    /// Максимум размера до кадра начала.
+    pub size_max_before: i64,
+    /// Объём сделок против уровня в лотах за касание.
+    pub traded_during: i64,
+    /// Сумма лотов той же стороны строго лучше уровня по цене на последнем
+    /// кадре до касания.
+    pub frontrun_lots: i64,
+    /// Число нулей в конце `price_tick` в десятичной записи: 0/1/2/3+.
+    pub round_zeros: u8,
+    /// Касание кончилось смертью уровня, а не уходом с лучшей цены.
+    pub ended_by_death: bool,
+    /// Живых уровней той же стороны с размером не ниже `H3` после кадра
+    /// начала (включая сам уровень).
+    pub stack_levels: u32,
+}
+
+impl TouchRecord {
+    /// Возраст уровня на момент касания, мс.
+    pub fn age_ms(&self) -> i64 {
+        self.start_ms - self.level_birth_ms
+    }
+}
+
+/// Потолок счётчика `round_zeros`: «3+» — практики называют круглым и
+/// `1.100`, и `1111`, глубже трёх нулей различать нечего (§2 находок).
+pub const ROUND_ZEROS_CAP: u8 = 3;
+
+/// Число нулей в конце десятичной записи тика, не больше `ROUND_ZEROS_CAP`:
+/// `100 → 2`, `1010 → 1`, `1234 → 0`, `10_000 → 3`. Ноль нулей не имеет —
+/// тика ноль у цены не бывает, но арифметика тотальна. Знак не читается.
+pub fn round_zeros(price_tick: i64) -> u8 {
+    let mut n = price_tick.unsigned_abs();
+    let mut zeros = 0u8;
+    while n != 0 && n.is_multiple_of(10) && zeros < ROUND_ZEROS_CAP {
+        n /= 10;
+        zeros += 1;
+    }
+    zeros
+}
+
+/// Состояние идущего касания — целые в `Live`, кучи нет.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Touch {
+    start_ms: i64,
+    /// Номер кадра начала: `stack` заполняется после свипа того же кадра, и
+    /// сравнение по номеру кадра, а не по метке (несколько кадров могут
+    /// делить миллисекунду), говорит, что заполнять пора.
+    start_frame: u64,
+    size_at: i64,
+    size_max_before: i64,
+    frontrun: i64,
+    traded_at_start: i64,
+    stack: u32,
+    /// Уровень в этом кадре перестал быть лучшей ценой: конец касания ждёт
+    /// свипа — смерть в том же кадре имеет приоритет.
+    end_pending: bool,
+}
+
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Live {
@@ -228,19 +347,57 @@ struct Live {
     seen_top50: bool,
     seen_size: i64,
     traded: i64,
+    /// Сумма лотов строго лучше уровня по цене на последнем кадре, где он
+    /// наблюдался, — фронтран будущего касания.
+    better_lots: i64,
+    /// Сколько касаний у уровня уже кончилось.
+    touch_index: u32,
+    touch: Option<Touch>,
 }
 
 /// Трекер уровней. Состояние между кадрами — две карты с предвыделенными
-/// ёмкостями и переиспользуемый буфер новорождённых: установившийся кадр
-/// без рождений и смертей не трогает кучу вообще (требование гейта GC).
+/// ёмкостями и переиспользуемые буферы новорождённых, свипа и ключей с
+/// событием касания: установившийся кадр без рождений, смертей и касаний
+/// не трогает кучу вообще (требование гейта GC).
 pub struct LevelTracker {
     cfg: LevelsConfig,
     live: BTreeMap<(u8, i64), Live>,
     births: BTreeMap<(u8, i64), VecDeque<i64>>,
     newborns: Vec<(u8, i64, i64)>,
     sweep: Vec<(u8, i64)>,
+    touched: Vec<(u8, i64)>,
+    /// Буфер касаний для `observe_frame` без выхода касаний: те же события
+    /// считаются, записи отбрасываются, ёмкость переиспользуется.
+    touch_scratch: Vec<TouchRecord>,
     start_ms: Option<i64>,
     frame: u64,
+}
+
+/// Запись касания из состояния уровня в момент конца.
+fn touch_record(
+    key: (u8, i64),
+    lv: &Live,
+    t: Touch,
+    end_ms: i64,
+    stack: u32,
+    ended_by_death: bool,
+) -> TouchRecord {
+    TouchRecord {
+        side: side_of(key),
+        price_tick: key.1,
+        touch_index: lv.touch_index,
+        start_ms: t.start_ms,
+        end_ms,
+        duration_ms: end_ms - t.start_ms,
+        level_birth_ms: lv.birth_ms,
+        size_at_touch: t.size_at,
+        size_max_before: t.size_max_before,
+        traded_during: lv.traded.saturating_sub(t.traded_at_start),
+        frontrun_lots: t.frontrun,
+        round_zeros: round_zeros(key.1),
+        ended_by_death,
+        stack_levels: stack,
+    }
 }
 
 fn side_key(side: Side) -> u8 {
@@ -286,6 +443,8 @@ impl LevelTracker {
             births: BTreeMap::new(),
             newborns: Vec::with_capacity(8),
             sweep: Vec::with_capacity(8),
+            touched: Vec::with_capacity(8),
+            touch_scratch: Vec::with_capacity(8),
             start_ms: None,
             frame: 0,
         }
@@ -315,15 +474,40 @@ impl LevelTracker {
         }
     }
 
-    /// Один кадр одной стороны. Умершие за кадр дописываются в `out`
-    /// в порядке возрастания цены; ёмкость `out` — забота вызывающего, трекер
-    /// её не растит сам и в горячем пути не аллоцирует.
+    /// Один кадр одной стороны без выхода касаний: те же события, что у
+    /// `observe_frame_with_touches` (состояние касаний ведётся, индексы
+    /// растут), записи касаний отбрасываются. Для читателей, которым нужны
+    /// только смерти (`watch`, `profiles`). Умершие за кадр дописываются в
+    /// `out` в порядке возрастания цены; ёмкость `out` — забота вызывающего,
+    /// трекер её не растит сам и в горячем пути не аллоцирует.
     pub fn observe_frame(
         &mut self,
         ts_ms: i64,
         side: Side,
         levels: &[LevelObs],
         out: &mut Vec<LevelRecord>,
+    ) {
+        // `take` кладёт на место пустой вектор без выделения; ёмкость буфера
+        // возвращается назад тем же ходом — куча после прогрева не трогается.
+        let mut scratch = std::mem::take(&mut self.touch_scratch);
+        scratch.clear();
+        self.observe_frame_with_touches(ts_ms, side, levels, out, &mut scratch);
+        self.touch_scratch = scratch;
+    }
+
+    /// Один кадр одной стороны. Умершие за кадр дописываются в `out`
+    /// в порядке возрастания цены, кончившиеся касания — в `touches`
+    /// (порядок — документация модуля, «Касания»); ёмкость обоих — забота
+    /// вызывающего, трекер её не растит сам и в горячем пути не аллоцирует.
+    /// Кадр идёт от лучшей цены вглубь (`Book::levels`): наблюдение с
+    /// индексом 0 — лучшая цена стороны.
+    pub fn observe_frame_with_touches(
+        &mut self,
+        ts_ms: i64,
+        side: Side,
+        levels: &[LevelObs],
+        out: &mut Vec<LevelRecord>,
+        touches: &mut Vec<TouchRecord>,
     ) {
         if self.start_ms.is_none() {
             self.start_ms = Some(ts_ms);
@@ -335,8 +519,13 @@ impl LevelTracker {
         let s = side_key(side);
 
         self.newborns.clear();
-        for ob in levels {
+        self.touched.clear();
+        // Сумма лотов строго лучше текущего наблюдения по цене — префикс
+        // кадра до его индекса: на индексе 0 ноль, дальше копится.
+        let mut better_lots: i64 = 0;
+        for (i, ob) in levels.iter().enumerate() {
             let key = (s, ob.tick);
+            let best = i == 0;
             match self.live.get_mut(&key) {
                 Some(lv) => {
                     lv.seen_frame = frame;
@@ -346,14 +535,54 @@ impl LevelTracker {
                         lv.first_decrease_ms = Some(ts_ms);
                     }
                     lv.prev = ob.size_lots;
+                    let max_before = lv.max;
                     if ob.size_lots > lv.max {
                         lv.max = ob.size_lots;
                         lv.max_ms = ts_ms;
+                    }
+                    // Фронтран касания — с последнего кадра до него: читается
+                    // до того, как значение этого кадра его перезапишет.
+                    let frontrun = lv.better_lots;
+                    lv.better_lots = better_lots;
+                    match (&mut lv.touch, best) {
+                        (None, true) => {
+                            lv.touch = Some(Touch {
+                                start_ms: ts_ms,
+                                start_frame: frame,
+                                size_at: ob.size_lots,
+                                size_max_before: max_before,
+                                frontrun,
+                                traded_at_start: lv.traded,
+                                stack: 0,
+                                end_pending: false,
+                            });
+                            self.touched.push(key);
+                        }
+                        (Some(t), false) => {
+                            // Конец, отложенный до свипа, разрешается в том же
+                            // кадре — второго ожидающего конца не бывает.
+                            debug_assert!(!t.end_pending);
+                            t.end_pending = true;
+                            self.touched.push(key);
+                        }
+                        (None, false) | (Some(_), true) => {}
                     }
                 }
                 None => {
                     if ob.in_top50 && ob.size_lots > h3 {
                         let repeat = self.count_prior_births(key, ts_ms, window);
+                        // Родился лучшей ценой — касание с кадра рождения:
+                        // максимума «до» нет, фронтран на индексе 0 — ноль.
+                        let touch = best.then_some(Touch {
+                            start_ms: ts_ms,
+                            start_frame: frame,
+                            size_at: ob.size_lots,
+                            size_max_before: ob.size_lots,
+                            frontrun: better_lots,
+                            traded_at_start: 0,
+                            stack: 0,
+                            end_pending: false,
+                        });
                         self.live.insert(
                             key,
                             Live {
@@ -367,12 +596,19 @@ impl LevelTracker {
                                 seen_top50: true,
                                 seen_size: ob.size_lots,
                                 traded: 0,
+                                better_lots,
+                                touch_index: 0,
+                                touch,
                             },
                         );
                         self.newborns.push((s, ob.tick, ob.size_lots));
+                        if best {
+                            self.touched.push(key);
+                        }
                     }
                 }
             }
+            better_lots = better_lots.saturating_add(ob.size_lots);
         }
 
         // Свип двухфазный и по своей стороне: кадр несёт одну сторону, и
@@ -380,16 +616,20 @@ impl LevelTracker {
         // стороны этот вызов не трогает (иначе бид и аск убивали бы друг друга
         // по очереди на каждом штампе). Итерация карты уже идёт по возрастанию
         // ключа — порядок выдачи детерминирован. Куча не растёт, пока хватает
-        // ёмкостей буферов.
+        // ёмкостей буферов. Тем же обходом считается «завал» — выжившие этой
+        // стороны с размером не ниже `H3` — для касаний, начавшихся в кадре.
         let live = &self.live;
         let sweep = &mut self.sweep;
         sweep.clear();
+        let mut stack: u32 = 0;
         for (key, lv) in live.iter() {
             if key.0 != s {
                 continue;
             }
             if lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max) {
                 sweep.push(*key);
+            } else if lv.seen_size >= h3 {
+                stack = stack.saturating_add(1);
             }
         }
         let newborns = &self.newborns;
@@ -410,6 +650,16 @@ impl LevelTracker {
             };
             if lv.birth_ms < warm_end {
                 continue;
+            }
+            // Касание, оборванное смертью, идёт перед самой смертью: у
+            // начавшегося в этом кадре «завал» — по свипу этого же кадра.
+            if let Some(t) = lv.touch {
+                let stack = if t.start_frame == frame {
+                    stack
+                } else {
+                    t.stack
+                };
+                touches.push(touch_record((ks, tick), &lv, t, ts_ms, stack, true));
             }
             let kind = if lv.seen_frame == frame && !lv.seen_top50 {
                 DeathKind::LeftTop
@@ -435,6 +685,29 @@ impl LevelTracker {
                 death: kind,
                 traded_lots: lv.traded,
             });
+        }
+
+        // Касания выживших: начавшимся в кадре — «завал» по свипу, ушедшим с
+        // лучшей цены — запись и следующий индекс. Ключ, которого в карте
+        // уже нет, умер в свипе выше — его касание уже выдано со смертью.
+        for key in self.touched.drain(..) {
+            let Some(lv) = live.get_mut(&key) else {
+                continue;
+            };
+            let Some(t) = &mut lv.touch else {
+                continue;
+            };
+            if t.start_frame == frame {
+                t.stack = stack;
+            }
+            if t.end_pending {
+                let t = *t;
+                if lv.birth_ms >= warm_end {
+                    touches.push(touch_record(key, lv, t, ts_ms, t.stack, false));
+                }
+                lv.touch = None;
+                lv.touch_index = lv.touch_index.saturating_add(1);
+            }
         }
     }
 

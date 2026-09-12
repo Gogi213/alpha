@@ -9,7 +9,7 @@
 `docs/COMMANDS.md`, `interfaces.md`. **Не трогать:** `session.rs`, `feed/`, `bybit/`, `record.rs`,
 `profiles.rs`/`shortlist.rs` (оси профилей — отдельный таск после предрегистрации).
 **Волна:** 12
-**Status:** pending
+**Status:** done
 
 ## Что должно заработать
 
@@ -47,19 +47,19 @@
 
 ## Критерии приёмки
 
-- [ ] `levels/tests.rs`: фикстура — бид-уровень 100 (10 лотов, `H3 = 5`), лучший бид 101 → кадр,
+- [x] `levels/tests.rs`: фикстура — бид-уровень 100 (10 лотов, `H3 = 5`), лучший бид 101 → кадр,
       где 101 исчез (уровень стал лучшим) → касание началось; кадр, где 101 вернулся → касание
       закончилось, `touch_index = 0`; повтор → `touch_index = 1`; смерть во время касания →
       `ended_by_death = true`, `end_ms = death_ms`; `frontrun_lots` = сумма лотов бидов 101…
       на последнем кадре до касания; `round_zeros(100) = 2`, `round_zeros(1010) = 1`,
       `round_zeros(1234) = 0`; `stack_levels` считает только ≥ `H3`
-- [ ] тест markout касания: середина после касания выше → бид-касание `m > 0`; подход: середина
+- [x] тест markout касания: середина после касания выше → бид-касание `m > 0`; подход: середина
       падала на уровень → `approach_1s > 0`
-- [ ] тест `alloc_count`: ноль аллокаций на кадр с касаниями после прогрева
-- [ ] `lob touches` на фикстуре пишет `touches-<SYMBOL>.csv` с ожидаемыми колонками; на
+- [x] тест `alloc_count`: ноль аллокаций на кадр с касаниями после прогрева
+- [x] `lob touches` на фикстуре пишет `touches-<SYMBOL>.csv` с ожидаемыми колонками; на
       `data/session-debug/t34` (SOL, 5 мин) — файл с > 0 строк, распечатать первые 5
-- [ ] смерти уровней (`LevelRecord`) **не изменились**: все существующие тесты `levels`/`markout`/
+- [x] смерти уровней (`LevelRecord`) **не изменились**: все существующие тесты `levels`/`markout`/
       `profiles`/`pilot` зелёные без правок ожиданий
-- [ ] `cargo test --release --target-dir target-ci`, clippy `-D warnings`, fmt; одна сборка за раз
-- [ ] `interfaces.md` — раздел «Из таска 35»; `CLAUDE.md` структура + `docs/COMMANDS.md` строка
-- [ ] **GC**: горячий путь — только `levels.rs` без аллокаций; `session.rs` не тронут
+- [x] `cargo test --release --target-dir target-ci`, clippy `-D warnings`, fmt; одна сборка за раз
+- [x] `interfaces.md` — раздел «Из таска 35»; `CLAUDE.md` структура + `docs/COMMANDS.md` строка
+- [x] **GC**: горячий путь — только `levels.rs` без аллокаций; `session.rs` не тронут

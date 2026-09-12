@@ -69,6 +69,7 @@ mod record;
 mod replay;
 pub mod session;
 pub mod shortlist;
+pub mod touches;
 mod verify;
 pub mod watch;
 
@@ -85,6 +86,7 @@ pub use profiles::{run_profiles, ProfilesArgs};
 pub use react::{run_react, ReactArgs};
 pub use session::{run_session, SessionArgs};
 pub use shortlist::{run_shortlist, ShortlistArgs};
+pub use touches::{run_touches, TouchesArgs};
 pub use watch::{run_watch, WatchArgs};
 
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
@@ -172,6 +174,10 @@ pub enum LobCommand {
     /// по накопленному и где мы по гейтам (таск 32, R87). Только чтение
     /// каталога записи; `index.html` и `data.json` — в `--out`.
     Dashboard(DashboardArgs),
+    /// Касания живых уровней с признаками практиков — `touches-<SYMBOL>.csv`
+    /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
+    /// markout «в сторону отскока», подход, фронтран, круглость, завал.
+    Touches(TouchesArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -243,6 +249,16 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 "levels: days={} levels={} out={}",
                 summary.days,
                 summary.levels,
+                summary.out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Touches(args) => {
+            let summary = run_touches(&args)?;
+            println!(
+                "touches: days={} touches={} out={}",
+                summary.days,
+                summary.touches,
                 summary.out.display()
             );
             Ok(())
