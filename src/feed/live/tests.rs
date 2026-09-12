@@ -100,7 +100,7 @@ fn broken_frame_is_a_gap_not_a_dead_session() {
         tick_e9: 1_000_000_000,
         step_e9: 1_000_000_000,
     }];
-    let mut feed = LiveFeed::spawn_with(pool, |_m| OneShotConnector {
+    let mut feed = LiveFeed::spawn_with(pool, move |_m| OneShotConnector {
         inbox: inbox.clone(),
     })
     .unwrap();
@@ -151,7 +151,7 @@ fn spawn_with_clock_feeds_the_injected_clock_into_the_connection() {
     let clock = FakeSeqClock(Arc::new(std::sync::atomic::AtomicI64::new(0)));
     let mut feed = LiveFeed::spawn_with_clock_and_connector(
         pool,
-        |_m| OneShotConnector {
+        move |_m| OneShotConnector {
             inbox: inbox.clone(),
         },
         clock,
@@ -316,7 +316,7 @@ fn socket_close_reaches_every_symbol_of_that_socket_and_counts_once() {
             step_e9: 1_000_000_000,
         },
     ];
-    let mut feed = LiveFeed::spawn_with(pool, |_m| OneShotConnector {
+    let mut feed = LiveFeed::spawn_with(pool, move |_m| OneShotConnector {
         inbox: inbox.clone(),
     })
     .unwrap();
@@ -370,9 +370,10 @@ fn resync_of_one_symbol_does_not_touch_the_other_on_the_same_socket() {
             step_e9: 1_000_000_000,
         },
     ];
-    let mut feed = LiveFeed::spawn_with(pool, |_m| RecordingConnector {
-        inbox: inbox.clone(),
-        sent: sent.clone(),
+    let (inbox_c, sent_c) = (inbox.clone(), sent.clone());
+    let mut feed = LiveFeed::spawn_with(pool, move |_m| RecordingConnector {
+        inbox: inbox_c.clone(),
+        sent: sent_c.clone(),
     })
     .unwrap();
 
@@ -429,7 +430,7 @@ fn a_market_frame_with_an_unknown_symbol_is_counted_not_silently_dropped() {
         tick_e9: 1_000_000_000,
         step_e9: 1_000_000_000,
     }];
-    let mut feed = LiveFeed::spawn_with(pool, |_m| OneShotConnector {
+    let mut feed = LiveFeed::spawn_with(pool, move |_m| OneShotConnector {
         inbox: inbox.clone(),
     })
     .unwrap();
@@ -465,7 +466,7 @@ fn silent_transport_still_ticks_and_stop_ends_the_feed_for_good() {
     let clock = FakeSeqClock(Arc::new(std::sync::atomic::AtomicI64::new(0)));
     let mut feed = LiveFeed::spawn_with_clock_and_connector_and_ticks(
         pool,
-        |_m| OneShotConnector {
+        move |_m| OneShotConnector {
             inbox: inbox.clone(),
         },
         clock,
@@ -494,4 +495,139 @@ fn silent_transport_still_ticks_and_stop_ends_the_feed_for_good() {
     }
     assert!(seen_none, "после stop() поток обязан закончиться None");
     assert!(feed.next_event().is_none(), "остановка окончательна");
+}
+
+/// Таск 34: `LiveFeed::add` на ходу. Стартовый пул — один инструмент на
+/// одном соединении; добавленный получает **своё** соединение (коннектор
+/// создан второй раз — через ту же сохранённую фабрику) и индекс 1 —
+/// продолжение нумерации; события стартового по-прежнему идут индексом 0.
+/// Транспорты у соединений разные (свой ящик на каждое), поэтому кадр с
+/// индексом 1 мог прийти только с нового сокета: чужой топик соединение
+/// отдало бы `Unrouted`, а не `Market`. `stop()` после добавления
+/// заканчивает поток `None` — и окончательно, сколько бы новый сокет ни
+/// слал дальше.
+#[test]
+fn add_opens_a_new_connection_with_the_next_index_and_stop_still_ends_the_feed() {
+    let snap_a = r#"{"topic":"orderbook.50.AAAUSDT","type":"snapshot","ts":1,"data":{"s":"AAAUSDT","b":[["100.0","1.0"]],"a":[],"u":1,"seq":1}}"#;
+    let snap_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"snapshot","ts":1,"data":{"s":"BBBUSDT","b":[["200.0","1.0"]],"a":[],"u":1,"seq":2}}"#;
+    let delta_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"delta","ts":2,"data":{"s":"BBBUSDT","b":[["200.0","2.0"]],"a":[],"u":2,"seq":3}}"#;
+    let inbox_a = Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(
+        snap_a.to_string(),
+    ))])));
+    let inbox_b = Arc::new(Mutex::new(VecDeque::from(vec![
+        Ok(Frame::Text(snap_b.to_string())),
+        Ok(Frame::Text(delta_b.to_string())),
+    ])));
+    // Ящики по порядку создания соединений: первый — стартовому, второй —
+    // добавленному. Фабрика зовётся один раз на соединение.
+    let inboxes = Arc::new(Mutex::new(VecDeque::from(vec![inbox_a, inbox_b])));
+    let connectors = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let made = connectors.clone();
+    let mut feed = LiveFeed::spawn_with(
+        vec![PoolMember {
+            symbol: "AAAUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }],
+        move |_m| {
+            made.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            OneShotConnector {
+                inbox: inboxes
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("ящиков ровно столько, сколько соединений"),
+            }
+        },
+    )
+    .unwrap();
+
+    let first = feed.next_event().expect("снапшот стартового обязан дойти");
+    assert!(
+        matches!(first, Event::Market { symbol: 0, .. }),
+        "стартовый инструмент — индекс 0: {first:?}"
+    );
+    assert_eq!(connectors.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    let indices = crate::feed::DynamicPool::add(
+        &mut feed,
+        vec![PoolMember {
+            symbol: "BBBUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        indices,
+        vec![1],
+        "индекс добавленного продолжает нумерацию пула"
+    );
+
+    let mut seen: Vec<u16> = Vec::new();
+    for _ in 0..2 {
+        match feed
+            .next_event()
+            .expect("оба кадра нового сокета обязаны дойти")
+        {
+            Event::Market { symbol, .. } => seen.push(symbol),
+            other => panic!("ждали Market нового инструмента, получили {other:?}"),
+        }
+    }
+    assert_eq!(
+        seen,
+        vec![1, 1],
+        "снапшот и дельта добавленного приходят его индексом; книга — своя, дельта не разрыв"
+    );
+    assert_eq!(
+        connectors.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "добавленный инструмент — новое соединение той же фабрикой, живое не тронуто"
+    );
+    assert_eq!(
+        feed.io_threads.len(),
+        2,
+        "поток ввода-вывода на каждое соединение — и на добавленное тоже"
+    );
+
+    feed.stop_handle().stop();
+    let mut seen_none = false;
+    for _ in 0..1000 {
+        if feed.next_event().is_none() {
+            seen_none = true;
+            break;
+        }
+    }
+    assert!(seen_none, "после stop() поток обязан закончиться None");
+    assert!(
+        feed.next_event().is_none(),
+        "остановка окончательна и для добавленного соединения"
+    );
+}
+
+/// Индекс — `u16`: партия, с которой пул перестаёт помещаться, отклоняется
+/// целиком (`PoolTooLarge`) до открытия хоть одного соединения, а не
+/// схлопывается в `u16::MAX`.
+#[test]
+fn add_beyond_u16_is_a_layout_error_before_any_connection_is_opened() {
+    let member = |i: usize| PoolMember {
+        symbol: format!("S{i}"),
+        tick_e9: 1_000_000_000,
+        step_e9: 1_000_000_000,
+    };
+    let fits = shard_specs(&[member(0)], usize::from(u16::MAX));
+    assert_eq!(
+        fits.unwrap()[0][0].index,
+        u16::MAX,
+        "последний индекс u16 ещё занимается"
+    );
+    let overflow = shard_specs(&[member(0), member(1)], usize::from(u16::MAX));
+    assert!(
+        matches!(
+            overflow,
+            Err(LayoutError::PoolTooLarge { got }) if got == usize::from(u16::MAX) + 2
+        ),
+        "партия за пределом u16 — ошибка раскладки: {:?}",
+        overflow.map(|g| g.len())
+    );
 }

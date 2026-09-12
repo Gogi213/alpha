@@ -21,6 +21,13 @@
 //! Сутки UTC — новая часть `<SYMBOL>-<день>.binlog` через `record::
 //! claim_part_with`, первым кадром — синтетический снапшот книги, как у
 //! `lob record`.
+//!
+//! Пул на ходу (таск 34, R89): `<root>/instruments.csv` — живой файл. На
+//! тике (не чаще `FRAME_LOSS_WINDOW_SECS`) один `metadata()`; изменился
+//! `mtime` — файл перечитан тем же `load_pool`, символы, которых ещё нет в
+//! `states`, получают файл части текущих суток и своё соединение
+//! (`feed::DynamicPool::add`); индексы обязаны продолжить `states`.
+//! Удаление строки ничего не останавливает — снятие не поддерживается.
 
 mod args;
 mod pool;
@@ -35,7 +42,7 @@ pub(crate) use sink::FrameSink;
 pub use summary::{BinlogPart, ResourceSample, SessionSummary};
 
 use args::{is_debug_session, resolve_duration};
-use pool::resolve_pool;
+use pool::{load_pool, resolve_pool};
 use resources::{
     hour_utc_of_ns, sample_resources, spawn_clock_sampler, spawn_resource_sampler,
     take_clock_sample,
@@ -54,12 +61,12 @@ use crate::binlog::Writer;
 use crate::book::Book;
 use crate::bybit::conn::{Clock, SystemClock};
 use crate::commands::record::{
-    append_gap_row, claim_part_with, day_string_of_ns, ensure_gaps_csv, event_exch_ms,
-    gaps_csv_path, ts_utc_of_ns, GapKind, GapRow, FRAME_LOSS_WINDOW_SECS, FRAME_TARGET_RECORDS,
-    HOURLY_REFRESH_SECS, NS_PER_DAY,
+    append_gap_row, claim_part_with, day_file_path, day_string_of_ns, ensure_gaps_csv,
+    event_exch_ms, gaps_csv_path, ts_utc_of_ns, GapKind, GapRow, FRAME_LOSS_WINDOW_SECS,
+    FRAME_TARGET_RECORDS, HOURLY_REFRESH_SECS, NS_PER_DAY,
 };
 use crate::feed::live::{LiveFeed, PoolMember};
-use crate::feed::{Event, Feed, GapKind as FeedGapKind};
+use crate::feed::{DynamicPool, Event, Feed, GapKind as FeedGapKind};
 
 /// Открывает файл части символа под `root` на сутки `day`: следующий
 /// свободный номер через `record::claim_part_with` (таск 25 — один цикл
@@ -153,6 +160,17 @@ struct SessionCtx {
     resources_wall_start: std::time::Instant,
     last_hourly_ns: i64,
     hours_reported: u64,
+    /// `<root>/instruments.csv` и его `mtime` на последнем чтении (таск 34):
+    /// файл перечитывается только когда метка изменилась — одна проверка
+    /// метаданных на тик, ни одной на событие рынка.
+    pool_path: PathBuf,
+    pool_mtime: Option<std::time::SystemTime>,
+}
+
+/// `mtime` файла или `None`, если файла нет / метаданные не читаются —
+/// оба случая для слежения равнозначны «сравнивать не с чем».
+fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 impl SessionCtx {
@@ -190,6 +208,8 @@ impl SessionCtx {
             SessionPlan::AlwaysOn => None,
         };
         let resources_pid = std::process::id();
+        let pool_path = root.join("instruments.csv");
+        let pool_mtime = file_mtime(&pool_path);
         Ok(Self {
             root: root.to_path_buf(),
             plan,
@@ -214,7 +234,119 @@ impl SessionCtx {
             resources_wall_start: std::time::Instant::now(),
             last_hourly_ns: started_ns,
             hours_reported: 0,
+            pool_path,
+            pool_mtime,
         })
+    }
+
+    /// Слежение за `<root>/instruments.csv` (таск 34): `mtime` не изменился
+    /// — выход после одного `metadata()`. Изменился — файл перечитан
+    /// целиком (`load_pool`, тот же разбор, что на старте); строки с
+    /// символами, которые уже пишутся, пропущены (повтор той же строки
+    /// ничего не дублирует); новые — файл части текущих суток UTC
+    /// (`open_symbol_state`, следующая свободная часть), затем `feed.add`
+    /// одной партией; индексы обязаны совпасть с позициями в `states` —
+    /// иначе кадр ушёл бы в чужой файл. Ошибка чтения файла или строки —
+    /// строка stderr, запись идёт, повтор на следующем изменении `mtime`.
+    /// Удаление строки не поддерживается: запись символа продолжается.
+    fn check_pool_file<F: DynamicPool + ?Sized>(&mut self, feed: &mut F, ts_ns: i64) {
+        let mtime = file_mtime(&self.pool_path);
+        if mtime == self.pool_mtime {
+            return;
+        }
+        self.pool_mtime = mtime;
+        if mtime.is_none() {
+            return;
+        }
+        let pool = match load_pool(&self.pool_path) {
+            Ok(pool) => pool,
+            Err(e) => {
+                eprintln!(
+                    "session: {} изменился, но не прочитан: {e} — состав записи прежний, \
+                     повтор при следующем изменении файла",
+                    self.pool_path.display()
+                );
+                return;
+            }
+        };
+        let mut fresh: Vec<PoolMember> = Vec::new();
+        for member in pool {
+            let known = self.states.iter().any(|s| s.member.symbol == member.symbol)
+                || fresh.iter().any(|m| m.symbol == member.symbol);
+            if !known {
+                fresh.push(member);
+            }
+        }
+        if fresh.is_empty() {
+            return;
+        }
+        let day = match day_string_of_ns(ts_ns) {
+            Ok(day) => day,
+            Err(e) => {
+                eprintln!("session: добавление отложено — сутки не вычислены: {e}");
+                return;
+            }
+        };
+        let mut opened: Vec<SymbolState> = Vec::with_capacity(fresh.len());
+        for member in &fresh {
+            match open_symbol_state(&self.root, member, &day) {
+                Ok(state) => opened.push(state),
+                Err(e) => {
+                    eprintln!(
+                        "session: {} не добавлен — файл части не открыт: {e}; \
+                         повтор при следующем изменении {}",
+                        member.symbol,
+                        self.pool_path.display()
+                    );
+                    return;
+                }
+            }
+        }
+        let indices = match feed.add(fresh) {
+            Ok(indices) => indices,
+            Err(e) => {
+                eprintln!(
+                    "session: партия не добавлена — источник отказал: {e}; файлы частей \
+                     удалены, повтор при следующем изменении {}",
+                    self.pool_path.display()
+                );
+                for state in opened {
+                    let path = day_file_path(&self.root, &state.member.symbol, &day, state.part);
+                    drop(state);
+                    let _ = std::fs::remove_file(path);
+                }
+                return;
+            }
+        };
+        assert_eq!(
+            indices.len(),
+            opened.len(),
+            "feed.add вернул не столько индексов, сколько инструментов подано"
+        );
+        let started_utc = ts_utc_of_ns(ts_ns);
+        for (state, idx) in opened.into_iter().zip(indices) {
+            assert_eq!(
+                usize::from(idx),
+                self.states.len(),
+                "индекс нового инструмента обязан совпасть с его позицией в states — \
+                 иначе кадр уйдёт в чужой файл"
+            );
+            eprintln!(
+                "session: добавлен {} (tick={}, step={}) — файл {}",
+                state.member.symbol,
+                state.member.tick_e9,
+                state.member.step_e9,
+                day_file_path(&self.root, &state.member.symbol, &day, state.part).display()
+            );
+            self.binlog_files.push(BinlogPart {
+                symbol: state.member.symbol.clone(),
+                part: state.part,
+                started_utc: started_utc.clone(),
+            });
+            self.states.push(state);
+        }
+        self.session_json_dirty = false;
+        self.write_session_json_or_log(ts_ns);
     }
 
     /// Строка `gaps.csv`; `symbol: None` — событие всей сессии (`session.json`
@@ -524,7 +656,10 @@ impl SessionCtx {
 /// `Timed` проверяется на каждом событии **и тике** — при молчании пула
 /// сессия сбора всё равно кончится не позже `FRAME_LOSS_WINDOW_SECS` после
 /// срока.
-fn run_session_loop(feed: &mut dyn Feed, ctx: &mut SessionCtx) -> anyhow::Result<SessionSummary> {
+fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
+    feed: &mut F,
+    ctx: &mut SessionCtx,
+) -> anyhow::Result<SessionSummary> {
     loop {
         if let Some(deadline_ns) = ctx.deadline_ns {
             if SystemClock.now_ns() >= deadline_ns {
@@ -618,7 +753,10 @@ fn run_session_loop(feed: &mut dyn Feed, ctx: &mut SessionCtx) -> anyhow::Result
                 }
                 ctx.log_gap(Some(idx), record_kind, ts_utc_of_ns(local_ts_ns), detail);
             }
-            Event::Tick { local_ts_ns } => ctx.on_tick(local_ts_ns),
+            Event::Tick { local_ts_ns } => {
+                ctx.on_tick(local_ts_ns);
+                ctx.check_pool_file(feed, local_ts_ns);
+            }
         }
     }
     ctx.finalize()

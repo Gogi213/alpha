@@ -23,12 +23,15 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 649 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 654 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 17 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): до Ctrl+C в его консоли; instruments.csv скопировать в --root
 ./target/release/alpha.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
+# докинуть монету в идущую запись (T34): дописать строку в <root>/instruments.csv — подхват ≤ 10 с,
+# свой <SYMBOL>-<день>.binlog и своё соединение; удаление строки не поддерживается (запись идёт)
+grep '^ZECUSDT,' instruments.csv >> data/always-on/<ts>/instruments.csv
 # дашборд «Монеты и плотности» (T33): вотчер живёт с копии data/dashboard/alpha-dashboard.exe
 ./target-ci/release/alpha.exe lob dashboard --root data/always-on/<ts> --out data/dashboard [--watch 120] [--h3-k 10]
 python tools/serve_dashboard.py data/dashboard        # → http://127.0.0.1:<порт>/index.html

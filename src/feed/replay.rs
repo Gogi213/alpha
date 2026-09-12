@@ -20,7 +20,8 @@ use crate::binlog::{self, BinlogError, Record};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::ws::{Event as WsEvent, Trade};
 
-use super::{Event, Feed};
+use super::live::{LayoutError, PoolMember};
+use super::{DynamicPool, Event, Feed};
 
 /// `Feed` с одного суточного файла бинлога одного инструмента пула.
 pub struct ReplayFeed<R: Read> {
@@ -132,6 +133,13 @@ impl<R: Read> Feed for ReplayFeed<R> {
                 }
             }
         }
+    }
+}
+
+/// Бинлог уже записан — добавить в него инструмент на ходу нечем (таск 34).
+impl<R: Read> DynamicPool for ReplayFeed<R> {
+    fn add(&mut self, _members: Vec<PoolMember>) -> Result<Vec<u16>, LayoutError> {
+        Err(LayoutError::StaticSource)
     }
 }
 

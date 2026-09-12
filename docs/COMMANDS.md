@@ -7,7 +7,7 @@
 | Команда | Артефакт |
 |---|---|
 | `lob pick --window-secs --h3-k` | `instruments.csv` в корне (**только пул** — ровно десять, ранг по обороту) + `docs/plan/candidates.csv` (все кандидаты, причина по каждому). Оба несут колонку `depth_check` (`ok`/`below_floor`/`not_measured`): глубина — проверка, не критерий отбора (В-35) |
-| `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`) **или** `--always-on` (В-34: без дедлайна, до Ctrl+C; новые сутки UTC — новая часть с синтетическим снапшотом; `session.json` на старте / раз в час / на ротации / на остановке (`closed`), `samples` RSS/CPU, `reconnects`/`resyncs`/`frames_failed`/`bytes_written`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`) | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
+| `lob session --pool-instruments --root --minutes` (5..15) **или** `--pilot-minutes` (16..360, режим пилота §11; `session.json.pilot`) **или** `--always-on` (В-34: без дедлайна, до Ctrl+C; новые сутки UTC — новая часть с синтетическим снапшотом; `session.json` на старте / раз в час / на ротации / на остановке (`closed`), `samples` RSS/CPU, `reconnects`/`resyncs`/`frames_failed`/`bytes_written`); `debug = duration_s < 3600`; несколько сессий в сутки — части `-p2`, `-p3`… (`session.json.binlog_files`); **пул на ходу** (T34, R89): дописать строку в `<root>/instruments.csv` (формат `lob pick`) — на ближайшем тике (≤ `FRAME_LOSS_WINDOW_SECS` = 10 с) символ получает свой `<SYMBOL>-<день>.binlog` (часть — следующая свободная), своё соединение (`feed::DynamicPool::add`, живые сокеты не трогаются), строку stderr `session: добавлен …` и место в `session.json.instruments`/`binlog_files`; повтор строки — не дубликат; битая строка/файл — только stderr, повтор на следующем изменении `mtime`; **удаление строки не поддерживается** — запись символа продолжается | каталог сессии: `<SYMBOL>-<день UTC>.binlog` на инструмент, `gaps.csv`, `clock.csv`, `session.json` — это имя читают все остальные команды (`commands::lob::session_binlog_for`) |
 | `lob record --symbol --root` | запись **одного** инструмента (legacy-путь, не пул) |
 | `lob verify --symbol --root` | `<root>/verify-<SYMBOL>.status` — ровно `ok`/`fail`, маркер сверки сессии, который читают `profiles`/`watch` (без `ok` сутки не читаются, fail-closed); сверка по всем частям символа (`session_binlog_for`), строка stdout на часть с сутками; маркер пишет одна функция `commands::lob::verify::verify_and_mark` — ею же `lob pilot`. `verify.csv` — сайдкар записи (`bybit::verify_sidecar`), не эта команда |
 | `lob levels --h3-mode floor\|percentile [--h3-k <f64>]` (`--h3-k`: пол = `floor(k × median_trade_lots)` из `instruments.csv` на лету; только с `floor`) | `levels-<SYMBOL>.csv` — шесть признаков жизни уровня |
@@ -84,6 +84,13 @@ gitignored).
 - коллектор (T24): `ws::parse_message_into` без `serde_json::Value`, `lob session` копит кадры
   до `FRAME_TARGET_RECORDS`; p99 разбора/очереди — из гистограммы (`LatencyHistogram`,
   ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/findings/collector-2026-09-12.md`
+- пул на ходу (T34): `lob session` следит за `<root>/instruments.csv` — один `metadata()` на
+  тик, файл перечитывается только при смене `mtime` (`load_pool` целиком: одна битая строка —
+  весь файл отклонён, stderr, состав прежний); новые символы — файл части текущих суток UTC
+  и новое соединение (`LiveFeed::add` через сохранённую фабрику; раскладка та же
+  `plan_connections`/`MAX_ARGS_CHARS`); индексы обязаны продолжить `states` (assert);
+  удаление символов не реализовано; `cp instruments.csv <root>/` для `levels`/`pilot`
+  безвреден — все символы уже пишутся
 - олвейс-он (T25): кадр уходит на диск одним `write_all` (`FrameSink`) и не реже
   `record::FRAME_LOSS_WINDOW_SECS = 10` с по тику рантайма (`feed::Event::Tick`) — файл
   всегда на границе кадра, `verify`/`levels`/`markout` читают живой каталог, пока коллектор

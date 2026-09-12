@@ -95,6 +95,9 @@ pub enum LayoutError {
     /// нельзя: два инструмента получили бы один индекс и писали бы в один
     /// файл.
     PoolTooLarge { got: usize },
+    /// Источник не расширяется на ходу (таск 34): реплей читает уже
+    /// записанный бинлог, добавить в него инструмент нечем.
+    StaticSource,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -108,6 +111,9 @@ impl std::fmt::Display for LayoutError {
                 "раскладка соединений: {got} инструментов — больше {}, а индекс события u16",
                 usize::from(u16::MAX) + 1
             ),
+            Self::StaticSource => {
+                f.write_str("источник событий не расширяется на ходу (реплей бинлога)")
+            }
         }
     }
 }
@@ -279,7 +285,116 @@ pub struct LiveFeed {
     /// в том же домене, а не нулём.
     now_ns: Box<dyn Fn() -> i64 + Send>,
     stopped: bool,
-    _io_threads: Vec<std::thread::JoinHandle<()>>,
+    io_threads: Vec<std::thread::JoinHandle<()>>,
+    /// Сколько инструментов уже в пуле — следующий добавленный получает
+    /// этот индекс (`DynamicPool::add`, таск 34).
+    pool_len: usize,
+    /// Фабрика соединения, сохранённая со старта (таск 34): те же
+    /// коннектор, часы и общий канал, что у стартовых шардов, — партия,
+    /// добавленная на ходу, поднимается ровно тем же путём, что и первая.
+    spawn_shard: ShardSpawner,
+}
+
+/// Поднимает один шард — ОС-поток с рантаймом и `Connection` — для группы
+/// инструментов; коннектор строится по первому инструменту группы (продовый
+/// путь его аргумент не читает). Ящик, а не generic-метод: `LiveFeed` не
+/// параметризован ни транспортом, ни часами, а добавлять на ходу нужно тем
+/// же транспортом и теми же часами, что были поданы при старте.
+type ShardSpawner =
+    Box<dyn FnMut(Vec<SymbolSpec>, &PoolMember) -> std::thread::JoinHandle<()> + Send>;
+
+/// Группы `SymbolSpec` по раскладке `plan_connections` для партии
+/// `members`, индексы которой начинаются с `first_index` (0 на старте,
+/// длина пула — при добавлении). Один код и для старта, и для `add`.
+fn shard_specs(
+    members: &[PoolMember],
+    first_index: usize,
+) -> Result<Vec<Vec<SymbolSpec>>, LayoutError> {
+    let groups = plan_connections(members)?;
+    let total = first_index.saturating_add(members.len());
+    if u16::try_from(total.saturating_sub(1)).is_err() {
+        return Err(LayoutError::PoolTooLarge { got: total });
+    }
+    Ok(groups
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .map(|&i| {
+                    let m = &members[usize::from(i)];
+                    SymbolSpec {
+                        symbol: m.symbol.clone(),
+                        tick_e9: m.tick_e9,
+                        step_e9: m.step_e9,
+                        // Индекс продолжает нумерацию пула: раскладка
+                        // считала партию с нуля, `Feed` видит её со
+                        // сдвигом на всё, что уже подписано.
+                        index: u16::try_from(first_index + usize::from(i))
+                            .expect("проверено выше: total - 1 влезает в u16"),
+                    }
+                })
+                .collect()
+        })
+        .collect())
+}
+
+/// ОС-поток одного соединения: свой `current_thread`-рантайм, `Connection`
+/// на группу инструментов, события — в общий канал через `TaggedSink`.
+/// `tick` — таймер потока решений, кладётся только на первый шард старта
+/// (см. `spawn_with_clock_and_connector_and_ticks`).
+fn spawn_io_thread<C, K>(
+    symbols: Vec<SymbolSpec>,
+    connector: C,
+    clock: K,
+    tx: mpsc::Sender<Item>,
+    tick: Option<(Duration, K)>,
+) -> std::thread::JoinHandle<()>
+where
+    C: TransportConnector + 'static,
+    K: Clock + Send + 'static,
+{
+    let backoff = LIVE_BACKOFF;
+    let ping = LIVE_PING_INTERVAL;
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("session: не поднялся однопоточный рантайм ввода-вывода");
+        runtime.block_on(async move {
+            let cfg = PoolConnConfig {
+                symbols,
+                ping_interval: ping,
+                backoff,
+            };
+            let sink = TaggedSink { tx: tx.clone() };
+            let conn = Connection::new(connector, cfg);
+            let mut tasks = vec![tokio::spawn(conn.run(clock, sink))];
+            if let Some((period, tick_clock)) = tick {
+                let tick_tx = tx.clone();
+                // Таймер рантайма, не «по приходу события»: первый тик
+                // `interval` отдаёт сразу — пропускаем его, дальше ровно
+                // раз в `period`. Отставший потребитель (полный канал)
+                // получает тики реже — `MissedTickBehavior::Delay`, не
+                // очередь из тиков.
+                tasks.push(tokio::spawn(async move {
+                    let mut ticker = tokio::time::interval(period);
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                    ticker.tick().await;
+                    loop {
+                        ticker.tick().await;
+                        let ts_ns = tick_clock.now_ns();
+                        if tick_tx.send(Item::Tick { ts_ns }).await.is_err() {
+                            return;
+                        }
+                    }
+                }));
+            }
+            drop(tx);
+            for t in tasks {
+                let _ = t.await;
+            }
+        });
+    })
 }
 
 impl LiveFeed {
@@ -335,7 +450,7 @@ impl LiveFeed {
     pub fn spawn_with<C, F>(pool: Vec<PoolMember>, make_connector: F) -> Result<Self, LayoutError>
     where
         C: TransportConnector + 'static,
-        F: FnMut(&PoolMember) -> C,
+        F: FnMut(&PoolMember) -> C + Send + 'static,
     {
         Self::spawn_with_clock_and_connector(pool, make_connector, SystemClock)
     }
@@ -349,7 +464,7 @@ impl LiveFeed {
     ) -> Result<Self, LayoutError>
     where
         C: TransportConnector + 'static,
-        F: FnMut(&PoolMember) -> C,
+        F: FnMut(&PoolMember) -> C + Send + 'static,
         K: Clock + Clone + Send + 'static,
     {
         Self::spawn_with_clock_and_connector_and_ticks(pool, make_connector, clock, None)
@@ -365,7 +480,7 @@ impl LiveFeed {
     ) -> Result<Self, LayoutError>
     where
         C: TransportConnector + 'static,
-        F: FnMut(&PoolMember) -> C,
+        F: FnMut(&PoolMember) -> C + Send + 'static,
         K: Clock + Clone + Send + 'static,
     {
         let groups = plan_connections(&pool)?;
@@ -374,95 +489,77 @@ impl LiveFeed {
         let (tx, rx) = mpsc::channel::<Item>(capacity);
         let stop_tx = tx.clone();
         let gap_clock = clock.clone();
-        let tick_clock = clock.clone();
-        let tick_tx = tx.clone();
 
         // Раскладка посчитана до того, как что-либо открыто: группы —
         // глобальные индексы пула, порядок пула не меняется.
-        let mut shards: Vec<(Vec<SymbolSpec>, C)> = Vec::with_capacity(groups.len());
-        for group in &groups {
-            let symbols: Vec<SymbolSpec> = group
-                .iter()
-                .map(|&i| {
-                    let m = &pool[usize::from(i)];
-                    SymbolSpec {
-                        symbol: m.symbol.clone(),
-                        tick_e9: m.tick_e9,
-                        step_e9: m.step_e9,
-                        index: i,
-                    }
-                })
-                .collect();
-            // Коннектор создаётся по первому инструменту группы — как и
-            // раньше, один на соединение (продовый путь его аргумент не
-            // читает вовсе).
-            let connector = make_connector(&pool[usize::from(group[0])]);
-            shards.push((symbols, connector));
-        }
+        let shards = shard_specs(&pool, 0)?;
 
         // Тик кладётся на рантайм **первого** шарда: он общий для всего
         // потока решений (окно потери кадра), а не свойство сокета — второй
         // экземпляр таймера дал бы вдвое больше тиков без нового смысла.
-        let mut tick_for_shard = tick;
+        let mut tick_for_shard = tick.map(|period| (period, clock.clone()));
         let mut io_threads = Vec::with_capacity(shards.len());
-        for (symbols, connector) in shards {
-            let tx = tx.clone();
-            let clock = clock.clone();
-            let backoff = LIVE_BACKOFF;
-            let ping = LIVE_PING_INTERVAL;
-            let shard_tick = tick_for_shard.take();
-            let tick_tx = tick_tx.clone();
-            let tick_clock = tick_clock.clone();
-            io_threads.push(std::thread::spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("session: не поднялся однопоточный рантайм ввода-вывода");
-                runtime.block_on(async move {
-                    let cfg = PoolConnConfig {
-                        symbols,
-                        ping_interval: ping,
-                        backoff,
-                    };
-                    let sink = TaggedSink { tx: tx.clone() };
-                    let conn = Connection::new(connector, cfg);
-                    let mut tasks = vec![tokio::spawn(conn.run(clock, sink))];
-                    if let Some(period) = shard_tick {
-                        // Таймер рантайма, не «по приходу события»: первый тик
-                        // `interval` отдаёт сразу — пропускаем его, дальше ровно
-                        // раз в `period`. Отставший потребитель (полный канал)
-                        // получает тики реже — `MissedTickBehavior::Delay`, не
-                        // очередь из тиков.
-                        tasks.push(tokio::spawn(async move {
-                            let mut ticker = tokio::time::interval(period);
-                            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                            ticker.tick().await;
-                            loop {
-                                ticker.tick().await;
-                                let ts_ns = tick_clock.now_ns();
-                                if tick_tx.send(Item::Tick { ts_ns }).await.is_err() {
-                                    return;
-                                }
-                            }
-                        }));
-                    }
-                    drop(tx);
-                    for t in tasks {
-                        let _ = t.await;
-                    }
-                });
-            }));
+        for symbols in shards {
+            let first = &pool[usize::from(symbols[0].index)];
+            // Коннектор создаётся по первому инструменту группы — как и
+            // раньше, один на соединение (продовый путь его аргумент не
+            // читает вовсе).
+            let connector = make_connector(first);
+            io_threads.push(spawn_io_thread(
+                symbols,
+                connector,
+                clock.clone(),
+                tx.clone(),
+                tick_for_shard.take(),
+            ));
         }
+
+        // Фабрика на будущее (таск 34): партия, добавленная на ходу,
+        // идёт через тот же коннектор, те же часы и тот же канал. Тика у
+        // неё нет — он уже идёт с первого шарда.
+        let shard_tx = tx.clone();
+        let shard_clock = clock;
+        let spawn_shard: ShardSpawner = Box::new(move |symbols, first| {
+            spawn_io_thread(
+                symbols,
+                make_connector(first),
+                shard_clock.clone(),
+                shard_tx.clone(),
+                None,
+            )
+        });
         drop(tx);
-        drop(tick_tx);
 
         Ok(Self {
             rx,
             tx: stop_tx,
             now_ns: Box::new(move || gap_clock.now_ns()),
             stopped: false,
-            _io_threads: io_threads,
+            io_threads,
+            pool_len: pool.len(),
+            spawn_shard,
         })
+    }
+}
+
+impl super::DynamicPool for LiveFeed {
+    /// Новая партия — новые соединения (таск 34): раскладка той же
+    /// `plan_connections` с тем же пределом `MAX_ARGS_CHARS`, индексы —
+    /// продолжение пула (`pool_len..`), живые сокеты не трогаются.
+    /// Аллокации здесь — раз на добавление, не на событие рынка: после
+    /// возврата новый шард шлёт в тот же канал тем же `TaggedSink`.
+    /// `StopHandle` гасит и его: `Stop` идёт по общему каналу, а ОС-поток
+    /// нового соединения умирает вместе с процессом, как и стартовые.
+    fn add(&mut self, members: Vec<PoolMember>) -> Result<Vec<u16>, LayoutError> {
+        let shards = shard_specs(&members, self.pool_len)?;
+        let mut indices = Vec::with_capacity(members.len());
+        for symbols in shards {
+            let first = &members[usize::from(symbols[0].index) - self.pool_len];
+            indices.extend(symbols.iter().map(|s| s.index));
+            self.io_threads.push((self.spawn_shard)(symbols, first));
+        }
+        self.pool_len += members.len();
+        Ok(indices)
     }
 }
 
