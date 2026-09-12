@@ -999,12 +999,29 @@ window.STATE =
       "blockedBy": [],
       "wave": 11,
       "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/mod.rs", "tools/serve_dashboard.py"],
-      "status": "review",
+      "status": "superseded",
       "startedAt": "2026-09-13T08:10:00+04:00",
+      "finishedAt": "2026-09-12T21:45:00+04:00",
       "tests": "647 passed, 0 failed, 5 ignored",
-      "commit": "T32 (закоммичен без ревью — лимит сессии 429; ревью повторить)",
+      "commit": "4ade721",
+      "review": {"R-A": "Манифест да; Спека partial (net без RTT; «Где мы» протух в день коммита — BLOCKING)", "R-B": "строить можно; BLOCKING: HOURLY_REFRESH_SECS×2 — изобретённый порог; Reinvention: петля Observation (3-я копия), median/mean/opt_f, H3Args не flatten; память: mids всего пула разом; запись не атомарна; --watch умирает на первой ошибке", "R-C": "разметка тот же код; BLOCKING: «Где мы» ложен на дату коммита, изобретённые «~80–140 мс», порог 0 на reconnects/resyncs со ссылкой на В-34, ×2; пилотное m 0.34–1.23 выдано за eaten; концерны: net пуловый vs «медианная монета», голова часа vs хвост пилота, счётчики из часового session.json, жив — пуловый признак"},
       "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "владелец 2026-09-12: «повесить что то на локалхост чтобы я хоть что то понимал»; живой: http://127.0.0.1:8765/index.html (dashboard pid в data/dashboard/dashboard.pid, сервер — serve.pid); контрольные точки 30 мин / 1 ч / 12 ч (В-38)"
+      "note": "владелец 2026-09-12 вечер: «не такой дашборд я хотел. он обо всем и ни о чем» → T33 (страница переписана; BLOCKING ревью сняты вместе с блоками «Где мы»/пороги GC; Reinvention/атомарность/память/--watch закрыты в T33; прочие concerns → concerns)"
+    },
+    {
+      "id": "33",
+      "title": "Дашборд о монетах и их плотностях (замена T32)",
+      "requirements": ["R88", "R87"],
+      "blockedBy": ["32"],
+      "wave": 12,
+      "zone": ["src/commands/lob/dashboard.rs", "src/lob/markout.rs", "src/lob/costs.rs", "src/lob/levels.rs", "src/commands/lob/mod.rs", "src/commands/lob/profiles.rs", "src/commands/lob/pilot.rs", "CLAUDE.md"],
+      "status": "review",
+      "startedAt": "2026-09-12T21:35:00+04:00",
+      "finishedAt": "2026-09-12T22:20:00+04:00",
+      "tests": "649 passed, 0 failed, 5 ignored; clippy -D warnings, fmt чисто",
+      "commit": "T33",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец: «дашборд о бизнес задаче конкретно — о монетах и их плотностях». Живой: http://127.0.0.1:8765/index.html, вотчер --watch 120 с копии data/dashboard/alpha-dashboard.exe (pid в dashboard.pid), сервер serve.pid. Попутно: markout::base_before/future_asof — двоичный поиск (8×5.5 ч за 15 с), costs::observation_at вместо трёх копий петли net. Ревью R-A/R-B/R-C — следующей сессией"
     },
     {
       "id": "14",

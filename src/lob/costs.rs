@@ -36,6 +36,8 @@
 //! Модуль не хранит состояния и не выделяет память.
 
 use crate::lob::cells::joint_product_interval;
+use crate::lob::levels::LevelRecord;
+use crate::lob::markout::{base_before, markout_bps, sample_asof, MidSample};
 use crate::stats::{count_f64, count_f64_u64};
 use std::collections::BTreeMap;
 
@@ -63,6 +65,31 @@ pub struct Observation {
     pub spread_ticks_exit: i64,
     /// Удвоенная середина базы в тиках.
     pub mid2x_base: i64,
+}
+
+/// Наблюдение `net` для уровня на горизонте `horizon_ms`: markout от базы
+/// Decision 11 (последний срез строго до смерти) до среза «как есть» на
+/// `base + horizon` и спред того же среза выхода. Одна конструкция на всех
+/// читателей (`lob pilot`, `lob dashboard`; до таска 33 каждый нёс свою
+/// копию петли `base_before` → срез выхода → `Observation`). `None` — нет
+/// базы, нет среза на горизонте или середина не положительна.
+pub fn observation_at(
+    level: &LevelRecord,
+    mids: &[MidSample],
+    horizon_ms: i64,
+) -> Option<Observation> {
+    let (base_ts, base2x) = base_before(mids, level.death_ms)?;
+    let exit = sample_asof(mids, base_ts, horizon_ms)?;
+    let m_bps = markout_bps(
+        level.side,
+        base2x,
+        crate::lob::markout::mid_double_tick(exit.bid_tick, exit.ask_tick),
+    )?;
+    Some(Observation {
+        m_bps,
+        spread_ticks_exit: exit.ask_tick - exit.bid_tick,
+        mid2x_base: base2x,
+    })
 }
 
 /// Проскальзывание Decision 15 в bps: `(spread + 2) / mid2x * 10^4`.

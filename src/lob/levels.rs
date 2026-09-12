@@ -197,6 +197,24 @@ impl LevelRecord {
     }
 }
 
+/// Снимок живого (ещё не умершего) уровня — то, что «стоит в стакане
+/// сейчас» на момент последнего кадра (таск 33, дашборд по плотностям).
+/// Только чтение состояния трекера; в горячий путь не входит.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LiveLevel {
+    pub side: Side,
+    pub price_tick: i64,
+    pub birth_ms: i64,
+    /// Размер в лотах на последнем кадре, где уровень виден.
+    pub size_lots: i64,
+    /// Максимум размера за жизнь (тот же `size_max`, что у записи).
+    pub size_max: i64,
+    /// Сколько уровней уже рождалось на этой цене за скользящее окно.
+    pub repeat_count: u32,
+    /// Объём сделок против уровня в лотах на этот момент.
+    pub traded_lots: i64,
+}
+
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Live {
@@ -277,6 +295,24 @@ impl LevelTracker {
     /// фикстура никого не потеряла и не оставила висеть.
     pub fn live_count(&self) -> usize {
         self.live.len()
+    }
+
+    /// Снимок всех живых уровней в порядке ключа (сторона, цена) — «что стоит
+    /// в стакане сейчас» для дашборда (таск 33). Уровни, родившиеся в прогреве,
+    /// включены: они живые, просто при смерти не будут эмитированы.
+    pub fn live_levels(&self, out: &mut Vec<LiveLevel>) {
+        out.clear();
+        for (&key, lv) in &self.live {
+            out.push(LiveLevel {
+                side: side_of(key),
+                price_tick: key.1,
+                birth_ms: lv.birth_ms,
+                size_lots: lv.seen_size,
+                size_max: lv.max,
+                repeat_count: lv.repeat,
+                traded_lots: lv.traded,
+            });
+        }
     }
 
     /// Один кадр одной стороны. Умершие за кадр дописываются в `out`

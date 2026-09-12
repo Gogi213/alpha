@@ -73,12 +73,12 @@ use crate::bybit::probe::percentile_ns;
 use crate::bybit::rest::BYBIT_MAINNET_URL;
 use crate::bybit::ws::parse_e9;
 use crate::lob::costs::{
-    mean_net_bps, net_fill_interval, FillObservation, Observation, MAKER_FEE_BPS,
+    mean_net_bps, net_fill_interval, observation_at, FillObservation, Observation, MAKER_FEE_BPS,
     ROUNDTRIP_FEES_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::final_metrics::sharpe_ratio;
 use crate::lob::levels::{H3Mode, LevelsConfig, Outcome};
-use crate::lob::markout::{base_before, markouts_for_level, MidSample, HORIZONS_MS};
+use crate::lob::markout::{markouts_for_level, HORIZONS_MS};
 use crate::lob::runs::log_pilot_run;
 use crate::lob::shortlist::CONFIRM_MIN_N;
 use crate::stats::{count_f64, count_f64_u64, count_u64, BOOTSTRAP_REPLICATIONS, GATE_ALPHA};
@@ -493,24 +493,10 @@ pub fn process_instrument(
                 continue;
             };
             m10s.push(m);
-            let Some((base_ts, base2x)) = base_before(&day.mids, rec.death_ms) else {
-                continue;
-            };
-            let target = base_ts.saturating_add(HORIZONS_MS[2]);
-            let mut exit: Option<MidSample> = None;
-            for s in &day.mids {
-                if s.ts_ms <= target {
-                    exit = Some(*s);
-                } else {
-                    break;
-                }
-            }
-            if let Some(x) = exit {
-                net_observations.push(Observation {
-                    m_bps: m,
-                    spread_ticks_exit: x.ask_tick - x.bid_tick,
-                    mid2x_base: base2x,
-                });
+            // Наблюдение `net` — одна конструкция на всех читателей
+            // (`costs::observation_at`, таск 33), не своя петля по срезам.
+            if let Some(obs) = observation_at(rec, &day.mids, HORIZONS_MS[2]) {
+                net_observations.push(obs);
             }
         }
     }

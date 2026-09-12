@@ -47,30 +47,29 @@ pub fn mid_double_tick(bid_tick: i64, ask_tick: i64) -> i64 {
 /// База по Decision 11: последний срез строго до смерти уровня.
 /// Возвращает пару (метка базы, удвоенная середина базы).
 pub fn base_before(mids: &[MidSample], death_ms: i64) -> Option<(i64, i64)> {
-    let mut found: Option<(i64, i64)> = None;
-    for s in mids {
-        if s.ts_ms < death_ms {
-            found = Some((s.ts_ms, mid_double_tick(s.bid_tick, s.ask_tick)));
-        } else {
-            break;
-        }
-    }
-    found
+    // Срезы идут в неубывающем времени (контракт модуля), поэтому «последний
+    // строго до» — граница `partition_point`, а не линейный обход: у суточной
+    // записи миллионы срезов и десятки тысяч уровней, линейный поиск на
+    // каждый уровень делал реплей квадратичным (таск 33). Результат тот же,
+    // что у обхода с `break` на первом `ts_ms >= death_ms`.
+    let n = mids.partition_point(|s| s.ts_ms < death_ms);
+    let s = mids.get(n.checked_sub(1)?)?;
+    Some((s.ts_ms, mid_double_tick(s.bid_tick, s.ask_tick)))
 }
 
 /// Середина на горизонте как есть на момент `base_ts + horizon_ms`:
 /// последний срез с меткой не позже цели, без заглядывания вперёд.
 pub fn future_asof(mids: &[MidSample], base_ts: i64, horizon_ms: i64) -> Option<i64> {
+    sample_asof(mids, base_ts, horizon_ms).map(|s| mid_double_tick(s.bid_tick, s.ask_tick))
+}
+
+/// Тот же срез, что `future_asof`, целиком — нужен там, где на горизонте
+/// важна не только середина, но и спред (`costs::observation_at`).
+/// Двоичный поиск по неубывающему времени, как у `base_before`.
+pub fn sample_asof(mids: &[MidSample], base_ts: i64, horizon_ms: i64) -> Option<MidSample> {
     let target = base_ts.saturating_add(horizon_ms);
-    let mut found: Option<i64> = None;
-    for s in mids {
-        if s.ts_ms <= target {
-            found = Some(mid_double_tick(s.bid_tick, s.ask_tick));
-        } else {
-            break;
-        }
-    }
-    found
+    let n = mids.partition_point(|s| s.ts_ms <= target);
+    mids.get(n.checked_sub(1)?).copied()
 }
 
 /// Сырая доходность середины в bps без полярности по стороне:
@@ -125,6 +124,68 @@ pub fn markouts_for_level(level: &LevelRecord, mids: &[MidSample]) -> [Option<f6
 mod tests {
     use super::*;
     use crate::book::Side;
+
+    /// Линейный обход — прежняя реализация `base_before`/`future_asof`
+    /// (до таска 33); двоичный поиск обязан давать ровно то же на любом
+    /// неубывающем срезе, включая повторы меток и края.
+    fn base_before_linear(mids: &[MidSample], death_ms: i64) -> Option<(i64, i64)> {
+        let mut found = None;
+        for s in mids {
+            if s.ts_ms < death_ms {
+                found = Some((s.ts_ms, mid_double_tick(s.bid_tick, s.ask_tick)));
+            } else {
+                break;
+            }
+        }
+        found
+    }
+
+    fn future_asof_linear(mids: &[MidSample], base_ts: i64, horizon_ms: i64) -> Option<i64> {
+        let target = base_ts.saturating_add(horizon_ms);
+        let mut found = None;
+        for s in mids {
+            if s.ts_ms <= target {
+                found = Some(mid_double_tick(s.bid_tick, s.ask_tick));
+            } else {
+                break;
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn binary_search_matches_the_linear_scan_on_ties_and_edges() {
+        let ts = [0i64, 5, 5, 5, 7, 10, 10, 12];
+        let mids: Vec<MidSample> = ts
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| {
+                let i = i64::try_from(i).unwrap();
+                MidSample {
+                    ts_ms: t,
+                    bid_tick: 100 + i,
+                    ask_tick: 101 + i,
+                }
+            })
+            .collect();
+        for q in -1..=14 {
+            assert_eq!(
+                base_before(&mids, q),
+                base_before_linear(&mids, q),
+                "base_before на death_ms={q}"
+            );
+            for h in [0i64, 1, 2, 5, 100] {
+                assert_eq!(
+                    future_asof(&mids, q, h),
+                    future_asof_linear(&mids, q, h),
+                    "future_asof на base={q}, h={h}"
+                );
+            }
+        }
+        assert_eq!(base_before(&[], 5), None);
+        assert_eq!(future_asof(&[], 5, 1), None);
+        assert_eq!(sample_asof(&mids, 5, 0).map(|s| s.bid_tick), Some(103));
+    }
 
     fn sample(ts_ms: i64, mid2x: i64) -> MidSample {
         let bid_tick = mid2x / 2;

@@ -178,7 +178,7 @@ const SIZE_BOUNDS: [(f64, f64); 3] = [(1.0, 2.0), (2.0, 4.0), (4.0, f64::INFINIT
 /// Время жизни в мс: `[0,1с)`, `[1,10с)`, `[10с,∞)` (`shortlist::LIFETIME_LABELS`).
 const LIFETIME_BOUNDS_MS: [(i64, i64); 3] = [(0, 1_000), (1_000, 10_000), (10_000, i64::MAX)];
 
-fn size_bucket(ratio: f64) -> Option<&'static str> {
+pub(crate) fn size_bucket(ratio: f64) -> Option<&'static str> {
     SIZE_BOUNDS
         .iter()
         .zip(SIZE_LABELS.iter())
@@ -186,7 +186,7 @@ fn size_bucket(ratio: f64) -> Option<&'static str> {
         .map(|(_, label)| *label)
 }
 
-fn lifetime_bucket(lifetime_ms: i64) -> Option<&'static str> {
+pub(crate) fn lifetime_bucket(lifetime_ms: i64) -> Option<&'static str> {
     LIFETIME_BOUNDS_MS
         .iter()
         .zip(LIFETIME_LABELS.iter())
@@ -194,7 +194,7 @@ fn lifetime_bucket(lifetime_ms: i64) -> Option<&'static str> {
         .map(|(_, label)| *label)
 }
 
-fn distance_bucket(dist_bps: f64) -> Option<&'static str> {
+pub(crate) fn distance_bucket(dist_bps: f64) -> Option<&'static str> {
     DISTANCE_BOUNDS_BPS
         .iter()
         .zip(DISTANCE_LABELS.iter())
@@ -206,7 +206,7 @@ fn distance_bucket(dist_bps: f64) -> Option<&'static str> {
 /// приём, что `markout::base_before` использует для смерти (`death_ms`),
 /// сдвинутый на рождение (`birth_ms + 1`, чтобы включить срез ровно в момент
 /// рождения). `None` — до рождения не было ни одного среза книги.
-fn distance_bps_at_birth(mids: &[MidSample], rec: &LevelRecord) -> Option<f64> {
+pub(crate) fn distance_bps_at_birth(mids: &[MidSample], rec: &LevelRecord) -> Option<f64> {
     let (_, mid2x) = base_before(mids, rec.birth_ms.saturating_add(1))?;
     raw_return_bps(mid2x, rec.price_tick.saturating_mul(2)).map(f64::abs)
 }

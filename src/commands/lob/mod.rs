@@ -54,7 +54,8 @@ use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
 use crate::commands::record::instruments_csv_path;
 use crate::lob::levels::{
-    DeathKind, H3Mode, LevelObs, LevelRecord, LevelTracker, LevelsConfig, Outcome, TradeHit,
+    DeathKind, H3Mode, LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, Outcome,
+    TradeHit,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::watch::{tally_day, DayTally};
@@ -369,11 +370,17 @@ struct ReplayDay {
     mids: Vec<MidSample>,
 }
 
-/// Итог реплея символа: сутки плюс счётчики для замера GC (байт на запись).
+/// Итог реплея символа: сутки плюс счётчики для замера GC (байт на запись),
+/// шаг цены/лота из заголовка бинлога и живые уровни на последнем кадре
+/// (таск 33: дашборд показывает «плотности сейчас» — то, что ещё не умерло
+/// и потому не попало в `records`).
 struct ReplayStats {
     days: Vec<ReplayDay>,
     bytes: u64,
     records: u64,
+    tick_e9: i64,
+    step_e9: i64,
+    open: Vec<LiveLevel>,
 }
 
 /// Рабочее состояние одних суток при нескольких конфигурациях `H3` разом
@@ -588,6 +595,9 @@ fn replay_symbol_over_configs(
             days: Vec::new(),
             bytes: 0,
             records: 0,
+            tick_e9: 0,
+            step_e9: 0,
+            open: Vec::new(),
         })
         .collect();
     let mut work: Vec<DayWork> = Vec::new();
@@ -606,6 +616,10 @@ fn replay_symbol_over_configs(
         let mut reader = Reader::open(&data[..])
             .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
         let header = reader.header();
+        for s in &mut out {
+            s.tick_e9 = header.tick_e9;
+            s.step_e9 = header.step_e9;
+        }
         if work.last().is_none_or(|w| w.day != day) {
             work.push(DayWork {
                 day,
@@ -693,7 +707,15 @@ fn replay_symbol_over_configs(
     // конфигурации за эти сутки, `w.mids` общий и клонируется в каждую
     // раскладку (срез середины не зависит от `H3`, дороже перечитать бинлог
     // ради него ещё раз, чем скопировать уже посчитанный вектор).
-    for w in work {
+    let last = work.len().checked_sub(1);
+    for (wi, w) in work.into_iter().enumerate() {
+        // Живые уровни — только у последних суток: у прежних трекер
+        // доигран до конца файла, и то, что там «живо», — обрыв записи.
+        if Some(wi) == last {
+            for (tracker, s) in w.trackers.iter().zip(out.iter_mut()) {
+                tracker.live_levels(&mut s.open);
+            }
+        }
         for (i, records) in w.records.into_iter().enumerate() {
             out[i].days.push(ReplayDay {
                 day: w.day.clone(),
@@ -1129,8 +1151,8 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Dashboard(args) => {
             let summary = run_dashboard(&args)?;
             println!(
-                "dashboard: instruments={} alive={} html={} json={}",
-                summary.instruments,
+                "dashboard: coins={} alive={} html={} json={}",
+                summary.coins,
                 match summary.alive {
                     Some(true) => "yes",
                     Some(false) => "no",
@@ -1231,6 +1253,12 @@ pub(crate) mod test_support {
             out.push(depth_rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, ts_ms, tick, lots));
         }
         out
+    }
+
+    /// Одна сделка продавца-агрессора (бьёт в бид на `tick`) — то, что
+    /// трекер зачтёт как объём против уровня стороны бида.
+    pub(crate) fn trade_frame(ts_ms: i64, tick: i64, lots: i64) -> Vec<Record> {
+        vec![depth_rec(LOCAL_SELL_TRADE_EVENT, ts_ms, tick, lots)]
     }
 
     pub(crate) fn delta_frame(ts_ms: i64, bids: &[(i64, i64)], asks: &[(i64, i64)]) -> Vec<Record> {
