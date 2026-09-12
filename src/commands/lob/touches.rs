@@ -12,7 +12,10 @@
 //! четырёх горизонтах `HORIZONS_MS` от среза как есть на `start_ms` (В-43) со
 //! знаком «в сторону отскока», подход за `APPROACH_MS` (1 с, 10 с) со знаком
 //! «к уровню». Пустая ячейка — нет данных (нет среза на момент касания или
-//! на горизонте), не ноль.
+//! на горизонте), не ноль. `frontrun_lots` — за секунду до касания,
+//! `swept_lots` — на последнем кадре до него (В-45); `within_touch_<h>` —
+//! горизонт не длиннее касания (`markout::within_touch`): `m_<h>` там ≈ 0
+//! по построению, читателю средних такую ячейку надо пропустить.
 
 use std::path::PathBuf;
 
@@ -20,7 +23,8 @@ use clap::Args;
 
 use crate::lob::levels::LevelsConfig;
 use crate::lob::markout::{
-    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, APPROACH_MS, HORIZONS_MS,
+    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, within_touch, APPROACH_MS,
+    HORIZONS_MS,
 };
 
 use super::{
@@ -68,7 +72,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 23;
+const TOUCHES_WIDTH: usize = 28;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -87,6 +91,7 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "size_max_before",
     "traded_during",
     "frontrun_lots",
+    "swept_lots",
     "round_zeros",
     "ended_by_death",
     "stack_levels",
@@ -95,6 +100,10 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "m_1s",
     "m_10s",
     "m_60s",
+    "within_touch_100ms",
+    "within_touch_1s",
+    "within_touch_10s",
+    "within_touch_60s",
     "approach_1s",
     "approach_10s",
 ];
@@ -140,6 +149,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     for day in &replay.days {
         for t in &day.touches {
             let ms = markouts_for_touch(t, &day.mids);
+            let inside = within_touch(t.duration_ms);
             let ap = approaches_for_touch(t, &day.mids);
             let row: [String; TOUCHES_WIDTH] = [
                 day.day.clone(),
@@ -155,6 +165,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 t.size_max_before.to_string(),
                 t.traded_during.to_string(),
                 t.frontrun_lots.to_string(),
+                t.swept_lots.to_string(),
                 t.round_zeros.to_string(),
                 t.ended_by_death.to_string(),
                 t.stack_levels.to_string(),
@@ -167,6 +178,10 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 some_or_empty(ms[1]),
                 some_or_empty(ms[2]),
                 some_or_empty(ms[3]),
+                inside[0].to_string(),
+                inside[1].to_string(),
+                inside[2].to_string(),
+                inside[3].to_string(),
                 some_or_empty(ap[0]),
                 some_or_empty(ap[1]),
             ];

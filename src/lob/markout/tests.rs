@@ -190,10 +190,37 @@ fn touch(side: Side, start_ms: i64) -> TouchRecord {
         size_max_before: 200,
         traded_during: 0,
         frontrun_lots: 0,
+        swept_lots: 0,
         round_zeros: 3,
         ended_by_death: false,
         stack_levels: 1,
     }
+}
+
+/// В-45 (2): горизонт не длиннее касания — `within_touch`, граница
+/// включительна (`HORIZONS_MS[i] ≤ duration_ms`); `markouts_for_touch_outside`
+/// гасит такие горизонты в `None`, остальные — как у `markouts_for_touch`.
+#[test]
+fn horizons_not_longer_than_the_touch_are_within_it_and_dropped_from_outside_markouts() {
+    assert_eq!(within_touch(0), [false; 4]);
+    assert_eq!(within_touch(99), [false; 4]);
+    assert_eq!(
+        within_touch(100),
+        [true, false, false, false],
+        "граница включительна"
+    );
+    assert_eq!(within_touch(1_000), [true, true, false, false]);
+    assert_eq!(within_touch(59_999), [true, true, true, false]);
+    assert_eq!(within_touch(60_000), [true; 4]);
+
+    let mids: Vec<MidSample> = (0..=70).map(|i| sample(i * 1_000, 2_002 + i)).collect();
+    let mut t = touch(Side::Bid, 5_000);
+    t.duration_ms = 10_000;
+    t.end_ms = 15_000;
+    let all = markouts_for_touch(&t, &mids);
+    let outside = markouts_for_touch_outside(&t, &mids);
+    assert!(all.iter().all(Option::is_some), "{all:?}");
+    assert_eq!(outside, [None, None, None, all[3]]);
 }
 
 /// Критерий приёмки таска 35: середина после касания выше — бид-касание

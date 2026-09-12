@@ -167,23 +167,25 @@ function touchCrossTable(cells){
 
 function touchesHtml(co){
   const T = co.touches;
+  const H = D.horizons_ms;
   let h='<h3>Касания: цена дошла до плотности</h3>';
   h+='<div class="note"><b>Касание</b> — цена дошла до живой плотности: уровень, живший до этого кадра, стал лучшей ценой своей стороны (первым в стакане). '+
     'Касание кончается, когда уровень перестал быть лучшей ценой — цена ушла, уровень жив: <b>отскок</b>, — или умер: <b>проели на касании</b>. '+
     'm — сдвиг середины после начала касания, bps, со знаком «в сторону отскока» (плюс — цена ушла от плотности); база — середина в момент касания (В-43). '+
+    'Горизонт не длиннее самого касания даёт m ≈ 0 по построению (середина ещё стоит на плотности) — такие ячейки в средние не входят (В-45): исключено на '+H[0]+' мс — '+T.within_touch[0]+', 1 с — '+T.within_touch[1]+', 10 с — '+T.within_touch[2]+', 60 с — '+T.within_touch[3]+' касаний. '+
     'Это движение цены, не сделка: вход, стоп и net сделки-отскока считает бэктест, не эта страница.'+
     (D.days_recorded < D.g_min_days ? ' Суток записано '+D.days_recorded+' < '+D.g_min_days+' (G_MIN) — всё в блоке наблюдение, не вердикт.' : '')+'</div>';
   h+='<div class="card">';
   h+='<div>касаний за запись: <b>'+T.total+'</b>'+(T.per_hour!==null?' ('+f(T.per_hour,1)+' в час)':'')+
     ' · отскочила <b class="pos">'+T.bounced+'</b> ('+pct(T.share_bounced)+') · проели на касании <b class="neg">'+T.eaten+'</b>'+
-    (T.stack_shown ? (T.stack_median!==null ? ' · завал — уровней ≥ H3 той же стороны в первых 50 ценах на касании, включая сам уровень, медиана: '+f(T.stack_median,0)+' из 50' : '')
+    (T.stack_shown ? (T.stack_median!==null ? ' · завал — уровней ≥ H3 той же стороны не дальше '+T.stack_window_bps+' bps от плотности на касании, включая её саму, медиана: '+f(T.stack_median,0)+(T.k_stub?' (k — заглушка (В-30): порог не выбран, число завала — свойство порога)':'') : '')
                    : ' · завал не показан: порог отладочный, число вырождено (В-43)')+'</div>';
   if (!T.total) h+='<div class="note">касаний за запись нет — таблицы ниже с нулями</div>';
   h+=touchOutcomeTable(T.outcomes.concat([T.all]));
   h+='</div>';
   h+='<h3>Касания по осям В-44</h3>';
   h+='<div class="note">Корзины назначены до чтения данных (В-44) по словам практиков; границы — их числа или уже существующие константы, ничего не подобрано по данным. '+
-    '<b>Фронтран</b> — заявки той же стороны перед плотностью (ближе к середине) на последнем кадре до касания, в долях её размера на касании. '+
+    '<b>Фронтран</b> — заявки той же стороны перед плотностью (ближе к середине) за секунду до касания (кадр в 1–2 с до него, В-45), в долях её размера на касании; сколько смёл последний шаг цены — в наведении на метку касания. '+
     '<b>Подход</b> — сдвиг середины за '+(T.approach_ms[0]/1000)+' с до касания, bps, со знаком «к уровню»: плюс — цена шла на плотность; без подхода (нет среза за секунду до касания): '+T.approach_missing+'. '+
     '<b>Круглость</b> — нули в конце цены в тиках. <b>Номер касания</b> — которое это касание у этого уровня. Длительность и размер — те же корзины, что у уровней; '+
     'размер берётся на касании, и уровень к касанию мог усохнуть ниже порога H3 — таких касаний '+T.size_below_h3+', в корзины размера они не входят (В-43: проверки размера при старте касания нет).</div>';
@@ -218,7 +220,7 @@ function coinHtml(co){
   h+='</div>';
   h+='<h3>Картина за последний час записи</h3><div class="card">'+
     '<div class="leg"><span><i style="background:var(--eaten)"></i>проели</span><span><i style="background:var(--pulled)"></i>сняли</span><span><i style="background:var(--mixed)"></i>смешанно</span><span><i style="background:var(--alive)"></i>живой</span><span>толщина — размер (ранг среди полосок окна); линия — середина цены; наведи на полоску — числа</span></div>'+
-    '<div class="leg"><span>метки касаний (цена дошла до живой плотности): треугольник у начала касания, вверх — бид, вниз — аск;</span><span><i class="tri"></i>отскочила</span><span><i class="tri dn"></i>проели на касании</span><span>наведи — возраст, фронтран, подход, m 10 с</span></div>'+
+    '<div class="leg"><span>метки касаний (цена дошла до живой плотности): треугольник у начала касания, вверх — бид, вниз — аск;</span><span><i class="tri"></i>отскочила</span><span><i class="tri dn"></i>проели на касании</span><span>наведи — возраст, фронтран, сметено, подход, m 10 с</span></div>'+
     '<div class="ctl"><label><input type="checkbox" id="f_eaten"'+(FLT.eaten?' checked':'')+'> проели</label><label><input type="checkbox" id="f_pulled"'+(FLT.pulled?' checked':'')+'> сняли</label><label><input type="checkbox" id="f_mixed"'+(FLT.mixed?' checked':'')+'> смешанно</label><label><input type="checkbox" id="f_alive"'+(FLT.alive?' checked':'')+'> живые</label><label><input type="checkbox" id="f_touch"'+(FLT.touch?' checked':'')+'> показывать касания</label>'+
     '<label>размер: <select id="f_top"><option value="1"'+(FLT.topShare==1?' selected':'')+'>все</option><option value="0.5"'+(FLT.topShare==0.5?' selected':'')+'>крупнейшие 50 %</option><option value="0.2"'+(FLT.topShare==0.2?' selected':'')+'>крупнейшие 20 %</option><option value="0.05"'+(FLT.topShare==0.05?' selected':'')+'>крупнейшие 5 %</option></select></label>'+
     '<label>жизнь от <select id="f_life"><option value="0"'+(FLT.minLife==0?' selected':'')+'>0</option><option value="1000"'+(FLT.minLife==1000?' selected':'')+'>1 с</option><option value="10000"'+(FLT.minLife==10000?' selected':'')+'>10 с</option><option value="60000"'+(FLT.minLife==60000?' selected':'')+'>1 мин</option></select></label>'+
@@ -292,7 +294,7 @@ function drawPicture(co){
         ? 'M'+X.toFixed(1)+' '+(Y-5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y+3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y+3).toFixed(1)+' Z'
         : 'M'+X.toFixed(1)+' '+(Y+5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y-3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y-3).toFixed(1)+' Z';
       const tip = 'касание '+hhmmss(k.t)+' UTC · '+SIDE[k.s]+' '+k.p.toFixed(co.price_decimals)+' · '+TOUT[k.o]+' · '+(k.i+1)+'-е касание уровня · возраст '+ms(k.a)+' · длилось '+ms(k.d)+
-        ' · размер '+k.x.toFixed(1)+'×H3 · фронтран '+(k.fr===null?'—':k.fr.toFixed(2)+' размера')+' · подход 1 с '+(k.ap===null?'—':k.ap.toFixed(2)+' bps')+' · m 10 с '+(k.m===null?'—':k.m.toFixed(2)+' bps');
+        ' · размер '+k.x.toFixed(1)+'×H3 · фронтран за 1 с '+(k.fr===null?'—':k.fr.toFixed(2)+' размера')+' · сметено '+(k.sw===null?'—':k.sw.toFixed(2)+' размера')+' · подход 1 с '+(k.ap===null?'—':k.ap.toFixed(2)+' bps')+' · m 10 с '+(k.w?'внутри касания':(k.m===null?'—':k.m.toFixed(2)+' bps'));
       s+='<path d="'+d+'" fill="'+mcol[k.o]+'" stroke="#fff" stroke-width="0.6"><title>'+esc(tip)+'</title></path>';
       nm++;
     }

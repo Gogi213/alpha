@@ -195,6 +195,24 @@ pub fn markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f6
     })
 }
 
+/// Горизонт **внутри касания** (В-45 (2)): `HORIZONS_MS[i] ≤ duration_ms` —
+/// на этом горизонте уровень ещё лучшая цена, середина стоит на нём, и
+/// markout ≈ 0 по построению, а не по рынку. Такие ячейки в CSV касаний
+/// помечаются (`within_touch_<h>`), в средние по корзине и в интервалы
+/// таблиц (`dashboard`, `touch-profiles`) не входят. Один источник правила
+/// для всех читателей.
+pub fn within_touch(duration_ms: i64) -> [bool; 4] {
+    std::array::from_fn(|i| HORIZONS_MS.get(i).is_some_and(|&h| h <= duration_ms))
+}
+
+/// Markout касания без горизонтов внутри касания: `None` там, где
+/// `within_touch` — для средних по корзинам (В-45 (2)); в CSV идут оба.
+pub fn markouts_for_touch_outside(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f64>; 4] {
+    let m = markouts_for_touch(touch, mids);
+    let inside = within_touch(touch.duration_ms);
+    std::array::from_fn(|i| if inside[i] { None } else { m[i] })
+}
+
 /// Подход к уровню: сдвиг середины за `back_ms` до касания в bps, знак «к
 /// уровню» — плюс, если цена шла на уровень (к биду — вниз, к аску —
 /// вверх). Конец окна — та же база, что у markout касания (`touch_base`,

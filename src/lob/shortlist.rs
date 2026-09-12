@@ -87,6 +87,17 @@ pub const DISTANCE_BOUNDS_BPS: [(f64, f64); 5] = [
     (10.0, 25.0),
 ];
 
+/// Последняя граница корзин расстояния целым числом bps — окно «завала»
+/// касания (В-45: уровни ≥ `H3` той же стороны не дальше 25 bps от цены
+/// уровня, `levels::stack_window_ticks`). Целое, потому что трекер уровней
+/// считает без приближённых чисел; равенство с `DISTANCE_BOUNDS_BPS`
+/// проверяется на компиляции — второго числа нет.
+pub const DISTANCE_MAX_BPS: i64 = 25;
+const _: () = assert!(
+    DISTANCE_BOUNDS_BPS[DISTANCE_BOUNDS_BPS.len() - 1].1 == DISTANCE_MAX_BPS as f64,
+    "DISTANCE_MAX_BPS обязана равняться последней границе DISTANCE_BOUNDS_BPS"
+);
+
 /// Корзины размера: кратность порога H3.
 pub const SIZE_LABELS: [&str; 3] = ["[1,2)", "[2,4)", "[4,inf)"];
 

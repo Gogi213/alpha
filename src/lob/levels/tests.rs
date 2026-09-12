@@ -567,6 +567,7 @@ fn touch_rec(
         size_max_before: sizes.1,
         traded_during: 0,
         frontrun_lots: frontrun,
+        swept_lots: frontrun,
         round_zeros: round_zeros(tick),
         ended_by_death,
         stack_levels: stack,
@@ -580,9 +581,12 @@ fn touch_rec(
 /// кадра до касания, `traded_during` — сделка внутри касания; повтор —
 /// `touch_index = 1`; смерть во время касания (в том же кадре, где 101
 /// вернулся, — смерть имеет приоритет) — `ended_by_death`, `end_ms` —
-/// `death_ms` записи смерти. `stack_levels` считает только живые уровни
-/// стороны с размером не ниже `H3`: 97 жив (4 — ровно 20 % от 20), но 4 < 5 —
-/// не считается. Смерти уровней при этом — прежние.
+/// `death_ms` записи смерти. Кадры идут раз в секунду, поэтому фронтран за
+/// секунду до касания (В-45) совпадает со сметённым последним шагом
+/// (`swept_lots`). `stack_levels` считает только живые уровни стороны с
+/// размером не ниже `H3` в окне 25 bps от цены: у тика 100 окно — 0 тиков
+/// (`stack_window_ticks`), в «завале» только сам уровень; 98 и 97 дальше.
+/// Смерти уровней при этом — прежние.
 #[test]
 fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     let mut tr = LevelTracker::new(cfg_touch());
@@ -625,7 +629,7 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
         &mut out,
         &mut touches,
     );
-    let mut want = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 2);
+    let mut want = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 1);
     want.traded_during = 4;
     assert_eq!(touches, vec![want]);
     assert!(out.is_empty(), "смертей нет");
@@ -650,7 +654,7 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     );
     assert_eq!(
         touches,
-        vec![touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 2)]
+        vec![touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 1)]
     );
     assert_eq!(out.len(), 1, "смерть 100");
     assert_eq!(out[0].price_tick, 100);
@@ -723,6 +727,7 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             size_max_before: 15,
             traded_during: 0,
             frontrun_lots: 2,
+            swept_lots: 2,
             round_zeros: 2,
             ended_by_death: false,
             stack_levels: 1,
@@ -815,8 +820,8 @@ fn warmup_touches_are_tracked_but_not_emitted() {
     assert_eq!((touches[0].price_tick, touches[0].touch_index), (102, 0));
     assert_eq!((touches[0].start_ms, touches[0].frontrun_lots), (9000, 3));
     assert_eq!(
-        touches[0].stack_levels, 2,
-        "102 и прогревный 100 — оба живы и не ниже H3"
+        touches[0].stack_levels, 1,
+        "102 в окне 0 тиков (25 bps от 102 тиков) — только сам; прогревный 100 дальше"
     );
     // 102 снят (смерть без касания — оно уже кончилось), 100 снова лучший:
     // второе касание прогревного уровня — по-прежнему без записи.
@@ -831,6 +836,248 @@ fn warmup_touches_are_tracked_but_not_emitted() {
     assert_eq!(touches.len(), 1);
     assert_eq!(out.len(), 1, "смерть 102");
     assert_eq!(out[0].price_tick, 102);
+}
+
+/// Критерий приёмки тикета 35b (В-45): фронтран — за секунду до касания, а
+/// не с последнего кадра. Бид 100 000 (10 лотов) родился под лучшим
+/// 100 001 (5 лотов); за 1,5 с до касания впереди стоят те же 5 лотов, на
+/// последнем кадре до касания (за 200 мс) — 1 лот (ноль впереди на кадре до
+/// касания невозможен по определению: там уровень уже был бы лучшим, и
+/// касание началось бы кадром раньше). Ожидание: `frontrun_lots = 5`,
+/// `swept_lots = 1`. Обратный случай — за секунду до касания впереди 0
+/// (уровень стоял лучшим с рождения — не касание), на последнем кадре 4
+/// лота: `frontrun_lots = 0`, `swept_lots = 4` — корзина «фронтран 0»
+/// достижима.
+#[test]
+fn frontrun_is_sampled_a_second_before_the_touch_and_swept_is_the_last_frame() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    let tick = 100_000;
+    // Рождение под лучшим 100 001 (5 лотов): секунда 0.
+    tr.observe_frame_with_touches(
+        0,
+        b,
+        &[ob(tick + 1, 5), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    // 500 мс: впереди по-прежнему 5. 1000 мс: слот перевернулся, впереди 5.
+    tr.observe_frame_with_touches(
+        500,
+        b,
+        &[ob(tick + 1, 5), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        1000,
+        b,
+        &[ob(tick + 1, 5), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    // 2300 мс: впереди 1 лот (последний кадр до касания). 2500 мс: касание.
+    tr.observe_frame_with_touches(
+        2300,
+        b,
+        &[ob(tick + 1, 1), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(2500, b, &[ob(tick, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(
+        3000,
+        b,
+        &[ob(tick + 1, 2), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!(
+        (touches[0].frontrun_lots, touches[0].swept_lots),
+        (5, 1),
+        "за секунду до касания (кадр 1000 мс) впереди 5, на последнем кадре (2300 мс) — 1"
+    );
+    touches.clear();
+
+    // Обратный случай: аск 200 000 родился лучшим (впереди 0), 1500 мс стоял
+    // лучшим, затем перед ним встали 4 лота на 199 999 и через 200 мс ушли —
+    // касание с фронтраном 0 и сметённым 4.
+    let a = Side::Ask;
+    let at = 200_000;
+    tr.observe_frame_with_touches(10_000, a, &[ob(at, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(11_000, a, &[ob(at, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(11_500, a, &[ob(at, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(
+        11_800,
+        a,
+        &[ob(at - 1, 4), ob(at, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(12_000, a, &[ob(at, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(
+        13_000,
+        a,
+        &[ob(at - 1, 1), ob(at, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!(touches[0].side, Side::Ask);
+    assert_eq!(
+        (touches[0].frontrun_lots, touches[0].swept_lots),
+        (0, 4),
+        "за секунду до касания впереди ничего не было, последний шаг смёл 4"
+    );
+    assert!(out.is_empty());
+}
+
+/// В-45: два слота фронтрана — значение с кадра не позже секунды до касания
+/// даже когда слот перевернулся в самом кадре касания: наблюдения на 0, 999
+/// и касание на 1000 мс — читается кадр 0 (первое наблюдение старого слота),
+/// а не 999 (его последнее, оно позже секунды до касания). Уровень моложе
+/// секунды — его первое наблюдение (кадр рождения).
+#[test]
+fn frontrun_never_reads_a_frame_later_than_a_second_before_the_touch() {
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    let tick = 100_000;
+    tr.observe_frame_with_touches(
+        0,
+        b,
+        &[ob(tick + 1, 7), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        999,
+        b,
+        &[ob(tick + 1, 2), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(1000, b, &[ob(tick, 10)], &mut out, &mut touches);
+    tr.observe_frame_with_touches(
+        1100,
+        b,
+        &[ob(tick + 1, 1), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!((touches[0].frontrun_lots, touches[0].swept_lots), (7, 2));
+    touches.clear();
+
+    // Моложе секунды: рождение на 5000 под 3 лотами, касание на 5400.
+    let young = 300_000;
+    tr.observe_frame_with_touches(
+        5000,
+        b,
+        &[
+            ob(young + 1, 3),
+            ob(young, 10),
+            ob(tick + 1, 1),
+            ob(tick, 10),
+        ],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        5200,
+        b,
+        &[
+            ob(young + 1, 6),
+            ob(young, 10),
+            ob(tick + 1, 1),
+            ob(tick, 10),
+        ],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        5400,
+        b,
+        &[ob(young, 10), ob(tick + 1, 1), ob(tick, 10)],
+        &mut out,
+        &mut touches,
+    );
+    tr.observe_frame_with_touches(
+        5600,
+        b,
+        &[
+            ob(young + 1, 1),
+            ob(young, 10),
+            ob(tick + 1, 1),
+            ob(tick, 10),
+        ],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1);
+    assert_eq!(touches[0].price_tick, young);
+    assert_eq!(
+        (touches[0].frontrun_lots, touches[0].swept_lots),
+        (3, 6),
+        "старого слота нет — первое наблюдение (кадр рождения)"
+    );
+}
+
+/// Критерий приёмки тикета 35b (В-45): «завал» — уровни ≥ `H3` той же
+/// стороны не дальше 25 bps от цены уровня. У бида 100 000 окно — 250 тиков
+/// (`stack_window_ticks`): 99 800 (200 тиков) считается, 99 700 (300 тиков)
+/// — нет, сам уровень входит; уровень ниже `H3` в окне не считается.
+#[test]
+fn stack_counts_levels_within_25_bps_only() {
+    assert_eq!(stack_window_ticks(100_000), 250);
+    assert_eq!(
+        stack_window_ticks(100),
+        0,
+        "25 bps от 100 тиков — четверть тика"
+    );
+    assert_eq!(stack_window_ticks(399), 0);
+    assert_eq!(stack_window_ticks(400), 1);
+    assert_eq!(stack_window_ticks(0), 0);
+    assert_eq!(
+        stack_window_ticks(-100_000),
+        250,
+        "модуль: арифметика тотальна"
+    );
+
+    let mut tr = LevelTracker::new(cfg_touch());
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let b = Side::Bid;
+    let tick = 100_000;
+    let frame_before = [
+        ob(tick + 1, 3),
+        ob(tick, 10),
+        ob(tick - 200, 10),
+        ob(tick - 250, 20),
+        ob(tick - 251, 20),
+        ob(tick - 300, 30),
+    ];
+    let frame_touch = [
+        ob(tick, 10),
+        ob(tick - 200, 10),
+        ob(tick - 250, 20),
+        ob(tick - 251, 20),
+        ob(tick - 300, 30),
+    ];
+    tr.observe_frame_with_touches(1000, b, &frame_before, &mut out, &mut touches);
+    assert_eq!(tr.live_count(), 5);
+    tr.observe_frame_with_touches(2000, b, &frame_touch, &mut out, &mut touches);
+    tr.observe_frame_with_touches(3000, b, &frame_before, &mut out, &mut touches);
+    assert_eq!(touches.len(), 1);
+    assert_eq!(
+        touches[0].stack_levels, 3,
+        "сам 100 000, 99 800 и 99 750 (ровно 250 тиков — включительно); 99 749 и 99 700 дальше"
+    );
+    assert!(out.is_empty());
 }
 
 /// Гейт GC таска 35: кадры с касаниями — начало и конец на каждом кадре,

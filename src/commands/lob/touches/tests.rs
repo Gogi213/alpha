@@ -96,10 +96,23 @@ fn touches_fixture_writes_touch_rows_with_expected_columns() {
     assert_eq!(col(&header, t0, "size_at_touch"), "10");
     assert_eq!(col(&header, t0, "size_max_before"), "10");
     assert_eq!(col(&header, t0, "traded_during"), "0");
+    // Кадры раз в секунду: фронтран за секунду до касания (В-45) — те же 10
+    // лотов бида 100, что и сметённые последним шагом.
     assert_eq!(col(&header, t0, "frontrun_lots"), "10");
+    assert_eq!(col(&header, t0, "swept_lots"), "10");
     assert_eq!(col(&header, t0, "round_zeros"), "0");
     assert_eq!(col(&header, t0, "ended_by_death"), "false");
-    assert_eq!(col(&header, t0, "stack_levels"), "2");
+    assert_eq!(
+        col(&header, t0, "stack_levels"),
+        "1",
+        "окно 25 bps от 99 тиков — 0 тиков: только сам уровень (В-45)"
+    );
+    // Касание длилось 1000 мс: горизонты 100 мс и 1 с — внутри касания
+    // (граница включительна), 10 с и 60 с — нет (В-45 (2)).
+    assert_eq!(col(&header, t0, "within_touch_100ms"), "true");
+    assert_eq!(col(&header, t0, "within_touch_1s"), "true");
+    assert_eq!(col(&header, t0, "within_touch_10s"), "false");
+    assert_eq!(col(&header, t0, "within_touch_60s"), "false");
     // Расстояние 99 до середины 102.5 при рождении — |99 − 102.5| / 102.5.
     let dist: f64 = col(&header, t0, "dist_bps").parse().unwrap();
     assert!((dist - 341.463_414).abs() < 1e-3, "dist_bps = {dist}");

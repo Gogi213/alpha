@@ -50,11 +50,12 @@ use crate::commands::record::FRAME_LOSS_WINDOW_SECS;
 use crate::lob::costs::{mean_net_bps, observation_at, Observation, ROUNDTRIP_FEES_BPS};
 use crate::lob::levels::{H3Mode, LevelsConfig, LiveLevel, Outcome, TouchRecord};
 use crate::lob::markout::{
-    approaches_for_touch, markouts_for_level, markouts_for_touch, mid_double_tick, raw_return_bps,
-    MidSample, APPROACH_MS, HORIZONS_MS,
+    approaches_for_touch, markouts_for_level, markouts_for_touch_outside, mid_double_tick,
+    raw_return_bps, within_touch, MidSample, APPROACH_MS, HORIZONS_MS,
 };
 use crate::lob::shortlist::{
-    repeat_bucket, DISTANCE_LABELS, LIFETIME_LABELS, REPEAT_LABELS, SIDE_LABELS, SIZE_LABELS,
+    repeat_bucket, DISTANCE_LABELS, DISTANCE_MAX_BPS, LIFETIME_LABELS, REPEAT_LABELS, SIDE_LABELS,
+    SIZE_LABELS,
 };
 use crate::lob::touch_axes::{
     age_bucket, approach_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
@@ -247,12 +248,18 @@ pub struct Mark {
     pub d: i64,
     /// Номер касания у уровня, с нуля.
     pub i: u32,
-    /// Фронтран в долях размера на касании.
+    /// Фронтран (за секунду до касания, В-45) в долях размера на касании.
     pub fr: Option<f64>,
+    /// Сметено последним шагом цены (`swept_lots`, В-45) в долях размера.
+    pub sw: Option<f64>,
     /// Подход за 1 с, bps (знак «к уровню»).
     pub ap: Option<f64>,
-    /// Markout на 10 с «в сторону отскока», bps.
+    /// Markout на 10 с «в сторону отскока», bps; `None` и при горизонте
+    /// внутри касания (`w`).
     pub m: Option<f64>,
+    /// Горизонт 10 с не длиннее касания — `m` ≈ 0 по построению (В-45),
+    /// не печатается.
+    pub w: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -287,7 +294,8 @@ pub struct TouchRow {
     /// Доля отскоков (`bounced`) в строке.
     pub share_bounced: Option<f64>,
     /// Средний markout «в сторону отскока» на `HORIZONS_MS` по всем
-    /// касаниям строки, bps.
+    /// касаниям строки, bps; горизонты внутри касания (`within_touch`,
+    /// В-45) в среднее не входят.
     pub m_bps: [Option<f64>; 4],
     /// Сколько касаний строки дали markout на 10 с (`m_bps[H10S]`).
     pub m10s_n: usize,
@@ -341,12 +349,22 @@ pub struct Touches {
     pub size_below_h3: usize,
     /// Окна подхода, мс (`APPROACH_MS`); на странице — первое.
     pub approach_ms: [i64; 2],
-    /// Медиана «завала» — живых уровней ≥ `H3` той же стороны в топ-50 на
-    /// касании (`stack_levels`, сам уровень входит). `None` при отладочном
+    /// Медиана «завала» — живых уровней ≥ `H3` той же стороны не дальше
+    /// `DISTANCE_MAX_BPS` от уровня на касании (`stack_levels`, сам уровень
+    /// входит; В-45). `None` при отладочном
     /// пороге (`instruments.csv` с меткой `# debug`): там почти весь топ-50 —
     /// уровни, число вырождено (В-43, свойство порога) — не показывается.
     pub stack_median: Option<f64>,
     pub stack_shown: bool,
+    /// Окно «завала», bps (`DISTANCE_MAX_BPS`, В-45).
+    pub stack_window_bps: i64,
+    /// Порог — заглушка `k = 1.0` (В-30: `k` выбирает пилот, ещё не
+    /// выбран): рядом с «завалом» страница печатает это словами.
+    pub k_stub: bool,
+    /// Сколько касаний на каждом горизонте `HORIZONS_MS` имели горизонт не
+    /// длиннее касания (`markout::within_touch`, В-45) — их `m` в средние
+    /// строк не вошли.
+    pub within_touch: [usize; 4],
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -647,7 +665,14 @@ fn build_coin(
 
     let picture = build_picture(&stats.days, &stats.open, h3_lots, &px);
     // Касания — из того же реплея (`ReplayDay.touches`), второго прохода нет.
-    let touches = build_touches(&stats.days, h3_lots, recorded_hours, debug_marker.is_none());
+    let k_stub = h3_k_is_stub(&args.root, symbol, h3, args.h3_k);
+    let touches = build_touches(
+        &stats.days,
+        h3_lots,
+        recorded_hours,
+        debug_marker.is_none(),
+        k_stub,
+    );
 
     Ok(Coin {
         symbol: symbol.to_string(),
@@ -709,7 +734,7 @@ fn empty_coin(symbol: &str, error: Option<String>) -> Coin {
         by_lifetime: Vec::new(),
         by_repeat: Vec::new(),
         picture: empty_picture(),
-        touches: build_touches(&[], 0, 0.0, true),
+        touches: build_touches(&[], 0, 0.0, true, false),
     }
 }
 
@@ -922,6 +947,7 @@ fn build_touches(
     h3_lots: i64,
     recorded_hours: f64,
     stack_shown: bool,
+    k_stub: bool,
 ) -> Touches {
     let mut all = TouchAcc::default();
     let mut by_outcome: Vec<(&str, TouchAcc)> = labelled(&TOUCH_OUTCOME_LABELS);
@@ -946,14 +972,19 @@ fn build_touches(
     let mut approach_missing = 0usize;
     let mut size_below_h3 = 0usize;
     let mut stacks: Vec<f64> = Vec::new();
+    let mut within = [0usize; 4];
 
     for day in days {
         for t in &day.touches {
             total += 1;
             let outcome = touch_outcome(t.ended_by_death);
+            for (c, inside) in within.iter_mut().zip(within_touch(t.duration_ms)) {
+                *c += usize::from(inside);
+            }
+            // Горизонт внутри касания — `None` в средних (В-45 (2)).
             let sample = TouchSample {
                 bounced: !t.ended_by_death,
-                m: markouts_for_touch(t, &day.mids),
+                m: markouts_for_touch_outside(t, &day.mids),
             };
             all.push(&sample);
             push_touch(&mut by_outcome, outcome, &sample);
@@ -1016,6 +1047,9 @@ fn build_touches(
         approach_ms: APPROACH_MS,
         stack_median: if stack_shown { median(&stacks) } else { None },
         stack_shown,
+        stack_window_bps: DISTANCE_MAX_BPS,
+        k_stub,
+        within_touch: within,
     }
 }
 
@@ -1163,8 +1197,10 @@ fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64) -> Mar
         d: t.duration_ms,
         i: t.touch_index,
         fr: frontrun_share(t.frontrun_lots, t.size_at_touch),
+        sw: frontrun_share(t.swept_lots, t.size_at_touch),
         ap: approaches_for_touch(t, mids)[0],
-        m: markouts_for_touch(t, mids)[H10S],
+        m: markouts_for_touch_outside(t, mids)[H10S],
+        w: within_touch(t.duration_ms)[H10S],
     }
 }
 
@@ -1267,6 +1303,40 @@ fn instruments_csv_marker(root: &Path) -> Option<String> {
     first
         .starts_with('#')
         .then(|| first.trim_start_matches('#').trim().to_string())
+}
+
+/// Заглушка множителя пола `k` (В-30: `k` выбирает пилот по сетке
+/// `pilot::K_GRID`, пока не выбран — `lob pick --h3-k 1.0`). Страница при
+/// этом `k` печатает «k — заглушка» рядом с «завалом»: при `k = 1.0` почти
+/// весь топ-50 — уровни, число завала — свойство порога, не рынка.
+pub const K_STUB: f64 = 1.0;
+
+/// Колонка `k` строки символа в `instruments.csv` (пишет `lob pick`); нет
+/// файла, колонки или строки — `None`, страница тогда заглушку не
+/// объявляет.
+fn h3_k_for_symbol(instruments_csv: &Path, symbol: &str) -> Option<f64> {
+    let mut r = crate::commands::lob::pick::instruments_csv_reader(instruments_csv).ok()?;
+    let headers = r.headers().ok()?.clone();
+    let k_col = headers.iter().position(|h| h == "k")?;
+    let sym_col = headers.iter().position(|h| h == "symbol")?;
+    for row in r.records() {
+        let row = row.ok()?;
+        if row.get(sym_col) == Some(symbol) {
+            return row.get(k_col)?.trim().parse().ok();
+        }
+    }
+    None
+}
+
+/// Действующий `k` монеты — `--h3-k`, иначе колонка `k` файла — равен
+/// заглушке `K_STUB`; только в режиме `floor` (у `percentile` `k` нет).
+fn h3_k_is_stub(root: &Path, symbol: &str, h3: H3Mode, h3_k: Option<f64>) -> bool {
+    match h3 {
+        H3Mode::Floor { .. } => h3_k
+            .or_else(|| h3_k_for_symbol(&instruments_csv_path(root), symbol))
+            .is_some_and(|k| k == K_STUB),
+        H3Mode::Percentile { .. } => false,
+    }
 }
 
 /// Подпись порога: откуда число и какой `k` — чтобы «крупный уровень» на
@@ -1483,9 +1553,11 @@ fn glossary() -> Vec<TextItem> {
             "Фронтран",
             &format!(
                 "заявки той же стороны, стоящие ближе к середине, чем плотность (перед ней), \
-                 на последнем кадре до касания — в долях её размера на касании. Практики: \
-                 «плотность на лям и фронтрана на 500 тысяч» — отсюда граница {FRONTRUN_HALF} \
-                 (В-44)."
+                 за секунду до касания (кадр в 1–2 с до него, В-45) — в долях её размера на \
+                 касании. На последнем кадре до касания перед плотностью всегда стоит прежняя \
+                 лучшая цена — то, что смёл последний шаг («сметено»), показывается в наведении \
+                 на метку касания отдельно. Практики: «плотность на лям и фронтрана на 500 \
+                 тысяч» — отсюда граница {FRONTRUN_HALF} (В-44)."
             ),
         ),
         item(
@@ -1507,9 +1579,12 @@ fn glossary() -> Vec<TextItem> {
         ),
         item(
             "Завал",
-            "сколько живых уровней не ниже порога H3 стоит на той же стороне в первых 50 \
-             ценах в момент касания, включая саму плотность. При отладочном пороге это \
-             почти весь стакан — число вырождено и не показывается.",
+            &format!(
+                "сколько живых уровней не ниже порога H3 стоит на той же стороне не дальше \
+                 {DISTANCE_MAX_BPS} bps от плотности в момент касания, включая её саму (В-45). \
+                 При отладочном пороге это почти весь стакан — число вырождено и не \
+                 показывается; при заглушке k = {K_STUB} (В-30) рядом с числом так и написано."
+            ),
         ),
     ]
 }

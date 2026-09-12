@@ -205,7 +205,11 @@ fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     // середина та же (9999 остался лучшим бидом и после смерти уровня —
     // 1 лот на цене) — ноль; на 60 с 9999 убран, середина ушла на полтика
     // вниз — против отскока бида: минус.
-    assert_eq!(t.all.m_bps[0], Some(0.0));
+    // Касания длились 3 с и 1 с: горизонты 100 мс и 1 с — внутри касания,
+    // в средние не входят (В-45 (2)); 10 с и 60 с — снаружи.
+    assert_eq!(t.within_touch, [2, 2, 0, 0]);
+    assert_eq!(t.all.m_bps[0], None, "оба касания длиннее 100 мс");
+    assert_eq!(t.all.m_bps[1], None, "оба касания не короче 1 с");
     assert_eq!(t.all.m_bps[H10S], Some(0.0));
     assert!(t.all.m_bps[3].unwrap() < 0.0, "{:?}", t.all.m_bps);
     assert_eq!(t.all.m10s_n, 2);
@@ -213,9 +217,14 @@ fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     assert_eq!(
         t.stack_median,
         Some(1.0),
-        "на касании жив один уровень ≥ H3"
+        "на касании жив один уровень ≥ H3 в окне 25 bps"
     );
     assert!(t.stack_shown);
+    assert_eq!(t.stack_window_bps, 25);
+    assert!(
+        t.k_stub,
+        "k = 1.0 в instruments.csv фикстуры — заглушка (В-30)"
+    );
     assert_eq!(t.approach_ms, APPROACH_MS);
 
     // Оси В-44: у каждой все метки в порядке `touch_axes`, сумма `n` — 2.
@@ -281,18 +290,59 @@ fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     assert_eq!(bounce.a, 5_000);
     assert_eq!(bounce.d, 3_000);
     assert_eq!(bounce.fr, Some(1.0));
+    assert_eq!(
+        bounce.sw,
+        Some(1.0),
+        "кадры реже секунды: сметено = фронтран"
+    );
     assert!(bounce.ap.unwrap() > 0.0);
     assert_eq!(bounce.m, Some(0.0));
+    assert!(!bounce.w, "3 с < 10 с — горизонт снаружи касания");
     assert!((bounce.x - 2.0).abs() < 1e-9);
     let death = p.marks.iter().find(|m| m.o == "eaten").unwrap();
     assert_eq!(death.t, 12_000);
     assert_eq!(death.i, 1);
     assert_eq!(death.d, 1_000);
     assert!((death.fr.unwrap() - 0.3).abs() < 1e-9);
+    assert!((death.sw.unwrap() - 0.3).abs() < 1e-9);
 
     // Уровни при этом — как прежде: 10000 сняли, 9999 проели, аск жив.
     assert_eq!(c.levels_total, 2);
     assert_eq!(c.levels_now.len(), 1);
+}
+
+/// Критерий приёмки тикета 35b (В-45): касание без фронтрана — бид 9999
+/// родился лучшим (не касание), на 5 с перед ним встали 3 лота на 10000, на
+/// 5,2 с ушли — касание, за секунду до которого впереди не было ничего:
+/// строка корзины `0` с `n = 1`, а сметено последним шагом 0.3 размера — в
+/// наведении на метку. Касание длилось 12,8 с — горизонт 10 с внутри него:
+/// `m 10 с` метки не печатается, в среднее не входит.
+#[test]
+fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separately() {
+    let dir = tempfile::tempdir().unwrap();
+    let frames = vec![
+        snap_frame(0, &[(9999, 10)], &[(10001, 10)]),
+        delta_frame(5_000, &[(10000, 3)], &[]),
+        delta_frame(5_200, &[(10000, 0)], &[]),
+        delta_frame(18_000, &[(10000, 3)], &[]),
+        delta_frame(60_000, &[(10000, 0)], &[]),
+    ];
+    let args = fixture_with(dir.path(), &frames);
+    let d = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let c = &d.coins[0];
+    assert!(c.error.is_none(), "{:?}", c.error);
+    let t = &c.touches;
+    assert_eq!(t.total, 1);
+    assert_eq!(touch_row(&t.by_frontrun, "0").n, 1, "{:?}", t.by_frontrun);
+    assert_eq!(touch_row(&t.by_frontrun, "(0,0.5)").n, 0);
+    assert_eq!(t.within_touch, [1, 1, 1, 0]);
+    assert_eq!(t.all.m_bps[H10S], None, "10 с внутри касания в 12,8 с");
+    assert_eq!(t.all.m10s_n, 0);
+    let m = &c.picture.marks[0];
+    assert_eq!(m.fr, Some(0.0));
+    assert!((m.sw.unwrap() - 0.3).abs() < 1e-9, "{:?}", m.sw);
+    assert!(m.w);
+    assert_eq!(m.m, None);
 }
 
 /// Без касаний — блок с нулями и всеми метками, не ошибка; меток на картине нет.
@@ -311,6 +361,7 @@ fn a_coin_without_touches_gets_a_zero_block_not_an_error() {
     assert_eq!(t.all.n, 0);
     assert_eq!(t.all.m_bps, [None; 4]);
     assert_eq!(t.stack_median, None, "медианы пустого набора нет");
+    assert_eq!(t.within_touch, [0; 4]);
     assert_eq!(t.outcomes.len(), 2);
     for rows in [
         &t.by_age,
