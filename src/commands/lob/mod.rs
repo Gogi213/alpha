@@ -748,6 +748,131 @@ pub(crate) fn session_binlog_for(dir: &Path, symbol: &str) -> anyhow::Result<Vec
     Ok(files)
 }
 
+/// Одна часть записи сессии с её **собственными** сутками и часом старта
+/// (таск 23). До него `profiles`/`watch` брали `day_utc` и `start_hour_utc`
+/// из верхнего `session.json` каталога — а его перезаписывает последняя
+/// сессия в этот `--root`, и каталог с частями за D и D+1 отдавал всё как
+/// D+1: сутки переставали быть кластером, окно «сейчас» фильтровало по
+/// завышенному дню. Здесь сутки — из имени файла части
+/// (`<SYMBOL>-<день>[-pN].binlog`, то же имя выбирает `record::claim_part`
+/// по моменту старта сессии), час — из `session.json.binlog_files` своей
+/// части (запись с теми же символом, номером и сутками `started_utc`,
+/// таск 22), а если часть там не перечислена (запись до таска 22) — из
+/// `start_hour_utc` каталога, как раньше.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionPart {
+    pub path: PathBuf,
+    pub part: u32,
+    /// Календарные сутки старта части, UTC, `YYYY-MM-DD`.
+    pub day_utc: String,
+    pub start_hour_utc: u32,
+}
+
+/// Подмножество `session.json`, нужное атрибуции частей: час старта
+/// каталога (запасной путь) и перечень частей с их `started_utc`.
+/// Старый формат без `binlog_files` — пустой перечень, не ошибка.
+#[derive(Debug, serde::Deserialize)]
+struct SessionPartsPeek {
+    start_hour_utc: u32,
+    #[serde(default)]
+    binlog_files: Vec<session::BinlogPart>,
+}
+
+fn hour_of_started_utc(started_utc: &str) -> Option<u32> {
+    started_utc.get(11..13)?.parse().ok()
+}
+
+/// Части сессии символа в каталоге — те же файлы и в том же порядке, что
+/// `session_binlog_for`, но с сутками и часом старта на каждую часть.
+/// Каталог без разборного `session.json` — ошибка (не сессия), как и
+/// отсутствие файлов символа; читатели многих каталогов подряд пропускают
+/// такой каталог молча — тот же приём, что у `session_binlog_for`.
+pub(crate) fn session_parts_for(dir: &Path, symbol: &str) -> anyhow::Result<Vec<SessionPart>> {
+    let meta_path = dir.join("session.json");
+    let text = std::fs::read_to_string(&meta_path)
+        .map_err(|e| anyhow::anyhow!("{} не читается: {e}", meta_path.display()))?;
+    let meta: SessionPartsPeek = serde_json::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("{} не разбирается: {e}", meta_path.display()))?;
+    let prefix = format!("{symbol}-");
+    session_binlog_for(dir, symbol)?
+        .into_iter()
+        .map(|path| {
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let (day_utc, part) = file_order_key(&prefix, &name);
+            let start_hour_utc = meta
+                .binlog_files
+                .iter()
+                .find(|b| {
+                    b.symbol == symbol && b.part == part && b.started_utc.starts_with(&day_utc)
+                })
+                .and_then(|b| hour_of_started_utc(&b.started_utc))
+                .unwrap_or(meta.start_hour_utc);
+            Ok(SessionPart {
+                path,
+                part,
+                day_utc,
+                start_hour_utc,
+            })
+        })
+        .collect()
+}
+
+/// Части, сгруппированные по суткам в хронологическом порядке — единица
+/// реплея для `profiles`/`watch` (таск 23): трекер уровней общий на части
+/// одних суток (таск 22, «части читаются подряд как один поток») и чистый
+/// на каждые новые сутки — между сутками разрыв записи есть всегда.
+pub(crate) fn group_parts_by_day(parts: Vec<SessionPart>) -> Vec<(String, Vec<SessionPart>)> {
+    let mut out: Vec<(String, Vec<SessionPart>)> = Vec::new();
+    for part in parts {
+        match out.last_mut() {
+            Some((day, group)) if *day == part.day_utc => group.push(part),
+            _ => out.push((part.day_utc.clone(), vec![part])),
+        }
+    }
+    out
+}
+
+/// Сутки, представленные в каталоге сессии хотя бы одной датированной
+/// частью любого символа — по возрастанию. Каталог без `session.json` — не
+/// сессия, пустое множество; недатированный `<SYMBOL>.binlog` старого
+/// формата суток не даёт. Это вход окна «сейчас» (`profiles`: перечень
+/// суток для предрегистрации и счёт сессий внутри/снаружи) и календаря
+/// `shortlist` — оба до таска 23 читали одни сутки `started_utc` каталога.
+pub(crate) fn session_days_in_dir(dir: &Path) -> std::collections::BTreeSet<String> {
+    let mut days = std::collections::BTreeSet::new();
+    if !dir.join("session.json").is_file() {
+        return days;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return days;
+    };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if let Some(day) = day_of_binlog_name(&name) {
+            days.insert(day.to_string());
+        }
+    }
+    days
+}
+
+/// Сутки из имени `<SYMBOL>-<день>[-pN].binlog` без знания символа: хвост
+/// после необязательного `-pN` обязан кончаться на `-YYYY-MM-DD`. Иначе —
+/// `None` (старый недатированный формат, чужой файл).
+fn day_of_binlog_name(name: &str) -> Option<&str> {
+    let stem = name.strip_suffix(".binlog")?;
+    let stem = match stem.rsplit_once("-p") {
+        Some((head, num)) if num.parse::<u32>().is_ok() => head,
+        _ => stem,
+    };
+    let split = stem.len().checked_sub(11)?;
+    let head = stem.get(..split)?;
+    let day = stem.get(split..)?.strip_prefix('-')?;
+    (!head.is_empty() && crate::lob::watch::day_format_ok(day)).then_some(day)
+}
+
 fn side_name(side: Side) -> &'static str {
     match side {
         Side::Bid => "bid",
@@ -1396,6 +1521,164 @@ mod tests {
         std::fs::write(&day1_p1, b"stub").unwrap();
         let paths = session_binlog_for(dir.path(), "SOLUSDT").unwrap();
         assert_eq!(paths, vec![day1_p1, day1_p2, day2_p1]);
+    }
+
+    // -----------------------------------------------------------------
+    // `session_parts_for` / `group_parts_by_day` / `session_days_in_dir` —
+    // сутки и час старта на уровне части, не каталога (таск 23).
+    // -----------------------------------------------------------------
+
+    fn write_session_json(dir: &Path, start_hour_utc: u32, parts: &[(&str, u32, &str)]) {
+        let files: Vec<String> = parts
+            .iter()
+            .map(|(symbol, part, started)| {
+                format!("{{\"symbol\":\"{symbol}\",\"part\":{part},\"started_utc\":\"{started}\"}}")
+            })
+            .collect();
+        let json = format!(
+            "{{\"started_utc\":\"2026-09-09T14:00:00Z\",\"start_hour_utc\":{start_hour_utc},             \"instruments\":[\"SOLUSDT\"],\"binlog_files\":[{}]}}",
+            files.join(",")
+        );
+        std::fs::write(dir.join("session.json"), json).unwrap();
+    }
+
+    /// Каталог с частями за двое суток: верхний `started_utc`/`start_hour_utc`
+    /// — от последней сессии (D+1, 14 ч), но каждая часть получает свои
+    /// сутки из имени файла и свой час из `binlog_files`.
+    #[test]
+    fn session_parts_for_attributes_day_and_hour_per_part_not_per_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let d1p1 = crate::commands::record::day_file_path(root, "SOLUSDT", "2026-09-08", 1);
+        let d1p2 = crate::commands::record::day_file_path(root, "SOLUSDT", "2026-09-08", 2);
+        let d2p1 = crate::commands::record::day_file_path(root, "SOLUSDT", "2026-09-09", 1);
+        for p in [&d2p1, &d1p2, &d1p1] {
+            std::fs::write(p, b"stub").unwrap();
+        }
+        write_session_json(
+            root,
+            14,
+            &[
+                ("SOLUSDT", 1, "2026-09-08T02:00:00Z"),
+                ("SOLUSDT", 2, "2026-09-08T11:30:00Z"),
+                ("SOLUSDT", 1, "2026-09-09T14:00:00Z"),
+            ],
+        );
+        let parts = session_parts_for(root, "SOLUSDT").unwrap();
+        let view: Vec<(&str, u32, u32)> = parts
+            .iter()
+            .map(|p| (p.day_utc.as_str(), p.part, p.start_hour_utc))
+            .collect();
+        // Часть 1 встречается дважды (D и D+1) — запись `binlog_files`
+        // подбирается по тройке (symbol, part, сутки `started_utc`), не по
+        // паре: у части 1 суток D+1 час 14, не 02.
+        assert_eq!(
+            view,
+            vec![
+                ("2026-09-08", 1, 2),
+                ("2026-09-08", 2, 11),
+                ("2026-09-09", 1, 14)
+            ]
+        );
+        assert_eq!(
+            parts.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+            vec![d1p1, d1p2, d2p1],
+            "порядок тот же, что у session_binlog_for"
+        );
+    }
+
+    /// Запись до таска 22: `session.json` без `binlog_files` — час берётся
+    /// из `start_hour_utc` каталога, сутки по-прежнему из имени файла.
+    #[test]
+    fn session_parts_for_falls_back_to_directory_hour_without_binlog_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
+        std::fs::write(
+            root.join("session.json"),
+            "{\"started_utc\":\"2026-09-08T05:00:00Z\",\"start_hour_utc\":5,\"instruments\":[\"SOLUSDT\"]}",
+        )
+        .unwrap();
+        let parts = session_parts_for(root, "SOLUSDT").unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].day_utc, "2026-09-08");
+        assert_eq!(parts[0].start_hour_utc, 5);
+        assert_eq!(parts[0].part, 1);
+    }
+
+    #[test]
+    fn session_parts_for_requires_session_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
+        let err = session_parts_for(dir.path(), "SOLUSDT").unwrap_err();
+        assert!(
+            err.to_string().contains("session.json"),
+            "без session.json — не сессия: {err}"
+        );
+    }
+
+    #[test]
+    fn group_parts_by_day_keeps_order_and_splits_only_on_day_change() {
+        let part = |day: &str, n: u32| SessionPart {
+            path: PathBuf::from(format!("SOLUSDT-{day}-p{n}.binlog")),
+            part: n,
+            day_utc: day.to_string(),
+            start_hour_utc: 0,
+        };
+        let groups = group_parts_by_day(vec![
+            part("2026-09-08", 1),
+            part("2026-09-08", 2),
+            part("2026-09-09", 1),
+        ]);
+        let view: Vec<(&str, Vec<u32>)> = groups
+            .iter()
+            .map(|(d, ps)| (d.as_str(), ps.iter().map(|p| p.part).collect()))
+            .collect();
+        assert_eq!(
+            view,
+            vec![("2026-09-08", vec![1, 2]), ("2026-09-09", vec![1])]
+        );
+    }
+
+    #[test]
+    fn session_days_in_dir_unions_dated_parts_of_all_symbols_and_ignores_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("session.json"), "{}").unwrap();
+        for name in [
+            "SOLUSDT-2026-09-08.binlog",
+            "SOLUSDT-2026-09-08-p2.binlog",
+            "NEARUSDT-2026-09-10.binlog",
+            "ZECUSDT.binlog", // старый недатированный формат
+            "gaps.csv",
+            "BAD-2026-9-8.binlog", // не YYYY-MM-DD
+        ] {
+            std::fs::write(root.join(name), b"stub").unwrap();
+        }
+        let days: Vec<String> = session_days_in_dir(root).into_iter().collect();
+        assert_eq!(days, vec!["2026-09-08", "2026-09-10"]);
+    }
+
+    #[test]
+    fn session_days_in_dir_is_empty_without_session_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SOLUSDT-2026-09-08.binlog"), b"stub").unwrap();
+        assert!(session_days_in_dir(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn day_of_binlog_name_parses_dated_names_only() {
+        assert_eq!(
+            day_of_binlog_name("SOLUSDT-2026-09-08.binlog"),
+            Some("2026-09-08")
+        );
+        assert_eq!(
+            day_of_binlog_name("SOLUSDT-2026-09-08-p12.binlog"),
+            Some("2026-09-08")
+        );
+        assert_eq!(day_of_binlog_name("SOLUSDT.binlog"), None);
+        assert_eq!(day_of_binlog_name("2026-09-08.binlog"), None, "без символа");
+        assert_eq!(day_of_binlog_name("SOLUSDT-2026-09-08.csv"), None);
     }
 
     #[test]

@@ -809,15 +809,19 @@ window.STATE =
       ],
       "wave": 9,
       "zone": [
-        "src/commands/lob/session.rs",
+        "src/commands/lob/mod.rs",
         "src/commands/lob/profiles.rs",
-        "src/commands/lob/watch.rs"
+        "src/commands/lob/watch.rs",
+        "src/commands/lob/shortlist.rs"
       ],
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-09-12T21:00:00+04:00",
+      "finishedAt": "2026-09-12T22:10:00+04:00",
+      "tests": "607 passed, 0 failed, 5 ignored",
       "retries": 0,
       "repairs": 0,
       "handoffs": 0,
-      "note": "из ревью R-C таска 22: day_utc из session.json каталога, а не части — ломает кластер суток при многодневном --root; до сбора"
+      "note": "из ревью R-C таска 22: day_utc из session.json каталога, а не части — ломает кластер суток при многодневном --root. Сделано: session_parts_for/group_parts_by_day/session_days_in_dir в mod.rs; profiles/watch реплеят по суткам, час старта от части; shortlist::group_by_day ставит каталог под каждыми его сутками (зона расширена)"
     },
     {
       "id": "14",
@@ -958,6 +962,12 @@ window.STATE =
     "note": "G2 дважды: 17 находок на первую редакцию спеки, 5 на вторую (окно repeat_count → D01; семантика теста 3; две кривые PnL; число 30 суток; родитель A01 → R81). Все внесены"
   },
   "concerns": [
+    {
+      "ticket": "23",
+      "file": "src/commands/lob/profiles.rs",
+      "what": "срезы середины (mids) и трекер общие на части одних суток (наследие таска 22 «части одним потоком»): уровень, умерший в конце части -p1, ищет markout в срезах части -p2 часами позже — горизонты ≤ 60 с найдут либо ничего, либо чужой срез. На однодневном пилоте не проявляется; до сбора с двумя сессиями в сутки — решить: трекер/mids на часть или разрыв по метке времени",
+      "kind": "data"
+    },
     {
       "ticket": "01",
       "file": "src/commands/lob/pick.rs",
@@ -1518,9 +1528,9 @@ window.STATE =
     "live_run": "один, 5 мин, lob session: records=1587882 gaps=0, 8 инструментов, без ключей"
   },
   "tests": {
-    "passed": 596,
+    "passed": 607,
     "failed": 0,
     "ignored": 5,
-    "at": "2026-09-12T20:10:00+04:00"
+    "at": "2026-09-12T22:10:00+04:00"
   }
 }

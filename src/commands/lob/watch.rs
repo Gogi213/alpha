@@ -9,10 +9,14 @@
 //!
 //! `--root <dir>` — каталог, где лежит **по одному подкаталогу на каждую
 //! сессию** `lob session --root <dir>/<session_id>` (таск 04): в каждом —
-//! `session.json` (`started_utc`, `start_hour_utc`, …), `<SYMBOL>-<день>.binlog`
-//! на инструмент (таск 19, резолвер `super::session_binlog_for`), `gaps.csv`,
-//! `clock.csv`. Подкаталоги без `session.json` или без бинлога запрошенного
-//! символа молча пропускаются — это не сессия этого символа, не ошибка.
+//! `session.json` (`started_utc`, `start_hour_utc`, `binlog_files`, …),
+//! `<SYMBOL>-<день>[-pN].binlog` на инструмент и часть (таск 19/22, резолвер
+//! `super::session_parts_for` — с таска 23 сутки и час старта берутся у
+//! **каждой части**, не у каталога: владелец гоняет `lob session` в один
+//! `--root` день за днём, и верхний `started_utc` — от последней сессии),
+//! `gaps.csv`, `clock.csv`. Подкаталоги без `session.json` или без бинлога
+//! запрошенного символа молча пропускаются — это не сессия этого символа,
+//! не ошибка.
 //!
 //! # Вердикт verify для сессии — файл-маркер таска 07
 //!
@@ -164,20 +168,6 @@ impl ProfileMatcher {
 // Каталог сессий: чтение `session.json`, маркера сверки, реплей одного файла.
 // ---------------------------------------------------------------------------
 
-/// Подмножество полей `session.json` (`lob session`, таск 04), которое нужно
-/// счётчику: остальные (`duration_s`, `instruments`, …) serde молча
-/// игнорирует — файл читается, а не разбирается заново.
-#[derive(Debug, serde::Deserialize)]
-struct SessionMetaPeek {
-    started_utc: String,
-    start_hour_utc: u32,
-}
-
-fn read_session_meta(dir: &Path) -> Option<SessionMetaPeek> {
-    let text = std::fs::read_to_string(dir.join("session.json")).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 /// Маркер сверки сессии (см. doc модуля): ровно `ok` — сессия годна;
 /// отсутствие файла или что угодно ещё — нет, без паники и без ошибки.
 fn read_verify_marker(path: &Path) -> bool {
@@ -224,66 +214,81 @@ fn feed_session_frame(
     }
 }
 
-/// Реплеит все бинлоги одной сессии в записи уровней — с таска 22 их может
-/// быть несколько (`session_binlog_for`, части суток `-p2`, `-p3`, …),
-/// прогоняются подряд одним трекером (одна сессия — один непрерывный поток
-/// по построению критерия приёмки таска 22). Книга и `FileReplayer` — заново
-/// на каждый файл: каждая часть несёт собственный снапшот в начале, тот же
-/// приём, что `mod.rs::replay_symbol_over_configs` уже применяет к частям
-/// суток `lob record`. Трекер заводится с чистого листа на каждую *сессию*
-/// (не часть): между сессиями реальный разрыв записи, продолжать окно
-/// повторов/прогрев через него — не свойство данных, а совпадение по счёту,
-/// поэтому не переносится.
-fn replay_session_binlog(paths: &[PathBuf], cfg: LevelsConfig) -> anyhow::Result<Vec<LevelRecord>> {
+/// Реплеит части одних суток одной сессии в записи уровней — по части на
+/// элемент результата (таск 23: у каждой части свой час старта и свой
+/// `SessionTally`). Части суток прогоняются подряд одним трекером (таск 22,
+/// «части читаются подряд как один поток»); на каждые новые сутки трекер
+/// заводится с чистого листа — между сутками реальный разрыв записи,
+/// продолжать окно повторов/прогрев через него — не свойство данных, а
+/// совпадение по счёту, поэтому не переносится. Книга и `FileReplayer` —
+/// заново на каждый файл: каждая часть несёт собственный снапшот в начале,
+/// тот же приём, что `mod.rs::replay_symbol_over_configs` уже применяет к
+/// частям суток `lob record`.
+fn replay_session_day(
+    parts: &[super::SessionPart],
+    cfg: LevelsConfig,
+) -> anyhow::Result<Vec<Vec<LevelRecord>>> {
     let mut tracker = LevelTracker::new(cfg);
-    let mut records = Vec::new();
-    for path in paths {
-        let data = std::fs::read(path)
-            .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-        let mut reader = Reader::open(&data[..])
-            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
-        let header = reader.header();
-        let mut book = Book::new(header.tick_e9, header.step_e9);
-        let mut replayer = FileReplayer::new();
-        let mut ups = Vec::new();
-        let mut tps = Vec::new();
-        'frames: loop {
-            let frame = reader
-                .read_frame()
-                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
-            let Some(frame_records) = frame else { break };
-            for rec in &frame_records {
-                ups.clear();
-                tps.clear();
-                replayer.push_frame(
-                    std::slice::from_ref(rec),
-                    header.tick_e9,
-                    header.step_e9,
-                    &mut ups,
-                    &mut tps,
-                );
-                let hit = trade_hit_from_record(rec);
-                for up in &ups {
-                    if book.apply(up).is_err() {
-                        break 'frames;
-                    }
-                    feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
+    let mut per_part = Vec::with_capacity(parts.len());
+    for part in parts {
+        let mut records = Vec::new();
+        replay_binlog_file_into(&part.path, &mut tracker, &mut records)?;
+        per_part.push(records);
+    }
+    Ok(per_part)
+}
+
+/// Один файл-часть через общий трекер; книга и `FileReplayer` — свои.
+fn replay_binlog_file_into(
+    path: &Path,
+    tracker: &mut LevelTracker,
+    records: &mut Vec<LevelRecord>,
+) -> anyhow::Result<()> {
+    let data = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+    let mut reader = Reader::open(&data[..])
+        .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+    let header = reader.header();
+    let mut book = Book::new(header.tick_e9, header.step_e9);
+    let mut replayer = FileReplayer::new();
+    let mut ups = Vec::new();
+    let mut tps = Vec::new();
+    'frames: loop {
+        let frame = reader
+            .read_frame()
+            .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+        let Some(frame_records) = frame else { break };
+        for rec in &frame_records {
+            ups.clear();
+            tps.clear();
+            replayer.push_frame(
+                std::slice::from_ref(rec),
+                header.tick_e9,
+                header.step_e9,
+                &mut ups,
+                &mut tps,
+            );
+            let hit = trade_hit_from_record(rec);
+            for up in &ups {
+                if book.apply(up).is_err() {
+                    break 'frames;
                 }
-                if let Some(h) = hit {
-                    tracker.observe_trade(h);
-                }
+                feed_session_frame(&book, tracker, up.cts_ms, records);
             }
-        }
-        let mut tail = Vec::new();
-        replayer.finish(&mut tail);
-        for up in &tail {
-            if book.apply(up).is_err() {
-                break;
+            if let Some(h) = hit {
+                tracker.observe_trade(h);
             }
-            feed_session_frame(&book, &mut tracker, up.cts_ms, &mut records);
         }
     }
-    Ok(records)
+    let mut tail = Vec::new();
+    replayer.finish(&mut tail);
+    for up in &tail {
+        if book.apply(up).is_err() {
+            break;
+        }
+        feed_session_frame(&book, tracker, up.cts_ms, records);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -309,40 +314,49 @@ pub fn run_watch(args: &WatchArgs) -> anyhow::Result<WatchSummary> {
     let mut sample = WatchSample::new(&args.symbol, &args.profile);
     let mut flag: Option<String> = None;
     for dir in session_dirs(&args.root)? {
-        let Some(meta) = read_session_meta(&dir) else {
-            continue;
-        };
-        // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`) — нет файла
-        // для запрошенного символа в этой сессии означает «не сессия этого
-        // символа», не ошибку (doc модуля).
-        let Ok(binlog_paths) = super::session_binlog_for(&dir, &args.symbol) else {
+        // Таск 19/23: резолвер сессии (`<SYMBOL>-<день>[-pN].binlog` с
+        // сутками и часом старта на каждую часть) — нет `session.json` или
+        // файла для запрошенного символа в этой сессии означает «не сессия
+        // этого символа», не ошибку (doc модуля).
+        let Ok(parts) = super::session_parts_for(&dir, &args.symbol) else {
             continue;
         };
         let verified = read_verify_marker(&dir.join(format!("verify-{}.status", args.symbol)));
-        let n = if verified {
-            let records = replay_session_binlog(&binlog_paths, cfg)?;
-            records.iter().filter(|r| profile.matches(r)).count() as u64
-        } else {
-            0
-        };
-        let session_id = dir
+        let dir_name = dir
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let day_utc = meta.started_utc.get(..10).unwrap_or_default().to_string();
-        let tally = SessionTally {
-            session_id,
-            day_utc,
-            start_hour_utc: meta.start_hour_utc,
-            symbol: args.symbol.clone(),
-            verified,
-            n,
-        };
-        let outcome = sample
-            .observe_session(&args.root, tally, &now)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        if let Some(f) = outcome.flag {
-            flag = Some(f.days.join(","));
+        for (_, day_parts) in super::group_parts_by_day(parts) {
+            let per_part = if verified {
+                replay_session_day(&day_parts, cfg)?
+            } else {
+                vec![Vec::new(); day_parts.len()]
+            };
+            // Одна сессия = одна часть: `SessionTally` на часть, сутки и час
+            // старта — её собственные. Идентификатор — каталог плюс имя
+            // файла части: каталог с несколькими частями (двое суток, две
+            // сессии в сутки) даёт столько же различимых сессий.
+            for (part, records) in day_parts.iter().zip(&per_part) {
+                let stem = part
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let tally = SessionTally {
+                    session_id: format!("{dir_name}/{stem}"),
+                    day_utc: part.day_utc.clone(),
+                    start_hour_utc: part.start_hour_utc,
+                    symbol: args.symbol.clone(),
+                    verified,
+                    n: records.iter().filter(|r| profile.matches(r)).count() as u64,
+                };
+                let outcome = sample
+                    .observe_session(&args.root, tally, &now)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                if let Some(f) = outcome.flag {
+                    flag = Some(f.days.join(","));
+                }
+            }
         }
     }
     Ok(WatchSummary {
@@ -480,6 +494,73 @@ mod tests {
             .expect("строка на первые сутки есть");
         assert_eq!(first.session_start_hours_utc, "02");
         assert_eq!(first.n, 2, "два pulled на сессию, см. pulled_bid_frames");
+    }
+
+    /// Критерий приёмки таска 23 для `watch`: один каталог с частями за
+    /// двое суток (верхний `session.json` — от последней сессии, 02 мая
+    /// 14 ч) — две строки прогресса, `G = 2`, час старта каждой — свой.
+    /// До таска 23 обе части шли за 02 мая: одни сутки, `G = 1`.
+    #[test]
+    fn watch_attributes_days_and_hours_per_part_inside_one_directory() {
+        let dir = tempfile::tempdir().expect("песочница");
+        let root = dir.path();
+        let frames = pulled_bid_frames();
+        let session = root.join("collect");
+        std::fs::create_dir_all(&session).unwrap();
+        for day in ["2026-05-01", "2026-05-02"] {
+            let header = Header {
+                tick_e9: super::super::test_support::FIX_TICK_E9,
+                step_e9: 1_000_000,
+                max_records_per_frame: 4096,
+            };
+            let mut w = Writer::create(Vec::new(), header, 1).unwrap();
+            for f in &frames {
+                w.write_frame(f).unwrap();
+            }
+            w.flush().unwrap();
+            let path = crate::commands::record::day_file_path(&session, "SOLUSDT", day, 1);
+            std::fs::write(path, w.into_inner()).unwrap();
+        }
+        std::fs::write(
+            session.join("session.json"),
+            "{\"started_utc\":\"2026-05-02T14:00:00Z\",\"start_hour_utc\":14,\
+             \"instruments\":[\"SOLUSDT\"],\"binlog_files\":[\
+             {\"symbol\":\"SOLUSDT\",\"part\":1,\"started_utc\":\"2026-05-01T02:00:00Z\"},\
+             {\"symbol\":\"SOLUSDT\",\"part\":1,\"started_utc\":\"2026-05-02T14:00:00Z\"}]}",
+        )
+        .unwrap();
+        std::fs::write(session.join("verify-SOLUSDT.status"), "ok").unwrap();
+
+        let args = WatchArgs {
+            root: root.to_path_buf(),
+            symbol: "SOLUSDT".to_string(),
+            profile: "marginal:outcome=pulled".to_string(),
+            h3: H3Args {
+                h3_mode: H3ModeArg::Percentile,
+                h3_lots: Some(1),
+            },
+            warmup_ms: 0,
+            repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
+            now_utc: Some("2026-06-01T00:00:00Z".to_string()),
+        };
+        let summary = run_watch(&args).expect("прогон watch");
+        assert_eq!(summary.days, 2, "двое суток из одного каталога");
+        assert_eq!(summary.g, 2);
+        assert_eq!(summary.n, 4, "по два pulled на каждую часть");
+        let rows = crate::lob::watch::read_session_progress_rows(&summary.progress)
+            .expect("прогресс читается");
+        let hours: Vec<(String, String)> = rows
+            .iter()
+            .map(|r| (r.day_utc.clone(), r.session_start_hours_utc.clone()))
+            .collect();
+        assert_eq!(
+            hours,
+            vec![
+                ("2026-05-01".to_string(), "02".to_string()),
+                ("2026-05-02".to_string(), "14".to_string()),
+            ],
+            "сутки и час — из части, не из верхнего session.json"
+        );
     }
 
     #[test]

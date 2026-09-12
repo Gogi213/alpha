@@ -32,7 +32,7 @@ Rust-проект: записать стакан Bybit сессиями (5–15 
 
 ```bash
 cargo build --release
-cargo test --release 2>&1 | tail -30        # 596 passed, 0 failed, 5 ignored на 16f91ce (22 таска + пилот)
+cargo test --release 2>&1 | tail -30        # 607 passed, 0 failed, 5 ignored (23 таска + пилот)
 cargo clippy --all-targets -- -D warnings   # бюджет линта ноль
 cargo fmt --check
 ./target/release/alpha.exe lob --help       # 16 подкоманд, см. таблицу артефактов ниже
@@ -161,9 +161,10 @@ src/
   `<SYMBOL>-<дата>.binlog`; старый недатированный `<SYMBOL>.binlog` (записи до таска 19 в
   `data/session-debug`, `data/pilot-debug/*/session`) отвергается с подсказкой переименовать
   (`profiles`/`watch` при сканировании многих сессий такой каталог молча пропускают)
-- сутки (`day_utc`) в `profiles`/`watch` пока берутся из `session.json` каталога, не из
-  части — каталог с частями за двое суток атрибутирует всё последним днём; таск 23
-  (до многодневного сбора)
+- сутки (`day_utc`) и час старта в `profiles`/`watch`/`shortlist` — у **каждой части**
+  (таск 23, `commands::lob::session_parts_for`): сутки из имени файла, час из
+  `session.json.binlog_files`; каталог с частями за D и D+1 — два кластера суток, окно
+  «сейчас» фильтрует по суткам части
 - GC на пилоте 30 мин: NTP offset 79 мс (порог 5), parse p99 400 мкс (порог 200), RSS
   4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
 - `sync.py` печатает по-русски в кодировке консоли — mojibake в выводе нормален

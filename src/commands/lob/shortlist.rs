@@ -206,16 +206,6 @@ pub struct ShortlistSummary {
 // (частные копии в каждом файле; ни один не `pub`, переиспользовать нечего).
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, serde::Deserialize)]
-struct SessionMetaPeek {
-    started_utc: String,
-}
-
-fn read_session_meta(dir: &Path) -> Option<SessionMetaPeek> {
-    let text = std::fs::read_to_string(dir.join("session.json")).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let entries = std::fs::read_dir(root)
         .map_err(|e| anyhow::anyhow!("корень {} не читается: {e}", root.display()))?;
@@ -231,20 +221,19 @@ fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-/// Группирует подкаталоги сессий по суткам `started_utc`. Каталоги без
-/// `session.json` или без разборного `started_utc` молча пропускаются — не
-/// сессия, не ошибка (тот же приём, что `profiles.rs`/`watch.rs`).
+/// Группирует подкаталоги сессий по суткам их датированных частей
+/// (`super::session_days_in_dir`, таск 23): каталог с частями за D и D+1
+/// стоит под обеими датами — до таска 23 он числился только за сутками
+/// `started_utc` своего `session.json`, то есть за последней сессией.
+/// Каталоги без `session.json` или без датированных частей молча
+/// пропускаются — не сессия, не ошибка (тот же приём, что
+/// `profiles.rs`/`watch.rs`).
 fn group_by_day(dirs: &[PathBuf]) -> BTreeMap<String, Vec<PathBuf>> {
     let mut out: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     for dir in dirs {
-        let Some(meta) = read_session_meta(dir) else {
-            continue;
-        };
-        let day = meta.started_utc.get(..10).unwrap_or_default().to_string();
-        if day.is_empty() {
-            continue;
+        for day in super::session_days_in_dir(dir) {
+            out.entry(day).or_default().push(dir.clone());
         }
-        out.entry(day).or_default().push(dir.clone());
     }
     out
 }
@@ -416,7 +405,10 @@ fn link_dir_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
 }
 
 /// Строит времянку с `instruments.csv` пула плюс только теми подкаталогами
-/// сессий, чьи сутки входят в `wanted_days`.
+/// сессий, среди суток которых есть хоть одни из `wanted_days`. Каталог,
+/// стоящий под несколькими сутками (таск 23), линкуется один раз; части
+/// его других суток отсеет окно «сейчас» `lob profiles` внутри времянки —
+/// оно фильтрует по суткам части, не каталога.
 fn build_filtered_root(
     dest_root: &Path,
     instruments_csv_src: &Path,
@@ -424,11 +416,15 @@ fn build_filtered_root(
     wanted_days: &[String],
 ) -> anyhow::Result<()> {
     link_or_copy(instruments_csv_src, &instruments_csv_path(dest_root))?;
+    let mut linked: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for day in wanted_days {
         let Some(dirs) = by_day.get(day) else {
             continue;
         };
         for dir in dirs {
+            if !linked.insert(dir.clone()) {
+                continue;
+            }
             let name = dir
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("каталог сессии без имени: {}", dir.display()))?;
@@ -1079,6 +1075,64 @@ mod tests {
         let day = &started_utc[..10];
         std::fs::write(dir.join(format!("{symbol}-{day}.binlog")), w.into_inner()).unwrap();
         std::fs::write(dir.join(format!("verify-{symbol}.status")), "ok").unwrap();
+    }
+
+    /// Таск 23: каталог с частями за двое суток стоит под обеими датами
+    /// календаря (до таска — только под `started_utc` своего `session.json`,
+    /// то есть под последней сессией), а во времянку линкуется один раз.
+    #[test]
+    fn group_by_day_lists_a_two_day_directory_under_both_days_and_links_it_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Каталог за 01 мая по `session.json`, но с частью и за 02 мая рядом.
+        write_session_dir(root, "collect", "SOLUSDT", "2026-05-01T02:00:00Z");
+        std::fs::write(
+            root.join("collect").join("SOLUSDT-2026-05-02.binlog"),
+            std::fs::read(root.join("collect").join("SOLUSDT-2026-05-01.binlog")).unwrap(),
+        )
+        .unwrap();
+        write_session_dir(root, "single", "SOLUSDT", "2026-05-03T02:00:00Z");
+        let dirs = session_dirs(root).unwrap();
+        let by_day = group_by_day(&dirs);
+        let view: Vec<(String, Vec<String>)> = by_day
+            .iter()
+            .map(|(d, ds)| {
+                (
+                    d.clone(),
+                    ds.iter()
+                        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            view,
+            vec![
+                ("2026-05-01".to_string(), vec!["collect".to_string()]),
+                ("2026-05-02".to_string(), vec!["collect".to_string()]),
+                ("2026-05-03".to_string(), vec!["single".to_string()]),
+            ]
+        );
+
+        let scratch = tempfile::tempdir().unwrap();
+        let instruments = root.join("instruments.csv");
+        std::fs::write(&instruments, "symbol\nSOLUSDT\n").unwrap();
+        build_filtered_root(
+            scratch.path(),
+            &instruments,
+            &by_day,
+            &["2026-05-01".to_string(), "2026-05-02".to_string()],
+        )
+        .expect("каталог под двумя сутками линкуется один раз, не падает на повторе");
+        assert!(scratch
+            .path()
+            .join("collect")
+            .join("session.json")
+            .is_file());
+        assert!(
+            !scratch.path().join("single").exists(),
+            "03 мая не запрашивали"
+        );
     }
 
     fn base_args(root: &Path, candidates_csv: PathBuf) -> ShortlistArgs {

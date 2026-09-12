@@ -9,7 +9,9 @@
 //!
 //! `--root` — каталог с `instruments.csv` (пул, `lob pick`) и подкаталогом на
 //! каждую сессию (`lob session`, таск 04): `session.json`,
-//! `<SYMBOL>-<день>.binlog` (таск 19, резолвер `super::session_binlog_for`),
+//! `<SYMBOL>-<день>[-pN].binlog` (таск 19/22, резолвер
+//! `super::session_parts_for` — с таска 23 сутки и час старта у каждой
+//! части свои, каталог с частями за D и D+1 даёт два кластера суток),
 //! маркер сверки `verify-<SYMBOL>.status` (таск 07/09). По умолчанию сессия
 //! без маркера `ok` пропускается целиком (fail-closed, тот же приём, что у
 //! `commands::lob::watch`); `--allow-unverified` снимает это требование для
@@ -242,17 +244,6 @@ impl DayIndex {
 // функции — не `pub`, а зона этого таска не трогает файл watch.rs).
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, serde::Deserialize)]
-struct SessionMetaPeek {
-    started_utc: String,
-    start_hour_utc: u32,
-}
-
-fn read_session_meta(dir: &Path) -> Option<SessionMetaPeek> {
-    let text = std::fs::read_to_string(dir.join("session.json")).ok()?;
-    serde_json::from_str(&text).ok()
-}
-
 fn read_verify_marker(path: &Path) -> bool {
     std::fs::read_to_string(path)
         .map(|s| s.trim() == "ok")
@@ -274,87 +265,101 @@ fn session_dirs(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-/// Различные сутки `session.json::started_utc` среди подкаталогов, по
-/// возрастанию — вход `load_or_write_window` для первой записи файла
-/// предрегистрации (тот же вход, что `split_calendar` уже берёт у
-/// `commands::lob::shortlist`).
+/// Различные сутки среди подкаталогов, по возрастанию — вход
+/// `load_or_write_window` для первой записи файла предрегистрации (тот же
+/// вход, что `split_calendar` уже берёт у `commands::lob::shortlist`).
+/// С таска 23 сутки — по датированным частям каталога
+/// (`super::session_days_in_dir`), не по `started_utc` его `session.json`:
+/// каталог с частями за D и D+1 даёт обе даты.
 fn distinct_session_days(dirs: &[PathBuf]) -> Vec<String> {
     let mut days: BTreeSet<String> = BTreeSet::new();
     for dir in dirs {
-        if let Some(meta) = read_session_meta(dir) {
-            let day = meta.started_utc.get(..10).unwrap_or_default();
-            if !day.is_empty() {
-                days.insert(day.to_string());
-            }
-        }
+        days.extend(super::session_days_in_dir(dir));
     }
     days.into_iter().collect()
 }
 
-/// Реплеит все бинлоги одной сессии — с таска 22 их может быть несколько
-/// (`session_binlog_for`, части суток `-p2`, `-p3`, …) — в записи уровней и
-/// срезы середины разом: кормит книгу и трекер общим `super::feed_frames`,
-/// сделки — общим `super::trade_hit_from_record`. Трекер общий на все части
-/// (одна сессия — один непрерывный поток по построению критерия приёмки
-/// таска 22, «части читаются подряд как один поток»); книга и `FileReplayer`
-/// заводятся заново на каждый файл — тем же приёмом, что `mod.rs::
-/// replay_symbol_over_configs` уже применяет к частям суток `lob record`
-/// (каждый файл несёт собственный снапшот в начале, продолжать старую книгу
-/// через границу файла было бы чтением чужого состояния).
-fn replay_one_session_binlog(
-    paths: &[PathBuf],
+/// Реплеит части одних суток одной сессии (`super::group_parts_by_day`,
+/// таск 23) в записи уровней и срезы середины: кормит книгу и трекер общим
+/// `super::feed_frames`, сделки — общим `super::trade_hit_from_record`.
+/// Трекер общий на части суток (таск 22, «части читаются подряд как один
+/// поток») и чистый на каждые сутки — между сутками разрыв записи есть
+/// всегда, и сутки — единица кластера, а не продолжение потока. Книга и
+/// `FileReplayer` заводятся заново на каждый файл — тем же приёмом, что
+/// `mod.rs::replay_symbol_over_configs` уже применяет к частям суток `lob
+/// record` (каждый файл несёт собственный снапшот в начале, продолжать
+/// старую книгу через границу файла было бы чтением чужого состояния).
+///
+/// Возвращает записи **по частям** (в порядке `parts`) — каждая часть несёт
+/// свой час старта, и `accumulate_level` получает его от своей части, не от
+/// каталога; срезы середины — общие на сутки, как и трекер.
+fn replay_one_session_day(
+    parts: &[super::SessionPart],
     cfg: LevelsConfig,
-) -> anyhow::Result<(Vec<LevelRecord>, Vec<MidSample>)> {
+) -> anyhow::Result<(Vec<Vec<LevelRecord>>, Vec<MidSample>)> {
     let mut tracker = LevelTracker::new(cfg);
-    let mut records = Vec::new();
+    let mut per_part = Vec::with_capacity(parts.len());
     let mut mids = Vec::new();
-    for path in paths {
-        let data = std::fs::read(path)
-            .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-        let mut reader = Reader::open(&data[..])
-            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
-        let header = reader.header();
-        let mut book = Book::new(header.tick_e9, header.step_e9);
-        let mut replayer = FileReplayer::new();
-        let mut ups = Vec::new();
-        let mut tps = Vec::new();
-        'frames: loop {
-            let frame = reader
-                .read_frame()
-                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
-            let Some(frame_records) = frame else { break };
-            for rec in &frame_records {
-                ups.clear();
-                tps.clear();
-                replayer.push_frame(
-                    std::slice::from_ref(rec),
-                    header.tick_e9,
-                    header.step_e9,
-                    &mut ups,
-                    &mut tps,
-                );
-                let hit = trade_hit_from_record(rec);
-                for up in &ups {
-                    if book.apply(up).is_err() {
-                        break 'frames;
-                    }
-                    feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
+    for part in parts {
+        let mut records = Vec::new();
+        replay_binlog_file_into(&part.path, &mut tracker, &mut records, &mut mids)?;
+        per_part.push(records);
+    }
+    Ok((per_part, mids))
+}
+
+/// Один файл-часть через общий трекер; книга и `FileReplayer` — свои.
+fn replay_binlog_file_into(
+    path: &Path,
+    tracker: &mut LevelTracker,
+    records: &mut Vec<LevelRecord>,
+    mids: &mut Vec<MidSample>,
+) -> anyhow::Result<()> {
+    let data = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
+    let mut reader = Reader::open(&data[..])
+        .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+    let header = reader.header();
+    let mut book = Book::new(header.tick_e9, header.step_e9);
+    let mut replayer = FileReplayer::new();
+    let mut ups = Vec::new();
+    let mut tps = Vec::new();
+    'frames: loop {
+        let frame = reader
+            .read_frame()
+            .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+        let Some(frame_records) = frame else { break };
+        for rec in &frame_records {
+            ups.clear();
+            tps.clear();
+            replayer.push_frame(
+                std::slice::from_ref(rec),
+                header.tick_e9,
+                header.step_e9,
+                &mut ups,
+                &mut tps,
+            );
+            let hit = trade_hit_from_record(rec);
+            for up in &ups {
+                if book.apply(up).is_err() {
+                    break 'frames;
                 }
-                if let Some(h) = hit {
-                    tracker.observe_trade(h);
-                }
+                feed_frames(&book, tracker, up.cts_ms, records, mids);
             }
-        }
-        let mut tail = Vec::new();
-        replayer.finish(&mut tail);
-        for up in &tail {
-            if book.apply(up).is_err() {
-                break;
+            if let Some(h) = hit {
+                tracker.observe_trade(h);
             }
-            feed_frames(&book, &mut tracker, up.cts_ms, &mut records, &mut mids);
         }
     }
-    Ok((records, mids))
+    let mut tail = Vec::new();
+    replayer.finish(&mut tail);
+    for up in &tail {
+        if book.apply(up).is_err() {
+            break;
+        }
+        feed_frames(&book, tracker, up.cts_ms, records, mids);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1040,16 +1045,16 @@ pub fn run_profiles_with_fill_model(
                 .map_err(|e| anyhow::anyhow!("{e}"))?,
         )
     };
+    // Счёт внутри/снаружи окна — по парам (каталог, сутки), таск 23: каталог
+    // с частями за двое суток — две сессионные единицы, по одной на день.
     let mut sessions_outside_window = 0usize;
     let mut sessions_in_window = 0usize;
     for dir in &dirs {
-        let Some(meta) = read_session_meta(dir) else {
-            continue;
-        };
-        let day = meta.started_utc.get(..10).unwrap_or_default();
-        match &window {
-            Some(w) if !w.contains_day(day) => sessions_outside_window += 1,
-            _ => sessions_in_window += 1,
+        for day in super::session_days_in_dir(dir) {
+            match &window {
+                Some(w) if !w.contains_day(&day) => sessions_outside_window += 1,
+                _ => sessions_in_window += 1,
+            }
         }
     }
 
@@ -1064,54 +1069,56 @@ pub fn run_profiles_with_fill_model(
             repeat_window_ms: args.repeat_window_ms,
         };
         for dir in &dirs {
-            let Some(meta) = read_session_meta(dir) else {
-                continue;
-            };
-            // Окно «сейчас»: сутки вне окна не читаются вовсе (не только не
-            // считаются) — проверка до резолвера бинлога, симметрично
-            // `sessions_outside_window` выше.
-            let day_utc_peek = meta.started_utc.get(..10).unwrap_or_default();
-            if let Some(w) = &window {
-                if !w.contains_day(day_utc_peek) {
-                    continue;
-                }
-            }
-            // Таск 19: резолвер сессии (`<SYMBOL>-<день>.binlog`, ровно
-            // один прогон `lob session`) — нет файла для этого символа в
-            // этой сессии означает «не сессия этого символа», не ошибку
-            // (doc модуля, тот же приём, что `watch.rs`); резолвер также
-            // не молчит про старый формат/путаницу нескольких файлов, но
+            // Таск 19/23: резолвер сессии (`<SYMBOL>-<день>[-pN].binlog` с
+            // сутками и часом старта на каждую часть) — нет `session.json`
+            // или файла для этого символа в этой сессии означает «не сессия
+            // этого символа», не ошибку (doc модуля, тот же приём, что
+            // `watch.rs`); резолвер также не молчит про старый формат, но
             // здесь, на обходе многих каталогов подряд, это тоже мягкий
-            // пропуск — не рвать всю таблицу профилей из-за одного
-            // каталога.
-            let Ok(binlog_paths) = super::session_binlog_for(dir, symbol) else {
+            // пропуск — не рвать всю таблицу профилей из-за одного каталога.
+            let Ok(parts) = super::session_parts_for(dir, symbol) else {
                 continue;
             };
             let verified = read_verify_marker(&dir.join(format!("verify-{symbol}.status")));
             if !verified && !args.allow_unverified {
                 continue;
             }
-            let (records, mids) = replay_one_session_binlog(&binlog_paths, cfg)?;
-            // Один прогон движка на сессию (таск 16, doc `FillModel::
-            // prime_session`): модель, которой нужен книжный поток, гонит
-            // `lob::backtest` здесь и кэширует ответы; `filled` ниже только
-            // читает кэш. Таск 22: сессия может нести несколько частей —
-            // модель получает все пути и сама склеивает событийный поток
-            // (`BacktestFillModel::prime_session`).
-            fill_model.prime_session(symbol, &binlog_paths, &records);
-            let day_utc = meta.started_utc.get(..10).unwrap_or_default().to_string();
-            let day_id = day_index.id(&day_utc);
-            for rec in &records {
-                accumulate_level(
-                    &mut profiles,
-                    symbol,
-                    rec,
-                    &mids,
-                    day_id,
-                    meta.start_hour_utc,
-                    h3_lots_value,
-                    fill_model,
-                );
+            for (day_utc, day_parts) in super::group_parts_by_day(parts) {
+                // Окно «сейчас»: сутки вне окна не читаются вовсе (не только
+                // не считаются) — проверка до реплея, симметрично
+                // `sessions_outside_window` выше; с таска 23 — по суткам
+                // части, не каталога.
+                if let Some(w) = &window {
+                    if !w.contains_day(&day_utc) {
+                        continue;
+                    }
+                }
+                let (records_per_part, mids) = replay_one_session_day(&day_parts, cfg)?;
+                let day_paths: Vec<PathBuf> = day_parts.iter().map(|p| p.path.clone()).collect();
+                let day_records: Vec<LevelRecord> =
+                    records_per_part.iter().flatten().cloned().collect();
+                // Один прогон движка на сутки сессии (таск 16, doc
+                // `FillModel::prime_session`): модель, которой нужен книжный
+                // поток, гонит `lob::backtest` здесь и кэширует ответы;
+                // `filled` ниже только читает кэш. Таск 22: сутки могут нести
+                // несколько частей — модель получает все пути и сама склеивает
+                // событийный поток (`BacktestFillModel::prime_session`).
+                fill_model.prime_session(symbol, &day_paths, &day_records);
+                let day_id = day_index.id(&day_utc);
+                for (part, records) in day_parts.iter().zip(&records_per_part) {
+                    for rec in records {
+                        accumulate_level(
+                            &mut profiles,
+                            symbol,
+                            rec,
+                            &mids,
+                            day_id,
+                            part.start_hour_utc,
+                            h3_lots_value,
+                            fill_model,
+                        );
+                    }
+                }
             }
         }
     }
@@ -1647,6 +1654,175 @@ mod tests {
             csv_body_without_header_comments(&text_before),
             csv_body_without_header_comments(&text_after),
             "сессия за пределами окна не обязана менять ни одну строку таблицы"
+        );
+    }
+
+    /// Датированная часть в уже существующий каталог сессии (таск 22/23):
+    /// `<SYMBOL>-<день>[-pN].binlog` рядом с прежними, `session.json` не
+    /// трогается — его пишет вызывающий.
+    fn write_part_binlog(
+        dir: &Path,
+        symbol: &str,
+        day: &str,
+        part: u32,
+        frames: &[Vec<crate::binlog::Record>],
+    ) {
+        let header = crate::binlog::Header {
+            tick_e9: super::super::test_support::FIX_TICK_E9,
+            step_e9: 1_000_000,
+            max_records_per_frame: 4096,
+        };
+        let mut w = crate::binlog::Writer::create(Vec::new(), header, 1).unwrap();
+        for f in frames {
+            w.write_frame(f).unwrap();
+        }
+        w.flush().unwrap();
+        let path = crate::commands::record::day_file_path(dir, symbol, day, part);
+        std::fs::write(path, w.into_inner()).unwrap();
+    }
+
+    /// Один каталог `--root/<id>` с частями за двое суток — так выглядит
+    /// каталог, в который владелец гоняет `lob session` день за днём:
+    /// верхний `started_utc`/`start_hour_utc` — от последней сессии (D+1,
+    /// 14 ч), `binlog_files` перечисляет обе части с их `started_utc`.
+    fn write_two_day_session_dir(
+        root: &Path,
+        session_id: &str,
+        symbol: &str,
+        frames: &[Vec<crate::binlog::Record>],
+    ) {
+        let dir = root.join(session_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        write_part_binlog(&dir, symbol, "2026-05-01", 1, frames);
+        write_part_binlog(&dir, symbol, "2026-05-02", 1, frames);
+        let json = format!(
+            "{{\"started_utc\":\"2026-05-02T14:00:00Z\",\"start_hour_utc\":14,\
+             \"instruments\":[\"{symbol}\"],\"binlog_files\":[\
+             {{\"symbol\":\"{symbol}\",\"part\":1,\"started_utc\":\"2026-05-01T02:00:00Z\"}},\
+             {{\"symbol\":\"{symbol}\",\"part\":1,\"started_utc\":\"2026-05-02T14:00:00Z\"}}]}}"
+        );
+        std::fs::write(dir.join("session.json"), json).unwrap();
+        std::fs::write(dir.join(format!("verify-{symbol}.status")), "ok").unwrap();
+    }
+
+    fn column(text: &str, name: &str) -> Vec<String> {
+        let mut r = csv::ReaderBuilder::new()
+            .comment(Some(b'#'))
+            .from_reader(text.as_bytes());
+        let idx = r
+            .headers()
+            .unwrap()
+            .iter()
+            .position(|h| h == name)
+            .unwrap_or_else(|| panic!("колонки {name} нет"));
+        r.records()
+            .map(|row| row.unwrap().get(idx).unwrap().to_string())
+            .collect()
+    }
+
+    /// Критерий приёмки таска 23: каталог с частями за двое суток даёт
+    /// `G = 2` и оба часа старта — по части, не по каталогу (до таска 23
+    /// обе части шли за 2026-05-02 / 14 ч из верхнего `session.json`, и
+    /// `g` был бы 1).
+    #[test]
+    fn two_day_session_dir_yields_g_two_and_hours_per_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &[("SOLUSDT", 5)]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+        let frames = super::super::test_support::three_level_frames();
+        write_two_day_session_dir(root, "collect", "SOLUSDT", &frames);
+
+        let args = base_args(root, candidates_csv, root.join("profiles.csv"));
+        run_profiles(&args).expect("прогон по каталогу с двумя сутками");
+        let text = std::fs::read_to_string(args.out.clone().unwrap()).unwrap();
+        let g = column(&text, "g");
+        let n = column(&text, "n");
+        let hours = column(&text, "session_start_hours_utc");
+        assert!(!g.is_empty(), "таблица не пуста:\n{text}");
+        // Строки, куда попали наблюдения (`n > 0`), видят обе части — по
+        // одной на сутки — и оба часа старта.
+        let populated: Vec<usize> = n
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.parse::<u64>().unwrap_or(0) > 0)
+            .map(|(i, _)| i)
+            .collect();
+        assert!(!populated.is_empty(), "есть строки с наблюдениями:\n{text}");
+        for i in populated {
+            assert_eq!(g[i], "2", "g строки {i}: двое суток — два кластера\n{text}");
+            assert_eq!(
+                hours[i], "2,14",
+                "часы старта строки {i} — по части, не 14 из каталога\n{text}"
+            );
+        }
+    }
+
+    /// Критерий приёмки таска 23: окно «сейчас» с границей между сутками
+    /// одного каталога читает только части нужных суток. Окно
+    /// `[2026-05-01, 2026-05-01]` на каталоге с частями за 01 и 02 мая даёт
+    /// ту же таблицу, что каталог только с частью за 01 мая; в шапке —
+    /// `sessions=1 sessions_outside_window=1`.
+    #[test]
+    fn now_window_boundary_inside_one_directory_reads_only_the_days_in_window() {
+        let frames = super::super::test_support::three_level_frames();
+        let preregistration_text = "exploratory: 2026-05-01\nconfirmatory: 2026-05-01\n";
+
+        // Эталон: каталог только с частью за 01 мая.
+        let one = tempfile::tempdir().unwrap();
+        let one_root = one.path();
+        write_instruments_csv(one_root, &[("SOLUSDT", 5)]);
+        let one_candidates = one_root.join("candidates.csv");
+        write_candidates_csv(&one_candidates, &[("SOLUSDT", 300.0)]);
+        write_session_dir(
+            one_root,
+            "collect",
+            "SOLUSDT",
+            "2026-05-01T02:00:00Z",
+            2,
+            true,
+            &frames,
+        );
+        let one_prereg = one_root.join("preregistration.md");
+        std::fs::write(&one_prereg, preregistration_text).unwrap();
+        let mut one_args = base_args(one_root, one_candidates, one_root.join("profiles.csv"));
+        one_args.preregistration = Some(one_prereg);
+        one_args.now_utc = Some("2026-06-20T00:00:00Z".to_string());
+        run_profiles(&one_args).expect("эталонный прогон");
+        let expected = std::fs::read_to_string(one_args.out.clone().unwrap()).unwrap();
+
+        // Проверяемое: тот же каталог плюс часть за 02 мая, окно — только 01.
+        let two = tempfile::tempdir().unwrap();
+        let two_root = two.path();
+        write_instruments_csv(two_root, &[("SOLUSDT", 5)]);
+        let two_candidates = two_root.join("candidates.csv");
+        write_candidates_csv(&two_candidates, &[("SOLUSDT", 300.0)]);
+        write_two_day_session_dir(two_root, "collect", "SOLUSDT", &frames);
+        let two_prereg = two_root.join("preregistration.md");
+        std::fs::write(&two_prereg, preregistration_text).unwrap();
+        let mut two_args = base_args(two_root, two_candidates, two_root.join("profiles.csv"));
+        two_args.preregistration = Some(two_prereg);
+        two_args.now_utc = Some("2026-06-20T00:00:00Z".to_string());
+        run_profiles(&two_args).expect("прогон с границей окна внутри каталога");
+        let actual = std::fs::read_to_string(two_args.out.clone().unwrap()).unwrap();
+
+        let window_line = actual
+            .lines()
+            .find(|l| l.starts_with("# window:"))
+            .expect(&actual);
+        assert!(
+            window_line.contains("sessions=1 sessions_outside_window=1"),
+            "часть за 02 мая — сессионная единица вне окна: {window_line}"
+        );
+        assert_eq!(
+            csv_body_without_header_comments(&actual),
+            csv_body_without_header_comments(&expected),
+            "часть за сутки вне окна не обязана менять ни одну строку таблицы"
+        );
+        assert!(
+            column(&actual, "g").iter().all(|g| g == "1" || g == "0"),
+            "внутри окна — одни сутки:\n{actual}"
         );
     }
 
