@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Монеты и плотности</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--muted:#6b7280;--line:#e5e7eb;
+--eaten:#1f9d55;--pulled:#9aa0a6;--mixed:#e8a33d;--alive:#2f6fdb;--bad:#c9302c;--ok:#1f9d55}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1240px;margin:0 auto;padding:18px 20px 60px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:26px 0 8px}
+h3{font-size:15px;margin:18px 0 6px}
+.sub{color:var(--muted);font-size:13.5px}
+.line{margin:8px 0 14px;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:14px}
+.line b{font-weight:600}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:10px 0 6px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+.tile:hover{border-color:#9ca3af}
+.tile.on{border-color:var(--alive);box-shadow:0 0 0 2px rgba(47,111,219,.18)}
+.tile .sym{font-weight:700;font-size:16px}
+.tile .px{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.tile .kv{display:flex;justify-content:space-between;font-size:13px;margin-top:4px}
+.tile .err{color:var(--bad);font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600;font-size:12.5px}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0}
+.leg i{display:inline-block;width:14px;height:4px;vertical-align:middle;margin-right:5px;border-radius:2px}
+.ctl{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0;align-items:center}
+svg{width:100%;height:440px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px}
+.axis{font-size:11px;fill:var(--muted)}
+.grid{stroke:#eef0f3;stroke-width:1}
+.note{font-size:13px;color:var(--muted);margin:6px 0}
+.warn{background:#fff7e6;border:1px solid #f1d28b;border-radius:8px;padding:8px 12px;font-size:14px;margin:8px 0}
+.gl dt{font-weight:600;margin-top:8px}.gl dd{margin:2px 0 0 0;color:#374151;font-size:14px}
+.card{overflow-x:auto}
+</style>
+</head>
+<body>
+<main>
+<h1>Монеты и плотности</h1>
+<div class="sub" id="sub"></div>
+<div class="line" id="coll"></div>
+<div class="tiles" id="tiles"></div>
+<div id="coin"></div>
+<h2>Словарь</h2>
+<dl class="gl" id="gl"></dl>
+</main>
+<script type="application/json" id="bootstrap">__BOOTSTRAP_JSON__</script>
+<script>
+const REFRESH = __REFRESH_SECS__;
+let D = JSON.parse(document.getElementById('bootstrap').textContent);
+let SEL = null;
+const FLT = {eaten:true,pulled:true,mixed:true,alive:true,minLife:0,topShare:0.2};
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const f = (v, d=2) => (v===null||v===undefined||Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
+const big = v => (v===null||v===undefined) ? '—' : Math.round(v).toLocaleString('ru-RU');
+const pct = v => v===null||v===undefined ? '—' : (100*v).toFixed(1)+' %';
+const sgn = v => v===null||v===undefined ? '' : (v>0?'pos':(v<0?'neg':''));
+const px = (v, c) => v===null||v===undefined ? '—' : Number(v).toFixed(c.price_decimals);
+const dur = s => s<60 ? s+' с' : s<3600 ? Math.floor(s/60)+' мин' : (s/3600).toFixed(1)+' ч';
+const ms = v => v===null||v===undefined ? '—' : (v<1000 ? Math.round(v)+' мс' : v<60000 ? (v/1000).toFixed(1)+' с' : (v/60000).toFixed(1)+' мин');
+const hhmm = t => { const d=new Date(t); return String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0'); };
+const OUT = {eaten:'проели',pulled:'сняли',mixed:'смешанно',alive:'живой'};
+const SIDE = {bid:'бид (покупка)',ask:'аск (продажа)'};
+
+function render(){
+  const c = D.collector;
+  document.getElementById('sub').textContent =
+    'запись '+D.root+' · расчёт '+D.generated_utc.slice(0,19).replace('T',' ')+' UTC · порог H3: режим '+D.h3_mode+(D.h3_k!==null?', k='+D.h3_k:'')+
+    ' · последние ≤ '+D.tail_not_visible_secs+' с записи не видны (кадр ещё в буфере)';
+  let alive = c.alive===null ? '<b>жив ли — узнаем на следующем расчёте</b>' : (c.alive ? '<b class="pos">коллектор пишет</b>' : '<b class="neg">коллектор не пишет</b>');
+  document.getElementById('coll').innerHTML =
+    alive+' — '+esc(c.alive_reason)+'. Записано <b>'+dur(c.recorded_secs)+'</b> с '+esc(c.started_utc.slice(0,16).replace('T',' '))+' UTC, '+c.instruments+' монет, '+
+    (c.bytes_on_disk/1e6).toFixed(1)+' МБ на диске, разрывов в записи: <b class="'+(c.gaps_on_disk>0?'neg':'pos')+'">'+c.gaps_on_disk+'</b>'+
+    (D.days_recorded < D.g_min_days ? '. <span class="neg">Суток записано '+D.days_recorded+' — меньше '+D.g_min_days+' (G_MIN): всё ниже — наблюдение, не вердикт по §7.</span>' : '');
+  const tiles = document.getElementById('tiles'); tiles.innerHTML='';
+  if (SEL===null && D.coins.length) SEL = D.coins[0].symbol;
+  for (const co of D.coins){
+    const t = document.createElement('div'); t.className='tile'+(co.symbol===SEL?' on':'');
+    if (co.error){ t.innerHTML='<div class="sym">'+esc(co.symbol)+'</div><div class="err">не прочитан: '+esc(co.error)+'</div>'; }
+    else {
+      const now = co.levels_now.length, bids = co.levels_now.filter(l=>l.side==='bid').length;
+      t.innerHTML='<div class="sym">'+esc(co.symbol)+' <span class="px">'+px(co.bid,co)+' / '+px(co.ask,co)+'</span></div>'+
+        '<div class="kv"><span>плотностей сейчас</span><b>'+now+'</b></div>'+
+        '<div class="kv"><span>&nbsp;&nbsp;бид / аск</span><span>'+bids+' / '+(now-bids)+'</span></div>'+
+        '<div class="kv"><span>уровней за запись</span><span>'+co.levels_total+'</span></div>'+
+        '<div class="kv"><span>проели</span><span>'+pct(co.all.share_eaten)+'</span></div>'+
+        '<div class="kv"><span>net, 10 с</span><b class="'+sgn(co.all.net_bps)+'">'+f(co.all.net_bps)+' bps</b></div>';
+    }
+    t.onclick=()=>{SEL=co.symbol; render();};
+    tiles.appendChild(t);
+  }
+  const co = D.coins.find(x=>x.symbol===SEL);
+  document.getElementById('coin').innerHTML = co ? coinHtml(co) : '';
+  if (co && !co.error) drawPicture(co);
+  document.getElementById('gl').innerHTML = D.glossary.map(g=>'<dt>'+esc(g.title)+'</dt><dd>'+esc(g.body)+'</dd>').join('');
+}
+
+function rowsTable(rows, labelName, labelMap){
+  const H = D.horizons_ms;
+  let h='<table><thead><tr><th>'+esc(labelName)+'</th><th>уровней</th><th>доля</th><th>проели</th><th>жизнь (медиана)</th>'+
+    '<th>m '+H[0]+' мс</th><th>m '+H[1]/1000+' с</th><th>m '+H[2]/1000+' с</th><th>m '+H[3]/1000+' с</th><th>net 10 с</th><th>n для net</th></tr></thead><tbody>';
+  for (const r of rows){
+    h+='<tr><td>'+esc(labelMap&&labelMap[r.label]?labelMap[r.label]:r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td><td>'+pct(r.share_eaten)+'</td><td>'+ms(r.lifetime_median_ms)+'</td>'+
+      r.m_bps.map(v=>'<td class="'+sgn(v)+'">'+f(v)+'</td>').join('')+'<td class="'+sgn(r.net_bps)+'"><b>'+f(r.net_bps)+'</b></td><td>'+r.net_n+'</td></tr>';
+  }
+  return h+'</tbody></table>';
+}
+
+function coinHtml(co){
+  if (co.error) return '<div class="warn">'+esc(co.symbol)+': не прочитан — '+esc(co.error)+'</div>';
+  const age = co.last_age_secs===null?'—':dur(co.last_age_secs);
+  let h='<h2>'+esc(co.symbol)+' <span class="sub">бид '+px(co.bid,co)+' · аск '+px(co.ask,co)+' · последний кадр '+age+' назад · записано '+co.recorded_hours.toFixed(1)+' ч</span></h2>';
+  h+='<div class="note">'+esc(co.h3_source)+'</div>';
+  h+='<h3>Плотности сейчас</h3><div class="card">';
+  if (!co.levels_now.length) h+='<div class="note">на последнем кадре крупных уровней нет</div>';
+  else {
+    h+='<table><thead><tr><th>сторона</th><th>цена</th><th>до середины</th><th>размер, монет</th><th>×H3</th><th>размер, $</th><th>стоит уже</th><th>проели уже</th><th>который раз на цене</th></tr></thead><tbody>';
+    for (const l of co.levels_now.slice(0,40)){
+      h+='<tr><td>'+SIDE[l.side]+'</td><td>'+px(l.price,co)+'</td><td>'+f(l.distance_bps,2)+' bps</td><td>'+big(l.size_qty)+'</td><td>'+f(l.size_x_h3,1)+'</td><td>'+big(l.size_usd)+'</td><td>'+dur(l.age_secs)+'</td><td>'+pct(l.traded_share)+'</td><td>'+(l.repeat_count+1)+'</td></tr>';
+    }
+    h+='</tbody></table>';
+    if (co.levels_now.length>40) h+='<div class="note">показаны 40 самых крупных из '+co.levels_now.length+'</div>';
+  }
+  h+='</div>';
+  h+='<h3>Картина за последний час записи</h3><div class="card">'+
+    '<div class="leg"><span><i style="background:var(--eaten)"></i>проели</span><span><i style="background:var(--pulled)"></i>сняли</span><span><i style="background:var(--mixed)"></i>смешанно</span><span><i style="background:var(--alive)"></i>живой</span><span>толщина — размер (ранг среди полосок окна); линия — середина цены; наведи на полоску — числа</span></div>'+
+    '<div class="ctl"><label><input type="checkbox" id="f_eaten"'+(FLT.eaten?' checked':'')+'> проели</label><label><input type="checkbox" id="f_pulled"'+(FLT.pulled?' checked':'')+'> сняли</label><label><input type="checkbox" id="f_mixed"'+(FLT.mixed?' checked':'')+'> смешанно</label><label><input type="checkbox" id="f_alive"'+(FLT.alive?' checked':'')+'> живые</label>'+
+    '<label>размер: <select id="f_top"><option value="1"'+(FLT.topShare==1?' selected':'')+'>все</option><option value="0.5"'+(FLT.topShare==0.5?' selected':'')+'>крупнейшие 50 %</option><option value="0.2"'+(FLT.topShare==0.2?' selected':'')+'>крупнейшие 20 %</option><option value="0.05"'+(FLT.topShare==0.05?' selected':'')+'>крупнейшие 5 %</option></select></label>'+
+    '<label>жизнь от <select id="f_life"><option value="0"'+(FLT.minLife==0?' selected':'')+'>0</option><option value="1000"'+(FLT.minLife==1000?' selected':'')+'>1 с</option><option value="10000"'+(FLT.minLife==10000?' selected':'')+'>10 с</option><option value="60000"'+(FLT.minLife==60000?' selected':'')+'>1 мин</option></select></label>'+
+    '<span id="pic_n" class="note"></span></div>'+
+    '<svg id="pic" viewBox="0 0 1200 440" preserveAspectRatio="none"></svg>'+
+    '<div class="note">окно '+D.picture_minutes+' мин до последнего кадра ('+hhmm(co.picture.to_ms)+' UTC); диапазон цены — середина окна ± 25 bps (дальше не входит ни в одну корзину расстояния); за диапазоном осталось полосок: '+co.picture.clipped+(co.picture.bars_total>co.picture.bars.length?'; в окне '+co.picture.bars_total+' полосок, нарисованы '+co.picture.bars.length+' самых крупных':'')+'</div></div>';
+  h+='<h3>Что стало с плотностями за всю запись</h3><div class="card">'+rowsTable(co.outcomes.concat([co.all]),'исход',OUT)+
+    '<div class="note">m — куда ушла середина после смерти уровня, в сторону плотности, среднее по уровням; net — m на 10 с минус комиссии '+D.roundtrip_fees_bps+' bps и спред; RTT для бэктеста принят за '+D.assumed_rtt_ms+' мс (В-37, assumed — не измерен), в net он не входит.</div></div>';
+  h+='<h3>Где стоят и как живут</h3><div>'+
+    '<div class="card">'+rowsTable(co.by_side,'сторона',SIDE)+'</div>'+
+    '<div class="card">'+rowsTable(co.by_size,'размер ×H3')+'</div>'+
+    '<div class="card">'+rowsTable(co.by_distance,'до середины, bps')+'</div>'+
+    '<div class="card">'+rowsTable(co.by_lifetime,'время жизни')+'</div>'+
+    '<div class="card">'+rowsTable(co.by_repeat,'который раз на цене')+'</div></div>'+
+    '<div class="note">те же корзины, что в таблице профилей lob profiles; уровни за 25 bps от середины не входят в корзины расстояния.</div>';
+  return h;
+}
+
+function drawPicture(co){
+  for (const k of ['eaten','pulled','mixed','alive']) document.getElementById('f_'+k).onchange = e => {FLT[k]=e.target.checked; drawPicture(co);};
+  document.getElementById('f_life').onchange = e => {FLT.minLife=Number(e.target.value); drawPicture(co);};
+  document.getElementById('f_top').onchange = e => {FLT.topShare=Number(e.target.value); drawPicture(co);};
+  const P = co.picture, svg = document.getElementById('pic');
+  const W=1200,H=440,L=70,R=12,T=12,B=28;
+  if (!P.mid.length){ svg.innerHTML='<text x="'+(W/2)+'" y="'+(H/2)+'" class="axis" text-anchor="middle">нет срезов середины в окне</text>'; return; }
+  const x = t => L + (t-P.from_ms)/(P.to_ms-P.from_ms) * (W-L-R);
+  const y = p => T + (P.price_hi-p)/(P.price_hi-P.price_lo) * (H-T-B);
+  let s='';
+  for (let i=0;i<=5;i++){ const p=P.price_lo+(P.price_hi-P.price_lo)*i/5; s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(p)+'" y2="'+y(p)+'"/><text class="axis" x="'+(L-6)+'" y="'+(y(p)+4)+'" text-anchor="end">'+p.toFixed(co.price_decimals)+'</text>'; }
+  for (let i=0;i<=6;i++){ const t=P.from_ms+(P.to_ms-P.from_ms)*i/6; s+='<line class="grid" x1="'+x(t)+'" x2="'+x(t)+'" y1="'+T+'" y2="'+(H-B)+'"/><text class="axis" x="'+x(t)+'" y="'+(H-10)+'" text-anchor="middle">'+hhmm(t)+'</text>'; }
+  let n=0;
+  const col={eaten:'var(--eaten)',pulled:'var(--pulled)',mixed:'var(--mixed)',alive:'var(--alive)'};
+  // Толщина — по рангу размера среди полосок окна (не по ×H3: при
+  // отладочном пороге все ×H3 огромны и линейная шкала слепнет).
+  const sizes = P.bars.map(b=>b.x).sort((a,b)=>a-b);
+  const rank = v => { let lo=0, hi=sizes.length; while(lo<hi){ const m=(lo+hi)>>1; if (sizes[m]<v) lo=m+1; else hi=m; } return sizes.length? lo/sizes.length : 0; };
+  const cut = sizes.length ? sizes[Math.max(0, Math.floor(sizes.length*(1-FLT.topShare))-0)] : 0;
+  const drawn = [];
+  for (const b of P.bars){
+    if (!FLT[b.o]) continue;
+    if (FLT.topShare<1 && b.x < cut) continue;
+    if (b.d!==null && (b.d-b.b) < FLT.minLife) continue;
+    drawn.push(b);
+  }
+  // Тонкие снизу, толстые сверху — крупное не прячется под мелким.
+  drawn.sort((a,b)=>a.x-b.x);
+  for (const b of drawn){
+    const d = b.d===null ? P.to_ms : b.d;
+    n++;
+    const x1=Math.max(L,x(b.b)), x2=Math.max(x1+1.5,x(d));
+    const r = rank(b.x);
+    const w = 0.7 + 4.3*r*r;
+    const tip = SIDE[b.s]+' '+b.p.toFixed(co.price_decimals)+' · '+OUT[b.o]+' · '+(b.d===null?'жив с '+hhmm(b.b):hhmm(b.b)+'–'+hhmm(b.d)+', '+ms(b.d-b.b))+' · размер '+b.x.toFixed(1)+'×H3'+(b.m===null?'':' · m 10 с '+b.m.toFixed(2)+' bps');
+    const op = b.o==='pulled' ? 0.55 : 0.9;
+    s+='<line x1="'+x1.toFixed(1)+'" x2="'+x2.toFixed(1)+'" y1="'+y(b.p).toFixed(1)+'" y2="'+y(b.p).toFixed(1)+'" stroke="'+col[b.o]+'" stroke-width="'+w.toFixed(1)+'"'+(b.d===null?' stroke-dasharray="4 3"':'')+' stroke-opacity="'+op+'"><title>'+esc(tip)+'</title></line>';
+  }
+  let path='';
+  for (const m of P.mid){ path += (path?'L':'M')+x(m[0]).toFixed(1)+' '+y(m[1]).toFixed(1); }
+  s+='<path d="'+path+'" fill="none" stroke="#111" stroke-width="1.1" stroke-opacity="0.9"/>';
+  svg.innerHTML=s;
+  document.getElementById('pic_n').textContent='показано полосок: '+n+' из '+P.bars.length;
+}
+
+render();
+setInterval(()=>{
+  fetch('data.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(j){ D=j; render(); } }).catch(()=>{});
+},REFRESH*1000);
+</script>
+</body>
+</html>
