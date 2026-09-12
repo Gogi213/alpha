@@ -93,14 +93,21 @@ src/
     markup.rs                   классификация (устаревшая часть, годная)
   stats/                  bootstrap-t на весах Уэбба, разрешение сетки — крейт-агностично
   commands/
-    record.rs                реализация одно-символьной записи (lob record)
-    lob/                    по файлу на подкоманду CLI
-      mod.rs                  LobCommand, dispatch, общие replay_symbol/day_tallies
+    record.rs                Recorder, run_record; подмодули record/{errors,gaps,paths,steps}.rs
+    lob/                    по файлу на подкоманду CLI; тесты каждого модуля — в <модуль>/tests.rs
+      mod.rs                  дерево модулей, LobCommand, dispatch, test_support
+      h3.rs, replay.rs, parts.rs, names.rs   порог H3 и CLI-аргументы; реплей бинлога → уровни/середина; части и сутки сессии; имена сторон/исходов
       pick/                   build_pool, coverage, depth, order_size_22a, CSV-таблицы
-      session.rs              запись всего пула разом поверх feed::live::LiveFeed
+      session.rs              SessionCtx, run_session; session/{args,pool,sink,summary,resources}.rs
+      pilot.rs                run_pilot; pilot/{k_grid,metrics,gates,inputs,chain}.rs
+      profiles.rs             run_profiles; profiles/{axes,accumulate,coverage,sessions,table}.rs
+      dashboard.rs            данные страницы; dashboard_page.html — сама страница
       react.rs                горячий путь: разбор → триггер → ордер, гейт G-LAT
-      power.rs, profiles.rs, backtest.rs, shortlist.rs, pilot.rs, watch.rs, …
+      power.rs, backtest.rs, shortlist.rs, watch.rs, …
 ```
+
+Тесты вынесены из исходников: `#[cfg(test)] mod tests;` → `<модуль>/tests.rs` (для `mod.rs` —
+`<каталог>/tests.rs`). Правка логики читает только исходник; `include_str!` в тестах — с `../`.
 
 ## Какие команды дают какой артефакт
 
@@ -157,6 +164,9 @@ gitignored).
 когда текст не отвечает. Длинный текст/HTML — отдельным файлом через `include_str!`
 (`src/commands/lob/dashboard_page.html`), не строкой в Rust. Усилие: `high` по умолчанию,
 выше — только на дизайн и ревью вердикта. Коннекторы Figma/Elicit/Mobbin выключены.
+**Исполнители — по одному:** на этой машине живёт коллектор; параллельные `cargo build` в
+нескольких worktree грузят CPU на 100 % и RAM до OOM (2026-09-12: пять сборок разом — владелец
+остановил). Один агент → одна сборка → слить → следующий; инкрементально в `target-ci`.
 
 ## Грабли
 
