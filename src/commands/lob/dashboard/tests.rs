@@ -69,10 +69,43 @@ fn frames() -> Vec<Vec<crate::commands::lob::Record>> {
     ]
 }
 
+/// Касания (таск 36). Бид 10000 родился лучшей ценой — не касание (В-43)
+/// — и снят на 5 с; бид 9999 (10 лотов, с нуля) стал лучшим — касание 0
+/// (фронтран — 10 лотов бида 10000 с прошлого кадра, доля 1.0). На 8 с
+/// перед ним встали 3 лота на 10000 (не уровень, < H3) — касание кончилось
+/// уходом с лучшей цены: **отскок**, 3 с. На 12 с 10000 снят — касание 1 у
+/// 9999 (фронтран 3 лота, доля 0.3); продавец бьёт 8 лотов, на 13 с 9999
+/// упал до 1 лота — смерть уровня: **проели на касании**, 1 с. Бид 9998 —
+/// 1 лот, не уровень, касаний не даёт; аск 10001 жив до конца (60 с), где
+/// 9999 убран и середина ушла на полтика вниз.
+fn touch_frames() -> Vec<Vec<crate::commands::lob::Record>> {
+    vec![
+        snap_frame(0, &[(9998, 1), (9999, 10), (10000, 10)], &[(10001, 10)]),
+        delta_frame(5_000, &[(10000, 0)], &[]),
+        delta_frame(8_000, &[(10000, 3)], &[]),
+        delta_frame(12_000, &[(10000, 0)], &[]),
+        trade_frame(12_500, 9999, 8),
+        delta_frame(13_000, &[(9999, 1)], &[]),
+        delta_frame(60_000, &[(9999, 0), (9998, 2)], &[]),
+    ]
+}
+
+/// Ни один уровень не становился лучшей ценой после рождения — касаний нет.
+fn no_touch_frames() -> Vec<Vec<crate::commands::lob::Record>> {
+    vec![
+        snap_frame(0, &[(10000, 10)], &[(10001, 10)]),
+        delta_frame(60_000, &[], &[(10002, 10)]),
+    ]
+}
+
 fn fixture(dir: &Path) -> DashboardArgs {
+    fixture_with(dir, &frames())
+}
+
+fn fixture_with(dir: &Path, frames: &[Vec<crate::commands::lob::Record>]) -> DashboardArgs {
     write_instruments_csv(dir, &["SOLUSDT"]);
     write_session_json(dir, &["SOLUSDT"], "2026-09-12T12:00:00Z", false);
-    write_day_part(dir, "SOLUSDT", "2026-09-12", 1, &frames());
+    write_day_part(dir, "SOLUSDT", "2026-09-12", 1, frames);
     DashboardArgs {
         root: dir.to_path_buf(),
         out: dir.join("out"),
@@ -131,6 +164,173 @@ fn coin_page_shows_live_levels_outcomes_and_bars() {
     assert!(!c.picture.mid.is_empty());
 }
 
+fn touch_row<'a>(rows: &'a [TouchRow], label: &str) -> &'a TouchRow {
+    rows.iter()
+        .find(|r| r.label == label)
+        .unwrap_or_else(|| panic!("нет строки {label}"))
+}
+
+/// Критерий приёмки таска 36: одно касание-отскок и одно касание-проезд →
+/// `touches.total = 2`, доли, строки осей В-44 с `n`, крест исход × возраст
+/// 2 × 3, метки на картине с числами наведения.
+#[test]
+fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let args = fixture_with(dir.path(), &touch_frames());
+    let d = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let c = &d.coins[0];
+    assert!(c.error.is_none(), "{:?}", c.error);
+    let t = &c.touches;
+
+    // Итог.
+    assert_eq!(t.total, 2, "два касания бида 9999");
+    assert_eq!(t.bounced, 1);
+    assert_eq!(t.eaten, 1);
+    assert_eq!(t.share_bounced, Some(0.5));
+    assert_eq!(t.per_hour, Some(120.0), "2 касания за минуту записи");
+    assert_eq!(
+        t.outcomes
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect::<Vec<_>>(),
+        TOUCH_OUTCOME_LABELS.to_vec()
+    );
+    assert_eq!(touch_row(&t.outcomes, "bounced").n, 1);
+    assert_eq!(touch_row(&t.outcomes, "eaten").n, 1);
+    assert_eq!(touch_row(&t.outcomes, "bounced").share_bounced, Some(1.0));
+    assert_eq!(touch_row(&t.outcomes, "eaten").share_bounced, Some(0.0));
+    assert_eq!(t.all.n, 2);
+    assert_eq!(t.all.share, Some(1.0));
+    // База — середина на момент касания (В-43): через 100 мс и 10 с
+    // середина та же (9999 остался лучшим бидом и после смерти уровня —
+    // 1 лот на цене) — ноль; на 60 с 9999 убран, середина ушла на полтика
+    // вниз — против отскока бида: минус.
+    assert_eq!(t.all.m_bps[0], Some(0.0));
+    assert_eq!(t.all.m_bps[H10S], Some(0.0));
+    assert!(t.all.m_bps[3].unwrap() < 0.0, "{:?}", t.all.m_bps);
+    assert_eq!(t.all.m10s_n, 2);
+    assert_eq!(t.all.m10s_bounced_n, 1);
+    assert_eq!(
+        t.stack_median,
+        Some(1.0),
+        "на касании жив один уровень ≥ H3"
+    );
+    assert!(t.stack_shown);
+    assert_eq!(t.approach_ms, APPROACH_MS);
+
+    // Оси В-44: у каждой все метки в порядке `touch_axes`, сумма `n` — 2.
+    let labels = |rows: &[TouchRow]| rows.iter().map(|r| r.label.clone()).collect::<Vec<_>>();
+    assert_eq!(labels(&t.by_age), AGE_LABELS.to_vec());
+    assert_eq!(labels(&t.by_frontrun), FRONTRUN_LABELS.to_vec());
+    assert_eq!(labels(&t.by_round), ROUND_LABELS.to_vec());
+    assert_eq!(labels(&t.by_index), TOUCH_INDEX_LABELS.to_vec());
+    assert_eq!(labels(&t.by_approach), APPROACH_LABELS.to_vec());
+    assert_eq!(labels(&t.by_duration), LIFETIME_LABELS.to_vec());
+    assert_eq!(labels(&t.by_side), SIDE_LABELS.to_vec());
+    assert_eq!(labels(&t.by_size), SIZE_LABELS.to_vec());
+    assert_eq!(touch_row(&t.by_age, "[0,10m)").n, 2, "возраст 5 с и 12 с");
+    assert_eq!(
+        touch_row(&t.by_frontrun, "[0.5,inf)").n,
+        1,
+        "10 лотов из 10"
+    );
+    assert_eq!(touch_row(&t.by_frontrun, "(0,0.5)").n, 1, "3 лота из 10");
+    assert_eq!(touch_row(&t.by_frontrun, "0").n, 0);
+    assert_eq!(touch_row(&t.by_round, "0").n, 2, "9999 — нулей нет");
+    assert_eq!(touch_row(&t.by_index, "1").n, 1);
+    assert_eq!(touch_row(&t.by_index, "2-3").n, 1);
+    assert_eq!(
+        touch_row(&t.by_approach, "[0,1)").n,
+        2,
+        "за секунду до касания середина шла на бид на полтика: {:?}",
+        t.by_approach
+    );
+    assert_eq!(t.approach_missing, 0);
+    assert_eq!(touch_row(&t.by_duration, "[1s,10s)").n, 2, "3 с и 1 с");
+    assert_eq!(touch_row(&t.by_side, "bid").n, 2);
+    assert_eq!(touch_row(&t.by_size, "[2,4)").n, 2, "10 лотов при пороге 5");
+    assert_eq!(t.size_below_h3, 0);
+    let bounced_age = touch_row(&t.by_age, "[0,10m)");
+    assert_eq!(bounced_age.share_bounced, Some(0.5));
+    assert_eq!(bounced_age.m10s_bounced_n, 1);
+
+    // Крест исход × возраст: 2 × 3 клеток, по одному касанию в первом столбце.
+    assert_eq!(t.cross_outcome_age.len(), 6);
+    let cell = |o: &str, a: &str| {
+        t.cross_outcome_age
+            .iter()
+            .find(|c| c.outcome == o && c.age == a)
+            .unwrap()
+    };
+    assert_eq!(cell("bounced", "[0,10m)").n, 1);
+    assert_eq!(cell("bounced", "[0,10m)").share, Some(0.5));
+    assert_eq!(cell("eaten", "[0,10m)").n, 1);
+    assert_eq!(cell("eaten", "[1h,inf)").n, 0);
+    assert_eq!(cell("bounced", "[10m,1h)").m10s_n, 0);
+
+    // Метки на картине: обе в окне, с числами наведения.
+    let p = &c.picture;
+    assert_eq!(p.marks_total, 2);
+    assert_eq!(p.marks.len(), 2);
+    assert_eq!(p.marks_clipped, 0);
+    let bounce = p.marks.iter().find(|m| m.o == "bounced").unwrap();
+    assert_eq!(bounce.t, 5_000);
+    assert_eq!(bounce.s, "bid");
+    assert_eq!(bounce.p, 99.99);
+    assert_eq!(bounce.i, 0);
+    assert_eq!(bounce.a, 5_000);
+    assert_eq!(bounce.d, 3_000);
+    assert_eq!(bounce.fr, Some(1.0));
+    assert!(bounce.ap.unwrap() > 0.0);
+    assert_eq!(bounce.m, Some(0.0));
+    assert!((bounce.x - 2.0).abs() < 1e-9);
+    let death = p.marks.iter().find(|m| m.o == "eaten").unwrap();
+    assert_eq!(death.t, 12_000);
+    assert_eq!(death.i, 1);
+    assert_eq!(death.d, 1_000);
+    assert!((death.fr.unwrap() - 0.3).abs() < 1e-9);
+
+    // Уровни при этом — как прежде: 10000 сняли, 9999 проели, аск жив.
+    assert_eq!(c.levels_total, 2);
+    assert_eq!(c.levels_now.len(), 1);
+}
+
+/// Без касаний — блок с нулями и всеми метками, не ошибка; меток на картине нет.
+#[test]
+fn a_coin_without_touches_gets_a_zero_block_not_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let args = fixture_with(dir.path(), &no_touch_frames());
+    let d = build_dashboard(&args).unwrap();
+    let c = &d.coins[0];
+    assert!(c.error.is_none(), "{:?}", c.error);
+    let t = &c.touches;
+    assert_eq!(t.total, 0);
+    assert_eq!(t.bounced, 0);
+    assert_eq!(t.share_bounced, None);
+    assert_eq!(t.per_hour, Some(0.0));
+    assert_eq!(t.all.n, 0);
+    assert_eq!(t.all.m_bps, [None; 4]);
+    assert_eq!(t.stack_median, None, "медианы пустого набора нет");
+    assert_eq!(t.outcomes.len(), 2);
+    for rows in [
+        &t.by_age,
+        &t.by_frontrun,
+        &t.by_round,
+        &t.by_index,
+        &t.by_approach,
+        &t.by_duration,
+        &t.by_side,
+        &t.by_size,
+    ] {
+        assert!(!rows.is_empty());
+        assert!(rows.iter().all(|r| r.n == 0 && r.share.is_none()));
+    }
+    assert_eq!(t.cross_outcome_age.len(), 6);
+    assert!(t.cross_outcome_age.iter().all(|c| c.n == 0));
+    assert!(c.picture.marks.is_empty());
+    assert_eq!(c.picture.marks_total, 0);
+}
+
 /// Оба файла лежат на диске, JSON разбирается обратно в те же типы, а
 /// временных файлов после записи не остаётся.
 #[test]
@@ -147,6 +347,13 @@ fn renders_both_files_atomically_and_json_round_trips() {
     assert_eq!(d.assumed_rtt_ms, ASSUMED_RTT_MS);
     assert_eq!(d.roundtrip_fees_bps, ROUNDTRIP_FEES_BPS);
     assert_eq!(s.coins, 1);
+    // Касания едут в `data.json` теми же типами: у `frames()` касаний нет
+    // (10000 после проедания остался в книге одним лотом — лучшей ценой,
+    // 9999 лучшим не становился), блок с нулями и всеми метками.
+    assert_eq!(d.coins[0].touches.total, 0);
+    assert_eq!(d.coins[0].touches.by_approach.len(), APPROACH_LABELS.len());
+    assert!(d.coins[0].picture.marks.is_empty());
+    assert!(d.glossary.iter().any(|g| g.title.starts_with("Касание")));
 }
 
 /// Жив/нет: первый расчёт — «не знаю», второй с выросшими бинлогами —
@@ -207,10 +414,16 @@ fn a_coin_without_binlog_is_reported_not_dropped() {
         .as_deref()
         .expect("XRPUSDT без файла — ошибка");
     assert!(e.contains("XRPUSDT"), "{e}");
+    assert_eq!(
+        d.coins[1].touches.total, 0,
+        "блок касаний с нулями, не паника"
+    );
+    assert_eq!(d.coins[1].touches.by_age.len(), AGE_LABELS.len());
 }
 
 /// Критерий приёмки: страница самодостаточна — ни одного внешнего URL,
-/// и JSON не может закрыть тег `script`.
+/// и JSON не может закрыть тег `script`; блок касаний и метки на картине
+/// есть в шаблоне (таск 36).
 #[test]
 fn page_is_self_contained_html_without_external_urls() {
     let html = render_html(r#"{"x":"</script><b>"}"#);
@@ -223,6 +436,16 @@ fn page_is_self_contained_html_without_external_urls() {
     assert!(!html.contains("</script><b>"), "JSON закрыл script");
     assert!(html.contains("\\u003c/script>"));
     assert!(html.contains("<title>Монеты и плотности</title>"));
+    for needle in [
+        "touchesHtml",
+        "co.touches",
+        "P.marks",
+        "f_touch",
+        "Касания: цена дошла до плотности",
+        "cross_outcome_age",
+    ] {
+        assert!(html.contains(needle), "в шаблоне нет {needle}");
+    }
 }
 
 #[test]

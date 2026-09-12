@@ -6,7 +6,8 @@
 <title>Монеты и плотности</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--muted:#6b7280;--line:#e5e7eb;
---eaten:#1f9d55;--pulled:#9aa0a6;--mixed:#e8a33d;--alive:#2f6fdb;--bad:#c9302c;--ok:#1f9d55}
+--eaten:#1f9d55;--pulled:#9aa0a6;--mixed:#e8a33d;--alive:#2f6fdb;--bad:#c9302c;--ok:#1f9d55;
+--bounced:#1f9d55;--teaten:#c9302c}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:1240px;margin:0 auto;padding:18px 20px 60px}
@@ -32,6 +33,9 @@ th{color:var(--muted);font-weight:600;font-size:12.5px}
 .pos{color:var(--ok)}.neg{color:var(--bad)}
 .leg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0}
 .leg i{display:inline-block;width:14px;height:4px;vertical-align:middle;margin-right:5px;border-radius:2px}
+.leg i.tri{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--bounced);border-radius:0;background:none}
+.leg i.tri.dn{border-bottom:none;border-top:9px solid var(--teaten)}
+.cross td.c{text-align:center}
 .ctl{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0;align-items:center}
 svg{width:100%;height:440px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px}
 .axis{font-size:11px;fill:var(--muted)}
@@ -57,7 +61,7 @@ svg{width:100%;height:440px;display:block;background:#fff;border:1px solid var(-
 const REFRESH = __REFRESH_SECS__;
 let D = JSON.parse(document.getElementById('bootstrap').textContent);
 let SEL = null;
-const FLT = {eaten:true,pulled:true,mixed:true,alive:true,minLife:0,topShare:0.2};
+const FLT = {eaten:true,pulled:true,mixed:true,alive:true,minLife:0,topShare:0.2,touch:true};
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f = (v, d=2) => (v===null||v===undefined||Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
 const big = v => (v===null||v===undefined) ? '—' : Math.round(v).toLocaleString('ru-RU');
@@ -67,8 +71,16 @@ const px = (v, c) => v===null||v===undefined ? '—' : Number(v).toFixed(c.price
 const dur = s => s<60 ? s+' с' : s<3600 ? Math.floor(s/60)+' мин' : (s/3600).toFixed(1)+' ч';
 const ms = v => v===null||v===undefined ? '—' : (v<1000 ? Math.round(v)+' мс' : v<60000 ? (v/1000).toFixed(1)+' с' : (v/60000).toFixed(1)+' мин');
 const hhmm = t => { const d=new Date(t); return String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0'); };
+const hhmmss = t => hhmm(t)+':'+String(new Date(t).getUTCSeconds()).padStart(2,'0');
 const OUT = {eaten:'проели',pulled:'сняли',mixed:'смешанно',alive:'живой'};
 const SIDE = {bid:'бид (покупка)',ask:'аск (продажа)'};
+// Метки корзин касаний — те же строки, что lob::touch_axes (В-44); здесь только перевод.
+const TOUT = {bounced:'отскочила',eaten:'проели на касании'};
+const AGE = {'[0,10m)':'до 10 мин','[10m,1h)':'10 мин – 1 ч','[1h,inf)':'от 1 ч'};
+const FR = {'0':'нет','(0,0.5)':'меньше половины размера','[0.5,inf)':'от половины размера'};
+const RND = {'0':'нет нулей','1':'один ноль','>=2':'два и больше'};
+const TIX = {'1':'1-е','2-3':'2–3-е','>=4':'4-е и дальше'};
+const APR = {'<0':'цена уходила (< 0)','[0,1)':'[0, 1) bps','[1,2.5)':'[1, 2.5) bps','[2.5,inf)':'от 2.5 bps'};
 
 function render(){
   const c = D.collector;
@@ -92,7 +104,9 @@ function render(){
         '<div class="kv"><span>&nbsp;&nbsp;бид / аск</span><span>'+bids+' / '+(now-bids)+'</span></div>'+
         '<div class="kv"><span>уровней за запись</span><span>'+co.levels_total+'</span></div>'+
         '<div class="kv"><span>проели</span><span>'+pct(co.all.share_eaten)+'</span></div>'+
-        '<div class="kv"><span>net, 10 с</span><b class="'+sgn(co.all.net_bps)+'">'+f(co.all.net_bps)+' bps</b></div>';
+        '<div class="kv"><span>net, 10 с</span><b class="'+sgn(co.all.net_bps)+'">'+f(co.all.net_bps)+' bps</b></div>'+
+        '<div class="kv"><span>касаний за запись</span><span>'+co.touches.total+'</span></div>'+
+        '<div class="kv"><span>отскочила</span><b>'+pct(co.touches.share_bounced)+'</b></div>';
     }
     t.onclick=()=>{SEL=co.symbol; render();};
     tiles.appendChild(t);
@@ -114,6 +128,78 @@ function rowsTable(rows, labelName, labelMap){
   return h+'</tbody></table>';
 }
 
+// Касания по исходам: n, доля, m «в сторону отскока» на четырёх горизонтах.
+function touchOutcomeTable(rows){
+  const H = D.horizons_ms;
+  let h='<table><thead><tr><th>исход касания</th><th>касаний</th><th>доля</th>'+
+    '<th>m '+H[0]+' мс</th><th>m '+H[1]/1000+' с</th><th>m '+H[2]/1000+' с</th><th>m '+H[3]/1000+' с</th><th>n для m 10 с</th></tr></thead><tbody>';
+  for (const r of rows){
+    h+='<tr><td>'+esc(TOUT[r.label]||r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td>'+
+      r.m_bps.map(v=>'<td class="'+sgn(v)+'">'+f(v)+'</td>').join('')+'<td>'+r.m10s_n+'</td></tr>';
+  }
+  return h+'</tbody></table>';
+}
+
+// Касания по оси В-44: n, доля отскоков, m 10 с по отскокам и по всем.
+function touchTable(rows, labelName, labelMap){
+  let h='<table><thead><tr><th>'+esc(labelName)+'</th><th>касаний</th><th>доля</th><th>отскочила</th><th>m 10 с, отскоки</th><th>n</th><th>m 10 с, все</th><th>n</th></tr></thead><tbody>';
+  for (const r of rows){
+    h+='<tr><td>'+esc(labelMap&&labelMap[r.label]?labelMap[r.label]:r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td><td>'+pct(r.share_bounced)+'</td>'+
+      '<td class="'+sgn(r.m10s_bounced_bps)+'"><b>'+f(r.m10s_bounced_bps)+'</b></td><td>'+r.m10s_bounced_n+'</td>'+
+      '<td class="'+sgn(r.m_bps[2])+'">'+f(r.m_bps[2])+'</td><td>'+r.m10s_n+'</td></tr>';
+  }
+  return h+'</tbody></table>';
+}
+
+// Крест исход × возраст — единственный крест касаний (В-44).
+function touchCrossTable(cells){
+  const ages = Object.keys(AGE);
+  let h='<table class="cross"><thead><tr><th>исход \\ возраст уровня на касании</th>'+ages.map(a=>'<th class="c">'+AGE[a]+'</th>').join('')+'</tr></thead><tbody>';
+  for (const o of Object.keys(TOUT)){
+    h+='<tr><td>'+TOUT[o]+'</td>'+ages.map(a=>{
+      const c = cells.find(x=>x.outcome===o&&x.age===a);
+      if (!c) return '<td class="c">—</td>';
+      return '<td class="c">'+c.n+' ('+pct(c.share)+') · m 10 с <span class="'+sgn(c.m10s_bps)+'">'+f(c.m10s_bps)+'</span>, n='+c.m10s_n+'</td>';
+    }).join('')+'</tr>';
+  }
+  return h+'</tbody></table>';
+}
+
+function touchesHtml(co){
+  const T = co.touches;
+  let h='<h3>Касания: цена дошла до плотности</h3>';
+  h+='<div class="note"><b>Касание</b> — цена дошла до живой плотности: уровень, живший до этого кадра, стал лучшей ценой своей стороны (первым в стакане). '+
+    'Касание кончается, когда уровень перестал быть лучшей ценой — цена ушла, уровень жив: <b>отскок</b>, — или умер: <b>проели на касании</b>. '+
+    'm — сдвиг середины после начала касания, bps, со знаком «в сторону отскока» (плюс — цена ушла от плотности); база — середина в момент касания (В-43). '+
+    'Это движение цены, не сделка: вход, стоп и net сделки-отскока считает бэктест, не эта страница.'+
+    (D.days_recorded < D.g_min_days ? ' Суток записано '+D.days_recorded+' < '+D.g_min_days+' (G_MIN) — всё в блоке наблюдение, не вердикт.' : '')+'</div>';
+  h+='<div class="card">';
+  h+='<div>касаний за запись: <b>'+T.total+'</b>'+(T.per_hour!==null?' ('+f(T.per_hour,1)+' в час)':'')+
+    ' · отскочила <b class="pos">'+T.bounced+'</b> ('+pct(T.share_bounced)+') · проели на касании <b class="neg">'+T.eaten+'</b>'+
+    (T.stack_shown ? (T.stack_median!==null ? ' · завал — уровней ≥ H3 той же стороны в первых 50 ценах на касании, включая сам уровень, медиана: '+f(T.stack_median,0)+' из 50' : '')
+                   : ' · завал не показан: порог отладочный, число вырождено (В-43)')+'</div>';
+  if (!T.total) h+='<div class="note">касаний за запись нет — таблицы ниже с нулями</div>';
+  h+=touchOutcomeTable(T.outcomes.concat([T.all]));
+  h+='</div>';
+  h+='<h3>Касания по осям В-44</h3>';
+  h+='<div class="note">Корзины назначены до чтения данных (В-44) по словам практиков; границы — их числа или уже существующие константы, ничего не подобрано по данным. '+
+    '<b>Фронтран</b> — заявки той же стороны перед плотностью (ближе к середине) на последнем кадре до касания, в долях её размера на касании. '+
+    '<b>Подход</b> — сдвиг середины за '+(T.approach_ms[0]/1000)+' с до касания, bps, со знаком «к уровню»: плюс — цена шла на плотность; без подхода (нет среза за секунду до касания): '+T.approach_missing+'. '+
+    '<b>Круглость</b> — нули в конце цены в тиках. <b>Номер касания</b> — которое это касание у этого уровня. Длительность и размер — те же корзины, что у уровней; '+
+    'размер берётся на касании, и уровень к касанию мог усохнуть ниже порога H3 — таких касаний '+T.size_below_h3+', в корзины размера они не входят (В-43: проверки размера при старте касания нет).</div>';
+  h+='<div class="card">'+touchTable(T.by_age,'возраст уровня на касании',AGE)+'</div>'+
+     '<div class="card">'+touchTable(T.by_frontrun,'фронтран, доля размера',FR)+'</div>'+
+     '<div class="card">'+touchTable(T.by_round,'круглость цены',RND)+'</div>'+
+     '<div class="card">'+touchTable(T.by_index,'номер касания',TIX)+'</div>'+
+     '<div class="card">'+touchTable(T.by_approach,'подход за '+(T.approach_ms[0]/1000)+' с',APR)+'</div>'+
+     '<div class="card">'+touchTable(T.by_duration,'длительность касания')+'</div>'+
+     '<div class="card">'+touchTable(T.by_side,'сторона',SIDE)+'</div>'+
+     '<div class="card">'+touchTable(T.by_size,'размер на касании ×H3')+'</div>';
+  h+='<h3>Исход касания × возраст уровня</h3><div class="card">'+touchCrossTable(T.cross_outcome_age)+
+    '<div class="note">главный тезис практиков — старая плотность отскакивает; клетка: касаний (доля от всех) · m 10 с в сторону отскока, n — по скольким есть срез на 10 с.</div></div>';
+  return h;
+}
+
 function coinHtml(co){
   if (co.error) return '<div class="warn">'+esc(co.symbol)+': не прочитан — '+esc(co.error)+'</div>';
   const age = co.last_age_secs===null?'—':dur(co.last_age_secs);
@@ -132,12 +218,15 @@ function coinHtml(co){
   h+='</div>';
   h+='<h3>Картина за последний час записи</h3><div class="card">'+
     '<div class="leg"><span><i style="background:var(--eaten)"></i>проели</span><span><i style="background:var(--pulled)"></i>сняли</span><span><i style="background:var(--mixed)"></i>смешанно</span><span><i style="background:var(--alive)"></i>живой</span><span>толщина — размер (ранг среди полосок окна); линия — середина цены; наведи на полоску — числа</span></div>'+
-    '<div class="ctl"><label><input type="checkbox" id="f_eaten"'+(FLT.eaten?' checked':'')+'> проели</label><label><input type="checkbox" id="f_pulled"'+(FLT.pulled?' checked':'')+'> сняли</label><label><input type="checkbox" id="f_mixed"'+(FLT.mixed?' checked':'')+'> смешанно</label><label><input type="checkbox" id="f_alive"'+(FLT.alive?' checked':'')+'> живые</label>'+
+    '<div class="leg"><span>метки касаний (цена дошла до живой плотности): треугольник у начала касания, вверх — бид, вниз — аск;</span><span><i class="tri"></i>отскочила</span><span><i class="tri dn"></i>проели на касании</span><span>наведи — возраст, фронтран, подход, m 10 с</span></div>'+
+    '<div class="ctl"><label><input type="checkbox" id="f_eaten"'+(FLT.eaten?' checked':'')+'> проели</label><label><input type="checkbox" id="f_pulled"'+(FLT.pulled?' checked':'')+'> сняли</label><label><input type="checkbox" id="f_mixed"'+(FLT.mixed?' checked':'')+'> смешанно</label><label><input type="checkbox" id="f_alive"'+(FLT.alive?' checked':'')+'> живые</label><label><input type="checkbox" id="f_touch"'+(FLT.touch?' checked':'')+'> показывать касания</label>'+
     '<label>размер: <select id="f_top"><option value="1"'+(FLT.topShare==1?' selected':'')+'>все</option><option value="0.5"'+(FLT.topShare==0.5?' selected':'')+'>крупнейшие 50 %</option><option value="0.2"'+(FLT.topShare==0.2?' selected':'')+'>крупнейшие 20 %</option><option value="0.05"'+(FLT.topShare==0.05?' selected':'')+'>крупнейшие 5 %</option></select></label>'+
     '<label>жизнь от <select id="f_life"><option value="0"'+(FLT.minLife==0?' selected':'')+'>0</option><option value="1000"'+(FLT.minLife==1000?' selected':'')+'>1 с</option><option value="10000"'+(FLT.minLife==10000?' selected':'')+'>10 с</option><option value="60000"'+(FLT.minLife==60000?' selected':'')+'>1 мин</option></select></label>'+
     '<span id="pic_n" class="note"></span></div>'+
     '<svg id="pic" viewBox="0 0 1200 440" preserveAspectRatio="none"></svg>'+
-    '<div class="note">окно '+D.picture_minutes+' мин до последнего кадра ('+hhmm(co.picture.to_ms)+' UTC); диапазон цены — середина окна ± 25 bps (дальше не входит ни в одну корзину расстояния); за диапазоном осталось полосок: '+co.picture.clipped+(co.picture.bars_total>co.picture.bars.length?'; в окне '+co.picture.bars_total+' полосок, нарисованы '+co.picture.bars.length+' самых крупных':'')+'</div></div>';
+    '<div class="note">окно '+D.picture_minutes+' мин до последнего кадра ('+hhmm(co.picture.to_ms)+' UTC); диапазон цены — середина окна ± 25 bps (дальше не входит ни в одну корзину расстояния); за диапазоном осталось полосок: '+co.picture.clipped+(co.picture.bars_total>co.picture.bars.length?'; в окне '+co.picture.bars_total+' полосок, нарисованы '+co.picture.bars.length+' самых крупных':'')+
+    '; касаний в окне: '+co.picture.marks_total+(co.picture.marks_clipped?' (+'+co.picture.marks_clipped+' за диапазоном цены)':'')+(co.picture.marks_total>co.picture.marks.length?', нарисованы '+co.picture.marks.length+' самых крупных по размеру на касании':'')+'</div></div>';
+  h+=touchesHtml(co);
   h+='<h3>Что стало с плотностями за всю запись</h3><div class="card">'+rowsTable(co.outcomes.concat([co.all]),'исход',OUT)+
     '<div class="note">m — куда ушла середина после смерти уровня, в сторону плотности, среднее по уровням; net — m на 10 с минус комиссии '+D.roundtrip_fees_bps+' bps и спред; RTT для бэктеста принят за '+D.assumed_rtt_ms+' мс (В-37, assumed — не измерен), в net он не входит.</div></div>';
   h+='<h3>Где стоят и как живут</h3><div>'+
@@ -151,7 +240,7 @@ function coinHtml(co){
 }
 
 function drawPicture(co){
-  for (const k of ['eaten','pulled','mixed','alive']) document.getElementById('f_'+k).onchange = e => {FLT[k]=e.target.checked; drawPicture(co);};
+  for (const k of ['eaten','pulled','mixed','alive','touch']) document.getElementById('f_'+k).onchange = e => {FLT[k]=e.target.checked; drawPicture(co);};
   document.getElementById('f_life').onchange = e => {FLT.minLife=Number(e.target.value); drawPicture(co);};
   document.getElementById('f_top').onchange = e => {FLT.topShare=Number(e.target.value); drawPicture(co);};
   const P = co.picture, svg = document.getElementById('pic');
@@ -191,8 +280,25 @@ function drawPicture(co){
   let path='';
   for (const m of P.mid){ path += (path?'L':'M')+x(m[0]).toFixed(1)+' '+y(m[1]).toFixed(1); }
   s+='<path d="'+path+'" fill="none" stroke="#111" stroke-width="1.1" stroke-opacity="0.9"/>';
+  // Метки касаний — поверх линии цены: треугольник у start_ms на цене
+  // уровня, вверх у бида, вниз у аска; цвет — исход касания.
+  let nm=0;
+  if (FLT.touch){
+    const mcol={bounced:'var(--bounced)',eaten:'var(--teaten)'};
+    for (const k of P.marks){
+      const X=x(k.t); if (X<L) continue;
+      const Y=y(k.p);
+      const d = k.s==='bid'
+        ? 'M'+X.toFixed(1)+' '+(Y-5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y+3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y+3).toFixed(1)+' Z'
+        : 'M'+X.toFixed(1)+' '+(Y+5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y-3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y-3).toFixed(1)+' Z';
+      const tip = 'касание '+hhmmss(k.t)+' UTC · '+SIDE[k.s]+' '+k.p.toFixed(co.price_decimals)+' · '+TOUT[k.o]+' · '+(k.i+1)+'-е касание уровня · возраст '+ms(k.a)+' · длилось '+ms(k.d)+
+        ' · размер '+k.x.toFixed(1)+'×H3 · фронтран '+(k.fr===null?'—':k.fr.toFixed(2)+' размера')+' · подход 1 с '+(k.ap===null?'—':k.ap.toFixed(2)+' bps')+' · m 10 с '+(k.m===null?'—':k.m.toFixed(2)+' bps');
+      s+='<path d="'+d+'" fill="'+mcol[k.o]+'" stroke="#fff" stroke-width="0.6"><title>'+esc(tip)+'</title></path>';
+      nm++;
+    }
+  }
   svg.innerHTML=s;
-  document.getElementById('pic_n').textContent='показано полосок: '+n+' из '+P.bars.length;
+  document.getElementById('pic_n').textContent='показано полосок: '+n+' из '+P.bars.length+'; меток касаний: '+nm+' из '+P.marks.length;
 }
 
 render();

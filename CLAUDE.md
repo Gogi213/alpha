@@ -55,7 +55,8 @@ src/
                verify + verify_sidecar (сверка с REST), trade_ws, sign, clock, probe
   feed/        trait Feed; replay (бинлог), live (N сокетов, один ОС-поток)
   lob/         чистая логика: levels, markout, costs, cells, shortlist, final_metrics, watch,
-               strategy (единственная стратегия), runs, export, markup
+               strategy (единственная стратегия), runs, export, markup,
+               touch_axes (корзины осей касаний В-44 — единственное место, T36/T37)
   stats/       bootstrap-t на весах Уэбба
   commands/
     record.rs              Recorder, run_record; record/{errors,gaps,paths,steps}
@@ -65,7 +66,7 @@ src/
     lob/session.rs         SessionCtx, run_session; session/{args,pool,sink,summary,resources}
     lob/pilot.rs           run_pilot; pilot/{k_grid,metrics,gates,inputs,chain}
     lob/profiles.rs        run_profiles; profiles/{axes,accumulate,coverage,sessions,table}
-    lob/dashboard.rs       данные страницы; dashboard_page.html — сама страница (include_str!)
+    lob/dashboard.rs       данные страницы (уровни + блок касаний, T36); dashboard_page.html — сама страница (include_str!)
     lob/touches.rs         run_touches — касания живых уровней → touches-<SYMBOL>.csv (T35, В-42)
     lob/pick/, react.rs, power.rs, backtest.rs, shortlist.rs, watch.rs, …
 ```
@@ -83,7 +84,9 @@ markout от среза как есть на `start_ms` со знаком «в �
 `docs/findings/*-<дата>.*` (RTT и лот — обязательные флаги; В-37: `--median-rtt-ns 20000000
 --p95-rtt-ns 20000000`, шапка `rtt=assumed(20ms, В-37)`). `lob pilot` → `k`-сетка, G0,
 G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **реальные ордера**.
-`lob dashboard` → `index.html` + `data.json`.
+`lob dashboard` → `index.html` + `data.json` (с T36 — блок «Касания: цена дошла до плотности»: исход
+отскочила/проели на касании с `m` «в сторону отскока», оси В-44 из `lob::touch_axes`, крест исход × возраст,
+метки касаний на картине часа; касания — из `ReplayDay.touches` того же реплея).
 
 Состояние: боевой пул `instruments.csv` — SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI
 (`k = 1.0` — заглушка, В-30). Идущий олвейс-он `data/always-on/20260912T122440Z/` пишет **старую
@@ -121,7 +124,10 @@ G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **р�
   каждой части (`session_parts_for`)
 - олвейс-он: кадр на диске не реже 10 с, читатели не видят только хвост ≤ 10 с; `session.json`
   между часовыми записями — стартовый; остановка — файл `<root>/stop` (Ctrl+C из оболочек агента не доходит)
-- `lob dashboard` перечитывает все бинлоги при каждом расчёте (8 × 5.5 ч — 15 с); порог — из
-  `instruments.csv` каталога записи (у идущего — отладочный); «жив/нет» — по росту бинлогов
-  между двумя расчётами
+- `lob dashboard` перечитывает все бинлоги при каждом расчёте (10 × 1.5 ч — 13 с); порог — из
+  `instruments.csv` каталога записи; «жив/нет» — по росту бинлогов между двумя расчётами;
+  `data.json` старого формата (без `touches`) базой для «жив» не считается — первый расчёт новым
+  бинарником честно печатает «не знаю». Блок касаний: `stack_levels` не показывается при метке
+  `# debug` в `instruments.csv`; при заглушке `k = 1.0` он печатается как «49 из 50» — вырожден
+  порогом, не отладкой (В-43)
 - Bybit отдаёт `403` с части стран; с этой машины доступ есть

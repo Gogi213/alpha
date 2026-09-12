@@ -20,13 +20,20 @@
 //!    на четырёх горизонтах, `net` после издержек;
 //! 4. **где стоят и как живут** — те же числа по осям профиля (сторона,
 //!    размер, расстояние, время жизни, повторяемость) — маргиналы сетки
-//!    `lob profiles` для этой монеты.
+//!    `lob profiles` для этой монеты;
+//! 5. **касания: цена дошла до плотности** (таск 36, R90, В-42/В-43/В-44) —
+//!    касания живых уровней из `ReplayDay.touches` того же реплея: итог по
+//!    исходам (отскочила / проели на касании) с markout «в сторону отскока»
+//!    на четырёх горизонтах, маргиналы по осям В-44 (`lob::touch_axes`),
+//!    крест исход × возраст, метки касаний на картине часа.
 //!
 //! Разметка уровней **не переписана**: `replay_symbol` — тот же реплей, что
-//! у `lob levels`/`markout`/`watch`/`pilot`; `markouts_for_level` и
-//! `costs::observation_at` — те же функции, что считают артефакты; корзины
-//! осей — `shortlist::*_LABELS` и границы из `profiles`. Число на странице
-//! получено тем же кодом, что число в CSV.
+//! у `lob levels`/`markout`/`watch`/`pilot`/`touches`; `markouts_for_level`,
+//! `markouts_for_touch`, `approaches_for_touch` и `costs::observation_at` —
+//! те же функции, что считают артефакты; корзины осей — `shortlist::*_LABELS`
+//! и границы из `profiles`, корзины касаний — `lob::touch_axes`. Число на
+//! странице получено тем же кодом, что число в CSV; второго прохода по
+//! бинлогу ради касаний нет.
 //!
 //! Ни одного порога эта команда не изобретает: издержки — `ROUNDTRIP_FEES_BPS`,
 //! горизонты — `HORIZONS_MS`, порог `H3` — `instruments.csv` каталога (и это
@@ -41,12 +48,18 @@ use clap::Args;
 use crate::book::Side;
 use crate::commands::record::FRAME_LOSS_WINDOW_SECS;
 use crate::lob::costs::{mean_net_bps, observation_at, Observation, ROUNDTRIP_FEES_BPS};
-use crate::lob::levels::{H3Mode, LevelsConfig, LiveLevel, Outcome};
+use crate::lob::levels::{H3Mode, LevelsConfig, LiveLevel, Outcome, TouchRecord};
 use crate::lob::markout::{
-    markouts_for_level, mid_double_tick, raw_return_bps, MidSample, HORIZONS_MS,
+    approaches_for_touch, markouts_for_level, markouts_for_touch, mid_double_tick, raw_return_bps,
+    MidSample, APPROACH_MS, HORIZONS_MS,
 };
 use crate::lob::shortlist::{
     repeat_bucket, DISTANCE_LABELS, LIFETIME_LABELS, REPEAT_LABELS, SIDE_LABELS, SIZE_LABELS,
+};
+use crate::lob::touch_axes::{
+    age_bucket, approach_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
+    touch_outcome, AGE_LABELS, APPROACH_BOUNDS_BPS, APPROACH_LABELS, FRONTRUN_HALF,
+    FRONTRUN_LABELS, ROUND_LABELS, TOUCH_INDEX_LABELS, TOUCH_OUTCOME_LABELS,
 };
 use crate::stats::{count_f64, count_f64_u64, G_MIN};
 
@@ -81,6 +94,8 @@ const PICTURE_MID_STEP_MS: i64 = 1_000;
 /// Потолок полосок на картине: при отладочном пороге (`h3_lots = 1`) в час
 /// рождаются десятки тысяч уровней, и браузер на таком SVG встаёт. Остаются
 /// самые крупные (по максимуму размера); сколько было всего — печатается.
+/// Тот же потолок — у меток касаний (таск 36): остаются самые крупные по
+/// размеру уровня на касании (`size_at_touch`).
 const PICTURE_MAX_BARS: usize = 4_000;
 
 /// Как часто страница сама перечитывает `data.json` (секунды).
@@ -212,6 +227,34 @@ pub struct Bar {
     pub m: Option<f64>,
 }
 
+/// Метка касания на картине (таск 36): треугольник у `start_ms` на цене
+/// уровня, цвет — исход. Короткие имена, как у `Bar`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Mark {
+    /// Начало касания, мс.
+    pub t: i64,
+    /// Цена уровня.
+    pub p: f64,
+    /// Сторона: `bid` / `ask`.
+    pub s: String,
+    /// Исход касания: `bounced` / `eaten` (`touch_axes::TOUCH_OUTCOME_LABELS`).
+    pub o: String,
+    /// Размер уровня на касании кратностью порога `H3`.
+    pub x: f64,
+    /// Возраст уровня на касании, мс.
+    pub a: i64,
+    /// Длительность касания, мс.
+    pub d: i64,
+    /// Номер касания у уровня, с нуля.
+    pub i: u32,
+    /// Фронтран в долях размера на касании.
+    pub fr: Option<f64>,
+    /// Подход за 1 с, bps (знак «к уровню»).
+    pub ap: Option<f64>,
+    /// Markout на 10 с «в сторону отскока», bps.
+    pub m: Option<f64>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Picture {
     pub from_ms: i64,
@@ -225,6 +268,85 @@ pub struct Picture {
     pub price_hi: f64,
     /// Сколько полосок не вошло в диапазон цены картины.
     pub clipped: usize,
+    /// Метки касаний, начавшихся в окне (таск 36); потолок — тот же
+    /// `PICTURE_MAX_BARS`, остаются самые крупные по размеру на касании.
+    pub marks: Vec<Mark>,
+    /// Сколько касаний вошло в окно и диапазон до потолка.
+    pub marks_total: usize,
+    /// Сколько касаний окна не вошло в диапазон цены картины.
+    pub marks_clipped: usize,
+}
+
+/// Одна строка блока касаний: по исходу, по корзине оси или «все».
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TouchRow {
+    pub label: String,
+    pub n: usize,
+    /// Доля строки среди всех касаний монеты.
+    pub share: Option<f64>,
+    /// Доля отскоков (`bounced`) в строке.
+    pub share_bounced: Option<f64>,
+    /// Средний markout «в сторону отскока» на `HORIZONS_MS` по всем
+    /// касаниям строки, bps.
+    pub m_bps: [Option<f64>; 4],
+    /// Сколько касаний строки дали markout на 10 с (`m_bps[H10S]`).
+    pub m10s_n: usize,
+    /// Средний markout на 10 с только по отскокам строки, bps.
+    pub m10s_bounced_bps: Option<f64>,
+    pub m10s_bounced_n: usize,
+}
+
+/// Клетка креста исход × возраст (В-44: один крест).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TouchCell {
+    pub outcome: String,
+    pub age: String,
+    pub n: usize,
+    /// Доля клетки среди всех касаний монеты.
+    pub share: Option<f64>,
+    pub m10s_bps: Option<f64>,
+    pub m10s_n: usize,
+}
+
+/// Блок «Касания: цена дошла до плотности» (таск 36): касания из
+/// `ReplayDay.touches`, корзины — `lob::touch_axes` (В-44), длительность и
+/// размер — те же корзины, что у уровней (`LIFETIME_LABELS`/`SIZE_LABELS`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Touches {
+    pub total: usize,
+    pub bounced: usize,
+    pub eaten: usize,
+    pub share_bounced: Option<f64>,
+    pub per_hour: Option<f64>,
+    /// Строки по исходам в порядке `TOUCH_OUTCOME_LABELS`.
+    pub outcomes: Vec<TouchRow>,
+    pub all: TouchRow,
+    pub by_age: Vec<TouchRow>,
+    pub by_frontrun: Vec<TouchRow>,
+    pub by_round: Vec<TouchRow>,
+    pub by_index: Vec<TouchRow>,
+    pub by_approach: Vec<TouchRow>,
+    pub by_duration: Vec<TouchRow>,
+    pub by_side: Vec<TouchRow>,
+    pub by_size: Vec<TouchRow>,
+    /// Крест исход × возраст: `TOUCH_OUTCOME_LABELS` × `AGE_LABELS`, по
+    /// строкам исхода.
+    pub cross_outcome_age: Vec<TouchCell>,
+    /// Касания без подхода за 1 с (нет среза за секунду до касания) — не
+    /// вошли ни в одну корзину подхода.
+    pub approach_missing: usize,
+    /// Касания с размером на касании ниже порога `H3` (уровень к касанию
+    /// усох, В-43: проверки размера при старте нет — фильтр в анализе) — не
+    /// вошли ни в одну корзину размера.
+    pub size_below_h3: usize,
+    /// Окна подхода, мс (`APPROACH_MS`); на странице — первое.
+    pub approach_ms: [i64; 2],
+    /// Медиана «завала» — живых уровней ≥ `H3` той же стороны в топ-50 на
+    /// касании (`stack_levels`, сам уровень входит). `None` при отладочном
+    /// пороге (`instruments.csv` с меткой `# debug`): там почти весь топ-50 —
+    /// уровни, число вырождено (В-43, свойство порога) — не показывается.
+    pub stack_median: Option<f64>,
+    pub stack_shown: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -252,6 +374,7 @@ pub struct Coin {
     pub by_lifetime: Vec<Row>,
     pub by_repeat: Vec<Row>,
     pub picture: Picture,
+    pub touches: Touches,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -523,6 +646,8 @@ fn build_coin(
     }
 
     let picture = build_picture(&stats.days, &stats.open, h3_lots, &px);
+    // Касания — из того же реплея (`ReplayDay.touches`), второго прохода нет.
+    let touches = build_touches(&stats.days, h3_lots, recorded_hours, debug_marker.is_none());
 
     Ok(Coin {
         symbol: symbol.to_string(),
@@ -553,6 +678,7 @@ fn build_coin(
         by_lifetime: rows(&by_lifetime, levels_total),
         by_repeat: rows(&by_repeat, levels_total),
         picture,
+        touches,
     })
 }
 
@@ -582,16 +708,24 @@ fn empty_coin(symbol: &str, error: Option<String>) -> Coin {
         by_distance: Vec::new(),
         by_lifetime: Vec::new(),
         by_repeat: Vec::new(),
-        picture: Picture {
-            from_ms: 0,
-            to_ms: 0,
-            mid: Vec::new(),
-            bars: Vec::new(),
-            bars_total: 0,
-            price_lo: 0.0,
-            price_hi: 0.0,
-            clipped: 0,
-        },
+        picture: empty_picture(),
+        touches: build_touches(&[], 0, 0.0, true),
+    }
+}
+
+fn empty_picture() -> Picture {
+    Picture {
+        from_ms: 0,
+        to_ms: 0,
+        mid: Vec::new(),
+        bars: Vec::new(),
+        bars_total: 0,
+        price_lo: 0.0,
+        price_hi: 0.0,
+        clipped: 0,
+        marks: Vec::new(),
+        marks_total: 0,
+        marks_clipped: 0,
     }
 }
 
@@ -680,18 +814,209 @@ impl Acc {
     }
 }
 
-fn labelled(labels: &[&'static str]) -> Vec<(&'static str, Acc)> {
-    labels.iter().map(|l| (*l, Acc::default())).collect()
+/// Накопители по меткам оси в порядке меток — один для уровней (`Acc`) и
+/// для касаний (`TouchAcc`).
+fn labelled<A: Default>(labels: &[&'static str]) -> Vec<(&'static str, A)> {
+    labels.iter().map(|l| (*l, A::default())).collect()
+}
+
+fn find_labelled<'a, A>(accs: &'a mut [(&str, A)], label: &str) -> Option<&'a mut A> {
+    accs.iter_mut()
+        .find(|(l, _)| *l == label)
+        .map(|(_, acc)| acc)
 }
 
 fn push_labelled(accs: &mut [(&str, Acc)], label: &str, s: &Sample) {
-    if let Some((_, acc)) = accs.iter_mut().find(|(l, _)| *l == label) {
+    if let Some(acc) = find_labelled(accs, label) {
         acc.push(s);
     }
 }
 
 fn rows(accs: &[(&str, Acc)], total: usize) -> Vec<Row> {
     accs.iter().map(|(l, a)| a.row(l, total)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Касания (таск 36)
+// ---------------------------------------------------------------------------
+
+/// Одно касание для свёрток: исход и markout «в сторону отскока».
+struct TouchSample {
+    bounced: bool,
+    m: [Option<f64>; 4],
+}
+
+/// Накопитель строки касаний.
+#[derive(Default)]
+struct TouchAcc {
+    n: usize,
+    bounced: usize,
+    m: [Vec<f64>; 4],
+    m10s_bounced: Vec<f64>,
+}
+
+impl TouchAcc {
+    fn push(&mut self, s: &TouchSample) {
+        self.n += 1;
+        if s.bounced {
+            self.bounced += 1;
+        }
+        for (i, m) in s.m.iter().enumerate() {
+            if let Some(v) = m {
+                self.m[i].push(*v);
+            }
+        }
+        if s.bounced {
+            if let Some(v) = s.m[H10S] {
+                self.m10s_bounced.push(v);
+            }
+        }
+    }
+
+    fn row(&self, label: &str, total: usize) -> TouchRow {
+        TouchRow {
+            label: label.to_string(),
+            n: self.n,
+            share: share_of(self.n, total),
+            share_bounced: share_of(self.bounced, self.n),
+            m_bps: std::array::from_fn(|i| mean(&self.m[i])),
+            m10s_n: self.m[H10S].len(),
+            m10s_bounced_bps: mean(&self.m10s_bounced),
+            m10s_bounced_n: self.m10s_bounced.len(),
+        }
+    }
+
+    fn cell(&self, outcome: &str, age: &str, total: usize) -> TouchCell {
+        TouchCell {
+            outcome: outcome.to_string(),
+            age: age.to_string(),
+            n: self.n,
+            share: share_of(self.n, total),
+            m10s_bps: mean(&self.m[H10S]),
+            m10s_n: self.m[H10S].len(),
+        }
+    }
+}
+
+fn share_of(part: usize, total: usize) -> Option<f64> {
+    (total > 0).then(|| count_f64(part) / count_f64(total))
+}
+
+fn push_touch(accs: &mut [(&str, TouchAcc)], label: &str, s: &TouchSample) {
+    if let Some(acc) = find_labelled(accs, label) {
+        acc.push(s);
+    }
+}
+
+fn touch_rows(accs: &[(&str, TouchAcc)], total: usize) -> Vec<TouchRow> {
+    accs.iter().map(|(l, a)| a.row(l, total)).collect()
+}
+
+/// Блок касаний монеты из `ReplayDay.touches` суток реплея. Markout —
+/// `markouts_for_touch` (база — срез как есть на `start_ms`, В-43), подход
+/// — `approaches_for_touch`; корзины — `lob::touch_axes` (В-44), длительность
+/// и размер — корзины уровней (`profiles::lifetime_bucket`/`size_bucket`).
+/// Без касаний — блок с нулями и всеми метками, не ошибка.
+fn build_touches(
+    days: &[super::ReplayDay],
+    h3_lots: i64,
+    recorded_hours: f64,
+    stack_shown: bool,
+) -> Touches {
+    let mut all = TouchAcc::default();
+    let mut by_outcome: Vec<(&str, TouchAcc)> = labelled(&TOUCH_OUTCOME_LABELS);
+    let mut by_age = labelled(&AGE_LABELS);
+    let mut by_frontrun = labelled(&FRONTRUN_LABELS);
+    let mut by_round = labelled(&ROUND_LABELS);
+    let mut by_index = labelled(&TOUCH_INDEX_LABELS);
+    let mut by_approach = labelled(&APPROACH_LABELS);
+    let mut by_duration = labelled(&LIFETIME_LABELS);
+    let mut by_side = labelled(&SIDE_LABELS);
+    let mut by_size = labelled(&SIZE_LABELS);
+    // Крест исход × возраст: клетки по строкам исхода, внутри — по возрасту.
+    let mut cross: Vec<((&str, &str), TouchAcc)> = TOUCH_OUTCOME_LABELS
+        .iter()
+        .flat_map(|o| {
+            AGE_LABELS
+                .iter()
+                .map(move |a| ((*o, *a), TouchAcc::default()))
+        })
+        .collect();
+    let mut total = 0usize;
+    let mut approach_missing = 0usize;
+    let mut size_below_h3 = 0usize;
+    let mut stacks: Vec<f64> = Vec::new();
+
+    for day in days {
+        for t in &day.touches {
+            total += 1;
+            let outcome = touch_outcome(t.ended_by_death);
+            let sample = TouchSample {
+                bounced: !t.ended_by_death,
+                m: markouts_for_touch(t, &day.mids),
+            };
+            all.push(&sample);
+            push_touch(&mut by_outcome, outcome, &sample);
+            let age = age_bucket(t.age_ms());
+            if let Some(a) = age {
+                push_touch(&mut by_age, a, &sample);
+                if let Some((_, acc)) = cross
+                    .iter_mut()
+                    .find(|((o, l), _)| *o == outcome && *l == a)
+                {
+                    acc.push(&sample);
+                }
+            }
+            if let Some(l) =
+                frontrun_share(t.frontrun_lots, t.size_at_touch).and_then(frontrun_bucket)
+            {
+                push_touch(&mut by_frontrun, l, &sample);
+            }
+            push_touch(&mut by_round, round_bucket(t.round_zeros), &sample);
+            push_touch(&mut by_index, touch_index_bucket(t.touch_index), &sample);
+            match approaches_for_touch(t, &day.mids)[0].and_then(approach_bucket) {
+                Some(l) => push_touch(&mut by_approach, l, &sample),
+                None => approach_missing += 1,
+            }
+            if let Some(l) = lifetime_bucket(t.duration_ms) {
+                push_touch(&mut by_duration, l, &sample);
+            }
+            push_touch(&mut by_side, side_name(t.side), &sample);
+            match size_bucket(size_ratio(t.size_at_touch, h3_lots)) {
+                Some(l) => push_touch(&mut by_size, l, &sample),
+                None => size_below_h3 += 1,
+            }
+            stacks.push(ms_f64(i64::from(t.stack_levels)));
+        }
+    }
+
+    let bounced = all.bounced;
+    Touches {
+        total,
+        bounced,
+        eaten: total - bounced,
+        share_bounced: share_of(bounced, total),
+        per_hour: (recorded_hours > 0.0).then(|| count_f64(total) / recorded_hours),
+        outcomes: touch_rows(&by_outcome, total),
+        all: all.row("все", total),
+        by_age: touch_rows(&by_age, total),
+        by_frontrun: touch_rows(&by_frontrun, total),
+        by_round: touch_rows(&by_round, total),
+        by_index: touch_rows(&by_index, total),
+        by_approach: touch_rows(&by_approach, total),
+        by_duration: touch_rows(&by_duration, total),
+        by_side: touch_rows(&by_side, total),
+        by_size: touch_rows(&by_size, total),
+        cross_outcome_age: cross
+            .iter()
+            .map(|((o, a), acc)| acc.cell(o, a, total))
+            .collect(),
+        approach_missing,
+        size_below_h3,
+        approach_ms: APPROACH_MS,
+        stack_median: if stack_shown { median(&stacks) } else { None },
+        stack_shown,
+    }
 }
 
 /// Картина последнего часа: середина раз в секунду, полоски всех уровней,
@@ -710,16 +1035,7 @@ fn build_picture(
         .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
         .max()
     else {
-        return Picture {
-            from_ms: 0,
-            to_ms: 0,
-            mid: Vec::new(),
-            bars: Vec::new(),
-            bars_total: 0,
-            price_lo: 0.0,
-            price_hi: 0.0,
-            clipped: 0,
-        };
+        return empty_picture();
     };
     let from_ms = to_ms - PICTURE_MINUTES * 60_000;
 
@@ -798,6 +1114,29 @@ fn build_picture(
         bars.sort_by(|a, b| b.x.total_cmp(&a.x));
         bars.truncate(PICTURE_MAX_BARS);
     }
+
+    // Метки касаний, начавшихся в окне (таск 36): те же диапазон цены и
+    // потолок, что у полосок; крупные — по размеру уровня на касании.
+    let mut marks: Vec<Mark> = Vec::new();
+    let mut marks_clipped = 0usize;
+    for day in days {
+        for t in &day.touches {
+            if t.start_ms < from_ms {
+                continue;
+            }
+            let p = px(t.price_tick);
+            if p < price_lo || p > price_hi {
+                marks_clipped += 1;
+                continue;
+            }
+            marks.push(mark_of(t, &day.mids, p, h3_lots));
+        }
+    }
+    let marks_total = marks.len();
+    if marks.len() > PICTURE_MAX_BARS {
+        marks.sort_by(|a, b| b.x.total_cmp(&a.x));
+        marks.truncate(PICTURE_MAX_BARS);
+    }
     Picture {
         from_ms,
         to_ms,
@@ -807,6 +1146,25 @@ fn build_picture(
         price_lo,
         price_hi,
         clipped,
+        marks,
+        marks_total,
+        marks_clipped,
+    }
+}
+
+fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64) -> Mark {
+    Mark {
+        t: t.start_ms,
+        p: price,
+        s: side_name(t.side).to_string(),
+        o: touch_outcome(t.ended_by_death).to_string(),
+        x: size_ratio(t.size_at_touch, h3_lots),
+        a: t.age_ms(),
+        d: t.duration_ms,
+        i: t.touch_index,
+        fr: frontrun_share(t.frontrun_lots, t.size_at_touch),
+        ap: approaches_for_touch(t, mids)[0],
+        m: markouts_for_touch(t, mids)[H10S],
     }
 }
 
@@ -1104,6 +1462,54 @@ fn glossary() -> Vec<TextItem> {
         item(
             "Который раз на цене",
             "сколько уровней уже рождалось на этой цене и стороне за последний час.",
+        ),
+        item(
+            "Касание",
+            "цена дошла до живой плотности: уровень, живший до этого кадра, стал лучшей \
+             ценой своей стороны (первым в стакане). Касание кончается, когда уровень \
+             перестал быть лучшей ценой или умер. Уровень, родившийся сразу лучшей ценой, \
+             касанием не считается (В-43). Один уровень могут коснуться несколько раз — \
+             «номер касания» это и считает.",
+        ),
+        item(
+            "Отскок / проели на касании",
+            "исход касания: отскок — уровень остался жив, а цена от него ушла; проели на \
+             касании — касание кончилось смертью уровня. Markout касания берётся от середины \
+             в момент касания (В-43) со знаком «в сторону отскока»: плюс — цена ушла от \
+             плотности. Это движение, не сделка: вход/стоп/тейк отскока считает бэктест, не \
+             эта страница.",
+        ),
+        item(
+            "Фронтран",
+            &format!(
+                "заявки той же стороны, стоящие ближе к середине, чем плотность (перед ней), \
+                 на последнем кадре до касания — в долях её размера на касании. Практики: \
+                 «плотность на лям и фронтрана на 500 тысяч» — отсюда граница {FRONTRUN_HALF} \
+                 (В-44)."
+            ),
+        ),
+        item(
+            "Подход",
+            &format!(
+                "как двигалась середина за {} с до касания, в bps, со знаком «к уровню»: \
+                 плюс — цена шла на плотность (импульсный подход), минус — уходила от неё. \
+                 Корзины — первые границы расстояния ({}, {}, {} bps) и отдельная «<0» (В-44).",
+                APPROACH_MS[0] / 1000,
+                APPROACH_BOUNDS_BPS[1].0,
+                APPROACH_BOUNDS_BPS[2].0,
+                APPROACH_BOUNDS_BPS[3].0
+            ),
+        ),
+        item(
+            "Круглость",
+            "сколько нулей в конце цены в тиках (0 / 1 / 2 и больше): практики считают \
+             круглую цену признаком настоящей плотности.",
+        ),
+        item(
+            "Завал",
+            "сколько живых уровней не ниже порога H3 стоит на той же стороне в первых 50 \
+             ценах в момент касания, включая саму плотность. При отладочном пороге это \
+             почти весь стакан — число вырождено и не показывается.",
         ),
     ]
 }
