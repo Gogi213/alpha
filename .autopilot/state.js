@@ -966,14 +966,14 @@ window.STATE =
     },
     {
       "id": "31",
-      "title": "Сетка задержек в бэктесте: точка безубыточности вместо одного RTT",
+      "title": "RTT 20 мс на всё: шапка артефактов печатает assumed",
       "requirements": ["R28", "R29", "R30", "R31"],
       "blockedBy": ["29", "30"],
       "wave": 12,
       "zone": ["src/commands/lob/backtest.rs", "src/commands/lob/profiles.rs", "src/commands/lob/shortlist.rs", "src/lob/costs.rs"],
       "status": "pending",
       "retries": 0, "repairs": 0, "handoffs": 0,
-      "note": "владелец 2026-09-12: RTT 20 мс принят за факт (В-37), реальный ордер не ставить; net_fill по сетке задержек, rtt_break_even_ms в шапке"
+      "note": "владелец 2026-09-12: RTT 20 мс принят за факт (В-37), реальный ордер не ставить, сетки не надо («пусть будет 20 на все»); шапка печатает assumed"
     },
     {
       "id": "14",
