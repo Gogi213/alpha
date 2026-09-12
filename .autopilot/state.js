@@ -1052,6 +1052,39 @@ window.STATE =
       "note": "владелец 2026-09-13: расшифровки dizzi/станок — «это важно очень», BTC/ETH нет (В-42). Третий тип записи TouchRecord + lob touches CSV; оси в сетку — после отдельной предрегистрации"
     },
     {
+      "id": "36",
+      "title": "Касания на дашборде",
+      "requirements": ["R90"],
+      "blockedBy": ["35"],
+      "wave": 12,
+      "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/dashboard_page.html", "src/lob/touch_axes.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-13: «обновляем дашборд и делаем идею»; оси В-44, метки касаний на картине"
+    },
+    {
+      "id": "37",
+      "title": "Профили по касаниям: таблица и число испытаний",
+      "requirements": ["R90"],
+      "blockedBy": ["36"],
+      "wave": 12,
+      "zone": ["src/commands/lob/touch_profiles.rs", "src/lob/runs.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "маргиналы В-44 + крест исход×возраст, бутстрап по суткам, испытания в runs.csv; net/net_fill — в T38"
+    },
+    {
+      "id": "38",
+      "title": "Бэктест сделки-отскока: net_fill по касаниям",
+      "requirements": ["R90"],
+      "blockedBy": ["37"],
+      "wave": 12,
+      "zone": ["src/lob/strategy.rs", "src/lob/backtest.rs", "src/commands/lob/backtest.rs"],
+      "status": "pending",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "план сделки как данные в одной on_event (A6); вход P±1 тик, стоп за тик, тейк 1:1, дедлайн 60 с (В-44); rtt=assumed(20ms, В-37)"
+    },
+    {
       "id": "14",
       "title": "Чистка репозитория и память проекта",
       "requirements": [
