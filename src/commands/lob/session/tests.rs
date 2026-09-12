@@ -1,11 +1,17 @@
 use super::*;
+// Элементы подмодулей, которые сам `session.rs` не импортирует — нужны только тестам.
+use super::resources::resource_sample_period;
+use super::sink::SinkFile;
 use crate::binlog::Header;
+use crate::binlog::Record;
+use crate::bybit::rest::BYBIT_MAINNET_URL;
 use crate::feed::replay::ReplayFeed;
 use hftbacktest::types::{
     LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
     LOCAL_BUY_TRADE_EVENT,
 };
 use std::collections::VecDeque;
+use std::fs::File;
 
 const TEST_TICK_E9: i64 = 1_000_000;
 const TEST_STEP_E9: i64 = 1_000_000;
