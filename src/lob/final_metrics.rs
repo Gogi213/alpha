@@ -39,7 +39,12 @@ const MAX_PBO_PARTITIONS: usize = 16;
 
 /// Число блоков PBO в сводном отчёте: `C(8,4)/2 = 35` сплитов — полный
 /// перебор, а не выборка сплитов.
-const REPORT_PBO_PARTITIONS: usize = 8;
+///
+/// Публична с таска 29: шапка `shortlist-<дата>.md` печатает **почему** PBO
+/// не посчитан (`pbo=n/a (days=4 < 8)`), а порог «сколько периодов нужно»
+/// — это и есть данное число (`pbo` отказывает при `periods < partitions`).
+/// Второго объявления восьмёрки у вызывающего быть не должно.
+pub const REPORT_PBO_PARTITIONS: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Моменты и Sharpe.
@@ -554,8 +559,12 @@ pub fn pbo(trials: &[Vec<f64>], partitions: usize) -> Option<f64> {
 /// `purge` наблюдений в начале каждой тестовой складки (метки соседних кругов
 /// делят горизонт 10 с, см. Decision 20), embargo — сброс `embargo` наблюдений
 /// в её конце против автокорреляционного просачивания. Производственные
-/// ширины не назначены: горизонт меток в кругах ещё не измерен, вызывающий
-/// код передаёт их явно, констант-заглушек здесь нет.
+/// ширины **для покруговых рядов** не назначены: горизонт меток в кругах
+/// ещё не измерен, вызывающий код передаёт их явно, заглушки под них здесь
+/// нет. Для суточного ряда сводного отчёта ширины выведены и объявлены
+/// один раз — `REPORT_CPCV_PARAMS` ниже (там же, почему на суточных
+/// наблюдениях защитные зоны нулевые); это не заглушка под покруговые, а
+/// параметры другого ряда.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpcvParams {
     /// Число складок (≥ 2).
@@ -564,6 +573,38 @@ pub struct CpcvParams {
     pub purge: usize,
     /// Сброс в конце тестовой складки.
     pub embargo: usize,
+}
+
+/// Параметры CPCV сводного отчёта для ряда «`net` профиля по календарным
+/// суткам» (`commands::lob::shortlist`, таск 29). Ни одно из трёх чисел не
+/// выбрано здесь — каждое выведено из уже записанного:
+///
+/// * `purge = 0`, `embargo = 0` — защитные зоны стоят против просачивания
+///   меток, делящих горизонт 10 с (doc `CpcvParams` выше, Decision 20: выход
+///   тейкером ровно на `t0 + 10 с`). Наблюдение этого ряда — агрегат за
+///   календарные сутки, соседние наблюдения разнесены сутками, и пересечения
+///   меток, ради которого наблюдения сбрасывают, здесь нет по построению.
+///   Производственные ширины для **покруговых** рядов планом по-прежнему не
+///   назначены (см. doc `CpcvParams`) — эта константа их не назначает.
+/// * `folds = 2` — единственное число складок, названное существующим
+///   текстом: doc `CpcvParams::folds` говорит «(≥ 2)», и `cpcv_mean_oos_
+///   sharpe` отказывает ниже. Большее число ни задачей, ни планом не
+///   назначено, а назначить его самому значило бы изобрести число.
+pub const REPORT_CPCV_PARAMS: CpcvParams = CpcvParams {
+    folds: 2,
+    purge: 0,
+    embargo: 0,
+};
+
+/// Наименьшая длина ряда, при которой параметры вообще применимы:
+/// `folds · (purge + embargo + 2)` — по одной складке длины `len / folds`,
+/// из которой сброс съедает `purge + embargo`, и правилу
+/// `cpcv_mean_oos_sharpe` «складка короче двух наблюдений — отказ».
+/// Живёт рядом с оценщиком, а не у вызывающего: иначе порог, которым шапка
+/// объясняет `n/a`, разошёлся бы с порогом, по которому считает функция.
+#[must_use]
+pub const fn min_obs_for_cpcv(params: CpcvParams) -> usize {
+    params.folds * (params.purge + params.embargo + 2)
 }
 
 /// Средний OOS Sharpe по складкам CPCV на итоговых покруговых net: каждая
@@ -596,6 +637,73 @@ pub fn cpcv_mean_oos_sharpe(per_trade_net: &[f64], params: CpcvParams) -> Option
         #[allow(clippy::indexing_slicing)]
         let fold = &per_trade_net[base + purge..base + fold_len - embargo];
         if let Some(s) = sharpe_ratio(fold) {
+            sum += s;
+            scored += 1;
+        }
+    }
+    if scored == 0 {
+        return None;
+    }
+    Some(sum / count_f64(scored))
+}
+
+/// Средний OOS Sharpe **процедуры отбора** по складкам CPCV (задача §6.4
+/// п. 4, `SETTLED.md` В-19: «PBO и CPCV проверяют процедуру отбора, а не
+/// выбранный профиль»). Вход — та же матрица «испытания × периоды», что у
+/// `pbo`. Каждая складка по очереди тестовая: отбор происходит **заново**
+/// на IS-периодах (все, кроме тестовой складки) переданным правилом, и
+/// Sharpe считается по OOS-периодам того испытания, которое правило выбрало
+/// **в этой** складке. Защитные зоны выброшены из OOS-скоринга, как в
+/// `cpcv_mean_oos_sharpe`; хвост, не кратный складке, тестовым не бывает и
+/// остаётся в IS. Итог — среднее по посчитавшимся складкам.
+///
+/// Правило отбора — параметр, а не жилец этого модуля: им владеет
+/// шорт-лист (`commands::lob::shortlist`), здесь только формула.
+/// `select(trials, is_periods) -> Option<usize>` возвращает индекс строки;
+/// `None` от правила пропускает складку, а не обнуляет её.
+///
+/// `None` — испытаний меньше двух (отбирать не из чего, и это не «нулевой
+/// эффект»), складок меньше двух, матрица пуста или рвана, тестовая складка
+/// короче двух наблюдений после сброса, либо ни одна складка не посчиталась.
+pub fn cpcv_selection_oos_sharpe(
+    trials: &[Vec<f64>],
+    params: CpcvParams,
+    select: impl Fn(&[Vec<f64>], &[usize]) -> Option<usize>,
+) -> Option<f64> {
+    let CpcvParams {
+        folds,
+        purge,
+        embargo,
+    } = params;
+    if folds < 2 || trials.len() < 2 {
+        return None;
+    }
+    let periods = trials.first()?.len();
+    if periods == 0 || !trials.iter().all(|r| r.len() == periods) {
+        return None;
+    }
+    let fold_len = periods / folds;
+    let kept = fold_len.checked_sub(purge)?.checked_sub(embargo)?;
+    if kept < 2 {
+        return None;
+    }
+    let mut sum = 0.0;
+    let mut scored = 0usize;
+    for k in 0..folds {
+        let base = k * fold_len;
+        let is_periods: Vec<usize> = (0..periods)
+            .filter(|j| *j < base || *j >= base + fold_len)
+            .collect();
+        let Some(i) = select(trials, &is_periods) else {
+            continue;
+        };
+        let Some(row) = trials.get(i) else {
+            continue;
+        };
+        let oos: Vec<f64> = (base + purge..base + fold_len - embargo)
+            .filter_map(|j| row.get(j).copied())
+            .collect();
+        if let Some(s) = sharpe_ratio(&oos) {
             sum += s;
             scored += 1;
         }
@@ -1190,5 +1298,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(trials_from_runs_csv(&path), None);
+    }
+
+    /// CPCV проверяет **процедуру отбора**, а не профиль (задача §6.4 п. 4,
+    /// `SETTLED.md` В-19): правило отбора — лучший по среднему на
+    /// IS-периодах, то же, которым выбирает шорт-лист. Оба ответа выведены
+    /// руками. Матрица, где одно испытание стабильно лучшее и стабильно
+    /// прибыльное, обязана дать **положительный** средний OOS Sharpe:
+    /// правило берёт его в обеих складках, а его OOS-сутки все
+    /// положительны. Матрица-качели, где каждое испытание выигрывает IS
+    /// ровно той половиной, на которой оно прибыльно, обязана дать
+    /// **отрицательный**: выбранное на IS проваливает OOS — ровно то, ради
+    /// чего CPCV и считают, и по одному профилю это не видно вовсе.
+    #[test]
+    fn cpcv_selection_separates_a_steady_winner_from_a_seesaw() {
+        let best_mean = |trials: &[Vec<f64>], is: &[usize]| -> Option<usize> {
+            let mut best: Option<(usize, f64)> = None;
+            for (i, row) in trials.iter().enumerate() {
+                let vals: Vec<f64> = is.iter().filter_map(|&j| row.get(j).copied()).collect();
+                let Some(m) = moments(&vals) else { continue };
+                if best.is_none_or(|(_, b)| m.mean > b) {
+                    best = Some((i, m.mean));
+                }
+            }
+            best.map(|(i, _)| i)
+        };
+
+        let steady = vec![
+            vec![2.0, 2.1, 1.9, 2.05, 2.0, 1.95, 2.1, 2.0],
+            vec![-1.0, -1.2, -0.8, -1.1, -0.9, -1.3, -1.0, -1.1],
+            vec![0.1, -0.2, 0.3, -0.4, 0.2, -0.1, 0.4, -0.3],
+        ];
+        let v = cpcv_selection_oos_sharpe(&steady, REPORT_CPCV_PARAMS, best_mean)
+            .expect("восемь суток, две складки — оценка обязана состояться");
+        assert!(v > 0.0, "стабильный победитель обязан пережить OOS: {v}");
+
+        let seesaw = vec![
+            vec![-3.0, -2.0, -3.5, -2.5, 2.0, 3.0, 2.5, 3.5],
+            vec![2.0, 3.0, 2.5, 3.5, -3.0, -2.0, -3.5, -2.5],
+        ];
+        let v = cpcv_selection_oos_sharpe(&seesaw, REPORT_CPCV_PARAMS, best_mean)
+            .expect("та же форма входа — оценка обязана состояться");
+        assert!(
+            v < 0.0,
+            "победитель IS обязан провалить OOS на качелях: {v}"
+        );
+    }
+
+    /// Параметры CPCV сводного отчёта и наименьшая длина ряда, при которой
+    /// они применимы. Ожидание взято из правила, записанного в doc
+    /// `cpcv_mean_oos_sharpe` («складка короче двух наблюдений после сброса
+    /// — отказ»), а не из кода под тестом: длина складки `len / folds`,
+    /// сброс съедает `purge + embargo`, значит наименьший ряд —
+    /// `folds · (purge + embargo + 2)`. При `REPORT_CPCV_PARAMS` это ровно
+    /// четверо суток: на них оценка обязана состояться, на трёх — отказ.
+    #[test]
+    fn report_cpcv_params_admit_exactly_four_daily_observations() {
+        assert_eq!(min_obs_for_cpcv(REPORT_CPCV_PARAMS), 4);
+        let four = [1.0, -0.5, 2.0, 0.25];
+        assert!(cpcv_mean_oos_sharpe(&four, REPORT_CPCV_PARAMS).is_some());
+        assert!(cpcv_mean_oos_sharpe(&four[..3], REPORT_CPCV_PARAMS).is_none());
     }
 }

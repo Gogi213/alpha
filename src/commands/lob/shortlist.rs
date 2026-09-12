@@ -509,6 +509,10 @@ fn load_or_write_boundary(path: &Path, days: &[String]) -> anyhow::Result<Calend
 struct ProfilesTableRow {
     profile_id: String,
     n: u64,
+    /// `net` после издержек, без веса на исполнение — ячейка матрицы
+    /// «испытания × периоды» (таск 29): единственная денежная колонка,
+    /// которая есть и без модели исполнения.
+    net_bps: String,
     net_fill: String,
     net_fill_lower: String,
     /// Годные сутки на профиль (ремонт по ревью таска 12, открытый пункт (1)
@@ -528,6 +532,7 @@ struct ProfilesTableRow {
 struct ProfileNums {
     n: u64,
     g: u64,
+    net_bps: Option<f64>,
     net_fill: Option<f64>,
     net_fill_lower: Option<f64>,
     observed_sharpe: Option<f64>,
@@ -553,6 +558,7 @@ fn read_profile_table(path: &Path) -> anyhow::Result<BTreeMap<String, ProfileNum
             ProfileNums {
                 n: row.n,
                 g: row.g,
+                net_bps: parse_measured_f64(&row.net_bps),
                 net_fill: parse_measured_f64(&row.net_fill),
                 net_fill_lower: parse_measured_f64(&row.net_fill_lower),
                 observed_sharpe: parse_measured_f64(&row.observed_sharpe),
@@ -560,6 +566,284 @@ fn read_profile_table(path: &Path) -> anyhow::Result<BTreeMap<String, ProfileNum
         );
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Матрица «испытания × периоды» — вход PBO и CPCV (таск 29, R47).
+// ---------------------------------------------------------------------------
+
+/// Матрица, которой PBO и CPCV проверяют **процедуру отбора**, а не
+/// выбранный профиль (R47, задача §6.4 п. 4): строка — испытание, то есть
+/// профиль сетки, тот же id, что уходит строкой в `runs.csv`; столбец —
+/// календарные сутки окна, тот же кластер, на котором считается `G`;
+/// ячейка — `net_bps` профиля за эти сутки.
+///
+/// **Пустая ячейка — `NaN`, не ноль.** Суток, за которые профиль не дал ни
+/// одного наблюдения (`n = 0`), не бывает «нулевого net»: ноль здесь был бы
+/// измеренной безубыточностью, которой не было. Что с `NaN` делает каждая
+/// процедура, названо в их doc и печатается в шапке отчёта: блок с `NaN`
+/// даёт испытанию Sharpe ровно `0` в этом сплите PBO
+/// (`final_metrics::pbo`), складка CPCV с `NaN` пропускается
+/// (`final_metrics::cpcv_mean_oos_sharpe`).
+struct TrialDayMatrix {
+    /// Периоды: сутки окна, по возрастанию.
+    days: Vec<String>,
+    /// Испытания: id профилей сетки, в порядке `build_profile_grid`.
+    ids: Vec<String>,
+    /// `rows[i][j]` — `net_bps` испытания `ids[i]` за сутки `days[j]`.
+    rows: Vec<Vec<f64>>,
+}
+
+impl TrialDayMatrix {
+    /// Ряд испытания по суткам. Читает только тест на ориентацию матрицы:
+    /// боевой путь подаёт оценщикам матрицу целиком.
+    #[cfg(test)]
+    fn row(&self, id: &str) -> Option<&[f64]> {
+        let i = self.ids.iter().position(|x| x == id)?;
+        self.rows.get(i).map(Vec::as_slice)
+    }
+
+    /// Матрица из испытаний **без единой пропущенной ячейки** и число
+    /// снятых. `NaN` не нейтрален для оценщика: `final_metrics::pbo` даёт
+    /// испытанию с нефинитным значением Sharpe ровно `0.0` (его doc), то
+    /// есть профиль, у которого за какие-то сутки данных нет, встал бы в
+    /// IS-выборе **выше любого убыточного** и мог бы этот выбор выиграть —
+    /// PBO считался бы по проигравшим. Такое испытание снимается целиком и
+    /// до расчёта, обеими процедурами разом, а число снятых печатается в
+    /// шапке: выборка, по которой посчитано, названа, а не подразумевается.
+    fn without_nan_rows(&self) -> (Self, usize) {
+        let keep: Vec<usize> = (0..self.ids.len())
+            .filter(|&i| {
+                self.rows
+                    .get(i)
+                    .is_some_and(|r| r.iter().all(|x| x.is_finite()))
+            })
+            .collect();
+        let excluded = self.ids.len().saturating_sub(keep.len());
+        let ids = keep
+            .iter()
+            .filter_map(|&i| self.ids.get(i).cloned())
+            .collect();
+        let rows = keep
+            .iter()
+            .filter_map(|&i| self.rows.get(i).cloned())
+            .collect();
+        (
+            Self {
+                days: self.days.clone(),
+                ids,
+                rows,
+            },
+            excluded,
+        )
+    }
+
+    /// Строка `pbo_matrix: …` шапки: форма матрицы, сколько испытаний снято
+    /// по `NaN`, чем заполнена ячейка (критерий приёмки таска 29 — правило
+    /// пустой ячейки названо и в doc, и в шапке). `rows` — испытания,
+    /// дошедшие до оценщиков, то есть уже после снятия.
+    fn header_line(&self, excluded_nan_rows: usize) -> String {
+        format!(
+            "pbo_matrix: rows={} days={} excluded_nan_rows={} cell=net_bps \
+             (n=0 за сутки → NaN, не ноль; испытание с NaN снято целиком: \
+             оценщик дал бы ему Sharpe 0 и место выше убыточного)",
+            self.ids.len(),
+            self.days.len(),
+            excluded_nan_rows,
+        )
+    }
+}
+
+/// PBO по матрице с числом блоков сводного отчёта
+/// (`final_metrics::REPORT_PBO_PARTITIONS` — оно же порог «сколько суток
+/// нужно», потому что `pbo` отказывает при `periods < partitions`).
+/// Второй элемент — причина отсутствия числа для шапки: `None` без причины
+/// шапка печатает как `none`, и именно эту немую форму таск 29 снимает.
+fn pbo_of_matrix(m: &TrialDayMatrix) -> (Option<f64>, Option<String>) {
+    let partitions = final_metrics::REPORT_PBO_PARTITIONS;
+    let (rows, days) = (m.ids.len(), m.days.len());
+    if days < partitions {
+        return (None, Some(format!("days={days} < {partitions}")));
+    }
+    if rows < 2 {
+        return (None, Some(format!("rows={rows} < 2 после исключения NaN")));
+    }
+    match final_metrics::pbo(&m.rows, partitions) {
+        Some(v) => (Some(v), None),
+        None => (
+            None,
+            Some(format!("матрица {rows}×{days} не принята оценщиком")),
+        ),
+    }
+}
+
+/// Правило отбора, которое проверяет CPCV, — то же, которым шорт-лист
+/// выбирает профиль вердикта: лучший по среднему `net` на предъявленных
+/// сутках. Печатается в шапке рядом с числом, чтобы «процедура отбора» в
+/// отчёте была названа, а не подразумевалась.
+const CPCV_SELECTION_RULE: &str = "лучший по среднему net на IS-сутках";
+
+/// Само правило: индекс лучшей строки матрицы по среднему `net` на
+/// поданных периодах. `Confirmed` шорт-листа добавляет к тому же
+/// сравнению пороги `n`/`G`, которых суточная матрица не несёт по
+/// построению (в ней только `net`), — это единственное расхождение, и оно
+/// сужает не выбор, а множество, из которого он делается.
+fn select_best_mean_net(trials: &[Vec<f64>], is_periods: &[usize]) -> Option<usize> {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, row) in trials.iter().enumerate() {
+        let vals: Vec<f64> = is_periods
+            .iter()
+            .filter_map(|&j| row.get(j).copied())
+            .filter(|x| x.is_finite())
+            .collect();
+        if vals.is_empty() {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if best.is_none_or(|(_, b)| mean > b) {
+            best = Some((i, mean));
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
+/// CPCV **процедуры отбора** по той же матрице (задача §6.4 п. 4, В-19:
+/// «проверяют процедуру отбора, а не выбранный профиль»): в каждой складке
+/// отбор делается заново на IS-сутках правилом `select_best_mean_net`, а
+/// Sharpe считается по OOS-суткам выбранного **в этой** складке испытания
+/// (`final_metrics::cpcv_selection_oos_sharpe`). Параметры складок —
+/// `REPORT_CPCV_PARAMS`, там же выведено, почему складок две и почему
+/// защитные зоны на суточном ряду нулевые.
+fn cpcv_of_matrix(m: &TrialDayMatrix) -> (Option<f64>, Option<String>) {
+    let params = final_metrics::REPORT_CPCV_PARAMS;
+    let need = final_metrics::min_obs_for_cpcv(params);
+    let (rows, days) = (m.ids.len(), m.days.len());
+    if days < need {
+        return (None, Some(format!("days={days} < {need}")));
+    }
+    if rows < 2 {
+        return (None, Some(format!("rows={rows} < 2 после исключения NaN")));
+    }
+    match final_metrics::cpcv_selection_oos_sharpe(&m.rows, params, select_best_mean_net) {
+        Some(v) => (Some(v), None),
+        None => (
+            None,
+            Some(format!(
+                "матрица {rows}×{days}: ни одна складка не посчиталась"
+            )),
+        ),
+    }
+}
+
+/// Что матрица отдала шапке: два числа, две причины их отсутствия, имя
+/// правила отбора (только когда CPCV — число) и строка формы.
+struct MatrixMetrics {
+    pbo: Option<f64>,
+    pbo_na: Option<String>,
+    cpcv: Option<f64>,
+    cpcv_na: Option<String>,
+    cpcv_selection: Option<String>,
+    line: String,
+}
+
+/// Строит матрицу и считает по ней обе процедуры. Суток окна меньше двух —
+/// матрица **не строится вовсе**: делить период надвое не на чем, а один
+/// прогон профилей на сутки стоит реплея всего пула (см.
+/// `build_trial_day_matrix`); шапка сразу получает названную причину.
+fn matrix_metrics(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    window_days: &[String],
+    grid: &[String],
+) -> anyhow::Result<MatrixMetrics> {
+    let days = window_days.len();
+    if days < 2 {
+        let why = format!("суток окна {days} < 2 — матрица не строилась");
+        return Ok(MatrixMetrics {
+            pbo: None,
+            pbo_na: Some(why.clone()),
+            cpcv: None,
+            cpcv_na: Some(why),
+            cpcv_selection: None,
+            line: format!("pbo_matrix: не строилась — суток окна {days} < 2 (cell=net_bps)"),
+        });
+    }
+    let full = build_trial_day_matrix(args, instruments_csv, by_day, window_days, grid)?;
+    let (scored, excluded) = full.without_nan_rows();
+    let (pbo, pbo_na) = pbo_of_matrix(&scored);
+    let (cpcv, cpcv_na) = cpcv_of_matrix(&scored);
+    Ok(MatrixMetrics {
+        pbo,
+        pbo_na,
+        cpcv,
+        cpcv_na,
+        cpcv_selection: cpcv.map(|_| CPCV_SELECTION_RULE.to_string()),
+        line: scored.header_line(excluded),
+    })
+}
+
+/// Строит матрицу: один прогон `run_profiles_over` на каждые сутки окна во
+/// времянку. Дороже разведочной ровно на число суток — иначе не бывает:
+/// `profiles.rs` (зона не этого таска) агрегирует по всему корню сразу, и
+/// разрешение по суткам достаётся только повтором прогона на суточном
+/// подмножестве, тем же приёмом, что уже делает джекнайф ниже. Журнал
+/// испытаний — во времянку: пересчёт той же сетки по суткам не есть новые
+/// испытания (Decision 27).
+fn build_trial_day_matrix(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    window_days: &[String],
+    grid: &[String],
+) -> anyhow::Result<TrialDayMatrix> {
+    let mut days = Vec::new();
+    let mut columns: Vec<BTreeMap<String, ProfileNums>> = Vec::new();
+    for day in window_days {
+        if !by_day.contains_key(day) {
+            continue;
+        }
+        let scratch = ScratchRoot::new(&format!("day-{day}"))?;
+        build_filtered_root(
+            scratch.path(),
+            instruments_csv,
+            by_day,
+            std::slice::from_ref(day),
+        )?;
+        let prereg =
+            write_full_coverage_preregistration(scratch.path(), std::slice::from_ref(day))?;
+        let runs_scratch = ScratchRoot::new(&format!("day-runs-{day}"))?;
+        let csv_path = run_profiles_over(
+            scratch.path().to_path_buf(),
+            runs_scratch.path().join("runs.csv"),
+            scratch.path().join("profiles-day.csv"),
+            false,
+            Some(prereg),
+            args,
+        )?;
+        columns.push(read_profile_table(&csv_path)?);
+        days.push(day.clone());
+    }
+    let rows = grid
+        .iter()
+        .map(|id| {
+            columns
+                .iter()
+                .map(|c| {
+                    c.get(id)
+                        .filter(|p| p.n > 0)
+                        .and_then(|p| p.net_bps)
+                        .unwrap_or(f64::NAN)
+                })
+                .collect()
+        })
+        .collect();
+    Ok(TrialDayMatrix {
+        days,
+        ids: grid.to_vec(),
+        rows,
+    })
 }
 
 /// Пишет во времянку окно «сейчас» (ticket 21), накрывающее ровно те сутки,
@@ -897,15 +1181,22 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         final_metrics::dsr_for_trial_count(sr, p.n as usize, 0.0, 3.0, trials)
     });
     // PBO/CPCV процедуры отбора (R47: «проверяют процедуру отбора, а не
-    // выбранный профиль») требуют матрицу «испытания × периоды»/ряд
-    // покруговых net по всей разведочной сетке — таблица профилей несёт
-    // только агрегаты (`n`, `net_fill`, `observed_sharpe`), не сырые
-    // покруговые ряды по каждому из ~150+ испытаний. Собрать эту матрицу —
-    // отдельный конвейер (агрегация `fill_obs` по общим периодам календаря на
-    // каждый id сетки), которого таск 16 не строит: `None`, честно, а не
-    // подмена оценкой одного профиля (CONCERNS).
-    let pbo = None;
-    let cpcv_oos_sharpe = None;
+    // выбранный профиль») — таск 29 снял заглушки `None` тасков 13/16.
+    // Матрица «испытания × периоды» (`build_trial_day_matrix`): строка —
+    // профиль сетки, столбец — сутки окна, ячейка — `net` за сутки. PBO
+    // идёт по всей матрице (проверяется отбор), CPCV — по ряду выбранного
+    // профиля (`cpcv_series_profile`). Число блоков и параметры CPCV — из
+    // `final_metrics`, не отсюда; порога PBO ни задача, ни план не
+    // назначают, поэтому число печатается без вердикта (сказано в шапке).
+    let matrix_days: Vec<String> = split
+        .exploratory
+        .iter()
+        .chain(split.confirmatory.iter())
+        .cloned()
+        .collect::<std::collections::BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    let matrix = matrix_metrics(args, &instruments_csv, &by_day, &matrix_days, &grid)?;
 
     // Джекнайф-по-суткам (A03): пересчитывает `best_confirmed_net_fill` на
     // подтверждающей без одних суток за раз (тем же `run_profiles_over`, во
@@ -1004,8 +1295,12 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
     let header = VerdictHeader {
         value_bps: best_confirmed_net_fill(&rows),
         dsr,
-        pbo,
-        cpcv_oos_sharpe,
+        pbo: matrix.pbo,
+        cpcv_oos_sharpe: matrix.cpcv,
+        pbo_na: matrix.pbo_na,
+        cpcv_na: matrix.cpcv_na,
+        cpcv_selection: matrix.cpcv_selection,
+        pbo_matrix: matrix.line,
         g: g_for_header,
         #[allow(clippy::cast_possible_truncation)]
         p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
@@ -1230,6 +1525,11 @@ mod tests {
             "по строке журнала на каждый id сетки"
         );
 
+        // Таск 29: суток меньше, чем блоков перебора, — шапка обязана
+        // сказать, чего именно не хватило, а не напечатать немой `none`.
+        let text = std::fs::read_to_string(&summary.out).unwrap();
+        assert!(text.contains("pbo=n/a (days=2 < 8)"), "{text}");
+
         let boundary_text = std::fs::read_to_string(&args.preregistration).unwrap();
         assert!(
             boundary_text.contains("exploratory: 2026-05-01"),
@@ -1317,6 +1617,223 @@ mod tests {
         .unwrap();
         assert!(require_shortlist_member(&path, "marginal:side=bid").is_ok());
         assert!(require_shortlist_member(&path, "marginal:side=ask").is_err());
+    }
+
+    /// Таск 29 насквозь: боевой прогон на восьми сутках строит матрицу
+    /// «испытания × периоды» и печатает **числом** PBO (суток ровно столько
+    /// же, сколько блоков полного перебора) — заглушки `None` тасков 13/16
+    /// в шапке больше нет, а форма матрицы и правило пустой ячейки в шапке
+    /// названы. CPCV на том же ряду: суток больше четырёх, отказать «по
+    /// нехватке суток» ему нечем.
+    #[test]
+    fn production_run_prints_pbo_number_and_matrix_shape_on_eight_days() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &["SOLUSDT"]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0)]);
+        for d in 1..=8 {
+            write_session_dir(
+                root,
+                &format!("2026-05-{d:02}T020000Z"),
+                "SOLUSDT",
+                &format!("2026-05-{d:02}T02:00:00Z"),
+            );
+        }
+        let args = base_args(root, candidates_csv);
+        let summary = run_shortlist(&args).expect("боевой прогон на восьми сутках");
+        let text = std::fs::read_to_string(&summary.out).unwrap();
+        assert!(
+            text.contains("pbo_matrix: rows=8 days=8 excluded_nan_rows=27 cell=net_bps"),
+            "форма матрицы, снятые по NaN строки и колонка ячейки — в шапке: {text}"
+        );
+        // Фикстура кладёт один и тот же бинлог во все восемь суток, поэтому
+        // у дошедших до оценщиков испытаний `net` по суткам постоянен: OOS
+        // без дисперсии — Sharpe не считается ни на одной складке, и отказ
+        // обязан назвать именно это, а не «мало суток».
+        assert!(
+            text.contains("cpcv_oos_sharpe=n/a (матрица 8×8: ни одна складка не посчиталась)"),
+            "{text}"
+        );
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("dsr_target:"))
+            .unwrap_or_default();
+        let pbo: f64 = line
+            .split("pbo=")
+            .nth(1)
+            .and_then(|t| t.split_whitespace().next())
+            .and_then(|t| t.parse().ok())
+            .unwrap_or_else(|| panic!("восемь суток — PBO обязан быть числом: {line}"));
+        assert!(
+            (0.0..=1.0).contains(&pbo),
+            "PBO — вероятность, не что попало: {line}"
+        );
+        assert!(text.contains("pbo_gate: none"), "{text}");
+    }
+
+    /// Таск 29, известный ответ, посчитанный руками, а не кодом: испытание
+    /// с постоянным `net > 0` на всех восьми сутках даёт нулевую дисперсию
+    /// и, значит, `+∞` на любом наборе блоков — оно выигрывает in-sample
+    /// каждый из 35 сплитов `C(8,4)/2` и на дополнении тоже `+∞`, то есть
+    /// строго лучше обоих конечных соперников. Его относительный ранг —
+    /// `(2 + 0.5) / 3 = 0.83`, ниже медианы он не опускается ни разу, и
+    /// PBO обязан быть ровно нулём. Суток меньше числа блоков — не ноль, а
+    /// названная причина.
+    #[test]
+    fn pbo_of_matrix_is_zero_when_one_trial_is_steadily_positive() {
+        let ids = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let steady = vec![1.0; 8];
+        let rising: Vec<f64> = (1..=8).map(f64::from).collect();
+        let zigzag = vec![8.0, -7.0, 6.0, -5.0, 4.0, -3.0, 2.0, -1.0];
+        let m = TrialDayMatrix {
+            days: (1..=8).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids: ids.clone(),
+            rows: vec![steady, rising, zigzag.clone()],
+        };
+        let (pbo, why) = pbo_of_matrix(&m);
+        assert_eq!(pbo, Some(0.0), "{why:?}");
+        assert!(why.is_none());
+
+        let short = TrialDayMatrix {
+            days: (1..=4).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids,
+            rows: vec![vec![1.0; 4], vec![1.0, 2.0, 3.0, 4.0], zigzag[..4].to_vec()],
+        };
+        let (pbo, why) = pbo_of_matrix(&short);
+        assert!(pbo.is_none());
+        assert_eq!(why.as_deref(), Some("days=4 < 8"));
+    }
+
+    /// Таск 29: CPCV проверяет **процедуру отбора** (§6.4 п. 4) и
+    /// отказывает с названной целиком причиной. Известный ответ выведен
+    /// руками: правило берёт в обеих складках строку `[1,2,1,2,…]`
+    /// (среднее 1.5 против нуля), её OOS-половина — `[1,2,1,2]`, среднее
+    /// 1.5 при отклонении 0.5, то есть Sharpe ровно 3.0 в каждой складке,
+    /// и среднее по складкам — тоже ровно 3.0.
+    #[test]
+    fn cpcv_of_matrix_names_why_it_refuses_and_scores_the_selection() {
+        let ids = vec!["A".to_string(), "B".to_string()];
+        let short = TrialDayMatrix {
+            days: (1..=3).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids: ids.clone(),
+            rows: vec![vec![1.0, 2.0, 1.0], vec![0.0, 0.0, 0.0]],
+        };
+        assert_eq!(
+            cpcv_of_matrix(&short),
+            (None, Some("days=3 < 4".to_string()))
+        );
+
+        let alone = TrialDayMatrix {
+            days: (1..=8).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids: vec!["A".to_string()],
+            rows: vec![vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0]],
+        };
+        assert_eq!(
+            cpcv_of_matrix(&alone),
+            (None, Some("rows=1 < 2 после исключения NaN".to_string())),
+            "отбирать не из чего — это не «нулевой эффект»"
+        );
+
+        let scored = TrialDayMatrix {
+            days: (1..=8).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids,
+            rows: vec![vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0], vec![0.0; 8]],
+        };
+        let (v, why) = cpcv_of_matrix(&scored);
+        assert_eq!(why, None);
+        assert!(
+            v.is_some_and(|x| (x - 3.0).abs() < 1e-12),
+            "ровно 3.0 по обеим складкам: {v:?}"
+        );
+    }
+
+    /// Таск 29, ремонт по ревью: испытание с пропущенными сутками снимается
+    /// **до** расчёта. Иначе `final_metrics::pbo` даёт ему Sharpe ровно
+    /// `0.0` — и профиль без данных встаёт выше любого убыточного, участвуя
+    /// в IS-выборе. Известный ответ прежний (стабильно прибыльное
+    /// испытание даёт PBO ноль), а строка с дырой в него не входит; когда
+    /// после снятия остаётся одна строка, отказ называет именно это.
+    #[test]
+    fn matrix_excludes_trials_with_missing_days_before_scoring() {
+        let mut gap = vec![100.0; 8];
+        gap[3] = f64::NAN;
+        let m = TrialDayMatrix {
+            days: (1..=8).map(|d| format!("2026-05-{d:02}")).collect(),
+            ids: vec!["gap".to_string(), "A".to_string(), "B".to_string()],
+            rows: vec![gap, vec![1.0; 8], (1..=8).map(f64::from).collect()],
+        };
+        let (scored, excluded) = m.without_nan_rows();
+        assert_eq!(excluded, 1);
+        assert_eq!(scored.ids, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(pbo_of_matrix(&scored), (Some(0.0), None));
+        assert!(
+            scored
+                .header_line(excluded)
+                .contains("pbo_matrix: rows=2 days=8 excluded_nan_rows=1 cell=net_bps"),
+            "{}",
+            scored.header_line(excluded)
+        );
+
+        let mut only_gaps = m;
+        only_gaps.ids.truncate(2);
+        only_gaps.rows.truncate(2);
+        let (scored, excluded) = only_gaps.without_nan_rows();
+        assert_eq!(excluded, 1);
+        assert_eq!(
+            pbo_of_matrix(&scored),
+            (None, Some("rows=1 < 2 после исключения NaN".to_string()))
+        );
+    }
+
+    /// Таск 29, ремонт по ревью: ориентация матрицы — строка на испытание,
+    /// столбец на сутки. Известный ответ по построению фикстуры: в первые
+    /// сутки записан только SOLUSDT, во вторые — только HYPEUSDT, поэтому
+    /// маргинал по инструменту обязан быть пуст (`NaN`) ровно в чужом
+    /// столбце. Транспонированная матрица это провалит.
+    #[test]
+    fn build_trial_day_matrix_puts_trials_in_rows_and_days_in_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_instruments_csv(root, &["SOLUSDT", "HYPEUSDT"]);
+        let candidates_csv = root.join("candidates.csv");
+        write_candidates_csv(&candidates_csv, &[("SOLUSDT", 300.0), ("HYPEUSDT", 300.0)]);
+        write_session_dir(
+            root,
+            "2026-05-01T020000Z",
+            "SOLUSDT",
+            "2026-05-01T02:00:00Z",
+        );
+        write_session_dir(
+            root,
+            "2026-05-02T020000Z",
+            "HYPEUSDT",
+            "2026-05-02T02:00:00Z",
+        );
+        let args = base_args(root, candidates_csv.clone());
+        let pool = vec!["HYPEUSDT".to_string(), "SOLUSDT".to_string()];
+        let grid = build_profile_grid(&read_coverage(&candidates_csv, &pool).unwrap()).unwrap();
+        let by_day = group_by_day(&session_dirs(root).unwrap());
+        let days = vec!["2026-05-01".to_string(), "2026-05-02".to_string()];
+        let m = build_trial_day_matrix(&args, &instruments_csv_path(root), &by_day, &days, &grid)
+            .expect("матрица по двум суткам");
+        assert_eq!(m.days, days);
+        assert_eq!(m.ids, grid);
+        assert!(m.rows.iter().all(|r| r.len() == 2), "столбец на сутки");
+        let sol = m
+            .row("marginal:instrument=SOLUSDT")
+            .expect("сетка несёт маргинал по инструменту");
+        let hype = m
+            .row("marginal:instrument=HYPEUSDT")
+            .expect("сетка несёт маргинал по инструменту");
+        assert!(
+            sol.get(1).copied().is_some_and(f64::is_nan),
+            "во вторые сутки SOLUSDT не записан: {sol:?}"
+        );
+        assert!(
+            hype.first().copied().is_some_and(f64::is_nan),
+            "в первые сутки HYPEUSDT не записан: {hype:?}"
+        );
     }
 
     /// Граница модулей: чистая логика этого файла не тянет запрещённое —

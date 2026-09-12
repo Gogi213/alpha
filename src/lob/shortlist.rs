@@ -818,6 +818,19 @@ fn fmt_opt(v: Option<f64>) -> String {
     }
 }
 
+/// Печать числа, отсутствие которого обязано быть объяснено (таск 29):
+/// число — как везде, названная причина — `n/a (<причина>)`, и только
+/// безымянное отсутствие — прежний `none`. Три разных исхода, а не два:
+/// `none` у PBO/CPCV сегодня означал бы «не измеряли», и именно эту
+/// неотличимость таск снимает.
+fn fmt_measured(v: Option<f64>, na: Option<&str>) -> String {
+    match (v, na) {
+        (Some(x), _) => format!("{x:.4}"),
+        (None, Some(reason)) => format!("n/a ({reason})"),
+        (None, None) => "none".to_string(),
+    }
+}
+
 /// Прогоняет подтверждающую только по шорт-листу. Первым делом требует
 /// заморозку (`None` — отказ); затем проверяет, что каждый поданный профиль
 /// входит в список (чужой — отказ); затем печатает строку на каждый профиль
@@ -1180,6 +1193,21 @@ pub struct VerdictHeader {
     pub pbo: Option<f64>,
     /// Средний OOS Sharpe CPCV процедуры отбора.
     pub cpcv_oos_sharpe: Option<f64>,
+    /// Почему `pbo` — не число (таск 29): `days=4 < 8`, `trials=1 < 2`.
+    /// Заполнен — шапка печатает `pbo=n/a (<причина>)` вместо `none`:
+    /// отсутствие числа обязано быть объяснено, а не молчаливо.
+    pub pbo_na: Option<String>,
+    /// Почему `cpcv_oos_sharpe` — не число (таск 29), в том же формате.
+    pub cpcv_na: Option<String>,
+    /// Правило отбора, которое проверила CPCV (§6.4 п. 4: проверяется
+    /// процедура, а не профиль) — печатается рядом с числом: `(selection:
+    /// …)`. Без числа не печатается: называть правило нечему.
+    pub cpcv_selection: Option<String>,
+    /// Готовая строка `pbo_matrix: …` — форма матрицы «испытания × периоды»
+    /// и правило пустой ячейки; форматирует вызывающий
+    /// (`commands::lob::shortlist`), как и `window`. Пусто — матрицу не
+    /// строили, строки в шапке нет.
+    pub pbo_matrix: String,
     /// Фактическое число годных суток, которым вынесен вердикт.
     pub g: Option<u64>,
     /// Достижимое разрешение сетки Уэбба `p` при этом `G`
@@ -1227,11 +1255,25 @@ pub fn write_shortlist_md(
         "threshold: n>={CONFIRM_MIN_N} G>={G_MIN} net_fill_lower>0 (DSR by actual trials)\n"
     ));
     text.push_str(&format!(
-        "dsr_target: {DSR_TARGET} dsr={} pbo={} cpcv_oos_sharpe={}\n",
+        "dsr_target: {DSR_TARGET} dsr={} pbo={} cpcv_oos_sharpe={}{}\n",
         fmt_opt(header.dsr),
-        fmt_opt(header.pbo),
-        fmt_opt(header.cpcv_oos_sharpe),
+        fmt_measured(header.pbo, header.pbo_na.as_deref()),
+        fmt_measured(header.cpcv_oos_sharpe, header.cpcv_na.as_deref()),
+        match (&header.cpcv_selection, header.cpcv_oos_sharpe) {
+            (Some(rule), Some(_)) => format!(" (selection: {rule})"),
+            _ => String::new(),
+        },
     ));
+    // Порог PBO: искали в задаче (§6.4), плане и `SETTLED.md` — не назначен
+    // ни один. Число печатается, вердикт по нему не выносится: назначить
+    // порог самому значило бы изобрести его (таск 29).
+    text.push_str(
+        "pbo_gate: none — порог PBO задачей и планом не назначен: \
+         число печатается, вердикт по нему не выносится\n",
+    );
+    if !header.pbo_matrix.is_empty() {
+        text.push_str(&format!("{}\n", header.pbo_matrix));
+    }
     text.push_str(&format!(
         "G: {} p_grid_resolution: {}\n",
         header
@@ -1861,6 +1903,50 @@ mod tests {
         assert_eq!(crate::lob::runs::count_trials(&rows), 1);
     }
 
+    /// Таск 29: `pbo`/`cpcv_oos_sharpe` без числа печатаются **с причиной**,
+    /// а не молчаливым `none` — читатель шапки видит, чего не хватило
+    /// (суток меньше, чем блоков перебора), правило пустой ячейки матрицы
+    /// названо там же, и там же сказано, что порога PBO план не назначал.
+    #[test]
+    fn header_says_why_pbo_and_cpcv_are_not_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shortlist-2026-05-20.md");
+        let frozen = freeze_shortlist(&["cross:A|pulled|[0,1)".to_string()], "abc123", 147);
+        let rows = vec![ConfirmRow {
+            id: "cross:A|pulled|[0,1)".to_string(),
+            n: 0,
+            g: 0,
+            net_fill: None,
+            net_fill_lower: None,
+            status: ConfirmStatus::InsufficientData,
+            order_size_usd: None,
+        }];
+        let header = VerdictHeader {
+            pbo_na: Some("days=1 < 8".to_string()),
+            cpcv_na: Some("days=1 < 4".to_string()),
+            pbo_matrix: "pbo_matrix: trials=147 days=1 cells_nan=3 (n=0 за сутки → NaN)"
+                .to_string(),
+            ..VerdictHeader::default()
+        };
+        write_shortlist_md(
+            &path,
+            "2026-05-20",
+            &frozen,
+            &rows,
+            ShortlistVerdict::RedInsufficientPower,
+            &header,
+        )
+        .expect("писатель");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("pbo=n/a (days=1 < 8)"), "{text}");
+        assert!(text.contains("cpcv_oos_sharpe=n/a (days=1 < 4)"), "{text}");
+        assert!(text.contains("pbo_matrix: trials=147 days=1"), "{text}");
+        assert!(
+            text.contains("pbo_gate: none"),
+            "порог PBO не назначен ни задачей, ни планом — это обязано быть сказано: {text}"
+        );
+    }
+
     /// Формат shortlist MD: число испытаний, коммит, отпечаток, порог,
     /// таблица и вердикт; неподтверждённый профиль в таблице остаётся.
     #[test]
@@ -1910,6 +1996,10 @@ mod tests {
                      sessions_outside_window=0 exploratory=2026-05-01..2026-05-15 \
                      confirmatory=2026-05-16..2026-05-20"
                 .to_string(),
+            pbo_na: None,
+            cpcv_na: None,
+            cpcv_selection: Some("лучший по среднему net на IS-сутках".to_string()),
+            pbo_matrix: String::new(),
         };
         write_shortlist_md(
             &path,
@@ -1938,7 +2028,12 @@ mod tests {
         );
         assert!(text.contains("dsr=0.9700"), "{text}");
         assert!(text.contains("pbo=0.2000"), "{text}");
-        assert!(text.contains("cpcv_oos_sharpe=1.1000"), "{text}");
+        assert!(
+            text.contains(
+                "cpcv_oos_sharpe=1.1000 (selection: лучший по среднему net на IS-сутках)"
+            ),
+            "число CPCV обязано идти с названным правилом отбора: {text}"
+        );
         assert!(text.contains("G: 12"), "{text}");
         assert!(text.contains("jackknife_by_day: min=3.8000"), "{text}");
         assert!(
