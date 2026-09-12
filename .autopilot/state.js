@@ -1062,8 +1062,12 @@ window.STATE =
       "blockedBy": ["35"],
       "wave": 12,
       "zone": ["src/commands/lob/dashboard.rs", "src/commands/lob/dashboard_page.html", "src/lob/touch_axes.rs"],
-      "status": "in_progress",
+      "status": "done",
       "startedAt": "2026-09-13T02:45:00+04:00",
+      "finishedAt": "2026-09-13T03:30:00+04:00",
+      "tests": "673 passed, 0 failed, 5 ignored; clippy -D warnings, fmt чисто",
+      "commit": "e1d4a9a",
+      "review": {"один ревьюер, три оси": "Манифест да, критерии done, BLOCKING нет; находка: корзина фронтрана 0 пуста по построению (0/44 086) — В-45; m_10s внутри касания ≈ 0 по построению — В-45; завал при k=1.0 без оговорки; мелочи тултипа"},
       "retries": 0, "repairs": 0, "handoffs": 0,
       "note": "владелец 2026-09-13: «обновляем дашборд и делаем идею»; оси В-44, метки касаний на картине"
     },
