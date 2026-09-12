@@ -1024,6 +1024,18 @@ window.STATE =
       "note": "владелец: «дашборд о бизнес задаче конкретно — о монетах и их плотностях». Живой: http://127.0.0.1:8765/index.html, вотчер --watch 120 с копии data/dashboard/alpha-dashboard.exe (pid в dashboard.pid), сервер serve.pid. Попутно: markout::base_before/future_asof — двоичный поиск (8×5.5 ч за 15 с), costs::observation_at вместо трёх копий петли net. Ревью R-A/R-B/R-C — следующей сессией"
     },
     {
+      "id": "34",
+      "title": "Добавление инструментов в идущую запись без перезапуска",
+      "requirements": ["R89"],
+      "blockedBy": [],
+      "wave": 12,
+      "zone": ["src/feed/mod.rs", "src/feed/live.rs", "src/feed/replay.rs", "src/commands/lob/session.rs", "src/commands/lob/session/", "CLAUDE.md", "docs/COMMANDS.md"],
+      "status": "in_progress",
+      "startedAt": "2026-09-13T00:05:00+04:00",
+      "retries": 0, "repairs": 0, "handoffs": 0,
+      "note": "владелец 2026-09-12: «нужно чтобы можно было добавлять на запись без перезапуска» (В-40). Новые символы — новым соединением, instruments.csv в --root — живой список, проверка mtime на Tick"
+    },
+    {
       "id": "14",
       "title": "Чистка репозитория и память проекта",
       "requirements": [
