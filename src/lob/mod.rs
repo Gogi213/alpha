@@ -14,6 +14,7 @@ pub mod final_metrics;
 pub mod levels;
 pub mod markout;
 pub mod markup;
+pub mod moves;
 pub mod runs;
 pub mod shortlist;
 pub mod strategy;
