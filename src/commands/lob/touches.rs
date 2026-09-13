@@ -32,6 +32,9 @@ use super::{
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::lob::moves::{by_dt_bins, find_pairs, histogram, quantiles};
+use crate::lob::touch_axes::{
+    age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
+};
 
 /// Аргументы `lob touches`: читает суточные файлы, пишет касания живых
 /// уровней с признаками практиков. Режим `H3` — без умолчания, как у
@@ -74,6 +77,11 @@ pub struct TouchesArgs {
     /// печатается: шаг — параметр, а не назначенное число).
     #[arg(long)]
     pub moves_bin_ms: Option<f64>,
+    /// Выгрузить **числа практиков** (T42): квантили p10/p50/p90 размера (лоты
+    /// / ×H3 / $), расстояния (bps) и времени жизни — по касаниям и по умершим
+    /// уровням, отдельно по исходам и по осям В-44.
+    #[arg(long)]
+    pub numbers: Option<PathBuf>,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -146,6 +154,11 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
+    };
+    // Порог в лотах — для чисел практиков (×H3) и шапок артефактов.
+    let h3_lots = match mode {
+        crate::lob::levels::H3Mode::Floor { h3_lots }
+        | crate::lob::levels::H3Mode::Percentile { h3_lots } => h3_lots,
     };
     let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
     let out = args
@@ -317,11 +330,223 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         }
     }
 
+    if args.numbers.is_some() {
+        write_numbers(args, &replay, h3_lots, replay.tick_e9, replay.step_e9)?;
+    }
+
     Ok(TouchesSummary {
         days: replay.days.len(),
         touches: n,
         out,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Числа практиков (T42, вторая половина): квантили размера, расстояния и
+// времени жизни по касаниям и по умершим уровням, отдельно по исходам и по
+// осям В-44. Ни одного нового порога: корзины — существующие (`touch_axes`,
+// `SIZE_LABELS`), квантили — `stats::quantiles`.
+// ---------------------------------------------------------------------------
+
+/// Одно наблюдение для квантилей: размер тремя способами, расстояние и жизнь.
+#[derive(Debug, Clone, Copy)]
+struct NumSample {
+    size_lots: f64,
+    size_x_h3: f64,
+    size_usd: f64,
+    distance_bps: Option<f64>,
+    lifetime_s: f64,
+}
+
+fn push_sample(
+    groups: &mut std::collections::BTreeMap<String, Vec<NumSample>>,
+    key: &str,
+    s: NumSample,
+) {
+    groups.entry(key.to_string()).or_default().push(s);
+}
+
+/// Пишет строки квантилей: одна строка на (охват, группа).
+fn write_number_rows(
+    w: &mut csv::Writer<std::fs::File>,
+    scope: &str,
+    groups: &std::collections::BTreeMap<String, Vec<NumSample>>,
+) -> anyhow::Result<()> {
+    let q = |v: &[f64]| crate::stats::quantiles(v).map(|(a, b, c)| (a, b, c));
+    let num = |v: Option<f64>, d: usize| match v {
+        Some(x) => format!("{x:.d$}"),
+        None => "—".to_string(),
+    };
+    for (group, samples) in groups {
+        let col = |f: &dyn Fn(&NumSample) -> Option<f64>| -> Vec<f64> {
+            samples.iter().filter_map(f).collect()
+        };
+        let lots = col(&|s: &NumSample| Some(s.size_lots));
+        let xh3 = col(&|s: &NumSample| Some(s.size_x_h3));
+        let usd = col(&|s: &NumSample| Some(s.size_usd));
+        let dist = col(&|s: &NumSample| s.distance_bps);
+        let life = col(&|s: &NumSample| Some(s.lifetime_s));
+        let t = |v: &[f64]| q(v);
+        let (l1, l2, l3) = t(&lots).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
+        let (x1, x2, x3) = t(&xh3).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
+        let (u1, u2, u3) = t(&usd).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
+        let (d1, d2, d3) = match t(&dist) {
+            Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
+            None => (None, None, None),
+        };
+        let (f1, f2, f3) = t(&life).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
+        w.write_record([
+            scope.to_string(),
+            group.clone(),
+            samples.len().to_string(),
+            num(Some(l1), 1),
+            num(Some(l2), 1),
+            num(Some(l3), 1),
+            num(Some(x1), 2),
+            num(Some(x2), 2),
+            num(Some(x3), 2),
+            num(Some(u1), 0),
+            num(Some(u2), 0),
+            num(Some(u3), 0),
+            num(d1, 2),
+            num(d2, 2),
+            num(d3, 2),
+            num(Some(f1), 2),
+            num(Some(f2), 2),
+            num(Some(f3), 2),
+        ])?;
+    }
+    Ok(())
+}
+
+/// Числа практиков за прогон: `--numbers`.
+fn write_numbers(
+    args: &TouchesArgs,
+    replay: &super::replay::ReplayStats,
+    h3_lots: i64,
+    tick_e9: i64,
+    step_e9: i64,
+) -> anyhow::Result<std::path::PathBuf> {
+    let path = args.numbers.clone().expect("вызывается только с --numbers");
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let tick = tick_e9 as f64 / 1e9;
+    let lot_qty = step_e9 as f64 / 1e9;
+    let h3 = h3_lots.max(1) as f64;
+    let mut touch_groups: std::collections::BTreeMap<String, Vec<NumSample>> = Default::default();
+    let mut death_groups: std::collections::BTreeMap<String, Vec<NumSample>> = Default::default();
+
+    for day in &replay.days {
+        for t in &day.touches {
+            let s = NumSample {
+                size_lots: t.size_at_touch as f64,
+                size_x_h3: t.size_at_touch as f64 / h3,
+                size_usd: t.size_at_touch as f64 * lot_qty * (t.price_tick as f64 * tick),
+                distance_bps: distance_bps_at_birth(&day.mids, t.level_birth_ms, t.price_tick),
+                lifetime_s: t.duration_ms as f64 / 1000.0,
+            };
+            push_sample(&mut touch_groups, "все", s);
+            push_sample(
+                &mut touch_groups,
+                if t.ended_by_death {
+                    "исход:проели"
+                } else {
+                    "исход:отскочила"
+                },
+                s,
+            );
+            push_sample(
+                &mut touch_groups,
+                &format!("сторона:{}", side_name(t.side)),
+                s,
+            );
+            if let Some(b) = age_bucket(t.age_ms()) {
+                push_sample(&mut touch_groups, &format!("возраст:{b}"), s);
+            }
+            push_sample(
+                &mut touch_groups,
+                &format!("номер:{}", touch_index_bucket(t.touch_index)),
+                s,
+            );
+            push_sample(
+                &mut touch_groups,
+                &format!("круглость:{}", round_bucket(t.round_zeros)),
+                s,
+            );
+            if let Some(share) = frontrun_share(t.frontrun_lots, t.size_at_touch) {
+                if let Some(b) = frontrun_bucket(share) {
+                    push_sample(&mut touch_groups, &format!("фронтран:{b}"), s);
+                }
+            }
+        }
+        for r in &day.records {
+            let s = NumSample {
+                size_lots: r.size_max as f64,
+                size_x_h3: r.size_max as f64 / h3,
+                size_usd: r.size_max as f64 * lot_qty * (r.price_tick as f64 * tick),
+                distance_bps: distance_bps_at_birth(&day.mids, r.birth_ms, r.price_tick),
+                lifetime_s: r.lifetime_ms as f64 / 1000.0,
+            };
+            push_sample(&mut death_groups, "все", s);
+            push_sample(
+                &mut death_groups,
+                &format!("исход:{}", outcome_name(r.outcome())),
+                s,
+            );
+            push_sample(
+                &mut death_groups,
+                &format!("сторона:{}", side_name(r.side)),
+                s,
+            );
+            if let Some(b) = super::profiles::size_bucket(r.size_max as f64 / h3) {
+                push_sample(&mut death_groups, &format!("размер:{b}"), s);
+            }
+        }
+    }
+
+    let mut file = std::fs::File::create(&path)?;
+    use std::io::Write as _;
+    writeln!(
+        file,
+        "# числа практиков: {} {} порог H3={} лотов, шаг цены {tick}, шаг лота {lot_qty}; квантили p10/p50/p90 (stats::quantiles, тип 7); расстояние — от середины в момент рождения уровня (T35), не от текущей цены",
+        args.symbol,
+        args.root.display(),
+        h3_lots
+    )?;
+    let mut w = csv::Writer::from_writer(file);
+    w.write_record([
+        "scope",
+        "group",
+        "n",
+        "size_lots_p10",
+        "size_lots_p50",
+        "size_lots_p90",
+        "size_x_h3_p10",
+        "size_x_h3_p50",
+        "size_x_h3_p90",
+        "size_usd_p10",
+        "size_usd_p50",
+        "size_usd_p90",
+        "distance_bps_p10",
+        "distance_bps_p50",
+        "distance_bps_p90",
+        "lifetime_s_p10",
+        "lifetime_s_p50",
+        "lifetime_s_p90",
+    ])?;
+    write_number_rows(&mut w, "касания", &touch_groups)?;
+    write_number_rows(&mut w, "смерти", &death_groups)?;
+    w.flush()?;
+    println!(
+        "numbers: {} групп касаний и {} групп смертей → {}",
+        touch_groups.len(),
+        death_groups.len(),
+        path.display()
+    );
+    Ok(path)
 }
 
 #[cfg(test)]

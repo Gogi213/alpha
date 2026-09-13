@@ -411,5 +411,60 @@ pub fn wild_cluster_bootstrap_t(
     Ok((at_least_as_extreme as f64 + 1.0) / (replications as f64 + 1.0))
 }
 
+// ---------------------------------------------------------------------------
+// Примитивы описания выборки: квантили и гистограмма. Живут здесь, а не в том
+// модуле, который первым их попросил (`lob::moves`): ими пользуются и
+// распределения чисел практиков (T42), и переезды, а второй набор определений
+// в проекте не заводится (`interfaces.md`, правило 5).
+// ---------------------------------------------------------------------------
+
+/// Квантили p10/p50/p90 линейной интерполяцией по порядковым статистикам
+/// (тип 7 — та же конвенция, что у `numpy.percentile`): определение
+/// измерения, а не порог. `None` на пустом входе.
+pub fn quantiles(values: &[f64]) -> Option<(f64, f64, f64)> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut v = values.to_vec();
+    v.sort_by(f64::total_cmp);
+    Some((
+        quantile_sorted(&v, 0.10),
+        quantile_sorted(&v, 0.50),
+        quantile_sorted(&v, 0.90),
+    ))
+}
+
+fn quantile_sorted(v: &[f64], q: f64) -> f64 {
+    if v.len() == 1 {
+        return v[0];
+    }
+    let pos = q * (v.len() - 1) as f64;
+    let lo = pos.floor() as usize;
+    let hi = pos.ceil() as usize;
+    if lo == hi {
+        v[lo]
+    } else {
+        v[lo] + (v[hi] - v[lo]) * (pos - lo as f64)
+    }
+}
+
+/// Гистограмма от минимума с шагом `width` (шаг — параметр вызывающего):
+/// `(левая граница корзины, сколько значений)`, пустые корзины опущены.
+pub fn histogram(values: &[f64], width: f64) -> Vec<(f64, u64)> {
+    if values.is_empty() || !width.is_finite() || width <= 0.0 {
+        return Vec::new();
+    }
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let base = (min / width).floor() * width;
+    let mut bins: std::collections::BTreeMap<i64, u64> = std::collections::BTreeMap::new();
+    for v in values {
+        let k = ((v - base) / width).floor() as i64;
+        *bins.entry(k).or_insert(0) += 1;
+    }
+    bins.into_iter()
+        .map(|(k, n)| (base + k as f64 * width, n))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;
