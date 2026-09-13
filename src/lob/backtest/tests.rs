@@ -544,3 +544,77 @@ fn module_stays_detached_from_transport_and_clocks() {
         assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
     }
 }
+
+/// Лестница входа (решение владельца 2026-09-13): исполняется **не первая**
+/// нога, цена входа берётся с исполненной, остальные снимаются, круг
+/// закрывается и не помечается `incomplete` — то, из-за отсутствия чего
+/// прогон по пулу показывал `incomplete` на каждой строке.
+#[test]
+#[ignore = "лестница: круг не закрывается (дефект проводки), см. docs/findings/ladder-2026-09-13.md"]
+fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
+    // Стена на бид 100, аск 105: покупки по 101..104 стоят в стороне от
+    // рынка. Продажа-агрессор ровно по 104 исполняет **дальнюю** ногу
+    // (условие `px >= 104` выполнено только для неё), дальше бид поднимается
+    // до 103 — срабатывает тейк-лимит, и его исполняет покупка-агрессор.
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        trade_at(2 * S, true, 104.0, 5.0),
+        depth_at(3 * S, true, 103.0, 5.0),
+        trade_at(4 * S, false, 103.0, 5.0),
+        depth_at(30 * S, true, 103.0, 5.0),
+        depth_at(30 * S, false, 104.0, 5.0),
+    ];
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let plan = TradePlan::Bounce {
+        entry_px: 101.0,
+        stop_px: 99.0,
+        take_px: 103.0,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 4,
+        grid_step_px: 1.0,
+    };
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan,
+            profile: 0,
+        }],
+        &drive_cfg(),
+    )
+    .unwrap();
+
+    assert!(
+        !run.incomplete,
+        "круг обязан закрыться: fills={} misses={:?} pos={} orders={:?}",
+        run.fills.len(),
+        run.misses,
+        hbt.position(0),
+        hbt.orders(0)
+            .values()
+            .map(|o| (o.order_id, o.status))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(run.fills.len(), 1, "исполнилась ровно одна нога");
+    let fill = run.fills[0];
+    assert!(
+        close(fill.entry_px, 104.0),
+        "цена входа — с исполненной (дальней) ноги, а не с первой: {}",
+        fill.entry_px
+    );
+    assert_eq!(run.fill_signal, vec![0]);
+    assert_eq!(hbt.position(0), 0.0, "позиция плоская после выхода");
+    let live = hbt
+        .orders(0)
+        .values()
+        .filter(|o| o.status == Status::New || o.status == Status::PartiallyFilled)
+        .count();
+    assert_eq!(live, 0, "неисполненные ноги лестницы обязаны быть сняты");
+}
