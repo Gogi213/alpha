@@ -136,7 +136,7 @@ fn quantile_sorted(v: &[f64], q: f64) -> f64 {
 /// Гистограмма от минимума с шагом `width` (шаг — параметр вызывающего):
 /// `(левая граница корзины, сколько значений)`, пустые корзины опущены.
 pub fn histogram(values: &[f64], width: f64) -> Vec<(f64, u64)> {
-    if values.is_empty() || !(width > 0.0) {
+    if values.is_empty() || !width.is_finite() || width <= 0.0 {
         return Vec::new();
     }
     let min = values.iter().copied().fold(f64::INFINITY, f64::min);

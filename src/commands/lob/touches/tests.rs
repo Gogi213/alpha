@@ -14,6 +14,9 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
         out: None,
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
     }
 }
 
