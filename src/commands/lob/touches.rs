@@ -23,8 +23,8 @@ use clap::Args;
 
 use crate::lob::levels::LevelsConfig;
 use crate::lob::markout::{
-    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, within_touch, APPROACH_MS,
-    HORIZONS_MS,
+    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, mid_double_tick, sample_asof,
+    within_touch, APPROACH_MS, HORIZONS_MS,
 };
 
 use super::{
@@ -355,6 +355,11 @@ struct NumSample {
     size_x_h3: f64,
     size_usd: f64,
     distance_bps: Option<f64>,
+    /// Расстояние по формулировке практиков: от середины за 1 с (10 с) **до**
+    /// касания до цены уровня, bps по модулю. Их «от 0.2 до 0.7 %» — это оно,
+    /// а не расстояние в момент рождения уровня (окна `APPROACH_MS` уже есть).
+    distance_before_1s_bps: Option<f64>,
+    distance_before_10s_bps: Option<f64>,
     lifetime_s: f64,
 }
 
@@ -364,6 +369,23 @@ fn push_sample(
     s: NumSample,
 ) {
     groups.entry(key.to_string()).or_default().push(s);
+}
+
+/// Расстояние от середины за `back_ms` **до** касания до цены уровня, bps по
+/// модулю — величина практиков («от 0.2 до 0.7 %»). Считается на существующих
+/// окнах `APPROACH_MS`: новых чисел не заводится.
+fn distance_before_bps(
+    mids: &[crate::lob::markout::MidSample],
+    t: &crate::lob::levels::TouchRecord,
+    back_ms: i64,
+    tick: f64,
+) -> Option<f64> {
+    let s = sample_asof(mids, t.start_ms, -back_ms)?;
+    let mid_px = mid_double_tick(s.bid_tick, s.ask_tick) as f64 / 2.0 * tick;
+    if mid_px <= 0.0 {
+        return None;
+    }
+    Some(((t.price_tick as f64 * tick) - mid_px).abs() / mid_px * 10_000.0)
 }
 
 /// Пишет строки квантилей: одна строка на (охват, группа).
@@ -384,12 +406,22 @@ fn write_number_rows(
         let xh3 = col(&|s: &NumSample| Some(s.size_x_h3));
         let usd = col(&|s: &NumSample| Some(s.size_usd));
         let dist = col(&|s: &NumSample| s.distance_bps);
+        let dist_before_1s = col(&|s: &NumSample| s.distance_before_1s_bps);
+        let dist_before_10s = col(&|s: &NumSample| s.distance_before_10s_bps);
         let life = col(&|s: &NumSample| Some(s.lifetime_s));
         let t = crate::stats::quantiles;
         let (l1, l2, l3) = t(&lots).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
         let (x1, x2, x3) = t(&xh3).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
         let (u1, u2, u3) = t(&usd).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
         let (d1, d2, d3) = match t(&dist) {
+            Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
+            None => (None, None, None),
+        };
+        let (e1a, e1b, e1c) = match t(&dist_before_1s) {
+            Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
+            None => (None, None, None),
+        };
+        let (e10a, e10b, e10c) = match t(&dist_before_10s) {
             Some(v) => (Some(v.0), Some(v.1), Some(v.2)),
             None => (None, None, None),
         };
@@ -410,6 +442,12 @@ fn write_number_rows(
             num(d1, 2),
             num(d2, 2),
             num(d3, 2),
+            num(e1a, 2),
+            num(e1b, 2),
+            num(e1c, 2),
+            num(e10a, 2),
+            num(e10b, 2),
+            num(e10c, 2),
             num(Some(f1), 2),
             num(Some(f2), 2),
             num(Some(f3), 2),
@@ -445,6 +483,8 @@ fn write_numbers(
                 size_x_h3: t.size_at_touch as f64 / h3,
                 size_usd: t.size_at_touch as f64 * lot_qty * (t.price_tick as f64 * tick),
                 distance_bps: distance_bps_at_birth(&day.mids, t.level_birth_ms, t.price_tick),
+                distance_before_1s_bps: distance_before_bps(&day.mids, t, APPROACH_MS[0], tick),
+                distance_before_10s_bps: distance_before_bps(&day.mids, t, APPROACH_MS[1], tick),
                 lifetime_s: t.duration_ms as f64 / 1000.0,
             };
             push_sample(&mut touch_groups, "все", s);
@@ -487,6 +527,8 @@ fn write_numbers(
                 size_x_h3: r.size_max as f64 / h3,
                 size_usd: r.size_max as f64 * lot_qty * (r.price_tick as f64 * tick),
                 distance_bps: distance_bps_at_birth(&day.mids, r.birth_ms, r.price_tick),
+                distance_before_1s_bps: None,
+                distance_before_10s_bps: None,
                 lifetime_s: r.lifetime_ms as f64 / 1000.0,
             };
             push_sample(&mut death_groups, "все", s);
@@ -532,6 +574,12 @@ fn write_numbers(
         "distance_bps_p10",
         "distance_bps_p50",
         "distance_bps_p90",
+        "distance_before_1s_bps_p10",
+        "distance_before_1s_bps_p50",
+        "distance_before_1s_bps_p90",
+        "distance_before_10s_bps_p10",
+        "distance_before_10s_bps_p50",
+        "distance_before_10s_bps_p90",
         "lifetime_s_p10",
         "lifetime_s_p50",
         "lifetime_s_p90",
