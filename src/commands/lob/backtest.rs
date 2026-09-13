@@ -120,6 +120,13 @@ pub struct BacktestArgs {
     /// Прибыль от входа, после которой трейл включается, bps.
     #[arg(long, default_value_t = 0.0)]
     pub trail_activate_bps: f64,
+    /// Вход лестницей: сколько лимитов ставить вместо одного (1 — как было).
+    /// Решение владельца 2026-09-13.
+    #[arg(long, default_value_t = 1)]
+    pub grid_legs: u8,
+    /// Шаг лестницы в тиках (0 — все ноги по одной цене).
+    #[arg(long, default_value_t = 0)]
+    pub grid_step_ticks: i64,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -775,6 +782,8 @@ fn bounce_plan(
     post_only: bool,
     trail_bps: f64,
     trail_activate_bps: f64,
+    grid_legs: u8,
+    grid_step_ticks: i64,
 ) -> (i8, TradePlan) {
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
@@ -782,6 +791,7 @@ fn bounce_plan(
         .saturating_sub(touch.start_ms)
         .saturating_mul(1_000_000);
     let deadline_ns = HORIZONS_MS[3].saturating_mul(1_000_000);
+    let grid_step_px = grid_step_ticks as f64 * tick;
     match touch.side {
         Side::Bid => (
             SIGMA_LONG,
@@ -794,6 +804,8 @@ fn bounce_plan(
                 post_only,
                 trail_bps,
                 trail_activate_bps,
+                grid_legs,
+                grid_step_px,
             },
         ),
         Side::Ask => (
@@ -807,6 +819,8 @@ fn bounce_plan(
                 post_only,
                 trail_bps,
                 trail_activate_bps,
+                grid_legs,
+                grid_step_px,
             },
         ),
     }
@@ -911,6 +925,8 @@ fn run_bounce(
                 args.post_only,
                 args.trail_bps,
                 args.trail_activate_bps,
+                args.grid_legs,
+                args.grid_step_ticks,
             );
             BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),

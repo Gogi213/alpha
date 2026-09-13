@@ -25,7 +25,7 @@
 //! `exit_price` из `lob::backtest`.
 
 use hftbacktest::depth::{MarketDepth, INVALID_MAX, INVALID_MIN};
-use hftbacktest::types::{Bot, OrdType, Side as HbtSide, TimeInForce};
+use hftbacktest::types::{Bot, OrdType, Side as HbtSide, Status, TimeInForce};
 
 use crate::lob::backtest::{entry_price, entry_side, exit_price, ENTRY_TTL_NS, HOLD_NS};
 
@@ -54,8 +54,13 @@ enum Phase {
     /// сборка кадра на живом пути — забота `commands::lob::react`, не эта
     /// функция — здесь только решение `Bot<MD>`).
     Idle,
-    /// Вход отправлен, ждём исполнения или истечения `ENTRY_TTL_NS`.
-    EntryPending { order_id: u64, sent_ns: i64 },
+    /// Вход отправлен, ждём исполнения или истечения `entry_ttl_ns`. Лестница
+    /// ставит несколько ордеров подряд: `order_id` — первый, всего `legs`.
+    EntryPending {
+        order_id: u64,
+        sent_ns: i64,
+        legs: u8,
+    },
     /// Позиция открыта, ждём `HOLD_NS` до выхода.
     Holding { entry_ns: i64 },
     /// Выход отправлен, ждём, когда позиция обнулится.
@@ -96,6 +101,13 @@ pub enum TradePlan {
         /// Прибыль от входа, после которой трейл включается, bps. До неё
         /// работает только стоп — иначе трейл выбивал бы на первом шуме.
         trail_activate_bps: f64,
+        /// Вход лестницей (решение владельца 2026-09-13): сколько лимитов
+        /// ставить вместо одного. `1` — прежнее поведение.
+        grid_legs: u8,
+        /// Шаг лестницы в цене (не в тиках: тик знает вызывающий, у стратегии
+        /// его нет). Первая нога — `entry_px`, каждая следующая дальше от
+        /// плотности, в сторону рынка.
+        grid_step_px: f64,
     },
 }
 
@@ -205,6 +217,24 @@ impl StrategyState {
         let id = self.next_order_id;
         self.next_order_id = self.next_order_id.saturating_add(1);
         id
+    }
+
+    /// Снимает живые ноги лестницы: исполненные и уже снятые трогать нельзя —
+    /// `cancel` по ним возвращает `OrderNotFound`/`InvalidOrderStatus`, а не
+    /// «ничего не произошло».
+    fn cancel_resting<MD, B>(&self, bot: &mut B, first_id: u64, legs: u8) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        for i in 0..legs as u64 {
+            let id = first_id.saturating_add(i);
+            let status = bot.orders(self.asset_no).get(&id).map(|o| o.status);
+            if matches!(status, Some(Status::New) | Some(Status::PartiallyFilled)) {
+                bot.cancel(self.asset_no, id, false)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -384,13 +414,21 @@ where
             }
             Ok(Action::Idle)
         }
-        Phase::EntryPending { order_id, sent_ns } => {
+        Phase::EntryPending {
+            order_id,
+            sent_ns,
+            legs,
+        } => {
             if bot.position(state.asset_no) != 0.0 {
+                // Первая нога исполнилась — остальные снимаем: добор
+                // усреднением это уже другая сделка, и решать её отдельно
+                // (лестница здесь только выбирает цену входа).
+                state.cancel_resting(bot, order_id, legs)?;
                 state.phase = Phase::Holding { entry_ns: now };
                 return Ok(Action::Idle);
             }
             if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
-                bot.cancel(state.asset_no, order_id, false)?;
+                state.cancel_resting(bot, order_id, legs)?;
                 state.phase = Phase::Idle;
                 return Ok(Action::EntryTimedOut { order_id });
             }
@@ -416,7 +454,6 @@ where
                 }
                 TradePlan::Bounce { entry_px, .. } => entry_px,
             };
-            let order_id = state.take_order_id();
             // Время жизни входа: у Decision 20 ордер стоит у своего спреда с
             // `GTX` (пост-онли, как было); у сделки-отскока цена задана
             // снаружи (за тик перед плотностью), и `GTX` там отвергается
@@ -442,36 +479,60 @@ where
                     true,
                 ),
             };
-            match side {
-                HbtSide::Buy => {
-                    bot.submit_buy_order(
-                        state.asset_no,
-                        order_id,
-                        px,
-                        state.qty,
-                        entry_tif,
-                        OrdType::Limit,
-                        entry_wait,
-                    )?;
-                }
-                _ => {
-                    bot.submit_sell_order(
-                        state.asset_no,
-                        order_id,
-                        px,
-                        state.qty,
-                        entry_tif,
-                        OrdType::Limit,
-                        entry_wait,
-                    )?;
+            // Вход лестницей (решение владельца 2026-09-13): вместо одного
+            // лимита — `grid_legs` штук с шагом `grid_step_px`, каждая
+            // следующая дальше от плотности в сторону рынка. Размер делится
+            // между ногами; исполняется, как правило, одна (первую же и
+            // держим — остальные снимаются при заполнении), поэтому лестница
+            // выбирает цену входа, а не усредняет позицию.
+            let (legs, step) = match state.plan {
+                TradePlan::Bounce {
+                    grid_legs,
+                    grid_step_px,
+                    ..
+                } => (grid_legs.max(1), grid_step_px),
+                TradePlan::SpreadHold => (1u8, 0.0f64),
+            };
+            let leg_qty = state.qty / legs as f64;
+            let first_id = state.next_order_id;
+            for i in 0..legs as u64 {
+                let px_i = match side {
+                    HbtSide::Buy => px + step * i as f64,
+                    _ => px - step * i as f64,
+                };
+                let order_id = state.take_order_id();
+                match side {
+                    HbtSide::Buy => {
+                        bot.submit_buy_order(
+                            state.asset_no,
+                            order_id,
+                            px_i,
+                            leg_qty,
+                            entry_tif,
+                            OrdType::Limit,
+                            entry_wait,
+                        )?;
+                    }
+                    _ => {
+                        bot.submit_sell_order(
+                            state.asset_no,
+                            order_id,
+                            px_i,
+                            leg_qty,
+                            entry_tif,
+                            OrdType::Limit,
+                            entry_wait,
+                        )?;
+                    }
                 }
             }
             state.phase = Phase::EntryPending {
-                order_id,
+                order_id: first_id,
                 sent_ns: now,
+                legs,
             };
             Ok(Action::EntrySubmitted {
-                order_id,
+                order_id: first_id,
                 side,
                 price: px,
             })

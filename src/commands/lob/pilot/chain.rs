@@ -165,6 +165,8 @@ pub(super) fn run_profiles_and_backtest_chain(
             post_only: false,
             trail_bps: 0.0,
             trail_activate_bps: 0.0,
+            grid_legs: 1,
+            grid_step_ticks: 0,
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,

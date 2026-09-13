@@ -624,7 +624,7 @@ where
             other => unreachable!("свежее состояние не могло вернуть {other:?}"),
         };
 
-        match run_round(bot, asset_no, &mut state, entry_id, side)? {
+        match run_round(bot, asset_no, &mut state, entry_id, 1, side)? {
             RoundOutcome::EndOfData => {
                 incomplete = true;
                 break 'signals;
@@ -735,6 +735,15 @@ pub struct BounceRun {
     pub incomplete: bool,
 }
 
+/// Сколько ног входа ставит этот план: у Decision 20 — одна, у лестницы
+/// В-44 — `grid_legs`. Нужно драйверу, чтобы найти исполненную ногу.
+fn legs_of(plan: TradePlan) -> u8 {
+    match plan {
+        TradePlan::SpreadHold => 1,
+        TradePlan::Bounce { grid_legs, .. } => grid_legs.max(1),
+    }
+}
+
 /// Итог одного круга в терминах драйвера.
 enum RoundOutcome {
     /// Круг закрыт: обе ноги исполнены, причина выхода известна.
@@ -764,6 +773,7 @@ fn run_round<B, MD>(
     asset_no: usize,
     state: &mut StrategyState,
     entry_id: u64,
+    legs: u8,
     side: HbtSide,
 ) -> Result<RoundOutcome, B::Error>
 where
@@ -794,10 +804,12 @@ where
     let Some((exit_id, reason)) = exit else {
         return Ok(RoundOutcome::Inconsistent);
     };
-    let entry_px = bot
-        .orders(asset_no)
-        .get(&entry_id)
-        .filter(|o| o.status == Status::Filled)
+    // Лестница ставит несколько ног, и исполняется не обязательно первая:
+    // годной считается любая исполненная нога входа (снятие остальных делает
+    // сама стратегия), цена входа — цена этой ноги.
+    let entry_px = (0..legs.max(1) as u64)
+        .filter_map(|i| bot.orders(asset_no).get(&entry_id.saturating_add(i)))
+        .find(|o| o.status == Status::Filled)
         .map(hftbacktest::types::Order::exec_price);
     let exit_info = bot
         .orders(asset_no)
@@ -941,7 +953,7 @@ where
             }
         }
 
-        match run_round(bot, asset_no, &mut state, entry_id, side)? {
+        match run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)? {
             RoundOutcome::EndOfData => {
                 incomplete = true;
                 break;
