@@ -405,7 +405,7 @@ function draw(st){
   // Касания: треугольник у начала на цене уровня (вверх — бид, вниз — аск),
   // цвет — исход; 4-е касание и дальше — контуром (у практиков это уже
   // «начинают трахать»). Перед полоской — тонкая зона фронтрана за секунду.
-  let nt=0, tcl=0, tcapped=false, tInWin=0;
+  let nt=0, tcl=0, tcapped=false, tInWin=0, tfr=0;
   const tl=[];
   if (FLT.touch && st.k){
     const tt=st.tt, tp=st.tp, tx=st.tx;
@@ -416,7 +416,7 @@ function draw(st){
     for (const i of tl){
       const X=x(tt[i]), Y=y(tp[i]), up=st.ts[i]===0; nt++;
       const fr=st.tfr[i];
-      if (fr>0){ const hh=2+6*Math.min(fr,1), ww=Math.max(2, x(tt[i]+st.td[i])-X); g.fillStyle='#d29922'; g.globalAlpha=0.20; g.fillRect(X, up ? Y-1-hh : Y+1, Math.min(ww, dataR-X), hh); g.globalAlpha=1; }
+      if (fr>0){ const hh=2+6*Math.min(fr,1), ww=Math.max(2, x(tt[i]+st.td[i])-X); g.fillStyle='#d29922'; g.globalAlpha=0.20; g.fillRect(X, up ? Y-1-hh : Y+1, Math.min(ww, dataR-X), hh); g.globalAlpha=1; tfr++; }
       const sz=3.2;
       g.strokeStyle='#0d1117'; g.lineWidth=0.7; g.fillStyle=TOUCHCOL[st.tu[i]];
       g.beginPath();
@@ -470,7 +470,7 @@ function draw(st){
   // текстом (`tools/shot.py --text-only`) — проверять страницу скриншотом
   // дороже и нужно только когда числа не отвечают (В-39).
   st.draw = {bars:list.length, inWin, capped, clipped, touches:nt, tInWin, tcapped, walls:walls.length,
-    caps, badges:st.drawBadges||0, profN, profMax, from, to, span, solo:false};
+    caps, badges:st.drawBadges||0, fr:tfr, profN, profMax, from, to, span, solo:false};
 }
 
 // ---------------------------------------------------------------------------

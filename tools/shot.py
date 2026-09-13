@@ -40,6 +40,7 @@ STATE_JS = """() => {
         (d.capped ? ' из ' + d.inWin + ' (потолок)' : '') + ', стен ' + d.walls +
         ', засечек исхода ' + d.caps + ', подписей стен ' + d.badges +
         ', касаний ' + d.touches + (d.tcapped ? ' из ' + d.tInWin + ' (потолок)' : '') +
+        ', из них с фронтраном ' + d.fr +
         (d.clipped ? ', за ценой ' + d.clipped : '') +
         (d.profN ? ', живых в кадре ' + d.profN : ''));
     } else if (st.loading) {
@@ -99,6 +100,20 @@ def main() -> int:
             state = {}
         tip = None
         readout = None
+        # Общестраничные факты: сетка на всё окно без прокрутки, ни панели, ни
+        # таблиц — то, что владелец просил («кроме сетки ничего»).
+        pageinfo = page.evaluate(
+            """() => ({
+              окно: [window.innerWidth, window.innerHeight],
+              прокрутка: document.body.scrollHeight - window.innerHeight,
+              плиток: document.querySelectorAll('.tile').length,
+              столбцов: getComputedStyle(document.getElementById('grid')).gridTemplateColumns.split(' ').length,
+              панель_сверху: !!document.querySelector('.top'),
+              таблиц: document.querySelectorAll('table').length,
+              холстов: document.querySelectorAll('canvas').length,
+              заголовок: document.title,
+            })"""
+        )
         if a.solo:
             page.evaluate("sym => { SOLO = sym; render(); }", a.solo)
             page.wait_for_timeout(2500)
@@ -120,6 +135,7 @@ def main() -> int:
         json.dumps(
             {
                 "url": a.url,
+                "страница": pageinfo,
                 "tiles": state.get("tiles"),
                 "loaded": state.get("loaded"),
                 "loading": state.get("loading"),
