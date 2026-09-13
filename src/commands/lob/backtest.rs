@@ -974,6 +974,7 @@ fn run_bounce(
         "n_stop",
         "n_take",
         "n_timeout",
+        "n_trail",
         "net_bps",
         "net_fill_bps",
         "net_fill_lo_bps",
@@ -1020,6 +1021,10 @@ fn run_bounce(
             .iter()
             .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Deadline))
             .count();
+        let n_trail = reasons
+            .iter()
+            .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Trail))
+            .count();
         let interval = net_fill_interval(
             &obs,
             crate::stats::GATE_ALPHA,
@@ -1060,6 +1065,7 @@ fn run_bounce(
             n_stop.to_string(),
             n_take.to_string(),
             n_timeout.to_string(),
+            n_trail.to_string(),
             num(mean_net_bps(&fills)),
             num(net_fill_bps(&obs)),
             num(interval.map(|i| i.lower_bps)),
@@ -1110,11 +1116,12 @@ fn run_bounce(
         run.round_ns_max as f64 / 1e9,
     );
     println!(
-        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · дедлайн {} · промахи {} · incomplete {}",
+        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · трейл {} · дедлайн {} · промахи {} · incomplete {}",
         touches.len(),
         run.fills.len(),
         run.exits.stop,
         run.exits.take,
+        run.exits.trail,
         run.exits.deadline,
         run.misses.total(),
         run.incomplete
