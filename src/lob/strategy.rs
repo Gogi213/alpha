@@ -62,11 +62,62 @@ enum Phase {
     ExitPending { order_id: u64 },
 }
 
+/// План сделки — **данные**, а не вторая стратегия (A6): что именно ловить и
+/// где выходить, решает уровень `lob/levels` (касание В-44, смерть уровня),
+/// `on_event` только исполняет план. Оба варианта идут через одну и ту же
+/// функцию, поэтому сделка-отскок попадает и в `Backtest`, и в `LiveBot` без
+/// правок.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TradePlan {
+    /// Decision 20 (как было): вход мейкером у своей стороны спреда, выход
+    /// ровно на `HOLD_NS`, без стопа и тейка. Числа прежнего бэктеста этим
+    /// вариантом не меняются — на нём стоит шов старого движка.
+    SpreadHold,
+    /// В-44, сделка-отскока: цены и срок приходят снаружи — лимитный вход по
+    /// `entry_px` (за тик перед плотностью), стоп по рынку при сделке на
+    /// `stop_px` (за тик внутри плотности), тейк лимитом `take_px`
+    /// (R 1:1), дедлайн `deadline_ns` от момента входа — после него выход по
+    /// рынку; неисполненный вход снимается через `entry_ttl_ns`.
+    Bounce {
+        entry_px: f64,
+        stop_px: f64,
+        take_px: f64,
+        deadline_ns: i64,
+        entry_ttl_ns: i64,
+    },
+}
+
+impl TradePlan {
+    /// Время жизни неисполненного входа у этого плана.
+    fn entry_ttl_ns(&self) -> i64 {
+        match *self {
+            TradePlan::SpreadHold => ENTRY_TTL_NS,
+            TradePlan::Bounce { entry_ttl_ns, .. } => entry_ttl_ns,
+        }
+    }
+}
+
+/// Почему отправлен выход. У Decision 20 причина одна — горизонт; у
+/// сделки-отскока их три (тейк, стоп, дедлайн), и бэктест считает их
+/// отдельно, потому что «сколько раз выбило стопом» — это и есть вопрос
+/// практиков о винрейте.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExitReason {
+    /// Выход ровно на горизонте `HOLD_NS` (Decision 20).
+    Horizon,
+    /// Тейк-лимит сработал.
+    Take,
+    /// Стоп: сделка прошла по `stop_px`, выходим по рынку.
+    Stop,
+    /// Дедлайн плана истёк — выход по рынку.
+    Deadline,
+}
+
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
 /// этого круга (`SIGMA_LONG`/`SIGMA_SHORT`, `backtest::entry_side`),
 /// назначается снаружи один раз при вооружении: какой именно сигнал
 /// ловить — решение уровня `lob/levels`, не этого модуля (границы модулей,
-/// `interfaces.md`).
+/// `interfaces.md`). `plan` — чем этот круг торгует (см. `TradePlan`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StrategyState {
     asset_no: usize,
@@ -74,16 +125,30 @@ pub struct StrategyState {
     qty: f64,
     next_order_id: u64,
     phase: Phase,
+    plan: TradePlan,
 }
 
 impl StrategyState {
+    /// Круг Decision 20: вход у спреда, выход на горизонте.
     pub fn new(asset_no: usize, sigma: i8, qty: f64, first_order_id: u64) -> Self {
+        Self::with_plan(asset_no, sigma, qty, first_order_id, TradePlan::SpreadHold)
+    }
+
+    /// Круг с планом: цены и сроки сделки приходят снаружи (В-44).
+    pub fn with_plan(
+        asset_no: usize,
+        sigma: i8,
+        qty: f64,
+        first_order_id: u64,
+        plan: TradePlan,
+    ) -> Self {
         Self {
             asset_no,
             sigma,
             qty,
             next_order_id: first_order_id,
             phase: Phase::Idle,
+            plan,
         }
     }
 
@@ -116,6 +181,7 @@ pub enum Action {
         order_id: u64,
         side: HbtSide,
         price: f64,
+        reason: ExitReason,
     },
 }
 
@@ -141,9 +207,6 @@ where
     let now = bot.current_timestamp();
     match state.phase {
         Phase::Holding { entry_ns } => {
-            if now.saturating_sub(entry_ns) < HOLD_NS {
-                return Ok(Action::Idle);
-            }
             let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
                 // Без книги выйти нельзя — круг остаётся Holding к следующему
                 // событию, а не теряется молча.
@@ -156,10 +219,54 @@ where
                 HbtSide::Buy => HbtSide::Sell,
                 _ => HbtSide::Buy,
             };
-            let Some(px) = exit_price(entry_side, bid, ask) else {
-                return Ok(Action::Idle);
+            // Что решает выход: у плана Decision 20 — только горизонт; у
+            // сделки-отскока (В-44) — стоп, тейк и дедлайн, и порядок здесь
+            // часть плана: стоп приоритетнее тейка (если цена проскочила оба
+            // уровня за один кадр, честнее считать, что выбило стопом).
+            let (px, taker, reason) = match state.plan {
+                TradePlan::SpreadHold => {
+                    if now.saturating_sub(entry_ns) < HOLD_NS {
+                        return Ok(Action::Idle);
+                    }
+                    let Some(px) = exit_price(entry_side, bid, ask) else {
+                        return Ok(Action::Idle);
+                    };
+                    (px, false, ExitReason::Horizon)
+                }
+                TradePlan::Bounce {
+                    stop_px,
+                    take_px,
+                    deadline_ns,
+                    ..
+                } => {
+                    let (stop_hit, take_hit) = match entry_side {
+                        HbtSide::Buy => (bid <= stop_px, bid >= take_px),
+                        _ => (ask >= stop_px, ask <= take_px),
+                    };
+                    if stop_hit {
+                        (stop_px, true, ExitReason::Stop)
+                    } else if take_hit {
+                        (take_px, false, ExitReason::Take)
+                    } else if now.saturating_sub(entry_ns) >= deadline_ns {
+                        match exit_price(entry_side, bid, ask) {
+                            Some(px) => (px, true, ExitReason::Deadline),
+                            None => return Ok(Action::Idle),
+                        }
+                    } else {
+                        return Ok(Action::Idle);
+                    }
+                }
             };
             let order_id = state.take_order_id();
+            // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
+            // лимитом (мейкер, GTC). Это не деталь реализации: издержки
+            // `costs` считают тейкера и мейкера по-разному, и бэктест должен
+            // видеть тот же тип ордера, что поставит живой контур.
+            let (tif, ord_type) = if taker {
+                (TimeInForce::IOC, OrdType::Market)
+            } else {
+                (TimeInForce::GTC, OrdType::Limit)
+            };
             match exit_side {
                 HbtSide::Buy => {
                     bot.submit_buy_order(
@@ -167,8 +274,8 @@ where
                         order_id,
                         px,
                         state.qty,
-                        TimeInForce::GTC,
-                        OrdType::Limit,
+                        tif,
+                        ord_type,
                         false,
                     )?;
                 }
@@ -178,8 +285,8 @@ where
                         order_id,
                         px,
                         state.qty,
-                        TimeInForce::GTC,
-                        OrdType::Limit,
+                        tif,
+                        ord_type,
                         false,
                     )?;
                 }
@@ -198,6 +305,7 @@ where
                 order_id,
                 side: exit_side,
                 price: px,
+                reason,
             })
         }
         Phase::ExitPending { .. } => {
@@ -211,7 +319,7 @@ where
                 state.phase = Phase::Holding { entry_ns: now };
                 return Ok(Action::Idle);
             }
-            if now.saturating_sub(sent_ns) >= ENTRY_TTL_NS {
+            if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
                 bot.cancel(state.asset_no, order_id, false)?;
                 state.phase = Phase::Idle;
                 return Ok(Action::EntryTimedOut { order_id });
@@ -222,11 +330,21 @@ where
             let Some(side) = entry_side(state.sigma) else {
                 return Ok(Action::Idle);
             };
-            let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
-                return Ok(Action::Idle);
-            };
-            let Some(px) = entry_price(side, bid, ask) else {
-                return Ok(Action::Idle);
+            // Цена входа: у Decision 20 — свой край спреда (нужна книга), у
+            // сделки-отскока — цена, посчитанная уровнем заранее (В-44), и
+            // книга для этого не нужна: вход стоит лимитом перед плотностью
+            // и ждёт, пока цена подойдёт.
+            let px = match state.plan {
+                TradePlan::SpreadHold => {
+                    let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
+                        return Ok(Action::Idle);
+                    };
+                    match entry_price(side, bid, ask) {
+                        Some(px) => px,
+                        None => return Ok(Action::Idle),
+                    }
+                }
+                TradePlan::Bounce { entry_px, .. } => entry_px,
             };
             let order_id = state.take_order_id();
             match side {
