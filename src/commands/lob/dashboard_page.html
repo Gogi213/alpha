@@ -355,6 +355,12 @@ function draw(st){
       g.globalAlpha=1;
     }
     g.strokeStyle='#2b3441'; g.lineWidth=1; g.beginPath(); g.moveTo(stripX-0.5,T); g.lineTo(stripX-0.5,T+ph); g.stroke();
+    // Подпись полосы: это суммарный размер живых плотностей по цене, не ещё
+    // один график — читатель не должен догадываться.
+    g.fillStyle='rgba(13,17,23,.75)'; g.fillRect(stripX,T,PROFILE_W,10);
+    g.fillStyle='#7d8590'; g.font='9.5px system-ui,sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillText('стакан', stripX+PROFILE_W/2, T+5.5);
+    g.font='10.5px system-ui,sans-serif'; g.textAlign='left';
   }
   // Слой T39: уровни пунктиром и метки закола — данных пока нет, рисовалка есть.
   for (const lv of st.levels){ const a=st.t0+lv[0], b=lv[1]===null?st.to:st.t0+lv[1]; if (b<from||a>to) continue; const Y=y(lv[2]); if (Y<T||Y>T+ph) continue;
