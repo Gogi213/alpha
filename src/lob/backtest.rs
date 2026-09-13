@@ -697,6 +697,11 @@ pub struct BounceRun {
     pub profile: u16,
     pub signals: u64,
     pub fills: Vec<Fill>,
+    /// Индекс сигнала (в порядке прогона) для каждого круга: по нему CLI
+    /// относит круг к осям В-44, не гоняя движок по разу на каждую ось.
+    pub fill_signal: Vec<usize>,
+    /// Причина выхода каждого круга, параллельно `fills`.
+    pub fill_reason: Vec<ExitReason>,
     pub exits: ExitTally,
     pub misses: MissLedger,
     pub observations: Vec<FillObservation>,
@@ -807,6 +812,8 @@ where
     let mut misses = MissLedger::default();
     let mut observations: Vec<FillObservation> = Vec::new();
     let mut exits = ExitTally::default();
+    let mut fill_signal: Vec<usize> = Vec::new();
+    let mut fill_reason: Vec<ExitReason> = Vec::new();
     let mut next_id = cfg.first_order_id;
     let mut incomplete = false;
     let mut blocked_until_ns: i64 = i64::MIN;
@@ -822,6 +829,8 @@ where
             profile,
             signals: order.len() as u64,
             fills,
+            fill_signal: Vec::new(),
+            fill_reason: Vec::new(),
             exits,
             misses,
             observations,
@@ -829,7 +838,7 @@ where
         });
     }
 
-    for sig in &order {
+    for (sig_idx, sig) in order.iter().enumerate() {
         if entry_side(sig.sigma).is_none() {
             continue;
         }
@@ -891,6 +900,8 @@ where
                     filled: net.is_some(),
                 });
                 fills.push(fill);
+                fill_signal.push(sig_idx);
+                fill_reason.push(reason);
                 blocked_until_ns = exit_ts;
             }
         }
@@ -902,6 +913,8 @@ where
         profile,
         signals: order.len() as u64,
         fills,
+        fill_signal,
+        fill_reason,
         exits,
         misses,
         observations,

@@ -27,18 +27,25 @@ use crate::book::Side;
 use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
-    build_backtest, build_profile_report, drive_profile, pnl_curve_bps, BacktestReport,
-    DriveConfig, Signal, TableEstimate, SIGMA_LONG, SIGMA_SHORT,
+    build_backtest, build_profile_report, drive_bounce, drive_profile, mean_net_bps, pnl_curve_bps,
+    BacktestReport, BounceRun, BounceSignal, DriveConfig, Signal, TableEstimate, SIGMA_LONG,
+    SIGMA_SHORT,
 };
-use crate::lob::levels::LevelRecord;
-use crate::lob::markout::MidSample;
+use crate::lob::costs::{fill_rate, net_fill_bps, net_fill_interval};
+use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, TouchRecord};
+use crate::lob::markout::{MidSample, HORIZONS_MS};
+use crate::lob::strategy::TradePlan;
+use crate::lob::touch_axes::{
+    age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
+};
 use hftbacktest::types::{
     Event as HbtEvent, EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT,
     EXCH_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
     LOCAL_BUY_TRADE_EVENT, LOCAL_EVENT, LOCAL_SELL_TRADE_EVENT,
 };
 
-use super::profiles::FillModel;
+use super::profiles::{size_bucket, FillModel};
+use super::side_name;
 
 // ---------------------------------------------------------------------------
 // `lob backtest` (шаг 6.3, история 32–34).
@@ -58,9 +65,9 @@ pub struct BacktestArgs {
     /// CSV сигналов: `profile_id,side,birth_ms` (`side`: `bid`|`ask` —
     /// Decision 14; `birth_ms` — момент срабатывания, тот же смысл, что
     /// колонка `birth_ms` артефакта `lob levels`). Несколько строк одного
-    /// `profile_id` — один профиль.
+    /// `profile_id` — один профиль. Не нужен с `--touches`.
     #[arg(long)]
-    pub signals_csv: PathBuf,
+    pub signals_csv: Option<PathBuf>,
     /// Медианная замеренная RTT исполнения, нс (D-RTT: источник — `lob
     /// probe`/`clock.csv`/`probe-*.csv`). Без умолчания: изобретённое число
     /// запрещено (§9 плана).
@@ -95,6 +102,25 @@ pub struct BacktestArgs {
     /// Решение вызывающего, не автоопределение — как там же.
     #[arg(long, default_value_t = false)]
     pub debug: bool,
+    /// Вместо CSV сигналов — **касания живых уровней** (В-44) из реплея того же
+    /// каталога: каждая строка `touches` становится сделкой-отскоком, план
+    /// которой строится здесь (бид `P`: вход `P+1` тик, стоп `P−1`, тейк
+    /// `P+3`; аск зеркально), а строки CSV — оси В-44. Порог `H3` — тот же
+    /// резолвер, что у `lob touches`.
+    #[arg(long, default_value_t = false)]
+    pub touches: bool,
+    /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
+    #[command(flatten)]
+    pub h3: super::H3Args,
+    /// Относительный порог `floor(k × median_trade_lots)` (В-30) для `--touches`.
+    #[arg(long)]
+    pub h3_k: Option<f64>,
+    /// Прогрев разметки, мс (`--touches`; по умолчанию `DEFAULT_WARMUP_MS`).
+    #[arg(long)]
+    pub warmup_ms: Option<i64>,
+    /// Окно `repeat_count`, мс (`--touches`; по умолчанию `DEFAULT_REPEAT_WINDOW_MS`).
+    #[arg(long)]
+    pub repeat_window_ms: Option<i64>,
 }
 
 /// Итог `lob backtest` для печати диспетчером.
@@ -126,9 +152,18 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
         anyhow::bail!("бинлог(и) {names} пусты или не разобрались");
     }
 
-    let signals = read_signals(&args.signals_csv)?;
+    // Сделка-отскока (В-44, таск 38): сигналы приходят не из CSV, а из
+    // касаний живых уровней того же реплея — отдельная ветка, потому что и
+    // план у каждой сделки свой, и строки отчёта — оси В-44.
+    if args.touches {
+        return run_bounce(args, &binlog_paths, tick_e9, step_e9, &events);
+    }
+    let Some(signals_csv) = args.signals_csv.as_deref() else {
+        anyhow::bail!("нужен либо --signals <csv>, либо --touches");
+    };
+    let signals = read_signals(signals_csv)?;
     if signals.is_empty() {
-        anyhow::bail!("сигналов нет: {}", args.signals_csv.display());
+        anyhow::bail!("сигналов нет: {}", signals_csv.display());
     }
     let table = read_table(args.profiles_csv.as_deref())?;
 
@@ -712,6 +747,319 @@ fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::
     }
     w.flush()?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Сделка-отскока по касаниям (таск 38, В-44)
+// ---------------------------------------------------------------------------
+
+/// План сделки-отскока для касания (В-44, повторено как есть): бид-уровень
+/// `P` — покупка лимитом на `P + 1` тик, стоп по рынку на `P − 1`, тейк
+/// `вход + (вход − стоп)` = `P + 3` (R 1:1, D 16:17); аск зеркально. Вход
+/// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
+/// `HORIZONS_MS[3]` (дедлайн 60 с).
+fn bounce_plan(touch: &TouchRecord, tick: f64) -> (i8, TradePlan) {
+    let p = touch.price_tick as f64 * tick;
+    let entry_ttl_ns = touch
+        .end_ms
+        .saturating_sub(touch.start_ms)
+        .saturating_mul(1_000_000);
+    let deadline_ns = HORIZONS_MS[3].saturating_mul(1_000_000);
+    match touch.side {
+        Side::Bid => (
+            SIGMA_LONG,
+            TradePlan::Bounce {
+                entry_px: p + tick,
+                stop_px: p - tick,
+                take_px: p + 3.0 * tick,
+                deadline_ns,
+                entry_ttl_ns,
+            },
+        ),
+        Side::Ask => (
+            SIGMA_SHORT,
+            TradePlan::Bounce {
+                entry_px: p - tick,
+                stop_px: p + tick,
+                take_px: p - 3.0 * tick,
+                deadline_ns,
+                entry_ttl_ns,
+            },
+        ),
+    }
+}
+
+/// Строка отчёта: «профиль» — либо `все`, либо `ось:корзина`. Корзины —
+/// существующие (`touch_axes`, `SIZE_LABELS`), новых границ здесь нет;
+/// касание может попасть сразу в несколько строк, и это правильно: строки —
+/// маргиналы осей, как в T37.
+struct BounceRow {
+    profile: String,
+    touches: Vec<usize>,
+}
+
+fn bounce_rows(touches: &[TouchRecord], h3_lots: i64) -> Vec<BounceRow> {
+    let mut rows = vec![BounceRow {
+        profile: "все".to_string(),
+        touches: (0..touches.len()).collect(),
+    }];
+    let push = |rows: &mut Vec<BounceRow>, axis: &str, bucket: &str, i: usize| {
+        let name = format!("{axis}:{bucket}");
+        match rows.iter_mut().find(|r| r.profile == name) {
+            Some(r) => r.touches.push(i),
+            None => rows.push(BounceRow {
+                profile: name,
+                touches: vec![i],
+            }),
+        }
+    };
+    for (i, t) in touches.iter().enumerate() {
+        if let Some(b) = age_bucket(t.start_ms.saturating_sub(t.level_birth_ms)) {
+            push(&mut rows, "возраст", b, i);
+        }
+        if h3_lots > 0 {
+            if let Some(b) = size_bucket(t.size_at_touch as f64 / h3_lots as f64) {
+                push(&mut rows, "размер", b, i);
+            }
+        }
+        if let Some(share) = frontrun_share(t.frontrun_lots, t.size_at_touch) {
+            if let Some(b) = frontrun_bucket(share) {
+                push(&mut rows, "фронтран", b, i);
+            }
+        }
+        push(&mut rows, "круглость", round_bucket(t.round_zeros), i);
+        push(&mut rows, "номер", touch_index_bucket(t.touch_index), i);
+        push(&mut rows, "сторона", side_name(t.side), i);
+    }
+    rows
+}
+
+/// Прогон сделки-отскока по касаниям символа и отчёт по осям В-44.
+fn run_bounce(
+    args: &BacktestArgs,
+    binlog_paths: &[PathBuf],
+    tick_e9: i64,
+    step_e9: i64,
+    events: &[HbtEvent],
+) -> anyhow::Result<BacktestSummary> {
+    let tick = tick_e9 as f64 / 1e9;
+    let lot_size = step_e9 as f64 / 1e9;
+    let order_qty = args.order_qty_e9 as f64 / 1e9;
+
+    // Порог `H3` — тем же резолвером, что `lob touches`/`levels`: числа
+    // считаются тем же кодом, что CSV касаний.
+    let mode = super::resolve_h3_mode_with_k(
+        &args.session_root,
+        &args.symbol,
+        args.h3.h3_mode,
+        args.h3.h3_lots,
+        args.h3_k,
+    )?;
+    let cfg_levels = LevelsConfig {
+        mode,
+        warmup_ms: args.warmup_ms.unwrap_or(super::DEFAULT_WARMUP_MS),
+        repeat_window_ms: args
+            .repeat_window_ms
+            .unwrap_or(super::DEFAULT_REPEAT_WINDOW_MS),
+    };
+    let h3_lots = match mode {
+        H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
+    };
+    let replay = super::replay_symbol(&args.session_root, &args.symbol, cfg_levels)?;
+    let mut touches: Vec<TouchRecord> = Vec::new();
+    for day in &replay.days {
+        touches.extend(day.touches.iter().cloned());
+    }
+    anyhow::ensure!(
+        !touches.is_empty(),
+        "касаний нет в {}: разметка пуста или порог не дал уровней",
+        args.session_root.display()
+    );
+
+    // Сигналы в порядке касаний; движок сортирует их по времени сам, и порядок
+    // его сортировки здесь повторяется (`sort_by_key` стабилен) — по нему
+    // круг относится к касанию, без второго прогона на каждую ось.
+    let signals: Vec<BounceSignal> = touches
+        .iter()
+        .map(|t| {
+            let (sigma, plan) = bounce_plan(t, tick);
+            BounceSignal {
+                t0_ns: t.start_ms.saturating_mul(1_000_000),
+                sigma,
+                plan,
+                profile: 0,
+            }
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..signals.len()).collect();
+    order.sort_by_key(|&i| signals[i].t0_ns);
+
+    let cfg = DriveConfig {
+        order_qty,
+        first_order_id: 1,
+    };
+    let mut bt = build_backtest(events, tick, lot_size, args.median_rtt_ns);
+    let run: BounceRun = drive_bounce(&mut bt, 0, &signals, &cfg)?;
+
+    let rows = bounce_rows(&touches, h3_lots);
+    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let out = args
+        .out
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("docs/findings/bounce-backtest-{date}.csv")));
+    let pnl_out = args
+        .pnl_out
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("docs/findings/bounce-backtest-{date}-pnl.csv")));
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    let header = format!(
+        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход за тик, стоп за тик внутрь, тейк 1:1, дедлайн {} мс), порог H3={} лотов, касаний {}, бинлогов {}",
+        args.symbol,
+        args.session_root.display(),
+        args.median_rtt_ns,
+        HORIZONS_MS[3],
+        h3_lots,
+        touches.len(),
+        binlog_paths.len()
+    );
+    // Шапка артефакта — строкой комментария: чем посчитан файл (`rtt=assumed`
+    // В-37, порог `H3`, состав сделки). Пишется до таблицы, как у остальных
+    // артефактов вердикта.
+    let mut file = std::fs::File::create(&out)?;
+    use std::io::Write as _;
+    writeln!(file, "# {header}")?;
+    let mut w = csv::Writer::from_writer(file);
+    w.write_record([
+        "profile_id",
+        "n_signals",
+        "n_filled",
+        "fill",
+        "n_missed",
+        "n_stop",
+        "n_take",
+        "n_timeout",
+        "net_bps",
+        "net_fill_bps",
+        "net_fill_lo_bps",
+        "net_fill_point_bps",
+        "days",
+        "incomplete",
+    ])?;
+    let mut in_pos: Vec<usize> = vec![0; signals.len()];
+    for (pos, &idx) in order.iter().enumerate() {
+        in_pos[idx] = pos;
+    }
+    let mut all_fills: Vec<crate::lob::backtest::Fill> = Vec::new();
+    for row in &rows {
+        let positions: Vec<usize> = row.touches.iter().map(|&i| in_pos[i]).collect();
+        let mut obs = Vec::with_capacity(positions.len());
+        for &p in &positions {
+            if let Some(o) = run.observations.get(p) {
+                obs.push(*o);
+            }
+        }
+        let fills: Vec<crate::lob::backtest::Fill> = run
+            .fills
+            .iter()
+            .zip(&run.fill_signal)
+            .filter(|(_, &s)| positions.contains(&s))
+            .map(|(f, _)| *f)
+            .collect();
+        let reasons: Vec<&crate::lob::strategy::ExitReason> = run
+            .fill_reason
+            .iter()
+            .zip(&run.fill_signal)
+            .filter(|(_, &s)| positions.contains(&s))
+            .map(|(r, _)| r)
+            .collect();
+        let n_stop = reasons
+            .iter()
+            .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Stop))
+            .count();
+        let n_take = reasons
+            .iter()
+            .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Take))
+            .count();
+        let n_timeout = reasons
+            .iter()
+            .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Deadline))
+            .count();
+        let interval = net_fill_interval(
+            &obs,
+            crate::stats::GATE_ALPHA,
+            crate::stats::BOOTSTRAP_REPLICATIONS,
+            0,
+        );
+        let num = |v: Option<f64>| match v {
+            Some(x) => format!("{x:.6}"),
+            None => "—".to_string(),
+        };
+        let mut days: Vec<i64> = obs.iter().map(|o| o.day_cluster).collect();
+        days.sort_unstable();
+        days.dedup();
+        let n_missed = obs.iter().filter(|o| !o.filled).count();
+        w.write_record([
+            row.profile.clone(),
+            positions.len().to_string(),
+            fills.len().to_string(),
+            num(fill_rate(&obs)),
+            n_missed.to_string(),
+            n_stop.to_string(),
+            n_take.to_string(),
+            n_timeout.to_string(),
+            num(mean_net_bps(&fills)),
+            num(net_fill_bps(&obs)),
+            num(interval.map(|i| i.lower_bps)),
+            num(interval.map(|i| i.point_bps)),
+            days.len().to_string(),
+            run.incomplete.to_string(),
+        ])?;
+        if row.profile == "все" {
+            all_fills = fills;
+        }
+    }
+    w.flush()?;
+
+    // Кривая PnL — по всем кругам прогона (одна на символ, не на ось).
+    let mut wp = csv::Writer::from_path(&pnl_out)?;
+    wp.write_record(["n", "cum_net_bps"])?;
+    if let Some(curve) = pnl_curve_bps(&all_fills) {
+        for (i, v) in curve.iter().enumerate() {
+            wp.write_record([(i + 1).to_string(), format!("{v:.6}")])?;
+        }
+    }
+    wp.flush()?;
+
+    println!(
+        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · дедлайн {} · промахи {} · incomplete {}",
+        touches.len(),
+        run.fills.len(),
+        run.exits.stop,
+        run.exits.take,
+        run.exits.deadline,
+        run.misses.total(),
+        run.incomplete
+    );
+    println!(
+        "bounce: строк {} → {} (+ кривые PnL {})",
+        rows.len(),
+        out.display(),
+        pnl_out.display()
+    );
+
+    let pass = 0;
+    Ok(BacktestSummary {
+        profiles: rows.len(),
+        pass,
+        red: rows.len(),
+        out,
+        pnl_out,
+    })
 }
 
 #[cfg(test)]

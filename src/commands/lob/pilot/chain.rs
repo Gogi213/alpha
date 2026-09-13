@@ -151,7 +151,7 @@ pub(super) fn run_profiles_and_backtest_chain(
         let bt = run_backtest(&BacktestArgs {
             session_root: session_dir.clone(),
             symbol: symbol.clone(),
-            signals_csv,
+            signals_csv: Some(signals_csv),
             median_rtt_ns,
             p95_rtt_ns,
             order_qty_e9,
@@ -159,6 +159,16 @@ pub(super) fn run_profiles_and_backtest_chain(
             out: Some(session_dir.join(format!("backtest-{symbol}.csv"))),
             pnl_out: Some(session_dir.join(format!("backtest-{symbol}-pnl.csv"))),
             debug: true,
+            // Пилот гоняет старую сетку смертей: касания (В-44) — отдельная
+            // ветка `--touches`, здесь она выключена.
+            touches: false,
+            h3: crate::commands::lob::H3Args {
+                h3_mode: crate::commands::lob::H3ModeArg::Floor,
+                h3_lots: None,
+            },
+            h3_k: None,
+            warmup_ms: None,
+            repeat_window_ms: None,
         });
         match bt {
             Ok(s) => lines.push(format!(
