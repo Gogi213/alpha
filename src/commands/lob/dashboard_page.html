@@ -59,6 +59,10 @@ let SOLO = null;                                  // монета, развёр�
 // снизу, аск сверху — так на картинке читается сам стакан, а исход уровня
 // живёт в метках касаний. Яркость и толщина полоски — ранг размера.
 const SIDECOL = ['#2f81f7','#f0883e'];
+// Исход умершего уровня — короткая засечка на его конце: проели / сняли /
+// смешанно. Поле плотностей красится стороной (иначе каша), исход живёт в
+// засечке стены и в метках касаний.
+const OUTCOL = ['#f85149','#6e7681','#d29922','#58a6ff'];
 const OUTNAME = ['проели','сняли','смешанно','живой'];
 const SIDENAME = ['бид (покупка)','аск (продажа)'];
 const TOUCHCOL = ['#3fb950','#f85149'];
@@ -316,19 +320,27 @@ function draw(st){
   // «Стены»: сотня самых крупных полосок окна — плотной линией поверх поля.
   // Живые стены видны не пунктиром, а яркой кромкой у правого края (ниже).
   const walls = list.length>100 ? list.slice(Math.max(0, list.length-100)) : [];
+  let caps=0;
   for (const i of walls){
     const x1=Math.max(L, x(bb[i])); if (x1>dataR) continue;
     let x2 = bd[i]===Infinity ? liveEnd : x(bd[i]); x2=Math.min(dataR, Math.max(x1+1.5, x2));
     const Y=y(bp[i]);
     g.globalAlpha=0.95; g.strokeStyle=SIDECOL[st.bs[i]]; g.lineWidth=1.2+4.2*ba[i];
     g.beginPath(); g.moveTo(x1,Y); g.lineTo(x2,Y); g.stroke();
+    // Засечка исхода у конца умершей стены: проели — красная, сняли — серая,
+    // смешанно — жёлтая (та же палитра, что у касаний и в словаре).
+    if (bd[i]!==Infinity){ const X=x(bd[i]);
+      if (X>L && X<dataR){ g.globalAlpha=0.95; g.strokeStyle=OUTCOL[st.bo[i]]; g.lineWidth=1.4+2.4*ba[i];
+        g.beginPath(); g.moveTo(X-2.5,Y); g.lineTo(X+2.5,Y); g.stroke(); caps++; } }
   }
   g.globalAlpha=1;
   // Живые плотности — яркая кромка у правого края окна: «что стоит сейчас».
+  const aliveIdx = [];
   if (nearEnd){
     const lastC = st.bIdx[st.bkOf(Math.min(to, st.to))];
     if (lastC) for (let q=0;q<lastC.length;q++){ const i=lastC[q]; if (bd[i]!==Infinity) continue;
       const Y=y(bp[i]); if (Y<T-2||Y>T+ph+2) continue;
+      aliveIdx.push(i);
       g.globalAlpha=0.55+0.45*ba[i]; g.strokeStyle=SIDECOL[st.bs[i]]; g.lineWidth=1.4+2.2*ba[i];
       g.beginPath(); g.moveTo(Math.max(L,dataR-5),Y); g.lineTo(dataR,Y); g.stroke(); }
     g.globalAlpha=1;
@@ -408,6 +420,29 @@ function draw(st){
     }
     g.restore();
   }
+  // Подписи трёх крупнейших живых стен — три признака практиков сразу:
+  // возраст («плотность стоит не меньше часа»), размер кратностью порога
+  // («крупная для стакана») и завал — сколько живых плотностей той же стороны
+  // стоит не дальше окна завала (`chart_price_pad_bps`, В-45).
+  let badges=0;
+  if (aliveIdx.length){
+    aliveIdx.sort((a,b)=>bx[b]-bx[a]);
+    const win = D.chart_price_pad_bps;
+    g.font='9.5px system-ui,sans-serif'; g.textAlign='right'; g.textBaseline='middle';
+    for (const i of aliveIdx.slice(0,3)){
+      const p=bp[i], s=st.bs[i]; if (p<plo||p>phi) continue;
+      let stack=0;
+      for (const j of aliveIdx){ if (st.bs[j]!==s) continue; if (Math.abs(bp[j]-p) <= p*win/1e4) stack++; }
+      const ageH = (st.to - bb[i])/3600000;
+      const label = (ageH>=1?'≥1 ч: ':'') + ageH.toFixed(1)+' ч · '+bx[i].toFixed(0)+'×H3 · завал '+stack;
+      const Y=y(p); if (Y<T||Y>T+ph) continue;
+      g.globalAlpha=0.9; g.fillStyle='#e6edf3';
+      g.fillText(label, dataR-4, Y-5);
+      badges++;
+    }
+    g.globalAlpha=1; g.font='10.5px system-ui,sans-serif'; g.textAlign='left';
+  }
+  st.drawBadges=badges;
   st.hit=hit; st.geom={L,T,pw,ph,from,span};
   // Оси — поверх всего, чтобы подписи читались.
   g.fillStyle='#7d8590'; g.textAlign='left'; g.textBaseline='middle';
@@ -427,7 +462,7 @@ function draw(st){
   // текстом (`tools/shot.py --text-only`) — проверять страницу скриншотом
   // дороже и нужно только когда числа не отвечают (В-39).
   st.draw = {bars:list.length, inWin, capped, clipped, touches:nt, tInWin, tcapped, walls:walls.length,
-    profN, profMax, from, to, span, solo:false};
+    caps, badges:st.drawBadges||0, profN, profMax, from, to, span, solo:false};
 }
 
 // ---------------------------------------------------------------------------

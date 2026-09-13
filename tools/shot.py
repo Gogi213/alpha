@@ -38,6 +38,7 @@ STATE_JS = """() => {
       const d = st.draw;
       if (d) out.draw.push(sym + ': окон ' + Math.round(d.span/60000) + ' мин, полосок ' + d.bars +
         (d.capped ? ' из ' + d.inWin + ' (потолок)' : '') + ', стен ' + d.walls +
+        ', засечек исхода ' + d.caps + ', подписей стен ' + d.badges +
         ', касаний ' + d.touches + (d.tcapped ? ' из ' + d.tInWin + ' (потолок)' : '') +
         (d.clipped ? ', за ценой ' + d.clipped : '') +
         (d.profN ? ', живых в кадре ' + d.profN : ''));
