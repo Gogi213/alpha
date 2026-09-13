@@ -3,19 +3,32 @@
 //! плотностях»; заменяет таск 32, чей дашборд был «обо всём и ни о чём»).
 //!
 //! Команда **только читает**: живой каталог коллектора (`--root`) не
-//! изменяется ни одним байтом, всё пишется в `--out` (`index.html` +
-//! `data.json`, оба — через временный файл и переименование, чтобы страница,
-//! перечитывающая `data.json` раз в 30 с, не поймала полуфайл).
+//! изменяется ни одним байтом, всё пишется в `--out` (`index.html`,
+//! `data.json` и `coin-<SYMBOL>.json` на монету — каждый через временный
+//! файл и переименование, чтобы страница, перечитывающая их, не поймала
+//! полуфайл).
 //!
-//! Что на странице — ровно предмет задачи (`BUSINESS-TASK.md`, логлайн):
+//! Страница (таск 41, владелец: «сетка супер экономичных, но достаточно
+//! интерактивных графиков … кроме сетки ниче там пока не оставлять») —
+//! **сетка плиток по монетам на всю ширину окна**, в плитке — символ, цена,
+//! плотностей сейчас, касаний / отскочила и **график на `<canvas>`** по всей
+//! истории записи: середина цены, каждая плотность полоской от рождения до
+//! смерти на своей цене (толщина — ранг размера, цвет — исход, живые —
+//! пунктиром), касания треугольниками (цвет — отскок / проели) с тонкой
+//! зоной фронтрана перед полоской. Колесо — зум по времени, перетаскивание —
+//! панорама, двойной клик — последний час. Клик по плитке разворачивает её
+//! на всю ширину, и только там — таблицы касаний (таск 36) и оговорки.
+//!
+//! Что в данных — ровно предмет задачи (`BUSINESS-TASK.md`, логлайн):
 //! крупная лимитная заявка (плотность) появилась, прожила, исчезла —
 //! проели или сняли, — и куда после этого ушла цена. По каждой монете пула:
 //!
 //! 1. **плотности сейчас** — живые крупные уровни на последнем кадре записи
 //!    (сторона, цена, расстояние до середины в bps, размер в лотах / в
 //!    долларах / кратностью порога, возраст, который раз на этой цене);
-//! 2. **картина за последний час** — середина цены и каждая плотность
-//!    полоской от рождения до смерти на своей цене, цвет — исход;
+//! 2. **график за всю запись** (`coin-<SYMBOL>.json`, компактные массивы) —
+//!    середина раз в секунду, все полоски и все касания записи, пустой слой
+//!    под уровни T39;
 //! 3. **что с ними стало** — по исходам: сколько, доля, время жизни, markout
 //!    на четырёх горизонтах, `net` после издержек;
 //! 4. **где стоят и как живут** — те же числа по осям профиля (сторона,
@@ -25,7 +38,7 @@
 //!    касания живых уровней из `ReplayDay.touches` того же реплея: итог по
 //!    исходам (отскочила / проели на касании) с markout «в сторону отскока»
 //!    на четырёх горизонтах, маргиналы по осям В-44 (`lob::touch_axes`),
-//!    крест исход × возраст, метки касаний на картине часа.
+//!    крест исход × возраст.
 //!
 //! Разметка уровней **не переписана**: `replay_symbol` — тот же реплей, что
 //! у `lob levels`/`markout`/`watch`/`pilot`/`touches`; `markouts_for_level`,
@@ -37,8 +50,8 @@
 //!
 //! Ни одного порога эта команда не изобретает: издержки — `ROUNDTRIP_FEES_BPS`,
 //! горизонты — `HORIZONS_MS`, порог `H3` — `instruments.csv` каталога (и это
-//! печатается: чей порог, какой `k`), RTT — В-37 (`assumed`), окно картины —
-//! назначено здесь (`PICTURE_MINUTES`) и напечатано.
+//! печатается: чей порог, какой `k`), RTT — В-37 (`assumed`), стартовое окно
+//! графика — назначено здесь (`CHART_START_MINUTES`) и напечатано.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -82,25 +95,42 @@ use crate::commands::record::instruments_csv_path;
 /// печатается, чтобы читатель знал, какое число ждёт бэктест.
 const ASSUMED_RTT_MS: u32 = 20;
 
-/// Окно «картины»: последний час записи. Назначено здесь и напечатано на
-/// странице; это окно показа, не окно вердикта (В-31 — окно «сейчас»
-/// артефактов вердикта, В-33 — зачётный хвост пилота; ни то ни другое эта
-/// страница не подменяет).
-const PICTURE_MINUTES: i64 = 60;
+/// Стартовое окно графика (таск 41): последний час записи. График держит
+/// всю историю записи, колесо и перетаскивание ходят по ней; это окно
+/// показа при открытии, не окно вердикта (В-31 — окно «сейчас» артефактов
+/// вердикта, В-33 — зачётный хвост пилота; ни то ни другое страница не
+/// подменяет). Двойной клик возвращает к нему.
+const CHART_START_MINUTES: i64 = 60;
 
-/// Шаг прореживания середины на картине: одна точка в секунду (последний
-/// срез секунды). Чистое прореживание для рисунка, на числа не влияет.
-const PICTURE_MID_STEP_MS: i64 = 1_000;
+/// Шаг прореживания середины в файле монеты: одна точка в секунду
+/// (последний срез секунды) по всей записи. Чистое прореживание для
+/// рисунка, на числа не влияет.
+const CHART_MID_STEP_MS: i64 = 1_000;
 
-/// Потолок полосок на картине: при отладочном пороге (`h3_lots = 1`) в час
-/// рождаются десятки тысяч уровней, и браузер на таком SVG встаёт. Остаются
-/// самые крупные (по максимуму размера); сколько было всего — печатается.
-/// Тот же потолок — у меток касаний (таск 36): остаются самые крупные по
-/// размеру уровня на касании (`size_at_touch`).
-const PICTURE_MAX_BARS: usize = 4_000;
+/// Потолок полосок, которые страница рисует в **видимом окне** одной плитки:
+/// при отладочном пороге (`h3_lots = 1`) в час рождаются десятки тысяч
+/// уровней. Файл монеты несёт все полоски записи (потолка в данных нет);
+/// когда в окне их больше, страница оставляет самые крупные (по максимуму
+/// размера) и печатает это в углу графика. Тот же потолок — у меток касаний
+/// (самые крупные по размеру уровня на касании).
+const CHART_MAX_DRAWN: usize = 4_000;
+
+/// Потолок полосок (и касаний) в **файле** монеты: `CHART_MAX_DRAWN` на
+/// каждый час суток — чтобы окно в час на суточной записи получало полный
+/// потолок рисования из файла, а файл оставался единицами МБ. Число не
+/// изобретено: живая проверка T41 дала у LSK 3.27 млн уровней за 3 ч
+/// (138 МБ файла, гигабайт в сутки) — браузер такого не разбирает. Остаются
+/// самые крупные по размеру (тот же выбор, что у страницы в окне); сколько
+/// было всего — в файле (`bars_total`) и в углу графика.
+const CHART_FILE_MAX_ROWS: usize = CHART_MAX_DRAWN * 24;
 
 /// Как часто страница сама перечитывает `data.json` (секунды).
 const PAGE_REFRESH_SECS: u64 = 30;
+
+/// Как часто страница перечитывает `coin-<SYMBOL>.json` (секунды) — период
+/// вотчера владельца (`--watch 120`); чаще нет смысла: файл переписывается
+/// раз в расчёт.
+const CHART_REFRESH_SECS: u64 = 120;
 
 /// Индекс горизонта 10 с в `HORIZONS_MS` — тот же, что берёт `lob pilot`.
 const H10S: usize = 2;
@@ -208,80 +238,209 @@ pub struct Row {
     pub net_n: usize,
 }
 
-/// Полоска плотности на картине. Короткие имена — файл читает браузер,
-/// полосок тысячи.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// ---------------------------------------------------------------------------
+// Файл графика монеты (`coin-<SYMBOL>.json`, таск 41)
+// ---------------------------------------------------------------------------
+
+/// Коды сторон в файле графика: индекс в этом массиве, массив пишется в
+/// файл (`CoinChart.sides`) — читатель не гадает.
+pub const CHART_SIDES: [&str; 2] = ["bid", "ask"];
+
+/// Коды исходов полоски: индекс в массиве, массив пишется в файл.
+pub const CHART_OUTCOMES: [&str; 4] = ["eaten", "pulled", "mixed", "alive"];
+
+/// Код стороны — индекс `CHART_SIDES`.
+pub fn side_code(side: Side) -> u8 {
+    match side {
+        Side::Bid => 0,
+        Side::Ask => 1,
+    }
+}
+
+/// Код исхода умершего уровня — индекс `CHART_OUTCOMES`; живой — `ALIVE_CODE`.
+pub fn outcome_code(o: Outcome) -> u8 {
+    match o {
+        Outcome::Eaten => 0,
+        Outcome::Pulled => 1,
+        Outcome::Mixed => 2,
+    }
+}
+
+/// Код живой полоски (`CHART_OUTCOMES[3]`).
+pub const ALIVE_CODE: u8 = 3;
+
+/// Код исхода касания — индекс `TOUCH_OUTCOME_LABELS` (`bounced` = 0,
+/// `eaten` = 1).
+pub fn touch_outcome_code(ended_by_death: bool) -> u8 {
+    u8::from(ended_by_death)
+}
+
+/// Строка полоски в файле: `[b, d, p, s, o, x, m]` — массив без имён полей
+/// (полосок за сутки десятки тысяч, имена в каждой строке удвоили бы файл).
+pub type BarRow = (i64, Option<i64>, f64, u8, u8, f64, Option<f64>);
+
+/// Полоска плотности графика. В памяти — с именами (тесты и сборка), в
+/// файле — `BarRow`. Времена — **смещения от `CoinChart.t0`**, мс.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "BarRow", from = "BarRow")]
 pub struct Bar {
-    /// Рождение, мс.
+    /// Рождение, мс от `t0`.
     pub b: i64,
-    /// Смерть, мс; `None` — уровень жив на последнем кадре.
+    /// Смерть, мс от `t0`; `None` — уровень жив на последнем кадре.
     pub d: Option<i64>,
     /// Цена.
     pub p: f64,
-    /// Сторона: `bid` / `ask`.
-    pub s: String,
-    /// Исход: `eaten` / `pulled` / `mixed` / `alive`.
-    pub o: String,
-    /// Размер (максимум за жизнь) кратностью порога `H3`.
+    /// Сторона — код `CHART_SIDES`.
+    pub s: u8,
+    /// Исход — код `CHART_OUTCOMES`.
+    pub o: u8,
+    /// Размер (максимум за жизнь) кратностью порога `H3`, два знака.
     pub x: f64,
-    /// Markout на 10 с, bps (нет у живых).
+    /// Markout на 10 с, bps, два знака (нет у живых).
     pub m: Option<f64>,
 }
 
-/// Метка касания на картине (таск 36): треугольник у `start_ms` на цене
-/// уровня, цвет — исход. Короткие имена, как у `Bar`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl From<Bar> for BarRow {
+    fn from(v: Bar) -> Self {
+        (v.b, v.d, v.p, v.s, v.o, v.x, v.m)
+    }
+}
+
+impl From<BarRow> for Bar {
+    fn from((b, d, p, s, o, x, m): BarRow) -> Self {
+        Bar {
+            b,
+            d,
+            p,
+            s,
+            o,
+            x,
+            m,
+        }
+    }
+}
+
+/// Строка касания в файле: `[t, p, s, o, a, x, fr, sw, ap, i, d, m]`.
+/// Конец касания — `t + d`, отдельно не пишется.
+pub type MarkRow = (
+    i64,
+    f64,
+    u8,
+    u8,
+    i64,
+    f64,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    u32,
+    i64,
+    Option<f64>,
+);
+
+/// Метка касания на графике (таск 36): треугольник у начала касания на цене
+/// уровня, цвет — исход. В файле — `MarkRow`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "MarkRow", from = "MarkRow")]
 pub struct Mark {
-    /// Начало касания, мс.
+    /// Начало касания, мс от `t0`.
     pub t: i64,
     /// Цена уровня.
     pub p: f64,
-    /// Сторона: `bid` / `ask`.
-    pub s: String,
-    /// Исход касания: `bounced` / `eaten` (`touch_axes::TOUCH_OUTCOME_LABELS`).
-    pub o: String,
-    /// Размер уровня на касании кратностью порога `H3`.
-    pub x: f64,
+    /// Сторона — код `CHART_SIDES`.
+    pub s: u8,
+    /// Исход касания — код `TOUCH_OUTCOME_LABELS`.
+    pub o: u8,
     /// Возраст уровня на касании, мс.
     pub a: i64,
-    /// Длительность касания, мс.
-    pub d: i64,
-    /// Номер касания у уровня, с нуля.
-    pub i: u32,
-    /// Фронтран (за секунду до касания, В-45) в долях размера на касании.
+    /// Размер уровня на касании кратностью порога `H3`, два знака.
+    pub x: f64,
+    /// Фронтран (за секунду до касания, В-45) в долях размера на касании,
+    /// три знака.
     pub fr: Option<f64>,
     /// Сметено последним шагом цены (`swept_lots`, В-45) в долях размера.
     pub sw: Option<f64>,
-    /// Подход за 1 с, bps (знак «к уровню»).
+    /// Подход за 1 с, bps (знак «к уровню»), два знака.
     pub ap: Option<f64>,
+    /// Номер касания у уровня, с нуля.
+    pub i: u32,
+    /// Длительность касания, мс.
+    pub d: i64,
     /// Markout на 10 с «в сторону отскока», bps; `None` и при горизонте
-    /// внутри касания (`w`).
+    /// внутри касания (`markout::within_touch`, В-45: `d ≥ 10 с`) — страница
+    /// печатает «внутри касания» по тому же правилу.
     pub m: Option<f64>,
-    /// Горизонт 10 с не длиннее касания — `m` ≈ 0 по построению (В-45),
-    /// не печатается.
-    pub w: bool,
 }
 
+impl From<Mark> for MarkRow {
+    fn from(v: Mark) -> Self {
+        (
+            v.t, v.p, v.s, v.o, v.a, v.x, v.fr, v.sw, v.ap, v.i, v.d, v.m,
+        )
+    }
+}
+
+impl From<MarkRow> for Mark {
+    fn from((t, p, s, o, a, x, fr, sw, ap, i, d, m): MarkRow) -> Self {
+        Mark {
+            t,
+            p,
+            s,
+            o,
+            a,
+            x,
+            fr,
+            sw,
+            ap,
+            i,
+            d,
+            m,
+        }
+    }
+}
+
+/// Слой уровней T39 (горизонтальный пунктир): `[f, t, p, s, label]` —
+/// от/до (мс от `t0`, `t` = `None` — до правого края), цена, сторона,
+/// подпись. Пока пустой: рисовалка на странице есть, данных нет.
+pub type LevelLineRow = (i64, Option<i64>, f64, u8, String);
+
+/// Слой меток закола T39: `[t, p, s, label]`. Пока пустой.
+pub type StabRow = (i64, f64, u8, String);
+
+/// Файл графика одной монеты — `coin-<SYMBOL>.json`. Всё время записи, не
+/// час: страница сама держит окно, зум и панораму. Времена в массивах —
+/// смещения от `t0` (первый срез середины), чтобы не таскать 13 знаков в
+/// каждой строке.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Picture {
+pub struct CoinChart {
+    pub symbol: String,
+    pub generated_utc: String,
+    pub error: Option<String>,
+    /// База времени, мс UTC.
+    pub t0: i64,
+    /// Первый и последний срез середины, мс UTC (абсолютные).
     pub from_ms: i64,
     pub to_ms: i64,
-    /// Середина: `[метка мс, цена]`, одна точка в секунду.
-    pub mid: Vec<[f64; 2]>,
+    pub price_decimals: u32,
+    pub h3_lots: i64,
+    pub sides: Vec<String>,
+    pub outcomes: Vec<String>,
+    pub touch_outcomes: Vec<String>,
+    /// Середина: `[мс от t0, цена]`, одна точка в секунду по всей записи;
+    /// цена — до знака полутика.
+    pub mid: Vec<(i64, f64)>,
+    /// Полоски записи (умершие и живые), порядок — по рождению; при
+    /// `bars_total > CHART_FILE_MAX_ROWS` — самые крупные по размеру.
     pub bars: Vec<Bar>,
-    /// Сколько полосок вошло в окно и диапазон до потолка `PICTURE_MAX_BARS`.
+    /// Сколько полосок было всего до потолка файла.
     pub bars_total: usize,
-    pub price_lo: f64,
-    pub price_hi: f64,
-    /// Сколько полосок не вошло в диапазон цены картины.
-    pub clipped: usize,
-    /// Метки касаний, начавшихся в окне (таск 36); потолок — тот же
-    /// `PICTURE_MAX_BARS`, остаются самые крупные по размеру на касании.
-    pub marks: Vec<Mark>,
-    /// Сколько касаний вошло в окно и диапазон до потолка.
-    pub marks_total: usize,
-    /// Сколько касаний окна не вошло в диапазон цены картины.
-    pub marks_clipped: usize,
+    /// Касания записи, порядок — по началу; потолок — тот же, самые крупные
+    /// по размеру уровня на касании.
+    pub touches: Vec<Mark>,
+    pub touches_total: usize,
+    /// Слой T39 — пусто.
+    pub levels: Vec<LevelLineRow>,
+    /// Слой T39 — пусто.
+    pub stabs: Vec<StabRow>,
 }
 
 /// Одна строка блока касаний: по исходу, по корзине оси или «все».
@@ -391,7 +550,14 @@ pub struct Coin {
     pub by_distance: Vec<Row>,
     pub by_lifetime: Vec<Row>,
     pub by_repeat: Vec<Row>,
-    pub picture: Picture,
+    /// Имя файла графика рядом с `data.json` (`coin-<SYMBOL>.json`).
+    pub chart_file: String,
+    /// Сколько полосок и касаний в файле графика и сколько было всего
+    /// (`CHART_FILE_MAX_ROWS`) — на плитке и в углу.
+    pub chart_bars: usize,
+    pub chart_bars_total: usize,
+    pub chart_touches: usize,
+    pub chart_touches_total: usize,
     pub touches: Touches,
 }
 
@@ -411,7 +577,16 @@ pub struct Dashboard {
     pub roundtrip_fees_bps: f64,
     pub horizons_ms: [i64; 4],
     pub tail_not_visible_secs: u64,
-    pub picture_minutes: i64,
+    /// Стартовое окно графика, минут до последнего среза (`CHART_START_MINUTES`).
+    pub chart_start_minutes: i64,
+    /// Потолок нарисованных полосок в видимом окне (`CHART_MAX_DRAWN`).
+    pub chart_max_drawn: usize,
+    /// Период перечитывания `coin-*.json` страницей, с (`CHART_REFRESH_SECS`).
+    pub chart_refresh_secs: u64,
+    /// Запас диапазона цены вокруг середины окна, bps — последняя корзина
+    /// расстояния (`DISTANCE_MAX_BPS`): дальше уровень не входит ни в одну
+    /// корзину, на графике он не рисуется, число печатается в углу.
+    pub chart_price_pad_bps: i64,
     pub g_min_days: usize,
     pub days_recorded: usize,
     pub collector: CollectorLine,
@@ -444,11 +619,17 @@ pub fn run_dashboard(args: &DashboardArgs) -> anyhow::Result<DashboardSummary> {
     render_once(args)
 }
 
-/// Один проход: прочитать каталог, посчитать, переписать оба файла.
+/// Один проход: прочитать каталог, посчитать, переписать файлы — сначала
+/// графики монет, потом `data.json` (страница, увидев новый `data.json`,
+/// найдёт уже новые `coin-*.json`), последним `index.html`.
 fn render_once(args: &DashboardArgs) -> anyhow::Result<DashboardSummary> {
-    let data = build_dashboard(args)?;
+    let (data, charts) = build_dashboard(args)?;
     std::fs::create_dir_all(&args.out)
         .map_err(|e| anyhow::anyhow!("не создать {}: {e}", args.out.display()))?;
+    for chart in &charts {
+        let path = args.out.join(chart_file_name(&chart.symbol));
+        write_atomic(&path, serde_json::to_string(chart)?.as_bytes())?;
+    }
     let json_path = args.out.join("data.json");
     let html_path = args.out.join("index.html");
     let json = serde_json::to_string(&data)?;
@@ -478,11 +659,18 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     })
 }
 
-/// Читает каталог и собирает всю страницу как данные. Отдельно от записи
-/// файлов — тесты проверяют числа, а не ввод-вывод. Инструменты идут по
-/// одному: реплей и его срезы середины живут только пока считается эта
-/// монета (суточная запись — миллионы срезов на инструмент).
-pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<Dashboard> {
+/// Имя файла графика монеты рядом с `data.json`.
+pub fn chart_file_name(symbol: &str) -> String {
+    format!("coin-{symbol}.json")
+}
+
+/// Читает каталог и собирает всю страницу как данные: сводку (`data.json`)
+/// и график на монету (`coin-<SYMBOL>.json`, в том же порядке, что
+/// `Dashboard.coins`). Отдельно от записи файлов — тесты проверяют числа,
+/// а не ввод-вывод. Инструменты идут по одному: реплей и его срезы середины
+/// живут только пока считается эта монета (суточная запись — миллионы
+/// срезов на инструмент); в файл графика идёт один срез в секунду.
+pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<CoinChart>)> {
     let session_path = args.root.join("session.json");
     let raw = std::fs::read_to_string(&session_path).map_err(|e| {
         anyhow::anyhow!(
@@ -510,13 +698,29 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<Dashboard> {
     };
     let (alive, alive_reason) = liveness(&summary, bytes_growth, growth_window_secs);
 
+    let generated_utc = now.to_rfc3339();
     let h3_debug_marker = instruments_csv_marker(&args.root);
     let mut coins: Vec<Coin> = Vec::with_capacity(summary.instruments.len());
+    let mut charts: Vec<CoinChart> = Vec::with_capacity(summary.instruments.len());
     let mut days = std::collections::BTreeSet::new();
     for symbol in &summary.instruments {
-        match build_coin(args, symbol, now_ms, h3_debug_marker.as_deref(), &mut days) {
-            Ok(c) => coins.push(c),
-            Err(e) => coins.push(empty_coin(symbol, Some(e.to_string()))),
+        match build_coin(
+            args,
+            symbol,
+            now_ms,
+            &generated_utc,
+            h3_debug_marker.as_deref(),
+            &mut days,
+        ) {
+            Ok((c, chart)) => {
+                coins.push(c);
+                charts.push(chart);
+            }
+            Err(e) => {
+                let err = e.to_string();
+                coins.push(empty_coin(symbol, Some(err.clone())));
+                charts.push(empty_chart(symbol, &generated_utc, Some(err)));
+            }
         }
     }
 
@@ -534,8 +738,8 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<Dashboard> {
         }
     };
 
-    Ok(Dashboard {
-        generated_utc: now.to_rfc3339(),
+    let page = Dashboard {
+        generated_utc,
         root: args.root.display().to_string(),
         h3_mode: match args.h3_mode {
             H3ModeArg::Floor => "floor".to_string(),
@@ -546,7 +750,10 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<Dashboard> {
         roundtrip_fees_bps: ROUNDTRIP_FEES_BPS,
         horizons_ms: HORIZONS_MS,
         tail_not_visible_secs: FRAME_LOSS_WINDOW_SECS,
-        picture_minutes: PICTURE_MINUTES,
+        chart_start_minutes: CHART_START_MINUTES,
+        chart_max_drawn: CHART_MAX_DRAWN,
+        chart_refresh_secs: CHART_REFRESH_SECS,
+        chart_price_pad_bps: DISTANCE_MAX_BPS,
         g_min_days: G_MIN,
         days_recorded: days.len(),
         collector: CollectorLine {
@@ -564,18 +771,21 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<Dashboard> {
         },
         coins,
         glossary: glossary(),
-    })
+    };
+    Ok((page, charts))
 }
 
 /// Одна монета: реплей тем же кодом, что `lob levels`/`markout`, и всё, что
-/// страница о ней говорит. Реплей отпускается на выходе.
+/// страница о ней говорит — сводка плитки и файл графика. Реплей
+/// отпускается на выходе.
 fn build_coin(
     args: &DashboardArgs,
     symbol: &str,
     now_ms: i64,
+    generated_utc: &str,
     debug_marker: Option<&str>,
     days: &mut std::collections::BTreeSet<String>,
-) -> anyhow::Result<Coin> {
+) -> anyhow::Result<(Coin, CoinChart)> {
     let h3 = resolve_h3_mode_with_k(&args.root, symbol, args.h3_mode, args.h3_lots, args.h3_k)?;
     let h3_lots = match h3 {
         H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
@@ -635,12 +845,27 @@ fn build_coin(
     let mut by_repeat = labelled(&REPEAT_LABELS);
     let mut levels_total = 0usize;
 
+    // Полоски графика собираются здесь же: markout уровня считается один
+    // раз и идёт и в свёртки, и в файл (у LSK уровней миллионы).
+    let price_decimals = decimals_of_e9(tick_e9);
+    let t0 = first_ms.unwrap_or(0);
+    let scale = price_scale(price_decimals);
+    let mut bars: Vec<Bar> = Vec::with_capacity(stats.records.try_into().unwrap_or(0));
     for day in &stats.days {
         for rec in &day.records {
             levels_total += 1;
             let outcome = rec.outcome();
             let m = markouts_for_level(rec, &day.mids);
             let obs = observation_at(rec, &day.mids, HORIZONS_MS[H10S]);
+            bars.push(Bar {
+                b: rec.birth_ms - t0,
+                d: Some(rec.death_ms - t0),
+                p: round_to(px(rec.price_tick), scale),
+                s: side_code(rec.side),
+                o: outcome_code(outcome),
+                x: round_to(size_ratio(rec.size_max, h3_lots), 100.0),
+                m: m[H10S].map(|v| round_to(v, 100.0)),
+            });
             let sample = Sample {
                 outcome,
                 lifetime_ms: rec.lifetime_ms,
@@ -663,7 +888,18 @@ fn build_coin(
         }
     }
 
-    let picture = build_picture(&stats.days, &stats.open, h3_lots, &px);
+    let chart = build_chart(
+        symbol,
+        generated_utc,
+        &stats.days,
+        &stats.open,
+        bars,
+        &ChartAxes {
+            px: &px,
+            price_decimals,
+            h3_lots,
+        },
+    );
     // Касания — из того же реплея (`ReplayDay.touches`), второго прохода нет.
     let k_stub = h3_k_is_stub(&args.root, symbol, h3, args.h3_k);
     let touches = build_touches(
@@ -674,12 +910,12 @@ fn build_coin(
         k_stub,
     );
 
-    Ok(Coin {
+    let coin = Coin {
         symbol: symbol.to_string(),
         error: None,
         tick_e9,
         step_e9,
-        price_decimals: decimals_of_e9(tick_e9),
+        price_decimals,
         h3_lots,
         h3_source,
         last_ts_ms,
@@ -702,9 +938,14 @@ fn build_coin(
         by_distance: rows(&by_distance, levels_total),
         by_lifetime: rows(&by_lifetime, levels_total),
         by_repeat: rows(&by_repeat, levels_total),
-        picture,
+        chart_file: chart_file_name(symbol),
+        chart_bars: chart.bars.len(),
+        chart_bars_total: chart.bars_total,
+        chart_touches: chart.touches.len(),
+        chart_touches_total: chart.touches_total,
         touches,
-    })
+    };
+    Ok((coin, chart))
 }
 
 /// Монета, которую не удалось прочитать: страница показывает причину, не
@@ -733,24 +974,37 @@ fn empty_coin(symbol: &str, error: Option<String>) -> Coin {
         by_distance: Vec::new(),
         by_lifetime: Vec::new(),
         by_repeat: Vec::new(),
-        picture: empty_picture(),
+        chart_file: chart_file_name(symbol),
+        chart_bars: 0,
+        chart_bars_total: 0,
+        chart_touches: 0,
+        chart_touches_total: 0,
         touches: build_touches(&[], 0, 0.0, true, false),
     }
 }
 
-fn empty_picture() -> Picture {
-    Picture {
+/// Файл графика монеты без данных (не прочитана или ни одного среза):
+/// пустые массивы и причина, страница печатает её на плитке.
+fn empty_chart(symbol: &str, generated_utc: &str, error: Option<String>) -> CoinChart {
+    CoinChart {
+        symbol: symbol.to_string(),
+        generated_utc: generated_utc.to_string(),
+        error,
+        t0: 0,
         from_ms: 0,
         to_ms: 0,
+        price_decimals: 0,
+        h3_lots: 0,
+        sides: CHART_SIDES.iter().map(|s| s.to_string()).collect(),
+        outcomes: CHART_OUTCOMES.iter().map(|s| s.to_string()).collect(),
+        touch_outcomes: TOUCH_OUTCOME_LABELS.iter().map(|s| s.to_string()).collect(),
         mid: Vec::new(),
         bars: Vec::new(),
         bars_total: 0,
-        price_lo: 0.0,
-        price_hi: 0.0,
-        clipped: 0,
-        marks: Vec::new(),
-        marks_total: 0,
-        marks_clipped: 0,
+        touches: Vec::new(),
+        touches_total: 0,
+        levels: Vec::new(),
+        stabs: Vec::new(),
     }
 }
 
@@ -1053,38 +1307,56 @@ fn build_touches(
     }
 }
 
-/// Картина последнего часа: середина раз в секунду, полоски всех уровней,
-/// умерших в окне (родились когда угодно), и живых. Диапазон цены — по
-/// середине окна плюс самая дальняя корзина расстояния (`DISTANCE_LABELS`
-/// кончается на 25 bps): уровни дальше не входят ни в одну корзину сетки и
-/// на картине только сжали бы масштаб; их число печатается.
-fn build_picture(
+/// Цена и порог монеты для файла графика: округление цены по тику (как во
+/// всех артефактах), знаки после запятой и порог `H3` — три вещи, которые
+/// нужны и полоскам, и касаниям, и шапке файла. Собраны вместе, чтобы
+/// `build_chart` не разрастался аргументами.
+struct ChartAxes<'a> {
+    px: &'a dyn Fn(i64) -> f64,
+    price_decimals: u32,
+    h3_lots: i64,
+}
+
+/// График монеты за всю запись: середина раз в секунду, полоски умерших
+/// (`dead`, собраны в `build_coin` со смещениями от `t0` = первый срез) и
+/// живых уровней, касания. Диапазон цены, окно, потолок рисования и
+/// фильтры — на странице по видимому окну; здесь только данные, и полоска
+/// за пределами любого диапазона цены в файл входит (окно двигается).
+fn build_chart(
+    symbol: &str,
+    generated_utc: &str,
     days: &[super::ReplayDay],
     open: &[LiveLevel],
-    h3_lots: i64,
-    px: &dyn Fn(i64) -> f64,
-) -> Picture {
-    let Some(to_ms) = days
-        .iter()
-        .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
-        .max()
-    else {
-        return empty_picture();
+    dead: Vec<Bar>,
+    axes: &ChartAxes<'_>,
+) -> CoinChart {
+    let px = axes.px;
+    let price_decimals = axes.price_decimals;
+    let h3_lots = axes.h3_lots;
+    let (Some(t0), Some(to_ms)) = (
+        days.iter()
+            .filter_map(|d| d.mids.first().map(|s| s.ts_ms))
+            .min(),
+        days.iter()
+            .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
+            .max(),
+    ) else {
+        return empty_chart(symbol, generated_utc, None);
     };
-    let from_ms = to_ms - PICTURE_MINUTES * 60_000;
 
-    let mut mid: Vec<[f64; 2]> = Vec::new();
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
+    let scale = price_scale(price_decimals);
+    let pxr = |tick: i64| round_to(px(tick), scale);
+
+    // Середина: последний срез каждой секунды, по всем суткам подряд.
+    let mut mid: Vec<(i64, f64)> = Vec::new();
     let mut bucket: Option<(i64, MidSample)> = None;
     for day in days {
-        let start = day.mids.partition_point(|s| s.ts_ms < from_ms);
-        for s in &day.mids[start..] {
-            let sec = s.ts_ms.div_euclid(PICTURE_MID_STEP_MS);
+        for s in &day.mids {
+            let sec = s.ts_ms.div_euclid(CHART_MID_STEP_MS);
             match bucket {
                 Some((b, _)) if b == sec => bucket = Some((sec, *s)),
                 Some((_, prev)) => {
-                    push_mid(&mut mid, &mut lo, &mut hi, prev, px);
+                    mid.push(mid_point(prev, t0, px, scale * 10.0));
                     bucket = Some((sec, *s));
                 }
                 None => bucket = Some((sec, *s)),
@@ -1092,129 +1364,103 @@ fn build_picture(
         }
     }
     if let Some((_, prev)) = bucket {
-        push_mid(&mut mid, &mut lo, &mut hi, prev, px);
+        mid.push(mid_point(prev, t0, px, scale * 10.0));
     }
-    if !lo.is_finite() || !hi.is_finite() {
-        lo = 0.0;
-        hi = 0.0;
-    }
-    let max_bps = crate::lob::shortlist::DISTANCE_BOUNDS_BPS
-        .last()
-        .map_or(0.0, |(_, hi)| *hi);
-    let price_lo = lo * (1.0 - max_bps / 10_000.0);
-    let price_hi = hi * (1.0 + max_bps / 10_000.0);
 
-    let mut bars: Vec<Bar> = Vec::new();
-    let mut clipped = 0usize;
-    for day in days {
-        for rec in &day.records {
-            if rec.death_ms < from_ms {
-                continue;
-            }
-            let p = px(rec.price_tick);
-            if p < price_lo || p > price_hi {
-                clipped += 1;
-                continue;
-            }
-            bars.push(Bar {
-                b: rec.birth_ms,
-                d: Some(rec.death_ms),
-                p,
-                s: side_name(rec.side).to_string(),
-                o: outcome_name(rec.outcome()).to_string(),
-                x: size_ratio(rec.size_max, h3_lots),
-                m: markouts_for_level(rec, &day.mids)[H10S],
-            });
-        }
-    }
+    let mut bars = dead;
     for lv in open {
-        let p = px(lv.price_tick);
-        if p < price_lo || p > price_hi {
-            clipped += 1;
-            continue;
-        }
         bars.push(Bar {
-            b: lv.birth_ms,
+            b: lv.birth_ms - t0,
             d: None,
-            p,
-            s: side_name(lv.side).to_string(),
-            o: "alive".to_string(),
-            x: size_ratio(lv.size_max, h3_lots),
+            p: pxr(lv.price_tick),
+            s: side_code(lv.side),
+            o: ALIVE_CODE,
+            x: round_to(size_ratio(lv.size_max, h3_lots), 100.0),
             m: None,
         });
     }
     let bars_total = bars.len();
-    if bars.len() > PICTURE_MAX_BARS {
-        bars.sort_by(|a, b| b.x.total_cmp(&a.x));
-        bars.truncate(PICTURE_MAX_BARS);
-    }
+    keep_largest(&mut bars, CHART_FILE_MAX_ROWS, |b| b.x);
+    bars.sort_by_key(|b| b.b);
 
-    // Метки касаний, начавшихся в окне (таск 36): те же диапазон цены и
-    // потолок, что у полосок; крупные — по размеру уровня на касании.
-    let mut marks: Vec<Mark> = Vec::new();
-    let mut marks_clipped = 0usize;
+    let mut touches: Vec<Mark> = Vec::new();
     for day in days {
         for t in &day.touches {
-            if t.start_ms < from_ms {
-                continue;
-            }
-            let p = px(t.price_tick);
-            if p < price_lo || p > price_hi {
-                marks_clipped += 1;
-                continue;
-            }
-            marks.push(mark_of(t, &day.mids, p, h3_lots));
+            touches.push(mark_of(t, &day.mids, pxr(t.price_tick), h3_lots, t0));
         }
     }
-    let marks_total = marks.len();
-    if marks.len() > PICTURE_MAX_BARS {
-        marks.sort_by(|a, b| b.x.total_cmp(&a.x));
-        marks.truncate(PICTURE_MAX_BARS);
-    }
-    Picture {
-        from_ms,
+    let touches_total = touches.len();
+    keep_largest(&mut touches, CHART_FILE_MAX_ROWS, |m| m.x);
+    touches.sort_by_key(|m| m.t);
+
+    CoinChart {
+        symbol: symbol.to_string(),
+        generated_utc: generated_utc.to_string(),
+        error: None,
+        t0,
+        from_ms: t0,
         to_ms,
+        price_decimals,
+        h3_lots,
+        sides: CHART_SIDES.iter().map(|s| s.to_string()).collect(),
+        outcomes: CHART_OUTCOMES.iter().map(|s| s.to_string()).collect(),
+        touch_outcomes: TOUCH_OUTCOME_LABELS.iter().map(|s| s.to_string()).collect(),
         mid,
         bars,
         bars_total,
-        price_lo,
-        price_hi,
-        clipped,
-        marks,
-        marks_total,
-        marks_clipped,
+        touches,
+        touches_total,
+        levels: Vec::new(),
+        stabs: Vec::new(),
     }
 }
 
-fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64) -> Mark {
+/// Оставляет `cap` самых крупных по `size` (порядок после — любой, вызывающий
+/// сортирует сам); при `len ≤ cap` не трогает. Выбор за линейное время —
+/// у LSK строк миллионы.
+fn keep_largest<T>(v: &mut Vec<T>, cap: usize, size: impl Fn(&T) -> f64) {
+    if v.len() > cap {
+        v.select_nth_unstable_by(cap, |a, b| size(b).total_cmp(&size(a)));
+        v.truncate(cap);
+    }
+}
+
+fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64, t0: i64) -> Mark {
     Mark {
-        t: t.start_ms,
+        t: t.start_ms - t0,
         p: price,
-        s: side_name(t.side).to_string(),
-        o: touch_outcome(t.ended_by_death).to_string(),
-        x: size_ratio(t.size_at_touch, h3_lots),
+        s: side_code(t.side),
+        o: touch_outcome_code(t.ended_by_death),
         a: t.age_ms(),
-        d: t.duration_ms,
+        x: round_to(size_ratio(t.size_at_touch, h3_lots), 100.0),
+        fr: frontrun_share(t.frontrun_lots, t.size_at_touch).map(|v| round_to(v, 1000.0)),
+        sw: frontrun_share(t.swept_lots, t.size_at_touch).map(|v| round_to(v, 1000.0)),
+        ap: approaches_for_touch(t, mids)[0].map(|v| round_to(v, 100.0)),
         i: t.touch_index,
-        fr: frontrun_share(t.frontrun_lots, t.size_at_touch),
-        sw: frontrun_share(t.swept_lots, t.size_at_touch),
-        ap: approaches_for_touch(t, mids)[0],
-        m: markouts_for_touch_outside(t, mids)[H10S],
-        w: within_touch(t.duration_ms)[H10S],
+        d: t.duration_ms,
+        m: markouts_for_touch_outside(t, mids)[H10S].map(|v| round_to(v, 100.0)),
     }
 }
 
-fn push_mid(
-    mid: &mut Vec<[f64; 2]>,
-    lo: &mut f64,
-    hi: &mut f64,
-    s: MidSample,
-    px: &dyn Fn(i64) -> f64,
-) {
-    let p = (px(s.bid_tick) + px(s.ask_tick)) / 2.0;
-    *lo = lo.min(p);
-    *hi = hi.max(p);
-    mid.push([ms_f64(s.ts_ms), p]);
+/// Цена в файле — до знака тика (середина — полутика, `scale × 10`):
+/// `tick × tick_e9 / 1e9` в `f64` тянет хвост вроде `0.23383500000000002`,
+/// а строк сотни тысяч.
+fn price_scale(price_decimals: u32) -> f64 {
+    10f64.powi(i32::try_from(price_decimals).unwrap_or(9))
+}
+
+/// Точка середины файла: смещение от `t0` и цена до знака `scale`.
+fn mid_point(s: MidSample, t0: i64, px: &dyn Fn(i64) -> f64, scale: f64) -> (i64, f64) {
+    (
+        s.ts_ms - t0,
+        round_to((px(s.bid_tick) + px(s.ask_tick)) / 2.0, scale),
+    )
+}
+
+/// Округление для файла графика: `scale` = 100 — два знака, 1000 — три.
+/// Только показ: в `data.json` и CSV числа полные. `+ 0.0` убирает `-0.0`.
+fn round_to(v: f64, scale: f64) -> f64 {
+    (v * scale).round() / scale + 0.0
 }
 
 // ---------------------------------------------------------------------------

@@ -123,7 +123,7 @@ fn fixture_with(dir: &Path, frames: &[Vec<crate::commands::lob::Record>]) -> Das
 fn coin_page_shows_live_levels_outcomes_and_bars() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture(dir.path());
-    let d = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
     assert_eq!(d.coins.len(), 1);
     let c = &d.coins[0];
     assert!(
@@ -157,11 +157,14 @@ fn coin_page_shows_live_levels_outcomes_and_bars() {
     assert_eq!(by("pulled"), 1);
     assert_eq!(c.all.n, 2);
 
-    let alive = c.picture.bars.iter().filter(|b| b.o == "alive").count();
+    let ch = &charts[0];
+    let alive = ch.bars.iter().filter(|b| b.o == ALIVE_CODE).count();
     assert_eq!(alive, 2);
-    assert_eq!(c.picture.bars.len(), 4, "два умерших и два живых");
-    assert_eq!(c.picture.to_ms, 60_000);
-    assert!(!c.picture.mid.is_empty());
+    assert_eq!(ch.bars.len(), 4, "два умерших и два живых");
+    assert_eq!(c.chart_bars, 4);
+    assert_eq!(c.chart_file, "coin-SOLUSDT.json");
+    assert_eq!(ch.to_ms, 60_000);
+    assert!(!ch.mid.is_empty());
 }
 
 fn touch_row<'a>(rows: &'a [TouchRow], label: &str) -> &'a TouchRow {
@@ -177,7 +180,7 @@ fn touch_row<'a>(rows: &'a [TouchRow], label: &str) -> &'a TouchRow {
 fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture_with(dir.path(), &touch_frames());
-    let d = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -277,14 +280,19 @@ fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     assert_eq!(cell("eaten", "[1h,inf)").n, 0);
     assert_eq!(cell("bounced", "[10m,1h)").m10s_n, 0);
 
-    // Метки на картине: обе в окне, с числами наведения.
-    let p = &c.picture;
-    assert_eq!(p.marks_total, 2);
-    assert_eq!(p.marks.len(), 2);
-    assert_eq!(p.marks_clipped, 0);
-    let bounce = p.marks.iter().find(|m| m.o == "bounced").unwrap();
+    // Метки на графике: обе в файле, с числами наведения; `t0 = 0` —
+    // смещения равны меткам.
+    let p = &charts[0];
+    assert_eq!(p.t0, 0);
+    assert_eq!(p.touches.len(), 2);
+    assert_eq!(c.chart_touches, 2);
+    let bounce = p
+        .touches
+        .iter()
+        .find(|m| m.o == touch_outcome_code(false))
+        .unwrap();
     assert_eq!(bounce.t, 5_000);
-    assert_eq!(bounce.s, "bid");
+    assert_eq!(bounce.s, side_code(Side::Bid));
     assert_eq!(bounce.p, 99.99);
     assert_eq!(bounce.i, 0);
     assert_eq!(bounce.a, 5_000);
@@ -297,9 +305,16 @@ fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     );
     assert!(bounce.ap.unwrap() > 0.0);
     assert_eq!(bounce.m, Some(0.0));
-    assert!(!bounce.w, "3 с < 10 с — горизонт снаружи касания");
+    assert!(
+        bounce.d < HORIZONS_MS[H10S],
+        "3 с < 10 с — горизонт снаружи касания"
+    );
     assert!((bounce.x - 2.0).abs() < 1e-9);
-    let death = p.marks.iter().find(|m| m.o == "eaten").unwrap();
+    let death = p
+        .touches
+        .iter()
+        .find(|m| m.o == touch_outcome_code(true))
+        .unwrap();
     assert_eq!(death.t, 12_000);
     assert_eq!(death.i, 1);
     assert_eq!(death.d, 1_000);
@@ -328,7 +343,7 @@ fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separate
         delta_frame(60_000, &[(10000, 0)], &[]),
     ];
     let args = fixture_with(dir.path(), &frames);
-    let d = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -338,10 +353,13 @@ fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separate
     assert_eq!(t.within_touch, [1, 1, 1, 0]);
     assert_eq!(t.all.m_bps[H10S], None, "10 с внутри касания в 12,8 с");
     assert_eq!(t.all.m10s_n, 0);
-    let m = &c.picture.marks[0];
+    let m = &charts[0].touches[0];
     assert_eq!(m.fr, Some(0.0));
     assert!((m.sw.unwrap() - 0.3).abs() < 1e-9, "{:?}", m.sw);
-    assert!(m.w);
+    assert!(
+        m.d >= HORIZONS_MS[H10S],
+        "10 с внутри касания — страница печатает «внутри касания» по d"
+    );
     assert_eq!(m.m, None);
 }
 
@@ -350,7 +368,7 @@ fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separate
 fn a_coin_without_touches_gets_a_zero_block_not_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture_with(dir.path(), &no_touch_frames());
-    let d = build_dashboard(&args).unwrap();
+    let (d, charts) = build_dashboard(&args).unwrap();
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -378,8 +396,8 @@ fn a_coin_without_touches_gets_a_zero_block_not_an_error() {
     }
     assert_eq!(t.cross_outcome_age.len(), 6);
     assert!(t.cross_outcome_age.iter().all(|c| c.n == 0));
-    assert!(c.picture.marks.is_empty());
-    assert_eq!(c.picture.marks_total, 0);
+    assert!(charts[0].touches.is_empty());
+    assert_eq!(c.chart_touches, 0);
 }
 
 /// Оба файла лежат на диске, JSON разбирается обратно в те же типы, а
@@ -403,8 +421,16 @@ fn renders_both_files_atomically_and_json_round_trips() {
     // 9999 лучшим не становился), блок с нулями и всеми метками.
     assert_eq!(d.coins[0].touches.total, 0);
     assert_eq!(d.coins[0].touches.by_approach.len(), APPROACH_LABELS.len());
-    assert!(d.coins[0].picture.marks.is_empty());
     assert!(d.glossary.iter().any(|g| g.title.starts_with("Касание")));
+    // Файл графика — тоже атомарно и теми же типами обратно.
+    let chart_path = args.out.join(&d.coins[0].chart_file);
+    assert!(chart_path.exists(), "{}", chart_path.display());
+    assert!(!args.out.join("coin-SOLUSDT.tmp").exists());
+    let ch: CoinChart =
+        serde_json::from_str(&std::fs::read_to_string(&chart_path).unwrap()).unwrap();
+    assert_eq!(ch.symbol, "SOLUSDT");
+    assert_eq!(ch.bars.len(), d.coins[0].chart_bars);
+    assert!(ch.touches.is_empty());
 }
 
 /// Жив/нет: первый расчёт — «не знаю», второй с выросшими бинлогами —
@@ -457,8 +483,11 @@ fn a_coin_without_binlog_is_reported_not_dropped() {
         false,
     );
     args.h3_k = None;
-    let d = build_dashboard(&args).unwrap();
+    let (d, charts) = build_dashboard(&args).unwrap();
     assert_eq!(d.coins.len(), 2);
+    assert_eq!(charts.len(), 2, "файл графика — и у непрочитанной монеты");
+    assert!(charts[1].error.is_some());
+    assert!(charts[1].mid.is_empty());
     assert!(d.coins[0].error.is_none());
     let e = d.coins[1]
         .error
@@ -487,16 +516,46 @@ fn page_is_self_contained_html_without_external_urls() {
     assert!(!html.contains("</script><b>"), "JSON закрыл script");
     assert!(html.contains("\\u003c/script>"));
     assert!(html.contains("<title>Монеты и плотности</title>"));
+    // Сетка графиков (таск 41, владелец 2026-09-13: «кроме сетки ниче там
+    // пока не оставлять»): canvas на плитку, сетка на всю ширину окна —
+    // ни одного `max-width` на странице; ни таблиц, ни фильтров, ни
+    // развёрнутого вида с таблицами касаний — на странице только сетка.
     for needle in [
-        "touchesHtml",
-        "co.touches",
-        "P.marks",
-        "f_touch",
-        "Касания: цена дошла до плотности",
-        "cross_outcome_age",
+        "<canvas",
+        "display:grid",
+        "grid-template-columns:repeat(var(--cols",
+        "chart_file",
+        "wheel",
+        "dblclick",
     ] {
         assert!(html.contains(needle), "в шаблоне нет {needle}");
     }
+    for needle in [
+        "<table",
+        "<select",
+        "<input",
+        "<details",
+        "touchesHtml",
+        "cross_outcome_age",
+    ] {
+        assert!(!html.contains(needle), "на странице лишнее: {needle}");
+    }
+    // Ни у `body`, ни у сетки нет `max-width` — плитки идут на всю ширину окна.
+    for rule in [".grid{", "body{"] {
+        let start = html
+            .find(rule)
+            .unwrap_or_else(|| panic!("в шаблоне нет правила {rule}"));
+        let body = &html[start..start + html[start..].find('}').unwrap()];
+        assert!(
+            !body.contains("max-width"),
+            "{rule} ограничен по ширине: {body}"
+        );
+    }
+    assert!(
+        !html.contains("<main"),
+        "корневого контейнера с полями нет — сетка на всю ширину"
+    );
+    assert!(!html.contains("<svg"), "график — canvas, не SVG");
 }
 
 #[test]
@@ -516,4 +575,142 @@ fn gaps_are_counted_from_the_live_csv_without_header() {
     assert_eq!(gaps_rows(&p), 0);
     std::fs::write(&p, "symbol,kind,ts\nSOLUSDT,seq,1\nSOLUSDT,seq,2\n").unwrap();
     assert_eq!(gaps_rows(&p), 2);
+}
+
+/// Критерий приёмки таска 41: две монеты → два файла графика рядом с
+/// `data.json`, массивы компактной формы (`[b, d, p, s, o, x, m]`,
+/// `[t, p, s, o, a, x, fr, sw, ap, i, d, m]`, `[мс, цена]`), середина —
+/// по **всей** записи в две часа, не по последнему часу; полоска, умершая
+/// на 5-й секунде, и касание на 5-й секунде — в файле (прежняя картина
+/// часа их бы не увидела).
+#[test]
+fn two_coins_get_two_chart_files_over_the_whole_recording() {
+    let dir = tempfile::tempdir().unwrap();
+    // Бид 10000 снят на 5 с — 9999 стал лучшим: касание, отскок на 8 с;
+    // дальше два часа тишины и один кадр в конце.
+    let long = vec![
+        snap_frame(0, &[(9998, 1), (9999, 10), (10000, 10)], &[(10001, 10)]),
+        delta_frame(5_000, &[(10000, 0)], &[]),
+        delta_frame(8_000, &[(10000, 3)], &[]),
+        delta_frame(7_200_000, &[(9998, 2)], &[]),
+    ];
+    write_instruments_csv(dir.path(), &["SOLUSDT", "XRPUSDT"]);
+    write_session_json(
+        dir.path(),
+        &["SOLUSDT", "XRPUSDT"],
+        "2026-09-12T12:00:00Z",
+        false,
+    );
+    write_day_part(dir.path(), "SOLUSDT", "2026-09-12", 1, &long);
+    write_day_part(dir.path(), "XRPUSDT", "2026-09-12", 1, &frames());
+    let args = DashboardArgs {
+        root: dir.path().to_path_buf(),
+        out: dir.path().join("out"),
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_k: None,
+        watch: None,
+    };
+    let s = run_dashboard(&args).unwrap();
+    assert_eq!(s.coins, 2);
+    for sym in ["SOLUSDT", "XRPUSDT"] {
+        assert!(args.out.join(format!("coin-{sym}.json")).exists());
+        assert!(!args.out.join(format!("coin-{sym}.tmp")).exists());
+    }
+
+    let raw = std::fs::read_to_string(args.out.join("coin-SOLUSDT.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(v["symbol"], "SOLUSDT");
+    assert_eq!(v["t0"], 0);
+    assert_eq!(v["from_ms"], 0);
+    assert_eq!(v["to_ms"], 7_200_000);
+    assert_eq!(v["sides"], serde_json::json!(["bid", "ask"]));
+    assert_eq!(
+        v["outcomes"],
+        serde_json::json!(["eaten", "pulled", "mixed", "alive"])
+    );
+    assert_eq!(v["touch_outcomes"], serde_json::json!(["bounced", "eaten"]));
+    let mid = v["mid"].as_array().unwrap();
+    assert_eq!(mid.len(), 4, "четыре кадра — четыре секунды со срезом");
+    assert_eq!(mid[0].as_array().unwrap().len(), 2);
+    assert_eq!(mid[0][0], 0);
+    assert_eq!(mid[3][0], 7_200_000, "середина — до конца записи, не час");
+    let bars = v["bars"].as_array().unwrap();
+    assert!(bars.iter().all(|b| b.as_array().unwrap().len() == 7));
+    // Снятый на 5 с бид 10000: `[0, 5000, 100.0, 0 (bid), 1 (pulled), 2.0, m]`.
+    let pulled = bars
+        .iter()
+        .find(|b| b[1] == 5_000)
+        .expect("полоска, умершая на 5-й секунде, в файле");
+    assert_eq!(pulled[0], 0);
+    assert_eq!(pulled[2], 100.0);
+    assert_eq!(pulled[3], 0);
+    assert_eq!(pulled[4], 1);
+    assert_eq!(pulled[5], 2.0);
+    // Живые до конца: `d = null`, исход 3.
+    assert!(bars.iter().any(|b| b[1].is_null() && b[4] == 3));
+    let touches = v["touches"].as_array().unwrap();
+    assert_eq!(touches.len(), 1);
+    let t = touches[0].as_array().unwrap();
+    assert_eq!(t.len(), 12);
+    assert_eq!(t[0], 5_000, "начало касания, мс от t0");
+    assert_eq!(t[1], 99.99);
+    assert_eq!(t[2], 0, "бид");
+    assert_eq!(t[3], 0, "отскок");
+    assert_eq!(t[10], 3_000, "длилось 3 с");
+    assert!(v["levels"].as_array().unwrap().is_empty(), "слой T39 пуст");
+    assert!(v["stabs"].as_array().unwrap().is_empty());
+
+    // Сводка знает про файлы и их размер.
+    let d: Dashboard = serde_json::from_str(&std::fs::read_to_string(&s.json).unwrap()).unwrap();
+    assert_eq!(d.coins[0].chart_file, "coin-SOLUSDT.json");
+    assert_eq!(d.coins[0].chart_bars, bars.len());
+    assert_eq!(
+        d.coins[0].chart_bars_total,
+        bars.len(),
+        "до потолка файла — все"
+    );
+    assert_eq!(d.coins[0].chart_touches, 1);
+    assert_eq!(v["bars_total"], bars.len());
+    assert_eq!(v["touches_total"], 1);
+    // Середина — до знака полутика: у тика 0.01 — три знака, без хвоста f64.
+    assert_eq!(mid[0][1], 100.005);
+    assert_eq!(d.coins[1].chart_file, "coin-XRPUSDT.json");
+    assert_eq!(d.chart_max_drawn, CHART_MAX_DRAWN);
+    assert_eq!(d.chart_start_minutes, CHART_START_MINUTES);
+}
+
+/// Потолок файла (`CHART_FILE_MAX_ROWS`): остаются самые крупные, до
+/// потолка — все как есть.
+#[test]
+fn keep_largest_keeps_the_biggest_rows_only_above_the_cap() {
+    let mut v = vec![3.0, 9.0, 1.0, 7.0, 5.0];
+    keep_largest(&mut v, 2, |x| *x);
+    v.sort_by(f64::total_cmp);
+    assert_eq!(v, vec![7.0, 9.0]);
+    let mut w = vec![3.0, 9.0];
+    keep_largest(&mut w, 2, |x| *x);
+    assert_eq!(w, vec![3.0, 9.0]);
+    assert_eq!(CHART_FILE_MAX_ROWS, CHART_MAX_DRAWN * 24);
+}
+
+/// Округление для файла: два и три знака, без `-0.0`.
+#[test]
+fn chart_rounding_drops_noise_and_negative_zero() {
+    assert_eq!(round_to(1.2345, 100.0), 1.23);
+    assert_eq!(round_to(0.3, 1000.0), 0.3);
+    assert_eq!(round_to(-0.001, 100.0).to_string(), "0");
+    assert_eq!(
+        Bar::from(BarRow::from(Bar {
+            b: 1,
+            d: None,
+            p: 2.5,
+            s: 1,
+            o: ALIVE_CODE,
+            x: 3.0,
+            m: None
+        }))
+        .d,
+        None
+    );
 }

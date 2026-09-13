@@ -5,308 +5,486 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Монеты и плотности</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--muted:#6b7280;--line:#e5e7eb;
---eaten:#1f9d55;--pulled:#9aa0a6;--mixed:#e8a33d;--alive:#2f6fdb;--bad:#c9302c;--ok:#1f9d55;
---bounced:#1f9d55;--teaten:#c9302c}
+:root{--bg:#0d1117;--panel:#111720;--ink:#c9d1d9;--bright:#e6edf3;--muted:#7d8590;--line:#1e2530;
+--eaten:#3fb950;--pulled:#6e7681;--mixed:#d29922;--alive:#58a6ff;--bad:#f85149;--ok:#3fb950;
+--bounced:#3fb950;--teaten:#f85149;--fr:rgba(210,153,34,.30)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:1240px;margin:0 auto;padding:18px 20px 60px}
-h1{font-size:22px;margin:0 0 4px}
-h2{font-size:17px;margin:26px 0 8px}
-h3{font-size:15px;margin:18px 0 6px}
-.sub{color:var(--muted);font-size:13.5px}
-.line{margin:8px 0 14px;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:14px}
-.line b{font-weight:600}
-.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:10px 0 6px}
-.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
-.tile:hover{border-color:#9ca3af}
-.tile.on{border-color:var(--alive);box-shadow:0 0 0 2px rgba(47,111,219,.18)}
-.tile .sym{font-weight:700;font-size:16px}
-.tile .px{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
-.tile .kv{display:flex;justify-content:space-between;font-size:13px;margin-top:4px}
-.tile .err{color:var(--bad);font-size:12.5px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:8px 0}
-table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
-th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-th:first-child,td:first-child{text-align:left}
-th{color:var(--muted);font-weight:600;font-size:12.5px}
-.pos{color:var(--ok)}.neg{color:var(--bad)}
-.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0}
-.leg i{display:inline-block;width:14px;height:4px;vertical-align:middle;margin-right:5px;border-radius:2px}
-.leg i.tri{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--bounced);border-radius:0;background:none}
-.leg i.tri.dn{border-bottom:none;border-top:9px solid var(--teaten)}
-.cross td.c{text-align:center}
-.ctl{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0;align-items:center}
-svg{width:100%;height:440px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px}
-.axis{font-size:11px;fill:var(--muted)}
-.grid{stroke:#eef0f3;stroke-width:1}
-.note{font-size:13px;color:var(--muted);margin:6px 0}
-.warn{background:#fff7e6;border:1px solid #f1d28b;border-radius:8px;padding:8px 12px;font-size:14px;margin:8px 0}
-.gl dt{font-weight:600;margin-top:8px}.gl dd{margin:2px 0 0 0;color:#374151;font-size:14px}
-.card{overflow-x:auto}
+html,body{height:100%}
+body{margin:0;overflow:hidden;background:var(--bg);color:var(--ink);
+font:13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+/* Сетка плиток на всю ширину окна: ряды и столбцы считает JS ровно под число
+монет, чтобы экран был занят целиком и без полосы прокрутки. */
+.grid{display:grid;gap:3px;height:100vh;
+grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));
+grid-template-rows:repeat(var(--rows,3),minmax(0,1fr))}
+body.solo .grid{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+body.solo .tile{display:none}
+body.solo .tile.solo{display:flex}
+.tile{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;
+background:var(--panel);border:1px solid var(--line);border-radius:3px}
+.hd{flex:0 0 auto;display:flex;gap:9px;align-items:baseline;padding:2px 6px 1px;
+font-size:11px;line-height:1.45;white-space:nowrap;overflow:hidden;cursor:zoom-in}
+.hd .sym{font-weight:700;font-size:12.5px;color:var(--bright);letter-spacing:.2px}
+.hd .px{font-variant-numeric:tabular-nums;color:var(--bright)}
+.hd .kv{color:var(--muted)}
+.hd .kv b{color:var(--ink);font-weight:600}
+.hd .err{color:var(--bad)}
+.cv{position:relative;flex:1 1 auto;min-height:0}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair;background:var(--bg)}
+.tip{position:absolute;pointer-events:none;background:#1c2430;color:#e6edf3;font-size:11.5px;line-height:1.4;
+padding:4px 7px;border-radius:4px;border:1px solid #2b3441;max-width:340px;z-index:6}
+/* В углу графика — только предупреждение о потолке рисования (в окне
+   больше полосок/касаний, чем страница берёт). Обычной сводки тут нет:
+   страница = сетка графиков. */
+.warn{position:absolute;right:4px;top:2px;font-size:9.5px;color:#d29922;pointer-events:none;
+background:rgba(13,17,23,.7);padding:0 3px;border-radius:2px;max-width:calc(100% - 60px);
+overflow:hidden;white-space:nowrap}
+/* Коллектор жив/не пишет — цветом рамки плитки и заголовком окна, без панели. */
+body.dead .tile{border-color:#5c2b2b}
+body.dead .hd .sym::after{content:' · коллектор не пишет';color:#f85149;font-weight:400;font-size:10.5px}
 </style>
 </head>
 <body>
-<main>
-<h1>Монеты и плотности</h1>
-<div class="sub" id="sub"></div>
-<div class="line" id="coll"></div>
-<div class="tiles" id="tiles"></div>
-<div id="coin"></div>
-<h2>Словарь</h2>
-<dl class="gl" id="gl"></dl>
-</main>
+<div class="grid" id="grid"></div>
 <script type="application/json" id="bootstrap">__BOOTSTRAP_JSON__</script>
 <script>
+'use strict';
 const REFRESH = __REFRESH_SECS__;
 let D = JSON.parse(document.getElementById('bootstrap').textContent);
-let SEL = null;
-const FLT = {eaten:true,pulled:true,mixed:true,alive:true,minLife:0,topShare:0.2,touch:true};
+// Состояние графика на монету: symbol → типизированные массивы, индексы, окно.
+const CH = new Map();
+const FLT = {o:[true,true,true,true],touch:true}; // фильтры исходов и касаний
+let SOLO = null;                                  // монета, развёрнутая на весь экран
+// Цвета полосок — сторона стакана (canvas переменных CSS не читает): бид
+// снизу, аск сверху — так на картинке читается сам стакан, а исход уровня
+// живёт в метках касаний. Яркость и толщина полоски — ранг размера.
+const SIDECOL = ['#2f81f7','#f0883e'];
+const OUTNAME = ['проели','сняли','смешанно','живой'];
+const SIDENAME = ['бид (покупка)','аск (продажа)'];
+const TOUCHCOL = ['#3fb950','#f85149'];
+const TOUTNAME = ['отскочила','проели на касании'];
+const MAX = D.chart_max_drawn;
+// Потолок нарисованных касаний в окне: их бывает десятки тысяч (LSK: 77 125
+// за запись), а метка — событие штучное; в окне часа их сотни.
+const TOUCH_MAX = 900;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const f = (v, d=2) => (v===null||v===undefined||Number.isNaN(v)) ? '—' : Number(v).toFixed(d);
-const big = v => (v===null||v===undefined) ? '—' : Math.round(v).toLocaleString('ru-RU');
 const pct = v => v===null||v===undefined ? '—' : (100*v).toFixed(1)+' %';
-const sgn = v => v===null||v===undefined ? '' : (v>0?'pos':(v<0?'neg':''));
-const px = (v, c) => v===null||v===undefined ? '—' : Number(v).toFixed(c.price_decimals);
-const dur = s => s<60 ? s+' с' : s<3600 ? Math.floor(s/60)+' мин' : (s/3600).toFixed(1)+' ч';
-const ms = v => v===null||v===undefined ? '—' : (v<1000 ? Math.round(v)+' мс' : v<60000 ? (v/1000).toFixed(1)+' с' : (v/60000).toFixed(1)+' мин');
-const hhmm = t => { const d=new Date(t); return String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0'); };
-const hhmmss = t => hhmm(t)+':'+String(new Date(t).getUTCSeconds()).padStart(2,'0');
-const OUT = {eaten:'проели',pulled:'сняли',mixed:'смешанно',alive:'живой'};
-const SIDE = {bid:'бид (покупка)',ask:'аск (продажа)'};
-// Метки корзин касаний — те же строки, что lob::touch_axes (В-44); здесь только перевод.
-const TOUT = {bounced:'отскочила',eaten:'проели на касании'};
-const AGE = {'[0,10m)':'до 10 мин','[10m,1h)':'10 мин – 1 ч','[1h,inf)':'от 1 ч'};
-const FR = {'0':'нет','(0,0.5)':'меньше половины размера','[0.5,inf)':'от половины размера'};
-const RND = {'0':'нет нулей','1':'один ноль','>=2':'два и больше'};
-const TIX = {'1':'1-е','2-3':'2–3-е','>=4':'4-е и дальше'};
-const APR = {'<0':'цена уходила (< 0)','[0,1)':'[0, 1) bps','[1,2.5)':'[1, 2.5) bps','[2.5,inf)':'от 2.5 bps'};
+const px = (v, dec) => v===null||v===undefined ? '—' : Number(v).toFixed(dec);
+const dur = s => s<60 ? Math.round(s)+' с' : s<3600 ? Math.round(s/60)+' мин' : (s/3600).toFixed(1)+' ч';
+const ms = v => v===null||v===undefined ? '—' : (v<1000 ? Math.round(v)+' мс' : v<60000 ? (v/1000).toFixed(1)+' с' : v<3600000 ? (v/60000).toFixed(1)+' мин' : (v/3600000).toFixed(1)+' ч');
+const p2 = n => String(n).padStart(2,'0');
+const hhmm = t => { const d=new Date(t); return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes()); };
+const hhmmss = t => hhmm(t)+':'+p2(new Date(t).getUTCSeconds());
+const ddmm = t => { const d=new Date(t); return p2(d.getUTCDate())+'.'+p2(d.getUTCMonth()+1); };
+
+// ---------------------------------------------------------------------------
+// Сетка: столбцы и ряды — ровно под число монет (пустых клеток нет), плитки
+// делят экран поровну; из двух раскладок берём ту, где плитка крупнее.
+// ---------------------------------------------------------------------------
+function layout(){
+  const n = Math.max(1, (D.coins||[]).length);
+  const W = window.innerWidth, H = window.innerHeight;
+  let best = {cols:1, rows:n, score:-1};
+  for (let cols=1; cols<=n; cols++){
+    const rows = Math.ceil(n/cols);
+    const waste = cols*rows - n;                // пустые клетки последнего ряда
+    const ar = (W/cols)/(H/rows);               // пропорция плитки
+    if (ar < 0.45 || ar > 3.2) continue;        // слишком вытянутые не берём
+    const area = (W/cols)*(H/rows);
+    const score = area * Math.min(ar, 1/ar) / (1 + 4*waste);
+    if (score > best.score) best = {cols, rows, score};
+  }
+  grid.style.setProperty('--cols', best.cols);
+  grid.style.setProperty('--rows', best.rows);
+}
+
+// ---------------------------------------------------------------------------
+// Плитки
+// ---------------------------------------------------------------------------
+const grid = document.getElementById('grid');
+const IO = new IntersectionObserver(es => es.forEach(e => {
+  const st = CH.get(e.target.dataset.sym); if (!st) return;
+  st.visible = e.isIntersecting;
+  if (e.isIntersecting && !st.loaded && !st.loading && !st.error) loadCoin(st);
+}), {rootMargin:'200px'});
 
 function render(){
-  const c = D.collector;
-  document.getElementById('sub').textContent =
-    'запись '+D.root+' · расчёт '+D.generated_utc.slice(0,19).replace('T',' ')+' UTC · порог H3: режим '+D.h3_mode+(D.h3_k!==null?', k='+D.h3_k:'')+
-    ' · последние ≤ '+D.tail_not_visible_secs+' с записи не видны (кадр ещё в буфере)';
-  let alive = c.alive===null ? '<b>жив ли — узнаем на следующем расчёте</b>' : (c.alive ? '<b class="pos">коллектор пишет</b>' : '<b class="neg">коллектор не пишет</b>');
-  document.getElementById('coll').innerHTML =
-    alive+' — '+esc(c.alive_reason)+'. Записано <b>'+dur(c.recorded_secs)+'</b> с '+esc(c.started_utc.slice(0,16).replace('T',' '))+' UTC, '+c.instruments+' монет, '+
-    (c.bytes_on_disk/1e6).toFixed(1)+' МБ на диске, разрывов в записи: <b class="'+(c.gaps_on_disk>0?'neg':'pos')+'">'+c.gaps_on_disk+'</b>'+
-    (D.days_recorded < D.g_min_days ? '. <span class="neg">Суток записано '+D.days_recorded+' — меньше '+D.g_min_days+' (G_MIN): всё ниже — наблюдение, не вердикт по §7.</span>' : '');
-  const tiles = document.getElementById('tiles'); tiles.innerHTML='';
-  if (SEL===null && D.coins.length) SEL = D.coins[0].symbol;
+  renderStatus();
+  layout();
+  const seen = new Set();
   for (const co of D.coins){
-    const t = document.createElement('div'); t.className='tile'+(co.symbol===SEL?' on':'');
-    if (co.error){ t.innerHTML='<div class="sym">'+esc(co.symbol)+'</div><div class="err">не прочитан: '+esc(co.error)+'</div>'; }
-    else {
-      const now = co.levels_now.length, bids = co.levels_now.filter(l=>l.side==='bid').length;
-      t.innerHTML='<div class="sym">'+esc(co.symbol)+' <span class="px">'+px(co.bid,co)+' / '+px(co.ask,co)+'</span></div>'+
-        '<div class="kv"><span>плотностей сейчас</span><b>'+now+'</b></div>'+
-        '<div class="kv"><span>&nbsp;&nbsp;бид / аск</span><span>'+bids+' / '+(now-bids)+'</span></div>'+
-        '<div class="kv"><span>уровней за запись</span><span>'+co.levels_total+'</span></div>'+
-        '<div class="kv"><span>проели</span><span>'+pct(co.all.share_eaten)+'</span></div>'+
-        '<div class="kv"><span>net, 10 с</span><b class="'+sgn(co.all.net_bps)+'">'+f(co.all.net_bps)+' bps</b></div>'+
-        '<div class="kv"><span>касаний за запись</span><span>'+co.touches.total+'</span></div>'+
-        '<div class="kv"><span>отскочила</span><b>'+pct(co.touches.share_bounced)+'</b></div>';
+    seen.add(co.symbol);
+    const t = tileFor(co);
+    grid.appendChild(t);
+    const st = CH.get(co.symbol);
+    st.co = co;
+    if (co.error) st.error = 'не прочитан: '+co.error;
+    t.querySelector('.hd').innerHTML = headHtml(co);
+    t.classList.toggle('solo', SOLO===co.symbol);
+    schedule(st);
+  }
+  for (const [sym, st] of CH) if (!seen.has(sym)) { st.tile.remove(); CH.delete(sym); }
+  document.body.classList.toggle('solo', SOLO!==null);
+}
+
+function tileFor(co){
+  let t = document.getElementById('t-'+co.symbol);
+  if (t) return t;
+  t = document.createElement('div'); t.className='tile'; t.id='t-'+co.symbol; t.dataset.sym=co.symbol;
+  t.innerHTML = '<div class="hd"></div><div class="cv"><canvas></canvas><div class="warn" hidden></div><div class="tip" hidden></div></div>';
+  t.querySelector('.hd').onclick = () => { SOLO = SOLO===co.symbol ? null : co.symbol; render(); };
+  const cv = t.querySelector('canvas');
+  const st = {sym:co.symbol, tile:t, cv, ctx:cv.getContext('2d'), note:t.querySelector('.warn'), tip:t.querySelector('.tip'),
+    co, loaded:false, loading:false, error:null, visible:false, view:null, raf:0, hit:null, drag:null};
+  CH.set(co.symbol, st);
+  bindEvents(st);
+  grid.appendChild(t);
+  IO.observe(t);
+  return t;
+}
+
+// Шапка плитки — одна строка и только то, что видно на графике: цена,
+// сколько плотностей живо сейчас, сколько касаний и какая доля отскочила.
+function headHtml(co){
+  if (co.error) return '<span class="sym">'+esc(co.symbol)+'</span><span class="err">не прочитан: '+esc(co.error)+'</span>';
+  const now = co.levels_now.length, bids = co.levels_now.filter(l=>l.side==='bid').length;
+  return '<span class="sym">'+esc(co.symbol)+'</span>'+
+    '<span class="px">'+px(co.bid,co.price_decimals)+' / '+px(co.ask,co.price_decimals)+'</span>'+
+    '<span class="kv">плотностей <b>'+now+'</b> ('+bids+'/'+(now-bids)+')</span>'+
+    '<span class="kv">касаний <b>'+co.touches.total+'</b>'+(co.touches.share_bounced!==null?' · отскок <b>'+pct(co.touches.share_bounced)+'</b>':'')+'</span>';
+}
+
+// Коллектор пишет или нет — рамкой плиток (`body.dead`) и заголовком окна:
+// на самой странице текста о процессе нет, страница = сетка графиков.
+function renderStatus(){
+  const c = D.collector;
+  const alive = c.alive===null ? 'жив ли — узнаем на следующем расчёте' : (c.alive ? 'коллектор пишет' : 'коллектор НЕ пишет');
+  document.body.classList.toggle('dead', c.alive===false);
+  document.title = 'Монеты и плотности · '+alive+' · записано '+dur(c.recorded_secs)+' · '+c.instruments+' монет · разрывов '+c.gaps_on_disk;
+}
+
+// ---------------------------------------------------------------------------
+// Данные графика: coin-<SYMBOL>.json → типизированные массивы и индексы
+// ---------------------------------------------------------------------------
+function loadCoin(st){
+  if (!st.co || st.co.error) return;
+  st.loading = true;
+  fetch(st.co.chart_file, {cache:'no-store'})
+    .then(r => { if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(j => { st.loading=false; prepare(st, j); schedule(st); })
+    .catch(e => { st.loading=false; if (!st.loaded) st.error='график не загружен ('+e.message+')'; schedule(st); });
+}
+
+// Нижняя граница: первый индекс с a[i] >= v.
+function lowerBound(a, v){ let lo=0, hi=a.length; while (lo<hi){ const m=(lo+hi)>>1; if (a[m]<v) lo=m+1; else hi=m; } return lo; }
+
+function prepare(st, j){
+  const oldTo = st.loaded ? st.to : null;
+  st.t0=j.t0; st.from=j.from_ms; st.to=j.to_ms; st.dec=j.price_decimals; st.h3=j.h3_lots;
+  if (j.error){ st.error='не прочитан: '+j.error; st.loaded=false; return; }
+  if (!j.mid.length){ st.error='нет срезов середины'; st.loaded=false; return; }
+  st.error=null;
+  const t0=j.t0;
+  const nm=j.mid.length; st.mt=new Float64Array(nm); st.mp=new Float64Array(nm);
+  for (let i=0;i<nm;i++){ st.mt[i]=t0+j.mid[i][0]; st.mp[i]=j.mid[i][1]; }
+  const n=j.bars.length; st.n=n;
+  st.bb=new Float64Array(n); st.bd=new Float64Array(n); st.bp=new Float64Array(n); st.bs=new Uint8Array(n); st.bo=new Uint8Array(n); st.bx=new Float32Array(n); st.bm=new Float32Array(n); st.bw=new Float32Array(n); st.ba=new Float32Array(n);
+  for (let i=0;i<n;i++){ const b=j.bars[i]; st.bb[i]=t0+b[0]; st.bd[i]=b[1]===null?Infinity:t0+b[1]; st.bp[i]=b[2]; st.bs[i]=b[3]; st.bo[i]=b[4]; st.bx[i]=b[5]; st.bm[i]=b[6]===null?NaN:b[6]; }
+  // Ранг размера — по всем полоскам монеты: при отладочном пороге (k = 1.0)
+  // ×H3 у всех огромен, и линейная шкала слепнет. Толщина и яркость — от ранга.
+  st.sx = Float32Array.from(st.bx).sort();
+  let maxX = 0;
+  for (let i=0;i<n;i++){ const r = n ? lowerBound(st.sx, st.bx[i])/n : 0; st.ba[i]=r; st.bw[i]=0.7+4.3*r*r; if (st.bx[i]>maxX) maxX=st.bx[i]; }
+  st.maxX = maxX;
+  const k=j.touches.length; st.k=k;
+  st.tt=new Float64Array(k); st.tp=new Float64Array(k); st.ts=new Uint8Array(k); st.tu=new Uint8Array(k); st.ta=new Float64Array(k); st.tx=new Float32Array(k);
+  st.tfr=new Float32Array(k); st.tsw=new Float32Array(k); st.tap=new Float32Array(k); st.ti=new Uint32Array(k); st.td=new Float64Array(k); st.tm=new Float32Array(k);
+  for (let i=0;i<k;i++){ const t=j.touches[i]; st.tt[i]=t0+t[0]; st.tp[i]=t[1]; st.ts[i]=t[2]; st.tu[i]=t[3]; st.ta[i]=t[4]; st.tx[i]=t[5];
+    st.tfr[i]=t[6]===null?NaN:t[6]; st.tsw[i]=t[7]===null?NaN:t[7]; st.tap[i]=t[8]===null?NaN:t[8]; st.ti[i]=t[9]; st.td[i]=t[10]; st.tm[i]=t[11]===null?NaN:t[11]; }
+  st.levels = j.levels || []; st.stabs = j.stabs || [];
+  st.barsTotal = j.bars_total; st.touchesTotal = j.touches_total;
+  // Индекс по времени: корзины по span/2000 (не меньше минуты); полоска лежит во
+  // всех корзинах своей жизни, касание — в корзине начала. Живые — до конца записи.
+  st.bk = Math.max(60000, (st.to-st.from)/2000);
+  const nb = Math.floor((st.to-st.from)/st.bk)+1;
+  const bi = Array.from({length:nb}, ()=>[]), ti = Array.from({length:nb}, ()=>[]);
+  const bkOf = t => Math.min(nb-1, Math.max(0, Math.floor((t-st.from)/st.bk)));
+  for (let i=0;i<n;i++){ const a=bkOf(st.bb[i]), b=bkOf(st.bd[i]===Infinity?st.to:st.bd[i]); for (let c=a;c<=b;c++) bi[c].push(i); }
+  for (let i=0;i<k;i++) ti[bkOf(st.tt[i])].push(i);
+  st.bIdx = bi.map(a=>Int32Array.from(a)); st.tIdx = ti.map(a=>Int32Array.from(a)); st.bkOf = bkOf;
+  st.stamp = new Int32Array(n); st.cur = 0;
+  st.loaded = true;
+  // Окно: при первой загрузке — последний час; при перечитывании — прежнее,
+  // а если стояли у правого края — едем за записью.
+  if (!st.view) resetView(st);
+  else if (oldTo!==null && st.view.to >= oldTo-1000){ const span=st.view.to-st.view.from; st.view={from:Math.max(st.from, st.to-span), to:st.to}; }
+}
+
+function resetView(st){
+  const to = st.to, from = Math.max(st.from, to - D.chart_start_minutes*60000);
+  setView(st, from, to);
+}
+
+function clampView(st, from, to){
+  let span = Math.min(Math.max(to-from, 10000), Math.max(st.to-st.from, 10000));
+  if (from < st.from) from = st.from;
+  if (from+span > st.to) from = Math.max(st.from, st.to-span);
+  return {from, to: from+span};
+}
+
+function setView(st, from, to){ st.view = clampView(st, from, to); schedule(st); }
+
+// ---------------------------------------------------------------------------
+// Рисование
+// ---------------------------------------------------------------------------
+function schedule(st){ if (!st.raf) st.raf = requestAnimationFrame(()=>{ st.raf=0; draw(st); }); }
+
+const STEPS = [1e3,2e3,5e3,10e3,15e3,30e3,60e3,120e3,300e3,600e3,900e3,1800e3,3600e3,7200e3,10800e3,21600e3,43200e3,86400e3];
+const PROFILE_W = 46;   // ширина полосы профиля стакана справа, px
+const PROF_ROWS = 140;  // строк профиля по цене
+
+function draw(st){
+  const cv=st.cv, dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width!==Math.round(W*dpr) || cv.height!==Math.round(H*dpr)){ cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); }
+  const g=st.ctx; g.setTransform(dpr,0,0,dpr,0,0);
+  g.globalCompositeOperation='source-over'; g.globalAlpha=1; g.setLineDash([]);
+  g.fillStyle='#0d1117'; g.fillRect(0,0,W,H);
+  g.font='10.5px system-ui,sans-serif';
+  if (!st.loaded){
+    g.fillStyle='#7d8590'; g.textAlign='center'; g.fillText(st.error ? st.error : (st.loading ? 'график загружается…' : 'график ещё не запрошен'), W/2, H/2);
+    st.note.textContent=''; st.hit=null; return;
+  }
+  const v=st.view, from=v.from, to=v.to, span=to-from;
+  // Диапазон цены — по середине в окне ± последняя корзина расстояния (25 bps).
+  let i0=lowerBound(st.mt, from), i1=lowerBound(st.mt, to+1);
+  if (i1<=i0){ i0=Math.max(0,i0-1); i1=Math.min(st.mt.length, i0+2); }
+  let lo=Infinity, hi=-Infinity;
+  for (let i=i0;i<i1;i++){ const p=st.mp[i]; if (p<lo) lo=p; if (p>hi) hi=p; }
+  const pad=D.chart_price_pad_bps/1e4;
+  let plo=lo*(1-pad), phi=hi*(1+pad);
+  if (!(phi>plo)){ plo=lo-Math.pow(10,-st.dec); phi=hi+Math.pow(10,-st.dec); }
+  const L=4, T=4, B=15, R=Math.ceil(g.measureText(phi.toFixed(st.dec)).width)+11;
+  const pw=Math.max(10, W-L-R), ph=Math.max(10, H-T-B);
+  const x = t => L + (t-from)/span*pw;
+  const y = p => T + (phi-p)/(phi-plo)*ph;
+  // Сетка: цена справа, время снизу (UTC) — тем же шагом, что разметка времени.
+  g.strokeStyle='#161c25'; g.lineWidth=1;
+  for (let i=0;i<=4;i++){ const Y=Math.round(y(plo+(phi-plo)*i/4))+0.5; g.beginPath(); g.moveTo(L,Y); g.lineTo(L+pw,Y); g.stroke(); }
+  let step=STEPS[STEPS.length-1];
+  for (const s of STEPS) if (span/s <= pw/64){ step=s; break; }
+  for (let t=Math.ceil(from/step)*step; t<=to; t+=step){ const X=Math.round(x(t))+0.5; g.beginPath(); g.moveTo(X,T); g.lineTo(X,T+ph); g.stroke(); }
+  // Полоски окна — из индекса по времени, не перебором всего массива.
+  const cur=++st.cur, stamp=st.stamp, bb=st.bb, bd=st.bd, bp=st.bp, bo=st.bo, bx=st.bx, ba=st.ba;
+  const list=[]; let inWin=0, clipped=0;
+  const b0=st.bkOf(from), b1=st.bkOf(to);
+  for (let c=b0;c<=b1;c++){ const arr=st.bIdx[c]; for (let q=0;q<arr.length;q++){ const i=arr[q];
+    if (stamp[i]===cur) continue;
+    stamp[i]=cur;
+    const b=bb[i], d=bd[i]; if (b>to || d<from) continue;
+    if (!FLT.o[bo[i]]) continue;
+    inWin++; const p=bp[i]; if (p<plo||p>phi){ clipped++; continue; }
+    list.push(i);
+  }}
+  const capped = list.length>MAX;
+  if (capped){ list.sort((a,b)=>bx[b]-bx[a]); list.length=MAX; }
+  list.sort((a,b)=>bx[a]-bx[b]); // тонкие снизу, толстые сверху
+  const hit={cw:6, cols:[]}; const ncol=Math.ceil(W/hit.cw)+1; for (let c=0;c<ncol;c++) hit.cols.push([]);
+  const colOf = X => Math.min(ncol-1, Math.max(0, Math.floor(X/hit.cw)));
+  const liveEnd = x(Math.min(to, st.to));
+  // Полоса профиля справа — своя зона: данные (полоски, середина, касания)
+  // рисуются с обрезкой по ней, чтобы профиль ничего не затирал.
+  const stripX = L+pw-PROFILE_W, dataR = stripX-3;
+  // Окно стоит у конца записи: только тогда «живые» полоски файла относятся
+  // к видимому времени (профиль и кромка живых плотностей).
+  const nearEnd = (st.to - to) <= 120000;
+  g.save(); g.beginPath(); g.rect(L,T,Math.max(1,dataR-L),ph); g.clip();
+  // Полоски плотностей: цвет — сторона, толщина и яркость — ранг размера.
+  // Поле полупрозрачное (важна форма стакана), а сверху ещё раз проходятся
+  // самые крупные — «стены», ради которых всё и смотрится.
+  for (const i of list){
+    const x1=Math.max(L, x(bb[i])); if (x1>dataR) continue;
+    let x2 = bd[i]===Infinity ? liveEnd : x(bd[i]); x2=Math.min(dataR, Math.max(x1+1.5, x2));
+    const Y=y(bp[i]), r=ba[i];
+    g.globalAlpha = 0.10 + 0.42*r;
+    g.strokeStyle=SIDECOL[st.bs[i]]; g.lineWidth=0.5+2.8*r*r;
+    g.beginPath(); g.moveTo(x1,Y); g.lineTo(x2,Y); g.stroke();
+    const e={k:0,i,x1,x2,y:Y,w:0.5+2.8*r*r}; for (let c=colOf(x1);c<=colOf(x2);c++) hit.cols[c].push(e);
+  }
+  g.globalAlpha=1;
+  // «Стены»: сотня самых крупных полосок окна — плотной линией поверх поля.
+  // Живые стены видны не пунктиром, а яркой кромкой у правого края (ниже).
+  const walls = list.length>100 ? list.slice(Math.max(0, list.length-100)) : [];
+  for (const i of walls){
+    const x1=Math.max(L, x(bb[i])); if (x1>dataR) continue;
+    let x2 = bd[i]===Infinity ? liveEnd : x(bd[i]); x2=Math.min(dataR, Math.max(x1+1.5, x2));
+    const Y=y(bp[i]);
+    g.globalAlpha=0.95; g.strokeStyle=SIDECOL[st.bs[i]]; g.lineWidth=1.2+4.2*ba[i];
+    g.beginPath(); g.moveTo(x1,Y); g.lineTo(x2,Y); g.stroke();
+  }
+  g.globalAlpha=1;
+  // Живые плотности — яркая кромка у правого края окна: «что стоит сейчас».
+  if (nearEnd){
+    const lastC = st.bIdx[st.bkOf(Math.min(to, st.to))];
+    if (lastC) for (let q=0;q<lastC.length;q++){ const i=lastC[q]; if (bd[i]!==Infinity) continue;
+      const Y=y(bp[i]); if (Y<T-2||Y>T+ph+2) continue;
+      g.globalAlpha=0.55+0.45*ba[i]; g.strokeStyle=SIDECOL[st.bs[i]]; g.lineWidth=1.4+2.2*ba[i];
+      g.beginPath(); g.moveTo(Math.max(L,dataR-5),Y); g.lineTo(dataR,Y); g.stroke(); }
+    g.globalAlpha=1;
+  }
+  g.restore();
+  // Профиль стакана справа: суммарный размер **живых** плотностей по цене —
+  // «где стоят плотности сейчас»; видно и завал (сплошная широкая полоса), и
+  // пустые участки. Живые полоски в файле — те, что живы на последнем кадре
+  // записи, поэтому профиль рисуется только у конца записи.
+  const profB = new Float64Array(PROF_ROWS), profA = new Float64Array(PROF_ROWS);
+  let profMax=0, profN=0;
+  if (nearEnd){
+    const last = st.bIdx[st.bkOf(Math.min(to, st.to))];
+    if (last) for (let q=0;q<last.length;q++){ const i=last[q]; if (bd[i]!==Infinity) continue;
+      const row = Math.min(PROF_ROWS-1, Math.max(0, Math.floor((phi-bp[i])/(phi-plo)*PROF_ROWS)));
+      const acc = st.bs[i]===0 ? profB : profA;
+      acc[row] += bx[i]; profN++; if (acc[row]>profMax) profMax=acc[row]; } }
+  if (profMax>0){
+    const rowH=ph/PROF_ROWS;
+    for (const [arr, col] of [[profB,'#2f81f7'],[profA,'#f0883e']]){
+      g.fillStyle=col; g.globalAlpha=0.75;
+      for (let r=0;r<PROF_ROWS;r++){ const s=arr[r]; if (!s) continue;
+        g.fillRect(stripX+PROFILE_W*(1-s/profMax), T+r*rowH, Math.max(1,PROFILE_W*(s/profMax)), rowH+0.5); }
+      g.globalAlpha=1;
     }
-    t.onclick=()=>{SEL=co.symbol; render();};
-    tiles.appendChild(t);
+    g.strokeStyle='#2b3441'; g.lineWidth=1; g.beginPath(); g.moveTo(stripX-0.5,T); g.lineTo(stripX-0.5,T+ph); g.stroke();
   }
-  const co = D.coins.find(x=>x.symbol===SEL);
-  document.getElementById('coin').innerHTML = co ? coinHtml(co) : '';
-  if (co && !co.error) drawPicture(co);
-  document.getElementById('gl').innerHTML = D.glossary.map(g=>'<dt>'+esc(g.title)+'</dt><dd>'+esc(g.body)+'</dd>').join('');
-}
-
-function rowsTable(rows, labelName, labelMap){
-  const H = D.horizons_ms;
-  let h='<table><thead><tr><th>'+esc(labelName)+'</th><th>уровней</th><th>доля</th><th>проели</th><th>жизнь (медиана)</th>'+
-    '<th>m '+H[0]+' мс</th><th>m '+H[1]/1000+' с</th><th>m '+H[2]/1000+' с</th><th>m '+H[3]/1000+' с</th><th>net 10 с</th><th>n для net</th></tr></thead><tbody>';
-  for (const r of rows){
-    h+='<tr><td>'+esc(labelMap&&labelMap[r.label]?labelMap[r.label]:r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td><td>'+pct(r.share_eaten)+'</td><td>'+ms(r.lifetime_median_ms)+'</td>'+
-      r.m_bps.map(v=>'<td class="'+sgn(v)+'">'+f(v)+'</td>').join('')+'<td class="'+sgn(r.net_bps)+'"><b>'+f(r.net_bps)+'</b></td><td>'+r.net_n+'</td></tr>';
+  // Слой T39: уровни пунктиром и метки закола — данных пока нет, рисовалка есть.
+  for (const lv of st.levels){ const a=st.t0+lv[0], b=lv[1]===null?st.to:st.t0+lv[1]; if (b<from||a>to) continue; const Y=y(lv[2]); if (Y<T||Y>T+ph) continue;
+    g.strokeStyle='#a371f7'; g.lineWidth=1; g.setLineDash([2,3]); g.beginPath(); g.moveTo(Math.max(L,x(a)),Y); g.lineTo(Math.min(dataR,x(b)),Y); g.stroke(); g.setLineDash([]);
+    if (lv[4]){ g.fillStyle='#a371f7'; g.textAlign='left'; g.textBaseline='middle'; g.fillText(lv[4], Math.max(L,x(a))+2, Y-3); } }
+  for (const sb of st.stabs){ const t=st.t0+sb[0]; if (t<from||t>to) continue; const X=x(t), Y=y(sb[1]); if (Y<T||Y>T+ph) continue;
+    g.fillStyle='#a371f7'; g.beginPath(); g.moveTo(X,Y-5); g.lineTo(X+4,Y); g.lineTo(X,Y+5); g.lineTo(X-4,Y); g.closePath(); g.fill(); }
+  // Середина: белая линия; при точках гуще двух на пиксель — огибающая min/max.
+  g.save(); g.beginPath(); g.rect(L,T,Math.max(1,dataR-L),ph); g.clip();
+  g.strokeStyle='#ffffff'; g.lineWidth=1.5; g.globalAlpha=0.95; g.beginPath();
+  if (i1-i0 > 2*pw){
+    let col=-1, cmin=0, cmax=0, started=false;
+    for (let i=i0;i<i1;i++){ const c=Math.floor(x(st.mt[i])), p=st.mp[i];
+      if (c!==col){ if (col>=0){ const X=col+0.5; if (!started){ g.moveTo(X,y(cmin)); started=true; } else g.lineTo(X,y(cmin)); g.lineTo(X,y(cmax)); } col=c; cmin=p; cmax=p; }
+      else { if (p<cmin) cmin=p; if (p>cmax) cmax=p; } }
+    if (col>=0){ const X=col+0.5; if (!started) g.moveTo(X,y(cmin)); else g.lineTo(X,y(cmin)); g.lineTo(X,y(cmax)); }
+  } else {
+    const a=Math.max(0,i0-1), b=Math.min(st.mt.length, i1+1);
+    for (let i=a;i<b;i++){ const X=x(st.mt[i]), Y=y(st.mp[i]); if (i===a) g.moveTo(X,Y); else g.lineTo(X,Y); }
   }
-  return h+'</tbody></table>';
-}
-
-// Касания по исходам: n, доля, m «в сторону отскока» на четырёх горизонтах.
-function touchOutcomeTable(rows){
-  const H = D.horizons_ms;
-  let h='<table><thead><tr><th>исход касания</th><th>касаний</th><th>доля</th>'+
-    '<th>m '+H[0]+' мс</th><th>m '+H[1]/1000+' с</th><th>m '+H[2]/1000+' с</th><th>m '+H[3]/1000+' с</th><th>n для m 10 с</th></tr></thead><tbody>';
-  for (const r of rows){
-    h+='<tr><td>'+esc(TOUT[r.label]||r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td>'+
-      r.m_bps.map(v=>'<td class="'+sgn(v)+'">'+f(v)+'</td>').join('')+'<td>'+r.m10s_n+'</td></tr>';
-  }
-  return h+'</tbody></table>';
-}
-
-// Касания по оси В-44: n, доля отскоков, m 10 с по отскокам и по всем.
-function touchTable(rows, labelName, labelMap){
-  let h='<table><thead><tr><th>'+esc(labelName)+'</th><th>касаний</th><th>доля</th><th>отскочила</th><th>m 10 с, отскоки</th><th>n</th><th>m 10 с, все</th><th>n</th></tr></thead><tbody>';
-  for (const r of rows){
-    h+='<tr><td>'+esc(labelMap&&labelMap[r.label]?labelMap[r.label]:r.label)+'</td><td>'+r.n+'</td><td>'+pct(r.share)+'</td><td>'+pct(r.share_bounced)+'</td>'+
-      '<td class="'+sgn(r.m10s_bounced_bps)+'"><b>'+f(r.m10s_bounced_bps)+'</b></td><td>'+r.m10s_bounced_n+'</td>'+
-      '<td class="'+sgn(r.m_bps[2])+'">'+f(r.m_bps[2])+'</td><td>'+r.m10s_n+'</td></tr>';
-  }
-  return h+'</tbody></table>';
-}
-
-// Крест исход × возраст — единственный крест касаний (В-44).
-function touchCrossTable(cells){
-  const ages = Object.keys(AGE);
-  let h='<table class="cross"><thead><tr><th>исход \\ возраст уровня на касании</th>'+ages.map(a=>'<th class="c">'+AGE[a]+'</th>').join('')+'</tr></thead><tbody>';
-  for (const o of Object.keys(TOUT)){
-    h+='<tr><td>'+TOUT[o]+'</td>'+ages.map(a=>{
-      const c = cells.find(x=>x.outcome===o&&x.age===a);
-      if (!c) return '<td class="c">—</td>';
-      return '<td class="c">'+c.n+' ('+pct(c.share)+') · m 10 с <span class="'+sgn(c.m10s_bps)+'">'+f(c.m10s_bps)+'</span>, n='+c.m10s_n+'</td>';
-    }).join('')+'</tr>';
-  }
-  return h+'</tbody></table>';
-}
-
-function touchesHtml(co){
-  const T = co.touches;
-  const H = D.horizons_ms;
-  let h='<h3>Касания: цена дошла до плотности</h3>';
-  h+='<div class="note"><b>Касание</b> — цена дошла до живой плотности: уровень, живший до этого кадра, стал лучшей ценой своей стороны (первым в стакане). '+
-    'Касание кончается, когда уровень перестал быть лучшей ценой — цена ушла, уровень жив: <b>отскок</b>, — или умер: <b>проели на касании</b>. '+
-    'm — сдвиг середины после начала касания, bps, со знаком «в сторону отскока» (плюс — цена ушла от плотности); база — середина в момент касания (В-43). '+
-    'Горизонт не длиннее самого касания даёт m ≈ 0 по построению (середина ещё стоит на плотности) — такие ячейки в средние не входят (В-45): исключено на '+H[0]+' мс — '+T.within_touch[0]+', 1 с — '+T.within_touch[1]+', 10 с — '+T.within_touch[2]+', 60 с — '+T.within_touch[3]+' касаний. '+
-    'Это движение цены, не сделка: вход, стоп и net сделки-отскока считает бэктест, не эта страница.'+
-    (D.days_recorded < D.g_min_days ? ' Суток записано '+D.days_recorded+' < '+D.g_min_days+' (G_MIN) — всё в блоке наблюдение, не вердикт.' : '')+'</div>';
-  h+='<div class="card">';
-  h+='<div>касаний за запись: <b>'+T.total+'</b>'+(T.per_hour!==null?' ('+f(T.per_hour,1)+' в час)':'')+
-    ' · отскочила <b class="pos">'+T.bounced+'</b> ('+pct(T.share_bounced)+') · проели на касании <b class="neg">'+T.eaten+'</b>'+
-    (T.stack_shown ? (T.stack_median!==null ? ' · завал — уровней ≥ H3 той же стороны не дальше '+T.stack_window_bps+' bps от плотности на касании, включая её саму, медиана: '+f(T.stack_median,0)+(T.k_stub?' (k — заглушка (В-30): порог не выбран, число завала — свойство порога)':'') : '')
-                   : ' · завал не показан: порог отладочный, число вырождено (В-43)')+'</div>';
-  if (!T.total) h+='<div class="note">касаний за запись нет — таблицы ниже с нулями</div>';
-  h+=touchOutcomeTable(T.outcomes.concat([T.all]));
-  h+='</div>';
-  h+='<h3>Касания по осям В-44</h3>';
-  h+='<div class="note">Корзины назначены до чтения данных (В-44) по словам практиков; границы — их числа или уже существующие константы, ничего не подобрано по данным. '+
-    '<b>Фронтран</b> — заявки той же стороны перед плотностью (ближе к середине) за секунду до касания (кадр в 1–2 с до него, В-45), в долях её размера на касании; сколько смёл последний шаг цены — в наведении на метку касания. '+
-    '<b>Подход</b> — сдвиг середины за '+(T.approach_ms[0]/1000)+' с до касания, bps, со знаком «к уровню»: плюс — цена шла на плотность; без подхода (нет среза за секунду до касания): '+T.approach_missing+'. '+
-    '<b>Круглость</b> — нули в конце цены в тиках. <b>Номер касания</b> — которое это касание у этого уровня. Длительность и размер — те же корзины, что у уровней; '+
-    'размер берётся на касании, и уровень к касанию мог усохнуть ниже порога H3 — таких касаний '+T.size_below_h3+', в корзины размера они не входят (В-43: проверки размера при старте касания нет).</div>';
-  h+='<div class="card">'+touchTable(T.by_age,'возраст уровня на касании',AGE)+'</div>'+
-     '<div class="card">'+touchTable(T.by_frontrun,'фронтран, доля размера',FR)+'</div>'+
-     '<div class="card">'+touchTable(T.by_round,'круглость цены',RND)+'</div>'+
-     '<div class="card">'+touchTable(T.by_index,'номер касания',TIX)+'</div>'+
-     '<div class="card">'+touchTable(T.by_approach,'подход за '+(T.approach_ms[0]/1000)+' с',APR)+'</div>'+
-     '<div class="card">'+touchTable(T.by_duration,'длительность касания')+'</div>'+
-     '<div class="card">'+touchTable(T.by_side,'сторона',SIDE)+'</div>'+
-     '<div class="card">'+touchTable(T.by_size,'размер на касании ×H3')+'</div>';
-  h+='<h3>Исход касания × возраст уровня</h3><div class="card">'+touchCrossTable(T.cross_outcome_age)+
-    '<div class="note">главный тезис практиков — старая плотность отскакивает; клетка: касаний (доля от всех) · m 10 с в сторону отскока, n — по скольким есть срез на 10 с.</div></div>';
-  return h;
-}
-
-function coinHtml(co){
-  if (co.error) return '<div class="warn">'+esc(co.symbol)+': не прочитан — '+esc(co.error)+'</div>';
-  const age = co.last_age_secs===null?'—':dur(co.last_age_secs);
-  let h='<h2>'+esc(co.symbol)+' <span class="sub">бид '+px(co.bid,co)+' · аск '+px(co.ask,co)+' · последний кадр '+age+' назад · записано '+co.recorded_hours.toFixed(1)+' ч</span></h2>';
-  h+='<div class="note">'+esc(co.h3_source)+'</div>';
-  h+='<h3>Плотности сейчас</h3><div class="card">';
-  if (!co.levels_now.length) h+='<div class="note">на последнем кадре крупных уровней нет</div>';
-  else {
-    h+='<table><thead><tr><th>сторона</th><th>цена</th><th>до середины</th><th>размер, монет</th><th>×H3</th><th>размер, $</th><th>стоит уже</th><th>проели уже</th><th>который раз на цене</th></tr></thead><tbody>';
-    for (const l of co.levels_now.slice(0,40)){
-      h+='<tr><td>'+SIDE[l.side]+'</td><td>'+px(l.price,co)+'</td><td>'+f(l.distance_bps,2)+' bps</td><td>'+big(l.size_qty)+'</td><td>'+f(l.size_x_h3,1)+'</td><td>'+big(l.size_usd)+'</td><td>'+dur(l.age_secs)+'</td><td>'+pct(l.traded_share)+'</td><td>'+(l.repeat_count+1)+'</td></tr>';
+  g.stroke(); g.globalAlpha=1; g.restore();
+  // Касания: треугольник у начала на цене уровня (вверх — бид, вниз — аск),
+  // цвет — исход; 4-е касание и дальше — контуром (у практиков это уже
+  // «начинают трахать»). Перед полоской — тонкая зона фронтрана за секунду.
+  let nt=0, tcl=0, tcapped=false, tInWin=0;
+  const tl=[];
+  if (FLT.touch && st.k){
+    const tt=st.tt, tp=st.tp, tx=st.tx;
+    for (let c=b0;c<=b1;c++){ const arr=st.tIdx[c]; for (let q=0;q<arr.length;q++){ const i=arr[q]; const t=tt[i]; if (t<from||t>to) continue;
+      const p=tp[i]; if (p<plo||p>phi){ tcl++; continue; } tl.push(i); } }
+    if (tl.length>TOUCH_MAX){ tInWin=tl.length; tl.sort((a,b)=>tx[b]-tx[a]); tl.length=TOUCH_MAX; tcapped=true; }
+    g.save(); g.beginPath(); g.rect(L,T,Math.max(1,dataR-L),ph); g.clip();
+    for (const i of tl){
+      const X=x(tt[i]), Y=y(tp[i]), up=st.ts[i]===0; nt++;
+      const fr=st.tfr[i];
+      if (fr>0){ const hh=2+6*Math.min(fr,1), ww=Math.max(2, x(tt[i]+st.td[i])-X); g.fillStyle='#d29922'; g.globalAlpha=0.20; g.fillRect(X, up ? Y-1-hh : Y+1, Math.min(ww, dataR-X), hh); g.globalAlpha=1; }
+      const sz=3.2;
+      g.strokeStyle='#0d1117'; g.lineWidth=0.7; g.fillStyle=TOUCHCOL[st.tu[i]];
+      g.beginPath();
+      if (up){ g.moveTo(X,Y-sz); g.lineTo(X-sz*0.85,Y+sz*0.7); g.lineTo(X+sz*0.85,Y+sz*0.7); }
+      else { g.moveTo(X,Y+sz); g.lineTo(X-sz*0.85,Y-sz*0.7); g.lineTo(X+sz*0.85,Y-sz*0.7); }
+      g.closePath();
+      if (st.ti[i]>=3){ g.strokeStyle=TOUCHCOL[st.tu[i]]; g.lineWidth=1.1; g.stroke(); } else { g.fill(); g.stroke(); }
+      hit.cols[colOf(X)].push({k:1,i,x:X,y:Y});
     }
-    h+='</tbody></table>';
-    if (co.levels_now.length>40) h+='<div class="note">показаны 40 самых крупных из '+co.levels_now.length+'</div>';
+    g.restore();
   }
-  h+='</div>';
-  h+='<h3>Картина за последний час записи</h3><div class="card">'+
-    '<div class="leg"><span><i style="background:var(--eaten)"></i>проели</span><span><i style="background:var(--pulled)"></i>сняли</span><span><i style="background:var(--mixed)"></i>смешанно</span><span><i style="background:var(--alive)"></i>живой</span><span>толщина — размер (ранг среди полосок окна); линия — середина цены; наведи на полоску — числа</span></div>'+
-    '<div class="leg"><span>метки касаний (цена дошла до живой плотности): треугольник у начала касания, вверх — бид, вниз — аск;</span><span><i class="tri"></i>отскочила</span><span><i class="tri dn"></i>проели на касании</span><span>наведи — возраст, фронтран, сметено, подход, m 10 с</span></div>'+
-    '<div class="ctl"><label><input type="checkbox" id="f_eaten"'+(FLT.eaten?' checked':'')+'> проели</label><label><input type="checkbox" id="f_pulled"'+(FLT.pulled?' checked':'')+'> сняли</label><label><input type="checkbox" id="f_mixed"'+(FLT.mixed?' checked':'')+'> смешанно</label><label><input type="checkbox" id="f_alive"'+(FLT.alive?' checked':'')+'> живые</label><label><input type="checkbox" id="f_touch"'+(FLT.touch?' checked':'')+'> показывать касания</label>'+
-    '<label>размер: <select id="f_top"><option value="1"'+(FLT.topShare==1?' selected':'')+'>все</option><option value="0.5"'+(FLT.topShare==0.5?' selected':'')+'>крупнейшие 50 %</option><option value="0.2"'+(FLT.topShare==0.2?' selected':'')+'>крупнейшие 20 %</option><option value="0.05"'+(FLT.topShare==0.05?' selected':'')+'>крупнейшие 5 %</option></select></label>'+
-    '<label>жизнь от <select id="f_life"><option value="0"'+(FLT.minLife==0?' selected':'')+'>0</option><option value="1000"'+(FLT.minLife==1000?' selected':'')+'>1 с</option><option value="10000"'+(FLT.minLife==10000?' selected':'')+'>10 с</option><option value="60000"'+(FLT.minLife==60000?' selected':'')+'>1 мин</option></select></label>'+
-    '<span id="pic_n" class="note"></span></div>'+
-    '<svg id="pic" viewBox="0 0 1200 440" preserveAspectRatio="none"></svg>'+
-    '<div class="note">окно '+D.picture_minutes+' мин до последнего кадра ('+hhmm(co.picture.to_ms)+' UTC); диапазон цены — середина окна ± 25 bps (дальше не входит ни в одну корзину расстояния); за диапазоном осталось полосок: '+co.picture.clipped+(co.picture.bars_total>co.picture.bars.length?'; в окне '+co.picture.bars_total+' полосок, нарисованы '+co.picture.bars.length+' самых крупных':'')+
-    '; касаний в окне: '+co.picture.marks_total+(co.picture.marks_clipped?' (+'+co.picture.marks_clipped+' за диапазоном цены)':'')+(co.picture.marks_total>co.picture.marks.length?', нарисованы '+co.picture.marks.length+' самых крупных по размеру на касании':'')+'</div></div>';
-  h+=touchesHtml(co);
-  h+='<h3>Что стало с плотностями за всю запись</h3><div class="card">'+rowsTable(co.outcomes.concat([co.all]),'исход',OUT)+
-    '<div class="note">m — куда ушла середина после смерти уровня, в сторону плотности, среднее по уровням; net — m на 10 с минус комиссии '+D.roundtrip_fees_bps+' bps и спред; RTT для бэктеста принят за '+D.assumed_rtt_ms+' мс (В-37, assumed — не измерен), в net он не входит.</div></div>';
-  h+='<h3>Где стоят и как живут</h3><div>'+
-    '<div class="card">'+rowsTable(co.by_side,'сторона',SIDE)+'</div>'+
-    '<div class="card">'+rowsTable(co.by_size,'размер ×H3')+'</div>'+
-    '<div class="card">'+rowsTable(co.by_distance,'до середины, bps')+'</div>'+
-    '<div class="card">'+rowsTable(co.by_lifetime,'время жизни')+'</div>'+
-    '<div class="card">'+rowsTable(co.by_repeat,'который раз на цене')+'</div></div>'+
-    '<div class="note">те же корзины, что в таблице профилей lob profiles; уровни за 25 bps от середины не входят в корзины расстояния.</div>';
-  return h;
+  st.hit=hit; st.geom={L,T,pw,ph,from,span};
+  // Оси — поверх всего, чтобы подписи читались.
+  g.fillStyle='#7d8590'; g.textAlign='left'; g.textBaseline='middle';
+  for (let i=0;i<=4;i++){ const p=plo+(phi-plo)*i/4; g.fillText(p.toFixed(st.dec), L+pw+4, Math.round(y(p))+0.5); }
+  g.textAlign='center'; g.textBaseline='alphabetic';
+  for (let t=Math.ceil(from/step)*step; t<=to; t+=step){ const X=Math.round(x(t))+0.5; const day = t % 86400e3 === 0;
+    g.fillText(day ? ddmm(t)+' '+hhmm(t) : (step<60e3 ? hhmmss(t) : hhmm(t)), X, H-4); }
+  // В углу — только предупреждение о потолке: сколько полосок/касаний в окне
+  // страница не рисует. Обычной сводки на графике нет.
+  const warn = [];
+  if (capped) warn.push('в окне '+inWin.toLocaleString('ru-RU')+' полосок — рисуются '+list.length.toLocaleString('ru-RU')+' крупнейших');
+  if (tcapped) warn.push('касаний '+tInWin.toLocaleString('ru-RU')+' — рисуются '+nt.toLocaleString('ru-RU'));
+  if (clipped) warn.push('за диапазоном цены полосок '+clipped.toLocaleString('ru-RU'));
+  st.note.textContent = warn.join(' · ');
+  st.note.hidden = warn.length===0;
 }
 
-function drawPicture(co){
-  for (const k of ['eaten','pulled','mixed','alive','touch']) document.getElementById('f_'+k).onchange = e => {FLT[k]=e.target.checked; drawPicture(co);};
-  document.getElementById('f_life').onchange = e => {FLT.minLife=Number(e.target.value); drawPicture(co);};
-  document.getElementById('f_top').onchange = e => {FLT.topShare=Number(e.target.value); drawPicture(co);};
-  const P = co.picture, svg = document.getElementById('pic');
-  const W=1200,H=440,L=70,R=12,T=12,B=28;
-  if (!P.mid.length){ svg.innerHTML='<text x="'+(W/2)+'" y="'+(H/2)+'" class="axis" text-anchor="middle">нет срезов середины в окне</text>'; return; }
-  const x = t => L + (t-P.from_ms)/(P.to_ms-P.from_ms) * (W-L-R);
-  const y = p => T + (P.price_hi-p)/(P.price_hi-P.price_lo) * (H-T-B);
-  let s='';
-  for (let i=0;i<=5;i++){ const p=P.price_lo+(P.price_hi-P.price_lo)*i/5; s+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(p)+'" y2="'+y(p)+'"/><text class="axis" x="'+(L-6)+'" y="'+(y(p)+4)+'" text-anchor="end">'+p.toFixed(co.price_decimals)+'</text>'; }
-  for (let i=0;i<=6;i++){ const t=P.from_ms+(P.to_ms-P.from_ms)*i/6; s+='<line class="grid" x1="'+x(t)+'" x2="'+x(t)+'" y1="'+T+'" y2="'+(H-B)+'"/><text class="axis" x="'+x(t)+'" y="'+(H-10)+'" text-anchor="middle">'+hhmm(t)+'</text>'; }
-  let n=0;
-  const col={eaten:'var(--eaten)',pulled:'var(--pulled)',mixed:'var(--mixed)',alive:'var(--alive)'};
-  // Толщина — по рангу размера среди полосок окна (не по ×H3: при
-  // отладочном пороге все ×H3 огромны и линейная шкала слепнет).
-  const sizes = P.bars.map(b=>b.x).sort((a,b)=>a-b);
-  const rank = v => { let lo=0, hi=sizes.length; while(lo<hi){ const m=(lo+hi)>>1; if (sizes[m]<v) lo=m+1; else hi=m; } return sizes.length? lo/sizes.length : 0; };
-  const cut = sizes.length ? sizes[Math.max(0, Math.floor(sizes.length*(1-FLT.topShare))-0)] : 0;
-  const drawn = [];
-  for (const b of P.bars){
-    if (!FLT[b.o]) continue;
-    if (FLT.topShare<1 && b.x < cut) continue;
-    if (b.d!==null && (b.d-b.b) < FLT.minLife) continue;
-    drawn.push(b);
-  }
-  // Тонкие снизу, толстые сверху — крупное не прячется под мелким.
-  drawn.sort((a,b)=>a.x-b.x);
-  for (const b of drawn){
-    const d = b.d===null ? P.to_ms : b.d;
-    n++;
-    const x1=Math.max(L,x(b.b)), x2=Math.max(x1+1.5,x(d));
-    const r = rank(b.x);
-    const w = 0.7 + 4.3*r*r;
-    const tip = SIDE[b.s]+' '+b.p.toFixed(co.price_decimals)+' · '+OUT[b.o]+' · '+(b.d===null?'жив с '+hhmm(b.b):hhmm(b.b)+'–'+hhmm(b.d)+', '+ms(b.d-b.b))+' · размер '+b.x.toFixed(1)+'×H3'+(b.m===null?'':' · m 10 с '+b.m.toFixed(2)+' bps');
-    const op = b.o==='pulled' ? 0.55 : 0.9;
-    s+='<line x1="'+x1.toFixed(1)+'" x2="'+x2.toFixed(1)+'" y1="'+y(b.p).toFixed(1)+'" y2="'+y(b.p).toFixed(1)+'" stroke="'+col[b.o]+'" stroke-width="'+w.toFixed(1)+'"'+(b.d===null?' stroke-dasharray="4 3"':'')+' stroke-opacity="'+op+'"><title>'+esc(tip)+'</title></line>';
-  }
-  let path='';
-  for (const m of P.mid){ path += (path?'L':'M')+x(m[0]).toFixed(1)+' '+y(m[1]).toFixed(1); }
-  s+='<path d="'+path+'" fill="none" stroke="#111" stroke-width="1.1" stroke-opacity="0.9"/>';
-  // Метки касаний — поверх линии цены: треугольник у start_ms на цене
-  // уровня, вверх у бида, вниз у аска; цвет — исход касания.
-  let nm=0;
-  if (FLT.touch){
-    const mcol={bounced:'var(--bounced)',eaten:'var(--teaten)'};
-    for (const k of P.marks){
-      const X=x(k.t); if (X<L) continue;
-      const Y=y(k.p);
-      const d = k.s==='bid'
-        ? 'M'+X.toFixed(1)+' '+(Y-5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y+3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y+3).toFixed(1)+' Z'
-        : 'M'+X.toFixed(1)+' '+(Y+5).toFixed(1)+' L'+(X-4).toFixed(1)+' '+(Y-3).toFixed(1)+' L'+(X+4).toFixed(1)+' '+(Y-3).toFixed(1)+' Z';
-      const tip = 'касание '+hhmmss(k.t)+' UTC · '+SIDE[k.s]+' '+k.p.toFixed(co.price_decimals)+' · '+TOUT[k.o]+' · '+(k.i+1)+'-е касание уровня · возраст '+ms(k.a)+' · длилось '+ms(k.d)+
-        ' · размер '+k.x.toFixed(1)+'×H3 · фронтран за 1 с '+(k.fr===null?'—':k.fr.toFixed(2)+' размера')+' · сметено '+(k.sw===null?'—':k.sw.toFixed(2)+' размера')+' · подход 1 с '+(k.ap===null?'—':k.ap.toFixed(2)+' bps')+' · m 10 с '+(k.w?'внутри касания':(k.m===null?'—':k.m.toFixed(2)+' bps'));
-      s+='<path d="'+d+'" fill="'+mcol[k.o]+'" stroke="#fff" stroke-width="0.6"><title>'+esc(tip)+'</title></path>';
-      nm++;
+// ---------------------------------------------------------------------------
+// Интерактив: колесо — зум, тянуть — панорама, двойной клик — сброс, наведение — цифры
+// ---------------------------------------------------------------------------
+function bindEvents(st){
+  const cv=st.cv;
+  const timeAt = mx => { const gm=st.geom; return gm.from + (mx-gm.L)/gm.pw*gm.span; };
+  cv.addEventListener('wheel', e => {
+    if (!st.loaded || !st.geom) return; e.preventDefault();
+    const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, tc=timeAt(mx);
+    const dy = e.deltaMode===1 ? e.deltaY*33 : e.deltaY; // Firefox: строки, не пиксели
+    const k=Math.exp(dy*0.0015);
+    const v=st.view; setView(st, tc-(tc-v.from)*k, tc+(v.to-tc)*k);
+    hideTip(st);
+  }, {passive:false});
+  cv.addEventListener('pointerdown', e => {
+    if (!st.loaded || !st.geom || e.button!==0) return;
+    st.drag={x:e.clientX, from:st.view.from, to:st.view.to}; cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!st.loaded || !st.geom) return;
+    const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    if (st.drag){
+      const dx=e.clientX-st.drag.x; const dt=-dx/st.geom.pw*st.geom.span;
+      setView(st, st.drag.from+dt, st.drag.to+dt); hideTip(st); return;
     }
+    hover(st, mx, my);
+  });
+  const up = e => { if (st.drag){ st.drag=null; try{ cv.releasePointerCapture(e.pointerId); }catch(_){} } };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('pointerleave', () => { if (!st.drag) hideTip(st); });
+  cv.addEventListener('dblclick', e => { e.preventDefault(); if (st.loaded) resetView(st); });
+}
+function hideTip(st){ st.tip.hidden=true; }
+function hover(st, mx, my){
+  const hit=st.hit; if (!hit) return;
+  const c=Math.floor(mx/hit.cw); let best=null, bd=1e9;
+  for (let q=c-1;q<=c+1;q++){ const col=hit.cols[q]; if (!col) continue; for (const e of col){
+    if (e.k===1){ const d=Math.hypot(mx-e.x, my-e.y); if (d<=9 && d-3<bd){ bd=d-3; best=e; } }
+    else { if (mx<e.x1-2||mx>e.x2+2) continue; const d=Math.abs(my-e.y); if (d<=Math.max(4,e.w) && d<bd){ bd=d; best=e; } } } }
+  if (!best){ hideTip(st); return; }
+  let text;
+  if (best.k===0){
+    const i=best.i, alive=st.bd[i]===Infinity;
+    text = SIDENAME[st.bs[i]]+' '+st.bp[i].toFixed(st.dec)+' · '+OUTNAME[st.bo[i]]+' · '+(alive ? 'жив с '+hhmmss(st.bb[i]) : hhmmss(st.bb[i])+'–'+hhmmss(st.bd[i])+', '+ms(st.bd[i]-st.bb[i]))+
+      ' · размер '+st.bx[i].toFixed(1)+'×H3'+(Number.isNaN(st.bm[i])?'':' · m 10 с '+st.bm[i].toFixed(2)+' bps');
+  } else {
+    const i=best.i, inside = st.td[i] >= D.horizons_ms[2];
+    text = 'касание '+hhmmss(st.tt[i])+' UTC · '+SIDENAME[st.ts[i]]+' '+st.tp[i].toFixed(st.dec)+' · '+TOUTNAME[st.tu[i]]+' · '+(st.ti[i]+1)+'-е касание уровня · возраст '+ms(st.ta[i])+' · длилось '+ms(st.td[i])+
+      ' · размер '+st.tx[i].toFixed(1)+'×H3 · фронтран за 1 с '+(Number.isNaN(st.tfr[i])?'—':st.tfr[i].toFixed(2)+' размера')+' · сметено '+(Number.isNaN(st.tsw[i])?'—':st.tsw[i].toFixed(2)+' размера')+
+      ' · подход 1 с '+(Number.isNaN(st.tap[i])?'—':st.tap[i].toFixed(2)+' bps')+' · m 10 с '+(inside ? 'внутри касания' : (Number.isNaN(st.tm[i])?'—':st.tm[i].toFixed(2)+' bps'));
   }
-  svg.innerHTML=s;
-  document.getElementById('pic_n').textContent='показано полосок: '+n+' из '+P.bars.length+'; меток касаний: '+nm+' из '+P.marks.length;
+  const tip=st.tip; tip.textContent=text; tip.hidden=false;
+  const W=st.cv.clientWidth; tip.style.left = Math.min(mx+12, Math.max(0, W-tip.offsetWidth-4))+'px'; tip.style.top = (my+14)+'px';
 }
 
+// ---------------------------------------------------------------------------
+// Старт и обновление: data.json раз в REFRESH с, coin-*.json раз в chart_refresh_secs
+// ---------------------------------------------------------------------------
 render();
+window.addEventListener('resize', () => { layout(); CH.forEach(schedule); });
 setInterval(()=>{
   fetch('data.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(j){ D=j; render(); } }).catch(()=>{});
-},REFRESH*1000);
+}, REFRESH*1000);
+setInterval(()=>{
+  for (const st of CH.values()) if (st.loaded && !st.loading && (st.visible || SOLO===st.sym)) loadCoin(st);
+}, D.chart_refresh_secs*1000);
 </script>
 </body>
 </html>

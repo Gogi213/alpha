@@ -8,3 +8,5 @@ target/
 *.rej
 .autopilot/*.pid
 .claude/worktrees/
+# временные артефакты проверок страницы (профиль Chrome, скриншоты)
+.tmp-*/
