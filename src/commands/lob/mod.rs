@@ -51,6 +51,7 @@ use clap::Subcommand;
 use crate::bybit::clock::check_rows;
 
 pub mod backtest;
+pub mod binlog_stats;
 pub mod clock;
 pub mod dashboard;
 mod export;
@@ -75,6 +76,7 @@ mod verify;
 pub mod watch;
 
 pub use backtest::{run_backtest, BacktestArgs};
+pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
 pub use levels::{run_levels, LevelsArgs};
@@ -185,6 +187,11 @@ pub enum LobCommand {
     /// возраст, по инструменту и по пулу, `m` «в сторону отскока» с
     /// интервалом по суткам; число испытаний — в `runs.csv`.
     TouchProfiles(TouchProfilesArgs),
+    /// Что лежит в бинлоге и за что платятся байты (владелец 2026-09-13:
+    /// «оптимизировать коллектор сильно — формат файлов, формат записи, тип
+    /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
+    /// Только чтение, ни одного порога.
+    BinlogStats(BinlogStatsArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -280,6 +287,13 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.debug,
                 summary.out.display()
             );
+            Ok(())
+        }
+        LobCommand::BinlogStats(args) => {
+            let stats = run_binlog_stats(&args)?;
+            for line in binlog_stats::summary_lines(&args.path, &stats) {
+                println!("{line}");
+            }
             Ok(())
         }
         LobCommand::Markout(args) => {

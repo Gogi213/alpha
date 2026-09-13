@@ -431,6 +431,7 @@ fn lob_help_lists_all_subcommands() {
     sorted.sort();
     let expected = [
         "backtest",
+        "binlog-stats",
         "clock",
         "dashboard",
         "export",
