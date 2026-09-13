@@ -31,7 +31,7 @@ use crate::lob::backtest::{
     BacktestReport, BounceRun, BounceSignal, DriveConfig, Signal, TableEstimate, SIGMA_LONG,
     SIGMA_SHORT,
 };
-use crate::lob::costs::{fill_rate, net_fill_bps, net_fill_interval};
+use crate::lob::costs::{net_fill_bps, net_fill_interval};
 use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, TouchRecord};
 use crate::lob::markout::{MidSample, HORIZONS_MS};
 use crate::lob::strategy::TradePlan;
@@ -943,9 +943,11 @@ fn run_bounce(
     w.write_record([
         "profile_id",
         "n_signals",
+        "n_submitted",
         "n_filled",
         "fill",
-        "n_missed",
+        "n_busy",
+        "n_entry_timeout",
         "n_stop",
         "n_take",
         "n_timeout",
@@ -1008,13 +1010,30 @@ fn run_bounce(
         let mut days: Vec<i64> = obs.iter().map(|o| o.day_cluster).collect();
         days.sort_unstable();
         days.dedup();
-        let n_missed = obs.iter().filter(|o| !o.filled).count();
+        // Доля исполнения — от **отправленных** входов, а не от всех касаний:
+        // касание, пропущенное из-за занятой позиции, не «неисполненный
+        // вход» (находка прогона 2026-09-13, смешивать их нельзя).
+        let n_submitted = positions
+            .iter()
+            .filter(|p| run.submitted_signal.binary_search(p).is_ok())
+            .count();
+        let n_busy = positions
+            .iter()
+            .filter(|p| run.busy_signal.binary_search(p).is_ok())
+            .count();
+        let fill_share = if n_submitted > 0 {
+            Some(fills.len() as f64 / n_submitted as f64)
+        } else {
+            None
+        };
         w.write_record([
             row.profile.clone(),
             positions.len().to_string(),
+            n_submitted.to_string(),
             fills.len().to_string(),
-            num(fill_rate(&obs)),
-            n_missed.to_string(),
+            num(fill_share),
+            n_busy.to_string(),
+            n_submitted.saturating_sub(fills.len()).to_string(),
             n_stop.to_string(),
             n_take.to_string(),
             n_timeout.to_string(),
@@ -1061,8 +1080,11 @@ fn run_bounce(
         100.0 * hist[3] as f64 / sent,
     );
     println!(
-        "bounce: промахи раздельно — вход не исполнен {} · позиция занята {}",
-        run.misses.timeout, run.misses.busy
+        "bounce: промахи раздельно — вход не исполнен {} · позиция занята {} · самая долгая блокировка {:.1} с · самая долгая жизнь круга {:.1} с",
+        run.misses.timeout,
+        run.misses.busy,
+        run.busy_wait_ns_max as f64 / 1e9,
+        run.round_ns_max as f64 / 1e9,
     );
     println!(
         "bounce: касаний {} · кругов {} · стоп {} · тейк {} · дедлайн {} · промахи {} · incomplete {}",

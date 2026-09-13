@@ -713,6 +713,19 @@ pub struct BounceRun {
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
     pub spread_at_entry: Vec<f64>,
+    /// Индексы сигналов, по которым вход **отправлен** (заявка ушла): по ним
+    /// считается честная доля исполнения `круги / отправленные`, а не
+    /// `круги / все касания` — последнее смешивает отказ с пропуском.
+    pub submitted_signal: Vec<usize>,
+    /// Индексы сигналов, пропущенных как «позиция занята»: по ним вызывающий
+    /// считает промахи по строкам осей, а не только итогом.
+    pub busy_signal: Vec<usize>,
+    /// Самая долгая блокировка позицией, нс: сколько сигнал ждал, пока
+    /// освободится. Это и есть ответ на «почему 92 % сигналов пропущено» —
+    /// длительность позиции, а не свойство рынка.
+    pub busy_wait_ns_max: i64,
+    /// Самая долгая жизнь круга (от входа до выхода), нс.
+    pub round_ns_max: i64,
     pub misses: MissLedger,
     pub observations: Vec<FillObservation>,
     pub incomplete: bool,
@@ -829,6 +842,10 @@ where
     let mut entry_rejected: u64 = 0;
     let mut entry_crossed: u64 = 0;
     let mut spread_at_entry: Vec<f64> = Vec::new();
+    let mut busy_signal: Vec<usize> = Vec::new();
+    let mut submitted_signal: Vec<usize> = Vec::new();
+    let mut busy_wait_ns_max: i64 = 0;
+    let mut round_ns_max: i64 = 0;
     let mut fill_signal: Vec<usize> = Vec::new();
     let mut fill_reason: Vec<ExitReason> = Vec::new();
     let mut next_id = cfg.first_order_id;
@@ -852,6 +869,10 @@ where
             entry_rejected,
             entry_crossed,
             spread_at_entry: Vec::new(),
+            submitted_signal: Vec::new(),
+            busy_signal: Vec::new(),
+            busy_wait_ns_max: 0,
+            round_ns_max: 0,
             misses,
             observations,
             incomplete: true,
@@ -863,6 +884,8 @@ where
             continue;
         }
         if sig.t0_ns < blocked_until_ns {
+            busy_signal.push(sig_idx);
+            busy_wait_ns_max = busy_wait_ns_max.max(blocked_until_ns.saturating_sub(sig.t0_ns));
             misses.record(MissReason::PositionBusy);
             observations.push(miss_observation(sig.t0_ns));
             continue;
@@ -873,6 +896,10 @@ where
             break;
         }
         if bot.position(asset_no) != 0.0 {
+            // Тот же пропуск «позиция занята», но пойманный по факту открытой
+            // позиции, а не по `blocked_until_ns` (он короче жизни позиции:
+            // момент выхода не равен времени закрытия). В отчёт идут оба.
+            busy_signal.push(sig_idx);
             misses.record(MissReason::PositionBusy);
             observations.push(miss_observation(sig.t0_ns));
             continue;
@@ -894,6 +921,7 @@ where
         // Замер механизма отказа (таск 38): в момент отправки входа смотрим,
         // пересекает ли его цена спред и каков спред. Пост-онли такую заявку
         // отвергает, обычный лимит — исполняет как тейкер.
+        submitted_signal.push(sig_idx);
         if let TradePlan::Bounce { entry_px, .. } = sig.plan {
             let d = bot.depth(asset_no);
             let (bid, ask) = (d.best_bid(), d.best_ask());
@@ -942,6 +970,7 @@ where
                 fills.push(fill);
                 fill_signal.push(sig_idx);
                 fill_reason.push(reason);
+                round_ns_max = round_ns_max.max(exit_ts.saturating_sub(sig.t0_ns));
                 blocked_until_ns = exit_ts;
             }
         }
@@ -959,6 +988,10 @@ where
         entry_rejected,
         entry_crossed,
         spread_at_entry,
+        submitted_signal,
+        busy_signal,
+        busy_wait_ns_max,
+        round_ns_max,
         misses,
         observations,
         incomplete,
