@@ -33,6 +33,10 @@ font-size:11px;line-height:1.45;white-space:nowrap;overflow:hidden;cursor:zoom-i
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair;background:var(--bg)}
 .tip{position:absolute;pointer-events:none;background:#1c2430;color:#e6edf3;font-size:11.5px;line-height:1.4;
 padding:4px 7px;border-radius:4px;border:1px solid #2b3441;max-width:340px;z-index:6}
+/* Отсчёт под курсором: время и цена точки, куда смотришь; Shift — то же время
+   у всех плиток (общего переключателя на странице нет, страница = сетка). */
+.cur{position:absolute;pointer-events:none;font-size:10px;color:#c9d1d9;font-variant-numeric:tabular-nums;
+background:rgba(13,17,23,.78);padding:0 3px;border-radius:2px;white-space:nowrap;z-index:5}
 /* В углу графика — только предупреждение о потолке рисования (в окне
    больше полосок/касаний, чем страница берёт). Обычной сводки тут нет:
    страница = сетка графиков. */
@@ -136,10 +140,10 @@ function tileFor(co){
   let t = document.getElementById('t-'+co.symbol);
   if (t) return t;
   t = document.createElement('div'); t.className='tile'; t.id='t-'+co.symbol; t.dataset.sym=co.symbol;
-  t.innerHTML = '<div class="hd"></div><div class="cv"><canvas></canvas><div class="warn" hidden></div><div class="tip" hidden></div></div>';
+  t.innerHTML = '<div class="hd"></div><div class="cv"><canvas></canvas><div class="warn" hidden></div><div class="cur" hidden></div><div class="tip" hidden></div></div>';
   t.querySelector('.hd').onclick = () => { SOLO = SOLO===co.symbol ? null : co.symbol; render(); };
   const cv = t.querySelector('canvas');
-  const st = {sym:co.symbol, tile:t, cv, ctx:cv.getContext('2d'), note:t.querySelector('.warn'), tip:t.querySelector('.tip'),
+  const st = {sym:co.symbol, tile:t, cv, ctx:cv.getContext('2d'), note:t.querySelector('.warn'), readoutEl:t.querySelector('.cur'), tip:t.querySelector('.tip'),
     co, loaded:false, loading:false, error:null, visible:false, view:null, raf:0, hit:null, drag:null};
   CH.set(co.symbol, st);
   bindEvents(st);
@@ -237,7 +241,11 @@ function clampView(st, from, to){
   return {from, to: from+span};
 }
 
-function setView(st, from, to){ st.view = clampView(st, from, to); schedule(st); }
+function setView(st, from, to, all){
+  st.view = clampView(st, from, to); schedule(st);
+  // Shift — «одно время на всех»: то же окно у всех загруженных плиток.
+  if (all) for (const o of CH.values()) if (o!==st && o.loaded){ o.view = clampView(o, from, to); schedule(o); }
+}
 
 // ---------------------------------------------------------------------------
 // Рисование
@@ -443,7 +451,7 @@ function draw(st){
     g.globalAlpha=1; g.font='10.5px system-ui,sans-serif'; g.textAlign='left';
   }
   st.drawBadges=badges;
-  st.hit=hit; st.geom={L,T,pw,ph,from,span};
+  st.hit=hit; st.geom={L,T,pw,ph,from,span,plo,phi};
   // Оси — поверх всего, чтобы подписи читались.
   g.fillStyle='#7d8590'; g.textAlign='left'; g.textBaseline='middle';
   for (let i=0;i<=4;i++){ const p=plo+(phi-plo)*i/4; g.fillText(p.toFixed(st.dec), L+pw+4, Math.round(y(p))+0.5); }
@@ -476,28 +484,43 @@ function bindEvents(st){
     const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, tc=timeAt(mx);
     const dy = e.deltaMode===1 ? e.deltaY*33 : e.deltaY; // Firefox: строки, не пиксели
     const k=Math.exp(dy*0.0015);
-    const v=st.view; setView(st, tc-(tc-v.from)*k, tc+(v.to-tc)*k);
+    const v=st.view; setView(st, tc-(tc-v.from)*k, tc+(v.to-tc)*k, e.shiftKey);
+    readout(st, mx, e.clientY-r.top);
     hideTip(st);
   }, {passive:false});
   cv.addEventListener('pointerdown', e => {
     if (!st.loaded || !st.geom || e.button!==0) return;
-    st.drag={x:e.clientX, from:st.view.from, to:st.view.to}; cv.setPointerCapture(e.pointerId);
+    st.drag={x:e.clientX, from:st.view.from, to:st.view.to, shift:e.shiftKey}; cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
     if (!st.loaded || !st.geom) return;
     const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
     if (st.drag){
       const dx=e.clientX-st.drag.x; const dt=-dx/st.geom.pw*st.geom.span;
-      setView(st, st.drag.from+dt, st.drag.to+dt); hideTip(st); return;
+      setView(st, st.drag.from+dt, st.drag.to+dt, st.drag.shift); hideTip(st); return;
     }
+    readout(st, mx, my);
     hover(st, mx, my);
   });
   const up = e => { if (st.drag){ st.drag=null; try{ cv.releasePointerCapture(e.pointerId); }catch(_){} } };
   cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-  cv.addEventListener('pointerleave', () => { if (!st.drag) hideTip(st); });
+  cv.addEventListener('pointerleave', () => { if (!st.drag){ hideTip(st); st.readoutEl.hidden=true; } });
   cv.addEventListener('dblclick', e => { e.preventDefault(); if (st.loaded) resetView(st); });
 }
 function hideTip(st){ st.tip.hidden=true; }
+// Отсчёт под курсором: время и цена точки, на которую смотришь. Дешёвая
+// замена кроссхейра: текст в углу, без перерисовки канвы на каждое движение.
+function readout(st, mx, my){
+  const gm=st.geom, el=st.readoutEl; if (!gm || !el) return;
+  if (mx<gm.L || mx>gm.L+gm.pw || my<gm.T || my>gm.T+gm.ph){ el.hidden=true; return; }
+  const t = gm.from + (mx-gm.L)/gm.pw*gm.span;
+  const p = gm.phi - (my-gm.T)/gm.ph*(gm.phi-gm.plo);
+  el.textContent = hhmmss(t)+' · '+p.toFixed(st.dec);
+  el.hidden=false;
+  const W=st.cv.clientWidth;
+  el.style.left = Math.min(Math.max(0, mx+9), Math.max(0, W-el.offsetWidth-4))+'px';
+  el.style.top = Math.max(0, my-14)+'px';
+}
 function hover(st, mx, my){
   const hit=st.hit; if (!hit) return;
   const c=Math.floor(mx/hit.cw); let best=null, bd=1e9;

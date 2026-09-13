@@ -98,6 +98,7 @@ def main() -> int:
         if state is None:
             state = {}
         tip = None
+        readout = None
         if a.solo:
             page.evaluate("sym => { SOLO = sym; render(); }", a.solo)
             page.wait_for_timeout(2500)
@@ -108,6 +109,9 @@ def main() -> int:
             page.wait_for_timeout(300)
             tip = page.evaluate(
                 "() => { const t=document.querySelector('.tip'); return t && !t.hidden ? t.textContent : null; }"
+            )
+            readout = page.evaluate(
+                "() => { const c=document.querySelector('.cur'); return c && !c.hidden ? c.textContent : null; }"
             )
         page.screenshot(path=a.out) if not a.text_only else None
         browser.close()
@@ -126,6 +130,7 @@ def main() -> int:
                 "ошибки страницы": errors,
                 "консоль": console[-12:],
                 "подсказка при наведении": tip,
+                "отсчёт под курсором": readout,
             },
             ensure_ascii=False,
             indent=1,
