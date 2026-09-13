@@ -88,6 +88,14 @@ pub enum TradePlan {
         /// константа: на старте касания цена уже на плотности, и пересекает
         /// ли вход спред — вопрос замера (T38), не догадки.
         post_only: bool,
+        /// Трейл-тейк: откат от лучшей цены «в пользу позиции», bps, при
+        /// котором выходим по рынку. `0` — трейл выключен, работает
+        /// фиксированный `take_px` (решение владельца 2026-09-13: тянуть
+        /// прибыль дальше 1:1).
+        trail_bps: f64,
+        /// Прибыль от входа, после которой трейл включается, bps. До неё
+        /// работает только стоп — иначе трейл выбивал бы на первом шуме.
+        trail_activate_bps: f64,
     },
 }
 
@@ -115,6 +123,9 @@ pub enum ExitReason {
     Stop,
     /// Дедлайн плана истёк — выход по рынку.
     Deadline,
+    /// Трейл-тейк: цена откатилась от лучшего исхода на `trail_bps`, выходим
+    /// по рынку (решение владельца 2026-09-13 — тянуть прибыль дальше 1:1).
+    Trail,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -130,6 +141,10 @@ pub struct StrategyState {
     next_order_id: u64,
     phase: Phase,
     plan: TradePlan,
+    /// Лучшая цена «в пользу позиции» с момента входа (для трейл-тейка): у
+    /// лонга — максимум лучшего бида, у шорта — минимум лучшего аска.
+    /// `0.0` — вход ещё не состоялся.
+    best_favourable: f64,
 }
 
 impl StrategyState {
@@ -153,6 +168,27 @@ impl StrategyState {
             next_order_id: first_order_id,
             phase: Phase::Idle,
             plan,
+            best_favourable: 0.0,
+        }
+    }
+
+    /// Лучший исход с момента входа — для трейл-тейка: вызывается на каждом
+    /// событии, пока позиция открыта. Цена «в пользу» — та, по которой
+    /// закрылись бы сейчас (лучший бид для лонга, лучший аск для шорта).
+    fn observe_favourable(&mut self, price: f64) {
+        if price <= 0.0 {
+            return;
+        }
+        // Сравнение в `if`, а не образцом по константе: `SIGMA_LONG` в позиции
+        // образца стал бы новым связыванием, а не сравнением (clippy:
+        // unreachable pattern, «переменная должна быть snake_case»).
+        let better = if self.sigma == crate::lob::backtest::SIGMA_LONG {
+            self.best_favourable == 0.0 || price > self.best_favourable
+        } else {
+            self.best_favourable == 0.0 || price < self.best_favourable
+        };
+        if better {
+            self.best_favourable = price;
         }
     }
 
@@ -243,18 +279,43 @@ where
                     (px, false, ExitReason::Horizon)
                 }
                 TradePlan::Bounce {
+                    entry_px,
                     stop_px,
                     take_px,
                     deadline_ns,
+                    trail_bps,
+                    trail_activate_bps,
                     ..
                 } => {
+                    // Трейл-тейк (решение владельца 2026-09-13): следим за
+                    // лучшим исходом и выходим по рынку, когда цена откатилась
+                    // от него на `trail_bps`, но не раньше, чем прибыль дошла
+                    // до `trail_activate_bps`. Пока трейл включён, фиксированный
+                    // `take_px` не работает — иначе он и был бы выходом, а мы
+                    // как раз пробуем тянуть дальше 1:1.
+                    let favourable = match entry_side {
+                        HbtSide::Buy => bid,
+                        _ => ask,
+                    };
+                    state.observe_favourable(favourable);
                     let (stop_hit, take_hit) = match entry_side {
                         HbtSide::Buy => (bid <= stop_px, bid >= take_px),
                         _ => (ask >= stop_px, ask <= take_px),
                     };
+                    let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
+                        let gain_bps =
+                            (state.best_favourable - entry_px).abs() / entry_px * 10_000.0;
+                        let give_back_bps =
+                            (state.best_favourable - favourable).abs() / entry_px * 10_000.0;
+                        gain_bps >= trail_activate_bps && give_back_bps >= trail_bps
+                    } else {
+                        false
+                    };
                     if stop_hit {
                         (stop_px, true, ExitReason::Stop)
-                    } else if take_hit {
+                    } else if trail_hit {
+                        (favourable, true, ExitReason::Trail)
+                    } else if trail_bps <= 0.0 && take_hit {
                         (take_px, false, ExitReason::Take)
                     } else if now.saturating_sub(entry_ns) >= deadline_ns {
                         match exit_price(entry_side, bid, ask) {

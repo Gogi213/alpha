@@ -113,6 +113,13 @@ pub struct BacktestArgs {
     /// сколько входов пересекает спред в момент касания (T38).
     #[arg(long, default_value_t = false)]
     pub post_only: bool,
+    /// Трейл-тейк: откат от лучшего исхода, bps (0 — выключен, работает
+    /// фиксированный тейк 1:1). Решение владельца 2026-09-13.
+    #[arg(long, default_value_t = 0.0)]
+    pub trail_bps: f64,
+    /// Прибыль от входа, после которой трейл включается, bps.
+    #[arg(long, default_value_t = 0.0)]
+    pub trail_activate_bps: f64,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -762,7 +769,13 @@ fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::
 /// `вход + (вход − стоп)` = `P + 3` (R 1:1, D 16:17); аск зеркально. Вход
 /// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
 /// `HORIZONS_MS[3]` (дедлайн 60 с).
-fn bounce_plan(touch: &TouchRecord, tick: f64, post_only: bool) -> (i8, TradePlan) {
+fn bounce_plan(
+    touch: &TouchRecord,
+    tick: f64,
+    post_only: bool,
+    trail_bps: f64,
+    trail_activate_bps: f64,
+) -> (i8, TradePlan) {
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
         .end_ms
@@ -779,6 +792,8 @@ fn bounce_plan(touch: &TouchRecord, tick: f64, post_only: bool) -> (i8, TradePla
                 deadline_ns,
                 entry_ttl_ns,
                 post_only,
+                trail_bps,
+                trail_activate_bps,
             },
         ),
         Side::Ask => (
@@ -790,6 +805,8 @@ fn bounce_plan(touch: &TouchRecord, tick: f64, post_only: bool) -> (i8, TradePla
                 deadline_ns,
                 entry_ttl_ns,
                 post_only,
+                trail_bps,
+                trail_activate_bps,
             },
         ),
     }
@@ -888,7 +905,13 @@ fn run_bounce(
     let signals: Vec<BounceSignal> = touches
         .iter()
         .map(|t| {
-            let (sigma, plan) = bounce_plan(t, tick, args.post_only);
+            let (sigma, plan) = bounce_plan(
+                t,
+                tick,
+                args.post_only,
+                args.trail_bps,
+                args.trail_activate_bps,
+            );
             BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma,
