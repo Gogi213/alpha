@@ -630,7 +630,7 @@ where
                 break 'signals;
             }
             RoundOutcome::Inconsistent => incomplete = true,
-            RoundOutcome::TimedOut => {
+            RoundOutcome::TimedOut { .. } => {
                 misses.record(MissReason::EntryTimeout);
                 observations.push(miss_observation(sig.t0_ns));
             }
@@ -703,6 +703,16 @@ pub struct BounceRun {
     /// Причина выхода каждого круга, параллельно `fills`.
     pub fill_reason: Vec<ExitReason>,
     pub exits: ExitTally,
+    /// Сколько входных ордеров биржа **отвергла** (статус `Rejected`) — прямой
+    /// замер вместо догадки о причине неисполнения.
+    pub entry_rejected: u64,
+    /// Сколько раз цена входа в момент отправки **пересекала** спред (для
+    /// покупки — `ask ≤ entry_px`): именно эти заявки пост-онли отвергает.
+    pub entry_crossed: u64,
+    /// Спред книги в момент отправки входа, в единицах цены — по одному
+    /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
+    /// знает он, а не движок).
+    pub spread_at_entry: Vec<f64>,
     pub misses: MissLedger,
     pub observations: Vec<FillObservation>,
     pub incomplete: bool,
@@ -716,8 +726,11 @@ enum RoundOutcome {
         exit_ts: i64,
         reason: ExitReason,
     },
-    /// Вход не исполнился за время жизни плана и снят.
-    TimedOut,
+    /// Вход не исполнился за время жизни плана и снят. Статус входного ордера
+    /// несётся наружу: `Rejected` — это отвергнутая заявка (например,
+    /// пост-онли, пересекающая спред), а не «просто не дошло» — разница
+    /// ровно та, ради которой делается замер.
+    TimedOut { entry_status: Option<Status> },
     /// Данные кончились посреди круга.
     EndOfData,
     /// `Idle` без выхода и без таймаута — рассинхрон с данными.
@@ -758,7 +771,8 @@ where
         }
     }
     if timed_out {
-        return Ok(RoundOutcome::TimedOut);
+        let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
+        return Ok(RoundOutcome::TimedOut { entry_status });
     }
     let Some((exit_id, reason)) = exit else {
         return Ok(RoundOutcome::Inconsistent);
@@ -812,6 +826,9 @@ where
     let mut misses = MissLedger::default();
     let mut observations: Vec<FillObservation> = Vec::new();
     let mut exits = ExitTally::default();
+    let mut entry_rejected: u64 = 0;
+    let mut entry_crossed: u64 = 0;
+    let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut fill_signal: Vec<usize> = Vec::new();
     let mut fill_reason: Vec<ExitReason> = Vec::new();
     let mut next_id = cfg.first_order_id;
@@ -832,6 +849,9 @@ where
             fill_signal: Vec::new(),
             fill_reason: Vec::new(),
             exits,
+            entry_rejected,
+            entry_crossed,
+            spread_at_entry: Vec::new(),
             misses,
             observations,
             incomplete: true,
@@ -871,6 +891,23 @@ where
                 continue;
             }
         };
+        // Замер механизма отказа (таск 38): в момент отправки входа смотрим,
+        // пересекает ли его цена спред и каков спред. Пост-онли такую заявку
+        // отвергает, обычный лимит — исполняет как тейкер.
+        if let TradePlan::Bounce { entry_px, .. } = sig.plan {
+            let d = bot.depth(asset_no);
+            let (bid, ask) = (d.best_bid(), d.best_ask());
+            if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
+                let crosses = match side {
+                    HbtSide::Buy => ask <= entry_px,
+                    _ => bid >= entry_px,
+                };
+                if crosses {
+                    entry_crossed = entry_crossed.saturating_add(1);
+                }
+                spread_at_entry.push(ask - bid);
+            }
+        }
 
         match run_round(bot, asset_no, &mut state, entry_id, side)? {
             RoundOutcome::EndOfData => {
@@ -878,7 +915,10 @@ where
                 break;
             }
             RoundOutcome::Inconsistent => incomplete = true,
-            RoundOutcome::TimedOut => {
+            RoundOutcome::TimedOut { entry_status } => {
+                if matches!(entry_status, Some(Status::Rejected)) {
+                    entry_rejected = entry_rejected.saturating_add(1);
+                }
                 misses.record(MissReason::EntryTimeout);
                 observations.push(miss_observation(sig.t0_ns));
             }
@@ -916,6 +956,9 @@ where
         fill_signal,
         fill_reason,
         exits,
+        entry_rejected,
+        entry_crossed,
+        spread_at_entry,
         misses,
         observations,
         incomplete,

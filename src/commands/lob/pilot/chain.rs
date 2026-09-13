@@ -162,6 +162,7 @@ pub(super) fn run_profiles_and_backtest_chain(
             // Пилот гоняет старую сетку смертей: касания (В-44) — отдельная
             // ветка `--touches`, здесь она выключена.
             touches: false,
+            post_only: false,
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,

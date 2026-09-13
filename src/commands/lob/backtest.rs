@@ -109,6 +109,10 @@ pub struct BacktestArgs {
     /// резолвер, что у `lob touches`.
     #[arg(long, default_value_t = false)]
     pub touches: bool,
+    /// Вход пост-онли (`GTX`) вместо обычного лимита (`GTC`): замер того,
+    /// сколько входов пересекает спред в момент касания (T38).
+    #[arg(long, default_value_t = false)]
+    pub post_only: bool,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -758,7 +762,7 @@ fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::
 /// `вход + (вход − стоп)` = `P + 3` (R 1:1, D 16:17); аск зеркально. Вход
 /// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
 /// `HORIZONS_MS[3]` (дедлайн 60 с).
-fn bounce_plan(touch: &TouchRecord, tick: f64) -> (i8, TradePlan) {
+fn bounce_plan(touch: &TouchRecord, tick: f64, post_only: bool) -> (i8, TradePlan) {
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
         .end_ms
@@ -774,6 +778,7 @@ fn bounce_plan(touch: &TouchRecord, tick: f64) -> (i8, TradePlan) {
                 take_px: p + 3.0 * tick,
                 deadline_ns,
                 entry_ttl_ns,
+                post_only,
             },
         ),
         Side::Ask => (
@@ -784,6 +789,7 @@ fn bounce_plan(touch: &TouchRecord, tick: f64) -> (i8, TradePlan) {
                 take_px: p - 3.0 * tick,
                 deadline_ns,
                 entry_ttl_ns,
+                post_only,
             },
         ),
     }
@@ -882,7 +888,7 @@ fn run_bounce(
     let signals: Vec<BounceSignal> = touches
         .iter()
         .map(|t| {
-            let (sigma, plan) = bounce_plan(t, tick);
+            let (sigma, plan) = bounce_plan(t, tick, args.post_only);
             BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma,
@@ -1035,6 +1041,29 @@ fn run_bounce(
     }
     wp.flush()?;
 
+    // Замеры механизма (таск 38): почему вход не исполняется — по книге и по
+    // статусам ордеров, а не по догадке из чужого исходника.
+    let mut hist = [0u64; 4]; // спред 1, 2, 3, 4+ тика
+    for s in &run.spread_at_entry {
+        let t = (s / tick).round().max(1.0) as usize;
+        hist[(t - 1).min(3)] += 1;
+    }
+    let sent = run.spread_at_entry.len().max(1) as f64;
+    println!(
+        "bounce: вход отправлен {} раз · пересекал спред {} ({:.1}%) · отвергнуто биржей {} · спред на входе: 1 тик {:.1}%, 2 {:.1}%, 3 {:.1}%, ≥4 {:.1}%",
+        run.spread_at_entry.len(),
+        run.entry_crossed,
+        100.0 * run.entry_crossed as f64 / sent,
+        run.entry_rejected,
+        100.0 * hist[0] as f64 / sent,
+        100.0 * hist[1] as f64 / sent,
+        100.0 * hist[2] as f64 / sent,
+        100.0 * hist[3] as f64 / sent,
+    );
+    println!(
+        "bounce: промахи раздельно — вход не исполнен {} · позиция занята {}",
+        run.misses.timeout, run.misses.busy
+    );
     println!(
         "bounce: касаний {} · кругов {} · стоп {} · тейк {} · дедлайн {} · промахи {} · incomplete {}",
         touches.len(),
