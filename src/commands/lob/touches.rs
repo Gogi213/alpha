@@ -31,7 +31,7 @@ use super::{
     outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name, some_or_empty, H3Args,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
-use crate::lob::moves::{find_pairs, histogram, quantiles};
+use crate::lob::moves::{by_dt_bins, find_pairs, histogram, quantiles};
 
 /// Аргументы `lob touches`: читает суточные файлы, пишет касания живых
 /// уровней с признаками практиков. Режим `H3` — без умолчания, как у
@@ -295,6 +295,25 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 "moves: Δt гистограмма шагом {width:.0} мс — {}",
                 text.join(" ")
             );
+            // Совместный свод: маргиналы вырождены первым бакетом, поэтому
+            // вопрос «есть ли кластер настоящих переездов» решается только
+            // сравнением корзин Δt по остальным признакам (В-46).
+            println!("moves: корзина Δt · пар · медиана |Δp| · медиана размера · Δp=0 · коснуты");
+            for b in by_dt_bins(&pairs, width as i64) {
+                let m = |v: Option<f64>, d: usize| match v {
+                    Some(x) => format!("{x:.d$}"),
+                    None => "—".to_string(),
+                };
+                println!(
+                    "moves:   от {:.0} мс · {} · {} тиков · {} · {:.1} % · {:.1} %",
+                    b.dt_from_ms,
+                    b.n,
+                    m(b.dp_abs_median, 0),
+                    m(b.ratio_median, 2),
+                    100.0 * b.zero_dp_share,
+                    100.0 * b.touched_share
+                );
+            }
         }
     }
 

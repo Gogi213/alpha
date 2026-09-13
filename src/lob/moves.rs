@@ -195,5 +195,58 @@ fn mid_asof(mids: &[MidSample], ts_ms: i64) -> Option<f64> {
     Some((s.bid_tick as f64 + s.ask_tick as f64) / 2.0)
 }
 
+/// Свод по корзинам Δt: сколько пар, медиана |Δp|, медиана отношения размеров,
+/// доли нулевого Δp и коснутых. Второго набора границ не заводится — корзины
+/// идут по тому же шагу `dt_bin_ms`, что гистограмма, и он приходит от
+/// вызывающего (в коде модуля порогов нет).
+///
+/// Зачем: маргиналы вырождены первым бакетом Δt (все пары «в том же кадре»),
+/// поэтому вопрос «есть ли кластер настоящих переездов» решается только
+/// совместно — сравнением корзин Δt по остальным признакам.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MoveBin {
+    pub dt_from_ms: i64,
+    pub n: u64,
+    pub dp_abs_median: Option<f64>,
+    pub ratio_median: Option<f64>,
+    pub zero_dp_share: f64,
+    pub touched_share: f64,
+}
+
+/// Свод пар по корзинам Δt шириной `dt_bin_ms` (неположительный шаг — пустой
+/// результат: шаг задаёт вызывающий).
+pub fn by_dt_bins(pairs: &[MovePair], dt_bin_ms: i64) -> Vec<MoveBin> {
+    if pairs.is_empty() || dt_bin_ms <= 0 {
+        return Vec::new();
+    }
+    let mut groups: std::collections::BTreeMap<i64, Vec<&MovePair>> =
+        std::collections::BTreeMap::new();
+    for p in pairs {
+        groups
+            .entry(p.dt_ms / dt_bin_ms * dt_bin_ms)
+            .or_default()
+            .push(p);
+    }
+    groups
+        .into_iter()
+        .map(|(from, ps)| {
+            let n = ps.len() as f64;
+            let dps: Vec<f64> = ps
+                .iter()
+                .map(|p| p.dp_ticks.unsigned_abs() as f64)
+                .collect();
+            let ratios: Vec<f64> = ps.iter().filter_map(|p| p.size_ratio).collect();
+            MoveBin {
+                dt_from_ms: from,
+                n: ps.len() as u64,
+                dp_abs_median: quantiles(&dps).map(|(_, m, _)| m),
+                ratio_median: quantiles(&ratios).map(|(_, m, _)| m),
+                zero_dp_share: ps.iter().filter(|p| p.dp_ticks == 0).count() as f64 / n,
+                touched_share: ps.iter().filter(|p| p.touched).count() as f64 / n,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;

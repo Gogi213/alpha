@@ -2,7 +2,7 @@
 //! ближайшее рождение выигрывает, «спуф» отличается следствием, а не формой
 //! пары; квантили и гистограмма считаются по объявленным определениям.
 
-use super::{find_pairs, histogram, quantiles, MovePair};
+use super::{by_dt_bins, find_pairs, histogram, quantiles, MovePair};
 use crate::book::Side;
 use crate::lob::levels::{DeathKind, LevelRecord, Outcome, TouchRecord};
 use crate::lob::markout::MidSample;
@@ -156,4 +156,41 @@ fn histogram_starts_at_the_minimum_and_uses_the_given_width() {
     assert_eq!(h, vec![(0.0, 2), (500.0, 1), (1_000.0, 1)]);
     assert!(histogram(&[], 500.0).is_empty());
     assert!(histogram(&v, 0.0).is_empty(), "нулевой шаг — не шаг");
+}
+
+/// Свод по корзинам Δt: пары «в том же кадре» отделяются от более поздних, и
+/// видно, чем они отличаются — нулевым Δp и отсутствием касания против
+/// настоящего сдвига цены.
+#[test]
+fn dt_bins_separate_the_same_frame_churn_from_later_pairs() {
+    let mk = |dt_ms: i64, dp_ticks: i64, ratio: f64, touched: bool| MovePair {
+        side: Side::Bid,
+        dt_ms,
+        dp_ticks,
+        size_ratio: Some(ratio),
+        zeros_from: 0,
+        zeros_to: 0,
+        mid_10s_bps: None,
+        mid_60s_bps: None,
+        touched,
+        outcome_to: None,
+    };
+    let pairs = vec![
+        mk(0, 0, 0.1, false),
+        mk(0, 0, 12.0, false),
+        mk(600, 25, 1.0, true),
+        mk(900, 30, 0.9, true),
+    ];
+    let bins = by_dt_bins(&pairs, 500);
+    assert_eq!(bins.len(), 2);
+    assert_eq!(bins[0].dt_from_ms, 0);
+    assert_eq!(bins[0].n, 2);
+    assert_eq!(bins[0].dp_abs_median, Some(0.0));
+    assert!((bins[0].zero_dp_share - 1.0).abs() < 1e-9);
+    assert!((bins[0].touched_share - 0.0).abs() < 1e-9);
+    assert_eq!(bins[1].dt_from_ms, 500);
+    assert_eq!(bins[1].n, 2);
+    assert_eq!(bins[1].dp_abs_median, Some(27.5));
+    assert!((bins[1].touched_share - 1.0).abs() < 1e-9);
+    assert!(by_dt_bins(&pairs, 0).is_empty(), "нулевой шаг — не шаг");
 }
