@@ -23,7 +23,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 709 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 710 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -82,7 +82,7 @@ src/
 
 ## Артефакты — коротко (полностью: `docs/COMMANDS.md`)
 
-`lob pick` → `instruments.csv` (пул, ровно десять, `depth_check` — проверка, не отбор, В-35) +
+`lob pick --window-secs --h3-k [--top N]` → `instruments.csv` (пул, `--top` строк, по умолчанию десять, В-35/В-50; `depth_check` — проверка, не отбор) +
 `docs/plan/candidates.csv`. `lob binlog-stats --path <файл> [--reencode] [--rewrite-out <файл>]` →
 только чтение: версия
 формата, записи/кадры/**группы-сообщения**, `ev`, блочные сделки, мёртвые поля v2; `--reencode` —
@@ -116,8 +116,15 @@ G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **р�
 T38), число испытаний (`(26 + 6) × (инструментов + 1)`) — строками `runs.csv`; `--root` — корень сессий
 или сам каталог сессии.
 
-Состояние: боевой пул `instruments.csv` — SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI
-(`k = 1.0` — заглушка, В-30). Олвейс-он **`data/always-on/20260912T201737Z/`** (2026-09-12T20:47Z →
+Состояние: боевой пул `instruments.csv` — пока прежняя десятка (SOL, ZEC, XRP, HYPE, NEAR, STORJ,
+DOGE, ENA, LSK, SUI, `k = 1.0` — заглушка, В-30), но **размер пула стал параметром**
+`lob pick --top N` (В-50): топ-50 отобран и измерен живьём — 50 инструментов в **одном**
+соединении, CPU 6.9 % ядра (бюджет 6.1 — 5 %, превышен ⇒ ждёт решения владельца), 1.97 ГБ/сутки,
+`verify` 47/50 (`fail`: LSK/BTW/MU, воспроизводится и на v2 ⇒ не формат), разбор —
+`docs/findings/pool-top50-2026-09-13.md`; боевая заморозка — часовой `lob pick --top 50
+--window-secs 3600`, она и перепишет коммитимые `instruments.csv`/`candidates.csv`.
+
+Олвейс-он **`data/always-on/20260912T201737Z/`** (2026-09-12T20:47Z →
 2026-09-13T16:22Z на боевой десятке, 0 разрывов, 209.6 млн записей, 928.2 МБ на диске) —
 **остановлен владельцем** штатно (`stop`, В-41), `session.json closed=true`; формат **v3** принят
 в код (В-48) и **заморожен** замером (В-49: таблица `ev` 3.8–4.7 % и zstd-6 0.9–2.8 % — ниже порога

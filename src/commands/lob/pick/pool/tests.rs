@@ -69,6 +69,46 @@ fn join_drops_symbols_without_a_ticker() {
     );
 }
 
+/// В-50: размер пула — **параметр**, а не константа. Владелец 2026-09-13:
+/// «раскатка на топ 50». Шестьдесят прошедших исключения и `top = 50` обязаны
+/// дать ровно пятьдесят членов, а остальные десять — строку среза ранга
+/// (`RANK_BEYOND_POOL`), по которой таблица проверяема: «первые пятьдесят
+/// оставшихся» видно, а не приходится верить.
+#[test]
+fn pool_size_is_a_parameter_not_a_constant() {
+    let candidates: Vec<CandidateMeta> = (0..60)
+        .map(|i| meta(&format!("CRYPTO{i}USDT"), &format!("CRYPTO{i}"), 1_000 - i))
+        .collect();
+
+    let fifty = build_pool(&candidates, NOW_MS, 50);
+    assert_eq!(fifty.pool.len(), 50, "ровно пятьдесят членов пула");
+    assert_eq!(
+        fifty.pool[0].symbol, "CRYPTO0USDT",
+        "порядок — по убыванию оборота"
+    );
+    assert_eq!(fifty.pool[49].symbol, "CRYPTO49USDT");
+    let cut: Vec<&str> = fifty
+        .excluded
+        .iter()
+        .filter(|e| e.excluded_reason == RANK_BEYOND_POOL)
+        .map(|e| e.symbol.as_str())
+        .collect();
+    assert_eq!(cut.len(), 10, "за чертой пула — десять строк среза");
+    assert!(cut.contains(&"CRYPTO50USDT"), "{cut:?}");
+
+    // То же правило с умолчанием остаётся правилом В-35: десять.
+    assert_eq!(build_pool(&candidates, NOW_MS, POOL_SIZE).pool.len(), 10);
+    // И список базовых активов «до N-го выжившего» слушает тот же размер.
+    assert_eq!(
+        base_coins_considered_until_pool_complete(&candidates, NOW_MS, 50).len(),
+        50
+    );
+    assert_eq!(
+        base_coins_considered_until_pool_complete(&candidates, NOW_MS, POOL_SIZE).len(),
+        10
+    );
+}
+
 /// Требуемый тест: символ выпадает именно из-за отсутствия тикера, а не
 /// потому что `join_candidate_meta` теряет всё подряд. Без символа, у
 /// которого тикер ЕСТЬ, тест выше не отличил бы «фильтрует по тикеру» от
@@ -133,7 +173,7 @@ fn pool_excludes_non_usdt_quote_silently() {
     let mut c = meta("BTCUSD", "BTC", e9(1_000_000));
     c.quote_coin = "USD".to_string();
     // Область запроса, не исключение Decision 25: строки в таблице нет.
-    let outcome = build_pool(&[c], NOW_MS);
+    let outcome = build_pool(&[c], NOW_MS, POOL_SIZE);
     assert!(outcome.pool.is_empty());
     assert!(outcome.excluded.is_empty());
 }
@@ -142,7 +182,7 @@ fn pool_excludes_non_usdt_quote_silently() {
 fn pool_excludes_non_linear_perpetual_contract_type_silently() {
     let mut c = meta("SOLUSDT", "SOL", e9(1_000_000));
     c.contract_type = "LinearFutures".to_string();
-    let outcome = build_pool(&[c], NOW_MS);
+    let outcome = build_pool(&[c], NOW_MS, POOL_SIZE);
     assert!(outcome.pool.is_empty());
     assert!(outcome.excluded.is_empty());
 }
@@ -156,7 +196,7 @@ fn pool_excludes_btc_and_eth_by_name_with_reason() {
         meta("ETHUSDT", "ETH", e9(9_000_000)),
         meta("SOLUSDT", "SOL", e9(1_000)),
     ];
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(
         outcome
             .pool
@@ -216,7 +256,7 @@ fn pool_excludes_non_crypto_bases_with_reason() {
     assert_eq!(qty_step_e9, 100_000_000);
     assert_eq!(min_notional_value_e9, e9(5));
 
-    let outcome = build_pool(&[c], NOW_MS);
+    let outcome = build_pool(&[c], NOW_MS, POOL_SIZE);
     assert!(
         outcome.pool.is_empty(),
         "акция обязана выбыть по пункту 2, а не остаться в пуле"
@@ -237,7 +277,7 @@ fn pool_excludes_gold_etf_and_stock_from_the_recorded_measurement() {
         meta("TSLAUSDT", "TSLA", e9(5_000_000)),
         meta("SOLUSDT", "SOL", e9(1_000)),
     ];
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(
         outcome
             .pool
@@ -260,7 +300,7 @@ fn pool_excludes_gold_etf_and_stock_from_the_recorded_measurement() {
 fn pool_excludes_recently_listed_instruments_with_reason() {
     let mut c = meta("PONSUSDT", "PONS", e9(1_000_000));
     c.launch_time_ms = Some(NOW_MS - (MIN_LISTED_DAYS - 1) * MS_PER_DAY);
-    let outcome = build_pool(&[c], NOW_MS);
+    let outcome = build_pool(&[c], NOW_MS, POOL_SIZE);
     assert!(outcome.pool.is_empty());
     assert_eq!(outcome.excluded.len(), 1);
     assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_TOO_YOUNG);
@@ -276,7 +316,7 @@ fn exclusion_reason_priority_is_name_then_base_then_age() {
     // Молодая акция: пункты 2 и 3 сразу — побеждает базовый актив.
     let mut young_stock = meta("AAPLUSDT", "AAPL", e9(900_000));
     young_stock.launch_time_ms = Some(NOW_MS);
-    let outcome = build_pool(&[young_btc, young_stock], NOW_MS);
+    let outcome = build_pool(&[young_btc, young_stock], NOW_MS, POOL_SIZE);
     assert!(outcome.pool.is_empty());
     let mut reasons: Vec<(&str, &str)> = outcome
         .excluded
@@ -311,7 +351,7 @@ fn pool_takes_first_ten_remaining_not_ten_minus_excluded() {
             e9(10_000 - i * 100),
         ));
     }
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(
         outcome.pool.len(),
         POOL_SIZE,
@@ -351,7 +391,7 @@ fn passing_candidates_below_top_ten_get_a_cutoff_row() {
             e9(12_000 - i * 100),
         ));
     }
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(outcome.pool.len(), 10);
     assert_eq!(outcome.excluded.len(), 2);
     assert!(
@@ -373,10 +413,10 @@ fn pool_tie_in_turnover_breaks_by_symbol_deterministically() {
         meta("BETAUSDT", "BETA", e9(500)),
         meta("ALPHAUSDT", "ALPHA", e9(500)),
     ];
-    let forward = build_pool(&candidates, NOW_MS);
+    let forward = build_pool(&candidates, NOW_MS, POOL_SIZE);
     let mut backward_input = candidates.clone();
     backward_input.reverse();
-    let backward = build_pool(&backward_input, NOW_MS);
+    let backward = build_pool(&backward_input, NOW_MS, POOL_SIZE);
     assert_eq!(forward.pool[0].symbol, "ALPHAUSDT");
     assert_eq!(
         forward.pool.iter().map(|c| &c.symbol).collect::<Vec<_>>(),
@@ -404,7 +444,7 @@ fn non_crypto_list_contains_the_bases_named_in_the_plan() {
 fn clusdt_is_excluded_as_non_crypto_by_default() {
     assert!(NON_CRYPTO_BASES.contains(&"CL"));
     let candidates = vec![meta("CLUSDT", "CL", e9(1_000_000))];
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert!(outcome.pool.is_empty());
     assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_NON_CRYPTO);
 }
@@ -433,7 +473,7 @@ fn considered_bases_stop_right_after_the_tenth_survivor() {
         ));
     }
 
-    let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS);
+    let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(
         seen,
         vec![
@@ -453,6 +493,6 @@ fn considered_bases_returns_everyone_when_pool_never_completes() {
         meta("ONEUSDT", "ONE", e9(100)),
         meta("BTCUSDT", "BTC", e9(90)),
     ];
-    let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS);
+    let seen = base_coins_considered_until_pool_complete(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(seen, vec!["ONE", "BTC"]);
 }

@@ -1,4 +1,4 @@
-//! `lob pick` — отбор пула из десяти инструментов и часовой замер глубины
+//! `lob pick` — отбор пула (`--top`, по умолчанию десять, В-35) и часовой замер глубины
 //! (шаг 0.4, Decision 25). Этот файл держит только CLI (`PickArgs`), сборку
 //! итога (`PickReport`) и точку входа (`run_pick`/`run_pick_async`); сама
 //! логика правила разложена по соседним файлам, каждый — своя
@@ -109,6 +109,14 @@ pub struct PickArgs {
     /// запрещено, `interfaces.md`).
     #[arg(long)]
     pub h3_k: f64,
+    /// Сколько инструментов берёт пул: первые `--top` прошедших три исключения
+    /// по обороту за 24 ч. Умолчание — `POOL_SIZE` (десять, Decision 25/В-35);
+    /// владелец 2026-09-13: «раскатка на топ 50» (В-50) — размер пула стал
+    /// **параметром**, а не константой кода. Число строк `instruments.csv`
+    /// равно `--top`, и каждая строка — свой инструмент замера (своё
+    /// соединение на окно глубины).
+    #[arg(long, default_value_t = POOL_SIZE)]
+    pub top: usize,
 }
 
 /// Итог `lob pick`: полная таблица (все промежуточные колонки) и члены пула,
@@ -118,7 +126,7 @@ pub struct PickArgs {
 /// решают только исключения §2 и ранг по обороту, а глубина едет колонкой
 /// `depth_check`. Здесь остаются лишь **измеренные** члены пула, потому что
 /// у неизмеренного нет чисел глубины для печати; кто в пуле на самом деле —
-/// говорит `table` (`selected_for_pilot` ровно у десяти).
+/// говорит `table` (`selected_for_pilot` ровно у `--top`).
 pub struct PickReport {
     pub table: Vec<CandidateRow>,
     pub selected: Vec<MeasuredCandidate>,
@@ -144,6 +152,11 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     if let Some(msg) = &debug_label {
         eprintln!("pick: {msg}");
     }
+    if args.top == 0 {
+        anyhow::bail!(
+            "--top 0: пул не может быть пустым — нечего записывать и не на что подписываться"
+        );
+    }
 
     let mut rest = BybitPublicRest::new(args.base_url.clone())?;
     let instruments = fetch_all_linear_instruments(&mut rest)?;
@@ -157,13 +170,15 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
     let now_ms = wall_clock_ms();
 
     // История 2 спеки (R28–R31): базовые активы ровно тех кандидатов,
-    // которых правило увидело по пути к десятому выжившему — не всех 863.
+    // которых правило увидело по пути к N-му выжившему — не всех 863.
     println!(
-        "pick: базовые активы кандидатов до десятого выжившего: {}",
-        base_coins_considered_until_pool_complete(&meta, now_ms).join(",")
+        "pick: базовые активы кандидатов до {}-го выжившего: {}",
+        args.top,
+        base_coins_considered_until_pool_complete(&meta, now_ms, args.top).join(",")
     );
 
-    let outcome = build_pool(&meta, now_ms);
+    let outcome = build_pool(&meta, now_ms, args.top);
+    println!("pick: пул — топ {} по обороту за 24 ч", outcome.pool.len());
     // Единственный источник N для DSR (Decision 26а, В-23): число пригодных
     // пар (инструмент, корзина) по пулу — таск 09/13 берут это число, не
     // номинальный крест.
@@ -186,7 +201,7 @@ async fn run_pick_async(args: &PickArgs) -> anyhow::Result<PickReport> {
 
     let instruments_by_symbol: HashMap<String, &Instrument> =
         instruments.iter().map(|i| (i.symbol.clone(), i)).collect();
-    // Замеряются все десять пула, а не предфильтрованное подмножество:
+    // Замеряются все члены пула, а не предфильтрованное подмножество:
     // час живого стакана — протокол шага 0.4, сохранённый ревизией 17.
     // Тем же окном и тем же соединением копится лента `publicTrade` — вход
     // медианы размера сделки пола H3 (план D-H3, таск 08).

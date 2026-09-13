@@ -1,5 +1,6 @@
-//! `lob pick` — правило пула Decision 25: десять бессрочных USDT-контрактов,
-//! старших по обороту за 24 часа, после трёх исключений (шаг 0.4). Чистая
+//! `lob pick` — правило пула Decision 25: `--top` бессрочных USDT-контрактов
+//! (по умолчанию десять, В-35), старших по обороту за 24 часа, после трёх
+//! исключений (шаг 0.4). Чистая
 //! функция `build_pool` и её вход (`CandidateMeta` — метаданные инструмента,
 //! склеенные с тикером через `join_candidate_meta`) не делают ввода-вывода
 //! вообще и проверены тестами ниже исчерпывающе, в том числе на вырожденных
@@ -17,9 +18,13 @@ use super::coverage::coverage_top50_bps;
 pub const MIN_LISTED_DAYS: i64 = 30;
 const MS_PER_DAY: i64 = 24 * 60 * 60 * 1_000;
 
-/// Размер пула Decision 25: первые десять оставшихся после трёх исключений —
-/// не «первая десятка минус выбывшие», иначе размер пула плавал бы от того,
-/// сколько неподходящих случайно оказалось наверху.
+/// Размер пула по умолчанию — Decision 25/В-35: первые десять оставшихся после
+/// трёх исключений, не «первая десятка минус выбывшие», иначе размер пула
+/// плавал бы от того, сколько неподходящих случайно оказалось наверху.
+///
+/// С 2026-09-13 это **умолчание**, а не константа: владелец («раскатка на
+/// топ 50», В-50) разрешил брать больше, и размер приходит параметром `--top`;
+/// число строк `instruments.csv` равно ему.
 pub const POOL_SIZE: usize = 10;
 
 const LINEAR_QUOTE_COIN: &str = "USDT";
@@ -168,7 +173,7 @@ pub struct ExcludedCandidate {
     pub excluded_reason: &'static str,
 }
 
-/// Итог стадии пула: сам пул (≤ `POOL_SIZE`, по убыванию оборота) и все
+/// Итог стадии пула: сам пул (≤ `pool_size`, по убыванию оборота) и все
 /// остальные рассмотренные символы с причинами (по убыванию оборота).
 #[derive(Debug)]
 pub struct PoolOutcome {
@@ -176,12 +181,17 @@ pub struct PoolOutcome {
     pub excluded: Vec<ExcludedCandidate>,
 }
 
-/// Строит пул Decision 25: десять бессрочных USDT-контрактов, старших по
-/// обороту за 24 часа **среди прошедших исключения** — первые десять
+/// Строит пул Decision 25: `pool_size` бессрочных USDT-контрактов, старших по
+/// обороту за 24 часа **среди прошедших исключения** — первые `pool_size`
 /// оставшихся после фильтра, иначе размер пула плавал бы от того, сколько
 /// неподходящих случайно оказалось наверху. Исключения: (1) BTC и ETH по
 /// имени — прямое указание владельца; (2) некриптовый базовый актив — по
 /// `NON_CRYPTO_BASES`, признака в API нет; (3) возраст < 30 суток.
+///
+/// `pool_size` — параметр, не константа: умолчание `POOL_SIZE` (десять,
+/// Decision 25), но владелец разрешил больше (В-50: «раскатка на топ 50»),
+/// и число приходит из `--top`. Раньше здесь стояла константа, и это делало
+/// размер пула нерешаемым иначе как правкой кода.
 ///
 /// Приоритет причин при совпадении нескольких — в порядке пунктов плана:
 /// имя, затем базовый актив, затем возраст. Детерминирован и записан здесь,
@@ -209,7 +219,7 @@ fn exclusion_reason(c: &CandidateMeta, now_ms: i64) -> Option<&'static str> {
     }
 }
 
-pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
+pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64, pool_size: usize) -> PoolOutcome {
     let mut passing: Vec<&CandidateMeta> = Vec::new();
     let mut excluded: Vec<ExcludedCandidate> = Vec::new();
     for c in candidates {
@@ -237,7 +247,7 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
     let mut pool = Vec::new();
     for (i, c) in passing.iter().enumerate() {
         let coverage_top50_bps = coverage_top50_bps(c.tick_e9, c.last_price_e9);
-        if i < POOL_SIZE {
+        if i < pool_size {
             pool.push(PoolCandidate {
                 symbol: c.symbol.clone(),
                 turnover_24h_usd_e9: c.turnover_24h_usd_e9,
@@ -269,14 +279,15 @@ pub fn build_pool(candidates: &[CandidateMeta], now_ms: i64) -> PoolOutcome {
 /// ровно те, кого правило увидело: идёт по той же области (USDT-линейный
 /// перп) в том же порядке убывания оборота, что и сам пул, и на каждом шаге
 /// проверяет то же самое исключение (`exclusion_reason`), пока не наберёт
-/// десятый прошедший все три. Кандидаты ниже него по обороту не входят —
-/// они не были нужны, чтобы найти десятого, в отличие от `RANK_BEYOND_POOL`
-/// внутри `build_pool`, которая размечает вообще всех прошедших, каким бы
-/// низким ни был их оборот. Меньше десяти прошедших во всей области —
-/// возвращает всех рассмотренных: десятого не существует.
+/// `pool_size` прошедших все три. Кандидаты ниже него по обороту не входят —
+/// они не были нужны, чтобы найти последнего выжившего пула, в отличие от
+/// `RANK_BEYOND_POOL` внутри `build_pool`, которая размечает вообще всех
+/// прошедших, каким бы низким ни был их оборот. Меньше `pool_size` прошедших
+/// во всей области — возвращает всех рассмотренных: последнего не существует.
 pub fn base_coins_considered_until_pool_complete(
     candidates: &[CandidateMeta],
     now_ms: i64,
+    pool_size: usize,
 ) -> Vec<String> {
     let mut region: Vec<&CandidateMeta> = candidates
         .iter()
@@ -293,7 +304,7 @@ pub fn base_coins_considered_until_pool_complete(
         seen.push(c.base_coin.clone());
         if exclusion_reason(c, now_ms).is_none() {
             passing += 1;
-            if passing == POOL_SIZE {
+            if passing == pool_size {
                 break;
             }
         }

@@ -76,7 +76,7 @@ pub struct CandidateRow {
 /// был третий аргумент `selected` — выжившие порога глубины, — и он резал
 /// пул до восьми (аудит 2026-09-12, `SETTLED.md` В-35).
 ///
-/// Каст ранга точен: пул ≤ `POOL_SIZE` (10 по Decision 25), `u8` хватает
+/// Каст ранга точен: пул ≤ `--top` (по умолчанию 10, Decision 25), `u8` хватает
 /// с запасом в двадцать пять раз.
 #[allow(clippy::cast_possible_truncation)]
 pub fn build_candidate_table(

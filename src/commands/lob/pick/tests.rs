@@ -80,7 +80,7 @@ fn full_pipeline_from_synthetic_universe_matches_hand_computed_result() {
         ));
     }
 
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(
         outcome.pool.len(),
         POOL_SIZE,
@@ -220,7 +220,7 @@ fn a_thin_book_inside_the_top_ten_stays_in_the_pool_with_below_floor() {
     // Одиннадцатый — прошёл все правила, но не влез по рангу.
     candidates.push(meta("SPILLUSDT", "SPILL", e9(1)));
 
-    let outcome = build_pool(&candidates, NOW_MS);
+    let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
     assert_eq!(outcome.pool.len(), POOL_SIZE);
 
     let measured: Vec<MeasuredCandidate> = outcome
