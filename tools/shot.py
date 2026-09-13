@@ -27,7 +27,7 @@ from playwright.sync_api import sync_playwright
 # страницы (`dashboard_page.html`), объявлена в глобальной лексической
 # области, поэтому из `evaluate` видна.
 STATE_JS = """() => {
-  const out = {tiles: 0, loaded: 0, loading: 0, err: [], bars: [], touches: []};
+  const out = {tiles: 0, loaded: 0, loading: 0, err: [], bars: [], touches: [], draw: []};
   if (typeof CH === 'undefined') return out;
   out.tiles = CH.size;
   for (const [sym, st] of CH) {
@@ -35,6 +35,12 @@ STATE_JS = """() => {
       out.loaded++;
       out.bars.push(sym + '=' + st.n);
       out.touches.push(sym + '=' + st.k);
+      const d = st.draw;
+      if (d) out.draw.push(sym + ': окон ' + Math.round(d.span/60000) + ' мин, полосок ' + d.bars +
+        (d.capped ? ' из ' + d.inWin + ' (потолок)' : '') + ', стен ' + d.walls +
+        ', касаний ' + d.touches + (d.tcapped ? ' из ' + d.tInWin + ' (потолок)' : '') +
+        (d.clipped ? ', за ценой ' + d.clipped : '') +
+        (d.profN ? ', живых в кадре ' + d.profN : ''));
     } else if (st.loading) {
       out.loading++;
     } else if (st.error) {
@@ -60,6 +66,11 @@ def main() -> int:
     ap.add_argument("--wait", type=float, default=60.0, help="секунд ждать загрузку плиток")
     ap.add_argument("--solo", help="развернуть одну монету на весь экран (например SOLUSDT)")
     ap.add_argument("--hover", help="навести курсор: 'fx,fy' — доли ширины/высоты плитки, и напечатать подсказку")
+    ap.add_argument(
+        "--text-only",
+        action="store_true",
+        help="не делать скриншот: только текстовый пробник рисунка (дешевле в разы)",
+    )
     a = ap.parse_args()
 
     console: list[str] = []
@@ -97,7 +108,7 @@ def main() -> int:
             tip = page.evaluate(
                 "() => { const t=document.querySelector('.tip'); return t && !t.hidden ? t.textContent : null; }"
             )
-        page.screenshot(path=a.out)
+        page.screenshot(path=a.out) if not a.text_only else None
         browser.close()
 
     print(
@@ -110,6 +121,7 @@ def main() -> int:
                 "ошибки плиток": state.get("err"),
                 "полосок": state.get("bars"),
                 "касаний": state.get("touches"),
+                "рисунок": state.get("draw"),
                 "ошибки страницы": errors,
                 "консоль": console[-12:],
                 "подсказка при наведении": tip,

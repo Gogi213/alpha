@@ -423,6 +423,11 @@ function draw(st){
   if (clipped) warn.push('за диапазоном цены полосок '+clipped.toLocaleString('ru-RU'));
   st.note.textContent = warn.join(' · ');
   st.note.hidden = warn.length===0;
+  // Машинный пробник рисунка: что именно нарисовано в этом окне. Читается
+  // текстом (`tools/shot.py --text-only`) — проверять страницу скриншотом
+  // дороже и нужно только когда числа не отвечают (В-39).
+  st.draw = {bars:list.length, inWin, capped, clipped, touches:nt, tInWin, tcapped, walls:walls.length,
+    profN, profMax, from, to, span, solo:false};
 }
 
 // ---------------------------------------------------------------------------
