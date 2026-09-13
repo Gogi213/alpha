@@ -372,7 +372,6 @@ fn write_number_rows(
     scope: &str,
     groups: &std::collections::BTreeMap<String, Vec<NumSample>>,
 ) -> anyhow::Result<()> {
-    let q = |v: &[f64]| crate::stats::quantiles(v).map(|(a, b, c)| (a, b, c));
     let num = |v: Option<f64>, d: usize| match v {
         Some(x) => format!("{x:.d$}"),
         None => "—".to_string(),
@@ -386,7 +385,7 @@ fn write_number_rows(
         let usd = col(&|s: &NumSample| Some(s.size_usd));
         let dist = col(&|s: &NumSample| s.distance_bps);
         let life = col(&|s: &NumSample| Some(s.lifetime_s));
-        let t = |v: &[f64]| q(v);
+        let t = crate::stats::quantiles;
         let (l1, l2, l3) = t(&lots).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
         let (x1, x2, x3) = t(&xh3).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
         let (u1, u2, u3) = t(&usd).unwrap_or((f64::NAN, f64::NAN, f64::NAN));
