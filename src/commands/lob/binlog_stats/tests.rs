@@ -19,6 +19,7 @@ fn args(path: &Path) -> BinlogStatsArgs {
     BinlogStatsArgs {
         path: path.to_path_buf(),
         reencode: false,
+        rewrite_out: None,
     }
 }
 
@@ -172,13 +173,69 @@ fn reencode_measures_v2_against_v3_on_the_same_records() {
         report.v3_per_message_frames, 3,
         "три сообщения в двух кадрах"
     );
+    assert_eq!(
+        report.ev_table_mismatches, 0,
+        "вариант «ev таблицей» обязан читаться обратно без расхождений"
+    );
+    assert!(report.v3_ev_table_bytes > 0 && report.v3_level3_bytes > 0);
+    // Уровни 3 и 6 сжимают **то же** тело, что уровень 1, поэтому их размеры
+    // обязаны быть рядом с `v3_bytes`. Регрессия, которую это ловит: буфер тела
+    // кадра затирался телом последнего сообщения (M1b) и M1z мерил огрызок —
+    // втрое-впятеро меньше настоящего.
+    assert!(
+        report.v3_level3_bytes * 2 >= report.v3_bytes && report.v3_level3_bytes <= report.v3_bytes,
+        "уровень 3 обязан сжимать то же тело, что уровень 1: {} против {}",
+        report.v3_level3_bytes,
+        report.v3_bytes
+    );
 
     let lines = report_lines(&path, &report);
     assert!(lines.iter().any(|l| l.contains("M1:")), "{lines:?}");
+    assert!(lines.iter().any(|l| l.contains("M1e:")), "{lines:?}");
+    assert!(lines.iter().any(|l| l.contains("M1z:")), "{lines:?}");
     assert!(
         lines.iter().any(|l| l.contains("расхождений 0")),
         "{lines:?}"
     );
+}
+
+/// Ворота M5c тикета 44: переписанный в v3 файл читается как v3 и несёт **те
+/// же** записи и те же кадры; отказ на файле, который уже v3.
+#[test]
+fn rewrite_writes_a_v3_file_with_the_same_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("V-2026-09-13.binlog");
+    let header = Header {
+        tick_e9: 10_000_000,
+        step_e9: 100_000_000,
+        max_records_per_frame: 16,
+    };
+    let frames = vec![
+        vec![
+            record(0x1, false, true),
+            record(0x1, false, true),
+            record(0x1, false, false),
+        ],
+        vec![record(0x2, true, false)],
+    ];
+    write_v2(&src, header, &frames);
+
+    let out = dir.path().join("v3/V-2026-09-13.binlog");
+    let lines = rewrite_v2_to_v3(&src, &out).unwrap();
+    assert!(lines[0].contains("v2 → v3"), "{lines:?}");
+
+    let bytes = std::fs::read(&out).unwrap();
+    let mut reader = Reader::open(&bytes[..]).unwrap();
+    assert_eq!(reader.version(), crate::binlog::VERSION);
+    assert_eq!(reader.header(), header, "шаги и потолок кадра те же");
+    let mut got = Vec::new();
+    while let Some(frame) = reader.read_frame().unwrap() {
+        got.push(frame);
+    }
+    assert_eq!(got, frames, "границы кадров и записи те же");
+
+    let err = rewrite_v2_to_v3(&out, &dir.path().join("again.binlog")).unwrap_err();
+    assert!(err.to_string().contains("версии 2"), "{err}");
 }
 
 #[test]

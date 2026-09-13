@@ -454,6 +454,29 @@ fn frame_shorter_than_the_epoch_is_corruption() {
     assert!(matches!(err, BinlogError::Corrupt(_)), "{err:?}");
 }
 
+/// Вариант «`ev` таблицей на кадр» (замер M1e тикета 44, в формат не входит):
+/// round trip обязан быть побитовым, а значения сверх потолка таблицы — уходить
+/// экранированными, а не теряться.
+#[test]
+fn ev_table_variant_round_trips_and_escapes_beyond_the_table() {
+    let mut frame = vec![
+        rec(0x5000_0001, 10, 10, 100, 5),
+        rec(0x5000_0001, 10, 10, 99, 3),
+        rec(0x6000_0001, 11, 11, 101, 2),
+        rec_block(0x5000_0002, 12, 12, 102, 1),
+    ];
+    // Больше `EV_TABLE_MAX` различных значений: хвост обязан уехать
+    // экранированным, иначе такой поток молча потерял бы флаги.
+    for i in 0..(EV_TABLE_MAX as u64 + 5) {
+        frame.push(rec(0x7000_0000 + i, 100 + i as i64, 100 + i as i64, 100, 1));
+    }
+    let mut raw = Vec::new();
+    encode_frame_payload_v3_ev_table(&frame, &mut raw);
+    let back = decode_frame_payload_v3_ev_table(&raw)
+        .expect("вариант «ev таблицей» обязан читаться обратно");
+    assert_eq!(back, frame, "round-trip варианта — побитовый");
+}
+
 // -----------------------------------------------------------------
 // Требование 5: аллокации на запись не растут с числом событий.
 // -----------------------------------------------------------------

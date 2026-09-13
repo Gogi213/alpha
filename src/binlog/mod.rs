@@ -513,17 +513,30 @@ fn encode_entry_v3(
     st.prev_qty_lots = r.qty_lots;
 }
 
-/// Заголовок группы: флаги события, метка биржи, метка приёма (одна на
-/// сообщение биржи), `attrs` и число записей.
+/// Заголовок группы: флаги события (или код таблицы — `EvMode`), метка биржи,
+/// метка приёма (одна на сообщение биржи), `attrs` и число записей.
 fn encode_group_header(
     buf: &mut Vec<u8>,
     r: &Record,
     epoch_ns: i64,
     count: usize,
+    ev_mode: &EvMode<'_>,
     fb: &mut FieldBytes,
 ) {
     let before = buf.len();
-    write_uvarint(buf, r.ev);
+    match ev_mode {
+        // Код группы: индекс в таблице кадра, а для значения, не попавшего в
+        // таблицу (различных значений больше `EV_TABLE_MAX`), — `ev_count` как
+        // escape и полный `ev` следом: молча терять значение нельзя.
+        EvMode::Table(table) => match table.iter().position(|&e| e == r.ev) {
+            Some(code) => write_uvarint(buf, code as u64),
+            None => {
+                write_uvarint(buf, table.len() as u64);
+                write_uvarint(buf, r.ev);
+            }
+        },
+        EvMode::Inline => write_uvarint(buf, r.ev),
+    }
     fb.ev += took(buf, before);
     // `wrapping_sub`, не `-`: обоснование — в доке модуля. Метки времени —
     // дельты от эпохи кадра (Decision 23), а не от предыдущей записи: эпоха
@@ -564,10 +577,32 @@ enum PriceMode<'a> {
     IndexSimulated(&'a [bool]),
 }
 
+/// Как кодировать флаги `ev` — параметр **замера** (M1e тикета 44). В формат
+/// входит только `Inline`.
+enum EvMode<'a> {
+    /// `ev` в заголовке каждой группы — формат v3.
+    Inline,
+    /// Таблица `ev` на кадр, в группе — код. Различных значений в живых файлах
+    /// 4–6 при пятибайтовом варинте, поэтому таблица (~21 байт на кадр) может
+    /// оказаться дешевле, чем полный `ev` в каждой группе; решает замер, а не
+    /// очевидность.
+    Table(&'a [u64]),
+}
+
+/// Максимум значений `ev` в таблице кадра варианта M1e. Больше — значение
+/// уходит в группу экранированным (код `ev_count` плюс полный `ev`), поэтому
+/// вариант не ломается на незнакомом потоке, а не теряет значение молча.
+const EV_TABLE_MAX: usize = 32;
+
 /// Тело кадра v3: эпоха, затем группы сообщений до конца среза. Число групп
 /// нигде не хранится отдельно — конец среза и есть конец кадра; `count`
 /// группы считается просмотром вперёд по срезу.
-fn encode_frame_payload(records: &[Record], mode: PriceMode<'_>, out: &mut Vec<u8>) -> FieldBytes {
+fn encode_frame_payload(
+    records: &[Record],
+    mode: PriceMode<'_>,
+    ev_mode: EvMode<'_>,
+    out: &mut Vec<u8>,
+) -> FieldBytes {
     let mut fb = FieldBytes::default();
     let Some(first) = records.first() else {
         return fb;
@@ -579,6 +614,15 @@ fn encode_frame_payload(records: &[Record], mode: PriceMode<'_>, out: &mut Vec<u
     out.extend_from_slice(&epoch_ns.to_le_bytes());
     fb.epoch += FRAME_EPOCH_LEN;
 
+    if let EvMode::Table(table) = &ev_mode {
+        let before = out.len();
+        write_uvarint(out, table.len() as u64);
+        for ev in *table {
+            write_uvarint(out, *ev);
+        }
+        fb.ev += took(out, before);
+    }
+
     let mut st = DeltaState::new();
     let mut i = 0;
     while let Some(head) = records.get(i) {
@@ -586,7 +630,7 @@ fn encode_frame_payload(records: &[Record], mode: PriceMode<'_>, out: &mut Vec<u
         while records.get(end).is_some_and(|r| same_message(head, r)) {
             end += 1;
         }
-        encode_group_header(out, head, epoch_ns, end - i, &mut fb);
+        encode_group_header(out, head, epoch_ns, end - i, &ev_mode, &mut fb);
         for (k, r) in records[i..end].iter().enumerate() {
             let indexed = matches!(mode, PriceMode::IndexSimulated(m) if m.get(i + k).copied().unwrap_or(false));
             encode_entry_v3(out, r, &mut st, &mut fb, indexed);
@@ -598,7 +642,7 @@ fn encode_frame_payload(records: &[Record], mode: PriceMode<'_>, out: &mut Vec<u
 
 /// Тело кадра v3 — то, что пишет `Writer::write_frame`.
 pub fn encode_frame_payload_v3(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
-    encode_frame_payload(records, PriceMode::Delta, out)
+    encode_frame_payload(records, PriceMode::Delta, EvMode::Inline, out)
 }
 
 /// Симуляция «уровень индексом» — **только замер** M1i тикета 43, в формат не
@@ -609,7 +653,26 @@ pub fn encode_frame_payload_v3_index_simulated(
     indexed: &[bool],
     out: &mut Vec<u8>,
 ) -> FieldBytes {
-    encode_frame_payload(records, PriceMode::IndexSimulated(indexed), out)
+    encode_frame_payload(
+        records,
+        PriceMode::IndexSimulated(indexed),
+        EvMode::Inline,
+        out,
+    )
+}
+
+/// Вариант «`ev` таблицей на кадр» — **только замер** M1e тикета 44, в формат
+/// не входит (см. `EvMode::Table`); таблица строится по самим записям кадра.
+pub fn encode_frame_payload_v3_ev_table(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
+    let mut table = [0u64; EV_TABLE_MAX];
+    let mut len = 0usize;
+    for r in records {
+        if len < EV_TABLE_MAX && !table[..len].contains(&r.ev) {
+            table[len] = r.ev;
+            len += 1;
+        }
+    }
+    encode_frame_payload(records, PriceMode::Delta, EvMode::Table(&table[..len]), out)
 }
 
 /// Тело кадра v2 — форма, которую пишет живой коллектор до перезапуска на
@@ -691,6 +754,79 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
     let mut out = Vec::new();
     while pos < payload.len() {
         let ev = read_uvarint(payload, &mut pos)?;
+        let exch_delta = read_zigzag(payload, &mut pos)?;
+        let local_delta = read_zigzag(payload, &mut pos)?;
+        let attrs = read_uvarint(payload, &mut pos)?;
+        if attrs & !ATTRS_BLOCK != 0 {
+            return Err(BinlogError::Corrupt(format!(
+                "неизвестный бит attrs группы: {attrs:#x}"
+            )));
+        }
+        let count = read_uvarint(payload, &mut pos)?;
+        let remaining = (payload.len() - pos) as u64;
+        if count > remaining {
+            return Err(BinlogError::Corrupt(format!(
+                "группа объявила {count} записей, а в кадре осталось {remaining} байт"
+            )));
+        }
+        let exch_ts_ns = epoch_ns.wrapping_add(exch_delta);
+        let local_ts_ns = epoch_ns.wrapping_add(local_delta);
+        let block = attrs & ATTRS_BLOCK != 0;
+        for _ in 0..count {
+            let price_delta = read_zigzag(payload, &mut pos)?;
+            let qty_delta = read_zigzag(payload, &mut pos)?;
+            let price_ticks = st.prev_price_ticks.wrapping_add(price_delta);
+            let qty_lots = st.prev_qty_lots.wrapping_add(qty_delta);
+            st.prev_price_ticks = price_ticks;
+            st.prev_qty_lots = qty_lots;
+            out.push(Record {
+                ev,
+                exch_ts_ns,
+                local_ts_ns,
+                price_ticks,
+                qty_lots,
+                block,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Разбирает тело кадра варианта «`ev` таблицей» — **только замер** M1e
+/// тикета 44 (в формат не входит, см. `EvMode::Table`). Нужен замеру и тестам
+/// варианта: без обратного чтения «экономия» проверялась бы на слово, а не
+/// round-trip'ом.
+pub fn decode_frame_payload_v3_ev_table(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
+    let epoch_ns = read_frame_epoch(payload)?;
+    let mut pos = FRAME_EPOCH_LEN;
+    let table_len = read_uvarint(payload, &mut pos)?;
+    if table_len > EV_TABLE_MAX as u64 {
+        return Err(BinlogError::Corrupt(format!(
+            "таблица ev объявила {table_len} значений при потолке {EV_TABLE_MAX}"
+        )));
+    }
+    let mut table = [0u64; EV_TABLE_MAX];
+    for i in 0..table_len as usize {
+        let ev = read_uvarint(payload, &mut pos)?;
+        if let Some(slot) = table.get_mut(i) {
+            *slot = ev;
+        }
+    }
+    let mut st = DeltaState::new();
+    let mut out = Vec::new();
+    while pos < payload.len() {
+        let code = read_uvarint(payload, &mut pos)?;
+        let ev = if code < table_len {
+            table.get(code as usize).copied().ok_or_else(|| {
+                BinlogError::Corrupt(format!("код ev {code} вне таблицы {table_len}"))
+            })?
+        } else if code == table_len {
+            read_uvarint(payload, &mut pos)?
+        } else {
+            return Err(BinlogError::Corrupt(format!(
+                "код ev {code} больше длины таблицы {table_len}"
+            )));
+        };
         let exch_delta = read_zigzag(payload, &mut pos)?;
         let local_delta = read_zigzag(payload, &mut pos)?;
         let attrs = read_uvarint(payload, &mut pos)?;

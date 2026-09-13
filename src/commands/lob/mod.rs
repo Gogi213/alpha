@@ -299,6 +299,11 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                     println!("{line}");
                 }
             }
+            if let Some(out) = args.rewrite_out.as_deref() {
+                for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
+                    println!("{line}");
+                }
+            }
             Ok(())
         }
         LobCommand::Markout(args) => {

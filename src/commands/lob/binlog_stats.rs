@@ -29,11 +29,17 @@ use std::time::Instant;
 use clap::Args;
 
 use crate::binlog::{
-    decode_frame_payload_v3, encode_frame_payload_v2, encode_frame_payload_v3,
+    decode_frame_payload_v3, decode_frame_payload_v3_ev_table, encode_frame_payload_v2,
+    encode_frame_payload_v3, encode_frame_payload_v3_ev_table,
     encode_frame_payload_v3_index_simulated, same_message, FieldBytes, LegacyDeadFields, Reader,
-    Record, LEN_PREFIX, VERSION_V2,
+    Record, Writer, LEN_PREFIX, VERSION_V2,
 };
 use crate::commands::record::ZSTD_LEVEL;
+
+/// Уровни zstd — кандидаты M1z тикета 44. Числа не изобретены: те же уровни
+/// мерил T25 на живых файлах (`docs/findings/collector-2026-09-12.md`).
+const ZSTD_LEVEL_CANDIDATE_3: i32 = 3;
+const ZSTD_LEVEL_CANDIDATE_6: i32 = 6;
 
 /// Аргументы `lob binlog-stats`.
 #[derive(Debug, Args)]
@@ -42,9 +48,15 @@ pub struct BinlogStatsArgs {
     #[arg(long)]
     pub path: PathBuf,
     /// Замер A/B формата: перекодировать те же записи кодеком v3 и сравнить
-    /// объём, время и round-trip (метрики M1/M1b/M1i/M2/M3/M4 тикета 43).
+    /// объём, время и round-trip (метрики M1/M1b/M1i/M2/M3/M4 тикета 43 плюс
+    /// M1e/M1z тикета 44).
     #[arg(long, default_value_t = false)]
     pub reencode: bool,
+    /// Переписать файл версии 2 в версию 3 (тот же заголовок, те же границы
+    /// кадров) — ворота M5c тикета 44: на переписанном файле читатели обязаны
+    /// дать те же артефакты, что на исходном.
+    #[arg(long)]
+    pub rewrite_out: Option<PathBuf>,
 }
 
 /// Итог разбора — для печати диспетчером и для тестов.
@@ -222,6 +234,18 @@ pub struct ReencodeReport {
     pub v3_per_message_frames: u64,
     /// Симуляция «уровень индексом» (M1i).
     pub v3_index_bytes: u64,
+    /// Вариант «`ev` таблицей на кадр» (M1e).
+    pub v3_ev_table_bytes: u64,
+    /// Тот же v3-payload, сжатый уровнями 3 и 6 (M1z).
+    pub v3_level3_bytes: u64,
+    pub v3_level6_bytes: u64,
+    /// Только сжатие (без кодирования): уровень 1 — базовая линия M1z,
+    /// уровень 6 — кандидат. Без разделения нельзя честно сказать, что
+    /// уровень 6 стоит столько-то CPU: `v3_encode_ns` включает и кодирование.
+    pub v3_compress_ns: u128,
+    pub v3_level6_encode_ns: u128,
+    /// Расхождения round-trip варианта «`ev` таблицей» (M4e).
+    pub ev_table_mismatches: u64,
     pub v2_field_bytes: FieldBytes,
     pub v3_field_bytes: FieldBytes,
     pub v2_encode_ns: u128,
@@ -258,9 +282,17 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
 
     let mut v2_raw = Vec::new();
     let mut v3_raw = Vec::new();
+    let mut msg_raw = Vec::new();
     let mut index_raw = Vec::new();
+    let mut ev_raw = Vec::new();
     let mut compressed = Vec::new();
     let mut index_flags: Vec<bool> = Vec::new();
+    // Кандидаты M1z — из замера T25 (`docs/findings/collector-2026-09-12.md`):
+    // уровень 1 (текущий, 170 нс/запись), 3, 6 (475 нс/запись, −4.7 % байт) и 9.
+    // Здесь берутся 3 и 6: 9 дороже вчетверо за 1 % байт, а память zstd
+    // ограничена размером входа (наши кадры — десятки килобайт).
+    let mut level3 = zstd::bulk::Compressor::new(ZSTD_LEVEL_CANDIDATE_3)?;
+    let mut level6 = zstd::bulk::Compressor::new(ZSTD_LEVEL_CANDIDATE_6)?;
 
     loop {
         let t_decode = Instant::now();
@@ -291,8 +323,10 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
         report
             .v3_field_bytes
             .add(encode_frame_payload_v3(&frame, &mut v3_raw));
-        compress_into(&mut compressor, &v3_raw, &mut compressed)?;
         report.v3_encode_ns += t_encode.elapsed().as_nanos();
+        let t_compress = Instant::now();
+        compress_into(&mut compressor, &v3_raw, &mut compressed)?;
+        report.v3_compress_ns += t_compress.elapsed().as_nanos();
         report.v3_bytes += (LEN_PREFIX + compressed.len()) as u64;
 
         // M4а: v2 → v3 → v2, сравнение поле в поле.
@@ -320,10 +354,12 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
         }
 
         // M1b: кадр на сообщение — то, что буквально просит «local_ts в кадр».
+        // Свой буфер: `v3_raw` ещё нужен целиком для M1z ниже, и затирание его
+        // телом последнего сообщения уже давало неверный замер (0.11 Б/запись).
         for message in split_messages(&frame) {
-            v3_raw.clear();
-            encode_frame_payload_v3(message, &mut v3_raw);
-            compress_into(&mut compressor, &v3_raw, &mut compressed)?;
+            msg_raw.clear();
+            encode_frame_payload_v3(message, &mut msg_raw);
+            compress_into(&mut compressor, &msg_raw, &mut compressed)?;
             report.v3_per_message_bytes += (LEN_PREFIX + compressed.len()) as u64;
             report.v3_per_message_frames += 1;
         }
@@ -336,6 +372,36 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
         encode_frame_payload_v3_index_simulated(&frame, &index_flags, &mut index_raw);
         compress_into(&mut compressor, &index_raw, &mut compressed)?;
         report.v3_index_bytes += (LEN_PREFIX + compressed.len()) as u64;
+
+        // M1e/M4e: «ev таблицей» — реальный кодек варианта плюс его round-trip
+        // (без обратного чтения экономия проверялась бы на слово).
+        ev_raw.clear();
+        encode_frame_payload_v3_ev_table(&frame, &mut ev_raw);
+        compress_into(&mut compressor, &ev_raw, &mut compressed)?;
+        report.v3_ev_table_bytes += (LEN_PREFIX + compressed.len()) as u64;
+        match decode_frame_payload_v3_ev_table(&ev_raw) {
+            Ok(back) => {
+                if back.len() != frame.len() {
+                    report.ev_table_mismatches +=
+                        (back.len() as i64 - frame.len() as i64).unsigned_abs();
+                }
+                report.ev_table_mismatches += back
+                    .iter()
+                    .zip(frame.iter())
+                    .filter(|(a, b)| a != b)
+                    .count() as u64;
+            }
+            Err(_) => report.ev_table_mismatches += frame.len() as u64,
+        }
+
+        // M1z: тот же v3-payload уровнями 3 и 6 (уровень 1 — базовая линия).
+        // Время меряется на уровне 6: он дороже всех, и его цена — CPU.
+        compress_into(&mut level3, &v3_raw, &mut compressed)?;
+        report.v3_level3_bytes += (LEN_PREFIX + compressed.len()) as u64;
+        let t_encode = Instant::now();
+        compress_into(&mut level6, &v3_raw, &mut compressed)?;
+        report.v3_level6_encode_ns += t_encode.elapsed().as_nanos();
+        report.v3_level6_bytes += (LEN_PREFIX + compressed.len()) as u64;
     }
 
     Ok(report)
@@ -448,6 +514,21 @@ fn report_lines(path: &Path, r: &ReencodeReport) -> Vec<String> {
             100.0 * r.v3_index_bytes as f64 / r.v3_bytes.max(1) as f64
         ),
         format!(
+            "reencode M1e: «ev таблицей на кадр» — {:.2} Б/запись, {:.1} % от v3-пачки, round-trip расхождений {} (порог ≥ 5 % экономии, тикет 44)",
+            per(r.v3_ev_table_bytes),
+            100.0 * r.v3_ev_table_bytes as f64 / r.v3_bytes.max(1) as f64,
+            r.ev_table_mismatches
+        ),
+        format!(
+            "reencode M1z: уровень zstd 3 — {:.2} Б/запись ({:.1} % от уровня 1); уровень 6 — {:.2} Б/запись ({:.1} % от уровня 1), сжатие {:.0} нс/запись против {:.0} на уровне 1",
+            per(r.v3_level3_bytes),
+            100.0 * r.v3_level3_bytes as f64 / r.v3_bytes.max(1) as f64,
+            per(r.v3_level6_bytes),
+            100.0 * r.v3_level6_bytes as f64 / r.v3_bytes.max(1) as f64,
+            ns_per_record(r.v3_level6_encode_ns),
+            ns_per_record(r.v3_compress_ns)
+        ),
+        format!(
             "reencode M2 (экстраполяция ×10 к топ-100, не замер): v2 {:.1} ГБ/сутки, v3 {:.1} ГБ/сутки",
             gb(r.bytes_on_disk) * 10.0,
             gb(r.v3_bytes) * 10.0
@@ -483,10 +564,58 @@ fn report_lines(path: &Path, r: &ReencodeReport) -> Vec<String> {
         ),
     ];
     lines.push(
-        "reencode: числа — один и тот же файл, те же записи, тот же zstd-1; пороги решения — в тикете 43"
+        "reencode: числа — один и тот же файл, те же записи, тот же zstd-1; пороги решения — в тикетах 43 и 44"
             .to_string(),
     );
     lines
+}
+
+/// Переписывает файл версии 2 в версию 3: тот же заголовок (шаги и потолок
+/// кадра), те же границы кадров, тот же порядок записей. Ворота M5c тикета 44:
+/// на переписанном файле `verify`/`levels` обязаны дать **те же** артефакты,
+/// что на исходном, — иначе раскатка v3 на сервер меняет результаты анализа.
+///
+/// Пишет только v3: версия 2 остаётся только для чтения (её пишет живой
+/// коллектор старого бинарника, В-41/В-48).
+pub fn rewrite_v2_to_v3(src: &Path, out: &Path) -> anyhow::Result<Vec<String>> {
+    let data = std::fs::read(src)?;
+    let mut reader = Reader::open(&data[..])?;
+    let version = reader.version();
+    if version != VERSION_V2 {
+        anyhow::bail!(
+            "{} — формат v{version}: переписывать в v3 можно только файл версии 2",
+            src.display()
+        );
+    }
+    let header = reader.header();
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let file = std::fs::File::create(out)?;
+    let mut writer = Writer::create(file, header, ZSTD_LEVEL)?;
+    let mut frames = 0u64;
+    let mut records = 0u64;
+    while let Some(frame) = reader.read_frame()? {
+        writer.write_frame(&frame)?;
+        frames += 1;
+        records += frame.len() as u64;
+    }
+    writer.flush()?;
+    let bytes = std::fs::metadata(out)?.len();
+    Ok(vec![
+        format!(
+            "rewrite: {} → {} · формат v{VERSION_V2} → v{} · кадров {} · записей {} · {:.1} МБ",
+            src.display(),
+            out.display(),
+            crate::binlog::VERSION,
+            frames,
+            records,
+            bytes as f64 / 1e6
+        ),
+        "rewrite: тот же заголовок и те же границы кадров — читатели обязаны дать те же артефакты (M5c тикета 44)".to_string(),
+    ])
 }
 
 #[cfg(test)]

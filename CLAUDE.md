@@ -23,7 +23,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 707 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 709 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -83,9 +83,11 @@ src/
 ## Артефакты — коротко (полностью: `docs/COMMANDS.md`)
 
 `lob pick` → `instruments.csv` (пул, ровно десять, `depth_check` — проверка, не отбор, В-35) +
-`docs/plan/candidates.csv`. `lob binlog-stats --path <файл> [--reencode]` → только чтение: версия
+`docs/plan/candidates.csv`. `lob binlog-stats --path <файл> [--reencode] [--rewrite-out <файл>]` →
+только чтение: версия
 формата, записи/кадры/**группы-сообщения**, `ev`, блочные сделки, мёртвые поля v2; `--reencode` —
-замер A/B формата на тех же записях (пороги и числа — тикет 43, `docs/findings/binlog-v3-2026-09-13.md`). `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
+замер A/B формата на тех же записях, `--rewrite-out` — переписать v2 в v3 (пороги и числа — тикеты
+43/44, `docs/findings/binlog-v3-2026-09-13.md`). `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
 `session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются).
 `lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
 markout от среза как есть на `start_ms` со знаком «в сторону отскока», T35/В-43). `lob profiles`/`backtest`/`shortlist` →
@@ -118,8 +120,12 @@ T38), число испытаний (`(26 + 6) × (инструментов + 1)
 (`k = 1.0` — заглушка, В-30). Олвейс-он **`data/always-on/20260912T201737Z/`** (2026-09-12T20:47Z →
 2026-09-13T16:22Z на боевой десятке, 0 разрывов, 209.6 млн записей, 928.2 МБ на диске) —
 **остановлен владельцем** штатно (`stop`, В-41), `session.json closed=true`; формат **v3** принят
-в код (В-48, `docs/findings/binlog-v3-2026-09-13.md`), раскатка на живой процесс и переезд на
-сервер — решение владельца. Боевых `profiles-*`/`backtest-*`/`shortlist-*` ещё нет.
+в код (В-48) и **заморожен** замером (В-49: таблица `ev` 3.8–4.7 % и zstd-6 0.9–2.8 % — ниже порога
+5 %, уровень 3 хуже; дальше байты двигает только смена кодека), ворота раскатки пройдены
+(`verify`/`levels` на v3 совпали с v2 побайтово, живой 5-мин смоук — v3, `resyncs = 0`);
+раскатка на живой процесс и переезд на сервер — решение владельца, ранбук —
+`docs/COMMANDS.md` («Коллектор на сервере»). Разбор — `docs/findings/binlog-v3-2026-09-13.md`.
+Боевых `profiles-*`/`backtest-*`/`shortlist-*` ещё нет.
 
 ## Правила, которые ловят ревью
 
