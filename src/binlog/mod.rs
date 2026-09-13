@@ -10,7 +10,29 @@
 //! [кадр 1: u32 длина LE | zstd-кадр]   ← дальше живые дельты потока
 //! [кадр 2: ...]
 //! ...
+//!
+//! тело кадра v3:
+//!   epoch_exch_ns : i64 LE (8)     ← метка биржи первой записи кадра
+//!   группа* (одно сообщение биржи):
+//!     ev : uvarint                 ← флаги события, служебных бит нет
+//!     exch_dt : zigzag             ← exch_ts − epoch
+//!     local_dt : zigzag            ← local_ts − epoch (одна метка на сообщение)
+//!     attrs : uvarint              ← бит 0: блочная сделка; остальные биты 0
+//!     count : uvarint              ← записей в группе (≥ 1)
+//!     count × (price_dt : zigzag, qty_dt : zigzag)  ← дельты от предыдущей
+//!                                                     записи кадра
 //! ```
+//!
+//! Версия 2 (её пишет живой коллектор до перезапуска) читается тем же
+//! читателем: восемь полей на запись (`ev`, `exch_ts`, `local_ts`, цена,
+//! размер, `order_id`, `ival`, `fval`). Три последних в живых данных
+//! **нулевые во всех записях** (`docs/findings/binlog-format-2026-09-13.md`,
+//! 17 млн записей трёх монет), поэтому v3 их не хранит вовсе; счётчики этих
+//! полей по v2-файлу остаются доступны (`Reader::legacy_dead_fields`), чтобы
+//! доказательство «0 %» можно было перепроверить на любом старом файле.
+//! Блочность сделки (`ival != 0` в v2) — не мёртвое поле, а бит `attrs`:
+//! `lob/levels.rs` пропускает блочные сделки, и семантика сохранена без
+//! `i64`-варианта в каждой записи.
 //!
 //! Заголовок несёт `tickSize` и `qtyStep`, потому что записи внутри кадров
 //! хранят цену в тиках и размер в шагах количества (`ARCHITECTURE.md` A1) —
@@ -52,16 +74,27 @@
 //! кадр читается независимо от соседних, поэтому усечение или повреждение
 //! одного кадра не портит декодирование остальных.
 //!
-//! Запись — это одно **сырое событие**, надмножество полей `Event` крейта
-//! `hftbacktest` (`ev`, `exch_ts`, `local_ts`, `px`, `qty`, `order_id`, `ival`,
-//! `fval`; поля подтверждены по `hftbacktest-0.9.4/src/types.rs`, Decision 17),
-//! а не реконструированное состояние книги: снапшот в начале суток — это
-//! много обычных записей подряд (по одной на уровень), никакого отдельного
-//! «состояния» модуль не знает и не хранит. `px`/`qty` крейта — `f64` для
-//! границы с бэктестом; в логе на их месте целые `price_ticks`/`qty_lots`
-//! (A1) — это и есть смысл слова «надмножество» в Decision 7: тот же набор
-//! данных, но без потери точности, которую f64 внёс бы на самом горячем поле.
-//! Перевод в `f64` для `Event` — дело экспортёра (шаг 6.1), не этого модуля.
+//! Запись — это одно **сырое событие** (надмножество полей `Event` крейта
+//! `hftbacktest` по данным, но не по носителю: `ev`, `exch_ts`, `local_ts`,
+//! цена, размер, блочность; поля подтверждены по
+//! `hftbacktest-0.9.4/src/types.rs`, Decision 17), а не реконструированное
+//! состояние книги: снапшот в начале суток — это много обычных записей
+//! подряд (по одной на уровень), никакого отдельного «состояния» модуль не
+//! знает и не хранит. `px`/`qty` крейта — `f64` для границы с бэктестом; в
+//! логе на их месте целые `price_ticks`/`qty_lots` (A1). Перевод в `f64` для
+//! `Event` — дело экспортёра (шаг 6.1), не этого модуля.
+//!
+//! Записи одного **сообщения биржи** идут в теле кадра одной группой: у
+//! уровня книги нет ничего своего, кроме цены и размера, а флаги, метка
+//! биржи и метка приёма у всего сообщения одни и те же. Группа — это
+//! `ev` + `exch_dt` + `local_dt` + `count` + сами пары (цена, размер).
+//! Границу группы кодировщик видит по смене `(ev, exch_ts_ns, local_ts_ns,
+//! block)` у соседних записей среза: вызывающий (`record.rs`,
+//! `session::sink`) кладёт записи одного сообщения подряд, поэтому границы
+//! групп совпадают с сообщениями без правки горячего пути. Кадр при этом
+//! остаётся **пачкой** сообщений (`FRAME_TARGET_RECORDS`): сообщение книги —
+//! это 1–5 изменённых уровней, и кадр на сообщение почти не сжимается
+//! (измерено таском 25, `docs/findings/collector-2026-09-12.md`).
 //!
 //! Дельты кодируются `wrapping_sub`/`wrapping_add` (по модулю 2^64), а не
 //! проверяемой арифметикой: это честная биекция на всём диапазоне `i64` вне
@@ -78,17 +111,26 @@ use std::io::{self, Read, Write};
 /// не читался молча как валидный лог с нулевым содержимым.
 pub const MAGIC: [u8; 4] = *b"ABLG";
 
-/// Версия формата — байт в заголовке (раздел «Contracts touched» `PLAN.md`:
-/// «формат бинарного лога версионируется байтом в заголовке»). Меняется при
-/// любой несовместимой правке раскладки, а не при добавлении новых значений
-/// существующих полей.
+/// Версия формата, которую **пишет** этот код, — байт в заголовке (раздел
+/// «Contracts touched» `PLAN.md`: «формат бинарного лога версионируется
+/// байтом в заголовке»). Меняется при любой несовместимой правке раскладки,
+/// а не при добавлении новых значений существующих полей.
 ///
-/// `2`, не `1`: ревизия 10 Decision 23 добавила поле `max_records_per_frame`
-/// в хвост заголовка, а старый читатель этого не ждёт — несовместимая
-/// правка раскладки обязана поднять версию, иначе файл версии 1 читался бы
-/// байт в байт как версия 2 и хвост заголовка ушёл бы не туда (см. тест
-/// `old_version_file_is_rejected_not_misread`).
-pub const VERSION: u8 = 2;
+/// `3`, не `2`: тело кадра стало списком групп (сообщений биржи), у записи
+/// больше нет `order_id`/`ival`/`fval`, а `local_ts` переехал из записи в
+/// заголовок группы. Старый читатель такого тела не ждёт — несовместимая
+/// правка раскладки обязана поднять версию, иначе файл версии 3 читался бы
+/// байт в байт как версия 2 и первая же группа ушла бы не туда (см. тесты
+/// `old_version_file_is_rejected_not_misread` и
+/// `version_two_file_is_read_as_legacy_not_misread`).
+pub const VERSION: u8 = 3;
+
+/// Версия 2 — та, которую пишет **живой коллектор** до перезапуска на новый
+/// бинарник (В-41: процесс живёт с копии `data/always-on/alpha-collector.exe`
+/// и в этой правке не трогается). Читатель обязан знать обе версии, иначе
+/// вся идущая запись перестала бы читаться; писателя версии 2 в коде нет —
+/// её форму держит только legacy-декодер `decode_frame_payload_v2`.
+pub const VERSION_V2: u8 = 2;
 
 /// magic(4) + version(1) — этого достаточно, чтобы решить, версия ли это,
 /// которую понимает остальной код. Читается отдельно от хвоста заголовка
@@ -104,8 +146,10 @@ const HEADER_TAIL_LEN: usize = 8 + 8 + 4;
 /// Полная длина заголовка текущей версии.
 const HEADER_LEN: usize = MAGIC_VERSION_LEN + HEADER_TAIL_LEN;
 
-/// Длина префикса кадра — `u32`, как назначено Decision 7.
-const LEN_PREFIX: usize = 4;
+/// Длина префикса кадра — `u32`, как назначено Decision 7. Публичная, потому
+/// что замер формата (`lob binlog-stats --reencode`) собирает кадры в памяти и
+/// обязан считать их длину той же формулой, а не второй копией числа 4.
+pub const LEN_PREFIX: usize = 4;
 
 /// Заголовок суточного файла: шаг цены и шаг количества, в единицах 1e-9
 /// (тот же масштаб, что `book::Book` и разбор `bybit::ws` уже используют) —
@@ -141,18 +185,18 @@ fn validate_header(h: Header) -> Result<(), BinlogError> {
     Ok(())
 }
 
-/// Одна запись — сырое событие. Поля надмножество `Event` крейта
-/// `hftbacktest` (см. доку модуля): `price_ticks`/`qty_lots` вместо `px`/`qty`
-/// крейта, остальные шесть — один в один.
+/// Одна запись — сырое событие внутри группы (сообщения биржи). Поля, которые
+/// есть у `Event` крейта `hftbacktest`, но информации в живых данных не несут
+/// (`order_id`, `fval` — 0 % ненулевых на 17 млн записей, замер
+/// `docs/findings/binlog-format-2026-09-13.md`), у `Record` нет вовсе: экспортёр
+/// ставит на их место `0`/`0.0` (поток L2 Bybit числового id заявки не
+/// сообщает). `ival` заменён на `block` — семантику блочной сделки, ради
+/// которой он и отличался от нуля (`lob/levels.rs` такие сделки пропускает).
 ///
-/// `PartialEq`, не `Eq`: единственное нецелое поле, `fval`, резерв под `f64`
-/// крейта и в этом логе не участвует в сравнении уровней (A1 касается
-/// цены и размера книги, не этого сквозного поля). Ловушка на будущее:
-/// derived `PartialEq` сравнивает `fval` через `==`, так что `NaN != NaN` —
-/// тест на round trip с `fval = NaN` обязан сравнивать `.to_bits()`, а не
-/// сами `Record` через `assert_eq!`, иначе побитово верный round trip
-/// выглядел бы как провал.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// `Eq`, не только `PartialEq` (в v2 здесь был `f64` `fval`, и `NaN != NaN`
+/// делал `Eq` невозможным): после переноса мёртвых полей вон в записи не
+/// осталось ни одного нецелого поля, и сравнение записей стало полным.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Record {
     /// Флаги события — те же биты, что `hftbacktest::types::{DEPTH_EVENT,
     /// TRADE_EVENT, BUY_EVENT, ...}`. Модуль их не толкует, только хранит:
@@ -162,6 +206,11 @@ pub struct Record {
     /// в `bybit::conn::ConnEvent` (H12): `exch_ts` биржи приходит в мс
     /// (`cts`/`T`) и переводится в нс на той же границе, что и сравнение
     /// `exch_ts < local_ts`, а не заново здесь другим способом.
+    ///
+    /// В формате v3 обе метки хранятся **один раз на группу**: внутри
+    /// сообщения биржи они одни и те же у всех его записей (sink передаёт
+    /// одну метку приёма на сообщение), поэтому перенос не теряет ничего, а
+    /// экономит вторую метку в каждой записи.
     pub exch_ts_ns: i64,
     pub local_ts_ns: i64,
     /// Цена как целое число тиков (A1). Тик восстанавливается из `tick_e9`
@@ -169,9 +218,10 @@ pub struct Record {
     pub price_ticks: i64,
     /// Размер как целое число шагов количества (A1), аналогично `step_e9`.
     pub qty_lots: i64,
-    pub order_id: u64,
-    pub ival: i64,
-    pub fval: f64,
+    /// Блочная сделка (`BT` у Bybit, в v2 — `ival != 0`): такие сделки не
+    /// потребляют видимую ликвидность (Decision 5), разметка их пропускает
+    /// (`lob/levels.rs`). В формате v3 — бит 0 `attrs` группы.
+    pub block: bool,
 }
 
 /// Ошибка формата. `Io`/`Corrupt` несут текст, а не исходный `io::Error`:
@@ -358,121 +408,391 @@ fn read_zigzag(buf: &[u8], pos: &mut usize) -> Result<i64, BinlogError> {
 }
 
 // ---------------------------------------------------------------------
-// Кодирование одной записи внутри кадра.
+// Кодек кадра: v3 (текущий, пишется) и v2 (только чтение живых файлов).
 // ---------------------------------------------------------------------
-
-/// Состояние дельты, которое живёт внутри одного кадра и обнуляется на
-/// каждом новом (см. доку модуля: кадры читаются независимо друг от друга).
-struct DeltaState {
-    epoch_ns: i64,
-    prev_price_ticks: i64,
-    prev_qty_lots: i64,
-}
-
-fn encode_record(buf: &mut Vec<u8>, r: &Record, st: &mut DeltaState) {
-    write_uvarint(buf, r.ev);
-    // `wrapping_sub`, не `-`: обоснование — в доке модуля. Время — дельта
-    // от эпохи кадра (Decision 23), а не от предыдущей записи; цена и
-    // размер — дельта от предыдущей записи этого же кадра.
-    write_zigzag(buf, r.exch_ts_ns.wrapping_sub(st.epoch_ns));
-    write_zigzag(buf, r.local_ts_ns.wrapping_sub(st.epoch_ns));
-    write_zigzag(buf, r.price_ticks.wrapping_sub(st.prev_price_ticks));
-    write_zigzag(buf, r.qty_lots.wrapping_sub(st.prev_qty_lots));
-    write_uvarint(buf, r.order_id);
-    write_zigzag(buf, r.ival);
-    // Битовый паттерн `f64`, не значение через арифметику: это резервное
-    // поле крейта, для наших событий почти всегда 0.0 (бит-паттерн 0 —
-    // один байт), а для любого другого значения даёт точный обратный
-    // перевод без вопроса о том, что значит «дельта» для плавающей точки.
-    write_uvarint(buf, r.fval.to_bits());
-
-    st.prev_price_ticks = r.price_ticks;
-    st.prev_qty_lots = r.qty_lots;
-}
-
-fn decode_record(buf: &[u8], pos: &mut usize, st: &mut DeltaState) -> Result<Record, BinlogError> {
-    let ev = read_uvarint(buf, pos)?;
-    let exch_delta = read_zigzag(buf, pos)?;
-    let local_delta = read_zigzag(buf, pos)?;
-    let price_delta = read_zigzag(buf, pos)?;
-    let qty_delta = read_zigzag(buf, pos)?;
-    let order_id = read_uvarint(buf, pos)?;
-    let ival = read_zigzag(buf, pos)?;
-    let fval_bits = read_uvarint(buf, pos)?;
-
-    let price_ticks = st.prev_price_ticks.wrapping_add(price_delta);
-    let qty_lots = st.prev_qty_lots.wrapping_add(qty_delta);
-    let record = Record {
-        ev,
-        exch_ts_ns: st.epoch_ns.wrapping_add(exch_delta),
-        local_ts_ns: st.epoch_ns.wrapping_add(local_delta),
-        price_ticks,
-        qty_lots,
-        order_id,
-        ival,
-        fval: f64::from_bits(fval_bits),
-    };
-
-    st.prev_price_ticks = price_ticks;
-    st.prev_qty_lots = qty_lots;
-    Ok(record)
-}
 
 /// Длина префикса эпохи кадра — `i64`-метка времени первой записи
 /// (`Writer::write_frame`), которой мерятся дельты времени внутри кадра.
 const FRAME_EPOCH_LEN: usize = 8;
 
-/// Разбирает уже разжатое содержимое кадра целиком — читает записи, пока
-/// не кончится срез. Число записей нигде не хранится отдельно: конец среза
-/// и есть конец кадра, ещё одно поле было бы источником рассогласования.
-/// Срез эпохи доказан guard выше (`len < FRAME_EPOCH_LEN` возвращается).
-#[allow(clippy::indexing_slicing)]
-fn decode_frame_payload(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
-    if payload.len() < FRAME_EPOCH_LEN {
-        return Err(BinlogError::Corrupt(format!(
-            "кадр короче эпохи ({FRAME_EPOCH_LEN} байт)"
-        )));
+/// Бит 0 `attrs` группы — блочная сделка (`BT` у Bybit, в v2 `ival != 0`).
+/// Остальные биты обязаны быть нулевыми: неизвестный бит означает раскладку,
+/// которой этот читатель не знает, и молча его проглотить значило бы прочитать
+/// чужие байты как свои (та же дисциплина, что у версии в заголовке).
+const ATTRS_BLOCK: u64 = 1 << 0;
+
+/// Полевой бюджет кадра — сколько байт **сырого** тела пришлось на каждое
+/// поле. В формат не входит: копит кодировщик, читает замер
+/// (`lob binlog-stats --reencode`), чтобы вопрос «за что платятся байты» имел
+/// числовой ответ, а не оценку на глаз (`docs/findings/binlog-format-2026-09-13.md`,
+/// «Чего этот замер не говорит»).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FieldBytes {
+    /// Эпоха кадра — одна на кадр, в обеих версиях.
+    pub epoch: usize,
+    pub ev: usize,
+    /// `exch_ts`/`local_ts`: в v3 — на группу (сообщение), в v2 — на запись.
+    pub exch_ts: usize,
+    pub local_ts: usize,
+    pub price: usize,
+    pub qty: usize,
+    /// `attrs` и `count` — заголовок группы, не привязанный к отдельной записи
+    /// (в v3).
+    pub group_overhead: usize,
+    /// Только v2: байты `order_id`, `ival`, `fval` — тех полей, которых в v3
+    /// нет.
+    pub dead_fields: usize,
+}
+
+impl FieldBytes {
+    /// Складывает бюджеты: замер идёт по всем кадрам файла, а кодировщик
+    /// считает кадр за кадром.
+    pub fn add(&mut self, other: Self) {
+        self.epoch += other.epoch;
+        self.ev += other.ev;
+        self.exch_ts += other.exch_ts;
+        self.local_ts += other.local_ts;
+        self.price += other.price;
+        self.qty += other.qty;
+        self.group_overhead += other.group_overhead;
+        self.dead_fields += other.dead_fields;
     }
-    let epoch_ns = i64::from_le_bytes(
-        payload[0..FRAME_EPOCH_LEN]
-            .try_into()
-            .map_err(|_| BinlogError::Corrupt("эпоха кадра не легла в i64".into()))?,
-    );
-    let mut st = DeltaState {
-        epoch_ns,
-        prev_price_ticks: 0,
-        prev_qty_lots: 0,
+}
+
+/// Состояние дельты, которое живёт внутри одного кадра и обнуляется на
+/// каждом новом (см. доку модуля: кадры читаются независимо друг от друга).
+/// Эпоха кадра здесь не хранится: её знает и кодировщик, и декодер, а метки
+/// считаются от неё напрямую — держать её ещё и тут значило бы заводить
+/// вторую копию одного значения без нужды.
+struct DeltaState {
+    prev_price_ticks: i64,
+    prev_qty_lots: i64,
+}
+
+impl DeltaState {
+    fn new() -> Self {
+        Self {
+            prev_price_ticks: 0,
+            prev_qty_lots: 0,
+        }
+    }
+}
+
+/// Сколько байт записал один вызов кодека: `buf.len()` до и после.
+fn took(buf: &[u8], before: usize) -> usize {
+    buf.len() - before
+}
+
+/// Пишет одну запись v3: цена и размер — дельты от предыдущей записи кадра.
+/// `indexed` — только для симуляции M1i (`PriceMode::IndexSimulated`): вместо
+/// дельты цены один байт, как у настоящего индекса уровня.
+fn encode_entry_v3(
+    buf: &mut Vec<u8>,
+    r: &Record,
+    st: &mut DeltaState,
+    fb: &mut FieldBytes,
+    indexed: bool,
+) {
+    if indexed {
+        // Индекс уровня стороны: у книги ≤ 50 уровней на сторону, значит
+        // индекс < 128 и uvarint занимает ровно один байт. Значение — младшие
+        // биты цены, а не ноль: у замены должна быть та же длина и
+        // сопоставимая энтропия, иначе zstd сжал бы одинаковые нули в ничто и
+        // завысил бы экономию варианта.
+        buf.push((r.price_ticks as u64 & 0x7f) as u8);
+        fb.price += 1;
+    } else {
+        let before = buf.len();
+        write_zigzag(buf, r.price_ticks.wrapping_sub(st.prev_price_ticks));
+        fb.price += took(buf, before);
+    }
+    let before = buf.len();
+    write_zigzag(buf, r.qty_lots.wrapping_sub(st.prev_qty_lots));
+    fb.qty += took(buf, before);
+    st.prev_price_ticks = r.price_ticks;
+    st.prev_qty_lots = r.qty_lots;
+}
+
+/// Заголовок группы: флаги события, метка биржи, метка приёма (одна на
+/// сообщение биржи), `attrs` и число записей.
+fn encode_group_header(
+    buf: &mut Vec<u8>,
+    r: &Record,
+    epoch_ns: i64,
+    count: usize,
+    fb: &mut FieldBytes,
+) {
+    let before = buf.len();
+    write_uvarint(buf, r.ev);
+    fb.ev += took(buf, before);
+    // `wrapping_sub`, не `-`: обоснование — в доке модуля. Метки времени —
+    // дельты от эпохи кадра (Decision 23), а не от предыдущей записи: эпоха
+    // одна на кадр, и метка сообщения одна на все его уровни.
+    let before = buf.len();
+    write_zigzag(buf, r.exch_ts_ns.wrapping_sub(epoch_ns));
+    fb.exch_ts += took(buf, before);
+    let before = buf.len();
+    write_zigzag(buf, r.local_ts_ns.wrapping_sub(epoch_ns));
+    fb.local_ts += took(buf, before);
+    let before = buf.len();
+    write_uvarint(buf, u64::from(r.block));
+    write_uvarint(buf, count as u64);
+    fb.group_overhead += took(buf, before);
+}
+
+/// Одна ли это группа: у сообщения биржи флаги, обе метки и блочность одни и
+/// те же на все его записи. Смена любого из четырёх — начало следующего
+/// сообщения. Функция публичная, потому что по этой же границе считает группы
+/// замер (`lob binlog-stats`): граница групп — часть формата, и второй её
+/// редакции в командах быть не должно.
+pub fn same_message(a: &Record, b: &Record) -> bool {
+    a.ev == b.ev
+        && a.exch_ts_ns == b.exch_ts_ns
+        && a.local_ts_ns == b.local_ts_ns
+        && a.block == b.block
+}
+
+/// Как кодировать цену — параметр **замера**, в формат входит только `Delta`.
+enum PriceMode<'a> {
+    /// Дельта от предыдущей записи кадра — формат v3.
+    Delta,
+    /// Симуляция «уровень индексом» для M1i тикета 43. В формат не входит и
+    /// писателем не используется: чтобы индекс уровня стал настоящим, читателю
+    /// нужна книга инструмента, а это ломает «кадр читается независимо»
+    /// (Decision 7) и вдобавок требует хранить `u` — последовательность
+    /// обновлений, без которой `Book::apply` не работает, а в логе её нет.
+    IndexSimulated(&'a [bool]),
+}
+
+/// Тело кадра v3: эпоха, затем группы сообщений до конца среза. Число групп
+/// нигде не хранится отдельно — конец среза и есть конец кадра; `count`
+/// группы считается просмотром вперёд по срезу.
+fn encode_frame_payload(records: &[Record], mode: PriceMode<'_>, out: &mut Vec<u8>) -> FieldBytes {
+    let mut fb = FieldBytes::default();
+    let Some(first) = records.first() else {
+        return fb;
     };
+    // Эпоха кадра — метка первой записи (см. доку модуля): не отдельный
+    // параметр звонка, чтобы вызывающему не приходилось поддерживать вторую
+    // копию того же значения.
+    let epoch_ns = first.exch_ts_ns;
+    out.extend_from_slice(&epoch_ns.to_le_bytes());
+    fb.epoch += FRAME_EPOCH_LEN;
+
+    let mut st = DeltaState::new();
+    let mut i = 0;
+    while let Some(head) = records.get(i) {
+        let mut end = i + 1;
+        while records.get(end).is_some_and(|r| same_message(head, r)) {
+            end += 1;
+        }
+        encode_group_header(out, head, epoch_ns, end - i, &mut fb);
+        for (k, r) in records[i..end].iter().enumerate() {
+            let indexed = matches!(mode, PriceMode::IndexSimulated(m) if m.get(i + k).copied().unwrap_or(false));
+            encode_entry_v3(out, r, &mut st, &mut fb, indexed);
+        }
+        i = end;
+    }
+    fb
+}
+
+/// Тело кадра v3 — то, что пишет `Writer::write_frame`.
+pub fn encode_frame_payload_v3(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
+    encode_frame_payload(records, PriceMode::Delta, out)
+}
+
+/// Симуляция «уровень индексом» — **только замер** M1i тикета 43, в формат не
+/// входит (см. `PriceMode::IndexSimulated`). `indexed[i]` — кодировать ли цену
+/// записи `i` индексом вместо дельты.
+pub fn encode_frame_payload_v3_index_simulated(
+    records: &[Record],
+    indexed: &[bool],
+    out: &mut Vec<u8>,
+) -> FieldBytes {
+    encode_frame_payload(records, PriceMode::IndexSimulated(indexed), out)
+}
+
+/// Тело кадра v2 — форма, которую пишет живой коллектор до перезапуска на
+/// новый бинарник. Кодировщик существует ради замера A/B и фикстур
+/// совместимости: `order_id`/`fval` в `Record` больше нет, и на их месте
+/// пишутся нули — ровно те значения, что несут живые данные, поэтому
+/// перекодировка обязана совпасть с файлом на диске до байта (M4б тикета 43).
+pub fn encode_frame_payload_v2(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
+    let mut fb = FieldBytes::default();
+    let Some(first) = records.first() else {
+        return fb;
+    };
+    let epoch_ns = first.exch_ts_ns;
+    out.extend_from_slice(&epoch_ns.to_le_bytes());
+    fb.epoch += FRAME_EPOCH_LEN;
+
+    let mut st = DeltaState::new();
+    for r in records {
+        let before = out.len();
+        write_uvarint(out, r.ev);
+        fb.ev += took(out, before);
+        let before = out.len();
+        write_zigzag(out, r.exch_ts_ns.wrapping_sub(epoch_ns));
+        fb.exch_ts += took(out, before);
+        let before = out.len();
+        write_zigzag(out, r.local_ts_ns.wrapping_sub(epoch_ns));
+        fb.local_ts += took(out, before);
+        let before = out.len();
+        write_zigzag(out, r.price_ticks.wrapping_sub(st.prev_price_ticks));
+        fb.price += took(out, before);
+        let before = out.len();
+        write_zigzag(out, r.qty_lots.wrapping_sub(st.prev_qty_lots));
+        fb.qty += took(out, before);
+        // Три мёртвых поля v2 — как их писала живая запись: `order_id` = 0
+        // (у публичного L2-потока числового id нет), `ival` — из блочности,
+        // `fval` — бит-паттерн 0.0.
+        let before = out.len();
+        write_uvarint(out, 0);
+        write_zigzag(out, i64::from(r.block));
+        write_uvarint(out, 0);
+        fb.dead_fields += took(out, before);
+        st.prev_price_ticks = r.price_ticks;
+        st.prev_qty_lots = r.qty_lots;
+    }
+    fb
+}
+
+/// Сколько записей v2-файла несли ненулевое значение в поле, которого в v3
+/// больше нет. Ненулевое `ival` — это и есть блочность (в `Record` такие
+/// записи приходят с `block: true`), но считается она здесь по исходной форме:
+/// счётчики отвечают на вопрос про **байты формата**, а не про смысл поля.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LegacyDeadFields {
+    pub nonzero_order_id: u64,
+    pub nonzero_ival: u64,
+    pub nonzero_fval: u64,
+}
+
+/// Читает эпоху кадра — общий префикс обеих версий.
+fn read_frame_epoch(payload: &[u8]) -> Result<i64, BinlogError> {
+    let raw: [u8; FRAME_EPOCH_LEN] = payload
+        .get(..FRAME_EPOCH_LEN)
+        .and_then(|s| s.try_into().ok())
+        .ok_or_else(|| {
+            BinlogError::Corrupt(format!("кадр короче эпохи ({FRAME_EPOCH_LEN} байт)"))
+        })?;
+    Ok(i64::from_le_bytes(raw))
+}
+
+/// Разбирает уже разжатое тело кадра v3: эпоха, затем группы сообщений до
+/// конца среза. Число записей группы проверяется против остатка кадра **до**
+/// чтения: каждая запись — минимум два байта, поэтому группа, объявившая
+/// записей больше, чем в кадре осталось байт, — порча, а не повод крутить
+/// цикл по счётчику, который пришёл с диска.
+pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
+    let epoch_ns = read_frame_epoch(payload)?;
+    let mut st = DeltaState::new();
     let mut pos = FRAME_EPOCH_LEN;
     let mut out = Vec::new();
     while pos < payload.len() {
-        out.push(decode_record(payload, &mut pos, &mut st)?);
+        let ev = read_uvarint(payload, &mut pos)?;
+        let exch_delta = read_zigzag(payload, &mut pos)?;
+        let local_delta = read_zigzag(payload, &mut pos)?;
+        let attrs = read_uvarint(payload, &mut pos)?;
+        if attrs & !ATTRS_BLOCK != 0 {
+            return Err(BinlogError::Corrupt(format!(
+                "неизвестный бит attrs группы: {attrs:#x}"
+            )));
+        }
+        let count = read_uvarint(payload, &mut pos)?;
+        let remaining = (payload.len() - pos) as u64;
+        if count > remaining {
+            return Err(BinlogError::Corrupt(format!(
+                "группа объявила {count} записей, а в кадре осталось {remaining} байт"
+            )));
+        }
+        let exch_ts_ns = epoch_ns.wrapping_add(exch_delta);
+        let local_ts_ns = epoch_ns.wrapping_add(local_delta);
+        let block = attrs & ATTRS_BLOCK != 0;
+        for _ in 0..count {
+            let price_delta = read_zigzag(payload, &mut pos)?;
+            let qty_delta = read_zigzag(payload, &mut pos)?;
+            let price_ticks = st.prev_price_ticks.wrapping_add(price_delta);
+            let qty_lots = st.prev_qty_lots.wrapping_add(qty_delta);
+            st.prev_price_ticks = price_ticks;
+            st.prev_qty_lots = qty_lots;
+            out.push(Record {
+                ev,
+                exch_ts_ns,
+                local_ts_ns,
+                price_ticks,
+                qty_lots,
+                block,
+            });
+        }
     }
     Ok(out)
 }
 
-/// Число полей одной записи, которые кодирует `encode_record`: `ev`,
-/// четыре дельты (`exch_ts`, `local_ts`, `price`, `qty`), `order_id`,
-/// `ival`, `fval` — ровно восемь. Если у `Record` появится девятое поле,
-/// этой константе и `encode_record`/`decode_record` придётся обновиться
-/// вместе, иначе `cargo test binlog` разойдётся с форматом.
-const RECORD_FIELD_COUNT: usize = 8;
+/// Разбирает тело кадра v2 — форму, которую пишет живой коллектор до
+/// перезапуска. `order_id`/`ival`/`fval` читаются, потому что лежат в потоке,
+/// но в `Record` их больше нет: `ival` становится `block`, а `order_id`/`fval`
+/// только считаются в `dead` — эти счётчики и есть воспроизводимое на любом
+/// старом файле доказательство «0 % ненулевых».
+fn decode_frame_payload_v2(
+    payload: &[u8],
+    dead: &mut LegacyDeadFields,
+) -> Result<Vec<Record>, BinlogError> {
+    let epoch_ns = read_frame_epoch(payload)?;
+    let mut st = DeltaState::new();
+    let mut pos = FRAME_EPOCH_LEN;
+    let mut out = Vec::new();
+    while pos < payload.len() {
+        let ev = read_uvarint(payload, &mut pos)?;
+        let exch_delta = read_zigzag(payload, &mut pos)?;
+        let local_delta = read_zigzag(payload, &mut pos)?;
+        let price_delta = read_zigzag(payload, &mut pos)?;
+        let qty_delta = read_zigzag(payload, &mut pos)?;
+        let order_id = read_uvarint(payload, &mut pos)?;
+        let ival = read_zigzag(payload, &mut pos)?;
+        let fval_bits = read_uvarint(payload, &mut pos)?;
+        if order_id != 0 {
+            dead.nonzero_order_id += 1;
+        }
+        if ival != 0 {
+            dead.nonzero_ival += 1;
+        }
+        if fval_bits != 0 {
+            dead.nonzero_fval += 1;
+        }
+        let price_ticks = st.prev_price_ticks.wrapping_add(price_delta);
+        let qty_lots = st.prev_qty_lots.wrapping_add(qty_delta);
+        st.prev_price_ticks = price_ticks;
+        st.prev_qty_lots = qty_lots;
+        out.push(Record {
+            ev,
+            exch_ts_ns: epoch_ns.wrapping_add(exch_delta),
+            local_ts_ns: epoch_ns.wrapping_add(local_delta),
+            price_ticks,
+            qty_lots,
+            block: ival != 0,
+        });
+    }
+    Ok(out)
+}
 
-/// Минимальная длина закодированной записи в байтах. LEB128 `uvarint`
-/// значения `0` — ровно один байт `0x00` (`write_uvarint`: цикл пишет байт
-/// и останавливается уже на первой итерации, если `v == 0`), и зигзаг
-/// сводится к тому же `uvarint` после перестановки знака, так что короче
-/// байта варинт по построению кодека быть не может. Восемь полей — минимум
-/// восемь байт на запись, независимо от того, какие значения несёт
-/// настоящий поток: это структурная нижняя граница формата, а не свойство
-/// типичных данных.
-const MIN_RECORD_LEN: usize = RECORD_FIELD_COUNT;
+/// Минимальная длина, которую запись занимает в теле кадра, — по **обеим**
+/// формам сразу, потому что потолок кадра один на читателя, а читатель знает
+/// и v2, и v3. v2: восемь полей, каждое — варинт минимум в байт (LEB128 нуля
+/// — ровно один байт `0x00`, и зигзаг сводится к тому же `uvarint` после
+/// перестановки знака), то есть 8 байт на запись. v3: 5 байт заголовка группы
+/// (`ev`, две дельты времени, `attrs`, `count`) плюс 2 байта записи (цена и
+/// размер) — 7 байт на запись в худшем случае, когда каждая запись оказалась
+/// своей группой. Берётся максимум: меньшая граница сделала бы потолок ниже
+/// настоящего кадра v2 и отвергла бы законный файл.
+const MIN_RECORD_LEN: usize = 8;
 
-/// Максимальная длина закодированной записи: восемь полей, каждое —
-/// LEB128-варинт `u64` не длиннее десяти байт (64 бита по семь на байт —
-/// `ceil(64 / 7) = 10`, свойство кодека, не данных). Верхняя граница
-/// формата — из неё считается `max_frame_bytes_on_disk`.
-const MAX_RECORD_LEN: usize = RECORD_FIELD_COUNT * 10;
+/// Максимальная длина, которую запись занимает в теле кадра, — тоже по обеим
+/// формам: потолок одного поля — LEB128-варинт `u64` не длиннее десяти байт
+/// (64 бита по семь на байт, `ceil(64 / 7) = 10`, свойство кодека, не данных).
+/// v2 — восемь полей, 80 байт; v3 — пять полей заголовка группы плюс цена и
+/// размер, 70 байт. Из максимума считается `max_frame_bytes_on_disk`.
+const MAX_RECORD_LEN: usize = 80;
 
 /// Верхняя граница байт одного кадра **на диске** для `records` записей:
 /// префикс длины плюс `compress_bound` zstd от эпохи и записей максимальной
@@ -488,8 +808,9 @@ pub fn max_frame_bytes_on_disk(records: usize) -> usize {
 /// максимум может занять кадр из `max_records_per_frame` записей — эпоха
 /// кадра плюс записи по их минимальному размеру. Оба множителя — не
 /// изобретённые числа: `max_records_per_frame` читается из заголовка суток
-/// (`Reader::header`), а `MIN_RECORD_LEN` — из формы `encode_record` в этом
-/// же файле.
+/// (`Reader::header`), а `MIN_RECORD_LEN` — из форм `decode_frame_payload_v2`
+/// и `decode_frame_payload_v3` в этом же файле (берётся максимум по версиям,
+/// иначе потолок отверг бы законный кадр v2).
 ///
 /// `saturating_*`, не обычная арифметика: `max_records_per_frame` приходит
 /// с диска через `Reader::open` и теоретически может нести испорченное
@@ -632,9 +953,9 @@ impl<W: Write> Writer<W> {
     /// смыслу от `MissingSnapshot`, если бы это оказался единственный кадр
     /// файла).
     pub fn write_frame(&mut self, records: &[Record]) -> Result<(), BinlogError> {
-        let Some(first) = records.first() else {
+        if records.is_empty() {
             return Ok(());
-        };
+        }
 
         // Программная ошибка вызывающего, не порча данных — `assert!`, не
         // `Result` (см. доку модуля и `validate_header`, тот же выбор по
@@ -656,20 +977,12 @@ impl<W: Write> Writer<W> {
         );
 
         self.scratch.clear();
-        // Эпоха кадра — метка первой записи (см. доку модуля): не отдельный
-        // параметр звонка, чтобы вызывающему не приходилось поддерживать
-        // вторую копию того же значения.
-        let epoch_ns = first.exch_ts_ns;
-        self.scratch.extend_from_slice(&epoch_ns.to_le_bytes());
-
-        let mut st = DeltaState {
-            epoch_ns,
-            prev_price_ticks: 0,
-            prev_qty_lots: 0,
-        };
-        for r in records {
-            encode_record(&mut self.scratch, r, &mut st);
-        }
+        // Тело кадра целиком — один вызов кодека v3: эпоха, группы сообщений
+        // (флаги и обе метки один раз на сообщение), дельты цены и размера.
+        // Полевой бюджет кодировщик считает всегда, но здесь он не нужен: его
+        // читает только замер (`binlog-stats --reencode`), и отбрасывается он
+        // бесплатно — это `Copy`-структура из `usize`, не аллокация.
+        encode_frame_payload_v3(records, &mut self.scratch);
 
         self.compressed.clear();
         // Резервируем по границе zstd (`compress_bound`), не по факту: если
@@ -716,6 +1029,14 @@ impl<W: Write> Writer<W> {
 /// же кадре» (в сутках нет синтетического снапшота — ошибка, см.
 /// `BinlogError::MissingSnapshot`).
 ///
+/// `version` — версия из заголовка: `VERSION` (текущая) или `VERSION_V2`
+/// (то, что пишет живой коллектор до перезапуска). Обе версии читаются одним
+/// и тем же `read_frame`; различие — в декодере тела кадра, и другого
+/// различия нет: заголовок у версий 2 и 3 общий. Версия хранится в читателе,
+/// потому что без неё нельзя решить, каким декодером разбирать кадр, а
+/// угадывать по содержимому — это ровно то тихое неверное чтение, от которого
+/// версия в заголовке и защищает.
+///
 /// `decompressor` переиспользуется между кадрами по той же причине, что и
 /// `compressor` у `Writer` (см. его доку): держит один `DCtx` вместо того,
 /// чтобы заводить новый на каждый вызов. Не заявлено как часть бюджета GC
@@ -725,7 +1046,18 @@ impl<W: Write> Writer<W> {
 pub struct Reader<R: Read> {
     inner: R,
     header: Header,
+    version: u8,
     frames_read: u64,
+    /// Счётчики мёртвых полей версии 2 (у v3 таких полей нет вовсе). Копятся
+    /// по ходу чтения, потому что иначе их неоткуда взять: в `Record` этих
+    /// полей нет, а доказательство «0 % ненулевых» должно оставаться
+    /// проверяемым на любом старом файле.
+    legacy_dead: LegacyDeadFields,
+    /// Полная длина последнего прочитанного кадра **на диске** (префикс +
+    /// тело): замеру M1 тикета 43 нужна базовая линия «сколько файл занимает
+    /// сейчас», и взять её из самого читателя честнее, чем считать позицию
+    /// файла снаружи.
+    last_frame_bytes: usize,
     decompressor: zstd::bulk::Decompressor<'static>,
 }
 
@@ -735,6 +1067,7 @@ impl<R: Read> fmt::Debug for Reader<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Reader")
             .field("header", &self.header)
+            .field("version", &self.version)
             .field("frames_read", &self.frames_read)
             .finish()
     }
@@ -753,6 +1086,10 @@ impl<R: Read> Reader<R> {
     /// следующего поля (длину первого кадра) за часть заголовка версии 2:
     /// тихое неверное чтение вместо понятной ошибки версии (см. тест
     /// `old_version_file_is_rejected_not_misread`).
+    ///
+    /// Версии 2 и 3 различаются **только телом кадра**, поэтому хвост
+    /// заголовка у них общий и читается одинаково; различие уходит в
+    /// `read_frame` через сохранённую `version`.
     pub fn open(mut inner: R) -> Result<Self, BinlogError> {
         let mut prefix = [0u8; MAGIC_VERSION_LEN];
         match read_upto(&mut inner, &mut prefix)? {
@@ -776,7 +1113,7 @@ impl<R: Read> Reader<R> {
             });
         }
         let version = prefix[4];
-        if version != VERSION {
+        if version != VERSION && version != VERSION_V2 {
             return Err(BinlogError::UnsupportedVersion { got: version });
         }
 
@@ -817,13 +1154,33 @@ impl<R: Read> Reader<R> {
         Ok(Self {
             inner,
             header,
+            version,
             frames_read: 0,
+            legacy_dead: LegacyDeadFields::default(),
+            last_frame_bytes: 0,
             decompressor: zstd::bulk::Decompressor::new()?,
         })
     }
 
     pub fn header(&self) -> Header {
         self.header
+    }
+
+    /// Версия формата из заголовка: `VERSION` (текущая, её пишет `Writer`) или
+    /// `VERSION_V2` (живой коллектор до перезапуска).
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    /// Счётчики мёртвых полей, накопленные на прочитанных кадрах версии 2.
+    /// На файле версии 3 они нулевые по построению: таких полей в формате нет.
+    pub fn legacy_dead_fields(&self) -> LegacyDeadFields {
+        self.legacy_dead
+    }
+
+    /// Полная длина последнего прочитанного кадра на диске (префикс + тело).
+    pub fn last_frame_bytes(&self) -> usize {
+        self.last_frame_bytes
     }
 
     /// Возвращает следующий кадр как список записей, `None` на чистом конце
@@ -856,6 +1213,7 @@ impl<R: Read> Reader<R> {
             ReadStatus::Full => {}
         }
         let len = u32::from_le_bytes(len_buf) as usize;
+        self.last_frame_bytes = LEN_PREFIX + len;
 
         // `len` пришла прямо с диска непроверенной и может быть любым
         // значением до `u32::MAX` (~4.3 ГиБ) из-за одного перевёрнутого
@@ -920,7 +1278,17 @@ impl<R: Read> Reader<R> {
                 max_records_per_frame: self.header.max_records_per_frame,
                 ceiling_bytes,
             })?;
-        let records = decode_frame_payload(&payload)?;
+        // Версию выбирает заголовок, а не содержимое кадра: угадывание по
+        // байтам тела — ровно то тихое неверное чтение, от которого версия
+        // в заголовке и защищает (`Reader::open`).
+        let records = if self.version == VERSION_V2 {
+            let mut dead = self.legacy_dead;
+            let records = decode_frame_payload_v2(&payload, &mut dead)?;
+            self.legacy_dead = dead;
+            records
+        } else {
+            decode_frame_payload_v3(&payload)?
+        };
         self.frames_read += 1;
         Ok(Some(records))
     }

@@ -61,9 +61,9 @@ struct DayWork {
 }
 
 /// Трейд записи в трейд трекера. Отображение повторяет контракт писателя
-/// (`record.rs::stage_trade`: `ev` из стороны агрессора, `ival = 1` —
-/// блочная) и читателя (`verify.rs`: блочность из `ival`); своей трактовки
-/// битов здесь нет.
+/// (`record.rs::stage_trade`: `ev` из стороны агрессора, `block` — блочная)
+/// и читателя (`verify.rs`: блочность из `block`); своей трактовки битов
+/// здесь нет.
 pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
     if !is_trade_ev(rec.ev) {
         return None;
@@ -72,7 +72,7 @@ pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
         tick: rec.price_ticks,
         lots: rec.qty_lots,
         aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
-        block: rec.ival != 0,
+        block: rec.block,
         exch_ms: rec.exch_ts_ns / 1_000_000,
     })
 }

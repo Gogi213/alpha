@@ -294,6 +294,11 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             for line in binlog_stats::summary_lines(&args.path, &stats) {
                 println!("{line}");
             }
+            if args.reencode {
+                for line in binlog_stats::run_reencode(&args)? {
+                    println!("{line}");
+                }
+            }
             Ok(())
         }
         LobCommand::Markout(args) => {
@@ -447,9 +452,7 @@ pub(crate) mod test_support {
             local_ts_ns: ts_ms * 1_000_000 + 500_000,
             price_ticks: tick,
             qty_lots: lots,
-            order_id: 0,
-            ival: 0,
-            fval: 0.0,
+            block: false,
         }
     }
 

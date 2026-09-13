@@ -365,9 +365,7 @@ fn binlog_drain_round_trips_synthetic_frames() {
                 local_ts_ns: 2_000 + i,
                 price_ticks: 100 + i,
                 qty_lots: 10 + i,
-                order_id: i as u64,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             })
             .collect();
         w.write_frame(&recs).expect("кадр пишется");
@@ -378,7 +376,8 @@ fn binlog_drain_round_trips_synthetic_frames() {
     let got = drain_binlog_records(&mut reader).expect("слив");
     assert_eq!(got.len(), 4, "три записи плюс одна");
     assert_eq!(got[0].price_ticks, 100);
-    assert_eq!(got[3].order_id, 0);
+    assert_eq!(got[3].price_ticks, 100, "второй кадр — те же записи");
+    assert!(!got[3].block, "блочность читается из `attrs` группы");
 }
 
 /// Граница модулей в духе шагов 1.1/4.1: разметка не знает про транспорт

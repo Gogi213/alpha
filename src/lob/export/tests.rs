@@ -66,7 +66,7 @@ fn event_layout_matches_crate_contract() {
 }
 
 /// Ценатики и лоты возвращаются в масштаб крейта через шаги заголовка;
-/// остальные шесть полей — один в один.
+/// метки и блочность — один в один (`ival` крейта из `block` записи).
 #[test]
 fn record_to_event_restores_crate_scale() {
     let r = Record {
@@ -75,9 +75,7 @@ fn record_to_event_restores_crate_scale() {
         local_ts_ns: 1_000_000_500,
         price_ticks: 150,
         qty_lots: 5,
-        order_id: 0,
-        ival: 1,
-        fval: 0.0,
+        block: true,
     };
     // Шаг цены и шаг размера по целому: 150 тиков по 1.0 и 5 лотов по 1.0.
     let ev = record_to_event(&r, 1_000_000_000, 1_000_000_000);
@@ -100,9 +98,7 @@ fn record_to_event_keeps_fractional_scale() {
         local_ts_ns: 20,
         price_ticks: 6_543_210,
         qty_lots: 250,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     };
     let ev = record_to_event(&r, 10_000, 1_000_000);
     assert!((ev.px - 65.4321).abs() < 1e-9, "px = {}", ev.px);
@@ -152,9 +148,7 @@ fn sample_record(ev: u64, exch_ts_ns: i64, local_ts_ns: i64) -> Record {
         local_ts_ns,
         price_ticks: 100,
         qty_lots: 2,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     }
 }
 
@@ -251,9 +245,7 @@ fn exported_npy_matches_header_and_payload_byte_for_byte() {
         local_ts_ns: 3_050,
         price_ticks: 101,
         qty_lots: 3,
-        order_id: 0,
-        ival: 1,
-        fval: 0.0,
+        block: true,
     };
     write_binlog(
         &dir.path().join(format!("{symbol}-2026-01-01.binlog")),

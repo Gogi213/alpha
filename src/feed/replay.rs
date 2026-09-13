@@ -86,7 +86,7 @@ impl<R: Read> ReplayFeed<R> {
                     price_e9: rec.price_ticks * self.tick_e9,
                     qty_e9: rec.qty_lots * self.step_e9,
                     aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
-                    block: rec.ival != 0,
+                    block: rec.block,
                 }),
             });
         }
@@ -199,9 +199,7 @@ mod tests {
                 local_ts_ns: 1_000_000_500,
                 price_ticks: 100,
                 qty_lots: 5,
-                order_id: 0,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             },
             Record {
                 ev: LOCAL_BUY_TRADE_EVENT,
@@ -209,9 +207,7 @@ mod tests {
                 local_ts_ns: 2_000_000_500,
                 price_ticks: 101,
                 qty_lots: 3,
-                order_id: 0,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             },
         ])
         .unwrap();

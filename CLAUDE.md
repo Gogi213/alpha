@@ -23,7 +23,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 698 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 707 passed, 0 failed, 5 ignored
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -53,7 +53,8 @@ python tools/shot.py http://127.0.0.1:<порт>/index.html .tmp-shot/grid.png [
 ```
 src/
   main.rs, lib.rs, alloc_count.rs   вход; счётчик аллокаций — гейт GC
-  binlog/      формат лога: Reader/Writer, дельты varint, zstd
+  binlog/      формат лога: v3 (группы-сообщения, `block` битом, время на сообщение) и чтение v2
+               (её пишет живой коллектор до перезапуска, В-48); Reader/Writer, дельты varint, zstd
   book/        книга, MarketDepth крейта, целые тики
   bybit/       адаптер площадки: conn (сокет, ресинк), ws (разбор), rest (вне событийного пути),
                verify + verify_sidecar (сверка с REST), trade_ws, sign, clock, probe
@@ -82,7 +83,9 @@ src/
 ## Артефакты — коротко (полностью: `docs/COMMANDS.md`)
 
 `lob pick` → `instruments.csv` (пул, ровно десять, `depth_check` — проверка, не отбор, В-35) +
-`docs/plan/candidates.csv`. `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
+`docs/plan/candidates.csv`. `lob binlog-stats --path <файл> [--reencode]` → только чтение: версия
+формата, записи/кадры/**группы-сообщения**, `ev`, блочные сделки, мёртвые поля v2; `--reencode` —
+замер A/B формата на тех же записях (пороги и числа — тикет 43, `docs/findings/binlog-v3-2026-09-13.md`). `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
 `session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются).
 `lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
 markout от среза как есть на `start_ms` со знаком «в сторону отскока», T35/В-43). `lob profiles`/`backtest`/`shortlist` →
@@ -112,10 +115,11 @@ T38), число испытаний (`(26 + 6) × (инструментов + 1)
 или сам каталог сессии.
 
 Состояние: боевой пул `instruments.csv` — SOL, ZEC, XRP, HYPE, NEAR, STORJ, DOGE, ENA, LSK, SUI
-(`k = 1.0` — заглушка, В-30). Идущий олвейс-он **`data/always-on/20260912T201737Z/`** — с
-2026-09-12T20:47Z на **боевой десятке** с боевым порогом, 0 разрывов, RSS ~20 МБ (прежняя
-отладочная восьмёрка `20260912T122440Z` остановлена 2026-09-13T00:23Z); боевых
-`profiles-*`/`backtest-*`/`shortlist-*` ещё нет.
+(`k = 1.0` — заглушка, В-30). Олвейс-он **`data/always-on/20260912T201737Z/`** (2026-09-12T20:47Z →
+2026-09-13T16:22Z на боевой десятке, 0 разрывов, 209.6 млн записей, 928.2 МБ на диске) —
+**остановлен владельцем** штатно (`stop`, В-41), `session.json closed=true`; формат **v3** принят
+в код (В-48, `docs/findings/binlog-v3-2026-09-13.md`), раскатка на живой процесс и переезд на
+сервер — решение владельца. Боевых `profiles-*`/`backtest-*`/`shortlist-*` ещё нет.
 
 ## Правила, которые ловят ревью
 

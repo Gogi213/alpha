@@ -216,9 +216,7 @@ pub(super) fn push_book_snapshot(state: &mut SymbolState, exch_ts_ns: i64, local
                 local_ts_ns,
                 price_ticks: tick,
                 qty_lots: lots,
-                order_id: 0,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             });
         }
     }
@@ -292,9 +290,7 @@ pub(super) fn write_market_event(
                         local_ts_ns,
                         price_ticks: price_e9 / state.member.tick_e9,
                         qty_lots: qty_e9 / state.member.step_e9,
-                        order_id: 0,
-                        ival: 0,
-                        fval: 0.0,
+                        block: false,
                     });
                 }
             }
@@ -313,9 +309,7 @@ pub(super) fn write_market_event(
                 local_ts_ns,
                 price_ticks: trade.price_e9 / state.member.tick_e9,
                 qty_lots: trade.qty_e9 / state.member.step_e9,
-                order_id: 0,
-                ival: i64::from(trade.block),
-                fval: 0.0,
+                block: trade.block,
             });
         }
         crate::bybit::ws::Event::Other => {}

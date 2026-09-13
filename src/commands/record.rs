@@ -328,9 +328,7 @@ impl Recorder {
                     local_ts_ns,
                     price_ticks: tick,
                     qty_lots: lots,
-                    order_id: 0,
-                    ival: 0,
-                    fval: 0.0,
+                    block: false,
                 });
             }
         }
@@ -394,9 +392,7 @@ impl Recorder {
                 local_ts_ns,
                 price_ticks: price_e9 / self.tick_e9,
                 qty_lots: qty_e9 / self.step_e9,
-                order_id: 0,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             })?;
             n += 1;
         }
@@ -407,21 +403,19 @@ impl Recorder {
                 local_ts_ns,
                 price_ticks: price_e9 / self.tick_e9,
                 qty_lots: qty_e9 / self.step_e9,
-                order_id: 0,
-                ival: 0,
-                fval: 0.0,
+                block: false,
             })?;
             n += 1;
         }
         Ok(n)
     }
 
-    /// Сделка ленты — одна запись. `ival = 1` помечает блочную (`BT`):
-    /// такие не потребляют видимую ликвидность (Decision 5), но пишутся как
-    /// сырые события (Decision 7) — разметка отфильтрует их сама по `ival`.
-    /// `order_id = 0`: у публичного потока нет числового идентификатора
-    /// заявки (`i` — строка), и выдумывать его из хеша значило бы писать
-    /// в лог значение, которого биржа не сообщала.
+    /// Сделка ленты — одна запись. `block` помечает блочную (`BT`): такие не
+    /// потребляют видимую ликвидность (Decision 5), но пишутся как сырые
+    /// события (Decision 7) — разметка отфильтрует их сама по `block`
+    /// (`lob/levels.rs`). В формате v3 это бит `attrs` группы, а не отдельное
+    /// `i64`-поле каждой записи: мёртвое поле (0 % ненулевых) не путать с
+    /// мёртвым смыслом (`docs/findings/binlog-format-2026-09-13.md`).
     pub fn stage_trade(&mut self, trade: &Trade, local_ts_ns: i64) -> Result<(), RecordError> {
         if !self.has_snapshot {
             return Err(RecordError::NoSnapshot);
@@ -443,9 +437,7 @@ impl Recorder {
             local_ts_ns,
             price_ticks: trade.price_e9 / self.tick_e9,
             qty_lots: trade.qty_e9 / self.step_e9,
-            order_id: 0,
-            ival: i64::from(trade.block),
-            fval: 0.0,
+            block: trade.block,
         })?;
         Ok(())
     }

@@ -633,7 +633,7 @@ impl FileReplayer {
                 self.flush(updates);
                 trades.push(TradePoint {
                     tick: r.price_ticks,
-                    block: r.ival != 0,
+                    block: r.block,
                 });
                 continue;
             }

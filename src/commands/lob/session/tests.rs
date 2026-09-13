@@ -23,9 +23,7 @@ fn rec(ev: u64, exch_ts_ns: i64, price_ticks: i64, qty_lots: i64) -> Record {
         local_ts_ns: exch_ts_ns,
         price_ticks,
         qty_lots,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     }
 }
 

@@ -353,22 +353,20 @@ fn trade_on_empty_book_is_indeterminate() {
 #[test]
 fn file_replay_groups_snapshot_delta_and_trades() {
     use crate::binlog::Record;
-    let rec = |ev: u64, ticks: i64, lots: i64, ts_ns: i64, ival: i64| Record {
+    let rec = |ev: u64, ticks: i64, lots: i64, ts_ns: i64, block: bool| Record {
         ev,
         exch_ts_ns: ts_ns,
         local_ts_ns: ts_ns + 1,
         price_ticks: ticks,
         qty_lots: lots,
-        order_id: 0,
-        ival,
-        fval: 0.0,
+        block,
     };
     let records = vec![
-        rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5, 1_000_000_000, 0),
-        rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, 101, 4, 1_000_000_000, 0),
-        rec(LOCAL_BID_DEPTH_EVENT, 100, 6, 2_000_000_000, 0),
-        rec(LOCAL_BUY_TRADE_EVENT, 100, 1, 2_500_000_000, 0),
-        rec(LOCAL_SELL_TRADE_EVENT, 50, 1, 2_600_000_000, 1),
+        rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5, 1_000_000_000, false),
+        rec(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, 101, 4, 1_000_000_000, false),
+        rec(LOCAL_BID_DEPTH_EVENT, 100, 6, 2_000_000_000, false),
+        rec(LOCAL_BUY_TRADE_EVENT, 100, 1, 2_500_000_000, false),
+        rec(LOCAL_SELL_TRADE_EVENT, 50, 1, 2_600_000_000, true),
     ];
     let mut next_u: u64 = 2;
     let (updates, trades) = records_to_updates(&records, TICK_E9, STEP_E9, &mut next_u);
@@ -409,9 +407,7 @@ fn synthetic_u_continues_across_frames() {
         local_ts_ns: 1_000_000_001,
         price_ticks: ticks,
         qty_lots: lots,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     };
     // Кадр 1 — снапшот, кадры 2-3 — дельты, как их отдаёт Reader.
     let frame1 = vec![
@@ -448,9 +444,7 @@ fn message_split_across_frames_stays_atomic() {
         local_ts_ns: 2_000_000_001,
         price_ticks: ticks,
         qty_lots: lots,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     };
     let snap = vec![
         rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5),

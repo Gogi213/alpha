@@ -497,8 +497,8 @@ fn sequence_gap_is_reported_loudly_and_stages_nothing() {
 }
 
 /// Сделки пишутся по одной записи: сторона агрессора — флагом, блочная —
-/// `ival = 1`, цена/размер — в тиках/лотах. Сырые события пишутся все
-/// (Decision 7), фильтр `BT` — дело разметки по `ival`, не записи.
+/// `block = true`, цена/размер — в тиках/лотах. Сырые события пишутся все
+/// (Decision 7), фильтр `BT` — дело разметки по `block`, не записи.
 #[test]
 fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     let dir = tempfile::tempdir().unwrap();
@@ -534,13 +534,13 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
     assert_eq!(trades[0].ev, hftbacktest::types::LOCAL_BUY_TRADE_EVENT);
     assert_eq!(trades[0].price_ticks, 150_000_000_000 / TICK_E9);
     assert_eq!(trades[0].qty_lots, 2_000_000_000 / STEP_E9);
-    assert_eq!(trades[0].ival, 0);
+    assert!(!trades[0].block);
     assert_eq!(
         trades[0].exch_ts_ns,
         1_757_800_000_100i64.saturating_mul(1_000_000)
     );
     assert_eq!(trades[1].ev, hftbacktest::types::LOCAL_SELL_TRADE_EVENT);
-    assert_eq!(trades[1].ival, 1, "блочная сделка помечена, но записана");
+    assert!(trades[1].block, "блочная сделка помечена, но записана");
 }
 
 /// Гейт GC для шага 0.3: установившийся поток (те же цены и размеры, что

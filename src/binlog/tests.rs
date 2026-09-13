@@ -69,9 +69,7 @@ fn rec(ev: u64, exch_ts_ns: i64, local_ts_ns: i64, price_ticks: i64, qty_lots: i
         local_ts_ns,
         price_ticks,
         qty_lots,
-        order_id: 0,
-        ival: 0,
-        fval: 0.0,
+        block: false,
     }
 }
 
@@ -362,77 +360,98 @@ fn timestamp_deltas_survive_epoch_at_i64_extremes() {
 }
 
 // -----------------------------------------------------------------
-// Требование 4б: `order_id`/`ival`/`fval` — тоже часть записи, не
-// только цена/размер/время. `rec()` выше кладёт все три в ноль, и
-// ни один тест до этого добавления не проверял, что кодек вообще
-// трогает эти поля правильно: `zigzag(0)` и `uvarint(0)` — один и
-// тот же байт 0x00, так что перепутанные местами `write_zigzag`/
-// `write_uvarint` на `ival` тоже дали бы зелёный набор.
+// Требование 4б: кодек обязан правильно трогать не только цену, размер и
+// время. В v3 у записи остались `ev`, обе метки, цена, размер и `block`
+// (бит `attrs` группы), а группа обязана нести флаги и метки **своего**
+// сообщения. `zigzag(0)` и `uvarint(0)` — один и тот же байт 0x00, так что
+// перепутанные местами `write_zigzag`/`write_uvarint` на одних нулях дали бы
+// зелёный round trip: поэтому здесь есть ненулевые `ev`, обе метки, `block`
+// и границы групп внутри одного кадра.
 // -----------------------------------------------------------------
 
-// Восемь аргументов — один в один поля `Record` (см. `clippy::
-// too_many_arguments`); тестовый конструктор, не публичное API,
-// группировать их незачем.
-#[allow(clippy::too_many_arguments)]
-fn rec_full(
+/// Та же запись, но блочная — единственное поле v3, которого нет у `rec()`.
+fn rec_block(
     ev: u64,
     exch_ts_ns: i64,
     local_ts_ns: i64,
     price_ticks: i64,
     qty_lots: i64,
-    order_id: u64,
-    ival: i64,
-    fval: f64,
 ) -> Record {
     Record {
-        ev,
-        exch_ts_ns,
-        local_ts_ns,
-        price_ticks,
-        qty_lots,
-        order_id,
-        ival,
-        fval,
+        block: true,
+        ..rec(ev, exch_ts_ns, local_ts_ns, price_ticks, qty_lots)
     }
 }
 
 #[test]
-fn order_id_ival_and_fval_round_trip_nonzero_values() {
-    // `order_id` не помещается в младшие 32 бита; `ival` знакопеременный
-    // (крейт хранит его как `i64`, кодируется зигзагом, не как беззнаковый
-    // varint); `fval` — ненулевой битовый паттерн, но не NaN (`Record`
-    // сравнивается через derived `PartialEq`, а `NaN != NaN` сломал бы
-    // `assert_eq!` независимо от того, что кодек сохранил бит-в-бит).
+fn groups_keep_their_own_flags_stamps_and_block_bit() {
+    // Три группы в одном кадре: уровни одного сообщения книги (три записи с
+    // общими метками), однозаписная группа-сделка с `block = true`, и уровень
+    // другого сообщения — с другой меткой приёма.
     let frame = vec![
-        rec_full(ev_snapshot_bid(), 0, 1, 10, 10, 0, 0, 0.0),
-        rec_full(
-            ev_delta_ask(),
-            2,
-            3,
-            11,
-            9,
-            u64::MAX,
-            i64::MIN,
-            f64::MIN_POSITIVE,
-        ),
-        rec_full(
-            ev_trade_buy(),
-            4,
-            5,
-            9,
-            11,
-            1,
-            i64::MAX,
-            -std::f64::consts::PI,
-        ),
-        rec_full(ev_delta_ask(), 6, 7, 12, 8, 123_456_789, -1, 1.0),
+        rec(ev_snapshot_bid(), 2_000, 2_050, 100, 5),
+        rec(ev_snapshot_bid(), 2_000, 2_050, 99, 3),
+        rec(ev_snapshot_bid(), 2_000, 2_050, 98, 1),
+        rec_block(ev_trade_buy(), 2_100, 2_150, 101, 7),
+        rec(ev_delta_ask(), 2_100, 2_150, 102, 4),
     ];
     let bytes = write_all(header(), std::slice::from_ref(&frame));
     let (_, frames) = read_all(&bytes);
     assert_eq!(
         frames[0], frame,
-        "order_id/ival/fval обязаны совпасть побитово, а не только price/qty/время"
+        "флаги, обе метки, `block` и дельты цены/размера обязаны совпасть"
     );
+}
+
+#[test]
+fn records_of_one_message_share_the_group_stamps() {
+    // Одно сообщение биржи — один `local_ts` на все его уровни: в этом и
+    // смысл переноса метки приёма из записи в заголовок группы, и метка
+    // обязана восстанавливаться у каждой записи группы, а не только у первой.
+    let frame = vec![
+        rec(ev_snapshot_bid(), 10, 20, 5, 1),
+        rec(ev_snapshot_bid(), 10, 20, 6, 2),
+    ];
+    let bytes = write_all(header(), std::slice::from_ref(&frame));
+    let (_, frames) = read_all(&bytes);
+    for r in &frames[0] {
+        assert_eq!((r.exch_ts_ns, r.local_ts_ns), (10, 20));
+    }
+}
+
+/// Собирает тело кадра v3 из готовой группы: эпоха плюс байты группы как есть.
+fn v3_payload_of(group: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&0i64.to_le_bytes());
+    payload.extend_from_slice(group);
+    payload
+}
+
+#[test]
+fn unknown_attrs_bit_is_corruption_not_a_silent_ignore() {
+    // ev=1, exch=0, local=0, attrs=0x02 (неизвестный бит), count=1, цена, размер.
+    let payload = v3_payload_of(&[1, 0, 0, 0x02, 1, 1, 1]);
+    let err = decode_frame_payload_v3(&payload)
+        .expect_err("неизвестный бит `attrs` обязан быть ошибкой, а не тишиной");
+    assert!(matches!(err, BinlogError::Corrupt(_)), "{err:?}");
+}
+
+#[test]
+fn group_count_larger_than_the_frame_is_corruption_not_a_loop() {
+    // `count` = 127 при двух оставшихся байтах: отказ обязан случиться **до**
+    // чтения записей, иначе счётчик с диска крутил бы цикл и аллоцировал
+    // записи, которых в кадре нет.
+    let payload = v3_payload_of(&[1, 0, 0, 0, 0x7f, 0, 0]);
+    let err =
+        decode_frame_payload_v3(&payload).expect_err("группа длиннее кадра обязана быть ошибкой");
+    assert!(matches!(err, BinlogError::Corrupt(_)), "{err:?}");
+}
+
+#[test]
+fn frame_shorter_than_the_epoch_is_corruption() {
+    let err = decode_frame_payload_v3(&[0u8; FRAME_EPOCH_LEN - 1])
+        .expect_err("кадр короче эпохи обязан быть ошибкой");
+    assert!(matches!(err, BinlogError::Corrupt(_)), "{err:?}");
 }
 
 // -----------------------------------------------------------------
@@ -755,27 +774,17 @@ fn zero_max_records_per_frame_is_rejected_on_write_and_read() {
 // вычисленный из `max_records_per_frame` заголовка.
 // -----------------------------------------------------------------
 
-/// Кодирует `n` заведомо нулевых записей напрямую через `encode_record`
-/// — не через `Writer::write_frame`, который сам отказался бы писать
-/// кадр длиннее заголовочного потолка (см. тест ниже про эту самую
-/// проверку). Нулевые поля и нулевые дельты дают ровно минимальный
-/// размер записи (`MIN_RECORD_LEN` = 8 байт: каждое из восьми полей —
-/// однобайтовый varint нуля), и при этом чрезвычайно легко сжимаются:
-/// маленький кадр на диске, огромный после распаковки — ровно форма,
-/// которую и обязан отвергать потолок.
+/// Кодирует `n` заведомо одинаковых нулевых записей напрямую через кодировщик
+/// v3 — не через `Writer::write_frame`, который сам отказался бы писать кадр
+/// длиннее заголовочного потолка (см. тест ниже про эту самую проверку).
+/// Записи одинаковы, поэтому ложатся одной группой: эпоха, заголовок группы и
+/// по цене-размеру на запись. Такая нагрузка сжимается в исчезающе малый кадр
+/// на диске, разжимаясь в огромный, — ровно форма, которую и обязан отвергать
+/// потолок заголовка.
 fn raw_frame_payload_all_zero(n: usize) -> Vec<u8> {
+    let records: Vec<Record> = (0..n).map(|_| rec(0, 0, 0, 0, 0)).collect();
     let mut scratch = Vec::new();
-    let epoch_ns = 0i64;
-    scratch.extend_from_slice(&epoch_ns.to_le_bytes());
-    let mut st = DeltaState {
-        epoch_ns,
-        prev_price_ticks: 0,
-        prev_qty_lots: 0,
-    };
-    let zero = rec(0, 0, 0, 0, 0);
-    for _ in 0..n {
-        encode_record(&mut scratch, &zero, &mut st);
-    }
+    encode_frame_payload_v3(&records, &mut scratch);
     scratch
 }
 
@@ -848,10 +857,10 @@ fn frame_at_exactly_the_maximum_still_reads() {
 /// Файл версии 1 (до ревизии 10 Decision 23): целый и полный заголовок
 /// этой версии — magic(4) + version(1) + tick_e9(8) + step_e9(8) = 21
 /// байт, **без** `max_records_per_frame` и без единого лишнего байта
-/// сверх. Собран напрямую, потому что текущий `Writer` умеет писать
-/// только текущую версию.
+/// сверх. Собран напрямую, потому что ни один писатель этого кода версию 1
+/// не пишет.
 ///
-/// Длина нарочно ровно 21, не 25 (`HEADER_LEN` версии 2): если бы
+/// Длина нарочно ровно 21, не 25 (`HEADER_LEN` версий 2 и 3): если бы
 /// `Reader::open` по-прежнему читал единым куском фиксированные
 /// `HEADER_LEN` байт (одним чтением на весь заголовок, как до этой
 /// правки), этих 21 не хватило бы на затребованные 25, и код вернул бы
@@ -861,10 +870,10 @@ fn frame_at_exactly_the_maximum_still_reads() {
 /// обязаны поймать несовпадение версии на первом шаге, пятью байтами,
 /// раньше, чем код вообще спросит про хвост — вот что здесь проверяется.
 #[test]
-fn old_version_file_is_rejected_not_misread() {
+fn version_one_file_is_rejected_not_misread() {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&MAGIC);
-    bytes.push(VERSION - 1);
+    bytes.push(1);
     bytes.extend_from_slice(&TICK_E9.to_le_bytes());
     bytes.extend_from_slice(&STEP_E9.to_le_bytes());
     assert_eq!(
@@ -876,9 +885,95 @@ fn old_version_file_is_rejected_not_misread() {
     let err = Reader::open(&bytes[..]).unwrap_err();
     assert_eq!(
         err,
-        BinlogError::UnsupportedVersion { got: VERSION - 1 },
+        BinlogError::UnsupportedVersion { got: 1 },
         "старая версия обязана называться прямо, а не маскироваться под усечение"
     );
+}
+
+/// Тело кадра v2 с явными мёртвыми полями: восемь полей на запись, как их
+/// писала живая запись (`ival` — из блочности, `order_id`/`fval` — нули).
+/// Ненулевые значения подставляет тест: без них счётчики
+/// `Reader::legacy_dead_fields` — то самое воспроизводимое доказательство
+/// «0 % ненулевых» на старых файлах — нечем проверить.
+fn v2_payload_with_dead_fields(records: &[Record], dead: &[(u64, i64, u64)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let epoch_ns = records.first().map_or(0, |r| r.exch_ts_ns);
+    out.extend_from_slice(&epoch_ns.to_le_bytes());
+    let mut prev_price = 0i64;
+    let mut prev_qty = 0i64;
+    for (r, (order_id, ival, fval_bits)) in records.iter().zip(dead) {
+        write_uvarint(&mut out, r.ev);
+        write_zigzag(&mut out, r.exch_ts_ns.wrapping_sub(epoch_ns));
+        write_zigzag(&mut out, r.local_ts_ns.wrapping_sub(epoch_ns));
+        write_zigzag(&mut out, r.price_ticks.wrapping_sub(prev_price));
+        write_zigzag(&mut out, r.qty_lots.wrapping_sub(prev_qty));
+        write_uvarint(&mut out, *order_id);
+        write_zigzag(&mut out, *ival);
+        write_uvarint(&mut out, *fval_bits);
+        prev_price = r.price_ticks;
+        prev_qty = r.qty_lots;
+    }
+    out
+}
+
+/// Собирает файл версии 1/2/3 вручную: заголовок с заданной версией и тела
+/// кадров как есть. Нужен там, где пишется не текущая версия (`Writer` умеет
+/// только её одну).
+fn file_with_version(version: u8, hdr: Header, payloads: &[Vec<u8>]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&MAGIC);
+    bytes.push(version);
+    bytes.extend_from_slice(&hdr.tick_e9.to_le_bytes());
+    bytes.extend_from_slice(&hdr.step_e9.to_le_bytes());
+    bytes.extend_from_slice(&hdr.max_records_per_frame.to_le_bytes());
+    for payload in payloads {
+        bytes.extend_from_slice(&frame_bytes_from_payload(payload));
+    }
+    bytes
+}
+
+/// Файл версии 2 — та форма, которую пишет живой коллектор до перезапуска на
+/// новый бинарник (В-41): заголовок тот же, тело — восемь полей на запись.
+/// Обязан читаться новым читателем, иначе вся идущая запись перестала бы
+/// читаться; `order_id`/`ival`/`fval` из потока читаются, `ival` становится
+/// `block`, а счётчики мёртвых полей остаются воспроизводимыми.
+#[test]
+fn version_two_file_is_read_as_legacy_with_dead_field_counters() {
+    let frame = vec![
+        rec(ev_snapshot_bid(), 10, 20, 100, 5),
+        rec(ev_trade_buy(), 30, 40, 101, 2),
+    ];
+    let payload = v2_payload_with_dead_fields(&frame, &[(0, 0, 0), (u64::MAX, 1, 7)]);
+    let bytes = file_with_version(VERSION_V2, header(), std::slice::from_ref(&payload));
+
+    let mut r = Reader::open(&bytes[..]).unwrap();
+    assert_eq!(r.version(), VERSION_V2);
+    let got = r
+        .read_frame()
+        .unwrap()
+        .expect("кадр версии 2 обязан читаться");
+    assert!(r.read_frame().unwrap().is_none());
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0], frame[0]);
+    assert_eq!(got[1].ev, frame[1].ev);
+    assert_eq!(got[1].price_ticks, frame[1].price_ticks);
+    assert!(got[1].block, "`ival != 0` — это `block`");
+    let dead = r.legacy_dead_fields();
+    assert_eq!(dead.nonzero_order_id, 1);
+    assert_eq!(dead.nonzero_ival, 1);
+    assert_eq!(dead.nonzero_fval, 1);
+}
+
+/// У файла версии 3 счётчиков мёртвых полей нет по построению: таких полей в
+/// формате не существует, и нули здесь — не «повезло с данными», а свойство
+/// раскладки.
+#[test]
+fn version_three_file_reports_no_dead_fields() {
+    let bytes = write_all(header(), &[vec![rec(ev_trade_buy(), 10, 20, 100, 5)]]);
+    let mut r = Reader::open(&bytes[..]).unwrap();
+    assert_eq!(r.version(), VERSION);
+    assert!(r.read_frame().unwrap().is_some());
+    assert_eq!(r.legacy_dead_fields(), LegacyDeadFields::default());
 }
 
 /// Кадр, чья заявленная (сжатая) длина на диске правдоподобна, но
@@ -907,13 +1002,18 @@ fn frame_exceeding_the_header_ceiling_is_rejected_without_full_allocation() {
         .unwrap()
         .into_inner();
 
-    // Сильно за потолком, не впритык: два миллиона одинаковых нулевых
-    // записей дают разжатый объём 8 + 2_000_000*8 = 16_000_008 байт —
-    // примерно в 180 000 раз больше 88-байтового потолка — и при этом
-    // сжимаются в исчезающе малый кадр на диске (проверено ниже).
+    // Сильно за потолком, не впритык: два миллиона одинаковых нулевых записей
+    // дают разжатый объём 8 (эпоха) + 5 (заголовок группы) + 2 на запись —
+    // около четырёх мегабайт, то есть в десятки тысяч раз больше 88-байтового
+    // потолка этого теста, — и при этом сжимаются в исчезающе малый кадр на
+    // диске (проверено ниже).
     const N: usize = 2_000_000;
     let payload = raw_frame_payload_all_zero(N);
-    assert_eq!(payload.len(), FRAME_EPOCH_LEN + N * MIN_RECORD_LEN);
+    assert!(
+        payload.len() > expected_ceiling,
+        "проверка теста на себе: нагрузка обязана быть за потолком заголовка \
+         ({expected_ceiling} байт), иначе отвергать было бы нечего"
+    );
     let frame_on_disk = frame_bytes_from_payload(&payload);
     // Проверка теста на себе: «заявленная длина правдоподобна» значит
     // сжатый кадр на диске обязан быть на порядки меньше того, во что
