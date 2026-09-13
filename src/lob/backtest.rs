@@ -804,13 +804,20 @@ where
     let Some((exit_id, reason)) = exit else {
         return Ok(RoundOutcome::Inconsistent);
     };
-    // Лестница ставит несколько ног, и исполняется не обязательно первая:
-    // годной считается любая исполненная нога входа (снятие остальных делает
-    // сама стратегия), цена входа — цена этой ноги.
-    let entry_px = (0..legs.max(1) as u64)
+    // Лестница ставит несколько ног равного размера, и исполниться может не
+    // одна (агрессор выедает уровни подряд): цена входа — **среднее** цен
+    // исполненных ног с равными весами. Именно среднее, а не цена одной ноги:
+    // у драйвера одна `Fill` на круг, и цена одной ноги исказила бы `net`.
+    let filled_legs: Vec<f64> = (0..legs.max(1) as u64)
         .filter_map(|i| bot.orders(asset_no).get(&entry_id.saturating_add(i)))
-        .find(|o| o.status == Status::Filled)
-        .map(hftbacktest::types::Order::exec_price);
+        .filter(|o| o.status == Status::Filled)
+        .map(hftbacktest::types::Order::exec_price)
+        .collect();
+    let entry_px = if filled_legs.is_empty() {
+        None
+    } else {
+        Some(filled_legs.iter().sum::<f64>() / crate::stats::count_f64(filled_legs.len()))
+    };
     let exit_info = bot
         .orders(asset_no)
         .get(&exit_id)
