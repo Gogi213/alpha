@@ -56,7 +56,7 @@ use crate::lob::costs::{
     fill_rate, format_fill_column, net_fill_bps, net_fill_interval, FillObservation,
     NetFillInterval, MAKER_FEE_BPS, ROUNDTRIP_FEES_BPS, TAKER_FEE_BPS,
 };
-use crate::lob::strategy::{on_event, Action, StrategyState};
+use crate::lob::strategy::{on_event, Action, ExitReason, StrategyState, TradePlan};
 
 // ---------------------------------------------------------------------------
 // Константы Decision 20. Каждое число — из плана.
@@ -600,7 +600,13 @@ where
             continue;
         }
 
-        let mut state = StrategyState::new(asset_no, sig.sigma, cfg.order_qty, next_id);
+        let mut state = StrategyState::with_plan(
+            asset_no,
+            sig.sigma,
+            cfg.order_qty,
+            next_id,
+            TradePlan::SpreadHold,
+        );
         // Один круг тратит не больше двух ордеров (вход, выход); запас —
         // страховка от коллизии id со следующим кругом, не экономическая
         // величина.
@@ -618,66 +624,30 @@ where
             other => unreachable!("свежее состояние не могло вернуть {other:?}"),
         };
 
-        let mut timed_out = false;
-        let mut exit_id: Option<u64> = None;
-        loop {
-            if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+        match run_round(bot, asset_no, &mut state, entry_id, side)? {
+            RoundOutcome::EndOfData => {
                 incomplete = true;
                 break 'signals;
             }
-            match on_event(bot, &mut state)? {
-                Action::EntryTimedOut { .. } => timed_out = true,
-                Action::ExitSubmitted { order_id, .. } => exit_id = Some(order_id),
-                Action::Idle | Action::EntrySubmitted { .. } => {}
+            RoundOutcome::Inconsistent => incomplete = true,
+            RoundOutcome::TimedOut => {
+                misses.record(MissReason::EntryTimeout);
+                observations.push(miss_observation(sig.t0_ns));
             }
-            if state.is_idle() {
-                break;
+            RoundOutcome::Filled {
+                fill,
+                exit_ts,
+                reason: _,
+            } => {
+                let net = roundtrip_net_bps(&fill);
+                observations.push(FillObservation {
+                    day_cluster: day_index_ns(sig.t0_ns),
+                    net_bps: net.unwrap_or(0.0),
+                    filled: net.is_some(),
+                });
+                fills.push(fill);
+                blocked_until_ns = exit_ts;
             }
-        }
-
-        if timed_out {
-            misses.record(MissReason::EntryTimeout);
-            observations.push(miss_observation(sig.t0_ns));
-        } else if let Some(exit_id) = exit_id {
-            let entry_px = bot
-                .orders(asset_no)
-                .get(&entry_id)
-                .filter(|o| o.status == Status::Filled)
-                .map(hftbacktest::types::Order::exec_price);
-            let exit_info = bot
-                .orders(asset_no)
-                .get(&exit_id)
-                .filter(|o| o.status == Status::Filled)
-                .map(|o| (o.exec_price(), o.exch_timestamp));
-            match (entry_px, exit_info) {
-                (Some(entry_px), Some((exit_px, exit_ts))) => {
-                    let dir = if side == HbtSide::Buy { 1 } else { -1 };
-                    let fill = Fill {
-                        dir,
-                        entry_px,
-                        exit_px,
-                        qty: cfg.order_qty,
-                    };
-                    let net = roundtrip_net_bps(&fill);
-                    observations.push(FillObservation {
-                        day_cluster: day_index_ns(sig.t0_ns),
-                        net_bps: net.unwrap_or(0.0),
-                        filled: net.is_some(),
-                    });
-                    fills.push(fill);
-                    blocked_until_ns = exit_ts;
-                }
-                _ => {
-                    // Круг «завершился» (is_idle), но заполнения найти
-                    // нельзя — рассинхрон с данными; отчёт честно
-                    // помечается неполным, а не тихой нулевой строкой.
-                    incomplete = true;
-                }
-            }
-        } else {
-            // is_idle без выхода и без таймаута не должно случаться при
-            // корректном `on_event`; неполнота честнее тихого нуля.
-            incomplete = true;
         }
         bot.clear_inactive_orders(Some(asset_no));
     }
@@ -686,6 +656,253 @@ where
     Ok(ProfileRun {
         signals: order.len() as u64,
         fills,
+        misses,
+        observations,
+        incomplete,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Сделка-отскока (В-44, таск 38): план приходит снаружи, исход выхода
+// считается по причине.
+// ---------------------------------------------------------------------------
+
+/// Сигнал сделки-отскока: момент касания и **готовый план** (В-44). `profile` —
+/// номер профиля касания, к которому отнести исход; драйвер не знает, чем
+/// профили отличаются, он только считает — это то же разделение, что у
+/// `Signal`/`profile_id` старого движка.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BounceSignal {
+    pub t0_ns: i64,
+    pub sigma: i8,
+    pub plan: TradePlan,
+    pub profile: u16,
+}
+
+/// Чем кончились выходы: тейк / стоп / дедлайн / горизонт. У Decision 20
+/// причина одна, у В-44 их три, и «сколько раз выбило стопом» — тот самый
+/// вопрос практиков о винрейте (D 16:53: 3–4 движения на один стоп).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ExitTally {
+    pub take: u64,
+    pub stop: u64,
+    pub deadline: u64,
+    pub horizon: u64,
+}
+
+/// Итог одного профиля касаний: сигналы, круги, промахи (по причинам) и
+/// причины выходов. Поля — те же, что нужны CSV таска 38.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BounceRun {
+    pub profile: u16,
+    pub signals: u64,
+    pub fills: Vec<Fill>,
+    pub exits: ExitTally,
+    pub misses: MissLedger,
+    pub observations: Vec<FillObservation>,
+    pub incomplete: bool,
+}
+
+/// Итог одного круга в терминах драйвера.
+enum RoundOutcome {
+    /// Круг закрыт: обе ноги исполнены, причина выхода известна.
+    Filled {
+        fill: Fill,
+        exit_ts: i64,
+        reason: ExitReason,
+    },
+    /// Вход не исполнился за время жизни плана и снят.
+    TimedOut,
+    /// Данные кончились посреди круга.
+    EndOfData,
+    /// `Idle` без выхода и без таймаута — рассинхрон с данными.
+    Inconsistent,
+}
+
+/// Крутит один круг: продвигает часы стороны шагами `ON_EVENT_POLL_STEP_NS`,
+/// пока `on_event` не приведёт состояние к `Idle`, и достаёт из `Bot<MD>`
+/// исполнение обеих ног. Общий для обоих планов (`SpreadHold` — Decision 20,
+/// `Bounce` — В-44): свой цикл решений у второго плана был бы второй
+/// стратегией.
+fn run_round<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    state: &mut StrategyState,
+    entry_id: u64,
+    side: HbtSide,
+) -> Result<RoundOutcome, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let mut timed_out = false;
+    let mut exit: Option<(u64, ExitReason)> = None;
+    loop {
+        if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+            return Ok(RoundOutcome::EndOfData);
+        }
+        match on_event(bot, state)? {
+            Action::EntryTimedOut { .. } => timed_out = true,
+            Action::ExitSubmitted {
+                order_id, reason, ..
+            } => exit = Some((order_id, reason)),
+            Action::Idle | Action::EntrySubmitted { .. } => {}
+        }
+        if state.is_idle() {
+            break;
+        }
+    }
+    if timed_out {
+        return Ok(RoundOutcome::TimedOut);
+    }
+    let Some((exit_id, reason)) = exit else {
+        return Ok(RoundOutcome::Inconsistent);
+    };
+    let entry_px = bot
+        .orders(asset_no)
+        .get(&entry_id)
+        .filter(|o| o.status == Status::Filled)
+        .map(hftbacktest::types::Order::exec_price);
+    let exit_info = bot
+        .orders(asset_no)
+        .get(&exit_id)
+        .filter(|o| o.status == Status::Filled)
+        .map(|o| (o.exec_price(), o.exch_timestamp));
+    match (entry_px, exit_info) {
+        (Some(entry_px), Some((exit_px, exit_ts))) => {
+            let dir = if side == HbtSide::Buy { 1 } else { -1 };
+            Ok(RoundOutcome::Filled {
+                fill: Fill {
+                    dir,
+                    entry_px,
+                    exit_px,
+                    qty: state.qty(),
+                },
+                exit_ts,
+                reason,
+            })
+        }
+        _ => Ok(RoundOutcome::Inconsistent),
+    }
+}
+
+/// Прогон сделки-отскока по сигналам **одного** профиля касаний: план у
+/// каждого сигнала свой (цены считает уровень, не движок). Возвращает круги,
+/// промахи по причинам и число выходов по каждой причине — из этого CLI
+/// собирает `n_filled`/`fill`/`net_fill` и `n_stop`/`n_take`/`n_timeout`.
+pub fn drive_bounce<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    signals: &[BounceSignal],
+    cfg: &DriveConfig,
+) -> Result<BounceRun, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let mut order: Vec<BounceSignal> = signals.to_vec();
+    order.sort_by_key(|s| s.t0_ns);
+    let profile = signals.first().map(|s| s.profile).unwrap_or(0);
+    let mut fills: Vec<Fill> = Vec::new();
+    let mut misses = MissLedger::default();
+    let mut observations: Vec<FillObservation> = Vec::new();
+    let mut exits = ExitTally::default();
+    let mut next_id = cfg.first_order_id;
+    let mut incomplete = false;
+    let mut blocked_until_ns: i64 = i64::MIN;
+
+    let miss_observation = |t0_ns: i64| FillObservation {
+        day_cluster: day_index_ns(t0_ns),
+        net_bps: 0.0,
+        filled: false,
+    };
+
+    if bot.elapse(0)? == ElapseResult::EndOfData {
+        return Ok(BounceRun {
+            profile,
+            signals: order.len() as u64,
+            fills,
+            exits,
+            misses,
+            observations,
+            incomplete: true,
+        });
+    }
+
+    for sig in &order {
+        if entry_side(sig.sigma).is_none() {
+            continue;
+        }
+        if sig.t0_ns < blocked_until_ns {
+            misses.record(MissReason::PositionBusy);
+            observations.push(miss_observation(sig.t0_ns));
+            continue;
+        }
+        let now = bot.current_timestamp();
+        if sig.t0_ns > now && bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
+            incomplete = true;
+            break;
+        }
+        if bot.position(asset_no) != 0.0 {
+            misses.record(MissReason::PositionBusy);
+            observations.push(miss_observation(sig.t0_ns));
+            continue;
+        }
+
+        let mut state =
+            StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, next_id, sig.plan);
+        next_id = next_id.saturating_add(4);
+
+        let (entry_id, side) = match on_event(bot, &mut state)? {
+            Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
+            _ => {
+                // Книга не была готова в момент касания — попытки не было.
+                misses.record(MissReason::EntryTimeout);
+                observations.push(miss_observation(sig.t0_ns));
+                continue;
+            }
+        };
+
+        match run_round(bot, asset_no, &mut state, entry_id, side)? {
+            RoundOutcome::EndOfData => {
+                incomplete = true;
+                break;
+            }
+            RoundOutcome::Inconsistent => incomplete = true,
+            RoundOutcome::TimedOut => {
+                misses.record(MissReason::EntryTimeout);
+                observations.push(miss_observation(sig.t0_ns));
+            }
+            RoundOutcome::Filled {
+                fill,
+                exit_ts,
+                reason,
+            } => {
+                match reason {
+                    ExitReason::Take => exits.take += 1,
+                    ExitReason::Stop => exits.stop += 1,
+                    ExitReason::Deadline => exits.deadline += 1,
+                    ExitReason::Horizon => exits.horizon += 1,
+                }
+                let net = roundtrip_net_bps(&fill);
+                observations.push(FillObservation {
+                    day_cluster: day_index_ns(sig.t0_ns),
+                    net_bps: net.unwrap_or(0.0),
+                    filled: net.is_some(),
+                });
+                fills.push(fill);
+                blocked_until_ns = exit_ts;
+            }
+        }
+        bot.clear_inactive_orders(Some(asset_no));
+    }
+    bot.clear_inactive_orders(Some(asset_no));
+
+    Ok(BounceRun {
+        profile,
+        signals: order.len() as u64,
+        fills,
+        exits,
         misses,
         observations,
         incomplete,

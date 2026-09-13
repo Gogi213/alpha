@@ -156,6 +156,11 @@ impl StrategyState {
         matches!(self.phase, Phase::Idle)
     }
 
+    /// Размер круга: драйверу он нужен для `Fill`, сам драйвер его не хранит.
+    pub fn qty(&self) -> f64 {
+        self.qty
+    }
+
     fn take_order_id(&mut self) -> u64 {
         let id = self.next_order_id;
         self.next_order_id = self.next_order_id.saturating_add(1);
