@@ -174,3 +174,25 @@ gitignored).
    диске; тикет 43, `docs/findings/binlog-v3-2026-09-13.md`).
 8. **Первый серверный день** закрывается тем же, чем локальный: `lob binlog-stats` на файл
    (версия, группы, байт/запись), `lob verify`, а дальше штатные `levels`/`markout`/`profiles`.
+
+### Развёртывание на старом сервере `13.140.29.171` (факт, 2026-09-14)
+
+- Ubuntu 24.04, **4 vCPU / 7.9 ГБ RAM / 73 ГБ диск, свободно 41 ГБ**, Bybit доступен (`200` за
+  0.24 с, 403 нет); рядом живут `watcher` и `watcher-staging` за nginx.
+- Пути: исходники `/opt/alpha/src`, бинарник `/opt/alpha/alpha-collector`, корень записи
+  `/opt/alpha/root` (там же `instruments.csv` — пул), юнит `alpha-collector.service`.
+- Rust на сервере: rustup, тулчейн по `rust-toolchain.toml` (1.93.1, в apt было бы 1.75 — мало).
+  Сборка: `cd /opt/alpha/src && nice -n 10 cargo build --release --bin alpha` (~2 мин на 4 vCPU),
+  затем `cp target/release/alpha /opt/alpha/alpha-collector && cargo clean` (target ~2 ГБ).
+- Пуск: `systemctl enable --now alpha-collector`. Штатная остановка — `touch /opt/alpha/root/stop`
+  (В-41: код 0, `closed=true`; `Restart=on-failure` его не поднимает — поэтому не `always`).
+  `systemctl stop` посылает SIGTERM, который коллектор не обрабатывает: запись рвётся на границе
+  кадра (данные целы), но `closed` не выставляется.
+- Диск: **топ-20 ≈ 1.71 ГБ/сутки, топ-50 ≈ 1.97** (разница 13 % — объём держат первые имена,
+  LSK один даёт 22 %); свободных 41 ГБ хватает на ~3 недели, дальше старые сутки выгружать
+  (вместе с `verify-<SYM>.status`) и удалять. Журнал systemd ограничен 200 МБ
+  (`/etc/systemd/journald.conf.d/alpha.conf`).
+- Тест 2026-09-14 17:25–17:35 UTC (10 мин, топ-20): 2 600 905 записей, CPU avg 4.61 % ядра
+  (max 5.07), RSS 17.1 МБ, parse p99 139 мкс, `gaps/reconnects/resyncs/frames_failed` — нули,
+  формат **v3**, `verify` SOL и 1000PEPE `ok`, LSK `fail` (известное, не формат), `levels` SOL —
+  1971 уровень. Разбор — `docs/findings/deploy-2026-09-14.md`.
