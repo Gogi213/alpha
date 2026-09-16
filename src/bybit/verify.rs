@@ -819,7 +819,9 @@ pub struct VerifyArgs {
 
 /// Итог файлового прогона для печати и `VerifyStats` вызывающему.
 /// Ревизия 17б: `trades_out_of_range` — доля без порога, `trades_violations` —
-/// нарушения теста 3 (цена ни разу не держалась) с порогом < 0.1%.
+/// нарушения теста 3 (цена ни разу не держалась) с порогом < 0.1 % сделок
+/// (план §11); порог применяет вердикт — `commands::lob::verify::VerifyStatus::of`
+/// (В-56), здесь только счётчики.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VerifySummary {
     pub files: usize,

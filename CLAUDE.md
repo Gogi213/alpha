@@ -88,7 +88,9 @@ src/
 формата, записи/кадры/**группы-сообщения**, `ev`, блочные сделки, мёртвые поля v2; `--reencode` —
 замер A/B формата на тех же записях, `--rewrite-out` — переписать v2 в v3 (пороги и числа — тикеты
 43/44, `docs/findings/binlog-v3-2026-09-13.md`). `lob session` → `<SYMBOL>-<день>.binlog`, `gaps.csv`, `clock.csv`,
-`session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются).
+`session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются):
+целостность (`gaps`, инварианты книги) ровно ноль, «цена ни разу не держалась» — доля меньше
+0.1 % сделок (В-56, план §11).
 `lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
 markout от среза как есть на `start_ms` со знаком «в сторону отскока», T35/В-43). `lob profiles`/`backtest`/`shortlist` →
 `docs/findings/*-<дата>.*` (RTT и лот — обязательные флаги; В-37: `--median-rtt-ns 20000000

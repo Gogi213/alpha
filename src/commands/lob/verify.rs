@@ -11,7 +11,9 @@
 //! `pilot::process_instrument` — её же, не свою копию. Части символа
 //! (`<SYMBOL>-<день>[-pN].binlog`, таски 19/22) находит общий резолвер
 //! `super::session_binlog_for`; сверка идёт по каждой части отдельно
-//! (`bybit::verify::verify_file`), и маркер `ok` только когда чиста каждая.
+//! (`bybit::verify::verify_file`), а вердикт — по сумме частей символа:
+//! целостность (`gaps`, инварианты книги) ровно ноль и доля нарушений
+//! теста 3 меньше 0.1 % сделок (план §11, В-56) — см. `VerifyStatus::of`.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +25,8 @@ use crate::bybit::verify::{verify_file, VerifyArgs, VerifySummary};
 /// «Прошла сверку целиком» (`interfaces.md`, doc `watch.rs`) — по тому,
 /// что файловый режим вообще может проверить (сверка по `u` — только
 /// живой поток, здесь её нет): разрывов нет, инварианты книги целы
-/// (тест 2) и цена сделки хоть раз держалась (тест 3).
+/// (тест 2) и доля сделок по цене, которой книга не держала ни мгновения,
+/// меньше 0.1 % (тест 3, план §11, В-56).
 /// `trades_out_of_range`/`trades_indeterminate` — отдельные, не булевы
 /// метрики, в вердикт не входят (та же трактовка, что `day_tallies` в
 /// `mod.rs`).
@@ -33,12 +36,29 @@ pub(crate) enum VerifyStatus {
     Fail,
 }
 
+/// Порог доли нарушений теста 3 — **0.1 % сделок** (план §11, В-56).
+///
+/// Нарушение теста 3 («цена ни разу не держалась») — свойство
+/// сэмплированного фида: `.50` публикуется пачками ~20 мс, внутри окна
+/// заявки появляются и исчезают (замер: `docs/findings/hft-underground-2026-09-16.md`,
+/// §12d/§12e).
+/// Поэтому поштучный ноль тут — не критерий целостности, а недостижимое
+/// на рынке требование; доля и есть порог плана. Знаменатель: доля
+/// меньше `1 / VIOLATION_SHARE_DENOM`.
+pub(crate) const VIOLATION_SHARE_DENOM: u64 = 1000;
+
 impl VerifyStatus {
+    /// Вердикт: целостность — ровно ноль (`sequence_gaps`, инварианты книги),
+    /// тест 3 — **доля** нарушений меньше 0.1 % сделок (план §11, В-56).
+    ///
+    /// Сравнение целочисленное (`violations * 1000 < trades`) — без `f64` и
+    /// без округления: ровно 0.1 % это уже `fail`. Сделок нет — нарушать
+    /// нечего, тест 3 пройден.
     pub(crate) fn of(summary: &VerifySummary) -> Self {
-        if summary.sequence_gaps == 0
-            && summary.invariant_violations == 0
-            && summary.trades_violations == 0
-        {
+        let integrity_clean = summary.sequence_gaps == 0 && summary.invariant_violations == 0;
+        let trades_clean = summary.trades_total == 0
+            || summary.trades_violations * VIOLATION_SHARE_DENOM < summary.trades_total;
+        if integrity_clean && trades_clean {
             Self::Ok
         } else {
             Self::Fail

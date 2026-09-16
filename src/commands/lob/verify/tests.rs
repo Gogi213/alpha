@@ -194,3 +194,90 @@ fn verify_marker_lets_profiles_read_the_day_without_allow_unverified() {
         "после маркера сутки читаются, n = {n}:\n{after_text}"
     );
 }
+
+/// В-56: тест 3 — это **доля** сделок, а не счётчик. Порог строгий:
+/// ровно 0.1 % (10 из 10 000) — уже `fail`, 0.09 % — `ok`.
+#[test]
+fn trades_rule_is_a_share_and_the_limit_itself_fails() {
+    let at_limit = VerifySummary {
+        trades_total: 10_000,
+        trades_violations: 10,
+        ..Default::default()
+    };
+    assert_eq!(
+        VerifyStatus::of(&at_limit),
+        VerifyStatus::Fail,
+        "ровно 0.1 % — это порог, а не «внутри порога»"
+    );
+
+    let below = VerifySummary {
+        trades_total: 10_000,
+        trades_violations: 9,
+        ..Default::default()
+    };
+    assert_eq!(
+        VerifyStatus::of(&below),
+        VerifyStatus::Ok,
+        "0.09 % — внутри"
+    );
+
+    // Боевые числа 09-15 из §12e: ASTR (1 из 76 524) и FIL (2 из 130 251)
+    // прошли бы, BTW (749 из 48 797 = 1.535 %) — нет.
+    let astr = VerifySummary {
+        trades_total: 76_524,
+        trades_violations: 1,
+        ..Default::default()
+    };
+    assert_eq!(VerifyStatus::of(&astr), VerifyStatus::Ok);
+    let fil = VerifySummary {
+        trades_total: 130_251,
+        trades_violations: 2,
+        ..Default::default()
+    };
+    assert_eq!(
+        VerifyStatus::of(&fil),
+        VerifyStatus::Ok,
+        "0.0015 % — внутри"
+    );
+    let btw = VerifySummary {
+        trades_total: 48_797,
+        trades_violations: 749,
+        ..Default::default()
+    };
+    assert_eq!(VerifyStatus::of(&btw), VerifyStatus::Fail);
+}
+
+/// Сделок не было — нарушать нечего: тест 3 пройден (иначе каталог без
+/// ленты не читался бы вовсе).
+#[test]
+fn trades_rule_passes_when_there_were_no_trades() {
+    let no_trades = VerifySummary {
+        trades_total: 0,
+        trades_violations: 0,
+        ..Default::default()
+    };
+    assert_eq!(VerifyStatus::of(&no_trades), VerifyStatus::Ok);
+}
+
+/// Целостность остаётся ровно нулевой и порогом не размывается: и разрыв
+/// `u`, и поломка книги роняют вердикт даже при нулевых нарушениях теста 3.
+#[test]
+fn integrity_counters_stay_strict_zero() {
+    let gap = VerifySummary {
+        trades_total: 1_000_000,
+        sequence_gaps: 1,
+        ..Default::default()
+    };
+    assert_eq!(VerifyStatus::of(&gap), VerifyStatus::Fail, "разрыв `u`");
+
+    let crossed = VerifySummary {
+        trades_total: 1_000_000,
+        invariant_violations: 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        VerifyStatus::of(&crossed),
+        VerifyStatus::Fail,
+        "инвариант книги"
+    );
+}
