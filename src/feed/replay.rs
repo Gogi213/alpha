@@ -87,6 +87,7 @@ impl<R: Read> ReplayFeed<R> {
                     qty_e9: rec.qty_lots * self.step_e9,
                     aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
                     block: rec.block,
+                    rpi: rec.rpi,
                 }),
             });
         }
@@ -200,6 +201,7 @@ mod tests {
                 price_ticks: 100,
                 qty_lots: 5,
                 block: false,
+                rpi: false,
             },
             Record {
                 ev: LOCAL_BUY_TRADE_EVENT,
@@ -208,6 +210,7 @@ mod tests {
                 price_ticks: 101,
                 qty_lots: 3,
                 block: false,
+                rpi: false,
             },
         ])
         .unwrap();

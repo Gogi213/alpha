@@ -430,6 +430,7 @@ fn lob_help_lists_all_subcommands() {
         .collect();
     sorted.sort();
     let expected = [
+        "archive",
         "backtest",
         "binlog-stats",
         "clock",

@@ -10,6 +10,7 @@ fn px(v: f64) -> i64 {
 fn snapshot(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u,
         seq: u,
         cts_ms: 1_000,
@@ -21,6 +22,7 @@ fn snapshot(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
 fn delta(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
     Update {
         is_snapshot: false,
+        depth: 50,
         u,
         seq: u,
         cts_ms: 1_000 + u as i64,
@@ -31,6 +33,51 @@ fn delta(u: u64, bids: &[(f64, f64)], asks: &[(f64, f64)]) -> Update {
 
 fn book() -> Book {
     Book::new(TICK, STEP)
+}
+
+/// T45: ёмкость книги — 256 уровней на сторону, и снапшот глубокого потока
+/// (`orderbook.200` — двести уровней на сторону, документация Bybit v5)
+/// обязан влезть в неё **без роста**: до T45 `CAPACITY` была 128 (под
+/// пятьдесят уровней быстрого потока), и вторая сотня уровней стороны
+/// заставила бы `Vec` удваиваться — аллокацию в горячем пути, ровно ту,
+/// которую гейт GC (`interfaces.md`, запрет 1) считает нулём.
+///
+/// Поэтому тест мерит ёмкость, а не «уровни применились»: уровни влезли бы и
+/// в растущий `Vec` (результат тот же — сто или двести уровней на месте), а
+/// счётчик аллокаций на **первом** применении снапшота отличает одно от
+/// другого. Никакого прогрева у книги нет и быть не должно: ёмкость
+/// резервируется в `Book::new` (`with_capacity`), и именно она проверяется —
+/// книга и `Update` построены до замера, внутри `apply` расти нечему.
+#[test]
+fn deep_snapshot_of_two_hundred_levels_per_side_allocates_nothing() {
+    const LEVELS: usize = 200;
+    let mut bids = Vec::with_capacity(LEVELS);
+    let mut asks = Vec::with_capacity(LEVELS);
+    for i in 0..LEVELS {
+        bids.push((1.0 - (i as f64 + 1.0) * 1e-4, 1.0 + i as f64));
+        asks.push((1.0 + (i as f64 + 1.0) * 1e-4, 2.0 + i as f64));
+    }
+    let mut b = book();
+    let snap = snapshot(1, &bids, &asks);
+    let (applied, counts) = crate::alloc_count::measure(|| b.apply(&snap));
+    applied.unwrap();
+    assert_eq!(
+        counts.allocations, 0,
+        "снапшот .200 в 200 уровней на сторону обязан влезать в CAPACITY без роста \
+         (при старой ёмкости 128 это был бы рост 128 → 256)"
+    );
+    assert_eq!(
+        b.depth(Side::Bid),
+        LEVELS,
+        "снапшот .200 обязан лечь в книгу целиком"
+    );
+    assert_eq!(b.depth(Side::Ask), LEVELS);
+    assert_eq!(b.best_bid_tick_opt(), Some(px(1.0 - 1e-4) / TICK));
+    assert_eq!(b.best_ask_tick_opt(), Some(px(1.0 + 1e-4) / TICK));
+    assert!(
+        b.qty_lots_at(Side::Bid, px(1.0 - LEVELS as f64 * 1e-4) / TICK) > 0,
+        "самый дальний уровень снапшота обязан быть в книге"
+    );
 }
 
 #[test]
@@ -153,6 +200,7 @@ fn price_off_tick_is_rejected() {
     let mut b = book();
     let bad = Update {
         is_snapshot: true,
+        depth: 50,
         u: 10,
         seq: 10,
         cts_ms: 1,
@@ -168,6 +216,7 @@ fn qty_off_step_is_rejected() {
     let mut b = book();
     let bad = Update {
         is_snapshot: true,
+        depth: 50,
         u: 10,
         seq: 10,
         cts_ms: 1,

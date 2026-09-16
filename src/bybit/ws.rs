@@ -11,6 +11,17 @@
 //!   `v`, `p`, `i`, `BT` (блочная сделка) и `seq`. **Поля `cts` у него нет** —
 //!   ключ склейки с книгой это `T` против `orderbook.cts`, оба времени матчинга.
 //!
+//! ## Два потока глубины (T45)
+//!
+//! Коллектор подписан на два топика стакана по каждому инструменту: быстрый
+//! `orderbook.50.<symbol>` (как с самого начала) и глубокий
+//! `orderbook.200.<symbol>`. Глубина — **из имени топика**, и она уезжает
+//! признаком потока в `book::Update::depth`: у `.50` и `.200` свои книги, свои
+//! последовательности `u` и свои файлы, поэтому сообщение обязано нести, из
+//! какого потока оно пришло. Признака потока нет в формате бинлога (v3
+//! заморожен, В-49) — при живом чтении его даёт топик, при реплее `Update`
+//! несёт глубину основного файла (`bybit::conn::ORDERBOOK_DEPTH`).
+//!
 //! ## Разбор без DOM (таск 24)
 //!
 //! До этого места `parse_message` строило `serde_json::Value` — дерево с
@@ -91,6 +102,13 @@ pub struct Trade {
     /// Блочная сделка. Такие не потребляют видимую ликвидность стакана, и
     /// засчитанные в объём они превращают снятие уровня в исполнение.
     pub block: bool,
+    /// Сделка исполнена об **RPI-заявку** (`RPI` у Bybit). RPI-заявки
+    /// одобренных маркет-мейкеров в `orderbook.{depth}` не видны, поэтому такая
+    /// сделка не потребляет **видимую** ликвидность уровня: засчитанная в объём,
+    /// она превращает снятие плотности в её исполнение — тот же механизм порчи
+    /// метки, что у блочной сделки, но невидимый глазу (2026-09-16,
+    /// `docs/findings/hft-underground-2026-09-16.md` §12).
+    pub rpi: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,15 +177,32 @@ pub fn parse_e9(s: &str) -> Option<i64> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TopicKind {
-    Book,
+    /// Поток стакана и его глубина из имени топика
+    /// (`orderbook.<depth>.<symbol>`): 50 — быстрый поток, 200 — глубокий
+    /// (T45). Два потока по одному инструменту несут **разные** книги и
+    /// разные последовательности `u`, поэтому глубина — часть вида топика,
+    /// а не что-то, что вызывающий добавляет отдельно.
+    Book(u32),
     Trade,
     Other,
 }
 
 fn topic_kind(topic: &str) -> TopicKind {
-    if topic.starts_with("orderbook.") {
-        TopicKind::Book
-    } else if topic.starts_with("publicTrade") {
+    if let Some(rest) = topic.strip_prefix(ORDERBOOK_TOPIC_PREFIX) {
+        // `orderbook.<depth>.<symbol>`: глубина — сегмент между двумя
+        // точками. Нечисловая глубина (`orderbook.full.<symbol>` — тоже
+        // топик протокола, но не наш поток) делает топик чужим: разбирать
+        // его как книгу значило бы завести поток, которого мы не
+        // подписывали, и выдумать ему глубину.
+        return match rest.split_once('.') {
+            Some((depth, symbol)) if !symbol.is_empty() => match depth.parse::<u32>() {
+                Ok(depth) => TopicKind::Book(depth),
+                Err(_) => TopicKind::Other,
+            },
+            _ => TopicKind::Other,
+        };
+    }
+    if topic.starts_with(TRADE_TOPIC_PREFIX) {
         TopicKind::Trade
     } else {
         TopicKind::Other
@@ -184,7 +219,7 @@ fn topic_kind(topic: &str) -> TopicKind {
 fn split_topic(topic: &str) -> (TopicKind, Option<&str>) {
     let kind = topic_kind(topic);
     let symbol = match kind {
-        TopicKind::Book | TopicKind::Trade => topic.rsplit('.').next().filter(|s| !s.is_empty()),
+        TopicKind::Book(_) | TopicKind::Trade => topic.rsplit('.').next().filter(|s| !s.is_empty()),
         TopicKind::Other => None,
     };
     (kind, symbol)
@@ -342,7 +377,7 @@ struct RawOrderbookMsg<'a> {
     data: Option<RawOrderbookData>,
 }
 
-fn orderbook_update(msg: RawOrderbookMsg) -> Result<Update, ParseError> {
+fn orderbook_update(msg: RawOrderbookMsg, depth: u32) -> Result<Update, ParseError> {
     let data = msg.data.ok_or(ParseError::MissingField("data"))?;
     let u = data.u.ok_or(ParseError::MissingField("u"))?;
     // `seq` — сквозной счётчик WS и REST (в отличие от `u`, у которого
@@ -360,6 +395,9 @@ fn orderbook_update(msg: RawOrderbookMsg) -> Result<Update, ParseError> {
     }
     Ok(Update {
         is_snapshot: msg.kind == Some("snapshot"),
+        // Глубина — из топика (T45), не из конфигурации: у `.50` и `.200`
+        // свои книги и свои последовательности `u`.
+        depth,
         u,
         seq,
         cts_ms,
@@ -380,6 +418,10 @@ struct RawTradeItem<'a> {
     side: Option<&'a str>,
     #[serde(rename = "BT", default)]
     block: bool,
+    /// Поле `RPI` у Bybit; `default` — чтобы лента без него читалась как
+    /// `false` («не размечено»), а не падала разбором.
+    #[serde(rename = "RPI", default)]
+    rpi: bool,
 }
 
 fn trade_from_raw(t: &RawTradeItem) -> Result<Trade, ParseError> {
@@ -396,6 +438,7 @@ fn trade_from_raw(t: &RawTradeItem) -> Result<Trade, ParseError> {
         qty_e9,
         aggressor_is_buy: side.eq_ignore_ascii_case("buy"),
         block: t.block,
+        rpi: t.rpi,
     })
 }
 
@@ -487,10 +530,10 @@ pub fn parse_message_into<'a>(
         None => (probe_topic(raw)?, true),
     };
     match kind {
-        TopicKind::Book => {
+        TopicKind::Book(depth) => {
             let msg: RawOrderbookMsg =
                 serde_json::from_str(raw).map_err(|e| classify_json_error(&e, "orderbook"))?;
-            out.push(Event::Book(orderbook_update(msg)?));
+            out.push(Event::Book(orderbook_update(msg, depth)?));
             Ok(symbol)
         }
         TopicKind::Trade => {
@@ -538,20 +581,22 @@ pub fn sub_orderbook(depth: u32, symbol: &str) -> String {
     )
 }
 
-/// Длина `args` подписки на один инструмент — оба топика, как их считает
-/// Bybit: имя топика без кавычек и запятых (проверка предела 21 000
+/// Длина `args` подписки на один инструмент — все топики потоков, как их
+/// считает Bybit: имя топика без кавычек и запятых (проверка предела 21 000
 /// символов ведётся по содержимому массива `args`, `bybit::conn::
 /// MAX_ARGS_CHARS`). Функция здесь, а не у вызывающего, потому что имена
-/// топиков — протокол этого файла.
-pub fn pool_args_chars(depth: u32, symbol: &str) -> usize {
+/// топиков — протокол этого файла. `depths` — потоки стакана, на которые
+/// подписывается соединение (T45: `.50` и `.200`, `bybit::conn::
+/// SUBSCRIBED_DEPTHS`); топик ленты один.
+pub fn pool_args_chars(depths: &[u32], symbol: &str) -> usize {
     // Арифметика, не `format!`: функция зовётся на каждый инструмент
-    // раскладки (761 раз на старте), и строить ради длины две временные
-    // строки незачем. Совпадение с реально отправленным `args` держит тест
+    // раскладки (761 раз на старте), и строить ради длины временные строки
+    // незачем. Совпадение с реально отправленным `args` держит тест
     // `pool_args_chars_matches_the_topics_sub_pool_actually_sends`.
-    ORDERBOOK_TOPIC_PREFIX.len()
-        + decimal_len(depth)
-        + 1
-        + symbol.len()
+    depths
+        .iter()
+        .map(|&d| ORDERBOOK_TOPIC_PREFIX.len() + decimal_len(d) + 1 + symbol.len())
+        .sum::<usize>()
         + TRADE_TOPIC_PREFIX.len()
         + symbol.len()
 }
@@ -569,22 +614,28 @@ fn decimal_len(depth: u32) -> usize {
     n
 }
 
-/// Одна подписка на много инструментов сразу: `orderbook.<depth>.<sym>` и
-/// `publicTrade.<sym>` каждого — в один массив `args` одного сообщения.
+/// Одна подписка на много инструментов сразу: `orderbook.<depth>.<sym>` по
+/// каждому потоку `depths` и `publicTrade.<sym>` каждого инструмента — в один
+/// массив `args` одного сообщения (T45 добавил второй поток стакана, не
+/// второе соединение: `.50` и `.200` одного инструмента идут по одному
+/// сокету, чтобы порядок между потоками задавала биржа, а не наши сокеты).
 /// Для linear (Futures) Bybit v5 не ограничивает **число** `args` в запросе
 /// («No args limit for Futures and Spread for now»), ограничена только
 /// суммарная длина `args` **соединения** (21 000 символов) — её считает
 /// вызывающий раскладкой пула (`feed::live::plan_connections`), не эта
 /// функция.
-pub fn sub_pool(depth: u32, symbols: &[&str]) -> String {
+pub fn sub_pool(depths: &[u32], symbols: &[&str]) -> String {
     let mut s = String::from(r#"{"op":"subscribe","args":["#);
-    for (i, sym) in symbols.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
+    let mut sep = "";
+    for sym in symbols {
+        for &depth in depths {
+            s.push_str(sep);
+            sep = ",";
+            s.push_str(&format!(r#""{ORDERBOOK_TOPIC_PREFIX}{depth}.{sym}""#));
         }
-        s.push_str(&format!(
-            r#""{ORDERBOOK_TOPIC_PREFIX}{depth}.{sym}","{TRADE_TOPIC_PREFIX}{sym}""#
-        ));
+        s.push_str(sep);
+        sep = ",";
+        s.push_str(&format!(r#""{TRADE_TOPIC_PREFIX}{sym}""#));
     }
     s.push_str("]}");
     s

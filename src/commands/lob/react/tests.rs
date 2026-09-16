@@ -38,6 +38,7 @@ fn book_event(
         parse_latency_ns: parse_ns,
         payload: crate::bybit::ws::Event::Book(Update {
             is_snapshot: false,
+            depth: 50,
             u,
             cts_ms: local_ts_ns / 1_000_000,
             seq: 0,
@@ -55,6 +56,7 @@ fn snapshot_event(local_ts_ns: i64, bid_e9: i64, ask_e9: i64) -> Event {
         parse_latency_ns: Some(1_000),
         payload: crate::bybit::ws::Event::Book(Update {
             is_snapshot: true,
+            depth: 50,
             u: 1,
             cts_ms: local_ts_ns / 1_000_000,
             seq: 0,

@@ -64,6 +64,10 @@ pub struct BinlogStatsArgs {
 pub struct BinlogStats {
     /// Версия формата из заголовка: `VERSION` (текущая) или `VERSION_V2`.
     pub version: u8,
+    /// Уровень zstd, если файл — контейнер архива (T46), `None` у обычных
+    /// суток. Счётчики ниже от него не зависят: контейнер читается тем же
+    /// `Reader`, и «что лежит внутри» одинаково у архива и у оригинала.
+    pub archive_level: Option<u8>,
     pub records: u64,
     /// Групп (сообщений биржи): записи одного сообщения несут одни флаги и
     /// метки и считаются здесь по той же границе, по которой их режет кодек
@@ -75,6 +79,9 @@ pub struct BinlogStats {
     pub by_ev: Vec<(u64, u64)>,
     /// Записи с `block` (блочная сделка: `BT` у Bybit, в v2 `ival != 0`).
     pub block_trades: u64,
+    /// Записи с `rpi` (сделка об RPI-заявку: `RPI` у Bybit, 2026-09-16).
+    /// На файлах до этого дня — нули по построению: бита в них нет.
+    pub rpi_trades: u64,
     /// `local_ts != exch_ts` — сколько записей несут собственную метку приёма.
     pub local_ts_differs: u64,
     /// Мёртвые поля v2 (`order_id`/`ival`/`fval`). На файле v3 нули по
@@ -92,6 +99,7 @@ pub fn run_binlog_stats(args: &BinlogStatsArgs) -> anyhow::Result<BinlogStats> {
     let mut reader = Reader::open(file)?;
     let mut stats = BinlogStats {
         version: reader.version(),
+        archive_level: reader.archive_level(),
         bytes_on_disk,
         min_records_in_frame: u64::MAX,
         ..Default::default()
@@ -108,6 +116,9 @@ pub fn run_binlog_stats(args: &BinlogStatsArgs) -> anyhow::Result<BinlogStats> {
             *by_ev.entry(r.ev).or_insert(0) += 1;
             if r.block {
                 stats.block_trades += 1;
+            }
+            if r.rpi {
+                stats.rpi_trades += 1;
             }
             if r.local_ts_ns != r.exch_ts_ns {
                 stats.local_ts_differs += 1;
@@ -181,14 +192,22 @@ pub fn summary_lines(path: &Path, s: &BinlogStats) -> Vec<String> {
             per_record
         ),
         format!(
-            "binlog-stats: групп (сообщений биржи) {} — {:.1} записей на сообщение · local_ts ≠ exch_ts {:.1} % · блочных сделок {} ({:.2} %)",
+            "binlog-stats: групп (сообщений биржи) {} — {:.1} записей на сообщение · local_ts ≠ exch_ts {:.1} % · блочных сделок {} ({:.2} %) · RPI-сделок {} ({:.2} %)",
             s.groups,
             group_avg,
             share(s.local_ts_differs),
             s.block_trades,
-            share(s.block_trades)
+            share(s.block_trades),
+            s.rpi_trades,
+            share(s.rpi_trades)
         ),
     ];
+    if let Some(level) = s.archive_level {
+        lines.push(format!(
+            "binlog-stats: источник — контейнер архива (zstd-{level}, T46): один поток на \
+             сутки, тела кадров внутри несжаты"
+        ));
+    }
     if s.version == VERSION_V2 {
         lines.push(format!(
             "binlog-stats: мёртвые поля v2 — order_id {} ({:.2} %) · ival {} ({:.2} %) · fval {} ({:.2} %)",

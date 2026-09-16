@@ -50,6 +50,7 @@ use clap::Subcommand;
 
 use crate::bybit::clock::check_rows;
 
+pub mod archive;
 pub mod backtest;
 pub mod binlog_stats;
 pub mod clock;
@@ -75,6 +76,7 @@ pub mod touches;
 mod verify;
 pub mod watch;
 
+pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use clock::{run_clock, ClockArgs};
@@ -192,6 +194,13 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Упаковка закрытых суток в контейнер `*.binlog.zst` (T46): один
+    /// zstd-поток над телами кадров даёт −7.7 % к размеру файла на диске
+    /// (`docs/findings/archive-compression-2026-09-15.md`), читается тем же
+    /// `Reader`, что и обычные сутки. Обязательная сверка round-trip;
+    /// оригинал удаляется только явным флагом и только при маркере
+    /// `verify-<SYMBOL>.status == ok`.
+    Archive(ArchiveArgs),
 }
 
 /// Диспетчер подкоманд `lob`, подключённый в `main.rs`. Печатает то же, что
@@ -303,6 +312,13 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 for line in binlog_stats::rewrite_v2_to_v3(&args.path, out)? {
                     println!("{line}");
                 }
+            }
+            Ok(())
+        }
+        LobCommand::Archive(args) => {
+            let summary = run_archive(&args)?;
+            for line in archive::summary_lines(&summary) {
+                println!("{line}");
             }
             Ok(())
         }
@@ -458,6 +474,7 @@ pub(crate) mod test_support {
             price_ticks: tick,
             qty_lots: lots,
             block: false,
+            rpi: false,
         }
     }
 

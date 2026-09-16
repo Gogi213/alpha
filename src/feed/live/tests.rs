@@ -1,5 +1,5 @@
 use super::*;
-use crate::bybit::conn::{Frame, Transport, TransportError};
+use crate::bybit::conn::{Frame, Transport, TransportError, ORDERBOOK_DEEP_DEPTH};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -233,11 +233,12 @@ fn one_socket_carries_two_symbols_and_routes_each_to_its_own_index_and_book() {
 /// Таск 28: раскладка ломается ровно там, где кончается
 /// задокументированный предел `args` одного публичного соединения
 /// (21 000 символов), а не на назначенном числе инструментов.
-/// Фикстура набрана так, чтобы сумма была **ровно** пределом: 395 имён
-/// по 14 символов (`orderbook.50.` + 14 = 27 и `publicTrade.` + 14 = 26,
-/// итого 53 на инструмент → 20 935) плюс одно имя в 20 символов
-/// (33 + 32 = 65) — 21 000 в точности. Ровный предел обязан влезть в
-/// одно соединение: иначе `>` и `>=` в раскладке неразличимы.
+/// Фикстура набрана так, чтобы сумма была **ровно** пределом. T45 добавил
+/// третий топик на инструмент, поэтому арифметика такая: `orderbook.50.` +
+/// `orderbook.200.` + `publicTrade.` = 39 символов плюс три длины имени.
+/// 258 имён по 14 символов (39 + 42 = 81 на инструмент → 20 898) плюс одно
+/// имя в 21 символ (39 + 63 = 102) — 21 000 в точности. Ровный предел обязан
+/// влезть в одно соединение: иначе `>` и `>=` в раскладке неразличимы.
 #[test]
 fn connections_split_exactly_at_the_documented_args_limit() {
     let short = |i: usize| PoolMember {
@@ -246,28 +247,38 @@ fn connections_split_exactly_at_the_documented_args_limit() {
         step_e9: 1,
     };
     let long = PoolMember {
-        symbol: format!("{:0>16}USDT", 0),
+        symbol: format!("{:0>17}USDT", 0),
         tick_e9: 1,
         step_e9: 1,
     };
     assert_eq!(short(0).symbol.len(), 14);
-    assert_eq!(long.symbol.len(), 20);
-    let per_short = 53;
-    let per_long = 65;
-    let shorts = 395;
+    assert_eq!(long.symbol.len(), 21);
+    let per_short = 81;
+    let per_long = 102;
+    let shorts = 258;
     assert_eq!(shorts * per_short + per_long, MAX_ARGS_CHARS);
+    assert_eq!(
+        per_short,
+        crate::bybit::ws::pool_args_chars(&SUBSCRIBED_DEPTHS, &short(0).symbol)
+    );
+    assert_eq!(
+        per_long,
+        crate::bybit::ws::pool_args_chars(&SUBSCRIBED_DEPTHS, &long.symbol)
+    );
 
     let mut exactly: Vec<PoolMember> = (0..shorts).map(short).collect();
     exactly.push(long.clone());
     assert_eq!(
-        plan_connections(&exactly).unwrap().len(),
+        plan_connections(&exactly, &SUBSCRIBED_DEPTHS)
+            .unwrap()
+            .len(),
         1,
         "сумма ровно 21 000 обязана влезть в одно соединение"
     );
 
     let mut one_more = exactly.clone();
     one_more.push(short(shorts));
-    let groups = plan_connections(&one_more).unwrap();
+    let groups = plan_connections(&one_more, &SUBSCRIBED_DEPTHS).unwrap();
     assert_eq!(
         groups.len(),
         2,
@@ -289,7 +300,10 @@ fn connections_split_exactly_at_the_documented_args_limit() {
 /// `blocking_recv`.
 #[test]
 fn empty_pool_is_a_layout_error_not_a_feed_that_never_speaks() {
-    assert_eq!(plan_connections(&[]), Err(LayoutError::EmptyPool));
+    assert_eq!(
+        plan_connections(&[], &SUBSCRIBED_DEPTHS),
+        Err(LayoutError::EmptyPool)
+    );
     let spawned = LiveFeed::spawn_with(Vec::new(), |_m: &PoolMember| OneShotConnector {
         inbox: Arc::new(Mutex::new(VecDeque::new())),
     });
@@ -414,6 +428,99 @@ fn resync_of_one_symbol_does_not_touch_the_other_on_the_same_socket() {
     );
 }
 
+/// T45: набор потоков стакана задаёт **вход** `LiveFeed`, а не глобальная
+/// константа. Коллектор сессии (`spawn_with_ticks` и его ядро) подписывается
+/// на оба потока — `.50` и `.200`; остальные входы (`spawn_with`,
+/// `spawn_with_clock` — им пользуется `lob react`) остаются на одном `.50`,
+/// потому что их потребитель ведёт одну книгу. Подпиши их на `.200` — дельты
+/// двух разных последовательностей `u` легли бы в одну книгу.
+#[test]
+fn only_the_tick_entry_subscribes_to_both_depth_streams() {
+    let snap = |depth: u32| {
+        format!(
+            r#"{{"topic":"orderbook.{depth}.BTCUSDT","type":"snapshot","ts":1,"data":{{"b":[["100.0","1.0"]],"a":[["101.0","1.0"]],"u":1,"seq":1}}}}"#
+        )
+    };
+    let pool = || {
+        vec![PoolMember {
+            symbol: "BTCUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }]
+    };
+    // Кадр в инбоксе делает наблюдение детерминированным: транспорт обязан
+    // отправить подписку **до** первого `recv`, поэтому одно полученное
+    // событие доказывает, что подписка уже была.
+    let inbox_with = |raw: String| Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(raw))])));
+
+    // Однопотоковый вход (`spawn_with`) — как `lob react`.
+    let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+    let inbox = inbox_with(snap(ORDERBOOK_DEPTH));
+    let (inbox_c, sent_c) = (inbox.clone(), sent.clone());
+    let mut feed = LiveFeed::spawn_with(pool(), move |_m| RecordingConnector {
+        inbox: inbox_c.clone(),
+        sent: sent_c.clone(),
+    })
+    .unwrap();
+    match feed.next_event().unwrap() {
+        Event::Market { symbol: 0, .. } => {}
+        other => panic!("ожидалось рыночное событие быстрого потока, получено {other:?}"),
+    }
+    let subscribed = sent.lock().unwrap().clone();
+    assert!(
+        subscribed
+            .iter()
+            .any(|m| m.contains("orderbook.50.BTCUSDT")),
+        "быстрый поток обязан быть в подписке: {subscribed:?}"
+    );
+    assert!(
+        subscribed
+            .iter()
+            .all(|m| !m.contains("orderbook.200.BTCUSDT")),
+        "по умолчанию глубокого потока в подписке быть не должно: {subscribed:?}"
+    );
+
+    // Коллектор сессии (`spawn_with_ticks` шлёт `SUBSCRIBED_DEPTHS`): оба
+    // потока, и кадр `.200` доходит до потребителя как рыночное событие того
+    // же инструмента.
+    let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+    let inbox = inbox_with(snap(ORDERBOOK_DEEP_DEPTH));
+    let (inbox_c, sent_c) = (inbox.clone(), sent.clone());
+    let mut feed = LiveFeed::spawn_with_clock_and_connector_and_ticks(
+        pool(),
+        move |_m| RecordingConnector {
+            inbox: inbox_c.clone(),
+            sent: sent_c.clone(),
+        },
+        SystemClock,
+        Some(Duration::from_secs(3600)),
+        SUBSCRIBED_DEPTHS.to_vec(),
+    )
+    .unwrap();
+    match feed.next_event().unwrap() {
+        Event::Market {
+            symbol: 0,
+            payload: crate::bybit::ws::Event::Book(update),
+            ..
+        } => assert_eq!(
+            update.depth, ORDERBOOK_DEEP_DEPTH,
+            "событие глубокого потока обязано дойти до потребителя"
+        ),
+        other => panic!("ожидалось рыночное событие книги, получено {other:?}"),
+    }
+    let subscribed = sent.lock().unwrap().clone();
+    assert!(
+        subscribed
+            .iter()
+            .any(|m| m.contains("orderbook.50.BTCUSDT"))
+            && subscribed
+                .iter()
+                .any(|m| m.contains("orderbook.200.BTCUSDT")),
+        "коллектор сессии обязан подписаться на оба потока глубины: {subscribed:?}"
+    );
+    feed.stop_handle().stop();
+}
+
 /// Рыночный кадр с чужим топиком не исчезает молча — он считается
 /// (`GapKind::Unrouted` → `session.json.unrouted`) и **не** приписывается
 /// первому инструменту сокета.
@@ -471,6 +578,8 @@ fn silent_transport_still_ticks_and_stop_ends_the_feed_for_good() {
         },
         clock,
         Some(Duration::from_millis(20)),
+        // Тест про тик, не про потоки глубины: одного быстрого достаточно.
+        vec![ORDERBOOK_DEPTH],
     )
     .unwrap();
     // Транспорт молчит вечно (`pending`): если тик не по таймеру, этот
@@ -615,13 +724,13 @@ fn add_beyond_u16_is_a_layout_error_before_any_connection_is_opened() {
         tick_e9: 1_000_000_000,
         step_e9: 1_000_000_000,
     };
-    let fits = shard_specs(&[member(0)], usize::from(u16::MAX));
+    let fits = shard_specs(&[member(0)], usize::from(u16::MAX), &FAST_DEPTHS);
     assert_eq!(
         fits.unwrap()[0][0].index,
         u16::MAX,
         "последний индекс u16 ещё занимается"
     );
-    let overflow = shard_specs(&[member(0), member(1)], usize::from(u16::MAX));
+    let overflow = shard_specs(&[member(0), member(1)], usize::from(u16::MAX), &FAST_DEPTHS);
     assert!(
         matches!(
             overflow,

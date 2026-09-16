@@ -299,8 +299,19 @@ fn subscription_messages_are_exact() {
         r#"{"op":"subscribe","args":["orderbook.50.SOLUSDT"]}"#
     );
     assert_eq!(
-        sub_pool(50, &["SOLUSDT", "XRPUSDT"]),
+        sub_orderbook(200, "SOLUSDT"),
+        r#"{"op":"subscribe","args":["orderbook.200.SOLUSDT"]}"#
+    );
+    // Один поток стакана на инструмент — прежний вид сообщения.
+    assert_eq!(
+        sub_pool(&[50], &["SOLUSDT", "XRPUSDT"]),
         r#"{"op":"subscribe","args":["orderbook.50.SOLUSDT","publicTrade.SOLUSDT","orderbook.50.XRPUSDT","publicTrade.XRPUSDT"]}"#
+    );
+    // T45: два потока глубины одного инструмента идут одной подпиской того
+    // же сокета — порядок «быстрый, глубокий, лента» на каждый инструмент.
+    assert_eq!(
+        sub_pool(&[50, 200], &["SOLUSDT", "XRPUSDT"]),
+        r#"{"op":"subscribe","args":["orderbook.50.SOLUSDT","orderbook.200.SOLUSDT","publicTrade.SOLUSDT","orderbook.50.XRPUSDT","orderbook.200.XRPUSDT","publicTrade.XRPUSDT"]}"#
     );
 }
 
@@ -309,19 +320,46 @@ fn subscription_messages_are_exact() {
 /// разойдись они, предел 21 000 проверялся бы не по тому, что реально
 /// отправлено. Ожидаемое значение берётся из **отправленного**
 /// сообщения: имена топиков вырезаются из готового JSON и суммируются.
+/// T45: проверяются и один поток, и оба (`SUBSCRIBED_DEPTHS`).
 #[test]
 fn pool_args_chars_matches_the_topics_sub_pool_actually_sends() {
     let symbols = ["SOLUSDT", "PUMPFUNUSDT", "1000000BABYDOGEUSDT"];
-    for depth in [1u32, 50, 500] {
-        let msg = sub_pool(depth, &symbols);
+    let depth_sets: [&[u32]; 3] = [&[50], &[200], &[50, 200]];
+    for depths in depth_sets {
+        let msg = sub_pool(depths, &symbols);
         let inner = msg
             .split_once('[')
             .and_then(|(_, rest)| rest.rsplit_once(']'))
             .expect("массив args");
         let sent: usize = inner.0.split(',').map(|t| t.trim_matches('"').len()).sum();
-        let counted: usize = symbols.iter().map(|s| pool_args_chars(depth, s)).sum();
-        assert_eq!(counted, sent, "depth={depth}");
+        let counted: usize = symbols.iter().map(|s| pool_args_chars(depths, s)).sum();
+        assert_eq!(counted, sent, "depths={depths:?}");
     }
+}
+
+/// T45: сообщение несёт признак потока — глубину из имени топика
+/// (`orderbook.<depth>.<symbol>`). Проверяются оба потока и то, что глубина
+/// уезжает в `Update::depth` (по ней выбираются книга, файл и счётчики), а не
+/// берётся из конфигурации.
+#[test]
+fn orderbook_message_carries_its_stream_depth_from_the_topic() {
+    let raw = |depth: u32| {
+        format!(
+            r#"{{"topic":"orderbook.{depth}.SOLUSDT","type":"snapshot","ts":1,
+               "data":{{"b":[["150.00","2.5"]],"a":[["150.01","3.0"]],"u":42,"seq":7}},"cts":9}}"#
+        )
+    };
+    for depth in [50u32, 200] {
+        let evs = parse_message(&raw(depth)).unwrap();
+        match &evs[0] {
+            Event::Book(u) => assert_eq!(u.depth, depth, "глубина обязана дойти до Update"),
+            other => panic!("ожидалось обновление книги, получено {other:?}"),
+        }
+    }
+    // Нечисловая глубина — не наш поток: `orderbook.full.<symbol>` есть в
+    // протоколе, но мы на него не подписаны, и выдумывать ему глубину нельзя.
+    let full = r#"{"topic":"orderbook.full.SOLUSDT","data":{"b":[],"a":[]}}"#;
+    assert_eq!(parse_message(full).unwrap(), vec![Event::Other]);
 }
 
 /// Сквозной случай: разобранные сообщения применяются к книге и дают

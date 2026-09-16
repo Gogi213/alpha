@@ -26,6 +26,7 @@ use hftbacktest::types::{
 
 use crate::binlog::Record;
 use crate::book::{Book, Side, Update};
+use crate::bybit::conn::ORDERBOOK_DEPTH;
 use crate::bybit::rest::OrderbookSnapshot;
 
 // ---------------------------------------------------------------------------
@@ -606,8 +607,12 @@ impl FileReplayer {
             self.next_u += 1;
         }
         // Файл `seq` не хранит: синтетика зеркалит `u` (проверки 2-3, не 1).
+        // Глубина — потока основного файла (T45): реплей читает
+        // `<root>/<SYMBOL>-<день>.binlog`, глубокий файл лежит отдельно и
+        // этого признака в формате не несёт (v3 заморожен, В-49).
         updates.push(Update {
             is_snapshot: self.cur_snapshot,
+            depth: ORDERBOOK_DEPTH,
             u,
             seq: u,
             cts_ms: self.cur_ts_ns / 1_000_000,
@@ -752,25 +757,12 @@ impl VerifySummary {
     }
 }
 
-/// Хронологический ключ файла `<SYMBOL>-<день>[-pN].binlog`: день, потом
-/// часть суток. Голая лексикография (`Vec::sort()` на именах) ставит `-p2`
-/// раньше файла без суффикса — `-` (0x2D) < `.` (0x2E) в ASCII, значит
-/// `SOLUSDT-2026-09-08-p2.binlog` меньше `SOLUSDT-2026-09-08.binlog` как
-/// строка. Таск 22: `commands::lob::mod::file_order_key` уже решает это для
-/// `replay_symbol_over_configs`/`session_binlog_for`; `bybit` не зависит от
-/// `commands` (граница слоёв, `CLAUDE.md`), поэтому здесь — тот же расчёт по
-/// тому же правилу, не второй способ его же придумать.
+/// Хронологический ключ файла `<SYMBOL>-<день>[-pN].binlog[.zst]`: день,
+/// потом часть суток. Правило — `binlog::binlog_file_order_key` (одно на все
+/// слои; `bybit` не зависит от `commands`, граница слоёв, поэтому общее
+/// правило живёт в `binlog` — ниже обоих).
 fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
-    let rest = name.strip_prefix(prefix).unwrap_or(name);
-    let rest = rest.strip_suffix(".binlog").unwrap_or(rest);
-    if let Some(tail) = rest.get(10..) {
-        if let Some(num) = tail.strip_prefix("-p") {
-            if let Ok(part) = num.parse::<u32>() {
-                return (rest[..10].to_string(), part);
-            }
-        }
-    }
-    (rest.to_string(), 1)
+    crate::binlog::binlog_file_order_key(prefix, name)
 }
 
 /// Прогоняет все суточные файлы символа через проверки 2-3. Проверка 1 здесь
@@ -784,7 +776,7 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
     for e in entries {
         let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) && name.ends_with(".binlog") {
+        if name.starts_with(&prefix) && crate::binlog::is_binlog_file_name(&name) {
             files.push(e.path());
         }
     }
@@ -796,6 +788,10 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
         };
         file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
     });
+    // Оригинал и его архив одной части — одни сутки (T46): сверять их дважды
+    // значило бы удвоить `updates`/`trades` в сводке каталога. Побеждает
+    // обычный файл (`binlog::dedupe_same_day_part`).
+    crate::binlog::dedupe_same_day_part(&prefix, &mut files);
     if files.is_empty() {
         // Таск 19, тот же приём, что `commands::lob::mod::
         // replay_symbol_over_configs`/`session_binlog_for`: каталог
@@ -804,17 +800,23 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
         // суточных файлов» — владелец переименовывает руками, но обязан
         // узнать об этом из сообщения, не из тишины. Резолвер `commands::
         // lob` сюда не завозится (`bybit` не зависит от `commands` —
-        // граница слоёв), поэтому проверка своя, тем же текстом ошибки.
-        let undated = args.root.join(format!("{}.binlog", args.symbol));
-        if undated.is_file() {
-            anyhow::bail!(
-                "файл `{}.binlog` без даты — запись старого формата, переименуйте в \
-                 `{}-<дата>.binlog` ({} в {})",
-                args.symbol,
-                args.symbol,
-                undated.display(),
-                args.root.display()
-            );
+        // граница слоёв), поэтому проверка своя, тем же текстом ошибки;
+        // архивный суффикс (T46) проверяется так же, как обычный.
+        for suffix in [
+            crate::binlog::BINLOG_SUFFIX,
+            crate::binlog::BINLOG_ARCHIVE_SUFFIX,
+        ] {
+            let name = format!("{}{suffix}", args.symbol);
+            let undated = args.root.join(&name);
+            if undated.is_file() {
+                anyhow::bail!(
+                    "файл `{name}` без даты — запись старого формата, переименуйте в \
+                     `{}-<дата>{suffix}` ({} в {})",
+                    args.symbol,
+                    undated.display(),
+                    args.root.display()
+                );
+            }
         }
         anyhow::bail!(
             "нет суточных файлов {}-*.binlog в {}",

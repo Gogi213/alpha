@@ -23,8 +23,9 @@
 //!   одним сообщением (`ws::sub_pool`).
 //!
 //! Отсюда раскладка `plan_connections`: инструменты набиваются в сокет
-//! жадно, пока суммарная длина `args` (`ws::pool_args_chars`, оба топика
-//! на инструмент) не упрётся в `MAX_ARGS_CHARS`. Числа «символов на
+//! жадно, пока суммарная длина `args` (`ws::pool_args_chars`, **три** топика
+//! на инструмент с T45: быстрый стакан `.50`, глубокий `.200` и лента) не
+//! упрётся в `MAX_ARGS_CHARS`. Числа «символов на
 //! соединение» в коде нет — оно вычисляется из имён пула и предела
 //! площадки: замер 2026-09-12 — восемь инструментов дали одно соединение
 //! (326 символов `args`), 761 (весь linear USDT-перпетуальный список) — два
@@ -48,8 +49,13 @@ use tokio::sync::mpsc;
 use crate::bybit::conn::{
     BackoffConfig, BybitPublicLinearConnector, Clock, ConnEvent, ConnSink, Connection,
     PoolConnConfig, SymbolSpec, SystemClock, TransportConnector, MAX_ARGS_CHARS,
-    MAX_CONNECTIONS_PER_5MIN, ORDERBOOK_DEPTH,
+    MAX_CONNECTIONS_PER_5MIN, ORDERBOOK_DEPTH, SUBSCRIBED_DEPTHS,
 };
+
+/// Потоки стакана по умолчанию для всех входов, кроме коллектора сессии:
+/// один быстрый `.50` (T45). Массив из одного элемента — потому что
+/// `spawn_io_thread` берёт срез потоков, а не отдельную глубину.
+const FAST_DEPTHS: [u32; 1] = [ORDERBOOK_DEPTH];
 
 use super::{Event, Feed, GapKind};
 
@@ -126,11 +132,15 @@ impl std::error::Error for LayoutError {}
 /// сохраняется, инструмент i остаётся индексом i для `Feed`.
 ///
 /// Единственное число в этой функции — предел площадки; «символов на
-/// соединение» вычисляется из длин имён конкретного пула, а не задаётся.
-/// Группа никогда не пуста: первый инструмент кладётся в неё безусловно
-/// (инструмент, чьи топики сами длиннее предела, у Bybit существовать не
-/// может — имя символа это единицы символов).
-pub(crate) fn plan_connections(pool: &[PoolMember]) -> Result<Vec<Vec<u16>>, LayoutError> {
+/// соединение» вычисляется из длин имён конкретного пула и набора потоков
+/// `depths` (у коллектора сессии их два, у остальных — один), а не
+/// задаётся. Группа никогда не пуста: первый инструмент кладётся в неё
+/// безусловно (инструмент, чьи топики сами длиннее предела, у Bybit
+/// существовать не может — имя символа это единицы символов).
+pub(crate) fn plan_connections(
+    pool: &[PoolMember],
+    depths: &[u32],
+) -> Result<Vec<Vec<u16>>, LayoutError> {
     if pool.is_empty() {
         return Err(LayoutError::EmptyPool);
     }
@@ -138,7 +148,7 @@ pub(crate) fn plan_connections(pool: &[PoolMember]) -> Result<Vec<Vec<u16>>, Lay
     let mut current: Vec<u16> = Vec::new();
     let mut chars = 0usize;
     for (i, m) in pool.iter().enumerate() {
-        let cost = crate::bybit::ws::pool_args_chars(ORDERBOOK_DEPTH, &m.symbol);
+        let cost = crate::bybit::ws::pool_args_chars(depths, &m.symbol);
         if !current.is_empty() && chars + cost > MAX_ARGS_CHARS {
             groups.push(std::mem::take(&mut current));
             chars = 0;
@@ -155,25 +165,27 @@ pub(crate) fn plan_connections(pool: &[PoolMember]) -> Result<Vec<Vec<u16>>, Lay
 
 /// Печатает раскладку на stderr — критерий приёмки «раскладка подписок по
 /// соединениям по замеру и ограничениям Bybit, лимит процитирован».
-fn print_topic_budget(pool: &[PoolMember], groups: &[Vec<u16>]) {
+/// `depths` — тот же набор потоков, по которому считалась раскладка: число
+/// топиков на инструмент и длина `args` обязаны быть про то соединение,
+/// которое действительно откроется, а не про подписку коллектора.
+fn print_topic_budget(pool: &[PoolMember], groups: &[Vec<u16>], depths: &[u32]) {
     let widest = groups
         .iter()
         .map(|g| {
             g.iter()
-                .map(|&i| {
-                    crate::bybit::ws::pool_args_chars(ORDERBOOK_DEPTH, &pool[usize::from(i)].symbol)
-                })
+                .map(|&i| crate::bybit::ws::pool_args_chars(depths, &pool[usize::from(i)].symbol))
                 .sum::<usize>()
         })
         .max()
         .unwrap_or(0);
     eprintln!(
         "session: {} инструментов -> {} соединений (по потоку ввода-вывода на каждое), \
-2 топика на инструмент; самое полное соединение — {widest} символов args против предела \
+{} топика на инструмент; самое полное соединение — {widest} символов args против предела \
 {MAX_ARGS_CHARS} (Bybit v5 linear: числа args в запросе нет, только эта длина); бюджет \
 создания соединений — {MAX_CONNECTIONS_PER_5MIN} за 5 минут на домен",
         pool.len(),
         groups.len(),
+        depths.len() + 1,
     );
     if groups.len() > MAX_CONNECTIONS_PER_5MIN {
         eprintln!(
@@ -290,9 +302,14 @@ pub struct LiveFeed {
     /// этот индекс (`DynamicPool::add`, таск 34).
     pool_len: usize,
     /// Фабрика соединения, сохранённая со старта (таск 34): те же
-    /// коннектор, часы и общий канал, что у стартовых шардов, — партия,
-    /// добавленная на ходу, поднимается ровно тем же путём, что и первая.
+    /// коннектор, часы, набор потоков стакана и общий канал, что у стартовых
+    /// шардов, — партия, добавленная на ходу, поднимается ровно тем же путём,
+    /// что и первая.
     spawn_shard: ShardSpawner,
+    /// Потоки стакана этого `Feed` (T45) — тот же набор, что ушёл в
+    /// соединения: партия, добавленная на ходу (`DynamicPool::add`), обязана
+    /// считаться и подписываться по нему же.
+    depths: Vec<u32>,
 }
 
 /// Поднимает один шард — ОС-поток с рантаймом и `Connection` — для группы
@@ -306,11 +323,13 @@ type ShardSpawner =
 /// Группы `SymbolSpec` по раскладке `plan_connections` для партии
 /// `members`, индексы которой начинаются с `first_index` (0 на старте,
 /// длина пула — при добавлении). Один код и для старта, и для `add`.
+/// `depths` — потоки стакана этого `Feed`: по ним считается длина `args`.
 fn shard_specs(
     members: &[PoolMember],
     first_index: usize,
+    depths: &[u32],
 ) -> Result<Vec<Vec<SymbolSpec>>, LayoutError> {
-    let groups = plan_connections(members)?;
+    let groups = plan_connections(members, depths)?;
     let total = first_index.saturating_add(members.len());
     if u16::try_from(total.saturating_sub(1)).is_err() {
         return Err(LayoutError::PoolTooLarge { got: total });
@@ -341,13 +360,17 @@ fn shard_specs(
 /// ОС-поток одного соединения: свой `current_thread`-рантайм, `Connection`
 /// на группу инструментов, события — в общий канал через `TaggedSink`.
 /// `tick` — таймер потока решений, кладётся только на первый шард старта
-/// (см. `spawn_with_clock_and_connector_and_ticks`).
+/// (см. `spawn_with_clock_and_connector_and_ticks`). `depths` — потоки
+/// стакана этого `Feed` (T45): их задаёт вызывающий, потому что книга и
+/// приёмники у каждого свои — коллектор сессии ведёт по два потока на
+/// инструмент, все остальные (реакция, замер, рекордер) — один.
 fn spawn_io_thread<C, K>(
     symbols: Vec<SymbolSpec>,
     connector: C,
     clock: K,
     tx: mpsc::Sender<Item>,
     tick: Option<(Duration, K)>,
+    depths: &[u32],
 ) -> std::thread::JoinHandle<()>
 where
     C: TransportConnector + 'static,
@@ -355,6 +378,7 @@ where
 {
     let backoff = LIVE_BACKOFF;
     let ping = LIVE_PING_INTERVAL;
+    let depths = depths.to_vec();
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -363,6 +387,12 @@ where
         runtime.block_on(async move {
             let cfg = PoolConnConfig {
                 symbols,
+                // T45: коллектор сессии несёт оба потока стакана по каждому
+                // инструменту — быстрый `.50` и глубокий `.200` — одним
+                // сокетом. Остальные вызывающие (`lob react`, одно-символьные
+                // `lob record`/`pick::measure`) остаются на `.50`: их книга
+                // одна и поток не различает.
+                depths,
                 ping_interval: ping,
                 backoff,
             };
@@ -410,12 +440,19 @@ impl LiveFeed {
     /// молчании пула (сеть упала, бэкофф) поток решений просыпается не
     /// позже `tick`. Период задаёт вызывающий: это его окно потери
     /// (`commands::record::FRAME_LOSS_WINDOW_SECS`), не свойство сокета.
+    ///
+    /// **Единственный вход с двумя потоками стакана** (T45): тик есть только
+    /// у коллектора сессии (`commands::lob::session::run_session`), и именно
+    /// ему нужны и `.50`, и `.200` (`SUBSCRIBED_DEPTHS`). Остальные входы
+    /// (`spawn`, `spawn_with`, `spawn_with_clock`) подписываются на один
+    /// быстрый `.50`: их потребители ведут одну книгу и потока не различают.
     pub fn spawn_with_ticks(pool: Vec<PoolMember>, tick: Duration) -> Result<Self, LayoutError> {
         Self::spawn_with_clock_and_connector_and_ticks(
             pool,
             |_member| BybitPublicLinearConnector,
             SystemClock,
             Some(tick),
+            SUBSCRIBED_DEPTHS.to_vec(),
         )
     }
 
@@ -456,7 +493,9 @@ impl LiveFeed {
     }
 
     /// Общее ядро `spawn`/`spawn_with`/`spawn_with_clock`: и транспорт, и
-    /// часы — параметры, ничего больше в теле не меняется.
+    /// часы — параметры, ничего больше в теле не меняется. Потоки стакана —
+    /// один быстрый `.50` (`FAST_DEPTHS`): двухпотоковый вход один и назван
+    /// по имени (`spawn_with_ticks`, T45).
     fn spawn_with_clock_and_connector<C, F, K>(
         pool: Vec<PoolMember>,
         make_connector: F,
@@ -467,24 +506,31 @@ impl LiveFeed {
         F: FnMut(&PoolMember) -> C + Send + 'static,
         K: Clock + Clone + Send + 'static,
     {
-        Self::spawn_with_clock_and_connector_and_ticks(pool, make_connector, clock, None)
+        Self::spawn_with_clock_and_connector_and_ticks(
+            pool,
+            make_connector,
+            clock,
+            None,
+            FAST_DEPTHS.to_vec(),
+        )
     }
 
     /// Шов теста для тика и остановки (таск 25): фейковый транспорт, свои
-    /// часы, свой период тика.
+    /// часы, свой период тика и свой набор потоков стакана (T45).
     pub(crate) fn spawn_with_clock_and_connector_and_ticks<C, F, K>(
         pool: Vec<PoolMember>,
         mut make_connector: F,
         clock: K,
         tick: Option<Duration>,
+        depths: Vec<u32>,
     ) -> Result<Self, LayoutError>
     where
         C: TransportConnector + 'static,
         F: FnMut(&PoolMember) -> C + Send + 'static,
         K: Clock + Clone + Send + 'static,
     {
-        let groups = plan_connections(&pool)?;
-        print_topic_budget(&pool, &groups);
+        let groups = plan_connections(&pool, &depths)?;
+        print_topic_budget(&pool, &groups, &depths);
         let capacity = CHANNEL_CAPACITY_PER_SYMBOL.saturating_mul(pool.len().max(1));
         let (tx, rx) = mpsc::channel::<Item>(capacity);
         let stop_tx = tx.clone();
@@ -492,7 +538,7 @@ impl LiveFeed {
 
         // Раскладка посчитана до того, как что-либо открыто: группы —
         // глобальные индексы пула, порядок пула не меняется.
-        let shards = shard_specs(&pool, 0)?;
+        let shards = shard_specs(&pool, 0, &depths)?;
 
         // Тик кладётся на рантайм **первого** шарда: он общий для всего
         // потока решений (окно потери кадра), а не свойство сокета — второй
@@ -511,14 +557,16 @@ impl LiveFeed {
                 clock.clone(),
                 tx.clone(),
                 tick_for_shard.take(),
+                &depths,
             ));
         }
 
         // Фабрика на будущее (таск 34): партия, добавленная на ходу,
-        // идёт через тот же коннектор, те же часы и тот же канал. Тика у
-        // неё нет — он уже идёт с первого шарда.
+        // идёт через тот же коннектор, те же часы, тот же набор потоков и
+        // тот же канал. Тика у неё нет — он уже идёт с первого шарда.
         let shard_tx = tx.clone();
         let shard_clock = clock;
+        let shard_depths = depths.clone();
         let spawn_shard: ShardSpawner = Box::new(move |symbols, first| {
             spawn_io_thread(
                 symbols,
@@ -526,6 +574,7 @@ impl LiveFeed {
                 shard_clock.clone(),
                 shard_tx.clone(),
                 None,
+                &shard_depths,
             )
         });
         drop(tx);
@@ -538,20 +587,23 @@ impl LiveFeed {
             io_threads,
             pool_len: pool.len(),
             spawn_shard,
+            depths,
         })
     }
 }
 
 impl super::DynamicPool for LiveFeed {
     /// Новая партия — новые соединения (таск 34): раскладка той же
-    /// `plan_connections` с тем же пределом `MAX_ARGS_CHARS`, индексы —
+    /// `plan_connections` с тем же пределом `MAX_ARGS_CHARS` и тем же
+    /// набором потоков стакана (`self.depths`, T45 — иначе длина `args` и
+    /// подписка новой партии разошлись бы со стартовыми), индексы —
     /// продолжение пула (`pool_len..`), живые сокеты не трогаются.
     /// Аллокации здесь — раз на добавление, не на событие рынка: после
     /// возврата новый шард шлёт в тот же канал тем же `TaggedSink`.
     /// `StopHandle` гасит и его: `Stop` идёт по общему каналу, а ОС-поток
     /// нового соединения умирает вместе с процессом, как и стартовые.
     fn add(&mut self, members: Vec<PoolMember>) -> Result<Vec<u16>, LayoutError> {
-        let shards = shard_specs(&members, self.pool_len)?;
+        let shards = shard_specs(&members, self.pool_len, &self.depths)?;
         let mut indices = Vec::with_capacity(members.len());
         for symbols in shards {
             let first = &members[usize::from(symbols[0].index) - self.pool_len];
@@ -599,19 +651,30 @@ impl Feed for LiveFeed {
                 symbol: idx,
                 local_ts_ns,
                 kind: GapKind::ParseFailed,
+                // Неразобранный кадр — ничей: из него нельзя прочитать ни
+                // символа, ни потока.
+                depth: None,
                 detail: format!("кадр не разобрался: {err:?}"),
             },
-            ConnEvent::SequenceGap { expected, got } => Event::Gap {
+            ConnEvent::SequenceGap {
+                depth,
+                expected,
+                got,
+            } => Event::Gap {
                 symbol: idx,
                 local_ts_ns: (self.now_ns)(),
                 kind: GapKind::SequenceGap,
-                detail: format!("разрыв u: ждали {expected}, пришло {got} — ресинк снапшотом"),
+                depth: Some(depth),
+                detail: format!(
+                    "разрыв u потока .{depth}: ждали {expected}, пришло {got} — ресинк снапшотом"
+                ),
             },
-            ConnEvent::BookInvariantViolated { err } => Event::Gap {
+            ConnEvent::BookInvariantViolated { depth, err } => Event::Gap {
                 symbol: idx,
                 local_ts_ns: (self.now_ns)(),
                 kind: GapKind::BookInvariant,
-                detail: format!("книга нарушена: {err:?} — ресинк снапшотом"),
+                depth: Some(depth),
+                detail: format!("книга потока .{depth} нарушена: {err:?} — ресинк снапшотом"),
             },
             ConnEvent::Disconnected { first_of_socket } => Event::Gap {
                 symbol: idx,
@@ -621,12 +684,16 @@ impl Feed for LiveFeed {
                 } else {
                     GapKind::DisconnectedSameSocket
                 },
+                // Разрыв сокета роняет **оба** потока этого инструмента
+                // сразу: у него нет одной глубины.
+                depth: None,
                 detail: "транспорт переподключился — шов покрытия".to_string(),
             },
             ConnEvent::Unrouted { local_ts_ns } => Event::Gap {
                 symbol: idx,
                 local_ts_ns,
                 kind: GapKind::Unrouted,
+                depth: None,
                 detail: "топик кадра не сопоставлен ни одному инструменту сокета".to_string(),
             },
         })

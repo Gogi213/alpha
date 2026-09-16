@@ -12,6 +12,7 @@ fn record(ev: u64, block: bool, local_eq_exch: bool) -> Record {
         price_ticks: 100,
         qty_lots: 1,
         block,
+        rpi: false,
     }
 }
 

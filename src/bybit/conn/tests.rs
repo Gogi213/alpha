@@ -216,7 +216,37 @@ fn test_cfg(symbol: &str) -> ConnConfig {
     }
 }
 
+/// Конфигурация коллектора сессии: то же соединение, но с двумя потоками
+/// стакана (`SUBSCRIBED_DEPTHS`, T45). Одно-символьные вызывающие
+/// (`lob record`, `pick::measure`) остаются на одном `.50` — этот шов и
+/// проверяет, что набор потоков приходит из конфигурации, а не зашит в
+/// `Connection`.
+fn test_cfg_with_both_depths(symbol: &str) -> PoolConnConfig {
+    let mut cfg: PoolConnConfig = test_cfg(symbol).into();
+    assert_eq!(
+        cfg.depths,
+        vec![ORDERBOOK_DEPTH],
+        "одно-символьный вызывающий обязан остаться на быстром потоке"
+    );
+    cfg.depths = SUBSCRIBED_DEPTHS.to_vec();
+    cfg
+}
+
 fn orderbook_msg(
+    kind: &str,
+    u: u64,
+    cts_ms: i64,
+    bids: &[(f64, f64)],
+    asks: &[(f64, f64)],
+) -> String {
+    orderbook_msg_at(ORDERBOOK_DEPTH, kind, u, cts_ms, bids, asks)
+}
+
+/// То же сообщение из топика заданной глубины (T45): `.50` — быстрый поток,
+/// `.200` — глубокий. Fixture для проверки, что разрыв `u` одного потока не
+/// трогает книгу и ресинк другого.
+fn orderbook_msg_at(
+    depth: u32,
     kind: &str,
     u: u64,
     cts_ms: i64,
@@ -231,7 +261,7 @@ fn orderbook_msg(
             .join(",")
     };
     format!(
-        r#"{{"topic":"orderbook.50.SOLUSDT","type":"{kind}","ts":{cts_ms},"data":{{"b":[{}],"a":[{}],"u":{u},"seq":{u}}},"cts":{cts_ms}}}"#,
+        r#"{{"topic":"orderbook.{depth}.SOLUSDT","type":"{kind}","ts":{cts_ms},"data":{{"b":[{}],"a":[{}],"u":{u},"seq":{u}}},"cts":{cts_ms}}}"#,
         render(bids),
         render(asks)
     )
@@ -405,6 +435,7 @@ async fn sequence_gap_triggers_resubscribe_and_wait_for_resnapshot_not_silent_co
     assert_eq!(
         events[1],
         ConnEvent::SequenceGap {
+            depth: 50,
             expected: 11,
             got: 12
         }
@@ -425,6 +456,175 @@ async fn sequence_gap_triggers_resubscribe_and_wait_for_resnapshot_not_silent_co
     assert_eq!(
         resubscribes, 2,
         "изначальная подписка плюс ровно один ресинк — не по подписке на каждую гэпнутую дельту"
+    );
+}
+
+/// T45: потоки глубины независимы. Разрыв `u` в глубоком потоке (`.200`)
+/// обязан дать `SequenceGap` **своей** глубины, ресинк-подписку **своего**
+/// топика и не тронуть быстрый поток: следующая дельта `.50` идёт дальше
+/// как ни в чём не бывало. Обратное — то же самое, потому что состояние
+/// (`books`/`resyncing`) хранится на пару (инструмент, поток), а не на
+/// инструмент.
+#[tokio::test]
+async fn gap_in_one_depth_stream_resyncs_only_that_stream() {
+    let frames = vec![
+        // Быстрый поток: снапшот u=10 и следующая дельта u=11.
+        Ok(Frame::Text(orderbook_msg_at(
+            ORDERBOOK_DEPTH,
+            "snapshot",
+            10,
+            1,
+            &[(1.0, 5.0)],
+            &[(1.0001, 4.0)],
+        ))),
+        // Глубокий поток: снапшот u=5, затем дельта u=7 — разрыв (ждали 6).
+        Ok(Frame::Text(orderbook_msg_at(
+            ORDERBOOK_DEEP_DEPTH,
+            "snapshot",
+            5,
+            1,
+            &[(1.0, 5.0)],
+            &[(1.0001, 4.0)],
+        ))),
+        Ok(Frame::Text(orderbook_msg_at(
+            ORDERBOOK_DEEP_DEPTH,
+            "delta",
+            7,
+            2,
+            &[(1.0, 6.0)],
+            &[],
+        ))),
+        // Быстрый поток продолжается: его `u` не терялся, ресинка быть не
+        // должно, и событие обязано дойти до канала.
+        Ok(Frame::Text(orderbook_msg_at(
+            ORDERBOOK_DEPTH,
+            "delta",
+            11,
+            3,
+            &[(1.0, 7.0)],
+            &[],
+        ))),
+        // Ресинк глубокого потока: свежий снапшот u=100.
+        Ok(Frame::Text(orderbook_msg_at(
+            ORDERBOOK_DEEP_DEPTH,
+            "snapshot",
+            100,
+            4,
+            &[(2.0, 1.0)],
+            &[(2.0001, 1.0)],
+        ))),
+    ];
+    let (connector, sent) = ScriptedConnector::new(vec![frames]);
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(
+        Connection::new(connector, test_cfg_with_both_depths("SOLUSDT")).run(SystemClock, tx),
+    );
+
+    // Пять событий: .50 снапшот, .200 снапшот, разрыв .200, .50 дельта,
+    // .200 ресинк-снапшот. Дельты .200 между разрывом и снапшотом наружу не
+    // идут, лишних `SequenceGap` тоже нет.
+    let events = collect_n(&mut rx, 5).await;
+    handle.abort();
+
+    match &events[0] {
+        ConnEvent::Message {
+            event: Event::Book(u),
+            ..
+        } => {
+            assert_eq!((u.depth, u.u), (ORDERBOOK_DEPTH, 10));
+        }
+        other => panic!("ожидался снапшот .50 u=10, получено {other:?}"),
+    }
+    match &events[1] {
+        ConnEvent::Message {
+            event: Event::Book(u),
+            ..
+        } => {
+            assert_eq!((u.depth, u.u), (ORDERBOOK_DEEP_DEPTH, 5));
+        }
+        other => panic!("ожидался снапшот .200 u=5, получено {other:?}"),
+    }
+    assert_eq!(
+        events[2],
+        ConnEvent::SequenceGap {
+            depth: ORDERBOOK_DEEP_DEPTH,
+            expected: 6,
+            got: 7
+        },
+        "разрыв обязан быть помечен своим потоком"
+    );
+    match &events[3] {
+        ConnEvent::Message {
+            event: Event::Book(u),
+            ..
+        } => assert_eq!(
+            (u.depth, u.u),
+            (ORDERBOOK_DEPTH, 11),
+            "разрыв .200 не имеет права глушить .50"
+        ),
+        other => panic!("ожидалась дельта .50 u=11, получено {other:?}"),
+    }
+    match &events[4] {
+        ConnEvent::Message {
+            event: Event::Book(u),
+            ..
+        } => assert_eq!((u.depth, u.u), (ORDERBOOK_DEEP_DEPTH, 100)),
+        other => panic!("ожидался ресинк-снапшот .200 u=100, получено {other:?}"),
+    }
+
+    let sent = sent.lock().unwrap();
+    let fast_resubscribes = sent
+        .iter()
+        .filter(|m| m.contains(r#""orderbook.50.SOLUSDT""#))
+        .count();
+    let deep_resubscribes = sent
+        .iter()
+        .filter(|m| m.contains(r#""orderbook.200.SOLUSDT""#))
+        .count();
+    assert_eq!(
+        fast_resubscribes, 1,
+        "быстрый поток подписан один раз (общий sub_pool) и ни разу не ресинкан"
+    );
+    assert_eq!(
+        deep_resubscribes, 2,
+        "глубокий поток: общий sub_pool плюс ровно один ресинк — не по подписке на дельту"
+    );
+}
+
+/// Одно-символьные вызывающие (`commands::record`, `pick::measure`) ведут
+/// одну книгу и один бинлог — их соединение подписано только на `.50`
+/// (`From<ConnConfig>`). Приди такому соединению кадр `.200`, он обязан стать
+/// `Unrouted`, а не лечь в ту же книгу вторым потоком: у `.200` своя
+/// последовательность `u`, и смешение выглядело бы разрывом на каждом втором
+/// сообщении (T45).
+#[tokio::test]
+async fn deep_topic_is_unrouted_on_a_single_depth_connection() {
+    let frames = vec![Ok(Frame::Text(orderbook_msg_at(
+        ORDERBOOK_DEEP_DEPTH,
+        "snapshot",
+        5,
+        1,
+        &[(1.0, 5.0)],
+        &[(1.0001, 4.0)],
+    )))];
+    let (connector, sent) = ScriptedConnector::new(vec![frames]);
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, test_cfg("SOLUSDT")).run(SystemClock, tx));
+
+    let events = collect_n(&mut rx, 1).await;
+    handle.abort();
+    match &events[0] {
+        ConnEvent::Unrouted { local_ts_ns } => {
+            assert!(*local_ts_ns >= 0, "метка кадра обязана быть настоящей");
+        }
+        other => {
+            panic!("кадр не нашего потока наружу как рынок не идёт, ожидался Unrouted: {other:?}")
+        }
+    }
+    let sent = sent.lock().unwrap();
+    assert!(
+        sent.iter().all(|m| !m.contains("orderbook.200.SOLUSDT")),
+        "в подписке одно-символьного соединения глубокого топика быть не должно: {sent:?}"
     );
 }
 
@@ -645,6 +845,7 @@ async fn resync_resubscribe_send_failure_still_emits_disconnected() {
     assert_eq!(
         events[1],
         ConnEvent::SequenceGap {
+            depth: 50,
             expected: 11,
             got: 12
         }
@@ -888,7 +1089,7 @@ async fn price_not_on_tick_is_observable_and_triggers_resync() {
     handle.abort();
 
     match &events[1] {
-        ConnEvent::BookInvariantViolated { err } => {
+        ConnEvent::BookInvariantViolated { err, .. } => {
             assert!(
                 matches!(err, ApplyError::PriceNotOnTick { .. }),
                 "ожидался PriceNotOnTick, получено {err:?}"
@@ -937,7 +1138,7 @@ async fn qty_not_on_step_is_observable_and_triggers_resync() {
     handle.abort();
 
     match &events[1] {
-        ConnEvent::BookInvariantViolated { err } => {
+        ConnEvent::BookInvariantViolated { err, .. } => {
             assert!(
                 matches!(err, ApplyError::QtyNotOnStep { .. }),
                 "ожидался QtyNotOnStep, получено {err:?}"
@@ -979,7 +1180,7 @@ async fn crossed_book_is_observable_and_triggers_resync() {
     handle.abort();
 
     match &events[1] {
-        ConnEvent::BookInvariantViolated { err } => {
+        ConnEvent::BookInvariantViolated { err, .. } => {
             assert!(
                 matches!(err, ApplyError::Crossed { .. }),
                 "ожидался Crossed, получено {err:?}"

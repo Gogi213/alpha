@@ -76,6 +76,7 @@ fn record_to_event_restores_crate_scale() {
         price_ticks: 150,
         qty_lots: 5,
         block: true,
+        rpi: false,
     };
     // Шаг цены и шаг размера по целому: 150 тиков по 1.0 и 5 лотов по 1.0.
     let ev = record_to_event(&r, 1_000_000_000, 1_000_000_000);
@@ -99,6 +100,7 @@ fn record_to_event_keeps_fractional_scale() {
         price_ticks: 6_543_210,
         qty_lots: 250,
         block: false,
+        rpi: false,
     };
     let ev = record_to_event(&r, 10_000, 1_000_000);
     assert!((ev.px - 65.4321).abs() < 1e-9, "px = {}", ev.px);
@@ -149,6 +151,7 @@ fn sample_record(ev: u64, exch_ts_ns: i64, local_ts_ns: i64) -> Record {
         price_ticks: 100,
         qty_lots: 2,
         block: false,
+        rpi: false,
     }
 }
 
@@ -246,6 +249,7 @@ fn exported_npy_matches_header_and_payload_byte_for_byte() {
         price_ticks: 101,
         qty_lots: 3,
         block: true,
+        rpi: false,
     };
     write_binlog(
         &dir.path().join(format!("{symbol}-2026-01-01.binlog")),

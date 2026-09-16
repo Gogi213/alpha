@@ -87,6 +87,7 @@ fn level(side: Side, death_ms: i64) -> LevelRecord {
         repriced: false,
         death: crate::lob::levels::DeathKind::BelowFraction,
         traded_lots: 0,
+        rpi_lots: 0,
     }
 }
 

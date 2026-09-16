@@ -836,6 +836,7 @@ fn mirrored_moves_give_equal_m_and_opposite_signed_raw() {
             repriced: false,
             death: crate::lob::levels::DeathKind::BelowFraction,
             traded_lots: 0,
+            rpi_lots: 0,
         }
     }
     fn sample(ts_ms: i64, mid2x: i64) -> MidSample {

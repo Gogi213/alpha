@@ -1,45 +1,52 @@
-//! Файлы записи в каталоге: имена `<SYMBOL>-<день>[-pN].binlog`, их порядок,
-//! резолвер бинлогов сессии (`session_binlog_for`) и части с сутками/часом
-//! старта (`session_parts_for`). Отдельно от `mod.rs`: это раскладка каталога
+//! Файлы записи в каталоге: имена `<SYMBOL>-<день>[-pN].binlog` и их архивы
+//! `<SYMBOL>-<день>[-pN].binlog.zst` (T46), их порядок, резолвер бинлогов
+//! сессии (`session_binlog_for`) и части с сутками/часом старта
+//! (`session_parts_for`). Отдельно от `mod.rs`: это раскладка каталога
 //! на диске, её делят `verify`, `backtest`, `profiles`, `watch`, `shortlist`.
+//!
+//! Суточный файл и его архив — **одни и те же сутки** для всех читателей:
+//! `binlog::Reader` открывает контейнер тем же кодом, поэтому резолверы
+//! возвращают оба имени в одном списке, а порядок внутри суток считается по
+//! номеру части, а не по расширению.
 
 use std::path::{Path, PathBuf};
 
+use crate::binlog::{
+    is_binlog_file_name, strip_binlog_suffix, BINLOG_ARCHIVE_SUFFIX, BINLOG_SUFFIX,
+};
+
 use super::session;
 
-/// Сутки из имени файла `<SYMBOL>-<день>[-pN].binlog`: первые 10 знаков
+/// Сутки из имени файла `<SYMBOL>-<день>[-pN].binlog[.zst]`: первые 10 знаков
 /// остатка. Формат проверяет позже `watch` (`BadDay`), здесь только нарезка.
 pub(crate) fn day_of_filename(prefix: &str, name: &str) -> Option<String> {
-    let rest = name.strip_prefix(prefix)?.strip_suffix(".binlog")?;
+    let rest = strip_binlog_suffix(name.strip_prefix(prefix)?)?;
     if rest.len() < 10 {
         return None;
     }
     Some(rest[..10].to_string())
 }
 
-/// Хронологический ключ файла: день, затем часть суток. То же правило, что
-/// `export::part_order_key` (голая лексикография ставит `-p2` раньше начала
-/// суток): имя после префикса — либо день, либо день с `-pN`.
+/// Хронологический ключ файла: день, затем часть суток. Правило —
+/// `binlog::binlog_file_order_key` (одно на все слои: `commands::lob`,
+/// `lob::export`, `bybit::verify`); обёртка осталась, потому что этим именем
+/// её зовут `verify.rs` и тесты.
 pub(crate) fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
-    let rest = name.strip_prefix(prefix).unwrap_or(name);
-    let rest = rest.strip_suffix(".binlog").unwrap_or(rest);
-    if let Some(tail) = rest.get(10..) {
-        if let Some(num) = tail.strip_prefix("-p") {
-            if let Ok(part) = num.parse::<u32>() {
-                return (rest[..10].to_string(), part);
-            }
-        }
-    }
-    (rest.to_string(), 1)
+    crate::binlog::binlog_file_order_key(prefix, name)
 }
 
-/// Все `<SYMBOL>-*.binlog` каталога, хронологически (день, потом часть) —
-/// общий шаг `replay_symbol_over_configs` (запись `lob record`, много суток)
-/// и `session_binlog_for` (запись `lob session`, с таска 22 — тоже может
-/// нести несколько суток и несколько частей на сутки: владелец пишет одну-две
-/// сессии в сутки в тот же `--root`, не одну на весь каталог). Пустой список
-/// не ошибка здесь — у обоих вызывающих свой текст на пустоту (общий на
-/// «нет файлов вовсе», разный на подсказку про старый недатированный формат).
+/// Все `<SYMBOL>-*.binlog` и их архивы `<SYMBOL>-*.binlog.zst` каталога,
+/// хронологически (день, потом часть) — общий шаг `replay_symbol_over_configs`
+/// (запись `lob record`, много суток) и `session_binlog_for` (запись
+/// `lob session`, с таска 22 — тоже может нести несколько суток и несколько
+/// частей на сутки: владелец пишет одну-две сессии в сутки в тот же `--root`,
+/// не одну на весь каталог). Пустой список не ошибка здесь — у обоих
+/// вызывающих свой текст на пустоту (общий на «нет файлов вовсе», разный на
+/// подсказку про старый недатированный формат).
+///
+/// Архив (T46) попадает в тот же список: для `Reader` это те же сутки, и
+/// разделять их значило бы требовать от каждой читающей команды знания о
+/// том, что файл побывал в архиве.
 pub(crate) fn list_symbol_binlogs(dir: &Path, symbol: &str) -> anyhow::Result<Vec<PathBuf>> {
     let prefix = format!("{symbol}-");
     let entries = std::fs::read_dir(dir)
@@ -48,18 +55,15 @@ pub(crate) fn list_symbol_binlogs(dir: &Path, symbol: &str) -> anyhow::Result<Ve
     for e in entries {
         let e = e.map_err(|e| anyhow::anyhow!("запись каталога: {e}"))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) && name.ends_with(".binlog") {
+        if name.starts_with(&prefix) && is_binlog_file_name(&name) {
             files.push(e.path());
         }
     }
-    files.sort_by(|a, b| {
-        let key = |p: &PathBuf| {
-            p.file_name()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
-        file_order_key(&prefix, &key(a)).cmp(&file_order_key(&prefix, &key(b)))
-    });
+    // Хронологический порядок и склейка «оригинал + его архив одной части» —
+    // одним вызовом: обе работы идут по одному ключу
+    // (`binlog::dedupe_same_day_part`), и раздельные сортировки разошлись бы
+    // на первом же изменении правила.
+    crate::binlog::dedupe_same_day_part(&prefix, &mut files);
     Ok(files)
 }
 
@@ -75,23 +79,27 @@ pub(crate) fn list_symbol_binlogs(dir: &Path, symbol: &str) -> anyhow::Result<Ve
 /// выше) — читатели проигрывают их подряд как один поток.
 ///
 /// - Один и больше датированных файлов — это и есть бинлоги сессии, в
-///   хронологическом порядке.
-/// - Ни одного, но есть файл старого формата `<symbol>.binlog` без даты —
-///   явная ошибка с именем файла и советом переименовать (не тихое «нет
-///   файлов», см. `replay_symbol_over_configs`/`bybit::verify::run_verify`
-///   выше — тот же приём).
+///   хронологическом порядке (архивы `*.binlog.zst` — в том же списке, T46).
+/// - Ни одного, но есть файл старого формата `<symbol>.binlog` (или его
+///   архив `<symbol>.binlog.zst`) без даты — явная ошибка с именем файла и
+///   советом переименовать (не тихое «нет файлов», см.
+///   `replay_symbol_over_configs`/`bybit::verify::run_verify` выше — тот же
+///   приём).
 /// - Ни одного и старого формата тоже нет — общая ошибка «нет бинлога».
 pub(crate) fn session_binlog_for(dir: &Path, symbol: &str) -> anyhow::Result<Vec<PathBuf>> {
     let files = list_symbol_binlogs(dir, symbol)?;
     if files.is_empty() {
-        let undated = dir.join(format!("{symbol}.binlog"));
-        if undated.is_file() {
-            anyhow::bail!(
-                "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
-                 `{symbol}-<дата>.binlog` ({} в {})",
-                undated.display(),
-                dir.display()
-            );
+        for suffix in [BINLOG_SUFFIX, BINLOG_ARCHIVE_SUFFIX] {
+            let name = format!("{symbol}{suffix}");
+            let undated = dir.join(&name);
+            if undated.is_file() {
+                anyhow::bail!(
+                    "файл `{name}` без даты — запись старого формата, переименуйте в \
+                     `{symbol}-<дата>{suffix}` ({} в {})",
+                    undated.display(),
+                    dir.display()
+                );
+            }
         }
         anyhow::bail!("нет бинлога для `{symbol}` в {}", dir.display());
     }
@@ -208,11 +216,31 @@ pub(crate) fn session_days_in_dir(dir: &Path) -> std::collections::BTreeSet<Stri
     days
 }
 
-/// Сутки из имени `<SYMBOL>-<день>[-pN].binlog` без знания символа: хвост
-/// после необязательного `-pN` обязан кончаться на `-YYYY-MM-DD`. Иначе —
-/// `None` (старый недатированный формат, чужой файл).
+/// Символ из имени `<SYMBOL>-<день>[-pN].binlog[.zst]` без знания символа:
+/// тем же разбором, что `day_of_binlog_name` (хвост после необязательного
+/// `-pN` кончается на `-YYYY-MM-DD`), только возвращается голова. Нужен
+/// `lob archive`: маркер сверки (`verify-<SYMBOL>.status`, таск 26) лежит по
+/// символу, а команда получает путь к файлу. `None` — имя не по раскладке
+/// записи (старый недатированный формат, чужой файл).
+pub(crate) fn symbol_of_binlog_name(name: &str) -> Option<&str> {
+    let stem = strip_binlog_suffix(name)?;
+    let stem = match stem.rsplit_once("-p") {
+        Some((head, num)) if num.parse::<u32>().is_ok() => head,
+        _ => stem,
+    };
+    let split = stem.len().checked_sub(11)?;
+    let head = stem.get(..split)?;
+    let day = stem.get(split..)?.strip_prefix('-')?;
+    (!head.is_empty() && crate::lob::watch::day_format_ok(day)).then_some(head)
+}
+
+/// Сутки из имени `<SYMBOL>-<день>[-pN].binlog[.zst]` без знания символа:
+/// хвост после необязательного `-pN` обязан кончаться на `-YYYY-MM-DD`.
+/// Иначе — `None` (старый недатированный формат, чужой файл). Архив суток
+/// даёт те же сутки, что и оригинал: `session_days_in_dir` не должен видеть
+/// в каталоге «лишние» сутки от того, что часть уже упакована (T46).
 pub(crate) fn day_of_binlog_name(name: &str) -> Option<&str> {
-    let stem = name.strip_suffix(".binlog")?;
+    let stem = strip_binlog_suffix(name)?;
     let stem = match stem.rsplit_once("-p") {
         Some((head, num)) if num.parse::<u32>().is_ok() => head,
         _ => stem,

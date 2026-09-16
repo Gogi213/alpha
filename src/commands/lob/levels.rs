@@ -139,6 +139,7 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
         "repriced",
         "death",
         "traded_lots",
+        "rpi_lots",
         "outcome",
     ])?;
     let mut n = 0usize;
@@ -158,6 +159,7 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
                 r.repriced.to_string(),
                 death_name(r.death).to_string(),
                 r.traded_lots.to_string(),
+                r.rpi_lots.to_string(),
                 outcome_name(r.outcome()).to_string(),
             ])?;
             n += 1;

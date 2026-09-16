@@ -70,6 +70,7 @@ fn rec(ev: u64, exch_ts_ns: i64, local_ts_ns: i64, price_ticks: i64, qty_lots: i
         price_ticks,
         qty_lots,
         block: false,
+        rpi: false,
     }
 }
 
@@ -429,11 +430,60 @@ fn v3_payload_of(group: &[u8]) -> Vec<u8> {
 
 #[test]
 fn unknown_attrs_bit_is_corruption_not_a_silent_ignore() {
-    // ev=1, exch=0, local=0, attrs=0x02 (неизвестный бит), count=1, цена, размер.
-    let payload = v3_payload_of(&[1, 0, 0, 0x02, 1, 1, 1]);
+    // ev=1, exch=0, local=0, attrs=0x04 (бит 2 — неизвестный: бит 0 занят
+    // блочностью, бит 1 — RPI), count=1, цена, размер.
+    let payload = v3_payload_of(&[1, 0, 0, 0x04, 1, 1, 1]);
     let err = decode_frame_payload_v3(&payload)
         .expect_err("неизвестный бит `attrs` обязан быть ошибкой, а не тишиной");
     assert!(matches!(err, BinlogError::Corrupt(_)), "{err:?}");
+}
+
+/// Флаг RPI лежит в `attrs` **группы**, но обязан остаться поштучным: смена
+/// флага рвёт группу (иначе две сделки одного сообщения с разными `RPI`
+/// слились бы в одну и флаг потерялся бы), а round-trip возвращает значения,
+/// записанные на диск.
+#[test]
+fn rpi_flag_survives_round_trip_and_splits_the_group() {
+    let ts = 1_700_000_000_000_000_000;
+    let plain = rec(ev_trade_buy(), ts, ts + 1, 100, 5);
+    let mut rpi = rec(ev_trade_buy(), ts, ts + 1, 101, 7);
+    rpi.rpi = true;
+
+    assert!(
+        !same_message(&plain, &rpi),
+        "смена RPI обязана начинать новую группу: иначе флаг не поштучный"
+    );
+    assert!(
+        same_message(&plain, &plain),
+        "иначе тест не проверяет границу: одинаковые записи — одна группа"
+    );
+
+    let bytes = write_all(header(), &[vec![plain, rpi]]);
+    let (_, frames) = read_all(&bytes);
+    assert_eq!(frames.len(), 1, "один кадр — одна группа на каждую запись");
+    assert_eq!(
+        frames[0],
+        vec![plain, rpi],
+        "значения и порядок — как на диске"
+    );
+    assert!(!frames[0][0].rpi);
+    assert!(frames[0][1].rpi);
+}
+
+/// Файл, записанный до появления флага (бит 1 `attrs` нулевой), читается как
+/// «не размечено», а не как ошибка раскладки: обратная совместимость по
+/// чтению — часть контракта, а не побочный эффект.
+#[test]
+fn file_written_before_the_rpi_bit_reads_as_not_flagged() {
+    let ts = 1_700_000_000_000_000_000;
+    let plain = rec(ev_trade_buy(), ts, ts + 1, 100, 5);
+    let bytes = write_all(header(), &[vec![plain, plain]]);
+    let (_, frames) = read_all(&bytes);
+    assert_eq!(frames[0].len(), 2);
+    assert!(
+        frames[0].iter().all(|r| !r.rpi),
+        "записи без бита RPI обязаны читаться как `false`"
+    );
 }
 
 #[test]

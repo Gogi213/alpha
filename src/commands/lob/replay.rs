@@ -73,6 +73,7 @@ pub(crate) fn trade_hit_from_record(rec: &Record) -> Option<TradeHit> {
         lots: rec.qty_lots,
         aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
         block: rec.block,
+        rpi: rec.rpi,
         exch_ms: rec.exch_ts_ns / 1_000_000,
     })
 }
@@ -191,14 +192,21 @@ pub(crate) fn replay_symbol_over_configs(
         // session` писала `<SYMBOL>.binlog` без даты) не должен молча
         // выглядеть как «нет суточных файлов» — владелец переименовывает
         // руками, но узнать об этом обязан из сообщения, не из тишины.
-        let undated = root.join(format!("{symbol}.binlog"));
-        if undated.is_file() {
-            anyhow::bail!(
-                "файл `{symbol}.binlog` без даты — запись старого формата, переименуйте в \
-                 `{symbol}-<дата>.binlog` ({} в {})",
-                undated.display(),
-                root.display()
-            );
+        // Архивный суффикс (T46) проверяется так же, как обычный.
+        for suffix in [
+            crate::binlog::BINLOG_SUFFIX,
+            crate::binlog::BINLOG_ARCHIVE_SUFFIX,
+        ] {
+            let name = format!("{symbol}{suffix}");
+            let undated = root.join(&name);
+            if undated.is_file() {
+                anyhow::bail!(
+                    "файл `{name}` без даты — запись старого формата, переименуйте в \
+                     `{symbol}-<дата>{suffix}` ({} в {})",
+                    undated.display(),
+                    root.display()
+                );
+            }
         }
         anyhow::bail!("нет суточных файлов {prefix}*.binlog в {}", root.display());
     }

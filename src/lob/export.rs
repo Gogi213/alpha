@@ -92,28 +92,21 @@ pub fn is_defective(ev: &Event) -> bool {
 }
 
 /// Ключ хронологического порядка суточных файлов: день UTC, затем часть
-/// суток (`-p2` после смены шагов). Голая лексикография здесь врёт: `-`
-/// (0x2D) меньше `.` (0x2E), и `SYM-день-p2.binlog` встал бы раньше
-/// `SYM-день.binlog`, то есть хвост суток — раньше их начала, а данные
-/// крейту нужны по времени. Имя после префикса символа — либо `день`,
-/// либо `день-pN`; всё нераспознанное считается частью 1 того же имени.
+/// суток (`-p2` после смены шагов), затем имя — чтобы два файла одной части
+/// (оригинал и архив, T46) имели различимый порядок до склейки. Само правило
+/// дня и части — `binlog::binlog_file_order_key` (одно на все слои).
 fn part_order_key(prefix: &str, name: &str) -> (String, u32, String) {
-    let rest = name.strip_prefix(prefix).unwrap_or(name);
-    let rest = rest.strip_suffix(".binlog").unwrap_or(rest);
-    if let Some(tail) = rest.get(10..) {
-        if let Some(num) = tail.strip_prefix("-p") {
-            if let Ok(part) = num.parse::<u32>() {
-                return (rest[..10].to_string(), part, name.to_string());
-            }
-        }
-    }
-    (rest.to_string(), 1, name.to_string())
+    let (day, part) = crate::binlog::binlog_file_order_key(prefix, name);
+    (day, part, name.to_string())
 }
 
 /// Выгрузка всех суточных файлов символа в один `npy` через `write_npy`
 /// самого крейта. Файлы идут в хронологическом порядке (`part_order_key`:
 /// день, затем часть); порядок записей внутри файлов не меняется.
 /// Дефектные события в выход не попадают, их число — в итоге.
+///
+/// Архивы `*.binlog.zst` (T46) читаются наравне: выгрузка идёт тем же
+/// `binlog::Reader`, а он открывает контейнер своим кодом.
 pub fn run_export(args: &ExportArgs) -> anyhow::Result<ExportSummary> {
     let prefix = format!("{}-", args.symbol);
     let entries = std::fs::read_dir(&args.root)
@@ -122,7 +115,7 @@ pub fn run_export(args: &ExportArgs) -> anyhow::Result<ExportSummary> {
     for e in entries {
         let e = e.map_err(|e| anyhow::anyhow!("запись каталога не читается: {e}"))?;
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) && name.ends_with(".binlog") {
+        if name.starts_with(&prefix) && crate::binlog::is_binlog_file_name(&name) {
             files.push(e.path());
         }
     }
@@ -134,6 +127,10 @@ pub fn run_export(args: &ExportArgs) -> anyhow::Result<ExportSummary> {
     files.sort_by(|a, b| {
         part_order_key(&prefix, &file_name(a)).cmp(&part_order_key(&prefix, &file_name(b)))
     });
+    // Оригинал и его архив одной части — одни сутки: выгружать оба значило бы
+    // положить одни и те же события в `npy` дважды (T46; побеждает обычный
+    // файл, см. `binlog::dedupe_same_day_part`).
+    crate::binlog::dedupe_same_day_part(&prefix, &mut files);
     if files.is_empty() {
         anyhow::bail!(
             "нет суточных файлов {}-*.binlog в {}",

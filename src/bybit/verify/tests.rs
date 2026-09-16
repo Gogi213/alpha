@@ -14,6 +14,7 @@ fn qty(lots: i64) -> i64 {
 fn snapshot_update(u: u64) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u,
         seq: u,
         cts_ms: 1_000,
@@ -47,6 +48,7 @@ fn rest_snapshot_with_seq(u: u64, seq: u64) -> OrderbookSnapshot {
 fn snapshot_update_with_seq(u: u64, seq: u64) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u,
         seq,
         cts_ms: 1_000,
@@ -96,6 +98,7 @@ fn extra_level_deep_gives_exactly_one_mismatch_not_cascade() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let up = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_000,
@@ -203,6 +206,7 @@ fn delta_before_snapshot_is_sequence_gap() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let up = Update {
         is_snapshot: false,
+        depth: 50,
         u: 7,
         seq: 7,
         cts_ms: 1_000,
@@ -219,6 +223,7 @@ fn crossed_snapshot_fails_at_apply_and_counts() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let up = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_000,
@@ -271,6 +276,7 @@ fn trade_inside_range_on_never_held_price_is_violation() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let up = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_000,
@@ -295,6 +301,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let snap = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_000,
@@ -304,6 +311,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
     v.apply_update(&snap).unwrap();
     let eaten = Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 2_000,
@@ -324,6 +332,7 @@ fn trade_inside_range_on_held_price_is_clean() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     let up = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_000,
@@ -360,6 +369,7 @@ fn file_replay_groups_snapshot_delta_and_trades() {
         price_ticks: ticks,
         qty_lots: lots,
         block,
+        rpi: false,
     };
     let records = vec![
         rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5, 1_000_000_000, false),
@@ -408,6 +418,7 @@ fn synthetic_u_continues_across_frames() {
         price_ticks: ticks,
         qty_lots: lots,
         block: false,
+        rpi: false,
     };
     // Кадр 1 — снапшот, кадры 2-3 — дельты, как их отдаёт Reader.
     let frame1 = vec![
@@ -445,6 +456,7 @@ fn message_split_across_frames_stays_atomic() {
         price_ticks: ticks,
         qty_lots: lots,
         block: false,
+        rpi: false,
     };
     let snap = vec![
         rec(LOCAL_BID_DEPTH_SNAPSHOT_EVENT, 100, 5),
@@ -568,6 +580,7 @@ fn steady_updates_allocate_nothing() {
     v.apply_update(&snapshot_update(1)).unwrap();
     let delta = Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 2_000,
@@ -579,6 +592,7 @@ fn steady_updates_allocate_nothing() {
         for k in 3..1003u64 {
             let up = Update {
                 is_snapshot: false,
+                depth: 50,
                 u: k,
                 seq: k,
                 cts_ms: 2_000 + k as i64,
@@ -626,6 +640,7 @@ fn live_snapshot_compare_via_rest() {
     // на живых числах, а не на синтетике.
     let up = Update {
         is_snapshot: true,
+        depth: 50,
         u: snap.u,
         seq: snap.seq,
         cts_ms: snap.ts_ms,

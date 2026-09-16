@@ -17,6 +17,7 @@ fn level_rec(traded_lots: i64, size_max: i64, death_ms: i64) -> LevelRecord {
         repriced: false,
         death: DeathKind::BelowFraction,
         traded_lots,
+        rpi_lots: 0,
     }
 }
 
@@ -366,6 +367,7 @@ fn binlog_drain_round_trips_synthetic_frames() {
                 price_ticks: 100 + i,
                 qty_lots: 10 + i,
                 block: false,
+                rpi: false,
             })
             .collect();
         w.write_frame(&recs).expect("кадр пишется");

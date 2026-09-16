@@ -15,7 +15,9 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 futures = "0.3"
 chrono = "0.4"
-zstd = "0.14"
+# zdict_builder — только ради обучения словаря в examples/dict_probe.rs (замер 2026-09-15:
+# словарь отклонён, 2-3 %); на работу коллектора фича не влияет и может быть снята.
+zstd = { version = "0.14", features = ["zdict_builder"] }
 # live тянет iceoryx2 и tokio крейта; он понадобится на шаге живого бота, не сейчас.
 hftbacktest = { version = "0.9.4", default-features = false, features = ["backtest"] }
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.

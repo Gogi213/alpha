@@ -17,7 +17,8 @@
 //!     ev : uvarint                 ← флаги события, служебных бит нет
 //!     exch_dt : zigzag             ← exch_ts − epoch
 //!     local_dt : zigzag            ← local_ts − epoch (одна метка на сообщение)
-//!     attrs : uvarint              ← бит 0: блочная сделка; остальные биты 0
+//!     attrs : uvarint              ← бит 0: блочная сделка; бит 1: RPI-сделка;
+//!                                     остальные биты 0
 //!     count : uvarint              ← записей в группе (≥ 1)
 //!     count × (price_dt : zigzag, qty_dt : zigzag)  ← дельты от предыдущей
 //!                                                     записи кадра
@@ -32,7 +33,39 @@
 //! доказательство «0 %» можно было перепроверить на любом старом файле.
 //! Блочность сделки (`ival != 0` в v2) — не мёртвое поле, а бит `attrs`:
 //! `lob/levels.rs` пропускает блочные сделки, и семантика сохранена без
-//! `i64`-варианта в каждой записи.
+//! `i64`-варианта в каждой записи. Бит 1 (`RPI`, 2026-09-16) добавлен так же:
+//! RPI-сделка исполнена об невидимую заявку маркет-мейкера и видимую
+//! ликвидность уровня не потребляет. Файлы, записанные до этого дня, читаются
+//! как `rpi = false` — «не размечено»; обратная совместимость односторонняя:
+//! старый читатель новые файлы отвергает по неизвестному биту, и это его
+//! штатное поведение (fail-closed), а не регресс.
+//!
+//! # Контейнер архива (T46, `binlog::archive`)
+//!
+//! Закрытые сверенные сутки складываются в `*.binlog.zst`: **один** zstd-поток
+//! над
+//!
+//! ```text
+//! [маркер ABLA(4) | версия контейнера(1) | уровень zstd(1)]
+//! [заголовок v3 (25 Б, тот же) ]
+//! [кадр 0: u32 длина LE | тело кадра БЕЗ сжатия]
+//! [кадр 1: ...]*
+//! ```
+//!
+//! Замер `docs/findings/archive-compression-2026-09-15.md`: покадровое сжатие
+//! уровня 1 уже даёт 24 %, но контексту негде расти, и пересжатие кадров
+//! уровнем 19 добавляет всего 1.6 %; одним потоком поверх тех же тел кадров
+//! zstd-19 даёт −7.7 % **к сегодняшнему размеру на диске** (92.3 %), а
+//! разжимается на порядок быстрее xz. Формат v3 при этом не меняется
+//! (В-49): архив — обёртка над теми же кадрами, живой путь записи о ней не
+//! знает вовсе.
+//!
+//! `Reader` опознаёт контейнер по магии zstd в первых четырёх байтах и читает
+//! его тем же `read_frame`: различие только в теле кадра — у контейнера оно
+//! уже лежит несжатым, у обычного файла разжимается покадрово. Заголовок
+//! суток внутри контейнера — тот же v3, поэтому все читатели (`levels`,
+//! `markout`, `verify`, `binlog-stats`, `dashboard`) получают архив даром:
+//! их код не меняется, меняется только имя файла в каталоге.
 //!
 //! Заголовок несёт `tickSize` и `qtyStep`, потому что записи внутри кадров
 //! хранят цену в тиках и размер в шагах количества (`ARCHITECTURE.md` A1) —
@@ -106,6 +139,97 @@
 
 use std::fmt;
 use std::io::{self, Read, Write};
+
+pub mod archive;
+
+pub use archive::{
+    default_out_path as archive_out_path, file_bytes as file_bytes_on_disk, is_archive_path,
+    max_level as archive_max_level, read_stats as archive_stats,
+    verify_round_trip as archive_verify_round_trip, write_container as archive_write, ArchiveRead,
+    ArchiveVerify, ArchiveWrite, ARCHIVE_MAGIC, ARCHIVE_VERSION,
+    DEFAULT_LEVEL as ARCHIVE_DEFAULT_LEVEL,
+};
+
+/// Суффикс обычного суточного файла: `<SYMBOL>-<день>[-pN].binlog`.
+pub const BINLOG_SUFFIX: &str = ".binlog";
+
+/// Суффикс контейнера архива (T46): `<SYMBOL>-<день>[-pN].binlog.zst`.
+/// Отрезается **раньше** обычного суффикса: `strip_binlog_suffix` снял бы
+/// `.binlog` первым и оставил `.zst` в хвосте имени, то есть сутки перестали
+/// бы разбираться.
+pub const BINLOG_ARCHIVE_SUFFIX: &str = ".binlog.zst";
+
+/// Отрезает суффикс суточного файла (архивный или обычный) — единственное
+/// место, где это правило записано. Живёт в `binlog`, а не в `commands`, чтобы
+/// им могли пользоваться все слои: `commands::lob` (резолверы), `lob::export`
+/// (свой обход каталога) и `bybit::verify` (своя копия резолвера — `bybit` не
+/// зависит от `commands`, граница слоёв). `None` — не имя суточного файла.
+pub fn strip_binlog_suffix(name: &str) -> Option<&str> {
+    name.strip_suffix(BINLOG_ARCHIVE_SUFFIX)
+        .or_else(|| name.strip_suffix(BINLOG_SUFFIX))
+}
+
+/// Имя суточного файла — обычного или контейнера архива. Оба читаются одним
+/// `Reader`, поэтому и резолверы обязаны видеть оба (T46).
+pub fn is_binlog_file_name(name: &str) -> bool {
+    strip_binlog_suffix(name).is_some()
+}
+
+/// Хронологический ключ суточного файла: сутки UTC, затем часть суток
+/// (`-p2` после смены шагов). Голая лексикография врёт: `-` (0x2D) меньше
+/// `.` (0x2E) в ASCII, и `SOLUSDT-2026-09-08-p2.binlog` как строка встал бы
+/// **раньше** `SOLUSDT-2026-09-08.binlog`, то есть хвост суток — раньше их
+/// начала, а данные читателям нужны по времени. Имя после префикса символа —
+/// либо `день`, либо `день-pN`; всё нераспознанное считается частью 1 того же
+/// имени.
+///
+/// Живёт здесь, а не в `commands`, по той же причине, что и снятие суффикса:
+/// правило нужно трём слоям (`commands::lob` — резолверы, `lob::export` —
+/// свой обход каталога, `bybit::verify` — своя копия резолвера; `bybit` не
+/// зависит от `commands`, граница слоёв). До T46 оно было второй копией в
+/// каждом из них; с двумя суффиксами копий стало бы столько же — второй
+/// способ придумать то же правило перестал быть дешевле общего.
+pub fn binlog_file_order_key(prefix: &str, name: &str) -> (String, u32) {
+    let rest = name.strip_prefix(prefix).unwrap_or(name);
+    let rest = strip_binlog_suffix(rest).unwrap_or(rest);
+    if let Some(tail) = rest.get(10..) {
+        if let Some(num) = tail.strip_prefix("-p") {
+            if let Ok(part) = num.parse::<u32>() {
+                return (rest[..10].to_string(), part);
+            }
+        }
+    }
+    (rest.to_string(), 1)
+}
+
+/// Приводит список файлов одного символа к «одна часть суток — один файл»:
+/// сортирует хронологически ([`binlog_file_order_key`]) и выбрасывает
+/// дубликаты по `(сутки, часть)`.
+///
+/// Дубликат — ровно случай «оригинал и его архив лежат рядом» (T46): сутки
+/// те же (архив собран из этого файла и сверен round-trip), и вернуть оба
+/// значило бы проиграть сутки дважды, причём в порядке `read_dir`, то есть
+/// недетерминированно. Побеждает **обычный** файл: он не требует кодека и
+/// читается всеми командами ровно как до T46, а архив читается, когда
+/// оригинала уже нет, — то есть в том порядке, который описывает ранбук
+/// (архивировать → сверить → удалить оригинал).
+pub fn dedupe_same_day_part(prefix: &str, files: &mut Vec<std::path::PathBuf>) {
+    let key_of = |p: &std::path::PathBuf| {
+        let name = p
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        binlog_file_order_key(prefix, &name)
+    };
+    let is_archive = |p: &std::path::PathBuf| p.to_string_lossy().ends_with(BINLOG_ARCHIVE_SUFFIX);
+    // Порядок по ключу; при равном ключе обычный файл раньше архива.
+    files.sort_by(|a, b| {
+        key_of(a)
+            .cmp(&key_of(b))
+            .then_with(|| is_archive(a).cmp(&is_archive(b)))
+    });
+    files.dedup_by(|a, b| key_of(a) == key_of(b));
+}
 
 /// Магия формата. Проверяется при открытии, чтобы чужой или пустой файл
 /// не читался молча как валидный лог с нулевым содержимым.
@@ -222,6 +346,9 @@ pub struct Record {
     /// потребляют видимую ликвидность (Decision 5), разметка их пропускает
     /// (`lob/levels.rs`). В формате v3 — бит 0 `attrs` группы.
     pub block: bool,
+    /// Сделка об RPI-заявку (`RPI` у Bybit). В формате v3 — бит 1 `attrs`
+    /// группы; файлы до 2026-09-16 читаются как `false` («не размечено»).
+    pub rpi: bool,
 }
 
 /// Ошибка формата. `Io`/`Corrupt` несут текст, а не исходный `io::Error`:
@@ -421,6 +548,20 @@ const FRAME_EPOCH_LEN: usize = 8;
 /// чужие байты как свои (та же дисциплина, что у версии в заголовке).
 const ATTRS_BLOCK: u64 = 1 << 0;
 
+/// Бит 1 `attrs` группы — RPI-сделка (`RPI` у Bybit, 2026-09-16): исполнена об
+/// невидимую заявку маркет-мейкера, видимую ликвидность уровня не потребляет.
+/// Группа рвётся по смене флага (`same_message`), поэтому флаг остаётся
+/// поштучным, хотя живёт в заголовке группы.
+const ATTRS_RPI: u64 = 1 << 1;
+
+/// Все биты `attrs`, которые знает эта версия читателя.
+const ATTRS_KNOWN: u64 = ATTRS_BLOCK | ATTRS_RPI;
+
+/// `attrs` группы из флагов записи.
+fn attrs_of(r: &Record) -> u64 {
+    u64::from(r.block) | (u64::from(r.rpi) << 1)
+}
+
 /// Полевой бюджет кадра — сколько байт **сырого** тела пришлось на каждое
 /// поле. В формат не входит: копит кодировщик, читает замер
 /// (`lob binlog-stats --reencode`), чтобы вопрос «за что платятся байты» имел
@@ -548,13 +689,13 @@ fn encode_group_header(
     write_zigzag(buf, r.local_ts_ns.wrapping_sub(epoch_ns));
     fb.local_ts += took(buf, before);
     let before = buf.len();
-    write_uvarint(buf, u64::from(r.block));
+    write_uvarint(buf, attrs_of(r));
     write_uvarint(buf, count as u64);
     fb.group_overhead += took(buf, before);
 }
 
 /// Одна ли это группа: у сообщения биржи флаги, обе метки и блочность одни и
-/// те же на все его записи. Смена любого из четырёх — начало следующего
+/// те же на все его записи. Смена любого из пяти — начало следующего
 /// сообщения. Функция публичная, потому что по этой же границе считает группы
 /// замер (`lob binlog-stats`): граница групп — часть формата, и второй её
 /// редакции в командах быть не должно.
@@ -563,6 +704,7 @@ pub fn same_message(a: &Record, b: &Record) -> bool {
         && a.exch_ts_ns == b.exch_ts_ns
         && a.local_ts_ns == b.local_ts_ns
         && a.block == b.block
+        && a.rpi == b.rpi
 }
 
 /// Как кодировать цену — параметр **замера**, в формат входит только `Delta`.
@@ -708,7 +850,10 @@ pub fn encode_frame_payload_v2(records: &[Record], out: &mut Vec<u8>) -> FieldBy
         fb.qty += took(out, before);
         // Три мёртвых поля v2 — как их писала живая запись: `order_id` = 0
         // (у публичного L2-потока числового id нет), `ival` — из блочности,
-        // `fval` — бит-паттерн 0.0.
+        // `fval` — бит-паттерн 0.0. RPI в v2 не представим: там нет второго
+        // бита у `ival`, а ненулевой `ival` старый читатель понимает как
+        // блочность, поэтому кодировщик v2 его не пишет (v2 — только чтение
+        // и замер, живая запись идёт в v3).
         let before = out.len();
         write_uvarint(out, 0);
         write_zigzag(out, i64::from(r.block));
@@ -757,7 +902,7 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
         let exch_delta = read_zigzag(payload, &mut pos)?;
         let local_delta = read_zigzag(payload, &mut pos)?;
         let attrs = read_uvarint(payload, &mut pos)?;
-        if attrs & !ATTRS_BLOCK != 0 {
+        if attrs & !ATTRS_KNOWN != 0 {
             return Err(BinlogError::Corrupt(format!(
                 "неизвестный бит attrs группы: {attrs:#x}"
             )));
@@ -772,6 +917,7 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
         let exch_ts_ns = epoch_ns.wrapping_add(exch_delta);
         let local_ts_ns = epoch_ns.wrapping_add(local_delta);
         let block = attrs & ATTRS_BLOCK != 0;
+        let rpi = attrs & ATTRS_RPI != 0;
         for _ in 0..count {
             let price_delta = read_zigzag(payload, &mut pos)?;
             let qty_delta = read_zigzag(payload, &mut pos)?;
@@ -786,6 +932,7 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
                 price_ticks,
                 qty_lots,
                 block,
+                rpi,
             });
         }
     }
@@ -830,7 +977,7 @@ pub fn decode_frame_payload_v3_ev_table(payload: &[u8]) -> Result<Vec<Record>, B
         let exch_delta = read_zigzag(payload, &mut pos)?;
         let local_delta = read_zigzag(payload, &mut pos)?;
         let attrs = read_uvarint(payload, &mut pos)?;
-        if attrs & !ATTRS_BLOCK != 0 {
+        if attrs & !ATTRS_KNOWN != 0 {
             return Err(BinlogError::Corrupt(format!(
                 "неизвестный бит attrs группы: {attrs:#x}"
             )));
@@ -845,6 +992,7 @@ pub fn decode_frame_payload_v3_ev_table(payload: &[u8]) -> Result<Vec<Record>, B
         let exch_ts_ns = epoch_ns.wrapping_add(exch_delta);
         let local_ts_ns = epoch_ns.wrapping_add(local_delta);
         let block = attrs & ATTRS_BLOCK != 0;
+        let rpi = attrs & ATTRS_RPI != 0;
         for _ in 0..count {
             let price_delta = read_zigzag(payload, &mut pos)?;
             let qty_delta = read_zigzag(payload, &mut pos)?;
@@ -859,6 +1007,7 @@ pub fn decode_frame_payload_v3_ev_table(payload: &[u8]) -> Result<Vec<Record>, B
                 price_ticks,
                 qty_lots,
                 block,
+                rpi,
             });
         }
     }
@@ -907,6 +1056,8 @@ fn decode_frame_payload_v2(
             price_ticks,
             qty_lots,
             block: ival != 0,
+            // v2 поля RPI не несёт: файлы той версии — «не размечено».
+            rpi: false,
         });
     }
     Ok(out)
@@ -978,6 +1129,23 @@ fn max_frame_payload_bytes(max_records_per_frame: u32) -> usize {
         .min(HARD_PAYLOAD_CEILING)
 }
 
+/// Верхняя граница длины **закодированного** тела кадра v3 для
+/// `max_records_per_frame` записей: эпоха плюс записи по максимальной длине
+/// (`MAX_RECORD_LEN`). Не оценка, а потолок: `count` записей в группе — не
+/// меньше байта на группу, и ни одно поле не длиннее своей LEB128-формы.
+///
+/// Нужна читателю контейнера архива (T46): там тело кадра лежит **несжатым**,
+/// и потолок разжатия zstd (`max_frame_payload_bytes` — граница снизу, по
+/// минимальной длине записи) его не ограничивает. Без этой проверки
+/// испорченная длина кадра в контейнере дала бы вверх по стеку буфер
+/// размером с файл вместо «кадра такого размера в формате быть не может».
+fn max_frame_record_bytes(max_records_per_frame: u32) -> usize {
+    (max_records_per_frame as usize)
+        .saturating_mul(MAX_RECORD_LEN)
+        .saturating_add(FRAME_EPOCH_LEN)
+        .min(HARD_PAYLOAD_CEILING)
+}
+
 // ---------------------------------------------------------------------
 // Чтение точно `n` байт с различением «чисто EOF» и «оборвано на середине».
 // ---------------------------------------------------------------------
@@ -986,6 +1154,50 @@ enum ReadStatus {
     Full,
     Partial(usize),
     Eof,
+}
+
+/// Хвост заголовка (`HEADER_TAIL_LEN` байт) из уже опознанного потока:
+/// общий код обычного файла и контейнера архива — заголовок суток у них
+/// один и тот же (T46). `before` — сколько байт заголовка уже прочитано
+/// (0 у обычного файла, `archive::HEADER_LEN` у контейнера), чтобы
+/// `TruncatedHeader` называл смещение в распакованном потоке, а не в
+/// формате, которого у контейнера снаружи нет.
+fn read_header_tail<R: Read>(body: &mut Body<R>, before: usize) -> Result<Header, BinlogError> {
+    let mut tail = [0u8; HEADER_TAIL_LEN];
+    match body.read_upto(&mut tail)? {
+        ReadStatus::Full => {}
+        ReadStatus::Partial(got) => {
+            return Err(BinlogError::TruncatedHeader {
+                got: before + MAGIC_VERSION_LEN + got,
+                want: before + HEADER_LEN,
+            })
+        }
+        ReadStatus::Eof => {
+            return Err(BinlogError::TruncatedHeader {
+                got: before + MAGIC_VERSION_LEN,
+                want: before + HEADER_LEN,
+            })
+        }
+    }
+    let header = Header {
+        tick_e9: i64::from_le_bytes(
+            tail[0..8]
+                .try_into()
+                .map_err(|_| BinlogError::Corrupt("tick заголовка не лёг в i64".into()))?,
+        ),
+        step_e9: i64::from_le_bytes(
+            tail[8..16]
+                .try_into()
+                .map_err(|_| BinlogError::Corrupt("step заголовка не лёг в i64".into()))?,
+        ),
+        max_records_per_frame: u32::from_le_bytes(
+            tail[16..20]
+                .try_into()
+                .map_err(|_| BinlogError::Corrupt("потолок кадра не лёг в u32".into()))?,
+        ),
+    };
+    validate_header(header)?;
+    Ok(header)
 }
 
 /// `Read::read_exact` не годится: при ошибке он не сообщает, сколько байт
@@ -1180,7 +1392,7 @@ impl<W: Write> Writer<W> {
 /// чтение обслуживает `verify`/`export`/`markout`, но переиспользование
 /// не стоит ничего и держит `Reader` симметричным `Writer`.
 pub struct Reader<R: Read> {
-    inner: R,
+    inner: Body<R>,
     header: Header,
     version: u8,
     frames_read: u64,
@@ -1192,9 +1404,52 @@ pub struct Reader<R: Read> {
     /// Полная длина последнего прочитанного кадра **на диске** (префикс +
     /// тело): замеру M1 тикета 43 нужна базовая линия «сколько файл занимает
     /// сейчас», и взять её из самого читателя честнее, чем считать позицию
-    /// файла снаружи.
+    /// файла снаружи. У контейнера архива покадровых байт на диске нет
+    /// (сжатие общее на весь файл) — там это длина **тела** кадра в
+    /// распакованном потоке, и её же кладут на диск при архивации.
     last_frame_bytes: usize,
+    /// Уровень zstd контейнера архива, `None` у обычного файла (T46). Нужен
+    /// печати (`binlog-stats` именует источник архива) и тестам.
+    archive_level: Option<u8>,
     decompressor: zstd::bulk::Decompressor<'static>,
+}
+
+/// Откуда `Reader` берёт байты после опознания формата: обычный суточный файл
+/// или контейнер архива. Заголовок и кадры читаются одинаково, различие — в
+/// теле кадра (T46).
+enum Body<R: Read> {
+    /// Обычный файл (v2 или v3): кадры сжаты покадрово. Первые
+    /// `MAGIC_VERSION_LEN` байт сюда **не** входят — они уже прочитаны и
+    /// разобраны при опознании формата (`Reader::open`), и второй раз их
+    /// отдавать значило бы сдвинуть весь хвост заголовка на пять байт.
+    Plain(R),
+    /// Контейнер архива: **один** zstd-поток на весь файл. Распаковывается
+    /// по мере чтения (`Decoder`), а не целиком в память: суточный файл
+    /// разжимается в единицы-десятки раз больше, чем занимает на диске, и
+    /// держать его целиком в памяти у команды, которая может идти по сотне
+    /// символов, нельзя. Внутри — тот же заголовок v3 и те же тела кадров,
+    /// только без покадрового сжатия.
+    ///
+    /// `Chain` — потому что первые байты (магия zstd) already прочитаны при
+    /// опознании формата, а декодер обязан увидеть поток с самого начала:
+    /// zstd читает свой заголовок именно там.
+    Archive(
+        zstd::stream::read::Decoder<
+            'static,
+            io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
+        >,
+    ),
+}
+
+impl<R: Read> Body<R> {
+    /// То же `read_upto`, что и у обычного файла, но по телу: у контейнера
+    /// это разжимающийся на лету поток.
+    fn read_upto(&mut self, buf: &mut [u8]) -> io::Result<ReadStatus> {
+        match self {
+            Self::Plain(inner) => read_upto(inner, buf),
+            Self::Archive(decoder) => read_upto(decoder, buf),
+        }
+    }
 }
 
 impl<R: Read> fmt::Debug for Reader<R> {
@@ -1205,6 +1460,7 @@ impl<R: Read> fmt::Debug for Reader<R> {
             .field("header", &self.header)
             .field("version", &self.version)
             .field("frames_read", &self.frames_read)
+            .field("archive_level", &self.archive_level)
             .finish()
     }
 }
@@ -1226,6 +1482,13 @@ impl<R: Read> Reader<R> {
     /// Версии 2 и 3 различаются **только телом кадра**, поэтому хвост
     /// заголовка у них общий и читается одинаково; различие уходит в
     /// `read_frame` через сохранённую `version`.
+    ///
+    /// **Контейнер архива (T46) опознаётся по магии zstd в первых четырёх
+    /// байтах** (`archive::ZSTD_MAGIC`): суточный файл начинается с `MAGIC`
+    /// (`ABLG`), и перепутать их нельзя — ни один из них не начинается с
+    /// четырёх байт другого. Дальше контейнер читается тем же кодом: внутри
+    /// него лежат тот же заголовок v3 и те же тела кадров, отличается только
+    /// способ их получения (разжимается весь поток, а не каждый кадр).
     pub fn open(mut inner: R) -> Result<Self, BinlogError> {
         let mut prefix = [0u8; MAGIC_VERSION_LEN];
         match read_upto(&mut inner, &mut prefix)? {
@@ -1243,6 +1506,14 @@ impl<R: Read> Reader<R> {
                 })
             }
         }
+        // Прочитанные байты возвращаются в поток только контейнеру: zstd
+        // обязан увидеть свой поток с первого байта. Обычному пути они уже
+        // не нужны — magic и версия из них прочитаны ниже, а хвост заголовка
+        // идёт следом за ними.
+        if prefix[0..4] == archive::ZSTD_MAGIC {
+            let decoder = zstd::stream::read::Decoder::new(io::Cursor::new(prefix).chain(inner))?;
+            return Self::open_container(Body::Archive(decoder));
+        }
         if prefix[0..4] != MAGIC {
             return Err(BinlogError::BadMagic {
                 got: [prefix[0], prefix[1], prefix[2], prefix[3]],
@@ -1252,48 +1523,86 @@ impl<R: Read> Reader<R> {
         if version != VERSION && version != VERSION_V2 {
             return Err(BinlogError::UnsupportedVersion { got: version });
         }
-
-        let mut tail = [0u8; HEADER_TAIL_LEN];
-        match read_upto(&mut inner, &mut tail)? {
-            ReadStatus::Full => {}
-            ReadStatus::Partial(got) => {
-                return Err(BinlogError::TruncatedHeader {
-                    got: MAGIC_VERSION_LEN + got,
-                    want: HEADER_LEN,
-                })
-            }
-            ReadStatus::Eof => {
-                return Err(BinlogError::TruncatedHeader {
-                    got: MAGIC_VERSION_LEN,
-                    want: HEADER_LEN,
-                })
-            }
-        }
-        let header = Header {
-            tick_e9: i64::from_le_bytes(
-                tail[0..8]
-                    .try_into()
-                    .map_err(|_| BinlogError::Corrupt("tick заголовка не лёг в i64".into()))?,
-            ),
-            step_e9: i64::from_le_bytes(
-                tail[8..16]
-                    .try_into()
-                    .map_err(|_| BinlogError::Corrupt("step заголовка не лёг в i64".into()))?,
-            ),
-            max_records_per_frame: u32::from_le_bytes(
-                tail[16..20]
-                    .try_into()
-                    .map_err(|_| BinlogError::Corrupt("потолок кадра не лёг в u32".into()))?,
-            ),
-        };
-        validate_header(header)?;
+        let mut body = Body::Plain(inner);
+        let header = read_header_tail(&mut body, 0)?;
         Ok(Self {
-            inner,
+            inner: body,
             header,
             version,
             frames_read: 0,
             legacy_dead: LegacyDeadFields::default(),
             last_frame_bytes: 0,
+            archive_level: None,
+            decompressor: zstd::bulk::Decompressor::new()?,
+        })
+    }
+
+    /// Дочитывает контейнер архива: свой маркер, а за ним — обычный заголовок
+    /// v3. Только версия 3: контейнер собирается из v3-файлов (v2 в него не
+    /// кладут — `archive::write_container` отказывается), и версия внутри
+    /// контейнера проверяется ровно так же строго, как в файле. Ошибки
+    /// `TruncatedHeader` считают `got`/`want` в байтах **распакованного**
+    /// контейнера: снаружи у него нет ни «начала файла», ни «конца суток»,
+    /// по которым можно было бы назвать смещение.
+    fn open_container(mut body: Body<R>) -> Result<Self, BinlogError> {
+        let mut container = [0u8; archive::HEADER_LEN];
+        match body.read_upto(&mut container)? {
+            ReadStatus::Full => {}
+            ReadStatus::Partial(got) => {
+                return Err(BinlogError::TruncatedHeader {
+                    got,
+                    want: archive::HEADER_LEN,
+                })
+            }
+            ReadStatus::Eof => {
+                return Err(BinlogError::TruncatedHeader {
+                    got: 0,
+                    want: archive::HEADER_LEN,
+                })
+            }
+        }
+        archive::validate_container_header(&container)?;
+        let level = container[archive::HEADER_LEVEL_AT];
+        let mut magic_version = [0u8; MAGIC_VERSION_LEN];
+        match body.read_upto(&mut magic_version)? {
+            ReadStatus::Full => {}
+            ReadStatus::Partial(got) => {
+                return Err(BinlogError::TruncatedHeader {
+                    got: archive::HEADER_LEN + got,
+                    want: archive::HEADER_LEN + HEADER_LEN,
+                })
+            }
+            ReadStatus::Eof => {
+                return Err(BinlogError::TruncatedHeader {
+                    got: archive::HEADER_LEN,
+                    want: archive::HEADER_LEN + HEADER_LEN,
+                })
+            }
+        }
+        if magic_version[0..4] != MAGIC {
+            return Err(BinlogError::BadMagic {
+                got: [
+                    magic_version[0],
+                    magic_version[1],
+                    magic_version[2],
+                    magic_version[3],
+                ],
+            });
+        }
+        if magic_version[4] != VERSION {
+            return Err(BinlogError::UnsupportedVersion {
+                got: magic_version[4],
+            });
+        }
+        let header = read_header_tail(&mut body, archive::HEADER_LEN)?;
+        Ok(Self {
+            inner: body,
+            header,
+            version: VERSION,
+            frames_read: 0,
+            legacy_dead: LegacyDeadFields::default(),
+            last_frame_bytes: 0,
+            archive_level: Some(level),
             decompressor: zstd::bulk::Decompressor::new()?,
         })
     }
@@ -1308,6 +1617,13 @@ impl<R: Read> Reader<R> {
         self.version
     }
 
+    /// Уровень zstd контейнера архива (T46), `None` у обычного суточного
+    /// файла. Не влияет на разбор: уровень — запись о том, чем сутки сжаты,
+    /// и нужен печати (`binlog-stats`) и тестам.
+    pub fn archive_level(&self) -> Option<u8> {
+        self.archive_level
+    }
+
     /// Счётчики мёртвых полей, накопленные на прочитанных кадрах версии 2.
     /// На файле версии 3 они нулевые по построению: таких полей в формате нет.
     pub fn legacy_dead_fields(&self) -> LegacyDeadFields {
@@ -1319,19 +1635,27 @@ impl<R: Read> Reader<R> {
         self.last_frame_bytes
     }
 
-    /// Возвращает следующий кадр как список записей, `None` на чистом конце
-    /// файла **после** хотя бы одного прочитанного кадра. Любая нехватка
-    /// байт внутри объявленной длины кадра — `ShortRead`, никогда не
-    /// `Ok(None)` и никогда не паника (Decision 7: усечение обязано быть
-    /// видно как короткое чтение, а не как молчаливый пустой хвост).
+    /// Следующее **тело** кадра — как оно записано в источнике: у обычного
+    /// файла это тело, разжатое покадрово zstd, у контейнера архива — байты,
+    /// которые лежат в нём как есть (T46). Отдельно от `read_frame`, потому
+    /// что архивация обязана сравнивать тела кадров **побайтово**: из
+    /// `Vec<Record>` байтовое равенство кадра не следует — раскладка того же
+    /// набора записей может отличаться группами.
+    ///
+    /// `None` на чистом конце потока **после** хотя бы одного прочитанного
+    /// кадра. Любая нехватка байт внутри объявленной длины — `ShortRead`,
+    /// никогда не `Ok(None)` и никогда не паника (Decision 7: усечение
+    /// обязано быть видно как короткое чтение, а не как молчаливый пустой
+    /// хвост). `frames_read` растёт здесь, а не в `read_frame`: кадр
+    /// прочитан из потока в тот момент, когда прочитано его тело.
     ///
     /// Срезы чанка ниже доказаны: `want ≤ READ_CHUNK = chunk.len()` через
     /// `min`, `n` из `Partial(n)` не превышает запрошенного по контракту
     /// `read_upto`; проверка через `get` в цикле ввода-вывода — мёртвый код.
     #[allow(clippy::indexing_slicing)]
-    pub fn read_frame(&mut self) -> Result<Option<Vec<Record>>, BinlogError> {
+    pub fn read_body(&mut self) -> Result<Option<Vec<u8>>, BinlogError> {
         let mut len_buf = [0u8; LEN_PREFIX];
-        match read_upto(&mut self.inner, &mut len_buf)? {
+        match self.inner.read_upto(&mut len_buf)? {
             ReadStatus::Eof => {
                 return if self.frames_read == 0 {
                     Err(BinlogError::MissingSnapshot)
@@ -1364,18 +1688,18 @@ impl<R: Read> Reader<R> {
         // длина обрывается на `ShortRead` первого недостающего куска, а не
         // на попытке выделить гигабайты впрок.
         const READ_CHUNK: usize = 64 * 1024;
-        let mut compressed = Vec::with_capacity(len.min(READ_CHUNK));
+        let mut stored = Vec::with_capacity(len.min(READ_CHUNK));
         let mut got = 0usize;
         let mut chunk = [0u8; READ_CHUNK];
         while got < len {
             let want = (len - got).min(READ_CHUNK);
-            match read_upto(&mut self.inner, &mut chunk[..want])? {
+            match self.inner.read_upto(&mut chunk[..want])? {
                 ReadStatus::Full => {
-                    compressed.extend_from_slice(&chunk[..want]);
+                    stored.extend_from_slice(&chunk[..want]);
                     got += want;
                 }
                 ReadStatus::Partial(n) => {
-                    compressed.extend_from_slice(&chunk[..n]);
+                    stored.extend_from_slice(&chunk[..n]);
                     got += n;
                     return Err(BinlogError::ShortRead {
                         context: "тело кадра",
@@ -1395,6 +1719,23 @@ impl<R: Read> Reader<R> {
                 }
             }
         }
+        self.frames_read += 1;
+
+        if matches!(self.inner, Body::Archive(_)) {
+            // Тело контейнера лежит несжатым: это и есть тело кадра v3.
+            // Потолок всё равно проверяется — испорченная длина не должна
+            // дать вверх по стеку кадр больше, чем может содержать законный
+            // кадр формата (`max_frame_record_bytes` — верхняя граница
+            // закодированного тела, а не оценка).
+            let ceiling = max_frame_record_bytes(self.header.max_records_per_frame);
+            if stored.len() > ceiling {
+                return Err(BinlogError::FrameExceedsHeaderCeiling {
+                    max_records_per_frame: self.header.max_records_per_frame,
+                    ceiling_bytes: ceiling,
+                });
+            }
+            return Ok(Some(stored));
+        }
 
         // `bulk::Decompressor::decompress` с явной ёмкостью, не
         // `stream::decode_all`: `decode_all` растит буфер по мере разжатия
@@ -1409,11 +1750,20 @@ impl<R: Read> Reader<R> {
         let ceiling_bytes = max_frame_payload_bytes(self.header.max_records_per_frame);
         let payload = self
             .decompressor
-            .decompress(&compressed, ceiling_bytes)
+            .decompress(&stored, ceiling_bytes)
             .map_err(|_| BinlogError::FrameExceedsHeaderCeiling {
                 max_records_per_frame: self.header.max_records_per_frame,
                 ceiling_bytes,
             })?;
+        Ok(Some(payload))
+    }
+
+    /// Возвращает следующий кадр как список записей — `read_body` плюс
+    /// декодирование по версии источника.
+    pub fn read_frame(&mut self) -> Result<Option<Vec<Record>>, BinlogError> {
+        let Some(payload) = self.read_body()? else {
+            return Ok(None);
+        };
         // Версию выбирает заголовок, а не содержимое кадра: угадывание по
         // байтам тела — ровно то тихое неверное чтение, от которого версия
         // в заголовке и защищает (`Reader::open`).
@@ -1425,7 +1775,6 @@ impl<R: Read> Reader<R> {
         } else {
             decode_frame_payload_v3(&payload)?
         };
-        self.frames_read += 1;
         Ok(Some(records))
     }
 }

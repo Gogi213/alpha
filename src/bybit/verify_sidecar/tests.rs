@@ -41,6 +41,7 @@ fn book_with_seq(seq: u64) -> Book {
     let mut book = Book::new(TICK_E9, STEP_E9);
     book.apply(&Update {
         is_snapshot: true,
+        depth: 50,
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_000,
@@ -54,6 +55,7 @@ fn book_with_seq(seq: u64) -> Book {
 fn empty_delta(seq: u64) -> Update {
     Update {
         is_snapshot: false,
+        depth: 50,
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_001,
@@ -65,6 +67,7 @@ fn empty_delta(seq: u64) -> Update {
 fn snapshot_update(seq: u64) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u: 1_000_000 + seq,
         seq,
         cts_ms: 1_757_800_000_000,
@@ -76,6 +79,7 @@ fn snapshot_update(seq: u64) -> Update {
 fn sparse_snapshot(seq: u64, u: u64) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u,
         seq,
         cts_ms: 1_757_800_000_000,
@@ -87,6 +91,7 @@ fn sparse_snapshot(seq: u64, u: u64) -> Update {
 fn sparse_delta(seq: u64, u: u64) -> Update {
     Update {
         is_snapshot: false,
+        depth: 50,
         u,
         seq,
         cts_ms: 1_757_800_000_001,
@@ -98,6 +103,7 @@ fn sparse_delta(seq: u64, u: u64) -> Update {
 fn sparse_snapshot_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
     Update {
         is_snapshot: true,
+        depth: 50,
         u,
         seq,
         cts_ms: 1_757_800_000_000,
@@ -109,6 +115,7 @@ fn sparse_snapshot_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
 fn sparse_delta_with_bid(seq: u64, u: u64, bid_qty_e9: i64) -> Update {
     Update {
         is_snapshot: false,
+        depth: 50,
         u,
         seq,
         cts_ms: 1_757_800_000_001,
@@ -591,6 +598,7 @@ fn bracket_waits_for_after_via_stream_to_ok() {
         tx.send(VerifyMsg::Update(empty_delta(8))).unwrap();
         tx.send(VerifyMsg::Update(Update {
             is_snapshot: false,
+            depth: 50,
             u: 1_000_000 + 9,
             seq: 9,
             cts_ms: 1_757_800_000_001,

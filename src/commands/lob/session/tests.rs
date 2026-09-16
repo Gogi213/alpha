@@ -24,6 +24,7 @@ fn rec(ev: u64, exch_ts_ns: i64, price_ticks: i64, qty_lots: i64) -> Record {
         price_ticks,
         qty_lots,
         block: false,
+        rpi: false,
     }
 }
 
@@ -89,20 +90,40 @@ fn fresh_state(root: &Path) -> SymbolState {
     open_symbol_state(root, &test_member("SYM"), TEST_DAY).unwrap()
 }
 
-fn state_with_writer(symbol: &str, writer: Writer<FrameSink>, part: u32) -> SymbolState {
+/// Состояние инструмента с уже открытыми файлами **обоих** потоков: заданные
+/// `writer`/`part` — быстрый поток (как было до T45), глубокий открывается
+/// рядом, в `deep/` того же корня. Тесты этих двух потоков не смешивают:
+/// адресуются к `state.streams[FAST_STREAM]`.
+fn state_with_writer(
+    root: &Path,
+    symbol: &str,
+    writer: Writer<FrameSink>,
+    part: u32,
+) -> SymbolState {
+    let day_index = crate::commands::record::day_index_of_day_str(TEST_DAY).unwrap();
+    let deep_dir = stream_dir(root, DEEP_STREAM);
+    std::fs::create_dir_all(&deep_dir).unwrap();
+    let (deep_writer, deep_part) =
+        claim_symbol_binlog(&deep_dir, symbol, TEST_DAY, TEST_TICK_E9, TEST_STEP_E9).unwrap();
+    let member = test_member(symbol);
     SymbolState {
-        member: test_member(symbol),
-        writer,
-        part,
-        day_index: crate::commands::record::day_index_of_day_str(TEST_DAY).unwrap(),
-        book: Book::new(TEST_TICK_E9, TEST_STEP_E9),
-        synced: false,
-        has_snapshot: false,
-        records_written: 0,
-        rotate_retry_after_ns: i64::MIN,
-        frames_failed: 0,
-        scratch: Vec::with_capacity(128),
-        batch: Vec::with_capacity(FRAME_TARGET_RECORDS + 128),
+        streams: [
+            StreamState::new(
+                SUBSCRIBED_DEPTHS[FAST_STREAM],
+                &member,
+                writer,
+                part,
+                day_index,
+            ),
+            StreamState::new(
+                SUBSCRIBED_DEPTHS[DEEP_STREAM],
+                &member,
+                deep_writer,
+                deep_part,
+                day_index,
+            ),
+        ],
+        member,
     }
 }
 
@@ -188,7 +209,7 @@ fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
     )
     .unwrap();
     assert_eq!(part, 1);
-    let mut state = state_with_writer("SOLUSDT", writer, part);
+    let mut state = state_with_writer(dir.path(), "SOLUSDT", writer, part);
 
     let mut expected_ticks = Vec::with_capacity(N as usize);
     for i in 0..N {
@@ -196,6 +217,7 @@ fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
         // (`has_snapshot`, тот же контракт, что `Recorder::NoSnapshot`).
         let update = crate::book::Update {
             is_snapshot: i == 0,
+            depth: 50,
             u: i as u64 + 1,
             seq: i as u64 + 1,
             cts_ms: i,
@@ -205,9 +227,9 @@ fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
         expected_ticks.push(100 + i);
         write_market_event(&mut state, i * 1_000, crate::bybit::ws::Event::Book(update)).unwrap();
     }
-    flush_symbol_batch(&mut state).unwrap();
-    state.writer.flush().unwrap();
-    assert_eq!(state.records_written, N as u64);
+    flush_symbol_batch(&mut state.streams[FAST_STREAM]).unwrap();
+    state.streams[FAST_STREAM].writer.flush().unwrap();
+    assert_eq!(state.streams[FAST_STREAM].records_written, N as u64);
 
     let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-12", 1);
     let bytes = std::fs::read(&path).unwrap();
@@ -236,6 +258,296 @@ fn write_market_event_batches_many_messages_into_few_frames_and_round_trips() {
          получено {frames}",
         crate::commands::record::FRAME_TARGET_RECORDS
     );
+}
+
+/// T45: глубокий поток пишется **своим** файлом в `deep/` — тем же форматом
+/// v3, первым кадром синтетический снапшот своей книги, дальше дельты
+/// `.200`. Основной файл при этом остаётся ровно таким, как был (только
+/// события `.50` и лента), а `session.json` несёт раздельные счётчики:
+/// записи, байты и разрывы по потокам.
+#[test]
+fn deep_stream_writes_its_own_file_with_snapshot_first_frame() {
+    use hftbacktest::types::{
+        LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT,
+        LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+    };
+    const DEEP: u32 = crate::bybit::conn::ORDERBOOK_DEEP_DEPTH;
+    const FAST: u32 = crate::bybit::conn::ORDERBOOK_DEPTH;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        // Снапшот .200 открывает глубокий файл, снапшот .50 — основной:
+        // каждый поток флашит свой первый кадр сразу.
+        Step::Ev(book_event_at_depth(0, NOON_NS, 1_000, true, 1, DEEP)),
+        Step::Ev(book_event_at_depth(0, NOON_NS, 1_000, true, 10, FAST)),
+        // По дельте в каждый поток — они уйдут вторыми кадрами по тику.
+        Step::Ev(book_event_at_depth(0, NOON_NS, 1_001, false, 2, DEEP)),
+        Step::Ev(book_event_at_depth(0, NOON_NS, 1_001, false, 11, FAST)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    let deep = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1);
+    assert!(
+        deep.is_file(),
+        "глубокий файл обязан лежать в `{DEEP_DIR}/`: {}",
+        deep.display()
+    );
+    let deep_frames = frames_on_disk(&deep);
+    assert_eq!(
+        deep_frames.len(),
+        2,
+        "снапшот — своим кадром сразу, дельта — вторым кадром по тику: {deep_frames:?}"
+    );
+    assert_eq!(
+        deep_frames[0].iter().map(|r| r.ev).collect::<Vec<_>>(),
+        vec![
+            LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+            LOCAL_ASK_DEPTH_SNAPSHOT_EVENT
+        ],
+        "первый кадр глубокого файла — синтетический снапшот его книги"
+    );
+    assert_eq!(
+        deep_frames[1].iter().map(|r| r.ev).collect::<Vec<_>>(),
+        vec![LOCAL_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT],
+        "дальше идут дельты потока, не снапшот: {deep_frames:?}"
+    );
+
+    // Основной файл: те же два кадра, но только события быстрого потока —
+    // ни одного уровня .200 в него не попало.
+    let fast = crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 1);
+    let fast_frames = frames_on_disk(&fast);
+    assert_eq!(
+        fast_frames.len(),
+        2,
+        "основной файл пишется ровно как до T45: снапшот, потом дельта"
+    );
+    assert_eq!(
+        fast_frames[0].iter().map(|r| r.ev).collect::<Vec<_>>(),
+        vec![
+            LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+            LOCAL_ASK_DEPTH_SNAPSHOT_EVENT
+        ]
+    );
+    assert_eq!(
+        fast_frames[1].iter().map(|r| r.ev).collect::<Vec<_>>(),
+        vec![LOCAL_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT]
+    );
+    // `cts` различает потоки в фикстуре: у быстрого события свои метки.
+    assert_eq!(
+        fast_frames[1][0].exch_ts_ns,
+        1_001 * 1_000_000,
+        "в основной файл легла именно дельта .50"
+    );
+
+    let by_depth = |depth: u32| {
+        summary
+            .streams
+            .iter()
+            .find(|s| s.depth == depth)
+            .unwrap_or_else(|| panic!("в session.json нет потока .{depth}"))
+    };
+    assert_eq!(summary.streams.len(), 2, "по счётчику на поток");
+    let deep_counters = by_depth(DEEP);
+    let fast_counters = by_depth(FAST);
+    assert_eq!(
+        (deep_counters.records, fast_counters.records),
+        (4, 4),
+        "по два сообщения на поток, по два уровня в каждом"
+    );
+    assert!(
+        deep_counters.bytes > 0,
+        "глубокий файл занял место на диске"
+    );
+    assert_eq!(deep_counters.frames_failed, 0);
+    assert_eq!(fast_counters.frames_failed, 0);
+    // Основной файл — это ровно сегодняшнее поведение: его размер и число
+    // записей совпадают с прежними счётчиками сводки, а не с суммой двух
+    // потоков.
+    assert_eq!(
+        std::fs::metadata(&fast).unwrap().len(),
+        fast_counters.bytes,
+        "bytes быстрого потока — это весь основной файл, заголовок включительно"
+    );
+    assert_eq!(
+        std::fs::metadata(&deep).unwrap().len(),
+        deep_counters.bytes,
+        "bytes глубокого потока — это весь его файл"
+    );
+    assert_eq!(
+        summary.records_total,
+        deep_counters.records + fast_counters.records
+    );
+    assert_eq!(
+        summary.bytes_written,
+        deep_counters.bytes + fast_counters.bytes,
+        "сумма байт по потокам — это и есть общий счётчик сводки"
+    );
+
+    // Резолвер корня сессии глубокого файла не видит (T45): команды
+    // `verify`/`levels`/`markout`/`touches`/`dashboard` читают только
+    // основной.
+    assert_eq!(
+        super::super::session_binlog_for(&root, "SYM").unwrap(),
+        vec![fast],
+        "резолвер обязан вернуть только основной файл, хотя глубокий лежит рядом"
+    );
+}
+
+/// T45: снапшот глубокого потока — 200 уровней на сторону, то есть 400
+/// записей одним сообщением: самое крупное сообщение сессии, и под него
+/// поднят бюджет кадра (`SESSION_MAX_FRAME_RECORDS`). Тест ставит батч на
+/// порог (999 записей), кладёт сверху этот снапшот и проверяет разом три
+/// вещи: кадр уходит **одним** куском (читается обратно 1399 записей), резерв
+/// батча покрывает порог плюс снапшот **до** боя, и на этот вызов не нужно ни
+/// одной аллокации — ошибка константы дала бы рост батча прямо в горячем пути.
+///
+/// Прогрев `Writer` здесь — **напрямую** (`write_frame` по готовому срезу),
+/// мимо `write_market_event`: прогрев тем же путём растушевал бы и сам резерв,
+/// который тест проверяет (первый большой кадр вырастил бы батч, и второй
+/// прошёл бы по уже выросшей ёмкости). Поэтому `batch` за всю свою жизнь
+/// видит единственное большое сообщение — измеряемое.
+#[test]
+fn deep_two_hundred_level_snapshot_at_batch_threshold_allocates_nothing() {
+    use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+    // Порог плюс снапшот `.200` обеих сторон — ожидание, собранное из порога
+    // батча и глубины топика, а не из константы под тестом.
+    const BIG_FRAME: usize = 200 * 2;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut state = fresh_state(&root);
+    let cts = 1_000i64;
+
+    // Прогрев буферов `Writer` (тело кадра, сжатие, контекст zstd): кадр из
+    // столько же записей, сколько будет у измеряемого, и с самой дорогой
+    // разметкой — у каждой записи своя метка времени, то есть своя группа
+    // (`encode_frame_payload_v3`), значит закодированное тело не меньше
+    // измеряемого.
+    let warm_len = FRAME_TARGET_RECORDS - 1 + BIG_FRAME;
+    let warm: Vec<Record> = (0..warm_len)
+        .map(|i| {
+            rec(
+                LOCAL_BID_DEPTH_EVENT,
+                1_000_000 + i as i64,
+                100 + i as i64,
+                1,
+            )
+        })
+        .collect();
+    state.streams[DEEP_STREAM]
+        .writer
+        .write_frame(&warm)
+        .unwrap();
+    state.streams[DEEP_STREAM].writer.flush().unwrap();
+    drop(warm);
+
+    // Резерв батча обязан покрывать порог и снапшот целиком: растущий `Vec`
+    // в горячем пути — ровно то, что запрещает гейт GC.
+    assert!(
+        state.streams[DEEP_STREAM].batch.capacity() >= warm_len,
+        "резерв батча {} меньше порога со снапшотом .200 ({warm_len}): первое же \
+         крупное сообщение на границе порога перевыделит его в бою",
+        state.streams[DEEP_STREAM].batch.capacity()
+    );
+
+    // Снапшот биржи открывает файл потока (как в `lob session`).
+    let mut u = 1u64;
+    write_market_event(&mut state, cts, deep_snapshot_payload(cts, u)).unwrap();
+    u += 1;
+    // Дельты по одной записи доводят батч ровно до порога минус запись.
+    while state.streams[DEEP_STREAM].batch.len() + 1 < FRAME_TARGET_RECORDS {
+        write_market_event(&mut state, cts, deep_single_level_delta_payload(cts, u)).unwrap();
+        u += 1;
+    }
+    assert_eq!(
+        state.streams[DEEP_STREAM].batch.len(),
+        FRAME_TARGET_RECORDS - 1,
+        "батч обязан стоять ровно у порога {FRAME_TARGET_RECORDS}"
+    );
+    let snapshot = deep_snapshot_payload(cts, u);
+    let (result, counts) =
+        crate::alloc_count::measure(|| write_market_event(&mut state, cts, snapshot));
+    result.unwrap();
+    assert_eq!(
+        counts.allocations,
+        0,
+        "снапшот .200 в {BIG_FRAME} записей поверх порога не имеет права перевыделять батч \
+         или буфер кадра (потолок — {} записей)",
+        super::sink::SESSION_MAX_FRAME_RECORDS
+    );
+
+    // Кадры на диске: прогревочный кадр, снапшот биржи (400 записей) и кадр
+    // «999 дельт + снапшот» (1399 записей) — одним куском, без разрыва.
+    let deep = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1);
+    let frames = frames_on_disk(&deep);
+    assert_eq!(
+        frames.len(),
+        3,
+        "прогрев, снапшот биржи и большой кадр: {frames:?}"
+    );
+    let big = &frames[2];
+    assert_eq!(
+        big.len(),
+        warm_len,
+        "сообщение снапшота не имеет права разъехаться по кадрам"
+    );
+    let snapshot_records = big
+        .iter()
+        .filter(|r| {
+            r.ev == LOCAL_BID_DEPTH_SNAPSHOT_EVENT || r.ev == LOCAL_ASK_DEPTH_SNAPSHOT_EVENT
+        })
+        .count();
+    assert_eq!(
+        snapshot_records, BIG_FRAME,
+        "в кадре обязаны быть все 200 уровней обеих сторон: биды 101..300, аски 1001..1200"
+    );
+    let deepest_bid = big
+        .iter()
+        .filter(|r| r.ev == LOCAL_BID_DEPTH_SNAPSHOT_EVENT)
+        .map(|r| r.price_ticks)
+        .min()
+        .unwrap();
+    assert_eq!(deepest_bid, 101, "самый дальний бид снапшота не потерян");
+    assert_eq!(
+        state.streams[DEEP_STREAM].records_written as usize,
+        BIG_FRAME + warm_len,
+        "счётчик потока — снапшот биржи и большой кадр (прогрев писался напрямую, мимо батча)"
+    );
+}
+
+/// T45: каталог `deep/` для резолвера бинлогов **невидим**. Он и есть
+/// причина, по которой глубокий файл лежит в подкаталоге, а не рядом: все
+/// существующие команды (`verify`, `levels`, `markout`, `touches`,
+/// `dashboard`, `binlog-stats`) ищут бинлоги корня сессии через
+/// `session_binlog_for`, и найдись там файл `.200` — они читали бы два
+/// потока как один.
+#[test]
+fn deep_subdirectory_is_invisible_to_the_root_binlog_resolver() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let fast = crate::commands::record::day_file_path(root, "SYM", TEST_DAY, 1);
+    std::fs::write(&fast, b"main").unwrap();
+    let deep_dir = root.join(DEEP_DIR);
+    std::fs::create_dir_all(&deep_dir).unwrap();
+    let deep = crate::commands::record::day_file_path(&deep_dir, "SYM", TEST_DAY, 1);
+    std::fs::write(&deep, b"deep").unwrap();
+
+    assert_eq!(
+        super::super::session_binlog_for(root, "SYM").unwrap(),
+        vec![fast.clone()],
+        "резолвер обязан вернуть только основной файл, хотя глубокий лежит рядом"
+    );
+    // Подкаталог — не имя суток и не имя бинлога: разбор имени файла его не
+    // признаёт файлом записи вовсе.
+    assert_eq!(
+        crate::commands::lob::parts::day_of_binlog_name(DEEP_DIR),
+        None
+    );
+    assert_ne!(deep, fast);
 }
 
 /// `LatencyHistogram`: перцентиль на известной синтетике — 100 значений
@@ -456,9 +768,9 @@ fn parse_book_write_path_allocations_per_message_after_warmup() {
             max_by_kind[kind]
         );
     }
-    flush_symbol_batch(&mut state).unwrap();
-    state.writer.flush().unwrap();
-    assert!(state.records_written > 0);
+    flush_symbol_batch(&mut state.streams[FAST_STREAM]).unwrap();
+    state.streams[FAST_STREAM].writer.flush().unwrap();
+    assert!(state.streams[FAST_STREAM].records_written > 0);
 }
 
 fn args_with_minutes(minutes: u64) -> SessionArgs {
@@ -785,6 +1097,7 @@ fn book_event(symbol: u16, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: 
         parse_latency_ns: None,
         payload: crate::bybit::ws::Event::Book(crate::book::Update {
             is_snapshot,
+            depth: crate::bybit::conn::ORDERBOOK_DEPTH,
             u,
             seq: u,
             cts_ms,
@@ -792,6 +1105,72 @@ fn book_event(symbol: u16, local_ts_ns: i64, cts_ms: i64, is_snapshot: bool, u: 
             asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
         }),
     }
+}
+
+/// То же, но с явной глубиной потока: нужен тестам T45, где событие обязано
+/// уехать в файл глубокого потока (`orderbook.200`).
+fn book_event_at_depth(
+    symbol: u16,
+    local_ts_ns: i64,
+    cts_ms: i64,
+    is_snapshot: bool,
+    u: u64,
+    depth: u32,
+) -> Event {
+    match book_event(symbol, local_ts_ns, cts_ms, is_snapshot, u) {
+        Event::Market {
+            payload: crate::bybit::ws::Event::Book(mut up),
+            ..
+        } => {
+            up.depth = depth;
+            Event::Market {
+                symbol,
+                local_ts_ns,
+                parse_latency_ns: None,
+                payload: crate::bybit::ws::Event::Book(up),
+            }
+        }
+        other => panic!("book_event обязан вернуть книжное событие: {other:?}"),
+    }
+}
+
+/// Снапшот глубокого потока в двести уровней на сторону — ровно то, что
+/// присылает `orderbook.200` (документация Bybit v5), то есть 400 записей
+/// одним сообщением: самое крупное сообщение сессии. Цены кратны шагу теста
+/// и не пересекаются: биды 101..300 тиков, аски 1001..1200. Возвращается
+/// **полезная нагрузка** события потока (`bybit::ws::Event`), как её получает
+/// `write_market_event`.
+fn deep_snapshot_payload(cts_ms: i64, u: u64) -> crate::bybit::ws::Event {
+    const LEVELS: i64 = 200;
+    let bids: Vec<(i64, i64)> = (1..=LEVELS)
+        .map(|i| ((100 + i) * TEST_TICK_E9, 5 * TEST_STEP_E9))
+        .collect();
+    let asks: Vec<(i64, i64)> = (1..=LEVELS)
+        .map(|i| ((1000 + i) * TEST_TICK_E9, 7 * TEST_STEP_E9))
+        .collect();
+    crate::bybit::ws::Event::Book(crate::book::Update {
+        is_snapshot: true,
+        depth: crate::bybit::conn::ORDERBOOK_DEEP_DEPTH,
+        u,
+        seq: u,
+        cts_ms,
+        bids,
+        asks,
+    })
+}
+
+/// Дельта глубокого потока по одному уровню (только бид) — ровно одна запись
+/// в кадр: так батч можно довести до самого порога `FRAME_TARGET_RECORDS`.
+fn deep_single_level_delta_payload(cts_ms: i64, u: u64) -> crate::bybit::ws::Event {
+    crate::bybit::ws::Event::Book(crate::book::Update {
+        is_snapshot: false,
+        depth: crate::bybit::conn::ORDERBOOK_DEEP_DEPTH,
+        u,
+        seq: u,
+        cts_ms,
+        bids: vec![(101 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
+        asks: vec![],
+    })
 }
 
 fn frames_on_disk(path: &Path) -> Vec<Vec<Record>> {
@@ -999,6 +1378,391 @@ fn late_event_of_the_previous_day_stays_in_the_current_part() {
     );
 }
 
+/// T45: сброс доверия и ротация суток — **по потокам**. Разрыв `u` глубокого
+/// потока оставляет быстрый поток доверенным (`synced`), поэтому его переход
+/// через полночь по-прежнему открывает новую часть синтетическим снапшотом
+/// своей книги; глубокий поток суток не менял — своей части D+1 у него не
+/// появляется, а `-p2` не появляется ни у одного из потоков.
+#[test]
+fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
+    use crate::bybit::conn::{ORDERBOOK_DEEP_DEPTH, ORDERBOOK_DEPTH};
+    use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let next_day_ns = NOON_NS + 12 * 3600 * 1_000_000_000 + 1_000_000;
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            NOON_NS / 1_000_000,
+            true,
+            1,
+            ORDERBOOK_DEPTH,
+        )),
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            NOON_NS / 1_000_000,
+            true,
+            1,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        // Разрыв `u` есть только у глубокого потока.
+        Step::Ev(Event::Gap {
+            symbol: 0,
+            local_ts_ns: NOON_NS,
+            kind: FeedGapKind::SequenceGap,
+            depth: Some(ORDERBOOK_DEEP_DEPTH),
+            detail: "разрыв u глубокого потока".to_string(),
+        }),
+        // Событие следующих суток приходит только быстрым потоком.
+        Step::Ev(book_event_at_depth(
+            0,
+            next_day_ns,
+            next_day_ns / 1_000_000,
+            false,
+            2,
+            ORDERBOOK_DEPTH,
+        )),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    // Доверие сброшено по потоку, а не по инструменту.
+    assert!(
+        ctx.states[0].streams[FAST_STREAM].synced,
+        "разрыв .200 не имеет права сбросить доверие быстрого потока"
+    );
+    assert!(
+        !ctx.states[0].streams[DEEP_STREAM].synced,
+        "у глубокого потока после разрыва доверия нет"
+    );
+    // Ротировался только быстрый: часть D+1 есть у него, у глубокого — нет.
+    let fast_d1 = crate::commands::record::day_file_path(&root, "SYM", "2026-09-13", 1);
+    let deep_d1 =
+        crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", "2026-09-13", 1);
+    assert!(
+        fast_d1.is_file(),
+        "новая часть быстрого потока обязана появиться"
+    );
+    assert!(
+        !deep_d1.exists(),
+        "глубокий поток суток не менял — части D+1 у него быть не должно"
+    );
+    assert!(
+        crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1).is_file()
+    );
+    assert!(!crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 2).exists());
+    assert!(
+        !crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 2).exists()
+    );
+    assert_eq!(ctx.states[0].streams[FAST_STREAM].part, 1);
+    assert_eq!(ctx.states[0].streams[DEEP_STREAM].part, 1);
+    assert_eq!(
+        summary.binlog_files.len(),
+        2,
+        "D и D+1 — только быстрый поток"
+    );
+
+    // Новая часть быстрого потока начинается синтетическим снапшотом своей
+    // книги (фикстура `book_event`: бид 100, аск 110 тиков) — то есть доверие
+    // быстрого потока действительно уцелело.
+    let frames = frames_on_disk(&fast_d1);
+    let first = &frames[0];
+    assert_eq!(first.len(), 2, "по записи на уровень");
+    assert_eq!(first[0].ev, LOCAL_BID_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(first[0].price_ticks, 100);
+    assert_eq!(first[1].ev, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(first[1].price_ticks, 110);
+}
+
+/// T45: ротация глубокого потока идёт **своей** частью и своим доверием.
+/// Событие следующих суток в глубоком потоке открывает его часть D+1, но
+/// синтетического снапшота в ней не будет: доверие сброшено разрывом `u`, и
+/// файл обязан ждать снапшота биржи — иначе сутки начинались бы с дельт и
+/// были бы нечитаемы целиком (`record::RecordError::NoSnapshot`). Быстрый
+/// поток суток не менял: его единственная часть — D.
+#[test]
+fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
+    use crate::bybit::conn::{ORDERBOOK_DEEP_DEPTH, ORDERBOOK_DEPTH};
+    use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let next_day_ns = NOON_NS + 12 * 3600 * 1_000_000_000 + 1_000_000;
+    let next_ms = next_day_ns / 1_000_000;
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            NOON_NS / 1_000_000,
+            true,
+            1,
+            ORDERBOOK_DEPTH,
+        )),
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            NOON_NS / 1_000_000,
+            true,
+            1,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(Event::Gap {
+            symbol: 0,
+            local_ts_ns: NOON_NS,
+            kind: FeedGapKind::SequenceGap,
+            depth: Some(ORDERBOOK_DEEP_DEPTH),
+            detail: "разрыв u глубокого потока".to_string(),
+        }),
+        // Дельта глубокого потока в сутках D+1 — она же и ротирует его часть.
+        Step::Ev(book_event_at_depth(
+            0,
+            next_day_ns,
+            next_ms,
+            false,
+            2,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(Event::Tick {
+            local_ts_ns: next_day_ns + 1,
+        }),
+        // Снапшот биржи открывает новую часть.
+        Step::Ev(book_event_at_depth(
+            0,
+            next_day_ns + 2,
+            next_ms + 1,
+            true,
+            3,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(Event::Tick {
+            local_ts_ns: next_day_ns + 3,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    let deep_d = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1);
+    let deep_d1 =
+        crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", "2026-09-13", 1);
+    assert!(deep_d.is_file(), "часть суток D остаётся на диске");
+    assert!(
+        deep_d1.is_file(),
+        "глубокий поток ротировался в свою часть D+1"
+    );
+    assert_eq!(ctx.states[0].streams[DEEP_STREAM].part, 1);
+    assert_eq!(
+        ctx.states[0].streams[DEEP_STREAM].day_index,
+        crate::commands::record::day_index_of_day_str("2026-09-13").unwrap()
+    );
+    // Быстрый поток суток не менял, `-p2` нигде не появилось.
+    assert_eq!(
+        ctx.states[0].streams[FAST_STREAM].day_index,
+        crate::commands::record::day_index_of_day_str(TEST_DAY).unwrap()
+    );
+    assert!(!crate::commands::record::day_file_path(&root, "SYM", "2026-09-13", 1).exists());
+    assert!(
+        !crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 2).exists()
+    );
+    assert_eq!(
+        summary.binlog_files.len(),
+        1,
+        "в binlog_files — только быстрая часть D"
+    );
+
+    // В части D+1 первым (и единственным) кадром — снапшот **биржи** с его
+    // `cts` = next_ms + 1, а не снапшот ротации с `cts` триггера = next_ms:
+    // дельта до снапшота в файл не попала вовсе.
+    let frames = frames_on_disk(&deep_d1);
+    assert_eq!(
+        frames.len(),
+        1,
+        "один кадр — снапшот биржи; дельта ждала его и не писалась"
+    );
+    let first = &frames[0];
+    assert_eq!(first.len(), 2);
+    assert_eq!(first[0].ev, LOCAL_BID_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(first[0].exch_ts_ns, (next_ms + 1) * 1_000_000);
+    assert_eq!(first[1].ev, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT);
+    assert!(
+        !first.iter().any(|r| r.exch_ts_ns == next_ms * 1_000_000),
+        "снапшот ротации не писался: дельта-триггер в файл не легла"
+    );
+    // Записи глубокого потока: снапшот D (2) плюс снапшот D+1 (2); дельта
+    // D+1 потеряна по контракту «файл, начатый с дельт, нечитаем».
+    let deep_counters = summary
+        .streams
+        .iter()
+        .find(|s| s.depth == ORDERBOOK_DEEP_DEPTH)
+        .expect("счётчики глубокого потока");
+    assert_eq!(deep_counters.records, 4);
+    assert_eq!(deep_counters.resyncs, 1);
+    assert_eq!(deep_counters.frames_failed, 0);
+}
+
+/// Файл, у которого отказывают **оба** шага: запись кадра (половина байт,
+/// потом ошибка) и откат к границе кадра. Ровно это делает отвал тома или
+/// диск, исчезнувший из-под записи: `FrameSink::boundary_lost` взводится, и
+/// часть обязана быть переоткрыта следующей (`-p2`).
+struct LostBoundaryFile {
+    inner: File,
+    writes: u32,
+    fail_on: u32,
+}
+
+impl std::io::Write for LostBoundaryFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writes += 1;
+        if self.writes == self.fail_on {
+            self.inner.write_all(&buf[..buf.len() / 2])?;
+            return Err(std::io::Error::other("диск: нет места"));
+        }
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl SinkFile for LostBoundaryFile {
+    fn truncate_to(&mut self, _len: u64) -> std::io::Result<()> {
+        Err(std::io::Error::other(
+            "диск: откат к границе кадра не удался",
+        ))
+    }
+}
+
+/// T45: потеря границы кадра — **по потокам**. Упавшая запись кадра глубокого
+/// потока (и неудавшийся откат к границе) даёт `frames_failed` своему потоку,
+/// строку `gaps.csv` и переоткрытие **его** части (`-p2` в `deep/`) с
+/// синтетическим снапшотом его книги; часть быстрого потока при этом не
+/// трогается, и в `binlog_files` (карта основных файлов) ротация глубокого не
+/// попадает.
+#[test]
+fn deep_frame_boundary_loss_reopens_only_the_deep_part() {
+    use crate::bybit::conn::ORDERBOOK_DEEP_DEPTH;
+    use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let sink_dir = tempfile::tempdir().unwrap();
+    // Заголовок копится в буфере приёмника до первого сброса и уходит одним
+    // `write_all` со снапшотом (№1); дельта по тику — №2: она падает на
+    // половине, а откат к границе не удаётся, то есть граница потеряна.
+    let (writer, part) = claim_part_with(
+        sink_dir.path(),
+        "SYM",
+        TEST_DAY,
+        1,
+        TEST_TICK_E9,
+        TEST_STEP_E9,
+        |file| {
+            FrameSink::over(Box::new(LostBoundaryFile {
+                inner: file,
+                writes: 0,
+                fail_on: 2,
+            }))
+        },
+    )
+    .unwrap();
+    ctx.states[0].streams[DEEP_STREAM].writer = writer;
+    ctx.states[0].streams[DEEP_STREAM].part = part;
+
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            1_000,
+            true,
+            1,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            1_001,
+            false,
+            2,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+        Step::Ev(book_event_at_depth(
+            0,
+            NOON_NS,
+            1_002,
+            false,
+            3,
+            ORDERBOOK_DEEP_DEPTH,
+        )),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 40_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    // Переоткрылась **только** часть глубокого потока и только она — в `deep/`.
+    let deep_p2 = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 2);
+    assert!(
+        deep_p2.is_file(),
+        "потерянная граница глубокого потока обязана дать его часть -p2"
+    );
+    assert!(
+        !crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 2).exists(),
+        "часть быстрого потока не теряла границу — -p2 у неё быть не должно"
+    );
+    assert_eq!(ctx.states[0].streams[DEEP_STREAM].part, 2);
+    assert_eq!(ctx.states[0].streams[FAST_STREAM].part, 1);
+    assert_eq!(
+        summary.binlog_files.len(),
+        1,
+        "binlog_files — карта основных файлов: ротации глубокого в ней нет"
+    );
+    assert_eq!(summary.records_total, 6);
+
+    // Переоткрытая часть начинается синтетическим снапшотом книги своего
+    // потока, дальше идёт дельта, пришедшая после потери.
+    let frames = frames_on_disk(&deep_p2);
+    assert_eq!(
+        frames.len(),
+        2,
+        "снапшот ротации и следующая дельта: {frames:?}"
+    );
+    assert_eq!(frames[0].len(), 2);
+    assert_eq!(frames[0][0].ev, LOCAL_BID_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(frames[0][0].price_ticks, 100);
+    assert_eq!(frames[0][1].ev, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(frames[0][1].price_ticks, 110);
+    assert_eq!(
+        frames[1][0].exch_ts_ns,
+        1_002 * 1_000_000,
+        "дельта после потери границы легла в новую часть"
+    );
+
+    // Счётчики — по потокам: потерянный кадр принадлежит глубокому.
+    let by_depth = |depth: u32| {
+        summary
+            .streams
+            .iter()
+            .find(|s| s.depth == depth)
+            .unwrap_or_else(|| panic!("в session.json нет потока .{depth}"))
+    };
+    assert_eq!(by_depth(ORDERBOOK_DEEP_DEPTH).frames_failed, 1);
+    assert_eq!(
+        by_depth(crate::bybit::conn::ORDERBOOK_DEPTH).frames_failed,
+        0
+    );
+    assert_eq!(summary.frames_failed, 1);
+    let gaps = std::fs::read_to_string(gaps_csv_path(&root)).unwrap();
+    assert_eq!(gaps.matches("write_failed").count(), 1, "{gaps}");
+    assert!(
+        gaps.contains("поток .200"),
+        "строка разрыва обязана назвать поток: {gaps}"
+    );
+}
+
 /// Файл под приёмником, роняющий N-й `write_all` посреди кадра
 /// (половина байт на диск, потом ошибка) — то, что делает диск при
 /// нехватке места или отвале тома.
@@ -1057,8 +1821,8 @@ fn failed_frame_write_truncates_to_frame_boundary_and_the_part_stays_readable() 
         },
     )
     .unwrap();
-    ctx.states[0].writer = writer;
-    ctx.states[0].part = part;
+    ctx.states[0].streams[FAST_STREAM].writer = writer;
+    ctx.states[0].streams[FAST_STREAM].part = part;
     let ms = NOON_NS / 1_000_000;
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         Step::Ev(book_event(0, NOON_NS, ms, true, 1)),
@@ -1109,6 +1873,9 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
         symbol,
         local_ts_ns: NOON_NS,
         kind,
+        // Разрыв сокета и неразрешённый кадр потоку не принадлежат: сокет
+        // роняет оба потока сразу (T45).
+        depth: None,
         detail: "разрыв".to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
@@ -1134,35 +1901,66 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
 }
 
 /// Переподключение и ресинк — числом в `session.json` и строкой в
-/// `gaps.csv` каждый: без них сутки записи нечем оценить.
+/// `gaps.csv` каждый: без них сутки записи нечем оценить. T45: разрывы
+/// считаются и **раздельно по потокам** — разрыв `.200` не разрыв `.50`.
 #[test]
 fn reconnects_and_resyncs_are_counted_and_logged() {
+    use crate::bybit::conn::{ORDERBOOK_DEEP_DEPTH, ORDERBOOK_DEPTH};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let mut ctx = always_on_ctx(&root, NOON_NS);
-    let gap = |kind, detail: &str| Event::Gap {
+    let gap = |kind, depth, detail: &str| Event::Gap {
         symbol: 0,
         local_ts_ns: NOON_NS,
         kind,
+        depth,
         detail: detail.to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
-        Step::Ev(gap(FeedGapKind::Disconnected, "транспорт переподключился")),
-        Step::Ev(gap(FeedGapKind::SequenceGap, "разрыв u")),
-        Step::Ev(gap(FeedGapKind::BookInvariant, "книга нарушена")),
-        Step::Ev(gap(FeedGapKind::ParseFailed, "кадр не разобрался")),
+        Step::Ev(gap(
+            FeedGapKind::Disconnected,
+            None,
+            "транспорт переподключился",
+        )),
+        Step::Ev(gap(
+            FeedGapKind::SequenceGap,
+            Some(ORDERBOOK_DEPTH),
+            "разрыв u быстрого потока",
+        )),
+        Step::Ev(gap(
+            FeedGapKind::BookInvariant,
+            Some(ORDERBOOK_DEEP_DEPTH),
+            "книга глубокого потока нарушена",
+        )),
+        Step::Ev(gap(FeedGapKind::ParseFailed, None, "кадр не разобрался")),
     ]));
     run_session_loop(&mut feed, &mut ctx).unwrap();
     let summary = ctx.write_session_json(true).unwrap();
     assert_eq!(summary.reconnects, 1);
     assert_eq!(summary.resyncs, 2);
     assert_eq!(summary.gaps, 4);
+    // Раздельные счётчики потоков: по одному ресинку на каждый поток.
+    let by_depth = |depth: u32| {
+        summary
+            .streams
+            .iter()
+            .find(|s| s.depth == depth)
+            .unwrap_or_else(|| panic!("в session.json нет потока .{depth}"))
+    };
+    assert_eq!(by_depth(ORDERBOOK_DEPTH).resyncs, 1);
+    assert_eq!(by_depth(ORDERBOOK_DEEP_DEPTH).resyncs, 1);
     let rows = crate::commands::record::read_gap_rows(&gaps_csv_path(&root)).unwrap();
     assert_eq!(rows.len(), 4, "строка на каждый разрыв");
     assert_eq!(rows[0].kind, GapKind::SequenceGap);
     assert_eq!(rows[1].kind, GapKind::SequenceGap);
     assert_eq!(rows[2].kind, GapKind::BookInvariant);
     assert_eq!(rows[3].kind, GapKind::ParseError);
+    // Строка разрыва несёт поток: по ней видно, чей `u` разошёлся.
+    assert!(
+        rows[1].detail.contains("разрыв u быстрого потока"),
+        "деталь строки обязана назвать поток: {}",
+        rows[1].detail
+    );
 }
 
 /// `--always-on` взаимоисключающий с `--minutes`/`--pilot-minutes` на
@@ -1445,6 +2243,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
         u += 1;
         crate::bybit::ws::Event::Book(crate::book::Update {
             is_snapshot: false,
+            depth: 50,
             u,
             seq: u,
             cts_ms: NOON_NS / 1_000_000,
@@ -1455,6 +2254,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
     // Снапшот и прогрев — до замера.
     let snapshot = crate::bybit::ws::Event::Book(crate::book::Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: NOON_NS / 1_000_000,

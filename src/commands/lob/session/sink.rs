@@ -1,16 +1,29 @@
 //! Путь события на диск: приёмник файла части (`FrameSink`, один `write_all`
-//! на кадр), состояние инструмента (`SymbolState`), запись книжного события
-//! и сделки в накопитель кадра, сброс батча и гистограмма задержек
-//! фиксированной ёмкости. Горячий путь сессии — семь запретов
-//! `interfaces.md` действуют здесь целиком.
+//! на кадр), состояние инструмента (`SymbolState` — по одному `StreamState` на
+//! поток глубины, T45), запись книжного события и сделки в накопитель кадра,
+//! сброс батча и гистограмма задержек фиксированной ёмкости. Горячий путь
+//! сессии — семь запретов `interfaces.md` действуют здесь целиком.
+//!
+//! **Два потока — два независимых состояния записи (T45).** Быстрый
+//! (`orderbook.50`) пишет `<root>/<SYMBOL>-<день>.binlog` ровно как до T45,
+//! глубокий (`orderbook.200`) — `<root>/deep/<SYMBOL>-<день>.binlog`; у каждого
+//! своя книга, свой `u`-контроль (в `bybit::conn`), свой первый кадр-снапшот и
+//! свой счётчик разрывов. Поток события выбирается глубиной из топика
+//! (`book::Update::depth`), а не конфигурацией: `event_stream` — единственное
+//! место этого решения.
 
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
 
 use crate::binlog::{Record, Writer};
 use crate::book::{Book, Side};
+use crate::bybit::conn::{FAST_STREAM, ORDERBOOK_DEEP_DEPTH, SUBSCRIBED_DEPTHS};
 use crate::commands::record::FRAME_TARGET_RECORDS;
 use crate::feed::live::PoolMember;
+
+/// Сколько потоков глубины ведёт сессия — длина `SUBSCRIBED_DEPTHS`
+/// (`bybit::conn`): быстрый `.50` и глубокий `.200`.
+pub(super) const STREAM_COUNT: usize = SUBSCRIBED_DEPTHS.len();
 
 /// Приёмник файла части (таск 25): кадр целиком копится здесь и уходит на
 /// диск **одним** `write_all` по `flush` — файл на диске всегда кончается
@@ -49,11 +62,32 @@ impl SinkFile for File {
     }
 }
 
+/// Самое крупное сообщение этой сессии в записях: снапшот глубокого потока —
+/// `orderbook.200` отдаёт не более двухсот уровней на сторону (документация
+/// Bybit v5, `bybit::conn::ORDERBOOK_DEEP_DEPTH`), то есть до `2 × 200`
+/// записей одним событием. Быстрый поток (`2 × 50`) в это число влезает.
+pub(super) const SESSION_MAX_MESSAGE_RECORDS: usize = 2 * ORDERBOOK_DEEP_DEPTH as usize;
+
 /// Самый крупный кадр этой сессии: порог батча плюс самое крупное
-/// сообщение (снапшот 50+50 — 128 с запасом, см. `SymbolState::scratch`) —
-/// то же слагаемое, что у ёмкости `batch`; синтетический снапшот ротации
-/// (≤ 256 записей) заведомо меньше.
-pub(super) const SESSION_MAX_FRAME_RECORDS: usize = FRAME_TARGET_RECORDS + 128;
+/// сообщение (снапшот глубокого потока, см. выше) — то же слагаемое, что у
+/// ёмкости `batch`. Кадр синтетического снапшота ротации
+/// (`push_book_snapshot` — по записи на уровень обеих сторон своей книги)
+/// закрыт этим же потолком с запасом, и не потому, что он «мельче
+/// сообщения», а потому, что его длина ограничена ёмкостью книги: `book::
+/// CAPACITY` уровней на сторону, то есть не больше `2 × CAPACITY` записей
+/// (512 при `CAPACITY = 256`) и никогда больше `SESSION_MAX_FRAME_RECORDS`.
+/// Ограничение задаёт именно потолок кадра, а не размер снапшота.
+pub(super) const SESSION_MAX_FRAME_RECORDS: usize =
+    FRAME_TARGET_RECORDS + SESSION_MAX_MESSAGE_RECORDS;
+
+/// Ёмкость `scratch` потока глубины: снапшот обеих сторон этого потока —
+/// `2 × depth` записей. Это верхняя граница сообщения **потока** по
+/// построению топика (`.50` — не глубже пятидесяти уровней на сторону,
+/// `.200` — не глубже двухсот); дельта, назвавшая больше уровней, чем
+/// снапшот, лишь вырастит `Vec` один раз, а не потеряется и не исказится.
+pub(super) fn stream_scratch_capacity(depth: u32) -> usize {
+    2 * depth as usize
+}
 
 impl FrameSink {
     pub(crate) fn new(file: File) -> Self {
@@ -134,27 +168,30 @@ impl std::io::Write for FrameSink {
     }
 }
 
-/// Состояние одного инструмента пула: своя книга, свой файл. Индекс в этом
-/// `Vec` — тот же `symbol: u16`, которым `Feed` метит каждое событие
-/// (`interfaces.md`: тег события — не строка, лукап по строке на каждое
-/// событие был бы `HashMap` на пути события, запрет 7).
-pub(super) struct SymbolState {
-    pub(super) member: PoolMember,
+/// Состояние одного потока глубины одного инструмента: своя книга, свой файл
+/// части, свой контроль достоверности и свои счётчики (T45). Ровно то, чем был
+/// `SymbolState` до T45; разделение по потокам — потому что разрыв `u` в
+/// глубоком потоке не имеет права ни считаться разрывом быстрого, ни гасить
+/// его `synced`, ни трогать его файл.
+pub(super) struct StreamState {
+    /// Глубина потока из `SUBSCRIBED_DEPTHS` (50 — быстрый, 200 — глубокий):
+    /// имя топика `orderbook.<depth>.<symbol>`, которым этот поток обновляют.
+    pub(super) depth: u32,
     pub(super) writer: Writer<FrameSink>,
     /// Номер части и индекс суток текущего файла (`ts / NS_PER_DAY`, как
     /// `record::Recorder::day_index` — целочисленное деление на событие,
     /// строка даты только на ротации).
     pub(super) part: u32,
     pub(super) day_index: i64,
-    /// Книга инструмента — ради синтетического снапшота первым кадром
-    /// новых суток (таск 25, как `record::Recorder::ensure_day` +
-    /// `on_snapshot`): без него файл суток начинался бы с дельт, и
-    /// `verify`/`levels` отбросили бы сутки целиком. Таск 24 снял вторую
-    /// книгу как лишнюю проверку — здесь она не проверка, а источник
-    /// первого кадра; `apply` на дельту — ноль аллокаций (гейт таска 24).
+    /// Книга потока — ради синтетического снапшота первым кадром новых суток
+    /// (таск 25, как `record::Recorder::ensure_day` + `on_snapshot`): без него
+    /// файл суток начинался бы с дельт, и `verify`/`levels` отбросили бы сутки
+    /// целиком. Таск 24 снял вторую книгу как лишнюю проверку — здесь она не
+    /// проверка, а источник первого кадра; `apply` на дельту — ноль аллокаций
+    /// (гейт таска 24).
     pub(super) book: Book,
-    /// Книга доверена с последнего снапшота биржи (сброс на любом `Gap`
-    /// ресинка/переподключения).
+    /// Книга потока доверена с последнего снапшота биржи (сброс на любом `Gap`
+    /// ресинка/переподключения **этого** потока).
     pub(super) synced: bool,
     /// В текущем файле уже лежит первый кадр-снапшот; до него дельты и
     /// сделки в файл не идут (`record::RecordError::NoSnapshot`, тот же
@@ -166,15 +203,16 @@ pub(super) struct SymbolState {
     /// не давал строку `gaps.csv` на каждое событие; до неё события новых
     /// суток идут в текущую часть.
     pub(super) rotate_retry_after_ns: i64,
-    /// Кадров, которые не записались (таск 25): каждый — строка `gaps.csv`
-    /// `write_failed`, квант потери — до `FRAME_TARGET_RECORDS` записей.
+    /// Кадров этого потока, которые не записались (таск 25): каждый — строка
+    /// `gaps.csv` `write_failed`, квант потери — до `FRAME_TARGET_RECORDS`
+    /// записей.
     pub(super) frames_failed: u64,
     /// Скретч-буфер `write_market_event` — переиспользуется на каждое
     /// событие вместо `Vec::new()`, иначе горячий путь аллоцирует ровно там,
     /// где гейт GC требует ноль (`interfaces.md`, запрет 1; было ТУПИКОМ 1
-    /// таска 04). Ёмкость с запасом на самый крупный кадр этого потока —
-    /// `orderbook.50` снапшот обеих сторон, 50+50 записей; `.clear()` в
-    /// начале `write_market_event` не освобождает ёмкость, только длину.
+    /// таска 04). Ёмкость — снапшот обеих сторон своего потока
+    /// (`stream_scratch_capacity`); `.clear()` в начале `write_market_event`
+    /// не освобождает ёмкость, только длину.
     pub(super) scratch: Vec<Record>,
     /// Накопитель кадра (таск 24, критерий «батчинг как в `lob record`»):
     /// `write_market_event` переносит `scratch` сюда через `Vec::append`
@@ -184,10 +222,67 @@ pub(super) struct SymbolState {
     /// `FRAME_LOSS_WINDOW_SECS`). Раньше здесь писался кадр на **каждое**
     /// сообщение — `docs/findings/collector-2026-09-12.md`, «Замер до»:
     /// кадр из 1–5 записей почти не сжимается. Ёмкость с запасом на самое
-    /// крупное сообщение (128 записей, см. `scratch`) сверх порога — чтобы
+    /// крупное сообщение сверх порога (`SESSION_MAX_FRAME_RECORDS`), чтобы
     /// приход этого сообщения ровно на границе порога не вызвал
     /// перевыделение до `flush_symbol_batch`.
     pub(super) batch: Vec<Record>,
+}
+
+impl StreamState {
+    /// Новый поток с уже открытой частью. `depth` — из `SUBSCRIBED_DEPTHS`,
+    /// `writer`/`part` — из `claim_part_with` по каталогу **своего** потока.
+    pub(super) fn new(
+        depth: u32,
+        member: &PoolMember,
+        writer: Writer<FrameSink>,
+        part: u32,
+        day_index: i64,
+    ) -> Self {
+        Self {
+            depth,
+            writer,
+            part,
+            day_index,
+            book: Book::new(member.tick_e9, member.step_e9),
+            synced: false,
+            has_snapshot: false,
+            records_written: 0,
+            rotate_retry_after_ns: i64::MIN,
+            frames_failed: 0,
+            scratch: Vec::with_capacity(stream_scratch_capacity(depth)),
+            batch: Vec::with_capacity(SESSION_MAX_FRAME_RECORDS),
+        }
+    }
+}
+
+/// Состояние одного инструмента пула: своя книга и свой файл **на каждый
+/// поток** глубины (`streams`, порядок — `SUBSCRIBED_DEPTHS`). Индекс в
+/// `SessionCtx.states` — тот же `symbol: u16`, которым `Feed` метит каждое
+/// событие (`interfaces.md`: тег события — не строка, лукап по строке на
+/// каждое событие был бы `HashMap` на пути события, запрет 7); слот потока —
+/// `depth` события.
+pub(super) struct SymbolState {
+    pub(super) member: PoolMember,
+    pub(super) streams: [StreamState; STREAM_COUNT],
+}
+
+/// Слот потока по глубине из топика (`book::Update::depth`). Линейный поиск
+/// по двум элементам — ни `HashMap`, ни аллокаций на событие (запрет 7).
+/// `None` — поток не нашего набора (`bybit::conn::SUBSCRIBED_DEPTHS`).
+pub(super) fn stream_of_depth(depth: u32) -> Option<usize> {
+    SUBSCRIBED_DEPTHS.iter().position(|&d| d == depth)
+}
+
+/// Поток, в который идёт событие: книга — по глубине из топика, сделка —
+/// всегда быстрый (лента `publicTrade` не делится по глубине стакана), а
+/// служебное сообщение не идёт никуда. Единственное место этого решения —
+/// и ротация суток, и запись спрашивают его, а не каждая свой.
+pub(super) fn event_stream(payload: &crate::bybit::ws::Event) -> Option<usize> {
+    match payload {
+        crate::bybit::ws::Event::Book(update) => stream_of_depth(update.depth),
+        crate::bybit::ws::Event::Trade(_) => Some(FAST_STREAM),
+        crate::bybit::ws::Event::Other => None,
+    }
 }
 
 fn hftbacktest_flags(side: Side, is_snapshot: bool) -> u64 {
@@ -203,28 +298,31 @@ fn hftbacktest_flags(side: Side, is_snapshot: bool) -> u64 {
     }
 }
 
-/// Синтетический полный снапшот из книги инструмента первым кадром новых
+/// Синтетический полный снапшот из книги потока первым кадром новых
 /// суток (таск 25, Decision 7 / `record::Recorder::on_snapshot`): по
-/// записи на уровень обеих сторон, флаги снапшота.
-pub(super) fn push_book_snapshot(state: &mut SymbolState, exch_ts_ns: i64, local_ts_ns: i64) {
-    state.batch.clear();
+/// записи на уровень обеих сторон, флаги снапшота. Книга — своя у каждого
+/// потока, поэтому и снапшот у каждого свой: `.50` пишет пятьдесят уровней,
+/// `.200` — двести.
+pub(super) fn push_book_snapshot(stream: &mut StreamState, exch_ts_ns: i64, local_ts_ns: i64) {
+    stream.batch.clear();
     for side in [Side::Bid, Side::Ask] {
-        for (tick, lots) in state.book.levels(side) {
-            state.batch.push(Record {
+        for (tick, lots) in stream.book.levels(side) {
+            stream.batch.push(Record {
                 ev: hftbacktest_flags(side, true),
                 exch_ts_ns,
                 local_ts_ns,
                 price_ticks: tick,
                 qty_lots: lots,
                 block: false,
+                rpi: false,
             });
         }
     }
-    state.has_snapshot = true;
+    stream.has_snapshot = true;
 }
 
-/// Одна книжная запись/сделка → в накопитель кадра инструмента
-/// (`SymbolState::batch`); кадр на диск — `flush_symbol_batch` по порогу
+/// Одна книжная запись/сделка → в накопитель кадра **потока**
+/// (`StreamState::batch`); кадр на диск — `flush_symbol_batch` по порогу
 /// `FRAME_TARGET_RECORDS` или сразу на снапшоте (как `Recorder::
 /// on_snapshot`: первый кадр файла не ждёт тика); третий повод — тик
 /// (`SessionCtx::on_tick`). Раньше эта функция сама писала `binlog::
@@ -232,7 +330,11 @@ pub(super) fn push_book_snapshot(state: &mut SymbolState, exch_ts_ns: i64, local
 /// collector-2026-09-12.md`, «Замер до». `Err` — кадр не записался
 /// (счётчик `frames_failed` уже увеличен, батч очищен).
 ///
-/// Книга инструмента (`state.book`) ведётся ради синтетического снапшота
+/// Поток события выбирает сам (`event_stream`): книга — по глубине из
+/// топика, сделка — быстрый поток. Служебное (`Other`) и глубина не нашего
+/// набора не пишутся никуда.
+///
+/// Книга потока (`stream.book`) ведётся ради синтетического снапшота
 /// на ротации суток (таск 25), не как вторая проверка: `bybit::conn::
 /// handle_raw` уже применил то же обновление к своей книге и не пересылает
 /// ничего, что не прошло `apply`, поэтому `apply` здесь на той же
@@ -249,6 +351,15 @@ pub(super) fn write_market_event(
 ) -> Result<(), crate::binlog::BinlogError> {
     use hftbacktest::types::{LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT};
 
+    let Some(slot) = event_stream(&payload) else {
+        return Ok(());
+    };
+    // Шаги читаются у инструмента (они общие для обоих потоков — один
+    // `instruments.csv` на символ), а состояние ниже — уже поток: у потока
+    // нет своего `member`, и адресоваться к нему через `StreamState` значило
+    // бы дублировать шаги в каждом потоке.
+    let (tick_e9, step_e9) = (state.member.tick_e9, state.member.step_e9);
+    let state = &mut state.streams[slot];
     // `.clear()` truncates length, keeps capacity — this is the fix for
     // ТУПИК 1 (handoff-04-1): the old code did `let mut records =
     // Vec::new()` here, and while `Vec::new()` itself doesn't allocate, the
@@ -288,9 +399,10 @@ pub(super) fn write_market_event(
                         ev: hftbacktest_flags(side, update.is_snapshot),
                         exch_ts_ns,
                         local_ts_ns,
-                        price_ticks: price_e9 / state.member.tick_e9,
-                        qty_lots: qty_e9 / state.member.step_e9,
+                        price_ticks: price_e9 / tick_e9,
+                        qty_lots: qty_e9 / step_e9,
                         block: false,
+                        rpi: false,
                     });
                 }
             }
@@ -307,9 +419,10 @@ pub(super) fn write_market_event(
                 },
                 exch_ts_ns: trade.exch_ms.saturating_mul(1_000_000),
                 local_ts_ns,
-                price_ticks: trade.price_e9 / state.member.tick_e9,
-                qty_lots: trade.qty_e9 / state.member.step_e9,
+                price_ticks: trade.price_e9 / tick_e9,
+                qty_lots: trade.qty_e9 / step_e9,
                 block: trade.block,
+                rpi: trade.rpi,
             });
         }
         crate::bybit::ws::Event::Other => {}
@@ -327,7 +440,7 @@ pub(super) fn write_market_event(
     Ok(())
 }
 
-/// Пишет накопленный `batch` одним кадром `binlog::Writer` и сразу
+/// Пишет накопленный `batch` потока одним кадром `binlog::Writer` и сразу
 /// сбрасывает приёмник (`FrameSink::flush` — один `write_all` на кадр:
 /// файл на диске кончается на границе кадра), опустошает батч (`.clear()`
 /// — длина в ноль, ёмкость цела). Пустой батч — no-op, тот же контракт, что
@@ -336,7 +449,7 @@ pub(super) fn write_market_event(
 /// квант потери ~1000 записей, молчать нельзя); батч очищается в любом
 /// случае.
 pub(super) fn flush_symbol_batch(
-    state: &mut SymbolState,
+    state: &mut StreamState,
 ) -> Result<(), crate::binlog::BinlogError> {
     if state.batch.is_empty() {
         return Ok(());

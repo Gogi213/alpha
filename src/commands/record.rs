@@ -329,6 +329,7 @@ impl Recorder {
                     price_ticks: tick,
                     qty_lots: lots,
                     block: false,
+                    rpi: false,
                 });
             }
         }
@@ -393,6 +394,7 @@ impl Recorder {
                 price_ticks: price_e9 / self.tick_e9,
                 qty_lots: qty_e9 / self.step_e9,
                 block: false,
+                rpi: false,
             })?;
             n += 1;
         }
@@ -404,6 +406,7 @@ impl Recorder {
                 price_ticks: price_e9 / self.tick_e9,
                 qty_lots: qty_e9 / self.step_e9,
                 block: false,
+                rpi: false,
             })?;
             n += 1;
         }
@@ -438,6 +441,7 @@ impl Recorder {
             price_ticks: trade.price_e9 / self.tick_e9,
             qty_lots: trade.qty_e9 / self.step_e9,
             block: trade.block,
+            rpi: trade.rpi,
         })?;
         Ok(())
     }

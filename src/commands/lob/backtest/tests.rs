@@ -85,6 +85,7 @@ fn ask_level(price_tick: i64, birth_ms: i64) -> LevelRecord {
         repriced: false,
         death: crate::lob::levels::DeathKind::BelowFraction,
         traded_lots: 0,
+        rpi_lots: 0,
     }
 }
 
@@ -146,6 +147,7 @@ fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
 fn snapshot_clears_stale_levels_and_deltas_upsert() {
     let snap1 = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1000,
@@ -157,6 +159,7 @@ fn snapshot_clears_stale_levels_and_deltas_upsert() {
     };
     let snap2 = Update {
         is_snapshot: true,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 2000,
@@ -193,6 +196,7 @@ fn snapshot_clears_stale_levels_and_deltas_upsert() {
 fn zero_qty_delta_removes_a_level() {
     let snap = Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1000,
@@ -201,6 +205,7 @@ fn zero_qty_delta_removes_a_level() {
     };
     let delta = Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 1500,

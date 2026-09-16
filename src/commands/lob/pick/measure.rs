@@ -309,6 +309,7 @@ mod tests {
             qty_e9,
             aggressor_is_buy: true,
             block,
+            rpi: false,
         }
     }
 
@@ -371,6 +372,7 @@ mod tests {
         let mut book = Book::new(1, 1);
         book.apply(&Update {
             is_snapshot: true,
+            depth: 50,
             u: 1,
             seq: 1,
             cts_ms: 0,

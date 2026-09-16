@@ -64,6 +64,7 @@ fn rec(
         repriced,
         death: kind,
         traded_lots: 0,
+        rpi_lots: 0,
     }
 }
 
@@ -301,6 +302,7 @@ fn warmup_births_are_tracked_but_not_emitted() {
             repriced: false,
             death: DeathKind::BelowFraction,
             traded_lots: 0,
+            rpi_lots: 0,
         }],
         "выживает только послепрогревный уровень, повтор прогревного учтён"
     );
@@ -404,6 +406,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 100,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 2000,
     });
     tr.observe_trade(TradeHit {
@@ -411,6 +414,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 500,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
         exch_ms: 2100,
     });
     tr.observe_trade(TradeHit {
@@ -418,6 +422,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 500,
         aggressor_is_buy: false,
         block: true,
+        rpi: false,
         exch_ms: 2200,
     });
     tr.observe_trade(TradeHit {
@@ -425,6 +430,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 50,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 500,
     });
     tr.observe_trade(TradeHit {
@@ -432,6 +438,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 40,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 3000,
     });
     // Снят (ровно 20%).
@@ -440,6 +447,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 40,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 2500,
     });
     tr.observe_trade(TradeHit {
@@ -447,6 +455,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 100,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
         exch_ms: 2600,
     });
     // Середина (50%).
@@ -455,6 +464,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 100,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 2500,
     });
     // Аск ест только покупатель-агрессор.
@@ -463,6 +473,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 150,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
         exch_ms: 2500,
     });
     tr.observe_trade(TradeHit {
@@ -470,6 +481,7 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 200,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 2600,
     });
 
@@ -505,10 +517,59 @@ fn aggressor_volume_splits_eaten_pulled_and_mixed() {
         lots: 1000,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 5000,
     });
     assert_eq!(tr.live_count(), 0);
     assert_eq!(out.len(), 4);
+}
+
+/// RPI-сделка исполнилась об **невидимую** заявку маркет-мейкера, а не об этот
+/// уровень (В-55): в объём против видимой плотности она не идёт — иначе уровень
+/// помечался бы «съели» за счёт чужого объёма. Считается она отдельно, чтобы
+/// было видно, сколько на этой цене прошло мимо книги.
+#[test]
+fn rpi_trade_does_not_count_as_visible_consumption_but_is_counted_separately() {
+    let mut tr = LevelTracker::new(cfg());
+    let mut out = Vec::with_capacity(4);
+
+    tr.observe_frame(1000, Side::Bid, &[ob(1000, 200)], &mut out);
+    tr.observe_frame(1000, Side::Ask, &[ob(4000, 200)], &mut out);
+
+    // 150 лотов об RPI: этого хватило бы на «съели» (это 75 % от 200), но
+    // видимый уровень такие сделки не потребляют.
+    tr.observe_trade(TradeHit {
+        tick: 1000,
+        lots: 150,
+        aggressor_is_buy: false,
+        block: false,
+        rpi: true,
+        exch_ms: 2000,
+    });
+    // Обычная сделка на 20 лотов: ровно 20 % от 200 — «снят».
+    tr.observe_trade(TradeHit {
+        tick: 1000,
+        lots: 20,
+        aggressor_is_buy: false,
+        block: false,
+        rpi: false,
+        exch_ms: 2100,
+    });
+
+    tr.observe_frame(3000, Side::Bid, &[ob(1000, 10)], &mut out);
+    tr.observe_frame(3000, Side::Ask, &[ob(4000, 10)], &mut out);
+
+    let bid = out.iter().find(|r| r.price_tick == 1000).copied().unwrap();
+    assert_eq!(
+        bid.traded_lots, 20,
+        "RPI-объём не входит в объём против видимого уровня"
+    );
+    assert_eq!(bid.rpi_lots, 150, "RPI-объём обязан считаться отдельно");
+    assert_eq!(
+        bid.outcome(),
+        Outcome::Pulled,
+        "без RPI-объёма исход — «снят»; с ним ошибочно вышло бы «съели»"
+    );
 }
 
 /// Гейт GC для шага 1.2: трейды на живом уровне не аллоцируют —
@@ -525,6 +586,7 @@ fn trades_on_a_live_level_allocate_nothing() {
                 lots: 1,
                 aggressor_is_buy: false,
                 block: false,
+                rpi: false,
                 exch_ms: 1000 + i,
             });
         }
@@ -619,6 +681,7 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
         lots: 4,
         aggressor_is_buy: false,
         block: false,
+        rpi: false,
         exch_ms: 2500,
     });
     // 101 вернулся — касание 0 кончилось уходом с лучшей цены.
@@ -1109,6 +1172,7 @@ fn touching_frames_allocate_nothing() {
                 lots: 1,
                 aggressor_is_buy: false,
                 block: false,
+                rpi: false,
                 exch_ms: ts,
             });
             tr.observe_frame_with_touches(ts + 1, b, &with_best, &mut out, &mut touches);

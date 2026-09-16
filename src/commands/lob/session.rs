@@ -28,6 +28,16 @@
 //! `states`, получают файл части текущих суток и своё соединение
 //! (`feed::DynamicPool::add`); индексы обязаны продолжить `states`.
 //! Удаление строки ничего не останавливает — снятие не поддерживается.
+//!
+//! **Два потока глубины (T45).** Сессия ведёт по два файла на инструмент:
+//! основной `<root>/<SYMBOL>-<день>.binlog` — быстрый поток `orderbook.50`,
+//! ровно как до T45 (и в том же каталоге, чтобы существующие резолверы и
+//! команды видели его тем же `session_binlog_for`), и глубокий
+//! `<root>/deep/<SYMBOL>-<день>.binlog` — поток `orderbook.200` тем же форматом
+//! v3 (В-49: раскладка не меняется, свой синтетический снапшот первым кадром).
+//! Поток события выбирает `sink::event_stream` (глубина из топика); книги,
+//! `u`-контроль, ресинк, ротация суток, кадры и счётчики — раздельные; в
+//! `session.json` они сведены в `streams` (записи, байты, разрывы).
 
 mod args;
 mod pool;
@@ -39,7 +49,7 @@ pub use args::{
     SessionArgs, SessionPlan, MAX_MINUTES, MAX_PILOT_MINUTES, MIN_MINUTES, MIN_PILOT_MINUTES,
 };
 pub(crate) use sink::FrameSink;
-pub use summary::{BinlogPart, ResourceSample, SessionSummary};
+pub use summary::{BinlogPart, DepthCounters, ResourceSample, SessionSummary};
 
 use args::{is_debug_session, resolve_duration};
 use pool::{load_pool, resolve_pool};
@@ -48,8 +58,8 @@ use resources::{
     take_clock_sample,
 };
 use sink::{
-    flush_symbol_batch, push_book_snapshot, write_market_event, LatencyHistogram, SymbolState,
-    SESSION_MAX_FRAME_RECORDS,
+    event_stream, flush_symbol_batch, push_book_snapshot, write_market_event, LatencyHistogram,
+    StreamState, SymbolState, STREAM_COUNT,
 };
 
 use std::path::{Path, PathBuf};
@@ -58,8 +68,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::binlog::Writer;
-use crate::book::Book;
-use crate::bybit::conn::{Clock, SystemClock};
+use crate::bybit::conn::{Clock, SystemClock, DEEP_STREAM, FAST_STREAM, SUBSCRIBED_DEPTHS};
 use crate::commands::record::{
     append_gap_row, claim_part_with, day_file_path, day_string_of_ns, ensure_gaps_csv,
     event_exch_ms, gaps_csv_path, ts_utc_of_ns, GapKind, GapRow, FRAME_LOSS_WINDOW_SECS,
@@ -68,58 +77,129 @@ use crate::commands::record::{
 use crate::feed::live::{LiveFeed, PoolMember};
 use crate::feed::{DynamicPool, Event, Feed, GapKind as FeedGapKind};
 
-/// Открывает файл части символа под `root` на сутки `day`: следующий
-/// свободный номер через `record::claim_part_with` (таск 25 — один цикл
-/// поиска на `lob record` и `lob session`, приёмник — `FrameSink`), ничего
-/// не затирает — вторая сессия тех же суток получает `-p2`, не
-/// перезаписывает первую (таск 22, критерий 2).
+/// Подкаталог глубокого потока в корне сессии:
+/// `<root>/deep/<SYMBOL>-<день>.binlog` (T45). Именно подкаталог, а не
+/// суффикс имени: все существующие резолверы и читатели (`session_binlog_for`
+/// и всё, что ходит `root/*.binlog`, а также `dashboard`/`watch`/`verify`)
+/// читают **корень** сессии, и файл, лежащий глубже, они не видят —
+/// поведение прежних команд не меняется (критерий приёмки T45).
+pub(super) const DEEP_DIR: &str = "deep";
+
+/// Каталог файлов потока: быстрый `.50` — корень сессии (ровно как до T45),
+/// глубокий `.200` — подкаталог `DEEP_DIR`. Единственное место, где эти два
+/// каталога сопоставлены слотам `SUBSCRIBED_DEPTHS`.
+fn stream_dir(root: &Path, stream: usize) -> PathBuf {
+    if stream == FAST_STREAM {
+        root.to_path_buf()
+    } else {
+        root.join(DEEP_DIR)
+    }
+}
+
+/// Открывает файл части символа под каталогом потока на сутки `day`:
+/// следующий свободный номер через `record::claim_part_with` (таск 25 — один
+/// цикл поиска на `lob record` и `lob session`, приёмник — `FrameSink`),
+/// ничего не затирает — вторая сессия тех же суток получает `-p2`, не
+/// перезаписывает первую (таск 22, критерий 2). Части потоков нумеруются
+/// **независимо**: у быстрого и глубокого свои каталоги, и `-p2` одного не
+/// значит `-p2` другого.
 fn claim_symbol_binlog(
-    root: &Path,
+    dir: &Path,
     symbol: &str,
     day: &str,
     tick_e9: i64,
     step_e9: i64,
 ) -> anyhow::Result<(Writer<FrameSink>, u32)> {
-    claim_part_with(root, symbol, day, 1, tick_e9, step_e9, FrameSink::new)
+    claim_part_with(dir, symbol, day, 1, tick_e9, step_e9, FrameSink::new)
         .map_err(|e| anyhow::anyhow!("{symbol}: {e}"))
 }
 
+/// Состояние инструмента на старте/добавлении на ходу (таск 34): по файлу
+/// части и по книге на **каждый** поток глубины (`SUBSCRIBED_DEPTHS`, T45).
+/// Первый слот — быстрый, его файл лежит в корне, как раньше; остальные — в
+/// своём подкаталоге (`stream_dir`). Отказ на любом потоке — отказ всего
+/// инструмента: часть без соседней части не запись, поэтому уже открытые
+/// файлы этой попытки убираются (иначе повтор получил бы `-p2` вместо
+/// свободной части 1) — и убираются **после** закрытия писателей
+/// (`cleanup_failed_open`): удалять открытый файл — это на Windows удаление
+/// пометкой, а не удаление.
 fn open_symbol_state(root: &Path, member: &PoolMember, day: &str) -> anyhow::Result<SymbolState> {
-    let (writer, part) =
-        claim_symbol_binlog(root, &member.symbol, day, member.tick_e9, member.step_e9)?;
     let day_index = crate::commands::record::day_index_of_day_str(day)
         .map_err(|e| anyhow::anyhow!("{}: {e}", member.symbol))?;
+    let mut opened: Vec<(PathBuf, u32)> = Vec::with_capacity(STREAM_COUNT);
+    let mut streams: Vec<StreamState> = Vec::with_capacity(STREAM_COUNT);
+    for (slot, &depth) in SUBSCRIBED_DEPTHS.iter().enumerate() {
+        let dir = stream_dir(root, slot);
+        let claimed = std::fs::create_dir_all(&dir)
+            .map_err(|e| anyhow::anyhow!("{}: каталог {}: {e}", member.symbol, dir.display()))
+            .and_then(|()| {
+                claim_symbol_binlog(&dir, &member.symbol, day, member.tick_e9, member.step_e9)
+            });
+        match claimed {
+            Ok((writer, part)) => {
+                opened.push((dir, part));
+                streams.push(StreamState::new(depth, member, writer, part, day_index));
+            }
+            Err(e) => {
+                return Err(cleanup_failed_open(&member.symbol, day, opened, streams, e));
+            }
+        }
+    }
+    let streams = streams
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("{}: потоков не {STREAM_COUNT}", member.symbol))?;
     Ok(SymbolState {
         member: member.clone(),
-        writer,
-        part,
-        day_index,
-        book: Book::new(member.tick_e9, member.step_e9),
-        synced: false,
-        has_snapshot: false,
-        records_written: 0,
-        rotate_retry_after_ns: i64::MIN,
-        frames_failed: 0,
-        // 50 бид + 50 аск — самый крупный кадр потока (`orderbook.50`
-        // снапшот); запас, чтобы `.push` внутри `write_market_event`
-        // не перевыделял на первом же снапшоте.
-        scratch: Vec::with_capacity(128),
-        // `FRAME_TARGET_RECORDS` плюс тот же запас на самое крупное
-        // сообщение — `Vec::append` из `scratch` не перевыделяет, даже
-        // если порог пересечён ровно этим сообщением (флаш случится
-        // сразу после, но до него длина временно больше порога).
-        batch: Vec::with_capacity(SESSION_MAX_FRAME_RECORDS),
+        streams,
     })
+}
+
+/// Уборка после несостоявшегося открытия инструмента: писатели уже открытых
+/// потоков закрываются (`drop`) **до** удаления их файлов, и только потом
+/// файлы уходят с диска. Порядок — не косметика: `std::fs::remove_file` по
+/// открытому файлу на Windows снимает имя, а данные живут до закрытия
+/// последней ссылки, то есть «удалённый» файл мог бы достаться следующей
+/// попытке (`claim_part_with` увидел бы имя свободным, а место — занятым).
+fn cleanup_failed_open(
+    symbol: &str,
+    day: &str,
+    opened: Vec<(PathBuf, u32)>,
+    streams: Vec<StreamState>,
+    err: anyhow::Error,
+) -> anyhow::Error {
+    drop(streams);
+    for (dir, part) in opened {
+        let _ = std::fs::remove_file(day_file_path(&dir, symbol, day, part));
+    }
+    err
 }
 
 /// Партия не состоялась (таск 34): закрыть уже открытые части и убрать их
 /// файлы, чтобы в каталоге не остались пустые заголовки, а повтор не получил
-/// `-p2`.
+/// `-p2`. Файлов теперь два на инструмент — по одному на поток; пути
+/// собираются **до** `drop`, а удаление идёт после закрытия писателей (тот же
+/// порядок и та же причина, что в `cleanup_failed_open`). Сам подкаталог
+/// `deep/` не удаляется: пустой каталог никому не мешает, а его создание —
+/// работа следующей попытки.
 fn discard_opened(root: &Path, day: &str, opened: Vec<SymbolState>) {
     for state in opened {
-        let path = day_file_path(root, &state.member.symbol, day, state.part);
+        let paths: Vec<PathBuf> = state
+            .streams
+            .iter()
+            .enumerate()
+            .map(|(slot, stream)| {
+                day_file_path(
+                    &stream_dir(root, slot),
+                    &state.member.symbol,
+                    day,
+                    stream.part,
+                )
+            })
+            .collect();
         drop(state);
-        let _ = std::fs::remove_file(path);
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -154,6 +234,12 @@ struct SessionCtx {
     gaps: u64,
     reconnects: u64,
     resyncs: u64,
+    /// Разрывов `u`/инвариантов книги **по потокам** (T45): индекс — слот
+    /// `SUBSCRIBED_DEPTHS`. Отдельно от `resyncs` (всего), потому что
+    /// разрыв `u` есть у конкретного потока — разрыв `.200` не имеет права
+    /// считаться разрывом `.50`, а суммарное число нужно прежним читателям
+    /// `session.json`.
+    resyncs_by_stream: [u64; STREAM_COUNT],
     unrouted: u64,
     /// Ротация суток изменила `binlog_files`, а `session.json` ещё не
     /// переписан — пишет первый тик после ротации, один раз на всех
@@ -202,9 +288,12 @@ impl SessionCtx {
         let mut states = Vec::with_capacity(pool.len());
         for member in pool {
             let state = open_symbol_state(root, member, &day)?;
+            // В `binlog_files` — только быстрый поток (см. doc
+            // `open_next_part`): это карта основных файлов каталога, и её
+            // читают резолверы корня.
             binlog_files.push(BinlogPart {
                 symbol: member.symbol.clone(),
-                part: state.part,
+                part: state.streams[FAST_STREAM].part,
                 started_utc: started_utc.clone(),
             });
             states.push(state);
@@ -237,6 +326,7 @@ impl SessionCtx {
             gaps: 0,
             reconnects: 0,
             resyncs: 0,
+            resyncs_by_stream: [0; STREAM_COUNT],
             unrouted: 0,
             session_json_dirty: false,
             parse_latencies_ns: LatencyHistogram::new(),
@@ -348,16 +438,29 @@ impl SessionCtx {
         }
         let started_utc = ts_utc_of_ns(ts_ns);
         for state in opened {
+            // Печатается и в `binlog_files` попадает быстрый поток — тот
+            // файл, который читают все прежние команды (см. doc
+            // `open_next_part`); глубокий — рядом, в подкаталоге, и о нём
+            // строка stderr сообщает отдельно.
+            let fast = &state.streams[FAST_STREAM];
             eprintln!(
-                "session: добавлен {} (tick={}, step={}) — файл {}",
+                "session: добавлен {} (tick={}, step={}) — файл {}; глубокий поток .{} — {}",
                 state.member.symbol,
                 state.member.tick_e9,
                 state.member.step_e9,
-                day_file_path(&self.root, &state.member.symbol, &day, state.part).display()
+                day_file_path(&self.root, &state.member.symbol, &day, fast.part).display(),
+                SUBSCRIBED_DEPTHS[DEEP_STREAM],
+                day_file_path(
+                    &stream_dir(&self.root, DEEP_STREAM),
+                    &state.member.symbol,
+                    &day,
+                    state.streams[DEEP_STREAM].part,
+                )
+                .display()
             );
             self.binlog_files.push(BinlogPart {
                 symbol: state.member.symbol.clone(),
-                part: state.part,
+                part: fast.part,
                 started_utc: started_utc.clone(),
             });
             self.states.push(state);
@@ -381,33 +484,45 @@ impl SessionCtx {
         let _ = append_gap_row(&self.gaps_path, &row);
     }
 
-    /// Кадр одного инструмента на диск; неудача — счётчик, строка
-    /// `gaps.csv` `write_failed` и очищенный батч (повтор той же записи в
-    /// следующий кадр смешал бы порядок). Файл при этом остаётся на границе
-    /// кадра (`FrameSink::flush`); если и откат не удался — часть закрыта,
-    /// инструмент получает следующую часть тех же суток.
-    fn flush_symbol(&mut self, idx: usize, now_ns: i64) {
+    /// Кадр одного потока одного инструмента на диск; неудача — счётчик,
+    /// строка `gaps.csv` `write_failed` и очищенный батч (повтор той же
+    /// записи в следующий кадр смешал бы порядок). Файл при этом остаётся на
+    /// границе кадра (`FrameSink::flush`); если и откат не удался — часть
+    /// закрыта, поток получает следующую часть тех же суток. `stream` —
+    /// слот потока (`sink::event_stream`), не «инструмент целиком»: у
+    /// быстрого и глубокого свои файлы и свой `boundary_lost`.
+    fn flush_symbol(&mut self, idx: usize, stream: usize, now_ns: i64) {
         let Some(state) = self.states.get_mut(idx) else {
             return;
         };
-        if let Err(e) = flush_symbol_batch(state) {
-            let detail =
-                format!("кадр не записался ({e}) — потеряно до {FRAME_TARGET_RECORDS} записей");
+        if let Err(e) = flush_symbol_batch(&mut state.streams[stream]) {
+            let depth = state.streams[stream].depth;
+            let detail = format!(
+                "поток .{depth}: кадр не записался ({e}) — потеряно до {FRAME_TARGET_RECORDS} \
+                 записей"
+            );
             self.log_gap(
                 Some(idx),
                 GapKind::WriteFailed,
                 ts_utc_of_ns(now_ns),
                 detail,
             );
-            if self.states[idx].writer.get_ref().boundary_lost() {
-                let day_index = self.states[idx].day_index;
-                match self.open_next_part(idx, day_index, now_ns, now_ns) {
+            if self.states[idx].streams[stream]
+                .writer
+                .get_ref()
+                .boundary_lost()
+            {
+                let day_index = self.states[idx].streams[stream].day_index;
+                match self.open_next_part(idx, stream, day_index, now_ns, now_ns) {
                     Ok(()) => eprintln!(
-                        "session: {}: граница кадра потеряна — часть переоткрыта (p{})",
-                        self.states[idx].member.symbol, self.states[idx].part
+                        "session: {}: поток .{depth}: граница кадра потеряна — часть \
+                         переоткрыта (p{})",
+                        self.states[idx].member.symbol, self.states[idx].streams[stream].part
                     ),
                     Err(e) => {
-                        let detail = format!("часть не переоткрыта после потери границы: {e}");
+                        let detail = format!(
+                            "поток .{depth}: часть не переоткрыта после потери границы: {e}"
+                        );
                         eprintln!("session: {}: {detail}", self.states[idx].member.symbol);
                         self.log_gap(
                             Some(idx),
@@ -423,7 +538,9 @@ impl SessionCtx {
 
     fn flush_all(&mut self, now_ns: i64) {
         for idx in 0..self.states.len() {
-            self.flush_symbol(idx, now_ns);
+            for stream in 0..STREAM_COUNT {
+                self.flush_symbol(idx, stream, now_ns);
+            }
         }
     }
 
@@ -515,25 +632,32 @@ impl SessionCtx {
     /// событии. Отказ ротации — строка stderr и `gaps.csv`, события идут в
     /// текущую часть, повтор не раньше `FRAME_LOSS_WINDOW_SECS`; цикл не
     /// останавливается. Полночь — не разрыв, строки в `gaps.csv` нет.
-    fn rotate_symbol_day(&mut self, idx: usize, exch_ts_ns: i64, local_ts_ns: i64) {
+    ///
+    /// Ротация — **по потоку события** (T45): `.200` и `.50` живут своими
+    /// частями, и сутки одного не тянут за собой файл другого. Сутки
+    /// сравниваются с индексом суток файла своего потока.
+    fn rotate_symbol_day(&mut self, idx: usize, stream: usize, exch_ts_ns: i64, local_ts_ns: i64) {
         let day_index = exch_ts_ns.div_euclid(NS_PER_DAY);
         let Some(state) = self.states.get(idx) else {
             return;
         };
-        if day_index <= state.day_index || local_ts_ns < state.rotate_retry_after_ns {
+        let depth = state.streams[stream].depth;
+        if day_index <= state.streams[stream].day_index
+            || local_ts_ns < state.streams[stream].rotate_retry_after_ns
+        {
             return;
         }
-        self.flush_symbol(idx, local_ts_ns);
-        if let Err(e) = self.open_next_part(idx, day_index, exch_ts_ns, local_ts_ns) {
-            let state = &mut self.states[idx];
-            state.rotate_retry_after_ns =
+        self.flush_symbol(idx, stream, local_ts_ns);
+        if let Err(e) = self.open_next_part(idx, stream, day_index, exch_ts_ns, local_ts_ns) {
+            let stream_state = &mut self.states[idx].streams[stream];
+            stream_state.rotate_retry_after_ns =
                 local_ts_ns.saturating_add(FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000);
             let detail = format!(
-                "ротация суток не удалась: {e} — события идут в часть p{} прежних суток, \
-                 повтор через {FRAME_LOSS_WINDOW_SECS} с",
-                state.part
+                "поток .{depth}: ротация суток не удалась: {e} — события идут в часть p{} \
+                 прежних суток, повтор через {FRAME_LOSS_WINDOW_SECS} с",
+                stream_state.part
             );
-            eprintln!("session: {}: {detail}", state.member.symbol);
+            eprintln!("session: {}: {detail}", self.states[idx].member.symbol);
             self.log_gap(
                 Some(idx),
                 GapKind::WriteFailed,
@@ -543,16 +667,22 @@ impl SessionCtx {
         }
     }
 
-    /// Следующая свободная часть суток `day_index` для инструмента
+    /// Следующая свободная часть суток `day_index` для потока инструмента
     /// (`claim_part_with`, ничего не затирается): общий шов ротации по
     /// полуночи и переоткрытия после потерянной границы кадра. Первым
-    /// кадром — синтетический снапшот книги, если она доверена (`synced`);
-    /// иначе файл ждёт снапшота биржи, как при старте. `started_ns` —
-    /// `started_utc` части в `binlog_files`; `session.json` переписывается
-    /// сразу (best-effort) — `binlog_files` читают `profiles`/`watch`.
+    /// кадром — синтетический снапшот книги **этого потока**, если она
+    /// доверена (`synced`); иначе файл ждёт снапшота биржи, как при старте.
+    /// `started_ns` — `started_utc` части в `binlog_files`; `session.json`
+    /// переписывается сразу (best-effort) — `binlog_files` читают
+    /// `profiles`/`watch`. В `binlog_files` попадает **только быстрый**
+    /// поток: этот список — карта основных файлов каталога (его читают
+    /// `session_parts_for`/`profiles`/`watch` резолвером корня), и вторая
+    /// запись с теми же `(symbol, part)` на глубокий файл сделала бы атрибуцию
+    /// частей неоднозначной, ничего не добавив читателям.
     fn open_next_part(
         &mut self,
         idx: usize,
+        stream: usize,
         day_index: i64,
         started_ns: i64,
         local_ts_ns: i64,
@@ -560,8 +690,9 @@ impl SessionCtx {
         let day = day_string_of_ns(day_index.saturating_mul(NS_PER_DAY))
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         let state = &mut self.states[idx];
+        let dir = stream_dir(&self.root, stream);
         let (writer, part) = claim_symbol_binlog(
-            &self.root,
+            &dir,
             &state.member.symbol,
             &day,
             state.member.tick_e9,
@@ -569,21 +700,24 @@ impl SessionCtx {
         )?;
         // Старый приёмник закрывается вместе с прежним `Writer` — его буфер
         // уже пуст после сброса у вызывающего.
-        state.writer = writer;
-        state.part = part;
-        state.day_index = day_index;
-        state.has_snapshot = false;
-        state.batch.clear();
-        self.binlog_files.push(BinlogPart {
-            symbol: state.member.symbol.clone(),
-            part,
-            started_utc: ts_utc_of_ns(started_ns),
-        });
-        if state.synced {
-            push_book_snapshot(state, started_ns, local_ts_ns);
+        let stream_state = &mut state.streams[stream];
+        stream_state.writer = writer;
+        stream_state.part = part;
+        stream_state.day_index = day_index;
+        stream_state.has_snapshot = false;
+        stream_state.batch.clear();
+        if stream == FAST_STREAM {
+            self.binlog_files.push(BinlogPart {
+                symbol: state.member.symbol.clone(),
+                part,
+                started_utc: ts_utc_of_ns(started_ns),
+            });
+        }
+        if stream_state.synced {
+            push_book_snapshot(stream_state, started_ns, local_ts_ns);
             // Не `flush_symbol`: та на потерянной границе переоткрыла бы
             // часть снова — рекурсия на мёртвом диске.
-            if let Err(e) = flush_symbol_batch(state) {
+            if let Err(e) = flush_symbol_batch(stream_state) {
                 let detail =
                     format!("кадр не записался ({e}) — потеряно до {FRAME_TARGET_RECORDS} записей");
                 self.log_gap(
@@ -639,7 +773,12 @@ impl SessionCtx {
                 .iter()
                 .map(|s| s.member.symbol.clone())
                 .collect(),
-            records_total: self.states.iter().map(|s| s.records_written).sum(),
+            records_total: self
+                .states
+                .iter()
+                .flat_map(|s| s.streams.iter())
+                .map(|s| s.records_written)
+                .sum(),
             gaps: self.gaps,
             clock_samples: self.clock_samples.load(Ordering::Relaxed),
             parse_p99_ns: self.parse_latencies_ns.percentile(99),
@@ -656,12 +795,43 @@ impl SessionCtx {
             reconnects: self.reconnects,
             resyncs: self.resyncs,
             unrouted: self.unrouted,
-            frames_failed: self.states.iter().map(|s| s.frames_failed).sum(),
+            frames_failed: self
+                .states
+                .iter()
+                .flat_map(|s| s.streams.iter())
+                .map(|s| s.frames_failed)
+                .sum(),
             bytes_written: self
                 .states
                 .iter()
+                .flat_map(|s| s.streams.iter())
                 .map(|s| s.writer.get_ref().bytes_written())
                 .sum(),
+            // Раздельные счётчики по потокам (T45, критерий приёмки):
+            // записи, байты и разрывы каждого потока отдельно — по ним
+            // видно, что `.200` действительно пишется своим файлом, а не
+            // растворяется в сумме.
+            streams: (0..STREAM_COUNT)
+                .map(|slot| summary::DepthCounters {
+                    depth: SUBSCRIBED_DEPTHS[slot],
+                    records: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].records_written)
+                        .sum(),
+                    bytes: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].writer.get_ref().bytes_written())
+                        .sum(),
+                    resyncs: self.resyncs_by_stream[slot],
+                    frames_failed: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].frames_failed)
+                        .sum(),
+                })
+                .collect(),
             updated_utc: ts_utc_of_ns(now_ns),
             closed,
             samples,
@@ -721,25 +891,38 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                 if idx >= ctx.states.len() {
                     continue;
                 }
-                if let Some(exch_ms) = event_exch_ms(&payload) {
-                    ctx.rotate_symbol_day(idx, exch_ms.saturating_mul(1_000_000), local_ts_ns);
-                }
-                if let Err(e) = write_market_event(&mut ctx.states[idx], local_ts_ns, payload) {
-                    let detail = format!(
-                        "кадр не записался ({e:?}) — потеряно до {FRAME_TARGET_RECORDS} записей"
-                    );
-                    ctx.log_gap(
-                        Some(idx),
-                        GapKind::WriteFailed,
-                        ts_utc_of_ns(local_ts_ns),
-                        detail,
-                    );
+                // Поток события — один раз на событие (`sink::event_stream`:
+                // книга по глубине топика, сделка всегда быстрый): и ротация
+                // суток, и запись спрашивают его же, а не каждая своё.
+                if let Some(stream) = event_stream(&payload) {
+                    if let Some(exch_ms) = event_exch_ms(&payload) {
+                        ctx.rotate_symbol_day(
+                            idx,
+                            stream,
+                            exch_ms.saturating_mul(1_000_000),
+                            local_ts_ns,
+                        );
+                    }
+                    if let Err(e) = write_market_event(&mut ctx.states[idx], local_ts_ns, payload) {
+                        let depth = ctx.states[idx].streams[stream].depth;
+                        let detail = format!(
+                            "поток .{depth}: кадр не записался ({e:?}) — потеряно до \
+                             {FRAME_TARGET_RECORDS} записей"
+                        );
+                        ctx.log_gap(
+                            Some(idx),
+                            GapKind::WriteFailed,
+                            ts_utc_of_ns(local_ts_ns),
+                            detail,
+                        );
+                    }
                 }
             }
             Event::Gap {
                 symbol,
                 local_ts_ns,
                 kind,
+                depth,
                 detail,
             } => {
                 // Неразрешённый маршрут — не строка `gaps.csv`: у неё
@@ -751,15 +934,27 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                 }
                 ctx.gaps += 1;
                 let idx = symbol as usize;
+                // Разрыв — по потоку (T45): `sink::stream_of_depth` даёт слот
+                // разорванного потока, `None` — потеря, которая потоку не
+                // принадлежит (разрыв сокета роняет оба потока сразу,
+                // неразобранный кадр не несёт ни символа, ни глубины).
+                // Счётчик разрывов и сброс доверия — раздельные.
+                let slot = depth.and_then(sink::stream_of_depth);
                 let record_kind = match kind {
                     FeedGapKind::Unrouted => unreachable!("отсеян выше"),
                     FeedGapKind::ParseFailed => GapKind::ParseError,
                     FeedGapKind::SequenceGap => {
                         ctx.resyncs += 1;
+                        if let Some(slot) = slot {
+                            ctx.resyncs_by_stream[slot] += 1;
+                        }
                         GapKind::SequenceGap
                     }
                     FeedGapKind::BookInvariant => {
                         ctx.resyncs += 1;
+                        if let Some(slot) = slot {
+                            ctx.resyncs_by_stream[slot] += 1;
+                        }
                         GapKind::BookInvariant
                     }
                     FeedGapKind::Disconnected => {
@@ -773,9 +968,18 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                     }
                     FeedGapKind::DisconnectedSameSocket => GapKind::SequenceGap,
                 };
+                // Сброс доверия: у разрыва потока — только его книга, у
+                // потери без потока (разрыв сокета) — обе книги инструмента.
                 if kind != FeedGapKind::ParseFailed {
                     if let Some(state) = ctx.states.get_mut(idx) {
-                        state.synced = false;
+                        match slot {
+                            Some(slot) => state.streams[slot].synced = false,
+                            None => {
+                                for stream in &mut state.streams {
+                                    stream.synced = false;
+                                }
+                            }
+                        }
                     }
                 }
                 ctx.log_gap(Some(idx), record_kind, ts_utc_of_ns(local_ts_ns), detail);

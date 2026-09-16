@@ -1510,7 +1510,7 @@ fn binlog_bytes_on_disk(root: &Path) -> u64 {
     };
     entries
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".binlog"))
+        .filter(|e| crate::binlog::is_binlog_file_name(&e.file_name().to_string_lossy()))
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .sum()

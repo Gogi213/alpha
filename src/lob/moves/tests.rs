@@ -28,6 +28,7 @@ fn rec(
         repriced: false,
         death: DeathKind::BelowFraction,
         traded_lots,
+        rpi_lots: 0,
     }
 }
 

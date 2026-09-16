@@ -11,6 +11,7 @@ const DAY: &str = "2026-09-08";
 fn snapshot_update() -> crate::book::Update {
     crate::book::Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 1_757_800_000_000,
@@ -43,6 +44,7 @@ fn off_tick_price_rotates_and_leaves_a_gap_row_instead_of_continuing_silently() 
     // а не записать дельту молча.
     let bad = crate::book::Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
@@ -89,6 +91,7 @@ fn on_tick_delta_is_staged_without_rotation_and_without_gap_rows() {
 
     let delta = crate::book::Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
@@ -261,6 +264,7 @@ fn daily_file_header_carries_tick_size_and_qty_step() {
     let mut book = crate::book::Book::new(100, 10);
     book.apply(&crate::book::Update {
         is_snapshot: true,
+        depth: 50,
         u: 1,
         seq: 1,
         cts_ms: 0,
@@ -409,6 +413,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::BinlogStats(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::Archive(_) => {
+            panic!("разобралась не та подкоманда")
+        }
     }
 }
 
@@ -421,6 +428,7 @@ fn staging_before_the_first_snapshot_is_a_loud_error() {
     let mut book = crate::book::Book::new(TICK_E9, STEP_E9);
     let delta = crate::book::Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
@@ -443,6 +451,7 @@ fn staging_before_the_first_snapshot_is_a_loud_error() {
         qty_e9: 1_000_000_000,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
     };
     assert_eq!(
         rec.stage_trade(&trade, 1_757_800_000_021_000_000)
@@ -465,6 +474,7 @@ fn sequence_gap_is_reported_loudly_and_stages_nothing() {
 
     let skipped = crate::book::Update {
         is_snapshot: false,
+        depth: 50,
         u: 4, // ждали 2
         seq: 4,
         cts_ms: 1_757_800_000_040,
@@ -513,6 +523,7 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
         qty_e9: 2_000_000_000,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
     };
     let block_sell = crate::bybit::ws::Trade {
         exch_ms: 1_757_800_000_101,
@@ -520,6 +531,7 @@ fn trades_are_staged_with_side_block_flag_and_tick_lot_scale() {
         qty_e9: 5_000_000_000,
         aggressor_is_buy: false,
         block: true,
+        rpi: false,
     };
     rec.stage_trade(&buy, 1_757_800_000_101_000_000).unwrap();
     rec.stage_trade(&block_sell, 1_757_800_000_102_000_000)
@@ -561,6 +573,7 @@ fn steady_events_allocate_nothing() {
     // ловил бы рост буферов сжатия, а не аллокатор.
     let mut upd = crate::book::Update {
         is_snapshot: false,
+        depth: 50,
         u: 2,
         seq: 2,
         cts_ms: 1_757_800_000_020,
@@ -573,6 +586,7 @@ fn steady_events_allocate_nothing() {
         qty_e9: 1_000_000_000,
         aggressor_is_buy: true,
         block: false,
+        rpi: false,
     };
     // Прогрев вне замера: книга, батч и Writer при рабочей ёмкости.
     for k in 0..2_000u64 {
