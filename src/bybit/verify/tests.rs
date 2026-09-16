@@ -239,14 +239,14 @@ fn trades_inside_outside_and_empty_book() {
     // Ревизия 17а: вне диапазона — доля без порога, порог < 0.1% — к нарушениям.
     // Книга: биды 100/99, аски 101/102, спан [99, 102].
     let mut v = Verifier::new(TICK_E9, STEP_E9);
-    v.observe_trade(100); // пустая книга — неопределённость, не нарушение
+    v.observe_trade(100, 0, false, false, false); // пустая книга — неопределённость, не нарушение
     assert_eq!(v.stats().trades_indeterminate, 1);
     assert_eq!(v.stats().trades_out_of_range, 0);
     assert_eq!(v.stats().trades_violations, 0);
     v.apply_update(&snapshot_update(1)).unwrap();
-    v.observe_trade(100); // держит бид — чисто
-    v.observe_trade(50); // ниже худшего бида — вне диапазона
-    v.observe_trade(500); // выше худшего аска — вне диапазона
+    v.observe_trade(100, 0, false, false, false); // держит бид — чисто
+    v.observe_trade(50, 0, false, false, false); // ниже худшего бида — вне диапазона
+    v.observe_trade(500, 0, false, false, false); // выше худшего аска — вне диапазона
     assert_eq!(v.stats().trades_total, 4);
     assert_eq!(v.stats().trades_out_of_range, 2);
     assert_eq!(v.stats().trades_violations, 0);
@@ -260,8 +260,8 @@ fn trade_out_of_range_is_share_not_violation() {
     // свойство глубины, порога у неё нет, в нарушения не идёт.
     let mut v = Verifier::new(TICK_E9, STEP_E9);
     v.apply_update(&snapshot_update(1)).unwrap();
-    v.observe_trade(50);
-    v.observe_trade(500);
+    v.observe_trade(50, 0, false, false, false);
+    v.observe_trade(500, 0, false, false, false);
     assert_eq!(v.stats().trades_total, 2);
     assert_eq!(v.stats().trades_out_of_range, 2);
     assert_eq!(v.stats().trades_violations, 0);
@@ -284,12 +284,69 @@ fn trade_inside_range_on_never_held_price_is_violation() {
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
     v.apply_update(&up).unwrap();
-    v.observe_trade(101);
-    v.observe_trade(102);
+    v.observe_trade(101, 0, false, false, false);
+    v.observe_trade(102, 0, false, false, false);
     assert_eq!(v.stats().trades_total, 2);
     assert_eq!(v.stats().trades_out_of_range, 0);
     assert_eq!(v.stats().trades_violations, 2);
     assert_eq!(v.stats().trade_violation_ppm(), Some(1_000_000));
+}
+
+/// Нарушение теста 3 перестаёт быть загадкой: счётчики показывают, чем именно
+/// оно вызвано. Блочная сделка и RPI-сделка по определению не потребляют
+/// видимую ликвидность, а цена строго внутри спреда не может держаться книгой —
+/// всё это отдельные причины, а не признак битого файла.
+#[test]
+fn violation_breakdown_separates_block_rpi_and_inside_spread() {
+    let mut v = Verifier::new(TICK_E9, STEP_E9);
+    // Биды 100/98, аски 103/105: спан [98, 105], лучший бид 100, лучший аск 103.
+    let up = Update {
+        is_snapshot: true,
+        depth: 50,
+        u: 1,
+        seq: 1,
+        cts_ms: 1_000,
+        bids: vec![(px(100), qty(5)), (px(98), qty(7))],
+        asks: vec![(px(103), qty(4)), (px(105), qty(6))],
+    };
+    v.apply_update(&up).unwrap();
+
+    v.observe_trade(99, 0, false, false, false); // дыра между уровнями, не спред
+    v.observe_trade(101, 0, true, false, false); // блочная, внутри спреда
+    v.observe_trade(102, 0, false, true, false); // RPI, внутри спреда
+
+    let s = v.stats();
+    assert_eq!(s.trades_violations, 3, "все три — нарушения теста 3");
+    assert_eq!(s.violations_block, 1, "блочная обязана считаться отдельно");
+    assert_eq!(s.violations_rpi, 1, "RPI-сделка обязана считаться отдельно");
+    assert_eq!(
+        s.violations_inside_spread, 2,
+        "строго внутри спреда — только 101 и 102, тик 99 лежит в дыре до лучшего бида"
+    );
+    // Агрессор-продавец ест бид: близость считается до бидов (100 и 98).
+    assert_eq!(
+        s.violations_adjacent, 2,
+        "99 и 101 — в одном тике от бида 100"
+    );
+    assert_eq!(s.violations_far, 1, "102 — в двух тиках от ближайшего бида");
+    assert_eq!(s.violations_no_side, 0);
+    assert_eq!(
+        s.violations_stale_20ms, 0,
+        "апдейт был в 1000 мс, сделки — в 0"
+    );
+    assert_eq!(s.violations_stale_100ms, 0);
+
+    // Давность книги: обновление пришло в 1000 мс, сделка — в 1100.
+    let mut v = Verifier::new(TICK_E9, STEP_E9);
+    v.apply_update(&up).unwrap();
+    v.observe_trade(99, 1_100, false, false, false);
+    let s = v.stats();
+    assert_eq!(s.trades_violations, 1);
+    assert_eq!(
+        s.violations_stale_100ms, 1,
+        "100 мс после апдейта — в счётчике"
+    );
+    assert_eq!(s.violations_stale_20ms, 0);
 }
 
 #[test]
@@ -319,7 +376,7 @@ fn trade_on_emptied_tick_is_clean_under_17b() {
         asks: vec![],
     };
     v.apply_update(&eaten).unwrap();
-    v.observe_trade(100);
+    v.observe_trade(100, 0, false, false, false);
     assert_eq!(v.stats().trades_total, 1);
     assert_eq!(v.stats().trades_out_of_range, 0);
     assert_eq!(v.stats().trades_violations, 0);
@@ -340,8 +397,8 @@ fn trade_inside_range_on_held_price_is_clean() {
         asks: vec![(px(103), qty(4)), (px(104), qty(6))],
     };
     v.apply_update(&up).unwrap();
-    v.observe_trade(100);
-    v.observe_trade(103);
+    v.observe_trade(100, 0, false, false, false);
+    v.observe_trade(103, 0, false, false, false);
     assert_eq!(v.stats().trades_total, 2);
     assert_eq!(v.stats().trades_out_of_range, 0);
     assert_eq!(v.stats().trades_violations, 0);
@@ -352,7 +409,7 @@ fn trade_inside_range_on_held_price_is_clean() {
 #[test]
 fn trade_on_empty_book_is_indeterminate() {
     let mut v = Verifier::new(TICK_E9, STEP_E9);
-    v.observe_trade(100);
+    v.observe_trade(100, 0, false, false, false);
     assert_eq!(v.stats().trades_total, 1);
     assert_eq!(v.stats().trades_indeterminate, 1);
     assert_eq!(v.stats().trades_out_of_range, 0);
@@ -393,7 +450,7 @@ fn file_replay_groups_snapshot_delta_and_trades() {
         assert!(v.apply_update(up).unwrap().is_empty());
     }
     for t in &trades {
-        v.observe_trade(t.tick);
+        v.observe_trade(t.tick, 0, false, false, false);
     }
     // Книга: бид 100, аск 101. Сделка на 100 держится бидом (чисто),
     // на 50 — вне диапазона (доля без порога, не нарушение).

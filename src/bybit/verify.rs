@@ -385,6 +385,27 @@ pub struct VerifyStats {
     pub trades_out_of_range: u64,
     pub trades_violations: u64,
     pub trades_indeterminate: u64,
+    /// Из `trades_violations` — сколько пришлось на блочные сделки (`BT`):
+    /// они по определению не потребляют видимую ликвидность и печатаются по
+    /// договорной цене, поэтому попадание в тест 3 у них ожидаемо.
+    pub violations_block: u64,
+    /// Из `trades_violations` — сколько пришлось на RPI-сделки (исполнение об
+    /// невидимую заявку). Флаг есть только с 2026-09-15T22:47:56Z.
+    pub violations_rpi: u64,
+    /// Из `trades_violations` — сколько пришлось на цены **строго внутри
+    /// спреда**: там заявки стоять не может, и сделка означает исполнение об
+    /// невидимое или проскочившее между апдейтами.
+    pub violations_inside_spread: u64,
+    /// Близость уровня на **той стороне**, которую сделка ела: ровно один тик.
+    pub violations_adjacent: u64,
+    /// Близость уровня на нужной стороне: два тика и дальше.
+    pub violations_far: u64,
+    /// У нужной стороны уровней нет вовсе (однобокая книга).
+    pub violations_no_side: u64,
+    /// Сколько прошло с последнего применённого обновления книги: 20–100 мс.
+    pub violations_stale_20ms: u64,
+    /// То же: 100 мс и больше.
+    pub violations_stale_100ms: u64,
 }
 
 impl VerifyStats {
@@ -417,6 +438,9 @@ pub struct Verifier {
     /// 17б). Только вставки и проверки вхождения — порядок обхода не влияет
     /// ни на что, детерминизм A2 не задет. Память — тысячи distinct тиков.
     ever_held: std::collections::HashSet<i64>,
+    /// Метка биржи последнего применённого обновления, мс. Нужна, чтобы отличать
+    /// «книга не успела» (окно троттлинга) от «книга видела, но не то».
+    last_update_ms: i64,
 }
 
 impl Verifier {
@@ -425,6 +449,7 @@ impl Verifier {
             book: Book::new(tick_e9, step_e9),
             stats: VerifyStats::default(),
             ever_held: std::collections::HashSet::new(),
+            last_update_ms: 0,
         }
     }
 
@@ -445,6 +470,7 @@ impl Verifier {
         match self.book.apply(up) {
             Ok(()) => {
                 self.stats.updates_applied += 1;
+                self.last_update_ms = self.last_update_ms.max(up.cts_ms);
                 // Все удерживаемые тики — в историю покрытия (ревизия 17б).
                 // Пустой срез уровней невозможен: apply с нулевыми размерами
                 // уровни удаляет, а не хранит.
@@ -480,7 +506,14 @@ impl Verifier {
     /// внутри на цене, которую книга НИ РАЗУ не держала за время покрытия, —
     /// нарушение. Цена, удерживаемая сейчас или державшаяся раньше (пустой тик
     /// между уровнями, съеденный уровень), — не нарушение.
-    pub fn observe_trade(&mut self, price_tick: i64) {
+    pub fn observe_trade(
+        &mut self,
+        price_tick: i64,
+        exch_ms: i64,
+        block: bool,
+        rpi: bool,
+        aggressor_is_buy: bool,
+    ) {
         self.stats.trades_total += 1;
         match trade_in_range(&self.book, price_tick) {
             None => self.stats.trades_indeterminate += 1,
@@ -488,9 +521,58 @@ impl Verifier {
             Some(true) => {
                 if !self.ever_held.contains(&price_tick) {
                     self.stats.trades_violations += 1;
+                    if block {
+                        self.stats.violations_block += 1;
+                    }
+                    if rpi {
+                        self.stats.violations_rpi += 1;
+                    }
+                    if self.inside_spread(price_tick) {
+                        self.stats.violations_inside_spread += 1;
+                    }
+                    self.classify_violation(price_tick, exch_ms, aggressor_is_buy);
                 }
             }
         }
+    }
+
+    /// Чем ещё объясняется нарушение: близостью уровня на стороне, которую
+    /// сделка ела, и давностью последнего обновления книги. Нужно, чтобы вопрос
+    /// «это порча, задержка или разрешение наблюдения» имел числовой ответ.
+    fn classify_violation(&mut self, price_tick: i64, exch_ms: i64, aggressor_is_buy: bool) {
+        let side = if aggressor_is_buy {
+            Side::Ask
+        } else {
+            Side::Bid
+        };
+        match self
+            .book
+            .levels(side)
+            .map(|(t, _)| (t - price_tick).abs())
+            .min()
+        {
+            Some(1) => self.stats.violations_adjacent += 1,
+            Some(_) => self.stats.violations_far += 1,
+            None => self.stats.violations_no_side += 1,
+        }
+        if self.last_update_ms > 0 {
+            let dt = exch_ms - self.last_update_ms;
+            if dt >= 100 {
+                self.stats.violations_stale_100ms += 1;
+            } else if dt >= 20 {
+                self.stats.violations_stale_20ms += 1;
+            }
+        }
+    }
+
+    /// Цена строго между лучшим бидом и лучшим аском. Заявки там стоять не
+    /// может по определению спреда, поэтому сделка по такому тику — исполнение
+    /// об невидимое (RPI) или проскочившее между апдейтами, а не признак битой
+    /// книги; счётчик нужен, чтобы это было видно числом.
+    fn inside_spread(&self, price_tick: i64) -> bool {
+        let bid = self.book.levels(Side::Bid).map(|(t, _)| t).max();
+        let ask = self.book.levels(Side::Ask).map(|(t, _)| t).min();
+        matches!((bid, ask), (Some(b), Some(a)) if price_tick > b && price_tick < a)
     }
 
     /// Проверка 1: книга обязана стоять ровно на `u` снапшота. Не стоит —
@@ -533,11 +615,19 @@ impl Verifier {
 // Файловый реплей: записи суток -> Updates с синтетическими u (проверки 2-3)
 // ---------------------------------------------------------------------------
 
-/// Сделка, извлечённая из записи файла: тик цены и флаг блочной.
+/// Сделка, извлечённая из записи файла: тик цены и флаги.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TradePoint {
     pub tick: i64,
     pub block: bool,
+    /// Исполнение об RPI-заявку (`Record.rpi`): флаг есть только в файлах с
+    /// 2026-09-15T22:47:56Z, раньше — «не размечено».
+    pub rpi: bool,
+    /// Метка биржи, мс (`exch_ts_ns / 1e6`): по ней считается, сколько прошло с
+    /// последнего применённого обновления книги.
+    pub exch_ms: i64,
+    /// Агрессор-покупатель: он ест аск, значит уровень искать на стороне асков.
+    pub aggressor_is_buy: bool,
 }
 
 fn is_snapshot_ev(ev: u64) -> bool {
@@ -639,6 +729,9 @@ impl FileReplayer {
                 trades.push(TradePoint {
                     tick: r.price_ticks,
                     block: r.block,
+                    rpi: r.rpi,
+                    exch_ms: r.exch_ts_ns / 1_000_000,
+                    aggressor_is_buy: r.ev == LOCAL_BUY_TRADE_EVENT,
                 });
                 continue;
             }
@@ -737,6 +830,14 @@ pub struct VerifySummary {
     pub trades_out_of_range: u64,
     pub trades_violations: u64,
     pub trades_indeterminate: u64,
+    pub violations_block: u64,
+    pub violations_rpi: u64,
+    pub violations_inside_spread: u64,
+    pub violations_adjacent: u64,
+    pub violations_far: u64,
+    pub violations_no_side: u64,
+    pub violations_stale_20ms: u64,
+    pub violations_stale_100ms: u64,
 }
 
 impl VerifySummary {
@@ -880,11 +981,19 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
                 summary.trades_out_of_range += s.trades_out_of_range;
                 summary.trades_violations += s.trades_violations;
                 summary.trades_indeterminate += s.trades_indeterminate;
+                summary.violations_block += s.violations_block;
+                summary.violations_rpi += s.violations_rpi;
+                summary.violations_inside_spread += s.violations_inside_spread;
+                summary.violations_adjacent += s.violations_adjacent;
+                summary.violations_far += s.violations_far;
+                summary.violations_no_side += s.violations_no_side;
+                summary.violations_stale_20ms += s.violations_stale_20ms;
+                summary.violations_stale_100ms += s.violations_stale_100ms;
                 return Ok(());
             }
         }
         for t in &trades {
-            verifier.observe_trade(t.tick);
+            verifier.observe_trade(t.tick, t.exch_ms, t.block, t.rpi, t.aggressor_is_buy);
         }
     }
     // Хвост файла: сообщение, закрывшееся концом потока, а не следующим.
@@ -903,6 +1012,14 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
     summary.trades_out_of_range += s.trades_out_of_range;
     summary.trades_violations += s.trades_violations;
     summary.trades_indeterminate += s.trades_indeterminate;
+    summary.violations_block += s.violations_block;
+    summary.violations_rpi += s.violations_rpi;
+    summary.violations_inside_spread += s.violations_inside_spread;
+    summary.violations_adjacent += s.violations_adjacent;
+    summary.violations_far += s.violations_far;
+    summary.violations_no_side += s.violations_no_side;
+    summary.violations_stale_20ms += s.violations_stale_20ms;
+    summary.violations_stale_100ms += s.violations_stale_100ms;
     Ok(())
 }
 

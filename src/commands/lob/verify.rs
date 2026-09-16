@@ -111,6 +111,14 @@ pub(crate) fn verify_and_mark(
         total.trades_out_of_range += summary.trades_out_of_range;
         total.trades_violations += summary.trades_violations;
         total.trades_indeterminate += summary.trades_indeterminate;
+        total.violations_block += summary.violations_block;
+        total.violations_rpi += summary.violations_rpi;
+        total.violations_inside_spread += summary.violations_inside_spread;
+        total.violations_adjacent += summary.violations_adjacent;
+        total.violations_far += summary.violations_far;
+        total.violations_no_side += summary.violations_no_side;
+        total.violations_stale_20ms += summary.violations_stale_20ms;
+        total.violations_stale_100ms += summary.violations_stale_100ms;
         parts.push(PartVerify {
             path,
             day_utc,
@@ -134,7 +142,9 @@ pub(crate) fn verify_and_mark(
 /// `pilot::InstrumentMetrics::verify_summary_line`.
 pub(crate) fn format_summary(s: &VerifySummary) -> String {
     format!(
-        "files={} updates={} gaps={} invariants={} trades={} out_of_range={} violations={} indeterminate={}",
+        "files={} updates={} gaps={} invariants={} trades={} out_of_range={} violations={} \
+         (block={} rpi={} in_spread={} adj1={} far={} no_side={} stale20={} stale100={}) \
+         indeterminate={}",
         s.files,
         s.updates_applied,
         s.sequence_gaps,
@@ -142,6 +152,14 @@ pub(crate) fn format_summary(s: &VerifySummary) -> String {
         s.trades_total,
         s.trades_out_of_range,
         s.trades_violations,
+        s.violations_block,
+        s.violations_rpi,
+        s.violations_inside_spread,
+        s.violations_adjacent,
+        s.violations_far,
+        s.violations_no_side,
+        s.violations_stale_20ms,
+        s.violations_stale_100ms,
         s.trades_indeterminate,
     )
 }
