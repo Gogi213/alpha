@@ -35,7 +35,7 @@ tags: [alpha, bybit, lob, collector]
 **Что делать дальше, по шагам:**
 1. **B5** (M): прогон всех 48 форм В-58 на пригодных сутках (местная запись
    `data/always-on/20260912T201737Z` + серверные сутки с `verify == ok` — на 17.09 таких нет:
-   маркеры лишь за 09-16, `fail` у 6 монет); отчёт `docs/findings/bounce-backtest-<дата>.md`
+   маркеры лишь за 09-16, `fail` у 6 монет); отчёт `docs/archive/artifacts/bounce-backtest-<дата>.md`
    с `net_fill` по формам, долями выходов и DSR по фактическому `N`; строка в `runs.csv`.
    Формула вызова проверена: `alpha lob backtest --touches --session-root <root> --symbol <S>
    --h3-mode floor --median-rtt-ns 20000000 --p95-rtt-ns 20000000 --order-qty-e9 10000000
