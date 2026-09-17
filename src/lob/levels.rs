@@ -320,6 +320,12 @@ pub struct TouchRecord {
     /// секунду до касания (В-45; документация модуля, «Касания»: кадр в
     /// 1–2 с до касания, никогда позже секунды до него).
     pub frontrun_lots: i64,
+    /// Цена **первого фронтранера** в том же наблюдении, что `frontrun_lots`
+    /// (B2, 2026-09-17): ближайший к уровню уровень той же стороны строго
+    /// лучше него с ненулевым размером. `None` — впереди уровня ничего не
+    /// стояло; вход тогда берётся как раньше (`P ± 1` тик). Спека отскока §2:
+    /// «заходят либо в упор, либо от фронтрана» [D 02:35].
+    pub frontrun_tick: Option<i64>,
     /// Та же сумма на последнем кадре до касания — сметено последним шагом
     /// цены (прежний `frontrun_lots` до В-45).
     pub swept_lots: i64,
@@ -382,17 +388,25 @@ pub fn stack_window_ticks(price_tick: i64) -> i64 {
 struct FrontrunSlot {
     start_ms: i64,
     first_lots: i64,
+    /// Цена **ближайшего** уровня с ненулевым размером строго лучше нашего,
+    /// на том же наблюдении, что `first_lots` (B2, 2026-09-17). Именно она —
+    /// «первый фронтранер»: вход от фронтрана (спека §2) ставится на его цену,
+    /// а не на «лучшую из всех» — иначе вход уезжал бы к середине.
+    first_tick: Option<i64>,
     last_ms: i64,
     last_lots: i64,
+    last_tick: Option<i64>,
 }
 
 impl FrontrunSlot {
-    fn new(ts_ms: i64, lots: i64) -> Self {
+    fn new(ts_ms: i64, lots: i64, tick: Option<i64>) -> Self {
         Self {
             start_ms: ts_ms,
             first_lots: lots,
+            first_tick: tick,
             last_ms: ts_ms,
             last_lots: lots,
+            last_tick: tick,
         }
     }
 }
@@ -408,6 +422,9 @@ struct Touch {
     size_at: i64,
     size_max_before: i64,
     frontrun: i64,
+    /// Цена того же наблюдения фронтрана (B2): из неё строится вход «от
+    /// первого фронтранера»; `None` — фронтрана не было вовсе.
+    frontrun_tick: Option<i64>,
     swept: i64,
     /// Окно «завала» в тиках — `stack_window_ticks` цены уровня, один раз
     /// на старте.
@@ -454,13 +471,14 @@ impl Live {
     /// Наблюдение лотов впереди уровня в кадре `ts_ms`: тот же шаг слота, что
     /// в документации модуля — новый слот старше `FRONTRUN_BACK_MS` уходит в
     /// старый, иначе дописывается последним наблюдением.
-    fn observe_frontrun(&mut self, ts_ms: i64, lots: i64) {
+    fn observe_frontrun(&mut self, ts_ms: i64, lots: i64, tick: Option<i64>) {
         if ts_ms.saturating_sub(self.slot_new.start_ms) >= FRONTRUN_BACK_MS {
             self.slot_old = Some(self.slot_new);
-            self.slot_new = FrontrunSlot::new(ts_ms, lots);
+            self.slot_new = FrontrunSlot::new(ts_ms, lots, tick);
         } else {
             self.slot_new.last_ms = ts_ms;
             self.slot_new.last_lots = lots;
+            self.slot_new.last_tick = tick;
         }
     }
 
@@ -470,11 +488,13 @@ impl Live {
     /// наблюдение нового (уровень моложе шага). Зовётся после
     /// `observe_frontrun` того же кадра: старый слот тогда начат не позже
     /// `ts_ms − FRONTRUN_BACK_MS` по построению шага.
-    fn frontrun_before(&self, ts_ms: i64) -> i64 {
+    fn frontrun_before(&self, ts_ms: i64) -> (i64, Option<i64>) {
         match self.slot_old {
-            Some(old) if old.last_ms.saturating_add(FRONTRUN_BACK_MS) <= ts_ms => old.last_lots,
-            Some(old) => old.first_lots,
-            None => self.slot_new.first_lots,
+            Some(old) if old.last_ms.saturating_add(FRONTRUN_BACK_MS) <= ts_ms => {
+                (old.last_lots, old.last_tick)
+            }
+            Some(old) => (old.first_lots, old.first_tick),
+            None => (self.slot_new.first_lots, self.slot_new.first_tick),
         }
     }
 }
@@ -526,6 +546,7 @@ fn touch_record(
         size_max_before: t.size_max_before,
         traded_during: lv.traded.saturating_sub(t.traded_at_start),
         frontrun_lots: t.frontrun,
+        frontrun_tick: t.frontrun_tick,
         swept_lots: t.swept,
         round_zeros: round_zeros(key.1),
         ended_by_death,
@@ -655,8 +676,11 @@ impl LevelTracker {
         self.newborns.clear();
         self.touched.clear();
         // Сумма лотов строго лучше текущего наблюдения по цене — префикс
-        // кадра до его индекса: на индексе 0 ноль, дальше копится.
+        // кадра до его индекса: на индексе 0 ноль, дальше копится. Рядом —
+        // цена **ближайшего** уровня с ненулевым размером среди этих лучших
+        // (B2): «первый фронтранer», на чью цену ставится вход от фронтрана.
         let mut better_lots: i64 = 0;
+        let mut near_better_tick: Option<i64> = None;
         for (i, ob) in levels.iter().enumerate() {
             let key = (s, ob.tick);
             let best = i == 0;
@@ -680,8 +704,8 @@ impl LevelTracker {
                     // слотам (В-45), после наблюдения этого кадра.
                     let swept = lv.better_lots;
                     lv.better_lots = better_lots;
-                    lv.observe_frontrun(ts_ms, better_lots);
-                    let frontrun = lv.frontrun_before(ts_ms);
+                    lv.observe_frontrun(ts_ms, better_lots, near_better_tick);
+                    let (frontrun, frontrun_tick) = lv.frontrun_before(ts_ms);
                     // Касание — переход на лучшую цену уровня, жившего до
                     // кадра (В-43): был не лучшим на последнем наблюдении и
                     // родился раньше этой метки. Родившийся лучшей ценой (или
@@ -697,6 +721,7 @@ impl LevelTracker {
                                 size_at: ob.size_lots,
                                 size_max_before: max_before,
                                 frontrun,
+                                frontrun_tick,
                                 swept,
                                 window_ticks: stack_window_ticks(ob.tick),
                                 traded_at_start: lv.traded,
@@ -736,7 +761,7 @@ impl LevelTracker {
                                 traded: 0,
                                 rpi: 0,
                                 better_lots,
-                                slot_new: FrontrunSlot::new(ts_ms, better_lots),
+                                slot_new: FrontrunSlot::new(ts_ms, better_lots, near_better_tick),
                                 slot_old: None,
                                 was_best: best,
                                 touch_index: 0,
@@ -748,6 +773,9 @@ impl LevelTracker {
                 }
             }
             better_lots = better_lots.saturating_add(ob.size_lots);
+            if ob.size_lots > 0 {
+                near_better_tick = Some(ob.tick);
+            }
         }
 
         // Свип двухфазный и по своей стороне: кадр несёт одну сторону, и

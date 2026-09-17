@@ -167,6 +167,9 @@ pub(super) fn run_profiles_and_backtest_chain(
             trail_activate_bps: 0.0,
             grid_legs: 1,
             grid_step_ticks: 0,
+            // Пилот `--touches` не гоняет; значение — форма T38, чтобы
+            // поведение прежних артефактов не менялось (B2).
+            stop_mode: crate::commands::lob::backtest::StopModeArg::Behind,
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,

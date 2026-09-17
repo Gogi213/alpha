@@ -94,7 +94,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 28;
+const TOUCHES_WIDTH: usize = 29;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -113,6 +113,7 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "size_max_before",
     "traded_during",
     "frontrun_lots",
+    "frontrun_tick",
     "swept_lots",
     "round_zeros",
     "ended_by_death",
@@ -192,6 +193,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 t.size_max_before.to_string(),
                 t.traded_during.to_string(),
                 t.frontrun_lots.to_string(),
+                t.frontrun_tick.map_or(String::new(), |v| v.to_string()),
                 t.swept_lots.to_string(),
                 t.round_zeros.to_string(),
                 t.ended_by_death.to_string(),

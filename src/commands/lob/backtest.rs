@@ -127,6 +127,14 @@ pub struct BacktestArgs {
     /// Шаг лестницы в тиках (0 — все ноги по одной цене).
     #[arg(long, default_value_t = 0)]
     pub grid_step_ticks: i64,
+    /// Форма стопа (B2, В-58): `behind` — за плотностью (`P−1`, как было в T38),
+    /// `at` — в плотность (`P`), `before` — перед плотностью (`P+1`; спека §4:
+    /// «стоп за плотность — смертный приговор, если есть наторговка» [D 12:56]).
+    /// Вход при `--touches` берётся от первого фронтранера касания, если он был
+    /// (`TouchRecord::frontrun_tick`), иначе `P+1` тик, как раньше; тейк — 1:1
+    /// от входа (`P+3` при старом входе).
+    #[arg(long, value_enum, default_value_t = StopModeArg::Behind)]
+    pub stop_mode: StopModeArg,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -776,9 +784,38 @@ fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::
 /// `вход + (вход − стоп)` = `P + 3` (R 1:1, D 16:17); аск зеркально. Вход
 /// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
 /// `HORIZONS_MS[3]` (дедлайн 60 с).
+/// Форма стопа сделки-отскока (B2, В-58): та же сетка из трёх значений, что
+/// предрегистрирована до данных, — `P+1` / `P` / `P−1` по цене уровня.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum StopModeArg {
+    /// Перед плотностью (`P+1` для бида): меньше шанс сквиза — «при сильной
+    /// наторговке стопиться нужно в саму плотность или, лучше, перед ней за
+    /// один тик» [D 12:56].
+    Before,
+    /// В плотность (`P`): компромисс при наторговке.
+    At,
+    /// За плотностью (`P−1` для бида): форма T38, «смертный приговор, если
+    /// есть наторговка» [D 12:56].
+    Behind,
+}
+
+impl StopModeArg {
+    /// Смещение стопа от цены уровня в тиках, **в сторону от плотности**:
+    /// `before` = +1, `at` = 0, `behind` = −1. Для аска знак переворачивает
+    /// вызывающий (`bounce_plan`).
+    fn offset_ticks(self) -> i64 {
+        match self {
+            Self::Before => 1,
+            Self::At => 0,
+            Self::Behind => -1,
+        }
+    }
+}
+
 fn bounce_plan(
     touch: &TouchRecord,
     tick: f64,
+    stop_mode: StopModeArg,
     post_only: bool,
     trail_bps: f64,
     trail_activate_bps: f64,
@@ -792,38 +829,47 @@ fn bounce_plan(
         .saturating_mul(1_000_000);
     let deadline_ns = HORIZONS_MS[3].saturating_mul(1_000_000);
     let grid_step_px = grid_step_ticks as f64 * tick;
-    match touch.side {
-        Side::Bid => (
-            SIGMA_LONG,
-            TradePlan::Bounce {
-                entry_px: p + tick,
-                stop_px: p - tick,
-                take_px: p + 3.0 * tick,
-                deadline_ns,
-                entry_ttl_ns,
-                post_only,
-                trail_bps,
-                trail_activate_bps,
-                grid_legs,
-                grid_step_px,
-            },
-        ),
-        Side::Ask => (
-            SIGMA_SHORT,
-            TradePlan::Bounce {
-                entry_px: p - tick,
-                stop_px: p + tick,
-                take_px: p - 3.0 * tick,
-                deadline_ns,
-                entry_ttl_ns,
-                post_only,
-                trail_bps,
-                trail_activate_bps,
-                grid_legs,
-                grid_step_px,
-            },
-        ),
-    }
+    // Знак «в сторону от плотности»: для бида это вверх, для аска — вниз.
+    // Стоп и прежний вход (`P ± 1` тик) считаются по нему.
+    let away = match touch.side {
+        Side::Bid => 1.0,
+        Side::Ask => -1.0,
+    };
+    // Вход — от **первого фронтранера** касания (B2, В-58; спека §2: «заходят
+    // либо в упор, либо от фронтрана» [D 02:35]). Цена фронтрана уже лежит по
+    // правильную сторону уровня — для бида выше, для аска ниже, — поэтому знак
+    // ей не нужен. Фронтрана впереди не было — прежний `P + 1` тик.
+    let entry_px = match touch.frontrun_tick {
+        Some(t) => t as f64 * tick,
+        None => p + away * tick,
+    };
+    // Стоп — одной из трёх предрегистрированных форм (В-58 п. 2): `before`
+    // `P+1` (перед плотностью), `at` `P` (в плотность), `behind` `P−1`
+    // (за плотностью; форма T38).
+    let stop_px = p + away * stop_mode.offset_ticks() as f64 * tick;
+    // Тейк — 1:1 **от нового входа** (спека §3: «самый базовый, это один к
+    // одному» [D 16:17]), а не от цены уровня: вход от фронтрана дальше от
+    // плотности, и прежний `P+3` давал бы другую пропорцию.
+    let take_px = entry_px + (entry_px - stop_px);
+    let sigma = match touch.side {
+        Side::Bid => SIGMA_LONG,
+        Side::Ask => SIGMA_SHORT,
+    };
+    (
+        sigma,
+        TradePlan::Bounce {
+            entry_px,
+            stop_px,
+            take_px,
+            deadline_ns,
+            entry_ttl_ns,
+            post_only,
+            trail_bps,
+            trail_activate_bps,
+            grid_legs,
+            grid_step_px,
+        },
+    )
 }
 
 /// Строка отчёта: «профиль» — либо `все`, либо `ось:корзина`. Корзины —
@@ -922,6 +968,7 @@ fn run_bounce(
             let (sigma, plan) = bounce_plan(
                 t,
                 tick,
+                args.stop_mode,
                 args.post_only,
                 args.trail_bps,
                 args.trail_activate_bps,
@@ -963,10 +1010,15 @@ fn run_bounce(
     }
 
     let header = format!(
-        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход за тик, стоп за тик внутрь, тейк 1:1, дедлайн {} мс), порог H3={} лотов, касаний {}, бинлогов {}",
+        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс), порог H3={} лотов, касаний {}, бинлогов {}",
         args.symbol,
         args.session_root.display(),
         args.median_rtt_ns,
+        match args.stop_mode {
+            StopModeArg::Before => "перед плотностью (P+1)",
+            StopModeArg::At => "в плотность (P)",
+            StopModeArg::Behind => "за плотностью (P−1)",
+        },
         HORIZONS_MS[3],
         h3_lots,
         touches.len(),

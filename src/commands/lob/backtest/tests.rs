@@ -297,3 +297,103 @@ fn compare_with_table_falls_back_to_net_bps_on_the_task10_fixture() {
     );
     assert!(comparison.format_line().contains("not_measured"));
 }
+
+/// Касание для проверки плана B2: бид, цена уровня `P`, при желании — цена
+/// фронтрана перед ним. Остальные поля записаны так, чтобы тест читался:
+/// касание длиной 1 с, размер 10 лотов.
+fn bounce_touch(price_tick: i64, frontrun_tick: Option<i64>) -> TouchRecord {
+    TouchRecord {
+        side: Side::Bid,
+        price_tick,
+        touch_index: 0,
+        start_ms: 1_000,
+        end_ms: 2_000,
+        duration_ms: 1_000,
+        level_birth_ms: 0,
+        size_at_touch: 10,
+        size_max_before: 10,
+        traded_during: 0,
+        frontrun_lots: if frontrun_tick.is_some() { 5 } else { 0 },
+        frontrun_tick,
+        swept_lots: 0,
+        round_zeros: 2,
+        ended_by_death: false,
+        stack_levels: 1,
+    }
+}
+
+/// Разбирает план сделки-отскока в тройку (вход, стоп, тейк) — иначе тест
+/// утонул бы в сопоставлении с образцом.
+fn plan_prices(plan: &TradePlan) -> (f64, f64, f64) {
+    match plan {
+        TradePlan::Bounce {
+            entry_px,
+            stop_px,
+            take_px,
+            ..
+        } => (*entry_px, *stop_px, *take_px),
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    }
+}
+
+/// B2 (В-58): вход — от **первого фронтранера**, тейк — 1:1 **от входа**, а
+/// стоп — одной из трёх предрегистрированных форм (`before`/`at`/`behind` =
+/// `P+1`/`P`/`P−1` по цене уровня). Три формы обязаны давать **разные** планы:
+/// иначе вариация стопа ничего не вариирует, и предрегистрация В-58 пуста.
+#[test]
+fn bounce_plan_enters_at_the_frontrun_and_stops_in_three_forms() {
+    let tick = 0.01_f64;
+    // P = 10.00, первый фронтранер — 10.05 (тик 1005 перед плотностью бида).
+    let touch = bounce_touch(1_000, Some(1_005));
+
+    let mut plans = Vec::new();
+    for mode in [StopModeArg::Before, StopModeArg::At, StopModeArg::Behind] {
+        let (_, plan) = bounce_plan(&touch, tick, mode, false, 0.0, 0.0, 1, 0);
+        plans.push((mode, plan_prices(&plan)));
+    }
+
+    // Вход один и тот же во всех трёх — от фронтрана, а не от уровня.
+    for (mode, (entry, _, _)) in &plans {
+        assert!(
+            (entry - 10.05).abs() < 1e-9,
+            "{mode:?}: вход обязан быть ценой фронтранера, получено {entry}"
+        );
+    }
+    // Стоп: before P+1, at P, behind P−1; тейк — ровно на столько же выше
+    // входа (1:1 от входа, а не от цены уровня).
+    let expected = [
+        (StopModeArg::Before, 10.01_f64, 10.09_f64),
+        (StopModeArg::At, 10.00, 10.10),
+        (StopModeArg::Behind, 9.99, 10.11),
+    ];
+    for (mode, stop, take) in expected {
+        let (_, (entry, got_stop, got_take)) = plans
+            .iter()
+            .find(|(m, _)| *m == mode)
+            .unwrap_or_else(|| panic!("{mode:?} потерян"));
+        assert!(
+            (got_stop - stop).abs() < 1e-9,
+            "{mode:?}: стоп {got_stop} вместо {stop}"
+        );
+        assert!(
+            (got_take - take).abs() < 1e-9,
+            "{mode:?}: тейк {got_take} вместо {take} (1:1 от входа {entry})"
+        );
+    }
+}
+
+/// B2: фронтрана впереди не было — вход прежний (`P + 1` тик), и с формой
+/// стопа T38 (`behind`) это ровно прежняя сделка: стоп `P−1`, тейк `P+3`.
+#[test]
+fn bounce_plan_without_frontrun_keeps_the_old_entry_and_one_to_one() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, None);
+    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, false, 0.0, 0.0, 1, 0);
+    let (entry, stop, take) = plan_prices(&plan);
+    assert!((entry - 10.01).abs() < 1e-9, "вход P+1: {entry}");
+    assert!((stop - 9.99).abs() < 1e-9, "стоп P−1: {stop}");
+    assert!(
+        (take - 10.03).abs() < 1e-9,
+        "тейк P+3 при таком входе: {take}"
+    );
+}

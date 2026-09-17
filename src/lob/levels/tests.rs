@@ -629,6 +629,7 @@ fn touch_rec(
         size_max_before: sizes.1,
         traded_during: 0,
         frontrun_lots: frontrun,
+        frontrun_tick: None,
         swept_lots: frontrun,
         round_zeros: round_zeros(tick),
         ended_by_death,
@@ -694,6 +695,9 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     );
     let mut want = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 1);
     want.traded_during = 4;
+    // B2: цена первого фронтранера — ближайший лучший уровень (101), на том же
+    // наблюдении, что лоты фронтрана.
+    want.frontrun_tick = Some(101);
     assert_eq!(touches, vec![want]);
     assert!(out.is_empty(), "смертей нет");
     touches.clear();
@@ -715,10 +719,10 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
         &mut out,
         &mut touches,
     );
-    assert_eq!(
-        touches,
-        vec![touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 1)]
-    );
+    let mut want = touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 1);
+    // Фронтран снова 101 — и цена его та же (B2).
+    want.frontrun_tick = Some(101);
+    assert_eq!(touches, vec![want]);
     assert_eq!(out.len(), 1, "смерть 100");
     assert_eq!(out[0].price_tick, 100);
     assert_eq!(out[0].death, DeathKind::BelowFraction);
@@ -790,6 +794,7 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             size_max_before: 15,
             traded_during: 0,
             frontrun_lots: 2,
+            frontrun_tick: Some(199),
             swept_lots: 2,
             round_zeros: 2,
             ended_by_death: false,

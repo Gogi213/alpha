@@ -191,6 +191,7 @@ fn touch(side: Side, start_ms: i64) -> TouchRecord {
         size_max_before: 200,
         traded_during: 0,
         frontrun_lots: 0,
+        frontrun_tick: None,
         swept_lots: 0,
         round_zeros: 3,
         ended_by_death: false,
