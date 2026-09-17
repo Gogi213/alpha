@@ -16,8 +16,10 @@
 //! даже при полном молчании пула; на тике сбрасываются накопленные кадры
 //! (окно потери при крахе — этот же период), раз в
 //! `record::HOURLY_REFRESH_SECS` переписывается `session.json` и печатается
-//! одна строка сводки. Остановка — `None` от `Feed` (Ctrl+C через
-//! `feed::live::StopHandle`, тот же путь, что сигнал-заменитель в тестах).
+//! одна строка сводки. Остановка — `None` от `Feed` (Ctrl+C и, на Unix,
+//! SIGTERM через `feed::live::StopHandle` — A8.2: `systemctl stop`/`restart`
+//! и перезагрузка шлют SIGTERM; тот же путь, что файл `<root>/stop` и
+//! сигнал-заменитель в тестах).
 //! Сутки UTC — новая часть `<SYMBOL>-<день>.binlog` через `record::
 //! claim_part_with`, первым кадром — синтетический снапшот книги, как у
 //! `lob record`.
@@ -1226,7 +1228,8 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
             ..
         } => eprintln!("session: pilot: {pm} мин (PLAN.md §11)"),
         SessionPlan::AlwaysOn => eprintln!(
-            "session: always-on — до Ctrl+C; сброс кадров раз в {FRAME_LOSS_WINDOW_SECS} с, \
+            "session: always-on — до Ctrl+C/SIGTERM (на сервере — файл stop или systemctl stop); \
+             сброс кадров раз в {FRAME_LOSS_WINDOW_SECS} с, \
              session.json/clock.csv раз в {HOURLY_REFRESH_SECS} с и на остановке (В-34)"
         ),
         SessionPlan::Timed { .. } => {}
@@ -1249,7 +1252,9 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     );
 
     let mut feed = LiveFeed::spawn_with_ticks(pool, Duration::from_secs(FRAME_LOSS_WINDOW_SECS))?;
-    feed.stop_handle().stop_on_ctrl_c();
+    // Остановка — Ctrl+C и (на Unix, A8.2) SIGTERM: `systemctl stop/restart` и
+    // перезагрузка шлют SIGTERM, и он идёт тем же штатным путём, что файл `stop`.
+    feed.stop_handle().stop_on_signals();
     // Писатели сброшены и `session.json` закрыт внутри цикла — до любого
     // сетевого вызова ниже: второй Ctrl+C (`exit(130)`) во время ожидания
     // NTP/REST (до ~12 с при упавшей сети) батчей уже не теряет.

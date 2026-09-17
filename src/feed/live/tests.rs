@@ -1074,3 +1074,48 @@ fn removing_the_last_symbol_of_a_shard_leaves_no_thread_behind() {
         "снятие неизвестного индекса ничего не поднимает и не роняет"
     );
 }
+
+/// A8.2 (2026-09-18): SIGTERM — сигнал, которым `systemctl stop`/`restart` и
+/// перезагрузка гасят процесс, — идёт **тем же путём**, что Ctrl+C:
+/// `StopHandle::stop()` кладёт `Item::Stop` в общий канал, поток решений
+/// получает `None`, сессия закрывается штатно (`session.json closed=true`).
+/// До правки ловился только Ctrl+C, и запись обрывалась на ≤ 10 с с обрезанным
+/// кадром. Тест посылает сигнал **себе**: обработчик SIGTERM регистрирует поток
+/// ручки, поэтому сперва ждём метку готовности — сигнал до регистрации убил бы
+/// тестовый процесс. `#[cfg(unix)]`: на Windows SIGTERM нет.
+#[cfg(unix)]
+#[test]
+fn sigterm_reaches_the_stop_handle_like_ctrl_c() {
+    let (tx, mut rx) = mpsc::channel::<Item>(4);
+    let ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    StopHandle { tx }.stop_on_signals_ready(Some(ready.clone()));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !ready.load(std::sync::atomic::Ordering::SeqCst) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "обработчик SIGTERM не встал за 5 с"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    let status = std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(std::process::id().to_string())
+        .status()
+        .expect("kill обязан запуститься");
+    assert!(status.success(), "kill -TERM вернул {status:?}");
+
+    let mut got_stop = false;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if matches!(rx.try_recv(), Ok(Item::Stop)) {
+            got_stop = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(
+        got_stop,
+        "SIGTERM обязан дать Item::Stop — тот же выход, что Ctrl+C и файл stop"
+    );
+}

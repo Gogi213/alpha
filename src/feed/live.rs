@@ -239,8 +239,8 @@ enum Item {
 /// Ручка остановки живого `Feed` (таск 25): `stop()` кладёт `Item::Stop`
 /// в общий канал, после чего `next_event` вернёт `None` — ту же
 /// «сессия закончилась», которую вызывающий и так обязан обрабатывать.
-/// Это и есть сигнал-заменитель для тестов: остановка по Ctrl+C
-/// (`stop_on_ctrl_c`) идёт тем же путём, не своим.
+/// Это и есть сигнал-заменитель для тестов: остановка по Ctrl+C и SIGTERM
+/// (`stop_on_signals`) идёт тем же путём, не своим.
 #[derive(Clone)]
 pub struct StopHandle {
     tx: mpsc::Sender<Item>,
@@ -254,15 +254,30 @@ impl StopHandle {
         let _ = self.tx.blocking_send(Item::Stop);
     }
 
-    /// Ctrl+C → `stop()`. Отдельный ОС-поток со своим однопоточным
-    /// рантаймом только ради `tokio::signal::ctrl_c` (`tokio` уже с
+    /// Ctrl+C и (на Unix) SIGTERM → `stop()` — тем же путём, что файл
+    /// `<root>/stop`: сброс писателей и `session.json closed=true`, а не
+    /// обрыв на ≤ 10 с и обрезанном кадре. Отдельный ОС-поток со своим
+    /// однопоточным рантаймом только ради сигналов (`tokio` уже с
     /// `signal` в `Cargo.toml`, новой зависимости нет): ни рантайм
-    /// ввода-вывода, ни поток решений сигнал не слушают. Второе нажатие —
-    /// аварийный выход кодом 130 (128 + SIGINT, соглашение оболочек, не
-    /// изобретённое число): после регистрации обработчика Ctrl+C больше не
-    /// убивает процесс сам, и если мягкая остановка застряла, оператору
-    /// нужен выход, а не зависший терминал.
-    pub fn stop_on_ctrl_c(self) {
+    /// ввода-вывода, ни поток решений сигнал не слушают.
+    ///
+    /// **SIGTERM (A8.2, 2026-09-18).** Его шлют `systemctl stop`/`restart`,
+    /// перезагрузка и `kill` по умолчанию — до этой правки ловился только
+    /// Ctrl+C, и штатным путём запись не закрывалась. На Windows SIGTERM нет
+    /// (`cfg(unix)`), там остаётся Ctrl+C.
+    ///
+    /// Второе нажатие — аварийный выход кодом 130 (128 + SIGINT,
+    /// соглашение оболочек, не изобретённое число): после регистрации
+    /// обработчика Ctrl+C больше не убивает процесс сам, и если мягкая
+    /// остановка застряла, оператору нужен выход, а не зависший терминал.
+    pub fn stop_on_signals(self) {
+        self.stop_on_signals_ready(None);
+    }
+
+    /// Тот же путь с меткой «обработчики зарегистрированы» — шов для теста
+    /// SIGTERM: тест посылает сигнал себе **после** метки, иначе сигнал до
+    /// регистрации убил бы тестовый процесс. Продовый вход зовёт без метки.
+    fn stop_on_signals_ready(self, ready: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>) {
         std::thread::spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -270,15 +285,54 @@ impl StopHandle {
             else {
                 return;
             };
-            if runtime.block_on(tokio::signal::ctrl_c()).is_err() {
-                return;
-            }
-            eprintln!("session: Ctrl+C — останавливаюсь (второе нажатие — аварийный выход)");
+            let kind = runtime.block_on(wait_for_stop_signal(ready.as_deref()));
+            eprintln!("session: {kind} — останавливаюсь (второе нажатие Ctrl+C — аварийный выход)");
             self.stop();
             if runtime.block_on(tokio::signal::ctrl_c()).is_ok() {
                 std::process::exit(130);
             }
         });
+    }
+}
+
+/// Первый из сигналов остановки: Ctrl+C, а на Unix ещё и SIGTERM — строкой,
+/// чтобы оператор видел причину. Регистрация обработчика SIGTERM происходит
+/// здесь же, до первого `.await` (`signal()` — синхронный вызов): тест ждёт
+/// метку готовности ровно по этой точке.
+async fn wait_for_stop_signal(ready: Option<&std::sync::atomic::AtomicBool>) -> &'static str {
+    use std::sync::atomic::Ordering;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => {
+                if let Some(ready) = ready {
+                    ready.store(true, Ordering::SeqCst);
+                }
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => "Ctrl+C",
+                    _ = term.recv() => "SIGTERM",
+                }
+            }
+            Err(_) => {
+                // Обработчик не встал — остаётся Ctrl+C, как было: молча
+                // потерять штатную остановку нельзя, поэтому и метка ставится
+                // (тест тогда проверит то, что есть, а не повиснет).
+                if let Some(ready) = ready {
+                    ready.store(true, Ordering::SeqCst);
+                }
+                let _ = tokio::signal::ctrl_c().await;
+                "Ctrl+C"
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if let Some(ready) = ready {
+            ready.store(true, Ordering::SeqCst);
+        }
+        let _ = tokio::signal::ctrl_c().await;
+        "Ctrl+C"
     }
 }
 

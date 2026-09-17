@@ -60,14 +60,15 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 795 passed, 0 failed, 5 ignored (2026-09-18, A8.3)
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 795 passed, 0 failed, 5 ignored (2026-09-18, A8.2; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
-# штатная остановка (В-41): файл <root>/stop — на ближайшем тике сброс писателей, session.json closed=true
+# штатная остановка: файл <root>/stop (В-41) — на ближайшем тике сброс писателей, session.json
+# closed=true; на Unix так же (A8.2) работают SIGTERM/systemctl stop|restart и Ctrl+C из консоли
 touch data/always-on/<ts>/stop
 # докинуть монеты в идущую запись (T34): дописать строки в <root>/instruments.csv — подхват ≤ 10 с,
 # свои <SYMBOL>-<день>.binlog и одно соединение на партию (несколько монет — одной записью файла)
@@ -194,9 +195,9 @@ HYPE, дальше LSK, NEAR, DOGE, AKE, ENA, …, NBIS. Прежний топ-5
 gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99 201 мкс, CPU 2.2 %,
 `verify` `ok` по всем пяти; живой коллектор не задет. Деплой коллектора сделан 19:17Z (владелец: «хоть щас»);
 **A8 «коллектор при любых обстоятельствах» идёт: A8.1 (снятие монеты и замена пула на ходу) сделан
-в ночь 17.09, A8.3 (отказ подписки биржи — строка `subscribe_failed` и счётчик `subscribe_failed`)
-сделан 18.09; в проде их ещё нет — там бинарник `3614321`; следующий — A8.2 (SIGTERM = штатная
-остановка)**. Профиль `perf`: ядро/сисисколлы
+в ночь 17.09, A8.3 (отказ подписки биржи — строка и счётчик `subscribe_failed`) и A8.2 (SIGTERM =
+штатная остановка, `systemctl stop`/`restart`) — 18.09; в проде их ещё нет — там бинарник `3614321`;
+следующий — A8.1b (три правки ревью A8.1, до раскатки на сервер)**. Профиль `perf`: ядро/сисколлы
 ~25 %, libc memset 9 %, приложение ~17 % — дальше только правки кода. Старый сервер `13.140.29.171`
 **погашен** штатно (В-41, `closed=true`): 342 465 743 записи, 1.13 ГБ за 20.2 ч на топ-30 ⇒
 1.35 ГБ/сутки. `verify` в боевом корне **гоняется таймером** `alpha-verify.timer` (A2, 2026-09-17):
@@ -275,7 +276,10 @@ gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99
 - бинлог сессии ищется одним резолвером `commands::lob::session_binlog_for`; сутки и час — у
   каждой части (`session_parts_for`)
 - олвейс-он: кадр на диске не реже 10 с, читатели не видят только хвост ≤ 10 с; `session.json`
-  между часовыми записями — стартовый; остановка — файл `<root>/stop` (Ctrl+C из оболочек агента не доходит)
+  между часовыми записями — стартовый; остановка — файл `<root>/stop` (Ctrl+C из оболочек агента не
+  доходит), на Unix — ещё SIGTERM (`systemctl stop`/`restart`, перезагрузка) и Ctrl+C из настоящей
+  консоли: все три пути штатные (A8.2), но до деплоя бинарника с A8.2 в проде живёт `3614321`,
+  где SIGTERM рвёт запись
 - пул на ходу (A8.1): снятие строки применяется на ближайшем тике, только если файл **дописан**
   (разобрался и кончается переводом строки) — пиши атомарно (`mv` поверх), иначе оборванный файл
   читается как «убрать монеты»; снятый символ закрывает файлы обоих потоков, а соседи по его сокету
