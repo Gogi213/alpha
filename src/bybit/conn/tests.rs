@@ -1189,3 +1189,48 @@ async fn crossed_book_is_observable_and_triggers_resync() {
         other => panic!("ожидался BookInvariantViolated, получено {other:?}"),
     }
 }
+
+/// K1 (2026-09-17): отказ рукопожатия больше не молчит. Коннектор, который
+/// всегда отвечает `HTTP 403` (гео-блок), обязан дать событие `ConnectFailed`
+/// с **самим статусом** и номером попытки: до правки ошибка проглатывалась в
+/// `Err(_)`, и устойчивый 403/429 выглядел как вечно тихий ретрай — ни строки
+/// `gaps.csv`, ни счётчика.
+#[tokio::test]
+async fn failed_handshake_is_reported_with_its_http_status() {
+    struct Http403Connector;
+    impl TransportConnector for Http403Connector {
+        type Transport = ScriptedTransport;
+        async fn connect(&mut self) -> Result<ScriptedTransport, TransportError> {
+            Err(TransportError::Http {
+                status: 403,
+                msg: "Forbidden".to_string(),
+            })
+        }
+    }
+
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle =
+        tokio::spawn(Connection::new(Http403Connector, test_cfg("SOLUSDT")).run(SystemClock, tx));
+    let events = collect_n(&mut rx, 1).await;
+    handle.abort();
+
+    match &events[0] {
+        ConnEvent::ConnectFailed {
+            attempt,
+            http_status,
+            err,
+            ..
+        } => {
+            assert_eq!(*http_status, Some(403), "{err}");
+            assert_eq!(*attempt, 1, "нумерация попыток с единицы");
+            assert!(err.contains("Forbidden"), "{err}");
+        }
+        other => panic!("ожидался ConnectFailed, получено {other:?}"),
+    }
+    // Обрыв (таймаут/TLS) статуса не имеет — и это не `Some(0)`.
+    assert_eq!(
+        TransportError::Io("обрыв".to_string()).http_status(),
+        None,
+        "у обрыва нет HTTP-статуса"
+    );
+}

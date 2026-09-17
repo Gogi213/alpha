@@ -140,12 +140,41 @@ pub enum Frame {
     Closed,
 }
 
-/// Ошибка транспорта. Единственный вариант, потому что вызывающему коду не
-/// важна причина обрыва — таймаут, разрыв TCP, ошибка TLS — реакция на все них
-/// одна: переподключение с бэкоффом.
+/// Ошибка транспорта. Вариантов два, и они различаются не текстом, а
+/// реакцией: `Io` — обрыв (таймаут, разрыв TCP, ошибка TLS), ответ один:
+/// переподключение с бэкоффом; `Http` — **биржа отказала в рукопожатии**
+/// (`tungstenite::Error::Http`), и статус тут несущая информация: `403`
+/// (гео-блок с этого IP) и `429` (рейт-лимит) требуют не долбить адрес, а
+/// разбираться, тогда как текст ошибки у них почти одинаковый (аудит K1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportError {
     Io(String),
+    Http { status: u16, msg: String },
+}
+
+impl TransportError {
+    /// HTTP-статус отказа рукопожатия, если отказ был именно таким.
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::Http { status, .. } => Some(*status),
+            Self::Io(_) => None,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Io(msg) | Self::Http { msg, .. } => msg,
+        }
+    }
+}
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(msg) => write!(f, "{msg}"),
+            Self::Http { status, msg } => write!(f, "HTTP {status}: {msg}"),
+        }
+    }
 }
 
 /// Сокет за трейтом — единственное, что делает эту логику тестируемой без
@@ -375,6 +404,21 @@ pub enum ConnEvent {
     /// «одна строка с перечнем»: у `gaps.csv` символ — колонка, и покрытие
     /// инструмента считается по его собственным строкам.
     Disconnected { first_of_socket: bool },
+    /// `connect()` не удался: сокет не открылся, подписки не было, данных нет
+    /// (аудит K1, 2026-09-17). До этого события отказ рукопожатия не покидал
+    /// `Connection::run` — устойчивый `403`/`429` приводил к вечно тихому
+    /// ретраю: `gaps.csv` пуст, `reconnects` не растёт, заметить можно было
+    /// только по остановке роста бинлога. `attempt` — номер попытки в цикле
+    /// переподключения (1 — первая), `http_status` — код рукопожатия, если
+    /// биржа отказала именно им (`None` — обрыв/TLS/DNS). Событие, как и
+    /// `Disconnected`, уходит на **каждый** инструмент сокета: в `gaps.csv`
+    /// символ — колонка.
+    ConnectFailed {
+        local_ts_ns: i64,
+        attempt: u32,
+        http_status: Option<u16>,
+        err: String,
+    },
     /// Рыночный кадр, чей топик не сопоставлен ни одному инструменту этого
     /// сокета (таск 28). Наружу как рынок он пойти не может — приписать его
     /// «индексу сокета» значило бы записать чужой стакан в бинлог первого
@@ -539,6 +583,31 @@ impl Route<'_> {
             .await;
         }
     }
+
+    /// Отказ `connect()` — событие каждого инструмента сокета (см. doc
+    /// `ConnEvent::ConnectFailed`). `first_of_socket` тут не нужен: считать
+    /// «одно переподключение на сокет» нечего, сокет не открылся, поэтому
+    /// строка `gaps.csv` и счётчик — по инструментам, у каждого свои.
+    async fn broadcast_connect_failed<O: ConnSink>(
+        &self,
+        out: &O,
+        local_ts_ns: i64,
+        attempt: u32,
+        err: &TransportError,
+    ) {
+        for spec in self.symbols.iter() {
+            out.send_event(
+                spec.index,
+                ConnEvent::ConnectFailed {
+                    local_ts_ns,
+                    attempt,
+                    http_status: err.http_status(),
+                    err: err.message().to_string(),
+                },
+            )
+            .await;
+        }
+    }
 }
 
 impl<C: TransportConnector> Connection<C> {
@@ -601,7 +670,19 @@ impl<C: TransportConnector> Connection<C> {
         loop {
             let mut transport = match self.connector.connect().await {
                 Ok(t) => t,
-                Err(_) => {
+                Err(err) => {
+                    // Отказ рукопожатия не молчит (K1, 2026-09-17): событие
+                    // уходит на каждый инструмент сокета — строка `gaps.csv`
+                    // и счётчик в `session.json`, а не «вечно тихий ретрай».
+                    let local_ts_ns = clock.now_ns();
+                    self.route()
+                        .broadcast_connect_failed(
+                            &out,
+                            local_ts_ns,
+                            attempt.saturating_add(1),
+                            &err,
+                        )
+                        .await;
                     backoff
                         .wait(self.cfg.backoff.delay_for_attempt(attempt))
                         .await;
@@ -982,7 +1063,20 @@ impl TransportConnector for BybitPublicLinearConnector {
     async fn connect(&mut self) -> Result<WsTransport, TransportError> {
         let (stream, _response) = tokio_tungstenite::connect_async(PUBLIC_LINEAR_URL)
             .await
-            .map_err(|e| TransportError::Io(e.to_string()))?;
+            .map_err(|e| match e {
+                // Рукопожатие отклонено биржей: статус — единственное, по чему
+                // 403 (гео-блок) отличается от 429 (рейт-лимит), и он должен
+                // доехать до `gaps.csv`, а не остаться в тексте (K1).
+                tokio_tungstenite::tungstenite::Error::Http(response) => TransportError::Http {
+                    status: response.status().as_u16(),
+                    msg: response
+                        .status()
+                        .canonical_reason()
+                        .unwrap_or("рукопожатие отклонено")
+                        .to_string(),
+                },
+                other => TransportError::Io(other.to_string()),
+            })?;
         Ok(WsTransport { stream })
     }
 }

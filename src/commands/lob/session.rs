@@ -241,6 +241,10 @@ struct SessionCtx {
     /// `session.json`.
     resyncs_by_stream: [u64; STREAM_COUNT],
     unrouted: u64,
+    /// Отказов `connect()` за прогон (K1, 2026-09-17): сокет не открылся —
+    /// ни `reconnects`, ни `frames_failed` этого не показывают, а устойчивый
+    /// `403`/`429` до этой правки не давал вообще ничего.
+    connect_failed: u64,
     /// Ротация суток изменила `binlog_files`, а `session.json` ещё не
     /// переписан — пишет первый тик после ротации, один раз на всех
     /// (таск 28, см. `on_tick`).
@@ -328,6 +332,7 @@ impl SessionCtx {
             resyncs: 0,
             resyncs_by_stream: [0; STREAM_COUNT],
             unrouted: 0,
+            connect_failed: 0,
             session_json_dirty: false,
             parse_latencies_ns: LatencyHistogram::new(),
             queue_latencies_ns: LatencyHistogram::new(),
@@ -795,6 +800,7 @@ impl SessionCtx {
             reconnects: self.reconnects,
             resyncs: self.resyncs,
             unrouted: self.unrouted,
+            connect_failed: self.connect_failed,
             frames_failed: self
                 .states
                 .iter()
@@ -967,6 +973,13 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                         GapKind::SequenceGap
                     }
                     FeedGapKind::DisconnectedSameSocket => GapKind::SequenceGap,
+                    FeedGapKind::ConnectFailed => {
+                        // Сокет не открылся: ни книги, ни `synced` сбрасывать не
+                        // надо (их и не было), но потеря обязана быть видна —
+                        // счётчик и строка `gaps.csv` (K1, 2026-09-17).
+                        ctx.connect_failed += 1;
+                        GapKind::ConnectFailed
+                    }
                 };
                 // Сброс доверия: у разрыва потока — только его книга, у
                 // потери без потока (разрыв сокета) — обе книги инструмента.

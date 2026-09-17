@@ -1933,12 +1933,20 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
             "книга глубокого потока нарушена",
         )),
         Step::Ev(gap(FeedGapKind::ParseFailed, None, "кадр не разобрался")),
+        Step::Ev(gap(
+            FeedGapKind::ConnectFailed,
+            None,
+            "connect() отклонён биржей: HTTP 403",
+        )),
     ]));
     run_session_loop(&mut feed, &mut ctx).unwrap();
     let summary = ctx.write_session_json(true).unwrap();
     assert_eq!(summary.reconnects, 1);
     assert_eq!(summary.resyncs, 2);
-    assert_eq!(summary.gaps, 4);
+    assert_eq!(summary.gaps, 5);
+    // K1: отказ `connect()` — свой счётчик, а не «молчаливый ретрай»:
+    // сокет не открылся, `reconnects` этого не видит.
+    assert_eq!(summary.connect_failed, 1);
     // Раздельные счётчики потоков: по одному ресинку на каждый поток.
     let by_depth = |depth: u32| {
         summary
@@ -1950,11 +1958,17 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     assert_eq!(by_depth(ORDERBOOK_DEPTH).resyncs, 1);
     assert_eq!(by_depth(ORDERBOOK_DEEP_DEPTH).resyncs, 1);
     let rows = crate::commands::record::read_gap_rows(&gaps_csv_path(&root)).unwrap();
-    assert_eq!(rows.len(), 4, "строка на каждый разрыв");
+    assert_eq!(rows.len(), 5, "строка на каждый разрыв");
     assert_eq!(rows[0].kind, GapKind::SequenceGap);
     assert_eq!(rows[1].kind, GapKind::SequenceGap);
     assert_eq!(rows[2].kind, GapKind::BookInvariant);
     assert_eq!(rows[3].kind, GapKind::ParseError);
+    assert_eq!(
+        rows[4].kind,
+        GapKind::ConnectFailed,
+        "отказ рукопожатия обязан быть строкой, а не тишиной"
+    );
+    assert!(rows[4].detail.contains("403"), "{}", rows[4].detail);
     // Строка разрыва несёт поток: по ней видно, чей `u` разошёлся.
     assert!(
         rows[1].detail.contains("разрыв u быстрого потока"),

@@ -128,6 +128,11 @@ pub struct SessionSummary {
     /// `symbol` там обязательна; поэтому счётчик. В норме ноль.
     #[serde(default)]
     pub unrouted: u64,
+    /// Отказов `connect()` за прогон (K1, 2026-09-17): сокет не открылся —
+    /// ни `reconnects`, ни `frames_failed` такого не показывают, а устойчивый
+    /// `403`/`429` до этой правки не давал ни строки `gaps.csv`, ни счётчика.
+    #[serde(default)]
+    pub connect_failed: u64,
     #[serde(default)]
     pub resyncs: u64,
     /// Кадров, не записавшихся на диск (сумма по инструментам) — таск 25.

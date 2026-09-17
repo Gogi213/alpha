@@ -689,6 +689,26 @@ impl Feed for LiveFeed {
                 depth: None,
                 detail: "транспорт переподключился — шов покрытия".to_string(),
             },
+            ConnEvent::ConnectFailed {
+                local_ts_ns,
+                attempt,
+                http_status,
+                err,
+            } => {
+                Event::Gap {
+                    symbol: idx,
+                    local_ts_ns,
+                    kind: GapKind::ConnectFailed,
+                    // Сокет не открылся — потока нет ни у одного из них.
+                    depth: None,
+                    detail: match http_status {
+                        Some(status) => {
+                            format!("connect() отклонён биржей: HTTP {status} — {err} (попытка {attempt})")
+                        }
+                        None => format!("connect() не удался: {err} (попытка {attempt})"),
+                    },
+                }
+            }
             ConnEvent::Unrouted { local_ts_ns } => Event::Gap {
                 symbol: idx,
                 local_ts_ns,

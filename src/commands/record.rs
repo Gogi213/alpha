@@ -816,6 +816,27 @@ async fn run_session(
                         synced = false;
                         rec.log_gap(GapKind::SequenceGap, &ts_utc_of_ns(SystemClock.now_ns()), "транспорт переподключился — шов покрытия")?;
                     }
+                    ConnEvent::ConnectFailed {
+                        local_ts_ns,
+                        attempt,
+                        http_status,
+                        err,
+                    } => {
+                        // K1: отказ рукопожатия раньше не оставлял следа ни в
+                        // `gaps.csv`, ни в счётчиках — устойчивый 403/429
+                        // выглядел как вечно тихий ретрай.
+                        let detail = match http_status {
+                            Some(status) => format!(
+                                "connect() отклонён биржей: HTTP {status} — {err} (попытка {attempt})"
+                            ),
+                            None => format!("connect() не удался: {err} (попытка {attempt})"),
+                        };
+                        rec.log_gap(
+                            GapKind::ConnectFailed,
+                            &ts_utc_of_ns(local_ts_ns),
+                            &detail,
+                        )?;
+                    }
                 }
             }
             _ = hourly.tick() => {                // Часовой тик: место, итог подавления, flush. Шаги приходят
