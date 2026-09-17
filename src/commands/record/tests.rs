@@ -414,6 +414,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::Backtest(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::BounceVerdict(_) => {
+            panic!("разобралась не та подкоманда")
+        }
         crate::commands::lob::LobCommand::Shortlist(_) => {
             panic!("разобралась не та подкоманда")
         }

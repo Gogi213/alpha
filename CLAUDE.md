@@ -60,10 +60,10 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 802 passed, 0 failed, 5 ignored (2026-09-18, A8.6; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 813 passed, 0 failed, 5 ignored (2026-09-18, B5; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 20 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
@@ -149,6 +149,12 @@ G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **р�
 Вердикт 2026-09-13: `net_fill` < 0 на всех десяти монетах и с трейлом, и с лестницей; ёмкость
 (одна позиция за раз) работала **фильтром**, поэтому «несколько позиций» без отбора входа ухудшает
 результат — разборы в `docs/findings/{bounce,trail,ladder,touch-size-axis}-2026-09-13.md`.
+Лот круга — `--order-qty-e9` **или** `--order-qty-from-pool` (`order_size_22a` от полей пула сессии
+и цены последнего касания — Decision 22а); `--trades-out <файл>` пишет покруговой дамп (обе ноги,
+`net_bps`, причина выхода) — вход `lob bounce-verdict` (B5, В-58): по формам сетки `<стоп>-<дедлайн>-<ранний>`
+(`before|at|behind` × `60|600|3600|7200` × `off|1|2|3`) `net_fill` и доли причин выхода, `DSR` лучшей
+формы по числу **испытанных форм** (строки `bounce_form` в `runs.csv`, не все строки журнала);
+сетку гоняет `tools/b5_grid.py`, вердикт — `docs/findings/bounce-verdict-<дата>.csv`.
 `lob dashboard` (T41) → `index.html` + `data.json` (сводка: коллектор, монеты) +
 `coin-<SYMBOL>.json` на монету (компактные массивы: середина раз в секунду по всей записи, все полоски
 `[b, d, p, s, o, x, m]`, все касания `[t, p, s, o, a, x, fr, sw, ap, i, d, m]`, времена — смещения от `t0`,

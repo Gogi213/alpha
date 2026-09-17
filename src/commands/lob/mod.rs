@@ -53,6 +53,7 @@ use crate::bybit::clock::check_rows;
 pub mod archive;
 pub mod backtest;
 pub mod binlog_stats;
+pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
 mod export;
@@ -79,6 +80,7 @@ pub mod watch;
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
+pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
 pub use levels::{run_levels, LevelsArgs};
@@ -172,6 +174,10 @@ pub enum LobCommand {
     /// Вердикт бэктеста с моделью очереди на произвольное число профилей —
     /// второй из трёх артефактов задачи (таск 11, история 32–34).
     Backtest(BacktestArgs),
+    /// Прогон-вердикт базовой сетки форм отскока (B5, В-58): покруговые дампы
+    /// `--trades-out` → `net_fill`, Шарп и доли причин по форме, `DSR` лучшей
+    /// формы по числу испытаний журнала.
+    BounceVerdict(BounceVerdictArgs),
     /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
     /// невиденных данных — третий из трёх артефактов задачи (таск 12,
     /// история 24–28, 42).
@@ -423,6 +429,30 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.red,
                 summary.out.display(),
                 summary.pnl_out.display()
+            );
+            Ok(())
+        }
+        LobCommand::BounceVerdict(args) => {
+            let summary = run_bounce_verdict(&args)?;
+            println!(
+                "bounce-verdict: forms={} trials={} journal_trials={} best={} net_fill={} dsr={} required_sharpe={} out={}",
+                summary.forms,
+                summary.trials,
+                summary.journal_trials,
+                summary.best_form,
+                match summary.best_net_fill_bps {
+                    Some(v) => format!("{v:.6}"),
+                    None => "—".to_string(),
+                },
+                match summary.dsr {
+                    Some(v) => format!("{v:.6}"),
+                    None => "—".to_string(),
+                },
+                match summary.required_sharpe {
+                    Some(v) => format!("{v:.6}"),
+                    None => "—".to_string(),
+                },
+                summary.out.display()
             );
             Ok(())
         }

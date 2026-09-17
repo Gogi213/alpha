@@ -154,7 +154,10 @@ pub(super) fn run_profiles_and_backtest_chain(
             signals_csv: Some(signals_csv),
             median_rtt_ns,
             p95_rtt_ns,
-            order_qty_e9,
+            order_qty_e9: Some(order_qty_e9),
+            // Пилот считает лот сам (`order_size_22a` от последней строки
+            // `levels-floor`): авторешение бэктеста здесь не нужно.
+            order_qty_from_pool: false,
             profiles_csv: profiles_csv_for_comparison.clone(),
             out: Some(session_dir.join(format!("backtest-{symbol}.csv"))),
             pnl_out: Some(session_dir.join(format!("backtest-{symbol}-pnl.csv"))),
@@ -173,6 +176,9 @@ pub(super) fn run_profiles_and_backtest_chain(
             deadline_secs: 60,
             // То же: досрочный выход — ось сетки B4, здесь выключен.
             early_exit_secs: None,
+            // Пилот гоняет сетку смертей, не формы отскока: покруговой дамп
+            // (B5) — ветка `--touches`, здесь файл не пишется.
+            trades_out: None,
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,

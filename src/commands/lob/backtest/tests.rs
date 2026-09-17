@@ -1,5 +1,6 @@
 use super::*;
 use crate::book::Update;
+use crate::lob::strategy::ExitReason;
 
 struct VecFeed(std::vec::IntoIter<FeedEvent>);
 impl Feed for VecFeed {
@@ -473,4 +474,181 @@ fn bounce_plan_carries_the_early_exit_the_level_and_the_tick() {
         "уровень касания P = 10.00, а не цена входа: {level_px}"
     );
     assert!((tick_px - 0.01).abs() < 1e-12, "шаг цены: {tick_px}");
+}
+
+// -----------------------------------------------------------------------
+// B5 (В-58): покруговой дамп `--trades-out` — вход прогона-вердикта.
+// -----------------------------------------------------------------------
+
+fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
+    crate::lob::backtest::Fill {
+        dir,
+        entry_px,
+        exit_px,
+        qty: 1.0,
+    }
+}
+
+fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) -> BounceRun {
+    let n = fills.len();
+    BounceRun {
+        profile: 0,
+        signals: n as u64,
+        fills,
+        fill_signal: (0..n).collect(),
+        fill_reason: reasons,
+        exits: Default::default(),
+        entry_rejected: 0,
+        entry_crossed: 0,
+        spread_at_entry: Vec::new(),
+        submitted_signal: (0..n).collect(),
+        busy_signal: Vec::new(),
+        busy_wait_ns_max: 0,
+        round_ns_max: 0,
+        misses: Default::default(),
+        observations: Vec::new(),
+        incomplete: false,
+    }
+}
+
+/// Дамп — строка на круг: обе ноги, причина выхода словами и `net_bps` той же
+/// арифметикой `roundtrip_net_bps`, что и кривая PnL (второй расчёт разошёлся
+/// бы с вердиктом). Круг без числа пишется литералом `not_measured`:
+/// потребитель (`lob bounce-verdict`) на нём отказывает, а не выбрасывает
+/// наблюдение молча.
+#[test]
+fn trades_dump_writes_one_row_per_circle_with_its_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nested").join("ZECUSDT.csv");
+    let run = bounce_run(
+        vec![fill(1, 100.0, 101.0), fill(-1, 0.0, 101.0)],
+        vec![ExitReason::Take, ExitReason::Stop],
+    );
+    write_trades_csv(&path, "# lob backtest: тест", &run).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "# lob backtest: тест");
+    assert_eq!(
+        lines[1],
+        "signal_index,dir,entry_px,exit_px,qty,net_bps,reason"
+    );
+    // 1 % хода минус круг мейкер-тейкер 7.5 bps (Decision 19) = 92.5 bps.
+    assert!(
+        lines[2].ends_with(",92.500000,take"),
+        "первый круг: {}",
+        lines[2]
+    );
+    assert!(
+        lines[3].ends_with(",not_measured,stop"),
+        "круг с нулевым входом: {}",
+        lines[3]
+    );
+}
+
+/// Причин меньше, чем кругов, — отказ: сдвинутые причины приписали бы кругу
+/// чужой выход, а это хуже отсутствующего файла.
+#[test]
+fn trades_dump_refuses_a_run_whose_reasons_do_not_match_its_circles() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ZECUSDT.csv");
+    let run = bounce_run(
+        vec![fill(1, 100.0, 101.0)],
+        vec![ExitReason::Take, ExitReason::Stop],
+    );
+    assert!(write_trades_csv(&path, "# тест", &run).is_err());
+    assert!(!path.exists(), "отказ не оставляет половины файла");
+}
+
+// -----------------------------------------------------------------------
+// Лот круга: явный флаг или `order_size_22a` от пула и цены касания.
+// -----------------------------------------------------------------------
+
+/// Пул сессии + цена последнего касания дают тот же `order_size_22a`, что
+/// `lob pick` (Decision 22а): минимум площадки поднимается до чека $5, а при
+/// нулевом чеке остаётся минимальным лотом.
+#[test]
+fn pool_order_qty_is_order_size_22a_from_the_pool_and_the_touch_price() {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = dir.path().join("instruments.csv");
+    std::fs::write(
+        &pool,
+        "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots\n\
+         SOLUSDT,0.01,0.1,0.1,5,9\n\
+         AAAUSDT,0.01,0.1,0.1,0,9\n",
+    )
+    .unwrap();
+    // Тик 0.01 в 1e-9, цена касания 100 тиков = $1.00. Чек $5 при шаге 0.1
+    // даёт 5.0 лотов = 5e9 e-9.
+    let tick_e9 = 10_000_000;
+    assert_eq!(
+        pool_order_qty(&pool, "SOLUSDT", 100, tick_e9).unwrap(),
+        5_000_000_000
+    );
+    assert_eq!(
+        pool_order_qty(&pool, "AAAUSDT", 100, tick_e9).unwrap(),
+        100_000_000,
+        "нулевой чек — ответ минимальный лот"
+    );
+    let err = pool_order_qty(&pool, "NOPEUSDT", 100, tick_e9)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("нет в"), "отказ обязан назвать пул: {err}");
+}
+
+/// Профильный путь лот из пула не считает (касаний у него нет) и без явного
+/// флага не запускается: умолчания у размера круга нет.
+#[test]
+fn order_qty_requires_exactly_one_source() {
+    let mut args = minimal_backtest_args();
+    args.order_qty_e9 = Some(7);
+    args.order_qty_from_pool = true;
+    assert!(order_qty_arg(&args).is_err(), "два источника — отказ");
+    args.order_qty_e9 = None;
+    assert!(
+        order_qty_arg(&args).is_err(),
+        "лот из пула — только `--touches`"
+    );
+    args.order_qty_from_pool = false;
+    assert!(
+        order_qty_arg(&args)
+            .unwrap_err()
+            .to_string()
+            .contains("--order-qty-e9"),
+        "без обоих флагов отказ обязан назвать флаг"
+    );
+    args.order_qty_e9 = Some(7);
+    assert_eq!(order_qty_arg(&args).unwrap(), 7);
+}
+
+fn minimal_backtest_args() -> BacktestArgs {
+    BacktestArgs {
+        session_root: std::path::PathBuf::from("data/session"),
+        symbol: "SOLUSDT".to_string(),
+        signals_csv: None,
+        median_rtt_ns: 20_000_000,
+        p95_rtt_ns: 20_000_000,
+        order_qty_e9: Some(1),
+        order_qty_from_pool: false,
+        profiles_csv: None,
+        out: None,
+        pnl_out: None,
+        debug: false,
+        touches: true,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_ticks: 0,
+        stop_mode: StopModeArg::Behind,
+        deadline_secs: 60,
+        early_exit_secs: None,
+        trades_out: None,
+        h3: crate::commands::lob::H3Args {
+            h3_mode: crate::commands::lob::H3ModeArg::Floor,
+            h3_lots: None,
+        },
+        h3_k: None,
+        warmup_ms: None,
+        repeat_window_ms: None,
+    }
 }

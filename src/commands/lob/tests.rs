@@ -433,6 +433,7 @@ fn lob_help_lists_all_subcommands() {
         "archive",
         "backtest",
         "binlog-stats",
+        "bounce-verdict",
         "clock",
         "dashboard",
         "export",

@@ -28,8 +28,8 @@ use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
     build_backtest, build_profile_report, drive_bounce, drive_profile, mean_net_bps, pnl_curve_bps,
-    BacktestReport, BounceRun, BounceSignal, DriveConfig, Signal, TableEstimate, SIGMA_LONG,
-    SIGMA_SHORT,
+    roundtrip_net_bps, BacktestReport, BounceRun, BounceSignal, DriveConfig, Signal, TableEstimate,
+    SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
 use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, TouchRecord};
@@ -80,9 +80,16 @@ pub struct BacktestArgs {
     /// `order_size_22a` из `instruments.csv`, не шаг книги). Без умолчания
     /// нарочно: шаг книги (`step_e9` бинлога) — другая величина, и молчаливо
     /// подставлять его вместо лота площадки было бы неверным умолчанием, а
-    /// не измеренным (§9 плана).
+    /// не измеренным (§9 плана). Взаимоисключающий с `--order-qty-from-pool`.
     #[arg(long)]
-    pub order_qty_e9: i64,
+    pub order_qty_e9: Option<i64>,
+    /// Считать размер круга `order_size_22a` от полей пула `instruments.csv`
+    /// сессии и цены последнего касания реплея (Decision 22а). Нужен там, где
+    /// лота символа нет в журнале `candidates.csv`: у замороженного пула на 100
+    /// монет (отбор 2026-09-15) таблица кандидатов не коммитилась, а шаг книги —
+    /// другая величина. Только с `--touches`: цену даёт реплей касаний.
+    #[arg(long, default_value_t = false)]
+    pub order_qty_from_pool: bool,
     /// Таблица профилей (таск 10, `docs/findings/profiles-<дата>.csv`) для
     /// сравнения `net_fill`. Без флага сравнение печатает `none`. Строки, где
     /// `fill_model=none` (колонки `fill`/`net_fill` — литерал `not_measured`),
@@ -151,6 +158,14 @@ pub struct BacktestArgs {
     /// Другое значение — отказ: сетка зафиксирована **до** данных.
     #[arg(long)]
     pub early_exit_secs: Option<i64>,
+    /// Покруговой дамп прогона `--touches` (B5, В-58): одна строка на закрытый
+    /// круг профиля «все» — обе ноги, размер, чистая доходность в bps и причина
+    /// выхода. Прокруговой ряд нужен прогону-вердикту (`lob bounce-verdict`):
+    /// поправка на число испытаний дефлирует Шарп **ряда**, и по средним из
+    /// сводки его не посчитать. Без флага файл не пишется — у прогонов B2/B4
+    /// артефакт остаётся прежним.
+    #[arg(long)]
+    pub trades_out: Option<PathBuf>,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -180,7 +195,6 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
     let (tick_e9, step_e9) = read_tick_step(&binlog_paths[0])?;
     let tick_size = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
-    let order_qty = args.order_qty_e9 as f64 / 1e9;
 
     // Таск 22: сессия может нести несколько частей — читаются подряд как
     // один поток (`events_from_paths`), не только первая.
@@ -200,6 +214,10 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
     if args.touches {
         return run_bounce(args, &binlog_paths, tick_e9, step_e9, &events);
     }
+    // Профильный путь: лот задаётся флагом (лот из пула считается по цене
+    // касаний, которых здесь нет) — разрешение после ветки `--touches`.
+    let order_qty_e9 = order_qty_arg(args)?;
+    let order_qty = order_qty_e9 as f64 / 1e9;
     let Some(signals_csv) = args.signals_csv.as_deref() else {
         anyhow::bail!("нужен либо --signals <csv>, либо --touches");
     };
@@ -240,7 +258,7 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
         .clone()
         .unwrap_or_else(|| PathBuf::from(format!("docs/findings/backtest-{date}-pnl.csv")));
 
-    let header = header_comment(args);
+    let header = header_comment(args, order_qty_e9);
     write_backtest_csv(&out, &report, &header)?;
     write_pnl_csv(&pnl_out, &report, &header)?;
 
@@ -667,15 +685,79 @@ fn read_table(path: Option<&Path>) -> anyhow::Result<BTreeMap<String, TableEstim
 /// Шапка обоих артефактов (координатор): те же параметры, что реально
 /// решают число, плюс `debug` — по решению вызывающего (`--debug`), тем же
 /// приёмом, что `lob profiles --allow-unverified`.
-fn header_comment(args: &BacktestArgs) -> String {
+fn header_comment(args: &BacktestArgs, order_qty_e9: i64) -> String {
     let debug_suffix = if args.debug { " debug" } else { "" };
     format!(
         "# lob backtest: rtt_median_ns={} rtt_p95_ns={} order_qty_e9={} alpha={} replications={} seed=0{debug_suffix}",
         args.median_rtt_ns,
         args.p95_rtt_ns,
-        args.order_qty_e9,
+        order_qty_e9,
         crate::stats::GATE_ALPHA,
         crate::stats::BOOTSTRAP_REPLICATIONS,
+    )
+}
+
+/// Явный размер круга профильного пути. Лот из пула (`--order-qty-from-pool`)
+/// считается по цене касаний реплея, а профильный путь касаний не строит:
+/// отказ, а не подстановка шага книги вместо лота площадки.
+fn order_qty_arg(args: &BacktestArgs) -> anyhow::Result<i64> {
+    match (args.order_qty_e9, args.order_qty_from_pool) {
+        (Some(v), false) => Ok(v),
+        (None, false) => anyhow::bail!(
+            "нужен --order-qty-e9 (либо --order-qty-from-pool вместе с --touches): \
+             изобретённого умолчания нет (§9 плана)"
+        ),
+        (_, true) => anyhow::bail!(
+            "--order-qty-from-pool работает только с --touches: цену для `order_size_22a` \
+             даёт реплей касаний"
+        ),
+    }
+}
+
+/// Размер круга `order_size_22a` (Decision 22а) от полей пула сессии и цены
+/// последнего касания: `max(minOrderQty, ceil(minNotional / (step × price)) ×
+/// step)`. Цена измерена на тех же данных, что и вердикт, — второй проход за
+/// ценой не нужен (тот же приём, что у пилота с последней строкой
+/// `levels-floor`). Нет символа в пуле — отказ: лот обязан быть названным
+/// числом, а не шагом книги.
+fn pool_order_qty(
+    instruments_csv: &Path,
+    symbol: &str,
+    last_price_tick: i64,
+    tick_e9: i64,
+) -> anyhow::Result<i64> {
+    #[derive(Debug, serde::Deserialize)]
+    struct Row {
+        symbol: String,
+        min_order_qty: String,
+        qty_step: String,
+        min_notional_value: String,
+    }
+    let mut r = super::pick::instruments_csv_reader(instruments_csv)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", instruments_csv.display()))?;
+    for row in r.deserialize::<Row>() {
+        let row = row.map_err(|e| anyhow::anyhow!("{}: {e}", instruments_csv.display()))?;
+        if row.symbol != symbol {
+            continue;
+        }
+        let e9 = |name: &str, v: &str| {
+            crate::bybit::ws::parse_e9(v)
+                .ok_or_else(|| anyhow::anyhow!("{symbol}: {name} `{v}` не разобрался как 1e-9"))
+        };
+        let min_order_qty_e9 = e9("min_order_qty", &row.min_order_qty)?;
+        let qty_step_e9 = e9("qty_step", &row.qty_step)?;
+        let min_notional_value_e9 = e9("min_notional_value", &row.min_notional_value)?;
+        let last_price_e9 = last_price_tick.saturating_mul(tick_e9);
+        return Ok(super::pick::order_size_22a(
+            min_order_qty_e9,
+            qty_step_e9,
+            min_notional_value_e9,
+            last_price_e9,
+        ));
+    }
+    anyhow::bail!(
+        "{symbol}: нет в {} — лот из пула взять негде",
+        instruments_csv.display()
     )
 }
 
@@ -759,6 +841,74 @@ struct PnlRow {
     rtt: &'static str,
     step_index: usize,
     cum_net_bps: f64,
+}
+
+/// Покруговой дамп прогона `--touches` (`--trades-out`): одна строка на
+/// закрытый круг профиля «все». Порядок строк — порядок исполнения (тот же,
+/// что у кривой PnL), поэтому ряд пригоден и для Шарпа, и для кумулятивной
+/// суммы. `net_bps` не посчитался — литерал `not_measured`, не пустая строка
+/// и не ноль: «нет числа» и «ноль» — разные вещи (то же правило, что у
+/// `TableEstimate`), а потребитель (`lob bounce-verdict`) на литерале
+/// отказывает, а не молча выкидывает круг.
+fn write_trades_csv(path: &Path, header: &str, run: &BounceRun) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        run.fill_reason.len() == run.fills.len() && run.fill_signal.len() == run.fills.len(),
+        "кругов {}, причин выхода {}, сигналов {}: дамп не пишется из несогласованного прогона",
+        run.fills.len(),
+        run.fill_reason.len(),
+        run.fill_signal.len()
+    );
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut file = std::fs::File::create(path)?;
+    writeln!(file, "{header}")?;
+    let mut w = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(file);
+    w.write_record([
+        "signal_index",
+        "dir",
+        "entry_px",
+        "exit_px",
+        "qty",
+        "net_bps",
+        "reason",
+    ])?;
+    for (i, fill) in run.fills.iter().enumerate() {
+        let net = match roundtrip_net_bps(fill) {
+            Some(v) => format!("{v:.6}"),
+            None => "not_measured".to_string(),
+        };
+        w.write_record([
+            run.fill_signal[i].to_string(),
+            fill.dir.to_string(),
+            format!("{:.10}", fill.entry_px),
+            format!("{:.10}", fill.exit_px),
+            format!("{:.10}", fill.qty),
+            net,
+            exit_reason_label(run.fill_reason[i]).to_string(),
+        ])?;
+    }
+    w.flush()?;
+    Ok(())
+}
+
+/// Причина выхода словами — тот же словарь, что `lob bounce-verdict` и
+/// `EXIT_REASONS`: одна форма имени на писателя и читателя, чтобы отчёт не
+/// собирался из двух разных написаний одной причины.
+fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
+    use crate::lob::strategy::ExitReason;
+    match reason {
+        ExitReason::Stop => "stop",
+        ExitReason::Take => "take",
+        ExitReason::Trail => "trail",
+        ExitReason::Deadline => "deadline",
+        ExitReason::Early => "early",
+        ExitReason::Horizon => "horizon",
+    }
 }
 
 fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::Result<()> {
@@ -1011,7 +1161,6 @@ fn run_bounce(
 ) -> anyhow::Result<BacktestSummary> {
     let tick = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
-    let order_qty = args.order_qty_e9 as f64 / 1e9;
     // Дедлайн и досрочный выход — из предрегистрированных сеток В-58 (B3/B4):
     // другое значение отказ, а не молчаливое расширение сетки.
     let deadline_ns = deadline_ns_from_secs(args.deadline_secs)?;
@@ -1078,6 +1227,31 @@ fn run_bounce(
     let mut order: Vec<usize> = (0..signals.len()).collect();
     order.sort_by_key(|&i| signals[i].t0_ns);
 
+    // Размер круга — явный флаг или `order_size_22a` от пула и цены последнего
+    // касания (Decision 22а). Решается здесь, а не в начале: цену даёт реплей
+    // касаний, который идёт выше.
+    let order_qty_e9 = match (args.order_qty_e9, args.order_qty_from_pool) {
+        (Some(v), false) => v,
+        (None, true) => {
+            let last = touches
+                .last()
+                .expect("касаний нет — отказ раньше, до сигналов");
+            pool_order_qty(
+                &args.session_root.join("instruments.csv"),
+                &args.symbol,
+                last.price_tick,
+                tick_e9,
+            )?
+        }
+        (Some(_), true) => anyhow::bail!(
+            "--order-qty-e9 и --order-qty-from-pool взаимоисключающие: лот задаётся одним способом"
+        ),
+        (None, false) => anyhow::bail!(
+            "нужен --order-qty-e9 или --order-qty-from-pool: изобретённого умолчания нет (§9 плана)"
+        ),
+    };
+    let order_qty = order_qty_e9 as f64 / 1e9;
+
     let cfg = DriveConfig {
         order_qty,
         first_order_id: 1,
@@ -1096,6 +1270,14 @@ fn run_bounce(
         .clone()
         .unwrap_or_else(|| PathBuf::from(format!("docs/findings/bounce-backtest-{date}-pnl.csv")));
     if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    // Кривая PnL — такой же артефакт прогона: свой каталог она создаёт сама,
+    // как профильный путь и покруговой дамп (иначе прогон в свежий каталог
+    // падал бы «путь не найден» уже после записи сводки).
+    if let Some(parent) = pnl_out.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
@@ -1123,9 +1305,14 @@ fn run_bounce(
     // Шапка артефакта — строкой комментария: чем посчитан файл (`rtt=assumed`
     // В-37, порог `H3`, состав сделки). Пишется до таблицы, как у остальных
     // артефактов вердикта.
+    if let Some(trades_out) = args.trades_out.as_ref() {
+        write_trades_csv(trades_out, &header, &run)?;
+    }
     let mut file = std::fs::File::create(&out)?;
     use std::io::Write as _;
-    writeln!(file, "# {header}")?;
+    // `header` уже начинается с `#`: дописывать второй значило бы печатать
+    // `# #` в каждом артефакте вердикта.
+    writeln!(file, "{header}")?;
     let mut w = csv::Writer::from_writer(file);
     w.write_record([
         "profile_id",
