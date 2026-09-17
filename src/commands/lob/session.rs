@@ -245,6 +245,12 @@ struct SessionCtx {
     /// ни `reconnects`, ни `frames_failed` этого не показывают, а устойчивый
     /// `403`/`429` до этой правки не давал вообще ничего.
     connect_failed: u64,
+    /// Сколько строк `gaps.csv` не удалось записать (V6, 2026-09-17).
+    /// `AtomicU64`, а не `u64`: `log_gap` зовётся из `&self`-контекстов
+    /// (в том числе там, где `&mut self` занят другим полем), а счётчик
+    /// обязан расти в любом из них — иначе отказ журнала потерь исчезнет
+    /// ровно в том сценарии, ради которого заведён.
+    gap_rows_failed: AtomicU64,
     /// Ротация суток изменила `binlog_files`, а `session.json` ещё не
     /// переписан — пишет первый тик после ротации, один раз на всех
     /// (таск 28, см. `on_tick`).
@@ -333,6 +339,7 @@ impl SessionCtx {
             resyncs_by_stream: [0; STREAM_COUNT],
             unrouted: 0,
             connect_failed: 0,
+            gap_rows_failed: AtomicU64::new(0),
             session_json_dirty: false,
             parse_latencies_ns: LatencyHistogram::new(),
             queue_latencies_ns: LatencyHistogram::new(),
@@ -476,6 +483,12 @@ impl SessionCtx {
 
     /// Строка `gaps.csv`; `symbol: None` — событие всей сессии (`session.json`
     /// не переписан), колонка `symbol` пустая.
+    ///
+    /// Отказ записи считается (V6, 2026-09-17): журнал потерь сам может не
+    /// писаться — полный диск гасит и его, — и тогда единственным следствием
+    /// остаётся счётчик `session.json.gap_rows_failed`. Печатается только
+    /// первый отказ: если диск кончился, строк будет столько же, сколько
+    /// потерь, и заливать этим stderr нельзя.
     fn log_gap(&self, symbol: Option<usize>, kind: GapKind, ts_utc: String, detail: String) {
         let row = GapRow {
             ts_utc,
@@ -486,7 +499,15 @@ impl SessionCtx {
             kind,
             detail,
         };
-        let _ = append_gap_row(&self.gaps_path, &row);
+        if append_gap_row(&self.gaps_path, &row).is_err()
+            && self.gap_rows_failed.fetch_add(1, Ordering::Relaxed) == 0
+        {
+            eprintln!(
+                "session: строка gaps.csv не записана ({}) — журнал потерь тоже не пишется; \
+                 счётчик отказов в session.json.gap_rows_failed",
+                self.gaps_path.display()
+            );
+        }
     }
 
     /// Кадр одного потока одного инструмента на диск; неудача — счётчик,
@@ -801,6 +822,7 @@ impl SessionCtx {
             resyncs: self.resyncs,
             unrouted: self.unrouted,
             connect_failed: self.connect_failed,
+            gap_rows_failed: self.gap_rows_failed.load(Ordering::Relaxed),
             frames_failed: self
                 .states
                 .iter()

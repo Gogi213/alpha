@@ -1946,8 +1946,7 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     assert_eq!(summary.gaps, 5);
     // K1: отказ `connect()` — свой счётчик, а не «молчаливый ретрай»:
     // сокет не открылся, `reconnects` этого не видит.
-    assert_eq!(summary.connect_failed, 1);
-    // Раздельные счётчики потоков: по одному ресинку на каждый поток.
+    assert_eq!(summary.connect_failed, 1); // Раздельные счётчики потоков: по одному ресинку на каждый поток.
     let by_depth = |depth: u32| {
         summary
             .streams
@@ -2334,5 +2333,35 @@ fn a_stop_file_ends_the_session_on_the_next_tick_and_is_cleared_on_open() {
     assert!(
         !consumed.load(std::sync::atomic::Ordering::SeqCst),
         "после stop цикл не должен читать следующие события"
+    );
+}
+
+/// V6 (2026-09-17): журнал потерь сам может не писаться — полный диск гасит и
+/// `gaps.csv`. Отказ обязан быть виден счётчиком, а не исчезнуть вместе с
+/// файлом. Путь журнала указывает на **каталог**: открыть его на дозапись
+/// нельзя ровно так же, как файл на полном диске (и, в отличие от
+/// несуществующего каталога, `ensure_gaps_csv` его сам не создаст).
+#[test]
+fn failed_gap_rows_are_counted_not_swallowed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = always_on_ctx(dir.path(), NOON_NS);
+    let as_dir = dir.path().join("gaps.csv-но-каталог");
+    std::fs::create_dir_all(&as_dir).unwrap();
+    ctx.gaps_path = as_dir;
+    let row = |detail: &str| {
+        ctx.log_gap(
+            Some(0),
+            GapKind::ConnectFailed,
+            "2026-09-12T12:00:00Z".to_string(),
+            detail.to_string(),
+        )
+    };
+    row("первый отказ");
+    row("второй отказ");
+
+    let summary = ctx.write_session_json(true).unwrap();
+    assert_eq!(
+        summary.gap_rows_failed, 2,
+        "оба отказа журнала посчитаны (session.json пишется в свой каталог и не зависит от gaps.csv)"
     );
 }

@@ -160,6 +160,8 @@ async fn measure_one_symbol(
         tick_e9,
         step_e9,
         ping_interval: MEASUREMENT_PING_INTERVAL,
+        // V5 (2026-09-17): молчание дольше двух пингов — соединение мёртвое.
+        recv_timeout: MEASUREMENT_PING_INTERVAL * 2,
         backoff: MEASUREMENT_BACKOFF,
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ConnEvent>(4096);

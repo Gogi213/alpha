@@ -633,6 +633,8 @@ async fn run_session(
         tick_e9,
         step_e9,
         ping_interval: RECORD_PING_INTERVAL,
+        // V5 (2026-09-17): молчание дольше двух пингов — соединение мёртвое.
+        recv_timeout: RECORD_PING_INTERVAL * 2,
         backoff: RECORD_BACKOFF,
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ConnEvent>(CHANNEL_CAPACITY);
@@ -926,13 +928,22 @@ async fn run_record_async(args: &RecordArgs) -> anyhow::Result<RecordSummary> {
             }
             Ok(SessionEnd::Stop { reason }) => break reason,
             Err(e) => {
-                let _ = rec.flush();
+                // V6 (2026-09-17): последний `flush` больше не глотается — если
+                // он не удался, об этом сказано в stderr **до** возврата ошибки,
+                // иначе последний кадр терялся без следа.
+                if let Err(flush_err) = rec.flush() {
+                    eprintln!(
+                        "record: финальный flush не удался ({flush_err}) — последний кадр потерян"
+                    );
+                }
                 return Err(anyhow::anyhow!("{e}"));
             }
         }
     };
 
-    let _ = rec.flush();
+    if let Err(flush_err) = rec.flush() {
+        eprintln!("record: финальный flush не удался ({flush_err}) — последний кадр потерян");
+    }
     let gaps = read_gap_rows(rec.gaps_path()).unwrap_or_default();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&root)?
         .filter_map(|e| e.ok().map(|e| e.path()))

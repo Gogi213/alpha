@@ -267,6 +267,15 @@ pub struct ConnConfig {
     /// соединение по своему таймауту (документированное поведение биржи,
     /// не число из `PLAN.md` — поэтому параметр, а не константа здесь).
     pub ping_interval: Duration,
+    /// Молчание, после которого соединение считается мёртвым (V5,
+    /// 2026-09-17): TCP может остаться живым, а данных не будет вовсе — без
+    /// этого порога такое соединение висело бесконечно, без разрыва,
+    /// переподключения и строки `gaps.csv`. У боевых вызывающих значение —
+    /// 2 × `ping_interval`: пинг уходит каждый интервал, значит молчание
+    /// дольше двух означает, что не отвечает уже и он. Отдельное поле, а не
+    /// вывод из `ping_interval` тут же, чтобы тест мог задать короткий
+    /// интервал пинга и длинный таймаут независимо.
+    pub recv_timeout: Duration,
     pub backoff: BackoffConfig,
 }
 
@@ -313,6 +322,10 @@ pub struct PoolConnConfig {
     /// соединение по своему таймауту (документированное поведение биржи,
     /// не число из `PLAN.md` — поэтому параметр, а не константа здесь).
     pub ping_interval: Duration,
+    /// Молчание, после которого соединение считается мёртвым (V5,
+    /// 2026-09-17) — см. `ConnConfig::recv_timeout`; у боевых вызывающих
+    /// 2 × `ping_interval`.
+    pub recv_timeout: Duration,
     pub backoff: BackoffConfig,
 }
 
@@ -346,6 +359,7 @@ impl From<ConnConfig> for PoolConnConfig {
             // сопоставить (T45: два потока — это `feed::live`).
             depths: vec![ORDERBOOK_DEPTH],
             ping_interval: cfg.ping_interval,
+            recv_timeout: cfg.recv_timeout,
             backoff: cfg.backoff,
         }
     }
@@ -748,6 +762,11 @@ impl<C: TransportConnector> Connection<C> {
             // сессия уже закончилась.
 
             let mut ping_due = tokio::time::interval(self.cfg.ping_interval);
+            // Таймаут приёма (V5, 2026-09-17): полуживое соединение — TCP жив,
+            // данных нет (зависший прокси, сервер перестал публиковать) —
+            // раньше висело бесконечно: ни разрыва, ни переподключения, ни
+            // строки `gaps.csv`, только молча переставший расти бинлог.
+            let recv_timeout = self.cfg.recv_timeout;
             // Missed-тики копятся по умолчанию и стреляют очередью один за
             // другим при первой возможности; `Delay` вместо этого просто
             // сдвигает следующий тик, что и нужно для пинга — частый залп не
@@ -759,7 +778,21 @@ impl<C: TransportConnector> Connection<C> {
 
             loop {
                 tokio::select! {
-                    frame = transport.recv() => {
+                    frame = tokio::time::timeout(recv_timeout, transport.recv()) => {
+                        let frame = match frame {
+                            Ok(frame) => frame,
+                            Err(_) => {
+                                // Молчание дольше двух пингов: соединение
+                                // считается мёртвым и уходит в переподключение
+                                // тем же путём, что обрыв (V5).
+                                eprintln!(
+                                    "conn: молчание дольше {recv_timeout:?} (2 × пинг) — \
+                                     соединение считается мёртвым, переподключаюсь",
+                                );
+                                route.broadcast_disconnected(&out).await;
+                                break;
+                            }
+                        };
                         match frame {
                             Ok(Frame::Text(raw)) => {
                                 // Метка ставится здесь и нигде позже — до

@@ -208,6 +208,9 @@ fn test_cfg(symbol: &str) -> ConnConfig {
         tick_e9: 100_000,   // 0.0001, тот же масштаб, что в тестах book/mod.rs
         step_e9: 1_000_000, // 0.001
         ping_interval: Duration::from_secs(3600), // вне фокуса большинства тестов
+        // Таймаут приёма (V5) в большинстве тестов вне фокуса так же, как пинг:
+        // сценарии со «замолчавшим» сокетом задают свой короткий порог сами.
+        recv_timeout: Duration::from_secs(3600),
         backoff: BackoffConfig {
             initial: Duration::from_millis(1),
             max: Duration::from_millis(5),
@@ -1232,5 +1235,34 @@ async fn failed_handshake_is_reported_with_its_http_status() {
         TransportError::Io("обрыв".to_string()).http_status(),
         None,
         "у обрыва нет HTTP-статуса"
+    );
+}
+
+/// V5 (2026-09-17): полуживое соединение — TCP жив, данных нет — раньше висело
+/// бесконечно. Порог приёма — 2 × интервал пинга; здесь транспорт молчит
+/// (`pending()` на пустом ящике), поэтому событие обязано прийти, а не висеть.
+#[tokio::test]
+async fn silent_socket_times_out_and_reports_disconnected() {
+    let mut cfg = test_cfg("SOLUSDT");
+    cfg.ping_interval = Duration::from_secs(3600); // в фокусе — приём, не пинг
+    cfg.recv_timeout = Duration::from_millis(40);
+    let (connector, _sent) = ScriptedConnector::new(vec![Vec::new()]);
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
+
+    let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("молчание длиннее 2 × пинга обязано дать событие, а не висеть")
+        .expect("канал жив");
+    handle.abort();
+
+    assert!(
+        matches!(
+            ev,
+            ConnEvent::Disconnected {
+                first_of_socket: true
+            }
+        ),
+        "молчащий сокет уходит в переподключение тем же путём, что обрыв: {ev:?}"
     );
 }
