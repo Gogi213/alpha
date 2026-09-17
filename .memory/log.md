@@ -1036,3 +1036,28 @@
 - **Ворота не гонялись:** чистка не касалась `src/` (только доки, `.autopilot`, `.claude`, память).
   Последний зелёный прогон — 782 теста на коммите `b73cc07`.
 
+## [2026-09-17] cleanup | Раунд 2 чистки: 51 файл в архив, ссылки в коде обновлены
+
+Владелец: «ещё один раунд сделай чистки на всякий». Перенесено (не удалено):
+- **findings волн 1–3 (10):** `recording-2026-09-11`, `pilot-2026-09-11`, `audit-2026-09-12`,
+  `collector-2026-09-12`, `pool-top50-2026-09-13`, `deploy-2026-09-14`,
+  `binlog-format-2026-09-13` (перекрыт `binlog-v3-2026-09-13`), `depth-distribution-2026-09-15`,
+  `format-columnar-2026-09-15`, `format-dictionary-2026-09-15` → `docs/archive/findings/`.
+  Обновлены **doc-комментарии `src/`** (ws.rs, binlog/mod.rs, binlog_stats.rs, record.rs, export.rs,
+  feed/live.rs, session/sink.rs, session/tests.rs, profiles.rs, profiles/accumulate.rs,
+  `tests/collector_bench.rs`) и живые доки (`collector-audit-2026-09-17.md`, `interfaces.md`, PLAN, SETTLED).
+- **черновики плана (3):** `RECON-2026-09-11`, `REVIEW-2026-09-11`, `REQUIREMENTS.md` →
+  `docs/archive/plan-2026-09-11/` (ссылки поправлены в PLAN.md — 6 мест, `ws.rs` — 2, ADR 0008/0012).
+- **тикеты T1–T33 (33) и передачки (5)** → `.autopilot/archive/{tickets-01-33,handoffs-2026-09-11}/`;
+  живые тикеты `34…47` (13 файлов) остались — их цитируют `dev-plan` и `CLAUDE.md`.
+- **Итог:** `docs/findings` 30 → **20**, `docs/archive` 49, `.autopilot/tickets` 47 → **13**.
+- **Ворота после правки комментариев:** `fmt=0`, **782 теста** (0 failed, 5 ignored), `clippy=0`.
+- **Грабля (новая, стоила двух проходов):** при массовой замене путей нельзя после замены полного
+  пути (`docs/findings/X` → `docs/archive/findings/X`) менять basename `X` — он встречается уже внутри
+  нового пути и даёт `docs/archive/findings/docs/archive/findings/X` (поймано в 4 файлах, починено
+  одним проходом по `archive/findings/docs/archive/findings/`). Порядок: сначала basename, потом полный
+  путь, и обязательно проверка на дубль префикса после.
+- **Осталось кандидатами на раунд 3 (нужно слово владельца):** `.autopilot/state.js` (108 КБ доски
+  волн 1–4, на него ссылаются `CLAUDE.md` и `PLAN.md`), `examples/*_probe.rs` (6 разовых замеров),
+  `.claude/` (скилл `plan-autopilot` + два агента), `tests/fixtures/BTCUSDT-2026-09-09.binlog`.
+
