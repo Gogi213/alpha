@@ -692,6 +692,10 @@ pub struct ExitTally {
     /// исхода. Считается отдельно от `take` — иначе не видно, сколько сделок
     /// вытянули больше 1:1 и сколько отдали трейлом.
     pub trail: u64,
+    /// Досрочный выход «по прилипанию» (B4, В-58 п. 5): касание не разрешилось
+    /// за `X` секунд, уровень остался лучшей ценой. Отдельно от `deadline`:
+    /// это свойство касания, а не конец плана.
+    pub early: u64,
 }
 
 /// Итог одного профиля касаний: сигналы, круги, промахи (по причинам) и
@@ -984,6 +988,7 @@ where
                     ExitReason::Deadline => exits.deadline += 1,
                     ExitReason::Horizon => exits.horizon += 1,
                     ExitReason::Trail => exits.trail += 1,
+                    ExitReason::Early => exits.early += 1,
                 }
                 let net = roundtrip_net_bps(&fill);
                 observations.push(FillObservation {

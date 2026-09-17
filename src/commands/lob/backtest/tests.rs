@@ -309,6 +309,8 @@ fn plain_shape() -> PlanShape {
         grid_step_ticks: 0,
         // Дедлайн по умолчанию — 60 с, как `--deadline-secs` без флага (B3).
         deadline_ns: 60 * 1_000_000_000,
+        // Досрочный выход выключен: тесты B2/B3 проверяют геометрию плана.
+        early_exit_ns: 0,
     }
 }
 
@@ -410,4 +412,65 @@ fn bounce_plan_without_frontrun_keeps_the_old_entry_and_one_to_one() {
         (take - 10.03).abs() < 1e-9,
         "тейк P+3 при таком входе: {take}"
     );
+}
+
+/// B3/B4: сетки В-58 зафиксированы **до** данных — значение дедлайна или
+/// досрочного выхода вне них это отказ, а не параметр. Проверяется функцией,
+/// а не живым прогоном: на боевом корне та же ошибка стоит минут счёта до
+/// диагностики (находка R5 аудита 2026-09-17 — отказа не покрывал тест).
+#[test]
+fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
+    // Дедлайн: сетка {60, 600, 3600, 7200} с.
+    assert_eq!(deadline_ns_from_secs(60).unwrap(), 60 * 1_000_000_000);
+    assert_eq!(deadline_ns_from_secs(7_200).unwrap(), 7_200 * 1_000_000_000);
+    let err = deadline_ns_from_secs(120).unwrap_err().to_string();
+    assert!(
+        err.contains("не из предрегистрированной сетки В-58") && err.contains("120"),
+        "отказ обязан называть значение и сетку: {err}"
+    );
+    // Досрочный выход: выключен либо {1, 2, 3} с — четвёртый вариант той же оси.
+    assert_eq!(
+        early_exit_ns_from_secs(None).unwrap(),
+        0,
+        "без флага досрочный выход выключен, а не «ноль секунд»"
+    );
+    for x in EARLY_EXITS_S {
+        assert_eq!(early_exit_ns_from_secs(Some(x)).unwrap(), x * 1_000_000_000);
+    }
+    for bad in [0, 4, 60] {
+        let err = early_exit_ns_from_secs(Some(bad)).unwrap_err().to_string();
+        assert!(
+            err.contains("не из предрегистрированного набора В-58"),
+            "{bad}: {err}"
+        );
+    }
+}
+
+/// B4: `--early-exit-secs` доезжает до плана вместе с ценой уровня и шагом
+/// цены — без них стратегия не может решить «уровень ещё держит»: тика она не
+/// знает, а цена уровня не выводится из входа (вход бывает от фронтранера).
+#[test]
+fn bounce_plan_carries_the_early_exit_the_level_and_the_tick() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005));
+    let shape = PlanShape {
+        early_exit_ns: 2 * 1_000_000_000,
+        ..plain_shape()
+    };
+    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, shape);
+    let TradePlan::Bounce {
+        early_exit_ns,
+        level_px,
+        tick_px,
+        ..
+    } = plan
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(early_exit_ns, 2_000_000_000, "X из флага — в план");
+    assert!(
+        (level_px - 10.0).abs() < 1e-9,
+        "уровень касания P = 10.00, а не цена входа: {level_px}"
+    );
+    assert!((tick_px - 0.01).abs() < 1e-12, "шаг цены: {tick_px}");
 }

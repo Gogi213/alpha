@@ -576,6 +576,9 @@ fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
         trail_activate_bps: 0.0,
         grid_legs: 4,
         grid_step_px: 1.0,
+        early_exit_ns: 0,
+        level_px: 100.0,
+        tick_px: 1.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -619,4 +622,124 @@ fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
         .filter(|o| o.status == Status::New || o.status == Status::PartiallyFilled)
         .count();
     assert_eq!(live, 0, "неисполненные ноги лестницы обязаны быть сняты");
+}
+
+/// B4 (В-58 п. 5): досрочный выход «по прилипанию». Вход исполняется на 2 с,
+/// уровень `P = 100` остаётся лучшим бидом, и через `X = 1 с` после входа
+/// сделка выходит **по рынку с причиной `Early`** — не стопом, не тейком и не
+/// дедлайном (все три здесь недостижимы: стоп 99, тейк 103, дедлайн 60 с).
+#[test]
+fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        // Продажа-агрессор ровно в наш лимит 101 — вход исполнен на 2 с.
+        trade_at(2 * S, true, 101.0, 5.0),
+        // Уровень держится: бид всё те же 100.
+        depth_at(20 * S, true, 100.0, 5.0),
+        depth_at(20 * S, false, 105.0, 5.0),
+    ];
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let plan = TradePlan::Bounce {
+        entry_px: 101.0,
+        stop_px: 99.0,
+        take_px: 103.0,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: S,
+        level_px: 100.0,
+        tick_px: 1.0,
+    };
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan,
+            profile: 0,
+        }],
+        &drive_cfg(),
+    )
+    .unwrap();
+
+    assert!(
+        !run.incomplete,
+        "круг обязан закрыться: fills={} misses={:?}",
+        run.fills.len(),
+        run.misses
+    );
+    assert_eq!(run.fills.len(), 1, "ровно один круг");
+    assert_eq!(
+        run.fill_reason,
+        vec![crate::lob::strategy::ExitReason::Early],
+        "причина выхода — прилипание"
+    );
+    assert_eq!(run.exits.early, 1);
+    assert_eq!(run.exits.stop, 0, "стоп 99 не достигнут");
+    assert_eq!(run.exits.take, 0, "тейк 103 не достигнут");
+    assert_eq!(run.exits.deadline, 0, "дедлайн 60 с не наступил");
+    // Выход по рынку: исполнение по лучшему биду 100, а не по тейку 103.
+    assert!(
+        close(run.fills[0].exit_px, 100.0),
+        "выход по рынку на 100, а не по тейку: {}",
+        run.fills[0].exit_px
+    );
+}
+
+/// B4, отрицательный контроль: цена ушла с уровня вверх (`102` против уровня
+/// `100` — больше половины тика), значит касание разрешилось, и «прилипания»
+/// нет: `Early` не выдаётся, даже когда `X` истёк.
+#[test]
+fn early_exit_does_not_fire_once_the_price_left_the_level() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        trade_at(2 * S, true, 101.0, 5.0),
+        // Цена ушла с уровня: лучший бид 102.
+        depth_at(3 * S, true, 102.0, 5.0),
+        depth_at(20 * S, true, 102.0, 5.0),
+        depth_at(20 * S, false, 105.0, 5.0),
+    ];
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let plan = TradePlan::Bounce {
+        entry_px: 101.0,
+        stop_px: 99.0,
+        take_px: 103.0,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: S,
+        level_px: 100.0,
+        tick_px: 1.0,
+    };
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan,
+            profile: 0,
+        }],
+        &drive_cfg(),
+    )
+    .unwrap();
+
+    assert!(
+        !run.fill_reason
+            .iter()
+            .any(|r| matches!(r, crate::lob::strategy::ExitReason::Early)),
+        "прилипания нет: цена с уровня ушла — {run:?}"
+    );
+    assert_eq!(run.exits.early, 0);
 }

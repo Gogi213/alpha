@@ -143,6 +143,14 @@ pub struct BacktestArgs {
     /// значение считается отдельным испытанием).
     #[arg(long, default_value_t = 60)]
     pub deadline_secs: i64,
+    /// Досрочный выход «по прилипанию» (B4, В-58 п. 5): секунды `X` из
+    /// предрегистрированного набора {1, 2, 3} — если через `X` после входа
+    /// уровень **всё ещё лучшая цена** (касание не разрешилось ни в отскок, ни
+    /// в пробой), выходим по рынку. Отсутствие флага — выход выключен, и это
+    /// четвёртый вариант той же оси В-58 («выключен либо X ∈ {1, 2, 3}»).
+    /// Другое значение — отказ: сетка зафиксирована **до** данных.
+    #[arg(long)]
+    pub early_exit_secs: Option<i64>,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -834,6 +842,9 @@ struct PlanShape {
     /// Дедлайн сделки в наносекундах (B3): из предрегистрированной сетки
     /// В-58, приходит из `--deadline-secs`.
     deadline_ns: i64,
+    /// Досрочный выход в наносекундах (B4): `0` — выключен, иначе `X` из
+    /// набора {1, 2, 3} секунд.
+    early_exit_ns: i64,
 }
 
 fn bounce_plan(
@@ -849,6 +860,7 @@ fn bounce_plan(
         grid_legs,
         grid_step_ticks,
         deadline_ns,
+        early_exit_ns,
     } = shape;
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
@@ -895,6 +907,12 @@ fn bounce_plan(
             trail_activate_bps,
             grid_legs,
             grid_step_px,
+            early_exit_ns,
+            // Уровень касания `P` и шаг цены — данные для решения «уровень ещё
+            // держит» (B4): стратегия не знает ни тика, ни цены уровня, они
+            // приходят планом, как и всё остальное в нём.
+            level_px: p,
+            tick_px: tick,
         },
     )
 }
@@ -944,6 +962,45 @@ fn bounce_rows(touches: &[TouchRecord], h3_lots: i64) -> Vec<BounceRow> {
     rows
 }
 
+/// Предрегистрированная сетка дедлайнов, секунды (B3, В-58 п. 4): ответ
+/// владельца 2 — «S и S-D; S-D значит от секунд до, наверно, пары часов».
+const DEADLINES_S: [i64; 4] = [60, 600, 3_600, 7_200];
+
+/// Предрегистрированный набор досрочных выходов, секунды (B4, В-58 п. 5):
+/// «прилипание» касания дольше `X`. Отсутствие флага — четвёртый вариант той
+/// же оси («выключен»), поэтому `None` здесь не ошибка, а значение сетки.
+const EARLY_EXITS_S: [i64; 3] = [1, 2, 3];
+
+/// Дедлайн `--deadline-secs` → наносекунды: значение обязано быть из сетки
+/// В-58 (она зафиксирована **до** данных, и «попробовать ещё одно» — отдельное
+/// испытание, а не параметр), а сам горизонт — проходить общую проверку
+/// `markout::check_horizons` (положительный и не длиннее суток). Вынесено
+/// функцией, чтобы отказ проверялся тестом: на живом корне та же ошибка стоит
+/// минут счёта до диагностики.
+fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
+    anyhow::ensure!(
+        DEADLINES_S.contains(&secs),
+        "--deadline-secs {secs} не из предрегистрированной сетки В-58 {DEADLINES_S:?}"
+    );
+    let ms = secs.saturating_mul(1_000);
+    crate::lob::markout::check_horizons(&[ms]).map_err(anyhow::Error::msg)?;
+    Ok(ms.saturating_mul(1_000_000))
+}
+
+/// Досрочный выход `--early-exit-secs` → наносекунды (B4): `None` — выключен,
+/// `Some(X)` — `X` из набора В-58 {1, 2, 3}. Другое значение — отказ, тем же
+/// правилом, что у дедлайна.
+fn early_exit_ns_from_secs(secs: Option<i64>) -> anyhow::Result<i64> {
+    let Some(x) = secs else {
+        return Ok(0);
+    };
+    anyhow::ensure!(
+        EARLY_EXITS_S.contains(&x),
+        "--early-exit-secs {x} не из предрегистрированного набора В-58 {EARLY_EXITS_S:?}"
+    );
+    Ok(x.saturating_mul(1_000_000_000))
+}
+
 /// Прогон сделки-отскока по касаниям символа и отчёт по осям В-44.
 fn run_bounce(
     args: &BacktestArgs,
@@ -955,15 +1012,10 @@ fn run_bounce(
     let tick = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
     let order_qty = args.order_qty_e9 as f64 / 1e9;
-    // Дедлайн — из предрегистрированной сетки В-58 (B3): {60, 600, 3600, 7200} с.
-    // Другое значение — отказ, а не молчаливое расширение сетки.
-    const DEADLINES_S: [i64; 4] = [60, 600, 3_600, 7_200];
-    anyhow::ensure!(
-        DEADLINES_S.contains(&args.deadline_secs),
-        "--deadline-secs {} не из предрегистрированной сетки В-58 {DEADLINES_S:?}",
-        args.deadline_secs
-    );
-    let deadline_ns = args.deadline_secs.saturating_mul(1_000_000_000);
+    // Дедлайн и досрочный выход — из предрегистрированных сеток В-58 (B3/B4):
+    // другое значение отказ, а не молчаливое расширение сетки.
+    let deadline_ns = deadline_ns_from_secs(args.deadline_secs)?;
+    let early_exit_ns = early_exit_ns_from_secs(args.early_exit_secs)?;
 
     // Порог `H3` — тем же резолвером, что `lob touches`/`levels`: числа
     // считаются тем же кодом, что CSV касаний.
@@ -1012,6 +1064,7 @@ fn run_bounce(
                     grid_legs: args.grid_legs,
                     grid_step_ticks: args.grid_step_ticks,
                     deadline_ns,
+                    early_exit_ns,
                 },
             );
             BounceSignal {
@@ -1049,7 +1102,7 @@ fn run_bounce(
     }
 
     let header = format!(
-        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс из сетки В-58), порог H3={} лотов, касаний {}, бинлогов {}",
+        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс из сетки В-58, досрочный выход {}), порог H3={} лотов, касаний {}, бинлогов {}",
         args.symbol,
         args.session_root.display(),
         args.median_rtt_ns,
@@ -1059,6 +1112,10 @@ fn run_bounce(
             StopModeArg::Behind => "за плотностью (P−1)",
         },
         args.deadline_secs.saturating_mul(1_000),
+        match args.early_exit_secs {
+            Some(x) => format!("по прилипанию {x} с (сетка В-58)"),
+            None => "выключен".to_string(),
+        },
         h3_lots,
         touches.len(),
         binlog_paths.len()
@@ -1082,6 +1139,7 @@ fn run_bounce(
         "n_take",
         "n_timeout",
         "n_trail",
+        "n_early",
         "net_bps",
         "net_fill_bps",
         "net_fill_lo_bps",
@@ -1132,6 +1190,10 @@ fn run_bounce(
             .iter()
             .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Trail))
             .count();
+        let n_early = reasons
+            .iter()
+            .filter(|r| matches!(r, crate::lob::strategy::ExitReason::Early))
+            .count();
         let interval = net_fill_interval(
             &obs,
             crate::stats::GATE_ALPHA,
@@ -1173,6 +1235,7 @@ fn run_bounce(
             n_take.to_string(),
             n_timeout.to_string(),
             n_trail.to_string(),
+            n_early.to_string(),
             num(mean_net_bps(&fills)),
             num(net_fill_bps(&obs)),
             num(interval.map(|i| i.lower_bps)),
@@ -1223,13 +1286,14 @@ fn run_bounce(
         run.round_ns_max as f64 / 1e9,
     );
     println!(
-        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · трейл {} · дедлайн {} · промахи {} · incomplete {}",
+        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · трейл {} · дедлайн {} · досрочно {} · промахи {} · incomplete {}",
         touches.len(),
         run.fills.len(),
         run.exits.stop,
         run.exits.take,
         run.exits.trail,
         run.exits.deadline,
+        run.exits.early,
         run.misses.total(),
         run.incomplete
     );

@@ -171,6 +171,8 @@ pub(super) fn run_profiles_and_backtest_chain(
             // поведение прежних артефактов не менялось (B2).
             stop_mode: crate::commands::lob::backtest::StopModeArg::Behind,
             deadline_secs: 60,
+            // То же: досрочный выход — ось сетки B4, здесь выключен.
+            early_exit_secs: None,
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,
