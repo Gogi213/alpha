@@ -694,9 +694,18 @@ fn add_opens_a_new_connection_with_the_next_index_and_stop_still_ends_the_feed()
         "добавленный инструмент — новое соединение той же фабрикой, живое не тронуто"
     );
     assert_eq!(
-        feed.io_threads.len(),
+        feed.shards.len(),
         2,
         "поток ввода-вывода на каждое соединение — и на добавленное тоже"
+    );
+    assert_eq!(
+        feed.shards
+            .iter()
+            .map(|s| s.handle.is_some())
+            .filter(|alive| *alive)
+            .count(),
+        2,
+        "оба потока живы и ещё не отчитались о смерти (V12)"
     );
 
     feed.stop_handle().stop();
@@ -739,4 +748,77 @@ fn add_beyond_u16_is_a_layout_error_before_any_connection_is_opened() {
         "партия за пределом u16 — ошибка раскладки: {:?}",
         overflow.map(|g| g.len())
     );
+}
+
+/// V12 (2026-09-17): смерть ОС-потока шарда раньше была невидима — его
+/// инструменты просто замолкали, и заметить это можно было только по
+/// переставшему расти графику. Теперь она видна **на тике**: строка `gaps.csv`
+/// на каждый инструмент шарда (первый — `Disconnected`, остальные —
+/// `DisconnectedSameSocket`, то есть `reconnects` растёт на один за шард), и
+/// **один раз**, а не на каждом тике.
+#[test]
+fn dead_io_shard_is_reported_once_on_the_tick() {
+    let inbox = Arc::new(Mutex::new(VecDeque::new()));
+    let pool = vec![
+        PoolMember {
+            symbol: "BTCUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        },
+        PoolMember {
+            symbol: "ETHUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        },
+    ];
+    let clock = FakeSeqClock(Arc::new(std::sync::atomic::AtomicI64::new(0)));
+    let mut feed = LiveFeed::spawn_with_clock_and_connector_and_ticks(
+        pool,
+        move |_m| OneShotConnector {
+            inbox: inbox.clone(),
+        },
+        clock,
+        Some(Duration::from_millis(20)),
+        vec![ORDERBOOK_DEPTH],
+    )
+    .unwrap();
+
+    // Поток, который уже закончился, — ровно так выглядит шард, чей рантайм
+    // вышел: `is_finished()` на тике это и замечает.
+    let finished = std::thread::spawn(|| {});
+    while !finished.is_finished() {
+        std::thread::yield_now();
+    }
+    assert_eq!(feed.shards.len(), 1, "два инструмента влезают в один сокет");
+    let symbols = feed.shards[0].symbols.clone();
+    assert_eq!(symbols.len(), 2, "шард несёт оба инструмента");
+    feed.shards[0].handle = Some(finished);
+
+    let first = feed.next_event().expect("тик обязан прийти");
+    assert!(matches!(first, Event::Tick { .. }), "{first:?}");
+    let mut kinds = Vec::new();
+    for _ in 0..symbols.len() {
+        match feed
+            .next_event()
+            .expect("смерть шарда обязана быть видна, а не промолчать")
+        {
+            Event::Gap { symbol, kind, .. } => kinds.push((symbol, kind)),
+            other => panic!("ждали Gap, получили {other:?}"),
+        }
+    }
+    assert_eq!(
+        kinds,
+        vec![
+            (0, GapKind::Disconnected),
+            (1, GapKind::DisconnectedSameSocket)
+        ],
+        "первый инструмент шарда считает переподключение, остальные — только строку"
+    );
+    assert!(feed.shards[0].handle.is_none(), "отчитались один раз");
+
+    // Следующий тик про того же шарда молчит: повтор на каждом тике залил бы
+    // `gaps.csv` строками про одно и то же.
+    let second = feed.next_event().expect("тик");
+    assert!(matches!(second, Event::Tick { .. }), "{second:?}");
+    feed.stop_handle().stop();
 }

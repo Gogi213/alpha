@@ -297,7 +297,15 @@ pub struct LiveFeed {
     /// в том же домене, а не нулём.
     now_ns: Box<dyn Fn() -> i64 + Send>,
     stopped: bool,
-    io_threads: Vec<std::thread::JoinHandle<()>>,
+    /// Шарды ввода-вывода: поток и инструменты, которые он обслуживает
+    /// (V12, 2026-09-17). Символы нужны, чтобы смерть потока была видна **по
+    /// инструментам** — `gaps.csv` знает символ, а не «шард №3»; `handle`
+    /// снимается после первого сообщения о смерти, чтобы не повторяться на
+    /// каждом тике.
+    shards: Vec<IoShard>,
+    /// События о смертях шардов, ждущие выдачи (V12): `next_event` отдаёт по
+    /// одному, а умерший шард несёт несколько инструментов.
+    pending: std::collections::VecDeque<Event>,
     /// Сколько инструментов уже в пуле — следующий добавленный получает
     /// этот индекс (`DynamicPool::add`, таск 34).
     pool_len: usize,
@@ -319,6 +327,14 @@ pub struct LiveFeed {
 /// же транспортом и теми же часами, что были поданы при старте.
 type ShardSpawner =
     Box<dyn FnMut(Vec<SymbolSpec>, &PoolMember) -> std::thread::JoinHandle<()> + Send>;
+
+/// Шард ввода-вывода: ОС-поток и глобальные индексы инструментов, которые он
+/// обслуживает (V12, 2026-09-17). Без списка инструментов смерть потока
+/// осталась бы безымянной: у `Event::Gap` символ — обязательная колонка.
+struct IoShard {
+    handle: Option<std::thread::JoinHandle<()>>,
+    symbols: Vec<u16>,
+}
 
 /// Группы `SymbolSpec` по раскладке `plan_connections` для партии
 /// `members`, индексы которой начинаются с `first_index` (0 на старте,
@@ -548,21 +564,26 @@ impl LiveFeed {
         // потока решений (окно потери кадра), а не свойство сокета — второй
         // экземпляр таймера дал бы вдвое больше тиков без нового смысла.
         let mut tick_for_shard = tick.map(|period| (period, clock.clone()));
-        let mut io_threads = Vec::with_capacity(shards.len());
+        let mut shards_io = Vec::with_capacity(shards.len());
         for symbols in shards {
             let first = &pool[usize::from(symbols[0].index)];
             // Коннектор создаётся по первому инструменту группы — как и
             // раньше, один на соединение (продовый путь его аргумент не
             // читает вовсе).
             let connector = make_connector(first);
-            io_threads.push(spawn_io_thread(
+            let indices: Vec<u16> = symbols.iter().map(|s| s.index).collect();
+            let handle = spawn_io_thread(
                 symbols,
                 connector,
                 clock.clone(),
                 tx.clone(),
                 tick_for_shard.take(),
                 &depths,
-            ));
+            );
+            shards_io.push(IoShard {
+                handle: Some(handle),
+                symbols: indices,
+            });
         }
 
         // Фабрика на будущее (таск 34): партия, добавленная на ходу,
@@ -588,7 +609,8 @@ impl LiveFeed {
             tx: stop_tx,
             now_ns: Box::new(move || gap_clock.now_ns()),
             stopped: false,
-            io_threads,
+            shards: shards_io,
+            pending: std::collections::VecDeque::new(),
             pool_len: pool.len(),
             spawn_shard,
             depths,
@@ -612,10 +634,53 @@ impl super::DynamicPool for LiveFeed {
         for symbols in shards {
             let first = &members[usize::from(symbols[0].index) - self.pool_len];
             indices.extend(symbols.iter().map(|s| s.index));
-            self.io_threads.push((self.spawn_shard)(symbols, first));
+            let shard_symbols: Vec<u16> = symbols.iter().map(|s| s.index).collect();
+            let handle = (self.spawn_shard)(symbols, first);
+            self.shards.push(IoShard {
+                handle: Some(handle),
+                symbols: shard_symbols,
+            });
         }
         self.pool_len += members.len();
         Ok(indices)
+    }
+}
+
+impl LiveFeed {
+    /// V12 (2026-09-17): смерть ОС-потока шарда раньше не была видна никому —
+    /// инструменты просто замолкали, и заметить это можно было только по
+    /// переставшему расти графику. Проверка дешёвая (`is_finished`, без
+    /// ожидания) и стоит **на тике**, не на событии рынка: своего события у
+    /// умершего потока уже не будет. Сообщается один раз на шард — строкой
+    /// `gaps.csv` на каждый его инструмент, как у разрыва сокета (первый
+    /// инструмент — `Disconnected`, остальные — `DisconnectedSameSocket`),
+    /// поэтому `reconnects` растёт на один за шард, а не на инструмент.
+    fn report_dead_shards(&mut self, ts_ns: i64) {
+        for shard in &mut self.shards {
+            let dead = shard
+                .handle
+                .as_ref()
+                .is_some_and(std::thread::JoinHandle::is_finished);
+            if !dead {
+                continue;
+            }
+            shard.handle = None;
+            for (i, idx) in shard.symbols.iter().enumerate() {
+                self.pending.push_back(Event::Gap {
+                    symbol: *idx,
+                    local_ts_ns: ts_ns,
+                    kind: if i == 0 {
+                        GapKind::Disconnected
+                    } else {
+                        GapKind::DisconnectedSameSocket
+                    },
+                    depth: None,
+                    detail: "ОС-поток шарда ввода-вывода завершился — его инструменты \
+                             больше не получают данных"
+                        .to_string(),
+                });
+            }
+        }
     }
 }
 
@@ -630,9 +695,17 @@ impl Feed for LiveFeed {
         if self.stopped {
             return None;
         }
+        // Смерти шардов, замеченные прошлым тиком, отдаются по одной: у
+        // `next_event` одно событие на вызов (V12).
+        if let Some(ev) = self.pending.pop_front() {
+            return Some(ev);
+        }
         let (idx, conn_event) = match self.rx.blocking_recv()? {
             Item::Conn(idx, ev) => (idx, ev),
-            Item::Tick { ts_ns } => return Some(Event::Tick { local_ts_ns: ts_ns }),
+            Item::Tick { ts_ns } => {
+                self.report_dead_shards(ts_ns);
+                return Some(Event::Tick { local_ts_ns: ts_ns });
+            }
             Item::Stop => {
                 // Остановка окончательна: соединения продолжают слать в
                 // канал, но после `Stop` поток закрыт для вызывающего.
