@@ -39,7 +39,6 @@ dependencies = [
  "futures",
  "hftbacktest",
  "hmac 0.13.0",
- "libc",
  "reqwest",
  "serde",
  "serde_json",

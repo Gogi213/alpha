@@ -783,7 +783,6 @@ fn args_with_minutes(minutes: u64) -> SessionArgs {
         always_on: false,
         base_url: BYBIT_MAINNET_URL.to_string(),
         ntp_addr: "pool.ntp.org:123".to_string(),
-        disk_warn_gib: super::DEFAULT_DISK_WARN_GIB,
     }
 }
 
@@ -797,7 +796,6 @@ fn args_with_pilot_minutes(pilot_minutes: u32) -> SessionArgs {
         always_on: false,
         base_url: BYBIT_MAINNET_URL.to_string(),
         ntp_addr: "pool.ntp.org:123".to_string(),
-        disk_warn_gib: super::DEFAULT_DISK_WARN_GIB,
     }
 }
 
@@ -879,7 +877,6 @@ fn resolve_duration_requires_exactly_one_of_minutes_or_pilot_minutes() {
         always_on: false,
         base_url: BYBIT_MAINNET_URL.to_string(),
         ntp_addr: "pool.ntp.org:123".to_string(),
-        disk_warn_gib: super::DEFAULT_DISK_WARN_GIB,
     };
     let err = resolve_duration(&args).expect_err("ни один флаг не задан — обязана быть ошибка");
     let msg = err.to_string();
@@ -1187,19 +1184,11 @@ fn frames_on_disk(path: &Path) -> Vec<Vec<Record>> {
 }
 
 fn always_on_ctx(root: &Path, started_ns: i64) -> SessionCtx {
-    // Порог сторожа диска (A1) в тестовом контексте — 15 ГиБ, как умолчание
-    // `--disk-warn-gib`; сценарии, которым порог важен, зовут
-    // `SessionCtx::open` сами (см. `disk_watchdog_*`).
-    always_on_ctx_with_warn(root, started_ns, 15 * 1024 * 1024 * 1024)
-}
-
-fn always_on_ctx_with_warn(root: &Path, started_ns: i64, disk_warn_bytes: u64) -> SessionCtx {
     SessionCtx::open(
         root,
         &[test_member("SYM")],
         SessionPlan::AlwaysOn,
         started_ns,
-        disk_warn_bytes,
     )
     .unwrap()
 }
@@ -2012,7 +2001,6 @@ fn always_on_conflicts_with_timed_flags_and_resolves_without_deadline() {
         always_on: true,
         base_url: BYBIT_MAINNET_URL.to_string(),
         ntp_addr: "pool.ntp.org:123".to_string(),
-        disk_warn_gib: super::DEFAULT_DISK_WARN_GIB,
     };
     assert_eq!(resolve_duration(&args).unwrap(), SessionPlan::AlwaysOn);
 }
@@ -2333,68 +2321,4 @@ fn a_stop_file_ends_the_session_on_the_next_tick_and_is_cleared_on_open() {
         !consumed.load(std::sync::atomic::Ordering::SeqCst),
         "после stop цикл не должен читать следующие события"
     );
-}
-
-/// A1: решение сторожа диска — чистая функция от замера и порога, поэтому
-/// проверяется там, где `statvfs` не запускается (рабочая машина — Windows).
-/// Сравнение строгое: ровно порог — ещё не тревога; недоступный замер
-/// (`None`) тревогой не считается вовсе — неизвестность это не полный диск.
-#[test]
-fn disk_low_is_a_strict_comparison_and_unknown_is_not_a_warning() {
-    assert!(super::resources::disk_low(Some(99), 100));
-    assert!(
-        !super::resources::disk_low(Some(100), 100),
-        "ровно порог — запись продолжается без тревоги"
-    );
-    assert!(!super::resources::disk_low(Some(101), 100));
-    assert!(
-        !super::resources::disk_low(None, 100),
-        "замер недоступен — не повод кричать"
-    );
-    assert!(
-        !super::resources::disk_low(Some(0), 0),
-        "нулевой порог выключает сторожа"
-    );
-}
-
-/// A1: `session.json` несёт и замер, и порог, а признак тревоги — ровно то же
-/// сравнение (иначе дежурный видит число без правила). Замер на не-Unix —
-/// `None`, и тогда признак обязан быть `false`.
-#[test]
-fn session_json_carries_the_disk_watchdog_fields() {
-    const WARN: u64 = 100 * 1024 * 1024 * 1024;
-    let dir = tempfile::tempdir().unwrap();
-    let mut ctx = always_on_ctx_with_warn(dir.path(), 1_000_000_000, WARN);
-    ctx.check_disk(1_000_000_000);
-    let summary = ctx.write_session_json(false).unwrap();
-    assert_eq!(summary.disk_warn_bytes, Some(WARN));
-    assert_eq!(
-        summary.disk_free_low,
-        super::resources::disk_low(summary.disk_free_bytes, WARN)
-    );
-    // Файл — то же самое: признак не живёт только в памяти.
-    let text = std::fs::read_to_string(dir.path().join("session.json")).unwrap();
-    assert!(text.contains("\"disk_warn_bytes\""), "{text}");
-    assert!(text.contains("\"disk_free_low\""), "{text}");
-}
-
-/// A1: `session.json`, записанный до сторожа, читается без правок — поля
-/// новых замеров `#[serde(default)]`, и «нет данных» это не «полный диск».
-/// Берётся настоящий файл сессии, из него вынимаются три новых поля —
-/// ровно то состояние, в котором файлы лежали до A1.
-#[test]
-fn session_json_without_disk_fields_still_parses() {
-    let dir = tempfile::tempdir().unwrap();
-    let ctx = always_on_ctx(dir.path(), 1_000_000_000);
-    ctx.write_session_json(false).unwrap();
-    let text = std::fs::read_to_string(dir.path().join("session.json")).unwrap();
-    let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let object = value.as_object_mut().unwrap();
-    for field in ["disk_free_bytes", "disk_warn_bytes", "disk_free_low"] {
-        assert!(object.remove(field).is_some(), "{field} не найден в {text}");
-    }
-    let summary: SessionSummary = serde_json::from_value(value).unwrap();
-    assert_eq!(summary.disk_free_bytes, None);
-    assert_eq!(summary.disk_warn_bytes, None);
-    assert!(!summary.disk_free_low);
 }
