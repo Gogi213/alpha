@@ -1149,7 +1149,7 @@ window.STATE =
       "status": "done",
       "retries": 0, "repairs": 0, "handoffs": 0,
       "tests": "710 passed, 0 failed, 5 ignored; clippy и fmt чистые",
-      "note": "владелец: «пока займись раскаткой на топ 50 и протесть». `lob pick --top N` (умолчание POOL_SIZE=10, правило В-35 без флага не меняется), размер протянут в build_pool/base_coins_considered_until_pool_complete и через пул в замер глубины; --top 0 — ошибка; тест pool_size_is_a_parameter_not_a_constant. Живой тест (5 мин, debug): 50 инструментов — ОДНО соединение (2040 символов args из 21000), 1 402 524 записи (4 675/с), gaps/reconnects/resyncs/frames_failed/unrouted 0, CPU 6.9 % ядра (бюджет PLAN 6.1 — 5 % ⇒ ПРЕВЫШЕН, ждёт решения владельца), RSS 6.7→23.7 МБ, parse p99 89.1 мкс, очередь p99 184.3 мкс, диск ≈1.97 ГБ/сутки (десятка 0.70). verify: 47/50 ok, fail — LSK (32 нарушения на 25 294 сделки), BTW и MU (по одному) при gaps=0 invariants=0; LSK воспроизводится на архивном v2-файле (7 757 нарушений за 3.2 ч) и на его v3-переписи до единицы ⇒ не формат, а раздельные потоки orderbook.50/publicTrade. Разбор: docs/findings/pool-top50-2026-09-13.md. Боевая заморозка пула — часовой `lob pick --top 50 --window-secs 3600`"
+      "note": "владелец: «пока займись раскаткой на топ 50 и протесть». `lob pick --top N` (умолчание POOL_SIZE=10, правило В-35 без флага не меняется), размер протянут в build_pool/base_coins_considered_until_pool_complete и через пул в замер глубины; --top 0 — ошибка; тест pool_size_is_a_parameter_not_a_constant. Живой тест (5 мин, debug): 50 инструментов — ОДНО соединение (2040 символов args из 21000), 1 402 524 записи (4 675/с), gaps/reconnects/resyncs/frames_failed/unrouted 0, CPU 6.9 % ядра (бюджет PLAN 6.1 — 5 % ⇒ ПРЕВЫШЕН, ждёт решения владельца), RSS 6.7→23.7 МБ, parse p99 89.1 мкс, очередь p99 184.3 мкс, диск ≈1.97 ГБ/сутки (десятка 0.70). verify: 47/50 ok, fail — LSK (32 нарушения на 25 294 сделки), BTW и MU (по одному) при gaps=0 invariants=0; LSK воспроизводится на архивном v2-файле (7 757 нарушений за 3.2 ч) и на его v3-переписи до единицы ⇒ не формат, а раздельные потоки orderbook.50/publicTrade. Разбор: docs/archive/findings/pool-top50-2026-09-13.md. Боевая заморозка пула — часовой `lob pick --top 50 --window-secs 3600`"
     },
     {
       "id": "14",
@@ -1186,12 +1186,12 @@ window.STATE =
     {
       "id": "РВ-0",
       "status": "passed",
-      "note": "пять независимых ревью — docs/plan/REVIEW-2026-09-11.md"
+      "note": "пять независимых ревью — docs/archive/plan-2026-09-11/REVIEW-2026-09-11.md"
     },
     {
       "id": "РВ-Р",
       "status": "passed",
-      "note": "разведка: 3 инструмента пула × 5 мин — docs/plan/RECON-2026-09-11.md. Сверка 6/6 ok; levels=0 при прогреве 60 мин; p99 даёт 1 уровень/мин и 0 eaten"
+      "note": "разведка: 3 инструмента пула × 5 мин — docs/archive/plan-2026-09-11/RECON-2026-09-11.md. Сверка 6/6 ok; levels=0 при прогреве 60 мин; p99 даёт 1 уровень/мин и 0 eaten"
     },
     {
       "id": "G2",
@@ -1310,7 +1310,7 @@ window.STATE =
     },
     {
       "ticket": "28",
-      "file": "src/feed/live.rs:100; docs/findings/collector-2026-09-12.md:386",
+      "file": "src/feed/live.rs:100; docs/archive/findings/collector-2026-09-12.md:386",
       "what": "«поток ввода-вывода на соединение» не сравнён с «2 соединения в одном current_thread» при росте очереди 1.9 → 27.8 мс; «×8–10 дешевле» не нормировано на активность (на запись CPU ×2.6, байт −15 %) — оговорка по дозапросу",
       "kind": "evidence"
     },
@@ -1418,7 +1418,7 @@ window.STATE =
     },
     {
       "ticket": "24",
-      "file": "docs/findings/collector-2026-09-12.md:143",
+      "file": "docs/archive/findings/collector-2026-09-12.md:143",
       "what": "вердикт «RSS плоский» стоит на 30-с сэмплах stderr, которых нет в артефакте на диске (session.json: старт→конец 4.9→16.1 МиБ, старт взят до открытия сокетов). Передано в T25: периодический session.json несёт ряд RSS-сэмплов",
       "kind": "evidence"
     },
@@ -1436,7 +1436,7 @@ window.STATE =
     },
     {
       "ticket": "24",
-      "file": "docs/findings/collector-2026-09-12.md:123",
+      "file": "docs/archive/findings/collector-2026-09-12.md:123",
       "what": "остаток 1–2 аллокации на книжное сообщение (Vec в book::Update, владеющая пересылка ConnEvent) — красная строка GC «ноль на событие» без D##; ноль — фиксированная ёмкость 50+50 в book::Update, вне зоны 24; решить D## или таском после запуска",
       "kind": "gc"
     },

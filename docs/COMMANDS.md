@@ -88,7 +88,7 @@
   4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
 - коллектор (T24): `ws::parse_message_into` без `serde_json::Value`, `lob session` копит кадры
   до `FRAME_TARGET_RECORDS`; p99 разбора/очереди — из гистограммы (`LatencyHistogram`,
-  ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/findings/collector-2026-09-12.md`
+  ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/archive/findings/collector-2026-09-12.md`
 - пул на ходу (T34): `lob session` следит за `<root>/instruments.csv` — один `metadata()` на
   тик, файл перечитывается только при смене `mtime` (`load_pool` целиком: одна битая строка —
   весь файл отклонён, stderr, состав прежний); новые символы — файл части текущих суток UTC
@@ -227,7 +227,7 @@
 - Тест 2026-09-14 17:25–17:35 UTC (10 мин, топ-20): 2 600 905 записей, CPU avg 4.61 % ядра
   (max 5.07), RSS 17.1 МБ, parse p99 139 мкс, `gaps/reconnects/resyncs/frames_failed` — нули,
   формат **v3**, `verify` SOL и 1000PEPE `ok`, LSK `fail` (известное, не формат), `levels` SOL —
-  1971 уровень. Разбор — `docs/findings/deploy-2026-09-14.md`.
+  1971 уровень. Разбор — `docs/archive/findings/deploy-2026-09-14.md`.
 
 ### Факт: сервер пишет боевой пул (топ-30, always-on) с 2026-09-14T18:20:59Z
 
