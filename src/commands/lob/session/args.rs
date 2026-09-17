@@ -138,8 +138,10 @@ pub(super) fn resolve_duration(args: &SessionArgs) -> anyhow::Result<SessionPlan
              --pilot-minutes <{MIN_PILOT_MINUTES}..={MAX_PILOT_MINUTES}> для пилота §11 или \
              --always-on для олвейс-он коллектора (В-34)"
         ),
-        _ => unreachable!(
-            "clap conflicts_with запрещает --minutes/--pilot-minutes/--always-on разом"
+        _ => anyhow::bail!(
+            "флаги режима разошлись с разбором `clap`: --minutes/--pilot-minutes/--always-on \
+             взаимоисключающие (V11 аудита 2026-09-17: здесь раньше стоял `unreachable!`, \
+             то есть паника вместо ошибки, — инвариант обязан быть проверкой, а не обещанием)"
         ),
     }
 }

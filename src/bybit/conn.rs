@@ -898,6 +898,30 @@ impl<C: TransportConnector> Connection<C> {
         // все события одного сырого сообщения принадлежат одному топику.
         let slot = symbol.and_then(|s| route.slot_of(s));
         let idx = slot.map_or_else(|| route.socket_index(), |slot| route.symbols[slot].index);
+        // Доказательство индексации ниже (V11 аудита 2026-09-17: раньше она
+        // держалась немым инвариантом, а его рефакторинг ломает молча).
+        // `slot` — позиция в `cfg.symbols`: `Connection::new` строит таблицу
+        // имён (`route`, отсортированную **только для поиска** по имени) с
+        // индексом `enumerate` по `cfg.symbols`, а `route.symbols` — тот же
+        // `cfg.symbols` как есть. `session.books` и `session.resyncing` собраны
+        // обходом `cfg.symbols` (внешняя длина) и `cfg.depths` (внутренняя),
+        // поэтому обе длины совпадают по построению, а не по договорённости;
+        // `stream` приходит из `route.stream_of` — это позиция в том же
+        // `cfg.depths`.
+        debug_assert_eq!(
+            session.books.len(),
+            route.symbols.len(),
+            "книги строятся обходом тех же символов, что и маршрут"
+        );
+        debug_assert!(
+            session.books.iter().all(|b| b.len() == route.depths.len()),
+            "внутренняя длина книг — число потоков того же соединения"
+        );
+        debug_assert_eq!(
+            session.resyncing.len(),
+            session.books.len(),
+            "флаги ресинка — по одной строке на символ"
+        );
         for event in events.drain(..) {
             // Рынок без известного маршрута наружу не идёт (приписать его
             // «индексу сокета» значило бы записать чужой стакан в бинлог

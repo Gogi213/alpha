@@ -24,7 +24,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 710 passed, 0 failed, 5 ignored
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 770 passed, 0 failed, 5 ignored (2026-09-17)
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -132,13 +132,20 @@ HYPE, дальше LSK, NEAR, DOGE, AKE, ENA, …, NBIS. Прежний топ-5
 нужна), **данные — на втором диске**: `sdb` 50 ГБ смонтирован в `/opt/alpha` (ext4 `alpha-data`,
 запись в `/etc/fstab`; системный `sda` 40 ГБ отдельно). Юнит `alpha-collector.service` **включён и
 активен** (`enable --now` с 2026-09-15T14:31:04Z, `Restart=on-failure`, штатная остановка файлом
-`stop`, В-41). Замер 100 монет (600 с): CPU 12.2 % ядра, RSS 9.4→38.4 МБ, parse p99 107.5 мкс,
-2.49 Б/запись ⇒ **5.02 ГБ/сутки** на 47 ГБ ⇒ **9 суток**; тюнинг — `/etc/sysctl.d/99-alpha-latency.conf`
-(`busy_poll` отклонён замером: +45 % CPU на запись за ненужный p99). Профиль `perf`: ядро/сисколлы
+`stop`, В-41). Замер 100 монет (600 с): CPU 12.2 % ядра, RSS 9.4→38.4 МБ, parse p99 107.5 мкс;
+**измеренный расход 6.5 ГБ/сутки** (аудит `collector-audit-2026-09-17.md` §8; рунбук писал 5.02 —
+это была оценка запуска), на 17.09 занято 11 ГБ и **свободно 36 ГБ ⇒ ≈5.5 суток**; тюнинг —
+`/etc/sysctl.d/99-alpha-latency.conf`
+(`busy_poll` отклонён замером: +45 % CPU на запись за ненужный p99). Сервер пишет **v3 и `deep/`**
+(T45: `.50` в корень, `.200` в `deep/` — вторые копятся сознательно, читателя пока нет; В-56).
+**Сторожей диска и порогов в коде нет** — диском владелец управляет вручную (решение 17.09);
+единственная автоматика — ночная сверка (A2 ниже). Профиль `perf`: ядро/сисколлы
 ~25 %, libc memset 9 %, приложение ~17 % — дальше только правки кода. Старый сервер `13.140.29.171`
 **погашен** штатно (В-41, `closed=true`): 342 465 743 записи, 1.13 ГБ за 20.2 ч на топ-30 ⇒
-1.35 ГБ/сутки. **Ротации/выгрузки нет** — упрётся первой; `verify` ни на старом, ни на новом
-сервере ещё не гонялся. Разбор — `docs/findings/deploy-2026-09-15-ovh-singapore.md`.
+1.35 ГБ/сутки. `verify` в боевом корне **гоняется таймером** `alpha-verify.timer` (A2, 2026-09-17):
+00:20 UTC, `tools/verify-day.sh`, маркеры `verify-<SYM>.status` в корне, сводка в
+`/opt/alpha/verify/<день>.log`; первый прогон за 09-16 — 94 `ok` / 6 `fail` при 100 монетах.
+Разбор — `docs/findings/deploy-2026-09-15-ovh-singapore.md`.
 
 Местная запись остановлена: олвейс-он **`data/always-on/20260912T201737Z/`** (2026-09-12T20:47Z →
 2026-09-13T16:22Z на боевой десятке, 0 разрывов, 209.6 млн записей, 928.2 МБ на диске) —
