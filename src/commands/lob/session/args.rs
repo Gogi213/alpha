@@ -85,6 +85,12 @@ pub struct SessionArgs {
     /// H12` («часы дисциплинируются NTP»), без выбора конкретного адреса.
     #[arg(long, default_value = "pool.ntp.org:123")]
     pub ntp_addr: String,
+    /// Порог сторожа свободного места, ГиБ (A1, 2026-09-17): место на диске
+    /// записи ниже — строка stderr и `session.json.disk_free_low`. Умолчание —
+    /// `session::DEFAULT_DISK_WARN_GIB` (15 ГиБ ≈ 2.3 суток боевого расхода);
+    /// число называет владелец (A6), здесь оно параметр, а не константа.
+    #[arg(long, default_value_t = super::DEFAULT_DISK_WARN_GIB)]
+    pub disk_warn_gib: f64,
 }
 
 /// Режим прогона, разрешённый из трёх взаимоисключающих флагов.

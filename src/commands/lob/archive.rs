@@ -109,6 +109,72 @@ fn symbol_of(path: &Path) -> anyhow::Result<String> {
         })
 }
 
+/// Только те поля `session.json`, которые нужны сторожу: сам файл — не наш
+/// формат, и читателю здесь незачем знать остальные три десятка полей (и
+/// падать, если формат однажды поменяется, — ровно то, что сторож и должен
+/// переживать). Значения по умолчанию те же, что у `SessionSummary`.
+#[derive(serde::Deserialize)]
+struct OpenSession {
+    #[serde(default)]
+    closed: bool,
+    #[serde(default)]
+    updated_utc: String,
+    #[serde(default)]
+    binlog_files: Vec<OpenPart>,
+}
+
+/// Часть записи в `session.json` — ровно три поля, нужных для сравнения.
+#[derive(serde::Deserialize)]
+struct OpenPart {
+    symbol: String,
+    part: u32,
+    #[serde(default)]
+    started_utc: String,
+}
+
+/// Часть, которую сессия ещё пишет (A1, 2026-09-17; аудит V8).
+///
+/// `<dir>/session.json` с `closed = false` перечисляет части по порядку
+/// появления — последняя запись для символа и есть открытый файл. Архивировать
+/// (и тем более удалять) его нельзя: `unlink` открытого файла теряет всё, что
+/// допишется после, а `verify` по неполным суткам врёт.
+///
+/// `Ok(None)` — файла `session.json` нет или сессия закрыта; `Err` — файл есть,
+/// но не разбирается: fail-closed, лучше отказ, чем удаление живого файла.
+fn still_writing(src: &Path, symbol: &str) -> anyhow::Result<Option<String>> {
+    let dir = src.parent().unwrap_or_else(|| Path::new("."));
+    let path = dir.join("session.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    let summary: OpenSession = serde_json::from_str(&text).map_err(|e| {
+        anyhow::anyhow!(
+            "{} не разбирается ({e}) — что именно пишется сейчас, неизвестно",
+            path.display()
+        )
+    })?;
+    if summary.closed {
+        return Ok(None);
+    }
+    let name = src
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (day, part) = super::file_order_key(&format!("{symbol}-"), &name);
+    let open = summary
+        .binlog_files
+        .iter()
+        .rev()
+        .find(|p| p.symbol == symbol && p.started_utc.starts_with(&day));
+    Ok(open.filter(|p| p.part == part).map(|p| {
+        format!(
+            "это последняя часть символа в незакрытой сессии (part={}, started_utc={}, \
+             updated_utc={})",
+            p.part, p.started_utc, summary.updated_utc
+        )
+    }))
+}
+
 pub fn run_archive(args: &ArchiveArgs) -> anyhow::Result<ArchiveSummary> {
     let src = args.path.clone();
     if !src.is_file() {
@@ -138,6 +204,15 @@ pub fn run_archive(args: &ArchiveArgs) -> anyhow::Result<ArchiveSummary> {
         );
     }
     let symbol = symbol_of(&src)?;
+    // A1/V8: открытая часть не архивируется и не удаляется. Отказ — до записи
+    // контейнера: незачем тратить час CPU на файл, который ещё дописывается.
+    if let Some(reason) = still_writing(&src, &symbol)? {
+        anyhow::bail!(
+            "{} не архивируется: {reason}. Дождитесь перехода на новую часть \
+             (ротация суток) или остановите запись файлом `<root>/stop` (В-41)",
+            src.display()
+        );
+    }
     let source_bytes = archive::file_bytes(&src)?;
 
     // Источник открывается один раз: версия проверяется до записи, чтобы на

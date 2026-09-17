@@ -203,6 +203,13 @@ fn discard_opened(root: &Path, day: &str, opened: Vec<SymbolState>) {
     }
 }
 
+/// Порог сторожа свободного места по умолчанию, ГиБ (A1, 2026-09-17) —
+/// значение `--disk-warn-gib`. 15 ГиБ ≈ 2.3 суток боевого расхода
+/// (6.5 ГБ/сутки, аудит §8): запас на ручную выгрузку закрытых суток. Число
+/// называет владелец (A6); здесь оно в одном месте, чтобы коллектор, пилот и
+/// тесты не разошлись числами.
+pub const DEFAULT_DISK_WARN_GIB: f64 = 15.0;
+
 /// Читает `binlog_files` уже существующего `session.json` под `root`, если
 /// он есть и разбирается — вторая сессия тех же суток дописывает свои части
 /// к этой истории, не начинает список заново (doc `SessionSummary::
@@ -262,6 +269,12 @@ struct SessionCtx {
     /// метаданных на тик, ни одной на событие рынка.
     pool_path: PathBuf,
     pool_mtime: Option<std::time::SystemTime>,
+    /// Сторож свободного места (A1, 2026-09-17): последний замер `statvfs`
+    /// по корню записи, порог из `--disk-warn-gib` и признак «строка stderr
+    /// уже сказана» — на переходе в тревогу, не на каждом тике.
+    disk_free_bytes: Option<u64>,
+    disk_warn_bytes: u64,
+    disk_low_reported: bool,
 }
 
 /// `mtime` файла или `None`, если файла нет / метаданные не читаются —
@@ -276,6 +289,7 @@ impl SessionCtx {
         pool: &[PoolMember],
         plan: SessionPlan,
         started_ns: i64,
+        disk_warn_bytes: u64,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(root)?;
         let started_utc = ts_utc_of_ns(started_ns);
@@ -340,6 +354,11 @@ impl SessionCtx {
             hours_reported: 0,
             pool_path,
             pool_mtime,
+            // Первый замер — тут же: `session.json` открывается сразу и обязан
+            // нести место на диске с первой минуты, а не после часа.
+            disk_free_bytes: resources::disk_free_bytes(root),
+            disk_warn_bytes,
+            disk_low_reported: false,
         })
     }
 
@@ -559,6 +578,7 @@ impl SessionCtx {
 
     fn on_tick(&mut self, ts_ns: i64) {
         self.flush_all(ts_ns);
+        self.check_disk(ts_ns);
         let hourly_due = ts_ns - self.last_hourly_ns >= HOURLY_REFRESH_SECS as i64 * 1_000_000_000;
         // Отложенная ротацией запись (см. `open_next_part`) — одна на все
         // ротации этого тика; если тут же наступил час, пишет часовая ветка.
@@ -591,6 +611,33 @@ impl SessionCtx {
                 last.and_then(|s| s.cpu_pct)
                     .map_or("н/д".to_string(), |c| format!("{c:.1}%")),
             );
+        }
+    }
+
+    /// Сторож свободного места (A1, 2026-09-17): замер `statvfs` по корню
+    /// записи — вызов ОС на тике, не в событийном пути. Место ниже порога:
+    /// одна строка stderr на переход (повтор — только после того, как место
+    /// вернулось выше порога) и пометка `session_json_dirty`, чтобы число и
+    /// признак легли в файл первым же тиком, а не через час: полный диск
+    /// гасит запись и `gaps.csv` тоже, и до аварии это видно только тут.
+    fn check_disk(&mut self, ts_ns: i64) {
+        let free = resources::disk_free_bytes(&self.root);
+        self.disk_free_bytes = free;
+        let low = resources::disk_low(free, self.disk_warn_bytes);
+        if low && !self.disk_low_reported {
+            self.disk_low_reported = true;
+            self.session_json_dirty = true;
+            let gib = |b: u64| format!("{:.2} ГиБ", b as f64 / (1024.0 * 1024.0 * 1024.0));
+            eprintln!(
+                "session: сторожа диска тревога — свободно {} при пороге {} (--disk-warn-gib); \
+                 сутки закрывать и выгружать, иначе запись встанет целиком ({}): {}",
+                free.map_or("н/д".to_string(), gib),
+                gib(self.disk_warn_bytes),
+                ts_utc_of_ns(ts_ns),
+                self.root.display()
+            );
+        } else if !low {
+            self.disk_low_reported = false;
         }
     }
 
@@ -836,6 +883,11 @@ impl SessionCtx {
             closed,
             samples,
             binlog_files: self.binlog_files.clone(),
+            // Сторож диска (A1): замер последнего тика и порог, по которому
+            // он назван тревогой — число без правила читателю ничего не даёт.
+            disk_free_bytes: self.disk_free_bytes,
+            disk_warn_bytes: Some(self.disk_warn_bytes),
+            disk_free_low: resources::disk_low(self.disk_free_bytes, self.disk_warn_bytes),
         };
         let final_path = self.root.join("session.json");
         let tmp_path = self.root.join("session.json.tmp");
@@ -1020,7 +1072,11 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
     }
     let pool = resolve_pool(args)?;
     let started_ns = SystemClock.now_ns();
-    let mut ctx = SessionCtx::open(&args.root, &pool, plan, started_ns)?;
+    // Порог сторожа диска — в байтах один раз на прогон: `--disk-warn-gib`
+    // (A1, 2026-09-17) назван владельцем, дальше это только сравнение.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let disk_warn_bytes = (args.disk_warn_gib.max(0.0) * 1024.0 * 1024.0 * 1024.0) as u64;
+    let mut ctx = SessionCtx::open(&args.root, &pool, plan, started_ns, disk_warn_bytes)?;
     // Первая запись `session.json` — сразу: живой каталог с первой минуты
     // выглядит сессией для `profiles`/`watch` (`binlog_files`, часы частей).
     ctx.write_session_json(false)?;

@@ -228,6 +228,10 @@ fn run_pilot_debug(args: &PilotArgs) -> anyhow::Result<PilotSummary> {
         always_on: false,
         base_url: args.base_url.clone(),
         ntp_addr: args.ntp_addr.clone(),
+        // Пилот — короткая сессия; сторож диска у него тот же, что у
+        // коллектора по умолчанию, чтобы `session.json` пилота был устроен так
+        // же (A1).
+        disk_warn_gib: crate::commands::lob::session::DEFAULT_DISK_WARN_GIB,
     })?;
     copy_pool_instruments_csv(&session_dir, pool_instruments)?;
 

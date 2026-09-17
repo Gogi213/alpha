@@ -433,3 +433,77 @@ fn symbol_is_taken_from_the_file_name() {
     assert!(super::symbol_of(Path::new("/x/SOLUSDT.binlog")).is_err());
     assert!(super::symbol_of(Path::new("/x/2026-09-08.binlog")).is_err());
 }
+
+/// A1/V8: часть, которую сессия ещё пишет, не архивируется. `session.json` с
+/// `closed = false` называет её последней частью символа — `unlink` открытого
+/// файла потерял бы всё, что допишется после, а отказ обязан случиться **до**
+/// записи контейнера, а не после часа работы.
+#[test]
+fn part_the_session_is_still_writing_is_not_archived() {
+    let dir = day_dir("SOLUSDT", "2026-09-08");
+    let src = orig_path(dir.path(), "SOLUSDT", "2026-09-08");
+    std::fs::write(
+        dir.path().join("session.json"),
+        "{\"started_utc\":\"2026-09-08T00:00:00Z\",\"start_hour_utc\":0,\
+         \"instruments\":[\"SOLUSDT\"],\
+         \"binlog_files\":[{\"symbol\":\"SOLUSDT\",\"part\":1,\
+         \"started_utc\":\"2026-09-08T00:00:00Z\"}]}",
+    )
+    .unwrap();
+
+    let err = run_archive(&args_of(&src)).unwrap_err().to_string();
+    assert!(err.contains("не архивируется"), "{err}");
+    assert!(
+        !dir.path().join("SOLUSDT-2026-09-08.binlog.zst").exists(),
+        "контейнер не создан: отказ раньше работы"
+    );
+    assert!(src.is_file(), "оригинал открытой части не тронут");
+}
+
+/// A1: закрытая сессия архивируется как раньше, и сутки, которых открытая
+/// сессия не пишет, тоже — иначе правило «открытая часть» заблокировало бы
+/// выгрузку вчерашних суток, ради чего сторож и заведён.
+#[test]
+fn closed_session_and_other_days_do_not_block_archiving() {
+    let closed = day_dir("SOLUSDT", "2026-09-08");
+    let src = orig_path(closed.path(), "SOLUSDT", "2026-09-08");
+    std::fs::write(
+        closed.path().join("session.json"),
+        "{\"started_utc\":\"2026-09-08T00:00:00Z\",\"start_hour_utc\":0,\
+         \"closed\":true,\"instruments\":[\"SOLUSDT\"],\
+         \"binlog_files\":[{\"symbol\":\"SOLUSDT\",\"part\":1,\
+         \"started_utc\":\"2026-09-08T00:00:00Z\"}]}",
+    )
+    .unwrap();
+    run_archive(&args_of(&src)).expect("закрытая сессия — архив разрешён");
+
+    // Вчерашние сутки при открытой сегодняшней: последняя часть символа —
+    // другая (другой день), значит вчерашний файл не открыт.
+    let yesterday = day_dir("SOLUSDT", "2026-09-08");
+    let old = orig_path(yesterday.path(), "SOLUSDT", "2026-09-08");
+    let today =
+        crate::commands::record::day_file_path(yesterday.path(), "SOLUSDT", "2026-09-09", 1);
+    std::fs::write(&today, "часть сегодняшних суток, содержимое не важно").unwrap();
+    std::fs::write(
+        yesterday.path().join("session.json"),
+        "{\"started_utc\":\"2026-09-09T00:00:00Z\",\"start_hour_utc\":0,\
+         \"instruments\":[\"SOLUSDT\"],\
+         \"binlog_files\":[{\"symbol\":\"SOLUSDT\",\"part\":1,\
+         \"started_utc\":\"2026-09-09T00:00:00Z\"}]}",
+    )
+    .unwrap();
+    run_archive(&args_of(&old)).expect("вчерашние сутки не открыты сегодняшней сессией");
+}
+
+/// A1: `session.json` есть, но не разбирается — отказ (fail-closed): «не знаю,
+/// что пишется сейчас» не даёт права удалять живой файл.
+#[test]
+fn unreadable_session_json_is_refused() {
+    let dir = day_dir("SOLUSDT", "2026-09-08");
+    let src = orig_path(dir.path(), "SOLUSDT", "2026-09-08");
+    std::fs::write(dir.path().join("session.json"), "{не json").unwrap();
+
+    let err = run_archive(&args_of(&src)).unwrap_err().to_string();
+    assert!(err.contains("не разбирается"), "{err}");
+    assert!(src.is_file());
+}
