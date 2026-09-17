@@ -3056,6 +3056,50 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
     );
 }
 
+/// A8.6 (2026-09-18): скачок локальных часов (NTP-шаг) не ломает запись.
+/// Метка `local_ts_ns` идёт назад, но кадры пишутся тем же путём (локальная
+/// метка — только поле записи, ротация и разрывы смотрят время биржи
+/// `cts`), `gaps.csv` не заводится, а `duration_s` в `session.json` не может
+/// стать отрицательной (`(now − started).max(0)`). Анализ от локальной метки
+/// не зависит вовсе: середина строится по `exch_ts_ns`.
+#[test]
+fn a_backward_local_clock_step_does_not_break_the_recording() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let fast_path = crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 1);
+    // Метка второго события — на 5 с **раньше** первого: ровно шаг назад.
+    let step_back = NOON_NS - 5_000_000_000;
+    assert!(step_back < NOON_NS);
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+        Step::Ev(book_event(0, step_back, NOON_NS / 1_000_000 + 1, false, 2)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(
+        frames_on_disk(&fast_path).len(),
+        2,
+        "снапшот и дельта после шага часов — оба кадра на диске"
+    );
+    assert_eq!(summary.gaps, 0, "шаг часов — не потеря данных");
+    assert_eq!(
+        crate::commands::record::read_gap_rows(&gaps_csv_path(&root))
+            .unwrap()
+            .len(),
+        0
+    );
+    let on_disk = session_json_on_disk(&root);
+    assert!(
+        on_disk.duration_s < u64::MAX / 2,
+        "длительность считается от старта сессии, а не от метки события"
+    );
+    assert_eq!(summary.records_total, 4, "обе записи посчитаны записанными");
+}
+
 /// A8.1b (правка ревью A8.1): соседи по снятому сокету переезжают в новое
 /// соединение — у них между остановкой старого и снапшотом нового данных нет.
 /// Шов обязан быть **видимым**: строка `gaps.csv` класса `sequence_gap` на
