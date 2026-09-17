@@ -110,6 +110,15 @@ pub enum RunKind {
     /// Долг ревью ниже correctness (раздел GC) и факты остановок записи с
     /// причиной. Учёт, а не измерение, — в поправку не входит.
     Debt,
+    /// Предрегистрация сетки форм и фильтров **до** первого прогона с вердиктом
+    /// (В-58, тикет B1): строка фиксирует, что именно будет испытано, и сама
+    /// испытанием не является — в поправку DSR входят состоявшиеся прогоны, а
+    /// не их план. Заведена после того, как строка `kind=prereg` в боевом
+    /// журнале сделала его нечитаемым целиком (аудит 2026-09-17, находка R1):
+    /// неизвестный вариант — отказ всего чтения (`read_run_rows`), поэтому у
+    /// каждого нового вида строки обязан быть вариант здесь, иначе одна строка
+    /// гасит журнал, ради которого он ведётся.
+    Prereg,
 }
 
 impl RunKind {
@@ -195,7 +204,8 @@ pub fn read_run_rows(path: &Path) -> Result<Vec<RunRow>, RunsError> {
 }
 
 /// Число испытаний DSR/PBO среди прочитанных строк: пилоты, подтверждающие
-/// прогоны и перезапуски; учётные строки (`amendment`, `debt`) не в счёт.
+/// прогоны и перезапуски; учётные строки (`amendment`, `debt`, `prereg`)
+/// не в счёт.
 /// Чистая функция — правило считается на синтетике без файлов.
 pub fn count_trials(rows: &[RunRow]) -> usize {
     rows.iter().filter(|r| r.kind.counts_as_trial()).count()
@@ -335,13 +345,56 @@ mod tests {
                 "порог H3 сменён коммитом ab12",
             ),
             (RunKind::Debt, "", "finding ревью: переименовать колонку"),
+            (
+                RunKind::Prereg,
+                "POOL",
+                "V-58: 48 форм до первого прогона с вердиктом",
+            ),
         ] {
             append_run_row(&path, &row(kind, symbol, detail)).unwrap();
         }
         let rows = read_run_rows(&path).unwrap();
-        assert_eq!(rows.len(), 6, "все шесть строк обязаны читаться");
+        assert_eq!(rows.len(), 7, "все семь строк обязаны читаться");
         assert_eq!(count_trials(&rows), 4);
         assert_eq!(trials_from_runs_csv(&path), Some(4));
+    }
+
+    /// Предрегистрация (В-58) — учётная строка: журнал с ней читается целиком,
+    /// а число испытаний не растёт. Это регрессия находки R1 аудита 2026-09-17:
+    /// строка `kind=prereg` сделала боевой журнал нечитаемым, и DSR-дефляция
+    /// (`trials_from_runs_csv` → `None`) отказала бы до первого прогона B5.
+    #[test]
+    fn prereg_row_is_bookkeeping_and_does_not_kill_the_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runs.csv");
+        append_run_row(&path, &row(RunKind::Prereg, "POOL", "В-58: 48 форм")).unwrap();
+        append_run_row(&path, &row(RunKind::Pilot, "SOLUSDT", "вердикт G0")).unwrap();
+        let rows = read_run_rows(&path).expect("журнал с предрегистрацией обязан читаться");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(count_trials(&rows), 1, "предрегистрация — не испытание");
+        assert_eq!(trials_from_runs_csv(&path), Some(1));
+        // Имя варианта — часть файла в git (`kind=prereg` уже записан строкой
+        // В-58), поэтому оно проверяется, а не подразумевается.
+        assert!(
+            std::fs::read_to_string(&path).unwrap().contains(",prereg,"),
+            "строка предрегистрации пишется как kind=prereg"
+        );
+    }
+
+    /// Боевой журнал репозитория обязан читаться: он в git, у него есть
+    /// потребитель DSR, и одна строка неизвестного вида гасит чтение целиком
+    /// (находка R1). Тест ловит новый вид строки без варианта в `RunKind` —
+    /// та же по смыслу страховка, что у `GapKind`.
+    #[test]
+    fn the_repository_journal_reads() {
+        let path = std::path::Path::new("docs/plan/runs.csv");
+        assert!(path.exists(), "журнал обязан лежать в репозитории");
+        let rows = read_run_rows(path).expect("боевой журнал обязан читаться");
+        assert!(!rows.is_empty(), "журнал не пуст");
+        assert!(
+            rows.iter().any(|r| r.kind == RunKind::Prereg),
+            "предрегистрация В-58 обязана быть в боевом журнале"
+        );
     }
 
     /// Битая строка (неизвестный kind — опечатка человека в git-файле) даёт
