@@ -40,6 +40,6 @@
 - [ ] `grep -rn "dist_ticks" src/` пуст: расстояние только в bps
 - [ ] устаревшие docstring убраны: «диспетчер пока не подключён», ссылки на `H10`, «оба кандидата» в `runs.rs`
 - [ ] `SETTLED.md` ПЛАН-2 несёт эррату в самой строке, а не только в В-16 на 86 строк ниже
-- [ ] `OPEN_QUESTIONS.md` и `critique-*.json` в `docs/plan/archive/` с шапкой «отменено редакцией 3»; `REQUIREMENTS.md` переписан
+- [ ] `OPEN_QUESTIONS.md` и `critique-*.json` в `docs/archive/plan-2026-09-11/` с шапкой «отменено редакцией 3»; `REQUIREMENTS.md` переписан
 - [ ] `cargo test --release` зелёный, число тестов не уменьшилось
 - [ ] **GC**

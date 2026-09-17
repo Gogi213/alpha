@@ -1,9 +1,9 @@
 # Числа практиков на нашей записи (T42, 2026-09-13)
 
 **Как воспроизвести.** `lob touches --root <каталог> --symbol <SYM> --h3-mode floor
---out <csv> --numbers docs/findings/practitioner-numbers-<SYM>.csv`. Квантили
+--out <csv> --numbers docs/archive/artifacts/practitioner-numbers-<SYM>.csv`. Квантили
 p10/p50/p90 (`stats::quantiles`, тип 7), корзины — существующие оси В-44,
-новых порогов в коде нет. Артефакты: `practitioner-numbers-{SOL,ZEC,DOGE}USDT.csv`
+новых порогов в коде нет. Артефакты: `../archive/artifacts/practitioner-numbers-{SOL,ZEC,DOGE}USDT.csv`
 (по всем десяти монетам считается той же командой).
 
 ## Сравнение с их числами
@@ -64,7 +64,7 @@ p10/p50/p90 (`stats::quantiles`, тип 7), корзины — существу�
 **за 1 с и за 10 с до касания** до цены уровня, по модулю, bps. Окна —
 существующие `APPROACH_MS` (1 с, 10 с), новых чисел не заводилось; колонки
 `distance_before_1s_bps_*` и `distance_before_10s_bps_*` в
-`practitioner-numbers-<SYM>.csv`.
+`../archive/artifacts/practitioner-numbers-<SYM>.csv`.
 
 | монета | при рождении p50 | за 1 с до касания p10 / p50 / p90 | за 10 с p50 |
 |---|---|---|---|

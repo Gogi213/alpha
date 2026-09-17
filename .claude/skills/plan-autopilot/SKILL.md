@@ -58,7 +58,7 @@ It returns JSON:
 }
 ```
 
-Write it to `docs/plan/critique-N.json`.
+Write it to `docs/archive/plan-2026-09-11/critique-N.json`.
 
 ### Pass N — resolve
 

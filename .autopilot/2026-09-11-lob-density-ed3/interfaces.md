@@ -174,7 +174,7 @@ cargo run --release -- lob <подкоманда>
 - `src/commands/lob/pick/` — подкаталог (ремонт по ревью): `mod.rs` — `PickArgs`, `PickReport`, `run_pick`/`run_pick_async`, реэкспорты; `pool.rs` — `build_pool`, исключения, `NON_CRYPTO_BASES`, `CandidateMeta`; `coverage.rs` — `coverage_top50_bps`, `eligible_baskets`, `count_eligible_trials`; `depth.rs` — `DepthSample`, `MeasuredCandidate`, `survivors_above_depth_floor`, `PickError`, `DEPTH_FLOOR_USD_E9`; `measure.rs` — сетевая оболочка (`measure_prefiltered`, `measure_one_symbol`); `order_size.rs` — `order_size_22a`; `table.rs` — `CandidateRow`, `build_candidate_table`, `write_candidate_table_csv`, `write_instruments_csv`. Все файлы ≤ 690 строк. Таск 08 работает внутри этого каталога.
 - `grep -rn "H10" src/` — пуст. Модель двух кандидатов не упоминается нигде как действующая.
 - `docs/plan/SETTLED.md` В-29 — предрегистрация в два этапа (до пилота / после пилота, до первой сессии сбора).
-- Документы: `docs/plan/REQUIREMENTS.md` переписан; `SETTLED.md` ПЛАН-2 — эррата в строке; `docs/plan/archive/` — `OPEN_QUESTIONS.md`, `critique-*.json`, `README.md`.
+- Документы: `docs/plan/REQUIREMENTS.md` переписан; `SETTLED.md` ПЛАН-2 — эррата в строке; `docs/archive/plan-2026-09-11/` — `OPEN_QUESTIONS.md`, `critique-*.json`, `README.md`.
 
 ## Из таска 02 — `H3` в двух режимах
 
