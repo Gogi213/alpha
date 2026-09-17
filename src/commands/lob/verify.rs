@@ -14,14 +14,18 @@
 //! (`bybit::verify::verify_file`), а вердикт — по сумме частей символа и
 //! строкам `gaps.csv` того же каталога (V4, 2026-09-17): разрыв `u` в файле
 //! не виден (поля `u` в бинлоге нет), поэтому единственный его след —
-//! журнал потерь записи. Целостность (`gaps`, инварианты книги) ровно ноль,
-//! доля нарушений теста 3 меньше 0.1 % сделок (план §11, В-56) — вердикт
-//! `VerifyStatus::of_with_gap_rows`.
+//! журнал потерь записи. Строки журнала читаются **по смыслу** (В-59):
+//! потеря целостности (`write_failed`, `book_invariant`) роняет сутки, шов
+//! покрытия (переподключение, `sequence_gap`, `parse_error`,
+//! `connect_failed`) считается и печатается, но сутки не роняет — по обе
+//! стороны шва запись честная. Целостность (`gaps`, инварианты книги) ровно
+//! ноль, доля нарушений теста 3 меньше 0.1 % сделок (план §11, В-56) —
+//! вердикт `VerifyStatus::of_with_gaps`.
 
 use std::path::{Path, PathBuf};
 
 use crate::bybit::verify::{verify_file, VerifyArgs, VerifySummary};
-use crate::commands::record::{gaps_csv_path, read_gap_rows};
+use crate::commands::record::{gaps_csv_path, read_gap_rows, GapKind, GapRow};
 
 /// Вердикт маркера сверки — то единственное слово, что лежит в
 /// `verify-<SYMBOL>.status` и что печатает `lob verify`.
@@ -69,15 +73,20 @@ impl VerifyStatus {
         }
     }
 
-    /// Вердикт по сводке **и** журналу потерь (V4, 2026-09-17).
+    /// Вердикт по сводке **и** журналу потерь (V4 → В-59, 2026-09-17).
     ///
     /// `sequence_gaps` файлового режима всегда ноль — в бинлоге нет `u`, —
-    /// поэтому разрыв, пережитый записью, виден только строкой `gaps.csv`.
-    /// Одна такая строка по символу — это шов в данных: вердикт `fail`, чем бы
-    /// ни была чиста сводка; иначе символ с ресинками проходил `ok` и все
-    /// читатели (fail-closed) брали сутки как проверенные.
-    pub(crate) fn of_with_gap_rows(summary: &VerifySummary, gap_rows: usize) -> Self {
-        if gap_rows > 0 {
+    /// поэтому всё, что пережила запись, видно только строками `gaps.csv`.
+    /// Роняет сутки **потеря целостности** (`GapTally::losses`): после неё
+    /// файл читается, но книга в нём не та, что была у биржи, и читатель
+    /// этого не заметит. **Шов покрытия** (`GapTally::seams`) — дыра в
+    /// данных с честной записью по обе стороны — сутки не роняет: одно
+    /// переподключение за сутки на 100 монет иначе выбрасывало бы весь день
+    /// (2026-09-17 01:51Z, 100 строк «шов покрытия» — и вердикт `fail` всем).
+    /// Швы печатаются рядом со статусом; касания и markout через шов
+    /// исключает анализ, не сверка.
+    pub(crate) fn of_with_gaps(summary: &VerifySummary, gaps: GapTally) -> Self {
+        if gaps.losses > 0 {
             Self::Fail
         } else {
             Self::of(summary)
@@ -108,6 +117,44 @@ pub(crate) struct PartVerify {
     pub summary: VerifySummary,
 }
 
+/// Строки `gaps.csv` символа, разложенные по смыслу (В-59, 2026-09-17).
+///
+/// Не всякая строка журнала потерь — брак суток. `write_failed` и
+/// `book_invariant` — **потери целостности**: батч не лёг на диск или книга
+/// писалась пересечённой, и дальше по файлу дельты ложатся не на ту книгу
+/// до следующего снапшота — по файлу этого не видно. `sequence_gap` (в том
+/// числе «транспорт переподключился — шов покрытия»), `parse_error`,
+/// `connect_failed` — **швы покрытия**: в промежутке данных нет, а по обе
+/// стороны запись честная (после разрыва книга ждёт снапшота и пишет его).
+/// `step_change` — не потеря: файл закрыт и открыт с новым шагом.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct GapTally {
+    pub seams: usize,
+    pub losses: usize,
+    pub step_changes: usize,
+}
+
+impl GapTally {
+    pub(crate) fn of_rows<'a>(rows: impl IntoIterator<Item = &'a GapRow>) -> Self {
+        let mut tally = Self::default();
+        for row in rows {
+            match row.kind {
+                GapKind::WriteFailed | GapKind::BookInvariant => tally.losses += 1,
+                GapKind::SequenceGap | GapKind::ParseError | GapKind::ConnectFailed => {
+                    tally.seams += 1;
+                }
+                GapKind::StepChange => tally.step_changes += 1,
+            }
+        }
+        tally
+    }
+
+    /// Всего строк символа — то, что раньше печаталось как `gaps_csv=`.
+    pub(crate) fn rows(self) -> usize {
+        self.seams + self.losses + self.step_changes
+    }
+}
+
 /// Итог `verify_and_mark`: по части, суммарно, вердикт и куда лёг маркер.
 #[derive(Debug, Clone)]
 pub(crate) struct VerifyReport {
@@ -115,9 +162,9 @@ pub(crate) struct VerifyReport {
     pub total: VerifySummary,
     pub status: VerifyStatus,
     pub marker: PathBuf,
-    /// Строк `gaps.csv` этого символа в каталоге (V4, 2026-09-17) — та
-    /// единственная часть вердикта, которой в бинлоге нет.
-    pub gap_rows: usize,
+    /// Строки `gaps.csv` этого символа по смыслу (В-59) — та единственная
+    /// часть вердикта, которой в бинлоге нет.
+    pub gaps: GapTally,
 }
 
 /// Путь маркера сверки символа в каталоге — единственное место, где это
@@ -126,18 +173,18 @@ pub(crate) fn marker_path(dir: &Path, symbol: &str) -> PathBuf {
     dir.join(format!("verify-{symbol}.status"))
 }
 
-/// Строк `gaps.csv` этого символа в каталоге записи (V4, 2026-09-17).
+/// Строки `gaps.csv` этого символа в каталоге записи, по смыслу (В-59).
 ///
 /// `VerifySummary::sequence_gaps` в файловом режиме всегда ноль — в бинлоге
 /// нет поля `u`, и по файлу разрыв неотличим от честной дельты. Настоящие
 /// разрывы видны **только** в `gaps.csv`, который запись ведёт рядом. Нет
 /// файла — ноль строк: каталог из одних бинлогов (например
-/// `/opt/alpha/verify/<день>` у ночной сверки) журнала потерь не несёт, и
-/// выдумывать за него нечего.
-fn gap_rows_for(root: &Path, symbol: &str) -> usize {
+/// `/opt/alpha/verify/<день>` у ночной сверки без журнала) потерь не несёт,
+/// и выдумывать за него нечего.
+fn gap_tally_for(root: &Path, symbol: &str) -> GapTally {
     read_gap_rows(&gaps_csv_path(root))
-        .map(|rows| rows.iter().filter(|r| r.symbol == symbol).count())
-        .unwrap_or(0)
+        .map(|rows| GapTally::of_rows(rows.iter().filter(|r| r.symbol == symbol)))
+        .unwrap_or_default()
 }
 
 /// Сверяет все части символа в `root` (`super::session_binlog_for`) и
@@ -183,8 +230,8 @@ pub(crate) fn verify_and_mark(
             summary,
         });
     }
-    let gap_rows = gap_rows_for(root, symbol);
-    let status = VerifyStatus::of_with_gap_rows(&total, gap_rows);
+    let gaps = gap_tally_for(root, symbol);
+    let status = VerifyStatus::of_with_gaps(&total, gaps);
     let marker = marker_path(marker_dir, symbol);
     std::fs::write(&marker, status.as_str())
         .map_err(|e| anyhow::anyhow!("маркер {}: {e}", marker.display()))?;
@@ -193,7 +240,7 @@ pub(crate) fn verify_and_mark(
         total,
         status,
         marker,
-        gap_rows,
+        gaps,
     })
 }
 
@@ -242,12 +289,16 @@ pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
     }
     println!("verify: {}", format_summary(&report.total));
     println!(
-        // `gaps_csv` — сколько строк журнала потерь пришлось на символ (V4):
-        // вердикт рубится и по ним, поэтому число печатается рядом с ним, а не
-        // ищется читателем в `gaps.csv` отдельно.
-        "verify: status={} gaps_csv={} marker={}",
+        // `gaps_csv` — сколько строк журнала потерь пришлось на символ, и по
+        // смыслу (В-59): `losses` рубят вердикт, `seams` только считаются —
+        // поэтому числа печатаются рядом со статусом, а не ищутся читателем в
+        // `gaps.csv` отдельно.
+        "verify: status={} gaps_csv={} seams={} losses={} step_changes={} marker={}",
         report.status.as_str(),
-        report.gap_rows,
+        report.gaps.rows(),
+        report.gaps.seams,
+        report.gaps.losses,
+        report.gaps.step_changes,
         report.marker.display()
     );
     Ok(())

@@ -282,19 +282,20 @@ fn integrity_counters_stay_strict_zero() {
     );
 }
 
-/// V4 (2026-09-17): разрыв `u` в бинлоге не виден — поля `u` там нет, — поэтому
-/// вердикт обязан смотреть `gaps.csv` того же каталога. Строка **этого**
-/// символа — шов в данных, и `ok` при ней означал бы, что читатели
-/// (fail-closed) взяли сутки как проверенные; строка чужого символа вердикт
-/// не трогает: маркер — про этот символ.
+/// V4 → В-59 (2026-09-17): разрыв `u` в бинлоге не виден — поля `u` там нет,
+/// — поэтому вердикт обязан смотреть `gaps.csv` того же каталога, но **по
+/// смыслу**. Шов покрытия (`sequence_gap` — переподключение) считается и
+/// сутки не роняет: по обе стороны шва запись честная. Потеря целостности
+/// (`write_failed`) роняет: дальше по файлу книга не та. Строка чужого
+/// символа вердикт не трогает: маркер — про этот символ.
 #[test]
-fn a_gap_row_for_the_symbol_fails_the_marker() {
+fn a_seam_row_keeps_ok_a_loss_row_fails_the_marker() {
     use crate::commands::record::{append_gap_row, GapKind, GapRow};
 
-    let row = |symbol: &str, detail: &str| GapRow {
+    let row = |symbol: &str, kind: GapKind, detail: &str| GapRow {
         ts_utc: "2026-09-08T10:00:00Z".to_string(),
         symbol: symbol.to_string(),
-        kind: GapKind::SequenceGap,
+        kind,
         detail: detail.to_string(),
     };
 
@@ -307,35 +308,119 @@ fn a_gap_row_for_the_symbol_fails_the_marker() {
         &three_level_frames(),
     );
     let gaps = dir.path().join("gaps.csv");
-    append_gap_row(&gaps, &row("XRPUSDT", "разрыв другого символа")).unwrap();
+    append_gap_row(
+        &gaps,
+        &row("XRPUSDT", GapKind::WriteFailed, "потеря другого символа"),
+    )
+    .unwrap();
     let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT").unwrap();
-    assert_eq!(report.gap_rows, 0);
-    assert_eq!(report.status, VerifyStatus::Ok, "чужой разрыв не мой");
+    assert_eq!(report.gaps, GapTally::default());
+    assert_eq!(report.status, VerifyStatus::Ok, "чужая потеря не моя");
 
-    append_gap_row(&gaps, &row("SOLUSDT", "разрыв u")).unwrap();
+    append_gap_row(
+        &gaps,
+        &row(
+            "SOLUSDT",
+            GapKind::SequenceGap,
+            "транспорт переподключился — шов покрытия",
+        ),
+    )
+    .unwrap();
     let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT").unwrap();
-    assert_eq!(report.gap_rows, 1);
-    assert_eq!(report.status, VerifyStatus::Fail, "шов в данных — не ok");
+    assert_eq!((report.gaps.seams, report.gaps.losses), (1, 0));
+    assert_eq!(
+        report.status,
+        VerifyStatus::Ok,
+        "шов покрытия сутки не роняет"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("verify-SOLUSDT.status")).unwrap(),
+        "ok"
+    );
+
+    append_gap_row(
+        &gaps,
+        &row("SOLUSDT", GapKind::WriteFailed, "кадр не записался"),
+    )
+    .unwrap();
+    let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT").unwrap();
+    assert_eq!((report.gaps.seams, report.gaps.losses), (1, 1));
+    assert_eq!(report.gaps.rows(), 2);
+    assert_eq!(
+        report.status,
+        VerifyStatus::Fail,
+        "потеря целостности — не ok"
+    );
     assert_eq!(
         std::fs::read_to_string(dir.path().join("verify-SOLUSDT.status")).unwrap(),
         "fail"
     );
 }
 
-/// V4: строка журнала роняет вердикт даже при идеальной сводке; без строк
-/// решает сводка — порог В-56 остаётся в силе.
+/// В-59: потеря целостности роняет вердикт даже при идеальной сводке; швы и
+/// смена шага — нет; без строк решает сводка — порог В-56 остаётся в силе.
 #[test]
-fn gap_rows_override_a_clean_summary() {
+fn losses_override_a_clean_summary_seams_do_not() {
     let clean = VerifySummary {
         trades_total: 1_000,
         ..Default::default()
     };
-    assert_eq!(VerifyStatus::of_with_gap_rows(&clean, 0), VerifyStatus::Ok);
+    let seams = GapTally {
+        seams: 3,
+        losses: 0,
+        step_changes: 1,
+    };
+    let loss = GapTally {
+        seams: 0,
+        losses: 1,
+        step_changes: 0,
+    };
     assert_eq!(
-        VerifyStatus::of_with_gap_rows(&clean, 1),
-        VerifyStatus::Fail,
-        "один шов важнее доли нарушений"
+        VerifyStatus::of_with_gaps(&clean, GapTally::default()),
+        VerifyStatus::Ok
     );
+    assert_eq!(
+        VerifyStatus::of_with_gaps(&clean, seams),
+        VerifyStatus::Ok,
+        "швы и смена шага — не брак"
+    );
+    assert_eq!(
+        VerifyStatus::of_with_gaps(&clean, loss),
+        VerifyStatus::Fail,
+        "одна потеря целостности важнее доли нарушений"
+    );
+}
+
+/// В-59: раскладка строк журнала по смыслу — каждая причина ровно в одной
+/// корзине; переименование варианта без правки здесь провалит этот тест.
+#[test]
+fn gap_tally_sorts_every_kind_into_one_bucket() {
+    use crate::commands::record::{GapKind, GapRow};
+
+    let row = |kind: GapKind| GapRow {
+        ts_utc: "2026-09-17T01:51:19Z".to_string(),
+        symbol: "HYPEUSDT".to_string(),
+        kind,
+        detail: String::new(),
+    };
+    let rows = [
+        row(GapKind::StepChange),
+        row(GapKind::SequenceGap),
+        row(GapKind::BookInvariant),
+        row(GapKind::ParseError),
+        row(GapKind::WriteFailed),
+        row(GapKind::ConnectFailed),
+    ];
+    let tally = GapTally::of_rows(rows.iter());
+    assert_eq!(
+        tally,
+        GapTally {
+            seams: 3,
+            losses: 2,
+            step_changes: 1,
+        }
+    );
+    assert_eq!(tally.rows(), rows.len());
 }
 
 /// A4 (2026-09-17): `lob verify` читает и живой корень — обрезанный хвостовой
