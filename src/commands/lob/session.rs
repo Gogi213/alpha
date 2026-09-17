@@ -22,12 +22,19 @@
 //! claim_part_with`, первым кадром — синтетический снапшот книги, как у
 //! `lob record`.
 //!
-//! Пул на ходу (таск 34, R89): `<root>/instruments.csv` — живой файл. На
-//! тике (не чаще `FRAME_LOSS_WINDOW_SECS`) один `metadata()`; изменился
-//! `mtime` — файл перечитан тем же `load_pool`, символы, которых ещё нет в
-//! `states`, получают файл части текущих суток и своё соединение
-//! (`feed::DynamicPool::add`); индексы обязаны продолжить `states`.
-//! Удаление строки ничего не останавливает — снятие не поддерживается.
+//! Пул на ходу (таск 34 — добавление, A8.1 — снятие): `<root>/instruments.csv`
+//! — живой файл. На тике (не чаще `FRAME_LOSS_WINDOW_SECS`) один `metadata()`;
+//! изменился `mtime` — файл перечитан тем же `load_pool` (и только если он
+//! дописан: разобрался и кончается переводом строки — `pool_file_is_complete`),
+//! символы, которых ещё нет в `states`, получают файл части текущих суток и
+//! своё соединение (`feed::DynamicPool::add`); индексы обязаны продолжить
+//! `states`. Строки, которых в файле больше нет, снимаются с записи
+//! (`feed::DynamicPool::remove` + `close_symbol`): писатели обоих потоков
+//! сбрасываются и закрываются, состояние остаётся в `states` с `active = false`
+//! (индексы не переиспользуются — вернувшееся в файл имя получает новое
+//! состояние и новую часть), события и разрывы снятого индекса, доехавшие из
+//! канала, цикл пропускает, а факт снятия виден в `session.json.pool_removals`.
+//! Замена монеты — те же два шага за одну перечитку.
 //!
 //! **Два потока глубины (T45).** Сессия ведёт по два файла на инструмент:
 //! основной `<root>/<SYMBOL>-<день>.binlog` — быстрый поток `orderbook.50`,
@@ -49,7 +56,7 @@ pub use args::{
     SessionArgs, SessionPlan, MAX_MINUTES, MAX_PILOT_MINUTES, MIN_MINUTES, MIN_PILOT_MINUTES,
 };
 pub(crate) use sink::FrameSink;
-pub use summary::{BinlogPart, DepthCounters, ResourceSample, SessionSummary};
+pub use summary::{BinlogPart, DepthCounters, PoolRemoval, ResourceSample, SessionSummary};
 
 use args::{is_debug_session, resolve_duration};
 use pool::{load_pool, resolve_pool};
@@ -151,6 +158,7 @@ fn open_symbol_state(root: &Path, member: &PoolMember, day: &str) -> anyhow::Res
     Ok(SymbolState {
         member: member.clone(),
         streams,
+        active: true,
     })
 }
 
@@ -230,6 +238,12 @@ struct SessionCtx {
     deadline_ns: Option<i64>,
     states: Vec<SymbolState>,
     binlog_files: Vec<BinlogPart>,
+    /// Снятия с записи на ходу (A8.1), в порядке появления — то, что уйдёт
+    /// в `session.json.pool_removals`. Отдельным списком, а не выводом из
+    /// `states`: состояние символа помнит только «снят/нет» (этого хватает
+    /// горячему пути), а читателю нужна хронология, включая повторные
+    /// снятия одного имени.
+    pool_removals: Vec<PoolRemoval>,
     gaps_path: PathBuf,
     gaps: u64,
     reconnects: u64,
@@ -278,6 +292,23 @@ struct SessionCtx {
 /// оба случая для слежения равнозначны «сравнивать не с чем».
 fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Файл пула дописан целиком (A8.1): последний байт — перевод строки.
+/// `load_pool` уже отвергает пустой и неразобранный файл (оборванная строка —
+/// ошибка разбора), но перезапись «в тот же файл» оставляет окно, в котором
+/// строки кончаются ровно на границе: такой файл от целого неотличим ничем,
+/// кроме последнего байта. Отсюда регламент (`COMMANDS.md`): пул пишется
+/// **атомарно** (временный файл + переименование) или дописывается строками
+/// (`>>`), а не переписывается по месту. Чего это правило **не** ловит:
+/// файл, обрезанный ровно по границе строки (например, оборванный `head`) —
+/// он выглядит дописанным, и его состав применяется как есть; надёжнее метки
+/// поколения пула ничего нет, а она — отдельное решение владельца, не
+/// изобретённое здесь.
+fn pool_file_is_complete(path: &Path) -> bool {
+    std::fs::read(path)
+        .map(|bytes| bytes.last() == Some(&b'\n'))
+        .unwrap_or(false)
 }
 
 impl SessionCtx {
@@ -332,6 +363,7 @@ impl SessionCtx {
             deadline_ns,
             states,
             binlog_files,
+            pool_removals: Vec::new(),
             gaps_path,
             gaps: 0,
             reconnects: 0,
@@ -355,16 +387,23 @@ impl SessionCtx {
         })
     }
 
-    /// Слежение за `<root>/instruments.csv` (таск 34): `mtime` не изменился
-    /// — выход после одного `metadata()`. Изменился — файл перечитан
-    /// целиком (`load_pool`, тот же разбор, что на старте); строки с
-    /// символами, которые уже пишутся, пропущены (повтор той же строки
-    /// ничего не дублирует); новые — файл части текущих суток UTC
-    /// (`open_symbol_state`, следующая свободная часть), затем `feed.add`
-    /// одной партией; индексы обязаны совпасть с позициями в `states` —
-    /// иначе кадр ушёл бы в чужой файл. Ошибка чтения файла или строки —
-    /// строка stderr, запись идёт, повтор на следующем изменении `mtime`.
-    /// Удаление строки не поддерживается: запись символа продолжается.
+    /// Слежение за `<root>/instruments.csv` (таск 34 — добавление, A8.1 —
+    /// снятие): `mtime` не изменился — выход после одного `metadata()`.
+    /// Изменился — файл перечитан целиком (`load_pool`, тот же разбор, что
+    /// на старте) и **только если он целый**: разобрался без ошибок и
+    /// кончается переводом строки (`pool_file_is_complete` — редактор пишет
+    /// не атомарно, оборванный файл не должен читаться как «убрать монеты»).
+    /// Дальше состав приводится к файлу **одной перечиткой**: активные
+    /// символы, которых в файле больше нет, снимаются с записи
+    /// (`close_symbol` + `feed.remove`), новые (в том числе вернувшиеся имена
+    /// — они уже не активны, индекс не переиспользуется) получают файл части
+    /// текущих суток UTC (`open_symbol_state`, следующая свободная часть) и
+    /// уходит в источник одной партией (`feed.add`); индексы обязаны
+    /// совпасть с позициями в `states` — иначе кадр ушёл бы в чужой файл.
+    /// Замена монеты — это те же два шага за один `mtime`, а полная замена
+    /// пула (ни одного общего имени) — снятие всех плюс добавление новой
+    /// партии. Ошибка чтения файла, строки или источника — строка stderr,
+    /// запись идёт, повтор на следующем изменении `mtime`.
     fn check_pool_file<F: DynamicPool + ?Sized>(&mut self, feed: &mut F, ts_ns: i64) {
         let mtime = file_mtime(&self.pool_path);
         if mtime == self.pool_mtime {
@@ -372,6 +411,15 @@ impl SessionCtx {
         }
         self.pool_mtime = mtime;
         if mtime.is_none() {
+            return;
+        }
+        if !pool_file_is_complete(&self.pool_path) {
+            eprintln!(
+                "session: {} изменён, но не дописан (нет перевода строки в конце) — \
+                 состав записи прежний, повтор при следующем изменении файла; пул пиши \
+                 атомарно (временный файл + переименование) или дописывай строки",
+                self.pool_path.display()
+            );
             return;
         }
         let pool = match load_pool(&self.pool_path) {
@@ -385,15 +433,57 @@ impl SessionCtx {
                 return;
             }
         };
+        // Снятие (A8.1) — до добавления: замена монеты это «убрать» и
+        // «добавить» за одну перечитку, а снятый индекс (и имя) не должен
+        // мешать возврату того же символа в пул (он получит новый индекс).
+        let removed: Vec<usize> = self
+            .states
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.active && !pool.iter().any(|m| m.symbol == s.member.symbol))
+            .map(|(idx, _)| idx)
+            .collect();
+        let mut removed_any = false;
+        if !removed.is_empty() {
+            let indices: Vec<u16> = removed
+                .iter()
+                .map(|&idx| u16::try_from(idx).unwrap_or(u16::MAX))
+                .collect();
+            if let Err(e) = feed.remove(&indices) {
+                eprintln!(
+                    "session: снятие не состоялось — источник отказал: {e}; состав записи \
+                     прежний, повтор при следующем изменении {}",
+                    self.pool_path.display()
+                );
+                return;
+            }
+            for &idx in &removed {
+                self.close_symbol(idx, ts_ns);
+            }
+            removed_any = true;
+        }
         let mut fresh: Vec<PoolMember> = Vec::new();
         for member in pool {
-            let known = self.states.iter().any(|s| s.member.symbol == member.symbol)
+            // «Уже пишется» — только про **активные** состояния: снятый
+            // символ, вернувшийся в файл, добавляется заново (новый индекс,
+            // новая часть, своё соединение).
+            let known = self
+                .states
+                .iter()
+                .any(|s| s.active && s.member.symbol == member.symbol)
                 || fresh.iter().any(|m| m.symbol == member.symbol);
             if !known {
                 fresh.push(member);
             }
         }
         if fresh.is_empty() {
+            if !removed_any {
+                return;
+            }
+            // Снятие без добавления: в файлах и `states` уже ничего не
+            // меняется, а `session.json` обязан показать снятие.
+            self.session_json_dirty = false;
+            self.write_session_json_or_log(ts_ns);
             return;
         }
         let day = match day_string_of_ns(ts_ns) {
@@ -481,6 +571,55 @@ impl SessionCtx {
         self.write_session_json_or_log(ts_ns);
     }
 
+    /// Инструмент пишется сейчас (`false` — снят с записи на ходу, A8.1).
+    /// Индексы не переиспользуются, поэтому события снятого символа,
+    /// успевшие лечь в канал до остановки сокета, доходят и после снятия —
+    /// их надо пропустить (журнал и `session.json` считают по состояниям,
+    /// а не по событиям), а не писать в закрытый файл.
+    fn is_active(&self, idx: usize) -> bool {
+        matches!(self.states.get(idx), Some(s) if s.active)
+    }
+
+    /// Снимает инструмент с записи (A8.1): кадры обоих потоков сбрасываются
+    /// и файлы закрываются (`FrameSink::close` — дескриптор отпущен), символ
+    /// помечается снятым. История остаётся: состояние живёт в `states` до
+    /// конца сессии, `session.json.instruments`/`binlog_files` его помнят
+    /// (и `bytes_written` тоже — счётчики приёмника закрытие не трогает), а
+    /// `pool_removals` называет момент. Отказ сброса кадра — строка
+    /// `gaps.csv` `write_failed`, снятие продолжается: молча потерять кадр
+    /// нельзя, а оставить символ в записи из-за отказа диска — значит
+    /// обещать то, чего нет.
+    fn close_symbol(&mut self, idx: usize, now_ns: i64) {
+        let Some(symbol) = self.states.get(idx).map(|s| s.member.symbol.clone()) else {
+            return;
+        };
+        let ts_utc = ts_utc_of_ns(now_ns);
+        let mut failed: Vec<String> = Vec::new();
+        if let Some(state) = self.states.get_mut(idx) {
+            state.active = false;
+            for stream in &mut state.streams {
+                if let Err(e) = flush_symbol_batch(stream) {
+                    failed.push(format!("поток .{}: {e}", stream.depth));
+                }
+                stream.writer.get_mut().close();
+            }
+        }
+        for detail in failed {
+            eprintln!("session: {symbol}: {detail} — кадр не записался при снятии с записи");
+            self.log_gap(
+                Some(idx),
+                GapKind::WriteFailed,
+                ts_utc.clone(),
+                format!(
+                    "кадр не записался при снятии инструмента с записи: {detail} — потеряно \
+                     до {FRAME_TARGET_RECORDS} записей"
+                ),
+            );
+        }
+        eprintln!("session: снят {symbol} — файлы потоков сброшены и закрыты ({ts_utc})");
+        self.pool_removals.push(PoolRemoval { symbol, ts_utc });
+    }
+
     /// Строка `gaps.csv`; `symbol: None` — событие всей сессии (`session.json`
     /// не переписан), колонка `symbol` пустая.
     ///
@@ -521,6 +660,11 @@ impl SessionCtx {
         let Some(state) = self.states.get_mut(idx) else {
             return;
         };
+        if !state.active {
+            // Снятый с записи инструмент (A8.1): писатели закрыты, кадров
+            // у него не осталось — сбрасывать нечего.
+            return;
+        }
         if let Err(e) = flush_symbol_batch(&mut state.streams[stream]) {
             let depth = state.streams[stream].depth;
             let detail = format!(
@@ -794,11 +938,19 @@ impl SessionCtx {
             started_utc: self.started_utc.clone(),
             start_hour_utc: self.start_hour_utc,
             duration_s,
-            instruments: self
-                .states
-                .iter()
-                .map(|s| s.member.symbol.clone())
-                .collect(),
+            instruments: {
+                // По одному разу на имя, в порядке первого появления:
+                // снятый и вернувшийся символ (A8.1) — это два состояния, но
+                // один инструмент в записи, и дубликата в списке быть не
+                // должно (читатели идут по `instruments`, как по набору).
+                let mut out: Vec<String> = Vec::with_capacity(self.states.len());
+                for state in &self.states {
+                    if !out.iter().any(|s| s == &state.member.symbol) {
+                        out.push(state.member.symbol.clone());
+                    }
+                }
+                out
+            },
             records_total: self
                 .states
                 .iter()
@@ -864,6 +1016,7 @@ impl SessionCtx {
             closed,
             samples,
             binlog_files: self.binlog_files.clone(),
+            pool_removals: self.pool_removals.clone(),
         };
         let final_path = self.root.join("session.json");
         let tmp_path = self.root.join("session.json.tmp");
@@ -916,7 +1069,11 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                         .record((recv_ts_ns - local_ts_ns - latency_ns).max(0));
                 }
                 let idx = symbol as usize;
-                if idx >= ctx.states.len() {
+                // Снятый на ходу символ (A8.1): сокет остановлен, но
+                // события, успевшие лечь в канал, доходят и после снятия —
+                // писать их некуда (файлы закрыты), а журнал и `session.json`
+                // считают по состояниям, а не по событиям.
+                if !ctx.is_active(idx) {
                     continue;
                 }
                 // Поток события — один раз на событие (`sink::event_stream`:
@@ -960,8 +1117,15 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                     ctx.unrouted += 1;
                     continue;
                 }
-                ctx.gaps += 1;
                 let idx = symbol as usize;
+                // Снятый на ходу символ (A8.1): разрыв, пришедший после
+                // снятия, — следствие нашей же остановки сокета (снятие идёт
+                // на тике, события канала упорядочены), а не потеря данных,
+                // которую надо считать швом: файлы символа уже закрыты.
+                if !ctx.is_active(idx) {
+                    continue;
+                }
+                ctx.gaps += 1;
                 // Разрыв — по потоку (T45): `sink::stream_of_depth` даёт слот
                 // разорванного потока, `None` — потеря, которая потоку не
                 // принадлежит (разрыв сокета роняет оба потока сразу,

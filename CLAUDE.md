@@ -60,7 +60,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 782 passed, 0 failed, 5 ignored (2026-09-17 вечер)
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 791 passed, 0 failed, 5 ignored (2026-09-17 ночь, A8.1)
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -70,9 +70,14 @@ cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 # штатная остановка (В-41): файл <root>/stop — на ближайшем тике сброс писателей, session.json closed=true
 touch data/always-on/<ts>/stop
 # докинуть монеты в идущую запись (T34): дописать строки в <root>/instruments.csv — подхват ≤ 10 с,
-# свои <SYMBOL>-<день>.binlog и одно соединение на партию (несколько монет — одной записью файла);
-# удаление строки не поддерживается (запись идёт)
+# свои <SYMBOL>-<день>.binlog и одно соединение на партию (несколько монет — одной записью файла)
 grep '^ZECUSDT,' instruments.csv >> data/always-on/<ts>/instruments.csv
+# снять монету / заменить пул (A8.1): переписать тем же форматом — файл обязан кончаться переводом
+# строки (оборванный не читается), пиши атомарно: cp instruments.csv <root>/instruments.csv.new &&
+# mv <root>/instruments.csv.new <root>/instruments.csv; на ближайшем тике ≤ 10 с файлы символа
+# закрыты, соединение остановлено, событие в session.json.pool_removals
+grep -v '^ZECUSDT,' data/always-on/<ts>/instruments.csv > /tmp/pool && \
+  mv /tmp/pool data/always-on/<ts>/instruments.csv
 # дашборд-сетка графиков (T41): вотчер живёт с копии data/dashboard/alpha-dashboard.exe;
 # пишет index.html + data.json + coin-<SYMBOL>.json на монету (вся история записи)
 ./target-ci/release/alpha.exe lob dashboard --root data/always-on/<ts> --out data/dashboard [--watch 120] [--h3-k 10]
@@ -186,7 +191,10 @@ HYPE, дальше LSK, NEAR, DOGE, AKE, ENA, …, NBIS. Прежний топ-5
 `alpha-verify-prev-20260917`); **смоук нового коллектора** (тот же коммит, `alpha-smoke-3614321`,
 5 монет × 5 мин во втором корне `/opt/alpha/smoke`, 17.09 19:03Z) прошёл: 611 214 записей,
 gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99 201 мкс, CPU 2.2 %,
-`verify` `ok` по всем пяти; живой коллектор не задет. Деплой коллектора сделан 19:17Z (владелец: «хоть щас»); A8 — следующая разработка. Профиль `perf`: ядро/сисколлы
+`verify` `ok` по всем пяти; живой коллектор не задет. Деплой коллектора сделан 19:17Z (владелец: «хоть щас»);
+**A8 «коллектор при любых обстоятельствах» идёт: A8.1 (снятие монеты и замена пула на ходу) сделан
+в ночь 17.09, в проде его ещё нет — там бинарник `3614321`; следующий — A8.2 (SIGTERM = штатная
+остановка)**. Профиль `perf`: ядро/сисколлы
 ~25 %, libc memset 9 %, приложение ~17 % — дальше только правки кода. Старый сервер `13.140.29.171`
 **погашен** штатно (В-41, `closed=true`): 342 465 743 записи, 1.13 ГБ за 20.2 ч на топ-30 ⇒
 1.35 ГБ/сутки. `verify` в боевом корне **гоняется таймером** `alpha-verify.timer` (A2, 2026-09-17):
@@ -266,6 +274,12 @@ gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99
   каждой части (`session_parts_for`)
 - олвейс-он: кадр на диске не реже 10 с, читатели не видят только хвост ≤ 10 с; `session.json`
   между часовыми записями — стартовый; остановка — файл `<root>/stop` (Ctrl+C из оболочек агента не доходит)
+- пул на ходу (A8.1): снятие строки применяется на ближайшем тике, только если файл **дописан**
+  (разобрался и кончается переводом строки) — пиши атомарно (`mv` поверх), иначе оборванный файл
+  читается как «убрать монеты»; снятый символ закрывает файлы обоих потоков, а соседи по его сокету
+  переподключаются (шов `gaps.csv`, как у переподключения); вернувшийся в файл символ — новый индекс
+  и новая часть (`-pN`), история снятого остаётся в `instruments`/`binlog_files`, момент — в
+  `session.json.pool_removals`
 - `lob dashboard` перечитывает все бинлоги при каждом расчёте (10 × 1.5 ч — 13 с); порог — из
   `instruments.csv` каталога записи; «жив/нет» — по росту бинлогов между двумя расчётами;
   `data.json` старого формата (без `touches`/`chart_file`) базой для «жив» не считается — первый

@@ -137,9 +137,14 @@ impl<R: Read> Feed for ReplayFeed<R> {
     }
 }
 
-/// Бинлог уже записан — добавить в него инструмент на ходу нечем (таск 34).
+/// Бинлог уже записан — ни добавить инструмент, ни снять его на ходу нечем
+/// (таск 34, A8.1).
 impl<R: Read> DynamicPool for ReplayFeed<R> {
     fn add(&mut self, _members: Vec<PoolMember>) -> Result<Vec<u16>, LayoutError> {
+        Err(LayoutError::StaticSource)
+    }
+
+    fn remove(&mut self, _symbols: &[u16]) -> Result<(), LayoutError> {
         Err(LayoutError::StaticSource)
     }
 }

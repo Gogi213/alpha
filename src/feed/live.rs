@@ -101,8 +101,8 @@ pub enum LayoutError {
     /// нельзя: два инструмента получили бы один индекс и писали бы в один
     /// файл.
     PoolTooLarge { got: usize },
-    /// Источник не расширяется на ходу (таск 34): реплей читает уже
-    /// записанный бинлог, добавить в него инструмент нечем.
+    /// Источник не меняется на ходу (таск 34, A8.1): реплей читает уже
+    /// записанный бинлог — ни добавить в него инструмент, ни снять.
     StaticSource,
 }
 
@@ -118,7 +118,7 @@ impl std::fmt::Display for LayoutError {
                 usize::from(u16::MAX) + 1
             ),
             Self::StaticSource => {
-                f.write_str("источник событий не расширяется на ходу (реплей бинлога)")
+                f.write_str("источник событий не меняется на ходу (реплей бинлога)")
             }
         }
     }
@@ -318,22 +318,45 @@ pub struct LiveFeed {
     /// соединения: партия, добавленная на ходу (`DynamicPool::add`), обязана
     /// считаться и подписываться по нему же.
     depths: Vec<u32>,
+    /// Таймер потока решений (таск 25) — свой ОС-поток (A8.1), а не рантайм
+    /// первого шарда: снятие инструмента останавливает произвольный шард, а
+    /// тик — свойство `Feed`, не сокета. Раньше тик жил на первом шарде, и
+    /// его смерть уносила с собой сброс кадров, проверку файла пула и
+    /// остановку по `stop` — теперь таймер не зависит ни от одного сокета.
+    /// Поток завершается сам, когда канал закрылся (ушёл `LiveFeed` и все
+    /// шарды); ручка не читается — смерть таймера без тика неотличима от
+    /// тишины, а ломаться в нём нечему (свой рантайм, `interval` и отправка
+    /// в канал).
+    _ticker: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Поднимает один шард — ОС-поток с рантаймом и `Connection` — для группы
 /// инструментов; коннектор строится по первому инструменту группы (продовый
-/// путь его аргумент не читает). Ящик, а не generic-метод: `LiveFeed` не
-/// параметризован ни транспортом, ни часами, а добавлять на ходу нужно тем
-/// же транспортом и теми же часами, что были поданы при старте.
+/// путь его аргумент не читает). Возвращает пару «поток — сигнал остановки»
+/// (A8.1): отправитель обязан жить вместе с шардом (`IoShard::stop`), иначе
+/// закрытый канал остановил бы поток сразу после старта. Ящик, а не
+/// generic-метод: `LiveFeed` не параметризован ни транспортом, ни часами, а
+/// добавлять и снимать инструменты на ходу нужно тем же транспортом и теми же
+/// часами, что были поданы при старте.
 type ShardSpawner =
-    Box<dyn FnMut(Vec<SymbolSpec>, &PoolMember) -> std::thread::JoinHandle<()> + Send>;
+    Box<dyn FnMut(Vec<SymbolSpec>, &PoolMember) -> (std::thread::JoinHandle<()>, ShardStop) + Send>;
 
-/// Шард ввода-вывода: ОС-поток и глобальные индексы инструментов, которые он
-/// обслуживает (V12, 2026-09-17). Без списка инструментов смерть потока
-/// осталась бы безымянной: у `Event::Gap` символ — обязательная колонка.
+/// Сигнал остановки шарда (A8.1) — отправитель конца `oneshot`.
+type ShardStop = tokio::sync::oneshot::Sender<()>;
+
+/// Шард ввода-вывода: ОС-поток и инструменты, которые он обслуживает (V12,
+/// 2026-09-17). Без списка инструментов смерть потока осталась бы безымянной:
+/// у `Event::Gap` символ — обязательная колонка. Те же `SymbolSpec` нужны
+/// снятию с записи (A8.1): шард сокета собирается заново из оставшихся, и
+/// **те же** индексы обязаны переехать в новый сокет (индекс события — это
+/// позиция в пуле, её смена отправила бы кадр в чужой файл).
 struct IoShard {
     handle: Option<std::thread::JoinHandle<()>>,
-    symbols: Vec<u16>,
+    specs: Vec<SymbolSpec>,
+    /// Остановка шарда (A8.1): без неё снятый инструмент продолжал бы слать
+    /// кадры (и дублировал бы данные, если то же имя тут же вернули в пул).
+    /// `None` — шард уже остановлен (`remove` или `report_dead_shards`).
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 /// Группы `SymbolSpec` по раскладке `plan_connections` для партии
@@ -375,17 +398,20 @@ fn shard_specs(
 
 /// ОС-поток одного соединения: свой `current_thread`-рантайм, `Connection`
 /// на группу инструментов, события — в общий канал через `TaggedSink`.
-/// `tick` — таймер потока решений, кладётся только на первый шард старта
-/// (см. `spawn_with_clock_and_connector_and_ticks`). `depths` — потоки
-/// стакана этого `Feed` (T45): их задаёт вызывающий, потому что книга и
-/// приёмники у каждого свои — коллектор сессии ведёт по два потока на
-/// инструмент, все остальные (реакция, замер, рекордер) — один.
+/// `stop` — сигнал завершения (A8.1): `remove` снимает с записи инструмент
+/// шарда, и старый сокет обязан замолчать, а не дожить до конца процесса
+/// (иначе события снятого символа шли бы в закрытый файл, а вернувшийся в
+/// пул символ получил бы **два** потока одних и тех же данных). Выход из
+/// `block_on` роняет рантайм, а вместе с ним — задачу `Connection::run`.
+/// `depths` — потоки стакана этого `Feed` (T45): их задаёт вызывающий, потому
+/// что книга и приёмники у каждого свои — коллектор сессии ведёт по два потока
+/// на инструмент, все остальные (реакция, замер, рекордер) — один.
 fn spawn_io_thread<C, K>(
     symbols: Vec<SymbolSpec>,
     connector: C,
     clock: K,
     tx: mpsc::Sender<Item>,
-    tick: Option<(Duration, K)>,
+    stop: tokio::sync::oneshot::Receiver<()>,
     depths: &[u32],
 ) -> std::thread::JoinHandle<()>
 where
@@ -418,30 +444,56 @@ where
             };
             let sink = TaggedSink { tx: tx.clone() };
             let conn = Connection::new(connector, cfg);
-            let mut tasks = vec![tokio::spawn(conn.run(clock, sink))];
-            if let Some((period, tick_clock)) = tick {
-                let tick_tx = tx.clone();
-                // Таймер рантайма, не «по приходу события»: первый тик
-                // `interval` отдаёт сразу — пропускаем его, дальше ровно
-                // раз в `period`. Отставший потребитель (полный канал)
-                // получает тики реже — `MissedTickBehavior::Delay`, не
-                // очередь из тиков.
-                tasks.push(tokio::spawn(async move {
-                    let mut ticker = tokio::time::interval(period);
-                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                    ticker.tick().await;
-                    loop {
-                        ticker.tick().await;
-                        let ts_ns = tick_clock.now_ns();
-                        if tick_tx.send(Item::Tick { ts_ns }).await.is_err() {
-                            return;
-                        }
-                    }
-                }));
-            }
+            let run = tokio::spawn(conn.run(clock, sink));
             drop(tx);
-            for t in tasks {
-                let _ = t.await;
+            // Смерть `Connection::run` (построение соединения, конец задач) —
+            // свой выход; сигнал остановки — свой. Оба конца ведут к концу
+            // `block_on`, то есть к закрытию рантайма и потока.
+            tokio::select! {
+                _ = run => {}
+                _ = stop => {}
+            }
+        });
+    })
+}
+
+/// Таймер потока решений (таск 25) — **свой** ОС-поток: раз в `period` в
+/// общий канал идёт `Event::Tick`, и при полном молчании пула (сеть упала,
+/// бэкофф) поток решений просыпается не позже `period`. До A8.1 таймер жил на
+/// рантайме **первого** шарда, но снятие инструмента останавливает любой
+/// шард, а тик — свойство `Feed`, не сокета: остановка соединения не имеет
+/// права уносить сброс кадров, проверку файла пула и остановку по `stop`.
+/// Тик по-прежнему один на `Feed` (второй таймер дал бы вдвое больше тиков
+/// без нового смысла); поток завершается, когда канал закрылся (все
+/// отправители — шарды и сам `LiveFeed` — ушли).
+fn spawn_ticker<K>(
+    period: Duration,
+    clock: K,
+    tx: mpsc::Sender<Item>,
+) -> std::thread::JoinHandle<()>
+where
+    K: Clock + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("session: не поднялся однопоточный рантайм таймера");
+        runtime.block_on(async move {
+            // Таймер рантайма, не «по приходу события»: первый тик
+            // `interval` отдаёт сразу — пропускаем его, дальше ровно
+            // раз в `period`. Отставший потребитель (полный канал)
+            // получает тики реже — `MissedTickBehavior::Delay`, не
+            // очередь из тиков.
+            let mut ticker = tokio::time::interval(period);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let ts_ns = clock.now_ns();
+                if tx.send(Item::Tick { ts_ns }).await.is_err() {
+                    return;
+                }
             }
         });
     })
@@ -560,10 +612,10 @@ impl LiveFeed {
         // глобальные индексы пула, порядок пула не меняется.
         let shards = shard_specs(&pool, 0, &depths)?;
 
-        // Тик кладётся на рантайм **первого** шарда: он общий для всего
-        // потока решений (окно потери кадра), а не свойство сокета — второй
-        // экземпляр таймера дал бы вдвое больше тиков без нового смысла.
-        let mut tick_for_shard = tick.map(|period| (period, clock.clone()));
+        // Таймер потока решений — своим ОС-потоком (A8.1): тик общий для
+        // всего `Feed` (окно потери кадра), а снятие инструмента
+        // останавливает произвольный шард — тик обязан это пережить.
+        let ticker = tick.map(|period| spawn_ticker(period, clock.clone(), tx.clone()));
         let mut shards_io = Vec::with_capacity(shards.len());
         for symbols in shards {
             let first = &pool[usize::from(symbols[0].index)];
@@ -571,36 +623,40 @@ impl LiveFeed {
             // раньше, один на соединение (продовый путь его аргумент не
             // читает вовсе).
             let connector = make_connector(first);
-            let indices: Vec<u16> = symbols.iter().map(|s| s.index).collect();
+            let (shard_stop, stop_rx) = tokio::sync::oneshot::channel();
+            let specs = symbols.clone();
             let handle = spawn_io_thread(
                 symbols,
                 connector,
                 clock.clone(),
                 tx.clone(),
-                tick_for_shard.take(),
+                stop_rx,
                 &depths,
             );
             shards_io.push(IoShard {
                 handle: Some(handle),
-                symbols: indices,
+                specs,
+                stop: Some(shard_stop),
             });
         }
 
-        // Фабрика на будущее (таск 34): партия, добавленная на ходу,
-        // идёт через тот же коннектор, те же часы, тот же набор потоков и
-        // тот же канал. Тика у неё нет — он уже идёт с первого шарда.
+        // Фабрика на будущее (таск 34): партия, добавленная на ходу, идёт
+        // через тот же коннектор, те же часы, тот же набор потоков и тот же
+        // канал. Тик у неё свой не заводится — таймер один на `Feed`.
         let shard_tx = tx.clone();
         let shard_clock = clock;
         let shard_depths = depths.clone();
         let spawn_shard: ShardSpawner = Box::new(move |symbols, first| {
-            spawn_io_thread(
+            let (shard_stop, stop_rx) = tokio::sync::oneshot::channel();
+            let handle = spawn_io_thread(
                 symbols,
                 make_connector(first),
                 shard_clock.clone(),
                 shard_tx.clone(),
-                None,
+                stop_rx,
                 &shard_depths,
-            )
+            );
+            (handle, shard_stop)
         });
         drop(tx);
 
@@ -614,6 +670,7 @@ impl LiveFeed {
             pool_len: pool.len(),
             spawn_shard,
             depths,
+            _ticker: ticker,
         })
     }
 }
@@ -634,15 +691,80 @@ impl super::DynamicPool for LiveFeed {
         for symbols in shards {
             let first = &members[usize::from(symbols[0].index) - self.pool_len];
             indices.extend(symbols.iter().map(|s| s.index));
-            let shard_symbols: Vec<u16> = symbols.iter().map(|s| s.index).collect();
-            let handle = (self.spawn_shard)(symbols, first);
+            let specs = symbols.clone();
+            let (handle, stop) = (self.spawn_shard)(symbols, first);
             self.shards.push(IoShard {
                 handle: Some(handle),
-                symbols: shard_symbols,
+                specs,
+                stop: Some(stop),
             });
         }
         self.pool_len += members.len();
         Ok(indices)
+    }
+
+    /// Снятие с записи (A8.1): инструменты уходят из пула — их соединение
+    /// замолкает. Инструменты одного сокета разделяют подписку, поэтому
+    /// «убрать один» технически означает «пересоздать шард без него»:
+    /// оставшиеся переезжают в новый сокет **с теми же индексами** (индекс —
+    /// позиция в пуле, её смена отправила бы кадр в чужой файл), а прежний
+    /// поток получает сигнал остановки и завершается вместе со своим
+    /// рантаймом. Цена разделяемого соединения — короткий разрыв у
+    /// оставшихся (строка `gaps.csv`, как у любого переподключения), а не
+    /// потеря данных: `remove` зовётся на тике, кадры к этому моменту
+    /// сброшены. `pool_len` не уменьшается: индексы не переиспользуются, и
+    /// вернувшийся в пул символ получает новый (`add`), а не чужой старый.
+    fn remove(&mut self, symbols: &[u16]) -> Result<(), LayoutError> {
+        // Сначала разбираем шарды (нужен `&mut self` на пересоздание —
+        // поэтому сбор остатков отдельным шагом, без заимствования).
+        let mut kept_shards: Vec<IoShard> = Vec::with_capacity(self.shards.len());
+        let mut respawn: Vec<(usize, Vec<SymbolSpec>)> = Vec::new();
+        for shard in self.shards.drain(..) {
+            let IoShard {
+                handle,
+                specs,
+                stop,
+            } = shard;
+            if !specs.iter().any(|s| symbols.contains(&s.index)) {
+                kept_shards.push(IoShard {
+                    handle,
+                    specs,
+                    stop,
+                });
+                continue;
+            }
+            // Снятый символ (или весь шард) — сигнал остановки: старый
+            // поток не должен дожить до конца процесса, иначе вернувшийся
+            // в пул символ получил бы два потока одних и тех же данных.
+            if let Some(stop) = stop {
+                let _ = stop.send(());
+            }
+            let kept: Vec<SymbolSpec> = specs
+                .into_iter()
+                .filter(|s| !symbols.contains(&s.index))
+                .collect();
+            if kept.is_empty() {
+                continue;
+            }
+            respawn.push((kept_shards.len(), kept.clone()));
+            kept_shards.push(IoShard {
+                handle: None,
+                specs: kept,
+                stop: None,
+            });
+        }
+        for (slot, specs) in respawn {
+            let first = PoolMember {
+                symbol: specs[0].symbol.clone(),
+                tick_e9: specs[0].tick_e9,
+                step_e9: specs[0].step_e9,
+            };
+            let (handle, stop) = (self.spawn_shard)(specs, &first);
+            kept_shards[slot].handle = Some(handle);
+            kept_shards[slot].stop = Some(stop);
+        }
+        self.shards = kept_shards;
+        Ok(())
     }
 }
 
@@ -665,9 +787,10 @@ impl LiveFeed {
                 continue;
             }
             shard.handle = None;
-            for (i, idx) in shard.symbols.iter().enumerate() {
+            shard.stop = None;
+            for (i, spec) in shard.specs.iter().enumerate() {
                 self.pending.push_back(Event::Gap {
-                    symbol: *idx,
+                    symbol: spec.index,
                     local_ts_ns: ts_ns,
                     kind: if i == 0 {
                         GapKind::Disconnected

@@ -62,6 +62,33 @@ impl SinkFile for File {
     }
 }
 
+/// Приёмник закрытой части (A8.1): инструмент убран из пула на ходу —
+/// дескриптор отпущен, писать больше некуда. Любая запись здесь — ошибка, а
+/// не тихий ноль: кадр, попавший в закрытый файл, обязан стать строкой
+/// `gaps.csv` (`write_failed`), а не исчезнуть (тот же принцип, что у
+/// `NoSnapshot`: молчание о потере — худший исход).
+struct ClosedSink;
+
+fn closed_part_error() -> std::io::Error {
+    std::io::Error::other("файл части закрыт — инструмент убран из пула на ходу")
+}
+
+impl std::io::Write for ClosedSink {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        Err(closed_part_error())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(closed_part_error())
+    }
+}
+
+impl SinkFile for ClosedSink {
+    fn truncate_to(&mut self, _len: u64) -> std::io::Result<()> {
+        Err(closed_part_error())
+    }
+}
+
 /// Самое крупное сообщение этой сессии в записях: снапшот глубокого потока —
 /// `orderbook.200` отдаёт не более двухсот уровней на сторону (документация
 /// Bybit v5, `bybit::conn::ORDERBOOK_DEEP_DEPTH`), то есть до `2 × 200`
@@ -117,6 +144,18 @@ impl FrameSink {
     /// См. поле `boundary_lost`.
     pub(crate) fn boundary_lost(&self) -> bool {
         self.boundary_lost
+    }
+
+    /// Закрывает часть на ходу (A8.1): кадры уже сброшены вызывающим
+    /// (`flush_symbol`), здесь отпускается дескриптор — буфер пуст, файл
+    /// уходит на диск и закрывается вместе со старой коробкой. Счётчики
+    /// (`bytes_written`, `boundary_lost`) остаются: `session.json` считает
+    /// байты и после снятия инструмента, а `Writer` этого потока продолжает
+    /// жить в `SymbolState` (индексы пула не переиспользуются).
+    pub(crate) fn close(&mut self) {
+        self.buf.clear();
+        let _ = self.file.flush();
+        self.file = Box::new(ClosedSink);
     }
 }
 
@@ -264,6 +303,15 @@ impl StreamState {
 pub(super) struct SymbolState {
     pub(super) member: PoolMember,
     pub(super) streams: [StreamState; STREAM_COUNT],
+    /// Инструмент пишется сейчас. `false` — снят с записи на ходу (A8.1):
+    /// писатели обоих потоков сброшены и закрыты (`FrameSink::close`),
+    /// события этого индекса цикл пропускает — события, успевшие лечь в
+    /// канал до остановки сокета, доходят и после снятия, а писать их уже
+    /// некуда. Состояние остаётся в `SessionCtx.states` до конца сессии:
+    /// индексы не переиспользуются, `session.json` считает по нему
+    /// записанное, а вернувшийся в пул символ получает **новый** индекс и
+    /// своё состояние (`add` продолжает нумерацию).
+    pub(super) active: bool,
 }
 
 /// Слот потока по глубине из топика (`book::Update::depth`). Линейный поиск

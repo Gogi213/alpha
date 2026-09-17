@@ -790,7 +790,7 @@ fn dead_io_shard_is_reported_once_on_the_tick() {
         std::thread::yield_now();
     }
     assert_eq!(feed.shards.len(), 1, "два инструмента влезают в один сокет");
-    let symbols = feed.shards[0].symbols.clone();
+    let symbols: Vec<u16> = feed.shards[0].specs.iter().map(|s| s.index).collect();
     assert_eq!(symbols.len(), 2, "шард несёт оба инструмента");
     feed.shards[0].handle = Some(finished);
 
@@ -821,4 +821,256 @@ fn dead_io_shard_is_reported_once_on_the_tick() {
     let second = feed.next_event().expect("тик");
     assert!(matches!(second, Event::Tick { .. }), "{second:?}");
     feed.stop_handle().stop();
+}
+
+// -----------------------------------------------------------------------
+// A8.1: снятие инструмента с записи на ходу — сокет обязан замолчать, а
+// соседи по нему переехать в новый **с теми же индексами**.
+// -----------------------------------------------------------------------
+
+/// Транспорт с номером соединения: подписки пишутся в общий журнал с
+/// префиксом номера, а закрытие соединения — в журнал закрытий. По ним
+/// видно и что старый сокет действительно остановлен, и что оставшийся
+/// инструмент получил **новое** соединение, а не продолжил жить на старом.
+struct NumberedTransport {
+    id: usize,
+    inbox: Arc<Mutex<VecDeque<Result<Frame, TransportError>>>>,
+    sent: Arc<Mutex<Vec<String>>>,
+    closed: Arc<Mutex<Vec<usize>>>,
+}
+
+impl Transport for NumberedTransport {
+    async fn send_text(&mut self, msg: String) -> Result<(), TransportError> {
+        self.sent.lock().unwrap().push(format!("{} {msg}", self.id));
+        Ok(())
+    }
+
+    fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
+        let next = self.inbox.lock().unwrap().pop_front();
+        async move {
+            match next {
+                Some(item) => item,
+                None => std::future::pending().await,
+            }
+        }
+    }
+}
+
+impl Drop for NumberedTransport {
+    fn drop(&mut self) {
+        self.closed.lock().unwrap().push(self.id);
+    }
+}
+
+/// Ящик кадров одного соединения (тот же тип, что у `ScriptedTransport`) —
+/// вынесен в имя, чтобы «очередь ящиков» на соединение читалась как очередь.
+type InboxQueue = Arc<Mutex<VecDeque<Result<Frame, TransportError>>>>;
+
+struct NumberedConnector {
+    next_id: Arc<std::sync::atomic::AtomicUsize>,
+    inboxes: Arc<Mutex<VecDeque<InboxQueue>>>,
+    sent: Arc<Mutex<Vec<String>>>,
+    closed: Arc<Mutex<Vec<usize>>>,
+}
+
+impl TransportConnector for NumberedConnector {
+    type Transport = NumberedTransport;
+    fn connect(
+        &mut self,
+    ) -> impl Future<Output = Result<NumberedTransport, TransportError>> + Send {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let inbox = self
+            .inboxes
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or_else(|| Arc::new(Mutex::new(VecDeque::new())));
+        let sent = self.sent.clone();
+        let closed = self.closed.clone();
+        async move {
+            Ok(NumberedTransport {
+                id,
+                inbox,
+                sent,
+                closed,
+            })
+        }
+    }
+}
+
+/// Соединения в тестах поднимаются своим ОС-потоком: ждём факт по времени, а
+/// не по событию канала. Тест проверяет поведение снятия, а не гонку.
+fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if cond() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    panic!("не дождались: {what}");
+}
+
+fn numbered_feed(
+    pool: Vec<PoolMember>,
+    sent: Arc<Mutex<Vec<String>>>,
+    closed: Arc<Mutex<Vec<usize>>>,
+) -> LiveFeed {
+    let next_id = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let inboxes = Arc::new(Mutex::new(VecDeque::new()));
+    LiveFeed::spawn_with_clock_and_connector_and_ticks(
+        pool,
+        move |_m| NumberedConnector {
+            next_id: next_id.clone(),
+            inboxes: inboxes.clone(),
+            sent: sent.clone(),
+            closed: closed.clone(),
+        },
+        SystemClock,
+        None,
+        vec![ORDERBOOK_DEPTH],
+    )
+    .unwrap()
+}
+
+/// Снятие инструмента, делящего сокет с соседом: старый сокет замолкает
+/// (соединение закрыто), сосед переезжает в новое соединение **с прежним
+/// индексом** и подпиской без снятого топика, а следующий добавленный
+/// инструмент получает индекс, продолжающий нумерацию пула, — индексы не
+/// переиспользуются (иначе вернувшийся символ писал бы в чужой файл).
+#[test]
+fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
+    let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+    let closed = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let mut feed = numbered_feed(
+        vec![
+            PoolMember {
+                symbol: "AAAUSDT".to_string(),
+                tick_e9: 1_000_000_000,
+                step_e9: 1_000_000_000,
+            },
+            PoolMember {
+                symbol: "BBBUSDT".to_string(),
+                tick_e9: 1_000_000_000,
+                step_e9: 1_000_000_000,
+            },
+        ],
+        sent.clone(),
+        closed.clone(),
+    );
+
+    wait_until(
+        "первое соединение обязано подписаться",
+        || !sent.lock().unwrap().is_empty(),
+    );
+    assert_eq!(feed.shards.len(), 1, "два инструмента влезают в один сокет");
+    assert_eq!(
+        feed.shards[0]
+            .specs
+            .iter()
+            .map(|s| s.index)
+            .collect::<Vec<_>>(),
+        vec![0, 1],
+        "шард несёт оба инструмента по порядку пула"
+    );
+    let first = sent.lock().unwrap().clone();
+    assert!(
+        first[0].starts_with("0 ") && first[0].contains("AAAUSDT") && first[0].contains("BBBUSDT"),
+        "первое соединение подписано на оба топика: {first:?}"
+    );
+
+    crate::feed::DynamicPool::remove(&mut feed, &[1]).unwrap();
+
+    wait_until(
+        "снятый сокет обязан закрыться",
+        || closed.lock().unwrap().contains(&0),
+    );
+    wait_until(
+        "сосед обязан подняться новым соединением",
+        || {
+            sent.lock()
+                .unwrap()
+                .iter()
+                .any(|m| m.starts_with("1 ") && m.contains("AAAUSDT"))
+        },
+    );
+
+    assert_eq!(feed.shards.len(), 1, "уцелевший сосед — один шард");
+    assert_eq!(
+        feed.shards[0]
+            .specs
+            .iter()
+            .map(|s| s.index)
+            .collect::<Vec<_>>(),
+        vec![0],
+        "индекс соседа не сдвинулся: кадр пойдёт в тот же файл"
+    );
+    assert!(
+        feed.shards[0].handle.is_some(),
+        "новый шард жив, и о его смерти рапортует V12"
+    );
+    let sent_now = sent.lock().unwrap().clone();
+    let second_subscribe = sent_now
+        .iter()
+        .find(|m| m.starts_with("1 "))
+        .expect("подписка нового соединения")
+        .clone();
+    assert!(
+        !second_subscribe.contains("BBBUSDT"),
+        "снятый инструмент в новую подписку не попадает: {second_subscribe}"
+    );
+
+    // Индексы не переиспользуются: следующий добавленный получает 2, а не 1.
+    let indices = crate::feed::DynamicPool::add(
+        &mut feed,
+        vec![PoolMember {
+            symbol: "CCCUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        indices,
+        vec![2],
+        "номер снятого инструмента не достаётся никому: он ещё в истории сессии"
+    );
+    feed.stop_handle().stop();
+}
+
+/// Снятие единственного инструмента шарда убирает шард целиком: поток ввода-вывода
+/// закрыт, подписок не осталось, и снятие неизвестного индекса — no-op, а не
+/// паника (индексы живут в истории вызывающего, а не в `Feed`).
+#[test]
+fn removing_the_last_symbol_of_a_shard_leaves_no_thread_behind() {
+    let sent = Arc::new(Mutex::new(Vec::<String>::new()));
+    let closed = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let mut feed = numbered_feed(
+        vec![PoolMember {
+            symbol: "AAAUSDT".to_string(),
+            tick_e9: 1_000_000_000,
+            step_e9: 1_000_000_000,
+        }],
+        sent.clone(),
+        closed.clone(),
+    );
+    wait_until(
+        "соединение обязано подписаться",
+        || !sent.lock().unwrap().is_empty(),
+    );
+
+    crate::feed::DynamicPool::remove(&mut feed, &[0]).unwrap();
+    assert!(feed.shards.is_empty(), "шарду без инструментов жить нечем");
+    wait_until(
+        "соединение обязано закрыться",
+        || closed.lock().unwrap().contains(&0),
+    );
+
+    crate::feed::DynamicPool::remove(&mut feed, &[7]).unwrap();
+    assert!(
+        feed.shards.is_empty(),
+        "снятие неизвестного индекса ничего не поднимает и не роняет"
+    );
 }

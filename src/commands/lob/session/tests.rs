@@ -124,6 +124,7 @@ fn state_with_writer(
             ),
         ],
         member,
+        active: true,
     }
 }
 
@@ -2022,9 +2023,9 @@ fn always_on_conflicts_with_timed_flags_and_resolves_without_deadline() {
 // Таск 34: пул на ходу — `<root>/instruments.csv` живой файл.
 // -----------------------------------------------------------------------
 
-/// Сценарный `Feed` без расширения: то же, что реплей, — источник
-/// статичен, `add` отвечает `StaticSource`. Тесты выше про пул не знают,
-/// им это и нужно.
+/// Сценарный `Feed` без изменения состава: то же, что реплей, — источник
+/// статичен, `add`/`remove` отвечают `StaticSource`. Тесты выше про пул не
+/// знают, им это и нужно.
 impl DynamicPool for ScriptedFeed {
     fn add(
         &mut self,
@@ -2032,15 +2033,21 @@ impl DynamicPool for ScriptedFeed {
     ) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
         Err(crate::feed::live::LayoutError::StaticSource)
     }
+
+    fn remove(&mut self, _symbols: &[u16]) -> Result<(), crate::feed::live::LayoutError> {
+        Err(crate::feed::live::LayoutError::StaticSource)
+    }
 }
 
-/// Сценарный `Feed`, который умеет расти: `add` продолжает нумерацию с
-/// `pool_len` (как `LiveFeed`) и запоминает, что добавляли — тест
-/// проверяет, что партия ушла в источник ровно один раз.
+/// Сценарный `Feed`, который умеет расти и снимать: `add` продолжает
+/// нумерацию с `pool_len` (как `LiveFeed`) и запоминает, что добавляли,
+/// `remove` запоминает снятые индексы — тесты проверяют, что в источник
+/// партия/снятие ушли ровно один раз и с ожидаемыми индексами.
 struct GrowingFeed {
     steps: ScriptedFeed,
     pool_len: usize,
     added: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    removed: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
 }
 
 impl Feed for GrowingFeed {
@@ -2061,6 +2068,13 @@ impl DynamicPool for GrowingFeed {
             self.added.lock().unwrap().push(m.symbol);
         }
         Ok(out)
+    }
+
+    /// Индексы не переиспользуются: `pool_len` снятие не уменьшает — того же
+    /// правила держится `LiveFeed`.
+    fn remove(&mut self, symbols: &[u16]) -> Result<(), crate::feed::live::LayoutError> {
+        self.removed.lock().unwrap().extend_from_slice(symbols);
+        Ok(())
     }
 }
 
@@ -2110,6 +2124,7 @@ fn a_row_appended_to_instruments_csv_between_ticks_joins_the_recording_once() {
     let mut feed = GrowingFeed {
         pool_len: 1,
         added: added.clone(),
+        removed: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         steps: ScriptedFeed(VecDeque::from(vec![
             Step::Ev(Event::Tick {
                 local_ts_ns: NOON_NS + window_ns,
@@ -2246,6 +2261,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
     let mut feed = GrowingFeed {
         pool_len: 1,
         added: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        removed: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         steps: ScriptedFeed(VecDeque::new()),
     };
     append_pool_row(&root, "NEWUSDT,0.001,1,0.001");
@@ -2363,5 +2379,398 @@ fn failed_gap_rows_are_counted_not_swallowed() {
     assert_eq!(
         summary.gap_rows_failed, 2,
         "оба отказа журнала посчитаны (session.json пишется в свой каталог и не зависит от gaps.csv)"
+    );
+}
+
+// -----------------------------------------------------------------------
+// A8.1: снятие инструмента с записи на ходу — строка ушла из
+// `<root>/instruments.csv`. Правило «целого файла»: перечитывается только
+// разобранный файл, кончающийся переводом строки (пустой/оборванный —
+// прежний состав), и одна перечитка даёт снятия, добавления или и то и
+// другое сразу (замена монеты, полная замена пула).
+// -----------------------------------------------------------------------
+
+/// Переписывает `<root>/instruments.csv` целиком (закрывающий перевод строки
+/// есть — файл «дописан», A8.1): так снимают строку, так меняют монету и так
+/// получают «недописанный» файл, если строку не закрыть. Пауза перед записью
+/// — чтобы `mtime` заведомо отличался от прежнего (как в `append_pool_row`).
+fn rewrite_pool(root: &Path, rows: &[&str]) {
+    std::thread::sleep(Duration::from_millis(20));
+    let mut text = POOL_CSV_HEADER.to_string();
+    for row in rows {
+        text.push_str(row);
+        text.push('\n');
+    }
+    std::fs::write(root.join("instruments.csv"), text).unwrap();
+}
+
+/// Сессия с двумя активными инструментами (`SYM` — индекс 0, `DEAD` — 1),
+/// оба записаны в `<root>/instruments.csv` на старте.
+fn two_symbol_ctx(root: &Path) -> SessionCtx {
+    rewrite_pool(root, &["SYM,0.001,1,0.001", "DEAD,0.5,1,0.001"]);
+    SessionCtx::open(
+        root,
+        &[test_member("SYM"), test_member("DEAD")],
+        SessionPlan::AlwaysOn,
+        NOON_NS,
+    )
+    .unwrap()
+}
+
+/// Журналы источника для тестов A8.1: что в него добавляли и какие индексы
+/// снимали (снятие приходит индексами — символ по индексу знает состояние).
+type AddedLog = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+type RemovedLog = std::sync::Arc<std::sync::Mutex<Vec<u16>>>;
+
+fn growing_feed(pool_len: usize, steps: Vec<Step>) -> (GrowingFeed, AddedLog, RemovedLog) {
+    let added = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let removed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let feed = GrowingFeed {
+        pool_len,
+        added: added.clone(),
+        removed: removed.clone(),
+        steps: ScriptedFeed(VecDeque::from(steps)),
+    };
+    (feed, added, removed)
+}
+
+/// Критерий A8.1: строка исчезла из файла — символ снят с записи. Файлы
+/// обоих потоков к этому моменту сброшены и закрыты (кадр до снятия на
+/// диске), `session.json.pool_removals` показывает момент, `instruments`
+/// помнит историю, а события снятого индекса (успевшие лечь в канал) и его
+/// разрывы пропускаются: ни байта в закрытый файл, ни строки в `gaps.csv`.
+#[test]
+fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let dead_path = crate::commands::record::day_file_path(&root, "DEAD", TEST_DAY, 1);
+    let dead_probe = dead_path.clone();
+    let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+    let r1 = root.clone();
+    let r2 = root.clone();
+    let probe_root = root.clone();
+    let (mut feed, _added, removed) = growing_feed(
+        2,
+        vec![
+            // Снапшот снятого символа — кадр, который обязан лечь на диск
+            // до снятия.
+            Step::Ev(book_event(1, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+            Step::Probe(Box::new(move || {
+                rewrite_pool(&r1, &["SYM,0.001,1,0.001"]);
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + window_ns,
+            }),
+            Step::Probe(Box::new(move || {
+                let on_disk = frames_on_disk(&dead_probe);
+                assert_eq!(
+                    on_disk.len(),
+                    1,
+                    "кадр до снятия обязан быть на диске (снятие сбрасывает батчи): {on_disk:?}"
+                );
+            })),
+            // Событие рынка снятого индекса и разрыв того же индекса —
+            // доезжают после снятия (сокет остановлен, канал уже не пуст).
+            Step::Ev(book_event(
+                1,
+                NOON_NS + window_ns + 1,
+                NOON_NS / 1_000_000 + 1,
+                false,
+                2,
+            )),
+            Step::Ev(Event::Gap {
+                symbol: 1,
+                local_ts_ns: NOON_NS + window_ns + 2,
+                kind: crate::feed::GapKind::Disconnected,
+                depth: None,
+                detail: "снятый символ".to_string(),
+            }),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 2 * window_ns,
+            }),
+            Step::Probe(Box::new(move || {
+                let on_disk = frames_on_disk(&dead_path);
+                assert_eq!(
+                    on_disk.len(),
+                    1,
+                    "после снятия в закрытый файл не должно попасть ничего: {on_disk:?}"
+                );
+                assert!(
+                    !std::fs::read_to_string(probe_root.join("gaps.csv"))
+                        .unwrap_or_default()
+                        .contains("снятый символ"),
+                    "разрыв снятого символа — следствие нашей остановки сокета, а не шов записи"
+                );
+            })),
+            // Возврат того же имени в пул — новое состояние и **новый**
+            // индекс (индексы не переиспользуются).
+            Step::Probe(Box::new(move || {
+                rewrite_pool(
+                    &r2,
+                    &["SYM,0.001,1,0.001", "DEAD,0.5,1,0.001", "NEW,0.5,1,0.001"],
+                );
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 3 * window_ns,
+            }),
+        ],
+    );
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert!(!ctx.states[1].active, "символ 1 снят");
+    assert!(ctx.states[0].active, "символ 0 не тронут");
+    assert_eq!(
+        *removed.lock().unwrap(),
+        vec![1u16],
+        "в источник ушло снятие ровно одного индекса, один раз"
+    );
+    assert_eq!(
+        summary.gaps, 0,
+        "разрыв снятого символа в счётчик потерь не идёт"
+    );
+    assert_eq!(
+        summary
+            .pool_removals
+            .iter()
+            .map(|r| r.symbol.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DEAD"],
+        "снятие записано в session.json.pool_removals"
+    );
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string(), "NEW".to_string()],
+        "история остаётся: снятый в списке, вернувшееся имя — без дубликата"
+    );
+    assert!(
+        summary.bytes_written > 0,
+        "байты снятого символа из сводки не пропадают: {summary:?}"
+    );
+    assert_eq!(
+        ctx.states.len(),
+        4,
+        "снятый индекс не переиспользован: вернувшееся имя и новое получили свои состояния"
+    );
+}
+
+/// Замена монеты — это снятие и добавление **за одну перечитку**: старый
+/// индекс уходит в `remove`, новый приходит из `add` со следующим номером.
+#[test]
+fn swapping_a_coin_is_a_remove_and_an_add_in_one_reread() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let r1 = root.clone();
+    let (mut feed, added, removed) = growing_feed(
+        2,
+        vec![
+            Step::Probe(Box::new(move || {
+                rewrite_pool(&r1, &["SYM,0.001,1,0.001", "FRESH,0.5,1,0.001"]);
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000,
+            }),
+        ],
+    );
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(*removed.lock().unwrap(), vec![1u16], "снят один индекс");
+    assert_eq!(
+        *added.lock().unwrap(),
+        vec!["FRESH".to_string()],
+        "добавлен ровно один новый символ"
+    );
+    assert_eq!(
+        summary
+            .pool_removals
+            .iter()
+            .map(|r| r.symbol.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DEAD"]
+    );
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string(), "FRESH".to_string()]
+    );
+    assert!(
+        crate::commands::record::day_file_path(&root, "FRESH", TEST_DAY, 1).exists(),
+        "новому символу открыта своя часть"
+    );
+}
+
+/// Недописанный файл (нет перевода строки в конце) — не состав записи:
+/// снятие не применяется, состав прежний, повтор на следующем изменении.
+#[test]
+fn an_unterminated_pool_file_does_not_remove_anything() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let r1 = root.clone();
+    let (mut feed, added, removed) = growing_feed(
+        2,
+        vec![
+            Step::Probe(Box::new(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                // Оборванная перезапись: строка DEAD не закрыта переводом
+                // строки — файл от целого не отличается ничем, кроме этого.
+                std::fs::write(
+                    r1.join("instruments.csv"),
+                    format!("{POOL_CSV_HEADER}SYM,0.001,1,0.001\nDEAD,0.5,1,0.0"),
+                )
+                .unwrap();
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000,
+            }),
+        ],
+    );
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert!(
+        ctx.states[0].active && ctx.states[1].active,
+        "состав прежний"
+    );
+    assert!(removed.lock().unwrap().is_empty(), "снятия не было");
+    assert!(added.lock().unwrap().is_empty(), "добавления не было");
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string()]
+    );
+}
+
+/// Полная замена пула — ни одного общего имени — тоже набор снятий плюс
+/// добавлений за одну перечитку: запись не остаётся без инструментов, а
+/// недописанный файл ловится правилом «файл обязан кончаться переводом
+/// строки» (отдельный тест).
+#[test]
+fn a_disjoint_full_replacement_removes_the_old_pool_and_adds_the_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let r1 = root.clone();
+    let (mut feed, added, removed) = growing_feed(
+        2,
+        vec![
+            Step::Probe(Box::new(move || {
+                rewrite_pool(&r1, &["OTHER,0.5,1,0.001"]);
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000,
+            }),
+        ],
+    );
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(
+        *removed.lock().unwrap(),
+        vec![0u16, 1u16],
+        "оба прежних символа сняты"
+    );
+    assert_eq!(*added.lock().unwrap(), vec!["OTHER".to_string()]);
+    assert!(!ctx.states[0].active && !ctx.states[1].active);
+    assert!(
+        ctx.states[2].active,
+        "новый символ пишется (индекс продолжает нумерацию)"
+    );
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string(), "OTHER".to_string()],
+        "история снятых остаётся в записи"
+    );
+}
+
+/// Повторная перечитка того же состава (файл переписан без изменений) —
+/// ни снятий, ни добавлений, `mtime` остаётся пусковым событием, а не
+/// приказом менять запись.
+#[test]
+fn rewriting_the_same_pool_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let r1 = root.clone();
+    let (mut feed, added, removed) = growing_feed(
+        2,
+        vec![
+            Step::Probe(Box::new(move || {
+                rewrite_pool(&r1, &["SYM,0.001,1,0.001", "DEAD,0.5,1,0.001"]);
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000,
+            }),
+        ],
+    );
+    run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert!(ctx.states[0].active && ctx.states[1].active);
+    assert!(removed.lock().unwrap().is_empty());
+    assert!(added.lock().unwrap().is_empty());
+    assert_eq!(ctx.states.len(), 2, "новых состояний не появилось");
+}
+
+/// Снятие без добавления: `session.json` обязан показать его **сразу** (а не
+/// на следующей часовой перезаписи), а кадр, лежавший в батче, — лечь на диск
+/// закрытием части: `close_symbol` сбрасывает потоки сам, не полагаясь на
+/// сброс тика.
+#[test]
+fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let dead_path = crate::commands::record::day_file_path(&root, "DEAD", TEST_DAY, 1);
+    let (mut feed, added, removed) = growing_feed(2, Vec::new());
+    let depth = crate::bybit::conn::ORDERBOOK_DEPTH;
+    let cts_ms = NOON_NS / 1_000_000;
+    let snapshot = crate::bybit::ws::Event::Book(crate::book::Update {
+        is_snapshot: true,
+        depth,
+        u: 1,
+        seq: 1,
+        cts_ms,
+        bids: vec![(100 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
+        asks: vec![(110 * TEST_TICK_E9, 7 * TEST_STEP_E9)],
+    });
+    let delta = crate::bybit::ws::Event::Book(crate::book::Update {
+        is_snapshot: false,
+        depth,
+        u: 2,
+        seq: 2,
+        cts_ms: cts_ms + 1,
+        bids: vec![(101 * TEST_TICK_E9, 5 * TEST_STEP_E9)],
+        asks: vec![],
+    });
+    write_market_event(&mut ctx.states[1], NOON_NS, snapshot).unwrap();
+    write_market_event(&mut ctx.states[1], NOON_NS + 1, delta).unwrap();
+    assert_eq!(
+        frames_on_disk(&dead_path).len(),
+        1,
+        "снапшот лёг кадром сразу, дельта осталась в батче"
+    );
+
+    rewrite_pool(&root, &["SYM,0.001,1,0.001"]);
+    ctx.check_pool_file(&mut feed, NOON_NS + 2);
+
+    assert_eq!(
+        frames_on_disk(&dead_path).len(),
+        2,
+        "батч снятого символа сброшен закрытием части, а не потерян"
+    );
+    assert!(!ctx.states[1].active);
+    assert_eq!(*removed.lock().unwrap(), vec![1u16]);
+    assert!(added.lock().unwrap().is_empty());
+    let on_disk = session_json_on_disk(&root);
+    assert_eq!(
+        on_disk
+            .pool_removals
+            .iter()
+            .map(|r| r.symbol.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DEAD"],
+        "снятие без добавления всё равно переписывает session.json"
+    );
+    assert_eq!(
+        on_disk.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string()],
+        "история символа остаётся в записи"
     );
 }

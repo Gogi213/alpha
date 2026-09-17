@@ -1363,6 +1363,14 @@ impl<W: Write> Writer<W> {
         &self.inner
     }
 
+    /// Тот же приёмник, изменяемо: им закрывают часть на ходу (A8.1 —
+    /// инструмент убран из пула: `FrameSink::close` отпускает дескриптор,
+    /// счётчики приёмника остаются). Кадров через `Writer` после этого не
+    /// пишут; сам формат не задет.
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.inner
+    }
+
     pub fn into_inner(self) -> W {
         self.inner
     }
