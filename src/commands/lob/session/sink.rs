@@ -577,3 +577,30 @@ impl LatencyHistogram {
         Some(Self::bin_lower_bound_ns(Self::TOTAL_BINS - 1))
     }
 }
+
+#[cfg(test)]
+mod hot_path_guard {
+    /// C3 аудита 2026-09-17: у `sink.rs` греп-теста не было. Банится ровно то,
+    /// что запрещено на пути события: `HashMap`/`BTreeMap` — лукап по символу
+    /// идёт по `u16` (запрет 7). `f64` здесь **разрешён** и не банится: он
+    /// живёт в `RESOLUTION_PCT` — константе печати перцентиля гистограммы, а не
+    /// в цене или размере; строки собраны из частей, иначе литерал триггерил бы
+    /// проверку сам на себе.
+    #[test]
+    fn event_path_uses_no_maps() {
+        const SRC: &str = include_str!("sink.rs");
+        let banned = [concat!("Hash", "Map"), concat!("BTree", "Map")];
+        for (n, line) in SRC.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue; // объяснения, почему этих слов тут нет, — не код
+            }
+            for b in banned {
+                assert!(
+                    !line.contains(b),
+                    "строка {} тянет запрещённое ({b}): {line}",
+                    n + 1
+                );
+            }
+        }
+    }
+}

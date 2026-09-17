@@ -1133,4 +1133,40 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
 }
 
 #[cfg(test)]
+mod hot_path_guard {
+    /// C3 аудита 2026-09-17: у `session.rs` греп-теста горячего пути не было, и
+    /// регресс (`HashMap` по символу, стенные часы мимо трейта `Clock`) ловило
+    /// бы только ревью. Здесь проверяются ровно те запреты, которые этому
+    /// файлу применимы:
+    ///
+    /// - `HashMap`/`BTreeMap` — запрет 7 (лукап по символу идёт по `u16`);
+    /// - `SystemTime::now` — стенные часы мимо трейта: время берётся `Clock`
+    ///   (`SystemClock` и есть его реализация, поэтому его имя не банится);
+    /// - `Instant::now` разрешён и не банится: модуль меряет им **длительности**
+    ///   (ресурсы, интервалы), а не время события; строки собраны из частей,
+    ///   иначе литерал триггерил бы проверку сам на себе.
+    #[test]
+    fn event_loop_has_no_maps_and_no_wall_clock_outside_the_trait() {
+        const SRC: &str = include_str!("session.rs");
+        let banned = [
+            concat!("Hash", "Map"),
+            concat!("BTree", "Map"),
+            concat!("System", "Time::now"),
+        ];
+        for (n, line) in SRC.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue; // объяснения, почему этих слов тут нет, — не код
+            }
+            for b in banned {
+                assert!(
+                    !line.contains(b),
+                    "строка {} тянет запрещённое ({b}): {line}",
+                    n + 1
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests;

@@ -175,9 +175,19 @@ fn export_one_file(path: &Path, out: &mut Vec<Event>, defective: &mut u64) -> an
         .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
     let header = reader.header();
     loop {
+        // Мягкое чтение (A4, 2026-09-17): экспорт может читать и живой корень,
+        // а запись кладёт кадр не одним `write` — обрезанный хвост это «файл
+        // ещё пишется», а не порча. Порча (`Corrupt` и прочее) по-прежнему
+        // отказ: `read_frame_soft` пропускает только `ShortRead`.
         let frame = reader
-            .read_frame()
+            .read_frame_soft()
             .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+        if frame.is_none() && reader.truncated_tail() {
+            eprintln!(
+                "{}: хвостовой кадр обрезан — файл дописывается, экспортирую прочитанное",
+                path.display()
+            );
+        }
         let Some(records) = frame else { break };
         for r in &records {
             let ev = record_to_event(r, header.tick_e9, header.step_e9);
