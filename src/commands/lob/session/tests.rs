@@ -607,7 +607,7 @@ fn latency_histogram_p99_is_within_bin_resolution_of_the_true_value() {
 /// ноль, снапшот — восемь (две стороны × (первая ёмкость + три роста
 /// 8→16→32→64, `ws::LEVELS_INITIAL_CAPACITY`)). Средние по видам
 /// печатаются в stderr — их кладёт в таблицу
-/// `docs/archive/findings/collector-2026-09-12.md`.
+/// `docs/findings/collector-2026-09-12.md`.
 #[test]
 fn parse_book_write_path_allocations_per_message_after_warmup() {
     use crate::book::Book;

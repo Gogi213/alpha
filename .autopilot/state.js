@@ -1310,7 +1310,7 @@ window.STATE =
     },
     {
       "ticket": "28",
-      "file": "src/feed/live.rs:100; docs/archive/findings/collector-2026-09-12.md:386",
+      "file": "src/feed/live.rs:100; docs/findings/collector-2026-09-12.md:386",
       "what": "«поток ввода-вывода на соединение» не сравнён с «2 соединения в одном current_thread» при росте очереди 1.9 → 27.8 мс; «×8–10 дешевле» не нормировано на активность (на запись CPU ×2.6, байт −15 %) — оговорка по дозапросу",
       "kind": "evidence"
     },
@@ -1418,7 +1418,7 @@ window.STATE =
     },
     {
       "ticket": "24",
-      "file": "docs/archive/findings/collector-2026-09-12.md:143",
+      "file": "docs/findings/collector-2026-09-12.md:143",
       "what": "вердикт «RSS плоский» стоит на 30-с сэмплах stderr, которых нет в артефакте на диске (session.json: старт→конец 4.9→16.1 МиБ, старт взят до открытия сокетов). Передано в T25: периодический session.json несёт ряд RSS-сэмплов",
       "kind": "evidence"
     },
@@ -1436,7 +1436,7 @@ window.STATE =
     },
     {
       "ticket": "24",
-      "file": "docs/archive/findings/collector-2026-09-12.md:123",
+      "file": "docs/findings/collector-2026-09-12.md:123",
       "what": "остаток 1–2 аллокации на книжное сообщение (Vec в book::Update, владеющая пересылка ConnEvent) — красная строка GC «ноль на событие» без D##; ноль — фиксированная ёмкость 50+50 в book::Update, вне зоны 24; решить D## или таском после запуска",
       "kind": "gc"
     },

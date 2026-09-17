@@ -16,7 +16,7 @@
 //!   записи кодируются кодеком v2 и v3 в памяти, сжимаются тем же zstd-1, что
 //!   и коллектор, и сравниваются байт-в-байт по объёму, времени и round-trip.
 //!   Это ответ на «чего не говорит первый замер» (`docs/findings/
-//!   docs/archive/findings/binlog-format-2026-09-13.md`): сколько **байтов** приносит каждое поле,
+//!   docs/findings/binlog-format-2026-09-13.md`): сколько **байтов** приносит каждое поле,
 //!   видно только на перекодировке, а не по счётчикам записей.
 //!
 //! Скорость декодирования на живом пути меряется `lob react`/`--times`, а не
@@ -37,7 +37,7 @@ use crate::binlog::{
 use crate::commands::record::ZSTD_LEVEL;
 
 /// Уровни zstd — кандидаты M1z тикета 44. Числа не изобретены: те же уровни
-/// мерил T25 на живых файлах (`docs/archive/findings/collector-2026-09-12.md`).
+/// мерил T25 на живых файлах (`docs/findings/collector-2026-09-12.md`).
 const ZSTD_LEVEL_CANDIDATE_3: i32 = 3;
 const ZSTD_LEVEL_CANDIDATE_6: i32 = 6;
 
@@ -320,7 +320,7 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
     let mut ev_raw = Vec::new();
     let mut compressed = Vec::new();
     let mut index_flags: Vec<bool> = Vec::new();
-    // Кандидаты M1z — из замера T25 (`docs/archive/findings/collector-2026-09-12.md`):
+    // Кандидаты M1z — из замера T25 (`docs/findings/collector-2026-09-12.md`):
     // уровень 1 (текущий, 170 нс/запись), 3, 6 (475 нс/запись, −4.7 % байт) и 9.
     // Здесь берутся 3 и 6: 9 дороже вчетверо за 1 % байт, а память zstd
     // ограничена размером входа (наши кадры — десятки килобайт).

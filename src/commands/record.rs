@@ -126,7 +126,7 @@ pub const FRAME_LOSS_WINDOW_SECS: u64 = 10;
 /// 824. Уровень 1 строго лучше прежнего по обеим осям; 6/9 покупают
 /// −5…6 % байт за 2.8–4.8× CPU сжатия и большие контексты на инструмент —
 /// при дисковом бюджете без потолка (В-32) и коллекторе «супер экономном»
-/// по CPU/RSS выбран 1. Числа — в `docs/archive/findings/collector-2026-09-12.md`.
+/// по CPU/RSS выбран 1. Числа — в `docs/findings/collector-2026-09-12.md`.
 pub const ZSTD_LEVEL: i32 = 1;
 
 /// Период часового таймера: `clock.csv` (шаг 0.5, хук — см. `run_session`) и
@@ -418,7 +418,7 @@ impl Recorder {
     /// события (Decision 7) — разметка отфильтрует их сама по `block`
     /// (`lob/levels.rs`). В формате v3 это бит `attrs` группы, а не отдельное
     /// `i64`-поле каждой записи: мёртвое поле (0 % ненулевых) не путать с
-    /// мёртвым смыслом (`docs/archive/findings/binlog-format-2026-09-13.md`).
+    /// мёртвым смыслом (`docs/findings/binlog-format-2026-09-13.md`).
     pub fn stage_trade(&mut self, trade: &Trade, local_ts_ns: i64) -> Result<(), RecordError> {
         if !self.has_snapshot {
             return Err(RecordError::NoSnapshot);

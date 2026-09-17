@@ -88,7 +88,7 @@
   4.9→18.4 МиБ не плоский — техдолг до сбора; CPU 3 %, gaps 0 — ок
 - коллектор (T24): `ws::parse_message_into` без `serde_json::Value`, `lob session` копит кадры
   до `FRAME_TARGET_RECORDS`; p99 разбора/очереди — из гистограммы (`LatencyHistogram`,
-  ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/archive/findings/collector-2026-09-12.md`
+  ≤ 1.5625 %), не из `Vec`; замер до/после — `docs/findings/collector-2026-09-12.md`
 - пул на ходу (T34): `lob session` следит за `<root>/instruments.csv` — один `metadata()` на
   тик, файл перечитывается только при смене `mtime` (`load_pool` целиком: одна битая строка —
   весь файл отклонён, stderr, состав прежний); новые символы — файл части текущих суток UTC
