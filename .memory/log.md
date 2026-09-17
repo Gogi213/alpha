@@ -1116,3 +1116,28 @@
   `tmp-lsk-v2`, `tmp-lsk-v3`, `top50-test` — записи, удалять только словом владельца.
 - Память: `CLAUDE.md` (тесты 782, диск 34 ГБ, прод-бинарник и шов), `index.md`, эта страница,
   `dev-plan` §«Проверка реализации».
+
+## [2026-09-17] feat+ops | В-59: сверка по смыслу; `alpha-verify` обновлён на сервере; смоук нового коллектора прошёл
+
+- Владелец: «верифай надо не ебланский делать», «слить в master — ок», «начни со смоука, коллектор не
+  ломай», «SIGTERM — не понял зачем; надо научить коллектор работать при любых обстоятельствах —
+  смена/удаление/добавление монет, апокалипсис».
+- **В-59** (`3614321`): `commands::lob::verify::GapTally` — `write_failed`/`book_invariant` роняют
+  сутки (потеря целостности), `sequence_gap`/`parse_error`/`connect_failed` — швы, считаются
+  (`seams=`), `step_change` — не потеря; строка вердикта `status= gaps_csv= seams= losses= step_changes=`;
+  маркер по-прежнему одно слово. Три теста (шов → ok, потеря → fail, каждая причина в одной корзине).
+  Ворота: 783 / 0 / 5, clippy, fmt. Доки: COMMANDS.md, CLAUDE.md, SETTLED В-59, dev-plan A7/A8.
+- `master` ← `dev` fast-forward, оба запушены (`3614321`).
+- **Сервер (сборка `~/alpha-build`, `nice -n 10`, 1 м 13 с; грабля: у `nohup sh -c` нет `~/.cargo/bin`
+  в PATH — задавать явно).** `alpha-verify` → `3614321`, прежний `alpha-verify-prev-20260917`; на
+  hardlink-копии `HYPEUSDT-2026-09-17.binlog` + строки дня из `gaps.csv`: `status=ok gaps_csv=1
+  seams=1 losses=0` — шов посчитан, сутки живы. Смоук `alpha-smoke-3614321 lob session --minutes 5`
+  (HYPE, LSK, NEAR, DOGE, AKE, корень `/opt/alpha/smoke`, владелец `ubuntu`): 611 214 записей за
+  300 с, gaps 0, reconnects 0, `connect_failed=0`, `gap_rows_failed=0`, `io_threads_dead` в JSON есть,
+  parse p99 102.4 мкс, queue p99 200.7 мкс, CPU 2.2 %, RSS 9.0 → 14.9 МиБ, `deep/` 5 файлов,
+  `verify` ok ×5 (seams 0). Живой коллектор: `active`, час 44, не задет.
+- **Не сделано (по слову владельца — перед деплоем):** A8 «коллектор при любых обстоятельствах»
+  (dev-plan «Дополнения»: hot-remove/замена, отказ подписки, сеть, диск полон→свободен, SIGTERM =
+  reboot, скачок часов, частичный `instruments.csv`). Деплой коллектора — после A8.
+- Открыто: `N_abs`, `S%`, `fsync`, глубокий поток (пишется по В-57), старые каталоги `data/`.
+
