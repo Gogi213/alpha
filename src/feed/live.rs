@@ -764,15 +764,17 @@ impl super::DynamicPool for LiveFeed {
     /// позиция в пуле, её смена отправила бы кадр в чужой файл), а прежний
     /// поток получает сигнал остановки и завершается вместе со своим
     /// рантаймом. Цена разделяемого соединения — короткий разрыв у
-    /// оставшихся (строка `gaps.csv`, как у любого переподключения), а не
-    /// потеря данных: `remove` зовётся на тике, кадры к этому моменту
-    /// сброшены. `pool_len` не уменьшается: индексы не переиспользуются, и
-    /// вернувшийся в пул символ получает новый (`add`), а не чужой старый.
-    fn remove(&mut self, symbols: &[u16]) -> Result<(), LayoutError> {
+    /// оставшихся: он **виден** (A8.1b) — возвращаемые индексы соседей
+    /// вызывающий пишет строками `gaps.csv`. `pool_len` не уменьшается:
+    /// индексы не переиспользуются, и вернувшийся в пул символ получает новый
+    /// (`add`), а не чужой старый.
+    fn remove(&mut self, symbols: &[u16]) -> Result<Vec<u16>, LayoutError> {
         // Сначала разбираем шарды (нужен `&mut self` на пересоздание —
         // поэтому сбор остатков отдельным шагом, без заимствования).
         let mut kept_shards: Vec<IoShard> = Vec::with_capacity(self.shards.len());
         let mut respawn: Vec<(usize, Vec<SymbolSpec>)> = Vec::new();
+        // Соседи, чей сокет пересобран: их шов покрытия — наружу.
+        let mut seams: Vec<u16> = Vec::new();
         for shard in self.shards.drain(..) {
             let IoShard {
                 handle,
@@ -793,6 +795,16 @@ impl super::DynamicPool for LiveFeed {
             if let Some(stop) = stop {
                 let _ = stop.send(());
             }
+            // Барьер `stop` → `spawn` (A8.1b, ревью 18.09): новый сокет на те
+            // же индексы поднимается только после фактического выхода старого
+            // потока — иначе оба коротко живы на одних топиках и шлют дубли
+            // дельт, а книга на них уходит в ресинк. `join` здесь висеть не
+            // может: поток ждёт `select!` над `Connection::run` и приёмником
+            // сигнала, сигнал отправлен выше, блокирующих задач в рантайме
+            // нет — выход из `block_on` роняет рантайм вместе с потоком.
+            if let Some(handle) = handle {
+                let _ = handle.join();
+            }
             let kept: Vec<SymbolSpec> = specs
                 .into_iter()
                 .filter(|s| !symbols.contains(&s.index))
@@ -800,6 +812,9 @@ impl super::DynamicPool for LiveFeed {
             if kept.is_empty() {
                 continue;
             }
+            // Соседи переезжают в новый сокет — у них шов покрытия: индексы
+            // наружу, вызывающий пишет по строке `gaps.csv` на каждый.
+            seams.extend(kept.iter().map(|s| s.index));
             respawn.push((kept_shards.len(), kept.clone()));
             kept_shards.push(IoShard {
                 handle: None,
@@ -818,7 +833,7 @@ impl super::DynamicPool for LiveFeed {
             kept_shards[slot].stop = Some(stop);
         }
         self.shards = kept_shards;
-        Ok(())
+        Ok(seams)
     }
 }
 

@@ -829,14 +829,21 @@ fn dead_io_shard_is_reported_once_on_the_tick() {
 // -----------------------------------------------------------------------
 
 /// Транспорт с номером соединения: подписки пишутся в общий журнал с
-/// префиксом номера, а закрытие соединения — в журнал закрытий. По ним
+/// префиксом номера, события открытия/закрытия — в журнал `events`. По ним
 /// видно и что старый сокет действительно остановлен, и что оставшийся
-/// инструмент получил **новое** соединение, а не продолжил жить на старом.
+/// инструмент получил **новое** соединение, а не продолжил жить на старом,
+/// и — A8.1b — что новое поднялось **после** закрытия старого.
 struct NumberedTransport {
     id: usize,
     inbox: Arc<Mutex<VecDeque<Result<Frame, TransportError>>>>,
     sent: Arc<Mutex<Vec<String>>>,
     closed: Arc<Mutex<Vec<usize>>>,
+    events: Arc<Mutex<Vec<String>>>,
+    /// Задержка перед записью «закрыт» — шов теста A8.1b: старый сокет
+    /// умирает медленно, поэтому «новый поднялся раньше закрытия старого»
+    /// становится детерминированным, а не гонкой. У второго соединения
+    /// задержки нет.
+    close_delay: Duration,
 }
 
 impl Transport for NumberedTransport {
@@ -858,7 +865,14 @@ impl Transport for NumberedTransport {
 
 impl Drop for NumberedTransport {
     fn drop(&mut self) {
+        if !self.close_delay.is_zero() {
+            std::thread::sleep(self.close_delay);
+        }
         self.closed.lock().unwrap().push(self.id);
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("closed {}", self.id));
     }
 }
 
@@ -871,6 +885,9 @@ struct NumberedConnector {
     inboxes: Arc<Mutex<VecDeque<InboxQueue>>>,
     sent: Arc<Mutex<Vec<String>>>,
     closed: Arc<Mutex<Vec<usize>>>,
+    events: Arc<Mutex<Vec<String>>>,
+    /// Задержка закрытия **первого** соединения (шов теста A8.1b).
+    first_close_delay: Duration,
 }
 
 impl TransportConnector for NumberedConnector {
@@ -881,6 +898,7 @@ impl TransportConnector for NumberedConnector {
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.events.lock().unwrap().push(format!("open {id}"));
         let inbox = self
             .inboxes
             .lock()
@@ -889,12 +907,20 @@ impl TransportConnector for NumberedConnector {
             .unwrap_or_else(|| Arc::new(Mutex::new(VecDeque::new())));
         let sent = self.sent.clone();
         let closed = self.closed.clone();
+        let events = self.events.clone();
+        let close_delay = if id == 0 {
+            self.first_close_delay
+        } else {
+            Duration::ZERO
+        };
         async move {
             Ok(NumberedTransport {
                 id,
                 inbox,
                 sent,
                 closed,
+                events,
+                close_delay,
             })
         }
     }
@@ -917,6 +943,8 @@ fn numbered_feed(
     pool: Vec<PoolMember>,
     sent: Arc<Mutex<Vec<String>>>,
     closed: Arc<Mutex<Vec<usize>>>,
+    events: Arc<Mutex<Vec<String>>>,
+    first_close_delay: Duration,
 ) -> LiveFeed {
     let next_id = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let inboxes = Arc::new(Mutex::new(VecDeque::new()));
@@ -927,6 +955,8 @@ fn numbered_feed(
             inboxes: inboxes.clone(),
             sent: sent.clone(),
             closed: closed.clone(),
+            events: events.clone(),
+            first_close_delay,
         },
         SystemClock,
         None,
@@ -944,6 +974,7 @@ fn numbered_feed(
 fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
     let sent = Arc::new(Mutex::new(Vec::<String>::new()));
     let closed = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
     let mut feed = numbered_feed(
         vec![
             PoolMember {
@@ -959,6 +990,10 @@ fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
         ],
         sent.clone(),
         closed.clone(),
+        events.clone(),
+        // Старый сокет умирает медленно: «новый поднялся раньше закрытия
+        // старого» становится детерминированным, а не гонкой (A8.1b).
+        Duration::from_millis(200),
     );
 
     wait_until(
@@ -981,7 +1016,7 @@ fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
         "первое соединение подписано на оба топика: {first:?}"
     );
 
-    crate::feed::DynamicPool::remove(&mut feed, &[1]).unwrap();
+    let seams = crate::feed::DynamicPool::remove(&mut feed, &[1]).unwrap();
 
     wait_until(
         "снятый сокет обязан закрыться",
@@ -995,6 +1030,23 @@ fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
                 .iter()
                 .any(|m| m.starts_with("1 ") && m.contains("AAAUSDT"))
         },
+    );
+
+    // A8.1b: барьер `stop` → `spawn` — старый сокет закрыт **до** того, как
+    // поднялся новый (иначе оба коротко живы на одних топиках и шлют дубли
+    // дельт, а книга уходит в ресинк).
+    let journal = events.lock().unwrap().clone();
+    let closed_old = journal.iter().position(|e| e == "closed 0");
+    let open_new = journal.iter().position(|e| e == "open 1");
+    assert!(
+        matches!((closed_old, open_new), (Some(c), Some(o)) if c < o),
+        "старый сокет обязан закрыться раньше нового: {journal:?}"
+    );
+    // A8.1b: соседи наружу — по ним вызывающий пишет шов покрытия.
+    assert_eq!(
+        seams,
+        vec![0],
+        "сосед пересобранного сокета возвращён вызывающему"
     );
 
     assert_eq!(feed.shards.len(), 1, "уцелевший сосед — один шард");
@@ -1047,6 +1099,7 @@ fn remove_stops_the_socket_and_respawns_the_neighbours_with_the_same_indices() {
 fn removing_the_last_symbol_of_a_shard_leaves_no_thread_behind() {
     let sent = Arc::new(Mutex::new(Vec::<String>::new()));
     let closed = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let events = Arc::new(Mutex::new(Vec::<String>::new()));
     let mut feed = numbered_feed(
         vec![PoolMember {
             symbol: "AAAUSDT".to_string(),
@@ -1055,13 +1108,16 @@ fn removing_the_last_symbol_of_a_shard_leaves_no_thread_behind() {
         }],
         sent.clone(),
         closed.clone(),
+        events.clone(),
+        Duration::ZERO,
     );
     wait_until(
         "соединение обязано подписаться",
         || !sent.lock().unwrap().is_empty(),
     );
 
-    crate::feed::DynamicPool::remove(&mut feed, &[0]).unwrap();
+    let seams = crate::feed::DynamicPool::remove(&mut feed, &[0]).unwrap();
+    assert!(seams.is_empty(), "соседей нет — шва тоже: {seams:?}");
     assert!(feed.shards.is_empty(), "шарду без инструментов жить нечем");
     wait_until(
         "соединение обязано закрыться",

@@ -292,6 +292,12 @@ struct SessionCtx {
     /// метаданных на тик, ни одной на событие рынка.
     pool_path: PathBuf,
     pool_mtime: Option<std::time::SystemTime>,
+    /// Снятие применено, а добавление новой партии отказало (A8.1b): состав
+    /// приводится к файлу **повторно на следующем тике**, не дожидаясь нового
+    /// `mtime` — правка пула одноразовая, и потерять из-за разового отказа
+    /// источника монету до следующей правки нельзя. Снимается, как только
+    /// перечитка прошла целиком.
+    pool_retry: bool,
 }
 
 /// `mtime` файла или `None`, если файла нет / метаданные не читаются —
@@ -391,6 +397,7 @@ impl SessionCtx {
             hours_reported: 0,
             pool_path,
             pool_mtime,
+            pool_retry: false,
         })
     }
 
@@ -410,14 +417,18 @@ impl SessionCtx {
     /// Замена монеты — это те же два шага за один `mtime`, а полная замена
     /// пула (ни одного общего имени) — снятие всех плюс добавление новой
     /// партии. Ошибка чтения файла, строки или источника — строка stderr,
-    /// запись идёт, повтор на следующем изменении `mtime`.
+    /// запись идёт; **отказ на шаге добавления повторяется на следующем тике**
+    /// (`pool_retry`, A8.1b: правка файла одноразовая — ждать нового `mtime`
+    /// после уже применённого снятия значило бы потерять монету до следующей
+    /// правки пула).
     fn check_pool_file<F: DynamicPool + ?Sized>(&mut self, feed: &mut F, ts_ns: i64) {
         let mtime = file_mtime(&self.pool_path);
-        if mtime == self.pool_mtime {
+        if mtime == self.pool_mtime && !self.pool_retry {
             return;
         }
         self.pool_mtime = mtime;
         if mtime.is_none() {
+            self.pool_retry = false;
             return;
         }
         if !pool_file_is_complete(&self.pool_path) {
@@ -427,6 +438,7 @@ impl SessionCtx {
                  атомарно (временный файл + переименование) или дописывай строки",
                 self.pool_path.display()
             );
+            self.pool_retry = false;
             return;
         }
         let pool = match load_pool(&self.pool_path) {
@@ -437,6 +449,7 @@ impl SessionCtx {
                      повтор при следующем изменении файла",
                     self.pool_path.display()
                 );
+                self.pool_retry = false;
                 return;
             }
         };
@@ -456,13 +469,46 @@ impl SessionCtx {
                 .iter()
                 .map(|&idx| u16::try_from(idx).unwrap_or(u16::MAX))
                 .collect();
-            if let Err(e) = feed.remove(&indices) {
-                eprintln!(
-                    "session: снятие не состоялось — источник отказал: {e}; состав записи \
-                     прежний, повтор при следующем изменении {}",
-                    self.pool_path.display()
-                );
-                return;
+            match feed.remove(&indices) {
+                Ok(seams) => {
+                    // A8.1b: соседи по снятому сокету переехали в новый — у
+                    // них между остановкой старого соединения и снапшотом
+                    // нового данных нет. Шов покрытия: строка `gaps.csv` на
+                    // каждого (В-59 сутки не роняет) и сброс доверия книги —
+                    // до снапшота дельты нового сокета не на ту книгу.
+                    let names = removed
+                        .iter()
+                        .filter_map(|&idx| self.states.get(idx))
+                        .map(|s| s.member.symbol.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    for &idx in &seams {
+                        let idx = usize::from(idx);
+                        if let Some(state) = self.states.get_mut(idx) {
+                            for stream in &mut state.streams {
+                                stream.synced = false;
+                            }
+                        }
+                        self.gaps += 1;
+                        self.log_gap(
+                            Some(idx),
+                            GapKind::SequenceGap,
+                            ts_utc_of_ns(ts_ns),
+                            format!(
+                                "шов покрытия — пересборка сокета при снятии {names}: \
+                                 снапшот нового соединения ещё не пришёл"
+                            ),
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "session: снятие не состоялось — источник отказал: {e}; состав записи \
+                         прежний, повтор при следующем изменении {}",
+                        self.pool_path.display()
+                    );
+                    return;
+                }
             }
             for &idx in &removed {
                 self.close_symbol(idx, ts_ns);
@@ -484,6 +530,7 @@ impl SessionCtx {
             }
         }
         if fresh.is_empty() {
+            self.pool_retry = false;
             if !removed_any {
                 return;
             }
@@ -507,10 +554,10 @@ impl SessionCtx {
                 Err(e) => {
                     eprintln!(
                         "session: {} не добавлен — файл части не открыт: {e}; \
-                         повтор при следующем изменении {}",
-                        member.symbol,
-                        self.pool_path.display()
+                         повтор на следующем тике (файл пула менять не нужно)",
+                        member.symbol
                     );
+                    self.pool_retry = true;
                     discard_opened(&self.root, &day, opened);
                     return;
                 }
@@ -521,9 +568,9 @@ impl SessionCtx {
             Err(e) => {
                 eprintln!(
                     "session: партия не добавлена — источник отказал: {e}; файлы частей \
-                     удалены, повтор при следующем изменении {}",
-                    self.pool_path.display()
+                     удалены, повтор на следующем тике (файл пула менять не нужно)"
                 );
+                self.pool_retry = true;
                 discard_opened(&self.root, &day, opened);
                 return;
             }
@@ -539,9 +586,9 @@ impl SessionCtx {
         if indices != expected {
             eprintln!(
                 "session: партия не добавлена — источник вернул индексы {indices:?}, \
-                 ожидались {expected:?}; файлы частей удалены, события этих индексов \
-                 не пишутся"
+                 ожидались {expected:?}; файлы частей удалены, повтор на следующем тике"
             );
+            self.pool_retry = true;
             discard_opened(&self.root, &day, opened);
             return;
         }
@@ -575,6 +622,7 @@ impl SessionCtx {
             self.states.push(state);
         }
         self.session_json_dirty = false;
+        self.pool_retry = false;
         self.write_session_json_or_log(ts_ns);
     }
 

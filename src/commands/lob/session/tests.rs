@@ -2077,7 +2077,7 @@ impl DynamicPool for ScriptedFeed {
         Err(crate::feed::live::LayoutError::StaticSource)
     }
 
-    fn remove(&mut self, _symbols: &[u16]) -> Result<(), crate::feed::live::LayoutError> {
+    fn remove(&mut self, _symbols: &[u16]) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
         Err(crate::feed::live::LayoutError::StaticSource)
     }
 }
@@ -2114,10 +2114,69 @@ impl DynamicPool for GrowingFeed {
     }
 
     /// Индексы не переиспользуются: `pool_len` снятие не уменьшает — того же
-    /// правила держится `LiveFeed`.
-    fn remove(&mut self, symbols: &[u16]) -> Result<(), crate::feed::live::LayoutError> {
+    /// правила держится `LiveFeed`. Соседей сценарный источник не делит: шва
+    /// нет (пустой список), — шов задаёт `NeighbourSeamFeed`.
+    fn remove(&mut self, symbols: &[u16]) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
         self.removed.lock().unwrap().extend_from_slice(symbols);
-        Ok(())
+        Ok(Vec::new())
+    }
+}
+
+/// Источник, который при снятии сообщает соседей (A8.1b): в живом пуле
+/// инструменты делят сокет, и его пересборка — шов покрытия у оставшихся;
+/// сценарный `Feed` ничего не делит, поэтому шов задаётся тестом явно.
+struct NeighbourSeamFeed {
+    inner: GrowingFeed,
+    seams: Vec<u16>,
+}
+
+impl Feed for NeighbourSeamFeed {
+    fn next_event(&mut self) -> Option<Event> {
+        self.inner.next_event()
+    }
+}
+
+impl DynamicPool for NeighbourSeamFeed {
+    fn add(
+        &mut self,
+        members: Vec<PoolMember>,
+    ) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
+        crate::feed::DynamicPool::add(&mut self.inner, members)
+    }
+
+    fn remove(&mut self, symbols: &[u16]) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
+        crate::feed::DynamicPool::remove(&mut self.inner, symbols)?;
+        Ok(self.seams.clone())
+    }
+}
+
+/// Источник, у которого первые `failures_left` партий `add` отказывают:
+/// проверка повтора на следующем тике **без** нового `mtime` (A8.1b).
+struct FlakyAddFeed {
+    inner: GrowingFeed,
+    failures_left: usize,
+}
+
+impl Feed for FlakyAddFeed {
+    fn next_event(&mut self) -> Option<Event> {
+        self.inner.next_event()
+    }
+}
+
+impl DynamicPool for FlakyAddFeed {
+    fn add(
+        &mut self,
+        members: Vec<PoolMember>,
+    ) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
+        if self.failures_left > 0 {
+            self.failures_left -= 1;
+            return Err(crate::feed::live::LayoutError::StaticSource);
+        }
+        crate::feed::DynamicPool::add(&mut self.inner, members)
+    }
+
+    fn remove(&mut self, symbols: &[u16]) -> Result<Vec<u16>, crate::feed::live::LayoutError> {
+        crate::feed::DynamicPool::remove(&mut self.inner, symbols)
     }
 }
 
@@ -2816,4 +2875,109 @@ fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
         vec!["SYM".to_string(), "DEAD".to_string()],
         "история символа остаётся в записи"
     );
+}
+
+/// A8.1b (правка ревью A8.1): соседи по снятому сокету переезжают в новое
+/// соединение — у них между остановкой старого и снапшотом нового данных нет.
+/// Шов обязан быть **видимым**: строка `gaps.csv` класса `sequence_gap` на
+/// каждого соседа (в проде 99 монет на одном сокете) и сброс доверия книги —
+/// до снапшота дельты нового сокета легли бы не на ту книгу. Раньше это было
+/// тихо (`gaps = 0`), и проверить «потери видны» было нечем.
+#[test]
+fn a_rebuilt_socket_gives_the_neighbours_a_visible_seam() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let r1 = root.clone();
+    let (added, removed) = (
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+    let mut feed = NeighbourSeamFeed {
+        seams: vec![0],
+        inner: GrowingFeed {
+            pool_len: 2,
+            added: added.clone(),
+            removed: removed.clone(),
+            steps: ScriptedFeed(VecDeque::from(vec![
+                Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+                Step::Probe(Box::new(move || {
+                    rewrite_pool(&r1, &["SYM,0.001,1,0.001"]);
+                })),
+                Step::Ev(Event::Tick {
+                    local_ts_ns: NOON_NS + window_ns,
+                }),
+            ])),
+        },
+    };
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(*removed.lock().unwrap(), vec![1u16], "снят только DEAD");
+    assert_eq!(summary.gaps, 1, "шов соседа посчитан");
+    let rows = crate::commands::record::read_gap_rows(&gaps_csv_path(&root)).unwrap();
+    assert_eq!(rows.len(), 1, "строка на соседа: {rows:?}");
+    assert_eq!(rows[0].kind, GapKind::SequenceGap);
+    assert_eq!(rows[0].symbol, "SYM", "строка называет соседа, не снятого");
+    assert!(
+        rows[0].detail.contains("пересборка сокета при снятии DEAD"),
+        "деталь объясняет причину шва: {}",
+        rows[0].detail
+    );
+    assert!(
+        !ctx.states[0].streams[FAST_STREAM].synced && !ctx.states[0].streams[DEEP_STREAM].synced,
+        "до снапшота нового соединения книга соседа недоверена"
+    );
+}
+
+/// A8.1b (правка ревью A8.1): правка пула одноразовая — если добавление новой
+/// партии отказало, состав приводится к файлу **на следующем тике**, а не ждёт
+/// нового `mtime` (иначе потерянная монета вернулась бы только после
+/// следующей правки пула). Снятия при этом уже применены и не повторяются.
+#[test]
+fn a_failed_add_is_retried_on_the_next_tick_without_a_new_mtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+    // Файл уже содержит будущий символ: правка была одна, `mtime` после неё
+    // не меняется.
+    rewrite_pool(&root, &["SYM,0.001,1,0.001", "NEW,0.5,1,0.001"]);
+    let added = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let removed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut feed = FlakyAddFeed {
+        failures_left: 1,
+        inner: GrowingFeed {
+            pool_len: 1,
+            added: added.clone(),
+            removed: removed.clone(),
+            steps: ScriptedFeed(VecDeque::from(vec![
+                Step::Ev(Event::Tick {
+                    local_ts_ns: NOON_NS + window_ns,
+                }),
+                // Проба между тиками: первый отказ не добавил ничего.
+                Step::Probe(Box::new(move || {})),
+                Step::Ev(Event::Tick {
+                    local_ts_ns: NOON_NS + 2 * window_ns,
+                }),
+            ])),
+        },
+    };
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(
+        *added.lock().unwrap(),
+        vec!["NEW".to_string()],
+        "партия ушла в источник на повторе, и ровно один раз"
+    );
+    assert!(
+        removed.lock().unwrap().is_empty(),
+        "снятий не было: обе строки файла — активный и новый символы"
+    );
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "NEW".to_string()],
+        "новый символ в записи после повтора"
+    );
+    assert_eq!(ctx.states.len(), 2);
 }

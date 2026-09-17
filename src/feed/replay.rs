@@ -144,7 +144,7 @@ impl<R: Read> DynamicPool for ReplayFeed<R> {
         Err(LayoutError::StaticSource)
     }
 
-    fn remove(&mut self, _symbols: &[u16]) -> Result<(), LayoutError> {
+    fn remove(&mut self, _symbols: &[u16]) -> Result<Vec<u16>, LayoutError> {
         Err(LayoutError::StaticSource)
     }
 }
