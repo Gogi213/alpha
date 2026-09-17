@@ -1,0 +1,14 @@
+[Unit]
+Description=Alpha: `verify` закрытых суток каждый день после UTC-полуночи (A2)
+Documentation=file:///opt/alpha/src/docs/COMMANDS.md
+
+[Timer]
+# Ротация суток — в 00:00 UTC, кадр ложится на диск не позже 10 с; 00:20 —
+# запас, чтобы вчерашние файлы точно были закрыты (и чтобы не совпасть с
+# ночными apt-задачами, которые на этом сервере выключены).
+OnCalendar=*-*-* 00:20:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

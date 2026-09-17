@@ -1,0 +1,17 @@
+[Unit]
+Description=Alpha: сверка закрытых суток боевого корня (A2, 2026-09-17)
+Documentation=file:///opt/alpha/src/docs/COMMANDS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/alpha
+# Пишет маркеры в /opt/alpha/root (каталог root:root), поэтому без User=.
+# Код возврата 0 даже при вердиктах `fail`: fail — это данные, а не сбой
+# службы; настоящий сбой виден строкой `verify: day=...` в журнале.
+ExecStart=/opt/alpha/tools/verify-day.sh
+Nice=10
+CPUWeight=50
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
