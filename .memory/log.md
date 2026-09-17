@@ -1215,3 +1215,30 @@
   деплой одним выкатом); строка порядка обновлена. `alpha.md` §ПЕРЕДАЧА п. 1 и `index.md` «Следующий
   шаг» — тот же порядок.
 
+## [2026-09-18] code | A8.3 сделан: отказ подписки биржи виден и привязан к инструменту (`eeec710`)
+
+- Тикет `.autopilot/2026-09-11-lob-density-ed3/tickets/49-subscribe-failed.md`. **Замер до кода**
+  (живой сокет, в партию подписок подложен `ZZZFAKEUSDT`, временный `eprintln` в ветке `Other`,
+  убран перед коммитом): `{"success":false,"ret_msg":"error:handler not found,topic:orderbook.50.ZZZFAKEUSDT",
+  "conn_id":"…","req_id":"","op":"subscribe"}` — ответ **на каждый несогласованный топик отдельно**,
+  топик назван в `ret_msg`, поля `args` нет; на `.200` и `publicTrade` того же фейка биржа не
+  пожаловалась (отказ топик-специфичен). До правки это читалось как служебное сообщение, и инструмент
+  молча стоял без данных — ни строки `gaps.csv`, ни счётчика.
+- Реализация: `ws::Event::SubscribeFailed { topic, ret_msg }` + заимствующий `SubscribeAck`
+  (аллокация только на отказе) + `ws::topic_symbol`; `conn::ConnEvent::SubscribeFailed` с привязкой к
+  **инструменту топика** (`route.slot_of`; чужой топик → индекс сокета, как события без символа;
+  `session.productive = true`), `feed::GapKind::SubscribeFailed` → строка `gaps.csv` класса
+  `subscribe_failed`, счётчик `session.json.subscribe_failed` (и в строке сводки stderr),
+  `GapTally::seams` (шов, В-59); одно-символьный `lob record` пишет ту же строку.
+- Ворота: **795 тестов, 0 failed, 5 ignored** (+4 новых: разбор ответа, привязка к топику на сокете
+  из двух инструментов + сосед жив, чужой топик → индекс сокета, счётчик+строка в сессии), clippy
+  `-D warnings`, fmt. Доки: `CLAUDE.md` (швы, состояние A8), `COMMANDS.md` (строки `lob session` и
+  `lob verify`), `dev-plan` (A8.3 сделан + заметка).
+- **Живой прогон** (`data/sub-probe2`, HYPEUSDT + `ZZZFAKEUSDT`, один сокет, 51 с, остановка файлом
+  `stop`): `2026-09-17T20:34:44Z,ZZZFAKEUSDT,subscribe_failed,"подписка не состоялась:
+  orderbook.50.ZZZFAKEUSDT — error:handler not found,…"`, `subscribe_failed = 1`, `gaps = 1`,
+  `connect_failed = 0`, `closed = true`.
+- Открыто за тикетом: отказ сам не лечится (повтор подписки — только на переподключении сокета);
+  «символ без данных N минут → снять из пула» — отдельное решение владельца, не изобретено.
+  Следующий по плану — **A8.2** (SIGTERM = штатный `stop`), затем A8.1b (три правки ревью).
+
