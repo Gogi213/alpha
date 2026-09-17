@@ -1,0 +1,24 @@
+[Unit]
+Description=Alpha Bybit LOB collector (top-30, always-on, v3) 
+Documentation=file:///opt/alpha/src/docs/COMMANDS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/alpha
+# Пул — /opt/alpha/root/instruments.csv (топ-20, В-50). Штатная остановка — файл
+# /opt/alpha/root/stop (В-41): коллектор дописывает кадры, ставит closed=true и
+# выходит с кодом 0, поэтому Restart=on-failure его не поднимает обратно.
+ExecStart=/opt/alpha/alpha-collector lob session --pool-instruments /opt/alpha/root/instruments.csv --root /opt/alpha/root --always-on
+Restart=on-failure
+RestartSec=10
+# Не мешать watcher/staging: это фоновая запись, а не прод-сервис.
+Nice=10
+CPUWeight=50
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

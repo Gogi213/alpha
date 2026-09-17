@@ -1088,3 +1088,31 @@
 `docs/archive/README.md` переписан: две категории, критерий, список вернувшихся.
 **Ворота:** `fmt` 0, **782 теста** (0 failed, 5 ignored), `clippy` 0 — после правки 6 ссылок в `src/`.
 
+## [2026-09-17] audit+cleanup | Проверка реализации dev-plan и уборка проекта (сессия разбора транскрипций)
+
+- Владелец: «проверить реализацию плана, там частично сделано; обновить память, подмести проект».
+- **Проверено по коду:** A1 `archive.rs::still_writing`; A2 `tools/verify-day.sh` + `alpha-verify.timer`
+  (00:20 UTC, в корне 94 ok / 6 fail за 09-16: AKE, AVAAI, BR, BTW, LSK, XMR); A3 `ConnectFailed` ×3,
+  `recv_timeout`, `gap_rows_failed`; A4 `parts::read_frame_soft` (watch, replay); A5/A6 (В-57);
+  B1 В-58; B2 `--stop-mode`, `frontrun_tick`; B3 `--deadline-secs`, `HORIZONS_LONG_MS`; B4
+  `--early-exit-secs`. Ворота: **782 passed / 0 failed / 5 ignored**, clippy `-D warnings`, fmt — чисто.
+  Не сделано: B5, C1–C4, D.
+- **Сервер (только чтение):** юнит активен с 09-15 22:47Z, `NRestarts=0`, бинарник тот же 09-15 —
+  A3 не выкачен; `session.json`: `reconnects=1`, `records_total=2.6e9`; `gaps.csv` — 100 строк
+  `sequence_gap` «транспорт переподключился — шов покрытия» 2026-09-17T01:51:19Z по всем 100
+  символам; `df` 14 ГБ занято / 34 свободно. Следствие V4: ночная сверка за 09-17 даст `fail` всем
+  100 — нужна политика «шва» (владелец).
+- **Уборка:** удалены `.tmp-ssh` (19 МБ, 130 одноразовых скриптов и копий исходников, zig-тулчейн —
+  прод собирается на сервере с 16.09), `.tmp-gate`/`.tmp-b2` (CSV прогона B2 — отчёт сам говорит,
+  что они временные), `.tmp-chrome2` (профиль браузера), содержимое `.tmp-shot` (каталог оставлен —
+  `tools/shot.py` его не создаёт), пустой `does/not/`, `target/` (4.5 ГБ; сборка — в `target-ci`).
+  Перенесены в `tools/server/`: `rpi_probe.py`, `rpi_pool_probe.py`, `alpha-collector.service`
+  (на них ссылаются `hft-underground-2026-09-16.md` и `COMMANDS.md`); ссылки поправлены.
+- **`data/` не трогал** (1.6 ГБ): упоминаются в доках `always-on`, `collector`, `recording-eco`,
+  `pilot-battle`, `dashboard`, `collector-500`, `tmp-v2check`, `tmp-v3check`, `smoke-v3`,
+  `session-debug`, `pilot-debug`, `moves`; **не упоминаются нигде** — `acceptance-20260911`,
+  `acceptance-20260911T155044Z`, `backtest-fillmodel-debug`, `bybit`, `dashboard-check`, `live5e`,
+  `pick-debug`, `pick22a`, `pick25`, `react-debug`, `recon5`, `shortlist-debug`, `smoke-v3-top50`,
+  `tmp-lsk-v2`, `tmp-lsk-v3`, `top50-test` — записи, удалять только словом владельца.
+- Память: `CLAUDE.md` (тесты 782, диск 34 ГБ, прод-бинарник и шов), `index.md`, эта страница,
+  `dev-plan` §«Проверка реализации».
