@@ -17,6 +17,31 @@ use crate::binlog::{
 
 use super::session;
 
+/// Кадр живого файла записи (A4, 2026-09-17).
+///
+/// Запись кладёт кадр не одним `write`: читатель, заставший момент между
+/// префиксом длины и телом, получал `ShortRead` — и вся команда падала на
+/// живом корне, хотя виноват не файл, а то, что коллектор пишет в него прямо
+/// сейчас (`COMMANDS.md`: `verify`/`levels`/`markout` читают живой каталог).
+/// Здесь обрезанный **хвостовой** кадр — это конец прочитанного плюс одна
+/// строка stderr; порча (`Corrupt`, `MissingSnapshot`, `TruncatedHeader`)
+/// остаётся отказом: она про обрыв хвоста не говорит.
+pub(crate) fn read_frame_soft<R: std::io::Read>(
+    reader: &mut crate::binlog::Reader<R>,
+    path: &Path,
+) -> anyhow::Result<Option<Vec<crate::binlog::Record>>> {
+    let frame = reader
+        .read_frame_soft()
+        .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+    if frame.is_none() && reader.truncated_tail() {
+        eprintln!(
+            "{}: хвостовой кадр обрезан — файл дописывается, читаю прочитанное",
+            path.display()
+        );
+    }
+    Ok(frame)
+}
+
 /// Сутки из имени файла `<SYMBOL>-<день>[-pN].binlog[.zst]`: первые 10 знаков
 /// остатка. Формат проверяет позже `watch` (`BadDay`), здесь только нарезка.
 pub(crate) fn day_of_filename(prefix: &str, name: &str) -> Option<String> {

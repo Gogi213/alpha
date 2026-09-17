@@ -91,6 +91,19 @@ pub struct BinlogStats {
     pub max_records_in_frame: u64,
 }
 
+/// Хвост живого файла (A4, 2026-09-17): одна строка предупреждения, если
+/// читатель остановился на обрезанном кадре. `binlog-stats` — команда чтения,
+/// и падать на файле, который прямо сейчас дописывает коллектор, ей незачем;
+/// порча (`Corrupt` и прочее) по-прежнему отказ — см. `Reader::read_frame_soft`.
+fn warn_truncated<R: std::io::Read>(reader: &Reader<R>, path: &std::path::Path) {
+    if reader.truncated_tail() {
+        eprintln!(
+            "{}: хвостовой кадр обрезан — файл дописывается, считаю прочитанное",
+            path.display()
+        );
+    }
+}
+
 /// Разбирает файл целиком и считает счётчики. `Err` — только ввод-вывод и
 /// порча формата: счётчики на испорченном файле не печатаются частично.
 pub fn run_binlog_stats(args: &BinlogStatsArgs) -> anyhow::Result<BinlogStats> {
@@ -105,7 +118,7 @@ pub fn run_binlog_stats(args: &BinlogStatsArgs) -> anyhow::Result<BinlogStats> {
         ..Default::default()
     };
     let mut by_ev: std::collections::BTreeMap<u64, u64> = std::collections::BTreeMap::new();
-    while let Some(frame) = reader.read_frame()? {
+    while let Some(frame) = reader.read_frame_soft()? {
         stats.frames += 1;
         let n = frame.len() as u64;
         stats.records += n;
@@ -128,6 +141,7 @@ pub fn run_binlog_stats(args: &BinlogStatsArgs) -> anyhow::Result<BinlogStats> {
     if stats.frames == 0 {
         stats.min_records_in_frame = 0;
     }
+    warn_truncated(&reader, &args.path);
     stats.legacy_dead = reader.legacy_dead_fields();
     let mut by_ev: Vec<(u64, u64)> = by_ev.into_iter().collect();
     by_ev.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -315,9 +329,14 @@ pub fn measure_reencode(args: &BinlogStatsArgs) -> anyhow::Result<ReencodeReport
 
     loop {
         let t_decode = Instant::now();
-        let frame = reader.read_frame()?;
+        let frame = reader.read_frame_soft()?;
         let v2_decode_ns = t_decode.elapsed().as_nanos();
-        let Some(frame) = frame else { break };
+        let Some(frame) = frame else {
+            // Замер на живом файле: обрезанный хвост — конец прочитанного
+            // (A4), а не отказ замера.
+            warn_truncated(&reader, &args.path);
+            break;
+        };
         report.frames += 1;
         report.v2_decode_ns += v2_decode_ns;
         report.records += frame.len() as u64;
@@ -616,6 +635,10 @@ pub fn rewrite_v2_to_v3(src: &Path, out: &Path) -> anyhow::Result<Vec<String>> {
     let mut writer = Writer::create(file, header, ZSTD_LEVEL)?;
     let mut frames = 0u64;
     let mut records = 0u64;
+    // Здесь `read_frame`, а не мягкий вариант (A4): `--rewrite-out` **пишет
+    // файл-артефакт**, и молча потерянный хвостовой кадр сделал бы его
+    // «полными сутками» на вид — отказ честнее (та же логика, что у ворот
+    // M5c: артефакт обязан совпадать с оригиналом).
     while let Some(frame) = reader.read_frame()? {
         writer.write_frame(&frame)?;
         frames += 1;

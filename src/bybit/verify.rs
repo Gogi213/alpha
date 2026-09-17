@@ -958,9 +958,18 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
     // и незакрытая группа переживает границу кадра внутри него.
     let mut replayer = FileReplayer::new();
     loop {
+        // Мягкий вариант (A4, 2026-09-17): `lob verify` читает в том числе
+        // живой корень, а запись кладёт кадр не одним `write` — обрезанный
+        // **хвостовой** кадр здесь означает «файл ещё пишется», а не порчу.
         let frame = reader
-            .read_frame()
+            .read_frame_soft()
             .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+        if frame.is_none() && reader.truncated_tail() {
+            eprintln!(
+                "verify: {} — хвостовой кадр обрезан (файл дописывается), сверяю прочитанное",
+                path.display()
+            );
+        }
         let Some(records) = frame else { break };
         let mut updates = Vec::new();
         let mut trades = Vec::new();

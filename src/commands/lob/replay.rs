@@ -265,9 +265,7 @@ pub(crate) fn replay_symbol_over_configs(
         let mut tps = Vec::new();
         let mut file_ok = true;
         loop {
-            let frame = reader
-                .read_frame()
-                .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+            let frame = super::parts::read_frame_soft(&mut reader, path)?;
             let Some(frame_records) = frame else { break };
             for s in &mut out {
                 s.records += frame_records.len() as u64;

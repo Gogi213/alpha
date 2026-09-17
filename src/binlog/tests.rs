@@ -307,6 +307,41 @@ fn truncated_final_frame_is_a_short_read_not_corruption() {
     );
 }
 
+/// A4 (2026-09-17): тот же обрезанный хвост, но **мягким** чтением — это конец
+/// прочитанного с флагом `truncated_tail`, а не отказ команды. Живой корень
+/// читают, пока коллектор пишет (`COMMANDS.md`), а запись кладёт кадр не одним
+/// `write`; строгий `read_frame` при этом обязан остаться строгим — мягкость
+/// свойство вызывающего, а не чтения.
+#[test]
+fn soft_read_stops_at_a_truncated_tail_and_flags_it() {
+    let good = vec![rec(ev_snapshot_bid(), 0, 1, 10, 10)];
+    let mut w = Writer::create(Vec::new(), header(), zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
+    w.write_frame(&good).unwrap();
+    w.write_frame(&[rec(ev_delta_ask(), 5, 6, 11, 9)]).unwrap();
+    let mut bytes = w.into_inner();
+    bytes.truncate(bytes.len() - 3);
+
+    let mut soft = Reader::open(&bytes[..]).unwrap();
+    assert!(!soft.truncated_tail(), "до чтения флага нет");
+    assert!(
+        soft.read_frame_soft().unwrap().is_some(),
+        "целый кадр читается"
+    );
+    assert!(!soft.truncated_tail(), "целый кадр флага не поднимает");
+    assert!(
+        soft.read_frame_soft().unwrap().is_none(),
+        "обрезанный хвост — конец прочитанного, не ошибка"
+    );
+    assert!(soft.truncated_tail(), "и об этом сказано флагом");
+
+    let mut strict = Reader::open(&bytes[..]).unwrap();
+    assert!(strict.read_frame().unwrap().is_some());
+    assert!(
+        matches!(strict.read_frame(), Err(BinlogError::ShortRead { .. })),
+        "`read_frame` остаётся строгим: мягкость выбирает вызывающий"
+    );
+}
+
 // -----------------------------------------------------------------
 // Требование 4: точное сохранение цены/размера на значениях, которые
 // f64 не может держать точно.

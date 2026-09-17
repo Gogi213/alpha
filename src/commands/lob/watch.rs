@@ -254,9 +254,7 @@ fn replay_binlog_file_into(
     let mut ups = Vec::new();
     let mut tps = Vec::new();
     'frames: loop {
-        let frame = reader
-            .read_frame()
-            .map_err(|e| anyhow::anyhow!("кадр {}: {e:?}", path.display()))?;
+        let frame = super::parts::read_frame_soft(&mut reader, path)?;
         let Some(frame_records) = frame else { break };
         for rec in &frame_records {
             ups.clear();

@@ -1412,6 +1412,10 @@ pub struct Reader<R: Read> {
     /// печати (`binlog-stats` именует источник архива) и тестам.
     archive_level: Option<u8>,
     decompressor: zstd::bulk::Decompressor<'static>,
+    /// Был ли остановлен на обрезанном **хвостовом** кадре (`read_frame_soft`,
+    /// A4, 2026-09-17): файл живой записи читатель может застать между
+    /// `write` и полным кадром, и это не порча — см. `ShortRead` выше.
+    truncated_tail: bool,
 }
 
 /// Откуда `Reader` берёт байты после опознания формата: обычный суточный файл
@@ -1534,6 +1538,7 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: None,
             decompressor: zstd::bulk::Decompressor::new()?,
+            truncated_tail: false,
         })
     }
 
@@ -1604,6 +1609,7 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: Some(level),
             decompressor: zstd::bulk::Decompressor::new()?,
+            truncated_tail: false,
         })
     }
 
@@ -1776,6 +1782,30 @@ impl<R: Read> Reader<R> {
             decode_frame_payload_v3(&payload)?
         };
         Ok(Some(records))
+    }
+
+    /// Кадр живого файла (A4, 2026-09-17): обрезанный **хвостовой** кадр —
+    /// это не порча, а «файл ещё пишется»: читатель может застать момент
+    /// между записью префикса и дописыванием тела. Отличие от `read_frame`
+    /// ровно одно: `ShortRead` здесь означает конец прочитанного (`Ok(None)`)
+    /// и поднимает флаг `truncated_tail()`, который вызывающий печатает
+    /// предупреждением; всё остальное (`Corrupt`, `MissingSnapshot`,
+    /// `TruncatedHeader`) остаётся ошибкой — эти состояния об обрыве хвоста не
+    /// говорят.
+    pub fn read_frame_soft(&mut self) -> Result<Option<Vec<Record>>, BinlogError> {
+        match self.read_frame() {
+            Ok(frame) => Ok(frame),
+            Err(BinlogError::ShortRead { .. }) => {
+                self.truncated_tail = true;
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Остановился ли последний `read_frame_soft` на обрезанном хвосте.
+    pub fn truncated_tail(&self) -> bool {
+        self.truncated_tail
     }
 }
 

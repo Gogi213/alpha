@@ -337,3 +337,32 @@ fn gap_rows_override_a_clean_summary() {
         "один шов важнее доли нарушений"
     );
 }
+
+/// A4 (2026-09-17): `lob verify` читает и живой корень — обрезанный хвостовой
+/// кадр (коллектор дописывает файл прямо сейчас) не роняет команду, а
+/// становится концом прочитанного; посчитанное при этом остаётся посчитанным.
+#[test]
+fn verify_tolerates_a_truncated_tail_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day_part(
+        dir.path(),
+        "SOLUSDT",
+        "2026-09-08",
+        1,
+        &three_level_frames(),
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 1);
+    let mut bytes = std::fs::read(&path).unwrap();
+    // Обрыв внутри последнего кадра: префикс длины обещает больше байт, чем
+    // осталось в файле, — ровно то, что видит читатель живого файла.
+    bytes.truncate(bytes.len() - 3);
+    std::fs::write(&path, &bytes).unwrap();
+
+    let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT")
+        .expect("обрезанный хвост — это «файл дописывается», а не отказ");
+    assert_eq!(report.status, VerifyStatus::Ok);
+    assert!(
+        report.total.files > 0,
+        "прочитанное обязано быть посчитано, а не выброшено"
+    );
+}
