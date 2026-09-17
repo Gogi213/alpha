@@ -410,12 +410,14 @@ fn gap_tally_sorts_every_kind_into_one_bucket() {
         row(GapKind::ParseError),
         row(GapKind::WriteFailed),
         row(GapKind::ConnectFailed),
+        // A8.3: отказ подписки — шов покрытия, как `connect_failed`.
+        row(GapKind::SubscribeFailed),
     ];
     let tally = GapTally::of_rows(rows.iter());
     assert_eq!(
         tally,
         GapTally {
-            seams: 3,
+            seams: 4,
             losses: 2,
             step_changes: 1,
         }

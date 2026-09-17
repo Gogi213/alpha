@@ -121,6 +121,57 @@ fn service_messages_are_ignored_not_failed() {
     );
 }
 
+/// A8.3: отказ подписки — не «pong и прочее». Сырой ответ взят **как есть** с
+/// живого сокета Bybit (2026-09-18, в партии подписок был несуществующий
+/// символ): биржа отвечает на каждый несогласованный топик отдельно и называет
+/// топик в `ret_msg`, поля `args` в ответе нет. Раньше это сообщение читалось
+/// как служебное, и инструмент молча стоял без данных.
+#[test]
+fn a_refused_subscription_names_its_topic_instead_of_being_a_service_message() {
+    let measured = r#"{"success":false,"ret_msg":"error:handler not found,topic:orderbook.50.ZZZFAKEUSDT","conn_id":"da7tqdmknoaf049d2rrg-6they","req_id":"","op":"subscribe"}"#;
+    assert_eq!(
+        parse_message(measured).unwrap(),
+        vec![Event::SubscribeFailed {
+            topic: Some("orderbook.50.ZZZFAKEUSDT".to_string()),
+            ret_msg: "error:handler not found,topic:orderbook.50.ZZZFAKEUSDT".to_string(),
+        }],
+        "топик из отказа обязан дойти до вызывающего — по нему находится инструмент"
+    );
+    // Топик из отказа разбирается тем же кодом, что маршрут события.
+    assert_eq!(
+        topic_symbol("orderbook.50.ZZZFAKEUSDT"),
+        Some("ZZZFAKEUSDT")
+    );
+    assert_eq!(topic_symbol("publicTrade.HYPEUSDT"), Some("HYPEUSDT"));
+    assert_eq!(
+        topic_symbol("kline.1.SOLUSDT"),
+        None,
+        "чужой топик символа не даёт"
+    );
+    // Отказ по торговому топику — тот же вариант.
+    let trade = r#"{"success":false,"ret_msg":"error:handler not found,topic:publicTrade.ZZZFAKEUSDT","op":"subscribe"}"#;
+    assert_eq!(
+        parse_message(trade).unwrap(),
+        vec![Event::SubscribeFailed {
+            topic: Some("publicTrade.ZZZFAKEUSDT".to_string()),
+            ret_msg: "error:handler not found,topic:publicTrade.ZZZFAKEUSDT".to_string(),
+        }]
+    );
+    // Отказ без топика: событие есть, привязки к инструменту нет — не молчание.
+    assert_eq!(
+        parse_message(r#"{"success":false,"ret_msg":"Invalid request","op":"subscribe"}"#).unwrap(),
+        vec![Event::SubscribeFailed {
+            topic: None,
+            ret_msg: "Invalid request".to_string(),
+        }]
+    );
+    // Отказ по другой операции и успешный ack остаются служебными.
+    assert_eq!(
+        parse_message(r#"{"success":false,"ret_msg":"bad","op":"order"}"#).unwrap(),
+        vec![Event::Other]
+    );
+}
+
 /// Топик, не совпадающий ни с одним известным префиксом, но валидный
 /// JSON — обязан молча стать `Other`, а не ошибкой: неизвестный топик не
 /// то же самое, что сломанное сообщение.

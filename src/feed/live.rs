@@ -916,6 +916,23 @@ impl Feed for LiveFeed {
                 depth: None,
                 detail: "топик кадра не сопоставлен ни одному инструменту сокета".to_string(),
             },
+            ConnEvent::SubscribeFailed {
+                local_ts_ns,
+                topic,
+                ret_msg,
+            } => Event::Gap {
+                symbol: idx,
+                local_ts_ns,
+                kind: GapKind::SubscribeFailed,
+                // Отказ подписки — про инструмент целиком: биржа не
+                // согласовала топик, данных не будет ни у одного потока.
+                // Какой именно топик отказан — в детали.
+                depth: None,
+                detail: match topic {
+                    Some(topic) => format!("подписка не состоялась: {topic} — {ret_msg}"),
+                    None => format!("подписка не состоялась: {ret_msg}"),
+                },
+            },
         })
     }
 }

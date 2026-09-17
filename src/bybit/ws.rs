@@ -88,6 +88,23 @@ pub enum Event {
     Trade(Trade),
     /// Ответ на подписку, pong и прочее, что нас не касается.
     Other,
+    /// Биржа отказала в подписке (A8.3): `{"success":false,…,"op":"subscribe"}`.
+    /// Ответ приходит **на каждый несогласованный топик отдельно** и называет
+    /// его в `ret_msg` — замер 2026-09-18 на живом сокете (в партии был
+    /// несуществующий символ):
+    /// `{"success":false,"ret_msg":"error:handler not found,topic:orderbook.50.ZZZFAKEUSDT","conn_id":"…","req_id":"","op":"subscribe"}`.
+    /// Поэтому отказ привязывается к инструменту, а соседи по той же партии
+    /// подписок живут. Отдельным вариантом, а не `Other`: `Other` (pong,
+    /// успешный ack) потери не несёт, а здесь у инструмента нет данных вовсе —
+    /// и это обязано быть видно (`gaps.csv`, `session.json.subscribe_failed`).
+    SubscribeFailed {
+        /// Топик из текста отказа (`orderbook.50.ZZZFAKEUSDT`), если биржа его
+        /// назвала; `None` — отказ без топика (привязать к инструменту нечем,
+        /// остаётся сокет).
+        topic: Option<String>,
+        /// `ret_msg` биржи как есть — в деталь строки `gaps.csv`.
+        ret_msg: String,
+    },
 }
 
 /// Сделка. Сторона — это сторона **агрессора**, и именно она решает, съел ли
@@ -557,7 +574,7 @@ pub fn parse_message_into<'a>(
                 serde_json::from_str::<serde::de::IgnoredAny>(raw)
                     .map_err(|_| ParseError::NotJson)?;
             }
-            out.push(Event::Other);
+            out.push(subscribe_failure(raw).unwrap_or(Event::Other));
             Ok(symbol)
         }
     }
@@ -569,6 +586,52 @@ pub fn parse_message(raw: &str) -> Result<Vec<Event>, ParseError> {
     let mut out = Vec::new();
     parse_message_into(raw, &mut out)?;
     Ok(out)
+}
+
+/// Служебный ответ биржи на `subscribe` (A8.3). Поля заимствуются из того же
+/// кадра, так что разбор не аллоцирует; строки `Event::SubscribeFailed`
+/// собираются только на самом отказе.
+#[derive(serde::Deserialize)]
+struct SubscribeAck<'a> {
+    #[serde(default)]
+    op: Option<&'a str>,
+    #[serde(default)]
+    success: Option<bool>,
+    #[serde(default, borrow)]
+    ret_msg: Option<&'a str>,
+}
+
+/// Отказ биржи в подписке из служебного сообщения (A8.3). `None` — это не
+/// отказ: `pong`, успешный `subscribe`, чужое служебное сообщение или не тот
+/// тип поля. Зовётся только по служебным сообщениям (их единицы за прогон:
+/// pong раз в 20 с, ack на подписку), не по рынку.
+fn subscribe_failure(raw: &str) -> Option<Event> {
+    let ack: SubscribeAck<'_> = serde_json::from_str(raw).ok()?;
+    if ack.success != Some(false) || ack.op != Some("subscribe") {
+        return None;
+    }
+    let ret_msg = ack.ret_msg.unwrap_or_default();
+    Some(Event::SubscribeFailed {
+        topic: failed_topic(ret_msg).map(str::to_string),
+        ret_msg: ret_msg.to_string(),
+    })
+}
+
+/// Топик, который биржа не согласовала: он назван в `ret_msg`
+/// (`error:handler not found,topic:orderbook.50.ZZZFAKEUSDT`, замер 2026-09-18).
+/// Поля `args` в ответе нет — это единственная привязка отказа к инструменту.
+fn failed_topic(ret_msg: &str) -> Option<&str> {
+    let topic = ret_msg.rsplit_once("topic:")?.1;
+    let topic = topic.split([',', ' ']).next().unwrap_or(topic);
+    (!topic.is_empty()).then_some(topic)
+}
+
+/// Символ из имени топика (`orderbook.50.SOLUSDT` → `SOLUSDT`,
+/// `publicTrade.SOLUSDT` → `SOLUSDT`) — тот же разбор, что у маршрута события
+/// (`split_topic`), но наружу: отказ подписки (A8.3) называет топик, и
+/// инструмент ищется по нему, а не «угадывается по сокету».
+pub fn topic_symbol(topic: &str) -> Option<&str> {
+    split_topic(topic).1
 }
 
 /// Сообщения подписки. Отдельными функциями, чтобы они были в тестах, а не

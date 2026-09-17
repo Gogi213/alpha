@@ -171,7 +171,23 @@ fn gap_row_round_trips_and_header_is_stable() {
         detail: "tick 0.01 -> 0.005".to_string(),
     };
     append_gap_row(&path, &row).unwrap();
-    assert_eq!(read_gap_rows(&path).unwrap(), vec![row]);
+    assert_eq!(read_gap_rows(&path).unwrap(), vec![row.clone()]);
+
+    // A8.3: имя нового класса зафиксировано строкой файла — его читают
+    // `verify` (шов покрытия) и глазами оператор, а `serde(rename_all)`
+    // меняет имена молча.
+    let refused = GapRow {
+        kind: GapKind::SubscribeFailed,
+        detail: "подписка не состоялась: orderbook.50.ZZZFAKEUSDT".to_string(),
+        ..row.clone()
+    };
+    append_gap_row(&path, &refused).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        text.contains(",subscribe_failed,"),
+        "класс строки — `subscribe_failed`: {text}"
+    );
+    assert_eq!(read_gap_rows(&path).unwrap(), vec![row, refused]);
 }
 
 /// Дата считается по UTC, а не по локальному часовому поясу хоста:

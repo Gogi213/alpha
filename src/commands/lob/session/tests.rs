@@ -1977,6 +1977,49 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     );
 }
 
+/// A8.3 (2026-09-18): отказ подписки биржи — свой счётчик
+/// (`session.json.subscribe_failed`) и своя строка `gaps.csv` класса
+/// `subscribe_failed`, а книга инструмента перестаёт быть доверенной
+/// (снапшота по нему не будет). До правки ответ `{"success":false}` читался
+/// как служебное сообщение: инструмент молча стоял без данных, и в журнале не
+/// было ни строки.
+#[test]
+fn a_refused_subscription_is_counted_and_written_to_the_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event(0, NOON_NS, NOON_NS / 1_000_000, true, 1)),
+        Step::Ev(Event::Gap {
+            symbol: 0,
+            local_ts_ns: NOON_NS + 1,
+            kind: FeedGapKind::SubscribeFailed,
+            depth: None,
+            detail: "подписка не состоялась: orderbook.50.SYM — error:handler not found"
+                .to_string(),
+        }),
+    ]));
+    run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = ctx.write_session_json(true).unwrap();
+
+    assert_eq!(summary.subscribe_failed, 1, "счётчик отказа подписки");
+    assert_eq!(summary.connect_failed, 0, "это не отказ рукопожатия");
+    assert_eq!(summary.gaps, 1);
+    assert!(
+        !ctx.states[0].streams[FAST_STREAM].synced,
+        "книга инструмента без снапшота недоверена"
+    );
+    let rows = crate::commands::record::read_gap_rows(&gaps_csv_path(&root)).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].kind, GapKind::SubscribeFailed);
+    assert_eq!(rows[0].symbol, "SYM", "строка называет инструмент");
+    assert!(
+        rows[0].detail.contains("handler not found"),
+        "деталь несёт текст биржи: {}",
+        rows[0].detail
+    );
+}
+
 /// `--always-on` взаимоисключающий с `--minutes`/`--pilot-minutes` на
 /// самом парсере; `resolve_duration` даёт `AlwaysOn` без дедлайна.
 #[test]

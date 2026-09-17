@@ -329,7 +329,9 @@ pub(super) fn event_stream(payload: &crate::bybit::ws::Event) -> Option<usize> {
     match payload {
         crate::bybit::ws::Event::Book(update) => stream_of_depth(update.depth),
         crate::bybit::ws::Event::Trade(_) => Some(FAST_STREAM),
-        crate::bybit::ws::Event::Other => None,
+        // Служебное сообщение не идёт никуда; отказ подписки (A8.3) приходит
+        // своим `Event::Gap` и до этой функции не доходит вовсе.
+        crate::bybit::ws::Event::Other | crate::bybit::ws::Event::SubscribeFailed { .. } => None,
     }
 }
 
@@ -474,6 +476,9 @@ pub(super) fn write_market_event(
             });
         }
         crate::bybit::ws::Event::Other => {}
+        // A8.3: отказ подписки приходит своим `Event::Gap` (`GapKind::
+        // SubscribeFailed`), а не рынком — записи тут нечего.
+        crate::bybit::ws::Event::SubscribeFailed { .. } => {}
     }
     if state.scratch.is_empty() {
         return Ok(());

@@ -60,7 +60,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 791 passed, 0 failed, 5 ignored (2026-09-17 ночь, A8.1)
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 795 passed, 0 failed, 5 ignored (2026-09-18, A8.3)
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 19 подкоманд, таблица — docs/COMMANDS.md
@@ -133,7 +133,8 @@ src/
 `session.json`. `lob verify` → `verify-<SYMBOL>.status` (`ok`/`fail`, без `ok` сутки не читаются):
 целостность (`gaps`, инварианты книги) ровно ноль, «цена ни разу не держалась» — доля меньше
 0.1 % сделок (В-56, план §11); строки `gaps.csv` — по смыслу (В-59): потери целостности
-(`write_failed`, `book_invariant`) роняют, швы покрытия (переподключение, `sequence_gap`) считаются —
+(`write_failed`, `book_invariant`) роняют, швы покрытия (переподключение, `sequence_gap`,
+`connect_failed`, `subscribe_failed`) считаются —
 `seams=<n>` в строке вердикта.
 `lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
 markout от среза как есть на `start_ms` со знаком «в сторону отскока», T35/В-43). `lob profiles`/`backtest`/`shortlist` →
@@ -193,8 +194,9 @@ HYPE, дальше LSK, NEAR, DOGE, AKE, ENA, …, NBIS. Прежний топ-5
 gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99 201 мкс, CPU 2.2 %,
 `verify` `ok` по всем пяти; живой коллектор не задет. Деплой коллектора сделан 19:17Z (владелец: «хоть щас»);
 **A8 «коллектор при любых обстоятельствах» идёт: A8.1 (снятие монеты и замена пула на ходу) сделан
-в ночь 17.09, в проде его ещё нет — там бинарник `3614321`; следующий — A8.2 (SIGTERM = штатная
-остановка)**. Профиль `perf`: ядро/сисколлы
+в ночь 17.09, A8.3 (отказ подписки биржи — строка `subscribe_failed` и счётчик `subscribe_failed`)
+сделан 18.09; в проде их ещё нет — там бинарник `3614321`; следующий — A8.2 (SIGTERM = штатная
+остановка)**. Профиль `perf`: ядро/сисисколлы
 ~25 %, libc memset 9 %, приложение ~17 % — дальше только правки кода. Старый сервер `13.140.29.171`
 **погашен** штатно (В-41, `closed=true`): 342 465 743 записи, 1.13 ГБ за 20.2 ч на топ-30 ⇒
 1.35 ГБ/сутки. `verify` в боевом корне **гоняется таймером** `alpha-verify.timer` (A2, 2026-09-17):

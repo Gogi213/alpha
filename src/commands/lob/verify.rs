@@ -143,6 +143,11 @@ impl GapTally {
                 GapKind::SequenceGap | GapKind::ParseError | GapKind::ConnectFailed => {
                     tally.seams += 1;
                 }
+                // A8.3: отказ подписки — тоже шов покрытия: данных у
+                // инструмента нет вовсе, но запись по обе стороны честная
+                // (когда подписка состоится, придёт снапшот). Считается, сутки
+                // не роняет — как `connect_failed`.
+                GapKind::SubscribeFailed => tally.seams += 1,
                 GapKind::StepChange => tally.step_changes += 1,
             }
         }

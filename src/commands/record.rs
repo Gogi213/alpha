@@ -584,7 +584,9 @@ pub(crate) fn event_exch_ms(event: &Event) -> Option<i64> {
     match event {
         Event::Book(u) => Some(u.cts_ms),
         Event::Trade(t) => Some(t.exch_ms),
-        Event::Other => None,
+        // Служебные сообщения (pong, ack, отказ подписки) времени матчинга не
+        // несут и сутки не двигают.
+        Event::Other | Event::SubscribeFailed { .. } => None,
     }
 }
 
@@ -788,6 +790,11 @@ async fn run_session(
                                 }
                             }
                             Event::Other => {}
+                            // A8.3: отказ подписки приходит отдельным
+                            // `ConnEvent::SubscribeFailed` (у него есть метка
+                            // времени и текст биржи) — здесь, на пути рынка,
+                            // ему делать нечего.
+                            Event::SubscribeFailed { .. } => {}
                         }
                     }
                     ConnEvent::ParseFailed { local_ts_ns, err } => {
@@ -835,6 +842,26 @@ async fn run_session(
                         };
                         rec.log_gap(
                             GapKind::ConnectFailed,
+                            &ts_utc_of_ns(local_ts_ns),
+                            &detail,
+                        )?;
+                    }
+                    ConnEvent::SubscribeFailed {
+                        local_ts_ns,
+                        topic,
+                        ret_msg,
+                    } => {
+                        // A8.3: биржа не согласовала топик — данных по
+                        // инструменту не будет, пока подписка не состоится.
+                        // Раньше этот ответ читался как служебное сообщение и
+                        // не оставлял следа нигде (замер 2026-09-18).
+                        synced = false;
+                        let detail = match topic {
+                            Some(topic) => format!("подписка не состоялась: {topic} — {ret_msg}"),
+                            None => format!("подписка не состоялась: {ret_msg}"),
+                        };
+                        rec.log_gap(
+                            GapKind::SubscribeFailed,
                             &ts_utc_of_ns(local_ts_ns),
                             &detail,
                         )?;

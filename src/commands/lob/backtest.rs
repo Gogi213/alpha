@@ -520,7 +520,7 @@ fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
                     fval: 0.0,
                 });
             }
-            WsEvent::Other => {}
+            WsEvent::Other | WsEvent::SubscribeFailed { .. } => {}
         }
     }
     out

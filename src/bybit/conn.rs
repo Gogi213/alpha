@@ -441,6 +441,24 @@ pub enum ConnEvent {
     /// встречается: подписки сокета и его список инструментов — одно и то
     /// же множество.
     Unrouted { local_ts_ns: i64 },
+    /// Биржа отказала в подписке (A8.3, 2026-09-18): топик не согласован —
+    /// символа нет в листинге/переименован, площадка не отдаёт этот поток.
+    /// До этого события отказ вообще не покидал `Connection::run`: ответ
+    /// `{"success":false,…}` разбирался как «pong и прочее» (`ws::Event::
+    /// Other`), и инструмент молча оставался без данных — ни строки
+    /// `gaps.csv`, ни счётчика, — что и показал живой прогон с несуществующим
+    /// символом. Атрибуция — по топику из ответа (`ws::topic_symbol`), а не по
+    /// сокету: биржа отвечает на каждый несогласованный топик отдельно, и
+    /// соседи по той же партии подписок живут. Индекс события — инструмент
+    /// топика; топик не разрешился — первый инструмент сокета, как у событий
+    /// без символа.
+    SubscribeFailed {
+        local_ts_ns: i64,
+        /// Топик из `ret_msg` биржи, если он там назван.
+        topic: Option<String>,
+        /// `ret_msg` как есть — попадает в деталь строки `gaps.csv`.
+        ret_msg: String,
+    },
 }
 
 /// Куда `Connection::run` отдаёт разобранные события — трейт-шов, а не
@@ -929,6 +947,31 @@ impl<C: TransportConnector> Connection<C> {
             // `Unrouted` его считает. Служебное (`Other`: pong,
             // подтверждение подписки) символа не имеет и идёт по сокету.
             if slot.is_none() && !matches!(event, Event::Other) {
+                if let Event::SubscribeFailed { topic, ret_msg } = &event {
+                    // A8.3: отказ подписки — служебное событие сокета, но
+                    // привязанное к инструменту **топика** из ответа: биржа
+                    // отвечает на каждый несогласованный топик отдельно, а
+                    // остальные топики той же партии подписаны (замер
+                    // 2026-09-18). Не `Message`: рынка здесь нет.
+                    let idx = topic
+                        .as_deref()
+                        .and_then(ws::topic_symbol)
+                        .and_then(|name| route.slot_of(name))
+                        .map_or_else(|| route.socket_index(), |slot| route.symbols[slot].index);
+                    // Ответ биржи уже доказывает, что сокет жив (`productive`
+                    // сбрасывает бэкофф в `run` при следующем подключении).
+                    session.productive = true;
+                    out.send_event(
+                        idx,
+                        ConnEvent::SubscribeFailed {
+                            local_ts_ns,
+                            topic: topic.clone(),
+                            ret_msg: ret_msg.clone(),
+                        },
+                    )
+                    .await;
+                    continue;
+                }
                 out.send_event(route.socket_index(), ConnEvent::Unrouted { local_ts_ns })
                     .await;
                 continue;

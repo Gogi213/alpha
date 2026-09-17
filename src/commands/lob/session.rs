@@ -259,6 +259,10 @@ struct SessionCtx {
     /// ни `reconnects`, ни `frames_failed` этого не показывают, а устойчивый
     /// `403`/`429` до этой правки не давал вообще ничего.
     connect_failed: u64,
+    /// Отказов подписки за прогон (A8.3, 2026-09-18): биржа не согласовала
+    /// топик инструмента. До этой правки отказ не покидал соединение вовсе —
+    /// инструмент молча стоял без данных.
+    subscribe_failed: u64,
     /// Сколько строк `gaps.csv` не удалось записать (V6, 2026-09-17).
     /// `AtomicU64`, а не `u64`: `log_gap` зовётся из `&self`-контекстов
     /// (в том числе там, где `&mut self` занят другим полем), а счётчик
@@ -371,6 +375,7 @@ impl SessionCtx {
             resyncs_by_stream: [0; STREAM_COUNT],
             unrouted: 0,
             connect_failed: 0,
+            subscribe_failed: 0,
             gap_rows_failed: AtomicU64::new(0),
             session_json_dirty: false,
             parse_latencies_ns: LatencyHistogram::new(),
@@ -974,6 +979,7 @@ impl SessionCtx {
             resyncs: self.resyncs,
             unrouted: self.unrouted,
             connect_failed: self.connect_failed,
+            subscribe_failed: self.subscribe_failed,
             gap_rows_failed: self.gap_rows_failed.load(Ordering::Relaxed),
             frames_failed: self
                 .states
@@ -1166,6 +1172,14 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                         ctx.connect_failed += 1;
                         GapKind::ConnectFailed
                     }
+                    FeedGapKind::SubscribeFailed => {
+                        // A8.3: биржа не согласовала топик — у инструмента не
+                        // будет данных; счётчик и строка `gaps.csv`. Книга
+                        // этого инструмента недоверена (снапшот не приходил) —
+                        // общий сброс `synced` ниже это и делает.
+                        ctx.subscribe_failed += 1;
+                        GapKind::SubscribeFailed
+                    }
                 };
                 // Сброс доверия: у разрыва потока — только его книга, у
                 // потери без потока (разрыв сокета) — обе книги инструмента.
@@ -1282,7 +1296,7 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         eprintln!(
             "session: CPU средний {avg:.1}% ядра (бюджет `PLAN.md` 6.1: < 5%); RSS начало \
              {:.1} МиБ, конец {:.1} МиБ; сэмплов {}; байт {}; reconnects={} resyncs={} \
-             frames_failed={} unrouted={}",
+             frames_failed={} unrouted={} connect_failed={} subscribe_failed={}",
             start as f64 / (1024.0 * 1024.0),
             end as f64 / (1024.0 * 1024.0),
             summary.samples.len(),
@@ -1290,7 +1304,9 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
             summary.reconnects,
             summary.resyncs,
             summary.frames_failed,
-            summary.unrouted
+            summary.unrouted,
+            summary.connect_failed,
+            summary.subscribe_failed
         );
     }
     Ok(summary)
