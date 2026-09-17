@@ -1242,3 +1242,31 @@
   «символ без данных N минут → снять из пула» — отдельное решение владельца, не изобретено.
   Следующий по плану — **A8.2** (SIGTERM = штатный `stop`), затем A8.1b (три правки ревью).
 
+## [2026-09-18] code | A8.2 сделан: SIGTERM = штатная остановка, как файл `stop` (`0f3cd7a`)
+
+- Тикет `.autopilot/2026-09-11-lob-density-ed3/tickets/50-sigterm-graceful-stop.md`. SIGTERM (его шлют
+  `systemctl stop`/`restart`, перезагрузка и `kill` по умолчанию) раньше не обрабатывался: процесс
+  умирал, запись рвалась на границе кадра (данные целы — `FrameSink` пишет кадр одним `write_all`), но
+  `session.json` оставался `closed=false` и штатный путь (`flush_all` → финальная сводка) не выполнялся.
+- Реализация: `StopHandle::stop_on_ctrl_c` → `stop_on_signals`; `wait_for_stop_signal` на Unix берёт
+  `tokio::signal::unix::signal(SignalKind::terminate())` и в `tokio::select!` ждёт первый из `ctrl_c()` и
+  `term.recv()`, затем `stop()` → `Item::Stop` → `None` от `Feed` → `finalize()` → `closed=true`; строка
+  оператору называет сигнал. Второе нажатие Ctrl+C — по-прежнему аварийный выход 130. На Windows `cfg(unix)`
+  — там Ctrl+C или файл `stop`. Шов для теста — `stop_on_signals_ready(Some(ready))` (метка после
+  регистрации обработчика, иначе тестовый процесс убил бы себя сам).
+- Тест `feed::live::tests::sigterm_reaches_the_stop_handle_like_ctrl_c` (`cfg(unix)`): тест посылает
+  `kill -TERM` себе после метки готовности и требует `Item::Stop` из канала; цепочка «`Item::Stop` →
+  `closed=true`» покрыта сценарным тестом сессии. **Unix-ветка тип-проверена на Linux-цель**
+  (`cargo +1.93.1 check --target x86_64-unknown-linux-musl` на scratch-крейте с одним `tokio`): локально
+  она под `cfg` не компилируется, а полный кросс-чек проекта упирается в C-код `zstd-sys` без
+  кросс-компилятора. Грабля: musl-std стоит у тулчейна `1.93.1` (проект пинится `rust-toolchain.toml`),
+  у `stable` его нет — `+1.93.1` обязателен.
+- Ворота: **795 тестов, 0 failed, 5 ignored** локально (на Linux 796 — тест под `cfg(unix)`), clippy
+  `-D warnings`, fmt. Доки: `CLAUDE.md` (команды/грабли/состояние), `COMMANDS.md` (строка `lob session`,
+  ранбук «Коллектор на сервере» — `systemctl stop`/`restart` штатны, грабли Ctrl+C), `dev-plan` (A8.2
+  сделан + заметка).
+- Открыто за тикетом: живой `kill -TERM` на смоук-процессе на сервере и единственная проверка ветки на
+  настоящем Linux — в A8.7; в проде до деплоя `3614321`, там SIGTERM рвёт запись (останавливать файлом
+  `stop`). `lob record` (одно-символьная запись) свой цикл с `ctrl_c` не трогал — SIGTERM там нет.
+  Следующий по плану — **A8.1b** (три правки ревью A8.1), затем A8.4–A8.6, A8.7 (смоук + деплой), B5.
+
