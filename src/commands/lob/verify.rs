@@ -11,13 +11,17 @@
 //! `pilot::process_instrument` — её же, не свою копию. Части символа
 //! (`<SYMBOL>-<день>[-pN].binlog`, таски 19/22) находит общий резолвер
 //! `super::session_binlog_for`; сверка идёт по каждой части отдельно
-//! (`bybit::verify::verify_file`), а вердикт — по сумме частей символа:
-//! целостность (`gaps`, инварианты книги) ровно ноль и доля нарушений
-//! теста 3 меньше 0.1 % сделок (план §11, В-56) — см. `VerifyStatus::of`.
+//! (`bybit::verify::verify_file`), а вердикт — по сумме частей символа и
+//! строкам `gaps.csv` того же каталога (V4, 2026-09-17): разрыв `u` в файле
+//! не виден (поля `u` в бинлоге нет), поэтому единственный его след —
+//! журнал потерь записи. Целостность (`gaps`, инварианты книги) ровно ноль,
+//! доля нарушений теста 3 меньше 0.1 % сделок (план §11, В-56) — вердикт
+//! `VerifyStatus::of_with_gap_rows`.
 
 use std::path::{Path, PathBuf};
 
 use crate::bybit::verify::{verify_file, VerifyArgs, VerifySummary};
+use crate::commands::record::{gaps_csv_path, read_gap_rows};
 
 /// Вердикт маркера сверки — то единственное слово, что лежит в
 /// `verify-<SYMBOL>.status` и что печатает `lob verify`.
@@ -65,6 +69,21 @@ impl VerifyStatus {
         }
     }
 
+    /// Вердикт по сводке **и** журналу потерь (V4, 2026-09-17).
+    ///
+    /// `sequence_gaps` файлового режима всегда ноль — в бинлоге нет `u`, —
+    /// поэтому разрыв, пережитый записью, виден только строкой `gaps.csv`.
+    /// Одна такая строка по символу — это шов в данных: вердикт `fail`, чем бы
+    /// ни была чиста сводка; иначе символ с ресинками проходил `ok` и все
+    /// читатели (fail-closed) брали сутки как проверенные.
+    pub(crate) fn of_with_gap_rows(summary: &VerifySummary, gap_rows: usize) -> Self {
+        if gap_rows > 0 {
+            Self::Fail
+        } else {
+            Self::of(summary)
+        }
+    }
+
     /// Содержимое файла-маркера, ровно одно слово без перевода строки —
     /// `profiles.rs::read_verify_marker`/`watch.rs` сравнивают с `ok`.
     pub(crate) fn as_str(self) -> &'static str {
@@ -96,6 +115,9 @@ pub(crate) struct VerifyReport {
     pub total: VerifySummary,
     pub status: VerifyStatus,
     pub marker: PathBuf,
+    /// Строк `gaps.csv` этого символа в каталоге (V4, 2026-09-17) — та
+    /// единственная часть вердикта, которой в бинлоге нет.
+    pub gap_rows: usize,
 }
 
 /// Путь маркера сверки символа в каталоге — единственное место, где это
@@ -104,10 +126,25 @@ pub(crate) fn marker_path(dir: &Path, symbol: &str) -> PathBuf {
     dir.join(format!("verify-{symbol}.status"))
 }
 
+/// Строк `gaps.csv` этого символа в каталоге записи (V4, 2026-09-17).
+///
+/// `VerifySummary::sequence_gaps` в файловом режиме всегда ноль — в бинлоге
+/// нет поля `u`, и по файлу разрыв неотличим от честной дельты. Настоящие
+/// разрывы видны **только** в `gaps.csv`, который запись ведёт рядом. Нет
+/// файла — ноль строк: каталог из одних бинлогов (например
+/// `/opt/alpha/verify/<день>` у ночной сверки) журнала потерь не несёт, и
+/// выдумывать за него нечего.
+fn gap_rows_for(root: &Path, symbol: &str) -> usize {
+    read_gap_rows(&gaps_csv_path(root))
+        .map(|rows| rows.iter().filter(|r| r.symbol == symbol).count())
+        .unwrap_or(0)
+}
+
 /// Сверяет все части символа в `root` (`super::session_binlog_for`) и
 /// пишет маркер `verify-<SYMBOL>.status` в `marker_dir` — **единственная**
-/// функция записи маркера. Вердикт — `VerifyStatus::of` по сумме частей:
-/// одна битая часть роняет весь каталог в `fail` (fail-closed).
+/// функция записи маркера. Вердикт — по сумме частей **и** строкам
+/// `gaps.csv` каталога (V4): одна битая часть или один разрыв `u`,
+/// пережитый записью, роняют каталог в `fail` (fail-closed).
 pub(crate) fn verify_and_mark(
     root: &Path,
     marker_dir: &Path,
@@ -146,7 +183,8 @@ pub(crate) fn verify_and_mark(
             summary,
         });
     }
-    let status = VerifyStatus::of(&total);
+    let gap_rows = gap_rows_for(root, symbol);
+    let status = VerifyStatus::of_with_gap_rows(&total, gap_rows);
     let marker = marker_path(marker_dir, symbol);
     std::fs::write(&marker, status.as_str())
         .map_err(|e| anyhow::anyhow!("маркер {}: {e}", marker.display()))?;
@@ -155,6 +193,7 @@ pub(crate) fn verify_and_mark(
         total,
         status,
         marker,
+        gap_rows,
     })
 }
 
@@ -203,8 +242,12 @@ pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
     }
     println!("verify: {}", format_summary(&report.total));
     println!(
-        "verify: status={} marker={}",
+        // `gaps_csv` — сколько строк журнала потерь пришлось на символ (V4):
+        // вердикт рубится и по ним, поэтому число печатается рядом с ним, а не
+        // ищется читателем в `gaps.csv` отдельно.
+        "verify: status={} gaps_csv={} marker={}",
         report.status.as_str(),
+        report.gap_rows,
         report.marker.display()
     );
     Ok(())

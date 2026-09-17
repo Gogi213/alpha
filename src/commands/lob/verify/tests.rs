@@ -281,3 +281,59 @@ fn integrity_counters_stay_strict_zero() {
         "инвариант книги"
     );
 }
+
+/// V4 (2026-09-17): разрыв `u` в бинлоге не виден — поля `u` там нет, — поэтому
+/// вердикт обязан смотреть `gaps.csv` того же каталога. Строка **этого**
+/// символа — шов в данных, и `ok` при ней означал бы, что читатели
+/// (fail-closed) взяли сутки как проверенные; строка чужого символа вердикт
+/// не трогает: маркер — про этот символ.
+#[test]
+fn a_gap_row_for_the_symbol_fails_the_marker() {
+    use crate::commands::record::{append_gap_row, GapKind, GapRow};
+
+    let row = |symbol: &str, detail: &str| GapRow {
+        ts_utc: "2026-09-08T10:00:00Z".to_string(),
+        symbol: symbol.to_string(),
+        kind: GapKind::SequenceGap,
+        detail: detail.to_string(),
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    write_day_part(
+        dir.path(),
+        "SOLUSDT",
+        "2026-09-08",
+        1,
+        &three_level_frames(),
+    );
+    let gaps = dir.path().join("gaps.csv");
+    append_gap_row(&gaps, &row("XRPUSDT", "разрыв другого символа")).unwrap();
+    let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT").unwrap();
+    assert_eq!(report.gap_rows, 0);
+    assert_eq!(report.status, VerifyStatus::Ok, "чужой разрыв не мой");
+
+    append_gap_row(&gaps, &row("SOLUSDT", "разрыв u")).unwrap();
+    let report = verify_and_mark(dir.path(), dir.path(), "SOLUSDT").unwrap();
+    assert_eq!(report.gap_rows, 1);
+    assert_eq!(report.status, VerifyStatus::Fail, "шов в данных — не ok");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("verify-SOLUSDT.status")).unwrap(),
+        "fail"
+    );
+}
+
+/// V4: строка журнала роняет вердикт даже при идеальной сводке; без строк
+/// решает сводка — порог В-56 остаётся в силе.
+#[test]
+fn gap_rows_override_a_clean_summary() {
+    let clean = VerifySummary {
+        trades_total: 1_000,
+        ..Default::default()
+    };
+    assert_eq!(VerifyStatus::of_with_gap_rows(&clean, 0), VerifyStatus::Ok);
+    assert_eq!(
+        VerifyStatus::of_with_gap_rows(&clean, 1),
+        VerifyStatus::Fail,
+        "один шов важнее доли нарушений"
+    );
+}

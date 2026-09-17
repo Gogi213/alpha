@@ -58,6 +58,18 @@ if [ "${#parts[@]}" -eq 0 ]; then
 fi
 ln -f "${parts[@]}" "$WORK"/ 2>/dev/null || true
 
+# Журнал потерь суток: вердикт `verify` смотрит и строки `gaps.csv` (V4,
+# 2026-09-17) — разрыв `u` в бинлоге не виден, поля `u` там нет. Ведётся он в
+# боевом корне, поэтому строки этого дня копируются в рабочий каталог: там
+# `verify` их и найдёт, шапка сохраняется. Нет файла или нет строк дня —
+# рабочий `gaps.csv` просто не создаётся, и вердикт считается по сводке.
+if [ -f "$ROOT/gaps.csv" ]; then
+    {
+        head -1 "$ROOT/gaps.csv"
+        grep -F "$DAY" "$ROOT/gaps.csv" | grep -v '^ts_utc,' || true
+    } >"$WORK/gaps.csv"
+fi
+
 : >"$LOG"
 echo "verify: day=$DAY root=$ROOT work=$WORK parts=${#parts[@]} started_utc=$(date -u +%FT%TZ)" | tee -a "$LOG"
 
