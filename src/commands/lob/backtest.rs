@@ -812,16 +812,32 @@ impl StopModeArg {
     }
 }
 
-fn bounce_plan(
-    touch: &TouchRecord,
-    tick: f64,
-    stop_mode: StopModeArg,
+/// Форма сделки, приходящая из CLI (`--post-only`, `--trail-*`, `--grid-*`),
+/// одной структурой: у `bounce_plan` иначе стало бы восемь аргументов, а clippy
+/// держит предел семи — тот же приём, что у `Session` в `bybit::conn`, где
+/// аргументы собраны по смыслу, а не подогнаны под счётчик.
+#[derive(Debug, Clone, Copy)]
+struct PlanShape {
     post_only: bool,
     trail_bps: f64,
     trail_activate_bps: f64,
     grid_legs: u8,
     grid_step_ticks: i64,
+}
+
+fn bounce_plan(
+    touch: &TouchRecord,
+    tick: f64,
+    stop_mode: StopModeArg,
+    shape: PlanShape,
 ) -> (i8, TradePlan) {
+    let PlanShape {
+        post_only,
+        trail_bps,
+        trail_activate_bps,
+        grid_legs,
+        grid_step_ticks,
+    } = shape;
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
         .end_ms
@@ -969,11 +985,13 @@ fn run_bounce(
                 t,
                 tick,
                 args.stop_mode,
-                args.post_only,
-                args.trail_bps,
-                args.trail_activate_bps,
-                args.grid_legs,
-                args.grid_step_ticks,
+                PlanShape {
+                    post_only: args.post_only,
+                    trail_bps: args.trail_bps,
+                    trail_activate_bps: args.trail_activate_bps,
+                    grid_legs: args.grid_legs,
+                    grid_step_ticks: args.grid_step_ticks,
+                },
             );
             BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),

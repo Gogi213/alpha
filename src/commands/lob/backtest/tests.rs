@@ -298,6 +298,18 @@ fn compare_with_table_falls_back_to_net_bps_on_the_task10_fixture() {
     assert!(comparison.format_line().contains("not_measured"));
 }
 
+/// Форма сделки «как в T38»: без пост-онли, трейла и лестницы — тесты B2
+/// проверяют геометрию входа/стопа/тейка, а не оси T38.
+fn plain_shape() -> PlanShape {
+    PlanShape {
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_ticks: 0,
+    }
+}
+
 /// Касание для проверки плана B2: бид, цена уровня `P`, при желании — цена
 /// фронтрана перед ним. Остальные поля записаны так, чтобы тест читался:
 /// касание длиной 1 с, размер 10 лотов.
@@ -348,7 +360,7 @@ fn bounce_plan_enters_at_the_frontrun_and_stops_in_three_forms() {
 
     let mut plans = Vec::new();
     for mode in [StopModeArg::Before, StopModeArg::At, StopModeArg::Behind] {
-        let (_, plan) = bounce_plan(&touch, tick, mode, false, 0.0, 0.0, 1, 0);
+        let (_, plan) = bounce_plan(&touch, tick, mode, plain_shape());
         plans.push((mode, plan_prices(&plan)));
     }
 
@@ -388,7 +400,7 @@ fn bounce_plan_enters_at_the_frontrun_and_stops_in_three_forms() {
 fn bounce_plan_without_frontrun_keeps_the_old_entry_and_one_to_one() {
     let tick = 0.01_f64;
     let touch = bounce_touch(1_000, None);
-    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, false, 0.0, 0.0, 1, 0);
+    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, plain_shape());
     let (entry, stop, take) = plan_prices(&plan);
     assert!((entry - 10.01).abs() < 1e-9, "вход P+1: {entry}");
     assert!((stop - 9.99).abs() < 1e-9, "стоп P−1: {stop}");
