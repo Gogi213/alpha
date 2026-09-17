@@ -48,6 +48,12 @@
 `docs/findings/` · `.autopilot/2026-09-11-lob-density-ed3/` (тикеты, `interfaces.md`) ·
 `C:\Users\Георгий\.dsh\PROFILE-STATE.md` (окружение DSH).
 
+**Структура доков и правило артефактов (2026-09-17, коммит `270e0a4`):** `docs/` = `ARCHITECTURE.md`,
+`COMMANDS.md`, `plan/`, `adr/`, `findings/` (живое) и `archive/` (заменённое); механизм пишет результат
+по одному адресу из таблицы в `CLAUDE.md` §«Доки», сырое и промежуточное — в `data/`, **состояние
+проекта — только в `CLAUDE.md`**. Заменяющее переносит заменённое в `docs/archive/` тем же коммитом
+и правит ссылки; молча не удаляем.
+
 ## Каталог страниц
 
 - [projects\active\alpha.md](projects/active/alpha.md) — проект: передача, состояние, история.
