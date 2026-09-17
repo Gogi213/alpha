@@ -42,6 +42,38 @@ pub const HORIZONS_MS: [i64; 4] = [100, 1_000, 10_000, 60_000];
 /// `HORIZONS_MS[2]` (таск 35, из существующих горизонтов, не новое число).
 pub const APPROACH_MS: [i64; 2] = [HORIZONS_MS[1], HORIZONS_MS[2]];
 
+/// Длинные горизонты удержания (B3, В-58 п. 4): 10 минут, 1 час, 2 часа.
+/// Ответ владельца 2 в спеке: «S и S-D; S-D значит от секунд до, наверно, пары
+/// часов».
+///
+/// Отдельный набор, а не расширение `HORIZONS_MS`: те четыре — горизонты
+/// вердикта T38 и профилей, их число зашито в артефакты (`m_100ms`…`m_60s`) и
+/// в `within_touch`; длинные читаются своим набором колонок в `touches-*.csv`.
+pub const HORIZONS_LONG_MS: [i64; 3] = [600_000, 3_600_000, 7_200_000];
+
+/// Сутки в миллисекундах — верхняя граница горизонта: `base_ts + horizon` за
+/// пределами окна записи не «нет данных рынка», а ошибка постановки задачи
+/// (запись суточная, и горизонт длиннее неё неотличим от пустой выборки).
+pub const DAY_MS: i64 = 86_400_000;
+
+/// Проверка набора горизонтов: положительный и не длиннее суток. Нужна там,
+/// где горизонт приходит снаружи (`--deadline-secs`), а не из констант: молча
+/// принятый горизонт в 10 суток дал бы артефакт из одних `None`, и это
+/// выглядело бы как «рынок не дал данных».
+pub fn check_horizons(horizons: &[i64]) -> Result<(), String> {
+    for &h in horizons {
+        if h <= 0 {
+            return Err(format!("горизонт {h} мс не положителен"));
+        }
+        if h > DAY_MS {
+            return Err(format!(
+                "горизонт {h} мс длиннее суток ({DAY_MS} мс): запись суточная, данных за ним нет"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Множитель перевода доли в базисные пункты.
 const BPS_SCALE: f64 = 10_000.0;
 
@@ -190,6 +222,23 @@ pub fn markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f6
     };
     std::array::from_fn(|i| {
         let h = *HORIZONS_MS.get(i)?;
+        let fut2x = future_asof(mids, base_ts, h)?;
+        touch_markout_bps(touch.side, base2x, fut2x)
+    })
+}
+
+/// Длинные markout'ы касания (B3): те же база и знак, что у `markouts_for_touch`,
+/// но горизонты из `HORIZONS_LONG_MS` — 10 мин / 1 ч / 2 ч. Читаются отдельными
+/// колонками `m_10m`/`m_1h`/`m_2h`; `within_touch` для них не считается:
+/// касание такой длины — редкость, а правило «горизонт внутри касания» там
+/// свело бы значение к нулю (В-45 (2)) — в CSV такие ячейки видны по
+/// `duration_ms`.
+pub fn long_markouts_for_touch(touch: &TouchRecord, mids: &[MidSample]) -> [Option<f64>; 3] {
+    let Some((base_ts, base2x)) = touch_base(mids, touch.start_ms) else {
+        return [None, None, None];
+    };
+    std::array::from_fn(|i| {
+        let h = *HORIZONS_LONG_MS.get(i)?;
         let fut2x = future_asof(mids, base_ts, h)?;
         touch_markout_bps(touch.side, base2x, fut2x)
     })

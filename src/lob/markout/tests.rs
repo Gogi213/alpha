@@ -336,3 +336,55 @@ fn a_mid_falling_onto_the_bid_gives_positive_approach() {
     );
     assert_eq!(APPROACH_MS, [HORIZONS_MS[1], HORIZONS_MS[2]]);
 }
+
+/// B3 (В-58 п. 4): длина горизонтов — проверяемая величина. Горизонт длиннее
+/// суток неотличим от пустой выборки, поэтому это **отказ**, а не молчаливые
+/// `None` во всех строках артефакта; нулевой и отрицательный — тоже отказ.
+#[test]
+fn horizons_longer_than_a_day_are_refused() {
+    assert!(
+        check_horizons(&HORIZONS_MS).is_ok(),
+        "боевые четыре проходят"
+    );
+    assert!(
+        check_horizons(&HORIZONS_LONG_MS).is_ok(),
+        "длинные (10 мин/1 ч/2 ч) проходят"
+    );
+    let err = check_horizons(&[DAY_MS + 1]).unwrap_err();
+    assert!(err.contains("длиннее суток"), "{err}");
+    assert!(check_horizons(&[0]).is_err(), "нулевой горизонт — отказ");
+    assert!(check_horizons(&[-1]).is_err(), "отрицательный — отказ");
+}
+
+/// B3: длинные markout'ы читают ровно 10 мин / 1 ч / 2 ч от базы касания и
+/// молчат (`None`) там, где запись кончилась раньше горизонта — иначе «нет
+/// данных» выглядело бы как нулевое движение цены.
+#[test]
+fn long_markouts_read_the_ten_minute_hour_and_two_hour_points() {
+    let start = 1_000_000_i64;
+    // Середина 2000 (то есть 1000.0) на старте и по точке на каждый горизонт:
+    // +10 мин, +1 ч, +2 ч — каждая на тик выше (сдвиг 0.5 bps на 2000).
+    let mids = vec![
+        sample(start, 2_000),
+        sample(start + HORIZONS_LONG_MS[0], 2_002),
+        sample(start + HORIZONS_LONG_MS[1], 2_004),
+        sample(start + HORIZONS_LONG_MS[2], 2_006),
+    ];
+    let m = long_markouts_for_touch(&touch(Side::Bid, start), &mids);
+    assert_eq!(HORIZONS_LONG_MS, [600_000, 3_600_000, 7_200_000]);
+    for (i, got) in m.iter().enumerate() {
+        let expected = touch_markout_bps(Side::Bid, 2_000, 2_000 + 2 * (i as i64 + 1));
+        assert!(
+            (got.unwrap() - expected.unwrap()).abs() < 1e-9,
+            "горизонт {i}: {got:?} против {expected:?}"
+        );
+    }
+
+    // Базы нет вовсе (касание раньше первого среза) — все три `None`, как у
+    // коротких горизонтов: молчаливого нуля здесь быть не должно.
+    let late = vec![sample(start + 10_000, 2_000)];
+    assert_eq!(
+        long_markouts_for_touch(&touch(Side::Bid, start), &late),
+        [None, None, None]
+    );
+}

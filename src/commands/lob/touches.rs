@@ -23,8 +23,8 @@ use clap::Args;
 
 use crate::lob::levels::LevelsConfig;
 use crate::lob::markout::{
-    approaches_for_touch, distance_bps_at_birth, markouts_for_touch, mid_double_tick, sample_asof,
-    within_touch, APPROACH_MS, HORIZONS_MS,
+    approaches_for_touch, distance_bps_at_birth, long_markouts_for_touch, markouts_for_touch,
+    mid_double_tick, sample_asof, within_touch, APPROACH_MS, HORIZONS_MS,
 };
 
 use super::{
@@ -94,7 +94,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 29;
+const TOUCHES_WIDTH: usize = 32;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -129,6 +129,12 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "within_touch_60s",
     "approach_1s",
     "approach_10s",
+    // Длинные горизонты (B3, В-58 п. 4): 10 мин / 1 ч / 2 ч — «от секунд до,
+    // наверно, пары часов» (ответ владельца 2). Отдельные колонки, а не
+    // продолжение `m_*`: у тех есть парные `within_touch_*`, у этих — нет.
+    "m_10m",
+    "m_1h",
+    "m_2h",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -179,6 +185,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             let ms = markouts_for_touch(t, &day.mids);
             let inside = within_touch(t.duration_ms);
             let ap = approaches_for_touch(t, &day.mids);
+            let long = long_markouts_for_touch(t, &day.mids);
             let row: [String; TOUCHES_WIDTH] = [
                 day.day.clone(),
                 side_name(t.side).to_string(),
@@ -213,6 +220,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 inside[3].to_string(),
                 some_or_empty(ap[0]),
                 some_or_empty(ap[1]),
+                some_or_empty(long[0]),
+                some_or_empty(long[1]),
+                some_or_empty(long[2]),
             ];
             w.write_record(row)?;
             n += 1;

@@ -33,7 +33,7 @@ use crate::lob::backtest::{
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
 use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, TouchRecord};
-use crate::lob::markout::{MidSample, HORIZONS_MS};
+use crate::lob::markout::MidSample;
 use crate::lob::strategy::TradePlan;
 use crate::lob::touch_axes::{
     age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
@@ -135,6 +135,14 @@ pub struct BacktestArgs {
     /// от входа (`P+3` при старом входе).
     #[arg(long, value_enum, default_value_t = StopModeArg::Behind)]
     pub stop_mode: StopModeArg,
+    /// Дедлайн сделки, секунды (B3, В-58 п. 4) — из предрегистрированной
+    /// сетки {60, 600, 3600, 7200}: «S и S-D; S-D значит от секунд до, наверно,
+    /// пары часов» (ответ владельца 2). Другое значение — отказ: сетка
+    /// зафиксирована **до** данных, и «попробовать ещё одно» — это лишнее
+    /// испытание, а не параметр (В-58: каждое дополнительно рассмотренное
+    /// значение считается отдельным испытанием).
+    #[arg(long, default_value_t = 60)]
+    pub deadline_secs: i64,
     /// Порог `H3` для `--touches` — те же флаги, что у `lob touches`/`levels`.
     #[command(flatten)]
     pub h3: super::H3Args,
@@ -823,6 +831,9 @@ struct PlanShape {
     trail_activate_bps: f64,
     grid_legs: u8,
     grid_step_ticks: i64,
+    /// Дедлайн сделки в наносекундах (B3): из предрегистрированной сетки
+    /// В-58, приходит из `--deadline-secs`.
+    deadline_ns: i64,
 }
 
 fn bounce_plan(
@@ -837,13 +848,13 @@ fn bounce_plan(
         trail_activate_bps,
         grid_legs,
         grid_step_ticks,
+        deadline_ns,
     } = shape;
     let p = touch.price_tick as f64 * tick;
     let entry_ttl_ns = touch
         .end_ms
         .saturating_sub(touch.start_ms)
         .saturating_mul(1_000_000);
-    let deadline_ns = HORIZONS_MS[3].saturating_mul(1_000_000);
     let grid_step_px = grid_step_ticks as f64 * tick;
     // Знак «в сторону от плотности»: для бида это вверх, для аска — вниз.
     // Стоп и прежний вход (`P ± 1` тик) считаются по нему.
@@ -944,6 +955,15 @@ fn run_bounce(
     let tick = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
     let order_qty = args.order_qty_e9 as f64 / 1e9;
+    // Дедлайн — из предрегистрированной сетки В-58 (B3): {60, 600, 3600, 7200} с.
+    // Другое значение — отказ, а не молчаливое расширение сетки.
+    const DEADLINES_S: [i64; 4] = [60, 600, 3_600, 7_200];
+    anyhow::ensure!(
+        DEADLINES_S.contains(&args.deadline_secs),
+        "--deadline-secs {} не из предрегистрированной сетки В-58 {DEADLINES_S:?}",
+        args.deadline_secs
+    );
+    let deadline_ns = args.deadline_secs.saturating_mul(1_000_000_000);
 
     // Порог `H3` — тем же резолвером, что `lob touches`/`levels`: числа
     // считаются тем же кодом, что CSV касаний.
@@ -991,6 +1011,7 @@ fn run_bounce(
                     trail_activate_bps: args.trail_activate_bps,
                     grid_legs: args.grid_legs,
                     grid_step_ticks: args.grid_step_ticks,
+                    deadline_ns,
                 },
             );
             BounceSignal {
@@ -1028,7 +1049,7 @@ fn run_bounce(
     }
 
     let header = format!(
-        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс), порог H3={} лотов, касаний {}, бинлогов {}",
+        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс из сетки В-58), порог H3={} лотов, касаний {}, бинлогов {}",
         args.symbol,
         args.session_root.display(),
         args.median_rtt_ns,
@@ -1037,7 +1058,7 @@ fn run_bounce(
             StopModeArg::At => "в плотность (P)",
             StopModeArg::Behind => "за плотностью (P−1)",
         },
-        HORIZONS_MS[3],
+        args.deadline_secs.saturating_mul(1_000),
         h3_lots,
         touches.len(),
         binlog_paths.len()

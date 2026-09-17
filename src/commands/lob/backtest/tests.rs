@@ -307,6 +307,8 @@ fn plain_shape() -> PlanShape {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_ticks: 0,
+        // Дедлайн по умолчанию — 60 с, как `--deadline-secs` без флага (B3).
+        deadline_ns: 60 * 1_000_000_000,
     }
 }
 
