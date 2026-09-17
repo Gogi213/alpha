@@ -1859,6 +1859,139 @@ fn failed_frame_write_truncates_to_frame_boundary_and_the_part_stays_readable() 
     );
 }
 
+/// Файл, у которого окно записей `[fail_from, fail_until]` падает на
+/// половине кадра («диск полон»), а до и после окна запись идёт нормально.
+/// Откат к границе кадра работает (`truncate_to` настоящий) — ровно тот
+/// сценарий, что даёт освободившееся место без перезапуска (A8.4).
+struct FullThenFreeFile {
+    inner: File,
+    writes: u32,
+    fail_from: u32,
+    fail_until: u32,
+}
+
+impl std::io::Write for FullThenFreeFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writes += 1;
+        if (self.fail_from..=self.fail_until).contains(&self.writes) {
+            self.inner.write_all(&buf[..buf.len() / 2])?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "диск: нет места",
+            ));
+        }
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl SinkFile for FullThenFreeFile {
+    fn truncate_to(&mut self, len: u64) -> std::io::Result<()> {
+        self.inner.truncate_to(len)
+    }
+}
+
+/// A8.4 (2026-09-18): диск полон → снова свободен. Пока места нет, кадры не
+/// ложатся (`frames_failed` растёт, строка `write_failed` на каждый), но
+/// запись **не останавливается**: счётчик замирает, как только место
+/// вернулось, та же часть продолжается (`-p2` нет — граница кадра не
+/// потеряна), а файл читается целиком: снапшот и кадры после освобождения
+/// места, без обрывков и `ShortRead`.
+#[test]
+fn a_full_disk_needs_no_restart_when_space_comes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let sink_dir = tempfile::tempdir().unwrap();
+    // Запись №1 — заголовок со снапшотом; №2–№4 — «диск полон»; с №5 место
+    // есть.
+    let (writer, part) = claim_part_with(
+        sink_dir.path(),
+        "SYM",
+        TEST_DAY,
+        1,
+        TEST_TICK_E9,
+        TEST_STEP_E9,
+        |file| {
+            FrameSink::over(Box::new(FullThenFreeFile {
+                inner: file,
+                writes: 0,
+                fail_from: 2,
+                fail_until: 4,
+            }))
+        },
+    )
+    .unwrap();
+    ctx.states[0].streams[FAST_STREAM].writer = writer;
+    ctx.states[0].streams[FAST_STREAM].part = part;
+
+    let ms = NOON_NS / 1_000_000;
+    let tick = |k: i64| Event::Tick {
+        local_ts_ns: NOON_NS + k * 10_000_000_000,
+    };
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(book_event(0, NOON_NS, ms, true, 1)),
+        // Три кадра подряд не ложатся: диск полон.
+        Step::Ev(book_event(0, NOON_NS + 1, ms + 1, false, 2)),
+        Step::Ev(tick(1)),
+        Step::Ev(book_event(0, NOON_NS + 2, ms + 2, false, 3)),
+        Step::Ev(tick(2)),
+        Step::Ev(book_event(0, NOON_NS + 3, ms + 3, false, 4)),
+        Step::Ev(tick(3)),
+        // Место вернулось — те же писатели продолжают, без перезапуска.
+        Step::Ev(book_event(0, NOON_NS + 4, ms + 4, false, 5)),
+        Step::Ev(tick(4)),
+        Step::Ev(book_event(0, NOON_NS + 5, ms + 5, false, 6)),
+        Step::Ev(tick(5)),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(
+        summary.frames_failed, 3,
+        "три кадра потеряны за время, пока места не было"
+    );
+    let fast = summary
+        .streams
+        .iter()
+        .find(|s| s.depth == crate::bybit::conn::ORDERBOOK_DEPTH)
+        .unwrap();
+    assert_eq!(fast.frames_failed, 3);
+    let gaps = std::fs::read_to_string(gaps_csv_path(&root)).unwrap();
+    assert_eq!(
+        gaps.matches("write_failed").count(),
+        3,
+        "строка на каждую потерянную запись: {gaps}"
+    );
+    // Перезапуска нет: та же часть, `-p2` не появился.
+    assert_eq!(ctx.states[0].streams[FAST_STREAM].part, 1);
+    assert!(
+        !crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 2).exists(),
+        "граница кадра не терялась — новая часть не нужна"
+    );
+    // Файл читается целиком: снапшот и два кадра после освобождения места.
+    let path = crate::commands::record::day_file_path(sink_dir.path(), "SYM", TEST_DAY, 1);
+    let frames = frames_on_disk(&path);
+    assert_eq!(
+        frames.len(),
+        3,
+        "снапшот + два кадра после возврата места, обрывков нет"
+    );
+    assert_eq!(frames[2][0].exch_ts_ns, (ms + 5) * 1_000_000);
+    assert_eq!(
+        summary.records_total,
+        frames.iter().map(Vec::len).sum::<usize>() as u64,
+        "записей в сводке ровно столько, сколько легло в файл: потерянные не считаются записанными"
+    );
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        summary.bytes_written,
+        "байты сводки — ровно файл на диске"
+    );
+}
+
 /// Таск 28. Разрыв мультиплексированного сокета доходит до каждого его
 /// инструмента: строк `gaps.csv` — по инструменту, а `reconnects` — один
 /// на сокет (копии приходят `DisconnectedSameSocket`). Кадр с
