@@ -1360,6 +1360,121 @@ async fn failed_handshake_is_reported_with_its_http_status() {
     );
 }
 
+/// A8.5 (2026-09-18): сеть пропала на часы — серия отказов подряд. Каждый отказ
+/// виден (`ConnectFailed` со своим номером попытки), а причины **отличимы**:
+/// HTTP-отказ несёт статус (403/429), DNS-отказ статуса не имеет — только текст
+/// (`TransportError::Io`). Восстановление — не «продолжаем как ни в чём не
+/// бывало»: новый сокет подписывается заново, и данные возвращаются обычным
+/// `Message` (снапшот).
+#[tokio::test]
+async fn repeated_connect_failures_are_each_reported_and_a_recovered_socket_resubscribes() {
+    /// Коннектор с очередью отказов: первые `connect()` падают, следующий
+    /// отдаёт сценарий кадров — «сеть вернулась».
+    struct FlakyConnectConnector {
+        failures: VecDeque<TransportError>,
+        frames: Option<VecDeque<Result<Frame, TransportError>>>,
+        sent: Arc<Mutex<Vec<String>>>,
+    }
+    impl TransportConnector for FlakyConnectConnector {
+        type Transport = ScriptedTransport;
+        fn connect(
+            &mut self,
+        ) -> impl Future<Output = Result<ScriptedTransport, TransportError>> + Send {
+            let failure = self.failures.pop_front();
+            // Кадры забираются только удачной попытке: иначе первый же отказ
+            // съел бы сценарий, и «восстановление» осталось бы без данных.
+            let frames = if failure.is_some() {
+                None
+            } else {
+                self.frames.take()
+            };
+            let sent = self.sent.clone();
+            async move {
+                if let Some(err) = failure {
+                    return Err(err);
+                }
+                Ok(ScriptedTransport {
+                    inbox: frames.unwrap_or_default(),
+                    sent,
+                })
+            }
+        }
+    }
+
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let connector = FlakyConnectConnector {
+        failures: VecDeque::from(vec![
+            TransportError::Http {
+                status: 429,
+                msg: "Too Many Requests".to_string(),
+            },
+            // DNS-отказ: адрес не разрешился, HTTP-статуса нет.
+            TransportError::Io("dns: failed to lookup address information".to_string()),
+        ]),
+        frames: Some(VecDeque::from(vec![Ok(Frame::Text(orderbook_msg(
+            "snapshot",
+            1,
+            1,
+            &[(1.0, 5.0)],
+            &[(1.0001, 4.0)],
+        )))])),
+        sent: sent.clone(),
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, test_cfg("SOLUSDT")).run(SystemClock, tx));
+
+    let events = collect_n(&mut rx, 3).await;
+    handle.abort();
+
+    match &events[0] {
+        ConnEvent::ConnectFailed {
+            attempt,
+            http_status,
+            err,
+            ..
+        } => {
+            assert_eq!(*attempt, 1, "первая попытка");
+            assert_eq!(*http_status, Some(429), "429 отличим от 403 и от DNS");
+            assert!(err.contains("Too Many"), "{err}");
+        }
+        other => panic!("ждали ConnectFailed, получили {other:?}"),
+    }
+    match &events[1] {
+        ConnEvent::ConnectFailed {
+            attempt,
+            http_status,
+            err,
+            ..
+        } => {
+            assert_eq!(
+                *attempt, 2,
+                "номер попытки растёт, пока сессия не была полезной"
+            );
+            assert_eq!(
+                *http_status, None,
+                "DNS-отказ статуса не имеет — отличается от 403/429"
+            );
+            assert!(err.contains("lookup"), "{err}");
+        }
+        other => panic!("ждали ConnectFailed, получили {other:?}"),
+    }
+    match &events[2] {
+        ConnEvent::Message { event, .. } => {
+            assert!(
+                matches!(event, Event::Book(u) if u.is_snapshot),
+                "после восстановления приходит снапшот: {event:?}"
+            );
+        }
+        other => panic!("ждали снапшот после восстановления, получили {other:?}"),
+    }
+    // Восстановленный сокет подписался заново — «вернулись» не молча.
+    let sent = sent.lock().unwrap().clone();
+    assert!(
+        sent.iter().any(|m| m.contains("orderbook.50.SOLUSDT")),
+        "подписка после восстановления обязана уйти: {sent:?}"
+    );
+}
+
 /// V5 (2026-09-17): полуживое соединение — TCP жив, данных нет — раньше висело
 /// бесконечно. Порог приёма — 2 × интервал пинга; здесь транспорт молчит
 /// (`pending()` на пустом ящике), поэтому событие обязано прийти, а не висеть.

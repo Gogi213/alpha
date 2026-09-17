@@ -3010,6 +3010,52 @@ fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
     );
 }
 
+/// A8.5 (2026-09-18): после отказов соединения запись возобновляется штатно.
+/// `ConnectFailed` сбрасывает доверие книги (дельты в неё не пишутся), а первый
+/// снапшот восстановленного сокета делает её доверенной снова — кадр уходит на
+/// диск, сессия не перезапускается.
+#[test]
+fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let fast_path = crate::commands::record::day_file_path(&root, "SYM", TEST_DAY, 1);
+    let fast_probe = fast_path.clone();
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        Step::Ev(Event::Gap {
+            symbol: 0,
+            local_ts_ns: NOON_NS,
+            kind: FeedGapKind::ConnectFailed,
+            depth: None,
+            detail: "connect() отклонён биржей: HTTP 429 — Too Many Requests (попытка 1)"
+                .to_string(),
+        }),
+        Step::Probe(Box::new(move || {
+            assert!(
+                std::fs::metadata(&fast_probe).map_or(true, |m| m.len() == 0),
+                "до снапшота файл части пуст"
+            );
+        })),
+        Step::Ev(book_event(0, NOON_NS + 1, NOON_NS / 1_000_000 + 1, true, 1)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+
+    assert_eq!(summary.connect_failed, 1, "отказ соединения посчитан");
+    assert!(
+        ctx.states[0].streams[FAST_STREAM].synced,
+        "снапшот восстановленного сокета снова доверяет книгу"
+    );
+    assert!(ctx.states[0].streams[FAST_STREAM].has_snapshot);
+    assert_eq!(
+        frames_on_disk(&fast_path).len(),
+        1,
+        "кадр снапшота после восстановления лёг на диск"
+    );
+}
+
 /// A8.1b (правка ревью A8.1): соседи по снятому сокету переезжают в новое
 /// соединение — у них между остановкой старого и снапшотом нового данных нет.
 /// Шов обязан быть **видимым**: строка `gaps.csv` класса `sequence_gap` на
