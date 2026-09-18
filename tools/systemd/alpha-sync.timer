@@ -1,0 +1,13 @@
+[Unit]
+Description=Alpha: ночной перенос вчерашних суток на счётную машину (после сверки 00:20)
+Documentation=file:///opt/alpha/src/docs/COMMANDS.md
+
+[Timer]
+# Сверка (alpha-verify.timer) — 00:20 UTC и занимает минуты; 00:45 — с запасом,
+# чтобы маркеры verify-<SYM>.status за вчера уже лежали в корне.
+OnCalendar=*-*-* 00:45:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

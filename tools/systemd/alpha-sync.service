@@ -1,0 +1,15 @@
+[Unit]
+Description=Alpha: перенос закрытых суток записи на счётную машину (переезд счёта, 2026-09-18)
+Documentation=file:///opt/alpha/src/docs/COMMANDS.md
+After=network-online.target alpha-verify.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/alpha
+# Читает /opt/alpha/root (root:root) и пишет /opt/alpha/sync — без User=;
+# ключ и known_hosts берутся из /home/ubuntu/.ssh (см. tools/sync-to-compute.sh).
+ExecStart=/opt/alpha/tools/sync-to-compute.sh
+Nice=19
+CPUWeight=20
+IOSchedulingClass=idle

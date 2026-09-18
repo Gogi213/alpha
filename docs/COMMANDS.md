@@ -254,6 +254,26 @@
    виден строкой `verify: day=...` и отсутствием маркеров. Бинарник для сверки — `/opt/alpha/alpha-verify`
    (копия `~/alpha-build/target/release/alpha`), тот же, что чинит/архивирует руками по ранбуку; сам
    коллектор живёт своим бинарником `/opt/alpha/alpha-collector`.
+10. **Счёт — на отдельной машине (переезд, владелец 2026-09-18: «переезжай»).** Рядом с коллектором
+   сетку в полную силу гнать нельзя (2 vCPU, 3.7 ГБ; четыре попытки на нём — `round-validation-2026-09-18.md`
+   §6), поэтому счёт живёт на `13.140.29.171` (`root`, старый alpha-бокс, там же watcher/massedit:
+   4 vCPU Xeon Gold, 7.9 ГБ, соседи держат < 1 ГБ). Раскладка: `/opt/alpha-compute/{src,bin,root,b5}` —
+   исходники (копия HEAD: `git archive HEAD src Cargo.toml Cargo.lock tools rust-toolchain.toml` → scp →
+   `tar -xzf`), сборка `~/.cargo/bin/cargo build --release -j 3` (тулчейн 1.93.1 уже стоит; ~3 мин),
+   бинарник `bin/alpha-<hash>` и симлинк `bin/alpha`. **Данные** приезжают ночью с коллектора:
+   `alpha-sync.timer` (`tools/systemd/alpha-sync.timer`, **00:45 UTC**, после сверки 00:20) →
+   `alpha-sync.service` → `/opt/alpha/tools/sync-to-compute.sh [день]` — `rsync -a --partial --bwlimit=25000`
+   под `nice 19`/`ionice idle` вчерашних `*-<день>*.binlog` потока `.50` (не `deep/`), `instruments.csv`,
+   маркеров `verify-*.status`, `gaps.csv`, `clock.csv`, `session.json` и сводки `/opt/alpha/verify/<день>.log`
+   → `/opt/alpha-compute/root/` (лог — `/opt/alpha/sync/<день>.log`). Ключ — `/home/ubuntu/.ssh/id_compute_sync`
+   (ed25519, только для этого), на приёмнике в `/root/.ssh/authorized_keys` с `from="139.99.91.22",restrict`;
+   host-key приёмника закреплён в `known_hosts` коллектора. Копия заодно — бэкап записи (на коллекторе
+   диск полон ≈ 22.09). Первый перенос 18.09: сутки 09-16 и 09-17, 504 файла, 7.4 ГБ. **Сетка там:**
+   `sudo /opt/alpha-compute/bin/run-grid.sh <метка> --day <день> --h3-mode … [--symbol …]`
+   (`tools/compute/run-grid.sh`): transient-сервис `alpha-grid-<метка>` с `MemoryMax=4G`, `CPUWeight=30`,
+   `nice 15`, 3 потока, RTT assumed 20 мс, лот от пула; артефакты `/opt/alpha-compute/b5/<метка>/`,
+   состояние — `systemctl status alpha-grid-<метка>`. Гейт переезда: круги HYPE за 09-17 на счётной машине
+   побайтово равны кругам с коллекторского сервера.
 
 ### Развёртывание на старом сервере `13.140.29.171` (факт, 2026-09-14)
 
