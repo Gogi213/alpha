@@ -700,6 +700,9 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     );
     let mut want = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 1);
     want.traded_during = 4;
+    // E4: сделка на 4 лота с меткой 2500 — через 0.5 с после старта касания,
+    // то есть внутри всех трёх окон реакции.
+    want.traded_first_s = [4, 4, 4];
     // B2: цена первого фронтранера — ближайший лучший уровень (101), на том же
     // наблюдении, что лоты фронтрана.
     want.frontrun_tick = Some(101);
@@ -805,8 +808,7 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             ended_by_death: false,
             stack_levels: 1,
             stack_next_tick: None,
-            // Сделка на 4 лота легла в первую секунду касания — во всех трёх окнах.
-            traded_first_s: [4, 4, 4],
+            traded_first_s: [0; 3],
             // Окно 50 bps от тика 200 — один тик: сосед 199 (фронтран, 3 лота) даёт 15/3 = 500 %.
             strength_e2: [-1, -1, 50_000],
             strength_held_e2: [-1, -1, -1, -1],
