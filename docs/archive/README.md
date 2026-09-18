@@ -25,7 +25,7 @@
 |---|---|---|
 | `findings/` | перекрытые замеры: `audit-2026-09-12`, `pool-top50-2026-09-13`, `deploy-2026-09-14`, `depth-distribution-2026-09-15`, `format-columnar-2026-09-15`, `format-dictionary-2026-09-15` | `docs/findings/` |
 | `artifacts/` | **первичное:** `bounce-backtest-2026-09-13*.csv` (12), `practitioner-numbers-*.csv` (3) — данные прогонов 09-13 | `docs/findings/` |
-| `transcripts/` | **первичное:** 9 сырых расшифровок (≈800 КБ: `stanok_*`, `dizzy_*`, `отскок *`) с таймкодами — по ним проверяются цитаты решений в `bounce-spec-2026-09-17.md` | `docs/транскрипции/` |
+| ~~`transcripts/`~~ | **вынесено 2026-09-19** (владелец: «транскрипции не должны лежать в архиве») в `docs/transcripts/` — 9 сырых расшифровок с таймкодами, первоисточник базы отскока (В-64); цитаты `bounce-spec-2026-09-17.md`/`transcripts-2026-09-17.md` проверяются по ним | `docs/транскрипции/` → `docs/transcripts/` |
 | `plan-2026-09-11/` | `critique-1..7.json`, `OPEN_QUESTIONS.md`, `README.md`, `REVIEW-2026-09-11.md`, `REQUIREMENTS.md` (черновики первой редакции) и **первичное:** `RECON-2026-09-11.md` (отсюда `LEVELS_INITIAL_CAPACITY = 8`, `fast_topic`, часовой прогресс) | `docs/plan/`, `docs/plan/archive/` |
 | `pools/` | **первичное:** `instruments-top20-server.csv`, `instruments-top30-server.csv` — прежние пулы, пруф MD5 для `COMMANDS.md` (боевой — 100 монет) | корень репозитория |
 
