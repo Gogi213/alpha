@@ -75,6 +75,9 @@ pub(super) fn run_profiles_and_backtest_chain(
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms,
         repeat_window_ms,
@@ -182,6 +185,9 @@ pub(super) fn run_profiles_and_backtest_chain(
             h3: crate::commands::lob::H3Args {
                 h3_mode: crate::commands::lob::H3ModeArg::Floor,
                 h3_lots: None,
+                h3_usd: None,
+                h3_strength_pct: None,
+                h3_strength_window_bps: None,
             },
             h3_k: None,
             warmup_ms: None,

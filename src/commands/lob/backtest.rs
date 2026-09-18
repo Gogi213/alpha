@@ -32,7 +32,7 @@ use crate::lob::backtest::{
     SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
-use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, TouchRecord};
+use crate::lob::levels::{LevelRecord, LevelsConfig, TouchRecord};
 use crate::lob::markout::MidSample;
 use crate::lob::strategy::TradePlan;
 use crate::lob::touch_axes::{
@@ -1208,9 +1208,9 @@ fn run_bounce(
             .repeat_window_ms
             .unwrap_or(super::DEFAULT_REPEAT_WINDOW_MS),
     };
-    let h3_lots = match mode {
-        H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
-    };
+    let h3_lots = mode
+        .single_h3_lots()
+        .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
     let replay = super::replay_symbol(&args.session_root, &args.symbol, cfg_levels)?;
     let mut touches: Vec<TouchRecord> = Vec::new();
     for day in &replay.days {

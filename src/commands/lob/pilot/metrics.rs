@@ -195,7 +195,7 @@ pub fn process_instrument(
         .map_err(step("levels_floor"))?
     {
         H3Mode::Floor { h3_lots } => h3_lots,
-        H3Mode::Percentile { .. } => unreachable!("H3ModeArg::Floor всегда даёт H3Mode::Floor"),
+        _ => unreachable!("H3ModeArg::Floor всегда даёт H3Mode::Floor"),
     };
 
     let floor_summary = run_levels(&LevelsArgs {
@@ -204,6 +204,9 @@ pub fn process_instrument(
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         h3_k: None,
         warmup_ms,
@@ -218,6 +221,9 @@ pub fn process_instrument(
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(floor_h3_lots),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         h3_k: None,
         warmup_ms,
@@ -237,6 +243,9 @@ pub fn process_instrument(
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms,
         repeat_window_ms,

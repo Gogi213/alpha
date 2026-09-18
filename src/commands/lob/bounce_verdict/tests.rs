@@ -23,7 +23,7 @@ fn write_grid(
     let fills_of = |si: usize, di: usize| fills.unwrap_or(10 + 3 * di as u64 + si as u64);
     std::fs::create_dir_all(dir).unwrap();
     let mut forms = String::from(
-        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,stop_mode,n_residual_flattened\n",
+        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,stop_mode,n_residual_flattened,signals_by_hour\n",
     );
     let mut rounds = String::from(
         "# synthetic grid\nsymbol,day_utc,form,signal_index,t0_ns,dir,entry_px,exit_px,qty,net_bps,reason\n",
@@ -50,7 +50,9 @@ fn write_grid(
                     rounds.push_str(&format!(
                         "{sym},{day},{},{k},{},{},100.0,100.0,1.0,{net:.6},{reason}\n",
                         form.label,
-                        k * 1_000_000_000,
+                        // Круги раз в 10 минут: 60 кругов — десять часов, чтобы
+                        // вердикт по часам (В-60) имел кластеры.
+                        k * 600 * 1_000_000_000,
                         if k % 2 == 0 { 1 } else { -1 }
                     ));
                 }
@@ -68,8 +70,20 @@ fn write_grid(
                         net >= 0.0
                     })
                     .count() as u64;
+                // Сигналы по часам: круги — по своему t0 (раз в 10 минут),
+                // промахи — все в 23-м часе.
+                let mut by_hour = [0u64; 24];
+                for k in 0..fills {
+                    by_hour[((k * 600) / 3600) as usize % 24] += 1;
+                }
+                by_hour[23] += signals - fills;
+                let by_hour = by_hour
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(":");
                 forms.push_str(&format!(
-                    "{sym},{day},{},{signals},{fills},{fills},{},0,0,{sum:.6},{},{n_take},0,0,0,0,false,{},0\n",
+                    "{sym},{day},{},{signals},{fills},{fills},{},0,0,{sum:.6},{},{n_take},0,0,0,0,false,{},0,{by_hour}\n",
                     form.label,
                     signals - fills,
                     fills - n_take,
@@ -196,10 +210,12 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
     assert_eq!(data_rows, 49, "шапка + 48 форм");
 }
 
-/// Гейт §7: суток с кругами меньше `G_MIN` — «мало данных», не вердикт,
-/// даже если интервал положителен.
+/// В-60 (владелец 2026-09-18: «одного дня минимум хватает»): при суток
+/// меньше `G_MIN` кластер интервала — час UTC; трое суток по 60 кругов раз в
+/// 10 минут дают десятки часовых кластеров, и вердикт выносится (форма с
+/// преимуществом +5 bps), а не «мало данных».
 #[test]
-fn too_few_days_is_not_a_verdict() {
+fn few_days_get_a_verdict_through_hour_clusters() {
     let dir = tempfile::tempdir().unwrap();
     let grid = dir.path().join("grid");
     write_grid(
@@ -213,10 +229,27 @@ fn too_few_days_is_not_a_verdict() {
     );
     let runs_csv = dir.path().join("runs.csv");
     journal_with_grid(&runs_csv);
-    let s = run_bounce_verdict(&args(&grid, &runs_csv, &dir.path().join("v.csv"))).unwrap();
+    let out = dir.path().join("v.csv");
+    let s = run_bounce_verdict(&args(&grid, &runs_csv, &out)).unwrap();
     assert_eq!(s.best_n_fills, 180);
     assert_eq!(s.best_days, 3);
-    assert_eq!(s.verdict, Verdict::NotEnoughData);
+    assert_ne!(s.verdict, Verdict::NotEnoughData, "{s:?}");
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.contains("cluster_unit"), "{text}");
+    assert!(text.contains(",hour,"), "кластер — час: {text}");
+    // Мало кругов — по-прежнему «мало данных», часы этого не отменяют.
+    let grid2 = dir.path().join("grid2");
+    write_grid(
+        &grid2,
+        &["AAAUSDT"],
+        &["2026-09-10"],
+        10,
+        Some(3),
+        "at-600-2",
+        5.0,
+    );
+    let s2 = run_bounce_verdict(&args(&grid2, &runs_csv, &dir.path().join("v2.csv"))).unwrap();
+    assert_eq!(s2.verdict, Verdict::NotEnoughData);
 }
 
 /// Форма без преимущества — интервал не отделяется от нуля: «красный».

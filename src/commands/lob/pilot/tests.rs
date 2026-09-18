@@ -644,6 +644,9 @@ fn debug_chain_backtests_each_symbol_and_never_writes_a_runs_csv() {
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,

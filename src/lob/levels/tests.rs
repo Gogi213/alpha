@@ -1190,3 +1190,127 @@ fn touching_frames_allocate_nothing() {
     assert_eq!(tr.live_count(), 2);
     assert!(out.is_empty(), "смертей не было");
 }
+
+// ---------------------------------------------------------------------------
+// Режимы порога В-61 (владелец 2026-09-18): «от N» в деньгах, сила «×соседи», оба.
+// ---------------------------------------------------------------------------
+
+fn live_count(tr: &LevelTracker) -> usize {
+    let mut open = Vec::new();
+    tr.live_levels(&mut open);
+    open.len()
+}
+
+/// Денежный пол: тик $1, лот 1 — уровень на цене 10 с размером 9 ($90) не
+/// рождается при N = $100, с размером 10 ($100) — рождается (не ниже, а не
+/// строго выше). На цене 1000 хватает и одного лота.
+#[test]
+fn notional_mode_births_by_price_times_size() {
+    let mode = H3Mode::Notional {
+        min_usd_e9: 100 * 1_000_000_000,
+        tick_e9: 1_000_000_000,
+        step_e9: 1_000_000_000,
+    };
+    let cfg = LevelsConfig {
+        mode,
+        warmup_ms: HOUR_MS,
+        repeat_window_ms: HOUR_MS,
+    };
+    let mut out = Vec::new();
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(10, 9)], &mut out);
+    assert_eq!(live_count(&tr), 0, "$90 < $100");
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(10, 10)], &mut out);
+    assert_eq!(live_count(&tr), 1, "$100 ≥ $100");
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(1000, 1)], &mut out);
+    assert_eq!(live_count(&tr), 1, "$1000 одним лотом");
+    assert_eq!(out.len(), 0, "без прогрева, но и без смертей");
+}
+
+/// Сила «×соседи»: 300 % от среднего соседа в ±20 bps. У бидов кадр идёт
+/// сверху вниз, у асков — снизу вверх; окно от цены 10000 и 20 bps — 20 тиков.
+#[test]
+fn strength_mode_compares_a_level_with_its_neighbours() {
+    let mode = H3Mode::Strength {
+        pct_e2: 300 * 100,
+        window_bps_e2: 20 * 100,
+    };
+    let cfg = LevelsConfig {
+        mode,
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+    };
+    let mut out = Vec::new();
+    // Бид 10000×100 против соседей 9990×10 и 9985×10: 100/10 = 1000 % — рождается;
+    // сами соседи (10 против среднего (100+10)/2 = 55 — 18 %) — нет.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(
+        1000,
+        Side::Bid,
+        &[ob(10000, 100), ob(9990, 10), ob(9985, 10)],
+        &mut out,
+    );
+    assert_eq!(live_count(&tr), 1);
+    // Сосед за окном (9970 — 30 тиков) не считается: уровень один — силы нет.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(10000, 100), ob(9970, 1)], &mut out);
+    assert_eq!(live_count(&tr), 0, "без соседей в окне сила не определена");
+    // Аски (тики растут): та же картина зеркально.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(
+        1000,
+        Side::Ask,
+        &[ob(10000, 100), ob(10010, 10), ob(10015, 10)],
+        &mut out,
+    );
+    assert_eq!(live_count(&tr), 1);
+    // Ровно 300 % проходит (не строго): 30 против соседей 10 и 10.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(
+        1000,
+        Side::Ask,
+        &[ob(10000, 30), ob(10010, 10), ob(10015, 10)],
+        &mut out,
+    );
+    assert_eq!(live_count(&tr), 1, "граница включительная");
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(
+        1000,
+        Side::Ask,
+        &[ob(10000, 29), ob(10010, 10), ob(10015, 10)],
+        &mut out,
+    );
+    assert_eq!(live_count(&tr), 0, "290 % — мало");
+}
+
+/// «Оба» — И: денежный пол пройден, сила нет — уровня нет; и наоборот.
+#[test]
+fn both_mode_requires_notional_and_strength_together() {
+    let both = H3Mode::Both {
+        min_usd_e9: 100 * 1_000_000_000,
+        tick_e9: 1_000_000_000,
+        step_e9: 1_000_000_000,
+        pct_e2: 300 * 100,
+        window_bps_e2: 20 * 100,
+    };
+    let cfg = LevelsConfig {
+        mode: both,
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+    };
+    let mut out = Vec::new();
+    // Цена 10000, размер 100: $1 000 000 ≥ $100 и 1000 % силы — рождается.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(10000, 100), ob(9990, 10)], &mut out);
+    assert_eq!(live_count(&tr), 1);
+    // Размер 100 против соседа 100: сила 100 % — нет, хотя номинал есть.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(10000, 100), ob(9990, 100)], &mut out);
+    assert_eq!(live_count(&tr), 0);
+    // Цена 1, размер 50 против соседа 10: сила есть, номинала $50 нет.
+    let mut tr = LevelTracker::new(cfg);
+    tr.observe_frame(1000, Side::Bid, &[ob(1, 50), ob(1, 10)], &mut out);
+    assert_eq!(live_count(&tr), 0);
+}

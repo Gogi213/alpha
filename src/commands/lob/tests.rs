@@ -459,3 +459,108 @@ fn lob_help_lists_all_subcommands() {
         expected.iter().map(ToString::to_string).collect::<Vec<_>>()
     );
 }
+
+/// В-61: полный резолвер требует свои флаги и отвергает чужие; прежние режимы
+/// через него — те же, что через `resolve_h3_mode_with_k`.
+#[test]
+fn resolve_h3_mode_full_requires_and_forbids_the_right_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = H3Args {
+        h3_mode: H3ModeArg::Notional,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    let err = resolve_h3_mode_full(dir.path(), "SOLUSDT", &base, None, 10_000_000, 100_000_000)
+        .unwrap_err();
+    assert!(err.to_string().contains("--h3-usd"), "{err}");
+    let ok = resolve_h3_mode_full(
+        dir.path(),
+        "SOLUSDT",
+        &H3Args {
+            h3_usd: Some(50_000.0),
+            ..base
+        },
+        None,
+        10_000_000,
+        100_000_000,
+    )
+    .unwrap();
+    assert_eq!(
+        ok,
+        H3Mode::Notional {
+            min_usd_e9: 50_000 * 1_000_000_000,
+            tick_e9: 10_000_000,
+            step_e9: 100_000_000
+        }
+    );
+    let err = resolve_h3_mode_full(
+        dir.path(),
+        "SOLUSDT",
+        &H3Args {
+            h3_usd: Some(50_000.0),
+            h3_lots: Some(5),
+            ..base
+        },
+        None,
+        10_000_000,
+        100_000_000,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("--h3-lots"), "{err}");
+    let err = resolve_h3_mode_full(
+        dir.path(),
+        "SOLUSDT",
+        &H3Args {
+            h3_mode: H3ModeArg::Both,
+            h3_usd: Some(50_000.0),
+            h3_strength_pct: Some(300.0),
+            ..base
+        },
+        None,
+        10_000_000,
+        100_000_000,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("--h3-strength-window-bps"),
+        "{err}"
+    );
+    let ok = resolve_h3_mode_full(
+        dir.path(),
+        "SOLUSDT",
+        &H3Args {
+            h3_mode: H3ModeArg::Strength,
+            h3_strength_pct: Some(300.0),
+            h3_strength_window_bps: Some(20.0),
+            ..base
+        },
+        None,
+        10_000_000,
+        100_000_000,
+    )
+    .unwrap();
+    assert_eq!(
+        ok,
+        H3Mode::Strength {
+            pct_e2: 30_000,
+            window_bps_e2: 2_000
+        }
+    );
+    // Прежний режим через полный резолвер не принимает денежные флаги.
+    let err = resolve_h3_mode_full(
+        dir.path(),
+        "SOLUSDT",
+        &H3Args {
+            h3_mode: H3ModeArg::Floor,
+            h3_usd: Some(1.0),
+            ..base
+        },
+        None,
+        10_000_000,
+        100_000_000,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("--h3-usd"), "{err}");
+}

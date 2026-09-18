@@ -132,13 +132,133 @@ pub enum H3Mode {
     /// действует как в прежнем определении: рождения раньше него
     /// отслеживаются, но не эмитируются.
     Percentile { h3_lots: i64 },
+    /// Абсолютный пол «от N» в деньгах (владелец 2026-09-18, В-61): уровень —
+    /// плотность, если его номинал `цена × размер ≥ min_usd`. В лотах порог
+    /// зависит от цены: `ceil(min_usd_e9 × 1e9 / (tick × tick_e9 × step_e9))`.
+    /// Без прогрева, как `Floor`.
+    Notional {
+        min_usd_e9: i64,
+        tick_e9: i64,
+        step_e9: i64,
+    },
+    /// Относительная сила «×соседи» (roadmap 2026-09-17 §3, знаменатель B;
+    /// владелец 2026-09-18, В-61): уровень — плотность, если
+    /// `100 × size / mean(size соседей той же стороны в ±window_bps)` не
+    /// меньше `pct`. Соседи — остальные уровни кадра в окне; без соседей
+    /// сила не определена и уровень не рождается. Числа в сотых: `pct_e2`
+    /// — проценты × 100, `window_bps_e2` — bps × 100.
+    Strength { pct_e2: i64, window_bps_e2: i64 },
+    /// И то и другое (владелец: «сила + от денежного объёма»).
+    Both {
+        min_usd_e9: i64,
+        tick_e9: i64,
+        step_e9: i64,
+        pct_e2: i64,
+        window_bps_e2: i64,
+    },
 }
 
 impl H3Mode {
     /// Порог рождения в лотах — общий для обоих режимов кусок конфигурации.
-    fn h3_lots(self) -> i64 {
+    /// Единый порог в лотах — только у режимов с одним числом (`Floor`,
+    /// `Percentile`); у `Notional`/`Strength`/`Both` его нет (оси «×H3» в
+    /// командах уровней и касаний для них не определены).
+    pub fn single_h3_lots(self) -> Option<i64> {
         match self {
-            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
+            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => Some(h3_lots),
+            H3Mode::Notional { .. } | H3Mode::Strength { .. } | H3Mode::Both { .. } => None,
+        }
+    }
+
+    /// Порог рождения в лотах на цене `tick`: у денежного пола — с округлением
+    /// вверх, чтобы `size ≥ порог` означало ровно `номинал ≥ N`.
+    fn notional_lots_at(min_usd_e9: i64, tick_e9: i64, step_e9: i64, tick: i64) -> i64 {
+        if tick <= 0 {
+            return i64::MAX;
+        }
+        let num = (min_usd_e9 as i128) * 1_000_000_000i128;
+        let den = (tick as i128) * (tick_e9 as i128) * (step_e9 as i128);
+        let lots = (num + den - 1) / den;
+        lots.clamp(1, i64::MAX as i128) as i64
+    }
+
+    /// Проходит ли наблюдение абсолютный порог **при рождении**: у пола в
+    /// лотах — строго выше (как было), у денежного — не ниже номинала; у
+    /// чистой силы абсолютного порога нет (размер положителен).
+    fn passes_birth(self, tick: i64, size_lots: i64) -> bool {
+        match self {
+            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => size_lots > h3_lots,
+            H3Mode::Notional {
+                min_usd_e9,
+                tick_e9,
+                step_e9,
+            }
+            | H3Mode::Both {
+                min_usd_e9,
+                tick_e9,
+                step_e9,
+                ..
+            } => size_lots >= Self::notional_lots_at(min_usd_e9, tick_e9, step_e9, tick),
+            H3Mode::Strength { .. } => size_lots > 0,
+        }
+    }
+
+    /// То же для «завала» касания (`stack`): у пола в лотах — не ниже (как
+    /// было), у денежного — не ниже номинала.
+    fn passes_stack(self, tick: i64, size_lots: i64) -> bool {
+        match self {
+            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => size_lots >= h3_lots,
+            other => other.passes_birth(tick, size_lots),
+        }
+    }
+
+    /// Порог силы `(pct_e2, window_bps_e2)`, если режим его требует.
+    fn strength_gate(self) -> Option<(i64, i64)> {
+        match self {
+            H3Mode::Strength {
+                pct_e2,
+                window_bps_e2,
+            }
+            | H3Mode::Both {
+                pct_e2,
+                window_bps_e2,
+                ..
+            } => Some((pct_e2, window_bps_e2)),
+            H3Mode::Floor { .. } | H3Mode::Percentile { .. } | H3Mode::Notional { .. } => None,
+        }
+    }
+
+    /// Порог обязан быть положителен: нулевой рождал бы уровень из пустого места.
+    fn validate(self) {
+        match self {
+            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => {
+                assert!(h3_lots > 0, "порог H3 обязан быть положителен")
+            }
+            H3Mode::Notional {
+                min_usd_e9,
+                tick_e9,
+                step_e9,
+            } => assert!(
+                min_usd_e9 > 0 && tick_e9 > 0 && step_e9 > 0,
+                "денежный порог, тик и шаг лота обязаны быть положительны"
+            ),
+            H3Mode::Strength {
+                pct_e2,
+                window_bps_e2,
+            } => assert!(
+                pct_e2 > 0 && window_bps_e2 > 0,
+                "сила и окно соседей обязаны быть положительны"
+            ),
+            H3Mode::Both {
+                min_usd_e9,
+                tick_e9,
+                step_e9,
+                pct_e2,
+                window_bps_e2,
+            } => assert!(
+                min_usd_e9 > 0 && tick_e9 > 0 && step_e9 > 0 && pct_e2 > 0 && window_bps_e2 > 0,
+                "денежный порог, тик, шаг, сила и окно обязаны быть положительны"
+            ),
         }
     }
 }
@@ -448,6 +568,9 @@ struct Live {
     seen_frame: u64,
     seen_top50: bool,
     seen_size: i64,
+    /// Прошёл ли уровень порог силы на последнем наблюдении (у режимов без
+    /// силы — всегда `true`).
+    seen_strong: bool,
     traded: i64,
     /// RPI-сделки на этой цене: в `traded` не идут, но копятся отдельно —
     /// иначе метка исхода считает чужой объём (В-55).
@@ -511,6 +634,49 @@ struct Touched {
 /// ёмкостями и переиспользуемые буферы новорождённых, свипа и ключей с
 /// событием касания: установившийся кадр без рождений, смертей и касаний
 /// не трогает кучу вообще (требование гейта GC).
+/// Флаг силы «×соседи» на каждое наблюдение кадра (roadmap §3, B): сила =
+/// `100 × size / mean(size соседей той же стороны в ±window)`; окно в тиках
+/// — `tick × window_bps / 1e4`. Кадр идёт от лучшей цены вглубь, тики
+/// монотонны, поэтому соседи — непрерывный отрезок индексов (бинарный
+/// поиск), суммы — префиксные. Без соседей сила не определена — `false`.
+/// Векторы — рабочие буферы трекера: после прогрева аллокаций нет.
+fn strength_flags(mode: H3Mode, levels: &[LevelObs], ok: &mut Vec<bool>, prefix: &mut Vec<i64>) {
+    ok.clear();
+    let Some((pct_e2, window_bps_e2)) = mode.strength_gate() else {
+        ok.resize(levels.len(), true);
+        return;
+    };
+    prefix.clear();
+    prefix.push(0);
+    for o in levels {
+        let last = *prefix.last().unwrap_or(&0);
+        prefix.push(last.saturating_add(o.size_lots));
+    }
+    let asc = levels.len() < 2 || levels[0].tick <= levels[levels.len() - 1].tick;
+    for (i, o) in levels.iter().enumerate() {
+        // Окно в тиках: tick × (window_bps_e2 / 100) / 10_000.
+        let w = ((o.tick as i128) * (window_bps_e2 as i128) / 1_000_000i128) as i64;
+        let (lo_t, hi_t) = (o.tick.saturating_sub(w), o.tick.saturating_add(w));
+        let (a, b) = if asc {
+            (
+                levels.partition_point(|x| x.tick < lo_t),
+                levels.partition_point(|x| x.tick <= hi_t),
+            )
+        } else {
+            (
+                levels.partition_point(|x| x.tick > hi_t),
+                levels.partition_point(|x| x.tick >= lo_t),
+            )
+        };
+        debug_assert!(a <= i && i < b, "уровень обязан быть в своём же окне");
+        let sum = (prefix[b] - prefix[a] - o.size_lots) as i128;
+        let cnt = (b - a).saturating_sub(1) as i128;
+        // 100 × size / (sum / cnt) ≥ pct  ⇔  100 × size × cnt × 100 ≥ pct_e2 × sum
+        let pass = cnt > 0 && (o.size_lots as i128) * 10_000i128 * cnt >= (pct_e2 as i128) * sum;
+        ok.push(pass);
+    }
+}
+
 pub struct LevelTracker {
     cfg: LevelsConfig,
     live: BTreeMap<(u8, i64), Live>,
@@ -521,6 +687,9 @@ pub struct LevelTracker {
     /// Буфер касаний для `observe_frame` без выхода касаний: те же события
     /// считаются, записи отбрасываются, ёмкость переиспользуется.
     touch_scratch: Vec<TouchRecord>,
+    /// Рабочие буферы силы «×соседи» (`strength_flags`).
+    strength_ok: Vec<bool>,
+    strength_prefix: Vec<i64>,
     start_ms: Option<i64>,
     frame: u64,
 }
@@ -585,7 +754,7 @@ impl LevelTracker {
     /// Создаёт трекер. Порог должен быть положителен, окно — тоже, прогрев
     /// неотрицателен: нулевой порог рождал бы уровень из пустого места.
     pub fn new(cfg: LevelsConfig) -> Self {
-        assert!(cfg.mode.h3_lots() > 0, "порог H3 обязан быть положителен");
+        cfg.mode.validate();
         assert!(cfg.warmup_ms >= 0, "прогрев не может быть отрицателен");
         assert!(
             cfg.repeat_window_ms > 0,
@@ -599,6 +768,8 @@ impl LevelTracker {
             sweep: Vec::with_capacity(8),
             touched: Vec::with_capacity(8),
             touch_scratch: Vec::with_capacity(8),
+            strength_ok: Vec::with_capacity(64),
+            strength_prefix: Vec::with_capacity(65),
             start_ms: None,
             frame: 0,
         }
@@ -669,8 +840,14 @@ impl LevelTracker {
         }
         self.frame += 1;
         let frame = self.frame;
-        let h3 = self.cfg.mode.h3_lots();
+        let mode = self.cfg.mode;
         let window = self.cfg.repeat_window_ms;
+        strength_flags(
+            mode,
+            levels,
+            &mut self.strength_ok,
+            &mut self.strength_prefix,
+        );
         let s = side_key(side);
 
         self.newborns.clear();
@@ -684,11 +861,13 @@ impl LevelTracker {
         for (i, ob) in levels.iter().enumerate() {
             let key = (s, ob.tick);
             let best = i == 0;
+            let strong = self.strength_ok.get(i).copied().unwrap_or(true);
             match self.live.get_mut(&key) {
                 Some(lv) => {
                     lv.seen_frame = frame;
                     lv.seen_top50 = ob.in_top50;
                     lv.seen_size = ob.size_lots;
+                    lv.seen_strong = strong;
                     if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
                         lv.first_decrease_ms = Some(ts_ms);
                     }
@@ -741,7 +920,7 @@ impl LevelTracker {
                     }
                 }
                 None => {
-                    if ob.in_top50 && ob.size_lots > h3 {
+                    if ob.in_top50 && strong && mode.passes_birth(ob.tick, ob.size_lots) {
                         let repeat = self.count_prior_births(key, ts_ms, window);
                         // Рождение лучшей ценой — не касание (В-43): «цена
                         // дошла» — это переход, а не появление; запоминается
@@ -758,6 +937,7 @@ impl LevelTracker {
                                 seen_frame: frame,
                                 seen_top50: true,
                                 seen_size: ob.size_lots,
+                                seen_strong: true,
                                 traded: 0,
                                 rpi: 0,
                                 better_lots,
@@ -809,11 +989,11 @@ impl LevelTracker {
             let lo = tk.key.1.saturating_sub(t.window_ticks);
             let hi = tk.key.1.saturating_add(t.window_ticks);
             let mut n: u32 = 0;
-            for (_, lv) in live.range((s, lo)..=(s, hi)) {
+            for ((_, lv_tick), lv) in live.range((s, lo)..=(s, hi)) {
                 let dying = lv.seen_frame != frame
                     || !lv.seen_top50
                     || below_fraction(lv.seen_size, lv.max);
-                if !dying && lv.seen_size >= h3 {
+                if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
                     n = n.saturating_add(1);
                 }
             }
@@ -933,7 +1113,10 @@ impl LevelTracker {
     /// сконфигурировано. `cfg.warmup_ms` в режиме `floor` не читается.
     fn effective_warmup_ms(&self) -> i64 {
         match self.cfg.mode {
-            H3Mode::Floor { .. } => 0,
+            H3Mode::Floor { .. }
+            | H3Mode::Notional { .. }
+            | H3Mode::Strength { .. }
+            | H3Mode::Both { .. } => 0,
             H3Mode::Percentile { .. } => self.cfg.warmup_ms,
         }
     }

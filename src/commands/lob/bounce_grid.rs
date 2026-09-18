@@ -53,14 +53,14 @@ use super::backtest::{
 use super::bounce_verdict::{parse_form, DEADLINE_SECS, EARLY_EXIT_LABELS, STOP_MODES};
 use super::profiles::read_verify_marker;
 use super::{
-    replay_symbol_touches_only, resolve_h3_mode_with_k, session_parts_for, H3Args,
+    replay_symbol_touches_only, resolve_h3_mode_full, session_parts_for, H3Args,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
     BounceSignal, DriveConfig, SignalWindows,
 };
-use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
+use crate::lob::levels::{LevelsConfig, TouchRecord};
 
 /// Одна форма сетки В-58: имя каталога/колонки и её параметры.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,7 +200,7 @@ const ROUNDS_HEADER: [&str; 12] = [
     "exit_ns",
 ];
 
-const FORMS_HEADER: [&str; 19] = [
+const FORMS_HEADER: [&str; 20] = [
     "symbol",
     "day_utc",
     "form",
@@ -220,6 +220,7 @@ const FORMS_HEADER: [&str; 19] = [
     "incomplete",
     "stop_mode",
     "n_residual_flattened",
+    "signals_by_hour",
 ];
 
 fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
@@ -442,6 +443,22 @@ struct Outputs {
     forms_path: PathBuf,
 }
 
+/// Сигналы формы по часам UTC суток, `h0:h1:…:h23` (В-60): вердикт по одним
+/// суткам кластеризует интервал `net_fill` по часам, и промахи (у них в
+/// `rounds.csv` нет времени) раскладываются по часам из этого столбца.
+fn signals_by_hour(signals: &[BounceSignal]) -> String {
+    let mut by_hour = [0u64; 24];
+    for s in signals {
+        let secs = s.t0_ns.div_euclid(1_000_000_000).rem_euclid(86_400);
+        by_hour[(secs / 3_600) as usize] += 1;
+    }
+    by_hour
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
 impl Outputs {
     fn create(out_dir: &Path, header: &str) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
@@ -525,6 +542,7 @@ impl Outputs {
             run.incomplete.to_string(),
             format!("{:?}", form.stop).to_lowercase(),
             run.residual_flattened.to_string(),
+            signals_by_hour(signals),
         ])?;
         self.rounds.flush()?;
         self.forms.flush()?;
@@ -624,16 +642,9 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         let (tick_e9, step_e9) = read_tick_step(&parts[0].path)?;
         let tick = tick_e9 as f64 / 1e9;
         let lot = step_e9 as f64 / 1e9;
-        let mode = resolve_h3_mode_with_k(
-            &args.root,
-            symbol,
-            args.h3.h3_mode,
-            args.h3.h3_lots,
-            args.h3_k,
-        )?;
-        let _h3_lots = match mode {
-            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
-        };
+        // Порог плотности — любой из режимов В-61 (`--h3-mode notional|strength|both`)
+        // или прежние floor/percentile; тик и шаг лота — из заголовка бинлога.
+        let mode = resolve_h3_mode_full(&args.root, symbol, &args.h3, args.h3_k, tick_e9, step_e9)?;
         let cfg_levels = LevelsConfig {
             mode,
             warmup_ms: args.warmup_ms.unwrap_or(DEFAULT_WARMUP_MS),

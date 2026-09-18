@@ -33,6 +33,13 @@ pub enum H3ModeArg {
     /// 99-й перцентиль по скользящему часу, прогрев 60 мин — прежнее
     /// определение; порог измерен заранее и приходит через `--h3-lots`.
     Percentile,
+    /// Абсолютный пол «от N» в деньгах: `--h3-usd` (владелец 2026-09-18, В-61).
+    Notional,
+    /// Относительная сила «×соседи»: `--h3-strength-pct` и
+    /// `--h3-strength-window-bps` (В-61).
+    Strength,
+    /// И то и другое: все три флага (В-61).
+    Both,
 }
 
 /// Флаги режима `H3` (`--h3-mode`, `--h3-lots`), `#[command(flatten)]` в
@@ -50,6 +57,15 @@ pub struct H3Args {
     /// и этот флаг вместе с `floor` — ошибка (`resolve_h3_mode`), не игнор.
     #[arg(long)]
     pub h3_lots: Option<i64>,
+    /// Денежный порог плотности, USD: режимы `notional` и `both` (В-61).
+    #[arg(long)]
+    pub h3_usd: Option<f64>,
+    /// Минимальная сила уровня в процентах от среднего соседа: `strength`, `both`.
+    #[arg(long)]
+    pub h3_strength_pct: Option<f64>,
+    /// Окно соседей, bps от цены уровня: `strength`, `both`.
+    #[arg(long)]
+    pub h3_strength_window_bps: Option<f64>,
 }
 
 /// Тройка флагов `BacktestFillModel` (`--median-rtt-ns`, `--p95-rtt-ns`,
@@ -260,6 +276,111 @@ pub fn resolve_h3_mode_with_k(
                 )
             })?;
             Ok(H3Mode::Percentile { h3_lots })
+        }
+        H3ModeArg::Notional | H3ModeArg::Strength | H3ModeArg::Both => anyhow::bail!(
+            "режим H3 {mode:?} требует тик и шаг лота записи — его знает `resolve_h3_mode_full` \
+             (bounce-grid); в этой команде доступны только floor|percentile"
+        ),
+    }
+}
+
+/// Полный резолвер режима `H3` (В-61): к `floor`/`percentile` добавляет
+/// `notional` (`--h3-usd`), `strength` (`--h3-strength-pct`,
+/// `--h3-strength-window-bps`) и `both`. Тик и шаг лота — из заголовка
+/// бинлога (`read_tick_step`), не из `instruments.csv`. Лишние флаги —
+/// отказ, не игнор.
+pub fn resolve_h3_mode_full(
+    root: &Path,
+    symbol: &str,
+    h3: &H3Args,
+    h3_k: Option<f64>,
+    tick_e9: i64,
+    step_e9: i64,
+) -> anyhow::Result<H3Mode> {
+    let usd = || -> anyhow::Result<i64> {
+        let usd = h3
+            .h3_usd
+            .ok_or_else(|| anyhow::anyhow!("--h3-usd обязателен в режиме {:?}", h3.h3_mode))?;
+        anyhow::ensure!(
+            usd.is_finite() && usd > 0.0,
+            "--h3-usd обязан быть положителен"
+        );
+        Ok((usd * 1e9).round() as i64)
+    };
+    let strength = || -> anyhow::Result<(i64, i64)> {
+        let pct = h3.h3_strength_pct.ok_or_else(|| {
+            anyhow::anyhow!("--h3-strength-pct обязателен в режиме {:?}", h3.h3_mode)
+        })?;
+        let w = h3.h3_strength_window_bps.ok_or_else(|| {
+            anyhow::anyhow!(
+                "--h3-strength-window-bps обязателен в режиме {:?}",
+                h3.h3_mode
+            )
+        })?;
+        anyhow::ensure!(
+            pct.is_finite() && pct > 0.0,
+            "--h3-strength-pct обязан быть положителен"
+        );
+        anyhow::ensure!(
+            w.is_finite() && w > 0.0,
+            "--h3-strength-window-bps обязан быть положителен"
+        );
+        Ok(((pct * 100.0).round() as i64, (w * 100.0).round() as i64))
+    };
+    let no_legacy = || -> anyhow::Result<()> {
+        anyhow::ensure!(
+            h3.h3_lots.is_none() && h3_k.is_none(),
+            "--h3-lots и --h3-k относятся к floor/percentile, режим {:?} их не читает",
+            h3.h3_mode
+        );
+        Ok(())
+    };
+    anyhow::ensure!(
+        tick_e9 > 0 && step_e9 > 0,
+        "{symbol}: тик и шаг лота обязаны быть положительны"
+    );
+    match h3.h3_mode {
+        H3ModeArg::Floor | H3ModeArg::Percentile => {
+            anyhow::ensure!(
+                h3.h3_usd.is_none()
+                    && h3.h3_strength_pct.is_none()
+                    && h3.h3_strength_window_bps.is_none(),
+                "--h3-usd/--h3-strength-* относятся к notional/strength/both, режим {:?} их не читает",
+                h3.h3_mode
+            );
+            resolve_h3_mode_with_k(root, symbol, h3.h3_mode, h3.h3_lots, h3_k)
+        }
+        H3ModeArg::Notional => {
+            no_legacy()?;
+            anyhow::ensure!(
+                h3.h3_strength_pct.is_none() && h3.h3_strength_window_bps.is_none(),
+                "--h3-strength-* относятся к strength/both"
+            );
+            Ok(H3Mode::Notional {
+                min_usd_e9: usd()?,
+                tick_e9,
+                step_e9,
+            })
+        }
+        H3ModeArg::Strength => {
+            no_legacy()?;
+            anyhow::ensure!(h3.h3_usd.is_none(), "--h3-usd относится к notional/both");
+            let (pct_e2, window_bps_e2) = strength()?;
+            Ok(H3Mode::Strength {
+                pct_e2,
+                window_bps_e2,
+            })
+        }
+        H3ModeArg::Both => {
+            no_legacy()?;
+            let (pct_e2, window_bps_e2) = strength()?;
+            Ok(H3Mode::Both {
+                min_usd_e9: usd()?,
+                tick_e9,
+                step_e9,
+                pct_e2,
+                window_bps_e2,
+            })
         }
     }
 }

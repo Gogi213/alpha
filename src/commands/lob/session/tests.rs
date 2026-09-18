@@ -1052,6 +1052,9 @@ fn directory_named_like_a_fresh_session_reads_through_verify_and_levels_untouche
         h3: super::super::H3Args {
             h3_mode: super::super::H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         h3_k: None,
         warmup_ms: 0,

@@ -87,6 +87,11 @@ pub struct FormVerdict {
     pub n_fills: u64,
     /// Суток, в которых у формы был хотя бы один круг.
     pub days_with_fills: usize,
+    /// Единица кластера интервала (В-60): `day` при ≥ `G_MIN` сутках в сетке,
+    /// иначе `hour` — вердикт возможен по одним суткам.
+    pub cluster_unit: &'static str,
+    /// Кластеров (суток или часов) с хотя бы одним кругом.
+    pub clusters_with_fills: usize,
     /// Точка и нижняя граница интервала `net_fill` (bps на сигнал).
     pub interval: Option<NetFillInterval>,
     /// Среднее `net` по кругам (bps на круг) и Шарп ряда кругов.
@@ -215,6 +220,9 @@ struct CellStat {
     n_fills: u64,
     sum_net_bps: f64,
     exits: [u64; EXIT_REASONS.len()],
+    /// Сигналы по часам UTC (`signals_by_hour` в `forms.csv`, В-60); `None` —
+    /// столбца нет (дамп до 18.09) — вердикт по часам тогда невозможен.
+    signals_by_hour: Option<[u64; 24]>,
 }
 
 struct GridData {
@@ -222,8 +230,8 @@ struct GridData {
     symbols: BTreeSet<String>,
     days: Vec<String>,
     cells: BTreeMap<Cell, CellStat>,
-    /// `net_bps` кругов по (форма, сутки).
-    fills: BTreeMap<(String, String), Vec<f64>>,
+    /// `(net_bps, t0_ns)` кругов по (форма, сутки).
+    fills: BTreeMap<(String, String), Vec<(f64, i64)>>,
 }
 
 fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
@@ -249,6 +257,7 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         idx("n_fills")?,
         idx("sum_net_bps")?,
     );
+    let i_hours = header.iter().position(|h| h == "signals_by_hour");
     let exit_idx: Vec<usize> = EXIT_REASONS
         .iter()
         .map(|r| idx(&format!("n_{r}")))
@@ -265,12 +274,43 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             form: rec[i_form].to_string(),
         };
         parse_form(&cell.form)?;
+        let signals_by_hour = match i_hours {
+            Some(i) => {
+                let parts: Vec<&str> = rec[i].split(':').collect();
+                anyhow::ensure!(
+                    parts.len() == 24,
+                    "{}: signals_by_hour у {} {} {} — {} чисел, нужно 24",
+                    forms_path.display(),
+                    cell.symbol,
+                    cell.day,
+                    cell.form,
+                    parts.len()
+                );
+                let mut h = [0u64; 24];
+                for (k, v) in parts.iter().enumerate() {
+                    h[k] = v.parse()?;
+                }
+                Some(h)
+            }
+            None => None,
+        };
         let mut st = CellStat {
             n_signals: rec[i_sig].parse()?,
             n_fills: rec[i_fills].parse()?,
             sum_net_bps: rec[i_sum].parse()?,
             exits: [0; EXIT_REASONS.len()],
+            signals_by_hour,
         };
+        if let Some(h) = st.signals_by_hour {
+            anyhow::ensure!(
+                h.iter().sum::<u64>() == st.n_signals,
+                "{}: signals_by_hour у {} {} {} не сходится с числом сигналов n_signals",
+                forms_path.display(),
+                cell.symbol,
+                cell.day,
+                cell.form
+            );
+        }
         for (k, &i) in exit_idx.iter().enumerate() {
             st.exits[k] = rec[i].parse()?;
         }
@@ -327,13 +367,14 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             .position(|h| h == name)
             .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", rounds_path.display()))
     };
-    let (i_sym, i_day, i_form, i_net) = (
+    let (i_sym, i_day, i_form, i_net, i_t0) = (
         idx("symbol")?,
         idx("day_utc")?,
         idx("form")?,
         idx("net_bps")?,
+        idx("t0_ns")?,
     );
-    let mut fills: BTreeMap<(String, String), Vec<f64>> = BTreeMap::new();
+    let mut fills: BTreeMap<(String, String), Vec<(f64, i64)>> = BTreeMap::new();
     let mut fills_per_cell: BTreeMap<Cell, u64> = BTreeMap::new();
     for rec in r.records() {
         let rec = rec?;
@@ -361,8 +402,14 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             cell.day,
             cell.form
         );
+        let t0_ns: i64 = rec[i_t0]
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{}: t0_ns не число", rounds_path.display()))?;
         *fills_per_cell.entry(cell.clone()).or_default() += 1;
-        fills.entry((cell.form, cell.day)).or_default().push(net);
+        fills
+            .entry((cell.form, cell.day))
+            .or_default()
+            .push((net, t0_ns));
     }
     for (c, st) in &cells {
         let got = fills_per_cell.get(c).copied().unwrap_or(0);
@@ -399,13 +446,65 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
     let mut observations: Vec<FillObservation> = Vec::new();
     let mut returns: Vec<f64> = Vec::new();
     let mut days_with_fills: BTreeSet<&str> = BTreeSet::new();
+    let mut clusters_with_fills: BTreeSet<i64> = BTreeSet::new();
+    // В-60 (владелец 2026-09-18: «одного дня минимум хватает»): кластер —
+    // сутки, когда суток в сетке не меньше `G_MIN`, иначе час UTC: у одних
+    // суток 24 кластера, и бутстрэп Уэбба (`G_MIN` — его порог) работает.
+    let by_hour = data.days.len() < G_MIN;
+    let cluster_unit = if by_hour { "hour" } else { "day" };
+    let hour_of =
+        |t0_ns: i64| -> i64 { t0_ns.div_euclid(1_000_000_000).rem_euclid(86_400) / 3_600 };
     for (c, st) in data.cells.iter().filter(|(c, _)| c.form == form) {
         n_signals = n_signals.saturating_add(st.n_signals);
         n_fills = n_fills.saturating_add(st.n_fills);
         for (k, e) in st.exits.iter().enumerate() {
             exits[k] = exits[k].saturating_add(*e);
         }
-        let cluster = day_index(&data.days, &c.day);
+        let day = day_index(&data.days, &c.day);
+        if by_hour {
+            let Some(sig_by_hour) = st.signals_by_hour else {
+                anyhow::bail!(
+                    "{} {} {}: forms.csv без signals_by_hour — вердикт по часам (суток меньше {G_MIN}) \
+                     невозможен; дамп сделан сеткой до 18.09, пересчитать `lob bounce-grid`",
+                    c.symbol,
+                    c.day,
+                    c.form
+                );
+            };
+            let cell_fills = data
+                .fills
+                .get(&(c.form.clone(), c.day.clone()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let mut fills_by_hour = [0u64; 24];
+            for &(_, t0) in cell_fills {
+                fills_by_hour[hour_of(t0) as usize] += 1;
+            }
+            for h in 0..24 {
+                anyhow::ensure!(
+                    fills_by_hour[h] <= sig_by_hour[h],
+                    "{} {} {}: в часе {h} кругов {} больше сигналов {}",
+                    c.symbol,
+                    c.day,
+                    c.form,
+                    fills_by_hour[h],
+                    sig_by_hour[h]
+                );
+                let cluster = day * 24 + h as i64;
+                for _ in 0..(sig_by_hour[h] - fills_by_hour[h]) {
+                    observations.push(FillObservation {
+                        day_cluster: cluster,
+                        net_bps: 0.0,
+                        filled: false,
+                    });
+                }
+            }
+            if st.n_fills > 0 {
+                days_with_fills.insert(c.day.as_str());
+            }
+            continue;
+        }
+        let cluster = day;
         let nets = data
             .fills
             .get(&(c.form.clone(), c.day.clone()))
@@ -427,8 +526,10 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
         let _ = nets;
     }
     for ((f, day), nets) in data.fills.iter().filter(|((f, _), _)| f == form) {
-        let cluster = day_index(&data.days, day);
-        for &net in nets {
+        let d = day_index(&data.days, day);
+        for &(net, t0) in nets {
+            let cluster = if by_hour { d * 24 + hour_of(t0) } else { d };
+            clusters_with_fills.insert(cluster);
             observations.push(FillObservation {
                 day_cluster: cluster,
                 net_bps: net,
@@ -456,6 +557,8 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
         n_signals,
         n_fills,
         days_with_fills: days_with_fills.len(),
+        cluster_unit,
+        clusters_with_fills: clusters_with_fills.len(),
         interval,
         net_per_fill_bps,
         sharpe: final_metrics::sharpe_ratio(&returns),
@@ -495,7 +598,9 @@ fn form_day_matrix(data: &GridData) -> Vec<Vec<f64>> {
 }
 
 fn verdict_of(best: &FormVerdict, dsr: Option<f64>) -> Verdict {
-    if best.n_fills < CONFIRM_MIN_N || best.days_with_fills < G_MIN {
+    // В-60: хотя бы одни сутки с кругами и `G_MIN` кластеров (суток или часов).
+    if best.n_fills < CONFIRM_MIN_N || best.days_with_fills < 1 || best.clusters_with_fills < G_MIN
+    {
         return Verdict::NotEnoughData;
     }
     let Some(iv) = best.interval.as_ref() else {
@@ -634,7 +739,7 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     )?;
     writeln!(
         file,
-        "# гейты §7: n ≥ {CONFIRM_MIN_N} кругов, G ≥ {G_MIN} суток с кругами, нижняя граница > 0, DSR ≥ {DSR_TARGET}, ёмкость ≥ {GREEN_NET_BPS} bps → ИТОГ: {}",
+        "# гейты §7 + В-60: n ≥ {CONFIRM_MIN_N} кругов, суток с кругами ≥ 1, кластеров с кругами ≥ {G_MIN} (кластер — сутки при ≥ {G_MIN} сутках в сетке, иначе час UTC), нижняя граница > 0, DSR ≥ {DSR_TARGET}, ёмкость ≥ {GREEN_NET_BPS} bps → ИТОГ: {}",
         verdict.label()
     )?;
     let mut w = csv::Writer::from_writer(file);
@@ -646,6 +751,8 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         "n_signals",
         "n_fills",
         "days_with_fills",
+        "cluster_unit",
+        "clusters_with_fills",
         "net_fill_point_bps",
         "net_fill_lower_bps",
         "net_per_fill_bps",
@@ -684,6 +791,8 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
             f.n_signals.to_string(),
             f.n_fills.to_string(),
             f.days_with_fills.to_string(),
+            f.cluster_unit.to_string(),
+            f.clusters_with_fills.to_string(),
             num(f.interval.as_ref().map(|i| i.point_bps)),
             num(f.interval.as_ref().map(|i| i.lower_bps)),
             num(f.net_per_fill_bps),

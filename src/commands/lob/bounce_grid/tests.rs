@@ -49,6 +49,9 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         h3_k: None,
         warmup_ms: Some(0),

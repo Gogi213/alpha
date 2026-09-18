@@ -141,6 +141,9 @@ fn verify_marker_lets_profiles_read_the_day_without_allow_unverified() {
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,

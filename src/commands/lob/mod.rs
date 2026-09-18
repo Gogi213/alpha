@@ -125,8 +125,8 @@ pub use watch::{run_watch, WatchArgs};
 // не менялись — их держат эти ре-экспорты.
 pub(crate) use h3::median_trade_lots_for_symbol;
 pub use h3::{
-    resolve_h3_mode, resolve_h3_mode_with_k, ExecutionArgs, H3Args, H3ModeArg,
-    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
+    resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
+    H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
 };
 pub(crate) use names::{death_name, outcome_name, side_name, some_or_empty};
 pub(crate) use parts::{

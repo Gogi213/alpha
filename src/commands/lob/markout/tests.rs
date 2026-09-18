@@ -21,6 +21,9 @@ fn markout_fixture_writes_four_horizons() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
@@ -66,6 +69,9 @@ fn markout_confirmatory_without_flag_is_err() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
@@ -125,6 +131,9 @@ fn markout_confirmatory_requires_session_ready_flag() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
@@ -243,6 +252,9 @@ fn markout_confirmatory_rejects_profile_outside_frozen_shortlist() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
@@ -277,6 +289,9 @@ fn markout_confirmatory_rejects_profile_outside_frozen_shortlist() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,

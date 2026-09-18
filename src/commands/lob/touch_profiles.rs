@@ -86,7 +86,7 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use crate::lob::costs::{net_fill_interval, FillObservation};
-use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
+use crate::lob::levels::{LevelsConfig, TouchRecord};
 use crate::lob::markout::{
     approaches_for_touch, markouts_for_touch_outside, MidSample, HORIZONS_MS,
 };
@@ -365,9 +365,9 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
             args.h3.h3_lots,
             args.h3_k,
         )?;
-        let h3_lots = match mode {
-            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
-        };
+        let h3_lots = mode
+            .single_h3_lots()
+            .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
         let cfg = LevelsConfig {
             mode,
             warmup_ms: args.warmup_ms,

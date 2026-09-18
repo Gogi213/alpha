@@ -741,10 +741,7 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<C
     let page = Dashboard {
         generated_utc,
         root: args.root.display().to_string(),
-        h3_mode: match args.h3_mode {
-            H3ModeArg::Floor => "floor".to_string(),
-            H3ModeArg::Percentile => "percentile".to_string(),
-        },
+        h3_mode: super::profiles::h3_mode_label(args.h3_mode).to_string(),
         h3_k: args.h3_k,
         assumed_rtt_ms: ASSUMED_RTT_MS,
         roundtrip_fees_bps: ROUNDTRIP_FEES_BPS,
@@ -787,9 +784,9 @@ fn build_coin(
     days: &mut std::collections::BTreeSet<String>,
 ) -> anyhow::Result<(Coin, CoinChart)> {
     let h3 = resolve_h3_mode_with_k(&args.root, symbol, args.h3_mode, args.h3_lots, args.h3_k)?;
-    let h3_lots = match h3 {
-        H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
-    };
+    let h3_lots = h3
+        .single_h3_lots()
+        .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
     let h3_source = h3_source_label(&args.root, symbol, h3, args.h3_k, debug_marker);
     let cfg = LevelsConfig {
         mode: h3,
@@ -1581,7 +1578,10 @@ fn h3_k_is_stub(root: &Path, symbol: &str, h3: H3Mode, h3_k: Option<f64>) -> boo
         H3Mode::Floor { .. } => h3_k
             .or_else(|| h3_k_for_symbol(&instruments_csv_path(root), symbol))
             .is_some_and(|k| k == K_STUB),
-        H3Mode::Percentile { .. } => false,
+        H3Mode::Percentile { .. }
+        | H3Mode::Notional { .. }
+        | H3Mode::Strength { .. }
+        | H3Mode::Both { .. } => false,
     }
 }
 
@@ -1606,6 +1606,28 @@ fn h3_source_label(
             _ => format!("порог {h3_lots} лотов — колонка h3_lots в instruments.csv"),
         },
         H3Mode::Percentile { h3_lots } => format!("порог {h3_lots} лотов — 99-й перцентиль, --h3-lots"),
+        H3Mode::Notional { min_usd_e9, .. } => {
+            format!("порог ${:.0} номинала на уровне (--h3-usd, В-61)", min_usd_e9 as f64 / 1e9)
+        }
+        H3Mode::Strength {
+            pct_e2,
+            window_bps_e2,
+        } => format!(
+            "сила ≥ {:.0} % среднего соседа в ±{:.1} bps (--h3-strength-*, В-61)",
+            pct_e2 as f64 / 100.0,
+            window_bps_e2 as f64 / 100.0
+        ),
+        H3Mode::Both {
+            min_usd_e9,
+            pct_e2,
+            window_bps_e2,
+            ..
+        } => format!(
+            "номинал ≥ ${:.0} и сила ≥ {:.0} % среднего соседа в ±{:.1} bps (В-61)",
+            min_usd_e9 as f64 / 1e9,
+            pct_e2 as f64 / 100.0,
+            window_bps_e2 as f64 / 100.0
+        ),
     };
     if let Some(m) = debug_marker {
         s.push_str(&format!("; instruments.csv помечен: {m}"));

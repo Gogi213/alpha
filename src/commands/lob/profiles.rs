@@ -136,7 +136,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 
-use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig};
+use crate::lob::levels::{LevelRecord, LevelsConfig};
 use crate::lob::shortlist::{
     build_profile_grid, hour_dependence_test, load_or_write_window, log_hour_test,
     log_profile_trials, HourDayObservation,
@@ -340,9 +340,9 @@ pub fn run_profiles_with_fill_model(
 
     for symbol in &pool {
         let mode = resolve_h3_mode(&args.root, symbol, args.h3.h3_mode, args.h3.h3_lots)?;
-        let h3_lots_value = match mode {
-            H3Mode::Floor { h3_lots } | H3Mode::Percentile { h3_lots } => h3_lots,
-        };
+        let h3_lots_value = mode
+            .single_h3_lots()
+            .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
         let cfg = LevelsConfig {
             mode,
             warmup_ms: args.warmup_ms,

@@ -88,6 +88,9 @@ fn watch_counts_profile_across_sessions_and_skips_unverified() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(1),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
@@ -166,6 +169,9 @@ fn watch_attributes_days_and_hours_per_part_inside_one_directory() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(1),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
@@ -253,6 +259,9 @@ fn session_dirs_skip_entries_without_session_json_or_symbol_binlog() {
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(1),
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,

@@ -168,10 +168,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         repeat_window_ms: args.repeat_window_ms,
     };
     // Порог в лотах — для чисел практиков (×H3) и шапок артефактов.
-    let h3_lots = match mode {
-        crate::lob::levels::H3Mode::Floor { h3_lots }
-        | crate::lob::levels::H3Mode::Percentile { h3_lots } => h3_lots,
-    };
+    let h3_lots = mode
+        .single_h3_lots()
+        .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
     let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
     let out = args
         .out

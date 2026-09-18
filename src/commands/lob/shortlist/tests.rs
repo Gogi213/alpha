@@ -111,6 +111,9 @@ fn base_args(root: &Path, candidates_csv: PathBuf) -> ShortlistArgs {
         h3: H3Args {
             h3_mode: H3ModeArg::Floor,
             h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
         },
         warmup_ms: 0,
         repeat_window_ms: super::super::DEFAULT_REPEAT_WINDOW_MS,
