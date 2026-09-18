@@ -296,30 +296,53 @@ fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
     Ok(events)
 }
 
-/// Все 48 форм над одними сутками: потоки берут формы по счётчику. `Setups`
-/// — один проход книги на сутки (`SignalWindows`, общий для форм), дальше у
-/// каждой формы движок только внутри кругов; `Full` — у каждой формы свой
-/// `Backtest` над всеми событиями суток (эталон гейта).
-#[allow(clippy::too_many_arguments)]
-fn drive_day(
-    events: &[HbtEvent],
-    signals: &[Vec<BounceSignal>],
+/// Параметры прогона суток одной структурой (clippy держит предел семи аргументов).
+#[derive(Debug, Clone, Copy)]
+struct DayParams {
     tick: f64,
     lot: f64,
     rtt_ns: i64,
     order_qty: f64,
     threads: usize,
     driver: DriverArg,
-) -> anyhow::Result<Vec<FormDayResult>> {
-    let windows = match driver {
+    post_only: bool,
+}
+
+/// Готовые результаты форм уходят в `sink` **по порядку форм**: форма,
+/// закончившая раньше соседей с меньшим индексом, ждёт в буфере (не больше
+/// числа потоков), чтобы дамп не зависел от числа потоков.
+struct FormOrder<'a> {
+    pending: BTreeMap<usize, (BounceRun, Vec<BounceSignal>)>,
+    next_form: usize,
+    done: usize,
+    sink: &'a mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
+}
+
+/// Все 48 форм над одними сутками: потоки берут формы по счётчику. `Setups`
+/// — один проход книги на сутки (`SignalWindows`, общий для форм), дальше у
+/// каждой формы движок только внутри кругов; `Full` — у каждой формы свой
+/// `Backtest` над всеми событиями суток (эталон гейта).
+///
+/// Память (сервер, 2026-09-18): сигналы формы строятся **в потоке, когда
+/// форма взята** (48 форм × 100 тыс. касаний × 128 Б заранее — 600 МБ), а
+/// результат формы отдаётся `sink` сразу и до конца суток не копится
+/// (`FormOrder`). Возвращает число форм, отданных в `sink`.
+fn drive_day(
+    events: &[HbtEvent],
+    touches: &[TouchRecord],
+    forms: &[GridForm],
+    p: DayParams,
+    sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
+) -> anyhow::Result<usize> {
+    let windows = match p.driver {
         DriverArg::Full => None,
         DriverArg::Setups => {
-            let t0s: Vec<i64> = signals
+            let t0s: Vec<i64> = touches
                 .iter()
-                .flat_map(|form| form.iter().map(|s| s.t0_ns))
+                .map(|t| t.start_ms.saturating_mul(1_000_000))
                 .collect();
             let started = Instant::now();
-            let w = SignalWindows::build(events, &t0s, tick, lot);
+            let w = SignalWindows::build(events, &t0s, p.tick, p.lot);
             eprintln!(
                 "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
                 w.len(),
@@ -331,42 +354,69 @@ fn drive_day(
         }
     };
     let next = AtomicUsize::new(0);
-    let results: Mutex<Vec<FormDayResult>> = Mutex::new(Vec::with_capacity(signals.len()));
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
+    let order = Mutex::new(FormOrder {
+        pending: BTreeMap::new(),
+        next_form: 0,
+        done: 0,
+        sink,
+    });
     std::thread::scope(|scope| {
-        for _ in 0..threads.max(1) {
+        for _ in 0..p.threads.max(1) {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
-                if i >= signals.len() {
+                if i >= forms.len() {
                     break;
                 }
                 if failure.lock().map(|f| f.is_some()).unwrap_or(true) {
                     break;
                 }
                 let cfg = DriveConfig {
-                    order_qty,
+                    order_qty: p.order_qty,
                     first_order_id: 1,
                 };
-                let driven = match &windows {
-                    Some(w) => drive_bounce_windowed(events, w, &signals[i], &cfg, rtt_ns),
-                    None => with_backtest_over(events, tick, lot, rtt_ns, |bt| {
-                        drive_bounce(bt, 0, &signals[i], &cfg)
-                    }),
-                };
-                match driven {
-                    Ok(run) => {
-                        if let Ok(mut r) = results.lock() {
-                            r.push(FormDayResult { form: i, run });
-                        }
-                    }
-                    Err(e) => {
-                        if let Ok(mut f) = failure.lock() {
-                            if f.is_none() {
-                                *f = Some(anyhow::anyhow!("форма #{i}: {e}"));
+                let step =
+                    signals_for(touches, p.tick, &forms[i], p.post_only).and_then(|signals| {
+                        let driven = match &windows {
+                            Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
+                            None => with_backtest_over(events, p.tick, p.lot, p.rtt_ns, |bt| {
+                                drive_bounce(bt, 0, &signals, &cfg)
+                            }),
+                        };
+                        driven
+                            .map(|run| (run, signals))
+                            .map_err(|e| anyhow::anyhow!("форма #{i}: {e}"))
+                    });
+                let flushed = match step {
+                    Ok((run, signals)) => match order.lock() {
+                        Ok(mut o) => {
+                            o.pending.insert(i, (run, signals));
+                            let mut res = Ok(());
+                            loop {
+                                let form = o.next_form;
+                                let Some((run, signals)) = o.pending.remove(&form) else {
+                                    break;
+                                };
+                                res = (o.sink)(FormDayResult { form, run }, &signals);
+                                o.next_form += 1;
+                                o.done += 1;
+                                if res.is_err() {
+                                    break;
+                                }
                             }
+                            res
                         }
-                        break;
+                        Err(_) => Err(anyhow::anyhow!("результаты форм: мьютекс")),
+                    },
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = flushed {
+                    if let Ok(mut f) = failure.lock() {
+                        if f.is_none() {
+                            *f = Some(e);
+                        }
                     }
+                    break;
                 }
             });
         }
@@ -374,11 +424,15 @@ fn drive_day(
     if let Some(e) = failure.into_inner().ok().flatten() {
         return Err(e);
     }
-    let mut out = results
+    let o = order
         .into_inner()
         .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
-    out.sort_by_key(|r| r.form);
-    Ok(out)
+    anyhow::ensure!(
+        o.pending.is_empty(),
+        "формы без записи в дамп: {}",
+        o.pending.len()
+    );
+    Ok(o.done)
 }
 
 struct Outputs {
@@ -409,78 +463,72 @@ impl Outputs {
         })
     }
 
-    fn write_day(
+    fn write_form(
         &mut self,
         symbol: &str,
         day: &str,
-        forms: &[GridForm],
-        signals_per_form: &[Vec<BounceSignal>],
-        results: &[FormDayResult],
+        form: GridForm,
+        signals: &[BounceSignal],
+        run: &BounceRun,
     ) -> anyhow::Result<u64> {
-        let mut rounds_total: u64 = 0;
-        for r in results {
-            let form = forms[r.form];
-            let run = &r.run;
-            anyhow::ensure!(
-                run.fill_reason.len() == run.fills.len()
-                    && run.fill_signal.len() == run.fills.len(),
-                "{symbol} {day} {}: кругов {}, причин {}, сигналов {} — дамп не пишется",
-                form.label,
-                run.fills.len(),
-                run.fill_reason.len(),
-                run.fill_signal.len()
-            );
-            let signals = &signals_per_form[r.form];
-            let mut sum_net = 0.0_f64;
-            for (i, fill) in run.fills.iter().enumerate() {
-                let net = roundtrip_net_bps(fill);
-                if let Some(v) = net {
-                    sum_net += v;
-                }
-                let sig = run.fill_signal[i];
-                let t0 = signals.get(sig).map(|s| s.t0_ns).unwrap_or(0);
-                self.rounds.write_record([
-                    symbol.to_string(),
-                    day.to_string(),
-                    form.label.to_string(),
-                    sig.to_string(),
-                    t0.to_string(),
-                    fill.dir.to_string(),
-                    format!("{:.10}", fill.entry_px),
-                    format!("{:.10}", fill.exit_px),
-                    format!("{:.10}", fill.qty),
-                    net.map(|v| format!("{v:.6}"))
-                        .unwrap_or_else(|| "not_measured".to_string()),
-                    exit_reason_label(run.fill_reason[i]).to_string(),
-                    run.fill_exit_ns[i].to_string(),
-                ])?;
+        anyhow::ensure!(
+            run.fill_reason.len() == run.fills.len()
+                && run.fill_signal.len() == run.fills.len()
+                && run.fill_exit_ns.len() == run.fills.len(),
+            "{symbol} {day} {}: кругов {}, причин {}, сигналов {} — дамп не пишется",
+            form.label,
+            run.fills.len(),
+            run.fill_reason.len(),
+            run.fill_signal.len()
+        );
+        let mut sum_net = 0.0_f64;
+        for (i, fill) in run.fills.iter().enumerate() {
+            let net = roundtrip_net_bps(fill);
+            if let Some(v) = net {
+                sum_net += v;
             }
-            rounds_total = rounds_total.saturating_add(run.fills.len() as u64);
-            self.forms.write_record([
+            let sig = run.fill_signal[i];
+            let t0 = signals.get(sig).map(|s| s.t0_ns).unwrap_or(0);
+            self.rounds.write_record([
                 symbol.to_string(),
                 day.to_string(),
                 form.label.to_string(),
-                signals.len().to_string(),
-                run.submitted_signal.len().to_string(),
-                run.fills.len().to_string(),
-                run.busy_signal.len().to_string(),
-                run.entry_rejected.to_string(),
-                run.entry_crossed.to_string(),
-                format!("{sum_net:.6}"),
-                run.exits.stop.to_string(),
-                run.exits.take.to_string(),
-                run.exits.trail.to_string(),
-                run.exits.deadline.to_string(),
-                run.exits.early.to_string(),
-                run.exits.horizon.to_string(),
-                run.incomplete.to_string(),
-                format!("{:?}", form.stop).to_lowercase(),
-                run.residual_flattened.to_string(),
+                sig.to_string(),
+                t0.to_string(),
+                fill.dir.to_string(),
+                format!("{:.10}", fill.entry_px),
+                format!("{:.10}", fill.exit_px),
+                format!("{:.10}", fill.qty),
+                net.map(|v| format!("{v:.6}"))
+                    .unwrap_or_else(|| "not_measured".to_string()),
+                exit_reason_label(run.fill_reason[i]).to_string(),
+                run.fill_exit_ns[i].to_string(),
             ])?;
         }
+        self.forms.write_record([
+            symbol.to_string(),
+            day.to_string(),
+            form.label.to_string(),
+            signals.len().to_string(),
+            run.submitted_signal.len().to_string(),
+            run.fills.len().to_string(),
+            run.busy_signal.len().to_string(),
+            run.entry_rejected.to_string(),
+            run.entry_crossed.to_string(),
+            format!("{sum_net:.6}"),
+            run.exits.stop.to_string(),
+            run.exits.take.to_string(),
+            run.exits.trail.to_string(),
+            run.exits.deadline.to_string(),
+            run.exits.early.to_string(),
+            run.exits.horizon.to_string(),
+            run.incomplete.to_string(),
+            format!("{:?}", form.stop).to_lowercase(),
+            run.residual_flattened.to_string(),
+        ])?;
         self.rounds.flush()?;
         self.forms.flush()?;
-        Ok(rounds_total)
+        Ok(run.fills.len() as u64)
     }
 }
 
@@ -650,29 +698,42 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 );
                 continue;
             }
-            let signals_per_form: Vec<Vec<BounceSignal>> = forms
-                .iter()
-                .map(|f| signals_for(&day.touches, tick, f, args.post_only))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            // S2: все формы над одним потоком событий, потоками.
-            let results = drive_day(
-                &events,
-                &signals_per_form,
-                tick,
-                lot,
-                args.median_rtt_ns,
-                order_qty,
-                threads,
-                args.driver,
-            )?;
+            // S2: все формы над одним потоком событий, потоками; результат
+            // каждой формы — сразу в дамп.
+            let mut rounds: u64 = 0;
+            let day_label = day.day.clone();
+            let forms_done = {
+                let out = &mut out;
+                let forms_ref = &forms;
+                let mut sink = |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
+                    let n =
+                        out.write_form(symbol, &day_label, forms_ref[r.form], signals, &r.run)?;
+                    rounds = rounds.saturating_add(n);
+                    Ok(())
+                };
+                drive_day(
+                    &events,
+                    &day.touches,
+                    &forms,
+                    DayParams {
+                        tick,
+                        lot,
+                        rtt_ns: args.median_rtt_ns,
+                        order_qty,
+                        threads,
+                        driver: args.driver,
+                        post_only: args.post_only,
+                    },
+                    &mut sink,
+                )?
+            };
             anyhow::ensure!(
-                results.len() == forms.len(),
+                forms_done == forms.len(),
                 "{symbol} {}: форм посчитано {}, ожидалось {}",
                 day.day,
-                results.len(),
+                forms_done,
                 forms.len()
             );
-            let rounds = out.write_day(symbol, &day.day, &forms, &signals_per_form, &results)?;
             summary.rounds = summary.rounds.saturating_add(rounds);
             summary.symbol_days += 1;
             eprintln!(
