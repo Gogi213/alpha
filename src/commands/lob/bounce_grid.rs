@@ -498,6 +498,13 @@ impl Outputs {
             run.fill_reason.len(),
             run.fill_signal.len()
         );
+        // `fill_signal` нумерует сигналы в порядке **по t0** (драйвер сортирует
+        // копию), а `signals` идут в порядке трекера (по концу касания) — до
+        // 2026-09-18 `t0_ns` брался по индексу из несортированного списка и у
+        // части кругов был чужим (поймал вердикт по часам: кругов в часе
+        // больше сигналов). Сортировка устойчивая, равные t0 взаимозаменяемы.
+        let mut t0s: Vec<i64> = signals.iter().map(|s| s.t0_ns).collect();
+        t0s.sort_unstable();
         let mut sum_net = 0.0_f64;
         for (i, fill) in run.fills.iter().enumerate() {
             let net = roundtrip_net_bps(fill);
@@ -505,7 +512,7 @@ impl Outputs {
                 sum_net += v;
             }
             let sig = run.fill_signal[i];
-            let t0 = signals.get(sig).map(|s| s.t0_ns).unwrap_or(0);
+            let t0 = t0s.get(sig).copied().unwrap_or(0);
             self.rounds.write_record([
                 symbol.to_string(),
                 day.to_string(),
@@ -544,6 +551,19 @@ impl Outputs {
             run.residual_flattened.to_string(),
             signals_by_hour(signals),
         ])?;
+        // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
+        debug_assert!({
+            let mut fills_by_hour = [0u64; 24];
+            for &sig in &run.fill_signal {
+                let secs = t0s[sig].div_euclid(1_000_000_000).rem_euclid(86_400);
+                fills_by_hour[(secs / 3_600) as usize] += 1;
+            }
+            let sig_by_hour: Vec<u64> = signals_by_hour(signals)
+                .split(':')
+                .map(|v| v.parse().unwrap_or(0))
+                .collect();
+            (0..24).all(|h| fills_by_hour[h] <= sig_by_hour[h])
+        });
         self.rounds.flush()?;
         self.forms.flush()?;
         Ok(run.fills.len() as u64)
