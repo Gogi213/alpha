@@ -134,14 +134,20 @@ pub struct BacktestArgs {
     /// Шаг лестницы в тиках (0 — все ноги по одной цене).
     #[arg(long, default_value_t = 0)]
     pub grid_step_ticks: i64,
-    /// Форма стопа (B2, В-58): `behind` — за плотностью (`P−1`, как было в T38),
-    /// `at` — в плотность (`P`), `before` — перед плотностью (`P+1`; спека §4:
-    /// «стоп за плотность — смертный приговор, если есть наторговка» [D 12:56]).
-    /// Вход при `--touches` берётся от первого фронтранера касания, если он был
-    /// (`TouchRecord::frontrun_tick`), иначе `P+1` тик, как раньше; тейк — 1:1
-    /// от входа (`P+3` при старом входе).
-    #[arg(long, value_enum, default_value_t = StopModeArg::Behind)]
-    pub stop_mode: StopModeArg,
+    /// Стоп в единицах `σ_H` (В-62): `a × σ_H` bps от входа, но не ближе тика
+    /// за плотностью. Обязателен при `--touches`; число владельца, умолчания
+    /// нет. Вход при `--touches` берётся от первого фронтранера касания, если
+    /// он был (`TouchRecord::frontrun_tick`), иначе `P+1` тик.
+    #[arg(long)]
+    pub stop_sigma: Option<f64>,
+    /// Тейк в единицах `σ_H` (В-62): `b × σ_H` bps от входа, но не ниже
+    /// `--take-floor-fees` круговых комиссий. Обязателен при `--touches`.
+    #[arg(long)]
+    pub take_sigma: Option<f64>,
+    /// Пол тейка в круговых комиссиях (`7.5` bps, `costs::ROUNDTRIP_FEES_BPS`):
+    /// тейк не ниже `k × 7.5` bps. Обязателен при `--touches`.
+    #[arg(long)]
+    pub take_floor_fees: Option<f64>,
     /// Дедлайн сделки, секунды (B3, В-58 п. 4) — из предрегистрированной
     /// сетки {60, 600, 3600, 7200}: «S и S-D; S-D значит от секунд до, наверно,
     /// пары часов» (ответ владельца 2). Другое значение — отказ: сетка
@@ -971,37 +977,60 @@ fn write_pnl_csv(path: &Path, report: &BacktestReport, header: &str) -> anyhow::
 // Сделка-отскока по касаниям (таск 38, В-44)
 // ---------------------------------------------------------------------------
 
-/// План сделки-отскока для касания (В-44, повторено как есть): бид-уровень
-/// `P` — покупка лимитом на `P + 1` тик, стоп по рынку на `P − 1`, тейк
-/// `вход + (вход − стоп)` = `P + 3` (R 1:1, D 16:17); аск зеркально. Вход
-/// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
-/// `HORIZONS_MS[3]` (дедлайн 60 с).
-/// Форма стопа сделки-отскока (B2, В-58): та же сетка из трёх значений, что
-/// предрегистрирована до данных, — `P+1` / `P` / `P−1` по цене уровня.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum StopModeArg {
-    /// Перед плотностью (`P+1` для бида): меньше шанс сквиза — «при сильной
-    /// наторговке стопиться нужно в саму плотность или, лучше, перед ней за
-    /// один тик» [D 12:56].
-    Before,
-    /// В плотность (`P`): компромисс при наторговке.
-    At,
-    /// За плотностью (`P−1` для бида): форма T38, «смертный приговор, если
-    /// есть наторговка» [D 12:56].
-    Behind,
+/// Геометрия сделки-отскока в единицах волатильности (В-62, 2026-09-18):
+/// стоп и тейк — расстояния от входа в bps как множители `σ_H` — реализованной
+/// волатильности середины за окно, равное дедлайну сделки `H`
+/// (`lob::sigma`). Владелец: «переходить с тиков на проценты и держать в уме
+/// стандартизированную волатильность» — тики несравнимы между монетами
+/// (0.09 … 6 bps), и сетка В-58 в тиках давала `net ≈ −комиссия` у всех форм
+/// (`round-validation-2026-09-18.md`). Два пола, чтобы форма не вырождалась:
+/// стоп не ближе **тика за плотностью** (`P − 1` для бида — иначе стоп
+/// стоял бы перед уровнем, который сделка и торгует), тейк не ниже
+/// `take_floor_fees × ROUNDTRIP_FEES_BPS` (круг обязан хотя бы окупать
+/// комиссии). Множители и `k` пола — числа владельца, умолчаний нет.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SigmaGeometry {
+    /// Стоп: `stop_mult × σ_H` bps от входа (в сторону плотности), но не
+    /// ближе тика за плотностью.
+    pub stop_mult: f64,
+    /// Тейк: `take_mult × σ_H` bps от входа (от плотности), но не ниже пола
+    /// по комиссиям.
+    pub take_mult: f64,
+    /// Пол тейка в круговых комиссиях: `take ≥ take_floor_fees × 7.5 bps`.
+    pub take_floor_fees: f64,
 }
 
-impl StopModeArg {
-    /// Смещение стопа от цены уровня в тиках, **в сторону от плотности**:
-    /// `before` = +1, `at` = 0, `behind` = −1. Для аска знак переворачивает
-    /// вызывающий (`bounce_plan`).
-    fn offset_ticks(self) -> i64 {
-        match self {
-            Self::Before => 1,
-            Self::At => 0,
-            Self::Behind => -1,
-        }
+impl SigmaGeometry {
+    /// Проверка чисел владельца: множители неотрицательны и конечны, пол
+    /// тейка положителен (нулевой пол при `σ = 0` дал бы тейк на входе).
+    pub fn validate(self) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            self.stop_mult.is_finite() && self.stop_mult >= 0.0,
+            "--stop-sigma {}: множитель стопа — конечное число ≥ 0",
+            self.stop_mult
+        );
+        anyhow::ensure!(
+            self.take_mult.is_finite() && self.take_mult >= 0.0,
+            "--take-sigma {}: множитель тейка — конечное число ≥ 0",
+            self.take_mult
+        );
+        anyhow::ensure!(
+            self.take_floor_fees.is_finite() && self.take_floor_fees > 0.0,
+            "--take-floor-fees {}: пол тейка — конечное число > 0 круговых комиссий",
+            self.take_floor_fees
+        );
+        Ok(self)
     }
+}
+
+/// Расстояние в bps от цены `entry_tick` (в тиках) — в целых тиках, не
+/// меньше одного: `ceil(bps / 10⁴ × entry_tick)`. Округление вверх — чтобы
+/// расстояние было **не меньше** заданного (стоп не ближе `a × σ`, тейк не
+/// ниже `b × σ`), а цена всегда стояла на сетке тиков.
+#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+fn bps_to_ticks_ceil(bps: f64, entry_tick: i64) -> i64 {
+    let ticks = (bps / 10_000.0 * entry_tick as f64).ceil();
+    (ticks as i64).max(1)
 }
 
 /// Форма сделки, приходящая из CLI (`--post-only`, `--trail-*`, `--grid-*`),
@@ -1023,10 +1052,21 @@ pub(crate) struct PlanShape {
     pub(crate) early_exit_ns: i64,
 }
 
+/// План сделки-отскока для касания (В-44 → В-62): бид-уровень `P` — покупка
+/// лимитом от первого фронтранера (иначе `P + 1` тик), стоп по рынку на
+/// `stop_mult × σ_H` bps ниже входа, но не выше `P − 1` тик, тейк лимитом на
+/// `max(take_mult × σ_H, take_floor_fees × комиссии круга)` bps выше входа;
+/// аск зеркально. Расстояния — в целых тиках вверх (`bps_to_ticks_ceil`),
+/// чтобы цены стояли на сетке, а расстояние не было меньше заданного. Вход
+/// снимается в конце касания (`entry_ttl_ns`), позиция закрывается не позже
+/// дедлайна. `sigma_bps` — `σ_H` касания для дедлайна формы (`lob::sigma`);
+/// нет `σ` — нет сигнала, это решает вызывающий.
+#[allow(clippy::cast_precision_loss)]
 pub(crate) fn bounce_plan(
     touch: &TouchRecord,
     tick: f64,
-    stop_mode: StopModeArg,
+    geometry: SigmaGeometry,
+    sigma_bps: f64,
     shape: PlanShape,
 ) -> (i8, TradePlan) {
     let PlanShape {
@@ -1045,27 +1085,35 @@ pub(crate) fn bounce_plan(
         .saturating_mul(1_000_000);
     let grid_step_px = grid_step_ticks as f64 * tick;
     // Знак «в сторону от плотности»: для бида это вверх, для аска — вниз.
-    // Стоп и прежний вход (`P ± 1` тик) считаются по нему.
-    let away = match touch.side {
-        Side::Bid => 1.0,
-        Side::Ask => -1.0,
+    // Стоп, тейк и прежний вход (`P ± 1` тик) считаются по нему.
+    let away: i64 = match touch.side {
+        Side::Bid => 1,
+        Side::Ask => -1,
     };
     // Вход — от **первого фронтранера** касания (B2, В-58; спека §2: «заходят
     // либо в упор, либо от фронтрана» [D 02:35]). Цена фронтрана уже лежит по
     // правильную сторону уровня — для бида выше, для аска ниже, — поэтому знак
     // ей не нужен. Фронтрана впереди не было — прежний `P + 1` тик.
-    let entry_px = match touch.frontrun_tick {
-        Some(t) => t as f64 * tick,
-        None => p + away * tick,
+    let entry_tick = touch
+        .frontrun_tick
+        .unwrap_or_else(|| touch.price_tick.saturating_add(away));
+    let entry_px = entry_tick as f64 * tick;
+    // Стоп (В-62): `stop_mult × σ_H` bps от входа в сторону плотности, но не
+    // ближе тика **за** плотностью (`P − 1` для бида): дальний из двух.
+    let stop_sigma_tick = entry_tick
+        .saturating_sub(away * bps_to_ticks_ceil(geometry.stop_mult * sigma_bps, entry_tick));
+    let stop_floor_tick = touch.price_tick.saturating_sub(away);
+    let stop_tick = match touch.side {
+        Side::Bid => stop_sigma_tick.min(stop_floor_tick),
+        Side::Ask => stop_sigma_tick.max(stop_floor_tick),
     };
-    // Стоп — одной из трёх предрегистрированных форм (В-58 п. 2): `before`
-    // `P+1` (перед плотностью), `at` `P` (в плотность), `behind` `P−1`
-    // (за плотностью; форма T38).
-    let stop_px = p + away * stop_mode.offset_ticks() as f64 * tick;
-    // Тейк — 1:1 **от нового входа** (спека §3: «самый базовый, это один к
-    // одному» [D 16:17]), а не от цены уровня: вход от фронтрана дальше от
-    // плотности, и прежний `P+3` давал бы другую пропорцию.
-    let take_px = entry_px + (entry_px - stop_px);
+    let stop_px = stop_tick as f64 * tick;
+    // Тейк (В-62): `take_mult × σ_H` bps от входа от плотности, но не ниже
+    // `take_floor_fees` круговых комиссий — круг обязан их окупать.
+    let take_bps = (geometry.take_mult * sigma_bps)
+        .max(geometry.take_floor_fees * crate::lob::costs::ROUNDTRIP_FEES_BPS);
+    let take_tick = entry_tick.saturating_add(away * bps_to_ticks_ceil(take_bps, entry_tick));
+    let take_px = take_tick as f64 * tick;
     let sigma = match touch.side {
         Side::Bid => SIGMA_LONG,
         Side::Ask => SIGMA_SHORT,
@@ -1211,15 +1259,52 @@ fn run_bounce(
     let h3_lots = mode
         .single_h3_lots()
         .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
+    // Геометрия В-62 — числа владельца, без них ветка `--touches` не идёт.
+    let geometry = match (args.stop_sigma, args.take_sigma, args.take_floor_fees) {
+        (Some(stop_mult), Some(take_mult), Some(take_floor_fees)) => SigmaGeometry {
+            stop_mult,
+            take_mult,
+            take_floor_fees,
+        }
+        .validate()?,
+        _ => anyhow::bail!(
+            "--touches требует --stop-sigma, --take-sigma и --take-floor-fees (геометрия в σ, В-62; умолчаний нет)"
+        ),
+    };
     let replay = super::replay_symbol(&args.session_root, &args.symbol, cfg_levels)?;
     let mut touches: Vec<TouchRecord> = Vec::new();
+    let mut mids: Vec<MidSample> = Vec::new();
     for day in &replay.days {
         touches.extend(day.touches.iter().cloned());
+        mids.extend(day.mids.iter().copied());
     }
+    // Ряд σ — по всей записи символа, чтобы окно раннего касания вторых суток
+    // смотрело в первые (`lob::sigma`).
+    let sigma_series = crate::lob::sigma::SigmaSeries::from_mids(&mids);
+    drop(mids);
     anyhow::ensure!(
         !touches.is_empty(),
         "касаний нет в {}: разметка пуста или порог не дал уровней",
         args.session_root.display()
+    );
+
+    // `σ_H` каждого касания за окно дедлайна (В-62); касание без `σ` (окно
+    // упирается в начало записи) сигнала не даёт и выбывает **до** осей и
+    // индексов, чтобы круг относился к касанию по тому же порядку, что ниже.
+    let sigmas_all: Vec<Option<f64>> = touches
+        .iter()
+        .map(|t| sigma_series.sigma_bps(t.start_ms, args.deadline_secs))
+        .collect();
+    let no_sigma = sigmas_all.iter().filter(|s| s.is_none()).count();
+    let (touches, sigmas): (Vec<TouchRecord>, Vec<f64>) = touches
+        .into_iter()
+        .zip(sigmas_all)
+        .filter_map(|(t, s)| s.map(|s| (t, s)))
+        .unzip();
+    anyhow::ensure!(
+        !touches.is_empty(),
+        "ни у одного касания нет σ за окно {} с: запись короче окна (В-62)",
+        args.deadline_secs
     );
 
     // Сигналы в порядке касаний; движок сортирует их по времени сам, и порядок
@@ -1227,11 +1312,13 @@ fn run_bounce(
     // круг относится к касанию, без второго прогона на каждую ось.
     let signals: Vec<BounceSignal> = touches
         .iter()
-        .map(|t| {
+        .zip(&sigmas)
+        .map(|(t, &sigma_bps)| {
             let (sigma, plan) = bounce_plan(
                 t,
                 tick,
-                args.stop_mode,
+                geometry,
+                sigma_bps,
                 PlanShape {
                     post_only: args.post_only,
                     trail_bps: args.trail_bps,
@@ -1310,15 +1397,13 @@ fn run_bounce(
     }
 
     let header = format!(
-        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44 (вход от первого фронтранера, иначе за тик; стоп {}, тейк 1:1 от входа, дедлайн {} мс из сетки В-58, досрочный выход {}), порог H3={} лотов, касаний {}, бинлогов {}",
+        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44/В-62 (вход от первого фронтранера, иначе за тик; стоп {}×σ_H не ближе тика за плотностью, тейк {}×σ_H не ниже {}×комиссий круга, σ_H — за окно дедлайна; дедлайн {} мс из сетки В-58, досрочный выход {}), порог H3={} лотов, касаний {} (без σ {no_sigma}), бинлогов {}",
         args.symbol,
         args.session_root.display(),
         args.median_rtt_ns,
-        match args.stop_mode {
-            StopModeArg::Before => "перед плотностью (P+1)",
-            StopModeArg::At => "в плотность (P)",
-            StopModeArg::Behind => "за плотностью (P−1)",
-        },
+        geometry.stop_mult,
+        geometry.take_mult,
+        geometry.take_floor_fees,
         args.deadline_secs.saturating_mul(1_000),
         match args.early_exit_secs {
             Some(x) => format!("по прилипанию {x} с (сетка В-58)"),

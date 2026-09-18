@@ -13,6 +13,7 @@ use crate::lob::levels::{
     LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord, TradeHit,
 };
 use crate::lob::markout::MidSample;
+use crate::lob::sigma::thin_mids_tail_to_second_boundaries;
 use crate::lob::watch::{tally_day, DayTally};
 use hftbacktest::types::LOCAL_BUY_TRADE_EVENT;
 
@@ -70,17 +71,28 @@ struct DayWork {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReplayKeep {
     pub(crate) records: bool,
-    pub(crate) mids: bool,
+    pub(crate) mids: MidsKeep,
+}
+
+/// Что хранить из срезов середины.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MidsKeep {
+    /// Все срезы (markout, `touches`, дашборд).
+    All,
+    /// Только срезы «на границу секунды» — те, что `sample_asof` вернул бы
+    /// на метку `s × 1000` мс (В-62: ряд `σ` в `lob::sigma` смотрит только
+    /// на них; остальные — память: миллионы срезов на сутки символа).
+    PerSecond,
 }
 
 impl ReplayKeep {
     pub(crate) const ALL: Self = Self {
         records: true,
-        mids: true,
+        mids: MidsKeep::All,
     };
-    pub(crate) const TOUCHES_ONLY: Self = Self {
+    pub(crate) const TOUCHES_AND_SECOND_MIDS: Self = Self {
         records: false,
-        mids: false,
+        mids: MidsKeep::PerSecond,
     };
 }
 
@@ -93,8 +105,9 @@ impl DayWork {
                 v.clear();
             }
         }
-        if !keep.mids {
-            self.mids.clear();
+        match keep.mids {
+            MidsKeep::All => {}
+            MidsKeep::PerSecond => thin_mids_tail_to_second_boundaries(&mut self.mids),
         }
     }
 }
@@ -422,9 +435,10 @@ pub(crate) fn replay_symbol(
         .expect("replay_symbol_over_configs с одним cfg обязан вернуть один ReplayStats"))
 }
 
-/// Реплей символа, который хранит **только касания** (`ReplayKeep::TOUCHES_ONLY`):
-/// для `lob bounce-grid`. `records` и `mids` у суток пустые, `open` — как обычно.
-pub(crate) fn replay_symbol_touches_only(
+/// Реплей символа с касаниями и срезами середины **по границам секунд**
+/// (`ReplayKeep::TOUCHES_AND_SECOND_MIDS`): столько, сколько нужно ряду `σ`
+/// (В-62, `lob::sigma`), без записей уровней и без всех срезов.
+pub(crate) fn replay_symbol_touches_and_second_mids(
     root: &Path,
     symbol: &str,
     cfg: LevelsConfig,
@@ -433,7 +447,7 @@ pub(crate) fn replay_symbol_touches_only(
         root,
         symbol,
         std::slice::from_ref(&cfg),
-        ReplayKeep::TOUCHES_ONLY,
+        ReplayKeep::TOUCHES_AND_SECOND_MIDS,
     )?;
     Ok(out
         .pop()

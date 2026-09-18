@@ -1,9 +1,12 @@
-//! Вердикт по сетке форм отскока (B5, В-58) — читает артефакты
+//! Вердикт по сетке форм отскока (B5, В-58 → В-62) — читает артефакты
 //! `lob bounce-grid` (`rounds.csv`, `forms.csv`) и считает по контракту
 //! BUSINESS-TASK §6–7 с поправками аудита 18.09 (K2, K3, K4):
 //!
-//! - **сетка ровно из 48 форм** В-58 и одинаковое число сигналов у всех форм
-//!   на каждой паре (символ, сутки) — иначе отказ, не «вердикт по части»;
+//! - **полная сетка** В-62 — декартово произведение множителей стопа, тейка и
+//!   `DEADLINE_SECS` (имя формы `s<a>-t<b>-<H>`), и одинаковое число касаний
+//!   (`n_signals + n_no_sigma`: у формы с длинным окном `σ` сигналов меньше,
+//!   касания те же) у всех форм на каждой паре (символ, сутки) — иначе отказ,
+//!   не «вердикт по части»;
 //! - по форме — все наблюдения сигналов (`FillObservation`: круг с `net_bps`
 //!   или промах с нулём), **нижняя граница интервала `net_fill`** — тот же
 //!   `costs::net_fill_interval` (wild cluster bootstrap-t, кластер — сутки,
@@ -44,18 +47,33 @@ use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
 use crate::lob::shortlist::CONFIRM_MIN_N;
 
-/// Стопы сетки В-58 — имена как у `--stop-mode`.
-pub const STOP_MODES: [&str; 3] = ["before", "at", "behind"];
-/// Дедлайны сетки В-58, секунды.
+/// Дедлайны сетки В-58, секунды (В-62: они же — окна `σ_H`).
 pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
-/// Досрочный выход сетки В-58: выключен или 1/2/3 с.
-pub const EARLY_EXIT_LABELS: [&str; 4] = ["off", "1", "2", "3"];
 /// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
 
-/// Число форм сетки — произведение осей, не отдельная константа.
-pub fn grid_size() -> usize {
-    STOP_MODES.len() * DEADLINE_SECS.len() * EARLY_EXIT_LABELS.len()
+/// Размер полной сетки по её же именам (В-62): множители стопа × множители
+/// тейка × `DEADLINE_SECS`. Сетка задана числами владельца, не константой, и
+/// её полнота проверяется как декартово произведение осей, встреченных в
+/// именах форм: набор `{s1-t1-60, s1-t2-60}` без `s1-t2-600` — не сетка.
+pub fn grid_size_from_labels<'a>(
+    labels: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<usize> {
+    let mut stops: BTreeSet<String> = BTreeSet::new();
+    let mut takes: BTreeSet<String> = BTreeSet::new();
+    for label in labels {
+        let (stop, take, _) = parse_form(label)?;
+        stops.insert(format!("{stop}"));
+        takes.insert(format!("{take}"));
+    }
+    Ok(stops.len() * takes.len() * DEADLINE_SECS.len())
+}
+
+/// Имя формы В-62: `s<a>-t<b>-<H>` — множители стопа и тейка в `σ_H` (как
+/// напечатал `{}` у `f64`: `1`, `0.5`, `1.5`) и дедлайн в секундах из
+/// `DEADLINE_SECS`.
+pub fn form_label(stop_mult: f64, take_mult: f64, deadline_secs: u64) -> String {
+    format!("s{stop_mult}-t{take_mult}-{deadline_secs}")
 }
 
 #[derive(Debug, Args)]
@@ -78,9 +96,10 @@ pub struct BounceVerdictArgs {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormVerdict {
     pub form: String,
-    pub stop: String,
+    /// Множители `σ_H` стопа и тейка (В-62).
+    pub stop_sigma: f64,
+    pub take_sigma: f64,
     pub deadline_secs: u64,
-    pub early_exit_secs: Option<u64>,
     /// Сигналов (касаний) всего по всем символам и суткам.
     pub n_signals: u64,
     /// Кругов (исполненных сделок).
@@ -164,39 +183,41 @@ pub struct BounceVerdictSummary {
     pub out: PathBuf,
 }
 
-/// Разбор имени формы `<стоп>-<дедлайн>-<ранний>` строго по сетке В-58.
-pub fn parse_form(label: &str) -> anyhow::Result<(&'static str, u64, Option<u64>)> {
+/// Разбор имени формы `s<a>-t<b>-<H>` (В-62): множители `σ_H` и дедлайн из
+/// `DEADLINE_SECS`; неканоническое имя — отказ.
+pub fn parse_form(label: &str) -> anyhow::Result<(f64, f64, u64)> {
     let parts: Vec<&str> = label.split('-').collect();
     anyhow::ensure!(
         parts.len() == 3,
-        "{label}: имя формы — <стоп>-<дедлайн>-<ранний> (`behind-60-off`), сетка В-58"
+        "{label}: имя формы — s<стоп×σ>-t<тейк×σ>-<дедлайн с> (`s1-t2-600`), сетка В-62"
     );
-    let stop = *STOP_MODES.iter().find(|s| **s == parts[0]).ok_or_else(|| {
-        anyhow::anyhow!("{label}: стоп {} вне сетки В-58 {STOP_MODES:?}", parts[0])
-    })?;
-    let deadline_secs: u64 = parts[1]
+    let mult = |part: &str, prefix: char, what: &str| -> anyhow::Result<f64> {
+        let v: f64 = part
+            .strip_prefix(prefix)
+            .ok_or_else(|| anyhow::anyhow!("{label}: {what} {part} без префикса `{prefix}`"))?
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{label}: {what} {part} не число"))?;
+        anyhow::ensure!(
+            v.is_finite() && v >= 0.0,
+            "{label}: {what} {part} — множитель σ обязан быть конечным и ≥ 0"
+        );
+        Ok(v)
+    };
+    let stop_mult = mult(parts[0], 's', "стоп")?;
+    let take_mult = mult(parts[1], 't', "тейк")?;
+    let deadline_secs: u64 = parts[2]
         .parse()
-        .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", parts[1]))?;
+        .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", parts[2]))?;
     anyhow::ensure!(
         DEADLINE_SECS.contains(&deadline_secs),
         "{label}: дедлайн {deadline_secs} с вне сетки В-58 {DEADLINE_SECS:?}"
     );
-    let early_exit_secs = if parts[2] == "off" {
-        None
-    } else {
-        let secs: u64 = parts[2].parse().map_err(|_| {
-            anyhow::anyhow!(
-                "{label}: досрочный выход {} не число секунд и не `off`",
-                parts[2]
-            )
-        })?;
-        anyhow::ensure!(
-            EARLY_EXIT_LABELS.contains(&parts[2]),
-            "{label}: досрочный выход {secs} с вне сетки В-58 {EARLY_EXIT_LABELS:?}"
-        );
-        Some(secs)
-    };
-    Ok((stop, deadline_secs, early_exit_secs))
+    anyhow::ensure!(
+        form_label(stop_mult, take_mult, deadline_secs) == label,
+        "{label}: имя формы не каноническое (ожидалось {})",
+        form_label(stop_mult, take_mult, deadline_secs)
+    );
+    Ok((stop_mult, take_mult, deadline_secs))
 }
 
 /// Испытания **этой** процедуры в журнале — строки с префиксом `bounce_form`.
@@ -217,6 +238,9 @@ struct Cell {
 #[derive(Debug, Clone, Default)]
 struct CellStat {
     n_signals: u64,
+    /// Касаний без `σ` за окно формы (В-62): `n_signals + n_no_sigma` — общее
+    /// число касаний пары, одно у всех форм.
+    n_no_sigma: u64,
     n_fills: u64,
     sum_net_bps: f64,
     exits: [u64; EXIT_REASONS.len()],
@@ -249,11 +273,12 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             .position(|h| h == name)
             .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", forms_path.display()))
     };
-    let (i_sym, i_day, i_form, i_sig, i_fills, i_sum) = (
+    let (i_sym, i_day, i_form, i_sig, i_no_sigma, i_fills, i_sum) = (
         idx("symbol")?,
         idx("day_utc")?,
         idx("form")?,
         idx("n_signals")?,
+        idx("n_no_sigma")?,
         idx("n_fills")?,
         idx("sum_net_bps")?,
     );
@@ -296,6 +321,7 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         };
         let mut st = CellStat {
             n_signals: rec[i_sig].parse()?,
+            n_no_sigma: rec[i_no_sigma].parse()?,
             n_fills: rec[i_fills].parse()?,
             sum_net_bps: rec[i_sum].parse()?,
             exits: [0; EXIT_REASONS.len()],
@@ -326,32 +352,35 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             cell.form
         );
     }
+    let grid_size = grid_size_from_labels(form_set.iter().map(String::as_str))?;
     anyhow::ensure!(
-        form_set.len() == grid_size(),
-        "{}: форм {}, сетка В-58 — ровно {}; частичный прогон вердиктом не считается",
+        form_set.len() == grid_size,
+        "{}: форм {}, полная сетка В-62 по встреченным осям — {}; частичный прогон вердиктом не считается",
         forms_path.display(),
         form_set.len(),
-        grid_size()
+        grid_size
     );
-    // Полнота: у каждой пары (символ, сутки) все формы и одно число сигналов.
+    // Полнота: у каждой пары (символ, сутки) все формы и одно число касаний
+    // (`n_signals + n_no_sigma`: касания общие, сигналов у длинного окна `σ`
+    // меньше — В-62).
     let mut by_pair: BTreeMap<(String, String), Vec<(&String, u64)>> = BTreeMap::new();
     for (c, st) in &cells {
         by_pair
             .entry((c.symbol.clone(), c.day.clone()))
             .or_default()
-            .push((&c.form, st.n_signals));
+            .push((&c.form, st.n_signals.saturating_add(st.n_no_sigma)));
     }
     for ((sym, day), v) in &by_pair {
         anyhow::ensure!(
-            v.len() == grid_size(),
+            v.len() == grid_size,
             "{sym} {day}: форм {}, нужно {} — сетка неполная",
             v.len(),
-            grid_size()
+            grid_size
         );
         let sigs: BTreeSet<u64> = v.iter().map(|(_, n)| *n).collect();
         anyhow::ensure!(
             sigs.len() == 1,
-            "{sym} {day}: число сигналов расходится между формами {sigs:?} — касания должны быть общими"
+            "{sym} {day}: число сигналов вместе с касаниями без σ расходится между формами {sigs:?} — касания должны быть общими"
         );
     }
 
@@ -439,7 +468,7 @@ fn day_index(days: &[String], day: &str) -> i64 {
 }
 
 fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
-    let (stop, deadline_secs, early_exit_secs) = parse_form(form)?;
+    let (stop_sigma, take_sigma, deadline_secs) = parse_form(form)?;
     let mut n_signals: u64 = 0;
     let mut n_fills: u64 = 0;
     let mut exits = [0u64; EXIT_REASONS.len()];
@@ -551,9 +580,9 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
     };
     Ok(FormVerdict {
         form: form.to_string(),
-        stop: stop.to_string(),
+        stop_sigma,
+        take_sigma,
         deadline_secs,
-        early_exit_secs,
         n_signals,
         n_fills,
         days_with_fills: days_with_fills.len(),
@@ -745,9 +774,9 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     let mut w = csv::Writer::from_writer(file);
     let mut header = vec![
         "form",
-        "stop",
+        "stop_sigma",
+        "take_sigma",
         "deadline_secs",
-        "early_exit_secs",
         "n_signals",
         "n_fills",
         "days_with_fills",
@@ -782,12 +811,9 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     for f in &forms {
         let mut row = vec![
             f.form.clone(),
-            f.stop.clone(),
+            f.stop_sigma.to_string(),
+            f.take_sigma.to_string(),
             f.deadline_secs.to_string(),
-            match f.early_exit_secs {
-                Some(x) => x.to_string(),
-                None => "off".to_string(),
-            },
             f.n_signals.to_string(),
             f.n_fills.to_string(),
             f.days_with_fills.to_string(),

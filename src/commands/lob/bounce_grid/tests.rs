@@ -4,19 +4,38 @@ use crate::commands::lob::bounce_verdict::parse_form;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
 use crate::commands::lob::{H3Args, H3ModeArg};
 
-/// Та же фикстура, что у `touches/tests.rs`: три касания бида 99 за 6 секунд.
+/// Фикстура `touches/tests.rs` (три касания бида 99 за 6 секунд), сдвинутая
+/// на `LEAD_S` секунд «тихой» книги впереди: ряд `σ` (В-62) должен покрывать
+/// окно 60 с к первому касанию, иначе ни у одной формы нет сигналов.
+const LEAD_S: i64 = 70;
+
 fn touch_frames() -> Vec<Vec<crate::binlog::Record>> {
-    vec![
-        snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(105, 10)]),
-        trade_frame(500, 100, 3),
-        delta_frame(1000, &[(100, 0)], &[]),
-        delta_frame(2000, &[(100, 10)], &[]),
-        delta_frame(3000, &[(100, 0)], &[]),
-        delta_frame(4000, &[(101, 10)], &[]),
-        delta_frame(5000, &[(101, 0)], &[]),
-        trade_frame(5500, 99, 4),
-        delta_frame(6000, &[(99, 1)], &[]),
-    ]
+    let lead = LEAD_S * 1_000;
+    let mut frames = vec![snap_frame(
+        0,
+        &[(98, 10), (99, 10), (100, 10)],
+        &[(105, 10)],
+    )];
+    for s in 1..=LEAD_S {
+        // Лёгкое дыхание аска: середина двигается, σ не ноль.
+        let ask = if s % 2 == 0 { 105 } else { 106 };
+        frames.push(delta_frame(
+            s * 1_000,
+            &[],
+            &[(ask, 10), (105 + 106 - ask, 0)],
+        ));
+    }
+    frames.extend([
+        trade_frame(lead + 500, 100, 3),
+        delta_frame(lead + 1000, &[(100, 0)], &[]),
+        delta_frame(lead + 2000, &[(100, 10)], &[]),
+        delta_frame(lead + 3000, &[(100, 0)], &[]),
+        delta_frame(lead + 4000, &[(101, 10)], &[]),
+        delta_frame(lead + 5000, &[(101, 0)], &[]),
+        trade_frame(lead + 5500, 99, 4),
+        delta_frame(lead + 6000, &[(99, 1)], &[]),
+    ]);
+    frames
 }
 
 fn fixture_root(dir: &std::path::Path, verified: bool) {
@@ -46,6 +65,9 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         order_qty_e9: Some(100_000_000),
         order_qty_from_pool: false,
         post_only: false,
+        stop_sigma: vec![1.0, 2.0],
+        take_sigma: vec![1.0],
+        take_floor_fees: 1.0,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -85,59 +107,64 @@ fn col<'a>(header: &[String], row: &'a [String], name: &str) -> &'a str {
     &row[i]
 }
 
-/// Сетка — ровно 48 форм В-58, в порядке стоп × дедлайн × ранний, имена
-/// читаются вердиктом (`parse_form`) и не повторяются.
+/// Сетка В-62 — `stop_sigma × take_sigma × DEADLINE_SECS` в этом порядке,
+/// имена читаются вердиктом (`parse_form`) и не повторяются.
 #[test]
-fn forms_are_the_48_of_v58_in_grid_order() {
-    let forms = grid_forms();
-    assert_eq!(forms.len(), 48);
-    assert_eq!(forms[0].label, "before-60-off");
-    assert_eq!(forms[47].label, "behind-7200-3");
+fn forms_are_the_sigma_grid_in_grid_order() {
+    let forms = grid_forms(&[1.0, 2.0], &[1.0]);
+    assert_eq!(forms.len(), 8);
+    assert_eq!(forms[0].label, "s1-t1-60");
+    assert_eq!(forms[3].label, "s1-t1-7200");
+    assert_eq!(forms[7].label, "s2-t1-7200");
     let mut seen = std::collections::BTreeSet::new();
     for f in &forms {
-        let (stop, deadline, early) = parse_form(f.label).unwrap();
+        let (stop, take, deadline) = parse_form(f.label).unwrap();
         assert_eq!(deadline as i64, f.deadline_secs);
-        assert_eq!(early.map(|s| s as i64), f.early_exit_secs);
-        assert_eq!(
-            match f.stop {
-                StopModeArg::Before => "before",
-                StopModeArg::At => "at",
-                StopModeArg::Behind => "behind",
-            },
-            stop
-        );
+        assert_eq!(stop, f.stop_mult);
+        assert_eq!(take, f.take_mult);
         assert!(seen.insert(f.label), "форма {} повторяется", f.label);
     }
 }
 
-/// Одни сутки фикстуры → 48 строк `forms.csv` с одинаковым числом сигналов
-/// (касания общие для всех форм — S1), `rounds.csv` с шапкой и колонками
-/// `symbol`/`day_utc`/`form` (K2), сводка считает сутки и символ.
+/// Одни сутки фикстуры → строка `forms.csv` на форму с одинаковым числом
+/// касаний (`n_signals + n_no_sigma`: касания общие для всех форм — S1; у форм
+/// с окном `σ` длиннее записи сигналов нет, у 60-секундных — все три),
+/// `rounds.csv` с шапкой и колонками `symbol`/`day_utc`/`form` (K2), сводка
+/// считает сутки и символ.
 #[test]
-fn grid_runs_the_fixture_day_and_writes_48_forms() {
+fn grid_runs_the_fixture_day_and_writes_every_form() {
     let dir = tempfile::tempdir().unwrap();
     fixture_root(dir.path(), true);
     let summary = run_bounce_grid(&args(dir.path(), false)).expect("прогон сетки на фикстуре");
-    assert_eq!(summary.forms, 48);
+    assert_eq!(summary.forms, 8);
     assert_eq!(summary.symbols_done, 1);
     assert_eq!(summary.symbols_skipped_unverified, 0);
     assert_eq!(summary.symbol_days, 1);
 
     let (fh, forms) = read_csv(&summary.forms_path);
-    assert_eq!(forms.len(), 48, "строка на форму: {forms:?}");
+    assert_eq!(forms.len(), 8, "строка на форму: {forms:?}");
     let labels: std::collections::BTreeSet<&str> =
         forms.iter().map(|r| col(&fh, r, "form")).collect();
-    let expected: std::collections::BTreeSet<&str> = grid_forms().iter().map(|f| f.label).collect();
+    let expected: std::collections::BTreeSet<&str> = grid_forms(&[1.0, 2.0], &[1.0])
+        .iter()
+        .map(|f| f.label)
+        .collect();
     assert_eq!(labels, expected);
-    let n_signals: std::collections::BTreeSet<&str> =
-        forms.iter().map(|r| col(&fh, r, "n_signals")).collect();
-    assert_eq!(
-        n_signals.len(),
-        1,
-        "сигналы одни на все формы: {n_signals:?}"
-    );
-    let n: usize = n_signals.iter().next().unwrap().parse().unwrap();
-    assert_eq!(n, 3, "фикстура даёт три касания бида 99");
+    for r in &forms {
+        let n_signals: u64 = col(&fh, r, "n_signals").parse().unwrap();
+        let n_no_sigma: u64 = col(&fh, r, "n_no_sigma").parse().unwrap();
+        assert_eq!(
+            n_signals + n_no_sigma,
+            3,
+            "фикстура даёт три касания бида 99: {r:?}"
+        );
+        let form = col(&fh, r, "form");
+        if form.ends_with("-60") {
+            assert_eq!(n_signals, 3, "окно 60 с покрыто: {form}");
+        } else {
+            assert_eq!(n_signals, 0, "окно длиннее записи — сигналов нет: {form}");
+        }
+    }
     for r in &forms {
         assert_eq!(col(&fh, r, "symbol"), "SOLUSDT");
         assert_eq!(col(&fh, r, "day_utc"), "2026-09-08");

@@ -356,66 +356,109 @@ fn plan_prices(plan: &TradePlan) -> (f64, f64, f64) {
     }
 }
 
-/// B2 (В-58): вход — от **первого фронтранера**, тейк — 1:1 **от входа**, а
-/// стоп — одной из трёх предрегистрированных форм (`before`/`at`/`behind` =
-/// `P+1`/`P`/`P−1` по цене уровня). Три формы обязаны давать **разные** планы:
-/// иначе вариация стопа ничего не вариирует, и предрегистрация В-58 пуста.
-#[test]
-fn bounce_plan_enters_at_the_frontrun_and_stops_in_three_forms() {
-    let tick = 0.01_f64;
-    // P = 10.00, первый фронтранер — 10.05 (тик 1005 перед плотностью бида).
-    let touch = bounce_touch(1_000, Some(1_005));
-
-    let mut plans = Vec::new();
-    for mode in [StopModeArg::Before, StopModeArg::At, StopModeArg::Behind] {
-        let (_, plan) = bounce_plan(&touch, tick, mode, plain_shape());
-        plans.push((mode, plan_prices(&plan)));
-    }
-
-    // Вход один и тот же во всех трёх — от фронтрана, а не от уровня.
-    for (mode, (entry, _, _)) in &plans {
-        assert!(
-            (entry - 10.05).abs() < 1e-9,
-            "{mode:?}: вход обязан быть ценой фронтранера, получено {entry}"
-        );
-    }
-    // Стоп: before P+1, at P, behind P−1; тейк — ровно на столько же выше
-    // входа (1:1 от входа, а не от цены уровня).
-    let expected = [
-        (StopModeArg::Before, 10.01_f64, 10.09_f64),
-        (StopModeArg::At, 10.00, 10.10),
-        (StopModeArg::Behind, 9.99, 10.11),
-    ];
-    for (mode, stop, take) in expected {
-        let (_, (entry, got_stop, got_take)) = plans
-            .iter()
-            .find(|(m, _)| *m == mode)
-            .unwrap_or_else(|| panic!("{mode:?} потерян"));
-        assert!(
-            (got_stop - stop).abs() < 1e-9,
-            "{mode:?}: стоп {got_stop} вместо {stop}"
-        );
-        assert!(
-            (got_take - take).abs() < 1e-9,
-            "{mode:?}: тейк {got_take} вместо {take} (1:1 от входа {entry})"
-        );
+fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> SigmaGeometry {
+    SigmaGeometry {
+        stop_mult,
+        take_mult,
+        take_floor_fees,
     }
 }
 
-/// B2: фронтрана впереди не было — вход прежний (`P + 1` тик), и с формой
-/// стопа T38 (`behind`) это ровно прежняя сделка: стоп `P−1`, тейк `P+3`.
+/// В-62: вход — от **первого фронтранера**; стоп — `a × σ_H` bps от входа в
+/// целых тиках вверх, но не ближе тика за плотностью; тейк — `b × σ_H` bps
+/// от входа, но не ниже `k × 7.5` bps комиссий. Числа: P = 10.00, вход 10.05
+/// (тик 1005), σ = 100 bps: стоп 1×σ = 100 bps × 1005 / 10⁴ = 10.05 тика →
+/// 11 тиков → 9.94 (дальше пола 9.99 — берётся он же, 9.94); тейк 2×σ =
+/// 200 bps → 20.1 → 21 тиков → 10.26.
 #[test]
-fn bounce_plan_without_frontrun_keeps_the_old_entry_and_one_to_one() {
+fn bounce_plan_puts_stop_and_take_at_sigma_multiples_from_the_entry() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005));
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 2.0, 1.0), 100.0, plain_shape());
+    let (entry, stop, take) = plan_prices(&plan);
+    assert!((entry - 10.05).abs() < 1e-9, "вход от фронтранера: {entry}");
+    assert!(
+        (stop - 9.94).abs() < 1e-9,
+        "стоп 1×σ = 11 тиков ниже входа: {stop}"
+    );
+    assert!(
+        (take - 10.26).abs() < 1e-9,
+        "тейк 2×σ = 21 тик выше входа: {take}"
+    );
+}
+
+/// В-62, полы: при `σ` малой (или нулевой) стоп встаёт на тик **за**
+/// плотностью (`P − 1`), а не на входе, тейк — на `k × 7.5` bps: форма не
+/// вырождается в «стоп на цене входа» сетки В-58.
+#[test]
+fn bounce_plan_floors_keep_the_form_non_degenerate() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005));
+    // σ = 0: стоп 0 тиков → пол 9.99; тейк max(0, 2 × 7.5 = 15 bps) → 15 bps ×
+    // 1005 / 10⁴ = 1.5075 тика → 2 тика → 10.07.
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 2.0), 0.0, plain_shape());
+    let (_, stop, take) = plan_prices(&plan);
+    assert!(
+        (stop - 9.99).abs() < 1e-9,
+        "стоп на тике за плотностью: {stop}"
+    );
+    assert!(
+        (take - 10.07).abs() < 1e-9,
+        "тейк на полу 2 × 7.5 bps: {take}"
+    );
+    // Стоп по σ ближе пола (5 bps → 5.025 тика → 6 тиков → 9.99): совпадает с
+    // полом; 2 bps → 2.01 → 3 тика → 10.02 — ближе пола, берётся пол 9.99.
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 2.0, plain_shape());
+    let (_, stop, _) = plan_prices(&plan);
+    assert!(
+        (stop - 9.99).abs() < 1e-9,
+        "пол дальше σ-стопа — берётся пол: {stop}"
+    );
+}
+
+/// В-62, аск зеркально: уровень 10.00 (аск), фронтранер 9.95; стоп выше входа,
+/// не ближе `P + 1`; тейк ниже входа.
+#[test]
+fn bounce_plan_mirrors_the_geometry_for_the_ask() {
+    let tick = 0.01_f64;
+    let mut touch = bounce_touch(1_000, Some(995));
+    touch.side = Side::Ask;
+    let (dir, plan) = bounce_plan(&touch, tick, geometry(1.0, 2.0, 1.0), 100.0, plain_shape());
+    assert_eq!(dir, SIGMA_SHORT);
+    let (entry, stop, take) = plan_prices(&plan);
+    assert!((entry - 9.95).abs() < 1e-9, "{entry}");
+    // 100 bps × 995 / 10⁴ = 9.95 тика → 10 тиков → 10.05; пол P + 1 = 10.01 —
+    // σ-стоп дальше, берётся он.
+    assert!((stop - 10.05).abs() < 1e-9, "{stop}");
+    // 200 bps → 19.9 → 20 тиков → 9.75.
+    assert!((take - 9.75).abs() < 1e-9, "{take}");
+}
+
+/// Фронтрана впереди не было — вход прежний (`P + 1` тик), геометрия та же.
+#[test]
+fn bounce_plan_without_frontrun_enters_one_tick_before_the_level() {
     let tick = 0.01_f64;
     let touch = bounce_touch(1_000, None);
-    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, plain_shape());
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 50.0, plain_shape());
     let (entry, stop, take) = plan_prices(&plan);
     assert!((entry - 10.01).abs() < 1e-9, "вход P+1: {entry}");
-    assert!((stop - 9.99).abs() < 1e-9, "стоп P−1: {stop}");
+    // 50 bps × 1001 / 10⁴ = 5.005 → 6 тиков → 9.95 (дальше пола 9.99).
+    assert!((stop - 9.95).abs() < 1e-9, "{stop}");
+    // max(50, 7.5) = 50 bps → 6 тиков → 10.07.
+    assert!((take - 10.07).abs() < 1e-9, "{take}");
+}
+
+/// Числа владельца проверяются: отрицательный множитель и нулевой пол — отказ.
+#[test]
+fn sigma_geometry_rejects_negative_multipliers_and_a_zero_floor() {
+    assert!(geometry(1.0, 1.0, 1.0).validate().is_ok());
     assert!(
-        (take - 10.03).abs() < 1e-9,
-        "тейк P+3 при таком входе: {take}"
+        geometry(0.0, 0.0, 0.5).validate().is_ok(),
+        "нулевые множители — полы работают"
     );
+    assert!(geometry(-1.0, 1.0, 1.0).validate().is_err());
+    assert!(geometry(1.0, f64::NAN, 1.0).validate().is_err());
+    assert!(geometry(1.0, 1.0, 0.0).validate().is_err());
 }
 
 /// B3/B4: сетки В-58 зафиксированы **до** данных — значение дедлайна или
@@ -461,7 +504,7 @@ fn bounce_plan_carries_the_early_exit_the_level_and_the_tick() {
         early_exit_ns: 2 * 1_000_000_000,
         ..plain_shape()
     };
-    let (_, plan) = bounce_plan(&touch, tick, StopModeArg::Behind, shape);
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 10.0, shape);
     let TradePlan::Bounce {
         early_exit_ns,
         level_px,
@@ -644,7 +687,9 @@ fn minimal_backtest_args() -> BacktestArgs {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_ticks: 0,
-        stop_mode: StopModeArg::Behind,
+        stop_sigma: Some(1.0),
+        take_sigma: Some(1.0),
+        take_floor_fees: Some(1.0),
         deadline_secs: 60,
         early_exit_secs: None,
         trades_out: None,

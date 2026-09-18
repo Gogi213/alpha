@@ -22,6 +22,9 @@ use std::path::PathBuf;
 use clap::Args;
 
 use crate::lob::levels::LevelsConfig;
+use crate::lob::sigma::SigmaSeries;
+
+use super::bounce_verdict::DEADLINE_SECS;
 use crate::lob::markout::{
     approaches_for_touch, distance_bps_at_birth, long_markouts_for_touch, markouts_for_touch,
     mid_double_tick, sample_asof, within_touch, APPROACH_MS, HORIZONS_MS,
@@ -98,7 +101,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 40;
+const TOUCHES_WIDTH: usize = 44;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -153,6 +156,13 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "strength_held_60s_pct",
     // Прошлых рождений на этой цене за час до касания (мерцание).
     "repeat_count",
+    // `σ_H` середины (В-62, `lob::sigma`): реализованная волатильность в bps за
+    // окно, равное дедлайну сетки (`DEADLINE_SECS`), к началу касания; пусто —
+    // окно упирается в начало записи.
+    "sigma_60s_bps",
+    "sigma_600s_bps",
+    "sigma_3600s_bps",
+    "sigma_7200s_bps",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -198,8 +208,25 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     let mut w = csv::Writer::from_path(&out)?;
     w.write_record(TOUCHES_COLUMNS)?;
     let mut n = 0usize;
+    // Ряд `σ` — по всей записи символа (В-62): окно раннего касания вторых
+    // суток смотрит в первые.
+    let sigma_series = {
+        let mut all: Vec<crate::lob::markout::MidSample> = Vec::new();
+        for day in &replay.days {
+            all.extend(day.mids.iter().copied());
+        }
+        SigmaSeries::from_mids(&all)
+    };
+    debug_assert_eq!(
+        DEADLINE_SECS,
+        [60, 600, 3600, 7200],
+        "порядок колонок sigma_* обязан совпадать с окнами дедлайнов"
+    );
     for day in &replay.days {
         for t in &day.touches {
+            let sigma: [Option<f64>; DEADLINE_SECS.len()] = std::array::from_fn(|k| {
+                sigma_series.sigma_bps(t.start_ms, DEADLINE_SECS[k] as i64)
+            });
             let ms = markouts_for_touch(t, &day.mids);
             let inside = within_touch(t.duration_ms);
             let ap = approaches_for_touch(t, &day.mids);
@@ -249,6 +276,10 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 strength_pct(t.strength_held_e2[2]),
                 strength_pct(t.strength_held_e2[3]),
                 t.repeat_count.to_string(),
+                some_or_empty(sigma[0]),
+                some_or_empty(sigma[1]),
+                some_or_empty(sigma[2]),
+                some_or_empty(sigma[3]),
             ];
             w.write_record(row)?;
             n += 1;

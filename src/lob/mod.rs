@@ -17,6 +17,7 @@ pub mod markup;
 pub mod moves;
 pub mod runs;
 pub mod shortlist;
+pub mod sigma;
 pub mod strategy;
 pub mod touch_axes;
 pub mod watch;

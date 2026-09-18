@@ -1,7 +1,13 @@
 use super::*;
-use crate::commands::lob::bounce_grid::grid_forms;
+use crate::commands::lob::bounce_grid::{grid_forms, GridForm};
 use crate::lob::runs::{self, RunKind, RunRow};
 use std::path::Path;
+
+/// Сетка синтетики: 3 множителя стопа × 4 тейка × 4 дедлайна = 48 форм — тот
+/// же размер, что у сетки В-58, чтобы гейты и DSR считались на тех же числах.
+fn test_forms() -> Vec<GridForm> {
+    grid_forms(&[0.5, 1.0, 2.0], &[1.0, 2.0, 3.0, 4.0])
+}
 
 /// Синтетический каталог `bounce-grid`: 48 форм × символы × сутки. `net`
 /// круга — детерминированная функция (форма, символ, сутки, номер круга);
@@ -23,12 +29,12 @@ fn write_grid(
     let fills_of = |si: usize, di: usize| fills.unwrap_or(10 + 3 * di as u64 + si as u64);
     std::fs::create_dir_all(dir).unwrap();
     let mut forms = String::from(
-        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,stop_mode,n_residual_flattened,signals_by_hour\n",
+        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,n_no_sigma,n_residual_flattened,signals_by_hour\n",
     );
     let mut rounds = String::from(
         "# synthetic grid\nsymbol,day_utc,form,signal_index,t0_ns,dir,entry_px,exit_px,qty,net_bps,reason\n",
     );
-    for (fi, form) in grid_forms().iter().enumerate() {
+    for (fi, form) in test_forms().iter().enumerate() {
         for (si, sym) in symbols.iter().enumerate() {
             for (di, day) in days.iter().enumerate() {
                 let fills = fills_of(si, di);
@@ -83,11 +89,10 @@ fn write_grid(
                     .collect::<Vec<_>>()
                     .join(":");
                 forms.push_str(&format!(
-                    "{sym},{day},{},{signals},{fills},{fills},{},0,0,{sum:.6},{},{n_take},0,0,0,0,false,{},0,{by_hour}\n",
+                    "{sym},{day},{},{signals},{fills},{fills},{},0,0,{sum:.6},{},{n_take},0,0,0,0,false,0,0,{by_hour}\n",
                     form.label,
                     signals - fills,
-                    fills - n_take,
-                    form.label.split('-').next().unwrap()
+                    fills - n_take
                 ));
             }
         }
@@ -98,7 +103,7 @@ fn write_grid(
 
 fn journal_with_grid(path: &Path) {
     runs::ensure_runs_csv(path).unwrap();
-    let labels: Vec<String> = grid_forms().iter().map(|f| f.label.to_string()).collect();
+    let labels: Vec<String> = test_forms().iter().map(|f| f.label.to_string()).collect();
     runs::log_trials(path, "2026-09-18T00:00:00Z", BOUNCE_TRIAL_PREFIX, &labels).unwrap();
 }
 
@@ -111,16 +116,30 @@ fn args(grid: &Path, runs_csv: &Path, out: &Path) -> BounceVerdictArgs {
     }
 }
 
-/// Имена форм — ровно сетка В-58; чужое имя — отказ, размер — произведение осей.
+/// Имена форм — `s<a>-t<b>-<H>` (В-62): разбор возвращает множители и дедлайн,
+/// неканоническое или чужое имя — отказ, размер сетки — произведение осей,
+/// встреченных в именах.
 #[test]
-fn form_names_are_the_preregistered_grid_and_nothing_else() {
-    assert_eq!(grid_size(), 48);
-    assert!(parse_form("behind-60-off").is_ok());
-    assert!(parse_form("before-7200-3").is_ok());
-    assert!(parse_form("behind-90-off").is_err(), "дедлайн вне сетки");
-    assert!(parse_form("middle-60-off").is_err(), "стоп вне сетки");
-    assert!(parse_form("behind-60-5").is_err(), "ранний выход вне сетки");
-    assert!(parse_form("behind-60").is_err(), "не три части");
+fn form_names_are_the_sigma_grid_and_nothing_else() {
+    let labels: Vec<String> = test_forms().iter().map(|f| f.label.to_string()).collect();
+    assert_eq!(labels.len(), 48);
+    assert_eq!(
+        grid_size_from_labels(labels.iter().map(String::as_str)).unwrap(),
+        48
+    );
+    assert_eq!(parse_form("s0.5-t1-60").unwrap(), (0.5, 1.0, 60));
+    assert_eq!(parse_form("s2-t4-7200").unwrap(), (2.0, 4.0, 7200));
+    assert!(parse_form("s1-t1-90").is_err(), "дедлайн вне сетки");
+    assert!(parse_form("x1-t1-60").is_err(), "префикс стопа");
+    assert!(parse_form("s1-tx-60").is_err(), "тейк не число");
+    assert!(parse_form("s1-t1-60-5").is_err(), "не три части");
+    assert!(parse_form("s1.0-t1-60").is_err(), "неканоническое имя");
+    assert_eq!(form_label(1.5, 1.0, 600), "s1.5-t1-600");
+    // Неполное произведение осей — не сетка: 3 формы при осях 2 × 1 × 4.
+    assert_ne!(
+        grid_size_from_labels(["s1-t1-60", "s2-t1-60", "s1-t1-600"]).unwrap(),
+        3
+    );
 }
 
 /// `N` для DSR — только строки этой процедуры (`bounce_form`), не весь журнал.
@@ -133,8 +152,8 @@ fn trial_slice_counts_only_this_procedures_rows() {
         detail: detail.to_string(),
     };
     let rows = vec![
-        row(RunKind::Confirmatory, "bounce_form:behind-60-off"),
-        row(RunKind::Confirmatory, "bounce_form:at-600-1"),
+        row(RunKind::Confirmatory, "bounce_form:s0.5-t1-60"),
+        row(RunKind::Confirmatory, "bounce_form:s1-t1-600"),
         row(RunKind::Confirmatory, "pilot k=1.0"),
         row(RunKind::Prereg, "bounce_form:prereg"),
     ];
@@ -167,7 +186,7 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
         &days,
         10,
         None,
-        "at-600-2",
+        "s1-t2-600",
         5.0,
     );
     let runs_csv = dir.path().join("runs.csv");
@@ -179,7 +198,7 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
     assert_eq!(s.symbols, 2);
     assert_eq!(s.days, 8);
     assert_eq!(s.trials, 48);
-    assert_eq!(s.best_form, "at-600-2");
+    assert_eq!(s.best_form, "s1-t2-600");
     let expected_fills: u64 = (0..2usize)
         .flat_map(|si| (0..8usize).map(move |di| 10 + 3 * di as u64 + si as u64))
         .sum();
@@ -224,7 +243,7 @@ fn few_days_get_a_verdict_through_hour_clusters() {
         &["2026-09-10", "2026-09-11", "2026-09-12"],
         60,
         Some(60),
-        "at-600-2",
+        "s1-t2-600",
         5.0,
     );
     let runs_csv = dir.path().join("runs.csv");
@@ -245,7 +264,7 @@ fn few_days_get_a_verdict_through_hour_clusters() {
         &["2026-09-10"],
         10,
         Some(3),
-        "at-600-2",
+        "s1-t2-600",
         5.0,
     );
     let s2 = run_bounce_verdict(&args(&grid2, &runs_csv, &dir.path().join("v2.csv"))).unwrap();
@@ -295,7 +314,7 @@ fn partial_grid_or_uneven_signals_is_refused() {
     let full = std::fs::read_to_string(&forms_path).unwrap();
     let without_one: String = full
         .lines()
-        .filter(|l| !l.contains(",behind-7200-3,"))
+        .filter(|l| !l.contains(",s2-t4-7200,"))
         .map(|l| format!("{l}\n"))
         .collect();
     std::fs::write(&forms_path, &without_one).unwrap();
@@ -303,7 +322,7 @@ fn partial_grid_or_uneven_signals_is_refused() {
     let rounds_full = std::fs::read_to_string(&rounds_path).unwrap();
     let rounds_without: String = rounds_full
         .lines()
-        .filter(|l| !l.contains(",behind-7200-3,"))
+        .filter(|l| !l.contains(",s2-t4-7200,"))
         .map(|l| format!("{l}\n"))
         .collect();
     std::fs::write(&rounds_path, &rounds_without).unwrap();
