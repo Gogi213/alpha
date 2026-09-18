@@ -66,7 +66,7 @@ use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
     BounceSignal, DriveConfig, SignalWindows,
 };
-use crate::lob::levels::{LevelsConfig, TouchRecord};
+use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
 
 /// Одна форма сетки (В-65): имя колонки, форма сделки и дедлайн (он же окно `σ`).
@@ -282,6 +282,13 @@ fn signals_for(
                 skipped += 1;
                 return None;
             }
+            // База E1 (В-66): плотность обязана держать порог при подходе цены,
+            // а не только при рождении — иначе в сетку идут касания
+            // «бывших» плотностей. Окно проверено при старте прогона.
+            if p.mode.holds_at_touch(t) != Some(true) {
+                skipped += 1;
+                return None;
+            }
             let sigma_bps = if form.form.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
             } else {
@@ -350,6 +357,8 @@ struct DayParams<'a> {
     post_only: bool,
     /// E3: входить только от фронтрана (`--frontrun-only`).
     frontrun_only: bool,
+    /// Порог уровня — проверяется и **в момент касания** (`H3Mode::holds_at_touch`).
+    mode: H3Mode,
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -745,6 +754,39 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // Порог плотности — любой из режимов В-61 (`--h3-mode notional|strength|both`)
         // или прежние floor/percentile; тик и шаг лота — из заголовка бинлога.
         let mode = resolve_h3_mode_full(&args.root, symbol, &args.h3, args.h3_k, tick_e9, step_e9)?;
+        // Окно силы порога обязано быть одним из окон оси `strength_e2`, иначе
+        // порог в момент касания не проверить — отказ, не молчаливый пропуск.
+        {
+            let probe = TouchRecord {
+                side: crate::book::Side::Bid,
+                price_tick: 1,
+                touch_index: 0,
+                start_ms: 0,
+                end_ms: 0,
+                duration_ms: 0,
+                level_birth_ms: 0,
+                size_at_touch: i64::MAX / 4,
+                size_max_before: 0,
+                traded_during: 0,
+                frontrun_lots: 0,
+                frontrun_tick: None,
+                swept_lots: 0,
+                round_zeros: 0,
+                ended_by_death: false,
+                stack_levels: 0,
+                stack_next_tick: None,
+                traded_first_s: [0; 3],
+                flow_1h_lots: 0,
+                strength_e2: [i64::MAX; 3],
+                strength_held_e2: [-1; 4],
+                repeat_count: 0,
+            };
+            anyhow::ensure!(
+                mode.holds_at_touch(&probe).is_some(),
+                "{symbol}: окно силы порога не из STRENGTH_WINDOWS_BPS {:?} — порог в момент касания не проверить",
+                crate::lob::levels::STRENGTH_WINDOWS_BPS
+            );
+        }
         let cfg_levels = LevelsConfig {
             mode,
             warmup_ms: args.warmup_ms.unwrap_or(DEFAULT_WARMUP_MS),
@@ -849,6 +891,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         driver: args.driver,
                         post_only: args.post_only,
                         frontrun_only: args.frontrun_only,
+                        mode,
                         sigma: &sigma_series,
                     },
                     &mut sink,

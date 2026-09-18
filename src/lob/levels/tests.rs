@@ -1406,3 +1406,40 @@ fn strength_history_keeps_the_minimum_over_the_window() {
     assert_eq!(t.strength_held_e2[3], -1, "уровень моложе 60 с");
     assert_eq!(t.repeat_count, 0);
 }
+
+/// Порог в момент касания (В-66, база E1): номинал — по размеру при касании,
+/// сила — по `strength_e2` окна порога; окно не из оси — `None`.
+#[test]
+fn threshold_is_rechecked_at_touch_time() {
+    let mut t = touch_rec(100, 0, (2000, 3000), (12, 10), 3, false, 1);
+    t.strength_e2 = [-1, 15_000, 20_000]; // ±20 bps — 150 %
+    let both = H3Mode::Both {
+        min_usd_e9: 5_000_000_000, // $5: цена 100 тиков × 0.01 = $1, шаг лота 1 → порог 5 лотов
+        tick_e9: 10_000_000,
+        step_e9: 1_000_000_000,
+        pct_e2: 10_000,
+        window_bps_e2: 2_000,
+    };
+    assert_eq!(both.holds_at_touch(&t), Some(true));
+    t.strength_e2 = [-1, 9_900, 20_000];
+    assert_eq!(
+        both.holds_at_touch(&t),
+        Some(false),
+        "сила ниже порога при касании"
+    );
+    t.strength_e2 = [-1, 15_000, 20_000];
+    t.size_at_touch = 1; // $1 < $5
+    assert_eq!(
+        both.holds_at_touch(&t),
+        Some(false),
+        "номинал ниже пола при касании"
+    );
+    let odd_window = H3Mode::Strength {
+        pct_e2: 10_000,
+        window_bps_e2: 1_500,
+    };
+    assert_eq!(odd_window.holds_at_touch(&t), None, "окно 15 bps не из оси");
+    let floor = H3Mode::Floor { h3_lots: 5 };
+    t.size_at_touch = 12;
+    assert_eq!(floor.holds_at_touch(&t), Some(true));
+}

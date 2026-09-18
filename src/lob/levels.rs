@@ -228,6 +228,27 @@ impl H3Mode {
         }
     }
 
+    /// Держится ли порог **в момент касания** (В-66, база E1: «крупная при
+    /// подходе цены»): уровень рождается сильным, но к касанию соседи могли
+    /// вырасти, а его самого — частично съесть. Номинал — по `size_at_touch`,
+    /// сила — по `strength_e2` окна, равного окну порога. `None` — окно
+    /// порога не из `STRENGTH_WINDOWS_BPS`, проверить нечем (вызывающий
+    /// отказывает, не пропускает молча).
+    pub fn holds_at_touch(self, touch: &TouchRecord) -> Option<bool> {
+        if !self.passes_birth(touch.price_tick, touch.size_at_touch) {
+            return Some(false);
+        }
+        match self.strength_gate() {
+            None => Some(true),
+            Some((pct_e2, window_bps_e2)) => {
+                let k = STRENGTH_WINDOWS_BPS
+                    .iter()
+                    .position(|&w| w.saturating_mul(100) == window_bps_e2)?;
+                Some(touch.strength_e2[k] >= pct_e2)
+            }
+        }
+    }
+
     /// Порог обязан быть положителен: нулевой рождал бы уровень из пустого места.
     fn validate(self) {
         match self {
