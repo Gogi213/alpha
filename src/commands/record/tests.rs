@@ -375,6 +375,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::Pick(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::FeeRate(_) => {
+            panic!("разобралась не та подкоманда")
+        }
         crate::commands::lob::LobCommand::Verify(_) => {
             panic!("разобралась не та подкоманда")
         }

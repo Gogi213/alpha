@@ -58,6 +58,7 @@ pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
 mod export;
+pub mod fee_rate;
 mod h3;
 pub mod levels;
 pub mod markout;
@@ -106,6 +107,7 @@ pub(crate) fn require_verified(
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
+pub use fee_rate::{run_fee_rate, FeeRateArgs};
 pub use levels::{run_levels, LevelsArgs};
 pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
@@ -173,6 +175,8 @@ pub enum LobCommand {
     Clock(ClockArgs),
     /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
     Probe(ProbeArgs),
+    /// Ставки комиссий аккаунта с биржи против констант кода (подписанный GET, вне горячего пути).
+    FeeRate(FeeRateArgs),
     /// Разметка уровней с шестью признаками истории и классом (шаги 1.1, 1.2).
     Levels(LevelsArgs),
     /// Markout уровней на четырёх горизонтах (шаг 2.1).
@@ -284,6 +288,12 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             for v in &violations {
                 println!("clock violation: {v:?}");
+            }
+            Ok(())
+        }
+        LobCommand::FeeRate(args) => {
+            for line in run_fee_rate(&args)? {
+                println!("fee-rate: {line}");
             }
             Ok(())
         }

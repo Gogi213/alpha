@@ -438,6 +438,7 @@ fn lob_help_lists_all_subcommands() {
         "clock",
         "dashboard",
         "export",
+        "fee-rate",
         "levels",
         "markout",
         "pick",

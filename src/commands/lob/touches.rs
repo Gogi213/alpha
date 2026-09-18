@@ -21,7 +21,9 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use crate::lob::excursion::SecondMids;
 use crate::lob::levels::LevelsConfig;
+use crate::lob::markout::touch_base;
 use crate::lob::sigma::SigmaSeries;
 
 use super::bounce_verdict::DEADLINE_SECS;
@@ -101,7 +103,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 44;
+const TOUCHES_WIDTH: usize = 52;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -163,6 +165,17 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "sigma_600s_bps",
     "sigma_3600s_bps",
     "sigma_7200s_bps",
+    // Экскурсия после касания (`lob::excursion`, замер `a`/`b` В-62): самый
+    // большой ход середины против отскока и за отскок внутри дедлайна, bps от
+    // базы касания, по секундным срезам; пусто — окно за концом записи.
+    "adverse_60s_bps",
+    "adverse_600s_bps",
+    "adverse_3600s_bps",
+    "adverse_7200s_bps",
+    "favour_60s_bps",
+    "favour_600s_bps",
+    "favour_3600s_bps",
+    "favour_7200s_bps",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -210,12 +223,12 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     let mut n = 0usize;
     // Ряд `σ` — по всей записи символа (В-62): окно раннего касания вторых
     // суток смотрит в первые.
-    let sigma_series = {
+    let (sigma_series, second_mids) = {
         let mut all: Vec<crate::lob::markout::MidSample> = Vec::new();
         for day in &replay.days {
             all.extend(day.mids.iter().copied());
         }
-        SigmaSeries::from_mids(&all)
+        (SigmaSeries::from_mids(&all), SecondMids::from_mids(&all))
     };
     debug_assert_eq!(
         DEADLINE_SECS,
@@ -227,6 +240,11 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             let sigma: [Option<f64>; DEADLINE_SECS.len()] = std::array::from_fn(|k| {
                 sigma_series.sigma_bps(t.start_ms, DEADLINE_SECS[k] as i64)
             });
+            let excursion: [Option<crate::lob::excursion::Excursion>; DEADLINE_SECS.len()] =
+                std::array::from_fn(|k| {
+                    let (_, base2x) = touch_base(&day.mids, t.start_ms)?;
+                    second_mids.excursion(t.side, base2x, t.start_ms, DEADLINE_SECS[k] as i64)
+                });
             let ms = markouts_for_touch(t, &day.mids);
             let inside = within_touch(t.duration_ms);
             let ap = approaches_for_touch(t, &day.mids);
@@ -280,6 +298,14 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 some_or_empty(sigma[1]),
                 some_or_empty(sigma[2]),
                 some_or_empty(sigma[3]),
+                some_or_empty(excursion[0].map(|e| e.adverse_bps)),
+                some_or_empty(excursion[1].map(|e| e.adverse_bps)),
+                some_or_empty(excursion[2].map(|e| e.adverse_bps)),
+                some_or_empty(excursion[3].map(|e| e.adverse_bps)),
+                some_or_empty(excursion[0].map(|e| e.favour_bps)),
+                some_or_empty(excursion[1].map(|e| e.favour_bps)),
+                some_or_empty(excursion[2].map(|e| e.favour_bps)),
+                some_or_empty(excursion[3].map(|e| e.favour_bps)),
             ];
             w.write_record(row)?;
             n += 1;

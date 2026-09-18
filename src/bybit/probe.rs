@@ -409,7 +409,7 @@ pub enum ProbeError {
 /// комментарий: там та же функция была бы уже дефектом, а не удобством.
 /// Каст точен до 2262 года (миллисекунды эпохи ~1.7e12 против `i64::MAX`).
 #[allow(clippy::cast_possible_truncation)]
-fn wall_clock_timestamp_ms() -> Result<i64, ProbeError> {
+pub(crate) fn wall_clock_timestamp_ms() -> Result<i64, ProbeError> {
     Ok(std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| ProbeError::WallClockBeforeEpoch)?
