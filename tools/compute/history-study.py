@@ -54,9 +54,15 @@ def read(path, tick, lot):
                 bounced = x["ended_by_death"] != "true"
                 m60 = float(x["m_60s"]) if x["m_60s"] not in ("", "none") else None
                 days = x["day_utc"]
+                held = tuple(
+                    (float(x[c]) if x.get(c) else None)
+                    for c in ("strength_held_1s_pct", "strength_held_5s_pct",
+                              "strength_held_15s_pct", "strength_held_60s_pct")
+                )
+                repeat = int(x["repeat_count"]) if x.get("repeat_count") else 0
             except (KeyError, ValueError):
                 continue
-            out.append((s20, age, stab, notional, bounced, m60, days))
+            out.append((s20, age, stab, notional, bounced, m60, days, held, repeat))
     return out
 
 
@@ -127,6 +133,43 @@ def main():
             coins_lift[key][1] += 1
             if share(sel) >= base_share:
                 coins_lift[key][0] += 1
+        # 4. история силы: минимум силы за T (strength_held_T) — top-k по нему
+        #    (равная селективность) и «сила сейчас ≥ S0 И держалась ≥ S0 все T».
+        for j, T in enumerate((1, 5, 15, 60)):
+            cand = sorted((r for r in rows if r[7][j] is not None), key=lambda r: -r[7][j])[:k]
+            if len(cand) >= NMIN:
+                key = ("held_topk", T)
+                pool[key][0] += len(cand); pool[key][1] += sum(1 for r in cand if r[4])
+                kept[key] += len(cand) / days
+                coins_lift[key][1] += 1
+                if share(cand) >= base_share:
+                    coins_lift[key][0] += 1
+            sel = [r for r in base_sel if r[7][j] is not None and r[7][j] >= S0]
+            key = ("held_and", T)
+            pool[key][0] += len(sel); pool[key][1] += sum(1 for r in sel if r[4])
+            kept[key] += len(sel) / days
+            if len(sel) >= NMIN:
+                coins_lift[key][1] += 1
+                if share(sel) >= base_share:
+                    coins_lift[key][0] += 1
+        # 5. мерцание: уровень уже рождался на этой цене за час (repeat ≥ 1) или нет.
+        for label, pred in (("repeat0", lambda r: r[8] == 0), ("repeat1plus", lambda r: r[8] >= 1)):
+            sel = [r for r in base_sel if pred(r)]
+            key = ("repeat", label)
+            pool[key][0] += len(sel); pool[key][1] += sum(1 for r in sel if r[4])
+            kept[key] += len(sel) / days
+            if len(sel) >= NMIN:
+                coins_lift[key][1] += 1
+                if share(sel) >= base_share:
+                    coins_lift[key][0] += 1
+        cand = sorted((r for r in rows if r[8] == 0), key=lambda r: -r[0])[:k]
+        if len(cand) >= NMIN:
+            key = ("repeat0_topk", 0)
+            pool[key][0] += len(cand); pool[key][1] += sum(1 for r in cand if r[4])
+            kept[key] += len(cand) / days
+            coins_lift[key][1] += 1
+            if share(cand) >= base_share:
+                coins_lift[key][0] += 1
 
     def row(key):
         p = pool[key]; c = coins_lift[key]
@@ -144,6 +187,15 @@ def main():
     print(f"== устойчивость (size_at/size_max ≥ {STAB}):")
     print(f"  top-k по силе среди устойчивых: {row(('stab_topk', STAB))}")
     print(f"  сила ≥ 300 % И устойчивый:      {row(('stab_and', STAB))}")
+    print("== история силы: минимум силы за T с (strength_held_T):")
+    for T in (1, 5, 15, 60):
+        print(f"  top-k по min-силе за {T:>2} с:     {row(('held_topk', T))}")
+    for T in (1, 5, 15, 60):
+        print(f"  сила ≥ 300 % И держалась {T:>2} с: {row(('held_and', T))}")
+    print("== мерцание (уровень уже рождался на этой цене за час):")
+    print(f"  сила ≥ 300 % И repeat = 0:       {row(('repeat', 'repeat0'))}")
+    print(f"  сила ≥ 300 % И repeat ≥ 1:       {row(('repeat', 'repeat1plus'))}")
+    print(f"  top-k по силе среди repeat = 0:  {row(('repeat0_topk', 0))}")
 
 
 if __name__ == "__main__":
