@@ -3,9 +3,9 @@
 //! BUSINESS-TASK §6–7 с поправками аудита 18.09 (K2, K3, K4):
 //!
 //! - **полная сетка** В-62 — декартово произведение множителей стопа, тейка и
-//!   `DEADLINE_SECS` (имя формы `s<a>-t<b>-<H>`), и одинаковое число касаний
-//!   (`n_signals + n_no_sigma`: у формы с длинным окном `σ` сигналов меньше,
-//!   касания те же) у всех форм на каждой паре (символ, сутки) — иначе отказ,
+//!   `DEADLINE_SECS` (имя формы `<стоп>-<тейк>-<H>`, В-65), и одинаковое число касаний
+//!   (`n_signals + n_skipped`: у формы, которую не для всех касаний построить,
+//!   сигналов меньше, касания те же) у всех форм на каждой паре (символ, сутки) — иначе отказ,
 //!   не «вердикт по части»;
 //! - по форме — все наблюдения сигналов (`FillObservation`: круг с `net_bps`
 //!   или промах с нулём), **нижняя граница интервала `net_fill`** — тот же
@@ -44,6 +44,7 @@ use crate::lob::final_metrics::{
 use crate::lob::runs::{self, BOUNCE_TRIAL_PREFIX};
 use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
+use super::backtest::{StopForm, TakeForm};
 use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
 use crate::lob::shortlist::CONFIRM_MIN_N;
 
@@ -52,10 +53,11 @@ pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
 /// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
 
-/// Размер полной сетки по её же именам (В-62): множители стопа × множители
-/// тейка × `DEADLINE_SECS`. Сетка задана числами владельца, не константой, и
-/// её полнота проверяется как декартово произведение осей, встреченных в
-/// именах форм: набор `{s1-t1-60, s1-t2-60}` без `s1-t2-600` — не сетка.
+/// Размер полной сетки по её же именам (В-62/В-65): формы стопа × формы тейка
+/// × `DEADLINE_SECS`. Сетка задана именами владельца, не константой, и её
+/// полнота проверяется как декартово произведение осей, встреченных в
+/// именах форм: набор `{before-1to1-60, at-1to1-60}` без `before-1to1-600` —
+/// не сетка.
 pub fn grid_size_from_labels<'a>(
     labels: impl IntoIterator<Item = &'a str>,
 ) -> anyhow::Result<usize> {
@@ -63,17 +65,16 @@ pub fn grid_size_from_labels<'a>(
     let mut takes: BTreeSet<String> = BTreeSet::new();
     for label in labels {
         let (stop, take, _) = parse_form(label)?;
-        stops.insert(format!("{stop}"));
-        takes.insert(format!("{take}"));
+        stops.insert(stop);
+        takes.insert(take);
     }
     Ok(stops.len() * takes.len() * DEADLINE_SECS.len())
 }
 
-/// Имя формы В-62: `s<a>-t<b>-<H>` — множители стопа и тейка в `σ_H` (как
-/// напечатал `{}` у `f64`: `1`, `0.5`, `1.5`) и дедлайн в секундах из
-/// `DEADLINE_SECS`.
-pub fn form_label(stop_mult: f64, take_mult: f64, deadline_secs: u64) -> String {
-    format!("s{stop_mult}-t{take_mult}-{deadline_secs}")
+/// Имя формы: `<стоп>-<тейк>-<H>` — имена `StopForm::label`/`TakeForm::label`
+/// (`before`, `pct1`, `s1` …; `1to1`, `t2`) и дедлайн в секундах из `DEADLINE_SECS`.
+pub fn form_label(stop: &str, take: &str, deadline_secs: u64) -> String {
+    format!("{stop}-{take}-{deadline_secs}")
 }
 
 #[derive(Debug, Args)]
@@ -96,9 +97,9 @@ pub struct BounceVerdictArgs {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormVerdict {
     pub form: String,
-    /// Множители `σ_H` стопа и тейка (В-62).
-    pub stop_sigma: f64,
-    pub take_sigma: f64,
+    /// Имена форм стопа и тейка (В-65).
+    pub stop: String,
+    pub take: String,
     pub deadline_secs: u64,
     /// Сигналов (касаний) всего по всем символам и суткам.
     pub n_signals: u64,
@@ -183,28 +184,17 @@ pub struct BounceVerdictSummary {
     pub out: PathBuf,
 }
 
-/// Разбор имени формы `s<a>-t<b>-<H>` (В-62): множители `σ_H` и дедлайн из
-/// `DEADLINE_SECS`; неканоническое имя — отказ.
-pub fn parse_form(label: &str) -> anyhow::Result<(f64, f64, u64)> {
+/// Разбор имени формы `<стоп>-<тейк>-<H>` (В-65): формы — через
+/// `StopForm::parse`/`TakeForm::parse` (они же проверяют каноничность),
+/// дедлайн — из `DEADLINE_SECS`.
+pub fn parse_form(label: &str) -> anyhow::Result<(String, String, u64)> {
     let parts: Vec<&str> = label.split('-').collect();
     anyhow::ensure!(
         parts.len() == 3,
-        "{label}: имя формы — s<стоп×σ>-t<тейк×σ>-<дедлайн с> (`s1-t2-600`), сетка В-62"
+        "{label}: имя формы — <стоп>-<тейк>-<дедлайн с> (`before-1to1-600`, `s1-t2-600`), сетка В-65"
     );
-    let mult = |part: &str, prefix: char, what: &str| -> anyhow::Result<f64> {
-        let v: f64 = part
-            .strip_prefix(prefix)
-            .ok_or_else(|| anyhow::anyhow!("{label}: {what} {part} без префикса `{prefix}`"))?
-            .parse()
-            .map_err(|_| anyhow::anyhow!("{label}: {what} {part} не число"))?;
-        anyhow::ensure!(
-            v.is_finite() && v >= 0.0,
-            "{label}: {what} {part} — множитель σ обязан быть конечным и ≥ 0"
-        );
-        Ok(v)
-    };
-    let stop_mult = mult(parts[0], 's', "стоп")?;
-    let take_mult = mult(parts[1], 't', "тейк")?;
+    let stop = StopForm::parse(parts[0]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
+    let take = TakeForm::parse(parts[1]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
     let deadline_secs: u64 = parts[2]
         .parse()
         .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", parts[2]))?;
@@ -212,12 +202,7 @@ pub fn parse_form(label: &str) -> anyhow::Result<(f64, f64, u64)> {
         DEADLINE_SECS.contains(&deadline_secs),
         "{label}: дедлайн {deadline_secs} с вне сетки В-58 {DEADLINE_SECS:?}"
     );
-    anyhow::ensure!(
-        form_label(stop_mult, take_mult, deadline_secs) == label,
-        "{label}: имя формы не каноническое (ожидалось {})",
-        form_label(stop_mult, take_mult, deadline_secs)
-    );
-    Ok((stop_mult, take_mult, deadline_secs))
+    Ok((stop.label(), take.label(), deadline_secs))
 }
 
 /// Испытания **этой** процедуры в журнале — строки с префиксом `bounce_form`.
@@ -238,9 +223,10 @@ struct Cell {
 #[derive(Debug, Clone, Default)]
 struct CellStat {
     n_signals: u64,
-    /// Касаний без `σ` за окно формы (В-62): `n_signals + n_no_sigma` — общее
-    /// число касаний пары, одно у всех форм.
-    n_no_sigma: u64,
+    /// Касаний, для которых форма не построилась (нет σ, фронтрана, второй
+    /// плотности; В-65): `n_signals + n_skipped` — общее число касаний пары,
+    /// одно у всех форм.
+    n_skipped: u64,
     n_fills: u64,
     sum_net_bps: f64,
     exits: [u64; EXIT_REASONS.len()],
@@ -273,12 +259,12 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             .position(|h| h == name)
             .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", forms_path.display()))
     };
-    let (i_sym, i_day, i_form, i_sig, i_no_sigma, i_fills, i_sum) = (
+    let (i_sym, i_day, i_form, i_sig, i_skipped, i_fills, i_sum) = (
         idx("symbol")?,
         idx("day_utc")?,
         idx("form")?,
         idx("n_signals")?,
-        idx("n_no_sigma")?,
+        idx("n_skipped")?,
         idx("n_fills")?,
         idx("sum_net_bps")?,
     );
@@ -321,7 +307,7 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         };
         let mut st = CellStat {
             n_signals: rec[i_sig].parse()?,
-            n_no_sigma: rec[i_no_sigma].parse()?,
+            n_skipped: rec[i_skipped].parse()?,
             n_fills: rec[i_fills].parse()?,
             sum_net_bps: rec[i_sum].parse()?,
             exits: [0; EXIT_REASONS.len()],
@@ -368,7 +354,7 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         by_pair
             .entry((c.symbol.clone(), c.day.clone()))
             .or_default()
-            .push((&c.form, st.n_signals.saturating_add(st.n_no_sigma)));
+            .push((&c.form, st.n_signals.saturating_add(st.n_skipped)));
     }
     for ((sym, day), v) in &by_pair {
         anyhow::ensure!(
@@ -380,7 +366,7 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         let sigs: BTreeSet<u64> = v.iter().map(|(_, n)| *n).collect();
         anyhow::ensure!(
             sigs.len() == 1,
-            "{sym} {day}: число сигналов вместе с касаниями без σ расходится между формами {sigs:?} — касания должны быть общими"
+            "{sym} {day}: число сигналов вместе с пропущенными касаниями расходится между формами {sigs:?} — касания должны быть общими"
         );
     }
 
@@ -468,7 +454,7 @@ fn day_index(days: &[String], day: &str) -> i64 {
 }
 
 fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
-    let (stop_sigma, take_sigma, deadline_secs) = parse_form(form)?;
+    let (stop, take, deadline_secs) = parse_form(form)?;
     let mut n_signals: u64 = 0;
     let mut n_fills: u64 = 0;
     let mut exits = [0u64; EXIT_REASONS.len()];
@@ -580,8 +566,8 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
     };
     Ok(FormVerdict {
         form: form.to_string(),
-        stop_sigma,
-        take_sigma,
+        stop,
+        take,
         deadline_secs,
         n_signals,
         n_fills,
@@ -774,8 +760,8 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     let mut w = csv::Writer::from_writer(file);
     let mut header = vec![
         "form",
-        "stop_sigma",
-        "take_sigma",
+        "stop",
+        "take",
         "deadline_secs",
         "n_signals",
         "n_fills",
@@ -811,8 +797,8 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     for f in &forms {
         let mut row = vec![
             f.form.clone(),
-            f.stop_sigma.to_string(),
-            f.take_sigma.to_string(),
+            f.stop.clone(),
+            f.take.clone(),
             f.deadline_secs.to_string(),
             f.n_signals.to_string(),
             f.n_fills.to_string(),

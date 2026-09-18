@@ -175,8 +175,8 @@ pub(super) fn run_profiles_and_backtest_chain(
             grid_step_ticks: 0,
             // Пилот `--touches` не гоняет; значение — форма T38, чтобы
             // поведение прежних артефактов не менялось (B2).
-            stop_sigma: None,
-            take_sigma: None,
+            stop_form: None,
+            take_form: None,
             take_floor_fees: None,
             deadline_secs: 60,
             // То же: досрочный выход — ось сетки B4, здесь выключен.

@@ -358,12 +358,16 @@ fn plan_prices(plan: &TradePlan) -> (f64, f64, f64) {
     }
 }
 
-fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> SigmaGeometry {
-    SigmaGeometry {
-        stop_mult,
-        take_mult,
-        take_floor_fees,
+fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> BounceForm {
+    BounceForm {
+        stop: StopForm::Sigma(stop_mult),
+        take: TakeForm::Sigma(take_mult),
+        take_floor_fees: Some(take_floor_fees),
     }
+}
+
+fn base(stop: &str, take: &str) -> BounceForm {
+    BounceForm::parse(stop, take, None).unwrap()
 }
 
 /// В-62: вход — от **первого фронтранера**; стоп — `a × σ_H` bps от входа в
@@ -376,7 +380,14 @@ fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> SigmaGeomet
 fn bounce_plan_puts_stop_and_take_at_sigma_multiples_from_the_entry() {
     let tick = 0.01_f64;
     let touch = bounce_touch(1_000, Some(1_005));
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 2.0, 1.0), 100.0, plain_shape());
+    let (_, plan) = bounce_plan(
+        &touch,
+        tick,
+        geometry(1.0, 2.0, 1.0),
+        Some(100.0),
+        plain_shape(),
+    )
+    .unwrap();
     let (entry, stop, take) = plan_prices(&plan);
     assert!((entry - 10.05).abs() < 1e-9, "вход от фронтранера: {entry}");
     assert!(
@@ -398,7 +409,14 @@ fn bounce_plan_floors_keep_the_form_non_degenerate() {
     let touch = bounce_touch(1_000, Some(1_005));
     // σ = 0: стоп 0 тиков → пол 9.99; тейк max(0, 3 × 4.41 = 13.23 bps) →
     // 13.23 bps × 1005 / 10⁴ = 1.33 тика → 2 тика → 10.07.
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 3.0), 0.0, plain_shape());
+    let (_, plan) = bounce_plan(
+        &touch,
+        tick,
+        geometry(1.0, 1.0, 3.0),
+        Some(0.0),
+        plain_shape(),
+    )
+    .unwrap();
     let (_, stop, take) = plan_prices(&plan);
     assert!(
         (stop - 9.99).abs() < 1e-9,
@@ -410,7 +428,14 @@ fn bounce_plan_floors_keep_the_form_non_degenerate() {
     );
     // Стоп по σ ближе пола (5 bps → 5.025 тика → 6 тиков → 9.99): совпадает с
     // полом; 2 bps → 2.01 → 3 тика → 10.02 — ближе пола, берётся пол 9.99.
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 2.0, plain_shape());
+    let (_, plan) = bounce_plan(
+        &touch,
+        tick,
+        geometry(1.0, 1.0, 1.0),
+        Some(2.0),
+        plain_shape(),
+    )
+    .unwrap();
     let (_, stop, _) = plan_prices(&plan);
     assert!(
         (stop - 9.99).abs() < 1e-9,
@@ -425,7 +450,14 @@ fn bounce_plan_mirrors_the_geometry_for_the_ask() {
     let tick = 0.01_f64;
     let mut touch = bounce_touch(1_000, Some(995));
     touch.side = Side::Ask;
-    let (dir, plan) = bounce_plan(&touch, tick, geometry(1.0, 2.0, 1.0), 100.0, plain_shape());
+    let (dir, plan) = bounce_plan(
+        &touch,
+        tick,
+        geometry(1.0, 2.0, 1.0),
+        Some(100.0),
+        plain_shape(),
+    )
+    .unwrap();
     assert_eq!(dir, SIGMA_SHORT);
     let (entry, stop, take) = plan_prices(&plan);
     assert!((entry - 9.95).abs() < 1e-9, "{entry}");
@@ -441,13 +473,136 @@ fn bounce_plan_mirrors_the_geometry_for_the_ask() {
 fn bounce_plan_without_frontrun_enters_one_tick_before_the_level() {
     let tick = 0.01_f64;
     let touch = bounce_touch(1_000, None);
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 50.0, plain_shape());
+    let (_, plan) = bounce_plan(
+        &touch,
+        tick,
+        geometry(1.0, 1.0, 1.0),
+        Some(50.0),
+        plain_shape(),
+    )
+    .unwrap();
     let (entry, stop, take) = plan_prices(&plan);
     assert!((entry - 10.01).abs() < 1e-9, "вход P+1: {entry}");
     // 50 bps × 1001 / 10⁴ = 5.005 → 6 тиков → 9.95 (дальше пола 9.99).
     assert!((stop - 9.95).abs() < 1e-9, "{stop}");
     // max(50, 4.41) = 50 bps → 6 тиков → 10.07.
     assert!((take - 10.07).abs() < 1e-9, "{take}");
+}
+
+/// Формы базы (В-65) на бид-уровне `P = 10.00` с фронтранером `10.05`:
+/// `before` → стоп `P+1` = 10.01, тейк 1:1 от входа 10.09; `at` → 10.00 /
+/// 10.10; `behind` → 9.99 / 10.11; `midfr` → середина между 10.05 и 10.00 =
+/// 10.02 (два тика от уровня, целая часть) / 10.08; `pct1` → 1 % от входа =
+/// 10.05 тика → 11 тиков → 9.94 / 10.16; `stack2` — нужна вторая плотность.
+#[test]
+fn base_stop_forms_are_positional_from_the_level_and_the_entry() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005));
+    let cases = [
+        ("before", 10.01, 10.09),
+        ("at", 10.00, 10.10),
+        ("behind", 9.99, 10.11),
+        ("midfr", 10.02, 10.08),
+        ("pct1", 9.94, 10.16),
+    ];
+    for (stop, want_stop, want_take) in cases {
+        let (_, plan) = bounce_plan(&touch, tick, base(stop, "1to1"), None, plain_shape())
+            .unwrap_or_else(|| panic!("{stop}: форма обязана строиться"));
+        let (entry, got_stop, got_take) = plan_prices(&plan);
+        assert!(
+            (entry - 10.05).abs() < 1e-9,
+            "{stop}: вход от фронтрана: {entry}"
+        );
+        assert!(
+            (got_stop - want_stop).abs() < 1e-9,
+            "{stop}: стоп {got_stop} вместо {want_stop}"
+        );
+        assert!(
+            (got_take - want_take).abs() < 1e-9,
+            "{stop}: тейк {got_take} вместо {want_take}"
+        );
+    }
+    // Вторая плотность завала на 9.95: стоп за ней — 9.94, тейк 1:1 — 10.16.
+    let mut stacked = touch;
+    stacked.stack_next_tick = Some(995);
+    let (_, plan) =
+        bounce_plan(&stacked, tick, base("stack2", "1to1"), None, plain_shape()).unwrap();
+    let (_, got_stop, got_take) = plan_prices(&plan);
+    assert!((got_stop - 9.94).abs() < 1e-9, "{got_stop}");
+    assert!((got_take - 10.16).abs() < 1e-9, "{got_take}");
+    assert!(
+        bounce_plan(&touch, tick, base("stack2", "1to1"), None, plain_shape()).is_none(),
+        "без второй плотности форма stack2 не строится"
+    );
+}
+
+/// Без фронтрана вход `P+1`: `before` и `midfr` вырождаются (стоп совпал бы
+/// со входом) — `None`, а `at`/`behind`/`pct` строятся; σ-формам без σ — `None`.
+#[test]
+fn base_forms_that_need_a_frontrun_skip_touches_without_one() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, None);
+    assert!(bounce_plan(&touch, tick, base("before", "1to1"), None, plain_shape()).is_none());
+    assert!(bounce_plan(&touch, tick, base("midfr", "1to1"), None, plain_shape()).is_none());
+    let (_, plan) = bounce_plan(&touch, tick, base("at", "1to1"), None, plain_shape()).unwrap();
+    let (entry, stop, take) = plan_prices(&plan);
+    assert!(
+        (entry - 10.01).abs() < 1e-9 && (stop - 10.00).abs() < 1e-9 && (take - 10.02).abs() < 1e-9
+    );
+    assert!(bounce_plan(&touch, tick, base("behind", "1to1"), None, plain_shape()).is_some());
+    assert!(bounce_plan(&touch, tick, base("pct0.5", "1to1"), None, plain_shape()).is_some());
+    assert!(
+        bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), None, plain_shape()).is_none(),
+        "σ-форма без σ не строится"
+    );
+}
+
+/// Аск зеркально для позиционных форм: уровень 10.00 (аск), фронтранер 9.95;
+/// `before` → стоп 9.99, тейк 9.91; `pct1` → 9.95 × 1 % = 9.95 тика → 10 тиков
+/// → стоп 10.05, тейк 9.85.
+#[test]
+fn base_forms_mirror_for_the_ask() {
+    let tick = 0.01_f64;
+    let mut touch = bounce_touch(1_000, Some(995));
+    touch.side = Side::Ask;
+    let (dir, plan) =
+        bounce_plan(&touch, tick, base("before", "1to1"), None, plain_shape()).unwrap();
+    assert_eq!(dir, SIGMA_SHORT);
+    let (entry, stop, take) = plan_prices(&plan);
+    assert!(
+        (entry - 9.95).abs() < 1e-9 && (stop - 9.99).abs() < 1e-9 && (take - 9.91).abs() < 1e-9,
+        "{entry} {stop} {take}"
+    );
+    let (_, plan) = bounce_plan(&touch, tick, base("pct1", "1to1"), None, plain_shape()).unwrap();
+    let (_, stop, take) = plan_prices(&plan);
+    assert!(
+        (stop - 10.05).abs() < 1e-9 && (take - 9.85).abs() < 1e-9,
+        "{stop} {take}"
+    );
+}
+
+/// Имена форм разбираются и печатаются каноническими; чужие и неканонические — отказ.
+#[test]
+fn form_names_round_trip_and_reject_strangers() {
+    for name in [
+        "before", "at", "behind", "midfr", "stack2", "pct0.5", "pct2", "s1", "s1.5",
+    ] {
+        assert_eq!(StopForm::parse(name).unwrap().label(), name);
+    }
+    for name in ["1to1", "t1", "t0.5"] {
+        assert_eq!(TakeForm::parse(name).unwrap().label(), name);
+    }
+    for bad in ["s1.0", "pct01", "pct0", "pct100", "s-1", "x", "sigma1"] {
+        assert!(StopForm::parse(bad).is_err(), "{bad}");
+    }
+    for bad in ["t1.0", "1:1", "take"] {
+        assert!(TakeForm::parse(bad).is_err(), "{bad}");
+    }
+    assert!(
+        BounceForm::parse("s1", "t1", None).is_err(),
+        "σ-тейк без пола — отказ"
+    );
+    assert!(BounceForm::parse("before", "1to1", None).is_ok());
 }
 
 /// Числа владельца проверяются: отрицательный множитель и нулевой пол — отказ.
@@ -506,7 +661,7 @@ fn bounce_plan_carries_the_early_exit_the_level_and_the_tick() {
         early_exit_ns: 2 * 1_000_000_000,
         ..plain_shape()
     };
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), 10.0, shape);
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 1.0), Some(10.0), shape).unwrap();
     let TradePlan::Bounce {
         early_exit_ns,
         level_px,
@@ -691,8 +846,8 @@ fn minimal_backtest_args() -> BacktestArgs {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_ticks: 0,
-        stop_sigma: Some(1.0),
-        take_sigma: Some(1.0),
+        stop_form: Some("s1".to_string()),
+        take_form: Some("t1".to_string()),
         take_floor_fees: Some(1.0),
         deadline_secs: 60,
         early_exit_secs: None,

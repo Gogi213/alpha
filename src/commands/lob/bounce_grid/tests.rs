@@ -1,5 +1,6 @@
 use super::DriverArg;
 use super::*;
+use crate::commands::lob::backtest::{StopForm, TakeForm};
 use crate::commands::lob::bounce_verdict::parse_form;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
 use crate::commands::lob::{H3Args, H3ModeArg};
@@ -65,9 +66,10 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         order_qty_e9: Some(100_000_000),
         order_qty_from_pool: false,
         post_only: false,
-        stop_sigma: vec![1.0, 2.0],
-        take_sigma: vec![1.0],
-        take_floor_fees: 1.0,
+        stop_form: vec!["s1".to_string(), "s2".to_string()],
+        take_form: vec!["t1".to_string()],
+        take_floor_fees: Some(1.0),
+        frontrun_only: false,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -111,7 +113,11 @@ fn col<'a>(header: &[String], row: &'a [String], name: &str) -> &'a str {
 /// имена читаются вердиктом (`parse_form`) и не повторяются.
 #[test]
 fn forms_are_the_sigma_grid_in_grid_order() {
-    let forms = grid_forms(&[1.0, 2.0], &[1.0]);
+    let forms = grid_forms(
+        &[StopForm::Sigma(1.0), StopForm::Sigma(2.0)],
+        &[TakeForm::Sigma(1.0)],
+        Some(1.0),
+    );
     assert_eq!(forms.len(), 8);
     assert_eq!(forms[0].label, "s1-t1-60");
     assert_eq!(forms[3].label, "s1-t1-7200");
@@ -120,10 +126,18 @@ fn forms_are_the_sigma_grid_in_grid_order() {
     for f in &forms {
         let (stop, take, deadline) = parse_form(f.label).unwrap();
         assert_eq!(deadline as i64, f.deadline_secs);
-        assert_eq!(stop, f.stop_mult);
-        assert_eq!(take, f.take_mult);
+        assert_eq!(stop, f.form.stop.label());
+        assert_eq!(take, f.form.take.label());
         assert!(seen.insert(f.label), "форма {} повторяется", f.label);
     }
+    // Позиционные формы базы — те же имена, что читает вердикт.
+    let base = grid_forms(
+        &[StopForm::Before, StopForm::Pct(1.0)],
+        &[TakeForm::OneToOne],
+        None,
+    );
+    assert_eq!(base[0].label, "before-1to1-60");
+    assert_eq!(base[7].label, "pct1-1to1-7200");
 }
 
 /// Одни сутки фикстуры → строка `forms.csv` на форму с одинаковым числом
@@ -145,16 +159,20 @@ fn grid_runs_the_fixture_day_and_writes_every_form() {
     assert_eq!(forms.len(), 8, "строка на форму: {forms:?}");
     let labels: std::collections::BTreeSet<&str> =
         forms.iter().map(|r| col(&fh, r, "form")).collect();
-    let expected: std::collections::BTreeSet<&str> = grid_forms(&[1.0, 2.0], &[1.0])
-        .iter()
-        .map(|f| f.label)
-        .collect();
+    let expected: std::collections::BTreeSet<&str> = grid_forms(
+        &[StopForm::Sigma(1.0), StopForm::Sigma(2.0)],
+        &[TakeForm::Sigma(1.0)],
+        Some(1.0),
+    )
+    .iter()
+    .map(|f| f.label)
+    .collect();
     assert_eq!(labels, expected);
     for r in &forms {
         let n_signals: u64 = col(&fh, r, "n_signals").parse().unwrap();
-        let n_no_sigma: u64 = col(&fh, r, "n_no_sigma").parse().unwrap();
+        let n_skipped: u64 = col(&fh, r, "n_skipped").parse().unwrap();
         assert_eq!(
-            n_signals + n_no_sigma,
+            n_signals + n_skipped,
             3,
             "фикстура даёт три касания бида 99: {r:?}"
         );

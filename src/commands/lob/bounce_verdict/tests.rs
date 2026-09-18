@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::lob::backtest::{StopForm, TakeForm};
 use crate::commands::lob::bounce_grid::{grid_forms, GridForm};
 use crate::lob::runs::{self, RunKind, RunRow};
 use std::path::Path;
@@ -6,7 +7,20 @@ use std::path::Path;
 /// Сетка синтетики: 3 множителя стопа × 4 тейка × 4 дедлайна = 48 форм — тот
 /// же размер, что у сетки В-58, чтобы гейты и DSR считались на тех же числах.
 fn test_forms() -> Vec<GridForm> {
-    grid_forms(&[0.5, 1.0, 2.0], &[1.0, 2.0, 3.0, 4.0])
+    grid_forms(
+        &[
+            StopForm::Sigma(0.5),
+            StopForm::Sigma(1.0),
+            StopForm::Sigma(2.0),
+        ],
+        &[
+            TakeForm::Sigma(1.0),
+            TakeForm::Sigma(2.0),
+            TakeForm::Sigma(3.0),
+            TakeForm::Sigma(4.0),
+        ],
+        Some(1.0),
+    )
 }
 
 /// Синтетический каталог `bounce-grid`: 48 форм × символы × сутки. `net`
@@ -29,7 +43,7 @@ fn write_grid(
     let fills_of = |si: usize, di: usize| fills.unwrap_or(10 + 3 * di as u64 + si as u64);
     std::fs::create_dir_all(dir).unwrap();
     let mut forms = String::from(
-        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,n_no_sigma,n_residual_flattened,signals_by_hour\n",
+        "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,n_skipped,n_residual_flattened,signals_by_hour\n",
     );
     let mut rounds = String::from(
         "# synthetic grid\nsymbol,day_utc,form,signal_index,t0_ns,dir,entry_px,exit_px,qty,net_bps,reason\n",
@@ -127,14 +141,20 @@ fn form_names_are_the_sigma_grid_and_nothing_else() {
         grid_size_from_labels(labels.iter().map(String::as_str)).unwrap(),
         48
     );
-    assert_eq!(parse_form("s0.5-t1-60").unwrap(), (0.5, 1.0, 60));
-    assert_eq!(parse_form("s2-t4-7200").unwrap(), (2.0, 4.0, 7200));
+    assert_eq!(
+        parse_form("s0.5-t1-60").unwrap(),
+        ("s0.5".to_string(), "t1".to_string(), 60)
+    );
+    assert_eq!(
+        parse_form("before-1to1-7200").unwrap(),
+        ("before".to_string(), "1to1".to_string(), 7200)
+    );
     assert!(parse_form("s1-t1-90").is_err(), "дедлайн вне сетки");
-    assert!(parse_form("x1-t1-60").is_err(), "префикс стопа");
+    assert!(parse_form("x1-t1-60").is_err(), "стоп не из базы");
     assert!(parse_form("s1-tx-60").is_err(), "тейк не число");
     assert!(parse_form("s1-t1-60-5").is_err(), "не три части");
     assert!(parse_form("s1.0-t1-60").is_err(), "неканоническое имя");
-    assert_eq!(form_label(1.5, 1.0, 600), "s1.5-t1-600");
+    assert_eq!(form_label("s1.5", "t1", 600), "s1.5-t1-600");
     // Неполное произведение осей — не сетка: 3 формы при осях 2 × 1 × 4.
     assert_ne!(
         grid_size_from_labels(["s1-t1-60", "s2-t1-60", "s1-t1-600"]).unwrap(),

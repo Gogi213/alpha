@@ -39,7 +39,7 @@
 //! (`bounce_verdict::form_label`/`parse_form`). Досрочный выход В-58 п. 5 в
 //! сетку не входит (измерен сеткой в тиках; вернуть — отдельной
 //! предрегистрацией). Касание без `σ` (окно упирается в начало записи)
-//! сигнала у формы не даёт и считается в `n_no_sigma`.
+//! сигнала у формы не даёт и считается в `n_skipped`.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -54,7 +54,7 @@ use hftbacktest::types::Event as HbtEvent;
 use super::backtest::{
     bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
     exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, read_tick_step,
-    PlanShape, SigmaGeometry,
+    BounceForm, PlanShape, StopForm, TakeForm,
 };
 use super::bounce_verdict::{form_label, DEADLINE_SECS};
 use super::profiles::read_verify_marker;
@@ -69,30 +69,35 @@ use crate::lob::backtest::{
 use crate::lob::levels::{LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
 
-/// Одна форма сетки В-62: имя колонки и её параметры — множители `σ_H`
-/// стопа и тейка, дедлайн (он же окно `σ`).
+/// Одна форма сетки (В-65): имя колонки, форма сделки и дедлайн (он же окно `σ`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridForm {
     pub label: &'static str,
-    pub stop_mult: f64,
-    pub take_mult: f64,
+    pub form: BounceForm,
     pub deadline_secs: i64,
 }
 
-/// Формы сетки В-62 в порядке `stop_mults × take_mults × DEADLINE_SECS`;
-/// имена — `bounce_verdict::form_label`, их же читает вердикт. Множители —
-/// как даны (нечисла и повторы отвергает `run_bounce_grid`).
-pub fn grid_forms(stop_mults: &[f64], take_mults: &[f64]) -> Vec<GridForm> {
-    let mut out = Vec::with_capacity(stop_mults.len() * take_mults.len() * DEADLINE_SECS.len());
-    for &stop_mult in stop_mults {
-        for &take_mult in take_mults {
+/// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —
+/// `bounce_verdict::form_label`, их же читает вердикт. Повторы имён отвергает
+/// `run_bounce_grid`.
+pub fn grid_forms(
+    stops: &[StopForm],
+    takes: &[TakeForm],
+    take_floor_fees: Option<f64>,
+) -> Vec<GridForm> {
+    let mut out = Vec::with_capacity(stops.len() * takes.len() * DEADLINE_SECS.len());
+    for &stop in stops {
+        for &take in takes {
             for deadline in DEADLINE_SECS {
                 let label: &'static str =
-                    Box::leak(form_label(stop_mult, take_mult, deadline).into_boxed_str());
+                    Box::leak(form_label(&stop.label(), &take.label(), deadline).into_boxed_str());
                 out.push(GridForm {
                     label,
-                    stop_mult,
-                    take_mult,
+                    form: BounceForm {
+                        stop,
+                        take,
+                        take_floor_fees,
+                    },
                     deadline_secs: deadline as i64,
                 });
             }
@@ -126,17 +131,21 @@ pub struct BounceGridArgs {
     pub order_qty_from_pool: bool,
     #[arg(long, default_value_t = false)]
     pub post_only: bool,
-    /// Множители `σ_H` стопа (повторяемый флаг; В-62, числа владельца, умолчаний
-    /// нет): стоп — `a × σ_H` bps от входа, не ближе тика за плотностью.
-    #[arg(long = "stop-sigma", required = true)]
-    pub stop_sigma: Vec<f64>,
-    /// Множители `σ_H` тейка (повторяемый флаг): тейк — `b × σ_H` bps от входа,
-    /// не ниже `--take-floor-fees` круговых комиссий.
-    #[arg(long = "take-sigma", required = true)]
-    pub take_sigma: Vec<f64>,
-    /// Пол тейка в круговых комиссиях (`7.5` bps): `k` — число владельца.
+    /// Формы стопа базы (повторяемый флаг; В-65, умолчаний нет):
+    /// `before|at|behind|midfr|stack2|pct<x>|s<a>`.
+    #[arg(long = "stop-form", required = true)]
+    pub stop_form: Vec<String>,
+    /// Формы тейка (повторяемый флаг): `1to1` и/или `t<b>`.
+    #[arg(long = "take-form", required = true)]
+    pub take_form: Vec<String>,
+    /// Пол σ-тейка в кругах комиссий (`costs::ROUNDTRIP_FEES_BPS`); нужен
+    /// только формам `t<b>`.
     #[arg(long)]
-    pub take_floor_fees: f64,
+    pub take_floor_fees: Option<f64>,
+    /// E3 базы: входить только от фронтрана — касания без `frontrun_tick`
+    /// пропускаются у всех форм («впритык — редко» [S 07:37; D 05:18]).
+    #[arg(long, default_value_t = false)]
+    pub frontrun_only: bool,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -194,8 +203,9 @@ pub struct BounceGridSummary {
 struct FormDayResult {
     form: usize,
     run: BounceRun,
-    /// Касаний без `σ` за окно формы (В-62) — сигнала у них нет.
-    no_sigma: u64,
+    /// Касаний, для которых форму не построить (нет σ / фронтрана / второй
+    /// плотности, `--frontrun-only`) — сигнала у них нет.
+    skipped: u64,
 }
 
 const ROUNDS_HEADER: [&str; 12] = [
@@ -231,7 +241,7 @@ const FORMS_HEADER: [&str; 20] = [
     "n_early",
     "n_horizon",
     "incomplete",
-    "n_no_sigma",
+    "n_skipped",
     "n_residual_flattened",
     "signals_by_hour",
 ];
@@ -253,8 +263,9 @@ fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
     Ok(out)
 }
 
-/// Сигналы формы: план В-62 на каждое касание с `σ_H` за окно дедлайна;
-/// касания без `σ` пропускаются и считаются (второе значение).
+/// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
+/// σ-формам); касания, для которых форму не построить, пропускаются и
+/// считаются (второе значение).
 fn signals_for(
     touches: &[TouchRecord],
     sigma: &SigmaSeries,
@@ -263,23 +274,23 @@ fn signals_for(
 ) -> anyhow::Result<(Vec<BounceSignal>, u64)> {
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_secs(None)?;
-    let geometry = SigmaGeometry {
-        stop_mult: form.stop_mult,
-        take_mult: form.take_mult,
-        take_floor_fees: p.take_floor_fees,
-    };
-    let mut no_sigma: u64 = 0;
+    let mut skipped: u64 = 0;
     let mut signals: Vec<BounceSignal> = touches
         .iter()
         .filter_map(|t| {
-            let Some(sigma_bps) = sigma.sigma_bps(t.start_ms, form.deadline_secs) else {
-                no_sigma += 1;
+            if p.frontrun_only && t.frontrun_tick.is_none() {
+                skipped += 1;
                 return None;
+            }
+            let sigma_bps = if form.form.needs_sigma() {
+                sigma.sigma_bps(t.start_ms, form.deadline_secs)
+            } else {
+                None
             };
-            let (dir, plan) = bounce_plan(
+            let built = bounce_plan(
                 t,
                 p.tick,
-                geometry,
+                form.form,
                 sigma_bps,
                 PlanShape {
                     post_only: p.post_only,
@@ -291,6 +302,10 @@ fn signals_for(
                     early_exit_ns,
                 },
             );
+            let Some((dir, plan)) = built else {
+                skipped += 1;
+                return None;
+            };
             Some(BounceSignal {
                 t0_ns: t.start_ms.saturating_mul(1_000_000),
                 sigma: dir,
@@ -300,7 +315,7 @@ fn signals_for(
         })
         .collect();
     signals.sort_by_key(|s| s.t0_ns);
-    Ok((signals, no_sigma))
+    Ok((signals, skipped))
 }
 
 /// События суток крейта из всех частей дня — в `Vec` **точного** размера:
@@ -333,8 +348,8 @@ struct DayParams<'a> {
     threads: usize,
     driver: DriverArg,
     post_only: bool,
-    /// Пол тейка в круговых комиссиях (В-62, `--take-floor-fees`).
-    take_floor_fees: f64,
+    /// E3: входить только от фронтрана (`--frontrun-only`).
+    frontrun_only: bool,
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -407,7 +422,7 @@ fn drive_day(
                     first_order_id: 1,
                 };
                 let step =
-                    signals_for(touches, p.sigma, &forms[i], &p).and_then(|(signals, no_sigma)| {
+                    signals_for(touches, p.sigma, &forms[i], &p).and_then(|(signals, skipped)| {
                         let driven = match &windows {
                             Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
                             None => with_backtest_over(events, p.tick, p.lot, p.rtt_ns, |bt| {
@@ -415,27 +430,20 @@ fn drive_day(
                             }),
                         };
                         driven
-                            .map(|run| (run, signals, no_sigma))
+                            .map(|run| (run, signals, skipped))
                             .map_err(|e| anyhow::anyhow!("форма #{i}: {e}"))
                     });
                 let flushed = match step {
-                    Ok((run, signals, no_sigma)) => match order.lock() {
+                    Ok((run, signals, skipped)) => match order.lock() {
                         Ok(mut o) => {
-                            o.pending.insert(i, (run, signals, no_sigma));
+                            o.pending.insert(i, (run, signals, skipped));
                             let mut res = Ok(());
                             loop {
                                 let form = o.next_form;
-                                let Some((run, signals, no_sigma)) = o.pending.remove(&form) else {
+                                let Some((run, signals, skipped)) = o.pending.remove(&form) else {
                                     break;
                                 };
-                                res = (o.sink)(
-                                    FormDayResult {
-                                        form,
-                                        run,
-                                        no_sigma,
-                                    },
-                                    &signals,
-                                );
+                                res = (o.sink)(FormDayResult { form, run, skipped }, &signals);
                                 o.next_form += 1;
                                 o.done += 1;
                                 if res.is_err() {
@@ -524,7 +532,7 @@ impl Outputs {
         form: GridForm,
         signals: &[BounceSignal],
         run: &BounceRun,
-        no_sigma: u64,
+        skipped: u64,
     ) -> anyhow::Result<u64> {
         anyhow::ensure!(
             run.fill_reason.len() == run.fills.len()
@@ -585,7 +593,7 @@ impl Outputs {
             run.exits.early.to_string(),
             run.exits.horizon.to_string(),
             run.incomplete.to_string(),
-            no_sigma.to_string(),
+            skipped.to_string(),
             run.residual_flattened.to_string(),
             signals_by_hour(signals),
         ])?;
@@ -631,25 +639,34 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 .unwrap_or(1)
         })
         .max(1);
-    // Геометрия В-62 — числа владельца: каждое сочетание проверяется как
-    // `SigmaGeometry`, повтор множителя — отказ (это было бы лишнее «испытание»
-    // с тем же именем формы).
-    for &stop_mult in &args.stop_sigma {
-        for &take_mult in &args.take_sigma {
-            SigmaGeometry {
-                stop_mult,
-                take_mult,
+    // Формы базы (В-65) — имена владельца: каждая разбирается и проверяется,
+    // повтор имени — отказ (это было бы лишнее «испытание» с тем же именем).
+    let stops = args
+        .stop_form
+        .iter()
+        .map(|s| StopForm::parse(s))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let takes = args
+        .take_form
+        .iter()
+        .map(|s| TakeForm::parse(s))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    for &stop in &stops {
+        for &take in &takes {
+            BounceForm {
+                stop,
+                take,
                 take_floor_fees: args.take_floor_fees,
             }
             .validate()?;
         }
     }
-    let forms = grid_forms(&args.stop_sigma, &args.take_sigma);
+    let forms = grid_forms(&stops, &takes, args.take_floor_fees);
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
             labels.len() == forms.len(),
-            "сетка: повторяющиеся множители в --stop-sigma/--take-sigma дают одинаковые формы"
+            "сетка: повторяющиеся формы в --stop-form/--take-form дают одинаковые имена"
         );
     }
     let symbols = if args.symbols.is_empty() {
@@ -659,7 +676,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} geometry=В-62(stop_sigma={:?} take_sigma={:?} take_floor_fees={} deadlines={:?}) RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} deadlines={:?}) RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -667,9 +684,10 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             args.days.join("+")
         },
         forms.len(),
-        args.stop_sigma,
-        args.take_sigma,
+        args.stop_form,
+        args.take_form,
         args.take_floor_fees,
+        args.frontrun_only,
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.h3.h3_mode,
@@ -813,7 +831,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         forms_ref[r.form],
                         signals,
                         &r.run,
-                        r.no_sigma,
+                        r.skipped,
                     )?;
                     rounds = rounds.saturating_add(n);
                     Ok(())
@@ -830,7 +848,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         threads,
                         driver: args.driver,
                         post_only: args.post_only,
-                        take_floor_fees: args.take_floor_fees,
+                        frontrun_only: args.frontrun_only,
                         sigma: &sigma_series,
                     },
                     &mut sink,
