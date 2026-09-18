@@ -16,8 +16,8 @@ use clap::Args;
 use crate::lob::levels::LevelsConfig;
 
 use super::{
-    death_name, outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name, H3Args,
-    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
+    death_name, outcome_name, replay_symbol, side_name, H3Args, DEFAULT_REPEAT_WINDOW_MS,
+    DEFAULT_WARMUP_MS,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,12 +83,24 @@ fn day_span_ms(day: &super::ReplayDay) -> i64 {
 /// CSV: `repeat_count` в таких сутках занижен, данными это не является
 /// (критерий приёмки таска 02).
 pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
-    let mode = resolve_h3_mode_with_k(
+    // Порог уровня — любой из режимов В-61 (`notional`/`strength`/`both`) или
+    // прежние `floor`/`percentile` (19.09: жизнь **сильных** плотностей с
+    // постановки — вопрос владельца; тик и шаг лота — из заголовка бинлога).
+    let paths = super::session_binlog_for(&args.root, &args.symbol)?;
+    anyhow::ensure!(
+        !paths.is_empty(),
+        "{}: нет суточных файлов {}",
+        args.root.display(),
+        args.symbol
+    );
+    let (tick_e9, step_e9) = super::backtest::read_tick_step(&paths[0])?;
+    let mode = super::resolve_h3_mode_full(
         &args.root,
         &args.symbol,
-        args.h3.h3_mode,
-        args.h3.h3_lots,
+        &args.h3,
         args.h3_k,
+        tick_e9,
+        step_e9,
     )?;
     let cfg = LevelsConfig {
         mode,
