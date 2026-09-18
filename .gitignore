@@ -12,3 +12,4 @@ target/
 .tmp-*/
 # индекс плагина dsh-code-index (локальный кеш, не часть проекта)
 .dsh-code-index/
+__pycache__/
