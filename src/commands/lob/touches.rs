@@ -33,8 +33,8 @@ use crate::lob::markout::{
 };
 
 use super::{
-    outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name, some_or_empty, H3Args,
-    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
+    outcome_name, replay_symbol, side_name, some_or_empty, H3Args, DEFAULT_REPEAT_WINDOW_MS,
+    DEFAULT_WARMUP_MS,
 };
 use crate::lob::moves::{by_dt_bins, find_pairs, histogram, quantiles};
 use crate::lob::touch_axes::{
@@ -52,7 +52,9 @@ pub struct TouchesArgs {
     /// Символ, например `SOLUSDT`.
     #[arg(long)]
     pub symbol: String,
-    /// Режим `H3`: `--h3-mode`, `--h3-lots` (общие для нескольких подкоманд).
+    /// Режим `H3`: `--h3-mode floor|percentile|notional|strength|both` с флагами
+    /// режима (`--h3-lots`, `--h3-usd`, `--h3-strength-pct`, `--h3-strength-window-bps`;
+    /// В-61) — общие для нескольких подкоманд.
     #[command(flatten)]
     pub h3: H3Args,
     /// Множитель относительного порога `floor` (таск 18, В-30/D05):
@@ -192,22 +194,34 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         "порядок колонок approach_* обязан совпадать с окнами подхода"
     );
     super::require_verified(&args.root, &args.symbol, args.allow_unverified)?;
-    let mode = resolve_h3_mode_with_k(
+    // Порог уровня — любой из режимов В-61 (`notional`/`strength`/`both`) или
+    // прежние `floor`/`percentile` (E2 базы, В-64: оси «возраст» и «стек»
+    // осмысленны только когда уровнем считается сильная плотность, а не любое
+    // место стакана при `k = 1.0`); тик и шаг лота — из заголовка бинлога.
+    let paths = super::session_binlog_for(&args.root, &args.symbol)?;
+    anyhow::ensure!(
+        !paths.is_empty(),
+        "{}: нет суточных файлов {}",
+        args.root.display(),
+        args.symbol
+    );
+    let (tick_e9, step_e9) = super::backtest::read_tick_step(&paths[0])?;
+    let mode = super::resolve_h3_mode_full(
         &args.root,
         &args.symbol,
-        args.h3.h3_mode,
-        args.h3.h3_lots,
+        &args.h3,
         args.h3_k,
+        tick_e9,
+        step_e9,
     )?;
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
     };
-    // Порог в лотах — для чисел практиков (×H3) и шапок артефактов.
-    let h3_lots = mode
-        .single_h3_lots()
-        .ok_or_else(|| anyhow::anyhow!("режим H3 без единого порога в лотах (notional/strength/both) здесь не поддерживается: оси «×H3» не определены"))?;
+    // Порог в лотах — только для чисел практиков `--numbers` (оси «×H3»): у
+    // режимов В-61 единого порога нет, и `--numbers` с ними — отказ.
+    let h3_lots = mode.single_h3_lots();
     let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
     let out = args
         .out
@@ -426,6 +440,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     }
 
     if args.numbers.is_some() {
+        let h3_lots = h3_lots.ok_or_else(|| {
+            anyhow::anyhow!("--numbers: оси «×H3» не определены у режимов notional/strength/both — только floor/percentile")
+        })?;
         write_numbers(args, &replay, h3_lots, replay.tick_e9, replay.step_e9)?;
     }
 
