@@ -60,6 +60,45 @@ struct DayWork {
     trackers: Vec<LevelTracker>,
 }
 
+/// Что реплей **оставляет** в памяти на сутки. Полный реплей держит все
+/// записи уровней и срез середины по кадрам — это нужно `levels`/`markout`/
+/// `dashboard`, но не сетке форм: ей нужны только касания, а записи и
+/// середина за четверо суток монеты пула — больше гигабайта, и сетка на
+/// сервере умирала по OOM (2026-09-18, `alpha-grid-20260917`). Трекер при
+/// этом кормится теми же кадрами: касания, возраст уровней и прогрев не
+/// зависят от того, хранится ли выход.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReplayKeep {
+    pub(crate) records: bool,
+    pub(crate) mids: bool,
+}
+
+impl ReplayKeep {
+    pub(crate) const ALL: Self = Self {
+        records: true,
+        mids: true,
+    };
+    pub(crate) const TOUCHES_ONLY: Self = Self {
+        records: false,
+        mids: false,
+    };
+}
+
+impl DayWork {
+    /// Сбросить то, что не просили хранить, — после каждого кадра, чтобы
+    /// векторы не росли (ёмкость остаётся на размер одного кадра).
+    fn trim(&mut self, keep: ReplayKeep) {
+        if !keep.records {
+            for v in &mut self.records {
+                v.clear();
+            }
+        }
+        if !keep.mids {
+            self.mids.clear();
+        }
+    }
+}
+
 /// Трейд записи в трейд трекера. Отображение повторяет контракт писателя
 /// (`record.rs::stage_trade`: `ev` из стороны агрессора, `block` — блочная)
 /// и читателя (`verify.rs`: блочность из `block`); своей трактовки битов
@@ -181,6 +220,17 @@ pub(crate) fn replay_symbol_over_configs(
     symbol: &str,
     cfgs: &[LevelsConfig],
 ) -> anyhow::Result<Vec<ReplayStats>> {
+    replay_symbol_over_configs_keep(root, symbol, cfgs, ReplayKeep::ALL)
+}
+
+/// То же, но с выбором, что хранить (`ReplayKeep`); `replay_symbol_over_configs`
+/// — частный случай `ALL`.
+pub(crate) fn replay_symbol_over_configs_keep(
+    root: &Path,
+    symbol: &str,
+    cfgs: &[LevelsConfig],
+    keep: ReplayKeep,
+) -> anyhow::Result<Vec<ReplayStats>> {
     anyhow::ensure!(
         !cfgs.is_empty(),
         "replay_symbol_over_configs: пустая сетка конфигураций"
@@ -299,6 +349,7 @@ pub(crate) fn replay_symbol_over_configs(
                         &mut entry.touches,
                         &mut entry.mids,
                     );
+                    entry.trim(keep);
                 }
                 if !file_ok {
                     break;
@@ -328,6 +379,7 @@ pub(crate) fn replay_symbol_over_configs(
                     &mut entry.touches,
                     &mut entry.mids,
                 );
+                entry.trim(keep);
             }
         }
     }
@@ -368,6 +420,24 @@ pub(crate) fn replay_symbol(
     Ok(out
         .pop()
         .expect("replay_symbol_over_configs с одним cfg обязан вернуть один ReplayStats"))
+}
+
+/// Реплей символа, который хранит **только касания** (`ReplayKeep::TOUCHES_ONLY`):
+/// для `lob bounce-grid`. `records` и `mids` у суток пустые, `open` — как обычно.
+pub(crate) fn replay_symbol_touches_only(
+    root: &Path,
+    symbol: &str,
+    cfg: LevelsConfig,
+) -> anyhow::Result<ReplayStats> {
+    let mut out = replay_symbol_over_configs_keep(
+        root,
+        symbol,
+        std::slice::from_ref(&cfg),
+        ReplayKeep::TOUCHES_ONLY,
+    )?;
+    Ok(out
+        .pop()
+        .expect("replay_symbol_over_configs_keep с одним cfg обязан вернуть один ReplayStats"))
 }
 
 // ---------------------------------------------------------------------------

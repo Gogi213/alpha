@@ -134,8 +134,8 @@ pub(crate) use parts::{
     SessionPart,
 };
 pub(crate) use replay::{
-    day_tallies, feed_frames, replay_symbol, replay_symbol_over_configs, trade_hit_from_record,
-    ReplayDay,
+    day_tallies, feed_frames, replay_symbol, replay_symbol_over_configs,
+    replay_symbol_touches_only, trade_hit_from_record, ReplayDay,
 };
 
 // `Record` нужен только тестам: `test_support` ниже и `dashboard/tests.rs`

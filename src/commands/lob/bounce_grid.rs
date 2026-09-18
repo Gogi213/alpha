@@ -53,8 +53,8 @@ use super::backtest::{
 use super::bounce_verdict::{parse_form, DEADLINE_SECS, EARLY_EXIT_LABELS, STOP_MODES};
 use super::profiles::read_verify_marker;
 use super::{
-    replay_symbol, resolve_h3_mode_with_k, session_parts_for, H3Args, DEFAULT_REPEAT_WINDOW_MS,
-    DEFAULT_WARMUP_MS,
+    replay_symbol_touches_only, resolve_h3_mode_with_k, session_parts_for, H3Args,
+    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
@@ -592,7 +592,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             repeat_window_ms: args.repeat_window_ms.unwrap_or(DEFAULT_REPEAT_WINDOW_MS),
         };
         // S1: касания один раз на символ — общие для всех 48 форм.
-        let replay = replay_symbol(&args.root, symbol, cfg_levels)?;
+        let replay = replay_symbol_touches_only(&args.root, symbol, cfg_levels)?;
         let touches_total: usize = replay.days.iter().map(|d| d.touches.len()).sum();
         if touches_total == 0 {
             eprintln!("bounce-grid: {symbol} — касаний нет, символ пропущен");
