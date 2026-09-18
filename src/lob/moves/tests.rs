@@ -58,6 +58,7 @@ fn touch(side: Side, price_tick: i64, start_ms: i64) -> TouchRecord {
         round_zeros: 0,
         ended_by_death: false,
         stack_levels: 1,
+        strength_e2: [-1, -1, -1],
     }
 }
 

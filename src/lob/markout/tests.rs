@@ -246,6 +246,7 @@ fn touch(side: Side, start_ms: i64) -> TouchRecord {
         round_zeros: 3,
         ended_by_death: false,
         stack_levels: 1,
+        strength_e2: [-1, -1, -1],
     }
 }
 

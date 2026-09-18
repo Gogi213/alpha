@@ -98,7 +98,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 32;
+const TOUCHES_WIDTH: usize = 35;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -139,6 +139,12 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "m_10m",
     "m_1h",
     "m_2h",
+    // Ось силы «×соседи» на кадре старта касания (исследование порога В-61,
+    // 2026-09-18): проценты от среднего соседа той же стороны в ±10/20/50 bps;
+    // пусто — соседей в окне не было.
+    "strength_w10_pct",
+    "strength_w20_pct",
+    "strength_w50_pct",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -227,6 +233,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 some_or_empty(long[0]),
                 some_or_empty(long[1]),
                 some_or_empty(long[2]),
+                strength_pct(t.strength_e2[0]),
+                strength_pct(t.strength_e2[1]),
+                strength_pct(t.strength_e2[2]),
             ];
             w.write_record(row)?;
             n += 1;
@@ -377,6 +386,15 @@ struct NumSample {
     distance_before_1s_bps: Option<f64>,
     distance_before_10s_bps: Option<f64>,
     lifetime_s: f64,
+}
+
+/// Сила «×соседи» в процентах из `strength_e2`; `-1` (соседей нет) — пусто.
+fn strength_pct(e2: i64) -> String {
+    if e2 < 0 {
+        String::new()
+    } else {
+        format!("{}.{:02}", e2 / 100, e2 % 100)
+    }
 }
 
 fn push_sample(

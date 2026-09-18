@@ -634,6 +634,7 @@ fn touch_rec(
         round_zeros: round_zeros(tick),
         ended_by_death,
         stack_levels: stack,
+        strength_e2: [-1, -1, -1],
     }
 }
 
@@ -799,6 +800,8 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             round_zeros: 2,
             ended_by_death: false,
             stack_levels: 1,
+            // Окно 50 bps от тика 200 — один тик: сосед 199 (фронтран, 3 лота) даёт 15/3 = 500 %.
+            strength_e2: [-1, -1, 50_000],
         }]
     );
     assert_eq!(touches[0].age_ms(), 3000);
@@ -1313,4 +1316,27 @@ fn both_mode_requires_notional_and_strength_together() {
     let mut tr = LevelTracker::new(cfg);
     tr.observe_frame(1000, Side::Bid, &[ob(1, 50), ob(1, 10)], &mut out);
     assert_eq!(live_count(&tr), 0);
+}
+
+/// Сила «×соседи» как ось: кадр бидов 10000×100, 9990×10, 9985×10 — в ±20 bps
+/// (20 тиков) у первого два соседа по 10 ⇒ 1000 %; у второго соседи 100 и 10 ⇒
+/// 18.18 %; в ±10 bps (10 тиков) у третьего (9985) сосед только 9990 ⇒ 100 %;
+/// одинокий уровень — `-1`.
+#[test]
+fn neighbour_strength_axis_is_percent_of_mean_neighbour() {
+    let levels = [ob(10000, 100), ob(9990, 10), ob(9985, 10)];
+    let mut prefix = vec![0i64];
+    for o in &levels {
+        let last = *prefix.last().unwrap();
+        prefix.push(last + o.size_lots);
+    }
+    assert_eq!(
+        neighbour_strength_e2(&levels, &prefix, 0, 20 * 100),
+        100_000
+    );
+    assert_eq!(neighbour_strength_e2(&levels, &prefix, 1, 20 * 100), 1_818);
+    assert_eq!(neighbour_strength_e2(&levels, &prefix, 2, 10 * 100), 10_000);
+    let lone = [ob(10000, 100), ob(9000, 5)];
+    let prefix = vec![0i64, 100, 105];
+    assert_eq!(neighbour_strength_e2(&lone, &prefix, 0, 20 * 100), -1);
 }

@@ -336,6 +336,7 @@ fn bounce_touch(price_tick: i64, frontrun_tick: Option<i64>) -> TouchRecord {
         round_zeros: 2,
         ended_by_death: false,
         stack_levels: 1,
+        strength_e2: [-1, -1, -1],
     }
 }
 

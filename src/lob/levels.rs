@@ -457,6 +457,10 @@ pub struct TouchRecord {
     /// начала не дальше `DISTANCE_MAX_BPS` от цены уровня (включая сам
     /// уровень; В-45).
     pub stack_levels: u32,
+    /// Сила «×соседи» на кадре старта касания для окон `STRENGTH_WINDOWS_BPS`,
+    /// проценты × 100; `-1` — соседей в окне не было (ось исследования порога
+    /// В-61, 2026-09-18).
+    pub strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
 }
 
 impl TouchRecord {
@@ -554,6 +558,8 @@ struct Touch {
     /// Уровень в этом кадре перестал быть лучшей ценой: конец касания ждёт
     /// свипа — смерть в том же кадре имеет приоритет.
     end_pending: bool,
+    /// Сила «×соседи» на кадре старта (см. `TouchRecord::strength_e2`).
+    strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
 }
 
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
@@ -634,6 +640,47 @@ struct Touched {
 /// ёмкостями и переиспользуемые буферы новорождённых, свипа и ключей с
 /// событием касания: установившийся кадр без рождений, смертей и касаний
 /// не трогает кучу вообще (требование гейта GC).
+/// Окна соседей для **оси** силы касания (исследование порога В-61,
+/// 2026-09-18): на кадре старта касания считается сила «×соседи» для каждого
+/// окна и пишется в `TouchRecord::strength_e2` — чтобы порог `S`/`W` выбирался
+/// по распределению касаний и доле отскока, а не назначался. Это ось
+/// разведки, как `HORIZONS_MS`, а не параметр решения.
+pub const STRENGTH_WINDOWS_BPS: [i64; 3] = [10, 20, 50];
+
+/// Сила «×соседи» наблюдения `i` кадра в процентах × 100: `10_000 × size ×
+/// cnt / sum(соседи)`; соседи — остальные наблюдения той же стороны с тиком в
+/// `±tick × window_bps_e2 / 1e6`; `-1` — соседей в окне нет (сила не
+/// определена). `prefix` — префиксные суммы размеров кадра (`prefix[0] = 0`).
+pub(crate) fn neighbour_strength_e2(
+    levels: &[LevelObs],
+    prefix: &[i64],
+    i: usize,
+    window_bps_e2: i64,
+) -> i64 {
+    let o = &levels[i];
+    let asc = levels.len() < 2 || levels[0].tick <= levels[levels.len() - 1].tick;
+    let w = ((o.tick as i128) * (window_bps_e2 as i128) / 1_000_000i128) as i64;
+    let (lo_t, hi_t) = (o.tick.saturating_sub(w), o.tick.saturating_add(w));
+    let (a, b) = if asc {
+        (
+            levels.partition_point(|x| x.tick < lo_t),
+            levels.partition_point(|x| x.tick <= hi_t),
+        )
+    } else {
+        (
+            levels.partition_point(|x| x.tick > hi_t),
+            levels.partition_point(|x| x.tick >= lo_t),
+        )
+    };
+    debug_assert!(a <= i && i < b, "уровень обязан быть в своём же окне");
+    let sum = (prefix[b] - prefix[a] - o.size_lots) as i128;
+    let cnt = (b - a).saturating_sub(1) as i128;
+    if cnt == 0 || sum <= 0 {
+        return -1;
+    }
+    ((o.size_lots as i128) * 10_000i128 * cnt / sum).min(i64::MAX as i128) as i64
+}
+
 /// Флаг силы «×соседи» на каждое наблюдение кадра (roadmap §3, B): сила =
 /// `100 × size / mean(size соседей той же стороны в ±window)`; окно в тиках
 /// — `tick × window_bps / 1e4`. Кадр идёт от лучшей цены вглубь, тики
@@ -642,38 +689,21 @@ struct Touched {
 /// Векторы — рабочие буферы трекера: после прогрева аллокаций нет.
 fn strength_flags(mode: H3Mode, levels: &[LevelObs], ok: &mut Vec<bool>, prefix: &mut Vec<i64>) {
     ok.clear();
-    let Some((pct_e2, window_bps_e2)) = mode.strength_gate() else {
-        ok.resize(levels.len(), true);
-        return;
-    };
+    // Префиксные суммы нужны всегда: осью силы касания (`STRENGTH_WINDOWS_BPS`)
+    // пользуется и режим без порога силы.
     prefix.clear();
     prefix.push(0);
     for o in levels {
         let last = *prefix.last().unwrap_or(&0);
         prefix.push(last.saturating_add(o.size_lots));
     }
-    let asc = levels.len() < 2 || levels[0].tick <= levels[levels.len() - 1].tick;
-    for (i, o) in levels.iter().enumerate() {
-        // Окно в тиках: tick × (window_bps_e2 / 100) / 10_000.
-        let w = ((o.tick as i128) * (window_bps_e2 as i128) / 1_000_000i128) as i64;
-        let (lo_t, hi_t) = (o.tick.saturating_sub(w), o.tick.saturating_add(w));
-        let (a, b) = if asc {
-            (
-                levels.partition_point(|x| x.tick < lo_t),
-                levels.partition_point(|x| x.tick <= hi_t),
-            )
-        } else {
-            (
-                levels.partition_point(|x| x.tick > hi_t),
-                levels.partition_point(|x| x.tick >= lo_t),
-            )
-        };
-        debug_assert!(a <= i && i < b, "уровень обязан быть в своём же окне");
-        let sum = (prefix[b] - prefix[a] - o.size_lots) as i128;
-        let cnt = (b - a).saturating_sub(1) as i128;
-        // 100 × size / (sum / cnt) ≥ pct  ⇔  100 × size × cnt × 100 ≥ pct_e2 × sum
-        let pass = cnt > 0 && (o.size_lots as i128) * 10_000i128 * cnt >= (pct_e2 as i128) * sum;
-        ok.push(pass);
+    let Some((pct_e2, window_bps_e2)) = mode.strength_gate() else {
+        ok.resize(levels.len(), true);
+        return;
+    };
+    for i in 0..levels.len() {
+        let e2 = neighbour_strength_e2(levels, prefix, i, window_bps_e2);
+        ok.push(e2 >= pct_e2);
     }
 }
 
@@ -720,6 +750,7 @@ fn touch_record(
         round_zeros: round_zeros(key.1),
         ended_by_death,
         stack_levels: stack,
+        strength_e2: t.strength_e2,
     }
 }
 
@@ -906,6 +937,14 @@ impl LevelTracker {
                                 traded_at_start: lv.traded,
                                 stack: 0,
                                 end_pending: false,
+                                strength_e2: std::array::from_fn(|k| {
+                                    neighbour_strength_e2(
+                                        levels,
+                                        &self.strength_prefix,
+                                        i,
+                                        STRENGTH_WINDOWS_BPS[k] * 100,
+                                    )
+                                }),
                             });
                             self.touched.push(Touched { key, stack: 0 });
                         }
