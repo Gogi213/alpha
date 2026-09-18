@@ -226,3 +226,66 @@ fn on_event_allocates_nothing_per_call_while_the_book_is_not_ready() {
         "on_event аллоцировал на пути без книги — запрет 1 interfaces.md"
     );
 }
+
+/// 2026-09-18: гонка отмены и исполнения. Вход истёк, отмена ушла (RTT в
+/// пути), а заявка успела исполниться — позиция открыта. Раньше стратегия
+/// сразу становилась `Idle`, позиция без выхода висела навсегда (на ZEC за
+/// 20 ч круги шли только первые ~27 минут, дальше все сигналы «заняты»).
+/// Теперь: `CancelPending` → позиция есть → `Holding` → выход по плану.
+#[test]
+fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Вход ушёл на шаге 0.1 с; TTL 2 с истекает на шаге 2.1 с, отмена летит
+        // 0.5 мс (RTT 1 мс); продажа в 100 объёмом больше очереди исполняет
+        // заявку раньше, чем отмена доходит до биржи.
+        trade_at(2 * S + S / 10 + 100_000, true, 100.0, 10.0),
+        depth_at(2 * S + S / 10 + 100_000, true, 100.0, 5.0),
+        // Дедлайн 5 с от входа → рыночный выход по биду 100.
+        depth_at(9 * S, true, 100.0, 5.0),
+        depth_at(9 * S, false, 101.0, 5.0),
+        depth_at(12 * S, false, 102.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let plan = TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 5 * S,
+        entry_ttl_ns: 2 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+    };
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    let exit_at = actions
+        .iter()
+        .position(|a| {
+            matches!(
+                a,
+                Action::ExitSubmitted {
+                    reason: ExitReason::Deadline,
+                    ..
+                }
+            )
+        })
+        .unwrap_or_else(|| panic!("позиция из гонки обязана закрыться по плану: {actions:?}"));
+    assert!(
+        !actions[..exit_at]
+            .iter()
+            .any(|a| matches!(a, Action::EntryTimedOut { .. })),
+        "заявка исполнилась в гонке — это не тайм-аут: {actions:?}"
+    );
+    // После выхода стратегия перевооружается; второй вход честно истекает —
+    // это уже не гонка, а обычный тайм-аут.
+    assert_eq!(hbt.position(0), 0.0, "позиция плоская, не зависла");
+}

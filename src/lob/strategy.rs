@@ -83,6 +83,13 @@ enum Phase {
     Holding { entry_ns: i64 },
     /// Выход отправлен, ждём, когда позиция обнулится.
     ExitPending { order_id: u64 },
+    /// Вход истёк, отмена отправлена — ждём ответа биржи. Если, пока отмена
+    /// летела (RTT), заявка исполнилась, позиция открыта: идём в `Holding`, а
+    /// не в `Idle`. Найдено 2026-09-18: раньше после истечения стратегия сразу
+    /// считала себя свободной, исполненная в гонке заявка оставалась без
+    /// выхода, и все дальнейшие сигналы были «позиция занята» (на ZEC за 20 ч
+    /// круги шли только первые ~27 минут).
+    CancelPending { order_id: u64, legs: u8 },
 }
 
 /// План сделки — **данные**, а не вторая стратегия (A6): что именно ловить и
@@ -497,10 +504,31 @@ where
             }
             if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
                 state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::Idle;
-                return Ok(Action::EntryTimedOut { order_id });
+                state.phase = Phase::CancelPending { order_id, legs };
+                return Ok(Action::Idle);
             }
             Ok(Action::Idle)
+        }
+        Phase::CancelPending { order_id, legs } => {
+            // Исполнение обогнало отмену — позиция есть, ведём её по плану.
+            if bot.position(state.asset_no) != 0.0 {
+                state.cancel_resting(bot, order_id, legs)?;
+                state.phase = Phase::Holding { entry_ns: now };
+                return Ok(Action::Idle);
+            }
+            let resting = (0..legs as u64).any(|i| {
+                matches!(
+                    bot.orders(state.asset_no)
+                        .get(&order_id.saturating_add(i))
+                        .map(|o| o.status),
+                    Some(Status::New) | Some(Status::PartiallyFilled)
+                )
+            });
+            if resting {
+                return Ok(Action::Idle);
+            }
+            state.phase = Phase::Idle;
+            Ok(Action::EntryTimedOut { order_id })
         }
         Phase::Idle => {
             let Some(side) = entry_side(state.sigma) else {
