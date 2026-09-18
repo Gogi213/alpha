@@ -46,8 +46,9 @@ use clap::Args;
 use hftbacktest::types::Event as HbtEvent;
 
 use super::backtest::{
-    bounce_plan, deadline_ns_from_secs, early_exit_ns_from_secs, events_from_feed,
-    exit_reason_label, open_replay_feed, pool_order_qty, read_tick_step, PlanShape, StopModeArg,
+    bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
+    exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, read_tick_step,
+    PlanShape, StopModeArg,
 };
 use super::bounce_verdict::{parse_form, DEADLINE_SECS, EARLY_EXIT_LABELS, STOP_MODES};
 use super::profiles::read_verify_marker;
@@ -275,21 +276,23 @@ fn signals_for(
     Ok(signals)
 }
 
-/// События суток крейта из всех частей дня. Первая часть отдаётся как есть,
-/// не через `extend`: у суток обычно одна часть, а `extend` держал бы её
-/// дважды (исходный `Vec` и копию) — лишний гигабайт пика на ZEC (15 млн ×
-/// 64 Б, замер 2026-09-18: пик 1.9 ГБ при событиях на 0.96 ГБ).
+/// События суток крейта из всех частей дня — в `Vec` **точного** размера:
+/// сначала части считаются (`count_feed_events`), потом декодируются в
+/// буфер с готовой ёмкостью. Рост удвоением держал старый и новый буфер
+/// вместе (пик до 3× итога) и ронял сетку на сервере по OOM на сутках в
+/// ~20 млн событий (2026-09-18); второй декод дешевле памяти.
 fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
-    let mut events: Vec<HbtEvent> = Vec::new();
+    let mut total = 0usize;
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        let part = events_from_feed(&mut feed);
-        if events.is_empty() {
-            events = part;
-        } else {
-            events.extend(part);
-        }
+        total += count_feed_events(&mut feed);
     }
+    let mut events: Vec<HbtEvent> = Vec::with_capacity(total);
+    for path in parts {
+        let mut feed = open_replay_feed(path)?;
+        feed_events_into(&mut feed, &mut events);
+    }
+    debug_assert_eq!(events.len(), total);
     Ok(events)
 }
 

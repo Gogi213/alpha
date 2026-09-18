@@ -491,6 +491,28 @@ impl FillModel for BacktestFillModel {
 /// стороне только для этого обнуления — это перевод в события, не книга.
 pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
     let mut out = Vec::new();
+    feed_events_into(feed, &mut out);
+    out
+}
+
+/// Сколько событий крейта даст `feed` — тот же перевод, что `feed_events_into`,
+/// но в счётчик. Нужен, чтобы выделить `Vec` суток **один раз** точного
+/// размера: рост удвоением держал бы старый и новый буфер вместе (до 3×
+/// итога), и на сутках в 20 млн событий это 3 ГБ — сетка на сервере умирала
+/// по OOM (2026-09-18, `alpha-grid-20260917`, лимит 2.6 ГБ). Второй декод
+/// стоит ~0.16 мкс на событие — дешевле памяти.
+pub(crate) fn count_feed_events(feed: &mut dyn Feed) -> usize {
+    let mut n = 0usize;
+    translate_feed(feed, &mut |_| n += 1);
+    n
+}
+
+/// Перевод `feed` → события крейта в готовый `Vec` (без промежуточного).
+pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
+    translate_feed(feed, &mut |ev| out.push(ev));
+}
+
+fn translate_feed(feed: &mut dyn Feed, sink: &mut impl FnMut(HbtEvent)) {
     let mut known_bids: BTreeMap<i64, i64> = BTreeMap::new();
     let mut known_asks: BTreeMap<i64, i64> = BTreeMap::new();
 
@@ -507,7 +529,7 @@ pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
             WsEvent::Book(up) => {
                 let exch_ts = up.cts_ms.saturating_mul(1_000_000);
                 push_side(
-                    &mut out,
+                    sink,
                     &mut known_bids,
                     &up.bids,
                     up.is_snapshot,
@@ -516,7 +538,7 @@ pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
                     true,
                 );
                 push_side(
-                    &mut out,
+                    sink,
                     &mut known_asks,
                     &up.asks,
                     up.is_snapshot,
@@ -532,7 +554,7 @@ pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
                     LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
                 }) | EXCH_EVENT
                     | LOCAL_EVENT;
-                out.push(HbtEvent {
+                sink(HbtEvent {
                     ev: ev_bits,
                     exch_ts: t.exch_ms.saturating_mul(1_000_000),
                     local_ts: local_ts_ns,
@@ -546,12 +568,11 @@ pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
             WsEvent::Other | WsEvent::SubscribeFailed { .. } => {}
         }
     }
-    out
 }
 
 #[allow(clippy::too_many_arguments)]
 fn push_side(
-    out: &mut Vec<HbtEvent>,
+    sink: &mut impl FnMut(HbtEvent),
     known: &mut BTreeMap<i64, i64>,
     rows: &[(i64, i64)],
     is_snapshot: bool,
@@ -565,7 +586,7 @@ fn push_side(
         LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT
     };
     let mut push = |px: i64, qty: i64| {
-        out.push(HbtEvent {
+        sink(HbtEvent {
             ev: ev_bits,
             exch_ts,
             local_ts,
