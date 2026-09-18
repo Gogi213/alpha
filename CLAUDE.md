@@ -61,7 +61,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 820 passed, 0 failed, 5 ignored (2026-09-18, B6; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 826 passed, 0 failed, 8 ignored (2026-09-18, В-61; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 24 подкоманды, таблица — docs/COMMANDS.md
@@ -259,8 +259,9 @@ bps при 7.5 bps комиссий ⇒ `net` ≈ −комиссия у все�
 деньгами/силой вместо медианы (сделано, тесты; `lob bounce-grid --h3-mode notional|strength|both`).
 **Боевой прогон сетки на сервере** (сутки 09-17, `k = 1.0`, один поток, `systemd-run` с
 `MemoryMax=2600M`/`CPUWeight=10`): три попытки упали по памяти (удвоение `Vec`, полный реплей,
-сигналы всех форм заранее — все три починены, `round-validation` §6), четвёртая шла на 18.09 ~14:00Z
-темпом ~1.5 мин на монету (≈ 2.5 ч на сутки пула); коллектор не задет. Замечание к интервалу
+сигналы всех форм заранее — все три починены, `round-validation` §6), четвёртая прошла: **сутки пула
+за 1 ч 45 мин** при одном потоке (94 монеты, 45.8 млн кругов, `rounds.csv` 6.2 ГБ в `/opt/alpha/b5/2026-09-17`,
+пик памяти ≤ 1.9 ГБ, коллектор не задет). Числа — шум `k = 1.0` (`net` −9.6 bps, стоп 90 %), не вердикт. Замечание к интервалу
 `net_fill` (бутстрэп без центрирования) — аудиту, решением владельца.
 
 ## Правила, которые ловят ревью
