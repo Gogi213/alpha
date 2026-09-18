@@ -178,6 +178,10 @@ pub struct BacktestArgs {
     /// Окно `repeat_count`, мс (`--touches`; по умолчанию `DEFAULT_REPEAT_WINDOW_MS`).
     #[arg(long)]
     pub repeat_window_ms: Option<i64>,
+    /// Снять требование маркера сверки `verify-<SYMBOL>.status == ok` (отладочные
+    /// данные; К1 аудита 18.09).
+    #[arg(long, default_value_t = false)]
+    pub allow_unverified: bool,
 }
 
 /// Итог `lob backtest` для печати диспетчером.
@@ -191,6 +195,7 @@ pub struct BacktestSummary {
 
 /// Прогоняет бэктест на всех профилях `signals_csv` и пишет оба артефакта.
 pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
+    super::require_verified(&args.session_root, &args.symbol, args.allow_unverified)?;
     let binlog_paths = super::session_binlog_for(&args.session_root, &args.symbol)?;
     let (tick_e9, step_e9) = read_tick_step(&binlog_paths[0])?;
     let tick_size = tick_e9 as f64 / 1e9;
@@ -281,7 +286,7 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
 // Бинлог: заголовок (тик/лот) и `ReplayFeed`.
 // ---------------------------------------------------------------------------
 
-fn read_tick_step(path: &Path) -> anyhow::Result<(i64, i64)> {
+pub(crate) fn read_tick_step(path: &Path) -> anyhow::Result<(i64, i64)> {
     let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
     let reader = binlog::Reader::open(file)
@@ -290,7 +295,7 @@ fn read_tick_step(path: &Path) -> anyhow::Result<(i64, i64)> {
     Ok((header.tick_e9, header.step_e9))
 }
 
-fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs::File>> {
+pub(crate) fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs::File>> {
     let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
     ReplayFeed::open(0, file).map_err(|e| anyhow::anyhow!("бинлог {}: {e:?}", path.display()))
@@ -484,7 +489,7 @@ impl FillModel for BacktestFillModel {
 /// нет в новом снапшоте (то же правило, что `book::Book::apply` — очистка
 /// перед применением): функция ведёт свой минимальный учёт видимых цен по
 /// стороне только для этого обнуления — это перевод в события, не книга.
-fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
+pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
     let mut out = Vec::new();
     let mut known_bids: BTreeMap<i64, i64> = BTreeMap::new();
     let mut known_asks: BTreeMap<i64, i64> = BTreeMap::new();
@@ -720,7 +725,7 @@ fn order_qty_arg(args: &BacktestArgs) -> anyhow::Result<i64> {
 /// ценой не нужен (тот же приём, что у пилота с последней строкой
 /// `levels-floor`). Нет символа в пуле — отказ: лот обязан быть названным
 /// числом, а не шагом книги.
-fn pool_order_qty(
+pub(crate) fn pool_order_qty(
     instruments_csv: &Path,
     symbol: &str,
     last_price_tick: i64,
@@ -899,7 +904,7 @@ fn write_trades_csv(path: &Path, header: &str, run: &BounceRun) -> anyhow::Resul
 /// Причина выхода словами — тот же словарь, что `lob bounce-verdict` и
 /// `EXIT_REASONS`: одна форма имени на писателя и читателя, чтобы отчёт не
 /// собирался из двух разных написаний одной причины.
-fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
+pub(crate) fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'static str {
     use crate::lob::strategy::ExitReason;
     match reason {
         ExitReason::Stop => "stop",
@@ -983,21 +988,21 @@ impl StopModeArg {
 /// держит предел семи — тот же приём, что у `Session` в `bybit::conn`, где
 /// аргументы собраны по смыслу, а не подогнаны под счётчик.
 #[derive(Debug, Clone, Copy)]
-struct PlanShape {
-    post_only: bool,
-    trail_bps: f64,
-    trail_activate_bps: f64,
-    grid_legs: u8,
-    grid_step_ticks: i64,
+pub(crate) struct PlanShape {
+    pub(crate) post_only: bool,
+    pub(crate) trail_bps: f64,
+    pub(crate) trail_activate_bps: f64,
+    pub(crate) grid_legs: u8,
+    pub(crate) grid_step_ticks: i64,
     /// Дедлайн сделки в наносекундах (B3): из предрегистрированной сетки
     /// В-58, приходит из `--deadline-secs`.
-    deadline_ns: i64,
+    pub(crate) deadline_ns: i64,
     /// Досрочный выход в наносекундах (B4): `0` — выключен, иначе `X` из
     /// набора {1, 2, 3} секунд.
-    early_exit_ns: i64,
+    pub(crate) early_exit_ns: i64,
 }
 
-fn bounce_plan(
+pub(crate) fn bounce_plan(
     touch: &TouchRecord,
     tick: f64,
     stop_mode: StopModeArg,
@@ -1127,7 +1132,7 @@ const EARLY_EXITS_S: [i64; 3] = [1, 2, 3];
 /// `markout::check_horizons` (положительный и не длиннее суток). Вынесено
 /// функцией, чтобы отказ проверялся тестом: на живом корне та же ошибка стоит
 /// минут счёта до диагностики.
-fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
+pub(crate) fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
     anyhow::ensure!(
         DEADLINES_S.contains(&secs),
         "--deadline-secs {secs} не из предрегистрированной сетки В-58 {DEADLINES_S:?}"
@@ -1140,7 +1145,7 @@ fn deadline_ns_from_secs(secs: i64) -> anyhow::Result<i64> {
 /// Досрочный выход `--early-exit-secs` → наносекунды (B4): `None` — выключен,
 /// `Some(X)` — `X` из набора В-58 {1, 2, 3}. Другое значение — отказ, тем же
 /// правилом, что у дедлайна.
-fn early_exit_ns_from_secs(secs: Option<i64>) -> anyhow::Result<i64> {
+pub(crate) fn early_exit_ns_from_secs(secs: Option<i64>) -> anyhow::Result<i64> {
     let Some(x) = secs else {
         return Ok(0);
     };

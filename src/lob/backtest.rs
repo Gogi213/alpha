@@ -44,13 +44,13 @@
 //! самого крейта.
 
 use hftbacktest::backtest::assettype::LinearAsset;
-use hftbacktest::backtest::data::Data;
+use hftbacktest::backtest::data::{Data, DataPtr};
 use hftbacktest::backtest::models::{
     CommonFees, ConstantLatency, RiskAdverseQueueModel, TradingValueFeeModel,
 };
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
 use hftbacktest::depth::{HashMapMarketDepth, MarketDepth};
-use hftbacktest::types::{Bot, ElapseResult, Event, Side as HbtSide, Status};
+use hftbacktest::types::{Bot, ElapseResult, Event, OrdType, Side as HbtSide, Status, TimeInForce};
 
 use crate::lob::costs::{
     fill_rate, format_fill_column, net_fill_bps, net_fill_interval, FillObservation,
@@ -662,6 +662,78 @@ where
     })
 }
 
+enum FlattenOutcome {
+    Flat,
+    Retry,
+    EndOfData,
+}
+
+/// Закрыть остаток позиции по рынку (IOC) и дождаться исполнения.
+/// `Retry` — заявка стала терминальной, а позиция осталась (нет ликвидности
+/// на лучшей цене): вызывающий шлёт новую с новым `order_id`.
+fn flatten_residual<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    order_id: u64,
+) -> Result<FlattenOutcome, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let pos = bot.position(asset_no);
+    let d = bot.depth(asset_no);
+    let (bid, ask) = (d.best_bid(), d.best_ask());
+    let ok_px = |px: f64| px.is_finite() && px > 0.0;
+    if pos > 0.0 {
+        if !ok_px(bid) {
+            return match bot.elapse(ON_EVENT_POLL_STEP_NS)? {
+                ElapseResult::EndOfData => Ok(FlattenOutcome::EndOfData),
+                _ => Ok(FlattenOutcome::Retry),
+            };
+        }
+        bot.submit_sell_order(
+            asset_no,
+            order_id,
+            bid,
+            pos,
+            TimeInForce::IOC,
+            OrdType::Market,
+            false,
+        )?;
+    } else {
+        if !ok_px(ask) {
+            return match bot.elapse(ON_EVENT_POLL_STEP_NS)? {
+                ElapseResult::EndOfData => Ok(FlattenOutcome::EndOfData),
+                _ => Ok(FlattenOutcome::Retry),
+            };
+        }
+        bot.submit_buy_order(
+            asset_no,
+            order_id,
+            ask,
+            -pos,
+            TimeInForce::IOC,
+            OrdType::Market,
+            false,
+        )?;
+    }
+    loop {
+        if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+            return Ok(FlattenOutcome::EndOfData);
+        }
+        if bot.position(asset_no) == 0.0 {
+            return Ok(FlattenOutcome::Flat);
+        }
+        let terminal = !matches!(
+            bot.orders(asset_no).get(&order_id).map(|o| o.status),
+            Some(Status::New) | Some(Status::PartiallyFilled)
+        );
+        if terminal {
+            return Ok(FlattenOutcome::Retry);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Сделка-отскока (В-44, таск 38): план приходит снаружи, исход выхода
 // считается по причине.
@@ -737,6 +809,10 @@ pub struct BounceRun {
     pub misses: MissLedger,
     pub observations: Vec<FillObservation>,
     pub incomplete: bool,
+    /// Сколько раз после круга позиция осталась открытой и её пришлось
+    /// закрыть по рынку страховкой (2026-09-18). Ноль — норма; каждое
+    /// срабатывание печатается и делает прогон `incomplete`.
+    pub residual_flattened: u64,
 }
 
 /// Сколько ног входа ставит этот план: у Decision 20 — одна, у лестницы
@@ -877,6 +953,7 @@ where
     let mut fill_reason: Vec<ExitReason> = Vec::new();
     let mut next_id = cfg.first_order_id;
     let mut incomplete = false;
+    let mut residual_flattened: u64 = 0;
     let mut blocked_until_ns: i64 = i64::MIN;
 
     let miss_observation = |t0_ns: i64| FillObservation {
@@ -903,6 +980,7 @@ where
             misses,
             observations,
             incomplete: true,
+            residual_flattened: 0,
         });
     }
 
@@ -1003,6 +1081,29 @@ where
                 blocked_until_ns = exit_ts;
             }
         }
+        // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
+        // `Inconsistent`) — закрыть по рынку и посчитать, иначе все дальнейшие
+        // сигналы молча «заняты» и остаток суток не считается вовсе.
+        if bot.position(asset_no) != 0.0 {
+            residual_flattened = residual_flattened.saturating_add(1);
+            incomplete = true;
+            let mut ended = false;
+            while bot.position(asset_no) != 0.0 {
+                let id = next_id;
+                next_id = next_id.saturating_add(1);
+                match flatten_residual(bot, asset_no, id)? {
+                    FlattenOutcome::Flat => break,
+                    FlattenOutcome::Retry => continue,
+                    FlattenOutcome::EndOfData => {
+                        ended = true;
+                        break;
+                    }
+                }
+            }
+            if ended {
+                break;
+            }
+        }
         bot.clear_inactive_orders(Some(asset_no));
     }
     bot.clear_inactive_orders(Some(asset_no));
@@ -1024,6 +1125,7 @@ where
         misses,
         observations,
         incomplete,
+        residual_flattened,
     })
 }
 
@@ -1117,11 +1219,53 @@ pub fn build_backtest(
     lot_size: f64,
     exec_rtt_ns: i64,
 ) -> Backtest<HashMapMarketDepth> {
+    build_backtest_from(Data::from_data(events), tick_size, lot_size, exec_rtt_ns)
+}
+
+/// Тот же движок, что `build_backtest`, но события **не копируются**: `Backtest`
+/// читает их прямо из `events` и живёт только внутри `f`. Для сетки форм
+/// (`lob bounce-grid`, S2): 48 `Backtest` над одними сутками держат одну копию
+/// событий, а не 48 — с копиями восемь потоков × 15 млн × 64 Б валили процесс
+/// («memory allocation of 963 859 520 bytes failed», ZEC день 2, 2026-09-18).
+///
+/// Почему это безопасно (проверено по исходнику `hftbacktest` 0.9.4,
+/// `backtest/data/mod.rs`): `DataPtr::from_ptr` даёт `managed = false` — крейт
+/// буфер не освобождает; `IndexMut` у `Data` объявлен, но в `backtest/` не
+/// вызывается — буфер только читается; выравнивание `Vec<Event>` — `Event`,
+/// как и требует `get_unchecked`. Время жизни держит замыкание: `Backtest` не
+/// переживает `events`, потому что не покидает эту функцию.
+pub fn with_backtest_over<R>(
+    events: &[Event],
+    tick_size: f64,
+    lot_size: f64,
+    exec_rtt_ns: i64,
+    f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
+) -> R {
+    let bytes = std::ptr::slice_from_raw_parts_mut(
+        events.as_ptr() as *mut u8,
+        std::mem::size_of_val(events),
+    );
+    // SAFETY: буфер жив до конца функции (заём `events`), а `Backtest`
+    // умирает раньше — на `drop(bt)` ниже; крейт по этому указателю только
+    // читает и не освобождает его (`managed = false`), см. док выше.
+    let data = unsafe { Data::from_data_ptr(DataPtr::from_ptr(bytes), 0) };
+    let mut bt = build_backtest_from(data, tick_size, lot_size, exec_rtt_ns);
+    let out = f(&mut bt);
+    drop(bt);
+    out
+}
+
+fn build_backtest_from(
+    data: Data<Event>,
+    tick_size: f64,
+    lot_size: f64,
+    exec_rtt_ns: i64,
+) -> Backtest<HashMapMarketDepth> {
     let (entry, response) = latency_from_rtt(exec_rtt_ns);
     Backtest::builder()
         .add_asset(
             L2AssetBuilder::default()
-                .data(vec![DataSource::Data(Data::from_data(events))])
+                .data(vec![DataSource::Data(data)])
                 .latency_model(ConstantLatency::new(entry, response))
                 .asset_type(LinearAsset::new(1.0))
                 .fee_model(TradingValueFeeModel::new(CommonFees::new(

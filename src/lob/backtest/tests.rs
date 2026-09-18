@@ -455,6 +455,55 @@ fn driver_closes_a_maker_round_trip_on_synthetic_feed() {
     assert!(rep.observations[0].filled);
 }
 
+/// `with_backtest_over` (сетка форм без копии событий) даёт тот же круг, что
+/// копирующий `build_backtest`, и несколько потоков могут гнать свои
+/// `Backtest` над одним `&[Event]` одновременно — буфер только читается.
+#[test]
+fn shared_buffer_backtest_matches_copying_one_and_survives_threads() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        trade_at(S + S / 2, true, 100.0, 3.0),
+        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
+        depth_at(10 * S + 9 * S / 10, true, 101.0, 5.0),
+        depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
+        depth_at(30 * S, false, 103.0, 5.0),
+    ];
+    let signals = [Signal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+    }];
+    let mut copied = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let want = drive_profile(&mut copied, 0, &signals, &drive_cfg()).unwrap();
+    let got = with_backtest_over(&feed, 1.0, 1.0, 1_000_000, |bt| {
+        drive_profile(bt, 0, &signals, &drive_cfg()).unwrap()
+    });
+    assert_eq!(got.fills, want.fills, "общий буфер — те же сделки");
+    assert_eq!(got.misses, want.misses);
+    assert_eq!(got.observations.len(), want.observations.len());
+
+    let feed_ref: &[Event] = &feed;
+    let per_thread: Vec<_> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(move || {
+                    with_backtest_over(feed_ref, 1.0, 1.0, 1_000_000, |bt| {
+                        drive_profile(bt, 0, &signals, &drive_cfg()).unwrap().fills
+                    })
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for fills in per_thread {
+        assert_eq!(
+            fills, want.fills,
+            "потоки над одним буфером не мешают друг другу"
+        );
+    }
+    assert_eq!(feed[2].px, 100.0, "буфер после прогонов не тронут");
+}
+
 /// Без сделок очередь не двигается: вход снимается через 2 с и считается
 /// пропуском именно по таймауту, а не по занятости.
 #[test]

@@ -1,90 +1,103 @@
-//! Прогон-вердикт базовой сетки форм отскока (B5, В-58).
+//! Вердикт по сетке форм отскока (B5, В-58) — читает артефакты
+//! `lob bounce-grid` (`rounds.csv`, `forms.csv`) и считает по контракту
+//! BUSINESS-TASK §6–7 с поправками аудита 18.09 (K2, K3, K4):
 //!
-//! Сводка `lob backtest --touches` печатает **средние** по форме, а поправка
-//! на число испытаний дефлирует Шарп **ряда** покруговых `net` — по средним его
-//! не посчитать. Поэтому прогон формы оставляет покруговой дамп
-//! (`--trades-out`, один файл на символ), а эта подкоманда собирает дампы в
-//! один вердикт: по форме — круги, `net_fill`, Шарп ряда и доли причин выхода,
-//! по лучшей форме — `DSR` при `N` испытаний **этой** процедуры отбора.
+//! - **сетка ровно из 48 форм** В-58 и одинаковое число сигналов у всех форм
+//!   на каждой паре (символ, сутки) — иначе отказ, не «вердикт по части»;
+//! - по форме — все наблюдения сигналов (`FillObservation`: круг с `net_bps`
+//!   или промах с нулём), **нижняя граница интервала `net_fill`** — тот же
+//!   `costs::net_fill_interval` (wild cluster bootstrap-t, кластер — сутки,
+//!   Decision 9), что у `lob backtest`; кластер суток общий для всех символов
+//!   (режим дня один на рынок — консервативно);
+//! - `DSR` лучшей формы по числу испытаний **этой** процедуры из `runs.csv`
+//!   (строки `bounce_form`), рядом — по всему журналу;
+//! - **PBO и CPCV** по матрице «форма × сутки» (ячейка — `net_fill` формы за
+//!   сутки: сумма `net` кругов на число сигналов), теми же оценщиками и
+//!   параметрами, что у `lob shortlist` (`REPORT_PBO_PARTITIONS`,
+//!   `REPORT_CPCV_PARAMS`, правило отбора «лучший по среднему на IS-сутках»);
+//! - **гейты §7**: `n ≥ CONFIRM_MIN_N` кругов и `G ≥ G_MIN` суток с кругами у
+//!   лучшей формы — иначе итог «мало данных», а не вердикт; при гейтах —
+//!   «красный» (нижняя граница ≤ 0 или `DSR < DSR_TARGET`), «зелёный без
+//!   ёмкости» (нижняя граница > 0, точка < `GREEN_NET_BPS`), «зелёный».
 //!
-//! `N` считается по журналу `runs.csv` (`lob/runs.rs`) и только по строкам
-//! этой процедуры — с префиксом `bounce_form`: в журнале лежат испытания других
-//! процедур (пилоты плотности, профили касаний), и складывать их с формами
-//! отскока значило бы дефлировать Шарп выбором, которого не было. Полное число
-//! испытаний журнала печатается рядом как контекст: если прогонов было больше,
-//! чем строк, вердикт обязан быть строже, и это видно.
+//! Деления на разведочную/подтверждающую выборки нет (решение владельца
+//! 2026-09-17, В-58) — это записано в шапке артефакта: вердикт означает «на
+//! всех записанных сутках», а не «подтверждено на отложенных».
 //!
-//! Форма названа каталогом `<стоп>-<дедлайн>-<ранний>` (`behind-60-off`,
-//! `before-7200-3`) значениями предрегистрированной сетки В-58: другое имя —
-//! отказ, а не параметр (сетка зафиксирована до данных).
+//! Лучшая форма выбирается по **точке** `net_fill` (правило отбора то же, что
+//! у CPCV: среднее), вердикт — по её интервалу; так отбор и проверка разведены.
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
+use clap::Args;
 
-use crate::lob::final_metrics::{self, DSR_TARGET};
+use crate::lob::costs::{net_fill_interval, FillObservation, NetFillInterval, GREEN_NET_BPS};
+use crate::lob::final_metrics::{
+    self, CpcvParams, DSR_TARGET, REPORT_CPCV_PARAMS, REPORT_PBO_PARTITIONS,
+};
 use crate::lob::runs::{self, BOUNCE_TRIAL_PREFIX};
+use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
-/// Формы стопа предрегистрированной сетки (B1/В-58 п. 1) — те же имена, что
-/// значения `--stop-mode`.
+use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
+use crate::lob::shortlist::CONFIRM_MIN_N;
+
+/// Стопы сетки В-58 — имена как у `--stop-mode`.
 pub const STOP_MODES: [&str; 3] = ["before", "at", "behind"];
-
-/// Дедлайны сетки, секунды (B1/В-58 п. 4).
+/// Дедлайны сетки В-58, секунды.
 pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
-
-/// Досрочный выход сетки, секунды: `off` — выключен (четвёртый вариант оси,
-/// B1/В-58 п. 5).
+/// Досрочный выход сетки В-58: выключен или 1/2/3 с.
 pub const EARLY_EXIT_LABELS: [&str; 4] = ["off", "1", "2", "3"];
-
-/// Причины выхода, как их пишет `--trades-out` (`ExitReason` словами).
+/// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
 
-/// Аргументы `lob bounce-verdict`.
-#[derive(Debug, clap::Args)]
+/// Число форм сетки — произведение осей, не отдельная константа.
+pub fn grid_size() -> usize {
+    STOP_MODES.len() * DEADLINE_SECS.len() * EARLY_EXIT_LABELS.len()
+}
+
+#[derive(Debug, Args)]
 pub struct BounceVerdictArgs {
-    /// Каталог прогонов: `<каталог>/<форма>/<СИМВОЛ>.csv` — покруговые дампы
-    /// `lob backtest --touches --trades-out`.
+    /// Каталог `lob bounce-grid` с `rounds.csv` и `forms.csv`.
     #[arg(long)]
-    pub trades_dir: PathBuf,
-    /// Журнал испытаний: по строке-испытанию на форму (`--log-trials`), чтобы
-    /// `N` поправки было настоящим числом испытанных вариантов.
+    pub grid_dir: PathBuf,
+    /// Журнал испытаний (`docs/plan/runs.csv`).
     #[arg(long)]
     pub runs_csv: PathBuf,
-    /// Куда писать таблицу вердикта.
+    /// Артефакт вердикта (CSV с шапкой `#`).
     #[arg(long)]
     pub out: PathBuf,
-    /// Дописать в журнал строку на каждую форму (`confirmatory`, префикс
-    /// `bounce_form`). Без флага журнал только читается: повторный прогон не
-    /// имеет права удваивать `N` молча — это учёт, а не побочный эффект.
+    /// Дописать строки испытаний `bounce_form:<форма>` в журнал перед вердиктом.
     #[arg(long, default_value_t = false)]
     pub log_trials: bool,
 }
 
-/// Итог одной формы: покруговой ряд, его сводка и доли причин выхода.
+/// Итог по одной форме.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FormVerdict {
-    /// Имя каталога формы (`behind-60-off`).
     pub form: String,
-    /// Форма стопа (`before`/`at`/`behind`).
     pub stop: String,
-    /// Дедлайн плана, секунды.
     pub deadline_secs: u64,
-    /// Досрочный выход, секунды (`None` — выключен).
     pub early_exit_secs: Option<u64>,
-    /// Число кругов (наблюдений ряда).
-    pub n_fills: usize,
-    /// Средний чистый результат круга, bps.
-    pub net_fill_bps: Option<f64>,
-    /// Шарп ряда покруговых `net` (на наблюдение).
+    /// Сигналов (касаний) всего по всем символам и суткам.
+    pub n_signals: u64,
+    /// Кругов (исполненных сделок).
+    pub n_fills: u64,
+    /// Суток, в которых у формы был хотя бы один круг.
+    pub days_with_fills: usize,
+    /// Точка и нижняя граница интервала `net_fill` (bps на сигнал).
+    pub interval: Option<NetFillInterval>,
+    /// Среднее `net` по кругам (bps на круг) и Шарп ряда кругов.
+    pub net_per_fill_bps: Option<f64>,
     pub sharpe: Option<f64>,
-    /// Число выходов по каждой причине, параллельно `EXIT_REASONS`.
     pub exits: [u64; EXIT_REASONS.len()],
-    /// Сам ряд — вход `dsr_from_returns`.
+    /// Ряд `net` кругов — вход DSR.
     pub returns: Vec<f64>,
 }
 
 impl FormVerdict {
-    /// Число выходов по причине (`0`, если причины в этой форме не было).
     pub fn exits_of(&self, reason: &str) -> u64 {
         EXIT_REASONS
             .iter()
@@ -93,39 +106,60 @@ impl FormVerdict {
             .unwrap_or(0)
     }
 
-    /// Доля выходов по причине от кругов формы.
     pub fn share_of(&self, reason: &str) -> Option<f64> {
         if self.n_fills == 0 {
             return None;
         }
-        Some(self.exits_of(reason) as f64 / crate::stats::count_f64(self.n_fills))
+        Some(self.exits_of(reason) as f64 / crate::stats::count_f64_u64(self.n_fills))
     }
 }
 
-/// Сводка прогона-вердикта (то, что печатает вызывающий).
+/// Итог §7 для лучшей формы.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Гейты `n ≥ CONFIRM_MIN_N`, `G ≥ G_MIN` не пройдены — вердикта нет.
+    NotEnoughData,
+    /// Нижняя граница интервала ≤ 0 или `DSR < DSR_TARGET`.
+    Red,
+    /// Нижняя граница > 0 и `DSR ≥ DSR_TARGET`, но точка < `GREEN_NET_BPS`.
+    GreenNoCapacity,
+    /// Нижняя граница > 0, `DSR ≥ DSR_TARGET`, точка ≥ `GREEN_NET_BPS`.
+    Green,
+}
+
+impl Verdict {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NotEnoughData => "мало данных",
+            Self::Red => "красный",
+            Self::GreenNoCapacity => "зелёный без ёмкости",
+            Self::Green => "зелёный",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BounceVerdictSummary {
-    /// Число форм сетки в каталоге.
     pub forms: usize,
-    /// Испытаний этой процедуры в журнале (строки `bounce_form`).
+    pub symbols: usize,
+    pub days: usize,
     pub trials: usize,
-    /// Всего испытаний в журнале (контекст: другие процедуры отбора).
     pub journal_trials: usize,
-    /// Форма с лучшим `net_fill`.
     pub best_form: String,
-    /// Её `net_fill`, bps.
-    pub best_net_fill_bps: Option<f64>,
-    /// `DSR` лучшей формы при `trials` испытаниях.
+    pub best_n_fills: u64,
+    pub best_days: usize,
+    pub best_point_bps: Option<f64>,
+    pub best_lower_bps: Option<f64>,
     pub dsr: Option<f64>,
-    /// `DSR` той же формы при полном числе испытаний журнала (строже).
     pub dsr_at_journal_trials: Option<f64>,
-    /// Требуемый Шарп на наблюдение для `DSR_TARGET` при `trials` и её `n`.
     pub required_sharpe: Option<f64>,
-    /// Куда записан артефакт.
+    pub pbo: Option<f64>,
+    pub cpcv: Option<f64>,
+    pub verdict: Verdict,
     pub out: PathBuf,
 }
 
-/// Разбирает имя формы по предрегистрированной сетке В-58.
+/// Разбор имени формы `<стоп>-<дедлайн>-<ранний>` строго по сетке В-58.
 pub fn parse_form(label: &str) -> anyhow::Result<(&'static str, u64, Option<u64>)> {
     let parts: Vec<&str> = label.split('-').collect();
     anyhow::ensure!(
@@ -160,143 +194,331 @@ pub fn parse_form(label: &str) -> anyhow::Result<(&'static str, u64, Option<u64>
     Ok((stop, deadline_secs, early_exit_secs))
 }
 
-/// Число испытаний одной процедуры отбора: строки журнала, которые он
-/// засчитывает (`RunKind::counts_as_trial`), с деталью `<prefix> <id>`.
-/// Префикс, а не всё чтение: в одном журнале живут испытания разных процедур.
+/// Испытания **этой** процедуры в журнале — строки с префиксом `bounce_form`.
 pub fn count_scoped_trials(rows: &[runs::RunRow], prefix: &str) -> usize {
     rows.iter()
-        .filter(|r| r.kind.counts_as_trial())
-        .filter(|r| {
-            r.detail
-                .strip_prefix(prefix)
-                .is_some_and(|rest| rest.starts_with(' '))
-        })
+        .filter(|r| r.kind.counts_as_trial() && r.detail.starts_with(prefix))
         .count()
 }
 
-/// Строка покругового дампа `--trades-out`: читается как есть, `net_bps`
-/// строкой — чтобы «круг не посчитан» (`not_measured`) был отказом, а не
-/// нулём.
-#[derive(Debug, serde::Deserialize)]
-struct TradeRow {
-    #[allow(dead_code)]
-    signal_index: u64,
-    #[allow(dead_code)]
-    dir: i8,
-    #[allow(dead_code)]
-    entry_px: f64,
-    #[allow(dead_code)]
-    exit_px: f64,
-    #[allow(dead_code)]
-    qty: f64,
-    net_bps: String,
-    reason: String,
+/// Ключ строки `forms.csv`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Cell {
+    symbol: String,
+    day: String,
+    form: String,
 }
 
-/// Читает круги одной формы из всех `*.csv` её каталога (по одному на символ).
-fn read_form_trades(dir: &Path) -> anyhow::Result<(Vec<f64>, [u64; EXIT_REASONS.len()])> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .with_context(|| format!("{}: каталог формы не читается", dir.display()))?
-        .map(|e| e.map(|e| e.path()))
-        .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("{}: запись каталога не читается", dir.display()))?
-        .into_iter()
-        .filter(|p| p.extension().is_some_and(|e| e == "csv"))
-        .collect();
-    files.sort();
-    anyhow::ensure!(
-        !files.is_empty(),
-        "{}: нет ни одного покругового дампа (<СИМВОЛ>.csv)",
-        dir.display()
+#[derive(Debug, Clone, Default)]
+struct CellStat {
+    n_signals: u64,
+    n_fills: u64,
+    sum_net_bps: f64,
+    exits: [u64; EXIT_REASONS.len()],
+}
+
+struct GridData {
+    forms: Vec<String>,
+    symbols: BTreeSet<String>,
+    days: Vec<String>,
+    cells: BTreeMap<Cell, CellStat>,
+    /// `net_bps` кругов по (форма, сутки).
+    fills: BTreeMap<(String, String), Vec<f64>>,
+}
+
+fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
+    let forms_path = dir.join("forms.csv");
+    let rounds_path = dir.join("rounds.csv");
+    let forms_text = std::fs::read_to_string(&forms_path)
+        .with_context(|| format!("{}: forms.csv не читается", forms_path.display()))?;
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_reader(forms_text.as_bytes());
+    let header: Vec<String> = r.headers()?.iter().map(str::to_string).collect();
+    let idx = |name: &str| -> anyhow::Result<usize> {
+        header
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", forms_path.display()))
+    };
+    let (i_sym, i_day, i_form, i_sig, i_fills, i_sum) = (
+        idx("symbol")?,
+        idx("day_utc")?,
+        idx("form")?,
+        idx("n_signals")?,
+        idx("n_fills")?,
+        idx("sum_net_bps")?,
     );
-    let mut returns = Vec::new();
+    let exit_idx: Vec<usize> = EXIT_REASONS
+        .iter()
+        .map(|r| idx(&format!("n_{r}")))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut cells: BTreeMap<Cell, CellStat> = BTreeMap::new();
+    let mut form_set: BTreeSet<String> = BTreeSet::new();
+    let mut symbols = BTreeSet::new();
+    let mut days_set = BTreeSet::new();
+    for rec in r.records() {
+        let rec = rec?;
+        let cell = Cell {
+            symbol: rec[i_sym].to_string(),
+            day: rec[i_day].to_string(),
+            form: rec[i_form].to_string(),
+        };
+        parse_form(&cell.form)?;
+        let mut st = CellStat {
+            n_signals: rec[i_sig].parse()?,
+            n_fills: rec[i_fills].parse()?,
+            sum_net_bps: rec[i_sum].parse()?,
+            exits: [0; EXIT_REASONS.len()],
+        };
+        for (k, &i) in exit_idx.iter().enumerate() {
+            st.exits[k] = rec[i].parse()?;
+        }
+        form_set.insert(cell.form.clone());
+        symbols.insert(cell.symbol.clone());
+        days_set.insert(cell.day.clone());
+        anyhow::ensure!(
+            cells.insert(cell.clone(), st).is_none(),
+            "{}: строка {} {} {} повторяется",
+            forms_path.display(),
+            cell.symbol,
+            cell.day,
+            cell.form
+        );
+    }
+    anyhow::ensure!(
+        form_set.len() == grid_size(),
+        "{}: форм {}, сетка В-58 — ровно {}; частичный прогон вердиктом не считается",
+        forms_path.display(),
+        form_set.len(),
+        grid_size()
+    );
+    // Полнота: у каждой пары (символ, сутки) все формы и одно число сигналов.
+    let mut by_pair: BTreeMap<(String, String), Vec<(&String, u64)>> = BTreeMap::new();
+    for (c, st) in &cells {
+        by_pair
+            .entry((c.symbol.clone(), c.day.clone()))
+            .or_default()
+            .push((&c.form, st.n_signals));
+    }
+    for ((sym, day), v) in &by_pair {
+        anyhow::ensure!(
+            v.len() == grid_size(),
+            "{sym} {day}: форм {}, нужно {} — сетка неполная",
+            v.len(),
+            grid_size()
+        );
+        let sigs: BTreeSet<u64> = v.iter().map(|(_, n)| *n).collect();
+        anyhow::ensure!(
+            sigs.len() == 1,
+            "{sym} {day}: число сигналов расходится между формами {sigs:?} — касания должны быть общими"
+        );
+    }
+
+    let rounds_text = std::fs::read_to_string(&rounds_path)
+        .with_context(|| format!("{}: rounds.csv не читается", rounds_path.display()))?;
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_reader(rounds_text.as_bytes());
+    let header: Vec<String> = r.headers()?.iter().map(str::to_string).collect();
+    let idx = |name: &str| -> anyhow::Result<usize> {
+        header
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", rounds_path.display()))
+    };
+    let (i_sym, i_day, i_form, i_net) = (
+        idx("symbol")?,
+        idx("day_utc")?,
+        idx("form")?,
+        idx("net_bps")?,
+    );
+    let mut fills: BTreeMap<(String, String), Vec<f64>> = BTreeMap::new();
+    let mut fills_per_cell: BTreeMap<Cell, u64> = BTreeMap::new();
+    for rec in r.records() {
+        let rec = rec?;
+        let net: f64 = rec[i_net].parse().map_err(|_| {
+            anyhow::anyhow!(
+                "{}: круг {} {} {} без измеренного net ({}) — вердикт по неизмеренным кругам не считается",
+                rounds_path.display(),
+                &rec[i_sym],
+                &rec[i_day],
+                &rec[i_form],
+                &rec[i_net]
+            )
+        })?;
+        anyhow::ensure!(net.is_finite(), "{}: net не число", rounds_path.display());
+        let cell = Cell {
+            symbol: rec[i_sym].to_string(),
+            day: rec[i_day].to_string(),
+            form: rec[i_form].to_string(),
+        };
+        anyhow::ensure!(
+            cells.contains_key(&cell),
+            "{}: круг {} {} {} без строки в forms.csv",
+            rounds_path.display(),
+            cell.symbol,
+            cell.day,
+            cell.form
+        );
+        *fills_per_cell.entry(cell.clone()).or_default() += 1;
+        fills.entry((cell.form, cell.day)).or_default().push(net);
+    }
+    for (c, st) in &cells {
+        let got = fills_per_cell.get(c).copied().unwrap_or(0);
+        anyhow::ensure!(
+            got == st.n_fills,
+            "{} {} {}: кругов в rounds.csv {got}, в forms.csv {} — артефакты рассогласованы",
+            c.symbol,
+            c.day,
+            c.form,
+            st.n_fills
+        );
+    }
+    Ok(GridData {
+        forms: form_set.into_iter().collect(),
+        symbols,
+        days: days_set.into_iter().collect(),
+        cells,
+        fills,
+    })
+}
+
+fn day_index(days: &[String], day: &str) -> i64 {
+    days.iter()
+        .position(|d| d == day)
+        .map(|i| i as i64)
+        .unwrap_or(-1)
+}
+
+fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
+    let (stop, deadline_secs, early_exit_secs) = parse_form(form)?;
+    let mut n_signals: u64 = 0;
+    let mut n_fills: u64 = 0;
     let mut exits = [0u64; EXIT_REASONS.len()];
-    for path in files {
-        let mut r = csv::ReaderBuilder::new()
-            .comment(Some(b'#'))
-            .from_path(&path)
-            .with_context(|| format!("{}: дамп не открылся", path.display()))?;
-        for row in r.deserialize::<TradeRow>() {
-            let row =
-                row.with_context(|| format!("{}: строка дампа не разобралась", path.display()))?;
-            let net: f64 = row.net_bps.parse().map_err(|_| {
-                anyhow::anyhow!(
-                    "{}: net_bps {} — круг не посчитан, а не ноль; в ряд Шарпа он не годится",
-                    path.display(),
-                    row.net_bps
-                )
-            })?;
-            let idx = EXIT_REASONS
-                .iter()
-                .position(|r| *r == row.reason)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "{}: причина выхода {} вне словаря {EXIT_REASONS:?}",
-                        path.display(),
-                        row.reason
-                    )
-                })?;
-            exits[idx] += 1;
+    let mut observations: Vec<FillObservation> = Vec::new();
+    let mut returns: Vec<f64> = Vec::new();
+    let mut days_with_fills: BTreeSet<&str> = BTreeSet::new();
+    for (c, st) in data.cells.iter().filter(|(c, _)| c.form == form) {
+        n_signals = n_signals.saturating_add(st.n_signals);
+        n_fills = n_fills.saturating_add(st.n_fills);
+        for (k, e) in st.exits.iter().enumerate() {
+            exits[k] = exits[k].saturating_add(*e);
+        }
+        let cluster = day_index(&data.days, &c.day);
+        let nets = data
+            .fills
+            .get(&(c.form.clone(), c.day.clone()))
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        // Круги этой ячейки — первые `st.n_fills` ещё не отданных кругов пары
+        // (форма, сутки): порядок внутри суток вердикту не важен, интервал
+        // считается по суммам суток.
+        if st.n_fills > 0 {
+            days_with_fills.insert(c.day.as_str());
+        }
+        for _ in 0..st.n_signals.saturating_sub(st.n_fills) {
+            observations.push(FillObservation {
+                day_cluster: cluster,
+                net_bps: 0.0,
+                filled: false,
+            });
+        }
+        let _ = nets;
+    }
+    for ((f, day), nets) in data.fills.iter().filter(|((f, _), _)| f == form) {
+        let cluster = day_index(&data.days, day);
+        for &net in nets {
+            observations.push(FillObservation {
+                day_cluster: cluster,
+                net_bps: net,
+                filled: true,
+            });
             returns.push(net);
         }
+        let _ = f;
     }
-    Ok((returns, exits))
+    let interval = if n_fills == 0 {
+        None
+    } else {
+        net_fill_interval(&observations, GATE_ALPHA, BOOTSTRAP_REPLICATIONS, 0)
+    };
+    let net_per_fill_bps = if returns.is_empty() {
+        None
+    } else {
+        Some(returns.iter().sum::<f64>() / crate::stats::count_f64(returns.len()))
+    };
+    Ok(FormVerdict {
+        form: form.to_string(),
+        stop: stop.to_string(),
+        deadline_secs,
+        early_exit_secs,
+        n_signals,
+        n_fills,
+        days_with_fills: days_with_fills.len(),
+        interval,
+        net_per_fill_bps,
+        sharpe: final_metrics::sharpe_ratio(&returns),
+        exits,
+        returns,
+    })
 }
 
-/// Собирает вердикт: читает формы, пишет испытания в журнал (по флагу),
-/// считает `DSR` лучшей формы и записывает таблицу.
-pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerdictSummary> {
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&args.trades_dir)
-        .with_context(|| {
-            format!(
-                "{}: каталог прогонов не читается",
-                args.trades_dir.display()
-            )
-        })?
-        .map(|e| e.map(|e| e.path()))
-        .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("{}: запись каталога не читается", args.trades_dir.display()))?
-        .into_iter()
-        .filter(|p| p.is_dir())
-        .collect();
-    dirs.sort();
-    anyhow::ensure!(
-        dirs.len() >= 2,
-        "{}: форм {}. Поправка на число испытаний считается по сетке, а не по одной форме",
-        args.trades_dir.display(),
-        dirs.len()
-    );
+/// Матрица «форма × сутки»: ячейка — `net_fill` формы за сутки по всем
+/// символам (сумма `net` кругов на число сигналов), как у `net_fill_interval`.
+fn form_day_matrix(data: &GridData) -> Vec<Vec<f64>> {
+    data.forms
+        .iter()
+        .map(|form| {
+            data.days
+                .iter()
+                .map(|day| {
+                    let mut sum = 0.0;
+                    let mut sigs: u64 = 0;
+                    for (_c, st) in data
+                        .cells
+                        .iter()
+                        .filter(|(c, _)| &c.form == form && &c.day == day)
+                    {
+                        sum += st.sum_net_bps;
+                        sigs = sigs.saturating_add(st.n_signals);
+                    }
+                    if sigs == 0 {
+                        f64::NAN
+                    } else {
+                        sum / crate::stats::count_f64_u64(sigs)
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
 
-    let mut forms: Vec<FormVerdict> = Vec::with_capacity(dirs.len());
-    for dir in &dirs {
-        let label = dir
-            .file_name()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| anyhow::anyhow!("{}: имя каталога формы не читается", dir.display()))?
-            .to_string();
-        let (stop, deadline_secs, early_exit_secs) = parse_form(&label)?;
-        let (returns, exits) = read_form_trades(dir)?;
-        let n_fills = returns.len();
-        let net_fill_bps = if n_fills == 0 {
-            None
-        } else {
-            Some(returns.iter().sum::<f64>() / crate::stats::count_f64(n_fills))
-        };
-        forms.push(FormVerdict {
-            form: label,
-            stop: stop.to_string(),
-            deadline_secs,
-            early_exit_secs,
-            n_fills,
-            net_fill_bps,
-            sharpe: final_metrics::sharpe_ratio(&returns),
-            exits,
-            returns,
-        });
+fn verdict_of(best: &FormVerdict, dsr: Option<f64>) -> Verdict {
+    if best.n_fills < CONFIRM_MIN_N || best.days_with_fills < G_MIN {
+        return Verdict::NotEnoughData;
+    }
+    let Some(iv) = best.interval.as_ref() else {
+        return Verdict::NotEnoughData;
+    };
+    let dsr_ok = dsr.is_some_and(|d| d >= DSR_TARGET);
+    if iv.lower_bps <= 0.0 || !dsr_ok {
+        Verdict::Red
+    } else if iv.point_bps < GREEN_NET_BPS {
+        Verdict::GreenNoCapacity
+    } else {
+        Verdict::Green
+    }
+}
+
+pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerdictSummary> {
+    let data = read_grid(&args.grid_dir)?;
+    let mut forms: Vec<FormVerdict> = Vec::with_capacity(data.forms.len());
+    for f in &data.forms {
+        forms.push(form_verdict(&data, f)?);
     }
     // Шарп нужен каждой форме: срез пробных Шарпов — вход поправки, и форма
-    // без Шарпа молча выпала бы из среза, занизив `N` (то же правило, что
-    // `final_metrics::moments`: нулевая дисперсия — отказ, не ноль).
+    // без Шарпа молча выпала бы из среза, занизив `N`.
     let trial_sharpes: Vec<f64> = forms
         .iter()
         .map(|f| {
@@ -324,25 +546,45 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     let journal_trials = runs::count_trials(&rows);
     anyhow::ensure!(
         trials >= forms.len(),
-        "{}: испытаний формы отскока {trials}, а форм {forms} — журнал не знает про прогон; \
+        "{}: испытаний формы отскока {trials}, а форм {} — журнал не знает про прогон; \
          дописать строки можно флагом --log-trials",
         args.runs_csv.display(),
-        forms = forms.len()
+        forms.len()
     );
 
     let best = forms
         .iter()
         .max_by(|a, b| {
-            a.net_fill_bps
-                .unwrap_or(f64::NEG_INFINITY)
-                .total_cmp(&b.net_fill_bps.unwrap_or(f64::NEG_INFINITY))
+            let pa = a
+                .interval
+                .as_ref()
+                .map(|i| i.point_bps)
+                .unwrap_or(f64::NEG_INFINITY);
+            let pb = b
+                .interval
+                .as_ref()
+                .map(|i| i.point_bps)
+                .unwrap_or(f64::NEG_INFINITY);
+            pa.total_cmp(&pb)
         })
-        .expect("форм ≥ 2");
+        .expect("форм ≥ 48");
     let dsr = final_metrics::dsr_from_returns(&best.returns, &trial_sharpes);
     let dsr_at_journal_trials = best.sharpe.and_then(|sr| {
-        final_metrics::dsr_for_trial_count(sr, best.n_fills, 0.0, 3.0, journal_trials)
+        final_metrics::dsr_for_trial_count(sr, best.returns.len(), 0.0, 3.0, journal_trials)
     });
-    let required_sharpe = final_metrics::required_sharpe_for_dsr(trials, best.n_fills, DSR_TARGET);
+    let required_sharpe =
+        final_metrics::required_sharpe_for_dsr(trials, best.returns.len(), DSR_TARGET);
+
+    let matrix = form_day_matrix(&data);
+    let scored: Vec<Vec<f64>> = matrix
+        .iter()
+        .filter(|row| row.iter().all(|x| x.is_finite()))
+        .cloned()
+        .collect();
+    let pbo = final_metrics::pbo(&scored, REPORT_PBO_PARTITIONS);
+    let cpcv_params: CpcvParams = REPORT_CPCV_PARAMS;
+    let cpcv = final_metrics::cpcv_selection_oos_sharpe(&scored, cpcv_params, select_best_mean_net);
+    let verdict = verdict_of(best, dsr);
 
     let num = |v: Option<f64>| match v {
         Some(x) => format!("{x:.6}"),
@@ -355,22 +597,45 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     }
     let mut file = std::fs::File::create(&args.out)
         .with_context(|| format!("{}: вердикт не записался", args.out.display()))?;
-    use std::io::Write as _;
     writeln!(
         file,
-        "# lob bounce-verdict: форм {}, испытаний {} (строки {BOUNCE_TRIAL_PREFIX} в {}), \
-         испытаний в журнале {}, лучшая форма {} net_fill={} bps, DSR={} при {trials} испытаниях, \
-         DSR={} при {journal_trials}, требуемый Шарп для DSR={DSR_TARGET} при {trials} и n={} равен {}",
+        "# lob bounce-verdict (В-58, BUSINESS-TASK §6–7, без деления выборки — решение владельца 2026-09-17): \
+         grid={} форм {} символов {} суток {}; испытаний {trials} (строки {BOUNCE_TRIAL_PREFIX} в {}), в журнале {journal_trials}",
+        args.grid_dir.display(),
         forms.len(),
-        trials,
-        args.runs_csv.display(),
-        journal_trials,
+        data.symbols.len(),
+        data.days.len(),
+        args.runs_csv.display()
+    )?;
+    writeln!(
+        file,
+        "# лучшая форма (по точке net_fill): {} — кругов {} из {} сигналов, суток с кругами {}, net_fill точка={} нижняя={} bps (alpha={GATE_ALPHA}, кластер=сутки, wild cluster bootstrap-t ×{BOOTSTRAP_REPLICATIONS}), DSR={} при {trials} испытаниях (при {journal_trials}: {}), требуемый Шарп для DSR={DSR_TARGET}: {}",
         best.form,
-        num(best.net_fill_bps),
+        best.n_fills,
+        best.n_signals,
+        best.days_with_fills,
+        num(best.interval.as_ref().map(|i| i.point_bps)),
+        num(best.interval.as_ref().map(|i| i.lower_bps)),
         num(dsr),
         num(dsr_at_journal_trials),
-        best.n_fills,
         num(required_sharpe)
+    )?;
+    writeln!(
+        file,
+        "# процедура отбора: PBO={} (partitions={REPORT_PBO_PARTITIONS}, матрица форма×сутки, ячейка=net_fill за сутки), CPCV OOS Sharpe={} (folds={}, purge={}, embargo={}, правило: {CPCV_SELECTION_RULE}); матрица {}×{} строк без NaN {}",
+        num(pbo),
+        num(cpcv),
+        cpcv_params.folds,
+        cpcv_params.purge,
+        cpcv_params.embargo,
+        matrix.len(),
+        data.days.len(),
+        scored.len()
+    )?;
+    writeln!(
+        file,
+        "# гейты §7: n ≥ {CONFIRM_MIN_N} кругов, G ≥ {G_MIN} суток с кругами, нижняя граница > 0, DSR ≥ {DSR_TARGET}, ёмкость ≥ {GREEN_NET_BPS} bps → ИТОГ: {}",
+        verdict.label()
     )?;
     let mut w = csv::Writer::from_writer(file);
     let mut header = vec![
@@ -378,8 +643,12 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         "stop",
         "deadline_secs",
         "early_exit_secs",
+        "n_signals",
         "n_fills",
-        "net_fill_bps",
+        "days_with_fills",
+        "net_fill_point_bps",
+        "net_fill_lower_bps",
+        "net_per_fill_bps",
         "sharpe",
     ];
     for reason in EXIT_REASONS {
@@ -412,8 +681,12 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
                 Some(x) => x.to_string(),
                 None => "off".to_string(),
             },
+            f.n_signals.to_string(),
             f.n_fills.to_string(),
-            num(f.net_fill_bps),
+            f.days_with_fills.to_string(),
+            num(f.interval.as_ref().map(|i| i.point_bps)),
+            num(f.interval.as_ref().map(|i| i.lower_bps)),
+            num(f.net_per_fill_bps),
             num(f.sharpe),
         ];
         for reason in EXIT_REASONS {
@@ -428,13 +701,21 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
 
     Ok(BounceVerdictSummary {
         forms: forms.len(),
+        symbols: data.symbols.len(),
+        days: data.days.len(),
         trials,
         journal_trials,
         best_form: best.form.clone(),
-        best_net_fill_bps: best.net_fill_bps,
+        best_n_fills: best.n_fills,
+        best_days: best.days_with_fills,
+        best_point_bps: best.interval.as_ref().map(|i| i.point_bps),
+        best_lower_bps: best.interval.as_ref().map(|i| i.lower_bps),
         dsr,
         dsr_at_journal_trials,
         required_sharpe,
+        pbo,
+        cpcv,
+        verdict,
         out: args.out.clone(),
     })
 }

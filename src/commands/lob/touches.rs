@@ -82,6 +82,10 @@ pub struct TouchesArgs {
     /// уровням, отдельно по исходам и по осям В-44.
     #[arg(long)]
     pub numbers: Option<PathBuf>,
+    /// Снять требование маркера сверки `verify-<SYMBOL>.status == ok` (отладочные
+    /// данные; К1 аудита 18.09).
+    #[arg(long, default_value_t = false)]
+    pub allow_unverified: bool,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -150,6 +154,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         [1_000, 10_000],
         "порядок колонок approach_* обязан совпадать с окнами подхода"
     );
+    super::require_verified(&args.root, &args.symbol, args.allow_unverified)?;
     let mode = resolve_h3_mode_with_k(
         &args.root,
         &args.symbol,

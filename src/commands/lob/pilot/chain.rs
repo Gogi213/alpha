@@ -186,6 +186,7 @@ pub(super) fn run_profiles_and_backtest_chain(
             h3_k: None,
             warmup_ms: None,
             repeat_window_ms: None,
+            allow_unverified: false,
         });
         match bt {
             Ok(s) => lines.push(format!(

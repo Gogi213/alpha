@@ -60,10 +60,10 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 813 passed, 0 failed, 5 ignored (2026-09-18, B5; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 820 passed, 0 failed, 5 ignored (2026-09-18, B6; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 22 подкоманды, таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 24 подкоманды, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
@@ -151,10 +151,15 @@ G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **р�
 результат — разборы в `docs/findings/{bounce,trail,ladder,touch-size-axis}-2026-09-13.md`.
 Лот круга — `--order-qty-e9` **или** `--order-qty-from-pool` (`order_size_22a` от полей пула сессии
 и цены последнего касания — Decision 22а); `--trades-out <файл>` пишет покруговой дамп (обе ноги,
-`net_bps`, причина выхода) — вход `lob bounce-verdict` (B5, В-58): по формам сетки `<стоп>-<дедлайн>-<ранний>`
-(`before|at|behind` × `60|600|3600|7200` × `off|1|2|3`) `net_fill` и доли причин выхода, `DSR` лучшей
-формы по числу **испытанных форм** (строки `bounce_form` в `runs.csv`, не все строки журнала);
-сетку гоняет `tools/b5_grid.py`, вердикт — `docs/findings/bounce-verdict-<дата>.csv`.
+`net_bps`, причина выхода) — одна форма для отладки. **Сетка целиком — `lob bounce-grid`** (B6, 2026-09-18):
+все 48 форм `<стоп>-<дедлайн>-<ранний>` (`before|at|behind` × `60|600|3600|7200` × `off|1|2|3`) по
+символам и суткам одним процессом — касания один раз, события посуточно, формы потоками над одним
+буфером (`with_backtest_over`) → `<out-dir>/rounds.csv` + `forms.csv` (ZEC 20 ч: 83 с, пик 1.44 ГБ);
+`tools/b5_grid.py` снят. **K1:** `touches`/`backtest --touches`/`bounce-grid` без маркера
+`verify-<SYMBOL>.status == ok` в корне — отказ/пропуск, снять только `--allow-unverified` (отладка).
+Вердикт — `lob bounce-verdict --grid-dir` (B5, В-58; K2–K4): интервал `net_fill` по суткам, PBO/CPCV
+по матрице форма × сутки, гейты `n ≥ 100`, `G ≥ 7` (иначе «мало данных»), `DSR` по числу **испытанных
+форм** (строки `bounce_form` в `runs.csv`) → `docs/findings/bounce-verdict-<дата>.csv`.
 `lob dashboard` (T41) → `index.html` + `data.json` (сводка: коллектор, монеты) +
 `coin-<SYMBOL>.json` на монету (компактные массивы: середина раз в секунду по всей записи, все полоски
 `[b, d, p, s, o, x, m]`, все касания `[t, p, s, o, a, x, fr, sw, ap, i, d, m]`, времена — смещения от `t0`,
@@ -227,6 +232,16 @@ gaps 0, `connect_failed=0`, `gap_rows_failed=0`, parse p99 102 мкс, queue p99
 раскатка на живой процесс и переезд на сервер — решение владельца, ранбук —
 `docs/COMMANDS.md` («Коллектор на сервере»). Разбор — `docs/findings/binlog-v3-2026-09-13.md`.
 Боевых `profiles-*`/`backtest-*`/`shortlist-*` ещё нет.
+
+**2026-09-18, бэктестер:** найдена и починена гонка отмены/исполнения в единой стратегии
+(`docs/findings/strategy-cancel-race-2026-09-18.md`, фаза `CancelPending`): после истечения входа
+исполненная в гонке заявка зависала без выхода, дальше только «занято» — на ZEC круги шли первые
+~27 минут (309), после правки 1995 за сутки. **Числа T38/B2/B4 от 13.09 считались на этом хвосте и
+вердиктом не являются.** Сетка B5 теперь `lob bounce-grid` (`backtest-speed-2026-09-18.md`: ZEC 20 ч,
+48 форм за 83 с, пик 1.44 ГБ; на отладочных данных все 48 форм отрицательны, −7.6 bps на круг),
+вердикт `lob bounce-verdict --grid-dir` на двух сутках честно печатает «мало данных». Боевой прогон
+сетки (сервер, 100 монет, маркеры `verify`) — **не гонялся**; замечание к интервалу `net_fill`
+(бутстрэп без центрирования) — аудиту, решением владельца.
 
 ## Правила, которые ловят ревью
 

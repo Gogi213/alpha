@@ -18,6 +18,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         moves_window_ms: None,
         moves_bin_ms: None,
         numbers: None,
+        allow_unverified: true,
     }
 }
 

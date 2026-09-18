@@ -53,6 +53,7 @@ use crate::bybit::clock::check_rows;
 pub mod archive;
 pub mod backtest;
 pub mod binlog_stats;
+pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
@@ -80,6 +81,28 @@ pub mod watch;
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
+pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
+
+/// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
+/// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
+/// `bounce-grid` — как `touch-profiles`. `allow` снимает требование только
+/// для отладочных данных; такой прогон в `runs.csv` не идёт.
+pub(crate) fn require_verified(
+    root: &std::path::Path,
+    symbol: &str,
+    allow: bool,
+) -> anyhow::Result<()> {
+    if allow {
+        return Ok(());
+    }
+    let marker = root.join(format!("verify-{symbol}.status"));
+    anyhow::ensure!(
+        profiles::read_verify_marker(&marker),
+        "{}: маркер сверки не `ok` — сутки не проверены (fail-closed, В-56; К1 аудита 18.09);          для отладочных данных — --allow-unverified",
+        marker.display()
+    );
+    Ok(())
+}
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
@@ -177,6 +200,9 @@ pub enum LobCommand {
     /// Прогон-вердикт базовой сетки форм отскока (B5, В-58): покруговые дампы
     /// `--trades-out` → `net_fill`, Шарп и доли причин по форме, `DSR` лучшей
     /// формы по числу испытаний журнала.
+    /// Вся сетка форм В-58 (48) по символам и суткам одним процессом: касания
+    /// один раз, события посуточно, формы потоками (B6; K1/K2/K4 аудита 18.09).
+    BounceGrid(BounceGridArgs),
     BounceVerdict(BounceVerdictArgs),
     /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
     /// невиденных данных — третий из трёх артефактов задачи (таск 12,
@@ -432,27 +458,44 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        LobCommand::BounceVerdict(args) => {
-            let summary = run_bounce_verdict(&args)?;
+        LobCommand::BounceGrid(args) => {
+            let s = run_bounce_grid(&args)?;
             println!(
-                "bounce-verdict: forms={} trials={} journal_trials={} best={} net_fill={} dsr={} required_sharpe={} out={}",
-                summary.forms,
-                summary.trials,
-                summary.journal_trials,
-                summary.best_form,
-                match summary.best_net_fill_bps {
-                    Some(v) => format!("{v:.6}"),
-                    None => "—".to_string(),
-                },
-                match summary.dsr {
-                    Some(v) => format!("{v:.6}"),
-                    None => "—".to_string(),
-                },
-                match summary.required_sharpe {
-                    Some(v) => format!("{v:.6}"),
-                    None => "—".to_string(),
-                },
-                summary.out.display()
+                "bounce-grid: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
+                s.forms,
+                s.symbols_done,
+                s.symbols_skipped_unverified,
+                s.symbols_without_touches,
+                s.symbol_days,
+                s.rounds,
+                s.rounds_path.display(),
+                s.forms_path.display()
+            );
+            Ok(())
+        }
+        LobCommand::BounceVerdict(args) => {
+            let s = run_bounce_verdict(&args)?;
+            let num = |v: Option<f64>| match v {
+                Some(x) => format!("{x:.6}"),
+                None => "—".to_string(),
+            };
+            println!(
+                "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} · net_fill точка={} нижняя={} bps · DSR={} · PBO={} · CPCV={} · {}",
+                s.verdict.label(),
+                s.forms,
+                s.symbols,
+                s.days,
+                s.trials,
+                s.journal_trials,
+                s.best_form,
+                s.best_n_fills,
+                s.best_days,
+                num(s.best_point_bps),
+                num(s.best_lower_bps),
+                num(s.dsr),
+                num(s.pbo),
+                num(s.cpcv),
+                s.out.display()
             );
             Ok(())
         }

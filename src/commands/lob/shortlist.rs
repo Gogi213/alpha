@@ -681,14 +681,14 @@ fn pbo_of_matrix(m: &TrialDayMatrix) -> (Option<f64>, Option<String>) {
 /// выбирает профиль вердикта: лучший по среднему `net` на предъявленных
 /// сутках. Печатается в шапке рядом с числом, чтобы «процедура отбора» в
 /// отчёте была названа, а не подразумевалась.
-const CPCV_SELECTION_RULE: &str = "лучший по среднему net на IS-сутках";
+pub(crate) const CPCV_SELECTION_RULE: &str = "лучший по среднему net на IS-сутках";
 
 /// Само правило: индекс лучшей строки матрицы по среднему `net` на
 /// поданных периодах. `Confirmed` шорт-листа добавляет к тому же
 /// сравнению пороги `n`/`G`, которых суточная матрица не несёт по
 /// построению (в ней только `net`), — это единственное расхождение, и оно
 /// сужает не выбор, а множество, из которого он делается.
-fn select_best_mean_net(trials: &[Vec<f64>], is_periods: &[usize]) -> Option<usize> {
+pub(crate) fn select_best_mean_net(trials: &[Vec<f64>], is_periods: &[usize]) -> Option<usize> {
     let mut best: Option<(usize, f64)> = None;
     for (i, row) in trials.iter().enumerate() {
         let vals: Vec<f64> = is_periods

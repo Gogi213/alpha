@@ -508,6 +508,7 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         misses: Default::default(),
         observations: Vec::new(),
         incomplete: false,
+        residual_flattened: 0,
     }
 }
 
@@ -650,5 +651,6 @@ fn minimal_backtest_args() -> BacktestArgs {
         h3_k: None,
         warmup_ms: None,
         repeat_window_ms: None,
+        allow_unverified: true,
     }
 }
