@@ -457,6 +457,18 @@ pub struct TouchRecord {
     /// начала не дальше `DISTANCE_MAX_BPS` от цены уровня (включая сам
     /// уровень; В-45).
     pub stack_levels: u32,
+    /// Цена (тик) ближайшей живой плотности той же стороны **за** уровнем
+    /// (для бида — ниже) в том же окне и по тому же правилу, что `stack_levels`
+    /// — «вторая плотность завала»: стоп практиков «за первую-вторую
+    /// плотность» [D 13:41] ставится за неё (E6 базы, В-64). `None` — за
+    /// уровнем в окне никого.
+    pub stack_next_tick: Option<i64>,
+    /// Объём сделок против уровня за первые 1 / 2 / 3 с касания (лоты;
+    /// `REACTION_WINDOWS_S`), окно реакции практиков: агрессия сразу после
+    /// касания → пробой, тишина → отскок [K 44:53; N 1:27:16] (E4 базы). Если
+    /// касание кончилось раньше окна — объём до конца касания (см.
+    /// `duration_ms`).
+    pub traded_first_s: [i64; REACTION_WINDOWS_S.len()],
     /// Сила «×соседи» на кадре старта касания для окон `STRENGTH_WINDOWS_BPS`,
     /// проценты × 100; `-1` — соседей в окне не было (ось исследования порога
     /// В-61, 2026-09-18).
@@ -562,6 +574,11 @@ struct Touch {
     window_ticks: i64,
     traded_at_start: i64,
     stack: u32,
+    /// Вторая плотность завала (см. `TouchRecord::stack_next_tick`).
+    stack_next_tick: Option<i64>,
+    /// Объём против уровня за первые окна `REACTION_WINDOWS_S` касания —
+    /// копится в `observe_trade` по метке исполнения.
+    traded_first_s: [i64; REACTION_WINDOWS_S.len()],
     /// Уровень в этом кадре перестал быть лучшей ценой: конец касания ждёт
     /// свипа — смерть в том же кадре имеет приоритет.
     end_pending: bool,
@@ -687,6 +704,7 @@ impl Live {
 struct Touched {
     key: (u8, i64),
     stack: u32,
+    stack_next_tick: Option<i64>,
 }
 
 /// Трекер уровней. Состояние между кадрами — две карты с предвыделенными
@@ -708,6 +726,10 @@ pub const STRENGTH_WINDOWS_BPS: [i64; 3] = [10, 20, 50];
 /// `STRENGTH_HELD_WINDOWS_S` («сила держалась всё окно»); уровень моложе `T`
 /// — `-1`. Ось исследования, как `STRENGTH_WINDOWS_BPS`.
 pub const STRENGTH_HELD_WINDOWS_S: [i64; 4] = [1, 5, 15, 60];
+
+/// Окна реакции после касания, секунды (E4 базы отскока: «1–3 с» из
+/// транскрипций [K 44:53; N 1:27:16; A 17:06]) — `TouchRecord::traded_first_s`.
+pub const REACTION_WINDOWS_S: [i64; 3] = [1, 2, 3];
 pub const STRENGTH_SAMPLE_MS: i64 = HORIZONS_MS[1];
 pub const STRENGTH_HIST_SLOTS: usize = 64;
 /// Окно соседей истории силы — среднее из `STRENGTH_WINDOWS_BPS`.
@@ -796,7 +818,7 @@ fn touch_record(
     lv: &Live,
     t: Touch,
     end_ms: i64,
-    stack: u32,
+    stack: (u32, Option<i64>),
     ended_by_death: bool,
 ) -> TouchRecord {
     TouchRecord {
@@ -815,7 +837,9 @@ fn touch_record(
         swept_lots: t.swept,
         round_zeros: round_zeros(key.1),
         ended_by_death,
-        stack_levels: stack,
+        stack_levels: stack.0,
+        stack_next_tick: stack.1,
+        traded_first_s: t.traded_first_s,
         strength_e2: t.strength_e2,
         strength_held_e2: t.strength_held_e2,
         repeat_count: t.repeat_count,
@@ -1011,6 +1035,8 @@ impl LevelTracker {
                                 window_ticks: stack_window_ticks(ob.tick),
                                 traded_at_start: lv.traded,
                                 stack: 0,
+                                stack_next_tick: None,
+                                traded_first_s: [0; REACTION_WINDOWS_S.len()],
                                 end_pending: false,
                                 strength_e2: std::array::from_fn(|k| {
                                     neighbour_strength_e2(
@@ -1029,14 +1055,22 @@ impl LevelTracker {
                                 }),
                                 repeat_count: lv.repeat,
                             });
-                            self.touched.push(Touched { key, stack: 0 });
+                            self.touched.push(Touched {
+                                key,
+                                stack: 0,
+                                stack_next_tick: None,
+                            });
                         }
                         (Some(t), _, false) => {
                             // Конец, отложенный до свипа, разрешается в том же
                             // кадре — второго ожидающего конца не бывает.
                             debug_assert!(!t.end_pending);
                             t.end_pending = true;
-                            self.touched.push(Touched { key, stack: 0 });
+                            self.touched.push(Touched {
+                                key,
+                                stack: 0,
+                                stack_next_tick: None,
+                            });
                         }
                         (None, false, _) | (Some(_), _, true) => {}
                     }
@@ -1115,15 +1149,28 @@ impl LevelTracker {
             let lo = tk.key.1.saturating_sub(t.window_ticks);
             let hi = tk.key.1.saturating_add(t.window_ticks);
             let mut n: u32 = 0;
+            // Ближайшая плотность **за** уровнем (бид — ниже, аск — выше):
+            // обход по возрастанию тика, для бида берётся последняя ниже
+            // цены, для аска — первая выше.
+            let mut next_behind: Option<i64> = None;
             for ((_, lv_tick), lv) in live.range((s, lo)..=(s, hi)) {
                 let dying = lv.seen_frame != frame
                     || !lv.seen_top50
                     || below_fraction(lv.seen_size, lv.max);
                 if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
                     n = n.saturating_add(1);
+                    let behind = if s == side_key(Side::Bid) {
+                        *lv_tick < tk.key.1
+                    } else {
+                        *lv_tick > tk.key.1 && next_behind.is_none()
+                    };
+                    if behind {
+                        next_behind = Some(*lv_tick);
+                    }
                 }
             }
             tk.stack = n;
+            tk.stack_next_tick = next_behind;
         }
         let newborns = &self.newborns;
         let touched = &self.touched;
@@ -1153,9 +1200,11 @@ impl LevelTracker {
                     touched
                         .iter()
                         .find(|tk| tk.key == (ks, tick))
-                        .map_or(t.stack, |tk| tk.stack)
+                        .map_or((t.stack, t.stack_next_tick), |tk| {
+                            (tk.stack, tk.stack_next_tick)
+                        })
                 } else {
-                    t.stack
+                    (t.stack, t.stack_next_tick)
                 };
                 touches.push(touch_record((ks, tick), &lv, t, ts_ms, stack, true));
             }
@@ -1199,11 +1248,19 @@ impl LevelTracker {
             };
             if t.start_frame == frame {
                 t.stack = tk.stack;
+                t.stack_next_tick = tk.stack_next_tick;
             }
             if t.end_pending {
                 let t = *t;
                 if lv.birth_ms >= warm_end {
-                    touches.push(touch_record(key, lv, t, ts_ms, t.stack, false));
+                    touches.push(touch_record(
+                        key,
+                        lv,
+                        t,
+                        ts_ms,
+                        (t.stack, t.stack_next_tick),
+                        false,
+                    ));
                 }
                 lv.touch = None;
                 lv.touch_index = lv.touch_index.saturating_add(1);
@@ -1230,6 +1287,16 @@ impl LevelTracker {
                 lv.rpi = lv.rpi.saturating_add(tr.lots);
             } else {
                 lv.traded = lv.traded.saturating_add(tr.lots);
+                // Окно реакции (E4): объём в первые секунды идущего касания —
+                // по метке исполнения относительно старта касания.
+                if let Some(t) = &mut lv.touch {
+                    let since_ms = tr.exch_ms.saturating_sub(t.start_ms);
+                    for (k, w) in REACTION_WINDOWS_S.iter().enumerate() {
+                        if since_ms >= 0 && since_ms < w.saturating_mul(1_000) {
+                            t.traded_first_s[k] = t.traded_first_s[k].saturating_add(tr.lots);
+                        }
+                    }
+                }
             }
         }
     }

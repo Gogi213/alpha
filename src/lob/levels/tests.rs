@@ -634,6 +634,8 @@ fn touch_rec(
         round_zeros: round_zeros(tick),
         ended_by_death,
         stack_levels: stack,
+        stack_next_tick: None,
+        traded_first_s: [0; 3],
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,
@@ -802,6 +804,9 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             round_zeros: 2,
             ended_by_death: false,
             stack_levels: 1,
+            stack_next_tick: None,
+            // Сделка на 4 лота легла в первую секунду касания — во всех трёх окнах.
+            traded_first_s: [4, 4, 4],
             // Окно 50 bps от тика 200 — один тик: сосед 199 (фронтран, 3 лота) даёт 15/3 = 500 %.
             strength_e2: [-1, -1, 50_000],
             strength_held_e2: [-1, -1, -1, -1],

@@ -105,7 +105,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 52;
+const TOUCHES_WIDTH: usize = 56;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -178,6 +178,13 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "favour_600s_bps",
     "favour_3600s_bps",
     "favour_7200s_bps",
+    // База отскока (В-64): вторая плотность завала — тик ближайшей живой
+    // плотности за уровнем в окне стека (E6, стоп «за первую-вторую»); объём
+    // против уровня за первые 1/2/3 с касания (E4, окно реакции), лоты.
+    "stack_next_tick",
+    "traded_1s",
+    "traded_2s",
+    "traded_3s",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -320,6 +327,10 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 some_or_empty(excursion[1].map(|e| e.favour_bps)),
                 some_or_empty(excursion[2].map(|e| e.favour_bps)),
                 some_or_empty(excursion[3].map(|e| e.favour_bps)),
+                t.stack_next_tick.map_or(String::new(), |v| v.to_string()),
+                t.traded_first_s[0].to_string(),
+                t.traded_first_s[1].to_string(),
+                t.traded_first_s[2].to_string(),
             ];
             w.write_record(row)?;
             n += 1;
