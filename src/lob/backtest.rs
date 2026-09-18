@@ -48,9 +48,13 @@ use hftbacktest::backtest::data::{Data, DataPtr};
 use hftbacktest::backtest::models::{
     CommonFees, ConstantLatency, RiskAdverseQueueModel, TradingValueFeeModel,
 };
+use hftbacktest::backtest::BacktestError;
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
-use hftbacktest::depth::{HashMapMarketDepth, MarketDepth};
-use hftbacktest::types::{Bot, ElapseResult, Event, OrdType, Side as HbtSide, Status, TimeInForce};
+use hftbacktest::depth::{HashMapMarketDepth, L2MarketDepth, MarketDepth};
+use hftbacktest::types::{
+    Bot, ElapseResult, Event, OrdType, Side as HbtSide, Status, TimeInForce, EXCH_BID_DEPTH_EVENT,
+    LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
+};
 
 use crate::lob::costs::{
     fill_rate, format_fill_column, net_fill_bps, net_fill_interval, FillObservation,
@@ -782,6 +786,9 @@ pub struct BounceRun {
     pub fill_signal: Vec<usize>,
     /// Причина выхода каждого круга, параллельно `fills`.
     pub fill_reason: Vec<ExitReason>,
+    /// Время исполнения выхода каждого круга (нс биржи): из него считается
+    /// покрытие суток кругами — доля времени, где биржа вообще нужна.
+    pub fill_exit_ns: Vec<i64>,
     pub exits: ExitTally,
     /// Сколько входных ордеров биржа **отвергла** (статус `Rejected`) — прямой
     /// замер вместо догадки о причине неисполнения.
@@ -921,19 +928,175 @@ where
     }
 }
 
-/// Прогон сделки-отскока по сигналам **одного** профиля касаний: план у
-/// каждого сигнала свой (цены считает уровень, не движок). Возвращает круги,
-/// промахи по причинам и число выходов по каждой причине — из этого CLI
-/// собирает `n_filled`/`fill`/`net_fill` и `n_stop`/`n_take`/`n_timeout`.
-pub fn drive_bounce<B, MD>(
+/// Шаг драйвера на одном сигнале — всё, что требует движка: часы к `t0`,
+/// проверка позиции, вход, круг, страховка остатка. Общий для сплошного
+/// прогона (`drive_bounce`) и прогона по сетапам (`drive_bounce_windowed`):
+/// различие только в том, откуда берётся движок, — иначе это была бы вторая
+/// стратегия.
+enum SignalStep {
+    /// Часы не дошли до `t0`: запись кончилась.
+    EndOfData,
+    /// В `t0` позиция уже открыта.
+    Busy,
+    /// Книга не была готова в момент касания — попытки не было.
+    NotSubmitted { idle_ns: i64 },
+    Submitted {
+        crossed: bool,
+        spread: Option<f64>,
+        outcome: RoundOutcome,
+        /// `Some(ended)` — остаток позиции закрывали по рынку; `ended` —
+        /// запись кончилась в процессе.
+        residual: Option<bool>,
+        /// Часы стороны в момент, когда стратегия снова `Idle` (граница
+        /// шага опроса после выхода или подтверждённой отмены): до него
+        /// форма **занята** для любого сигнала.
+        idle_ns: i64,
+    },
+}
+
+fn drive_signal<B, MD>(
     bot: &mut B,
+    asset_no: usize,
+    sig: &BounceSignal,
+    cfg: &DriveConfig,
+    next_id: &mut u64,
+) -> Result<SignalStep, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let now = bot.current_timestamp();
+    if sig.t0_ns > now && bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
+        return Ok(SignalStep::EndOfData);
+    }
+    if bot.position(asset_no) != 0.0 {
+        // Тот же пропуск «позиция занята», но пойманный по факту открытой
+        // позиции, а не по `blocked_until_ns` (он короче жизни позиции:
+        // момент выхода не равен времени закрытия). В отчёт идут оба.
+        return Ok(SignalStep::Busy);
+    }
+
+    let mut state =
+        StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, *next_id, sig.plan);
+    *next_id = next_id.saturating_add(4);
+
+    let (entry_id, side) = match on_event(bot, &mut state)? {
+        Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
+        _ => {
+            return Ok(SignalStep::NotSubmitted {
+                idle_ns: bot.current_timestamp(),
+            })
+        }
+    };
+    // Замер механизма отказа (таск 38): в момент отправки входа смотрим,
+    // пересекает ли его цена спред и каков спред. Пост-онли такую заявку
+    // отвергает, обычный лимит — исполняет как тейкер.
+    let mut crossed = false;
+    let mut spread = None;
+    if let TradePlan::Bounce { entry_px, .. } = sig.plan {
+        let d = bot.depth(asset_no);
+        let (bid, ask) = (d.best_bid(), d.best_ask());
+        if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
+            crossed = match side {
+                HbtSide::Buy => ask <= entry_px,
+                _ => bid >= entry_px,
+            };
+            spread = Some(ask - bid);
+        }
+    }
+
+    let outcome = run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)?;
+    if matches!(outcome, RoundOutcome::EndOfData) {
+        return Ok(SignalStep::Submitted {
+            crossed,
+            spread,
+            outcome,
+            residual: None,
+            idle_ns: bot.current_timestamp(),
+        });
+    }
+    // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
+    // `Inconsistent`) — закрыть по рынку и посчитать, иначе все дальнейшие
+    // сигналы молча «заняты» и остаток суток не считается вовсе.
+    let mut residual = None;
+    if bot.position(asset_no) != 0.0 {
+        let mut ended = false;
+        while bot.position(asset_no) != 0.0 {
+            let id = *next_id;
+            *next_id = next_id.saturating_add(1);
+            match flatten_residual(bot, asset_no, id)? {
+                FlattenOutcome::Flat => break,
+                FlattenOutcome::Retry => continue,
+                FlattenOutcome::EndOfData => {
+                    ended = true;
+                    break;
+                }
+            }
+        }
+        residual = Some(ended);
+        if ended {
+            return Ok(SignalStep::Submitted {
+                crossed,
+                spread,
+                outcome,
+                residual,
+                idle_ns: bot.current_timestamp(),
+            });
+        }
+    }
+    bot.clear_inactive_orders(Some(asset_no));
+    Ok(SignalStep::Submitted {
+        crossed,
+        spread,
+        outcome,
+        residual,
+        idle_ns: bot.current_timestamp(),
+    })
+}
+
+impl BounceRun {
+    /// Прогон, который не сделал ни шага: запись кончилась до первого сигнала.
+    fn nothing(profile: u16, signals: u64) -> Self {
+        BounceRun {
+            profile,
+            signals,
+            fills: Vec::new(),
+            fill_signal: Vec::new(),
+            fill_reason: Vec::new(),
+            fill_exit_ns: Vec::new(),
+            exits: ExitTally::default(),
+            entry_rejected: 0,
+            entry_crossed: 0,
+            spread_at_entry: Vec::new(),
+            submitted_signal: Vec::new(),
+            busy_signal: Vec::new(),
+            busy_wait_ns_max: 0,
+            round_ns_max: 0,
+            misses: MissLedger::default(),
+            observations: Vec::new(),
+            incomplete: true,
+            residual_flattened: 0,
+        }
+    }
+}
+
+/// Цикл по сигналам, общий для обоих драйверов. `source(sig, step)` даёт шагу
+/// движок и возвращает его результат; `None` — для сигнала нет данных (там,
+/// где сплошной прогон упёрся бы в конец записи). Учёт кругов, промахов и
+/// причин выхода — здесь, движка он не касается.
+fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
+    mut source: S,
 ) -> Result<BounceRun, B::Error>
 where
     B: Bot<MD>,
     MD: MarketDepth,
+    S: FnMut(
+        &BounceSignal,
+        &mut dyn FnMut(&mut B) -> Result<SignalStep, B::Error>,
+    ) -> Result<Option<SignalStep>, B::Error>,
 {
     let mut order: Vec<BounceSignal> = signals.to_vec();
     order.sort_by_key(|s| s.t0_ns);
@@ -951,10 +1114,17 @@ where
     let mut round_ns_max: i64 = 0;
     let mut fill_signal: Vec<usize> = Vec::new();
     let mut fill_reason: Vec<ExitReason> = Vec::new();
+    let mut fill_exit_ns: Vec<i64> = Vec::new();
     let mut next_id = cfg.first_order_id;
     let mut incomplete = false;
     let mut residual_flattened: u64 = 0;
-    let mut blocked_until_ns: i64 = i64::MIN;
+    // Форма занята, пока стратегия не вернулась в `Idle` после предыдущего
+    // сигнала (выход подтверждён или отмена входа подтверждена). Раньше
+    // занятость считалась только до `exit_ts` исполненного круга, а сигнал в
+    // хвосте круга или во время таймаута входа стартовал **с опозданием** —
+    // в момент освобождения, по устаревшему касанию (артефакт драйвера,
+    // 2026-09-18); теперь такой сигнал — промах «занято» в обоих драйверах.
+    let mut idle_ns: i64 = i64::MIN;
 
     let miss_observation = |t0_ns: i64| FillObservation {
         day_cluster: day_index_ns(t0_ns),
@@ -962,151 +1132,103 @@ where
         filled: false,
     };
 
-    if bot.elapse(0)? == ElapseResult::EndOfData {
-        return Ok(BounceRun {
-            profile,
-            signals: order.len() as u64,
-            fills,
-            fill_signal: Vec::new(),
-            fill_reason: Vec::new(),
-            exits,
-            entry_rejected,
-            entry_crossed,
-            spread_at_entry: Vec::new(),
-            submitted_signal: Vec::new(),
-            busy_signal: Vec::new(),
-            busy_wait_ns_max: 0,
-            round_ns_max: 0,
-            misses,
-            observations,
-            incomplete: true,
-            residual_flattened: 0,
-        });
-    }
-
     for (sig_idx, sig) in order.iter().enumerate() {
         if entry_side(sig.sigma).is_none() {
             continue;
         }
-        if sig.t0_ns < blocked_until_ns {
+        if sig.t0_ns < idle_ns {
             busy_signal.push(sig_idx);
-            busy_wait_ns_max = busy_wait_ns_max.max(blocked_until_ns.saturating_sub(sig.t0_ns));
+            busy_wait_ns_max = busy_wait_ns_max.max(idle_ns.saturating_sub(sig.t0_ns));
             misses.record(MissReason::PositionBusy);
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
-        let now = bot.current_timestamp();
-        if sig.t0_ns > now && bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
+        let step = source(sig, &mut |bot: &mut B| {
+            drive_signal(bot, asset_no, sig, cfg, &mut next_id)
+        })?;
+        let Some(step) = step else {
             incomplete = true;
             break;
-        }
-        if bot.position(asset_no) != 0.0 {
-            // Тот же пропуск «позиция занята», но пойманный по факту открытой
-            // позиции, а не по `blocked_until_ns` (он короче жизни позиции:
-            // момент выхода не равен времени закрытия). В отчёт идут оба.
-            busy_signal.push(sig_idx);
-            misses.record(MissReason::PositionBusy);
-            observations.push(miss_observation(sig.t0_ns));
-            continue;
-        }
-
-        let mut state =
-            StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, next_id, sig.plan);
-        next_id = next_id.saturating_add(4);
-
-        let (entry_id, side) = match on_event(bot, &mut state)? {
-            Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
-            _ => {
-                // Книга не была готова в момент касания — попытки не было.
-                misses.record(MissReason::EntryTimeout);
-                observations.push(miss_observation(sig.t0_ns));
-                continue;
-            }
         };
-        // Замер механизма отказа (таск 38): в момент отправки входа смотрим,
-        // пересекает ли его цена спред и каков спред. Пост-онли такую заявку
-        // отвергает, обычный лимит — исполняет как тейкер.
-        submitted_signal.push(sig_idx);
-        if let TradePlan::Bounce { entry_px, .. } = sig.plan {
-            let d = bot.depth(asset_no);
-            let (bid, ask) = (d.best_bid(), d.best_ask());
-            if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
-                let crosses = match side {
-                    HbtSide::Buy => ask <= entry_px,
-                    _ => bid >= entry_px,
-                };
-                if crosses {
-                    entry_crossed = entry_crossed.saturating_add(1);
-                }
-                spread_at_entry.push(ask - bid);
-            }
-        }
-
-        match run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)? {
-            RoundOutcome::EndOfData => {
+        match step {
+            SignalStep::EndOfData => {
                 incomplete = true;
                 break;
             }
-            RoundOutcome::Inconsistent => incomplete = true,
-            RoundOutcome::TimedOut { entry_status } => {
-                if matches!(entry_status, Some(Status::Rejected)) {
-                    entry_rejected = entry_rejected.saturating_add(1);
-                }
+            SignalStep::Busy => {
+                busy_signal.push(sig_idx);
+                misses.record(MissReason::PositionBusy);
+                observations.push(miss_observation(sig.t0_ns));
+            }
+            SignalStep::NotSubmitted { idle_ns: idle } => {
+                idle_ns = idle;
                 misses.record(MissReason::EntryTimeout);
                 observations.push(miss_observation(sig.t0_ns));
             }
-            RoundOutcome::Filled {
-                fill,
-                exit_ts,
-                reason,
+            SignalStep::Submitted {
+                crossed,
+                spread,
+                outcome,
+                residual,
+                idle_ns: idle,
             } => {
-                match reason {
-                    ExitReason::Take => exits.take += 1,
-                    ExitReason::Stop => exits.stop += 1,
-                    ExitReason::Deadline => exits.deadline += 1,
-                    ExitReason::Horizon => exits.horizon += 1,
-                    ExitReason::Trail => exits.trail += 1,
-                    ExitReason::Early => exits.early += 1,
+                idle_ns = idle;
+                submitted_signal.push(sig_idx);
+                if crossed {
+                    entry_crossed = entry_crossed.saturating_add(1);
                 }
-                let net = roundtrip_net_bps(&fill);
-                observations.push(FillObservation {
-                    day_cluster: day_index_ns(sig.t0_ns),
-                    net_bps: net.unwrap_or(0.0),
-                    filled: net.is_some(),
-                });
-                fills.push(fill);
-                fill_signal.push(sig_idx);
-                fill_reason.push(reason);
-                round_ns_max = round_ns_max.max(exit_ts.saturating_sub(sig.t0_ns));
-                blocked_until_ns = exit_ts;
-            }
-        }
-        // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
-        // `Inconsistent`) — закрыть по рынку и посчитать, иначе все дальнейшие
-        // сигналы молча «заняты» и остаток суток не считается вовсе.
-        if bot.position(asset_no) != 0.0 {
-            residual_flattened = residual_flattened.saturating_add(1);
-            incomplete = true;
-            let mut ended = false;
-            while bot.position(asset_no) != 0.0 {
-                let id = next_id;
-                next_id = next_id.saturating_add(1);
-                match flatten_residual(bot, asset_no, id)? {
-                    FlattenOutcome::Flat => break,
-                    FlattenOutcome::Retry => continue,
-                    FlattenOutcome::EndOfData => {
-                        ended = true;
+                if let Some(s) = spread {
+                    spread_at_entry.push(s);
+                }
+                match outcome {
+                    RoundOutcome::EndOfData => {
+                        incomplete = true;
+                        break;
+                    }
+                    RoundOutcome::Inconsistent => incomplete = true,
+                    RoundOutcome::TimedOut { entry_status } => {
+                        if matches!(entry_status, Some(Status::Rejected)) {
+                            entry_rejected = entry_rejected.saturating_add(1);
+                        }
+                        misses.record(MissReason::EntryTimeout);
+                        observations.push(miss_observation(sig.t0_ns));
+                    }
+                    RoundOutcome::Filled {
+                        fill,
+                        exit_ts,
+                        reason,
+                    } => {
+                        match reason {
+                            ExitReason::Take => exits.take += 1,
+                            ExitReason::Stop => exits.stop += 1,
+                            ExitReason::Deadline => exits.deadline += 1,
+                            ExitReason::Horizon => exits.horizon += 1,
+                            ExitReason::Trail => exits.trail += 1,
+                            ExitReason::Early => exits.early += 1,
+                        }
+                        let net = roundtrip_net_bps(&fill);
+                        observations.push(FillObservation {
+                            day_cluster: day_index_ns(sig.t0_ns),
+                            net_bps: net.unwrap_or(0.0),
+                            filled: net.is_some(),
+                        });
+                        fills.push(fill);
+                        fill_signal.push(sig_idx);
+                        fill_reason.push(reason);
+                        fill_exit_ns.push(exit_ts);
+                        round_ns_max = round_ns_max.max(exit_ts.saturating_sub(sig.t0_ns));
+                    }
+                }
+                if let Some(ended) = residual {
+                    residual_flattened = residual_flattened.saturating_add(1);
+                    incomplete = true;
+                    if ended {
                         break;
                     }
                 }
             }
-            if ended {
-                break;
-            }
         }
-        bot.clear_inactive_orders(Some(asset_no));
     }
-    bot.clear_inactive_orders(Some(asset_no));
 
     Ok(BounceRun {
         profile,
@@ -1114,6 +1236,7 @@ where
         fills,
         fill_signal,
         fill_reason,
+        fill_exit_ns,
         exits,
         entry_rejected,
         entry_crossed,
@@ -1127,6 +1250,86 @@ where
         incomplete,
         residual_flattened,
     })
+}
+
+/// Прогон сделки-отскока по сигналам **одного** профиля касаний: план у
+/// каждого сигнала свой (цены считает уровень, не движок). Возвращает круги,
+/// промахи по причинам и число выходов по каждой причине — из этого CLI
+/// собирает `n_filled`/`fill`/`net_fill` и `n_stop`/`n_take`/`n_timeout`.
+///
+/// Это **сплошной** прогон: один движок на всю запись, между сигналами он
+/// применяет к книге все события. Для сетки форм есть `drive_bounce_windowed`
+/// — тот же цикл, движок только внутри кругов; сплошной остаётся эталоном
+/// (гейт «побайтово те же круги», `lob bounce-grid --driver full`).
+pub fn drive_bounce<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    signals: &[BounceSignal],
+    cfg: &DriveConfig,
+) -> Result<BounceRun, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    if bot.elapse(0)? == ElapseResult::EndOfData {
+        let profile = signals.first().map(|s| s.profile).unwrap_or(0);
+        return Ok(BounceRun::nothing(profile, signals.len() as u64));
+    }
+    let run = drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, |_, step| step(bot).map(Some))?;
+    bot.clear_inactive_orders(Some(asset_no));
+    Ok(run)
+}
+
+/// Прогон **по сетапам** (решение владельца 2026-09-18: «биржа только в
+/// сетапах, ничего вхолостую»): движок живёт от касания до конца круга. На
+/// сигнал строится `Backtest` над снимком книги в `t0` (`SignalWindows`,
+/// одна книга на все формы) и событиями дальше — без копии; между сигналами
+/// биржа не работает вовсе, и цена суток определяется числом касаний и
+/// длиной кругов, а не числом событий в стакане.
+///
+/// Точность: снимок — та же `HashMapMarketDepth` крейта после тех же строк
+/// (обе метки `<= t0`, см. `SignalWindows`), со всеми полями лучших/крайних
+/// тиков, один на обе стороны движка; строки с одной меткой за `t0` каждая
+/// сторона доберёт из среза сама по разу, как и в сплошном прогоне; часы
+/// окна прибиты к `t0` строкой-якорем. Гейт — побайтово те же круги, что у
+/// `drive_bounce` (тест и `--driver full`).
+pub fn drive_bounce_windowed(
+    events: &[Event],
+    windows: &SignalWindows,
+    signals: &[BounceSignal],
+    cfg: &DriveConfig,
+    exec_rtt_ns: i64,
+) -> Result<BounceRun, BacktestError> {
+    drive_bounce_with::<Backtest<HashMapMarketDepth>, HashMapMarketDepth, _>(
+        0,
+        signals,
+        cfg,
+        |sig, step| {
+            let Some(w) = windows.window_at(sig.t0_ns) else {
+                return Ok(None);
+            };
+            if w.start >= events.len() {
+                // Строк после `t0` нет — сплошной прогон здесь упёрся бы в
+                // конец записи, не дойдя до сигнала.
+                return Ok(None);
+            }
+            with_backtest_over_window(
+                &w.depth,
+                sig.t0_ns,
+                &events[w.start..],
+                windows.tick_size,
+                windows.lot_size,
+                exec_rtt_ns,
+                |bt| {
+                    if bt.elapse(0)? == ElapseResult::EndOfData {
+                        return Ok(SignalStep::EndOfData);
+                    }
+                    step(bt)
+                },
+            )
+            .map(Some)
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1219,7 +1422,11 @@ pub fn build_backtest(
     lot_size: f64,
     exec_rtt_ns: i64,
 ) -> Backtest<HashMapMarketDepth> {
-    build_backtest_from(Data::from_data(events), tick_size, lot_size, exec_rtt_ns)
+    build_backtest_from(
+        vec![DataSource::Data(Data::from_data(events))],
+        exec_rtt_ns,
+        move || HashMapMarketDepth::new(tick_size, lot_size),
+    )
 }
 
 /// Тот же движок, что `build_backtest`, но события **не копируются**: `Backtest`
@@ -1241,31 +1448,215 @@ pub fn with_backtest_over<R>(
     exec_rtt_ns: i64,
     f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
 ) -> R {
+    // SAFETY: см. док выше — буфер жив до конца функции, крейт только читает.
+    let data = unsafe { borrowed_data(events) };
+    let mut bt = build_backtest_from(vec![DataSource::Data(data)], exec_rtt_ns, move || {
+        HashMapMarketDepth::new(tick_size, lot_size)
+    });
+    let out = f(&mut bt);
+    drop(bt);
+    out
+}
+
+/// `Data` крейта поверх чужого среза без копии.
+///
+/// # Safety
+/// `events` обязан пережить всё, что читает возвращённый `Data` (крейт его не
+/// освобождает: `managed = false`, и не пишет — `IndexMut` в `backtest/` не
+/// вызывается).
+unsafe fn borrowed_data(events: &[Event]) -> Data<Event> {
     let bytes = std::ptr::slice_from_raw_parts_mut(
         events.as_ptr() as *mut u8,
         std::mem::size_of_val(events),
     );
-    // SAFETY: буфер жив до конца функции (заём `events`), а `Backtest`
-    // умирает раньше — на `drop(bt)` ниже; крейт по этому указателю только
-    // читает и не освобождает его (`managed = false`), см. док выше.
-    let data = unsafe { Data::from_data_ptr(DataPtr::from_ptr(bytes), 0) };
-    let mut bt = build_backtest_from(data, tick_size, lot_size, exec_rtt_ns);
+    unsafe { Data::from_data_ptr(DataPtr::from_ptr(bytes), 0) }
+}
+
+/// Снимок `HashMapMarketDepth` крейта в момент `t0`: уровни и **все** поля
+/// лучших/крайних тиков. Из него фабрика `depth` строителя собирает книгу
+/// обеих сторон движка окна ровно той формы, что была бы у сплошного прогона
+/// после тех же строк (перекрещённые «спрятанные» уровни и границы поиска
+/// лучшей цены — тоже; пересобирать книгу событиями нельзя: порядок их
+/// применения меняет, какая сторона окажется спрятана).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DepthSnapshot {
+    pub bids: Vec<(i64, f64)>,
+    pub asks: Vec<(i64, f64)>,
+    pub best_bid_tick: i64,
+    pub best_ask_tick: i64,
+    pub low_bid_tick: i64,
+    pub high_ask_tick: i64,
+    pub timestamp: i64,
+}
+
+impl DepthSnapshot {
+    pub fn of(d: &HashMapMarketDepth) -> Self {
+        let mut bids: Vec<(i64, f64)> = d.bid_depth.iter().map(|(t, q)| (*t, *q)).collect();
+        let mut asks: Vec<(i64, f64)> = d.ask_depth.iter().map(|(t, q)| (*t, *q)).collect();
+        bids.sort_unstable_by_key(|(t, _)| *t);
+        asks.sort_unstable_by_key(|(t, _)| *t);
+        Self {
+            bids,
+            asks,
+            best_bid_tick: d.best_bid_tick,
+            best_ask_tick: d.best_ask_tick,
+            low_bid_tick: d.low_bid_tick,
+            high_ask_tick: d.high_ask_tick,
+            timestamp: d.timestamp,
+        }
+    }
+
+    pub fn build(&self, tick_size: f64, lot_size: f64) -> HashMapMarketDepth {
+        let mut d = HashMapMarketDepth::new(tick_size, lot_size);
+        d.bid_depth.extend(self.bids.iter().copied());
+        d.ask_depth.extend(self.asks.iter().copied());
+        d.best_bid_tick = self.best_bid_tick;
+        d.best_ask_tick = self.best_ask_tick;
+        d.low_bid_tick = self.low_bid_tick;
+        d.high_ask_tick = self.high_ask_tick;
+        d.timestamp = self.timestamp;
+        d
+    }
+
+    pub fn levels(&self) -> usize {
+        self.bids.len() + self.asks.len()
+    }
+}
+
+/// Окно одного сигнала: книга после строк `[0..m)` и срез с `m`, где `m` —
+/// первая строка, у которой **хотя бы одна** метка (`local_ts` или `exch_ts`)
+/// больше `t0`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignalWindow {
+    pub t0_ns: i64,
+    pub start: usize,
+    pub depth: DepthSnapshot,
+}
+
+/// Окна всех сигналов суток — **один** проход книги по событиям, общий для
+/// всех форм (у них одни касания) и для **обеих** сторон движка.
+///
+/// У крейта две книги: локальная применяет строки по `local_ts`, биржевая —
+/// по `exch_ts`, каждая в порядке записи до первой строки с меткой больше
+/// текущего времени. В `t0` они разные: часы коллектора и биржи расходятся в
+/// любую сторону (в записи 2026-09-12 локальные **отстают**, и снимок «по
+/// `local_ts`» отдавал бирже строки из будущего — цена входа расходилась).
+/// Поэтому снимок берётся после строк `[0..m)`, где `m` — первая строка с
+/// `local_ts > t0` **или** `exch_ts > t0`; строки `[m..)` идут в срез, и
+/// каждая сторона на первом же `elapse` доберёт из них свои (метка `<= t0`)
+/// ровно по разу — итог на обеих сторонах тот же, что у сплошного прогона.
+#[derive(Debug, Clone)]
+pub struct SignalWindows {
+    pub tick_size: f64,
+    pub lot_size: f64,
+    windows: Vec<SignalWindow>,
+}
+
+impl SignalWindows {
+    pub fn build(events: &[Event], t0s: &[i64], tick_size: f64, lot_size: f64) -> Self {
+        let mut t0s: Vec<i64> = t0s.to_vec();
+        t0s.sort_unstable();
+        t0s.dedup();
+        let mut depth = HashMapMarketDepth::new(tick_size, lot_size);
+        let mut row = 0usize;
+        let mut windows = Vec::with_capacity(t0s.len());
+        for t0 in t0s {
+            while row < events.len() && events[row].local_ts <= t0 && events[row].exch_ts <= t0 {
+                let ev = &events[row];
+                // Порядок веток — как у крейта; строк очистки в нашем
+                // переводе нет (`events_from_feed` шлёт явные нули).
+                if ev.is(LOCAL_BID_DEPTH_EVENT) {
+                    depth.update_bid_depth(ev.px, ev.qty, ev.local_ts);
+                } else if ev.is(LOCAL_ASK_DEPTH_EVENT) {
+                    depth.update_ask_depth(ev.px, ev.qty, ev.local_ts);
+                }
+                row += 1;
+            }
+            windows.push(SignalWindow {
+                t0_ns: t0,
+                start: row,
+                depth: DepthSnapshot::of(&depth),
+            });
+        }
+        Self {
+            tick_size,
+            lot_size,
+            windows,
+        }
+    }
+
+    pub fn window_at(&self, t0_ns: i64) -> Option<&SignalWindow> {
+        let i = self.windows.partition_point(|w| w.t0_ns < t0_ns);
+        self.windows.get(i).filter(|w| w.t0_ns == t0_ns)
+    }
+
+    pub fn len(&self) -> usize {
+        self.windows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.windows.is_empty()
+    }
+
+    /// Уровней во всех снимках — оценка памяти окон (16 Б на уровень).
+    pub fn levels_total(&self) -> usize {
+        self.windows.iter().map(|w| w.depth.levels()).sum()
+    }
+}
+
+/// Движок одного окна: книга обеих сторон — из снимка, события — срез суток с
+/// первой строки после `t0` (без копии), часы прибиты к `t0` строкой-якорем.
+///
+/// Якорь — нулевая заявка бида по цене 0: у `HashMapMarketDepth` это
+/// заведомо пустой ход (тика 0 в книге нет, лучшему он не равен, границы
+/// поиска при нулевом объёме не трогаются), но это событие ленты, и первое
+/// `elapse(0)` ставит часы окна ровно на `t0` — как `elapse(t0 - now)` в
+/// сплошном прогоне. Нулевая **сделка** якорем быть не может: при пустой
+/// стороне книги крейт считает `price_tick - best_bid_tick` от `i64::MIN`.
+pub fn with_backtest_over_window<R>(
+    depth: &DepthSnapshot,
+    t0_ns: i64,
+    rest: &[Event],
+    tick_size: f64,
+    lot_size: f64,
+    exec_rtt_ns: i64,
+    f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
+) -> R {
+    let anchor = [Event {
+        ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
+        exch_ts: t0_ns,
+        local_ts: t0_ns,
+        px: 0.0,
+        qty: 0.0,
+        order_id: 0,
+        ival: 0,
+        fval: 0.0,
+    }];
+    let mut sources = vec![DataSource::Data(Data::from_data(&anchor))];
+    if !rest.is_empty() {
+        // SAFETY: `rest` жив до конца функции, `Backtest` умирает раньше
+        // (`drop(bt)` ниже); крейт только читает, см. `borrowed_data`.
+        sources.push(DataSource::Data(unsafe { borrowed_data(rest) }));
+    }
+    let snap = depth.clone();
+    let mut bt = build_backtest_from(sources, exec_rtt_ns, move || {
+        snap.build(tick_size, lot_size)
+    });
     let out = f(&mut bt);
     drop(bt);
     out
 }
 
 fn build_backtest_from(
-    data: Data<Event>,
-    tick_size: f64,
-    lot_size: f64,
+    sources: Vec<DataSource<Event>>,
     exec_rtt_ns: i64,
+    depth_builder: impl Fn() -> HashMapMarketDepth + 'static,
 ) -> Backtest<HashMapMarketDepth> {
     let (entry, response) = latency_from_rtt(exec_rtt_ns);
     Backtest::builder()
         .add_asset(
             L2AssetBuilder::default()
-                .data(vec![DataSource::Data(data)])
+                .data(sources)
                 .latency_model(ConstantLatency::new(entry, response))
                 .asset_type(LinearAsset::new(1.0))
                 .fee_model(TradingValueFeeModel::new(CommonFees::new(
@@ -1274,7 +1665,7 @@ fn build_backtest_from(
                 )))
                 .queue_model(RiskAdverseQueueModel::new())
                 .exchange(ExchangeKind::NoPartialFillExchange)
-                .depth(move || HashMapMarketDepth::new(tick_size, lot_size))
+                .depth(depth_builder)
                 .build()
                 .unwrap(),
         )

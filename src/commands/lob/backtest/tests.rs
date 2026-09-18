@@ -497,6 +497,7 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         fills,
         fill_signal: (0..n).collect(),
         fill_reason: reasons,
+        fill_exit_ns: Vec::new(),
         exits: Default::default(),
         entry_rejected: 0,
         entry_crossed: 0,

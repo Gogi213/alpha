@@ -56,7 +56,8 @@ use super::{
     DEFAULT_WARMUP_MS,
 };
 use crate::lob::backtest::{
-    drive_bounce, roundtrip_net_bps, with_backtest_over, BounceRun, BounceSignal, DriveConfig,
+    drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
+    BounceSignal, DriveConfig, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 
@@ -132,12 +133,33 @@ pub struct BounceGridArgs {
     /// Потоков на сетку (умолчание — число ядер).
     #[arg(long)]
     pub threads: Option<usize>,
+    /// Драйвер: `setups` — биржа только от касания до конца круга (умолчание,
+    /// решение владельца 2026-09-18); `full` — сплошной прогон суток на форму,
+    /// эталон для гейта «побайтово те же круги».
+    #[arg(long, value_enum, default_value_t = DriverArg::Setups)]
+    pub driver: DriverArg,
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+}
+
+/// Как гонять форму над сутками: сплошным прогоном или по сетапам.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum DriverArg {
+    Full,
+    Setups,
+}
+
+impl DriverArg {
+    pub fn label(self) -> &'static str {
+        match self {
+            DriverArg::Full => "full",
+            DriverArg::Setups => "setups",
+        }
+    }
 }
 
 /// Итог прогона — то, что печатает `lob bounce-grid`.
@@ -159,7 +181,7 @@ struct FormDayResult {
     run: BounceRun,
 }
 
-const ROUNDS_HEADER: [&str; 11] = [
+const ROUNDS_HEADER: [&str; 12] = [
     "symbol",
     "day_utc",
     "form",
@@ -171,6 +193,7 @@ const ROUNDS_HEADER: [&str; 11] = [
     "qty",
     "net_bps",
     "reason",
+    "exit_ns",
 ];
 
 const FORMS_HEADER: [&str; 19] = [
@@ -267,8 +290,11 @@ fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
     Ok(events)
 }
 
-/// Все 48 форм над одними сутками: потоки берут формы по счётчику, у каждой
-/// формы свой `Backtest` над общим `&[Event]`.
+/// Все 48 форм над одними сутками: потоки берут формы по счётчику. `Setups`
+/// — один проход книги на сутки (`SignalWindows`, общий для форм), дальше у
+/// каждой формы движок только внутри кругов; `Full` — у каждой формы свой
+/// `Backtest` над всеми событиями суток (эталон гейта).
+#[allow(clippy::too_many_arguments)]
 fn drive_day(
     events: &[HbtEvent],
     signals: &[Vec<BounceSignal>],
@@ -277,7 +303,27 @@ fn drive_day(
     rtt_ns: i64,
     order_qty: f64,
     threads: usize,
+    driver: DriverArg,
 ) -> anyhow::Result<Vec<FormDayResult>> {
+    let windows = match driver {
+        DriverArg::Full => None,
+        DriverArg::Setups => {
+            let t0s: Vec<i64> = signals
+                .iter()
+                .flat_map(|form| form.iter().map(|s| s.t0_ns))
+                .collect();
+            let started = Instant::now();
+            let w = SignalWindows::build(events, &t0s, tick, lot);
+            eprintln!(
+                "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
+                w.len(),
+                w.levels_total(),
+                w.levels_total() as f64 / w.len().max(1) as f64,
+                started.elapsed().as_secs_f64()
+            );
+            Some(w)
+        }
+    };
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<FormDayResult>> = Mutex::new(Vec::with_capacity(signals.len()));
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
@@ -295,9 +341,12 @@ fn drive_day(
                     order_qty,
                     first_order_id: 1,
                 };
-                let driven = with_backtest_over(events, tick, lot, rtt_ns, |bt| {
-                    drive_bounce(bt, 0, &signals[i], &cfg)
-                });
+                let driven = match &windows {
+                    Some(w) => drive_bounce_windowed(events, w, &signals[i], &cfg, rtt_ns),
+                    None => with_backtest_over(events, tick, lot, rtt_ns, |bt| {
+                        drive_bounce(bt, 0, &signals[i], &cfg)
+                    }),
+                };
                 match driven {
                     Ok(run) => {
                         if let Ok(mut r) = results.lock() {
@@ -397,6 +446,7 @@ impl Outputs {
                     net.map(|v| format!("{v:.6}"))
                         .unwrap_or_else(|| "not_measured".to_string()),
                     exit_reason_label(run.fill_reason[i]).to_string(),
+                    run.fill_exit_ns[i].to_string(),
                 ])?;
             }
             rounds_total = rounds_total.saturating_add(run.fills.len() as u64);
@@ -459,7 +509,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} forms={} RTT={}нс assumed(В-37) h3={:?} lot={} threads={} verified={}",
+        "# lob bounce-grid: root={} forms={} RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
         forms.len(),
         args.median_rtt_ns,
@@ -469,6 +519,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             _ => "pool(22a)".to_string(),
         },
         threads,
+        args.driver.label(),
         if args.allow_unverified {
             "allow-unverified(debug)"
         } else {
@@ -594,6 +645,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 args.median_rtt_ns,
                 order_qty,
                 threads,
+                args.driver,
             )?;
             anyhow::ensure!(
                 results.len() == forms.len(),

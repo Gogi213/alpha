@@ -1,3 +1,4 @@
+use super::DriverArg;
 use super::*;
 use crate::commands::lob::bounce_verdict::parse_form;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
@@ -53,6 +54,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         warmup_ms: Some(0),
         repeat_window_ms: Some(3_600_000),
         threads: Some(3),
+        driver: DriverArg::Setups,
         out_dir: root.join("grid"),
         allow_unverified,
     }
