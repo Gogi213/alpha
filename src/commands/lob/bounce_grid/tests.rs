@@ -53,6 +53,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         h3_k: None,
         warmup_ms: Some(0),
         repeat_window_ms: Some(3_600_000),
+        days: Vec::new(),
         threads: Some(3),
         driver: DriverArg::Setups,
         out_dir: root.join("grid"),

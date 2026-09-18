@@ -109,6 +109,9 @@ pub struct BounceGridArgs {
     /// Символы (повторяемый флаг); пусто — весь пул `instruments.csv` корня.
     #[arg(long = "symbol")]
     pub symbols: Vec<String>,
+    /// Сутки UTC `YYYY-MM-DD` (повторяемый флаг); пусто — все сутки записи.
+    #[arg(long = "day")]
+    pub days: Vec<String>,
     /// RTT исполнения, нс (В-37: `assumed` 20 мс, флаг обязателен).
     #[arg(long)]
     pub median_rtt_ns: i64,
@@ -509,8 +512,13 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} forms={} RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
+        if args.days.is_empty() {
+            "all".to_string()
+        } else {
+            args.days.join("+")
+        },
         forms.len(),
         args.median_rtt_ns,
         args.h3.h3_mode,
@@ -616,6 +624,13 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         }
 
         for day in &replay.days {
+            // `--day`: гнать только выбранные сутки. Касания при этом считаются
+            // по всей записи символа (возраст уровня и прогрев трекера не
+            // зависят от границы суток), так что круги выбранного дня те же,
+            // что и в прогоне без фильтра.
+            if !args.days.is_empty() && !args.days.contains(&day.day) {
+                continue;
+            }
             if day.touches.is_empty() {
                 continue;
             }
