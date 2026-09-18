@@ -28,8 +28,10 @@ from collections import defaultdict
 
 ADV_PP = 10.0        # минимальное превышение доли отскока над базой, п.п.
 NMIN = 30            # минимум касаний в хвосте ≥ порога
-N_GRID = [5_000, 10_000, 20_000, 50_000, 100_000, 200_000, 300_000, 500_000]
-S_GRID = [150, 200, 300, 500, 1000]
+# Сетка владельца (2026-09-18): сила ≥ 100/200/300/… %, деньги ≥ 1k/10k/100k/… —
+# деньги как грубый пол, сила как основной фильтр; отчёт — крест этих двух.
+N_GRID = [1_000, 10_000, 100_000, 1_000_000]
+S_GRID = [100, 200, 300, 500, 1000]
 
 
 def load_instruments(path):
@@ -89,6 +91,8 @@ def main():
     agg_n = defaultdict(lambda: [0, 0, 0])  # thr -> [coins_pass, coins_with_data, touches_kept_total]
     agg_s = defaultdict(lambda: [0, 0, 0])
     agg_both = defaultdict(lambda: [0, 0, 0])
+    pool_both = defaultdict(lambda: [0, 0])   # (N,S) -> [touches, bounced] по всем монетам
+    pool_all = [0, 0]
     total_days = 0
     for fp in files:
         sym = os.path.basename(fp)[len("touches-"):-len(".csv")]
@@ -127,17 +131,20 @@ def main():
             a = agg_s[thr]; a[1] += 1; a[2] += n / days
             if n >= NMIN and b is not None and (b - base) * 100 >= ADV_PP:
                 a[0] += 1
-        for nt in (20_000, 50_000, 100_000):
-            for st in (200, 300, 500):
+        for nt in N_GRID:
+            for st in S_GRID:
                 sel = [r for r in rows if r[0] >= nt and r[3] is not None and r[3] >= st]
                 n = len(sel)
-                b = (sum(1 for r in sel if r[1]) / n) if n else None
+                nb = sum(1 for r in sel if r[1])
+                b = (nb / n) if n else None
                 key = (nt, st)
                 a = agg_both[key]; a[1] += 1; a[2] += n / days
                 if n >= NMIN and b is not None and (b - base) * 100 >= ADV_PP:
                     a[0] += 1
+                pool_both[key][0] += n; pool_both[key][1] += nb
                 rec[f"n_both_{nt//1000}k_s{st}"] = round(n / days, 1)
                 rec[f"bounce_both_{nt//1000}k_s{st}"] = round(b * 100, 1) if b is not None else ""
+        pool_all[0] += len(rows); pool_all[1] += sum(1 for r in rows if r[1])
         per.append(rec)
 
     if not per:
@@ -163,9 +170,16 @@ def main():
     for thr in S_GRID:
         a = agg_s[thr]
         print(f"  S>={thr:>5}%: {a[0]:3d}/{a[1]:<3d} pass  kept/day={a[2]/max(a[1],1):8.1f}")
-    print("== both (N and S):")
-    for (nt, st), a in sorted(agg_both.items()):
-        print(f"  N>={nt:>6} & S>={st:>4}%: {a[0]:3d}/{a[1]:<3d} pass  kept/day={a[2]/max(a[1],1):8.1f}")
+    base_pool = pool_all[1] / max(pool_all[0], 1) * 100
+    print(f"== крест N × S (ячейка: монет прошло/всего · касаний в сутки на монету · доля отскока по всем касаниям, база {base_pool:.1f} %)")
+    print("  S \\ N     " + "".join(f"{('$'+str(nt//1000)+'k'):>26}" for nt in N_GRID))
+    for st in S_GRID:
+        cells = []
+        for nt in N_GRID:
+            a = agg_both[(nt, st)]; p = pool_both[(nt, st)]
+            share = p[1] / p[0] * 100 if p[0] else float("nan")
+            cells.append(f"{a[0]:3d}/{a[1]:<3d} {a[2]/max(a[1],1):8.1f}/d {share:5.1f}%")
+        print(f"  S>={st:>5}% " + "".join(f"{c:>26}" for c in cells))
 
 
 if __name__ == "__main__":

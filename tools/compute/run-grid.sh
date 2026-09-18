@@ -8,7 +8,8 @@
 #   sudo tools/compute/run-grid.sh <метка> [аргументы bounce-grid...]
 # пример:
 #   sudo run-grid.sh 2026-09-17-usd50k --day 2026-09-17 --h3-mode notional --h3-usd 50000
-# По умолчанию: RTT assumed 20 мс (В-37), лот от пула (22а), 3 потока из 4 vCPU,
+# По умолчанию: RTT assumed 20 мс (В-37), лот от пула (22а), 3 потока из 4 vCPU
+# (переопределить: THREADS=1 run-grid.sh …, чтобы гнать два прогона рядом),
 # MemoryMax 4G (из 7.9 ГБ; соседи держат < 1 ГБ), CPUWeight 30, nice 15.
 # Артефакты: /opt/alpha-compute/b5/<метка>/{rounds.csv,forms.csv,manifest.txt},
 # логи grid.out/grid.err там же; состояние — systemctl status alpha-grid-<метка>.
@@ -25,5 +26,5 @@ exec systemd-run --unit="$UNIT" --nice=15 \
   -- /opt/alpha-compute/bin/alpha lob bounce-grid \
     --root /opt/alpha-compute/root \
     --median-rtt-ns 20000000 --p95-rtt-ns 20000000 \
-    --order-qty-from-pool --threads 3 \
+    --order-qty-from-pool --threads "${THREADS:-3}" \
     --out-dir "$OUT" "$@"
