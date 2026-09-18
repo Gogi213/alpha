@@ -636,6 +636,7 @@ fn touch_rec(
         stack_levels: stack,
         stack_next_tick: None,
         traded_first_s: [0; 3],
+        flow_1h_lots: 0,
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,
@@ -730,6 +731,9 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     let mut want = touch_rec(100, 1, (4000, 5000), (12, 12), 4, true, 1);
     // Фронтран снова 101 — и цена его та же (B2).
     want.frontrun_tick = Some(101);
+    // Сила «×поток»: к старту второго касания (4000) за час прошла одна
+    // сделка на 4 лота (метка 2500) — оборот 4.
+    want.flow_1h_lots = 4;
     assert_eq!(touches, vec![want]);
     assert_eq!(out.len(), 1, "смерть 100");
     assert_eq!(out[0].price_tick, 100);
@@ -809,6 +813,7 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             stack_levels: 1,
             stack_next_tick: None,
             traded_first_s: [0; 3],
+            flow_1h_lots: 0,
             // Окно 50 bps от тика 200 — один тик: сосед 199 (фронтран, 3 лота) даёт 15/3 = 500 %.
             strength_e2: [-1, -1, 50_000],
             strength_held_e2: [-1, -1, -1, -1],

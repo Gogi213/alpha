@@ -248,6 +248,7 @@ fn touch(side: Side, start_ms: i64) -> TouchRecord {
         stack_levels: 1,
         stack_next_tick: None,
         traded_first_s: [0; 3],
+        flow_1h_lots: 0,
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,

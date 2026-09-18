@@ -469,6 +469,12 @@ pub struct TouchRecord {
     /// касание кончилось раньше окна — объём до конца касания (см.
     /// `duration_ms`).
     pub traded_first_s: [i64; REACTION_WINDOWS_S.len()],
+    /// Оборот инструмента за последний час к старту касания (лоты, все
+    /// неблочные сделки обеих сторон; `FLOW_WINDOW_MIN`) — знаменатель силы
+    /// «×поток» (идея 8 транскрипций [P 06:25; N 1:20:13; Z 35:29]; так же
+    /// считает «силу» сторонний DensityBounceGuard: объём плотности / оборот
+    /// за час): `strength_flow = size_at_touch / flow_1h_lots`.
+    pub flow_1h_lots: i64,
     /// Сила «×соседи» на кадре старта касания для окон `STRENGTH_WINDOWS_BPS`,
     /// проценты × 100; `-1` — соседей в окне не было (ось исследования порога
     /// В-61, 2026-09-18).
@@ -579,6 +585,8 @@ struct Touch {
     /// Объём против уровня за первые окна `REACTION_WINDOWS_S` касания —
     /// копится в `observe_trade` по метке исполнения.
     traded_first_s: [i64; REACTION_WINDOWS_S.len()],
+    /// Оборот инструмента за час к старту (см. `TouchRecord::flow_1h_lots`).
+    flow_1h_lots: i64,
     /// Уровень в этом кадре перестал быть лучшей ценой: конец касания ждёт
     /// свипа — смерть в том же кадре имеет приоритет.
     end_pending: bool,
@@ -730,6 +738,10 @@ pub const STRENGTH_HELD_WINDOWS_S: [i64; 4] = [1, 5, 15, 60];
 /// Окна реакции после касания, секунды (E4 базы отскока: «1–3 с» из
 /// транскрипций [K 44:53; N 1:27:16; A 17:06]) — `TouchRecord::traded_first_s`.
 pub const REACTION_WINDOWS_S: [i64; 3] = [1, 2, 3];
+
+/// Окно оборота инструмента для силы «×поток», минут: час — как у
+/// сторонних сканеров плотностей и в транскрипциях («за последний час»).
+pub const FLOW_WINDOW_MIN: usize = 60;
 pub const STRENGTH_SAMPLE_MS: i64 = HORIZONS_MS[1];
 pub const STRENGTH_HIST_SLOTS: usize = 64;
 /// Окно соседей истории силы — среднее из `STRENGTH_WINDOWS_BPS`.
@@ -810,6 +822,10 @@ pub struct LevelTracker {
     strength_prefix: Vec<i64>,
     start_ms: Option<i64>,
     frame: u64,
+    /// Оборот по минутам за скользящий час (лоты) — кольцо `FLOW_WINDOW_MIN`
+    /// слотов; `flow_slot_min[i]` — номер минуты слота (−1 — пусто).
+    flow_ring: [i64; FLOW_WINDOW_MIN],
+    flow_slot_min: [i64; FLOW_WINDOW_MIN],
 }
 
 /// Запись касания из состояния уровня в момент конца.
@@ -840,6 +856,7 @@ fn touch_record(
         stack_levels: stack.0,
         stack_next_tick: stack.1,
         traded_first_s: t.traded_first_s,
+        flow_1h_lots: t.flow_1h_lots,
         strength_e2: t.strength_e2,
         strength_held_e2: t.strength_held_e2,
         repeat_count: t.repeat_count,
@@ -895,7 +912,24 @@ impl LevelTracker {
             strength_prefix: Vec::with_capacity(65),
             start_ms: None,
             frame: 0,
+            flow_ring: [0; FLOW_WINDOW_MIN],
+            flow_slot_min: [-1; FLOW_WINDOW_MIN],
         }
+    }
+
+    /// Оборот инструмента за последние `FLOW_WINDOW_MIN` минут к `now_ms`
+    /// (включая текущую минуту), лоты. Слоты старше окна не считаются, даже
+    /// если ещё не перезаписаны.
+    fn flow_1h_lots(&self, now_ms: i64) -> i64 {
+        let now_min = now_ms.div_euclid(60_000);
+        let oldest = now_min - (FLOW_WINDOW_MIN as i64 - 1);
+        let mut sum: i64 = 0;
+        for (i, &m) in self.flow_slot_min.iter().enumerate() {
+            if m >= oldest && m <= now_min {
+                sum = sum.saturating_add(self.flow_ring[i]);
+            }
+        }
+        sum
     }
 
     /// Сколько уровней живо прямо сейчас. Нужно тестам, чтобы убедиться, что
@@ -958,6 +992,8 @@ impl LevelTracker {
         out: &mut Vec<LevelRecord>,
         touches: &mut Vec<TouchRecord>,
     ) {
+        // Оборот за час к этому кадру — один раз на кадр, для касаний, начавшихся в нём.
+        let flow_1h = self.flow_1h_lots(ts_ms);
         if self.start_ms.is_none() {
             self.start_ms = Some(ts_ms);
         }
@@ -1037,6 +1073,7 @@ impl LevelTracker {
                                 stack: 0,
                                 stack_next_tick: None,
                                 traded_first_s: [0; REACTION_WINDOWS_S.len()],
+                                flow_1h_lots: flow_1h,
                                 end_pending: false,
                                 strength_e2: std::array::from_fn(|k| {
                                     neighbour_strength_e2(
@@ -1277,6 +1314,17 @@ impl LevelTracker {
     pub fn observe_trade(&mut self, tr: TradeHit) {
         if tr.block || tr.lots <= 0 {
             return;
+        }
+        // Оборот инструмента (сила «×поток»): все неблочные сделки, включая
+        // RPI, — это то, что рынок реально проторговал.
+        {
+            let minute = tr.exch_ms.div_euclid(60_000);
+            let slot = minute.rem_euclid(FLOW_WINDOW_MIN as i64) as usize;
+            if self.flow_slot_min[slot] != minute {
+                self.flow_slot_min[slot] = minute;
+                self.flow_ring[slot] = 0;
+            }
+            self.flow_ring[slot] = self.flow_ring[slot].saturating_add(tr.lots);
         }
         let key = (u8::from(tr.aggressor_is_buy), tr.tick);
         if let Some(lv) = self.live.get_mut(&key) {

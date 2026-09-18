@@ -105,7 +105,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 56;
+const TOUCHES_WIDTH: usize = 58;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -185,6 +185,10 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "traded_1s",
     "traded_2s",
     "traded_3s",
+    // Сила «×поток»: оборот инструмента за час к касанию (лоты) и размер
+    // уровня в процентах от него (пусто — оборота за час не было).
+    "flow_1h_lots",
+    "strength_flow_pct",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -331,6 +335,15 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 t.traded_first_s[0].to_string(),
                 t.traded_first_s[1].to_string(),
                 t.traded_first_s[2].to_string(),
+                t.flow_1h_lots.to_string(),
+                if t.flow_1h_lots > 0 {
+                    format!(
+                        "{:.4}",
+                        t.size_at_touch as f64 / t.flow_1h_lots as f64 * 100.0
+                    )
+                } else {
+                    String::new()
+                },
             ];
             w.write_record(row)?;
             n += 1;
