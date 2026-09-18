@@ -57,8 +57,8 @@ use hftbacktest::types::{
 };
 
 use crate::lob::costs::{
-    fill_rate, format_fill_column, net_fill_bps, net_fill_interval, FillObservation,
-    NetFillInterval, MAKER_FEE_BPS, ROUNDTRIP_FEES_BPS, TAKER_FEE_BPS,
+    fill_rate, format_fill_column, leg_fee_bps, net_fill_bps, net_fill_interval, FillObservation,
+    NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::strategy::{on_event, Action, ExitReason, StrategyState, TradePlan};
 
@@ -157,12 +157,20 @@ pub struct Fill {
     pub exit_px: f64,
     /// Размер круга. В отчёт идёт как есть; в bps сокращается.
     pub qty: f64,
+    /// Вход исполнился тейкером (лимит пересёк книгу; у лестницы — хотя бы
+    /// одна нога) — по флагу `maker` ордера крейта (В-63).
+    pub entry_taker: bool,
+    /// Выход исполнился тейкером: стоп/дедлайн/досрочный/трейл — по рынку,
+    /// тейк — лимитом (мейкер); тоже по флагу крейта.
+    pub exit_taker: bool,
 }
 
-/// Чистый результат круга в bps: направленная доходность минус круг
-/// мейкер-тейкер 7.5 bps (Decision 19, потребитель `costs`). `None` при
-/// неположительном входе или неконечных ценах: отсутствие данных не есть
-/// нулевой результат (то же правило, что неконечный markout в 5.2).
+/// Чистый результат круга в bps: направленная доходность минус комиссии
+/// **по ногам** (В-63: `costs::leg_fee_bps` — мейкер 1.26 / тейкер 3.15 bps
+/// после возврата; тейк лимитом — мейкер+мейкер 2.52, стоп по рынку —
+/// мейкер+тейкер 4.41). `None` при неположительном входе или неконечных
+/// ценах: отсутствие данных не есть нулевой результат (то же правило, что
+/// неконечный markout в 5.2).
 pub fn roundtrip_net_bps(fill: &Fill) -> Option<f64> {
     if !fill.entry_px.is_finite() || !fill.exit_px.is_finite() || fill.entry_px <= 0.0 {
         return None;
@@ -173,7 +181,7 @@ pub fn roundtrip_net_bps(fill: &Fill) -> Option<f64> {
         _ => return None,
     };
     let gross = dir * (fill.exit_px - fill.entry_px) / fill.entry_px * 10_000.0;
-    Some(gross - ROUNDTRIP_FEES_BPS)
+    Some(gross - leg_fee_bps(fill.entry_taker) - leg_fee_bps(fill.exit_taker))
 }
 
 /// PnL-кривая: накопленный чистый результат по кругам в порядке исполнения.
@@ -895,23 +903,29 @@ where
     // одна (агрессор выедает уровни подряд): цена входа — **среднее** цен
     // исполненных ног с равными весами. Именно среднее, а не цена одной ноги:
     // у драйвера одна `Fill` на круг, и цена одной ноги исказила бы `net`.
-    let filled_legs: Vec<f64> = (0..legs.max(1) as u64)
+    let filled_legs: Vec<(f64, bool)> = (0..legs.max(1) as u64)
         .filter_map(|i| bot.orders(asset_no).get(&entry_id.saturating_add(i)))
         .filter(|o| o.status == Status::Filled)
-        .map(hftbacktest::types::Order::exec_price)
+        .map(|o| (o.exec_price(), o.maker))
         .collect();
     let entry_px = if filled_legs.is_empty() {
         None
     } else {
-        Some(filled_legs.iter().sum::<f64>() / crate::stats::count_f64(filled_legs.len()))
+        Some(
+            filled_legs.iter().map(|(px, _)| *px).sum::<f64>()
+                / crate::stats::count_f64(filled_legs.len()),
+        )
     };
+    // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у лестницы вход
+    // тейкерский, если тейкером исполнилась хотя бы одна нога (консервативно).
+    let entry_taker = filled_legs.iter().any(|(_, maker)| !maker);
     let exit_info = bot
         .orders(asset_no)
         .get(&exit_id)
         .filter(|o| o.status == Status::Filled)
-        .map(|o| (o.exec_price(), o.exch_timestamp));
+        .map(|o| (o.exec_price(), o.exch_timestamp, o.maker));
     match (entry_px, exit_info) {
-        (Some(entry_px), Some((exit_px, exit_ts))) => {
+        (Some(entry_px), Some((exit_px, exit_ts, exit_maker))) => {
             let dir = if side == HbtSide::Buy { 1 } else { -1 };
             Ok(RoundOutcome::Filled {
                 fill: Fill {
@@ -919,6 +933,8 @@ where
                     entry_px,
                     exit_px,
                     qty: state.qty(),
+                    entry_taker,
+                    exit_taker: !exit_maker,
                 },
                 exit_ts,
                 reason,

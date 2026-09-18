@@ -12,22 +12,36 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
 }
 
-/// H4 + Decision 19: круг мейкер-тейкер — одно число 7.5 bps для G0 и G3.
+/// В-63 (условия счёта владельца 2026-09-18): мейкер 1.4 / тейкер 3.5 bps,
+/// возврат 10 %; круг мейкер-тейкер после возврата — одно число 4.41 bps для
+/// markout-метрик (Decision 19), ноги — `leg_fee_bps`.
 #[test]
 fn roundtrip_fees_are_single_number_for_g0_and_g3() {
-    assert!(close(MAKER_FEE_BPS, 2.0));
-    assert!(close(TAKER_FEE_BPS, 5.5));
-    assert!(close(ROUNDTRIP_FEES_BPS, 7.5));
-    assert!(close(MAKER_FEE_BPS + TAKER_FEE_BPS, ROUNDTRIP_FEES_BPS));
+    assert!(close(MAKER_FEE_BPS, 1.4));
+    assert!(close(TAKER_FEE_BPS, 3.5));
+    assert!(close(FEE_REBATE_SHARE, 0.10));
+    assert!(close(ROUNDTRIP_FEES_BPS, 4.41));
+    assert!(close(leg_fee_bps(false), 1.26));
+    assert!(close(leg_fee_bps(true), 3.15));
+    assert!(close(
+        leg_fee_bps(false) + leg_fee_bps(true),
+        ROUNDTRIP_FEES_BPS
+    ));
 }
 
-/// Формула буквально: net = m − (7.5 + (spread+2)/mid2x·10⁴).
-/// mid2x = 20000, spread = 1 → slippage 1.5, cost 9.0, net 1.0 при m = 10.
+/// Формула буквально: net = m − (круг + (spread+2)/mid2x·10⁴).
+/// mid2x = 20000, spread = 1 → slippage 1.5, cost круг + 1.5, net при m = 10.
 #[test]
 fn net_formula_is_exact_on_synthetic_observation() {
     assert!(close(slippage_bps(1, 20_000).unwrap(), 1.5));
-    assert!(close(cost_bps(1, 20_000).unwrap(), 9.0));
-    assert!(close(net_bps(10.0, 1, 20_000).unwrap(), 1.0));
+    assert!(close(
+        cost_bps(1, 20_000).unwrap(),
+        ROUNDTRIP_FEES_BPS + 1.5
+    ));
+    assert!(close(
+        net_bps(10.0, 1, 20_000).unwrap(),
+        10.0 - ROUNDTRIP_FEES_BPS - 1.5
+    ));
 }
 
 /// Done-condition буквально: колонка «после издержек» есть во всех трёх —
@@ -42,8 +56,11 @@ fn after_cost_column_exists_in_all_three() {
         mean_net_bps(&c2).expect("C2 обязан посчитаться"),
         mean_net_bps(&exploration).expect("разведка обязана посчитаться"),
     );
-    assert!(close(n1, (1.0 + 2.5) / 2.0));
-    assert!(close(n2, 6.0));
+    assert!(close(
+        n1,
+        ((10.0 - 1.5) + (12.0 - 2.0)) / 2.0 - ROUNDTRIP_FEES_BPS
+    ));
+    assert!(close(n2, 15.0 - 1.5 - ROUNDTRIP_FEES_BPS));
     assert!(n1.is_finite() && n2.is_finite() && ne.is_finite());
 }
 
@@ -65,7 +82,10 @@ fn slippage_is_per_observation_not_a_constant() {
         "понаблюдательный средний {per_obs} обязан отличаться от константного {}",
         mean_m - const_cost
     );
-    assert!(close(per_obs, (1.0 + -0.5) / 2.0));
+    assert!(close(
+        per_obs,
+        ((10.0 - 1.5) + (10.0 - 3.0)) / 2.0 - ROUNDTRIP_FEES_BPS
+    ));
 }
 
 /// Тик на тонком инструменте честно весит больше: тот же спред при
@@ -91,7 +111,7 @@ fn tick_weighs_more_on_thin_instrument() {
 #[test]
 fn green_threshold_is_a_number_not_a_verdict_here() {
     assert!(close(GREEN_NET_BPS, 3.0));
-    let probe = net_bps(10.0, 1, 20_000).expect("синтетика обязана посчитаться");
+    let probe = net_bps(5.0, 1, 20_000).expect("синтетика обязана посчитаться");
     assert!(
         probe.is_finite() && probe < GREEN_NET_BPS,
         "ниже зелёного, но конечно"
@@ -126,7 +146,10 @@ fn synthetic_run_prints_net_column() {
     let mean = mean_net_bps(&column).unwrap();
     let line = format!("after_costs: mean_net={mean:.4} n={}", column.len());
     assert!(line.contains("after_costs"), "колонка обязана называться");
-    assert!(close(mean, (3.0 + -2.0) / 2.0));
+    assert!(close(
+        mean,
+        ((12.0 - 1.5) + (8.0 - 2.5)) / 2.0 - ROUNDTRIP_FEES_BPS
+    ));
 }
 
 fn fobs(day: i64, net: f64, filled: bool) -> FillObservation {

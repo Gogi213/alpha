@@ -41,7 +41,8 @@ fn exit_takes_on_own_side_book() {
     assert_eq!(exit_price(HbtSide::Buy, 100.0, f64::NAN), None);
 }
 
-/// Формула круга буквально: направленный возврат минус 7.5 bps круга.
+/// Формула круга буквально: направленный возврат минус комиссии по ногам
+/// (В-63: вход мейкер 1.26 + выход тейкер 3.15 = 4.41 bps).
 /// Лонг 100 → 101: +100 bps валом, 92.5 чистыми.
 #[test]
 fn roundtrip_formula_is_exact_on_synthetic_fill() {
@@ -50,32 +51,40 @@ fn roundtrip_formula_is_exact_on_synthetic_fill() {
         entry_px: 100.0,
         exit_px: 101.0,
         qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
     };
-    assert!(close(roundtrip_net_bps(&long).unwrap(), 92.5));
+    assert!(close(roundtrip_net_bps(&long).unwrap(), 95.59));
     let short = Fill {
         dir: -1,
         entry_px: 101.0,
         exit_px: 100.0,
         qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
     };
     // Зеркало в уровнях не симметрично в bps: база другая (101, не 100).
     assert!(close(
         roundtrip_net_bps(&short).unwrap(),
-        10_000.0 / 101.0 - 7.5
+        10_000.0 / 101.0 - 4.41
     ));
     let loss = Fill {
         dir: 1,
         entry_px: 100.0,
         exit_px: 99.0,
         qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
     };
-    assert!(close(roundtrip_net_bps(&loss).unwrap(), -107.5));
+    assert!(close(roundtrip_net_bps(&loss).unwrap(), -104.41));
     assert_eq!(
         roundtrip_net_bps(&Fill {
             dir: 1,
             entry_px: 0.0,
             exit_px: 101.0,
-            qty: 1.0
+            qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         }),
         None
     );
@@ -84,7 +93,9 @@ fn roundtrip_formula_is_exact_on_synthetic_fill() {
             dir: 0,
             entry_px: 100.0,
             exit_px: 101.0,
-            qty: 1.0
+            qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         }),
         None
     );
@@ -93,7 +104,9 @@ fn roundtrip_formula_is_exact_on_synthetic_fill() {
             dir: 1,
             entry_px: f64::NAN,
             exit_px: 101.0,
-            qty: 1.0
+            qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         }),
         None
     );
@@ -108,19 +121,23 @@ fn pnl_curve_accumulates_per_fill_without_a_week() {
             entry_px: 100.0,
             exit_px: 101.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         },
         Fill {
             dir: 1,
             entry_px: 100.0,
             exit_px: 99.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         },
     ];
     let curve = pnl_curve_bps(&fills).unwrap();
     assert_eq!(curve.len(), 2);
-    assert!(close(curve[0], 92.5));
-    assert!(close(curve[1], 92.5 - 107.5));
-    assert!(close(mean_net_bps(&fills).unwrap(), (92.5 - 107.5) / 2.0));
+    assert!(close(curve[0], 95.59));
+    assert!(close(curve[1], 95.59 - 104.41));
+    assert!(close(mean_net_bps(&fills).unwrap(), (95.59 - 104.41) / 2.0));
     assert_eq!(pnl_curve_bps(&[]), None, "пусто — нет кривой, а не ноль");
     assert_eq!(mean_net_bps(&[]), None);
     let bad = [
@@ -130,6 +147,8 @@ fn pnl_curve_accumulates_per_fill_without_a_week() {
             entry_px: 0.0,
             exit_px: 1.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         },
     ];
     assert_eq!(
@@ -247,6 +266,8 @@ fn profile_report_carries_every_done_item() {
             entry_px: 100.0,
             exit_px: 101.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         }],
         misses: MissLedger {
             timeout: 1,
@@ -449,7 +470,12 @@ fn driver_closes_a_maker_round_trip_on_synthetic_feed() {
     assert_eq!(fill.dir, 1);
     assert!(close(fill.entry_px, 100.0));
     assert!(close(fill.exit_px, 101.0));
-    assert!(close(rep.mean_net_bps().unwrap(), 92.5));
+    // В-63: вход отстоял в книге — мейкер по флагу крейта; комиссии по ногам.
+    assert!(!fill.entry_taker, "вход лимитом обязан быть мейкерским");
+    assert!(close(
+        rep.mean_net_bps().unwrap(),
+        100.0 - leg_fee_bps(fill.entry_taker) - leg_fee_bps(fill.exit_taker)
+    ));
     assert_eq!(hbt.position(0), 0.0, "позиция плоская после выхода");
     assert_eq!(rep.observations.len(), 1);
     assert!(rep.observations[0].filled);

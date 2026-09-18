@@ -1,8 +1,8 @@
 //! `lob fee-rate` — ставки комиссий **аккаунта** с биржи (владелец
 //! 2026-09-18: «ты уверен, что комиссии правильные у тебя на тейкера? ну и
 //! мейкера тоже?»). В коде комиссии — константы `costs::MAKER_FEE_BPS` /
-//! `TAKER_FEE_BPS` (H4: публичные ставки non-VIP), а у счёта они могут быть
-//! другими (VIP-уровень, скидки). Команда читает `/v5/account/fee-rate`
+//! `TAKER_FEE_BPS` (В-63: условия счёта владельца 18.09; до того H4 — публичный
+//! non-VIP), и они могут разойтись со счётом (смена уровня, скидки). Команда читает `/v5/account/fee-rate`
 //! подписанным GET (ключи — только `BYBIT_API_KEY`/`BYBIT_API_SECRET` из
 //! окружения, значения не печатаются) и печатает мейкер/тейкер в bps рядом с
 //! константами кода; расхождение — повод менять константы решением В-##, не
@@ -85,8 +85,9 @@ pub fn query_string(category: &str, symbol: Option<&str>) -> String {
 pub fn report_lines(rows: &[FeeRateRow]) -> Vec<String> {
     let mut out = Vec::with_capacity(rows.len() + 1);
     out.push(format!(
-        "код (H4): maker={MAKER_FEE_BPS} bps taker={TAKER_FEE_BPS} bps круг(maker+taker)={} bps",
-        MAKER_FEE_BPS + TAKER_FEE_BPS
+        "код (В-63): maker={MAKER_FEE_BPS} bps taker={TAKER_FEE_BPS} bps до возврата, возврат {}%, круг(maker+taker) после возврата={} bps",
+        crate::lob::costs::FEE_REBATE_SHARE * 100.0,
+        crate::lob::costs::ROUNDTRIP_FEES_BPS
     ));
     for r in rows {
         let same = (r.maker_bps - MAKER_FEE_BPS).abs() < 1e-9
@@ -157,7 +158,7 @@ pub fn run_fee_rate(args: &FeeRateArgs) -> anyhow::Result<Vec<String>> {
 mod tests {
     use super::*;
 
-    const BODY: &str = r#"{"retCode":0,"retMsg":"OK","result":{"list":[{"symbol":"SOLUSDT","takerFeeRate":"0.00055","makerFeeRate":"0.0002"},{"symbol":"ZECUSDT","takerFeeRate":"0.0004","makerFeeRate":"0.0001"}]},"retExtInfo":{},"time":1}"#;
+    const BODY: &str = r#"{"retCode":0,"retMsg":"OK","result":{"list":[{"symbol":"SOLUSDT","takerFeeRate":"0.00035","makerFeeRate":"0.00014"},{"symbol":"ZECUSDT","takerFeeRate":"0.0004","makerFeeRate":"0.0001"}]},"retExtInfo":{},"time":1}"#;
 
     /// Доли биржи → bps; строка сравнения называет совпадение и расхождение
     /// с константами кода по имени.
@@ -165,7 +166,7 @@ mod tests {
     fn parses_rates_into_bps_and_compares_with_the_code_constants() {
         let rows = parse_fee_rate(BODY).unwrap();
         assert_eq!(rows.len(), 2);
-        assert!((rows[0].maker_bps - 2.0).abs() < 1e-9 && (rows[0].taker_bps - 5.5).abs() < 1e-9);
+        assert!((rows[0].maker_bps - 1.4).abs() < 1e-9 && (rows[0].taker_bps - 3.5).abs() < 1e-9);
         assert!((rows[1].maker_bps - 1.0).abs() < 1e-9 && (rows[1].taker_bps - 4.0).abs() < 1e-9);
         let lines = report_lines(&rows);
         assert!(lines[1].contains("совпадает"), "{}", lines[1]);

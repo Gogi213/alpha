@@ -366,7 +366,7 @@ fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> SigmaGeomet
 
 /// В-62: вход — от **первого фронтранера**; стоп — `a × σ_H` bps от входа в
 /// целых тиках вверх, но не ближе тика за плотностью; тейк — `b × σ_H` bps
-/// от входа, но не ниже `k × 7.5` bps комиссий. Числа: P = 10.00, вход 10.05
+/// от входа, но не ниже `k × 4.41` bps круга комиссий (В-63). Числа: P = 10.00, вход 10.05
 /// (тик 1005), σ = 100 bps: стоп 1×σ = 100 bps × 1005 / 10⁴ = 10.05 тика →
 /// 11 тиков → 9.94 (дальше пола 9.99 — берётся он же, 9.94); тейк 2×σ =
 /// 200 bps → 20.1 → 21 тиков → 10.26.
@@ -388,15 +388,15 @@ fn bounce_plan_puts_stop_and_take_at_sigma_multiples_from_the_entry() {
 }
 
 /// В-62, полы: при `σ` малой (или нулевой) стоп встаёт на тик **за**
-/// плотностью (`P − 1`), а не на входе, тейк — на `k × 7.5` bps: форма не
+/// плотностью (`P − 1`), а не на входе, тейк — на `k × 4.41` bps: форма не
 /// вырождается в «стоп на цене входа» сетки В-58.
 #[test]
 fn bounce_plan_floors_keep_the_form_non_degenerate() {
     let tick = 0.01_f64;
     let touch = bounce_touch(1_000, Some(1_005));
-    // σ = 0: стоп 0 тиков → пол 9.99; тейк max(0, 2 × 7.5 = 15 bps) → 15 bps ×
-    // 1005 / 10⁴ = 1.5075 тика → 2 тика → 10.07.
-    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 2.0), 0.0, plain_shape());
+    // σ = 0: стоп 0 тиков → пол 9.99; тейк max(0, 3 × 4.41 = 13.23 bps) →
+    // 13.23 bps × 1005 / 10⁴ = 1.33 тика → 2 тика → 10.07.
+    let (_, plan) = bounce_plan(&touch, tick, geometry(1.0, 1.0, 3.0), 0.0, plain_shape());
     let (_, stop, take) = plan_prices(&plan);
     assert!(
         (stop - 9.99).abs() < 1e-9,
@@ -404,7 +404,7 @@ fn bounce_plan_floors_keep_the_form_non_degenerate() {
     );
     assert!(
         (take - 10.07).abs() < 1e-9,
-        "тейк на полу 2 × 7.5 bps: {take}"
+        "тейк на полу 3 × 4.41 bps: {take}"
     );
     // Стоп по σ ближе пола (5 bps → 5.025 тика → 6 тиков → 9.99): совпадает с
     // полом; 2 bps → 2.01 → 3 тика → 10.02 — ближе пола, берётся пол 9.99.
@@ -444,7 +444,7 @@ fn bounce_plan_without_frontrun_enters_one_tick_before_the_level() {
     assert!((entry - 10.01).abs() < 1e-9, "вход P+1: {entry}");
     // 50 bps × 1001 / 10⁴ = 5.005 → 6 тиков → 9.95 (дальше пола 9.99).
     assert!((stop - 9.95).abs() < 1e-9, "{stop}");
-    // max(50, 7.5) = 50 bps → 6 тиков → 10.07.
+    // max(50, 4.41) = 50 bps → 6 тиков → 10.07.
     assert!((take - 10.07).abs() < 1e-9, "{take}");
 }
 
@@ -532,6 +532,8 @@ fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
         entry_px,
         exit_px,
         qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
     }
 }
 
@@ -580,9 +582,9 @@ fn trades_dump_writes_one_row_per_circle_with_its_reason() {
         lines[1],
         "signal_index,dir,entry_px,exit_px,qty,net_bps,reason"
     );
-    // 1 % хода минус круг мейкер-тейкер 7.5 bps (Decision 19) = 92.5 bps.
+    // 1 % хода минус комиссии по ногам (В-63: мейкер 1.26 + тейкер 3.15 = 4.41) = 95.59 bps.
     assert!(
-        lines[2].ends_with(",92.500000,take"),
+        lines[2].ends_with(",95.590000,take"),
         "первый круг: {}",
         lines[2]
     );

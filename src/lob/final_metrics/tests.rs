@@ -362,23 +362,29 @@ fn per_trade_net_uses_backtest_roundtrip_without_copying_it() {
             entry_px: 100.0,
             exit_px: 101.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         },
         Fill {
             dir: 1,
             entry_px: 100.0,
             exit_px: 99.0,
             qty: 1.0,
+            entry_taker: false,
+            exit_taker: true,
         },
     ];
     let nets = per_trade_net_bps(&fills).unwrap();
-    assert!(close(nets[0], 92.5, 1e-9));
-    assert!(close(nets[1], -107.5, 1e-9));
+    assert!(close(nets[0], 95.59, 1e-9));
+    assert!(close(nets[1], -104.41, 1e-9));
     assert_eq!(per_trade_net_bps(&[]), None);
     let bad = [Fill {
         dir: 0,
         entry_px: 100.0,
         exit_px: 101.0,
         qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
     }];
     assert_eq!(per_trade_net_bps(&bad), None);
 }

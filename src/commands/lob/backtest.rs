@@ -144,8 +144,8 @@ pub struct BacktestArgs {
     /// `--take-floor-fees` круговых комиссий. Обязателен при `--touches`.
     #[arg(long)]
     pub take_sigma: Option<f64>,
-    /// Пол тейка в круговых комиссиях (`7.5` bps, `costs::ROUNDTRIP_FEES_BPS`):
-    /// тейк не ниже `k × 7.5` bps. Обязателен при `--touches`.
+    /// Пол тейка в кругах комиссий (`costs::ROUNDTRIP_FEES_BPS`, мейкер+тейкер
+    /// после возврата, В-63): тейк не ниже `k × круг`. Обязателен при `--touches`.
     #[arg(long)]
     pub take_floor_fees: Option<f64>,
     /// Дедлайн сделки, секунды (B3, В-58 п. 4) — из предрегистрированной
@@ -996,7 +996,7 @@ pub struct SigmaGeometry {
     /// Тейк: `take_mult × σ_H` bps от входа (от плотности), но не ниже пола
     /// по комиссиям.
     pub take_mult: f64,
-    /// Пол тейка в круговых комиссиях: `take ≥ take_floor_fees × 7.5 bps`.
+    /// Пол тейка в кругах комиссий: `take ≥ take_floor_fees × ROUNDTRIP_FEES_BPS`.
     pub take_floor_fees: f64,
 }
 
