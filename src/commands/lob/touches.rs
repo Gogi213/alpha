@@ -98,7 +98,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 35;
+const TOUCHES_WIDTH: usize = 40;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -145,6 +145,14 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "strength_w10_pct",
     "strength_w20_pct",
     "strength_w50_pct",
+    // История силы (владелец 2026-09-18): минимум силы ±20 bps за последние
+    // 1/5/15/60 с по секундным выборкам; пусто — уровень моложе окна.
+    "strength_held_1s_pct",
+    "strength_held_5s_pct",
+    "strength_held_15s_pct",
+    "strength_held_60s_pct",
+    // Прошлых рождений на этой цене за час до касания (мерцание).
+    "repeat_count",
 ];
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
@@ -236,6 +244,11 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 strength_pct(t.strength_e2[0]),
                 strength_pct(t.strength_e2[1]),
                 strength_pct(t.strength_e2[2]),
+                strength_pct(t.strength_held_e2[0]),
+                strength_pct(t.strength_held_e2[1]),
+                strength_pct(t.strength_held_e2[2]),
+                strength_pct(t.strength_held_e2[3]),
+                t.repeat_count.to_string(),
             ];
             w.write_record(row)?;
             n += 1;

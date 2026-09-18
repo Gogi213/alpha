@@ -635,6 +635,8 @@ fn touch_rec(
         ended_by_death,
         stack_levels: stack,
         strength_e2: [-1, -1, -1],
+        strength_held_e2: [-1, -1, -1, -1],
+        repeat_count: 0,
     }
 }
 
@@ -802,6 +804,8 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             stack_levels: 1,
             // Окно 50 bps от тика 200 — один тик: сосед 199 (фронтран, 3 лота) даёт 15/3 = 500 %.
             strength_e2: [-1, -1, 50_000],
+            strength_held_e2: [-1, -1, -1, -1],
+            repeat_count: 0,
         }]
     );
     assert_eq!(touches[0].age_ms(), 3000);
@@ -1339,4 +1343,54 @@ fn neighbour_strength_axis_is_percent_of_mean_neighbour() {
     let lone = [ob(10000, 100), ob(9000, 5)];
     let prefix = vec![0i64, 100, 105];
     assert_eq!(neighbour_strength_e2(&lone, &prefix, 0, 20 * 100), -1);
+}
+
+/// История силы: бид 10000 с соседом 9990 — сила 100/10 = 1000 %; на втором
+/// кадре сосед вырос до 100 — сила 100/((5+100)/2) = 190.47 % (в ±20 bps от
+/// 10000 сосед и 10010 с 5 лотами), дальше снова 10. Касание через 5 с после
+/// рождения (уровень стал лучшим после ухода): «сейчас» 1000 %, минимум за 1 с
+/// — 1000 %, за 5 с — 190.47 % (провал внутри окна), за 15 и 60 с — уровень
+/// моложе окна: `-1`. `repeat_count` — 0, рождений на этой цене до этого не было.
+#[test]
+fn strength_history_keeps_the_minimum_over_the_window() {
+    let cfg = LevelsConfig {
+        mode: H3Mode::Floor { h3_lots: 1 },
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+    };
+    let mut tr = LevelTracker::new(cfg);
+    let mut out = Vec::new();
+    let mut touches = Vec::new();
+    let quiet = [ob(10010, 5), ob(10000, 100), ob(9990, 10)];
+    let dip = [ob(10010, 5), ob(10000, 100), ob(9990, 100)];
+    tr.observe_frame_with_touches(1000, Side::Bid, &quiet, &mut out, &mut touches);
+    tr.observe_frame_with_touches(2000, Side::Bid, &dip, &mut out, &mut touches);
+    for ts in [3000, 4000, 5000] {
+        tr.observe_frame_with_touches(ts, Side::Bid, &quiet, &mut out, &mut touches);
+    }
+    // 6000: 10010 ушёл — уровень 10000 стал лучшим: касание в возрасте 5 с.
+    tr.observe_frame_with_touches(
+        6000,
+        Side::Bid,
+        &[ob(10000, 100), ob(9990, 10)],
+        &mut out,
+        &mut touches,
+    );
+    // 7000: цена ушла выше — касание кончилось.
+    tr.observe_frame_with_touches(
+        7000,
+        Side::Bid,
+        &[ob(10020, 5), ob(10000, 100), ob(9990, 10)],
+        &mut out,
+        &mut touches,
+    );
+    assert_eq!(touches.len(), 1, "{touches:?}");
+    let t = &touches[0];
+    assert_eq!(t.price_tick, 10000);
+    assert_eq!(t.strength_e2[1], 100_000, "сейчас 1000 % в ±20 bps");
+    assert_eq!(t.strength_held_e2[0], 100_000, "за 1 с провала нет");
+    assert_eq!(t.strength_held_e2[1], 19_047, "за 5 с минимум — 190.47 %");
+    assert_eq!(t.strength_held_e2[2], -1, "уровень моложе 15 с");
+    assert_eq!(t.strength_held_e2[3], -1, "уровень моложе 60 с");
+    assert_eq!(t.repeat_count, 0);
 }

@@ -461,6 +461,13 @@ pub struct TouchRecord {
     /// проценты × 100; `-1` — соседей в окне не было (ось исследования порога
     /// В-61, 2026-09-18).
     pub strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    /// История силы: минимум силы «×соседи» (±20 bps) за последние `T` с из
+    /// `STRENGTH_HELD_WINDOWS_S` по выборкам раз в секунду; `-1` — уровень
+    /// моложе `T` или сила в окне не определена.
+    pub strength_held_e2: [i64; STRENGTH_HELD_WINDOWS_S.len()],
+    /// Сколько раз уровень уже рождался на этой цене за скользящий час до
+    /// касания (мерцание/«пружинка»): `repeat_count` смерти, но на касании.
+    pub repeat_count: u32,
 }
 
 impl TouchRecord {
@@ -560,6 +567,10 @@ struct Touch {
     end_pending: bool,
     /// Сила «×соседи» на кадре старта (см. `TouchRecord::strength_e2`).
     strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    /// Минимум силы за окна `STRENGTH_HELD_WINDOWS_S` (см. `TouchRecord`).
+    strength_held_e2: [i64; STRENGTH_HELD_WINDOWS_S.len()],
+    /// Прошлых рождений уровня на этой цене в окне `repeat_window_ms`.
+    repeat_count: u32,
 }
 
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
@@ -594,9 +605,51 @@ struct Live {
     /// Сколько касаний у уровня уже кончилось.
     touch_index: u32,
     touch: Option<Touch>,
+    /// Кольцо выборок силы: метки и значения (`e2`, `-1` — не определена).
+    sh_ts: [i64; STRENGTH_HIST_SLOTS],
+    sh_e2: [i64; STRENGTH_HIST_SLOTS],
+    sh_len: u8,
+    sh_next: u8,
 }
 
 impl Live {
+    /// Выборка силы кадра `ts_ms`: пишется, если с последней прошло не меньше
+    /// `STRENGTH_SAMPLE_MS` (первая — сразу).
+    fn observe_strength(&mut self, ts_ms: i64, e2: i64) {
+        if self.sh_len > 0 {
+            let last = (self.sh_next as usize + STRENGTH_HIST_SLOTS - 1) % STRENGTH_HIST_SLOTS;
+            if ts_ms.saturating_sub(self.sh_ts[last]) < STRENGTH_SAMPLE_MS {
+                return;
+            }
+        }
+        let i = self.sh_next as usize;
+        self.sh_ts[i] = ts_ms;
+        self.sh_e2[i] = e2;
+        self.sh_next = ((i + 1) % STRENGTH_HIST_SLOTS) as u8;
+        if (self.sh_len as usize) < STRENGTH_HIST_SLOTS {
+            self.sh_len += 1;
+        }
+    }
+
+    /// Минимум силы за `[ts_ms - window_ms, ts_ms]` по выборкам и текущему
+    /// значению `now_e2`; уровень моложе окна или хоть одна выборка окна не
+    /// определена (`-1`) — `-1`.
+    fn strength_held_e2(&self, ts_ms: i64, window_ms: i64, now_e2: i64) -> i64 {
+        if ts_ms.saturating_sub(self.birth_ms) < window_ms || now_e2 < 0 {
+            return -1;
+        }
+        let mut m = now_e2;
+        for k in 0..(self.sh_len as usize) {
+            if self.sh_ts[k] >= ts_ms.saturating_sub(window_ms) {
+                if self.sh_e2[k] < 0 {
+                    return -1;
+                }
+                m = m.min(self.sh_e2[k]);
+            }
+        }
+        m
+    }
+
     /// Наблюдение лотов впереди уровня в кадре `ts_ms`: тот же шаг слота, что
     /// в документации модуля — новый слот старше `FRONTRUN_BACK_MS` уходит в
     /// старый, иначе дописывается последним наблюдением.
@@ -646,6 +699,19 @@ struct Touched {
 /// по распределению касаний и доле отскока, а не назначался. Это ось
 /// разведки, как `HORIZONS_MS`, а не параметр решения.
 pub const STRENGTH_WINDOWS_BPS: [i64; 3] = [10, 20, 50];
+
+/// История силы (владелец 2026-09-18: «в текущую мс на реальном стакане — не
+/// вся правда»): у живого уровня хранится выборка силы «×соседи» в ±20 bps не
+/// чаще раза в `STRENGTH_SAMPLE_MS` (секунда — `HORIZONS_MS[1]`, как шаг
+/// фронтрана В-45), `STRENGTH_HIST_SLOTS` слотов кольцом — покрытие не меньше
+/// минуты. На старте касания — **минимум** силы за последние `T` секунд из
+/// `STRENGTH_HELD_WINDOWS_S` («сила держалась всё окно»); уровень моложе `T`
+/// — `-1`. Ось исследования, как `STRENGTH_WINDOWS_BPS`.
+pub const STRENGTH_HELD_WINDOWS_S: [i64; 4] = [1, 5, 15, 60];
+pub const STRENGTH_SAMPLE_MS: i64 = HORIZONS_MS[1];
+pub const STRENGTH_HIST_SLOTS: usize = 64;
+/// Окно соседей истории силы — среднее из `STRENGTH_WINDOWS_BPS`.
+const STRENGTH_HIST_WINDOW_BPS_E2: i64 = STRENGTH_WINDOWS_BPS[1] * 100;
 
 /// Сила «×соседи» наблюдения `i` кадра в процентах × 100: `10_000 × size ×
 /// cnt / sum(соседи)`; соседи — остальные наблюдения той же стороны с тиком в
@@ -751,6 +817,8 @@ fn touch_record(
         ended_by_death,
         stack_levels: stack,
         strength_e2: t.strength_e2,
+        strength_held_e2: t.strength_held_e2,
+        repeat_count: t.repeat_count,
     }
 }
 
@@ -899,6 +967,13 @@ impl LevelTracker {
                     lv.seen_top50 = ob.in_top50;
                     lv.seen_size = ob.size_lots;
                     lv.seen_strong = strong;
+                    let now_e2 = neighbour_strength_e2(
+                        levels,
+                        &self.strength_prefix,
+                        i,
+                        STRENGTH_HIST_WINDOW_BPS_E2,
+                    );
+                    lv.observe_strength(ts_ms, now_e2);
                     if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
                         lv.first_decrease_ms = Some(ts_ms);
                     }
@@ -945,6 +1020,14 @@ impl LevelTracker {
                                         STRENGTH_WINDOWS_BPS[k] * 100,
                                     )
                                 }),
+                                strength_held_e2: std::array::from_fn(|k| {
+                                    lv.strength_held_e2(
+                                        ts_ms,
+                                        STRENGTH_HELD_WINDOWS_S[k] * 1_000,
+                                        now_e2,
+                                    )
+                                }),
+                                repeat_count: lv.repeat,
                             });
                             self.touched.push(Touched { key, stack: 0 });
                         }
@@ -985,6 +1068,10 @@ impl LevelTracker {
                                 was_best: best,
                                 touch_index: 0,
                                 touch: None,
+                                sh_ts: [0; STRENGTH_HIST_SLOTS],
+                                sh_e2: [-1; STRENGTH_HIST_SLOTS],
+                                sh_len: 0,
+                                sh_next: 0,
                             },
                         );
                         self.newborns.push((s, ob.tick, ob.size_lots));
