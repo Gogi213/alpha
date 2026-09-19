@@ -590,15 +590,28 @@ fn form_names_round_trip_and_reject_strangers() {
     ] {
         assert_eq!(StopForm::parse(name).unwrap().label(), name);
     }
-    for name in ["1to1", "t1", "t0.5"] {
+    for name in ["1to1", "t1", "t0.5", "tr0.5x0.3", "tr1x0.5"] {
         assert_eq!(TakeForm::parse(name).unwrap().label(), name);
     }
     for bad in ["s1.0", "pct01", "pct0", "pct100", "s-1", "x", "sigma1"] {
         assert!(StopForm::parse(bad).is_err(), "{bad}");
     }
-    for bad in ["t1.0", "1:1", "take"] {
+    for bad in ["t1.0", "1:1", "take", "tr0.5", "tr0x0.3", "tr0.5x-1"] {
         assert!(TakeForm::parse(bad).is_err(), "{bad}");
     }
+    // Трейл кладёт активацию и откат в план в bps (0.5 % → 50 bps, 0.3 % → 30).
+    let touch = bounce_touch(1_000, Some(1_005));
+    let (_, plan) =
+        bounce_plan(&touch, 0.01, base("at", "tr0.5x0.3"), None, plain_shape()).unwrap();
+    let TradePlan::Bounce {
+        trail_bps,
+        trail_activate_bps,
+        ..
+    } = plan
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert!((trail_activate_bps - 50.0).abs() < 1e-9 && (trail_bps - 30.0).abs() < 1e-9);
     assert!(
         BounceForm::parse("s1", "t1", None).is_err(),
         "σ-тейк без пола — отказ"

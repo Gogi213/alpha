@@ -1064,29 +1064,55 @@ impl StopForm {
 }
 
 /// Форма тейка: `1:1` от входа — единственная общая у практиков [D 16:17]
-/// («тейк частями» — E7, после стопов), либо `b × σ_H` (В-62).
+/// («тейк частями» — E7, после стопов), `b × σ_H` (В-62) или **трейл**
+/// (владелец 19.09: «что трейла нет — это плохо»): активируется при ходе
+/// `activate_pct` % от входа в плюс, дальше тянется на `trail_pct` % от лучшей
+/// цены; фиксированного тейка у трейла нет (`strategy`: при `trail_bps > 0`
+/// тейк-лимит не работает).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TakeForm {
     OneToOne,
     Sigma(f64),
+    Trail { activate_pct: f64, trail_pct: f64 },
 }
 
 impl TakeForm {
-    /// Имя: `1to1` или `t<b>`.
+    /// Имя: `1to1`, `t<b>` или `tr<активация>x<откат>` в процентах (`tr0.5x0.3`).
     pub fn label(self) -> String {
         match self {
             Self::OneToOne => "1to1".to_string(),
             Self::Sigma(b) => format!("t{b}"),
+            Self::Trail {
+                activate_pct,
+                trail_pct,
+            } => format!("tr{activate_pct}x{trail_pct}"),
         }
     }
 
     pub fn parse(label: &str) -> anyhow::Result<Self> {
         let form = if label == "1to1" {
             Self::OneToOne
+        } else if let Some(rest) = label.strip_prefix("tr") {
+            let (a, t) = rest
+                .split_once('x')
+                .ok_or_else(|| anyhow::anyhow!("{label}: трейл — tr<активация>x<откат>"))?;
+            let activate_pct = parse_mult(a, label)?;
+            let trail_pct = parse_mult(t, label)?;
+            anyhow::ensure!(
+                activate_pct.is_finite()
+                    && activate_pct > 0.0
+                    && trail_pct.is_finite()
+                    && trail_pct > 0.0,
+                "{label}: активация и откат трейла — конечные числа > 0"
+            );
+            Self::Trail {
+                activate_pct,
+                trail_pct,
+            }
         } else if let Some(rest) = label.strip_prefix('t') {
             Self::Sigma(parse_mult(rest, label)?)
         } else {
-            anyhow::bail!("{label}: форма тейка не из базы (1to1|t<b>)")
+            anyhow::bail!("{label}: форма тейка не из базы (1to1|t<b>|tr<a>x<t>)")
         };
         anyhow::ensure!(
             form.label() == label,
@@ -1269,9 +1295,20 @@ pub(crate) fn bounce_plan(
     if (entry_tick - stop_tick) * away <= 0 {
         return None;
     }
+    // Трейл (форма тейка): активация и откат в bps от входа; у остальных форм
+    // — из `shape` (флаги `--trail-*` у `backtest --touches`).
+    let (trail_bps, trail_activate_bps) = match form.take {
+        TakeForm::Trail {
+            activate_pct,
+            trail_pct,
+        } => (trail_pct * 100.0, activate_pct * 100.0),
+        _ => (trail_bps, trail_activate_bps),
+    };
     let take_tick = match form.take {
         // 1:1 **от входа** (спека §3: «самый базовый, это один к одному» [D 16:17]).
-        TakeForm::OneToOne => entry_tick + (entry_tick - stop_tick),
+        // У трейла фиксированного тейка нет — цена стоит символически на 1:1,
+        // стратегия её не читает при `trail_bps > 0`.
+        TakeForm::OneToOne | TakeForm::Trail { .. } => entry_tick + (entry_tick - stop_tick),
         TakeForm::Sigma(b) => {
             let sigma = sigma_bps?;
             let take_bps = (b * sigma)

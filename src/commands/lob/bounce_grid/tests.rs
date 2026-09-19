@@ -70,6 +70,8 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         take_form: vec!["t1".to_string()],
         take_floor_fees: Some(1.0),
         frontrun_only: false,
+        min_age_secs: None,
+        min_flow_pct: None,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),

@@ -146,6 +146,15 @@ pub struct BounceGridArgs {
     /// пропускаются у всех форм («впритык — редко» [S 07:37; D 05:18]).
     #[arg(long, default_value_t = false)]
     pub frontrun_only: bool,
+    /// Главный фильтр базы (владелец 19.09): плотность стоит не меньше `N` с к
+    /// моменту касания («стоит ≥ 1 ч» [D 01:57; K 14:35]). Число — владельца.
+    #[arg(long)]
+    pub min_age_secs: Option<i64>,
+    /// Сила «×поток» не ниже `S` % в момент касания: размер плотности /
+    /// оборот монеты за последний час (определение владельца 19.09, как у
+    /// сторонних сканеров). Без оборота за час — пропуск.
+    #[arg(long)]
+    pub min_flow_pct: Option<f64>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -266,6 +275,7 @@ fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
 /// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
 /// σ-формам); касания, для которых форму не построить, пропускаются и
 /// считаются (второе значение).
+#[allow(clippy::cast_precision_loss)]
 fn signals_for(
     touches: &[TouchRecord],
     sigma: &SigmaSeries,
@@ -288,6 +298,18 @@ fn signals_for(
             if p.mode.holds_at_touch(t) != Some(true) {
                 skipped += 1;
                 return None;
+            }
+            if p.min_age_ms.is_some_and(|n| t.age_ms() < n) {
+                skipped += 1;
+                return None;
+            }
+            if let Some(s_min) = p.min_flow_pct {
+                let flow_ok = t.flow_1h_lots > 0
+                    && t.size_at_touch as f64 / t.flow_1h_lots as f64 * 100.0 >= s_min;
+                if !flow_ok {
+                    skipped += 1;
+                    return None;
+                }
             }
             let sigma_bps = if form.form.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
@@ -359,6 +381,9 @@ struct DayParams<'a> {
     frontrun_only: bool,
     /// Порог уровня — проверяется и **в момент касания** (`H3Mode::holds_at_touch`).
     mode: H3Mode,
+    /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
+    min_age_ms: Option<i64>,
+    min_flow_pct: Option<f64>,
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -685,7 +710,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} deadlines={:?}) RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} deadlines={:?}) RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -697,6 +722,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.take_form,
         args.take_floor_fees,
         args.frontrun_only,
+        args.min_age_secs,
+        args.min_flow_pct,
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.h3.h3_mode,
@@ -891,6 +918,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         driver: args.driver,
                         post_only: args.post_only,
                         frontrun_only: args.frontrun_only,
+                        min_age_ms: args.min_age_secs.map(|s| s.saturating_mul(1_000)),
+                        min_flow_pct: args.min_flow_pct,
                         mode,
                         sigma: &sigma_series,
                     },
