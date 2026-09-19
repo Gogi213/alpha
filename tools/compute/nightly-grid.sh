@@ -113,7 +113,9 @@ touches_for_day() {
     echo "# трекер: notional \$10k (--h3-usd 10000), сутки одни ($day)"
     echo "# возраст плотности обнуляется в 00:00: трекер уровней чистый на каждые сутки (ревью §0.7),"
     echo "# поэтому первый час суток недосчитывает стены, поставленные вчера, — для оси возраста это систематика"
-    python3 bin/floors-balance.py "$out"
+    # H2 шаг 1 тем же прогоном: матрица + по-монетный разрез по порогам возраста {15…120} мин,
+    # он же пишется csv рядом (сырьё — study/, не док).
+    python3 bin/floors-balance.py "$out" --by-coin --min-per-day 10 --csv "study/floors-by-coin-$day.csv"
   } > "study/floors-$day.txt" 2>&1
   echo "== $(date -u +%FT%TZ) floors-balance $day → study/floors-$day.txt ($(wc -l < "study/floors-$day.txt") строк)" >> "$LOG"
 }
