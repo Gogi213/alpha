@@ -136,6 +136,12 @@ if [ -z "$TOUCHES_ONLY" ]; then
   run_one a45-any       $USD --min-age-secs 2700 $BASE $DAY_ARGS
   run_one a60-any       $USD --min-age-secs 3600 $BASE $DAY_ARGS
   run_one s100-any      $USD --min-flow-pct 100 $BASE $DAY_ARGS
+  # Ось стороны (этап 1 дороги, side-axis-2026-09-19.md): те же семьи по стороне; журнал не растёт —
+  # виды a45-bid/ask, s100-bid/ask уже зарегистрированы (маркеры .trials-logged-*, 128 испытаний 19.09).
+  run_one a45-bid       $USD --min-age-secs 2700 --side bid $BASE $DAY_ARGS
+  run_one a45-ask       $USD --min-age-secs 2700 --side ask $BASE $DAY_ARGS
+  run_one s100-bid      $USD --min-flow-pct 100 --side bid $BASE $DAY_ARGS
+  run_one s100-ask      $USD --min-flow-pct 100 --side ask $BASE $DAY_ARGS
   run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
