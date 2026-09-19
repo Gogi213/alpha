@@ -42,7 +42,10 @@ fi
 # возраст выше флора — ось (пул / пулы / по монете — H2 в handoff-2026-09-19.md); сила ×поток ≥ 100 %
 # под флором возраста пуста (floors-balance-2026-09-19.md) — сила 10 % и «любая». Контроль —
 # прежняя база при силе 100 % без возраста (непрерывность с v66flow/v68lat).
-USD="--h3-mode notional --h3-usd 10000"
+# Касания сеток — из кэша H3 (`study/touches/<сутки>/`, считается выше до сеток; 20.09): реплей книги
+# был 83 % времени сетки, гейт «те же rounds/forms» пройден на пяти монетах (COMMANDS.md); монета без
+# суток в кэше идёт реплеем сама (строка в grid.err). σ-форм в ночном наборе нет.
+USD="--h3-mode notional --h3-usd 10000 --touches-from study/touches"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.

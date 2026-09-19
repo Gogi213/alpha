@@ -44,7 +44,8 @@ rows = [r for r in csv.DictReader(l for l in open(sys.argv[1], encoding="utf-8")
 print(" ".join(f"--symbol {s}" for s in sorted({r["symbol"] for r in rows if int(r["n_signals"] or 0) > 0})))
 PY
 }
-USD="--h3-mode notional --h3-usd 10000"
+# Касания — из кэша ночного H3 (20.09, гейт пройден — COMMANDS.md); без суток в кэше монета реплеится сама.
+USD="--h3-mode notional --h3-usd 10000 --touches-from study/touches"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 run_one() {
   local kind=$1; shift
