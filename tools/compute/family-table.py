@@ -82,15 +82,16 @@ def main():
         v = parse_verdict(verdict)
         forms = forms_path_of(grid)
         agg = coin_stats(forms, v["form"]) if os.path.exists(forms) else {}
-        # как в grid-coins: «толстые» монеты — те, у кого кругов ≥ порога; если такая одна, планка
-        # опускается до 2 и 1, иначе лучшая=худшая (одна и та же монета) и строка не читается
+        # колонка «монет с ≥ порога» — честно по порогу; лучшая/худшая выбираются с понижением планки
+        # (как в grid-coins): если «толстая» одна, лучшая=худшая и строка не читается
+        req = {s: x for s, x in agg.items() if x[0] >= a.min_fills}
         thick = agg
         for floor in (a.min_fills, 2, 1):
             sel = {s: x for s, x in agg.items() if x[0] >= floor}
             if len(sel) >= 2:
                 thick = sel
                 break
-        pos = sum(1 for x in thick.values() if x[1] > 0)
+        pos = sum(1 for x in req.values() if x[1] > 0)
         best = max(thick.items(), key=lambda kv: kv[1][1]) if thick else ("—", [0, 0])
         worst = min(thick.items(), key=lambda kv: kv[1][1]) if thick else ("—", [0, 0])
         lines.append(
