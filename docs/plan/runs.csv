@@ -80,27 +80,27 @@ ts_utc,symbol,kind,detail
 2026-09-19T13:20:00Z,POOL,prereg,"V-70 age floor titration before data: 4 floors (900|1800|2700|3600 s since placement) x V-65 base forms=32 (stop(before|at|behind|midfr|stack2|pct0.5|pct1|pct2) x take(1to1) x deadline(60s|10m|1h|2h)) = 128 trials, entry_any; floors V-66 notional>=10000 usd, strength x-flow>=100% at touch; latency V-68; size = pool lot; days 2026-09-16..18; owner floor = 15 min, titrate upward; verdict per floor, per coin; spec docs/plan/SETTLED.md V-70"
 2026-09-19T13:50:00Z,POOL,amendment,"V-70 age titration (128 trials, row 2026-09-19T13:20:00Z) NOT run: floors-balance matrix (docs/findings/floors-balance-2026-09-19.md) shows strength x-flow>=100% AND age>=15min = 3 touches/day pool-wide, >=30min = 0 — empty set; chain v70age killed before any grid. Replaced by V-70 balance frontier: grids v70bal-a45-any (age>=45min since placement, strength any) and v70bal-s50-any (strength x-flow>=50%, age any), each V-65 base forms=32, entry_any, notional>=10000 usd, latency V-68, size = pool lot, days 2026-09-16..18 = 64 trials"
 2026-09-19T14:30:00Z,POOL,prereg,"V-71 nightly set before data (first night 2026-09-20, all days in root, re-run nightly with the same forms): age hard floor 900 s; grids = a15-s10 (age>=900 s & strength x-flow>=10%), a30, a45, a60 (age>=1800|2700|3600 s, strength any), s100 control (strength>=100%, no age), each V-65 base forms=32 = 160 trials; E7 at a15-s10: pct(0.5|1|2) x (half1to1|eat50x80) x 4 deadlines = 24 trials, size 2 pool lots; notional>=10000 usd; latency V-68; entry_any; logged once per grid kind by nightly-grid.sh (--log-trials on first night); spec docs/plan/SETTLED.md V-71, docs/plan/handoff-2026-09-19.md H2"
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-eat50x80-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-eat50x80-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-eat50x80-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-eat50x80-7200
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-half1to1-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-half1to1-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-half1to1-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct0.5-half1to1-7200
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-eat50x80-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-eat50x80-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-eat50x80-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-eat50x80-7200
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-half1to1-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-half1to1-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-half1to1-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct1-half1to1-7200
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-eat50x80-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-eat50x80-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-eat50x80-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-eat50x80-7200
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-half1to1-3600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-half1to1-60
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-half1to1-600
-2026-09-19T15:30:05Z,,confirmatory,bounce_form pct2-half1to1-7200
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-eat50x80-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-eat50x80-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-eat50x80-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-eat50x80-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-half1to1-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-half1to1-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-half1to1-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct0.5-half1to1-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-eat50x80-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-eat50x80-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-eat50x80-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-eat50x80-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-half1to1-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-half1to1-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-half1to1-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct1-half1to1-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-eat50x80-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-eat50x80-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-eat50x80-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-eat50x80-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-half1to1-3600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-half1to1-60 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-half1to1-600 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
+2026-09-19T15:30:05Z,POOL,confirmatory,"bounce_form pct2-half1to1-7200 — v69e7-base-any grid 2026-09-16..18 (E7, 2 pool lots, entry_any), verdict: мало данных; docs/findings/base68-2026-09-19.md"
