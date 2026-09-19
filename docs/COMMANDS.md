@@ -230,9 +230,9 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 ## Ночная сетка на счётной машине (В-70)
 
 `tools/compute/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
-`alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45): три сетки по
-**всем** суткам корня — база В-65 any и frontrun-only (полы `--h3-usd 10000 --min-flow-pct 100
---min-age-secs 900`), E7 (`pct{0.5,1,2} × {half1to1, eat50x80}`, `--order-qty-mult 2`) — и вердикт на
+`alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45): четыре сетки по
+**всем** суткам корня — база В-65 any и frontrun-only (флоры `--h3-usd 10000 --min-flow-pct 100`), база при
+возрасте ≥ 45 мин (`--min-age-secs 2700`, без силы — флоры не пересекаются, `floors-balance-2026-09-19.md`), E7 (`pct{0.5,1,2} × {half1to1, eat50x80}`, `--order-qty-mult 2`) — и вердикт на
 каждую (`--runs-csv study/runs-2026-09-19.csv`, без `--log-trials`: формы те же, что в
 предрегистрации). Артефакты `b5/nightly-<день>-<метка>/`, вердикты
 `study/bounce-verdict-nightly-<день>-<метка>.csv`, лог `study/nightly-<день>.log`. Если вчерашняя сетка
