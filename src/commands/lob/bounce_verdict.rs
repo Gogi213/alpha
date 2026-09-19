@@ -650,19 +650,18 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         forms.push(form_verdict(&data, f)?);
     }
     // Шарп нужен каждой форме: срез пробных Шарпов — вход поправки, и форма
-    // без Шарпа молча выпала бы из среза, занизив `N`.
-    let trial_sharpes: Vec<f64> = forms
-        .iter()
-        .map(|f| {
-            f.sharpe.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "{}: Шарп не считается ({} кругов, нужен ряд из ≥ 2 с ненулевой дисперсией)",
-                    f.form,
-                    f.n_fills
-                )
-            })
-        })
-        .collect::<anyhow::Result<Vec<f64>>>()?;
+    // без Шарпа молча выпала бы из среза, занизив `N`. Форма, у которой
+    // кругов меньше двух (ряд без дисперсии), входит в срез с Шарпом 0:
+    // это испытание, которое ничего не дало, — `N` не занижается, а
+    // дисперсия среза не растёт от неё (19.09: на полах В-66 у формы
+    // `before-1to1-3600` один круг на пул — отказ ронял весь вердикт).
+    let trial_sharpes: Vec<f64> = forms.iter().map(|f| f.sharpe.unwrap_or(0.0)).collect();
+    let forms_without_sharpe = forms.iter().filter(|f| f.sharpe.is_none()).count();
+    if forms_without_sharpe > 0 {
+        eprintln!(
+            "bounce-verdict: форм без Шарпа (< 2 кругов) — {forms_without_sharpe}, в срезе DSR как 0"
+        );
+    }
 
     let labels: Vec<String> = forms.iter().map(|f| f.form.clone()).collect();
     if args.log_trials {
