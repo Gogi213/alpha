@@ -88,7 +88,7 @@ cargo run --release -- lob <подкоманда>
 | `bybit/ws` | разбором | типизированные события, флаг `BT` | JSON площадки |
 | `bybit/rest` | REST вне пути | `PublicRest` за трейтом, таймаут 10 с | десятичные |
 | `bybit/verify` | доверием к книге | три теста и вердикт | выравнивание по `u`, `out_of_range` |
-| `bybit/probe`, `bybit/trade_ws` | задержкой | RTT: медиана, p95, две метки | подпись, транспорт |
+| `bybit/probe`, `bybit/trade_ws`, **`bybit/latency`** | задержкой | RTT: медиана, p95, две метки; **`lob latency` — ступени по типу запроса (постановка/снятие/тейкер) по REST и WS trade, приватный стрим с меткой приёма** | подпись, транспорт |
 | `feed/` | единым потоком | `Feed { fn next_event(&mut self) -> Option<Event> }` — бинлог или сокет | источник |
 | `lob/levels` | жизнью уровня | `LevelRecord`: шесть признаков, класс | пол `H3`, 70/20, окно повторов |
 | `lob/markout` | движением | `m` на четырёх горизонтах, флаг `unreachable` | полярность, база |
@@ -483,3 +483,43 @@ cargo run --release -- lob <подкоманда>
 - `pub fn rewrite_v2_to_v3(src, out) -> anyhow::Result<Vec<String>>` — переписывает v2-файл в v3 тем же `Writer`, заголовок и границы кадров сохраняются; отказ на не-v2 входе. Вызывается диспетчером при `--rewrite-out`; ворота M5c: `verify`/`levels` на v3 обязаны дать те же артефакты (сошлись побайтово, SHA-256 CSV совпал).
 - Тесты: `ev_table_variant_round_trips_and_escapes_beyond_the_table` (несколько значений + хвост сверх `EV_TABLE_MAX`), `rewrite_writes_a_v3_file_with_the_same_records` (+ отказ на v3-входе), инвариант уровней в `reencode_measures_v2_against_v3_on_the_same_records`. Всего 709.
 - Ранбук сервера — `docs/COMMANDS.md`, «Коллектор на сервере (Linux) — ранбук (T43/T44)»: сборка, файлы, запуск, systemd `Restart=always` (рестарт начинает новую часть суток), проверка после старта (`binlog-stats` → «формат v3», `verify` ok, `samples` на Linux), политика диска (0.94 ГБ/сутки на пул, 4–6 ГБ/сутки на топ-100; архив сутками вместе с `verify-<SYM>.status`), присмотр и предупреждение про `bytes_written` (считает только текущие части).
+
+## Из 2026-09-19 — измеренная задержка (В-68), дробный выход E7 (В-69), плечо, флоры (В-70/71)
+
+- **`bybit::latency`** (ядро, фейки без сети) + **`commands::lob::latency`** (живые транспорты): трейты
+  `Rest` (get_public/get_signed/post_signed — подпись внутри реализации, ядро ключей не видит),
+  `TradeWs` (send/recv с таймаутом), `PrivateSource` → `Feed` (буфер несовпавших кадров: `order Filled`
+  раньше `execution` не теряется); `Bench::run_cycle` — ступени `rest_time`, `ws_ping`, `place_ack/new`,
+  `cancel_ack/done`, `taker_ack/exec/filled` × `via rest|ws`; `flatten` — cancel-all + reduceOnly после
+  ошибки тейкера и в конце; `qty_for_notional` (номинал → qty по шагу лота, minOrderQty, minNotional);
+  `orderLinkId` уникален на прогон (префикс по времени — иначе `110072 duplicate`).
+  `Credentials::ws_auth_signature` — `GET/realtime{expires}`. Ключи — только окружение процесса; на
+  сервер передавались stdin'ом в окружение на время прогона, на диск не писались.
+- **`lob::backtest::{ExecLatency, MeasuredLatency, MEASURED_LATENCY}`**: задержка крейта по типу запроса
+  (`req == Canceled` → cancel, `order_type == Market` → taker, иначе place; вся величина на входное плечо,
+  ответное 0 — как `latency_from_rtt`); флаги `--median-rtt-ns`/`--p95-rtt-ns` принимают одно число
+  (форма В-37, `assumed`) или тройку `place=..,cancel=..,taker=..` (`measured(lob latency, В-68)`);
+  шапки артефактов печатают `provenance()`. Константа `MEASURED_LATENCY` — только для справочных полей
+  (дашборд), флаги без умолчаний.
+- **Стратегия (E7, В-69)**, всё `Copy`, аллокаций на событие по-прежнему ноль: `TradePlan::Bounce` +
+  `take_frac`, `eaten_half_pct`, `eaten_all_pct`, `eaten_half_frac`, `level_qty`, `lot_qty`;
+  `StrategyState.{partial_done, level_qty_max}` (`enter_holding` сбрасывает); `Phase::ExitPending {
+  order_id, resume: Option<entry_ns> }` — частичный выход возвращает остаток в `Holding` с прежними
+  часами; `ExitReason::Eaten`; `Action::ExitSubmitted.partial`. Порядок решений в круге: стоп → съедено
+  всё → трейл → тейк (доля, один раз) → съедено наполовину → досрочный → дедлайн. Дробь округляется
+  **вниз** до `lot_qty`; ноль — выход целиком (с одним лотом пула формы вырождаются в цельные).
+- **Драйвер**: `run_round` собирает **все** ноги выхода — одна `Fill` на круг, `exit_px`
+  средневзвешенная по размеру, `exit_taker` — если тейкером хоть одна нога; `RoundOutcome::Filled.partial`,
+  `ExitTally.{eaten, partial}` → `forms.csv` `n_eaten`, `n_partial` (22 колонки). Вердикт новые колонки
+  не читает (по имени), старые дампы совместимы.
+- **Формы тейка**: `TakeForm::HalfOneToOne` (`half1to1`), `TakeForm::Eaten { half_pct, all_pct }`
+  (`eat<h>x<a>`, границы 0 < h < a ≤ 100); `PlanShape.lot`; `bounce_plan` кладёт `level_qty =
+  size_at_touch × lot`. `bounce-grid --order-qty-mult N` (E7 — 2).
+- **Скрипты счётной машины**: `tools/compute/leverage.py` (плечо по монете: `1/L − MMR ≥ 2 × стоп` и
+  ≥ p99 хода против внутри дедлайна; `risk-limit`, `funding/history` публичным REST),
+  `floors-balance.py` (сила × возраст → сигналов/день × (ход − комиссии)), `nightly-grid.sh` +
+  `tools/systemd/alpha-grid-nightly.*` (шесть сеток по всем суткам, испытания регистрируются один раз
+  на вид — маркер `study/.trials-logged-<вид>`).
+- Грабля инструмента: heredoc в оболочке агента раскрывает обратные слэши (`` → байт 0x01, `
+` →
+  перевод строки) — скрипты писать файлом (Write), не heredoc'ом.
