@@ -39,8 +39,7 @@ run_one() {
   if $BIN lob bounce-verdict --grid-dir "b5/$label" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
     [ -n "$logflag" ] && touch "study/.trials-logged-$kind"
   fi
-  echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '
-' ' ' | cut -c1-300)" >> "$LOG"
+  echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
 }
 echo "== $(date -u +%FT%TZ) nightly start; days in root: $(ls root/*.binlog | sed -E 's/.*-(2026-[0-9]{2}-[0-9]{2}).*//' | sort -u | tr '
 ' ' ')" >> "$LOG"
