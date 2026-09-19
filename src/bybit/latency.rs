@@ -640,6 +640,9 @@ pub struct Plan {
     /// Ожидание кадра приватного стрима и ответа WS trade.
     pub wait: Duration,
     pub taker: bool,
+    /// Префикс `orderLinkId` — уникален на прогон: биржа помнит `orderLinkId` счёта
+    /// и отвечает `110072 OrderLinkedID is duplicate` на повтор из прошлого прогона.
+    pub link_prefix: String,
 }
 
 /// Настенное время для `header` WS trade — из `probe`, чтобы не заводить
@@ -766,7 +769,7 @@ impl<'a, R: Rest, T: TradeWs, S: PrivateSource> Bench<'a, R, T, S> {
     }
 
     fn limit_rest(&mut self, cycle: usize, price_e9: i64) -> Result<(), LatencyError> {
-        let link = format!("lat{cycle}r");
+        let link = format!("{}{cycle}r", self.plan.link_prefix);
         let body = post_only_body(
             &self.plan.symbol,
             self.plan.side,
@@ -833,7 +836,7 @@ impl<'a, R: Rest, T: TradeWs, S: PrivateSource> Bench<'a, R, T, S> {
     }
 
     fn limit_ws(&mut self, cycle: usize, price_e9: i64) -> Result<(), LatencyError> {
-        let link = format!("lat{cycle}w");
+        let link = format!("{}{cycle}w", self.plan.link_prefix);
         let body = post_only_body(
             &self.plan.symbol,
             self.plan.side,
@@ -912,8 +915,18 @@ impl<'a, R: Rest, T: TradeWs, S: PrivateSource> Bench<'a, R, T, S> {
 
     fn taker_rest(&mut self, cycle: usize) -> Result<(), LatencyError> {
         let side = self.plan.side;
-        self.taker_leg_rest(cycle, side, &format!("lat{cycle}tr"), false)?;
-        self.taker_leg_rest(cycle, opposite(side), &format!("lat{cycle}trx"), true)
+        self.taker_leg_rest(
+            cycle,
+            side,
+            &format!("{}{cycle}tr", self.plan.link_prefix),
+            false,
+        )?;
+        self.taker_leg_rest(
+            cycle,
+            opposite(side),
+            &format!("{}{cycle}trx", self.plan.link_prefix),
+            true,
+        )
     }
 
     fn taker_leg_ws(
@@ -937,14 +950,14 @@ impl<'a, R: Rest, T: TradeWs, S: PrivateSource> Bench<'a, R, T, S> {
         self.taker_leg_ws(
             cycle,
             side,
-            &format!("lat{cycle}tw"),
+            &format!("{}{cycle}tw", self.plan.link_prefix),
             false,
             &format!("t{cycle}"),
         )?;
         self.taker_leg_ws(
             cycle,
             opposite(side),
-            &format!("lat{cycle}twx"),
+            &format!("{}{cycle}twx", self.plan.link_prefix),
             true,
             &format!("u{cycle}"),
         )
@@ -963,7 +976,13 @@ impl<'a, R: Rest, T: TradeWs, S: PrivateSource> Bench<'a, R, T, S> {
         match parse_position(&body, &self.plan.symbol)? {
             None => Ok(None),
             Some((side, size_e9)) => {
-                let body = market_body(&self.plan.symbol, opposite(side), size_e9, "latflat", true);
+                let body = market_body(
+                    &self.plan.symbol,
+                    opposite(side),
+                    size_e9,
+                    &format!("{}flat", self.plan.link_prefix),
+                    true,
+                );
                 let json = serde_json::to_string(&body)
                     .map_err(|e| LatencyError::Decode(e.to_string()))?;
                 let resp = self.rest.post_signed(CREATE_PATH, &json)?;

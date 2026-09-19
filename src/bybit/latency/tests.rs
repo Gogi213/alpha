@@ -334,6 +334,7 @@ fn plan(taker: bool) -> Plan {
         recv_window_ms: 5000,
         wait: Duration::from_millis(10),
         taker,
+        link_prefix: "lat".to_string(),
     }
 }
 

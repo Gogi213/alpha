@@ -491,6 +491,7 @@ pub fn run_latency(args: &LatencyArgs) -> anyhow::Result<LatencyReport> {
         recv_window_ms: args.recv_window_ms,
         wait,
         taker: !args.skip_taker,
+        link_prefix: format!("l{}", wall_ms().map_err(|e| anyhow::anyhow!("{e}"))?),
     };
     let mut bench = Bench::new(&mut rest, trade.as_mut(), &mut feed, &plan);
     bench.errors.append(&mut errors);
