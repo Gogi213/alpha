@@ -39,7 +39,9 @@
 //! (`bounce_verdict::form_label`/`parse_form`). Досрочный выход В-58 п. 5 в
 //! сетку не входит (измерен сеткой в тиках; вернуть — отдельной
 //! предрегистрацией). Касание без `σ` (окно упирается в начало записи)
-//! сигнала у формы не даёт и считается в `n_skipped`.
+//! сигнала у формы не даёт и считается в `n_skipped`. Ось стороны
+//! (`--side bid|ask`, этап 1 дороги к альфе, `side-asymmetry-2026-09-19.md`):
+//! касания другой стороны выбывают до форм и считаются там же.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -62,6 +64,7 @@ use super::{
     replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for, H3Args,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
+use crate::book::Side;
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
     BounceSignal, DriveConfig, ExecLatency, SignalWindows,
@@ -162,6 +165,12 @@ pub struct BounceGridArgs {
     /// сторонних сканеров). Без оборота за час — пропуск.
     #[arg(long)]
     pub min_flow_pct: Option<f64>,
+    /// Ось стороны (этап 1 `alpha-roadmap-2026-09-19.md`, намёк
+    /// `side-asymmetry-2026-09-19.md`: лонги от бид-стен +12…+17 bps на
+    /// круг, шорты от аск-стен −16…−19): гнать только касания бид- (`bid`,
+    /// лонг) или аск-стен (`ask`, шорт). Без флага — обе стороны, как прежде.
+    #[arg(long, value_enum)]
+    pub side: Option<SideArg>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -184,6 +193,31 @@ pub struct BounceGridArgs {
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+}
+
+/// Сторона стены для `--side`: `bid` — лонг от бид-стены, `ask` — шорт от аск-стены.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SideArg {
+    Bid,
+    Ask,
+}
+
+impl SideArg {
+    pub fn label(self) -> &'static str {
+        match self {
+            SideArg::Bid => "bid",
+            SideArg::Ask => "ask",
+        }
+    }
+}
+
+impl From<SideArg> for Side {
+    fn from(s: SideArg) -> Self {
+        match s {
+            SideArg::Bid => Side::Bid,
+            SideArg::Ask => Side::Ask,
+        }
+    }
 }
 
 /// Как гонять форму над сутками: сплошным прогоном или по сетапам.
@@ -320,6 +354,11 @@ fn signals_for(
                     return None;
                 }
             }
+            // Ось стороны: другая сторона выбывает до форм (как возраст и сила).
+            if p.side.is_some_and(|s| t.side != s) {
+                skipped += 1;
+                return None;
+            }
             let sigma_bps = if form.form.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
             } else {
@@ -394,6 +433,8 @@ struct DayParams<'a> {
     /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
     min_age_ms: Option<i64>,
     min_flow_pct: Option<f64>,
+    /// Ось стороны (`--side`): `None` — обе стороны.
+    side: Option<Side>,
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -722,7 +763,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -736,6 +777,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.frontrun_only,
         args.min_age_secs,
         args.min_flow_pct,
+        args.side.map_or("both", SideArg::label),
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
@@ -798,7 +840,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // порог в момент касания не проверить — отказ, не молчаливый пропуск.
         {
             let probe = TouchRecord {
-                side: crate::book::Side::Bid,
+                side: Side::Bid,
                 price_tick: 1,
                 touch_index: 0,
                 start_ms: 0,
@@ -934,6 +976,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         frontrun_only: args.frontrun_only,
                         min_age_ms: args.min_age_secs.map(|s| s.saturating_mul(1_000)),
                         min_flow_pct: args.min_flow_pct,
+                        side: args.side.map(Side::from),
                         mode,
                         sigma: &sigma_series,
                     },

@@ -73,6 +73,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         frontrun_only: false,
         min_age_secs: None,
         min_flow_pct: None,
+        side: None,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -243,4 +244,57 @@ fn lot_must_come_from_exactly_one_source() {
     a.order_qty_from_pool = true;
     a.order_qty_e9 = Some(1);
     assert!(run_bounce_grid(&a).is_err());
+}
+
+/// Ось стороны (этап 1): фикстура — три касания бида 99, так что `--side ask`
+/// выбивает все три в `n_skipped` у каждой формы, `--side bid` ничего не
+/// меняет против прогона без флага; сторона — в шапке `forms.csv`.
+#[test]
+fn side_axis_keeps_only_touches_of_that_side() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+
+    let mut a = args(dir.path(), false);
+    a.side = Some(SideArg::Ask);
+    a.out_dir = dir.path().join("grid-ask");
+    let summary = run_bounce_grid(&a).unwrap();
+    let (fh, forms) = read_csv(&summary.forms_path);
+    assert_eq!(forms.len(), 8);
+    for r in &forms {
+        assert_eq!(
+            col(&fh, r, "n_signals"),
+            "0",
+            "аск-стен в фикстуре нет: {r:?}"
+        );
+        assert_eq!(
+            col(&fh, r, "n_skipped"),
+            "3",
+            "все три касания бида выбыли: {r:?}"
+        );
+    }
+    let head = std::fs::read_to_string(&summary.forms_path).unwrap();
+    assert!(head.contains(" side=ask "), "сторона в шапке: {head}");
+
+    let mut a = args(dir.path(), false);
+    a.side = Some(SideArg::Bid);
+    a.out_dir = dir.path().join("grid-bid");
+    let summary = run_bounce_grid(&a).unwrap();
+    let (fh, forms) = read_csv(&summary.forms_path);
+    for r in &forms {
+        let form = col(&fh, r, "form");
+        let want = if form.ends_with("-60") { "3" } else { "0" };
+        assert_eq!(col(&fh, r, "n_signals"), want, "бид пропускает всё: {form}");
+    }
+    let head = std::fs::read_to_string(&summary.forms_path).unwrap();
+    assert!(head.contains(" side=bid "), "сторона в шапке: {head}");
+    let both = std::fs::read_to_string(
+        run_bounce_grid(&args(dir.path(), false))
+            .unwrap()
+            .forms_path,
+    )
+    .unwrap();
+    assert!(
+        both.contains(" side=both "),
+        "без флага — обе стороны: {both}"
+    );
 }
