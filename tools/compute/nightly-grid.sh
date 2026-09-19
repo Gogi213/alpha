@@ -46,7 +46,9 @@ fi
 # Касания сеток — из кэша H3 (`study/touches/<сутки>/`, считается выше до сеток; 20.09): реплей книги
 # был 83 % времени сетки, гейт «те же rounds/forms» пройден на пяти монетах (COMMANDS.md); монета без
 # суток в кэше идёт реплеем сама (строка в grid.err). σ-форм в ночном наборе нет.
-USD="--h3-mode notional --h3-usd 10000 --touches-from study/touches"
+USD="--h3-mode notional --h3-usd 10000"
+# Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
+GRID="--touches-from study/touches"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.
@@ -68,7 +70,7 @@ run_sets() {
   local setargs=""
   for kv in "$@"; do setargs="$setargs --set $kv"; done
   echo "== $(date -u +%FT%TZ) grid $label start: наборы $*" >> "$LOG"
-  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $BASE $DAY_ARGS $setargs >> "$LOG" 2>&1
+  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $GRID $BASE $DAY_ARGS $setargs >> "$LOG" 2>&1
   sleep 5
   while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
@@ -167,7 +169,7 @@ if [ -z "$TOUCHES_ONLY" ]; then
            a45-ask-e60:age=2700,side=ask,eaten=60 a45-ask-e75:age=2700,side=ask,eaten=75 \
            s100-bid-e20:flow=100,side=bid,eaten=20 s100-bid-e39:flow=100,side=bid,eaten=39
   # E7 — другие формы и лот, поэтому свой процесс.
-  run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+  run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
 fi
