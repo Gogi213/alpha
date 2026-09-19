@@ -48,7 +48,7 @@ fi
 # суток в кэше идёт реплеем сама (строка в grid.err). σ-форм в ночном наборе нет.
 USD="--h3-mode notional --h3-usd 10000"
 # Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
-GRID="--touches-from study/touches"
+GRID="--touches-from study/touches --regime-from study/regime"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.
@@ -166,13 +166,20 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # S0 плана по сторонам (side-plan-2026-09-20.md, 20.09): возраст по стороне — a15-s10/a30/a60 × bid|ask (192 испытания).
   # S1: состояние стены — eaten=<%> (усадка от максимума к касанию); пороги — квартили распределения по касаниям 16–18.09
   # (a45: q25 60 / q50 75; s100: q50 20 / q75 39), 6 наборов = 192 испытания.
+  # S5: режим и растяжка по стороне — квартили по 16–18.09 (pool_ret_4h q25 −1.1 / q50 46.1 / q75 95.3;
+  # btc_ret_4h q50 21.9; ret_1h касаний аск-стен a45 q75 66.4), 9 наборов = 288 испытаний; режим — study/regime.
   run_sets a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
            a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask \
            a15-s10-bid:age=900,flow=10,side=bid a15-s10-ask:age=900,flow=10,side=ask \
            a30-bid:age=1800,side=bid a30-ask:age=1800,side=ask a60-bid:age=3600,side=bid a60-ask:age=3600,side=ask \
            a45-bid-e60:age=2700,side=bid,eaten=60 a45-bid-e75:age=2700,side=bid,eaten=75 \
            a45-ask-e60:age=2700,side=ask,eaten=60 a45-ask-e75:age=2700,side=ask,eaten=75 \
-           s100-bid-e20:flow=100,side=bid,eaten=20 s100-bid-e39:flow=100,side=bid,eaten=39
+           s100-bid-e20:flow=100,side=bid,eaten=20 s100-bid-e39:flow=100,side=bid,eaten=39 \
+           a45-bid-p4h-q50:age=2700,side=bid,pool4h_min=46.1 a45-bid-p4h-q75:age=2700,side=bid,pool4h_min=95.3 \
+           a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 a45-bid-b4h-q50:age=2700,side=bid,btc4h_min=21.9 \
+           a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0 a45-ask-p4h-q25:age=2700,side=ask,pool4h_max=-1.1 \
+           a45-ask-p4h-q50:age=2700,side=ask,pool4h_max=46.1 a45-ask-r1h-q75:age=2700,side=ask,ret1h_min=66.4 \
+           a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
