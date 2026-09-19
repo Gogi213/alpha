@@ -22,6 +22,30 @@ cd /opt/alpha-compute || exit 1
 export PATH=/root/.cargo/bin:$PATH
 DAY=$(date -u +%F)
 LOG=study/nightly-$DAY.log
+# Громкие ошибки (владелец 20.09: «почему если что-то падает — это молчаливо?»): каждая проблема —
+# строка в study/ALERTS.log (дата, ночь, что именно), в конце ночи одна строка «ОК/ПРОВАЛ», и при
+# любой проблеме скрипт выходит с кодом 1 — юнит alpha-grid-nightly виден в `systemctl --failed`.
+# Внешний канал — ALERT_CMD (окружение юнита): команда получает текст первым аргументом, например
+# curl к api.telegram.org с токеном из /etc/alpha/alert.env (файл root:600, кладёт владелец).
+ALERTS=study/ALERTS.log
+NALERTS=0
+alert() {
+  NALERTS=$((NALERTS + 1))
+  echo "$(date -u +%FT%TZ) nightly-$DAY: $*" >> "$ALERTS"
+  echo "!! $*" >> "$LOG"
+}
+finish() {
+  if [ "$NALERTS" -eq 0 ]; then
+    echo "$(date -u +%FT%TZ) nightly-$DAY: ОК" >> "$ALERTS"
+    echo "== $(date -u +%FT%TZ) nightly done: ОК" >> "$LOG"
+    [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ОК" >/dev/null 2>&1
+    exit 0
+  fi
+  echo "$(date -u +%FT%TZ) nightly-$DAY: ПРОВАЛ — проблем $NALERTS (выше)" >> "$ALERTS"
+  echo "== $(date -u +%FT%TZ) nightly done: ПРОВАЛ — проблем $NALERTS, см. $ALERTS" >> "$LOG"
+  [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ПРОВАЛ — проблем $NALERTS: $(grep "nightly-$DAY:" "$ALERTS" | tail -n +1 | cut -d: -f4- | tr '\n' ';' | cut -c1-500)" >/dev/null 2>&1
+  exit 1
+}
 BIN=/opt/alpha-compute/bin/alpha
 RUNS=study/runs-2026-09-19.csv
 # Окно суток для сеток: пусто — все сутки корня (как было); DAYS_WINDOW=4 — последние четыре.
@@ -37,7 +61,9 @@ if [ -n "$DAYS_WINDOW" ]; then
   for d in $(echo "$DAYS_ALL" | tail -n "$DAYS_WINDOW"); do DAY_ARGS="$DAY_ARGS --day $d"; done
 fi
 if systemctl list-units "alpha-grid-*" --no-legend | grep -q running; then
-  echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен" >> "$LOG"; exit 0
+  echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен" >> "$LOG"
+  alert "ночь пропущена: сетка ещё идёт ($(systemctl list-units "alpha-grid-*" --no-legend | grep running | awk '{print $1}' | tr '\n' ' '))"
+  finish
 fi
 # В-71 (владелец 19.09, вечер): 15 минут с постановки — жёсткий флор (моложе не торгуем);
 # возраст выше флора — ось (пул / пулы / по монете — H2 в handoff-2026-09-19.md); сила ×поток ≥ 100 %
@@ -60,6 +86,8 @@ verdict_one() {
   if [ ! -f "study/.trials-logged-$kind" ]; then logflag="--log-trials"; fi
   if $BIN lob bounce-verdict --grid-dir "$gdir" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
     [ -n "$logflag" ] && touch "study/.trials-logged-$kind"
+  else
+    alert "вердикт $label не посчитался: $(tail -2 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-200)"
   fi
   echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
 }
@@ -74,6 +102,7 @@ run_sets() {
   sleep 5
   while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
+  grid_check "$label"
   for kv in "$@"; do verdict_one "${kv%%:*}" "b5/$label/${kv%%:*}"; done
 }
 run_one() {
@@ -86,7 +115,22 @@ run_one() {
   sleep 5
   while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
+  grid_check "$label"
   verdict_one "$kind" "b5/$label"
+}
+# Сетка обязана кончиться штатно: юнит не failed, в grid.err строки «готов», нет «error»/panic.
+grid_check() {
+  local label=$1
+  if systemctl is-failed --quiet "alpha-grid-$label"; then
+    alert "сетка $label: юнит failed — $(journalctl -u "alpha-grid-$label" --no-pager -n 3 2>/dev/null | tail -1 | cut -c1-200)"
+    systemctl reset-failed "alpha-grid-$label" 2>/dev/null
+  fi
+  if ! grep -q "готов" "b5/$label/grid.err" 2>/dev/null; then
+    alert "сетка $label: ни одной готовой монеты в grid.err"
+  fi
+  if grep -qiE "^error|panicked|Error:" "b5/$label/grid.err" 2>/dev/null; then
+    alert "сетка $label: ошибки в grid.err — $(grep -iE "^error|panicked|Error:" "b5/$label/grid.err" | head -1 | cut -c1-200)"
+  fi
 }
 
 # H3 (2026-09-19): касания и матрица флоров — по каждой сутке отдельно, до сеток. У `lob touches`
@@ -128,6 +172,7 @@ touches_for_day() {
   files=$(ls "$out"/touches-*.csv 2>/dev/null | wc -l)
   failed=$([ -f "$out/failed.txt" ] && wc -l < "$out/failed.txt" || echo 0)
   echo "== $(date -u +%FT%TZ) touches $day done: файлов $files, ошибок $failed" >> "$LOG"
+  [ "$failed" -gt 0 ] && alert "касания $day: ошибок $failed из $n монет ($(head -3 "$out/failed.txt" | tr '\n' ' '))"
   if [ "$failed" -gt 0 ]; then
     { echo "-- попытка $attempt $(date -u +%FT%TZ)"; cat "$out/failed.txt"; } >> "$out/failed-history.txt"
     while read -r sym; do
@@ -150,12 +195,17 @@ touches_for_day() {
   } > "study/floors-$day.txt" 2>&1
   echo "== $(date -u +%FT%TZ) floors-balance $day → study/floors-$day.txt ($(wc -l < "study/floors-$day.txt") строк)" >> "$LOG"
   # S3 плана по сторонам: режим по минутам — медиана пула из mids1m-*.csv (S2) и BTC/ETH из справочных свечей.
-  echo "== $(date -u +%FT%TZ) regime $day: $(python3 bin/regime.py --day "$day" 2>&1 | tail -1 | cut -c1-200)" >> "$LOG"
+  if ! regime_out=$(python3 bin/regime.py --day "$day" 2>&1); then
+    alert "режим $day: $(echo "$regime_out" | tail -1 | cut -c1-200)"
+  fi
+  echo "== $(date -u +%FT%TZ) regime $day: $(echo "$regime_out" | tail -1 | cut -c1-200)" >> "$LOG"
 }
 echo "== $(date -u +%FT%TZ) nightly start; days in root: $(echo "$DAYS_ALL" | tr '\n' ' '); окно сеток: ${DAYS_WINDOW:-все сутки}; days-args:${DAY_ARGS:- нет}" >> "$LOG"
 # Справочные свечи BTC/ETH (REST, задним числом, ~3 с) — до режима суток; сбой сети не роняет ночь.
-echo "== $(date -u +%FT%TZ) ref-klines: $(python3 bin/ref-klines.py --out-dir study/regime 2>&1 | tail -2 | tr '
-' ' ' | cut -c1-200)" >> "$LOG"
+if ! ref_out=$(python3 bin/ref-klines.py --out-dir study/regime 2>&1); then
+  alert "ref-klines: $(echo "$ref_out" | tail -1 | cut -c1-200)"
+fi
+echo "== $(date -u +%FT%TZ) ref-klines: $(echo "$ref_out" | tail -2 | tr '\n' ' ' | cut -c1-200)" >> "$LOG"
 for d in $DAYS_ALL; do
   touches_for_day "$d"
 done
@@ -185,4 +235,4 @@ if [ -z "$TOUCHES_ONLY" ]; then
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
 fi
-echo "== $(date -u +%FT%TZ) nightly done" >> "$LOG"
+finish
