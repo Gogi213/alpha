@@ -149,8 +149,13 @@ touches_for_day() {
     python3 bin/floors-balance.py "$out" --by-coin --min-per-day 10 --csv "study/floors-by-coin-$day.csv"
   } > "study/floors-$day.txt" 2>&1
   echo "== $(date -u +%FT%TZ) floors-balance $day → study/floors-$day.txt ($(wc -l < "study/floors-$day.txt") строк)" >> "$LOG"
+  # S3 плана по сторонам: режим по минутам — медиана пула из mids1m-*.csv (S2) и BTC/ETH из справочных свечей.
+  echo "== $(date -u +%FT%TZ) regime $day: $(python3 bin/regime.py --day "$day" 2>&1 | tail -1 | cut -c1-200)" >> "$LOG"
 }
 echo "== $(date -u +%FT%TZ) nightly start; days in root: $(echo "$DAYS_ALL" | tr '\n' ' '); окно сеток: ${DAYS_WINDOW:-все сутки}; days-args:${DAY_ARGS:- нет}" >> "$LOG"
+# Справочные свечи BTC/ETH (REST, задним числом, ~3 с) — до режима суток; сбой сети не роняет ночь.
+echo "== $(date -u +%FT%TZ) ref-klines: $(python3 bin/ref-klines.py --out-dir study/regime 2>&1 | tail -2 | tr '
+' ' ' | cut -c1-200)" >> "$LOG"
 for d in $DAYS_ALL; do
   touches_for_day "$d"
 done
