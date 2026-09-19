@@ -55,7 +55,9 @@
 //! Несколько семей флоров одним процессом — `--set <имя>:<фильтры>` (20.09):
 //! события суток декодируются и окна `SignalWindows` строятся **один раз**,
 //! дальше формы гонятся для каждого набора фильтров касаний (возраст, сила,
-//! сторона, фронтран, съедание стены `eaten=`) над теми же событиями; артефакты — `<out-dir>/<имя>/`
+//! сторона, фронтран, съедание стены `eaten=`, ход до касания и режим
+//! `ret1h_min=…`/`pool4h_max=…`/`btc4h_min=…` — S4 плана по сторонам, режим
+//! из `--regime-from study/regime`) над теми же событиями; артефакты — `<out-dir>/<имя>/`
 //! (тот же `rounds.csv`/`forms.csv`/`manifest.txt`, вердикт читает
 //! подкаталог). Без `--set` — один набор из флагов командной строки в
 //! `<out-dir>`, байт в байт как раньше; с `--set` флаги фильтров у команды
@@ -106,6 +108,8 @@ fn eaten_pct(t: &TouchRecord) -> f64 {
 struct DayTouches {
     day: String,
     touches: Vec<TouchRecord>,
+    /// Ход до касания за `PRE_TOUCH_MS` на каждое касание (S2), для контекста наборов.
+    rets: Vec<[Option<f64>; 3]>,
 }
 
 /// Касания символа из кэша `--touches-from` для суток `days` (сутки корня с
@@ -118,13 +122,14 @@ fn cached_touches<'a>(
     dir: &Path,
     symbol: &str,
     days: impl Iterator<Item = &'a String>,
+    need_ret: bool,
 ) -> anyhow::Result<Vec<DayTouches>> {
     let flat = dir.join(format!("touches-{symbol}.csv"));
     let mut flat_rows: Option<Vec<super::touches::TouchRow>> = None;
     let mut out = Vec::new();
     for day in days {
         let per_day = dir.join(day).join(format!("touches-{symbol}.csv"));
-        let touches: Vec<TouchRecord> = if per_day.is_file() {
+        let rows: Vec<super::touches::TouchRow> = if per_day.is_file() {
             let rows = super::touches::read_touches_csv(&per_day)?;
             if let Some(bad) = rows.iter().find(|r| r.day != *day) {
                 anyhow::bail!(
@@ -133,7 +138,7 @@ fn cached_touches<'a>(
                     bad.day
                 );
             }
-            rows.into_iter().map(|r| r.touch).collect()
+            rows
         } else if flat.is_file() {
             if flat_rows.is_none() {
                 flat_rows = Some(super::touches::read_touches_csv(&flat)?);
@@ -143,14 +148,29 @@ fn cached_touches<'a>(
                 .expect("только что прочитан")
                 .iter()
                 .filter(|r| r.day == *day)
-                .map(|r| r.touch)
+                .cloned()
                 .collect()
         } else {
             anyhow::bail!("нет {} и нет {}", per_day.display(), flat.display());
         };
+        if need_ret {
+            if let Some(bad) = rows.iter().find(|r| r.ret_bps.is_none()) {
+                anyhow::bail!(
+                    "{}: кэш без колонок ret_* (касание {} {}), нужен пересчёт касаний",
+                    per_day.display(),
+                    bad.day,
+                    bad.touch.start_ms
+                );
+            }
+        }
+        let rets = rows
+            .iter()
+            .map(|r| r.ret_bps.unwrap_or([None; 3]))
+            .collect();
         out.push(DayTouches {
             day: day.clone(),
-            touches,
+            touches: rows.into_iter().map(|r| r.touch).collect(),
+            rets,
         });
     }
     Ok(out)
@@ -273,6 +293,11 @@ pub struct BounceGridArgs {
     /// у команды — отказ.
     #[arg(long = "set")]
     pub sets: Vec<String>,
+    /// Режим по минутам для ключей `pool*`/`btc*` наборов (S3/S4 плана по
+    /// сторонам): каталог `study/regime` с `<сутки>.csv` от `regime.py`.
+    /// Без него эти ключи — отказ; сутки без файла — отказ.
+    #[arg(long)]
+    pub regime_from: Option<PathBuf>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -379,9 +404,146 @@ pub struct FilterSet {
     /// size_at_touch / size_max_before)` не больше этого процента. Только
     /// ключ набора `eaten=<%>`, флага у команды нет.
     pub eaten_max_pct: Option<f64>,
+    /// Контекст касания (S4): границы в bps по осям `CTX_AXES` — ход монеты
+    /// до касания за 10 мин / 1 ч / 4 ч (`ret10m`, `ret1h`, `ret4h`; знак
+    /// абсолютный), медиана пула за 1 ч / 4 ч (`pool1h`, `pool4h`) и биток
+    /// (`btc1h`, `btc4h`); ключи `<ось>_min=` / `<ось>_max=`. Касание без
+    /// значения оси при заданной границе выбывает.
+    pub ctx: [Range; CTX_AXES.len()],
+}
+
+/// Оси контекста касания — порядок общий для `FilterSet::ctx` и `TouchContext`.
+pub const CTX_AXES: [&str; 7] = [
+    "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h",
+];
+
+/// Границы одной оси контекста, bps; `None` — не задана.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Range {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+impl Range {
+    fn is_set(self) -> bool {
+        self.min.is_some() || self.max.is_some()
+    }
+
+    fn holds(self, v: Option<f64>) -> bool {
+        if !self.is_set() {
+            return true;
+        }
+        match v {
+            None => false,
+            Some(x) => self.min.is_none_or(|m| x >= m) && self.max.is_none_or(|m| x <= m),
+        }
+    }
+}
+
+/// Контекст одного касания в порядке `CTX_AXES`; `None` — значения нет
+/// (окно за началом записи, нет режима на минуту).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TouchContext {
+    pub axes: [Option<f64>; CTX_AXES.len()],
+}
+
+/// Режим суток по минутам из `regime.py`: `minute_ms → (pool1h, pool4h, btc1h, btc4h)`.
+type RegimeDay = BTreeMap<i64, [Option<f64>; 4]>;
+
+fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay> {
+    let path = dir.join(format!("{day}.csv"));
+    let mut r = csv::ReaderBuilder::new()
+        .from_path(&path)
+        .map_err(|e| anyhow::anyhow!("--regime-from: {}: {e}", path.display()))?;
+    let header = r.headers()?.clone();
+    let idx = |name: &str| -> anyhow::Result<usize> {
+        header
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
+    };
+    let cols = [
+        idx("minute_ms")?,
+        idx("pool_ret_1h_bps")?,
+        idx("pool_ret_4h_bps")?,
+        idx("btc_ret_1h_bps")?,
+        idx("btc_ret_4h_bps")?,
+    ];
+    let mut out = RegimeDay::new();
+    for rec in r.records() {
+        let rec = rec?;
+        let minute: i64 = rec
+            .get(cols[0])
+            .ok_or_else(|| anyhow::anyhow!("{}: короткая строка", path.display()))?
+            .parse()?;
+        let mut vals = [None; 4];
+        for (k, c) in cols[1..].iter().enumerate() {
+            let v = rec.get(*c).unwrap_or("");
+            vals[k] = if v.is_empty() {
+                None
+            } else {
+                Some(v.parse::<f64>()?)
+            };
+        }
+        out.insert(minute, vals);
+    }
+    Ok(out)
+}
+
+/// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
+/// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
+/// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
+fn touch_contexts(
+    rets: &[[Option<f64>; 3]],
+    touches: &[TouchRecord],
+    regime: Option<&RegimeDay>,
+) -> Vec<TouchContext> {
+    debug_assert_eq!(rets.len(), touches.len());
+    touches
+        .iter()
+        .zip(rets)
+        .map(|(t, r)| {
+            let minute = t.start_ms - t.start_ms.rem_euclid(60_000);
+            let m = regime
+                .and_then(|g| g.get(&minute))
+                .copied()
+                .unwrap_or([None; 4]);
+            TouchContext {
+                axes: [r[0], r[1], r[2], m[0], m[1], m[2], m[3]],
+            }
+        })
+        .collect()
 }
 
 impl FilterSet {
+    /// Хоть один ключ контекста задан.
+    fn uses_ctx(&self) -> bool {
+        self.ctx.iter().any(|r| r.is_set())
+    }
+
+    /// Хоть один ключ режима (`pool*`/`btc*`) задан — нужен `--regime-from`.
+    fn uses_regime(&self) -> bool {
+        self.ctx[3..].iter().any(|r| r.is_set())
+    }
+
+    /// Ключи контекста набора для шапки: `ret1h_min=… pool4h_max=…`.
+    fn ctx_label(&self) -> String {
+        let mut parts = Vec::new();
+        for (name, r) in CTX_AXES.iter().zip(&self.ctx) {
+            if let Some(v) = r.min {
+                parts.push(format!("{name}_min={v}"));
+            }
+            if let Some(v) = r.max {
+                parts.push(format!("{name}_max={v}"));
+            }
+        }
+        if parts.is_empty() {
+            "none".to_string()
+        } else {
+            parts.join(",")
+        }
+    }
+
     fn from_args(args: &BounceGridArgs) -> Self {
         Self {
             name: String::new(),
@@ -390,6 +552,7 @@ impl FilterSet {
             min_flow_pct: args.min_flow_pct,
             side: args.side,
             eaten_max_pct: None,
+            ctx: [Range::default(); CTX_AXES.len()],
         }
     }
 
@@ -415,6 +578,7 @@ impl FilterSet {
             min_flow_pct: None,
             side: None,
             eaten_max_pct: None,
+            ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
         for kv in rest.split(',').filter(|s| !s.is_empty()) {
@@ -461,9 +625,26 @@ impl FilterSet {
                     set.frontrun_only = true;
                 }
                 _ => {
-                    anyhow::bail!(
-                        "--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|eaten)"
-                    )
+                    let (axis, bound) = k
+                        .rsplit_once('_')
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|eaten|<ось>_min|<ось>_max)"))?;
+                    let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
+                        anyhow::anyhow!("--set {spec:?}: неизвестная ось {axis:?} (ret10m|ret1h|ret4h|pool1h|pool4h|btc1h|btc4h)")
+                    })?;
+                    let v: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        v.is_finite(),
+                        "--set {spec:?}: {k}={v:?} — bps обязаны быть числом"
+                    );
+                    match bound {
+                        "min" => set.ctx[i].min = Some(v),
+                        "max" => set.ctx[i].max = Some(v),
+                        _ => anyhow::bail!(
+                            "--set {spec:?}: {k:?} — ожидается <ось>_min или <ось>_max"
+                        ),
+                    }
                 }
             }
         }
@@ -550,9 +731,18 @@ fn signals_for(
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
     let early_exit_ns = early_exit_ns_from_secs(None)?;
     let mut skipped: u64 = 0;
+    if let Some(ctx) = p.ctx {
+        anyhow::ensure!(
+            ctx.len() == touches.len(),
+            "контекст касаний ({}) не совпадает с касаниями ({})",
+            ctx.len(),
+            touches.len()
+        );
+    }
     let mut signals: Vec<BounceSignal> = touches
         .iter()
-        .filter_map(|t| {
+        .enumerate()
+        .filter_map(|(ti, t)| {
             if p.frontrun_only && t.frontrun_tick.is_none() {
                 skipped += 1;
                 return None;
@@ -585,6 +775,15 @@ fn signals_for(
             if p.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
                 skipped += 1;
                 return None;
+            }
+            // Контекст (S4): ход до касания и режим — вне границ набора или
+            // без значения при заданной границе — не вход.
+            if let Some(ctx) = p.ctx {
+                let c = &ctx[ti];
+                if !p.ctx_ranges.iter().zip(&c.axes).all(|(r, v)| r.holds(*v)) {
+                    skipped += 1;
+                    return None;
+                }
             }
             let sigma_bps = if form.form.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
@@ -733,6 +932,10 @@ struct DayParams<'a> {
     side: Option<Side>,
     /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
     eaten_max_pct: Option<f64>,
+    /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
+    /// у набора есть ключи контекста; границы — `ctx_ranges`.
+    ctx: Option<&'a [TouchContext]>,
+    ctx_ranges: [Range; CTX_AXES.len()],
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -1101,6 +1304,17 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         );
         parsed
     };
+    anyhow::ensure!(
+        args.regime_from.is_some() || !sets.iter().any(FilterSet::uses_regime),
+        "ключи pool*/btc* у наборов требуют --regime-from <study/regime>"
+    );
+    if let Some(dir) = &args.regime_from {
+        anyhow::ensure!(dir.is_dir(), "--regime-from {}: не каталог", dir.display());
+    }
+    let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
+    let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
+    // Режим суток читается один раз на сутки (общий для символов).
+    let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
@@ -1109,7 +1323,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1125,6 +1339,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         set.min_flow_pct,
         set.side.map_or("both", SideArg::label),
         set.eaten_max_pct,
+        set.ctx_label(),
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
@@ -1273,7 +1488,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         let (days, sigma_series) = match args
             .touches_from
             .as_deref()
-            .map(|dir| cached_touches(dir, symbol, parts_by_day.keys()))
+            .map(|dir| cached_touches(dir, symbol, parts_by_day.keys(), need_ret))
         {
             Some(Ok(days)) => {
                 summary.symbols_from_cache += 1;
@@ -1292,6 +1507,19 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                     .days
                     .into_iter()
                     .map(|d| DayTouches {
+                        rets: d
+                            .touches
+                            .iter()
+                            .map(|t| {
+                                std::array::from_fn(|k| {
+                                    super::touches::pre_touch_return_bps_csv(
+                                        &d.mids,
+                                        t.start_ms,
+                                        super::touches::PRE_TOUCH_MS[k],
+                                    )
+                                })
+                            })
+                            .collect(),
                         day: d.day,
                         touches: d.touches,
                     })
@@ -1351,6 +1579,16 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
             let windows = day_windows(&events, &day.touches, args.driver, tick, lot);
+            let regime = if need_regime {
+                let dir = args.regime_from.as_deref().expect("проверено выше");
+                if !regime_days.contains_key(&day.day) {
+                    regime_days.insert(day.day.clone(), read_regime_day(dir, &day.day)?);
+                }
+                regime_days.get(&day.day)
+            } else {
+                None
+            };
+            let ctx = touch_contexts(&day.rets, &day.touches, regime);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
             for (set, out) in sets.iter().zip(outs.iter_mut()) {
@@ -1386,6 +1624,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             min_flow_pct: set.min_flow_pct,
                             side: set.side.map(Side::from),
                             eaten_max_pct: set.eaten_max_pct,
+                            ctx: if set.uses_ctx() { Some(&ctx) } else { None },
+                            ctx_ranges: set.ctx,
                             mode,
                             sigma: &sigma_series,
                         },

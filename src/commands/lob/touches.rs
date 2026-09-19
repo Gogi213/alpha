@@ -218,6 +218,17 @@ pub fn pre_touch_return_bps(
     raw_return_bps(mid_double_tick(before.bid_tick, before.ask_tick), base2x)
 }
 
+/// То же, что пишет CSV (`{:.6}`): каноническое значение хода до касания —
+/// одно и то же из кэша и из реплея (`bounce_grid` сравнивает его с
+/// порогами наборов, поэтому байты обязаны совпадать).
+pub fn pre_touch_return_bps_csv(
+    mids: &[crate::lob::markout::MidSample],
+    start_ms: i64,
+    pre_ms: i64,
+) -> Option<f64> {
+    pre_touch_return_bps(mids, start_ms, pre_ms).and_then(|v| format!("{v:.6}").parse().ok())
+}
+
 /// Имя минутного ряда середины рядом с `touches-<SYMBOL>.csv`.
 pub fn mids1m_path(touches_out: &std::path::Path, symbol: &str) -> PathBuf {
     touches_out.with_file_name(format!("mids1m-{symbol}.csv"))
@@ -578,10 +589,13 @@ struct NumSample {
 /// Сила «×соседи» в процентах из `strength_e2`; `-1` (соседей нет) — пусто.
 /// Касание, прочитанное из `touches-<SYMBOL>.csv`: сутки строки и запись
 /// трекера как есть.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TouchRow {
     pub day: String,
     pub touch: TouchRecord,
+    /// Ход до касания `ret_10m/1h/4h_bps` (S2) — `None`, если в файле этих
+    /// колонок нет (кэш до 20.09); пустая клетка — `Some([.., None, ..])`.
+    pub ret_bps: Option<[Option<f64>; PRE_TOUCH_MS.len()]>,
 }
 
 /// Обратное к строке `run_touches`: `TouchRecord` из CSV касаний — те же
@@ -638,6 +652,14 @@ pub(crate) fn read_touches_csv(path: &std::path::Path) -> anyhow::Result<Vec<Tou
         stack_next_tick: idx("stack_next_tick")?,
         traded_first: [idx("traded_1s")?, idx("traded_2s")?, idx("traded_3s")?],
         flow_1h_lots: idx("flow_1h_lots")?,
+        ret: {
+            let cols = [idx("ret_10m_bps"), idx("ret_1h_bps"), idx("ret_4h_bps")];
+            if cols.iter().all(Result::is_ok) {
+                Some(cols.map(|c| c.expect("проверено")))
+            } else {
+                None
+            }
+        },
     };
     let mut out = Vec::new();
     for (i, rec) in r.records().enumerate() {
@@ -676,6 +698,7 @@ struct TouchCols {
     stack_next_tick: usize,
     traded_first: [usize; REACTION_WINDOWS_S.len()],
     flow_1h_lots: usize,
+    ret: Option<[usize; PRE_TOUCH_MS.len()]>,
 }
 
 impl TouchCols {
@@ -741,9 +764,28 @@ impl TouchCols {
             ],
             repeat_count: u32::try_from(int(self.repeat_count)?)?,
         };
+        let ret_bps = match self.ret {
+            None => None,
+            Some(cols) => {
+                let mut out = [None; PRE_TOUCH_MS.len()];
+                for (k, c) in cols.iter().enumerate() {
+                    let v = field(*c)?;
+                    out[k] = if v.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            v.parse::<f64>()
+                                .map_err(|e| anyhow::anyhow!("{v:?} в поле {c}: {e}"))?,
+                        )
+                    };
+                }
+                Some(out)
+            }
+        };
         Ok(TouchRow {
             day: field(self.day)?.to_string(),
             touch,
+            ret_bps,
         })
     }
 }

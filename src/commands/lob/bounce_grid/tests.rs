@@ -76,6 +76,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         side: None,
         touches_from: None,
         sets: Vec::new(),
+        regime_from: None,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -506,6 +507,10 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
         "x:zzz=1",
         "x:eaten=abc",
         "x:eaten=nan",
+        "x:ret1h_min=abc",
+        "x:ret9h_min=1",
+        "x:pool4h_mid=1",
+        "x:ret1h_min=1,ret1h_min=2",
         "..:",
     ] {
         assert!(FilterSet::parse(bad).is_err(), "{bad}");
@@ -520,6 +525,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             min_flow_pct: Some(10.0),
             side: None,
             eaten_max_pct: None,
+            ctx: [Range::default(); CTX_AXES.len()],
         }
     );
 }
@@ -617,4 +623,129 @@ fn probe_touch() -> TouchRecord {
         strength_held_e2: [-1; 4],
         repeat_count: 0,
     }
+}
+
+/// Ключи контекста (S4): без них байты те же (набор `all`); граница по ходу
+/// монеты на фикстуре (6 с записи — хода нет) выбивает всё; ключ режима без
+/// `--regime-from` — отказ; с режимом на минуту касания — фильтр по значению
+/// из файла суток (пул +50 bps за 4 ч: `pool4h_min=40` пропускает всё,
+/// `pool4h_min=60` — ничего); парсер границ; `Range::holds`.
+#[test]
+fn context_keys_filter_by_pre_touch_return_and_regime() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let plain = run_bounce_grid(&args(dir.path(), false)).unwrap();
+
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-ctx");
+    a.sets = vec!["all:".to_string(), "r:ret1h_min=-100000".to_string()];
+    let multi = run_bounce_grid(&a).unwrap();
+    let by_name =
+        |m: &BounceGridSummary, n: &str| m.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        body(&by_name(&multi, "all").rounds_path),
+        body(&plain.rounds_path)
+    );
+    let (fh, r) = read_csv(&by_name(&multi, "r").forms_path);
+    for row in &r {
+        assert_eq!(
+            col(&fh, row, "n_signals"),
+            "0",
+            "хода до касания на фикстуре нет"
+        );
+        assert_eq!(col(&fh, row, "n_skipped"), "3");
+    }
+    let head = std::fs::read_to_string(&by_name(&multi, "r").forms_path).unwrap();
+    assert!(head.contains(" ctx=ret1h_min=-100000 "), "{head}");
+
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-noregime");
+    a.sets = vec!["p:pool4h_min=0".to_string()];
+    assert!(
+        run_bounce_grid(&a).is_err(),
+        "ключ режима без --regime-from — отказ"
+    );
+
+    // Режим суток: одна строка на минуту фикстуры (касания в первой минуте
+    // суток 2026-09-08), пул +50 bps за 4 ч, биток пусто.
+    let regime = dir.path().join("regime");
+    std::fs::create_dir_all(&regime).unwrap();
+    // Касания фикстуры — на 70–76 с записи: минуты 0, 60 000 и 120 000 мс
+    // покрывают их с запасом.
+    let rows: String = [0i64, 60_000, 120_000]
+        .iter()
+        .map(|m| format!("{m},10.0,50.0,5,,,,\n"))
+        .collect();
+    std::fs::write(
+        regime.join("2026-09-08.csv"),
+        format!(
+            "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps\n{rows}"
+        ),
+    )
+    .unwrap();
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-regime");
+    a.regime_from = Some(regime);
+    a.sets = vec![
+        "p40:pool4h_min=40".to_string(),
+        "p60:pool4h_min=60".to_string(),
+        "b:btc1h_max=0".to_string(),
+    ];
+    let m = run_bounce_grid(&a).unwrap();
+    assert_eq!(
+        body(&by_name(&m, "p40").rounds_path),
+        body(&plain.rounds_path),
+        "режим держит — те же круги"
+    );
+    let (fh, p60) = read_csv(&by_name(&m, "p60").forms_path);
+    assert!(
+        p60.iter().all(|r| col(&fh, r, "n_signals") == "0"),
+        "пул ниже границы — нет сигналов"
+    );
+    let (fh, b) = read_csv(&by_name(&m, "b").forms_path);
+    assert!(
+        b.iter().all(|r| col(&fh, r, "n_signals") == "0"),
+        "битка на минуту нет — выбывает"
+    );
+
+    let set = FilterSet::parse("x:ret4h_max=-5.5,pool1h_min=1,btc4h_min=-1,btc4h_max=1").unwrap();
+    assert_eq!(
+        set.ctx[2],
+        Range {
+            min: None,
+            max: Some(-5.5)
+        }
+    );
+    assert_eq!(
+        set.ctx[3],
+        Range {
+            min: Some(1.0),
+            max: None
+        }
+    );
+    assert_eq!(
+        set.ctx[6],
+        Range {
+            min: Some(-1.0),
+            max: Some(1.0)
+        }
+    );
+    assert_eq!(
+        set.ctx_label(),
+        "ret4h_max=-5.5,pool1h_min=1,btc4h_min=-1,btc4h_max=1"
+    );
+    let r = Range {
+        min: Some(0.0),
+        max: Some(10.0),
+    };
+    assert!(r.holds(Some(0.0)) && r.holds(Some(10.0)) && !r.holds(Some(10.1)) && !r.holds(None));
+    assert!(Range::default().holds(None));
 }

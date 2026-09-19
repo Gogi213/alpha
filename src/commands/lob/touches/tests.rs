@@ -181,6 +181,9 @@ fn touches_csv_reads_back_the_same_records() {
             d.touches.iter().map(move |t| TouchRow {
                 day: d.day.clone(),
                 touch: *t,
+                ret_bps: Some(std::array::from_fn(|k| {
+                    pre_touch_return_bps_csv(&d.mids, t.start_ms, PRE_TOUCH_MS[k])
+                })),
             })
         })
         .collect();
