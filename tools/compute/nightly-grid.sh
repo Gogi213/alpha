@@ -26,6 +26,10 @@ RUNS=study/runs-2026-09-19.csv
 # Окно суток для сеток: пусто — все сутки корня (как было); DAYS_WINDOW=4 — последние четыре.
 # Нужно потому, что сетки идут по всем суткам и ночь растёт вместе с историей (H3b/§4.3).
 DAYS_WINDOW="${DAYS_WINDOW:-}"
+# Только касания, без сеток (`TOUCHES_ONLY=1`): H2 готовит study/touches/<сутки>/ заранее, не дожидаясь
+# ночи. Именно переменной окружения, а не аргументом, — юнит таймера её не задаёт, и ночные сетки
+# пропустить случайно нельзя.
+TOUCHES_ONLY="${TOUCHES_ONLY:-}"
 DAYS_ALL=$(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u)
 DAY_ARGS=""
 if [ -n "$DAYS_WINDOW" ]; then
@@ -123,10 +127,14 @@ echo "== $(date -u +%FT%TZ) nightly start; days in root: $(echo "$DAYS_ALL" | tr
 for d in $DAYS_ALL; do
   touches_for_day "$d"
 done
-run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE $DAY_ARGS
-run_one a30-any       $USD --min-age-secs 1800 $BASE $DAY_ARGS
-run_one a45-any       $USD --min-age-secs 2700 $BASE $DAY_ARGS
-run_one a60-any       $USD --min-age-secs 3600 $BASE $DAY_ARGS
-run_one s100-any      $USD --min-flow-pct 100 $BASE $DAY_ARGS
-run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+if [ -z "$TOUCHES_ONLY" ]; then
+  run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE $DAY_ARGS
+  run_one a30-any       $USD --min-age-secs 1800 $BASE $DAY_ARGS
+  run_one a45-any       $USD --min-age-secs 2700 $BASE $DAY_ARGS
+  run_one a60-any       $USD --min-age-secs 3600 $BASE $DAY_ARGS
+  run_one s100-any      $USD --min-flow-pct 100 $BASE $DAY_ARGS
+  run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+else
+  echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
+fi
 echo "== $(date -u +%FT%TZ) nightly done" >> "$LOG"
