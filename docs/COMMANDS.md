@@ -227,6 +227,18 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 (p95/p99 от единиц точек — шум). Итог — `docs/findings/latency-<дата>.md` со сводкой и путём CSV;
 число для В-37 (RTT 20 мс assumed) — из `place_ack`/`taker_exec` **с сервера**, не с ноутбука.
 
+## Ночная сетка на счётной машине (В-70)
+
+`tools/compute/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
+`alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45): три сетки по
+**всем** суткам корня — база В-65 any и frontrun-only (полы `--h3-usd 10000 --min-flow-pct 100
+--min-age-secs 900`), E7 (`pct{0.5,1,2} × {half1to1, eat50x80}`, `--order-qty-mult 2`) — и вердикт на
+каждую (`--runs-csv study/runs-2026-09-19.csv`, без `--log-trials`: формы те же, что в
+предрегистрации). Артефакты `b5/nightly-<день>-<метка>/`, вердикты
+`study/bounce-verdict-nightly-<день>-<метка>.csv`, лог `study/nightly-<день>.log`. Если вчерашняя сетка
+ещё идёт — прогон пропускается с записью в лог. Установка: `install -m 755 tools/compute/nightly-grid.sh
+/opt/alpha-compute/bin/`, юниты в `/etc/systemd/system/`, `systemctl enable --now alpha-grid-nightly.timer`.
+
 ## Коллектор на сервере (Linux) — ранбук (T43/T44)
 
 Проверено по коду: OS-специфичное ровно одно место — `commands/lob/session/resources.rs`

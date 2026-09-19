@@ -1,0 +1,13 @@
+[Unit]
+Description=Alpha: ночная сетка базы и E7 по всем суткам на счётной машине (владелец 19.09: «как появится день — так потестишь»)
+Documentation=file:///opt/alpha-compute/src/docs/COMMANDS.md
+
+[Timer]
+# Перенос суток с коллектора (alpha-sync.timer) — 00:45 UTC, 7 ГБ идут ~13 мин;
+# 02:00 — с запасом, чтобы вчерашние .50-сутки и маркеры verify уже лежали в root.
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

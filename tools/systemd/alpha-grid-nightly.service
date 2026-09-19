@@ -1,0 +1,12 @@
+[Unit]
+Description=Alpha: ночная сетка базы В-65 (полы В-66/67/70) и E7 (В-69) по всем суткам + вердикты
+Documentation=file:///opt/alpha-compute/src/docs/COMMANDS.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/alpha-compute
+# Сама сетка идёт transient-юнитом alpha-grid-<метка> (run-grid.sh: MemoryMax 4G,
+# CPUWeight 30, nice 15) — этот сервис только ждёт её и считает вердикт.
+ExecStart=/opt/alpha-compute/bin/nightly-grid.sh
+Nice=15
+CPUWeight=30
