@@ -727,6 +727,12 @@ fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
         early_exit_ns: 0,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -802,6 +808,12 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         early_exit_ns: S,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -869,6 +881,12 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         early_exit_ns: S,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -928,6 +946,12 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         early_exit_ns: 0,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let signal = |t0_ns: i64| BounceSignal {
         t0_ns,
@@ -1072,6 +1096,12 @@ fn bench_round_cost_in_a_window() {
         early_exit_ns: 0,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1146,6 +1176,12 @@ fn bench_dense_round_in_a_window() {
         early_exit_ns: 0,
         level_px: 100.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1176,4 +1212,77 @@ fn bench_dense_round_in_a_window() {
         (per - 20.0) / events.max(1) as f64,
         exit_ns as f64 / 1e9
     );
+}
+
+/// E7: круг с двумя ногами выхода в драйвере — одна `Fill` на круг, цена
+/// выхода средневзвешенная по ногам, в сводке `eaten = 1`, `partial = 1`.
+#[test]
+fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 105.0, 5.0),
+        // Вход 101 исполняет продажа-агрессор на 2 с.
+        trade_at(2 * S, true, 101.0, 5.0),
+        // Плотность 100 (5 → 2, 60 %) — половина по рынку в бид 100.
+        depth_at(4 * S, true, 100.0, 2.0),
+        // Плотность на 100 снята целиком (100 % ≥ 80), лучший бид — 99 (стоял
+        // с начала): остаток по рынку в бид 99.
+        depth_at(6 * S, true, 98.0, 10.0),
+        depth_at(6 * S, true, 100.0, 0.0),
+        depth_at(30 * S, true, 98.0, 10.0),
+        depth_at(30 * S, false, 105.0, 5.0),
+    ];
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let plan = TradePlan::Bounce {
+        entry_px: 101.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 100.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 50.0,
+        eaten_all_pct: 80.0,
+        eaten_half_frac: 0.5,
+        level_qty: 5.0,
+        lot_qty: 1.0,
+    };
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan,
+            profile: 0,
+        }],
+        &DriveConfig {
+            order_qty: 2.0,
+            first_order_id: 1,
+        },
+    )
+    .unwrap();
+    assert!(!run.incomplete, "{:?}", run.misses);
+    assert_eq!(run.fills.len(), 1, "две ноги — один круг");
+    let fill = run.fills[0];
+    assert!(close(fill.entry_px, 101.0), "{}", fill.entry_px);
+    // Половина по 100, половина по 99 → 99.5.
+    assert!(
+        close(fill.exit_px, 99.5),
+        "средневзвешенная цена выхода: {}",
+        fill.exit_px
+    );
+    assert!(fill.exit_taker);
+    assert_eq!(run.exits.eaten, 1);
+    assert_eq!(run.exits.partial, 1);
+    assert_eq!(run.fill_reason, vec![ExitReason::Eaten]);
+    assert_eq!(hbt.position(0), 0.0);
 }

@@ -938,6 +938,7 @@ pub(crate) fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'s
         ExitReason::Deadline => "deadline",
         ExitReason::Early => "early",
         ExitReason::Horizon => "horizon",
+        ExitReason::Eaten => "eaten",
     }
 }
 
@@ -1073,7 +1074,22 @@ impl StopForm {
 pub enum TakeForm {
     OneToOne,
     Sigma(f64),
-    Trail { activate_pct: f64, trail_pct: f64 },
+    Trail {
+        activate_pct: f64,
+        trail_pct: f64,
+    },
+    /// E7 «частями» (Z 1:07:37 «половина на середине хода»): половина
+    /// позиции лимитом на 1:1, остаток — до стопа, дедлайна, трейла (если
+    /// задан флагами) или съедания; второй раз на 1:1 не закрывается.
+    HalfOneToOne,
+    /// E5/E7 по чужим ботам (`density-bots-2026-09-19.md`, их дефолты
+    /// 50/80): тейк 1:1 целиком, плюс выход по съеданию плотности от
+    /// максимума с входа — `half_pct` % → половина по рынку, `all_pct` % →
+    /// весь остаток по рынку. Имя `eat<half>x<all>`.
+    Eaten {
+        half_pct: f64,
+        all_pct: f64,
+    },
 }
 
 impl TakeForm {
@@ -1086,12 +1102,31 @@ impl TakeForm {
                 activate_pct,
                 trail_pct,
             } => format!("tr{activate_pct}x{trail_pct}"),
+            Self::HalfOneToOne => "half1to1".to_string(),
+            Self::Eaten { half_pct, all_pct } => format!("eat{half_pct}x{all_pct}"),
         }
     }
 
     pub fn parse(label: &str) -> anyhow::Result<Self> {
         let form = if label == "1to1" {
             Self::OneToOne
+        } else if label == "half1to1" {
+            Self::HalfOneToOne
+        } else if let Some(rest) = label.strip_prefix("eat") {
+            let (h, a) = rest
+                .split_once('x')
+                .ok_or_else(|| anyhow::anyhow!("{label}: съедание — eat<половина %>x<всё %>"))?;
+            let half_pct = parse_mult(h, label)?;
+            let all_pct = parse_mult(a, label)?;
+            anyhow::ensure!(
+                half_pct.is_finite()
+                    && all_pct.is_finite()
+                    && half_pct > 0.0
+                    && half_pct < all_pct
+                    && all_pct <= 100.0,
+                "{label}: пороги съедания — 0 < половина < всё ≤ 100 %"
+            );
+            Self::Eaten { half_pct, all_pct }
         } else if let Some(rest) = label.strip_prefix("tr") {
             let (a, t) = rest
                 .split_once('x')
@@ -1112,7 +1147,9 @@ impl TakeForm {
         } else if let Some(rest) = label.strip_prefix('t') {
             Self::Sigma(parse_mult(rest, label)?)
         } else {
-            anyhow::bail!("{label}: форма тейка не из базы (1to1|t<b>|tr<a>x<t>)")
+            anyhow::bail!(
+                "{label}: форма тейка не из базы (1to1|half1to1|eat<h>x<a>|t<b>|tr<a>x<t>)"
+            )
         };
         anyhow::ensure!(
             form.label() == label,
@@ -1201,6 +1238,9 @@ fn bps_to_ticks_ceil(bps: f64, entry_tick: i64) -> i64 {
 /// аргументы собраны по смыслу, а не подогнаны под счётчик.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PlanShape {
+    /// Шаг лота в единицах крейта (`step_e9 / 1e9`): размер плотности на
+    /// сигнале в план (E7 съедание) и округление дробного выхода.
+    pub(crate) lot: f64,
     pub(crate) post_only: bool,
     pub(crate) trail_bps: f64,
     pub(crate) trail_activate_bps: f64,
@@ -1231,6 +1271,7 @@ pub(crate) fn bounce_plan(
     shape: PlanShape,
 ) -> Option<(i8, TradePlan)> {
     let PlanShape {
+        lot,
         post_only,
         trail_bps,
         trail_activate_bps,
@@ -1308,7 +1349,10 @@ pub(crate) fn bounce_plan(
         // 1:1 **от входа** (спека §3: «самый базовый, это один к одному» [D 16:17]).
         // У трейла фиксированного тейка нет — цена стоит символически на 1:1,
         // стратегия её не читает при `trail_bps > 0`.
-        TakeForm::OneToOne | TakeForm::Trail { .. } => entry_tick + (entry_tick - stop_tick),
+        TakeForm::OneToOne
+        | TakeForm::Trail { .. }
+        | TakeForm::HalfOneToOne
+        | TakeForm::Eaten { .. } => entry_tick + (entry_tick - stop_tick),
         TakeForm::Sigma(b) => {
             let sigma = sigma_bps?;
             let take_bps = (b * sigma)
@@ -1342,6 +1386,26 @@ pub(crate) fn bounce_plan(
             // приходят планом, как и всё остальное в нём.
             level_px: p,
             tick_px: tick,
+            // E7: доля на тейке и пороги съедания — от формы тейка; размер
+            // плотности на сигнале — из касания (лоты × шаг лота).
+            take_frac: match form.take {
+                TakeForm::HalfOneToOne => 0.5,
+                _ => 1.0,
+            },
+            eaten_half_pct: match form.take {
+                TakeForm::Eaten { half_pct, .. } => half_pct,
+                _ => 0.0,
+            },
+            eaten_all_pct: match form.take {
+                TakeForm::Eaten { all_pct, .. } => all_pct,
+                _ => 0.0,
+            },
+            eaten_half_frac: match form.take {
+                TakeForm::Eaten { .. } => 0.5,
+                _ => 0.0,
+            },
+            level_qty: touch.size_at_touch.max(0) as f64 * lot,
+            lot_qty: lot,
         },
     ))
 }
@@ -1504,6 +1568,7 @@ fn run_bounce(
                 form,
                 sigma_bps,
                 PlanShape {
+                    lot: lot_size,
                     post_only: args.post_only,
                     trail_bps: args.trail_bps,
                     trail_activate_bps: args.trail_activate_bps,
@@ -1784,7 +1849,7 @@ fn run_bounce(
         run.round_ns_max as f64 / 1e9,
     );
     println!(
-        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · трейл {} · дедлайн {} · досрочно {} · промахи {} · incomplete {}",
+        "bounce: касаний {} · кругов {} · стоп {} · тейк {} · трейл {} · дедлайн {} · досрочно {} · съедено {} · частями {} · промахи {} · incomplete {}",
         touches.len(),
         run.fills.len(),
         run.exits.stop,
@@ -1792,6 +1857,8 @@ fn run_bounce(
         run.exits.trail,
         run.exits.deadline,
         run.exits.early,
+        run.exits.eaten,
+        run.exits.partial,
         run.misses.total(),
         run.incomplete
     );

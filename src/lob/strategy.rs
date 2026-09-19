@@ -81,8 +81,10 @@ enum Phase {
     },
     /// Позиция открыта, ждём `HOLD_NS` до выхода.
     Holding { entry_ns: i64 },
-    /// Выход отправлен, ждём, когда позиция обнулится.
-    ExitPending { order_id: u64 },
+    /// Выход отправлен. `resume: None` — выход целиком, ждём нулевой позиции;
+    /// `Some(entry_ns)` — выход **части** (E7): когда заявка исполнена или
+    /// снята, остаток позиции ведём дальше в `Holding { entry_ns }`.
+    ExitPending { order_id: u64, resume: Option<i64> },
     /// Вход истёк, отмена отправлена — ждём ответа биржи. Если, пока отмена
     /// летела (RTT), заявка исполнилась, позиция открыта: идём в `Holding`, а
     /// не в `Idle`. Найдено 2026-09-18: раньше после истечения стратегия сразу
@@ -147,6 +149,27 @@ pub enum TradePlan {
         /// его нет). Первая нога — `entry_px`, каждая следующая дальше от
         /// плотности, в сторону рынка.
         grid_step_px: f64,
+        /// E7 (владелец 19.09: «позиция одна за раз, но может быть дробной»):
+        /// доля позиции, закрываемая тейком `take_px`. `1.0` — весь остаток
+        /// (как было); `0.5` — половина, остаток бежит дальше до стопа,
+        /// дедлайна, трейла или съедания. Срабатывает один раз.
+        take_frac: f64,
+        /// E5/E7 по чужим ботам (`density-bots-2026-09-19.md`, их дефолты):
+        /// съедание плотности уровня от **максимума с входа**, %, при котором
+        /// закрывается `eaten_half_frac` позиции по рынку. `0` — выключено.
+        eaten_half_pct: f64,
+        /// Съедание, %, при котором закрывается **весь** остаток по рынку.
+        /// `0` — выключено.
+        eaten_all_pct: f64,
+        /// Доля позиции на первом пороге съедания (у ботов — 50 %).
+        eaten_half_frac: f64,
+        /// Размер плотности уровня в момент сигнала, в единицах крейта (лоты ×
+        /// шаг лота) — стартовый максимум для съедания. `0` — пороги съедания
+        /// не работают (размера нет).
+        level_qty: f64,
+        /// Шаг лота инструмента в единицах крейта: дробный выход округляется
+        /// **вниз** до кратного шага; если получился ноль — выходим целиком.
+        lot_qty: f64,
     },
 }
 
@@ -183,6 +206,10 @@ pub enum ExitReason {
     /// Выход по рынку (тейкер). Причина считается отдельно от `deadline`:
     /// дедлайн — конец плана, «прилипание» — свойство касания.
     Early,
+    /// Плотность съедена (E5/E7): остаток на уровне упал ниже порога от
+    /// максимума с входа — выход по рынку. Первый порог закрывает часть
+    /// (`partial: true` в `Action`), второй — всё.
+    Eaten,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -202,6 +229,11 @@ pub struct StrategyState {
     /// лонга — максимум лучшего бида, у шорта — минимум лучшего аска.
     /// `0.0` — вход ещё не состоялся.
     best_favourable: f64,
+    /// E7: частичный выход уже был в этом круге (второй раз не делится).
+    partial_done: bool,
+    /// Максимум размера плотности уровня с момента входа — база съедания
+    /// «от максимума» (динамический режим чужих ботов). `0.0` — не считаем.
+    level_qty_max: f64,
 }
 
 impl StrategyState {
@@ -226,7 +258,20 @@ impl StrategyState {
             phase: Phase::Idle,
             plan,
             best_favourable: 0.0,
+            partial_done: false,
+            level_qty_max: 0.0,
         }
+    }
+
+    /// Позиция открыта — круг начинается: сброс частичного выхода, база
+    /// съедания — размер плотности на сигнале.
+    fn enter_holding(&mut self, now: i64) {
+        self.partial_done = false;
+        self.level_qty_max = match self.plan {
+            TradePlan::Bounce { level_qty, .. } => level_qty.max(0.0),
+            TradePlan::SpreadHold => 0.0,
+        };
+        self.phase = Phase::Holding { entry_ns: now };
     }
 
     /// Лучший исход с момента входа — для трейл-тейка: вызывается на каждом
@@ -302,6 +347,8 @@ pub enum Action {
         side: HbtSide,
         price: f64,
         reason: ExitReason,
+        /// E7: ушла часть позиции, круг продолжается остатком.
+        partial: bool,
     },
 }
 
@@ -340,10 +387,11 @@ where
                 _ => HbtSide::Buy,
             };
             // Что решает выход: у плана Decision 20 — только горизонт; у
-            // сделки-отскока (В-44) — стоп, тейк и дедлайн, и порядок здесь
-            // часть плана: стоп приоритетнее тейка (если цена проскочила оба
-            // уровня за один кадр, честнее считать, что выбило стопом).
-            let (px, taker, reason) = match state.plan {
+            // сделки-отскока (В-44) — стоп, съедание, трейл, тейк, дедлайн, и
+            // порядок здесь часть плана: стоп приоритетнее тейка (если цена
+            // проскочила оба уровня за один кадр, честнее считать, что выбило
+            // стопом). Четвёртое поле — доля позиции на выход (E7).
+            let (px, taker, reason, frac) = match state.plan {
                 TradePlan::SpreadHold => {
                     if now.saturating_sub(entry_ns) < HOLD_NS {
                         return Ok(Action::Idle);
@@ -351,7 +399,7 @@ where
                     let Some(px) = exit_price(entry_side, bid, ask) else {
                         return Ok(Action::Idle);
                     };
-                    (px, false, ExitReason::Horizon)
+                    (px, false, ExitReason::Horizon, 1.0)
                 }
                 TradePlan::Bounce {
                     entry_px,
@@ -363,6 +411,10 @@ where
                     early_exit_ns,
                     level_px,
                     tick_px,
+                    take_frac,
+                    eaten_half_pct,
+                    eaten_all_pct,
+                    eaten_half_frac,
                     ..
                 } => {
                     // Трейл-тейк (решение владельца 2026-09-13): следим за
@@ -376,6 +428,24 @@ where
                         _ => ask,
                     };
                     state.observe_favourable(favourable);
+                    // Съедание плотности (E5/E7): остаток на цене уровня
+                    // против максимума с входа, в процентах. Книга крейта
+                    // отдаёт размер по тику — цена уровня переводится в тик.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let eaten_pct = if state.level_qty_max > 0.0 && tick_px > 0.0 {
+                        let level_tick = (level_px / tick_px).round() as i64;
+                        let depth = bot.depth(state.asset_no);
+                        let now_qty = match entry_side {
+                            HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
+                            _ => depth.ask_qty_at_tick(level_tick),
+                        };
+                        if now_qty > state.level_qty_max {
+                            state.level_qty_max = now_qty;
+                        }
+                        (1.0 - now_qty / state.level_qty_max) * 100.0
+                    } else {
+                        0.0
+                    };
                     let (stop_hit, take_hit) = match entry_side {
                         HbtSide::Buy => (bid <= stop_px, bid >= take_px),
                         _ => (ask >= stop_px, ask <= take_px),
@@ -389,12 +459,35 @@ where
                     } else {
                         false
                     };
+                    // Частичный тейк срабатывает один раз: после него остаток
+                    // на 1:1 не закрывается — бежит до стопа/дедлайна/трейла/
+                    // съедания (E7 «остаток по замедлению»).
+                    let take_partial = take_frac > 0.0 && take_frac < 1.0;
+                    let take_active = !(take_partial && state.partial_done);
+                    let eaten_all_hit = eaten_all_pct > 0.0 && eaten_pct >= eaten_all_pct;
+                    let eaten_half_hit =
+                        eaten_half_pct > 0.0 && !state.partial_done && eaten_pct >= eaten_half_pct;
                     if stop_hit {
-                        (stop_px, true, ExitReason::Stop)
+                        (stop_px, true, ExitReason::Stop, 1.0)
+                    } else if eaten_all_hit {
+                        match exit_price(entry_side, bid, ask) {
+                            Some(px) => (px, true, ExitReason::Eaten, 1.0),
+                            None => return Ok(Action::Idle),
+                        }
                     } else if trail_hit {
-                        (favourable, true, ExitReason::Trail)
-                    } else if trail_bps <= 0.0 && take_hit {
-                        (take_px, false, ExitReason::Take)
+                        (favourable, true, ExitReason::Trail, 1.0)
+                    } else if trail_bps <= 0.0 && take_hit && take_active {
+                        (
+                            take_px,
+                            false,
+                            ExitReason::Take,
+                            if take_partial { take_frac } else { 1.0 },
+                        )
+                    } else if eaten_half_hit {
+                        match exit_price(entry_side, bid, ask) {
+                            Some(px) => (px, true, ExitReason::Eaten, eaten_half_frac),
+                            None => return Ok(Action::Idle),
+                        }
                     } else if early_exit_ns > 0
                         && now.saturating_sub(entry_ns) >= early_exit_ns
                         && still_at_level(entry_side, bid, ask, level_px, tick_px)
@@ -406,12 +499,12 @@ where
                         // тоже — он дал бы мейкерскую цену, а здесь выход по
                         // рынку.
                         match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Early),
+                            Some(px) => (px, true, ExitReason::Early, 1.0),
                             None => return Ok(Action::Idle),
                         }
                     } else if now.saturating_sub(entry_ns) >= deadline_ns {
                         match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Deadline),
+                            Some(px) => (px, true, ExitReason::Deadline, 1.0),
                             None => return Ok(Action::Idle),
                         }
                     } else {
@@ -425,7 +518,7 @@ where
             // несколько уровней подряд), и выход на плановый размер
             // переворачивал бы позицию, оставляя круг незакрытым навсегда —
             // это и был дефект, который поймал тест лестницы (T38).
-            let exit_qty = {
+            let pos = {
                 let pos = bot.position(state.asset_no).abs();
                 if pos > 0.0 {
                     pos
@@ -433,6 +526,30 @@ where
                     state.qty
                 }
             };
+            // Дробный выход (E7): доля позиции, вниз до кратного шага лота;
+            // ноль лотов — значит делить нечего, выходим целиком.
+            let (exit_qty, partial) = if frac > 0.0 && frac < 1.0 {
+                let lot = match state.plan {
+                    TradePlan::Bounce { lot_qty, .. } => lot_qty,
+                    TradePlan::SpreadHold => 0.0,
+                };
+                let raw = pos * frac;
+                let q = if lot > 0.0 {
+                    (raw / lot).floor() * lot
+                } else {
+                    raw
+                };
+                if q > 0.0 && q < pos {
+                    (q, true)
+                } else {
+                    (pos, false)
+                }
+            } else {
+                (pos, false)
+            };
+            if partial {
+                state.partial_done = true;
+            }
             // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
             // лимитом (мейкер, GTC). Это не деталь реализации: издержки
             // `costs` считают тейкера и мейкера по-разному, и бэктест должен
@@ -474,18 +591,35 @@ where
             state.phase = if bot.position(state.asset_no) == 0.0 {
                 Phase::Idle
             } else {
-                Phase::ExitPending { order_id }
+                Phase::ExitPending {
+                    order_id,
+                    resume: if partial { Some(entry_ns) } else { None },
+                }
             };
             Ok(Action::ExitSubmitted {
                 order_id,
                 side: exit_side,
                 price: px,
                 reason,
+                partial,
             })
         }
-        Phase::ExitPending { .. } => {
+        Phase::ExitPending { order_id, resume } => {
             if bot.position(state.asset_no) == 0.0 {
                 state.phase = Phase::Idle;
+                return Ok(Action::Idle);
+            }
+            if let Some(entry_ns) = resume {
+                // Частичный выход: заявка больше не стоит (исполнена или
+                // снята) — остаток ведём по плану дальше. Часы круга — прежние:
+                // дедлайн считается от входа, а не от частичного выхода.
+                let resting = matches!(
+                    bot.orders(state.asset_no).get(&order_id).map(|o| o.status),
+                    Some(Status::New) | Some(Status::PartiallyFilled)
+                );
+                if !resting {
+                    state.phase = Phase::Holding { entry_ns };
+                }
             }
             Ok(Action::Idle)
         }
@@ -499,7 +633,7 @@ where
                 // усреднением это уже другая сделка, и решать её отдельно
                 // (лестница здесь только выбирает цену входа).
                 state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::Holding { entry_ns: now };
+                state.enter_holding(now);
                 return Ok(Action::Idle);
             }
             if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
@@ -513,7 +647,7 @@ where
             // Исполнение обогнало отмену — позиция есть, ведём её по плану.
             if bot.position(state.asset_no) != 0.0 {
                 state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::Holding { entry_ns: now };
+                state.enter_holding(now);
                 return Ok(Action::Idle);
             }
             let resting = (0..legs as u64).any(|i| {

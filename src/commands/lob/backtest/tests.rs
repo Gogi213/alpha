@@ -307,6 +307,7 @@ fn compare_with_table_falls_back_to_net_bps_on_the_task10_fixture() {
 /// проверяют геометрию входа/стопа/тейка, а не оси T38.
 fn plain_shape() -> PlanShape {
     PlanShape {
+        lot: 1.0,
         post_only: false,
         trail_bps: 0.0,
         trail_activate_bps: 0.0,
@@ -882,4 +883,69 @@ fn minimal_backtest_args() -> BacktestArgs {
         repeat_window_ms: None,
         allow_unverified: true,
     }
+}
+
+/// E7: формы `half1to1` и `eat<h>x<a>` — имя ↔ форма, границы порогов, и как
+/// они ложатся в план (доля тейка, пороги съедания, размер плотности в
+/// единицах крейта = лоты × шаг лота).
+#[test]
+fn e7_take_forms_parse_and_fill_the_plan() {
+    assert_eq!(TakeForm::parse("half1to1").unwrap(), TakeForm::HalfOneToOne);
+    assert_eq!(TakeForm::HalfOneToOne.label(), "half1to1");
+    let e = TakeForm::parse("eat50x80").unwrap();
+    assert_eq!(
+        e,
+        TakeForm::Eaten {
+            half_pct: 50.0,
+            all_pct: 80.0
+        }
+    );
+    assert_eq!(e.label(), "eat50x80");
+    assert!(
+        TakeForm::parse("eat80x50").is_err(),
+        "половина обязана быть меньше «всё»"
+    );
+    assert!(TakeForm::parse("eat50x120").is_err(), "не больше 100 %");
+    assert!(TakeForm::parse("eat50").is_err());
+
+    let touch = bounce_touch(1_000, Some(1_005));
+    let shape = PlanShape {
+        lot: 0.1,
+        ..plain_shape()
+    };
+    let (_, plan) = bounce_plan(&touch, 0.01, base("pct1", "eat50x80"), None, shape).unwrap();
+    let TradePlan::Bounce {
+        take_frac,
+        eaten_half_pct,
+        eaten_all_pct,
+        eaten_half_frac,
+        level_qty,
+        lot_qty,
+        ..
+    } = plan
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert!((take_frac - 1.0).abs() < 1e-12);
+    assert!((eaten_half_pct - 50.0).abs() < 1e-12 && (eaten_all_pct - 80.0).abs() < 1e-12);
+    assert!((eaten_half_frac - 0.5).abs() < 1e-12);
+    // `size_at_touch = 10` лотов × шаг 0.1 = 1.0 в единицах крейта.
+    assert!((level_qty - 1.0).abs() < 1e-12, "{level_qty}");
+    assert!((lot_qty - 0.1).abs() < 1e-12);
+
+    let (_, plan) = bounce_plan(&touch, 0.01, base("pct1", "half1to1"), None, shape).unwrap();
+    let TradePlan::Bounce {
+        take_frac,
+        eaten_half_pct,
+        take_px,
+        entry_px,
+        stop_px,
+        ..
+    } = plan
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert!((take_frac - 0.5).abs() < 1e-12 && eaten_half_pct == 0.0);
+    // Тейк — те же 1:1 от входа, что у `1to1`.
+    assert!((take_px - (entry_px + (entry_px - stop_px))).abs() < 1e-9);
 }

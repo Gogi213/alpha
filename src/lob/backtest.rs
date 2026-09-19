@@ -779,6 +779,7 @@ where
                 fill,
                 exit_ts,
                 reason: _,
+                partial: _,
             } => {
                 let net = roundtrip_net_bps(&fill);
                 observations.push(FillObservation {
@@ -909,6 +910,12 @@ pub struct ExitTally {
     /// за `X` секунд, уровень остался лучшей ценой. Отдельно от `deadline`:
     /// это свойство касания, а не конец плана.
     pub early: u64,
+    /// Выход по съеданию плотности (E5/E7): последняя нога круга ушла по
+    /// порогу «съедено ≥ X % от максимума с входа».
+    pub eaten: u64,
+    /// Кругов с частичным выходом (E7): позиция закрывалась двумя ногами —
+    /// доля тейком или по первому порогу съедания, остаток — по плану.
+    pub partial: u64,
 }
 
 /// Итог одного профиля касаний: сигналы, круги, промахи (по причинам) и
@@ -974,7 +981,10 @@ enum RoundOutcome {
     Filled {
         fill: Fill,
         exit_ts: i64,
+        /// Причина **последней** ноги выхода.
         reason: ExitReason,
+        /// Выход шёл двумя ногами (E7).
+        partial: bool,
     },
     /// Вход не исполнился за время жизни плана и снят. Статус входного ордера
     /// несётся наружу: `Rejected` — это отвергнутая заявка (например,
@@ -1005,7 +1015,8 @@ where
     MD: MarketDepth,
 {
     let mut timed_out = false;
-    let mut exit: Option<(u64, ExitReason)> = None;
+    // Ноги выхода в порядке отправки: одна у прежних форм, две у дробных (E7).
+    let mut exits: Vec<(u64, ExitReason)> = Vec::new();
     loop {
         if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
             return Ok(RoundOutcome::EndOfData);
@@ -1014,7 +1025,7 @@ where
             Action::EntryTimedOut { .. } => timed_out = true,
             Action::ExitSubmitted {
                 order_id, reason, ..
-            } => exit = Some((order_id, reason)),
+            } => exits.push((order_id, reason)),
             Action::Idle | Action::EntrySubmitted { .. } => {}
         }
         if state.is_idle() {
@@ -1025,7 +1036,7 @@ where
         let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
         return Ok(RoundOutcome::TimedOut { entry_status });
     }
-    let Some((exit_id, reason)) = exit else {
+    let Some(&(_, reason)) = exits.last() else {
         return Ok(RoundOutcome::Inconsistent);
     };
     // Лестница ставит несколько ног равного размера, и исполниться может не
@@ -1048,25 +1059,45 @@ where
     // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у лестницы вход
     // тейкерский, если тейкером исполнилась хотя бы одна нога (консервативно).
     let entry_taker = filled_legs.iter().any(|(_, maker)| !maker);
-    let exit_info = bot
-        .orders(asset_no)
-        .get(&exit_id)
-        .filter(|o| o.status == Status::Filled)
-        .map(|o| (o.exec_price(), o.exch_timestamp, o.maker));
-    match (entry_px, exit_info) {
-        (Some(entry_px), Some((exit_px, exit_ts, exit_maker))) => {
+    // Цена выхода — **средневзвешенная по размеру** исполненных ног (у
+    // цельного выхода нога одна — это его же цена); время — последней ноги;
+    // комиссия выхода — тейкерская, если тейкером ушла хотя бы одна нога
+    // (консервативно, как у лестницы входа). Неисполненная нога — круг
+    // рассинхронен, как и прежде.
+    let mut exit_qty = 0.0;
+    let mut exit_notional = 0.0;
+    let mut exit_ts = i64::MIN;
+    let mut exit_taker = false;
+    let mut legs_filled = 0usize;
+    for (exit_id, _) in &exits {
+        if let Some(o) = bot
+            .orders(asset_no)
+            .get(exit_id)
+            .filter(|o| o.status == Status::Filled)
+        {
+            exit_qty += o.qty;
+            exit_notional += o.exec_price() * o.qty;
+            exit_ts = exit_ts.max(o.exch_timestamp);
+            exit_taker |= !o.maker;
+            legs_filled += 1;
+        }
+    }
+    let exit_ok = legs_filled == exits.len() && exit_qty > 0.0;
+    match (entry_px, exit_ok) {
+        (Some(entry_px), true) => {
             let dir = if side == HbtSide::Buy { 1 } else { -1 };
             Ok(RoundOutcome::Filled {
                 fill: Fill {
                     dir,
                     entry_px,
-                    exit_px,
+                    exit_px: exit_notional / exit_qty,
                     qty: state.qty(),
                     entry_taker,
-                    exit_taker: !exit_maker,
+                    exit_taker,
                 },
                 exit_ts,
                 reason,
+                partial: exits.len() > 1,
             })
         }
         _ => Ok(RoundOutcome::Inconsistent),
@@ -1342,6 +1373,7 @@ where
                         fill,
                         exit_ts,
                         reason,
+                        partial,
                     } => {
                         match reason {
                             ExitReason::Take => exits.take += 1,
@@ -1350,6 +1382,10 @@ where
                             ExitReason::Horizon => exits.horizon += 1,
                             ExitReason::Trail => exits.trail += 1,
                             ExitReason::Early => exits.early += 1,
+                            ExitReason::Eaten => exits.eaten += 1,
+                        }
+                        if partial {
+                            exits.partial += 1;
                         }
                         let net = roundtrip_net_bps(&fill);
                         observations.push(FillObservation {

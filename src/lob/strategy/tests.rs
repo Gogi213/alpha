@@ -262,6 +262,12 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         early_exit_ns: 0,
         level_px: 99.0,
         tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
 
@@ -288,4 +294,173 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
     // После выхода стратегия перевооружается; второй вход честно истекает —
     // это уже не гонка, а обычный тайм-аут.
     assert_eq!(hbt.position(0), 0.0, "позиция плоская, не зависла");
+}
+
+/// E7 (владелец 19.09: «позиция одна за раз, но может быть дробной»), пороги
+/// съедания чужих ботов 50/80 %: плотность на 99 (размер 10) съедается до 4
+/// (60 %) — по рынку уходит **половина** позиции, круг продолжается; затем до
+/// 1 (90 %) — уходит остаток. Две ноги выхода, обе `Eaten`, первая `partial`.
+#[test]
+fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        trade_at(S + S / 2, true, 100.0, 3.0),
+        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
+        // Плотность съедена на 60 % → половина позиции по рынку.
+        depth_at(4 * S, true, 99.0, 4.0),
+        // Съедена на 90 % → остаток по рынку.
+        depth_at(6 * S, true, 99.0, 1.0),
+        depth_at(12 * S, false, 102.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let plan = TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 20 * S,
+        entry_ttl_ns: 5 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 50.0,
+        eaten_all_pct: 80.0,
+        eaten_half_frac: 0.5,
+        level_qty: 10.0,
+        lot_qty: 1.0,
+    };
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    let exits: Vec<(ExitReason, bool)> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ExitSubmitted {
+                reason, partial, ..
+            } => Some((*reason, *partial)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        exits,
+        vec![(ExitReason::Eaten, true), (ExitReason::Eaten, false)],
+        "две ноги съедания: половина, потом остаток: {actions:?}"
+    );
+    assert_eq!(hbt.position(0), 0.0, "позиция плоская после второй ноги");
+}
+
+/// E7 «половина на середине хода» (Z 1:07:37): тейк 1:1 закрывает половину
+/// лимитом, остаток **не** закрывается на 1:1 второй раз — бежит до дедлайна.
+#[test]
+fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        trade_at(S + S / 2, true, 100.0, 3.0),
+        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
+        // Цена дошла до тейка 102 и стоит там до конца.
+        depth_at(4 * S, true, 102.0, 5.0),
+        depth_at(4 * S, false, 103.0, 5.0),
+        depth_at(15 * S, true, 102.0, 5.0),
+        depth_at(15 * S, false, 103.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let plan = TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 98.0,
+        take_px: 102.0,
+        deadline_ns: 8 * S,
+        entry_ttl_ns: 5 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 0.5,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+    };
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    let exits: Vec<(ExitReason, bool)> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ExitSubmitted {
+                reason, partial, ..
+            } => Some((*reason, *partial)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        exits,
+        vec![(ExitReason::Take, true), (ExitReason::Deadline, false)],
+        "половина тейком, остаток дедлайном, без второго тейка: {actions:?}"
+    );
+    assert_eq!(hbt.position(0), 0.0);
+}
+
+/// Дробный выход при лоте, не делящемся пополам: `qty = 1`, шаг лота 1 —
+/// половина округляется до нуля, выходим целиком одной ногой (не `partial`).
+#[test]
+fn a_fraction_below_one_lot_exits_whole() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        trade_at(S + S / 2, true, 100.0, 3.0),
+        trade_at(S + 4 * S / 5, true, 100.0, 3.0),
+        depth_at(4 * S, true, 99.0, 4.0),
+        depth_at(12 * S, false, 102.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let plan = TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 20 * S,
+        entry_ttl_ns: 5 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 50.0,
+        eaten_all_pct: 80.0,
+        eaten_half_frac: 0.5,
+        level_qty: 10.0,
+        lot_qty: 1.0,
+    };
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+    let actions = drive(&mut hbt, &mut state);
+    let exits: Vec<(ExitReason, bool)> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ExitSubmitted {
+                reason, partial, ..
+            } => Some((*reason, *partial)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(exits, vec![(ExitReason::Eaten, false)]);
+    assert_eq!(hbt.position(0), 0.0);
 }

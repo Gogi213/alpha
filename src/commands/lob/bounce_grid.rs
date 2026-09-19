@@ -130,6 +130,12 @@ pub struct BounceGridArgs {
     /// Лот — `order_size_22a` от полей пула и цены последнего касания.
     #[arg(long, default_value_t = false)]
     pub order_qty_from_pool: bool,
+    /// Множитель лота (E7, дробный выход): позиция в `N` лотов пула, чтобы
+    /// половину было чем выходить — с одним минимальным лотом половина
+    /// округляется в ноль и формы `half1to1`/`eat<h>x<a>` выходят целиком.
+    /// `1` — как было.
+    #[arg(long, default_value_t = 1)]
+    pub order_qty_mult: u32,
     #[arg(long, default_value_t = false)]
     pub post_only: bool,
     /// Формы стопа базы (повторяемый флаг; В-65, умолчаний нет):
@@ -233,7 +239,7 @@ const ROUNDS_HEADER: [&str; 12] = [
     "exit_ns",
 ];
 
-const FORMS_HEADER: [&str; 20] = [
+const FORMS_HEADER: [&str; 22] = [
     "symbol",
     "day_utc",
     "form",
@@ -249,6 +255,8 @@ const FORMS_HEADER: [&str; 20] = [
     "n_trail",
     "n_deadline",
     "n_early",
+    "n_eaten",
+    "n_partial",
     "n_horizon",
     "incomplete",
     "n_skipped",
@@ -323,6 +331,7 @@ fn signals_for(
                 form.form,
                 sigma_bps,
                 PlanShape {
+                    lot: p.lot,
                     post_only: p.post_only,
                     trail_bps: 0.0,
                     trail_activate_bps: 0.0,
@@ -626,6 +635,8 @@ impl Outputs {
             run.exits.trail.to_string(),
             run.exits.deadline.to_string(),
             run.exits.early.to_string(),
+            run.exits.eaten.to_string(),
+            run.exits.partial.to_string(),
             run.exits.horizon.to_string(),
             run.incomplete.to_string(),
             skipped.to_string(),
@@ -730,8 +741,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.median_rtt_ns.provenance(),
         args.h3.h3_mode,
         match (args.order_qty_e9, args.order_qty_from_pool) {
-            (Some(v), _) => format!("e9:{v}"),
-            _ => "pool(22a)".to_string(),
+            (Some(v), _) => format!("e9:{v}x{}", args.order_qty_mult),
+            _ => format!("pool(22a)x{}", args.order_qty_mult),
         },
         threads,
         args.driver.label(),
@@ -853,7 +864,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                     tick_e9,
                 )?
             }
-        };
+        }
+        .saturating_mul(i64::from(args.order_qty_mult.max(1)));
         let order_qty = order_qty_e9 as f64 / 1e9;
 
         let mut parts_by_day: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
