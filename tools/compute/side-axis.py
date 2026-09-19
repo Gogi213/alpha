@@ -82,6 +82,7 @@ def main():
     p.add_argument("--prefix", required=True,
                    help="b5/side-<день> — каталоги <prefix>-<семья>-<сторона>; с косой чертой в конце — подкаталоги набора")
     p.add_argument("--verdict-dir", default="study")
+    p.add_argument("--verdict-label", help="метка в именах вердиктов (умолчание — метка prefix; для ночи nightly-<день>)")
     p.add_argument("--family", action="append", help="семья (умолчание a45 и s100)")
     p.add_argument("--touches", help="study/touches — режим дня по касаниям")
     p.add_argument("--top", type=int, default=4, help="форм на семью в таблице сторон")
@@ -93,6 +94,7 @@ def main():
     # (один процесс `--set`); имя вердикта — по метке прогона в обоих раскладках.
     subdir = a.prefix.endswith("/")
     label = os.path.basename(a.prefix.rstrip("/"))
+    vlabel = a.verdict_label or label
     grid_dir = (lambda fam, side: os.path.join(a.prefix, f"{fam}-{side}")) if subdir \
         else (lambda fam, side: f"{a.prefix}-{fam}-{side}")
     lines = []
@@ -105,7 +107,7 @@ def main():
     for fam in fams:
         for side in ("bid", "ask"):
             gdir = grid_dir(fam, side)
-            vpath = os.path.join(a.verdict_dir, f"bounce-verdict-{label}-{fam}-{side}.csv")
+            vpath = os.path.join(a.verdict_dir, f"bounce-verdict-{vlabel}-{fam}-{side}.csv")
             v = ft.parse_verdict(vpath) if os.path.exists(vpath) else None
             fpath = os.path.join(gdir, "forms.csv")
             grids[(fam, side)] = (by_form(load_forms(fpath)) if os.path.exists(fpath) else {}, v)
