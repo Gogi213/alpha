@@ -469,6 +469,12 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
     let cluster_unit = if by_hour { "hour" } else { "day" };
     let hour_of =
         |t0_ns: i64| -> i64 { t0_ns.div_euclid(1_000_000_000).rem_euclid(86_400) / 3_600 };
+    // Сигналы по часам суммируются **по суткам через все символы**: круги в
+    // `data.fills` лежат по (форма, сутки) без символа, и сравнивать их с
+    // сигналами одной ячейки нельзя (до 19.09 так и делалось — ложный отказ
+    // «кругов больше сигналов» на первом же прогоне с двумя символами и
+    // фильтром касаний; синтетика проходила случайно).
+    let mut sig_hours_by_day: BTreeMap<&str, [u64; 24]> = BTreeMap::new();
     for (c, st) in data.cells.iter().filter(|(c, _)| c.form == form) {
         n_signals = n_signals.saturating_add(st.n_signals);
         n_fills = n_fills.saturating_add(st.n_fills);
@@ -486,33 +492,9 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
                     c.form
                 );
             };
-            let cell_fills = data
-                .fills
-                .get(&(c.form.clone(), c.day.clone()))
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            let mut fills_by_hour = [0u64; 24];
-            for &(_, t0) in cell_fills {
-                fills_by_hour[hour_of(t0) as usize] += 1;
-            }
+            let acc = sig_hours_by_day.entry(c.day.as_str()).or_insert([0; 24]);
             for h in 0..24 {
-                anyhow::ensure!(
-                    fills_by_hour[h] <= sig_by_hour[h],
-                    "{} {} {}: в часе {h} кругов {} больше сигналов {}",
-                    c.symbol,
-                    c.day,
-                    c.form,
-                    fills_by_hour[h],
-                    sig_by_hour[h]
-                );
-                let cluster = day * 24 + h as i64;
-                for _ in 0..(sig_by_hour[h] - fills_by_hour[h]) {
-                    observations.push(FillObservation {
-                        day_cluster: cluster,
-                        net_bps: 0.0,
-                        filled: false,
-                    });
-                }
+                acc[h] = acc[h].saturating_add(sig_by_hour[h]);
             }
             if st.n_fills > 0 {
                 days_with_fills.insert(c.day.as_str());
@@ -539,6 +521,36 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
             });
         }
         let _ = nets;
+    }
+    if by_hour {
+        for (day_label, sig_by_hour) in &sig_hours_by_day {
+            let day = day_index(&data.days, day_label);
+            let day_fills = data
+                .fills
+                .get(&(form.to_string(), (*day_label).to_string()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let mut fills_by_hour = [0u64; 24];
+            for &(_, t0) in day_fills {
+                fills_by_hour[hour_of(t0) as usize] += 1;
+            }
+            for h in 0..24 {
+                anyhow::ensure!(
+                    fills_by_hour[h] <= sig_by_hour[h],
+                    "{form} {day_label}: в часе {h} кругов {} больше сигналов {} (сумма по символам)",
+                    fills_by_hour[h],
+                    sig_by_hour[h]
+                );
+                let cluster = day * 24 + h as i64;
+                for _ in 0..(sig_by_hour[h] - fills_by_hour[h]) {
+                    observations.push(FillObservation {
+                        day_cluster: cluster,
+                        net_bps: 0.0,
+                        filled: false,
+                    });
+                }
+            }
+        }
     }
     for ((f, day), nets) in data.fills.iter().filter(|((f, _), _)| f == form) {
         let d = day_index(&data.days, day);

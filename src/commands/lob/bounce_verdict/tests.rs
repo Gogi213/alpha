@@ -291,6 +291,29 @@ fn few_days_get_a_verdict_through_hour_clusters() {
     assert_eq!(s2.verdict, Verdict::NotEnoughData);
 }
 
+/// Два символа при суток < G_MIN: круги обоих символов в один час, сигналы —
+/// по ячейкам; инвариант «кругов не больше сигналов» сравнивает суммы по
+/// суткам, а не круги суток с сигналами одной ячейки (ложный отказ 19.09).
+#[test]
+fn hour_clusters_sum_signals_across_symbols() {
+    let dir = tempfile::tempdir().unwrap();
+    let grid = dir.path().join("grid");
+    write_grid(
+        &grid,
+        &["AAAUSDT", "BBBUSDT"],
+        &["2026-09-10", "2026-09-11"],
+        60,
+        Some(60),
+        "s1-t2-600",
+        5.0,
+    );
+    let runs_csv = dir.path().join("runs.csv");
+    journal_with_grid(&runs_csv);
+    let s = run_bounce_verdict(&args(&grid, &runs_csv, &dir.path().join("v.csv")))
+        .expect("круги двух символов в одном часе — не отказ");
+    assert_eq!(s.best_n_fills, 240);
+}
+
 /// Форма без преимущества — интервал не отделяется от нуля: «красный».
 #[test]
 fn no_edge_is_red() {
