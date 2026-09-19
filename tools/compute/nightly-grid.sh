@@ -157,10 +157,12 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # (имена наборов) те же, что были у отдельных сеток, так что вердикты, журнал (маркеры
   # .trials-logged-<вид>) и читатели не меняются.
   # S0 плана по сторонам (side-plan-2026-09-20.md, 20.09): возраст по стороне — a15-s10/a30/a60 × bid|ask (192 испытания).
+  # S1: состояние стены — eaten=<%> (усадка от максимума к касанию); пороги — квартили распределения по касаниям 16–18.09
+  # (a45: q25 60 / q50 75; s100: q50 20 / q75 39), 6 наборов = 192 испытания.
   run_sets a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
            a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask \
            a15-s10-bid:age=900,flow=10,side=bid a15-s10-ask:age=900,flow=10,side=ask \
-           a30-bid:age=1800,side=bid a30-ask:age=1800,side=ask a60-bid:age=3600,side=bid a60-ask:age=3600,side=ask
+           a30-bid:age=1800,side=bid a30-ask:age=1800,side=ask a60-bid:age=3600,side=bid a60-ask:age=3600,side=ask            a45-bid-e60:age=2700,side=bid,eaten=60 a45-bid-e75:age=2700,side=bid,eaten=75            a45-ask-e60:age=2700,side=ask,eaten=60 a45-ask-e75:age=2700,side=ask,eaten=75            s100-bid-e20:flow=100,side=bid,eaten=20 s100-bid-e39:flow=100,side=bid,eaten=39
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
