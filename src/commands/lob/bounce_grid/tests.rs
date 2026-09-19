@@ -388,3 +388,39 @@ fn touches_cache_gives_byte_identical_rounds() {
     a.touches_from = Some(cache);
     assert!(run_bounce_grid(&a).is_err(), "прогрев с кэшем — отказ");
 }
+
+/// Кэш числа событий части (`<бинлог>.events`): первый прогон пишет сайдкар,
+/// второй читает его и даёт те же круги; испорченный сайдкар (чужое число)
+/// не меняет результата и переписывается честным счётом.
+#[test]
+fn event_count_sidecar_is_written_read_and_self_healing() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let first = run_bounce_grid(&args(dir.path(), false)).unwrap();
+    let sidecars: Vec<PathBuf> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().ends_with(".events"))
+        .collect();
+    assert_eq!(sidecars.len(), 1, "сайдкар на часть: {sidecars:?}");
+    let text = std::fs::read_to_string(&sidecars[0]).unwrap();
+    let n: usize = text.split_whitespace().nth(2).unwrap().parse().unwrap();
+    assert!(n > 0);
+
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid2");
+    let second = run_bounce_grid(&a).unwrap();
+    assert_eq!(second.rounds, first.rounds);
+
+    // Ложное число с верным штампом: буфер растёт, круги те же, сайдкар починен.
+    let stamp: Vec<&str> = text.split_whitespace().collect();
+    std::fs::write(&sidecars[0], format!("{} {} 1\n", stamp[0], stamp[1])).unwrap();
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid3");
+    let third = run_bounce_grid(&a).unwrap();
+    assert_eq!(third.rounds, first.rounds);
+    let healed = std::fs::read_to_string(&sidecars[0]).unwrap();
+    assert_eq!(healed, text, "сайдкар переписан честным счётом");
+    // Файл части не найден резолвером как бинлог: сессия по-прежнему одна часть.
+    assert_eq!(third.symbol_days, 1);
+}

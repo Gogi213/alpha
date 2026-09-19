@@ -476,18 +476,88 @@ fn signals_for(
 /// вместе (пик до 3× итога) и ронял сетку на сервере по OOM на сутках в
 /// ~20 млн событий (2026-09-18); второй декод дешевле памяти.
 fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
+    let started = Instant::now();
     let mut total = 0usize;
+    let mut counted_parts = 0usize;
     for path in parts {
-        let mut feed = open_replay_feed(path)?;
-        total += count_feed_events(&mut feed);
+        total += match cached_event_count(path) {
+            Some(n) => n,
+            None => {
+                let mut feed = open_replay_feed(path)?;
+                let n = count_feed_events(&mut feed);
+                store_event_count(path, n);
+                counted_parts += 1;
+                n
+            }
+        };
     }
+    let counted = started.elapsed().as_secs_f64();
     let mut events: Vec<HbtEvent> = Vec::with_capacity(total);
     for path in parts {
         let mut feed = open_replay_feed(path)?;
         feed_events_into(&mut feed, &mut events);
     }
-    debug_assert_eq!(events.len(), total);
+    // Кэш числа событий — только ёмкость буфера: разошёлся — буфер просто
+    // вырос, круги те же; сайдкары переписываются честным пересчётом.
+    if events.len() != total {
+        eprintln!(
+            "bounce-grid:   события: кэш числа врал ({total} против {}), сайдкары пересчитаны",
+            events.len()
+        );
+        for path in parts {
+            let mut feed = open_replay_feed(path)?;
+            let n = count_feed_events(&mut feed);
+            store_event_count(path, n);
+        }
+    }
+    eprintln!(
+        "bounce-grid:   события: счёт {counted:.2}s ({counted_parts} из {} частей считано, остальные из кэша) · декод {:.2}s · {}",
+        parts.len(),
+        started.elapsed().as_secs_f64() - counted,
+        events.len()
+    );
     Ok(events)
+}
+
+/// Сайдкар `<бинлог>.events` — число событий крейта в части: `размер мтайм число`.
+/// Счёт — второй полный декод части (2.8 с из 8.2 с на сутках NEAR, замер
+/// 20.09) ради буфера точного размера; число части не меняется, пока не
+/// меняется сам файл, так что оно кэшируется рядом с ним по размеру и
+/// мтайму. Суффикс не бинлоговый — резолверы частей сайдкар не видят.
+fn event_count_sidecar(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".events");
+    PathBuf::from(name)
+}
+
+fn file_stamp(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some((meta.len(), mtime))
+}
+
+fn cached_event_count(path: &Path) -> Option<usize> {
+    let (len, mtime) = file_stamp(path)?;
+    let text = std::fs::read_to_string(event_count_sidecar(path)).ok()?;
+    let mut it = text.split_whitespace();
+    let (l, m, n) = (
+        it.next()?.parse::<u64>().ok()?,
+        it.next()?.parse::<u64>().ok()?,
+        it.next()?.parse::<usize>().ok()?,
+    );
+    (l == len && m == mtime).then_some(n)
+}
+
+/// Не смог записать — не беда: следующий прогон снова посчитает.
+fn store_event_count(path: &Path, n: usize) {
+    if let Some((len, mtime)) = file_stamp(path) {
+        let _ = std::fs::write(event_count_sidecar(path), format!("{len} {mtime} {n}\n"));
+    }
 }
 
 /// Параметры прогона суток одной структурой (clippy держит предел семи аргументов).
