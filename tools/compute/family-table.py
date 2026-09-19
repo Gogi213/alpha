@@ -96,7 +96,7 @@ def main():
         worst = min(thick.items(), key=lambda kv: kv[1][1]) if thick else ("—", [0, 0])
         lines.append(
             f"| {name} | `{v['form']}` | {v['fills']} / {v['signals']} | {v['point']} / {v['lower']} | "
-            f"{v['dsr']} | {v['result']} | {len(thick)} ({pos}) | "
+            f"{v['dsr']} | {v['result']} | {len(req)} ({pos}) | "
             f"{best[0][:-4]} {best[1][1]:+.0f} ({best[1][0]:.0f}) | "
             f"{worst[0][:-4]} {worst[1][1]:+.0f} ({worst[1][0]:.0f}) |")
     text = "\n".join(lines)
