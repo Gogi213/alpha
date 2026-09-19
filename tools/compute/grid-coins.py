@@ -135,9 +135,10 @@ def print_coins_all_forms(rows, min_fills):
 
 def print_vs(frac_rows, base_rows):
     """Дробный выход (E7) против одного лота (база): пара по стопу и дедлайну."""
-    base = {r["form"]: r for r in base_rows}
+    frac = per_form(frac_rows)[0]
+    base = per_form(base_rows)[0]
     pairs, missing = [], []
-    for form, a in per_form(frac_rows)[0].items():
+    for form, a in frac.items():
         stop, take, dl = split_form(form)
         ctrl = f"{stop}-1to1-{dl}"
         if ctrl in base:
