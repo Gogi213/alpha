@@ -6,7 +6,9 @@
 # регистрируются в журнале один раз (первая ночь, маркер study/.trials-logged-<вид>).
 #
 #   /opt/alpha-compute/bin/nightly-grid.sh            # из alpha-grid-nightly.timer (02:00 UTC)
-# Артефакты: b5/nightly-<день>-<метка>/, вердикты study/bounce-verdict-nightly-<день>-<метка>.csv,
+# Артефакты: study/touches/<сутки>/ + study/floors-<сутки>.txt (H3: касания и матрица флоров по
+# каждой сутке отдельно — до сеток, чтобы утром матрица была даже если сетки не дойдут),
+# b5/nightly-<день>-<метка>/, вердикты study/bounce-verdict-nightly-<день>-<метка>.csv,
 # лог study/nightly-<день>.log. Если сетка предыдущей ночи ещё идёт — выход без запуска.
 set -uo pipefail
 cd /opt/alpha-compute || exit 1
@@ -41,7 +43,52 @@ run_one() {
   fi
   echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
 }
+
+# H3 (2026-09-19): касания и матрица флоров — по каждой сутке отдельно, до сеток. У `lob touches`
+# нет `--day`, а сутки в корне копятся, поэтому на каждую сутку собирается корень-день из симлинков
+# (файлы ровно этих суток + маркеры + instruments.csv): резолвер частей читает каталог по именам,
+# так что симлинка достаточно. Стоимость ночи не растёт с историей, а артефакт остаётся по суткам —
+# его требует H2 (шаг 2: лучший порог на сутках A, ход на сутках B). Сутки, сложенные один раз,
+# помечаются `.done` и не пересчитываются; слить сутки для многодневной матрицы — `cat` по символу.
+day_root() {
+  local day=$1
+  local dir="study/root-$day"
+  rm -rf "$dir"; mkdir -p "$dir"
+  local f
+  for f in "root/"*"-$day.binlog" "root/"*"-$day-"*".binlog" \
+           "root/"*"-$day.binlog.zst" "root/"*"-$day-"*".binlog.zst" \
+           "root/verify-"*".status" root/instruments.csv root/session.json; do
+    [ -e "$f" ] || continue
+    ln -s "$PWD/$f" "$dir/$(basename "$f")"
+  done
+}
+
+touches_for_day() {
+  local day=$1
+  local out="study/touches/$day"
+  [ -f "$out/.done" ] && return 0
+  mkdir -p "$out"
+  day_root "$day"
+  ls "study/root-$day"/verify-*.status | while read -r f; do
+    [ "$(cat "$f")" = "ok" ] || continue
+    local s; s=$(basename "$f" .status); echo "${s#verify-}"
+  done > "$out/symbols.txt"
+  local n; n=$(wc -l < "$out/symbols.txt")
+  echo "== $(date -u +%FT%TZ) touches $day start: монет с маркером ok $n" >> "$LOG"
+  xargs -P 3 -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
+    "$BIN lob touches --root 'study/root-$day' --symbol {} $USD --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo 'FAILED {}' >> '$out/failed.txt'"
+  local files failed
+  files=$(ls "$out"/touches-*.csv 2>/dev/null | wc -l)
+  failed=$([ -f "$out/failed.txt" ] && wc -l < "$out/failed.txt" || echo 0)
+  echo "== $(date -u +%FT%TZ) touches $day done: файлов $files, ошибок $failed" >> "$LOG"
+  if [ "$files" -ge "$n" ] && [ "$failed" -eq 0 ]; then touch "$out/.done"; fi
+  python3 bin/floors-balance.py "$out" > "study/floors-$day.txt" 2>&1
+  echo "== $(date -u +%FT%TZ) floors-balance $day → study/floors-$day.txt ($(wc -l < "study/floors-$day.txt") строк)" >> "$LOG"
+}
 echo "== $(date -u +%FT%TZ) nightly start; days in root: $(ls root/*.binlog | sed -E 's/.*-(2026-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u | tr '\n' ' ')" >> "$LOG"
+for d in $(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u); do
+  touches_for_day "$d"
+done
 run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE
 run_one a30-any       $USD --min-age-secs 1800 $BASE
 run_one a45-any       $USD --min-age-secs 2700 $BASE

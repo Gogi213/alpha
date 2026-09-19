@@ -227,17 +227,35 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 (p95/p99 от единиц точек — шум). Итог — `docs/findings/latency-<дата>.md` со сводкой и путём CSV;
 число для В-37 (RTT 20 мс assumed) — из `place_ack`/`taker_exec` **с сервера**, не с ноутбука.
 
-## Ночная сетка на счётной машине (В-70)
+## Ночная сетка на счётной машине (В-70; набор — под В-71)
 
 `tools/compute/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
-`alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45): четыре сетки по
-**всем** суткам корня — база В-65 any и frontrun-only (флоры `--h3-usd 10000 --min-flow-pct 100`), база при
-возрасте ≥ 45 мин (`--min-age-secs 2700`, без силы — флоры не пересекаются, `floors-balance-2026-09-19.md`), E7 (`pct{0.5,1,2} × {half1to1, eat50x80}`, `--order-qty-mult 2`) — и вердикт на
-каждую (`--runs-csv study/runs-2026-09-19.csv`, без `--log-trials`: формы те же, что в
-предрегистрации). Артефакты `b5/nightly-<день>-<метка>/`, вердикты
-`study/bounce-verdict-nightly-<день>-<метка>.csv`, лог `study/nightly-<день>.log`. Если вчерашняя сетка
-ещё идёт — прогон пропускается с записью в лог. Установка: `install -m 755 tools/compute/nightly-grid.sh
-/opt/alpha-compute/bin/`, юниты в `/etc/systemd/system/`, `systemctl enable --now alpha-grid-nightly.timer`.
+`alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45) делает две вещи.
+
+**1. Касания и матрица флоров (H3, 19.09) — до сеток**, чтобы утром матрица была даже если сетки не
+дойдут. По каждой сутке, которой нет в `study/touches/<сутки>/.done`, собирается корень-день
+`study/root-<сутки>` из симлинков (файлы ровно этих суток + `verify-*.status` + `instruments.csv` +
+`session.json`): у `lob touches` нет `--day`, а сутки в корне копятся — иначе каждая ночь
+перечитывала бы всю историю. Затем по символам с маркером `verify ok` (3 параллельно, `nice 15`) —
+`lob touches --h3-mode notional --h3-usd 10000` → `study/touches/<сутки>/touches-<SYM>.csv` (+
+`<SYM>.log`, `symbols.txt`, `failed.txt`), после чего `python3 bin/floors-balance.py` →
+`study/floors-<сутки>.txt`. Сутки с полным набором файлов и без ошибок метятся `.done` и больше не
+пересчитываются (повторный запуск их пропускает); слить сутки в многодневную матрицу — `cat` по
+символу. Разбивка по суткам нужна H2 (шаг 2: лучший порог на сутках A, ход на сутках B).
+
+**2. Шесть сеток по всем суткам корня** (набор В-71, зарегистрирован в `runs.csv`): `a15-s10`
+(`--min-age-secs 900 --min-flow-pct 10`), `a30` (1800 с), `a45` (2700 с), `a60` (3600 с), `s100`
+(контроль: `--min-flow-pct 100`, без возраста) — все на базе В-65 (32 формы), и `e7-a15-s10` (24 формы
+E7: `pct{0.5,1,2} × {half1to1, eat50x80}`, `--order-qty-mult 2`). Полы — `--h3-mode notional --h3-usd
+10000`, задержка В-68 (в `run-grid.sh`), вход любой. Испытания каждого вида сетки регистрируются в
+`runs.csv` **один раз** (маркер `study/.trials-logged-<вид>`, `--log-trials` только в первую ночь);
+вердикт — `lob bounce-verdict --runs-csv study/runs-2026-09-19.csv` на каждую сетку.
+Артефакты `b5/nightly-<день>-<метка>/`, вердикты `study/bounce-verdict-nightly-<день>-<метка>.csv`,
+лог `study/nightly-<день>.log`. Если вчерашняя сетка ещё идёт — прогон пропускается с записью в лог.
+**Ночь растёт вместе с историей:** сетки идут по всем суткам корня, касания — по одной сутке за ночь.
+Установка: `install -m 755 tools/compute/nightly-grid.sh /opt/alpha-compute/bin/` (рядом —
+`bin/floors-balance.py`), юниты в `/etc/systemd/system/`,
+`systemctl enable --now alpha-grid-nightly.timer`.
 
 ## Коллектор на сервере (Linux) — ранбук (T43/T44)
 
