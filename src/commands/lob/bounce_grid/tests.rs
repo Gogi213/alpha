@@ -504,6 +504,8 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
         "x:side=up",
         "x:age=1,age=2",
         "x:zzz=1",
+        "x:eaten=abc",
+        "x:eaten=nan",
         "..:",
     ] {
         assert!(FilterSet::parse(bad).is_err(), "{bad}");
@@ -517,6 +519,102 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             min_age_secs: Some(900),
             min_flow_pct: Some(10.0),
             side: None,
+            eaten_max_pct: None,
         }
     );
+}
+
+/// Ключ `eaten=<%>` (S1 плана по сторонам): `eaten=100` ничего не выбивает —
+/// байты те же, что без ключа; `eaten=-1` выбивает все касания в
+/// `n_skipped`; фикстура: у первого касания стена целая (`eaten` 0), у
+/// следующих — частично съедена, `eaten=0` оставляет только целые.
+#[test]
+fn eaten_key_filters_by_wall_state_at_touch() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-eaten");
+    a.sets = vec![
+        "all:".to_string(),
+        "e100:eaten=100".to_string(),
+        "e0:eaten=0".to_string(),
+        "none:eaten=-1".to_string(),
+    ];
+    let multi = run_bounce_grid(&a).unwrap();
+    let by_name = |n: &str| multi.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        body(&by_name("e100").rounds_path),
+        body(&by_name("all").rounds_path)
+    );
+    assert_eq!(
+        body(&by_name("e100").forms_path),
+        body(&by_name("all").forms_path)
+    );
+    let (fh, none) = read_csv(&by_name("none").forms_path);
+    for r in &none {
+        assert_eq!(col(&fh, r, "n_signals"), "0");
+        assert_eq!(col(&fh, r, "n_skipped"), "3");
+    }
+    let (fh, e0) = read_csv(&by_name("e0").forms_path);
+    let (_, all) = read_csv(&by_name("all").forms_path);
+    for (r0, ra) in e0.iter().zip(&all) {
+        let s0: u64 = col(&fh, r0, "n_signals").parse().unwrap();
+        let sa: u64 = col(&fh, ra, "n_signals").parse().unwrap();
+        assert!(s0 <= sa, "eaten=0 — подмножество: {r0:?}");
+        let k0: u64 = col(&fh, r0, "n_skipped").parse().unwrap();
+        assert_eq!(s0 + k0, 3);
+    }
+    let head = std::fs::read_to_string(&by_name("e0").forms_path).unwrap();
+    assert!(head.contains(" eaten_max=Some(0.0) "), "{head}");
+    assert_eq!(
+        eaten_pct(&TouchRecord {
+            size_at_touch: 3,
+            size_max_before: 12,
+            ..probe_touch()
+        }),
+        75.0
+    );
+    assert_eq!(
+        eaten_pct(&TouchRecord {
+            size_at_touch: 5,
+            size_max_before: 0,
+            ..probe_touch()
+        }),
+        0.0
+    );
+}
+
+fn probe_touch() -> TouchRecord {
+    TouchRecord {
+        side: Side::Bid,
+        price_tick: 1,
+        touch_index: 0,
+        start_ms: 0,
+        end_ms: 0,
+        duration_ms: 0,
+        level_birth_ms: 0,
+        size_at_touch: 0,
+        size_max_before: 0,
+        traded_during: 0,
+        frontrun_lots: 0,
+        frontrun_tick: None,
+        swept_lots: 0,
+        round_zeros: 0,
+        ended_by_death: false,
+        stack_levels: 0,
+        stack_next_tick: None,
+        traded_first_s: [0; 3],
+        flow_1h_lots: 0,
+        strength_e2: [-1; 3],
+        strength_held_e2: [-1; 4],
+        repeat_count: 0,
+    }
 }

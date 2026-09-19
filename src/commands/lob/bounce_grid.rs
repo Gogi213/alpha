@@ -55,7 +55,7 @@
 //! Несколько семей флоров одним процессом — `--set <имя>:<фильтры>` (20.09):
 //! события суток декодируются и окна `SignalWindows` строятся **один раз**,
 //! дальше формы гонятся для каждого набора фильтров касаний (возраст, сила,
-//! сторона, фронтран) над теми же событиями; артефакты — `<out-dir>/<имя>/`
+//! сторона, фронтран, съедание стены `eaten=`) над теми же событиями; артефакты — `<out-dir>/<имя>/`
 //! (тот же `rounds.csv`/`forms.csv`/`manifest.txt`, вердикт читает
 //! подкаталог). Без `--set` — один набор из флагов командной строки в
 //! `<out-dir>`, байт в байт как раньше; с `--set` флаги фильтров у команды
@@ -90,6 +90,17 @@ use crate::lob::backtest::{
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
+
+/// Доля съедания стены к касанию, %: `100 × (1 − size_at_touch /
+/// size_max_before)`; стена без истории размера (`size_max_before ≤ 0`) —
+/// ноль, чтобы ключ `eaten=` её не выбивал (нечего было съесть).
+#[allow(clippy::cast_precision_loss)]
+fn eaten_pct(t: &TouchRecord) -> f64 {
+    if t.size_max_before <= 0 {
+        return 0.0;
+    }
+    100.0 * (1.0 - t.size_at_touch as f64 / t.size_max_before as f64)
+}
 
 /// Касания одних суток символа — из реплея или из кэша, форме всё равно.
 struct DayTouches {
@@ -363,6 +374,11 @@ pub struct FilterSet {
     pub min_age_secs: Option<i64>,
     pub min_flow_pct: Option<f64>,
     pub side: Option<SideArg>,
+    /// Состояние стены при касании (S1 плана по сторонам, [D 33:57] «не
+    /// заходить в разъедания»): доля съедания к касанию `100 × (1 −
+    /// size_at_touch / size_max_before)` не больше этого процента. Только
+    /// ключ набора `eaten=<%>`, флага у команды нет.
+    pub eaten_max_pct: Option<f64>,
 }
 
 impl FilterSet {
@@ -373,6 +389,7 @@ impl FilterSet {
             min_age_secs: args.min_age_secs,
             min_flow_pct: args.min_flow_pct,
             side: args.side,
+            eaten_max_pct: None,
         }
     }
 
@@ -397,6 +414,7 @@ impl FilterSet {
             min_age_secs: None,
             min_flow_pct: None,
             side: None,
+            eaten_max_pct: None,
         };
         let mut seen = std::collections::BTreeSet::new();
         for kv in rest.split(',').filter(|s| !s.is_empty()) {
@@ -425,6 +443,16 @@ impl FilterSet {
                         _ => anyhow::bail!("--set {spec:?}: side={v:?}, ожидается bid|ask"),
                     });
                 }
+                "eaten" => {
+                    let pct: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: eaten={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        pct.is_finite(),
+                        "--set {spec:?}: eaten={v:?} — процент обязан быть числом"
+                    );
+                    set.eaten_max_pct = Some(pct);
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -433,7 +461,9 @@ impl FilterSet {
                     set.frontrun_only = true;
                 }
                 _ => {
-                    anyhow::bail!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun)")
+                    anyhow::bail!(
+                        "--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|eaten)"
+                    )
                 }
             }
         }
@@ -548,6 +578,11 @@ fn signals_for(
             }
             // Ось стороны: другая сторона выбывает до форм (как возраст и сила).
             if p.side.is_some_and(|s| t.side != s) {
+                skipped += 1;
+                return None;
+            }
+            // Состояние стены: съедена к касанию сильнее порога — не вход.
+            if p.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
                 skipped += 1;
                 return None;
             }
@@ -696,6 +731,8 @@ struct DayParams<'a> {
     min_flow_pct: Option<f64>,
     /// Ось стороны (`--side`): `None` — обе стороны.
     side: Option<Side>,
+    /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
+    eaten_max_pct: Option<f64>,
     /// Ряд `σ` символа (все сутки записи подряд).
     sigma: &'a SigmaSeries,
 }
@@ -1072,7 +1109,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1087,6 +1124,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         set.min_age_secs,
         set.min_flow_pct,
         set.side.map_or("both", SideArg::label),
+        set.eaten_max_pct,
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
@@ -1347,6 +1385,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
                             min_flow_pct: set.min_flow_pct,
                             side: set.side.map(Side::from),
+                            eaten_max_pct: set.eaten_max_pct,
                             mode,
                             sigma: &sigma_series,
                         },
