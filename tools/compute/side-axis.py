@@ -79,7 +79,8 @@ def per_round(n, s):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--prefix", required=True, help="b5/side-<день> — каталоги <prefix>-<семья>-<сторона>")
+    p.add_argument("--prefix", required=True,
+                   help="b5/side-<день> — каталоги <prefix>-<семья>-<сторона>; с косой чертой в конце — подкаталоги набора")
     p.add_argument("--verdict-dir", default="study")
     p.add_argument("--family", action="append", help="семья (умолчание a45 и s100)")
     p.add_argument("--touches", help="study/touches — режим дня по касаниям")
@@ -88,7 +89,12 @@ def main():
     p.add_argument("--out")
     a = p.parse_args()
     fams = a.family or ["a45", "s100"]
-    label = os.path.basename(a.prefix)
+    # `b5/side-<день>-` + `<семья>-<сторона>` (отдельные сетки) или `b5/side-<день>/` + подкаталог набора
+    # (один процесс `--set`); имя вердикта — по метке прогона в обоих раскладках.
+    subdir = a.prefix.endswith("/")
+    label = os.path.basename(a.prefix.rstrip("/"))
+    grid_dir = (lambda fam, side: os.path.join(a.prefix, f"{fam}-{side}")) if subdir \
+        else (lambda fam, side: f"{a.prefix}-{fam}-{side}")
     lines = []
 
     # (1) вердикты
@@ -98,7 +104,7 @@ def main():
     grids = {}
     for fam in fams:
         for side in ("bid", "ask"):
-            gdir = f"{a.prefix}-{fam}-{side}"
+            gdir = grid_dir(fam, side)
             vpath = os.path.join(a.verdict_dir, f"bounce-verdict-{label}-{fam}-{side}.csv")
             v = ft.parse_verdict(vpath) if os.path.exists(vpath) else None
             fpath = os.path.join(gdir, "forms.csv")

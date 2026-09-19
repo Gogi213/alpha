@@ -8,7 +8,8 @@
 #   /opt/alpha-compute/bin/nightly-grid.sh            # из alpha-grid-nightly.timer (02:00 UTC)
 # Артефакты: study/touches/<сутки>/ + study/floors-<сутки>.txt (H3: касания и матрица флоров по
 # каждой сутке отдельно — до сеток, чтобы утром матрица была даже если сетки не дойдут),
-# b5/nightly-<день>-<метка>/, вердикты study/bounce-verdict-nightly-<день>-<метка>.csv,
+# b5/nightly-<день>-base/<набор>/ (база и сторона одним процессом, --set) и b5/nightly-<день>-e7-a15-s10-any/,
+# вердикты study/bounce-verdict-nightly-<день>-<набор|метка>.csv,
 # лог study/nightly-<день>.log. Если сетка предыдущей ночи ещё идёт — выход без запуска.
 #
 # H3b (19.09, ревью §0): сутки с ошибкой пересчитываются не бесконечно — причина пишется в лог,
@@ -49,6 +50,30 @@ USD="--h3-mode notional --h3-usd 10000 --touches-from study/touches"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.
+verdict_one() {
+  # $1 — вид (имя набора/сетки), $2 — каталог сетки; вердикт study/bounce-verdict-nightly-<день>-<вид>.csv
+  local kind=$1 gdir=$2
+  local label="nightly-$DAY-$kind"
+  local logflag=""
+  if [ ! -f "study/.trials-logged-$kind" ]; then logflag="--log-trials"; fi
+  if $BIN lob bounce-verdict --grid-dir "$gdir" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
+    [ -n "$logflag" ] && touch "study/.trials-logged-$kind"
+  fi
+  echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
+}
+# Все наборы базы одним процессом (`--set`, 20.09): события суток и окна декодируются один раз на
+# монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-base/<набор>/.
+run_sets() {
+  local label="nightly-$DAY-base"
+  local setargs=""
+  for kv in "$@"; do setargs="$setargs --set $kv"; done
+  echo "== $(date -u +%FT%TZ) grid $label start: наборы $*" >> "$LOG"
+  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $BASE $DAY_ARGS $setargs >> "$LOG" 2>&1
+  sleep 5
+  while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
+  echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
+  for kv in "$@"; do verdict_one "${kv%%:*}" "b5/$label/${kv%%:*}"; done
+}
 run_one() {
   local kind=$1; shift
   local label="nightly-$DAY-$kind"
@@ -59,10 +84,7 @@ run_one() {
   sleep 5
   while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
-  if $BIN lob bounce-verdict --grid-dir "b5/$label" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
-    [ -n "$logflag" ] && touch "study/.trials-logged-$kind"
-  fi
-  echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
+  verdict_one "$kind" "b5/$label"
 }
 
 # H3 (2026-09-19): касания и матрица флоров — по каждой сутке отдельно, до сеток. У `lob touches`
@@ -131,17 +153,12 @@ for d in $DAYS_ALL; do
   touches_for_day "$d"
 done
 if [ -z "$TOUCHES_ONLY" ]; then
-  run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE $DAY_ARGS
-  run_one a30-any       $USD --min-age-secs 1800 $BASE $DAY_ARGS
-  run_one a45-any       $USD --min-age-secs 2700 $BASE $DAY_ARGS
-  run_one a60-any       $USD --min-age-secs 3600 $BASE $DAY_ARGS
-  run_one s100-any      $USD --min-flow-pct 100 $BASE $DAY_ARGS
-  # Ось стороны (этап 1 дороги, side-axis-2026-09-19.md): те же семьи по стороне; журнал не растёт —
-  # виды a45-bid/ask, s100-bid/ask уже зарегистрированы (маркеры .trials-logged-*, 128 испытаний 19.09).
-  run_one a45-bid       $USD --min-age-secs 2700 --side bid $BASE $DAY_ARGS
-  run_one a45-ask       $USD --min-age-secs 2700 --side ask $BASE $DAY_ARGS
-  run_one s100-bid      $USD --min-flow-pct 100 --side bid $BASE $DAY_ARGS
-  run_one s100-ask      $USD --min-flow-pct 100 --side ask $BASE $DAY_ARGS
+  # Семьи флоров В-71 и ось стороны (этап 1 дороги, side-axis-2026-09-19.md) — одним процессом; виды
+  # (имена наборов) те же, что были у отдельных сеток, так что вердикты, журнал (маркеры
+  # .trials-logged-<вид>) и читатели не меняются.
+  run_sets a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
+           a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask
+  # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
