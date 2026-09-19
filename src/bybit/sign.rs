@@ -116,6 +116,18 @@ impl Credentials {
         Ok(hex_lower(&mac.finalize().into_bytes()))
     }
 
+    /// Подпись `auth` для WebSocket (приватный стрим и WS trade): HMAC-SHA256
+    /// от строки `GET/realtime{expires}` — формат задокументирован биржей
+    /// (`docs/v5/ws/connect`, «Authentication»), `expires` — миллисекунды
+    /// эпохи, после которых кадр не принимается.
+    pub fn ws_auth_signature(&self, expires_ms: i64) -> Result<String, CredentialsError> {
+        let mut mac = HmacSha256::new_from_slice(self.api_secret.as_bytes())
+            .map_err(|_| CredentialsError::MacUnusable)?;
+        mac.update(b"GET/realtime");
+        mac.update(expires_ms.to_string().as_bytes());
+        Ok(hex_lower(&mac.finalize().into_bytes()))
+    }
+
     /// Та же подпись v5, без единой аллокации (таск 17, запрет 1 горячего
     /// пути). Не делегирует `sign` выше: там `format!` склеивает payload в
     /// одну `String`, а `hex_lower` возвращает `String` — обе аллоцируют, и

@@ -439,6 +439,7 @@ fn lob_help_lists_all_subcommands() {
         "dashboard",
         "export",
         "fee-rate",
+        "latency",
         "levels",
         "markout",
         "pick",

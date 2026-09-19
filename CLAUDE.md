@@ -75,10 +75,10 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 843 passed, 0 failed, 8 ignored (2026-09-18, В-63; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 865 passed, 0 failed, 8 ignored (2026-09-19, lob latency; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 24 подкоманды, таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 25 подкоманд, таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
@@ -199,6 +199,8 @@ PBO/CPCV по матрице форма × сутки, `DSR` по числу **�
 инструменту, `m` «в сторону отскока» с интервалом по суткам (без `net`/`net_fill` — они у сделки-отскока,
 T38), число испытаний (`(26 + 6) × (инструментов + 1)`) — строками `runs.csv`; `--root` — корень сессий
 или сам каталог сессии.
+
+**2026-09-19, день — `lob latency` (владелец: «измерить RTT, скорость постановки лимитки, снятия, исполнения тейкера — на 10 баксов всё»):** команда готова (`bybit::latency` — ядро на фейках, 16 тестов; `commands/lob/latency.rs` — REST/WS trade/приватный стрим живьём), ступени `rest_time`, `ws_ping`, `place_ack`/`place_new`, `cancel_ack`/`cancel_done`, `taker_ack`/`taker_exec`/`taker_filled` × `via` `rest`/`ws`; размер — по номиналу и фильтрам инструмента; `flatten` (cancel-all + reduceOnly) после ошибки тейкера и в конце. Ключи — только окружение (`BYBIT_API_KEY`/`BYBIT_API_SECRET`, ранбук «куда класть ключи» в `docs/COMMANDS.md`); **живой прогон не сделан — ждёт ключ владельца**; боевое число — с сервера `139.99.91.22`, не с ноутбука; результат — `docs/findings/latency-<дата>.md`.
 
 Состояние (2026-09-19, ночь — см. также память `alpha-state-2026-09-19`): **первая сетка базы на полах владельца
 посчитана** — `docs/findings/base65-2026-09-19.md`: оба вердикта «мало данных» (лучшая `pct1-1to1-3600`, 51 круг, +1.26 bps на

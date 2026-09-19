@@ -2,6 +2,7 @@
 
 pub mod clock;
 pub mod conn;
+pub mod latency;
 pub mod probe;
 pub mod rest;
 pub mod sign;

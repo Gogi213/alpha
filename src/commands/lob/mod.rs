@@ -60,6 +60,7 @@ pub mod dashboard;
 mod export;
 pub mod fee_rate;
 mod h3;
+pub mod latency;
 pub mod levels;
 pub mod markout;
 mod names;
@@ -108,6 +109,7 @@ pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
 pub use fee_rate::{run_fee_rate, FeeRateArgs};
+pub use latency::{run_latency, LatencyArgs};
 pub use levels::{run_levels, LevelsArgs};
 pub use markout::{run_markout, MarkoutArgs};
 pub use pick::{run_pick, write_instruments_csv, PickArgs};
@@ -177,6 +179,8 @@ pub enum LobCommand {
     Probe(ProbeArgs),
     /// Ставки комиссий аккаунта с биржи против констант кода (подписанный GET, вне горячего пути).
     FeeRate(FeeRateArgs),
+    /// Задержки торгового пути на живом счёте: RTT, лимитка/снятие, тейкер — **реальные ордера**.
+    Latency(LatencyArgs),
     /// Разметка уровней с шестью признаками истории и классом (шаги 1.1, 1.2).
     Levels(LevelsArgs),
     /// Markout уровней на четырёх горизонтах (шаг 2.1).
@@ -294,6 +298,27 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::FeeRate(args) => {
             for line in run_fee_rate(&args)? {
                 println!("fee-rate: {line}");
+            }
+            Ok(())
+        }
+        LobCommand::Latency(args) => {
+            let rep = run_latency(&args)?;
+            println!(
+                "latency: symbol={} qty={} notional_usdt={} out={}",
+                args.symbol,
+                crate::bybit::latency::format_e9(rep.qty_e9),
+                crate::bybit::latency::format_e9(rep.notional_e9),
+                rep.out.display()
+            );
+            print!("{}", rep.summary);
+            for e in &rep.errors {
+                println!("latency: error: {e}");
+            }
+            if let Some(size) = rep.flattened_e9 {
+                println!(
+                    "latency: в конце закрыт остаток позиции {}",
+                    crate::bybit::latency::format_e9(size)
+                );
             }
             Ok(())
         }

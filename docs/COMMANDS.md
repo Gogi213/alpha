@@ -27,6 +27,7 @@
 | `lob pilot` (боевой) на каталоге `lob session --pilot-minutes` | ставки уровней, `k`-сетка и выбор (В-30), G0, G-POWER-B против `lob power`, строки в `docs/plan/runs.csv`; окно — из `session.json`, зачётный хвост — вторая половина (В-33); `instruments.csv` надо скопировать в `--root` руками |
 | `lob react` | стадийные латентности (разбор/книга/триггер/ордер/весь путь), объявляет G-LAT (нужно ≥1000 срабатываний) |
 | `lob probe` | **ставит настоящие post-only ордера на бирже** — RTT полного цикла |
+| `lob latency --symbol --notional-usd --cycles [--side buy] [--ticks-from-mid 100] [--net mainnet\|testnet\|demo] [--skip-taker] [--skip-ws-trade] [--pause-ms 1000] [--out]` | `data/bybit/latency-<SYMBOL>-<UTC>.csv` (`cycle,stage,via,ns`) + сводка в консоль (median/p95/p99/max, мс) — **ставит настоящие ордера** (владелец 19.09: «измерить RTT, скорость постановки лимитки, снятия, исполнения тейкера — на 10 баксов всё»). Ступени цикла: `rest_time` (`GET /v5/market/time`, сеть+HTTP), `ws_ping` (ping→pong приватного стрима), `place_ack`/`place_new` (post-only в `--ticks-from-mid` от середины: ответ транспорта / кадр `order New` приватного стрима), `cancel_ack`/`cancel_done`, `taker_ack`/`taker_exec`/`taker_filled` (рыночный на `--notional-usd` и сразу обратный `reduceOnly` — обе ноги по точке, позиция плоская), `cycle_total`. `via`: `rest` (`/v5/order/*`), `ws` (WS trade `order.create`/`order.cancel`, `auth` при подключении), `private` (пинг). Приватный стрим читает свой поток и штампует приём кадра (`Instant`); размер — `qty_for_notional` по `instruments-info` (шаг лота, `minOrderQty`, `minNotionalValue`) и текущей середине. Ключи — только `BYBIT_API_KEY`/`BYBIT_API_SECRET` (Decision 12), ключу нужны права **Trade** (Contract/Derivatives) в one-way режиме позиций; в конце и после ошибки тейкера — `cancel-all` + закрытие остатка рынком (`flatten`); ошибки ступеней пишутся в `errors`, цикл не роняют. Контур `--net`: `mainnet` (умолчание), `testnet` (`api-testnet`/`stream-testnet`), `demo` (`api-demo`/`stream-demo`; WS trade у демо не задокументирован — при отказе ступени `via=ws` пропускаются). Ядро — `bybit::latency` (фейки, 16 тестов), живые транспорты — `commands/lob/latency.rs` |
 | `lob fee-rate [--symbol] [--category linear] [--base-url]` | печать, файла нет — **ставки комиссий аккаунта** с биржи (`/v5/account/fee-rate`, подписанный GET, ключи только из `BYBIT_API_KEY`/`BYBIT_API_SECRET`, значения не печатаются) в bps рядом с константами кода `costs::MAKER_FEE_BPS`/`TAKER_FEE_BPS` (1.4 / 3.5 до возврата 10 %, В-63; прежнее H4 — 2.0 / 5.5) и словом «совпадает» / «РАСХОДИТСЯ»; расхождение — менять константы решением В-##, не молча. Вне горячего пути; владелец 18.09: «ты уверен, что комиссии правильные?» |
 | `lob dashboard --root --out [--h3-mode floor] [--h3-lots] [--h3-k] [--watch N]` | `<out>/index.html` + `<out>/data.json` (T33, R88 — «дашборд о монетах и их плотностях», заменил T32) — только чтение `--root`, запись через `.tmp` + rename. По каждой монете пула: **плотности сейчас** (живые уровни на последнем кадре: сторона, цена, расстояние bps, размер в монетах/$/×H3, возраст, который раз на цене — 40 самых крупных), **картина за всю запись** (`coin-<SYM>.json`; страница — **только сетка** `<canvas>` на всё окно, без панели, фильтров и таблиц: поле плотностей — цвет сторона, толщина и яркость ранг размера, сотня крупных «стенами», белая середина, касания треугольниками (зелёный отскок / красный проели, 4-е и дальше — контуром), профиль живых плотностей по цене справа, потолок 4000 полосок в окне — о нём предупреждение в углу), **что стало** (по исходам: n, доля, жизнь, `m` на 4 горизонтах, `net` 10 с), **где стоят и как живут** (маргиналы осей сторона/размер/расстояние/жизнь/повтор — корзины `shortlist::*_LABELS`), **касания: цена дошла до плотности** (T36, R90, В-42/В-43/В-44: из `ReplayDay.touches` того же реплея — итог по исходам отскочила / проели на касании с `m` «в сторону отскока» на 4 горизонтах (база — срез как есть на `start_ms`, В-43), маргиналы по осям В-44 из `lob::touch_axes` — возраст, фронтран (за секунду до касания, В-45), круглость, номер касания, подход за 1 с, длительность, сторона, размер на касании, — крест исход × возраст 2 × 3, метки касаний на картине часа (треугольник у `start_ms`, вверх бид / вниз аск, цвет — исход, наведение — числа, в том числе «сметено» (`swept_lots`), чекбокс вкл/выкл, потолок `PICTURE_MAX_BARS` по размеру на касании); плитка — «касаний за запись», «отскочила %»; средние `m` по строкам — без горизонтов внутри касания (`within_touch`, В-45; счётчики исключённых печатаются); завал (`stack_levels`, в окне 25 bps) не показывается при `# debug`, при `k = 1.0` рядом — «k — заглушка (В-30)»; `size_below_h3`/`approach_missing` печатаются). Разметка — `replay_symbol` + `markouts_for_level` + `markouts_for_touch`/`approaches_for_touch` + `costs::observation_at`, живые уровни — `LevelTracker::live_levels` (`ReplayStats.open`). Одна строка про коллектор (жив по росту бинлогов между расчётами, `closed`, записано, разрывы из живого `gaps.csv`); порог `H3` печатается с источником (`instruments.csv` каталога, метка `debug`, `k`); суток < `G_MIN` — оговорка текстом. Гейтов/аудита/«где мы» на странице нет (PLAN.md) |
 
@@ -186,6 +187,35 @@
   файле выглядел бы полными сутками. Порча (`Corrupt`, `MissingSnapshot`, `TruncatedHeader`) —
   отказ и в мягком режиме
 
+
+## Замер задержек торгового пути (`lob latency`) — куда класть ключи
+
+Ключи только в окружении процесса (Decision 12): ни файла в репозитории, ни аргумента. Значения
+никогда не печатаются и в артефакты не попадают (`Credentials` без `Debug` секрета).
+
+Ключ на Bybit: API Management → Create New Key → System-generated → **Read-Write**, права
+**Contract → Orders + Positions** (Unified: Trade), IP whitelist — адрес машины, с которой мерим
+(для сервера — `139.99.91.22`). Демо-ключ (Demo Trading → API) даёт `--net demo` без денег;
+реальный счёт с `≥ 10 USDT` на Derivatives — `--net mainnet` (ноги тейкера: 3.5 bps × $10 ≈ $0.0035
+за ногу, 4 ноги в цикле; 50 циклов ≈ $0.7 комиссий + спред).
+
+Windows (текущая консоль PowerShell, живут до её закрытия):
+```powershell
+$env:BYBIT_API_KEY = "<ключ>"; $env:BYBIT_API_SECRET = "<секрет>"
+./target-ci/release/alpha.exe lob latency --symbol DOGEUSDT --notional-usd 10 --cycles 50
+```
+Сервер (замер оттуда — боевой: бот будет там; файл только root, не в git):
+```bash
+sudo install -m 600 -o root -g root /dev/null /etc/alpha/bybit.env
+sudo tee /etc/alpha/bybit.env >/dev/null <<'ENV'
+BYBIT_API_KEY=<ключ>
+BYBIT_API_SECRET=<секрет>
+ENV
+sudo bash -c 'set -a; . /etc/alpha/bybit.env; set +a; /opt/alpha/alpha-collector lob latency --symbol DOGEUSDT --notional-usd 10 --cycles 50 --out /opt/alpha/latency/DOGEUSDT-$(date -u +%Y%m%dT%H%M%SZ).csv'
+```
+Сначала — `--net demo --cycles 3` (или `--skip-taker`) как смоук; полный прогон — ≥ 50 циклов
+(p95/p99 от единиц точек — шум). Итог — `docs/findings/latency-<дата>.md` со сводкой и путём CSV;
+число для В-37 (RTT 20 мс assumed) — из `place_ack`/`taker_exec` **с сервера**, не с ноутбука.
 
 ## Коллектор на сервере (Linux) — ранбук (T43/T44)
 
