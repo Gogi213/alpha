@@ -413,7 +413,9 @@ fn renders_both_files_atomically_and_json_round_trips() {
     let raw = std::fs::read_to_string(&s.json).unwrap();
     let d: Dashboard = serde_json::from_str(&raw).unwrap();
     assert_eq!(d.coins[0].symbol, "SOLUSDT");
-    assert_eq!(d.assumed_rtt_ms, ASSUMED_RTT_MS);
+    assert_eq!(d.exec_latency, ExecLatencyMs::measured());
+    assert_eq!(d.exec_latency.place_ms, 4.2);
+    assert_eq!(d.exec_latency.source, "measured(lob latency, В-68)");
     assert_eq!(d.roundtrip_fees_bps, ROUNDTRIP_FEES_BPS);
     assert_eq!(s.coins, 1);
     // Касания едут в `data.json` теми же типами: у `frames()` касаний нет

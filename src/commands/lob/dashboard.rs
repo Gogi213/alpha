@@ -89,11 +89,29 @@ use crate::commands::record::instruments_csv_path;
 // Назначенные числа. Каждое — с источником.
 // ---------------------------------------------------------------------------
 
-/// В-37: задержка круга принята владельцем за 20 мс до замера; всякий
-/// артефакт с этим числом помечается `assumed`, не `measured`. В `net` на
+/// Задержка исполнения, которую ждёт бэктест: с 2026-09-19 — измеренная
+/// (В-68, `lob::backtest::MEASURED_LATENCY`), не назначенная В-37. В `net` на
 /// странице RTT не входит (издержки — комиссии и спред, `costs::net_bps`);
-/// печатается, чтобы читатель знал, какое число ждёт бэктест.
-const ASSUMED_RTT_MS: u32 = 20;
+/// печатается справочно, в миллисекундах, с подписью источника.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ExecLatencyMs {
+    pub place_ms: f64,
+    pub cancel_ms: f64,
+    pub taker_ms: f64,
+    pub source: String,
+}
+
+impl ExecLatencyMs {
+    fn measured() -> Self {
+        let l = crate::lob::backtest::MEASURED_LATENCY;
+        Self {
+            place_ms: l.place_ns as f64 / 1e6,
+            cancel_ms: l.cancel_ns as f64 / 1e6,
+            taker_ms: l.taker_ns as f64 / 1e6,
+            source: l.provenance().to_string(),
+        }
+    }
+}
 
 /// Стартовое окно графика (таск 41): последний час записи. График держит
 /// всю историю записи, колесо и перетаскивание ходят по ней; это окно
@@ -573,7 +591,7 @@ pub struct Dashboard {
     pub root: String,
     pub h3_mode: String,
     pub h3_k: Option<f64>,
-    pub assumed_rtt_ms: u32,
+    pub exec_latency: ExecLatencyMs,
     pub roundtrip_fees_bps: f64,
     pub horizons_ms: [i64; 4],
     pub tail_not_visible_secs: u64,
@@ -743,7 +761,7 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<C
         root: args.root.display().to_string(),
         h3_mode: super::profiles::h3_mode_label(args.h3_mode).to_string(),
         h3_k: args.h3_k,
-        assumed_rtt_ms: ASSUMED_RTT_MS,
+        exec_latency: ExecLatencyMs::measured(),
         roundtrip_fees_bps: ROUNDTRIP_FEES_BPS,
         horizons_ms: HORIZONS_MS,
         tail_not_visible_secs: FRAME_LOSS_WINDOW_SECS,
