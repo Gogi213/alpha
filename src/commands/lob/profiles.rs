@@ -268,9 +268,13 @@ pub fn resolve_fill_model(
     order_qty_e9: Option<i64>,
 ) -> anyhow::Result<Box<dyn FillModel>> {
     match (median_rtt_ns, p95_rtt_ns, order_qty_e9) {
-        (Some(median), Some(p95), Some(qty)) => Ok(Box::new(
-            super::backtest::BacktestFillModel::new(median, p95, qty),
-        )),
+        (Some(median), Some(p95), Some(qty)) => {
+            Ok(Box::new(super::backtest::BacktestFillModel::new(
+                crate::lob::backtest::ExecLatency::uniform(median),
+                crate::lob::backtest::ExecLatency::uniform(p95),
+                qty,
+            )))
+        }
         (None, None, None) => Ok(Box::new(NoFillModel)),
         _ => anyhow::bail!(
             "--median-rtt-ns/--p95-rtt-ns/--order-qty-e9 обязаны быть заданы все втроём или ни \

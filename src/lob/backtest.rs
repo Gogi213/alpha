@@ -46,14 +46,14 @@
 use hftbacktest::backtest::assettype::LinearAsset;
 use hftbacktest::backtest::data::{Data, DataPtr};
 use hftbacktest::backtest::models::{
-    CommonFees, ConstantLatency, RiskAdverseQueueModel, TradingValueFeeModel,
+    CommonFees, LatencyModel, RiskAdverseQueueModel, TradingValueFeeModel,
 };
 use hftbacktest::backtest::BacktestError;
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
 use hftbacktest::depth::{HashMapMarketDepth, L2MarketDepth, MarketDepth};
 use hftbacktest::types::{
-    Bot, ElapseResult, Event, OrdType, Side as HbtSide, Status, TimeInForce, EXCH_BID_DEPTH_EVENT,
-    LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
+    Bot, ElapseResult, Event, OrdType, Order, Side as HbtSide, Status, TimeInForce,
+    EXCH_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
 };
 
 use crate::lob::costs::{
@@ -349,6 +349,124 @@ pub fn latency_from_rtt(exec_rtt_ns: i64) -> (i64, i64) {
         return (0, 0);
     }
     (exec_rtt_ns, 0)
+}
+
+/// Задержки исполнения по типу запроса — измерены `lob latency` с сервера
+/// (`docs/findings/latency-2026-09-19.md`, В-68): постановка лимитки, снятие,
+/// рыночный ордер, каждая — от отправки до подтверждения биржей, нс. Одно число
+/// на все три (`uniform`) — прежняя форма В-37 («20 мс на всё»). Крейт получает
+/// каждую через `latency_from_rtt`: целиком на входное плечо, ответное — ноль.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecLatency {
+    pub place_ns: i64,
+    pub cancel_ns: i64,
+    pub taker_ns: i64,
+}
+
+impl ExecLatency {
+    pub const fn uniform(rtt_ns: i64) -> Self {
+        Self {
+            place_ns: rtt_ns,
+            cancel_ns: rtt_ns,
+            taker_ns: rtt_ns,
+        }
+    }
+
+    pub fn is_uniform(&self) -> bool {
+        self.place_ns == self.cancel_ns && self.cancel_ns == self.taker_ns
+    }
+
+    /// Подпись для шапок артефактов: одно число — назначено (В-37), три —
+    /// измерено (В-68).
+    pub fn provenance(&self) -> &'static str {
+        if self.is_uniform() {
+            "assumed(В-37)"
+        } else {
+            "measured(lob latency, В-68)"
+        }
+    }
+}
+
+/// `--median-rtt-ns 20000000` (одно число на всё) или
+/// `--median-rtt-ns place=4200000,cancel=3980000,taker=5650000` (три, в любом
+/// порядке, все обязательны).
+impl std::str::FromStr for ExecLatency {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if let Ok(n) = s.parse::<i64>() {
+            return Ok(Self::uniform(n));
+        }
+        let (mut place, mut cancel, mut taker) = (None, None, None);
+        for part in s.split(',') {
+            let (k, v) = part.split_once('=').ok_or_else(|| {
+                anyhow::anyhow!("ожидалось число или place=..,cancel=..,taker=.., получено {s}")
+            })?;
+            let v: i64 = v.trim().parse().map_err(|e| anyhow::anyhow!("{k}: {e}"))?;
+            match k.trim() {
+                "place" => place = Some(v),
+                "cancel" => cancel = Some(v),
+                "taker" => taker = Some(v),
+                other => return Err(anyhow::anyhow!("неизвестный ключ задержки {other}")),
+            }
+        }
+        match (place, cancel, taker) {
+            (Some(place_ns), Some(cancel_ns), Some(taker_ns)) => Ok(Self {
+                place_ns,
+                cancel_ns,
+                taker_ns,
+            }),
+            _ => Err(anyhow::anyhow!(
+                "нужны все три: place, cancel, taker — получено {s}"
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for ExecLatency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_uniform() {
+            write!(f, "{}", self.place_ns)
+        } else {
+            write!(
+                f,
+                "place={},cancel={},taker={}",
+                self.place_ns, self.cancel_ns, self.taker_ns
+            )
+        }
+    }
+}
+
+/// Модель задержки крейта по типу запроса: снятие (`req == Canceled`) —
+/// `cancel_ns`, рыночный — `taker_ns`, остальное (лимитка) — `place_ns`.
+/// Так крейт помечает запросы сам (`proc/local.rs`: `order.req = Canceled`
+/// перед `entry`, у новых — `New` и `order_type`), это не наша разметка.
+#[derive(Debug, Clone, Copy)]
+pub struct MeasuredLatency(pub ExecLatency);
+
+impl LatencyModel for MeasuredLatency {
+    fn entry(&mut self, _timestamp: i64, order: &Order) -> i64 {
+        let rtt = if order.req == Status::Canceled {
+            self.0.cancel_ns
+        } else if order.order_type == OrdType::Market {
+            self.0.taker_ns
+        } else {
+            self.0.place_ns
+        };
+        latency_from_rtt(rtt).0
+    }
+
+    fn response(&mut self, _timestamp: i64, order: &Order) -> i64 {
+        let rtt = if order.req == Status::Canceled {
+            self.0.cancel_ns
+        } else if order.order_type == OrdType::Market {
+            self.0.taker_ns
+        } else {
+            self.0.place_ns
+        };
+        latency_from_rtt(rtt).1
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,7 +1432,7 @@ pub fn drive_bounce_windowed(
     windows: &SignalWindows,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
-    exec_rtt_ns: i64,
+    exec_latency: ExecLatency,
 ) -> Result<BounceRun, BacktestError> {
     drive_bounce_with::<Backtest<HashMapMarketDepth>, HashMapMarketDepth, _>(
         0,
@@ -1335,7 +1453,7 @@ pub fn drive_bounce_windowed(
                 &events[w.start..],
                 windows.tick_size,
                 windows.lot_size,
-                exec_rtt_ns,
+                exec_latency,
                 |bt| {
                     if bt.elapse(0)? == ElapseResult::EndOfData {
                         return Ok(SignalStep::EndOfData);
@@ -1436,11 +1554,11 @@ pub fn build_backtest(
     events: &[Event],
     tick_size: f64,
     lot_size: f64,
-    exec_rtt_ns: i64,
+    exec_latency: ExecLatency,
 ) -> Backtest<HashMapMarketDepth> {
     build_backtest_from(
         vec![DataSource::Data(Data::from_data(events))],
-        exec_rtt_ns,
+        exec_latency,
         move || HashMapMarketDepth::new(tick_size, lot_size),
     )
 }
@@ -1461,12 +1579,12 @@ pub fn with_backtest_over<R>(
     events: &[Event],
     tick_size: f64,
     lot_size: f64,
-    exec_rtt_ns: i64,
+    exec_latency: ExecLatency,
     f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
 ) -> R {
     // SAFETY: см. док выше — буфер жив до конца функции, крейт только читает.
     let data = unsafe { borrowed_data(events) };
-    let mut bt = build_backtest_from(vec![DataSource::Data(data)], exec_rtt_ns, move || {
+    let mut bt = build_backtest_from(vec![DataSource::Data(data)], exec_latency, move || {
         HashMapMarketDepth::new(tick_size, lot_size)
     });
     let out = f(&mut bt);
@@ -1635,7 +1753,7 @@ pub fn with_backtest_over_window<R>(
     rest: &[Event],
     tick_size: f64,
     lot_size: f64,
-    exec_rtt_ns: i64,
+    exec_latency: ExecLatency,
     f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
 ) -> R {
     let anchor = [Event {
@@ -1655,7 +1773,7 @@ pub fn with_backtest_over_window<R>(
         sources.push(DataSource::Data(unsafe { borrowed_data(rest) }));
     }
     let snap = depth.clone();
-    let mut bt = build_backtest_from(sources, exec_rtt_ns, move || {
+    let mut bt = build_backtest_from(sources, exec_latency, move || {
         snap.build(tick_size, lot_size)
     });
     let out = f(&mut bt);
@@ -1665,15 +1783,14 @@ pub fn with_backtest_over_window<R>(
 
 fn build_backtest_from(
     sources: Vec<DataSource<Event>>,
-    exec_rtt_ns: i64,
+    exec_latency: ExecLatency,
     depth_builder: impl Fn() -> HashMapMarketDepth + 'static,
 ) -> Backtest<HashMapMarketDepth> {
-    let (entry, response) = latency_from_rtt(exec_rtt_ns);
     Backtest::builder()
         .add_asset(
             L2AssetBuilder::default()
                 .data(sources)
-                .latency_model(ConstantLatency::new(entry, response))
+                .latency_model(MeasuredLatency(exec_latency))
                 .asset_type(LinearAsset::new(1.0))
                 .fee_model(TradingValueFeeModel::new(CommonFees::new(
                     MAKER_FEE_BPS / 10_000.0,

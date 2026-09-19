@@ -64,7 +64,7 @@ use super::{
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
-    BounceSignal, DriveConfig, SignalWindows,
+    BounceSignal, DriveConfig, ExecLatency, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -118,11 +118,12 @@ pub struct BounceGridArgs {
     /// Сутки UTC `YYYY-MM-DD` (повторяемый флаг); пусто — все сутки записи.
     #[arg(long = "day")]
     pub days: Vec<String>,
-    /// RTT исполнения, нс (В-37: `assumed` 20 мс, флаг обязателен).
+    /// Задержка исполнения, нс: одно число (В-37, `assumed`) или тройка
+    /// `place=..,cancel=..,taker=..` (В-68, измерено `lob latency`); обязателен.
     #[arg(long)]
-    pub median_rtt_ns: i64,
+    pub median_rtt_ns: ExecLatency,
     #[arg(long)]
-    pub p95_rtt_ns: i64,
+    pub p95_rtt_ns: ExecLatency,
     /// Лот в e9 — либо он, либо `--order-qty-from-pool`.
     #[arg(long)]
     pub order_qty_e9: Option<i64>,
@@ -372,7 +373,7 @@ fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
 struct DayParams<'a> {
     tick: f64,
     lot: f64,
-    rtt_ns: i64,
+    rtt_ns: ExecLatency,
     order_qty: f64,
     threads: usize,
     driver: DriverArg,
@@ -710,7 +711,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} deadlines={:?}) RTT={}нс assumed(В-37) h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} verified={}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -726,6 +727,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.min_flow_pct,
         DEADLINE_SECS,
         args.median_rtt_ns,
+        args.median_rtt_ns.provenance(),
         args.h3.h3_mode,
         match (args.order_qty_e9, args.order_qty_from_pool) {
             (Some(v), _) => format!("e9:{v}"),

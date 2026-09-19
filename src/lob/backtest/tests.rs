@@ -255,6 +255,79 @@ fn rtt_maps_wholly_onto_entry_leg() {
     assert_eq!(latency_from_rtt(-5), (0, 0));
 }
 
+/// В-68: задержка по типу запроса — снятие, рыночный, лимитка — так, как крейт
+/// сам помечает запросы (`req == Canceled`, `order_type == Market`).
+#[test]
+fn measured_latency_picks_place_cancel_taker_by_request_kind() {
+    let lat = ExecLatency {
+        place_ns: 4_200_000,
+        cancel_ns: 3_980_000,
+        taker_ns: 5_650_000,
+    };
+    let mut model = MeasuredLatency(lat);
+    let mut order = Order::new(
+        1,
+        100,
+        1.0,
+        1.0,
+        HbtSide::Buy,
+        OrdType::Limit,
+        TimeInForce::GTC,
+    );
+    order.req = Status::New;
+    assert_eq!(model.entry(0, &order), 4_200_000);
+    assert_eq!(model.response(0, &order), 0);
+    order.req = Status::Canceled;
+    assert_eq!(model.entry(0, &order), 3_980_000);
+    let mut market = Order::new(
+        2,
+        100,
+        1.0,
+        1.0,
+        HbtSide::Buy,
+        OrdType::Market,
+        TimeInForce::IOC,
+    );
+    market.req = Status::New;
+    assert_eq!(model.entry(0, &market), 5_650_000);
+    // Одно число — прежняя форма В-37: всем одинаково.
+    let mut uni = MeasuredLatency(ExecLatency::uniform(20_000_000));
+    assert_eq!(uni.entry(0, &order), 20_000_000);
+    assert_eq!(uni.entry(0, &market), 20_000_000);
+}
+
+#[test]
+fn exec_latency_parses_single_number_and_triple_and_prints_back() {
+    let uni: ExecLatency = "20000000".parse().unwrap();
+    assert_eq!(uni, ExecLatency::uniform(20_000_000));
+    assert!(uni.is_uniform());
+    assert_eq!(uni.to_string(), "20000000");
+    assert_eq!(uni.provenance(), "assumed(В-37)");
+    let tri: ExecLatency = "taker=5650000, place=4200000,cancel=3980000"
+        .parse()
+        .unwrap();
+    assert_eq!(
+        tri,
+        ExecLatency {
+            place_ns: 4_200_000,
+            cancel_ns: 3_980_000,
+            taker_ns: 5_650_000
+        }
+    );
+    assert_eq!(
+        tri.to_string(),
+        "place=4200000,cancel=3980000,taker=5650000"
+    );
+    assert_eq!(tri.provenance(), "measured(lob latency, В-68)");
+    assert_eq!(tri.to_string().parse::<ExecLatency>().unwrap(), tri);
+    assert!(
+        "place=1,cancel=2".parse::<ExecLatency>().is_err(),
+        "без taker — отказ"
+    );
+    assert!("place=1,cancel=2,taker=x".parse::<ExecLatency>().is_err());
+    assert!("foo=1,cancel=2,taker=3".parse::<ExecLatency>().is_err());
+}
+
 /// Done-condition читается в строках отчёта профиля: заполнения, обе
 /// колонки пропусков, `fill`/`net_fill`, сравнение с таблицей, G4.
 #[test]
@@ -451,7 +524,7 @@ fn driver_closes_a_maker_round_trip_on_synthetic_feed() {
         depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
         depth_at(30 * S, false, 103.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -499,9 +572,9 @@ fn shared_buffer_backtest_matches_copying_one_and_survives_threads() {
         t0_ns: S,
         sigma: SIGMA_LONG,
     }];
-    let mut copied = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut copied = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let want = drive_profile(&mut copied, 0, &signals, &drive_cfg()).unwrap();
-    let got = with_backtest_over(&feed, 1.0, 1.0, 1_000_000, |bt| {
+    let got = with_backtest_over(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000), |bt| {
         drive_profile(bt, 0, &signals, &drive_cfg()).unwrap()
     });
     assert_eq!(got.fills, want.fills, "общий буфер — те же сделки");
@@ -513,7 +586,7 @@ fn shared_buffer_backtest_matches_copying_one_and_survives_threads() {
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 scope.spawn(move || {
-                    with_backtest_over(feed_ref, 1.0, 1.0, 1_000_000, |bt| {
+                    with_backtest_over(feed_ref, 1.0, 1.0, ExecLatency::uniform(1_000_000), |bt| {
                         drive_profile(bt, 0, &signals, &drive_cfg()).unwrap().fills
                     })
                 })
@@ -539,7 +612,7 @@ fn driver_counts_an_unfilled_entry_as_timeout_miss() {
         depth_at(0, false, 101.0, 5.0),
         depth_at(15 * S, false, 102.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -573,7 +646,7 @@ fn driver_counts_a_signal_inside_position_as_busy_miss() {
         depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
         depth_at(30 * S, false, 103.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -639,7 +712,7 @@ fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
         depth_at(30 * S, true, 103.0, 5.0),
         depth_at(30 * S, false, 104.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -714,7 +787,7 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         depth_at(20 * S, true, 100.0, 5.0),
         depth_at(20 * S, false, 105.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -781,7 +854,7 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         depth_at(20 * S, true, 102.0, 5.0),
         depth_at(20 * S, false, 105.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -863,11 +936,18 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         profile: 0,
     };
     let signals = [signal(S), signal(3 * S), signal(61 * S)];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, 1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
     let full = drive_bounce(&mut hbt, 0, &signals, &drive_cfg()).unwrap();
     let windows = SignalWindows::build(&feed, &[S, 3 * S, 61 * S], 1.0, 1.0);
     assert_eq!(windows.len(), 3);
-    let win = drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), 1_000_000).unwrap();
+    let win = drive_bounce_windowed(
+        &feed,
+        &windows,
+        &signals,
+        &drive_cfg(),
+        ExecLatency::uniform(1_000_000),
+    )
+    .unwrap();
     assert_eq!(win, full, "окна обязаны дать тот же прогон, что сплошной");
     assert_eq!(full.fills.len(), 2, "{full:?}");
     assert_eq!(full.misses.busy, 1, "второй сигнал пришёл внутри круга");
@@ -950,7 +1030,7 @@ fn bench_window_fixed_cost() {
                 &feed[w.start..],
                 1.0,
                 1.0,
-                1_000_000,
+                ExecLatency::uniform(1_000_000),
                 |bt| {
                     bt.elapse(0).unwrap();
                     bt.current_timestamp()
@@ -1004,8 +1084,14 @@ fn bench_round_cost_in_a_window() {
     let t = std::time::Instant::now();
     let mut exit_ns = 0;
     for _ in 0..n {
-        let run =
-            drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), 1_000_000).unwrap();
+        let run = drive_bounce_windowed(
+            &feed,
+            &windows,
+            &signals,
+            &drive_cfg(),
+            ExecLatency::uniform(1_000_000),
+        )
+        .unwrap();
         exit_ns = run.fill_exit_ns.first().copied().unwrap_or(0);
     }
     let per = t.elapsed().as_secs_f64() * 1e6 / n as f64;
@@ -1072,8 +1158,14 @@ fn bench_dense_round_in_a_window() {
     let t = std::time::Instant::now();
     let mut exit_ns = 0;
     for _ in 0..n {
-        let run =
-            drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), 1_000_000).unwrap();
+        let run = drive_bounce_windowed(
+            &feed,
+            &windows,
+            &signals,
+            &drive_cfg(),
+            ExecLatency::uniform(1_000_000),
+        )
+        .unwrap();
         exit_ns = run.fill_exit_ns.first().copied().unwrap_or(0);
     }
     let per = t.elapsed().as_secs_f64() * 1e6 / n as f64;

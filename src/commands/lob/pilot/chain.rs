@@ -155,8 +155,8 @@ pub(super) fn run_profiles_and_backtest_chain(
             session_root: session_dir.clone(),
             symbol: symbol.clone(),
             signals_csv: Some(signals_csv),
-            median_rtt_ns,
-            p95_rtt_ns,
+            median_rtt_ns: crate::lob::backtest::ExecLatency::uniform(median_rtt_ns),
+            p95_rtt_ns: crate::lob::backtest::ExecLatency::uniform(p95_rtt_ns),
             order_qty_e9: Some(order_qty_e9),
             // Пилот считает лот сам (`order_size_22a` от последней строки
             // `levels-floor`): авторешение бэктеста здесь не нужно.

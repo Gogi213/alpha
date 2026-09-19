@@ -64,9 +64,12 @@
   детерминирован (`RecordingBackoff`), реального времени не ждёт
 - `lob profiles`/`lob backtest`/`lob shortlist` требуют RTT (`--median-rtt-ns`/
   `--p95-rtt-ns`) и лот (`--order-qty-e9`) обязательными флагами без умолчания —
-  источник: `lob probe`/`clock.csv`, не изобретать парсер по умолчанию. **До замера
-  владелец назначил 20 мс (В-37):** `--median-rtt-ns 20000000 --p95-rtt-ns 20000000`,
-  шапка артефакта обязана печатать `rtt=assumed(20ms, В-37)`
+  источник: `lob latency`, не изобретать парсер по умолчанию. **С 2026-09-19 (В-68) —
+  измеренные медианы WS trade с сервера, тройкой по типу запроса:** `--median-rtt-ns
+  place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000`
+  (постановка / снятие / рыночный; `lob::backtest::MeasuredLatency`), шапка печатает
+  `measured(lob latency, В-68)`. Одно число (`--median-rtt-ns 20000000`) — прежняя форма В-37,
+  шапка печатает `assumed(В-37)`; старые артефакты с ней не пересчитываются
 - `ready-<symbol>-<profile>.flag` — формат `key=value`, ключ `n` (был `n_c2` до сноса C1/C2
   таском 17); единственный читатель — `lob markout --confirmatory`
 - общие CLI-структуры: `commands::lob::H3Args` (`--h3-mode`, `--h3-lots`) и `ExecutionArgs`

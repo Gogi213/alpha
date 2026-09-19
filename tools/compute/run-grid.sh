@@ -25,6 +25,6 @@ exec systemd-run --unit="$UNIT" --nice=15 \
   -p StandardOutput=append:"$OUT/grid.out" -p StandardError=append:"$OUT/grid.err" \
   -- /opt/alpha-compute/bin/alpha lob bounce-grid \
     --root /opt/alpha-compute/root \
-    --median-rtt-ns 20000000 --p95-rtt-ns 20000000 \
+    --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 \
     --order-qty-from-pool --threads "${THREADS:-3}" \
     --out-dir "$OUT" "$@"

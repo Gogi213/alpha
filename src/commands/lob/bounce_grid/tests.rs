@@ -61,8 +61,8 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
     BounceGridArgs {
         root: root.to_path_buf(),
         symbols: vec!["SOLUSDT".to_string()],
-        median_rtt_ns: 20_000_000,
-        p95_rtt_ns: 20_000_000,
+        median_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
+        p95_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
         order_qty_e9: Some(100_000_000),
         order_qty_from_pool: false,
         post_only: false,

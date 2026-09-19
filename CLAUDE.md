@@ -13,7 +13,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 - `docs/plan/BUSINESS-TASK.md` — задача владельца, редакция 3; **не редактировать**
   (дополнения — `.autopilot/2026-09-11-lob-density-ed3/2026-09-11-brief.md`, «Дополнения»)
 - `docs/plan/SETTLED.md` — журнал решений В-1…В-61 (В-30 `k` выбирает пилот — для сетки снято В-61,
-  В-34 олвейс-он, В-37 RTT 20 мс assumed, В-38 точки 30 мин/1 ч/12 ч, В-39 экономия контекста,
+  В-34 олвейс-он, В-37 RTT 20 мс assumed → В-68 измерено 4.2/4.0/5.7 мс, В-38 точки 30 мин/1 ч/12 ч, В-39 экономия контекста,
   В-60 вердикт с одних суток, В-61 порог плотности деньгами/силой)
 - `docs/findings/` — боевые артефакты (запись, пилот 30 мин, коллектор, аудит); `docs/plan/runs.csv`
 - `docs/ARCHITECTURE.md` — A1–A9, обязательны; `docs/COMMANDS.md` — полная таблица команд и грабли
@@ -75,7 +75,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 865 passed, 0 failed, 8 ignored (2026-09-19, lob latency; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 867 passed, 0 failed, 8 ignored (2026-09-19, В-68; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 25 подкоманд, таблица — docs/COMMANDS.md
@@ -154,8 +154,9 @@ src/
 `seams=<n>` в строке вердикта.
 `lob levels`/`markout`/`touches`/`watch` → CSV на инструмент (`touches` — касания живых уровней,
 markout от среза как есть на `start_ms` со знаком «в сторону отскока», T35/В-43). `lob profiles`/`backtest`/`shortlist` →
-`docs/findings/*-<дата>.*` (RTT и лот — обязательные флаги; В-37: `--median-rtt-ns 20000000
---p95-rtt-ns 20000000`, шапка `rtt=assumed(20ms, В-37)`). `lob pilot` → `k`-сетка, G0,
+`docs/findings/*-<дата>.*` (RTT и лот — обязательные флаги; **В-68, измерено 19.09:** `--median-rtt-ns
+place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000` — постановка/снятие/рыночный по типу запроса,
+шапка `measured(lob latency, В-68)`; одно число — прежняя форма В-37, `assumed`). `lob pilot` → `k`-сетка, G0,
 G-POWER-B, строки `runs.csv`. `lob react` → G-LAT. `lob probe` — **реальные ордера**.
 `lob backtest --touches` (T38, В-44) → `docs/findings/bounce-backtest-<дата>[-<SYM>].csv`: сделка-отскок
 из касаний (В-65: вход от первого фронтранера, иначе `P±1` тик; стоп по форме базы `--stop-form` — перед/в/за плотностью,
@@ -200,7 +201,7 @@ PBO/CPCV по матрице форма × сутки, `DSR` по числу **�
 T38), число испытаний (`(26 + 6) × (инструментов + 1)`) — строками `runs.csv`; `--root` — корень сессий
 или сам каталог сессии.
 
-**2026-09-19, день — `lob latency` (владелец: «измерить RTT, скорость постановки лимитки, снятия, исполнения тейкера — на 10 баксов всё»):** команда готова (`bybit::latency` — ядро на фейках, 16 тестов; `commands/lob/latency.rs` — REST/WS trade/приватный стрим живьём), ступени `rest_time`, `ws_ping`, `place_ack`/`place_new`, `cancel_ack`/`cancel_done`, `taker_ack`/`taker_exec`/`taker_filled` × `via` `rest`/`ws`; размер — по номиналу и фильтрам инструмента; `flatten` (cancel-all + reduceOnly) после ошибки тейкера и в конце. Ключи — только окружение (`BYBIT_API_KEY`/`BYBIT_API_SECRET`, ранбук «куда класть ключи» в `docs/COMMANDS.md`); **измерено с сервера `139.99.91.22`** (`latency-2026-09-19.md`, 100 циклов DOGE): сеть по сокету 2.7 мс, постановка по WS trade **4.2 / p95 4.8 мс**, снятие 4.0, тейкер: ответ 4.1, исполнение подтверждено стримом **5.7 / 6.4**; REST на ~2 мс медленнее и хвосты втрое хуже; В-37 (20 мс assumed) консервативнее измерения в ~4 раза — заменять флаги на измеренные решает владелец. Бинарник на сервере `/opt/alpha/alpha-latency-6676045`; ключи на диск сервера не писались (окружение процесса на время прогона).
+**2026-09-19, день — `lob latency` (владелец: «измерить RTT, скорость постановки лимитки, снятия, исполнения тейкера — на 10 баксов всё»):** команда готова (`bybit::latency` — ядро на фейках, 16 тестов; `commands/lob/latency.rs` — REST/WS trade/приватный стрим живьём), ступени `rest_time`, `ws_ping`, `place_ack`/`place_new`, `cancel_ack`/`cancel_done`, `taker_ack`/`taker_exec`/`taker_filled` × `via` `rest`/`ws`; размер — по номиналу и фильтрам инструмента; `flatten` (cancel-all + reduceOnly) после ошибки тейкера и в конце. Ключи — только окружение (`BYBIT_API_KEY`/`BYBIT_API_SECRET`, ранбук «куда класть ключи» в `docs/COMMANDS.md`); **измерено с сервера `139.99.91.22`** (`latency-2026-09-19.md`, 100 циклов DOGE): сеть по сокету 2.7 мс, постановка по WS trade **4.2 / p95 4.8 мс**, снятие 4.0, тейкер: ответ 4.1, исполнение подтверждено стримом **5.7 / 6.4**; REST на ~2 мс медленнее и хвосты втрое хуже; **В-68 (владелец: «median значения постановки, снятия и тейкера воткнём в бектестинг»):** крейт получает задержку по типу запроса (`MeasuredLatency`), стандартные флаги теперь `--median-rtt-ns place=4200000,cancel=3980000,taker=5650000`, p95 — `place=4790000,cancel=4550000,taker=6420000`; `run-grid.sh` в репо обновлён, **на счётной машине нужен новый бинарник и скрипт** перед следующей сеткой. Бинарник на сервере `/opt/alpha/alpha-latency-6676045`; ключи на диск сервера не писались (окружение процесса на время прогона).
 
 Состояние (2026-09-19, ночь — см. также память `alpha-state-2026-09-19`): **первая сетка базы на полах владельца
 посчитана** — `docs/findings/base65-2026-09-19.md`: оба вердикта «мало данных» (лучшая `pct1-1to1-3600`, 51 круг, +1.26 bps на

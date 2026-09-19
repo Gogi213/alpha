@@ -28,8 +28,8 @@ use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
     build_backtest, build_profile_report, drive_bounce, drive_profile, mean_net_bps, pnl_curve_bps,
-    roundtrip_net_bps, BacktestReport, BounceRun, BounceSignal, DriveConfig, Signal, TableEstimate,
-    SIGMA_LONG, SIGMA_SHORT,
+    roundtrip_net_bps, BacktestReport, BounceRun, BounceSignal, DriveConfig, ExecLatency, Signal,
+    TableEstimate, SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
 use crate::lob::levels::{LevelRecord, LevelsConfig, TouchRecord};
@@ -68,14 +68,14 @@ pub struct BacktestArgs {
     /// `profile_id` — один профиль. Не нужен с `--touches`.
     #[arg(long)]
     pub signals_csv: Option<PathBuf>,
-    /// Медианная замеренная RTT исполнения, нс (D-RTT: источник — `lob
-    /// probe`/`clock.csv`/`probe-*.csv`). Без умолчания: изобретённое число
-    /// запрещено (§9 плана).
+    /// Задержка исполнения, нс: одно число на всё (В-37, `assumed`) или
+    /// измеренная тройка `place=<нс>,cancel=<нс>,taker=<нс>` (В-68, `lob
+    /// latency`). Без умолчания: изобретённое число запрещено (§9 плана).
     #[arg(long)]
-    pub median_rtt_ns: i64,
-    /// 95-й перцентиль той же замеренной RTT.
+    pub median_rtt_ns: ExecLatency,
+    /// 95-й перцентиль той же задержки, та же форма.
     #[arg(long)]
-    pub p95_rtt_ns: i64,
+    pub p95_rtt_ns: ExecLatency,
     /// Размер круга в 1e-9 лотов — минимальный лот площадки (Decision 22:
     /// `order_size_22a` из `instruments.csv`, не шаг книги). Без умолчания
     /// нарочно: шаг книги (`step_e9` бинлога) — другая величина, и молчаливо
@@ -372,14 +372,14 @@ fn level_key(symbol: &str, rec: &LevelRecord) -> LevelKey {
 /// потребителя (`p95_rtt_ns()`) — сегодня решение `filled()` не меняет.
 #[derive(Debug)]
 pub struct BacktestFillModel {
-    median_rtt_ns: i64,
-    p95_rtt_ns: i64,
+    median_rtt_ns: ExecLatency,
+    p95_rtt_ns: ExecLatency,
     order_qty_e9: i64,
     cache: RefCell<BTreeMap<LevelKey, bool>>,
 }
 
 impl BacktestFillModel {
-    pub fn new(median_rtt_ns: i64, p95_rtt_ns: i64, order_qty_e9: i64) -> Self {
+    pub fn new(median_rtt_ns: ExecLatency, p95_rtt_ns: ExecLatency, order_qty_e9: i64) -> Self {
         Self {
             median_rtt_ns,
             p95_rtt_ns,
@@ -389,7 +389,7 @@ impl BacktestFillModel {
     }
 
     /// 95-й перцентиль RTT, задан вместе с медианной (см. doc структуры).
-    pub fn p95_rtt_ns(&self) -> i64 {
+    pub fn p95_rtt_ns(&self) -> ExecLatency {
         self.p95_rtt_ns
     }
 
@@ -1596,10 +1596,11 @@ fn run_bounce(
     }
 
     let header = format!(
-        "# lob backtest --touches: {} {} RTT={}нс assumed(В-37), сделка-отскок В-44/В-65 (вход от первого фронтранера, иначе за тик; стоп {}, тейк {}, пол σ-тейка {:?} кругов комиссий, σ_H — за окно дедлайна; дедлайн {} мс из сетки В-58, досрочный выход {}), порог H3={} лотов, касаний {} (форма не построилась у {skipped}), бинлогов {}",
+        "# lob backtest --touches: {} {} RTT={}нс {}, сделка-отскок В-44/В-65 (вход от первого фронтранера, иначе за тик; стоп {}, тейк {}, пол σ-тейка {:?} кругов комиссий, σ_H — за окно дедлайна; дедлайн {} мс из сетки В-58, досрочный выход {}), порог H3={} лотов, касаний {} (форма не построилась у {skipped}), бинлогов {}",
         args.symbol,
         args.session_root.display(),
         args.median_rtt_ns,
+        args.median_rtt_ns.provenance(),
         form.stop.label(),
         form.take.label(),
         form.take_floor_fees,

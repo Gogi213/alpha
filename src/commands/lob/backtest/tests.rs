@@ -118,7 +118,11 @@ fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
     ];
     let records = [ask_level(100, 1000), ask_level(200, 20_000)];
 
-    let model = BacktestFillModel::new(1_000_000, 2_000_000, 100_000_000);
+    let model = BacktestFillModel::new(
+        ExecLatency::uniform(1_000_000),
+        ExecLatency::uniform(2_000_000),
+        100_000_000,
+    );
     model.prime_from_events("SOLUSDT", &feed, 1.0, 1.0, &records);
 
     assert_eq!(
@@ -137,7 +141,7 @@ fn backtest_fill_model_matches_known_executions_on_a_synthetic_feed() {
     // Тот же уровень другого символа — отдельный ключ, не измерен.
     assert_eq!(model.filled("ETHUSDT", &records[0], &[]), None);
     assert_eq!(model.label(), "backtest");
-    assert_eq!(model.p95_rtt_ns(), 2_000_000);
+    assert_eq!(model.p95_rtt_ns(), ExecLatency::uniform(2_000_000));
 }
 
 /// Снапшот, потерявший уровень против предыдущего снапшота, обязан
@@ -846,8 +850,8 @@ fn minimal_backtest_args() -> BacktestArgs {
         session_root: std::path::PathBuf::from("data/session"),
         symbol: "SOLUSDT".to_string(),
         signals_csv: None,
-        median_rtt_ns: 20_000_000,
-        p95_rtt_ns: 20_000_000,
+        median_rtt_ns: ExecLatency::uniform(20_000_000),
+        p95_rtt_ns: ExecLatency::uniform(20_000_000),
         order_qty_e9: Some(1),
         order_qty_from_pool: false,
         profiles_csv: None,
