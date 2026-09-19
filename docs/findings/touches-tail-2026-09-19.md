@@ -92,5 +92,5 @@ let arrives = best && !lv.was_best && lv.birth_ms < ts_ms;
 - `study/touches6/*.log` (касания и `touches=`, floor k = 1.0, 2 суток), `study/touches6/touches-<SYM>.csv`;
 - `study/levels-v66/levels-<SYM>.csv` + `*.log` (уровни, 2 суток);
 - `b5/v68lat-base-any/grid.err` (строки пропуска);
-- контрольный прогон 19.09 на счётной машине: `/tmp/verify-CAPUSDT.csv`, `/tmp/verify-AXLUSDT.csv`,
-  `/tmp/verify-STORJUSDT.csv` (`lob touches --h3-mode notional --h3-usd 10000`, 3 суток).
+- контрольный прогон 19.09 на счётной машине: `study/touches-verify/verify-{CAP,AXL,STORJ}USDT.csv`
+  (`lob touches --h3-mode notional --h3-usd 10000`, 3 суток).
