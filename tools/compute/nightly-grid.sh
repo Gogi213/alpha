@@ -218,6 +218,8 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # (a45: q25 60 / q50 75; s100: q50 20 / q75 39), 6 наборов = 192 испытания.
   # S5: режим и растяжка по стороне — квартили по 16–18.09 (pool_ret_4h q25 −1.1 / q50 46.1 / q75 95.3;
   # btc_ret_4h q50 21.9; ret_1h касаний аск-стен a45 q75 66.4), 9 наборов = 288 испытаний; режим — study/regime.
+  # S8 (20.09, «развивать отскоки»): возраст 90/120 мин, вход только от фронтрана, размер стены ≥ $25k/$50k — лонги;
+  # 5 наборов = 160 испытаний.
   run_sets a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
            a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask \
            a15-s10-bid:age=900,flow=10,side=bid a15-s10-ask:age=900,flow=10,side=ask \
@@ -229,7 +231,9 @@ if [ -z "$TOUCHES_ONLY" ]; then
            a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 a45-bid-b4h-q50:age=2700,side=bid,btc4h_min=21.9 \
            a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0 a45-ask-p4h-q25:age=2700,side=ask,pool4h_max=-1.1 \
            a45-ask-p4h-q50:age=2700,side=ask,pool4h_max=46.1 a45-ask-r1h-q75:age=2700,side=ask,ret1h_min=66.4 \
-           a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4
+           a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4 \
+           a90-bid:age=5400,side=bid a120-bid:age=7200,side=bid a45-bid-fr:age=2700,side=bid,frontrun \
+           a45-bid-u25:age=2700,side=bid,usd_min=25000 a45-bid-u50:age=2700,side=bid,usd_min=50000
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
