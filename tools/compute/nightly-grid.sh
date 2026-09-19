@@ -41,8 +41,7 @@ run_one() {
   fi
   echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
 }
-echo "== $(date -u +%FT%TZ) nightly start; days in root: $(ls root/*.binlog | sed -E 's/.*-(2026-[0-9]{2}-[0-9]{2}).*//' | sort -u | tr '
-' ' ')" >> "$LOG"
+echo "== $(date -u +%FT%TZ) nightly start; days in root: $(ls root/*.binlog | sed -E 's/.*-(2026-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u | tr '\n' ' ')" >> "$LOG"
 run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE
 run_one a30-any       $USD --min-age-secs 1800 $BASE
 run_one a45-any       $USD --min-age-secs 2700 $BASE
