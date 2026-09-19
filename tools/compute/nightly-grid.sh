@@ -10,6 +10,12 @@
 # каждой сутке отдельно — до сеток, чтобы утром матрица была даже если сетки не дойдут),
 # b5/nightly-<день>-<метка>/, вердикты study/bounce-verdict-nightly-<день>-<метка>.csv,
 # лог study/nightly-<день>.log. Если сетка предыдущей ночи ещё идёт — выход без запуска.
+#
+# H3b (19.09, ревью §0): сутки с ошибкой пересчитываются не бесконечно — причина пишется в лог,
+# после второй ночи сутки закрываются `.done` (список ошибок — failed-history.txt); архивные сутки
+# `*.binlog.zst` читаются тем же `Reader` (проверено: ACE 09-16 → `days=1 touches=1`); шапка
+# study/floors-<сутки>.txt несёт оговорку, что трекер суточный (возраст плотности обнуляется в 00:00);
+# окно суток для сеток — DAYS_WINDOW (по умолчанию все сутки корня), касания окна не касается.
 set -uo pipefail
 cd /opt/alpha-compute || exit 1
 export PATH=/root/.cargo/bin:$PATH
@@ -17,6 +23,14 @@ DAY=$(date -u +%F)
 LOG=study/nightly-$DAY.log
 BIN=/opt/alpha-compute/bin/alpha
 RUNS=study/runs-2026-09-19.csv
+# Окно суток для сеток: пусто — все сутки корня (как было); DAYS_WINDOW=4 — последние четыре.
+# Нужно потому, что сетки идут по всем суткам и ночь растёт вместе с историей (H3b/§4.3).
+DAYS_WINDOW="${DAYS_WINDOW:-}"
+DAYS_ALL=$(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u)
+DAY_ARGS=""
+if [ -n "$DAYS_WINDOW" ]; then
+  for d in $(echo "$DAYS_ALL" | tail -n "$DAYS_WINDOW"); do DAY_ARGS="$DAY_ARGS --day $d"; done
+fi
 if systemctl list-units "alpha-grid-*" --no-legend | grep -q running; then
   echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен" >> "$LOG"; exit 0
 fi
@@ -68,31 +82,49 @@ touches_for_day() {
   local out="study/touches/$day"
   [ -f "$out/.done" ] && return 0
   mkdir -p "$out"
+  local attempt; attempt=$(( $(cat "$out/.attempts" 2>/dev/null || echo 0) + 1 )); echo "$attempt" > "$out/.attempts"
   day_root "$day"
   ls "study/root-$day"/verify-*.status | while read -r f; do
     [ "$(cat "$f")" = "ok" ] || continue
     local s; s=$(basename "$f" .status); echo "${s#verify-}"
   done > "$out/symbols.txt"
   local n; n=$(wc -l < "$out/symbols.txt")
-  echo "== $(date -u +%FT%TZ) touches $day start: монет с маркером ok $n" >> "$LOG"
-  xargs -P 3 -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
-    "$BIN lob touches --root 'study/root-$day' --symbol {} $USD --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo 'FAILED {}' >> '$out/failed.txt'"
+  echo "== $(date -u +%FT%TZ) touches $day start (попытка $attempt): монет с маркером ok $n" >> "$LOG"
+  rm -f "$out/failed.txt"
+  xargs -r -P 3 -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
+    "$BIN lob touches --root 'study/root-$day' --symbol {} $USD --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo {} >> '$out/failed.txt'"
   local files failed
   files=$(ls "$out"/touches-*.csv 2>/dev/null | wc -l)
   failed=$([ -f "$out/failed.txt" ] && wc -l < "$out/failed.txt" || echo 0)
   echo "== $(date -u +%FT%TZ) touches $day done: файлов $files, ошибок $failed" >> "$LOG"
-  if [ "$files" -ge "$n" ] && [ "$failed" -eq 0 ]; then touch "$out/.done"; fi
-  python3 bin/floors-balance.py "$out" > "study/floors-$day.txt" 2>&1
+  if [ "$failed" -gt 0 ]; then
+    { echo "-- попытка $attempt $(date -u +%FT%TZ)"; cat "$out/failed.txt"; } >> "$out/failed-history.txt"
+    while read -r sym; do
+      echo "   $sym: $(tail -2 "$out/$sym.log" 2>/dev/null | tr '\n' ' ' | cut -c1-200)" >> "$LOG"
+    done < "$out/failed.txt"
+  fi
+  if [ "$files" -ge "$n" ] && [ "$failed" -eq 0 ]; then
+    touch "$out/.done"
+  elif [ "$failed" -gt 0 ] && [ "$attempt" -ge 2 ]; then
+    touch "$out/.done"
+    echo "== $(date -u +%FT%TZ) touches $day: две ночи с ошибками — сутки закрыты .done, пересчёт остановлен (failed-history.txt)" >> "$LOG"
+  fi
+  {
+    echo "# трекер: notional \$10k (--h3-usd 10000), сутки одни ($day)"
+    echo "# возраст плотности обнуляется в 00:00: трекер уровней чистый на каждые сутки (ревью §0.7),"
+    echo "# поэтому первый час суток недосчитывает стены, поставленные вчера, — для оси возраста это систематика"
+    python3 bin/floors-balance.py "$out"
+  } > "study/floors-$day.txt" 2>&1
   echo "== $(date -u +%FT%TZ) floors-balance $day → study/floors-$day.txt ($(wc -l < "study/floors-$day.txt") строк)" >> "$LOG"
 }
-echo "== $(date -u +%FT%TZ) nightly start; days in root: $(ls root/*.binlog | sed -E 's/.*-(2026-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u | tr '\n' ' ')" >> "$LOG"
-for d in $(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u); do
+echo "== $(date -u +%FT%TZ) nightly start; days in root: $(echo "$DAYS_ALL" | tr '\n' ' '); окно сеток: ${DAYS_WINDOW:-все сутки}; days-args:${DAY_ARGS:- нет}" >> "$LOG"
+for d in $DAYS_ALL; do
   touches_for_day "$d"
 done
-run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE
-run_one a30-any       $USD --min-age-secs 1800 $BASE
-run_one a45-any       $USD --min-age-secs 2700 $BASE
-run_one a60-any       $USD --min-age-secs 3600 $BASE
-run_one s100-any      $USD --min-flow-pct 100 $BASE
-run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7
+run_one a15-s10-any   $USD --min-age-secs 900  --min-flow-pct 10 $BASE $DAY_ARGS
+run_one a30-any       $USD --min-age-secs 1800 $BASE $DAY_ARGS
+run_one a45-any       $USD --min-age-secs 2700 $BASE $DAY_ARGS
+run_one a60-any       $USD --min-age-secs 3600 $BASE $DAY_ARGS
+run_one s100-any      $USD --min-flow-pct 100 $BASE $DAY_ARGS
+run_one e7-a15-s10-any $USD --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 echo "== $(date -u +%FT%TZ) nightly done" >> "$LOG"

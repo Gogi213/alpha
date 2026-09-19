@@ -34,6 +34,11 @@ def load(d):
 
 def main():
     rows = load(sys.argv[1])
+    if not rows:
+        # Пустой каталог (нет `touches-*.csv` или все пустые) — матрица не считается: без этой
+        # ветки деление на нуль суток роняет скрипт трейсбеком в study/floors-<сутки>.txt.
+        print("touches: строк нет — матрица не считается")
+        return 0
     days = len(set(r[1] for r in rows))
     print(f"touches {len(rows)} days {days} coins {len(set(r[0] for r in rows))}")
     print("cell = touches/day | mean m_1h bps | (m_1h-4.41)*touches/day  (ожидаемый ход в день, грубо)")
