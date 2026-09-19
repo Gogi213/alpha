@@ -75,6 +75,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         min_flow_pct: None,
         side: None,
         touches_from: None,
+        sets: Vec::new(),
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -423,4 +424,99 @@ fn event_count_sidecar_is_written_read_and_self_healing() {
     assert_eq!(healed, text, "сайдкар переписан честным счётом");
     // Файл части не найден резолвером как бинлог: сессия по-прежнему одна часть.
     assert_eq!(third.symbol_days, 1);
+}
+
+/// Наборы фильтров одним процессом (`--set`): артефакты набора байт в байт те
+/// же, что у отдельной сетки с теми же флагами (окна и события суток общие,
+/// фильтры только выбирают сигналы); без `--set` — прежние пути и байты.
+/// Набор `bid` на фикстуре (три касания бида) равен сетке без фильтров, набор
+/// `ask` пуст; флаги фильтров вместе с `--set` — отказ, кривой набор — отказ.
+#[test]
+fn filter_sets_match_separate_grids_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let plain = run_bounce_grid(&args(dir.path(), false)).unwrap();
+    assert_eq!(plain.sets.len(), 1);
+    assert_eq!(plain.sets[0].name, "");
+    assert_eq!(plain.sets[0].forms_path, plain.forms_path);
+
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-sets");
+    a.sets = vec![
+        "all:".to_string(),
+        "bid:side=bid".to_string(),
+        "ask:side=ask,age=0".to_string(),
+    ];
+    let multi = run_bounce_grid(&a).unwrap();
+    assert_eq!(multi.sets.len(), 3);
+    assert_eq!(
+        multi.rounds,
+        plain.rounds * 2,
+        "all и bid дают одни круги, ask — ноль"
+    );
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let by_name = |n: &str| multi.sets.iter().find(|s| s.name == n).unwrap().clone();
+    assert_eq!(
+        by_name("all").rounds_path,
+        dir.path().join("grid-sets").join("all").join("rounds.csv")
+    );
+    assert_eq!(body(&by_name("all").rounds_path), body(&plain.rounds_path));
+    assert_eq!(body(&by_name("all").forms_path), body(&plain.forms_path));
+    assert_eq!(body(&by_name("bid").rounds_path), body(&plain.rounds_path));
+    assert_eq!(body(&by_name("bid").forms_path), body(&plain.forms_path));
+    let (fh, ask_forms) = read_csv(&by_name("ask").forms_path);
+    assert_eq!(ask_forms.len(), 8);
+    for r in &ask_forms {
+        assert_eq!(col(&fh, r, "n_signals"), "0");
+        assert_eq!(col(&fh, r, "n_skipped"), "3");
+    }
+    let head = std::fs::read_to_string(&by_name("ask").forms_path).unwrap();
+    assert!(
+        head.contains(" side=ask ") && head.contains(" set=ask"),
+        "{head}"
+    );
+    assert!(dir.path().join("grid-sets").join("manifest.txt").exists());
+    assert!(dir
+        .path()
+        .join("grid-sets")
+        .join("bid")
+        .join("manifest.txt")
+        .exists());
+
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-bad");
+    a.sets = vec!["x:side=bid".to_string()];
+    a.side = Some(SideArg::Ask);
+    assert!(
+        run_bounce_grid(&a).is_err(),
+        "флаг фильтра вместе с --set — отказ"
+    );
+    for bad in [
+        "nocolon",
+        "a b:",
+        "x:side=up",
+        "x:age=1,age=2",
+        "x:zzz=1",
+        "..:",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+    let ok = FilterSet::parse("a15-s10:age=900,flow=10,frontrun").unwrap();
+    assert_eq!(
+        ok,
+        FilterSet {
+            name: "a15-s10".to_string(),
+            frontrun_only: true,
+            min_age_secs: Some(900),
+            min_flow_pct: Some(10.0),
+            side: None,
+        }
+    );
 }

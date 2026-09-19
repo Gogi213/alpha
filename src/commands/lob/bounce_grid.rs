@@ -51,6 +51,16 @@
 //! гейт «те же `rounds.csv`/`forms.csv`» на монетах — `docs/COMMANDS.md`).
 //! σ-формы (`s<a>`/`t<b>`) из кэша не считаются: `σ` в CSV — суточный ряд с
 //! шестью знаками, а не ряд всей записи.
+//!
+//! Несколько семей флоров одним процессом — `--set <имя>:<фильтры>` (20.09):
+//! события суток декодируются и окна `SignalWindows` строятся **один раз**,
+//! дальше формы гонятся для каждого набора фильтров касаний (возраст, сила,
+//! сторона, фронтран) над теми же событиями; артефакты — `<out-dir>/<имя>/`
+//! (тот же `rounds.csv`/`forms.csv`/`manifest.txt`, вердикт читает
+//! подкаталог). Без `--set` — один набор из флагов командной строки в
+//! `<out-dir>`, байт в байт как раньше; с `--set` флаги фильтров у команды
+//! запрещены (набор — единственный источник). Ночь из девяти сеток базы
+//! стоила девять декодов тех же суток на монету.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -243,6 +253,15 @@ pub struct BounceGridArgs {
     /// суток корня, идёт реплеем (со счётчиком и строкой в stderr).
     #[arg(long)]
     pub touches_from: Option<PathBuf>,
+    /// Набор фильтров касаний одним процессом (повторяемый): `<имя>:<k=v,…>`,
+    /// ключи `age=<с>` (возраст ≥, как `--min-age-secs`), `flow=<%>` (сила
+    /// ×поток ≥, как `--min-flow-pct`), `side=bid|ask`, `frontrun` (только
+    /// от фронтрана); пустой список ключей — без фильтров (`name:`). Артефакты
+    /// набора — `<out-dir>/<имя>/`; имя — буквы, цифры, `.`, `_`, `-`. С
+    /// `--set` флаги `--min-age-secs/--min-flow-pct/--side/--frontrun-only`
+    /// у команды — отказ.
+    #[arg(long = "set")]
+    pub sets: Vec<String>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -319,8 +338,107 @@ pub struct BounceGridSummary {
     pub symbols_from_cache: usize,
     pub symbol_days: usize,
     pub rounds: u64,
+    /// Пути первого (или единственного) набора — как раньше.
     pub rounds_path: PathBuf,
     pub forms_path: PathBuf,
+    /// Пути каждого набора `--set` (имя, `rounds.csv`, `forms.csv`); без
+    /// `--set` — один элемент с пустым именем.
+    pub sets: Vec<SetPaths>,
+}
+
+/// Артефакты одного набора фильтров.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SetPaths {
+    pub name: String,
+    pub rounds_path: PathBuf,
+    pub forms_path: PathBuf,
+}
+
+/// Набор фильтров касаний одной сетки (`--set`, либо флаги команды).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterSet {
+    /// Имя подкаталога; пустое — артефакты в `<out-dir>` (без `--set`).
+    pub name: String,
+    pub frontrun_only: bool,
+    pub min_age_secs: Option<i64>,
+    pub min_flow_pct: Option<f64>,
+    pub side: Option<SideArg>,
+}
+
+impl FilterSet {
+    fn from_args(args: &BounceGridArgs) -> Self {
+        Self {
+            name: String::new(),
+            frontrun_only: args.frontrun_only,
+            min_age_secs: args.min_age_secs,
+            min_flow_pct: args.min_flow_pct,
+            side: args.side,
+        }
+    }
+
+    /// `<имя>:<k=v,…>` — см. `BounceGridArgs::sets`. Повтор ключа и чужой
+    /// ключ — отказ: набор пишется один раз и читается людьми.
+    pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        let (name, rest) = spec
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: ожидается <имя>:<k=v,…>"))?;
+        anyhow::ensure!(
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+                && name != "."
+                && name != "..",
+            "--set {spec:?}: имя набора — буквы, цифры, `.`, `_`, `-`"
+        );
+        let mut set = Self {
+            name: name.to_string(),
+            frontrun_only: false,
+            min_age_secs: None,
+            min_flow_pct: None,
+            side: None,
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for kv in rest.split(',').filter(|s| !s.is_empty()) {
+            let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
+            anyhow::ensure!(
+                seen.insert(k.to_string()),
+                "--set {spec:?}: ключ {k} повторяется"
+            );
+            match k {
+                "age" => {
+                    set.min_age_secs = Some(
+                        v.parse()
+                            .map_err(|e| anyhow::anyhow!("--set {spec:?}: age={v:?}: {e}"))?,
+                    );
+                }
+                "flow" => {
+                    set.min_flow_pct = Some(
+                        v.parse()
+                            .map_err(|e| anyhow::anyhow!("--set {spec:?}: flow={v:?}: {e}"))?,
+                    );
+                }
+                "side" => {
+                    set.side = Some(match v {
+                        "bid" => SideArg::Bid,
+                        "ask" => SideArg::Ask,
+                        _ => anyhow::bail!("--set {spec:?}: side={v:?}, ожидается bid|ask"),
+                    });
+                }
+                "frontrun" => {
+                    anyhow::ensure!(
+                        v.is_empty() || v == "1" || v == "true",
+                        "--set {spec:?}: frontrun без значения (или =1)"
+                    );
+                    set.frontrun_only = true;
+                }
+                _ => {
+                    anyhow::bail!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun)")
+                }
+            }
+        }
+        Ok(set)
+    }
 }
 
 /// Результат одной формы на одних сутках одного символа.
@@ -568,7 +686,6 @@ struct DayParams<'a> {
     rtt_ns: ExecLatency,
     order_qty: f64,
     threads: usize,
-    driver: DriverArg,
     post_only: bool,
     /// E3: входить только от фронтрана (`--frontrun-only`).
     frontrun_only: bool,
@@ -604,30 +721,12 @@ struct FormOrder<'a> {
 /// (`FormOrder`). Возвращает число форм, отданных в `sink`.
 fn drive_day(
     events: &[HbtEvent],
+    windows: Option<&SignalWindows>,
     touches: &[TouchRecord],
     forms: &[GridForm],
     p: DayParams<'_>,
     sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
 ) -> anyhow::Result<usize> {
-    let windows = match p.driver {
-        DriverArg::Full => None,
-        DriverArg::Setups => {
-            let t0s: Vec<i64> = touches
-                .iter()
-                .map(|t| t.start_ms.saturating_mul(1_000_000))
-                .collect();
-            let started = Instant::now();
-            let w = SignalWindows::build(events, &t0s, p.tick, p.lot);
-            eprintln!(
-                "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
-                w.len(),
-                w.levels_total(),
-                w.levels_total() as f64 / w.len().max(1) as f64,
-                started.elapsed().as_secs_f64()
-            );
-            Some(w)
-        }
-    };
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
     let order = Mutex::new(FormOrder {
@@ -652,7 +751,7 @@ fn drive_day(
                 };
                 let step =
                     signals_for(touches, p.sigma, &forms[i], &p).and_then(|(signals, skipped)| {
-                        let driven = match &windows {
+                        let driven = match windows {
                             Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
                             None => with_backtest_over(events, p.tick, p.lot, p.rtt_ns, |bt| {
                                 drive_bounce(bt, 0, &signals, &cfg)
@@ -708,6 +807,37 @@ fn drive_day(
         o.pending.len()
     );
     Ok(o.done)
+}
+
+/// Окна сетапов суток (`--driver setups`): снимок книги на каждый `t0`
+/// касания — один раз на сутки, общий для всех форм **и наборов** (`--set`):
+/// касания те же, фильтры наборов только выбирают из них сигналы.
+fn day_windows(
+    events: &[HbtEvent],
+    touches: &[TouchRecord],
+    driver: DriverArg,
+    tick: f64,
+    lot: f64,
+) -> Option<SignalWindows> {
+    match driver {
+        DriverArg::Full => None,
+        DriverArg::Setups => {
+            let t0s: Vec<i64> = touches
+                .iter()
+                .map(|t| t.start_ms.saturating_mul(1_000_000))
+                .collect();
+            let started = Instant::now();
+            let w = SignalWindows::build(events, &t0s, tick, lot);
+            eprintln!(
+                "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
+                w.len(),
+                w.levels_total(),
+                w.levels_total() as f64 / w.len().max(1) as f64,
+                started.elapsed().as_secs_f64()
+            );
+            Some(w)
+        }
+    }
 }
 
 struct Outputs {
@@ -911,14 +1041,38 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             "--touches-from: прогрев и окно повтора трекера — умолчания, как у ночного `lob touches`"
         );
     }
+    let sets: Vec<FilterSet> = if args.sets.is_empty() {
+        vec![FilterSet::from_args(args)]
+    } else {
+        anyhow::ensure!(
+            !args.frontrun_only
+                && args.min_age_secs.is_none()
+                && args.min_flow_pct.is_none()
+                && args.side.is_none(),
+            "--set задан: фильтры касаний только в наборах, флаги --min-age-secs/--min-flow-pct/--side/--frontrun-only у команды — отказ"
+        );
+        let parsed = args
+            .sets
+            .iter()
+            .map(|s| FilterSet::parse(s))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let names: std::collections::BTreeSet<&str> =
+            parsed.iter().map(|s| s.name.as_str()).collect();
+        anyhow::ensure!(
+            names.len() == parsed.len(),
+            "--set: имена наборов повторяются"
+        );
+        parsed
+    };
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
         args.symbols.clone()
     };
 
-    let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}",
+    let header_for = |set: &FilterSet| {
+        format!(
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -929,10 +1083,10 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.stop_form,
         args.take_form,
         args.take_floor_fees,
-        args.frontrun_only,
-        args.min_age_secs,
-        args.min_flow_pct,
-        args.side.map_or("both", SideArg::label),
+        set.frontrun_only,
+        set.min_age_secs,
+        set.min_flow_pct,
+        set.side.map_or("both", SideArg::label),
         DEADLINE_SECS,
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
@@ -950,11 +1104,24 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             "allow-unverified(debug)"
         } else {
             "marker-required"
+        },
+        if set.name.is_empty() {
+            String::new()
+        } else {
+            format!(" set={}", set.name)
         }
-    );
-    let mut out = Outputs::create(&args.out_dir, &header)?;
-    {
-        let mut m = std::fs::File::create(args.out_dir.join("manifest.txt"))?;
+    )
+    };
+    let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
+    for set in &sets {
+        let dir = if set.name.is_empty() {
+            args.out_dir.clone()
+        } else {
+            args.out_dir.join(&set.name)
+        };
+        let header = header_for(set);
+        outs.push(Outputs::create(&dir, &header)?);
+        let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
         writeln!(m, "symbols={}", symbols.join(","))?;
         writeln!(
@@ -963,11 +1130,34 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             forms.iter().map(|f| f.label).collect::<Vec<_>>().join(",")
         )?;
     }
+    if !args.sets.is_empty() {
+        let mut m = std::fs::File::create(args.out_dir.join("manifest.txt"))?;
+        writeln!(
+            m,
+            "# lob bounce-grid: sets={} (артефакты по подкаталогам)",
+            sets.iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        )?;
+        for spec in &args.sets {
+            writeln!(m, "set={spec}")?;
+        }
+    }
 
     let mut summary = BounceGridSummary {
         forms: forms.len(),
-        rounds_path: out.rounds_path.clone(),
-        forms_path: out.forms_path.clone(),
+        rounds_path: outs[0].rounds_path.clone(),
+        forms_path: outs[0].forms_path.clone(),
+        sets: sets
+            .iter()
+            .zip(&outs)
+            .map(|(s, o)| SetPaths {
+                name: s.name.clone(),
+                rounds_path: o.rounds_path.clone(),
+                forms_path: o.forms_path.clone(),
+            })
+            .collect(),
         ..Default::default()
     };
 
@@ -1121,53 +1311,57 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 continue;
             }
             // S2: все формы над одним потоком событий, потоками; результат
-            // каждой формы — сразу в дамп.
+            // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
+            let windows = day_windows(&events, &day.touches, args.driver, tick, lot);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
-            let forms_done = {
-                let out = &mut out;
-                let forms_ref = &forms;
-                let mut sink = |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
-                    let n = out.write_form(
-                        symbol,
-                        &day_label,
-                        forms_ref[r.form],
-                        signals,
-                        &r.run,
-                        r.skipped,
-                    )?;
-                    rounds = rounds.saturating_add(n);
-                    Ok(())
+            for (set, out) in sets.iter().zip(outs.iter_mut()) {
+                let forms_done = {
+                    let forms_ref = &forms;
+                    let mut sink =
+                        |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
+                            let n = out.write_form(
+                                symbol,
+                                &day_label,
+                                forms_ref[r.form],
+                                signals,
+                                &r.run,
+                                r.skipped,
+                            )?;
+                            rounds = rounds.saturating_add(n);
+                            Ok(())
+                        };
+                    drive_day(
+                        &events,
+                        windows.as_ref(),
+                        &day.touches,
+                        &forms,
+                        DayParams {
+                            tick,
+                            lot,
+                            rtt_ns: args.median_rtt_ns,
+                            order_qty,
+                            threads,
+                            post_only: args.post_only,
+                            frontrun_only: set.frontrun_only,
+                            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+                            min_flow_pct: set.min_flow_pct,
+                            side: set.side.map(Side::from),
+                            mode,
+                            sigma: &sigma_series,
+                        },
+                        &mut sink,
+                    )?
                 };
-                drive_day(
-                    &events,
-                    &day.touches,
-                    &forms,
-                    DayParams {
-                        tick,
-                        lot,
-                        rtt_ns: args.median_rtt_ns,
-                        order_qty,
-                        threads,
-                        driver: args.driver,
-                        post_only: args.post_only,
-                        frontrun_only: args.frontrun_only,
-                        min_age_ms: args.min_age_secs.map(|s| s.saturating_mul(1_000)),
-                        min_flow_pct: args.min_flow_pct,
-                        side: args.side.map(Side::from),
-                        mode,
-                        sigma: &sigma_series,
-                    },
-                    &mut sink,
-                )?
-            };
-            anyhow::ensure!(
-                forms_done == forms.len(),
-                "{symbol} {}: форм посчитано {}, ожидалось {}",
-                day.day,
-                forms_done,
-                forms.len()
-            );
+                anyhow::ensure!(
+                    forms_done == forms.len(),
+                    "{symbol} {} {}: форм посчитано {}, ожидалось {}",
+                    day.day,
+                    set.name,
+                    forms_done,
+                    forms.len()
+                );
+            }
             summary.rounds = summary.rounds.saturating_add(rounds);
             summary.symbol_days += 1;
             eprintln!(
