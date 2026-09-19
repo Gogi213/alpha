@@ -154,3 +154,37 @@ fn touches_fixture_writes_touch_rows_with_expected_columns() {
     assert_eq!(col(&header, t2, "frontrun_lots"), "10");
     assert_eq!(col(&header, t2, "ended_by_death"), "true");
 }
+
+/// Обратимость CSV → `TouchRecord` (`read_touches_csv`): записи трекера из
+/// реплея фикстуры и записи, прочитанные из `touches-SOLUSDT.csv`, равны
+/// поле в поле, сутки — из `day_utc`. На этом стоит `lob bounce-grid
+/// --touches-from` (касания из ночного H3 вместо реплея книги).
+#[test]
+fn touches_csv_reads_back_the_same_records() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let args = touches_args(dir.path());
+    let summary = run_touches(&args).unwrap();
+    let rows = read_touches_csv(&summary.out).unwrap();
+    assert_eq!(rows.len(), 3);
+
+    let cfg = LevelsConfig {
+        mode: crate::lob::levels::H3Mode::Percentile { h3_lots: 5 },
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+    };
+    let replay = replay_symbol(dir.path(), "SOLUSDT", cfg).unwrap();
+    let expected: Vec<TouchRow> = replay
+        .days
+        .iter()
+        .flat_map(|d| {
+            d.touches.iter().map(move |t| TouchRow {
+                day: d.day.clone(),
+                touch: *t,
+            })
+        })
+        .collect();
+    assert_eq!(rows, expected, "CSV обязан читаться в те же записи");
+    // Пустые поля читаются как «нет»: у фикстуры нет соседей в окнах силы.
+    assert!(rows.iter().all(|r| r.touch.strength_held_e2[3] == -1));
+}

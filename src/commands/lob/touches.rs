@@ -21,8 +21,11 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use crate::book::Side;
 use crate::lob::excursion::SecondMids;
-use crate::lob::levels::LevelsConfig;
+use crate::lob::levels::{
+    LevelsConfig, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S, STRENGTH_WINDOWS_BPS,
+};
 use crate::lob::markout::touch_base;
 use crate::lob::sigma::SigmaSeries;
 
@@ -500,6 +503,193 @@ struct NumSample {
 }
 
 /// Сила «×соседи» в процентах из `strength_e2`; `-1` (соседей нет) — пусто.
+/// Касание, прочитанное из `touches-<SYMBOL>.csv`: сутки строки и запись
+/// трекера как есть.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TouchRow {
+    pub day: String,
+    pub touch: TouchRecord,
+}
+
+/// Обратное к строке `run_touches`: `TouchRecord` из CSV касаний — те же
+/// поля, что пишет трекер, побайтово (целые как есть, `strength_*_pct` —
+/// «проценты × 100» обратно в `e2`, пусто → `-1`; `frontrun_tick`/
+/// `stack_next_tick` пусто → `None`). Производные колонки (`m_*`, `sigma_*`,
+/// `adverse_*`…) не читаются: `σ` в CSV — суточный ряд с шестью знаками, а не
+/// ряд записи, поэтому σ-формы из кэша не считаются (`bounce_grid`). Смысл:
+/// `lob bounce-grid --touches-from` читает касания ночного H3 вместо реплея
+/// книги (83 % времени сетки, замер 19.09) — трекер в обоих суточный, так что
+/// касания те же; ворота — побайтово те же `rounds.csv`/`forms.csv`.
+pub(crate) fn read_touches_csv(path: &std::path::Path) -> anyhow::Result<Vec<TouchRow>> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(path)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    let header = r.headers()?.clone();
+    let idx = |name: &str| -> anyhow::Result<usize> {
+        header
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
+    };
+    let cols = TouchCols {
+        day: idx("day_utc")?,
+        side: idx("side")?,
+        price_tick: idx("price_tick")?,
+        touch_index: idx("touch_index")?,
+        start_ms: idx("start_ms")?,
+        end_ms: idx("end_ms")?,
+        duration_ms: idx("duration_ms")?,
+        birth_ms: idx("birth_ms")?,
+        size_at_touch: idx("size_at_touch")?,
+        size_max_before: idx("size_max_before")?,
+        traded_during: idx("traded_during")?,
+        frontrun_lots: idx("frontrun_lots")?,
+        frontrun_tick: idx("frontrun_tick")?,
+        swept_lots: idx("swept_lots")?,
+        round_zeros: idx("round_zeros")?,
+        ended_by_death: idx("ended_by_death")?,
+        stack_levels: idx("stack_levels")?,
+        strength: [
+            idx("strength_w10_pct")?,
+            idx("strength_w20_pct")?,
+            idx("strength_w50_pct")?,
+        ],
+        strength_held: [
+            idx("strength_held_1s_pct")?,
+            idx("strength_held_5s_pct")?,
+            idx("strength_held_15s_pct")?,
+            idx("strength_held_60s_pct")?,
+        ],
+        repeat_count: idx("repeat_count")?,
+        stack_next_tick: idx("stack_next_tick")?,
+        traded_first: [idx("traded_1s")?, idx("traded_2s")?, idx("traded_3s")?],
+        flow_1h_lots: idx("flow_1h_lots")?,
+    };
+    let mut out = Vec::new();
+    for (i, rec) in r.records().enumerate() {
+        let rec = rec?;
+        out.push(
+            cols.parse(&rec)
+                .map_err(|e| anyhow::anyhow!("{}: строка {}: {e}", path.display(), i + 2))?,
+        );
+    }
+    Ok(out)
+}
+
+/// Индексы колонок `touches-*.csv`, нужных `TouchRecord` (по именам, не по
+/// позициям: порядок колонок — дело писателя).
+struct TouchCols {
+    day: usize,
+    side: usize,
+    price_tick: usize,
+    touch_index: usize,
+    start_ms: usize,
+    end_ms: usize,
+    duration_ms: usize,
+    birth_ms: usize,
+    size_at_touch: usize,
+    size_max_before: usize,
+    traded_during: usize,
+    frontrun_lots: usize,
+    frontrun_tick: usize,
+    swept_lots: usize,
+    round_zeros: usize,
+    ended_by_death: usize,
+    stack_levels: usize,
+    strength: [usize; STRENGTH_WINDOWS_BPS.len()],
+    strength_held: [usize; STRENGTH_HELD_WINDOWS_S.len()],
+    repeat_count: usize,
+    stack_next_tick: usize,
+    traded_first: [usize; REACTION_WINDOWS_S.len()],
+    flow_1h_lots: usize,
+}
+
+impl TouchCols {
+    fn parse(&self, rec: &csv::StringRecord) -> anyhow::Result<TouchRow> {
+        let field = |i: usize| -> anyhow::Result<&str> {
+            rec.get(i)
+                .ok_or_else(|| anyhow::anyhow!("короткая строка: нет поля {i}"))
+        };
+        let int = |i: usize| -> anyhow::Result<i64> {
+            let s = field(i)?;
+            s.parse::<i64>()
+                .map_err(|e| anyhow::anyhow!("{s:?} в поле {i}: {e}"))
+        };
+        let opt_int = |i: usize| -> anyhow::Result<Option<i64>> {
+            Ok(if field(i)?.is_empty() {
+                None
+            } else {
+                Some(int(i)?)
+            })
+        };
+        let touch = TouchRecord {
+            side: match field(self.side)? {
+                "bid" => Side::Bid,
+                "ask" => Side::Ask,
+                other => anyhow::bail!("сторона {other:?}"),
+            },
+            price_tick: int(self.price_tick)?,
+            touch_index: u32::try_from(int(self.touch_index)?)?,
+            start_ms: int(self.start_ms)?,
+            end_ms: int(self.end_ms)?,
+            duration_ms: int(self.duration_ms)?,
+            level_birth_ms: int(self.birth_ms)?,
+            size_at_touch: int(self.size_at_touch)?,
+            size_max_before: int(self.size_max_before)?,
+            traded_during: int(self.traded_during)?,
+            frontrun_lots: int(self.frontrun_lots)?,
+            frontrun_tick: opt_int(self.frontrun_tick)?,
+            swept_lots: int(self.swept_lots)?,
+            round_zeros: u8::try_from(int(self.round_zeros)?)?,
+            ended_by_death: match field(self.ended_by_death)? {
+                "true" => true,
+                "false" => false,
+                other => anyhow::bail!("ended_by_death {other:?}"),
+            },
+            stack_levels: u32::try_from(int(self.stack_levels)?)?,
+            stack_next_tick: opt_int(self.stack_next_tick)?,
+            traded_first_s: [
+                int(self.traded_first[0])?,
+                int(self.traded_first[1])?,
+                int(self.traded_first[2])?,
+            ],
+            flow_1h_lots: int(self.flow_1h_lots)?,
+            strength_e2: [
+                strength_e2(field(self.strength[0])?)?,
+                strength_e2(field(self.strength[1])?)?,
+                strength_e2(field(self.strength[2])?)?,
+            ],
+            strength_held_e2: [
+                strength_e2(field(self.strength_held[0])?)?,
+                strength_e2(field(self.strength_held[1])?)?,
+                strength_e2(field(self.strength_held[2])?)?,
+                strength_e2(field(self.strength_held[3])?)?,
+            ],
+            repeat_count: u32::try_from(int(self.repeat_count)?)?,
+        };
+        Ok(TouchRow {
+            day: field(self.day)?.to_string(),
+            touch,
+        })
+    }
+}
+
+/// Обратное к `strength_pct`: `"123.45"` → `12345`, пусто → `-1`. Ровно две
+/// цифры после точки — иначе строка не наша.
+fn strength_e2(s: &str) -> anyhow::Result<i64> {
+    if s.is_empty() {
+        return Ok(-1);
+    }
+    let (whole, frac) = s
+        .split_once('.')
+        .ok_or_else(|| anyhow::anyhow!("сила {s:?}: нет точки"))?;
+    anyhow::ensure!(frac.len() == 2, "сила {s:?}: не два знака");
+    let whole: i64 = whole.parse()?;
+    let frac: i64 = frac.parse()?;
+    Ok(whole * 100 + frac)
+}
+
 fn strength_pct(e2: i64) -> String {
     if e2 < 0 {
         String::new()

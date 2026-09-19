@@ -74,6 +74,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         min_age_secs: None,
         min_flow_pct: None,
         side: None,
+        touches_from: None,
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -297,4 +298,93 @@ fn side_axis_keeps_only_touches_of_that_side() {
         both.contains(" side=both "),
         "без флага — обе стороны: {both}"
     );
+}
+
+/// Кэш касаний (`--touches-from`): круги и строки форм побайтово те же, что
+/// из реплея книги — на фикстуре с базовыми формами (без σ) и порогом `floor`
+/// (без прогрева: кэш идёт с умолчаниями трекера, как ночной `lob touches`).
+/// Сам кэш — то, что пишет `lob touches`, в раскладке ночного H3
+/// (`<dir>/<сутки>/`). Символ без суток в кэше идёт реплеем и считается
+/// отдельно; σ-формы с кэшем — отказ.
+#[test]
+fn touches_cache_gives_byte_identical_rounds() {
+    use crate::commands::lob::touches::{run_touches, TouchesArgs};
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let h3 = || H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    let base = |out: &str| {
+        let mut a = args(dir.path(), false);
+        a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+        a.take_form = vec!["1to1".to_string()];
+        a.take_floor_fees = None;
+        a.h3 = h3();
+        a.warmup_ms = None;
+        a.repeat_window_ms = None;
+        a.out_dir = dir.path().join(out);
+        a
+    };
+    let replayed = run_bounce_grid(&base("grid-replay")).unwrap();
+    assert!(replayed.rounds > 0, "фикстура обязана давать круги");
+
+    let cache = dir.path().join("touches");
+    run_touches(&TouchesArgs {
+        root: dir.path().to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        h3: h3(),
+        h3_k: None,
+        warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
+        repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
+        out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
+        numbers: None,
+        allow_unverified: false,
+    })
+    .unwrap();
+    let mut a = base("grid-cache");
+    a.touches_from = Some(cache.clone());
+    let cached = run_bounce_grid(&a).unwrap();
+    assert_eq!(cached.symbols_from_cache, 1);
+    assert_eq!(cached.rounds, replayed.rounds);
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(body(&cached.rounds_path), body(&replayed.rounds_path));
+    assert_eq!(body(&cached.forms_path), body(&replayed.forms_path));
+    let head = std::fs::read_to_string(&cached.forms_path).unwrap();
+    assert!(
+        head.contains(" touches=csv("),
+        "источник касаний в шапке: {head}"
+    );
+
+    // Суток в кэше нет — реплей, не отказ.
+    let mut a = base("grid-nocache");
+    a.touches_from = Some(dir.path().join("grid-replay"));
+    let s = run_bounce_grid(&a).unwrap();
+    assert_eq!(s.symbols_from_cache, 0);
+    assert_eq!(s.rounds, replayed.rounds);
+
+    // σ-формы с кэшем — отказ; явный прогрев с кэшем — отказ.
+    let mut a = args(dir.path(), false);
+    a.h3 = h3();
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.touches_from = Some(cache.clone());
+    assert!(run_bounce_grid(&a).is_err(), "σ-формы из кэша не считаются");
+    let mut a = base("grid-warmup");
+    a.warmup_ms = Some(0);
+    a.touches_from = Some(cache);
+    assert!(run_bounce_grid(&a).is_err(), "прогрев с кэшем — отказ");
 }

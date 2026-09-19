@@ -42,6 +42,15 @@
 //! сигнала у формы не даёт и считается в `n_skipped`. Ось стороны
 //! (`--side bid|ask`, этап 1 дороги к альфе, `side-asymmetry-2026-09-19.md`):
 //! касания другой стороны выбывают до форм и считаются там же.
+//!
+//! Касания — из реплея книги (как было) или из кэша `--touches-from <dir>`:
+//! CSV ночного H3 (`study/touches/<сутки>/touches-<SYMBOL>.csv`,
+//! `nightly-grid.sh`). Реплей — 83 % времени сетки (замер 19.09: 29 монет ×
+//! 3 суток — 1176 с из 1419), трекер уровней в обоих суточный, так что
+//! касания те же побайтово (`touches::read_touches_csv`, тест обратимости;
+//! гейт «те же `rounds.csv`/`forms.csv`» на монетах — `docs/COMMANDS.md`).
+//! σ-формы (`s<a>`/`t<b>`) из кэша не считаются: `σ` в CSV — суточный ряд с
+//! шестью знаками, а не ряд всей записи.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -71,6 +80,60 @@ use crate::lob::backtest::{
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
+
+/// Касания одних суток символа — из реплея или из кэша, форме всё равно.
+struct DayTouches {
+    day: String,
+    touches: Vec<TouchRecord>,
+}
+
+/// Касания символа из кэша `--touches-from` для суток `days` (сутки корня с
+/// частями): на сутки — `<dir>/<сутки>/touches-<SYMBOL>.csv`, иначе общий
+/// `<dir>/touches-<SYMBOL>.csv`, из которого берутся строки этих суток.
+/// Нет файла на какие-то сутки или в суточном файле чужие сутки — `Err`
+/// (вызывающий идёт реплеем и пишет причину). Порядок строк — порядок файла,
+/// он же порядок выдачи трекера.
+fn cached_touches<'a>(
+    dir: &Path,
+    symbol: &str,
+    days: impl Iterator<Item = &'a String>,
+) -> anyhow::Result<Vec<DayTouches>> {
+    let flat = dir.join(format!("touches-{symbol}.csv"));
+    let mut flat_rows: Option<Vec<super::touches::TouchRow>> = None;
+    let mut out = Vec::new();
+    for day in days {
+        let per_day = dir.join(day).join(format!("touches-{symbol}.csv"));
+        let touches: Vec<TouchRecord> = if per_day.is_file() {
+            let rows = super::touches::read_touches_csv(&per_day)?;
+            if let Some(bad) = rows.iter().find(|r| r.day != *day) {
+                anyhow::bail!(
+                    "{}: строка суток {} в файле суток {day}",
+                    per_day.display(),
+                    bad.day
+                );
+            }
+            rows.into_iter().map(|r| r.touch).collect()
+        } else if flat.is_file() {
+            if flat_rows.is_none() {
+                flat_rows = Some(super::touches::read_touches_csv(&flat)?);
+            }
+            flat_rows
+                .as_ref()
+                .expect("только что прочитан")
+                .iter()
+                .filter(|r| r.day == *day)
+                .map(|r| r.touch)
+                .collect()
+        } else {
+            anyhow::bail!("нет {} и нет {}", per_day.display(), flat.display());
+        };
+        out.push(DayTouches {
+            day: day.clone(),
+            touches,
+        });
+    }
+    Ok(out)
+}
 
 /// Одна форма сетки (В-65): имя колонки, форма сделки и дедлайн (он же окно `σ`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -171,6 +234,15 @@ pub struct BounceGridArgs {
     /// лонг) или аск-стен (`ask`, шорт). Без флага — обе стороны, как прежде.
     #[arg(long, value_enum)]
     pub side: Option<SideArg>,
+    /// Касания из CSV вместо реплея книги: `<dir>/<сутки>/touches-<SYMBOL>.csv`
+    /// (раскладка ночного H3, `study/touches/`) или `<dir>/touches-<SYMBOL>.csv`
+    /// (одна папка на всю запись, строки по `day_utc`). Порог плотности и
+    /// трекер обязаны быть теми же, что у `lob touches` (проверить нечем —
+    /// шапки у CSV нет; стандарт — `--h3-mode notional --h3-usd 10000`,
+    /// умолчания прогрева/окна повтора). Символ, у которого в кэше нет всех
+    /// суток корня, идёт реплеем (со счётчиком и строкой в stderr).
+    #[arg(long)]
+    pub touches_from: Option<PathBuf>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -243,6 +315,8 @@ pub struct BounceGridSummary {
     pub symbols_done: usize,
     pub symbols_skipped_unverified: usize,
     pub symbols_without_touches: usize,
+    /// Символов, чьи касания пришли из кэша `--touches-from` (остальные — реплей).
+    pub symbols_from_cache: usize,
     pub symbol_days: usize,
     pub rounds: u64,
     pub rounds_path: PathBuf,
@@ -756,6 +830,17 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             "сетка: повторяющиеся формы в --stop-form/--take-form дают одинаковые имена"
         );
     }
+    if let Some(dir) = &args.touches_from {
+        anyhow::ensure!(dir.is_dir(), "--touches-from {}: не каталог", dir.display());
+        anyhow::ensure!(
+            !forms.iter().any(|f| f.form.needs_sigma()),
+            "--touches-from: σ-формы (s<a>/t<b>) требуют реплея — σ в CSV касаний суточная и с шестью знаками"
+        );
+        anyhow::ensure!(
+            args.warmup_ms.is_none() && args.repeat_window_ms.is_none(),
+            "--touches-from: прогрев и окно повтора трекера — умолчания, как у ночного `lob touches`"
+        );
+    }
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
@@ -763,7 +848,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     };
 
     let header = format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} verified={}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -788,6 +873,9 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         },
         threads,
         args.driver.label(),
+        args.touches_from
+            .as_ref()
+            .map_or("replay".to_string(), |d| format!("csv({})", d.display())),
         if args.allow_unverified {
             "allow-unverified(debug)"
         } else {
@@ -874,27 +962,55 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             warmup_ms: args.warmup_ms.unwrap_or(DEFAULT_WARMUP_MS),
             repeat_window_ms: args.repeat_window_ms.unwrap_or(DEFAULT_REPEAT_WINDOW_MS),
         };
-        // S1: касания один раз на символ — общие для всех форм; вместе с ними
-        // срезы середины по границам секунд — для ряда `σ` (В-62).
-        let replay = replay_symbol_touches_and_second_mids(&args.root, symbol, cfg_levels)?;
-        let touches_total: usize = replay.days.iter().map(|d| d.touches.len()).sum();
+        let mut parts_by_day: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+        for p in &parts {
+            parts_by_day
+                .entry(p.day_utc.clone())
+                .or_default()
+                .push(p.path.clone());
+        }
+        // S1: касания один раз на символ — общие для всех форм; из кэша
+        // `--touches-from` (сутки корня) или реплеем книги, тогда вместе с
+        // ними срезы середины по границам секунд — для ряда `σ` (В-62).
+        let (days, sigma_series) = match args
+            .touches_from
+            .as_deref()
+            .map(|dir| cached_touches(dir, symbol, parts_by_day.keys()))
+        {
+            Some(Ok(days)) => {
+                summary.symbols_from_cache += 1;
+                (days, SigmaSeries::from_mids(&[]))
+            }
+            other => {
+                if let Some(Err(why)) = other {
+                    eprintln!("bounce-grid: {symbol} — кэш касаний не годится ({why}), реплей");
+                }
+                let replay = replay_symbol_touches_and_second_mids(&args.root, symbol, cfg_levels)?;
+                let mut all = Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
+                for d in &replay.days {
+                    all.extend(d.mids.iter().copied());
+                }
+                let days = replay
+                    .days
+                    .into_iter()
+                    .map(|d| DayTouches {
+                        day: d.day,
+                        touches: d.touches,
+                    })
+                    .collect();
+                (days, SigmaSeries::from_mids(&all))
+            }
+        };
+        let touches_total: usize = days.iter().map(|d| d.touches.len()).sum();
         if touches_total == 0 {
             eprintln!("bounce-grid: {symbol} — касаний нет, символ пропущен");
             summary.symbols_without_touches += 1;
             continue;
         }
-        let sigma_series = {
-            let mut all = Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
-            for d in &replay.days {
-                all.extend(d.mids.iter().copied());
-            }
-            SigmaSeries::from_mids(&all)
-        };
         let order_qty_e9 = match (args.order_qty_e9, args.order_qty_from_pool) {
             (Some(v), _) => v,
             _ => {
-                let last = replay
-                    .days
+                let last = days
                     .iter()
                     .rev()
                     .find_map(|d| d.touches.last())
@@ -910,15 +1026,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         .saturating_mul(i64::from(args.order_qty_mult.max(1)));
         let order_qty = order_qty_e9 as f64 / 1e9;
 
-        let mut parts_by_day: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
-        for p in &parts {
-            parts_by_day
-                .entry(p.day_utc.clone())
-                .or_default()
-                .push(p.path.clone());
-        }
-
-        for day in &replay.days {
+        for day in &days {
             // `--day`: гнать только выбранные сутки. Касания при этом считаются
             // по всей записи символа (возраст уровня и прогрев трекера не
             // зависят от границы суток), так что круги выбранного дня те же,
@@ -1005,7 +1113,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         summary.symbols_done += 1;
         eprintln!(
             "bounce-grid: {symbol} готов — суток {}, касаний {}, {:.1}s",
-            replay.days.iter().filter(|d| !d.touches.is_empty()).count(),
+            days.iter().filter(|d| !d.touches.is_empty()).count(),
             touches_total,
             started.elapsed().as_secs_f64()
         );
