@@ -404,6 +404,10 @@ pub struct FilterSet {
     /// size_at_touch / size_max_before)` не больше этого процента. Только
     /// ключ набора `eaten=<%>`, флага у команды нет.
     pub eaten_max_pct: Option<f64>,
+    /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
+    /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
+    /// так что ключ — подмножество тех же касаний).
+    pub usd_min: Option<f64>,
     /// Контекст касания (S4): границы в bps по осям `CTX_AXES` — ход монеты
     /// до касания за 10 мин / 1 ч / 4 ч (`ret10m`, `ret1h`, `ret4h`; знак
     /// абсолютный), медиана пула за 1 ч / 4 ч (`pool1h`, `pool4h`) и биток
@@ -552,6 +556,7 @@ impl FilterSet {
             min_flow_pct: args.min_flow_pct,
             side: args.side,
             eaten_max_pct: None,
+            usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
     }
@@ -578,6 +583,7 @@ impl FilterSet {
             min_flow_pct: None,
             side: None,
             eaten_max_pct: None,
+            usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
@@ -606,6 +612,16 @@ impl FilterSet {
                         "ask" => SideArg::Ask,
                         _ => anyhow::bail!("--set {spec:?}: side={v:?}, ожидается bid|ask"),
                     });
+                }
+                "usd_min" => {
+                    let usd: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: usd_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        usd.is_finite() && usd >= 0.0,
+                        "--set {spec:?}: usd_min={v:?} — доллары обязаны быть неотрицательным числом"
+                    );
+                    set.usd_min = Some(usd);
                 }
                 "eaten" => {
                     let pct: f64 = v
@@ -776,6 +792,13 @@ fn signals_for(
                 skipped += 1;
                 return None;
             }
+            // Размер стены: номинал при касании ниже порога набора — не вход.
+            if p.usd_min
+                .is_some_and(|m| t.price_tick as f64 * p.tick * t.size_at_touch as f64 * p.lot < m)
+            {
+                skipped += 1;
+                return None;
+            }
             // Контекст (S4): ход до касания и режим — вне границ набора или
             // без значения при заданной границе — не вход.
             if let Some(ctx) = p.ctx {
@@ -932,6 +955,8 @@ struct DayParams<'a> {
     side: Option<Side>,
     /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
     eaten_max_pct: Option<f64>,
+    /// Номинал стены при касании ≥ (`usd_min=`), доллары.
+    usd_min: Option<f64>,
     /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
     /// у набора есть ключи контекста; границы — `ctx_ranges`.
     ctx: Option<&'a [TouchContext]>,
@@ -1323,7 +1348,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1339,6 +1364,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         set.min_flow_pct,
         set.side.map_or("both", SideArg::label),
         set.eaten_max_pct,
+        set.usd_min,
         set.ctx_label(),
         DEADLINE_SECS,
         args.median_rtt_ns,
@@ -1624,6 +1650,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             min_flow_pct: set.min_flow_pct,
                             side: set.side.map(Side::from),
                             eaten_max_pct: set.eaten_max_pct,
+                            usd_min: set.usd_min,
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,
                             mode,

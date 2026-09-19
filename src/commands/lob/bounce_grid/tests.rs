@@ -507,6 +507,8 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
         "x:zzz=1",
         "x:eaten=abc",
         "x:eaten=nan",
+        "x:usd_min=-1",
+        "x:usd_min=abc",
         "x:ret1h_min=abc",
         "x:ret9h_min=1",
         "x:pool4h_mid=1",
@@ -525,6 +527,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             min_flow_pct: Some(10.0),
             side: None,
             eaten_max_pct: None,
+            usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
@@ -748,4 +751,37 @@ fn context_keys_filter_by_pre_touch_return_and_regime() {
     };
     assert!(r.holds(Some(0.0)) && r.holds(Some(10.0)) && !r.holds(Some(10.1)) && !r.holds(None));
     assert!(Range::default().holds(None));
+}
+
+/// Ключ `usd_min=<$>`: номинал стены при касании (цена × размер) ≥ порога;
+/// фикстура — бид 99 × тик 0.01 × 10 лотов × шаг 0.1 ≈ $0.99: порог 0 не
+/// выбивает (байты те же), порог 1 выбивает всё.
+#[test]
+fn usd_min_key_filters_by_wall_notional_at_touch() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-usd");
+    a.sets = vec![
+        "all:".to_string(),
+        "u0:usd_min=0".to_string(),
+        "u1:usd_min=1".to_string(),
+    ];
+    let m = run_bounce_grid(&a).unwrap();
+    let by = |n: &str| m.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(body(&by("u0").rounds_path), body(&by("all").rounds_path));
+    let (fh, u1) = read_csv(&by("u1").forms_path);
+    assert!(u1
+        .iter()
+        .all(|r| col(&fh, r, "n_signals") == "0" && col(&fh, r, "n_skipped") == "3"));
+    let head = std::fs::read_to_string(&by("u1").forms_path).unwrap();
+    assert!(head.contains(" usd_min=Some(1.0) "), "{head}");
 }
