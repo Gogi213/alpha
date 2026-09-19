@@ -213,6 +213,13 @@ BYBIT_API_SECRET=<секрет>
 ENV
 sudo bash -c 'set -a; . /etc/alpha/bybit.env; set +a; /opt/alpha/alpha-collector lob latency --symbol DOGEUSDT --notional-usd 10 --cycles 50 --out /opt/alpha/latency/DOGEUSDT-$(date -u +%Y%m%dT%H%M%SZ).csv'
 ```
+Как было сделано 19.09 (ключ на диск сервера не писался): значения из окружения локальной консоли уходят в stdin
+ssh и становятся окружением процесса на сервере на время прогона —
+```bash
+printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.22 'IFS= read -r K; IFS= read -r S; BYBIT_API_KEY="$K" BYBIT_API_SECRET="$S" /opt/alpha/alpha-latency-6676045 lob latency --symbol DOGEUSDT --notional-usd 10 --cycles 100 --out ~/latency/latency-DOGEUSDT-server-$(date -u +%Y%m%dT%H%M%SZ).csv'
+```
+`orderLinkId` уникален на прогон (префикс по времени старта) — иначе биржа отвечает `110072 OrderLinkedID is duplicate`.
+
 Сначала — `--net demo --cycles 3` (или `--skip-taker`) как смоук; полный прогон — ≥ 50 циклов
 (p95/p99 от единиц точек — шум). Итог — `docs/findings/latency-<дата>.md` со сводкой и путём CSV;
 число для В-37 (RTT 20 мс assumed) — из `place_ack`/`taker_exec` **с сервера**, не с ноутбука.
