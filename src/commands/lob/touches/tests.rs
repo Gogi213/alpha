@@ -188,3 +188,58 @@ fn touches_csv_reads_back_the_same_records() {
     // Пустые поля читаются как «нет»: у фикстуры нет соседей в окнах силы.
     assert!(rows.iter().all(|r| r.touch.strength_held_e2[3] == -1));
 }
+
+/// S2 плана по сторонам: три колонки хода до касания в конце шапки; на
+/// фикстуре (6 с записи) все три пусты — окна 10 мин и длиннее упираются в
+/// начало; на ряду, где окно есть, ход считается от среза за окно до базы
+/// касания, знак абсолютный. Рядом с касаниями — минутный ряд `mids1m-*.csv`
+/// с минутами подряд и закрытием минуты (фикстура — 6 с, одна минута).
+#[test]
+fn touches_write_pre_touch_returns_and_minute_mids() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let summary = run_touches(&touches_args(dir.path())).unwrap();
+    let (header, rows) = read_rows(&summary.out);
+    assert_eq!(
+        &header[header.len() - 3..],
+        ["ret_10m_bps", "ret_1h_bps", "ret_4h_bps"]
+    );
+    for r in &rows {
+        for c in ["ret_10m_bps", "ret_1h_bps", "ret_4h_bps"] {
+            assert_eq!(col(&header, r, c), "", "окно длиннее записи — пусто");
+        }
+    }
+    let mids = [
+        crate::lob::markout::MidSample {
+            ts_ms: 0,
+            bid_tick: 99,
+            ask_tick: 101,
+        },
+        crate::lob::markout::MidSample {
+            ts_ms: 500_000,
+            bid_tick: 104,
+            ask_tick: 106,
+        },
+        crate::lob::markout::MidSample {
+            ts_ms: 700_000,
+            bid_tick: 109,
+            ask_tick: 111,
+        },
+    ];
+    // База касания на 700_000 — 110 (2x = 220); срез за 10 мин (≤ 100_000) — первый, 100 (2x = 200).
+    let r = pre_touch_return_bps(&mids, 700_000, PRE_TOUCH_MS[0]).unwrap();
+    assert!((r - 1000.0).abs() < 1e-9, "+10 % = +1000 bps, получено {r}");
+    assert_eq!(pre_touch_return_bps(&mids, 700_000, PRE_TOUCH_MS[1]), None);
+
+    let m = mids1m_path(&summary.out, "SOLUSDT");
+    assert_eq!(m, dir.path().join("mids1m-SOLUSDT.csv"));
+    let (mh, mrows) = read_rows(&m);
+    assert_eq!(mh, ["minute_ms", "mid2x"]);
+    assert!(!mrows.is_empty(), "минимум одна минута: {mrows:?}");
+    let minutes: Vec<i64> = mrows.iter().map(|r| r[0].parse().unwrap()).collect();
+    assert!(
+        minutes.windows(2).all(|w| w[1] == w[0] + 60_000),
+        "минуты подряд: {minutes:?}"
+    );
+    assert!(mrows.iter().all(|r| r[1].parse::<i64>().unwrap() > 0));
+}

@@ -32,7 +32,7 @@ use crate::lob::sigma::SigmaSeries;
 use super::bounce_verdict::DEADLINE_SECS;
 use crate::lob::markout::{
     approaches_for_touch, distance_bps_at_birth, long_markouts_for_touch, markouts_for_touch,
-    mid_double_tick, sample_asof, within_touch, APPROACH_MS, HORIZONS_MS,
+    mid_double_tick, raw_return_bps, sample_asof, within_touch, APPROACH_MS, HORIZONS_MS,
 };
 
 use super::{
@@ -108,7 +108,7 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 58;
+const TOUCHES_WIDTH: usize = 61;
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -192,7 +192,72 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     // уровня в процентах от него (пусто — оборота за час не было).
     "flow_1h_lots",
     "strength_flow_pct",
+    // Ход середины **до** касания (S2 плана по сторонам, 2026-09-20): от среза
+    // за `PRE_TOUCH_MS` до касания к базе касания, bps, знак абсолютный (плюс
+    // — цена выросла к касанию; «растяжка» [T 1:05:21], направление [D 10:17]);
+    // пусто — записи столько нет (трекер суточный: первые 4 ч суток без
+    // `ret_4h` — систематика, не пропуск).
+    "ret_10m_bps",
+    "ret_1h_bps",
+    "ret_4h_bps",
 ];
+
+/// Окна хода до касания: 10 мин / 1 ч / 4 ч — из цитат практиков про
+/// «направление за час / за четыре часа», не новое число.
+pub const PRE_TOUCH_MS: [i64; 3] = [600_000, 3_600_000, 14_400_000];
+
+/// Ход середины до касания: база касания против последнего среза не позже
+/// `start_ms − pre_ms`; `None` — среза нет (начало записи ближе окна).
+pub fn pre_touch_return_bps(
+    mids: &[crate::lob::markout::MidSample],
+    start_ms: i64,
+    pre_ms: i64,
+) -> Option<f64> {
+    let (_, base2x) = touch_base(mids, start_ms)?;
+    let before = sample_asof(mids, start_ms, -pre_ms)?;
+    raw_return_bps(mid_double_tick(before.bid_tick, before.ask_tick), base2x)
+}
+
+/// Имя минутного ряда середины рядом с `touches-<SYMBOL>.csv`.
+pub fn mids1m_path(touches_out: &std::path::Path, symbol: &str) -> PathBuf {
+    touches_out.with_file_name(format!("mids1m-{symbol}.csv"))
+}
+
+/// Минутный ряд середины символа (S2/S3 плана по сторонам): на каждую минуту
+/// от первого до последнего среза суток — `minute_ms` (начало минуты, unix
+/// мс) и `mid2x` последнего среза **внутри** минуты (закрытие); минута без
+/// срезов несёт предыдущее закрытие. Режим пула (`regime.py`) читает эти файлы.
+fn write_mids1m(
+    path: &std::path::Path,
+    days: &[super::replay::ReplayDay],
+) -> anyhow::Result<usize> {
+    let mut w = csv::Writer::from_path(path)?;
+    w.write_record(["minute_ms", "mid2x"])?;
+    let mut n = 0usize;
+    for day in days {
+        let (Some(first), Some(last)) = (day.mids.first(), day.mids.last()) else {
+            continue;
+        };
+        let mut i = 0usize;
+        let mut close: Option<i64> = None;
+        let mut minute = first.ts_ms.div_euclid(60_000);
+        let last_minute = last.ts_ms.div_euclid(60_000);
+        while minute <= last_minute {
+            let end = (minute + 1) * 60_000;
+            while i < day.mids.len() && day.mids[i].ts_ms < end {
+                close = Some(mid_double_tick(day.mids[i].bid_tick, day.mids[i].ask_tick));
+                i += 1;
+            }
+            if let Some(c) = close {
+                w.write_record([(minute * 60_000).to_string(), c.to_string()])?;
+                n += 1;
+            }
+            minute += 1;
+        }
+    }
+    w.flush()?;
+    Ok(n)
+}
 
 /// Реплей символа тем же `replay_symbol`, что `levels`/`markout`, и запись
 /// касаний в CSV. Порядок строк — порядок выдачи трекера внутри суток.
@@ -277,6 +342,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             let inside = within_touch(t.duration_ms);
             let ap = approaches_for_touch(t, &day.mids);
             let long = long_markouts_for_touch(t, &day.mids);
+            let pre: [Option<f64>; PRE_TOUCH_MS.len()] = std::array::from_fn(|k| {
+                pre_touch_return_bps(&day.mids, t.start_ms, PRE_TOUCH_MS[k])
+            });
             let row: [String; TOUCHES_WIDTH] = [
                 day.day.clone(),
                 side_name(t.side).to_string(),
@@ -347,12 +415,17 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 } else {
                     String::new()
                 },
+                some_or_empty(pre[0]),
+                some_or_empty(pre[1]),
+                some_or_empty(pre[2]),
             ];
             w.write_record(row)?;
             n += 1;
         }
     }
     w.flush()?;
+    // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
+    write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;
 
     // Переезды плотностей (T42, В-46) — отдельным файлом: окно поиска
     // приходит флагом и печатается, метка `moved` не ставится.
