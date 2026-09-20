@@ -242,6 +242,8 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
   # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
   LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1"     run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+  # S8 удержание (--deadline-secs, 20.09): 30 мин и 4 ч рядом с базовыми; стопы pct1/pct2, тейк 1:1 — 12 форм × 3 набора = 36.
+  LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400"     run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
