@@ -517,9 +517,10 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::FillCapacity(args) => {
             let s = run_fill_capacity(&args)?;
             println!(
-                "fill-capacity: символов {} (без маркера {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
+                "fill-capacity: символов {} (без маркера {}, без кэша {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
                 s.symbols_done,
                 s.symbols_skipped_unverified,
+                s.symbols_without_cache,
                 s.symbols_without_touches,
                 s.symbol_days,
                 s.touches,

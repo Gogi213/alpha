@@ -251,3 +251,17 @@ fn rejects_bad_flags() {
     a.touches_from = dir.path().join("нет-такого");
     assert!(run_fill_capacity(&a).is_err());
 }
+
+/// Символ без файла в кэше касаний — пропуск со счётчиком, не отказ всего прогона.
+#[test]
+fn symbol_missing_from_cache_is_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = fixture(dir.path());
+    let mut a = args(dir.path(), &cache, &["all:"]);
+    a.touches_from = dir.path().join("cap-empty");
+    std::fs::create_dir_all(&a.touches_from).unwrap();
+    let s = run_fill_capacity(&a).unwrap();
+    assert_eq!(s.symbols_without_cache, 1);
+    assert_eq!(s.symbols_done, 0);
+    assert_eq!(s.rows, 0);
+}

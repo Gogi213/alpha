@@ -90,6 +90,8 @@ pub struct FillCapacitySummary {
     pub symbols_done: usize,
     pub symbols_skipped_unverified: usize,
     pub symbols_without_touches: usize,
+    /// Символы без годного кэша касаний (`--touches-from`).
+    pub symbols_without_cache: usize,
     pub symbol_days: usize,
     pub touches: u64,
     pub rows: u64,
@@ -401,8 +403,18 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                 .or_default()
                 .push(p.path.clone());
         }
-        let days = cached_touches(&args.touches_from, symbol, parts_by_day.keys(), need_ret)
-            .map_err(|e| anyhow::anyhow!("{symbol}: кэш касаний не годится: {e}"))?;
+        // Кэша на символ нет (у ночного H3 он не считался — например, сутки без
+        // маркера) — символ пропускается со счётчиком, реплея касаний здесь нет.
+        let days = match cached_touches(&args.touches_from, symbol, parts_by_day.keys(), need_ret) {
+            Ok(days) => days,
+            Err(why) => {
+                eprintln!(
+                    "fill-capacity: {symbol} — кэш касаний не годится ({why}), символ пропущен"
+                );
+                summary.symbols_without_cache += 1;
+                continue;
+            }
+        };
         let touches_total: usize = days.iter().map(|d| d.touches.len()).sum();
         if touches_total == 0 {
             eprintln!("fill-capacity: {symbol} — касаний нет, символ пропущен");
