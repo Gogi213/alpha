@@ -42,6 +42,14 @@
 //!   `t0` — за `[t0, end]`; для `post` — за `[t0, t0 + post]`. Блочные и
 //!   RPI-сделки не идут (видимую очередь не двигают, В-55).
 //!
+//! Ещё на тик — **момент выборки очереди** (владелец 20.09: исполнение «в упор»
+//! бывает двух видов — стена обновилась и стоит, либо её проторговали насквозь и
+//! цена ушла за неё; второе — отмена сценария): `clear_ms` — первая сделка после
+//! `t0`, с которой наторговано на тике строго больше очереди `t0` (наш первый лот
+//! исполнен), и лучшие цены обеих сторон на **первом кадре после** этой сделки
+//! (`best_after_clear`): наша лучшая цена всё ещё на стене или выше — стена
+//! держит; ниже стены — насквозь. `-1` — очередь не выбрана / кадра не было.
+//!
 //! Правило чтения: нога на тике `k`, поставленная за `pre`, исполнена на
 //! `clamp(sold_pre + sold_touch − queue_pre, 0, нога)`; поставленная в `t0`
 //! — на `clamp(sold_touch − queue_t0, 0, нога)`. Рядом — лучшие цены обеих
@@ -150,6 +158,12 @@ pub struct TargetCapacity {
     sold: Vec<i64>,
     /// Лучшие цены на момент каждого слота.
     best: Vec<BestAt>,
+    /// Наторговано против нас на тике с `t0` без окна (пока цель активна).
+    cum: Vec<i64>,
+    /// Момент выборки очереди `t0` на тике, мс (`-1` — не выбрана).
+    clear_ms: Vec<i64>,
+    /// Лучшие цены на первом кадре после выборки очереди.
+    best_after_clear: Vec<BestAt>,
 }
 
 impl TargetCapacity {
@@ -161,6 +175,9 @@ impl TargetCapacity {
             queue: vec![-1; n * slots],
             sold: vec![0; n * slots],
             best: vec![BestAt::UNKNOWN; slots],
+            cum: vec![0; n],
+            clear_ms: vec![-1; n],
+            best_after_clear: vec![BestAt::UNKNOWN; n],
         }
     }
 
@@ -193,6 +210,16 @@ impl TargetCapacity {
     pub fn best(&self, s: usize) -> BestAt {
         self.best[s]
     }
+
+    /// Момент выборки очереди `t0` на тике `k`, мс; `-1` — не выбрана.
+    pub fn clear_ms(&self, k: usize) -> i64 {
+        self.clear_ms[k]
+    }
+
+    /// Лучшие цены на первом кадре после выборки очереди на тике `k`.
+    pub fn best_after_clear(&self, k: usize) -> BestAt {
+        self.best_after_clear[k]
+    }
 }
 
 /// Трекер ёмкости: цели известны заранее, снимки книги берутся по ходу
@@ -216,6 +243,8 @@ pub struct CapacityTracker {
     active: Vec<usize>,
     /// Был ли хоть один кадр книги в этих сутках (иначе снимок — «неизвестно»).
     seen_frame: bool,
+    /// Тики, у которых очередь выбрана, а кадра после ещё не было: `(цель, тик)`.
+    pending_after: Vec<(usize, usize)>,
 }
 
 impl CapacityTracker {
@@ -285,6 +314,7 @@ impl CapacityTracker {
             next_activate: 0,
             active: Vec::new(),
             seen_frame: false,
+            pending_after: Vec::new(),
         })
     }
 
@@ -370,21 +400,49 @@ impl CapacityTracker {
         }
     }
 
-    /// После применения обновления: книга есть, кадры пошли.
-    pub fn after_update(&mut self, ts_ms: i64) {
+    /// После применения обновления: книга есть, кадры пошли; тики с только что
+    /// выбранной очередью получают лучшие цены этого кадра.
+    pub fn after_update(&mut self, ts_ms: i64, book: &Book) {
         self.seen_frame = true;
         self.roll_active(ts_ms);
+        for (i, k) in self.pending_after.drain(..) {
+            let tc = &mut self.out[i];
+            let t = tc.target;
+            tc.best_after_clear[k] = BestAt {
+                ours: match t.side {
+                    Side::Bid => book.best_bid_tick_opt(),
+                    Side::Ask => book.best_ask_tick_opt(),
+                }
+                .unwrap_or(-1),
+                opposite: match t.opposite() {
+                    Side::Bid => book.best_bid_tick_opt(),
+                    Side::Ask => book.best_ask_tick_opt(),
+                }
+                .unwrap_or(-1),
+            };
+        }
     }
 
     /// Сделка ленты: копится на тик полосы каждой активной цели, если бьёт по
     /// нашей стороне и попадает в окно слота.
-    pub fn observe_trade(&mut self, tr: TradeHit) {
+    pub fn observe_trade(&mut self, tr: TradeHit, book: &Book) {
         if tr.block || tr.rpi || tr.lots <= 0 {
             return;
         }
+        // Снимки с моментом не позже сделки — с текущей книги: кадр `t0` уже
+        // применён, а его снимок иначе ждал бы следующего кадра, и выборка
+        // очереди на сделках между ними не считалась бы.
+        while let Some(&snap) = self.snaps.get(self.next_snap) {
+            if snap.ts_ms > tr.exch_ms {
+                break;
+            }
+            self.take_snapshot(snap, book);
+            self.next_snap += 1;
+        }
         self.roll_active(tr.exch_ms);
         let npre = self.pre_ms.len();
-        for &i in &self.active {
+        let active = std::mem::take(&mut self.active);
+        for &i in &active {
             let tc = &mut self.out[i];
             let t = tc.target;
             if !t.hits_us(tr.aggressor_is_buy) {
@@ -396,6 +454,14 @@ impl CapacityTracker {
             let slots = tc.slots();
             let base = k * slots;
             if tr.exch_ms >= t.start_ms {
+                // Выборка очереди `t0`: с этой сделки наторговано больше, чем
+                // стояло впереди, — наш первый лот исполнен.
+                tc.cum[k] = tc.cum[k].saturating_add(tr.lots);
+                let q0 = tc.queue[base + npre];
+                if tc.clear_ms[k] < 0 && q0 >= 0 && tc.cum[k] > q0 {
+                    tc.clear_ms[k] = tr.exch_ms;
+                    self.pending_after.push((i, k));
+                }
                 if tr.exch_ms <= t.end_ms {
                     tc.sold[base + npre] = tc.sold[base + npre].saturating_add(tr.lots);
                 }
@@ -413,6 +479,7 @@ impl CapacityTracker {
                 }
             }
         }
+        self.active = active;
     }
 
     /// Конец суток: оставшиеся снимки — с последнего кадра (он и есть

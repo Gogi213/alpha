@@ -147,7 +147,7 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
     let (h, rows) = read_csv(&all);
     assert_eq!(rows.len() as u64, n_bid_touches * 3);
     assert_eq!(
-        h.iter().skip(h.len() - 10).cloned().collect::<Vec<_>>(),
+        h.iter().skip(h.len() - 13).cloned().collect::<Vec<_>>(),
         [
             "best_pre1",
             "opp_pre1",
@@ -158,7 +158,10 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
             "q_pre60",
             "sold_pre60",
             "q_post10",
-            "sold_post10"
+            "sold_post10",
+            "clear_ms",
+            "best_after_clear",
+            "opp_after_clear"
         ]
     );
     let lead = LEAD_S * 1_000;
@@ -206,6 +209,11 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
     assert_eq!(at("1", "q_post10"), "0");
     assert_eq!(at("0", "q_post10"), at("0", "q_t0"));
     assert_eq!(at("0", "sold_post10"), "4");
+    // Очередь на стене (10 лотов в t0) за 10 с не выбрана — сделка 4 лота; на 10 001
+    // очередь 0, но сделок там после t0 нет.
+    assert_eq!(at("0", "clear_ms"), "-1");
+    assert_eq!(at("1", "clear_ms"), "-1");
+    assert_eq!(at("0", "best_after_clear"), "-1");
     assert_eq!(at("0", "q_pre1"), "10");
     assert_eq!(at("0", "sold_pre1"), "0");
     assert_eq!(at("2", "q_pre1"), "0");

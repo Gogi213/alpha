@@ -28,7 +28,7 @@ fn update(
 fn apply(tr: &mut CapacityTracker, book: &mut Book, up: &Update) {
     tr.before_update(up.cts_ms, book);
     book.apply(up).expect("обновление применимо");
-    tr.after_update(up.cts_ms);
+    tr.after_update(up.cts_ms, book);
 }
 
 fn sell(tick: i64, lots: i64, exch_ms: i64) -> TradeHit {
@@ -174,35 +174,41 @@ fn sold_splits_by_window_side_and_band() {
         &update(true, 1, 30_000, &[(10_000, 100)], &[(10_100, 1)]),
     );
     // До окна 60 с — не считается.
-    tr.observe_trade(sell(10_001, 3, 39_999));
+    tr.observe_trade(sell(10_001, 3, 39_999), &book);
     // В окне 60 с, вне окна 1 с.
-    tr.observe_trade(sell(10_001, 5, 50_000));
+    tr.observe_trade(sell(10_001, 5, 50_000), &book);
     // В окне 1 с (и в 60 с тоже).
-    tr.observe_trade(sell(10_001, 7, 99_500));
+    tr.observe_trade(sell(10_001, 7, 99_500), &book);
     // Касание: против нас на стене и на 10 002.
-    tr.observe_trade(sell(10_000, 20, 100_000));
-    tr.observe_trade(sell(10_002, 4, 120_000));
+    tr.observe_trade(sell(10_000, 20, 100_000), &book);
+    tr.observe_trade(sell(10_002, 4, 120_000), &book);
     // Агрессор-покупатель, блочная, RPI, нулевая — не наши сделки.
-    tr.observe_trade(buy(10_002, 40, 120_000));
-    tr.observe_trade(TradeHit {
-        block: true,
-        ..sell(10_002, 40, 120_000)
-    });
-    tr.observe_trade(TradeHit {
-        rpi: true,
-        ..sell(10_002, 40, 120_000)
-    });
-    tr.observe_trade(sell(10_002, 0, 120_000));
+    tr.observe_trade(buy(10_002, 40, 120_000), &book);
+    tr.observe_trade(
+        TradeHit {
+            block: true,
+            ..sell(10_002, 40, 120_000)
+        },
+        &book,
+    );
+    tr.observe_trade(
+        TradeHit {
+            rpi: true,
+            ..sell(10_002, 40, 120_000)
+        },
+        &book,
+    );
+    tr.observe_trade(sell(10_002, 0, 120_000), &book);
     // Вне полосы (71 тик).
-    tr.observe_trade(sell(10_071, 40, 120_000));
+    tr.observe_trade(sell(10_071, 40, 120_000), &book);
     // Ровно на конце касания — входит; после конца — нет, даже если кадр книги
     // за окном ещё не приходил.
-    tr.observe_trade(sell(10_070, 6, 130_000));
-    tr.observe_trade(sell(10_002, 40, 130_001));
+    tr.observe_trade(sell(10_070, 6, 130_000), &book);
+    tr.observe_trade(sell(10_002, 40, 130_001), &book);
     // Метка сделки внутри окна после кадра книги за окном (часы книги и ленты
     // разные) — сделка не теряется.
-    tr.after_update(131_000);
-    tr.observe_trade(sell(10_002, 1, 129_999));
+    tr.after_update(131_000, &book);
+    tr.observe_trade(sell(10_002, 1, 129_999), &book);
     let out = tr.finish(&book);
     let c = &out[0];
     assert_eq!(c.sold(1, 0), 7);
@@ -236,10 +242,10 @@ fn ask_wall_mirrors_direction_and_aggressor() {
         ),
     );
     // Против аска нас ест покупатель; продавец — нет.
-    tr.observe_trade(buy(9_999, 5, 105_000));
-    tr.observe_trade(sell(9_999, 50, 105_000));
-    tr.observe_trade(buy(9_930, 3, 105_000));
-    tr.observe_trade(buy(10_001, 9, 105_000));
+    tr.observe_trade(buy(9_999, 5, 105_000), &book);
+    tr.observe_trade(sell(9_999, 50, 105_000), &book);
+    tr.observe_trade(buy(9_930, 3, 105_000), &book);
+    tr.observe_trade(buy(10_001, 9, 105_000), &book);
     let out = tr.finish(&book);
     let c = &out[0];
     assert_eq!(c.tick_at(1), 9_999);
@@ -280,12 +286,12 @@ fn overlapping_targets_each_get_their_own_trades() {
         &mut book,
         &update(true, 1, 90_000, &[(10_000, 1), (20_000, 1)], &[(30_000, 1)]),
     );
-    tr.observe_trade(sell(10_001, 2, 105_000));
-    tr.observe_trade(sell(20_001, 3, 115_000));
+    tr.observe_trade(sell(10_001, 2, 105_000), &book);
+    tr.observe_trade(sell(20_001, 3, 115_000), &book);
     // Полоса стены 20 000 — 140 тиков, 20 001 в неё входит; 10 001 в полосу
     // стены 20 000 не входит (ниже стены).
-    tr.observe_trade(sell(10_001, 100, 115_000));
-    tr.observe_trade(sell(10_001, 4, 200_500));
+    tr.observe_trade(sell(10_001, 100, 115_000), &book);
+    tr.observe_trade(sell(10_001, 4, 200_500), &book);
     let out = tr.finish(&book);
     assert_eq!(out.len(), 3);
     assert_eq!(out[0].target, c);
@@ -356,11 +362,11 @@ fn post_slots_share_t0_snapshot_and_count_trades_past_touch_end() {
     );
     // В 10 с и в касании; в касании, но после 10 с; после конца касания, в 60 с;
     // после 60 с.
-    tr.observe_trade(sell(10_001, 2, 105_000));
-    tr.observe_trade(sell(10_001, 1, 125_000));
-    tr.observe_trade(sell(10_001, 3, 135_000));
-    tr.observe_trade(sell(10_001, 4, 150_000));
-    tr.observe_trade(sell(10_001, 8, 160_001));
+    tr.observe_trade(sell(10_001, 2, 105_000), &book);
+    tr.observe_trade(sell(10_001, 1, 125_000), &book);
+    tr.observe_trade(sell(10_001, 3, 135_000), &book);
+    tr.observe_trade(sell(10_001, 4, 150_000), &book);
+    tr.observe_trade(sell(10_001, 8, 160_001), &book);
     let out = tr.finish(&book);
     let c = &out[0];
     assert_eq!(c.queue(1, 0), 5);
@@ -378,4 +384,71 @@ fn post_slots_share_t0_snapshot_and_count_trades_past_touch_end() {
     assert_eq!(c.sold(1, 1), 3);
     assert_eq!(c.sold(1, 2), 2);
     assert_eq!(c.sold(1, 3), 10);
+}
+
+#[test]
+fn queue_clear_records_first_fill_and_book_after_it() {
+    let t = bid_target();
+    let mut tr = CapacityTracker::new(&[1_000], &[60_000], 70, &[t]).expect("трекер");
+    let mut book = book();
+    // В `t0` на стене 100, на 10 001 — 5.
+    apply(
+        &mut tr,
+        &mut book,
+        &update(
+            true,
+            1,
+            100_000,
+            &[(10_000, 100), (10_001, 5)],
+            &[(10_002, 1)],
+        ),
+    );
+    // 10 001: 5 наторговано — очередь ровно выбрана, но наш лот ещё нет; 6-й лот — исполнен.
+    tr.observe_trade(sell(10_001, 5, 101_000), &book);
+    tr.observe_trade(sell(10_001, 1, 101_500), &book);
+    // Стена: 100 наторговано и ещё 1 — насквозь: кадр после показывает бид ниже стены.
+    tr.observe_trade(sell(10_000, 101, 102_000), &book);
+    apply(
+        &mut tr,
+        &mut book,
+        &update(
+            false,
+            2,
+            102_050,
+            &[(10_000, 0), (10_001, 0), (9_999, 7)],
+            &[(10_000, 3)],
+        ),
+    );
+    let out = tr.finish(&book);
+    let c = &out[0];
+    assert_eq!(c.clear_ms(1), 101_500);
+    assert_eq!(c.clear_ms(0), 102_000);
+    assert_eq!(c.clear_ms(2), -1);
+    // Первый кадр после обеих выборок — 102 050: лучший бид 9 999 (ниже стены), аск 10 000.
+    assert_eq!(
+        c.best_after_clear(0),
+        BestAt {
+            ours: 9_999,
+            opposite: 10_000
+        }
+    );
+    assert_eq!(
+        c.best_after_clear(1),
+        BestAt {
+            ours: 9_999,
+            opposite: 10_000
+        }
+    );
+    assert_eq!(c.best_after_clear(2), BestAt::UNKNOWN);
+}
+
+#[test]
+fn queue_clear_needs_known_queue() {
+    let t = bid_target();
+    let mut tr = CapacityTracker::new(&[1_000], &[60_000], 70, &[t]).expect("трекер");
+    let book = book();
+    // Кадров нет — очередь `t0` неизвестна (-1), выборка не фиксируется.
+    tr.observe_trade(sell(10_000, 1_000, 101_000), &book);
+    let out = tr.finish(&book);
+    assert_eq!(out[0].clear_ms(0), -1);
 }

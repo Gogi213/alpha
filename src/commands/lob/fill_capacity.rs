@@ -14,7 +14,9 @@
 //! тик полосы): ключ касания (`side,price_tick,start_ms` — для склейки с
 //! `touches-<SYMBOL>.csv`), шаг цены и лота (доллары считает читатель),
 //! возраст и размер стены, смещение фронтрана, тик и расстояние в bps,
-//! очередь/наторговано/лучшие цены по слотам `t0` и каждому `pre`. `-1` в
+//! очередь/наторговано/лучшие цены по слотам `t0` и каждому `pre`, момент выборки
+//! очереди `t0` на тике и книга на первом кадре после (`clear_ms`,
+//! `best_after_clear`/`opp_after_clear` — «стена держит» или «насквозь»). `-1` в
 //! `q_*`/`best_*`/`opp_*` — книги на момент не было (постановка раньше
 //! первого кадра суток), не ноль. Читатель — `tools/compute/fill-capacity.py`.
 //! K1: маркер `verify-<SYMBOL>.status == ok`, иначе символ пропущен
@@ -157,6 +159,10 @@ fn header(pre_ms: &[i64], post_ms: &[i64]) -> String {
         cols.push(format!("q_post{s}"));
         cols.push(format!("sold_post{s}"));
     }
+    // Выборка очереди `t0` (мс от `t0`, `-1` — нет) и книга на первом кадре после.
+    cols.push("clear_ms".into());
+    cols.push("best_after_clear".into());
+    cols.push("opp_after_clear".into());
     cols.join(",")
 }
 
@@ -228,6 +234,10 @@ fn write_rows<W: Write>(
             let s = npre + 1 + j;
             write!(w, ",{},{}", cap.queue(ku, s), cap.sold(ku, s))?;
         }
+        let cl = cap.clear_ms(ku);
+        let rel = if cl < 0 { -1 } else { cl - t.start_ms };
+        let after = cap.best_after_clear(ku);
+        write!(w, ",{rel},{},{}", after.ours, after.opposite)?;
         writeln!(w)?;
         n += 1;
     }
@@ -281,12 +291,12 @@ fn replay_day(
                         break 'frames;
                     }
                     for tr in trackers.iter_mut() {
-                        tr.after_update(up.cts_ms);
+                        tr.after_update(up.cts_ms, &book);
                     }
                 }
                 if let Some(h) = trade_hit_from_record(rec) {
                     for tr in trackers.iter_mut() {
-                        tr.observe_trade(h);
+                        tr.observe_trade(h, &book);
                     }
                 }
             }
@@ -302,7 +312,7 @@ fn replay_day(
                     break;
                 }
                 for tr in trackers.iter_mut() {
-                    tr.after_update(up.cts_ms);
+                    tr.after_update(up.cts_ms, &book);
                 }
             }
         }
