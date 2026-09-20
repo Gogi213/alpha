@@ -90,6 +90,10 @@ verdict_one() {
     alert "вердикт $label не посчитался: $(tail -2 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-200)"
   fi
   echo "== $(date -u +%FT%TZ) verdict $label: $(tail -3 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
+  # Реестр вердиктов (docs/plan/EXPERIMENTS.md): строка на (ночь, вид) — итог, лучшая форма, круги, точка, нижняя.
+  [ -f study/verdicts.csv ] || echo "night,kind,verdict,form,rounds,point_bps,lower_bps" > study/verdicts.csv
+  l=$(grep -a "ИТОГ" "study/bounce-verdict-$label.log" | tail -1)
+  echo "$DAY,$kind,$(echo "$l" | grep -o "ИТОГ=[^·]*" | cut -c6- | sed 's/ *$//'),$(echo "$l" | grep -o "лучшая [^ ]*" | cut -c8-),$(echo "$l" | grep -o "кругов [0-9]*" | cut -c8-),$(echo "$l" | grep -o "точка=[-0-9.]*" | cut -c7-),$(echo "$l" | grep -o "нижняя=[-0-9.]*" | cut -c8-)" >> study/verdicts.csv
 }
 # Все наборы базы одним процессом (`--set`, 20.09): события суток и окна декодируются один раз на
 # монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-base/<набор>/.
