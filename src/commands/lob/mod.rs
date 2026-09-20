@@ -356,9 +356,14 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.days,
                 summary.touches,
                 summary.approaches,
-                match &summary.approaches_out {
-                    Some(p) => format!(" approaches_out={}", p.display()),
-                    None => String::new(),
+                match summary.approaches_out.as_slice() {
+                    [] => String::new(),
+                    [only] => format!(" approaches_out={}", only.display()),
+                    [first, rest @ ..] => format!(
+                        " approaches_out={} (+{} полос)",
+                        first.display(),
+                        rest.len()
+                    ),
                 },
                 summary.out.display()
             );

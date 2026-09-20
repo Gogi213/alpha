@@ -460,7 +460,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
         repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
         out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
-        approach_bps: None,
+        approach_bps: Vec::new(),
         approach_min_age_secs: 0,
         moves: None,
         moves_window_ms: None,

@@ -17,7 +17,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
         out: None,
-        approach_bps: None,
+        approach_bps: Vec::new(),
         approach_min_age_secs: 0,
         moves: None,
         moves_window_ms: None,
@@ -262,10 +262,14 @@ fn approaches_csv_reads_back_the_same_records() {
     let dir = tempfile::tempdir().unwrap();
     write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
     let mut args = touches_args(dir.path());
-    args.approach_bps = Some(700);
+    args.approach_bps = vec![700];
     let summary = run_touches(&args).unwrap();
     assert_eq!(summary.approaches, 1);
-    let path = summary.approaches_out.clone().expect("файл подходов");
+    let path = summary
+        .approaches_out
+        .first()
+        .cloned()
+        .expect("файл подходов");
     assert_eq!(path, dir.path().join("approaches-SOLUSDT.csv"));
     let (header, rows) = read_rows(&path);
     assert_eq!(header, APPROACHES_COLUMNS.map(str::to_string).to_vec());
@@ -306,4 +310,60 @@ fn approaches_csv_reads_back_the_same_records() {
         })
         .collect();
     assert_eq!(read, expected, "CSV обязан читаться в те же записи");
+}
+
+/// Механика D-оси (владелец 20.09: в предрегистрацию идут несколько полос):
+/// `--approach-bps` списком — один реплей, файл на полосу. Первая полоса пишет
+/// привычное имя `approaches-<SYMBOL>.csv` и обязана совпасть с одиночным
+/// прогоном той же полосы (байт в байт: один и тот же трекер на той же книге),
+/// остальные — `approaches-<SYMBOL>-D<d>.csv`; касания одинаковы у всех полос.
+/// Фикстура: аск 105 против бид-стены 99 — 606 bps, поэтому `D = 300` не
+/// взводится вовсе, `700` и `1500` дают по одной записи.
+#[test]
+fn approach_bands_write_one_file_per_band() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let mut single = touches_args(dir.path());
+    single.approach_bps = vec![700];
+    single.out = Some(dir.path().join("one").join("touches-SOLUSDT.csv"));
+    let one = run_touches(&single).unwrap();
+    assert_eq!(one.approaches, 1);
+    let one_ap = one
+        .approaches_out
+        .first()
+        .cloned()
+        .expect("файл полосы 700");
+
+    let mut multi = touches_args(dir.path());
+    multi.approach_bps = vec![700, 300, 1500];
+    multi.out = Some(dir.path().join("many").join("touches-SOLUSDT.csv"));
+    let many = run_touches(&multi).unwrap();
+    assert_eq!(many.approaches_out.len(), 3, "{:?}", many.approaches_out);
+    assert!(many.approaches_out[0].ends_with("approaches-SOLUSDT.csv"));
+    assert!(many.approaches_out[1].ends_with("approaches-SOLUSDT-D300.csv"));
+    assert!(many.approaches_out[2].ends_with("approaches-SOLUSDT-D1500.csv"));
+    assert_eq!(
+        many.touches, one.touches,
+        "сигнал подхода не меняет касания"
+    );
+    // Первая полоса списка — те же байты, что одиночный прогон.
+    assert_eq!(
+        std::fs::read(&many.approaches_out[0]).unwrap(),
+        std::fs::read(&one_ap).unwrap(),
+        "полоса 700 в списке и одиночно обязана дать тот же файл"
+    );
+    let (_, wide) = read_rows(&many.approaches_out[2]);
+    assert_eq!(wide.len(), 1, "D = 1500 ловит тот же подход (606 bps)");
+    let (_, narrow) = read_rows(&many.approaches_out[1]);
+    assert!(
+        narrow.is_empty(),
+        "D = 300 не взводится: 606 bps вне полосы"
+    );
+    // Явная ошибка на повторы и отрицательные полосы.
+    let mut bad = touches_args(dir.path());
+    bad.approach_bps = vec![10, 20, 10];
+    assert!(run_touches(&bad).is_err(), "повтор полосы — отказ");
+    let mut bad = touches_args(dir.path());
+    bad.approach_bps = vec![0];
+    assert!(run_touches(&bad).is_err(), "нулевая полоса — отказ");
 }

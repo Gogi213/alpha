@@ -71,7 +71,7 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
         repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
         out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
-        approach_bps: Some(700),
+        approach_bps: vec![700],
         approach_min_age_secs: 0,
         moves: None,
         moves_window_ms: None,

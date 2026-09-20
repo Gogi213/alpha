@@ -45,8 +45,8 @@ use crate::lob::markout::{
 };
 
 use super::{
-    outcome_name, replay_symbol, side_name, some_or_empty, H3Args, DEFAULT_REPEAT_WINDOW_MS,
-    DEFAULT_WARMUP_MS,
+    outcome_name, replay_symbol, replay_symbol_over_configs, side_name, some_or_empty, H3Args,
+    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::lob::moves::{by_dt_bins, find_pairs, histogram, quantiles};
 use crate::lob::touch_axes::{
@@ -87,8 +87,16 @@ pub struct TouchesArgs {
     /// касаниями пишется `approaches-<symbol>.csv` — моменты, когда цена
     /// другой стороны подошла к живому уровню на `D` bps. Без флага записей
     /// подхода нет вовсе (байты касаний прежние).
-    #[arg(long)]
-    pub approach_bps: Option<i64>,
+    ///
+    /// **Список значений** (`--approach-bps 10,20,30,50`, владелец 20.09:
+    /// в предрегистрацию идут несколько полос) — один реплей, по трекеру на
+    /// полосу: первая пишет привычный `approaches-<symbol>.csv`, каждая
+    /// следующая — `approaches-<symbol>-D<d>.csv`. Так нельзя сложить полосы
+    /// в один файл: момент взвода у разных `D` разный (цена пересекает
+    /// широкую полосу раньше узкой), и запись с `D = 20` не даёт корректного
+    /// взвода на 50.
+    #[arg(long, value_delimiter = ',')]
+    pub approach_bps: Vec<i64>,
     /// Минимальный возраст уровня к моменту взвода подхода, секунды (флор
     /// В-71 — 900 с; без флага пола нет). Только вместе с `--approach-bps`.
     #[arg(long, default_value_t = 0)]
@@ -125,8 +133,9 @@ pub struct TouchesSummary {
     /// Записей подхода (F1) — ноль, если `--approach-bps` не задан.
     pub approaches: usize,
     pub out: PathBuf,
-    /// Файл записей подхода, если он писался.
-    pub approaches_out: Option<PathBuf>,
+    /// Файлы записей подхода, если они писались: первый — привычное имя
+    /// `approaches-<symbol>.csv`, дальше по полосе на файл (`-D<d>`).
+    pub approaches_out: Vec<PathBuf>,
 }
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
@@ -357,27 +366,62 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         tick_e9,
         step_e9,
     )?;
+    // Полосы подхода: первая — «привычная» (`approaches-<symbol>.csv`), каждая
+    // следующая — со своим суффиксом `-D<d>` (момент взвода у полос разный, см.
+    // doc флага). Пустой список — записей подхода нет вовсе.
+    anyhow::ensure!(
+        args.approach_bps.iter().all(|&d| d > 0),
+        "--approach-bps обязан быть положителен"
+    );
+    let bands = args.approach_bps.clone();
+    {
+        let mut sorted = bands.clone();
+        sorted.sort_unstable();
+        anyhow::ensure!(
+            sorted.windows(2).all(|w| w[0] != w[1]),
+            "--approach-bps: полосы повторяются: {:?}",
+            args.approach_bps
+        );
+    }
     let cfg = LevelsConfig {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
-        approach_bps: args.approach_bps,
+        approach_bps: bands.first().copied(),
         approach_min_age_ms: args.approach_min_age_secs.saturating_mul(1_000),
     };
-    if args.approach_bps.is_none() {
+    if bands.is_empty() {
         anyhow::ensure!(
             args.approach_min_age_secs == 0,
             "--approach-min-age-secs задан без --approach-bps: пола взвода нет, записи подхода тоже"
         );
     }
-    anyhow::ensure!(
-        cfg.approach_bps.is_none_or(|d| d > 0),
-        "--approach-bps обязан быть положителен"
-    );
     // Порог в лотах — только для чисел практиков `--numbers` (оси «×H3»): у
     // режимов В-61 единого порога нет, и `--numbers` с ними — отказ.
     let h3_lots = mode.single_h3_lots();
-    let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
+    // Несколько полос — один реплей и по трекеру на полосу (`ReplayStats` на
+    // конфигурацию); касания одинаковы у всех (сигнал подхода их не меняет),
+    // поэтому берём раскладку первой полосы, а записи подхода — у каждой своей.
+    let mut replays = if bands.len() > 1 {
+        let cfgs: Vec<LevelsConfig> = bands
+            .iter()
+            .map(|&d| LevelsConfig {
+                approach_bps: Some(d),
+                ..cfg
+            })
+            .collect();
+        let mut stats = replay_symbol_over_configs(&args.root, &args.symbol, &cfgs)?;
+        anyhow::ensure!(
+            stats.len() == cfgs.len(),
+            "реплей вернул {} раскладок на {} конфигураций",
+            stats.len(),
+            cfgs.len()
+        );
+        std::mem::take(&mut stats)
+    } else {
+        vec![replay_symbol(&args.root, &args.symbol, cfg)?]
+    };
+    let replay = replays.remove(0);
     let out = args
         .out
         .clone()
@@ -390,23 +434,38 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     let mut w = csv::Writer::from_path(&out)?;
     w.write_record(TOUCHES_COLUMNS)?;
     let mut n = 0usize;
-    // Записи подхода (F1) — рядом с касаниями, тем же прогоном: трекер уже
-    // их ведёт, отдельного реплея не нужно.
-    let approaches_out = args.approach_bps.map(|_| {
-        let name = format!("approaches-{}.csv", args.symbol);
-        match out.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p.join(name),
-            _ => PathBuf::from(name),
-        }
-    });
-    let mut wa = match &approaches_out {
-        Some(path) => {
+    // Записи подхода (F1) — рядом с касаниями, тем же прогоном: трекеры уже
+    // их ведут, отдельного реплея не нужно. Файл на полосу: первая — привычное
+    // имя `approaches-<symbol>.csv`, остальные — `approaches-<symbol>-D<d>.csv`.
+    let approaches_out: Option<Vec<PathBuf>> = if bands.is_empty() {
+        None
+    } else {
+        Some(
+            bands
+                .iter()
+                .enumerate()
+                .map(|(k, d)| {
+                    let name = if k == 0 {
+                        format!("approaches-{}.csv", args.symbol)
+                    } else {
+                        format!("approaches-{}-D{}.csv", args.symbol, d)
+                    };
+                    match out.parent() {
+                        Some(p) if !p.as_os_str().is_empty() => p.join(name),
+                        _ => PathBuf::from(name),
+                    }
+                })
+                .collect(),
+        )
+    };
+    let mut wa: Vec<csv::Writer<std::fs::File>> = Vec::new();
+    if let Some(paths) = &approaches_out {
+        for path in paths {
             let mut w = csv::Writer::from_path(path)?;
             w.write_record(APPROACHES_COLUMNS)?;
-            Some(w)
+            wa.push(w);
         }
-        None => None,
-    };
+    }
     let mut n_ap = 0usize;
     // Ряд `σ` — по всей записи символа (В-62): окно раннего касания вторых
     // суток смотрит в первые.
@@ -422,7 +481,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         [60, 600, 3600, 7200],
         "порядок колонок sigma_* обязан совпадать с окнами дедлайнов"
     );
-    for day in &replay.days {
+    for (day_i, day) in replay.days.iter().enumerate() {
         for t in &day.touches {
             let sigma: [Option<f64>; DEADLINE_SECS.len()] = std::array::from_fn(|k| {
                 sigma_series.sigma_bps(t.start_ms, DEADLINE_SECS[k] as i64)
@@ -516,11 +575,20 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             w.write_record(row)?;
             n += 1;
         }
-        // Записи подхода этих суток (порядок — порядок трекера, детерминирован).
-        if let Some(wa) = wa.as_mut() {
-            for a in &day.approaches {
+        // Записи подхода этих суток (порядок — порядок трекера, детерминирован):
+        // по полосе на файл, у каждой полосы — свой трекер и своя раскладка суток.
+        for (band_i, writer) in wa.iter_mut().enumerate() {
+            let stats = if band_i == 0 {
+                &replay
+            } else {
+                &replays[band_i - 1]
+            };
+            let Some(band_day) = stats.days.get(day_i) else {
+                continue;
+            };
+            for a in &band_day.approaches {
                 let row: [String; APPROACHES_WIDTH] = [
-                    day.day.clone(),
+                    band_day.day.clone(),
                     side_name(a.side).to_string(),
                     a.price_tick.to_string(),
                     a.approach_index.to_string(),
@@ -540,14 +608,14 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                     a.duration_ms().to_string(),
                     a.disarm_reason.name().to_string(),
                 ];
-                wa.write_record(row)?;
+                writer.write_record(row)?;
                 n_ap += 1;
             }
         }
     }
     w.flush()?;
-    if let Some(wa) = wa.as_mut() {
-        wa.flush()?;
+    for writer in wa.iter_mut() {
+        writer.flush()?;
     }
     // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
     write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;
@@ -676,7 +744,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         touches: n,
         approaches: n_ap,
         out,
-        approaches_out,
+        approaches_out: approaches_out.unwrap_or_default(),
     })
 }
 
