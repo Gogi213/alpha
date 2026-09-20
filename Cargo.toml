@@ -26,3 +26,11 @@ sha2 = "0.11"
 
 [dev-dependencies]
 tempfile = "3"
+
+# Локальная копия крейта hftbacktest 0.9.4 с одним исправлением
+# (`PartialFillExchange`: нога, исполненная ровно до нуля, оставалась в карте биржи
+# и роняла прогон `InvalidOrderStatus` при следующей сделке по той же цене) —
+# без неё модель очереди по объёму (`--queue-model prob:<n>`, F3/F8/F10) на живых
+# сутках падает. Разбор и воспроизведение — docs/findings/hftbacktest-partialfill-fix-2026-09-20.md.
+[patch.crates-io]
+hftbacktest = { path = "vendor/hftbacktest" }

@@ -807,8 +807,6 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "hftbacktest"
 version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f8b0bec3c589d21814bee7c83680273e4395804bcd9a526dd5b90d44e808830"
 dependencies = [
  "anyhow",
  "aws-lc-rs",
