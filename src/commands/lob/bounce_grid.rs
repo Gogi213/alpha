@@ -85,6 +85,20 @@
 //! `n_fill_by_cross` в `forms.csv` (крейт пути не отдаёт: детектор
 //! `lob::backtest` по буферу последних сделок, отсрочка вердикта на шаг —
 //! локальная метка сделки отстаёт от биржевой).
+//!
+//! Форма входа и сигнал — F6 этапа F (В-73): `--signal touch|approach`
+//! (умолчание `touch` — гейт «те же круги») выбирает, от чего строится план
+//! (`bounce_plan`/`approach_plan`): от касания или от записи подхода F1
+//! (`approaches-<SYMBOL>.csv` того же кэша `--touches-from`; `t0` — `arm_ms`,
+//! снимок книги на взводе). `--entry-form` (повторяемый — ось сетки) —
+//! `single@fr` (умолчание: прежняя одиночная нога у фронтранера; имя формы
+//! остаётся трёхпольным) или `ladder<N>x<from>..<to>[w<k>]`: `N` ног целыми
+//! тиками от `from` до `to` bps **над стеной** (для аска — под), равными
+//! долями либо весом нижней ноги `k`. Числа — из имени формы
+//! (предрегистрация), умолчаний нет; нога, пересёкшая лучший аск, биржей не
+//! ставится (пост-онли `GTX`, `n_rejected_postonly`, F4). Имя формы —
+//! `<вход>-<стоп>-<тейк>-<H>` с хвостовыми `-ttl<режим>` (F5) и `-<выход>`
+//! (F7), читает `bounce_verdict::parse_form_fields`.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -97,11 +111,11 @@ use clap::Args;
 use hftbacktest::types::Event as HbtEvent;
 
 use super::backtest::{
-    bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
+    approach_plan, bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
     exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, pool_order_qty_usd,
-    read_tick_step, BounceForm, EntryTtl, PlanShape, StopForm, TakeForm,
+    read_tick_step, BounceForm, EntryForm, EntryTtl, PlanShape, StopForm, TakeForm,
 };
-use super::bounce_verdict::{form_label, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
+use super::bounce_verdict::{form_label_with_entry, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
 use super::{
     replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for, H3Args,
@@ -130,6 +144,10 @@ fn eaten_pct(t: &TouchRecord) -> f64 {
 pub(crate) struct DayTouches {
     pub(crate) day: String,
     pub(crate) touches: Vec<TouchRecord>,
+    /// Записи подхода (F6, `--signal approach`) — те же сутки и тот же порядок,
+    /// что `touches` (это их вид как касания, собранный
+    /// `backtest::touch_view_of_approach`); `None` — сигнал по касаниям.
+    pub(crate) approaches: Option<Vec<crate::lob::levels::ApproachRecord>>,
     /// Ход до касания за `PRE_TOUCH_MS` на каждое касание (S2), для контекста наборов.
     pub(crate) rets: Vec<[Option<f64>; 3]>,
 }
@@ -192,7 +210,69 @@ pub(crate) fn cached_touches<'a>(
         out.push(DayTouches {
             day: day.clone(),
             touches: rows.into_iter().map(|r| r.touch).collect(),
+            approaches: None,
             rets,
+        });
+    }
+    Ok(out)
+}
+
+/// Записи подхода символа из кэша (F1, F6): `<dir>/<сутки>/approaches-<SYMBOL>.csv`,
+/// иначе общий `<dir>/approaches-<SYMBOL>.csv`, из которого берутся строки этих
+/// суток. Рядом с записями — их **вид как касания**
+/// (`backtest::touch_view_of_approach`): фильтры (`TouchFilter`), порог В-66 и
+/// окна `SignalWindows` читают касание, а `arm_ms` становится `start_ms` —
+/// снимок книги берётся на взводе, как у касания на касании. Нет файла на
+/// какие-то сутки или в суточном файле чужие сутки — `Err` (реплея подходов у
+/// сетки нет: полосу `D` задаёт прогон `lob touches --approach-bps`).
+pub(crate) fn cached_approaches<'a>(
+    dir: &Path,
+    symbol: &str,
+    days: impl Iterator<Item = &'a String>,
+) -> anyhow::Result<Vec<DayTouches>> {
+    let flat = dir.join(format!("approaches-{symbol}.csv"));
+    let mut flat_rows: Option<Vec<super::touches::ApproachRow>> = None;
+    let mut out = Vec::new();
+    for day in days {
+        let per_day = dir.join(day).join(format!("approaches-{symbol}.csv"));
+        let rows: Vec<super::touches::ApproachRow> = if per_day.is_file() {
+            let rows = super::touches::read_approaches_csv(&per_day)?;
+            if let Some(bad) = rows.iter().find(|r| r.day != *day) {
+                anyhow::bail!(
+                    "{}: строка суток {} в файле суток {day}",
+                    per_day.display(),
+                    bad.day
+                );
+            }
+            rows
+        } else if flat.is_file() {
+            if flat_rows.is_none() {
+                flat_rows = Some(super::touches::read_approaches_csv(&flat)?);
+            }
+            flat_rows
+                .as_ref()
+                .expect("только что прочитан")
+                .iter()
+                .filter(|r| r.day == *day)
+                .cloned()
+                .collect()
+        } else {
+            anyhow::bail!("нет {} и нет {}", per_day.display(), flat.display());
+        };
+        let approaches: Vec<crate::lob::levels::ApproachRecord> =
+            rows.into_iter().map(|r| r.approach).collect();
+        let n = approaches.len();
+        out.push(DayTouches {
+            day: day.clone(),
+            touches: approaches
+                .iter()
+                .map(super::backtest::touch_view_of_approach)
+                .collect(),
+            approaches: Some(approaches),
+            // Кэш подходов хода до взвода не несёт (как у F2): контекстные
+            // ключи наборов с `--signal approach` отвергает `run_bounce_grid`,
+            // но длины рядов обязаны сходиться (`touch_contexts`).
+            rets: vec![[None; 3]; n],
         });
     }
     Ok(out)
@@ -210,6 +290,9 @@ pub struct GridForm {
     /// (`form_label`), у остальных несёт суффикс `-ttl<значение>` — имена
     /// обязаны различаться, иначе `run_bounce_grid` отказывает на повторе.
     pub entry_ttl: EntryTtl,
+    /// Форма входа (F6, В-73): `single@fr` — прежнее имя формы без поля входа
+    /// (гейт «те же круги»), лестница — поле `<вход>` первым в имени.
+    pub entry_form: EntryForm,
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —
@@ -234,28 +317,63 @@ pub fn grid_forms_with_entry_ttl(
     deadlines: &[u64],
     ttls: &[EntryTtl],
 ) -> Vec<GridForm> {
-    let mut out = Vec::with_capacity(stops.len() * takes.len() * deadlines.len() * ttls.len());
-    for &stop in stops {
-        for &take in takes {
-            for &deadline in deadlines {
-                let base = form_label(&stop.label(), &take.label(), deadline);
-                for &entry_ttl in ttls {
-                    let label: &'static str = match entry_ttl {
-                        // Прежний режим — прежнее имя: вердикт и «золото» F3/F4
-                        // читают `form_label` как есть.
-                        EntryTtl::Touch => Box::leak(base.clone().into_boxed_str()),
-                        other => Box::leak(format!("{base}-ttl{}", other.label()).into_boxed_str()),
-                    };
-                    out.push(GridForm {
-                        label,
-                        form: BounceForm {
-                            stop,
-                            take,
-                            take_floor_fees,
-                        },
-                        deadline_secs: deadline as i64,
-                        entry_ttl,
-                    });
+    grid_forms_with_axes(
+        stops,
+        takes,
+        take_floor_fees,
+        deadlines,
+        ttls,
+        &[EntryForm::SingleFrontrun],
+    )
+}
+
+/// Полная сетка F6 (В-73): к осям F5 добавлена ось **формы входа**
+/// (`--entry-form`, повторяемый). Форма входа — внешний множитель, поэтому
+/// при `&[EntryForm::SingleFrontrun]` порядок и имена форм те же, что у
+/// `grid_forms_with_entry_ttl` (гейт «те же круги»): у `single@fr` поле входа в
+/// имени не пишется (`form_label_with_entry`).
+pub fn grid_forms_with_axes(
+    stops: &[StopForm],
+    takes: &[TakeForm],
+    take_floor_fees: Option<f64>,
+    deadlines: &[u64],
+    ttls: &[EntryTtl],
+    entries: &[EntryForm],
+) -> Vec<GridForm> {
+    let mut out = Vec::with_capacity(
+        entries.len() * stops.len() * takes.len() * deadlines.len() * ttls.len(),
+    );
+    for &entry_form in entries {
+        for &stop in stops {
+            for &take in takes {
+                for &deadline in deadlines {
+                    let base = form_label_with_entry(
+                        &entry_form.label(),
+                        &stop.label(),
+                        &take.label(),
+                        deadline,
+                    );
+                    for &entry_ttl in ttls {
+                        let label: &'static str = match entry_ttl {
+                            // Прежний режим — прежнее имя: вердикт и «золото» F3/F4
+                            // читают `form_label` как есть.
+                            EntryTtl::Touch => Box::leak(base.clone().into_boxed_str()),
+                            other => {
+                                Box::leak(format!("{base}-ttl{}", other.label()).into_boxed_str())
+                            }
+                        };
+                        out.push(GridForm {
+                            label,
+                            form: BounceForm {
+                                stop,
+                                take,
+                                take_floor_fees,
+                            },
+                            deadline_secs: deadline as i64,
+                            entry_ttl,
+                            entry_form,
+                        });
+                    }
                 }
             }
         }
@@ -277,6 +395,27 @@ pub(crate) fn parse_entry_ttls(specs: &[String]) -> anyhow::Result<Vec<EntryTtl>
     }
     out.sort_by_key(|t| t.sort_key());
     out.dedup();
+    Ok(out)
+}
+
+/// Разбор повторяемого `--entry-form` (F6, В-73): пусто — прежний вход
+/// `single@fr` (гейт «те же круги»); иначе `single@fr` и/или
+/// `ladder<N>x<from>..<to>[w<k>]`. Порядок — порядок флагов (он же порядок
+/// осей сетки), повторы свёрнуты: иначе формы получили бы одинаковые имена и
+/// `run_bounce_grid` отказал бы. Числа форм — из имён (предрегистрация),
+/// умолчаний нет; пустой список — единственное исключение и оно прежнее
+/// поведение команды.
+pub(crate) fn parse_entry_forms(specs: &[String]) -> anyhow::Result<Vec<EntryForm>> {
+    if specs.is_empty() {
+        return Ok(vec![EntryForm::SingleFrontrun]);
+    }
+    let mut out: Vec<EntryForm> = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let form = EntryForm::parse(spec)?;
+        if !out.contains(&form) {
+            out.push(form);
+        }
+    }
     Ok(out)
 }
 
@@ -415,8 +554,24 @@ pub struct BounceGridArgs {
     /// шапки у CSV нет; стандарт — `--h3-mode notional --h3-usd 10000`,
     /// умолчания прогрева/окна повтора). Символ, у которого в кэше нет всех
     /// суток корня, идёт реплеем (со счётчиком и строкой в stderr).
+    /// С `--signal approach` здесь читаются `approaches-<SYMBOL>.csv` (F1).
     #[arg(long)]
     pub touches_from: Option<PathBuf>,
+    /// Сигнал входа (F6 этапа F, В-73): `touch` — касание (умолчание — гейт
+    /// «те же круги»), `approach` — запись подхода F1: лимитка ставится на
+    /// взводе (`t0 = arm_ms`) и живёт до касания/снятия/потолка, а не с
+    /// касания. `approach` требует кэша `--touches-from` с
+    /// `approaches-<SYMBOL>.csv`: реплей подходов сетка не считает, полосу `D`
+    /// задаёт прогон `lob touches --approach-bps`.
+    #[arg(long, value_enum, default_value_t = SignalArg::Touch)]
+    pub signal: SignalArg,
+    /// Форма входа (F6 этапа F, В-73) — повторяемый флаг, ось сетки:
+    /// `single@fr` (умолчание — прежний вход у фронтранера, гейт «те же
+    /// круги») или `ladder<N>x<from>..<to>[w<k>]` — `N` ног от `from` до `to`
+    /// bps над стеной (для аска — под), равными долями либо весом нижней ноги
+    /// `k`. Числа — из имени формы (предрегистрация), умолчаний нет.
+    #[arg(long = "entry-form")]
+    pub entry_form: Vec<String>,
     /// Набор фильтров касаний одним процессом (повторяемый): `<имя>:<k=v,…>`,
     /// ключи `age=<с>` (возраст ≥, как `--min-age-secs`), `flow=<%>` (сила
     /// ×поток ≥, как `--min-flow-pct`), `side=bid|ask`, `frontrun` (только
@@ -500,6 +655,23 @@ impl From<SideArg> for Side {
 pub enum DriverArg {
     Full,
     Setups,
+}
+
+/// По какому сигналу входит сделка (F6 этапа F, В-73): касание (прежнее,
+/// гейт) или запись подхода F1 (лимитка ставится заранее, на взводе).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SignalArg {
+    Touch,
+    Approach,
+}
+
+impl SignalArg {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Touch => "touch",
+            Self::Approach => "approach",
+        }
+    }
 }
 
 impl DriverArg {
@@ -1013,10 +1185,14 @@ pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
 
 /// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
 /// σ-формам); касания, для которых форму не построить, пропускаются и
-/// считаются (второе значение).
+/// считаются (второе значение). С `--signal approach` `touches` — это **вид**
+/// записей подхода как касаний (`cached_approaches`/`touch_view_of_approach`:
+/// `start_ms` = `arm_ms`), а план строится `approach_plan` от самой записи
+/// подхода: вход ставится на взводе, а не на касании (F6, В-73).
 #[allow(clippy::cast_precision_loss)]
 fn signals_for(
     touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
     sigma: &SigmaSeries,
     form: &GridForm,
     p: &DayParams<'_>,
@@ -1029,6 +1205,14 @@ fn signals_for(
             ctx.len() == touches.len(),
             "контекст касаний ({}) не совпадает с касаниями ({})",
             ctx.len(),
+            touches.len()
+        );
+    }
+    if let Some(ap) = approaches {
+        anyhow::ensure!(
+            ap.len() == touches.len(),
+            "записи подхода ({}) не совпадают с их видом как касаний ({})",
+            ap.len(),
             touches.len()
         );
     }
@@ -1046,28 +1230,30 @@ fn signals_for(
             } else {
                 None
             };
-            let built = bounce_plan(
-                t,
-                p.tick,
-                form.form,
-                sigma_bps,
-                PlanShape {
-                    lot: p.lot,
-                    post_only: p.post_only,
-                    trail_bps: 0.0,
-                    trail_activate_bps: 0.0,
-                    grid_legs: 1,
-                    grid_step_ticks: 0,
-                    deadline_ns,
-                    early_exit_ns,
-                    // F5 (В-74): режим срока жизни входа — из формы сетки
-                    // (`--entry-ttl-secs`), а условия «стена снята»/«цена ушла»
-                    // читают `--h3-usd` и `--band-exit-bps`.
-                    entry_ttl: form.entry_ttl,
-                    h3_usd: p.h3_usd,
-                    band_exit_bps: p.band_exit_bps,
-                },
-            );
+            let shape = PlanShape {
+                lot: p.lot,
+                post_only: p.post_only,
+                trail_bps: 0.0,
+                trail_activate_bps: 0.0,
+                grid_legs: 1,
+                grid_step_ticks: 0,
+                // F6 (В-73): форма входа — ось сетки (`--entry-form`):
+                // `single@fr` — прежняя нога, лестница — ноги от `from` до `to`
+                // bps над стеной.
+                entry_form: form.entry_form,
+                deadline_ns,
+                early_exit_ns,
+                // F5 (В-74): режим срока жизни входа — из формы сетки
+                // (`--entry-ttl-secs`), а условия «стена снята»/«цена ушла»
+                // читают `--h3-usd` и `--band-exit-bps`.
+                entry_ttl: form.entry_ttl,
+                h3_usd: p.h3_usd,
+                band_exit_bps: p.band_exit_bps,
+            };
+            let built = match approaches {
+                Some(ap) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
+                None => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
+            };
             let Some((dir, plan)) = built else {
                 skipped += 1;
                 return None;
@@ -1234,10 +1420,14 @@ struct FormOrder<'a> {
 /// форма взята** (например, 48 форм × 100 тыс. касаний × 128 Б заранее — 600 МБ), а
 /// результат формы отдаётся `sink` сразу и до конца суток не копится
 /// (`FormOrder`). Возвращает число форм, отданных в `sink`.
+///
+/// `approaches` — записи подхода (F6, `--signal approach`): те же сутки и тот
+/// же порядок, что `touches` (их вид как касания); `None` — сигнал по касаниям.
 fn drive_day(
     events: &[HbtEvent],
     windows: Option<&SignalWindows>,
     touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
     forms: &[GridForm],
     p: DayParams<'_>,
     sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
@@ -1265,8 +1455,8 @@ fn drive_day(
                     first_order_id: 1,
                     queue_model: p.queue_model,
                 };
-                let step =
-                    signals_for(touches, p.sigma, &forms[i], &p).and_then(|(signals, skipped)| {
+                let step = signals_for(touches, approaches, p.sigma, &forms[i], &p).and_then(
+                    |(signals, skipped)| {
                         let driven = match windows {
                             Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
                             None => with_backtest_over(
@@ -1281,7 +1471,8 @@ fn drive_day(
                         driven
                             .map(|run| (run, signals, skipped))
                             .map_err(|e| anyhow::anyhow!("форма #{i}: {e}"))
-                    });
+                    },
+                );
                 let flushed = match step {
                     Ok((run, signals, skipped)) => match order.lock() {
                         Ok(mut o) => {
@@ -1634,18 +1825,29 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // Прежний режим (`touch`): условие выключено, число не читается.
         None => 0.0,
     };
-    let forms = grid_forms_with_entry_ttl(
+    let entries = parse_entry_forms(&args.entry_form)?;
+    let forms = grid_forms_with_axes(
         &stops,
         &takes,
         args.take_floor_fees,
         &deadlines,
         &entry_ttls,
+        &entries,
     );
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
             labels.len() == forms.len(),
-            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs дают одинаковые имена"
+            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs/--entry-form дают одинаковые имена"
+        );
+    }
+    // F6 (В-73): сигнал по записи подхода — только из кэша F1, реплея
+    // подходов у сетки нет (полосу `D` выбирает прогон `lob touches
+    // --approach-bps`; в часы ночи их пишет шаг H3).
+    if args.signal == SignalArg::Approach {
+        anyhow::ensure!(
+            args.touches_from.is_some(),
+            "--signal approach: нужен кэш подходов --touches-from <dir> (approaches-<SYMBOL>.csv, F1) — реплей подходов сетка не считает"
         );
     }
     if let Some(dir) = &args.touches_from {
@@ -1682,6 +1884,19 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         );
         parsed
     };
+    // F6 (В-73): у записи подхода нет ни истории размера (ключ `eaten=`), ни
+    // хода цены до взвода (ключи контекста `ret*`/`pool*`/`btc*`) — фильтры,
+    // которые их читают, молча выбросили бы все сигналы; отказ, как у F2.
+    if args.signal == SignalArg::Approach {
+        anyhow::ensure!(
+            !sets.iter().any(|s| s.eaten_max_pct.is_some()),
+            "--signal approach: ключ `eaten=` у подхода не определён — размер на взводе и есть старт"
+        );
+        anyhow::ensure!(
+            !sets.iter().any(FilterSet::uses_ctx),
+            "--signal approach: ключи контекста (ret*/pool*/btc*) у подхода не определены — кэш подходов хода до взвода не несёт"
+        );
+    }
     anyhow::ensure!(
         args.regime_from.is_some() || !sets.iter().any(FilterSet::uses_regime),
         "ключи pool*/btc* у наборов требуют --regime-from <study/regime>"
@@ -1701,7 +1916,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1738,6 +1953,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             .collect::<Vec<_>>()
             .join("+"),
         band_exit_bps,
+        // F6 (В-73): по какому сигналу вход (`touch` — гейт, `approach` —
+        // запись подхода F1) и какими формами входа (ось `--entry-form`).
+        args.signal.label(),
+        entries
+            .iter()
+            .map(|e| e.label())
+            .collect::<Vec<_>>()
+            .join("+"),
         args.touches_from
             .as_ref()
             .map_or("replay".to_string(), |d| format!("csv({})", d.display())),
@@ -1843,51 +2066,81 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // S1: касания один раз на символ — общие для всех форм; из кэша
         // `--touches-from` (сутки корня) или реплеем книги, тогда вместе с
         // ними срезы середины по границам секунд — для ряда `σ` (В-62).
-        let (days, sigma_series) = match args
-            .touches_from
-            .as_deref()
-            .map(|dir| cached_touches(dir, symbol, parts_by_day.keys(), need_ret))
-        {
-            Some(Ok(days)) => {
-                summary.symbols_from_cache += 1;
-                (days, SigmaSeries::from_mids(&[]))
-            }
-            other => {
-                if let Some(Err(why)) = other {
-                    eprintln!("bounce-grid: {symbol} — кэш касаний не годится ({why}), реплей");
+        // F6 (В-73): `--signal approach` — записи подхода из того же кэша
+        // (`approaches-<SYMBOL>.csv`, F1); реплея подходов нет — полосу `D`
+        // задаёт прогон `lob touches --approach-bps` (проверено выше).
+        let (days, sigma_series) = if args.signal == SignalArg::Approach {
+            let dir = args
+                .touches_from
+                .as_deref()
+                .expect("--signal approach без --touches-from отвергнут выше");
+            // Суток в кэше нет — символ пропускается, а не роняет весь прогон
+            // (как у `lob fill-capacity --targets approaches`, F2): реплея
+            // подходов у сетки нет, полосу `D` знает только прогон F1.
+            let Ok(days) = cached_approaches(dir, symbol, parts_by_day.keys()) else {
+                eprintln!(
+                    "bounce-grid: {symbol} — кэш подходов не годится, символ пропущен (нужен прогон `lob touches --approach-bps D`)"
+                );
+                summary.symbols_without_touches += 1;
+                continue;
+            };
+            summary.symbols_from_cache += 1;
+            (days, SigmaSeries::from_mids(&[]))
+        } else {
+            match args
+                .touches_from
+                .as_deref()
+                .map(|dir| cached_touches(dir, symbol, parts_by_day.keys(), need_ret))
+            {
+                Some(Ok(days)) => {
+                    summary.symbols_from_cache += 1;
+                    (days, SigmaSeries::from_mids(&[]))
                 }
-                let replay = replay_symbol_touches_and_second_mids(&args.root, symbol, cfg_levels)?;
-                let mut all = Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
-                for d in &replay.days {
-                    all.extend(d.mids.iter().copied());
-                }
-                let days = replay
-                    .days
-                    .into_iter()
-                    .map(|d| DayTouches {
-                        rets: d
-                            .touches
-                            .iter()
-                            .map(|t| {
-                                std::array::from_fn(|k| {
-                                    super::touches::pre_touch_return_bps_csv(
-                                        &d.mids,
-                                        t.start_ms,
-                                        super::touches::PRE_TOUCH_MS[k],
-                                    )
+                other => {
+                    if let Some(Err(why)) = other {
+                        eprintln!("bounce-grid: {symbol} — кэш касаний не годится ({why}), реплей");
+                    }
+                    let replay =
+                        replay_symbol_touches_and_second_mids(&args.root, symbol, cfg_levels)?;
+                    let mut all =
+                        Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
+                    for d in &replay.days {
+                        all.extend(d.mids.iter().copied());
+                    }
+                    let days = replay
+                        .days
+                        .into_iter()
+                        .map(|d| DayTouches {
+                            rets: d
+                                .touches
+                                .iter()
+                                .map(|t| {
+                                    std::array::from_fn(|k| {
+                                        super::touches::pre_touch_return_bps_csv(
+                                            &d.mids,
+                                            t.start_ms,
+                                            super::touches::PRE_TOUCH_MS[k],
+                                        )
+                                    })
                                 })
-                            })
-                            .collect(),
-                        day: d.day,
-                        touches: d.touches,
-                    })
-                    .collect();
-                (days, SigmaSeries::from_mids(&all))
+                                .collect(),
+                            day: d.day,
+                            touches: d.touches,
+                            approaches: None,
+                        })
+                        .collect();
+                    (days, SigmaSeries::from_mids(&all))
+                }
             }
         };
         let touches_total: usize = days.iter().map(|d| d.touches.len()).sum();
         if touches_total == 0 {
-            eprintln!("bounce-grid: {symbol} — касаний нет, символ пропущен");
+            let what = if args.signal == SignalArg::Approach {
+                "записей подхода"
+            } else {
+                "касаний"
+            };
+            eprintln!("bounce-grid: {symbol} — {what} нет, символ пропущен");
             summary.symbols_without_touches += 1;
             continue;
         }
@@ -1968,6 +2221,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         &events,
                         windows.as_ref(),
                         &day.touches,
+                        day.approaches.as_deref(),
                         &forms,
                         DayParams {
                             tick,

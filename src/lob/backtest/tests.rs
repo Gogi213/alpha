@@ -1,4 +1,5 @@
 use super::*;
+use crate::lob::strategy::EntryLadder;
 
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
@@ -720,6 +721,8 @@ fn ladder_entry_accumulates_legs_until_the_entry_is_over() {
         trail_activate_bps: 0.0,
         grid_legs: 4,
         grid_step_px: 1.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -830,6 +833,8 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: S,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -911,6 +916,8 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: S,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -983,6 +990,8 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         trail_activate_bps: 0.0,
         grid_legs: 4,
         grid_step_px: 0.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -1142,6 +1151,8 @@ fn bench_round_cost_in_a_window() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 1.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -1224,6 +1235,8 @@ fn bench_dense_round_in_a_window() {
         trail_activate_bps: 0.0,
         grid_legs: 4,
         grid_step_px: 1.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -1304,6 +1317,8 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -1376,6 +1391,8 @@ fn f3_plan(entry_px: f64, take_px: f64, legs: u8, step: f64) -> TradePlan {
         trail_activate_bps: 0.0,
         grid_legs: legs,
         grid_step_px: step,
+        // F6: лестница формы (`EntryLadder`) — не этот тест; вход прежний.
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,

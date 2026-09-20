@@ -1135,11 +1135,42 @@ pub struct BounceRun {
 }
 
 /// Сколько ног входа ставит этот план: у Decision 20 — одна, у лестницы
-/// В-44 — `grid_legs`. Нужно драйверу, чтобы найти исполненную ногу.
+/// В-44 — `grid_legs`, у лестницы формы F6 (`ladder.n > 0`) — её ноги
+/// (совпавшие тики сложены, так что число ног — уже итоговое). Нужно драйверу,
+/// чтобы найти исполненные ноги.
 fn legs_of(plan: TradePlan) -> u8 {
     match plan {
         TradePlan::SpreadHold => 1,
-        TradePlan::Bounce { grid_legs, .. } => grid_legs.max(1),
+        TradePlan::Bounce {
+            grid_legs, ladder, ..
+        } => {
+            if ladder.n > 0 {
+                ladder.n
+            } else {
+                grid_legs.max(1)
+            }
+        }
+    }
+}
+
+/// Самая близкая к рынку цена входа плана (F6, В-73): у лестницы формы — её
+/// дальняя нога (`to` bps), у прежнего входа — `entry_px`. По ней драйвер
+/// отвечает на вопрос «пересекает ли вход спред» (пост-онли биржа такую ногу
+/// не ставит, `Expired`), и она же — цена, до которой цена доходит к нашей
+/// заявке первой. `None` — план без входа-отскока.
+fn entry_market_px(plan: TradePlan) -> Option<f64> {
+    match plan {
+        TradePlan::SpreadHold => None,
+        TradePlan::Bounce {
+            entry_px,
+            tick_px,
+            ladder,
+            ..
+        } => match ladder.outer_tick() {
+            #[allow(clippy::cast_precision_loss)]
+            Some(t) => Some(t as f64 * tick_px),
+            None => Some(entry_px),
+        },
     }
 }
 
@@ -1580,7 +1611,7 @@ where
     // отвергает, обычный лимит — исполняет как тейкер.
     let mut crossed = false;
     let mut spread = None;
-    if let TradePlan::Bounce { entry_px, .. } = sig.plan {
+    if let Some(entry_px) = entry_market_px(sig.plan) {
         let d = bot.depth(asset_no);
         let (bid, ask) = (d.best_bid(), d.best_ask());
         if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {

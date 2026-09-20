@@ -57,6 +57,66 @@ fn fixture_root(dir: &std::path::Path, verified: bool) {
     }
 }
 
+/// Фикстура F6 (В-73): цена **подходит** к бид-стене 99.00 (тик 9900) за 2 с
+/// до касания. Аск стоит далеко (130.00 — 3130 bps от стены, полоса не
+/// взведена), на `lead+3500` входит в полосу 750 bps (106.00 против 99.00 —
+/// 707 bps), на `lead+4000` кадр стороны бида взводит подход, на `lead+5500`
+/// убирается бид 100.00: стена становится лучшей — **касание**, подход
+/// снимается касанием. Свип 99.00 на `lead+5000` (за 0,5 с **до** касания)
+/// исполняет ноги входа, поставленные на взводе, а касание закрывает круг
+/// стопом «в стену».
+fn approach_frames() -> Vec<Vec<crate::binlog::Record>> {
+    let lead = LEAD_S * 1_000;
+    let mut frames = vec![snap_frame(
+        0,
+        &[(9_800, 10), (9_900, 10), (10_000, 10)],
+        &[(13_000, 10)],
+    )];
+    for s in 1..=LEAD_S {
+        // Аск дышит далеко от стены: полоса взвода не задета.
+        let ask = if s % 2 == 0 { 13_000 } else { 13_100 };
+        frames.push(delta_frame(s * 1_000, &[], &[(ask, 10), (26_100 - ask, 0)]));
+    }
+    frames.extend([
+        // Подход: аск 106.00 — 707 bps от стены 99.00 (полоса 750).
+        delta_frame(lead + 3_500, &[], &[(10_600, 10), (13_000, 0), (13_100, 0)]),
+        // Кадр стороны бида: чужая цена (106.00) уже известна, стена ещё не
+        // лучшая (впереди 100.00) — взвод подхода здесь, а не на касании.
+        delta_frame(lead + 4_000, &[(9_800, 20)], &[]),
+        // Свип в стену до касания: сделка по 99.00 исполняет ноги входа.
+        trade_frame(lead + 5_000, 9_900, 4),
+        // Касание: 100.00 снят — стена стала лучшей ценой, подход снят.
+        delta_frame(lead + 5_500, &[(10_000, 0)], &[]),
+        // Книга стоит: круг закрывается стопом «в стену» (99.00).
+        delta_frame(lead + 5_700, &[(9_900, 10)], &[(10_600, 10)]),
+        delta_frame(lead + 5_900, &[(9_900, 10)], &[(10_600, 10)]),
+        // Второй свип: сигнал **касания** (t0 = lead+5500) ставит ногу 99.01
+        // позже и исполняется здесь — на тех же данных видно разницу сигналов.
+        trade_frame(lead + 6_000, 9_900, 4),
+        delta_frame(lead + 6_200, &[(9_900, 10)], &[(10_600, 10)]),
+        // 100.00 вернулся: касание стены заканчивается и попадает в CSV
+        // касаний (открытое касание в конце записи не эмитится).
+        delta_frame(lead + 6_400, &[(10_000, 10)], &[]),
+    ]);
+    frames
+}
+
+fn fixture_root_approach(dir: &std::path::Path) {
+    std::fs::write(
+        crate::commands::record::instruments_csv_path(dir),
+        "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots\n\
+         SOLUSDT,0.01,0.1,0.1,5,5\n",
+    )
+    .unwrap();
+    write_day(dir, "SOLUSDT", "2026-09-08", &approach_frames());
+    std::fs::write(
+        dir.join("session.json"),
+        "{\"started_utc\":\"2026-09-08T00:00:00Z\",\"start_hour_utc\":0,\"instruments\":[\"SOLUSDT\"]}",
+    )
+    .unwrap();
+    std::fs::write(dir.join("verify-SOLUSDT.status"), "ok").unwrap();
+}
+
 fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
     BounceGridArgs {
         root: root.to_path_buf(),
@@ -82,6 +142,10 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         min_flow_pct: None,
         side: None,
         touches_from: None,
+        // F6 (В-73): прежний сигнал (касание) и прежний вход (`single@fr`) —
+        // на них стоит гейт «те же круги»; подход и лестница — своими тестами.
+        signal: SignalArg::Touch,
+        entry_form: Vec::new(),
         sets: Vec::new(),
         regime_from: None,
         deadline_secs: Vec::new(),
@@ -510,6 +574,143 @@ fn touches_cache_gives_byte_identical_rounds() {
     assert!(run_bounce_grid(&a).is_err(), "прогрев с кэшем — отказ");
 }
 
+/// F6 (В-73): `--signal approach` берёт сигнал из записи подхода F1
+/// (`approaches-<SYMBOL>.csv`): `t0` круга — **взвод** (`arm_ms`, за 1,5 с до
+/// касания), а не касание, вход ставится заранее, а срок жизни входа — по F5
+/// (`touch` — до снятия подхода). Лестница формы ставит ноги на целых тиках
+/// (99.02/99.06/99.10), свип в стену исполняет их, касание закрывает круг
+/// стопом «в плотность». `--signal touch` на тех же данных — другой `t0`
+/// (момент касания).
+#[test]
+fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
+    use crate::commands::lob::touches::{read_approaches_csv, run_touches, TouchesArgs};
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root_approach(dir.path());
+    let h3 = || H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    // Кэш F1: касания и записи подхода — тем же прогоном `lob touches`.
+    let cache = dir.path().join("approaches");
+    let touches_out = cache.join("2026-09-08").join("touches-SOLUSDT.csv");
+    let summary = run_touches(&TouchesArgs {
+        root: dir.path().to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        h3: h3(),
+        h3_k: None,
+        warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
+        repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
+        out: Some(touches_out.clone()),
+        approach_bps: vec![750],
+        approach_min_age_secs: 0,
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
+        numbers: None,
+        allow_unverified: false,
+    })
+    .unwrap();
+    assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
+    let approaches = read_approaches_csv(&summary.approaches_out[0]).unwrap();
+    assert_eq!(approaches.len(), 1);
+    let arm_ms = LEAD_S * 1_000 + 4_000;
+    let a = &approaches[0].approach;
+    assert_eq!(
+        a.arm_ms, arm_ms,
+        "взвод — кадр стороны стены с чужой ценой в полосе"
+    );
+    assert_eq!(a.disarm_ms, LEAD_S * 1_000 + 5_500, "снят касанием");
+    assert_eq!(a.disarm_reason, crate::lob::levels::ApproachEnd::Touch);
+    assert_eq!(a.price_tick, 9_900, "стена — цена уровня");
+
+    let mut a = args(dir.path(), false);
+    a.signal = SignalArg::Approach;
+    a.entry_form = vec!["ladder3x2..10".to_string()];
+    a.stop_form = vec!["at".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.deadline_secs = vec![60];
+    a.h3 = h3();
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.touches_from = Some(cache.clone());
+    a.out_dir = dir.path().join("grid-approach");
+    let m = run_bounce_grid(&a).unwrap();
+    assert_eq!(m.symbols_from_cache, 1);
+    assert!(m.rounds > 0, "подход обязан дать круг на свипе в стену");
+
+    let (fh, forms) = read_csv(&m.forms_path);
+    assert_eq!(forms.len(), 1);
+    assert_eq!(col(&fh, &forms[0], "form"), "ladder3x2..10-at-1to1-60");
+    let (rh, rounds) = read_csv(&m.rounds_path);
+    assert_eq!(rounds.len() as u64, m.rounds);
+    for r in &rounds {
+        assert_eq!(
+            col(&rh, r, "t0_ns"),
+            (arm_ms * 1_000_000).to_string(),
+            "t0 — взвод подхода, а не касание: {r:?}"
+        );
+        // Ноги — целые тики 99.02/99.06/99.10: средняя по долям 99.06.
+        let vwap: f64 = col(&rh, r, "entry_vwap").parse().unwrap();
+        assert!((vwap - 99.06).abs() < 1e-6, "entry_vwap {vwap}");
+        assert_eq!(col(&rh, r, "legs_filled"), "3", "три ноги лестницы: {r:?}");
+        assert_eq!(col(&rh, r, "legs_rejected"), "0", "{r:?}");
+        assert_eq!(col(&rh, r, "fill_frac"), "1.000000", "{r:?}");
+    }
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(head.contains(" signal=approach "), "{head}");
+    assert!(head.contains(" entry_forms=ladder3x2..10 "), "{head}");
+
+    // Сигнал касания на тех же данных — другое `t0` (момент касания, +2 с):
+    // доказывает, что круг выше взят со взвода, а не с касания.
+    let mut t = args(dir.path(), false);
+    t.stop_form = vec!["at".to_string()];
+    t.take_form = vec!["1to1".to_string()];
+    t.take_floor_fees = None;
+    t.deadline_secs = vec![60];
+    t.h3 = h3();
+    t.warmup_ms = None;
+    t.repeat_window_ms = None;
+    t.touches_from = Some(cache.clone());
+    t.out_dir = dir.path().join("grid-touch");
+    let touch_run = run_bounce_grid(&t).unwrap();
+    assert!(touch_run.rounds > 0, "касание тоже даёт круг");
+    let (trh, touch_rounds) = read_csv(&touch_run.rounds_path);
+    assert_eq!(
+        col(&trh, &touch_rounds[0], "t0_ns"),
+        ((LEAD_S * 1_000 + 5_500) * 1_000_000).to_string(),
+        "сигнал касания — его собственный момент"
+    );
+
+    // Условия F6: без кэша подходов сигнал не построить, а ключ `eaten=`
+    // (история размера) у подхода не определён — отказ, не пустой прогон.
+    let non_sigma = |out: &str| {
+        let mut a = args(dir.path(), false);
+        a.stop_form = vec!["at".to_string()];
+        a.take_form = vec!["1to1".to_string()];
+        a.take_floor_fees = None;
+        a.deadline_secs = vec![60];
+        a.h3 = h3();
+        a.warmup_ms = None;
+        a.repeat_window_ms = None;
+        a.out_dir = dir.path().join(out);
+        a
+    };
+    let mut no_cache = non_sigma("grid-no-cache");
+    no_cache.signal = SignalArg::Approach;
+    let err = run_bounce_grid(&no_cache).unwrap_err().to_string();
+    assert!(err.contains("кэш подходов"), "{err}");
+    let mut eaten = non_sigma("grid-eaten");
+    eaten.signal = SignalArg::Approach;
+    eaten.touches_from = Some(cache);
+    eaten.sets = vec!["e:eaten=50".to_string()];
+    let err = run_bounce_grid(&eaten).unwrap_err().to_string();
+    assert!(err.contains("eaten"), "{err}");
+}
+
 /// Кэш числа событий части (`<бинлог>.events`): первый прогон пишет сайдкар,
 /// второй читает его и даёт те же круги; испорченный сайдкар (чужое число)
 /// не меняет результата и переписывается честным счётом.
@@ -935,6 +1136,9 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     // F5 (В-74): гейт «те же круги» — с явным прежним режимом входа
     // (`touch`), условия рынка выключены.
     a.entry_ttl_secs = vec!["touch".to_string()];
+    // F6 (В-73): та же явная прежняя форма входа — одиночная нога у
+    // фронтранера; имя формы остаётся трёхпольным (гейт).
+    a.entry_form = vec!["single@fr".to_string()];
     a.out_dir = dir.path().join("grid-gate");
     let m = run_bounce_grid(&a).unwrap();
     assert!(m.rounds > 0, "фикстура обязана давать круги");
@@ -972,6 +1176,10 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     assert!(
         head.contains(" entry_ttl=touch ") && head.contains(" band_exit_bps=0 "),
         "прежний режим срока жизни входа в шапке (гейт F5): {head}"
+    );
+    assert!(
+        head.contains(" signal=touch ") && head.contains(" entry_forms=single@fr "),
+        "прежний сигнал и прежняя форма входа в шапке (гейт F6): {head}"
     );
     assert!(
         head.contains("queue=risk-adverse")

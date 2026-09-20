@@ -266,6 +266,8 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестницы формы нет — прежний вход `entry_px` (гейт).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -335,6 +337,8 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестницы формы нет — прежний вход `entry_px` (гейт).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -395,6 +399,8 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестницы формы нет — прежний вход `entry_px` (гейт).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -453,6 +459,8 @@ fn a_fraction_below_one_lot_exits_whole() {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестницы формы нет — прежний вход `entry_px` (гейт).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -499,6 +507,9 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         trail_activate_bps: 0.0,
         grid_legs: 2,
         grid_step_px: step,
+        // F4-лестница `grid_legs × grid_step_px` — прежний вход; лестница
+        // формы F6 проверяется отдельным тестом (`EntryLadder`).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_floor_qty: 0.0,
         band_exit_bps: 0.0,
@@ -716,6 +727,8 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         trail_activate_bps: 0.0,
         grid_legs: 1,
         grid_step_px: 0.0,
+        // F6: лестницы формы нет — прежний вход `entry_px` (гейт).
+        ladder: EntryLadder::NONE,
         early_exit_ns: 0,
         level_px: 99.0,
         tick_px: 1.0,
@@ -880,4 +893,96 @@ fn the_touch_mode_ignores_the_wall_and_the_band() {
         "в режиме touch условия F5 выключены: {actions:?}"
     );
     assert_eq!(hbt.position(0), 0.0, "позиции не было");
+}
+
+// -----------------------------------------------------------------------
+// F6 (план 2026-09-20, §3): лестница входа как форма — ноги заданы целыми
+// тиками и долями (вес к стене), нога, пересекшая спред, биржей не ставится.
+// -----------------------------------------------------------------------
+
+/// План с лестницей формы: две ноги — 96 (вес 2/3) и 101 (1/3) при аске 100,
+/// вход живёт `ttl`, пост-онли.
+fn ladder_plan(ttl_ns: i64) -> TradePlan {
+    let mut ladder = EntryLadder::NONE;
+    assert!(ladder.push(96, 2.0 / 3.0));
+    assert!(ladder.push(101, 1.0 / 3.0));
+    TradePlan::Bounce {
+        entry_px: 98.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 30 * S,
+        entry_ttl_ns: ttl_ns,
+        post_only: true,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        ladder,
+        early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
+        level_px: 95.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+    }
+}
+
+/// F6 (В-73): ноги лестницы ставятся по **своим** тикам и долям — нижняя
+/// нога (к стене) весит вдвое, а нога, цена которой перекрыла лучший аск
+/// (101 при аске 100), пост-онли `GTX` не ставится: биржа отвечает `Expired`,
+/// и в позиции остаётся исполненная нижняя нога.
+#[test]
+fn ladder_legs_use_their_own_ticks_and_weights_and_a_crossing_leg_is_rejected() {
+    let feed = [
+        // Книга стоит **ниже** лестницы: у ноги 96 нет чужой очереди впереди,
+        // и вход решает объём сделок, а не глубина стакана (приём F4).
+        depth_at(0, true, 95.0, 5.0),
+        // Аск 100: нога 101 пересекает спред (пост-онли её не поставит).
+        depth_at(0, false, 100.0, 5.0),
+        // Продажа 5.0 ровно в ногу 96 (нога 2.0, очередь впереди пуста).
+        trade_at(S, true, 96.0, 5.0),
+        depth_at(4 * S, true, 95.0, 5.0),
+        depth_at(4 * S, false, 100.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 3.0, 1, ladder_plan(20 * S));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::EntrySubmitted { .. })),
+        "вход обязан быть поставлен: {actions:?}"
+    );
+    let lower = hbt.orders(0).get(&1).expect("нижняя нога в учёте");
+    assert_eq!(lower.price_tick, 96, "нога плана — свой целый тик");
+    assert!(
+        close(lower.qty, 2.0),
+        "доля нижней ноги 2/3 от 3.0: {}",
+        lower.qty
+    );
+    assert_eq!(lower.status, Status::Filled, "сделка по 96 исполняет ногу");
+    let crossing = hbt.orders(0).get(&2).expect("вторая нога в учёте");
+    assert_eq!(crossing.price_tick, 101, "нога плана — свой целый тик");
+    assert!(
+        close(crossing.qty, 1.0),
+        "доля второй ноги 1/3 от 3.0: {}",
+        crossing.qty
+    );
+    assert!(
+        matches!(crossing.status, Status::Expired | Status::Rejected),
+        "нога выше лучшего аска не ставится: {:?}",
+        crossing.status
+    );
+    assert!(
+        close(hbt.position(0), 2.0),
+        "позиция — исполненная нога: {}",
+        hbt.position(0)
+    );
 }

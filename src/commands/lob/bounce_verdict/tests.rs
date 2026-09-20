@@ -452,3 +452,88 @@ fn verdict_refuses_a_circle_that_was_not_measured() {
         .to_string();
     assert!(err.contains("не измерен") || err.contains("net"), "{err}");
 }
+
+/// F6 (В-73) + F5 (В-74): имя формы несёт вход первым полем
+/// (`<вход>-<стоп>-<тейк>-<H>`) и необязательные хвостовые `-ttl<режим>`
+/// (срок жизни входа) и `-<выход>` (F7). Прежние трёхпольные имена читаются
+/// как `single@fr-…`, а полнота сетки считается по **всем** осям, включая
+/// вход и срок жизни, — иначе артефакты F5/F6 вердиктом не прочитать.
+#[test]
+fn form_names_carry_the_entry_the_ttl_and_the_exit() {
+    assert_eq!(
+        form_label_with_entry("single@fr", "pct2", "1to1", 3600),
+        "pct2-1to1-3600",
+        "у прежнего входа поле в имени не пишется (гейт «те же круги»)"
+    );
+    assert_eq!(
+        form_label_with_entry("ladder3x2..10", "pct2", "1to1", 3600),
+        "ladder3x2..10-pct2-1to1-3600"
+    );
+    // Четыре поля: вход, стоп, тейк, дедлайн — плюс срок жизни входа (F5).
+    let parts = parse_form_fields("ladder3x2..10-pct2-1to1-3600-ttl60").unwrap();
+    assert_eq!(parts.entry, "ladder3x2..10");
+    assert_eq!(parts.stop, "pct2");
+    assert_eq!(parts.take, "1to1");
+    assert_eq!(parts.deadline_secs, 3600);
+    assert_eq!(parts.ttl.as_deref(), Some("60"));
+    assert_eq!(parts.exit, None);
+    // Пятипольное имя из плана: `<вход>-<стоп>-<тейк>-<H>-<выход>`.
+    let parts = parse_form_fields("ladder3x2..10-pct2-1to1-3600-eat50").unwrap();
+    assert_eq!(parts.entry, "ladder3x2..10");
+    assert_eq!(parts.exit.as_deref(), Some("eat50"));
+    assert_eq!(parts.ttl, None);
+    // Хвостовые поля — в любом порядке и вместе (`-ttlwall` — режим F5).
+    let parts = parse_form_fields("ladder3x2..10-pct2-1to1-3600-ttlwall-gone20").unwrap();
+    assert_eq!(parts.ttl.as_deref(), Some("wall"));
+    assert_eq!(parts.exit.as_deref(), Some("gone20"));
+    // Прежнее трёхпольное имя + ttl: вход неявный, вердикт читает тройку.
+    let parts = parse_form_fields("pct2-1to1-3600-ttl1800").unwrap();
+    assert_eq!(parts.entry, "single@fr");
+    assert_eq!(
+        parse_form("pct2-1to1-3600-ttl1800").unwrap(),
+        ("pct2".to_string(), "1to1".to_string(), 3600)
+    );
+    // Отказы: чужой срок жизни, прежний режим под суффиксом, чужой выход,
+    // произвольный хвост, нога-лестница из одной ноги.
+    assert!(
+        parse_form("pct2-1to1-3600-ttl90").is_err(),
+        "ttl не из сетки В-74"
+    );
+    assert!(
+        parse_form("pct2-1to1-3600-ttltouch").is_err(),
+        "прежний режим суффикса не несёт"
+    );
+    assert!(
+        parse_form("pct2-1to1-3600-eat").is_err(),
+        "порог съедания не число"
+    );
+    assert!(
+        parse_form("pct2-1to1-3600-5").is_err(),
+        "хвост не из форм выхода"
+    );
+    assert!(
+        parse_form("ladder1x2..10-pct2-1to1-3600").is_err(),
+        "одна нога — не лестница"
+    );
+    // Полнота: оси — вход × стоп × тейк × дедлайн × ttl (у выхода — своя).
+    assert_eq!(
+        grid_size_from_labels([
+            "pct2-1to1-3600",
+            "ladder3x2..10-pct2-1to1-3600",
+            "pct2-1to1-3600-ttl60",
+            "ladder3x2..10-pct2-1to1-3600-ttl60",
+        ])
+        .unwrap(),
+        4
+    );
+    assert_ne!(
+        grid_size_from_labels([
+            "pct2-1to1-3600",
+            "ladder3x2..10-pct2-1to1-3600",
+            "pct2-1to1-3600-ttl60"
+        ])
+        .unwrap(),
+        3,
+        "неполная ось срока жизни — не сетка"
+    );
+}

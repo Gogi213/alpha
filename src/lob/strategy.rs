@@ -183,11 +183,78 @@ enum Phase {
     },
 }
 
+/// Ёмкость ног лестницы входа (F6, В-73) — размер массива в `EntryLadder`.
+/// Форма с `N` больше — отказ при разборе имени (`EntryForm::parse`), а не
+/// молчаливое усечение: у движка счёт ног идёт битовой маской (`run_round`),
+/// и «ещё пара ног» там уже не считается.
+pub const MAX_ENTRY_LEGS: usize = 8;
+
+/// Ноги лестницы входа (F6, В-73): целые тики цен и доли позиции. Ноги идут
+/// **от стены к рынку** (`ticks[0]` — ближайшая к стене, `ticks[n-1]` — самая
+/// дальняя), доли нормированы в сумму 1. `n == 0` — входа-лестницы нет: план
+/// исполняет прежний вход (`entry_px`/`grid_legs`/`grid_step_px`) — на нём
+/// стоит гейт «те же круги» (F3/F4/F5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EntryLadder {
+    pub n: u8,
+    pub ticks: [i64; MAX_ENTRY_LEGS],
+    pub frac: [f64; MAX_ENTRY_LEGS],
+}
+
+impl EntryLadder {
+    /// Вход без лестницы: прежний одиночный лимит.
+    pub const NONE: Self = Self {
+        n: 0,
+        ticks: [0; MAX_ENTRY_LEGS],
+        frac: [0.0; MAX_ENTRY_LEGS],
+    };
+
+    /// Добавить ногу; `false` — ёмкость исчерпана. Вызывающий (`bounce_plan`)
+    /// обязан отказать раньше: имя формы проверено разбором `EntryForm`.
+    pub fn push(&mut self, tick: i64, frac: f64) -> bool {
+        let i = usize::from(self.n);
+        if i >= MAX_ENTRY_LEGS {
+            return false;
+        }
+        self.ticks[i] = tick;
+        self.frac[i] = frac;
+        self.n = self.n.saturating_add(1);
+        true
+    }
+
+    /// Средняя цена входа в тиках — по долям ног (вес × цена, F6): от неё
+    /// `bounce_plan` считает стоп и тейк формы (стратегия после F4 сдвигает их
+    /// к фактической средней исполненного).
+    #[allow(clippy::cast_precision_loss)]
+    pub fn weighted_avg_tick(&self) -> f64 {
+        let mut sum = 0.0;
+        for i in 0..usize::from(self.n) {
+            sum += self.frac[i] * self.ticks[i] as f64;
+        }
+        sum
+    }
+
+    /// Тик дальней (самой близкой к рынку) ноги — по ней меряется «цена ушла
+    /// из полосы» (F5, В-74). `None` — лестницы нет.
+    pub fn outer_tick(&self) -> Option<i64> {
+        (self.n > 0).then(|| self.ticks[usize::from(self.n - 1)])
+    }
+}
+
 /// План сделки — **данные**, а не вторая стратегия (A6): что именно ловить и
 /// где выходить, решает уровень `lob/levels` (касание В-44, смерть уровня),
 /// `on_event` только исполняет план. Оба варианта идут через одну и ту же
 /// функцию, поэтому сделка-отскок попадает и в `Backtest`, и в `LiveBot` без
 /// правок.
+///
+/// `large_enum_variant`: вариант `Bounce` (F6 добавил в него `EntryLadder` —
+/// ноги лестницы: тики и доли) крупнее пустого `SpreadHold`. План ходит по
+/// значению (`Copy`) и копируется в горячем пути (`on_event`, `legs_of`,
+/// `drive_signal`), где аллокаций быть не должно (A1–A9): упаковка варианта в
+/// `Box` запретила бы `Copy` и внесла бы индирекцию в решение на событии.
+/// Размер плана — цена того, что ноги лестницы уже посчитаны (`bounce_plan`),
+/// а стратегия только ставит их.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TradePlan {
     /// Decision 20 (как было): вход мейкером у своей стороны спреда, выход
@@ -259,6 +326,14 @@ pub enum TradePlan {
         /// его нет). Первая нога — `entry_px`, каждая следующая дальше от
         /// плотности, в сторону рынка.
         grid_step_px: f64,
+        /// Лестница входа формы F6 (В-73): ноги — целые тики и доли позиции,
+        /// `EntryLadder::NONE` (`n == 0`) — прежний вход по `entry_px` и
+        /// `grid_*` (гейт «те же круги»). Ноги заданы **абсолютными тиками**,
+        /// а не шагом: форма `ladder<N>x<from>..<to>[w<k>]` даёт разные цены на
+        /// одном расстоянии (округление вверх до тика), совпавшие тики
+        /// складываются в одну ногу, а доля нижней ноги может быть вдвое
+        /// больше — шагом и числом ног это не выразить.
+        ladder: EntryLadder,
         /// E7 (владелец 19.09: «позиция одна за раз, но может быть дробной»):
         /// доля позиции, закрываемая тейком `take_px`. `1.0` — весь остаток
         /// (как было); `0.5` — половина, остаток бежит дальше до стопа,
@@ -530,6 +605,7 @@ impl StrategyState {
             band_exit_bps,
             grid_legs,
             grid_step_px,
+            ladder,
             ..
         } = self.plan
         else {
@@ -564,7 +640,12 @@ impl StrategyState {
                 } else {
                     -1.0
                 };
-                let outer = entry_px + away * grid_step_px * f64::from(grid_legs.max(1) - 1);
+                let outer = match ladder.outer_tick() {
+                    // Лестница формы F6: дальняя нога — последняя в наборе.
+                    #[allow(clippy::cast_precision_loss)]
+                    Some(t) => t as f64 * tick_px,
+                    None => entry_px + away * grid_step_px * f64::from(grid_legs.max(1) - 1),
+                };
                 let own = if entry_side == HbtSide::Buy { bid } else { ask };
                 if outer > 0.0 && (own - outer) * away / outer * 10_000.0 > band_exit_bps {
                     return Some(EntryCancelReason::PriceLeft);
@@ -1037,20 +1118,52 @@ where
             // между ногами. С F4 (В-78) ноги **копят позицию**: исполнившаяся
             // первой остальные не снимает — лестница набирает объём, пока жив
             // вход, а средняя цена исполненного ведёт стоп и тейк.
-            let (legs, step) = match state.plan {
+            //
+            // F6 (В-73): если у плана есть лестница формы
+            // (`ladder<N>x<from>..<to>[w<k>]`), ноги берутся **из неё** — у
+            // каждой свой целый тик и своя доля (нижняя нога может весить
+            // вдвое: «основной объём к сайзу» [T 1:31:42]). Прежний вход
+            // (`ladder.n == 0`) идёт прежним путём — на этом стоит гейт «те же
+            // круги». Нога, чья цена уже перекрыла лучший аск (для покупки),
+            // ставится как пост-онли (`GTX`) и получает от биржи `Expired` —
+            // это и есть «не ставится» (`legs_rejected`, F4/В-72).
+            let (legs, ladder, step, tick_px) = match state.plan {
                 TradePlan::Bounce {
                     grid_legs,
                     grid_step_px,
+                    ladder,
+                    tick_px,
                     ..
-                } => (grid_legs.max(1), grid_step_px),
-                TradePlan::SpreadHold => (1u8, 0.0f64),
+                } => {
+                    let legs = if ladder.n > 0 {
+                        ladder.n
+                    } else {
+                        grid_legs.max(1)
+                    };
+                    (legs, ladder, grid_step_px, tick_px)
+                }
+                TradePlan::SpreadHold => (1u8, EntryLadder::NONE, 0.0f64, 0.0f64),
             };
-            let leg_qty = state.qty / legs as f64;
             let first_id = state.next_order_id;
-            for i in 0..legs as u64 {
-                let px_i = match side {
-                    HbtSide::Buy => px + step * i as f64,
-                    _ => px - step * i as f64,
+            for i in 0..u64::from(legs) {
+                // Нога лестницы формы — свой тик и своя доля; прежний вход —
+                // `px ± шаг × i` равными долями (F4: `qty / legs`).
+                let (px_i, qty_i) = if ladder.n > 0 {
+                    let j = usize::try_from(i).unwrap_or(usize::from(ladder.n - 1));
+                    if j >= usize::from(ladder.n) {
+                        continue;
+                    }
+                    #[allow(clippy::cast_precision_loss)]
+                    (ladder.ticks[j] as f64 * tick_px, state.qty * ladder.frac[j])
+                } else {
+                    #[allow(clippy::cast_precision_loss)]
+                    (
+                        match side {
+                            HbtSide::Buy => px + step * i as f64,
+                            _ => px - step * i as f64,
+                        },
+                        state.qty / f64::from(legs),
+                    )
                 };
                 let order_id = state.take_order_id();
                 match side {
@@ -1059,7 +1172,7 @@ where
                             state.asset_no,
                             order_id,
                             px_i,
-                            leg_qty,
+                            qty_i,
                             entry_tif,
                             OrdType::Limit,
                             entry_wait,
@@ -1070,7 +1183,7 @@ where
                             state.asset_no,
                             order_id,
                             px_i,
-                            leg_qty,
+                            qty_i,
                             entry_tif,
                             OrdType::Limit,
                             entry_wait,

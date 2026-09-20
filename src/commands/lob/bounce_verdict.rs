@@ -44,7 +44,7 @@ use crate::lob::final_metrics::{
 use crate::lob::runs::{self, BOUNCE_TRIAL_PREFIX};
 use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
-use super::backtest::{StopForm, TakeForm};
+use super::backtest::{EntryForm, EntryTtl, StopForm, TakeForm, SINGLE_ENTRY_LABEL};
 use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
 use crate::lob::shortlist::CONFIRM_MIN_N;
 
@@ -58,30 +58,75 @@ pub const DEADLINE_SECS_ALLOWED: [u64; 6] = [60, 600, 1800, 3600, 7200, 14400];
 /// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
 
-/// Размер полной сетки по её же именам (В-62/В-65): формы стопа × формы тейка
-/// × дедлайны, встреченные в именах (все из `DEADLINE_SECS_ALLOWED`). Сетка задана именами владельца, не константой, и её
+/// Размер полной сетки по её же именам (В-62/В-65/В-74/F6): формы стопа ×
+/// формы тейка × дедлайны × формы входа × режимы срока жизни входа × формы
+/// выхода, встреченные в именах (все из `DEADLINE_SECS_ALLOWED`). Сетка задана
+/// именами владельца, не константой, и её
 /// полнота проверяется как декартово произведение осей, встреченных в
 /// именах форм: набор `{before-1to1-60, at-1to1-60}` без `before-1to1-600` —
-/// не сетка.
+/// не сетка. Оси названы только у форм F6/F5: у трёхпольных имён вход —
+/// `single@fr`, срока жизни нет (`touch`), выхода нет (`none`) — прежде числа
+/// и имена не менялись.
 pub fn grid_size_from_labels<'a>(
     labels: impl IntoIterator<Item = &'a str>,
 ) -> anyhow::Result<usize> {
+    let mut entries: BTreeSet<String> = BTreeSet::new();
     let mut stops: BTreeSet<String> = BTreeSet::new();
     let mut takes: BTreeSet<String> = BTreeSet::new();
     let mut deadlines: BTreeSet<u64> = BTreeSet::new();
+    let mut ttls: BTreeSet<String> = BTreeSet::new();
+    let mut exits: BTreeSet<String> = BTreeSet::new();
     for label in labels {
-        let (stop, take, deadline) = parse_form(label)?;
-        stops.insert(stop);
-        takes.insert(take);
-        deadlines.insert(deadline);
+        let parts = parse_form_fields(label)?;
+        entries.insert(parts.entry);
+        stops.insert(parts.stop);
+        takes.insert(parts.take);
+        deadlines.insert(parts.deadline_secs);
+        ttls.insert(parts.ttl.unwrap_or_else(|| TTL_NONE.to_string()));
+        exits.insert(parts.exit.unwrap_or_else(|| EXIT_NONE.to_string()));
     }
-    Ok(stops.len() * takes.len() * deadlines.len())
+    Ok(entries.len() * stops.len() * takes.len() * deadlines.len() * ttls.len() * exits.len())
 }
+
+/// Метка оси «срока жизни входа нет» (прежний режим `touch`, F5, В-74).
+const TTL_NONE: &str = "touch";
+/// Метка оси «выход прежний» (нет ключа `--exit-form`, F7/F8).
+const EXIT_NONE: &str = "none";
 
 /// Имя формы: `<стоп>-<тейк>-<H>` — имена `StopForm::label`/`TakeForm::label`
 /// (`before`, `pct1`, `s1` …; `1to1`, `t2`) и дедлайн в секундах из `DEADLINE_SECS`.
+/// Прежняя (трёхпольная) запись: вход у неё неявный — `single@fr`.
 pub fn form_label(stop: &str, take: &str, deadline_secs: u64) -> String {
     format!("{stop}-{take}-{deadline_secs}")
+}
+
+/// Имя формы с входом (F6, В-73): `<вход>-<стоп>-<тейк>-<H>`; у прежнего
+/// входа (`single@fr`) имя остаётся трёхпольным — на этом стоит гейт «те же
+/// круги» (прежние `rounds.csv`/`forms.csv` байт в байт). Суффиксы F5/F7
+/// (`-ttl<значение>`, `-<выход>`) дописывает вызывающий: вход стоит первым, а
+/// `parse_form_fields` читает хвостовые поля по префиксам.
+pub fn form_label_with_entry(entry: &str, stop: &str, take: &str, deadline_secs: u64) -> String {
+    if entry == SINGLE_ENTRY_LABEL {
+        form_label(stop, take, deadline_secs)
+    } else {
+        format!("{entry}-{stop}-{take}-{deadline_secs}")
+    }
+}
+
+/// Разобранные поля имени формы (F6): вход, стоп, тейк, дедлайн и
+/// необязательные срок жизни входа (F5) и выход (F7). Трёхпольные имена
+/// читаются как `single@fr-…` — обратная совместимость вердикта.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormFields {
+    pub entry: String,
+    pub stop: String,
+    pub take: String,
+    pub deadline_secs: u64,
+    /// Значение `-ttl<…>`: `touch` | `wall` | секунды (F5, В-74); `None` —
+    /// поля в имени нет.
+    pub ttl: Option<String>,
+    /// Значение поля выхода (F7/F8, например `eat50`); `None` — поля нет.
+    pub exit: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -191,25 +236,120 @@ pub struct BounceVerdictSummary {
     pub out: PathBuf,
 }
 
-/// Разбор имени формы `<стоп>-<тейк>-<H>` (В-65): формы — через
-/// `StopForm::parse`/`TakeForm::parse` (они же проверяют каноничность),
-/// дедлайн — из `DEADLINE_SECS`.
+/// Разбор имени формы `<стоп>-<тейк>-<H>` (В-65) — прежний вид без входа:
+/// формы — через `StopForm::parse`/`TakeForm::parse` (они же проверяют
+/// каноничность), дедлайн — из `DEADLINE_SECS`. Имена F5/F6 с суффиксом
+/// (`-ttl<…>`) и с полем входа читаются `parse_form_fields`; здесь остаётся
+/// тройка вердикта — стоп, тейк, дедлайн — какой её читали вызывающие до F6.
 pub fn parse_form(label: &str) -> anyhow::Result<(String, String, u64)> {
+    let parts = parse_form_fields(label)?;
+    Ok((parts.stop, parts.take, parts.deadline_secs))
+}
+
+/// Разбор имени формы целиком (F6, В-73 + F5, В-74): `<вход>-<стоп>-<тейк>-<H>`
+/// с необязательными хвостовыми полями `-ttl<…>` (срок жизни входа; `wall`,
+/// `touch` или секунды) и `-<выход>` (F7/F8), в любом порядке. Прежние
+/// трёхпольные имена (`<стоп>-<тейк>-<H>`) читаются как `single@fr-…` —
+/// обратная совместимость вердикта; вход проверяется `EntryForm::parse` (он же
+/// канонизирует имя), стоп/тейк — своими `parse`, дедлайн — из
+/// `DEADLINE_SECS_ALLOWED`.
+pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
     let parts: Vec<&str> = label.split('-').collect();
     anyhow::ensure!(
-        parts.len() == 3,
-        "{label}: имя формы — <стоп>-<тейк>-<дедлайн с> (`before-1to1-600`, `s1-t2-600`), сетка В-65"
+        parts.len() >= 3 && parts.len() <= 6,
+        "{label}: имя формы — <вход>-<стоп>-<тейк>-<дедлайн с>[-ttl<режим>][-<выход>] (`pct2-1to1-3600`, `ladder3x2..10-pct2-1to1-3600-ttl60`)"
     );
-    let stop = StopForm::parse(parts[0]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
-    let take = TakeForm::parse(parts[1]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
-    let deadline_secs: u64 = parts[2]
+    // Вход: четвёртый сегмент — вход только тогда, когда разбирается как
+    // `EntryForm` (трёхпольное имя — `single@fr`).
+    let (entry, rest) = if parts.len() >= 4 && EntryForm::parse(parts[0]).is_ok() {
+        (parts[0].to_string(), &parts[1..])
+    } else {
+        (SINGLE_ENTRY_LABEL.to_string(), &parts[..])
+    };
+    anyhow::ensure!(
+        rest.len() >= 3,
+        "{label}: имя формы — <вход>-<стоп>-<тейк>-<дедлайн с>[-ttl<режим>][-<выход>]"
+    );
+    let stop = StopForm::parse(rest[0]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
+    let take = TakeForm::parse(rest[1]).map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
+    let deadline_secs: u64 = rest[2]
         .parse()
-        .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", parts[2]))?;
+        .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", rest[2]))?;
     anyhow::ensure!(
         DEADLINE_SECS_ALLOWED.contains(&deadline_secs),
         "{label}: дедлайн {deadline_secs} с вне разрешённых {DEADLINE_SECS_ALLOWED:?}"
     );
-    Ok((stop.label(), take.label(), deadline_secs))
+    // Хвостовые поля: `ttl<…>` — срок жизни входа (F5, В-74), остальное —
+    // поле выхода (F7/F8). Каждое не больше одного раза.
+    let mut ttl: Option<String> = None;
+    let mut exit: Option<String> = None;
+    for tail in &rest[3..] {
+        if let Some(v) = tail.strip_prefix("ttl") {
+            anyhow::ensure!(
+                ttl.is_none() && !v.is_empty(),
+                "{label}: поле срока жизни входа — одно (`-ttl<touch|wall|секунды>`)"
+            );
+            parse_form_ttl(label, v)?;
+            ttl = Some(v.to_string());
+        } else {
+            anyhow::ensure!(
+                exit.is_none() && !tail.is_empty(),
+                "{label}: поле выхода — одно (F7/F8)"
+            );
+            parse_form_exit(label, tail)?;
+            exit = Some((*tail).to_string());
+        }
+    }
+    Ok(FormFields {
+        entry,
+        stop: stop.label(),
+        take: take.label(),
+        deadline_secs,
+        ttl,
+        exit,
+    })
+}
+
+/// Значение `-ttl<…>` имени формы: `touch` | `wall` | секунды из сетки замера
+/// В-74. Проверка та же, что у `--entry-ttl-secs` (`EntryTtl::parse`), иначе
+/// имя формы описывало бы режим, которого сетка не знает.
+fn parse_form_ttl(label: &str, value: &str) -> anyhow::Result<()> {
+    let mode = match value {
+        // У прежнего режима суффикса нет: `-ttltouch` — не имя, а другая
+        // запись того же (как и `w1` у формы входа).
+        "touch" => anyhow::bail!("{label}: прежний режим входа суффикса не несёт"),
+        _ => value,
+    };
+    EntryTtl::parse(mode)
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("{label}: {e}"))
+}
+
+/// Поле выхода имени формы (F7/F8): `none` — как раньше, `eat<X>` — выход по
+/// съеданию стены, `gone<W>` — по снятию. Проверяются имена, которые сетка
+/// пишет сама; произвольный хвост (`s1-t1-60-5`) — не имя. Список форм выхода
+/// ведут F7/F8 — здесь читается то, что названо в плане 2026-09-20 §3 F7.
+fn parse_form_exit(label: &str, value: &str) -> anyhow::Result<()> {
+    if value == "none" {
+        return Ok(());
+    }
+    let (prefix, number) = if let Some(rest) = value.strip_prefix("eat") {
+        ("eat", rest)
+    } else if let Some(rest) = value.strip_prefix("gone") {
+        ("gone", rest)
+    } else {
+        anyhow::bail!(
+            "{label}: выход {value:?} не из форм (`none`, `eat<X>` — съели, `gone<W>` — сняли)"
+        );
+    };
+    let pct: f64 = number
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{label}: {prefix}{number}: порог не число"))?;
+    anyhow::ensure!(
+        pct.is_finite() && pct > 0.0 && pct <= 100.0,
+        "{label}: {prefix}{number}: порог — конечное число в (0, 100] %"
+    );
+    Ok(())
 }
 
 /// Испытания **этой** процедуры в журнале — строки с префиксом `bounce_form`.

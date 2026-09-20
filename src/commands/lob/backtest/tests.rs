@@ -322,6 +322,8 @@ fn plain_shape() -> PlanShape {
         entry_ttl: EntryTtl::Touch,
         h3_usd: None,
         band_exit_bps: 0.0,
+        // F6 (В-73): прежняя форма входа — нога у фронтранера (гейт).
+        entry_form: EntryForm::SingleFrontrun,
     }
 }
 
@@ -1045,4 +1047,153 @@ fn pct_take_form_parses_and_sets_the_take_independent_of_the_stop() {
     assert!((t1 - (e1 + (e1 - s1))).abs() < 1e-9, "1to1: {t1}");
     assert!((t2 - (e2 + 51.0 * 0.01)).abs() < 1e-9, "tk0.5: {t2}");
     assert!(t2 < t1, "тейк в % ближе, чем 1:1 при стопе 2 %");
+}
+
+// -----------------------------------------------------------------------
+// F6 (план 2026-09-20, §3): форма входа — `single@fr` или лестница
+// `ladder<N>x<from>..<to>[w<k>]`, ноги — целыми тиками, совпавшие тики
+// складываются, нижняя нога может весить к стене.
+// -----------------------------------------------------------------------
+
+/// Разбор имени формы входа: каноническое имя (как у `StopForm`/`TakeForm`),
+/// границы полосы и веса, ёмкость ног. Имя — единственный источник чисел
+/// `N`/`from`/`to`/`w` (предрегистрация), умолчаний нет.
+#[test]
+fn entry_form_parses_the_ladder_and_the_single_frontrun() {
+    assert_eq!(
+        EntryForm::parse("single@fr").unwrap(),
+        EntryForm::SingleFrontrun
+    );
+    assert_eq!(EntryForm::SingleFrontrun.label(), "single@fr");
+    assert_eq!(
+        EntryForm::parse("ladder3x2..10").unwrap(),
+        EntryForm::Ladder {
+            legs: 3,
+            from_bps: 2.0,
+            to_bps: 10.0,
+            wall_weight: 1,
+        }
+    );
+    assert_eq!(
+        EntryForm::parse("ladder3x2..10").unwrap().label(),
+        "ladder3x2..10"
+    );
+    let weighted = EntryForm::parse("ladder4x0.5..2w2").unwrap();
+    assert_eq!(
+        weighted,
+        EntryForm::Ladder {
+            legs: 4,
+            from_bps: 0.5,
+            to_bps: 2.0,
+            wall_weight: 2,
+        }
+    );
+    assert_eq!(weighted.label(), "ladder4x0.5..2w2");
+    // Отказы: чужое имя, неканоническая запись, границы, ёмкость.
+    assert!(EntryForm::parse("fr").is_err());
+    assert!(
+        EntryForm::parse("ladder3x2..10w1").is_err(),
+        "вес 1 не пишется"
+    );
+    assert!(
+        EntryForm::parse("ladder03x2..10").is_err(),
+        "нули в числе ног"
+    );
+    assert!(
+        EntryForm::parse("ladder3x2.0..10").is_err(),
+        "неканоническая запись bps"
+    );
+    assert!(
+        EntryForm::parse("ladder1x2..10").is_err(),
+        "одна нога — не лестница"
+    );
+    assert!(EntryForm::parse("ladder3x0..10").is_err(), "from = 0");
+    assert!(EntryForm::parse("ladder3x10..2").is_err(), "from ≥ to");
+    assert!(
+        EntryForm::parse("ladder9x2..10").is_err(),
+        "ног больше ёмкости"
+    );
+    assert!(EntryForm::parse("ladder3x2..10w0").is_err(), "вес 0");
+}
+
+/// Ноги лестницы ложатся на **целые тики** (`bps_to_ticks_ceil` — расстояние
+/// не меньше заданного), средняя цена плана — по долям, а цена уровня остаётся
+/// стеной. Бид 100.00, шаг 0.01: 2/6/10 bps — это 2/6/10 тиков.
+#[test]
+fn ladder_legs_land_on_whole_ticks_and_the_plan_average_is_weighted() {
+    let touch = bounce_touch(10_000, None);
+    let build = |spec: &str| {
+        let (_, plan) = bounce_plan(
+            &touch,
+            0.01,
+            base("pct2", "1to1"),
+            None,
+            PlanShape {
+                entry_form: EntryForm::parse(spec).unwrap(),
+                ..plain_shape()
+            },
+        )
+        .expect("план строится");
+        plan
+    };
+    let TradePlan::Bounce {
+        ladder,
+        entry_px,
+        level_px,
+        ..
+    } = build("ladder3x2..10")
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(ladder.n, 3);
+    assert_eq!(&ladder.ticks[..3], &[10_002, 10_006, 10_010]);
+    for i in 0..3 {
+        assert!(
+            (ladder.frac[i] - 1.0 / 3.0).abs() < 1e-12,
+            "равные доли: {}",
+            ladder.frac[i]
+        );
+    }
+    // Средняя — ближайший тик к взвешенной сумме: 10 006 → 100.06.
+    assert!((entry_px - 100.06).abs() < 1e-9, "{entry_px}");
+    assert!((level_px - 100.0).abs() < 1e-9, "стена — цена уровня");
+
+    // Вес к стене: нижняя нога ×2 — доли 2/4, 1/4, 1/4, средняя (2×10002 +
+    // 10006 + 10010)/4 = 10005 → 100.05.
+    let TradePlan::Bounce {
+        ladder, entry_px, ..
+    } = build("ladder3x2..10w2")
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(ladder.n, 3);
+    assert!((ladder.frac[0] - 0.5).abs() < 1e-12);
+    assert!((ladder.frac[1] - 0.25).abs() < 1e-12 && (ladder.frac[2] - 0.25).abs() < 1e-12);
+    assert!((entry_px - 100.05).abs() < 1e-9, "{entry_px}");
+}
+
+/// Совпавшие тики складываются в одну ногу с суммарной долей: у дешёвой монеты
+/// (10.00, шаг 0.01) 2/6/10 bps — это 0.2/0.6/1.0 тика, все три округляются
+/// вверх до первого тика (не меньше заданного), и биржа получила бы три заявки
+/// по одной цене — а это одна нога и вся сумма долей.
+#[test]
+fn ladder_legs_on_the_same_tick_merge_into_one_with_the_summed_share() {
+    let touch = bounce_touch(1_000, None);
+    let (_, plan) = bounce_plan(
+        &touch,
+        0.01,
+        base("pct2", "1to1"),
+        None,
+        PlanShape {
+            entry_form: EntryForm::parse("ladder3x2..10").unwrap(),
+            ..plain_shape()
+        },
+    )
+    .expect("план строится");
+    let TradePlan::Bounce { ladder, .. } = plan else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(ladder.n, 1, "совпавшие тики — одна нога");
+    assert_eq!(ladder.ticks[0], 1_001);
+    assert!((ladder.frac[0] - 1.0).abs() < 1e-12, "{}", ladder.frac[0]);
 }

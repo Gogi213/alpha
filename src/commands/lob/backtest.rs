@@ -32,9 +32,12 @@ use crate::lob::backtest::{
     QueueModelKind, Signal, TableEstimate, SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
-use crate::lob::levels::{LevelRecord, LevelsConfig, TouchRecord};
+use crate::lob::levels::{
+    ApproachRecord, LevelRecord, LevelsConfig, TouchRecord, REACTION_WINDOWS_S,
+    STRENGTH_HELD_WINDOWS_S,
+};
 use crate::lob::markout::MidSample;
-use crate::lob::strategy::TradePlan;
+use crate::lob::strategy::{EntryLadder, TradePlan, MAX_ENTRY_LEGS};
 use crate::lob::touch_axes::{
     age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
 };
@@ -1310,6 +1313,174 @@ fn bps_to_ticks_ceil(bps: f64, entry_tick: i64) -> i64 {
     (ticks as i64).max(1)
 }
 
+/// Имя прежнего входа (F6): одиночная нога у фронтранера касания, иначе
+/// `P ± 1` тик. Трёхпольные имена форм (`<стоп>-<тейк>-<H>`, В-65) читаются как
+/// `single@fr-…`, а сетка с этой формой входа пишет **прежнее** трёхпольное
+/// имя — на нём стоит гейт «те же круги» (F3/F4/F5).
+pub const SINGLE_ENTRY_LABEL: &str = "single@fr";
+
+/// Форма входа (F6 этапа F, В-73): нога у фронтранера или **лестница** от
+/// `from` до `to` bps над стеной (для аска — под). Числа `N`, `from`, `to`, `w`
+/// задаёт предрегистрация **именем формы**; умолчаний в коде нет.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EntryForm {
+    /// `single@fr` — прежний вход: цена фронтранера касания, иначе `P ± 1`
+    /// тик (T38, В-65). Гейт «те же круги».
+    SingleFrontrun,
+    /// `ladder<N>x<from>..<to>[w<k>]` — `N` ног от `from` до `to` bps над
+    /// стеной равными долями (`$ / N`), либо **вес к стене** `k`: нижняя
+    /// (ближайшая к стене) нога весит `k` долей — цитата практика «основной
+    /// объём к сайзу» [T 1:31:42].
+    Ladder {
+        legs: u8,
+        from_bps: f64,
+        to_bps: f64,
+        wall_weight: u32,
+    },
+}
+
+impl EntryForm {
+    /// Разбор имени формы. Каноничность проверяется как у `StopForm`/
+    /// `TakeForm`: `ladder03x02..10` или `…w1` — не имя, а другая запись того
+    /// же (и «попробовать ещё одно» здесь было бы лишним испытанием).
+    pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        let spec = spec.trim();
+        if spec == SINGLE_ENTRY_LABEL {
+            return Ok(Self::SingleFrontrun);
+        }
+        let rest = spec.strip_prefix("ladder").ok_or_else(|| {
+            anyhow::anyhow!(
+                "{spec}: форма входа — {SINGLE_ENTRY_LABEL} или ladder<N>x<from>..<to>[w<k>]"
+            )
+        })?;
+        let (legs_s, tail) = rest
+            .split_once('x')
+            .ok_or_else(|| anyhow::anyhow!("{spec}: лестница — ladder<N>x<from>..<to>[w<k>]"))?;
+        let legs: u8 = legs_s
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{spec}: число ног {legs_s:?} не разобралось"))?;
+        anyhow::ensure!(
+            (2..=MAX_ENTRY_LEGS as u8).contains(&legs),
+            "{spec}: ног {legs}, а сетка имён — от 2 до {MAX_ENTRY_LEGS}"
+        );
+        let (range, weight_s) = match tail.split_once('w') {
+            Some((r, w)) => (r, Some(w)),
+            None => (tail, None),
+        };
+        let wall_weight: u32 = match weight_s {
+            Some(w) => w
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{spec}: вес {w:?} не разобрался"))?,
+            None => 1,
+        };
+        anyhow::ensure!(
+            wall_weight >= 1,
+            "{spec}: вес к стене — целое ≥ 1 (1 — равные доли)"
+        );
+        let (from_s, to_s) = range
+            .split_once("..")
+            .ok_or_else(|| anyhow::anyhow!("{spec}: полоса лестницы — <from>..<to> bps"))?;
+        let from_bps: f64 = from_s
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{spec}: from {from_s:?} не число"))?;
+        let to_bps: f64 = to_s
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{spec}: to {to_s:?} не число"))?;
+        anyhow::ensure!(
+            from_bps.is_finite() && to_bps.is_finite() && from_bps > 0.0 && to_bps > from_bps,
+            "{spec}: полоса лестницы — конечные 0 < from < to bps"
+        );
+        let form = Self::Ladder {
+            legs,
+            from_bps,
+            to_bps,
+            wall_weight,
+        };
+        anyhow::ensure!(
+            form.label() == spec,
+            "{spec}: имя формы входа не каноническое (ожидалось {})",
+            form.label()
+        );
+        Ok(form)
+    }
+
+    /// Имя формы: `single@fr` или `ladder3x2..10` / `ladder3x2..10w2`. Вес 1
+    /// не пишется: равные доли — то же самое, а имя обязано быть одно.
+    pub fn label(self) -> String {
+        match self {
+            Self::SingleFrontrun => SINGLE_ENTRY_LABEL.to_string(),
+            Self::Ladder {
+                legs,
+                from_bps,
+                to_bps,
+                wall_weight,
+            } => {
+                let base = format!("ladder{legs}x{}..{}", fmt_bps(from_bps), fmt_bps(to_bps));
+                if wall_weight > 1 {
+                    format!("{base}w{wall_weight}")
+                } else {
+                    base
+                }
+            }
+        }
+    }
+}
+
+/// Число bps в имени формы — как печатает `f64::to_string` (кратчайшая запись,
+/// читаемая обратно тем же числом): `2`, `0.5`, `10`.
+fn fmt_bps(v: f64) -> String {
+    format!("{v}")
+}
+
+/// Ноги лестницы формы (F6, В-73): `N` цен от `from` до `to` bps **над
+/// стеной** (для аска — под, `away` = −1), каждая — целым числом тиков по
+/// `bps_to_ticks_ceil` (расстояние не меньше заданного, цена на сетке тиков).
+/// Совпавшие тики складываются в одну ногу с суммарной долей: биржа не
+/// различает две заявки по одной цене, а доля — то, что видит позиция. Доли —
+/// `$/N`, либо нижняя (ближайшая к стене) нога весит `wall_weight` долей.
+///
+/// Второе значение — средняя цена входа в тиках (по долям): от неё
+/// `bounce_plan` считает стоп и тейк формы, как для одиночного входа от цены
+/// фронтранера.
+#[allow(clippy::cast_precision_loss)]
+fn ladder_legs(
+    p_tick: i64,
+    away: i64,
+    legs: u8,
+    from_bps: f64,
+    to_bps: f64,
+    wall_weight: u32,
+) -> (EntryLadder, i64) {
+    let n = usize::from(legs.max(2));
+    let mut out = EntryLadder::NONE;
+    // Доли: нижняя нога — `wall_weight`, остальные — по единице; сумма долей
+    // нормируется на единицу.
+    let total = wall_weight as f64 + (n - 1) as f64;
+    let mut prev_tick: Option<i64> = None;
+    for i in 0..n {
+        let bps = from_bps + (to_bps - from_bps) * i as f64 / (n - 1) as f64;
+        let tick = p_tick + away * bps_to_ticks_ceil(bps, p_tick);
+        let frac = if i == 0 {
+            wall_weight as f64 / total
+        } else {
+            1.0 / total
+        };
+        // Тики монотонны по `i` (`bps_to_ticks_ceil` не убывает), поэтому
+        // совпавшие идут подряд: складываем долю в предыдущую ногу.
+        if prev_tick == Some(tick) {
+            let last = usize::from(out.n - 1);
+            out.frac[last] += frac;
+        } else {
+            assert!(out.push(tick, frac), "ног не больше MAX_ENTRY_LEGS");
+            prev_tick = Some(tick);
+        }
+    }
+    // Средняя цена входа в тиках — ближайший тик к взвешенной сумме: цены
+    // живут на сетке тиков (так же округляет `level_shift` стратегии).
+    let avg = out.weighted_avg_tick().round() as i64;
+    (out, avg)
+}
+
 /// Форма сделки, приходящая из CLI (`--post-only`, `--trail-*`, `--grid-*`),
 /// одной структурой: у `bounce_plan` иначе стало бы восемь аргументов, а clippy
 /// держит предел семи — тот же приём, что у `Session` в `bybit::conn`, где
@@ -1324,6 +1495,10 @@ pub(crate) struct PlanShape {
     pub(crate) trail_activate_bps: f64,
     pub(crate) grid_legs: u8,
     pub(crate) grid_step_ticks: i64,
+    /// Форма входа (F6, В-73): прежняя одиночная нога у фронтранера
+    /// (`single@fr`, гейт «те же круги») или лестница `ladder<N>x<from>..<to>`
+    /// с весом к стене. Числа формы — из её имени (предрегистрация).
+    pub(crate) entry_form: EntryForm,
     /// Дедлайн сделки в наносекундах (B3): из предрегистрированной сетки
     /// В-58, приходит из `--deadline-secs`.
     pub(crate) deadline_ns: i64,
@@ -1429,7 +1604,11 @@ fn notional_floor_qty(h3_usd: Option<f64>, price: f64) -> f64 {
 /// бид-уровень `P` — покупка лимитом от первого фронтранера (иначе `P + 1`
 /// тик), стоп по рынку по форме `form.stop`, тейк лимитом по `form.take`;
 /// аск зеркально. Расстояния в bps — в целых тиках вверх
-/// (`bps_to_ticks_ceil`). Срок жизни входа — `shape.entry_ttl` (F5, В-74):
+/// (`bps_to_ticks_ceil`). Форма входа (F6, В-73) — `shape.entry_form`:
+/// `single@fr` — прежняя одиночная нога, лестница — `N` ног от `from` до `to`
+/// bps над стеной целыми тиками, где совпавшие тики сложены, а опорная цена
+/// стопа/тейка — средняя по долям (фактическую среднюю ведёт стратегия после
+/// F4). Срок жизни входа — `shape.entry_ttl` (F5, В-74):
 /// `touch` — конец касания (гейт), секунды — потолок, а вход снимается
 /// раньше по «стена снята» (`level_floor_qty`) или «цена ушла из полосы»
 /// (`band_exit_bps`). Позиция закрывается не позже дедлайна. `sigma_bps` —
@@ -1451,6 +1630,7 @@ pub(crate) fn bounce_plan(
         trail_activate_bps,
         grid_legs,
         grid_step_ticks,
+        entry_form,
         deadline_ns,
         early_exit_ns,
         entry_ttl,
@@ -1487,9 +1667,28 @@ pub(crate) fn bounce_plan(
     // либо в упор, либо от фронтрана» [D 02:35]). Цена фронтрана уже лежит по
     // правильную сторону уровня — для бида выше, для аска ниже, — поэтому знак
     // ей не нужен. Фронтрана впереди не было — прежний `P + 1` тик.
-    let entry_tick = touch
-        .frontrun_tick
-        .unwrap_or_else(|| p_tick.saturating_add(away));
+    //
+    // F6 (В-73): у формы-лестницы вход — её ноги от `from` до `to` bps над
+    // стеной; опорная цена для стопа/тейка — средняя цена лестницы **по
+    // долям** (фактическую среднюю ведёт стратегия после F4 и сдвигает по ней
+    // уровни). Прежняя форма (`single@fr`) берёт цену фронтранера байт в байт.
+    let (ladder, entry_tick) = match entry_form {
+        EntryForm::SingleFrontrun => (
+            EntryLadder::NONE,
+            touch
+                .frontrun_tick
+                .unwrap_or_else(|| p_tick.saturating_add(away)),
+        ),
+        EntryForm::Ladder {
+            legs,
+            from_bps,
+            to_bps,
+            wall_weight,
+        } => {
+            let (ladder, avg_tick) = ladder_legs(p_tick, away, legs, from_bps, to_bps, wall_weight);
+            (ladder, avg_tick)
+        }
+    };
     // Расстояние от уровня «в сторону от плотности», тики (> 0 — по нужную сторону).
     let dist_from_level = (entry_tick - p_tick) * away;
     let stop_tick = match form.stop {
@@ -1577,6 +1776,10 @@ pub(crate) fn bounce_plan(
             trail_activate_bps,
             grid_legs,
             grid_step_px,
+            // F6 (В-73): ноги лестницы формы — целые тики и доли; у
+            // `single@fr` набор пуст (`EntryLadder::NONE`) и работает прежний
+            // путь `entry_px`/`grid_*` — гейт «те же круги».
+            ladder,
             early_exit_ns,
             // Уровень касания `P` и шаг цены — данные для решения «уровень ещё
             // держит» (B4): стратегия не знает ни тика, ни цены уровня, они
@@ -1605,6 +1808,71 @@ pub(crate) fn bounce_plan(
             lot_qty: lot,
         },
     ))
+}
+
+/// Вид записи подхода как касания (F6 этапа F, В-73): `bounce_plan`,
+/// `TouchFilter` и `SignalWindows` читают касание, у подхода те же поля
+/// называются иначе. `start_ms` — `arm_ms` (и взвод — это `t0` сигнала, и
+/// фильтры возраста/минуты режима смотрят на взвод), `end_ms` — `disarm_ms`
+/// (прежний режим входа `touch` для подхода = его жизнь), `size_at_touch` —
+/// `size_at_arm`, `level_birth_ms` — рождение уровня, `touch_index` —
+/// `approach_index`, `strength_e2` — сила кадра взвода (по ней работает порог
+/// В-66), `flow_1h_lots` — оборот к взводу. Чего у подхода нет, то ноль:
+/// `frontrun_tick: None` (ключ `--frontrun-only` подходы выбрасывает —
+/// фронтрана на взводе не считаем), `traded_during` 0, `size_max_before` =
+/// `size_at_arm` (ключ `eaten=` на подходах смысла не имеет — вызов с ним
+/// отвергается), стопки 0.
+///
+/// Вторая копия того же отображения живёт в `commands::lob::fill_capacity`
+/// (`touch_view_of`, F2): файл F2 трогать нельзя, поэтому общий хелпер не
+/// вынесен — отображения обязаны совпадать поле в поле.
+pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
+    TouchRecord {
+        side: a.side,
+        price_tick: a.price_tick,
+        touch_index: a.approach_index,
+        start_ms: a.arm_ms,
+        end_ms: a.disarm_ms,
+        duration_ms: a.duration_ms(),
+        level_birth_ms: a.level_birth_ms,
+        size_at_touch: a.size_at_arm,
+        size_max_before: a.size_at_arm,
+        traded_during: 0,
+        frontrun_lots: 0,
+        frontrun_tick: None,
+        swept_lots: 0,
+        round_zeros: crate::lob::levels::round_zeros(a.price_tick),
+        ended_by_death: false,
+        stack_levels: 0,
+        stack_next_tick: None,
+        traded_first_s: [0; REACTION_WINDOWS_S.len()],
+        flow_1h_lots: a.flow_1h_lots,
+        strength_e2: a.strength_e2,
+        strength_held_e2: [-1; STRENGTH_HELD_WINDOWS_S.len()],
+        repeat_count: 0,
+    }
+}
+
+/// План сделки по **записи подхода** (F6 этапа F, В-73): то же, что
+/// `bounce_plan` для касания, но вход ставится на взводе
+/// (`t0 = arm_ms`, стена — `price_tick`, срок жизни — до `disarm_ms` в режиме
+/// `touch` или по F5). Числа формы те же: `single@fr` (у подхода фронтрана нет
+/// — цена `P ± 1` тик, `--frontrun-only` такие сигналы выбрасывает) или
+/// `ladder<N>x<from>..<to>[w<k>]`.
+pub(crate) fn approach_plan(
+    approach: &ApproachRecord,
+    tick: f64,
+    form: BounceForm,
+    sigma_bps: Option<f64>,
+    shape: PlanShape,
+) -> Option<(i8, TradePlan)> {
+    bounce_plan(
+        &touch_view_of_approach(approach),
+        tick,
+        form,
+        sigma_bps,
+        shape,
+    )
 }
 
 /// Строка отчёта: «профиль» — либо `все`, либо `ось:корзина`. Корзины —
@@ -1774,6 +2042,10 @@ fn run_bounce(
                     trail_activate_bps: args.trail_activate_bps,
                     grid_legs: args.grid_legs,
                     grid_step_ticks: args.grid_step_ticks,
+                    // F6: у одиночного `lob backtest --touches` вход прежний
+                    // (`single@fr`); лестница формы живёт в сетке
+                    // (`lob bounce-grid --entry-form`), свой флаг ей там.
+                    entry_form: EntryForm::SingleFrontrun,
                     deadline_ns,
                     early_exit_ns,
                     // Одиночный `lob backtest --touches` — прежний режим
