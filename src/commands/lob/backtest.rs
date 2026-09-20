@@ -1073,6 +1073,11 @@ impl StopForm {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TakeForm {
     OneToOne,
+    /// Тейк в процентах **от входа**, независимо от стопа (S8 плана по
+    /// сторонам, 20.09): у лонгов от старых стен 83 выхода из 89 — по часу,
+    /// тейк 1:1 при стопе 2 % недостижим; `tk0.5` — +0.5 % от входа в
+    /// сторону отскока.
+    Pct(f64),
     Sigma(f64),
     Trail {
         activate_pct: f64,
@@ -1097,6 +1102,7 @@ impl TakeForm {
     pub fn label(self) -> String {
         match self {
             Self::OneToOne => "1to1".to_string(),
+            Self::Pct(x) => format!("tk{x}"),
             Self::Sigma(b) => format!("t{b}"),
             Self::Trail {
                 activate_pct,
@@ -1127,6 +1133,13 @@ impl TakeForm {
                 "{label}: пороги съедания — 0 < половина < всё ≤ 100 %"
             );
             Self::Eaten { half_pct, all_pct }
+        } else if let Some(rest) = label.strip_prefix("tk") {
+            let x = parse_mult(rest, label)?;
+            anyhow::ensure!(
+                x.is_finite() && x > 0.0 && x < 100.0,
+                "{label}: процент тейка обязан быть в (0, 100)"
+            );
+            Self::Pct(x)
         } else if let Some(rest) = label.strip_prefix("tr") {
             let (a, t) = rest
                 .split_once('x')
@@ -1148,7 +1161,7 @@ impl TakeForm {
             Self::Sigma(parse_mult(rest, label)?)
         } else {
             anyhow::bail!(
-                "{label}: форма тейка не из базы (1to1|half1to1|eat<h>x<a>|t<b>|tr<a>x<t>)"
+                "{label}: форма тейка не из базы (1to1|tk<x>|half1to1|eat<h>x<a>|t<b>|tr<a>x<t>)"
             )
         };
         anyhow::ensure!(
@@ -1353,6 +1366,8 @@ pub(crate) fn bounce_plan(
         | TakeForm::Trail { .. }
         | TakeForm::HalfOneToOne
         | TakeForm::Eaten { .. } => entry_tick + (entry_tick - stop_tick),
+        // Тейк в % от входа в сторону отскока — как `pct<x>` у стопа, зеркально.
+        TakeForm::Pct(x) => entry_tick + away * bps_to_ticks_ceil(x * 100.0, entry_tick),
         TakeForm::Sigma(b) => {
             let sigma = sigma_bps?;
             let take_bps = (b * sigma)

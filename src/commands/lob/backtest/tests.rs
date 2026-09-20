@@ -949,3 +949,33 @@ fn e7_take_forms_parse_and_fill_the_plan() {
     // Тейк — те же 1:1 от входа, что у `1to1`.
     assert!((take_px - (entry_px + (entry_px - stop_px))).abs() < 1e-9);
 }
+
+/// S8: тейк в процентах от входа `tk<x>` — имя ↔ форма, границы (0, 100),
+/// тейк ложится в план на `ceil(x % от входа)` тиков в сторону отскока
+/// независимо от стопа (у `pct2-tk0.5` тейк в 4 раза ближе стопа).
+#[test]
+fn pct_take_form_parses_and_sets_the_take_independent_of_the_stop() {
+    assert_eq!(TakeForm::parse("tk0.5").unwrap(), TakeForm::Pct(0.5));
+    assert_eq!(TakeForm::Pct(1.0).label(), "tk1");
+    assert_eq!(TakeForm::parse("tk1").unwrap(), TakeForm::Pct(1.0));
+    assert!(TakeForm::parse("tk0").is_err());
+    assert!(TakeForm::parse("tk100").is_err());
+    assert!(TakeForm::parse("tk1.0").is_err(), "имя не каноническое");
+    // Бид 10 000 без фронтрана: вход P + 1 = 10 001; стоп 2 % — 201 тик вниз.
+    let touch = bounce_touch(10_000, None);
+    let plan = |take: &str| {
+        let (_, plan) = bounce_plan(&touch, 0.01, base("pct2", take), None, plain_shape())
+            .expect("план строится");
+        plan_prices(&plan)
+    };
+    let (e1, s1, t1) = plan("1to1");
+    let (e2, s2, t2) = plan("tk0.5");
+    assert!(
+        (e1 - e2).abs() < 1e-9 && (s1 - s2).abs() < 1e-9,
+        "вход и стоп общие"
+    );
+    // 1:1 — столько же тиков вверх, сколько стоп вниз; tk0.5 — ceil(0.5 % × 10 001) = 51 тик.
+    assert!((t1 - (e1 + (e1 - s1))).abs() < 1e-9, "1to1: {t1}");
+    assert!((t2 - (e2 + 51.0 * 0.01)).abs() < 1e-9, "tk0.5: {t2}");
+    assert!(t2 < t1, "тейк в % ближе, чем 1:1 при стопе 2 %");
+}
