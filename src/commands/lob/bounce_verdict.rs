@@ -48,13 +48,18 @@ use super::backtest::{StopForm, TakeForm};
 use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
 use crate::lob::shortlist::CONFIRM_MIN_N;
 
-/// Дедлайны сетки В-58, секунды (В-62: они же — окна `σ_H`).
+/// Дедлайны сетки В-58, секунды (В-62: они же — окна `σ_H` в `touches`).
 pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
+/// Все разрешённые дедлайны: В-58 плюс 30 мин и 4 ч (S8 плана по сторонам,
+/// предрегистрация 20.09: у лонгов 60 с / 10 мин на тех же сигналах −$103 /
+/// −$65, час +$120, два часа +$111 — ось «удержание» нужно дотянуть). Сетка
+/// задаёт свой набор `--deadline-secs` из этого списка; чужое число — отказ.
+pub const DEADLINE_SECS_ALLOWED: [u64; 6] = [60, 600, 1800, 3600, 7200, 14400];
 /// Причины выхода в порядке колонок артефакта.
 pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
 
 /// Размер полной сетки по её же именам (В-62/В-65): формы стопа × формы тейка
-/// × `DEADLINE_SECS`. Сетка задана именами владельца, не константой, и её
+/// × дедлайны, встреченные в именах (все из `DEADLINE_SECS_ALLOWED`). Сетка задана именами владельца, не константой, и её
 /// полнота проверяется как декартово произведение осей, встреченных в
 /// именах форм: набор `{before-1to1-60, at-1to1-60}` без `before-1to1-600` —
 /// не сетка.
@@ -63,12 +68,14 @@ pub fn grid_size_from_labels<'a>(
 ) -> anyhow::Result<usize> {
     let mut stops: BTreeSet<String> = BTreeSet::new();
     let mut takes: BTreeSet<String> = BTreeSet::new();
+    let mut deadlines: BTreeSet<u64> = BTreeSet::new();
     for label in labels {
-        let (stop, take, _) = parse_form(label)?;
+        let (stop, take, deadline) = parse_form(label)?;
         stops.insert(stop);
         takes.insert(take);
+        deadlines.insert(deadline);
     }
-    Ok(stops.len() * takes.len() * DEADLINE_SECS.len())
+    Ok(stops.len() * takes.len() * deadlines.len())
 }
 
 /// Имя формы: `<стоп>-<тейк>-<H>` — имена `StopForm::label`/`TakeForm::label`
@@ -199,8 +206,8 @@ pub fn parse_form(label: &str) -> anyhow::Result<(String, String, u64)> {
         .parse()
         .map_err(|_| anyhow::anyhow!("{label}: дедлайн {} не число секунд", parts[2]))?;
     anyhow::ensure!(
-        DEADLINE_SECS.contains(&deadline_secs),
-        "{label}: дедлайн {deadline_secs} с вне сетки В-58 {DEADLINE_SECS:?}"
+        DEADLINE_SECS_ALLOWED.contains(&deadline_secs),
+        "{label}: дедлайн {deadline_secs} с вне разрешённых {DEADLINE_SECS_ALLOWED:?}"
     );
     Ok((stop.label(), take.label(), deadline_secs))
 }

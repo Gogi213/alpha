@@ -79,7 +79,7 @@ use super::backtest::{
     exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, read_tick_step,
     BounceForm, PlanShape, StopForm, TakeForm,
 };
-use super::bounce_verdict::{form_label, DEADLINE_SECS};
+use super::bounce_verdict::{form_label, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
 use super::{
     replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for, H3Args,
@@ -191,11 +191,12 @@ pub fn grid_forms(
     stops: &[StopForm],
     takes: &[TakeForm],
     take_floor_fees: Option<f64>,
+    deadlines: &[u64],
 ) -> Vec<GridForm> {
-    let mut out = Vec::with_capacity(stops.len() * takes.len() * DEADLINE_SECS.len());
+    let mut out = Vec::with_capacity(stops.len() * takes.len() * deadlines.len());
     for &stop in stops {
         for &take in takes {
-            for deadline in DEADLINE_SECS {
+            for &deadline in deadlines {
                 let label: &'static str =
                     Box::leak(form_label(&stop.label(), &take.label(), deadline).into_boxed_str());
                 out.push(GridForm {
@@ -298,6 +299,11 @@ pub struct BounceGridArgs {
     /// Без него эти ключи — отказ; сутки без файла — отказ.
     #[arg(long)]
     pub regime_from: Option<PathBuf>,
+    /// Дедлайны сетки, секунды (повторяемый; умолчание — В-58 `60 600 3600
+    /// 7200`); разрешены ещё `1800` и `14400` (S8, предрегистрация 20.09) —
+    /// иное число отказ.
+    #[arg(long = "deadline-secs")]
+    pub deadline_secs: Vec<u64>,
     #[command(flatten)]
     pub h3: H3Args,
     #[arg(long)]
@@ -1287,7 +1293,21 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             .validate()?;
         }
     }
-    let forms = grid_forms(&stops, &takes, args.take_floor_fees);
+    let deadlines: Vec<u64> = if args.deadline_secs.is_empty() {
+        DEADLINE_SECS.to_vec()
+    } else {
+        for &d in &args.deadline_secs {
+            anyhow::ensure!(
+                DEADLINE_SECS_ALLOWED.contains(&d),
+                "--deadline-secs {d}: не из разрешённых {DEADLINE_SECS_ALLOWED:?}"
+            );
+        }
+        let mut d = args.deadline_secs.clone();
+        d.sort_unstable();
+        d.dedup();
+        d
+    };
+    let forms = grid_forms(&stops, &takes, args.take_floor_fees, &deadlines);
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
@@ -1366,7 +1386,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         set.eaten_max_pct,
         set.usd_min,
         set.ctx_label(),
-        DEADLINE_SECS,
+        deadlines,
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
         args.h3.h3_mode,

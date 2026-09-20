@@ -77,6 +77,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         touches_from: None,
         sets: Vec::new(),
         regime_from: None,
+        deadline_secs: Vec::new(),
         h3: H3Args {
             h3_mode: H3ModeArg::Percentile,
             h3_lots: Some(5),
@@ -124,6 +125,7 @@ fn forms_are_the_sigma_grid_in_grid_order() {
         &[StopForm::Sigma(1.0), StopForm::Sigma(2.0)],
         &[TakeForm::Sigma(1.0)],
         Some(1.0),
+        &DEADLINE_SECS,
     );
     assert_eq!(forms.len(), 8);
     assert_eq!(forms[0].label, "s1-t1-60");
@@ -142,9 +144,31 @@ fn forms_are_the_sigma_grid_in_grid_order() {
         &[StopForm::Before, StopForm::Pct(1.0)],
         &[TakeForm::OneToOne],
         None,
+        &DEADLINE_SECS,
     );
     assert_eq!(base[0].label, "before-1to1-60");
     assert_eq!(base[7].label, "pct1-1to1-7200");
+    // S8: свой набор дедлайнов — 30 мин и 4 ч читаются вердиктом, чужое число — нет.
+    let ext = grid_forms(
+        &[StopForm::Pct(2.0)],
+        &[TakeForm::OneToOne],
+        None,
+        &[1800, 14_400],
+    );
+    assert_eq!(ext.len(), 2);
+    assert_eq!(ext[1].label, "pct2-1to1-14400");
+    assert_eq!(parse_form("pct2-1to1-1800").unwrap().2, 1800);
+    assert!(parse_form("pct2-1to1-900").is_err());
+    assert_eq!(
+        crate::commands::lob::bounce_verdict::grid_size_from_labels([
+            "pct2-1to1-1800",
+            "pct2-1to1-14400",
+            "pct1-1to1-1800",
+            "pct1-1to1-14400"
+        ])
+        .unwrap(),
+        4
+    );
 }
 
 /// Одни сутки фикстуры → строка `forms.csv` на форму с одинаковым числом
@@ -170,6 +194,7 @@ fn grid_runs_the_fixture_day_and_writes_every_form() {
         &[StopForm::Sigma(1.0), StopForm::Sigma(2.0)],
         &[TakeForm::Sigma(1.0)],
         Some(1.0),
+        &DEADLINE_SECS,
     )
     .iter()
     .map(|f| f.label)
@@ -784,4 +809,31 @@ fn usd_min_key_filters_by_wall_notional_at_touch() {
         .all(|r| col(&fh, r, "n_signals") == "0" && col(&fh, r, "n_skipped") == "3"));
     let head = std::fs::read_to_string(&by("u1").forms_path).unwrap();
     assert!(head.contains(" usd_min=Some(1.0) "), "{head}");
+}
+
+/// `--deadline-secs`: сетка с 30 мин и 4 ч — формы и шапка несут свой набор,
+/// чужое число — отказ.
+#[test]
+fn deadline_secs_flag_extends_the_grid_to_30min_and_4h() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct2".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.deadline_secs = vec![14_400, 60, 1800, 60];
+    a.out_dir = dir.path().join("grid-dl");
+    let m = run_bounce_grid(&a).unwrap();
+    assert_eq!(m.forms, 3, "дубли схлопнуты, порядок по возрастанию");
+    let (fh, forms) = read_csv(&m.forms_path);
+    let labels: Vec<&str> = forms.iter().map(|r| col(&fh, r, "form")).collect();
+    assert_eq!(
+        labels,
+        ["pct2-1to1-60", "pct2-1to1-1800", "pct2-1to1-14400"]
+    );
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(head.contains("deadlines=[60, 1800, 14400]"), "{head}");
+    a.deadline_secs = vec![900];
+    a.out_dir = dir.path().join("grid-dl-bad");
+    assert!(run_bounce_grid(&a).is_err());
 }

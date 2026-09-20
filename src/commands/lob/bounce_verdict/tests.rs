@@ -1,3 +1,4 @@
+use super::DEADLINE_SECS;
 use super::*;
 use crate::commands::lob::backtest::{StopForm, TakeForm};
 use crate::commands::lob::bounce_grid::{grid_forms, GridForm};
@@ -20,6 +21,7 @@ fn test_forms() -> Vec<GridForm> {
             TakeForm::Sigma(4.0),
         ],
         Some(1.0),
+        &DEADLINE_SECS,
     )
 }
 
