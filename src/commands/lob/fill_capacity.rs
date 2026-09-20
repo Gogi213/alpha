@@ -76,6 +76,11 @@ pub struct FillCapacityArgs {
     /// слот `t0` — постановка в момент касания — есть всегда.
     #[arg(long, value_delimiter = ',', required = true)]
     pub pre_secs: Vec<i64>,
+    /// Окна жизни заявки после старта касания, секунды, через запятую (например
+    /// `60,300`): постановка в `t0`, сделки за `[t0, t0 + post]` независимо от
+    /// конца касания (пусто — слотов `post` нет).
+    #[arg(long, value_delimiter = ',')]
+    pub post_secs: Vec<i64>,
     /// Каталог артефактов: `<набор>/capacity-<SYMBOL>.csv`, `manifest.txt`.
     #[arg(long)]
     pub out_dir: PathBuf,
@@ -113,8 +118,9 @@ fn target_of(t: &TouchRecord) -> Target {
     }
 }
 
-/// Шапка CSV: слоты `t0` и `pre<секунды>` в порядке трекера.
-fn header(pre_ms: &[i64]) -> String {
+/// Шапка CSV: слоты `t0`, `pre<секунды>` и `post<секунды>` в порядке трекера
+/// (у `post` очередь и лучшие цены — те же, что у `t0`, поэтому только `q`/`sold`).
+fn header(pre_ms: &[i64], post_ms: &[i64]) -> String {
     let mut cols = vec![
         "symbol",
         "day",
@@ -146,6 +152,11 @@ fn header(pre_ms: &[i64]) -> String {
         cols.push(format!("q_pre{s}"));
         cols.push(format!("sold_pre{s}"));
     }
+    for p in post_ms {
+        let s = p / 1_000;
+        cols.push(format!("q_post{s}"));
+        cols.push(format!("sold_post{s}"));
+    }
     cols.join(",")
 }
 
@@ -156,6 +167,7 @@ struct RowScope<'a> {
     tick_px: f64,
     lot_qty: f64,
     npre: usize,
+    npost: usize,
 }
 
 /// Строки одного касания: по тику полосы.
@@ -172,6 +184,7 @@ fn write_rows<W: Write>(
         tick_px,
         lot_qty,
         npre,
+        npost,
     } = *scope;
     let t = cap.target;
     let away = match t.side {
@@ -210,6 +223,10 @@ fn write_rows<W: Write>(
                 cap.queue(ku, s),
                 cap.sold(ku, s)
             )?;
+        }
+        for j in 0..npost {
+            let s = npre + 1 + j;
+            write!(w, ",{},{}", cap.queue(ku, s), cap.sold(ku, s))?;
         }
         writeln!(w)?;
         n += 1;
@@ -309,6 +326,17 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
         args.pre_secs.iter().all(|&s| s > 0),
         "--pre-secs: положительные секунды"
     );
+    anyhow::ensure!(
+        args.post_secs.iter().all(|&s| s > 0),
+        "--post-secs: положительные секунды"
+    );
+    let mut post_ms: Vec<i64> = args.post_secs.iter().map(|s| s * 1_000).collect();
+    post_ms.sort_unstable();
+    anyhow::ensure!(
+        post_ms.windows(2).all(|w| w[0] != w[1]),
+        "--post-secs: окна повторяются: {:?}",
+        args.post_secs
+    );
     // Слоты в CSV — в порядке трекера (по возрастанию окна).
     let mut pre_ms: Vec<i64> = args.pre_secs.iter().map(|s| s * 1_000).collect();
     pre_ms.sort_unstable();
@@ -353,9 +381,10 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
         let mut m = std::fs::File::create(args.out_dir.join("manifest.txt"))?;
         writeln!(
             m,
-            "# lob fill-capacity: band_bps={} pre_secs={:?} touches_from={} regime_from={} h3={:?} symbols={} days={:?}",
+            "# lob fill-capacity: band_bps={} pre_secs={:?} post_secs={:?} touches_from={} regime_from={} h3={:?} symbols={} days={:?}",
             args.band_bps,
             args.pre_secs,
+            args.post_secs,
             args.touches_from.display(),
             args.regime_from
                 .as_deref()
@@ -467,7 +496,7 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                 .iter()
                 .map(|p| {
                     let targets: Vec<Target> = p.iter().map(|x| x.target).collect();
-                    CapacityTracker::new(&pre_ms, args.band_bps, &targets)
+                    CapacityTracker::new(&pre_ms, &post_ms, args.band_bps, &targets)
                 })
                 .collect::<anyhow::Result<_>>()?;
             let book = replay_day(day_parts, &mut trackers, tick_e9, step_e9)?;
@@ -484,7 +513,7 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                         .join(&set.name)
                         .join(format!("capacity-{symbol}.csv"));
                     let mut w = std::io::BufWriter::new(std::fs::File::create(&path)?);
-                    writeln!(w, "{}", header(&pre_ms))?;
+                    writeln!(w, "{}", header(&pre_ms, &post_ms))?;
                     writers[si] = Some(w);
                 }
                 let w = writers[si].as_mut().expect("только что открыт");
@@ -494,6 +523,7 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                     tick_px: tick,
                     lot_qty: lot,
                     npre: pre_ms.len(),
+                    npost: post_ms.len(),
                 };
                 for (x, cap) in p.iter().zip(&caps) {
                     day_rows += write_rows(w, &scope, x.touch, cap)?;

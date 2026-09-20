@@ -24,8 +24,13 @@
 //! Время. `t0` — старт касания (`TouchRecord::start_ms`), `end` — его конец
 //! (там же снимается вход в бэктесте, `entry_ttl_ns`). Постановка — либо в
 //! `t0` (как сейчас в стратегии), либо за `pre` до касания (лестница
-//! практиков стоит **заранее**, пока цена идёт к стене). Для каждого окна
-//! `pre` и для `t0` на каждом тике полосы:
+//! практиков стоит **заранее**, пока цена идёт к стене). Слоты `post` —
+//! постановка в `t0`, но заявка живёт `post` после старта касания независимо
+//! от его конца (касание в записи длится 0,1 с в медиане — замер 20.09, и
+//! вход, снимаемый в конце касания, почти не успевает исполниться объёмом):
+//! очередь и лучшие цены у `post` — те же, что у `t0`, окно сделок —
+//! `[t0, t0 + post]`; смерть стены слот не видит — верхняя оценка. Для
+//! каждого окна `pre`, для `t0` и для каждого `post` на каждом тике полосы:
 //!
 //! - `queue` — лоты **нашей** стороны (бид у бид-стены) на тике по книге на
 //!   **последнем кадре не позже** момента постановки: это очередь впереди
@@ -34,8 +39,8 @@
 //! - `sold` — лоты сделок **против** нашей стороны на тике (агрессор-продавец у
 //!   бид-стены, агрессор-покупатель у аск-стены) по метке исполнения
 //!   (`TradeHit::exch_ms`, как `traded_first_s`) за `[t0 − pre, t0)`; для
-//!   `t0` — за `[t0, end]`. Блочные и RPI-сделки не идут (видимую очередь не
-//!   двигают, В-55).
+//!   `t0` — за `[t0, end]`; для `post` — за `[t0, t0 + post]`. Блочные и
+//!   RPI-сделки не идут (видимую очередь не двигают, В-55).
 //!
 //! Правило чтения: нога на тике `k`, поставленная за `pre`, исполнена на
 //! `clamp(sold_pre + sold_touch − queue_pre, 0, нога)`; поставленная в `t0`
@@ -92,6 +97,11 @@ impl Target {
     }
 }
 
+/// Конец активности цели: конец касания или самое длинное окно `post` от старта.
+fn active_until(t: Target, post_max_ms: i64) -> i64 {
+    t.end_ms.max(t.start_ms.saturating_add(post_max_ms))
+}
+
 /// Ширина полосы в тиках для стены `price_tick`: `⌊P × band_bps / 10⁴⌋`, не
 /// меньше нуля. `P` в тиках — расстояние `x` bps от цены `P × tick` равно
 /// `P × x / 10⁴` тиков, шаг тика сокращается.
@@ -105,7 +115,7 @@ pub fn band_ticks(price_tick: i64, band_bps: i64) -> i64 {
 }
 
 /// Момент снимка книги: окно `pre` (индекс в `pre_ms`) или сам `t0`
-/// (индекс `pre_ms.len()`).
+/// (индекс `pre_ms.len()`); слоты `post` снимка не имеют — берут снимок `t0`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Snapshot {
     ts_ms: i64,
@@ -128,7 +138,7 @@ impl BestAt {
     };
 }
 
-/// Замер по одному касанию: полоса тиков × слоты (`pre_ms` затем `t0`).
+/// Замер по одному касанию: полоса тиков × слоты (`pre_ms`, `t0`, затем `post_ms`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetCapacity {
     pub target: Target,
@@ -191,6 +201,9 @@ impl TargetCapacity {
 pub struct CapacityTracker {
     /// Окна постановки до касания, мс, по возрастанию; слот `pre_ms.len()` — `t0`.
     pre_ms: Vec<i64>,
+    /// Окна жизни заявки после старта касания, мс, по возрастанию; слоты
+    /// `pre_ms.len() + 1 + j`.
+    post_ms: Vec<i64>,
     out: Vec<TargetCapacity>,
     /// Снимки по возрастанию времени; `next_snap` — первый не взятый.
     snaps: Vec<Snapshot>,
@@ -206,25 +219,33 @@ pub struct CapacityTracker {
 }
 
 impl CapacityTracker {
-    /// `pre_ms` — окна постановки до касания (любой порядок, без повторов,
-    /// положительные); `band_bps` — ширина полосы; `targets` — касания суток.
-    pub fn new(pre_ms: &[i64], band_bps: i64, targets: &[Target]) -> anyhow::Result<Self> {
-        let mut pre: Vec<i64> = pre_ms.to_vec();
-        pre.sort_unstable();
-        pre.dedup();
-        anyhow::ensure!(
-            pre.len() == pre_ms.len(),
-            "окна постановки повторяются: {pre_ms:?}"
-        );
-        anyhow::ensure!(
-            pre.iter().all(|&p| p > 0),
-            "окно постановки обязано быть положительным: {pre_ms:?}"
-        );
+    /// `pre_ms` — окна постановки до касания, `post_ms` — окна жизни заявки
+    /// после старта касания (любой порядок, без повторов, положительные);
+    /// `band_bps` — ширина полосы; `targets` — касания суток.
+    pub fn new(
+        pre_ms: &[i64],
+        post_ms: &[i64],
+        band_bps: i64,
+        targets: &[Target],
+    ) -> anyhow::Result<Self> {
+        let sorted = |name: &str, xs: &[i64]| -> anyhow::Result<Vec<i64>> {
+            let mut v: Vec<i64> = xs.to_vec();
+            v.sort_unstable();
+            v.dedup();
+            anyhow::ensure!(v.len() == xs.len(), "окна {name} повторяются: {xs:?}");
+            anyhow::ensure!(
+                v.iter().all(|&p| p > 0),
+                "окно {name} обязано быть положительным: {xs:?}"
+            );
+            Ok(v)
+        };
+        let pre = sorted("постановки", pre_ms)?;
+        let post = sorted("жизни", post_ms)?;
         anyhow::ensure!(
             band_bps > 0,
             "полоса обязана быть положительной, bps: {band_bps}"
         );
-        let slots = pre.len() + 1;
+        let slots = pre.len() + 1 + post.len();
         let pre_max = pre.last().copied().unwrap_or(0);
         let mut out = Vec::with_capacity(targets.len());
         let mut snaps = Vec::with_capacity(targets.len() * slots);
@@ -256,6 +277,7 @@ impl CapacityTracker {
         order.sort_by_key(|&i| (targets[i].start_ms - pre_max, i));
         Ok(Self {
             pre_ms: pre,
+            post_ms: post,
             out,
             snaps,
             next_snap: 0,
@@ -269,6 +291,11 @@ impl CapacityTracker {
     /// Окна постановки, мс, по возрастанию.
     pub fn pre_ms(&self) -> &[i64] {
         &self.pre_ms
+    }
+
+    /// Окна жизни после старта касания, мс, по возрастанию.
+    pub fn post_ms(&self) -> &[i64] {
+        &self.post_ms
     }
 
     fn pre_max(&self) -> i64 {
@@ -285,9 +312,11 @@ impl CapacityTracker {
             self.active.push(i);
             self.next_activate += 1;
         }
+        let post_max = self.post_ms.last().copied().unwrap_or(0);
         let out = &self.out;
-        self.active
-            .retain(|&i| out[i].target.end_ms.saturating_add(ACTIVE_SLACK_MS) >= ts_ms);
+        self.active.retain(|&i| {
+            active_until(out[i].target, post_max).saturating_add(ACTIVE_SLACK_MS) >= ts_ms
+        });
     }
 
     fn take_snapshot(&mut self, snap: Snapshot, book: &Book) {
@@ -297,7 +326,7 @@ impl CapacityTracker {
             return;
         }
         let t = tc.target;
-        tc.best[snap.slot] = BestAt {
+        let best = BestAt {
             ours: match t.side {
                 Side::Bid => book.best_bid_tick_opt(),
                 Side::Ask => book.best_ask_tick_opt(),
@@ -309,9 +338,21 @@ impl CapacityTracker {
             }
             .unwrap_or(-1),
         };
+        // Снимок `t0` — он же снимок всех слотов `post` (постановка в `t0`).
+        let last = if snap.slot == self.pre_ms.len() {
+            slots - 1
+        } else {
+            snap.slot
+        };
+        for s in snap.slot..=last {
+            tc.best[s] = best;
+        }
         for k in 0..=tc.band {
             let tick = tc.tick_at(k);
-            tc.queue[k as usize * slots + snap.slot] = book.qty_lots_at(t.side, tick);
+            let q = book.qty_lots_at(t.side, tick);
+            for s in snap.slot..=last {
+                tc.queue[k as usize * slots + s] = q;
+            }
         }
     }
 
@@ -357,6 +398,12 @@ impl CapacityTracker {
             if tr.exch_ms >= t.start_ms {
                 if tr.exch_ms <= t.end_ms {
                     tc.sold[base + npre] = tc.sold[base + npre].saturating_add(tr.lots);
+                }
+                for (j, &p) in self.post_ms.iter().enumerate() {
+                    if tr.exch_ms <= t.start_ms.saturating_add(p) {
+                        let s = base + npre + 1 + j;
+                        tc.sold[s] = tc.sold[s].saturating_add(tr.lots);
+                    }
                 }
             } else {
                 for (s, &p) in self.pre_ms.iter().enumerate() {

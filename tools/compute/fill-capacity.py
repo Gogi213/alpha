@@ -7,12 +7,15 @@
 
 Правило исполнения — консервативное, объёмом (модуль `lob::capacity`): нога на тике `k`, поставленная
 в слот `s`, исполнена на `clamp(sold − queue, 0, нога)`, где для `t0` `sold = sold_touch`, `queue = q_t0`,
-для `pre<с>` — `sold = sold_pre + sold_touch`, `queue = q_pre`. Снятия чужих заявок впереди нас не
+для `pre<с>` — `sold = sold_pre + sold_touch`, `queue = q_pre`, для `post<с>` (постановка в `t0`, заявка
+живёт `с` секунд от старта касания независимо от его конца) — `sold = sold_post`, `queue = q_t0`. Снятия чужих заявок впереди нас не
 помогают (обратное тому, что делает `RiskAdverseQueueModel`, — `EXPERIMENTS.md` M13).
 
 Лестница `N@from..to` — `N` ног равными долями `$X / N` по тикам от `from` до `to` bps от стены
-(`fr` — тик первого фронтранера касания, `frontrun_off`; касание без фронтрана при `fr` выбывает);
-`1@0` — одна нога в упор; ноги, попавшие на один тик, складываются. Нога по нашу сторону от лучшей
+(`fr` — тик первого фронтранера касания, `frontrun_off`; касание без фронтрана при `fr` выбывает;
+`mkt` — последний тик перед лучшей ценой другой стороны на момент постановки, то есть самая дальняя
+от стены нога, которую тогда можно было поставить мейкером); `1@0` — одна нога в упор; ноги, попавшие
+на один тик, складываются. Нога по нашу сторону от лучшей
 цены **другой** стороны на момент постановки пересекла бы спред — считается «не поставлена»
 (пост-онли отверг бы), её доля из размера выпадает; доля таких ног печатается. Очередь `-1` (книги
 на момент нет) — касание в этом слоте выбывает и считается отдельно.
@@ -35,25 +38,28 @@ import sys
 
 def parse_ladder(spec):
     """`N@a..b` | `N@a` | `N@fr..b` | `N@fr` → (n, from, to), где from/to — число bps или "fr"."""
-    m = re.fullmatch(r"(\d+)@(fr|-?\d+(?:\.\d+)?)(?:\.\.(fr|-?\d+(?:\.\d+)?))?", spec)
+    m = re.fullmatch(r"(\d+)@(fr|mkt|-?\d+(?:\.\d+)?)(?:\.\.(fr|mkt|-?\d+(?:\.\d+)?))?", spec)
     if not m:
-        raise SystemExit(f"--ladder {spec!r}: ожидается N@from[..to], from/to — bps или fr")
+        raise SystemExit(f"--ladder {spec!r}: ожидается N@from[..to], from/to — bps, fr или mkt")
     n = int(m.group(1))
     if n < 1:
         raise SystemExit(f"--ladder {spec!r}: ног не меньше одной")
     a = m.group(2)
     b = m.group(3) if m.group(3) is not None else a
-    conv = lambda x: x if x == "fr" else float(x)
+    conv = lambda x: x if x in ("fr", "mkt") else float(x)
     return n, conv(a), conv(b)
 
 
-def leg_offsets(ladder, price_tick, frontrun_off):
-    """Смещения ног в тиках от стены (могут совпадать); None — лестница на этом касании не строится."""
+def leg_offsets(ladder, price_tick, frontrun_off, mkt_off):
+    """Смещения ног в тиках от стены (могут совпадать); None — лестница на этом касании не строится
+    (нет фронтрана при `fr`, нет книги при `mkt`)."""
     n, a, b = ladder
 
     def off(x):
         if x == "fr":
             return None if frontrun_off is None else frontrun_off
+        if x == "mkt":
+            return None if mkt_off is None else max(0, mkt_off)
         # bps → тики, ближайший целый; не ближе стены (нога за стеной — уже стоп-зона).
         return max(0, int(round(price_tick * x / 10_000.0)))
 
@@ -82,9 +88,9 @@ def touches_of(rows):
 def slot_cols(header):
     slots = ["t0"]
     for h in header:
-        m = re.fullmatch(r"q_pre(\d+)", h)
+        m = re.fullmatch(r"q_(pre|post)(\d+)", h)
         if m:
-            slots.append(f"pre{m.group(1)}")
+            slots.append(f"{m.group(1)}{m.group(2)}")
     return slots
 
 
@@ -95,14 +101,19 @@ def fill_for(ticks, slot, ladder, usd, tick_px, lot_qty):
     price_tick = int(any_row["price_tick"])
     fr = any_row["frontrun_off"]
     frontrun_off = int(fr) if fr not in ("", None) else None
-    offs = leg_offsets(ladder, price_tick, frontrun_off)
+    side = any_row["side"]
+    is_post = slot.startswith("post")
+    # У `post` очередь и лучшие цены — снимок `t0` (постановка в `t0`), сделки — своё окно.
+    q_col = "q_t0" if slot == "t0" or is_post else f"q_{slot}"
+    opp_col = "opp_t0" if slot == "t0" or is_post else f"opp_{slot}"
+    sold_col = f"sold_{slot}" if is_post else "sold_touch"
+    sold_pre_col = None if slot == "t0" or is_post else f"sold_{slot}"
+    opp_at = int(any_row[opp_col])
+    sgn = 1 if side == "bid" else -1
+    mkt_off = None if opp_at < 0 else (opp_at - price_tick) * sgn - 1
+    offs = leg_offsets(ladder, price_tick, frontrun_off, mkt_off)
     if offs is None:
         return None
-    side = any_row["side"]
-    q_col = "q_t0" if slot == "t0" else f"q_{slot}"
-    best_col = "best_t0" if slot == "t0" else f"best_{slot}"
-    opp_col = "opp_t0" if slot == "t0" else f"opp_{slot}"
-    sold_pre_col = None if slot == "t0" else f"sold_{slot}"
     n = len(offs)
     leg_usd = usd / n
     per_tick = collections.Counter(offs)
@@ -130,7 +141,7 @@ def fill_for(ticks, slot, ladder, usd, tick_px, lot_qty):
         if want_lots <= 0:
             continue
         placed_usd += want_lots * px * lot_qty
-        sold = int(row["sold_touch"]) + (int(row[sold_pre_col]) if sold_pre_col else 0)
+        sold = int(row[sold_col]) + (int(row[sold_pre_col]) if sold_pre_col else 0)
         got = max(0, min(want_lots, sold - q))
         filled_usd += got * px * lot_qty
     frac = filled_usd / usd if usd > 0 else 0.0

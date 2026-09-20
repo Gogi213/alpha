@@ -73,23 +73,27 @@ fn band_ticks_floors_bps_to_whole_ticks() {
 #[test]
 fn rejects_bad_windows_and_band() {
     let t = [bid_target()];
-    assert!(CapacityTracker::new(&[1_000, 1_000], 70, &t).is_err());
-    assert!(CapacityTracker::new(&[0], 70, &t).is_err());
-    assert!(CapacityTracker::new(&[1_000], 0, &t).is_err());
+    assert!(CapacityTracker::new(&[1_000, 1_000], &[], 70, &t).is_err());
+    assert!(CapacityTracker::new(&[0], &[], 70, &t).is_err());
+    assert!(CapacityTracker::new(&[1_000], &[], 0, &t).is_err());
     let bad = Target {
         end_ms: 99_000,
         ..bid_target()
     };
-    assert!(CapacityTracker::new(&[1_000], 70, &[bad]).is_err());
+    assert!(CapacityTracker::new(&[1_000], &[], 70, &[bad]).is_err());
     // Порядок окон в аргументе — любой, внутри — по возрастанию.
-    let tr = CapacityTracker::new(&[60_000, 1_000], 70, &t).expect("годные окна");
+    let tr =
+        CapacityTracker::new(&[60_000, 1_000], &[300_000, 60_000], 70, &t).expect("годные окна");
     assert_eq!(tr.pre_ms(), &[1_000, 60_000]);
+    assert_eq!(tr.post_ms(), &[60_000, 300_000]);
+    assert!(CapacityTracker::new(&[1_000], &[0], 70, &t).is_err());
+    assert!(CapacityTracker::new(&[1_000], &[5, 5], 70, &t).is_err());
 }
 
 #[test]
 fn queue_is_last_frame_not_later_than_placement() {
     let t = bid_target();
-    let mut tr = CapacityTracker::new(&[1_000, 60_000], 70, &[t]).expect("трекер");
+    let mut tr = CapacityTracker::new(&[1_000, 60_000], &[], 70, &[t]).expect("трекер");
     let mut book = book();
     // 40 с до касания: на 10 001 стоит 5, на 10 002 — 7; лучший аск 10 050.
     apply(
@@ -162,7 +166,7 @@ fn queue_is_last_frame_not_later_than_placement() {
 #[test]
 fn sold_splits_by_window_side_and_band() {
     let t = bid_target();
-    let mut tr = CapacityTracker::new(&[1_000, 60_000], 70, &[t]).expect("трекер");
+    let mut tr = CapacityTracker::new(&[1_000, 60_000], &[], 70, &[t]).expect("трекер");
     let mut book = book();
     apply(
         &mut tr,
@@ -218,7 +222,7 @@ fn ask_wall_mirrors_direction_and_aggressor() {
         start_ms: 100_000,
         end_ms: 110_000,
     };
-    let mut tr = CapacityTracker::new(&[1_000], 70, &[t]).expect("трекер");
+    let mut tr = CapacityTracker::new(&[1_000], &[], 70, &[t]).expect("трекер");
     let mut book = book();
     apply(
         &mut tr,
@@ -269,7 +273,7 @@ fn overlapping_targets_each_get_their_own_trades() {
         ..a
     };
     // Порядок целей — как подали, не по времени.
-    let mut tr = CapacityTracker::new(&[1_000], 70, &[c, a, b]).expect("трекер");
+    let mut tr = CapacityTracker::new(&[1_000], &[], 70, &[c, a, b]).expect("трекер");
     let mut book = book();
     apply(
         &mut tr,
@@ -296,7 +300,7 @@ fn overlapping_targets_each_get_their_own_trades() {
 #[test]
 fn snapshots_after_last_frame_take_the_last_book() {
     let t = bid_target();
-    let mut tr = CapacityTracker::new(&[1_000], 70, &[t]).expect("трекер");
+    let mut tr = CapacityTracker::new(&[1_000], &[], 70, &[t]).expect("трекер");
     let mut book = book();
     // Единственный кадр задолго до касания: и `pre`, и `t0` читают его.
     apply(
@@ -320,10 +324,58 @@ fn snapshots_after_last_frame_take_the_last_book() {
 #[test]
 fn no_frames_at_all_leaves_unknown() {
     let t = bid_target();
-    let tr = CapacityTracker::new(&[1_000], 70, &[t]).expect("трекер");
+    let tr = CapacityTracker::new(&[1_000], &[], 70, &[t]).expect("трекер");
     let book = book();
     let out = tr.finish(&book);
     assert_eq!(out[0].queue(0, 0), -1);
     assert_eq!(out[0].queue(0, 1), -1);
     assert_eq!(out[0].best(1), BestAt::UNKNOWN);
+}
+
+#[test]
+fn post_slots_share_t0_snapshot_and_count_trades_past_touch_end() {
+    let t = bid_target();
+    // Слоты: pre 1 с (0), t0 (1), post 10 с (2), post 60 с (3).
+    let mut tr = CapacityTracker::new(&[1_000], &[60_000, 10_000], 70, &[t]).expect("трекер");
+    let mut book = book();
+    apply(
+        &mut tr,
+        &mut book,
+        &update(
+            true,
+            1,
+            90_000,
+            &[(10_000, 100), (10_001, 5)],
+            &[(10_002, 1)],
+        ),
+    );
+    apply(
+        &mut tr,
+        &mut book,
+        &update(false, 2, 100_000, &[(10_001, 0)], &[]),
+    );
+    // В 10 с и в касании; в касании, но после 10 с; после конца касания, в 60 с;
+    // после 60 с.
+    tr.observe_trade(sell(10_001, 2, 105_000));
+    tr.observe_trade(sell(10_001, 1, 125_000));
+    tr.observe_trade(sell(10_001, 3, 135_000));
+    tr.observe_trade(sell(10_001, 4, 150_000));
+    tr.observe_trade(sell(10_001, 8, 160_001));
+    let out = tr.finish(&book);
+    let c = &out[0];
+    assert_eq!(c.queue(1, 0), 5);
+    assert_eq!(c.queue(1, 1), 0);
+    assert_eq!(c.queue(1, 2), 0);
+    assert_eq!(c.queue(1, 3), 0);
+    assert_eq!(c.best(2), c.best(1));
+    assert_eq!(
+        c.best(3),
+        BestAt {
+            ours: 10_000,
+            opposite: 10_002
+        }
+    );
+    assert_eq!(c.sold(1, 1), 3);
+    assert_eq!(c.sold(1, 2), 2);
+    assert_eq!(c.sold(1, 3), 10);
 }

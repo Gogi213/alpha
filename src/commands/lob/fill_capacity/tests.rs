@@ -91,6 +91,7 @@ fn args(root: &std::path::Path, cache: &std::path::Path, sets: &[&str]) -> FillC
         h3_k: None,
         band_bps: 300,
         pre_secs: vec![60, 1],
+        post_secs: vec![10],
         out_dir: root.join("cap"),
         allow_unverified: false,
     }
@@ -146,7 +147,7 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
     let (h, rows) = read_csv(&all);
     assert_eq!(rows.len() as u64, n_bid_touches * 3);
     assert_eq!(
-        h.iter().skip(h.len() - 8).cloned().collect::<Vec<_>>(),
+        h.iter().skip(h.len() - 10).cloned().collect::<Vec<_>>(),
         [
             "best_pre1",
             "opp_pre1",
@@ -155,7 +156,9 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
             "best_pre60",
             "opp_pre60",
             "q_pre60",
-            "sold_pre60"
+            "sold_pre60",
+            "q_post10",
+            "sold_post10"
         ]
     );
     let lead = LEAD_S * 1_000;
@@ -198,6 +201,11 @@ fn writes_band_rows_per_touch_with_queue_and_sold_by_slot() {
     assert_eq!(at("1", "sold_pre60"), "3");
     assert_eq!(at("1", "q_t0"), "0");
     assert_eq!(at("1", "sold_touch"), "0");
+    // Слот post 10 с: очередь — как в `t0`; за 10 с после старта первого касания
+    // одна сделка против нас — на стене в lead + 5500 (4 лота).
+    assert_eq!(at("1", "q_post10"), "0");
+    assert_eq!(at("0", "q_post10"), at("0", "q_t0"));
+    assert_eq!(at("0", "sold_post10"), "4");
     assert_eq!(at("0", "q_pre1"), "10");
     assert_eq!(at("0", "sold_pre1"), "0");
     assert_eq!(at("2", "q_pre1"), "0");
@@ -241,6 +249,9 @@ fn rejects_bad_flags() {
     assert!(run_fill_capacity(&a).is_err());
     let mut a = args(dir.path(), &cache, &["all:"]);
     a.pre_secs = vec![0];
+    assert!(run_fill_capacity(&a).is_err());
+    let mut a = args(dir.path(), &cache, &["all:"]);
+    a.post_secs = vec![10, 10];
     assert!(run_fill_capacity(&a).is_err());
     let mut a = args(dir.path(), &cache, &["all:", "all:side=bid"]);
     a.pre_secs = vec![1];
