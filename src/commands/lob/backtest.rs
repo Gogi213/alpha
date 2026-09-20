@@ -756,6 +756,54 @@ pub(crate) fn pool_order_qty(
     last_price_tick: i64,
     tick_e9: i64,
 ) -> anyhow::Result<i64> {
+    let (min_order_qty_e9, qty_step_e9, min_notional_value_e9) =
+        pool_lot_fields(instruments_csv, symbol)?;
+    let last_price_e9 = last_price_tick.saturating_mul(tick_e9);
+    Ok(super::pick::order_size_22a(
+        min_order_qty_e9,
+        qty_step_e9,
+        min_notional_value_e9,
+        last_price_e9,
+    ))
+}
+
+/// Лот под номинал `usd` (владелец 20.09: «$1000 в отчёте — масштабирование
+/// или сделка?»): `floor(usd / цена / шаг) × шаг`, но не меньше лота 22а —
+/// чтобы модель очереди исполняла **реальный** размер, а не минимальный чек.
+pub(crate) fn pool_order_qty_usd(
+    instruments_csv: &Path,
+    symbol: &str,
+    last_price_tick: i64,
+    tick_e9: i64,
+    usd: f64,
+) -> anyhow::Result<i64> {
+    anyhow::ensure!(
+        usd.is_finite() && usd > 0.0,
+        "{symbol}: --order-usd обязан быть положительным числом"
+    );
+    let (min_order_qty_e9, qty_step_e9, min_notional_value_e9) =
+        pool_lot_fields(instruments_csv, symbol)?;
+    let last_price_e9 = last_price_tick.saturating_mul(tick_e9);
+    anyhow::ensure!(
+        last_price_e9 > 0 && qty_step_e9 > 0,
+        "{symbol}: цена и шаг лота обязаны быть положительны"
+    );
+    let floor_e9 = super::pick::order_size_22a(
+        min_order_qty_e9,
+        qty_step_e9,
+        min_notional_value_e9,
+        last_price_e9,
+    );
+    // Шагов в номинале: floor(usd × 1e9 / price_e9 / step_e9) — в i128, как 22а.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    let steps = ((usd * 1e18) / (last_price_e9 as f64) / (qty_step_e9 as f64)).floor() as i64;
+    let qty_e9 = steps.saturating_mul(qty_step_e9);
+    Ok(qty_e9.max(floor_e9))
+}
+
+/// Поля лота символа из `instruments.csv` пула: `(min_order_qty, qty_step,
+/// min_notional_value)` в 1e-9.
+fn pool_lot_fields(instruments_csv: &Path, symbol: &str) -> anyhow::Result<(i64, i64, i64)> {
     #[derive(Debug, serde::Deserialize)]
     struct Row {
         symbol: String,
@@ -774,15 +822,10 @@ pub(crate) fn pool_order_qty(
             crate::bybit::ws::parse_e9(v)
                 .ok_or_else(|| anyhow::anyhow!("{symbol}: {name} `{v}` не разобрался как 1e-9"))
         };
-        let min_order_qty_e9 = e9("min_order_qty", &row.min_order_qty)?;
-        let qty_step_e9 = e9("qty_step", &row.qty_step)?;
-        let min_notional_value_e9 = e9("min_notional_value", &row.min_notional_value)?;
-        let last_price_e9 = last_price_tick.saturating_mul(tick_e9);
-        return Ok(super::pick::order_size_22a(
-            min_order_qty_e9,
-            qty_step_e9,
-            min_notional_value_e9,
-            last_price_e9,
+        return Ok((
+            e9("min_order_qty", &row.min_order_qty)?,
+            e9("qty_step", &row.qty_step)?,
+            e9("min_notional_value", &row.min_notional_value)?,
         ));
     }
     anyhow::bail!(

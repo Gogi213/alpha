@@ -66,6 +66,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         order_qty_e9: Some(100_000_000),
         order_qty_mult: 1,
         order_qty_from_pool: false,
+        order_usd: None,
         post_only: false,
         stop_form: vec!["s1".to_string(), "s2".to_string()],
         take_form: vec!["t1".to_string()],
@@ -272,6 +273,20 @@ fn lot_must_come_from_exactly_one_source() {
     a.order_qty_from_pool = true;
     a.order_qty_e9 = Some(1);
     assert!(run_bounce_grid(&a).is_err());
+    a.order_qty_e9 = None;
+    a.order_usd = Some(100.0);
+    assert!(run_bounce_grid(&a).is_err(), "два источника лота — отказ");
+    // Лот под номинал: фикстура — цена ~0.99 $, шаг 0.1 → $100 = 1010 шагов = 101.0.
+    a.order_qty_from_pool = false;
+    a.out_dir = dir.path().join("grid-usd-lot");
+    let m = run_bounce_grid(&a).unwrap();
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(head.contains("lot=usd:100x1"), "{head}");
+    let (rh, rounds) = read_csv(&m.rounds_path);
+    if let Some(r) = rounds.first() {
+        let qty: f64 = col(&rh, r, "qty").parse().unwrap();
+        assert!((qty - 101.0).abs() < 1e-9, "qty {qty}");
+    }
 }
 
 /// Ось стороны (этап 1): фикстура — три касания бида 99, так что `--side ask`

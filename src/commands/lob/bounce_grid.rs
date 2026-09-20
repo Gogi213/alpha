@@ -76,8 +76,8 @@ use hftbacktest::types::Event as HbtEvent;
 
 use super::backtest::{
     bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
-    exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, read_tick_step,
-    BounceForm, PlanShape, StopForm, TakeForm,
+    exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, pool_order_qty_usd,
+    read_tick_step, BounceForm, PlanShape, StopForm, TakeForm,
 };
 use super::bounce_verdict::{form_label, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
@@ -238,6 +238,11 @@ pub struct BounceGridArgs {
     /// Лот — `order_size_22a` от полей пула и цены последнего касания.
     #[arg(long, default_value_t = false)]
     pub order_qty_from_pool: bool,
+    /// Лот под номинал в долларах (владелец 20.09): `floor(usd / цена касания /
+    /// шаг) × шаг`, не меньше лота 22а — модель очереди исполняет реальный
+    /// размер; взаимоисключающе с `--order-qty-e9` и `--order-qty-from-pool`.
+    #[arg(long)]
+    pub order_usd: Option<f64>,
     /// Множитель лота (E7, дробный выход): позиция в `N` лотов пула, чтобы
     /// половину было чем выходить — с одним минимальным лотом половина
     /// округляется в ноль и формы `half1to1`/`eat<h>x<a>` выходят целиком.
@@ -1254,15 +1259,13 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         "{}: корень записи не каталог",
         args.root.display()
     );
-    match (args.order_qty_e9, args.order_qty_from_pool) {
-        (Some(_), true) => anyhow::bail!(
-            "--order-qty-e9 и --order-qty-from-pool взаимоисключающие: лот задаётся одним способом"
-        ),
-        (None, false) => anyhow::bail!(
-            "нужен --order-qty-e9 или --order-qty-from-pool: изобретённого умолчания нет (§9 плана)"
-        ),
-        _ => {}
-    }
+    let lot_sources = usize::from(args.order_qty_e9.is_some())
+        + usize::from(args.order_qty_from_pool)
+        + usize::from(args.order_usd.is_some());
+    anyhow::ensure!(
+        lot_sources == 1,
+        "лот задаётся ровно одним способом: --order-qty-e9 | --order-qty-from-pool | --order-usd (изобретённого умолчания нет, §9 плана)"
+    );
     let threads = args
         .threads
         .unwrap_or_else(|| {
@@ -1390,8 +1393,9 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.median_rtt_ns,
         args.median_rtt_ns.provenance(),
         args.h3.h3_mode,
-        match (args.order_qty_e9, args.order_qty_from_pool) {
+        match (args.order_qty_e9, args.order_usd) {
             (Some(v), _) => format!("e9:{v}x{}", args.order_qty_mult),
+            (None, Some(usd)) => format!("usd:{usd}x{}", args.order_qty_mult),
             _ => format!("pool(22a)x{}", args.order_qty_mult),
         },
         threads,
@@ -1579,20 +1583,19 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             summary.symbols_without_touches += 1;
             continue;
         }
-        let order_qty_e9 = match (args.order_qty_e9, args.order_qty_from_pool) {
+        let order_qty_e9 = match (args.order_qty_e9, args.order_usd) {
             (Some(v), _) => v,
-            _ => {
+            (None, usd) => {
                 let last = days
                     .iter()
                     .rev()
                     .find_map(|d| d.touches.last())
                     .expect("касания есть — проверено выше");
-                pool_order_qty(
-                    &args.root.join("instruments.csv"),
-                    symbol,
-                    last.price_tick,
-                    tick_e9,
-                )?
+                let csv = args.root.join("instruments.csv");
+                match usd {
+                    Some(usd) => pool_order_qty_usd(&csv, symbol, last.price_tick, tick_e9, usd)?,
+                    None => pool_order_qty(&csv, symbol, last.price_tick, tick_e9)?,
+                }
             }
         }
         .saturating_mul(i64::from(args.order_qty_mult.max(1)));
