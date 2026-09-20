@@ -105,11 +105,11 @@ fn eaten_pct(t: &TouchRecord) -> f64 {
 }
 
 /// Касания одних суток символа — из реплея или из кэша, форме всё равно.
-struct DayTouches {
-    day: String,
-    touches: Vec<TouchRecord>,
+pub(crate) struct DayTouches {
+    pub(crate) day: String,
+    pub(crate) touches: Vec<TouchRecord>,
     /// Ход до касания за `PRE_TOUCH_MS` на каждое касание (S2), для контекста наборов.
-    rets: Vec<[Option<f64>; 3]>,
+    pub(crate) rets: Vec<[Option<f64>; 3]>,
 }
 
 /// Касания символа из кэша `--touches-from` для суток `days` (сутки корня с
@@ -118,7 +118,7 @@ struct DayTouches {
 /// Нет файла на какие-то сутки или в суточном файле чужие сутки — `Err`
 /// (вызывающий идёт реплеем и пишет причину). Порядок строк — порядок файла,
 /// он же порядок выдачи трекера.
-fn cached_touches<'a>(
+pub(crate) fn cached_touches<'a>(
     dir: &Path,
     symbol: &str,
     days: impl Iterator<Item = &'a String>,
@@ -440,7 +440,7 @@ pub struct Range {
 }
 
 impl Range {
-    fn is_set(self) -> bool {
+    pub(crate) fn is_set(self) -> bool {
         self.min.is_some() || self.max.is_some()
     }
 
@@ -463,9 +463,9 @@ pub struct TouchContext {
 }
 
 /// Режим суток по минутам из `regime.py`: `minute_ms → (pool1h, pool4h, btc1h, btc4h)`.
-type RegimeDay = BTreeMap<i64, [Option<f64>; 4]>;
+pub(crate) type RegimeDay = BTreeMap<i64, [Option<f64>; 4]>;
 
-fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay> {
+pub(crate) fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay> {
     let path = dir.join(format!("{day}.csv"));
     let mut r = csv::ReaderBuilder::new()
         .from_path(&path)
@@ -508,7 +508,7 @@ fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay> {
 /// Контекст касаний суток: ход монеты — из кэша (`TouchRow::ret_bps`) или из
 /// реплея (`pre_touch_return_bps_csv` — те же шесть знаков), режим — по
 /// минуте `start_ms` из `RegimeDay` (нет режима — `None`).
-fn touch_contexts(
+pub(crate) fn touch_contexts(
     rets: &[[Option<f64>; 3]],
     touches: &[TouchRecord],
     regime: Option<&RegimeDay>,
@@ -537,7 +537,7 @@ impl FilterSet {
     }
 
     /// Хоть один ключ режима (`pool*`/`btc*`) задан — нужен `--regime-from`.
-    fn uses_regime(&self) -> bool {
+    pub(crate) fn uses_regime(&self) -> bool {
         self.ctx[3..].iter().any(|r| r.is_set())
     }
 
@@ -679,6 +679,118 @@ impl FilterSet {
     }
 }
 
+/// Фильтр касаний набора в момент касания — один и тот же для сигналов сетки
+/// (`signals_for`) и для замера ёмкости (`lob fill-capacity`, S10): порог
+/// плотности, фронтран, возраст, сила «×поток», сторона, съедание, номинал,
+/// контекст. Касание, не прошедшее фильтр, — «пропуск» у вызывающего.
+pub(crate) struct TouchFilter<'a> {
+    pub(crate) tick: f64,
+    pub(crate) lot: f64,
+    pub(crate) frontrun_only: bool,
+    pub(crate) mode: H3Mode,
+    pub(crate) min_age_ms: Option<i64>,
+    pub(crate) min_flow_pct: Option<f64>,
+    pub(crate) side: Option<Side>,
+    pub(crate) eaten_max_pct: Option<f64>,
+    pub(crate) usd_min: Option<f64>,
+    pub(crate) ctx: Option<&'a [TouchContext]>,
+    pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
+}
+
+impl<'a> TouchFilter<'a> {
+    fn from_day(p: &DayParams<'a>) -> Self {
+        Self {
+            tick: p.tick,
+            lot: p.lot,
+            frontrun_only: p.frontrun_only,
+            mode: p.mode,
+            min_age_ms: p.min_age_ms,
+            min_flow_pct: p.min_flow_pct,
+            side: p.side,
+            eaten_max_pct: p.eaten_max_pct,
+            usd_min: p.usd_min,
+            ctx: p.ctx,
+            ctx_ranges: p.ctx_ranges,
+        }
+    }
+
+    /// Фильтр набора над касаниями суток с готовым контекстом (`touch_contexts`):
+    /// контекст подаётся, только если у набора есть ключи контекста.
+    pub(crate) fn from_set(
+        set: &FilterSet,
+        mode: H3Mode,
+        tick: f64,
+        lot: f64,
+        ctx: &'a [TouchContext],
+    ) -> Self {
+        Self {
+            tick,
+            lot,
+            frontrun_only: set.frontrun_only,
+            mode,
+            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+            min_flow_pct: set.min_flow_pct,
+            side: set.side.map(Side::from),
+            eaten_max_pct: set.eaten_max_pct,
+            usd_min: set.usd_min,
+            ctx: if set.uses_ctx() { Some(ctx) } else { None },
+            ctx_ranges: set.ctx,
+        }
+    }
+
+    /// Проходит ли касание `t` с индексом `ti` (индекс — в контекст суток).
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn admits(&self, ti: usize, t: &TouchRecord) -> bool {
+        if self.frontrun_only && t.frontrun_tick.is_none() {
+            return false;
+        }
+        // База E1 (В-66): плотность обязана держать порог при подходе цены,
+        // а не только при рождении — иначе в сетку идут касания
+        // «бывших» плотностей. Окно проверено при старте прогона.
+        if self.mode.holds_at_touch(t) != Some(true) {
+            return false;
+        }
+        if self.min_age_ms.is_some_and(|n| t.age_ms() < n) {
+            return false;
+        }
+        if let Some(s_min) = self.min_flow_pct {
+            let flow_ok = t.flow_1h_lots > 0
+                && t.size_at_touch as f64 / t.flow_1h_lots as f64 * 100.0 >= s_min;
+            if !flow_ok {
+                return false;
+            }
+        }
+        // Ось стороны: другая сторона выбывает до форм (как возраст и сила).
+        if self.side.is_some_and(|s| t.side != s) {
+            return false;
+        }
+        // Состояние стены: съедена к касанию сильнее порога — не вход.
+        if self.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
+            return false;
+        }
+        // Размер стены: номинал при касании ниже порога набора — не вход.
+        if self.usd_min.is_some_and(|m| {
+            t.price_tick as f64 * self.tick * t.size_at_touch as f64 * self.lot < m
+        }) {
+            return false;
+        }
+        // Контекст (S4): ход до касания и режим — вне границ набора или
+        // без значения при заданной границе — не вход.
+        if let Some(ctx) = self.ctx {
+            let c = &ctx[ti];
+            if !self
+                .ctx_ranges
+                .iter()
+                .zip(&c.axes)
+                .all(|(r, v)| r.holds(*v))
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// Результат одной формы на одних сутках одного символа.
 struct FormDayResult {
     form: usize,
@@ -728,7 +840,7 @@ const FORMS_HEADER: [&str; 22] = [
     "signals_by_hour",
 ];
 
-fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
+pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
     let path = root.join("instruments.csv");
     let mut r = super::pick::instruments_csv_reader(&path)
         .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
@@ -766,58 +878,14 @@ fn signals_for(
             touches.len()
         );
     }
+    let filter = TouchFilter::from_day(p);
     let mut signals: Vec<BounceSignal> = touches
         .iter()
         .enumerate()
         .filter_map(|(ti, t)| {
-            if p.frontrun_only && t.frontrun_tick.is_none() {
+            if !filter.admits(ti, t) {
                 skipped += 1;
                 return None;
-            }
-            // База E1 (В-66): плотность обязана держать порог при подходе цены,
-            // а не только при рождении — иначе в сетку идут касания
-            // «бывших» плотностей. Окно проверено при старте прогона.
-            if p.mode.holds_at_touch(t) != Some(true) {
-                skipped += 1;
-                return None;
-            }
-            if p.min_age_ms.is_some_and(|n| t.age_ms() < n) {
-                skipped += 1;
-                return None;
-            }
-            if let Some(s_min) = p.min_flow_pct {
-                let flow_ok = t.flow_1h_lots > 0
-                    && t.size_at_touch as f64 / t.flow_1h_lots as f64 * 100.0 >= s_min;
-                if !flow_ok {
-                    skipped += 1;
-                    return None;
-                }
-            }
-            // Ось стороны: другая сторона выбывает до форм (как возраст и сила).
-            if p.side.is_some_and(|s| t.side != s) {
-                skipped += 1;
-                return None;
-            }
-            // Состояние стены: съедена к касанию сильнее порога — не вход.
-            if p.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
-                skipped += 1;
-                return None;
-            }
-            // Размер стены: номинал при касании ниже порога набора — не вход.
-            if p.usd_min
-                .is_some_and(|m| t.price_tick as f64 * p.tick * t.size_at_touch as f64 * p.lot < m)
-            {
-                skipped += 1;
-                return None;
-            }
-            // Контекст (S4): ход до касания и режим — вне границ набора или
-            // без значения при заданной границе — не вход.
-            if let Some(ctx) = p.ctx {
-                let c = &ctx[ti];
-                if !p.ctx_ranges.iter().zip(&c.axes).all(|(r, v)| r.holds(*v)) {
-                    skipped += 1;
-                    return None;
-                }
             }
             let sigma_bps = if form.form.needs_sigma() {
                 sigma.sigma_bps(t.start_ms, form.deadline_secs)
@@ -1253,6 +1321,42 @@ impl Outputs {
     }
 }
 
+/// Окно силы порога обязано быть одним из окон оси `strength_e2`, иначе
+/// порог в момент касания (`H3Mode::holds_at_touch`) не проверить — отказ,
+/// не молчаливый пропуск. Общая проверка сетки и замера ёмкости.
+pub(crate) fn ensure_holds_at_touch_checkable(mode: &H3Mode, symbol: &str) -> anyhow::Result<()> {
+    let probe = TouchRecord {
+        side: Side::Bid,
+        price_tick: 1,
+        touch_index: 0,
+        start_ms: 0,
+        end_ms: 0,
+        duration_ms: 0,
+        level_birth_ms: 0,
+        size_at_touch: i64::MAX / 4,
+        size_max_before: 0,
+        traded_during: 0,
+        frontrun_lots: 0,
+        frontrun_tick: None,
+        swept_lots: 0,
+        round_zeros: 0,
+        ended_by_death: false,
+        stack_levels: 0,
+        stack_next_tick: None,
+        traded_first_s: [0; 3],
+        flow_1h_lots: 0,
+        strength_e2: [i64::MAX; 3],
+        strength_held_e2: [-1; 4],
+        repeat_count: 0,
+    };
+    anyhow::ensure!(
+        mode.holds_at_touch(&probe).is_some(),
+        "{symbol}: окно силы порога не из STRENGTH_WINDOWS_BPS {:?} — порог в момент касания не проверить",
+        crate::lob::levels::STRENGTH_WINDOWS_BPS
+    );
+    Ok(())
+}
+
 pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
     anyhow::ensure!(
         args.root.is_dir(),
@@ -1487,39 +1591,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // Порог плотности — любой из режимов В-61 (`--h3-mode notional|strength|both`)
         // или прежние floor/percentile; тик и шаг лота — из заголовка бинлога.
         let mode = resolve_h3_mode_full(&args.root, symbol, &args.h3, args.h3_k, tick_e9, step_e9)?;
-        // Окно силы порога обязано быть одним из окон оси `strength_e2`, иначе
-        // порог в момент касания не проверить — отказ, не молчаливый пропуск.
-        {
-            let probe = TouchRecord {
-                side: Side::Bid,
-                price_tick: 1,
-                touch_index: 0,
-                start_ms: 0,
-                end_ms: 0,
-                duration_ms: 0,
-                level_birth_ms: 0,
-                size_at_touch: i64::MAX / 4,
-                size_max_before: 0,
-                traded_during: 0,
-                frontrun_lots: 0,
-                frontrun_tick: None,
-                swept_lots: 0,
-                round_zeros: 0,
-                ended_by_death: false,
-                stack_levels: 0,
-                stack_next_tick: None,
-                traded_first_s: [0; 3],
-                flow_1h_lots: 0,
-                strength_e2: [i64::MAX; 3],
-                strength_held_e2: [-1; 4],
-                repeat_count: 0,
-            };
-            anyhow::ensure!(
-                mode.holds_at_touch(&probe).is_some(),
-                "{symbol}: окно силы порога не из STRENGTH_WINDOWS_BPS {:?} — порог в момент касания не проверить",
-                crate::lob::levels::STRENGTH_WINDOWS_BPS
-            );
-        }
+        ensure_holds_at_touch_checkable(&mode, symbol)?;
         let cfg_levels = LevelsConfig {
             mode,
             warmup_ms: args.warmup_ms.unwrap_or(DEFAULT_WARMUP_MS),

@@ -59,6 +59,7 @@ pub mod clock;
 pub mod dashboard;
 mod export;
 pub mod fee_rate;
+pub mod fill_capacity;
 mod h3;
 pub mod latency;
 pub mod levels;
@@ -84,6 +85,7 @@ pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
+pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
 /// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
@@ -212,6 +214,10 @@ pub enum LobCommand {
     /// один раз, события посуточно, формы потоками (B6; K1/K2/K4 аудита 18.09).
     BounceGrid(BounceGridArgs),
     BounceVerdict(BounceVerdictArgs),
+    /// Ёмкость исполнения входа у стены без движка (S10 шаг 1): очередь и
+    /// наторговано по тикам полосы перед стеной на касание →
+    /// `<out-dir>/<набор>/capacity-<SYMBOL>.csv`.
+    FillCapacity(FillCapacityArgs),
     /// Шорт-лист на разведочной, заморозка коммитом, подтверждение на
     /// невиденных данных — третий из трёх артефактов задачи (таск 12,
     /// история 24–28, 42).
@@ -505,6 +511,20 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 s.rounds,
                 s.rounds_path.display(),
                 s.forms_path.display()
+            );
+            Ok(())
+        }
+        LobCommand::FillCapacity(args) => {
+            let s = run_fill_capacity(&args)?;
+            println!(
+                "fill-capacity: символов {} (без маркера {}, без касаний {}) · символ-суток {} · касаний {} · строк {} · {}",
+                s.symbols_done,
+                s.symbols_skipped_unverified,
+                s.symbols_without_touches,
+                s.symbol_days,
+                s.touches,
+                s.rows,
+                s.out_dir.display()
             );
             Ok(())
         }
