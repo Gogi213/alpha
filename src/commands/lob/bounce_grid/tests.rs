@@ -63,6 +63,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         symbols: vec!["SOLUSDT".to_string()],
         median_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
         p95_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
+        queue_model: "risk-adverse".to_string(),
         order_qty_e9: Some(100_000_000),
         order_qty_mult: 1,
         order_qty_from_pool: false,
@@ -99,9 +100,14 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
 
 fn read_csv(path: &std::path::Path) -> (Vec<String>, Vec<Vec<String>>) {
     let text = std::fs::read_to_string(path).unwrap();
+    read_csv_from(text.as_bytes())
+}
+
+/// То же, но из байтов «золотого» файла (`include_str!`).
+fn read_csv_from(bytes: &[u8]) -> (Vec<String>, Vec<Vec<String>>) {
     let mut r = csv::ReaderBuilder::new()
         .comment(Some(b'#'))
-        .from_reader(text.as_bytes());
+        .from_reader(bytes);
     let header: Vec<String> = r.headers().unwrap().iter().map(str::to_string).collect();
     let rows = r
         .records()
@@ -826,6 +832,102 @@ fn usd_min_key_filters_by_wall_notional_at_touch() {
         .all(|r| col(&fh, r, "n_signals") == "0" && col(&fh, r, "n_skipped") == "3"));
     let head = std::fs::read_to_string(&by("u1").forms_path).unwrap();
     assert!(head.contains(" usd_min=Some(1.0) "), "{head}");
+}
+
+/// Гейт F3: `--queue-model risk-adverse` — прежний движок, и круг
+/// (`rounds.csv`) и числа форм (`forms.csv`) обязаны совпасть с прогоном до
+/// правки. «Золото» — снятый до правки вывод фикстуры
+/// (`golden/rounds.csv`, `golden/forms.csv`): сравниваются все поля по
+/// именам, поэтому добавленные правкой колонки (`n_fill_by_cross`) и поле
+/// шапки (`queue=…`) гейт не обманывают, а любое расхождение прежнего поля —
+/// валит.
+#[test]
+fn risk_adverse_queue_model_keeps_the_old_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.out_dir = dir.path().join("grid-gate");
+    let m = run_bounce_grid(&a).unwrap();
+    assert!(m.rounds > 0, "фикстура обязана давать круги");
+
+    // Поля «золота» по именам: прямой байтовый диф невозможен — шапка несёт
+    // `queue=…`, а у `forms.csv` правка F3 добавила колонку.
+    let same_fields = |got: &std::path::Path, golden: &str, skip: &[&str]| {
+        let (gh, grows) = read_csv_from(golden.as_bytes());
+        let (h, rows) = read_csv(got);
+        assert_eq!(rows.len(), grows.len(), "{got:?}: число строк");
+        for (r, g) in rows.iter().zip(&grows) {
+            for (k, name) in gh.iter().enumerate() {
+                if skip.contains(&name.as_str()) {
+                    continue;
+                }
+                assert_eq!(
+                    col(&h, r, name),
+                    g[k],
+                    "{got:?}: колонка {name} разошлась (строка {r:?})"
+                );
+            }
+        }
+        h
+    };
+
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(
+        head.contains(" queue=risk-adverse "),
+        "модель очереди в шапке: {head}"
+    );
+    assert!(
+        head.contains("queue=risk-adverse")
+            && head.contains("paths=1:сделки-на-нашей-цене-частично"),
+        "три пути исполнения крейта в шапке: {head}"
+    );
+    let fh = same_fields(
+        &m.forms_path,
+        include_str!("golden/forms.csv"),
+        &["n_fill_by_cross"],
+    );
+    let (_, forms) = read_csv(&m.forms_path);
+    assert_eq!(forms.len(), 8, "строка на форму");
+    for r in &forms {
+        assert_eq!(
+            col(&fh, r, "n_fill_by_cross"),
+            "0",
+            "прежний движок исполняет целыми заявками: {r:?}"
+        );
+    }
+    same_fields(&m.rounds_path, include_str!("golden/rounds.csv"), &[]);
+
+    // Разбор флага: без `--queue-model` команда не запускается вовсе
+    // (умолчания в коде нет), `prob:<n>` собирает свой движок.
+    assert!(QueueModelKind::parse("").is_err());
+    let mut b = args(dir.path(), false);
+    b.queue_model = "prob:3".to_string();
+    b.out_dir = dir.path().join("grid-prob");
+    let p = run_bounce_grid(&b).unwrap();
+    assert_eq!(p.forms, 8, "формы те же, движок другой");
+    let head = std::fs::read_to_string(&p.forms_path).unwrap();
+    assert!(head.contains(" queue=prob:3 "), "{head}");
+    let (ph, prows) = read_csv(&p.forms_path);
+    assert_eq!(prows.len(), 8);
+    for r in &prows {
+        // Колонка есть у обеих моделей; значение — счётчик пути (3).
+        assert!(
+            col(&ph, r, "n_fill_by_cross").parse::<u64>().is_ok(),
+            "счётчик пути (3) обязан быть числом: {r:?}"
+        );
+    }
 }
 
 /// `--deadline-secs`: сетка с 30 мин и 4 ч — формы и шапка несут свой набор,

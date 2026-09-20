@@ -28,8 +28,8 @@ use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
     build_backtest, build_profile_report, drive_bounce, drive_profile, mean_net_bps, pnl_curve_bps,
-    roundtrip_net_bps, BacktestReport, BounceRun, BounceSignal, DriveConfig, ExecLatency, Signal,
-    TableEstimate, SIGMA_LONG, SIGMA_SHORT,
+    roundtrip_net_bps, BacktestReport, BounceRun, BounceSignal, DriveConfig, ExecLatency,
+    QueueModelKind, Signal, TableEstimate, SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::costs::{net_fill_bps, net_fill_interval};
 use crate::lob::levels::{LevelRecord, LevelsConfig, TouchRecord};
@@ -239,13 +239,28 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
     let cfg = DriveConfig {
         order_qty,
         first_order_id: 1,
+        // `lob backtest` (профили / `--touches`) — прежний движок: модель
+        // очереди выбирается только у сетки форм (`--queue-model`, F3).
+        queue_model: QueueModelKind::RiskAdverse,
     };
 
     let mut reports = Vec::with_capacity(signals.len());
     for (profile_id, sigs) in &signals {
-        let mut median_bt = build_backtest(&events, tick_size, lot_size, args.median_rtt_ns);
+        let mut median_bt = build_backtest(
+            &events,
+            tick_size,
+            lot_size,
+            args.median_rtt_ns,
+            cfg.queue_model,
+        );
         let median = drive_profile(&mut median_bt, 0, sigs, &cfg)?;
-        let mut p95_bt = build_backtest(&events, tick_size, lot_size, args.p95_rtt_ns);
+        let mut p95_bt = build_backtest(
+            &events,
+            tick_size,
+            lot_size,
+            args.p95_rtt_ns,
+            cfg.queue_model,
+        );
         let p95 = drive_profile(&mut p95_bt, 0, sigs, &cfg)?;
         let estimate = table.get(profile_id).copied();
         reports.push(build_profile_report(
@@ -412,6 +427,7 @@ impl BacktestFillModel {
         let cfg = DriveConfig {
             order_qty,
             first_order_id: 1,
+            queue_model: QueueModelKind::RiskAdverse,
         };
         let signals: Vec<Signal> = records
             .iter()
@@ -420,7 +436,13 @@ impl BacktestFillModel {
                 sigma: sigma_of(r.side),
             })
             .collect();
-        let mut bt = build_backtest(events, tick_size, lot_size, self.median_rtt_ns);
+        let mut bt = build_backtest(
+            events,
+            tick_size,
+            lot_size,
+            self.median_rtt_ns,
+            cfg.queue_model,
+        );
         let Ok(run) = drive_profile(&mut bt, 0, &signals, &cfg) else {
             return;
         };
@@ -1693,8 +1715,11 @@ fn run_bounce(
     let cfg = DriveConfig {
         order_qty,
         first_order_id: 1,
+        // Одиночный `lob backtest --touches` — прежний движок: модель очереди
+        // выбирается только у сетки форм (`lob bounce-grid --queue-model`, F3).
+        queue_model: QueueModelKind::RiskAdverse,
     };
-    let mut bt = build_backtest(events, tick, lot_size, args.median_rtt_ns);
+    let mut bt = build_backtest(events, tick, lot_size, args.median_rtt_ns, cfg.queue_model);
     let run: BounceRun = drive_bounce(&mut bt, 0, &signals, &cfg)?;
 
     let rows = bounce_rows(&touches, h3_lots);

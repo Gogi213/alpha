@@ -41,98 +41,57 @@ fn exit_takes_on_own_side_book() {
     assert_eq!(exit_price(HbtSide::Buy, 100.0, f64::NAN), None);
 }
 
+/// `Fill` синтетики: полное исполнение (F3), поэтому `entry_vwap == entry_px`
+/// и `fill_frac == 1.0` — прежние числа формулы не меняются.
+fn fill_at(dir: i8, entry_px: f64, exit_px: f64) -> Fill {
+    Fill {
+        dir,
+        entry_px,
+        exit_px,
+        qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
+        entry_vwap: entry_px,
+        fill_frac: 1.0,
+        legs_filled: 1,
+        fill_by_cross: false,
+    }
+}
+
 /// Формула круга буквально: направленный возврат минус комиссии по ногам
 /// (В-63: вход мейкер 1.26 + выход тейкер 3.15 = 4.41 bps).
 /// Лонг 100 → 101: +100 bps валом, 92.5 чистыми.
 #[test]
 fn roundtrip_formula_is_exact_on_synthetic_fill() {
-    let long = Fill {
-        dir: 1,
-        entry_px: 100.0,
-        exit_px: 101.0,
-        qty: 1.0,
-        entry_taker: false,
-        exit_taker: true,
-    };
+    let long = fill_at(1, 100.0, 101.0);
     assert!(close(roundtrip_net_bps(&long).unwrap(), 95.59));
-    let short = Fill {
-        dir: -1,
-        entry_px: 101.0,
-        exit_px: 100.0,
-        qty: 1.0,
-        entry_taker: false,
-        exit_taker: true,
-    };
+    let short = fill_at(-1, 101.0, 100.0);
     // Зеркало в уровнях не симметрично в bps: база другая (101, не 100).
     assert!(close(
         roundtrip_net_bps(&short).unwrap(),
         10_000.0 / 101.0 - 4.41
     ));
-    let loss = Fill {
-        dir: 1,
-        entry_px: 100.0,
-        exit_px: 99.0,
-        qty: 1.0,
-        entry_taker: false,
-        exit_taker: true,
-    };
+    let loss = fill_at(1, 100.0, 99.0);
     assert!(close(roundtrip_net_bps(&loss).unwrap(), -104.41));
-    assert_eq!(
-        roundtrip_net_bps(&Fill {
-            dir: 1,
-            entry_px: 0.0,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        }),
-        None
-    );
-    assert_eq!(
-        roundtrip_net_bps(&Fill {
-            dir: 0,
-            entry_px: 100.0,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        }),
-        None
-    );
-    assert_eq!(
-        roundtrip_net_bps(&Fill {
-            dir: 1,
-            entry_px: f64::NAN,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        }),
-        None
-    );
+    assert_eq!(roundtrip_net_bps(&fill_at(1, 0.0, 101.0)), None);
+    assert_eq!(roundtrip_net_bps(&fill_at(0, 100.0, 101.0)), None);
+    assert_eq!(roundtrip_net_bps(&fill_at(1, f64::NAN, 101.0)), None);
+    // F3: доходность считается по `entry_vwap`, а не по `entry_px` — на
+    // частичном входе по другой средней цене число меняется.
+    let partial = Fill {
+        entry_vwap: 99.0,
+        ..fill_at(1, 100.0, 101.0)
+    };
+    assert!(close(
+        roundtrip_net_bps(&partial).unwrap(),
+        (101.0 - 99.0) / 99.0 * 10_000.0 - 4.41
+    ));
 }
 
 /// PnL-кривая как функция от входов: накопление по шагам, без недели.
 #[test]
 fn pnl_curve_accumulates_per_fill_without_a_week() {
-    let fills = [
-        Fill {
-            dir: 1,
-            entry_px: 100.0,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        },
-        Fill {
-            dir: 1,
-            entry_px: 100.0,
-            exit_px: 99.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        },
-    ];
+    let fills = [fill_at(1, 100.0, 101.0), fill_at(1, 100.0, 99.0)];
     let curve = pnl_curve_bps(&fills).unwrap();
     assert_eq!(curve.len(), 2);
     assert!(close(curve[0], 95.59));
@@ -140,17 +99,7 @@ fn pnl_curve_accumulates_per_fill_without_a_week() {
     assert!(close(mean_net_bps(&fills).unwrap(), (95.59 - 104.41) / 2.0));
     assert_eq!(pnl_curve_bps(&[]), None, "пусто — нет кривой, а не ноль");
     assert_eq!(mean_net_bps(&[]), None);
-    let bad = [
-        fills[0],
-        Fill {
-            dir: 1,
-            entry_px: 0.0,
-            exit_px: 1.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        },
-    ];
+    let bad = [fills[0], fill_at(1, 0.0, 1.0)];
     assert_eq!(
         pnl_curve_bps(&bad),
         None,
@@ -334,14 +283,7 @@ fn exec_latency_parses_single_number_and_triple_and_prints_back() {
 fn profile_report_carries_every_done_item() {
     let median = ProfileRun {
         signals: 3,
-        fills: vec![Fill {
-            dir: 1,
-            entry_px: 100.0,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        }],
+        fills: vec![fill_at(1, 100.0, 101.0)],
         misses: MissLedger {
             timeout: 1,
             busy: 1,
@@ -498,10 +440,14 @@ fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
     }
 }
 
+/// Конфиг прогона по умолчанию для тестов: прежний движок (`risk-adverse`),
+/// размер 1 лот. Частичное исполнение тесты включают своим `DriveConfig` с
+/// `QueueModelKind::Prob`.
 fn drive_cfg() -> DriveConfig {
     DriveConfig {
         order_qty: 1.0,
         first_order_id: 1,
+        queue_model: QueueModelKind::RiskAdverse,
     }
 }
 
@@ -524,7 +470,13 @@ fn driver_closes_a_maker_round_trip_on_synthetic_feed() {
         depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
         depth_at(30 * S, false, 103.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -572,11 +524,22 @@ fn shared_buffer_backtest_matches_copying_one_and_survives_threads() {
         t0_ns: S,
         sigma: SIGMA_LONG,
     }];
-    let mut copied = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut copied = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let want = drive_profile(&mut copied, 0, &signals, &drive_cfg()).unwrap();
-    let got = with_backtest_over(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000), |bt| {
-        drive_profile(bt, 0, &signals, &drive_cfg()).unwrap()
-    });
+    let got = with_backtest_over(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+        |bt| drive_profile(bt, 0, &signals, &drive_cfg()).unwrap(),
+    );
     assert_eq!(got.fills, want.fills, "общий буфер — те же сделки");
     assert_eq!(got.misses, want.misses);
     assert_eq!(got.observations.len(), want.observations.len());
@@ -586,9 +549,14 @@ fn shared_buffer_backtest_matches_copying_one_and_survives_threads() {
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 scope.spawn(move || {
-                    with_backtest_over(feed_ref, 1.0, 1.0, ExecLatency::uniform(1_000_000), |bt| {
-                        drive_profile(bt, 0, &signals, &drive_cfg()).unwrap().fills
-                    })
+                    with_backtest_over(
+                        feed_ref,
+                        1.0,
+                        1.0,
+                        ExecLatency::uniform(1_000_000),
+                        QueueModelKind::RiskAdverse,
+                        |bt| drive_profile(bt, 0, &signals, &drive_cfg()).unwrap().fills,
+                    )
                 })
             })
             .collect();
@@ -612,7 +580,13 @@ fn driver_counts_an_unfilled_entry_as_timeout_miss() {
         depth_at(0, false, 101.0, 5.0),
         depth_at(15 * S, false, 102.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -646,7 +620,13 @@ fn driver_counts_a_signal_inside_position_as_busy_miss() {
         depth_at(10 * S + 9 * S / 10, false, 102.0, 5.0),
         depth_at(30 * S, false, 103.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let rep = drive_profile(
         &mut hbt,
         0,
@@ -712,7 +692,13 @@ fn ladder_entry_fills_the_far_leg_cancels_the_rest_and_closes_the_round() {
         depth_at(30 * S, true, 103.0, 5.0),
         depth_at(30 * S, false, 104.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -793,7 +779,13 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         depth_at(20 * S, true, 100.0, 5.0),
         depth_at(20 * S, false, 105.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -866,7 +858,13 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         depth_at(20 * S, true, 102.0, 5.0),
         depth_at(20 * S, false, 105.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 99.0,
@@ -960,7 +958,13 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         profile: 0,
     };
     let signals = [signal(S), signal(3 * S), signal(61 * S)];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let full = drive_bounce(&mut hbt, 0, &signals, &drive_cfg()).unwrap();
     let windows = SignalWindows::build(&feed, &[S, 3 * S, 61 * S], 1.0, 1.0);
     assert_eq!(windows.len(), 3);
@@ -1055,6 +1059,7 @@ fn bench_window_fixed_cost() {
                 1.0,
                 1.0,
                 ExecLatency::uniform(1_000_000),
+                QueueModelKind::RiskAdverse,
                 |bt| {
                     bt.elapse(0).unwrap();
                     bt.current_timestamp()
@@ -1233,7 +1238,13 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         depth_at(30 * S, true, 98.0, 10.0),
         depth_at(30 * S, false, 105.0, 5.0),
     ];
-    let mut hbt = build_backtest(&feed, 1.0, 1.0, ExecLatency::uniform(1_000_000));
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
     let plan = TradePlan::Bounce {
         entry_px: 101.0,
         stop_px: 90.0,
@@ -1267,6 +1278,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         &DriveConfig {
             order_qty: 2.0,
             first_order_id: 1,
+            queue_model: QueueModelKind::RiskAdverse,
         },
     )
     .unwrap();
@@ -1274,6 +1286,13 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
     assert_eq!(run.fills.len(), 1, "две ноги — один круг");
     let fill = run.fills[0];
     assert!(close(fill.entry_px, 101.0), "{}", fill.entry_px);
+    // F3: полное исполнение одной ноги — `entry_vwap` равен прежней
+    // `entry_px`, `qty` — плановому размеру, `fill_frac` — единице.
+    assert!(close(fill.entry_vwap, 101.0), "{}", fill.entry_vwap);
+    assert!(close(fill.qty, 2.0), "{}", fill.qty);
+    assert!(close(fill.fill_frac, 1.0), "{}", fill.fill_frac);
+    assert_eq!(fill.legs_filled, 1);
+    assert!(!fill.fill_by_cross, "вход исполнен сделкой, а не крестом");
     // Половина по 100, половина по 99 → 99.5.
     assert!(
         close(fill.exit_px, 99.5),
@@ -1285,4 +1304,257 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
     assert_eq!(run.exits.partial, 1);
     assert_eq!(run.fill_reason, vec![ExitReason::Eaten]);
     assert_eq!(hbt.position(0), 0.0);
+}
+
+// -----------------------------------------------------------------------
+// F3 (план 2026-09-20): модель очереди по объёму, частичное исполнение и
+// три пути исполнения крейта.
+// -----------------------------------------------------------------------
+
+/// План F3: вход лестницей по `entry_px` (`legs` ног с шагом `step`, каждая
+/// следующая дальше от плотности), тейк `take_px`, стоп далеко, дедлайн 60 с,
+/// срок жизни входа 20 с.
+fn f3_plan(entry_px: f64, take_px: f64, legs: u8, step: f64) -> TradePlan {
+    TradePlan::Bounce {
+        entry_px,
+        stop_px: 90.0,
+        take_px,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: legs,
+        grid_step_px: step,
+        early_exit_ns: 0,
+        level_px: 100.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 0.1,
+    }
+}
+
+#[test]
+fn queue_model_kind_parses_and_labels() {
+    assert_eq!(
+        QueueModelKind::parse("risk-adverse"),
+        Ok(QueueModelKind::RiskAdverse)
+    );
+    assert_eq!(
+        QueueModelKind::parse(" risk-adverse "),
+        Ok(QueueModelKind::RiskAdverse)
+    );
+    assert_eq!(
+        QueueModelKind::parse("prob:3.0"),
+        Ok(QueueModelKind::Prob { n: 3.0 })
+    );
+    assert_eq!(
+        QueueModelKind::label(QueueModelKind::RiskAdverse),
+        "risk-adverse"
+    );
+    assert_eq!(
+        QueueModelKind::label(QueueModelKind::Prob { n: 1.5 }),
+        "prob:1.5"
+    );
+    for bad in [
+        "",
+        "prob",
+        "prob:",
+        "prob:abc",
+        "prob:nan",
+        "prob:inf",
+        "prob:0",
+        "prob:-1",
+        "risk-averse",
+    ] {
+        assert!(
+            QueueModelKind::parse(bad).is_err(),
+            "{bad:?} обязан быть отказом"
+        );
+    }
+}
+
+/// Путь (1), модель по объёму: заявка исполняется **частично**. Лестница из
+/// двух ног по 1 лоту: продажа 0.1 в дальнюю ногу (99, очередь впереди пуста)
+/// даёт 0.1 исполнения, а нога 100 исполняется целиком приоритетом цены —
+/// позиция возникает, круг закрывается. `qty` несёт реальное исполнение
+/// (1.1 из 2.0), `fill_frac` < 1, `entry_vwap` — средневзвешенную цену.
+#[test]
+fn partial_fill_records_real_qty_and_fill_frac() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        // Продажа 0.1 ровно по 99: впереди в дальней ноге пусто → 0.1
+        // исполнения; ближняя нога 100 исполняется целиком (сделка ниже неё).
+        trade_at(2 * S, true, 99.0, 0.1),
+        depth_at(30 * S, true, 100.0, 5.0),
+        depth_at(30 * S, false, 105.0, 5.0),
+    ];
+    let cfg = DriveConfig {
+        order_qty: 2.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::Prob { n: 3.0 },
+    };
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        0.1,
+        ExecLatency::uniform(1_000_000),
+        cfg.queue_model,
+    );
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan: f3_plan(99.0, 100.0, 2, 1.0),
+            profile: 0,
+        }],
+        &cfg,
+    )
+    .unwrap();
+
+    assert!(!run.incomplete, "круг обязан закрыться: {:?}", run.misses);
+    assert_eq!(run.fills.len(), 1, "ровно один круг");
+    let fill = run.fills[0];
+    assert!(
+        close(fill.qty, 1.1),
+        "исполнено 1.1 из 2.0 (0.1 + 1.0): {}",
+        fill.qty
+    );
+    assert!(
+        close(fill.fill_frac, 1.1 / 2.0),
+        "доля исполнения круга: {}",
+        fill.fill_frac
+    );
+    assert_eq!(fill.legs_filled, 2, "обе ноги дали исполнение");
+    assert!(
+        close(fill.entry_vwap, 109.9 / 1.1),
+        "средневзвешенная цена входа 0.1×99 + 1.0×100: {}",
+        fill.entry_vwap
+    );
+    assert!(
+        close(fill.entry_px, 99.5),
+        "простая средняя по ногам остаётся прежней: {}",
+        fill.entry_px
+    );
+    assert!(
+        !fill.fill_by_cross,
+        "исполнение пришло сделкой на нашей стороне цены — путь (1)/(2), не крест"
+    );
+    assert_eq!(hbt.position(0), 0.0);
+}
+
+/// Путь (3): лучший аск опустился до нашей цены **без сделки** — крейт
+/// исполняет весь остаток (`on_best_ask_update`), и круг помечен
+/// `fill_by_cross`. Сделки в буфере нет, поэтому детектор видит именно крест.
+#[test]
+fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        // Аск 105 снят, аск 102 встал прямо на нашу цену — сделок нет.
+        depth_at(2 * S, false, 105.0, 0.0),
+        depth_at(2 * S, false, 102.0, 5.0),
+        depth_at(30 * S, true, 100.0, 5.0),
+        depth_at(30 * S, false, 102.0, 5.0),
+    ];
+    let cfg = DriveConfig {
+        order_qty: 1.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::Prob { n: 3.0 },
+    };
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        0.1,
+        ExecLatency::uniform(1_000_000),
+        cfg.queue_model,
+    );
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan: f3_plan(102.0, 100.0, 1, 0.0),
+            profile: 0,
+        }],
+        &cfg,
+    )
+    .unwrap();
+
+    assert!(!run.incomplete, "{:?}", run.misses);
+    assert_eq!(run.fills.len(), 1);
+    let fill = run.fills[0];
+    assert!(
+        fill.fill_by_cross,
+        "исполнение обновлением лучшей цены — путь (3)"
+    );
+    assert!(
+        close(fill.fill_frac, 1.0),
+        "крейт отдаёт весь остаток: {}",
+        fill.fill_frac
+    );
+    assert!(!fill.entry_taker, "исполнение лимитной заявки — мейкерское");
+    assert_eq!(fill.legs_filled, 1);
+}
+
+/// Путь (2): сделка **ниже** нашей цены (в стену) исполняет весь остаток по
+/// приоритету цены; сделка в буфере есть, поэтому путь (3) не отмечается —
+/// это и отличает счётчик `n_fill_by_cross` от «исполнений без сделки на
+/// нашей цене».
+#[test]
+fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        // Продажа-агрессор ниже нашего лимита 102 — заявка исполняется целиком
+        // приоритетом цены.
+        trade_at(2 * S, true, 101.0, 7.0),
+        depth_at(30 * S, true, 100.0, 5.0),
+        depth_at(30 * S, false, 105.0, 5.0),
+    ];
+    let cfg = DriveConfig {
+        order_qty: 3.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::Prob { n: 3.0 },
+    };
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        0.1,
+        ExecLatency::uniform(1_000_000),
+        cfg.queue_model,
+    );
+    let run = drive_bounce(
+        &mut hbt,
+        0,
+        &[BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan: f3_plan(102.0, 100.0, 1, 0.0),
+            profile: 0,
+        }],
+        &cfg,
+    )
+    .unwrap();
+
+    assert!(!run.incomplete, "{:?}", run.misses);
+    assert_eq!(run.fills.len(), 1);
+    let fill = run.fills[0];
+    assert!(
+        close(fill.fill_frac, 1.0),
+        "приоритет цены — весь остаток: {}",
+        fill.fill_frac
+    );
+    assert!(
+        !fill.fill_by_cross,
+        "сделка в буфере была — это путь (2), не (3)"
+    );
 }

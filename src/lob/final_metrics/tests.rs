@@ -353,39 +353,28 @@ fn cpcv_purge_and_embargo_consume_short_folds() {
 }
 
 /// Вход от бэктеста reuse'ит формулу круга, а не копирует её: лонг
-/// 100 → 101 даёт 92.5 bps чистыми, пусто и битый круг — отказ.
+/// 100 → 101 даёт 92.5 bps чистыми, пусто и битый круг — отказ. Круги —
+/// полное исполнение (F3), `entry_vwap == entry_px`.
 #[test]
 fn per_trade_net_uses_backtest_roundtrip_without_copying_it() {
-    let fills = [
-        Fill {
-            dir: 1,
-            entry_px: 100.0,
-            exit_px: 101.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        },
-        Fill {
-            dir: 1,
-            entry_px: 100.0,
-            exit_px: 99.0,
-            qty: 1.0,
-            entry_taker: false,
-            exit_taker: true,
-        },
-    ];
+    let fill = |dir: i8, entry_px: f64, exit_px: f64| Fill {
+        dir,
+        entry_px,
+        exit_px,
+        qty: 1.0,
+        entry_taker: false,
+        exit_taker: true,
+        entry_vwap: entry_px,
+        fill_frac: 1.0,
+        legs_filled: 1,
+        fill_by_cross: false,
+    };
+    let fills = [fill(1, 100.0, 101.0), fill(1, 100.0, 99.0)];
     let nets = per_trade_net_bps(&fills).unwrap();
     assert!(close(nets[0], 95.59, 1e-9));
     assert!(close(nets[1], -104.41, 1e-9));
     assert_eq!(per_trade_net_bps(&[]), None);
-    let bad = [Fill {
-        dir: 0,
-        entry_px: 100.0,
-        exit_px: 101.0,
-        qty: 1.0,
-        entry_taker: false,
-        exit_taker: true,
-    }];
+    let bad = [fill(0, 100.0, 101.0)];
     assert_eq!(per_trade_net_bps(&bad), None);
 }
 

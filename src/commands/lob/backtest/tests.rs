@@ -710,6 +710,12 @@ fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
         qty: 1.0,
         entry_taker: false,
         exit_taker: true,
+        // Полное исполнение (F3): средневзвешенная цена входа равна прежней
+        // `entry_px`, доля исполнения — единица.
+        entry_vwap: entry_px,
+        fill_frac: 1.0,
+        legs_filled: 1,
+        fill_by_cross: false,
     }
 }
 

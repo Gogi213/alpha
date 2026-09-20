@@ -1,5 +1,9 @@
 //! `hftbacktest` со стратегией Decision 20, RTT из 6.4, очередь
-//! `RiskAdverseQueueModel` (план, §6.3).
+//! `RiskAdverseQueueModel` (план, §6.3). С F3 плана 2026-09-20 модель очереди
+//! и исполнения — параметр (`QueueModelKind`): прежняя пара
+//! `RiskAdverseQueueModel` + `NoPartialFillExchange` или крейтовые
+//! `ProbQueueModel<PowerProbQueueFunc(n)>` + `PartialFillExchange`; три пути
+//! исполнения крейта — в doc-комментарии `build_backtest`.
 //!
 //! Стратегия предрегистрирована целиком (Decision 20): вход мейкером у своей
 //! стороны спреда с временем жизни ордера 2 с, выход тейкером ровно на
@@ -46,14 +50,15 @@
 use hftbacktest::backtest::assettype::LinearAsset;
 use hftbacktest::backtest::data::{Data, DataPtr};
 use hftbacktest::backtest::models::{
-    CommonFees, LatencyModel, RiskAdverseQueueModel, TradingValueFeeModel,
+    CommonFees, LatencyModel, PowerProbQueueFunc, ProbQueueModel, RiskAdverseQueueModel,
+    TradingValueFeeModel,
 };
 use hftbacktest::backtest::BacktestError;
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
 use hftbacktest::depth::{HashMapMarketDepth, L2MarketDepth, MarketDepth};
 use hftbacktest::types::{
-    Bot, ElapseResult, Event, OrdType, Order, Side as HbtSide, Status, TimeInForce,
-    EXCH_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
+    Bot, ElapseResult, Event, OrdType, Order, Side as HbtSide, Status, TimeInForce, BUY_EVENT,
+    EXCH_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT, SELL_EVENT,
 };
 
 use crate::lob::costs::{
@@ -146,16 +151,27 @@ impl MissLedger {
 // ---------------------------------------------------------------------------
 
 /// Один закрытый круг: направление и обе ноги исполнения.
+///
+/// Размер и цена входа — **по факту исполнения**, а не по плану (F3 плана
+/// 2026-09-20): модель очереди по объёму исполняет заявку частично, и круг
+/// на частичном входе — норма (В-78). У прежней модели (`RiskAdverse`,
+/// полное исполнение) `qty` остаётся плановым размером, `entry_vwap` —
+/// прежней `entry_px`, `fill_frac` — единицей: гейт «байт в байт» этого не
+/// меняет.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fill {
     /// Направление: `+1` — лонг (покупка, затем продажа),
     /// `-1` — шорт (продажа, затем покупка).
     pub dir: i8,
-    /// Цена входа (исполнение мейкера).
+    /// Цена входа (исполнение мейкера): средняя по исполненным ногам с
+    /// **равными** весами — как было до F3 (у лестницы ноги равного размера,
+    /// так что при полном исполнении это она же и есть).
     pub entry_px: f64,
     /// Цена выхода (исполнение тейкера).
     pub exit_px: f64,
-    /// Размер круга. В отчёт идёт как есть; в bps сокращается.
+    /// Реально исполненный размер входа: накопленный исполненный объём ног
+    /// (`qty − leaves_qty`; у крейта `exec_qty` — объём последнего исполнения,
+    /// а не сумма). При полном исполнении равен плановому размеру круга.
     pub qty: f64,
     /// Вход исполнился тейкером (лимит пересёк книгу; у лестницы — хотя бы
     /// одна нога) — по флагу `maker` ордера крейта (В-63).
@@ -163,16 +179,36 @@ pub struct Fill {
     /// Выход исполнился тейкером: стоп/дедлайн/досрочный/трейл — по рынку,
     /// тейк — лимитом (мейкер); тоже по флагу крейта.
     pub exit_taker: bool,
+    /// Средневзвешенная по исполненному размеру цена входа
+    /// (`Σ exec_px × исполненное / Σ исполненное`) — по ней считает
+    /// `roundtrip_net_bps`. Цена ноги — цена последнего исполнения (крейт
+    /// хранит только её; у ноги из одного исполнения — точно). При полном
+    /// исполнении равна `entry_px` (и прежнему значению `entry_px` — гейт F3).
+    pub entry_vwap: f64,
+    /// Доля исполненного от заказанного: `qty / Σ order.qty` по **принятым**
+    /// биржей ногам (отвергнутая пост-онли нога — отказ, а не заказ: её
+    /// считает `legs_rejected`, F4). При полном исполнении равна `1.0`.
+    pub fill_frac: f64,
+    /// Сколько ног входа исполнилось (хоть частично).
+    pub legs_filled: u8,
+    /// Исполнение пришло **обновлением лучшей цены** (`on_best_*_update`), а
+    /// не сделкой, которая могла бы исполнить эту ногу: в буфере последних
+    /// сделок шага не было сделки по нашу сторону цены. Это путь (3) из
+    /// doc-комментария `build_backtest` — оптимистичный по размеру
+    /// (крейт исполняет весь остаток, а не объём лучшей цены).
+    pub fill_by_cross: bool,
 }
 
 /// Чистый результат круга в bps: направленная доходность минус комиссии
 /// **по ногам** (В-63: `costs::leg_fee_bps` — мейкер 1.26 / тейкер 3.15 bps
 /// после возврата; тейк лимитом — мейкер+мейкер 2.52, стоп по рынку —
-/// мейкер+тейкер 4.41). `None` при неположительном входе или неконечных
-/// ценах: отсутствие данных не есть нулевой результат (то же правило, что
-/// неконечный markout в 5.2).
+/// мейкер+тейкер 4.41). Цена входа — `entry_vwap` (средневзвешенная по
+/// исполненным ногам, F3; при полном исполнении равна прежней `entry_px`,
+/// так что прежние значения не меняются). `None` при неположительном входе
+/// или неконечных ценах: отсутствие данных не есть нулевой результат (то же
+/// правило, что неконечный markout в 5.2).
 pub fn roundtrip_net_bps(fill: &Fill) -> Option<f64> {
-    if !fill.entry_px.is_finite() || !fill.exit_px.is_finite() || fill.entry_px <= 0.0 {
+    if !fill.entry_vwap.is_finite() || !fill.exit_px.is_finite() || fill.entry_vwap <= 0.0 {
         return None;
     }
     let dir = match fill.dir {
@@ -180,7 +216,7 @@ pub fn roundtrip_net_bps(fill: &Fill) -> Option<f64> {
         -1 => -1.0,
         _ => return None,
     };
-    let gross = dir * (fill.exit_px - fill.entry_px) / fill.entry_px * 10_000.0;
+    let gross = dir * (fill.exit_px - fill.entry_vwap) / fill.entry_vwap * 10_000.0;
     Some(gross - leg_fee_bps(fill.entry_taker) - leg_fee_bps(fill.exit_taker))
 }
 
@@ -554,6 +590,72 @@ fn day_index_ns(t0_ns: i64) -> i64 {
 // Прогон одного профиля поверх `Bot<MD>`, мотором — `strategy::on_event`.
 // ---------------------------------------------------------------------------
 
+/// Модель очереди и модель исполнения бэктестера (F3 плана 2026-09-20):
+/// выбор крейта `hftbacktest 0.9.4` — модель очереди и `ExchangeKind` за ней.
+///
+/// Три пути исполнения крейта и их оптимизм — в doc-комментарии
+/// `build_backtest`; счётчик кругов по пути (3) — `Fill::fill_by_cross`
+/// (`n_fill_by_cross` в `forms.csv`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum QueueModelKind {
+    /// Прежний движок Decision 20: `RiskAdverseQueueModel` +
+    /// `NoPartialFillExchange`. Позиция в очереди двигается **только**
+    /// сделками на нашей цене, исполнение — целой заявкой. Числа прежних
+    /// прогонов (в том числе `qty` круга) не меняются — гейт F3.
+    RiskAdverse,
+    /// Модель очереди **по объёму**: `ProbQueueModel<PowerProbQueueFunc(n)>` +
+    /// `PartialFillExchange`. Позиция в очереди двигается сделками и
+    /// снятиями впереди с вероятностью `P = f(back) / (f(back) + f(front))`,
+    /// `f(x) = xⁿ`; исполнение частичное. `n` — число предрегистрации
+    /// (`--queue-model prob:<n>`); у крейта в примерах 3.0 — это **не** наше
+    /// умолчание, умолчания нет вовсе.
+    Prob { n: f64 },
+}
+
+/// Ёмкость буфера последних сделок крейта на шаг опроса, элементов (F3):
+/// `last_trades_capacity`. Это **не** число сделки и не модельная величина, а
+/// подсказка `Vec::with_capacity` — буфер растёт при необходимости; ёмкость
+/// обязана быть больше нуля, иначе крейт вовсе не пишет сделки
+/// (`proc/local.rs`: `ev.is(LOCAL_TRADE_EVENT) && self.trades.capacity() > 0`)
+/// и путь исполнения (3) не определить. Читает буфер только детектор
+/// `run_round`, сразу после чтения он очищается.
+const LAST_TRADES_CAPACITY: usize = 64;
+
+impl QueueModelKind {
+    /// Имя модели для шапки `forms.csv`/`manifest.txt` — обратная запись
+    /// флага: `risk-adverse` или `prob:<n>`.
+    pub fn label(self) -> String {
+        match self {
+            QueueModelKind::RiskAdverse => "risk-adverse".to_string(),
+            QueueModelKind::Prob { n } => format!("prob:{n}"),
+        }
+    }
+
+    /// Разбор значения флага `--queue-model`: `risk-adverse` | `prob:<n>`.
+    /// `n` — конечное положительное число (домен степенной функции очереди);
+    /// умолчания нет — изобретённое число запрещено, `n` приходит флагом.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s == "risk-adverse" {
+            return Ok(QueueModelKind::RiskAdverse);
+        }
+        let Some(rest) = s.strip_prefix("prob:") else {
+            return Err(format!(
+                "--queue-model {s:?}: ожидается risk-adverse или prob:<n>"
+            ));
+        };
+        let n: f64 = rest
+            .parse()
+            .map_err(|_| format!("--queue-model {s:?}: n не число"))?;
+        if !n.is_finite() || n <= 0.0 {
+            return Err(format!(
+                "--queue-model {s:?}: n обязано быть конечным и больше нуля"
+            ));
+        }
+        Ok(QueueModelKind::Prob { n })
+    }
+}
+
 /// Настройки прогона профиля.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DriveConfig {
@@ -562,6 +664,9 @@ pub struct DriveConfig {
     /// Первый идентификатор ордеров; дальше — по порядку, каждый ордер
     /// уникален (требование трейта).
     pub first_order_id: u64,
+    /// Модель очереди/исполнения этого прогона (F3): её ставит вызывающий
+    /// (`lob bounce-grid --queue-model`), умолчания нет.
+    pub queue_model: QueueModelKind,
 }
 
 /// Итог прогона одного профиля на одной RTT-сценарии: done-condition 6.3
@@ -729,9 +834,15 @@ where
         }
         // Догнать время сигнала часами стороны.
         let now = bot.current_timestamp();
-        if sig.t0_ns > now && bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
-            incomplete = true;
-            break;
+        if sig.t0_ns > now {
+            if bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
+                incomplete = true;
+                break;
+            }
+            // Сделки до постановки входа к пути исполнения не относятся
+            // (F3): буфер чистится, чтобы детектор `run_round` видел только
+            // сделки шага, в котором нога исполнилась.
+            bot.clear_last_trades(Some(asset_no));
         }
         // Двойная проверка занятости (как у `blocked_until_ns` выше): по
         // факту тоже, на случай если позиция открыта извне драйвера.
@@ -997,11 +1108,87 @@ enum RoundOutcome {
     Inconsistent,
 }
 
+/// Может ли хоть одна сделка буфера исполнить эту ногу: для покупки —
+/// сделка продавца-агрессора по цене **не выше** нашей (наш лимит впереди
+/// неё — приоритет цены), для продажи — зеркально. Пусто — в этом шаге
+/// опроса исполнения лентой не было, и нога исполнилась обновлением лучшей
+/// цены (путь (3) `build_backtest`).
+fn trade_could_fill(trades: &[Event], side: HbtSide, price_tick: i64, tick: f64) -> bool {
+    if tick <= 0.0 {
+        return false;
+    }
+    trades.iter().any(|t| {
+        let t_tick = (t.px / tick).round() as i64;
+        match side {
+            HbtSide::Buy => t.is(SELL_EVENT) && t_tick <= price_tick,
+            HbtSide::Sell => t.is(BUY_EVENT) && t_tick >= price_tick,
+            _ => false,
+        }
+    })
+}
+
+/// Исполненный объём заявки накопленным итогом: у крейта `exec_qty` — объём
+/// **последнего** исполнения, а не сумма (частичное исполнение приходит
+/// несколькими откликами), поэтому накопленное — `qty − leaves_qty`.
+fn executed_qty(order: &Order) -> f64 {
+    (order.qty - order.leaves_qty).max(0.0)
+}
+
+/// Отложенный вердикт пути исполнения (F3): для ног из `pending` в буфере
+/// последних сделок так и не нашлось сделки, которая могла бы их исполнить, —
+/// значит исполнение пришло обновлением лучшей цены (путь (3)
+/// `build_backtest`), а не лентой. Откладывается на шаг опроса, потому что
+/// сделка в буфере метится **локальным** временем, а исполнение — биржевым:
+/// при расхождении меток сделка оказывается в буфере следующим шагом, и
+/// мгновенный вердикт звал бы крест там, где была сделка.
+fn pending_is_cross<B, MD>(
+    bot: &B,
+    asset_no: usize,
+    entry_id: u64,
+    side: HbtSide,
+    pending: u64,
+    legs: u8,
+) -> bool
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    if pending == 0 {
+        return false;
+    }
+    let tick = bot.depth(asset_no).tick_size();
+    for i in 0..u32::from(legs.max(1)) {
+        if i >= u64::BITS {
+            break;
+        }
+        if pending & (1u64 << i) == 0 {
+            continue;
+        }
+        let price_tick = bot
+            .orders(asset_no)
+            .get(&entry_id.saturating_add(u64::from(i)))
+            .map(|o| o.price_tick);
+        match price_tick {
+            // Заявки уже нет (снята) — судить не по чему: считаем крестом
+            // (оценка оптимизма вверх, а не вниз — консервативно для нас).
+            None => return true,
+            Some(px) => {
+                if !trade_could_fill(bot.last_trades(asset_no), side, px, tick) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Крутит один круг: продвигает часы стороны шагами `ON_EVENT_POLL_STEP_NS`,
 /// пока `on_event` не приведёт состояние к `Idle`, и достаёт из `Bot<MD>`
 /// исполнение обеих ног. Общий для обоих планов (`SpreadHold` — Decision 20,
 /// `Bounce` — В-44): свой цикл решений у второго плана был бы второй
-/// стратегией.
+/// стратегией. Заодно считает путь исполнения входа (F3): крейт отдаёт статус
+/// и объём, но не говорит, пришло ли исполнение сделкой или обновлением
+/// лучшей цены.
 fn run_round<B, MD>(
     bot: &mut B,
     asset_no: usize,
@@ -1015,11 +1202,60 @@ where
     MD: MarketDepth,
 {
     let mut timed_out = false;
+    // Путь исполнения входа (F3): `entry_seen` — ноги, исполнение которых уже
+    // замечено; `entry_pending` — ноги, чей вердикт (сделка или крест) отложен
+    // на шаг (локальная метка сделки отстаёт от биржевой); `fill_by_cross` —
+    // итог по кругу. Битовая маска вместо вектора: ног у плана единицы.
+    let mut entry_seen: u64 = 0;
+    let mut entry_pending: u64 = 0;
+    let mut fill_by_cross = false;
     // Ноги выхода в порядке отправки: одна у прежних форм, две у дробных (E7).
     let mut exits: Vec<(u64, ExitReason)> = Vec::new();
     loop {
         if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+            // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
+            // исполнения не нужен.
             return Ok(RoundOutcome::EndOfData);
+        }
+        // Отложенный вердикт: буфер за это время дорос сделками следующего
+        // шага — если сделка, способная исполнить ногу, появилась, это лента.
+        if entry_pending != 0 {
+            fill_by_cross |= pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs);
+            entry_pending = 0;
+        }
+        for i in 0..u32::from(legs.max(1)) {
+            if i >= u64::BITS {
+                break;
+            }
+            let bit = 1u64 << i;
+            if entry_seen & bit != 0 {
+                continue;
+            }
+            let Some(o) = bot
+                .orders(asset_no)
+                .get(&entry_id.saturating_add(u64::from(i)))
+            else {
+                continue;
+            };
+            // Исполнено — накопленным (`qty − leaves_qty`), а не `exec_qty`:
+            // у крейта `exec_qty` — объём **последнего** исполнения, а не сумма.
+            if executed_qty(o) <= 0.0 {
+                continue;
+            }
+            entry_seen |= bit;
+            let tick = bot.depth(asset_no).tick_size();
+            if !trade_could_fill(bot.last_trades(asset_no), side, o.price_tick, tick) {
+                // Сделки, способной исполнить ногу, в буфере пока нет: вердикт
+                // ждёт шага, чтобы локальная метка сделки догнала биржевое
+                // исполнение. Если сделки не будет и на следующем шаге —
+                // путь (3), обновление лучшей цены.
+                entry_pending |= bit;
+            }
+        }
+        // Буфер нужен только пока есть отложенный вердикт — иначе очищаем
+        // (память не растёт с длиной круга).
+        if entry_pending == 0 {
+            bot.clear_last_trades(Some(asset_no));
         }
         match on_event(bot, state)? {
             Action::EntryTimedOut { .. } => timed_out = true,
@@ -1032,6 +1268,11 @@ where
             break;
         }
     }
+    fill_by_cross |= pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs);
+    // Буфер сделок очищается и на выходе из круга: сигналы бывают встык
+    // (`t0` не двигает часы), и сделки прошлого круга не должны решать вердикт
+    // следующего.
+    bot.clear_last_trades(Some(asset_no));
     if timed_out {
         let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
         return Ok(RoundOutcome::TimedOut { entry_status });
@@ -1039,26 +1280,59 @@ where
     let Some(&(_, reason)) = exits.last() else {
         return Ok(RoundOutcome::Inconsistent);
     };
-    // Лестница ставит несколько ног равного размера, и исполниться может не
-    // одна (агрессор выедает уровни подряд): цена входа — **среднее** цен
-    // исполненных ног с равными весами. Именно среднее, а не цена одной ноги:
-    // у драйвера одна `Fill` на круг, и цена одной ноги исказила бы `net`.
-    let filled_legs: Vec<(f64, bool)> = (0..legs.max(1) as u64)
-        .filter_map(|i| bot.orders(asset_no).get(&entry_id.saturating_add(i)))
-        .filter(|o| o.status == Status::Filled)
-        .map(|o| (o.exec_price(), o.maker))
-        .collect();
-    let entry_px = if filled_legs.is_empty() {
+    // Исполненные ноги входа. Отбор — **по факту исполнения** (`exec_qty`), а
+    // не по статусу `Filled`: модель очереди по объёму (F3) отдаёт ногу
+    // частично исполненной (`PartiallyFilled`), а снятая после частичного
+    // исполнения нога — `Canceled` с ненулевым `exec_qty`. У прежней модели
+    // (`RiskAdverse`) множество то же: там исполнение всегда целое.
+    //
+    // Цена входа: `entry_px` — средняя с равными весами (как было: у лестницы
+    // ноги равного размера), `entry_vwap` — средневзвешенная по исполненному
+    // размеру; при полном исполнении они совпадают, и `roundtrip_net_bps`
+    // считает по `entry_vwap` (F3).
+    let mut entry_px_sum = 0.0;
+    let mut entry_notional = 0.0;
+    let mut entry_qty = 0.0;
+    let mut entry_legs = 0usize;
+    let mut entry_taker = false;
+    let mut ordered = 0.0;
+    for i in 0..u64::from(legs.max(1)) {
+        let Some(o) = bot.orders(asset_no).get(&entry_id.saturating_add(i)) else {
+            continue;
+        };
+        // Заказанное — только принятые биржей ноги: отвергнутая (`Rejected`,
+        // `Expired`) нога — отказ, а не заказ, и `fill_frac` из-за неё падать
+        // не должен (F4 считает её отдельным счётчиком).
+        if !matches!(o.status, Status::Rejected | Status::Expired) {
+            ordered += o.qty;
+        }
+        let exec = executed_qty(o);
+        if exec > 0.0 {
+            entry_qty += exec;
+            entry_px_sum += o.exec_price();
+            entry_notional += o.exec_price() * exec;
+            entry_legs += 1;
+            // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у
+            // лестницы вход тейкерский, если тейкером исполнилась хотя бы одна
+            // нога (консервативно).
+            entry_taker |= !o.maker;
+        }
+    }
+    let entry_px = if entry_legs == 0 {
         None
     } else {
-        Some(
-            filled_legs.iter().map(|(px, _)| *px).sum::<f64>()
-                / crate::stats::count_f64(filled_legs.len()),
-        )
+        Some(entry_px_sum / crate::stats::count_f64(entry_legs))
     };
-    // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у лестницы вход
-    // тейкерский, если тейкером исполнилась хотя бы одна нога (консервативно).
-    let entry_taker = filled_legs.iter().any(|(_, maker)| !maker);
+    let entry_vwap = if entry_qty > 0.0 {
+        entry_notional / entry_qty
+    } else {
+        0.0
+    };
+    let fill_frac = if ordered > 0.0 {
+        entry_qty / ordered
+    } else {
+        0.0
+    };
     // Цена выхода — **средневзвешенная по размеру** исполненных ног (у
     // цельного выхода нога одна — это его же цена); время — последней ноги;
     // комиссия выхода — тейкерская, если тейкером ушла хотя бы одна нога
@@ -1068,21 +1342,22 @@ where
     let mut exit_notional = 0.0;
     let mut exit_ts = i64::MIN;
     let mut exit_taker = false;
-    let mut legs_filled = 0usize;
+    let mut exit_legs = 0usize;
     for (exit_id, _) in &exits {
         if let Some(o) = bot
             .orders(asset_no)
             .get(exit_id)
-            .filter(|o| o.status == Status::Filled)
+            .filter(|o| executed_qty(o) > 0.0)
         {
-            exit_qty += o.qty;
-            exit_notional += o.exec_price() * o.qty;
+            let exec = executed_qty(o);
+            exit_qty += exec;
+            exit_notional += o.exec_price() * exec;
             exit_ts = exit_ts.max(o.exch_timestamp);
             exit_taker |= !o.maker;
-            legs_filled += 1;
+            exit_legs += 1;
         }
     }
-    let exit_ok = legs_filled == exits.len() && exit_qty > 0.0;
+    let exit_ok = exit_legs == exits.len() && exit_qty > 0.0;
     match (entry_px, exit_ok) {
         (Some(entry_px), true) => {
             let dir = if side == HbtSide::Buy { 1 } else { -1 };
@@ -1091,9 +1366,13 @@ where
                     dir,
                     entry_px,
                     exit_px: exit_notional / exit_qty,
-                    qty: state.qty(),
+                    qty: entry_qty,
                     entry_taker,
                     exit_taker,
+                    entry_vwap,
+                    fill_frac,
+                    legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
+                    fill_by_cross,
                 },
                 exit_ts,
                 reason,
@@ -1142,8 +1421,13 @@ where
     MD: MarketDepth,
 {
     let now = bot.current_timestamp();
-    if sig.t0_ns > now && bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
-        return Ok(SignalStep::EndOfData);
+    if sig.t0_ns > now {
+        if bot.elapse(sig.t0_ns - now)? == ElapseResult::EndOfData {
+            return Ok(SignalStep::EndOfData);
+        }
+        // Сделки до постановки входа к пути исполнения не относятся (F3):
+        // буфер чистится, детектор `run_round` видит только шаг исполнения.
+        bot.clear_last_trades(Some(asset_no));
     }
     if bot.position(asset_no) != 0.0 {
         // Тот же пропуск «позиция занята», но пойманный по факту открытой
@@ -1501,6 +1785,7 @@ pub fn drive_bounce_windowed(
                 windows.tick_size,
                 windows.lot_size,
                 exec_latency,
+                cfg.queue_model,
                 |bt| {
                     if bt.elapse(0)? == ElapseResult::EndOfData {
                         return Ok(SignalStep::EndOfData);
@@ -1589,24 +1874,53 @@ impl BacktestReport {
 }
 
 // ---------------------------------------------------------------------------
-// Строитель `Backtest` крейта: движок Decision 20 целиком в одном месте.
+// Строитель `Backtest` крейта: движок целиком в одном месте.
 // ---------------------------------------------------------------------------
 
-/// Строит `Backtest` крейта с движком Decision 20: `RiskAdverseQueueModel`,
-/// комиссии `costs::{MAKER_FEE_BPS, TAKER_FEE_BPS}`, задержка из замеренной
-/// RTT (`latency_from_rtt`). `events` — уже переведённый в формат крейта
-/// поток; перевод из `Feed`/площадки — забота вызывающего
-/// (`commands::lob::backtest`), не этого файла (грепом-тест внизу).
+/// Строит `Backtest` крейта: модель очереди и модель исполнения — по
+/// `queue_model` (F3 плана 2026-09-20), комиссии
+/// `costs::{MAKER_FEE_BPS, TAKER_FEE_BPS}`, задержка из замеренной RTT
+/// (`latency_from_rtt`). `events` — уже переведённый в формат крейта поток;
+/// перевод из `Feed`/площадки — забота вызывающего (`commands::lob::backtest`),
+/// не этого файла (грепом-тест внизу).
+///
+/// # Три пути исполнения крейта (знать наизусть — они определяют, что
+/// оптимистично, а что нет)
+///
+/// 1. **Сделки на нашей цене** — исполнение частичное, через модель очереди:
+///    сделка двигает позицию в очереди (`QueueModel::trade`), снятия впереди —
+///    `depth` с вероятностью `P` (`ProbQueueModel`); исполняется тот объём,
+///    на который очередь ушла в минус, кратно шагу лота
+///    (`PartialFillExchange::check_if_buy_filled`, `Ordering::Equal`). Честно,
+///    с вероятностной поправкой на снятия впереди. У `RiskAdverse` тот же
+///    путь, но позиция двигается только сделками, а исполняется заявка
+///    целиком.
+/// 2. **Сделка ниже нашей цены (для покупки; в стену)** — исполняет **весь
+///    остаток** заявки: приоритет цены (`Ordering::Greater` → `fill(leaves_qty)`).
+///    Верно для стоящей заявки.
+/// 3. **Лучший аск опустился до нашей цены без сделки** — `on_best_ask_update`
+///    исполняет **весь остаток** (продавец пересёк нас лимиткой; для продажи —
+///    зеркально, `on_best_bid_update`). Верно по смыслу, но **оптимистично по
+///    размеру**: крейт отдаёт весь остаток, а не объём лучшего уровня.
+///    Счётчик кругов по этому пути — `Fill::fill_by_cross`
+///    (`n_fill_by_cross` в `forms.csv`): крейт пути не отдаёт, `run_round`
+///    определяет его по тому, что в буфере последних сделок шага нет сделки,
+///    которая могла бы исполнить ногу (`trade_could_fill`).
+///
+/// Буфер последних сделок (`last_trades_capacity`) нужен только детектору
+/// пути (3); читает его `run_round`, сразу после чтения очищая.
 pub fn build_backtest(
     events: &[Event],
     tick_size: f64,
     lot_size: f64,
     exec_latency: ExecLatency,
+    queue_model: QueueModelKind,
 ) -> Backtest<HashMapMarketDepth> {
     build_backtest_from(
         vec![DataSource::Data(Data::from_data(events))],
         exec_latency,
         move || HashMapMarketDepth::new(tick_size, lot_size),
+        queue_model,
     )
 }
 
@@ -1627,13 +1941,17 @@ pub fn with_backtest_over<R>(
     tick_size: f64,
     lot_size: f64,
     exec_latency: ExecLatency,
+    queue_model: QueueModelKind,
     f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
 ) -> R {
     // SAFETY: см. док выше — буфер жив до конца функции, крейт только читает.
     let data = unsafe { borrowed_data(events) };
-    let mut bt = build_backtest_from(vec![DataSource::Data(data)], exec_latency, move || {
-        HashMapMarketDepth::new(tick_size, lot_size)
-    });
+    let mut bt = build_backtest_from(
+        vec![DataSource::Data(data)],
+        exec_latency,
+        move || HashMapMarketDepth::new(tick_size, lot_size),
+        queue_model,
+    );
     let out = f(&mut bt);
     drop(bt);
     out
@@ -1794,6 +2112,10 @@ impl SignalWindows {
 /// `elapse(0)` ставит часы окна ровно на `t0` — как `elapse(t0 - now)` в
 /// сплошном прогоне. Нулевая **сделка** якорем быть не может: при пустой
 /// стороне книги крейт считает `price_tick - best_bid_tick` от `i64::MIN`.
+// Восемь аргументов — цена параметров окна (книга, время, срез, тик, лот,
+// задержка, модель очереди, замыкание); структура ради одного лишнего поля
+// усложнила бы вызывающего сильнее, чем читается этот список.
+#[allow(clippy::too_many_arguments)]
 pub fn with_backtest_over_window<R>(
     depth: &DepthSnapshot,
     t0_ns: i64,
@@ -1801,6 +2123,7 @@ pub fn with_backtest_over_window<R>(
     tick_size: f64,
     lot_size: f64,
     exec_latency: ExecLatency,
+    queue_model: QueueModelKind,
     f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
 ) -> R {
     let anchor = [Event {
@@ -1820,37 +2143,64 @@ pub fn with_backtest_over_window<R>(
         sources.push(DataSource::Data(unsafe { borrowed_data(rest) }));
     }
     let snap = depth.clone();
-    let mut bt = build_backtest_from(sources, exec_latency, move || {
-        snap.build(tick_size, lot_size)
-    });
+    let mut bt = build_backtest_from(
+        sources,
+        exec_latency,
+        move || snap.build(tick_size, lot_size),
+        queue_model,
+    );
     let out = f(&mut bt);
     drop(bt);
     out
 }
 
+/// Общий низ трёх строителей: `QueueModelKind` выбирает пару «модель очереди +
+/// модель исполнения» (`ExchangeKind`) движка. Три пути исполнения крейта —
+/// в doc-комментарии `build_backtest`.
 fn build_backtest_from(
     sources: Vec<DataSource<Event>>,
     exec_latency: ExecLatency,
     depth_builder: impl Fn() -> HashMapMarketDepth + 'static,
+    queue_model: QueueModelKind,
 ) -> Backtest<HashMapMarketDepth> {
-    Backtest::builder()
-        .add_asset(
-            L2AssetBuilder::default()
-                .data(sources)
-                .latency_model(MeasuredLatency(exec_latency))
-                .asset_type(LinearAsset::new(1.0))
-                .fee_model(TradingValueFeeModel::new(CommonFees::new(
-                    MAKER_FEE_BPS / 10_000.0,
-                    TAKER_FEE_BPS / 10_000.0,
-                )))
-                .queue_model(RiskAdverseQueueModel::new())
-                .exchange(ExchangeKind::NoPartialFillExchange)
-                .depth(depth_builder)
-                .build()
-                .unwrap(),
-        )
-        .build()
-        .unwrap()
+    // Обе ветки — одинаковый набор параметров, кроме пары очередь/исполнение:
+    // `L2AssetBuilder` типизирован моделью очереди, поэтому ветка компилируется
+    // в свой `Asset`, а `Backtest` стирает его в `dyn Processor`.
+    let asset = match queue_model {
+        QueueModelKind::RiskAdverse => L2AssetBuilder::default()
+            .data(sources)
+            .latency_model(MeasuredLatency(exec_latency))
+            .asset_type(LinearAsset::new(1.0))
+            .fee_model(TradingValueFeeModel::new(CommonFees::new(
+                MAKER_FEE_BPS / 10_000.0,
+                TAKER_FEE_BPS / 10_000.0,
+            )))
+            .last_trades_capacity(LAST_TRADES_CAPACITY)
+            .queue_model(RiskAdverseQueueModel::new())
+            .exchange(ExchangeKind::NoPartialFillExchange)
+            .depth(depth_builder)
+            .build()
+            .unwrap(),
+        QueueModelKind::Prob { n } => L2AssetBuilder::default()
+            .data(sources)
+            .latency_model(MeasuredLatency(exec_latency))
+            .asset_type(LinearAsset::new(1.0))
+            .fee_model(TradingValueFeeModel::new(CommonFees::new(
+                MAKER_FEE_BPS / 10_000.0,
+                TAKER_FEE_BPS / 10_000.0,
+            )))
+            .last_trades_capacity(LAST_TRADES_CAPACITY)
+            .queue_model(
+                ProbQueueModel::<PowerProbQueueFunc, HashMapMarketDepth>::new(
+                    PowerProbQueueFunc::new(n),
+                ),
+            )
+            .exchange(ExchangeKind::PartialFillExchange)
+            .depth(depth_builder)
+            .build()
+            .unwrap(),
+    };
+    Backtest::builder().add_asset(asset).build().unwrap()
 }
 
 #[cfg(test)]

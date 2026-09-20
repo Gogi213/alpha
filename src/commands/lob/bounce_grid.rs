@@ -63,6 +63,18 @@
 //! `<out-dir>`, байт в байт как раньше; с `--set` флаги фильтров у команды
 //! запрещены (набор — единственный источник). Ночь из девяти сеток базы
 //! стоила девять декодов тех же суток на монету.
+//!
+//! Модель очереди и исполнения — `--queue-model risk-adverse|prob:<n>` (F3
+//! этапа F, 20.09): **обязательный флаг, умолчания в коде нет**; `risk-adverse`
+//! — прежний движок (числа прежних прогонов не меняются, гейт «те же круги»),
+//! `prob:<n>` — модель очереди по объёму с частичным исполнением (`n` — число
+//! предрегистрации, у крейта в примерах 3.0 — не наше умолчание). Три пути
+//! исполнения крейта и их оптимизм — в doc-комментарии
+//! `lob::backtest::build_backtest` и в шапке `forms.csv`/`manifest.txt`
+//! (`queue=…`, `paths=…`); счётчик кругов по пути (3) — колонка
+//! `n_fill_by_cross` в `forms.csv` (крейт пути не отдаёт: детектор
+//! `lob::backtest` по буферу последних сделок, отсрочка вердикта на шаг —
+//! локальная метка сделки отстаёт от биржевой).
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -88,7 +100,7 @@ use super::{
 use crate::book::Side;
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
-    BounceSignal, DriveConfig, ExecLatency, SignalWindows,
+    BounceSignal, DriveConfig, ExecLatency, QueueModelKind, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -232,6 +244,16 @@ pub struct BounceGridArgs {
     pub median_rtt_ns: ExecLatency,
     #[arg(long)]
     pub p95_rtt_ns: ExecLatency,
+    /// Модель очереди и исполнения (F3 плана 2026-09-20, В-78):
+    /// `risk-adverse` — прежний движок (`RiskAdverseQueueModel` +
+    /// `NoPartialFillExchange`, числа прогонов не меняются) или `prob:<n>` —
+    /// модель очереди по объёму (`ProbQueueModel<PowerProbQueueFunc(n)>` +
+    /// `PartialFillExchange`, вход исполняется частично). **Обязательный
+    /// флаг, умолчания в коде нет**: `n` — число предрегистрации, у крейта в
+    /// примерах 3.0 — это не наше умолчание. Модель идёт в шапку
+    /// `forms.csv`/`manifest.txt` (`queue=…`).
+    #[arg(long = "queue-model")]
+    pub queue_model: String,
     /// Лот в e9 — либо он, либо `--order-qty-from-pool`.
     #[arg(long)]
     pub order_qty_e9: Option<i64>,
@@ -815,7 +837,7 @@ const ROUNDS_HEADER: [&str; 12] = [
     "exit_ns",
 ];
 
-const FORMS_HEADER: [&str; 22] = [
+const FORMS_HEADER: [&str; 23] = [
     "symbol",
     "day_utc",
     "form",
@@ -837,6 +859,7 @@ const FORMS_HEADER: [&str; 22] = [
     "incomplete",
     "n_skipped",
     "n_residual_flattened",
+    "n_fill_by_cross",
     "signals_by_hour",
 ];
 
@@ -1020,6 +1043,8 @@ struct DayParams<'a> {
     tick: f64,
     lot: f64,
     rtt_ns: ExecLatency,
+    /// Модель очереди/исполнения суток (`--queue-model`, F3) — одна на процесс.
+    queue_model: QueueModelKind,
     order_qty: f64,
     threads: usize,
     post_only: bool,
@@ -1092,14 +1117,20 @@ fn drive_day(
                 let cfg = DriveConfig {
                     order_qty: p.order_qty,
                     first_order_id: 1,
+                    queue_model: p.queue_model,
                 };
                 let step =
                     signals_for(touches, p.sigma, &forms[i], &p).and_then(|(signals, skipped)| {
                         let driven = match windows {
                             Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
-                            None => with_backtest_over(events, p.tick, p.lot, p.rtt_ns, |bt| {
-                                drive_bounce(bt, 0, &signals, &cfg)
-                            }),
+                            None => with_backtest_over(
+                                events,
+                                p.tick,
+                                p.lot,
+                                p.rtt_ns,
+                                p.queue_model,
+                                |bt| drive_bounce(bt, 0, &signals, &cfg),
+                            ),
                         };
                         driven
                             .map(|run| (run, signals, skipped))
@@ -1300,6 +1331,13 @@ impl Outputs {
             run.incomplete.to_string(),
             skipped.to_string(),
             run.residual_flattened.to_string(),
+            // Путь исполнения (3) (F3): крейт исполнил ногу обновлением
+            // лучшей цены, а не сделкой, — счётчик по кругам формы.
+            run.fills
+                .iter()
+                .filter(|f| f.fill_by_cross)
+                .count()
+                .to_string(),
             signals_by_hour(signals),
         ])?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
@@ -1370,6 +1408,10 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         lot_sources == 1,
         "лот задаётся ровно одним способом: --order-qty-e9 | --order-qty-from-pool | --order-usd (изобретённого умолчания нет, §9 плана)"
     );
+    // Модель очереди/исполнения (F3): обязательный флаг, разбирается один раз
+    // на процесс — она не часть фильтров набора (`--set`), а движок.
+    let queue_model =
+        QueueModelKind::parse(&args.queue_model).map_err(|e| anyhow::anyhow!("{e}"))?;
     let threads = args
         .threads
         .unwrap_or_else(|| {
@@ -1475,7 +1517,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1504,6 +1546,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         },
         threads,
         args.driver.label(),
+        queue_model.label(),
         args.touches_from
             .as_ref()
             .map_or("replay".to_string(), |d| format!("csv({})", d.display())),
@@ -1739,6 +1782,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             tick,
                             lot,
                             rtt_ns: args.median_rtt_ns,
+                            queue_model,
                             order_qty,
                             threads,
                             post_only: args.post_only,
