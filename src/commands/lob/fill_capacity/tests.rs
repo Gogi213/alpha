@@ -4,7 +4,9 @@ use crate::commands::lob::touches::{run_touches, TouchesArgs};
 use crate::commands::lob::{H3Args, H3ModeArg};
 
 /// Фикстура `touches/tests.rs`: три касания бида 99; сделка продавца на 100 за
-/// полсекунды до первого касания, на 99 — внутри третьего.
+/// полсекунды до первого касания, на 99 — внутри третьего. Касания пишутся
+/// вместе с записями подхода (`--approach-bps 700`: аск 105/106 против
+/// бид-стены 99 — 606/707 bps, взвод на кадре 1000) — кэш F2 тот же.
 const LEAD_S: i64 = 70;
 
 fn frames() -> Vec<Vec<crate::binlog::Record>> {
@@ -69,7 +71,7 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
         repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
         out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
-        approach_bps: None,
+        approach_bps: Some(700),
         approach_min_age_secs: 0,
         moves: None,
         moves_window_ms: None,
@@ -87,6 +89,7 @@ fn args(root: &std::path::Path, cache: &std::path::Path, sets: &[&str]) -> FillC
         symbols: vec!["SOLUSDT".to_string()],
         days: Vec::new(),
         touches_from: cache.to_path_buf(),
+        targets: TargetSource::Touches,
         sets: sets.iter().map(|s| s.to_string()).collect(),
         regime_from: None,
         h3: h3(),
@@ -285,4 +288,78 @@ fn symbol_missing_from_cache_is_skipped() {
     assert_eq!(s.symbols_without_cache, 1);
     assert_eq!(s.symbols_done, 0);
     assert_eq!(s.rows, 0);
+}
+
+/// F2 этапа F: `--targets approaches` берёт цели из записей подхода —
+/// `start_ms` это `arm_ms`, `end_ms` — `disarm_ms`, `age_ms` и `size_at_touch`
+/// с момента взвода, `frontrun_off` пуст (фронтрана на взводе нет). Колонки и
+/// число строк на цель те же, что у касаний.
+#[test]
+fn approaches_targets_take_arm_and_disarm_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = fixture(dir.path());
+    // Фикстура: взвод бид-стены 99 на кадре 1000, снятие касанием на 71000.
+    let (ap_h, ap) = read_csv(&cache.join("2026-09-08").join("approaches-SOLUSDT.csv"));
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(col(&ap_h, &ap[0], "arm_ms"), "1000");
+    assert_eq!(col(&ap_h, &ap[0], "disarm_ms"), "71000");
+    assert_eq!(col(&ap_h, &ap[0], "disarm_reason"), "touch");
+    let mut a = args(dir.path(), &cache, &["all:"]);
+    a.targets = TargetSource::Approaches;
+    let s = run_fill_capacity(&a).unwrap();
+    assert_eq!(s.symbols_done, 1);
+    assert_eq!(s.symbol_days, 1);
+    assert_eq!(s.touches, 1, "одна цель — один подход");
+    assert_eq!(s.rows, 3, "полоса 300 bps от 99 тиков — три строки");
+    let (h, rows) = read_csv(
+        &dir.path()
+            .join("cap")
+            .join("all")
+            .join("capacity-SOLUSDT.csv"),
+    );
+    // Колонки те же, что у замера по касаниям (читатель `leg-distance.py`).
+    assert_eq!(col(&h, &rows[0], "side"), "bid");
+    assert_eq!(col(&h, &rows[0], "price_tick"), "99");
+    assert_eq!(
+        col(&h, &rows[0], "start_ms"),
+        "1000",
+        "постановка на взводе"
+    );
+    assert_eq!(
+        col(&h, &rows[0], "end_ms"),
+        "71000",
+        "жизнь до снятия взвода"
+    );
+    assert_eq!(col(&h, &rows[0], "age_ms"), "1000", "возраст на взводе");
+    assert_eq!(col(&h, &rows[0], "size_at_touch"), "10", "размер на взводе");
+    assert_eq!(
+        col(&h, &rows[0], "frontrun_off"),
+        "",
+        "фронтрана на взводе не считаем"
+    );
+    assert!(
+        rows.iter().all(|r| col(&h, r, "start_ms") == "1000"),
+        "все тики полосы — та же цель"
+    );
+}
+
+/// Ключи контекста (`ret*`/`pool*`/`btc*`) у подхода не определены: замер по
+/// подходам с ними — отказ, а не молчаливый ноль строк.
+#[test]
+fn approaches_targets_refuse_context_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = fixture(dir.path());
+    let mut a = args(dir.path(), &cache, &["h1:ret1h_min=10"]);
+    a.targets = TargetSource::Approaches;
+    let err = run_fill_capacity(&a).unwrap_err().to_string();
+    assert!(err.contains("контекста"), "{err}");
+    // Кэша подходов нет (суточных `approaches-<SYMBOL>.csv` не писали) —
+    // символ пропускается со счётчиком, не отказ всего прогона.
+    let mut a = args(dir.path(), &cache, &["all:"]);
+    a.targets = TargetSource::Approaches;
+    a.touches_from = dir.path().join("cap-empty");
+    std::fs::create_dir_all(&a.touches_from).unwrap();
+    let s = run_fill_capacity(&a).unwrap();
+    assert_eq!(s.symbols_without_cache, 1);
+    assert_eq!(s.symbols_done, 0);
 }

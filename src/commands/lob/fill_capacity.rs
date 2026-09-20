@@ -21,10 +21,22 @@
 //! первого кадра суток), не ноль. Читатель — `tools/compute/fill-capacity.py`.
 //! K1: маркер `verify-<SYMBOL>.status == ok`, иначе символ пропущен
 //! (`--allow-unverified` — отладка).
+//!
+//! `--targets approaches` (F2 этапа F, В-73) меняет источник целей: вместо
+//! касания — запись подхода (F1, `approaches-<SYMBOL>.csv` того же кэша),
+//! цель `Target { start_ms: arm_ms, end_ms: disarm_ms }`: слот `t0` — поставка
+//! в `arm_ms` и жизнь до снятия взвода, слоты `post` — от `arm_ms`. Колонки и
+//! читатель (`leg-distance.py`) те же: `age_ms` и `size_at_touch` берутся с
+//! момента взвода, `frontrun_off` пуст (фронтрана на взводе не считаем).
+//! Фильтр набора применяется к «виду подхода как касания» (`touch_view_of`):
+//! возраст, размер и сторона — с момента взвода, порог В-66 — по силе кадра
+//! взвода (`H3Mode::holds_at_size`). Ключи контекста (`ret*`/`pool*`/`btc*`) и
+//! `eaten=` у подхода не определены — `--targets approaches` с ними отказ,
+//! а не молчаливый ноль.
 
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Args;
@@ -35,12 +47,13 @@ use super::bounce_grid::{
     FilterSet, RegimeDay, TouchFilter,
 };
 use super::profiles::read_verify_marker;
+use super::touches::{read_approaches_csv, ApproachRow};
 use super::{resolve_h3_mode_full, session_parts_for, side_name, trade_hit_from_record, H3Args};
 use crate::binlog::Reader;
 use crate::book::{Book, Side};
 use crate::bybit::verify::FileReplayer;
 use crate::lob::capacity::{CapacityTracker, Target, TargetCapacity};
-use crate::lob::levels::TouchRecord;
+use crate::lob::levels::{ApproachRecord, TouchRecord};
 
 /// Аргументы `lob fill-capacity`.
 #[derive(Debug, Args)]
@@ -60,6 +73,12 @@ pub struct FillCapacityArgs {
     /// касаниям, что сетка.
     #[arg(long)]
     pub touches_from: PathBuf,
+    /// Что считать целью: касание (`touches`, прежнее поведение — байты те же)
+    /// или запись подхода (`approaches`): постановка в `arm_ms` и жизнь до
+    /// снятия взвода. Подходы читаются из того же кэша (`--touches-from`),
+    /// файл `approaches-<SYMBOL>.csv`.
+    #[arg(long, value_enum, default_value_t = TargetSource::Touches)]
+    pub targets: TargetSource,
     /// Набор фильтров касаний (повторяемый): `<имя>:<k=v,…>`, ключи — как у
     /// `bounce-grid --set`. Артефакты набора — `<out-dir>/<имя>/`.
     #[arg(long = "set", required = true)]
@@ -105,10 +124,53 @@ pub struct FillCapacitySummary {
     pub out_dir: PathBuf,
 }
 
-/// Цель замера вместе с касанием, из которого она построена (поля строки).
-struct Picked<'a> {
-    touch: &'a TouchRecord,
+/// Что считать целью замера (F2 этапа F, В-73): касание (прежнее поведение —
+/// байты прежние) или запись подхода.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TargetSource {
+    /// Касание: постановка в `start_ms`, жизнь до `end_ms`.
+    Touches,
+    /// Подход: постановка в `arm_ms`, жизнь до `disarm_ms`.
+    Approaches,
+}
+
+/// Поля строки, которые берутся у источника цели: у касания — с момента
+/// касания, у подхода — с момента взвода (`touch_view_of`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SourceRow {
+    /// Возраст уровня к моменту цели, мс.
+    age_ms: i64,
+    /// Размер уровня в лотах к моменту цели.
+    size_at_touch: i64,
+    /// Цена первого фронтранера — только у касания (у подхода пусто).
+    frontrun_tick: Option<i64>,
+}
+
+impl SourceRow {
+    fn of(t: &TouchRecord) -> Self {
+        Self {
+            age_ms: t.age_ms(),
+            size_at_touch: t.size_at_touch,
+            frontrun_tick: t.frontrun_tick,
+        }
+    }
+}
+
+/// Цель замера вместе с полями строки, из которых она построена.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Picked {
+    src: SourceRow,
     target: Target,
+}
+
+/// Цели одних суток символа: вид источника как касания (для `TouchFilter` и
+/// порога В-66), цели трекера и ход до момента постановки — по одному элементу
+/// на цель, в одном порядке.
+struct DayTargets {
+    day: String,
+    views: Vec<TouchRecord>,
+    targets: Vec<Target>,
+    rets: Vec<[Option<f64>; 3]>,
 }
 
 fn target_of(t: &TouchRecord) -> Target {
@@ -118,6 +180,105 @@ fn target_of(t: &TouchRecord) -> Target {
         start_ms: t.start_ms,
         end_ms: t.end_ms,
     }
+}
+
+/// Вид подхода как касания: `TouchFilter` и `H3Mode::holds_at_touch` читают
+/// касание, у подхода те же поля называются иначе. `start_ms` — `arm_ms`
+/// (фильтры возраста и минуты режима смотрят на взвод), `size_at_touch` —
+/// `size_at_arm`, `level_birth_ms` — рождение уровня, `touch_index` —
+/// `approach_index`, `strength_e2` — сила кадра взвода (по ней работает порог
+/// В-66), `flow_1h_lots` — оборот к взводу. Чего у подхода нет, то ноль:
+/// `frontrun_tick: None` (ключ `--frontrun-only` подходы выбросит: фронтрана
+/// на взводе не считаем), `traded_during` 0 и `size_max_before` = `size_at_arm`
+/// (ключ `eaten=` на подходах смысла не имеет — вызов с ним отвергается),
+/// стопки 0.
+fn touch_view_of(a: &ApproachRecord) -> TouchRecord {
+    TouchRecord {
+        side: a.side,
+        price_tick: a.price_tick,
+        touch_index: a.approach_index,
+        start_ms: a.arm_ms,
+        end_ms: a.disarm_ms,
+        duration_ms: a.duration_ms(),
+        level_birth_ms: a.level_birth_ms,
+        size_at_touch: a.size_at_arm,
+        size_max_before: a.size_at_arm,
+        traded_during: 0,
+        frontrun_lots: 0,
+        frontrun_tick: None,
+        swept_lots: 0,
+        round_zeros: crate::lob::levels::round_zeros(a.price_tick),
+        ended_by_death: false,
+        stack_levels: 0,
+        stack_next_tick: None,
+        traded_first_s: [0; crate::lob::levels::REACTION_WINDOWS_S.len()],
+        flow_1h_lots: a.flow_1h_lots,
+        strength_e2: a.strength_e2,
+        strength_held_e2: [-1; crate::lob::levels::STRENGTH_HELD_WINDOWS_S.len()],
+        repeat_count: 0,
+    }
+}
+
+/// Цели суток из записей подхода: цель — окно взвода, вид — `touch_view_of`,
+/// хода до постановки кэш подходов не несёт (`None` по всем окнам).
+fn day_targets_of_approaches(day: &str, rows: &[ApproachRow]) -> DayTargets {
+    DayTargets {
+        day: day.to_string(),
+        views: rows.iter().map(|r| touch_view_of(&r.approach)).collect(),
+        targets: rows
+            .iter()
+            .map(|r| Target {
+                side: r.approach.side,
+                price_tick: r.approach.price_tick,
+                start_ms: r.approach.arm_ms,
+                end_ms: r.approach.disarm_ms,
+            })
+            .collect(),
+        rets: vec![[None; 3]; rows.len()],
+    }
+}
+
+/// Записи подхода символа из кэша (F1): `<dir>/<сутки>/approaches-<SYMBOL>.csv`,
+/// иначе общий `<dir>/approaches-<SYMBOL>.csv`, из которого берутся строки этих
+/// суток. Как `cached_touches`, но по подходам: нет файла или в суточном файле
+/// чужие сутки — `Err`. Порядок строк — порядок файла.
+fn cached_approaches<'a>(
+    dir: &Path,
+    symbol: &str,
+    days: impl Iterator<Item = &'a String>,
+) -> anyhow::Result<Vec<DayTargets>> {
+    let flat = dir.join(format!("approaches-{symbol}.csv"));
+    let mut flat_rows: Option<Vec<ApproachRow>> = None;
+    let mut out = Vec::new();
+    for day in days {
+        let per_day = dir.join(day).join(format!("approaches-{symbol}.csv"));
+        let rows: Vec<ApproachRow> = if per_day.is_file() {
+            let rows = read_approaches_csv(&per_day)?;
+            if let Some(bad) = rows.iter().find(|r| r.day != *day) {
+                anyhow::bail!(
+                    "{}: строка суток {} в файле суток {day}",
+                    per_day.display(),
+                    bad.day
+                );
+            }
+            rows
+        } else if flat.is_file() {
+            if flat_rows.is_none() {
+                flat_rows = Some(read_approaches_csv(&flat)?);
+            }
+            flat_rows
+                .as_ref()
+                .expect("только что прочитан")
+                .iter()
+                .filter(|r| r.day == *day)
+                .cloned()
+                .collect()
+        } else {
+            anyhow::bail!("нет {} и нет {}", per_day.display(), flat.display());
+        };
+        out.push(day_targets_of_approaches(day, &rows));
+    }
+    Ok(out)
 }
 
 /// Шапка CSV: слоты `t0`, `pre<секунды>` и `post<секунды>` в порядке трекера
@@ -176,12 +337,12 @@ struct RowScope<'a> {
     npost: usize,
 }
 
-/// Строки одного касания: по тику полосы.
+/// Строки одной цели (касания или подхода): по тику полосы.
 #[allow(clippy::cast_precision_loss)]
 fn write_rows<W: Write>(
     w: &mut W,
     scope: &RowScope<'_>,
-    touch: &TouchRecord,
+    src: SourceRow,
     cap: &TargetCapacity,
 ) -> anyhow::Result<u64> {
     let RowScope {
@@ -197,7 +358,7 @@ fn write_rows<W: Write>(
         Side::Bid => 1,
         Side::Ask => -1,
     };
-    let frontrun_off = touch.frontrun_tick.map(|f| (f - t.price_tick) * away);
+    let frontrun_off = src.frontrun_tick.map(|f| (f - t.price_tick) * away);
     let t0 = npre;
     let mut n = 0u64;
     for k in 0..=cap.band {
@@ -210,8 +371,8 @@ fn write_rows<W: Write>(
             t.price_tick,
             t.start_ms,
             t.end_ms,
-            touch.age_ms(),
-            touch.size_at_touch,
+            src.age_ms,
+            src.size_at_touch,
             frontrun_off.map(|v| v.to_string()).unwrap_or_default(),
             cap.band,
             cap.tick_at(k),
@@ -377,6 +538,12 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
     }
     let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
     let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
+    if args.targets == TargetSource::Approaches {
+        anyhow::ensure!(
+            !sets.iter().any(|s| s.ctx.iter().any(|r| r.is_set())),
+            "--targets approaches: ключи контекста (ret*/pool*/btc*) у подхода не определены — кэш подходов хода до взвода не несёт (замер — по подходам, без осей контекста)"
+        );
+    }
     let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
@@ -391,7 +558,8 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
         let mut m = std::fs::File::create(args.out_dir.join("manifest.txt"))?;
         writeln!(
             m,
-            "# lob fill-capacity: band_bps={} pre_secs={:?} post_secs={:?} touches_from={} regime_from={} h3={:?} symbols={} days={:?}",
+            "# lob fill-capacity: targets={:?} band_bps={} pre_secs={:?} post_secs={:?} touches_from={} regime_from={} h3={:?} symbols={} days={:?}",
+            args.targets,
             args.band_bps,
             args.pre_secs,
             args.post_secs,
@@ -443,20 +611,53 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                 .push(p.path.clone());
         }
         // Кэша на символ нет (у ночного H3 он не считался — например, сутки без
-        // маркера) — символ пропускается со счётчиком, реплея касаний здесь нет.
-        let days = match cached_touches(&args.touches_from, symbol, parts_by_day.keys(), need_ret) {
-            Ok(days) => days,
-            Err(why) => {
-                eprintln!(
-                    "fill-capacity: {symbol} — кэш касаний не годится ({why}), символ пропущен"
-                );
-                summary.symbols_without_cache += 1;
-                continue;
+        // маркера) — символ пропускается со счётчиком, реплея здесь нет.
+        let days: Vec<DayTargets> = match args.targets {
+            TargetSource::Touches => {
+                match cached_touches(&args.touches_from, symbol, parts_by_day.keys(), need_ret) {
+                    Ok(days) => days
+                        .into_iter()
+                        .map(|d| {
+                            let targets: Vec<Target> = d.touches.iter().map(target_of).collect();
+                            DayTargets {
+                                day: d.day,
+                                views: d.touches,
+                                targets,
+                                rets: d.rets,
+                            }
+                        })
+                        .collect(),
+                    Err(why) => {
+                        eprintln!(
+                        "fill-capacity: {symbol} — кэш касаний не годится ({why}), символ пропущен"
+                    );
+                        summary.symbols_without_cache += 1;
+                        continue;
+                    }
+                }
+            }
+            TargetSource::Approaches => {
+                match cached_approaches(&args.touches_from, symbol, parts_by_day.keys()) {
+                    Ok(days) => days,
+                    Err(why) => {
+                        eprintln!(
+                            "fill-capacity: {symbol} — кэш подходов не годится ({why}), символ пропущен (нужен прогон `lob touches --approach-bps`)"
+                        );
+                        summary.symbols_without_cache += 1;
+                        continue;
+                    }
+                }
             }
         };
-        let touches_total: usize = days.iter().map(|d| d.touches.len()).sum();
+        let touches_total: usize = days.iter().map(|d| d.views.len()).sum();
         if touches_total == 0 {
-            eprintln!("fill-capacity: {symbol} — касаний нет, символ пропущен");
+            eprintln!(
+                "fill-capacity: {symbol} — целей нет ({}), символ пропущен",
+                match args.targets {
+                    TargetSource::Touches => "касаний",
+                    TargetSource::Approaches => "подходов",
+                }
+            );
             summary.symbols_without_touches += 1;
             continue;
         }
@@ -466,7 +667,7 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
             if !args.days.is_empty() && !args.days.contains(&day.day) {
                 continue;
             }
-            if day.touches.is_empty() {
+            if day.views.is_empty() {
                 continue;
             }
             let Some(day_parts) = parts_by_day.get(&day.day) else {
@@ -481,19 +682,19 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
             } else {
                 None
             };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            let ctx = touch_contexts(&day.rets, &day.views, regime);
             // Цели каждого набора — тем же фильтром, что сигналы сетки.
-            let picked: Vec<Vec<Picked<'_>>> = sets
+            let picked: Vec<Vec<Picked>> = sets
                 .iter()
                 .map(|set| {
                     let f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
-                    day.touches
+                    day.views
                         .iter()
                         .enumerate()
-                        .filter(|(ti, t)| f.admits(*ti, t))
-                        .map(|(_, t)| Picked {
-                            touch: t,
-                            target: target_of(t),
+                        .filter(|(ti, v)| f.admits(*ti, v))
+                        .map(|(ti, v)| Picked {
+                            src: SourceRow::of(v),
+                            target: day.targets[ti],
                         })
                         .collect()
                 })
@@ -536,7 +737,7 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
                     npost: post_ms.len(),
                 };
                 for (x, cap) in p.iter().zip(&caps) {
-                    day_rows += write_rows(w, &scope, x.touch, cap)?;
+                    day_rows += write_rows(w, &scope, x.src, cap)?;
                     day_touches += 1;
                 }
             }
