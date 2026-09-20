@@ -68,7 +68,9 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         order_qty_mult: 1,
         order_qty_from_pool: false,
         order_usd: None,
+        // Оба флага сняты — умолчание команды: вход пост-онли (В-72).
         post_only: false,
+        no_post_only: false,
         stop_form: vec!["s1".to_string(), "s2".to_string()],
         take_form: vec!["t1".to_string()],
         take_floor_fees: Some(1.0),
@@ -239,16 +241,82 @@ fn grid_runs_the_fixture_day_and_writes_every_form() {
         "t0_ns",
         "net_bps",
         "reason",
+        // F4 (В-78): фактическое исполнение круга в строке круга.
+        "fill_frac",
+        "entry_vwap",
+        "legs_filled",
+        "legs_rejected",
     ] {
         assert!(rh.iter().any(|h| h == name), "в rounds.csv нет {name}");
     }
+    // Значения колонок F4 проверяются там, где у фикстуры есть круг
+    // (`risk_adverse_queue_model_keeps_the_old_bytes`: σ-формы этой сетки
+    // сигналов не дают — окно σ длиннее записи).
     let fills_from_forms: u64 = forms
         .iter()
         .map(|r| col(&fh, r, "n_fills").parse::<u64>().unwrap())
         .sum();
     assert_eq!(rounds.len() as u64, fills_from_forms);
     assert_eq!(summary.rounds, fills_from_forms);
+    // Счётчик ног, не поставленных биржей, в `forms.csv` есть у каждой формы и
+    // на фикстуре нулевой (вход пост-онли ни разу не пересёк спред).
+    for r in &forms {
+        assert_eq!(col(&fh, r, "n_rejected_postonly"), "0", "{r:?}");
+    }
+    // Умолчание входа — пост-онли (В-72), и оно видно в шапке.
+    let head = std::fs::read_to_string(&summary.forms_path).unwrap();
+    assert!(
+        head.contains(" entry_post_only=true "),
+        "шапка обязана нести режим входа: {head}"
+    );
     assert!(dir.path().join("grid").join("manifest.txt").exists());
+}
+
+/// Трёхзначный флаг входа (В-72): `--post-only` включает, `--no-post-only`
+/// выключает (режим гейта «те же круги»), **умолчание — включено**; заданные
+/// оба — выигрывает последний (`clap` `overrides_with`). Проверяется разбором
+/// командной строки, а не полем структуры: решает именно `clap`.
+#[test]
+fn post_only_defaults_to_on_and_the_pair_resolves_last_wins() {
+    #[derive(clap::Parser)]
+    struct Cli {
+        #[command(flatten)]
+        grid: BounceGridArgs,
+    }
+    use clap::Parser as _;
+    let parse = |extra: &[&str]| -> bool {
+        let mut argv = vec![
+            "t",
+            "--root",
+            ".",
+            "--median-rtt-ns",
+            "1000000",
+            "--p95-rtt-ns",
+            "1000000",
+            "--queue-model",
+            "risk-adverse",
+            "--order-qty-e9",
+            "100000000",
+            "--stop-form",
+            "pct1",
+            "--take-form",
+            "1to1",
+            "--h3-mode",
+            "floor",
+            "--out-dir",
+            "o",
+        ];
+        argv.extend_from_slice(extra);
+        Cli::try_parse_from(argv).unwrap().grid.entry_post_only()
+    };
+    assert!(parse(&[]), "умолчание — пост-онли (В-72)");
+    assert!(parse(&["--post-only"]), "--post-only включает");
+    assert!(!parse(&["--no-post-only"]), "--no-post-only — режим гейта");
+    assert!(
+        !parse(&["--post-only", "--no-post-only"]),
+        "заданные оба — выигрывает последний"
+    );
+    assert!(parse(&["--no-post-only", "--post-only"]));
 }
 
 /// K1: без маркера `verify-<SYMBOL>.status == ok` символ пропускается и
@@ -834,13 +902,15 @@ fn usd_min_key_filters_by_wall_notional_at_touch() {
     assert!(head.contains(" usd_min=Some(1.0) "), "{head}");
 }
 
-/// Гейт F3: `--queue-model risk-adverse` — прежний движок, и круг
-/// (`rounds.csv`) и числа форм (`forms.csv`) обязаны совпасть с прогоном до
-/// правки. «Золото» — снятый до правки вывод фикстуры
-/// (`golden/rounds.csv`, `golden/forms.csv`): сравниваются все поля по
-/// именам, поэтому добавленные правкой колонки (`n_fill_by_cross`) и поле
-/// шапки (`queue=…`) гейт не обманывают, а любое расхождение прежнего поля —
-/// валит.
+/// Гейт F3/F4: `--queue-model risk-adverse --no-post-only` — прежний движок
+/// и прежний вход (обычный лимит `GTC`), и круг (`rounds.csv`) и числа форм
+/// (`forms.csv`) обязаны совпасть с прогоном до правок. «Золото» — снятый до
+/// правки вывод фикстуры (`golden/rounds.csv`, `golden/forms.csv`):
+/// сравниваются все поля по именам, поэтому добавленные правками колонки
+/// (`n_fill_by_cross` у F3; `fill_frac`/`entry_vwap`/`legs_filled`/
+/// `legs_rejected` у F4) и поле шапки (`queue=…`, `entry_post_only=…`) гейт не
+/// обманывают, а любое расхождение прежнего поля — валит. Пост-онли новое
+/// умолчание (В-72), поэтому гейт гоняется именно с `--no-post-only`.
 #[test]
 fn risk_adverse_queue_model_keeps_the_old_bytes() {
     let dir = tempfile::tempdir().unwrap();
@@ -858,6 +928,7 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     };
     a.warmup_ms = None;
     a.repeat_window_ms = None;
+    a.no_post_only = true;
     a.out_dir = dir.path().join("grid-gate");
     let m = run_bounce_grid(&a).unwrap();
     assert!(m.rounds > 0, "фикстура обязана давать круги");
@@ -889,6 +960,10 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
         "модель очереди в шапке: {head}"
     );
     assert!(
+        head.contains(" entry_post_only=false "),
+        "режим входа в шапке (гейт гоняется с --no-post-only): {head}"
+    );
+    assert!(
         head.contains("queue=risk-adverse")
             && head.contains("paths=1:сделки-на-нашей-цене-частично"),
         "три пути исполнения крейта в шапке: {head}"
@@ -906,8 +981,28 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
             "0",
             "прежний движок исполняет целыми заявками: {r:?}"
         );
+        assert_eq!(
+            col(&fh, r, "n_rejected_postonly"),
+            "0",
+            "вход не пересекал спред — отвергнутых ног нет: {r:?}"
+        );
     }
     same_fields(&m.rounds_path, include_str!("golden/rounds.csv"), &[]);
+    // Колонки F4 осмысленны на круге фикстуры: вход исполнился целиком одной
+    // ногой, поэтому доля — единица, средняя равна цене входа, ног — одна, а
+    // не поставленных биржей — ноль (В-78, В-72).
+    let (rh, rounds) = read_csv(&m.rounds_path);
+    assert!(!rounds.is_empty(), "фикстура обязана давать круги");
+    for r in &rounds {
+        assert_eq!(col(&rh, r, "fill_frac"), "1.000000", "{r:?}");
+        assert_eq!(
+            col(&rh, r, "entry_vwap"),
+            col(&rh, r, "entry_px"),
+            "полное исполнение: средняя равна цене входа — {r:?}"
+        );
+        assert_eq!(col(&rh, r, "legs_filled"), "1", "{r:?}");
+        assert_eq!(col(&rh, r, "legs_rejected"), "0", "{r:?}");
+    }
 
     // Разбор флага: без `--queue-model` команда не запускается вовсе
     // (умолчания в коде нет), `prob:<n>` собирает свой движок.

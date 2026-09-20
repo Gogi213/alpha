@@ -715,6 +715,7 @@ fn fill(dir: i8, entry_px: f64, exit_px: f64) -> crate::lob::backtest::Fill {
         entry_vwap: entry_px,
         fill_frac: 1.0,
         legs_filled: 1,
+        legs_rejected: 0,
         fill_by_cross: false,
     }
 }
@@ -730,6 +731,7 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         fill_exit_ns: Vec::new(),
         exits: Default::default(),
         entry_rejected: 0,
+        rejected_postonly: 0,
         entry_crossed: 0,
         spread_at_entry: Vec::new(),
         submitted_signal: (0..n).collect(),

@@ -40,9 +40,9 @@ rm -rf b5/f3-gate-old b5/f3-gate-new
 echo "== старый $OLD (флага --queue-model ещё нет)"
 # shellcheck disable=SC2086
 "$OLD" lob bounce-grid $COMMON --out-dir b5/f3-gate-old
-echo "== новый $NEW --queue-model risk-adverse"
+echo "== новый $NEW --queue-model risk-adverse --no-post-only"
 # shellcheck disable=SC2086
-"$NEW" lob bounce-grid $COMMON --queue-model risk-adverse --out-dir b5/f3-gate-new
+"$NEW" lob bounce-grid $COMMON --queue-model risk-adverse --no-post-only --out-dir b5/f3-gate-new
 
 echo "== rounds.csv: тело без шапки, байт в байт"
 if diff <(grep -v '^#' b5/f3-gate-old/rounds.csv) \

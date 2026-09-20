@@ -26,10 +26,20 @@
 //!
 //! Артефакты (`--out-dir`, обычно `data/b5/<метка>/`):
 //! - `rounds.csv` — каждый круг сделки с `symbol`, `day_utc`, `form` (K2:
-//!   интервал по суткам и стратификация по инструменту считаются из этого);
+//!   интервал по суткам и стратификация по инструменту считаются из этого) и
+//!   фактическим исполнением круга (F4, В-78): `fill_frac` (доля исполненного
+//!   от заказанного), `entry_vwap` (средняя цена исполненного входа),
+//!   `legs_filled`, `legs_rejected` (ног, которых биржа не поставила, В-72);
 //! - `forms.csv` — строка на (символ, сутки, форма): сигналы, круги, промахи,
-//!   причины выхода, сумма `net_bps`;
+//!   причины выхода, сумма `net_bps`, счётчик ног, не поставленных биржей
+//!   (`n_rejected_postonly`);
 //! - `manifest.txt` — аргументы прогона.
+//!
+//! Вход сделки-отскока — **пост-онли по умолчанию** (В-72: тейкерский вход в
+//! момент касания — не наша сделка; заявка, пересёкшая спред, биржей
+//! отклоняется и считается не поставленной). `--no-post-only` возвращает
+//! обычный лимит `GTC` — это режим гейта «те же круги»: прежние
+//! `rounds.csv`/`forms.csv` сняты до F4.
 //!
 //! Сетка (В-62) — `--stop-sigma × --take-sigma × DEADLINE_SECS` в этом порядке:
 //! стоп и тейк — множители `σ_H` (реализованная волатильность середины за
@@ -271,8 +281,23 @@ pub struct BounceGridArgs {
     /// `1` — как было.
     #[arg(long, default_value_t = 1)]
     pub order_qty_mult: u32,
-    #[arg(long, default_value_t = false)]
+    /// Вход пост-онли (`GTX`) — решение владельца 20.09 (В-72): тейкерский
+    /// вход в момент касания не наша сделка, поэтому **умолчание —
+    /// включён**, и явный флаг нужен только для полноты записи в
+    /// `manifest.txt`. Выключить можно лишь `--no-post-only` — это режим гейта
+    /// «те же круги»: прежние `rounds.csv`/`forms.csv` сняты до F4, когда
+    /// вход был обычным лимитом (`GTC`).
+    #[arg(long, overrides_with = "no_post_only", default_value_t = false)]
     pub post_only: bool,
+    /// Выключить пост-онли входа (режим гейта «те же круги», В-72) — вход
+    /// обычным лимитом `GTC`, тейкером там, где пересекает спред. Флаги
+    /// взаимоисключающие: применённый последним выигрывает.
+    #[arg(
+        long = "no-post-only",
+        overrides_with = "post_only",
+        default_value_t = false
+    )]
+    pub no_post_only: bool,
     /// Формы стопа базы (повторяемый флаг; В-65, умолчаний нет):
     /// `before|at|behind|midfr|stack2|pct<x>|s<a>`.
     #[arg(long = "stop-form", required = true)]
@@ -353,6 +378,16 @@ pub struct BounceGridArgs {
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+}
+
+impl BounceGridArgs {
+    /// Пост-онли входа у планов прогона (В-72): умолчание — **включён**,
+    /// `--no-post-only` — режим гейта «те же круги». Разрешение флагов здесь,
+    /// а не в `run_bounce_grid`: `clap` уже свёл пару `--post-only` /
+    /// `--no-post-only` к «последний выигрывает».
+    pub fn entry_post_only(&self) -> bool {
+        !self.no_post_only
+    }
 }
 
 /// Сторона стены для `--side`: `bid` — лонг от бид-стены, `ask` — шорт от аск-стены.
@@ -822,7 +857,12 @@ struct FormDayResult {
     skipped: u64,
 }
 
-const ROUNDS_HEADER: [&str; 12] = [
+/// Колонки `rounds.csv`. F4 (план 2026-09-20, В-78) добавила четыре в конец:
+/// `fill_frac` (доля исполненного от заказанного), `entry_vwap` (средняя цена
+/// исполненного входа — по ней и стоп/тейк), `legs_filled`, `legs_rejected`
+/// (ног, которых биржа не поставила, В-72). Прежние колонки остались на своих
+/// местах и с теми же значениями — на этом стоит гейт «те же круги».
+const ROUNDS_HEADER: [&str; 16] = [
     "symbol",
     "day_utc",
     "form",
@@ -835,9 +875,13 @@ const ROUNDS_HEADER: [&str; 12] = [
     "net_bps",
     "reason",
     "exit_ns",
+    "fill_frac",
+    "entry_vwap",
+    "legs_filled",
+    "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 23] = [
+const FORMS_HEADER: [&str; 24] = [
     "symbol",
     "day_utc",
     "form",
@@ -860,6 +904,7 @@ const FORMS_HEADER: [&str; 23] = [
     "n_skipped",
     "n_residual_flattened",
     "n_fill_by_cross",
+    "n_rejected_postonly",
     "signals_by_hour",
 ];
 
@@ -1047,6 +1092,8 @@ struct DayParams<'a> {
     queue_model: QueueModelKind,
     order_qty: f64,
     threads: usize,
+    /// Вход пост-онли (В-72): у плана `post_only`, у сетки умолчание —
+    /// включён (`BounceGridArgs::entry_post_only`).
     post_only: bool,
     /// E3: входить только от фронтрана (`--frontrun-only`).
     frontrun_only: bool,
@@ -1307,6 +1354,13 @@ impl Outputs {
                     .unwrap_or_else(|| "not_measured".to_string()),
                 exit_reason_label(run.fill_reason[i]).to_string(),
                 run.fill_exit_ns[i].to_string(),
+                // F4 (В-78): фактическое исполнение круга — доля и средняя
+                // цена входа (по ней считает `roundtrip_net_bps`), число
+                // исполнившихся ног и ног, которых биржа не поставила (В-72).
+                format!("{:.6}", fill.fill_frac),
+                format!("{:.10}", fill.entry_vwap),
+                fill.legs_filled.to_string(),
+                fill.legs_rejected.to_string(),
             ])?;
         }
         self.forms.write_record([
@@ -1338,6 +1392,9 @@ impl Outputs {
                 .filter(|f| f.fill_by_cross)
                 .count()
                 .to_string(),
+            // Ног входа, которых биржа не поставила (пост-онли `Expired` или
+            // `Rejected`, В-72) — по всем кругам формы за сутки.
+            run.rejected_postonly.to_string(),
             signals_by_hour(signals),
         ])?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
@@ -1517,7 +1574,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1547,6 +1604,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         threads,
         args.driver.label(),
         queue_model.label(),
+        args.entry_post_only(),
         args.touches_from
             .as_ref()
             .map_or("replay".to_string(), |d| format!("csv({})", d.display())),
@@ -1785,7 +1843,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             queue_model,
                             order_qty,
                             threads,
-                            post_only: args.post_only,
+                            post_only: args.entry_post_only(),
                             frontrun_only: set.frontrun_only,
                             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
                             min_flow_pct: set.min_flow_pct,

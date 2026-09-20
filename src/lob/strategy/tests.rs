@@ -1,5 +1,12 @@
 use super::*;
-use crate::lob::backtest::{latency_from_rtt, SIGMA_LONG};
+use crate::lob::backtest::{
+    build_backtest, drive_bounce, latency_from_rtt, BounceSignal, DriveConfig, ExecLatency,
+    QueueModelKind, SIGMA_LONG,
+};
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
 
 use hftbacktest::backtest::assettype::LinearAsset;
 use hftbacktest::backtest::data::Data;
@@ -463,4 +470,215 @@ fn a_fraction_below_one_lot_exits_whole() {
         .collect();
     assert_eq!(exits, vec![(ExitReason::Eaten, false)]);
     assert_eq!(hbt.position(0), 0.0);
+}
+
+// -----------------------------------------------------------------------
+// F4 (план 2026-09-20, В-78): частичная позиция, пост-онли вход и своя
+// позиция вместо `Bot::position` крейта.
+// -----------------------------------------------------------------------
+
+/// План F4: две ноги лестницы (`step` тиков между ними), стоп/тейк формы от
+/// планового входа 100, вход живёт `ttl`, пост-онли — параметром.
+fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) -> TradePlan {
+    TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px,
+        take_px,
+        deadline_ns: 20 * S,
+        entry_ttl_ns: ttl_ns,
+        post_only,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 2,
+        grid_step_px: step,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 0.1,
+    }
+}
+
+/// Бэктест с моделью очереди по объёму (`PartialFillExchange`): только она
+/// отдаёт частичное исполнение, ради которого и заведена частичная позиция.
+fn prob_backtest(feed: &[Event]) -> Backtest<HashMapMarketDepth> {
+    build_backtest(
+        feed,
+        1.0,
+        0.1,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::Prob { n: 3.0 },
+    )
+}
+
+/// F4 (В-78): исполнилась **половина одной ноги** из двух — позиция равна
+/// этой половине (0.5 при ноге 1.0), и выход идёт на неё: заявка выхода несёт
+/// 0.5, а стоп сдвинут к средней исполненного (101 против плановой 100 →
+/// стоп 97 при плановом 96, и бид 97 его и выбивает).
+#[test]
+fn a_partial_leg_sets_the_position_and_the_exit_is_sized_on_it() {
+    let feed = [
+        // Книга стоит ниже лестницы: у ног нет чужой очереди впереди, и вход
+        // решает объём сделок, а не глубина стакана.
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        // Продажа 0.5 ровно в дальнюю ногу (101): очередь впереди пуста,
+        // нога исполняется наполовину; ближняя (100) не тронута.
+        trade_at(2 * S, true, 101.0, 0.5),
+        // Вход живёт до срока (5 с), поэтому круг выходит в `Holding` только
+        // после снятия входа, а стоп формы 96 сдвинут средней (101) на +1.
+        depth_at(10 * S, true, 98.0, 0.0),
+        depth_at(10 * S, true, 97.0, 5.0),
+        depth_at(10 * S, false, 110.0, 5.0),
+        // Хвост: ответу на выход нужно событие после срабатывания.
+        depth_at(12 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut state = StrategyState::with_plan(
+        0,
+        SIGMA_LONG,
+        2.0,
+        1,
+        f4_plan(96.0, 104.0, false, 5 * S, 1.0),
+    );
+
+    let actions = drive(&mut hbt, &mut state);
+
+    let (order_id, price, reason) = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::ExitSubmitted {
+                order_id,
+                price,
+                reason,
+                ..
+            } => Some((*order_id, *price, *reason)),
+            _ => None,
+        })
+        .expect("позиция из половины ноги обязана закрыться");
+    assert_eq!(reason, ExitReason::Stop, "{actions:?}");
+    assert!(
+        close(price, 97.0),
+        "стоп — от средней исполненного (101 = 100 + 1 тик): {price}"
+    );
+    let exit = hbt.orders(0).get(&order_id).expect("заявка выхода в учёте");
+    assert!(
+        close(exit.qty, 0.5),
+        "размер выхода — своя позиция (половина ноги 1.0): {}",
+        exit.qty
+    );
+    assert_eq!(exit.status, Status::Filled, "выход исполнился целиком");
+}
+
+/// F4 (В-78): вторая нога исполняется позже, но **до** снятия входа —
+/// позиция набирается целиком (1.0 + 1.0), средняя пересчитывается (101 по
+/// двум ногам 100 и 102), и выход идёт на всю позицию: заявка выхода несёт
+/// 2.0, стоп сдвинут средней на тик вверх (97 при плановом 96).
+///
+/// Сделки подобраны так, чтобы не задеть особенность `PartialFillExchange`
+/// крейта 0.9.4 (замер F4): нога, **исполненная ровно до нуля** сделкой по
+/// своей цене (`filled_qty == leaves_qty`), остаётся в карте биржи (в
+/// `filled_orders` её не кладут — там условие `>`), и следующая сделка по той
+/// же или меньшей цене пытается исполнить её второй раз — `InvalidOrderStatus`
+/// роняет весь прогон. Отсюда сделка `1.5` в дальнюю ногу (больше ноги) и
+/// полное исполнение ближней последней по времени.
+#[test]
+fn the_second_leg_recomputes_the_average_and_the_exit_covers_the_whole_position() {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        // Дальняя нога (102) исполняется целиком — ближняя ещё стоит.
+        trade_at(2 * S, true, 102.0, 1.5),
+        // Вторая продажа по 100 закрывает ближнюю ногу: позиция 2.0, средняя
+        // (100 + 102) / 2 = 101 — вход решён, круг уходит в `Holding`.
+        trade_at(4 * S, true, 100.0, 1.0),
+        depth_at(10 * S, true, 98.0, 0.0),
+        depth_at(10 * S, true, 97.0, 5.0),
+        depth_at(10 * S, false, 110.0, 5.0),
+        depth_at(12 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut state = StrategyState::with_plan(
+        0,
+        SIGMA_LONG,
+        2.0,
+        1,
+        f4_plan(96.0, 104.0, false, 30 * S, 2.0),
+    );
+
+    let actions = drive(&mut hbt, &mut state);
+    let (order_id, price, reason) = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::ExitSubmitted {
+                order_id,
+                price,
+                reason,
+                ..
+            } => Some((*order_id, *price, *reason)),
+            _ => None,
+        })
+        .expect("набранная позиция обязана закрыться");
+    assert_eq!(reason, ExitReason::Stop, "{actions:?}");
+    assert!(
+        close(price, 97.0),
+        "стоп от средней исполненного (101 против плановой 100): {price}"
+    );
+    let exit = hbt.orders(0).get(&order_id).expect("заявка выхода в учёте");
+    assert!(
+        close(exit.qty, 2.0),
+        "выход на **всю** набранную позицию (1.0 + 1.0): {}",
+        exit.qty
+    );
+    assert_eq!(exit.status, Status::Filled);
+}
+
+/// F4/В-72: вход пост-онли, цена пересекает спред — **ни одной** ноги биржа
+/// не поставила (`Expired` при `GTX`), круга нет, и это «сигнал без входа»:
+/// `EntryTimeout`, а не «занято». Круг освобождается сразу (второй сигнал
+/// через 2 с проходит как сигнал, а не как занятый), а счётчик ног, не
+/// поставленных биржей, растёт по ногам (2 + 2 = 4).
+#[test]
+fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
+    let feed = [
+        // Спред один тик: цена входа (100) равна лучшему аску — пост-онли
+        // такую заявку отвергает.
+        depth_at(0, true, 99.0, 5.0),
+        depth_at(0, false, 100.0, 5.0),
+        depth_at(10 * S, false, 100.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let cfg = DriveConfig {
+        order_qty: 1.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::Prob { n: 3.0 },
+    };
+    let signal = |t0_ns: i64| BounceSignal {
+        t0_ns,
+        sigma: SIGMA_LONG,
+        plan: f4_plan(98.0, 102.0, true, 20 * S, 1.0),
+        profile: 0,
+    };
+    let run = drive_bounce(&mut hbt, 0, &[signal(S), signal(3 * S)], &cfg).unwrap();
+
+    assert!(run.fills.is_empty(), "ни одной сделки: {run:?}");
+    assert_eq!(run.rejected_postonly, 4, "две ноги × два сигнала");
+    assert_eq!(run.misses.timeout, 2, "оба сигнала — без входа");
+    assert_eq!(run.misses.busy, 0, "«занято» тут нет");
+    assert!(
+        run.busy_signal.is_empty(),
+        "сигнал без входа круг не занимает: {:?}",
+        run.busy_signal
+    );
+    assert_eq!(
+        run.submitted_signal.len(),
+        2,
+        "оба сигнала поставлены и оба же отвергнуты"
+    );
+    assert_eq!(run.entry_rejected, 0, "GTX даёт `Expired`, а не `Rejected`");
+    assert!(!run.incomplete, "круг не открывался — расписывать нечего");
 }

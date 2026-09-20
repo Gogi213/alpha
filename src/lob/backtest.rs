@@ -191,6 +191,12 @@ pub struct Fill {
     pub fill_frac: f64,
     /// Сколько ног входа исполнилось (хоть частично).
     pub legs_filled: u8,
+    /// Сколько ног входа биржа **не поставила** (`Expired` — пост-онли заявка
+    /// пересекла спред, `Rejected` — обычная): по В-72 такая нога отказ, а не
+    /// заказ, в `fill_frac` она не входит и считается отдельно. Колонка
+    /// `legs_rejected` в `rounds.csv`; сумма по кругам — `n_rejected_postonly`
+    /// в `forms.csv` (F4).
+    pub legs_rejected: u8,
     /// Исполнение пришло **обновлением лучшей цены** (`on_best_*_update`), а
     /// не сделкой, которая могла бы исполнить эту ногу: в буфере последних
     /// сделок шага не было сделки по нашу сторону цены. Это путь (3) из
@@ -876,7 +882,10 @@ where
             other => unreachable!("свежее состояние не могло вернуть {other:?}"),
         };
 
-        match run_round(bot, asset_no, &mut state, entry_id, 1, side)? {
+        // Остаток позиции здесь не страхуется: круг Decision 20 — одна нога
+        // входа и одна нога выхода, и `Bot::position` на этом плане честен.
+        let (outcome, _residual) = run_round(bot, asset_no, &mut state, entry_id, 1, side)?;
+        match outcome {
             RoundOutcome::EndOfData => {
                 incomplete = true;
                 break 'signals;
@@ -916,39 +925,57 @@ where
 }
 
 enum FlattenOutcome {
+    /// Остаток закрыт.
     Flat,
-    Retry,
+    /// Заявка стала терминальной, а остаток больше нуля (нет ликвидности на
+    /// лучшей цене): вызывающий шлёт новую с новым `order_id`.
+    Retry {
+        left: f64,
+    },
     EndOfData,
 }
 
-/// Закрыть остаток позиции по рынку (IOC) и дождаться исполнения.
-/// `Retry` — заявка стала терминальной, а позиция осталась (нет ликвидности
-/// на лучшей цене): вызывающий шлёт новую с новым `order_id`.
+/// Половина шага лота — допуск «объём сошёлся»: дробный выход округляется
+/// **вниз** до шага лота (E7), и требовать равенства сумм в `f64` значило бы
+/// проверять арифметику, а не позицию.
+fn lot_half<MD: MarketDepth>(depth: &MD) -> f64 {
+    let lot = depth.lot_size();
+    if lot.is_finite() && lot > 0.0 {
+        lot * 0.5
+    } else {
+        0.0
+    }
+}
+
+/// Закрыть остаток позиции по рынку (IOC) и дождаться ответа биржи.
+/// `left` — сколько остатка закрыть, **своей** позиции круга (F4/В-78):
+/// `Bot::position` крейта частичного исполнения не видит (обновляется только
+/// на `Filled`), и по нему остаток либо теряется, либо остаётся мнимым.
 fn flatten_residual<B, MD>(
     bot: &mut B,
     asset_no: usize,
     order_id: u64,
+    left: f64,
 ) -> Result<FlattenOutcome, B::Error>
 where
     B: Bot<MD>,
     MD: MarketDepth,
 {
-    let pos = bot.position(asset_no);
     let d = bot.depth(asset_no);
     let (bid, ask) = (d.best_bid(), d.best_ask());
     let ok_px = |px: f64| px.is_finite() && px > 0.0;
-    if pos > 0.0 {
+    if left > 0.0 {
         if !ok_px(bid) {
             return match bot.elapse(ON_EVENT_POLL_STEP_NS)? {
                 ElapseResult::EndOfData => Ok(FlattenOutcome::EndOfData),
-                _ => Ok(FlattenOutcome::Retry),
+                _ => Ok(FlattenOutcome::Retry { left }),
             };
         }
         bot.submit_sell_order(
             asset_no,
             order_id,
             bid,
-            pos,
+            left,
             TimeInForce::IOC,
             OrdType::Market,
             false,
@@ -957,33 +984,46 @@ where
         if !ok_px(ask) {
             return match bot.elapse(ON_EVENT_POLL_STEP_NS)? {
                 ElapseResult::EndOfData => Ok(FlattenOutcome::EndOfData),
-                _ => Ok(FlattenOutcome::Retry),
+                _ => Ok(FlattenOutcome::Retry { left }),
             };
         }
         bot.submit_buy_order(
             asset_no,
             order_id,
             ask,
-            -pos,
+            -left,
             TimeInForce::IOC,
             OrdType::Market,
             false,
         )?;
     }
+    let half_lot = lot_half(bot.depth(asset_no));
     loop {
         if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
             return Ok(FlattenOutcome::EndOfData);
         }
-        if bot.position(asset_no) == 0.0 {
+        // Готовность — по исполненному объёму заявки (`qty − leaves_qty`), а не
+        // по `Bot::position`: частичное исполнение крейт в позиции не видит
+        // (находка F3), и после частичного входа она врёт со знаком.
+        let Some(o) = bot.orders(asset_no).get(&order_id) else {
+            return Ok(FlattenOutcome::Flat);
+        };
+        let executed = executed_qty(o);
+        let resolved = o.req == Status::None
+            && !matches!(
+                o.status,
+                Status::None | Status::New | Status::PartiallyFilled
+            );
+        if !resolved {
+            continue;
+        }
+        let rest = left.abs() - executed;
+        if rest <= half_lot {
             return Ok(FlattenOutcome::Flat);
         }
-        let terminal = !matches!(
-            bot.orders(asset_no).get(&order_id).map(|o| o.status),
-            Some(Status::New) | Some(Status::PartiallyFilled)
-        );
-        if terminal {
-            return Ok(FlattenOutcome::Retry);
-        }
+        return Ok(FlattenOutcome::Retry {
+            left: if left > 0.0 { rest } else { -rest },
+        });
     }
 }
 
@@ -1048,6 +1088,12 @@ pub struct BounceRun {
     /// Сколько входных ордеров биржа **отвергла** (статус `Rejected`) — прямой
     /// замер вместо догадки о причине неисполнения.
     pub entry_rejected: u64,
+    /// Сколько **ног** входа биржа не поставила: пост-онли заявка, пересёкшая
+    /// спред, получает `Expired` (GTX в `ack_new`), отвергнутая — `Rejected`
+    /// (В-72, F4). Сумма по кругам суток — колонка `n_rejected_postonly`
+    /// `forms.csv`; круг без единой поставленной ноги — «сигнал без входа»
+    /// (`MissReason::EntryTimeout`), а не «занято».
+    pub rejected_postonly: u64,
     /// Сколько раз цена входа в момент отправки **пересекала** спред (для
     /// покупки — `ask ≤ entry_px`): именно эти заявки пост-онли отвергает.
     pub entry_crossed: u64,
@@ -1097,11 +1143,17 @@ enum RoundOutcome {
         /// Выход шёл двумя ногами (E7).
         partial: bool,
     },
-    /// Вход не исполнился за время жизни плана и снят. Статус входного ордера
-    /// несётся наружу: `Rejected` — это отвергнутая заявка (например,
-    /// пост-онли, пересекающая спред), а не «просто не дошло» — разница
-    /// ровно та, ради которой делается замер.
-    TimedOut { entry_status: Option<Status> },
+    /// Вход не исполнился за время жизни плана и снят **либо** ни одной ноги
+    /// не поставила биржа (пост-онли заявка пересекла спред, `Expired`, В-72)
+    /// — в обоих случаях позиции нет, а у сигнала не было входа. Статус
+    /// первого входного ордера несётся наружу: `Rejected` — это отвергнутая
+    /// заявка (например, пост-онли, пересекающая спред), а не «просто не
+    /// дошло» — разница ровно та, ради которой делается замер. `legs_rejected`
+    /// — ног, которых биржа не поставила (счётчик `n_rejected_postonly`).
+    TimedOut {
+        entry_status: Option<Status>,
+        legs_rejected: u8,
+    },
     /// Данные кончились посреди круга.
     EndOfData,
     /// `Idle` без выхода и без таймаута — рассинхрон с данными.
@@ -1130,7 +1182,10 @@ fn trade_could_fill(trades: &[Event], side: HbtSide, price_tick: i64, tick: f64)
 /// Исполненный объём заявки накопленным итогом: у крейта `exec_qty` — объём
 /// **последнего** исполнения, а не сумма (частичное исполнение приходит
 /// несколькими откликами), поэтому накопленное — `qty − leaves_qty`.
-fn executed_qty(order: &Order) -> f64 {
+/// `pub(crate)` — тем же счётом живёт позиция круга в стратегии
+/// (`lob::strategy`, F4/В-78): частичное исполнение `Bot::position` крейта не
+/// видит.
+pub(crate) fn executed_qty(order: &Order) -> f64 {
     (order.qty - order.leaves_qty).max(0.0)
 }
 
@@ -1189,6 +1244,10 @@ where
 /// стратегией. Заодно считает путь исполнения входа (F3): крейт отдаёт статус
 /// и объём, но не говорит, пришло ли исполнение сделкой или обновлением
 /// лучшей цены.
+///
+/// Возвращает исход круга и **свою** позицию стратегии на его конце (F4,
+/// В-78): на ней стоит страховка остатка — `Bot::position` крейта частичного
+/// исполнения не видит и после частичного входа врёт со знаком.
 fn run_round<B, MD>(
     bot: &mut B,
     asset_no: usize,
@@ -1196,7 +1255,7 @@ fn run_round<B, MD>(
     entry_id: u64,
     legs: u8,
     side: HbtSide,
-) -> Result<RoundOutcome, B::Error>
+) -> Result<(RoundOutcome, f64), B::Error>
 where
     B: Bot<MD>,
     MD: MarketDepth,
@@ -1209,13 +1268,16 @@ where
     let mut entry_seen: u64 = 0;
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
-    // Ноги выхода в порядке отправки: одна у прежних форм, две у дробных (E7).
-    let mut exits: Vec<(u64, ExitReason)> = Vec::new();
+    // Ноги выхода в порядке отправки: одна у прежних форм, две у дробных (E7),
+    // и больше при доборах остатка моделью очереди по объёму (F4). Третий
+    // элемент — заявка несла **часть** позиции (`Action::partial`), а не весь
+    // остаток: `n_partial` считает именно доли E7, а не число заявок выхода.
+    let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     loop {
         if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
             // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
             // исполнения не нужен.
-            return Ok(RoundOutcome::EndOfData);
+            return Ok((RoundOutcome::EndOfData, state.position()));
         }
         // Отложенный вердикт: буфер за это время дорос сделками следующего
         // шага — если сделка, способная исполнить ногу, появилась, это лента.
@@ -1260,8 +1322,11 @@ where
         match on_event(bot, state)? {
             Action::EntryTimedOut { .. } => timed_out = true,
             Action::ExitSubmitted {
-                order_id, reason, ..
-            } => exits.push((order_id, reason)),
+                order_id,
+                reason,
+                partial,
+                ..
+            } => exits.push((order_id, reason, partial)),
             Action::Idle | Action::EntrySubmitted { .. } => {}
         }
         if state.is_idle() {
@@ -1275,10 +1340,16 @@ where
     bot.clear_last_trades(Some(asset_no));
     if timed_out {
         let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
-        return Ok(RoundOutcome::TimedOut { entry_status });
+        return Ok((
+            RoundOutcome::TimedOut {
+                entry_status,
+                legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+            },
+            state.position(),
+        ));
     }
-    let Some(&(_, reason)) = exits.last() else {
-        return Ok(RoundOutcome::Inconsistent);
+    let Some(&(_, reason, _)) = exits.last() else {
+        return Ok((RoundOutcome::Inconsistent, state.position()));
     };
     // Исполненные ноги входа. Отбор — **по факту исполнения** (`exec_qty`), а
     // не по статусу `Filled`: модель очереди по объёму (F3) отдаёт ногу
@@ -1336,14 +1407,12 @@ where
     // Цена выхода — **средневзвешенная по размеру** исполненных ног (у
     // цельного выхода нога одна — это его же цена); время — последней ноги;
     // комиссия выхода — тейкерская, если тейкером ушла хотя бы одна нога
-    // (консервативно, как у лестницы входа). Неисполненная нога — круг
-    // рассинхронен, как и прежде.
+    // (консервативно, как у лестницы входа).
     let mut exit_qty = 0.0;
     let mut exit_notional = 0.0;
     let mut exit_ts = i64::MIN;
     let mut exit_taker = false;
-    let mut exit_legs = 0usize;
-    for (exit_id, _) in &exits {
+    for (exit_id, _, _) in &exits {
         if let Some(o) = bot
             .orders(asset_no)
             .get(exit_id)
@@ -1354,33 +1423,68 @@ where
             exit_notional += o.exec_price() * exec;
             exit_ts = exit_ts.max(o.exch_timestamp);
             exit_taker |= !o.maker;
-            exit_legs += 1;
         }
     }
-    let exit_ok = exit_legs == exits.len() && exit_qty > 0.0;
+    // Выход состоялся, если исполненный объём **закрыл вход** — с точностью до
+    // шага лота (округление дробного выхода, E7). Заявка выхода, не отдавшая
+    // ни лота (маркет-выход в пустой книге — `Expired` у модели очереди по
+    // объёму), круг не рассыпает: стратегия шлёт следующую на остаток (F4,
+    // В-78), и в `exits` такие ноги остаются. Под полным исполнением
+    // (`RiskAdverse`) условие совпадает с прежним «все ноги исполнились», так
+    // что числа прежних прогонов не меняются.
+    let exit_ok = exit_qty > 0.0 && exit_qty + lot_half(bot.depth(asset_no)) >= entry_qty;
     match (entry_px, exit_ok) {
         (Some(entry_px), true) => {
             let dir = if side == HbtSide::Buy { 1 } else { -1 };
-            Ok(RoundOutcome::Filled {
-                fill: Fill {
-                    dir,
-                    entry_px,
-                    exit_px: exit_notional / exit_qty,
-                    qty: entry_qty,
-                    entry_taker,
-                    exit_taker,
-                    entry_vwap,
-                    fill_frac,
-                    legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
-                    fill_by_cross,
+            Ok((
+                RoundOutcome::Filled {
+                    fill: Fill {
+                        dir,
+                        entry_px,
+                        exit_px: exit_notional / exit_qty,
+                        qty: entry_qty,
+                        entry_taker,
+                        exit_taker,
+                        entry_vwap,
+                        fill_frac,
+                        legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
+                        legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+                        fill_by_cross,
+                    },
+                    exit_ts,
+                    reason,
+                    // Доля отдана, если хоть одна заявка выхода несла часть
+                    // позиции (E7). Число заявок о доле не говорит: остаток
+                    // добирается новыми заявками (F4).
+                    partial: exits.iter().any(|(_, _, partial)| *partial),
                 },
-                exit_ts,
-                reason,
-                partial: exits.len() > 1,
-            })
+                state.position(),
+            ))
         }
-        _ => Ok(RoundOutcome::Inconsistent),
+        _ => Ok((RoundOutcome::Inconsistent, state.position())),
     }
+}
+
+/// Ноги входа, которых биржа **не поставила**: пост-онли заявка (GTX),
+/// пересёкшая спред, получает `Expired` в `ack_new` (В-72), отвергнутая —
+/// `Rejected`. Такая нога — отказ, а не заказ: в `fill_frac` она не входит,
+/// её считает `legs_rejected` (`n_rejected_postonly` в `forms.csv`).
+fn rejected_legs<B, MD>(bot: &B, asset_no: usize, entry_id: u64, legs: u8) -> u8
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let mut n = 0u8;
+    for i in 0..u64::from(legs.max(1)) {
+        if bot
+            .orders(asset_no)
+            .get(&entry_id.saturating_add(i))
+            .is_some_and(|o| matches!(o.status, Status::Rejected | Status::Expired))
+        {
+            n = n.saturating_add(1);
+        }
+    }
+    n
 }
 
 /// Шаг драйвера на одном сигнале — всё, что требует движка: часы к `t0`,
@@ -1391,8 +1495,6 @@ where
 enum SignalStep {
     /// Часы не дошли до `t0`: запись кончилась.
     EndOfData,
-    /// В `t0` позиция уже открыта.
-    Busy,
     /// Книга не была готова в момент касания — попытки не было.
     NotSubmitted { idle_ns: i64 },
     Submitted {
@@ -1429,12 +1531,14 @@ where
         // буфер чистится, детектор `run_round` видит только шаг исполнения.
         bot.clear_last_trades(Some(asset_no));
     }
-    if bot.position(asset_no) != 0.0 {
-        // Тот же пропуск «позиция занята», но пойманный по факту открытой
-        // позиции, а не по `blocked_until_ns` (он короче жизни позиции:
-        // момент выхода не равен времени закрытия). В отчёт идут оба.
-        return Ok(SignalStep::Busy);
-    }
+    // Проверки «позиция уже открыта» по `Bot::position` здесь нет: с F4
+    // (В-78) вход исполняется частично, а `Bot::position` крейта ведёт
+    // позицию только по `Filled` (находка F3) — после первого же частичного
+    // входа она врёт со знаком, и такая проверка объявила бы «занятыми» все
+    // оставшиеся сигналы суток. Занятость ведёт `idle_ns` — момент, когда
+    // стратегия вернулась в `Idle` со **своей** позицией, равной нулю
+    // (`drive_bounce_with`), и в обоих драйверах он один и тот же (гейт
+    // «те же круги» на `lob bounce-grid --driver full|setups`).
 
     let mut state =
         StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, *next_id, sig.plan);
@@ -1465,7 +1569,8 @@ where
         }
     }
 
-    let outcome = run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)?;
+    let (outcome, residual_left) =
+        run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)?;
     if matches!(outcome, RoundOutcome::EndOfData) {
         return Ok(SignalStep::Submitted {
             crossed,
@@ -1477,16 +1582,20 @@ where
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
     // `Inconsistent`) — закрыть по рынку и посчитать, иначе все дальнейшие
-    // сигналы молча «заняты» и остаток суток не считается вовсе.
+    // сигналы молча «заняты» и остаток суток не считается вовсе. Размер
+    // остатка — **своя** позиция стратегии (F4/В-78): `Bot::position` крейта
+    // частичного исполнения не видит (находка F3), и по ней страховка
+    // закрывала бы мнимый остаток, помечая честный круг `incomplete`.
     let mut residual = None;
-    if bot.position(asset_no) != 0.0 {
+    let mut left = residual_left;
+    if left != 0.0 {
         let mut ended = false;
-        while bot.position(asset_no) != 0.0 {
+        while left != 0.0 {
             let id = *next_id;
             *next_id = next_id.saturating_add(1);
-            match flatten_residual(bot, asset_no, id)? {
+            match flatten_residual(bot, asset_no, id, left)? {
                 FlattenOutcome::Flat => break,
-                FlattenOutcome::Retry => continue,
+                FlattenOutcome::Retry { left: rest } => left = rest,
                 FlattenOutcome::EndOfData => {
                     ended = true;
                     break;
@@ -1526,6 +1635,7 @@ impl BounceRun {
             fill_exit_ns: Vec::new(),
             exits: ExitTally::default(),
             entry_rejected: 0,
+            rejected_postonly: 0,
             entry_crossed: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
@@ -1566,6 +1676,7 @@ where
     let mut observations: Vec<FillObservation> = Vec::new();
     let mut exits = ExitTally::default();
     let mut entry_rejected: u64 = 0;
+    let mut rejected_postonly: u64 = 0;
     let mut entry_crossed: u64 = 0;
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
@@ -1615,11 +1726,6 @@ where
                 incomplete = true;
                 break;
             }
-            SignalStep::Busy => {
-                busy_signal.push(sig_idx);
-                misses.record(MissReason::PositionBusy);
-                observations.push(miss_observation(sig.t0_ns));
-            }
             SignalStep::NotSubmitted { idle_ns: idle } => {
                 idle_ns = idle;
                 misses.record(MissReason::EntryTimeout);
@@ -1646,10 +1752,20 @@ where
                         break;
                     }
                     RoundOutcome::Inconsistent => incomplete = true,
-                    RoundOutcome::TimedOut { entry_status } => {
+                    RoundOutcome::TimedOut {
+                        entry_status,
+                        legs_rejected,
+                    } => {
                         if matches!(entry_status, Some(Status::Rejected)) {
                             entry_rejected = entry_rejected.saturating_add(1);
                         }
+                        // В-72: нога, не поставленная биржей (пост-онли
+                        // `Expired` или `Rejected`), — отказ, а не заказ;
+                        // круг без единой поставленной ноги идёт сюда же и
+                        // считается «сигналом без входа» (`EntryTimeout`), а
+                        // не «занято».
+                        rejected_postonly =
+                            rejected_postonly.saturating_add(u64::from(legs_rejected));
                         misses.record(MissReason::EntryTimeout);
                         observations.push(miss_observation(sig.t0_ns));
                     }
@@ -1671,6 +1787,8 @@ where
                         if partial {
                             exits.partial += 1;
                         }
+                        rejected_postonly =
+                            rejected_postonly.saturating_add(u64::from(fill.legs_rejected));
                         let net = roundtrip_net_bps(&fill);
                         observations.push(FillObservation {
                             day_cluster: day_index_ns(sig.t0_ns),
@@ -1704,6 +1822,7 @@ where
         fill_exit_ns,
         exits,
         entry_rejected,
+        rejected_postonly,
         entry_crossed,
         spread_at_entry,
         submitted_signal,

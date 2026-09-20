@@ -367,6 +367,7 @@ fn per_trade_net_uses_backtest_roundtrip_without_copying_it() {
         entry_vwap: entry_px,
         fill_frac: 1.0,
         legs_filled: 1,
+        legs_rejected: 0,
         fill_by_cross: false,
     };
     let fills = [fill(1, 100.0, 101.0), fill(1, 100.0, 99.0)];

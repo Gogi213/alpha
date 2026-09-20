@@ -73,6 +73,13 @@ fi
 # был 83 % времени сетки, гейт «те же rounds/forms» пройден на пяти монетах (COMMANDS.md); монета без
 # суток в кэше идёт реплеем сама (строка в grid.err). σ-форм в ночном наборе нет.
 USD="--h3-mode notional --h3-usd 10000"
+# Подходы (F10 этапа F, dev-plan-2026-09-20.md; замер M15 — approach-signal-2026-09-20.md):
+# H3-шаг заодно пишет `approaches-<SYMBOL>.csv` рядом с касаниями. Полоса D = 20 bps —
+# из замера (D=20: 276 подходов/сутки к стенам ≥ 45 мин, до касания 25,7 %, медиана 196 с;
+# D=10 почти столько же, но ожидание вдвое короче — выбор между ними делает предрегистрация
+# F10, значение переопределяется окружением). Пол возраста 900 с обязателен: без пола сигнал
+# пишет миллионы записей в сутки ради 4–6 % касаний (5,5 ГБ на три прогона в замере).
+APPROACH="--approach-bps ${APPROACH_BPS:-20} --approach-min-age-secs ${APPROACH_MIN_AGE_S:-900}"
 # Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
 GRID="--touches-from study/touches --regime-from study/regime"
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
@@ -172,7 +179,7 @@ touches_for_day() {
   echo "== $(date -u +%FT%TZ) touches $day start (попытка $attempt): монет с маркером ok $n" >> "$LOG"
   rm -f "$out/failed.txt"
   xargs -r -P 3 -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
-    "$BIN lob touches --root 'study/root-$day' --symbol {} $USD --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo {} >> '$out/failed.txt'"
+    "$BIN lob touches --root 'study/root-$day' --symbol {} $USD $APPROACH --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo {} >> '$out/failed.txt'"
   local files failed
   files=$(ls "$out"/touches-*.csv 2>/dev/null | wc -l)
   failed=$([ -f "$out/failed.txt" ] && wc -l < "$out/failed.txt" || echo 0)
