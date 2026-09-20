@@ -26,7 +26,11 @@ def metrics(rows):
     sharpe_d = (statistics.mean(daily) / statistics.pstdev(daily) * math.sqrt(365)) if len(daily) > 1 and statistics.pstdev(daily) > 0 else None
     sharpe_t = (statistics.mean(net) / statistics.pstdev(net)) if n > 1 and statistics.pstdev(net) > 0 else None
     gp = sum(wins); gl = -sum(losses)
-    return dict(n=n, wins=len(wins), winrate=len(wins) / n, avg_win=(gp / len(wins)) if wins else 0.0,
+    # 95 % t-интервал среднего по сделкам (допущение: сделки независимы) и по дням
+    sd = statistics.pstdev(net) if n > 1 else 0.0
+    ci_trade = (1.96 * sd / math.sqrt(n)) if n > 1 else None
+    ci_day = (1.96 * statistics.pstdev(daily) / math.sqrt(len(daily))) if len(daily) > 1 else None
+    return dict(ci_trade=ci_trade, ci_day=ci_day, daily=daily,n=n, wins=len(wins), winrate=len(wins) / n, avg_win=(gp / len(wins)) if wins else 0.0,
                 avg_loss=(-gl / len(losses)) if losses else 0.0, pf=(gp / gl) if gl > 0 else float("inf"),
                 total=sum(net), per_trade=sum(net) / n, dd=dd, sharpe_d=sharpe_d, sharpe_t=sharpe_t,
                 byday=byday, curve=curve, reasons=collections.Counter(r[6] for r in rows))
@@ -45,14 +49,16 @@ def f_sh(x):
 
 # ---------- tables ----------
 def total_table():
-    h = "<tr><th>стратегия</th><th>сделок</th><th>винрейт</th><th>ср. плюс / минус</th><th>PF</th><th>итог</th><th>на сделку</th><th>макс. просадка</th><th>Шарп по дням*</th><th>Шарп по сделкам</th><th>выходы</th></tr>"
+    h = "<tr><th>стратегия</th><th>сделок</th><th>винрейт</th><th>ср. плюс / минус</th><th>PF</th><th>итог</th><th>на сделку ± 95 %</th><th>в день ± 95 %</th><th>макс. просадка</th><th>Шарп по дням*</th><th>Шарп по сделкам</th><th>выходы</th></tr>"
     rows = []
     for key, name, c, cd in SERIES:
         m = M[key]
         dd_pct = m["dd"] / 10000 * 100
         rows.append(f"<tr><td><span class='sw' style='--c:{c};--cd:{cd}'></span>{name}</td><td>{m['n']}</td><td>{f_pct(m['winrate'])}</td>"
                     f"<td>{f_usd(m['avg_win'])} / {f_usd(m['avg_loss'])}</td><td>{m['pf']:.2f}</td><td class='{'pos' if m['total']>0 else 'neg'}'><b>{f_usd(m['total'])}</b></td>"
-                    f"<td>{f_usd(m['per_trade'])}</td><td>{f_usd(m['dd'])} ({dd_pct:+.1f} % позиции)</td><td>{f_sh(m['sharpe_d'])}</td><td>{f_sh(m['sharpe_t'])}</td>"
+                    f"<td>{f_usd(m['per_trade'])} ± {f_usd(m['ci_trade'], False) if m['ci_trade'] is not None else '—'}{' <span class=mut>(задевает ноль)</span>' if m['ci_trade'] is not None and abs(m['per_trade']) <= m['ci_trade'] else ''}</td>"
+                    f"<td>{f_usd(statistics.mean(m['daily']))} ± {f_usd(m['ci_day'], False) if m['ci_day'] is not None else '—'}{' <span class=mut>(задевает ноль)</span>' if m['ci_day'] is not None and abs(statistics.mean(m['daily'])) <= m['ci_day'] else ''}</td>"
+                    f"<td>{f_usd(m['dd'])} ({dd_pct:+.1f} % позиции)</td><td>{f_sh(m['sharpe_d'])}</td><td>{f_sh(m['sharpe_t'])}</td>"
                     f"<td>{', '.join(f'{k} {v}' for k, v in m['reasons'].most_common())}</td></tr>")
     return "<table>" + h + "".join(rows) + "</table>"
 
