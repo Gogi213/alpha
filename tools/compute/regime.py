@@ -7,7 +7,8 @@
     python3 tools/compute/regime.py --day 2026-09-17 [--touches study/touches] [--regime-dir study/regime]
 
 Пишет `study/regime/<сутки>.csv`: `minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,
-btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps` (пусто — нет данных: у пула первые T минут суток без
+btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps` — ход **к началу** минуты (закрытия предыдущих минут, без
+заглядывания внутрь минуты касания) (пусто — нет данных: у пула первые T минут суток без
 `ret_T` — ряды суточные; у BTC/ETH предыдущие сутки есть) и обновляет `study/regime/days.csv`
 (`day_utc,pool_day_ret_pct,pool_coins,pool_up,btc_day_ret_pct,eth_day_ret_pct` — дневная строка:
 закрытие последней минуты к закрытию первой; медиана по монетам). Ничего не назначает: пороги
@@ -33,8 +34,11 @@ def load_minutes(path, key="mid2x"):
 
 
 def ret_bps(series, minute, back):
-    now = series.get(minute)
-    then = series.get(minute - back * MINUTE_MS)
+    """Ход к минуте `minute` **без заглядывания**: от закрытия минуты `minute − back − 1` к закрытию
+    минуты `minute − 1` — обе закрыты к началу `minute` (касание внутри минуты видит только прошлое;
+    первая версия 20.09 брала закрытие самой минуты — до 59 с будущего, исправлено тем же днём)."""
+    now = series.get(minute - MINUTE_MS)
+    then = series.get(minute - (back + 1) * MINUTE_MS)
     if now is None or then is None or then <= 0:
         return None
     return (now / then - 1.0) * 1e4
