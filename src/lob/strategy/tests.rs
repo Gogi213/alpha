@@ -267,6 +267,8 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         grid_legs: 1,
         grid_step_px: 0.0,
         early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
         level_px: 99.0,
         tick_px: 1.0,
         take_frac: 1.0,
@@ -334,6 +336,8 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         grid_legs: 1,
         grid_step_px: 0.0,
         early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
         level_px: 99.0,
         tick_px: 1.0,
         take_frac: 1.0,
@@ -392,6 +396,8 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         grid_legs: 1,
         grid_step_px: 0.0,
         early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
         level_px: 99.0,
         tick_px: 1.0,
         take_frac: 0.5,
@@ -448,6 +454,8 @@ fn a_fraction_below_one_lot_exits_whole() {
         grid_legs: 1,
         grid_step_px: 0.0,
         early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
         level_px: 99.0,
         tick_px: 1.0,
         take_frac: 1.0,
@@ -492,6 +500,8 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         grid_legs: 2,
         grid_step_px: step,
         early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
         level_px: 99.0,
         tick_px: 1.0,
         take_frac: 1.0,
@@ -681,4 +691,193 @@ fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
     );
     assert_eq!(run.entry_rejected, 0, "GTX даёт `Expired`, а не `Rejected`");
     assert!(!run.incomplete, "круг не открывался — расписывать нечего");
+}
+
+// -----------------------------------------------------------------------
+// F5 (план 2026-09-20, В-74): срок жизни входа — «пока стена жива и цена в
+// полосе», потолок — предохранительный. Условия проверяются на настоящем
+// `Backtest` крейта (шов 6): книга управляется покадрово, время — из данных.
+// -----------------------------------------------------------------------
+
+/// План F5: вход 100 у бид-стены 99, потолок `ttl_ns`, порог стены `floor`
+/// (единицы крейта) и полоса `band` bps. Нули в `floor`/`band` — прежний
+/// режим «до конца касания» (условия выключены, гейт «те же круги»).
+fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
+    TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 60 * S,
+        entry_ttl_ns: ttl_ns,
+        level_floor_qty: floor,
+        band_exit_bps: band,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        early_exit_ns: 0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+    }
+}
+
+/// Прогон с метками времени стороны на каждом вызове `on_event` — для
+/// проверки «вход жил ровно потолок» (F5): по меткам видно, когда вход
+/// отправлен и когда снят.
+fn drive_stamped(
+    hbt: &mut Backtest<HashMapMarketDepth>,
+    state: &mut StrategyState,
+) -> Vec<(i64, Action)> {
+    let mut out = Vec::new();
+    loop {
+        let r = hbt.elapse(100_000_000).unwrap();
+        let ts = hbt.current_timestamp();
+        out.push((ts, on_event(hbt, state).unwrap()));
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+    out
+}
+
+/// Первая причина снятия входа в действиях круга.
+fn timeout_reason(actions: &[Action]) -> Option<EntryCancelReason> {
+    actions.iter().find_map(|a| match a {
+        Action::EntryTimedOut { reason, .. } => Some(*reason),
+        _ => None,
+    })
+}
+
+/// F5 (В-74): стена снята — размер на цене уровня (99) упал с 10 до 4 без
+/// сделок, то есть плотность **убрали** (порог 5). Вход (потолок 30 с) не
+/// ждёт потолка: все ноги снимаются сразу, причина `WallDead`.
+#[test]
+fn a_dead_wall_cancels_the_entry_before_the_ceiling() {
+    let feed = [
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Плотность убрали: размер 4 < порога 5, сделок не было (не съедание).
+        depth_at(2 * S, true, 99.0, 4.0),
+        depth_at(6 * S, false, 102.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f5_plan(30 * S, 5.0, 200.0));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        timeout_reason(&actions),
+        Some(EntryCancelReason::WallDead),
+        "вход обязан сняться по смерти стены, а не по потолку: {actions:?}"
+    );
+    assert_eq!(hbt.position(0), 0.0, "позиции не было");
+}
+
+/// F5 (В-74): цена ушла из полосы — лучший бид (102) выше дальней ноги
+/// лестницы (100) на 200 bps при полосе 20; стена (99, размер 10) жива.
+/// Вход снимается, причина `PriceLeft`.
+#[test]
+fn a_price_that_left_the_band_cancels_the_entry() {
+    let feed = [
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Цена ушла вверх далеко за ногу 100 — вход больше не исполнится.
+        depth_at(2 * S, true, 102.0, 5.0),
+        depth_at(2 * S, false, 103.0, 5.0),
+        depth_at(6 * S, false, 103.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f5_plan(30 * S, 5.0, 20.0));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        timeout_reason(&actions),
+        Some(EntryCancelReason::PriceLeft),
+        "вход обязан сняться по уходу цены из полосы: {actions:?}"
+    );
+    assert_eq!(hbt.position(0), 0.0, "позиции не было");
+}
+
+/// F5 (В-74): стена жива и цена в полосе — вход стоит ровно потолок
+/// `entry_ttl_ns` и снимается им, причина `Ttl`. Метки времени доказывают,
+/// что снятие не раньше потолка (плюс шаг опроса 100 мс и RTT отмены).
+#[test]
+fn the_ceiling_cancels_an_entry_that_lived_its_full_ttl() {
+    let feed = [
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Тихая книга: ни стена не умирает, ни цена не уходит.
+        depth_at(10 * S, false, 101.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let ttl = 3 * S;
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f5_plan(ttl, 5.0, 200.0));
+
+    let stamped = drive_stamped(&mut hbt, &mut state);
+    let entry_ts = stamped
+        .iter()
+        .find_map(|(ts, a)| matches!(a, Action::EntrySubmitted { .. }).then_some(*ts))
+        .expect("вход обязан отправиться");
+    let timeout_ts = stamped
+        .iter()
+        .find_map(|(ts, a)| matches!(a, Action::EntryTimedOut { .. }).then_some(*ts))
+        .expect("вход обязан сняться потолком");
+    assert_eq!(
+        timeout_reason(&stamped.iter().map(|(_, a)| *a).collect::<Vec<_>>()),
+        Some(EntryCancelReason::Ttl)
+    );
+    let lived = timeout_ts - entry_ts;
+    assert!(
+        lived >= ttl,
+        "потолок снимает не раньше срока: вход жил {lived} нс при потолке {ttl}"
+    );
+    assert!(
+        lived <= ttl + 300_000_000,
+        "вход жил заметно дольше потолка: {lived} нс при потолке {ttl}"
+    );
+    assert_eq!(hbt.position(0), 0.0, "позиции не было");
+}
+
+/// F5 (В-74), гейт «те же круги»: прежний режим входа (`touch`,
+/// `level_floor_qty`/`band_exit_bps` = 0) не читает ни смерть стены, ни уход
+/// цены — вход снимается только потолком `entry_ttl_ns`, как было.
+#[test]
+fn the_touch_mode_ignores_the_wall_and_the_band() {
+    let feed = [
+        depth_at(0, true, 99.0, 10.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 99.0, 4.0),
+        depth_at(3 * S, true, 102.0, 5.0),
+        depth_at(3 * S, false, 103.0, 5.0),
+        depth_at(8 * S, false, 103.0, 5.0),
+    ];
+    let mut hbt = seam6_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f5_plan(5 * S, 0.0, 0.0));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        timeout_reason(&actions),
+        Some(EntryCancelReason::Ttl),
+        "прежний режим снимается только потолком: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::EntryTimedOut {
+                reason: EntryCancelReason::WallDead | EntryCancelReason::PriceLeft,
+                ..
+            }
+        )),
+        "в режиме touch условия F5 выключены: {actions:?}"
+    );
+    assert_eq!(hbt.position(0), 0.0, "позиции не было");
 }

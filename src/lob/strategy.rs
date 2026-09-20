@@ -174,7 +174,13 @@ enum Phase {
     /// считала себя свободной, исполненная в гонке заявка оставалась без
     /// выхода, и все дальнейшие сигналы были «позиция занята» (на ZEC за 20 ч
     /// круги шли только первые ~27 минут).
-    CancelPending { order_id: u64, legs: u8 },
+    CancelPending {
+        order_id: u64,
+        legs: u8,
+        /// Почему вход снимается — несётся до подтверждения отмены, чтобы
+        /// `EntryTimedOut` назвал событие рынка (F5, В-74), а не потолок.
+        reason: EntryCancelReason,
+    },
 }
 
 /// План сделки — **данные**, а не вторая стратегия (A6): что именно ловить и
@@ -192,13 +198,30 @@ pub enum TradePlan {
     /// `entry_px` (за тик перед плотностью), стоп по рынку при сделке на
     /// `stop_px` (за тик внутри плотности), тейк лимитом `take_px`
     /// (R 1:1), дедлайн `deadline_ns` от момента входа — после него выход по
-    /// рынку; неисполненный вход снимается через `entry_ttl_ns`.
+    /// рынку; неисполненный вход живёт, пока стена жива и цена в полосе, а
+    /// `entry_ttl_ns` — предохранительный потолок (F5, В-74).
     Bounce {
         entry_px: f64,
         stop_px: f64,
         take_px: f64,
         deadline_ns: i64,
+        /// Предохранительный **потолок** срока жизни неисполненного входа,
+        /// нс (F5, В-74). Это не таймер: вход снимается раньше по условиям
+        /// `level_floor_qty`/`band_exit_bps`, а потолок — страховка (сетка
+        /// замера {60, 300, 1800} с приходит флагом `--entry-ttl-secs`).
+        /// Прежний режим «до конца касания» — `entry_ttl_ns = end − start`
+        /// касания; он же — гейт «те же круги».
         entry_ttl_ns: i64,
+        /// Порог В-66 в единицах крейта (`--h3-usd / цена уровня`, считает
+        /// `bounce_plan`): размер **на `level_px` в текущем кадре** ниже него
+        /// — стена снята (F5, В-74), все ноги входа снимаются, фаза `Idle`.
+        /// `0` — условие выключено (прежний режим `touch`).
+        level_floor_qty: f64,
+        /// Полоса ухода цены, bps (F5, В-74, **число замера**, не константа):
+        /// лучшая цена нашей стороны дальше дальней ноги лестницы больше чем
+        /// на это число — цена ушла из полосы, вход снимается. `0` — условие
+        /// выключено (прежний режим `touch`).
+        band_exit_bps: f64,
         /// Досрочный выход «по прилипанию» (B4, В-58 п. 5): секунды `X` из
         /// предрегистрированного набора {1, 2, 3} в наносекундах, `0` —
         /// выключен. Если через `X` после входа лучшая цена стороны всё ещё
@@ -481,6 +504,94 @@ impl StrategyState {
         }
         Ok(())
     }
+
+    /// Условия снятия неисполненного входа **до потолка** (F5, В-74):
+    ///
+    /// * «стена умерла» — размер на цене уровня (`level_px`) в текущем кадре
+    ///   книги упал ниже порога В-66 (`level_floor_qty`, в единицах крейта);
+    /// * «цена ушла из полосы» — лучшая цена нашей стороны дальше дальней
+    ///   ноги лестницы больше чем на `band_exit_bps`.
+    ///
+    /// `None` — вход продолжает стоять: либо условий нет в плане (прежний
+    /// режим `--entry-ttl-secs touch`, у него оба поля нули), либо книга ещё
+    /// неполна. Размер уровня берётся **по целому тику** — тем же приёмом,
+    /// что съедание E7 (`bid_qty_at_tick`/`ask_qty_at_tick`): цена уровня
+    /// переводится в тик, сравнение идёт по размеру, а не по `f64`-цене.
+    fn entry_cancel_reason<MD, B>(&self, bot: &B) -> Option<EntryCancelReason>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        let TradePlan::Bounce {
+            entry_px,
+            level_px,
+            tick_px,
+            level_floor_qty,
+            band_exit_bps,
+            grid_legs,
+            grid_step_px,
+            ..
+        } = self.plan
+        else {
+            return None;
+        };
+        if level_floor_qty <= 0.0 && band_exit_bps <= 0.0 {
+            return None;
+        }
+        let entry_side = entry_side(self.sigma)?;
+        let depth = bot.depth(self.asset_no);
+        // Стена: размер на цене уровня в текущем кадре. Сторона уровня — та же,
+        // что у входа (у лонга бид-стена, у шорта аск-стена).
+        if level_floor_qty > 0.0 && tick_px > 0.0 && level_px > 0.0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let level_tick = (level_px / tick_px).round() as i64;
+            let now_qty = match entry_side {
+                HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
+                _ => depth.ask_qty_at_tick(level_tick),
+            };
+            if now_qty < level_floor_qty {
+                return Some(EntryCancelReason::WallDead);
+            }
+        }
+        // Полоса: дальняя нога — последняя в построении входа (`px ± step × i`,
+        // `Idle` ниже), расстояние до неё меряем в bps и берём по модулю
+        // направления (`away`): у лонга цена уходит вверх, у шорта — вниз.
+        if band_exit_bps > 0.0 && entry_px > 0.0 {
+            let (bid, ask) = (depth.best_bid(), depth.best_ask());
+            if bid.is_finite() && ask.is_finite() && bid > 0.0 && ask > 0.0 {
+                let away = if entry_side == HbtSide::Buy {
+                    1.0
+                } else {
+                    -1.0
+                };
+                let outer = entry_px + away * grid_step_px * f64::from(grid_legs.max(1) - 1);
+                let own = if entry_side == HbtSide::Buy { bid } else { ask };
+                if outer > 0.0 && (own - outer) * away / outer * 10_000.0 > band_exit_bps {
+                    return Some(EntryCancelReason::PriceLeft);
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Почему неисполненный вход кончился без позиции (F5, В-74). Причина
+/// считается отдельно (`forms.csv`, `n_entry_cancelled_*`): «стена снята» и
+/// «цена ушла» — события рынка и повод снять вход, потолок — страховка, а
+/// непоставленная биржа заявка (пост-онли, В-72) — «сигнал без входа».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryCancelReason {
+    /// Потолок `entry_ttl_ns`: вход простоял свой срок и снят (F5, В-74).
+    Ttl,
+    /// Стена снята: размер на `level_px` упал ниже порога В-66
+    /// (`level_floor_qty`) — практики снимают по событию, не таймером.
+    WallDead,
+    /// Цена ушла из полосы: лучшая цена нашей стороны дальше дальней ноги
+    /// лестницы больше чем на `band_exit_bps`.
+    PriceLeft,
+    /// Ни одной ноги биржа не поставила (пост-онли заявка пересекла спред,
+    /// В-72) — «сигнал без входа», а не снятие: в счётчики снятий не входит.
+    NotPlaced,
 }
 
 /// Что сделал последний вызов `on_event`. `Idle` — ничего не произошло на
@@ -494,12 +605,15 @@ pub enum Action {
         side: HbtSide,
         price: f64,
     },
-    /// Вход кончился без позиции: не исполнился за срок жизни и снят —
+    /// Вход кончился без позиции: не исполнился и снят по условию F5 (стена
+    /// снята / цена ушла из полосы) или по потолку срока жизни —
     /// либо биржа не поставила ни одной ноги (пост-онли заявка пересекла
     /// спред, В-72). Круг освобождается: у такого сигнала входа не было, и
     /// «занято» он не занимает.
     EntryTimedOut {
         order_id: u64,
+        /// Почему вход кончился без позиции (F5, В-74).
+        reason: EntryCancelReason,
     },
     ExitSubmitted {
         order_id: u64,
@@ -824,16 +938,40 @@ where
                 // «сигнал без входа». Круг свободен сразу, а не висит
                 // «занятым» до конца срока жизни входа.
                 state.phase = Phase::Idle;
-                return Ok(Action::EntryTimedOut { order_id });
+                return Ok(Action::EntryTimedOut {
+                    order_id,
+                    reason: EntryCancelReason::NotPlaced,
+                });
+            }
+            // F5 (В-74): вход живёт, пока стена жива и цена в полосе, — это
+            // события рынка, а не таймер. Проверяются **раньше** потолка:
+            // если условие и потолок совпали на одном кадре, честнее назвать
+            // событие, которое и было поводом снять вход.
+            if let Some(reason) = state.entry_cancel_reason(bot) {
+                state.cancel_resting(bot, order_id, legs)?;
+                state.phase = Phase::CancelPending {
+                    order_id,
+                    legs,
+                    reason,
+                };
+                return Ok(Action::Idle);
             }
             if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
                 state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::CancelPending { order_id, legs };
+                state.phase = Phase::CancelPending {
+                    order_id,
+                    legs,
+                    reason: EntryCancelReason::Ttl,
+                };
                 return Ok(Action::Idle);
             }
             Ok(Action::Idle)
         }
-        Phase::CancelPending { order_id, legs } => {
+        Phase::CancelPending {
+            order_id,
+            legs,
+            reason,
+        } => {
             // Исполнение обогнало отмену — позиция есть, ведём её по плану.
             // Пока хоть одна нога ещё стоит или снимается, вход не решён:
             // позицию добираем (F4, В-78), а не бросаем на половине.
@@ -844,7 +982,7 @@ where
                     return Ok(Action::Idle);
                 }
                 state.phase = Phase::Idle;
-                return Ok(Action::EntryTimedOut { order_id });
+                return Ok(Action::EntryTimedOut { order_id, reason });
             }
             Ok(Action::Idle)
         }

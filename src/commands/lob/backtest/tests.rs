@@ -317,6 +317,11 @@ fn plain_shape() -> PlanShape {
         deadline_ns: 60 * 1_000_000_000,
         // Досрочный выход выключен: тесты B2/B3 проверяют геометрию плана.
         early_exit_ns: 0,
+        // F5 (В-74): условия «стена снята»/«цена ушла» проверяются своими
+        // тестами, здесь — прежний режим входа.
+        entry_ttl: EntryTtl::Touch,
+        h3_usd: None,
+        band_exit_bps: 0.0,
     }
 }
 
@@ -374,6 +379,57 @@ fn geometry(stop_mult: f64, take_mult: f64, take_floor_fees: f64) -> BounceForm 
 
 fn base(stop: &str, take: &str) -> BounceForm {
     BounceForm::parse(stop, take, None).unwrap()
+}
+
+/// F5 (В-74): режим `entry_ttl` превращается в **потолок** срока жизни входа
+/// и два условия снятия — порог В-66 в единицах крейта (`--h3-usd / цена
+/// уровня`) и полосу ухода (`--band-exit-bps`). Режим `touch` (гейт «те же
+/// круги») оставляет прежний срок (конец касания) и выключает условия нулями.
+#[test]
+fn bounce_plan_turns_the_entry_ttl_mode_into_the_ceiling_and_the_two_conditions() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005)); // P = 10.00, вход 10.05
+    let form = base("pct2", "1to1");
+    let shape = |entry_ttl: EntryTtl| PlanShape {
+        entry_ttl,
+        h3_usd: Some(50.0),
+        band_exit_bps: 20.0,
+        ..plain_shape()
+    };
+    let plan_fields = |plan: &TradePlan| match plan {
+        TradePlan::Bounce {
+            entry_ttl_ns,
+            level_floor_qty,
+            band_exit_bps,
+            ..
+        } => (*entry_ttl_ns, *level_floor_qty, *band_exit_bps),
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    };
+
+    // Прежний режим: срок — конец касания (1 с), условия выключены.
+    let (_, plan) = bounce_plan(&touch, tick, form, None, shape(EntryTtl::Touch)).unwrap();
+    let (ttl, floor, band) = plan_fields(&plan);
+    assert_eq!(
+        ttl,
+        1_000 * 1_000_000,
+        "touch — прежний срок, конец касания"
+    );
+    assert_eq!((floor, band), (0.0, 0.0), "условия F5 в touch выключены");
+
+    // Потолок 60 с из сетки В-74; порог В-66 — 50 / 10.00 = 5 единиц крейта.
+    let (_, plan) = bounce_plan(&touch, tick, form, None, shape(EntryTtl::Secs(60))).unwrap();
+    let (ttl, floor, band) = plan_fields(&plan);
+    assert_eq!(ttl, 60 * 1_000_000_000, "потолок — секунды сетки В-74");
+    assert!(
+        (floor - 5.0).abs() < 1e-9,
+        "порог В-66 = --h3-usd / цена уровня: {floor}"
+    );
+    assert!((band - 20.0).abs() < 1e-9, "полоса — число флага: {band}");
+
+    // `wall` — только условия рынка, потолка-таймера нет.
+    let (_, plan) = bounce_plan(&touch, tick, form, None, shape(EntryTtl::Wall)).unwrap();
+    let (ttl, _, _) = plan_fields(&plan);
+    assert_eq!(ttl, i64::MAX, "wall — без предохранительного потолка");
 }
 
 /// В-62: вход — от **первого фронтранера**; стоп — `a × σ_H` bps от входа в
@@ -733,6 +789,9 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         entry_rejected: 0,
         rejected_postonly: 0,
         entry_crossed: 0,
+        entry_cancelled_ttl: 0,
+        entry_cancelled_wall_dead: 0,
+        entry_cancelled_price_left: 0,
         spread_at_entry: Vec::new(),
         submitted_signal: (0..n).collect(),
         busy_signal: Vec::new(),

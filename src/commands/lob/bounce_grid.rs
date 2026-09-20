@@ -99,7 +99,7 @@ use hftbacktest::types::Event as HbtEvent;
 use super::backtest::{
     bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
     exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, pool_order_qty_usd,
-    read_tick_step, BounceForm, PlanShape, StopForm, TakeForm,
+    read_tick_step, BounceForm, EntryTtl, PlanShape, StopForm, TakeForm,
 };
 use super::bounce_verdict::{form_label, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
@@ -198,42 +198,108 @@ pub(crate) fn cached_touches<'a>(
     Ok(out)
 }
 
-/// Одна форма сетки (В-65): имя колонки, форма сделки и дедлайн (он же окно `σ`).
+/// Одна форма сетки (В-65): имя колонки, форма сделки, дедлайн (он же окно `σ`)
+/// и режим срока жизни входа (F5, В-74).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridForm {
     pub label: &'static str,
     pub form: BounceForm,
     pub deadline_secs: i64,
+    /// Режим срока жизни входа (F5, В-74): `touch` — прежний, секунды/`wall` —
+    /// условия рынка плюс потолок. Имя формы у нетронутого режима не меняется
+    /// (`form_label`), у остальных несёт суффикс `-ttl<значение>` — имена
+    /// обязаны различаться, иначе `run_bounce_grid` отказывает на повторе.
+    pub entry_ttl: EntryTtl,
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —
 /// `bounce_verdict::form_label`, их же читает вердикт. Повторы имён отвергает
-/// `run_bounce_grid`.
+/// `run_bounce_grid`. Это — прежний режим входа (F5, В-74): `touch`.
 pub fn grid_forms(
     stops: &[StopForm],
     takes: &[TakeForm],
     take_floor_fees: Option<f64>,
     deadlines: &[u64],
 ) -> Vec<GridForm> {
-    let mut out = Vec::with_capacity(stops.len() * takes.len() * deadlines.len());
+    grid_forms_with_entry_ttl(stops, takes, take_floor_fees, deadlines, &[EntryTtl::Touch])
+}
+
+/// Та же сетка, но с осью срока жизни входа (F5, В-74): значение `entry_ttl`
+/// — **самый внутренний** множитель, поэтому при `&[EntryTtl::Touch]` порядок
+/// и имена форм те же, что у `grid_forms` (гейт «те же круги»).
+pub fn grid_forms_with_entry_ttl(
+    stops: &[StopForm],
+    takes: &[TakeForm],
+    take_floor_fees: Option<f64>,
+    deadlines: &[u64],
+    ttls: &[EntryTtl],
+) -> Vec<GridForm> {
+    let mut out = Vec::with_capacity(stops.len() * takes.len() * deadlines.len() * ttls.len());
     for &stop in stops {
         for &take in takes {
             for &deadline in deadlines {
-                let label: &'static str =
-                    Box::leak(form_label(&stop.label(), &take.label(), deadline).into_boxed_str());
-                out.push(GridForm {
-                    label,
-                    form: BounceForm {
-                        stop,
-                        take,
-                        take_floor_fees,
-                    },
-                    deadline_secs: deadline as i64,
-                });
+                let base = form_label(&stop.label(), &take.label(), deadline);
+                for &entry_ttl in ttls {
+                    let label: &'static str = match entry_ttl {
+                        // Прежний режим — прежнее имя: вердикт и «золото» F3/F4
+                        // читают `form_label` как есть.
+                        EntryTtl::Touch => Box::leak(base.clone().into_boxed_str()),
+                        other => Box::leak(format!("{base}-ttl{}", other.label()).into_boxed_str()),
+                    };
+                    out.push(GridForm {
+                        label,
+                        form: BounceForm {
+                            stop,
+                            take,
+                            take_floor_fees,
+                        },
+                        deadline_secs: deadline as i64,
+                        entry_ttl,
+                    });
+                }
             }
         }
     }
     out
+}
+
+/// Разбор повторяемого `--entry-ttl-secs` (F5, В-74): пусто — прежний режим
+/// `touch`; значения — `touch` | `wall` | секунды из сетки замера В-74.
+/// Порядок детерминирован (как у дедлайнов), повторы свёрнуты — иначе формы
+/// сетки получили бы одинаковые имена и `run_bounce_grid` отказал бы.
+pub(crate) fn parse_entry_ttls(specs: &[String]) -> anyhow::Result<Vec<EntryTtl>> {
+    if specs.is_empty() {
+        return Ok(vec![EntryTtl::Touch]);
+    }
+    let mut out = Vec::with_capacity(specs.len());
+    for spec in specs {
+        out.push(EntryTtl::parse(spec)?);
+    }
+    out.sort_by_key(|t| t.sort_key());
+    out.dedup();
+    Ok(out)
+}
+
+/// Обязательные спутники условий F5 (В-74): «стена снята» без порога В-66
+/// (`--h3-usd`) не проверить, а «цена ушла из полосы» без числа замера
+/// (`--band-exit-bps`) — изобретённое число. Отказ, не молчаливый пропуск.
+fn ensure_entry_conditions_args(
+    active: bool,
+    h3_usd: Option<f64>,
+    band_exit_bps: Option<f64>,
+) -> anyhow::Result<()> {
+    if !active {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        h3_usd.is_some(),
+        "условие «стена снята» (F5, В-74) требует --h3-usd: порог В-66 в лотах крейта — --h3-usd / цена"
+    );
+    anyhow::ensure!(
+        band_exit_bps.is_some(),
+        "условие «цена ушла из полосы» (F5, В-74) требует --band-exit-bps: полоса — число замера, умолчания нет"
+    );
+    Ok(())
 }
 
 #[derive(Debug, Args)]
@@ -309,6 +375,20 @@ pub struct BounceGridArgs {
     /// только формам `t<b>`.
     #[arg(long)]
     pub take_floor_fees: Option<f64>,
+    /// Режим срока жизни входа (F5, В-74) — повторяемый флаг, формы сетки —
+    /// декартово произведение: `touch` — прежний «до конца касания» (условия
+    /// F5 выключены, гейт «те же круги»), `wall` — только условия рынка без
+    /// потолка, либо секунды из сетки замера В-74 {60, 300, 1800}. Пусто —
+    /// `touch`. С условиями (кроме `touch`) обязательны `--h3-usd` (порог
+    /// «стена снята») и `--band-exit-bps`.
+    #[arg(long = "entry-ttl-secs")]
+    pub entry_ttl_secs: Vec<String>,
+    /// Полоса ухода цены, bps (F5, В-74): лучшая цена нашей стороны дальше
+    /// дальней ноги лестницы больше чем на это число — вход снимается. Число
+    /// замера (`2·D`, полосу `D` выбирает предрегистрация F10), **умолчания в
+    /// коде нет**: с `--entry-ttl-secs` кроме `touch` флаг обязателен.
+    #[arg(long = "band-exit-bps")]
+    pub band_exit_bps: Option<f64>,
     /// E3 базы: входить только от фронтрана — касания без `frontrun_tick`
     /// пропускаются у всех форм («впритык — редко» [S 07:37; D 05:18]).
     #[arg(long, default_value_t = false)]
@@ -881,7 +961,7 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 24] = [
+const FORMS_HEADER: [&str; 27] = [
     "symbol",
     "day_utc",
     "form",
@@ -906,6 +986,12 @@ const FORMS_HEADER: [&str; 24] = [
     "n_fill_by_cross",
     "n_rejected_postonly",
     "signals_by_hour",
+    // F5 (В-74): снятия неисполненного входа по причинам — «стена снята»,
+    // «цена ушла из полосы», потолок. Добавлены в конец: прежние колонки
+    // остались на местах, на этом стоит гейт «те же круги».
+    "n_entry_cancelled_ttl",
+    "n_entry_cancelled_wall_dead",
+    "n_entry_cancelled_price_left",
 ];
 
 pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
@@ -974,6 +1060,12 @@ fn signals_for(
                     grid_step_ticks: 0,
                     deadline_ns,
                     early_exit_ns,
+                    // F5 (В-74): режим срока жизни входа — из формы сетки
+                    // (`--entry-ttl-secs`), а условия «стена снята»/«цена ушла»
+                    // читают `--h3-usd` и `--band-exit-bps`.
+                    entry_ttl: form.entry_ttl,
+                    h3_usd: p.h3_usd,
+                    band_exit_bps: p.band_exit_bps,
                 },
             );
             let Some((dir, plan)) = built else {
@@ -1099,6 +1191,13 @@ struct DayParams<'a> {
     frontrun_only: bool,
     /// Порог уровня — проверяется и **в момент касания** (`H3Mode::holds_at_touch`).
     mode: H3Mode,
+    /// Номинал порога В-66 в долларах (`--h3-usd`): из него план считает
+    /// `level_floor_qty` — порог «стена снята» (F5, В-74). `None` — условия
+    /// F5 выключены (режим `touch`), иначе `run_bounce_grid` отказал бы.
+    h3_usd: Option<f64>,
+    /// Полоса ухода цены, bps (F5, В-74, `--band-exit-bps`); `0` — условие
+    /// выключено (режим `touch`).
+    band_exit_bps: f64,
     /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
     min_age_ms: Option<i64>,
     min_flow_pct: Option<f64>,
@@ -1396,6 +1495,10 @@ impl Outputs {
             // `Rejected`, В-72) — по всем кругам формы за сутки.
             run.rejected_postonly.to_string(),
             signals_by_hour(signals),
+            // Снятия неисполненного входа по причинам (F5, В-74).
+            run.entry_cancelled_ttl.to_string(),
+            run.entry_cancelled_wall_dead.to_string(),
+            run.entry_cancelled_price_left.to_string(),
         ])?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
@@ -1513,12 +1616,36 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         d.dedup();
         d
     };
-    let forms = grid_forms(&stops, &takes, args.take_floor_fees, &deadlines);
+    // Срок жизни входа (F5, В-74): сетка режимов из повторяемого
+    // `--entry-ttl-secs`; условия рынка требуют порога В-66 в деньгах
+    // (`--h3-usd`) и полосы ухода (`--band-exit-bps`) — числа замера, не
+    // умолчания (`ensure_entry_conditions_args`).
+    let entry_ttls = parse_entry_ttls(&args.entry_ttl_secs)?;
+    let entry_conditions = entry_ttls.iter().any(|t| *t != EntryTtl::Touch);
+    ensure_entry_conditions_args(entry_conditions, args.h3.h3_usd, args.band_exit_bps)?;
+    let band_exit_bps = match args.band_exit_bps {
+        Some(v) => {
+            anyhow::ensure!(
+                v.is_finite() && v > 0.0,
+                "--band-exit-bps {v}: полоса ухода — конечное число > 0"
+            );
+            v
+        }
+        // Прежний режим (`touch`): условие выключено, число не читается.
+        None => 0.0,
+    };
+    let forms = grid_forms_with_entry_ttl(
+        &stops,
+        &takes,
+        args.take_floor_fees,
+        &deadlines,
+        &entry_ttls,
+    );
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
             labels.len() == forms.len(),
-            "сетка: повторяющиеся формы в --stop-form/--take-form дают одинаковые имена"
+            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs дают одинаковые имена"
         );
     }
     if let Some(dir) = &args.touches_from {
@@ -1574,7 +1701,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -1605,6 +1732,12 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         args.driver.label(),
         queue_model.label(),
         args.entry_post_only(),
+        entry_ttls
+            .iter()
+            .map(|t| t.label())
+            .collect::<Vec<_>>()
+            .join("+"),
+        band_exit_bps,
         args.touches_from
             .as_ref()
             .map_or("replay".to_string(), |d| format!("csv({})", d.display())),
@@ -1853,6 +1986,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,
                             mode,
+                            h3_usd: args.h3.h3_usd,
+                            band_exit_bps,
                             sigma: &sigma_series,
                         },
                         &mut sink,

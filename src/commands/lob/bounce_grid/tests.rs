@@ -74,6 +74,9 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         stop_form: vec!["s1".to_string(), "s2".to_string()],
         take_form: vec!["t1".to_string()],
         take_floor_fees: Some(1.0),
+        // F5 (В-74): по умолчанию — прежний режим `touch`, полоса не задана.
+        entry_ttl_secs: Vec::new(),
+        band_exit_bps: None,
         frontrun_only: false,
         min_age_secs: None,
         min_flow_pct: None,
@@ -929,6 +932,9 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     a.warmup_ms = None;
     a.repeat_window_ms = None;
     a.no_post_only = true;
+    // F5 (В-74): гейт «те же круги» — с явным прежним режимом входа
+    // (`touch`), условия рынка выключены.
+    a.entry_ttl_secs = vec!["touch".to_string()];
     a.out_dir = dir.path().join("grid-gate");
     let m = run_bounce_grid(&a).unwrap();
     assert!(m.rounds > 0, "фикстура обязана давать круги");
@@ -962,6 +968,10 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     assert!(
         head.contains(" entry_post_only=false "),
         "режим входа в шапке (гейт гоняется с --no-post-only): {head}"
+    );
+    assert!(
+        head.contains(" entry_ttl=touch ") && head.contains(" band_exit_bps=0 "),
+        "прежний режим срока жизни входа в шапке (гейт F5): {head}"
     );
     assert!(
         head.contains("queue=risk-adverse")
@@ -1050,4 +1060,176 @@ fn deadline_secs_flag_extends_the_grid_to_30min_and_4h() {
     a.deadline_secs = vec![900];
     a.out_dir = dir.path().join("grid-dl-bad");
     assert!(run_bounce_grid(&a).is_err());
+}
+
+// -----------------------------------------------------------------------
+// F5 (план 2026-09-20, В-74): срок жизни входа — сетка `--entry-ttl-secs`
+// плюс условия «стена снята»/«цена ушла», их числа приходят флагами.
+// -----------------------------------------------------------------------
+
+/// Ось `--entry-ttl-secs` — декартово произведение форм: у прежнего режима
+/// (`touch`) имя прежнее (`form_label`, гейт «те же круги»), у секунд —
+/// суффикс `-ttl<значение>`, иначе имена совпали бы и сетка отказала.
+#[test]
+fn entry_ttl_axis_multiplies_forms_with_distinct_labels() {
+    let stops = [StopForm::Pct(2.0)];
+    let takes = [TakeForm::OneToOne];
+    let base = grid_forms(&stops, &takes, None, &[3600]);
+    assert_eq!(base.len(), 1);
+    assert_eq!(base[0].label, "pct2-1to1-3600");
+    assert_eq!(base[0].entry_ttl, EntryTtl::Touch);
+
+    let multi = grid_forms_with_entry_ttl(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch, EntryTtl::Secs(60), EntryTtl::Secs(300)],
+    );
+    assert_eq!(multi.len(), 3, "одна форма × три значения ttl");
+    assert_eq!(multi[0].label, "pct2-1to1-3600");
+    assert_eq!(multi[1].label, "pct2-1to1-3600-ttl60");
+    assert_eq!(multi[2].label, "pct2-1to1-3600-ttl300");
+    let seen: std::collections::BTreeSet<&str> = multi.iter().map(|f| f.label).collect();
+    assert_eq!(seen.len(), 3, "имена обязаны различаться: {seen:?}");
+    // Прежний режим — прежнее имя: «золото» F3/F4 и вердикт читают его как есть.
+    assert_eq!(base[0].label, multi[0].label);
+}
+
+/// Разбор `--entry-ttl-secs` (F5): пусто — `touch`, числа — только из сетки
+/// замера В-74; условия F5 без `--h3-usd`/`--band-exit-bps` — отказ, а не
+/// молчаливый пропуск (умолчаний в коде нет).
+#[test]
+fn entry_ttl_values_come_from_the_measured_grid_and_need_their_numbers() {
+    assert_eq!(parse_entry_ttls(&[]).unwrap(), vec![EntryTtl::Touch]);
+    assert_eq!(
+        parse_entry_ttls(&[
+            "300".to_string(),
+            "60".to_string(),
+            "touch".to_string(),
+            "wall".to_string(),
+        ])
+        .unwrap(),
+        vec![
+            EntryTtl::Touch,
+            EntryTtl::Wall,
+            EntryTtl::Secs(60),
+            EntryTtl::Secs(300)
+        ],
+        "порядок детерминирован, как у дедлайнов"
+    );
+    assert!(
+        parse_entry_ttls(&["120".to_string()]).is_err(),
+        "чужое число — отказ, а не расширение сетки"
+    );
+    assert!(parse_entry_ttls(&["soon".to_string()]).is_err());
+
+    assert!(ensure_entry_conditions_args(true, None, Some(2.0)).is_err());
+    assert!(ensure_entry_conditions_args(true, Some(10_000.0), None).is_err());
+    assert!(ensure_entry_conditions_args(true, Some(10_000.0), Some(2.0)).is_ok());
+    // Режим `touch` — прежний: спутников не требует.
+    assert!(ensure_entry_conditions_args(false, None, None).is_ok());
+}
+
+/// Прогон фикстуры с осью `--entry-ttl-secs` (F5): формы умножаются, шапка
+/// несёт режим и полосу, `forms.csv` — колонки снятий по причинам.
+#[test]
+fn grid_with_entry_ttl_axis_writes_the_header_and_cancel_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    // Порог В-66 в деньгах даёт `level_floor_qty = --h3-usd / цена`.
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Notional,
+        h3_lots: None,
+        h3_usd: Some(0.002),
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.entry_ttl_secs = vec!["60".to_string(), "300".to_string()];
+    a.band_exit_bps = Some(20.0);
+    a.out_dir = dir.path().join("grid-f5");
+    let m = run_bounce_grid(&a).unwrap();
+    // 2 стопа × 1 тейк × 4 дедлайна × 2 значения ttl.
+    assert_eq!(m.forms, 16);
+
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(head.contains(" entry_ttl=60+300 "), "{head}");
+    assert!(head.contains(" band_exit_bps=20 "), "{head}");
+
+    let (fh, forms) = read_csv(&m.forms_path);
+    assert_eq!(forms.len(), 16, "строка на форму: {forms:?}");
+    for name in [
+        "n_entry_cancelled_ttl",
+        "n_entry_cancelled_wall_dead",
+        "n_entry_cancelled_price_left",
+    ] {
+        assert!(fh.iter().any(|h| h == name), "нет колонки {name}: {fh:?}");
+    }
+    let labels: std::collections::BTreeSet<&str> = forms
+        .iter()
+        .map(|r| col(&fh, r, "form"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(labels.len(), 16, "имена форм различаются");
+    assert!(labels.iter().any(|l| l.ends_with("-ttl60")));
+    assert!(labels.iter().any(|l| l.ends_with("-ttl300")));
+    for r in &forms {
+        let cancelled: u64 = [
+            "n_entry_cancelled_ttl",
+            "n_entry_cancelled_wall_dead",
+            "n_entry_cancelled_price_left",
+        ]
+        .iter()
+        .map(|name| col(&fh, r, name).parse::<u64>().unwrap())
+        .sum();
+        let signals: u64 = col(&fh, r, "n_signals").parse().unwrap();
+        assert!(cancelled <= signals, "снятий больше сигналов: {r:?}");
+    }
+}
+
+/// Условия F5 (кроме `touch`) без обязательных чисел — отказ до прогона:
+/// порог В-66 в деньгах (`--h3-usd`) и полоса (`--band-exit-bps`) приходят
+/// флагами, умолчаний в коде нет.
+#[test]
+fn entry_ttl_conditions_refuse_without_their_numbers() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+
+    // Режим floor: `--h3-usd` не читается вовсе — «стена снята» не проверить.
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct2".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.entry_ttl_secs = vec!["60".to_string()];
+    a.band_exit_bps = Some(20.0);
+    a.out_dir = dir.path().join("grid-f5-no-usd");
+    let err = run_bounce_grid(&a).expect_err("без --h3-usd условия F5 не проверить");
+    assert!(err.to_string().contains("--h3-usd"), "{err}");
+
+    // Полоса не задана — изобретать число нечем.
+    let mut b = args(dir.path(), false);
+    b.stop_form = vec!["pct2".to_string()];
+    b.take_form = vec!["1to1".to_string()];
+    b.take_floor_fees = None;
+    b.h3 = H3Args {
+        h3_mode: H3ModeArg::Notional,
+        h3_lots: None,
+        h3_usd: Some(0.002),
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    b.entry_ttl_secs = vec!["60".to_string()];
+    b.band_exit_bps = None;
+    b.out_dir = dir.path().join("grid-f5-no-band");
+    let err = run_bounce_grid(&b).expect_err("без --band-exit-bps условия F5 не проверить");
+    assert!(err.to_string().contains("--band-exit-bps"), "{err}");
+
+    // Прежний режим `touch`: ни порога, ни полосы не требует (гейт).
+    let mut c = args(dir.path(), false);
+    c.stop_form = vec!["pct2".to_string()];
+    c.take_form = vec!["1to1".to_string()];
+    c.take_floor_fees = None;
+    c.entry_ttl_secs = vec!["touch".to_string()];
+    c.out_dir = dir.path().join("grid-f5-touch");
+    assert!(run_bounce_grid(&c).is_ok());
 }

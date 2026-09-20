@@ -1330,16 +1330,112 @@ pub(crate) struct PlanShape {
     /// Досрочный выход в наносекундах (B4): `0` — выключен, иначе `X` из
     /// набора {1, 2, 3} секунд.
     pub(crate) early_exit_ns: i64,
+    /// Режим срока жизни входа (F5, В-74): `touch` — прежний «до конца
+    /// касания», секунды — потолок из сетки замера, `wall` — только условия
+    /// рынка без потолка. Режим `touch` выключает оба условия F5 — на нём
+    /// стоит гейт «те же круги».
+    pub(crate) entry_ttl: EntryTtl,
+    /// Номинал порога В-66 в долларах (`--h3-usd`, режимы `notional`/`both`):
+    /// из него `bounce_plan` считает `level_floor_qty = usd / цена уровня` —
+    /// порог «стена снята» (F5, В-74). `None` — условия F5 без порога:
+    /// вызывающий обязан отказать (умолчания у числа нет).
+    pub(crate) h3_usd: Option<f64>,
+    /// Полоса ухода цены, bps (F5, В-74): число замера, у сетки — флаг
+    /// `--band-exit-bps`; `0` — условие выключено (режим `touch`).
+    pub(crate) band_exit_bps: f64,
+}
+
+/// Режим срока жизни входа (F5, В-74): у сделки-отскока вход снимается по
+/// событиям рынка (стена снята / цена ушла из полосы), а `entry_ttl` — только
+/// предохранительный потолок. Прежний режим «до конца касания» остался
+/// значением `Touch` — на нём стоит гейт «те же круги».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryTtl {
+    /// Прежний режим: вход живёт до конца касания (`entry_ttl_ns` = его
+    /// длительность), условия F5 выключены.
+    Touch,
+    /// Только условия F5, без потолка-таймера (потолок — `i64::MAX`).
+    Wall,
+    /// Потолок срока жизни в секундах — из сетки замера В-74
+    /// `ENTRY_TTL_SECS` {60, 300, 1800}.
+    Secs(i64),
+}
+
+/// Предрегистрированная сетка потолков срока жизни входа, секунды (F5,
+/// В-74): «предохранительный потолок — сетка замера {60, 300, 1800} с, не
+/// решение». Числа — не умолчание команды (умолчания в коде нет), а
+/// разрешённые значения `--entry-ttl-secs`.
+pub const ENTRY_TTL_SECS: [i64; 3] = [60, 300, 1_800];
+
+impl EntryTtl {
+    /// Разбор значения `--entry-ttl-secs`: `touch` | `wall` | секунды из
+    /// сетки В-74. Чужое число — отказ, а не молчаливое расширение сетки
+    /// (тем же правилом, что `--deadline-secs`).
+    pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        match spec.trim() {
+            "touch" => Ok(Self::Touch),
+            "wall" => Ok(Self::Wall),
+            other => {
+                let secs: i64 = other.parse().map_err(|_| {
+                    anyhow::anyhow!(
+                        "--entry-ttl-secs {other:?}: ожидалось `touch`, `wall` или секунды"
+                    )
+                })?;
+                anyhow::ensure!(
+                    ENTRY_TTL_SECS.contains(&secs),
+                    "--entry-ttl-secs {secs}: не из сетки замера В-74 {ENTRY_TTL_SECS:?}"
+                );
+                Ok(Self::Secs(secs))
+            }
+        }
+    }
+
+    /// Имя значения для шапки артефакта и имени формы.
+    pub fn label(self) -> String {
+        match self {
+            Self::Touch => "touch".to_string(),
+            Self::Wall => "wall".to_string(),
+            Self::Secs(s) => s.to_string(),
+        }
+    }
+
+    /// Порядок форм в сетке: `touch`, `wall`, затем секунды по возрастанию —
+    /// тот же приём детерминированного порядка, что у дедлайнов.
+    pub(crate) fn sort_key(self) -> (u8, i64) {
+        match self {
+            Self::Touch => (0, 0),
+            Self::Wall => (1, 0),
+            Self::Secs(s) => (2, s),
+        }
+    }
+}
+
+/// Порог В-66 в единицах размера крейта для условия «стена снята» (F5,
+/// В-74): `--h3-usd / цена уровня`. Размер уровня в книге крейта —
+/// `size_at_touch × шаг лота` (`level_qty` плана), а номинал уровня —
+/// `цена × размер`, поэтому порог в тех же единицах — `usd / цена`. Число
+/// приходит флагом (`--h3-usd`); нет цены или номинала — порога нет (`0`),
+/// и вызывающий обязан отказать раньше, если условия F5 включены.
+fn notional_floor_qty(h3_usd: Option<f64>, price: f64) -> f64 {
+    match h3_usd {
+        Some(usd) if usd.is_finite() && usd > 0.0 && price.is_finite() && price > 0.0 => {
+            usd / price
+        }
+        _ => 0.0,
+    }
 }
 
 /// План сделки-отскока для касания по форме базы (В-44 → В-62 → В-65):
 /// бид-уровень `P` — покупка лимитом от первого фронтранера (иначе `P + 1`
 /// тик), стоп по рынку по форме `form.stop`, тейк лимитом по `form.take`;
 /// аск зеркально. Расстояния в bps — в целых тиках вверх
-/// (`bps_to_ticks_ceil`). Вход снимается в конце касания (`entry_ttl_ns`),
-/// позиция закрывается не позже дедлайна. `sigma_bps` — `σ_H` касания для
-/// дедлайна формы (`lob::sigma`), нужна только σ-формам. `None` — форму для
-/// этого касания не построить (см. `StopForm`); вызывающий считает пропуск.
+/// (`bps_to_ticks_ceil`). Срок жизни входа — `shape.entry_ttl` (F5, В-74):
+/// `touch` — конец касания (гейт), секунды — потолок, а вход снимается
+/// раньше по «стена снята» (`level_floor_qty`) или «цена ушла из полосы»
+/// (`band_exit_bps`). Позиция закрывается не позже дедлайна. `sigma_bps` —
+/// `σ_H` касания для дедлайна формы (`lob::sigma`), нужна только σ-формам.
+/// `None` — форму для этого касания не построить (см. `StopForm`);
+/// вызывающий считает пропуск.
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn bounce_plan(
     touch: &TouchRecord,
@@ -1357,13 +1453,29 @@ pub(crate) fn bounce_plan(
         grid_step_ticks,
         deadline_ns,
         early_exit_ns,
+        entry_ttl,
+        h3_usd,
+        band_exit_bps,
     } = shape;
     let p_tick = touch.price_tick;
     let p = p_tick as f64 * tick;
-    let entry_ttl_ns = touch
+    // F5 (В-74): `entry_ttl_ns` — потолок срока жизни входа, а не таймер.
+    // Прежний режим `touch` воспроизводит «вход до конца касания» байт в байт
+    // и выключает условия F5 (`level_floor_qty`/`band_exit_bps` = 0) — на нём
+    // стоит гейт «те же круги». `wall` — только условия рынка.
+    let touch_ttl_ns = touch
         .end_ms
         .saturating_sub(touch.start_ms)
         .saturating_mul(1_000_000);
+    let (entry_ttl_ns, level_floor_qty, band_exit_bps) = match entry_ttl {
+        EntryTtl::Touch => (touch_ttl_ns, 0.0, 0.0),
+        EntryTtl::Secs(secs) => (
+            secs.saturating_mul(1_000_000_000),
+            notional_floor_qty(h3_usd, p),
+            band_exit_bps,
+        ),
+        EntryTtl::Wall => (i64::MAX, notional_floor_qty(h3_usd, p), band_exit_bps),
+    };
     let grid_step_px = grid_step_ticks as f64 * tick;
     // Знак «в сторону от плотности»: для бида это вверх, для аска — вниз.
     // Стоп, тейк и прежний вход (`P ± 1` тик) считаются по нему.
@@ -1455,6 +1567,11 @@ pub(crate) fn bounce_plan(
             take_px,
             deadline_ns,
             entry_ttl_ns,
+            // F5 (В-74): потолок срока жизни входа плюс два условия снятия —
+            // размер на цене уровня ниже порога В-66 (в единицах крейта) и
+            // уход лучшей цены нашей стороны за полосу лестницы.
+            level_floor_qty,
+            band_exit_bps,
             post_only,
             trail_bps,
             trail_activate_bps,
@@ -1659,6 +1776,12 @@ fn run_bounce(
                     grid_step_ticks: args.grid_step_ticks,
                     deadline_ns,
                     early_exit_ns,
+                    // Одиночный `lob backtest --touches` — прежний режим
+                    // входа «до конца касания»: условия F5 живут у сетки
+                    // (`lob bounce-grid --entry-ttl-secs`), здесь их нет.
+                    entry_ttl: EntryTtl::Touch,
+                    h3_usd: None,
+                    band_exit_bps: 0.0,
                 },
             );
             match built {

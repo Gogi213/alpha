@@ -65,7 +65,9 @@ use crate::lob::costs::{
     fill_rate, format_fill_column, leg_fee_bps, net_fill_bps, net_fill_interval, FillObservation,
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
-use crate::lob::strategy::{on_event, Action, ExitReason, StrategyState, TradePlan};
+use crate::lob::strategy::{
+    on_event, Action, EntryCancelReason, ExitReason, StrategyState, TradePlan,
+};
 
 // ---------------------------------------------------------------------------
 // Константы Decision 20. Каждое число — из плана.
@@ -1097,6 +1099,15 @@ pub struct BounceRun {
     /// Сколько раз цена входа в момент отправки **пересекала** спред (для
     /// покупки — `ask ≤ entry_px`): именно эти заявки пост-онли отвергает.
     pub entry_crossed: u64,
+    /// Снятия неисполненного входа по потолку срока жизни (F5, В-74) —
+    /// колонка `n_entry_cancelled_ttl` `forms.csv`.
+    pub entry_cancelled_ttl: u64,
+    /// Снятия по «стена снята» (F5, В-74): размер на цене уровня упал ниже
+    /// порога В-66 — колонка `n_entry_cancelled_wall_dead`.
+    pub entry_cancelled_wall_dead: u64,
+    /// Снятия по «цена ушла из полосы лестницы» (F5, В-74) — колонка
+    /// `n_entry_cancelled_price_left`.
+    pub entry_cancelled_price_left: u64,
     /// Спред книги в момент отправки входа, в единицах цены — по одному
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
@@ -1153,6 +1164,10 @@ enum RoundOutcome {
     TimedOut {
         entry_status: Option<Status>,
         legs_rejected: u8,
+        /// Почему вход кончился без позиции (F5, В-74): потолок, смерть стены
+        /// или уход цены из полосы; `NotPlaced` — биржа не поставила ни одной
+        /// ноги (В-72, «сигнал без входа»).
+        reason: EntryCancelReason,
     },
     /// Данные кончились посреди круга.
     EndOfData,
@@ -1261,6 +1276,10 @@ where
     MD: MarketDepth,
 {
     let mut timed_out = false;
+    // Почему вход кончился без позиции (F5, В-74): несётся из `on_event` до
+    // `RoundOutcome::TimedOut`, чтобы по кругам формы посчитались снятия по
+    // стене, полосе и потолку отдельно.
+    let mut cancel_reason = EntryCancelReason::NotPlaced;
     // Путь исполнения входа (F3): `entry_seen` — ноги, исполнение которых уже
     // замечено; `entry_pending` — ноги, чей вердикт (сделка или крест) отложен
     // на шаг (локальная метка сделки отстаёт от биржевой); `fill_by_cross` —
@@ -1320,7 +1339,10 @@ where
             bot.clear_last_trades(Some(asset_no));
         }
         match on_event(bot, state)? {
-            Action::EntryTimedOut { .. } => timed_out = true,
+            Action::EntryTimedOut { reason, .. } => {
+                timed_out = true;
+                cancel_reason = reason;
+            }
             Action::ExitSubmitted {
                 order_id,
                 reason,
@@ -1344,6 +1366,7 @@ where
             RoundOutcome::TimedOut {
                 entry_status,
                 legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+                reason: cancel_reason,
             },
             state.position(),
         ));
@@ -1637,6 +1660,9 @@ impl BounceRun {
             entry_rejected: 0,
             rejected_postonly: 0,
             entry_crossed: 0,
+            entry_cancelled_ttl: 0,
+            entry_cancelled_wall_dead: 0,
+            entry_cancelled_price_left: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
             busy_signal: Vec::new(),
@@ -1678,6 +1704,10 @@ where
     let mut entry_rejected: u64 = 0;
     let mut rejected_postonly: u64 = 0;
     let mut entry_crossed: u64 = 0;
+    // Снятия неисполненного входа по причинам (F5, В-74) — в `forms.csv`.
+    let mut entry_cancelled_ttl: u64 = 0;
+    let mut entry_cancelled_wall_dead: u64 = 0;
+    let mut entry_cancelled_price_left: u64 = 0;
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
@@ -1755,9 +1785,27 @@ where
                     RoundOutcome::TimedOut {
                         entry_status,
                         legs_rejected,
+                        reason,
                     } => {
                         if matches!(entry_status, Some(Status::Rejected)) {
                             entry_rejected = entry_rejected.saturating_add(1);
+                        }
+                        // F5 (В-74): снятие по событию рынка и по потолку —
+                        // разные строки `forms.csv`; «сигнал без входа»
+                        // (`NotPlaced`) уже посчитан `rejected_postonly`.
+                        match reason {
+                            EntryCancelReason::Ttl => {
+                                entry_cancelled_ttl = entry_cancelled_ttl.saturating_add(1);
+                            }
+                            EntryCancelReason::WallDead => {
+                                entry_cancelled_wall_dead =
+                                    entry_cancelled_wall_dead.saturating_add(1);
+                            }
+                            EntryCancelReason::PriceLeft => {
+                                entry_cancelled_price_left =
+                                    entry_cancelled_price_left.saturating_add(1);
+                            }
+                            EntryCancelReason::NotPlaced => {}
                         }
                         // В-72: нога, не поставленная биржей (пост-онли
                         // `Expired` или `Rejected`), — отказ, а не заказ;
@@ -1824,6 +1872,9 @@ where
         entry_rejected,
         rejected_postonly,
         entry_crossed,
+        entry_cancelled_ttl,
+        entry_cancelled_wall_dead,
+        entry_cancelled_price_left,
         spread_at_entry,
         submitted_signal,
         busy_signal,
