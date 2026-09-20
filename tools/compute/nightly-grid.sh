@@ -96,13 +96,14 @@ verdict_one() {
   echo "$DAY,$kind,$(echo "$l" | grep -o "ИТОГ=[^·]*" | cut -c6- | sed 's/ *$//'),$(echo "$l" | grep -o "лучшая [^ ]*" | cut -c8-),$(echo "$l" | grep -o "кругов [0-9]*" | cut -c8-),$(echo "$l" | grep -o "точка=[-0-9.]*" | cut -c7-),$(echo "$l" | grep -o "нижняя=[-0-9.]*" | cut -c8-)" >> study/verdicts.csv
 }
 # Все наборы базы одним процессом (`--set`, 20.09): события суток и окна декодируются один раз на
-# монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-base/<набор>/.
+# монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-<метка>/<набор>/.
+# FORMS — формы процесса (умолчание BASE), LABEL — метка каталога (умолчание base).
 run_sets() {
-  local label="nightly-$DAY-base"
+  local label="nightly-$DAY-${LABEL:-base}"
   local setargs=""
   for kv in "$@"; do setargs="$setargs --set $kv"; done
   echo "== $(date -u +%FT%TZ) grid $label start: наборы $*" >> "$LOG"
-  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $GRID $BASE $DAY_ARGS $setargs >> "$LOG" 2>&1
+  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $GRID ${FORMS:-$BASE} $DAY_ARGS $setargs >> "$LOG" 2>&1
   sleep 5
   while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
@@ -238,6 +239,9 @@ if [ -z "$TOUCHES_ONLY" ]; then
            a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4 \
            a90-bid:age=5400,side=bid a120-bid:age=7200,side=bid a45-bid-fr:age=2700,side=bid,frontrun \
            a45-bid-u25:age=2700,side=bid,usd_min=25000 a45-bid-u50:age=2700,side=bid,usd_min=50000
+  # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
+  # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
+  LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1"     run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
 else
