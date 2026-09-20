@@ -276,6 +276,21 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 `bin/floors-balance.py`), юниты в `/etc/systemd/system/`,
 `systemctl enable --now alpha-grid-nightly.timer`.
 
+**Отчёт в деньгах (`tools/compute/equity-report.py`, F8/F10).** Читает дампы сетки напрямую:
+`python3 bin/equity-report.py --grid-dir [ИМЯ=]КАТАЛОГ [--grid-dir …] [--form <имя>|all] [--order-usd N]
+[--out F.html] [--json F.json]` — `<каталог>/rounds.csv` + `forms.csv` (ключей у скрипта раньше не было:
+запуск **без аргументов** остаётся легаси-режимом и читает `$TEMP/rounds.json`, как отчёт 20.09).
+Деньги — по **фактически исполненному** размеру (В-78): `net_bps/1e4 × --order-usd × fill_frac`;
+`net_bps` уже с комиссиями по ногам (В-63) и по `entry_vwap` (F3), `--order-usd` по умолчанию 1000.
+**Старые дампы (до F4) колонки `fill_frac` не несут** — такие серии считаются полностью исполненными
+(`fill_frac = 1.0`), и скрипт печатает предупреждение в stdout и красной плашкой в HTML; первый дамп
+с колонками даёт новый бинарник (`--queue-model` любой, но в `rounds.csv` должны быть
+`fill_frac/entry_vwap/legs_filled/legs_rejected`). Отчёт печатает ещё и исполнение входа
+(ср./мин `fill_frac`, круги с `fill_frac < 1`, ноги исполнено/отвергнуто) и суммы `forms.csv`
+(`n_partial`, `n_rejected_postonly`, `n_fill_by_cross`, `n_entry_cancelled_*`), а также «Δ частичности»
+отдельной строкой; для дампов с пуловым лотом рядом идёт столбец «при нотионале файла
+(Σ qty × entry_vwap)», чтобы bps-масштаб к $1000 не читался как деньги прогона.
+
 ## Коллектор на сервере (Linux) — ранбук (T43/T44)
 
 Проверено по коду: OS-специфичное ровно одно место — `commands/lob/session/resources.rs`
