@@ -1583,6 +1583,8 @@ fn run_bounce(
         repeat_window_ms: args
             .repeat_window_ms
             .unwrap_or(super::DEFAULT_REPEAT_WINDOW_MS),
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let h3_lots = mode
         .single_h3_lots()

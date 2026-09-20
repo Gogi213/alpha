@@ -810,6 +810,8 @@ fn build_coin(
         mode: h3,
         warmup_ms: DEFAULT_WARMUP_MS,
         repeat_window_ms: DEFAULT_REPEAT_WINDOW_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let stats = replay_symbol(&args.root, symbol, cfg)?;
     for d in &stats.days {

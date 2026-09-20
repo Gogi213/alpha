@@ -17,6 +17,8 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
         out: None,
+        approach_bps: None,
+        approach_min_age_secs: 0,
         moves: None,
         moves_window_ms: None,
         moves_bin_ms: None,
@@ -172,6 +174,8 @@ fn touches_csv_reads_back_the_same_records() {
         mode: crate::lob::levels::H3Mode::Percentile { h3_lots: 5 },
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let replay = replay_symbol(dir.path(), "SOLUSDT", cfg).unwrap();
     let expected: Vec<TouchRow> = replay
@@ -245,4 +249,61 @@ fn touches_write_pre_touch_returns_and_minute_mids() {
         "минуты подряд: {minutes:?}"
     );
     assert!(mrows.iter().all(|r| r[1].parse::<i64>().unwrap() > 0));
+}
+
+/// F1 этапа F: `--approach-bps` пишет `approaches-<SYMBOL>.csv` рядом с
+/// касаниями, а `read_approaches_csv` читает те же записи поле в поле.
+/// Полоса 700 bps — от фикстуры: аск 105 против бид-стены 99 это 606 bps;
+/// взвод на кадре 2000 (стена не лучшая: вернулся бид 100), снятие касанием
+/// на 3000 (100 снят — стена стала лучшей). Повторного взвода нет: после
+/// снятия касанием цена за `2 × D` не уходила.
+#[test]
+fn approaches_csv_reads_back_the_same_records() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let mut args = touches_args(dir.path());
+    args.approach_bps = Some(700);
+    let summary = run_touches(&args).unwrap();
+    assert_eq!(summary.approaches, 1);
+    let path = summary.approaches_out.clone().expect("файл подходов");
+    assert_eq!(path, dir.path().join("approaches-SOLUSDT.csv"));
+    let (header, rows) = read_rows(&path);
+    assert_eq!(header, APPROACHES_COLUMNS.map(str::to_string).to_vec());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].len(), APPROACHES_COLUMNS.len());
+    let r = &rows[0];
+    assert_eq!(col(&header, r, "day_utc"), "2026-09-08");
+    assert_eq!(col(&header, r, "side"), "bid");
+    assert_eq!(col(&header, r, "price_tick"), "99");
+    assert_eq!(col(&header, r, "approach_index"), "0");
+    assert_eq!(col(&header, r, "arm_ms"), "2000");
+    assert_eq!(col(&header, r, "age_ms"), "2000");
+    assert_eq!(col(&header, r, "arm_dist_bps"), "606");
+    assert_eq!(col(&header, r, "best_opp_tick"), "105");
+    assert_eq!(col(&header, r, "best_own_tick"), "100");
+    assert_eq!(col(&header, r, "disarm_ms"), "3000");
+    assert_eq!(col(&header, r, "duration_ms"), "1000");
+    assert_eq!(col(&header, r, "touch_start_ms"), "3000");
+    assert_eq!(col(&header, r, "disarm_reason"), "touch");
+    // Обратимость: CSV читается в те же записи, что отдаёт трекер.
+    let read = read_approaches_csv(&path).unwrap();
+    let cfg = LevelsConfig {
+        mode: crate::lob::levels::H3Mode::Percentile { h3_lots: 5 },
+        warmup_ms: args.warmup_ms,
+        repeat_window_ms: args.repeat_window_ms,
+        approach_bps: Some(700),
+        approach_min_age_ms: 0,
+    };
+    let replay = replay_symbol(dir.path(), "SOLUSDT", cfg).unwrap();
+    let expected: Vec<ApproachRow> = replay
+        .days
+        .iter()
+        .flat_map(|d| {
+            d.approaches.iter().map(move |a| ApproachRow {
+                day: d.day.clone(),
+                approach: *a,
+            })
+        })
+        .collect();
+    assert_eq!(read, expected, "CSV обязан читаться в те же записи");
 }

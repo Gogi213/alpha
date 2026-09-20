@@ -264,6 +264,8 @@ pub fn process_instrument(
         },
         warmup_ms,
         repeat_window_ms,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let replay = replay_symbol(verify_root, symbol, cfg).map_err(step("markout"))?;
 

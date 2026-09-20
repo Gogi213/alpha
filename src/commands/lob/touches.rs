@@ -16,6 +16,14 @@
 //! `swept_lots` — на последнем кадре до него (В-45); `within_touch_<h>` —
 //! горизонт не длиннее касания (`markout::within_touch`): `m_<h>` там ≈ 0
 //! по построению, читателю средних такую ячейку надо пропустить.
+//!
+//! Флаг `--approach-bps D` (F1 этапа F, В-73) добавляет рядом
+//! `approaches-<SYMBOL>.csv`: моменты, когда цена подошла к живому уровню на
+//! `D` bps **до** касания (`ApproachRecord` трекера, правила — в
+//! `crate::lob::levels`, «Подход»). Колонки — поля записи плюс `day_utc`,
+//! `age_ms` и `duration_ms`; `touch_start_ms` пустой, если подход кончился не
+//! касанием. Без флага ни файла, ни состояния подхода в трекере: касания —
+//! те же байты. Обратное чтение — `read_approaches_csv`.
 
 use std::path::PathBuf;
 
@@ -24,7 +32,8 @@ use clap::Args;
 use crate::book::Side;
 use crate::lob::excursion::SecondMids;
 use crate::lob::levels::{
-    LevelsConfig, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S, STRENGTH_WINDOWS_BPS,
+    ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord, REACTION_WINDOWS_S,
+    STRENGTH_HELD_WINDOWS_S, STRENGTH_WINDOWS_BPS,
 };
 use crate::lob::markout::touch_base;
 use crate::lob::sigma::SigmaSeries;
@@ -74,6 +83,16 @@ pub struct TouchesArgs {
     /// Куда писать касания (по умолчанию `<root>/touches-<symbol>.csv`).
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Полоса сигнала **подхода** `D` в bps (F1 этапа F, В-73): рядом с
+    /// касаниями пишется `approaches-<symbol>.csv` — моменты, когда цена
+    /// другой стороны подошла к живому уровню на `D` bps. Без флага записей
+    /// подхода нет вовсе (байты касаний прежние).
+    #[arg(long)]
+    pub approach_bps: Option<i64>,
+    /// Минимальный возраст уровня к моменту взвода подхода, секунды (флор
+    /// В-71 — 900 с; без флага пола нет). Только вместе с `--approach-bps`.
+    #[arg(long, default_value_t = 0)]
+    pub approach_min_age_secs: i64,
     /// Заодно измерить **переезды плотностей** (T42, В-46) и записать пары
     /// «смерть → рождение» в этот CSV. Метка `moved` не ставится: измеряется
     /// распределение, границы назначаются отдельным решением.
@@ -103,12 +122,46 @@ pub struct TouchesArgs {
 pub struct TouchesSummary {
     pub days: usize,
     pub touches: usize,
+    /// Записей подхода (F1) — ноль, если `--approach-bps` не задан.
+    pub approaches: usize,
     pub out: PathBuf,
+    /// Файл записей подхода, если он писался.
+    pub approaches_out: Option<PathBuf>,
 }
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
 const TOUCHES_WIDTH: usize = 61;
+
+/// Ширина строки `approaches-<SYMBOL>.csv` (F1) — как `TOUCHES_WIDTH`.
+const APPROACHES_WIDTH: usize = 19;
+
+/// Заголовок `approaches-<SYMBOL>.csv`: поля `ApproachRecord` плюс `day_utc`,
+/// `age_ms` и `duration_ms` (производные, как у касаний; `touch_start_ms`
+/// пустой, если подход кончился не касанием). Полоса взвода `D` и потолок
+/// гистерезиса `2·D` — параметры прогона: их печатает манифест шага F10,
+/// в шапке строки они не дублируются.
+pub(crate) const APPROACHES_COLUMNS: [&str; APPROACHES_WIDTH] = [
+    "day_utc",
+    "side",
+    "price_tick",
+    "approach_index",
+    "arm_ms",
+    "age_ms",
+    "arm_dist_bps",
+    "birth_ms",
+    "size_at_arm",
+    "best_own_tick",
+    "best_opp_tick",
+    "flow_1h_lots",
+    "strength_w10_pct",
+    "strength_w20_pct",
+    "strength_w50_pct",
+    "touch_start_ms",
+    "disarm_ms",
+    "duration_ms",
+    "disarm_reason",
+];
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
 /// как в `levels-*.csv`/`markout-*.csv`, для джойна по (сторона, тик,
@@ -308,7 +361,19 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
+        approach_bps: args.approach_bps,
+        approach_min_age_ms: args.approach_min_age_secs.saturating_mul(1_000),
     };
+    if args.approach_bps.is_none() {
+        anyhow::ensure!(
+            args.approach_min_age_secs == 0,
+            "--approach-min-age-secs задан без --approach-bps: пола взвода нет, записи подхода тоже"
+        );
+    }
+    anyhow::ensure!(
+        cfg.approach_bps.is_none_or(|d| d > 0),
+        "--approach-bps обязан быть положителен"
+    );
     // Порог в лотах — только для чисел практиков `--numbers` (оси «×H3»): у
     // режимов В-61 единого порога нет, и `--numbers` с ними — отказ.
     let h3_lots = mode.single_h3_lots();
@@ -325,6 +390,24 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     let mut w = csv::Writer::from_path(&out)?;
     w.write_record(TOUCHES_COLUMNS)?;
     let mut n = 0usize;
+    // Записи подхода (F1) — рядом с касаниями, тем же прогоном: трекер уже
+    // их ведёт, отдельного реплея не нужно.
+    let approaches_out = args.approach_bps.map(|_| {
+        let name = format!("approaches-{}.csv", args.symbol);
+        match out.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.join(name),
+            _ => PathBuf::from(name),
+        }
+    });
+    let mut wa = match &approaches_out {
+        Some(path) => {
+            let mut w = csv::Writer::from_path(path)?;
+            w.write_record(APPROACHES_COLUMNS)?;
+            Some(w)
+        }
+        None => None,
+    };
+    let mut n_ap = 0usize;
     // Ряд `σ` — по всей записи символа (В-62): окно раннего касания вторых
     // суток смотрит в первые.
     let (sigma_series, second_mids) = {
@@ -433,8 +516,39 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             w.write_record(row)?;
             n += 1;
         }
+        // Записи подхода этих суток (порядок — порядок трекера, детерминирован).
+        if let Some(wa) = wa.as_mut() {
+            for a in &day.approaches {
+                let row: [String; APPROACHES_WIDTH] = [
+                    day.day.clone(),
+                    side_name(a.side).to_string(),
+                    a.price_tick.to_string(),
+                    a.approach_index.to_string(),
+                    a.arm_ms.to_string(),
+                    a.age_ms().to_string(),
+                    a.arm_dist_bps.to_string(),
+                    a.level_birth_ms.to_string(),
+                    a.size_at_arm.to_string(),
+                    a.best_own_tick.to_string(),
+                    a.best_opp_tick.to_string(),
+                    a.flow_1h_lots.to_string(),
+                    strength_pct(a.strength_e2[0]),
+                    strength_pct(a.strength_e2[1]),
+                    strength_pct(a.strength_e2[2]),
+                    a.touch_start_ms.map_or(String::new(), |v| v.to_string()),
+                    a.disarm_ms.to_string(),
+                    a.duration_ms().to_string(),
+                    a.disarm_reason.name().to_string(),
+                ];
+                wa.write_record(row)?;
+                n_ap += 1;
+            }
+        }
     }
     w.flush()?;
+    if let Some(wa) = wa.as_mut() {
+        wa.flush()?;
+    }
     // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
     write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;
 
@@ -560,7 +674,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     Ok(TouchesSummary {
         days: replay.days.len(),
         touches: n,
+        approaches: n_ap,
         out,
+        approaches_out,
     })
 }
 
@@ -786,6 +902,140 @@ impl TouchCols {
             day: field(self.day)?.to_string(),
             touch,
             ret_bps,
+        })
+    }
+}
+
+/// Запись подхода, прочитанная из `approaches-<SYMBOL>.csv` (F1): сутки
+/// строки и `ApproachRecord` трекера как есть. Потребители — F2 (ёмкость по
+/// подходам) и F6 (сигнал от подхода в сетке): сейчас чтение живёт только в
+/// тестах обратимости, поэтому `allow(dead_code)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) struct ApproachRow {
+    pub day: String,
+    pub approach: ApproachRecord,
+}
+
+/// Обратное к строке `run_touches` для подходов: `ApproachRecord` из CSV —
+/// те же поля, что пишет трекер (`strength_*_pct` — «проценты × 100» обратно
+/// в `e2`, пусто → `-1`; `touch_start_ms` пусто → `None`). Производные
+/// `age_ms`/`duration_ms` не читаются: считаются из полей записи, как у
+/// `TouchRecord`. Колонки ищутся по именам, не по позициям: порядок — дело
+/// писателя. Читателя в проде пока нет (F2/F6) — записи проверяются тестом
+/// обратимости.
+#[allow(dead_code)]
+pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<ApproachRow>> {
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_path(path)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    let header = r.headers()?.clone();
+    let idx = |name: &str| -> anyhow::Result<usize> {
+        header
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
+    };
+    let cols = ApproachCols {
+        day: idx("day_utc")?,
+        side: idx("side")?,
+        price_tick: idx("price_tick")?,
+        approach_index: idx("approach_index")?,
+        arm_ms: idx("arm_ms")?,
+        arm_dist_bps: idx("arm_dist_bps")?,
+        birth_ms: idx("birth_ms")?,
+        size_at_arm: idx("size_at_arm")?,
+        best_own_tick: idx("best_own_tick")?,
+        best_opp_tick: idx("best_opp_tick")?,
+        flow_1h_lots: idx("flow_1h_lots")?,
+        strength: [
+            idx("strength_w10_pct")?,
+            idx("strength_w20_pct")?,
+            idx("strength_w50_pct")?,
+        ],
+        touch_start_ms: idx("touch_start_ms")?,
+        disarm_ms: idx("disarm_ms")?,
+        disarm_reason: idx("disarm_reason")?,
+    };
+    let mut out = Vec::new();
+    for (i, rec) in r.records().enumerate() {
+        let rec = rec?;
+        out.push(
+            cols.parse(&rec)
+                .map_err(|e| anyhow::anyhow!("{}: строка {}: {e}", path.display(), i + 2))?,
+        );
+    }
+    Ok(out)
+}
+
+/// Индексы колонок `approaches-*.csv`, нужных `ApproachRecord`.
+#[allow(dead_code)]
+struct ApproachCols {
+    day: usize,
+    side: usize,
+    price_tick: usize,
+    approach_index: usize,
+    arm_ms: usize,
+    arm_dist_bps: usize,
+    birth_ms: usize,
+    size_at_arm: usize,
+    best_own_tick: usize,
+    best_opp_tick: usize,
+    flow_1h_lots: usize,
+    strength: [usize; STRENGTH_WINDOWS_BPS.len()],
+    touch_start_ms: usize,
+    disarm_ms: usize,
+    disarm_reason: usize,
+}
+
+impl ApproachCols {
+    #[allow(dead_code)]
+    fn parse(&self, rec: &csv::StringRecord) -> anyhow::Result<ApproachRow> {
+        let field = |i: usize| -> anyhow::Result<&str> {
+            rec.get(i)
+                .ok_or_else(|| anyhow::anyhow!("короткая строка: нет поля {i}"))
+        };
+        let int = |i: usize| -> anyhow::Result<i64> {
+            let s = field(i)?;
+            s.parse::<i64>()
+                .map_err(|e| anyhow::anyhow!("{s:?} в поле {i}: {e}"))
+        };
+        let opt_int = |i: usize| -> anyhow::Result<Option<i64>> {
+            Ok(if field(i)?.is_empty() {
+                None
+            } else {
+                Some(int(i)?)
+            })
+        };
+        let approach = ApproachRecord {
+            side: match field(self.side)? {
+                "bid" => Side::Bid,
+                "ask" => Side::Ask,
+                other => anyhow::bail!("сторона {other:?}"),
+            },
+            price_tick: int(self.price_tick)?,
+            approach_index: u32::try_from(int(self.approach_index)?)?,
+            arm_ms: int(self.arm_ms)?,
+            arm_dist_bps: int(self.arm_dist_bps)?,
+            level_birth_ms: int(self.birth_ms)?,
+            size_at_arm: int(self.size_at_arm)?,
+            best_own_tick: int(self.best_own_tick)?,
+            best_opp_tick: int(self.best_opp_tick)?,
+            flow_1h_lots: int(self.flow_1h_lots)?,
+            strength_e2: [
+                strength_e2(field(self.strength[0])?)?,
+                strength_e2(field(self.strength[1])?)?,
+                strength_e2(field(self.strength[2])?)?,
+            ],
+            touch_start_ms: opt_int(self.touch_start_ms)?,
+            disarm_ms: int(self.disarm_ms)?,
+            disarm_reason: ApproachEnd::parse(field(self.disarm_reason)?)
+                .ok_or_else(|| anyhow::anyhow!("причина {:?}", field(self.disarm_reason)))?,
+        };
+        Ok(ApproachRow {
+            day: field(self.day)?.to_string(),
+            approach,
         })
     }
 }

@@ -351,6 +351,8 @@ pub fn run_profiles_with_fill_model(
             mode,
             warmup_ms: args.warmup_ms,
             repeat_window_ms: args.repeat_window_ms,
+            approach_bps: None,
+            approach_min_age_ms: 0,
         };
         for dir in &dirs {
             // Таск 19/23: резолвер сессии (`<SYMBOL>-<день>[-pN].binlog` с

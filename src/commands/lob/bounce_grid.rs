@@ -1596,6 +1596,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             mode,
             warmup_ms: args.warmup_ms.unwrap_or(DEFAULT_WARMUP_MS),
             repeat_window_ms: args.repeat_window_ms.unwrap_or(DEFAULT_REPEAT_WINDOW_MS),
+            approach_bps: None,
+            approach_min_age_ms: 0,
         };
         let mut parts_by_day: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
         for p in &parts {

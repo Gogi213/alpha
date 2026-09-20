@@ -85,6 +85,8 @@ pub(super) fn k_grid_for_instrument(
                 mode: H3Mode::Floor { h3_lots },
                 warmup_ms: 0,
                 repeat_window_ms,
+                approach_bps: None,
+                approach_min_age_ms: 0,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

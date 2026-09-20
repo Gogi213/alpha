@@ -106,6 +106,8 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
         mode,
         warmup_ms: args.warmup_ms,
         repeat_window_ms: args.repeat_window_ms,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let replay = replay_symbol(&args.root, &args.symbol, cfg)?;
     let out = args

@@ -111,6 +111,40 @@
 //!   в `Live`, ключи с событием касания копятся в предвыделенном буфере,
 //!   записи уходят в `&mut Vec<TouchRecord>` вызывающего.
 
+//! # Подход (F1 этапа F, В-73)
+//!
+//! Четвёртый тип записи — **подход** (`ApproachRecord`): момент, когда цена
+//! **другая** сторона подошла к живому уровню на полосу `D` bps, то есть
+//! лимитку по практикам ещё можно поставить заранее, до касания. Записей две
+//! на «заход» не бывает; правила, как у касаний, фиксированы здесь:
+//!
+//! - Включается конфигом (`LevelsConfig::approach_bps`, `None` — сигнала нет
+//!   вовсе: ни состояния, ни вычислений, байты касаний прежние — гейт F1).
+//! - **Взвод** — на кадре стороны уровня: уровень жив (не умирает в этом
+//!   кадре), держит порог В-66 на этом кадре (`H3Mode::holds_at_size` — тот
+//!   же порог, что у касания), возраст не меньше `approach_min_age_ms`, не
+//!   является лучшей ценой своей стороны (цена ещё не дошла) и расстояние от
+//!   лучшей цены **другой** стороны до уровня впервые вошло в `D` bps:
+//!   `gap_ticks × 10⁴ ≤ D × price_tick` целочисленно (`gap_bps`, тот же
+//!   расчёт, что `dist_bps` ёмкости). Чужая лучшая цена — с её последнего
+//!   кадра: кадры приходят по одной стороне, и это ближайшая известная цена.
+//! - **Снятие** — касанием (уровень стал лучшей ценой; `touch_start_ms`),
+//!   смертью уровня (`LevelDeath`) или уходом чужой лучшей цены за
+//!   `2 × D` (`PriceLeft`; `D2 = 2·D` — гистерезис, **число замера**: без
+//!   него цена на границе полосы взводила бы подход в каждом кадре). Записи
+//!   уровней прогрева считаются, но не эмитируются; `approach_index` растёт
+//!   как `touch_index`.
+//! - Взводиться снова уровень может только после того, как цена ушла за
+//!   `2 × D` (снятие касанием такого ухода не даёт) — один взвод на «заход».
+//! - Порядок выдачи детерминирован: снятия касанием и уходом цены — в
+//!   порядке кадра, затем снятия смертью — в порядке `(сторона, тик)` вместе
+//!   со смертью и перед записью оборванного ею касания.
+//!
+//! Порядок кадров двух сторон вызывающий выбирает сам (`feed_frames`: бид,
+//! затем аск) — для полосы это значит, что чужая цена читается с последнего
+//! кадра чужой стороны, а своя обновляется этим же кадром. Обе стороны
+//! пишутся в `best_tick` трекера.
+
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::book::Side;
@@ -235,7 +269,20 @@ impl H3Mode {
     /// порога не из `STRENGTH_WINDOWS_BPS`, проверить нечем (вызывающий
     /// отказывает, не пропускает молча).
     pub fn holds_at_touch(self, touch: &TouchRecord) -> Option<bool> {
-        if !self.passes_birth(touch.price_tick, touch.size_at_touch) {
+        self.holds_at_size(touch.price_tick, touch.size_at_touch, &touch.strength_e2)
+    }
+
+    /// То же правило порога В-66, но по кадру, а не по записи касания: размер
+    /// на этом кадре и сила «×соседи» того же кадра — общий порог касания и
+    /// сигнала подхода (F1). `None` — окно силы не из `STRENGTH_WINDOWS_BPS`,
+    /// проверить порог нечем.
+    pub fn holds_at_size(
+        self,
+        tick: i64,
+        size_lots: i64,
+        strength_e2: &[i64; STRENGTH_WINDOWS_BPS.len()],
+    ) -> Option<bool> {
+        if !self.passes_birth(tick, size_lots) {
             return Some(false);
         }
         match self.strength_gate() {
@@ -244,7 +291,7 @@ impl H3Mode {
                 let k = STRENGTH_WINDOWS_BPS
                     .iter()
                     .position(|&w| w.saturating_mul(100) == window_bps_e2)?;
-                Some(touch.strength_e2[k] >= pct_e2)
+                Some(strength_e2[k] >= pct_e2)
             }
         }
     }
@@ -298,6 +345,14 @@ pub struct LevelsConfig {
     /// Скользящее окно `repeat_count` в миллисекундах — общее для обоих
     /// режимов, план §3: «скользящий час».
     pub repeat_window_ms: i64,
+    /// Полоса **сигнала подхода** в bps (F1 этапа F): взвод записи
+    /// `ApproachRecord`, когда лучшая цена другой стороны впервые подошла к
+    /// живому уровню на `approach_bps`. `None` — записей подхода нет: ни
+    /// состояния, ни вычислений, байты касаний прежние (гейт F1).
+    pub approach_bps: Option<i64>,
+    /// Минимальный возраст уровня к моменту взвода, мс (флор В-71: 15 мин —
+    /// как `--min-age-secs` сетки). Только для сигнала подхода.
+    pub approach_min_age_ms: i64,
 }
 
 /// Одно наблюдение уровня в кадре одной стороны.
@@ -516,6 +571,95 @@ impl TouchRecord {
     }
 }
 
+/// Чем кончился **подход** — взведённое заранее состояние уровня, когда цена
+/// другой стороны подошла к нему на полосу `approach_bps` (F1 этапа F, В-73:
+/// лимитка ставится на подходе и стоит, пока стена жива).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApproachEnd {
+    /// Цена дошла до уровня: касание началось (`touch_start_ms` заполнен).
+    Touch,
+    /// Уровень умер, не дождавшись цены.
+    LevelDeath,
+    /// Лучшая цена другой стороны ушла дальше `2 × approach_bps`.
+    PriceLeft,
+}
+
+impl ApproachEnd {
+    /// Имя для CSV и тестов.
+    pub fn name(self) -> &'static str {
+        match self {
+            ApproachEnd::Touch => "touch",
+            ApproachEnd::LevelDeath => "level_death",
+            ApproachEnd::PriceLeft => "price_left",
+        }
+    }
+
+    /// Обратно к `name` — для чтения CSV.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "touch" => Some(ApproachEnd::Touch),
+            "level_death" => Some(ApproachEnd::LevelDeath),
+            "price_left" => Some(ApproachEnd::PriceLeft),
+            _ => None,
+        }
+    }
+}
+
+/// Запись подхода живого уровня к цене (F1 этапа F): момент, когда лучшая
+/// цена **другой** стороны впервые вошла в полосу `D` bps от уровня, живой
+/// уровень при этом держал порог В-66 и был не лучшим (то есть цена ещё не
+/// дошла). Запись эмитится **на снятии**: касанием, смертью уровня или
+/// уходом цены за `2 × D` (гистерезис). Поля, кроме `disarm_*`, — состояние
+/// кадра взвода; уровень жив и в `LevelRecord` не попадает ничем.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApproachRecord {
+    /// Сторона книги — сторона уровня (вход ставится за неё).
+    pub side: Side,
+    /// Цена уровня в тиках.
+    pub price_tick: i64,
+    /// Порядковый номер подхода у этого уровня: 0, 1, 2… (растёт как
+    /// `touch_index`, включая подходы уровней прогрева — те не эмитируются).
+    pub approach_index: u32,
+    /// Кадр взвода, мс.
+    pub arm_ms: i64,
+    /// Расстояние от уровня до лучшей цены другой стороны в кадре взвода,
+    /// bps по цене уровня (тот же расчёт, что `dist_bps` ёмкости).
+    pub arm_dist_bps: i64,
+    /// Кадр рождения уровня, мс: возраст на взводе — `arm_ms − level_birth_ms`.
+    pub level_birth_ms: i64,
+    /// Размер уровня в лотах в кадре взвода.
+    pub size_at_arm: i64,
+    /// Лучшая цена **своей** стороны в кадре взвода (у бид-стены — лучший
+    /// бид, он выше цены стены: цена к стене ещё не дошла).
+    pub best_own_tick: i64,
+    /// Лучшая цена **другой** стороны на её последнем кадре к моменту взвода
+    /// (у бид-стены — лучший аск) — от неё считается полоса.
+    pub best_opp_tick: i64,
+    /// Оборот инструмента за последний час к взводу, лоты (как у касания).
+    pub flow_1h_lots: i64,
+    /// Сила «×соседи» на кадре взвода для окон `STRENGTH_WINDOWS_BPS`,
+    /// проценты × 100; `-1` — соседей в окне не было (как у касания).
+    pub strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    /// Кадр начала касания, если подход кончился касанием.
+    pub touch_start_ms: Option<i64>,
+    /// Кадр снятия подхода (касание, смерть уровня или уход цены).
+    pub disarm_ms: i64,
+    /// Чем подход кончился.
+    pub disarm_reason: ApproachEnd,
+}
+
+impl ApproachRecord {
+    /// Возраст уровня на момент взвода, мс (`touch_record.age_ms` подхода).
+    pub fn age_ms(&self) -> i64 {
+        self.arm_ms - self.level_birth_ms
+    }
+
+    /// Сколько подход жил: от взвода до снятия, мс.
+    pub fn duration_ms(&self) -> i64 {
+        self.disarm_ms - self.arm_ms
+    }
+}
+
 /// Потолок счётчика `round_zeros`: «3+» — практики называют круглым и
 /// `1.100`, и `1111`, глубже трёх нулей различать нечего (§2 находок).
 pub const ROUND_ZEROS_CAP: u8 = 3;
@@ -619,6 +763,37 @@ struct Touch {
     repeat_count: u32,
 }
 
+/// Взведённый подход уровня — целые в `Live`, кучи нет (F1). Поля — состояние
+/// кадра взвода; из них собирается `ApproachRecord` на снятии.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Approach {
+    arm_ms: i64,
+    arm_dist_bps: i64,
+    size_at_arm: i64,
+    best_own_tick: i64,
+    best_opp_tick: i64,
+    flow_1h_lots: i64,
+    strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+}
+
+/// Один кадр уровня для правила взвода/снятия подхода (F1): всё, что нужно
+/// `observe_approach`, — чтобы правило читалось отдельно от горячего цикла.
+#[derive(Debug, Clone, Copy)]
+struct ApproachFrame {
+    ts_ms: i64,
+    tick: i64,
+    size_lots: i64,
+    /// Уровень — лучшая цена своей стороны в этом кадре (касание идёт либо
+    /// началось).
+    best: bool,
+    /// Лучшая цена своей стороны в этом кадре.
+    best_own_tick: i64,
+    /// Лучшая цена другой стороны на её последнем кадре.
+    best_opp_tick: i64,
+    flow_1h_lots: i64,
+    strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+}
+
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Live {
@@ -651,6 +826,13 @@ struct Live {
     /// Сколько касаний у уровня уже кончилось.
     touch_index: u32,
     touch: Option<Touch>,
+    /// Взведённый подход (F1); `None` — не взведён.
+    approach: Option<Approach>,
+    /// Сколько подходов у уровня уже кончилось (растёт как `touch_index`).
+    approach_index: u32,
+    /// Лучшая цена другой стороны уходила за `2 × D` после последнего снятия
+    /// — уровень может взводиться снова. У новорождённого `true`.
+    approach_clear: bool,
     /// Кольцо выборок силы: метки и значения (`e2`, `-1` — не определена).
     sh_ts: [i64; STRENGTH_HIST_SLOTS],
     sh_e2: [i64; STRENGTH_HIST_SLOTS],
@@ -838,6 +1020,13 @@ pub struct LevelTracker {
     /// Буфер касаний для `observe_frame` без выхода касаний: те же события
     /// считаются, записи отбрасываются, ёмкость переиспользуется.
     touch_scratch: Vec<TouchRecord>,
+    /// Буфер подходов для `observe_frame_with_touches` (F1): записи
+    /// отбрасываются, ёмкость переиспользуется.
+    approach_scratch: Vec<ApproachRecord>,
+    /// Лучшая цена каждой стороны из последнего её кадра (`side_key`): сигналу
+    /// подхода нужна лучшая цена **другой** стороны, а кадры приходят по одной
+    /// стороне. `None` — сторона ещё не наблюдалась.
+    best_tick: [Option<i64>; 2],
     /// Рабочие буферы силы «×соседи» (`strength_flags`).
     strength_ok: Vec<bool>,
     strength_prefix: Vec<i64>,
@@ -884,6 +1073,120 @@ fn touch_record(
     }
 }
 
+/// Расстояние в bps по цене уровня: `gap × 10⁴ / tick` — тот же расчёт, что
+/// `dist_bps` ёмкости (`fill_capacity`); цена неположительна — ноль,
+/// арифметика тотальна.
+fn gap_bps(gap: i64, tick: i64) -> i64 {
+    if tick <= 0 {
+        return 0;
+    }
+    let v = i128::from(gap) * BPS_PER_UNIT / i128::from(tick);
+    i64::try_from(v).unwrap_or(i64::MAX)
+}
+
+/// Запись подхода из состояния уровня и снятого взвода.
+fn approach_record(
+    key: (u8, i64),
+    lv: &Live,
+    a: Approach,
+    disarm_ms: i64,
+    touch_start_ms: Option<i64>,
+    reason: ApproachEnd,
+) -> ApproachRecord {
+    ApproachRecord {
+        side: side_of(key),
+        price_tick: key.1,
+        approach_index: lv.approach_index,
+        arm_ms: a.arm_ms,
+        arm_dist_bps: a.arm_dist_bps,
+        level_birth_ms: lv.birth_ms,
+        size_at_arm: a.size_at_arm,
+        best_own_tick: a.best_own_tick,
+        best_opp_tick: a.best_opp_tick,
+        flow_1h_lots: a.flow_1h_lots,
+        strength_e2: a.strength_e2,
+        touch_start_ms,
+        disarm_ms,
+        disarm_reason: reason,
+    }
+}
+
+/// Правило взвода и снятия подхода (F1) по одному кадру уровня.
+///
+/// - **Взвод** — уровень жив, не лучший на своей стороне (цена ещё не дошла),
+///   держит порог В-66 (`holds`, тот же, что у касания), возраст не меньше
+///   `min_age_ms`, лучшая цена другой стороны впервые вошла в полосу `d_bps`
+///   (`tick_diff × 10⁴ ≤ d × tick`, целочисленно) и после прошлого снятия
+///   цена успела уйти за `2 × d`. Числа `d` и `min_age_ms` — конфигурация
+///   замера, не константа кода.
+/// - **Снятие**: касание (уровень стал лучшим — это первый такой кадр после
+///   взвода), уход цены за `2 × d` (гистерезис: без него цена на границе
+///   полосы взводила бы подход каждый кадр), смерть уровня — в свипе
+///   (`ApproachEnd::LevelDeath`), здесь не видна.
+/// - Записи уровня прогрева считаются (индекс растёт), но не эмитируются
+///   (`emit = false`) — как у касаний.
+fn observe_approach(
+    lv: &mut Live,
+    cfg: (i64, i64),
+    s: u8,
+    holds: bool,
+    f: ApproachFrame,
+    emit: bool,
+    out: &mut Vec<ApproachRecord>,
+) {
+    let (d_bps, min_age_ms) = cfg;
+    let key = (s, f.tick);
+    // Знаковое расстояние от уровня до чужой лучшей цены: у бида чужая цена
+    // выше (положительно), у аска — ниже.
+    let gap = if s == side_key(Side::Bid) {
+        f.best_opp_tick - f.tick
+    } else {
+        f.tick - f.best_opp_tick
+    };
+    let scaled = i128::from(gap) * BPS_PER_UNIT;
+    let near = scaled <= i128::from(d_bps) * i128::from(f.tick);
+    let far = scaled > i128::from(d_bps.saturating_mul(2)) * i128::from(f.tick);
+    if let Some(a) = lv.approach {
+        // Касание (уровень стал лучшим) и уход цены — снятие; смерть уровня
+        // снимает подход в свипе.
+        if f.best || far {
+            let (reason, touch_start_ms) = if f.best {
+                (ApproachEnd::Touch, Some(f.ts_ms))
+            } else {
+                (ApproachEnd::PriceLeft, None)
+            };
+            let rec = approach_record(key, lv, a, f.ts_ms, touch_start_ms, reason);
+            lv.approach = None;
+            lv.approach_index = lv.approach_index.saturating_add(1);
+            if emit {
+                out.push(rec);
+            }
+            // Снова взводиться можно только после ухода цены за `2 × d`:
+            // снятие касанием такого ухода не даёт.
+            lv.approach_clear = far;
+        }
+        return;
+    }
+    if far {
+        lv.approach_clear = true;
+    }
+    if !near || !lv.approach_clear || f.best || !holds {
+        return;
+    }
+    if f.ts_ms.saturating_sub(lv.birth_ms) < min_age_ms {
+        return;
+    }
+    lv.approach = Some(Approach {
+        arm_ms: f.ts_ms,
+        arm_dist_bps: gap_bps(gap, f.tick),
+        size_at_arm: f.size_lots,
+        best_own_tick: f.best_own_tick,
+        best_opp_tick: f.best_opp_tick,
+        flow_1h_lots: f.flow_1h_lots,
+        strength_e2: f.strength_e2,
+    });
+}
+
 fn side_key(side: Side) -> u8 {
     match side {
         Side::Bid => 0,
@@ -921,6 +1224,14 @@ impl LevelTracker {
             cfg.repeat_window_ms > 0,
             "окно repeat_count обязано быть положительно"
         );
+        assert!(
+            cfg.approach_bps.is_none_or(|d| d > 0),
+            "полоса подхода обязана быть положительна"
+        );
+        assert!(
+            cfg.approach_min_age_ms >= 0,
+            "возраст взвода не может быть отрицателен"
+        );
         Self {
             cfg,
             live: BTreeMap::new(),
@@ -929,6 +1240,8 @@ impl LevelTracker {
             sweep: Vec::with_capacity(8),
             touched: Vec::with_capacity(8),
             touch_scratch: Vec::with_capacity(8),
+            approach_scratch: Vec::with_capacity(8),
+            best_tick: [None; 2],
             strength_ok: Vec::with_capacity(64),
             strength_prefix: Vec::with_capacity(65),
             start_ms: None,
@@ -1004,7 +1317,9 @@ impl LevelTracker {
     /// (порядок — документация модуля, «Касания»); ёмкость обоих — забота
     /// вызывающего, трекер её не растит сам и в горячем пути не аллоцирует.
     /// Кадр идёт от лучшей цены вглубь (`Book::levels`): наблюдение с
-    /// индексом 0 — лучшая цена стороны.
+    /// индексом 0 — лучшая цена стороны. Записи подхода считаются
+    /// (`cfg.approach_bps`), но отбрасываются: читатель подходов —
+    /// `observe_frame_with_approaches`.
     pub fn observe_frame_with_touches(
         &mut self,
         ts_ms: i64,
@@ -1012,6 +1327,25 @@ impl LevelTracker {
         levels: &[LevelObs],
         out: &mut Vec<LevelRecord>,
         touches: &mut Vec<TouchRecord>,
+    ) {
+        let mut scratch = std::mem::take(&mut self.approach_scratch);
+        scratch.clear();
+        self.observe_frame_with_approaches(ts_ms, side, levels, out, touches, &mut scratch);
+        self.approach_scratch = scratch;
+    }
+
+    /// То же плюс записи подхода (F1) в `approaches`. Порядок выдачи
+    /// детерминирован: снятия по касанию и уходу цены — в порядке кадра,
+    /// затем снятия смертью уровня — в порядке `(сторона, тик)` вместе с его
+    /// смертью (перед записью оборванного смертью касания).
+    pub fn observe_frame_with_approaches(
+        &mut self,
+        ts_ms: i64,
+        side: Side,
+        levels: &[LevelObs],
+        out: &mut Vec<LevelRecord>,
+        touches: &mut Vec<TouchRecord>,
+        approaches: &mut Vec<ApproachRecord>,
     ) {
         // Оборот за час к этому кадру — один раз на кадр, для касаний, начавшихся в нём.
         let flow_1h = self.flow_1h_lots(ts_ms);
@@ -1022,6 +1356,12 @@ impl LevelTracker {
         let frame = self.frame;
         let mode = self.cfg.mode;
         let window = self.cfg.repeat_window_ms;
+        // Граница прогрева: рождения строго раньше не эмитируются — ни
+        // смертью, ни касанием, ни подходом (индексы при этом растут).
+        let warm_end = self
+            .start_ms
+            .unwrap_or(ts_ms)
+            .saturating_add(self.effective_warmup_ms());
         strength_flags(
             mode,
             levels,
@@ -1029,6 +1369,13 @@ impl LevelTracker {
             &mut self.strength_prefix,
         );
         let s = side_key(side);
+        // Лучшая цена этой стороны в этом кадре — и последняя известная лучшая
+        // цена другой стороны: полосе подхода нужна именно чужая цена (F1).
+        let best_own = levels.first().map(|o| o.tick);
+        let best_opp = self.best_tick[1 - s as usize];
+        self.best_tick[s as usize] = best_own;
+        let approach_d = self.cfg.approach_bps;
+        let approach_min_age_ms = self.cfg.approach_min_age_ms;
 
         self.newborns.clear();
         self.touched.clear();
@@ -1132,6 +1479,47 @@ impl LevelTracker {
                         }
                         (None, false, _) | (Some(_), _, true) => {}
                     }
+                    // Сигнал подхода (F1): взвод и снятие по кадру. Умерший в
+                    // этом кадре уровень не трогается — снятие смертью
+                    // эмитится свипом. При `approach_bps = None` блока нет
+                    // вовсе: ни состояния, ни записей.
+                    if let Some(d_bps) = approach_d {
+                        let dying = !ob.in_top50 || below_fraction(ob.size_lots, lv.max);
+                        if !dying {
+                            if let Some(best_opp_tick) = best_opp {
+                                let strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()] =
+                                    std::array::from_fn(|k| {
+                                        neighbour_strength_e2(
+                                            levels,
+                                            &self.strength_prefix,
+                                            i,
+                                            STRENGTH_WINDOWS_BPS[k] * 100,
+                                        )
+                                    });
+                                let holds = mode
+                                    .holds_at_size(ob.tick, ob.size_lots, &strength_e2)
+                                    .unwrap_or(false);
+                                observe_approach(
+                                    lv,
+                                    (d_bps, approach_min_age_ms),
+                                    s,
+                                    holds,
+                                    ApproachFrame {
+                                        ts_ms,
+                                        tick: ob.tick,
+                                        size_lots: ob.size_lots,
+                                        best,
+                                        best_own_tick: best_own.unwrap_or(ob.tick),
+                                        best_opp_tick,
+                                        flow_1h_lots: flow_1h,
+                                        strength_e2,
+                                    },
+                                    lv.birth_ms >= warm_end,
+                                    approaches,
+                                );
+                            }
+                        }
+                    }
                 }
                 None => {
                     if ob.in_top50 && strong && mode.passes_birth(ob.tick, ob.size_lots) {
@@ -1160,6 +1548,9 @@ impl LevelTracker {
                                 was_best: best,
                                 touch_index: 0,
                                 touch: None,
+                                approach: None,
+                                approach_index: 0,
+                                approach_clear: true,
                                 sh_ts: [0; STRENGTH_HIST_SLOTS],
                                 sh_e2: [-1; STRENGTH_HIST_SLOTS],
                                 sh_len: 0,
@@ -1232,10 +1623,6 @@ impl LevelTracker {
         }
         let newborns = &self.newborns;
         let touched = &self.touched;
-        let warm_end = self
-            .start_ms
-            .unwrap_or(ts_ms)
-            .saturating_add(self.effective_warmup_ms());
         let live = &mut self.live;
         for (ks, tick) in self.sweep.drain(..) {
             // Ключ только что найден в свипе, который построен обходом `live`
@@ -1249,6 +1636,18 @@ impl LevelTracker {
             };
             if lv.birth_ms < warm_end {
                 continue;
+            }
+            // Подход, не дождавшийся цены, снимается смертью уровня — перед
+            // записью оборванного смертью касания.
+            if let Some(a) = lv.approach {
+                approaches.push(approach_record(
+                    (ks, tick),
+                    &lv,
+                    a,
+                    ts_ms,
+                    None,
+                    ApproachEnd::LevelDeath,
+                ));
             }
             // Касание, оборванное смертью, идёт перед самой смертью: у
             // начавшегося в этом кадре «завал» — по свипу этого же кадра

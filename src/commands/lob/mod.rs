@@ -352,9 +352,14 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Touches(args) => {
             let summary = run_touches(&args)?;
             println!(
-                "touches: days={} touches={} out={}",
+                "touches: days={} touches={} approaches={}{} out={}",
                 summary.days,
                 summary.touches,
+                summary.approaches,
+                match &summary.approaches_out {
+                    Some(p) => format!(" approaches_out={}", p.display()),
+                    None => String::new(),
+                },
                 summary.out.display()
             );
             Ok(())

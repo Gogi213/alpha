@@ -10,7 +10,8 @@ use crate::book::{Book, Side};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
 use crate::lob::levels::{
-    LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord, TradeHit,
+    ApproachRecord, LevelObs, LevelRecord, LevelTracker, LevelsConfig, LiveLevel, TouchRecord,
+    TradeHit,
 };
 use crate::lob::markout::MidSample;
 use crate::lob::sigma::thin_mids_tail_to_second_boundaries;
@@ -24,11 +25,13 @@ use super::parts::{day_of_filename, list_symbol_binlogs};
 // ---------------------------------------------------------------------------
 
 /// Одни сутки UTC после реплея: записи уровней, касания живых уровней
-/// (таск 35) и срезы середины.
+/// (таск 35), записи подхода (F1 этапа F — пусто, если `cfg.approach_bps`
+/// не задан) и срезы середины.
 pub(crate) struct ReplayDay {
     pub(crate) day: String,
     pub(crate) records: Vec<LevelRecord>,
     pub(crate) touches: Vec<TouchRecord>,
+    pub(crate) approaches: Vec<ApproachRecord>,
     pub(crate) mids: Vec<MidSample>,
 }
 
@@ -57,6 +60,7 @@ struct DayWork {
     day: String,
     records: Vec<Vec<LevelRecord>>,
     touches: Vec<Vec<TouchRecord>>,
+    approaches: Vec<Vec<ApproachRecord>>,
     mids: Vec<MidSample>,
     trackers: Vec<LevelTracker>,
 }
@@ -170,14 +174,15 @@ pub(crate) fn feed_frames(
 /// сторон плюс общим срезом середины (таск 18: `LevelObs` не зависит от
 /// порога `H3`, поэтому строится один раз на кадр и раздаётся всем
 /// трекерам — не по разу на конфигурацию). Касания (таск 35) — в
-/// `touches`, по вектору на конфигурацию, как `out`. Вызывается только
-/// после успешного `apply`.
+/// `touches`, записи подхода (F1) — в `approaches`, по вектору на
+/// конфигурацию, как `out`. Вызывается только после успешного `apply`.
 fn feed_frames_multi(
     book: &Book,
     trackers: &mut [LevelTracker],
     ts_ms: i64,
     out: &mut [Vec<LevelRecord>],
     touches: &mut [Vec<TouchRecord>],
+    approaches: &mut [Vec<ApproachRecord>],
     mids: &mut Vec<MidSample>,
 ) {
     debug_assert_eq!(
@@ -190,6 +195,11 @@ fn feed_frames_multi(
         touches.len(),
         "трекер и выход касаний обязаны идти парой"
     );
+    debug_assert_eq!(
+        trackers.len(),
+        approaches.len(),
+        "трекер и выход подходов обязаны идти парой"
+    );
     for side in [Side::Bid, Side::Ask] {
         let obs: Vec<LevelObs> = book
             .levels(side)
@@ -200,12 +210,13 @@ fn feed_frames_multi(
                 in_top50: i < 50,
             })
             .collect();
-        for ((tracker, out), touches) in trackers
+        for (((tracker, out), touches), approaches) in trackers
             .iter_mut()
             .zip(out.iter_mut())
             .zip(touches.iter_mut())
+            .zip(approaches.iter_mut())
         {
-            tracker.observe_frame_with_touches(ts_ms, side, &obs, out, touches);
+            tracker.observe_frame_with_approaches(ts_ms, side, &obs, out, touches, approaches);
         }
     }
     if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
@@ -315,6 +326,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
                 day,
                 records: cfgs.iter().map(|_| Vec::new()).collect(),
                 touches: cfgs.iter().map(|_| Vec::new()).collect(),
+                approaches: cfgs.iter().map(|_| Vec::new()).collect(),
                 mids: Vec::new(),
                 trackers: cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
             });
@@ -360,6 +372,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
                         up.cts_ms,
                         &mut entry.records,
                         &mut entry.touches,
+                        &mut entry.approaches,
                         &mut entry.mids,
                     );
                     entry.trim(keep);
@@ -390,6 +403,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
                     up.cts_ms,
                     &mut entry.records,
                     &mut entry.touches,
+                    &mut entry.approaches,
                     &mut entry.mids,
                 );
                 entry.trim(keep);
@@ -409,11 +423,18 @@ pub(crate) fn replay_symbol_over_configs_keep(
                 tracker.live_levels(&mut s.open);
             }
         }
-        for (i, (records, touches)) in w.records.into_iter().zip(w.touches).enumerate() {
+        for (i, ((records, touches), approaches)) in w
+            .records
+            .into_iter()
+            .zip(w.touches)
+            .zip(w.approaches)
+            .enumerate()
+        {
             out[i].days.push(ReplayDay {
                 day: w.day.clone(),
                 records,
                 touches,
+                approaches,
                 mids: w.mids.clone(),
             });
         }

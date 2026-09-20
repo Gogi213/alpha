@@ -372,6 +372,8 @@ pub fn run_touch_profiles(args: &TouchProfilesArgs) -> anyhow::Result<TouchProfi
             mode,
             warmup_ms: args.warmup_ms,
             repeat_window_ms: args.repeat_window_ms,
+            approach_bps: None,
+            approach_min_age_ms: 0,
         };
         for dir in &dirs {
             // Не сессия этого символа (нет `session.json` или файлов) —

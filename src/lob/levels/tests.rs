@@ -10,6 +10,8 @@ fn cfg() -> LevelsConfig {
         mode: H3Mode::Percentile { h3_lots: H3 },
         warmup_ms: 0,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     }
 }
 
@@ -21,6 +23,8 @@ fn cfg_floor() -> LevelsConfig {
         mode: H3Mode::Floor { h3_lots: H3 },
         warmup_ms: HOUR_MS,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     }
 }
 
@@ -256,6 +260,8 @@ fn floor_mode_ignores_warmup_percentile_mode_respects_it() {
         mode: H3Mode::Percentile { h3_lots: H3 },
         warmup_ms: HOUR_MS,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let percentile_out = replay_four_known_levels(percentile_cfg);
     assert!(
@@ -273,6 +279,8 @@ fn warmup_births_are_tracked_but_not_emitted() {
         mode: H3Mode::Percentile { h3_lots: H3 },
         warmup_ms: HOUR_MS,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let mut tr = LevelTracker::new(cfg);
     let mut out = Vec::with_capacity(8);
@@ -605,6 +613,8 @@ fn cfg_touch() -> LevelsConfig {
         mode: H3Mode::Percentile { h3_lots: 5 },
         warmup_ms: 0,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     }
 }
 
@@ -861,6 +871,8 @@ fn warmup_touches_are_tracked_but_not_emitted() {
         mode: H3Mode::Percentile { h3_lots: 5 },
         warmup_ms: 5000,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     });
     let mut out = Vec::with_capacity(16);
     let mut touches = Vec::with_capacity(16);
@@ -1234,6 +1246,8 @@ fn notional_mode_births_by_price_times_size() {
         mode,
         warmup_ms: HOUR_MS,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let mut out = Vec::new();
     let mut tr = LevelTracker::new(cfg);
@@ -1260,6 +1274,8 @@ fn strength_mode_compares_a_level_with_its_neighbours() {
         mode,
         warmup_ms: 0,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let mut out = Vec::new();
     // Бид 10000×100 против соседей 9990×10 и 9985×10: 100/10 = 1000 % — рождается;
@@ -1318,6 +1334,8 @@ fn both_mode_requires_notional_and_strength_together() {
         mode: both,
         warmup_ms: 0,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let mut out = Vec::new();
     // Цена 10000, размер 100: $1 000 000 ≥ $100 и 1000 % силы — рождается.
@@ -1369,6 +1387,8 @@ fn strength_history_keeps_the_minimum_over_the_window() {
         mode: H3Mode::Floor { h3_lots: 1 },
         warmup_ms: 0,
         repeat_window_ms: HOUR_MS,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let mut tr = LevelTracker::new(cfg);
     let mut out = Vec::new();
@@ -1442,4 +1462,559 @@ fn threshold_is_rechecked_at_touch_time() {
     let floor = H3Mode::Floor { h3_lots: 5 };
     t.size_at_touch = 12;
     assert_eq!(floor.holds_at_touch(&t), Some(true));
+}
+
+// ---------------------------------------------------------------------------
+// Подход (F1 этапа F, В-73): взвод «на подходе» и снятие.
+// ---------------------------------------------------------------------------
+
+/// Конфиг сигнала подхода: порог `H3 = 5` (как у касаний), полоса `d` bps,
+/// пол возраста взвода `min_age_ms`.
+fn cfg_approach(d: i64, min_age_ms: i64) -> LevelsConfig {
+    LevelsConfig {
+        mode: H3Mode::Floor { h3_lots: 5 },
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+        approach_bps: Some(d),
+        approach_min_age_ms: min_age_ms,
+    }
+}
+
+/// Кадр одной стороны с выходом подходов — как `feed_frames`: бид, затем аск.
+fn frame(
+    tr: &mut LevelTracker,
+    ts_ms: i64,
+    side: Side,
+    levels: &[LevelObs],
+    out: &mut Vec<LevelRecord>,
+    touches: &mut Vec<TouchRecord>,
+    ap: &mut Vec<ApproachRecord>,
+) {
+    tr.observe_frame_with_approaches(ts_ms, side, levels, out, touches, ap);
+}
+
+/// Фикстура подхода: бид-стена 10 000 (10 лотов) за лучшим бидом 10 020
+/// (3 лота — не уровень), аск то 10 060 (60 bps от стены), то 10 015 (15 bps).
+/// Сторона кадра смотрит на **чужую** лучшую цену: бид-кадр видит аск
+/// прошлого кадра.
+const WALL: [LevelObs; 2] = [
+    LevelObs {
+        tick: 10020,
+        size_lots: 3,
+        in_top50: true,
+    },
+    LevelObs {
+        tick: 10000,
+        size_lots: 10,
+        in_top50: true,
+    },
+];
+
+/// Взвод при входе в полосу и снятие касанием (F1, критерий приёмки):
+/// цена аска 60 bps — вне полосы 20; 15 bps — взвод (возраст 2 с ≥ 500 мс);
+/// стена стала лучшей ценой — подход снят касанием с `touch_start_ms`.
+#[test]
+fn approach_arms_within_the_band_and_disarms_on_touch() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(ap.is_empty(), "60 bps — вне полосы");
+    // Аск подошёл на 15 bps; на следующем бид-кадре — взвод (записи ещё нет).
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(ap.is_empty(), "взвод — не запись; запись на снятии");
+    // 10 020 исчез — стена стала лучшей ценой: касание и снятие подхода.
+    frame(
+        &mut tr,
+        4000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(
+        ap,
+        vec![ApproachRecord {
+            side: Side::Bid,
+            price_tick: 10000,
+            approach_index: 0,
+            arm_ms: 3000,
+            arm_dist_bps: 15,
+            level_birth_ms: 1000,
+            size_at_arm: 10,
+            best_own_tick: 10020,
+            best_opp_tick: 10015,
+            flow_1h_lots: 0,
+            // Кадр взвода: сосед 10 020 (3 лота) входит в ±20 и ±50 bps,
+            // в ±10 bps (10 тиков) — нет.
+            strength_e2: [-1, 33_333, 33_333],
+            touch_start_ms: Some(4000),
+            disarm_ms: 4000,
+            disarm_reason: ApproachEnd::Touch,
+        }]
+    );
+    assert_eq!(ap[0].age_ms(), 2000);
+    assert_eq!(ap[0].duration_ms(), 1000);
+    assert!(touches.is_empty(), "касание идёт — записи ещё нет");
+    assert!(out.is_empty());
+}
+
+/// Снятие уходом цены за `2 × D` и повторный взвод: 60 bps > 40 — снятие
+/// (без касания), 15 bps после ухода — новый взвод с индексом 1.
+#[test]
+fn approach_disarms_when_price_leaves_and_arms_again() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 0));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    // Аск вернулся на 60 bps: бид-кадр 5000 видит уход — снятие по цене.
+    frame(
+        &mut tr,
+        4000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        5000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(ap[0].disarm_reason, ApproachEnd::PriceLeft);
+    assert_eq!(ap[0].disarm_ms, 5000);
+    assert_eq!(ap[0].touch_start_ms, None);
+    assert_eq!(ap[0].approach_index, 0);
+    assert_eq!(ap[0].duration_ms(), 2000);
+    // Снова подошёл — взвод с индексом 1; стена стала лучшей — снятие касанием.
+    frame(
+        &mut tr,
+        6000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        7000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        8000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 2, "{ap:?}");
+    assert_eq!(ap[1].approach_index, 1);
+    assert_eq!(ap[1].arm_ms, 7000);
+    assert_eq!(ap[1].disarm_reason, ApproachEnd::Touch);
+    assert_eq!(ap[1].disarm_ms, 8000);
+}
+
+/// Смерть уровня снимает взведённый подход (`LevelDeath`), и только тогда:
+/// пока стена жива и цена в полосе, записи нет.
+#[test]
+fn approach_disarms_on_level_death() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 0));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(ap.is_empty());
+    // Размер стены упал до 1 лота (< 20 % от 10) — смерть: подход снят ею.
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &[ob(10020, 3), ob(10000, 1)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(out.len(), 1, "смерть уровня записана");
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(ap[0].disarm_reason, ApproachEnd::LevelDeath);
+    assert_eq!(ap[0].disarm_ms, 3000);
+    assert_eq!(ap[0].arm_ms, 2000);
+    assert_eq!(ap[0].touch_start_ms, None);
+}
+
+/// Пол возраста (В-71) держит взвод: при `min_age = 5 с` подход не взводится
+/// в 3 с (возраст 2 с) и взводится в 6 с (возраст 5 с).
+#[test]
+fn approach_waits_for_the_age_floor() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 5_000));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    for ts in [2000, 3000, 4000, 5000] {
+        frame(
+            &mut tr,
+            ts,
+            Side::Bid,
+            &WALL,
+            &mut out,
+            &mut touches,
+            &mut ap,
+        );
+    }
+    assert!(ap.is_empty(), "возраст меньше пола — взвода нет");
+    frame(
+        &mut tr,
+        6000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        7000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(ap[0].arm_ms, 6000, "взвод на кадре возраста 5 с");
+    assert_eq!(ap[0].disarm_reason, ApproachEnd::Touch);
+}
+
+/// Пока стена — лучшая цена своей стороны, подход не взводится (В-73: «в
+/// упор» вход не ставим): цена уже дошла, это касание, а не подход.
+#[test]
+fn approach_does_not_arm_while_the_wall_is_best() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 0));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    // Стена сразу лучший бид (родилась лучшей — не касание по В-43).
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &[ob(10000, 10), ob(9990, 2)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    for ts in [2000, 3000, 4000] {
+        frame(
+            &mut tr,
+            ts,
+            Side::Bid,
+            &[ob(10000, 10), ob(9990, 2)],
+            &mut out,
+            &mut touches,
+            &mut ap,
+        );
+    }
+    assert!(ap.is_empty(), "стена лучшая — подхода нет");
+    // Ушла с лучшей цены к 10 020 — взвод возможен уже здесь.
+    frame(
+        &mut tr,
+        5000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        6000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(ap[0].arm_ms, 5000);
+}
+
+/// Гейт F1: без `approach_bps` записи подходов прежние, а записи уровней и
+/// касания при включённом сигнале — те же байты (состояние подхода их не
+/// трогает).
+#[test]
+fn approaches_do_not_change_levels_and_touches() {
+    let script: [(i64, Side, &[LevelObs]); 8] = [
+        (1000, Side::Bid, &WALL),
+        (1000, Side::Ask, &[ob(10060, 4)]),
+        (2000, Side::Ask, &[ob(10015, 4)]),
+        (3000, Side::Bid, &WALL),
+        (4000, Side::Bid, &[ob(10000, 10)]),
+        (5000, Side::Bid, &WALL),
+        (6000, Side::Ask, &[ob(10060, 4)]),
+        (7000, Side::Bid, &[ob(10020, 3), ob(10000, 1)]),
+    ];
+    let run = |cfg: LevelsConfig| {
+        let mut tr = LevelTracker::new(cfg);
+        let mut out = Vec::new();
+        let mut touches = Vec::new();
+        let mut ap = Vec::new();
+        for &(ts, side, levels) in script.iter() {
+            frame(&mut tr, ts, side, levels, &mut out, &mut touches, &mut ap);
+        }
+        (out, touches, ap)
+    };
+    let (out_off, touches_off, ap_off) = run(cfg_touch());
+    let (out_on, touches_on, ap_on) = run(cfg_approach(20, 0));
+    assert_eq!(out_off, out_on, "записи уровней не меняются");
+    assert_eq!(touches_off, touches_on, "касания не меняются");
+    assert!(ap_off.is_empty(), "без флага записей подхода нет");
+    assert!(!ap_on.is_empty(), "с флагом — есть");
+}
+
+/// Порог В-66 у подхода — тот же, что у касания: слабый «×соседи» уровень не
+/// взводится, сильный взводится; окно порога не из оси — взвода нет.
+#[test]
+fn approach_holds_the_same_strength_gate_as_touch() {
+    // Стена 10 лотов, сосед 1 лот в ±20 bps: сила 1000 %. Порог 200 % — ок.
+    let weak_neighbour = [ob(10020, 1), ob(10000, 10)];
+    let strong_gate = LevelsConfig {
+        mode: H3Mode::Strength {
+            pct_e2: 20_000,
+            window_bps_e2: 2_000,
+        },
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+        approach_bps: Some(20),
+        approach_min_age_ms: 0,
+    };
+    let mut tr = LevelTracker::new(strong_gate);
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &weak_neighbour,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Bid,
+        &weak_neighbour,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1, "{ap:?}");
+    assert_eq!(ap[0].disarm_reason, ApproachEnd::Touch);
+    // Окно порога 15 bps не из оси `STRENGTH_WINDOWS_BPS` — взвода нет.
+    let odd_gate = LevelsConfig {
+        mode: H3Mode::Strength {
+            pct_e2: 20_000,
+            window_bps_e2: 1_500,
+        },
+        warmup_ms: 0,
+        repeat_window_ms: HOUR_MS,
+        approach_bps: Some(20),
+        approach_min_age_ms: 0,
+    };
+    let mut tr = LevelTracker::new(odd_gate);
+    let mut ap = Vec::with_capacity(16);
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &weak_neighbour,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Bid,
+        &weak_neighbour,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(ap.is_empty(), "порог не проверить — взвода нет");
 }

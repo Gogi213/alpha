@@ -105,11 +105,15 @@ fn replay_symbol_over_configs_matches_single_config_replay_per_threshold() {
         mode: H3Mode::Floor { h3_lots: 1 },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let cfg_high = LevelsConfig {
         mode: H3Mode::Floor { h3_lots: 9 },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let multi = replay_symbol_over_configs(dir.path(), "SOLUSDT", &[cfg_low, cfg_high]).unwrap();
     let single_low = replay_symbol(dir.path(), "SOLUSDT", cfg_low).unwrap();
@@ -144,6 +148,8 @@ fn undated_symbol_binlog_fails_with_an_explicit_rename_message_not_silent_no_fil
         mode: H3Mode::Floor { h3_lots: 1 },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let err = match replay_symbol(dir.path(), "SOLUSDT", cfg) {
         Ok(_) => panic!("файл без даты обязан провалить реплей"),
@@ -166,6 +172,8 @@ fn missing_symbol_files_still_get_the_generic_no_daily_files_message() {
         mode: H3Mode::Floor { h3_lots: 1 },
         warmup_ms: 0,
         repeat_window_ms: 3_600_000,
+        approach_bps: None,
+        approach_min_age_ms: 0,
     };
     let err = match replay_symbol(dir.path(), "SOLUSDT", cfg) {
         Ok(_) => panic!("пустой каталог обязан провалить реплей"),
