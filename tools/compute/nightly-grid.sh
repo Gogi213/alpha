@@ -82,6 +82,13 @@ USD="--h3-mode notional --h3-usd 10000"
 APPROACH="--approach-bps ${APPROACH_BPS:-20} --approach-min-age-secs ${APPROACH_MIN_AGE_S:-900}"
 # Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
 GRID="--touches-from study/touches --regime-from study/regime"
+# Модель очереди F3: у `bounce-grid` флаг `--queue-model` **обязательный**, умолчания
+# в коде нет. Ночь идёт через `run-grid.sh`, который подставляет `risk-adverse`, —
+# здесь то же значение ставится явно и экспортируется: иначе ночь упадёт, если
+# умолчание в скрипте когда-нибудь поменяют. Наборы F10 с моделью по объёму
+# включаются `QUEUE_MODEL=prob:<n>` (число — предрегистрация).
+QUEUE_MODEL="${QUEUE_MODEL:-risk-adverse}"
+export QUEUE_MODEL
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.
