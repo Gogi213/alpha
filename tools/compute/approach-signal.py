@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Свод подходов (F1 этапа F): читает `study/approaches/D<D>/<сутки>/approaches-*.csv`
-и печатает таблицу замера полосы `D` — подходов на сутки, доля дошедших до
-касания, время от взвода до снятия, причины снятия и расстояние взвода.
+и печатает замер полосы `D` — подходов на сутки, доля дошедших до касания,
+время от взвода до снятия, причины снятия и расстояние взвода, **отдельно по
+полам возраста В-71** (любой / ≥ 15 мин / ≥ 45 мин): без пола подход ловит
+любой уровень в полосе `D` от чужой лучшей цены, и это видно по числам.
 
 Только чтение; ничего не пишет. Числа — для `docs/findings/approach-signal-*`.
 """
@@ -11,6 +13,9 @@ import os
 import statistics as st
 import sys
 
+# Полы возраста (В-71 — 15 мин; 45 мин — семья «старых стен» из floors-balance).
+FLOORS = [(0, "любой"), (900_000, "≥15 мин"), (2_700_000, "≥45 мин")]
+
 
 def quant(sorted_vals, q):
     if not sorted_vals:
@@ -19,71 +24,84 @@ def quant(sorted_vals, q):
     return sorted_vals[i]
 
 
-def read_dir(path):
-    """Все строки approaches-*.csv каталога суток: (symbol, row)."""
-    out = []
-    for f in sorted(glob.glob(os.path.join(path, "approaches-*.csv"))):
-        sym = os.path.basename(f)[len("approaches-"):-len(".csv")]
-        with open(f, newline="") as fh:
-            for row in csv.DictReader(fh):
-                out.append((sym, row))
-    return out
-
-
 def fmt(v, nd=0):
-    if v is None:
-        return "—"
-    return f"{v:.{nd}f}"
+    return "—" if v is None else f"{v:.{nd}f}"
 
 
-def main(dirs):
-    for d in dirs:
-        base = d.rstrip("/")
-        label = os.path.basename(base)
-        total = 0
-        days = sorted(x for x in os.listdir(base) if os.path.isdir(os.path.join(base, x)))
-        per_day = []
-        touch_all, dist_all, dur_touch, dur_death, dur_left = [], [], [], [], []
-        reasons = {"touch": 0, "level_death": 0, "price_left": 0}
-        arms = 0
-        for day in days:
-            rows = read_dir(os.path.join(base, day))
-            per_day.append((day, len(rows)))
-            total += len(rows)
-            for _, r in rows:
-                arms += 1
-                dist_all.append(int(r["arm_dist_bps"]))
-                reason = r["disarm_reason"]
-                reasons[reason] = reasons.get(reason, 0) + 1
-                if r["touch_start_ms"]:
-                    touch_all.append(0)
-                    dur_touch.append(int(r["disarm_ms"]) - int(r["arm_ms"]))
-                else:
-                    touch_all.append(1)
-                    (dur_death if reason == "level_death" else dur_left).append(
-                        int(r["disarm_ms"]) - int(r["arm_ms"]))
-        if arms == 0:
-            print(f"== {label}: подходов нет")
+class Acc:
+    def __init__(self):
+        self.n = 0
+        self.bid = 0
+        self.touch = 0
+        self.death = 0
+        self.left = 0
+        self.dist = []
+        self.dur_touch = []
+        self.dur_death = []
+        self.dur_left = []
+
+    def add(self, side, dist, dur, reason, touched):
+        self.n += 1
+        self.bid += side == "bid"
+        self.dist.append(dist)
+        if touched:
+            self.touch += 1
+            self.dur_touch.append(dur)
+        elif reason == "level_death":
+            self.death += 1
+            self.dur_death.append(dur)
+        else:
+            self.left += 1
+            self.dur_left.append(dur)
+
+
+def read_dir(path, accs):
+    """Один проход по файлам суток: колонки — по именам шапки."""
+    for f in sorted(glob.glob(os.path.join(path, "approaches-*.csv"))):
+        with open(f, newline="") as fh:
+            r = csv.reader(fh)
+            head = next(r)
+            i_side, i_age = head.index("side"), head.index("age_ms")
+            i_dist, i_arm = head.index("arm_dist_bps"), head.index("arm_ms")
+            i_dis, i_tch = head.index("disarm_ms"), head.index("touch_start_ms")
+            i_rs = head.index("disarm_reason")
+            for row in r:
+                age, dist = int(row[i_age]), int(row[i_dist])
+                dur = int(row[i_dis]) - int(row[i_arm])
+                touched = row[i_tch] != ""
+                for floor, acc in accs:
+                    if age >= floor:
+                        acc.add(row[i_side], dist, dur, row[i_rs], touched)
+
+
+def report(base):
+    days = sorted(x for x in os.listdir(base) if os.path.isdir(os.path.join(base, x)))
+    per_day, per_day_floor = [], None
+    accs = [(floor, Acc()) for floor, _ in FLOORS]
+    for day in days:
+        acc_before = [a.n for _, a in accs]
+        read_dir(os.path.join(base, day), accs)
+        per_day.append((day, accs[0][1].n - acc_before[0]))
+    label = os.path.basename(base)
+    total = accs[0][1].n
+    per_day_floor = accs
+    print(f"== {label}: подходов всего {total}, суток {len(days)}, монет {len(days) and len(glob.glob(os.path.join(base, days[0], 'approaches-*.csv')))}")
+    print("  сутки: " + ", ".join(f"{d} {n}" for d, n in per_day))
+    for floor, acc in accs:
+        if acc.n == 0:
+            print(f"  пол {dict(FLOORS)[floor]}: пусто")
             continue
-        n_touch = len(dur_touch)
-        dist_s = sorted(dist_all)
-        dur_ts = sorted(dur_touch)
-        print(f"== {label}: подходов {arms}, суток {len(days)}, монет "
-              f"{len(glob.glob(os.path.join(base, days[0], 'approaches-*.csv'))) if days else 0}")
-        print("  сутки: " + ", ".join(f"{day} {n}" for day, n in per_day))
-        print(f"  на сутки: {arms / max(1, len(days)):.0f}")
-        print(f"  до касания: {n_touch} ({100.0 * n_touch / arms:.1f} %) · "
-              f"снял уровень {reasons.get('level_death', 0)} ({100.0 * reasons.get('level_death', 0) / arms:.1f} %) · "
-              f"цена ушла {reasons.get('price_left', 0)} ({100.0 * reasons.get('price_left', 0) / arms:.1f} %)")
-        print(f"  расстояние взвода, bps: p10 {fmt(quant(dist_s, .1))} · p50 {fmt(quant(dist_s, .5))} · "
-              f"p90 {fmt(quant(dist_s, .9))}")
-        for name, vals in (("до касания, с", dur_ts), ("до смерти уровня, с", sorted(dur_death)),
-                           ("до ухода цены, с", sorted(dur_left))):
-            if vals:
-                print(f"  время {name}: p25 {fmt(quant(vals, .25) / 1000, 1)} · "
-                      f"p50 {fmt(st.median(vals) / 1000, 1)} · p90 {fmt(quant(vals, .9) / 1000, 1)} "
-                      f"(n={len(vals)})")
-        print()
+        nd = sorted(acc.dist)
+        dts = sorted(acc.dur_touch)
+        ddd = sorted(acc.dur_death)
+        print(f"  пол {dict(FLOORS)[floor]}: подходов {acc.n} ({acc.n / max(1, len(days)):.0f}/сутки, "
+              f"bid {100.0 * acc.bid / acc.n:.1f} %), до касания {acc.touch} ({100.0 * acc.touch / acc.n:.1f} %) · "
+              f"снял уровень {100.0 * acc.death / acc.n:.1f} % · цена ушла {100.0 * acc.left / acc.n:.1f} %")
+        print(f"      расстояние взвода, bps: p10 {fmt(quant(nd, .1))} · p50 {fmt(quant(nd, .5))} · p90 {fmt(quant(nd, .9))}; "
+              f"время до касания, с: p25 {fmt(quant(dts, .25) / 1000, 1)} · p50 {fmt(st.median(dts) / 1000, 1) if dts else '—'} · "
+              f"p90 {fmt(quant(dts, .9) / 1000, 1)}; до смерти уровня, с: p50 "
+              f"{fmt(st.median(ddd) / 1000, 1) if ddd else '—'}")
+    print()
 
 
 if __name__ == "__main__":
@@ -92,4 +110,5 @@ if __name__ == "__main__":
         args = sorted(glob.glob("study/approaches/D*"))
     if not args:
         sys.exit("нет каталогов study/approaches/D*")
-    main(args)
+    for d in args:
+        report(d.rstrip("/"))
