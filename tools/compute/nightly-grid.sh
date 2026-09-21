@@ -82,6 +82,12 @@ USD="--h3-mode notional --h3-usd 10000"
 APPROACH="--approach-bps ${APPROACH_BPS:-20} --approach-min-age-secs ${APPROACH_MIN_AGE_S:-900}"
 # Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
 GRID="--touches-from study/touches --regime-from study/regime"
+# Форма выхода F7/F8 (Б-75): умолчание ночи — `none`, то есть прежний круг и гейт
+# «те же круги»; наборы предрегистрации F10 включаются окружением, например
+# EXIT_FORMS="none eat50 gone50" — форма выхода становится осью сетки (имена форм
+# несут хвост `-eat50`/`-gone20`, колонки `n_eaten_by_trades`/`n_wall_gone`).
+# Числа X/W — предрегистрация (умолчаний в коде нет), поэтому список пуст.
+for x in ${EXIT_FORMS:-none}; do GRID="$GRID --exit-form $x"; done
 # Модель очереди F3: у `bounce-grid` флаг `--queue-model` **обязательный**, умолчания
 # в коде нет. Ночь идёт через `run-grid.sh`, который подставляет `risk-adverse`, —
 # здесь то же значение ставится явно и экспортируется: иначе ночь упадёт, если
