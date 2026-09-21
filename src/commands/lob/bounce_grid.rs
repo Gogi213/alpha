@@ -292,11 +292,14 @@ pub enum ExitForm {
 }
 
 impl ExitForm {
+    /// Имя формы несёт число ровно тем, чем считали (`eat33.7`, не `eat34`) —
+    /// как `pct{x}`/`tk{x}` у стопа и тейка: имя в `forms.csv`/`runs.csv` и
+    /// порог предрегистрации обязаны совпадать (ревью 21.09).
     pub fn label(&self) -> String {
         match self {
             ExitForm::None => "none".to_string(),
-            ExitForm::Eat { pct } => format!("eat{:.0}", pct),
-            ExitForm::Gone { pct } => format!("gone{:.0}", pct),
+            ExitForm::Eat { pct } => format!("eat{pct}"),
+            ExitForm::Gone { pct } => format!("gone{pct}"),
         }
     }
 

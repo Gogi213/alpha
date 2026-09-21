@@ -1464,12 +1464,19 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         ExitForm::parse("gone20").unwrap(),
         ExitForm::Gone { pct: 20.0 }
     );
-    for bad in ["eat", "eat0", "eat101", "gone0", "goneabc", "eaten50", ""] {
+    for bad in [
+        "eat", "eat0", "eat101", "gone0", "gone-5", "goneabc", "eaten50", "",
+    ] {
         assert!(
             ExitForm::parse(bad).is_err(),
             "{bad:?} — не форма выхода, обязан быть отказ"
         );
     }
+    // Имя формы — число как есть: дробный порог не округляется в имени
+    // (иначе `eat33.7` считалось бы под именем `eat34`, ревью 21.09).
+    assert_eq!(ExitForm::parse("eat33.7").unwrap().label(), "eat33.7");
+    assert_eq!(ExitForm::parse("gone12.5").unwrap().label(), "gone12.5");
+    assert_eq!(ExitForm::parse("eat50").unwrap().label(), "eat50");
     // Пустой флаг — прежний выход (`none`), как у остальных осей сетки.
     assert_eq!(parse_exit_forms(&[]).unwrap(), vec![ExitForm::None]);
     assert_eq!(
