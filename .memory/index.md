@@ -322,5 +322,6 @@ eat<X₂>, gone50}; число испытаний — в `EXPERIMENTS.md` (E15, 
 
 - [projects\active\alpha.md](projects/active/alpha.md) — проект: передача, состояние, история.
 - [skills/](skills/) — [ovh-vps-singapore.md](skills/ovh-vps-singapore.md) (сервер, тюнинг, профиль),
-  [dsh-task-board.md](skills/dsh-task-board.md) (доска задач DSH, снята 15.09).
+  [dsh-task-board.md](skills/dsh-task-board.md) (доска задач DSH, снята 15.09),
+  [typesafe-ai.md](skills/typesafe-ai.md) (скилл TypeSafe/Jev: где лежит, API, ключ — только в env).
 - [log.md](log.md) — таймлайн. [MEMORY.md](MEMORY.md) — протокол. [SOUL.md](SOUL.md) — рамка.
