@@ -23,6 +23,8 @@ SETS="a45-bid:age=2700,side=bid s100-bid:flow=100,side=bid a15-bid:age=900,side=
 # Страж предрегистрации (В-81, TypeSafe): обе семьи флоров в одном наборе или имя ночного
 # набора с другими ключами — отказ до запуска (аудит §8 Ф1). Без ключа в окружении страж
 # выходит 2 и печатает причину — тогда прогон идёт, а суждение снимается там, где ключ есть.
+# Ключ стража на счётной — /etc/alpha/typesafe.env (0600, root; решение 21.09 по В-81), не в репо.
+if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +a; fi
 # shellcheck disable=SC2086
 python3 bin/prereg-guard.py --sets $SETS --nightly bin/nightly-grid.sh; rc=$?
 if [ "$rc" -eq 1 ]; then echo "prereg-guard: ОТКАЗ — прогон не запущен" | tee -a b5/f10fix.log; exit 1; fi
