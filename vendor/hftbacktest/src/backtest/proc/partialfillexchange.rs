@@ -157,13 +157,18 @@ where
                     // не попадала в `filled_orders`, оставалась в карте биржи со статусом
                     // `Filled` и на следующей сделке по этой цене падала с
                     // `InvalidOrderStatus`. См. docs/findings/hftbacktest-partialfill-fix-2026-09-20.md.
-                    let exec_qty = if filled_qty >= order.leaves_qty {
+                    // ЛОКАЛЬНАЯ ПРАВКА alpha, вторая (2026-09-21, F10-fix): остаток
+                    // меньше половины лота даёт статус `Filled` при `leaves_qty > 0`
+                    // (`fill` округляет по лоту) — прежнее условие `filled_qty >=
+                    // leaves_qty` такую ногу не удаляло, и следующая сделка по цене
+                    // роняла прогон тем же `InvalidOrderStatus` (заявка не по лоту:
+                    // 1.04 при лоте 0.1). Удаление — по факту статуса после `fill`.
+                    let exec_qty = filled_qty.min(order.leaves_qty);
+                    self.fill::<true>(order, timestamp, true, order.price_tick, exec_qty)?;
+                    if order.status == Status::Filled {
                         self.filled_orders.push(order.order_id);
-                        order.leaves_qty
-                    } else {
-                        filled_qty
-                    };
-                    return self.fill::<true>(order, timestamp, true, order.price_tick, exec_qty);
+                    }
+                    return Ok(());
                 }
             }
         }
@@ -202,13 +207,18 @@ where
                     // не попадала в `filled_orders`, оставалась в карте биржи со статусом
                     // `Filled` и на следующей сделке по этой цене падала с
                     // `InvalidOrderStatus`. См. docs/findings/hftbacktest-partialfill-fix-2026-09-20.md.
-                    let exec_qty = if filled_qty >= order.leaves_qty {
+                    // ЛОКАЛЬНАЯ ПРАВКА alpha, вторая (2026-09-21, F10-fix): остаток
+                    // меньше половины лота даёт статус `Filled` при `leaves_qty > 0`
+                    // (`fill` округляет по лоту) — прежнее условие `filled_qty >=
+                    // leaves_qty` такую ногу не удаляло, и следующая сделка по цене
+                    // роняла прогон тем же `InvalidOrderStatus` (заявка не по лоту:
+                    // 1.04 при лоте 0.1). Удаление — по факту статуса после `fill`.
+                    let exec_qty = filled_qty.min(order.leaves_qty);
+                    self.fill::<true>(order, timestamp, true, order.price_tick, exec_qty)?;
+                    if order.status == Status::Filled {
                         self.filled_orders.push(order.order_id);
-                        order.leaves_qty
-                    } else {
-                        filled_qty
-                    };
-                    return self.fill::<true>(order, timestamp, true, order.price_tick, exec_qty);
+                    }
+                    return Ok(());
                 }
             }
         }

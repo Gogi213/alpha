@@ -95,7 +95,7 @@ print(f'кругов {len(r_rounds)}, форм-строк {len(r_forms)}, кре
 # при измеренных В-68 RTT не срабатывает — оба счётчика обязаны быть нулями. Иначе предохранитель
 # тихо включается на прогоне с завышенным `--median-rtt-ns cancel=` и меняет круги, а гейт
 # «те же байты» этого не видит (сравниваются только прежние колонки).
-for col in ('n_entry_cancelled_cancel_timeout', 'n_exit_cancel_timeout'):
+for col in ('n_entry_cancelled_cancel_timeout', 'n_exit_cancel_timeout', 'n_orphan_fills'):
     total = sum(int(b[i_new[col]]) for b in r_forms) if col in i_new else 0
     if col not in i_new:
         print(f'{col}: колонки нет (старый бинарник) — проверка потолка пропущена')

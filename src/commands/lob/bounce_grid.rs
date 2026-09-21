@@ -949,6 +949,12 @@ impl FilterSet {
         self.ctx[3..].iter().any(|r| r.is_set())
     }
 
+    /// Хоть один ключ хода **монеты** до сигнала (`ret10m`/`ret1h`/`ret4h`)
+    /// задан — их несёт только кэш касаний (`TouchRow::ret_bps`).
+    pub(crate) fn uses_ret(&self) -> bool {
+        self.ctx[..3].iter().any(|r| r.is_set())
+    }
+
     /// Ключи контекста набора для шапки: `ret1h_min=… pool4h_max=…`.
     fn ctx_label(&self) -> String {
         let mut parts = Vec::new();
@@ -1232,7 +1238,7 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 32] = [
+const FORMS_HEADER: [&str; 33] = [
     "symbol",
     "day_utc",
     "form",
@@ -1272,6 +1278,8 @@ const FORMS_HEADER: [&str; 32] = [
     "n_exit_cancel_timeout",
     // F8: средняя доля исполненного входа (F4, В-78).
     "mean_fill_frac",
+    // F8c (К1): исполнения заявок-сирот после потолка отмены (ноль — норма).
+    "n_orphan_fills",
 ];
 
 pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
@@ -1708,7 +1716,7 @@ fn forms_row(
         run.busy_signal.len().to_string(),
         run.entry_rejected.to_string(),
         run.entry_crossed.to_string(),
-        // `sum_net` считает вызывающий: он же пишет круги.
+        // Сумма `net_bps` по кругам формы — здесь же, из `run.fills`.
         format!("{:.6}", sum_net_bps(run)),
         run.exits.stop.to_string(),
         run.exits.take.to_string(),
@@ -1743,6 +1751,8 @@ fn forms_row(
         run.exit_cancel_timeout.to_string(),
         // F8: средняя доля исполненного входа (F4, В-78).
         format!("{mean_fill_frac:.6}"),
+        // F8c (К1): исполнения заявок-сирот.
+        run.orphan_fills.to_string(),
     ]
 }
 
@@ -2063,16 +2073,20 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         parsed
     };
     // F6 (В-73): у записи подхода нет ни истории размера (ключ `eaten=`), ни
-    // хода цены до взвода (ключи контекста `ret*`/`pool*`/`btc*`) — фильтры,
-    // которые их читают, молча выбросили бы все сигналы; отказ, как у F2.
+    // хода **монеты** до взвода (ключи `ret*` — их несёт только кэш касаний) —
+    // фильтры, которые их читают, молча выбросили бы все сигналы; отказ, как
+    // у F2. Режим (`pool*`/`btc*`, F10b) у подхода определён: он читается из
+    // `--regime-from` по минуте `start_ms`, а у подхода это минута взвода
+    // (`touch_view_of_approach`: `start_ms = arm_ms`) — так H1 «лонг после
+    // просадки BTC» (`btc4h_max=0`) проверяется и на подходах.
     if args.signal == SignalArg::Approach {
         anyhow::ensure!(
             !sets.iter().any(|s| s.eaten_max_pct.is_some()),
             "--signal approach: ключ `eaten=` у подхода не определён — размер на взводе и есть старт"
         );
         anyhow::ensure!(
-            !sets.iter().any(FilterSet::uses_ctx),
-            "--signal approach: ключи контекста (ret*/pool*/btc*) у подхода не определены — кэш подходов хода до взвода не несёт"
+            !sets.iter().any(FilterSet::uses_ret),
+            "--signal approach: ключи ret* (ход монеты до сигнала) у подхода не определены — кэш подходов их не несёт; режим pool*/btc* по минуте взвода из --regime-from доступен"
         );
     }
     anyhow::ensure!(

@@ -551,6 +551,76 @@ fn prob_backtest(feed: &[Event]) -> Backtest<HashMapMarketDepth> {
     )
 }
 
+/// Форк крейта, вторая правка `PartialFillExchange` (F10-fix, 21.09): заявка
+/// **не по лоту** (1.04 при лоте 0.1) исполняется сделкой на 1.0 — остаток
+/// 0.04 меньше половины лота, крейт ставит `Filled`, но прежнее условие
+/// удаления (`filled_qty >= leaves_qty`) ногу в карте биржи оставляло, и
+/// следующая сделка по той же цене роняла `elapse` с `InvalidOrderStatus`
+/// (прогон F10 на счётной, `a45-bid` D20, «форма #2»). Теперь удаление — по
+/// статусу после `fill`: вторая сделка проходит, позиция — исполненное 1.0.
+#[test]
+fn a_sub_lot_remainder_does_not_leave_a_stale_filled_order_on_the_exchange() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Продажа 6 в бид 100: очередь 5 съедена, нам исполняется ровно 1.0
+        // (лотами), остаток 0.04 — статус `Filled`.
+        trade_at(2 * S, true, 100.0, 6.0),
+        // Вторая продажа по той же цене — раньше здесь падал весь прогон.
+        trade_at(3 * S, true, 100.0, 6.0),
+        depth_at(5 * S, true, 100.0, 5.0),
+        depth_at(6 * S, false, 101.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.04, 1, cancel_wait_plan(30 * S));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::EntrySubmitted { .. })),
+        "{actions:?}"
+    );
+    assert!(
+        (state.position() - 1.0).abs() < 1e-9,
+        "исполнено ровно 1.0 лотами, остаток 0.04 не исполняем: {}",
+        state.position()
+    );
+}
+
+/// Тот же дефект форка, путь (б) — заявка **по лоту** (0.3 = три лота по 0.1),
+/// но `0.1 + 0.1 + 0.1 ≠ 0.3` в плавающей точке: после двух исполнений по лоту
+/// остаток `0.10000000000000003`, третье исполнение `0.1` не проходит прежнее
+/// сравнение `filled_qty >= leaves_qty` на `3e-17`, статус уже `Filled` — нога
+/// оставалась в карте биржи, четвёртая сделка роняла прогон. Это и есть путь,
+/// на котором упал F10 на живых сутках при лотах от пула.
+#[test]
+fn a_lot_aligned_order_with_a_float_remainder_is_removed_when_filled() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Очередь 5 съедена и исполнен первый лот; дальше по лоту за сделку.
+        trade_at(2 * S, true, 100.0, 5.1),
+        trade_at(3 * S, true, 100.0, 0.1),
+        trade_at(4 * S, true, 100.0, 0.1),
+        // Заявка `Filled` с остатком 3e-17 — раньше здесь падал `elapse`.
+        trade_at(5 * S, true, 100.0, 0.1),
+        depth_at(6 * S, true, 100.0, 5.0),
+        depth_at(7 * S, false, 101.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 0.3, 1, cancel_wait_plan(30 * S));
+
+    let _ = drive(&mut hbt, &mut state);
+
+    assert!(
+        (state.position() - 0.3).abs() < 1e-9,
+        "три лота исполнены: {}",
+        state.position()
+    );
+}
+
 /// F4 (В-78): исполнилась **половина одной ноги** из двух — позиция равна
 /// этой половине (0.5 при ноге 1.0), и выход идёт на неё: заявка выхода несёт
 /// 0.5, а стоп сдвинут к средней исполненного (101 против плановой 100 →
@@ -1382,22 +1452,173 @@ fn a_cancel_the_exchange_never_confirms_is_released_by_the_ceiling() {
     // подтверждения не получает.
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
 
-    let actions = drive(&mut hbt, &mut state);
+    // Тот же цикл, что `drive`, плюс наблюдение сирот по шагам: после потолка
+    // и до подтверждения отмены нога обязана числиться сиротой.
+    let mut actions = Vec::new();
+    let mut orphan_seen = false;
+    loop {
+        let r = hbt.elapse(100_000_000).unwrap();
+        actions.push(on_event(&mut hbt, &mut state).unwrap());
+        orphan_seen |= state.has_orphans();
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
 
-    assert!(
-        actions.iter().any(|a| matches!(
-            a,
-            Action::EntryTimedOut {
-                reason: EntryCancelReason::CancelTimeout,
-                ..
-            }
-        )),
-        "потолок обязан освободить круг и назвать причину: {actions:?}"
+    let timeouts = actions
+        .iter()
+        .filter(|a| {
+            matches!(
+                a,
+                Action::EntryTimedOut {
+                    reason: EntryCancelReason::CancelTimeout,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        timeouts, 1,
+        "потолок обязан освободить круг ровно раз и назвать причину: {actions:?}"
     );
     // Дальше драйвер продолжает запись и стратегия перевооружается (второй
     // `EntrySubmitted` в списке) — это норма: проверяется, что первый круг
     // освобождён потолком, а не остался висеть «занятым».
     assert_eq!(state.position(), 0.0, "позиции не было");
+    // F8c (К1): заявка после потолка — сирота, её снятие повторяется, пока
+    // биржа не подтвердит; подтверждение (5 с) крейт доигрывает после конца
+    // данных — к концу записи сирота отпущена, исполнений у неё нет.
+    assert!(
+        orphan_seen,
+        "после потолка и до подтверждения нога — сирота"
+    );
+    assert!(!state.has_orphans(), "после подтверждения отмены сирот нет");
+    assert_eq!(state.orphan_fills(), 0, "сирота не исполнялась");
+}
+
+/// F8c (К1): сирота **отпускается**, когда биржа подтвердила отмену — партия
+/// не живёт вечно, и исполнений у неё нет. Запись длиннее задержки снятия
+/// (5 с), поэтому подтверждение успевает дойти.
+#[test]
+fn an_orphan_is_released_once_the_exchange_confirms_the_cancel() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 100.0, 5.0),
+        depth_at(6 * S, true, 100.0, 5.0),
+        depth_at(7 * S, true, 100.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
+
+    let _ = drive(&mut hbt, &mut state);
+
+    assert!(
+        !state.has_orphans(),
+        "отмена подтверждена на 5 с — сирот больше нет: {:?}",
+        state.phase
+    );
+    assert_eq!(state.orphan_fills(), 0);
+    assert_eq!(state.orphan_overflow(), 0);
+}
+
+/// F8c (К1): сирота **входа** исполнилась, пока её снятие летело (продажа 6
+/// съела очередь на 1.5 с; отмена, отправленная на 0.2 с, доедет до биржи на
+/// 1.7 с — потолок 1 с сработал на 1.2 с) — лишняя позиция гасится по рынку и
+/// считается. Инвариант, ради которого сироты заведены: позиция на бирже
+/// равна позиции в учёте стратегии, а не расходится на исполненную сироту.
+/// Задержка снятия здесь 1.5 с, а не 5 с: шина заявок крейта — очередь без
+/// обгона, и всё, что отправлено после медленной отмены, ждёт за ней;
+/// с 5 с гашение не успело бы дойти до биржи до конца записи.
+#[test]
+fn a_filled_entry_orphan_is_flattened_and_counted() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        trade_at(S + S / 2, true, 100.0, 6.0),
+        depth_at(2 * S, true, 100.0, 5.0),
+        depth_at(3 * S, true, 100.0, 5.0),
+        // Хвост, чтобы гашение по рынку (IOC) успело дойти до биржи и назад.
+        depth_at(4 * S, true, 100.0, 5.0),
+        depth_at(5 * S, true, 100.0, 5.0),
+    ];
+    let lat = ExecLatency {
+        place_ns: 1_000_000,
+        cancel_ns: 1_500_000_000,
+        taker_ns: 1_000_000,
+    };
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        state.orphan_fills(),
+        1,
+        "исполнение сироты обязано быть замечено и посчитано: {actions:?}"
+    );
+    assert!(
+        (hbt.position(0) - state.position()).abs() < 1e-9,
+        "позиция биржи {} обязана совпасть с учётом стратегии {}: сирота погашена",
+        hbt.position(0),
+        state.position()
+    );
+}
+
+/// F8c (К1): сирота **выхода** — лимитка тейка, чью отмену биржа не
+/// подтвердила за потолок, — исполнилась позже: это наш же выход, он
+/// зачитывается в позицию (а не откупается обратно), круг закрывается.
+#[test]
+fn a_filled_exit_orphan_is_accounted_as_our_exit() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(1_200_000_000, true, 100.0, 5.0),
+        // Покупка по 111 выше стоящей продажи 110 — крейт исполняет её
+        // целиком; потолок (1 с) уже сработал, лимитка — сирота.
+        trade_at(1_500_000_000, false, 111.0, 1.0),
+        depth_at(2 * S, false, 111.0, 5.0),
+        depth_at(6 * S, false, 111.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    let mut state = racing_exit_state(&mut hbt);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(state.exit_cancel_timeouts(), 1, "{actions:?}");
+    assert_eq!(
+        state.orphan_fills(),
+        1,
+        "исполнение сироты выхода посчитано"
+    );
+    assert!(
+        state.position() <= 0.0,
+        "позиция закрыта исполнением сироты: {:?}",
+        actions
+    );
+    // Круг закрыт без заявки на ноль: следующий `ExitSubmitted` после
+    // потолка не отправлялся (стратегия дальше перевооружается новым входом —
+    // это норма записи, не этого круга).
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::ExitSubmitted { .. })),
+        "выход на нулевую позицию не ставится: {actions:?}"
+    );
+    // Позицию биржи здесь не сверяем: `racing_exit_state` собирает позицию
+    // полями, у крейта входа не было (его −1 — артефакт харнесса).
 }
 
 /// F8b (В5, вторая половина — сама причина зависания): нога, чей запрос
@@ -1591,6 +1812,50 @@ fn the_exit_cancel_ceiling_returns_the_round_to_the_plan() {
         state.phase
     );
     assert!(state.position() > 0.0, "позиция не потеряна");
+}
+
+/// F8b/F8c (К5): счётчик потолка отмены **входа** доходит до `BounceRun`
+/// через настоящий драйвер `drive_bounce` (`SignalStep` → агрегат), а не
+/// только живёт в состоянии: снятие входа не подтверждается 5 с, потолок —
+/// 1 с, круг закрыт причиной `CancelTimeout`, и это ровно одна единица в
+/// `entry_cancelled_cancel_timeout`; выходной счётчик и сироты — нули.
+#[test]
+fn the_driver_counts_the_entry_cancel_ceiling() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 100.0, 5.0),
+        depth_at(3 * S, true, 100.0, 5.0),
+        depth_at(4 * S, true, 100.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    let cfg = DriveConfig {
+        order_qty: 1.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::RiskAdverse,
+    };
+    let signal = BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan: cancel_wait_plan(S / 10),
+        profile: 0,
+    };
+    let run = drive_bounce(&mut hbt, 0, &[signal], &cfg).unwrap();
+
+    assert_eq!(run.signals, 1);
+    assert_eq!(
+        run.entry_cancelled_cancel_timeout, 1,
+        "потолок входа обязан дойти до агрегата ровно единицей"
+    );
+    assert_eq!(run.exit_cancel_timeout, 0, "выходного потолка не было");
+    assert_eq!(run.orphan_fills, 0, "сирота не исполнялась");
+    assert!(run.fills.is_empty(), "круга без входа нет");
 }
 
 /// F8b (Р4): причины F7 считает драйвер (`ExitTally`), а не строки кругов —

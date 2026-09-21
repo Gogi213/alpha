@@ -1132,6 +1132,10 @@ pub struct BounceRun {
     pub entry_cancelled_cancel_timeout: u64,
     /// Счётчик того же потолка на **выходе** — колонка `n_exit_cancel_timeout`.
     pub exit_cancel_timeout: u64,
+    /// F8c (К1): исполнения заявок-сирот (ноги, чьё снятие не подтвердилось
+    /// за потолок) — колонка `n_orphan_fills`. Ноль — норма; иначе позиция
+    /// на бирже расходилась бы с учётом стратегии, и это должно быть видно.
+    pub orphan_fills: u64,
     /// Спред книги в момент отправки входа, в единицах цены — по одному
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
@@ -1593,6 +1597,8 @@ enum SignalStep {
         /// F8b (В5/Р2): сколько раз круг пережил потолок ожидания
         /// подтверждения отмены лимитки выхода (`CANCEL_WAIT_NS`).
         exit_cancel_timeouts: u64,
+        /// F8c (К1): исполнения заявок-сирот (после потолка) за круг.
+        orphan_fills: u64,
     },
 }
 
@@ -1664,6 +1670,7 @@ where
             residual: None,
             idle_ns: bot.current_timestamp(),
             exit_cancel_timeouts: state.exit_cancel_timeouts(),
+            orphan_fills: state.orphan_fills(),
         });
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
@@ -1697,6 +1704,7 @@ where
                 residual,
                 idle_ns: bot.current_timestamp(),
                 exit_cancel_timeouts: state.exit_cancel_timeouts(),
+                orphan_fills: state.orphan_fills(),
             });
         }
     }
@@ -1708,6 +1716,7 @@ where
         residual,
         idle_ns: bot.current_timestamp(),
         exit_cancel_timeouts: state.exit_cancel_timeouts(),
+        orphan_fills: state.orphan_fills(),
     })
 }
 
@@ -1730,6 +1739,7 @@ impl BounceRun {
             entry_cancelled_price_left: 0,
             entry_cancelled_cancel_timeout: 0,
             exit_cancel_timeout: 0,
+            orphan_fills: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
             busy_signal: Vec::new(),
@@ -1779,6 +1789,7 @@ where
     // той же строкой, что и прочие снятия, — причиной `CancelTimeout`.
     let mut entry_cancelled_cancel_timeout: u64 = 0;
     let mut exit_cancel_timeout: u64 = 0;
+    let mut orphan_fills: u64 = 0;
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
@@ -1839,9 +1850,11 @@ where
                 residual,
                 idle_ns: idle,
                 exit_cancel_timeouts,
+                orphan_fills: orphans,
             } => {
                 idle_ns = idle;
                 exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
+                orphan_fills = orphan_fills.saturating_add(orphans);
                 submitted_signal.push(sig_idx);
                 if crossed {
                     entry_crossed = entry_crossed.saturating_add(1);
@@ -1956,6 +1969,7 @@ where
         entry_cancelled_price_left,
         entry_cancelled_cancel_timeout,
         exit_cancel_timeout,
+        orphan_fills,
         spread_at_entry,
         submitted_signal,
         busy_signal,

@@ -798,6 +798,7 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         entry_cancelled_price_left: 0,
         entry_cancelled_cancel_timeout: 0,
         exit_cancel_timeout: 0,
+        orphan_fills: 0,
         spread_at_entry: Vec::new(),
         submitted_signal: (0..n).collect(),
         busy_signal: Vec::new(),

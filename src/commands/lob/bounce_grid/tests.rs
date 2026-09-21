@@ -707,10 +707,71 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
     assert!(err.contains("кэш подходов"), "{err}");
     let mut eaten = non_sigma("grid-eaten");
     eaten.signal = SignalArg::Approach;
-    eaten.touches_from = Some(cache);
+    eaten.touches_from = Some(cache.clone());
     eaten.sets = vec!["e:eaten=50".to_string()];
     let err = run_bounce_grid(&eaten).unwrap_err().to_string();
     assert!(err.contains("eaten"), "{err}");
+
+    // F10b: ход **монеты** до взвода (`ret*`) кэш подходов не несёт — отказ;
+    // режим (`pool*`/`btc*`) читается по минуте взвода из `--regime-from`, и
+    // H1 «после просадки BTC» (`btc4h_max=0`) на подходах считается: набор с
+    // BTC «в минусе» даёт те же круги, что прогон без фильтра, «в плюсе» — ноль.
+    let mut ret = non_sigma("grid-ret");
+    ret.signal = SignalArg::Approach;
+    ret.touches_from = Some(cache.clone());
+    ret.sets = vec!["r:ret1h_min=0".to_string()];
+    let err = run_bounce_grid(&ret).unwrap_err().to_string();
+    assert!(err.contains("ret*"), "{err}");
+
+    let regime = dir.path().join("regime");
+    std::fs::create_dir_all(&regime).unwrap();
+    let arm_minute = arm_ms - arm_ms.rem_euclid(60_000);
+    let rows: String = [arm_minute - 60_000, arm_minute, arm_minute + 60_000]
+        .iter()
+        .map(|m| {
+            format!(
+                "{m},10.0,50.0,5,-20.0,-50.0,,
+"
+            )
+        })
+        .collect();
+    std::fs::write(
+        regime.join("2026-09-08.csv"),
+        format!(
+            "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps
+{rows}"
+        ),
+    )
+    .unwrap();
+    let mut b = non_sigma("grid-btc");
+    b.signal = SignalArg::Approach;
+    b.entry_form = vec!["ladder3x2..10".to_string()];
+    b.touches_from = Some(cache);
+    b.regime_from = Some(regime);
+    b.sets = vec!["neg:btc4h_max=0".to_string(), "pos:btc4h_min=0".to_string()];
+    let mb = run_bounce_grid(&b).unwrap();
+    let by_name = |n: &str| mb.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            )
+    };
+    assert_eq!(
+        body(&by_name("neg").rounds_path),
+        body(&m.rounds_path),
+        "BTC −50 bps/4 ч на минуте взвода проходит `btc4h_max=0` — круги те же"
+    );
+    let (_, pos_rounds) = read_csv(&by_name("pos").rounds_path);
+    assert!(
+        pos_rounds.is_empty(),
+        "`btc4h_min=0` при BTC в минусе — ни одного круга: {pos_rounds:?}"
+    );
 }
 
 /// Кэш числа событий части (`<бинлог>.events`): первый прогон пишет сайдкар,
@@ -1638,6 +1699,7 @@ fn run_with_exit_counters(
         entry_cancelled_price_left: 0,
         entry_cancelled_cancel_timeout: entry_cancel_timeout,
         exit_cancel_timeout,
+        orphan_fills: 0,
         spread_at_entry: Vec::new(),
         submitted_signal: Vec::new(),
         busy_signal: Vec::new(),
@@ -1681,6 +1743,22 @@ fn forms_row_puts_every_counter_into_its_own_column() {
     assert_eq!(at("n_wall_gone"), "7", "«сняли» — своя колонка");
     assert_eq!(at("n_entry_cancelled_cancel_timeout"), "11");
     assert_eq!(at("n_exit_cancel_timeout"), "13");
+    assert_eq!(at("n_orphan_fills"), "0", "F8c: сирот в фикстуре нет");
     assert_eq!(at("mean_fill_frac"), "0.500000");
     assert_eq!(at("form"), "pct2-1to1-60-eat50");
+}
+
+/// F8b/F8c (К7): сумма `net_bps` пустой формы печатается `0.000000`, а не
+/// `-0.000000` — `Iterator::sum` для `f64` стартует с `-0.0` (rustc 1.93),
+/// и гейт «те же байты» ловил именно это. Здесь это закреплено юнит-тестом,
+/// а не только машинным прогоном.
+#[test]
+fn the_net_sum_of_an_empty_form_prints_a_positive_zero() {
+    let run = run_with_exit_counters(0, 0, 0, 0);
+    let s = sum_net_bps(&run);
+    assert_eq!(format!("{s:.6}"), "0.000000");
+    assert!(
+        s.is_sign_positive(),
+        "пустая сумма — +0.0, иначе печать даёт знак минус"
+    );
 }

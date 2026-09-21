@@ -150,15 +150,21 @@ fn still_at_level(entry_side: HbtSide, bid: f64, ask: f64, level_px: f64, tick_p
 /// Число — решение владельца 2026-09-21 (В-79): 1 с. Измеренная В-68 задержка
 /// снятия по WS trade с боевого сервера: медиана 3.98 мс, p95 4.55, p99 5.01,
 /// max 5.42 мс (100 циклов); REST-хвост до 15.5 мс. Потолок в ~200 раз выше
-/// измеренного p95 и в ~70 раз выше REST-максимума, поэтому в бэктесте он не
-/// срабатывает (числа прежних прогонов не меняются — гейт «те же круги»), а в
-/// живом контуре освобождает круг, если подтверждение отмены не пришло:
-/// без потолка фаза ждёт биржу бесконечно, сигналы суток теряются (ровно то,
-/// ради чего закрывался Б1).
+/// измеренного p95 и в ~70 раз выше REST-максимума, поэтому **при задержке
+/// снятия В-68** в бэктесте он не срабатывает (числа прежних прогонов не
+/// меняются — гейт «те же круги» это проверяет: `f3-queue-gate.sh` требует
+/// нулей `n_entry_cancelled_cancel_timeout`/`n_exit_cancel_timeout`). Это
+/// свойство измеренных RTT, не общее: сетка с `--median-rtt-ns cancel=` выше
+/// потолка включит его, и колонки это покажут. В живом контуре потолок
+/// освобождает круг, если подтверждение отмены не пришло: без него фаза ждёт
+/// биржу бесконечно, сигналы суток теряются (ровно то, ради чего закрывался Б1).
 ///
 /// Срабатывание — не «отмена прошла»: заявка могла остаться в рынке, поэтому
 /// потолок только освобождает круг под управлением плана (`Holding` при
 /// позиции), а причина называется `CancelTimeout` — видно в `forms.csv`.
+/// Сама заявка становится **сиротой** (F8c, К1): снятие повторяется на каждом
+/// событии в любой фазе, исполнение сироты считается и гасится
+/// (`StrategyState::sweep_orphans`).
 pub const CANCEL_WAIT_NS: i64 = 1_000_000_000;
 
 /// Фаза одного круга. Спрятана от вызывающего (`interfaces.md`: модуль
@@ -492,6 +498,33 @@ pub struct StrategyState {
     /// дожидаясь биржи. Счётчик назван в артефактах (`n_exit_cancel_timeout`):
     /// предохранитель, который никто не видит, — это молчаливая потеря.
     exit_cancel_timeouts: u64,
+    /// F8c (К1): «сироты» — заявки, чьё снятие не подтвердилось за потолок
+    /// `CANCEL_WAIT_NS`. Круг они не держат (потолок его освободил), но из
+    /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
+    /// каждом событии в любой фазе (`sweep_orphans`), а исполнение сироты не
+    /// теряется — нога входа гасится по рынку, нога выхода зачитывается в
+    /// `exit_qty`. Одна партия `orphan_first .. orphan_first + orphan_legs`
+    /// (без кучи: ног у плана единицы); вторая партия до ухода первой —
+    /// крайне редкий случай, он **считается** (`orphan_overflow`), партия
+    /// остаётся последняя. `orphan_legs == 0` — сирот нет.
+    orphan_first: u64,
+    orphan_legs: u8,
+    orphan_kind: OrphanKind,
+    /// Исполненное партии сирот, уже учтённое (погашено или зачтено в выход).
+    orphan_accounted: f64,
+    /// Сколько раз исполнение сироты было замечено — колонка `n_orphan_fills`.
+    orphan_fills: u64,
+    /// Сколько раз новая партия сирот вытеснила ещё живую прежнюю.
+    orphan_overflow: u64,
+}
+
+/// Чьи ноги стали сиротами (F8c, К1): исполнение ноги **входа** — лишняя
+/// позиция, её гасят по рынку; исполнение ноги **выхода** — наш же выход, его
+/// зачитывают в `exit_qty`, а не откупают обратно.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrphanKind {
+    Entry,
+    Exit,
 }
 
 impl StrategyState {
@@ -525,6 +558,12 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
+            orphan_first: 0,
+            orphan_legs: 0,
+            orphan_kind: OrphanKind::Entry,
+            orphan_accounted: 0.0,
+            orphan_fills: 0,
+            orphan_overflow: 0,
         }
     }
 
@@ -532,6 +571,124 @@ impl StrategyState {
     /// отмены лимитки выхода — читает драйвер для колонки `forms.csv`.
     pub fn exit_cancel_timeouts(&self) -> u64 {
         self.exit_cancel_timeouts
+    }
+
+    /// F8c (К1): сколько раз исполнилась заявка-сирота (после потолка
+    /// отмены) — колонка `n_orphan_fills`; ноль — норма.
+    pub fn orphan_fills(&self) -> u64 {
+        self.orphan_fills
+    }
+
+    /// F8c (К1): сколько раз новая партия сирот вытеснила живую прежнюю.
+    pub fn orphan_overflow(&self) -> u64 {
+        self.orphan_overflow
+    }
+
+    /// Сироты ещё стоят в рынке (или их снятие летит).
+    pub fn has_orphans(&self) -> bool {
+        self.orphan_legs > 0
+    }
+
+    /// Потолок отмены сорвал ожидание: ноги `first .. first + legs` — сироты
+    /// (F8c, К1). Живая прежняя партия вытесняется и считается.
+    fn adopt_orphans(&mut self, first: u64, legs: u8, kind: OrphanKind) {
+        if self.orphan_legs > 0 {
+            self.orphan_overflow = self.orphan_overflow.saturating_add(1);
+        }
+        self.orphan_first = first;
+        self.orphan_legs = legs.max(1);
+        self.orphan_kind = kind;
+        self.orphan_accounted = 0.0;
+    }
+
+    /// F8c (К1): на каждом событии, в любой фазе — сироты снимаются снова,
+    /// пока стоят, а их исполнение учитывается: нога входа гасится по рынку
+    /// (IOC по лучшей цене другой стороны), нога выхода зачитывается в
+    /// `exit_qty`. Партия отпускается, когда ни одна нога не стоит и не
+    /// снимается. Без сирот — ноль работы.
+    fn sweep_orphans<MD, B>(&mut self, bot: &mut B) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if self.orphan_legs == 0 {
+            return Ok(());
+        }
+        let mut alive = false;
+        let mut executed = 0.0_f64;
+        let mut side = HbtSide::None;
+        for i in 0..u64::from(self.orphan_legs) {
+            let id = self.orphan_first.saturating_add(i);
+            let Some(order) = bot.orders(self.asset_no).get(&id) else {
+                continue;
+            };
+            executed += executed_qty(order);
+            side = order.side;
+            if order.cancellable() {
+                bot.cancel(self.asset_no, id, false)?;
+                alive = true;
+            } else if order.req != Status::None || order.status == Status::None {
+                alive = true;
+            }
+        }
+        let delta = executed - self.orphan_accounted;
+        if delta > 0.0 {
+            match self.orphan_kind {
+                OrphanKind::Exit => {
+                    self.exit_qty += delta;
+                    self.orphan_accounted = executed;
+                    self.orphan_fills = self.orphan_fills.saturating_add(1);
+                    // Сирота закрыла позицию целиком, пока план её вёл:
+                    // выхода ставить не на что (`Holding` нулевой позиции
+                    // отправил бы заявку на ноль).
+                    if self.position() <= 0.0 && matches!(self.phase, Phase::Holding { .. }) {
+                        self.phase = Phase::Idle;
+                    }
+                }
+                OrphanKind::Entry => {
+                    let depth = bot.depth(self.asset_no);
+                    let (bid, ask) = (depth.best_bid(), depth.best_ask());
+                    let flat_side = match side {
+                        HbtSide::Buy => HbtSide::Sell,
+                        HbtSide::Sell => HbtSide::Buy,
+                        HbtSide::None | HbtSide::Unsupported => HbtSide::None,
+                    };
+                    // Цена гашения — как у выхода из позиции той же стороны
+                    // (`exit_price` берёт сторону **позиции**: лонг гасится по
+                    // биду). Нет книги или стороны — гасить нечем, повтор на
+                    // следующем событии (`orphan_accounted` не двигается).
+                    if let Some(px) = exit_price(side, bid, ask) {
+                        let id = self.take_order_id();
+                        match flat_side {
+                            HbtSide::Buy => bot.submit_buy_order(
+                                self.asset_no,
+                                id,
+                                px,
+                                delta,
+                                TimeInForce::IOC,
+                                OrdType::Market,
+                                false,
+                            )?,
+                            _ => bot.submit_sell_order(
+                                self.asset_no,
+                                id,
+                                px,
+                                delta,
+                                TimeInForce::IOC,
+                                OrdType::Market,
+                                false,
+                            )?,
+                        };
+                        self.orphan_accounted = executed;
+                        self.orphan_fills = self.orphan_fills.saturating_add(1);
+                    }
+                }
+            }
+        }
+        if !alive {
+            self.orphan_legs = 0;
+        }
+        Ok(())
     }
 
     /// Своя позиция круга: исполненный вход минус исполненные выходы (F4,
@@ -716,14 +873,12 @@ impl StrategyState {
         MD: MarketDepth,
         B: Bot<MD>,
     {
-        let status = bot
+        // Крейт: `New`/`PartiallyFilled` без запроса в полёте (`req == None`).
+        if bot
             .orders(self.asset_no)
             .get(&id)
-            .map(|o| (o.req, o.status));
-        if matches!(
-            status,
-            Some((Status::None, Status::New | Status::PartiallyFilled))
-        ) {
+            .is_some_and(|o| o.cancellable())
+        {
             bot.cancel(self.asset_no, id, false)?;
         }
         Ok(())
@@ -1362,6 +1517,7 @@ where
     // стратегии, а не бросается.
     if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
         state.exit_cancel_timeouts = state.exit_cancel_timeouts.saturating_add(1);
+        state.adopt_orphans(order_id, 1, OrphanKind::Exit);
         state.phase = Phase::Holding { entry_ns };
     }
     Ok(Action::Idle)
@@ -1469,6 +1625,9 @@ where
     // ведём её, нет → причина называется). Заявка могла остаться в рынке:
     // это предохранитель, и он назван `CancelTimeout`.
     if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
+        // Ноги остаются сиротами (F8c, К1): снятие повторится на каждом
+        // событии, исполнение погасится по рынку и будет посчитано.
+        state.adopt_orphans(order_id, legs, OrphanKind::Entry);
         if state.position() > 0.0 {
             state.enter_holding(now);
             return Ok(Action::Idle);
@@ -1630,6 +1789,8 @@ where
     B: Bot<MD>,
 {
     let now = bot.current_timestamp();
+    // F8c (К1): сироты после потолка отмены — снять снова, учесть исполнение.
+    state.sweep_orphans(bot)?;
     match state.phase {
         Phase::Holding { entry_ns } => on_holding(bot, state, now, entry_ns),
         Phase::ExitPending { order_id, entry_ns } => {
