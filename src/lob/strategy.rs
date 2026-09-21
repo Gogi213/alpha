@@ -891,11 +891,20 @@ where
                 _ => ask,
             };
             state.observe_favourable(favourable);
-            // Текущий размер стены на уровне (для F7 gone<W>).
+            // Текущий размер стены на уровне — база и для съедания E7, и для
+            // F7 `gone<W>`. Без валидного тика/цены размера уровня не
+            // существует: `now_qty` = 0, но **ни** «ноль на уровне», ни
+            // «стена снята» из этого не следуют (`level_ok`) — иначе вырождённый
+            // план с `tick_px = 0` читался бы как полностью съеденная стена.
+            let level_ok = tick_px > 0.0 && level_px > 0.0;
             #[allow(clippy::cast_possible_truncation)]
-            let level_tick = (level_px / tick_px).round() as i64;
+            let level_tick = if level_ok {
+                (level_px / tick_px).round() as i64
+            } else {
+                0
+            };
             let depth = bot.depth(state.asset_no);
-            let now_qty = if tick_px > 0.0 && level_px > 0.0 {
+            let now_qty = if level_ok {
                 match entry_side {
                     HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
                     _ => depth.ask_qty_at_tick(level_tick),
@@ -903,12 +912,13 @@ where
             } else {
                 0.0
             };
-            if now_qty > state.level_qty_max {
+            if level_ok && now_qty > state.level_qty_max {
                 state.level_qty_max = now_qty;
             }
             // Съедание плотности (E5/E7): остаток на цене уровня
-            // против максимума с входа, в процентах.
-            let eaten_pct = if state.level_qty_max > 0.0 {
+            // против максимума с входа, в процентах. Без валидного уровня
+            // процента нет (`level_ok`) — как было до F7.
+            let eaten_pct = if level_ok && state.level_qty_max > 0.0 {
                 (1.0 - now_qty / state.level_qty_max) * 100.0
             } else {
                 0.0
@@ -925,6 +935,9 @@ where
                 && state.eaten_qty >= state.level_qty_at_entry * exit_eat_pct / 100.0;
             let gone_hit = exit_gone_pct > 0.0
                 && state.level_qty_at_entry > 0.0
+                // Размер уровня читается только при валидном тике: иначе «ноль
+                // на уровне» — это отсутствие данных, а не снятая стена.
+                && level_ok
                 && now_qty < state.level_qty_at_entry * (1.0 - exit_gone_pct / 100.0)
                 && state.eaten_qty < (state.level_qty_at_entry - now_qty) * 0.5;
             let (stop_hit, take_hit) = match entry_side {
