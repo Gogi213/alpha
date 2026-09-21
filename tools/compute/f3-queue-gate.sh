@@ -19,10 +19,14 @@
 #
 # Почему не `md5` файла целиком: колонки растут по задачам (F3: `n_fill_by_cross` +
 # `queue=`/`paths=` в шапке; F4: `fill_frac/entry_vwap/legs_filled/legs_rejected` в
-# rounds и `n_rejected_postonly` в forms), поэтому сравниваются **все прежние
-# колонки** обоих файлов построчно, а новые печатаются отдельно.
+# rounds и `n_rejected_postonly` в forms; F5: `n_entry_cancelled_*` + `entry_ttl=`/
+# `band_exit_bps=`; F6: `entry_forms=`/`signal=`; F7/F8: `n_eaten_by_trades`/
+# `n_wall_gone`/`mean_fill_frac` + `exit_forms=`), поэтому сравниваются **все
+# прежние колонки** обоих файлов построчно, а новые печатаются отдельно.
 # Старому бинарнику `--no-post-only` не передаётся (флага у него нет), новому —
 # передаётся: у F4 умолчание входа «пост-онли», гейт требует прежнего режима.
+# Флагов F5/F6/F8 (`--entry-ttl-secs`, `--entry-form`, `--exit-form`, `--signal`)
+# у старого бинарника тоже нет — они идут только новому, значениями-умолчаниями.
 set -euo pipefail
 cd /opt/alpha-compute || exit 1
 NEW="${1:?новый бинарник: bin/alpha-<hash>}"
@@ -41,9 +45,15 @@ rm -rf b5/f3-gate-old b5/f3-gate-new
 echo "== старый $OLD (флагов --queue-model/--no-post-only ещё нет)"
 # shellcheck disable=SC2086
 "$OLD" lob bounce-grid $COMMON --out-dir b5/f3-gate-old
-echo "== новый $NEW --queue-model risk-adverse --no-post-only"
+echo "== новый $NEW --queue-model risk-adverse --no-post-only + явные прежние оси F5/F6/F8"
+# Явные прежние значения осей — то, чего требует гейт F8 (docs/plan/dev-plan-2026-09-20.md
+# §3 F8): `--signal touch --entry-form single@fr --entry-ttl-secs touch --exit-form none`.
+# У старого бинарника этих флагов нет, поэтому они идут только новому; значения —
+# умолчания команды, так что сравнение остаётся «прежний режим против прежнего».
 # shellcheck disable=SC2086
-"$NEW" lob bounce-grid $COMMON --queue-model risk-adverse --no-post-only --out-dir b5/f3-gate-new
+"$NEW" lob bounce-grid $COMMON --queue-model risk-adverse --no-post-only \
+    --signal touch --entry-form single@fr --entry-ttl-secs touch --exit-form none \
+    --out-dir b5/f3-gate-new
 
 echo "== rounds.csv и forms.csv: прежние колонки по именам"
 # Байтового дифа нет по построению: F3 добавила `queue=`/`paths=` в шапку и колонку

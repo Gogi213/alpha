@@ -324,6 +324,8 @@ fn plain_shape() -> PlanShape {
         band_exit_bps: 0.0,
         // F6 (В-73): прежняя форма входа — нога у фронтранера (гейт).
         entry_form: EntryForm::SingleFrontrun,
+        // F7/F8: форма выхода — не используется в одиночном backtest.
+        exit_form: crate::commands::lob::bounce_grid::ExitForm::None,
     }
 }
 

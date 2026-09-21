@@ -625,8 +625,10 @@ pub enum QueueModelKind {
 /// подсказка `Vec::with_capacity` — буфер растёт при необходимости; ёмкость
 /// обязана быть больше нуля, иначе крейт вовсе не пишет сделки
 /// (`proc/local.rs`: `ev.is(LOCAL_TRADE_EVENT) && self.trades.capacity() > 0`)
-/// и путь исполнения (3) не определить. Читает буфер только детектор
-/// `run_round`, сразу после чтения он очищается.
+/// и путь исполнения (3) не определить. Читают буфер двое, оба — на одном
+/// шаге и до очистки: детектор `run_round` (путь исполнения F3) и
+/// `StrategyState::observe_wall_trades` (F7, Б-75 — съеденное в стену);
+/// сразу после чтения буфер очищается.
 const LAST_TRADES_CAPACITY: usize = 64;
 
 impl QueueModelKind {
@@ -1079,6 +1081,10 @@ pub struct ExitTally {
     /// Кругов с частичным выходом (E7): позиция закрывалась двумя ногами —
     /// доля тейком или по первому порогу съедания, остаток — по плану.
     pub partial: u64,
+    /// F7 (Б-75): кругов с выходом «съели» — накопленные сделки в стену ≥ X %.
+    pub eaten_by_trades: u64,
+    /// F7 (Б-75): кругов с выходом «сняли» — стена упала без сделок.
+    pub wall_gone: u64,
 }
 
 /// Итог одного профиля касаний: сигналы, круги, промахи (по причинам) и
@@ -1375,8 +1381,11 @@ where
             }
         }
         // Буфер нужен только пока есть отложенный вердикт — иначе очищаем
-        // (память не растёт с длиной круга).
+        // (память не растёт с длиной круга). Перед очисткой сделки этого шага
+        // отдаются стратегии: F7 (Б-75) считает по ним съеденное в стену, а
+        // заново буфер не открывается — считаем ровно один раз на шаг.
         if entry_pending == 0 {
+            state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
         match on_event(bot, state)? {
@@ -1399,7 +1408,8 @@ where
     fill_by_cross |= pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs);
     // Буфер сделок очищается и на выходе из круга: сигналы бывают встык
     // (`t0` не двигает часы), и сделки прошлого круга не должны решать вердикт
-    // следующего.
+    // следующего. Сделки последнего шага перед этим отдаются стратегии (F7).
+    state.observe_wall_trades(bot.last_trades(asset_no));
     bot.clear_last_trades(Some(asset_no));
     if timed_out {
         let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
@@ -1872,6 +1882,8 @@ where
                             ExitReason::Trail => exits.trail += 1,
                             ExitReason::Early => exits.early += 1,
                             ExitReason::Eaten => exits.eaten += 1,
+                            ExitReason::EatenByTrades => exits.eaten_by_trades += 1,
+                            ExitReason::WallGone => exits.wall_gone += 1,
                         }
                         if partial {
                             exits.partial += 1;

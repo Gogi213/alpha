@@ -1007,6 +1007,8 @@ pub(crate) fn exit_reason_label(reason: crate::lob::strategy::ExitReason) -> &'s
         ExitReason::Early => "early",
         ExitReason::Horizon => "horizon",
         ExitReason::Eaten => "eaten",
+        ExitReason::EatenByTrades => "eaten_by_trades",
+        ExitReason::WallGone => "wall_gone",
     }
 }
 
@@ -1518,6 +1520,9 @@ pub(crate) struct PlanShape {
     /// Полоса ухода цены, bps (F5, В-74): число замера, у сетки — флаг
     /// `--band-exit-bps`; `0` — условие выключено (режим `touch`).
     pub(crate) band_exit_bps: f64,
+    /// Форма выхода (F7, Б-75): `none` — прежнее поведение, `eat<X>` — стена
+    /// съедена сделками ≥ X %, `gone<W>` — стена снята без сделок.
+    pub(crate) exit_form: crate::commands::lob::bounce_grid::ExitForm,
 }
 
 /// Режим срока жизни входа (F5, В-74): у сделки-отскока вход снимается по
@@ -1636,6 +1641,7 @@ pub(crate) fn bounce_plan(
         entry_ttl,
         h3_usd,
         band_exit_bps,
+        exit_form: _,
     } = shape;
     let p_tick = touch.price_tick;
     let p = p_tick as f64 * tick;
@@ -1806,6 +1812,15 @@ pub(crate) fn bounce_plan(
             },
             level_qty: touch.size_at_touch.max(0) as f64 * lot,
             lot_qty: lot,
+            // F7 (Б-75): форма выхода — из оси сетки (`--exit-form`).
+            exit_eat_pct: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::Eat { pct } => pct,
+                _ => 0.0,
+            },
+            exit_gone_pct: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::Gone { pct } => pct,
+                _ => 0.0,
+            },
         },
     ))
 }
@@ -2054,6 +2069,8 @@ fn run_bounce(
                     entry_ttl: EntryTtl::Touch,
                     h3_usd: None,
                     band_exit_bps: 0.0,
+                    // F7/F8: форма выхода — одиночный backtest не использует ось выхода.
+                    exit_form: crate::commands::lob::bounce_grid::ExitForm::None,
                 },
             );
             match built {

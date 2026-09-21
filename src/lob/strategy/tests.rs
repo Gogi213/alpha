@@ -279,6 +279,9 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
 
@@ -350,6 +353,9 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         eaten_half_frac: 0.5,
         level_qty: 10.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -412,6 +418,9 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -472,6 +481,9 @@ fn a_fraction_below_one_lot_exits_whole() {
         eaten_half_frac: 0.5,
         level_qty: 10.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
     let actions = drive(&mut hbt, &mut state);
@@ -521,6 +533,9 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 0.1,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     }
 }
 
@@ -738,6 +753,9 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     }
 }
 
@@ -929,6 +947,9 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     }
 }
 
@@ -1080,5 +1101,199 @@ fn a_partially_filled_take_is_cancelled_and_the_rest_is_stopped_out() {
         state.position() <= 0.0,
         "круг закрыт, позиции нет: {:?}",
         state
+    );
+}
+
+// -----------------------------------------------------------------------
+// F7 (план 2026-09-20, Б-75): выход «съели» (`eat<X>`) и «сняли» (`gone<W>`).
+// Сделки в стену видит драйвер (`run_round`) и отдаёт стратегии
+// (`observe_wall_trades`) — буфер `bot.last_trades` под его управлением,
+// поэтому тесты идут полным драйвером (`drive_bounce`), а не голым `on_event`.
+// -----------------------------------------------------------------------
+
+/// План F7: вход 100 у бид-стены 99 размером `level_qty`, потолок входа 2 с,
+/// формы выхода — `eat<eat_pct>` и/или `gone<gone_pct>` (нули выключают).
+fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
+    TradePlan::Bounce {
+        entry_px: 100.0,
+        // Стоп далеко: тест про формы выхода, а не про стоп.
+        stop_px: 90.0,
+        take_px: 130.0,
+        deadline_ns: 30 * S,
+        entry_ttl_ns: 2 * S,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        ladder: EntryLadder::NONE,
+        early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty,
+        lot_qty: 1.0,
+        exit_eat_pct: eat_pct,
+        exit_gone_pct: gone_pct,
+    }
+}
+
+/// Прогон одного сигнала полным драйвером: круг закрывается страховкой на
+/// конце фида, поэтому причина выхода — последняя в `fill_reason`.
+///
+/// Бэктест — `build_backtest` (не `seam6_backtest`): только он ставит
+/// `last_trades_capacity`, без которого крейт вовсе не пишет ленту
+/// (`proc/local.rs`: `trades.capacity() > 0`), и F7 нечего было бы считать.
+fn f7_exits(plan: TradePlan, feed: &[Event]) -> Vec<ExitReason> {
+    let mut hbt = build_backtest(
+        feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
+    let cfg = DriveConfig {
+        order_qty: 1.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::RiskAdverse,
+    };
+    let signal = BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+    };
+    drive_bounce(&mut hbt, 0, &[signal], &cfg)
+        .unwrap()
+        .fill_reason
+}
+
+/// Шапка фида: книга с бид-стеной 99 (размер `wall`) и вход в 100, который
+/// исполняет продажа 6 в бид 100 (очередь впереди 5 — как в шве 6). Сделка
+/// стоит **после** `t0` сигнала (1 с): до постановки входа лента к кругу не
+/// относится. Потолок входа 2 с снимает остаток к 3 с, и позиция уходит в
+/// `Holding` — дальше фид продолжается тем, что передал тест.
+fn f7_feed_tail(rest: &[Event], wall: f64) -> Vec<Event> {
+    let mut feed = vec![
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, true, 99.0, wall),
+        depth_at(0, false, 101.0, 5.0),
+        // Вход (лимит 100) исполняется: продажа 6 съедает очередь 5 и берёт нас.
+        trade_at(S + S / 2, true, 100.0, 6.0),
+        // Потолок входа (2 с) истекает — позиция 1.0 уходит в `Holding`.
+        depth_at(3 * S, true, 100.0, 0.0),
+        depth_at(3 * S, true, 99.0, wall),
+    ];
+    feed.extend_from_slice(rest);
+    feed
+}
+
+/// F7 (Б-75): печать в стену `≥ X %` размера стены — выход по рынку
+/// (`EatenByTrades`), а не ожидание дедлайна. Одна сделка 6 из стены 10 при
+/// `eat50`.
+#[test]
+fn a_print_into_the_wall_exits_by_trades() {
+    let feed = f7_feed_tail(
+        &[
+            // Печать в стену 99: 6 из 10 = 60 % ≥ 50 %.
+            trade_at(4 * S, true, 99.0, 6.0),
+            // Книга для рыночного выхода и хвост, чтобы ответ дошёл.
+            depth_at(5 * S, false, 101.0, 5.0),
+            depth_at(6 * S, false, 102.0, 5.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(f7_plan(50.0, 0.0, 10.0), &feed),
+        vec![ExitReason::EatenByTrades],
+        "печать в стену обязана закрыть позицию по рынку"
+    );
+}
+
+/// F7 (Б-75): медленное съедание копится — две сделки по 3 из стены 10 дают
+/// те же 60 % и тот же выход. Это проверка накопления, а не одного принта.
+#[test]
+fn slow_eating_accumulates_to_the_eat_threshold() {
+    let feed = f7_feed_tail(
+        &[
+            trade_at(4 * S, true, 99.0, 3.0),
+            depth_at(4 * S + 500_000_000, false, 101.0, 5.0),
+            trade_at(5 * S, true, 99.0, 3.0),
+            depth_at(6 * S, false, 101.0, 5.0),
+            depth_at(7 * S, false, 102.0, 5.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(f7_plan(50.0, 0.0, 10.0), &feed),
+        vec![ExitReason::EatenByTrades],
+        "3 + 3 = 60 % — порог накоплен, как одной печатью"
+    );
+}
+
+/// F7 (Б-75): стена **снята** без сделок — размер 10 → 3 при `gone50` (ниже
+/// половины) и съеденном нуле: выход `WallGone`.
+#[test]
+fn a_wall_that_shrinks_without_trades_exits_as_gone() {
+    let feed = f7_feed_tail(
+        &[
+            // Размер стены убрали: 3 < 5 (половина от 10), сделок не было.
+            depth_at(4 * S, true, 99.0, 3.0),
+            depth_at(5 * S, false, 101.0, 5.0),
+            depth_at(6 * S, false, 102.0, 5.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(f7_plan(0.0, 50.0, 10.0), &feed),
+        vec![ExitReason::WallGone],
+        "падение без сделок — это снятие, а не съедание"
+    );
+}
+
+/// F7 (Б-75): падение размера **сделками** не даёт `WallGone` — стена 10 → 3,
+/// но из семи съеденных лотов шесть прошли лентой (≥ половины падения).
+/// Форма `gone` молчит, круг закрывается дедлайном.
+#[test]
+fn a_wall_that_shrank_by_trades_is_not_gone() {
+    let feed = f7_feed_tail(
+        &[
+            trade_at(4 * S, true, 99.0, 6.0),
+            depth_at(4 * S + 500_000_000, true, 99.0, 3.0),
+            depth_at(5 * S, false, 101.0, 5.0),
+            // Дедлайн 30 с от входа (~1 с) — закрываем круг по нему.
+            depth_at(32 * S, false, 102.0, 5.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(f7_plan(0.0, 50.0, 10.0), &feed),
+        vec![ExitReason::Deadline],
+        "стена ушла сделками — `gone` не срабатывает, круг живёт до дедлайна"
+    );
+}
+
+/// F7 (Б-75), гейт «те же круги»: при выключенных формах выхода (`none`,
+/// оба порога нули) лента в стену ничего не решает — круг закрывается
+/// дедлайном, как до F7.
+#[test]
+fn the_none_exit_form_ignores_the_wall_trades() {
+    let feed = f7_feed_tail(
+        &[
+            trade_at(4 * S, true, 99.0, 9.0),
+            depth_at(5 * S, false, 101.0, 5.0),
+            depth_at(32 * S, false, 102.0, 5.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(f7_plan(0.0, 0.0, 10.0), &feed),
+        vec![ExitReason::Deadline],
+        "форма `none` не читает ни съедание, ни снятие"
     );
 }

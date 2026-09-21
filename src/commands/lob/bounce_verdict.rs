@@ -56,7 +56,37 @@ pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
 /// задаёт свой набор `--deadline-secs` из этого списка; чужое число — отказ.
 pub const DEADLINE_SECS_ALLOWED: [u64; 6] = [60, 600, 1800, 3600, 7200, 14400];
 /// Причины выхода в порядке колонок артефакта.
-pub const EXIT_REASONS: [&str; 6] = ["stop", "take", "trail", "deadline", "early", "horizon"];
+pub const EXIT_REASONS: [&str; 9] = [
+    "stop",
+    "take",
+    "trail",
+    "deadline",
+    "early",
+    "horizon",
+    "eaten",
+    "eaten_by_trades",
+    "wall_gone",
+];
+
+/// Имя колонки артефакта вердикта для причины выхода: у `deadline` она
+/// исторически `timeout` (`n_timeout`/`share_timeout`), у остальных — само
+/// имя причины. Одна функция на обе оси колонок (`n_*` и `share_*`), чтобы
+/// новая причина не попала в чужую колонку молчаливым `_ =>` (умолчание
+/// прежнего кода отдавало `n_horizon` всякому неизвестному имени).
+fn exit_column(reason: &str) -> &'static str {
+    match reason {
+        "deadline" => "timeout",
+        "eaten" => "eaten",
+        "eaten_by_trades" => "eaten_by_trades",
+        "wall_gone" => "wall_gone",
+        // Прежние имена причин — как в самих формах (stop/take/trail/early/horizon).
+        "stop" => "stop",
+        "take" => "take",
+        "trail" => "trail",
+        "early" => "early",
+        _ => "horizon",
+    }
+}
 
 /// Размер полной сетки по её же именам (В-62/В-65/В-74/F6): формы стопа ×
 /// формы тейка × дедлайны × формы входа × режимы срока жизни входа × формы
@@ -416,10 +446,13 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
         idx("sum_net_bps")?,
     );
     let i_hours = header.iter().position(|h| h == "signals_by_hour");
-    let exit_idx: Vec<usize> = EXIT_REASONS
+    // Колонки причин выхода читаются **по наличию**: артефакты до F7/F8 их не
+    // несут (`n_eaten_by_trades`/`n_wall_gone`), а вердикт обязан читаться по
+    // уже снятой сетке — отсутствующая колонка это ноль, не отказ.
+    let exit_idx: Vec<Option<usize>> = EXIT_REASONS
         .iter()
-        .map(|r| idx(&format!("n_{r}")))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .map(|r| header.iter().position(|h| h == &format!("n_{r}")))
+        .collect();
     let mut cells: BTreeMap<Cell, CellStat> = BTreeMap::new();
     let mut form_set: BTreeSet<String> = BTreeSet::new();
     let mut symbols = BTreeSet::new();
@@ -471,7 +504,9 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
             );
         }
         for (k, &i) in exit_idx.iter().enumerate() {
-            st.exits[k] = rec[i].parse()?;
+            if let Some(i) = i {
+                st.exits[k] = rec[i].parse()?;
+            }
         }
         form_set.insert(cell.form.clone());
         symbols.insert(cell.symbol.clone());
@@ -916,7 +951,7 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         verdict.label()
     )?;
     let mut w = csv::Writer::from_writer(file);
-    let mut header = vec![
+    let mut header: Vec<String> = [
         "form",
         "stop",
         "take",
@@ -930,26 +965,15 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         "net_fill_lower_bps",
         "net_per_fill_bps",
         "sharpe",
-    ];
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
     for reason in EXIT_REASONS {
-        header.push(match reason {
-            "stop" => "n_stop",
-            "take" => "n_take",
-            "trail" => "n_trail",
-            "deadline" => "n_timeout",
-            "early" => "n_early",
-            _ => "n_horizon",
-        });
+        header.push(format!("n_{}", exit_column(reason)));
     }
     for reason in EXIT_REASONS {
-        header.push(match reason {
-            "stop" => "share_stop",
-            "take" => "share_take",
-            "trail" => "share_trail",
-            "deadline" => "share_timeout",
-            "early" => "share_early",
-            _ => "share_horizon",
-        });
+        header.push(format!("share_{}", exit_column(reason)));
     }
     w.write_record(&header)?;
     for f in &forms {

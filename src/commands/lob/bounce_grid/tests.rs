@@ -164,6 +164,8 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         driver: DriverArg::Setups,
         out_dir: root.join("grid"),
         allow_unverified,
+        // F7/F8: форма выхода — по умолчанию `none` (гейт).
+        exit_form: Vec::new(),
     }
 }
 
@@ -1293,6 +1295,7 @@ fn entry_ttl_axis_multiplies_forms_with_distinct_labels() {
         None,
         &[3600],
         &[EntryTtl::Touch, EntryTtl::Secs(60), EntryTtl::Secs(300)],
+        &[ExitForm::None],
     );
     assert_eq!(multi.len(), 3, "одна форма × три значения ttl");
     assert_eq!(multi[0].label, "pct2-1to1-3600");
@@ -1440,4 +1443,157 @@ fn entry_ttl_conditions_refuse_without_their_numbers() {
     c.entry_ttl_secs = vec!["touch".to_string()];
     c.out_dir = dir.path().join("grid-f5-touch");
     assert!(run_bounce_grid(&c).is_ok());
+}
+
+// -----------------------------------------------------------------------
+// F7/F8 (план 2026-09-20, Б-75): ось формы выхода `--exit-form`
+// (`none`/`eat<X>`/`gone<W>`) — имена форм, колонки артефактов, гейт.
+// -----------------------------------------------------------------------
+
+/// Разбор `--exit-form` (F7): `none` — прежний выход; `eat<X>`/`gone<W>` —
+/// проценты в (0, 100]; чужое имя или число вне диапазона — отказ, а не
+/// молчаливый `none` (иначе испытание шло бы не под тем именем).
+#[test]
+fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
+    assert_eq!(ExitForm::parse("none").unwrap(), ExitForm::None);
+    assert_eq!(
+        ExitForm::parse("eat50").unwrap(),
+        ExitForm::Eat { pct: 50.0 }
+    );
+    assert_eq!(
+        ExitForm::parse("gone20").unwrap(),
+        ExitForm::Gone { pct: 20.0 }
+    );
+    for bad in ["eat", "eat0", "eat101", "gone0", "goneabc", "eaten50", ""] {
+        assert!(
+            ExitForm::parse(bad).is_err(),
+            "{bad:?} — не форма выхода, обязан быть отказ"
+        );
+    }
+    // Пустой флаг — прежний выход (`none`), как у остальных осей сетки.
+    assert_eq!(parse_exit_forms(&[]).unwrap(), vec![ExitForm::None]);
+    assert_eq!(
+        parse_exit_forms(&["eat50".to_string(), "eat50".to_string()]).unwrap(),
+        vec![ExitForm::Eat { pct: 50.0 }],
+        "повтор флага свёрнут — иначе имена форм совпали бы"
+    );
+}
+
+/// Ось `--exit-form` — декартово произведение форм: у прежнего выхода (`none`)
+/// имя прежнее (`form_label`, гейт «те же круги»), у остальных — хвостовое
+/// поле `-eat<X>`/`-gone<W>`, иначе имена совпали бы и сетка отказала.
+#[test]
+fn exit_form_axis_multiplies_forms_with_distinct_labels() {
+    let stops = [StopForm::Pct(2.0)];
+    let takes = [TakeForm::OneToOne];
+    let base = grid_forms(&stops, &takes, None, &[3600]);
+    assert_eq!(base.len(), 1);
+    assert_eq!(base[0].label, "pct2-1to1-3600");
+    assert_eq!(base[0].exit_form, ExitForm::None);
+
+    let multi = grid_forms_with_axes(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &[
+            ExitForm::None,
+            ExitForm::Eat { pct: 50.0 },
+            ExitForm::Gone { pct: 20.0 },
+        ],
+    );
+    assert_eq!(multi.len(), 3, "одна форма × три формы выхода");
+    assert_eq!(multi[0].label, "pct2-1to1-3600");
+    assert_eq!(multi[1].label, "pct2-1to1-3600-eat50");
+    assert_eq!(multi[2].label, "pct2-1to1-3600-gone20");
+    let seen: std::collections::BTreeSet<&str> = multi.iter().map(|f| f.label).collect();
+    assert_eq!(seen.len(), 3, "имена обязаны различаться: {seen:?}");
+    // Прежний выход — прежнее имя: гейт «те же круги» и вердикт читают его как есть.
+    assert_eq!(base[0].label, multi[0].label);
+    // Имена читаются вердиктом: хвостовое поле выхода разбирается.
+    assert_eq!(
+        super::super::bounce_verdict::parse_form_fields("pct2-1to1-3600-eat50")
+            .unwrap()
+            .exit,
+        Some("eat50".to_string())
+    );
+}
+
+/// Прогон фикстуры с осью `--exit-form` (F7/F8): формы умножаются, шапка
+/// несёт ось выхода, `forms.csv` — колонки причин F7 и средняя доля входа.
+#[test]
+fn grid_with_exit_form_axis_writes_the_exit_columns_and_header() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct2".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.deadline_secs = vec![3600];
+    a.exit_form = vec!["eat50".to_string(), "gone20".to_string()];
+    a.out_dir = dir.path().join("grid-f8");
+    let m = run_bounce_grid(&a).unwrap();
+    assert_eq!(m.forms, 2, "одна базовая форма × две формы выхода");
+
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(head.contains(" exit_forms=eat50+gone20 "), "{head}");
+
+    let (fh, forms) = read_csv(&m.forms_path);
+    for name in ["n_eaten_by_trades", "n_wall_gone", "mean_fill_frac"] {
+        assert!(fh.iter().any(|h| h == name), "нет колонки {name}: {fh:?}");
+    }
+    let labels: std::collections::BTreeSet<&str> =
+        forms.iter().map(|r| col(&fh, r, "form")).collect();
+    assert_eq!(
+        labels,
+        ["pct2-1to1-3600-eat50", "pct2-1to1-3600-gone20"]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        "имя формы несёт поле выхода"
+    );
+    // Средняя доля входа — число в [0, 1], а не пустая колонка.
+    for r in &forms {
+        let mean: f64 = col(&fh, r, "mean_fill_frac").parse().unwrap();
+        assert!((0.0..=1.0).contains(&mean), "доля вне [0,1]: {r:?}");
+    }
+
+    // Прежний выход (`none`) — колонки те же, имена прежние (гейт).
+    let mut b = args(dir.path(), false);
+    b.stop_form = vec!["pct2".to_string()];
+    b.take_form = vec!["1to1".to_string()];
+    b.take_floor_fees = None;
+    b.deadline_secs = vec![3600];
+    b.exit_form = vec!["none".to_string()];
+    b.out_dir = dir.path().join("grid-f8-none");
+    let m2 = run_bounce_grid(&b).unwrap();
+    let (fh2, forms2) = read_csv(&m2.forms_path);
+    assert_eq!(col(&fh2, &forms2[0], "form"), "pct2-1to1-3600");
+    let head2 = std::fs::read_to_string(&m2.forms_path).unwrap();
+    assert!(head2.contains(" exit_forms=none "), "{head2}");
+}
+
+/// Гейт «те же круги» (F7/F8): пустая ось выхода печатает `exit_forms=none`,
+/// а формы остаются трёхпольными — прежний прогон воспроизводится байт в байт
+/// по именам и значениям прежних колонок.
+#[test]
+fn empty_exit_form_axis_keeps_the_previous_names() {
+    let stops = [StopForm::Pct(2.0)];
+    let takes = [TakeForm::OneToOne];
+    let a = grid_forms_with_axes(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &parse_exit_forms(&[]).unwrap(),
+    );
+    let b = grid_forms(&stops, &takes, None, &[3600]);
+    assert_eq!(a.len(), b.len());
+    for (x, y) in a.iter().zip(&b) {
+        assert_eq!(x.label, y.label);
+        assert_eq!(x.exit_form, ExitForm::None);
+    }
 }

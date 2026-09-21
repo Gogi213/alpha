@@ -734,6 +734,9 @@ fn ladder_entry_accumulates_legs_until_the_entry_is_over() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -846,6 +849,9 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -929,6 +935,9 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -1003,6 +1012,9 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let signal = |t0_ns: i64| BounceSignal {
         t0_ns,
@@ -1164,6 +1176,9 @@ fn bench_round_cost_in_a_window() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1248,6 +1263,9 @@ fn bench_dense_round_in_a_window() {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1330,6 +1348,9 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         eaten_half_frac: 0.5,
         level_qty: 5.0,
         lot_qty: 1.0,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -1404,6 +1425,9 @@ fn f3_plan(entry_px: f64, take_px: f64, legs: u8, step: f64) -> TradePlan {
         eaten_half_frac: 0.0,
         level_qty: 0.0,
         lot_qty: 0.1,
+        // F7 (Б-75): форма выхода — не используется в тестах гейта.
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
     }
 }
 

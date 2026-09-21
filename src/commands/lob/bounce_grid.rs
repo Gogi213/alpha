@@ -278,8 +278,54 @@ pub(crate) fn cached_approaches<'a>(
     Ok(out)
 }
 
-/// Одна форма сетки (В-65): имя колонки, форма сделки, дедлайн (он же окно `σ`)
-/// и режим срока жизни входа (F5, В-74).
+/// Форма выхода (F7 этапа F, Б-75): как закрывать позицию.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExitForm {
+    /// `none` — как сейчас (стоп/тейк/дедлайн/трейл/съедание от максимума).
+    None,
+    /// `eat<X>` — стена съедена сделками: накопленные сделки в стену ≥ X % от
+    /// размера стены на входе. Выход по рынку всего остатка.
+    Eat { pct: f64 },
+    /// `gone<W>` — стена снята без сделок: размер упал ниже (1 − W %) от
+    /// размера на входе, И съедение сделками < половины падения.
+    Gone { pct: f64 },
+}
+
+impl ExitForm {
+    pub fn label(&self) -> String {
+        match self {
+            ExitForm::None => "none".to_string(),
+            ExitForm::Eat { pct } => format!("eat{:.0}", pct),
+            ExitForm::Gone { pct } => format!("gone{:.0}", pct),
+        }
+    }
+
+    pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        if spec == "none" {
+            return Ok(ExitForm::None);
+        }
+        if let Some(rest) = spec.strip_prefix("eat") {
+            let pct: f64 = rest.parse()?;
+            anyhow::ensure!(
+                pct.is_finite() && pct > 0.0 && pct <= 100.0,
+                "eat<X>: X ∈ (0, 100]"
+            );
+            return Ok(ExitForm::Eat { pct });
+        }
+        if let Some(rest) = spec.strip_prefix("gone") {
+            let pct: f64 = rest.parse()?;
+            anyhow::ensure!(
+                pct.is_finite() && pct > 0.0 && pct <= 100.0,
+                "gone<W>: W ∈ (0, 100]"
+            );
+            return Ok(ExitForm::Gone { pct });
+        }
+        anyhow::bail!("--exit-form {spec:?}: ожидается none | eat<X> | gone<W>");
+    }
+}
+
+/// Одна форма сетки (В-65): имя колонки, форма сделки, дедлайн (он же окно `σ`),
+/// режим срока жизни входа (F5, В-74), форма входа (F6, В-73) и форма выхода (F7, Б-75).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridForm {
     pub label: &'static str,
@@ -293,22 +339,33 @@ pub struct GridForm {
     /// Форма входа (F6, В-73): `single@fr` — прежнее имя формы без поля входа
     /// (гейт «те же круги»), лестница — поле `<вход>` первым в имени.
     pub entry_form: EntryForm,
+    /// Форма выхода (F7, Б-75): `none` (прежнее поведение), `eat<X>` или `gone<W>`.
+    pub exit_form: ExitForm,
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —
 /// `bounce_verdict::form_label`, их же читает вердикт. Повторы имён отвергает
-/// `run_bounce_grid`. Это — прежний режим входа (F5, В-74): `touch`.
+/// `run_bounce_grid`. Это — прежний режим входа (F5, В-74): `touch`,
+/// прежняя форма выхода (F7, Б-75): `none`.
 pub fn grid_forms(
     stops: &[StopForm],
     takes: &[TakeForm],
     take_floor_fees: Option<f64>,
     deadlines: &[u64],
 ) -> Vec<GridForm> {
-    grid_forms_with_entry_ttl(stops, takes, take_floor_fees, deadlines, &[EntryTtl::Touch])
+    grid_forms_with_entry_ttl(
+        stops,
+        takes,
+        take_floor_fees,
+        deadlines,
+        &[EntryTtl::Touch],
+        &[ExitForm::None],
+    )
 }
 
-/// Та же сетка, но с осью срока жизни входа (F5, В-74): значение `entry_ttl`
-/// — **самый внутренний** множитель, поэтому при `&[EntryTtl::Touch]` порядок
+/// Та же сетка, но с осями срока жизни входа (F5, В-74) и формы выхода
+/// (F7, Б-75): значения `entry_ttl`/`exit_form` — **внутренние** множители,
+/// поэтому при `&[EntryTtl::Touch]` и `&[ExitForm::None]` порядок
 /// и имена форм те же, что у `grid_forms` (гейт «те же круги»).
 pub fn grid_forms_with_entry_ttl(
     stops: &[StopForm],
@@ -316,6 +373,7 @@ pub fn grid_forms_with_entry_ttl(
     take_floor_fees: Option<f64>,
     deadlines: &[u64],
     ttls: &[EntryTtl],
+    exits: &[ExitForm],
 ) -> Vec<GridForm> {
     grid_forms_with_axes(
         stops,
@@ -324,13 +382,14 @@ pub fn grid_forms_with_entry_ttl(
         deadlines,
         ttls,
         &[EntryForm::SingleFrontrun],
+        exits,
     )
 }
 
-/// Полная сетка F6 (В-73): к осям F5 добавлена ось **формы входа**
-/// (`--entry-form`, повторяемый). Форма входа — внешний множитель, поэтому
-/// при `&[EntryForm::SingleFrontrun]` порядок и имена форм те же, что у
-/// `grid_forms_with_entry_ttl` (гейт «те же круги»): у `single@fr` поле входа в
+/// Полная сетка F7 (Б-75): к осям F6 добавлена ось **формы выхода**
+/// (`--exit-form`, повторяемый). Форма выхода — самый внешний множитель, поэтому
+/// при `&[ExitForm::None]` порядок и имена форм те же, что у
+/// `grid_forms_with_axes` (гейт «те же круги»): у `none` поле выхода в
 /// имени не пишется (`form_label_with_entry`).
 pub fn grid_forms_with_axes(
     stops: &[StopForm],
@@ -339,40 +398,52 @@ pub fn grid_forms_with_axes(
     deadlines: &[u64],
     ttls: &[EntryTtl],
     entries: &[EntryForm],
+    exits: &[ExitForm],
 ) -> Vec<GridForm> {
     let mut out = Vec::with_capacity(
-        entries.len() * stops.len() * takes.len() * deadlines.len() * ttls.len(),
+        exits.len() * entries.len() * stops.len() * takes.len() * deadlines.len() * ttls.len(),
     );
-    for &entry_form in entries {
-        for &stop in stops {
-            for &take in takes {
-                for &deadline in deadlines {
-                    let base = form_label_with_entry(
-                        &entry_form.label(),
-                        &stop.label(),
-                        &take.label(),
-                        deadline,
-                    );
-                    for &entry_ttl in ttls {
-                        let label: &'static str = match entry_ttl {
-                            // Прежний режим — прежнее имя: вердикт и «золото» F3/F4
-                            // читают `form_label` как есть.
-                            EntryTtl::Touch => Box::leak(base.clone().into_boxed_str()),
-                            other => {
-                                Box::leak(format!("{base}-ttl{}", other.label()).into_boxed_str())
-                            }
-                        };
-                        out.push(GridForm {
-                            label,
-                            form: BounceForm {
-                                stop,
-                                take,
-                                take_floor_fees,
-                            },
-                            deadline_secs: deadline as i64,
-                            entry_ttl,
-                            entry_form,
-                        });
+    for &exit_form in exits {
+        for &entry_form in entries {
+            for &stop in stops {
+                for &take in takes {
+                    for &deadline in deadlines {
+                        let base = form_label_with_entry(
+                            &entry_form.label(),
+                            &stop.label(),
+                            &take.label(),
+                            deadline,
+                        );
+                        for &entry_ttl in ttls {
+                            let label_with_ttl: &'static str = match entry_ttl {
+                                // Прежний режим — прежнее имя: вердикт и «золото» F3/F4
+                                // читают `form_label` как есть.
+                                EntryTtl::Touch => Box::leak(base.clone().into_boxed_str()),
+                                other => Box::leak(
+                                    format!("{base}-ttl{}", other.label()).into_boxed_str(),
+                                ),
+                            };
+                            let label = if matches!(exit_form, ExitForm::None) {
+                                label_with_ttl
+                            } else {
+                                Box::leak(
+                                    format!("{label_with_ttl}-{}", exit_form.label())
+                                        .into_boxed_str(),
+                                )
+                            };
+                            out.push(GridForm {
+                                label,
+                                form: BounceForm {
+                                    stop,
+                                    take,
+                                    take_floor_fees,
+                                },
+                                deadline_secs: deadline as i64,
+                                entry_ttl,
+                                entry_form,
+                                exit_form,
+                            });
+                        }
                     }
                 }
             }
@@ -412,6 +483,24 @@ pub(crate) fn parse_entry_forms(specs: &[String]) -> anyhow::Result<Vec<EntryFor
     let mut out: Vec<EntryForm> = Vec::with_capacity(specs.len());
     for spec in specs {
         let form = EntryForm::parse(spec)?;
+        if !out.contains(&form) {
+            out.push(form);
+        }
+    }
+    Ok(out)
+}
+
+/// Разбор повторяемого `--exit-form` (F7, Б-75): пусто — прежний выход
+/// `none` (гейт «те же круги»); иначе `none` и/или `eat<X>` / `gone<W>`.
+/// Порядок — порядок флагов (он же порядок осей сетки), повторы свёрнуты.
+/// Числа — из предрегистрации, умолчаний в коде нет.
+pub(crate) fn parse_exit_forms(specs: &[String]) -> anyhow::Result<Vec<ExitForm>> {
+    if specs.is_empty() {
+        return Ok(vec![ExitForm::None]);
+    }
+    let mut out: Vec<ExitForm> = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let form = ExitForm::parse(spec)?;
         if !out.contains(&form) {
             out.push(form);
         }
@@ -572,6 +661,13 @@ pub struct BounceGridArgs {
     /// `k`. Числа — из имени формы (предрегистрация), умолчаний нет.
     #[arg(long = "entry-form")]
     pub entry_form: Vec<String>,
+    /// Форма выхода (F7 этапа F, Б-75) — повторяемый флаг, ось сетки:
+    /// `none` (умолчание — прежнее поведение, гейт «те же круги»), `eat<X>`
+    /// (стена съедена сделками ≥ X %) или `gone<W>` (стена снята без сделок,
+    /// размер < (1−W %) от входа, съедение < половины падения). Числа — из
+    /// предрегистрации, умолчаний в коде нет.
+    #[arg(long = "exit-form")]
+    pub exit_form: Vec<String>,
     /// Набор фильтров касаний одним процессом (повторяемый): `<имя>:<k=v,…>`,
     /// ключи `age=<с>` (возраст ≥, как `--min-age-secs`), `flow=<%>` (сила
     /// ×поток ≥, как `--min-flow-pct`), `side=bid|ask`, `frontrun` (только
@@ -1133,7 +1229,7 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 27] = [
+const FORMS_HEADER: [&str; 30] = [
     "symbol",
     "day_utc",
     "form",
@@ -1150,6 +1246,8 @@ const FORMS_HEADER: [&str; 27] = [
     "n_deadline",
     "n_early",
     "n_eaten",
+    "n_eaten_by_trades",
+    "n_wall_gone",
     "n_partial",
     "n_horizon",
     "incomplete",
@@ -1164,6 +1262,8 @@ const FORMS_HEADER: [&str; 27] = [
     "n_entry_cancelled_ttl",
     "n_entry_cancelled_wall_dead",
     "n_entry_cancelled_price_left",
+    // F8: средняя доля исполненного входа (F4, В-78).
+    "mean_fill_frac",
 ];
 
 pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
@@ -1249,6 +1349,8 @@ fn signals_for(
                 entry_ttl: form.entry_ttl,
                 h3_usd: p.h3_usd,
                 band_exit_bps: p.band_exit_bps,
+                // F7 (Б-75): форма выхода — ось сетки (`--exit-form`).
+                exit_form: form.exit_form,
             };
             let built = match approaches {
                 Some(ap) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
@@ -1653,6 +1755,11 @@ impl Outputs {
                 fill.legs_rejected.to_string(),
             ])?;
         }
+        let mean_fill_frac = if run.fills.is_empty() {
+            0.0
+        } else {
+            run.fills.iter().map(|f| f.fill_frac).sum::<f64>() / run.fills.len() as f64
+        };
         self.forms.write_record([
             symbol.to_string(),
             day.to_string(),
@@ -1670,6 +1777,8 @@ impl Outputs {
             run.exits.deadline.to_string(),
             run.exits.early.to_string(),
             run.exits.eaten.to_string(),
+            run.exits.eaten_by_trades.to_string(),
+            run.exits.wall_gone.to_string(),
             run.exits.partial.to_string(),
             run.exits.horizon.to_string(),
             run.incomplete.to_string(),
@@ -1690,6 +1799,8 @@ impl Outputs {
             run.entry_cancelled_ttl.to_string(),
             run.entry_cancelled_wall_dead.to_string(),
             run.entry_cancelled_price_left.to_string(),
+            // F8: средняя доля исполненного входа (F4, В-78).
+            format!("{mean_fill_frac:.6}"),
         ])?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
@@ -1756,6 +1867,7 @@ pub(crate) struct GridPlan {
     pub(crate) entry_ttls: Vec<EntryTtl>,
     pub(crate) band_exit_bps: f64,
     pub(crate) entries: Vec<EntryForm>,
+    pub(crate) exits: Vec<ExitForm>,
     pub(crate) forms: Vec<GridForm>,
     pub(crate) sets: Vec<FilterSet>,
     pub(crate) need_regime: bool,
@@ -1844,6 +1956,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         None => 0.0,
     };
     let entries = parse_entry_forms(&args.entry_form)?;
+    let exits = parse_exit_forms(&args.exit_form)?;
     let forms = grid_forms_with_axes(
         &stops,
         &takes,
@@ -1851,12 +1964,13 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         &deadlines,
         &entry_ttls,
         &entries,
+        &exits,
     );
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
             labels.len() == forms.len(),
-            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs/--entry-form дают одинаковые имена"
+            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs/--entry-form/--exit-form дают одинаковые имена"
         );
     }
     // F6 (В-73): сигнал по записи подхода — только из кэша F1, реплея
@@ -1936,6 +2050,7 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         entry_ttls,
         band_exit_bps,
         entries,
+        exits,
         forms,
         sets,
         need_regime,
@@ -1953,14 +2068,22 @@ fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Ou
         entry_ttls,
         band_exit_bps,
         entries,
+        exits,
         forms,
         sets,
         symbols,
         ..
     } = plan;
+    // Ось выхода — канонично из разобранных форм (`ExitForm::label`), а не из
+    // сырых флагов: пустой `--exit-form` печатался бы пустотой, а не `none`.
+    let exit_forms = exits
+        .iter()
+        .map(ExitForm::label)
+        .collect::<Vec<_>>()
+        .join("+");
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -2005,6 +2128,8 @@ fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Ou
             .map(|e| e.label())
             .collect::<Vec<_>>()
             .join("+"),
+        // F7/F8 (Б-75): форма выхода (ось `--exit-form`).
+        exit_forms,
         args.touches_from
             .as_ref()
             .map_or("replay".to_string(), |d| format!("csv({})", d.display())),

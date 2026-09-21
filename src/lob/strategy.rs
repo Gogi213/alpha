@@ -25,7 +25,10 @@
 //! `exit_price` из `lob::backtest`.
 
 use hftbacktest::depth::{MarketDepth, INVALID_MAX, INVALID_MIN};
-use hftbacktest::types::{Bot, OrdType, Side as HbtSide, Status, TimeInForce};
+use hftbacktest::types::{
+    Bot, Event, OrdType, Side as HbtSide, Status, TimeInForce, EXCH_BUY_TRADE_EVENT,
+    EXCH_SELL_TRADE_EVENT,
+};
 
 use crate::lob::backtest::{
     entry_price, entry_side, executed_qty, exit_price, ENTRY_TTL_NS, HOLD_NS,
@@ -360,6 +363,13 @@ pub enum TradePlan {
         /// Шаг лота инструмента в единицах крейта: дробный выход округляется
         /// **вниз** до кратного шага; если получился ноль — выходим целиком.
         lot_qty: f64,
+        /// F7 (Б-75): выход «съели» — накопленные сделки в стену ≥ X % от
+        /// размера стены на входе. `0` — выключено. Вход в сетку как `eat<X>`.
+        exit_eat_pct: f64,
+        /// F7 (Б-75): выход «сняли» — размер стены упал ниже (1 − W %) от
+        /// размера на входе, И сделками съедено < половины падения. `0` —
+        /// выключено. Вход в сетку как `gone<W>`.
+        exit_gone_pct: f64,
     },
 }
 
@@ -400,6 +410,14 @@ pub enum ExitReason {
     /// максимума с входа — выход по рынку. Первый порог закрывает часть
     /// (`partial: true` в `Action`), второй — всё.
     Eaten,
+    /// F7 (Б-75): стена съедена сделками — накопленные сделки в стену с
+    /// момента входа ≥ X % от размера стены на входе. Выход по рынку всего
+    /// остатка.
+    EatenByTrades,
+    /// F7 (Б-75): стена снята без сделок — размер упал ниже (1 − W %) от
+    /// размера на входе, И съедение сделками < половины падения. Выход по
+    /// рынку всего остатка.
+    WallGone,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -424,6 +442,11 @@ pub struct StrategyState {
     /// Максимум размера плотности уровня с момента входа — база съедания
     /// «от максимума» (динамический режим чужих ботов). `0.0` — не считаем.
     level_qty_max: f64,
+    /// F7 (Б-75): размер плотности уровня в момент входа — база для `gone<W>`.
+    level_qty_at_entry: f64,
+    /// F7 (Б-75): накопленные сделки в стену (против нашей позиции) с момента
+    /// входа — база для `eat<X>`.
+    eaten_qty: f64,
     /// Накопленное исполнение входа и его стоимость — по ордерам крейта
     /// (`entry_snapshot`): средняя цена входа `entry_notional / entry_qty` и
     /// она же — база стопа и тейка (F4, В-78). Живут в состоянии, а не в
@@ -463,6 +486,8 @@ impl StrategyState {
             best_favourable: 0.0,
             partial_done: false,
             level_qty_max: 0.0,
+            level_qty_at_entry: 0.0,
+            eaten_qty: 0.0,
             entry_qty: 0.0,
             entry_notional: 0.0,
             exit_qty: 0.0,
@@ -525,11 +550,70 @@ impl StrategyState {
     /// съедания — размер плотности на сигнале.
     fn enter_holding(&mut self, now: i64) {
         self.partial_done = false;
-        self.level_qty_max = match self.plan {
-            TradePlan::Bounce { level_qty, .. } => level_qty.max(0.0),
-            TradePlan::SpreadHold => 0.0,
+        self.eaten_qty = 0.0;
+        let (level_qty, level_qty_max) = match self.plan {
+            TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
+            TradePlan::SpreadHold => (0.0, 0.0),
         };
+        self.level_qty_at_entry = level_qty;
+        self.level_qty_max = level_qty_max;
         self.phase = Phase::Holding { entry_ns: now };
+    }
+
+    /// F7 (Б-75): зачесть сделки этого шага, бьющие **в стену**. Вызывается
+    /// драйвером (`run_round`) **до** очистки буфера `bot.last_trades` — сам
+    /// буфер живёт под управлением драйвера (он чистит его на каждом шаге,
+    /// чтобы память не росла с длиной круга), поэтому сделки приходят сюда
+    /// снаружи, а правило «что считать ударом в стену» остаётся здесь.
+    ///
+    /// У бид-стены (лонг) в неё бьёт агрессор-продавец (`SELL_EVENT`), у
+    /// аск-стены (шорт) — агрессор-покупатель (`BUY_EVENT`); учитывается
+    /// только сделка **на нашей цене уровня** (целый тик). При выключенных
+    /// формах F7 (`exit_eat_pct`/`exit_gone_pct` = 0) счётчик не читается
+    /// никем — прохода по буферу нет, и числа прежних прогонов не меняются
+    /// (на этом стоит гейт «те же круги»).
+    pub fn observe_wall_trades(&mut self, trades: &[Event]) {
+        let TradePlan::Bounce {
+            level_px,
+            tick_px,
+            exit_eat_pct,
+            exit_gone_pct,
+            ..
+        } = self.plan
+        else {
+            return;
+        };
+        // `gone<W>` тоже читает накопленное (сравнение с половиной падения),
+        // поэтому счётчик ведётся при любой из двух форм.
+        if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 {
+            return;
+        }
+        if tick_px <= 0.0 || level_px <= 0.0 {
+            return;
+        }
+        let Some(entry_side) = entry_side(self.sigma) else {
+            return;
+        };
+        // У лонга стену едят продажи, у шорта — покупки.
+        let want_sell = entry_side == HbtSide::Buy;
+        #[allow(clippy::cast_possible_truncation)]
+        let level_tick = (level_px / tick_px).round() as i64;
+        let mut eaten = 0.0;
+        for trade in trades {
+            let hit = if want_sell {
+                trade.ev & EXCH_SELL_TRADE_EVENT != 0
+            } else {
+                trade.ev & EXCH_BUY_TRADE_EVENT != 0
+            };
+            if !hit {
+                continue;
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            if (trade.px / tick_px).round() as i64 == level_tick {
+                eaten += trade.qty;
+            }
+        }
+        self.eaten_qty += eaten;
     }
 
     /// Лучший исход с момента входа — для трейл-тейка: вызывается на каждом
@@ -784,6 +868,8 @@ where
             eaten_half_pct,
             eaten_all_pct,
             eaten_half_frac,
+            exit_eat_pct,
+            exit_gone_pct,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -805,24 +891,42 @@ where
                 _ => ask,
             };
             state.observe_favourable(favourable);
-            // Съедание плотности (E5/E7): остаток на цене уровня
-            // против максимума с входа, в процентах. Книга крейта
-            // отдаёт размер по тику — цена уровня переводится в тик.
+            // Текущий размер стены на уровне (для F7 gone<W>).
             #[allow(clippy::cast_possible_truncation)]
-            let eaten_pct = if state.level_qty_max > 0.0 && tick_px > 0.0 {
-                let level_tick = (level_px / tick_px).round() as i64;
-                let depth = bot.depth(state.asset_no);
-                let now_qty = match entry_side {
+            let level_tick = (level_px / tick_px).round() as i64;
+            let depth = bot.depth(state.asset_no);
+            let now_qty = if tick_px > 0.0 && level_px > 0.0 {
+                match entry_side {
                     HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
                     _ => depth.ask_qty_at_tick(level_tick),
-                };
-                if now_qty > state.level_qty_max {
-                    state.level_qty_max = now_qty;
                 }
+            } else {
+                0.0
+            };
+            if now_qty > state.level_qty_max {
+                state.level_qty_max = now_qty;
+            }
+            // Съедание плотности (E5/E7): остаток на цене уровня
+            // против максимума с входа, в процентах.
+            let eaten_pct = if state.level_qty_max > 0.0 {
                 (1.0 - now_qty / state.level_qty_max) * 100.0
             } else {
                 0.0
             };
+            // F7 (Б-75): проверка форм выхода «съели» / «сняли». Накопленное
+            // исполнение **в стену** (`state.eaten_qty`) зачитывает драйвер
+            // (`run_round::observe_wall_trades`): буфер последних сделок
+            // (`bot.last_trades`) живёт под управлением драйвера и чистится на
+            // каждом шаге, поэтому здесь читается только накопленная сумма.
+            // Порядок: стоп и трейл честнее тейка; `eat`/`gone` — защитные
+            // выходы, ниже тейка и выше «прилипания» и дедлайна.
+            let eat_hit = exit_eat_pct > 0.0
+                && state.level_qty_at_entry > 0.0
+                && state.eaten_qty >= state.level_qty_at_entry * exit_eat_pct / 100.0;
+            let gone_hit = exit_gone_pct > 0.0
+                && state.level_qty_at_entry > 0.0
+                && now_qty < state.level_qty_at_entry * (1.0 - exit_gone_pct / 100.0)
+                && state.eaten_qty < (state.level_qty_at_entry - now_qty) * 0.5;
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= stop_px, bid >= take_px),
                 _ => (ask >= stop_px, ask <= take_px),
@@ -862,6 +966,16 @@ where
             } else if eaten_half_hit {
                 match exit_price(entry_side, bid, ask) {
                     Some(px) => (px, true, ExitReason::Eaten, eaten_half_frac),
+                    None => return None,
+                }
+            } else if eat_hit {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::EatenByTrades, 1.0),
+                    None => return None,
+                }
+            } else if gone_hit {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::WallGone, 1.0),
                     None => return None,
                 }
             } else if early_exit_ns > 0
