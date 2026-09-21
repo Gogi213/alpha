@@ -66,8 +66,15 @@ use crate::lob::costs::{
     NetFillInterval, MAKER_FEE_BPS, TAKER_FEE_BPS,
 };
 use crate::lob::strategy::{
-    on_event, Action, EntryCancelReason, ExitReason, StrategyState, TradePlan,
+    on_event, Action, EntryCancelReason, ExitReason, OrphanCarry, StrategyState, TradePlan,
+    MAX_ENTRY_LEGS,
 };
+
+/// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
+/// заявку выхода, тейкерское добивание и гашение сироты (F8c) — прежний запас
+/// «+4» с лестницей формы F6 давал коллизию id ещё открытой заявки с входом
+/// следующего сигнала (ревью 22.09, п. 5). Не экономическая величина.
+const ID_STRIDE: u64 = MAX_ENTRY_LEGS as u64 + 4;
 
 // ---------------------------------------------------------------------------
 // Константы Decision 20. Каждое число — из плана.
@@ -879,10 +886,9 @@ where
             next_id,
             TradePlan::SpreadHold,
         );
-        // Один круг тратит не больше двух ордеров (вход, выход); запас —
-        // страховка от коллизии id со следующим кругом, не экономическая
-        // величина.
-        next_id = next_id.saturating_add(4);
+        // Запас номеров на круг — `ID_STRIDE`: страховка от коллизии id со
+        // следующим кругом, не экономическая величина.
+        next_id = next_id.saturating_add(ID_STRIDE);
 
         let (entry_id, side) = match on_event(bot, &mut state)? {
             Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
@@ -1608,6 +1614,7 @@ fn drive_signal<B, MD>(
     sig: &BounceSignal,
     cfg: &DriveConfig,
     next_id: &mut u64,
+    carry: &mut OrphanCarry,
 ) -> Result<SignalStep, B::Error>
 where
     B: Bot<MD>,
@@ -1633,14 +1640,18 @@ where
 
     let mut state =
         StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, *next_id, sig.plan);
-    *next_id = next_id.saturating_add(4);
+    *next_id = next_id.saturating_add(ID_STRIDE);
+    // F8c: сироты прошлого круга живут дальше в новом состоянии — уборка
+    // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
+    state.inherit_orphans(*carry);
 
     let (entry_id, side) = match on_event(bot, &mut state)? {
         Action::EntrySubmitted { order_id, side, .. } => (order_id, side),
         _ => {
+            *carry = state.take_orphans();
             return Ok(SignalStep::NotSubmitted {
                 idle_ns: bot.current_timestamp(),
-            })
+            });
         }
     };
     // Замер механизма отказа (таск 38): в момент отправки входа смотрим,
@@ -1663,6 +1674,7 @@ where
     let (outcome, residual_left) =
         run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)?;
     if matches!(outcome, RoundOutcome::EndOfData) {
+        *carry = state.take_orphans();
         return Ok(SignalStep::Submitted {
             crossed,
             spread,
@@ -1697,6 +1709,7 @@ where
         }
         residual = Some(ended);
         if ended {
+            *carry = state.take_orphans();
             return Ok(SignalStep::Submitted {
                 crossed,
                 spread,
@@ -1709,6 +1722,7 @@ where
         }
     }
     bot.clear_inactive_orders(Some(asset_no));
+    *carry = state.take_orphans();
     Ok(SignalStep::Submitted {
         crossed,
         spread,
@@ -1799,6 +1813,8 @@ where
     let mut fill_reason: Vec<ExitReason> = Vec::new();
     let mut fill_exit_ns: Vec<i64> = Vec::new();
     let mut next_id = cfg.first_order_id;
+    // F8c: сироты переносятся между кругами суток (см. `drive_signal`).
+    let mut carry = OrphanCarry::NONE;
     let mut incomplete = false;
     let mut residual_flattened: u64 = 0;
     // Форма занята, пока стратегия не вернулась в `Idle` после предыдущего
@@ -1827,7 +1843,7 @@ where
             continue;
         }
         let step = source(sig, &mut |bot: &mut B| {
-            drive_signal(bot, asset_no, sig, cfg, &mut next_id)
+            drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
         })?;
         let Some(step) = step else {
             incomplete = true;

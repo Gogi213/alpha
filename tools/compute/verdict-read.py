@@ -28,7 +28,7 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-GATE_N = 100  # ворота вердикта (В-58/В-60): n ≥ 100 кругов
+GATE_N = 100  # ворота «торгуем» (В-58/В-60); в РАЗБОРЕ гипотез порога нет (владелец 22.09) — ранжируем по точке с интервалом
 
 
 def read_verdict(path: str) -> tuple[dict, list[dict]]:
@@ -70,12 +70,16 @@ def read_verdict(path: str) -> tuple[dict, list[dict]]:
 
 def facts(head: dict, rows: list[dict], top: int) -> tuple[str, dict]:
     gated = [r for r in rows if r["n"] >= GATE_N]
-    by_lower = sorted(gated, key=lambda r: r["lower"], reverse=True)[:top]
-    by_point = sorted(gated, key=lambda r: r["point"], reverse=True)[:top]
-    pos_lower = [r for r in gated if r["lower"] > 0]
+    traded = [r for r in rows if r["n"] > 0]
+    # Разбор — без порога по числу сделок (владелец 22.09: «порог 100 вредоносен»
+    # для чтения): ранжируем все торговавшие формы по точке с интервалом; n ≥ 100
+    # остаётся только меткой «прошла бы ворота».
+    by_lower = sorted(traded, key=lambda r: r["lower"], reverse=True)[:top]
+    by_point = sorted(traded, key=lambda r: r["point"], reverse=True)[:top]
+    pos_lower = [r for r in traded if r["lower"] > 0]
     # Оси: средняя точка по значению каждого поля имени формы (вход-стоп-тейк-дедлайн-ttl-выход).
     axes: dict[str, dict[str, list[float]]] = {}
-    for r in gated:
+    for r in traded:
         parts = r["form"].split("-")
         names = ["entry", "stop", "take", "deadline", "ttl", "exit"][: len(parts)]
         for k, v in zip(names, parts):
@@ -87,7 +91,7 @@ def facts(head: dict, rows: list[dict], top: int) -> tuple[str, dict]:
 
     def row_line(r: dict) -> str:
         return (
-            f"  {r['form']}: сделок {r['n']} из {r['n_signals']} сигналов, точка {r['point']:+.2f}, "
+            f"  {r['form']}: сделок {r['n']} из {r['n_signals']} сигналов{' (ворота n≥100: да)' if r['n'] >= GATE_N else ''}, точка {r['point']:+.2f}, "
             f"нижняя {r['lower']:+.2f}, на сделку {r['per_fill']:+.1f} bps; выходы: стоп {r['share_stop']:.0%}, "
             f"тейк {r['share_take']:.0%}, дедлайн {r['share_timeout']:.0%}, съели {r['share_eaten_by_trades']:.0%}, "
             f"сняли {r['share_wall_gone']:.0%}"
@@ -96,13 +100,13 @@ def facts(head: dict, rows: list[dict], top: int) -> tuple[str, dict]:
     text = "\n".join(
         [
             f"Набор: {head.get('grid', head['path'])}; форм {len(rows)}, символов {head.get('symbols', '?')}, суток {head.get('days', '?')}.",
-            f"Форм с n ≥ {GATE_N} сделок: {len(gated)} из {len(rows)}; форм с нижней границей > 0: {len(pos_lower)}.",
+            f"Форм со сделками: {len(traded)} из {len(rows)}; из них прошли бы ворота n ≥ {GATE_N}: {len(gated)}; форм с нижней границей > 0: {len(pos_lower)}.",
             f"DSR лучшей формы: {head.get('dsr_best')}.",
-            "Лучшие по нижней границе (среди n ≥ 100):",
+            "Лучшие по нижней границе (все торговавшие формы):",
             *[row_line(r) for r in by_lower],
-            "Лучшие по точке (среди n ≥ 100):",
+            "Лучшие по точке (все торговавшие формы):",
             *[row_line(r) for r in by_point],
-            "Средняя точка по значениям осей (bps, среди n ≥ 100):",
+            "Средняя точка по значениям осей (bps, все торговавшие формы):",
             *axis_lines,
         ]
     )
@@ -119,10 +123,11 @@ def facts(head: dict, rows: list[dict], top: int) -> tuple[str, dict]:
 
 CONTEXT = (
     "Проект alpha ищет альфу в отскоке от крупных плотностей стакана. Вердикт сетки: форма — вход "
-    "(лестница), стоп, тейк, дедлайн, срок жизни входа (ttl), выход (none/eat/gone). Ворота: n ≥ 100 "
-    "сделок и нижняя граница net_fill > 0 (бутстрэп по суткам). «Живая» форма — та, что имеет смысл "
-    "оставить в коротком списке для следующих ночей: n ≥ 100, точка заметно > 0, нижняя близка к нулю "
-    "или выше, доля стопов не доминирует. «Мёртвая ось» — значение оси, чьи формы стабильно хуже "
+    "(лестница), стоп, тейк, дедлайн, срок жизни входа (ttl), выход (none/eat/gone). Ворота «торгуем»: "
+    "n ≥ 100 сделок и нижняя граница net_fill > 0 (бутстрэп по суткам). В РАЗБОРЕ порога по числу сделок "
+    "нет (владелец): форма с 60 сделками и точкой +12 bps — сильный сигнал, который надо копить, а не "
+    "отбрасывать. «Живая» форма — та, что имеет смысл оставить в коротком списке для следующих ночей: "
+    "точка заметно > 0 при нижней границе не хуже, чем у соседей по числу сделок, доля стопов не доминирует. «Мёртвая ось» — значение оси, чьи формы стабильно хуже "
     "остальных. Комиссии круга ~4.4 bps уже вычтены (net)."
 )
 
@@ -134,10 +139,10 @@ def judge_set(j: Judge, text: str) -> dict:
             "status": Judge.choice(
                 "Как читать этот набор?",
                 {
-                    "promising": "есть формы с n ≥ 100 и точкой заметно выше нуля при нижней границе около нуля — держать в коротком списке, копить сутки",
+                    "promising": "есть формы с точкой заметно выше нуля (независимо от числа сделок) при нижней границе, объяснимой малой выборкой — держать в коротком списке, копить сутки",
                     "flat": "формы вокруг нуля (точка < ~1 bps) — стратегия на этом наборе не зарабатывает",
                     "negative": "точки отрицательны у большинства форм — набор вредит",
-                    "insufficient": "мало форм с n ≥ 100 — читать нельзя, нужны сутки",
+                    "insufficient": "сделок настолько мало (единицы), что точка — шум; нужны сутки",
                 },
             ),
             "keep_axis_hint": Judge.choice(

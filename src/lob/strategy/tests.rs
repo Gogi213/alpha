@@ -1858,6 +1858,66 @@ fn the_driver_counts_the_entry_cancel_ceiling() {
     assert!(run.fills.is_empty(), "круга без входа нет");
 }
 
+/// F8c (ревью 22.09, блокер 1): сирота **переживает границу круга** в
+/// настоящем драйвере `drive_bounce`. Первый сигнал: вход не исполнился,
+/// снят по сроку жизни, отмена не подтверждена за потолок → круг закрыт тем
+/// же событием (`Idle`), состояние выброшено драйвером. Без переноса нога
+/// осталась бы в рынке навсегда; с переносом второй круг наследует её,
+/// сделка исполняет сироту, гашение по рынку и счётчик `orphan_fills` — в
+/// агрегате дня.
+#[test]
+fn an_orphan_survives_the_round_boundary_in_the_driver() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 100.0, 5.0),
+        // Второй сигнал (t0 = 2.4 с) стартует новый круг: сирота первого
+        // унаследована, продажа 6 в бид 100 исполняет её (отмена доедет до
+        // биржи только на 2.7 с) — гашение по рынку, счётчик.
+        trade_at(2_500_000_000, true, 100.0, 6.0),
+        depth_at(3 * S, true, 100.0, 5.0),
+        depth_at(4 * S, true, 100.0, 5.0),
+        depth_at(5 * S, true, 100.0, 5.0),
+    ];
+    let lat = ExecLatency {
+        place_ns: 1_000_000,
+        cancel_ns: 1_500_000_000,
+        taker_ns: 1_000_000,
+    };
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
+    let cfg = DriveConfig {
+        order_qty: 1.0,
+        first_order_id: 1,
+        queue_model: QueueModelKind::RiskAdverse,
+    };
+    // Срок жизни входа 0.1 с: снятие на 1.2 с, потолок на 2.2 с — круг закрыт.
+    let signals = [
+        BounceSignal {
+            t0_ns: S,
+            sigma: SIGMA_LONG,
+            plan: cancel_wait_plan(S / 10),
+            profile: 0,
+        },
+        BounceSignal {
+            t0_ns: 2_400_000_000,
+            sigma: SIGMA_LONG,
+            plan: cancel_wait_plan(30 * S),
+            profile: 0,
+        },
+    ];
+    let run = drive_bounce(&mut hbt, 0, &signals, &cfg).unwrap();
+
+    assert_eq!(
+        run.entry_cancelled_cancel_timeout, 1,
+        "первый круг закрыт потолком"
+    );
+    assert_eq!(
+        run.orphan_fills, 1,
+        "сирота первого круга исполнилась во втором и посчитана: {:?}",
+        run.fill_reason
+    );
+}
+
 /// F8b (Р4): причины F7 считает драйвер (`ExitTally`), а не строки кругов —
 /// и считает их **раздельно**: «съели» и «сняли» не путаются местами и не
 /// остаются нулями (адрес колонки `forms.csv` проверяет `bounce_grid`).

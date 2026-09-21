@@ -503,18 +503,22 @@ pub struct StrategyState {
     /// рынка их никто не убрал: пока сирота стоит, снятие повторяется на
     /// каждом событии в любой фазе (`sweep_orphans`), а исполнение сироты не
     /// теряется — нога входа гасится по рынку, нога выхода зачитывается в
-    /// `exit_qty`. Одна партия `orphan_first .. orphan_first + orphan_legs`
-    /// (без кучи: ног у плана единицы); вторая партия до ухода первой —
-    /// крайне редкий случай, он **считается** (`orphan_overflow`), партия
-    /// остаётся последняя. `orphan_legs == 0` — сирот нет.
-    orphan_first: u64,
-    orphan_legs: u8,
-    orphan_kind: OrphanKind,
-    /// Исполненное партии сирот, уже учтённое (погашено или зачтено в выход).
-    orphan_accounted: f64,
+    /// `exit_qty`. Партии — массив фиксированной ёмкости (`OrphanCarry`, без
+    /// кучи): вторая партия до ухода первой (лимитка выхода дважды не
+    /// отменилась за потолок) не затирает первую (ревью 22.09, блокер 2);
+    /// переполнение ёмкости считается (`orphan_overflow`), тогда вытесняется
+    /// старейшая. Партии **переживают круг**: драйвер забирает их
+    /// (`take_orphans`) и отдаёт следующему состоянию (`inherit_orphans`),
+    /// иначе сирота входа, чей круг закрылся тем же событием, не снималась бы
+    /// ни разу (ревью 22.09, блокер 1).
+    orphans: OrphanCarry,
+    /// Остаток стоящих сирот **выхода** (по последней уборке): новые выходы
+    /// сайзятся по свободной позиции `position − orphan_exit_open`, иначе
+    /// исполнятся обе заявки и позиция уйдёт в перепрод (ревью 22.09, п. 4).
+    orphan_exit_open: f64,
     /// Сколько раз исполнение сироты было замечено — колонка `n_orphan_fills`.
     orphan_fills: u64,
-    /// Сколько раз новая партия сирот вытеснила ещё живую прежнюю.
+    /// Сколько раз новая партия сирот вытеснила живую из-за переполнения.
     orphan_overflow: u64,
 }
 
@@ -525,6 +529,51 @@ pub struct StrategyState {
 enum OrphanKind {
     Entry,
     Exit,
+}
+
+/// Одна партия сирот: ноги `first .. first + legs` одной заявки/лестницы.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OrphanBatch {
+    first: u64,
+    legs: u8,
+    kind: OrphanKind,
+    /// Исполненное партии, уже учтённое (погашено или зачтено в выход).
+    accounted: f64,
+}
+
+/// Ёмкость партий сирот на состояние: вход + выход + запас; больше — считается
+/// переполнением (`orphan_overflow`), не молчаливой потерей.
+pub const MAX_ORPHAN_BATCHES: usize = 4;
+
+/// Сироты, переносимые между кругами (F8c): драйвер бэктеста создаёт состояние
+/// на сигнал и рвёт круг на `Idle`, поэтому партии отдаются наружу и
+/// наследуются следующим состоянием; живой контур с долгоживущей стратегией
+/// держит их внутри. `Copy` и без кучи — на пути события.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OrphanCarry {
+    batches: [OrphanBatch; MAX_ORPHAN_BATCHES],
+    n: u8,
+}
+
+impl OrphanCarry {
+    pub const NONE: OrphanCarry = OrphanCarry {
+        batches: [OrphanBatch {
+            first: 0,
+            legs: 0,
+            kind: OrphanKind::Entry,
+            accounted: 0.0,
+        }; MAX_ORPHAN_BATCHES],
+        n: 0,
+    };
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// Живых партий.
+    pub fn len(&self) -> usize {
+        usize::from(self.n)
+    }
 }
 
 impl StrategyState {
@@ -558,10 +607,8 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
-            orphan_first: 0,
-            orphan_legs: 0,
-            orphan_kind: OrphanKind::Entry,
-            orphan_accounted: 0.0,
+            orphans: OrphanCarry::NONE,
+            orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
         }
@@ -586,19 +633,49 @@ impl StrategyState {
 
     /// Сироты ещё стоят в рынке (или их снятие летит).
     pub fn has_orphans(&self) -> bool {
-        self.orphan_legs > 0
+        !self.orphans.is_empty()
     }
 
-    /// Потолок отмены сорвал ожидание: ноги `first .. first + legs` — сироты
-    /// (F8c, К1). Живая прежняя партия вытесняется и считается.
+    /// Забрать партии сирот у состояния (драйвер — на границе круга): у
+    /// состояния их больше нет, у следующего состояния будут (`inherit_orphans`).
+    pub fn take_orphans(&mut self) -> OrphanCarry {
+        let c = self.orphans;
+        self.orphans = OrphanCarry::NONE;
+        self.orphan_exit_open = 0.0;
+        c
+    }
+
+    /// Унаследовать партии сирот прежнего круга (F8c): уборка продолжится с
+    /// первого события нового круга. Своих партий у нового состояния ещё нет.
+    pub fn inherit_orphans(&mut self, carry: OrphanCarry) {
+        self.orphans = carry;
+    }
+
+    /// Потолок отмены сорвал ожидание: ноги `first .. first + legs` — новая
+    /// партия сирот (F8c, К1). Ёмкость исчерпана — вытесняется старейшая,
+    /// переполнение считается.
     fn adopt_orphans(&mut self, first: u64, legs: u8, kind: OrphanKind) {
-        if self.orphan_legs > 0 {
+        let b = OrphanBatch {
+            first,
+            legs: legs.max(1),
+            kind,
+            accounted: 0.0,
+        };
+        let n = self.orphans.len();
+        if n < MAX_ORPHAN_BATCHES {
+            self.orphans.batches[n] = b;
+            self.orphans.n += 1;
+        } else {
             self.orphan_overflow = self.orphan_overflow.saturating_add(1);
+            self.orphans.batches.copy_within(1.., 0);
+            self.orphans.batches[MAX_ORPHAN_BATCHES - 1] = b;
         }
-        self.orphan_first = first;
-        self.orphan_legs = legs.max(1);
-        self.orphan_kind = kind;
-        self.orphan_accounted = 0.0;
+    }
+
+    /// Свободная позиция под новый выход: своя позиция минус остаток стоящих
+    /// сирот выхода (они ещё могут исполниться).
+    fn free_position(&self) -> f64 {
+        (self.position() - self.orphan_exit_open).max(0.0)
     }
 
     /// F8c (К1): на каждом событии, в любой фазе — сироты снимаются снова,
@@ -611,83 +688,109 @@ impl StrategyState {
         MD: MarketDepth,
         B: Bot<MD>,
     {
-        if self.orphan_legs == 0 {
+        if self.orphans.is_empty() {
             return Ok(());
         }
-        let mut alive = false;
-        let mut executed = 0.0_f64;
-        let mut side = HbtSide::None;
-        for i in 0..u64::from(self.orphan_legs) {
-            let id = self.orphan_first.saturating_add(i);
-            let Some(order) = bot.orders(self.asset_no).get(&id) else {
-                continue;
-            };
-            executed += executed_qty(order);
-            side = order.side;
-            if order.cancellable() {
-                bot.cancel(self.asset_no, id, false)?;
-                alive = true;
-            } else if order.req != Status::None || order.status == Status::None {
-                alive = true;
-            }
-        }
-        let delta = executed - self.orphan_accounted;
-        if delta > 0.0 {
-            match self.orphan_kind {
-                OrphanKind::Exit => {
-                    self.exit_qty += delta;
-                    self.orphan_accounted = executed;
-                    self.orphan_fills = self.orphan_fills.saturating_add(1);
-                    // Сирота закрыла позицию целиком, пока план её вёл:
-                    // выхода ставить не на что (`Holding` нулевой позиции
-                    // отправил бы заявку на ноль).
-                    if self.position() <= 0.0 && matches!(self.phase, Phase::Holding { .. }) {
-                        self.phase = Phase::Idle;
+        let mut exit_open = 0.0_f64;
+        let mut k = 0usize;
+        while k < self.orphans.len() {
+            let mut b = self.orphans.batches[k];
+            let mut alive = false;
+            let mut executed = 0.0_f64;
+            let mut side = HbtSide::None;
+            for i in 0..u64::from(b.legs) {
+                let id = b.first.saturating_add(i);
+                // Снимок полей заявки — до `bot.cancel` (заём карты крейта).
+                let Some((exec, o_side, cancellable, in_flight, leaves)) =
+                    bot.orders(self.asset_no).get(&id).map(|o| {
+                        (
+                            executed_qty(o),
+                            o.side,
+                            o.cancellable(),
+                            o.req != Status::None || o.status == Status::None,
+                            o.leaves_qty.max(0.0),
+                        )
+                    })
+                else {
+                    continue;
+                };
+                executed += exec;
+                side = o_side;
+                if cancellable {
+                    bot.cancel(self.asset_no, id, false)?;
+                }
+                if cancellable || in_flight {
+                    alive = true;
+                    if b.kind == OrphanKind::Exit {
+                        exit_open += leaves;
                     }
                 }
-                OrphanKind::Entry => {
-                    let depth = bot.depth(self.asset_no);
-                    let (bid, ask) = (depth.best_bid(), depth.best_ask());
-                    let flat_side = match side {
-                        HbtSide::Buy => HbtSide::Sell,
-                        HbtSide::Sell => HbtSide::Buy,
-                        HbtSide::None | HbtSide::Unsupported => HbtSide::None,
-                    };
-                    // Цена гашения — как у выхода из позиции той же стороны
-                    // (`exit_price` берёт сторону **позиции**: лонг гасится по
-                    // биду). Нет книги или стороны — гасить нечем, повтор на
-                    // следующем событии (`orphan_accounted` не двигается).
-                    if let Some(px) = exit_price(side, bid, ask) {
-                        let id = self.take_order_id();
-                        match flat_side {
-                            HbtSide::Buy => bot.submit_buy_order(
-                                self.asset_no,
-                                id,
-                                px,
-                                delta,
-                                TimeInForce::IOC,
-                                OrdType::Market,
-                                false,
-                            )?,
-                            _ => bot.submit_sell_order(
-                                self.asset_no,
-                                id,
-                                px,
-                                delta,
-                                TimeInForce::IOC,
-                                OrdType::Market,
-                                false,
-                            )?,
-                        };
-                        self.orphan_accounted = executed;
+            }
+            let delta = executed - b.accounted;
+            if delta > 0.0 {
+                match b.kind {
+                    OrphanKind::Exit => {
+                        self.exit_qty += delta;
+                        b.accounted = executed;
                         self.orphan_fills = self.orphan_fills.saturating_add(1);
+                        // Сирота закрыла позицию целиком, пока план её вёл:
+                        // выхода ставить не на что (`Holding` нулевой позиции
+                        // отправил бы заявку на ноль).
+                        if self.position() <= 0.0 && matches!(self.phase, Phase::Holding { .. }) {
+                            self.phase = Phase::Idle;
+                        }
+                    }
+                    OrphanKind::Entry => {
+                        let depth = bot.depth(self.asset_no);
+                        let (bid, ask) = (depth.best_bid(), depth.best_ask());
+                        let flat_side = match side {
+                            HbtSide::Buy => HbtSide::Sell,
+                            HbtSide::Sell => HbtSide::Buy,
+                            HbtSide::None | HbtSide::Unsupported => HbtSide::None,
+                        };
+                        // Цена гашения — как у выхода из позиции той же стороны
+                        // (`exit_price` берёт сторону **позиции**: лонг гасится по
+                        // биду). Нет книги или стороны — гасить нечем, повтор на
+                        // следующем событии (`accounted` не двигается).
+                        if let Some(px) = exit_price(side, bid, ask) {
+                            let id = self.take_order_id();
+                            match flat_side {
+                                HbtSide::Buy => bot.submit_buy_order(
+                                    self.asset_no,
+                                    id,
+                                    px,
+                                    delta,
+                                    TimeInForce::IOC,
+                                    OrdType::Market,
+                                    false,
+                                )?,
+                                _ => bot.submit_sell_order(
+                                    self.asset_no,
+                                    id,
+                                    px,
+                                    delta,
+                                    TimeInForce::IOC,
+                                    OrdType::Market,
+                                    false,
+                                )?,
+                            };
+                            b.accounted = executed;
+                            self.orphan_fills = self.orphan_fills.saturating_add(1);
+                        }
                     }
                 }
             }
+            if alive {
+                self.orphans.batches[k] = b;
+                k += 1;
+            } else {
+                // Партия отпущена: сдвиг хвоста, ёмкость фиксированная.
+                let n = self.orphans.len();
+                self.orphans.batches.copy_within(k + 1..n, k);
+                self.orphans.n -= 1;
+            }
         }
-        if !alive {
-            self.orphan_legs = 0;
-        }
+        self.orphan_exit_open = exit_open;
         Ok(())
     }
 
@@ -1274,10 +1377,16 @@ where
     // (находка F3), поэтому позиция ведётся в состоянии по ордерам.
     // Своей позиции нет (исполнение не отразилось) — прежняя
     // подстановка планового размера круга.
+    // Свободная позиция: минус остаток стоящих сирот выхода (F8c, ревью 22.09
+    // п. 4) — иначе исполнятся и сирота, и новый выход, и круг уйдёт в перепрод.
     let pos = {
-        let pos = state.position();
+        let pos = state.free_position();
         if pos > 0.0 {
             pos
+        } else if state.position() > 0.0 {
+            // Вся позиция зарезервирована сиротой выхода — ждём её (или её
+            // отмены) на следующем событии, новой заявки не ставим.
+            return Ok(Action::Idle);
         } else {
             state.qty
         }
