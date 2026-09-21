@@ -1823,9 +1823,9 @@ pub(crate) fn bounce_plan(
 /// `size_at_arm` (ключ `eaten=` на подходах смысла не имеет — вызов с ним
 /// отвергается), стопки 0.
 ///
-/// Вторая копия того же отображения живёт в `commands::lob::fill_capacity`
-/// (`touch_view_of`, F2): файл F2 трогать нельзя, поэтому общий хелпер не
-/// вынесен — отображения обязаны совпадать поле в поле.
+/// Единственное место отображения: `lob fill-capacity --targets approaches`
+/// (F2) зовёт эту же функцию (аудит 21.09, В3 — прежде была вторая копия без
+/// теста равенства, и они разошлись: Б3).
 pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
     TouchRecord {
         side: a.side,

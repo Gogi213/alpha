@@ -123,7 +123,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         symbols: vec!["SOLUSDT".to_string()],
         median_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
         p95_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
-        queue_model: "risk-adverse".to_string(),
+        queue_model: QueueModelKind::RiskAdverse,
         order_qty_e9: Some(100_000_000),
         order_qty_mult: 1,
         order_qty_from_pool: false,
@@ -1226,7 +1226,7 @@ fn risk_adverse_queue_model_keeps_the_old_bytes() {
     // (умолчания в коде нет), `prob:<n>` собирает свой движок.
     assert!(QueueModelKind::parse("").is_err());
     let mut b = args(dir.path(), false);
-    b.queue_model = "prob:3".to_string();
+    b.queue_model = QueueModelKind::Prob { n: 3.0 };
     b.out_dir = dir.path().join("grid-prob");
     let p = run_bounce_grid(&b).unwrap();
     assert_eq!(p.forms, 8, "формы те же, движок другой");

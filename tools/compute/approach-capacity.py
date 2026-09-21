@@ -117,7 +117,12 @@ for p in sorted(glob.glob(os.path.join(setdir, "*", "capacity-*.csv"))):
                 tick = int(r["tick"])
                 opp = int(r[oppcol])
                 best = int(r[bestcol])
-                crossed = opp >= 0 and tick >= opp
+                # Через спред — по стороне стены (аудит 21.09, Б2: раньше только бид):
+                # у бид-стены нога не ниже лучшего аска, у аск-стены — не выше лучшего бида.
+                side = r["side"]
+                crossed = opp >= 0 and (
+                    (side == "bid" and tick >= opp) or (side == "ask" and tick <= opp)
+                )
                 sold = (
                     int(r["sold_pre300"]) + int(r["sold_touch"])
                     if slot == "pre300"

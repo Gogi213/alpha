@@ -168,6 +168,11 @@ enum Phase {
     /// ведётся и частичный выход E7, и выход, который модель очереди по
     /// объёму отдала не целиком (F4, В-78).
     ExitPending { order_id: u64, entry_ns: i64 },
+    /// Лимитка выхода снимается по рыночной причине (аудит 21.09, Б1: стоп,
+    /// дедлайн, трейл или съедание наступили, пока тейк стоял в рынке
+    /// частично исполненным) — ждём подтверждения отмены, потом остаток
+    /// закрывается тейкером через `Holding`.
+    ExitCancelPending { order_id: u64, entry_ns: i64 },
     /// Вход истёк, отмена отправлена — ждём ответа биржи. Если, пока отмена
     /// летела (RTT), заявка исполнилась, позиция открыта: идём в `Holding`, а
     /// не в `Idle`. Найдено 2026-09-18: раньше после истечения стратегия сразу
@@ -706,6 +711,289 @@ pub enum Action {
     },
 }
 
+/// Решение о выходе из позиции: цена, тип (тейкер — по рынку, мейкер —
+/// лимитом), причина и доля позиции (E7). `None` — выходить не пора или
+/// книги нет (тогда круг остаётся в своей фазе к следующему событию, а не
+/// теряется молча).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExitDecision {
+    px: f64,
+    taker: bool,
+    reason: ExitReason,
+    frac: f64,
+}
+
+/// Что решает выход: у плана Decision 20 — только горизонт; у сделки-отскока
+/// (В-44) — стоп, съедание, трейл, тейк, дедлайн, и **порядок здесь часть
+/// плана**: стоп приоритетнее тейка (если цена проскочила оба уровня за
+/// один кадр, честнее считать, что выбило стопом), съедание всей плотности —
+/// раньше трейла, трейл — раньше тейка, половинное съедание — после тейка,
+/// прилипание и дедлайн — последними. Вынесено из `on_event` (аудит 21.09,
+/// С2), чтобы порядок приоритетов был одной функцией и проверялся отдельно.
+///
+/// `maker_allowed = false` — лимитка выхода **уже стоит** в рынке
+/// (`ExitPending`, аудит 21.09 Б1): мейкерские причины (тейк 1:1, горизонт
+/// Decision 20) не рассматриваются — вторая лимитка на тот же остаток не
+/// нужна, — а рыночные (стоп, съедание, трейл, прилипание, дедлайн) решают,
+/// снимать ли её и добивать остаток тейкером.
+/// Лучшие цены и сторона входа — то, от чего решается выход.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Quotes {
+    bid: f64,
+    ask: f64,
+    entry_side: HbtSide,
+}
+
+#[allow(clippy::too_many_lines)]
+fn decide_exit<MD, B>(
+    bot: &B,
+    state: &mut StrategyState,
+    entry_ns: i64,
+    now: i64,
+    quotes: Quotes,
+    maker_allowed: bool,
+) -> Option<ExitDecision>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    let Quotes {
+        bid,
+        ask,
+        entry_side,
+    } = quotes;
+    let (px, taker, reason, frac) = match state.plan {
+        TradePlan::SpreadHold => {
+            if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {
+                return None;
+            }
+            let px = exit_price(entry_side, bid, ask)?;
+            (px, false, ExitReason::Horizon, 1.0)
+        }
+        TradePlan::Bounce {
+            entry_px,
+            stop_px,
+            take_px,
+            deadline_ns,
+            trail_bps,
+            trail_activate_bps,
+            early_exit_ns,
+            level_px,
+            tick_px,
+            take_frac,
+            eaten_half_pct,
+            eaten_all_pct,
+            eaten_half_frac,
+            ..
+        } => {
+            // F4 (В-78): стоп и тейк — от **средней цены исполненного**
+            // входа, а не от плановой `entry_px`: лестница и частичное
+            // исполнение дают другую среднюю, а форма задаёт уровни
+            // расстояниями от входа. Сдвиг — целое число тиков
+            // (`level_shift`), при полном исполнении по плановой цене
+            // он ноль и числа прежних прогонов не меняются.
+            let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
+            let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
+            // Трейл-тейк (решение владельца 2026-09-13): следим за
+            // лучшим исходом и выходим по рынку, когда цена откатилась
+            // от него на `trail_bps`, но не раньше, чем прибыль дошла
+            // до `trail_activate_bps`. Пока трейл включён, фиксированный
+            // `take_px` не работает — иначе он и был бы выходом, а мы
+            // как раз пробуем тянуть дальше 1:1.
+            let favourable = match entry_side {
+                HbtSide::Buy => bid,
+                _ => ask,
+            };
+            state.observe_favourable(favourable);
+            // Съедание плотности (E5/E7): остаток на цене уровня
+            // против максимума с входа, в процентах. Книга крейта
+            // отдаёт размер по тику — цена уровня переводится в тик.
+            #[allow(clippy::cast_possible_truncation)]
+            let eaten_pct = if state.level_qty_max > 0.0 && tick_px > 0.0 {
+                let level_tick = (level_px / tick_px).round() as i64;
+                let depth = bot.depth(state.asset_no);
+                let now_qty = match entry_side {
+                    HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
+                    _ => depth.ask_qty_at_tick(level_tick),
+                };
+                if now_qty > state.level_qty_max {
+                    state.level_qty_max = now_qty;
+                }
+                (1.0 - now_qty / state.level_qty_max) * 100.0
+            } else {
+                0.0
+            };
+            let (stop_hit, take_hit) = match entry_side {
+                HbtSide::Buy => (bid <= stop_px, bid >= take_px),
+                _ => (ask >= stop_px, ask <= take_px),
+            };
+            let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
+                let gain_bps = (state.best_favourable - entry_px).abs() / entry_px * 10_000.0;
+                let give_back_bps =
+                    (state.best_favourable - favourable).abs() / entry_px * 10_000.0;
+                gain_bps >= trail_activate_bps && give_back_bps >= trail_bps
+            } else {
+                false
+            };
+            // Частичный тейк срабатывает один раз: после него остаток
+            // на 1:1 не закрывается — бежит до стопа/дедлайна/трейла/
+            // съедания (E7 «остаток по замедлению»).
+            let take_partial = take_frac > 0.0 && take_frac < 1.0;
+            let take_active = !(take_partial && state.partial_done);
+            let eaten_all_hit = eaten_all_pct > 0.0 && eaten_pct >= eaten_all_pct;
+            let eaten_half_hit =
+                eaten_half_pct > 0.0 && !state.partial_done && eaten_pct >= eaten_half_pct;
+            if stop_hit {
+                (stop_px, true, ExitReason::Stop, 1.0)
+            } else if eaten_all_hit {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::Eaten, 1.0),
+                    None => return None,
+                }
+            } else if trail_hit {
+                (favourable, true, ExitReason::Trail, 1.0)
+            } else if maker_allowed && trail_bps <= 0.0 && take_hit && take_active {
+                (
+                    take_px,
+                    false,
+                    ExitReason::Take,
+                    if take_partial { take_frac } else { 1.0 },
+                )
+            } else if eaten_half_hit {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::Eaten, eaten_half_frac),
+                    None => return None,
+                }
+            } else if early_exit_ns > 0
+                && now.saturating_sub(entry_ns) >= early_exit_ns
+                && still_at_level(entry_side, bid, ask, level_px, tick_px)
+            {
+                // Досрочный выход (B4, В-58 п. 5): «прилипание» —
+                // касание длится дольше `X` секунд, а уровень так и
+                // остался лучшей ценой. Порядок проверок часть плана:
+                // стоп и трейл (если сработали) честнее, тейк-лимит
+                // тоже — он дал бы мейкерскую цену, а здесь выход по
+                // рынку.
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::Early, 1.0),
+                    None => return None,
+                }
+            } else if now.saturating_sub(entry_ns) >= deadline_ns {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::Deadline, 1.0),
+                    None => return None,
+                }
+            } else {
+                return None;
+            }
+        }
+    };
+    Some(ExitDecision {
+        px,
+        taker,
+        reason,
+        frac,
+    })
+}
+
+/// Подача заявки выхода по решению `decide_exit`: размер — своя позиция
+/// круга (F4, В-78), дробный выход (E7) — вниз до кратного шага лота, стоп и
+/// дедлайн — по рынку (тейкер, IOC), тейк и горизонт — лимитом (мейкер,
+/// GTC). Вынесено из `on_event` (аудит 21.09): та же подача нужна и после
+/// снятия зависшей лимитки тейка.
+fn submit_exit<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    entry_ns: i64,
+    exit_side: HbtSide,
+    decision: ExitDecision,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    let ExitDecision {
+        px,
+        taker,
+        reason,
+        frac,
+    } = decision;
+    let order_id = state.take_order_id();
+    // Размер выхода — **своя позиция круга** (F4, В-78), а не плановый
+    // размер: вход может исполниться частично (модель очереди по
+    // объёму) или лестницей, и выход на плановый размер переворачивал
+    // бы позицию, оставляя круг незакрытым. `Bot::position` крейта на
+    // роль источника не годится — он частичного исполнения не видит
+    // (находка F3), поэтому позиция ведётся в состоянии по ордерам.
+    // Своей позиции нет (исполнение не отразилось) — прежняя
+    // подстановка планового размера круга.
+    let pos = {
+        let pos = state.position();
+        if pos > 0.0 {
+            pos
+        } else {
+            state.qty
+        }
+    };
+    // Дробный выход (E7): доля позиции, вниз до кратного шага лота;
+    // ноль лотов — значит делить нечего, выходим целиком.
+    let (exit_qty, partial) = if frac > 0.0 && frac < 1.0 {
+        let lot = match state.plan {
+            TradePlan::Bounce { lot_qty, .. } => lot_qty,
+            TradePlan::SpreadHold => 0.0,
+        };
+        let raw = pos * frac;
+        let q = if lot > 0.0 {
+            (raw / lot).floor() * lot
+        } else {
+            raw
+        };
+        if q > 0.0 && q < pos {
+            (q, true)
+        } else {
+            (pos, false)
+        }
+    } else {
+        (pos, false)
+    };
+    if partial {
+        state.partial_done = true;
+    }
+    // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
+    // лимитом (мейкер, GTC). Это не деталь реализации: издержки
+    // `costs` считают тейкера и мейкера по-разному, и бэктест должен
+    // видеть тот же тип ордера, что поставит живой контур.
+    let (tif, ord_type) = if taker {
+        (TimeInForce::IOC, OrdType::Market)
+    } else {
+        (TimeInForce::GTC, OrdType::Limit)
+    };
+    match exit_side {
+        HbtSide::Buy => {
+            bot.submit_buy_order(state.asset_no, order_id, px, exit_qty, tif, ord_type, false)?;
+        }
+        _ => {
+            bot.submit_sell_order(state.asset_no, order_id, px, exit_qty, tif, ord_type, false)?;
+        }
+    }
+    // Заявка выхода только ушла — исполнение зачтёт `observe_exit` на
+    // следующем событии (крейт обрабатывает отклик на ближайшем
+    // `elapse`), поэтому позиция закрытой ещё не считается.
+    state.exit_accounted = 0.0;
+    state.phase = if state.position() <= 0.0 {
+        Phase::Idle
+    } else {
+        Phase::ExitPending { order_id, entry_ns }
+    };
+    Ok(Action::ExitSubmitted {
+        order_id,
+        side: exit_side,
+        price: px,
+        reason,
+        partial,
+    })
+}
+
 /// Одна функция стратегии (A6, D-СТРАТЕГИЯ). Вызывается один раз на событие
 /// потока — какое именно событие произошло, эта функция не спрашивает: она
 /// смотрит на `bot.current_timestamp()`/`bot.depth()`/`bot.orders()` в
@@ -743,231 +1031,17 @@ where
                 HbtSide::Buy => HbtSide::Sell,
                 _ => HbtSide::Buy,
             };
-            // Что решает выход: у плана Decision 20 — только горизонт; у
-            // сделки-отскока (В-44) — стоп, съедание, трейл, тейк, дедлайн, и
-            // порядок здесь часть плана: стоп приоритетнее тейка (если цена
-            // проскочила оба уровня за один кадр, честнее считать, что выбило
-            // стопом). Четвёртое поле — доля позиции на выход (E7).
-            let (px, taker, reason, frac) = match state.plan {
-                TradePlan::SpreadHold => {
-                    if now.saturating_sub(entry_ns) < HOLD_NS {
-                        return Ok(Action::Idle);
-                    }
-                    let Some(px) = exit_price(entry_side, bid, ask) else {
-                        return Ok(Action::Idle);
-                    };
-                    (px, false, ExitReason::Horizon, 1.0)
-                }
-                TradePlan::Bounce {
-                    entry_px,
-                    stop_px,
-                    take_px,
-                    deadline_ns,
-                    trail_bps,
-                    trail_activate_bps,
-                    early_exit_ns,
-                    level_px,
-                    tick_px,
-                    take_frac,
-                    eaten_half_pct,
-                    eaten_all_pct,
-                    eaten_half_frac,
-                    ..
-                } => {
-                    // F4 (В-78): стоп и тейк — от **средней цены исполненного**
-                    // входа, а не от плановой `entry_px`: лестница и частичное
-                    // исполнение дают другую среднюю, а форма задаёт уровни
-                    // расстояниями от входа. Сдвиг — целое число тиков
-                    // (`level_shift`), при полном исполнении по плановой цене
-                    // он ноль и числа прежних прогонов не меняются.
-                    let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
-                    let (stop_px, take_px, entry_px) =
-                        (stop_px + shift, take_px + shift, entry_px + shift);
-                    // Трейл-тейк (решение владельца 2026-09-13): следим за
-                    // лучшим исходом и выходим по рынку, когда цена откатилась
-                    // от него на `trail_bps`, но не раньше, чем прибыль дошла
-                    // до `trail_activate_bps`. Пока трейл включён, фиксированный
-                    // `take_px` не работает — иначе он и был бы выходом, а мы
-                    // как раз пробуем тянуть дальше 1:1.
-                    let favourable = match entry_side {
-                        HbtSide::Buy => bid,
-                        _ => ask,
-                    };
-                    state.observe_favourable(favourable);
-                    // Съедание плотности (E5/E7): остаток на цене уровня
-                    // против максимума с входа, в процентах. Книга крейта
-                    // отдаёт размер по тику — цена уровня переводится в тик.
-                    #[allow(clippy::cast_possible_truncation)]
-                    let eaten_pct = if state.level_qty_max > 0.0 && tick_px > 0.0 {
-                        let level_tick = (level_px / tick_px).round() as i64;
-                        let depth = bot.depth(state.asset_no);
-                        let now_qty = match entry_side {
-                            HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
-                            _ => depth.ask_qty_at_tick(level_tick),
-                        };
-                        if now_qty > state.level_qty_max {
-                            state.level_qty_max = now_qty;
-                        }
-                        (1.0 - now_qty / state.level_qty_max) * 100.0
-                    } else {
-                        0.0
-                    };
-                    let (stop_hit, take_hit) = match entry_side {
-                        HbtSide::Buy => (bid <= stop_px, bid >= take_px),
-                        _ => (ask >= stop_px, ask <= take_px),
-                    };
-                    let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
-                        let gain_bps =
-                            (state.best_favourable - entry_px).abs() / entry_px * 10_000.0;
-                        let give_back_bps =
-                            (state.best_favourable - favourable).abs() / entry_px * 10_000.0;
-                        gain_bps >= trail_activate_bps && give_back_bps >= trail_bps
-                    } else {
-                        false
-                    };
-                    // Частичный тейк срабатывает один раз: после него остаток
-                    // на 1:1 не закрывается — бежит до стопа/дедлайна/трейла/
-                    // съедания (E7 «остаток по замедлению»).
-                    let take_partial = take_frac > 0.0 && take_frac < 1.0;
-                    let take_active = !(take_partial && state.partial_done);
-                    let eaten_all_hit = eaten_all_pct > 0.0 && eaten_pct >= eaten_all_pct;
-                    let eaten_half_hit =
-                        eaten_half_pct > 0.0 && !state.partial_done && eaten_pct >= eaten_half_pct;
-                    if stop_hit {
-                        (stop_px, true, ExitReason::Stop, 1.0)
-                    } else if eaten_all_hit {
-                        match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Eaten, 1.0),
-                            None => return Ok(Action::Idle),
-                        }
-                    } else if trail_hit {
-                        (favourable, true, ExitReason::Trail, 1.0)
-                    } else if trail_bps <= 0.0 && take_hit && take_active {
-                        (
-                            take_px,
-                            false,
-                            ExitReason::Take,
-                            if take_partial { take_frac } else { 1.0 },
-                        )
-                    } else if eaten_half_hit {
-                        match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Eaten, eaten_half_frac),
-                            None => return Ok(Action::Idle),
-                        }
-                    } else if early_exit_ns > 0
-                        && now.saturating_sub(entry_ns) >= early_exit_ns
-                        && still_at_level(entry_side, bid, ask, level_px, tick_px)
-                    {
-                        // Досрочный выход (B4, В-58 п. 5): «прилипание» —
-                        // касание длится дольше `X` секунд, а уровень так и
-                        // остался лучшей ценой. Порядок проверок часть плана:
-                        // стоп и трейл (если сработали) честнее, тейк-лимит
-                        // тоже — он дал бы мейкерскую цену, а здесь выход по
-                        // рынку.
-                        match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Early, 1.0),
-                            None => return Ok(Action::Idle),
-                        }
-                    } else if now.saturating_sub(entry_ns) >= deadline_ns {
-                        match exit_price(entry_side, bid, ask) {
-                            Some(px) => (px, true, ExitReason::Deadline, 1.0),
-                            None => return Ok(Action::Idle),
-                        }
-                    } else {
-                        return Ok(Action::Idle);
-                    }
-                }
+            // Что и в каком порядке решает выход — `decide_exit`; как
+            // подаётся заявка — `submit_exit`.
+            let quotes = Quotes {
+                bid,
+                ask,
+                entry_side,
             };
-            let order_id = state.take_order_id();
-            // Размер выхода — **своя позиция круга** (F4, В-78), а не плановый
-            // размер: вход может исполниться частично (модель очереди по
-            // объёму) или лестницей, и выход на плановый размер переворачивал
-            // бы позицию, оставляя круг незакрытым. `Bot::position` крейта на
-            // роль источника не годится — он частичного исполнения не видит
-            // (находка F3), поэтому позиция ведётся в состоянии по ордерам.
-            // Своей позиции нет (исполнение не отразилось) — прежняя
-            // подстановка планового размера круга.
-            let pos = {
-                let pos = state.position();
-                if pos > 0.0 {
-                    pos
-                } else {
-                    state.qty
-                }
-            };
-            // Дробный выход (E7): доля позиции, вниз до кратного шага лота;
-            // ноль лотов — значит делить нечего, выходим целиком.
-            let (exit_qty, partial) = if frac > 0.0 && frac < 1.0 {
-                let lot = match state.plan {
-                    TradePlan::Bounce { lot_qty, .. } => lot_qty,
-                    TradePlan::SpreadHold => 0.0,
-                };
-                let raw = pos * frac;
-                let q = if lot > 0.0 {
-                    (raw / lot).floor() * lot
-                } else {
-                    raw
-                };
-                if q > 0.0 && q < pos {
-                    (q, true)
-                } else {
-                    (pos, false)
-                }
-            } else {
-                (pos, false)
-            };
-            if partial {
-                state.partial_done = true;
+            match decide_exit(bot, state, entry_ns, now, quotes, true) {
+                Some(decision) => submit_exit(bot, state, entry_ns, exit_side, decision),
+                None => Ok(Action::Idle),
             }
-            // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
-            // лимитом (мейкер, GTC). Это не деталь реализации: издержки
-            // `costs` считают тейкера и мейкера по-разному, и бэктест должен
-            // видеть тот же тип ордера, что поставит живой контур.
-            let (tif, ord_type) = if taker {
-                (TimeInForce::IOC, OrdType::Market)
-            } else {
-                (TimeInForce::GTC, OrdType::Limit)
-            };
-            match exit_side {
-                HbtSide::Buy => {
-                    bot.submit_buy_order(
-                        state.asset_no,
-                        order_id,
-                        px,
-                        exit_qty,
-                        tif,
-                        ord_type,
-                        false,
-                    )?;
-                }
-                _ => {
-                    bot.submit_sell_order(
-                        state.asset_no,
-                        order_id,
-                        px,
-                        exit_qty,
-                        tif,
-                        ord_type,
-                        false,
-                    )?;
-                }
-            }
-            // Заявка выхода только ушла — исполнение зачтёт `observe_exit` на
-            // следующем событии (крейт обрабатывает отклик на ближайшем
-            // `elapse`), поэтому позиция закрытой ещё не считается.
-            state.exit_accounted = 0.0;
-            state.phase = if state.position() <= 0.0 {
-                Phase::Idle
-            } else {
-                Phase::ExitPending { order_id, entry_ns }
-            };
-            Ok(Action::ExitSubmitted {
-                order_id,
-                side: exit_side,
-                price: px,
-                reason,
-                partial,
-            })
         }
         Phase::ExitPending { order_id, entry_ns } => {
             state.observe_exit(bot, order_id);
@@ -981,17 +1055,73 @@ where
             // выхода). Так закрывается и частичный выход E7, и выход, который
             // модель очереди по объёму отдала не целиком (F4, В-78): раньше
             // такой остаток ждал заявку, которой уже нет, до конца записи.
-            let resolved = match bot.orders(state.asset_no).get(&order_id) {
+            let (resolved, resting_maker) = match bot.orders(state.asset_no).get(&order_id) {
                 Some(o) => {
-                    o.req == Status::None
-                        && !matches!(
+                    let open = matches!(
+                        o.status,
+                        Status::None | Status::New | Status::PartiallyFilled
+                    );
+                    (
+                        o.req == Status::None && !open,
+                        o.req == Status::None && o.order_type == OrdType::Limit && open,
+                    )
+                }
+                None => (true, false),
+            };
+            if resolved {
+                state.phase = Phase::Holding { entry_ns };
+                return Ok(Action::Idle);
+            }
+            // Аудит 21.09, Б1: лимитка тейка стоит в рынке (не исполнена или
+            // исполнена частично — под моделью очереди по объёму это норма),
+            // а остаток позиции при этом **не ведётся**: стоп, дедлайн, трейл
+            // и съедание для него не проверялись, и круг ждал до конца записи
+            // (`EndOfData`), теряя все дальнейшие сигналы суток. Теперь
+            // остаток под стоящей лимиткой решается теми же рыночными
+            // причинами: сработала — снимаем лимитку, а после подтверждения
+            // отмены остаток закрывается тейкером через `Holding` (условие
+            // стопа/дедлайна держится и на следующем событии).
+            if resting_maker {
+                let (Some((bid, ask)), Some(entry_side)) = (
+                    best_prices(bot.depth(state.asset_no)),
+                    entry_side(state.sigma),
+                ) else {
+                    return Ok(Action::Idle);
+                };
+                let quotes = Quotes {
+                    bid,
+                    ask,
+                    entry_side,
+                };
+                if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
+                    if decision.taker {
+                        bot.cancel(state.asset_no, order_id, false)?;
+                        state.phase = Phase::ExitCancelPending { order_id, entry_ns };
+                    }
+                }
+            }
+            Ok(Action::Idle)
+        }
+        Phase::ExitCancelPending { order_id, entry_ns } => {
+            // Отмена лимитки выхода летит; исполнение могло её обогнать
+            // (та же гонка, что у входа, 2026-09-18) — считаем исполненное и
+            // ждём, пока заявка перестанет быть открытой.
+            state.observe_exit(bot, order_id);
+            if state.position() <= 0.0 {
+                state.phase = Phase::Idle;
+                return Ok(Action::Idle);
+            }
+            let open = match bot.orders(state.asset_no).get(&order_id) {
+                Some(o) => {
+                    o.req != Status::None
+                        || matches!(
                             o.status,
                             Status::None | Status::New | Status::PartiallyFilled
                         )
                 }
-                None => true,
+                None => false,
             };
-            if resolved {
+            if !open {
                 state.phase = Phase::Holding { entry_ns };
             }
             Ok(Action::Idle)

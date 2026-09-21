@@ -975,11 +975,9 @@ impl TouchCols {
 }
 
 /// Запись подхода, прочитанная из `approaches-<SYMBOL>.csv` (F1): сутки
-/// строки и `ApproachRecord` трекера как есть. Потребители — F2 (ёмкость по
-/// подходам) и F6 (сигнал от подхода в сетке): сейчас чтение живёт только в
-/// тестах обратимости, поэтому `allow(dead_code)`.
+/// строки и `ApproachRecord` трекера как есть. Читатели — `fill_capacity`
+/// (`--targets approaches`, F2) и `bounce_grid` (`--signal approach`, F6).
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct ApproachRow {
     pub day: String,
     pub approach: ApproachRecord,
@@ -990,9 +988,7 @@ pub(crate) struct ApproachRow {
 /// в `e2`, пусто → `-1`; `touch_start_ms` пусто → `None`). Производные
 /// `age_ms`/`duration_ms` не читаются: считаются из полей записи, как у
 /// `TouchRecord`. Колонки ищутся по именам, не по позициям: порядок — дело
-/// писателя. Читателя в проде пока нет (F2/F6) — записи проверяются тестом
-/// обратимости.
-#[allow(dead_code)]
+/// писателя. Обратимость — тестом.
 pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<ApproachRow>> {
     let mut r = csv::ReaderBuilder::new()
         .comment(Some(b'#'))
@@ -1038,7 +1034,6 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
 }
 
 /// Индексы колонок `approaches-*.csv`, нужных `ApproachRecord`.
-#[allow(dead_code)]
 struct ApproachCols {
     day: usize,
     side: usize,
@@ -1058,7 +1053,6 @@ struct ApproachCols {
 }
 
 impl ApproachCols {
-    #[allow(dead_code)]
     fn parse(&self, rec: &csv::StringRecord) -> anyhow::Result<ApproachRow> {
         let field = |i: usize| -> anyhow::Result<&str> {
             rec.get(i)

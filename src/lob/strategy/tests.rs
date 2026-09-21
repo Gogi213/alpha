@@ -986,3 +986,99 @@ fn ladder_legs_use_their_own_ticks_and_weights_and_a_crossing_leg_is_rejected() 
         hbt.position(0)
     );
 }
+
+/// Аудит 21.09, Б1: лимитка тейка стоит в рынке исполненной **частично**
+/// (модель очереди по объёму), а цена уходит к стопу. Раньше `ExitPending`
+/// ждала эту лимитку до конца записи — без стопа и дедлайна, и круг терял все
+/// дальнейшие сигналы суток. Теперь остаток под стоящей лимиткой решается
+/// рыночными причинами: лимитка снимается, остаток закрывается тейкером с
+/// причиной `Stop`, круг возвращается в `Idle`.
+#[test]
+fn a_partially_filled_take_is_cancelled_and_the_rest_is_stopped_out() {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        // Дальняя нога (101) исполняется целиком сделкой больше ноги.
+        trade_at(2 * S, true, 101.0, 1.5),
+        // Вход живёт 5 с → `Holding` с позицией 1.0, средняя 101: стоп 97, тейк 105.
+        depth_at(6 * S, true, 98.0, 0.0),
+        depth_at(6 * S, true, 99.0, 5.0),
+        // Бид дошёл до тейка — стратегия ставит лимитку продажи на 105…
+        depth_at(10 * S, true, 105.0, 5.0),
+        // …стратегия видит это на ближайшем шаге `drive` (шаги по 100 мс от
+        // старта записи; здесь — 10,002 с) и шлёт заявку; пока она летит
+        // (1 мс), бид отступает — лимитка **встаёт** в рынок на 105 мейкером,
+        // впереди на 105 никого. Момент отступления — между отправкой и
+        // приходом на биржу.
+        depth_at(10 * S + 2_500_000, true, 105.0, 0.0),
+        depth_at(10 * S + 2_500_000, true, 104.0, 5.0),
+        // Покупатель берёт с 105 только 0.3 — тейк исполнен частично, 0.7 стоит.
+        trade_at(12 * S, false, 105.0, 0.3),
+        // Цена уходит к стопу: бид 96 ≤ 97 (99 с шага 6 с тоже снимается).
+        depth_at(14 * S, true, 104.0, 0.0),
+        depth_at(14 * S, true, 99.0, 0.0),
+        depth_at(14 * S, true, 96.0, 5.0),
+        // Хвост: ответ на отмену и на рыночный выход.
+        depth_at(15 * S, false, 110.0, 5.0),
+        depth_at(16 * S, false, 110.0, 5.0),
+        depth_at(17 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut state = StrategyState::with_plan(
+        0,
+        SIGMA_LONG,
+        2.0,
+        1,
+        f4_plan(96.0, 104.0, false, 5 * S, 1.0),
+    );
+
+    let actions = drive(&mut hbt, &mut state);
+
+    let exits: Vec<(u64, f64, ExitReason)> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ExitSubmitted {
+                order_id,
+                price,
+                reason,
+                ..
+            } => Some((*order_id, *price, *reason)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        exits.len(),
+        2,
+        "тейк лимитом, затем стоп по рынку: {actions:?}"
+    );
+    let (take_id, take_px, take_reason) = exits[0];
+    let (stop_id, _, stop_reason) = exits[1];
+    assert_eq!(take_reason, ExitReason::Take);
+    assert!(close(take_px, 105.0), "тейк от средней 101 + 4: {take_px}");
+    assert_eq!(stop_reason, ExitReason::Stop);
+    let take = hbt.orders(0).get(&take_id).expect("лимитка тейка в учёте");
+    assert!(
+        close(take.exec_qty, 0.3),
+        "тейк исполнен частично (0.3): {}",
+        take.exec_qty
+    );
+    assert_eq!(
+        take.status,
+        Status::Canceled,
+        "частично исполненная лимитка тейка снята, а не ждёт до конца записи"
+    );
+    let stop = hbt.orders(0).get(&stop_id).expect("рыночный выход в учёте");
+    assert!(
+        close(stop.qty, 0.7),
+        "остаток после частичного тейка закрыт целиком: {}",
+        stop.qty
+    );
+    assert_eq!(stop.status, Status::Filled);
+    // Круг закрыт: позиции нет (стратегия уже свободна и на хвосте фида
+    // ставит следующий вход — это ожидаемо для синтетического плана).
+    assert!(
+        state.position() <= 0.0,
+        "круг закрыт, позиции нет: {:?}",
+        state
+    );
+}

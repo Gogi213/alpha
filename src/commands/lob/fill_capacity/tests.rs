@@ -353,6 +353,11 @@ fn approaches_targets_refuse_context_keys() {
     a.targets = TargetSource::Approaches;
     let err = run_fill_capacity(&a).unwrap_err().to_string();
     assert!(err.contains("контекста"), "{err}");
+    // Аудит 21.09, Б3: `eaten=` у подхода — отказ, не тихий no-op.
+    let mut a = args(dir.path(), &cache, &["e:eaten=60"]);
+    a.targets = TargetSource::Approaches;
+    let err = run_fill_capacity(&a).unwrap_err().to_string();
+    assert!(err.contains("eaten"), "{err}");
     // Кэша подходов нет (суточных `approaches-<SYMBOL>.csv` не писали) —
     // символ пропускается со счётчиком, не отказ всего прогона.
     let mut a = args(dir.path(), &cache, &["all:"]);

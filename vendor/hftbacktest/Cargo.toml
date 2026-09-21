@@ -6,7 +6,7 @@
 # `InvalidOrderStatus` ронял весь прогон. Исправление: `>` → `>=` в двух местах
 # (`check_if_buy_filled`, `check_if_sell_filled`).
 # Разбор, воспроизведение и замер — `docs/findings/hftbacktest-partialfill-fix-2026-09-20.md`.
-# Подключение — `[patch.crates-io]` в корневом `Cargo.toml`; других правок в крейте нет.
+# Подключение — `[patch.crates-io]` в корневом `Cargo.toml`; других правок, кроме `#[allow(dead_code)]` в `src/backtest/data/npy/parser.rs`, нет.
 [package]
 edition = "2024"
 rust-version = "1.91.1"

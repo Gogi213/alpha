@@ -468,7 +468,7 @@ pub struct BounceGridArgs {
     /// примерах 3.0 — это не наше умолчание. Модель идёт в шапку
     /// `forms.csv`/`manifest.txt` (`queue=…`).
     #[arg(long = "queue-model")]
-    pub queue_model: String,
+    pub queue_model: QueueModelKind,
     /// Лот в e9 — либо он, либо `--order-qty-from-pool`.
     #[arg(long)]
     pub order_qty_e9: Option<i64>,
@@ -1761,8 +1761,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     );
     // Модель очереди/исполнения (F3): обязательный флаг, разбирается один раз
     // на процесс — она не часть фильтров набора (`--set`), а движок.
-    let queue_model =
-        QueueModelKind::parse(&args.queue_model).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let queue_model = args.queue_model;
     let threads = args
         .threads
         .unwrap_or_else(|| {

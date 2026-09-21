@@ -182,41 +182,10 @@ fn target_of(t: &TouchRecord) -> Target {
     }
 }
 
-/// Вид подхода как касания: `TouchFilter` и `H3Mode::holds_at_touch` читают
-/// касание, у подхода те же поля называются иначе. `start_ms` — `arm_ms`
-/// (фильтры возраста и минуты режима смотрят на взвод), `size_at_touch` —
-/// `size_at_arm`, `level_birth_ms` — рождение уровня, `touch_index` —
-/// `approach_index`, `strength_e2` — сила кадра взвода (по ней работает порог
-/// В-66), `flow_1h_lots` — оборот к взводу. Чего у подхода нет, то ноль:
-/// `frontrun_tick: None` (ключ `--frontrun-only` подходы выбросит: фронтрана
-/// на взводе не считаем), `traded_during` 0 и `size_max_before` = `size_at_arm`
-/// (ключ `eaten=` на подходах смысла не имеет — вызов с ним отвергается),
-/// стопки 0.
+/// Вид подхода как касания — общая функция с сеткой
+/// (`super::backtest::touch_view_of_approach`); здесь только имя короче.
 fn touch_view_of(a: &ApproachRecord) -> TouchRecord {
-    TouchRecord {
-        side: a.side,
-        price_tick: a.price_tick,
-        touch_index: a.approach_index,
-        start_ms: a.arm_ms,
-        end_ms: a.disarm_ms,
-        duration_ms: a.duration_ms(),
-        level_birth_ms: a.level_birth_ms,
-        size_at_touch: a.size_at_arm,
-        size_max_before: a.size_at_arm,
-        traded_during: 0,
-        frontrun_lots: 0,
-        frontrun_tick: None,
-        swept_lots: 0,
-        round_zeros: crate::lob::levels::round_zeros(a.price_tick),
-        ended_by_death: false,
-        stack_levels: 0,
-        stack_next_tick: None,
-        traded_first_s: [0; crate::lob::levels::REACTION_WINDOWS_S.len()],
-        flow_1h_lots: a.flow_1h_lots,
-        strength_e2: a.strength_e2,
-        strength_held_e2: [-1; crate::lob::levels::STRENGTH_HELD_WINDOWS_S.len()],
-        repeat_count: 0,
-    }
+    super::backtest::touch_view_of_approach(a)
 }
 
 /// Цели суток из записей подхода: цель — окно взвода, вид — `touch_view_of`,
@@ -542,6 +511,13 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
         anyhow::ensure!(
             !sets.iter().any(|s| s.ctx.iter().any(|r| r.is_set())),
             "--targets approaches: ключи контекста (ret*/pool*/btc*) у подхода не определены — кэш подходов хода до взвода не несёт (замер — по подходам, без осей контекста)"
+        );
+        // Аудит 21.09, Б3: у подхода `size_max_before = size_at_arm`, так что
+        // `eaten_pct` — всегда ноль и ключ тихо ничего не фильтровал бы; отказ,
+        // как у сетки (`bounce_grid` с `--signal approach`).
+        anyhow::ensure!(
+            !sets.iter().any(|s| s.eaten_max_pct.is_some()),
+            "--targets approaches: ключ eaten= у подхода не определён (съедание к касанию — свойство касания, не взвода)"
         );
     }
     let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();

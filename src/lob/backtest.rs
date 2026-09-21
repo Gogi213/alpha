@@ -664,6 +664,16 @@ impl QueueModelKind {
     }
 }
 
+/// `--queue-model` разбирается `clap`'ом прямо в тип (аудит 21.09, С8) — как
+/// `ExecLatency`; текст ошибки — тот же, что у `parse`.
+impl std::str::FromStr for QueueModelKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 /// Настройки прогона профиля.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DriveConfig {
