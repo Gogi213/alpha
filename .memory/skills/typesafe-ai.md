@@ -67,3 +67,27 @@ Content-Type: application/json
 
 Ключ в коде интеграции не хардкодить: клиент берёт его из окружения; в веб-приложениях держать
 на сервере (`SKILL.md`: «keep API credentials server-side»).
+
+## Проверено живьём 2026-09-21
+
+- `TYPESAFE_API_KEY` **задан** на уровне User (108 символов) — ставил владелец, не агент.
+- `POST https://api.typesafe.ai/v1/systemone` с `model: "jev-latest"` и вопросом `noul` вернул
+  **200**: `model = jev-1.13.0`, `noul = 0.85`, `usage` 274/21. Ключ валиден, эндпоинт живой,
+  алиас `jev-latest` резолвится. Проверочный запрос шёл с безобидным `state = "ping"`, данных
+  проекта в него не уходило.
+- **Оговорка, которая ломает интеграцию, если про неё забыть:** в процессе DSH на 21.09
+  `TYPESAFE_API_KEY` **нет** (`Process` scope пуст) — хост запущен до того, как переменную задали.
+  SDK, читающий окружение процесса, даст 401, пока DSH/терминал не перезапустят. Проверочный
+  запрос сработал только потому, что значение читалось явно из User-скоупа.
+- **Скилл в каталоге сессии установки отсутствует** (каталог впрыскивается на старте сессии) —
+  появится со следующей. Каталог DSH читает именно из `~/.claude/skills`: другие скиллы оттуда
+  (`grill-me`, `ui-ux-pro-max`, `tdd`) в каталоге были.
+- В `alpha` вызовов TypeSafe нет, `@typesafe-ai/sdk` не установлен: скилл пока только инструкция.
+
+## Проверка одной командой (значение ключа не печатается)
+
+```powershell
+$k = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY','User')
+$b = @{ state="ping"; model="jev-latest"; questions=@{ p=@{ type="noul"; instructions="Connectivity check?" } } } | ConvertTo-Json -Depth 6
+(Invoke-RestMethod -Uri "https://api.typesafe.ai/v1/systemone" -Method Post -Headers @{ Authorization = "Bearer $k" } -ContentType "application/json" -Body $b).model
+```
