@@ -91,6 +91,17 @@ h_forms, r_forms = compare('forms.csv')
 i_new = {c: i for i, c in enumerate(h_forms)}
 cross = sum(int(b[i_new['n_fill_by_cross']]) for b in r_forms)
 print(f'кругов {len(r_rounds)}, форм-строк {len(r_forms)}, крестов (путь 3) у risk-adverse {cross}')
+# F8c/К4 (аудит этапа F 21.09 §8): потолок ожидания подтверждения отмены (`CANCEL_WAIT_NS`, В-79)
+# при измеренных В-68 RTT не срабатывает — оба счётчика обязаны быть нулями. Иначе предохранитель
+# тихо включается на прогоне с завышенным `--median-rtt-ns cancel=` и меняет круги, а гейт
+# «те же байты» этого не видит (сравниваются только прежние колонки).
+for col in ('n_entry_cancelled_cancel_timeout', 'n_exit_cancel_timeout'):
+    total = sum(int(b[i_new[col]]) for b in r_forms) if col in i_new else 0
+    if col not in i_new:
+        print(f'{col}: колонки нет (старый бинарник) — проверка потолка пропущена')
+        continue
+    assert total == 0, f'потолок отмены сработал: {col} = {total} (при RTT В-68 ожидался ноль)'
+    print(f'{col}: 0 — потолок отмены при RTT В-68 не срабатывает')
 PY
 
 echo "== md5 для протокола (шапки и новые колонки отличаются по построению)"
