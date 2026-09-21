@@ -28,15 +28,23 @@ if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +
 # shellcheck disable=SC2086
 python3 bin/prereg-guard.py --sets $SETS --nightly bin/nightly-grid.sh; rc=$?
 if [ "$rc" -eq 1 ]; then echo "prereg-guard: ОТКАЗ — прогон не запущен" | tee -a b5/f10fix.log; exit 1; fi
+# Все наборы одной полосы D — ОДНИМ процессом (владелец 22.09: «память свободна — грузи память,
+# потоки оставь»): события монето-суток декодируются один раз на все наборы, а не по разу на набор
+# (как в ночи, `--set` повторяемый); память под это есть (1.5 из 8 ГБ занято при одном наборе).
+# Уже посчитанные наборы (есть forms.csv и «done rc=0» в логе) пропускаются — перезапуск безопасен.
 for D in D20 D50; do
+  SETARGS=""; NAMES=""
   for S in $SETS; do
     NAME="${S%%:*}"
-    LOG="b5/f10fix-$D-$NAME.err"
-    echo "== $(date -u +%FT%TZ) $D $NAME start" | tee -a b5/f10fix.log
-    # shellcheck disable=SC2086
-    $BIN lob bounce-grid $COMMON --touches-from "study/approaches/$D" --set "$S" \
-      --out-dir "b5/f10fix-$D" 2>>"$LOG" | tail -1 | tee -a b5/f10fix.log
-    echo "== $(date -u +%FT%TZ) $D $NAME done rc=${PIPESTATUS[0]}" | tee -a b5/f10fix.log
+    if [ -f "b5/f10fix-$D/$NAME/forms.csv" ] && grep -q "$D $NAME done rc=0" b5/f10fix.log; then continue; fi
+    SETARGS="$SETARGS --set $S"; NAMES="$NAMES $NAME"
   done
+  if [ -z "$SETARGS" ]; then echo "== $(date -u +%FT%TZ) $D: все наборы уже посчитаны" | tee -a b5/f10fix.log; continue; fi
+  LOG="b5/f10fix-$D-multi.err"
+  echo "== $(date -u +%FT%TZ) $D start одним процессом: наборы$NAMES" | tee -a b5/f10fix.log
+  # shellcheck disable=SC2086
+  $BIN lob bounce-grid $COMMON --touches-from "study/approaches/$D" $SETARGS --out-dir "b5/f10fix-$D" 2>>"$LOG" | tail -1 | tee -a b5/f10fix.log
+  rc=${PIPESTATUS[0]}
+  for NAME in $NAMES; do echo "== $(date -u +%FT%TZ) $D $NAME done rc=$rc" | tee -a b5/f10fix.log; done
 done
 echo "== $(date -u +%FT%TZ) ALL DONE" | tee -a b5/f10fix.log
