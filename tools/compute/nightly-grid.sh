@@ -226,7 +226,9 @@ day_root() {
   # (сутки до 18.09 или синк не донёс) — прежнее поведение: текущие маркеры, с пометкой в лог.
   local vlog="root/verify-logs/$day.log"
   if [ -f "$vlog" ]; then
-    grep -aE '^verify: [A-Z0-9]+ status=(ok|fail)' "$vlog" | while read -r _ sym st; do
+    # Строка лога: `verify: <SYM> status=ok verify: files=1 …` — берём ровно поле статуса,
+    # иначе маркер несёт хвост строки и сравнение с «ok» не проходит (поймано 22.09: 0 монет).
+    grep -aE '^verify: [A-Z0-9]+ status=(ok|fail)' "$vlog" | while read -r _ sym st _; do
       echo "${st#status=}" > "$dir/verify-$sym.status"
     done
     echo "== $(date -u +%FT%TZ) day_root $day: маркеры из $vlog ($(ls "$dir"/verify-*.status 2>/dev/null | wc -l) символов)" >> "$LOG"
