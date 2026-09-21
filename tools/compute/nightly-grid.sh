@@ -81,13 +81,32 @@ USD="--h3-mode notional --h3-usd 10000"
 # пишет миллионы записей в сутки ради 4–6 % касаний (5,5 ГБ на три прогона в замере).
 APPROACH="--approach-bps ${APPROACH_BPS:-20} --approach-min-age-secs ${APPROACH_MIN_AGE_S:-900}"
 # Только сеткам (у `lob touches` такого флага нет — 20.09 он по ошибке стоял в USD и ронял касания):
-GRID="--touches-from study/touches --regime-from study/regime"
+# Кэш касаний переопределяется окружением: наборам `--signal approach` нужен каталог
+# `study/approaches/D<d>` (F1 пишет `approaches-<SYMBOL>.csv` **рядом** с `touches-<SYMBOL>.csv`;
+# кэш D-полосы снимается `bin/approach-scan.sh`).
+GRID="--touches-from ${TOUCHES_FROM:-study/touches} --regime-from ${REGIME_FROM:-study/regime}"
 # Форма выхода F7/F8 (Б-75): умолчание ночи — `none`, то есть прежний круг и гейт
 # «те же круги»; наборы предрегистрации F10 включаются окружением, например
 # EXIT_FORMS="none eat50 gone50" — форма выхода становится осью сетки (имена форм
 # несут хвост `-eat50`/`-gone20`, колонки `n_eaten_by_trades`/`n_wall_gone`).
 # Числа X/W — предрегистрация (умолчаний в коде нет), поэтому список пуст.
 for x in ${EXIT_FORMS:-none}; do GRID="$GRID --exit-form $x"; done
+# Сигнал и вход F6/F5 (этап F, F10) — те же оси, что у выхода: умолчания ночи —
+# **прежний круг** (`touch` — сигнал касания, `single@fr` — одиночная нога у
+# фронтранера, `touch` — срок жизни входа до конца касания, полосы нет), на них
+# стоит гейт «те же круги». Наборы предрегистрации включаются окружением, например:
+#   SIGNAL=approach TOUCHES_FROM=study/approaches/D20 \
+#   ENTRY_FORMS="ladder3x2..10" ENTRY_TTL="300 1800" BAND_EXIT_BPS=20
+# `ENTRY_TTL` — список значений через пробел (`touch|wall|<секунды>`), остальные —
+# тоже списки (декартово произведение даёт номерные формы). Условия F5 требуют
+# порога В-66 — он есть в `$USD` (`--h3-usd`); без него набор откажет на старте.
+# Числа D/ttl/полосы — предрегистрация F10, умолчаний в коде нет.
+for x in ${SIGNAL:-touch}; do GRID="$GRID --signal $x"; done
+for x in ${ENTRY_FORMS:-single@fr}; do GRID="$GRID --entry-form $x"; done
+for x in ${ENTRY_TTL:-touch}; do GRID="$GRID --entry-ttl-secs $x"; done
+if [ -n "${BAND_EXIT_BPS:-}" ]; then
+  for x in $BAND_EXIT_BPS; do GRID="$GRID --band-exit-bps $x"; done
+fi
 # Модель очереди F3: у `bounce-grid` флаг `--queue-model` **обязательный**, умолчания
 # в коде нет. Ночь идёт через `run-grid.sh`, который подставляет `risk-adverse`, —
 # здесь то же значение ставится явно и экспортируется: иначе ночь упадёт, если

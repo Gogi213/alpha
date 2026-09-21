@@ -143,6 +143,24 @@ fn still_at_level(entry_side: HbtSide, bid: f64, ask: f64, level_px: f64, tick_p
     (side_px - level_px).abs() < tick_px * 0.5
 }
 
+/// Потолок ожидания подтверждения отмены — предохранитель фаз `CancelPending`
+/// (вход) и `ExitCancelPending` (лимитка выхода), один механизм на обе (F8b,
+/// В5/Р2 аудита 21.09).
+///
+/// Число — решение владельца 2026-09-21 (В-79): 1 с. Измеренная В-68 задержка
+/// снятия по WS trade с боевого сервера: медиана 3.98 мс, p95 4.55, p99 5.01,
+/// max 5.42 мс (100 циклов); REST-хвост до 15.5 мс. Потолок в ~200 раз выше
+/// измеренного p95 и в ~70 раз выше REST-максимума, поэтому в бэктесте он не
+/// срабатывает (числа прежних прогонов не меняются — гейт «те же круги»), а в
+/// живом контуре освобождает круг, если подтверждение отмены не пришло:
+/// без потолка фаза ждёт биржу бесконечно, сигналы суток теряются (ровно то,
+/// ради чего закрывался Б1).
+///
+/// Срабатывание — не «отмена прошла»: заявка могла остаться в рынке, поэтому
+/// потолок только освобождает круг под управлением плана (`Holding` при
+/// позиции), а причина называется `CancelTimeout` — видно в `forms.csv`.
+pub const CANCEL_WAIT_NS: i64 = 1_000_000_000;
+
 /// Фаза одного круга. Спрятана от вызывающего (`interfaces.md`: модуль
 /// `lob/strategy` «прячет: триггер, состояние») — снаружи виден только
 /// `Action`, возвращённый из `on_event`.
@@ -174,8 +192,13 @@ enum Phase {
     /// Лимитка выхода снимается по рыночной причине (аудит 21.09, Б1: стоп,
     /// дедлайн, трейл или съедание наступили, пока тейк стоял в рынке
     /// частично исполненным) — ждём подтверждения отмены, потом остаток
-    /// закрывается тейкером через `Holding`.
-    ExitCancelPending { order_id: u64, entry_ns: i64 },
+    /// закрывается тейкером через `Holding`. `cancel_sent_ns` — часы отправки
+    /// отмены: по ним считается потолок ожидания `CANCEL_WAIT_NS` (F8b, В5/Р2).
+    ExitCancelPending {
+        order_id: u64,
+        entry_ns: i64,
+        cancel_sent_ns: i64,
+    },
     /// Вход истёк, отмена отправлена — ждём ответа биржи. Если, пока отмена
     /// летела (RTT), заявка исполнилась, позиция открыта: идём в `Holding`, а
     /// не в `Idle`. Найдено 2026-09-18: раньше после истечения стратегия сразу
@@ -188,6 +211,10 @@ enum Phase {
         /// Почему вход снимается — несётся до подтверждения отмены, чтобы
         /// `EntryTimedOut` назвал событие рынка (F5, В-74), а не потолок.
         reason: EntryCancelReason,
+        /// Часы отправки отмены — потолок ожидания `CANCEL_WAIT_NS`
+        /// (F8b, В5/Р2). Повторное снятие ног, чей запрос постановки был
+        /// в полёте в момент потолка срока жизни, идёт с тем же отсчётом.
+        cancel_sent_ns: i64,
     },
 }
 
@@ -460,6 +487,11 @@ pub struct StrategyState {
     /// оно накапливается от отклика к отклику, а в позицию обязан войти
     /// прирост, а не вся сумма заново).
     exit_accounted: f64,
+    /// F8b (В5/Р2): сколько раз потолок `CANCEL_WAIT_NS` сорвал ожидание
+    /// подтверждения отмены **лимитки выхода** — круг пошёл по плану, не
+    /// дожидаясь биржи. Счётчик назван в артефактах (`n_exit_cancel_timeout`):
+    /// предохранитель, который никто не видит, — это молчаливая потеря.
+    exit_cancel_timeouts: u64,
 }
 
 impl StrategyState {
@@ -492,7 +524,14 @@ impl StrategyState {
             entry_notional: 0.0,
             exit_qty: 0.0,
             exit_accounted: 0.0,
+            exit_cancel_timeouts: 0,
         }
+    }
+
+    /// F8b (В5/Р2): сколько раз круг пережил потолок ожидания подтверждения
+    /// отмены лимитки выхода — читает драйвер для колонки `forms.csv`.
+    pub fn exit_cancel_timeouts(&self) -> u64 {
+        self.exit_cancel_timeouts
     }
 
     /// Своя позиция круга: исполненный вход минус исполненные выходы (F4,
@@ -653,18 +692,39 @@ impl StrategyState {
 
     /// Снимает живые ноги лестницы: исполненные и уже снятые трогать нельзя —
     /// `cancel` по ним возвращает `OrderNotFound`/`InvalidOrderStatus`, а не
-    /// «ничего не произошло».
+    /// «ничего не произошло». Повторный вызов безопасен: нога с запросом в
+    /// полёте пропускается (`cancel_open`), иначе крейт отвечает
+    /// `OrderRequestInProcess` — это и позволяет звать снятие на каждом шаге
+    /// фазы `CancelPending` (F8b), пока нога не стала `New`/`PartiallyFilled`.
     fn cancel_resting<MD, B>(&self, bot: &mut B, first_id: u64, legs: u8) -> Result<(), B::Error>
     where
         MD: MarketDepth,
         B: Bot<MD>,
     {
         for i in 0..legs as u64 {
-            let id = first_id.saturating_add(i);
-            let status = bot.orders(self.asset_no).get(&id).map(|o| o.status);
-            if matches!(status, Some(Status::New) | Some(Status::PartiallyFilled)) {
-                bot.cancel(self.asset_no, id, false)?;
-            }
+            self.cancel_open(bot, first_id.saturating_add(i))?;
+        }
+        Ok(())
+    }
+
+    /// Снять заявку, если она стоит в рынке и **не снимается прямо сейчас**:
+    /// `New`/`PartiallyFilled` без запроса в полёте (`req == None`). Нога, чей
+    /// запрос постановки летел в момент снятия входа, остаётся живой — её
+    /// снимает следующий вызов; без него фаза ждала бы её вечно (F8b, В5/Р2).
+    fn cancel_open<MD, B>(&self, bot: &mut B, id: u64) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        let status = bot
+            .orders(self.asset_no)
+            .get(&id)
+            .map(|o| (o.req, o.status));
+        if matches!(
+            status,
+            Some((Status::None, Status::New | Status::PartiallyFilled))
+        ) {
+            bot.cancel(self.asset_no, id, false)?;
         }
         Ok(())
     }
@@ -762,6 +822,11 @@ pub enum EntryCancelReason {
     /// Ни одной ноги биржа не поставила (пост-онли заявка пересекла спред,
     /// В-72) — «сигнал без входа», а не снятие: в счётчики снятий не входит.
     NotPlaced,
+    /// Подтверждение отмены входа не пришло за `CANCEL_WAIT_NS` (F8b, В5/Р2):
+    /// вход снимался, но биржа не ответила — круг освобождается, а не висит
+    /// «занятым» до конца записи. Заявка могла остаться в рынке: это цена
+    /// предохранителя, и она названа, а не спрятана.
+    CancelTimeout,
 }
 
 /// Что сделал последний вызов `on_event`. `Idle` — ничего не произошло на
@@ -1239,7 +1304,11 @@ where
         if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
             if decision.taker {
                 bot.cancel(state.asset_no, order_id, false)?;
-                state.phase = Phase::ExitCancelPending { order_id, entry_ns };
+                state.phase = Phase::ExitCancelPending {
+                    order_id,
+                    entry_ns,
+                    cancel_sent_ns: now,
+                };
             }
         }
     }
@@ -1247,16 +1316,23 @@ where
 }
 
 /// Отмена лимитки выхода летит: ждём, пока заявка перестанет быть открытой.
+/// `cancel_sent_ns` — часы отправки отмены; по ним работает потолок
+/// `CANCEL_WAIT_NS` (F8b, В5/Р2). Заявка, чей запрос постановки ещё летел в
+/// момент рыночной причины, снимается повторно на следующем шаге — иначе она
+/// осталась бы в рынке, а фаза ждала бы её вечно.
 fn on_exit_cancel_pending<MD, B>(
     bot: &mut B,
     state: &mut StrategyState,
+    now: i64,
     order_id: u64,
     entry_ns: i64,
+    cancel_sent_ns: i64,
 ) -> Result<Action, B::Error>
 where
     MD: MarketDepth,
     B: Bot<MD>,
 {
+    state.cancel_open(bot, order_id)?;
     // Отмена лимитки выхода летит; исполнение могло её обогнать
     // (та же гонка, что у входа, 2026-09-18) — считаем исполненное и
     // ждём, пока заявка перестанет быть открытой.
@@ -1276,6 +1352,16 @@ where
         None => false,
     };
     if !open {
+        state.phase = Phase::Holding { entry_ns };
+        return Ok(Action::Idle);
+    }
+    // F8b (В5/Р2): подтверждение отмены не пришло за потолок — остаток позиции
+    // ведёт план (`Holding`), а не ждёт биржу до конца записи. Заявка выхода
+    // могла остаться в рынке: предохранитель назван `CancelTimeout`, но
+    // короче круга он не притворяется — позиция остаётся под управлением
+    // стратегии, а не бросается.
+    if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
+        state.exit_cancel_timeouts = state.exit_cancel_timeouts.saturating_add(1);
         state.phase = Phase::Holding { entry_ns };
     }
     Ok(Action::Idle)
@@ -1327,6 +1413,7 @@ where
             order_id,
             legs,
             reason,
+            cancel_sent_ns: now,
         };
         return Ok(Action::Idle);
     }
@@ -1336,6 +1423,7 @@ where
             order_id,
             legs,
             reason: EntryCancelReason::Ttl,
+            cancel_sent_ns: now,
         };
         return Ok(Action::Idle);
     }
@@ -1343,6 +1431,9 @@ where
 }
 
 /// Отмена входа летит: гонка с исполнением (2026-09-18) и переход в `Holding`/`Idle`.
+/// `cancel_sent_ns` — часы отправки отмены, по ним работает потолок
+/// `CANCEL_WAIT_NS` (F8b, В5/Р2); снятие повторяется на каждом шаге, пока
+/// нога, чей запрос постановки был в полёте, не станет снимаемой.
 fn on_cancel_pending<MD, B>(
     bot: &mut B,
     state: &mut StrategyState,
@@ -1350,11 +1441,17 @@ fn on_cancel_pending<MD, B>(
     order_id: u64,
     legs: u8,
     reason: EntryCancelReason,
+    cancel_sent_ns: i64,
 ) -> Result<Action, B::Error>
 where
     MD: MarketDepth,
     B: Bot<MD>,
 {
+    // F8b (В5/Р2): повтор снятия. Нога, чей запрос постановки летел в момент
+    // снятия входа, тогда пропущена (`cancel_resting` снимает только `New`/
+    // `PartiallyFilled` без запроса в полёте) — без повтора она осталась бы в
+    // рынке, а фаза «отмена летит» ждала бы её вечно.
+    state.cancel_resting(bot, order_id, legs)?;
     // Исполнение обогнало отмену — позиция есть, ведём её по плану.
     // Пока хоть одна нога ещё стоит или снимается, вход не решён:
     // позицию добираем (F4, В-78), а не бросаем на половине.
@@ -1366,6 +1463,21 @@ where
         }
         state.phase = Phase::Idle;
         return Ok(Action::EntryTimedOut { order_id, reason });
+    }
+    // Потолок ожидания: подтверждение отмены не пришло — круг освобождается
+    // под тем же правилом, что и при подтверждённой отмене (позиция есть →
+    // ведём её, нет → причина называется). Заявка могла остаться в рынке:
+    // это предохранитель, и он назван `CancelTimeout`.
+    if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
+        if state.position() > 0.0 {
+            state.enter_holding(now);
+            return Ok(Action::Idle);
+        }
+        state.phase = Phase::Idle;
+        return Ok(Action::EntryTimedOut {
+            order_id,
+            reason: EntryCancelReason::CancelTimeout,
+        });
     }
     Ok(Action::Idle)
 }
@@ -1523,9 +1635,11 @@ where
         Phase::ExitPending { order_id, entry_ns } => {
             on_exit_pending(bot, state, now, order_id, entry_ns)
         }
-        Phase::ExitCancelPending { order_id, entry_ns } => {
-            on_exit_cancel_pending(bot, state, order_id, entry_ns)
-        }
+        Phase::ExitCancelPending {
+            order_id,
+            entry_ns,
+            cancel_sent_ns,
+        } => on_exit_cancel_pending(bot, state, now, order_id, entry_ns, cancel_sent_ns),
         Phase::EntryPending {
             order_id,
             sent_ns,
@@ -1535,7 +1649,8 @@ where
             order_id,
             legs,
             reason,
-        } => on_cancel_pending(bot, state, now, order_id, legs, reason),
+            cancel_sent_ns,
+        } => on_cancel_pending(bot, state, now, order_id, legs, reason, cancel_sent_ns),
         Phase::Idle => on_idle(bot, state, now),
     }
 }

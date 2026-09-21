@@ -1604,3 +1604,83 @@ fn empty_exit_form_axis_keeps_the_previous_names() {
         assert_eq!(x.exit_form, ExitForm::None);
     }
 }
+
+// -----------------------------------------------------------------------
+// F8b (аудит этапа F 21.09, Р4/В5/Р2): счётчики форм адресуются **по имени
+// колонки** — позиционная запись `forms.csv` перепутанные поля не ловит.
+// -----------------------------------------------------------------------
+
+/// Круг с заданными агрегатами F7/F8b и без кругов: тесту нужна только
+/// строка `forms.csv`, а не данные.
+fn run_with_exit_counters(
+    eaten_by_trades: u64,
+    wall_gone: u64,
+    entry_cancel_timeout: u64,
+    exit_cancel_timeout: u64,
+) -> BounceRun {
+    BounceRun {
+        profile: 0,
+        signals: 1,
+        fills: Vec::new(),
+        fill_signal: Vec::new(),
+        fill_reason: Vec::new(),
+        fill_exit_ns: Vec::new(),
+        exits: crate::lob::backtest::ExitTally {
+            eaten_by_trades,
+            wall_gone,
+            ..Default::default()
+        },
+        entry_rejected: 0,
+        rejected_postonly: 0,
+        entry_crossed: 0,
+        entry_cancelled_ttl: 0,
+        entry_cancelled_wall_dead: 0,
+        entry_cancelled_price_left: 0,
+        entry_cancelled_cancel_timeout: entry_cancel_timeout,
+        exit_cancel_timeout,
+        spread_at_entry: Vec::new(),
+        submitted_signal: Vec::new(),
+        busy_signal: Vec::new(),
+        busy_wait_ns_max: 0,
+        round_ns_max: 0,
+        misses: Default::default(),
+        observations: Vec::new(),
+        incomplete: false,
+        residual_flattened: 0,
+    }
+}
+
+/// F8b (Р4): строка `forms.csv` несёт каждый счётчик в **своей** колонке —
+/// «съели» и «сняли» не путаются местами, а счётчики потолка отмены не
+/// попадают в чужие. Числа шапки и строки совпадают по длине и порядку.
+#[test]
+fn forms_row_puts_every_counter_into_its_own_column() {
+    let run = run_with_exit_counters(3, 7, 11, 13);
+    let row = forms_row(
+        "SOLUSDT",
+        "2026-09-08",
+        "pct2-1to1-60-eat50",
+        &[],
+        &run,
+        0,
+        0.5,
+    );
+    assert_eq!(
+        row.len(),
+        FORMS_HEADER.len(),
+        "полей в строке — как в шапке"
+    );
+    let at = |name: &str| -> &str {
+        let i = FORMS_HEADER
+            .iter()
+            .position(|h| *h == name)
+            .unwrap_or_else(|| panic!("нет колонки {name}"));
+        &row[i]
+    };
+    assert_eq!(at("n_eaten_by_trades"), "3", "«съели» — своя колонка");
+    assert_eq!(at("n_wall_gone"), "7", "«сняли» — своя колонка");
+    assert_eq!(at("n_entry_cancelled_cancel_timeout"), "11");
+    assert_eq!(at("n_exit_cancel_timeout"), "13");
+    assert_eq!(at("mean_fill_frac"), "0.500000");
+    assert_eq!(at("form"), "pct2-1to1-60-eat50");
+}

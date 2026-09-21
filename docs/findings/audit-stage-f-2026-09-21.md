@@ -224,3 +224,22 @@
    тест вердикта с частью колонок, С11. **Полдня.** Гейт «те же байты» после.
 2. **F10** — предрегистрация и прогон по 16–19.09 (см. `dev-plan-2026-09-20.md` §0а/§3 F10).
 3. С1 → С4/С5 → С7 → В4/В6/В7 → С10/С12–С14 — по ходу, не блокирует F10/F11.
+
+## 7. Закрыто F8b (21.09, вечер; решение владельца В-79)
+
+Число потолка выбрано владельцем из трёх предложенных: **1 с** (`strategy::CANCEL_WAIT_NS`), измеренное
+В-68 p95 снятия 4.55 мс — фон, а не источник числа.
+
+| # | чем закрыто |
+|---|---|
+| Р2+В5 | Один механизм на обе фазы: `CANCEL_WAIT_NS` + **повтор снятия** на каждом шаге (`StrategyState::cancel_open` — нога `New`/`PartiallyFilled` без запроса в полёте). Повтор и есть настоящая причина зависания: нога, чей запрос **постановки** летел в момент снятия входа, иначе оставалась в рынке навсегда. Фазы несут `cancel_sent_ns`; срабатывание называется `EntryCancelReason::CancelTimeout` и счётчиками `n_entry_cancelled_cancel_timeout`/`n_exit_cancel_timeout` (`BounceRun`, `StrategyState::exit_cancel_timeouts`), а не прячется: при потолке круг освобождается тем же правилом, что при подтверждённой отмене (позиция есть → `Holding`, нет → `Idle`) |
+| Р3 | `an_exit_fill_that_races_the_cancel_closes_the_round` (исполнение обгоняет отмену на выходе), `the_exit_cancel_ceiling_returns_the_round_to_the_plan` (потолок выхода) |
+| Р4 | `the_driver_counts_the_exit_reasons_into_the_tally` (агрегат F7 в драйвере: «съели»/«сняли» не путаются) и `forms_row_puts_every_counter_into_its_own_column`: строка `forms.csv` вынесена в `forms_row` и проверяется **по именам колонок**. Побочно пойман байтовый дефект: `Iterator::sum` для `f64` стартует с `-0.0` и на пустой сумме печатал `-0.000000` вместо `0.000000` — `sum_net_bps` складывает явным `fold(0.0, …)`, гейт «те же круги» на фикстуре зелёный |
+| часть колонок | `exit_columns_are_read_when_only_some_of_them_are_present` (есть `n_eaten_by_trades`, нет `n_wall_gone` — читается, отсутствующее = ноль) |
+| С11 | `entry_ladder_fills_to_capacity_and_refuses_the_extra_leg`, `entry_ladder_averages_the_legs_by_their_weights`, `ladder_at_capacity_fills_every_leg_and_keeps_the_share_sum` |
+| В5 (вход) | `a_cancel_the_exchange_never_confirms_is_released_by_the_ceiling`, `an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry` |
+
+Сборка: **953 / 0 / 8 ignored**, clippy `-D warnings` 0, fmt 0. Машинный гейт «те же байты»
+(`tools/compute/f3-queue-gate.sh`, 5 монет × 3 суток) — за прогоном на счётной машине.
+Дыра F10 закрыта тем же вечером: `nightly-grid.sh` знает `SIGNAL`/`ENTRY_FORMS`/`ENTRY_TTL`/
+`BAND_EXIT_BPS`/`TOUCHES_FROM`/`REGIME_FROM` (умолчания — прежний круг).

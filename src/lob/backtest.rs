@@ -1124,6 +1124,14 @@ pub struct BounceRun {
     /// Снятия по «цена ушла из полосы лестницы» (F5, В-74) — колонка
     /// `n_entry_cancelled_price_left`.
     pub entry_cancelled_price_left: u64,
+    /// F8b (В5/Р2): сколько раз за сутки круг пережил потолок ожидания
+    /// подтверждения отмены (`CANCEL_WAIT_NS`) — отдельно по входу
+    /// (`EntryCancelReason::CancelTimeout`) и по лимитке выхода. Ноль —
+    /// норма: предохранитель не срабатывал, а срабатывание видно в артефактах
+    /// (`n_entry_cancelled_cancel_timeout`, `n_exit_cancel_timeout`).
+    pub entry_cancelled_cancel_timeout: u64,
+    /// Счётчик того же потолка на **выходе** — колонка `n_exit_cancel_timeout`.
+    pub exit_cancel_timeout: u64,
     /// Спред книги в момент отправки входа, в единицах цены — по одному
     /// значению на отправленный вход. Перевод в тики делает вызывающий (тик
     /// знает он, а не движок).
@@ -1582,6 +1590,9 @@ enum SignalStep {
         /// шага опроса после выхода или подтверждённой отмены): до него
         /// форма **занята** для любого сигнала.
         idle_ns: i64,
+        /// F8b (В5/Р2): сколько раз круг пережил потолок ожидания
+        /// подтверждения отмены лимитки выхода (`CANCEL_WAIT_NS`).
+        exit_cancel_timeouts: u64,
     },
 }
 
@@ -1652,6 +1663,7 @@ where
             outcome,
             residual: None,
             idle_ns: bot.current_timestamp(),
+            exit_cancel_timeouts: state.exit_cancel_timeouts(),
         });
     }
     // Страховка (2026-09-18): круг кончился, а позиция осталась (например,
@@ -1684,6 +1696,7 @@ where
                 outcome,
                 residual,
                 idle_ns: bot.current_timestamp(),
+                exit_cancel_timeouts: state.exit_cancel_timeouts(),
             });
         }
     }
@@ -1694,6 +1707,7 @@ where
         outcome,
         residual,
         idle_ns: bot.current_timestamp(),
+        exit_cancel_timeouts: state.exit_cancel_timeouts(),
     })
 }
 
@@ -1714,6 +1728,8 @@ impl BounceRun {
             entry_cancelled_ttl: 0,
             entry_cancelled_wall_dead: 0,
             entry_cancelled_price_left: 0,
+            entry_cancelled_cancel_timeout: 0,
+            exit_cancel_timeout: 0,
             spread_at_entry: Vec::new(),
             submitted_signal: Vec::new(),
             busy_signal: Vec::new(),
@@ -1759,6 +1775,10 @@ where
     let mut entry_cancelled_ttl: u64 = 0;
     let mut entry_cancelled_wall_dead: u64 = 0;
     let mut entry_cancelled_price_left: u64 = 0;
+    // F8b (В5/Р2): вход, снятый потолком ожидания подтверждения отмены, идёт
+    // той же строкой, что и прочие снятия, — причиной `CancelTimeout`.
+    let mut entry_cancelled_cancel_timeout: u64 = 0;
+    let mut exit_cancel_timeout: u64 = 0;
     let mut spread_at_entry: Vec<f64> = Vec::new();
     let mut busy_signal: Vec<usize> = Vec::new();
     let mut submitted_signal: Vec<usize> = Vec::new();
@@ -1818,8 +1838,10 @@ where
                 outcome,
                 residual,
                 idle_ns: idle,
+                exit_cancel_timeouts,
             } => {
                 idle_ns = idle;
+                exit_cancel_timeout = exit_cancel_timeout.saturating_add(exit_cancel_timeouts);
                 submitted_signal.push(sig_idx);
                 if crossed {
                     entry_crossed = entry_crossed.saturating_add(1);
@@ -1857,6 +1879,10 @@ where
                                     entry_cancelled_price_left.saturating_add(1);
                             }
                             EntryCancelReason::NotPlaced => {}
+                            EntryCancelReason::CancelTimeout => {
+                                entry_cancelled_cancel_timeout =
+                                    entry_cancelled_cancel_timeout.saturating_add(1);
+                            }
                         }
                         // В-72: нога, не поставленная биржей (пост-онли
                         // `Expired` или `Rejected`), — отказ, а не заказ;
@@ -1928,6 +1954,8 @@ where
         entry_cancelled_ttl,
         entry_cancelled_wall_dead,
         entry_cancelled_price_left,
+        entry_cancelled_cancel_timeout,
+        exit_cancel_timeout,
         spread_at_entry,
         submitted_signal,
         busy_signal,

@@ -1232,7 +1232,7 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 30] = [
+const FORMS_HEADER: [&str; 32] = [
     "symbol",
     "day_utc",
     "form",
@@ -1265,6 +1265,11 @@ const FORMS_HEADER: [&str; 30] = [
     "n_entry_cancelled_ttl",
     "n_entry_cancelled_wall_dead",
     "n_entry_cancelled_price_left",
+    // F8b (В5/Р2): срабатывания потолка ожидания подтверждения отмены
+    // (`CANCEL_WAIT_NS`) — на входе и на лимитке выхода. В конце: прежние
+    // колонки не сдвинуты (гейт «те же круги»).
+    "n_entry_cancelled_cancel_timeout",
+    "n_exit_cancel_timeout",
     // F8: средняя доля исполненного входа (F4, В-78).
     "mean_fill_frac",
 ];
@@ -1680,6 +1685,81 @@ fn signals_by_hour(signals: &[BounceSignal]) -> String {
         .join(":")
 }
 
+/// Строка `forms.csv`: значения строго в порядке `FORMS_HEADER`. Вынесена из
+/// `Outputs::write_form` ради теста соответствия «поле счётчика → колонка»
+/// (F8b, Р4 аудита 21.09): позиционная запись ловит дубликат имени формы, но
+/// перепутанные `n_eaten_by_trades`/`n_wall_gone` в ней не видны.
+fn forms_row(
+    symbol: &str,
+    day: &str,
+    form_label: &str,
+    signals: &[BounceSignal],
+    run: &BounceRun,
+    skipped: u64,
+    mean_fill_frac: f64,
+) -> Vec<String> {
+    vec![
+        symbol.to_string(),
+        day.to_string(),
+        form_label.to_string(),
+        signals.len().to_string(),
+        run.submitted_signal.len().to_string(),
+        run.fills.len().to_string(),
+        run.busy_signal.len().to_string(),
+        run.entry_rejected.to_string(),
+        run.entry_crossed.to_string(),
+        // `sum_net` считает вызывающий: он же пишет круги.
+        format!("{:.6}", sum_net_bps(run)),
+        run.exits.stop.to_string(),
+        run.exits.take.to_string(),
+        run.exits.trail.to_string(),
+        run.exits.deadline.to_string(),
+        run.exits.early.to_string(),
+        run.exits.eaten.to_string(),
+        run.exits.eaten_by_trades.to_string(),
+        run.exits.wall_gone.to_string(),
+        run.exits.partial.to_string(),
+        run.exits.horizon.to_string(),
+        run.incomplete.to_string(),
+        skipped.to_string(),
+        run.residual_flattened.to_string(),
+        // Путь исполнения (3) (F3): крейт исполнил ногу обновлением
+        // лучшей цены, а не сделкой, — счётчик по кругам формы.
+        run.fills
+            .iter()
+            .filter(|f| f.fill_by_cross)
+            .count()
+            .to_string(),
+        // Ног входа, которых биржа не поставила (пост-онли `Expired` или
+        // `Rejected`, В-72) — по всем кругам формы за сутки.
+        run.rejected_postonly.to_string(),
+        signals_by_hour(signals),
+        // Снятия неисполненного входа по причинам (F5, В-74).
+        run.entry_cancelled_ttl.to_string(),
+        run.entry_cancelled_wall_dead.to_string(),
+        run.entry_cancelled_price_left.to_string(),
+        // F8b (В5/Р2): срабатывания потолка ожидания подтверждения отмены.
+        run.entry_cancelled_cancel_timeout.to_string(),
+        run.exit_cancel_timeout.to_string(),
+        // F8: средняя доля исполненного входа (F4, В-78).
+        format!("{mean_fill_frac:.6}"),
+    ]
+}
+
+/// Сумма `net_bps` кругов формы — та же арифметика `roundtrip_net_bps`, что у
+/// кривой PnL; круг без измеренного `net` в сумму не входит (как и раньше,
+/// когда сумма считалась в `write_form`).
+///
+/// Начало суммы — явный `0.0`, а не `Iterator::sum`: у `f64` он складывает от
+/// `-0.0`, и пустая сумма печаталась бы `-0.000000` вместо прежнего
+/// `0.000000` — гейт «те же байты» ловит именно это (поймано F8b).
+fn sum_net_bps(run: &BounceRun) -> f64 {
+    run.fills
+        .iter()
+        .filter_map(roundtrip_net_bps)
+        .fold(0.0_f64, |acc, v| acc + v)
+}
+
 impl Outputs {
     fn create(out_dir: &Path, header: &str) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
@@ -1727,12 +1807,8 @@ impl Outputs {
         // больше сигналов). Сортировка устойчивая, равные t0 взаимозаменяемы.
         let mut t0s: Vec<i64> = signals.iter().map(|s| s.t0_ns).collect();
         t0s.sort_unstable();
-        let mut sum_net = 0.0_f64;
         for (i, fill) in run.fills.iter().enumerate() {
             let net = roundtrip_net_bps(fill);
-            if let Some(v) = net {
-                sum_net += v;
-            }
             let sig = run.fill_signal[i];
             let t0 = t0s.get(sig).copied().unwrap_or(0);
             self.rounds.write_record([
@@ -1763,48 +1839,15 @@ impl Outputs {
         } else {
             run.fills.iter().map(|f| f.fill_frac).sum::<f64>() / run.fills.len() as f64
         };
-        self.forms.write_record([
-            symbol.to_string(),
-            day.to_string(),
-            form.label.to_string(),
-            signals.len().to_string(),
-            run.submitted_signal.len().to_string(),
-            run.fills.len().to_string(),
-            run.busy_signal.len().to_string(),
-            run.entry_rejected.to_string(),
-            run.entry_crossed.to_string(),
-            format!("{sum_net:.6}"),
-            run.exits.stop.to_string(),
-            run.exits.take.to_string(),
-            run.exits.trail.to_string(),
-            run.exits.deadline.to_string(),
-            run.exits.early.to_string(),
-            run.exits.eaten.to_string(),
-            run.exits.eaten_by_trades.to_string(),
-            run.exits.wall_gone.to_string(),
-            run.exits.partial.to_string(),
-            run.exits.horizon.to_string(),
-            run.incomplete.to_string(),
-            skipped.to_string(),
-            run.residual_flattened.to_string(),
-            // Путь исполнения (3) (F3): крейт исполнил ногу обновлением
-            // лучшей цены, а не сделкой, — счётчик по кругам формы.
-            run.fills
-                .iter()
-                .filter(|f| f.fill_by_cross)
-                .count()
-                .to_string(),
-            // Ног входа, которых биржа не поставила (пост-онли `Expired` или
-            // `Rejected`, В-72) — по всем кругам формы за сутки.
-            run.rejected_postonly.to_string(),
-            signals_by_hour(signals),
-            // Снятия неисполненного входа по причинам (F5, В-74).
-            run.entry_cancelled_ttl.to_string(),
-            run.entry_cancelled_wall_dead.to_string(),
-            run.entry_cancelled_price_left.to_string(),
-            // F8: средняя доля исполненного входа (F4, В-78).
-            format!("{mean_fill_frac:.6}"),
-        ])?;
+        self.forms.write_record(forms_row(
+            symbol,
+            day,
+            form.label,
+            signals,
+            run,
+            skipped,
+            mean_fill_frac,
+        ))?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
             let mut fills_by_hour = [0u64; 24];

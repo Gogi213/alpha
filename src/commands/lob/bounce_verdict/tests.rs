@@ -537,3 +537,46 @@ fn form_names_carry_the_entry_the_ttl_and_the_exit() {
         "неполная ось срока жизни — не сетка"
     );
 }
+
+/// F8b (аудит 21.09, С-список): колонки причин выхода читаются **по
+/// наличию**. Артефакт, снятый на середине внедрения F7 (есть
+/// `n_eaten_by_trades`, нет `n_wall_gone` и прочих), обязан читаться, а
+/// отсутствующая причина — считаться нулём, не отказом: иначе уже снятые
+/// сетки перестали бы считаться вердиктом.
+#[test]
+fn exit_columns_are_read_when_only_some_of_them_are_present() {
+    let dir = tempfile::tempdir().unwrap();
+    let forms = "# synthetic partial F7\n\
+        symbol,day_utc,form,n_signals,n_skipped,n_fills,sum_net_bps,n_eaten_by_trades\n\
+        SOLUSDT,2026-09-08,s1-t1-60,5,0,2,1.000000,2\n";
+    std::fs::write(dir.path().join("forms.csv"), forms).unwrap();
+    let rounds = "# synthetic partial F7\n\
+        symbol,day_utc,form,signal_index,t0_ns,dir,entry_px,exit_px,qty,net_bps,reason\n\
+        SOLUSDT,2026-09-08,s1-t1-60,0,0,1,100.0,101.0,1.0,0.500000,eaten_by_trades\n\
+        SOLUSDT,2026-09-08,s1-t1-60,1,600000000000,1,100.0,101.0,1.0,0.500000,eaten_by_trades\n";
+    std::fs::write(dir.path().join("rounds.csv"), rounds).unwrap();
+
+    let grid = read_grid(dir.path()).expect("часть колонок причин — не отказ");
+    let cell = grid.cells.values().next().expect("строка сетки");
+    let at = |name: &str| {
+        EXIT_REASONS
+            .iter()
+            .position(|r| *r == name)
+            .unwrap_or_else(|| panic!("нет причины {name}"))
+    };
+    assert_eq!(
+        cell.exits[at("eaten_by_trades")],
+        2,
+        "присутствующая колонка читается целиком"
+    );
+    assert_eq!(
+        cell.exits[at("wall_gone")],
+        0,
+        "отсутствующая колонка — ноль, а не отказ"
+    );
+    assert_eq!(
+        cell.exits.iter().sum::<u64>(),
+        2,
+        "чужих причин из отсутствующих колонок не выдумано"
+    );
+}

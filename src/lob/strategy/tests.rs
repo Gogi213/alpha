@@ -1150,6 +1150,13 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
 /// `last_trades_capacity`, без которого крейт вовсе не пишет ленту
 /// (`proc/local.rs`: `trades.capacity() > 0`), и F7 нечего было бы считать.
 fn f7_exits(plan: TradePlan, feed: &[Event]) -> Vec<ExitReason> {
+    f7_run(plan, feed).fill_reason
+}
+
+/// Тот же прогон, но наружу отдаётся весь `BounceRun`: агрегаты причин
+/// выхода (`ExitTally`) считает драйвер, и F8b проверяет их отдельно от
+/// `fill_reason` кругов.
+fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::BounceRun {
     let mut hbt = build_backtest(
         feed,
         1.0,
@@ -1168,9 +1175,7 @@ fn f7_exits(plan: TradePlan, feed: &[Event]) -> Vec<ExitReason> {
         plan,
         profile: 0,
     };
-    drive_bounce(&mut hbt, 0, &[signal], &cfg)
-        .unwrap()
-        .fill_reason
+    drive_bounce(&mut hbt, 0, &[signal], &cfg).unwrap()
 }
 
 /// Шапка фида: книга с бид-стеной 99 (размер `wall`) и вход в 100, который
@@ -1296,4 +1301,330 @@ fn the_none_exit_form_ignores_the_wall_trades() {
         vec![ExitReason::Deadline],
         "форма `none` не читает ни съедание, ни снятие"
     );
+}
+
+// -----------------------------------------------------------------------
+// F8b (аудит этапа F 21.09, В5/Р2/Р3/Р4; решение владельца В-79): потолок
+// ожидания подтверждения отмены `CANCEL_WAIT_NS` — один механизм на вход
+// (`CancelPending`) и на лимитку выхода (`ExitCancelPending`), плюс счёт
+// причин F7 в агрегате `ExitTally`.
+// -----------------------------------------------------------------------
+
+/// Идентификатор лимитки выхода в тестах потолка: ставится руками, потому что
+/// сценарий — «отмена летит, а биржа не отвечает», и доводить до него
+/// естественный круг значило бы проверять крейт, а не предохранитель.
+const EXIT_ID: u64 = 7;
+
+/// Задержки тестов потолка: постановка 1 мс, **снятие 5 с** — так отмена
+/// остаётся нерешённой и видно, что делает предохранитель (`CANCEL_WAIT_NS`
+/// = 1 с); рыночный — 1 мс.
+fn slow_cancel_latency() -> ExecLatency {
+    ExecLatency {
+        place_ns: 1_000_000,
+        cancel_ns: 5_000_000_000,
+        taker_ns: 1_000_000,
+    }
+}
+
+/// План тестов потолка: вход 100 у бид-стены 99, стоп/тейк далеко, дедлайн
+/// 30 с, срок жизни входа — `ttl_ns`. Условия F5 выключены: тест про отмену,
+/// а не про «стена снята».
+fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
+    TradePlan::Bounce {
+        entry_px: 100.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 30 * S,
+        entry_ttl_ns: ttl_ns,
+        post_only: false,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        ladder: EntryLadder::NONE,
+        early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
+        level_px: 99.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
+    }
+}
+
+/// F8b (В5): подтверждение отмены **входа** не приходит — круг освобождается
+/// потолком, а не висит «занятым» до конца записи. Причина названа
+/// `CancelTimeout` (видна в `forms.csv`), позиции нет, фаза снова `Idle`.
+#[test]
+fn a_cancel_the_exchange_never_confirms_is_released_by_the_ceiling() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // События после потолка: отмена (5 с) всё ещё летит — без
+        // предохранителя фаза ждала бы её здесь и на всей записи дальше.
+        depth_at(2 * S, true, 100.0, 5.0),
+        depth_at(3 * S, true, 100.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    // Срок жизни входа 0.1 с: снятие уходит на первом же шаге после него и
+    // подтверждения не получает.
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::EntryTimedOut {
+                reason: EntryCancelReason::CancelTimeout,
+                ..
+            }
+        )),
+        "потолок обязан освободить круг и назвать причину: {actions:?}"
+    );
+    // Дальше драйвер продолжает запись и стратегия перевооружается (второй
+    // `EntrySubmitted` в списке) — это норма: проверяется, что первый круг
+    // освобождён потолком, а не остался висеть «занятым».
+    assert_eq!(state.position(), 0.0, "позиции не было");
+}
+
+/// F8b (В5, вторая половина — сама причина зависания): нога, чей запрос
+/// **постановки** летел в момент потолка срока жизни, в тот шаг не снимается
+/// (`cancel_resting` трогает только стоящие ноги), и без повтора осталась бы
+/// в рынке навсегда. Повтор снимает её, когда она станет `New`, — отмена
+/// подтверждается, причина `Ttl`, предохранитель не при чём.
+#[test]
+fn an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(S, true, 100.0, 5.0),
+        depth_at(2 * S, true, 100.0, 5.0),
+    ];
+    // Постановка 0.5 с — на 0.1 с (потолок входа) заявка ещё не у биржи;
+    // снятие 1 мс — отмена подтверждается сразу, как только нога встала.
+    let lat = ExecLatency {
+        place_ns: 500_000_000,
+        cancel_ns: 1_000_000,
+        taker_ns: 1_000_000,
+    };
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            Action::EntryTimedOut {
+                reason: EntryCancelReason::Ttl,
+                ..
+            }
+        )),
+        "повтор снятия обязан закрыть вход по сроку жизни: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|a| matches!(
+            a,
+            Action::EntryTimedOut {
+                reason: EntryCancelReason::CancelTimeout,
+                ..
+            }
+        )),
+        "отмена подтвердилась — предохранитель не при чём: {actions:?}"
+    );
+}
+
+/// Готовит состояние «отмена лимитки выхода летит» на настоящем крейте:
+/// позиция 1.0 открыта по 100, лимитка тейка 110 стоит в рынке (`EXIT_ID`),
+/// фаза — `ExitCancelPending`. Хедж-состояние собирается полями: ветку
+/// естественного круга (`Holding` → частичный тейк → рыночная причина)
+/// проверяет Б1-тест, а здесь проверяется сам предохранитель.
+fn racing_exit_state(hbt: &mut Backtest<HashMapMarketDepth>) -> StrategyState {
+    hbt.submit_sell_order(
+        0,
+        EXIT_ID,
+        110.0,
+        1.0,
+        TimeInForce::GTC,
+        OrdType::Limit,
+        false,
+    )
+    .unwrap();
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, cancel_wait_plan(S / 10));
+    state.entry_qty = 1.0;
+    state.entry_notional = 100.0;
+    state.phase = Phase::ExitCancelPending {
+        order_id: EXIT_ID,
+        entry_ns: 0,
+        cancel_sent_ns: 0,
+    };
+    state
+}
+
+/// F8b (С11 аудита 21.09): границы `EntryLadder` — единственного места, где
+/// ноги лестницы F6 складываются в массив фиксированной длины. Переполнение
+/// обязано быть отказом (`false`), а не молчаливым усечением: у движка счёт
+/// ног идёт битовой маской, и «ещё пара ног» там уже не считается.
+#[test]
+fn entry_ladder_fills_to_capacity_and_refuses_the_extra_leg() {
+    let mut ladder = EntryLadder::NONE;
+    assert_eq!(ladder.n, 0, "вход без лестницы — ноль ног");
+    assert_eq!(ladder.outer_tick(), None, "дальней ноги нет");
+    assert_eq!(
+        ladder.weighted_avg_tick(),
+        0.0,
+        "средняя пустой лестницы — ноль"
+    );
+
+    for i in 0..MAX_ENTRY_LEGS {
+        assert!(
+            ladder.push(100 + i as i64, 1.0 / MAX_ENTRY_LEGS as f64),
+            "нога {i} влезает в ёмкость"
+        );
+    }
+    assert_eq!(ladder.n as usize, MAX_ENTRY_LEGS, "ёмкость исчерпана ровно");
+    // Девятая нога — отказ, состояние не тронуто.
+    assert!(!ladder.push(999, 0.5), "за ёмкостью — отказ, а не усечение");
+    assert_eq!(ladder.n as usize, MAX_ENTRY_LEGS);
+    assert_eq!(ladder.outer_tick(), Some(100 + MAX_ENTRY_LEGS as i64 - 1));
+}
+
+/// F8b (С11): средняя цена лестницы — **по долям**, а не по числу ног: у
+/// нижней ноги может быть двойной вес («основной объём к сайзу», F6), и от
+/// этой средней форма считает стоп и тейк.
+#[test]
+fn entry_ladder_averages_the_legs_by_their_weights() {
+    let mut ladder = EntryLadder::NONE;
+    assert!(ladder.push(100, 0.75));
+    assert!(ladder.push(200, 0.25));
+    assert!(
+        (ladder.weighted_avg_tick() - 125.0).abs() < 1e-9,
+        "0.75 × 100 + 0.25 × 200 = 125, а не середина 150"
+    );
+    // Доли формы нормированы: сумма — единица (свойство `ladder_legs`).
+    assert!((ladder.frac[0] + ladder.frac[1] - 1.0).abs() < 1e-9);
+}
+
+/// F8b (Р3): гонка отмены и исполнения **на выходе** — сделка исполняет
+/// лимитку тейка, пока отмена летит (до биржи она доедет через 5 с, потолок —
+/// 1 с). Позиция закрыта исполнением: фаза `Idle`, второй выход не
+/// отправляется, предохранитель не срабатывает.
+#[test]
+fn an_exit_fill_that_races_the_cancel_closes_the_round() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Покупка по 111 — **выше** стоящей продажи 110: крейт исполняет её
+        // целиком (`Ordering::Less`), и это исполнение приходит раньше отмены
+        // (та доедет до биржи через 5 с, потолок — через 1 с).
+        trade_at(500_000_000, false, 111.0, 1.0),
+        depth_at(3 * S, false, 111.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    let mut state = racing_exit_state(&mut hbt);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        state.exit_cancel_timeouts(),
+        0,
+        "гонку выиграло исполнение — потолок не срабатывает: {actions:?}"
+    );
+    assert!(
+        state.position() <= 0.0,
+        "позиция закрыта исполнением лимитки: {:?}",
+        actions
+    );
+}
+
+/// F8b (Р2): подтверждение отмены лимитки выхода не пришло — потолок
+/// возвращает остаток позиции плану (`Holding`), а не оставляет круг в
+/// «отмена летит» до конца записи. Срабатывание посчитано
+/// (`exit_cancel_timeouts`), и оно одно: дальше круг ведёт `Holding`.
+#[test]
+fn the_exit_cancel_ceiling_returns_the_round_to_the_plan() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(1_500_000_000, true, 100.0, 5.0),
+        depth_at(2_500_000_000, true, 100.0, 5.0),
+        depth_at(2_600_000_000, true, 100.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        1.0,
+        slow_cancel_latency(),
+        QueueModelKind::RiskAdverse,
+    );
+    let mut state = racing_exit_state(&mut hbt);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert_eq!(
+        state.exit_cancel_timeouts(),
+        1,
+        "потолок обязан сработать ровно раз: {actions:?}"
+    );
+    assert!(
+        matches!(state.phase, Phase::Holding { .. }),
+        "остаток позиции ведёт план: {:?}",
+        state.phase
+    );
+    assert!(state.position() > 0.0, "позиция не потеряна");
+}
+
+/// F8b (Р4): причины F7 считает драйвер (`ExitTally`), а не строки кругов —
+/// и считает их **раздельно**: «съели» и «сняли» не путаются местами и не
+/// остаются нулями (адрес колонки `forms.csv` проверяет `bounce_grid`).
+#[test]
+fn the_driver_counts_the_exit_reasons_into_the_tally() {
+    let eaten = f7_run(
+        f7_plan(50.0, 0.0, 10.0),
+        &f7_feed_tail(
+            &[
+                trade_at(4 * S, true, 99.0, 6.0),
+                depth_at(5 * S, false, 101.0, 5.0),
+                depth_at(6 * S, false, 102.0, 5.0),
+            ],
+            10.0,
+        ),
+    );
+    assert_eq!(eaten.fill_reason, vec![ExitReason::EatenByTrades]);
+    assert_eq!(eaten.exits.eaten_by_trades, 1, "«съели» — своя строка");
+    assert_eq!(eaten.exits.wall_gone, 0, "«сняли» не при чём");
+
+    let gone = f7_run(
+        f7_plan(0.0, 50.0, 10.0),
+        &f7_feed_tail(
+            &[
+                depth_at(4 * S, true, 99.0, 3.0),
+                depth_at(5 * S, false, 101.0, 5.0),
+                depth_at(6 * S, false, 102.0, 5.0),
+            ],
+            10.0,
+        ),
+    );
+    assert_eq!(gone.fill_reason, vec![ExitReason::WallGone]);
+    assert_eq!(gone.exits.wall_gone, 1, "«сняли» — своя строка");
+    assert_eq!(gone.exits.eaten_by_trades, 0, "«съели» не при чём");
 }

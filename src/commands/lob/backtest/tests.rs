@@ -796,6 +796,8 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         entry_cancelled_ttl: 0,
         entry_cancelled_wall_dead: 0,
         entry_cancelled_price_left: 0,
+        entry_cancelled_cancel_timeout: 0,
+        exit_cancel_timeout: 0,
         spread_at_entry: Vec::new(),
         submitted_signal: (0..n).collect(),
         busy_signal: Vec::new(),
@@ -1198,4 +1200,57 @@ fn ladder_legs_on_the_same_tick_merge_into_one_with_the_summed_share() {
     assert_eq!(ladder.n, 1, "совпавшие тики — одна нога");
     assert_eq!(ladder.ticks[0], 1_001);
     assert!((ladder.frac[0] - 1.0).abs() < 1e-12, "{}", ladder.frac[0]);
+}
+
+/// F8b (С11 аудита 21.09): граница ёмкости ног. `ladder8x…` — ровно
+/// `MAX_ENTRY_LEGS` ног: `ladder_legs` заполняет массив до последнего места
+/// (его `push` за ёмкостью — отказ, а не усечение), доли нормированы в
+/// единицу, тики идут от стены к рынку, а средняя цена плана — взвешенная.
+#[test]
+fn ladder_at_capacity_fills_every_leg_and_keeps_the_share_sum() {
+    let touch = bounce_touch(10_000, None);
+    let (_, plan) = bounce_plan(
+        &touch,
+        0.01,
+        base("pct2", "1to1"),
+        None,
+        PlanShape {
+            entry_form: EntryForm::parse("ladder8x1..8").unwrap(),
+            ..plain_shape()
+        },
+    )
+    .expect("план строится");
+    let TradePlan::Bounce {
+        ladder,
+        entry_px,
+        tick_px,
+        ..
+    } = plan
+    else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(
+        ladder.n as usize,
+        crate::lob::strategy::MAX_ENTRY_LEGS,
+        "восемь ног — вся ёмкость"
+    );
+    // Первая нога — тик над стеной (1 bps при цене 100.00).
+    assert_eq!(ladder.ticks[0], 10_001, "нога у стены");
+    for i in 1..ladder.n as usize {
+        assert!(
+            ladder.ticks[i] > ladder.ticks[i - 1],
+            "ноги идут от стены к рынку: {:?}",
+            &ladder.ticks[..ladder.n as usize]
+        );
+    }
+    let sum: f64 = ladder.frac[..ladder.n as usize].iter().sum();
+    assert!((sum - 1.0).abs() < 1e-12, "доли нормированы: {sum}");
+    let weighted = ladder.weighted_avg_tick() * tick_px;
+    // Цена плана — ближайший **тик** к взвешенной сумме (цены живут на сетке
+    // тиков), поэтому сравнивается округление, а не сама дробная сумма.
+    let nearest = (weighted / tick_px).round() * tick_px;
+    assert!(
+        (entry_px - nearest).abs() < 1e-9,
+        "средняя плана — взвешенная по долям: {entry_px} против {weighted}"
+    );
 }

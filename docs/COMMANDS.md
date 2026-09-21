@@ -231,6 +231,10 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 ## Ночная сетка на счётной машине (В-70; набор — под В-71)
 
 > **Подходы в ночи (F1/F10; аудит 21.09 В1):** H3-шаг пишет `approaches-<SYMBOL>.csv` только для суток, которые считает заново; сутки с маркером `.done` (посчитанные до F1 или с другим `D`) подходов не получат — при смене `APPROACH_BPS` или для старых суток: `rm study/touches/<сутки>/.done` либо `tools/compute/approach-scan.sh` руками. Умолчания `D=20`, возраст 900 с — измеренные (M15), переопределяются окружением `APPROACH_BPS`/`APPROACH_MIN_AGE_S`.
+>
+> **Оси этапа F в ночи (F10, 21.09):** `nightly-grid.sh` прокидывает в `--set`-процесс не только выход, но и сигнал/вход — окружением `SIGNAL` (умолчание `touch`), `ENTRY_FORMS` (умолчание `single@fr`), `ENTRY_TTL` (`touch`, список через пробел), `BAND_EXIT_BPS` и каталогами кэша `TOUCHES_FROM` (умолчание `study/touches`; для `SIGNAL=approach` — `study/approaches/D<d>`, там же рядом лежат `touches-<SYMBOL>.csv`) и `REGIME_FROM`. Умолчания — прежний круг, поэтому ночь без окружения идёт байт в байт как раньше (гейт «те же круги»). Условия F5 (`ENTRY_TTL=wall`/число, `BAND_EXIT_BPS`) требуют порога В-66 — он уже в `$USD` (`--h3-mode notional --h3-usd 10000`); числа `D`/`ttl`/полосы — предрегистрация F10, умолчаний в коде нет.
+>
+> **Потолок ожидания отмены (F8b, В-79):** обе фазы отмены (`CancelPending` входа, `ExitCancelPending` выхода) ждут подтверждения не дольше `CANCEL_WAIT_NS` = 1 с (измеренное В-68 p95 снятия 4.55 мс × ~200), при этом снятие повторяется на каждом шаге для ног, чей запрос постановки летел в момент снятия. Срабатывание видно в `forms.csv`: `n_entry_cancelled_cancel_timeout` и `n_exit_cancel_timeout` (в сетке без срабатываний — нули).
 
 `tools/compute/nightly-grid.sh` (копия — `/opt/alpha-compute/bin/nightly-grid.sh`) по таймеру
 `alpha-grid-nightly.timer` (`tools/systemd/`, 02:00 UTC, после переноса суток 00:45) делает две вещи.
