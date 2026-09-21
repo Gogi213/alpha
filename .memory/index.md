@@ -323,5 +323,8 @@ eat<X₂>, gone50}; число испытаний — в `EXPERIMENTS.md` (E15, 
 - [projects\active\alpha.md](projects/active/alpha.md) — проект: передача, состояние, история.
 - [skills/](skills/) — [ovh-vps-singapore.md](skills/ovh-vps-singapore.md) (сервер, тюнинг, профиль),
   [dsh-task-board.md](skills/dsh-task-board.md) (доска задач DSH, снята 15.09),
-  [typesafe-ai.md](skills/typesafe-ai.md) (скилл TypeSafe/Jev: где лежит, API, ключ — только в env).
+  [typesafe-ai.md](skills/typesafe-ai.md) (скилл TypeSafe/Jev: **корни скиллов DSH — `~/.agents/skills`,
+  а НЕ `~/.claude/skills`**; скилл перенесён туда 21.09; батарея 21.09 — API работает правильно:
+  контракт без ошибок, choice/noul 11/12 на своих метках, Brier 0.045, батч в 4× дешевле,
+  неверный `type` даёт 400 (доки: 422); проверять через Node, PowerShell TLS на хосте не поднимает).
 - [log.md](log.md) — таймлайн. [MEMORY.md](MEMORY.md) — протокол. [SOUL.md](SOUL.md) — рамка.
