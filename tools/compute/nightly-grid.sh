@@ -34,15 +34,29 @@ alert() {
   echo "$(date -u +%FT%TZ) nightly-$DAY: $*" >> "$ALERTS"
   echo "!! $*" >> "$LOG"
 }
+# Чтение ночи TypeSafe (В-81): суждение «ок / смотреть / сломано» с причиной поверх фактов
+# (ALERTS этой ночи, verdicts.csv, хвост лога, failed-юниты, диск) — строкой в ALERTS.log и в
+# текст Telegram. Ключ — /etc/alpha/typesafe.env (drop-in юнита; для ручного пуска — source ниже).
+# Без ключа/сети скрипт выходит 2 и строку не пишет: чтение — надстройка, ночь без него штатна.
+if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +a; fi
+read_night() {
+  local line
+  line=$(python3 /opt/alpha-compute/bin/nightly-read.py --night "$DAY" --study study 2>/dev/null | head -1)
+  if [ -n "$line" ]; then echo "$line" >> "$ALERTS"; echo "== $line" >> "$LOG"; fi
+  echo "$line"
+}
 finish() {
+  local reading
   if [ "$NALERTS" -eq 0 ]; then
     echo "$(date -u +%FT%TZ) nightly-$DAY: ОК" >> "$ALERTS"
     echo "== $(date -u +%FT%TZ) nightly done: ОК" >> "$LOG"
-    [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ОК" >/dev/null 2>&1
+    reading=$(read_night)
+    [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ОК${reading:+; $(echo "$reading" | cut -d: -f4-)}" >/dev/null 2>&1
     exit 0
   fi
   echo "$(date -u +%FT%TZ) nightly-$DAY: ПРОВАЛ — проблем $NALERTS (выше)" >> "$ALERTS"
   echo "== $(date -u +%FT%TZ) nightly done: ПРОВАЛ — проблем $NALERTS, см. $ALERTS" >> "$LOG"
+  reading=$(read_night)
   [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ПРОВАЛ — проблем $NALERTS: $(grep "nightly-$DAY:" "$ALERTS" | tail -n +1 | cut -d: -f4- | tr '\n' ';' | cut -c1-500)" >/dev/null 2>&1
   exit 1
 }
@@ -141,7 +155,9 @@ verdict_one() {
   # Реестр вердиктов (docs/plan/EXPERIMENTS.md): строка на (ночь, вид) — итог, лучшая форма, круги, точка, нижняя.
   [ -f study/verdicts.csv ] || echo "night,kind,verdict,form,rounds,point_bps,lower_bps" > study/verdicts.csv
   l=$(grep -a "ИТОГ" "study/bounce-verdict-$label.log" | tail -1)
-  echo "$DAY,$kind,$(echo "$l" | grep -o "ИТОГ=[^·]*" | cut -c6- | sed 's/ *$//'),$(echo "$l" | grep -o "лучшая [^ ]*" | cut -c8-),$(echo "$l" | grep -o "кругов [0-9]*" | cut -c8-),$(echo "$l" | grep -o "точка=[-0-9.]*" | cut -c7-),$(echo "$l" | grep -o "нижняя=[-0-9.]*" | cut -c8-)" >> study/verdicts.csv
+  # Поля — `sed`, не `cut -c`: тот режет по байтам, и у русских меток («ИТОГ=», «лучшая »)
+  # оставались мусорные префиксы во всех колонках (реестр до 22.09 починен nightly-read/repair).
+  echo "$DAY,$kind,$(echo "$l" | grep -o "ИТОГ=[^·]*" | sed 's/^ИТОГ=//; s/ *$//'),$(echo "$l" | grep -o "лучшая [^ ]*" | sed 's/^лучшая //'),$(echo "$l" | grep -o "кругов [0-9]*" | sed 's/^кругов //'),$(echo "$l" | grep -o "точка=[-0-9.]*" | sed 's/^точка=//'),$(echo "$l" | grep -o "нижняя=[-0-9.]*" | sed 's/^нижняя=//')" >> study/verdicts.csv
 }
 # Все наборы базы одним процессом (`--set`, 20.09): события суток и окна декодируются один раз на
 # монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-<метка>/<набор>/.
