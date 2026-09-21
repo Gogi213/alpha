@@ -282,6 +282,15 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 `bin/floors-balance.py`), юниты в `/etc/systemd/system/`,
 `systemctl enable --now alpha-grid-nightly.timer`.
 
+> **Грабля (найдена 21.09, ночи 20.09 и 21.09 02:00Z потеряны):** гейт «сетка предыдущей ночи ещё идёт»
+> смотрел `systemctl list-units "alpha-grid-*" | grep running` — под этот шаблон попадал **сам
+> `alpha-grid-nightly.service`** (скрипт исполняется как этот юнит, он в этот момент `active/running`)
+> и его таймер, поэтому таймерный пуск объявлял ночь занятой и выходил с кодом 1 (ручной пуск не из
+> юнита работал — это и маскировало баг). Теперь гейт берёт только юниты сеток
+> (`alpha-grid-nightly-*`, их создаёт `run-grid.sh`), а имя вырезается `grep -o` (у упавших юнитов
+> строка начинается с маркера `●`, и нумерация полей `awk` на ней съезжает). Если ночь пропущена
+> штатно (идёт чужая сетка) — строка в `study/ALERTS.log`, юнит в `systemctl --failed`.
+
 **Отчёт в деньгах (`tools/compute/equity-report.py`, F8/F10).** Читает дампы сетки напрямую:
 `python3 bin/equity-report.py --grid-dir [ИМЯ=]КАТАЛОГ [--grid-dir …] [--form <имя>|all] [--order-usd N]
 [--out F.html] [--json F.json]` — `<каталог>/rounds.csv` + `forms.csv` (ключей у скрипта раньше не было:

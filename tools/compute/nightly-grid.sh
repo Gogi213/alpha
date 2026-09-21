@@ -60,9 +60,18 @@ DAY_ARGS=""
 if [ -n "$DAYS_WINDOW" ]; then
   for d in $(echo "$DAYS_ALL" | tail -n "$DAYS_WINDOW"); do DAY_ARGS="$DAY_ARGS --day $d"; done
 fi
-if systemctl list-units "alpha-grid-*" --no-legend | grep -q running; then
-  echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен" >> "$LOG"
-  alert "ночь пропущена: сетка ещё идёт ($(systemctl list-units "alpha-grid-*" --no-legend | grep running | awk '{print $1}' | tr '\n' ' '))"
+# Гейт «сетка предыдущей ночи ещё идёт» — смотреть **только юниты сеток** (`run-grid.sh` создаёт
+# `alpha-grid-<метка>`, метка ночного набора начинается с `nightly-`). Шаблон `alpha-grid-*` из
+# первой редакции ловил и сам `alpha-grid-nightly.service` (этот скрипт: он в этот момент active/running),
+# и таймер, поэтому **ночь объявляла занятой саму себя** и пропускалась: ручной пуск (не из юнита)
+# работал, а таймерный — нет (найдено 21.09: ночи 20.09 и 21.09 02:00Z пропущены ровно так, см.
+# `study/ALERTS.log`). Имена вырезаются из строки целиком (`grep -o`), потому что у упавших юнитов
+# в начале строки стоит маркер `●`, и нумерация полей `awk` на них съезжает.
+running_grids=$(systemctl list-units "alpha-grid-nightly-*" --no-legend \
+  | grep -E ' (running|start) ' | grep -oE 'alpha-grid-nightly-[^ ]+\.service' | tr '\n' ' ')
+if [ -n "$running_grids" ]; then
+  echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен ($running_grids)" >> "$LOG"
+  alert "ночь пропущена: сетка ещё идёт ($running_grids)"
   finish
 fi
 # В-71 (владелец 19.09, вечер): 15 минут с постановки — жёсткий флор (моложе не торгуем);
