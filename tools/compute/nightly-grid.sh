@@ -215,10 +215,28 @@ day_root() {
   local f
   for f in "root/"*"-$day.binlog" "root/"*"-$day-"*".binlog" \
            "root/"*"-$day.binlog.zst" "root/"*"-$day-"*".binlog.zst" \
-           "root/verify-"*".status" root/instruments.csv root/session.json; do
+           root/instruments.csv root/session.json; do
     [ -e "$f" ] || continue
     ln -s "$PWD/$f" "$dir/$(basename "$f")"
   done
+  # Маркеры K1 — **за эти сутки** (22.09): `root/verify-*.status` — один файл на символ, его
+  # перезаписывает каждая сверка, то есть это маркеры ПОСЛЕДНИХ сверенных суток, не этих.
+  # Сверка пишет построчный вердикт в `/opt/alpha/verify/<день>.log` (`verify: <SYM> status=ok|fail`),
+  # синк кладёт его в `root/verify-logs/<день>.log` — из него и строятся маркеры суток. Нет лога
+  # (сутки до 18.09 или синк не донёс) — прежнее поведение: текущие маркеры, с пометкой в лог.
+  local vlog="root/verify-logs/$day.log"
+  if [ -f "$vlog" ]; then
+    grep -aE '^verify: [A-Z0-9]+ status=(ok|fail)' "$vlog" | while read -r _ sym st; do
+      echo "${st#status=}" > "$dir/verify-$sym.status"
+    done
+    echo "== $(date -u +%FT%TZ) day_root $day: маркеры из $vlog ($(ls "$dir"/verify-*.status 2>/dev/null | wc -l) символов)" >> "$LOG"
+  else
+    for f in "root/verify-"*".status"; do
+      [ -e "$f" ] || continue
+      ln -s "$PWD/$f" "$dir/$(basename "$f")"
+    done
+    echo "== $(date -u +%FT%TZ) day_root $day: лога сверки нет — маркеры текущие (последних сверенных суток)" >> "$LOG"
+  fi
 }
 
 touches_for_day() {
