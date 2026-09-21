@@ -1746,7 +1746,26 @@ pub(crate) fn ensure_holds_at_touch_checkable(mode: &H3Mode, symbol: &str) -> an
     Ok(())
 }
 
-pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
+/// Разобранные и проверенные флаги одного прогона сетки (аудит 21.09, С6:
+/// вынесено из `run_bounce_grid`, чтобы разбор, открытие артефактов и цикл по
+/// символам читались отдельно). Числа — только из флагов, умолчаний здесь нет.
+pub(crate) struct GridPlan {
+    pub(crate) queue_model: QueueModelKind,
+    pub(crate) threads: usize,
+    pub(crate) deadlines: Vec<u64>,
+    pub(crate) entry_ttls: Vec<EntryTtl>,
+    pub(crate) band_exit_bps: f64,
+    pub(crate) entries: Vec<EntryForm>,
+    pub(crate) forms: Vec<GridForm>,
+    pub(crate) sets: Vec<FilterSet>,
+    pub(crate) need_regime: bool,
+    pub(crate) need_ret: bool,
+    pub(crate) symbols: Vec<String>,
+}
+
+/// Разбор и проверка флагов `bounce-grid`: формы, дедлайны, срок жизни входа,
+/// наборы фильтров, сигнал, режим, символы. Все отказы — здесь, до чтения данных.
+pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
     anyhow::ensure!(
         args.root.is_dir(),
         "{}: корень записи не каталог",
@@ -1905,14 +1924,40 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     }
     let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
     let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
-    // Режим суток читается один раз на сутки (общий для символов).
-    let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
     let symbols = if args.symbols.is_empty() {
         pool_symbols(&args.root)?
     } else {
         args.symbols.clone()
     };
+    Ok(GridPlan {
+        queue_model,
+        threads,
+        deadlines,
+        entry_ttls,
+        band_exit_bps,
+        entries,
+        forms,
+        sets,
+        need_regime,
+        need_ret,
+        symbols,
+    })
+}
 
+/// Артефакты наборов: `<out-dir>[/<набор>]/{rounds,forms,manifest}` с шапками из плана.
+fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Outputs>> {
+    let GridPlan {
+        queue_model,
+        threads,
+        deadlines,
+        entry_ttls,
+        band_exit_bps,
+        entries,
+        forms,
+        sets,
+        symbols,
+        ..
+    } = plan;
     let header_for = |set: &FilterSet| {
         format!(
         "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
@@ -1976,7 +2021,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     )
     };
     let mut outs: Vec<Outputs> = Vec::with_capacity(sets.len());
-    for set in &sets {
+    for set in sets.iter() {
         let dir = if set.name.is_empty() {
             args.out_dir.clone()
         } else {
@@ -2007,6 +2052,25 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             writeln!(m, "set={spec}")?;
         }
     }
+    Ok(outs)
+}
+
+pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
+    let plan = plan_grid(args)?;
+    let mut outs = open_outputs(args, &plan)?;
+    let GridPlan {
+        queue_model,
+        threads,
+        band_exit_bps,
+        forms,
+        sets,
+        need_regime,
+        need_ret,
+        symbols,
+        ..
+    } = plan;
+    // Режим суток читается один раз на сутки (общий для символов).
+    let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
 
     let mut summary = BounceGridSummary {
         forms: forms.len(),

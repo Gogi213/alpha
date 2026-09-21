@@ -1011,6 +1011,380 @@ where
 /// после решения (запреты 4, 5) — `submit_*_order` крейта не имеет отношения
 /// к `bybit::sign`, это ответственность `Bot<MD>` (бэктест — симуляция,
 /// живой — коннектор фазы 2, вне этого прохода).
+/// Позиция открыта: решение выхода (`decide_exit`) и подача (`submit_exit`).
+fn on_holding<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    now: i64,
+    entry_ns: i64,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
+        // Без книги выйти нельзя — круг остаётся Holding к следующему
+        // событию, а не теряется молча.
+        return Ok(Action::Idle);
+    };
+    let Some(entry_side) = entry_side(state.sigma) else {
+        return Ok(Action::Idle);
+    };
+    let exit_side = match entry_side {
+        HbtSide::Buy => HbtSide::Sell,
+        _ => HbtSide::Buy,
+    };
+    // Что и в каком порядке решает выход — `decide_exit`; как
+    // подаётся заявка — `submit_exit`.
+    let quotes = Quotes {
+        bid,
+        ask,
+        entry_side,
+    };
+    match decide_exit(bot, state, entry_ns, now, quotes, true) {
+        Some(decision) => submit_exit(bot, state, entry_ns, exit_side, decision),
+        None => Ok(Action::Idle),
+    }
+}
+
+/// Заявка выхода в рынке: учёт исполненного, возврат остатка в план, снятие
+/// зависшей лимитки по рыночной причине (аудит 21.09, Б1).
+fn on_exit_pending<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    now: i64,
+    order_id: u64,
+    entry_ns: i64,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    state.observe_exit(bot, order_id);
+    if state.position() <= 0.0 {
+        state.phase = Phase::Idle;
+        return Ok(Action::Idle);
+    }
+    // Заявка выхода решена (исполнена, снята или отвергнута) и больше
+    // не стоит в рынке: остаток позиции ведём по плану дальше —
+    // прежними часами круга (дедлайн считается от входа, а не от
+    // выхода). Так закрывается и частичный выход E7, и выход, который
+    // модель очереди по объёму отдала не целиком (F4, В-78): раньше
+    // такой остаток ждал заявку, которой уже нет, до конца записи.
+    let (resolved, resting_maker) = match bot.orders(state.asset_no).get(&order_id) {
+        Some(o) => {
+            let open = matches!(
+                o.status,
+                Status::None | Status::New | Status::PartiallyFilled
+            );
+            (
+                o.req == Status::None && !open,
+                o.req == Status::None && o.order_type == OrdType::Limit && open,
+            )
+        }
+        None => (true, false),
+    };
+    if resolved {
+        state.phase = Phase::Holding { entry_ns };
+        return Ok(Action::Idle);
+    }
+    // Аудит 21.09, Б1: лимитка тейка стоит в рынке (не исполнена или
+    // исполнена частично — под моделью очереди по объёму это норма),
+    // а остаток позиции при этом **не ведётся**: стоп, дедлайн, трейл
+    // и съедание для него не проверялись, и круг ждал до конца записи
+    // (`EndOfData`), теряя все дальнейшие сигналы суток. Теперь
+    // остаток под стоящей лимиткой решается теми же рыночными
+    // причинами: сработала — снимаем лимитку, а после подтверждения
+    // отмены остаток закрывается тейкером через `Holding` (условие
+    // стопа/дедлайна держится и на следующем событии).
+    if resting_maker {
+        let (Some((bid, ask)), Some(entry_side)) = (
+            best_prices(bot.depth(state.asset_no)),
+            entry_side(state.sigma),
+        ) else {
+            return Ok(Action::Idle);
+        };
+        let quotes = Quotes {
+            bid,
+            ask,
+            entry_side,
+        };
+        if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
+            if decision.taker {
+                bot.cancel(state.asset_no, order_id, false)?;
+                state.phase = Phase::ExitCancelPending { order_id, entry_ns };
+            }
+        }
+    }
+    Ok(Action::Idle)
+}
+
+/// Отмена лимитки выхода летит: ждём, пока заявка перестанет быть открытой.
+fn on_exit_cancel_pending<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    order_id: u64,
+    entry_ns: i64,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    // Отмена лимитки выхода летит; исполнение могло её обогнать
+    // (та же гонка, что у входа, 2026-09-18) — считаем исполненное и
+    // ждём, пока заявка перестанет быть открытой.
+    state.observe_exit(bot, order_id);
+    if state.position() <= 0.0 {
+        state.phase = Phase::Idle;
+        return Ok(Action::Idle);
+    }
+    let open = match bot.orders(state.asset_no).get(&order_id) {
+        Some(o) => {
+            o.req != Status::None
+                || matches!(
+                    o.status,
+                    Status::None | Status::New | Status::PartiallyFilled
+                )
+        }
+        None => false,
+    };
+    if !open {
+        state.phase = Phase::Holding { entry_ns };
+    }
+    Ok(Action::Idle)
+}
+
+/// Вход в рынке: накопление позиции по ногам, срок жизни и причины снятия (F4/F5).
+fn on_entry_pending<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    now: i64,
+    order_id: u64,
+    sent_ns: i64,
+    legs: u8,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    // F4 (В-78): вход копит позицию. Первая исполнившаяся нога
+    // остальные **не снимает** — лестница набирает объём, пока жив
+    // вход; об исполненном и средней цене судим по ордерам крейта,
+    // потому что `bot.position` частичного исполнения не видит.
+    let snap = state.observe_entry(bot, order_id, legs);
+    if !snap.open {
+        // Вход решён: ни одна нога не стоит и запросов в пути нет —
+        // всё, что могло исполниться, исполнено; остальное снято или
+        // отвергнуто биржей.
+        if state.position() > 0.0 {
+            state.enter_holding(now);
+            return Ok(Action::Idle);
+        }
+        // Позиции нет: либо вход истёк, либо ни одной ноги не
+        // поставила биржа (пост-онли заявка пересекла спред, В-72) —
+        // «сигнал без входа». Круг свободен сразу, а не висит
+        // «занятым» до конца срока жизни входа.
+        state.phase = Phase::Idle;
+        return Ok(Action::EntryTimedOut {
+            order_id,
+            reason: EntryCancelReason::NotPlaced,
+        });
+    }
+    // F5 (В-74): вход живёт, пока стена жива и цена в полосе, — это
+    // события рынка, а не таймер. Проверяются **раньше** потолка:
+    // если условие и потолок совпали на одном кадре, честнее назвать
+    // событие, которое и было поводом снять вход.
+    if let Some(reason) = state.entry_cancel_reason(bot) {
+        state.cancel_resting(bot, order_id, legs)?;
+        state.phase = Phase::CancelPending {
+            order_id,
+            legs,
+            reason,
+        };
+        return Ok(Action::Idle);
+    }
+    if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
+        state.cancel_resting(bot, order_id, legs)?;
+        state.phase = Phase::CancelPending {
+            order_id,
+            legs,
+            reason: EntryCancelReason::Ttl,
+        };
+        return Ok(Action::Idle);
+    }
+    Ok(Action::Idle)
+}
+
+/// Отмена входа летит: гонка с исполнением (2026-09-18) и переход в `Holding`/`Idle`.
+fn on_cancel_pending<MD, B>(
+    bot: &mut B,
+    state: &mut StrategyState,
+    now: i64,
+    order_id: u64,
+    legs: u8,
+    reason: EntryCancelReason,
+) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    // Исполнение обогнало отмену — позиция есть, ведём её по плану.
+    // Пока хоть одна нога ещё стоит или снимается, вход не решён:
+    // позицию добираем (F4, В-78), а не бросаем на половине.
+    let snap = state.observe_entry(bot, order_id, legs);
+    if !snap.open {
+        if state.position() > 0.0 {
+            state.enter_holding(now);
+            return Ok(Action::Idle);
+        }
+        state.phase = Phase::Idle;
+        return Ok(Action::EntryTimedOut { order_id, reason });
+    }
+    Ok(Action::Idle)
+}
+
+/// Сигнал есть — постановка входа: одиночная лимитка, лестница `grid_*` или
+/// лестница формы F6.
+fn on_idle<MD, B>(bot: &mut B, state: &mut StrategyState, now: i64) -> Result<Action, B::Error>
+where
+    MD: MarketDepth,
+    B: Bot<MD>,
+{
+    let Some(side) = entry_side(state.sigma) else {
+        return Ok(Action::Idle);
+    };
+    // Цена входа: у Decision 20 — свой край спреда (нужна книга), у
+    // сделки-отскока — цена, посчитанная уровнем заранее (В-44), и
+    // книга для этого не нужна: вход стоит лимитом перед плотностью
+    // и ждёт, пока цена подойдёт.
+    let px = match state.plan {
+        TradePlan::SpreadHold => {
+            let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
+                return Ok(Action::Idle);
+            };
+            match entry_price(side, bid, ask) {
+                Some(px) => px,
+                None => return Ok(Action::Idle),
+            }
+        }
+        TradePlan::Bounce { entry_px, .. } => entry_px,
+    };
+    // Время жизни входа: у Decision 20 ордер стоит у своего спреда с
+    // `GTX` (пост-онли, как было); у сделки-отскока тип задан планом:
+    // по В-72 (решение владельца 20.09) вход **только мейкером** —
+    // пост-онли `GTX`, и заявка, пересекшая спред, биржей
+    // отклоняется (`Expired`), то есть считается не поставленной
+    // (`legs_rejected`). `GTC` остался ради гейта «те же круги»:
+    // прежние прогоны сняты с тейкерским входом (находка T38: `GTX` в
+    // момент касания отвергается ровно там, где спред сжался до тика),
+    // и воспроизводит их `--no-post-only`.
+    // Ждать подтверждения запроса нужно только плану В-44: у касания
+    // длительность бывает нулевой, и снять заявку по TTL раньше
+    // подтверждения нельзя — крейт отвечает `OrderRequestInProcess`
+    // (`backtest/proc/local.rs:222`). У Decision 20 снятие идёт через
+    // 2 с, там ждать нечего.
+    let (entry_tif, entry_wait) = match state.plan {
+        TradePlan::SpreadHold => (TimeInForce::GTX, false),
+        TradePlan::Bounce { post_only, .. } => (
+            if post_only {
+                TimeInForce::GTX
+            } else {
+                TimeInForce::GTC
+            },
+            true,
+        ),
+    };
+    // Вход лестницей (решение владельца 2026-09-13): вместо одного
+    // лимита — `grid_legs` штук с шагом `grid_step_px`, каждая
+    // следующая дальше от плотности в сторону рынка. Размер делится
+    // между ногами. С F4 (В-78) ноги **копят позицию**: исполнившаяся
+    // первой остальные не снимает — лестница набирает объём, пока жив
+    // вход, а средняя цена исполненного ведёт стоп и тейк.
+    //
+    // F6 (В-73): если у плана есть лестница формы
+    // (`ladder<N>x<from>..<to>[w<k>]`), ноги берутся **из неё** — у
+    // каждой свой целый тик и своя доля (нижняя нога может весить
+    // вдвое: «основной объём к сайзу» [T 1:31:42]). Прежний вход
+    // (`ladder.n == 0`) идёт прежним путём — на этом стоит гейт «те же
+    // круги». Нога, чья цена уже перекрыла лучший аск (для покупки),
+    // ставится как пост-онли (`GTX`) и получает от биржи `Expired` —
+    // это и есть «не ставится» (`legs_rejected`, F4/В-72).
+    let (legs, ladder, step, tick_px) = match state.plan {
+        TradePlan::Bounce {
+            grid_legs,
+            grid_step_px,
+            ladder,
+            tick_px,
+            ..
+        } => {
+            let legs = if ladder.n > 0 {
+                ladder.n
+            } else {
+                grid_legs.max(1)
+            };
+            (legs, ladder, grid_step_px, tick_px)
+        }
+        TradePlan::SpreadHold => (1u8, EntryLadder::NONE, 0.0f64, 0.0f64),
+    };
+    let first_id = state.next_order_id;
+    for i in 0..u64::from(legs) {
+        // Нога лестницы формы — свой тик и своя доля; прежний вход —
+        // `px ± шаг × i` равными долями (F4: `qty / legs`).
+        let (px_i, qty_i) = if ladder.n > 0 {
+            let j = usize::try_from(i).unwrap_or(usize::from(ladder.n - 1));
+            if j >= usize::from(ladder.n) {
+                continue;
+            }
+            #[allow(clippy::cast_precision_loss)]
+            (ladder.ticks[j] as f64 * tick_px, state.qty * ladder.frac[j])
+        } else {
+            #[allow(clippy::cast_precision_loss)]
+            (
+                match side {
+                    HbtSide::Buy => px + step * i as f64,
+                    _ => px - step * i as f64,
+                },
+                state.qty / f64::from(legs),
+            )
+        };
+        let order_id = state.take_order_id();
+        match side {
+            HbtSide::Buy => {
+                bot.submit_buy_order(
+                    state.asset_no,
+                    order_id,
+                    px_i,
+                    qty_i,
+                    entry_tif,
+                    OrdType::Limit,
+                    entry_wait,
+                )?;
+            }
+            _ => {
+                bot.submit_sell_order(
+                    state.asset_no,
+                    order_id,
+                    px_i,
+                    qty_i,
+                    entry_tif,
+                    OrdType::Limit,
+                    entry_wait,
+                )?;
+            }
+        }
+    }
+    state.phase = Phase::EntryPending {
+        order_id: first_id,
+        sent_ns: now,
+        legs,
+    };
+    Ok(Action::EntrySubmitted {
+        order_id: first_id,
+        side,
+        price: px,
+    })
+}
+
 pub fn on_event<MD, B>(bot: &mut B, state: &mut StrategyState) -> Result<Action, B::Error>
 where
     MD: MarketDepth,
@@ -1018,320 +1392,24 @@ where
 {
     let now = bot.current_timestamp();
     match state.phase {
-        Phase::Holding { entry_ns } => {
-            let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
-                // Без книги выйти нельзя — круг остаётся Holding к следующему
-                // событию, а не теряется молча.
-                return Ok(Action::Idle);
-            };
-            let Some(entry_side) = entry_side(state.sigma) else {
-                return Ok(Action::Idle);
-            };
-            let exit_side = match entry_side {
-                HbtSide::Buy => HbtSide::Sell,
-                _ => HbtSide::Buy,
-            };
-            // Что и в каком порядке решает выход — `decide_exit`; как
-            // подаётся заявка — `submit_exit`.
-            let quotes = Quotes {
-                bid,
-                ask,
-                entry_side,
-            };
-            match decide_exit(bot, state, entry_ns, now, quotes, true) {
-                Some(decision) => submit_exit(bot, state, entry_ns, exit_side, decision),
-                None => Ok(Action::Idle),
-            }
-        }
+        Phase::Holding { entry_ns } => on_holding(bot, state, now, entry_ns),
         Phase::ExitPending { order_id, entry_ns } => {
-            state.observe_exit(bot, order_id);
-            if state.position() <= 0.0 {
-                state.phase = Phase::Idle;
-                return Ok(Action::Idle);
-            }
-            // Заявка выхода решена (исполнена, снята или отвергнута) и больше
-            // не стоит в рынке: остаток позиции ведём по плану дальше —
-            // прежними часами круга (дедлайн считается от входа, а не от
-            // выхода). Так закрывается и частичный выход E7, и выход, который
-            // модель очереди по объёму отдала не целиком (F4, В-78): раньше
-            // такой остаток ждал заявку, которой уже нет, до конца записи.
-            let (resolved, resting_maker) = match bot.orders(state.asset_no).get(&order_id) {
-                Some(o) => {
-                    let open = matches!(
-                        o.status,
-                        Status::None | Status::New | Status::PartiallyFilled
-                    );
-                    (
-                        o.req == Status::None && !open,
-                        o.req == Status::None && o.order_type == OrdType::Limit && open,
-                    )
-                }
-                None => (true, false),
-            };
-            if resolved {
-                state.phase = Phase::Holding { entry_ns };
-                return Ok(Action::Idle);
-            }
-            // Аудит 21.09, Б1: лимитка тейка стоит в рынке (не исполнена или
-            // исполнена частично — под моделью очереди по объёму это норма),
-            // а остаток позиции при этом **не ведётся**: стоп, дедлайн, трейл
-            // и съедание для него не проверялись, и круг ждал до конца записи
-            // (`EndOfData`), теряя все дальнейшие сигналы суток. Теперь
-            // остаток под стоящей лимиткой решается теми же рыночными
-            // причинами: сработала — снимаем лимитку, а после подтверждения
-            // отмены остаток закрывается тейкером через `Holding` (условие
-            // стопа/дедлайна держится и на следующем событии).
-            if resting_maker {
-                let (Some((bid, ask)), Some(entry_side)) = (
-                    best_prices(bot.depth(state.asset_no)),
-                    entry_side(state.sigma),
-                ) else {
-                    return Ok(Action::Idle);
-                };
-                let quotes = Quotes {
-                    bid,
-                    ask,
-                    entry_side,
-                };
-                if let Some(decision) = decide_exit(bot, state, entry_ns, now, quotes, false) {
-                    if decision.taker {
-                        bot.cancel(state.asset_no, order_id, false)?;
-                        state.phase = Phase::ExitCancelPending { order_id, entry_ns };
-                    }
-                }
-            }
-            Ok(Action::Idle)
+            on_exit_pending(bot, state, now, order_id, entry_ns)
         }
         Phase::ExitCancelPending { order_id, entry_ns } => {
-            // Отмена лимитки выхода летит; исполнение могло её обогнать
-            // (та же гонка, что у входа, 2026-09-18) — считаем исполненное и
-            // ждём, пока заявка перестанет быть открытой.
-            state.observe_exit(bot, order_id);
-            if state.position() <= 0.0 {
-                state.phase = Phase::Idle;
-                return Ok(Action::Idle);
-            }
-            let open = match bot.orders(state.asset_no).get(&order_id) {
-                Some(o) => {
-                    o.req != Status::None
-                        || matches!(
-                            o.status,
-                            Status::None | Status::New | Status::PartiallyFilled
-                        )
-                }
-                None => false,
-            };
-            if !open {
-                state.phase = Phase::Holding { entry_ns };
-            }
-            Ok(Action::Idle)
+            on_exit_cancel_pending(bot, state, order_id, entry_ns)
         }
         Phase::EntryPending {
             order_id,
             sent_ns,
             legs,
-        } => {
-            // F4 (В-78): вход копит позицию. Первая исполнившаяся нога
-            // остальные **не снимает** — лестница набирает объём, пока жив
-            // вход; об исполненном и средней цене судим по ордерам крейта,
-            // потому что `bot.position` частичного исполнения не видит.
-            let snap = state.observe_entry(bot, order_id, legs);
-            if !snap.open {
-                // Вход решён: ни одна нога не стоит и запросов в пути нет —
-                // всё, что могло исполниться, исполнено; остальное снято или
-                // отвергнуто биржей.
-                if state.position() > 0.0 {
-                    state.enter_holding(now);
-                    return Ok(Action::Idle);
-                }
-                // Позиции нет: либо вход истёк, либо ни одной ноги не
-                // поставила биржа (пост-онли заявка пересекла спред, В-72) —
-                // «сигнал без входа». Круг свободен сразу, а не висит
-                // «занятым» до конца срока жизни входа.
-                state.phase = Phase::Idle;
-                return Ok(Action::EntryTimedOut {
-                    order_id,
-                    reason: EntryCancelReason::NotPlaced,
-                });
-            }
-            // F5 (В-74): вход живёт, пока стена жива и цена в полосе, — это
-            // события рынка, а не таймер. Проверяются **раньше** потолка:
-            // если условие и потолок совпали на одном кадре, честнее назвать
-            // событие, которое и было поводом снять вход.
-            if let Some(reason) = state.entry_cancel_reason(bot) {
-                state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::CancelPending {
-                    order_id,
-                    legs,
-                    reason,
-                };
-                return Ok(Action::Idle);
-            }
-            if now.saturating_sub(sent_ns) >= state.plan.entry_ttl_ns() {
-                state.cancel_resting(bot, order_id, legs)?;
-                state.phase = Phase::CancelPending {
-                    order_id,
-                    legs,
-                    reason: EntryCancelReason::Ttl,
-                };
-                return Ok(Action::Idle);
-            }
-            Ok(Action::Idle)
-        }
+        } => on_entry_pending(bot, state, now, order_id, sent_ns, legs),
         Phase::CancelPending {
             order_id,
             legs,
             reason,
-        } => {
-            // Исполнение обогнало отмену — позиция есть, ведём её по плану.
-            // Пока хоть одна нога ещё стоит или снимается, вход не решён:
-            // позицию добираем (F4, В-78), а не бросаем на половине.
-            let snap = state.observe_entry(bot, order_id, legs);
-            if !snap.open {
-                if state.position() > 0.0 {
-                    state.enter_holding(now);
-                    return Ok(Action::Idle);
-                }
-                state.phase = Phase::Idle;
-                return Ok(Action::EntryTimedOut { order_id, reason });
-            }
-            Ok(Action::Idle)
-        }
-        Phase::Idle => {
-            let Some(side) = entry_side(state.sigma) else {
-                return Ok(Action::Idle);
-            };
-            // Цена входа: у Decision 20 — свой край спреда (нужна книга), у
-            // сделки-отскока — цена, посчитанная уровнем заранее (В-44), и
-            // книга для этого не нужна: вход стоит лимитом перед плотностью
-            // и ждёт, пока цена подойдёт.
-            let px = match state.plan {
-                TradePlan::SpreadHold => {
-                    let Some((bid, ask)) = best_prices(bot.depth(state.asset_no)) else {
-                        return Ok(Action::Idle);
-                    };
-                    match entry_price(side, bid, ask) {
-                        Some(px) => px,
-                        None => return Ok(Action::Idle),
-                    }
-                }
-                TradePlan::Bounce { entry_px, .. } => entry_px,
-            };
-            // Время жизни входа: у Decision 20 ордер стоит у своего спреда с
-            // `GTX` (пост-онли, как было); у сделки-отскока тип задан планом:
-            // по В-72 (решение владельца 20.09) вход **только мейкером** —
-            // пост-онли `GTX`, и заявка, пересекшая спред, биржей
-            // отклоняется (`Expired`), то есть считается не поставленной
-            // (`legs_rejected`). `GTC` остался ради гейта «те же круги»:
-            // прежние прогоны сняты с тейкерским входом (находка T38: `GTX` в
-            // момент касания отвергается ровно там, где спред сжался до тика),
-            // и воспроизводит их `--no-post-only`.
-            // Ждать подтверждения запроса нужно только плану В-44: у касания
-            // длительность бывает нулевой, и снять заявку по TTL раньше
-            // подтверждения нельзя — крейт отвечает `OrderRequestInProcess`
-            // (`backtest/proc/local.rs:222`). У Decision 20 снятие идёт через
-            // 2 с, там ждать нечего.
-            let (entry_tif, entry_wait) = match state.plan {
-                TradePlan::SpreadHold => (TimeInForce::GTX, false),
-                TradePlan::Bounce { post_only, .. } => (
-                    if post_only {
-                        TimeInForce::GTX
-                    } else {
-                        TimeInForce::GTC
-                    },
-                    true,
-                ),
-            };
-            // Вход лестницей (решение владельца 2026-09-13): вместо одного
-            // лимита — `grid_legs` штук с шагом `grid_step_px`, каждая
-            // следующая дальше от плотности в сторону рынка. Размер делится
-            // между ногами. С F4 (В-78) ноги **копят позицию**: исполнившаяся
-            // первой остальные не снимает — лестница набирает объём, пока жив
-            // вход, а средняя цена исполненного ведёт стоп и тейк.
-            //
-            // F6 (В-73): если у плана есть лестница формы
-            // (`ladder<N>x<from>..<to>[w<k>]`), ноги берутся **из неё** — у
-            // каждой свой целый тик и своя доля (нижняя нога может весить
-            // вдвое: «основной объём к сайзу» [T 1:31:42]). Прежний вход
-            // (`ladder.n == 0`) идёт прежним путём — на этом стоит гейт «те же
-            // круги». Нога, чья цена уже перекрыла лучший аск (для покупки),
-            // ставится как пост-онли (`GTX`) и получает от биржи `Expired` —
-            // это и есть «не ставится» (`legs_rejected`, F4/В-72).
-            let (legs, ladder, step, tick_px) = match state.plan {
-                TradePlan::Bounce {
-                    grid_legs,
-                    grid_step_px,
-                    ladder,
-                    tick_px,
-                    ..
-                } => {
-                    let legs = if ladder.n > 0 {
-                        ladder.n
-                    } else {
-                        grid_legs.max(1)
-                    };
-                    (legs, ladder, grid_step_px, tick_px)
-                }
-                TradePlan::SpreadHold => (1u8, EntryLadder::NONE, 0.0f64, 0.0f64),
-            };
-            let first_id = state.next_order_id;
-            for i in 0..u64::from(legs) {
-                // Нога лестницы формы — свой тик и своя доля; прежний вход —
-                // `px ± шаг × i` равными долями (F4: `qty / legs`).
-                let (px_i, qty_i) = if ladder.n > 0 {
-                    let j = usize::try_from(i).unwrap_or(usize::from(ladder.n - 1));
-                    if j >= usize::from(ladder.n) {
-                        continue;
-                    }
-                    #[allow(clippy::cast_precision_loss)]
-                    (ladder.ticks[j] as f64 * tick_px, state.qty * ladder.frac[j])
-                } else {
-                    #[allow(clippy::cast_precision_loss)]
-                    (
-                        match side {
-                            HbtSide::Buy => px + step * i as f64,
-                            _ => px - step * i as f64,
-                        },
-                        state.qty / f64::from(legs),
-                    )
-                };
-                let order_id = state.take_order_id();
-                match side {
-                    HbtSide::Buy => {
-                        bot.submit_buy_order(
-                            state.asset_no,
-                            order_id,
-                            px_i,
-                            qty_i,
-                            entry_tif,
-                            OrdType::Limit,
-                            entry_wait,
-                        )?;
-                    }
-                    _ => {
-                        bot.submit_sell_order(
-                            state.asset_no,
-                            order_id,
-                            px_i,
-                            qty_i,
-                            entry_tif,
-                            OrdType::Limit,
-                            entry_wait,
-                        )?;
-                    }
-                }
-            }
-            state.phase = Phase::EntryPending {
-                order_id: first_id,
-                sent_ns: now,
-                legs,
-            };
-            Ok(Action::EntrySubmitted {
-                order_id: first_id,
-                side,
-                price: px,
-            })
-        }
+        } => on_cancel_pending(bot, state, now, order_id, legs, reason),
+        Phase::Idle => on_idle(bot, state, now),
     }
 }
 
