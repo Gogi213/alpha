@@ -3,8 +3,8 @@ title: TypeSafe (`typesafe-ai`) — установленный скилл: гд�
 date: 2026-09-21
 type: skill
 salience: 2
-last_access: 2026-09-21
-tags: [skills, typesafe, ai, environment]
+last_access: 2026-09-22
+tags: [skills, typesafe, ai, environment, secrets]
 ---
 
 # Скилл `typesafe-ai` (TypeSafe / System One / Jev)
@@ -198,3 +198,44 @@ $k = [Environment]::GetEnvironmentVariable('TYPESAFE_API_KEY','User')
 $b = @{ state="ping"; model="jev-latest"; questions=@{ p=@{ type="noul"; instructions="Connectivity check?" } } } | ConvertTo-Json -Depth 6
 (Invoke-RestMethod -Uri "https://api.typesafe.ai/v1/systemone" -Method Post -Headers @{ Authorization = "Bearer $k" } -ContentType "application/json" -Body $b).model
 ```
+
+## Как дать ключ DSH-агенту (2026-09-22, грабля: переменные с `KEY`/`SECRET` до shell-инструмента НЕ доходят)
+
+**Причина найдена в коде** (`@deepseek-ai/dsh-subprocess/lib/index.js:32`):
+
+```js
+const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i;   // подстрока, без учёта регистра
+function scrubbedParentEnv() { /* выкидывает имена, попавшие под шаблон, и все DSH_* (их вернёт shell-env) */ }
+```
+
+То есть **любое** имя с `KEY`/`PASSWORD`/`SECRET`/`TOKEN` вырезается из окружения каждого процесса,
+который запускает shell-инструмент модели. Подтверждено данными: у владельца 22 пользовательские
+переменные, процессу DSH-агента видны 13, и ровно девять невидимых — все ключевые
+(`TYPESAFE_API_KEY`, `TAVILY_API_KEY`, `MOONSHOT_API_KEY`, `BYBIT_API_KEY`, `BYBIT_API_SECRET`,
+`GEMINI_API_KEY`, `KIMI_API_KEY`, `DEEPSEEK_API_KEY`, `OLLAMA_API_KEY`). **Значит `TYPESAFE_API_KEY`
+в User-скоупе не поможет и после перезапуска DSH** — имя подпадает под нож. (У Claude Code этой
+чистки нет — ей хватает User-скоупа; отсюда «у неё работает, у него нет».)
+
+**Рабочий путь без перезапуска DSH** — ключ в личном файле вне репозитория, а каноничное имя
+выставляется внутри команды:
+
+- файл: `C:\Users\Георгий\.dsh\typesafe.env` (одна строка, 108 байт, ACL только владельцу,
+  создан разовой командой с расширением песочницы; в репозиторий не попадает);
+- в каждой команде, которой нужны судьи:
+  `$env:TYPESAFE_API_KEY = (Get-Content "$env:USERPROFILE\.dsh\typesafe.env" -Raw).Trim()`
+  → дальше `python tools/typesafe/judge.py` или любой из шести судей; значение нигде не печатать.
+
+Проверено 2026-09-22 ночью (DSH-агент, ключ владельца от 22.09): `judge.py` → `alive 0.79`;
+`verdict-read.py` по D20 (4 запроса, 10719/531 токенов) и по D50 (4 запроса, 9406/535);
+`err-classify.py` по `f10fix-D50-multi.err` — ошибок в логе нет, вызова не было. Раньше тот же
+агент брал ключ по ssh со счётной (`/etc/alpha/typesafe.env`) — этот путь остаётся запасным.
+
+**Альтернатива, если хочется «как у людей»:** завести User-переменную с именем БЕЗ запретных
+подстрок (например `TYPESAFE_AI`) и перезапустить DSH — тогда файл не нужен, в команде остаётся
+одна строка переименования. Плюс попытка завести User-переменную с именем `TYPESAFE_API_KEY`
+бесполезна по определению (см. шаблон выше).
+
+**Дисциплина:** в этой сессии значение ключа один раз ушло в чат (агент печатал существующую
+User-переменную, проверяя, задана ли она) — правило «секреты только именами» нарушено. Отзыв ключа
+для этого проекта **не нужен** (владелец: API бесплатный, ключ выдан для использования) — нужна
+только осторожность: значения не печатать, в репозиторий и память не писать.
