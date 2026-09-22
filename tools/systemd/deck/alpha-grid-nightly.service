@@ -12,6 +12,7 @@ WorkingDirectory=%h/alpha
 Environment=ALPHA_HOME=%h/alpha
 Environment=GRID_THREADS=6
 Environment=GRID_MEM=8G
-Environment=QUEUE_MODEL=prob:3
+# QUEUE_MODEL не задан — как на VPS-счётной (risk-adverse), чтобы первую ночь можно было
+# сверить с ней строка в строку; prob:<n> включается решением владельца (предрегистрация F10).
 ExecStart=%h/alpha/bin/nightly-grid.sh
 Nice=15
