@@ -24,13 +24,37 @@ if [ "$MODE" = archive ]; then
   [ -f "$HOME_E/root/instruments.csv" ] || cp "$BASE/root/instruments.csv" "$HOME_E/root/"
   # Журнал испытаний — копия общего: DSR эпохи считает и прежние испытания, и её собственные.
   [ -f "$HOME_E/study/runs-2026-09-19.csv" ] || cp "$BASE/study/runs-2026-09-19.csv" "$HOME_E/study/"
-  echo "== $(date -u +%FT%TZ) эпоха archive: импорт ${#DAYS[@]} суток"
-  ALPHA_HOME="$BASE" JOBS="${IMPORT_JOBS:-6}" "$BASE/bin/archive-import.sh" "$HOME_E/root" "${DAYS[@]}"
   # Минутные BTC/ETH для режима: с суток до первых (окно 4 ч захватывает прошлые сутки).
   since=$(date -u -d "${DAYS[0]} -1 day" +%F)
   python3 "$BASE/bin/ref-klines.py" --out-dir "$HOME_E/study/regime" --since "$since" --until "${DAYS[-1]}" | tail -2
   FROM="${DAYS[0]}"
   TAG=e-archive
+  # Конвейер (22.09): загрузка упирается в сеть (7 МБ/с по Wi-Fi), процессор простаивает — поэтому
+  # сутки, загрузка которых кончилась (у каждой монеты пула есть строка сверки), сразу идут в
+  # касания (TOUCHES_ONLY, H3_DAYS) и в замороженную F10, а не ждут все сутки эпохи.
+  echo "== $(date -u +%FT%TZ) эпоха archive: импорт ${#DAYS[@]} суток, касания — по мере готовности суток"
+  ALPHA_HOME="$BASE" JOBS="${IMPORT_JOBS:-6}" "$BASE/bin/archive-import.sh" "$HOME_E/root" "${DAYS[@]}" &
+  IMP=$!
+  n_syms=$(tail -n +2 "$HOME_E/root/instruments.csv" | grep -vc '^#')
+  ready_days() {
+    for d in "${DAYS[@]}"; do
+      [ -f "$HOME_E/study/touches/$d/.done" ] && continue
+      f="$HOME_E/root/verify-logs/$d.log"; [ -f "$f" ] || continue
+      [ "$(grep -oE '^verify: [A-Z0-9]+' "$f" | sort -u | wc -l)" -ge "$n_syms" ] && echo "$d"
+    done
+  }
+  while kill -0 "$IMP" 2>/dev/null; do
+    ready=$(ready_days | tr '\n' ' ')
+    if [ -n "${ready// /}" ]; then
+      echo "== $(date -u +%FT%TZ) конвейер: касания суток $ready"
+      ALPHA_HOME="$HOME_E" NIGHT_TAG="$TAG-h3" TOUCHES_ONLY=1 H3_DAYS="$ready" "$BASE/bin/nightly-grid.sh"
+      ALPHA_HOME="$HOME_E" FROM_DAY="$FROM" OOS_DIR="b5/epoch-frozen" RUNS=study/runs-2026-09-19.csv \
+        "$BASE/bin/oos-frozen.sh" > /dev/null 2>&1
+    else
+      sleep 60
+    fi
+  done
+  wait "$IMP"
 else
   HOME_E="$BASE"
   FROM="${FROM_DAY:-$(ls "$BASE/root" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | sort -u | head -1)}"

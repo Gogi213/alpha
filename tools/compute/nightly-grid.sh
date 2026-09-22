@@ -332,7 +332,8 @@ if ! ref_out=$(python3 bin/ref-klines.py --out-dir study/regime 2>&1); then
   alert "ref-klines: $(echo "$ref_out" | tail -1 | cut -c1-200)"
 fi
 echo "== $(date -u +%FT%TZ) ref-klines: $(echo "$ref_out" | tail -2 | tr '\n' ' ' | cut -c1-200)" >> "$LOG"
-for d in $DAYS_ALL; do
+# H3_DAYS — посчитать касания только этих суток (конвейер эпохи: сутки, загрузка которых кончилась).
+for d in ${H3_DAYS:-$DAYS_ALL}; do
   touches_for_day "$d"
 done
 if [ -z "$TOUCHES_ONLY" ]; then

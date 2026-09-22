@@ -46,12 +46,21 @@ one() {
 export -f one
 export ROOT TMP BIN
 
+# Одна общая очередь (монета, сутки) на все сутки, а не сутки за сутками: иначе сутки ждут самую
+# тяжёлую монету (USELESS 04.09 — 374 МБ стакана и 443 МБ сделок), а загрузка в это время стоит
+# (замер 22.09: 0–3 МБ/с при хвосте суток против 7 МБ/с в работе). Порядок очереди — сутки по
+# возрастанию, так что сутки готовятся по порядку. Строка сверки — в лог своих суток.
+one_logged() { one "$1" "$2" >> "$ROOT/verify-logs/$2.log" 2>&1; }
+export -f one_logged
+echo "== $(date -u +%FT%TZ) импорт ${#DAYS[@]} суток × $(echo "$SYMS" | wc -l) монет, $JOBS параллельно"
+for day in "${DAYS[@]}"; do
+  for s in $SYMS; do echo "$s $day"; done
+done | xargs -r -P "$JOBS" -n 2 bash -c 'one_logged "$@"' _
 for day in "${DAYS[@]}"; do
   log="$ROOT/verify-logs/$day.log"
-  echo "== $(date -u +%FT%TZ) импорт $day: $(echo "$SYMS" | wc -l) монет, $JOBS параллельно"
-  echo "$SYMS" | xargs -r -P "$JOBS" -I{} bash -c 'one "$@"' _ {} "$day" >> "$log" 2>&1
-  echo "== $(date -u +%FT%TZ) $day: ok $(grep -c 'status=ok' "$log"), fail $(grep -c 'status=fail' "$log"), нет в архиве $(grep -c 'status=missing' "$log"); занято $(du -sh "$ROOT" | cut -f1)"
+  echo "== $(date -u +%FT%TZ) $day: ok $(grep -c 'status=ok' "$log"), fail $(grep -c 'status=fail' "$log"), нет в архиве $(grep -c 'status=missing' "$log")"
 done
+echo "== занято $(du -sh "$ROOT" | cut -f1)"
 # Маркеры корня (K1 при прогоне по корню целиком): ok, если монета импортирована хоть за одни сутки;
 # по суткам честнее — day_root() ночи берёт маркеры из verify-logs/<сутки>.log.
 for s in $SYMS; do
