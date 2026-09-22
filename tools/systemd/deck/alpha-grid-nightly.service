@@ -8,15 +8,16 @@ Type=oneshot
 WorkingDirectory=%h/alpha
 # Сама сетка идёт transient-юнитом alpha-grid-<метка> (run-grid.sh --user: MemoryMax
 # GRID_MEM, CPUWeight 30, nice 15) — этот сервис только ждёт её и считает вердикт.
-# Дек: 8 потоков / 14 ГБ ⇒ 6 потоков и 8G против 3 и 4G на VPS-счётной.
 Environment=ALPHA_HOME=%h/alpha
-# Процесс сетки почти однопоточный (декод событий), поэтому ядра дека грузятся стадиями: 3 процесса
-# базы + tk + dl + E7 + скальп + OOS одновременно (NIGHT_JOBS/BASE_SPLIT в nightly-grid.sh), по 2 потока
-# на формы и потолок 4G на процесс (пик процесса базы ~0.8 ГБ, 14 ГБ на всё).
+# Процесс сетки почти однопоточный (декод событий), поэтому ядра дека грузятся стадиями, но предел —
+# память: процесс базы доходит до 2–3 ГБ (замер 22.09), 7 сразу переросли 14.8 ГБ. Поэтому не больше
+# 3 стадий сразу (NIGHT_JOBS), база — в 2 процесса (BASE_SPLIT), по 2 потока на формы, потолок 4G на
+# процесс и общий срез alpha.slice (9G/10G) на все сетки ночи.
 Environment=GRID_THREADS=2
 Environment=GRID_MEM=4G
-Environment=NIGHT_JOBS=6
-Environment=BASE_SPLIT=3
+Environment=NIGHT_JOBS=3
+Environment=BASE_SPLIT=2
+Environment=GRID_SLICE=alpha.slice
 # QUEUE_MODEL не задан — как на VPS-счётной (risk-adverse), чтобы первую ночь можно было
 # сверить с ней строка в строку; prob:<n> включается решением владельца (предрегистрация F10).
 ExecStart=%h/alpha/bin/nightly-grid.sh

@@ -28,7 +28,8 @@ mkdir -p "$OUT"
 UNIT="alpha-grid-$LABEL"
 SCOPE=(); [ "$(id -u)" = 0 ] || SCOPE=(--user)   # без root — пользовательские юниты (дек)
 systemctl "${SCOPE[@]}" reset-failed "$UNIT" 2>/dev/null || true
-exec systemd-run "${SCOPE[@]}" --unit="$UNIT" --nice=15 \
+SLICE=(); [ -n "${GRID_SLICE:-}" ] && SLICE=(--slice="$GRID_SLICE")   # общий потолок памяти ночи (дек)
+exec systemd-run "${SCOPE[@]}" "${SLICE[@]}" --unit="$UNIT" --nice=15 \
   -p MemoryMax="${GRID_MEM:-4G}" -p MemorySwapMax=0 -p CPUWeight=30 \
   -p WorkingDirectory="$ALPHA_HOME" \
   -p StandardOutput=append:"$OUT/grid.out" -p StandardError=append:"$OUT/grid.err" \
