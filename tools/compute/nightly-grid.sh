@@ -117,6 +117,10 @@ APPROACH="--approach-bps ${APPROACH_BPS:-20} --approach-min-age-secs ${APPROACH_
 # `study/approaches/D<d>` (F1 пишет `approaches-<SYMBOL>.csv` **рядом** с `touches-<SYMBOL>.csv`;
 # кэш D-полосы снимается `bin/approach-scan.sh`).
 GRID="--touches-from ${TOUCHES_FROM:-study/touches} --regime-from ${REGIME_FROM:-study/regime}"
+# Кэш касаний — единственный источник (22.09): он строится по маркерам K1 своих суток, а сетка без
+# флага при неполном кэше уходила в реплей всех суток корня по маркеру последних суток (LSK: сверка
+# `ok` только за 21.09) — ~4 ГБ на процесс, OOM. Сутки без кэша теперь пропускаются.
+GRID="$GRID --touches-cache-only"
 # Форма выхода F7/F8 (Б-75): умолчание ночи — `none`, то есть прежний круг и гейт
 # «те же круги»; наборы предрегистрации F10 включаются окружением, например
 # EXIT_FORMS="none eat50 gone50" — форма выхода становится осью сетки (имена форм

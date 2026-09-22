@@ -25,6 +25,9 @@ LABEL="${1:?метка прогона}"; shift
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 OUT=$ALPHA_HOME/b5/$LABEL
 mkdir -p "$OUT"
+# Логи прогона — с чистого листа: юнит пишет в них дозаписью, и повтор той же метки читал бы
+# ошибки прошлого запуска как свои (22.09: проверка ночи нашла чужие «required arguments»).
+: > "$OUT/grid.out"; : > "$OUT/grid.err"
 UNIT="alpha-grid-$LABEL"
 SCOPE=(); [ "$(id -u)" = 0 ] || SCOPE=(--user)   # без root — пользовательские юниты (дек)
 systemctl "${SCOPE[@]}" reset-failed "$UNIT" 2>/dev/null || true

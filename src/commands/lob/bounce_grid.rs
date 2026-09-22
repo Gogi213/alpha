@@ -791,6 +791,13 @@ pub struct BounceGridArgs {
     /// совпадать по режиму. Без флага — прежние байты.
     #[arg(long, default_value_t = false)]
     pub carry_age: bool,
+    /// Кэш касаний (`--touches-from`) — единственный источник: сутки символа без файла кэша
+    /// пропускаются, реплея книги нет (22.09: монета со сверкой `ok` только за последние сутки
+    /// уходила в реплей всех суток корня — ~4 ГБ на процесс и OOM на деке; кэш ночи строится по
+    /// маркерам K1 **своих** суток, поэтому пропуск — это и есть K1 по суткам). Без флага — прежнее
+    /// поведение (кэш неполон — реплей).
+    #[arg(long, default_value_t = false)]
+    pub touches_cache_only: bool,
 }
 
 impl BounceGridArgs {
@@ -2238,6 +2245,9 @@ fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Ou
     if args.carry_age {
         exit_forms = format!("{exit_forms} carry_age=on");
     }
+    if args.touches_cache_only {
+        exit_forms = format!("{exit_forms} touches_cache_only=on");
+    }
     let header_for = |set: &FilterSet| {
         format!(
         "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
@@ -2414,6 +2424,31 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         // F6 (В-73): `--signal approach` — записи подхода из того же кэша
         // (`approaches-<SYMBOL>.csv`, F1); реплея подходов нет — полосу `D`
         // задаёт прогон `lob touches --approach-bps` (проверено выше).
+        if args.touches_cache_only && args.signal != SignalArg::Approach {
+            if let Some(dir) = args.touches_from.as_deref() {
+                if !dir.join(format!("touches-{symbol}.csv")).is_file() {
+                    let before = parts_by_day.len();
+                    parts_by_day.retain(|day, _| {
+                        dir.join(day)
+                            .join(format!("touches-{symbol}.csv"))
+                            .is_file()
+                    });
+                    if parts_by_day.is_empty() {
+                        eprintln!(
+                            "bounce-grid: {symbol} — в кэше касаний нет ни одних суток корня, символ пропущен (--touches-cache-only)"
+                        );
+                        summary.symbols_without_touches += 1;
+                        continue;
+                    }
+                    if parts_by_day.len() < before {
+                        eprintln!(
+                            "bounce-grid: {symbol} — суток без кэша касаний {} из {before}, пропущены (--touches-cache-only)",
+                            before - parts_by_day.len()
+                        );
+                    }
+                }
+            }
+        }
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
             let dir = args
                 .touches_from
@@ -2440,6 +2475,13 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 Some(Ok(days)) => {
                     summary.symbols_from_cache += 1;
                     (days, SigmaSeries::from_mids(&[]))
+                }
+                Some(Err(why)) if args.touches_cache_only => {
+                    eprintln!(
+                        "bounce-grid: {symbol} — кэш касаний не годится ({why}), символ пропущен (--touches-cache-only)"
+                    );
+                    summary.symbols_without_touches += 1;
+                    continue;
                 }
                 other => {
                     if let Some(Err(why)) = other {

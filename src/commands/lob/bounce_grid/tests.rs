@@ -168,6 +168,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         exit_form: Vec::new(),
         early_exit_secs: Vec::new(),
         carry_age: false,
+        touches_cache_only: false,
     }
 }
 
@@ -566,6 +567,23 @@ fn touches_cache_gives_byte_identical_rounds() {
     let s = run_bounce_grid(&a).unwrap();
     assert_eq!(s.symbols_from_cache, 0);
     assert_eq!(s.rounds, replayed.rounds);
+
+    // `--touches-cache-only` (22.09): суток в кэше нет — символ пропущен, реплея нет (иначе монета
+    // с неполным кэшем уходила в реплей всех суток корня и роняла ночь деки по памяти).
+    let mut a = base("grid-cache-only-miss");
+    a.touches_from = Some(dir.path().join("grid-replay"));
+    a.touches_cache_only = true;
+    let s = run_bounce_grid(&a).unwrap();
+    assert_eq!(s.symbols_from_cache, 0);
+    assert_eq!(s.symbols_without_touches, 1, "символ без кэша пропущен");
+    assert_eq!(s.rounds, 0, "реплея нет — кругов нет");
+    // Кэш есть — те же круги, что без флага.
+    let mut a = base("grid-cache-only-hit");
+    a.touches_from = Some(cache.clone());
+    a.touches_cache_only = true;
+    let s = run_bounce_grid(&a).unwrap();
+    assert_eq!(s.symbols_from_cache, 1);
+    assert_eq!(body(&s.rounds_path), body(&replayed.rounds_path));
 
     // σ-формы с кэшем — отказ; явный прогрев с кэшем — отказ.
     let mut a = args(dir.path(), false);
