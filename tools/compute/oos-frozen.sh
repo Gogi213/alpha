@@ -48,7 +48,7 @@ for day in $days; do
     ALPHA_HOME="$ALPHA_HOME" JOBS="$THREADS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
-  out="$OOS_DIR/$day"
+  out="$OOS_DIR/$day"; mkdir -p "$OOS_DIR"
   if [ ! -f "$out/a45-bid/forms.csv" ]; then
     setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
     say "$day: замороженная форма"
