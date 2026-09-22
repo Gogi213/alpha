@@ -356,10 +356,10 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
   # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
-  # минуты, стоп у стены (before/at/behind — В-65), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
+  # минуты, стоп у стены (at/behind/stack2 — В-65; before и midfr при входе у фронтранера вырождены — 0 сигналов), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
   # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
   # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
-  LABEL=scalp FORMS="--stop-form before --stop-form at --stop-form behind --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
+  LABEL=scalp FORMS="--stop-form at --stop-form behind --stop-form stack2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
     run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
   # Замороженная живая ветка F10 — out-of-sample с 23.09 (В-85 п. 3): новые сутки → кэш подходов D20,
   # замороженная форма, склейка, вердикт и контроль; журнал study/oos-frozen.log, итог — в лог ночи.
