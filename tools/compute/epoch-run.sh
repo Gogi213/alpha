@@ -22,6 +22,9 @@ if [ "$MODE" = archive ]; then
   mkdir -p "$HOME_E"/{root,study/regime,b5}
   [ -e "$HOME_E/bin" ] || ln -s "$BASE/bin" "$HOME_E/bin"
   [ -f "$HOME_E/root/instruments.csv" ] || cp "$BASE/root/instruments.csv" "$HOME_E/root/"
+  # Импорт архива session.json не пишет, а `bounce-grid` без него каталог сессией не считает
+  # (`session_parts_for`: F10 падала на всех сутках, 23.09). Сутки архива — с 00:00 UTC, частей нет.
+  [ -f "$HOME_E/root/session.json" ] || echo '{"start_hour_utc":0,"closed":true,"binlog_files":[]}' > "$HOME_E/root/session.json"
   # Журнал испытаний — копия общего: DSR эпохи считает и прежние испытания, и её собственные.
   [ -f "$HOME_E/study/runs-2026-09-19.csv" ] || cp "$BASE/study/runs-2026-09-19.csv" "$HOME_E/study/"
   # Минутные BTC/ETH для режима: с суток до первых (окно 4 ч захватывает прошлые сутки).
