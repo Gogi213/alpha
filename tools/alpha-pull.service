@@ -1,0 +1,11 @@
+[Unit]
+Description=Alpha: перенос закрытых суток записи с коллектора на дек (L8, pull — дек за NAT)
+Documentation=file:///home/deck/alpha/src/docs/COMMANDS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/alpha/bin/sync-from-collector.sh
+Nice=19
+IOSchedulingClass=idle

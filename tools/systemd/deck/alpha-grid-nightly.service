@@ -1,0 +1,17 @@
+[Unit]
+Description=Alpha: ночная сетка базы В-65 и E7 по всем суткам + вердикты (дек, L8)
+Documentation=file:///home/deck/alpha/src/docs/COMMANDS.md
+After=alpha-pull.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/alpha
+# Сама сетка идёт transient-юнитом alpha-grid-<метка> (run-grid.sh --user: MemoryMax
+# GRID_MEM, CPUWeight 30, nice 15) — этот сервис только ждёт её и считает вердикт.
+# Дек: 8 потоков / 14 ГБ ⇒ 6 потоков и 8G против 3 и 4G на VPS-счётной.
+Environment=ALPHA_HOME=%h/alpha
+Environment=GRID_THREADS=6
+Environment=GRID_MEM=8G
+Environment=QUEUE_MODEL=prob:3
+ExecStart=%h/alpha/bin/nightly-grid.sh
+Nice=15

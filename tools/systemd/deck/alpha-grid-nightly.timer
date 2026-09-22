@@ -1,0 +1,12 @@
+[Unit]
+Description=Alpha: ночная сетка на деке (после переноса суток с коллектора в 01:15 UTC)
+
+[Timer]
+# Перенос (alpha-pull.timer) — 01:15 UTC; 02:00 — с запасом. Persistent: дек может быть
+# выключен ночью, тогда ночь считается при первом включении.
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

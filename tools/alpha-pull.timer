@@ -1,0 +1,12 @@
+[Unit]
+Description=Alpha: ночной перенос вчерашних суток с коллектора (после сверки 00:20 UTC)
+
+[Timer]
+# Сверка на коллекторе — 00:20 UTC и занимает минуты; 01:15 — с запасом перед ночной
+# сеткой в 02:00 UTC. Persistent: дек может быть выключен — тянем при первом включении.
+OnCalendar=*-*-* 01:15:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

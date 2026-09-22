@@ -5,7 +5,7 @@
 # E7 (В-69), затем вердикты — по ВСЕМ суткам корня (без --day). Испытания каждого вида сетки
 # регистрируются в журнале один раз (первая ночь, маркер study/.trials-logged-<вид>).
 #
-#   /opt/alpha-compute/bin/nightly-grid.sh            # из alpha-grid-nightly.timer (02:00 UTC)
+#   $ALPHA_HOME/bin/nightly-grid.sh                   # из alpha-grid-nightly.timer (02:00 UTC)
 # Артефакты: study/touches/<сутки>/ + study/floors-<сутки>.txt (H3: касания и матрица флоров по
 # каждой сутке отдельно — до сеток, чтобы утром матрица была даже если сетки не дойдут),
 # b5/nightly-<день>-base/<набор>/ (база и сторона одним процессом, --set) и b5/nightly-<день>-e7-a15-s10-any/,
@@ -18,8 +18,12 @@
 # study/floors-<сутки>.txt несёт оговорку, что трекер суточный (возраст плотности обнуляется в 00:00);
 # окно суток для сеток — DAYS_WINDOW (по умолчанию все сутки корня), касания окна не касается.
 set -uo pipefail
-cd /opt/alpha-compute || exit 1
-export PATH=/root/.cargo/bin:$PATH
+# Машина — окружением (L8, 2026-09-22): ALPHA_HOME (умолчание /opt/alpha-compute — VPS-счётная,
+# root, системные юниты), на Steam Deck ALPHA_HOME=$HOME/alpha и пользовательские юниты (SC).
+ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
+cd "$ALPHA_HOME" || exit 1
+export PATH=/root/.cargo/bin:$HOME/.cargo/bin:$PATH
+SC=(); [ "$(id -u)" = 0 ] || SC=(--user)   # systemctl: без root — пользовательские юниты
 DAY=$(date -u +%F)
 LOG=study/nightly-$DAY.log
 # Громкие ошибки (владелец 20.09: «почему если что-то падает — это молчаливо?»): каждая проблема —
@@ -41,7 +45,7 @@ alert() {
 if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +a; fi
 read_night() {
   local line
-  line=$(python3 /opt/alpha-compute/bin/nightly-read.py --night "$DAY" --study study 2>/dev/null | head -1)
+  line=$(python3 "$ALPHA_HOME/bin/nightly-read.py" --night "$DAY" --study study 2>/dev/null | head -1)
   if [ -n "$line" ]; then echo "$line" >> "$ALERTS"; echo "== $line" >> "$LOG"; fi
   echo "$line"
 }
@@ -60,7 +64,7 @@ finish() {
   [ -n "${ALERT_CMD:-}" ] && $ALERT_CMD "alpha nightly $DAY: ПРОВАЛ — проблем $NALERTS: $(grep "nightly-$DAY:" "$ALERTS" | tail -n +1 | cut -d: -f4- | tr '\n' ';' | cut -c1-500)" >/dev/null 2>&1
   exit 1
 }
-BIN=/opt/alpha-compute/bin/alpha
+BIN=$ALPHA_HOME/bin/alpha
 RUNS=study/runs-2026-09-19.csv
 # Окно суток для сеток: пусто — все сутки корня (как было); DAYS_WINDOW=4 — последние четыре.
 # Нужно потому, что сетки идут по всем суткам и ночь растёт вместе с историей (H3b/§4.3).
@@ -81,7 +85,7 @@ fi
 # работал, а таймерный — нет (найдено 21.09: ночи 20.09 и 21.09 02:00Z пропущены ровно так, см.
 # `study/ALERTS.log`). Имена вырезаются из строки целиком (`grep -o`), потому что у упавших юнитов
 # в начале строки стоит маркер `●`, и нумерация полей `awk` на них съезжает.
-running_grids=$(systemctl list-units "alpha-grid-nightly-*" --no-legend \
+running_grids=$(systemctl "${SC[@]}" list-units "alpha-grid-nightly-*" --no-legend \
   | grep -E ' (running|start) ' | grep -oE 'alpha-grid-nightly-[^ ]+\.service' | tr '\n' ' ')
 if [ -n "$running_grids" ]; then
   echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен ($running_grids)" >> "$LOG"
@@ -167,9 +171,9 @@ run_sets() {
   local setargs=""
   for kv in "$@"; do setargs="$setargs --set $kv"; done
   echo "== $(date -u +%FT%TZ) grid $label start: наборы $*" >> "$LOG"
-  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" $USD $GRID ${FORMS:-$BASE} $DAY_ARGS $setargs >> "$LOG" 2>&1
+  THREADS=${GRID_THREADS:-3} "$ALPHA_HOME/bin/run-grid.sh" "$label" $USD $GRID ${FORMS:-$BASE} $DAY_ARGS $setargs >> "$LOG" 2>&1
   sleep 5
-  while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
+  while systemctl "${SC[@]}" is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
   grid_check "$label"
   for kv in "$@"; do verdict_one "${kv%%:*}" "b5/$label/${kv%%:*}"; done
@@ -180,9 +184,9 @@ run_one() {
   local logflag=""
   if [ ! -f "study/.trials-logged-$kind" ]; then logflag="--log-trials"; fi
   echo "== $(date -u +%FT%TZ) grid $label start" >> "$LOG"
-  THREADS=3 /opt/alpha-compute/bin/run-grid.sh "$label" "$@" >> "$LOG" 2>&1
+  THREADS=${GRID_THREADS:-3} "$ALPHA_HOME/bin/run-grid.sh" "$label" "$@" >> "$LOG" 2>&1
   sleep 5
-  while systemctl is-active --quiet "alpha-grid-$label"; do sleep 30; done
+  while systemctl "${SC[@]}" is-active --quiet "alpha-grid-$label"; do sleep 30; done
   echo "== $(date -u +%FT%TZ) grid $label done: $(tail -1 b5/$label/grid.err 2>/dev/null | cut -c1-200)" >> "$LOG"
   grid_check "$label"
   verdict_one "$kind" "b5/$label"
@@ -190,9 +194,9 @@ run_one() {
 # Сетка обязана кончиться штатно: юнит не failed, в grid.err строки «готов», нет «error»/panic.
 grid_check() {
   local label=$1
-  if systemctl is-failed --quiet "alpha-grid-$label"; then
+  if systemctl "${SC[@]}" is-failed --quiet "alpha-grid-$label"; then
     alert "сетка $label: юнит failed — $(journalctl -u "alpha-grid-$label" --no-pager -n 3 2>/dev/null | tail -1 | cut -c1-200)"
-    systemctl reset-failed "alpha-grid-$label" 2>/dev/null
+    systemctl "${SC[@]}" reset-failed "alpha-grid-$label" 2>/dev/null
   fi
   if ! grep -q "готов" "b5/$label/grid.err" 2>/dev/null; then
     alert "сетка $label: ни одной готовой монеты в grid.err"
