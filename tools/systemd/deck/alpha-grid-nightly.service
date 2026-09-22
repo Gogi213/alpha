@@ -10,8 +10,13 @@ WorkingDirectory=%h/alpha
 # GRID_MEM, CPUWeight 30, nice 15) — этот сервис только ждёт её и считает вердикт.
 # Дек: 8 потоков / 14 ГБ ⇒ 6 потоков и 8G против 3 и 4G на VPS-счётной.
 Environment=ALPHA_HOME=%h/alpha
-Environment=GRID_THREADS=6
-Environment=GRID_MEM=8G
+# Процесс сетки почти однопоточный (декод событий), поэтому ядра дека грузятся стадиями: 3 процесса
+# базы + tk + dl + E7 + скальп + OOS одновременно (NIGHT_JOBS/BASE_SPLIT в nightly-grid.sh), по 2 потока
+# на формы и потолок 4G на процесс (пик процесса базы ~0.8 ГБ, 14 ГБ на всё).
+Environment=GRID_THREADS=2
+Environment=GRID_MEM=4G
+Environment=NIGHT_JOBS=6
+Environment=BASE_SPLIT=3
 # QUEUE_MODEL не задан — как на VPS-счётной (risk-adverse), чтобы первую ночь можно было
 # сверить с ней строка в строку; prob:<n> включается решением владельца (предрегистрация F10).
 ExecStart=%h/alpha/bin/nightly-grid.sh

@@ -33,6 +33,9 @@ LOG=study/nightly-$DAY.log
 # curl к api.telegram.org с токеном из /etc/alpha/alert.env (файл root:600, кладёт владелец).
 ALERTS=study/ALERTS.log
 NALERTS=0
+# Параллельные стадии (NIGHT_JOBS > 1) считают тревоги в своих подоболочках — итог ночи берётся из
+# файла: строки этой ночи, дописанные после старта.
+ALERTS_START=$( [ -f "$ALERTS" ] && wc -l < "$ALERTS" || echo 0 )
 alert() {
   NALERTS=$((NALERTS + 1))
   echo "$(date -u +%FT%TZ) nightly-$DAY: $*" >> "$ALERTS"
@@ -51,6 +54,7 @@ read_night() {
   echo "$line"
 }
 finish() {
+  NALERTS=$(tail -n +$((ALERTS_START + 1)) "$ALERTS" 2>/dev/null | grep -c "nightly-$DAY:" || true)
   local reading
   if [ "$NALERTS" -eq 0 ]; then
     echo "$(date -u +%FT%TZ) nightly-$DAY: ОК" >> "$ALERTS"
@@ -162,7 +166,8 @@ verdict_one() {
   local label="nightly-$DAY-$kind"
   local logflag=""
   if [ ! -f "study/.trials-logged-$kind-$TRIALS_TAG" ]; then logflag="--log-trials"; fi
-  if $BIN lob bounce-verdict --grid-dir "$gdir" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
+  # Вердикты параллельных стадий дописывают журнал испытаний ($RUNS) — по очереди, под замком.
+  if flock "study/.verdict.lock" $BIN lob bounce-verdict --grid-dir "$gdir" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
     [ -n "$logflag" ] && touch "study/.trials-logged-$kind-$TRIALS_TAG"
   else
     alert "вердикт $label не посчитался: $(tail -2 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-200)"
@@ -216,7 +221,7 @@ run_one() {
 grid_check() {
   local label=$1
   if systemctl "${SC[@]}" is-failed --quiet "alpha-grid-$label"; then
-    alert "сетка $label: юнит failed — $(journalctl -u "alpha-grid-$label" --no-pager -n 3 2>/dev/null | tail -1 | cut -c1-200)"
+    alert "сетка $label: юнит failed — $(journalctl "${SC[@]}" -u "alpha-grid-$label" --no-pager -n 3 2>/dev/null | tail -1 | cut -c1-200)"
     systemctl "${SC[@]}" reset-failed "alpha-grid-$label" 2>/dev/null
   fi
   if ! grep -q "готов" "b5/$label/grid.err" 2>/dev/null; then
@@ -334,7 +339,7 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # btc_ret_4h q50 21.9; ret_1h касаний аск-стен a45 q75 66.4), 9 наборов = 288 испытаний; режим — study/regime.
   # S8 (20.09, «развивать отскоки»): возраст 90/120 мин, вход только от фронтрана, размер стены ≥ $25k/$50k — лонги;
   # 5 наборов = 160 испытаний.
-  run_sets a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
+  BASE_SETS="a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
            a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask \
            a15-s10-bid:age=900,flow=10,side=bid a15-s10-ask:age=900,flow=10,side=ask \
            a30-bid:age=1800,side=bid a30-ask:age=1800,side=ask a60-bid:age=3600,side=bid a60-ask:age=3600,side=ask \
@@ -347,25 +352,51 @@ if [ -z "$TOUCHES_ONLY" ]; then
            a45-ask-p4h-q50:age=2700,side=ask,pool4h_max=46.1 a45-ask-r1h-q75:age=2700,side=ask,ret1h_min=66.4 \
            a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4 \
            a90-bid:age=5400,side=bid a120-bid:age=7200,side=bid a45-bid-fr:age=2700,side=bid,frontrun \
-           a45-bid-u25:age=2700,side=bid,usd_min=25000 a45-bid-u50:age=2700,side=bid,usd_min=50000
+           a45-bid-u25:age=2700,side=bid,usd_min=25000 a45-bid-u50:age=2700,side=bid,usd_min=50000"
+  # Параллельные стадии (дек, 22.09): процесс сетки почти весь однопоточный — декод событий монеты-суток
+  # идёт последовательно, потоки `--threads` работают только на формах. На 8 ядрах дека одна сетка
+  # грузила ~1 ядро (замер: нагрузка 45 %, у процесса 1 поток). NIGHT_JOBS > 1 — стадии (база, tk, dl,
+  # E7, скальп, OOS) идут одновременно, BASE_SPLIT = N — база делится на N процессов по наборам (каждый
+  # декодирует события сам, зато параллельно; виды и вердикты те же, каталоги b5/nightly-<день>-base-<i>/).
+  # Умолчания 1/1 — прежняя последовательная ночь (VPS-счётная: 4 vCPU и соседи).
+  stage() { if [ "${NIGHT_JOBS:-1}" -gt 1 ]; then "$@" & else "$@"; fi; }
+  split_n="${BASE_SPLIT:-1}"
+  if [ "$split_n" -le 1 ]; then
+    stage run_sets $BASE_SETS
+  else
+    i=0
+    # shellcheck disable=SC2206
+    all=($BASE_SETS)
+    chunk=$(( (${#all[@]} + split_n - 1) / split_n ))
+    while [ $((i * chunk)) -lt ${#all[@]} ]; do
+      LABEL="base-$((i + 1))" stage run_sets "${all[@]:$((i * chunk)):$chunk}"
+      i=$((i + 1))
+    done
+  fi
   # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
   # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
-  LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1"     run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+  LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1" \
+    stage run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
   # S8 удержание (--deadline-secs, 20.09): 30 мин и 4 ч рядом с базовыми; стопы pct1/pct2, тейк 1:1 — 12 форм × 3 набора = 36.
-  LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400"     run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+  LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400" \
+    stage run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
   # E7 — другие формы и лот, поэтому свой процесс.
-  run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+  stage run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
   # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
   # минуты, стоп у стены (at/behind/stack2 — В-65; before и midfr при входе у фронтранера вырождены — 0 сигналов), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
   # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
   # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
   LABEL=scalp FORMS="--stop-form at --stop-form behind --stop-form stack2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
-    run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
+    stage run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
   # Замороженная живая ветка F10 — out-of-sample с 23.09 (В-85 п. 3): новые сутки → кэш подходов D20,
   # замороженная форма, склейка, вердикт и контроль; журнал study/oos-frozen.log, итог — в лог ночи.
-  if ! ALPHA_HOME="$ALPHA_HOME" GRID_THREADS="${GRID_THREADS:-3}" RUNS="$RUNS" "$ALPHA_HOME/bin/oos-frozen.sh" >> "$LOG" 2>&1; then
-    alert "oos-frozen: завершился с ошибкой — study/oos-frozen.log"
-  fi
+  oos() {
+    if ! ALPHA_HOME="$ALPHA_HOME" GRID_THREADS="${GRID_THREADS:-3}" RUNS="$RUNS" "$ALPHA_HOME/bin/oos-frozen.sh" >> "$LOG" 2>&1; then
+      alert "oos-frozen: завершился с ошибкой — study/oos-frozen.log"
+    fi
+  }
+  stage oos
+  wait
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
 fi

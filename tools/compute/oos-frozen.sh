@@ -6,8 +6,10 @@
 #   полоса ухода 20 bps (В-80), стоп pct2 и тейк 1to1 (В-65), дедлайн 7200 с (В-38), выход none,
 #   модель очереди prob:3 (В-80), порог номинала $10k (В-66);
 #   наборы a45-bid (age=2700, side=bid — главная) и a45-bid-b4h-neg (+ btc4h_max=0 — гипотеза H1).
-# Читаются только сутки начиная с FROM_DAY (умолчание 2026-09-23 — день после заморозки): сутки
-# 16–21.09 были выборкой подбора и в этот счёт не входят.
+# Читаются только сутки начиная с FROM_DAY (умолчание 2026-09-23 — день после заморозки). Форму
+# выбирали на 16–20.09; 21–22.09 при выборе не читались, но в официальный OOS не входят (заморозка
+# 22.09) — их можно посчитать проверочным прогоном в другой каталог: FROM_DAY=2026-09-21
+# OOS_DIR=b5/check-0921 (склейка берёт только сутки ≥ FROM_DAY своего каталога).
 #
 # Шаги на каждые новые сутки ≥ FROM_DAY, у которых ночь уже собрала корень-день и касания:
 #   1) кэш подходов D20 этих суток (approach-scan.sh), метка .done;
@@ -22,7 +24,9 @@ FROM_DAY="${FROM_DAY:-2026-09-23}"
 BIN="${BIN:-bin/alpha}"
 THREADS="${GRID_THREADS:-3}"
 RUNS="${RUNS:-study/runs-2026-09-19.csv}"
-LOG="${LOG:-study/oos-frozen.log}"
+OOS_DIR="${OOS_DIR:-b5/oos-frozen}"   # другой каталог — проверочный прогон вне официального OOS
+TAG="$(basename "$OOS_DIR")"
+LOG="${LOG:-study/$TAG.log}"
 RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
 FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --order-qty-from-pool \
   --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
@@ -39,10 +43,12 @@ for day in $days; do
   [ -f "study/regime/$day.csv" ] || { say "$day: нет режима суток — ждём ночь"; continue; }
   if [ ! -f "study/approaches/D20/$day/.done" ]; then
     say "$day: кэш подходов D20"
-    ALPHA_HOME="$ALPHA_HOME" JOBS="$THREADS" bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
-      && touch "study/approaches/D20/$day/.done"
+    # OUT_BASE — переменная approach-scan.sh (каталог кэша подходов): задаётся явно, иначе чужое окружение
+    # уводит кэш не туда (поймано 22.09 проверочным прогоном).
+    ALPHA_HOME="$ALPHA_HOME" JOBS="$THREADS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
+      && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
-  out="b5/oos-frozen/$day"
+  out="$OOS_DIR/$day"
   if [ ! -f "$out/a45-bid/forms.csv" ]; then
     setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
     say "$day: замороженная форма"
@@ -55,9 +61,13 @@ done
 
 for s in $SETS; do
   set_name="${s%%:*}"
-  parts=$(ls -d b5/oos-frozen/20??-??-??/"$set_name" 2>/dev/null | sort)
+  # Склеиваются только сутки ≥ FROM_DAY — прогон другого окна в том же каталоге OOS не загрязнит.
+  parts=$(for d in $(ls -d "$OOS_DIR"/20??-??-?? 2>/dev/null | sort); do
+    [[ "$(basename "$d")" < "$FROM_DAY" ]] && continue
+    [ -d "$d/$set_name" ] && echo "$d/$set_name"
+  done)
   [ -n "$parts" ] || { say "$set_name: OOS-суток ещё нет"; continue; }
-  m="b5/oos-frozen/merged/$set_name"; mkdir -p "$m"
+  m="$OOS_DIR/merged/$set_name"; mkdir -p "$m"
   first=$(echo "$parts" | head -1)
   for f in forms.csv rounds.csv; do
     { grep -a '^#' "$first/$f"; grep -av '^#' "$first/$f" | head -1
@@ -66,9 +76,9 @@ for s in $SETS; do
   n_days=$(echo "$parts" | wc -l)
   n_rounds=$(grep -avc '^#' "$m/rounds.csv"); n_rounds=$((n_rounds - 1))
   nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" \
-    --out "study/bounce-verdict-oos-frozen-$set_name.csv" > "study/bounce-verdict-oos-frozen-$set_name.log" 2>&1
+    --out "study/bounce-verdict-$TAG-$set_name.csv" > "study/bounce-verdict-$TAG-$set_name.log" 2>&1
   python3 bin/placebo.py --grid-dir "$m" --form "$FORM_NAME" --mids study/touches \
-    --csv "study/placebo-oos-frozen-$set_name.csv" > "study/placebo-oos-frozen-$set_name.log" 2>&1
-  say "$set_name: OOS-суток $n_days, сделок $n_rounds; $(grep -a ИТОГ "study/bounce-verdict-oos-frozen-$set_name.log" | tail -1 | sed 's/^bounce-verdict: //' | cut -c1-200); контроль: $(sed -n 2p "study/placebo-oos-frozen-$set_name.log" | cut -c1-200)"
+    --csv "study/placebo-$TAG-$set_name.csv" > "study/placebo-$TAG-$set_name.log" 2>&1
+  say "$set_name: OOS-суток $n_days, сделок $n_rounds; $(grep -a ИТОГ "study/bounce-verdict-$TAG-$set_name.log" | tail -1 | sed 's/^bounce-verdict: //' | cut -c1-200); контроль: $(sed -n 2p "study/placebo-$TAG-$set_name.log" | cut -c1-200)"
 done
 say "готово (новых суток $new)"
