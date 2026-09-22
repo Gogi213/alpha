@@ -24,7 +24,10 @@ SETS="a45-bid:age=2700,side=bid s100-bid:flow=100,side=bid a15-bid:age=900,side=
 # ключами — отказ до запуска (аудит этапа F §8 Ф1). R1/R2 проверяет КОД, без ключа тоже (аудит
 # дизайна 22.09 §1); модель спрашивается только о тексте строки предрегистрации (R3), если она дана.
 # Ключ стража на счётной — /etc/alpha/typesafe.env (0600, root; решение 21.09 по В-81), не в репо.
-if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +a; fi
+# На деке нет sudo — ключ лежит у пользователя: ~/.config/alpha/typesafe.env (0600).
+for ts_env in /etc/alpha/typesafe.env "$HOME/.config/alpha/typesafe.env"; do
+  if [ -f "$ts_env" ]; then set -a; . "$ts_env"; set +a; break; fi
+done
 # shellcheck disable=SC2086
 python3 bin/prereg-guard.py --sets $SETS --nightly bin/nightly-grid.sh; rc=$?
 if [ "$rc" -eq 1 ]; then echo "prereg-guard: ОТКАЗ — прогон не запущен" | tee -a b5/f10fix.log; exit 1; fi

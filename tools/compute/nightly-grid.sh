@@ -49,7 +49,10 @@ alert() {
 # текст Telegram. Ключ — /etc/alpha/typesafe.env (drop-in юнита; для ручного пуска — source ниже).
 # Статус и причину решает код (аудит дизайна 22.09 §1), модель добавляет только мнение с версией;
 # без ключа строка пишется всё равно — с пометкой «мнение модели: нет ключа».
-if [ -f /etc/alpha/typesafe.env ]; then set -a; . /etc/alpha/typesafe.env; set +a; fi
+# На деке нет sudo — ключ лежит у пользователя: ~/.config/alpha/typesafe.env (0600).
+for ts_env in /etc/alpha/typesafe.env "$HOME/.config/alpha/typesafe.env"; do
+  if [ -f "$ts_env" ]; then set -a; . "$ts_env"; set +a; break; fi
+done
 read_night() {
   local line
   line=$(python3 "$ALPHA_HOME/bin/nightly-read.py" --night "$DAY" --study study 2>/dev/null | head -1)
