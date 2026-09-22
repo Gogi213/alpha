@@ -2018,3 +2018,89 @@ fn approach_holds_the_same_strength_gate_as_touch() {
     );
     assert!(ap.is_empty(), "порог не проверить — взвода нет");
 }
+
+/// Перенос возраста через полночь (аудит дизайна 22.09 Т3): уровень, стоящий на той же цене в
+/// первом кадре стороны новых суток, наследует рождение прошлых суток — касание несёт возраст
+/// с настоящего рождения. Уровень, появившийся позже первого кадра, — новорождённый. Без
+/// переноса (`new`) и в режиме с прогревом рождение — начало суток.
+#[test]
+fn carried_births_survive_midnight_only_for_levels_in_the_first_frame() {
+    let b = Side::Bid;
+    let mut out = Vec::new();
+    let mut touches = Vec::new();
+    let mut day1 = LevelTracker::new(cfg_touch());
+    day1.observe_frame_with_touches(
+        1000,
+        b,
+        &[ob(101, 3), ob(100, 10), ob(98, 7), ob(97, 20)],
+        &mut out,
+        &mut touches,
+    );
+    let carry = day1.live_births();
+    assert_eq!(carry.len(), 3, "100, 98, 97");
+
+    let day2_frames = |tr: &mut LevelTracker, touches: &mut Vec<TouchRecord>| {
+        let mut out = Vec::new();
+        const D2: i64 = 90_000_000;
+        // Первый кадр суток: 100 и 97 стоят, 98 нет.
+        tr.observe_frame_with_touches(
+            D2,
+            b,
+            &[ob(101, 3), ob(100, 10), ob(97, 20)],
+            &mut out,
+            touches,
+        );
+        // 98 вернулся позже первого кадра; 101 исчез — касание 100.
+        tr.observe_frame_with_touches(
+            D2 + 1000,
+            b,
+            &[ob(100, 12), ob(98, 7), ob(97, 20)],
+            &mut out,
+            touches,
+        );
+        // 101 вернулся — касание кончилось.
+        tr.observe_frame_with_touches(
+            D2 + 2000,
+            b,
+            &[ob(101, 4), ob(100, 12), ob(98, 7), ob(97, 20)],
+            &mut out,
+            touches,
+        );
+    };
+
+    let mut carried = LevelTracker::with_carried_births(cfg_touch(), carry.clone());
+    let mut t_carried = Vec::new();
+    day2_frames(&mut carried, &mut t_carried);
+    assert_eq!(t_carried.len(), 1);
+    assert_eq!(t_carried[0].level_birth_ms, 1000, "возраст с прошлых суток");
+    let births = carried.live_births();
+    assert_eq!(
+        births[&(side_key(b), 97)],
+        1000,
+        "97 стоял в первом кадре — перенос"
+    );
+    assert_eq!(
+        births[&(side_key(b), 98)],
+        90_001_000,
+        "98 появился позже — новорождённый"
+    );
+
+    let mut fresh = LevelTracker::new(cfg_touch());
+    let mut t_fresh = Vec::new();
+    day2_frames(&mut fresh, &mut t_fresh);
+    assert_eq!(t_fresh.len(), 1);
+    assert_eq!(
+        t_fresh[0].level_birth_ms, 90_000_000,
+        "без переноса — начало суток"
+    );
+
+    let warm = LevelsConfig {
+        warmup_ms: HOUR_MS,
+        ..cfg_touch()
+    };
+    let with_warmup = LevelTracker::with_carried_births(warm, carry);
+    assert!(
+        with_warmup.carry.is_empty(),
+        "режим с прогревом перенос не принимает"
+    );
+}

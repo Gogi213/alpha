@@ -166,6 +166,8 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         allow_unverified,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).
         exit_form: Vec::new(),
+        early_exit_secs: Vec::new(),
+        carry_age: false,
     }
 }
 
@@ -533,6 +535,8 @@ fn touches_cache_gives_byte_identical_rounds() {
         moves_bin_ms: None,
         numbers: None,
         allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -613,6 +617,8 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         moves_bin_ms: None,
         numbers: None,
         allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -1761,4 +1767,65 @@ fn the_net_sum_of_an_empty_form_prints_a_positive_zero() {
         s.is_sign_positive(),
         "пустая сумма — +0.0, иначе печать даёт знак минус"
     );
+}
+
+/// Ось «прилипания» (аудит дизайна 22.09, В-85): без флага — те же формы и имена, что у
+/// полной сетки F7 (гейт «те же круги»); включённая добавляет хвост `-early<x>` и несёт
+/// секунды в форму; числа — только из предрегистрированного набора В-58.
+#[test]
+fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
+    let stops = [StopForm::Pct(2.0)];
+    let takes = [TakeForm::OneToOne];
+    let axes = grid_forms_with_axes(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &[ExitForm::None, ExitForm::Eat { pct: 50.0 }],
+    );
+    let off = grid_forms_with_early(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &[ExitForm::None, ExitForm::Eat { pct: 50.0 }],
+        &[None],
+    );
+    assert_eq!(off, axes, "без оси — формы байт в байт прежние");
+
+    let earlies = parse_early_exits(&["off".to_string(), "2".to_string()]).unwrap();
+    assert_eq!(earlies, vec![None, Some(2)]);
+    let both = grid_forms_with_early(
+        &stops,
+        &takes,
+        None,
+        &[3600],
+        &[EntryTtl::Touch],
+        &[EntryForm::SingleFrontrun],
+        &[ExitForm::None, ExitForm::Eat { pct: 50.0 }],
+        &earlies,
+    );
+    let labels: Vec<&str> = both.iter().map(|f| f.label).collect();
+    assert_eq!(
+        labels,
+        vec![
+            "pct2-1to1-3600",
+            "pct2-1to1-3600-eat50",
+            "pct2-1to1-3600-early2",
+            "pct2-1to1-3600-eat50-early2",
+        ]
+    );
+    assert_eq!(both[2].early_exit_secs, Some(2));
+    assert_eq!(both[0].early_exit_secs, None);
+
+    assert!(parse_early_exits(&[]).unwrap() == vec![None]);
+    assert!(
+        parse_early_exits(&["5".to_string()]).is_err(),
+        "5 с нет в наборе В-58"
+    );
+    assert!(parse_early_exits(&["x".to_string()]).is_err());
 }

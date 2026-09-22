@@ -8,8 +8,12 @@
 лимиток забирает весь размер в позицию, частичное исполнение в деньгах не различается); `--by-fill` —
 прежний счёт на исполненную долю (fill_frac, как в equity-report.py). «Объём позиции» — план order_usd и
 факт при лоте пула (qty × entry_px); исполненная доля печатается справочно.
-Просадка — максимальная по накопленному P&L в порядке времени входа. Шарп: по сделкам (mean/std × √n) и по
-дням (mean/std дневных P&L × √365, справочно при < 10 днях).
+Просадка — максимальная по накопленному P&L в порядке времени входа.
+
+Аудит дизайна 22.09 (§0 п. 4–6, В-85 п. 7): прежний «Шарп по сделкам» (mean/std × √n) — это t-статистика
+при допущении, что сделки независимы, а не Шарп; колонка и строка теперь так и называются. Первой строкой
+печатается машинный итог вердикта (`--verdict`), рядом с деньгами — контроль «рост рынка» (`--mids`,
+`placebo.py`), концентрация по монетам (доля топ-4) и капитал под пик одновременных позиций.
 """
 from __future__ import annotations
 
@@ -115,7 +119,7 @@ def fmt_row(name: str, s: dict) -> str:
     )
 
 
-HEAD = f"{'срез':<22} {'сделок':>5} {'P&L $':>9} {'bps/сд':>7} {'win':>6} {'просадка':>8} {'Шарп':>6} {'поза$':>7} {'факт$':>8}"
+HEAD = f"{'срез':<22} {'сделок':>5} {'P&L $':>9} {'bps/сд':>7} {'win':>6} {'просадка':>8} {'t-стат':>6} {'поза$':>7} {'факт$':>8}"
 
 
 def main() -> int:
@@ -127,6 +131,8 @@ def main() -> int:
     ap.add_argument("--json", default=None)
     ap.add_argument("--by-fill", action="store_true", help="P&L на исполненную долю (fill_frac), не на полный лот")
     ap.add_argument("--grid-dir2", default=None, help="второй каталог (другая сторона) — строки складываются, сторона по dir")
+    ap.add_argument("--verdict", default=None, help="CSV вердикта bounce-verdict: итог печатается первой строкой")
+    ap.add_argument("--mids", default=None, help="кэш касаний с mids1m (study/touches): контроль «рост рынка»")
     a = ap.parse_args()
     global BY_FILL
     BY_FILL = a.by_fill
@@ -154,11 +160,50 @@ def main() -> int:
         out[title] = {k: s for k, s in items}
 
     total = stats(rows, a.order_usd)
+    if a.verdict:
+        itog = "?"
+        with open(a.verdict, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "ИТОГ:" in line:
+                    itog = line.split("ИТОГ:", 1)[1].strip()
+        print(f"ИТОГ ВЕРДИКТА: {itog} — деньги ниже не доказательство, пока итог не «зелёный»")
     print(f"Форма {a.form}; {a.grid_dir}{' + ' + a.grid_dir2 if a.grid_dir2 else ''}; лот ${a.order_usd:.0f} "
           f"{'× исполненная доля' if BY_FILL else 'полный (В-83)'}")
+    # Капитал под пик одновременных позиций и концентрация по монетам (аудит 22.09 §0 п. 5–6).
+    ev = []
+    for r in rows:
+        ev.append((r["t0_ns"], 1))
+        ev.append((r["exit_ns"] or r["t0_ns"], -1))
+    ev.sort()
+    cur = peak = 0
+    for _, d in ev:
+        cur += d
+        peak = max(peak, cur)
+    by_coin: dict[str, float] = defaultdict(float)
+    for r in rows:
+        by_coin[r["symbol"]] += trade_pnl(r, a.order_usd)
+    top4 = sorted(by_coin.items(), key=lambda kv: -kv[1])[:4]
+    top4_sum = sum(v for _, v in top4)
+    print(f"Пик одновременных позиций {peak} → капитал ≈ ${peak * a.order_usd:.0f}, P&L на капитал "
+          f"{(total['pnl_usd'] / (peak * a.order_usd) * 100 if peak else 0):+.2f} %; монет {len(by_coin)}, топ-4 "
+          f"({', '.join(k for k, _ in top4)}) дают {top4_sum:+.2f} $ из {total['pnl_usd']:+.2f}, остальные {total['pnl_usd'] - top4_sum:+.2f} $")
+    if a.mids:
+        import importlib.util
+        import os
+        spec = importlib.util.spec_from_file_location("placebo", os.path.join(os.path.dirname(os.path.abspath(__file__)), "placebo.py"))
+        pl = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(pl)
+        ctl = pl.control([{**r, "form": a.form} for r in rows], pl.Mids(a.mids))
+        if ctl:
+            sm = pl.summary(ctl)
+            print(f"Контроль «рост рынка» (та же монета, тот же день, то же удержание, случайная минута): "
+                  f"{sm['control_bps']:+.2f} bps; превышение {sm['excess_bps']:+.2f} (медиана {sm['excess_median_bps']:+.2f}) bps "
+                  f"= {sm['excess_bps'] / 1e4 * a.order_usd * sm['n']:+.2f} $; > 0 в {sm['days_excess_pos']} сутках из {sm['days']}")
     print(f"Сделок {total['n']}, дней {total['days']}, P&L {total['pnl_usd']:+.2f} $ ({total['pnl_bps_mean']:+.2f} bps/сделка), "
           f"winrate {total['winrate']:.0%}, средний плюс {total['avg_win']:+.2f} / минус {total['avg_loss']:+.2f} $, "
-          f"макс. просадка {total['max_dd_usd']:.2f} $, Шарп по сделкам {total['sharpe_trade']:.2f}, по дням (годовой) {total['sharpe_day']:.2f}, "
+          f"макс. просадка {total['max_dd_usd']:.2f} $, t-статистика по сделкам (как независимым, не Шарп) {total['sharpe_trade']:.2f}, "
+          f"Шарп по дням (годовой; при < 30 днях — шум) {total['sharpe_day']:.2f}, "
           f"поза план {total['pos_plan_usd']:.0f} $ (исполнено {total['fill_frac']:.0%}), факт при лоте пула {total['pos_fact_usd']:.2f} $, "
           f"удержание медиана {total['hold_min_med']:.0f} мин")
     out["total"] = total

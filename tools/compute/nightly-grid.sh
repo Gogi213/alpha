@@ -120,9 +120,9 @@ GRID="--touches-from ${TOUCHES_FROM:-study/touches} --regime-from ${REGIME_FROM:
 # Числа X/W — предрегистрация (умолчаний в коде нет), поэтому список пуст.
 for x in ${EXIT_FORMS:-none}; do GRID="$GRID --exit-form $x"; done
 # Сигнал и вход F6/F5 (этап F, F10) — те же оси, что у выхода: умолчания ночи —
-# **прежний круг** (`touch` — сигнал касания, `single@fr` — одиночная нога у
-# фронтранера, `touch` — срок жизни входа до конца касания, полосы нет), на них
-# стоит гейт «те же круги». Наборы предрегистрации включаются окружением, например:
+# `touch` (сигнал касания), `single@fr` (одиночная нога у фронтранера) и, с 22.09 (В-85 п. 6),
+# срок жизни входа `wall` с полосой 20 bps вместо `touch` (тот знал конец касания заранее);
+# гейт «те же круги» — ENTRY_TTL=touch явно. Наборы предрегистрации включаются окружением, например:
 #   SIGNAL=approach TOUCHES_FROM=study/approaches/D20 \
 #   ENTRY_FORMS="ladder3x2..10" ENTRY_TTL="300 1800" BAND_EXIT_BPS=20
 # `ENTRY_TTL` — список значений через пробел (`touch|wall|<секунды>`), остальные —
@@ -131,10 +131,17 @@ for x in ${EXIT_FORMS:-none}; do GRID="$GRID --exit-form $x"; done
 # Числа D/ttl/полосы — предрегистрация F10, умолчаний в коде нет.
 for x in ${SIGNAL:-touch}; do GRID="$GRID --signal $x"; done
 for x in ${ENTRY_FORMS:-single@fr}; do GRID="$GRID --entry-form $x"; done
-for x in ${ENTRY_TTL:-touch}; do GRID="$GRID --entry-ttl-secs $x"; done
+# Срок жизни входа: умолчание `wall` (живёт, пока стена жива, В-74) с полосой ухода 20 bps (В-80) —
+# прежнее `touch` берёт длительность касания, известную только задним числом (аудит дизайна 22.09
+# §5 Т1, В-85 п. 6): `touch` оставлен только для гейтов регрессии (ENTRY_TTL=touch явно).
+for x in ${ENTRY_TTL:-wall}; do GRID="$GRID --entry-ttl-secs $x"; done
 if [ -n "${BAND_EXIT_BPS:-}" ]; then
   for x in $BAND_EXIT_BPS; do GRID="$GRID --band-exit-bps $x"; done
+elif [ "${ENTRY_TTL:-wall}" != "touch" ]; then
+  GRID="$GRID --band-exit-bps 20"
 fi
+# Выход по «прилипанию» (B4, В-58 п. 5; ось сетки — В-85 п. 5): EARLY_EXIT="off 1 2 3".
+for x in ${EARLY_EXIT:-}; do GRID="$GRID --early-exit-secs $x"; done
 # Модель очереди F3: у `bounce-grid` флаг `--queue-model` **обязательный**, умолчания
 # в коде нет. Ночь идёт через `run-grid.sh`, который подставляет `risk-adverse`, —
 # здесь то же значение ставится явно и экспортируется: иначе ночь упадёт, если
@@ -143,6 +150,10 @@ fi
 QUEUE_MODEL="${QUEUE_MODEL:-risk-adverse}"
 export QUEUE_MODEL
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
+# Журнал испытаний пишется один раз на (вид, конфигурацию осей): тег — хеш строки осей и форм.
+# Раньше маркер был на вид, и смена осей (ttl `wall` вместо `touch`, ось «прилипания») не
+# доложила бы новые формы в runs.csv — DSR считал бы меньше испытаний, чем было (аудит 22.09 Т10).
+TRIALS_TAG=$(echo "$GRID $BASE ${FORMS:-} ${EARLY_EXIT:-}" | md5sum | cut -c1-8)
 E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2"
 # Испытания регистрируются в журнале один раз на вид сетки (первая ночь) — дальше формы те же.
 verdict_one() {
@@ -150,9 +161,9 @@ verdict_one() {
   local kind=$1 gdir=$2
   local label="nightly-$DAY-$kind"
   local logflag=""
-  if [ ! -f "study/.trials-logged-$kind" ]; then logflag="--log-trials"; fi
+  if [ ! -f "study/.trials-logged-$kind-$TRIALS_TAG" ]; then logflag="--log-trials"; fi
   if $BIN lob bounce-verdict --grid-dir "$gdir" --runs-csv "$RUNS" --out "study/bounce-verdict-$label.csv" $logflag > "study/bounce-verdict-$label.log" 2>&1; then
-    [ -n "$logflag" ] && touch "study/.trials-logged-$kind"
+    [ -n "$logflag" ] && touch "study/.trials-logged-$kind-$TRIALS_TAG"
   else
     alert "вердикт $label не посчитался: $(tail -2 study/bounce-verdict-$label.log | tr '\n' ' ' | cut -c1-200)"
   fi
@@ -163,6 +174,15 @@ verdict_one() {
   # Поля — `sed`, не `cut -c`: тот режет по байтам, и у русских меток («ИТОГ=», «лучшая »)
   # оставались мусорные префиксы во всех колонках (реестр до 22.09 починен nightly-read/repair).
   echo "$DAY,$kind,$(echo "$l" | grep -o "ИТОГ=[^·]*" | sed 's/^ИТОГ=//; s/ *$//'),$(echo "$l" | grep -o "лучшая [^ ]*" | sed 's/^лучшая //'),$(echo "$l" | grep -o "кругов [0-9]*" | sed 's/^кругов //'),$(echo "$l" | grep -o "точка=[-0-9.]*" | sed 's/^точка=//'),$(echo "$l" | grep -o "нижняя=[-0-9.]*" | sed 's/^нижняя=//')" >> study/verdicts.csv
+  # Контроль «рост рынка» (аудит дизайна 22.09 §4 С1, В-85 п. 2): превышение каждой формы над
+  # «той же позицией на той же монете в тот же день на том же удержании в случайную минуту».
+  # Сводка — study/placebo-<метка>.csv, лучшая по превышению — строкой в лог ночи.
+  if python3 "$ALPHA_HOME/bin/placebo.py" --grid-dir "$gdir" --mids study/touches \
+      --csv "study/placebo-$label.csv" > "study/placebo-$label.log" 2>&1; then
+    echo "== $(date -u +%FT%TZ) контроль $label: $(sed -n 2p "study/placebo-$label.log" | cut -c1-300)" >> "$LOG"
+  else
+    alert "контроль $label не посчитался: $(tail -1 "study/placebo-$label.log" | cut -c1-200)"
+  fi
 }
 # Все наборы базы одним процессом (`--set`, 20.09): события суток и окна декодируются один раз на
 # монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-<метка>/<набор>/.
@@ -183,7 +203,7 @@ run_one() {
   local kind=$1; shift
   local label="nightly-$DAY-$kind"
   local logflag=""
-  if [ ! -f "study/.trials-logged-$kind" ]; then logflag="--log-trials"; fi
+  if [ ! -f "study/.trials-logged-$kind-$TRIALS_TAG" ]; then logflag="--log-trials"; fi
   echo "== $(date -u +%FT%TZ) grid $label start" >> "$LOG"
   THREADS=${GRID_THREADS:-3} "$ALPHA_HOME/bin/run-grid.sh" "$label" "$@" >> "$LOG" 2>&1
   sleep 5
@@ -335,6 +355,17 @@ if [ -z "$TOUCHES_ONLY" ]; then
   LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400"     run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
   # E7 — другие формы и лот, поэтому свой процесс.
   run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+  # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
+  # минуты, стоп у стены (before/at/behind — В-65), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
+  # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
+  # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
+  LABEL=scalp FORMS="--stop-form before --stop-form at --stop-form behind --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
+    run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
+  # Замороженная живая ветка F10 — out-of-sample с 23.09 (В-85 п. 3): новые сутки → кэш подходов D20,
+  # замороженная форма, склейка, вердикт и контроль; журнал study/oos-frozen.log, итог — в лог ночи.
+  if ! ALPHA_HOME="$ALPHA_HOME" GRID_THREADS="${GRID_THREADS:-3}" RUNS="$RUNS" "$ALPHA_HOME/bin/oos-frozen.sh" >> "$LOG" 2>&1; then
+    alert "oos-frozen: завершился с ошибкой — study/oos-frozen.log"
+  fi
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
 fi

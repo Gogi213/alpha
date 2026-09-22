@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::lob::replay_symbol;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
 use crate::commands::lob::H3ModeArg;
 
@@ -24,6 +25,8 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         moves_bin_ms: None,
         numbers: None,
         allow_unverified: true,
+        carry_age: false,
+        emit_day: None,
     }
 }
 

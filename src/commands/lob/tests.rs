@@ -575,3 +575,15 @@ fn resolve_h3_mode_full_requires_and_forbids_the_right_flags() {
     .unwrap_err();
     assert!(err.to_string().contains("--h3-usd"), "{err}");
 }
+
+/// Перенос возраста (аудит дизайна 22.09 Т3) — только через смежную полночь: пропущенные сутки
+/// значат, что уровень никто не видел.
+#[test]
+fn carry_age_needs_adjacent_calendar_days() {
+    use super::replay::is_next_day;
+    assert!(is_next_day("2026-09-21", "2026-09-22"));
+    assert!(is_next_day("2026-09-30", "2026-10-01"));
+    assert!(!is_next_day("2026-09-21", "2026-09-23"));
+    assert!(!is_next_day("2026-09-21", "2026-09-21"));
+    assert!(!is_next_day("x", "2026-09-22"));
+}

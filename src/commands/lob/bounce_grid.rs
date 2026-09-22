@@ -344,6 +344,11 @@ pub struct GridForm {
     pub entry_form: EntryForm,
     /// Форма выхода (F7, Б-75): `none` (прежнее поведение), `eat<X>` или `gone<W>`.
     pub exit_form: ExitForm,
+    /// Выход по «прилипанию» (B4, В-58 п. 5; ось сетки — аудит дизайна 22.09 §6 п. 2, В-85):
+    /// `None` — выключен (прежнее поведение и имена), `Some(x)` — через `x` с после входа
+    /// уровень всё ещё лучшая цена → выход по рынку (`ExitReason::Early`). Значения — только из
+    /// предрегистрированного набора В-58 (`EARLY_EXITS_S`).
+    pub early_exit_secs: Option<i64>,
 }
 
 /// Формы сетки в порядке `stops × takes × DEADLINE_SECS`; имена —
@@ -445,6 +450,7 @@ pub fn grid_forms_with_axes(
                                 entry_ttl,
                                 entry_form,
                                 exit_form,
+                                early_exit_secs: None,
                             });
                         }
                     }
@@ -453,6 +459,69 @@ pub fn grid_forms_with_axes(
         }
     }
     out
+}
+
+/// Ось выхода по «прилипанию» (аудит дизайна 22.09, В-85) поверх полной сетки F7 — самый
+/// внешний множитель: при `&[None]` порядок и имена форм те же, что у `grid_forms_with_axes`
+/// (гейт «те же круги»); включённое значение добавляет к имени хвост `-early<x>`.
+#[allow(clippy::too_many_arguments)]
+pub fn grid_forms_with_early(
+    stops: &[StopForm],
+    takes: &[TakeForm],
+    take_floor_fees: Option<f64>,
+    deadlines: &[u64],
+    ttls: &[EntryTtl],
+    entries: &[EntryForm],
+    exits: &[ExitForm],
+    earlies: &[Option<i64>],
+) -> Vec<GridForm> {
+    let base = grid_forms_with_axes(
+        stops,
+        takes,
+        take_floor_fees,
+        deadlines,
+        ttls,
+        entries,
+        exits,
+    );
+    let mut out = Vec::with_capacity(base.len() * earlies.len());
+    for &early in earlies {
+        for f in &base {
+            let mut g = *f;
+            if let Some(x) = early {
+                g.label = Box::leak(format!("{}-early{x}", f.label).into_boxed_str());
+                g.early_exit_secs = Some(x);
+            }
+            out.push(g);
+        }
+    }
+    out
+}
+
+/// Разбор повторяемого `--early-exit-secs` (аудит дизайна 22.09, В-85): пусто — ось
+/// выключена (`[None]`, прежнее поведение); `off` — форма без выхода по «прилипанию» рядом с
+/// включёнными; число — секунды из предрегистрированного набора В-58 (`EARLY_EXITS_S`).
+/// Порядок — порядок флагов, повторы свёрнуты.
+pub(crate) fn parse_early_exits(specs: &[String]) -> anyhow::Result<Vec<Option<i64>>> {
+    if specs.is_empty() {
+        return Ok(vec![None]);
+    }
+    let mut out: Vec<Option<i64>> = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let v = if spec == "off" {
+            None
+        } else {
+            let x: i64 = spec.parse().map_err(|_| {
+                anyhow::anyhow!("--early-exit-secs {spec:?}: ожидается off или целые секунды")
+            })?;
+            early_exit_ns_from_secs(Some(x))?;
+            Some(x)
+        };
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    Ok(out)
 }
 
 /// Разбор повторяемого `--entry-ttl-secs` (F5, В-74): пусто — прежний режим
@@ -671,6 +740,11 @@ pub struct BounceGridArgs {
     /// предрегистрации, умолчаний в коде нет.
     #[arg(long = "exit-form")]
     pub exit_form: Vec<String>,
+    /// Выход по «прилипанию» (B4, В-58 п. 5; ось сетки — аудит дизайна 22.09, В-85) —
+    /// повторяемый флаг: `off` или секунды из предрегистрированного набора В-58 (1, 2, 3).
+    /// Без флага ось выключена — прежние формы и имена (гейт «те же круги»).
+    #[arg(long = "early-exit-secs")]
+    pub early_exit_secs: Vec<String>,
     /// Набор фильтров касаний одним процессом (повторяемый): `<имя>:<k=v,…>`,
     /// ключи `age=<с>` (возраст ≥, как `--min-age-secs`), `flow=<%>` (сила
     /// ×поток ≥, как `--min-flow-pct`), `side=bid|ask`, `frontrun` (только
@@ -712,6 +786,11 @@ pub struct BounceGridArgs {
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+    /// Переносить возраст уровней через смежную полночь в реплее касаний (аудит дизайна 22.09
+    /// Т3; как `lob touches --carry-age`): кэш, посчитанный с переносом, и реплей обязаны
+    /// совпадать по режиму. Без флага — прежние байты.
+    #[arg(long, default_value_t = false)]
+    pub carry_age: bool,
 }
 
 impl BounceGridArgs {
@@ -1314,7 +1393,7 @@ fn signals_for(
     p: &DayParams<'_>,
 ) -> anyhow::Result<(Vec<BounceSignal>, u64)> {
     let deadline_ns = deadline_ns_from_secs(form.deadline_secs)?;
-    let early_exit_ns = early_exit_ns_from_secs(None)?;
+    let early_exit_ns = early_exit_ns_from_secs(form.early_exit_secs)?;
     let mut skipped: u64 = 0;
     if let Some(ctx) = p.ctx {
         anyhow::ensure!(
@@ -2013,7 +2092,8 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
     };
     let entries = parse_entry_forms(&args.entry_form)?;
     let exits = parse_exit_forms(&args.exit_form)?;
-    let forms = grid_forms_with_axes(
+    let earlies = parse_early_exits(&args.early_exit_secs)?;
+    let forms = grid_forms_with_early(
         &stops,
         &takes,
         args.take_floor_fees,
@@ -2021,12 +2101,13 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         &entry_ttls,
         &entries,
         &exits,
+        &earlies,
     );
     {
         let labels: std::collections::BTreeSet<&str> = forms.iter().map(|f| f.label).collect();
         anyhow::ensure!(
             labels.len() == forms.len(),
-            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs/--entry-form/--exit-form дают одинаковые имена"
+            "сетка: повторяющиеся формы в --stop-form/--take-form/--entry-ttl-secs/--entry-form/--exit-form/--early-exit-secs дают одинаковые имена"
         );
     }
     // F6 (В-73): сигнал по записи подхода — только из кэша F1, реплея
@@ -2136,11 +2217,27 @@ fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Ou
     } = plan;
     // Ось выхода — канонично из разобранных форм (`ExitForm::label`), а не из
     // сырых флагов: пустой `--exit-form` печатался бы пустотой, а не `none`.
-    let exit_forms = exits
+    let mut exit_forms = exits
         .iter()
         .map(ExitForm::label)
         .collect::<Vec<_>>()
         .join("+");
+    // Ось «прилипания» (В-85) — в шапку только включённой: без флага шапка байт в байт прежняя.
+    let mut earlies: Vec<String> = Vec::new();
+    for f in forms.iter() {
+        let l = f
+            .early_exit_secs
+            .map_or_else(|| "off".to_string(), |x| x.to_string());
+        if !earlies.contains(&l) {
+            earlies.push(l);
+        }
+    }
+    if forms.iter().any(|f| f.early_exit_secs.is_some()) {
+        exit_forms = format!("{exit_forms} early_exits={}", earlies.join("+"));
+    }
+    if args.carry_age {
+        exit_forms = format!("{exit_forms} carry_age=on");
+    }
     let header_for = |set: &FilterSet| {
         format!(
         "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
@@ -2348,8 +2445,12 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                     if let Some(Err(why)) = other {
                         eprintln!("bounce-grid: {symbol} — кэш касаний не годится ({why}), реплей");
                     }
-                    let replay =
-                        replay_symbol_touches_and_second_mids(&args.root, symbol, cfg_levels)?;
+                    let replay = replay_symbol_touches_and_second_mids(
+                        &args.root,
+                        symbol,
+                        cfg_levels,
+                        args.carry_age,
+                    )?;
                     let mut all =
                         Vec::with_capacity(replay.days.iter().map(|d| d.mids.len()).sum());
                     for d in &replay.days {

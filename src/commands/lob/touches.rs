@@ -45,7 +45,7 @@ use crate::lob::markout::{
 };
 
 use super::{
-    outcome_name, replay_symbol, replay_symbol_over_configs, side_name, some_or_empty, H3Args,
+    outcome_name, replay_symbol_over_configs_keep, side_name, some_or_empty, H3Args, ReplayKeep,
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::lob::moves::{by_dt_bins, find_pairs, histogram, quantiles};
@@ -123,6 +123,15 @@ pub struct TouchesArgs {
     /// данные; К1 аудита 18.09).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+    /// Переносить возраст живых уровней через смежную полночь (аудит дизайна 22.09 Т3): без
+    /// флага трекер стартует с нуля в 00:00 UTC — прежние байты. Только режимы без прогрева
+    /// (`notional`/`strength`/`both`/`floor`).
+    #[arg(long, default_value_t = false)]
+    pub carry_age: bool,
+    /// Писать записи только этих суток (`YYYY-MM-DD`): корень может нести и прошлые сутки —
+    /// для переноса возраста (`--carry-age`), — но кэш суток остаётся кэшем одних суток.
+    #[arg(long)]
+    pub emit_day: Option<String>,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -390,6 +399,10 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         approach_bps: bands.first().copied(),
         approach_min_age_ms: args.approach_min_age_secs.saturating_mul(1_000),
     };
+    anyhow::ensure!(
+        !args.carry_age || !matches!(mode, crate::lob::levels::H3Mode::Percentile { .. }),
+        "--carry-age: режим percentile с прогревом перенос возраста не принимает (прогрев — про порог)"
+    );
     if bands.is_empty() {
         anyhow::ensure!(
             args.approach_min_age_secs == 0,
@@ -410,7 +423,12 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
                 ..cfg
             })
             .collect();
-        let mut stats = replay_symbol_over_configs(&args.root, &args.symbol, &cfgs)?;
+        let mut stats = replay_symbol_over_configs_keep(
+            &args.root,
+            &args.symbol,
+            &cfgs,
+            ReplayKeep::ALL.with_carry_age(args.carry_age),
+        )?;
         anyhow::ensure!(
             stats.len() == cfgs.len(),
             "реплей вернул {} раскладок на {} конфигураций",
@@ -419,8 +437,20 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         );
         std::mem::take(&mut stats)
     } else {
-        vec![replay_symbol(&args.root, &args.symbol, cfg)?]
+        replay_symbol_over_configs_keep(
+            &args.root,
+            &args.symbol,
+            std::slice::from_ref(&cfg),
+            ReplayKeep::ALL.with_carry_age(args.carry_age),
+        )?
     };
+    // Кэш одних суток из корня с прошлыми сутками (перенос возраста): остальные сутки —
+    // только прогрев трекера, в файлы не идут.
+    if let Some(d) = &args.emit_day {
+        for r in &mut replays {
+            r.days.retain(|x| &x.day == d);
+        }
+    }
     let replay = replays.remove(0);
     let out = args
         .out

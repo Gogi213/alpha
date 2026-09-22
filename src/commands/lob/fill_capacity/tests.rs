@@ -78,6 +78,8 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         moves_bin_ms: None,
         numbers: None,
         allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
     })
     .unwrap();
     cache

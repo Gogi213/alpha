@@ -798,6 +798,9 @@ struct ApproachFrame {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Live {
     birth_ms: i64,
+    /// Возраст перенесён с прошлых суток (`with_carried_births`, аудит дизайна 22.09 Т3):
+    /// рождение раньше начала трекера, но уровень наблюдался непрерывно — прогрев его не глушит.
+    carried: bool,
     max: i64,
     max_ms: i64,
     prev: i64,
@@ -1036,6 +1039,11 @@ pub struct LevelTracker {
     /// слотов; `flow_slot_min[i]` — номер минуты слота (−1 — пусто).
     flow_ring: [i64; FLOW_WINDOW_MIN],
     flow_slot_min: [i64; FLOW_WINDOW_MIN],
+    /// Рождения живых уровней конца прошлых суток (`with_carried_births`): уровень, который
+    /// стоит на той же цене в **первом** кадре своей стороны новых суток, наследует рождение.
+    carry: BTreeMap<(u8, i64), i64>,
+    /// Первый кадр стороны ещё не пришёл — перенос для неё открыт.
+    carry_open: [bool; 2],
 }
 
 /// Запись касания из состояния уровня в момент конца.
@@ -1233,6 +1241,8 @@ impl LevelTracker {
             "возраст взвода не может быть отрицателен"
         );
         Self {
+            carry: BTreeMap::new(),
+            carry_open: [false; 2],
             cfg,
             live: BTreeMap::new(),
             births: BTreeMap::new(),
@@ -1297,6 +1307,26 @@ impl LevelTracker {
     /// только смерти (`watch`, `profiles`). Умершие за кадр дописываются в
     /// `out` в порядке возрастания цены; ёмкость `out` — забота вызывающего,
     /// трекер её не растит сам и в горячем пути не аллоцирует.
+    /// Трекер новых суток, который **переносит возраст** живых уровней конца прошлых суток
+    /// (аудит дизайна 22.09 Т3): без переноса трекер стартует в 00:00 UTC, стена, пережившая
+    /// полночь, выглядит молодой, а возраст ≥ 45 мин до 00:45 недостижим. Уровень наследует
+    /// рождение, только если стоит на той же цене в первом кадре своей стороны (снимок начала
+    /// файла суток) — непрерывность наблюдения. Режимы с прогревом (`percentile`) перенос не
+    /// принимают: там прогрев — про порог, а не про рождение.
+    pub fn with_carried_births(cfg: LevelsConfig, births: BTreeMap<(u8, i64), i64>) -> Self {
+        let mut t = Self::new(cfg);
+        if t.effective_warmup_ms() == 0 && !births.is_empty() {
+            t.carry = births;
+            t.carry_open = [true, true];
+        }
+        t
+    }
+
+    /// Рождения живых уровней (ключ `(сторона, тик)` → `birth_ms`) — вход переноса.
+    pub fn live_births(&self) -> BTreeMap<(u8, i64), i64> {
+        self.live.iter().map(|(k, lv)| (*k, lv.birth_ms)).collect()
+    }
+
     pub fn observe_frame(
         &mut self,
         ts_ms: i64,
@@ -1514,7 +1544,7 @@ impl LevelTracker {
                                         flow_1h_lots: flow_1h,
                                         strength_e2,
                                     },
-                                    lv.birth_ms >= warm_end,
+                                    lv.birth_ms >= warm_end || lv.carried,
                                     approaches,
                                 );
                             }
@@ -1524,13 +1554,19 @@ impl LevelTracker {
                 None => {
                     if ob.in_top50 && strong && mode.passes_birth(ob.tick, ob.size_lots) {
                         let repeat = self.count_prior_births(key, ts_ms, window);
+                        let carried_birth = if self.carry_open[s as usize] {
+                            self.carry.remove(&key)
+                        } else {
+                            None
+                        };
                         // Рождение лучшей ценой — не касание (В-43): «цена
                         // дошла» — это переход, а не появление; запоминается
                         // только `was_best`.
                         self.live.insert(
                             key,
                             Live {
-                                birth_ms: ts_ms,
+                                birth_ms: carried_birth.unwrap_or(ts_ms),
+                                carried: carried_birth.is_some(),
                                 max: ob.size_lots,
                                 max_ms: ts_ms,
                                 prev: ob.size_lots,
@@ -1565,6 +1601,11 @@ impl LevelTracker {
             if ob.size_lots > 0 {
                 near_better_tick = Some(ob.tick);
             }
+        }
+        // Перенос возраста действует только на первый кадр стороны: дальше рождение — новое.
+        if self.carry_open[s as usize] {
+            self.carry_open[s as usize] = false;
+            self.carry.retain(|k, _| k.0 != s);
         }
 
         // Свип двухфазный и по своей стороне: кадр несёт одну сторону, и
@@ -1634,7 +1675,7 @@ impl LevelTracker {
             let Some(lv) = live.remove(&(ks, tick)) else {
                 continue;
             };
-            if lv.birth_ms < warm_end {
+            if lv.birth_ms < warm_end && !lv.carried {
                 continue;
             }
             // Подход, не дождавшийся цены, снимается смертью уровня — перед
@@ -1709,7 +1750,7 @@ impl LevelTracker {
             }
             if t.end_pending {
                 let t = *t;
-                if lv.birth_ms >= warm_end {
+                if lv.birth_ms >= warm_end || lv.carried {
                     touches.push(touch_record(
                         key,
                         lv,

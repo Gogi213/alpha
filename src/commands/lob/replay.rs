@@ -76,6 +76,10 @@ struct DayWork {
 pub(crate) struct ReplayKeep {
     pub(crate) records: bool,
     pub(crate) mids: MidsKeep,
+    /// Переносить возраст живых уровней через полночь (`--carry-age`, аудит дизайна 22.09 Т3):
+    /// трекер следующих **смежных** суток наследует рождения уровней, стоящих на той же цене в
+    /// первом кадре стороны. `false` — прежнее поведение (трекер с нуля в 00:00 UTC).
+    pub(crate) carry_age: bool,
 }
 
 /// Что хранить из срезов середины.
@@ -93,11 +97,28 @@ impl ReplayKeep {
     pub(crate) const ALL: Self = Self {
         records: true,
         mids: MidsKeep::All,
+        carry_age: false,
     };
     pub(crate) const TOUCHES_AND_SECOND_MIDS: Self = Self {
         records: false,
         mids: MidsKeep::PerSecond,
+        carry_age: false,
     };
+
+    /// То же хранение с переносом возраста через полночь.
+    pub(crate) const fn with_carry_age(self, carry_age: bool) -> Self {
+        Self { carry_age, ..self }
+    }
+}
+
+/// `next` — следующие календарные сутки после `prev` (`YYYY-MM-DD`): перенос возраста только
+/// через **смежную** полночь — пропущенные сутки означают, что уровень никто не видел.
+pub(crate) fn is_next_day(prev: &str, next: &str) -> bool {
+    let parse = |d: &str| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok();
+    match (parse(prev), parse(next)) {
+        (Some(a), Some(b)) => a.succ_opt() == Some(b),
+        _ => false,
+    }
 }
 
 impl DayWork {
@@ -322,13 +343,22 @@ pub(crate) fn replay_symbol_over_configs_keep(
             s.step_e9 = header.step_e9;
         }
         if work.last().is_none_or(|w| w.day != day) {
+            let trackers: Vec<LevelTracker> = match work.last() {
+                Some(prev) if keep.carry_age && is_next_day(&prev.day, &day) => prev
+                    .trackers
+                    .iter()
+                    .zip(cfgs)
+                    .map(|(t, &cfg)| LevelTracker::with_carried_births(cfg, t.live_births()))
+                    .collect(),
+                _ => cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
+            };
             work.push(DayWork {
                 day,
                 records: cfgs.iter().map(|_| Vec::new()).collect(),
                 touches: cfgs.iter().map(|_| Vec::new()).collect(),
                 approaches: cfgs.iter().map(|_| Vec::new()).collect(),
                 mids: Vec::new(),
-                trackers: cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
+                trackers,
             });
         }
         let entry = work
@@ -463,12 +493,13 @@ pub(crate) fn replay_symbol_touches_and_second_mids(
     root: &Path,
     symbol: &str,
     cfg: LevelsConfig,
+    carry_age: bool,
 ) -> anyhow::Result<ReplayStats> {
     let mut out = replay_symbol_over_configs_keep(
         root,
         symbol,
         std::slice::from_ref(&cfg),
-        ReplayKeep::TOUCHES_AND_SECOND_MIDS,
+        ReplayKeep::TOUCHES_AND_SECOND_MIDS.with_carry_age(carry_age),
     )?;
     Ok(out
         .pop()

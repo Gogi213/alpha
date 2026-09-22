@@ -106,6 +106,7 @@ pub fn grid_size_from_labels<'a>(
     let mut deadlines: BTreeSet<u64> = BTreeSet::new();
     let mut ttls: BTreeSet<String> = BTreeSet::new();
     let mut exits: BTreeSet<String> = BTreeSet::new();
+    let mut earlies: BTreeSet<String> = BTreeSet::new();
     for label in labels {
         let parts = parse_form_fields(label)?;
         entries.insert(parts.entry);
@@ -114,14 +115,23 @@ pub fn grid_size_from_labels<'a>(
         deadlines.insert(parts.deadline_secs);
         ttls.insert(parts.ttl.unwrap_or_else(|| TTL_NONE.to_string()));
         exits.insert(parts.exit.unwrap_or_else(|| EXIT_NONE.to_string()));
+        earlies.insert(parts.early.unwrap_or_else(|| EARLY_NONE.to_string()));
     }
-    Ok(entries.len() * stops.len() * takes.len() * deadlines.len() * ttls.len() * exits.len())
+    Ok(entries.len()
+        * stops.len()
+        * takes.len()
+        * deadlines.len()
+        * ttls.len()
+        * exits.len()
+        * earlies.len())
 }
 
 /// Метка оси «срока жизни входа нет» (прежний режим `touch`, F5, В-74).
 const TTL_NONE: &str = "touch";
 /// Метка оси «выход прежний» (нет ключа `--exit-form`, F7/F8).
 const EXIT_NONE: &str = "none";
+/// Метка оси «выхода по прилипанию нет» (нет ключа `--early-exit-secs`, В-85).
+const EARLY_NONE: &str = "off";
 
 /// Имя формы: `<стоп>-<тейк>-<H>` — имена `StopForm::label`/`TakeForm::label`
 /// (`before`, `pct1`, `s1` …; `1to1`, `t2`) и дедлайн в секундах из `DEADLINE_SECS`.
@@ -157,6 +167,8 @@ pub struct FormFields {
     pub ttl: Option<String>,
     /// Значение поля выхода (F7/F8, например `eat50`); `None` — поля нет.
     pub exit: Option<String>,
+    /// Секунды выхода по «прилипанию» (`-early<x>`, В-85); `None` — поля нет.
+    pub early: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -286,7 +298,7 @@ pub fn parse_form(label: &str) -> anyhow::Result<(String, String, u64)> {
 pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
     let parts: Vec<&str> = label.split('-').collect();
     anyhow::ensure!(
-        parts.len() >= 3 && parts.len() <= 6,
+        parts.len() >= 3 && parts.len() <= 7,
         "{label}: имя формы — <вход>-<стоп>-<тейк>-<дедлайн с>[-ttl<режим>][-<выход>] (`pct2-1to1-3600`, `ladder3x2..10-pct2-1to1-3600-ttl60`)"
     );
     // Вход: четвёртый сегмент — вход только тогда, когда разбирается как
@@ -313,8 +325,20 @@ pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
     // поле выхода (F7/F8). Каждое не больше одного раза.
     let mut ttl: Option<String> = None;
     let mut exit: Option<String> = None;
+    let mut early: Option<String> = None;
     for tail in &rest[3..] {
-        if let Some(v) = tail.strip_prefix("ttl") {
+        if let Some(v) = tail.strip_prefix("early") {
+            anyhow::ensure!(
+                early.is_none() && !v.is_empty(),
+                "{label}: поле выхода по прилипанию — одно (`-early<секунды>`)"
+            );
+            let x: i64 = v
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{label}: -early{v}: не целые секунды"))?;
+            crate::commands::lob::backtest::early_exit_ns_from_secs(Some(x))
+                .map_err(|e| anyhow::anyhow!("{label}: {e}"))?;
+            early = Some(v.to_string());
+        } else if let Some(v) = tail.strip_prefix("ttl") {
             anyhow::ensure!(
                 ttl.is_none() && !v.is_empty(),
                 "{label}: поле срока жизни входа — одно (`-ttl<touch|wall|секунды>`)"
@@ -337,6 +361,7 @@ pub fn parse_form_fields(label: &str) -> anyhow::Result<FormFields> {
         deadline_secs,
         ttl,
         exit,
+        early,
     })
 }
 
@@ -922,13 +947,20 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     )?;
     writeln!(
         file,
-        "# лучшая форма (по точке net_fill): {} — кругов {} из {} сигналов, суток с кругами {}, net_fill точка={} нижняя={} bps (alpha={GATE_ALPHA}, кластер=сутки, wild cluster bootstrap-t ×{BOOTSTRAP_REPLICATIONS}), DSR={} при {trials} испытаниях (при {journal_trials}: {}), требуемый Шарп для DSR={DSR_TARGET}: {}",
+        "# лучшая форма (по точке net_fill): {} — кругов {} из {} сигналов, суток с кругами {}, net_fill точка={} нижняя={} bps (alpha={GATE_ALPHA}, кластер={}, wild cluster bootstrap-t ×{BOOTSTRAP_REPLICATIONS}), DSR={} при {trials} испытаниях (при {journal_trials}: {}), требуемый Шарп для DSR={DSR_TARGET}: {}",
         best.form,
         best.n_fills,
         best.n_signals,
         best.days_with_fills,
         num(best.interval.as_ref().map(|i| i.point_bps)),
         num(best.interval.as_ref().map(|i| i.lower_bps)),
+        // Аудит дизайна 22.09 §4 С2: при суток < G_MIN кластер интервала — час UTC, а шапка
+        // писала «сутки» всегда; теперь — фактическая единица.
+        if best.cluster_unit == "hour" {
+            "час UTC (суток меньше G_MIN — часы одних суток не независимы)"
+        } else {
+            "сутки"
+        },
         num(dsr),
         num(dsr_at_journal_trials),
         num(required_sharpe)

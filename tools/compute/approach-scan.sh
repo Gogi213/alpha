@@ -7,7 +7,8 @@
 # Артефакты: study/approaches/D<D>/<сутки>/{touches,approaches}-<SYM>.csv + логи;
 # сводку читает bin/approach-signal.py.
 set -euo pipefail
-cd /opt/alpha-compute
+ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
+cd "$ALPHA_HOME" || exit 1
 D="${1:?полоса подхода D в bps}"
 shift || true
 DAYS=("$@")
