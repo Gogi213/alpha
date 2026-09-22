@@ -22,6 +22,9 @@ set -uo pipefail
 # root, системные юниты), на Steam Deck ALPHA_HOME=$HOME/alpha и пользовательские юниты (SC).
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 cd "$ALPHA_HOME" || exit 1
+# NIGHT_TAG — префикс меток сеток и их юнитов (умолчание nightly): прогон эпохи (epoch-run.sh) идёт
+# со своим тегом, чтобы гейт «сетка ещё идёт» регулярной ночи не видел его юниты и наоборот.
+# H3_JOBS — сколько монет касаний считать параллельно (умолчание 3).
 export PATH=/root/.cargo/bin:$HOME/.cargo/bin:$PATH
 SC=(); [ "$(id -u)" = 0 ] || SC=(--user)   # systemctl: без root — пользовательские юниты
 DAY=$(date -u +%F)
@@ -90,8 +93,8 @@ fi
 # работал, а таймерный — нет (найдено 21.09: ночи 20.09 и 21.09 02:00Z пропущены ровно так, см.
 # `study/ALERTS.log`). Имена вырезаются из строки целиком (`grep -o`), потому что у упавших юнитов
 # в начале строки стоит маркер `●`, и нумерация полей `awk` на них съезжает.
-running_grids=$(systemctl "${SC[@]}" list-units "alpha-grid-nightly-*" --no-legend \
-  | grep -E ' (running|start) ' | grep -oE 'alpha-grid-nightly-[^ ]+\.service' | tr '\n' ' ')
+running_grids=$(systemctl "${SC[@]}" list-units "alpha-grid-${NIGHT_TAG:-nightly}-*" --no-legend \
+  | grep -E ' (running|start) ' | grep -oE "alpha-grid-${NIGHT_TAG:-nightly}-[^ ]+\.service" | tr '\n' ' ')
 if [ -n "$running_grids" ]; then
   echo "== $(date -u +%FT%TZ) сетка ещё идёт — ночной прогон пропущен ($running_grids)" >> "$LOG"
   alert "ночь пропущена: сетка ещё идёт ($running_grids)"
@@ -167,7 +170,7 @@ E7="--stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --
 verdict_one() {
   # $1 — вид (имя набора/сетки), $2 — каталог сетки; вердикт study/bounce-verdict-nightly-<день>-<вид>.csv
   local kind=$1 gdir=$2
-  local label="nightly-$DAY-$kind"
+  local label="${NIGHT_TAG:-nightly}-$DAY-$kind"
   local logflag=""
   if [ ! -f "study/.trials-logged-$kind-$TRIALS_TAG" ]; then logflag="--log-trials"; fi
   # Вердикты параллельных стадий дописывают журнал испытаний ($RUNS) — по очереди, под замком.
@@ -197,7 +200,7 @@ verdict_one() {
 # монету, а не по разу на семью — девять сеток стоят как одна; артефакты b5/nightly-<день>-<метка>/<набор>/.
 # FORMS — формы процесса (умолчание BASE), LABEL — метка каталога (умолчание base).
 run_sets() {
-  local label="nightly-$DAY-${LABEL:-base}"
+  local label="${NIGHT_TAG:-nightly}-$DAY-${LABEL:-base}"
   local setargs=""
   for kv in "$@"; do setargs="$setargs --set $kv"; done
   echo "== $(date -u +%FT%TZ) grid $label start: наборы $*" >> "$LOG"
@@ -210,7 +213,7 @@ run_sets() {
 }
 run_one() {
   local kind=$1; shift
-  local label="nightly-$DAY-$kind"
+  local label="${NIGHT_TAG:-nightly}-$DAY-$kind"
   local logflag=""
   if [ ! -f "study/.trials-logged-$kind-$TRIALS_TAG" ]; then logflag="--log-trials"; fi
   echo "== $(date -u +%FT%TZ) grid $label start" >> "$LOG"
@@ -289,7 +292,7 @@ touches_for_day() {
   local n; n=$(wc -l < "$out/symbols.txt")
   echo "== $(date -u +%FT%TZ) touches $day start (попытка $attempt): монет с маркером ok $n" >> "$LOG"
   rm -f "$out/failed.txt"
-  xargs -r -P 3 -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
+  xargs -r -P "${H3_JOBS:-3}" -I{} -a "$out/symbols.txt" nice -n 15 bash -c \
     "$BIN lob touches --root 'study/root-$day' --symbol {} $USD $APPROACH --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 || echo {} >> '$out/failed.txt'"
   local files failed
   files=$(ls "$out"/touches-*.csv 2>/dev/null | wc -l)
