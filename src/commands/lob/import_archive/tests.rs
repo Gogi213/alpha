@@ -141,3 +141,13 @@ fn trade_time_keeps_milliseconds_and_drops_the_rest() {
     assert_eq!(trade_ms("1789948800"), Some(1_789_948_800_000));
     assert_eq!(trade_ms("x.1"), None);
 }
+
+/// Выгрузка сделок пишет величины и в экспоненте (`1.1283e+06` — AKE 01.09): разбор точный, без `f64`.
+#[test]
+fn trade_numbers_in_exponent_form_parse_exactly() {
+    assert_eq!(parse_decimal_e9("1.1283e+06"), Some(1_128_300_000_000_000));
+    assert_eq!(parse_decimal_e9("1900"), Some(1_900_000_000_000));
+    assert_eq!(parse_decimal_e9("5e-05"), Some(50_000));
+    assert_eq!(parse_decimal_e9("0.0082300"), Some(8_230_000));
+    assert_eq!(parse_decimal_e9("1e-10"), None, "точнее 1e-9 — отказ");
+}

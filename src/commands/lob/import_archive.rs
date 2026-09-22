@@ -126,6 +126,31 @@ fn trade_ms(s: &str) -> Option<i64> {
     Some(sec.checked_mul(1000)? + ms)
 }
 
+/// Десятичное число выгрузки сделок → 1e-9 без `f64`. Выгрузка пишет крупные и мелкие величины в
+/// экспоненциальной записи (`1.1283e+06`, замер 22.09 на AKE/DOGE/PUMPFUN 01.09), поэтому мантисса
+/// разбирается `parse_e9`, а порядок применяется целочисленно; значение точнее 1e-9 — отказ.
+fn parse_decimal_e9(s: &str) -> Option<i64> {
+    let s = s.trim();
+    let Some((mant, exp)) = s.split_once(['e', 'E']) else {
+        return parse_e9(s);
+    };
+    let mut v = i128::from(parse_e9(mant)?);
+    let exp: i32 = exp.trim_start_matches('+').parse().ok()?;
+    if exp >= 0 {
+        for _ in 0..exp {
+            v = v.checked_mul(10)?;
+        }
+    } else {
+        for _ in 0..exp.unsigned_abs() {
+            if v % 10 != 0 {
+                return None;
+            }
+            v /= 10;
+        }
+    }
+    i64::try_from(v).ok()
+}
+
 fn read_trades(path: &Path) -> anyhow::Result<Vec<Trade>> {
     let mut rdr = csv::Reader::from_path(path)?;
     let head = rdr.headers()?.clone();
@@ -141,8 +166,8 @@ fn read_trades(path: &Path) -> anyhow::Result<Vec<Trade>> {
         let bad = || anyhow::anyhow!("{}: строка {} не разбирается", path.display(), n + 2);
         out.push(Trade {
             ms: trade_ms(row.get(i_ts).ok_or_else(bad)?).ok_or_else(bad)?,
-            price_e9: parse_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
-            qty_e9: parse_e9(row.get(i_size).ok_or_else(bad)?).ok_or_else(bad)?,
+            price_e9: parse_decimal_e9(row.get(i_price).ok_or_else(bad)?).ok_or_else(bad)?,
+            qty_e9: parse_decimal_e9(row.get(i_size).ok_or_else(bad)?).ok_or_else(bad)?,
             buy: match row.get(i_side) {
                 Some("Buy") => true,
                 Some("Sell") => false,
