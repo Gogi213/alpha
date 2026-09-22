@@ -54,7 +54,12 @@ for day in $days; do
     say "$day: замороженная форма"
     # shellcheck disable=SC2086
     nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
-      $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
+      $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
+      say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
+      # Упавший прогон оставляет шапку forms.csv — без удаления сутки считались бы готовыми с нулём
+      # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json).
+      rm -rf "$out"
+    }
     new=$((new + 1))
   fi
 done
