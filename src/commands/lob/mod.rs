@@ -61,6 +61,7 @@ mod export;
 pub mod fee_rate;
 pub mod fill_capacity;
 mod h3;
+pub mod import_archive;
 pub mod latency;
 pub mod levels;
 pub mod markout;
@@ -86,6 +87,7 @@ pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
+pub use import_archive::{run_import_archive, ImportArchiveArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
 /// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
@@ -241,6 +243,10 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Сутки публичного архива Bybit (поток `orderbook.200` + сделки) → суточный бинлог v3 —
+    /// эпоха «история» (владелец 22.09; сверка архива с нашей записью — M21). Разбор строк —
+    /// тем же `bybit::ws`, записи — как у коллектора; существующий файл не перезаписывается.
+    ImportArchive(ImportArchiveArgs),
     /// Упаковка закрытых суток в контейнер `*.binlog.zst` (T46): один
     /// zstd-поток над телами кадров даёт −7.7 % к размеру файла на диске
     /// (`docs/findings/archive-compression-2026-09-15.md`), читается тем же
@@ -379,6 +385,21 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 summary.trials,
                 summary.debug,
                 summary.out.display()
+            );
+            Ok(())
+        }
+        LobCommand::ImportArchive(args) => {
+            let s = run_import_archive(&args)?;
+            println!(
+                "import-archive: {} — сообщений {}, снимков {}, разрывов u {}, сделок {} (до снимка {}), за концом суток {}, записей {}",
+                s.out.display(),
+                s.messages,
+                s.snapshots,
+                s.u_gaps,
+                s.trades,
+                s.trades_before_snapshot,
+                s.dropped_after_day,
+                s.records
             );
             Ok(())
         }

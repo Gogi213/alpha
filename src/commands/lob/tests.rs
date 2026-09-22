@@ -448,6 +448,7 @@ fn lob_help_lists_all_subcommands() {
         "export",
         "fee-rate",
         "fill-capacity",
+        "import-archive",
         "latency",
         "levels",
         "markout",
