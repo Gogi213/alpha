@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Утренний статус машин (В-81 п. 7, TypeSafe): одна строка «в норме / смотреть / сломано» по фактам
-обеих машин — диск, коллектор пишет, сверка прошла, перенос прошёл, ночь прошла, кэши новых суток есть.
-Факты собирает код (локально на счётной + по ssh к коллектору), судья решает, что из этого требует
-человека. Заменяет утреннее чтение пяти логов руками.
+"""Утренний статус машин (В-81 п. 7; граница кода и модели — аудит дизайна 22.09 §1): одна строка
+«в норме / смотреть / сломано» по фактам обеих машин — диск, коллектор пишет, сверка прошла, перенос
+прошёл, ночь прошла, кэши новых суток есть. Статус и причины решает **код** по прежним порогам
+(диск 90/95 %, бинлог старше трёх сбросов, failed-юниты, «НЕТ» в строках суток, итог ночи); модель
+(Jev) — только мнение «есть ли необычное вне правил» и «нужен ли владелец», с версией модели.
 
     python3 bin/morning-status.py [--collector ubuntu@139.99.91.22] [--json]
 
-Выход 0 — в норме; 1 — смотреть/сломано; 2 — суждение недоступно (факты всё равно печатаются).
+Выход 0 — в норме; 1 — смотреть/сломано. Без ключа статус печатается всё равно.
 """
 from __future__ import annotations
 
@@ -101,12 +102,63 @@ def collector_facts(host: str, key: str | None) -> list[str]:
 
 CONTEXT = (
     "Проект alpha: коллектор (Bybit, 100 монет) пишет стакан на своём сервере; ночью сутки переносятся на "
-    "счётную машину, сверяются (ok/fail по монетам, 6–10 fail — норма), считаются касания и сетки, пишется "
-    "ALERTS.log. Норма утром: диск обеих машин < 90 %, коллектор active и бинлог обновлялся секунды назад, "
-    "сверка вчерашних суток есть, перенос «done», касания вчерашних суток в кэше, в ALERTS последняя строка "
-    "«ОК» или «ЧТЕНИЕ ОК», failed-юнитов нет. «Смотреть» — что-то отстаёт (нет вчерашних касаний, перенос не "
-    "прошёл, диск 90–95 %, ЧТЕНИЕ СМОТРЕТЬ). «Сломано» — коллектор не пишет, диск ≥ 95 %, ночь сломана, юнит failed."
+    "счётную машину, сверяются, считаются касания и сетки, пишется ALERTS.log. Правила статуса (диск, "
+    "коллектор, сверка, перенос, кэш, ночь, failed-юниты) уже проверены кодом — нужен только взгляд на "
+    "свободный текст фактов."
 )
+
+# Пороги статуса — прежний контракт утреннего статуса (В-81 п. 7; раньше жили в тексте для модели,
+# аудит 22.09 §1 перенёс их в код): диск < 90 % — норма, 90–95 % — смотреть, ≥ 95 % — сломано.
+DISK_LOOK_PCT = 90
+DISK_BROKEN_PCT = 95
+# Коллектор сбрасывает кадр на диск не реже раза в 10 с (CLAUDE.md, «олвейс-он»); три пропущенных
+# сброса подряд — коллектор не пишет.
+BINLOG_STALE_S = 3 * 10
+
+
+def classify(facts: list[str]) -> tuple[str, list[str]]:
+    """Статус утра кодом: (ok|look|broken, причины)."""
+    broken: list[str] = []
+    look: list[str] = []
+    text = "\n".join(facts)
+    for m in re.finditer(r"^(\S+): диск.*?(\d+)\s?%\s*занято", text, re.M):
+        who, pct = m.group(1), int(m.group(2))
+        if pct >= DISK_BROKEN_PCT:
+            broken.append(f"диск {who} {pct} %")
+        elif pct >= DISK_LOOK_PCT:
+            look.append(f"диск {who} {pct} %")
+    m = re.search(r"коллектор: юнит (\S+)", text)
+    if m and m.group(1) != "active":
+        broken.append(f"коллектор: юнит {m.group(1)}")
+    if "коллектор: недоступен" in text:
+        broken.append("коллектор недоступен по ssh")
+    m = re.search(r"последний бинлог обновлён (\d+) с назад", text)
+    if m and int(m.group(1)) > BINLOG_STALE_S:
+        broken.append(f"бинлог не обновлялся {m.group(1)} с")
+    if "сверка:" not in text:
+        look.append("сверки нет")
+    m = re.search(r"^перенос: .*$", text, re.M)
+    if m and "done" not in m.group(0):
+        look.append("перенос не дошёл до done")
+    if re.search(r"вчерашние сутки \S+: в root — НЕТ", text):
+        look.append("вчерашних суток нет в root")
+    if re.search(r"касания — НЕТ", text):
+        look.append("касания вчерашних суток не посчитаны")
+    m = re.search(r"systemd failed: (.*)$", text, re.M)
+    if m and m.group(1).strip() not in ("", "нет"):
+        broken.append(f"failed-юниты: {m.group(1).strip()}")
+    tail = [l for l in text.splitlines() if "nightly-" in l]
+    if tail:
+        last = tail[-1]
+        if "ПРОВАЛ" in last or "СЛОМАНО" in last:
+            broken.append("ночь сломана")
+        elif "СМОТРЕТЬ" in last:
+            look.append("ночь: СМОТРЕТЬ")
+    if broken:
+        return "broken", broken + look
+    if look:
+        return "look", look
+    return "ok", []
 
 
 def main() -> int:
@@ -126,33 +178,34 @@ def main() -> int:
         facts = local_facts(a.study, a.root) + collector_facts(a.collector, a.collector_key)
     text = "\n".join(facts)
     print(text)
+    st, why = classify(facts)
+    label = {"ok": "В НОРМЕ", "look": "СМОТРЕТЬ", "broken": "СЛОМАНО"}[st]
+    opinion = ""
+    ans = None
     try:
         j = Judge()
-    except MissingKey as e:
-        print(f"morning-status: {e}")
-        return 2
-    try:
         ans = j.ask(
             CONTEXT + "\n\nФакты утра:\n" + text,
             {
-                "status": Judge.choice("Состояние машин и ночи", {"ok": "в норме", "look": "смотреть", "broken": "сломано"}),
-                "worst": Judge.choice(
-                    "Что хуже всего",
-                    {"none": "ничего", "collector": "коллектор не пишет/юнит", "disk": "диск", "sync": "перенос не прошёл",
-                     "verify": "сверки нет", "cache": "касания вчерашних суток не посчитаны", "night": "ночь сломана/пропущена", "unit": "failed-юнит"},
+                "unexpected": Judge.noul(
+                    "Есть ли в фактах что-то необычное, не покрытое перечисленными правилами (новый вид "
+                    "строки в тревогах, странное число)?"
                 ),
                 "owner_needed": Judge.noul("Нужно решение владельца (деньги, диск, доступ), а не действие исполнителя?"),
             },
         )
+        opinion = (
+            f"; мнение модели {j.model_version}: необычное p={ans['unexpected']['noul']:.2f}, "
+            f"владелец p={ans['owner_needed']['noul']:.2f}"
+        )
+    except MissingKey:
+        opinion = "; мнение модели: нет ключа"
     except RuntimeError as e:
-        print(f"morning-status: {e}")
-        return 2
-    st = ans["status"]["choice"]
-    label = {"ok": "В НОРМЕ", "look": "СМОТРЕТЬ", "broken": "СЛОМАНО"}[st]
+        opinion = f"; мнение модели недоступно ({str(e)[:60]})"
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(f"{ts} УТРО: {label} ({ans['status']['confidence']:.2f}) — хуже всего: {ans['worst']['choice']} ({ans['worst']['confidence']:.2f}); владелец: {'да' if ans['owner_needed']['noul'] >= 0.5 else 'нет'} ({ans['owner_needed']['noul']:.2f})")
+    print(f"{ts} УТРО: {label} — {'; '.join(why) if why else 'всё по правилам'} (код){opinion}")
     if a.json:
-        print(json.dumps({"facts": facts, "answers": ans}, ensure_ascii=False, indent=1))
+        print(json.dumps({"facts": facts, "status": st, "why": why, "answers": ans}, ensure_ascii=False, indent=1))
     return 0 if st == "ok" else 1
 
 

@@ -84,7 +84,7 @@ def main() -> int:
     c = ans["cls"]["choice"]
     act = KNOWN.get(c, (None, "разбор человеком/моделью"))[1]
     print(
-        f"{os.path.basename(a.path)}: класс {c} ({ans['cls']['confidence']:.2f}); прогон остановлен p={ans['fatal']['noul']:.2f}; "
+        f"{os.path.basename(a.path)}: мнение модели {j.model_version}: класс {c} (концентрация {ans['cls']['confidence']:.2f}); прогон остановлен p={ans['fatal']['noul']:.2f}; "
         f"известная p={ans['same_as_known']['noul']:.2f}; действие: {act}; последняя строка: {err_lines[-1][:160]}"
     )
     return 1 if c != "none" else 0

@@ -150,10 +150,22 @@ def load_mids(touches_dir: str, day: str, sym: str) -> tuple[list[int], list[int
 # --- атомы ----------------------------------------------------------------------
 
 
-def pick_wall(cands: list[dict], entry: float, tick: float) -> dict | None:
-    """При нескольких стенах на одном взводе берём ту, что ближе к цене входа (16 кругов из 128)."""
+def pick_wall(cands: list[dict], entry: float, tick: float, min_age_ms: float | None = None) -> dict | None:
+    """При нескольких стенах на одном взводе берём ту, что ближе к цене входа (16 кругов из 128).
+
+    Аудит дизайна 22.09 §5 Т4: кандидаты сперва отбираются по правилу набора (возраст стены ≥
+    `min_age_ms`, как `--set …:age=`) — иначе ближайшей к входу оказывалась чужая молодая стена
+    того же взвода, и 9 сделкам набора «возраст ≥ 45 мин» приписывался возраст ≈ 0 вместе с её
+    размером и судьбой. Если правилу не отвечает ни один кандидат — старое поведение и пометка.
+    """
     if not cands:
         return None
+    if min_age_ms is not None:
+        ok = [a for a in cands if (fnum(a.get("age_ms")) or 0.0) >= min_age_ms]
+        if ok:
+            cands = ok
+        else:
+            miss("wall_below_set_age")
     if len(cands) > 1:
         miss("wall_ambiguous")
     return min(cands, key=lambda a: abs(int(a["price_tick"]) * tick - entry))
@@ -268,7 +280,7 @@ def atoms_for_round(r: dict, ctx: dict) -> dict:
     if tick:
         cands = [a for a in ctx["approaches"].get((day, sym), [])
                  if abs(int(a["arm_ms"]) - t0_ms) <= 1]
-        wall = pick_wall(cands, entry, tick)
+        wall = pick_wall(cands, entry, tick, ctx.get("min_age_ms"))
     if wall is None:
         miss("missing_approach")
         touches_idx = ctx["touches"].get((day, sym), {})
@@ -320,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--order-usd", type=float, default=1000.0)
     ap.add_argument("--stop-pct", type=float, default=2.0)
+    ap.add_argument("--min-age-secs", type=float, default=None,
+                    help="возраст стены набора (как --set …:age=): отбор стены взвода по правилу набора")
     ap.add_argument("--dry-run", action="store_true", help="ничего не писать, печатать сводку")
     a = ap.parse_args(argv)
 
@@ -332,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         "ticks": load_tick_sizes(a.root),
         "order_usd": a.order_usd,
         "stop_pct": a.stop_pct,
+        "min_age_ms": a.min_age_secs * 1000.0 if a.min_age_secs is not None else None,
         "regime": {},
         "approaches": {},
         "touches": {},

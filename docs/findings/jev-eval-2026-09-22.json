@@ -1,0 +1,211 @@
+{
+ "prereg": [
+  {
+   "row": "ladder3x2..20w2 (M16), stop pct2 (В-65), take 1to1 (В-65), deadline 7200 (В-80), ttl 1800 (В-80), band 20 (В-80), queue prob:3 (В-80); set a45-bid age=2700 (В-70); hypothesis H1: long after BTC 4h drop",
+   "want_numbers": true,
+   "p_numbers": 0.6,
+   "want_hyp": true,
+   "p_hyp": 0.92
+  },
+  {
+   "row": "ladder3x2..20 stop pct1.5 take 1to1 deadline 5400 ttl 900 band 30; set a45-bid",
+   "want_numbers": false,
+   "p_numbers": 0.04,
+   "want_hyp": false,
+   "p_hyp": 0.26
+  },
+  {
+   "row": "single@fr, stop before (В-65), take 1to1 (В-65), early exit 1s/2s/3s (В-58 п. 5), deadline 600 (В-38); hypothesis: prilipanie exit improves net over deadline-only",
+   "want_numbers": true,
+   "p_numbers": 0.66,
+   "want_hyp": true,
+   "p_hyp": 0.95
+  },
+  {
+   "row": "single@fr, stop before (В-65), take 1to1, early exit 5s, deadline 600 (В-38); exploring exits",
+   "want_numbers": false,
+   "p_numbers": 0.12,
+   "want_hyp": false,
+   "p_hyp": 0.23
+  },
+  {
+   "row": "frozen live branch: ladder3x2..20w2 (M16), pct2 (В-65), 1to1 (В-65), 7200 (В-80), ttl1800 (В-80), band 20 (В-80), prob:3 (В-80), D=20 (M15); single hypothesis: edge over same coin-day drift > 0 on days from 23.09",
+   "want_numbers": true,
+   "p_numbers": 0.85,
+   "want_hyp": true,
+   "p_hyp": 0.95
+  },
+  {
+   "row": "eat35 exit, gone60 exit, stop pct2 (В-65); many axes: age, flow, side, regime",
+   "want_numbers": false,
+   "p_numbers": 0.12,
+   "want_hyp": false,
+   "p_hyp": 0.13
+  },
+  {
+   "row": "nightly base: stop before|at|behind|midfr|stack2|pct0.5|pct1|pct2 (В-65), take 1to1 (В-65), deadlines 60/600/3600/7200 (В-38), ttl wall (В-74), band 20 (В-80)",
+   "want_numbers": true,
+   "p_numbers": 0.48,
+   "want_hyp": false,
+   "p_hyp": 0.11
+  },
+  {
+   "row": "queue prob:4.5, band 25 bps, ttl 1200 s; hypothesis: tighter band helps",
+   "want_numbers": false,
+   "p_numbers": 0.03,
+   "want_hyp": true,
+   "p_hyp": 0.95
+  }
+ ],
+ "errors": [
+  {
+   "tail": "Error: order status is invalid to proceed the request\nbounce-grid: прогон остановлен",
+   "want": "invalid_order_status",
+   "got": "invalid_order_status",
+   "probabilities": {
+    "cache_missing": 0.0,
+    "invalid_order_status": 1.0,
+    "flag_refused": 0.0,
+    "new": 0.0,
+    "none": 0.0,
+    "oom": 0.0,
+    "disk_full": 0.0,
+    "k1_marker": 0.0
+   }
+  },
+  {
+   "tail": "error: the following required arguments were not provided:\n  --queue-model <QUEUE_MODEL>\n\nUsage: alpha lob bounce-grid",
+   "want": "flag_refused",
+   "got": "flag_refused",
+   "probabilities": {
+    "none": 0.02,
+    "cache_missing": 0.0,
+    "k1_marker": 0.0,
+    "flag_refused": 0.92,
+    "disk_full": 0.0,
+    "invalid_order_status": 0.0,
+    "oom": 0.0,
+    "new": 0.06
+   }
+  },
+  {
+   "tail": "Error: условие «цена ушла из полосы» (F5, В-74) требует --band-exit-bps: полоса — число замера, умолчания нет",
+   "want": "flag_refused",
+   "got": "flag_refused",
+   "probabilities": {
+    "k1_marker": 0.0,
+    "new": 0.01,
+    "oom": 0.0,
+    "disk_full": 0.0,
+    "flag_refused": 0.99,
+    "invalid_order_status": 0.0,
+    "cache_missing": 0.0,
+    "none": 0.0
+   }
+  },
+  {
+   "tail": "alpha-grid-nightly-2026-09-18-base.service: A process of this unit has been killed by the OOM killer.\nKilled",
+   "want": "oom",
+   "got": "oom",
+   "probabilities": {
+    "k1_marker": 0.0,
+    "flag_refused": 0.0,
+    "invalid_order_status": 0.0,
+    "oom": 1.0,
+    "none": 0.0,
+    "new": 0.0,
+    "cache_missing": 0.0,
+    "disk_full": 0.0
+   }
+  },
+  {
+   "tail": "Error: Os { code: 28, kind: StorageFull, message: \"No space left on device\" }",
+   "want": "disk_full",
+   "got": "disk_full",
+   "probabilities": {
+    "k1_marker": 0.0,
+    "flag_refused": 0.0,
+    "invalid_order_status": 0.0,
+    "oom": 0.0,
+    "new": 0.0,
+    "none": 0.0,
+    "cache_missing": 0.0,
+    "disk_full": 1.0
+   }
+  },
+  {
+   "tail": "Error: кэш подходов не годится: нет study/approaches/D20/2026-09-21/approaches-HYPEUSDT.csv (touches-from)",
+   "want": "cache_missing",
+   "got": "cache_missing",
+   "probabilities": {
+    "new": 0.0,
+    "invalid_order_status": 0.0,
+    "k1_marker": 0.0,
+    "disk_full": 0.0,
+    "flag_refused": 0.0,
+    "none": 0.0,
+    "oom": 0.0,
+    "cache_missing": 1.0
+   }
+  },
+  {
+   "tail": "bounce-grid: HYPEUSDT пропущен — нет маркера verify-HYPEUSDT.status == ok (K1), --allow-unverified для отладки",
+   "want": "k1_marker",
+   "got": "k1_marker",
+   "probabilities": {
+    "new": 0.0,
+    "k1_marker": 1.0,
+    "disk_full": 0.0,
+    "invalid_order_status": 0.0,
+    "flag_refused": 0.0,
+    "cache_missing": 0.0,
+    "none": 0.0,
+    "oom": 0.0
+   }
+  },
+  {
+   "tail": "thread 'main' panicked at src/lob/strategy.rs:1234:17:\nattempt to subtract with overflow\nnote: run with RUST_BACKTRACE=1",
+   "want": "new",
+   "got": "new",
+   "probabilities": {
+    "disk_full": 0.0,
+    "none": 0.0,
+    "k1_marker": 0.0,
+    "invalid_order_status": 0.0,
+    "new": 1.0,
+    "cache_missing": 0.0,
+    "flag_refused": 0.0,
+    "oom": 0.0
+   }
+  },
+  {
+   "tail": "warning: field `x` is never read\nbounce-grid: HYPEUSDT готов — суток 6, касаний 132117, 9.2s",
+   "want": "none",
+   "got": "none",
+   "probabilities": {
+    "cache_missing": 0.0,
+    "oom": 0.0,
+    "disk_full": 0.0,
+    "invalid_order_status": 0.01,
+    "flag_refused": 0.0,
+    "none": 0.98,
+    "k1_marker": 0.0,
+    "new": 0.01
+   }
+  }
+ ],
+ "summary": {
+  "model": "jev-1.13.0",
+  "r3_numbers_acc": 0.875,
+  "r3_hypothesis_acc": 1.0,
+  "err_class_acc": 1.0,
+  "n_prereg": 8,
+  "n_errors": 9,
+  "usage": {
+   "input_tokens": 22215,
+   "output_tokens": 1075,
+   "requests": 17,
+   "model": "jev-1.13.0"
+  }
+ }
+}

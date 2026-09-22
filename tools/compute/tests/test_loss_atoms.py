@@ -211,3 +211,20 @@ def test_missing_cache_is_empty_not_crash(tree: Path, tmp_path: Path) -> None:
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_wall_pick_respects_set_age(tree: Path, tmp_path: Path) -> None:
+    """Аудит 22.09 Т4: на одном взводе молодая стена ближе к входу, старая — дальше; с правилом
+    набора (`--min-age-secs`) атомы стены берутся у старой, без правила — прежний выбор."""
+    p = tree / "approaches" / "D20" / DAY / "approaches-TESTUSDT.csv"
+    with p.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        if r["approach_index"] == "0":
+            r["age_ms"] = "60000" if r["price_tick"] == "100" else "3000000"
+    write(p, list(rows[0]), rows)
+    take = lambda rs: next(r for r in rs if r["reason"] == "take")  # noqa: E731
+    old = take(run(tree, tmp_path / "old.csv"))
+    assert float(old["wall_age_min"]) == pytest.approx(1.0)
+    new = take(run(tree, tmp_path / "new.csv", ["--min-age-secs", "2700"]))
+    assert float(new["wall_age_min"]) == pytest.approx(50.0)

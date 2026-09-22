@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Страж предрегистрации (В-81, TypeSafe в мета-контуре): суждение о наборах сетки
-**до** запуска прогона — то, чего не хватило 21.09 (E15: набор `a45-bid:age=2700,
-side=bid,flow=100` объединил обе семьи флоров и занял имя ночного набора; вердикт
-«мало данных» оказался свойством набора, а не стратегии — аудит §8 Ф1).
+"""Страж предрегистрации (В-81; граница кода и модели — аудит дизайна 22.09 §1): проверка
+наборов сетки **до** запуска прогона — то, чего не хватило 21.09 (E15: набор `a45-bid:age=2700,
+side=bid,flow=100` объединил обе семьи флоров и занял имя ночного набора; вердикт «мало данных»
+оказался свойством набора, а не стратегии — аудит этапа F §8 Ф1).
 
-Код собирает **факты** (ключи набора, определение того же имени в ночи, ссылки на
-В-## в строке предрегистрации), TypeSafe даёт **суждение** по правилам проекта,
-страж отказывает при нарушении. Ключ — `TYPESAFE_API_KEY` из окружения.
+R1 (обе семьи флоров в одном наборе) и R2 (имя ночного набора с другими ключами) — правила,
+которые код вычисляет точно, поэтому их проверяет **код**, с жёстким отказом и без ключа
+TypeSafe. Раньше код считал эти факты и отдавал модели пересказать, а решение принималось по её
+вероятности; без ключа проверки не было вовсе (прогон шёл) — это и была подмена правила мнением.
+Модель (Jev) спрашивается только о R3 — семантике свободного текста строки предрегистрации
+(«у каждого числа-параметра есть ссылка на В-## или замер», «названа ли гипотеза»); её ответ —
+мнение с версией модели, отказ по нему — только при `--strict-r3`.
 
-    python tools/compute/prereg-guard.py --sets "a45-bid:age=2700,side=bid" \
-        --nightly tools/compute/nightly-grid.sh [--prereg "<строка runs.csv>"] [--json]
+    python tools/compute/prereg-guard.py --sets "a45-bid:age=2700,side=bid"         --nightly tools/compute/nightly-grid.sh [--prereg "<строка runs.csv>"] [--json]
 
-Выход 0 — наборы допустимы; 1 — отказ (причины в stdout); 2 — страж не смог
-спросить (нет ключа/сети): запуск **не** блокируется молча, причина печатается,
-решение — за вызывающим (`--strict` превращает 2 в 1).
+Выход 0 — допустимо; 1 — отказ по R1/R2 (или по R3 при `--strict-r3`); 2 — R1/R2 пройдены, но R3
+запрошен и не проверен (нет ключа/сети) — причина печатается, решение за вызывающим.
 """
 from __future__ import annotations
 
@@ -76,54 +78,15 @@ def nightly_sets(path: str) -> dict[str, dict[str, str]]:
     return out
 
 
-def facts_for(name: str, keys: dict[str, str], nightly: dict[str, dict[str, str]]) -> str:
-    has_age = any(k in keys for k in AGE_KEYS)
-    has_flow = any(k in keys for k in FLOW_KEYS)
+def rule_check(name: str, keys: dict[str, str], nightly: dict[str, dict[str, str]]) -> list[str]:
+    """R1/R2 кодом: список нарушений (пусто — набор допустим)."""
+    bad = []
+    if any(k in keys for k in AGE_KEYS) and any(k in keys for k in FLOW_KEYS):
+        bad.append("R1: обе семьи флоров (возраст и сила ×поток) — набор пуст по построению")
     night = nightly.get(name)
-    lines = [
-        f"Набор: {name}",
-        f"Ключи набора: {json.dumps(keys, ensure_ascii=False)}",
-        f"Ключ семьи «возраст» задан: {'да' if has_age else 'нет'}",
-        f"Ключ семьи «сила ×поток» задан: {'да' if has_flow else 'нет'}",
-    ]
-    if night is None:
-        lines.append("В ночной сетке набора с таким именем нет.")
-    else:
-        same = night == keys
-        lines.append(
-            f"В ночной сетке имя {name} определено как {json.dumps(night, ensure_ascii=False)} — "
-            f"{'те же ключи' if same else 'ДРУГИЕ ключи'}."
-        )
-    return "\n".join(lines)
-
-
-def judge_sets(j: Judge, specs: list[str], nightly: dict[str, dict[str, str]]) -> list[dict]:
-    results = []
-    for spec in specs:
-        name, keys = parse_set(spec)
-        state = RULES + "\nФакты о проверяемом наборе:\n" + facts_for(name, keys, nightly)
-        ans = j.ask(
-            state,
-            {
-                "both_families": Judge.noul(
-                    "Судя по фактам и правилу R1, объединяет ли этот набор обе семьи флоров "
-                    "(и возраст, и силу) — то есть пуст ли он по построению?"
-                ),
-                "name_collision": Judge.noul(
-                    "Судя по фактам и правилу R2, занимает ли набор имя ночного набора с другими ключами?"
-                ),
-                "verdict": Judge.choice(
-                    "Допустим ли набор для прогона по правилам R1–R2?",
-                    {
-                        "valid": "Набор не нарушает R1 и R2: одна семья флоров, имя либо новое, либо совпадает с ночным по ключам",
-                        "invalid": "Набор нарушает R1 (обе семьи) или R2 (имя ночного набора с другими ключами)",
-                        "unclear": "По фактам нельзя решить",
-                    },
-                ),
-            },
-        )
-        results.append({"set": spec, "name": name, "keys": keys, "answers": ans})
-    return results
+    if night is not None and night != keys:
+        bad.append(f"R2: имя ночного набора {name} с другими ключами (в ночи {json.dumps(night, ensure_ascii=False)})")
+    return bad
 
 
 def judge_prereg(j: Judge, row: str) -> dict:
@@ -147,55 +110,50 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sets", nargs="+", required=True, help="наборы `<имя>:<k=v,…>`")
     ap.add_argument("--nightly", default="tools/compute/nightly-grid.sh", help="скрипт ночи — источник имён")
-    ap.add_argument("--prereg", default=None, help="строка предрегистрации для проверки R3")
+    ap.add_argument("--prereg", default=None, help="строка предрегистрации для проверки R3 (модель)")
     ap.add_argument("--json", action="store_true", help="печать полного ответа")
-    ap.add_argument("--strict", action="store_true", help="недоступность стража — отказ (выход 1), не 2")
+    ap.add_argument("--strict", action="store_true", help="R3 не проверен (нет ключа/сети) — отказ (1), не 2")
+    ap.add_argument("--strict-r3", action="store_true", help="отказ, если модель считает R3 нарушенным (p < 0.5)")
     a = ap.parse_args()
+
+    nightly = nightly_sets(a.nightly)
+    refused = False
+    report: dict = {"sets": []}
+    for spec in a.sets:
+        name, keys = parse_set(spec)
+        bad = rule_check(name, keys, nightly)
+        refused |= bool(bad)
+        report["sets"].append({"set": spec, "violations": bad})
+        print(f"{'ОТКАЗ' if bad else 'ок':5} {spec}: " + ("; ".join(bad) if bad else "R1/R2 соблюдены (проверка кодом)"))
+    if refused:
+        print("prereg-guard: ОТКАЗ — прогон не запускать (R1/R2, код)")
+        return 1
+    if a.prereg is None:
+        print("prereg-guard: допустимо (R1/R2 кодом; R3 не запрашивался)")
+        return 0
 
     try:
         j = Judge()
-    except MissingKey as e:
-        print(f"prereg-guard: {e}")
+        prereg = judge_prereg(j, a.prereg)
+    except (MissingKey, RuntimeError) as e:
+        print(f"prereg-guard: R1/R2 ок; R3 НЕ ПРОВЕРЕН — {e}")
         return 1 if a.strict else 2
-
-    nightly = nightly_sets(a.nightly)
-    try:
-        results = judge_sets(j, a.sets, nightly)
-        prereg = judge_prereg(j, a.prereg) if a.prereg else None
-    except RuntimeError as e:
-        print(f"prereg-guard: {e}")
-        return 1 if a.strict else 2
-
-    refused = False
-    for r in results:
-        ans = r["answers"]
-        both = ans["both_families"]["noul"]
-        coll = ans["name_collision"]["noul"]
-        verdict = ans["verdict"]["choice"]
-        conf = ans["verdict"]["confidence"]
-        bad = verdict == "invalid" or both >= 0.5 or coll >= 0.5
-        refused |= bad
-        flag = "ОТКАЗ" if bad else "ок"
-        print(
-            f"{flag:5} {r['set']}: обе семьи p={both:.2f}, коллизия имени p={coll:.2f}, "
-            f"вердикт={verdict} ({conf:.2f})"
-        )
-    if prereg is not None:
-        ns = prereg["numbers_sourced"]["noul"]
-        hn = prereg["hypothesis_named"]["noul"]
-        bad = ns < 0.5
-        refused |= bad
-        print(
-            f"{'ОТКАЗ' if bad else 'ок':5} prereg: числа со ссылками p={ns:.2f}, "
-            f"гипотеза названа p={hn:.2f}"
-        )
-    if a.json:
-        print(json.dumps({"sets": results, "prereg": prereg, "usage": j.usage}, ensure_ascii=False, indent=1))
+    ns = prereg["numbers_sourced"]["noul"]
+    hn = prereg["hypothesis_named"]["noul"]
+    r3_bad = ns < 0.5
     print(
-        f"prereg-guard: {'ОТКАЗ — прогон не запускать' if refused else 'допустимо'}; "
-        f"TypeSafe {j.usage['requests']} запросов, {j.usage['input_tokens']}/{j.usage['output_tokens']} токенов"
+        f"{'ОТКАЗ' if (r3_bad and a.strict_r3) else ('СМОТРЕТЬ' if r3_bad else 'ок'):8} prereg — мнение модели "
+        f"{j.model_version}: числа со ссылками p={ns:.2f}, гипотеза названа p={hn:.2f}"
     )
-    return 1 if refused else 0
+    report["prereg"] = prereg
+    if a.json:
+        report["usage"] = j.usage
+        print(json.dumps(report, ensure_ascii=False, indent=1))
+    if r3_bad and a.strict_r3:
+        print("prereg-guard: ОТКАЗ по R3 (--strict-r3)")
+        return 1
+    print(f"prereg-guard: допустимо; TypeSafe {j.usage['requests']} запросов, {j.usage['input_tokens']}/{j.usage['output_tokens']} токенов")
+    return 0
 
 
 if __name__ == "__main__":

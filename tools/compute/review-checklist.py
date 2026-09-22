@@ -101,9 +101,9 @@ def main() -> int:
         rows.append({"file": f, "hot": hot, "answers": ans})
         print(
             f"{sev:9} {f}: H1 {ans['hot_path_violation']['noul']:.2f}, число {ans['invented_number']['noul']:.2f}, "
-            f"тест {ans['test_weak']['noul']:.2f} ({ans['severity']['confidence']:.2f})"
+            f"тест {ans['test_weak']['noul']:.2f} (концентрация {ans['severity']['confidence']:.2f})"
         )
-    print(f"review-checklist: файлов {len(rows)}, важно/блокер {flagged}; TypeSafe {j.usage['requests']} запросов, {j.usage['input_tokens']}/{j.usage['output_tokens']} токенов")
+    print(f"review-checklist: мнение модели {j.model_version} — подсказка ревьюеру, не вердикт; файлов {len(rows)}, важно/блокер {flagged}; TypeSafe {j.usage['requests']} запросов, {j.usage['input_tokens']}/{j.usage['output_tokens']} токенов")
     if a.json:
         print(json.dumps(rows, ensure_ascii=False, indent=1))
     return 1 if flagged else 0

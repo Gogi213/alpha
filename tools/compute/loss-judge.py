@@ -79,16 +79,20 @@ def state_text(name: str, f: dict) -> str:
                  f"{sum(1 for r in dl if lr.fnum(r['reached_take']) == 1)}; медиана хода в пользу "
                  f"{lr.q([lr.fnum(r['favour_hold']) for r in dl if lr.fnum(r['favour_hold']) is not None], 0.5)} bps")
     lines.append("Кандидаты в фильтр (предвходовые атомы; порог = квартиль убыточной группы; "
-                 "цена правила на тех же сделках) — не больше двух атомов, чтобы не раздувать запрос:")
-    shown: set[str] = set()
+                 "цена правила на тех же сделках; «дни» — сколько суток правило улучшает P&L, кодом):")
+    days_all = sorted({r["day"] for r in f["rows"]})
     for c in f["filters"]:
-        if c["atom"] not in shown:
-            if len(shown) >= 2:
-                continue
-            shown.add(c["atom"])
+        better = 0
+        for d in days_all:
+            sub = [r for r in f["rows"] if r["day"] == d]
+            cd = lr.filter_cost(sub, c["atom"], c["threshold"], c["side"] == "≥")
+            better += 1 if cd["cut_pnl"] < 0 else 0
+        c["days_better"] = better
+        c["days_total"] = len(days_all)
         lines.append(f"  {c['atom']}: порог {'≥' if c['side'] == '≥' else '≤'}{c['threshold']:.2f} → "
                      f"режет {c['cut_n']} сделок ({c['cut_neg']} минусовых), теряет прибыль "
-                     f"${c['cut_pnl']:.2f}, P&L {c['kept_pnl']:.2f} из {total:.2f}")
+                     f"${c['cut_pnl']:.2f}, P&L {c['kept_pnl']:.2f} из {total:.2f}; "
+                     f"улучшает P&L в {better} сутках из {len(days_all)}")
     if not f["filters"]:
         lines.append("  нет предвходовых атомов с расхождением ≥ 0.25 IQR")
     return "\n".join(lines)
@@ -101,13 +105,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json-out")
     a = ap.parse_args(argv)
 
-    state = state_text(os.path.basename(a.atoms), facts(a.atoms))
+    fa = facts(a.atoms)
+    state = state_text(os.path.basename(a.atoms), fa)
     if a.neighbour:
         nf = facts(a.neighbour)
         state += "\n\nСоседняя форма (другие ttl/дедлайн/выход — сравнивать 1:1 нельзя, только знак):\n"
         state += state_text(os.path.basename(a.neighbour), nf)
     print(state)
-    print("\n--- суждение ---")
 
     try:
         j = Judge()
@@ -115,38 +119,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"loss-judge: {e} — только факты (выход 2)")
         return 2
 
+    # Аудит дизайна 22.09 §1: варианты выбора — только атомы, описанные в фактах (раньше в
+    # запрос уходили два, а вариантов было семь — ответ был почти вынужден); «риск подгонки»
+    # больше не спрашивается у модели (на вопрос «есть ли риск» она отвечает ~0.7 без данных) —
+    # устойчивость по суткам считает код (`улучшает P&L в K сутках из N`). Ответы — мнение модели.
+    cands = {c["atom"]: f"фильтр по {c['atom']}" for c in fa["filters"]}
+    cands["none"] = "обоснованного предвходового кандидата нет"
     ans = j.ask(state, {
         "separates": Judge.noul(
             "Есть ли среди атомов, известных ДО входа, такой, что разделяет убыточные и прибыльные "
             "сделки устойчиво (а не как следствие хода цены после входа)?"),
         "best_candidate": Judge.choice(
-            "Какой предвходовой кандидат в фильтр самый обоснованный по этим фактам?",
-            {
-                "pool_4h": "режим пула за 4 ч (рынок уже вырос — вход хуже)",
-                "btc_4h": "ход BTC за 4 ч",
-                "wall_age_min": "возраст стены",
-                "strength_w20": "сила стены ×поток",
-                "flow_1h_lots": "поток монеты за час",
-                "arm_dist_bps": "расстояние взвода от стены",
-                "none": "обоснованного кандидата нет — предвходовые атомы не разделяют",
-            }),
-        "overfit_1909": Judge.noul(
-            "Есть ли риск, что любой вывод этого разбора подогнан под день 19.09 (единственный "
-            "минусовой день) и развалится на новых днях?"),
+            "Какой из перечисленных в фактах предвходовых кандидатов самый обоснованный?", cands),
         "next": Judge.choice(
             "Что делать дальше по этому разбору?",
             {
-                "hold_more": "держать дольше (дедлайн/тейк дальше) — тейк не достигался ни разу",
+                "hold_more": "держать дольше (дедлайн/тейк дальше)",
                 "exit_gone": "выход по снятию стены вместо 2 %-стопа",
                 "stop1": "стоп 1 % вместо 2 %",
-                "filter_pool": "фильтр по режиму пула (предвходовой)",
+                "filter": "предвходовой фильтр из кандидатов",
                 "collect_days": "ничего не менять, копить дни падения и перепроверять",
-                "replay_binlog": "пересчитать по бинлогам точный ход цены и ленте (A7/A4 точно)",
+                "replay_binlog": "пересчитать по бинлогам точный ход цены и ленте",
             }),
-        "confidence": Judge.score(
-            "Насколько уверенно эти данные (5 дней, 128 сделок, 54 минусовых) поддерживают фильтр?",
+        "support": Judge.score(
+            "Насколько эти данные поддерживают введение фильтра?",
             ["случайность", "слабый намёк", "есть основание", "уверенно"]),
     })
+    print(f"--- мнение модели {j.model_version} (не метрика; числа выше посчитаны кодом) ---")
     print(json.dumps(ans, ensure_ascii=False, indent=1))
     print("usage:", json.dumps(j.usage))
     if a.json_out:

@@ -58,16 +58,39 @@ def claude_state(text: str, limit: int = 3000) -> str:
     return "\n\n".join(paras[-2:])[:limit]
 
 
+TESTS_RE = re.compile(r"(\d{3,4})\s*(?:passed|/0/\d)|тест\w*\s*\**\s*(\d{3,4})")
+
+
+def tests_by_source(sources: dict[str, str]) -> dict[str, int]:
+    """Число тестов — кодом (аудит 22.09 §1: сравнение чисел — не суждение): наибольшее
+    названное в каждом источнике (в последнем состоянии оно же самое свежее)."""
+    out: dict[str, int] = {}
+    for name, text in sources.items():
+        nums = [int(a or b) for a, b in TESTS_RE.findall(text)]
+        if nums:
+            out[name] = max(nums)
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plan", default="docs/plan/dev-plan-2026-09-20.md")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    sources = {
+        "index": index_state(read(".memory/index.md")),
+        "log": log_tail(read(".memory/log.md")),
+        "plan": plan_table(read(a.plan)),
+        "claude": claude_state(read("CLAUDE.md")),
+    }
+    tests = tests_by_source(sources)
+    tests_ok = len(set(tests.values())) <= 1
+    tests_line = "тесты (код): " + (", ".join(f"{k} {v}" for k, v in tests.items()) or "нигде не названы")
     try:
         j = Judge()
     except MissingKey as e:
-        print(f"plan-log-check: {e}")
-        return 2
+        print(f"plan-log-check: {'тесты СОГЛАСОВАНЫ' if tests_ok else 'тесты РАСХОДЯТСЯ'} — {tests_line}; суждение о тексте: {e}")
+        return 0 if tests_ok else 1
     state = "\n\n".join(
         [
             "Четыре источника состояния проекта alpha. Нужно найти расхождения по существу (следующий шаг, "
@@ -81,7 +104,6 @@ def main() -> int:
     qs = {
         "next_step_agrees": Judge.noul("Все четыре источника называют один и тот же следующий шаг (или не противоречат друг другу о нём)?"),
         "closed_open_agrees": Judge.noul("Список закрытых/открытых задач согласован между планом, памятью и CLAUDE.md (нет задачи, которая в одном месте «закрыта», в другом «не начата»)?"),
-        "tests_agree": Judge.noul("Число тестов (passed) одинаково там, где оно названо?"),
         "run_status_agrees": Judge.noul("Статус текущего прогона/ночи (идёт, упал, невалиден, сделан) не противоречит между источниками?"),
         "worst": Judge.choice(
             "Самое существенное расхождение",
@@ -89,7 +111,7 @@ def main() -> int:
                 "none": "расхождений по существу нет",
                 "next_step": "разный следующий шаг",
                 "task_status": "статус задачи противоречив",
-                "numbers": "разные числа (тесты, круги, HEAD)",
+                "numbers": "разные числа (круги, HEAD)",
                 "run_status": "статус прогона/ночи противоречив",
                 "stale_source": "один из источников явно устарел целиком (описывает прошлое состояние как текущее)",
             },
@@ -100,15 +122,15 @@ def main() -> int:
     except RuntimeError as e:
         print(f"plan-log-check: {e}")
         return 2
-    bad = [k for k in ("next_step_agrees", "closed_open_agrees", "tests_agree", "run_status_agrees") if ans[k]["noul"] < 0.5]
+    bad = [k for k in ("next_step_agrees", "closed_open_agrees", "run_status_agrees") if ans[k]["noul"] < 0.5]
+    if not tests_ok:
+        bad.append("tests")
     worst = ans["worst"]["choice"]
     print(
         "plan-log-check: "
         + ("СОГЛАСОВАНО" if not bad and worst == "none" else "РАСХОДЯТСЯ")
-        + " — шаг {:.2f}, задачи {:.2f}, тесты {:.2f}, прогон {:.2f}; главное: {} ({:.2f})".format(
-            ans["next_step_agrees"]["noul"], ans["closed_open_agrees"]["noul"], ans["tests_agree"]["noul"],
-            ans["run_status_agrees"]["noul"], worst, ans["worst"]["confidence"],
-        )
+        + f" — {tests_line}; мнение модели {j.model_version}: шаг p={ans['next_step_agrees']['noul']:.2f}, "
+        + f"задачи p={ans['closed_open_agrees']['noul']:.2f}, прогон p={ans['run_status_agrees']['noul']:.2f}; главное: {worst}"
     )
     if a.json:
         print(json.dumps(ans, ensure_ascii=False, indent=1))

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Чтение вердиктов сетки (В-81 п. 2, TypeSafe в мета-контуре): по каждому `bounce-verdict-*.csv`
-— факты кодом (лучшие формы по нижней границе и по точке, доля форм с n ≥ 100, доли выходов),
-суждение моделью: живые формы для короткого списка, мёртвые оси, что читать человеку. Итог —
-таблица на набор + короткий список форм, вместо чтения 8 × 300 строк.
+"""Чтение вердиктов сетки (В-81 п. 2; граница кода и модели — аудит дизайна 22.09 §1): по каждому
+`bounce-verdict-*.csv` — итог вердикта (`ИТОГ:` из шапки), лучшие формы по нижней границе и по
+точке, доля форм с n ≥ 100, ось с наибольшим разбросом средних точек — всё кодом. Модель (Jev) —
+только мнение «есть ли что посмотреть глазами», с версией модели. Короткий список форм модель
+больше не составляет: раньше её рамка переименовывала машинный «красный» в «перспективный».
 
     python3 bin/verdict-read.py study/bounce-verdict-f10fix-*.csv [--top 5] [--json]
 
-Ключ — `TYPESAFE_API_KEY` (на счётной — /etc/alpha/typesafe.env). Без ключа — выход 2 и только
-факты (таблица без суждения).
+Ключ — `TYPESAFE_API_KEY`; без ключа печатаются только факты, выход 0.
 """
 from __future__ import annotations
 
@@ -45,6 +45,8 @@ def read_verdict(path: str) -> tuple[dict, list[dict]]:
         if l.startswith("# лучшая форма"):
             m = re.search(r"DSR=([-0-9.]+)", l)
             head["dsr_best"] = float(m.group(1)) if m else None
+        if "ИТОГ:" in l:
+            head["verdict"] = l.split("ИТОГ:", 1)[1].strip()
     for r in csv.DictReader(body):
         try:
             rows.append(
@@ -110,46 +112,46 @@ def facts(head: dict, rows: list[dict], top: int) -> tuple[str, dict]:
             *axis_lines,
         ]
     )
+    # Ось с наибольшим разбросом средних точек по её значениям — кодом (раньше спрашивали модель).
+    spread = {
+        k: max(sum(p) / len(p) for p in vals.values()) - min(sum(p) / len(p) for p in vals.values())
+        for k, vals in axes.items()
+        if len(vals) > 1
+    }
     summary = {
         "grid": head.get("grid", head["path"]),
+        "verdict": head.get("verdict", "?"),
         "forms": len(rows),
         "gated": len(gated),
         "pos_lower": len(pos_lower),
         "best_lower": by_lower[0] if by_lower else None,
         "best_point": by_point[0] if by_point else None,
+        "axis": max(spread, key=spread.get) if spread else "none",
+        "axis_spread_bps": round(max(spread.values()), 2) if spread else 0.0,
     }
     return text, summary
 
 
 CONTEXT = (
-    "Проект alpha ищет альфу в отскоке от крупных плотностей стакана. Вердикт сетки: форма — вход "
-    "(лестница), стоп, тейк, дедлайн, срок жизни входа (ttl), выход (none/eat/gone). Ворота «торгуем»: "
-    "n ≥ 100 сделок и нижняя граница net_fill > 0 (бутстрэп по суткам). В РАЗБОРЕ порога по числу сделок "
-    "нет (владелец): форма с 60 сделками и точкой +12 bps — сильный сигнал, который надо копить, а не "
-    "отбрасывать. «Живая» форма — та, что имеет смысл оставить в коротком списке для следующих ночей: "
-    "точка заметно > 0 при нижней границе не хуже, чем у соседей по числу сделок, доля стопов не доминирует. «Мёртвая ось» — значение оси, чьи формы стабильно хуже "
-    "остальных. Комиссии круга ~4.4 bps уже вычтены (net)."
+    "Проект alpha: бэктест отскока от крупных плотностей стакана. Вердикт сетки: форма — вход "
+    "(лестница), стоп, тейк, дедлайн, срок жизни входа (ttl), выход (none/eat/gone). Итог вердикта, "
+    "лучшие формы и ось с наибольшим разбросом уже посчитаны кодом. Комиссии круга уже вычтены (net)."
 )
 
 
 def judge_set(j: Judge, text: str) -> dict:
+    # Аудит дизайна 22.09 §1: прежняя рамка вкладывала в модель тезис «60 сделок и +12 bps —
+    # сильный сигнал» и определяла вариант «перспективный» как «нижняя граница объяснима малой
+    # выборкой» — машинный «красный» переименовывался в «перспективный». Статус и ось теперь
+    # решает код; модель спрашивается только о том, что стоит посмотреть глазами.
     return j.ask(
         CONTEXT + "\n\nФакты вердикта:\n" + text,
         {
-            "status": Judge.choice(
-                "Как читать этот набор?",
-                {
-                    "promising": "есть формы с точкой заметно выше нуля (независимо от числа сделок) при нижней границе, объяснимой малой выборкой — держать в коротком списке, копить сутки",
-                    "flat": "формы вокруг нуля (точка < ~1 bps) — стратегия на этом наборе не зарабатывает",
-                    "negative": "точки отрицательны у большинства форм — набор вредит",
-                    "insufficient": "сделок настолько мало (единицы), что точка — шум; нужны сутки",
-                },
+            "human_needed": Judge.noul(
+                "Есть ли в фактах что-то неожиданное, что человеку стоит посмотреть глазами "
+                "(аномальная доля одной причины выхода, странный разрыв точки и нижней границы, "
+                "форма с числом сделок намного больше остальных)?"
             ),
-            "keep_axis_hint": Judge.choice(
-                "Какая ось сильнее всего разделяет формы по точке (судя по средним по осям)?",
-                {"entry": "лестница входа", "stop": "стоп", "take": "тейк", "deadline": "дедлайн", "ttl": "срок жизни входа", "exit": "форма выхода", "none": "различия невелики"},
-            ),
-            "human_needed": Judge.noul("Есть ли в фактах что-то неожиданное, что человеку стоит посмотреть глазами (аномальная доля выходов, странный разрыв точка/нижняя, форма с n ≫ остальных)?"),
         },
     )
 
@@ -166,7 +168,6 @@ def main() -> int:
         print(f"verdict-read: {e} — только факты")
         j = None
     out = []
-    shortlist: list[tuple[str, dict]] = []
     for p in a.paths:
         head, rows = read_verdict(p)
         text, summ = facts(head, rows, a.top)
@@ -176,28 +177,27 @@ def main() -> int:
                 ans = judge_set(j, text)
             except RuntimeError as e:
                 print(f"verdict-read: {e}")
-        status = ans["status"]["choice"] if ans else "?"
-        conf = ans["status"]["confidence"] if ans else 0.0
-        axis = ans["keep_axis_hint"]["choice"] if ans else "?"
-        human = ans["human_needed"]["noul"] if ans else 0.0
         b = summ["best_lower"]
         best = f"{b['form']} (n={b['n']}, точка {b['point']:+.2f}, нижняя {b['lower']:+.2f})" if b else "—"
-        print(
-            f"{os.path.basename(p)}: {status} ({conf:.2f}); форм n≥100: {summ['gated']}/{summ['forms']}, "
-            f"нижняя>0: {summ['pos_lower']}; лучшая по нижней: {best}; ось: {axis}; глазами: {human:.2f}"
+        opinion = (
+            f"; мнение модели {j.model_version}: посмотреть глазами p={ans['human_needed']['noul']:.2f}"
+            if ans and j is not None else ""
         )
-        if status == "promising" and b:
-            shortlist.append((summ["grid"], b))
+        # Первым — машинный итог вердикта (аудит 22.09 §4 С6: статус перед числами).
+        print(
+            f"{os.path.basename(p)}: ИТОГ {summ['verdict']}; форм n≥100: {summ['gated']}/{summ['forms']}, "
+            f"нижняя>0: {summ['pos_lower']}; лучшая по нижней: {best}; ось разброса: {summ['axis']} "
+            f"({summ['axis_spread_bps']:+.2f} bps){opinion}"
+        )
         out.append({"path": p, "facts": text, "summary": summ, "answers": ans})
-    if shortlist:
-        print("Короткий список (лучшая по нижней границе в перспективных наборах):")
-        for g, b in shortlist:
-            print(f"  {g}: {b['form']}")
     if j is not None:
-        print(f"verdict-read: TypeSafe {j.usage['requests']} запросов, {j.usage['input_tokens']}/{j.usage['output_tokens']} токенов")
+        print(
+            f"verdict-read: TypeSafe {j.model_version}, {j.usage['requests']} запросов, "
+            f"{j.usage['input_tokens']}/{j.usage['output_tokens']} токенов"
+        )
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
-    return 0 if j is not None else 2
+    return 0
 
 
 if __name__ == "__main__":
