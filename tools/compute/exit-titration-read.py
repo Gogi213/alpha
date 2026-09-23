@@ -2,7 +2,7 @@
 """Сводка титрования выхода лонга (план 2026-09-23, G9): по каждому набору и форме выхода — «история»
 и «запись» рядом: сделок, net на сделку, контроль «рост рынка», превышение, суток с превышением > 0, $.
 
-Читает `study/placebo-<тег>-<стоп>-<набор>.csv` (placebo.py по всем формам склейки) каждой эпохи.
+Читает `study/placebo-<тег>-<прогон>-<набор>.csv` (placebo.py по всем формам склейки) каждой эпохи.
 Это чтение титрования, не вердикт: форма «держится», если знак net совпал в обеих эпохах при n ≥ --min-n.
 
     exit-titration-read.py --tag titrx-<метка> --epoch история=<дом>/study --epoch запись=<дом>/study [--csv out]
@@ -34,7 +34,7 @@ def short_form(form):
 def read_epoch(study, tag):
     rows = {}
     for name in os.listdir(study):
-        m = re.match(rf"placebo-{re.escape(tag)}-(pct[0-9.]+)-(t-.+)\.csv$", name)
+        m = re.match(rf"placebo-{re.escape(tag)}-(.+?)-(t-(?:bid|ask)-.+)\.csv$", name)
         if not m:
             continue
         set_name = m.group(2)
