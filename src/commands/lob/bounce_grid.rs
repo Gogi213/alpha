@@ -123,8 +123,9 @@ use super::{
 };
 use crate::book::Side;
 use crate::lob::backtest::{
-    drive_bounce, drive_bounce_windowed, roundtrip_net_bps, with_backtest_over, BounceRun,
-    BounceSignal, DriveConfig, ExecLatency, QueueModelKind, SignalWindows,
+    drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, roundtrip_net_bps,
+    with_backtest_over, BounceRun, BounceSignal, DriveConfig, ExecLatency, QueueModelKind,
+    RoundMemo, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -804,6 +805,11 @@ pub struct BounceGridArgs {
     /// эталон для гейта «побайтово те же круги».
     #[arg(long, value_enum, default_value_t = DriverArg::Setups)]
     pub driver: DriverArg,
+    /// Память кругов (G10, владелец 2026-09-23: «ускорить бэктест без потерь»): круг формы, уже
+    /// посчитанный для одного набора, остальные наборы берут готовым — итог побайтово тот же.
+    /// `off` — прежний счёт каждого набора с нуля (гейт «те же байты»). Только `--driver setups`.
+    #[arg(long = "round-memo", default_value = "on", value_parser = ["on", "off"])]
+    pub round_memo: String,
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,
@@ -1591,6 +1597,8 @@ fn store_event_count(path: &Path, n: usize) {
 /// Параметры прогона суток одной структурой (clippy держит предел семи аргументов).
 #[derive(Debug, Clone, Copy)]
 struct DayParams<'a> {
+    /// Память кругов по форме (G10, `--round-memo`); `None` — счёт с нуля.
+    memos: Option<&'a [Mutex<RoundMemo>]>,
     tick: f64,
     lot: f64,
     rtt_ns: ExecLatency,
@@ -1686,7 +1694,18 @@ fn drive_day(
                 let step = signals_for(touches, approaches, p.sigma, &forms[i], &p).and_then(
                     |(signals, skipped)| {
                         let driven = match windows {
-                            Some(w) => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
+                            Some(w) => match p.memos {
+                                // Память формы берёт один поток за раз: форма в наборе одна.
+                                Some(ms) => {
+                                    let mut m = ms[i]
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                    drive_bounce_windowed_memo(
+                                        events, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                    )
+                                }
+                                None => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
+                            },
                             None => with_backtest_over(
                                 events,
                                 p.tick,
@@ -2616,6 +2635,16 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
+            // G10: память кругов на символ-сутки, по форме — наборы идут по очереди и берут
+            // посчитанные круги готовыми. Один набор повторов не даёт — памяти нет.
+            let memos: Vec<Mutex<RoundMemo>> =
+                if windows.is_some() && args.round_memo == "on" && sets.len() > 1 {
+                    (0..forms.len())
+                        .map(|_| Mutex::new(RoundMemo::default()))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
             for (set, out) in sets.iter().zip(outs.iter_mut()) {
                 let forms_done = {
                     let forms_ref = &forms;
@@ -2639,6 +2668,11 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         day.approaches.as_deref(),
                         &forms,
                         DayParams {
+                            memos: if memos.is_empty() {
+                                None
+                            } else {
+                                Some(memos.as_slice())
+                            },
                             tick,
                             lot,
                             rtt_ns: args.median_rtt_ns,
@@ -2682,6 +2716,15 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 rounds,
                 day_started.elapsed().as_secs_f64()
             );
+            if !memos.is_empty() {
+                let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
+                    let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));
+                    (h + a, m + b)
+                });
+                eprintln!(
+                    "bounce-grid:   память кругов: из памяти {hits}, посчитано движком {misses}"
+                );
+            }
         }
         summary.symbols_done += 1;
         eprintln!(

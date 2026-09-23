@@ -583,6 +583,16 @@ impl OrphanCarry {
     pub fn len(&self) -> usize {
         usize::from(self.n)
     }
+
+    /// Те же партии в нумерации другого прогона: номера заявок сдвинуты с базы `from` на базу
+    /// `to` (память кругов сетки, G10: круг, взятый из памяти другого набора, отдаёт сирот в
+    /// нумерации своего прогона — иначе номер сироты мог бы совпасть с заявкой следующего круга).
+    pub fn rebased(mut self, from: u64, to: u64) -> OrphanCarry {
+        for b in self.batches.iter_mut().take(usize::from(self.n)) {
+            b.first = b.first.wrapping_sub(from).wrapping_add(to);
+        }
+        self
+    }
 }
 
 impl StrategyState {

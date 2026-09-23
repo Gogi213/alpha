@@ -162,6 +162,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         days: Vec::new(),
         threads: Some(3),
         driver: DriverArg::Setups,
+        round_memo: "on".to_string(),
         out_dir: root.join("grid"),
         allow_unverified,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).
@@ -938,6 +939,47 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
+}
+
+/// G10: память кругов (`--round-memo on`, умолчание) против прежнего счёта с нуля (`off`) на тех
+/// же наборах — тела `rounds.csv` и `forms.csv` каждого набора побайтово одни и те же.
+#[test]
+fn round_memo_keeps_every_set_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let sets = vec![
+        "all:".to_string(),
+        "bid:side=bid".to_string(),
+        "ask:side=ask,age=0".to_string(),
+    ];
+    let mut on = args(dir.path(), false);
+    on.out_dir = dir.path().join("memo-on");
+    on.sets = sets.clone();
+    let mut off = args(dir.path(), false);
+    off.out_dir = dir.path().join("memo-off");
+    off.sets = sets.clone();
+    off.round_memo = "off".to_string();
+    let a = run_bounce_grid(&on).unwrap();
+    let b = run_bounce_grid(&off).unwrap();
+    assert_eq!(a.rounds, b.rounds);
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for (x, y) in a.sets.iter().zip(b.sets.iter()) {
+        assert_eq!(x.name, y.name);
+        assert_eq!(
+            body(&x.rounds_path),
+            body(&y.rounds_path),
+            "rounds {}",
+            x.name
+        );
+        assert_eq!(body(&x.forms_path), body(&y.forms_path), "forms {}", x.name);
+    }
 }
 
 /// Ключ `eaten=<%>` (S1 плана по сторонам): `eaten=100` ничего не выбивает —

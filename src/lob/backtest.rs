@@ -1209,6 +1209,7 @@ fn entry_market_px(plan: TradePlan) -> Option<f64> {
 }
 
 /// Итог одного круга в терминах драйвера.
+#[derive(Clone)]
 enum RoundOutcome {
     /// Круг закрыт: обе ноги исполнены, причина выхода известна.
     Filled {
@@ -1584,6 +1585,7 @@ where
 /// прогона (`drive_bounce`) и прогона по сетапам (`drive_bounce_windowed`):
 /// различие только в том, откуда берётся движок, — иначе это была бы вторая
 /// стратегия.
+#[derive(Clone)]
 enum SignalStep {
     /// Часы не дошли до `t0`: запись кончилась.
     EndOfData,
@@ -1734,6 +1736,92 @@ where
     })
 }
 
+/// Память кругов сетки (G10, владелец 2026-09-23: «ускорить бэктест без потерь»). В прогоне по
+/// сетапам круг — свежий движок над окном `t0`: его итог задают окно, сторона, план и настройка
+/// драйвера, а не прежние круги формы и не набор (`--set` только выбирает сигналы). Поэтому круг
+/// формы, уже посчитанный для одного набора, другой набор берёт готовым. Ключ — `t0`, сторона и
+/// план целиком; вместе с шагом хранятся число израсходованных номеров заявок и сироты круга —
+/// нумерация следующих кругов идёт так же, как без памяти (`OrphanCarry::rebased`). Только для
+/// `drive_bounce_windowed_memo`: у сплошного прогона круг зависит от состояния движка.
+#[derive(Default)]
+pub struct RoundMemo {
+    by_t0: std::collections::BTreeMap<i64, Vec<MemoEntry>>,
+    hits: u64,
+    misses: u64,
+}
+
+struct MemoEntry {
+    sigma: i8,
+    plan: TradePlan,
+    step: Option<SignalStep>,
+    /// База номеров заявок прогона, посчитавшего круг, и сколько номеров круг израсходовал;
+    /// `0` — движок сигнала не запускался (сироты входа не трогались).
+    id_base: u64,
+    ids_used: u64,
+    carry_out: OrphanCarry,
+}
+
+impl RoundMemo {
+    /// Круг из памяти для прогона с базой номеров `id_base`: шаг, число номеров и сироты
+    /// (в нумерации этого прогона; `None` — движок не запускался, сироты прежние).
+    fn recall(
+        &mut self,
+        sig: &BounceSignal,
+        id_base: u64,
+    ) -> Option<(Option<SignalStep>, u64, Option<OrphanCarry>)> {
+        let hit = self
+            .by_t0
+            .get(&sig.t0_ns)
+            .and_then(|v| {
+                v.iter()
+                    .find(|e| e.sigma == sig.sigma && e.plan == sig.plan)
+            })
+            .map(|e| {
+                let carry = (e.ids_used > 0).then(|| e.carry_out.rebased(e.id_base, id_base));
+                (e.step.clone(), e.ids_used, carry)
+            });
+        if hit.is_some() {
+            self.hits += 1;
+        } else {
+            self.misses += 1;
+        }
+        hit
+    }
+
+    fn store(
+        &mut self,
+        sig: &BounceSignal,
+        step: Option<SignalStep>,
+        id_base: u64,
+        ids_used: u64,
+        carry_out: OrphanCarry,
+    ) {
+        self.by_t0.entry(sig.t0_ns).or_default().push(MemoEntry {
+            sigma: sig.sigma,
+            plan: sig.plan,
+            step,
+            id_base,
+            ids_used,
+            carry_out,
+        });
+    }
+
+    /// Сколько кругов взято из памяти и сколько посчитано движком.
+    pub fn stats(&self) -> (u64, u64) {
+        (self.hits, self.misses)
+    }
+}
+
+impl std::fmt::Debug for RoundMemo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoundMemo")
+            .field("t0", &self.by_t0.len())
+            .field("hits", &self.hits)
+            .field("misses", &self.misses)
+            .finish()
+    }
+}
+
 impl BounceRun {
     /// Прогон, который не сделал ни шага: запись кончилась до первого сигнала.
     fn nothing(profile: u16, signals: u64) -> Self {
@@ -1775,6 +1863,7 @@ fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
+    mut memo: Option<&mut RoundMemo>,
     mut source: S,
 ) -> Result<BounceRun, B::Error>
 where
@@ -1842,9 +1931,34 @@ where
             observations.push(miss_observation(sig.t0_ns));
             continue;
         }
-        let step = source(sig, &mut |bot: &mut B| {
-            drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
-        })?;
+        // Память кругов (G10): круг, уже посчитанный над тем же окном с тем же планом, берётся
+        // готовым; номера заявок и сироты продолжаются так, как если бы его считали здесь.
+        let recalled = memo.as_deref_mut().and_then(|m| m.recall(sig, next_id));
+        let step = match recalled {
+            Some((step, ids_used, carry_out)) => {
+                next_id = next_id.saturating_add(ids_used);
+                if let Some(c) = carry_out {
+                    carry = c;
+                }
+                step
+            }
+            None => {
+                let id_base = next_id;
+                let step = source(sig, &mut |bot: &mut B| {
+                    drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
+                })?;
+                if let Some(m) = memo.as_deref_mut() {
+                    m.store(
+                        sig,
+                        step.clone(),
+                        id_base,
+                        next_id.wrapping_sub(id_base),
+                        carry,
+                    );
+                }
+                step
+            }
+        };
         let Some(step) = step else {
             incomplete = true;
             break;
@@ -2021,7 +2135,8 @@ where
         let profile = signals.first().map(|s| s.profile).unwrap_or(0);
         return Ok(BounceRun::nothing(profile, signals.len() as u64));
     }
-    let run = drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, |_, step| step(bot).map(Some))?;
+    let run =
+        drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, None, |_, step| step(bot).map(Some))?;
     bot.clear_inactive_orders(Some(asset_no));
     Ok(run)
 }
@@ -2046,10 +2161,36 @@ pub fn drive_bounce_windowed(
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
 ) -> Result<BounceRun, BacktestError> {
+    windowed_with(events, windows, signals, cfg, exec_latency, None)
+}
+
+/// То же, что `drive_bounce_windowed`, но с памятью кругов (G10): круги, уже посчитанные над теми
+/// же окнами с теми же планами (другим набором той же формы), берутся из `memo`. Итог — побайтово
+/// тот же, что без памяти (гейт «те же байты» в `bounce-grid --round-memo on|off`).
+pub fn drive_bounce_windowed_memo(
+    events: &[Event],
+    windows: &SignalWindows,
+    signals: &[BounceSignal],
+    cfg: &DriveConfig,
+    exec_latency: ExecLatency,
+    memo: &mut RoundMemo,
+) -> Result<BounceRun, BacktestError> {
+    windowed_with(events, windows, signals, cfg, exec_latency, Some(memo))
+}
+
+fn windowed_with(
+    events: &[Event],
+    windows: &SignalWindows,
+    signals: &[BounceSignal],
+    cfg: &DriveConfig,
+    exec_latency: ExecLatency,
+    memo: Option<&mut RoundMemo>,
+) -> Result<BounceRun, BacktestError> {
     drive_bounce_with::<Backtest<HashMapMarketDepth>, HashMapMarketDepth, _>(
         0,
         signals,
         cfg,
+        memo,
         |sig, step| {
             let Some(w) = windows.window_at(sig.t0_ns) else {
                 return Ok(None);

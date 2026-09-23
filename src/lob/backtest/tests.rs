@@ -1050,6 +1050,48 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
     assert_eq!(full.misses.busy, 1, "второй сигнал пришёл внутри круга");
     assert_eq!(full.fill_exit_ns.len(), 2);
     assert!(full.fill_exit_ns[0] < full.fill_exit_ns[1]);
+
+    // G10: память кругов. «Набор A» (все три сигнала) заполняет память, «набор B» (без первого
+    // сигнала — у него другая занятость и другая нумерация заявок) берёт круги из неё; итог B
+    // обязан совпасть с его же прогоном без памяти, а память — сработать.
+    let mut memo = RoundMemo::default();
+    let a = drive_bounce_windowed_memo(
+        &feed,
+        &windows,
+        &signals,
+        &drive_cfg(),
+        ExecLatency::uniform(1_000_000),
+        &mut memo,
+    )
+    .unwrap();
+    assert_eq!(a, win, "с пустой памятью прогон тот же");
+    let subset = [signal(3 * S), signal(61 * S)];
+    let plain_b = drive_bounce_windowed(
+        &feed,
+        &windows,
+        &subset,
+        &drive_cfg(),
+        ExecLatency::uniform(1_000_000),
+    )
+    .unwrap();
+    let memo_b = drive_bounce_windowed_memo(
+        &feed,
+        &windows,
+        &subset,
+        &drive_cfg(),
+        ExecLatency::uniform(1_000_000),
+        &mut memo,
+    )
+    .unwrap();
+    assert_eq!(
+        memo_b, plain_b,
+        "круги из памяти обязаны дать тот же прогон"
+    );
+    let (hits, _) = memo.stats();
+    assert!(
+        hits >= 1,
+        "второй набор обязан взять хотя бы круг 61 с из памяти: {hits}"
+    );
 }
 
 /// Снимок книги воспроизводит `HashMapMarketDepth` крейта поле в поле,
