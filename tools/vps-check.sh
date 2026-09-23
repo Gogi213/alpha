@@ -4,6 +4,7 @@
 #   tools/vps-check.sh <рабочее дерево> [test|clippy|fmt|build|all] [фильтр тестов]
 # Переносит отслеживаемые и новые файлы дерева (без target*/data/) архивом с сохранением времени изменения —
 # неизменённые файлы cargo не пересобирает; сборка — в отдельном target-wave2, не в каталоге сборок для дека.
+# Сборки на VPS идут по очереди: замок /opt/alpha-compute/.build.lock (его же берёт сборка бинарника для дека).
 set -euo pipefail
 TREE="${1:?рабочее дерево}"
 WHAT="${2:-all}"
@@ -28,4 +29,4 @@ case "$WHAT" in
 esac
 # shellcheck disable=SC2029
 ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf /opt/alpha-compute/wave2.tgz -C $SRC \
-  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && nice -n 5 bash -c '$CMD'"
+  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock nice -n 5 bash -c '$CMD'"
