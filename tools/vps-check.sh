@@ -12,9 +12,10 @@ KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Ге�
 HOST=root@13.140.29.171
 SRC=/opt/alpha-compute/wave2-src
 TGT=/opt/alpha-compute/target-wave2
-ARC="${TEMP:-/tmp}/wave2-$$.tgz"
+TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
+ARC="$TMPD/wave2-$$.tgz"
 cd "$TREE"
-git ls-files -z --cached --others --exclude-standard | tar --null -T - -czf "$ARC"
+git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 scp -q "${KEY[@]}" "$ARC" "$HOST:/opt/alpha-compute/wave2.tgz"
 rm -f "$ARC"
 case "$WHAT" in
