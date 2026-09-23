@@ -87,6 +87,9 @@ class Judge:
             headers={
                 "Authorization": f"Bearer {self._key}",
                 "Content-Type": "application/json",
+                # Без своей подписи Cloudflare перед API отвечает 403 «error code: 1010» на
+                # стандартный `Python-urllib` (дек, домашний адрес, 23.09); с VPS проходило и так.
+                "User-Agent": "alpha-judge/1.0",
             },
         )
         delay = 1.0
