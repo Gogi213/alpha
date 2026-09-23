@@ -74,6 +74,7 @@ def main():
     ap.add_argument("--form-trades", action="append", default=[],
                     help="сделки одной формы другого прогона: <каталог b5>|<набор>|<форма>|<ключ> (титрование выхода, G9)")
     ap.add_argument("--exit-agg", default=None, help="сводка exit-titration-read.py (CSV) — встраивается как есть")
+    ap.add_argument("--pool", default=None, help="instruments.csv пула — список монет для статистики по монетам")
     a = ap.parse_args()
 
     with open(a.points, encoding="utf-8") as f:
@@ -131,6 +132,9 @@ def main():
     if a.exit_agg:
         with open(a.exit_agg, encoding="utf-8") as f:
             out["exit_agg"] = list(csv.DictReader(f))
+    if a.pool:
+        with open(a.pool, encoding="utf-8") as f:
+            out["pool"] = [r["symbol"] for r in csv.DictReader(l for l in f if not l.startswith("#"))]
     out["columns"] = ["epoch", "day", "symbol", "t0_min", "exit_min", "net_bps", "control_bps", "reason", "fill_frac"]
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))

@@ -131,6 +131,14 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     </div>
   </section>
 
+  <section class="panel" aria-labelledby="h-coins">
+    <div class="panel-head"><h2 id="h-coins">По монетам</h2><p class="note">Все 100 монет пула за 01–22.09. Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
+    <div class="toggle" id="coin-variants"></div>
+    <p class="case-answer" id="coin-summary"></p>
+    <div class="scroll"><table id="coin-table"></table></div>
+    <p class="note" id="coin-idle"></p>
+  </section>
+
   <section class="panel" aria-labelledby="h-cases">
     <div class="panel-head"><h2 id="h-cases">Кейсы</h2><p class="note">Выберите вопрос. Таблица — все варианты кейса, график — эквити тех же вариантов.</p></div>
     <div class="nav" id="case-nav"></div>
@@ -606,6 +614,68 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     document.getElementById("dips").innerHTML = html + "</tbody>";
   }
 
+  // ---------- по монетам ----------
+  const COIN_VARIANTS = [
+    ["form:" + CAND_SET + "/cand", "Кандидат: просадка BTC 1 ч, стоп 2 %, трейл, 4 ч"],
+    ["form:" + CAND_SET + "/tr05", "Гладкий: тот же вход, ранний трейл 0,5 / 0,25 %"],
+    ["form:t-bid-btc4h-q1/h4", "Просадка BTC 4 ч, стоп 2 %, тейк 1,75 %, 4 ч"],
+    ["sets:" + BASE_SET, "База F10: все входы"],
+  ];
+  let coinVariant = COIN_VARIANTS[0][0], coinSort = "usd", coinDir = -1;
+  function coinRows(src) {
+    const by = {};
+    for (const r of trades(src)) (by[r[COL.sym]] = by[r[COL.sym]] || []).push(r);
+    return Object.entries(by).map(([sym, t]) => {
+      const s = stats(t), h = t.filter(r => r[COL.epoch] === HIST), rc = t.filter(r => r[COL.epoch] === REC);
+      return {sym, n: s.n, nh: h.length, nr: rc.length, win: s.win, usd: s.usd,
+        uh: h.reduce((a, r) => a + r[COL.net] / 10, 0), ur: rc.reduce((a, r) => a + r[COL.net] / 10, 0), avg: s.avg, dd: s.dd};
+    });
+  }
+  function renderCoinStats() {
+    const tg = document.getElementById("coin-variants");
+    tg.innerHTML = "<span>Вариант:</span>";
+    for (const [src, label] of COIN_VARIANTS) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(src === coinVariant));
+      b.addEventListener("click", () => { coinVariant = src; renderCoinStats(); });
+      tg.appendChild(b);
+    }
+    const rows = coinRows(coinVariant);
+    const total = rows.reduce((a, r) => a + r.usd, 0);
+    const byUsd = rows.slice().sort((a, b) => b.usd - a.usd);
+    const top5 = byUsd.slice(0, 5).reduce((a, r) => a + r.usd, 0);
+    const pos = rows.filter(r => r.usd > 0).length;
+    const pool = D.pool || [];
+    document.getElementById("coin-summary").innerHTML = "Торговали <b>" + rows.length + "</b> монет из " + (pool.length || "—") +
+      ", в плюсе <b>" + pos + "</b>, в минусе " + (rows.length - pos) + ". Итог " + money(total) + "; пять лучших монет дают " + money(top5) +
+      (total > 0 ? " — <b>" + Math.round(top5 / total * 100) + " %</b> прибыли" : "") + ".";
+    // Монеты пула без сделок — тоже строками таблицы (владелец: «стата по всем монетам»).
+    const tradedSet = new Set(rows.map(r => r.sym));
+    for (const sym of pool) if (!tradedSet.has(sym)) rows.push({sym, n: 0, nh: 0, nr: 0, win: 0, usd: 0, uh: 0, ur: 0, avg: 0, dd: 0, idle: true});
+    const key = {sym: r => r.sym, n: r => r.n, win: r => r.win, usd: r => r.usd, uh: r => r.uh, ur: r => r.ur, avg: r => r.avg, dd: r => r.dd};
+    rows.sort((a, b) => {
+      if (!!a.idle !== !!b.idle) return a.idle ? 1 : -1;  // монеты без сделок — всегда внизу
+      const x = key[coinSort](a), y = key[coinSort](b);
+      return (x < y ? -1 : x > y ? 1 : 0) * coinDir;
+    });
+    const head = [["sym", "Монета"], ["n", "Сделок"], ["win", "В плюс"], ["usd", "Доход"], ["uh", "История"], ["ur", "Запись"], ["avg", "Средняя, bps"], ["dd", "Худшая просадка"]];
+    let html = "<thead><tr>" + head.map(([k, l]) => "<th data-k='" + k + "'" + (k === coinSort ? " aria-sort='" + (coinDir > 0 ? "ascending" : "descending") + "'" : "") + " style='cursor:pointer'>" + l + "</th>").join("") + "</tr></thead><tbody>";
+    for (const r of rows) {
+      if (r.idle) {
+        html += "<tr><td style='color:var(--ink-3)'>" + r.sym + "</td><td class='num' style='color:var(--ink-3)'>0</td><td class='num' style='color:var(--ink-3)'>—</td><td class='num' style='color:var(--ink-3)'>$0</td><td></td><td></td><td></td><td></td></tr>";
+        continue;
+      }
+      html += "<tr><td>" + r.sym + "</td><td class='num'>" + r.n + " <span style='color:var(--ink-3)'>(" + r.nh + " / " + r.nr + ")</span></td><td class='num'>" + Math.round(r.win * 100) +
+        " %</td><td class='num " + cls(r.usd) + "'>" + money(r.usd) + "</td><td class='num " + cls(r.uh) + "'>" + money(r.uh) + "</td><td class='num " + cls(r.ur) + "'>" + money(r.ur) +
+        "</td><td class='num " + cls(r.avg) + "'>" + bps(r.avg) + "</td><td class='num " + cls(r.dd) + "'>" + money(r.dd) + "</td></tr>";
+    }
+    const tbl = document.getElementById("coin-table");
+    tbl.innerHTML = html + "</tbody>";
+    tbl.querySelectorAll("th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (k === coinSort) coinDir = -coinDir; else { coinSort = k; coinDir = k === "sym" ? 1 : -1; } renderCoinStats(); }));
+    const idleN = rows.filter(r => r.idle).length;
+    document.getElementById("coin-idle").textContent = idleN ? "Без сделок за период: " + idleN + " монет — показаны серым с нулями." : "";
+  }
+
   function renderCharts() {
     if (typeof Chart === "undefined") return;
     Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
@@ -615,7 +685,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
   buildNav();
   kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
-  renderReasons(); renderCoins(); renderTrades(); renderDips();
+  renderReasons(); renderCoins(); renderTrades(); renderDips(); renderCoinStats();
   renderCharts();
   try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts); } catch (e) {}
   new MutationObserver(renderCharts).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
