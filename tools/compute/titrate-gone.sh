@@ -9,6 +9,7 @@
 set -uo pipefail
 A="${ALPHA_BASE:-$HOME/alpha}"
 TAG="${1:?метка}"
+# TRIALS="" — пересчёт тех же испытаний (исправление бэктеста, 23.09 полночь), не новые: в журнал не пишутся.
 HIST="${HIST_HOME:-$A/epochs/e-archive}"
 BIN="${BIN:?бинарник с gone<W>tr<T> — BIN=bin/alpha-<хеш>}"
 LOG="$A/study/titrate-gone-$TAG.log"
@@ -25,7 +26,7 @@ done
 say "32 формы × 3 набора, история и запись, $BIN"
 for epoch in "$HIST:2026-09-01" "$A:2026-09-16"; do
   ALPHA_HOME="${epoch%%:*}" FROM_DAY="${epoch##*:}" OOS_DIR="b5/titrg-$TAG" SETS="$SETS" BIN="$BIN" \
-    FORM_EXIT="$gone" FORM_NAME=all VERDICT_FLAGS=--log-trials RUNS=study/runs-2026-09-19.csv \
+    FORM_EXIT="$gone" FORM_NAME=all VERDICT_FLAGS="${TRIALS---log-trials}" RUNS=study/runs-2026-09-19.csv \
     GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-4}" "$A/bin/oos-frozen.sh" > /dev/null 2>&1 &
 done
 wait

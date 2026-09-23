@@ -109,6 +109,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       <span class="chip">проверено ~900 вариантов (52 + 756 + 96)</span>
       <span class="chip">форма подбиралась на 16–20.09 — на графиках заштриховано</span>
       <span class="chip">«история» — поток 200 уровней (100 мс), запись — 50 уровней: двойник не посчитан</span>
+      <span class="chip warn" id="data-note" hidden></span>
     </div>
   </header>
 
@@ -129,6 +130,35 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       <h3>Кандидат по дням, $</h3>
       <div class="chart h-md"><canvas id="cand-daily" role="img" aria-label="Результат кандидата по дням"></canvas></div>
     </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-prot" id="prot">
+    <div class="panel-head"><h2 id="h-prot">Защита портфеля</h2><p class="note">Все сделки варианта — одним счётом во
+      времени. Деньги — в % депозита (на $10 000 — умножить на $100). Три периода: история, запись и обвал 10–11.10.2025.</p></div>
+    <p class="case-answer" id="prot-answer"></p>
+    <div class="toggle" id="prot-variant"></div>
+    <div class="toggle" id="prot-lot"></div>
+    <div class="toggle" id="prot-cap"></div>
+    <div class="toggle" id="prot-day"></div>
+    <div class="toggle" id="prot-kill"></div>
+    <div class="scroll"><table class="kpi" id="prot-kpi"></table></div>
+    <div style="min-width:0;display:grid;gap:8px">
+      <h3>Все сочетания защит для выбранных варианта и лота</h3>
+      <p class="note">Строка — выбрать её выше; заголовок — отсортировать.</p>
+      <div class="scroll"><table class="trades" id="prot-table"></table></div>
+    </div>
+    <details><summary>Как считается</summary><ul>
+      <li>Сделки — бэктест варианта на лоте; здесь они идут общим счётом: вход — момент сигнала (с запасом: заявка стоит до
+        30 мин), выход — как в бэктесте. Позиции, открытые к полуночи UTC, досчитаны на следующих сутках.</li>
+      <li><b>Потолок</b> — сумма открытых лотов, % депозита; вход сверх потолка пропускается.</li>
+      <li><b>Дневной стоп</b> — реализованный убыток суток UTC дошёл до порога — до конца суток новых входов нет.</li>
+      <li><b>Выключатель</b> — BTC за последний час упал сильнее порога: все открытые позиции закрываются рыночным по
+        закрытию следующей минуты, новых входов нет, пока падение держится. Цена закрытия — минутная свеча монеты
+        (приближение; честный проход по стакану — следующий шаг).</li>
+      <li><b>Стресс</b> — сценарий, которого в сделках не было: провал вроде 10.10.2025 застал пик одновременных позиций
+        периода. Убыток позиции — худший прокид монеты пула в тот вечер: без выключателя −59,7 %, с выключателем — худший
+        убыток при закрытии по нему (замер <code>crash-gaps.py</code>).</li>
+    </ul></details>
   </section>
 
   <section class="panel" aria-labelledby="h-coins">
@@ -203,6 +233,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const CAND_SET = "t-bid-btc1h-q1";
   const BASE_SET = "t-bid-age-45";
   document.getElementById("gen").textContent = D.generated_utc;
+  if (D.data_note) { const n = document.getElementById("data-note"); n.textContent = D.data_note; n.hidden = false; }
 
   // ---------- общие вычисления ----------
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -676,6 +707,97 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     document.getElementById("coin-idle").textContent = idleN ? "Без сделок за период: " + idleN + " монет — показаны серым с нулями." : "";
   }
 
+  // ---------- защита портфеля (G11, В-88) ----------
+  const P = D.protection;
+  const protSel = P ? {variant: P.variants[0].name, lot: P.lot[P.lot.length - 1], cap: 0, day_stop: 0, kill: 0} : null;
+  let protSort = "all", protDir = -1;
+  const PIDX = {};
+  const protKey = (v, e, lot, cap, ds, k) => [v, e, lot, cap, ds, k].join("|");
+  if (P) for (const g of P.grid) PIDX[protKey(g.variant, g.epoch, g.lot, g.cap, g.day_stop, g.kill)] = g;
+  const pnum = v => (v > 0.005 ? "+" : v < -0.005 ? "−" : "") + Math.abs(v).toFixed(2).replace(".", ",") + " %";
+  const killLabel = k => k ? "BTC −" + String(k / 100).replace(".", ",") + " % за 1 ч" : "нет";
+  const capLabel = c => c ? c + " %" : "нет";
+  const dstopLabel = d => d ? "−" + String(d).replace(".", ",") + " %" : "нет";
+  const EPOCH_LABEL = {"история": "История 01–15.09", "запись": "Запись 16–22.09", "обвал": "Обвал 10–11.10.2025"};
+  function protToggle(id, label, values, fmt, field) {
+    const tg = document.getElementById(id);
+    tg.innerHTML = "<span>" + label + ":</span>";
+    for (const v of values) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = fmt(v); b.setAttribute("aria-pressed", String(v === protSel[field]));
+      b.addEventListener("click", () => { protSel[field] = v; renderProtection(); });
+      tg.appendChild(b);
+    }
+  }
+  function renderProtection() {
+    if (!P) { document.getElementById("prot").hidden = true; return; }
+    const s = protSel;
+    protToggle("prot-variant", "Вариант", P.variants.map(v => v.name), v => v, "variant");
+    protToggle("prot-lot", "Лот, % депозита", P.lot, v => String(v).replace(".", ",") + " %", "lot");
+    protToggle("prot-cap", "Потолок открытых, % депозита", P.cap, capLabel, "cap");
+    protToggle("prot-day", "Дневной стоп", P.day_stop, dstopLabel, "day_stop");
+    protToggle("prot-kill", "Выключатель", P.kill, killLabel, "kill");
+    const at = (e, cap, ds, k) => PIDX[protKey(s.variant, e, s.lot, cap, ds, k)];
+    const G = P.epochs.map(e => at(e, s.cap, s.day_stop, s.kill));
+    const N = P.epochs.map(e => at(e, 0, 0, 0));
+    const rows = [
+      ["Сделок", g => g.n, null],
+      ["Итог, % депозита", g => pnum(g.total), g => g.total],
+      ["Худший откат, % депозита", g => pnum(g.dd), g => g.dd],
+      ["Худшие сутки, % депозита", g => pnum(g.worst_day_pct) + " <span style='color:var(--ink-3);font-size:12px'>" + dayLabel(g.worst_day) + "</span>", g => g.worst_day_pct],
+      ["Худшая сделка, % депозита", g => pnum(g.worst_trade), g => g.worst_trade],
+      ["В плюс, % сделок", g => Math.round(g.win * 100) + " %", null],
+      ["Пик одновременных позиций", g => g.peak_n, null],
+      ["Пропущено входов: потолок / дн. стоп / BTC", g => g.skip["потолок"] + " / " + g.skip["день"] + " / " + g.skip["btc"], null],
+      ["Закрыто выключателем", g => g.killed, null],
+      ["Стресс: провал на пике позиций", g => pnum(-g.stress), g => -g.stress],
+    ];
+    let html = "<thead><tr><th></th>" + P.epochs.map(e => "<th>" + (EPOCH_LABEL[e] || e) + "</th>").join("") + "</tr></thead><tbody>";
+    for (const [label, fmt, sign] of rows) {
+      html += "<tr><td>" + label + "</td>";
+      G.forEach((g, i) => {
+        if (!g) { html += "<td class='num'>—</td>"; return; }
+        const base = N[i] && (s.cap || s.day_stop || s.kill) ? "<span style='display:block;color:var(--ink-3);font-size:12px'>без защит: " + fmt(N[i]) + "</span>" : "";
+        html += "<td class='num big " + (sign ? cls(sign(g)) : "") + "'>" + fmt(g) + base + "</td>";
+      });
+      html += "</tr>";
+    }
+    document.getElementById("prot-kpi").innerHTML = html + "</tbody>";
+    const ok = G.filter(Boolean);
+    const worstDay = Math.min(...ok.map(g => g.worst_day_pct));
+    const maxStress = Math.max(...ok.map(g => g.stress));
+    const parts = P.epochs.map((e, i) => G[i] ? (e + " " + pnum(G[i].total)) : null).filter(Boolean);
+    document.getElementById("prot-answer").innerHTML = "<b>" + s.variant + "</b>, лот " + String(s.lot).replace(".", ",") + " %: " + parts.join(", ") +
+      ". Худшие сутки — <b>" + pnum(worstDay) + "</b> депозита; если провал застанет пик позиций — <b>" + pnum(-maxStress) + "</b>.";
+    // таблица всех сочетаний
+    const combos = [];
+    for (const cap of P.cap) for (const ds of P.day_stop) for (const k of P.kill) {
+      const g = P.epochs.map(e => at(e, cap, ds, k));
+      if (!g.some(Boolean)) continue;
+      const tot = g.map(x => x ? x.total : null);
+      combos.push({cap, ds, k, g, all: tot.reduce((a, v) => a + (v || 0), 0),
+        worst: Math.min(...g.filter(Boolean).map(x => x.worst_day_pct)), stress: Math.max(...g.filter(Boolean).map(x => x.stress))});
+    }
+    const keyf = {cap: c => c.cap, ds: c => c.ds, k: c => c.k, all: c => c.all, worst: c => c.worst, stress: c => -c.stress};
+    P.epochs.forEach((e, i) => { keyf["e" + i] = c => (c.g[i] ? c.g[i].total : -1e9); keyf["d" + i] = c => (c.g[i] ? c.g[i].worst_day_pct : -1e9); });
+    combos.sort((a, b) => { const x = keyf[protSort](a), y = keyf[protSort](b); return (x < y ? -1 : x > y ? 1 : 0) * protDir; });
+    const th = (k, l, extra) => "<th data-k='" + k + "'" + (k === protSort ? " aria-sort='" + (protDir > 0 ? "ascending" : "descending") + "'" : "") + (extra || "") + ">" + l + "</th>";
+    let t = "<thead><tr class='grp'><th colspan='3'></th>" + P.epochs.map(e => "<th colspan='2' class='sep'>" + (EPOCH_LABEL[e] || e) + "</th>").join("") + "<th colspan='3' class='sep'>Все периоды</th></tr><tr>" +
+      th("cap", "Потолок") + th("ds", "Дн. стоп") + th("k", "Выключатель") +
+      P.epochs.map((e, i) => th("e" + i, "Итог", " class='sep'") + th("d" + i, "Худш. сутки")).join("") +
+      th("all", "Итог", " class='sep'") + th("worst", "Худш. сутки") + th("stress", "Стресс") + "</tr></thead><tbody>";
+    for (const c of combos) {
+      const cur = c.cap === s.cap && c.ds === s.day_stop && c.k === s.kill;
+      t += "<tr data-c='" + c.cap + "|" + c.ds + "|" + c.k + "' style='cursor:pointer" + (cur ? ";background:var(--chip);font-weight:600" : "") + "'><td>" + capLabel(c.cap) + "</td><td>" + dstopLabel(c.ds) + "</td><td>" + killLabel(c.k) + "</td>" +
+        c.g.map(g => g ? "<td class='num sep " + cls(g.total) + "'>" + pnum(g.total) + "</td><td class='num " + cls(g.worst_day_pct) + "'>" + pnum(g.worst_day_pct) + "</td>" : "<td class='sep'>—</td><td>—</td>").join("") +
+        "<td class='num sep " + cls(c.all) + "'>" + pnum(c.all) + "</td><td class='num " + cls(c.worst) + "'>" + pnum(c.worst) + "</td><td class='num neg'>" + pnum(-c.stress) + "</td></tr>";
+    }
+    const tbl = document.getElementById("prot-table");
+    tbl.innerHTML = t + "</tbody>";
+    tbl.querySelectorAll("th[data-k]").forEach(h => h.addEventListener("click", () => { const k = h.dataset.k; if (k === protSort) protDir = -protDir; else { protSort = k; protDir = ["cap", "ds", "k"].includes(k) ? 1 : -1; } renderProtection(); }));
+    tbl.querySelectorAll("tr[data-c]").forEach(r => r.addEventListener("click", () => { const [cap, ds, k] = r.dataset.c.split("|").map(Number); s.cap = cap; s.day_stop = ds; s.kill = k; renderProtection(); }));
+  }
+
   function renderCharts() {
     if (typeof Chart === "undefined") return;
     Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
@@ -685,7 +807,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
   buildNav();
   kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
-  renderReasons(); renderCoins(); renderTrades(); renderDips(); renderCoinStats();
+  renderReasons(); renderCoins(); renderTrades(); renderDips(); renderCoinStats(); renderProtection();
   renderCharts();
   try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts); } catch (e) {}
   new MutationObserver(renderCharts).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});

@@ -15,6 +15,7 @@
 set -uo pipefail
 A="${ALPHA_BASE:-$HOME/alpha}"
 TAG="${1:?метка}"
+# TRIALS="" — пересчёт тех же испытаний (исправление бэктеста, 23.09 полночь), не новые: в журнал не пишутся.
 HIST="${HIST_HOME:-$A/epochs/e-archive}"
 LOG="$A/study/titrate-exit-$TAG.log"
 say() { echo "== $(date -u +%FT%TZ) titrate-exit $TAG: $*" | tee -a "$LOG"; }
@@ -36,7 +37,7 @@ for run in fix trail wall; do
   say "прогон $run: история и запись"
   for epoch in "$HIST:2026-09-01" "$A:2026-09-16"; do
     ALPHA_HOME="${epoch%%:*}" FROM_DAY="${epoch##*:}" OOS_DIR="b5/titrx-$TAG-$run" SETS="$SETS" \
-      FORM_EXIT="${!run}" FORM_NAME=all VERDICT_FLAGS=--log-trials RUNS=study/runs-2026-09-19.csv \
+      FORM_EXIT="${!run}" FORM_NAME=all VERDICT_FLAGS="${TRIALS---log-trials}" RUNS=study/runs-2026-09-19.csv \
       GRID_THREADS="${GRID_THREADS:-2}" "$A/bin/oos-frozen.sh" > /dev/null 2>&1 &
   done
   wait

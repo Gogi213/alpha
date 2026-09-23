@@ -34,9 +34,11 @@ ALPHA_HOME="$HOME_E" NIGHT_TAG=e-crash-h3 TOUCHES_ONLY=1 H3_DAYS="${DAYS[*]}" "$
 SETS=$(tr ' ' '\n' < "$A/study/titration-sets-v1.txt" \
   | grep -E '^(t-bid-age-45|t-bid-btc1h-q1|t-bid-btc4h-q1):' | tr '\n' ' ')
 [ "$(echo "$SETS" | wc -w)" -eq 3 ] || { say "наборы v1 не найдены"; exit 1; }
-FORM="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --deadline-secs 14400 --exit-form none"
-say "кандидат: 2 формы × 3 набора, $BIN"
-ALPHA_HOME="$HOME_E" FROM_DAY="${DAYS[0]}" OOS_DIR=b5/crash SETS="$SETS" BIN="$BIN" FORM_EXIT="$FORM" \
+# Формы — варианты раздела «Защита» дашборда: кандидат (трейл 1/1), гладкий (0.5/0.25), тейк 1.75 % (семья BTC 4 ч).
+FORM="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.75 --deadline-secs 14400 --exit-form none"
+RUN="${CRASH_RUN:-b5/crash}"
+say "кандидат: 3 формы × 3 набора, $BIN → $RUN"
+ALPHA_HOME="$HOME_E" FROM_DAY="${DAYS[0]}" OOS_DIR="$RUN" SETS="$SETS" BIN="$BIN" FORM_EXIT="$FORM" \
   FORM_NAME=all RUNS=study/runs-2026-09-19.csv GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-2}" \
   "$A/bin/oos-frozen.sh" >> "$LOG" 2>&1
-say "готово → $HOME_E/b5/crash"
+say "готово → $HOME_E/$RUN"
