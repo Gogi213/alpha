@@ -19,11 +19,11 @@ git ls-files -z --cached --others --exclude-standard | tar --force-local --null 
 scp -q "${KEY[@]}" "$ARC" "$HOST:/opt/alpha-compute/wave2.tgz"
 rm -f "$ARC"
 case "$WHAT" in
-  test)   CMD="cargo test --release --target-dir $TGT -j 3 $FILTER 2>&1 | tail -25" ;;
+  test)   CMD="cargo test --release --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
   clippy) CMD="cargo clippy --release --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 | tail -25" ;;
   build)  CMD="cargo build --release --target-dir $TGT -j 3 2>&1 | tail -5" ;;
-  all)    CMD="cargo fmt --check 2>&1 | tail -10 && cargo clippy --release --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release --target-dir $TGT -j 3 2>&1 | tail -8" ;;
+  all)    CMD="cargo fmt --check 2>&1 | tail -10 && cargo clippy --release --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
   *) echo "неизвестно: $WHAT"; exit 2 ;;
 esac
 # shellcheck disable=SC2029
