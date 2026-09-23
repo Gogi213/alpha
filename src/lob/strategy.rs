@@ -409,6 +409,12 @@ pub enum TradePlan {
         /// (bps от входа). Снятие — защёлка: вернувшаяся стена трейл не выключает. `0` — выход
         /// сразу, как в F7. Вход в сетку как `gone<W>tr<T>`.
         gone_trail_bps: f64,
+        /// Безубыток после снятия стены (владелец 2026-09-23: «снятие — стоп в ноль, дальше базовый
+        /// трейлинг»): `1` — мягкий (`gone<W>be`): стоп переносится в безубыток (вход плюс круг
+        /// комиссий), как только после снятия цена у безубытка или лучше; `2` — жёсткий
+        /// (`gone<W>bex`): то же, но если на снятии позиция хуже безубытка — выход по рынку сразу.
+        /// `0` — выключено. Базовый трейл плана работает как обычно.
+        gone_be: u8,
     },
 }
 
@@ -479,6 +485,9 @@ pub struct StrategyState {
     /// Лучшая цена «в пользу позиции» **с момента снятия стены** — база трейла после снятия
     /// (`gone_trail_bps`). `0.0` — снятия ещё не было (трейл не взведён).
     gone_peak: f64,
+    /// Безубыток после снятия (`gone_be`): снятие уже было (защёлка) и стоп уже в безубытке.
+    gone_seen: bool,
+    be_active: bool,
     /// E7: частичный выход уже был в этом круге (второй раз не делится).
     partial_done: bool,
     /// Максимум размера плотности уровня с момента входа — база съедания
@@ -618,6 +627,8 @@ impl StrategyState {
             plan,
             best_favourable: 0.0,
             gone_peak: 0.0,
+            gone_seen: false,
+            be_active: false,
             partial_done: false,
             level_qty_max: 0.0,
             level_qty_at_entry: 0.0,
@@ -1230,6 +1241,7 @@ where
             exit_eat_pct,
             exit_gone_pct,
             gone_trail_bps,
+            gone_be,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -1310,9 +1322,37 @@ where
                 && state.gone_peak > 0.0
                 && entry_px > 0.0
                 && (state.gone_peak - favourable).abs() / entry_px * 10_000.0 >= gone_trail_bps;
+            // Безубыток после снятия (владелец 23.09): снятие взводит защёлку; стоп переносится в
+            // цену, при которой круг закрывается в ноль с комиссиями (вход мейкером, выход тейкером),
+            // как только позиция у неё или лучше. Жёсткий режим закрывает позицию хуже безубытка сразу.
+            if gone_be > 0 && gone_hit {
+                state.gone_seen = true;
+            }
+            let be_px = match entry_side {
+                HbtSide::Buy => entry_px * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
+                _ => entry_px * (1.0 - crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
+            };
+            if state.gone_seen && !state.be_active && entry_px > 0.0 {
+                let at_be = match entry_side {
+                    HbtSide::Buy => favourable >= be_px,
+                    _ => favourable <= be_px,
+                };
+                if at_be {
+                    state.be_active = true;
+                }
+            }
+            let be_hard_exit = gone_be == 2 && state.gone_seen && !state.be_active;
+            let stop_eff = if state.be_active {
+                match entry_side {
+                    HbtSide::Buy => stop_px.max(be_px),
+                    _ => stop_px.min(be_px),
+                }
+            } else {
+                stop_px
+            };
             let (stop_hit, take_hit) = match entry_side {
-                HbtSide::Buy => (bid <= stop_px, bid >= take_px),
-                _ => (ask >= stop_px, ask <= take_px),
+                HbtSide::Buy => (bid <= stop_eff, bid >= take_px),
+                _ => (ask >= stop_eff, ask <= take_px),
             };
             let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
                 let gain_bps = (state.best_favourable - entry_px).abs() / entry_px * 10_000.0;
@@ -1331,7 +1371,18 @@ where
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && eaten_pct >= eaten_half_pct;
             if stop_hit {
-                (stop_px, true, ExitReason::Stop, 1.0)
+                // Сработал перенесённый в безубыток стоп — это защита по снятию («сняли»), а не стоп.
+                let reason = if stop_eff != stop_px {
+                    ExitReason::WallGone
+                } else {
+                    ExitReason::Stop
+                };
+                (stop_eff, true, reason, 1.0)
+            } else if be_hard_exit {
+                match exit_price(entry_side, bid, ask) {
+                    Some(px) => (px, true, ExitReason::WallGone, 1.0),
+                    None => return None,
+                }
             } else if eaten_all_hit {
                 match exit_price(entry_side, bid, ask) {
                     Some(px) => (px, true, ExitReason::Eaten, 1.0),
@@ -1356,7 +1407,7 @@ where
                     Some(px) => (px, true, ExitReason::EatenByTrades, 1.0),
                     None => return None,
                 }
-            } else if gone_hit && !gone_trail {
+            } else if gone_hit && !gone_trail && gone_be == 0 {
                 match exit_price(entry_side, bid, ask) {
                     Some(px) => (px, true, ExitReason::WallGone, 1.0),
                     None => return None,

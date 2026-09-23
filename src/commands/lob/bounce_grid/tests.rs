@@ -1601,6 +1601,22 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         }
     );
     assert_eq!(gt.label(), "gone90tr0.5");
+    // Безубыток после снятия (владелец 23.09): мягкий и жёсткий.
+    assert_eq!(
+        ExitForm::parse("gone90be").unwrap(),
+        ExitForm::GoneBe {
+            pct: 90.0,
+            hard: false
+        }
+    );
+    assert_eq!(
+        ExitForm::parse("gone90bex").unwrap(),
+        ExitForm::GoneBe {
+            pct: 90.0,
+            hard: true
+        }
+    );
+    assert!(ExitForm::parse("gone90bey").is_err());
     for bad in [
         "eat",
         "eat0",

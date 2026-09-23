@@ -294,6 +294,10 @@ pub enum ExitForm {
     /// выход — откат на `T` % (от входа) от лучшей цены после снятия (владелец 2026-09-23:
     /// «сразу выход по снятию — глупость, но снятие — это уже риск, нужна защита»).
     GoneTrail { pct: f64, trail_pct: f64 },
+    /// `gone<W>be` / `gone<W>bex` — снятие переносит стоп в безубыток (мягко: когда позиция у
+    /// безубытка; жёстко: позиция хуже безубытка закрывается сразу), дальше базовый трейл плана
+    /// (владелец 2026-09-23: «снятие — стоп в ноль, дальше базовый трейлинг»).
+    GoneBe { pct: f64, hard: bool },
 }
 
 impl ExitForm {
@@ -306,6 +310,9 @@ impl ExitForm {
             ExitForm::Eat { pct } => format!("eat{pct}"),
             ExitForm::Gone { pct } => format!("gone{pct}"),
             ExitForm::GoneTrail { pct, trail_pct } => format!("gone{pct}tr{trail_pct}"),
+            ExitForm::GoneBe { pct, hard } => {
+                format!("gone{pct}be{}", if *hard { "x" } else { "" })
+            }
         }
     }
 
@@ -322,6 +329,25 @@ impl ExitForm {
             return Ok(ExitForm::Eat { pct });
         }
         if let Some(rest) = spec.strip_prefix("gone") {
+            if let Some((w, mode)) = rest.split_once("be") {
+                let pct: f64 = w.parse()?;
+                anyhow::ensure!(
+                    pct.is_finite() && pct > 0.0 && pct <= 100.0,
+                    "gone<W>be: W ∈ (0, 100]"
+                );
+                let hard = match mode {
+                    "" => false,
+                    "x" => true,
+                    _ => anyhow::bail!("--exit-form {spec:?}: ожидается gone<W>be или gone<W>bex"),
+                };
+                let form = ExitForm::GoneBe { pct, hard };
+                anyhow::ensure!(
+                    form.label() == spec,
+                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                    form.label()
+                );
+                return Ok(form);
+            }
             if let Some((w, t)) = rest.split_once("tr") {
                 let pct: f64 = w.parse()?;
                 let trail_pct: f64 = t.parse()?;
