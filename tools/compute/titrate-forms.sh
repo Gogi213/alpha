@@ -101,3 +101,4 @@ for home in "${!PIDS[@]}"; do
 done
 [ "$fail" -eq 0 ] || say "$fail из ${#PIDS[@]} прогонов провалились ($PROFILE)"
 say "готово → $DIR"
+exit "$fail"

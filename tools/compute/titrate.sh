@@ -52,3 +52,4 @@ wait "$p2" || { fail=$((fail + 1)); say "ОШИБКА: эпоха запись �
 python3 "$A/bin/titration-read.py" --tag "titr-$TAG" --epoch "история=$HIST/study" --epoch "запись=$A/study" \
   --csv "$A/study/titration-$TAG.csv" > "$A/study/titration-$TAG.txt" 2>>"$LOG"
 say "готово → study/titration-$TAG.txt"
+exit "$fail"
