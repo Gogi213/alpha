@@ -192,7 +192,7 @@ pub(super) fn sample_resources(_pid: u32) -> Option<(f64, u64)> {
     let rss_kb: u64 = status
         .lines()
         .find_map(|l| l.strip_prefix("VmRSS:"))
-        .and_then(|rest| rest.trim().split_whitespace().next())
+        .and_then(|rest| rest.split_whitespace().next())
         .and_then(|kb| kb.parse().ok())?;
     Some((cpu_seconds, rss_kb.saturating_mul(1024)))
 }
