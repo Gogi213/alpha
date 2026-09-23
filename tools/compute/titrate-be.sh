@@ -15,7 +15,9 @@ HIST="${HIST_HOME:-$A/epochs/e-archive}"
 : "${BIN:?бинарник с gone<W>tr<T> — BIN=bin/alpha-<хеш>}"
 LOG="$A/study/titrate-be-$TAG.log"
 
-"$SELF_DIR/titrate-forms.sh" be "$TAG"
+fail=0
+"$SELF_DIR/titrate-forms.sh" be "$TAG" || fail=1
 python3 "$A/bin/exit-titration-read.py" --tag "titrb" --epoch "история=$HIST/study" --epoch "запись=$A/study" \
   --csv "$A/study/titrate-be-$TAG.csv" > "$A/study/titrate-be-$TAG.txt" 2>>"$LOG"
 echo "== $(date -u +%FT%TZ) titrate-be $TAG: готово → study/titrate-be-$TAG.txt" | tee -a "$LOG"
+exit "$fail"

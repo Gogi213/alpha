@@ -18,9 +18,11 @@ A="${ALPHA_BASE:-$HOME/alpha}"
 HIST="${HIST_HOME:-$A/epochs/e-archive}"
 LOG="$A/study/titrate-exit-$TAG.log"
 
+fail=0
 for run in fix trail wall; do
-  "$SELF_DIR/titrate-forms.sh" "$run" "$TAG"
+  "$SELF_DIR/titrate-forms.sh" "$run" "$TAG" || fail=1
 done
 python3 "$A/bin/exit-titration-read.py" --tag "titrx-$TAG" --epoch "история=$HIST/study" --epoch "запись=$A/study" \
   --csv "$A/study/titrate-exit-$TAG.csv" > "$A/study/titrate-exit-$TAG.txt" 2>>"$LOG"
 echo "== $(date -u +%FT%TZ) titrate-exit $TAG: готово → study/titrate-exit-$TAG.txt" | tee -a "$LOG"
+exit "$fail"
