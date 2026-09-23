@@ -25,8 +25,8 @@
 """
 import argparse
 import collections
-import csv
 import datetime as dt
+import importlib.util
 import json
 import math
 import os
@@ -38,6 +38,12 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except (AttributeError, ValueError):  # pragma: no cover
     pass
+
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+assert _lib_spec and _lib_spec.loader
+_lib_spec.loader.exec_module(_lib)
 
 # Плановый размер позиции круга, $ (README/CLAUDE: позиция $1000; ключ сетки
 # `--order-usd`). Именно он домножается на фактическую долю исполнения.
@@ -68,11 +74,8 @@ PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#9257d6", "#c9a227", "#3f8f8f", "#b
 
 
 def read_csv(path):
-    """Заголовок + строки CSV; строки шапки на `#` (метаданные сетки) пропускаются."""
-    with open(path, encoding="utf-8", newline="") as f:
-        r = csv.DictReader(line for line in f if not line.startswith("#"))
-        head = list(r.fieldnames or [])
-        return head, list(r)
+    """Заголовок + строки CSV; строки шапки на `#` (метаданные сетки) пропускаются (`_lib.read_csv`)."""
+    return _lib.read_csv(path)
 
 
 def load_rounds(path):

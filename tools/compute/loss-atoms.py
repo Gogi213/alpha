@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
+import importlib.util
 import os
 import sys
 from collections import Counter, defaultdict
@@ -37,6 +38,12 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
+
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+assert _lib_spec and _lib_spec.loader
+_lib_spec.loader.exec_module(_lib)
 
 COLUMNS = [
     # ключ и деньги
@@ -89,12 +96,12 @@ def inum(v: str) -> int | None:
 
 
 def read_csv(path: str) -> list[dict]:
-    """CSV с комментариями `#` в шапке — как пишет сетка."""
+    """CSV с комментариями `#` в шапке — как пишет сетка (см. `_lib.read_csv`); файла нет — мягко,
+    пустой список и счётчик `missing_*` (не падение — соглашение этого скрипта, а не общего чтения)."""
     if not os.path.exists(path):
         miss("file_missing")
         return []
-    with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        return [r for r in csv.DictReader(l for l in f if not l.startswith("#"))]
+    return _lib.read_csv(path)[1]
 
 
 # --- загрузчики -----------------------------------------------------------------

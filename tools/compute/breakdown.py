@@ -18,10 +18,10 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
 import json
 import math
+import os
 import sys
 from collections import defaultdict
 
@@ -31,12 +31,18 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+import importlib.util
+
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+assert _lib_spec and _lib_spec.loader
+_lib_spec.loader.exec_module(_lib)
+
 
 def load_rounds(path: str, form: str) -> list[dict]:
     rows = []
-    with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        body = [l for l in f if not l.startswith("#")]
-    for r in csv.DictReader(body):
+    for r in _lib.read_csv(path)[1]:
         if r["form"] != form:
             continue
         rows.append(
@@ -188,8 +194,6 @@ def main() -> int:
           f"{(total['pnl_usd'] / (peak * a.order_usd) * 100 if peak else 0):+.2f} %; монет {len(by_coin)}, топ-4 "
           f"({', '.join(k for k, _ in top4)}) дают {top4_sum:+.2f} $ из {total['pnl_usd']:+.2f}, остальные {total['pnl_usd'] - top4_sum:+.2f} $")
     if a.mids:
-        import importlib.util
-        import os
         spec = importlib.util.spec_from_file_location("placebo", os.path.join(os.path.dirname(os.path.abspath(__file__)), "placebo.py"))
         pl = importlib.util.module_from_spec(spec)
         assert spec and spec.loader

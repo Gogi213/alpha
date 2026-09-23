@@ -22,9 +22,15 @@ btc4h, btc1h, pool4h, pool1h (`study/regime/<сутки>.csv`, regime.py). Кр�
 """
 import argparse
 import csv
-import datetime as dt
+import importlib.util
 import os
 import sys
+
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+assert _lib_spec and _lib_spec.loader
+_lib_spec.loader.exec_module(_lib)
 
 AXES = {
     "btc4h": "btc_ret_4h_bps",
@@ -79,14 +85,10 @@ def axis_values(regime_dir, day_from, day_to):
     days = sorted(n[:-4] for n in os.listdir(regime_dir)
                   if n.endswith(".csv") and n[:4].isdigit() and day_from <= n[:-4] <= day_to)
     for day in days:
-        start = int(dt.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()) * 1000
-        with open(os.path.join(regime_dir, f"{day}.csv"), encoding="utf-8") as f:
-            for r in csv.DictReader(f):
-                if not start <= int(r["minute_ms"]) < start + 86_400_000:
-                    continue
-                for axis, col in AXES.items():
-                    if r.get(col, ""):
-                        vals[axis].append(float(r[col]))
+        for r in _lib.read_regime_day(regime_dir, day):
+            for axis, col in AXES.items():
+                if r.get(col, ""):
+                    vals[axis].append(float(r[col]))
     return days, vals
 
 
