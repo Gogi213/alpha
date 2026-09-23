@@ -772,7 +772,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       ["Худшая сделка", g => usd(g.worst_trade_usd), g => g.worst_trade_usd],
       ["В плюс, % сделок", g => Math.round(g.win * 100) + " %", null],
       ["Пик: позиций / в рынке", g => g.peak_n + " / $" + Math.round(g.peak_usd).toLocaleString("ru-RU"), null],
-      ["Пропущено: позиций / BTC / монеты / дн. стоп", g => g.skip["позиций"] + " / " + g.skip["btc"] + " / " + g.skip["монета"] + " / " + g.skip["день"], null],
+      ["Пропущено: позиций / BTC / монеты / дн. стоп / занята", g => g.skip["позиций"] + " / " + g.skip["btc"] + " / " + g.skip["монета"] + " / " + g.skip["день"] + " / " + (g.skip["занята"] || 0), null],
       ["Закрыто выключателем", g => g.killed, null],
       ["Стресс: провал без выключателя", g => pnum(-g.stress_pct), g => -g.stress_pct],
     ];
