@@ -31,7 +31,13 @@ RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns pla
 FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --order-qty-from-pool \
   --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
   --stop-form pct2 --take-form 1to1 --deadline-secs 7200 --exit-form none"
-SETS="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
+SETS_FROZEN="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
+# SETS — другие наборы поверх той же замороженной формы (титрование, план 2026-09-23 G4/G5); форма не
+# меняется. Для замороженного OOS не задаётся. VERDICT_FLAGS — `--log-trials` у титрования: каждая
+# корзина — испытание, журнал считает их для DSR.
+SETS="${SETS:-$SETS_FROZEN}"
+FIRST_SET="${SETS%%:*}"
+VERDICT_FLAGS="${VERDICT_FLAGS:-}"
 FORM_NAME="ladder3x2..20w2-pct2-1to1-7200-ttl1800"
 say() { echo "== $(date -u +%FT%TZ) oos-frozen: $*" | tee -a "$LOG"; }
 
@@ -48,9 +54,9 @@ setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
 one_day() {
   local day=$1
   local out="$OOS_DIR/$day"
-  # Замок суток: другой экземпляр (конвейер эпохи, ручной догон) может считать те же сутки — ждём его
-  # и видим готовый результат, а не пишем вдвоём в одни файлы.
-  exec 9>"$OOS_DIR/.lock-$day"
+  # Замок суток на весь дом (не на каталог прогона): кэш подходов общий у замороженного OOS, эпохи и
+  # титрования — другой экземпляр, считающий те же сутки, дожидается, а не пишет вдвоём в одни файлы.
+  exec 9>"study/.day-lock-$day"
   flock 9
   if [ ! -f "study/approaches/D20/$day/.done" ]; then
     say "$day: кэш подходов D20"
@@ -58,7 +64,7 @@ one_day() {
     # уводит кэш не туда (поймано 22.09 проверочным прогоном).
     ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
-  [ -f "$out/a45-bid/forms.csv" ] && return 0
+  [ -f "$out/$FIRST_SET/forms.csv" ] && return 0
   say "$day: замороженная форма"
   # shellcheck disable=SC2086
   nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20     $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
@@ -75,7 +81,7 @@ for day in $days; do
   [[ "$day" < "$FROM_DAY" ]] && continue
   [ -f "study/touches/$day/symbols.txt" ] || { say "$day: нет касаний суток — ждём ночь"; continue; }
   [ -f "study/regime/$day.csv" ] || { say "$day: нет режима суток — ждём ночь"; continue; }
-  [ -f "study/approaches/D20/$day/.done" ] && [ -f "$OOS_DIR/$day/a45-bid/forms.csv" ] && continue
+  [ -f "study/approaches/D20/$day/.done" ] && [ -f "$OOS_DIR/$day/$FIRST_SET/forms.csv" ] && continue
   while [ "$(jobs -rp | wc -l)" -ge "$DAY_JOBS" ]; do wait -n; done
   one_day "$day" &
   new=$((new + 1))
@@ -98,7 +104,8 @@ for s in $SETS; do
   done
   n_days=$(echo "$parts" | wc -l)
   n_rounds=$(grep -avc '^#' "$m/rounds.csv"); n_rounds=$((n_rounds - 1))
-  nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" \
+  # shellcheck disable=SC2086
+  nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" $VERDICT_FLAGS \
     --out "study/bounce-verdict-$TAG-$set_name.csv" > "study/bounce-verdict-$TAG-$set_name.log" 2>&1
   python3 bin/placebo.py --grid-dir "$m" --form "$FORM_NAME" --mids study/touches \
     --csv "study/placebo-$TAG-$set_name.csv" > "study/placebo-$TAG-$set_name.log" 2>&1
