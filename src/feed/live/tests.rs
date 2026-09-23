@@ -92,8 +92,8 @@ impl TransportConnector for OneShotConnector {
 fn broken_frame_is_a_gap_not_a_dead_session() {
     let snapshot = r#"{"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1,"data":{"s":"BTCUSDT","b":[["100.0","1.0"]],"a":[],"u":1,"seq":1}}"#;
     let inbox = Arc::new(Mutex::new(VecDeque::from(vec![
-        Ok(Frame::Text("не json вовсе".to_string())),
-        Ok(Frame::Text(snapshot.to_string())),
+        Ok(Frame::Text("не json вовсе".to_string().into())),
+        Ok(Frame::Text(snapshot.to_string().into())),
     ])));
     let pool = vec![PoolMember {
         symbol: "BTCUSDT".to_string(),
@@ -141,7 +141,7 @@ impl crate::bybit::conn::Clock for FakeSeqClock {
 fn spawn_with_clock_feeds_the_injected_clock_into_the_connection() {
     let snapshot = r#"{"topic":"orderbook.50.BTCUSDT","type":"snapshot","ts":1,"data":{"s":"BTCUSDT","b":[["100.0","1.0"]],"a":[],"u":1,"seq":1}}"#;
     let inbox = Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(
-        snapshot.to_string(),
+        snapshot.to_string().into(),
     ))])));
     let pool = vec![PoolMember {
         symbol: "BTCUSDT".to_string(),
@@ -185,9 +185,9 @@ fn one_socket_carries_two_symbols_and_routes_each_to_its_own_index_and_book() {
     let snap_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"snapshot","ts":1,"data":{"s":"BBBUSDT","b":[["200.0","1.0"]],"a":[],"u":1,"seq":2}}"#;
     let delta_a = r#"{"topic":"orderbook.50.AAAUSDT","type":"delta","ts":2,"data":{"s":"AAAUSDT","b":[["100.0","2.0"]],"a":[],"u":2,"seq":3}}"#;
     let inbox = Arc::new(Mutex::new(VecDeque::from(vec![
-        Ok(Frame::Text(snap_a.to_string())),
-        Ok(Frame::Text(snap_b.to_string())),
-        Ok(Frame::Text(delta_a.to_string())),
+        Ok(Frame::Text(snap_a.to_string().into())),
+        Ok(Frame::Text(snap_b.to_string().into())),
+        Ok(Frame::Text(delta_a.to_string().into())),
     ])));
     let pool = vec![
         PoolMember {
@@ -367,10 +367,10 @@ fn resync_of_one_symbol_does_not_touch_the_other_on_the_same_socket() {
     let delta_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"delta","ts":3,"data":{"b":[["200.0","2.0"]],"a":[],"u":2,"seq":4}}"#;
     let sent = Arc::new(Mutex::new(Vec::<String>::new()));
     let inbox = Arc::new(Mutex::new(VecDeque::from(vec![
-        Ok(Frame::Text(snap_a.to_string())),
-        Ok(Frame::Text(snap_b.to_string())),
-        Ok(Frame::Text(gap_a.to_string())),
-        Ok(Frame::Text(delta_b.to_string())),
+        Ok(Frame::Text(snap_a.to_string().into())),
+        Ok(Frame::Text(snap_b.to_string().into())),
+        Ok(Frame::Text(gap_a.to_string().into())),
+        Ok(Frame::Text(delta_b.to_string().into())),
     ])));
     let pool = vec![
         PoolMember {
@@ -451,7 +451,11 @@ fn only_the_tick_entry_subscribes_to_both_depth_streams() {
     // Кадр в инбоксе делает наблюдение детерминированным: транспорт обязан
     // отправить подписку **до** первого `recv`, поэтому одно полученное
     // событие доказывает, что подписка уже была.
-    let inbox_with = |raw: String| Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(raw))])));
+    let inbox_with = |raw: String| {
+        Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(
+            raw.into(),
+        ))])))
+    };
 
     // Однопотоковый вход (`spawn_with`) — как `lob react`.
     let sent = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -529,8 +533,8 @@ fn a_market_frame_with_an_unknown_symbol_is_counted_not_silently_dropped() {
     let alien = r#"{"topic":"orderbook.50.ZZZUSDT","type":"snapshot","ts":1,"data":{"b":[["1.0","1.0"]],"a":[],"u":1,"seq":1}}"#;
     let ours = r#"{"topic":"orderbook.50.AAAUSDT","type":"snapshot","ts":1,"data":{"b":[["100.0","1.0"]],"a":[],"u":1,"seq":2}}"#;
     let inbox = Arc::new(Mutex::new(VecDeque::from(vec![
-        Ok(Frame::Text(alien.to_string())),
-        Ok(Frame::Text(ours.to_string())),
+        Ok(Frame::Text(alien.to_string().into())),
+        Ok(Frame::Text(ours.to_string().into())),
     ])));
     let pool = vec![PoolMember {
         symbol: "AAAUSDT".to_string(),
@@ -621,11 +625,11 @@ fn add_opens_a_new_connection_with_the_next_index_and_stop_still_ends_the_feed()
     let snap_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"snapshot","ts":1,"data":{"s":"BBBUSDT","b":[["200.0","1.0"]],"a":[],"u":1,"seq":2}}"#;
     let delta_b = r#"{"topic":"orderbook.50.BBBUSDT","type":"delta","ts":2,"data":{"s":"BBBUSDT","b":[["200.0","2.0"]],"a":[],"u":2,"seq":3}}"#;
     let inbox_a = Arc::new(Mutex::new(VecDeque::from(vec![Ok(Frame::Text(
-        snap_a.to_string(),
+        snap_a.to_string().into(),
     ))])));
     let inbox_b = Arc::new(Mutex::new(VecDeque::from(vec![
-        Ok(Frame::Text(snap_b.to_string())),
-        Ok(Frame::Text(delta_b.to_string())),
+        Ok(Frame::Text(snap_b.to_string().into())),
+        Ok(Frame::Text(delta_b.to_string().into())),
     ])));
     // Ящики по порядку создания соединений: первый — стартовому, второй —
     // добавленному. Фабрика зовётся один раз на соединение.

@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 
 /// Транспорт по сценарию: очередь фреймов на приём плюс лог того, что
 /// через него отправили. Единственная замена сети во всех тестах файла.
@@ -241,7 +242,7 @@ fn orderbook_msg(
     cts_ms: i64,
     bids: &[(f64, f64)],
     asks: &[(f64, f64)],
-) -> String {
+) -> Utf8Bytes {
     orderbook_msg_at(ORDERBOOK_DEPTH, kind, u, cts_ms, bids, asks)
 }
 
@@ -255,7 +256,7 @@ fn orderbook_msg_at(
     cts_ms: i64,
     bids: &[(f64, f64)],
     asks: &[(f64, f64)],
-) -> String {
+) -> Utf8Bytes {
     let render = |levels: &[(f64, f64)]| -> String {
         levels
             .iter()
@@ -268,12 +269,14 @@ fn orderbook_msg_at(
         render(bids),
         render(asks)
     )
+    .into()
 }
 
-fn trade_msg(exch_ms: i64) -> String {
+fn trade_msg(exch_ms: i64) -> Utf8Bytes {
     format!(
         r#"{{"topic":"publicTrade.SOLUSDT","type":"snapshot","ts":1,"data":[{{"T":{exch_ms},"s":"SOLUSDT","S":"Buy","v":"1.0","p":"150.00","L":"PlusTick","i":"x","BT":false}}]}}"#
     )
+    .into()
 }
 
 /// Ждёт ровно `n` событий с таймаутом: без него баг в реализации вешает
@@ -331,10 +334,11 @@ fn test_pool_cfg_two_symbols() -> PoolConnConfig {
     }
 }
 
-fn snapshot_msg(symbol: &str, u: u64) -> String {
+fn snapshot_msg(symbol: &str, u: u64) -> Utf8Bytes {
     format!(
         r#"{{"topic":"orderbook.50.{symbol}","type":"snapshot","ts":1,"data":{{"b":[["1.0","5.0"]],"a":[["1.0001","4.0"]],"u":{u},"seq":{u}}}}}"#
     )
+    .into()
 }
 
 /// A8.3 (замер 2026-09-18): ответ биржи на подписку с `success:false` обязан
@@ -346,7 +350,7 @@ fn snapshot_msg(symbol: &str, u: u64) -> String {
 async fn refused_subscription_is_attributed_to_the_topic_instrument_and_neighbours_live() {
     let refused = r#"{"success":false,"ret_msg":"error:handler not found,topic:orderbook.50.BBBUSDT","conn_id":"c","req_id":"","op":"subscribe"}"#;
     let frames = vec![
-        Ok(Frame::Text(refused.to_string())),
+        Ok(Frame::Text(refused.to_string().into())),
         Ok(Frame::Text(snapshot_msg("AAAUSDT", 1))),
     ];
     let (connector, _sent) = ScriptedConnector::new(vec![frames]);
@@ -390,7 +394,7 @@ async fn refused_subscription_is_attributed_to_the_topic_instrument_and_neighbou
 async fn refused_subscription_with_an_unknown_topic_falls_back_to_the_socket() {
     let refused = r#"{"success":false,"ret_msg":"error:handler not found,topic:orderbook.50.CCCUSDT","op":"subscribe"}"#;
     let (connector, _sent) =
-        ScriptedConnector::new(vec![vec![Ok(Frame::Text(refused.to_string()))]]);
+        ScriptedConnector::new(vec![vec![Ok(Frame::Text(refused.to_string().into()))]]);
     let (tx, mut rx) = mpsc::channel(16);
     let handle = tokio::spawn(
         Connection::new(connector, test_pool_cfg_two_symbols()).run(SystemClock, IndexSink(tx)),
@@ -420,7 +424,7 @@ async fn local_ts_is_stamped_before_parse_and_is_monotonic_across_messages() {
             &[(1.0001, 4.0)],
         ))),
         // Не JSON вовсе: разбор обязан упасть, метка — нет.
-        Ok(Frame::Text("not json at all".to_string())),
+        Ok(Frame::Text("not json at all".to_string().into())),
         Ok(Frame::Text(orderbook_msg(
             "delta",
             11,
@@ -1176,10 +1180,12 @@ async fn local_ts_advances_exactly_twice_per_completed_recv_and_is_strictly_incr
     );
     assert_eq!(
         calls.load(std::sync::atomic::Ordering::SeqCst) as usize,
-        n_frames * 2,
+        n_frames * 2 + 1,
         "часы обязаны читаться ровно дважды на каждый успешно распарсенный recv \
          (`local_ts_ns` до разбора, `parsed_ts_ns` сразу после) — не реже (одно \
-         чтение на сессию не прошло бы строгий рост) и не чаще"
+         чтение на сессию не прошло бы строгий рост) и не чаще, плюс ровно одно \
+         чтение на подключение до цикла приёма (доработка V5, 2026-09-24: старт \
+         часа `last_market_ns`, см. комментарий в `run_with_backoff`)"
     );
 }
 
@@ -1502,4 +1508,216 @@ async fn silent_socket_times_out_and_reports_disconnected() {
         ),
         "молчащий сокет уходит в переподключение тем же путём, что обрыв: {ev:?}"
     );
+}
+
+/// Доработка V5 (2026-09-24), пункт (б): неудавшаяся ПЕРВАЯ подписка
+/// (`ws::sub_pool`, отправка №1 — см. комментарий у `resync_resubscribe_
+/// send_failure_still_emits_disconnected`) раньше отступала молча: бэкофф и
+/// повтор без единого события наружу — в отличие от двух других отправок
+/// этого файла (пинг, ресинк), которые уже шлют `Disconnected` на той же
+/// неудаче. `SendFailsOnCall`/`SingleTransportConnector` — та же пара
+/// двойников, что и у FIX 1, `fail_on_call: 1` бьёт именно по этой отправке.
+#[tokio::test]
+async fn failed_initial_subscription_emits_disconnected_before_backoff() {
+    let connector = SingleTransportConnector {
+        transport: Some(SendFailsOnCall {
+            inbox: VecDeque::new(),
+            send_calls: 0,
+            fail_on_call: 1,
+        }),
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, test_cfg("SOLUSDT")).run(SystemClock, tx));
+
+    let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("неудавшаяся подписка обязана дать Disconnected, а не тихий бэкофф")
+        .expect("канал жив");
+    handle.abort();
+
+    assert_eq!(
+        ev,
+        ConnEvent::Disconnected {
+            first_of_socket: true
+        },
+        "неудавшаяся начальная подписка — тоже смерть сокета, как ресинк и пинг"
+    );
+}
+
+/// Транспорт «сервер отвечает только pong»: каждый `recv()` после короткой
+/// паузы отдаёт кадр, который `ws::parse_message_into` разбирает как ровно
+/// один `Event::Other` (нет поля `topic` — ни `fast_topic`, ни `probe_topic`
+/// не находят его, откуда и `Other`), и никогда — `Event::Book`/`Event::
+/// Trade`. Нужен для доработки V5 (2026-09-24): такой кадр доходит до
+/// пересылки в `handle_raw` и ставит `session.productive`, хотя рынок молчит,
+/// а сам факт, что `recv()` регулярно что-то отдаёт, раньше держал внешний
+/// `select!` в постоянном движении.
+struct PongOnlyTransport {
+    pong_every: Duration,
+}
+
+impl Transport for PongOnlyTransport {
+    async fn send_text(&mut self, _msg: String) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
+        let pong_every = self.pong_every;
+        async move {
+            tokio::time::sleep(pong_every).await;
+            Ok(Frame::Text(r#"{"op":"pong"}"#.to_string().into()))
+        }
+    }
+}
+
+/// Выдаёт `PongOnlyTransport` на каждое подключение и считает сами вызовы
+/// `connect()` — тест обязан увидеть не только `Disconnected`, но и то, что
+/// `run_with_backoff` действительно подключается заново, а не просто эмитит
+/// событие и останавливается.
+struct PongOnlyConnector {
+    pong_every: Duration,
+    connects: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl TransportConnector for PongOnlyConnector {
+    type Transport = PongOnlyTransport;
+
+    fn connect(
+        &mut self,
+    ) -> impl Future<Output = Result<PongOnlyTransport, TransportError>> + Send {
+        self.connects
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let pong_every = self.pong_every;
+        async move { Ok(PongOnlyTransport { pong_every }) }
+    }
+}
+
+/// Доработка V5 (2026-09-24): `ping_interval` короче `recv_timeout` —
+/// боевое соотношение `recv_timeout = 2 × ping_interval`, здесь напрямую
+/// 10 мс / 40 мс — раньше не давало таймауту сработать вовсе: тик пинга
+/// довитывал внешний `select!` быстрее, чем истекал `recv_timeout` внутри
+/// него, и `pong` в ответ тоже считался «живым» кадром (`session.productive`).
+/// Сервер, отвечающий только на пинг, но переставший публиковать стакан и
+/// сделки, висел бы вечно. С доработкой тишина считается по рынку
+/// (Book/Trade), а не по кадру или тику: соединение обязано увидеть
+/// `Disconnected` и переподключиться, несмотря на непрерывный поток pong-ов.
+#[tokio::test]
+async fn ping_shorter_than_recv_timeout_still_disconnects_on_pong_only_silence() {
+    let mut cfg = test_cfg("SOLUSDT");
+    cfg.ping_interval = Duration::from_millis(10);
+    cfg.recv_timeout = Duration::from_millis(40);
+    let connects = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let connector = PongOnlyConnector {
+        pong_every: Duration::from_millis(4),
+        connects: connects.clone(),
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
+
+    // Пропускаем pong-и (`ConnEvent::Message` с `Event::Other`) — ждём
+    // именно молчание рынка, а не первое же событие в канале.
+    let disconnected = loop {
+        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("тишина рынка при живых pong-ах обязана дать Disconnected, а не висеть")
+            .expect("канал жив");
+        if matches!(ev, ConnEvent::Disconnected { .. }) {
+            break ev;
+        }
+    };
+    assert_eq!(
+        disconnected,
+        ConnEvent::Disconnected {
+            first_of_socket: true
+        },
+        "молчание рынка на отвечающем на пинг сокете — та же смерть, что обрыв"
+    );
+
+    // Переподключение: цикл обязан вызвать `connect()` заново, а не
+    // остановиться на первом `Disconnected`.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    handle.abort();
+    assert!(
+        connects.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+        "после молчания рынка соединение обязано переподключиться"
+    );
+}
+
+/// Транспорт «рынок не молчит»: каждый `recv()` после короткой паузы отдаёт
+/// снапшот книги (`Event::Book`, тип `snapshot` — принимается при любом `u`,
+/// см. `book::Book::apply`) с новым `u`. Обратная сторона предыдущего теста:
+/// рыночные события чаще `recv_timeout` обязаны держать соединение живым
+/// сколь угодно долго, даже когда `ping_interval` короче `recv_timeout`.
+struct MarketEveryTransport {
+    market_every: Duration,
+    seq: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Transport for MarketEveryTransport {
+    async fn send_text(&mut self, _msg: String) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
+        let market_every = self.market_every;
+        let seq = self.seq.clone();
+        async move {
+            tokio::time::sleep(market_every).await;
+            let u = seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            Ok(Frame::Text(orderbook_msg(
+                "snapshot",
+                u,
+                i64::try_from(u).unwrap_or(i64::MAX),
+                &[(1.0, 5.0)],
+                &[],
+            )))
+        }
+    }
+}
+
+struct MarketEveryConnector {
+    market_every: Duration,
+}
+
+impl TransportConnector for MarketEveryConnector {
+    type Transport = MarketEveryTransport;
+
+    fn connect(
+        &mut self,
+    ) -> impl Future<Output = Result<MarketEveryTransport, TransportError>> + Send {
+        let market_every = self.market_every;
+        async move {
+            Ok(MarketEveryTransport {
+                market_every,
+                seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            })
+        }
+    }
+}
+
+#[tokio::test]
+async fn market_events_faster_than_recv_timeout_never_disconnect() {
+    let mut cfg = test_cfg("SOLUSDT");
+    cfg.ping_interval = Duration::from_millis(10);
+    cfg.recv_timeout = Duration::from_millis(40);
+    let connector = MarketEveryConnector {
+        market_every: Duration::from_millis(5),
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
+
+    // 30 событий при рынке каждые 5 мс — это ~150 мс живого соединения,
+    // несколько `recv_timeout` (40 мс) и добрый десяток тиков пинга (10 мс)
+    // подряд: ни одно из них не имеет права оказаться `Disconnected`.
+    for _ in 0..30 {
+        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("рыночные события каждые 5 мс не должны прекращаться")
+            .expect("канал жив");
+        assert!(
+            matches!(ev, ConnEvent::Message { .. }),
+            "рынок каждые 5 мс не должен давать Disconnected при таймауте 40 мс: {ev:?}"
+        );
+    }
+    handle.abort();
 }

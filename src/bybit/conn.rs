@@ -34,6 +34,7 @@ use std::future::Future;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 
 /// Глубина стакана из шага 0.1 плана: буквально `orderbook.50.<symbol>`. Не
 /// параметр — это не измеренное число и не порог, а часть протокола, которую
@@ -134,9 +135,14 @@ impl SystemClock {
 /// Bybit; `Closed` — конец сессии, независимо от того, кто её закрыл, сервер
 /// или сеть: вызывающему коду обе причины важны одинаково — сокет мёртв,
 /// нужно переподключаться.
+///
+/// `Text` несёт `Utf8Bytes` (тип `tungstenite::Message::Text`), не `String`:
+/// `WsTransport::recv` отдаёт его как есть, без лишней копии валидных байт в
+/// новую строку — `ws::parse_message_into` берёт `&str` через `Deref`,
+/// разбору всё равно, чем владеет байтовое представление.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame {
-    Text(String),
+    Text(Utf8Bytes),
     Closed,
 }
 
@@ -764,6 +770,13 @@ impl<C: TransportConnector> Connection<C> {
                 .await
                 .is_ok();
             if !subscribed {
+                // Раньше эта ветка отступала молча: ни `gaps.csv`, ни счётчика
+                // разрывов — сокет открылся, но ни разу не заявил о себе перед
+                // повторной попыткой. Три другие смерти сокета внутри этого
+                // файла (закрытый фрейм, неудавшийся пинг, неудавшийся ресинк)
+                // уже шлют `Disconnected` до `continue`/`break` — этой было
+                // самое время встать в тот же ряд.
+                route.broadcast_disconnected(&out).await;
                 backoff
                     .wait(self.cfg.backoff.delay_for_attempt(attempt))
                     .await;
@@ -784,7 +797,24 @@ impl<C: TransportConnector> Connection<C> {
             // данных нет (зависший прокси, сервер перестал публиковать) —
             // раньше висело бесконечно: ни разрыва, ни переподключения, ни
             // строки `gaps.csv`, только молча переставший расти бинлог.
+            //
+            // Доработка V5 (2026-09-24): у боевых вызывающих `recv_timeout` —
+            // 2 × `ping_interval` (`feed::live`, `commands::record`,
+            // `pick::measure`), а `timeout(recv_timeout, transport.recv())`
+            // ниже пересоздаётся на каждый виток внешнего `loop`. Тик пинга
+            // (каждые `ping_interval`) — тоже такой виток, и он неизбежно
+            // довитывает раньше, чем успевает истечь вдвое больший
+            // `recv_timeout`: сам таймаут приёма оказывается недостижим, пока
+            // пинг вообще ходит. `pong`, придя как `Event::Other`, добавляет
+            // то же самое ещё раз — он доходит до пересылки в `handle_raw` и
+            // ставит `session.productive`, хотя рынок (Book/Trade) молчит.
+            // Поэтому тишина считается не по кадру и не по витку, а отдельно —
+            // по часу последнего рыночного события (`last_market_ns` ниже) —
+            // и проверяется в ветке пинга: она единственная гарантированно
+            // срабатывает каждые `ping_interval`, короче любого используемого
+            // `recv_timeout`.
             let recv_timeout = self.cfg.recv_timeout;
+            let recv_timeout_ns = i64::try_from(recv_timeout.as_nanos()).unwrap_or(i64::MAX);
             // Missed-тики копятся по умолчанию и стреляют очередью один за
             // другим при первой возможности; `Delay` вместо этого просто
             // сдвигает следующий тик, что и нужно для пинга — частый залп не
@@ -793,6 +823,11 @@ impl<C: TransportConnector> Connection<C> {
             // `interval` тикает немедленно при создании; без этого пинг ушёл
             // бы сразу вслед за подпиской, до всякого интервала.
             ping_due.tick().await;
+            // Час последнего Book/Trade, не любого кадра (см. выше). Отсчёт —
+            // от момента подписки, а не от нуля/эпохи: свежее соединение,
+            // которое ещё не успело ничего прислать, не обязано считаться
+            // мёртвым мгновенно.
+            let mut last_market_ns = clock.now_ns();
 
             loop {
                 tokio::select! {
@@ -838,6 +873,17 @@ impl<C: TransportConnector> Connection<C> {
                                         continue;
                                     }
                                 };
+                                // Только это двигает `last_market_ns` (V5,
+                                // доработка 2026-09-24): `pong`/подтверждение
+                                // подписки (`Event::Other`) — не рынок и не
+                                // обязаны продлевать соединению жизнь, сколько
+                                // бы их ни пришло.
+                                if events
+                                    .iter()
+                                    .any(|e| matches!(e, Event::Book(_) | Event::Trade(_)))
+                                {
+                                    last_market_ns = local_ts_ns;
+                                }
                                 let parsed_ts_ns = clock.now_ns();
                                 let alive = Self::handle_raw(
                                     &mut events,
@@ -863,6 +909,20 @@ impl<C: TransportConnector> Connection<C> {
                         }
                     }
                     _ = ping_due.tick() => {
+                        // Единственная ветка, гарантированно достигаемая
+                        // каждые `ping_interval` (см. комментарий у
+                        // `last_market_ns` выше) — здесь и только здесь
+                        // проверяется настоящее молчание рынка.
+                        let now_ns = clock.now_ns();
+                        if now_ns.saturating_sub(last_market_ns) > recv_timeout_ns {
+                            eprintln!(
+                                "conn: рыночных событий (Book/Trade) нет дольше \
+                                 {recv_timeout:?} — соединение считается мёртвым, \
+                                 переподключаюсь",
+                            );
+                            route.broadcast_disconnected(&out).await;
+                            break;
+                        }
                         if transport.send_text(ping_message()).await.is_err() {
                             route.broadcast_disconnected(&out).await;
                             break;
@@ -1133,11 +1193,10 @@ impl Transport for WsTransport {
         async move {
             loop {
                 match self.stream.next().await {
-                    // 0.30: `Text` несёт `Utf8Bytes`; `as_str` — вид без
-                    // копии, `to_string` — копия уже валидного UTF-8.
-                    Some(Ok(TungsteniteMessage::Text(text))) => {
-                        return Ok(Frame::Text(text.as_str().to_string()))
-                    }
+                    // 0.30: `Text` уже несёт `Utf8Bytes` — тот же тип, что
+                    // теперь и `Frame::Text` (2026-09-24): передаётся как
+                    // есть, без копии валидных байт в новую строку.
+                    Some(Ok(TungsteniteMessage::Text(text))) => return Ok(Frame::Text(text)),
                     Some(Ok(TungsteniteMessage::Close(_))) | None => return Ok(Frame::Closed),
                     // Ping/Pong/Binary/сырой Frame — не протокол Bybit поверх
                     // этого канала; WS-пинг `tungstenite` обслуживает сам,
