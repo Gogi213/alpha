@@ -102,6 +102,13 @@ section.panel { background: var(--surface); border: 1px solid var(--rule); borde
 .set-btn[aria-pressed="true"] { border-color: var(--sel); box-shadow: inset 0 0 0 1px var(--sel); }
 .set-btn:focus-visible, select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: var(--chip); justify-self: start; }
+.tab {
+  font: 600 15px/1.2 var(--font-head); padding: 10px 16px; border-radius: 7px; border: 0; cursor: pointer;
+  background: transparent; color: var(--ink-2); text-align: left;
+}
+.tab small { display: block; font: 400 12px/1.3 var(--font-mono); color: var(--ink-3); margin-top: 2px; }
+.tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0 0 1px var(--rule-strong); }
 select { font: 14px var(--font-body); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); max-width: 100%; }
 label { color: var(--ink-2); font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
 .kpi-scroll { overflow-x: auto; }
@@ -141,7 +148,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     <p class="lede">Лонг от старой бид-стены (≥ $10k, возраст ≥ 45 мин, вход лестницей на подходе, стоп 2 %, тейк 1:1,
       дедлайн 2 ч) — только когда рынок за последний час или четыре просел сильнее, чем в 80 % времени.
       Две эпохи: «история» 01–15.09 — архив Bybit, дни, которых форма не видела; «запись» 16–22.09 — наш коллектор.
-      Деньги — на лот $1000 за сделку.</p>
+      Лонг от бид-стены и шорт от аск-стены — отдельно, переключатель ниже. Деньги — на лот $1000 за сделку.</p>
     <div class="chips">
       <span class="chip warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z"/></svg>Кандидат, не доказательство</span>
       <span class="chip">52 проверенных варианта</span>
@@ -150,19 +157,25 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     </div>
   </header>
 
+  <div class="tabs" role="tablist" aria-label="Сторона сделки" id="side-tabs">
+    <button class="tab" role="tab" type="button" id="tab-bid" data-side="bid" aria-controls="side-body">Лонг от бид-стены<small id="tab-bid-sub"></small></button>
+    <button class="tab" role="tab" type="button" id="tab-ask" data-side="ask" aria-controls="side-body">Шорт от аск-стены<small id="tab-ask-sub"></small></button>
+  </div>
+
+  <div id="side-body" role="tabpanel" style="display:grid;gap:28px">
   <section class="panel" aria-labelledby="h-summary">
-    <div class="panel-head"><h2 id="h-summary">Что видно</h2></div>
+    <div class="panel-head"><h2 id="h-summary"></h2></div>
     <p class="verdict-line" id="verdict"></p>
   </section>
 
   <section class="panel controls" aria-labelledby="h-set">
     <div class="panel-head">
       <h2 id="h-set">Какой набор смотреть</h2>
-      <label><input type="checkbox" id="show-base" checked> показывать базу F10 для сравнения</label>
+      <label><input type="checkbox" id="show-base" checked> показывать базу стороны для сравнения</label>
     </div>
     <div class="set-buttons" id="set-buttons"></div>
     <div class="row">
-      <label for="set-select">Любой из 52:</label>
+      <label for="set-select">Любой из 26 этой стороны:</label>
       <select id="set-select"></select>
     </div>
   </section>
@@ -198,8 +211,6 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     <div class="panel-head">
       <h2 id="h-dose">Где работает: средняя сделка по режиму рынка, bps</h2>
       <div class="row">
-        <label for="side">Сторона:</label>
-        <select id="side"><option value="bid">лонг от бид-стены</option><option value="ask">шорт от аск-стены</option></select>
         <div class="legend"><span><i class="box" style="background:var(--hist)"></i>история 01–15.09</span><span><i class="box" style="background:var(--rec)"></i>запись 16–22.09</span></div>
       </div>
     </div>
@@ -246,6 +257,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     <div class="tbl-scroll"><table class="trades" id="trades"></table></div>
     <button class="more" id="more" type="button">Показать ещё 100</button>
   </section>
+  </div>
 
   <section class="panel">
     <details>
@@ -273,14 +285,24 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   "use strict";
   const D = JSON.parse(document.getElementById("data").textContent);
   const COL = {epoch: 0, day: 1, sym: 2, t0: 3, exit: 4, net: 5, ctrl: 6, reason: 7, fill: 8};
-  const BASE = "t-bid-age-45";
-  const KEY_SETS = [
-    ["t-bid-btc1h-q1", "Просадка BTC за 1 ч", "≤ −0.21 %"],
-    ["t-bid-btc4h-q1", "Просадка BTC за 4 ч", "≤ −0.45 %"],
-    ["t-bid-pool1h-q1", "Просадка рынка за 1 ч", "≤ −0.31 %"],
-    [BASE, "База F10", "все входы"],
-    ["t-bid-pool4h-q2", "Сползание рынка за 4 ч", "антипример"],
-  ];
+  const BASES = {bid: "t-bid-age-45", ask: "t-ask-age-45"};
+  const KEYS = {
+    bid: [
+      ["t-bid-btc1h-q1", "Просадка BTC за 1 ч", "≤ −0.21 %"],
+      ["t-bid-btc4h-q1", "Просадка BTC за 4 ч", "≤ −0.45 %"],
+      ["t-bid-pool1h-q1", "Просадка рынка за 1 ч", "≤ −0.31 %"],
+      ["t-bid-age-45", "База лонга", "все входы, стена ≥ 45 мин"],
+      ["t-bid-pool4h-q2", "Сползание рынка за 4 ч", "антипример"],
+    ],
+    ask: [
+      ["t-ask-age-45", "База шорта", "все входы, стена ≥ 45 мин"],
+      ["t-ask-btc1h-q5", "Рост BTC за 1 ч", "≥ +0.20 %"],
+      ["t-ask-pool4h-q5", "Рост рынка за 4 ч", "≥ +0.42 %"],
+      ["t-ask-btc1h-q1", "Просадка BTC за 1 ч", "≤ −0.21 %"],
+      ["t-ask-age-90", "Стена ≥ 90 мин", "возраст"],
+    ],
+  };
+  const KEY_SETS = [...KEYS.bid, ...KEYS.ask];
   const AXIS_NAME = {btc1h: "BTC за 1 ч", btc4h: "BTC за 4 ч", pool1h: "рынок за 1 ч", pool4h: "рынок за 4 ч"};
   const REASON = {deadline: "дедлайн 2 ч", stop: "стоп −2 %", take: "тейк +2 %"};
   const EPOCHS = D.epochs.map(e => e.name);
@@ -342,28 +364,60 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   }
 
   // ---------- состояние ----------
-  let current = KEY_SETS[0][0];
+  let side = location.hash === "#short" ? "ask" : "bid";
+  let current = KEYS[side][0][0];
+  let BASE = BASES[side];
   let showBase = true;
-  let side = "bid";
   let tradeRows = 100, sortKey = "t0", sortDir = -1;
   const charts = {};
 
   // ---------- вывод «что видно» ----------
+  function sidePair(name) {
+    return [stats(trades(name, HIST)), stats(trades(name, REC))];
+  }
   function verdict() {
-    const h = stats(trades("t-bid-btc1h-q1", HIST)), r = stats(trades("t-bid-btc1h-q1", REC));
-    const bh = stats(trades(BASE, HIST));
-    document.getElementById("verdict").innerHTML =
-      "На днях, которых форма не видела (01–15.09), <b>база F10 сыграла в ноль: " + money(bh.usd) + " за " + bh.n +
-      " сделок</b>. Тот же лонг только в просадке BTC за час — <b>" + money(h.usd) + " за " + h.n + " сделок</b> на истории и <b>" +
-      money(r.usd) + " за " + r.n + "</b> на записи; сверх простого роста монеты " + bps(h.excessAvg) + " и " + bps(r.excessAvg) +
-      " bps на сделку. На спокойном рынке и плавном сползании лонг от стены теряет. Шорт от аск-стены устойчивой корзины не дал.";
+    const [bh, br] = sidePair(BASES[side]);
+    let head, html;
+    if (side === "bid") {
+      const [h, r] = sidePair("t-bid-btc1h-q1");
+      head = "Лонг: работает в просадке";
+      html = "На днях, которых форма не видела (01–15.09), <b>база лонга сыграла в ноль: " + money(bh.usd) + " за " + bh.n +
+        " сделок</b>; на записи " + money(br.usd) + " за " + br.n + ". Тот же лонг только в просадке BTC за час — <b>" + money(h.usd) +
+        " за " + h.n + " сделок</b> на истории и <b>" + money(r.usd) + " за " + r.n + "</b> на записи; сверх простого роста монеты " +
+        bps(h.excessAvg) + " и " + bps(r.excessAvg) + " bps на сделку. На спокойном рынке и плавном сползании лонг от стены теряет.";
+    } else {
+      const [h, r] = sidePair("t-ask-btc1h-q5");
+      head = "Шорт: устойчивого варианта нет";
+      html = "<b>База шорта в минусе в обеих эпохах: " + money(bh.usd) + " за " + bh.n + " сделок</b> на истории и <b>" +
+        money(br.usd) + " за " + br.n + "</b> на записи. Лучший вариант истории — шорт после роста BTC за час: " + money(h.usd) +
+        " за " + h.n + " сделок, но на записи тот же вариант " + money(r.usd) + " за " + r.n +
+        " — рост продолжался. Сверх рынка шорт от стены даёт немного (" + bps(bh.excessAvg) + " и " + bps(br.excessAvg) +
+        " bps на сделку у базы), но этого не хватает, чтобы перекрыть ход рынка против шорта.";
+    }
+    document.getElementById("h-summary").textContent = head;
+    document.getElementById("verdict").innerHTML = html;
+  }
+  function tabSubs() {
+    for (const s of ["bid", "ask"]) {
+      const [h, r] = sidePair(BASES[s]);
+      document.getElementById("tab-" + s + "-sub").textContent = "база: история " + money(h.usd) + " · запись " + money(r.usd);
+      const t = document.getElementById("tab-" + s);
+      t.setAttribute("aria-selected", String(s === side));
+      t.tabIndex = s === side ? 0 : -1;
+    }
+  }
+  function setSide(s) {
+    if (s === side) return;
+    side = s; BASE = BASES[s]; current = KEYS[s][0][0]; tradeRows = 100;
+    try { history.replaceState(null, "", s === "ask" ? "#short" : "#long"); } catch (e) {}
+    tabSubs(); verdict(); buildSetButtons(); renderAll(true);
   }
 
   // ---------- выбор набора ----------
-  function buildControls() {
+  function buildSetButtons() {
     const box = document.getElementById("set-buttons");
     box.innerHTML = "";
-    for (const [name, title, sub] of KEY_SETS) {
+    for (const [name, title, sub] of KEYS[side]) {
       const b = document.createElement("button");
       b.type = "button"; b.className = "set-btn"; b.dataset.set = name;
       b.innerHTML = title + "<small>" + sub + "</small>";
@@ -372,13 +426,25 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       box.appendChild(b);
     }
     const sel = document.getElementById("set-select");
-    const names = Object.keys(D.sets).sort((a, b) => setLabel(a).localeCompare(setLabel(b), "ru"));
+    const names = Object.keys(D.sets).filter(n => n.startsWith("t-" + side + "-"))
+      .sort((a, b) => setLabel(a).localeCompare(setLabel(b), "ru"));
     sel.innerHTML = names.map(n => '<option value="' + n + '">' + setLabel(n) + "</option>").join("");
     sel.value = current;
-    sel.addEventListener("change", () => select(sel.value));
+  }
+  function buildControls() {
+    buildSetButtons();
+    document.getElementById("set-select").addEventListener("change", e => select(e.target.value));
     document.getElementById("show-base").addEventListener("change", e => { showBase = e.target.checked; renderKpi(); renderEquity(); });
-    document.getElementById("side").addEventListener("change", e => { side = e.target.value; renderDose(); });
     document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
+    const tabs = [...document.querySelectorAll("#side-tabs .tab")];
+    tabs.forEach(t => {
+      t.addEventListener("click", () => setSide(t.dataset.side));
+      t.addEventListener("keydown", e => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        const next = tabs[(tabs.indexOf(t) + 1) % tabs.length];
+        next.focus(); setSide(next.dataset.side);
+      });
+    });
   }
   function select(name) {
     current = name; tradeRows = 100;
@@ -474,7 +540,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       {label: "Рынок для этих сделок", data: equitySeries(current, r => r[COL.ctrl]), borderColor: css("--ink-3"), borderWidth: 2, borderDash: [6, 4]},
     ];
     if (showBase && current !== BASE)
-      ds.push({label: "База F10 — все входы", data: equitySeries(BASE, r => r[COL.net]), borderColor: css("--base"), borderWidth: 1.5});
+      ds.push({label: (side === "bid" ? "База лонга" : "База шорта") + " — все входы", data: equitySeries(BASE, r => r[COL.net]), borderColor: css("--base"), borderWidth: 1.5});
     ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; });
     const leg = document.getElementById("eq-legend");
     leg.innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
@@ -651,6 +717,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     if (typeof Chart !== "undefined") { renderEquity(); renderDaily(); renderHist(); if (withStatic) renderDose(); }
   }
 
+  tabSubs();
   verdict();
   buildControls();
   renderDips();
