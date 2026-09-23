@@ -24,10 +24,11 @@ say "кандидат (3 формы × 3 набора) и обвал, $ORDER, $B
 for epoch in "$HIST:2026-09-01" "$A:2026-09-16"; do
   ALPHA_HOME="${epoch%%:*}" FROM_DAY="${epoch##*:}" OOS_DIR="b5/titrc-$TAG" SETS="$SETS" FORM_EXIT="$CAND" \
     FORM_NAME=all VERDICT_FLAGS= RUNS=study/runs-2026-09-19.csv GRID_THREADS="${GRID_THREADS:-2}" \
-    DAY_JOBS="${DAY_JOBS:-3}" "$A/bin/oos-frozen.sh" > /dev/null 2>&1 &
+    DAY_JOBS="${DAY_JOBS:-2}" "$A/bin/oos-frozen.sh" > /dev/null 2>&1 &
 done
-CRASH_RUN="b5/crash-$TAG" "$A/bin/crash-stress.sh" &
 wait
+# Обвал — отдельно: сутки 10.10 держат до 11 ГБ, параллельно с эпохами падали по памяти (23.09).
+CRASH_RUN="b5/crash-$TAG" DAY_JOBS=1 GRID_THREADS=4 "$A/bin/crash-stress.sh"
 say "кандидат готов → b5/titrc-$TAG (история и запись), epochs/e-crash/b5/crash-$TAG"
 say "выход (фикс / трейл / стена)";      "$A/bin/titrate-exit.sh" "$TAG"
 say "реакция на снятие стены";           "$A/bin/titrate-gone.sh" "$TAG"
