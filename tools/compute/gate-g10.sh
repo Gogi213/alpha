@@ -13,6 +13,7 @@ set -uo pipefail
 A="${ALPHA_BASE:-$HOME/alpha}"
 OLD="${OLD:?старый бинарник}"; NEW="${NEW:?новый бинарник}"
 OUT="${OUT:-$(mktemp -d)}"
+mkdir -p "$OUT" || { echo "каталог $OUT не создаётся"; exit 1; }
 RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
 USD="--h3-mode notional --h3-usd 10000 --order-qty-from-pool --threads 2"
 
@@ -53,6 +54,11 @@ for kind in touch exit e7; do
     run "$home" "$day" "$kind" on "$NEW" &
     run "$home" "$day" "$kind" off "$NEW" --round-memo off &
     wait
+    # Прогон, упавший до записи, — провал гейта, а не «пусто»: пустые каталоги не дают ложного OK.
+    for tag in old on off; do
+      rc=$(cut -d' ' -f1 "$OUT/$kind-$day-$tag.rc" 2>/dev/null)
+      [ "$rc" = 0 ] || echo "$kind $day $tag ПРОГОН УПАЛ rc=${rc:-нет} $(tail -1 "$OUT/$kind-$day-$tag.log" 2>/dev/null | cut -c1-200)"
+    done
     for d in "$OUT/$kind-$day-old"/*/; do
       set_name=$(basename "$d")
       [ -f "$d/forms.csv" ] || continue
