@@ -25,7 +25,7 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 
 ## СОСТОЯНИЕ СЕЙЧАС (2026-09-23, вечер) — читать первым
 
-Ветка `audit/design-fixes-2026-09-22` (HEAD `7a242e3`, запушена). **Счёт — Steam Deck** `deck@192.168.1.49`, `~/alpha`
+Ветка `audit/design-fixes-2026-09-22` (HEAD — `git log -1`). **Счёт — Steam Deck** `deck@192.168.1.49`, `~/alpha`
 (ssh только с явными `-i`/`UserKnownHostsFile` — кириллический HOME); `bin/alpha` → `alpha-e2f310c`. **Сборка — на VPS**
 `13.140.29.171` (`/opt/alpha-compute/src-<хеш>`, `--target-dir /opt/alpha-compute/target-58e63d7`; на деке нет `cc`),
 бинарник переносится через эту машину. Коллектор `139.99.91.22` пишет `.50` в корень и `.200` в `deep/` (15–23.09, 18 ГБ,
