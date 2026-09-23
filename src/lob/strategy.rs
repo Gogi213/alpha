@@ -1263,6 +1263,15 @@ where
                 _ => ask,
             };
             state.observe_favourable(favourable);
+            // Знак сделки (R1): тот же множитель, что развёл
+            // `observe_favourable`/`observe_gone_peak` по сторонам (`+1`
+            // лонг, `-1` шорт) — трейл и трейл после снятия считают
+            // прибыль/откат от неё им, а не модулем (см. `gain_bps` и
+            // `gone_trail_hit` ниже: `.abs()` над разностью цен превращал
+            // просадку в «прибыль» — лонг, чья лучшая цена после входа всё
+            // время ниже входа, взводил трейл и закрывался в минус с
+            // причиной `Trail`).
+            let sigma_sign = f64::from(state.sigma);
             // Текущий размер стены на уровне — база и для съедания E7, и для
             // F7 `gone<W>`. Без валидного тика/цены размера уровня не
             // существует: `now_qty` = 0, но **ни** «ноль на уровне», ни
@@ -1321,7 +1330,8 @@ where
             let gone_trail_hit = gone_trail
                 && state.gone_peak > 0.0
                 && entry_px > 0.0
-                && (state.gone_peak - favourable).abs() / entry_px * 10_000.0 >= gone_trail_bps;
+                && sigma_sign * (state.gone_peak - favourable) / entry_px * 10_000.0
+                    >= gone_trail_bps;
             // Безубыток после снятия (владелец 23.09): снятие взводит защёлку; стоп переносится в
             // цену, при которой круг закрывается в ноль с комиссиями (вход мейкером, выход тейкером),
             // как только позиция у неё или лучше. Жёсткий режим закрывает позицию хуже безубытка сразу.
@@ -1354,10 +1364,12 @@ where
                 HbtSide::Buy => (bid <= stop_eff, bid >= take_px),
                 _ => (ask >= stop_eff, ask <= take_px),
             };
+            // R1: прибыль и откат — знаковые по `sigma_sign` (см. выше), не по модулю.
             let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
-                let gain_bps = (state.best_favourable - entry_px).abs() / entry_px * 10_000.0;
+                let gain_bps =
+                    sigma_sign * (state.best_favourable - entry_px) / entry_px * 10_000.0;
                 let give_back_bps =
-                    (state.best_favourable - favourable).abs() / entry_px * 10_000.0;
+                    sigma_sign * (state.best_favourable - favourable) / entry_px * 10_000.0;
                 gain_bps >= trail_activate_bps && give_back_bps >= trail_bps
             } else {
                 false
