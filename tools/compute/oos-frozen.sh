@@ -35,34 +35,52 @@ SETS="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
 FORM_NAME="ladder3x2..20w2-pct2-1to1-7200-ttl1800"
 say() { echo "== $(date -u +%FT%TZ) oos-frozen: $*" | tee -a "$LOG"; }
 
+# Параллельность (владелец 23.09: «сделай больше параллельности»): сутки независимы, поэтому считаются
+# по DAY_JOBS разом, в кэше подходов суток — по SCAN_JOBS монет. Замер на деке 23.09: подходы суток шли
+# 6 мин на 2 монетах из 8 ядер, форма — 3 мин, загрузка дека ~25 %; процесс кэша — 30–60 МБ.
+# На 4 ядрах (VPS) — прежний последовательный ход.
+NPROC=$(nproc 2>/dev/null || echo 4)
+DAY_JOBS="${DAY_JOBS:-$(( NPROC >= 8 ? 3 : 1 ))}"
+SCAN_JOBS="${SCAN_JOBS:-$(( NPROC >= 8 ? 3 : THREADS ))}"
+mkdir -p "$OOS_DIR"
+setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
+
+one_day() {
+  local day=$1
+  local out="$OOS_DIR/$day"
+  # Замок суток: другой экземпляр (конвейер эпохи, ручной догон) может считать те же сутки — ждём его
+  # и видим готовый результат, а не пишем вдвоём в одни файлы.
+  exec 9>"$OOS_DIR/.lock-$day"
+  flock 9
+  if [ ! -f "study/approaches/D20/$day/.done" ]; then
+    say "$day: кэш подходов D20"
+    # OUT_BASE — переменная approach-scan.sh (каталог кэша подходов): задаётся явно, иначе чужое окружение
+    # уводит кэш не туда (поймано 22.09 проверочным прогоном).
+    ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
+  fi
+  [ -f "$out/a45-bid/forms.csv" ] && return 0
+  say "$day: замороженная форма"
+  # shellcheck disable=SC2086
+  nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20     $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
+    say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
+    # Упавший прогон оставляет шапку forms.csv — без удаления сутки считались бы готовыми с нулём
+    # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json).
+    rm -rf "$out"
+  }
+}
+
 days=$(ls -d study/root-20??-??-?? 2>/dev/null | sed 's|study/root-||' | sort)
 new=0
 for day in $days; do
   [[ "$day" < "$FROM_DAY" ]] && continue
   [ -f "study/touches/$day/symbols.txt" ] || { say "$day: нет касаний суток — ждём ночь"; continue; }
   [ -f "study/regime/$day.csv" ] || { say "$day: нет режима суток — ждём ночь"; continue; }
-  if [ ! -f "study/approaches/D20/$day/.done" ]; then
-    say "$day: кэш подходов D20"
-    # OUT_BASE — переменная approach-scan.sh (каталог кэша подходов): задаётся явно, иначе чужое окружение
-    # уводит кэш не туда (поймано 22.09 проверочным прогоном).
-    ALPHA_HOME="$ALPHA_HOME" JOBS="$THREADS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
-      && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
-  fi
-  out="$OOS_DIR/$day"; mkdir -p "$OOS_DIR"
-  if [ ! -f "$out/a45-bid/forms.csv" ]; then
-    setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
-    say "$day: замороженная форма"
-    # shellcheck disable=SC2086
-    nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
-      $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
-      say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
-      # Упавший прогон оставляет шапку forms.csv — без удаления сутки считались бы готовыми с нулём
-      # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json).
-      rm -rf "$out"
-    }
-    new=$((new + 1))
-  fi
+  [ -f "study/approaches/D20/$day/.done" ] && [ -f "$OOS_DIR/$day/a45-bid/forms.csv" ] && continue
+  while [ "$(jobs -rp | wc -l)" -ge "$DAY_JOBS" ]; do wait -n; done
+  one_day "$day" &
+  new=$((new + 1))
 done
+wait
 
 for s in $SETS; do
   set_name="${s%%:*}"
