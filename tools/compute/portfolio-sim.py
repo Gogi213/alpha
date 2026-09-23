@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""G11 (В-88): симуляция портфеля кандидата — лот, потолок экспозиции, выключатели.
+"""G11 (В-88): счёт депозита по сделкам бэктеста — реальные доллары, защиты, прирост / просадка / восстановление.
 
-Бэктест считает каждую сделку на одном лоте и не видит соседей; здесь сделки одной формы и набора
-идут общим счётом во времени (вход — момент сигнала `t0_ns`, это с запасом: заявка стоит до 30 мин,
-выход — `exit_ns`), и правила защиты применяются так:
+Деньги сделки — из самого бэктеста: заполненная позиция `qty × entry_vwap` (прогон с `--order-usd 500` — вся
+лестница на $500, заполнение частичное по модели очереди) × `net_bps`. Сделки одной формы и набора идут общим
+счётом во времени (вход — момент сигнала `t0_ns`, с запасом: заявка стоит до 30 мин; выход — `exit_ns`).
 
-- **лот** `--lot-pct`: % депозита на сделку; «риск на сделку» = лот × худший прокид сценария (ниже);
-- **потолок экспозиции** `--cap-pct`: сумма открытых лотов, % депозита; вход сверх потолка пропускается;
-- **выключатель дневного убытка** `--day-stop-pct`: реализованный убыток суток UTC ≥ X % — до конца суток
-  новых входов нет;
-- **выключатель по BTC** `--btc-kill-bps`: ход BTC за 1 ч ≤ −K bps — новых входов нет, а открытые позиции
-  закрываются рыночным по закрытию следующей минуты (минутные свечи монеты `ref-<SYM>-1m.csv`, издержки
-  круга — те же, что у сделки в бэктесте: net − gross); нет свечи — сделка остаётся как была (счётчик);
-- **исключение монет** `--exclude SYM,SYM`.
+Защиты (каждый аргумент — список через запятую, печатается сетка):
+- `--max-pos N` — не больше N позиций одновременно (0 — без потолка);
+- `--day-stop-pct X` — реализованный убыток суток UTC ≥ X % депозита — до конца суток новых входов нет;
+- `--btc-kill-bps K` — BTC за 1 ч ≤ −K bps: новых входов нет, открытые закрываются рыночным по закрытию
+  следующей минуты (минутные свечи монеты `ref-<SYM>-1m.csv`; издержки круга — как у сделки в бэктесте);
+- `--exclude-set имя=SYM,SYM` (повторяемый) — наборы исключённых монет; всегда есть «нет».
 
-Каждый аргумент — список через запятую; печатается сетка (или `--json` для дашборда). Деньги — в % депозита.
-**Стресс** — сценарий «в провал вошли на пике позиций»: пик открытых лотов × худший прокид при данном
-выключателе (`--stress-gap K:%,…` — из `crash-gaps.py` на обвале 10.10.2025; `0` — без выключателя).
+Отчёт (депозит `--deposit-usd`): прирост % = прибыль / депозит; макс. просадка % — от пика капитала;
+фактор восстановления = прибыль / макс. просадка ($); восстановление — самый долгий отрезок от пика капитала до
+нового пика, дней (не вышел к концу периода — помечается). **Стресс** — сценарий «провал застал пик позиций»:
+пик заполненных позиций × худший прокид (`--stress-gap-pct`, обвал 10.10.2025: −59.7 % без выключателя, замер
+`crash-gaps.py`), % депозита.
 
-    python3 portfolio-sim.py --epoch история=epochs/e-archive:b5/titrc-v1 --epoch запись=.:b5/titrc-v1 \\
-        --klines study/klines --variant кандидат=t-bid-btc1h-q1/ladder3x2..20w2-pct2-tr1x1-14400-ttl1800 \\
-        --lot-pct 2,5,10 --cap-pct 0,50 --day-stop-pct 0,2 --btc-kill-bps 0,150 \\
-        --stress-gap 0:59.7,150:3.2 [--json protection.json]
+    python3 portfolio-sim.py --epoch история=epochs/e-archive:b5/titrc-u500-trail --epoch запись=.:b5/titrc-u500-trail \\
+        --join сентябрь=история+запись --klines study/klines \\
+        --variant кандидат=t-bid-btc1h-q1/ladder3x2..20w2-pct2-tr1x1-14400-ttl1800 \\
+        --deposit-usd 2500 --position-usd 500 --max-pos 1,2,3,5 --day-stop-pct 0,2 --btc-kill-bps 0,150 \\
+        --exclude-set прокиды=STORJUSDT,… [--json protection.json]
 """
 import argparse
 import bisect
@@ -35,15 +36,7 @@ import sys
 
 NS = 1_000_000_000
 MIN_MS = 60_000
-
-
-def load_rounds(home, runs, set_name, form):
-    """Сделки формы из первого прогона (списка через запятую), где она есть."""
-    for run in runs.split(","):
-        rows = load_run(home, run, set_name, form)
-        if rows:
-            return rows
-    return []
+DAY_NS = 86_400 * NS
 
 
 def load_run(home, run, set_name, form):
@@ -56,9 +49,19 @@ def load_run(home, run, set_name, form):
                 entry = float(r.get("entry_vwap") or 0) or float(r["entry_px"])
                 gross = (float(r["exit_px"]) / entry - 1) * 1e4 * int(r["dir"])
                 net = float(r["net_bps"])
-                rows.append((int(r["t0_ns"]), int(r["exit_ns"]), r["symbol"], net, r["reason"], entry, gross - net))
-    rows.sort()
+                rows.append({"t0": int(r["t0_ns"]), "t1": int(r["exit_ns"]), "sym": r["symbol"], "net": net,
+                             "reason": r["reason"], "entry": entry, "fee": gross - net,
+                             "usd": float(r["qty"]) * entry, "fill": float(r.get("fill_frac") or 1.0)})
     return rows
+
+
+def load_rounds(home, runs, set_name, form):
+    """Сделки формы из первого прогона (список через запятую), где она есть."""
+    for run in runs.split(","):
+        rows = load_run(home, run, set_name, form)
+        if rows:
+            return rows
+    return []
 
 
 def load_btc1h(home):
@@ -67,12 +70,12 @@ def load_btc1h(home):
     for f in sorted(glob.glob(os.path.join(home, "study", "regime", "20??-??-??.csv"))):
         with open(f, encoding="utf-8") as fh:
             pairs += [(int(r["minute_ms"]), float(r["btc_ret_1h_bps"])) for r in csv.DictReader(fh) if r.get("btc_ret_1h_bps")]
-    pairs.sort()
+    pairs = sorted(set(pairs))
     return [m for m, _ in pairs], [v for _, v in pairs]
 
 
 class Klines:
-    """Закрытия минутных свечей монет из каталогов `ref-<SYM>-1m.csv` (минуты всех каталогов вместе)."""
+    """Закрытия минутных свечей монет (`ref-<SYM>-1m.csv`, минуты всех каталогов вместе)."""
 
     def __init__(self, dirs):
         self.dirs, self.cache = dirs, {}
@@ -92,30 +95,32 @@ def day_of(t_ns):
     return dt.datetime.fromtimestamp(t_ns / NS, dt.timezone.utc).strftime("%Y-%m-%d")
 
 
-def kill_minutes(btc, kill_bps):
+def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclude, gap_pct):
     minutes, vals = btc
-    return [m for m, v in zip(minutes, vals) if v <= -kill_bps]
-
-
-def simulate(rows, btc, klines, lot, cap, day_stop, kill_bps, exclude):
-    minutes, vals = btc
-    kills = kill_minutes(btc, kill_bps) if kill_bps else []
-    open_pos = []  # (exit_ns, pnl_pct)
-    realized_by_day = {}
-    skipped = {"потолок": 0, "день": 0, "btc": 0, "монета": 0}
-    n_killed = n_no_kline = 0
+    kills = [m for m, v in zip(minutes, vals) if v <= -kill_bps] if kill_bps else []
+    open_pos = []  # (t1, pnl_usd, usd)
+    realized = {}
+    skipped = {"позиций": 0, "день": 0, "btc": 0, "монета": 0}
+    killed = no_kline = 0
     taken = []
-    peak_exp = peak_n = 0.0
-    for t0, t1, sym, net, reason, entry, fee in rows:
-        still = []
-        for e, p in open_pos:
-            if e <= t0:
-                d = day_of(e)
-                realized_by_day[d] = realized_by_day.get(d, 0.0) + p
+    peak_n = 0
+    peak_usd = 0.0
+
+    def settle(upto):
+        nonlocal open_pos
+        keep = []
+        for t1, p, u in open_pos:
+            if t1 <= upto:
+                d = day_of(t1)
+                realized[d] = realized.get(d, 0.0) + p
             else:
-                still.append((e, p))
-        open_pos = still
-        if sym in exclude:
+                keep.append((t1, p, u))
+        open_pos = keep
+
+    for r in sorted(rows, key=lambda x: x["t0"]):
+        t0, t1, net, reason = r["t0"], r["t1"], r["net"], r["reason"]
+        settle(t0)
+        if r["sym"] in exclude:
             skipped["монета"] += 1
             continue
         if kill_bps:
@@ -124,45 +129,64 @@ def simulate(rows, btc, klines, lot, cap, day_stop, kill_bps, exclude):
             if i >= 0 and vals[i] <= -kill_bps:
                 skipped["btc"] += 1
                 continue
-        if day_stop and realized_by_day.get(day_of(t0), 0.0) <= -day_stop:
+        if day_stop_pct and realized.get(day_of(t0), 0.0) <= -day_stop_pct / 100 * deposit:
             skipped["день"] += 1
             continue
-        if cap and (len(open_pos) + 1) * lot > cap + 1e-9:
-            skipped["потолок"] += 1
+        if max_pos and len(open_pos) >= max_pos:
+            skipped["позиций"] += 1
             continue
         if kills:
-            # первая минута выключателя строго после входа и до выхода — закрыть по закрытию следующей минуты
             j = bisect.bisect_right(kills, t0 // 1_000_000 - MIN_MS)
             if j < len(kills) and kills[j] * 1_000_000 < t1:
-                px = klines.close(sym, kills[j] + MIN_MS)
+                px = klines.close(r["sym"], kills[j] + MIN_MS)
                 if px is None:
-                    n_no_kline += 1
+                    no_kline += 1
                 else:
-                    net = (px / entry - 1) * 1e4 - fee
+                    net = (px / r["entry"] - 1) * 1e4 - r["fee"]
                     t1 = (kills[j] + 2 * MIN_MS) * 1_000_000
                     reason = "выключатель"
-                    n_killed += 1
-        pnl = lot * net / 1e4
-        open_pos.append((t1, pnl))
-        taken.append((t0, t1, sym, pnl, reason, net))
-        exp = len(open_pos) * lot
-        if exp > peak_exp:
-            peak_exp, peak_n = exp, len(open_pos)
-    for e, p in open_pos:
-        d = day_of(e)
-        realized_by_day[d] = realized_by_day.get(d, 0.0) + p
-    eq = peak = dd = 0.0
-    for _, t1, _, p, _, _ in sorted(taken, key=lambda x: x[1]):
-        eq += p
-        peak = max(peak, eq)
-        dd = min(dd, eq - peak)
-    worst_day = min(realized_by_day.items(), key=lambda kv: kv[1]) if realized_by_day else ("—", 0.0)
-    wins = sum(1 for x in taken if x[3] > 0)
+                    killed += 1
+        pnl = net / 1e4 * r["usd"]
+        open_pos.append((t1, pnl, r["usd"]))
+        taken.append({"t0": t0, "t1": t1, "sym": r["sym"], "pnl": pnl, "usd": r["usd"], "fill": r["fill"], "reason": reason})
+        peak_n = max(peak_n, len(open_pos))
+        peak_usd = max(peak_usd, sum(u for _, _, u in open_pos))
+    settle(10**20)
+
+    # капитал по выходам: прибыль, макс. просадка от пика, самое долгое восстановление
+    eq, peak, peak_t, max_dd, max_dd_pct = deposit, deposit, None, 0.0, 0.0
+    longest, open_since = 0.0, None
+    for x in sorted(taken, key=lambda x: x["t1"]):
+        eq += x["pnl"]
+        if eq >= peak:
+            if open_since is not None:
+                longest = max(longest, (x["t1"] - open_since) / DAY_NS)
+                open_since = None
+            peak, peak_t = eq, x["t1"]
+        else:
+            if open_since is None:
+                open_since = peak_t if peak_t is not None else x["t0"]
+            max_dd = max(max_dd, peak - eq)
+            max_dd_pct = max(max_dd_pct, (peak - eq) / peak * 100)
+    unrecovered = open_since is not None
+    if unrecovered and taken:
+        longest = max(longest, (max(x["t1"] for x in taken) - open_since) / DAY_NS)
+    total = eq - deposit
+    worst_day = min(realized.items(), key=lambda kv: kv[1]) if realized else ("—", 0.0)
+    n = len(taken)
     return {
-        "n": len(taken), "skip": skipped, "killed": n_killed, "no_kline": n_no_kline, "total": eq, "dd": dd,
-        "worst_day": worst_day, "worst_trade": min((x[3] for x in taken), default=0.0),
-        "worst_net_bps": min((x[5] for x in taken), default=0.0), "win": wins / len(taken) if taken else 0.0,
-        "peak_exp": peak_exp, "peak_n": peak_n, "daily": dict(sorted(realized_by_day.items())),
+        "n": n, "skip": skipped, "killed": killed, "no_kline": no_kline,
+        "fill": sum(x["fill"] for x in taken) / n if n else 0.0,
+        "usd_mean": sum(x["usd"] for x in taken) / n if n else 0.0,
+        "total_usd": total, "total_pct": total / deposit * 100,
+        "dd_usd": max_dd, "dd_pct": max_dd_pct,
+        "rf": (total / max_dd) if max_dd > 0 else None,
+        "rec_days": longest, "unrecovered": unrecovered,
+        "worst_day": worst_day[0], "worst_day_usd": worst_day[1], "worst_day_pct": worst_day[1] / deposit * 100,
+        "worst_trade_usd": min((x["pnl"] for x in taken), default=0.0),
+        "win": sum(1 for x in taken if x["pnl"] > 0) / n if n else 0.0,
+        "peak_n": peak_n, "peak_usd": peak_usd, "stress_pct": peak_usd * gap_pct / 100 / deposit * 100,
+        "daily": {d: round(v, 2) for d, v in sorted(realized.items())},
     }
 
 
@@ -172,70 +196,79 @@ def floats(s):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--epoch", action="append", required=True, help="имя=<дом>:<прогон>[,<прогон>…] — форма берётся из первого прогона, где она есть")
+    ap.add_argument("--epoch", action="append", required=True, help="имя=<дом>:<прогон>[,<прогон>…]")
+    ap.add_argument("--join", action="append", default=[], help="имя=эпоха+эпоха — один счёт подряд")
     ap.add_argument("--variant", action="append", required=True, help="имя=<набор>/<форма>")
-    ap.add_argument("--klines", action="append", default=[], help="каталоги минутных свечей монет (ref-klines.py)")
-    ap.add_argument("--lot-pct", default="10", help="лот, % депозита")
-    ap.add_argument("--cap-pct", default="0", help="потолок открытых лотов, % депозита; 0 — нет")
-    ap.add_argument("--day-stop-pct", default="0", help="дневной убыток для выключателя, % депозита; 0 — нет")
+    ap.add_argument("--klines", action="append", default=[], help="каталоги минутных свечей монет")
+    ap.add_argument("--deposit-usd", type=float, required=True)
+    ap.add_argument("--position-usd", type=float, required=True, help="размер позиции прогона (--order-usd) — для подписи")
+    ap.add_argument("--max-pos", default="0", help="не больше N позиций одновременно; 0 — без потолка")
+    ap.add_argument("--day-stop-pct", default="0", help="дневной убыток, % депозита; 0 — нет")
     ap.add_argument("--btc-kill-bps", default="0", help="BTC за 1 ч ≤ −K bps — закрыть всё и не входить; 0 — нет")
-    ap.add_argument("--stress-gap", default="0:59.7", help="K:худший прокид % при выключателе K (0 — без него)")
-    ap.add_argument("--exclude", default="", help="монеты через запятую")
-    ap.add_argument("--json", help="сетка целиком и дневной результат — для дашборда")
+    ap.add_argument("--exclude-set", action="append", default=[], help="имя=SYM,SYM — набор исключённых монет")
+    ap.add_argument("--stress-gap-pct", type=float, default=59.7)
+    ap.add_argument("--json")
     a = ap.parse_args()
-    exclude = set(x for x in a.exclude.split(",") if x)
-    stress_gap = {int(float(k)): float(v) for k, v in (x.split(":") for x in a.stress_gap.split(","))}
     klines = Klines(a.klines)
+    excl = [("нет", set())] + [(s.split("=", 1)[0], set(x for x in s.split("=", 1)[1].split(",") if x)) for s in a.exclude_set]
 
-    epochs = []
+    epochs = {}
+    order = []
     for spec in a.epoch:
         name, rest = spec.split("=", 1)
-        home, run = rest.split(":", 1)
-        epochs.append((name, home, run, load_btc1h(home)))
+        home, runs = rest.split(":", 1)
+        epochs[name] = (home, runs, load_btc1h(home))
+        order.append(name)
+    joins = {}
+    for spec in a.join:
+        name, parts = spec.split("=", 1)
+        joins[name] = parts.split("+")
+        order.append(name)
+
     variants = []
     for spec in a.variant:
         vname, rest = spec.split("=", 1)
         set_name, form = rest.split("/", 1)
-        per_epoch = {}
-        for name, home, run, _ in epochs:
-            per_epoch[name] = load_rounds(home, run, set_name, form)
-            if not per_epoch[name]:
-                print(f"!! {vname}/{name}: нет сделок {set_name}/{form} в {home}/{run}", file=sys.stderr)
-        variants.append((vname, set_name, form, per_epoch))
+        data = {}
+        for name, (home, runs, btc) in epochs.items():
+            data[name] = (load_rounds(home, runs, set_name, form), btc)
+            if not data[name][0]:
+                print(f"!! {vname}/{name}: нет сделок {set_name}/{form} в {home}/{runs}", file=sys.stderr)
+        for name, parts in joins.items():
+            rows, pairs = [], set()
+            for p in parts:
+                rows += data[p][0]
+                pairs |= set(zip(*data[p][1]))
+            pairs = sorted(pairs)
+            data[name] = (rows, ([m for m, _ in pairs], [v for _, v in pairs]))
+        variants.append((vname, set_name, form, data))
 
-    head = ["вариант", "эпоха", "лот%", "потолок%", "день%", "btc%", "сделок", "пропуск п/д/б/м", "выкл", "итог%",
-            "просадка%", "худшие_сутки%", "худшая_сделка%", "пик_позиций", "стресс%"]
+    head = ["вариант", "период", "поз", "дн.стоп", "выкл", "искл", "сделок", "заполн", "прибыль$", "прирост%",
+            "просадка%", "ф.восст", "восст.дн", "худш.сутки%", "пик$", "стресс%"]
     table, grid = [], []
-    combos = itertools.product(floats(a.lot_pct), floats(a.cap_pct), floats(a.day_stop_pct), floats(a.btc_kill_bps))
-    for lot, cap, day_stop, kill in combos:
-        for vname, _, _, per_epoch in variants:
-            for name, _, _, btc in epochs:
-                rows = per_epoch[name]
+    for mp, ds, kb, (xname, xset) in itertools.product(floats(a.max_pos), floats(a.day_stop_pct), floats(a.btc_kill_bps), excl):
+        for vname, _, _, data in variants:
+            for name in order:
+                rows, btc = data[name]
                 if not rows:
                     continue
-                r = simulate(rows, btc, klines, lot, cap, day_stop, kill, exclude)
-                gap = stress_gap.get(int(kill), stress_gap.get(0, 0.0))
-                stress = r["peak_n"] * lot * gap / 100
-                s = r["skip"]
-                table.append([vname, name, lot, cap or "—", day_stop or "—", f"-{kill / 100:g}" if kill else "—", r["n"],
-                              f"{s['потолок']}/{s['день']}/{s['btc']}/{s['монета']}", r["killed"], f"{r['total']:+.2f}",
-                              f"{r['dd']:.2f}", f"{r['worst_day'][1]:+.2f}", f"{r['worst_trade']:+.2f}", r["peak_n"],
-                              f"{stress:.1f}"])
-                grid.append({"variant": vname, "epoch": name, "lot": lot, "cap": cap, "day_stop": day_stop, "kill": kill,
-                             "n": r["n"], "skip": s, "killed": r["killed"], "no_kline": r["no_kline"],
-                             "total": round(r["total"], 3), "dd": round(r["dd"], 3), "worst_day": r["worst_day"][0],
-                             "worst_day_pct": round(r["worst_day"][1], 3), "worst_trade": round(r["worst_trade"], 3),
-                             "win": round(r["win"], 3), "peak_n": r["peak_n"], "stress": round(stress, 2),
-                             "stress_gap": gap, "daily": {d: round(v, 4) for d, v in r["daily"].items()}})
+                r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct)
+                table.append([vname, name, int(mp) or "—", ds or "—", f"-{kb / 100:g}%" if kb else "—", xname, r["n"],
+                              f"{r['fill'] * 100:.0f}%", f"{r['total_usd']:+.0f}", f"{r['total_pct']:+.2f}", f"-{r['dd_pct']:.2f}",
+                              "—" if r["rf"] is None else f"{r['rf']:.1f}", f"{r['rec_days']:.1f}" + ("+" if r["unrecovered"] else ""),
+                              f"{r['worst_day_pct']:+.2f}", f"{r['peak_usd']:.0f}", f"-{r['stress_pct']:.1f}"])
+                grid.append({"variant": vname, "epoch": name, "max_pos": int(mp), "day_stop": ds, "kill": kb, "exclude": xname,
+                             **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}})
     widths = [max(len(str(x)) for x in col) for col in zip(head, *table)]
     for row in [head] + table:
         print("  ".join(str(x).rjust(w) for x, w in zip(row, widths)))
     if a.json:
-        meta = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
-                "epochs": [e[0] for e in epochs], "runs": {e[0]: f"{e[1]}:{e[2]}" for e in epochs},
+        meta = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), "deposit_usd": a.deposit_usd,
+                "position_usd": a.position_usd,
+                "stress_gap_pct": a.stress_gap_pct, "epochs": order,
                 "variants": [{"name": v[0], "set": v[1], "form": v[2]} for v in variants],
-                "lot": floats(a.lot_pct), "cap": floats(a.cap_pct), "day_stop": floats(a.day_stop_pct),
-                "kill": floats(a.btc_kill_bps), "stress_gap": stress_gap, "grid": grid}
+                "max_pos": [int(x) for x in floats(a.max_pos)], "day_stop": floats(a.day_stop_pct),
+                "kill": floats(a.btc_kill_bps), "exclude": [{"name": n, "coins": sorted(s)} for n, s in excl], "grid": grid}
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, separators=(",", ":"))
         print(f"{len(grid)} строк → {a.json}", file=sys.stderr)
