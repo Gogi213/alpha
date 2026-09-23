@@ -71,6 +71,9 @@ def main():
     ap.add_argument("--epoch", action="append", required=True, help="имя=дом:с:по")
     ap.add_argument("--points", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--form-trades", action="append", default=[],
+                    help="сделки одной формы другого прогона: <каталог b5>|<набор>|<форма>|<ключ> (титрование выхода, G9)")
+    ap.add_argument("--exit-agg", default=None, help="сводка exit-titration-read.py (CSV) — встраивается как есть")
     a = ap.parse_args()
 
     with open(a.points, encoding="utf-8") as f:
@@ -104,6 +107,30 @@ def main():
                         round(r["net_bps"], 2), round(r["control_bps"], 2), x.get("reason", ""),
                         round(float(x.get("fill_frac") or 1.0), 3),
                     ])
+    # Титрование выхода (G9): сделки выбранных форм и сводка всех форм.
+    out["form_trades"] = {}
+    for spec_ in a.form_trades:
+        run, set_name, form, key = spec_.split("|")
+        for ep in out["epochs"]:
+            home = next(e.split("=", 1)[1].split(":")[0] for e in a.epoch if e.split("=", 1)[0] == ep["name"])
+            mids = placebo.Mids(os.path.join(home, "study", "touches"))
+            for day in ep["days"]:
+                path = os.path.join(home, "b5", run, day, set_name, "rounds.csv")
+                if not os.path.exists(path):
+                    continue
+                with open(path, encoding="utf-8", errors="replace", newline="") as f:
+                    raw = {(r["symbol"], r["t0_ns"]): r for r in csv.DictReader(l for l in f if not l.startswith("#"))
+                           if r["form"] == form}
+                for r in placebo.control(placebo.load_rounds(path, form), mids):
+                    x = raw.get((r["symbol"], str(r["t0_ns"])), {})
+                    out["form_trades"].setdefault(key, []).append([
+                        ep["name"], day, r["symbol"], r["t0_ns"] // 60_000_000_000, r["exit_ns"] // 60_000_000_000,
+                        round(r["net_bps"], 2), round(r["control_bps"], 2), x.get("reason", ""),
+                        round(float(x.get("fill_frac") or 1.0), 3),
+                    ])
+    if a.exit_agg:
+        with open(a.exit_agg, encoding="utf-8") as f:
+            out["exit_agg"] = list(csv.DictReader(f))
     out["columns"] = ["epoch", "day", "symbol", "t0_min", "exit_min", "net_bps", "control_bps", "reason", "fill_frac"]
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))

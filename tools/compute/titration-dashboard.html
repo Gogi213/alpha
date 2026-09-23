@@ -136,6 +136,9 @@ td .sub { display: block; color: var(--ink-3); font-size: 12px; }
 .more { justify-self: start; font: 500 14px var(--font-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
 details summary { cursor: pointer; font-weight: 600; }
 details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 90ch; }
+.heat td, .heat th { text-align: center; padding: 6px 8px; }
+.heat th:first-child, .heat td:first-child { text-align: left; }
+.heat td.cell { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
 .verdict-line { font-size: 16px; max-width: 80ch; }
 .verdict-line b { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
@@ -220,6 +223,33 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     <div>
       <h3>Возраст стены (накопительно, ≥ N мин)</h3>
       <div class="chart h-sm"><canvas id="age" role="img" aria-label="Средняя сделка по возрасту стены"></canvas></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-exit" id="exit-panel">
+    <div class="panel-head">
+      <h2 id="h-exit">Выход: как держать сделку (лонг)</h2>
+      <p class="note">Титрование E19: тот же вход, 252 формы выхода на каждый набор.</p>
+    </div>
+    <div class="set-buttons" id="exit-sets"></div>
+    <div class="kpi-scroll"><table class="kpi-table" id="exit-kpi"></table></div>
+    <div>
+      <h3>Эквити: кандидат против выхода F10, $</h3>
+      <div class="legend" id="exit-legend"></div>
+      <div class="chart h-md"><canvas id="exit-eq" role="img" aria-label="Эквити двух выходов"></canvas></div>
+    </div>
+    <div class="grid2">
+      <div><h3>Удержание: средняя сделка, bps</h3><div class="chart h-sm"><canvas id="exit-hold" role="img" aria-label="Средняя сделка по удержанию"></canvas></div></div>
+      <div><h3>Стоп: средняя сделка, bps</h3><div class="chart h-sm"><canvas id="exit-stop" role="img" aria-label="Средняя сделка по стопу"></canvas></div></div>
+    </div>
+    <p class="note">Столбцы — среднее по всем формам с этим удержанием или стопом (тейк 0,5–2 %). Держится то, что растёт в обеих эпохах.</p>
+    <div class="grid2">
+      <div class="tbl-scroll"><h3>Стоп × тейк, удержание 4 ч — история, bps</h3><table class="heat" id="heat-hist"></table></div>
+      <div class="tbl-scroll"><h3>Стоп × тейк, удержание 4 ч — запись, bps</h3><table class="heat" id="heat-rec"></table></div>
+    </div>
+    <div class="grid2">
+      <div class="tbl-scroll"><h3>Трейлинг, 4 ч, среднее по стопам 1 / 1,5 / 2 % — bps, история / запись</h3><table class="heat" id="trail-tbl"></table></div>
+      <div class="tbl-scroll"><h3>Выход «стену съели на 20 %» — bps, история / запись</h3><table id="wall-tbl"></table></div>
     </div>
   </section>
 
@@ -708,13 +738,149 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     more.textContent = "Показать ещё 100 (всего " + t.length + ")";
   }
 
+  // ---------- выход лонга (E19) ----------
+  const EXIT_SETS = [["t-bid-btc1h-q1", "Просадка BTC за 1 ч"], ["t-bid-btc4h-q1", "Просадка BTC за 4 ч"], ["t-bid-age-45", "База лонга"]];
+  let exitSet = EXIT_SETS[0][0];
+  const AGG = (D.exit_agg || []).map(r => {
+    const m = r.form.match(/pct([0-9.]+)-(tk[0-9.]+|tr[0-9.]+x[0-9.]+|1to1)-(\d+)-ttl1800(-eat20)?$/);
+    if (!m) return null;
+    const num = k => (r[k] === "" || r[k] == null ? null : Number(r[k]));
+    return {set: r.set, stop: Number(m[1]), take: m[2], dl: Number(m[3]) / 3600, wall: !!m[4],
+      h: {n: num("история_n"), net: num("история_net"), usd: num("история_usd"), ex: num("история_excess")},
+      r: {n: num("запись_n"), net: num("запись_net"), usd: num("запись_usd"), ex: num("запись_excess")}};
+  }).filter(Boolean);
+  const avgOf = (rows, ep) => { const v = rows.map(x => x[ep].net).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const fmtCell = v => v == null ? "—" : bps(v);
+  function heatBg(v) {
+    if (v == null) return "";
+    const pctv = Math.min(55, Math.abs(v) * 1.2);
+    return "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + pctv.toFixed(0) + "%, var(--surface))";
+  }
+  function exitTrades(kind, epoch) {
+    const t = (D.form_trades || {})[exitSet + "/" + kind] || [];
+    return epoch ? t.filter(r => r[COL.epoch] === epoch) : t;
+  }
+  function barValues(canvas, labels, hv, rv, key) {
+    const o = baseOptions();
+    o.scales.y.title = {display: true, text: "bps на сделку", color: css("--ink-3"), font: {size: 12}};
+    o.plugins.tooltip.callbacks = {label: it => " " + it.dataset.label + ": " + (it.parsed.y == null ? "—" : bps(it.parsed.y)) + " bps"};
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart(canvas, {type: "bar", data: {labels, datasets: [
+      {label: "история", data: hv.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: css("--hist"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 26},
+      {label: "запись", data: rv.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: css("--rec"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 26},
+    ]}, options: o});
+  }
+  function renderExit() {
+    const panel = document.getElementById("exit-panel");
+    panel.hidden = side !== "bid" || !AGG.length;
+    if (panel.hidden) return;
+    const box = document.getElementById("exit-sets");
+    box.innerHTML = "";
+    for (const [name, title] of EXIT_SETS) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "set-btn"; b.textContent = title;
+      b.setAttribute("aria-pressed", String(name === exitSet));
+      b.addEventListener("click", () => { exitSet = name; renderExit(); });
+      box.appendChild(b);
+    }
+    // KPI: выход F10 против кандидата
+    const kinds = [["f10", "Выход F10: стоп 2 %, тейк 1:1, 2 ч"], ["cand", "Кандидат: стоп 2 %, трейл 1 % / откат 1 %, 4 ч"]];
+    const cols = [];
+    for (const [k, title] of kinds) for (const [e, en] of [[HIST, "история"], [REC, "запись"]]) cols.push([k, e, title, en]);
+    const S = cols.map(([k, e]) => stats(exitTrades(k, e)));
+    const rowsDef = [["Сделок", s => s.n, null], ["Итог, $", s => money(s.usd), s => s.usd], ["Сверх рынка, $", s => money(s.excess), s => s.excess],
+      ["Средняя сделка, bps", s => bps(s.avg), s => s.avg], ["В плюс, % сделок", s => Math.round(s.win * 100) + " %", null],
+      ["Худший откат капитала, $", s => money(s.dd), s => s.dd], ["Удержание в среднем, мин", s => Math.round(s.hold), null]];
+    let html = "<thead><tr><th></th>" + kinds.map(([, t]) => "<th colspan='2'>" + t + "</th>").join("") + "</tr><tr><th></th>" +
+      cols.map(c => "<th>" + c[3] + "</th>").join("") + "</tr></thead><tbody>";
+    for (const [label, fmt, sign] of rowsDef) {
+      html += "<tr><td>" + label + "</td>" + S.map(s => s ? "<td class='num big " + (sign ? cls(sign(s)) : "") + "'>" + fmt(s) + "</td>" : "<td>—</td>").join("") + "</tr>";
+    }
+    document.getElementById("exit-kpi").innerHTML = html + "</tbody>";
+    // эквити
+    const series = (kind, field) => {
+      const t = exitTrades(kind).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
+      const out = []; let i = 0, cum = 0;
+      for (let ts = Date.UTC(2026, 8, 1); ts <= Date.UTC(2026, 8, 23); ts += 3600e3) {
+        while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += field(t[i]) / 10; i++; }
+        out.push({x: ts, y: Math.round(cum * 100) / 100});
+      }
+      return out;
+    };
+    const ds = [
+      {label: "Кандидат (стоп 2 %, трейл, 4 ч)", data: series("cand", r => r[COL.net]), borderColor: css("--sel"), borderWidth: 2},
+      {label: "Выход F10 (стоп 2 %, 1:1, 2 ч)", data: series("f10", r => r[COL.net]), borderColor: css("--base"), borderWidth: 1.5},
+      {label: "Рынок для сделок кандидата", data: series("cand", r => r[COL.ctrl]), borderColor: css("--ink-3"), borderWidth: 2, borderDash: [6, 4]},
+    ];
+    ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; });
+    document.getElementById("exit-legend").innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
+    const o = baseOptions();
+    o.scales.x.type = "linear"; o.scales.x.min = Date.UTC(2026, 8, 1); o.scales.x.max = Date.UTC(2026, 8, 23);
+    o.scales.x.ticks.stepSize = 2 * 86400e3;
+    o.scales.x.ticks.callback = v => String(new Date(v).getUTCDate()).padStart(2, "0") + ".09";
+    o.scales.y.ticks.callback = v => money(v);
+    o.plugins.tooltip.callbacks = {
+      title: items => { const d = new Date(items[0].parsed.x); return String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":00 UTC"; },
+      label: it => " " + it.dataset.label + ": " + money(it.parsed.y),
+    };
+    if (charts.exitEq) charts.exitEq.destroy();
+    charts.exitEq = new Chart(document.getElementById("exit-eq"), {type: "line", data: {datasets: ds}, options: o, plugins: [epochPlugin]});
+    // удержание и стоп — среднее по фиксированным формам
+    const fix = AGG.filter(x => x.set === exitSet && x.take.startsWith("tk") && !x.wall);
+    const dls = [1, 2, 4];
+    barValues(document.getElementById("exit-hold"), dls.map(d => d + " ч"),
+      dls.map(d => avgOf(fix.filter(x => x.dl === d), "h")), dls.map(d => avgOf(fix.filter(x => x.dl === d), "r")), "exitHold");
+    const stops = [...new Set(fix.map(x => x.stop))].sort((a, b) => a - b);
+    barValues(document.getElementById("exit-stop"), stops.map(s => s.toString().replace(".", ",") + " %"),
+      stops.map(s => avgOf(fix.filter(x => x.stop === s), "h")), stops.map(s => avgOf(fix.filter(x => x.stop === s), "r")), "exitStop");
+    // стоп × тейк при 4 ч
+    const takes = [...new Set(fix.map(x => x.take))].sort((a, b) => parseFloat(a.slice(2)) - parseFloat(b.slice(2)));
+    for (const [id, ep] of [["heat-hist", "h"], ["heat-rec", "r"]]) {
+      let t = "<thead><tr><th>стоп \\ тейк</th>" + takes.map(k => "<th>" + k.slice(2).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+      for (const s of stops) {
+        t += "<tr><td>" + s.toString().replace(".", ",") + " %</td>";
+        for (const k of takes) {
+          const c = fix.find(x => x.stop === s && x.take === k && x.dl === 4);
+          const v = c ? c[ep].net : null;
+          t += "<td class='cell' style='" + heatBg(v) + "' title='" + (c ? c[ep].n + " сд., " + money(c[ep].usd) : "") + "'>" + fmtCell(v) + "</td>";
+        }
+        t += "</tr>";
+      }
+      document.getElementById(id).innerHTML = t + "</tbody>";
+    }
+    // трейлинг: активация × откат при 4 ч
+    const tr = AGG.filter(x => x.set === exitSet && x.take.startsWith("tr") && x.dl === 4);
+    const acts = ["0.5", "1", "1.5", "2"], gbs = ["0.25", "0.5", "1"];
+    let tt = "<thead><tr><th>включение \\ откат</th>" + gbs.map(g => "<th>" + g.replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+    for (const a of acts) {
+      tt += "<tr><td>+" + a.replace(".", ",") + " %</td>";
+      for (const g of gbs) {
+        const cells = tr.filter(x => x.take === "tr" + a + "x" + g);
+        const h = avgOf(cells, "h"), r = avgOf(cells, "r");
+        tt += cells.length ? "<td class='cell' style='" + heatBg(h) + "'>" + fmtCell(h) + " / " + fmtCell(r) + "</td>" : "<td class='cell'>—</td>";
+      }
+      tt += "</tr>";
+    }
+    document.getElementById("trail-tbl").innerHTML = tt + "</tbody>";
+    // выход по стене
+    let wt = "<thead><tr><th>стоп, удержание</th><th>без выхода по стене</th><th>съели 20 %</th></tr></thead><tbody>";
+    for (const s of [1, 2]) for (const d of dls) {
+      const w = AGG.find(x => x.set === exitSet && x.wall && x.stop === s && x.dl === d);
+      const n = fix.find(x => x.stop === s && x.take === "tk" + s && x.dl === d);
+      if (!w || !n) continue;
+      wt += "<tr><td>" + s + " %, " + d + " ч</td><td class='num " + cls(n.h.net) + "'>" + fmtCell(n.h.net) + " / " + fmtCell(n.r.net) +
+        "</td><td class='num " + cls(w.h.net) + "'>" + fmtCell(w.h.net) + " / " + fmtCell(w.r.net) + "</td></tr>";
+    }
+    document.getElementById("wall-tbl").innerHTML = wt + "</tbody>";
+  }
+
   function renderAll(withStatic) {
     if (typeof Chart !== "undefined") {
       Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
       Chart.defaults.color = css("--ink-2");
     }
     renderKpi(); renderReasons(); renderCoins(); renderTrades();
-    if (typeof Chart !== "undefined") { renderEquity(); renderDaily(); renderHist(); if (withStatic) renderDose(); }
+    if (typeof Chart !== "undefined") { renderEquity(); renderDaily(); renderHist(); if (withStatic) { renderDose(); renderExit(); } }
   }
 
   tabSubs();
@@ -723,7 +889,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   renderDips();
   renderAll(true);
 
-  const rerender = () => { if (typeof Chart === "undefined") return; renderEquity(); renderDaily(); renderHist(); renderDose(); };
+  const rerender = () => { if (typeof Chart === "undefined") return; renderEquity(); renderDaily(); renderHist(); renderDose(); renderExit(); };
   try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", rerender); } catch (e) {}
   new MutationObserver(rerender).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
 })();
