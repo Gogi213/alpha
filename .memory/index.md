@@ -89,6 +89,8 @@ HOME ломает умолчания). На деке: `systemctl --user list-uni
 
 **23.09 ~13:00 GMT+4 — дашборд «Лонг в просадке»** https://claude.ai/artifact/WfSGAfj2hhkRTckAnKXSRF (сделки, эквити против базы F10 и рынка, корзины режима обеих сторон, возраст, частота просадок). Пересборка после новых суток: на деке `bin/titration-dashboard-data.py --tag titr-v1 --epoch "история=$HOME/alpha/epochs/e-archive:2026-09-01:2026-09-15" --epoch "запись=$HOME/alpha:2026-09-16:<до>" --points study/titration-points-v1.csv --out study/titration-dashboard-v1.json` → локально `tools/compute/titration-dashboard-build.py` → опубликовать тем же `url`.
 
+**23.09 13:10 GMT+4 — В-87: шорт отложен; G9 титрование выхода лонга идёт** (`alpha-titrate-exit-v1`, 108 испытаний: стоп 0.5/1/2 % × 1:1 или трейл 1R/откат 0.5R × дедлайн 1/2/4 ч × «съели 20 %»; наборы — база лонга и просадки BTC 1 ч/4 ч), сводка `~/alpha/study/titrate-exit-v1.txt` ~15:30 GMT+4. Дашборд — вкладки лонг/шорт (`#long`/`#short`). Откат трейла 0.5R ждёт слова владельца.
+
 **Ключ TypeSafe на деке** с 23.09 ~03:10 GMT+4 — `~/.config/alpha/typesafe.env` (0600), скрипты ночи читают его после `/etc/alpha/…`; живой вызов прошёл.
 
 **Ждут владельца:** дек включён и на зарядке ночью; кабель к деку (Wi-Fi —
