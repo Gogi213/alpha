@@ -4,23 +4,12 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root {
-  --bg: #f6f5f1;
-  --surface: #fcfcfb;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #807e77;
-  --rule: #e2e0d9;
-  --rule-strong: #cbc8bf;
-  --sel: #2a78d6;
-  --base: #eb6834;
-  --hist: #4a3aa7;
-  --rec: #1baf7a;
-  --gain: #2a78d6;
-  --loss: #e34948;
+  --bg: #f6f5f1; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #807e77;
+  --rule: #e2e0d9; --rule-strong: #cbc8bf; --chip: #efede7;
+  --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100; --c5: #e87ba4;
+  --hist: #4a3aa7; --rec: #1baf7a; --gain: #2a78d6; --loss: #e34948;
   --band: rgba(235, 104, 52, 0.07);
-  --warn: #fab219;
-  --warn-ink: #6b4a00;
-  --chip: #efede7;
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b; --warn-ink: #6b4a00;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-head: "IBM Plex Sans Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -28,53 +17,23 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #131312;
-    --surface: #1a1a19;
-    --ink: #ffffff;
-    --ink-2: #c3c2b7;
-    --ink-3: #8f8d84;
-    --rule: #2c2c29;
-    --rule-strong: #43423e;
-    --sel: #3987e5;
-    --base: #d95926;
-    --hist: #9085e9;
-    --rec: #199e70;
-    --gain: #3987e5;
-    --loss: #e66767;
-    --band: rgba(217, 89, 38, 0.10);
-    --warn: #fab219;
-    --warn-ink: #fab219;
-    --chip: #262624;
+    --bg: #131312; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8d84;
+    --rule: #2c2c29; --rule-strong: #43423e; --chip: #262624;
+    --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181;
+    --hist: #9085e9; --rec: #199e70; --gain: #3987e5; --loss: #e66767;
+    --band: rgba(217, 89, 38, 0.10); --warn-ink: #fab219;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #131312;
-  --surface: #1a1a19;
-  --ink: #ffffff;
-  --ink-2: #c3c2b7;
-  --ink-3: #8f8d84;
-  --rule: #2c2c29;
-  --rule-strong: #43423e;
-  --sel: #3987e5;
-  --base: #d95926;
-  --hist: #9085e9;
-  --rec: #199e70;
-  --gain: #3987e5;
-  --loss: #e66767;
-  --band: rgba(217, 89, 38, 0.10);
-  --warn: #fab219;
-  --warn-ink: #fab219;
-  --chip: #262624;
+  --bg: #131312; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8d84;
+  --rule: #2c2c29; --rule-strong: #43423e; --chip: #262624;
+  --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181;
+  --hist: #9085e9; --rec: #199e70; --gain: #3987e5; --loss: #e66767;
+  --band: rgba(217, 89, 38, 0.10); --warn-ink: #fab219;
 }
 * { box-sizing: border-box; }
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font: 15px/1.5 var(--font-body);
-  padding-inline: 16px;
-  padding-block: 28px 64px;
-}
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); padding-inline: 16px; padding-block: 28px 64px; }
 .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
 h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; margin: 0; }
 h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.05; }
@@ -82,227 +41,139 @@ h2 { font-size: 22px; font-weight: 600; }
 h3 { font-size: 16px; font-weight: 600; }
 p { margin: 0; }
 .eyebrow { font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
-.lede { max-width: 68ch; color: var(--ink-2); font-size: 16px; }
+.lede { max-width: 72ch; color: var(--ink-2); font-size: 16px; }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 header { display: grid; gap: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--chip); color: var(--ink-2); font-size: 13px; }
-.chip.warn { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn-ink); font-weight: 600; }
 .chip svg { width: 14px; height: 14px; flex: none; }
+.chip.warn { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn-ink); font-weight: 600; }
+.chip.good { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--ink); font-weight: 600; }
+.chip.crit { background: color-mix(in srgb, var(--crit) 16%, var(--surface)); color: var(--ink); font-weight: 600; }
+.chip.good svg { color: var(--good); } .chip.crit svg { color: var(--crit); } .chip.warn svg { color: var(--warn-ink); }
 section.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; display: grid; gap: 16px; }
 .panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
-.note { color: var(--ink-3); font-size: 13px; max-width: 80ch; }
-.controls { display: grid; gap: 12px; }
-.set-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.set-btn {
+.note { color: var(--ink-3); font-size: 13px; max-width: 86ch; }
+.rule-card { border-left: 3px solid var(--c1); padding: 4px 0 4px 14px; display: grid; gap: 4px; }
+.rule-card b { font-weight: 600; }
+.nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.nav button, .toggle button {
   font: 500 14px/1.3 var(--font-body); padding: 8px 12px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); text-align: left;
 }
-.set-btn small { display: block; color: var(--ink-3); font-size: 12px; }
-.set-btn[aria-pressed="true"] { border-color: var(--sel); box-shadow: inset 0 0 0 1px var(--sel); }
-.set-btn:focus-visible, select:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
-.row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
-.tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: var(--chip); justify-self: start; }
-.tab {
-  font: 600 15px/1.2 var(--font-head); padding: 10px 16px; border-radius: 7px; border: 0; cursor: pointer;
-  background: transparent; color: var(--ink-2); text-align: left;
-}
-.tab small { display: block; font: 400 12px/1.3 var(--font-mono); color: var(--ink-3); margin-top: 2px; }
-.tab[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0 0 1px var(--rule-strong); }
-select { font: 14px var(--font-body); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); max-width: 100%; }
-label { color: var(--ink-2); font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
-.kpi-scroll { overflow-x: auto; }
+.nav button small { display: block; color: var(--ink-3); font-size: 12px; }
+.nav button[aria-pressed="true"], .toggle button[aria-pressed="true"] { border-color: var(--c1); box-shadow: inset 0 0 0 1px var(--c1); }
+.toggle { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.toggle span { color: var(--ink-2); font-size: 14px; margin-right: 4px; }
+button:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
+.case-answer { font-size: 16px; max-width: 86ch; }
+.scroll { overflow-x: auto; max-width: 100%; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th, td { padding: 7px 9px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
-thead th { font: 500 12px/1.3 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); border-bottom-color: var(--rule-strong); }
-td .sub { display: block; color: var(--ink-3); font-size: 12px; }
-.pos { color: var(--gain); }
-.neg { color: var(--loss); }
-.kpi-table td:first-child { color: var(--ink-2); }
-.kpi-table td.big { font-size: 17px; }
+thead th { font: 500 12px/1.3 var(--font-mono); letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); border-bottom-color: var(--rule-strong); }
+thead tr.grp th { text-align: center; color: var(--ink-2); }
+td.sep, th.sep { border-left: 1px solid var(--rule-strong); }
+.pos { color: var(--gain); } .neg { color: var(--loss); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+.kpi td:first-child { color: var(--ink-2); }
+.kpi td.big { font-size: 16px; }
 .chart { position: relative; width: 100%; }
-.chart.h-eq { height: 360px; }
-.chart.h-md { height: 260px; }
-.chart.h-sm { height: 220px; }
+.h-eq { height: 360px; } .h-md { height: 260px; } .h-sm { height: 220px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 20px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
 .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
 .legend i.dash { border-top-style: dashed; }
 .legend i.box { width: 10px; height: 10px; border: 0; border-radius: 2px; }
-.tbl-scroll { overflow-x: auto; max-width: 100%; }
-.trades th { cursor: pointer; user-select: none; }
-.trades th[aria-sort] { color: var(--ink); }
-.more { justify-self: start; font: 500 14px var(--font-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
-details summary { cursor: pointer; font-weight: 600; }
-details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 90ch; }
 .heat td, .heat th { text-align: center; padding: 6px 8px; }
 .heat th:first-child, .heat td:first-child { text-align: left; }
 .heat td.cell { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
-.verdict-line { font-size: 16px; max-width: 80ch; }
-.verdict-line b { font-weight: 600; }
+.trades th { cursor: pointer; user-select: none; }
+.more { justify-self: start; font: 500 14px var(--font-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+details summary { cursor: pointer; font-weight: 600; }
+details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 90ch; }
+.extra:empty { display: none; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">alpha · титрование живой формы F10 · метка v1 · данные на <span id="gen"></span> UTC</p>
+    <p class="eyebrow">alpha · титрование E18–E20 · данные на <span id="gen"></span> UTC</p>
     <h1>Лонг в просадке</h1>
-    <p class="lede">Лонг от старой бид-стены (≥ $10k, возраст ≥ 45 мин, вход лестницей на подходе, стоп 2 %, тейк 1:1,
-      дедлайн 2 ч) — только когда рынок за последний час или четыре просел сильнее, чем в 80 % времени.
-      Две эпохи: «история» 01–15.09 — архив Bybit, дни, которых форма не видела; «запись» 16–22.09 — наш коллектор.
-      Лонг от бид-стены и шорт от аск-стены — отдельно, переключатель ниже. Деньги — на лот $1000 за сделку.</p>
+    <p class="lede">Лонг от старой бид-стены (≥ $10k, возраст ≥ 45 мин, вход лестницей на подходе) — когда рынок за
+      последний час просел сильнее, чем в 80 % времени. Две эпохи: «история» 01–15.09 — архив Bybit, дни, которых форма
+      не видела; «запись» 16–22.09 — наш коллектор. Деньги — на лот $1000 за сделку. Ниже — кандидат и семь кейсов, из
+      которых он собран: на каждый — вопрос, ответ и все проверенные варианты в обеих эпохах.</p>
     <div class="chips">
       <span class="chip warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z"/></svg>Кандидат, не доказательство</span>
-      <span class="chip">52 проверенных варианта</span>
+      <span class="chip">проверено ~900 вариантов (52 + 756 + 96)</span>
       <span class="chip">форма подбиралась на 16–20.09 — на графиках заштриховано</span>
-      <span class="chip">«история» — поток 200 уровней (шаг 100 мс), запись — 50 уровней: двойник не посчитан</span>
+      <span class="chip">«история» — поток 200 уровней (100 мс), запись — 50 уровней: двойник не посчитан</span>
     </div>
   </header>
 
-  <div class="tabs" role="tablist" aria-label="Сторона сделки" id="side-tabs">
-    <button class="tab" role="tab" type="button" id="tab-bid" data-side="bid" aria-controls="side-body">Лонг от бид-стены<small id="tab-bid-sub"></small></button>
-    <button class="tab" role="tab" type="button" id="tab-ask" data-side="ask" aria-controls="side-body">Шорт от аск-стены<small id="tab-ask-sub"></small></button>
-  </div>
-
-  <div id="side-body" role="tabpanel" style="display:grid;gap:28px">
-  <section class="panel" aria-labelledby="h-summary">
-    <div class="panel-head"><h2 id="h-summary"></h2></div>
-    <p class="verdict-line" id="verdict"></p>
-  </section>
-
-  <section class="panel controls" aria-labelledby="h-set">
-    <div class="panel-head">
-      <h2 id="h-set">Какой набор смотреть</h2>
-      <label><input type="checkbox" id="show-base" checked> показывать базу стороны для сравнения</label>
+  <section class="panel" aria-labelledby="h-cand">
+    <div class="panel-head"><h2 id="h-cand">Кандидат</h2><p class="note">Собран из кейсов ниже; зарегистрировать и проверять на новых днях.</p></div>
+    <div class="rule-card">
+      <span><b>Вход:</b> лонг от старой бид-стены (≥ $10k, ≥ 45 мин), лестница на подходе, только в просадке BTC за 1 ч (≤ −0,21 %).</span>
+      <span><b>Выход:</b> стоп 2 % · трейлинг — включение +1 %, закрытие при откате 1 % от лучшей цены · удержание до 4 ч · на снятие и съедание стены не реагировать.</span>
     </div>
-    <div class="set-buttons" id="set-buttons"></div>
-    <div class="row">
-      <label for="set-select">Любой из 26 этой стороны:</label>
-      <select id="set-select"></select>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-kpi">
-    <div class="panel-head">
-      <h2 id="h-kpi">Статистика сделок</h2>
-      <p class="note" id="kpi-note"></p>
-    </div>
-    <div class="kpi-scroll"><table class="kpi-table" id="kpi"></table></div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-eq">
-    <div class="panel-head">
-      <h2 id="h-eq">Эквити, $ на лоте $1000</h2>
-      <div class="legend" id="eq-legend"></div>
-    </div>
-    <div class="chart h-eq"><canvas id="eq" role="img" aria-label="Кривая капитала выбранного набора, базы и рынка"></canvas></div>
-    <p class="note">«Рынок» — что дал бы вход в ту же монету на то же время удержания без всякой стены: средний ход монеты
-      за это время в тот же день минус комиссии (контроль M19). Разрыв между линией набора и линией рынка — то, что даёт
-      именно стена. Слева от вертикали — «история», справа — «запись»; заштриховано — дни, на которых форму выбирали.</p>
-  </section>
-
-  <section class="panel" aria-labelledby="h-daily">
-    <div class="panel-head">
-      <h2 id="h-daily">По дням, $</h2>
-      <p class="note">В подсказке — ход рынка за день и сколько раз была просадка BTC за час.</p>
-    </div>
-    <div class="chart h-md"><canvas id="daily" role="img" aria-label="Результат выбранного набора по дням"></canvas></div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-dose">
-    <div class="panel-head">
-      <h2 id="h-dose">Где работает: средняя сделка по режиму рынка, bps</h2>
-      <div class="row">
-        <div class="legend"><span><i class="box" style="background:var(--hist)"></i>история 01–15.09</span><span><i class="box" style="background:var(--rec)"></i>запись 16–22.09</span></div>
-      </div>
-    </div>
-    <p class="note">Каждая ось разрезана на пять корзин по времени «истории»: q1 — пятая часть минут с самым сильным падением
-      (просадка), q5 — с самым сильным ростом. Края одни и те же для обеих эпох. Держится то, что одного знака в обеих.</p>
-    <div class="grid2" id="dose"></div>
+    <div class="scroll"><table class="kpi" id="cand-kpi"></table></div>
     <div>
-      <h3>Возраст стены (накопительно, ≥ N мин)</h3>
-      <div class="chart h-sm"><canvas id="age" role="img" aria-label="Средняя сделка по возрасту стены"></canvas></div>
+      <div class="legend" id="cand-legend"></div>
+      <div class="chart h-eq"><canvas id="cand-eq" role="img" aria-label="Эквити кандидата, базы и рынка"></canvas></div>
+      <p class="note">«Рынок» — вход в ту же монету на то же время удержания без всякой стены: средний ход монеты за это
+        время в тот же день минус комиссии. Слева от вертикали — «история», справа — «запись».</p>
     </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-exit" id="exit-panel">
-    <div class="panel-head">
-      <h2 id="h-exit">Выход: как держать сделку (лонг)</h2>
-      <p class="note">Титрование E19: тот же вход, 252 формы выхода на каждый набор.</p>
-    </div>
-    <div class="set-buttons" id="exit-sets"></div>
-    <div class="kpi-scroll"><table class="kpi-table" id="exit-kpi"></table></div>
     <div>
-      <h3>Эквити: кандидат против выхода F10, $</h3>
-      <div class="legend" id="exit-legend"></div>
-      <div class="chart h-md"><canvas id="exit-eq" role="img" aria-label="Эквити двух выходов"></canvas></div>
-    </div>
-    <div class="grid2">
-      <div><h3>Удержание: средняя сделка, bps</h3><div class="chart h-sm"><canvas id="exit-hold" role="img" aria-label="Средняя сделка по удержанию"></canvas></div></div>
-      <div><h3>Стоп: средняя сделка, bps</h3><div class="chart h-sm"><canvas id="exit-stop" role="img" aria-label="Средняя сделка по стопу"></canvas></div></div>
-    </div>
-    <p class="note">Столбцы — среднее по всем формам с этим удержанием или стопом (тейк 0,5–2 %). Держится то, что растёт в обеих эпохах.</p>
-    <div class="grid2">
-      <div class="tbl-scroll"><h3>Стоп × тейк, удержание 4 ч — история, bps</h3><table class="heat" id="heat-hist"></table></div>
-      <div class="tbl-scroll"><h3>Стоп × тейк, удержание 4 ч — запись, bps</h3><table class="heat" id="heat-rec"></table></div>
-    </div>
-    <div class="grid2">
-      <div class="tbl-scroll"><h3>Трейлинг, 4 ч, среднее по стопам 1 / 1,5 / 2 % — bps, история / запись</h3><table class="heat" id="trail-tbl"></table></div>
-      <div class="tbl-scroll"><h3>Выход «стену съели на 20 %» — bps, история / запись</h3><table id="wall-tbl"></table></div>
+      <h3>Кандидат по дням, $</h3>
+      <div class="chart h-md"><canvas id="cand-daily" role="img" aria-label="Результат кандидата по дням"></canvas></div>
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="h-dist">
-    <div class="panel-head"><h2 id="h-dist">Как распределены сделки</h2></div>
-    <div class="grid2">
+  <section class="panel" aria-labelledby="h-cases">
+    <div class="panel-head"><h2 id="h-cases">Кейсы</h2><p class="note">Выберите вопрос. Таблица — все варианты кейса, график — эквити тех же вариантов.</p></div>
+    <div class="nav" id="case-nav"></div>
+    <div id="case-body" style="display:grid;gap:16px">
+      <div class="panel-head"><h2 id="case-title"></h2><span id="case-verdict"></span></div>
+      <p class="case-answer" id="case-answer"></p>
+      <div class="toggle" id="case-sets"></div>
+      <div class="scroll"><table id="case-table"></table></div>
       <div>
-        <h3>Результат сделки, bps — доля сделок эпохи</h3>
-        <div class="chart h-sm"><canvas id="hist" role="img" aria-label="Распределение результата сделок"></canvas></div>
+        <div class="legend" id="case-legend"></div>
+        <div class="chart h-eq"><canvas id="case-eq" role="img" aria-label="Эквити вариантов кейса"></canvas></div>
       </div>
-      <div class="tbl-scroll">
-        <h3>Чем закончилась сделка</h3>
-        <table id="reasons"></table>
-      </div>
+      <div class="extra" id="case-extra"></div>
     </div>
-    <div class="tbl-scroll">
-      <h3>Монеты, которые дали больше всего (по модулю $)</h3>
-      <table id="coins"></table>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-dips">
-    <div class="panel-head">
-      <h2 id="h-dips">Как часто бывает просадка</h2>
-      <p class="note">Отрезки с перерывом меньше часа — одна просадка. Рынок за день — медиана хода 100 монет пула.</p>
-    </div>
-    <div class="tbl-scroll"><table id="dips"></table></div>
   </section>
 
   <section class="panel" aria-labelledby="h-trades">
-    <div class="panel-head">
-      <h2 id="h-trades">Сделки набора</h2>
-      <p class="note">Нажмите на заголовок столбца, чтобы отсортировать.</p>
+    <div class="panel-head"><h2 id="h-trades">Сделки кандидата</h2><p class="note">Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
+    <div class="grid2">
+      <div><h3>Результат сделки, bps — доля сделок эпохи</h3><div class="chart h-sm"><canvas id="hist" role="img" aria-label="Распределение результата сделок"></canvas></div></div>
+      <div class="scroll"><h3>Чем закончилась сделка</h3><table id="reasons"></table></div>
     </div>
-    <div class="tbl-scroll"><table class="trades" id="trades"></table></div>
+    <div class="scroll"><h3>Монеты, которые дали больше всего (по модулю $)</h3><table id="coins"></table></div>
+    <div class="scroll"><table class="trades" id="trades"></table></div>
     <button class="more" id="more" type="button">Показать ещё 100</button>
   </section>
-  </div>
+
+  <section class="panel" aria-labelledby="h-dips">
+    <div class="panel-head"><h2 id="h-dips">Как часто бывает просадка</h2><p class="note">Отрезки с перерывом меньше часа — одна просадка. Рынок за день — медиана хода 100 монет пула.</p></div>
+    <div class="scroll"><table id="dips"></table></div>
+  </section>
 
   <section class="panel">
     <details>
       <summary>Как это посчитано и чему не верить</summary>
       <ul>
-        <li>Замороженная форма F10 (E16) прогнана по 52 наборам: сторона × ось режима (BTC и рынок за 1 ч и 4 ч, ход к минуте
-          сигнала) × 5 корзин + возраст стены. Корзины и возраст — фильтры входа; остальная форма та же.</li>
-        <li>Корзины не складываются: у каждой своя ёмкость (одна позиция на монету), поэтому сделок в сумме корзин больше, чем у базы.</li>
-        <li>52 варианта и совпадение знака в двух эпохах — отбор кандидатов. Доказательство — предрегистрация правила и новые дни.</li>
-        <li>Вердикт базы по «истории» — «красный» (нижняя граница средней сделки ниже нуля), по записи — в выборке.</li>
-        <li>«История» — архив Bybit, поток 200 уровней с шагом 100 мс; запись — наш поток 50 уровней с шагом 20 мс. Насколько
-          это меняет результат — задача G1 (двойник на наших 200 уровнях).</li>
-        <li>Исполнение — модель очереди prob:3, измеренная задержка В-68, деньги — на полный лот (В-83).</li>
-        <li>Источник: `tools/compute/titration-dashboard-data.py` на деке (`b5/titr-v1/`), разбор —
-          `docs/findings/titration-regime-2026-09-23.md`, термин «просадка» — В-86.</li>
+        <li>Вход во всех кейсах — замороженная форма F10 (E16): подход D20, лестница, срок жизни входа 30 мин, очередь prob:3, задержка В-68. Режим и возраст — фильтры входа (E18); выход — E19; реакция на стену — E20.</li>
+        <li>Проверено около 900 вариантов. Лучшая клетка всегда выглядит лучше, чем будет в жизни, — поэтому выводы строятся на закономерностях, повторённых в обеих эпохах, а не на одной клетке.</li>
+        <li>Лучшее легло на край сетки (стоп 2 %, удержание 4 ч): настоящий максимум может быть дальше.</li>
+        <li>«История» — архив Bybit, поток 200 уровней с шагом 100 мс; запись — наш поток 50 уровней с шагом 20 мс. Насколько это меняет результат — задача G1 (двойник).</li>
+        <li>Пик одновременных позиций считается от момента сигнала до выхода — это оценка сверху (вход исполняется в пределах 30 минут после сигнала).</li>
+        <li>Контроль «рынок» — M19: ход той же монеты в тот же день за то же время минус комиссии.</li>
+        <li>Разборы: `docs/findings/titration-regime-2026-09-23.md`, `exit-titration-2026-09-23.md` (§5 — защита после снятия); термин «просадка» — В-86; шорт отложен — В-87.</li>
       </ul>
     </details>
   </section>
@@ -315,62 +186,34 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   "use strict";
   const D = JSON.parse(document.getElementById("data").textContent);
   const COL = {epoch: 0, day: 1, sym: 2, t0: 3, exit: 4, net: 5, ctrl: 6, reason: 7, fill: 8};
-  const BASES = {bid: "t-bid-age-45", ask: "t-ask-age-45"};
-  const KEYS = {
-    bid: [
-      ["t-bid-btc1h-q1", "Просадка BTC за 1 ч", "≤ −0.21 %"],
-      ["t-bid-btc4h-q1", "Просадка BTC за 4 ч", "≤ −0.45 %"],
-      ["t-bid-pool1h-q1", "Просадка рынка за 1 ч", "≤ −0.31 %"],
-      ["t-bid-age-45", "База лонга", "все входы, стена ≥ 45 мин"],
-      ["t-bid-pool4h-q2", "Сползание рынка за 4 ч", "антипример"],
-    ],
-    ask: [
-      ["t-ask-age-45", "База шорта", "все входы, стена ≥ 45 мин"],
-      ["t-ask-btc1h-q5", "Рост BTC за 1 ч", "≥ +0.20 %"],
-      ["t-ask-pool4h-q5", "Рост рынка за 4 ч", "≥ +0.42 %"],
-      ["t-ask-btc1h-q1", "Просадка BTC за 1 ч", "≤ −0.21 %"],
-      ["t-ask-age-90", "Стена ≥ 90 мин", "возраст"],
-    ],
-  };
-  const KEY_SETS = [...KEYS.bid, ...KEYS.ask];
-  const AXIS_NAME = {btc1h: "BTC за 1 ч", btc4h: "BTC за 4 ч", pool1h: "рынок за 1 ч", pool4h: "рынок за 4 ч"};
-  const REASON = {deadline: "дедлайн 2 ч", stop: "стоп −2 %", take: "тейк +2 %"};
   const EPOCHS = D.epochs.map(e => e.name);
   const HIST = EPOCHS[0], REC = EPOCHS[1];
   const IN_SAMPLE = [Date.UTC(2026, 8, 16), Date.UTC(2026, 8, 21)];
   const BOUNDARY = Date.UTC(2026, 8, 16);
+  const REASON = {deadline: "дедлайн", stop: "стоп −2 %", take: "тейк", trail: "трейлинг", wall_gone: "стену сняли", eaten_by_trades: "стену съели"};
+  const AXIS_NAME = {btc1h: "BTC за 1 ч", btc4h: "BTC за 4 ч", pool1h: "Рынок за 1 ч", pool4h: "Рынок за 4 ч"};
+  const CAND_SET = "t-bid-btc1h-q1";
+  const BASE_SET = "t-bid-age-45";
   document.getElementById("gen").textContent = D.generated_utc;
 
+  // ---------- общие вычисления ----------
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const money = v => (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("ru-RU");
+  const bps = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1);
+  const cls = v => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+  const dayLabel = d => d.slice(8, 10) + "." + d.slice(5, 7);
   const pct = v => (v / 100).toFixed(2).replace("-", "−");
-  function edges(axis) {
-    const p = D.points[axis];
-    return [p.q20, p.q40, p.q60, p.q80].map(Number);
-  }
+  function edges(axis) { const p = D.points[axis]; return [p.q20, p.q40, p.q60, p.q80].map(Number); }
   function binLabel(axis, k) {
     const e = edges(axis);
     if (k === 1) return "≤ " + pct(e[0]) + " %";
     if (k === 5) return "≥ " + pct(e[3]) + " %";
     return pct(e[k - 2]) + "…" + pct(e[k - 1]) + " %";
   }
-  function setLabel(name) {
-    const k = KEY_SETS.find(s => s[0] === name);
-    if (k) return k[1] + " (" + k[2] + ")";
-    const m = name.match(/^t-(bid|ask)-(.+)$/);
-    const side = m[1] === "bid" ? "лонг" : "шорт";
-    const age = m[2].match(/^age-(\d+)$/);
-    if (age) return side + ", стена ≥ " + age[1] + " мин";
-    const b = m[2].match(/^(\w+)-q(\d)$/);
-    return side + ", " + AXIS_NAME[b[1]] + " q" + b[2] + " (" + binLabel(b[1], Number(b[2])) + ")";
-  }
-
-  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const money = v => (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("ru-RU");
-  const bps = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1);
-  const cls = v => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-  const dayLabel = d => d.slice(8, 10) + "." + d.slice(5, 7);
-
-  function trades(set, epoch) {
-    const t = D.sets[set] || [];
+  // Сделки варианта: `sets:<набор>` — форма F10 титрования режима; `form:<набор>/<вариант>` — титрование выхода.
+  function trades(src, epoch) {
+    const [kind, key] = src.split(":");
+    const t = (kind === "sets" ? D.sets[key] : (D.form_trades || {})[key]) || [];
     return epoch ? t.filter(r => r[COL.epoch] === epoch) : t;
   }
   function stats(t) {
@@ -382,140 +225,36 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     const byDay = {};
     for (const r of t) byDay[r[COL.day]] = (byDay[r[COL.day]] || 0) + r[COL.net] / 10;
     const days = Object.values(byDay);
-    const sum = (f) => t.reduce((s, r) => s + f(r), 0);
+    const sum = f => t.reduce((s, r) => s + f(r), 0);
+    const wins = t.filter(r => r[COL.net] > 0), losses = t.filter(r => r[COL.net] <= 0);
+    const gw = wins.reduce((s, r) => s + r[COL.net], 0), gl = -losses.reduce((s, r) => s + r[COL.net], 0);
+    // Одновременные позиции: от сигнала до выхода (оценка сверху — вход в пределах 30 мин).
+    const ev = [];
+    for (const r of t) { ev.push([r[COL.t0], 1]); ev.push([r[COL.exit], -1]); }
+    ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    let open = 0, maxOpen = 0;
+    for (const [, d] of ev) { open += d; maxOpen = Math.max(maxOpen, open); }
     return {
-      n, win: sum(r => r[COL.net] > 0 ? 1 : 0) / n,
-      avg: sum(r => r[COL.net]) / n, usd: sum(r => r[COL.net]) / 10,
+      n, win: wins.length / n, avg: sum(r => r[COL.net]) / n, usd: sum(r => r[COL.net]) / 10,
       excess: sum(r => r[COL.net] - r[COL.ctrl]) / 10, excessAvg: sum(r => r[COL.net] - r[COL.ctrl]) / n,
-      market: sum(r => r[COL.ctrl]) / 10, dd,
-      daysPos: days.filter(v => v > 0).length, days: days.length,
+      dd, daysPos: days.filter(v => v > 0).length, days: days.length,
       hold: sum(r => r[COL.exit] - r[COL.t0]) / n,
+      avgWin: wins.length ? gw / wins.length : 0, avgLoss: losses.length ? -gl / losses.length : 0,
+      pf: gl > 0 ? gw / gl : null, maxOpen,
     };
   }
-
-  // ---------- состояние ----------
-  let side = location.hash === "#short" ? "ask" : "bid";
-  let current = KEYS[side][0][0];
-  let BASE = BASES[side];
-  let showBase = true;
-  let tradeRows = 100, sortKey = "t0", sortDir = -1;
-  const charts = {};
-
-  // ---------- вывод «что видно» ----------
-  function sidePair(name) {
-    return [stats(trades(name, HIST)), stats(trades(name, REC))];
-  }
-  function verdict() {
-    const [bh, br] = sidePair(BASES[side]);
-    let head, html;
-    if (side === "bid") {
-      const [h, r] = sidePair("t-bid-btc1h-q1");
-      head = "Лонг: работает в просадке";
-      html = "На днях, которых форма не видела (01–15.09), <b>база лонга сыграла в ноль: " + money(bh.usd) + " за " + bh.n +
-        " сделок</b>; на записи " + money(br.usd) + " за " + br.n + ". Тот же лонг только в просадке BTC за час — <b>" + money(h.usd) +
-        " за " + h.n + " сделок</b> на истории и <b>" + money(r.usd) + " за " + r.n + "</b> на записи; сверх простого роста монеты " +
-        bps(h.excessAvg) + " и " + bps(r.excessAvg) + " bps на сделку. На спокойном рынке и плавном сползании лонг от стены теряет.";
-    } else {
-      const [h, r] = sidePair("t-ask-btc1h-q5");
-      head = "Шорт: устойчивого варианта нет";
-      html = "<b>База шорта в минусе в обеих эпохах: " + money(bh.usd) + " за " + bh.n + " сделок</b> на истории и <b>" +
-        money(br.usd) + " за " + br.n + "</b> на записи. Лучший вариант истории — шорт после роста BTC за час: " + money(h.usd) +
-        " за " + h.n + " сделок, но на записи тот же вариант " + money(r.usd) + " за " + r.n +
-        " — рост продолжался. Сверх рынка шорт от стены даёт немного (" + bps(bh.excessAvg) + " и " + bps(br.excessAvg) +
-        " bps на сделку у базы), но этого не хватает, чтобы перекрыть ход рынка против шорта.";
+  function equity(src, field) {
+    const t = trades(src).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
+    const out = []; let i = 0, cum = 0;
+    for (let ts = Date.UTC(2026, 8, 1); ts <= Date.UTC(2026, 8, 23); ts += 3600e3) {
+      while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += field(t[i]) / 10; i++; }
+      out.push({x: ts, y: Math.round(cum * 100) / 100});
     }
-    document.getElementById("h-summary").textContent = head;
-    document.getElementById("verdict").innerHTML = html;
-  }
-  function tabSubs() {
-    for (const s of ["bid", "ask"]) {
-      const [h, r] = sidePair(BASES[s]);
-      document.getElementById("tab-" + s + "-sub").textContent = "база: история " + money(h.usd) + " · запись " + money(r.usd);
-      const t = document.getElementById("tab-" + s);
-      t.setAttribute("aria-selected", String(s === side));
-      t.tabIndex = s === side ? 0 : -1;
-    }
-  }
-  function setSide(s) {
-    if (s === side) return;
-    side = s; BASE = BASES[s]; current = KEYS[s][0][0]; tradeRows = 100;
-    try { history.replaceState(null, "", s === "ask" ? "#short" : "#long"); } catch (e) {}
-    tabSubs(); verdict(); buildSetButtons(); renderAll(true);
-  }
-
-  // ---------- выбор набора ----------
-  function buildSetButtons() {
-    const box = document.getElementById("set-buttons");
-    box.innerHTML = "";
-    for (const [name, title, sub] of KEYS[side]) {
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "set-btn"; b.dataset.set = name;
-      b.innerHTML = title + "<small>" + sub + "</small>";
-      b.setAttribute("aria-pressed", String(name === current));
-      b.addEventListener("click", () => select(name));
-      box.appendChild(b);
-    }
-    const sel = document.getElementById("set-select");
-    const names = Object.keys(D.sets).filter(n => n.startsWith("t-" + side + "-"))
-      .sort((a, b) => setLabel(a).localeCompare(setLabel(b), "ru"));
-    sel.innerHTML = names.map(n => '<option value="' + n + '">' + setLabel(n) + "</option>").join("");
-    sel.value = current;
-  }
-  function buildControls() {
-    buildSetButtons();
-    document.getElementById("set-select").addEventListener("change", e => select(e.target.value));
-    document.getElementById("show-base").addEventListener("change", e => { showBase = e.target.checked; renderKpi(); renderEquity(); });
-    document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
-    const tabs = [...document.querySelectorAll("#side-tabs .tab")];
-    tabs.forEach(t => {
-      t.addEventListener("click", () => setSide(t.dataset.side));
-      t.addEventListener("keydown", e => {
-        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-        const next = tabs[(tabs.indexOf(t) + 1) % tabs.length];
-        next.focus(); setSide(next.dataset.side);
-      });
-    });
-  }
-  function select(name) {
-    current = name; tradeRows = 100;
-    document.querySelectorAll(".set-btn").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.set === name)));
-    document.getElementById("set-select").value = name;
-    renderAll(false);
-  }
-
-  // ---------- KPI ----------
-  function renderKpi() {
-    const cols = [[HIST, "История 01–15.09"], [REC, "Запись 16–22.09"], [null, "Вместе"]];
-    const S = cols.map(([e]) => stats(trades(current, e)));
-    const B = cols.map(([e]) => stats(trades(BASE, e)));
-    const withBase = showBase && current !== BASE;
-    const rows = [
-      ["Сделок", s => s.n.toLocaleString("ru-RU"), null],
-      ["Итог, $", s => money(s.usd), s => s.usd],
-      ["Сверх рынка, $", s => money(s.excess), s => s.excess],
-      ["Средняя сделка, bps", s => bps(s.avg), s => s.avg],
-      ["Сверх рынка на сделку, bps", s => bps(s.excessAvg), s => s.excessAvg],
-      ["В плюс, % сделок", s => Math.round(s.win * 100) + " %", null],
-      ["Дней в плюсе", s => s.daysPos + " из " + s.days, null],
-      ["Худший откат капитала, $", s => money(s.dd), s => s.dd],
-      ["Удержание в среднем, мин", s => Math.round(s.hold), null],
-    ];
-    let html = "<thead><tr><th>" + setLabel(current) + "</th>" + cols.map(c => "<th>" + c[1] + "</th>").join("") + "</tr></thead><tbody>";
-    for (const [label, fmt, sign] of rows) {
-      html += "<tr><td>" + label + "</td>";
-      S.forEach((s, i) => {
-        if (!s) { html += "<td class='num'>—</td>"; return; }
-        const c = sign ? cls(sign(s)) : "";
-        html += "<td class='num big " + c + "'>" + fmt(s) +
-          (withBase && B[i] ? "<span class='sub'>база: " + fmt(B[i]) + "</span>" : "") + "</td>";
-      });
-      html += "</tr>";
-    }
-    document.getElementById("kpi").innerHTML = html + "</tbody>";
-    document.getElementById("kpi-note").textContent = "Лот $1000; «рынок» — ход той же монеты в тот же день за то же время минус комиссии.";
+    return out;
   }
 
   // ---------- графики ----------
+  const charts = {};
   function baseOptions() {
     return {
       responsive: true, maintainAspectRatio: false, animation: false,
@@ -545,275 +284,16 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       ctx.fillRect(Math.max(x0, a.left), a.top, Math.min(x1, a.right) - Math.max(x0, a.left), a.bottom - a.top);
       const xb = x.getPixelForValue(BOUNDARY);
       ctx.strokeStyle = css("--ink-3"); ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(xb, a.top); ctx.lineTo(xb, a.bottom); ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(xb, a.top); ctx.lineTo(xb, a.bottom); ctx.stroke(); ctx.setLineDash([]);
       ctx.fillStyle = css("--ink-3"); ctx.font = "12px IBM Plex Mono, monospace";
       ctx.textAlign = "right"; ctx.fillText("история", xb - 6, a.top + 14);
       ctx.textAlign = "left"; ctx.fillText("запись", xb + 6, a.top + 14);
       ctx.restore();
     },
   };
-  function equitySeries(set, field) {
-    const t = trades(set).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
-    const start = Date.UTC(2026, 8, 1), end = Date.UTC(2026, 8, 23);
-    const out = [];
-    let i = 0, cum = 0;
-    for (let ts = start; ts <= end; ts += 3600e3) {
-      while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += field(t[i]) / 10; i++; }
-      out.push({x: ts, y: Math.round(cum * 100) / 100});
-    }
-    return out;
-  }
-  function renderEquity() {
-    const ds = [
-      {label: setLabel(current), data: equitySeries(current, r => r[COL.net]), borderColor: css("--sel"), borderWidth: 2},
-      {label: "Рынок для этих сделок", data: equitySeries(current, r => r[COL.ctrl]), borderColor: css("--ink-3"), borderWidth: 2, borderDash: [6, 4]},
-    ];
-    if (showBase && current !== BASE)
-      ds.push({label: (side === "bid" ? "База лонга" : "База шорта") + " — все входы", data: equitySeries(BASE, r => r[COL.net]), borderColor: css("--base"), borderWidth: 1.5});
-    ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; });
-    const leg = document.getElementById("eq-legend");
-    leg.innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
-    const o = baseOptions();
-    o.scales.x.type = "linear";
-    o.scales.x.min = Date.UTC(2026, 8, 1); o.scales.x.max = Date.UTC(2026, 8, 23);
-    o.scales.x.ticks.stepSize = 2 * 86400e3;
-    o.scales.x.ticks.callback = v => { const d = new Date(v); return String(d.getUTCDate()).padStart(2, "0") + ".09"; };
-    o.scales.y.ticks.callback = v => money(v);
-    o.plugins.tooltip.callbacks = {
-      title: items => { const d = new Date(items[0].parsed.x); return String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":00 UTC"; },
-      label: it => " " + it.dataset.label + ": " + money(it.parsed.y),
-    };
-    if (charts.eq) charts.eq.destroy();
-    charts.eq = new Chart(document.getElementById("eq"), {type: "line", data: {datasets: ds}, options: o, plugins: [epochPlugin]});
-  }
-  function renderDaily() {
-    const t = trades(current);
-    const byDay = {};
-    for (const r of t) {
-      const d = byDay[r[COL.day]] || (byDay[r[COL.day]] = {usd: 0, n: 0});
-      d.usd += r[COL.net] / 10; d.n++;
-    }
-    const days = D.days.map(d => d.day);
-    const vals = days.map(d => byDay[d] ? Math.round(byDay[d].usd) : 0);
-    const o = baseOptions();
-    o.interaction = {mode: "index", intersect: false};
-    o.scales.y.ticks.callback = v => money(v);
-    o.plugins.tooltip.callbacks = {
-      title: items => { const d = D.days[items[0].dataIndex]; return dayLabel(d.day) + " · " + d.epoch; },
-      label: it => {
-        const d = D.days[it.dataIndex], b = byDay[d.day] || {usd: 0, n: 0};
-        return [" набор: " + money(b.usd) + " за " + b.n + " сд.",
-          " рынок за день: " + (d.pool_pct == null ? "—" : (d.pool_pct > 0 ? "+" : "") + d.pool_pct.toFixed(1).replace("-", "−") + " %"),
-          " просадок BTC за 1 ч: " + d.dips.btc1h];
-      },
-    };
-    if (charts.daily) charts.daily.destroy();
-    charts.daily = new Chart(document.getElementById("daily"), {
-      type: "bar",
-      data: {labels: days.map(dayLabel), datasets: [{data: vals, backgroundColor: vals.map(v => v >= 0 ? css("--gain") : css("--loss")),
-        borderRadius: 4, borderSkipped: "start", maxBarThickness: 28}]},
-      options: o,
-    });
-  }
-  function doseChart(canvas, labels, setNames, title) {
-    const mk = (epoch, color) => {
-      const data = setNames.map(n => { const s = stats(trades(n, epoch)); return s ? Math.round(s.avg * 10) / 10 : null; });
-      return {label: epoch === HIST ? "история" : "запись", data, backgroundColor: color, borderRadius: 4, borderSkipped: "start", maxBarThickness: 26, _epoch: epoch};
-    };
-    const o = baseOptions();
-    o.scales.y.title = {display: true, text: "bps на сделку", color: css("--ink-3"), font: {size: 12}};
-    o.plugins.tooltip.callbacks = {
-      title: items => title + ": " + items[0].label,
-      label: it => {
-        const s = stats(trades(setNames[it.dataIndex], it.dataset._epoch));
-        if (!s) return " " + it.dataset.label + ": нет сделок";
-        return " " + it.dataset.label + ": " + bps(s.avg) + " bps · " + s.n + " сд. · " + money(s.usd) + " · сверх рынка " + bps(s.excessAvg);
-      },
-    };
-    return new Chart(canvas, {type: "bar", data: {labels, datasets: [mk(HIST, css("--hist")), mk(REC, css("--rec"))]}, options: o});
-  }
-  function renderDose() {
-    const box = document.getElementById("dose");
-    (charts.dose || []).forEach(c => c.destroy());
-    charts.dose = [];
-    box.innerHTML = "";
-    for (const axis of ["btc1h", "btc4h", "pool1h", "pool4h"]) {
-      const div = document.createElement("div");
-      div.innerHTML = "<h3>" + AXIS_NAME[axis][0].toUpperCase() + AXIS_NAME[axis].slice(1) + "</h3><div class='chart h-sm'><canvas></canvas></div>";
-      box.appendChild(div);
-      const labels = [1, 2, 3, 4, 5].map(k => "q" + k + " " + binLabel(axis, k));
-      const names = [1, 2, 3, 4, 5].map(k => "t-" + side + "-" + axis + "-q" + k);
-      charts.dose.push(doseChart(div.querySelector("canvas"), labels, names, AXIS_NAME[axis]));
-    }
-    const ages = [15, 30, 45, 60, 90, 120];
-    if (charts.age) charts.age.destroy();
-    charts.age = doseChart(document.getElementById("age"), ages.map(a => "≥ " + a + " мин"), ages.map(a => "t-" + side + "-age-" + a), "стена");
-  }
-  function renderHist() {
-    const lo = -250, w = 25, nb = 20;
-    const labels = Array.from({length: nb}, (_, i) => (lo + i * w) + "…" + (lo + (i + 1) * w));
-    const mk = (epoch, color) => {
-      const t = trades(current, epoch), c = new Array(nb).fill(0);
-      for (const r of t) c[Math.min(nb - 1, Math.max(0, Math.floor((r[COL.net] - lo) / w)))]++;
-      return {label: epoch === HIST ? "история" : "запись", data: c.map(v => t.length ? Math.round(v / t.length * 1000) / 10 : 0),
-        _counts: c, backgroundColor: color, borderRadius: 3, borderSkipped: "start", barPercentage: 0.9, categoryPercentage: 0.9};
-    };
-    const o = baseOptions();
-    o.scales.y.ticks.callback = v => v + " %";
-    o.scales.x.ticks.maxRotation = 0; o.scales.x.ticks.autoSkipPadding = 12;
-    o.plugins.tooltip.callbacks = {
-      title: items => items[0].label + " bps",
-      label: it => " " + it.dataset.label + ": " + it.parsed.y + " % (" + it.dataset._counts[it.dataIndex] + " сд.)",
-    };
-    if (charts.hist) charts.hist.destroy();
-    charts.hist = new Chart(document.getElementById("hist"), {type: "bar", data: {labels, datasets: [mk(HIST, css("--hist")), mk(REC, css("--rec"))]}, options: o});
-  }
-
-  // ---------- таблицы ----------
-  function renderReasons() {
-    let html = "<thead><tr><th>Выход</th><th>История: сд.</th><th>$</th><th>Запись: сд.</th><th>$</th></tr></thead><tbody>";
-    for (const reason of ["take", "deadline", "stop"]) {
-      html += "<tr><td>" + (REASON[reason] || reason) + "</td>";
-      for (const e of [HIST, REC]) {
-        const t = trades(current, e).filter(r => r[COL.reason] === reason);
-        const usd = t.reduce((s, r) => s + r[COL.net] / 10, 0);
-        html += "<td class='num'>" + t.length + "</td><td class='num " + cls(usd) + "'>" + money(usd) + "</td>";
-      }
-      html += "</tr>";
-    }
-    document.getElementById("reasons").innerHTML = html + "</tbody>";
-  }
-  function renderCoins() {
-    const by = {};
-    for (const r of trades(current)) {
-      const c = by[r[COL.sym]] || (by[r[COL.sym]] = {n: 0, usd: 0, h: 0, r: 0});
-      c.n++; c.usd += r[COL.net] / 10;
-      if (r[COL.epoch] === HIST) c.h += r[COL.net] / 10; else c.r += r[COL.net] / 10;
-    }
-    const total = Object.values(by).reduce((s, c) => s + c.usd, 0);
-    const top = Object.entries(by).sort((a, b) => Math.abs(b[1].usd) - Math.abs(a[1].usd)).slice(0, 10);
-    let html = "<thead><tr><th>Монета</th><th>Сделок</th><th>Итог</th><th>История</th><th>Запись</th></tr></thead><tbody>";
-    for (const [sym, c] of top) {
-      html += "<tr><td>" + sym + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) +
-        "</td><td class='num " + cls(c.h) + "'>" + money(c.h) + "</td><td class='num " + cls(c.r) + "'>" + money(c.r) + "</td></tr>";
-    }
-    html += "<tr><td>Всего по " + Object.keys(by).length + " монетам</td><td class='num'>" + trades(current).length +
-      "</td><td class='num " + cls(total) + "'>" + money(total) + "</td><td></td><td></td></tr>";
-    document.getElementById("coins").innerHTML = html + "</tbody>";
-  }
-  function renderDips() {
-    let html = "<thead><tr><th>День</th><th>Эпоха</th><th>Рынок за день</th><th>Просадок BTC 1 ч</th><th>BTC 4 ч</th><th>Рынок 1 ч</th><th>Время в просадке BTC 1 ч</th></tr></thead><tbody>";
-    for (const d of D.days) {
-      const p = d.pool_pct;
-      html += "<tr><td>" + dayLabel(d.day) + "</td><td>" + d.epoch + "</td><td class='num " + cls(p || 0) + "'>" +
-        (p == null ? "—" : (p > 0 ? "+" : "") + p.toFixed(1).replace("-", "−") + " %") + "</td><td class='num'>" + d.dips.btc1h +
-        "</td><td class='num'>" + d.dips.btc4h + "</td><td class='num'>" + d.dips.pool1h + "</td><td class='num'>" +
-        Math.round(d.dip_share.btc1h * 100) + " %</td></tr>";
-    }
-    document.getElementById("dips").innerHTML = html + "</tbody>";
-  }
-  function renderTrades() {
-    const keyOf = {t0: r => r[COL.t0], sym: r => r[COL.sym], net: r => r[COL.net], ctrl: r => r[COL.ctrl], hold: r => r[COL.exit] - r[COL.t0], reason: r => r[COL.reason], epoch: r => r[COL.epoch]};
-    const t = trades(current).slice().sort((a, b) => { const x = keyOf[sortKey](a), y = keyOf[sortKey](b); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
-    const head = [["epoch", "Эпоха"], ["t0", "Сигнал, UTC"], ["sym", "Монета"], ["hold", "Удержание, мин"], ["net", "Сделка, bps"], ["net", "$"], ["ctrl", "Рынок, bps"], ["reason", "Выход"]];
-    let html = "<thead><tr>" + head.map(([k, l], i) => "<th data-k='" + k + "'" + (k === sortKey && i !== 5 ? " aria-sort='" + (sortDir > 0 ? "ascending" : "descending") + "'" : "") + ">" + l + "</th>").join("") + "</tr></thead><tbody>";
-    for (const r of t.slice(0, tradeRows)) {
-      const d = new Date(r[COL.t0] * 60e3);
-      html += "<tr><td>" + r[COL.epoch] + "</td><td class='num'>" + String(d.getUTCDate()).padStart(2, "0") + ".09 " +
-        String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0") + "</td><td>" + r[COL.sym] +
-        "</td><td class='num'>" + (r[COL.exit] - r[COL.t0]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + bps(r[COL.net]) +
-        "</td><td class='num " + cls(r[COL.net]) + "'>" + money(r[COL.net] / 10) + "</td><td class='num'>" + bps(r[COL.ctrl]) +
-        "</td><td>" + (REASON[r[COL.reason]] || r[COL.reason]) + "</td></tr>";
-    }
-    const tbl = document.getElementById("trades");
-    tbl.innerHTML = html + "</tbody>";
-    tbl.querySelectorAll("th").forEach(th => th.addEventListener("click", () => {
-      const k = th.dataset.k;
-      if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = -1; }
-      renderTrades();
-    }));
-    const more = document.getElementById("more");
-    more.hidden = tradeRows >= t.length;
-    more.textContent = "Показать ещё 100 (всего " + t.length + ")";
-  }
-
-  // ---------- выход лонга (E19) ----------
-  const EXIT_SETS = [["t-bid-btc1h-q1", "Просадка BTC за 1 ч"], ["t-bid-btc4h-q1", "Просадка BTC за 4 ч"], ["t-bid-age-45", "База лонга"]];
-  let exitSet = EXIT_SETS[0][0];
-  const AGG = (D.exit_agg || []).map(r => {
-    const m = r.form.match(/pct([0-9.]+)-(tk[0-9.]+|tr[0-9.]+x[0-9.]+|1to1)-(\d+)-ttl1800(-eat20)?$/);
-    if (!m) return null;
-    const num = k => (r[k] === "" || r[k] == null ? null : Number(r[k]));
-    return {set: r.set, stop: Number(m[1]), take: m[2], dl: Number(m[3]) / 3600, wall: !!m[4],
-      h: {n: num("история_n"), net: num("история_net"), usd: num("история_usd"), ex: num("история_excess")},
-      r: {n: num("запись_n"), net: num("запись_net"), usd: num("запись_usd"), ex: num("запись_excess")}};
-  }).filter(Boolean);
-  const avgOf = (rows, ep) => { const v = rows.map(x => x[ep].net).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-  const fmtCell = v => v == null ? "—" : bps(v);
-  function heatBg(v) {
-    if (v == null) return "";
-    const pctv = Math.min(55, Math.abs(v) * 1.2);
-    return "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + pctv.toFixed(0) + "%, var(--surface))";
-  }
-  function exitTrades(kind, epoch) {
-    const t = (D.form_trades || {})[exitSet + "/" + kind] || [];
-    return epoch ? t.filter(r => r[COL.epoch] === epoch) : t;
-  }
-  function barValues(canvas, labels, hv, rv, key) {
-    const o = baseOptions();
-    o.scales.y.title = {display: true, text: "bps на сделку", color: css("--ink-3"), font: {size: 12}};
-    o.plugins.tooltip.callbacks = {label: it => " " + it.dataset.label + ": " + (it.parsed.y == null ? "—" : bps(it.parsed.y)) + " bps"};
-    if (charts[key]) charts[key].destroy();
-    charts[key] = new Chart(canvas, {type: "bar", data: {labels, datasets: [
-      {label: "история", data: hv.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: css("--hist"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 26},
-      {label: "запись", data: rv.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: css("--rec"), borderRadius: 4, borderSkipped: "start", maxBarThickness: 26},
-    ]}, options: o});
-  }
-  function renderExit() {
-    const panel = document.getElementById("exit-panel");
-    panel.hidden = side !== "bid" || !AGG.length;
-    if (panel.hidden) return;
-    const box = document.getElementById("exit-sets");
-    box.innerHTML = "";
-    for (const [name, title] of EXIT_SETS) {
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "set-btn"; b.textContent = title;
-      b.setAttribute("aria-pressed", String(name === exitSet));
-      b.addEventListener("click", () => { exitSet = name; renderExit(); });
-      box.appendChild(b);
-    }
-    // KPI: выход F10 против кандидата
-    const kinds = [["f10", "Выход F10: стоп 2 %, тейк 1:1, 2 ч"], ["cand", "Кандидат: стоп 2 %, трейл 1 % / откат 1 %, 4 ч"]];
-    const cols = [];
-    for (const [k, title] of kinds) for (const [e, en] of [[HIST, "история"], [REC, "запись"]]) cols.push([k, e, title, en]);
-    const S = cols.map(([k, e]) => stats(exitTrades(k, e)));
-    const rowsDef = [["Сделок", s => s.n, null], ["Итог, $", s => money(s.usd), s => s.usd], ["Сверх рынка, $", s => money(s.excess), s => s.excess],
-      ["Средняя сделка, bps", s => bps(s.avg), s => s.avg], ["В плюс, % сделок", s => Math.round(s.win * 100) + " %", null],
-      ["Худший откат капитала, $", s => money(s.dd), s => s.dd], ["Удержание в среднем, мин", s => Math.round(s.hold), null]];
-    let html = "<thead><tr><th></th>" + kinds.map(([, t]) => "<th colspan='2'>" + t + "</th>").join("") + "</tr><tr><th></th>" +
-      cols.map(c => "<th>" + c[3] + "</th>").join("") + "</tr></thead><tbody>";
-    for (const [label, fmt, sign] of rowsDef) {
-      html += "<tr><td>" + label + "</td>" + S.map(s => s ? "<td class='num big " + (sign ? cls(sign(s)) : "") + "'>" + fmt(s) + "</td>" : "<td>—</td>").join("") + "</tr>";
-    }
-    document.getElementById("exit-kpi").innerHTML = html + "</tbody>";
-    // эквити
-    const series = (kind, field) => {
-      const t = exitTrades(kind).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
-      const out = []; let i = 0, cum = 0;
-      for (let ts = Date.UTC(2026, 8, 1); ts <= Date.UTC(2026, 8, 23); ts += 3600e3) {
-        while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += field(t[i]) / 10; i++; }
-        out.push({x: ts, y: Math.round(cum * 100) / 100});
-      }
-      return out;
-    };
-    const ds = [
-      {label: "Кандидат (стоп 2 %, трейл, 4 ч)", data: series("cand", r => r[COL.net]), borderColor: css("--sel"), borderWidth: 2},
-      {label: "Выход F10 (стоп 2 %, 1:1, 2 ч)", data: series("f10", r => r[COL.net]), borderColor: css("--base"), borderWidth: 1.5},
-      {label: "Рынок для сделок кандидата", data: series("cand", r => r[COL.ctrl]), borderColor: css("--ink-3"), borderWidth: 2, borderDash: [6, 4]},
-    ];
-    ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; });
-    document.getElementById("exit-legend").innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
+  function lineChart(key, canvasId, legendId, ds) {
+    ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; d.borderWidth = d.borderWidth || 2; });
+    document.getElementById(legendId).innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
     const o = baseOptions();
     o.scales.x.type = "linear"; o.scales.x.min = Date.UTC(2026, 8, 1); o.scales.x.max = Date.UTC(2026, 8, 23);
     o.scales.x.ticks.stepSize = 2 * 86400e3;
@@ -823,74 +303,321 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       title: items => { const d = new Date(items[0].parsed.x); return String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":00 UTC"; },
       label: it => " " + it.dataset.label + ": " + money(it.parsed.y),
     };
-    if (charts.exitEq) charts.exitEq.destroy();
-    charts.exitEq = new Chart(document.getElementById("exit-eq"), {type: "line", data: {datasets: ds}, options: o, plugins: [epochPlugin]});
-    // удержание и стоп — среднее по фиксированным формам
-    const fix = AGG.filter(x => x.set === exitSet && x.take.startsWith("tk") && !x.wall);
-    const dls = [1, 2, 4];
-    barValues(document.getElementById("exit-hold"), dls.map(d => d + " ч"),
-      dls.map(d => avgOf(fix.filter(x => x.dl === d), "h")), dls.map(d => avgOf(fix.filter(x => x.dl === d), "r")), "exitHold");
-    const stops = [...new Set(fix.map(x => x.stop))].sort((a, b) => a - b);
-    barValues(document.getElementById("exit-stop"), stops.map(s => s.toString().replace(".", ",") + " %"),
-      stops.map(s => avgOf(fix.filter(x => x.stop === s), "h")), stops.map(s => avgOf(fix.filter(x => x.stop === s), "r")), "exitStop");
-    // стоп × тейк при 4 ч
-    const takes = [...new Set(fix.map(x => x.take))].sort((a, b) => parseFloat(a.slice(2)) - parseFloat(b.slice(2)));
-    for (const [id, ep] of [["heat-hist", "h"], ["heat-rec", "r"]]) {
-      let t = "<thead><tr><th>стоп \\ тейк</th>" + takes.map(k => "<th>" + k.slice(2).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
-      for (const s of stops) {
-        t += "<tr><td>" + s.toString().replace(".", ",") + " %</td>";
-        for (const k of takes) {
-          const c = fix.find(x => x.stop === s && x.take === k && x.dl === 4);
-          const v = c ? c[ep].net : null;
-          t += "<td class='cell' style='" + heatBg(v) + "' title='" + (c ? c[ep].n + " сд., " + money(c[ep].usd) : "") + "'>" + fmtCell(v) + "</td>";
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart(document.getElementById(canvasId), {type: "line", data: {datasets: ds}, options: o, plugins: [epochPlugin]});
+  }
+  function barEpochs(key, canvas, labels, hv, rv, tip) {
+    const o = baseOptions();
+    o.scales.y.title = {display: true, text: "bps на сделку", color: css("--ink-3"), font: {size: 12}};
+    o.plugins.tooltip.callbacks = {label: it => " " + it.dataset.label + ": " + (tip ? tip(it) : (it.parsed.y == null ? "—" : bps(it.parsed.y) + " bps"))};
+    if (charts[key]) charts[key].destroy();
+    const mk = (label, vals, color, epoch) => ({label, data: vals.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: color, borderRadius: 4, borderSkipped: "start", maxBarThickness: 26, _epoch: epoch});
+    charts[key] = new Chart(canvas, {type: "bar", data: {labels, datasets: [mk("история", hv, css("--hist"), HIST), mk("запись", rv, css("--rec"), REC)]}, options: o});
+  }
+  const SERIES = ["--c1", "--c2", "--c3", "--c4", "--c5"];
+
+  // ---------- кандидат ----------
+  const CAND = "form:" + CAND_SET + "/cand";
+  const BASE_F10 = "sets:" + BASE_SET;
+  function kpiTable(tableId, src, compareSrc, compareLabel) {
+    const cols = [[HIST, "История 01–15.09"], [REC, "Запись 16–22.09"], [null, "Вместе"]];
+    const S = cols.map(([e]) => stats(trades(src, e)));
+    const B = compareSrc ? cols.map(([e]) => stats(trades(compareSrc, e))) : null;
+    const rows = [
+      ["Сделок", s => s.n, null],
+      ["Итог, $", s => money(s.usd), s => s.usd],
+      ["Сверх рынка, $", s => money(s.excess), s => s.excess],
+      ["Средняя сделка, bps", s => bps(s.avg), s => s.avg],
+      ["В плюс, % сделок", s => Math.round(s.win * 100) + " %", null],
+      ["Средний плюс / минус, bps", s => bps(s.avgWin) + " / " + bps(s.avgLoss), null],
+      ["Профит-фактор", s => s.pf == null ? "—" : s.pf.toFixed(2), null],
+      ["Худший откат капитала, $", s => money(s.dd), s => s.dd],
+      ["Пик одновременных позиций", s => s.maxOpen, null],
+      ["Капитал под пик, $", s => "$" + (s.maxOpen * 1000).toLocaleString("ru-RU"), null],
+      ["Дней в плюсе", s => s.daysPos + " из " + s.days, null],
+      ["Удержание в среднем, мин", s => Math.round(s.hold), null],
+    ];
+    let html = "<thead><tr><th></th>" + cols.map(c => "<th>" + c[1] + "</th>").join("") + "</tr></thead><tbody>";
+    for (const [label, fmt, sign] of rows) {
+      html += "<tr><td>" + label + "</td>";
+      S.forEach((s, i) => {
+        if (!s) { html += "<td class='num'>—</td>"; return; }
+        html += "<td class='num big " + (sign ? cls(sign(s)) : "") + "'>" + fmt(s) +
+          (B && B[i] ? "<span style='display:block;color:var(--ink-3);font-size:12px'>" + compareLabel + ": " + fmt(B[i]) + "</span>" : "") + "</td>";
+      });
+      html += "</tr>";
+    }
+    document.getElementById(tableId).innerHTML = html + "</tbody>";
+  }
+  function renderCandidate() {
+    kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
+    lineChart("candEq", "cand-eq", "cand-legend", [
+      {label: "Кандидат", data: equity(CAND, r => r[COL.net]), borderColor: css("--c1")},
+      {label: "База F10: все входы, стоп 2 %, 1:1, 2 ч", data: equity(BASE_F10, r => r[COL.net]), borderColor: css("--c2"), borderWidth: 1.5},
+      {label: "Рынок для сделок кандидата", data: equity(CAND, r => r[COL.ctrl]), borderColor: css("--ink-3"), borderDash: [6, 4]},
+    ]);
+    const byDay = {};
+    for (const r of trades(CAND)) { const d = byDay[r[COL.day]] || (byDay[r[COL.day]] = {usd: 0, n: 0}); d.usd += r[COL.net] / 10; d.n++; }
+    const days = D.days.map(d => d.day);
+    const vals = days.map(d => byDay[d] ? Math.round(byDay[d].usd) : 0);
+    const o = baseOptions();
+    o.scales.y.ticks.callback = v => money(v);
+    o.plugins.tooltip.callbacks = {
+      title: items => { const d = D.days[items[0].dataIndex]; return dayLabel(d.day) + " · " + d.epoch; },
+      label: it => { const d = D.days[it.dataIndex], b = byDay[d.day] || {usd: 0, n: 0};
+        return [" кандидат: " + money(b.usd) + " за " + b.n + " сд.", " рынок за день: " + (d.pool_pct == null ? "—" : (d.pool_pct > 0 ? "+" : "") + d.pool_pct.toFixed(1).replace("-", "−") + " %"), " просадок BTC за 1 ч: " + d.dips.btc1h]; },
+    };
+    if (charts.candDaily) charts.candDaily.destroy();
+    charts.candDaily = new Chart(document.getElementById("cand-daily"), {type: "bar",
+      data: {labels: days.map(dayLabel), datasets: [{data: vals, backgroundColor: vals.map(v => v >= 0 ? css("--gain") : css("--loss")), borderRadius: 4, borderSkipped: "start", maxBarThickness: 28}]}, options: o});
+  }
+
+  // ---------- кейсы ----------
+  const SET_TOGGLE = [["t-bid-btc1h-q1", "Просадка BTC за 1 ч"], ["t-bid-btc4h-q1", "Просадка BTC за 4 ч"], ["t-bid-age-45", "База лонга"]];
+  const CASES = [
+    {id: "regime", title: "Когда входить: режим рынка", short: "режим рынка",
+      verdict: ["good", "держится в обеих эпохах"],
+      answer: "Лонг от стены зарабатывает, когда вход идёт в просадке — BTC или рынок за последний час просели сильнее обычного. На спокойном рынке и плавном сползании лонг теряет; без фильтра на днях, которых форма не видела, база играет в ноль.",
+      variants: () => [["sets:t-bid-btc1h-q1", "Просадка BTC за 1 ч (≤ −0,21 %)"], ["sets:t-bid-btc4h-q1", "Просадка BTC за 4 ч (≤ −0,45 %)"], ["sets:t-bid-pool1h-q1", "Просадка рынка за 1 ч (≤ −0,31 %)"], ["sets:" + BASE_SET, "База: все входы"], ["sets:t-bid-pool4h-q2", "Сползание рынка за 4 ч (антипример)"]],
+      extra: "dose-bid", note: "Выход у всех вариантов одинаковый — форма F10: стоп 2 %, тейк 1:1, 2 ч."},
+    {id: "age", title: "Возраст стены", short: "возраст стены",
+      verdict: ["warn", "нужен ≥ 45–60 мин; выше не растёт"],
+      answer: "На истории молодые стены — главный источник убытка (≥ 15 мин: −$2548), от 45 минут — около нуля, лучше всего 60 минут; старше часа лучше не становится. На записи все пороги в плюсе — рынок рос.",
+      variants: () => [["sets:t-bid-age-15", "Стена ≥ 15 мин"], ["sets:t-bid-age-30", "Стена ≥ 30 мин"], ["sets:t-bid-age-45", "Стена ≥ 45 мин"], ["sets:t-bid-age-60", "Стена ≥ 60 мин"], ["sets:t-bid-age-120", "Стена ≥ 120 мин"]],
+      extra: "age-bid", note: "Фильтр режима здесь не стоит — это все входы с порогом возраста; выход — форма F10."},
+    {id: "hold", title: "Сколько держать", short: "удержание", sets: true,
+      verdict: ["good", "держится в обеих эпохах"],
+      answer: "Чем дольше держим, тем лучше — ровно в обеих эпохах: 1 ч → 2 ч → 4 ч. Мы зарабатываем на отскоке рынка после просадки, а ему нужно время. 4 часа — край проверенной сетки, дальше может быть ещё лучше.",
+      variants: s => [["form:" + s + "/h1", "1 час"], ["form:" + s + "/h2", "2 часа"], ["form:" + s + "/h4", "4 часа"]],
+      extra: "hold", note: "Стоп 2 %, тейк 1,75 %."},
+    {id: "stop", title: "Какой стоп", short: "стоп", sets: true,
+      verdict: ["good", "держится в обеих эпохах"],
+      answer: "Чем шире стоп, тем лучше: 0,5 % почти обнуляет результат, 2 % — лучший. Тесный стоп выбивает сделку шумом раньше, чем рынок отскочит. 2 % — край сетки.",
+      variants: s => [["form:" + s + "/s05", "Стоп 0,5 %"], ["form:" + s + "/s1", "Стоп 1 %"], ["form:" + s + "/s15", "Стоп 1,5 %"], ["form:" + s + "/h4", "Стоп 2 %"]],
+      extra: "heat", note: "Тейк 1,75 %, удержание 4 ч. Ниже — вся карта «стоп × тейк» при 4 ч."},
+    {id: "take", title: "Тейк или трейлинг", short: "тейк / трейл", sets: true,
+      verdict: ["good", "поздний трейл ≈ тейк 1,75 %"],
+      answer: "Поздний трейлинг (включение +1–2 %, откат 0,5–1 %) и фиксированный тейк 1,75 % дают почти одно и то же; ранний трейлинг (включение +0,5 %) и тейк 1 % режут прибыльные сделки. Трейлинг — не большой рычаг.",
+      variants: s => [["form:" + s + "/cand", "Трейл: +1 % / откат 1 % (кандидат)"], ["form:" + s + "/tr2x05", "Трейл: +2 % / откат 0,5 %"], ["form:" + s + "/h4", "Тейк 1,75 %"], ["form:" + s + "/tk1", "Тейк 1 %"], ["form:" + s + "/tr05", "Ранний трейл: +0,5 % / откат 0,25 %"]],
+      extra: "trail", note: "Стоп 2 %, удержание 4 ч. Ниже — вся таблица трейлинга."},
+    {id: "wall", title: "Реакция на стену: съели, сняли, защита", short: "реакция на стену", sets: true,
+      verdict: ["good", "не реагировать — в обеих эпохах"],
+      answer: "Любая реакция на стену в позиции стоит денег: выход, когда стену съели на 20 %, выход сразу при снятии и трейлинг после снятия — все хуже, чем держать. Чем чувствительнее реакция, тем хуже. Стену снимают примерно в 60 % сделок, а цена всё равно отскакивает: зарабатываем на отскоке рынка, стена — только точка входа. Защита — стоп 2 %.",
+      variants: s => [["form:" + s + "/cand", "Не реагировать (кандидат)"], ["form:" + s + "/gone90tr1", "Сняли → трейл, откат 1 %"], ["form:" + s + "/gone90tr0.5", "Сняли → трейл, откат 0,5 %"], ["form:" + s + "/gone90", "Сняли → выход сразу"], ["form:" + s + "/eat20", "Съели 20 % → выход (тейк 1:1)"]],
+      extra: "", note: "Стоп 2 %, трейл +1 % / откат 1 %, удержание 4 ч; «сняли» — размер стены упал на 90 % без сделок."},
+    {id: "short", title: "Шорт от аск-стены", short: "шорт",
+      verdict: ["crit", "не работает — отложен (В-87)"],
+      answer: "Ни один вариант шорта не держится в обеих эпохах: база в минусе и на истории, и на записи. Шорт после резкого роста был в плюсе на истории, но на записи рост продолжался и тот же вариант ушёл в минус. Сверх рынка шорт даёт немного — этого не хватает против хода рынка.",
+      variants: () => [["sets:t-ask-age-45", "База шорта: все входы"], ["sets:t-ask-btc1h-q5", "После роста BTC за 1 ч (≥ +0,20 %)"], ["sets:t-ask-pool4h-q5", "После роста рынка за 4 ч (≥ +0,42 %)"], ["sets:t-ask-btc1h-q1", "В просадке BTC за 1 ч"], ["sets:t-ask-age-90", "Стена ≥ 90 мин"]],
+      extra: "dose-ask", note: "Выход — форма F10: стоп 2 %, тейк 1:1, 2 ч."},
+  ];
+  let caseId = "regime", caseSet = CAND_SET;
+  function verdictChip([kind, text]) {
+    const icon = kind === "good" ? "<path fill='currentColor' d='M6.5 11.2 3.3 8l1-1 2.2 2.2L11.7 4l1 1z'/>" : kind === "crit" ? "<path fill='currentColor' d='M4.4 3.3 8 6.9l3.6-3.6 1.1 1.1L9.1 8l3.6 3.6-1.1 1.1L8 9.1l-3.6 3.6-1.1-1.1L6.9 8 3.3 4.4z'/>" : "<path fill='currentColor' d='M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z'/>";
+    return "<span class='chip " + kind + "'><svg viewBox='0 0 16 16' aria-hidden='true'>" + icon + "</svg>" + text + "</span>";
+  }
+  function buildNav() {
+    const nav = document.getElementById("case-nav");
+    nav.innerHTML = "";
+    CASES.forEach((c, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.innerHTML = (i + 1) + ". " + c.title + "<small>" + c.verdict[1] + "</small>";
+      b.setAttribute("aria-pressed", String(c.id === caseId));
+      b.addEventListener("click", () => { caseId = c.id; buildNav(); renderCase(); });
+      nav.appendChild(b);
+    });
+  }
+  function renderCase() {
+    const c = CASES.find(x => x.id === caseId);
+    document.getElementById("case-title").textContent = c.title;
+    document.getElementById("case-verdict").innerHTML = verdictChip(c.verdict);
+    document.getElementById("case-answer").textContent = c.answer;
+    const tg = document.getElementById("case-sets");
+    tg.innerHTML = "";
+    if (c.sets) {
+      tg.innerHTML = "<span>Набор:</span>";
+      for (const [s, label] of SET_TOGGLE) {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(s === caseSet));
+        b.addEventListener("click", () => { caseSet = s; renderCase(); });
+        tg.appendChild(b);
+      }
+    }
+    const vars = c.variants(caseSet);
+    const cols = [HIST, REC];
+    let html = "<thead><tr class='grp'><th></th><th colspan='6' class='sep'>История 01–15.09</th><th colspan='6' class='sep'>Запись 16–22.09</th><th class='sep'></th></tr>" +
+      "<tr><th>Вариант</th>" + cols.map(() => "<th class='sep'>сделок</th><th>итог</th><th>bps</th><th>сверх рынка</th><th>в плюс</th><th>откат</th>").join("") + "<th class='sep'>плюс в обеих</th></tr></thead><tbody>";
+    vars.forEach(([src, label], i) => {
+      const S = cols.map(e => stats(trades(src, e)));
+      const both = S.every(s => s && s.usd > 0);
+      html += "<tr><td><span class='swatch' style='background:" + css(SERIES[i % SERIES.length]) + "'></span>" + label + "</td>";
+      for (const s of S) {
+        if (!s) { html += "<td class='sep'>—</td><td></td><td></td><td></td><td></td><td></td>"; continue; }
+        html += "<td class='num sep'>" + s.n + "</td><td class='num " + cls(s.usd) + "'>" + money(s.usd) + "</td><td class='num " + cls(s.avg) + "'>" + bps(s.avg) +
+          "</td><td class='num " + cls(s.excessAvg) + "'>" + bps(s.excessAvg) + "</td><td class='num'>" + Math.round(s.win * 100) + " %</td><td class='num neg'>" + money(s.dd) + "</td>";
+      }
+      html += "<td class='sep'>" + (both ? "да" : "нет") + "</td></tr>";
+    });
+    document.getElementById("case-table").innerHTML = html + "</tbody>";
+    lineChart("caseEq", "case-eq", "case-legend", vars.map(([src, label], i) => ({label, data: equity(src, r => r[COL.net]), borderColor: css(SERIES[i % SERIES.length])})));
+    renderExtra(c);
+  }
+
+  // ---------- дополнительные графики кейсов ----------
+  const AGG = (D.exit_agg || []).map(r => {
+    const m = r.form.match(/pct([0-9.]+)-(tk[0-9.]+|tr[0-9.]+x[0-9.]+|1to1)-(\d+)-ttl1800(-eat20)?$/);
+    if (!m) return null;
+    const num = k => (r[k] === "" || r[k] == null ? null : Number(r[k]));
+    return {set: r.set, stop: Number(m[1]), take: m[2], dl: Number(m[3]) / 3600, wall: !!m[4],
+      h: {n: num("история_n"), net: num("история_net"), usd: num("история_usd")}, r: {n: num("запись_n"), net: num("запись_net"), usd: num("запись_usd")}};
+  }).filter(Boolean);
+  const avgOf = (rows, ep) => { const v = rows.map(x => x[ep].net).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const heatBg = v => v == null ? "" : "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.min(55, Math.abs(v) * 1.2).toFixed(0) + "%, var(--surface))";
+  const fmtCell = v => v == null ? "—" : bps(v);
+  function setsDose(side) {
+    const box = document.getElementById("case-extra");
+    let html = "<p class='note'>Средняя сделка по корзинам режима: q1 — пятая часть времени с самым сильным падением, q5 — с самым сильным ростом; края одни для обеих эпох.</p><div class='grid2'>";
+    const axes = ["btc1h", "btc4h", "pool1h", "pool4h"];
+    for (const a of axes) html += "<div><h3>" + AXIS_NAME[a] + "</h3><div class='chart h-sm'><canvas id='dose-" + a + "'></canvas></div></div>";
+    html += "</div><div><h3>Возраст стены (накопительно)</h3><div class='chart h-sm'><canvas id='dose-age'></canvas></div></div>";
+    box.innerHTML = html;
+    const tipFor = names => it => { const s = stats(trades("sets:" + names[it.dataIndex], it.dataset._epoch)); return s ? bps(s.avg) + " bps · " + s.n + " сд. · " + money(s.usd) : "нет сделок"; };
+    for (const a of axes) {
+      const names = [1, 2, 3, 4, 5].map(k => "t-" + side + "-" + a + "-q" + k);
+      const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
+      barEpochs("dose-" + a, document.getElementById("dose-" + a), [1, 2, 3, 4, 5].map(k => "q" + k + " " + binLabel(a, k)), val(HIST), val(REC), tipFor(names));
+    }
+    const ages = [15, 30, 45, 60, 90, 120], names = ages.map(x => "t-" + side + "-age-" + x);
+    const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
+    barEpochs("dose-age", document.getElementById("dose-age"), ages.map(x => "≥ " + x + " мин"), val(HIST), val(REC), tipFor(names));
+  }
+  function renderExtra(c) {
+    const box = document.getElementById("case-extra");
+    for (const k of Object.keys(charts)) if (k.startsWith("dose-") || k === "exHold") { charts[k].destroy(); delete charts[k]; }
+    box.innerHTML = "";
+    const note = c.note ? "<p class='note'>" + c.note + "</p>" : "";
+    if (c.extra === "dose-bid") { setsDose("bid"); box.insertAdjacentHTML("afterbegin", note); return; }
+    if (c.extra === "dose-ask") { setsDose("ask"); box.insertAdjacentHTML("afterbegin", note); return; }
+    if (c.extra === "age-bid") {
+      box.innerHTML = note + "<div class='chart h-sm'><canvas id='dose-age'></canvas></div>";
+      const ages = [15, 30, 45, 60, 90, 120], names = ages.map(x => "t-bid-age-" + x);
+      const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
+      barEpochs("dose-age", document.getElementById("dose-age"), ages.map(x => "≥ " + x + " мин"), val(HIST), val(REC));
+      return;
+    }
+    const fix = AGG.filter(x => x.set === caseSet && x.take.startsWith("tk") && !x.wall);
+    if (c.extra === "hold") {
+      box.innerHTML = note + "<h3>Средняя сделка по удержанию — среднее по всем стопам и тейкам (0,5–2 %)</h3><div class='chart h-sm'><canvas id='ex-hold'></canvas></div>";
+      const dls = [1, 2, 4];
+      barEpochs("exHold", document.getElementById("ex-hold"), dls.map(d => d + " ч"), dls.map(d => avgOf(fix.filter(x => x.dl === d), "h")), dls.map(d => avgOf(fix.filter(x => x.dl === d), "r")));
+      return;
+    }
+    if (c.extra === "heat") {
+      const stops = [...new Set(fix.map(x => x.stop))].sort((a, b) => a - b);
+      const takes = [...new Set(fix.map(x => x.take))].sort((a, b) => parseFloat(a.slice(2)) - parseFloat(b.slice(2)));
+      let html = note + "<div class='grid2'>";
+      for (const [ep, title] of [["h", "история"], ["r", "запись"]]) {
+        html += "<div class='scroll'><h3>Стоп × тейк, 4 ч — " + title + ", bps на сделку</h3><table class='heat'><thead><tr><th>стоп \\ тейк</th>" + takes.map(k => "<th>" + k.slice(2).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+        for (const s of stops) {
+          html += "<tr><td>" + String(s).replace(".", ",") + " %</td>";
+          for (const k of takes) { const x = fix.find(y => y.stop === s && y.take === k && y.dl === 4); const v = x ? x[ep].net : null;
+            html += "<td class='cell' style='" + heatBg(v) + "' title='" + (x ? x[ep].n + " сд., " + money(x[ep].usd) : "") + "'>" + fmtCell(v) + "</td>"; }
+          html += "</tr>";
         }
-        t += "</tr>";
+        html += "</tbody></table></div>";
       }
-      document.getElementById(id).innerHTML = t + "</tbody>";
+      box.innerHTML = html + "</div>";
+      return;
     }
-    // трейлинг: активация × откат при 4 ч
-    const tr = AGG.filter(x => x.set === exitSet && x.take.startsWith("tr") && x.dl === 4);
-    const acts = ["0.5", "1", "1.5", "2"], gbs = ["0.25", "0.5", "1"];
-    let tt = "<thead><tr><th>включение \\ откат</th>" + gbs.map(g => "<th>" + g.replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
-    for (const a of acts) {
-      tt += "<tr><td>+" + a.replace(".", ",") + " %</td>";
-      for (const g of gbs) {
-        const cells = tr.filter(x => x.take === "tr" + a + "x" + g);
-        const h = avgOf(cells, "h"), r = avgOf(cells, "r");
-        tt += cells.length ? "<td class='cell' style='" + heatBg(h) + "'>" + fmtCell(h) + " / " + fmtCell(r) + "</td>" : "<td class='cell'>—</td>";
+    if (c.extra === "trail") {
+      const tr = AGG.filter(x => x.set === caseSet && x.take.startsWith("tr") && x.dl === 4);
+      const acts = ["0.5", "1", "1.5", "2"], gbs = ["0.25", "0.5", "1"];
+      let html = note + "<div class='scroll'><h3>Трейлинг, 4 ч, среднее по стопам 1 / 1,5 / 2 % — bps на сделку, история / запись</h3><table class='heat'><thead><tr><th>включение \\ откат</th>" + gbs.map(g => "<th>" + g.replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+      for (const a of acts) {
+        html += "<tr><td>+" + a.replace(".", ",") + " %</td>";
+        for (const g of gbs) { const cells = tr.filter(x => x.take === "tr" + a + "x" + g); const h = avgOf(cells, "h"), r = avgOf(cells, "r");
+          html += cells.length ? "<td class='cell' style='" + heatBg(h) + "'>" + fmtCell(h) + " / " + fmtCell(r) + "</td>" : "<td class='cell'>—</td>"; }
+        html += "</tr>";
       }
-      tt += "</tr>";
+      box.innerHTML = html + "</tbody></table></div>";
+      return;
     }
-    document.getElementById("trail-tbl").innerHTML = tt + "</tbody>";
-    // выход по стене
-    let wt = "<thead><tr><th>стоп, удержание</th><th>без выхода по стене</th><th>съели 20 %</th></tr></thead><tbody>";
-    for (const s of [1, 2]) for (const d of dls) {
-      const w = AGG.find(x => x.set === exitSet && x.wall && x.stop === s && x.dl === d);
-      const n = fix.find(x => x.stop === s && x.take === "tk" + s && x.dl === d);
-      if (!w || !n) continue;
-      wt += "<tr><td>" + s + " %, " + d + " ч</td><td class='num " + cls(n.h.net) + "'>" + fmtCell(n.h.net) + " / " + fmtCell(n.r.net) +
-        "</td><td class='num " + cls(w.h.net) + "'>" + fmtCell(w.h.net) + " / " + fmtCell(w.r.net) + "</td></tr>";
-    }
-    document.getElementById("wall-tbl").innerHTML = wt + "</tbody>";
+    box.innerHTML = note;
   }
 
-  function renderAll(withStatic) {
-    if (typeof Chart !== "undefined") {
-      Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
-      Chart.defaults.color = css("--ink-2");
+  // ---------- сделки кандидата ----------
+  let tradeRows = 100, sortKey = "t0", sortDir = -1;
+  function renderHist() {
+    const lo = -250, w = 25, nb = 20;
+    const labels = Array.from({length: nb}, (_, i) => (lo + i * w) + "…" + (lo + (i + 1) * w));
+    const mk = (epoch, color) => { const t = trades(CAND, epoch), c = new Array(nb).fill(0);
+      for (const r of t) c[Math.min(nb - 1, Math.max(0, Math.floor((r[COL.net] - lo) / w)))]++;
+      return {label: epoch === HIST ? "история" : "запись", data: c.map(v => t.length ? Math.round(v / t.length * 1000) / 10 : 0), _counts: c, backgroundColor: color, borderRadius: 3, borderSkipped: "start", barPercentage: 0.9, categoryPercentage: 0.9}; };
+    const o = baseOptions();
+    o.scales.y.ticks.callback = v => v + " %"; o.scales.x.ticks.maxRotation = 0; o.scales.x.ticks.autoSkipPadding = 12;
+    o.plugins.tooltip.callbacks = {title: items => items[0].label + " bps", label: it => " " + it.dataset.label + ": " + it.parsed.y + " % (" + it.dataset._counts[it.dataIndex] + " сд.)"};
+    if (charts.hist) charts.hist.destroy();
+    charts.hist = new Chart(document.getElementById("hist"), {type: "bar", data: {labels, datasets: [mk(HIST, css("--hist")), mk(REC, css("--rec"))]}, options: o});
+  }
+  function renderReasons() {
+    const reasons = [...new Set(trades(CAND).map(r => r[COL.reason]))];
+    let html = "<thead><tr><th>Выход</th><th>История: сд.</th><th>$</th><th>Запись: сд.</th><th>$</th></tr></thead><tbody>";
+    for (const reason of reasons) {
+      html += "<tr><td>" + (REASON[reason] || reason) + "</td>";
+      for (const e of [HIST, REC]) { const t = trades(CAND, e).filter(r => r[COL.reason] === reason); const usd = t.reduce((s, r) => s + r[COL.net] / 10, 0);
+        html += "<td class='num'>" + t.length + "</td><td class='num " + cls(usd) + "'>" + money(usd) + "</td>"; }
+      html += "</tr>";
     }
-    renderKpi(); renderReasons(); renderCoins(); renderTrades();
-    if (typeof Chart !== "undefined") { renderEquity(); renderDaily(); renderHist(); if (withStatic) { renderDose(); renderExit(); } }
+    document.getElementById("reasons").innerHTML = html + "</tbody>";
+  }
+  function renderCoins() {
+    const by = {};
+    for (const r of trades(CAND)) { const c = by[r[COL.sym]] || (by[r[COL.sym]] = {n: 0, usd: 0, h: 0, r: 0}); c.n++; c.usd += r[COL.net] / 10; if (r[COL.epoch] === HIST) c.h += r[COL.net] / 10; else c.r += r[COL.net] / 10; }
+    const total = Object.values(by).reduce((s, c) => s + c.usd, 0);
+    const top = Object.entries(by).sort((a, b) => Math.abs(b[1].usd) - Math.abs(a[1].usd)).slice(0, 10);
+    let html = "<thead><tr><th>Монета</th><th>Сделок</th><th>Итог</th><th>История</th><th>Запись</th></tr></thead><tbody>";
+    for (const [sym, c] of top) html += "<tr><td>" + sym + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) + "</td><td class='num " + cls(c.h) + "'>" + money(c.h) + "</td><td class='num " + cls(c.r) + "'>" + money(c.r) + "</td></tr>";
+    html += "<tr><td>Всего по " + Object.keys(by).length + " монетам</td><td class='num'>" + trades(CAND).length + "</td><td class='num " + cls(total) + "'>" + money(total) + "</td><td></td><td></td></tr>";
+    document.getElementById("coins").innerHTML = html + "</tbody>";
+  }
+  function renderTrades() {
+    const keyOf = {t0: r => r[COL.t0], sym: r => r[COL.sym], net: r => r[COL.net], ctrl: r => r[COL.ctrl], hold: r => r[COL.exit] - r[COL.t0], reason: r => r[COL.reason], epoch: r => r[COL.epoch]};
+    const t = trades(CAND).slice().sort((a, b) => { const x = keyOf[sortKey](a), y = keyOf[sortKey](b); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
+    const head = [["epoch", "Эпоха"], ["t0", "Сигнал, UTC"], ["sym", "Монета"], ["hold", "Удержание, мин"], ["net", "Сделка, bps"], ["net", "$"], ["ctrl", "Рынок, bps"], ["reason", "Выход"]];
+    let html = "<thead><tr>" + head.map(([k, l], i) => "<th data-k='" + k + "'" + (k === sortKey && i !== 5 ? " aria-sort='" + (sortDir > 0 ? "ascending" : "descending") + "'" : "") + ">" + l + "</th>").join("") + "</tr></thead><tbody>";
+    for (const r of t.slice(0, tradeRows)) {
+      const d = new Date(r[COL.t0] * 60e3);
+      html += "<tr><td>" + r[COL.epoch] + "</td><td class='num'>" + String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0") +
+        "</td><td>" + r[COL.sym] + "</td><td class='num'>" + (r[COL.exit] - r[COL.t0]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + bps(r[COL.net]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + money(r[COL.net] / 10) +
+        "</td><td class='num'>" + bps(r[COL.ctrl]) + "</td><td>" + (REASON[r[COL.reason]] || r[COL.reason]) + "</td></tr>";
+    }
+    const tbl = document.getElementById("trades");
+    tbl.innerHTML = html + "</tbody>";
+    tbl.querySelectorAll("th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = -1; } renderTrades(); }));
+    const more = document.getElementById("more");
+    more.hidden = tradeRows >= t.length;
+    more.textContent = "Показать ещё 100 (всего " + t.length + ")";
+  }
+  function renderDips() {
+    let html = "<thead><tr><th>День</th><th>Эпоха</th><th>Рынок за день</th><th>Просадок BTC 1 ч</th><th>BTC 4 ч</th><th>Рынок 1 ч</th><th>Время в просадке BTC 1 ч</th></tr></thead><tbody>";
+    for (const d of D.days) { const p = d.pool_pct;
+      html += "<tr><td>" + dayLabel(d.day) + "</td><td>" + d.epoch + "</td><td class='num " + cls(p || 0) + "'>" + (p == null ? "—" : (p > 0 ? "+" : "") + p.toFixed(1).replace("-", "−") + " %") +
+        "</td><td class='num'>" + d.dips.btc1h + "</td><td class='num'>" + d.dips.btc4h + "</td><td class='num'>" + d.dips.pool1h + "</td><td class='num'>" + Math.round(d.dip_share.btc1h * 100) + " %</td></tr>"; }
+    document.getElementById("dips").innerHTML = html + "</tbody>";
   }
 
-  tabSubs();
-  verdict();
-  buildControls();
-  renderDips();
-  renderAll(true);
-
-  const rerender = () => { if (typeof Chart === "undefined") return; renderEquity(); renderDaily(); renderHist(); renderDose(); renderExit(); };
-  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", rerender); } catch (e) {}
-  new MutationObserver(rerender).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
+  function renderCharts() {
+    if (typeof Chart === "undefined") return;
+    Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
+    Chart.defaults.color = css("--ink-2");
+    renderCandidate(); renderCase(); renderHist();
+  }
+  document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
+  buildNav();
+  kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
+  renderReasons(); renderCoins(); renderTrades(); renderDips();
+  renderCharts();
+  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts); } catch (e) {}
+  new MutationObserver(renderCharts).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
 })();
 </script>
