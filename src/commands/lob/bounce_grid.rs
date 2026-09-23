@@ -111,9 +111,10 @@ use clap::Args;
 use hftbacktest::types::Event as HbtEvent;
 
 use super::backtest::{
-    approach_plan, bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
-    exit_reason_label, feed_events_into, open_replay_feed, pool_order_qty, pool_order_qty_usd,
-    read_tick_step, BounceForm, EntryForm, EntryTtl, PlanShape, StopForm, TakeForm,
+    approach_plan, bounce_plan, count_feed_events, count_feed_events_until, deadline_ns_from_secs,
+    early_exit_ns_from_secs, exit_reason_label, feed_events_into, feed_events_into_until,
+    open_replay_feed, pool_order_qty, pool_order_qty_usd, read_tick_step, BounceForm, EntryForm,
+    EntryTtl, PlanShape, StopForm, TakeForm,
 };
 use super::bounce_verdict::{form_label_with_entry, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
@@ -854,6 +855,20 @@ pub struct BounceGridArgs {
     /// поведение (кэш неполон — реплей).
     #[arg(long, default_value_t = false)]
     pub touches_cache_only: bool,
+    /// Перенос круга через полночь (измерено на кандидате 23.09: без него теряется 35 из 189
+    /// круга истории и 8 из 43 записи — круг, ещё открытый на конце суток D, молча падает из
+    /// `rounds.csv`/P&L как `EndOfData`, а у живого бота полуночи нет — расхождение бэктеста с
+    /// ботом). Значение — корень со **всеми** сутками записи (`root/`, не студийный `--root
+    /// study/root-<день>` с одними символьными ссылками дня D): части суток D+1 читаются им же
+    /// резолвером, что и собственный корень (`session_parts_for`), и только в окне времени после
+    /// полуночи D+1 (`entry-ttl` формы + наибольший `--deadline-secs` сетки + запас `p95`
+    /// тейкера) — не всей записью (тот же риск OOM, что уже решает `day_events`). Сигналы дня —
+    /// только его собственные касания; довесок несёт лишь события книги/сделок, дочитывающие уже
+    /// открытые круги. Части D+1 не требуют маркера сверки (K1 здесь не про новые сигналы), но
+    /// `forms.csv` отмечает их отсутствие (`carry_unverified`). Нет частей D+1 (последние сутки
+    /// записи) — поведение прежнее (`incomplete`). Без флага — байт в байт прежний вывод.
+    #[arg(long)]
+    pub carry_root: Option<PathBuf>,
 }
 
 impl BounceGridArgs {
@@ -1380,7 +1395,7 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
-const FORMS_HEADER: [&str; 33] = [
+const FORMS_HEADER: [&str; 35] = [
     "symbol",
     "day_utc",
     "form",
@@ -1422,6 +1437,10 @@ const FORMS_HEADER: [&str; 33] = [
     "mean_fill_frac",
     // F8c (К1): исполнения заявок-сирот после потолка отмены (ноль — норма).
     "n_orphan_fills",
+    // Перенос круга через полночь (`--carry-root`): в конце, прежние колонки
+    // не сдвинуты (гейт «те же круги» без флага, `same_fields` по именам).
+    "n_carried",
+    "carry_unverified",
 ];
 
 pub(crate) fn pool_symbols(root: &Path) -> anyhow::Result<Vec<String>> {
@@ -1577,6 +1596,137 @@ fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
         events.len()
     );
     Ok(events)
+}
+
+// ---------------------------------------------------------------------------
+// Перенос круга через полночь (`--carry-root`): круг, ещё открытый на конце
+// суток D, дочитывает выход по данным D+1 вместо `RoundOutcome::EndOfData`
+// (измерено на кандидате 23.09: 35 из 189 круга истории, 8 из 43 записи —
+// см. doc `BounceGridArgs::carry_root`).
+// ---------------------------------------------------------------------------
+
+/// Окно переноса, нс: сколько времени после полуночи D+1 ещё может
+/// понадобиться, чтобы круг, открытый под конец суток D, дочитал свой выход.
+/// Строится из чисел уже переданного прогона, не изобретённая константа:
+/// наибольший потолок входа сетки (`--entry-ttl-secs`) плюс наибольший
+/// `--deadline-secs` плюс небольшой запас на задержку исполнения (p95 RTT
+/// тейкера — тот же параметр, что уже ограничивает выход рыночным ордером).
+/// `EntryTtl::Touch` не добавляет времени: вход в этом режиме живёт не дольше
+/// самого касания суток D (`touch.end_ms − touch.start_ms`), а касания —
+/// собственные суток D, разбор их конца не выходит за пределы дня (F5,
+/// `bounce_plan`). `EntryTtl::Wall` потолка не несёт (`entry_ttl_ns =
+/// i64::MAX`, F5) — окно переноса с ним не построить, отказ, а не
+/// изобретённое число.
+fn carry_window_ns(
+    entry_ttls: &[EntryTtl],
+    deadlines: &[u64],
+    p95_taker_rtt_ns: i64,
+) -> anyhow::Result<i64> {
+    let mut max_entry_ttl_secs: i64 = 0;
+    for ttl in entry_ttls {
+        match ttl {
+            EntryTtl::Touch => {}
+            EntryTtl::Secs(secs) => max_entry_ttl_secs = max_entry_ttl_secs.max(*secs),
+            EntryTtl::Wall => anyhow::bail!(
+                "--carry-root: --entry-ttl-secs wall не ограничен по времени (F5, entry_ttl_ns = \
+                 i64::MAX) — окно переноса не построить без числового потолка"
+            ),
+        }
+    }
+    let max_deadline_secs = deadlines.iter().copied().max().unwrap_or(0) as i64;
+    Ok(max_entry_ttl_secs
+        .saturating_add(max_deadline_secs)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(p95_taker_rtt_ns))
+}
+
+/// Следующие сутки UTC `YYYY-MM-DD` — довесок смотрит ровно на них, не дальше
+/// (круг, переживший ещё и вторую полночь, остаётся `incomplete`, как и
+/// прежде — сетка замера ограничивает окно, не гоняется за произвольной
+/// глубиной).
+fn next_day_utc(day: &str) -> anyhow::Result<String> {
+    let d = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .map_err(|e| anyhow::anyhow!("сутки {day:?}: ожидается YYYY-MM-DD ({e})"))?;
+    let next = d
+        .succ_opt()
+        .ok_or_else(|| anyhow::anyhow!("сутки {day}: следующих суток не построить"))?;
+    Ok(next.format("%Y-%m-%d").to_string())
+}
+
+/// Полночь UTC суток в наносекундах эпохи — граница переноса и колонка
+/// `n_carried` (`forms.csv`): круг, чей `exit_ns ≥` эта граница, закрылся уже
+/// на данных D+1.
+fn day_start_ns(day: &str) -> anyhow::Result<i64> {
+    let d = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .map_err(|e| anyhow::anyhow!("сутки {day:?}: ожидается YYYY-MM-DD ({e})"))?;
+    d.and_hms_opt(0, 0, 0)
+        .and_then(|dt| dt.and_utc().timestamp_nanos_opt())
+        .ok_or_else(|| anyhow::anyhow!("сутки {day}: полночь не строится в нс"))
+}
+
+/// События суток-довеска D+1, ограниченные окном переноса (`until_ns`,
+/// исключая) — не вся запись: тот же риск OOM, что решает двухпроходный
+/// точный `Vec` `day_events` (её doc), только предел здесь не «конец файла»,
+/// а окно. Части хронологичны (`session_parts_for`: день, потом часть) — как
+/// только одна упёрлась в потолок, следующие начнутся ещё позже, читать их
+/// незачем (`count_feed_events_until`/`feed_events_into_until` уже говорят,
+/// уткнулись ли).
+fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<Vec<HbtEvent>> {
+    let mut total = 0usize;
+    for path in parts {
+        let mut feed = open_replay_feed(path)?;
+        let (n, hit_bound) = count_feed_events_until(&mut feed, until_ns);
+        total += n;
+        if hit_bound {
+            break;
+        }
+    }
+    let mut events: Vec<HbtEvent> = Vec::with_capacity(total);
+    for path in parts {
+        let mut feed = open_replay_feed(path)?;
+        if feed_events_into_until(&mut feed, until_ns, &mut events) {
+            break;
+        }
+    }
+    Ok(events)
+}
+
+/// Довесок конца суток `day` данными D+1 (см. `carry_window_ns`): дописывает
+/// `events` в окне времени и отвечает, что писать в `forms.csv` — границу
+/// полуночи D+1 (`n_carried`, `None` — довесок не применился: нет
+/// `--carry-root`, нет частей D+1 или сутки последние в записи, прежнее
+/// `incomplete`) и флаг «части довеска без сверки» (K1: используются в любом
+/// случае — довесок только дочитывает уже открытые круги дня D, не заводит
+/// новых сигналов, — но отсутствие маркера считается).
+#[allow(clippy::too_many_arguments)]
+fn extend_with_carry(
+    events: &mut Vec<HbtEvent>,
+    day: &str,
+    carry_root: Option<&Path>,
+    carry_parts_by_day: &BTreeMap<String, Vec<PathBuf>>,
+    symbol: &str,
+    window_ns: i64,
+) -> anyhow::Result<(Option<i64>, bool)> {
+    let Some(carry_root) = carry_root else {
+        return Ok((None, false));
+    };
+    let next_day = next_day_utc(day)?;
+    let Some(next_parts) = carry_parts_by_day.get(&next_day) else {
+        return Ok((None, false));
+    };
+    let boundary = day_start_ns(&next_day)?;
+    let until = boundary.saturating_add(window_ns);
+    let carry_ev = carry_events(next_parts, until)?;
+    eprintln!(
+        "bounce-grid:   довесок {next_day}: событий {} за {:.1}с окна ({} частей)",
+        carry_ev.len(),
+        window_ns as f64 / 1e9,
+        next_parts.len()
+    );
+    events.extend(carry_ev);
+    let marker = carry_root.join(format!("verify-{symbol}.status"));
+    let carry_unverified = !read_verify_marker(&marker);
+    Ok((Some(boundary), carry_unverified))
 }
 
 /// Сайдкар `<бинлог>.events` — число событий крейта в части: `размер мтайм число`.
@@ -1852,6 +2002,7 @@ fn signals_by_hour(signals: &[BounceSignal]) -> String {
 /// `Outputs::write_form` ради теста соответствия «поле счётчика → колонка»
 /// (F8b, Р4 аудита 21.09): позиционная запись ловит дубликат имени формы, но
 /// перепутанные `n_eaten_by_trades`/`n_wall_gone` в ней не видны.
+#[allow(clippy::too_many_arguments)]
 fn forms_row(
     symbol: &str,
     day: &str,
@@ -1860,6 +2011,8 @@ fn forms_row(
     run: &BounceRun,
     skipped: u64,
     mean_fill_frac: f64,
+    carry_boundary_ns: Option<i64>,
+    carry_unverified: bool,
 ) -> Vec<String> {
     vec![
         symbol.to_string(),
@@ -1908,6 +2061,19 @@ fn forms_row(
         format!("{mean_fill_frac:.6}"),
         // F8c (К1): исполнения заявок-сирот.
         run.orphan_fills.to_string(),
+        // Перенос круга через полночь (`--carry-root`): кругов, чей выход
+        // случился уже на данных D+1 (`exit_ns ≥` граница полуночи), и флаг
+        // «части довеска без сверки» — в конце, прежние колонки не сдвинуты.
+        match carry_boundary_ns {
+            Some(boundary) => run
+                .fill_exit_ns
+                .iter()
+                .filter(|&&ns| ns >= boundary)
+                .count()
+                .to_string(),
+            None => "0".to_string(),
+        },
+        carry_unverified.to_string(),
     ]
 }
 
@@ -1946,6 +2112,7 @@ impl Outputs {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_form(
         &mut self,
         symbol: &str,
@@ -1954,6 +2121,11 @@ impl Outputs {
         signals: &[BounceSignal],
         run: &BounceRun,
         skipped: u64,
+        // Перенос круга через полночь (`--carry-root`): граница полуночи D+1
+        // для `n_carried` (`None` — довесок не применился к этим суткам) и
+        // флаг «части довеска без сверки» (`forms_row`).
+        carry_boundary_ns: Option<i64>,
+        carry_unverified: bool,
     ) -> anyhow::Result<u64> {
         anyhow::ensure!(
             run.fill_reason.len() == run.fills.len()
@@ -2012,6 +2184,8 @@ impl Outputs {
             run,
             skipped,
             mean_fill_frac,
+            carry_boundary_ns,
+            carry_unverified,
         ))?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
@@ -2422,6 +2596,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     let GridPlan {
         queue_model,
         threads,
+        deadlines,
+        entry_ttls,
         band_exit_bps,
         forms,
         sets,
@@ -2432,6 +2608,16 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     } = plan;
     // Режим суток читается один раз на сутки (общий для символов).
     let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
+    // Перенос круга через полночь (`--carry-root`): окно — один раз на прогон,
+    // те же числа сетки для всех символов и суток (`carry_window_ns`).
+    let carry_window = match &args.carry_root {
+        Some(_) => Some(carry_window_ns(
+            &entry_ttls,
+            &deadlines,
+            args.p95_rtt_ns.taker_ns,
+        )?),
+        None => None,
+    };
 
     let mut summary = BounceGridSummary {
         forms: forms.len(),
@@ -2487,6 +2673,30 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 .or_default()
                 .push(p.path.clone());
         }
+        // Довесок (`--carry-root`): части того же символа во **всей** записи
+        // (не студийном `--root` одного дня), тем же резолвером, что и выше
+        // (`session_parts_for`) — понадобятся только на границе D/D+1 (день
+        // без своих частей в этом корне — перенос выключен для символа, не
+        // отказ всей сетки: корень может знать не про все символы `--root`).
+        let carry_parts_by_day: BTreeMap<String, Vec<PathBuf>> = match &args.carry_root {
+            Some(dir) => match session_parts_for(dir, symbol) {
+                Ok(parts) => {
+                    let mut m: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+                    for p in parts {
+                        m.entry(p.day_utc.clone()).or_default().push(p.path.clone());
+                    }
+                    m
+                }
+                Err(e) => {
+                    eprintln!(
+                        "bounce-grid: {symbol} — --carry-root {}: {e}, перенос выключен для символа",
+                        dir.display()
+                    );
+                    BTreeMap::new()
+                }
+            },
+            None => BTreeMap::new(),
+        };
         // S1: касания один раз на символ — общие для всех форм; из кэша
         // `--touches-from` (сутки корня) или реплеем книги, тогда вместе с
         // ними срезы середины по границам секунд — для ряда `σ` (В-62).
@@ -2638,7 +2848,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             };
             let day_started = Instant::now();
             // S4: события одних суток, не всей сессии.
-            let events = day_events(day_parts)?;
+            let mut events = day_events(day_parts)?;
             if events.is_empty() {
                 eprintln!(
                     "bounce-grid: {symbol} {} — событий нет, сутки пропущены",
@@ -2646,6 +2856,23 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 );
                 continue;
             }
+            // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
+            // ДО построения окон сетапов — тот же приём, что уже склеивает
+            // части одних суток (`day_events`: части хронологичны, каждая
+            // несёт свой снапшот, поэтому конкатенация корректна без ручной
+            // сшивки книги). Сигналы дня (`day.touches` ниже) от довеска не
+            // зависят — он только дописывает хвост потока книги/сделок.
+            let (carry_boundary_ns, carry_unverified) = match carry_window {
+                Some(window) => extend_with_carry(
+                    &mut events,
+                    &day.day,
+                    args.carry_root.as_deref(),
+                    &carry_parts_by_day,
+                    symbol,
+                    window,
+                )?,
+                None => (None, false),
+            };
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
             let windows = day_windows(&events, &day.touches, args.driver, tick, lot);
@@ -2683,6 +2910,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                                 signals,
                                 &r.run,
                                 r.skipped,
+                                carry_boundary_ns,
+                                carry_unverified,
                             )?;
                             rounds = rounds.saturating_add(n);
                             Ok(())

@@ -532,16 +532,51 @@ pub(crate) fn events_from_feed(feed: &mut dyn Feed) -> Vec<HbtEvent> {
 /// стоит ~0.16 мкс на событие — дешевле памяти.
 pub(crate) fn count_feed_events(feed: &mut dyn Feed) -> usize {
     let mut n = 0usize;
-    translate_feed(feed, &mut |_| n += 1);
+    translate_feed_until(feed, None, &mut |_| n += 1);
     n
 }
 
 /// Перевод `feed` → события крейта в готовый `Vec` (без промежуточного).
 pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
-    translate_feed(feed, &mut |ev| out.push(ev));
+    translate_feed_until(feed, None, &mut |ev| out.push(ev));
 }
 
-fn translate_feed(feed: &mut dyn Feed, sink: &mut impl FnMut(HbtEvent)) {
+/// Как `count_feed_events`, но с потолком времени (`until_ns`, исключая):
+/// перенос круга через полночь (`bounce_grid::carry_events`) читает сутки
+/// D+1 не целиком, а только окно, нужное дочитать уже открытые круги суток
+/// D — тот же риск OOM, что решает двухпроходный точный `Vec` `day_events`
+/// (её doc), только здесь предел не «конец файла», а `until_ns`. Второе
+/// значение — уткнулись ли в потолок (`true`) или файл кончился раньше
+/// (`false`): части довеска хронологичны (`session_parts_for`), и как
+/// только одна упёрлась в потолок, следующие только позже — читать их
+/// незачем (см. `carry_events`).
+pub(crate) fn count_feed_events_until(feed: &mut dyn Feed, until_ns: i64) -> (usize, bool) {
+    let mut n = 0usize;
+    let hit = translate_feed_until(feed, Some(until_ns), &mut |_| n += 1);
+    (n, hit)
+}
+
+/// Как `feed_events_into`, но с тем же потолком `until_ns` (см.
+/// `count_feed_events_until`); возвращает, уткнулись ли в потолок.
+pub(crate) fn feed_events_into_until(
+    feed: &mut dyn Feed,
+    until_ns: i64,
+    out: &mut Vec<HbtEvent>,
+) -> bool {
+    translate_feed_until(feed, Some(until_ns), &mut |ev| out.push(ev))
+}
+
+/// Перевод `feed` → события крейта, с необязательным потолком времени.
+/// `until_ns` сравнивается с `local_ts_ns` события (тем же полем, что несёт
+/// каждое рыночное событие) — как только оно дошло до потолка, перевод
+/// останавливается немедленно (`true`), не декодируя остаток файла: он не
+/// нужен звонящему (`day_events`/`carry_events`) и стоил бы памяти. `None` —
+/// прежнее поведение, весь `feed` до конца (`false`).
+fn translate_feed_until(
+    feed: &mut dyn Feed,
+    until_ns: Option<i64>,
+    sink: &mut impl FnMut(HbtEvent),
+) -> bool {
     let mut known_bids: BTreeMap<i64, i64> = BTreeMap::new();
     let mut known_asks: BTreeMap<i64, i64> = BTreeMap::new();
 
@@ -554,6 +589,11 @@ fn translate_feed(feed: &mut dyn Feed, sink: &mut impl FnMut(HbtEvent)) {
         else {
             continue;
         };
+        if let Some(until) = until_ns {
+            if local_ts_ns >= until {
+                return true;
+            }
+        }
         match payload {
             WsEvent::Book(up) => {
                 let exch_ts = up.cts_ms.saturating_mul(1_000_000);
@@ -597,6 +637,7 @@ fn translate_feed(feed: &mut dyn Feed, sink: &mut impl FnMut(HbtEvent)) {
             WsEvent::Other | WsEvent::SubscribeFailed { .. } => {}
         }
     }
+    false
 }
 
 #[allow(clippy::too_many_arguments)]

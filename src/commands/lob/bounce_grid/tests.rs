@@ -170,6 +170,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         early_exit_secs: Vec::new(),
         carry_age: false,
         touches_cache_only: false,
+        carry_root: None,
     }
 }
 
@@ -1829,6 +1830,8 @@ fn forms_row_puts_every_counter_into_its_own_column() {
         &run,
         0,
         0.5,
+        None,
+        false,
     );
     assert_eq!(
         row.len(),
@@ -1849,6 +1852,73 @@ fn forms_row_puts_every_counter_into_its_own_column() {
     assert_eq!(at("n_orphan_fills"), "0", "F8c: сирот в фикстуре нет");
     assert_eq!(at("mean_fill_frac"), "0.500000");
     assert_eq!(at("form"), "pct2-1to1-60-eat50");
+    assert_eq!(at("n_carried"), "0", "без --carry-root переноса нет");
+    assert_eq!(at("carry_unverified"), "false");
+}
+
+/// Перенос круга через полночь (`--carry-root`): `n_carried` считает круги,
+/// чей выход (`fill_exit_ns`) уже на данных D+1, не путая их с обычными
+/// (граница — ровно вторая полночь фикстуры).
+#[test]
+fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
+    let mut run = run_with_exit_counters(0, 0, 0, 0);
+    run.fills = vec![
+        crate::lob::backtest::Fill {
+            dir: 1,
+            entry_px: 1.0,
+            exit_px: 1.01,
+            qty: 0.1,
+            entry_taker: false,
+            exit_taker: false,
+            entry_vwap: 1.0,
+            fill_frac: 1.0,
+            legs_filled: 1,
+            legs_rejected: 0,
+            fill_by_cross: false,
+        },
+        crate::lob::backtest::Fill {
+            dir: 1,
+            entry_px: 1.0,
+            exit_px: 0.99,
+            qty: 0.1,
+            entry_taker: false,
+            exit_taker: true,
+            entry_vwap: 1.0,
+            fill_frac: 1.0,
+            legs_filled: 1,
+            legs_rejected: 0,
+            fill_by_cross: false,
+        },
+    ];
+    run.fill_reason = vec![
+        crate::lob::strategy::ExitReason::Take,
+        crate::lob::strategy::ExitReason::Stop,
+    ];
+    run.fill_signal = vec![0, 1];
+    // Граница — 100; первый круг закрылся до неё (день D), второй — на ней
+    // же и после (день D+1, включая ровно границу — `>=`).
+    run.fill_exit_ns = vec![50, 100];
+    let row = forms_row(
+        "SOLUSDT",
+        "2026-09-08",
+        "pct2-1to1-60",
+        &[],
+        &run,
+        0,
+        1.0,
+        Some(100),
+        true,
+    );
+    let at = |name: &str| -> &str {
+        let i = FORMS_HEADER
+            .iter()
+            .position(|h| *h == name)
+            .unwrap_or_else(|| panic!("нет колонки {name}"));
+        &row[i]
+    };
+    assert_eq!(at("n_fills"), "2");
+    assert_eq!(at("n_carried"), "1", "только круг с exit_ns ≥ границы");
+    assert_eq!(at("carry_unverified"), "true");
 }
 
 /// F8b/F8c (К7): сумма `net_bps` пустой формы печатается `0.000000`, а не
@@ -1925,4 +1995,254 @@ fn early_exit_axis_keeps_default_forms_and_names_enabled_ones() {
         "5 с нет в наборе В-58"
     );
     assert!(parse_early_exits(&["x".to_string()]).is_err());
+}
+
+// -----------------------------------------------------------------------
+// Перенос круга через полночь (`--carry-root`): круг, ещё открытый на конце
+// суток D, дочитывает выход по данным D+1 вместо `incomplete`.
+// -----------------------------------------------------------------------
+
+fn day_start_ns_for_test(day: &str) -> i64 {
+    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp_nanos_opt()
+        .unwrap()
+}
+
+/// Цена стены — крупный тик (100.00, а не 0.99, как у `touch_frames()`):
+/// стоп `pct1` от цены входа ~100.01 — это **сто** тиков (шаг 0.01), а не
+/// один, так что после входа стоп остаётся далеко ниже текущего рынка (не
+/// пересекается им сразу же, как было бы у входа в тике от стены). Порог
+/// H3 (`instruments.csv`, `h3_lots=5`) от масштаба цены не зависит.
+const WALL_TICK: i64 = 10_000;
+const FRONTRUN_TICK: i64 = 10_001;
+
+/// Своя минимальная фикстура (не `touch_frames()`: там касание того же
+/// уровня повторяется три раза подряд, что этому тесту не нужно, а
+/// геометрия входа в тике от стены оставляла бы стопу `pct1` меньше тика
+/// запаса) — один-единственный, полностью финализированный внутри суток D
+/// touch, круг которого при этом остаётся **открытым** к концу дня. Метки —
+/// настоящие эпоховые (`day_start_ns_for_test(day)`, не относительный нуль):
+/// вход — за 40 с до полуночи, а не сразу после старта суток, иначе
+/// `--deadline-secs` (60 с от входа) наступил бы раньше, чем перенос успел бы
+/// дочитать данные D+1 (сравнение абсолютных нс — так же, как у настоящего
+/// бэктеста).
+///
+/// - снапшот на старте суток: стена `WALL_TICK` (10 лотов, порог H3 — 5),
+///   фронтран `FRONTRUN_TICK` перед ней, лучшая цена — фронтран (весь день
+///   до входа книга стоит без событий — реплею это ничем не грозит).
+/// - `t0 = 23:59:20`: фронтран снят — касание стены СТАРТУЕТ
+///   (`frontrun_tick=Some(FRONTRUN_TICK)`, лучшая цена теперь стена).
+/// - `t0+100мс`: сделка продавца ровно по цене резерва (`FRONTRUN_TICK`) —
+///   исполняет вход (`single@fr`: резерв на фронтране, `trade_could_fill` —
+///   сделка на цене резерва или ниже её исполняет; здесь ровно на ней),
+///   цену не двигает — рынок остаётся у стены, далеко выше стопа.
+/// - `t0+1с` (23:59:21): размер стены падает с 10 до 1 (< порога 5) —
+///   уровень умирает, касание ФИНАЛИЗИРУЕТСЯ (`duration_ms=1000` — это и
+///   есть `entry_ttl_ns` режима `touch`, вход уже исполнен к этому моменту,
+///   тайм-аут ему не грозит) и появляется в `day.touches`.
+///
+/// Дальше сутки D обрываются: круг открыт (вход исполнен, выход не
+/// наступил), а данных для стопа/тейка/дедлайна в этом дне больше нет —
+/// ровно случай задачи («вход 21:00, дедлайн 4 ч»).
+fn touch_frames_open_at_day_end(day: &str) -> Vec<Vec<crate::binlog::Record>> {
+    let day_start_ms = day_start_ns_for_test(day) / 1_000_000;
+    let t0 = day_start_ms + 86_360_000; // 23:59:20
+    vec![
+        snap_frame(
+            day_start_ms,
+            &[(WALL_TICK, 10), (FRONTRUN_TICK, 10)],
+            &[(WALL_TICK + 500, 10)],
+        ),
+        delta_frame(t0, &[(FRONTRUN_TICK, 0)], &[]),
+        trade_frame(t0 + 100, FRONTRUN_TICK, 4),
+        delta_frame(t0 + 1_000, &[(WALL_TICK, 1)], &[]),
+        // Кадр-заглушка (то же состояние книги) сразу после финализации
+        // касания: без него сутки обрываются РОВНО на критической метке
+        // времени, и опросу движка (`bot.elapse`) не хватает шага, чтобы
+        // это заметить — пробное усечение golden-фикстуры `touch_frames()`
+        // (see debug probe) показало ту же чувствительность «плюс один
+        // кадр» на границе конца данных.
+        delta_frame(t0 + 1_500, &[(WALL_TICK, 1)], &[]),
+    ]
+}
+
+/// Хвост-довесок: сутки D+1 корня переноса, с абсолютными эпоховыми метками
+/// начала `next_day` (не относительными нулём, как у `touch_frames_open_
+/// at_day_end`: довесок сравнивается с настоящей полуночью — `day_start_ns`).
+/// Открывается собственным снапшотом, как часть-переподключение (A4) — тем
+/// же приёмом, что уже сшивает части одних суток (`day_events`). Книга
+/// дальше стоит без движения — выход круга здесь не от цены, а от дедлайна
+/// (`--deadline-secs 60` от входа `23:59:20` суток D — ровно 00:00:20 суток
+/// D+1, `20_000`/`20_500` мс после полуночи ниже): без ЕЩЁ ОДНОГО кадра
+/// после точки дедлайна опрос движка (`bot.elapse`) не успевает её
+/// заметить — та же чувствительность «плюс один кадр», что и у
+/// `touch_frames_open_at_day_end`.
+fn carry_tail_frames(next_day: &str) -> Vec<Vec<crate::binlog::Record>> {
+    let start_ms = day_start_ns_for_test(next_day) / 1_000_000;
+    vec![
+        // Снапшот — то же состояние книги, в котором сутки D оставили её
+        // (стена — огрызок в 1 лот после смерти уровня, фронтран давно снят).
+        snap_frame(start_ms, &[(WALL_TICK, 1)], &[(WALL_TICK + 500, 10)]),
+        delta_frame(start_ms + 20_000, &[(WALL_TICK, 1)], &[]),
+        delta_frame(start_ms + 20_500, &[(WALL_TICK, 1)], &[]),
+    ]
+}
+
+fn write_carry_root(dir: &std::path::Path, next_day: &str) {
+    write_day(dir, "SOLUSDT", next_day, &carry_tail_frames(next_day));
+    std::fs::write(dir.join("session.json"), "{\"start_hour_utc\":0}").unwrap();
+}
+
+/// Без `--carry-root`: сутки D обрываются сразу после касания — круг не
+/// находит выхода в данных этого дня, `incomplete=true`, кругов в
+/// `rounds.csv` нет.
+#[test]
+fn without_carry_root_a_round_still_open_at_day_end_stays_incomplete() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        "2026-09-08",
+        &touch_frames_open_at_day_end("2026-09-08"),
+    );
+
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct1".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
+    a.deadline_secs = vec![60];
+    a.out_dir = dir.path().join("grid-no-carry");
+    let m = run_bounce_grid(&a).unwrap();
+    let (fh, forms) = read_csv(&m.forms_path);
+    assert_eq!(forms.len(), 1, "одна форма сетки");
+    assert_eq!(col(&fh, &forms[0], "n_submitted"), "1", "вход отправлен");
+    assert_eq!(
+        col(&fh, &forms[0], "incomplete"),
+        "true",
+        "без --carry-root круг не дочитан к концу данных суток D"
+    );
+    assert_eq!(col(&fh, &forms[0], "n_carried"), "0", "переноса не было");
+    assert_eq!(col(&fh, &forms[0], "carry_unverified"), "false");
+    let (_, rounds) = read_csv(&m.rounds_path);
+    assert!(rounds.is_empty(), "круг без выхода не идёт в rounds.csv");
+}
+
+/// С `--carry-root`: те же сутки D дочитывают выход по данным D+1 из
+/// отдельного корня записи — круг закрыт (`incomplete=false`), помечен
+/// перенесённым (`n_carried=1`), день круга в `rounds.csv` остаётся D, а
+/// `exit_ns` — уже после настоящей полуночи D+1. Выход здесь — дедлайн
+/// (60 с от входа `23:59:20` = 00:00:20 суток D+1): цена в фикстуре не
+/// двигается, так что дочитывание видно от чистого наличия данных, не от
+/// конкретной причины выхода.
+#[test]
+fn carry_root_finishes_a_round_still_open_at_midnight() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        "2026-09-08",
+        &touch_frames_open_at_day_end("2026-09-08"),
+    );
+
+    let carry_dir = tempfile::tempdir().unwrap();
+    write_carry_root(carry_dir.path(), "2026-09-09");
+    std::fs::write(carry_dir.path().join("verify-SOLUSDT.status"), "ok").unwrap();
+
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["pct1".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.h3 = H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.no_post_only = true;
+    a.entry_ttl_secs = vec!["touch".to_string()];
+    a.entry_form = vec!["single@fr".to_string()];
+    a.deadline_secs = vec![60];
+    a.carry_root = Some(carry_dir.path().to_path_buf());
+    a.out_dir = dir.path().join("grid-carry");
+    let m = run_bounce_grid(&a).unwrap();
+    let (fh, forms) = read_csv(&m.forms_path);
+    assert_eq!(forms.len(), 1, "одна форма сетки");
+    assert_eq!(
+        col(&fh, &forms[0], "incomplete"),
+        "false",
+        "с --carry-root круг дочитывает выход по суткам D+1"
+    );
+    assert_eq!(col(&fh, &forms[0], "n_fills"), "1");
+    assert_eq!(col(&fh, &forms[0], "n_carried"), "1");
+    assert_eq!(
+        col(&fh, &forms[0], "carry_unverified"),
+        "false",
+        "маркер сверки в корне довеска есть и он `ok`"
+    );
+    let (rh, rounds) = read_csv(&m.rounds_path);
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(
+        col(&rh, &rounds[0], "day_utc"),
+        "2026-09-08",
+        "день круга остаётся сутками D, а не D+1"
+    );
+    let exit_ns: i64 = col(&rh, &rounds[0], "exit_ns").parse().unwrap();
+    assert!(
+        exit_ns >= day_start_ns_for_test("2026-09-09"),
+        "выход исполнился уже после настоящей полуночи D+1: {exit_ns}"
+    );
+}
+
+/// Перенос ограничен окном времени: событие довеска далеко за окном (здесь —
+/// намеренно за пределами `--deadline-secs 60` + запас RTT) не читается —
+/// `carry_events` останавливает декод на первом событии `local_ts_ns ≥
+/// until_ns`, не декодируя сутки D+1 целиком (тот же приём, что бережёт
+/// память у `day_events`).
+#[test]
+fn carry_events_stops_decoding_past_the_carry_window() {
+    let next_day = "2026-09-09";
+    let start_ms = day_start_ns_for_test(next_day) / 1_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        next_day,
+        &[
+            snap_frame(start_ms, &[(99, 10)], &[(105, 10)]),
+            // В окне (сразу после полуночи).
+            delta_frame(start_ms + 1_000, &[(99, 9)], &[]),
+            // Далеко за окном — читаться не должно.
+            delta_frame(start_ms + 3_600_000_000, &[(99, 1)], &[]),
+        ],
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", next_day, 1);
+    let until_ns = day_start_ns_for_test(next_day) + 60_000_000_000;
+    let events = carry_events(&[path], until_ns).unwrap();
+    assert!(!events.is_empty(), "событие в окне обязано быть прочитано");
+    assert!(
+        events.iter().all(|e| e.local_ts < until_ns),
+        "событие за окном попало в результат: {:?}",
+        events.iter().map(|e| e.local_ts).collect::<Vec<_>>()
+    );
 }
