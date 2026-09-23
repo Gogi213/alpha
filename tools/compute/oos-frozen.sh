@@ -30,7 +30,10 @@ LOG="${LOG:-study/$TAG.log}"
 RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
 FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --order-qty-from-pool \
   --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
-  --stop-form pct2 --take-form 1to1 --deadline-secs 7200 --exit-form none"
+  ${FORM_EXIT:---stop-form pct2 --take-form 1to1 --deadline-secs 7200 --exit-form none}"
+# FORM_EXIT — титрование выхода (план 2026-09-23, G9): вход тот же замороженный, выход — сетка
+# (`--stop-form`/`--take-form`/`--deadline-secs`/`--exit-form` повторами). Тогда FORM_NAME=all: контроль
+# рынка печатается по каждой форме. Для замороженного OOS не задаётся.
 SETS_FROZEN="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
 # SETS — другие наборы поверх той же замороженной формы (титрование, план 2026-09-23 G4/G5); форма не
 # меняется. Для замороженного OOS не задаётся. VERDICT_FLAGS — `--log-trials` у титрования: каждая
@@ -38,7 +41,8 @@ SETS_FROZEN="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_m
 SETS="${SETS:-$SETS_FROZEN}"
 FIRST_SET="${SETS%%:*}"
 VERDICT_FLAGS="${VERDICT_FLAGS:-}"
-FORM_NAME="ladder3x2..20w2-pct2-1to1-7200-ttl1800"
+FORM_NAME="${FORM_NAME:-ladder3x2..20w2-pct2-1to1-7200-ttl1800}"
+PLACEBO_FORM=(--form "$FORM_NAME"); [ "$FORM_NAME" = all ] && PLACEBO_FORM=()
 say() { echo "== $(date -u +%FT%TZ) oos-frozen: $*" | tee -a "$LOG"; }
 
 # Параллельность (владелец 23.09: «сделай больше параллельности»): сутки независимы, поэтому считаются
@@ -62,12 +66,14 @@ one_day() {
     say "$day: кэш подходов D20"
     # OUT_BASE — переменная approach-scan.sh (каталог кэша подходов): задаётся явно, иначе чужое окружение
     # уводит кэш не туда (поймано 22.09 проверочным прогоном).
-    ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
+    ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
+      && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
   [ -f "$out/$FIRST_SET/forms.csv" ] && return 0
   say "$day: замороженная форма"
   # shellcheck disable=SC2086
-  nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20     $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
+  nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
+    $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
     say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
     # Упавший прогон оставляет шапку forms.csv — без удаления сутки считались бы готовыми с нулём
     # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json).
@@ -107,7 +113,7 @@ for s in $SETS; do
   # shellcheck disable=SC2086
   nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" $VERDICT_FLAGS \
     --out "study/bounce-verdict-$TAG-$set_name.csv" > "study/bounce-verdict-$TAG-$set_name.log" 2>&1
-  python3 bin/placebo.py --grid-dir "$m" --form "$FORM_NAME" --mids study/touches \
+  python3 bin/placebo.py --grid-dir "$m" "${PLACEBO_FORM[@]}" --mids study/touches \
     --csv "study/placebo-$TAG-$set_name.csv" > "study/placebo-$TAG-$set_name.log" 2>&1
   say "$set_name: OOS-суток $n_days, сделок $n_rounds; $(grep -a ИТОГ "study/bounce-verdict-$TAG-$set_name.log" | tail -1 | sed 's/^bounce-verdict: //' | cut -c1-200); контроль: $(sed -n 2p "study/placebo-$TAG-$set_name.log" | cut -c1-200)"
 done
