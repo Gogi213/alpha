@@ -75,6 +75,8 @@ def main():
                     help="сделки одной формы другого прогона: <каталог b5>|<набор>|<форма>|<ключ> (титрование выхода, G9)")
     ap.add_argument("--exit-agg", default=None, help="сводка exit-titration-read.py (CSV) — встраивается как есть")
     ap.add_argument("--pool", default=None, help="instruments.csv пула — список монет для статистики по монетам")
+    ap.add_argument("--position-usd", type=float, default=None, help="размер позиции прогонов (--order-usd) — подписи страницы")
+    ap.add_argument("--deposit-usd", type=float, default=None, help="депозит счёта — подписи страницы")
     a = ap.parse_args()
 
     with open(a.points, encoding="utf-8") as f:
@@ -107,6 +109,7 @@ def main():
                         name, day, r["symbol"], r["t0_ns"] // 60_000_000_000, r["exit_ns"] // 60_000_000_000,
                         round(r["net_bps"], 2), round(r["control_bps"], 2), x.get("reason", ""),
                         round(float(x.get("fill_frac") or 1.0), 3),
+                        round(float(x.get("qty") or 0) * (float(x.get("entry_vwap") or 0) or float(x.get("entry_px") or 0)), 2),
                     ])
     # Титрование выхода (G9): сделки выбранных форм и сводка всех форм.
     out["form_trades"] = {}
@@ -128,6 +131,7 @@ def main():
                         ep["name"], day, r["symbol"], r["t0_ns"] // 60_000_000_000, r["exit_ns"] // 60_000_000_000,
                         round(r["net_bps"], 2), round(r["control_bps"], 2), x.get("reason", ""),
                         round(float(x.get("fill_frac") or 1.0), 3),
+                        round(float(x.get("qty") or 0) * (float(x.get("entry_vwap") or 0) or float(x.get("entry_px") or 0)), 2),
                     ])
     if a.exit_agg:
         with open(a.exit_agg, encoding="utf-8") as f:
@@ -135,7 +139,8 @@ def main():
     if a.pool:
         with open(a.pool, encoding="utf-8") as f:
             out["pool"] = [r["symbol"] for r in csv.DictReader(l for l in f if not l.startswith("#"))]
-    out["columns"] = ["epoch", "day", "symbol", "t0_min", "exit_min", "net_bps", "control_bps", "reason", "fill_frac"]
+    out["position_usd"], out["deposit_usd"] = a.position_usd, a.deposit_usd
+    out["columns"] = ["epoch", "day", "symbol", "t0_min", "exit_min", "net_bps", "control_bps", "reason", "fill_frac", "usd"]
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     n = sum(len(v) for v in out["sets"].values())

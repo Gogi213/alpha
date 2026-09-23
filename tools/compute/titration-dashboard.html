@@ -98,12 +98,12 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">alpha · титрование E18–E20 · данные на <span id="gen"></span> UTC</p>
+    <p class="eyebrow">alpha · бэктест на реальной позиции · данные на <span id="gen"></span> UTC</p>
     <h1>Лонг в просадке</h1>
-    <p class="lede">Лонг от старой бид-стены (≥ $10k, возраст ≥ 45 мин, вход лестницей на подходе) — когда рынок за
-      последний час просел сильнее, чем в 80 % времени. Две эпохи: «история» 01–15.09 — архив Bybit, дни, которых форма
-      не видела; «запись» 16–22.09 — наш коллектор. Деньги — на лот $1000 за сделку. Ниже — кандидат и семь кейсов, из
-      которых он собран: на каждый — вопрос, ответ и все проверенные варианты в обеих эпохах.</p>
+    <p class="lede">Лонг от старой бид-стены (≥ $10k, стоит ≥ 45 мин), вход лестницей на подходе — только когда BTC за
+      последний час просел сильнее, чем в 80 % времени. <b id="acct-line"></b> Деньги ниже — то, что бэктест заработал
+      на этом размере позиции, а не пересчёт. Периоды: история 01–15.09 (архив Bybit, форма их не видела), запись
+      16–22.09 (наш коллектор), обвал 10–11.10.2025.</p>
     <div class="chips">
       <span class="chip warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z"/></svg>Кандидат, не доказательство</span>
       <span class="chip">проверено ~900 вариантов (52 + 756 + 96)</span>
@@ -112,25 +112,6 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       <span class="chip warn" id="data-note" hidden></span>
     </div>
   </header>
-
-  <section class="panel" aria-labelledby="h-cand">
-    <div class="panel-head"><h2 id="h-cand">Кандидат</h2><p class="note">Собран из кейсов ниже; зарегистрировать и проверять на новых днях.</p></div>
-    <div class="rule-card">
-      <span><b>Вход:</b> лонг от старой бид-стены (≥ $10k, ≥ 45 мин), лестница на подходе, только в просадке BTC за 1 ч (≤ −0,21 %).</span>
-      <span><b>Выход:</b> стоп 2 % · трейлинг — включение +1 %, закрытие при откате 1 % от лучшей цены · удержание до 4 ч · на снятие и съедание стены не реагировать.</span>
-    </div>
-    <div class="scroll"><table class="kpi" id="cand-kpi"></table></div>
-    <div>
-      <div class="legend" id="cand-legend"></div>
-      <div class="chart h-eq"><canvas id="cand-eq" role="img" aria-label="Эквити кандидата, базы и рынка"></canvas></div>
-      <p class="note">«Рынок» — вход в ту же монету на то же время удержания без всякой стены: средний ход монеты за это
-        время в тот же день минус комиссии. Слева от вертикали — «история», справа — «запись».</p>
-    </div>
-    <div>
-      <h3>Кандидат по дням, $</h3>
-      <div class="chart h-md"><canvas id="cand-daily" role="img" aria-label="Результат кандидата по дням"></canvas></div>
-    </div>
-  </section>
 
   <section class="panel" aria-labelledby="h-prot" id="prot">
     <div class="panel-head"><h2 id="h-prot">Счёт депозита и защита</h2><p class="note" id="prot-note"></p></div>
@@ -162,6 +143,25 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       <li><b>Стресс</b> — сценарий, которого в сделках не было: провал вроде 10.10.2025, выключатель не сработал, все
         позиции на пике — по −59,7 % (худший прокид монеты пула в тот вечер).</li>
     </ul></details>
+  </section>
+
+  <section class="panel" aria-labelledby="h-cand">
+    <div class="panel-head"><h2 id="h-cand">Кандидат</h2><p class="note">Собран из кейсов ниже; зарегистрировать и проверять на новых днях.</p></div>
+    <div class="rule-card">
+      <span><b>Вход:</b> лонг от старой бид-стены (≥ $10k, ≥ 45 мин), лестница на подходе, только в просадке BTC за 1 ч (≤ −0,21 %).</span>
+      <span><b>Выход:</b> стоп 2 % · трейлинг — включение +1 %, закрытие при откате 1 % от лучшей цены · удержание до 4 ч · на снятие и съедание стены не реагировать.</span>
+    </div>
+    <div class="scroll"><table class="kpi" id="cand-kpi"></table></div>
+    <div>
+      <div class="legend" id="cand-legend"></div>
+      <div class="chart h-eq"><canvas id="cand-eq" role="img" aria-label="Эквити кандидата, базы и рынка"></canvas></div>
+      <p class="note">«Рынок» — вход в ту же монету на то же время удержания без всякой стены: средний ход монеты за это
+        время в тот же день минус комиссии. Слева от вертикали — «история», справа — «запись».</p>
+    </div>
+    <div>
+      <h3>Кандидат по дням, $</h3>
+      <div class="chart h-md"><canvas id="cand-daily" role="img" aria-label="Результат кандидата по дням"></canvas></div>
+    </div>
   </section>
 
   <section class="panel" aria-labelledby="h-coins">
@@ -226,7 +226,11 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
 (function () {
   "use strict";
   const D = JSON.parse(document.getElementById("data").textContent);
-  const COL = {epoch: 0, day: 1, sym: 2, t0: 3, exit: 4, net: 5, ctrl: 6, reason: 7, fill: 8};
+  const COL = {epoch: 0, day: 1, sym: 2, t0: 3, exit: 4, net: 5, ctrl: 6, reason: 7, fill: 8, usd: 9};
+  // Деньги сделки — результат (bps) × заполненная позиция, $ (колонка usd из бэктеста на реальном размере).
+  // У данных без колонки (прогоны на минимальном лоте до 23.09) — прежний пересчёт на $1000.
+  const cash = (r, b) => b / 1e4 * (r[COL.usd] != null ? r[COL.usd] : 1000);
+  const POS_USD = D.position_usd || 1000;
   const EPOCHS = D.epochs.map(e => e.name);
   const HIST = EPOCHS[0], REC = EPOCHS[1];
   const IN_SAMPLE = [Date.UTC(2026, 8, 16), Date.UTC(2026, 8, 21)];
@@ -236,6 +240,9 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const CAND_SET = "t-bid-btc1h-q1";
   const BASE_SET = "t-bid-age-45";
   document.getElementById("gen").textContent = D.generated_utc;
+  document.getElementById("acct-line").textContent = D.deposit_usd && D.position_usd
+    ? "Счёт $" + D.deposit_usd.toLocaleString("ru-RU") + ", позиция $" + D.position_usd.toLocaleString("ru-RU") + ", без плеча."
+    : "Деньги — на лот $1000 за сделку (прогон на минимальном лоте).";
   if (D.data_note) { const n = document.getElementById("data-note"); n.textContent = D.data_note; n.hidden = false; }
 
   // ---------- общие вычисления ----------
@@ -263,9 +270,9 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     if (!n) return null;
     const sorted = t.slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
     let cum = 0, peak = 0, dd = 0;
-    for (const r of sorted) { cum += r[COL.net] / 10; peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak); }
+    for (const r of sorted) { cum += cash(r, r[COL.net]); peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak); }
     const byDay = {};
-    for (const r of t) byDay[r[COL.day]] = (byDay[r[COL.day]] || 0) + r[COL.net] / 10;
+    for (const r of t) byDay[r[COL.day]] = (byDay[r[COL.day]] || 0) + cash(r, r[COL.net]);
     const days = Object.values(byDay);
     const sum = f => t.reduce((s, r) => s + f(r), 0);
     const wins = t.filter(r => r[COL.net] > 0), losses = t.filter(r => r[COL.net] <= 0);
@@ -277,8 +284,8 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     let open = 0, maxOpen = 0;
     for (const [, d] of ev) { open += d; maxOpen = Math.max(maxOpen, open); }
     return {
-      n, win: wins.length / n, avg: sum(r => r[COL.net]) / n, usd: sum(r => r[COL.net]) / 10,
-      excess: sum(r => r[COL.net] - r[COL.ctrl]) / 10, excessAvg: sum(r => r[COL.net] - r[COL.ctrl]) / n,
+      n, win: wins.length / n, avg: sum(r => r[COL.net]) / n, usd: sum(r => cash(r, r[COL.net])),
+      excess: sum(r => cash(r, r[COL.net] - r[COL.ctrl])), excessAvg: sum(r => r[COL.net] - r[COL.ctrl]) / n,
       dd, daysPos: days.filter(v => v > 0).length, days: days.length,
       hold: sum(r => r[COL.exit] - r[COL.t0]) / n,
       avgWin: wins.length ? gw / wins.length : 0, avgLoss: losses.length ? -gl / losses.length : 0,
@@ -289,7 +296,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     const t = trades(src).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
     const out = []; let i = 0, cum = 0;
     for (let ts = Date.UTC(2026, 8, 1); ts <= Date.UTC(2026, 8, 23); ts += 3600e3) {
-      while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += field(t[i]) / 10; i++; }
+      while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += cash(t[i], field(t[i])); i++; }
       out.push({x: ts, y: Math.round(cum * 100) / 100});
     }
     return out;
@@ -360,7 +367,10 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
 
   // ---------- кандидат ----------
   const CAND = "form:" + CAND_SET + "/cand";
-  const BASE_F10 = "sets:" + BASE_SET;
+  // База для сравнения: прогон на реальной позиции — тот же выход без фильтра просадки (из того же прогона);
+  // старые данные — F10 из титрования режима.
+  const BASE_F10 = D.position_usd ? "form:" + BASE_SET + "/cand" : "sets:" + BASE_SET;
+  const BASE_LABEL = D.position_usd ? "без фильтра просадки" : "база F10";
   function kpiTable(tableId, src, compareSrc, compareLabel) {
     const cols = [[HIST, "История 01–15.09"], [REC, "Запись 16–22.09"], [null, "Вместе"]];
     const S = cols.map(([e]) => stats(trades(src, e)));
@@ -375,7 +385,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
       ["Профит-фактор", s => s.pf == null ? "—" : s.pf.toFixed(2), null],
       ["Худший откат капитала, $", s => money(s.dd), s => s.dd],
       ["Пик одновременных позиций", s => s.maxOpen, null],
-      ["Капитал под пик, $", s => "$" + (s.maxOpen * 1000).toLocaleString("ru-RU"), null],
+      ["Капитал под пик, $", s => "$" + (s.maxOpen * POS_USD).toLocaleString("ru-RU"), null],
       ["Дней в плюсе", s => s.daysPos + " из " + s.days, null],
       ["Удержание в среднем, мин", s => Math.round(s.hold), null],
     ];
@@ -392,14 +402,14 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     document.getElementById(tableId).innerHTML = html + "</tbody>";
   }
   function renderCandidate() {
-    kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
+    kpiTable("cand-kpi", CAND, BASE_F10, BASE_LABEL);
     lineChart("candEq", "cand-eq", "cand-legend", [
       {label: "Кандидат", data: equity(CAND, r => r[COL.net]), borderColor: css("--c1")},
-      {label: "База F10: все входы, стоп 2 %, 1:1, 2 ч", data: equity(BASE_F10, r => r[COL.net]), borderColor: css("--c2"), borderWidth: 1.5},
+      {label: D.position_usd ? "Тот же выход без фильтра просадки" : "База F10: все входы, стоп 2 %, 1:1, 2 ч", data: equity(BASE_F10, r => r[COL.net]), borderColor: css("--c2"), borderWidth: 1.5},
       {label: "Рынок для сделок кандидата", data: equity(CAND, r => r[COL.ctrl]), borderColor: css("--ink-3"), borderDash: [6, 4]},
     ]);
     const byDay = {};
-    for (const r of trades(CAND)) { const d = byDay[r[COL.day]] || (byDay[r[COL.day]] = {usd: 0, n: 0}); d.usd += r[COL.net] / 10; d.n++; }
+    for (const r of trades(CAND)) { const d = byDay[r[COL.day]] || (byDay[r[COL.day]] = {usd: 0, n: 0}); d.usd += cash(r, r[COL.net]); d.n++; }
     const days = D.days.map(d => d.day);
     const vals = days.map(d => byDay[d] ? Math.round(byDay[d].usd) : 0);
     const o = baseOptions();
@@ -606,7 +616,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     let html = "<thead><tr><th>Выход</th><th>История: сд.</th><th>$</th><th>Запись: сд.</th><th>$</th></tr></thead><tbody>";
     for (const reason of reasons) {
       html += "<tr><td>" + (REASON[reason] || reason) + "</td>";
-      for (const e of [HIST, REC]) { const t = trades(CAND, e).filter(r => r[COL.reason] === reason); const usd = t.reduce((s, r) => s + r[COL.net] / 10, 0);
+      for (const e of [HIST, REC]) { const t = trades(CAND, e).filter(r => r[COL.reason] === reason); const usd = t.reduce((s, r) => s + cash(r, r[COL.net]), 0);
         html += "<td class='num'>" + t.length + "</td><td class='num " + cls(usd) + "'>" + money(usd) + "</td>"; }
       html += "</tr>";
     }
@@ -614,7 +624,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   }
   function renderCoins() {
     const by = {};
-    for (const r of trades(CAND)) { const c = by[r[COL.sym]] || (by[r[COL.sym]] = {n: 0, usd: 0, h: 0, r: 0}); c.n++; c.usd += r[COL.net] / 10; if (r[COL.epoch] === HIST) c.h += r[COL.net] / 10; else c.r += r[COL.net] / 10; }
+    for (const r of trades(CAND)) { const c = by[r[COL.sym]] || (by[r[COL.sym]] = {n: 0, usd: 0, h: 0, r: 0}); c.n++; c.usd += cash(r, r[COL.net]); if (r[COL.epoch] === HIST) c.h += cash(r, r[COL.net]); else c.r += cash(r, r[COL.net]); }
     const total = Object.values(by).reduce((s, c) => s + c.usd, 0);
     const top = Object.entries(by).sort((a, b) => Math.abs(b[1].usd) - Math.abs(a[1].usd)).slice(0, 10);
     let html = "<thead><tr><th>Монета</th><th>Сделок</th><th>Итог</th><th>История</th><th>Запись</th></tr></thead><tbody>";
@@ -630,7 +640,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     for (const r of t.slice(0, tradeRows)) {
       const d = new Date(r[COL.t0] * 60e3);
       html += "<tr><td>" + r[COL.epoch] + "</td><td class='num'>" + String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0") +
-        "</td><td>" + r[COL.sym] + "</td><td class='num'>" + (r[COL.exit] - r[COL.t0]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + bps(r[COL.net]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + money(r[COL.net] / 10) +
+        "</td><td>" + r[COL.sym] + "</td><td class='num'>" + (r[COL.exit] - r[COL.t0]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + bps(r[COL.net]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + money(cash(r, r[COL.net])) +
         "</td><td class='num'>" + bps(r[COL.ctrl]) + "</td><td>" + (REASON[r[COL.reason]] || r[COL.reason]) + "</td></tr>";
     }
     const tbl = document.getElementById("trades");
@@ -662,7 +672,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     return Object.entries(by).map(([sym, t]) => {
       const s = stats(t), h = t.filter(r => r[COL.epoch] === HIST), rc = t.filter(r => r[COL.epoch] === REC);
       return {sym, n: s.n, nh: h.length, nr: rc.length, win: s.win, usd: s.usd,
-        uh: h.reduce((a, r) => a + r[COL.net] / 10, 0), ur: rc.reduce((a, r) => a + r[COL.net] / 10, 0), avg: s.avg, dd: s.dd};
+        uh: h.reduce((a, r) => a + cash(r, r[COL.net]), 0), ur: rc.reduce((a, r) => a + cash(r, r[COL.net]), 0), avg: s.avg, dd: s.dd};
     });
   }
   function renderCoinStats() {
@@ -712,8 +722,11 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
 
   // ---------- счёт депозита и защита (G11, В-88) ----------
   const P = D.protection;
-  const protSel = P ? {variant: P.variants[0].name, max_pos: P.max_pos[0], day_stop: 0, kill: P.kill[P.kill.length - 1],
-    exclude: P.exclude[P.exclude.length - 1].name} : null;
+  // По умолчанию — выбор выживальщика (владелец 23.09): до 3 позиций, выключатель, без монет с прокидами.
+  const protSel = P ? {variant: P.variants[0].name, max_pos: P.max_pos.includes(3) ? 3 : P.max_pos[0], day_stop: 0,
+    kill: P.kill[P.kill.length - 1], exclude: P.exclude[P.exclude.length - 1].name} : null;
+  const EPOCH_ORDER = ["история", "запись", "сентябрь", "обвал"];
+  if (P) P.epochs.sort((a, b) => (EPOCH_ORDER.indexOf(a) + 1 || 99) - (EPOCH_ORDER.indexOf(b) + 1 || 99));
   let protSort = "sep_rf", protDir = -1;
   const PIDX = {};
   const protKey = (v, e, mp, ds, k, x) => [v, e, mp, ds, k, x].join("|");
@@ -809,11 +822,15 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     if (typeof Chart === "undefined") return;
     Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
     Chart.defaults.color = css("--ink-2");
-    renderCandidate(); renderCase(); renderHist();
+    renderCandidate(); if (!D.hide_cases) renderCase(); renderHist();
   }
   document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
-  buildNav();
-  kpiTable("cand-kpi", CAND, BASE_F10, "база F10");
+  if (D.hide_cases) {
+    document.getElementById("case-nav").hidden = true; document.getElementById("case-body").hidden = true;
+    const n = document.createElement("p"); n.className = "case-answer"; n.textContent = D.hide_cases;
+    document.getElementById("case-nav").after(n);
+  } else buildNav();
+  kpiTable("cand-kpi", CAND, BASE_F10, BASE_LABEL);
   renderReasons(); renderCoins(); renderTrades(); renderDips(); renderCoinStats(); renderProtection();
   renderCharts();
   try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts); } catch (e) {}
