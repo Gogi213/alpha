@@ -7,22 +7,19 @@
 # выход стоп 2 % × {трейл +1 %/откат 1 %, ранний трейл 0.5/0.25} × удержание 4 ч, на стену не реагировать.
 # Идемпотентно: импортированные монеты-сутки и посчитанные сутки кандидата не пересчитываются.
 set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 A="${ALPHA_BASE:-$HOME/alpha}"
 HOME_E="${CRASH_HOME:-$A/epochs/e-crash}"
 BIN="${BIN:?бинарник — BIN=bin/alpha-<хеш>}"
 DAYS=("$@"); [ ${#DAYS[@]} -gt 0 ] || DAYS=(2025-10-10 2025-10-11)
-mkdir -p "$HOME_E"/{root,study/regime,b5}
 LOG="$HOME_E/crash-stress.log"
+mkdir -p "$HOME_E"
 say() { echo "== $(date -u +%FT%TZ) crash-stress: $*" | tee -a "$LOG"; }
-[ -e "$HOME_E/bin" ] || ln -s "$A/bin" "$HOME_E/bin"
-[ -f "$HOME_E/root/instruments.csv" ] || cp "$A/root/instruments.csv" "$HOME_E/root/"
-# Импорт архива session.json не пишет, а `bounce-grid` без него каталог сессией не считает (как в epoch-run.sh).
-[ -f "$HOME_E/root/session.json" ] || echo '{"start_hour_utc":0,"closed":true,"binlog_files":[]}' > "$HOME_E/root/session.json"
-[ -f "$HOME_E/study/runs-2026-09-19.csv" ] || cp "$A/study/runs-2026-09-19.csv" "$HOME_E/study/"
-
-# Минутные BTC/ETH для режима: с суток до первых (окно 4 ч захватывает прошлые сутки).
-since=$(date -u -d "${DAYS[0]} -1 day" +%F)
-python3 "$A/bin/ref-klines.py" --out-dir "$HOME_E/study/regime" --since "$since" --until "${DAYS[-1]}" 2>&1 | tail -2 >> "$LOG"
+# Каталоги, симлинк bin, пул, session.json-заглушка, копия журнала испытаний, минутные BTC/ETH для
+# режима — общий бутстрап эпохи (epoch-bootstrap.sh, как в epoch-run.sh).
+"$SELF_DIR/epoch-bootstrap.sh" "$HOME_E" "$A" "${DAYS[0]}" "${DAYS[-1]}" 2>&1 | tail -2 >> "$LOG"
 say "импорт ${DAYS[*]}"
 ALPHA_HOME="$A" JOBS="${IMPORT_JOBS:-6}" "$A/bin/archive-import.sh" "$HOME_E/root" "${DAYS[@]}" >> "$LOG" 2>&1
 for d in "${DAYS[@]}"; do
@@ -39,6 +36,6 @@ FORM="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.
 RUN="${CRASH_RUN:-b5/crash}"
 say "кандидат: 3 формы × 3 набора, $BIN → $RUN"
 ALPHA_HOME="$HOME_E" FROM_DAY="${DAYS[0]}" OOS_DIR="$RUN" SETS="$SETS" BIN="$BIN" FORM_EXIT="$FORM" \
-  FORM_NAME=all RUNS=study/runs-2026-09-19.csv GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-2}" \
+  FORM_NAME=all RUNS="${RUNS:-$RUNS_JOURNAL}" GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-2}" \
   "$A/bin/oos-frozen.sh" >> "$LOG" 2>&1
 say "готово → $HOME_E/$RUN"

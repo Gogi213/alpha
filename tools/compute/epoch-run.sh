@@ -12,6 +12,9 @@
 # смешиваются с нашей записью. Пул — тот же instruments.csv, что у коллектора.
 set -uo pipefail
 MODE="${1:?archive|collected}"; shift
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 BASE="${ALPHA_BASE:-$HOME/alpha}"
 export GRID_THREADS="${GRID_THREADS:-2}" GRID_MEM="${GRID_MEM:-4G}" GRID_SLICE="${GRID_SLICE:-alpha.slice}"
 export NIGHT_JOBS="${NIGHT_JOBS:-3}" BASE_SPLIT="${BASE_SPLIT:-2}" H3_JOBS="${H3_JOBS:-6}"
@@ -19,17 +22,9 @@ export NIGHT_JOBS="${NIGHT_JOBS:-3}" BASE_SPLIT="${BASE_SPLIT:-2}" H3_JOBS="${H3
 if [ "$MODE" = archive ]; then
   HOME_E="${1:?дом эпохи}"; shift
   DAYS=("$@"); [ ${#DAYS[@]} -gt 0 ] || { echo "нужны сутки"; exit 1; }
-  mkdir -p "$HOME_E"/{root,study/regime,b5}
-  [ -e "$HOME_E/bin" ] || ln -s "$BASE/bin" "$HOME_E/bin"
-  [ -f "$HOME_E/root/instruments.csv" ] || cp "$BASE/root/instruments.csv" "$HOME_E/root/"
-  # Импорт архива session.json не пишет, а `bounce-grid` без него каталог сессией не считает
-  # (`session_parts_for`: F10 падала на всех сутках, 23.09). Сутки архива — с 00:00 UTC, частей нет.
-  [ -f "$HOME_E/root/session.json" ] || echo '{"start_hour_utc":0,"closed":true,"binlog_files":[]}' > "$HOME_E/root/session.json"
-  # Журнал испытаний — копия общего: DSR эпохи считает и прежние испытания, и её собственные.
-  [ -f "$HOME_E/study/runs-2026-09-19.csv" ] || cp "$BASE/study/runs-2026-09-19.csv" "$HOME_E/study/"
-  # Минутные BTC/ETH для режима: с суток до первых (окно 4 ч захватывает прошлые сутки).
-  since=$(date -u -d "${DAYS[0]} -1 day" +%F)
-  python3 "$BASE/bin/ref-klines.py" --out-dir "$HOME_E/study/regime" --since "$since" --until "${DAYS[-1]}" | tail -2
+  # Каталоги, симлинк bin, пул, session.json-заглушка (сутки архива — с 00:00 UTC, частей нет), копия
+  # журнала испытаний, минутные BTC/ETH для режима — общий бутстрап эпохи (epoch-bootstrap.sh).
+  "$SELF_DIR/epoch-bootstrap.sh" "$HOME_E" "$BASE" "${DAYS[0]}" "${DAYS[-1]}" | tail -2
   FROM="${DAYS[0]}"
   TAG=e-archive
   # Конвейер (22.09): загрузка упирается в сеть (7 МБ/с по Wi-Fi), процессор простаивает — поэтому
@@ -51,7 +46,7 @@ if [ "$MODE" = archive ]; then
     if [ -n "${ready// /}" ]; then
       echo "== $(date -u +%FT%TZ) конвейер: касания суток $ready"
       ALPHA_HOME="$HOME_E" NIGHT_TAG="$TAG-h3" TOUCHES_ONLY=1 H3_DAYS="$ready" "$BASE/bin/nightly-grid.sh"
-      ALPHA_HOME="$HOME_E" FROM_DAY="$FROM" OOS_DIR="b5/epoch-frozen" RUNS=study/runs-2026-09-19.csv \
+      ALPHA_HOME="$HOME_E" FROM_DAY="$FROM" OOS_DIR="b5/epoch-frozen" RUNS="${RUNS:-$RUNS_JOURNAL}" \
         "$BASE/bin/oos-frozen.sh" > /dev/null 2>&1
     else
       sleep 60
@@ -67,6 +62,6 @@ fi
 echo "== $(date -u +%FT%TZ) эпоха $MODE: ночной набор (тег $TAG)"
 ALPHA_HOME="$HOME_E" NIGHT_TAG="$TAG" "$BASE/bin/nightly-grid.sh"
 echo "== $(date -u +%FT%TZ) эпоха $MODE: замороженная ветка F10 с $FROM"
-ALPHA_HOME="$HOME_E" FROM_DAY="$FROM" OOS_DIR="b5/epoch-frozen" RUNS=study/runs-2026-09-19.csv \
+ALPHA_HOME="$HOME_E" FROM_DAY="$FROM" OOS_DIR="b5/epoch-frozen" RUNS="${RUNS:-$RUNS_JOURNAL}" \
   "$BASE/bin/oos-frozen.sh"
 echo "== $(date -u +%FT%TZ) эпоха $MODE: готово"
