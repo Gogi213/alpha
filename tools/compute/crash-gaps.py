@@ -72,8 +72,11 @@ def main():
     lo = sorted(x[1] * 100 for x in worst)
     cl = sorted(x[2] * 100 for x in worst)
     print(f"монет {len(coins)}; вход по закрытию минуты {a.entry_from}…{a.entry_to}, стоп −{a.stop_pct:g} %:")
-    print(f"  худший исход по монете (минимум минуты стопа): медиана {st.median(lo):.1f} %, четверть худших ≤ "
-          f"{lo[len(lo) // 4]:.1f} %, худший {lo[0]:.1f} %; по закрытию: медиана {st.median(cl):.1f} %, худший {cl[0]:.1f} %")
+    if lo:
+        print(f"  худший исход по монете (минимум минуты стопа): медиана {st.median(lo):.1f} %, четверть худших ≤ "
+              f"{lo[len(lo) // 4]:.1f} %, худший {lo[0]:.1f} %; по закрытию: медиана {st.median(cl):.1f} %, худший {cl[0]:.1f} %")
+    else:
+        print("  стоп не задет ни у одной монеты в этом окне входа")
     for sym, l, c, te, ts in sorted(worst, key=lambda x: x[1])[:8]:
         print(f"    {sym:<14} вход {hm(te)} стоп {hm(ts)}: минимум {l * 100:.1f} %, закрытие {c * 100:.1f} %")
 
@@ -86,10 +89,18 @@ def main():
             print(f"  −{kb / 100:.1f} %: не сработал")
             continue
         out = [(k[trig + MIN][1] / k[th][1] - 1) * 100 for k in coins.values() if th in k and trig + MIN in k]
-        bottom = [(min(k[t][0] for t in range(th + MIN, th + a.hold_min * MIN, MIN) if t in k) / k[th][1] - 1) * 100
-                  for k in coins.values() if th in k]
-        print(f"  −{kb / 100:.1f} %: сработал {hm(trig)}; закрыто: медиана {st.median(out):.1f} %, худшая {min(out):.1f} %; "
-              f"без выключателя дно за удержание: медиана {st.median(bottom):.1f} %")
+        bottom = []
+        for k in coins.values():
+            if th not in k:
+                continue
+            lows = [k[t][0] for t in range(th + MIN, th + a.hold_min * MIN, MIN) if t in k]
+            if lows:
+                bottom.append((min(lows) / k[th][1] - 1) * 100)
+        if out:
+            print(f"  −{kb / 100:.1f} %: сработал {hm(trig)}; закрыто: медиана {st.median(out):.1f} %, худшая {min(out):.1f} %; "
+                  + (f"без выключателя дно за удержание: медиана {st.median(bottom):.1f} %" if bottom else "дно за удержание: нет свечей"))
+        else:
+            print(f"  −{kb / 100:.1f} %: сработал {hm(trig)}; нет свечей ни у одной монеты на выход")
 
     for path in a.calm_btc:
         k = sorted((t, v[1]) for t, v in load(path).items())
