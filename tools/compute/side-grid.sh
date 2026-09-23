@@ -19,6 +19,9 @@
 # юнитами, LOG_SUFFIX=-<семья>, PARALLEL_OK=1 снимает проверку «сетка уже идёт» — она защищает
 # только ночной таймер); SIDES="bid" — одна сторона на юнит (четыре юнита по ядру, THREADS=1).
 set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 cd /opt/alpha-compute || exit 1
 DAY=$(date -u +%F)
 FAMILIES="${FAMILIES:-a45 s100}"
@@ -26,15 +29,20 @@ SIDES="${SIDES:-bid ask}"
 THREADS="${THREADS:-3}"
 LOG=study/chain-side${LOG_SUFFIX:-}.log
 BIN=/opt/alpha-compute/bin/alpha
-RUNS=study/runs-2026-09-19.csv
+RUNS="${RUNS:-$RUNS_JOURNAL}"
 DAYS_WINDOW="${DAYS_WINDOW:-}"
 DAYS_ALL=$(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u)
 DAY_ARGS=""
 if [ -n "$DAYS_WINDOW" ]; then
   for d in $(echo "$DAYS_ALL" | tail -n "$DAYS_WINDOW"); do DAY_ARGS="$DAY_ARGS --day $d"; done
 fi
-if [ -z "${PARALLEL_OK:-}" ] && systemctl list-units "alpha-grid-*" --no-legend | grep -q running; then
-  echo "== $(date -u +%FT%TZ) сетка ещё идёт — ось стороны не запущена" >> "$LOG"; exit 0
+# Гейт сужен по метке (2026-09-23, как в nightly-grid.sh: H3b): `alpha-grid-*` без метки ловил и
+# чужие сетки (ночную, эпохи) — ось стороны блокировалась ими без всякой пользы (PARALLEL_OK снимает
+# гейт полностью, но по умолчанию защищаться нужно только от другого прогона той же оси стороны).
+running_grids=$(systemctl list-units "alpha-grid-side-*" --no-legend \
+  | grep -E ' (running|start) ' | grep -oE 'alpha-grid-side-[^ ]+\.service' | tr '\n' ' ')
+if [ -z "${PARALLEL_OK:-}" ] && [ -n "$running_grids" ]; then
+  echo "== $(date -u +%FT%TZ) сетка стороны уже идёт — ось стороны не запущена ($running_grids)" >> "$LOG"; exit 0
 fi
 # Монеты семьи: из forms.csv сетки `-any` (n_signals > 0 хоть у одной формы); без переменной — весь пул.
 symbols_of() {

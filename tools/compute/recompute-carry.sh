@@ -6,6 +6,9 @@
 # 10–11.10.2025. Испытания те же — в журнал не пишутся.
 #   BIN=bin/alpha-<хеш> [ORDER="--order-usd 500"] recompute-carry.sh [метка]        # умолчание u500
 set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 A="${ALPHA_BASE:-$HOME/alpha}"
 TAG="${1:-u500}"
 export BIN="${BIN:?бинарник с --carry-root — BIN=bin/alpha-<хеш>}"
@@ -23,7 +26,7 @@ CAND="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.
 say "кандидат (3 формы × 3 набора) и обвал, $ORDER, $BIN"
 for epoch in "$HIST:2026-09-01" "$A:2026-09-16"; do
   ALPHA_HOME="${epoch%%:*}" FROM_DAY="${epoch##*:}" OOS_DIR="b5/titrc-$TAG" SETS="$SETS" FORM_EXIT="$CAND" \
-    FORM_NAME=all VERDICT_FLAGS= RUNS=study/runs-2026-09-19.csv GRID_THREADS="${GRID_THREADS:-2}" \
+    FORM_NAME=all VERDICT_FLAGS= RUNS="${RUNS:-$RUNS_JOURNAL}" GRID_THREADS="${GRID_THREADS:-2}" \
     DAY_JOBS="${DAY_JOBS:-2}" "$A/bin/oos-frozen.sh" > /dev/null 2>&1 &
 done
 wait

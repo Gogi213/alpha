@@ -18,12 +18,15 @@
 # (study/bounce-verdict-oos-frozen-<набор>.csv) и контроль «рост рынка» (study/placebo-oos-frozen-<набор>.csv).
 # Идемпотентно: посчитанные сутки не пересчитываются. Вызывается ночью после сеток (nightly-grid.sh).
 set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 cd "$ALPHA_HOME" || exit 1
 FROM_DAY="${FROM_DAY:-2026-09-23}"
 BIN="${BIN:-bin/alpha}"
 THREADS="${GRID_THREADS:-3}"
-RUNS="${RUNS:-study/runs-2026-09-19.csv}"
+RUNS="${RUNS:-$RUNS_JOURNAL}"
 OOS_DIR="${OOS_DIR:-b5/oos-frozen}"   # другой каталог — проверочный прогон вне официального OOS
 TAG="$(basename "$OOS_DIR")"
 LOG="${LOG:-study/$TAG.log}"
@@ -120,8 +123,11 @@ for s in $SETS; do
   done
   n_days=$(echo "$parts" | wc -l)
   n_rounds=$(grep -avc '^#' "$m/rounds.csv"); n_rounds=$((n_rounds - 1))
+  # Замок журнала испытаний — тот же, что у параллельных стадий nightly-grid.sh (study/.verdict.lock):
+  # вердикт с --log-trials дописывает общий $RUNS, а oos-frozen.sh может идти вместе с ночью или другим
+  # титрованием того же дома одновременно (2026-09-23).
   # shellcheck disable=SC2086
-  nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" $VERDICT_FLAGS \
+  flock "study/.verdict.lock" nice -n 10 $BIN lob bounce-verdict --grid-dir "$m" --runs-csv "$RUNS" $VERDICT_FLAGS \
     --out "study/bounce-verdict-$TAG-$set_name.csv" > "study/bounce-verdict-$TAG-$set_name.log" 2>&1
   python3 bin/placebo.py --grid-dir "$m" "${PLACEBO_FORM[@]}" --mids study/touches \
     --csv "study/placebo-$TAG-$set_name.csv" > "study/placebo-$TAG-$set_name.log" 2>&1

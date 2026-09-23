@@ -18,6 +18,9 @@
 # study/floors-<сутки>.txt несёт оговорку, что трекер суточный (возраст плотности обнуляется в 00:00);
 # окно суток для сеток — DAYS_WINDOW (по умолчанию все сутки корня), касания окна не касается.
 set -uo pipefail
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_env.sh
+source "$SELF_DIR/_env.sh"
 # Машина — окружением (L8, 2026-09-22): ALPHA_HOME (умолчание /opt/alpha-compute — VPS-счётная,
 # root, системные юниты), на Steam Deck ALPHA_HOME=$HOME/alpha и пользовательские юниты (SC).
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
@@ -76,7 +79,7 @@ finish() {
   exit 1
 }
 BIN=$ALPHA_HOME/bin/alpha
-RUNS=study/runs-2026-09-19.csv
+RUNS="${RUNS:-$RUNS_JOURNAL}"
 # Окно суток для сеток: пусто — все сутки корня (как было); DAYS_WINDOW=4 — последние четыре.
 # Нужно потому, что сетки идут по всем суткам и ночь растёт вместе с историей (H3b/§4.3).
 DAYS_WINDOW="${DAYS_WINDOW:-}"
@@ -350,20 +353,9 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # btc_ret_4h q50 21.9; ret_1h касаний аск-стен a45 q75 66.4), 9 наборов = 288 испытаний; режим — study/regime.
   # S8 (20.09, «развивать отскоки»): возраст 90/120 мин, вход только от фронтрана, размер стены ≥ $25k/$50k — лонги;
   # 5 наборов = 160 испытаний.
-  BASE_SETS="a15-s10-any:age=900,flow=10 a30-any:age=1800 a45-any:age=2700 a60-any:age=3600 s100-any:flow=100 \
-           a45-bid:age=2700,side=bid a45-ask:age=2700,side=ask s100-bid:flow=100,side=bid s100-ask:flow=100,side=ask \
-           a15-s10-bid:age=900,flow=10,side=bid a15-s10-ask:age=900,flow=10,side=ask \
-           a30-bid:age=1800,side=bid a30-ask:age=1800,side=ask a60-bid:age=3600,side=bid a60-ask:age=3600,side=ask \
-           a45-bid-e60:age=2700,side=bid,eaten=60 a45-bid-e75:age=2700,side=bid,eaten=75 \
-           a45-ask-e60:age=2700,side=ask,eaten=60 a45-ask-e75:age=2700,side=ask,eaten=75 \
-           s100-bid-e20:flow=100,side=bid,eaten=20 s100-bid-e39:flow=100,side=bid,eaten=39 \
-           a45-bid-p4h-q50:age=2700,side=bid,pool4h_min=46.1 a45-bid-p4h-q75:age=2700,side=bid,pool4h_min=95.3 \
-           a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 a45-bid-b4h-q50:age=2700,side=bid,btc4h_min=21.9 \
-           a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0 a45-ask-p4h-q25:age=2700,side=ask,pool4h_max=-1.1 \
-           a45-ask-p4h-q50:age=2700,side=ask,pool4h_max=46.1 a45-ask-r1h-q75:age=2700,side=ask,ret1h_min=66.4 \
-           a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4 \
-           a90-bid:age=5400,side=bid a120-bid:age=7200,side=bid a45-bid-fr:age=2700,side=bid,frontrun \
-           a45-bid-u25:age=2700,side=bid,usd_min=25000 a45-bid-u50:age=2700,side=bid,usd_min=50000"
+  # Таблица наборов — tools/compute/sets-nightly.txt (вынесено 2026-09-23; та же таблица читает
+  # side-grid.sh, если когда-нибудь понадобится — сейчас она строит наборы стороны сама).
+  BASE_SETS=$(grep -v '^#' "$SELF_DIR/sets-nightly.txt" | tr '\n' ' ')
   # Параллельные стадии (дек, 22.09): процесс сетки почти весь однопоточный — декод событий монеты-суток
   # идёт последовательно, потоки `--threads` работают только на формах. На 8 ядрах дека одна сетка
   # грузила ~1 ядро (замер: нагрузка 45 %, у процесса 1 поток). NIGHT_JOBS > 1 — стадии (база, tk, dl,

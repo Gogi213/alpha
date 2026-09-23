@@ -1,0 +1,37 @@
+# Наборы ночной базы В-65 (nightly-grid.sh, BASE_SETS; вынесено 2026-09-23 из скрипта в файл —
+# та же таблица, порядок и синтаксис lob bounce-grid --set имя:ключи=значение,…; строки # — комментарий.
+a15-s10-any:age=900,flow=10
+a30-any:age=1800
+a45-any:age=2700
+a60-any:age=3600
+s100-any:flow=100
+a45-bid:age=2700,side=bid
+a45-ask:age=2700,side=ask
+s100-bid:flow=100,side=bid
+s100-ask:flow=100,side=ask
+a15-s10-bid:age=900,flow=10,side=bid
+a15-s10-ask:age=900,flow=10,side=ask
+a30-bid:age=1800,side=bid
+a30-ask:age=1800,side=ask
+a60-bid:age=3600,side=bid
+a60-ask:age=3600,side=ask
+a45-bid-e60:age=2700,side=bid,eaten=60
+a45-bid-e75:age=2700,side=bid,eaten=75
+a45-ask-e60:age=2700,side=ask,eaten=60
+a45-ask-e75:age=2700,side=ask,eaten=75
+s100-bid-e20:flow=100,side=bid,eaten=20
+s100-bid-e39:flow=100,side=bid,eaten=39
+a45-bid-p4h-q50:age=2700,side=bid,pool4h_min=46.1
+a45-bid-p4h-q75:age=2700,side=bid,pool4h_min=95.3
+a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0
+a45-bid-b4h-q50:age=2700,side=bid,btc4h_min=21.9
+a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+a45-ask-p4h-q25:age=2700,side=ask,pool4h_max=-1.1
+a45-ask-p4h-q50:age=2700,side=ask,pool4h_max=46.1
+a45-ask-r1h-q75:age=2700,side=ask,ret1h_min=66.4
+a45-ask-both:age=2700,side=ask,pool4h_max=46.1,ret1h_min=66.4
+a90-bid:age=5400,side=bid
+a120-bid:age=7200,side=bid
+a45-bid-fr:age=2700,side=bid,frontrun
+a45-bid-u25:age=2700,side=bid,usd_min=25000
+a45-bid-u50:age=2700,side=bid,usd_min=50000
