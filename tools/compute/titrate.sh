@@ -18,9 +18,17 @@ if [ -n "${WAIT_NIGHT:-}" ]; then
   until grep -q "nightly done" "$A/study/nightly-$WAIT_NIGHT.log" 2>/dev/null; do sleep 120; done
 fi
 
-SETS=$(python3 "$A/bin/titration-points.py" --regime "$HIST/study/regime" --from 2026-09-01 --to 2026-09-15 \
-  --out "$A/study/titration-points-$TAG.csv" 2>>"$LOG")
-[ -n "$SETS" ] || { say "точки не посчитались"; exit 1; }
+# Наборы метки замораживаются первым прогоном: дочёт новых суток той же меткой обязан идти теми же
+# корзинами, иначе сутки одной метки смешают разные края.
+SETS_FILE="$A/study/titration-sets-$TAG.txt"
+if [ -s "$SETS_FILE" ]; then
+  SETS=$(cat "$SETS_FILE")
+else
+  SETS=$(python3 "$A/bin/titration-points.py" --regime "$HIST/study/regime" --from 2026-09-01 --to 2026-09-15 \
+    --out "$A/study/titration-points-$TAG.csv" 2>>"$LOG")
+  [ -n "$SETS" ] || { say "точки не посчитались"; exit 1; }
+  echo "$SETS" > "$SETS_FILE"
+fi
 say "наборов $(echo "$SETS" | wc -w)"
 
 run_epoch() {

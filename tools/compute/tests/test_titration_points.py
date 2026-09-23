@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 MODULE = Path(__file__).resolve().parents[1] / "titration-points.py"
+D01 = 1_788_220_800_000  # 2026-09-01T00:00:00Z
+D02 = D01 + 86_400_000
 HEADER = ["minute_ms", "pool_ret_1h_bps", "pool_ret_4h_bps", "n_coins",
           "btc_ret_1h_bps", "btc_ret_4h_bps", "eth_ret_1h_bps", "eth_ret_4h_bps"]
 
@@ -59,10 +61,13 @@ def test_sets_both_sides_and_age():
 def test_cli_window_and_missing_pool(tmp_path):
     reg = tmp_path / "regime"
     reg.mkdir()
-    # Окно — 01–02; сутки 16 вне окна и не должны сдвигать края.
-    write_day(reg, "2026-09-01", [[i, "", "", 0, i, i, 0, 0] for i in range(50)])
-    write_day(reg, "2026-09-02", [[i, i, i, 5, i + 50, i + 50, 0, 0] for i in range(50)])
-    write_day(reg, "2026-09-16", [[i, 1e6, 1e6, 5, 1e6, 1e6, 0, 0] for i in range(50)])
+    # Окно — 01–02; сутки 16 вне окна и не должны сдвигать края. Файл 02 несёт и минуты 01 (48 ч) —
+    # они не должны войти второй раз.
+    m = 60_000
+    write_day(reg, "2026-09-01", [[D01 + i * m, "", "", 0, i, i, 0, 0] for i in range(50)])
+    write_day(reg, "2026-09-02", [[D01 + i * m, "", "", 0, 1e6, 1e6, 0, 0] for i in range(50)]
+              + [[D02 + i * m, i, i, 5, i + 50, i + 50, 0, 0] for i in range(50)])
+    write_day(reg, "2026-09-16", [[D02 + i * m, 1e6, 1e6, 5, 1e6, 1e6, 0, 0] for i in range(50)])
     out = tmp_path / "points.csv"
     res = subprocess.run([sys.executable, str(MODULE), "--regime", str(reg), "--from", "2026-09-01",
                           "--to", "2026-09-02", "--out", str(out)], capture_output=True, text=True, check=True)

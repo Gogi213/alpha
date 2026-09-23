@@ -11,6 +11,9 @@ btc4h, btc1h, pool4h, pool1h (`study/regime/<сутки>.csv`, regime.py). Кр�
 `t-<сторона>-<ось>-q<k>`. Возраст стены — накопительно, точки прежних ночных наборов
 (15/30/45/60/90/120 мин): `t-<сторона>-age-<мин>`.
 
+Файл режима суток несёт и предыдущие сутки (48 ч, окно 4 ч захватывает прошлые сутки) — в края
+идут только минуты своих суток файла, каждая минута один раз (метка v1 23.09 считалась со сдвоенными
+минутами BTC; её наборы заморожены в `study/titration-sets-v1.txt`).
 Пул (`pool*`) в первые 1 ч / 4 ч суток пуст (regime.py считает его по минутным серединам суток) —
 такие минуты в края не входят, а касание без значения оси в корзину не попадает (правило `--set`).
 
@@ -19,6 +22,7 @@ btc4h, btc1h, pool4h, pool1h (`study/regime/<сутки>.csv`, regime.py). Кр�
 """
 import argparse
 import csv
+import datetime as dt
 import os
 import sys
 
@@ -75,8 +79,11 @@ def axis_values(regime_dir, day_from, day_to):
     days = sorted(n[:-4] for n in os.listdir(regime_dir)
                   if n.endswith(".csv") and n[:4].isdigit() and day_from <= n[:-4] <= day_to)
     for day in days:
+        start = int(dt.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp()) * 1000
         with open(os.path.join(regime_dir, f"{day}.csv"), encoding="utf-8") as f:
             for r in csv.DictReader(f):
+                if not start <= int(r["minute_ms"]) < start + 86_400_000:
+                    continue
                 for axis, col in AXES.items():
                     if r.get(col, ""):
                         vals[axis].append(float(r[col]))
