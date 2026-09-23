@@ -289,6 +289,10 @@ pub enum ExitForm {
     /// `gone<W>` — стена снята без сделок: размер упал ниже (1 − W %) от
     /// размера на входе, И съедение сделками < половины падения.
     Gone { pct: f64 },
+    /// `gone<W>tr<T>` — то же снятие, но позиция не закрывается сразу: взводится трейл,
+    /// выход — откат на `T` % (от входа) от лучшей цены после снятия (владелец 2026-09-23:
+    /// «сразу выход по снятию — глупость, но снятие — это уже риск, нужна защита»).
+    GoneTrail { pct: f64, trail_pct: f64 },
 }
 
 impl ExitForm {
@@ -300,6 +304,7 @@ impl ExitForm {
             ExitForm::None => "none".to_string(),
             ExitForm::Eat { pct } => format!("eat{pct}"),
             ExitForm::Gone { pct } => format!("gone{pct}"),
+            ExitForm::GoneTrail { pct, trail_pct } => format!("gone{pct}tr{trail_pct}"),
         }
     }
 
@@ -316,6 +321,25 @@ impl ExitForm {
             return Ok(ExitForm::Eat { pct });
         }
         if let Some(rest) = spec.strip_prefix("gone") {
+            if let Some((w, t)) = rest.split_once("tr") {
+                let pct: f64 = w.parse()?;
+                let trail_pct: f64 = t.parse()?;
+                anyhow::ensure!(
+                    pct.is_finite() && pct > 0.0 && pct <= 100.0,
+                    "gone<W>tr<T>: W ∈ (0, 100]"
+                );
+                anyhow::ensure!(
+                    trail_pct.is_finite() && trail_pct > 0.0 && trail_pct < 100.0,
+                    "gone<W>tr<T>: откат T — % от входа в (0, 100)"
+                );
+                let form = ExitForm::GoneTrail { pct, trail_pct };
+                anyhow::ensure!(
+                    form.label() == spec,
+                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                    form.label()
+                );
+                return Ok(form);
+            }
             let pct: f64 = rest.parse()?;
             anyhow::ensure!(
                 pct.is_finite() && pct > 0.0 && pct <= 100.0,

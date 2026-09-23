@@ -282,6 +282,7 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
 
@@ -356,6 +357,7 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -421,6 +423,7 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -484,6 +487,7 @@ fn a_fraction_below_one_lot_exits_whole() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
     let actions = drive(&mut hbt, &mut state);
@@ -536,6 +540,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     }
 }
 
@@ -826,6 +831,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     }
 }
 
@@ -1020,6 +1026,7 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     }
 }
 
@@ -1210,6 +1217,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: eat_pct,
         exit_gone_pct: gone_pct,
+        gone_trail_bps: 0.0,
     }
 }
 
@@ -1331,6 +1339,68 @@ fn a_wall_that_shrinks_without_trades_exits_as_gone() {
     );
 }
 
+/// План F7 с трейлом после снятия: `gone<gone_pct>tr<trail_bps / 100>`.
+fn f7_plan_gone_trail(gone_pct: f64, trail_bps: f64, level_qty: f64) -> TradePlan {
+    let mut plan = f7_plan(0.0, gone_pct, level_qty);
+    if let TradePlan::Bounce { gone_trail_bps, .. } = &mut plan {
+        *gone_trail_bps = trail_bps;
+    }
+    plan
+}
+
+/// Рост книги после снятия: аск 101 уходит на 104, бид поднимается до 103 — пик после снятия.
+fn rally_to_103(ts: i64) -> [Event; 3] {
+    [
+        depth_at(ts, false, 101.0, 0.0),
+        depth_at(ts, false, 104.0, 5.0),
+        depth_at(ts, true, 103.0, 5.0),
+    ]
+}
+
+/// Трейл после снятия (владелец 23.09: «сразу выход по снятию — глупость, но снятие — уже риск,
+/// нужна защита»): стена снята — позиция **не** закрывается; цена выросла до 103 и откатилась
+/// к 99 — 400 bps от входа ≥ трейла 100 bps — выход по рынку с причиной «сняли».
+#[test]
+fn a_removed_wall_arms_a_trail_instead_of_exiting() {
+    let mut rest = vec![depth_at(4 * S, true, 99.0, 3.0)];
+    rest.extend_from_slice(&rally_to_103(5 * S));
+    rest.extend_from_slice(&[
+        depth_at(6 * S, false, 105.0, 5.0),
+        depth_at(7 * S, true, 103.0, 0.0),
+        depth_at(8 * S, false, 106.0, 5.0),
+        depth_at(9 * S, false, 107.0, 5.0),
+    ]);
+    let feed = f7_feed_tail(&rest, 10.0);
+    assert_eq!(
+        f7_exits(f7_plan_gone_trail(50.0, 100.0, 10.0), &feed),
+        vec![ExitReason::WallGone],
+        "откат от пика после снятия обязан закрыть позицию трейлом"
+    );
+}
+
+/// Снятие без отката: трейл взведён, но цена после снятия только растёт — позиция живёт дальше,
+/// выхода «сняли» нет (прежняя форма `gone50` закрыла бы её сразу на снятии).
+#[test]
+fn a_removed_wall_without_a_pullback_keeps_the_position() {
+    let mut rest = vec![depth_at(4 * S, true, 99.0, 3.0)];
+    rest.extend_from_slice(&rally_to_103(5 * S));
+    rest.extend_from_slice(&[
+        depth_at(6 * S, false, 105.0, 5.0),
+        depth_at(7 * S, false, 106.0, 5.0),
+    ]);
+    let feed = f7_feed_tail(&rest, 10.0);
+    let reasons = f7_exits(f7_plan_gone_trail(50.0, 100.0, 10.0), &feed);
+    assert!(
+        !reasons.contains(&ExitReason::WallGone),
+        "снятие без отката не закрывает позицию: {reasons:?}"
+    );
+    assert_eq!(
+        f7_exits(f7_plan(0.0, 50.0, 10.0), &feed),
+        vec![ExitReason::WallGone],
+        "контроль: без трейла та же лента закрывает позицию на снятии"
+    );
+}
+
 /// F7 (Б-75): падение размера **сделками** не даёт `WallGone` — стена 10 → 3,
 /// но из семи съеденных лотов шесть прошли лентой (≥ половины падения).
 /// Форма `gone` молчит, круг закрывается дедлайном.
@@ -1425,6 +1495,7 @@ fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
     }
 }
 

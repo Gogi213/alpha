@@ -1818,7 +1818,15 @@ pub(crate) fn bounce_plan(
                 _ => 0.0,
             },
             exit_gone_pct: match shape.exit_form {
-                crate::commands::lob::bounce_grid::ExitForm::Gone { pct } => pct,
+                crate::commands::lob::bounce_grid::ExitForm::Gone { pct }
+                | crate::commands::lob::bounce_grid::ExitForm::GoneTrail { pct, .. } => pct,
+                _ => 0.0,
+            },
+            // Трейл после снятия (владелец 23.09): откат в bps от входа.
+            gone_trail_bps: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {
+                    trail_pct * 100.0
+                }
                 _ => 0.0,
             },
         },

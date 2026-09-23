@@ -1549,8 +1549,29 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         ExitForm::parse("gone20").unwrap(),
         ExitForm::Gone { pct: 20.0 }
     );
+    // Трейл после снятия (владелец 23.09): имя несёт и порог снятия, и откат.
+    let gt = ExitForm::parse("gone90tr0.5").unwrap();
+    assert_eq!(
+        gt,
+        ExitForm::GoneTrail {
+            pct: 90.0,
+            trail_pct: 0.5
+        }
+    );
+    assert_eq!(gt.label(), "gone90tr0.5");
     for bad in [
-        "eat", "eat0", "eat101", "gone0", "gone-5", "goneabc", "eaten50", "",
+        "eat",
+        "eat0",
+        "eat101",
+        "gone0",
+        "gone-5",
+        "goneabc",
+        "eaten50",
+        "",
+        "gone90tr0",
+        "gone90tr",
+        "gone0tr1",
+        "gone90tr0.50",
     ] {
         assert!(
             ExitForm::parse(bad).is_err(),

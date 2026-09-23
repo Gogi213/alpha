@@ -403,6 +403,12 @@ pub enum TradePlan {
         /// размера на входе, И сделками съедено < половины падения. `0` —
         /// выключено. Вход в сетку как `gone<W>`.
         exit_gone_pct: f64,
+        /// Трейл после снятия стены (владелец 2026-09-23: «если стену сняли и мы в позиции, то
+        /// трейл»): при сработавшем `gone<W>` позиция не закрывается сразу, а ведётся трейлом —
+        /// выход по рынку, когда цена откатилась от лучшей **после снятия** на `gone_trail_bps`
+        /// (bps от входа). Снятие — защёлка: вернувшаяся стена трейл не выключает. `0` — выход
+        /// сразу, как в F7. Вход в сетку как `gone<W>tr<T>`.
+        gone_trail_bps: f64,
     },
 }
 
@@ -470,6 +476,9 @@ pub struct StrategyState {
     /// лонга — максимум лучшего бида, у шорта — минимум лучшего аска.
     /// `0.0` — вход ещё не состоялся.
     best_favourable: f64,
+    /// Лучшая цена «в пользу позиции» **с момента снятия стены** — база трейла после снятия
+    /// (`gone_trail_bps`). `0.0` — снятия ещё не было (трейл не взведён).
+    gone_peak: f64,
     /// E7: частичный выход уже был в этом круге (второй раз не делится).
     partial_done: bool,
     /// Максимум размера плотности уровня с момента входа — база съедания
@@ -598,6 +607,7 @@ impl StrategyState {
             phase: Phase::Idle,
             plan,
             best_favourable: 0.0,
+            gone_peak: 0.0,
             partial_done: false,
             level_qty_max: 0.0,
             level_qty_at_entry: 0.0,
@@ -935,6 +945,22 @@ impl StrategyState {
         }
     }
 
+    /// Лучший исход с момента снятия стены — для трейла после снятия: первый вызов взводит
+    /// трейл ценой снятия, дальше вызывается на каждом событии, пока позиция открыта.
+    fn observe_gone_peak(&mut self, price: f64) {
+        if price <= 0.0 {
+            return;
+        }
+        let better = if self.sigma == crate::lob::backtest::SIGMA_LONG {
+            self.gone_peak == 0.0 || price > self.gone_peak
+        } else {
+            self.gone_peak == 0.0 || price < self.gone_peak
+        };
+        if better {
+            self.gone_peak = price;
+        }
+    }
+
     pub fn is_idle(&self) -> bool {
         matches!(self.phase, Phase::Idle)
     }
@@ -1193,6 +1219,7 @@ where
             eaten_half_frac,
             exit_eat_pct,
             exit_gone_pct,
+            gone_trail_bps,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -1263,6 +1290,16 @@ where
                 && level_ok
                 && now_qty < state.level_qty_at_entry * (1.0 - exit_gone_pct / 100.0)
                 && state.eaten_qty < (state.level_qty_at_entry - now_qty) * 0.5;
+            // Трейл после снятия (владелец 23.09): снятие взводит трейл ценой этого события
+            // (защёлка — дальше пик ведётся и без стены), выход — откат от пика после снятия.
+            let gone_trail = gone_trail_bps > 0.0;
+            if gone_trail && (gone_hit || state.gone_peak > 0.0) {
+                state.observe_gone_peak(favourable);
+            }
+            let gone_trail_hit = gone_trail
+                && state.gone_peak > 0.0
+                && entry_px > 0.0
+                && (state.gone_peak - favourable).abs() / entry_px * 10_000.0 >= gone_trail_bps;
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= stop_px, bid >= take_px),
                 _ => (ask >= stop_px, ask <= take_px),
@@ -1309,11 +1346,15 @@ where
                     Some(px) => (px, true, ExitReason::EatenByTrades, 1.0),
                     None => return None,
                 }
-            } else if gone_hit {
+            } else if gone_hit && !gone_trail {
                 match exit_price(entry_side, bid, ask) {
                     Some(px) => (px, true, ExitReason::WallGone, 1.0),
                     None => return None,
                 }
+            } else if gone_trail_hit {
+                // Выход трейла после снятия — та же причина «сняли»: колонки `forms.csv`
+                // не меняются, а форма (`gone<W>tr<T>`) говорит, как именно вышли.
+                (favourable, true, ExitReason::WallGone, 1.0)
             } else if early_exit_ns > 0
                 && now.saturating_sub(entry_ns) >= early_exit_ns
                 && still_at_level(entry_side, bid, ask, level_px, tick_px)
