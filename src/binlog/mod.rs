@@ -185,6 +185,18 @@ pub fn is_binlog_file_name(name: &str) -> bool {
     strip_binlog_suffix(name).is_some()
 }
 
+/// Разбор календарных суток `YYYY-MM-DD` — общая точка для всех мест, где день приходит строкой
+/// с CLI или из CSV: `commands::record::paths::day_index_of_day_str`,
+/// `commands::lob::import_archive::run_import_archive`, `commands::lob::replay::is_next_day`,
+/// `lob::shortlist::parse_ymd` (W9 ревью 23.09). Живёт в `binlog`, а не в `commands` или `lob`,
+/// чтобы обоим слоям было можно — `lob` не имеет пути до `commands` (граница модулей,
+/// `ARCHITECTURE.md`). `None` — не разобралось как `YYYY-MM-DD` целиком (включая календарно
+/// невозможные дни вроде 30 февраля); вызывающий сам решает, какой ошибкой это обернуть.
+/// `bounce_grid.rs` — намеренно отдельная копия (другая дорожка правок).
+pub fn parse_calendar_day(day: &str) -> Option<chrono::NaiveDate> {
+    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()
+}
+
 /// Хронологический ключ суточного файла: сутки UTC, затем часть суток
 /// (`-p2` после смены шагов). Голая лексикография врёт: `-` (0x2D) меньше
 /// `.` (0x2E) в ASCII, и `SOLUSDT-2026-09-08-p2.binlog` как строка встал бы

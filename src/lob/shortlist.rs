@@ -44,6 +44,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::binlog::parse_calendar_day;
 use crate::lob::costs::GREEN_NET_BPS;
 use crate::lob::final_metrics::{required_sharpe_for_dsr, DSR_TARGET};
 use crate::lob::runs::{append_run_row, log_trials, RunKind, RunRow, PROFILE_TRIAL_PREFIX};
@@ -304,7 +305,7 @@ impl PreregisteredWindow {
 }
 
 fn parse_ymd(day: &str) -> Result<chrono::NaiveDate, ShortlistError> {
-    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| ShortlistError::BadDay {
+    parse_calendar_day(day).ok_or_else(|| ShortlistError::BadDay {
         day: day.to_string(),
     })
 }
