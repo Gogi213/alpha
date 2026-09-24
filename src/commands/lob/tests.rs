@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::parts::day_of_binlog_name;
+use super::test_support::write_session_json as write_session_json_value;
 use super::*;
 use crate::commands::record::instruments_csv_path;
 use crate::lob::levels::{H3Mode, LevelsConfig};
@@ -269,17 +270,21 @@ fn session_binlog_for_orders_multiple_days_by_date_then_part() {
 // -----------------------------------------------------------------
 
 fn write_session_json(dir: &Path, start_hour_utc: u32, parts: &[(&str, u32, &str)]) {
-    let files: Vec<String> = parts
+    let files: Vec<serde_json::Value> = parts
         .iter()
         .map(|(symbol, part, started)| {
-            format!("{{\"symbol\":\"{symbol}\",\"part\":{part},\"started_utc\":\"{started}\"}}")
+            serde_json::json!({"symbol": symbol, "part": part, "started_utc": started})
         })
         .collect();
-    let json = format!(
-        "{{\"started_utc\":\"2026-09-09T14:00:00Z\",\"start_hour_utc\":{start_hour_utc},             \"instruments\":[\"SOLUSDT\"],\"binlog_files\":[{}]}}",
-        files.join(",")
+    write_session_json_value(
+        dir,
+        &serde_json::json!({
+            "started_utc": "2026-09-09T14:00:00Z",
+            "start_hour_utc": start_hour_utc,
+            "instruments": ["SOLUSDT"],
+            "binlog_files": files,
+        }),
     );
-    std::fs::write(dir.join("session.json"), json).unwrap();
 }
 
 /// Каталог с частями за двое суток: верхний `started_utc`/`start_hour_utc`

@@ -1,5 +1,8 @@
 use super::*;
-use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day_part};
+use crate::commands::lob::test_support::{
+    delta_frame, snap_frame, trade_frame, write_day_part,
+    write_session_json as write_session_json_value,
+};
 
 /// Двойник прежней сигнатуры `build_dashboard` (до W7, ревью 23.09): та
 /// собирала `CoinChart` каждой монеты в `Vec` и отдавала его вызывающему
@@ -61,11 +64,7 @@ fn write_session_json(root: &Path, symbols: &[&str], started: &str, closed: bool
             {"symbol": symbols[0], "part": 1, "started_utc": started},
         ],
     });
-    std::fs::write(
-        root.join("session.json"),
-        serde_json::to_string_pretty(&json).unwrap(),
-    )
-    .unwrap();
+    write_session_json_value(root, &json);
 }
 
 /// Книга 100.00/100.01 (тик 0.01), порог 5 лотов. Уровень на 10000

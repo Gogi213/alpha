@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::lob::test_support::write_session_json;
 use crate::commands::lob::H3ModeArg;
 
 fn write_instruments_csv(root: &Path, symbols: &[&str]) {
@@ -21,10 +22,14 @@ fn write_candidates_csv(path: &Path, rows: &[(&str, f64)]) {
 fn write_session_dir(root: &Path, session_id: &str, symbol: &str, started_utc: &str) {
     let dir = root.join(session_id);
     std::fs::create_dir_all(&dir).unwrap();
-    let json = format!(
-        "{{\"started_utc\":\"{started_utc}\",\"start_hour_utc\":2,\"instruments\":[\"{symbol}\"]}}"
+    write_session_json(
+        &dir,
+        &serde_json::json!({
+            "started_utc": started_utc,
+            "start_hour_utc": 2,
+            "instruments": [symbol],
+        }),
     );
-    std::fs::write(dir.join("session.json"), json).unwrap();
     let header = crate::binlog::Header {
         tick_e9: super::super::test_support::FIX_TICK_E9,
         step_e9: 1_000_000,

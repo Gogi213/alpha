@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::lob::test_support::write_session_json;
 
 // -----------------------------------------------------------------
 // `sessions_needed_for_profile`, `g0_verdict`, `power_b_gap` — синтетика.
@@ -33,15 +34,16 @@ fn battle_counted_tail_minutes_is_half_the_window() {
 #[test]
 fn battle_window_reads_pilot_minutes_from_session_json() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("session.json"),
-        r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":1800,
-           "instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,
-           "parse_p99_ns":0,"queue_p99_ns":0,"cpu_pct_avg":0.0,"cpu_pct_max":0.0,
-           "rss_bytes_start":0,"rss_bytes_end":0,"out":".","debug":true,
-           "pilot":true,"pilot_minutes":30}"#,
-    )
-    .unwrap();
+    write_session_json(
+        dir.path(),
+        &serde_json::json!({
+            "started_utc": "2026-09-08T00:00:00Z", "start_hour_utc": 0, "duration_s": 1800,
+            "instruments": ["SOLUSDT"], "records_total": 0, "gaps": 0, "clock_samples": 0,
+            "parse_p99_ns": 0, "queue_p99_ns": 0, "cpu_pct_avg": 0.0, "cpu_pct_max": 0.0,
+            "rss_bytes_start": 0, "rss_bytes_end": 0, "out": ".", "debug": true,
+            "pilot": true, "pilot_minutes": 30,
+        }),
+    );
     let window = resolve_battle_window_minutes(dir.path(), 2);
     assert_eq!(
         window, 30.0,
@@ -55,14 +57,15 @@ fn battle_window_reads_pilot_minutes_from_session_json() {
 #[test]
 fn battle_window_falls_back_to_duration_s_when_not_a_pilot_session() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("session.json"),
-        r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":600,
-           "instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,
-           "parse_p99_ns":0,"queue_p99_ns":0,"cpu_pct_avg":0.0,"cpu_pct_max":0.0,
-           "rss_bytes_start":0,"rss_bytes_end":0,"out":".","debug":true}"#,
-    )
-    .unwrap();
+    write_session_json(
+        dir.path(),
+        &serde_json::json!({
+            "started_utc": "2026-09-08T00:00:00Z", "start_hour_utc": 0, "duration_s": 600,
+            "instruments": ["SOLUSDT"], "records_total": 0, "gaps": 0, "clock_samples": 0,
+            "parse_p99_ns": 0, "queue_p99_ns": 0, "cpu_pct_avg": 0.0, "cpu_pct_max": 0.0,
+            "rss_bytes_start": 0, "rss_bytes_end": 0, "out": ".", "debug": true,
+        }),
+    );
     let window = resolve_battle_window_minutes(dir.path(), 2);
     assert_eq!(window, 10.0);
 }
@@ -591,11 +594,14 @@ fn debug_chain_backtests_each_symbol_and_never_writes_a_runs_csv() {
     // Таск 19, часть 2: `backtest.rs::run_backtest` находит
     // `SOLUSDT-2026-09-08.binlog` напрямую через `super::
     // session_binlog_for` — алиас без даты больше не нужен здесь.
-    std::fs::write(
-        session_dir.join("session.json"),
-        r#"{"started_utc":"2026-09-08T00:00:00Z","start_hour_utc":0,"duration_s":300,"instruments":["SOLUSDT"],"records_total":0,"gaps":0,"clock_samples":0,"parse_p99_ns":0,"out":"."}"#,
-    )
-    .unwrap();
+    write_session_json(
+        &session_dir,
+        &serde_json::json!({
+            "started_utc": "2026-09-08T00:00:00Z", "start_hour_utc": 0, "duration_s": 300,
+            "instruments": ["SOLUSDT"], "records_total": 0, "gaps": 0, "clock_samples": 0,
+            "parse_p99_ns": 0, "out": ".",
+        }),
+    );
 
     let candidates_csv = pilot_root.join("candidates.csv");
     std::fs::write(&candidates_csv, "symbol,coverage_top50_bps\nSOLUSDT,50.0\n").unwrap();
