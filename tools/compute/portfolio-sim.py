@@ -12,6 +12,11 @@
   следующей минуты (минутные свечи монеты `ref-<SYM>-1m.csv`; издержки круга — как у сделки в бэктесте);
 - `--exclude-set имя=SYM,SYM` (повторяемый) — наборы исключённых монет; всегда есть «нет».
 
+`--streak-stop N` (список через запятую, 0 — нет) — монета, закрывшая N убыточных сделок подряд за календарный месяц
+(по закрытию, только свои взятые сделки — как увидит бот), до конца месяца новых входов не получает
+(`skip["серия"]`); с нового месяца счёт серии заново. Вопрос владельца 25.09: монета с серией ещё и держит
+депозит — эффект виден только с потолком позиций `--max-pos`.
+
 `--drop SYM,SYM` — монеты вне торгового пула (В-105: TRXUSDT): их сделок нет ни в одном варианте, периоде и наборе
 исключений — в отличие от `--exclude-set`, который сравнивается с «нет».
 
@@ -227,13 +232,15 @@ def minute_curve(taken, klines, deposit, total):
     }
 
 
-def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclude, gap_pct):
+def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclude, gap_pct, streak_stop=0):
     minutes, vals = btc
     kills = [m for m, v in zip(minutes, vals) if v <= -kill_bps] if kill_bps else []
     open_pos = []  # (t1, pnl_usd, usd, sym)
     open_syms = set()
     realized = {}
-    skipped = {"позиций": 0, "день": 0, "btc": 0, "монета": 0, "занята": 0}
+    skipped = {"позиций": 0, "день": 0, "btc": 0, "монета": 0, "занята": 0, "серия": 0}
+    streak = {}  # монета → (месяц, убыточных подряд) — по закрытым своим сделкам
+    stopped = {}  # монета → месяц, до конца которого она выключена серией
     killed = no_kline = 0
     taken = []
     peak_n = 0
@@ -247,6 +254,12 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
                 d = day_of(t1)
                 realized[d] = realized.get(d, 0.0) + p
                 open_syms.discard(sym)
+                if streak_stop:
+                    month, n_loss = streak.get(sym, (d[:7], 0))
+                    n_loss = (n_loss if month == d[:7] else 0) + 1 if p <= 0 else 0
+                    streak[sym] = (d[:7], n_loss)
+                    if n_loss >= streak_stop:
+                        stopped[sym] = d[:7]
             else:
                 keep.append((t1, p, u, sym))
         open_pos = keep
@@ -256,6 +269,9 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
         settle(t0)
         if r["sym"] in exclude:
             skipped["монета"] += 1
+            continue
+        if streak_stop and stopped.get(r["sym"]) == day_of(t0)[:7]:
+            skipped["серия"] += 1
             continue
         if r["sym"] in open_syms:
             # одна позиция на монету (так торгует бот) — новый вход, пока старая не закрылась, пропускаем
@@ -330,6 +346,7 @@ def main():
     ap.add_argument("--day-stop-pct", default="0", help="дневной убыток, % депозита; 0 — нет")
     ap.add_argument("--btc-kill-bps", default="0", help="BTC за 1 ч ≤ −K bps — закрыть всё и не входить; 0 — нет")
     ap.add_argument("--exclude-set", action="append", default=[], help="имя=SYM,SYM — набор исключённых монет")
+    ap.add_argument("--streak-stop", default="0", help="N убыточных подряд за месяц — монета выключена до конца месяца; 0 — нет")
     ap.add_argument("--drop", default="", help="SYM,SYM — монеты вне торгового пула: их сделки не читаются вовсе")
     ap.add_argument("--stress-gap-pct", type=float, default=59.7)
     ap.add_argument("--json")
@@ -369,22 +386,24 @@ def main():
             data[name] = (rows, ([m for m, _ in pairs], [v for _, v in pairs]))
         variants.append((vname, set_name, form, data))
 
-    head = ["вариант", "период", "поз", "дн.стоп", "выкл", "искл", "сделок", "занята", "заполн", "прибыль$", "прирост%",
+    head = ["вариант", "период", "поз", "дн.стоп", "выкл", "искл", "серия", "сделок", "занята", "заполн", "прибыль$", "прирост%",
             "просадка%", "закр.дд%", "ф.восст", "восст.дн", "худш.сутки%", "пик$", "стресс%"]
     table, grid = [], []
-    for mp, ds, kb, (xname, xset) in itertools.product(floats(a.max_pos), floats(a.day_stop_pct), floats(a.btc_kill_bps), excl):
+    for mp, ds, kb, (xname, xset), ss in itertools.product(floats(a.max_pos), floats(a.day_stop_pct), floats(a.btc_kill_bps),
+                                                           excl, floats(a.streak_stop)):
         for vname, _, _, data in variants:
             for name in order:
                 rows, btc = data[name]
                 if not rows:
                     continue
-                r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct)
-                table.append([vname, name, int(mp) or "—", ds or "—", f"-{kb / 100:g}%" if kb else "—", xname, r["n"],
+                r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct, int(ss))
+                table.append([vname, name, int(mp) or "—", ds or "—", f"-{kb / 100:g}%" if kb else "—", xname, int(ss) or "—", r["n"],
                               r["skip"]["занята"], f"{r['fill'] * 100:.0f}%", f"{r['total_usd']:+.0f}", f"{r['total_pct']:+.2f}",
                               f"-{r['dd_pct']:.2f}", f"-{r['dd_closed_pct']:.2f}",
                               "—" if r["rf"] is None else f"{r['rf']:.1f}", f"{r['rec_days']:.1f}" + ("+" if r["unrecovered"] else ""),
                               f"{r['worst_day_pct']:+.2f}", f"{r['peak_usd']:.0f}", f"-{r['stress_pct']:.1f}"])
                 grid.append({"variant": vname, "epoch": name, "max_pos": int(mp), "day_stop": ds, "kill": kb, "exclude": xname,
+                             "streak_stop": int(ss),
                              **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()}})
     widths = [max(len(str(x)) for x in col) for col in zip(head, *table)]
     for row in [head] + table:

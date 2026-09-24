@@ -171,7 +171,8 @@ def sharpe_sortino(daily_pct, annualize=365):
 def account_row(grid, variant_name, epoch_name, max_pos, day_stop, kill, exclude_name):
     for g in grid:
         if (g["variant"] == variant_name and g["epoch"] == epoch_name and g["max_pos"] == max_pos
-                and g["day_stop"] == day_stop and g["kill"] == kill and g["exclude"] == exclude_name):
+                and g["day_stop"] == day_stop and g["kill"] == kill and g["exclude"] == exclude_name
+                and g.get("streak_stop", 0) == 0):
             return g
     return None
 
