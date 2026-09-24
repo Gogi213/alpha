@@ -116,8 +116,8 @@ use crate::lob::final_metrics;
 use crate::lob::shortlist::{
     best_confirmed_net_fill, build_profile_grid, confirmatory_table, decide_verdict,
     freeze_shortlist, select_shortlist, split_calendar, trials_from_runs_csv, write_shortlist_md,
-    CalendarSplit, ConfProfile, ConfirmStatus, ExplProfile, FrozenShortlist, InstrumentCoverage,
-    PreregisteredWindow, VerdictHeader,
+    CalendarSplit, ConfProfile, ConfirmRow, ConfirmStatus, ExplProfile, FrozenShortlist,
+    InstrumentCoverage, PreregisteredWindow, ShortlistVerdict, VerdictHeader,
 };
 use crate::stats;
 
@@ -1039,42 +1039,24 @@ fn run_shortlist_debug(
     })
 }
 
-/// Точка входа `lob shortlist` (таск 12, CLI). См. doc модуля для механики
-/// каждого шага и открытых мест (`G` на подтверждающей, час суток).
-pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
-    let now = args
-        .now_utc
-        .clone()
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let date = now
-        .get(..10)
-        .ok_or_else(|| anyhow::anyhow!("--now-utc некорректен: '{now}' короче 10 символов, ожидались первые 10 как YYYY-MM-DD"))?
-        .to_string();
-
-    let instruments_csv = instruments_csv_path(&args.root);
-    let pool = read_pool_symbols(&instruments_csv)?;
-    let coverages = read_coverage(&args.candidates_csv, &pool)?;
-    let grid = build_profile_grid(&coverages).map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    if args.allow_unverified {
-        return run_shortlist_debug(args, &date, &grid);
-    }
-
-    let dirs = session_dirs(&args.root)?;
-    let by_day = group_by_day(&dirs);
-    let days: Vec<String> = by_day.keys().cloned().collect();
-    let split = load_or_write_boundary(&args.preregistration, &days)?;
-
-    // Разведочная: боевой прогон — пишет runs.csv (испытания реальны),
-    // включая тесты на час (`profiles.rs`, ремонт по ревью таска 12,
-    // открытый пункт (2)). Число испытаний для DSR (R47) — фактические
-    // строки журнала, а не номинал сетки: `trials_from_runs_csv`, не
-    // `total_trials(grid.len(), 0)`.
+/// Разведочная фаза (боевой прогон сетки на разведочных сутках — пишет
+/// `runs.csv`, испытания реальны, включая тесты на час) → отбор `n >= 100` →
+/// заморозка коммитом. Часть `run_shortlist`, разрезанной на пять шагов
+/// (W10 ревью 23.09: была одна функция ~280 строк). Число испытаний для DSR
+/// (R47) — фактические строки журнала, а не номинал сетки:
+/// `trials_from_runs_csv`, не `total_trials(grid.len(), 0)`.
+fn run_exploratory(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    split: &CalendarSplit,
+    grid: &[String],
+) -> anyhow::Result<(FrozenShortlist, usize)> {
     let expl_scratch = ScratchRoot::new("expl")?;
     build_filtered_root(
         expl_scratch.path(),
-        &instruments_csv,
-        &by_day,
+        instruments_csv,
+        by_day,
         &split.exploratory,
     )?;
     let expl_preregistration =
@@ -1109,13 +1091,61 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
     })?;
     let frozen = freeze_shortlist(&ids, &commit, trials);
     write_frozen_shortlist_file(&args.freeze_out, &frozen)?;
+    Ok((frozen, trials))
+}
 
-    // Подтверждающая: времянка на runs_out — не новое испытание (Decision 27).
+/// Строки `ConfProfile` замороженных id против таблицы прогона: `n`/`g`
+/// реальны (`profiles.rs` считает годные сутки), `observed_sharpe` — когда
+/// тройка RTT/лота включила `BacktestFillModel`, иначе `None`, честно.
+/// Общий шаг подтверждающей и джекнайфа (W10 ревью 23.09) — раньше был
+/// вставлен дважды подряд с тем же списком полей.
+fn conf_profiles_from_table(
+    frozen: &FrozenShortlist,
+    table: &BTreeMap<String, ProfileNums>,
+    order_size_usd: &BTreeMap<String, f64>,
+) -> Vec<ConfProfile> {
+    frozen
+        .ids()
+        .iter()
+        .map(|id| {
+            let nums = table.get(id);
+            ConfProfile {
+                id: id.clone(),
+                n: nums.map(|p| p.n).unwrap_or(0),
+                g: nums.map_or(0, |p| p.g),
+                net_fill: nums.and_then(|p| p.net_fill),
+                net_fill_lower: nums.and_then(|p| p.net_fill_lower),
+                observed_sharpe: nums.and_then(|p| p.observed_sharpe),
+                order_size_usd: symbol_from_profile_id(id)
+                    .and_then(|s| order_size_usd.get(s))
+                    .copied(),
+            }
+        })
+        .collect()
+}
+
+/// Подтверждающая фаза: прогон сетки на подтверждающих сутках (времянка на
+/// `runs_out` — не новое испытание, Decision 27) → таблица подтверждения →
+/// вердикт. Часть `run_shortlist` (W10 ревью 23.09).
+fn run_confirmatory(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    split: &CalendarSplit,
+    pool: &[String],
+    frozen: &FrozenShortlist,
+    trials: usize,
+) -> anyhow::Result<(
+    Vec<ConfirmRow>,
+    ShortlistVerdict,
+    Vec<ConfProfile>,
+    BTreeMap<String, f64>,
+)> {
     let conf_scratch = ScratchRoot::new("conf")?;
     build_filtered_root(
         conf_scratch.path(),
-        &instruments_csv,
-        &by_day,
+        instruments_csv,
+        by_day,
         &split.confirmatory,
     )?;
     let conf_runs_scratch = ScratchRoot::new("conf-runs")?;
@@ -1130,37 +1160,40 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         args,
     )?;
     let conf_table = read_profile_table(&conf_csv)?;
-    // `G` реален (ремонт по ревью таска 12, открытый пункт (1)): `profiles.rs`
-    // считает годные сутки на профиль и несёт их колонкой `g`. `observed_sharpe`
-    // (таск 16) — та же таблица, следующая колонка: реальное число, когда
-    // `--median-rtt-ns`/`--p95-rtt-ns`/`--order-qty-e9` включили
-    // `BacktestFillModel` (`resolve_fill_model`); без тройки — по-прежнему
-    // `None` (`NoFillModel`, `not_measured` в файле), и `decide_profile`
-    // честно печатает `unconfirmed`, а не подделывает `confirmed`.
-    let order_size_usd = read_order_size_usd(&args.candidates_csv, &pool)?;
-    let conf_profiles: Vec<ConfProfile> = frozen
-        .ids()
-        .iter()
-        .map(|id| {
-            let nums = conf_table.get(id);
-            ConfProfile {
-                id: id.clone(),
-                n: nums.map(|p| p.n).unwrap_or(0),
-                g: nums.map_or(0, |p| p.g),
-                net_fill: nums.and_then(|p| p.net_fill),
-                net_fill_lower: nums.and_then(|p| p.net_fill_lower),
-                observed_sharpe: nums.and_then(|p| p.observed_sharpe),
-                order_size_usd: symbol_from_profile_id(id)
-                    .and_then(|s| order_size_usd.get(s))
-                    .copied(),
-            }
-        })
-        .collect();
-    let rows = confirmatory_table(Some(&frozen), &conf_profiles, trials)
+    let order_size_usd = read_order_size_usd(&args.candidates_csv, pool)?;
+    let conf_profiles = conf_profiles_from_table(frozen, &conf_table, &order_size_usd);
+    let rows = confirmatory_table(Some(frozen), &conf_profiles, trials)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let verdict = decide_verdict(&rows);
+    Ok((rows, verdict, conf_profiles, order_size_usd))
+}
 
-    // DSR в шапке (таск 16): тот же профиль, что выносит `value_bps`
+/// Числа шапки, не считая джекнайфа: DSR подтверждённого профиля, PBO/CPCV
+/// процедуры отбора, фактический `G`. Часть `run_shortlist` (W10 ревью
+/// 23.09) — три независимых вычисления над одними и теми же входами
+/// (строки подтверждающей, сетка, окно), которые раньше были одним куском
+/// без имени.
+struct HeaderMetrics {
+    /// Deflated Sharpe Ratio — см. `VerdictHeader::dsr`.
+    dsr: Option<f64>,
+    /// PBO/CPCV процедуры отбора — см. `VerdictHeader`.
+    matrix: MatrixMetrics,
+    /// Фактическое число годных суток — см. `VerdictHeader::g`.
+    g_for_header: Option<u64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn header_metrics(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    split: &CalendarSplit,
+    grid: &[String],
+    rows: &[ConfirmRow],
+    conf_profiles: &[ConfProfile],
+    trials: usize,
+) -> anyhow::Result<HeaderMetrics> {
+    // DSR (таск 16): тот же профиль, что выносит `value_bps`
     // (`best_confirmed_net_fill` — лучший подтверждённый по `net_fill`), тем
     // же порогом, что `decide_profile` уже применил к нему
     // (`final_metrics::dsr_for_trial_count`, skew/kurtosis нормального ряда —
@@ -1196,79 +1229,90 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .collect::<std::collections::BTreeSet<String>>()
         .into_iter()
         .collect();
-    let matrix = matrix_metrics(args, &instruments_csv, &by_day, &matrix_days, &grid)?;
-
-    // Джекнайф-по-суткам (A03): пересчитывает `best_confirmed_net_fill` на
-    // подтверждающей без одних суток за раз (тем же `run_profiles_over`, во
-    // времянку, не новое испытание — doc `final_metrics::jackknife_sensitivity`:
-    // «вызывающий считает их отдельными прогонами»). Меньше двух суток на
-    // подтверждающей — исключать не из чего, `None`.
-    let jackknife = if split.confirmatory.len() >= 2 {
-        let mut leave_one_out = Vec::new();
-        for excluded in &split.confirmatory {
-            let subset_days: Vec<String> = split
-                .confirmatory
-                .iter()
-                .filter(|d| *d != excluded)
-                .cloned()
-                .collect();
-            let loo_scratch = ScratchRoot::new(&format!("loo-{excluded}"))?;
-            build_filtered_root(loo_scratch.path(), &instruments_csv, &by_day, &subset_days)?;
-            let loo_runs_scratch = ScratchRoot::new(&format!("loo-runs-{excluded}"))?;
-            let loo_preregistration =
-                write_full_coverage_preregistration(loo_scratch.path(), &subset_days)?;
-            let loo_csv = run_profiles_over(
-                loo_scratch.path().to_path_buf(),
-                loo_runs_scratch.path().join("runs.csv"),
-                loo_runs_scratch.path().join("profiles-loo.csv"),
-                false,
-                Some(loo_preregistration),
-                args,
-            )?;
-            let loo_table = read_profile_table(&loo_csv)?;
-            let loo_profiles: Vec<ConfProfile> = frozen
-                .ids()
-                .iter()
-                .map(|id| {
-                    let nums = loo_table.get(id);
-                    ConfProfile {
-                        id: id.clone(),
-                        n: nums.map(|p| p.n).unwrap_or(0),
-                        g: nums.map_or(0, |p| p.g),
-                        net_fill: nums.and_then(|p| p.net_fill),
-                        net_fill_lower: nums.and_then(|p| p.net_fill_lower),
-                        observed_sharpe: nums.and_then(|p| p.observed_sharpe),
-                        order_size_usd: symbol_from_profile_id(id)
-                            .and_then(|s| order_size_usd.get(s))
-                            .copied(),
-                    }
-                })
-                .collect();
-            if let Ok(loo_rows) = confirmatory_table(Some(&frozen), &loo_profiles, trials) {
-                if let Some(v) = best_confirmed_net_fill(&loo_rows) {
-                    leave_one_out.push((excluded.clone(), v));
-                }
-            }
-        }
-        final_metrics::jackknife_sensitivity(&leave_one_out)
-    } else {
-        None
-    };
-
-    // Шапка (критерий приёмки таска 13, числа — таск 16): значение вердикта,
-    // DSR реален, когда есть подтверждённый профиль; PBO/CPCV — см. выше;
-    // фактический `G` (максимум среди измеренных строк — тот, на котором
-    // вердикт мог состояться), разрешение сетки Уэбба на этом `G`,
-    // джекнайф-по-суткам — реален при ≥ 2 сутках подтверждающей.
+    let matrix = matrix_metrics(args, instruments_csv, by_day, &matrix_days, grid)?;
+    // Фактический `G` — максимум среди измеренных строк (тот, на котором
+    // вердикт мог состояться).
     let g_for_header = rows
         .iter()
         .filter(|r| r.status != ConfirmStatus::InsufficientData)
         .map(|r| r.g)
         .max();
-    // Окно «сейчас» (ticket 21, R57) — то же самое, выведенное из уже
-    // решённой границы `split` (файл предрегистрации), не новое число:
-    // границы — крайние даты `exploratory`/`confirmatory`, сессии
-    // внутри/вне — по тем же суткам `by_day`, что уже строили времянки выше.
+    Ok(HeaderMetrics {
+        dsr,
+        matrix,
+        g_for_header,
+    })
+}
+
+/// Джекнайф-по-суткам (A03): пересчитывает `best_confirmed_net_fill` на
+/// подтверждающей без одних суток за раз (тем же `run_profiles_over`, во
+/// времянку, не новое испытание — doc `final_metrics::jackknife_sensitivity`:
+/// «вызывающий считает их отдельными прогонами»). Меньше двух суток на
+/// подтверждающей — исключать не из чего, `None`. Часть `run_shortlist`
+/// (W10 ревью 23.09).
+fn jackknife_by_day(
+    args: &ShortlistArgs,
+    instruments_csv: &Path,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    split: &CalendarSplit,
+    frozen: &FrozenShortlist,
+    order_size_usd: &BTreeMap<String, f64>,
+    trials: usize,
+) -> anyhow::Result<Option<final_metrics::JackknifeSensitivity>> {
+    if split.confirmatory.len() < 2 {
+        return Ok(None);
+    }
+    let mut leave_one_out = Vec::new();
+    for excluded in &split.confirmatory {
+        let subset_days: Vec<String> = split
+            .confirmatory
+            .iter()
+            .filter(|d| *d != excluded)
+            .cloned()
+            .collect();
+        let loo_scratch = ScratchRoot::new(&format!("loo-{excluded}"))?;
+        build_filtered_root(loo_scratch.path(), instruments_csv, by_day, &subset_days)?;
+        let loo_runs_scratch = ScratchRoot::new(&format!("loo-runs-{excluded}"))?;
+        let loo_preregistration =
+            write_full_coverage_preregistration(loo_scratch.path(), &subset_days)?;
+        let loo_csv = run_profiles_over(
+            loo_scratch.path().to_path_buf(),
+            loo_runs_scratch.path().join("runs.csv"),
+            loo_runs_scratch.path().join("profiles-loo.csv"),
+            false,
+            Some(loo_preregistration),
+            args,
+        )?;
+        let loo_table = read_profile_table(&loo_csv)?;
+        let loo_profiles = conf_profiles_from_table(frozen, &loo_table, order_size_usd);
+        if let Ok(loo_rows) = confirmatory_table(Some(frozen), &loo_profiles, trials) {
+            if let Some(v) = best_confirmed_net_fill(&loo_rows) {
+                leave_one_out.push((excluded.clone(), v));
+            }
+        }
+    }
+    Ok(final_metrics::jackknife_sensitivity(&leave_one_out))
+}
+
+/// Окно «сейчас» (ticket 21, R57), шапка вердикта, путь по умолчанию и запись
+/// `docs/findings/shortlist-<дата>.md` — последний шаг `run_shortlist`
+/// (W10 ревью 23.09). Окно — то же самое, выведенное из уже решённой границы
+/// `split` (файл предрегистрации), не новое число: границы — крайние даты
+/// `exploratory`/`confirmatory`, сессии внутри/вне — по тем же суткам
+/// `by_day`, что уже строили времянки выше.
+#[allow(clippy::too_many_arguments)]
+fn write_shortlist_result(
+    args: &ShortlistArgs,
+    date: &str,
+    by_day: &BTreeMap<String, Vec<PathBuf>>,
+    split: &CalendarSplit,
+    frozen: &FrozenShortlist,
+    rows: &[ConfirmRow],
+    verdict: ShortlistVerdict,
+    trials: usize,
+    metrics: HeaderMetrics,
+    jackknife: Option<final_metrics::JackknifeSensitivity>,
+) -> anyhow::Result<ShortlistSummary> {
     let window_bounds = PreregisteredWindow {
         start: split.exploratory.first().cloned().unwrap_or_default(),
         end: split.confirmatory.last().cloned().unwrap_or_default(),
@@ -1292,15 +1336,16 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         sessions_in_window,
         sessions_outside_window,
     )?;
+    let g_for_header = metrics.g_for_header;
     let header = VerdictHeader {
-        value_bps: best_confirmed_net_fill(&rows),
-        dsr,
-        pbo: matrix.pbo,
-        cpcv_oos_sharpe: matrix.cpcv,
-        pbo_na: matrix.pbo_na,
-        cpcv_na: matrix.cpcv_na,
-        cpcv_selection: matrix.cpcv_selection,
-        pbo_matrix: matrix.line,
+        value_bps: best_confirmed_net_fill(rows),
+        dsr: metrics.dsr,
+        pbo: metrics.matrix.pbo,
+        cpcv_oos_sharpe: metrics.matrix.cpcv,
+        pbo_na: metrics.matrix.pbo_na,
+        cpcv_na: metrics.matrix.cpcv_na,
+        cpcv_selection: metrics.matrix.cpcv_selection,
+        pbo_matrix: metrics.matrix.line,
         g: g_for_header,
         p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
         jackknife,
@@ -1311,7 +1356,7 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .out
         .clone()
         .unwrap_or_else(|| PathBuf::from(format!("docs/findings/shortlist-{date}.md")));
-    write_shortlist_md(&out, &date, &frozen, &rows, verdict, &header)
+    write_shortlist_md(&out, date, frozen, rows, verdict, &header)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     Ok(ShortlistSummary {
@@ -1321,6 +1366,70 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         shortlisted: frozen.ids().len(),
         verdict: Some(verdict.to_string()),
     })
+}
+
+/// Точка входа `lob shortlist` (таск 12, CLI). Разведочная → подтверждающая →
+/// числа шапки → джекнайф → запись — пять шагов ниже (W10 ревью 23.09:
+/// разрезка бывшей ~280-строчной функции, поведение и файлы не изменились).
+/// См. doc модуля для механики каждого шага и открытых мест (`G` на
+/// подтверждающей, час суток).
+pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
+    let now = args
+        .now_utc
+        .clone()
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let date = now
+        .get(..10)
+        .ok_or_else(|| anyhow::anyhow!("--now-utc некорректен: '{now}' короче 10 символов, ожидались первые 10 как YYYY-MM-DD"))?
+        .to_string();
+
+    let instruments_csv = instruments_csv_path(&args.root);
+    let pool = read_pool_symbols(&instruments_csv)?;
+    let coverages = read_coverage(&args.candidates_csv, &pool)?;
+    let grid = build_profile_grid(&coverages).map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    if args.allow_unverified {
+        return run_shortlist_debug(args, &date, &grid);
+    }
+
+    let dirs = session_dirs(&args.root)?;
+    let by_day = group_by_day(&dirs);
+    let days: Vec<String> = by_day.keys().cloned().collect();
+    let split = load_or_write_boundary(&args.preregistration, &days)?;
+
+    let (frozen, trials) = run_exploratory(args, &instruments_csv, &by_day, &split, &grid)?;
+    let (rows, verdict, conf_profiles, order_size_usd) = run_confirmatory(
+        args,
+        &instruments_csv,
+        &by_day,
+        &split,
+        &pool,
+        &frozen,
+        trials,
+    )?;
+    let metrics = header_metrics(
+        args,
+        &instruments_csv,
+        &by_day,
+        &split,
+        &grid,
+        &rows,
+        &conf_profiles,
+        trials,
+    )?;
+    let jackknife = jackknife_by_day(
+        args,
+        &instruments_csv,
+        &by_day,
+        &split,
+        &frozen,
+        &order_size_usd,
+        trials,
+    )?;
+
+    write_shortlist_result(
+        args, &date, &by_day, &split, &frozen, &rows, verdict, trials, metrics, jackknife,
+    )
 }
 
 #[cfg(test)]
