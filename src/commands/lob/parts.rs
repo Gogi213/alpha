@@ -53,9 +53,9 @@ pub(crate) fn day_of_filename(prefix: &str, name: &str) -> Option<String> {
 }
 
 /// Хронологический ключ файла: день, затем часть суток. Правило —
-/// `binlog::binlog_file_order_key` (одно на все слои: `commands::lob`,
-/// `lob::export`, `bybit::verify`); обёртка осталась, потому что этим именем
-/// её зовут `verify.rs` и тесты.
+/// `binlog::binlog_file_order_key` (одно на оба слоя: `commands::lob`,
+/// `bybit::verify`); обёртка осталась, потому что этим именем её зовут
+/// `verify.rs` и тесты.
 pub(crate) fn file_order_key(prefix: &str, name: &str) -> (String, u32) {
     crate::binlog::binlog_file_order_key(prefix, name)
 }

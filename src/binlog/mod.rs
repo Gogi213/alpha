@@ -171,9 +171,9 @@ pub const BINLOG_ARCHIVE_SUFFIX: &str = ".binlog.zst";
 
 /// Отрезает суффикс суточного файла (архивный или обычный) — единственное
 /// место, где это правило записано. Живёт в `binlog`, а не в `commands`, чтобы
-/// им могли пользоваться все слои: `commands::lob` (резолверы), `lob::export`
-/// (свой обход каталога) и `bybit::verify` (своя копия резолвера — `bybit` не
-/// зависит от `commands`, граница слоёв). `None` — не имя суточного файла.
+/// им могли пользоваться оба слоя: `commands::lob` (резолверы) и
+/// `bybit::verify` (своя копия резолвера — `bybit` не зависит от `commands`,
+/// граница слоёв). `None` — не имя суточного файла.
 pub fn strip_binlog_suffix(name: &str) -> Option<&str> {
     name.strip_suffix(BINLOG_ARCHIVE_SUFFIX)
         .or_else(|| name.strip_suffix(BINLOG_SUFFIX))
@@ -194,11 +194,11 @@ pub fn is_binlog_file_name(name: &str) -> bool {
 /// имени.
 ///
 /// Живёт здесь, а не в `commands`, по той же причине, что и снятие суффикса:
-/// правило нужно трём слоям (`commands::lob` — резолверы, `lob::export` —
-/// свой обход каталога, `bybit::verify` — своя копия резолвера; `bybit` не
-/// зависит от `commands`, граница слоёв). До T46 оно было второй копией в
-/// каждом из них; с двумя суффиксами копий стало бы столько же — второй
-/// способ придумать то же правило перестал быть дешевле общего.
+/// правило нужно двум слоям (`commands::lob` — резолверы, `bybit::verify` —
+/// своя копия резолвера; `bybit` не зависит от `commands`, граница слоёв). До
+/// T46 оно было второй копией в каждом из них; с двумя суффиксами копий
+/// стало бы столько же — второй способ придумать то же правило перестал быть
+/// дешевле общего.
 pub fn binlog_file_order_key(prefix: &str, name: &str) -> (String, u32) {
     let rest = name.strip_prefix(prefix).unwrap_or(name);
     let rest = strip_binlog_suffix(rest).unwrap_or(rest);

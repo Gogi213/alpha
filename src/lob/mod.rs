@@ -11,7 +11,6 @@ pub mod capacity;
 pub mod cells;
 pub mod costs;
 pub mod excursion;
-pub mod export;
 pub mod final_metrics;
 pub mod levels;
 pub mod markout;

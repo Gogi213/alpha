@@ -61,7 +61,7 @@ src/
     sim.rs          Backtest + RiskAdverseQueueModel
     live.rs         LiveBot + коннектор Bybit
   stats/          bootstrap-t на весах Уэбба, DSR, PBO, CPCV
-  commands/       CLI: record, watch, pick, verify, levels, markout, pilot, export, probe
+  commands/       CLI: record, watch, pick, verify, levels, markout, pilot, probe
 ```
 
 Правило принадлежности: **`signal/` и `strategy/` не импортируют ни `bybit/`, ни `tokio`.**
@@ -245,7 +245,7 @@ Decision 24: апстримный `connector/src/bybit` того же репоз
 
 Оговорка к пунктам 3 и 4: греп реализован **пофайлово** — `levels.rs:689` грепает
 собственный исходник. Это работает, но не распространяется само на новые файлы:
-`markout.rs`, `watch.rs`, `export.rs` обязаны унести такой же тест, иначе гарантия
+`markout.rs`, `watch.rs` обязаны унести такой же тест, иначе гарантия
 на них не действует. Тест по дереву модулей, как обещал черновик 2, всё ещё не написан.
 
 Первые две — это то, что превращает «один код» из намерения в проверяемое свойство.

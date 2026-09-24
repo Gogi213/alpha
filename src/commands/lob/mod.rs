@@ -1,9 +1,9 @@
 //! `lob <подкоманда>` — единственная точка входа для всех чисел отчёта.
 //!
-//! Десять подкоманд, каждая — свой файл в этой директории:
-//! `pick` (0.4), `record` (0.3), `verify` (0.6), `export` (6.1) — тонкая
+//! Девять подкоманд, каждая — свой файл в этой директории:
+//! `pick` (0.4), `record` (0.3), `verify` (0.6) — тонкая
 //! печать поверх уже реализованных модулей (`commands::record`,
-//! `bybit::verify`, `lob::export`); `clock` (0.5), `probe` (6.2),
+//! `bybit::verify`); `clock` (0.5), `probe` (6.2),
 //! `levels` (1.1, 1.2), `markout` (2.1), `watch` (4.1), `pilot` (3.1) —
 //! тонкие обёртки поверх уже протестированной логики своих модулей: только
 //! CLI-аргументы, печать артефакта и коды выхода, бизнес-логики нет.
@@ -57,7 +57,6 @@ pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
-mod export;
 pub mod fee_rate;
 pub mod fill_capacity;
 mod h3;
@@ -201,8 +200,6 @@ pub enum LobCommand {
     /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
     /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
     Verify(crate::bybit::verify::VerifyArgs),
-    /// Экспорт суток в `npy` для крейта `hftbacktest` (шаг 6.1, Decision 17).
-    Export(crate::lob::export::ExportArgs),
     /// Замер смещения часов хоста против NTP и `serverTime` (шаг 0.5).
     Clock(ClockArgs),
     /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
@@ -322,7 +319,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Record(args) => record::print_summary(&args),
         LobCommand::Verify(args) => verify::print_summary(&args),
-        LobCommand::Export(args) => export::print_summary(&args),
         LobCommand::Clock(args) => {
             let rows = run_clock(&args)?;
             let violations = check_rows(&rows);

@@ -149,7 +149,7 @@ src/
                verify + verify_sidecar (сверка с REST), trade_ws, sign, clock, probe
   feed/        trait Feed; replay (бинлог), live (N сокетов, один ОС-поток)
   lob/         чистая логика: levels, markout, costs, cells, shortlist, final_metrics, watch,
-               strategy (единственная стратегия), runs, export, markup,
+               strategy (единственная стратегия), runs, markup,
                touch_axes (корзины осей касаний В-44 и сетка профилей касаний — единственное место, T36/T37)
   stats/       bootstrap-t на весах Уэбба
   commands/
