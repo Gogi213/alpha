@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Сводка титрования выхода лонга (план 2026-09-23, G9): по каждому набору и форме выхода — «история»
-и «запись» рядом: сделок, net на сделку, контроль «рост рынка», превышение, суток с превышением > 0, $.
+и «запись» рядом: сделок, net на сделку, контроль «рост рынка», превышение, суток с превышением > 0, $ — по фактической позиции сделок
+(`_lib.fill_usd_by_form`, В-93), не на условную $1000.
 
 Читает `study/placebo-<тег>-<прогон>-<набор>.csv` (placebo.py по всем формам склейки) каждой эпохи.
 Это чтение титрования, не вердикт: форма «держится», если знак net совпал в обеих эпохах при n ≥ --min-n.
@@ -9,8 +10,13 @@
 """
 import argparse
 import csv
+import importlib.util
 import os
 import re
+
+_spec = importlib.util.spec_from_file_location("_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_lib)
 
 SETS = ["t-bid-btc1h-q1", "t-bid-btc4h-q1", "t-bid-age-45"]
 
@@ -31,19 +37,26 @@ def short_form(form):
     return " · ".join(out)
 
 
-def read_epoch(study, tag):
+def read_epoch(study, tag, run_only=None):
+    """Строки сводки эпохи; доллары — из сделок прогона `<дом>/b5/<тег>-<прогон>/` (фактическая позиция, В-93)."""
     rows = {}
+    home = os.path.dirname(os.path.abspath(study))
     for name in os.listdir(study):
         m = re.match(rf"placebo-{re.escape(tag)}-(.+?)-(t-(?:bid|ask)-.+)\.csv$", name)
         if not m:
             continue
-        set_name = m.group(2)
+        run, set_name = m.group(1), m.group(2)
+        # Ревью 24.09: у тега titrg/titrb прогоны разных меток (u500r, v1 на минимальном лоте) лежат рядом, и строки
+        # одинаковых (набор, форма) перезаписывали друг друга в порядке listdir — сводка смешивала прогоны.
+        if run_only is not None and run != run_only:
+            continue
+        usd = _lib.fill_usd_by_form(os.path.join(home, "b5", f"{tag}-{run}"), set_name)
         with open(os.path.join(study, name), encoding="utf-8") as f:
             for r in csv.DictReader(f):
                 n, net = int(r["n"]), float(r["net_bps"])
                 rows[(set_name, r["form"])] = {
                     "n": n, "net": net, "control": float(r["control_bps"]), "excess": float(r["excess_bps"]),
-                    "days_pos": int(r["days_excess_pos"]), "days": int(r["days"]), "usd": net * n / 10.0,
+                    "days_pos": int(r["days_excess_pos"]), "days": int(r["days"]), "usd": usd.get(r["form"]),
                 }
     return rows
 
@@ -52,11 +65,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", required=True)
     ap.add_argument("--epoch", action="append", required=True)
+    ap.add_argument("--run", default=None, help="только этот прогон тега (например u500r для titrg/titrb)")
     ap.add_argument("--min-n", type=int, default=20)
     ap.add_argument("--csv", default=None)
     a = ap.parse_args()
     epochs = [e.split("=", 1) for e in a.epoch]
-    data = {name: read_epoch(path, a.tag) for name, path in epochs}
+    data = {name: read_epoch(path, a.tag, a.run) for name, path in epochs}
     keys = sorted({k for d in data.values() for k in d}, key=lambda k: (SETS.index(k[0]) if k[0] in SETS else 9, k[1]))
     table = []
     for set_name, form in keys:
@@ -81,7 +95,9 @@ def main():
             if row[f"{name}_n"] == "":
                 line += f" | {'—':^32}"
                 continue
-            line += (f" | {row[f'{name}_n']:>4} сд {row[f'{name}_net']:>+6.1f} bps {row[f'{name}_usd']:>+6.0f}$ "
+            u = row[f"{name}_usd"]
+            us = f"{u:>+6.0f}$" if isinstance(u, (int, float)) else f"{'—':>7}"
+            line += (f" | {row[f'{name}_n']:>4} сд {row[f'{name}_net']:>+6.1f} bps {us} "
                      f"прев {row[f'{name}_excess']:>+5.1f}")
         print(line + f" | {row['holds']}")
     if a.csv and table:

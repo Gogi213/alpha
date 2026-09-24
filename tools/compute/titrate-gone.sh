@@ -18,7 +18,7 @@ LOG="$A/study/titrate-gone-$TAG.log"
 
 fail=0
 "$SELF_DIR/titrate-forms.sh" gone "$TAG" || fail=1
-python3 "$A/bin/exit-titration-read.py" --tag "titrg" --epoch "история=$HIST/study" --epoch "запись=$A/study" \
+python3 "$A/bin/exit-titration-read.py" --tag "titrg" --run "$TAG" --epoch "история=$HIST/study" --epoch "запись=$A/study" \
   --csv "$A/study/titrate-gone-$TAG.csv" > "$A/study/titrate-gone-$TAG.txt" 2>>"$LOG"
 echo "== $(date -u +%FT%TZ) titrate-gone $TAG: готово → study/titrate-gone-$TAG.txt" | tee -a "$LOG"
 exit "$fail"
