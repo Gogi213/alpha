@@ -24,6 +24,8 @@ ssh "${KEY[@]}" ubuntu@139.99.91.22 'systemctl is-active alpha-collector | sed "
   d=$(date -u +%F); cd /opt/alpha/root 2>/dev/null || exit 0
   # Только последняя часть монеты (-pN после перезапуска): закрытые части суток расти и не должны (24.09).
   latest=$(ls -t ./*-"$d"*.binlog 2>/dev/null | sed "s|^\./||" | awk -F"-$d" "!seen[\$1]++")
+  # Только монеты текущего пула: снятые (A8.1) закрыли файлы и молчат законно (25.09: 24 снятых 24.09 дали ложную тревогу).
+  latest=$(for f in $latest; do grep -q "^${f%%-$d*}," instruments.csv && echo "$f"; done)
   all=$(printf "%s
 " "$latest" | grep -c .); quiet=$(for f in $latest; do find "./$f" -mmin +5; done | sed "s|^\./||; s|-$d.*||" | sort -u)
   n=$(printf "%s" "$quiet" | grep -c .); echo "   молчат > 5 мин: $n из $all$( [ "$n" -gt 0 ] && echo ": $(echo $quiet | cut -c1-150)")"
