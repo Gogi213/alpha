@@ -323,7 +323,6 @@ fn read_order_size_usd(
         let row = row?;
         if let Some(usd_e9) = row.order_size_notional_usd_e9 {
             if pool.contains(&row.symbol) {
-                #[allow(clippy::cast_precision_loss)]
                 out.insert(row.symbol, usd_e9 as f64 / 1e9);
             }
         }
@@ -699,7 +698,6 @@ pub(crate) fn select_best_mean_net(trials: &[Vec<f64>], is_periods: &[usize]) ->
         if vals.is_empty() {
             continue;
         }
-        #[allow(clippy::cast_precision_loss)]
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         if best.is_none_or(|(_, b)| mean > b) {
             best = Some((i, mean));
@@ -868,7 +866,6 @@ fn write_full_coverage_preregistration(
     Ok(path)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_profiles_over(
     root: PathBuf,
     runs_out: PathBuf,
@@ -1049,7 +1046,10 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         .now_utc
         .clone()
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-    let date = now.get(..10).unwrap_or("1970-01-01").to_string();
+    let date = now
+        .get(..10)
+        .ok_or_else(|| anyhow::anyhow!("--now-utc некорректен: '{now}' короче 10 символов, ожидались первые 10 как YYYY-MM-DD"))?
+        .to_string();
 
     let instruments_csv = instruments_csv_path(&args.root);
     let pool = read_pool_symbols(&instruments_csv)?;
@@ -1302,7 +1302,6 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
         cpcv_selection: matrix.cpcv_selection,
         pbo_matrix: matrix.line,
         g: g_for_header,
-        #[allow(clippy::cast_possible_truncation)]
         p_grid_resolution: g_for_header.map(|g| stats::webb_p_grid_resolution(g as u32)),
         jackknife,
         window: window_line,

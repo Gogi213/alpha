@@ -1230,7 +1230,6 @@ pub struct VerdictHeader {
 /// в трёх предрегистрированных исходах (R50–R54, R68) с гейтом, значением,
 /// порогом, `N`, DSR/PBO/CPCV, `G`, `p` и джекнайфом (A03) — отдельного
 /// файла-отчёта нет (§5 задачи), всё это — шапка данного файла.
-#[allow(clippy::too_many_arguments)]
 pub fn write_shortlist_md(
     path: &Path,
     date: &str,

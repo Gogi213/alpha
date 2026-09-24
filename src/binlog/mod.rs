@@ -1078,7 +1078,6 @@ fn read_header_tail<R: Read>(body: &mut Body<R>, before: usize) -> Result<Header
 /// `filled < buf.len()`. Развёртка в `get` невозможна без смены контракта
 /// чтения (`Read::read` требует `&mut [u8]`), поэтому заглушка именная,
 /// на функцию.
-#[allow(clippy::indexing_slicing)]
 fn read_upto<R: Read>(r: &mut R, buf: &mut [u8]) -> io::Result<ReadStatus> {
     if buf.is_empty() {
         return Ok(ReadStatus::Full);
@@ -1545,7 +1544,6 @@ impl<R: Read> Reader<R> {
     /// Срезы чанка ниже доказаны: `want ≤ READ_CHUNK = chunk.len()` через
     /// `min`, `n` из `Partial(n)` не превышает запрошенного по контракту
     /// `read_upto`; проверка через `get` в цикле ввода-вывода — мёртвый код.
-    #[allow(clippy::indexing_slicing)]
     pub fn read_body(&mut self) -> Result<Option<Vec<u8>>, BinlogError> {
         let mut len_buf = [0u8; LEN_PREFIX];
         match self.inner.read_upto(&mut len_buf)? {
