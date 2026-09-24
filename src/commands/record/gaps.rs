@@ -2,8 +2,9 @@
 //! (создать с шапкой, дописать, прочитать). Отдельно от рекордера: тот же
 //! файл пишет `lob session`, а `Recorder` — лишь один из его писателей.
 
-use std::fs::OpenOptions;
 use std::path::Path;
+
+use crate::lob::runs::{append_csv_row, ensure_csv_with_header};
 
 use super::errors::RecordError;
 
@@ -63,43 +64,17 @@ const GAPS_HEADER: [&str; 4] = ["ts_utc", "symbol", "kind", "detail"];
 
 /// Создаёт `gaps.csv` с шапкой, если его нет или он пуст. Существующий
 /// непустой файл не трогает — часовой замер не имеет права терять уже
-/// записанные разрывы (тот же приём, что `clock::append_row`).
+/// записанные разрывы (тот же приём, что `clock::append_row`). Общая точка
+/// с `lob::runs::ensure_runs_csv` — `lob::runs::ensure_csv_with_header`
+/// (W9 ревью 23.09: оба журнала одной формы, `ts_utc,symbol,kind,detail`).
 pub fn ensure_gaps_csv(path: &Path) -> Result<(), RecordError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let needs_header = std::fs::metadata(path)
-        .map(|m| m.len() == 0)
-        .unwrap_or(true);
-    if needs_header {
-        // `truncate(false)` явно: файл здесь либо отсутствует, либо нулевой
-        // длины (проверено выше) — усекать нечего, и это зафиксировано
-        // вызовом, а не умолчанием `OpenOptions`.
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
-        let mut w = csv::WriterBuilder::new()
-            .has_headers(false)
-            .from_writer(file);
-        w.write_record(GAPS_HEADER)?;
-        w.flush()?;
-    }
-    Ok(())
+    ensure_csv_with_header(path, &GAPS_HEADER)
 }
 
 /// Дописывает строку. Шапка пишется тем же вызовом, если файла не было, —
 /// вызывающему не нужно помнить про `ensure_gaps_csv` отдельно.
 pub fn append_gap_row(path: &Path, row: &GapRow) -> Result<(), RecordError> {
-    ensure_gaps_csv(path)?;
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
-    let mut w = csv::WriterBuilder::new()
-        .has_headers(false)
-        .from_writer(file);
-    w.serialize(row)?;
-    w.flush()?;
-    Ok(())
+    append_csv_row(path, &GAPS_HEADER, row)
 }
 
 /// Читает все строки. Пустого файла (ноль байт, без шапки) здесь быть не
