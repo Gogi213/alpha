@@ -1092,6 +1092,142 @@ fn ladder_legs_use_their_own_ticks_and_weights_and_a_crossing_leg_is_rejected() 
     );
 }
 
+// -----------------------------------------------------------------------
+// R3 (ревью 23.09): ноги лестницы входа — целыми шагами лота. `state.qty *
+// ladder.frac[j]` (или `qty / legs` у прежнего входа) даёт дробный лот
+// почти всегда — Bybit его не примет. `ladder_leg_qtys` — единственное
+// место округления, тесты на нём прямые (без бэктеста).
+// -----------------------------------------------------------------------
+
+/// Доли 0.5/0.25/0.25 при `qty` = 7 шагов лота: вниз до целого, остаток —
+/// на самую тяжёлую (первую) ногу. `5+1+1=7`, ни один лот не потерян и не
+/// придуман.
+#[test]
+fn ladder_leg_qtys_rounds_shares_to_whole_lot_steps_with_remainder_on_the_heaviest_leg() {
+    let fracs = [0.5, 0.25, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let out = ladder_leg_qtys(7.0, 1.0, &fracs, 3);
+    assert_eq!(&out[..3], &[5.0, 1.0, 1.0], "{out:?}");
+    assert!(
+        (out[..3].iter().sum::<f64>() - 7.0).abs() < 1e-9,
+        "сумма ног равна qty: {out:?}"
+    );
+}
+
+/// `qty` = 1 шаг лота: доля каждой ноги (0.5/0.25/0.25 от одного шага) вниз
+/// до целого — ноль, весь шаг идёт на самую тяжёлую ногу; остальные две
+/// нулевые (в `on_idle` — не ставятся, «одна нога»).
+#[test]
+fn ladder_leg_qtys_of_a_single_step_gives_the_whole_step_to_one_leg() {
+    let fracs = [0.5, 0.25, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let out = ladder_leg_qtys(1.0, 1.0, &fracs, 3);
+    assert_eq!(&out[..3], &[1.0, 0.0, 0.0], "{out:?}");
+}
+
+/// Сумма ног всегда равна `qty` — на сетке произвольных долей и шага лота
+/// (не только на круглых числах предыдущих тестов): `total_steps` целых
+/// шагов растаскиваются без остатка, откуда бы доля ни пришла.
+#[test]
+fn ladder_leg_qtys_always_sums_to_qty() {
+    let cases: [(f64, f64, [f64; 3]); 4] = [
+        (10.0, 1.0, [0.34, 0.33, 0.33]),
+        (23.0, 0.5, [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]),
+        (5.0, 0.1, [0.2, 0.3, 0.5]),
+        (0.9, 0.3, [0.5, 0.25, 0.25]),
+    ];
+    for (qty, lot, fracs3) in cases {
+        let fracs = [
+            fracs3[0], fracs3[1], fracs3[2], 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        let out = ladder_leg_qtys(qty, lot, &fracs, 3);
+        let sum: f64 = out[..3].iter().sum();
+        assert!(
+            (sum - qty).abs() < 1e-9,
+            "qty={qty} lot={lot} fracs={fracs3:?}: сумма ног {sum}, ожидали {qty}"
+        );
+        for q in &out[..3] {
+            assert!(
+                *q == 0.0 || (*q / lot - (*q / lot).round()).abs() < 1e-6,
+                "нога {q} — не целое число шагов лота {lot}"
+            );
+        }
+    }
+}
+
+/// Шаг лота неизвестен (`lot_qty = 0.0`, план без данных пула) — округление
+/// выключено, доли остаются как раньше (`qty × frac`), гейт «те же круги»
+/// формы без пула не задет.
+#[test]
+fn ladder_leg_qtys_without_a_known_lot_step_falls_back_to_plain_fractions() {
+    let fracs = [0.5, 0.25, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let out = ladder_leg_qtys(7.0, 0.0, &fracs, 3);
+    assert_eq!(&out[..3], &[3.5, 1.75, 1.75], "{out:?}");
+}
+
+/// Интеграционно (F6, через `on_idle`/`drive`): `qty` — ровно один шаг лота
+/// при долях 0.5/0.25/0.25 — ставится **одна** заявка (на самую тяжёлую
+/// ногу), не три. Прежний код звал `submit_*_order` на все три доли, и
+/// биржа получала два ордера меньше `qty_step` (`minQty`, отказ).
+#[test]
+fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
+    let mut ladder = EntryLadder::NONE;
+    assert!(ladder.push(96, 0.5));
+    assert!(ladder.push(97, 0.25));
+    assert!(ladder.push(98, 0.25));
+    let plan = TradePlan::Bounce {
+        entry_px: 98.0,
+        stop_px: 90.0,
+        take_px: 110.0,
+        deadline_ns: 30 * S,
+        entry_ttl_ns: 20 * S,
+        post_only: true,
+        trail_bps: 0.0,
+        trail_activate_bps: 0.0,
+        grid_legs: 1,
+        grid_step_px: 0.0,
+        ladder,
+        early_exit_ns: 0,
+        level_floor_qty: 0.0,
+        band_exit_bps: 0.0,
+        level_px: 95.0,
+        tick_px: 1.0,
+        take_frac: 1.0,
+        eaten_half_pct: 0.0,
+        eaten_all_pct: 0.0,
+        eaten_half_frac: 0.0,
+        level_qty: 0.0,
+        lot_qty: 1.0,
+        exit_eat_pct: 0.0,
+        exit_gone_pct: 0.0,
+        gone_trail_bps: 0.0,
+        gone_be: 0,
+    };
+    let feed = [depth_at(0, true, 95.0, 5.0), depth_at(0, false, 100.0, 5.0)];
+    let mut hbt = seam6_backtest(&feed);
+    // `qty = 1.0` — ровно один шаг лота (`lot_qty = 1.0`).
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
+
+    let actions = drive(&mut hbt, &mut state);
+
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::EntrySubmitted { .. })),
+        "вход обязан быть поставлен: {actions:?}"
+    );
+    let submitted = (1..=3)
+        .filter(|id| hbt.orders(0).get(id).is_some())
+        .count();
+    assert_eq!(
+        submitted, 1,
+        "одна нога на весь шаг лота, не три дробных: {:?}",
+        (1..=3)
+            .filter_map(|id| hbt.orders(0).get(&id).map(|o| (id, o.qty)))
+            .collect::<Vec<_>>()
+    );
+    let lower = hbt.orders(0).get(&1).expect("самая тяжёлая нога стоит");
+    assert!(close(lower.qty, 1.0), "весь шаг лота на одну ногу: {}", lower.qty);
+}
+
 /// Аудит 21.09, Б1: лимитка тейка стоит в рынке исполненной **частично**
 /// (модель очереди по объёму), а цена уходит к стопу. Раньше `ExitPending`
 /// ждала эту лимитку до конца записи — без стопа и дедлайна, и круг терял все
@@ -1227,6 +1363,76 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         gone_trail_bps: 0.0,
         gone_be: 0,
     }
+}
+
+// -----------------------------------------------------------------------
+// R4 (ревью 23.09): пыль позиции — сумма f64 частичных исполнений
+// (`entry_qty − exit_qty`) сходится не в ровный ноль, а в остаток порядка
+// шага округления; сравнение с нулём точно читало его как «позиция
+// открыта».
+// -----------------------------------------------------------------------
+
+/// `position()` — единое место допуска: остаток меньше половины шага лота
+/// плана (здесь `lot_qty = 1.0` у `f7_plan`, половина — 0.5) читается как
+/// отсутствие позиции, не как пыль.
+#[test]
+fn position_rounds_dust_below_half_lot_step_down_to_flat() {
+    let mut state =
+        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    state.entry_qty = 1.0;
+    // Остаток 1e-12 лота — то же порядок величины, что и накопленная ошибка
+    // f64 у суммы частичных исполнений (ноги лестницы, добор F4).
+    state.exit_qty = 1.0 - 1e-12;
+    assert_eq!(
+        state.position(),
+        0.0,
+        "остаток 1e-12 лота меньше половины шага лота — позиция закрыта"
+    );
+}
+
+/// Остаток настоящего лота (не пыль) остаётся видимым — допуск не глотает
+/// позицию целиком.
+#[test]
+fn position_keeps_a_real_remainder_above_half_lot_step() {
+    let mut state =
+        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    state.entry_qty = 1.0;
+    state.exit_qty = 0.3;
+    assert!(
+        (state.position() - 0.7).abs() < 1e-9,
+        "0.7 лота — настоящий остаток, не пыль: {}",
+        state.position()
+    );
+}
+
+/// Заявка выхода на пыль (R4): круг с остатком 1e-12 лота после снятия
+/// лимитки выхода уходит в `Idle` без новой заявки — `on_exit_pending`
+/// раньше видел бы `position() > 0.0` и держал круг в `ExitPending` вечно,
+/// повторяя заявку на пыль на каждом событии (биржа отклонила бы её по
+/// `minQty`). Заявки в `bot` для `order_id` нет нарочно: `observe_exit` не
+/// находит её и не меняет `exit_qty`, оставляя ровно проверяемый остаток.
+#[test]
+fn on_exit_pending_with_dust_left_goes_idle_without_a_new_exit_order() {
+    let feed = [depth_at(0, true, 100.0, 5.0), depth_at(0, false, 101.0, 5.0)];
+    let mut hbt = prob_backtest(&feed);
+    let mut state =
+        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    state.entry_qty = 1.0;
+    state.exit_qty = 1.0 - 1e-12;
+    state.phase = Phase::ExitPending {
+        order_id: 999,
+        entry_ns: 0,
+    };
+    let action = on_exit_pending(&mut hbt, &mut state, 0, 999, 0).unwrap();
+    assert!(
+        matches!(action, Action::Idle),
+        "пыль — не позиция, новой заявки выхода нет: {action:?}"
+    );
+    assert!(
+        matches!(state.phase, Phase::Idle),
+        "круг освобождён, не завис в ExitPending: {:?}",
+        state.phase
+    );
 }
 
 /// Прогон одного сигнала полным драйвером: круг закрывается страховкой на

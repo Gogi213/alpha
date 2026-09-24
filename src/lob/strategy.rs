@@ -829,8 +829,41 @@ impl StrategyState {
     /// В-78). Именно она — размер выхода и признак открытой позиции:
     /// `bot.position` крейта частичного исполнения не видит (находка F3),
     /// поэтому на нём решения о круге стоять не могут.
+    ///
+    /// R4 (ревью 23.09): `entry_qty`/`exit_qty` — суммы f64 по частичным
+    /// исполнениям (ноги лестницы, добор остатка F4), и их разность сходится
+    /// не в ровный ноль, а в пыль порядка 1e-17 — сравнение с нулём **точно**
+    /// (как было) читало её как «позиция открыта» и держало круг в
+    /// `Holding`/`ExitPending` вечно, посылая заявку выхода на пыль на каждом
+    /// событии (биржа отклонила бы её по `minQty`). Единое правило — здесь, а
+    /// не в каждой точке вызова (`sweep_orphans`, `on_exit_pending`,
+    /// `on_entry_*`, `decide_exit`, драйвер `drive_signal`): остаток меньше
+    /// половины шага лота из плана читается как отсутствие позиции — тот же
+    /// допуск, что у `lot_half` в `lob::backtest` (округление дробного выхода
+    /// вниз, В-78/E7).
     pub fn position(&self) -> f64 {
-        (self.entry_qty - self.exit_qty).max(0.0)
+        let raw = (self.entry_qty - self.exit_qty).max(0.0);
+        if raw > self.lot_dust_floor() {
+            raw
+        } else {
+            0.0
+        }
+    }
+
+    /// Половина шага лота плана — порог пыли для `position()`. План без шага
+    /// (`SpreadHold`, либо `Bounce` со старым 3-польным именем формы, где
+    /// `lot_qty` не задан/не конечен) даёт `0.0`: сравнение остаётся точным,
+    /// как было (нет данных о лоте — нет допуска).
+    fn lot_dust_floor(&self) -> f64 {
+        let lot = match self.plan {
+            TradePlan::Bounce { lot_qty, .. } => lot_qty,
+            TradePlan::SpreadHold => 0.0,
+        };
+        if lot.is_finite() && lot > 0.0 {
+            lot * 0.5
+        } else {
+            0.0
+        }
     }
 
     /// Средняя цена исполненного входа (`None` — исполнения не было).
@@ -1864,6 +1897,80 @@ where
     Ok(Action::Idle)
 }
 
+/// R3 (ревью 23.09): доли ног лестницы входа — целыми шагами лота
+/// (`lot_qty`, тот же шаг, что у дробного выхода E7 — `TradePlan::lot_qty`),
+/// не долями `f64` напрямую: `qty × frac`/`qty / legs` дают дробный лот
+/// почти всегда, и Bybit его не примет. Правило: доля каждой ноги — вниз до
+/// целого числа шагов; недостающие до целого `qty` шаги (остаток округления
+/// вниз всех ног сразу) — целиком на ногу с наибольшей долей (в форме
+/// `ladder<N>x<from>..<to>w<k>` это и есть утяжелённая нога — «основной объём
+/// к сайзу», [T 1:31:42]; на равных долях — первая по счёту). Ноге, которой
+/// не досталось ни одного шага (её доля растворилась в остатке), заявку не
+/// шлём: меньше шага лота биржа отдельным ордером не примет — это и есть
+/// «слить с соседней» (соседняя здесь — самая тяжёлая, не обязательно
+/// следующая по индексу; свободный шаг не должен теряться, а тяжёлая нога —
+/// та, что вероятнее исполнится [T 1:31:42], поэтому не расточительна).
+///
+/// Шаг `lot_qty` неизвестен (`<= 0.0` или не конечен — план без данных пула,
+/// `--order-qty-e9` без `--order-qty-from-pool`/`--order-usd`) — деление не
+/// трогаем, прежнее поведение (`qty × frac`), гейт «те же круги» не задет.
+///
+/// Сумма возвращённых долей равна `qty` (с точностью f64), пока `qty` сам —
+/// целое число шагов лота: так приходит `state.qty` от `pool_order_qty*`
+/// (В-89, размер круга уже `floor(...) × qty_step`), а `total_steps` тогда
+/// восстанавливает то же целое, что и было. `qty`, не кратный `lot_qty` (на
+/// входе этой функции не бывает), потерял бы остаток на округлении
+/// `total_steps` — не эта функция это создаёт, а не то, чем её кормят.
+fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; MAX_ENTRY_LEGS] {
+    let mut out = [0.0f64; MAX_ENTRY_LEGS];
+    if legs == 0 {
+        return out;
+    }
+    if !(lot_qty.is_finite() && lot_qty > 0.0) {
+        for (i, o) in out.iter_mut().take(legs).enumerate() {
+            *o = fracs.get(i).copied().unwrap_or(0.0) * qty;
+        }
+        return out;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let total_steps = (qty / lot_qty).round().max(0.0) as i64;
+    let mut base = [0i64; MAX_ENTRY_LEGS];
+    let mut base_sum: i64 = 0;
+    for i in 0..legs {
+        let frac = fracs.get(i).copied().unwrap_or(0.0).max(0.0);
+        #[allow(clippy::cast_precision_loss)]
+        let ideal = frac * total_steps as f64;
+        // Допуск перед округлением вниз: доля формы — отношение малых целых
+        // (1/3, 2/3, …), а `f64` даёт его не точно (`2.0/3.0*3` — не ровно
+        // `2.0`, а `1.9999999999999998`); без допуска `floor` теряет целый
+        // шаг там, где доля должна была дать его ровно (гейт «те же круги»
+        // у формы 2/3+1/3 ловил именно это). `1e-6` — на порядки больше
+        // шума f64 (~1e-15 на такой сумме) и на порядки меньше практического
+        // остатка формы (доли — сотые/третьи, не миллионные).
+        #[allow(clippy::cast_possible_truncation)]
+        let steps = if (ideal - ideal.round()).abs() < 1e-6 {
+            ideal.round() as i64
+        } else {
+            ideal.floor() as i64
+        };
+        base[i] = steps;
+        base_sum = base_sum.saturating_add(steps);
+    }
+    let remainder = total_steps.saturating_sub(base_sum).max(0);
+    let mut heaviest = 0usize;
+    for i in 1..legs {
+        if fracs.get(i).copied().unwrap_or(0.0) > fracs.get(heaviest).copied().unwrap_or(0.0) {
+            heaviest = i;
+        }
+    }
+    base[heaviest] = base[heaviest].saturating_add(remainder);
+    #[allow(clippy::cast_precision_loss)]
+    for i in 0..legs {
+        out[i] = base[i] as f64 * lot_qty;
+    }
+    out
+}
+
 /// Сигнал есть — постановка входа: одиночная лимитка, лестница `grid_*` или
 /// лестница формы F6.
 fn on_idle<MD, B>(bot: &mut B, state: &mut StrategyState, now: i64) -> Result<Action, B::Error>
@@ -1930,12 +2037,13 @@ where
     // круги». Нога, чья цена уже перекрыла лучший аск (для покупки),
     // ставится как пост-онли (`GTX`) и получает от биржи `Expired` —
     // это и есть «не ставится» (`legs_rejected`, F4/В-72).
-    let (legs, ladder, step, tick_px) = match state.plan {
+    let (legs, ladder, step, tick_px, lot_qty) = match state.plan {
         TradePlan::Bounce {
             grid_legs,
             grid_step_px,
             ladder,
             tick_px,
+            lot_qty,
             ..
         } => {
             let legs = if ladder.n > 0 {
@@ -1943,32 +2051,79 @@ where
             } else {
                 grid_legs.max(1)
             };
-            (legs, ladder, grid_step_px, tick_px)
+            (legs, ladder, grid_step_px, tick_px, lot_qty)
         }
-        TradePlan::SpreadHold => (1u8, EntryLadder::NONE, 0.0f64, 0.0f64),
+        TradePlan::SpreadHold => (1u8, EntryLadder::NONE, 0.0f64, 0.0f64, 0.0f64),
+    };
+    // R3: доли ног — целыми шагами лота (`ladder_leg_qtys`), не долями f64
+    // напрямую. Одна нога (`legs == 1`, самый частый случай — прежний вход
+    // без лестницы) несёт всю `qty` без деления вовсе (`× 1.0`/`/ 1`, точно
+    // как раньше): округлять нечего, а трогать формулу значило бы дать
+    // другое число там, где гейт «те же круги» сравнивает байты. Ёмкость
+    // округления при двух и более ногах — `MAX_ENTRY_LEGS`, как у
+    // `EntryLadder` (`push` отказывает раньше, `ladder.n` в неё всегда
+    // укладывается); легаси-путь без формы F6 (`--grid-legs` без лестницы)
+    // числом ног не ограничен — сверх ёмкости считаем долю как раньше
+    // (`qty / legs`), не по массиву.
+    let rounded_legs = legs > 1 && usize::from(legs) <= MAX_ENTRY_LEGS;
+    let leg_qtys = if rounded_legs {
+        let leg_fracs: [f64; MAX_ENTRY_LEGS] = if ladder.n > 0 {
+            ladder.frac
+        } else {
+            let mut f = [0.0f64; MAX_ENTRY_LEGS];
+            let share = 1.0 / f64::from(legs);
+            for slot in f.iter_mut().take(usize::from(legs)) {
+                *slot = share;
+            }
+            f
+        };
+        ladder_leg_qtys(state.qty, lot_qty, &leg_fracs, usize::from(legs))
+    } else {
+        [0.0f64; MAX_ENTRY_LEGS]
     };
     let first_id = state.next_order_id;
     for i in 0..u64::from(legs) {
-        // Нога лестницы формы — свой тик и своя доля; прежний вход —
-        // `px ± шаг × i` равными долями (F4: `qty / legs`).
-        let (px_i, qty_i) = if ladder.n > 0 {
-            let j = usize::try_from(i).unwrap_or(usize::from(ladder.n - 1));
+        let j = usize::try_from(i).unwrap_or(usize::from(legs.saturating_sub(1)));
+        // Нога лестницы формы — свой тик; прежний вход — `px ± шаг × i`.
+        let px_i = if ladder.n > 0 {
             if j >= usize::from(ladder.n) {
+                state.take_order_id();
                 continue;
             }
             #[allow(clippy::cast_precision_loss)]
-            (ladder.ticks[j] as f64 * tick_px, state.qty * ladder.frac[j])
+            {
+                ladder.ticks[j] as f64 * tick_px
+            }
         } else {
             #[allow(clippy::cast_precision_loss)]
-            (
-                match side {
-                    HbtSide::Buy => px + step * i as f64,
-                    _ => px - step * i as f64,
-                },
-                state.qty / f64::from(legs),
-            )
+            match side {
+                HbtSide::Buy => px + step * i as f64,
+                _ => px - step * i as f64,
+            }
         };
         let order_id = state.take_order_id();
+        let qty_i = if rounded_legs {
+            // R3: нога без ни одного целого шага лота (доля растворилась в
+            // остатке самой тяжёлой ноги) — заявку не шлём, биржа её
+            // отдельным ордером не примет (меньше шага лота). Номер заявки
+            // всё равно взят (`take_order_id` выше) — счёт ног для
+            // `entry_snapshot`/`legs_of`/битовой маски `run_round`
+            // (`first_id .. first_id + legs`) не должен разъехаться с тем,
+            // что ноги нет: они уже пропускают отсутствующий в учёте
+            // крейта id, как и здесь.
+            if leg_qtys[j] <= 0.0 {
+                continue;
+            }
+            leg_qtys[j]
+        } else if ladder.n > 0 {
+            // Одна нога лестницы формы (`ladder.n == 1`) — как раньше,
+            // `qty × frac[0]` (гейт «те же круги»).
+            state.qty * ladder.frac[j]
+        } else {
+            // Одна нога (`legs == 1`) или легаси `--grid-legs` сверх ёмкости
+            // округления — как раньше, `qty / legs`.
+            state.qty / f64::from(legs)
+        };
         match side {
             HbtSide::Buy => {
                 bot.submit_buy_order(
