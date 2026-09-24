@@ -1552,8 +1552,40 @@ async fn failed_initial_subscription_emits_disconnected_before_backoff() {
 /// пересылки в `handle_raw` и ставит `session.productive`, хотя рынок молчит,
 /// а сам факт, что `recv()` регулярно что-то отдаёт, раньше держал внешний
 /// `select!` в постоянном движении.
+/// Ритм кадров подставного транспорта, **устойчивый к отмене** `recv()`:
+/// срок следующего кадра хранится снаружи будущего и сдвигается только после
+/// выдачи кадра. `run_with_backoff` пересоздаёт `recv()` на каждом витке
+/// `select!` (тик пинга отменяет незавершённое чтение) — настоящий сокет при
+/// этом кадров не теряет, а подставной с `sleep(every)` внутри будущего
+/// начинал бы ожидание заново. На Windows таймер шагает по ~15.6 мс: пинг 10
+/// мс и кадр 5 мс оба округляются до одного шага, пинг выигрывал каждый виток,
+/// кадр не приходил никогда — и тесты ловили «мёртвый транспорт», которого
+/// нет (на Linux шаг 1 мс, там это было незаметно).
+#[derive(Clone)]
+struct Cadence {
+    every: Duration,
+    next_at: Arc<std::sync::Mutex<tokio::time::Instant>>,
+}
+
+impl Cadence {
+    fn new(every: Duration) -> Self {
+        Self {
+            every,
+            next_at: Arc::new(std::sync::Mutex::new(tokio::time::Instant::now() + every)),
+        }
+    }
+
+    /// Дождаться срока текущего кадра (срок переживает отмену) и назначить
+    /// следующий.
+    async fn wait(self) {
+        let due = *self.next_at.lock().unwrap();
+        tokio::time::sleep_until(due).await;
+        *self.next_at.lock().unwrap() = tokio::time::Instant::now() + self.every;
+    }
+}
+
 struct PongOnlyTransport {
-    pong_every: Duration,
+    cadence: Cadence,
 }
 
 impl Transport for PongOnlyTransport {
@@ -1562,9 +1594,9 @@ impl Transport for PongOnlyTransport {
     }
 
     fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
-        let pong_every = self.pong_every;
+        let cadence = self.cadence.clone();
         async move {
-            tokio::time::sleep(pong_every).await;
+            cadence.wait().await;
             Ok(Frame::Text(r#"{"op":"pong"}"#.to_string().into()))
         }
     }
@@ -1588,7 +1620,11 @@ impl TransportConnector for PongOnlyConnector {
         self.connects
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let pong_every = self.pong_every;
-        async move { Ok(PongOnlyTransport { pong_every }) }
+        async move {
+            Ok(PongOnlyTransport {
+                cadence: Cadence::new(pong_every),
+            })
+        }
     }
 }
 
@@ -1750,7 +1786,7 @@ async fn pong_only_silence_does_not_disconnect_but_warns_once_per_episode() {
 /// порога обязано дать **новое** предупреждение, а не быть проглоченным
 /// прежним `silence_warned`.
 struct TwoEpisodesTransport {
-    tick: Duration,
+    cadence: Cadence,
     calls: Arc<std::sync::atomic::AtomicUsize>,
     /// Номер вызова `recv()` (считая с 1), на котором вместо `pong`
     /// отдаётся рыночный снапшот — заканчивает первый эпизод.
@@ -1763,11 +1799,11 @@ impl Transport for TwoEpisodesTransport {
     }
 
     fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
-        let tick = self.tick;
+        let cadence = self.cadence.clone();
         let calls = self.calls.clone();
         let market_at_call = self.market_at_call;
         async move {
-            tokio::time::sleep(tick).await;
+            cadence.wait().await;
             let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             if n == market_at_call {
                 Ok(Frame::Text(orderbook_msg(
@@ -1802,7 +1838,7 @@ impl TransportConnector for TwoEpisodesConnector {
         let market_at_call = self.market_at_call;
         async move {
             Ok(TwoEpisodesTransport {
-                tick,
+                cadence: Cadence::new(tick),
                 calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
                 market_at_call,
             })
@@ -1875,7 +1911,7 @@ async fn market_event_ends_the_episode_and_the_next_silence_warns_again() {
 /// рыночные события чаще `recv_timeout` обязаны держать соединение живым
 /// сколь угодно долго, даже когда `ping_interval` короче `recv_timeout`.
 struct MarketEveryTransport {
-    market_every: Duration,
+    cadence: Cadence,
     seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -1885,10 +1921,10 @@ impl Transport for MarketEveryTransport {
     }
 
     fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
-        let market_every = self.market_every;
+        let cadence = self.cadence.clone();
         let seq = self.seq.clone();
         async move {
-            tokio::time::sleep(market_every).await;
+            cadence.wait().await;
             let u = seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             Ok(Frame::Text(orderbook_msg(
                 "snapshot",
@@ -1914,7 +1950,7 @@ impl TransportConnector for MarketEveryConnector {
         let market_every = self.market_every;
         async move {
             Ok(MarketEveryTransport {
-                market_every,
+                cadence: Cadence::new(market_every),
                 seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             })
         }
