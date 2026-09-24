@@ -80,8 +80,8 @@ use crate::stats::{count_f64, count_f64_u64, G_MIN};
 use super::profiles::{distance_bps_at_birth, distance_bucket, lifetime_bucket, size_bucket};
 use super::session::SessionSummary;
 use super::{
-    median_trade_lots_for_symbol, outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name,
-    H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
+    instruments_symbol_field, median_trade_lots_for_symbol, outcome_name, replay_symbol,
+    resolve_h3_mode_with_k, side_name, H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::commands::record::instruments_csv_path;
 
@@ -1636,15 +1636,8 @@ pub const K_STUB: f64 = 1.0;
 fn h3_k_for_symbol(instruments_csv: &Path, symbol: &str) -> Option<f64> {
     let mut r = crate::commands::lob::pick::instruments_csv_reader(instruments_csv).ok()?;
     let headers = r.headers().ok()?.clone();
-    let k_col = headers.iter().position(|h| h == "k")?;
-    let sym_col = headers.iter().position(|h| h == "symbol")?;
-    for row in r.records() {
-        let row = row.ok()?;
-        if row.get(sym_col) == Some(symbol) {
-            return row.get(k_col)?.trim().parse().ok();
-        }
-    }
-    None
+    let raw = instruments_symbol_field(&mut r, &headers, symbol, "k")?;
+    raw.trim().parse().ok()
 }
 
 /// Действующий `k` монеты — `--h3-k`, иначе колонка `k` файла — равен
