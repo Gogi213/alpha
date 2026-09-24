@@ -147,6 +147,7 @@ tr.total td { font-weight: 600; border-top: 1px solid var(--rule-strong); }
 .cal .day.empty { background: transparent; }
 .cal .day .d { font-size: 10px; color: var(--ink-3); }
 .cal .day .v { font-weight: 600; }
+.cal .mon { grid-column: 1 / -1; font: 600 11px/1.4 var(--font-mono); color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 0 2px; }
 
 /* ---------- по монетам, разбор причин ---------- */
 .reason-row { display: grid; grid-template-columns: 100px 1fr 70px 60px 70px; gap: 10px; align-items: center; font-size: 13px; }
@@ -224,21 +225,23 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   </section>
 
   <section class="panel" id="panel-coins">
-    <div class="panel-head"><h2>По монетам</h2><span class="note">клик по заголовку — сортировка</span></div>
+    <div class="panel-head"><h2>По монетам</h2><span class="note">клик по заголовку — сортировка; серия убытков — самая длинная цепочка убыточных сделок монеты подряд (по времени входа)</span></div>
     <div class="scroll"><table id="coins-table"><thead></thead><tbody></tbody></table></div>
   </section>
 
   <section class="panel" id="panel-compare">
-    <div class="panel-head"><h2>Сентябрь против августа</h2><span class="note">подбор против проверки на месяце, которого правило не видело</span></div>
+    <div class="panel-head"><h2>Сентябрь, август и два месяца подряд</h2><span class="note">подбор, проверка на месяце, которого правило не видело, и один счёт за оба</span></div>
     <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
-    <p class="note">Август правило не видело: пороги режима и выбор выхода заморожены по 01–15.09. «*» — отдельный
+    <p class="note">Август правило не видело: пороги режима и выбор выхода заморожены по 01–15.09. «Август + сентябрь» —
+      один счёт $2500 подряд с 01.08, не сумма двух месяцев. «*» — отдельный
       счёт (модель портфеля с ограничением по числу позиций) для этого варианта ещё не считался, доля в плюс — по сделкам напрямую.</p>
   </section>
 
   <section class="panel" id="panel-exit">
     <div class="panel-head"><h2>Устойчивость выхода</h2><span class="badge progress" id="exit-aug-badge">август — в расчёте</span></div>
     <p class="note">Средний результат (bps на сделку) по сетке «стоп × тейк» и по трейлингу, удержание 4 ч — сентябрь,
-      обе части вместе. Выделена точка кандидата.</p>
+      обе части вместе. Выделена точка выбранного варианта. На августе (E25) тот же выбор держится: стоп 2 % и
+      удержание 4 ч не хуже соседей в главной точке, реакция на снятие стены хуже во всех наборах.</p>
     <div class="grid2">
       <div class="scroll"><h3>Стоп × тейк</h3><table class="heat-table" id="heat-table"></table></div>
       <div class="scroll"><h3>Трейлинг: включение × откат (стоп 2 %)</h3><table class="heat-table" id="trail-table"></table></div>
@@ -248,7 +251,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   <section class="panel" id="panel-protections">
     <div class="panel-head"><h2>Защиты счёта</h2><span class="note" id="prot-scope"></span></div>
     <div class="scroll"><table id="prot-table"><thead></thead><tbody></tbody></table></div>
-    <p class="note">Показано для кандидата (просадка BTC за 1 ч, трейл 1 % / откат 1 %) — счёт $2500, одна позиция на монету.</p>
+    <p class="note">Показано для выбранного варианта и периода — счёт $2500, одна позиция на монету.</p>
   </section>
 
   <details class="methodology">
@@ -279,7 +282,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const R = {day: 0, sym: 1, t0: 2, exit: 3, net: 4, ctrl: 5, reason: 6, fill: 7, usd: 8};
   const cash = (r, posUsd) => r[R.net] / 1e4 * (r[R.usd] != null ? r[R.usd] : posUsd);
 
-  const PERIOD_LABEL = {sep: "Сентябрь", aug: "Август", crash: "Обвал"};
+  const PERIOD_LABEL = {sep: "Сентябрь", aug: "Август", augsep: "Август + сентябрь", crash: "Обвал"};
   const VARIANT_PILL = {cand: "BTC 1 ч, трейл 1/1", btc4h_trail: "BTC 4 ч, трейл 1/1", btc4h_take: "BTC 4 ч, тейк 1,75 %", nofilter: "Без фильтра"};
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
   const VARIANT_FULL = {}; D.variants.forEach(v => VARIANT_FULL[v.key] = v.label);
@@ -298,7 +301,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const hint = (id, tip) => "<span class='hint' tabindex='0' data-tip='" + tip.replace(/'/g, "&#39;") + "'>" + "?" + "</span>";
 
   // ---------- состояние ----------
-  let state = {period: "sep", variant: "cand"};
+  let state = {period: "augsep", variant: "btc4h_trail"};
 
   function periodPillLabel(key) {
     const p = D.periods.find(x => x.key === key);
@@ -314,15 +317,19 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     vt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
   }
 
-  // ---------- статус в шапке (кандидат не подтвердился) ----------
+  // ---------- статус в шапке: главный вариант (В-104) и что ещё не проверено ----------
   function renderStatus() {
-    const aug = D.account.aug.cand;
+    const acc = (p, v) => (D.account[p] || {})[v] || null;
+    const main = {sep: acc("sep", "btc4h_trail"), aug: acc("aug", "btc4h_trail"), both: acc("augsep", "btc4h_trail")};
+    const c1 = acc("aug", "cand");
     const box = document.getElementById("status-banner");
     const warnIcon = "<svg viewBox='0 0 16 16' aria-hidden='true' fill='none'><path d='M8 1.5 15 14H1L8 1.5Z' stroke='currentColor' stroke-width='1.3' stroke-linejoin='round'/><path d='M8 6v3.4M8 11.6v.1' stroke='currentColor' stroke-width='1.4' stroke-linecap='round'/></svg>";
-    box.innerHTML = "<div class='status-banner crit'>" + warnIcon +
-      "<div><div class='headline'>Кандидат (просадка BTC за 1 ч) не подтвердился вне выборки: август " + money(aug.net_usd) + " (" + pctFmt(aug.net_pct) + " на депозит)</div>" +
-      "<div class='sub'>«Просадка BTC за 4 ч» в плюсе на всех трёх отрезках (" + money(D.account.sep.btc4h_trail ? D.account.sep.btc4h_trail.net_usd : null) +
-      "* / " + money(D.account.aug.btc4h_trail.net_usd) + ") — направление для проверки, не кандидат: смотрелся один из трёх вариантов одновременно.</div></div></div>";
+    const v = x => x ? money(x.net_usd) + " (" + pctFmt(x.net_pct) + ")" : "—";
+    box.innerHTML = "<div class='status-banner warn'>" + warnIcon +
+      "<div><div class='headline'>Просадка BTC за 4 ч, трейл 1/1 — в плюсе оба месяца: сентябрь " + v(main.sep) + ", август " + v(main.aug) +
+      "; два месяца одним счётом " + v(main.both) + "</div>" +
+      "<div class='sub'>Для решения о запуске нужен третий, независимый месяц: пороги и выход подобраны на сентябре, август уже просмотрен. " +
+      "Просадка BTC за 1 ч на августе не подтвердилась: " + v(c1) + "." + (D.drop && D.drop.length ? " Вне торгового пула: " + D.drop.map(s => s.replace(/USDT$/, "")).join(", ") + "." : "") + "</div></div></div>";
   }
 
   // ---------- данные для текущего выбора ----------
@@ -403,8 +410,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
   function tunedBandPlugin(period) {
     return { id: "tuned-" + period, beforeDatasetsDraw(chart) {
-      if (period !== "sep") return;
-      const p = D.periods.find(x => x.key === "sep");
+      const p = D.periods.find(x => x.key === period);
+      if (!p || !p.tuned_from) return;
       const {ctx, chartArea: a, scales: {x}} = chart;
       if (!x) return;
       const x0 = x.getPixelForValue(Date.parse(p.tuned_from + "T00:00:00Z")), x1 = x.getPixelForValue(Date.parse(p.tuned_to + "T00:00:00Z"));
@@ -436,7 +443,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     }
     document.getElementById("equity-legend").innerHTML =
       "<span><i style='border-color:" + css("--series-3") + "'></i>капитал, $</span>" +
-      (state.period === "sep" ? "<span><i class='dash' style='border-color:" + css("--ink-3") + "'></i>16.09 — смена источника данных</span>" : "");
+      (p.boundary ? "<span><i class='dash' style='border-color:" + css("--ink-3") + "'></i>16.09 — смена источника данных</span>" : "");
     const oEq = baseOptions(); dateTicks(oEq, p.from, p.to);
     oEq.scales.y.ticks.callback = v => money(v);
     oEq.plugins.tooltip.callbacks = { title: items => dm(new Date(items[0].parsed.x).toISOString().slice(0, 10)), label: it => " капитал: " + money(it.parsed.y) };
@@ -451,9 +458,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     charts.dd = new Chart(document.getElementById("chart-drawdown"), { type: "line",
       data: {datasets: [{label: "просадка", data: ddPts, borderColor: css("--loss"), backgroundColor: css("--loss") + "33", fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.08, borderWidth: 1.5}]},
       options: oDd, plugins: [tunedBandPlugin(state.period)] });
-    document.getElementById("equity-note").textContent = state.period === "sep"
-      ? "Заштрихован период 16–20.09 — на этих сутках подбирался вход; 16.09 — переход с архива Bybit на собственный коллектор."
-      : (state.period === "aug" ? "Архив Bybit, тот же источник весь месяц." : "Обвал 10–11.10.2025 — двое суток, отдельный стресс-эпизод.");
+    document.getElementById("equity-note").textContent = {
+      sep: "Заштрихован период 16–20.09 — на этих сутках подбирался вход; 16.09 — переход с архива Bybit на собственный коллектор.",
+      aug: "Архив Bybit, тот же источник весь месяц.",
+      augsep: "Один счёт $2500 подряд с 01.08 по 23.09, не сумма двух месяцев. Август и 01–15.09 — архив Bybit, с 16.09 — собственный коллектор; заштрихован период 16–20.09, на котором подбирался вход.",
+      crash: "Обвал 10–11.10.2025 — двое суток, отдельный стресс-эпизод.",
+    }[state.period] || "";
   }
 
   // ---------- дневной результат + календарь ----------
@@ -474,21 +484,28 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function renderCalendar(daily) {
     const p = D.periods.find(x => x.key === state.period);
     const first = new Date(p.from + "T00:00:00Z"), last = new Date(p.to + "T00:00:00Z");
-    const year = first.getUTCFullYear(), month = first.getUTCMonth();
     const monthNames = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
-    document.getElementById("cal-title").textContent = "Календарь — " + monthNames[month] + " " + year;
-    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    const firstDow = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // 0=Пн
+    // все месяцы периода по порядку: у «август + сентябрь» их два
+    const months = [];
+    for (let y = first.getUTCFullYear(), m = first.getUTCMonth(); y * 12 + m <= last.getUTCFullYear() * 12 + last.getUTCMonth(); m === 11 ? (m = 0, y++) : m++) months.push([y, m]);
+    document.getElementById("cal-title").textContent = "Календарь — " + months.map(([, m]) => monthNames[m]).join(" – ") + " " + months[months.length - 1][0];
     const vals = Object.values(daily).map(Math.abs);
     const scaleMax = vals.length ? Math.max(...vals) : 1;
     let html = DOW.map(d => "<div class='dow'>" + d + "</div>").join("");
-    for (let i = 0; i < firstDow; i++) html += "<div class='day empty'></div>";
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
-      const v = daily[key];
-      let style = "";
-      if (v != null) { const t = Math.min(1, Math.abs(v) / (scaleMax || 1)); style = "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.round(t * 55) + "%, var(--surface-2))"; }
-      html += "<div class='day' style='" + style + "' title='" + key + (v != null ? ": " + money(v) : "") + "'><span class='d'>" + d + "</span>" + (v != null ? "<span class='v'>" + money(v) + "</span>" : "") + "</div>";
+    for (const [year, month] of months) {
+      if (months.length > 1) html += "<div class='mon'>" + monthNames[month] + "</div>";
+      const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      const firstDow = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // 0=Пн
+      for (let i = 0; i < firstDow; i++) html += "<div class='day empty'></div>";
+      for (let d = 1; d <= daysInMonth; d++) {
+        const key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+        const v = daily[key];
+        let style = "";
+        if (v != null) { const t = Math.min(1, Math.abs(v) / (scaleMax || 1)); style = "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.round(t * 55) + "%, var(--surface-2))"; }
+        html += "<div class='day' style='" + style + "' title='" + key + (v != null ? ": " + money(v) : "") + "'><span class='d'>" + d + "</span>" + (v != null ? "<span class='v'>" + money(v) + "</span>" : "") + "</div>";
+      }
+      const tail = (7 - (firstDow + daysInMonth) % 7) % 7;
+      if (months.length > 1) for (let i = 0; i < tail; i++) html += "<div class='day empty'></div>";
     }
     document.getElementById("calendar").innerHTML = html;
   }
@@ -529,10 +546,16 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function coinRows() {
     const {trades} = combo(state.period, state.variant);
     const by = {};
-    for (const r of trades) { const c = by[r[R.sym]] || (by[r[R.sym]] = {sym: r[R.sym], n: 0, usd: 0, sumBps: 0, win: 0}); c.n++; c.usd += cash(r, D.position_usd); c.sumBps += r[R.net]; if (r[R.net] > 0) c.win++; }
+    const ordered = [...trades].sort((a, b) => a[R.t0] - b[R.t0] || a[R.exit] - b[R.exit]);
+    for (const r of ordered) {
+      const c = by[r[R.sym]] || (by[r[R.sym]] = {sym: r[R.sym], n: 0, usd: 0, sumBps: 0, win: 0, run: 0, streak: 0});
+      c.n++; c.usd += cash(r, D.position_usd); c.sumBps += r[R.net];
+      // убыточная — всё, что не в плюс (как в «доле прибыльных»); серия — подряд по времени входа
+      if (r[R.net] > 0) { c.win++; c.run = 0; } else { c.run++; c.streak = Math.max(c.streak, c.run); }
+    }
     return Object.values(by).map(c => ({...c, win_share: c.win / c.n, avg_bps: c.sumBps / c.n}));
   }
-  const COIN_COLS = [["sym", "монета"], ["n", "сделок"], ["usd", "$"], ["win_share", "в плюс"], ["avg_bps", "bps/сделку"]];
+  const COIN_COLS = [["sym", "монета"], ["n", "сделок"], ["usd", "$"], ["win_share", "в плюс"], ["avg_bps", "bps/сделку"], ["streak", "серия убытков"]];
   function renderCoins() {
     const rows = coinRows().sort((a, b) => (a[coinSort] - b[coinSort]) * coinDir || (a.sym < b.sym ? -1 : 1));
     const thead = document.getElementById("coins-table").querySelector("thead");
@@ -540,27 +563,28 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     thead.querySelectorAll("th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (coinSort === k) coinDir *= -1; else { coinSort = k; coinDir = -1; } renderCoins(); }));
     document.getElementById("coins-table").querySelector("tbody").innerHTML = rows.map(c =>
       "<tr><td>" + c.sym.replace(/USDT$/, "") + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) +
-      "</td><td class='num'>" + Math.round(c.win_share * 100) + " %</td><td class='num " + cls(c.avg_bps) + "'>" + bpsFmt(c.avg_bps) + "</td></tr>"
+      "</td><td class='num'>" + Math.round(c.win_share * 100) + " %</td><td class='num " + cls(c.avg_bps) + "'>" + bpsFmt(c.avg_bps) + "</td>" +
+      "<td class='num'>" + c.streak + "</td></tr>"
     ).join("");
   }
 
-  // ---------- сентябрь против августа ----------
+  // ---------- сентябрь, август и два месяца подряд ----------
+  const COMPARE = [["sep", "Сентябрь"], ["aug", "Август — вне выборки"], ["augsep", "Август + сентябрь, один счёт"]];
   function renderCompare() {
-    const rows = D.variants.map(v => {
-      const s = D.account.sep[v.key], a = D.account.aug[v.key];
-      const sk = D.kpi.sep[v.key], ak = D.kpi.aug[v.key];
-      return {label: VARIANT_PILL[v.key], s: s || sk, a: a || ak, sReal: !!s, aReal: !!a};
-    });
+    const rows = D.variants.map(v => ({label: VARIANT_PILL[v.key], cols: COMPARE.map(([p]) => {
+      const acc = (D.account[p] || {})[v.key], k = (D.kpi[p] || {})[v.key];
+      return {x: acc || k, real: !!acc};
+    })}));
     const cell = (x, real) => !x ? "<td class='sep'>—</td><td></td><td></td><td></td><td></td>" :
       "<td class='num sep'>" + (x.n) + "</td><td class='num " + cls(x.net_usd) + "'>" + money(x.net_usd) + "</td>" +
       "<td class='num " + cls(x.net_pct) + "'>" + pctFmt(x.net_pct != null ? x.net_pct : x.net_usd / D.deposit_usd * 100) + "</td>" +
       "<td class='num neg'>−" + pctPlain(x.dd_pct != null ? x.dd_pct : x.dd_pct_trade) + "</td>" +
       "<td class='num'>" + Math.round((x.win_rate) * 100) + " %" + (real ? "" : "*") + "</td>";
+    const sub = "<th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th><th class='num'>в плюс</th>";
     document.getElementById("compare-table").innerHTML =
-      "<thead><tr><th></th><th class='sep' colspan='5'>Сентябрь</th><th class='sep' colspan='5'>Август — вне выборки</th></tr>" +
-      "<tr><th>вариант</th><th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th><th class='num'>в плюс</th>" +
-      "<th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th><th class='num'>в плюс</th></tr></thead>" +
-      "<tbody>" + rows.map(r => "<tr><td>" + r.label + "</td>" + cell(r.s, r.sReal) + cell(r.a, r.aReal) + "</tr>").join("") + "</tbody>";
+      "<thead><tr><th></th>" + COMPARE.map(([, l]) => "<th class='sep' colspan='5'>" + l + "</th>").join("") + "</tr>" +
+      "<tr><th>вариант</th>" + COMPARE.map(() => sub).join("") + "</tr></thead>" +
+      "<tbody>" + rows.map(r => "<tr><td>" + r.label + "</td>" + r.cols.map(c => cell(c.x, c.real)).join("") + "</tr>").join("") + "</tbody>";
   }
 
   // ---------- устойчивость выхода ----------
@@ -598,8 +622,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // ---------- защиты счёта ----------
   function renderProtections() {
     const table = document.getElementById("prot-table");
-    const rows = D.protections[state.period];
-    document.getElementById("prot-scope").textContent = PERIOD_LABEL[state.period];
+    const rows = (D.protections[state.period] || {})[state.variant];
+    document.getElementById("prot-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant];
     if (!rows) { table.innerHTML = "<tbody><tr><td>для этого периода счёт с защитами не считался</td></tr></tbody>"; return; }
     table.innerHTML = "<thead><tr><th>защита</th><th class='num'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th></tr></thead><tbody>" +
       rows.map((r, i) => "<tr" + (i === rows.length - 1 ? " class='total'" : "") + "><td>" + r.label + "</td><td class='num'>" + intFmt(r.n) + "</td>" +
@@ -614,9 +638,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     "Пороги фильтра по BTC заморожены по 01–15.09.2026 и не подбирались заново ни на записи, ни на августе, ни на обвале.",
     "Проверено около 900 сочетаний входа, стопа, тейка и удержания (титрование) — при таком числе попыток часть побеждает случайно; кандидат — это гипотеза, а не доказательство.",
     "Список исключённых монет-«прокидов» (раздел «Защиты счёта») выбран на тех же данных сентября — для августа это ещё не проверялось на новом отрезке.",
-    "Все цифры — пересчёт 24.09 со всеми исправлениями ревью: размер позиции по цене сигнала, средняя цена рыночного выхода, позиции через полночь досчитаны. Цифры страниц до 24.09 недействительны.",
+    "Все цифры — пересчёт 24.09 со всеми исправлениями ревью: размер позиции по цене сигнала, средняя цена рыночного выхода, позиции через полночь досчитаны; август — после пересчёта суток 18.08 (25.09). Цифры страниц до 24.09 недействительны.",
+    "Вне торгового пула (решение владельца 25.09): " + ((D.drop || []).map(s => s.replace(/USDT$/, "")).join(", ") || "—") + " — сделок этих монет нет ни в одном варианте и периоде, ни в счёте; коллектор их по-прежнему записывает.",
     "Фильтры «режим рынка» (кроме просадки BTC), «возраст стены» и шорт на позицию $500 ещё не пересчитаны — на странице их нет.",
-    "Не проверено: независимый второй месяц вне выборки (например, июль или октябрь), двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
+    "Не проверено: третий, независимый месяц (например, июль 2026) с предрегистрацией до счёта, двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
   ].map(t => "<li>" + t + "</li>").join("");
 
   // ---------- сборка ----------

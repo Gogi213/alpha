@@ -12,6 +12,9 @@
   следующей минуты (минутные свечи монеты `ref-<SYM>-1m.csv`; издержки круга — как у сделки в бэктесте);
 - `--exclude-set имя=SYM,SYM` (повторяемый) — наборы исключённых монет; всегда есть «нет».
 
+`--drop SYM,SYM` — монеты вне торгового пула (В-105: TRXUSDT): их сделок нет ни в одном варианте, периоде и наборе
+исключений — в отличие от `--exclude-set`, который сравнивается с «нет».
+
 Отчёт (депозит `--deposit-usd`): прирост % = прибыль / депозит; макс. просадка % — от пика капитала;
 фактор восстановления = прибыль / макс. просадка ($); восстановление — самый долгий отрезок от пика капитала до
 нового пика, дней (не вышел к концу периода — помечается). **Стресс** — сценарий «провал застал пик позиций»:
@@ -327,10 +330,12 @@ def main():
     ap.add_argument("--day-stop-pct", default="0", help="дневной убыток, % депозита; 0 — нет")
     ap.add_argument("--btc-kill-bps", default="0", help="BTC за 1 ч ≤ −K bps — закрыть всё и не входить; 0 — нет")
     ap.add_argument("--exclude-set", action="append", default=[], help="имя=SYM,SYM — набор исключённых монет")
+    ap.add_argument("--drop", default="", help="SYM,SYM — монеты вне торгового пула: их сделки не читаются вовсе")
     ap.add_argument("--stress-gap-pct", type=float, default=59.7)
     ap.add_argument("--json")
     a = ap.parse_args()
     klines = Klines(a.klines)
+    drop = set(x for x in a.drop.split(",") if x)
     excl = [("нет", set())] + [(s.split("=", 1)[0], set(x for x in s.split("=", 1)[1].split(",") if x)) for s in a.exclude_set]
 
     epochs = {}
@@ -352,7 +357,7 @@ def main():
         set_name, form = rest.split("/", 1)
         data = {}
         for name, (home, runs, btc) in epochs.items():
-            data[name] = (load_rounds(home, runs, set_name, form), btc)
+            data[name] = ([r for r in load_rounds(home, runs, set_name, form) if r["sym"] not in drop], btc)
             if not data[name][0]:
                 print(f"!! {vname}/{name}: нет сделок {set_name}/{form} в {home}/{runs}", file=sys.stderr)
         for name, parts in joins.items():
@@ -387,7 +392,7 @@ def main():
     if a.json:
         meta = {"generated_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"), "deposit_usd": a.deposit_usd,
                 "position_usd": a.position_usd,
-                "stress_gap_pct": a.stress_gap_pct, "epochs": order,
+                "stress_gap_pct": a.stress_gap_pct, "epochs": order, "drop": sorted(drop),
                 "variants": [{"name": v[0], "set": v[1], "form": v[2]} for v in variants],
                 "max_pos": [int(x) for x in floats(a.max_pos)], "day_stop": floats(a.day_stop_pct),
                 "kill": floats(a.btc_kill_bps), "exclude": [{"name": n, "coins": sorted(s)} for n, s in excl], "grid": grid}

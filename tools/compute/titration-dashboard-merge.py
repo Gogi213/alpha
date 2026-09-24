@@ -8,9 +8,12 @@
     titration-dashboard-u500r-cases.json   сентябрь (история 01–15.09 + запись 16–23.09)
     titration-dashboard-aug-u500r.json     август (форма cand/tr05/h4 по 3 наборам)
     titration-dashboard-crash-u500r.json   обвал 10–11.10.2025 (те же формы)
-    protection-u500r.json                  счёт $2500: сентябрь + обвал, 4 варианта
-    protection-aug-u500r.json              счёт $2500: август, те же 4 варианта
-    protection-aug-btc4h-u500r.json        счёт $2500: август, «BTC 4 ч, трейл 1/1» (E25)
+    protection-dash-notrx.json             счёт $2500 (portfolio-sim, один прогон): эпохи «сентябрь», «август»,
+                                           «август+сентябрь» (один счёт подряд с 01.08), «обвал»; 4 варианта
+                                           страницы; `--drop` прогона (монеты вне торгового пула, В-105) — и
+                                           сделки этих монет убираются со страницы, чтобы счёт и сделки совпадали
+
+Период «август + сентябрь» — сделки августа и сентября подряд; счёт — отдельный непрерывный прогон, не сумма двух.
 
 Выход: --out data/titration-dashboard/data-merged.json → на вход titration-dashboard-build.py.
 
@@ -22,20 +25,22 @@ import os
 import re
 import statistics as st
 
-# 4 варианта страницы: ключ → (набор, форма-суффикс из titration-dashboard-data.py).
+# 4 варианта страницы: ключ → (набор, форма-суффикс из titration-dashboard-data.py). Первый — главный (В-104).
 VARIANTS = [
-    ("cand", "просадка BTC за 1 ч, трейл 1 % / откат 1 %", "t-bid-btc1h-q1", "cand"),
     ("btc4h_trail", "просадка BTC за 4 ч, трейл 1 % / откат 1 %", "t-bid-btc4h-q1", "cand"),
     ("btc4h_take", "просадка BTC за 4 ч, тейк 1,75 %", "t-bid-btc4h-q1", "h4"),
+    ("cand", "просадка BTC за 1 ч, трейл 1 % / откат 1 %", "t-bid-btc1h-q1", "cand"),
     ("nofilter", "без фильтра просадки (база)", "t-bid-age-45", "cand"),
 ]
-# Имя варианта в protection-*.json (portfolio-sim) — где счёт посчитан отдельным прогоном.
+# Имя варианта в protection-dash-notrx.json (portfolio-sim `--variant`).
 ACCOUNT_VARIANT_NAME = {
-    "cand": "Кандидат: трейл 1/1",
+    "btc4h_trail": "BTC 4 ч: трейл 1/1",
     "btc4h_take": "BTC 4 ч: тейк 1,75 %",
+    "cand": "Кандидат: трейл 1/1",
     "nofilter": "Без фильтра просадки",
 }
-ACCOUNT_VARIANT_NAME_BTC4H = "BTC 4 ч: трейл 1/1"  # только в protection-aug-btc4h-u500r.json
+# Период страницы → эпоха portfolio-sim.
+PERIOD_EPOCH = {"sep": "сентябрь", "aug": "август", "augsep": "август+сентябрь", "crash": "обвал"}
 
 
 def load(path):
@@ -48,15 +53,17 @@ def cash(net_bps, usd, position_usd):
     return net_bps / 1e4 * u
 
 
-def trade_rows(doc, set_name, form_key, position_usd):
+def trade_rows(doc, set_name, form_key, position_usd, drop=frozenset()):
     """Строки form_trades[<set>/<form_key>] → компактные списки без имени эпохи (она не
-    нужна: период один на файл, суточная граница подэпох — в periods)."""
+    нужна: период один на файл, суточная граница подэпох — в periods); монеты `drop` — вне пула."""
     key = f"{set_name}/{form_key}"
     rows = (doc.get("form_trades") or {}).get(key) or []
     out = []
     for r in rows:
         # columns: epoch, day, symbol, t0_min, exit_min, net_bps, control_bps, reason, fill_frac, usd
         _epoch, day, sym, t0, exit_, net, ctrl, reason, fill, usd = r
+        if sym in drop:
+            continue
         out.append([day, sym, int(t0), int(exit_), round(net, 2), round(ctrl, 2), reason, fill,
                     round(usd, 2) if usd is not None else None])
     return out
@@ -226,36 +233,41 @@ def build_exit_heat(exit_agg, epoch_names):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in-dir", default="data/titration-dashboard")
+    ap.add_argument("--protection", default="protection-dash-notrx.json")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     d = a.in_dir
     sep = load(os.path.join(d, "titration-dashboard-u500r-cases.json"))
     aug = load(os.path.join(d, "titration-dashboard-aug-u500r.json"))
     crash = load(os.path.join(d, "titration-dashboard-crash-u500r.json"))
-    prot_sep = load(os.path.join(d, "protection-u500r.json"))
-    prot_aug = load(os.path.join(d, "protection-aug-u500r.json"))
-    prot_aug_b4 = load(os.path.join(d, "protection-aug-btc4h-u500r.json"))
+    prot = load(os.path.join(d, a.protection))
+    # Одна правда о пуле: монеты вне торгового пула берутся из прогона счёта — сделки страницы и счёт совпадают.
+    drop = frozenset(prot.get("drop") or [])
 
     position_usd, deposit_usd = sep["position_usd"], sep["deposit_usd"]
     hist_ep, rec_ep = sep["epochs"][0]["name"], sep["epochs"][1]["name"]
+    sep_boundary = rec_ep and sep["epochs"][1]["from"]
 
     out = {
         "generated_utc": sep["generated_utc"], "position_usd": position_usd, "deposit_usd": deposit_usd,
-        "points": sep["points"], "pool": sep.get("pool") or [],
+        "points": sep["points"], "pool": [c for c in (sep.get("pool") or []) if c not in drop], "drop": sorted(drop),
         "variants": [{"key": k, "label": lbl} for k, lbl, _, _ in VARIANTS],
         "periods": [
             {"key": "sep", "label": "Сентябрь", "from": sep["epochs"][0]["from"], "to": sep["epochs"][1]["to"],
-             "boundary": rec_ep and sep["epochs"][1]["from"], "tuned_from": "2026-09-16", "tuned_to": "2026-09-20",
+             "boundary": sep_boundary, "tuned_from": "2026-09-16", "tuned_to": "2026-09-20",
              "days": sep["days"]},
             {"key": "aug", "label": "Август", "from": aug["epochs"][0]["from"], "to": aug["epochs"][0]["to"],
              "days": aug["days"]},
+            {"key": "augsep", "label": "Август + сентябрь", "from": aug["epochs"][0]["from"], "to": sep["epochs"][1]["to"],
+             "boundary": sep_boundary, "tuned_from": "2026-09-16", "tuned_to": "2026-09-20",
+             "days": aug["days"] + sep["days"]},
             {"key": "crash", "label": "Обвал 10–11.10.2025", "from": crash["epochs"][0]["from"],
              "to": crash["epochs"][0]["to"], "days": crash["days"]},
         ],
-        "trades": {}, "kpi": {}, "account": {}, "exit_heat": {}, "protections": {}, "exit_agg_status": {"sep": "ready", "aug": "in_progress"},
+        "trades": {}, "kpi": {}, "account": {}, "exit_heat": {}, "protections": {},
+        "exit_agg_status": {"sep": "ready", "aug": "ready"},
     }
 
-    docs_by_period = {"sep": sep, "aug": aug, "crash": crash}
     # точная длина периода в минутах — по календарным суткам от from до to включительно
     import datetime as dt
     def minutes_span(frm, to):
@@ -264,32 +276,15 @@ def main():
         return int((d1 - d0).total_seconds() // 60)
     span_minutes = {p["key"]: minutes_span(p["from"], p["to"]) for p in out["periods"]}
 
-    for pkey, doc in docs_by_period.items():
-        out["trades"][pkey] = {}
-        out["kpi"][pkey] = {}
-        for vkey, _label, set_name, form_key in VARIANTS:
-            rows = trade_rows(doc, set_name, form_key, position_usd)
-            out["trades"][pkey][vkey] = rows
-            out["kpi"][pkey][vkey] = trade_stats(rows, position_usd, deposit_usd, span_minutes[pkey])
+    for pkey, doc in {"sep": sep, "aug": aug, "crash": crash}.items():
+        out["trades"][pkey] = {vkey: trade_rows(doc, set_name, form_key, position_usd, drop)
+                               for vkey, _label, set_name, form_key in VARIANTS}
+    out["trades"]["augsep"] = {vkey: out["trades"]["aug"][vkey] + out["trades"]["sep"][vkey] for vkey, *_ in VARIANTS}
+    for pkey in PERIOD_EPOCH:
+        out["kpi"][pkey] = {vkey: trade_stats(out["trades"][pkey][vkey], position_usd, deposit_usd, span_minutes[pkey])
+                            for vkey, *_ in VARIANTS}
 
-    # account (portfolio-sim) — сентябрь и обвал из protection-u500r.json, август из своих файлов
-    out["account"]["sep"] = {}
-    out["account"]["crash"] = {}
-    out["account"]["aug"] = {}
-    combo = dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")
-    for vkey, aname in ACCOUNT_VARIANT_NAME.items():
-        out["account"]["sep"][vkey] = account_summary(
-            account_row(prot_sep["grid"], aname, "сентябрь", **combo), deposit_usd)
-        out["account"]["crash"][vkey] = account_summary(
-            account_row(prot_sep["grid"], aname, "обвал", **combo), deposit_usd)
-        out["account"]["aug"][vkey] = account_summary(
-            account_row(prot_aug["grid"], aname, "август", **combo), deposit_usd)
-    out["account"]["aug"]["btc4h_trail"] = account_summary(
-        account_row(prot_aug_b4["grid"], ACCOUNT_VARIANT_NAME_BTC4H, "август", **combo), deposit_usd)
-    out["account"]["sep"]["btc4h_trail"] = None
-    out["account"]["crash"]["btc4h_trail"] = None
-
-    # защиты счёта — 3 канонических шага для варианта «кандидат», сентябрь и август
+    # счёт (portfolio-sim) и защиты — по каждому периоду и варианту, из одного прогона
     def protection_steps(grid, variant_name, epoch_name):
         steps = [
             ("Без защит", dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")),
@@ -302,8 +297,13 @@ def main():
             s = account_summary(g, deposit_usd)
             out_rows.append({"label": label, **(s or {})})
         return out_rows
-    out["protections"]["sep"] = protection_steps(prot_sep["grid"], "Кандидат: трейл 1/1", "сентябрь")
-    out["protections"]["aug"] = protection_steps(prot_aug["grid"], "Кандидат: трейл 1/1", "август")
+
+    combo = dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")
+    for pkey, epoch in PERIOD_EPOCH.items():
+        out["account"][pkey] = {vkey: account_summary(account_row(prot["grid"], aname, epoch, **combo), deposit_usd)
+                                for vkey, aname in ACCOUNT_VARIANT_NAME.items()}
+        out["protections"][pkey] = {vkey: protection_steps(prot["grid"], aname, epoch)
+                                    for vkey, aname in ACCOUNT_VARIANT_NAME.items()}
 
     heat_sep, trail_sep = build_exit_heat(sep.get("exit_agg") or [], (hist_ep, rec_ep))
     out["exit_heat"]["sep"] = {"heat": heat_sep, "trail": trail_sep}
