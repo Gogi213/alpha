@@ -18,7 +18,13 @@ echo "== дек: юниты счёта и загрузка"
 ssh "${KEY[@]}" deck@192.168.1.49 'systemctl --user list-units "alpha-*" --state=running --no-legend 2>/dev/null | awk "{print \"   \" \$1}"; cat /proc/loadavg | awk "{print \"   нагрузка: \" \$1 \" \" \$2 \" \" \$3}"; df -h ~ | tail -1 | awk "{print \"   диск: \" \$5 \" занято, свободно \" \$4}"' 2>/dev/null || echo "   недоступен"
 
 echo "== коллектор 139.99.91.22"
-ssh "${KEY[@]}" ubuntu@139.99.91.22 'systemctl is-active alpha-collector | sed "s/^/   коллектор: /"; df -h /opt/alpha | tail -1 | awk "{print \"   диск: \" \$5 \" занято, свободно \" \$4}"' 2>/dev/null || echo "   недоступен"
+ssh "${KEY[@]}" ubuntu@139.99.91.22 'systemctl is-active alpha-collector | sed "s/^/   коллектор: /"; df -h /opt/alpha | tail -1 | awk "{print \"   диск: \" \$5 \" занято, свободно \" \$4}"
+  # Наблюдение за соединениями (владелец 24.09: «ничего не рви, только следи»): монеты, чья запись за сегодня
+  # не росла больше 5 мин. Одна-две — обычно неликвид; много разом — похоже на повисшее соединение.
+  d=$(date -u +%F); cd /opt/alpha/root 2>/dev/null || exit 0
+  all=$(ls ./*-"$d"*.binlog 2>/dev/null | wc -l); quiet=$(find . -maxdepth 1 -name "*-$d*.binlog" -mmin +5 2>/dev/null | sed "s|^\./||; s|-$d.*||" | sort -u)
+  n=$(printf "%s" "$quiet" | grep -c .); echo "   молчат > 5 мин: $n из $all$( [ "$n" -gt 0 ] && echo ": $(echo $quiet | cut -c1-150)")"
+  [ "$n" -ge 10 ] && echo "   ВНИМАНИЕ: много монет молчат разом — проверить соединения"; true' 2>/dev/null || echo "   недоступен"
 
 echo "== коммиты"
 git -C "$ROOT" log --format='   основная  %h %ad %s' --date=format:%H:%M -3 | cut -c1-120
