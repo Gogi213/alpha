@@ -1418,6 +1418,7 @@ fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
+            silence_ns: None,
             detail: "разрыв u глубокого потока".to_string(),
         }),
         // Событие следующих суток приходит только быстрым потоком.
@@ -1517,6 +1518,7 @@ fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
+            silence_ns: None,
             detail: "разрыв u глубокого потока".to_string(),
         }),
         // Дельта глубокого потока в сутках D+1 — она же и ротирует его часть.
@@ -2013,6 +2015,7 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
         // Разрыв сокета и неразрешённый кадр потоку не принадлежат: сокет
         // роняет оба потока сразу (T45).
         depth: None,
+        silence_ns: None,
         detail: "разрыв".to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
@@ -2051,6 +2054,7 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
         local_ts_ns: NOON_NS,
         kind,
         depth,
+        silence_ns: None,
         detail: detail.to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
@@ -2131,6 +2135,7 @@ fn a_refused_subscription_is_counted_and_written_to_the_journal() {
             local_ts_ns: NOON_NS + 1,
             kind: FeedGapKind::SubscribeFailed,
             depth: None,
+            silence_ns: None,
             detail: "подписка не состоялась: orderbook.50.SYM — error:handler not found"
                 .to_string(),
         }),
@@ -2722,6 +2727,7 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                 local_ts_ns: NOON_NS + window_ns + 2,
                 kind: crate::feed::GapKind::Disconnected,
                 depth: None,
+                silence_ns: None,
                 detail: "снятый символ".to_string(),
             }),
             Step::Ev(Event::Tick {
@@ -3030,6 +3036,7 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::ConnectFailed,
             depth: None,
+            silence_ns: None,
             detail: "connect() отклонён биржей: HTTP 429 — Too Many Requests (попытка 1)"
                 .to_string(),
         }),

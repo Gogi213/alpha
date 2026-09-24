@@ -1598,11 +1598,12 @@ impl TransportConnector for PongOnlyConnector {
 /// довитывал внешний `select!` быстрее, чем истекал `recv_timeout` внутри
 /// него, и `pong` в ответ тоже считался «живым» кадром (`session.productive`).
 /// Сервер, отвечающий только на пинг, но переставший публиковать стакан и
-/// сделки, висел бы вечно. С доработкой тишина считается по рынку
-/// (Book/Trade), а не по кадру или тику: соединение обязано увидеть
-/// `Disconnected` и переподключиться, несмотря на непрерывный поток pong-ов.
+/// сделки, висел бы вечно. Тишина считается по рынку (Book/Trade), а не по
+/// кадру или тику — но решение владельца 24.09 меняет исход: соединение по
+/// тишине неликвидной монеты **не рвётся**, только предупреждение (`stderr`,
+/// не чаще одного на эпизод) и `ConnEvent::MarketSilence` для счётчика.
 #[tokio::test]
-async fn ping_shorter_than_recv_timeout_still_disconnects_on_pong_only_silence() {
+async fn pong_only_silence_does_not_disconnect_but_warns_once_per_episode() {
     let mut cfg = test_cfg("SOLUSDT");
     cfg.ping_interval = Duration::from_millis(10);
     cfg.recv_timeout = Duration::from_millis(40);
@@ -1614,32 +1615,155 @@ async fn ping_shorter_than_recv_timeout_still_disconnects_on_pong_only_silence()
     let (tx, mut rx) = mpsc::channel(16);
     let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
 
-    // Пропускаем pong-и (`ConnEvent::Message` с `Event::Other`) — ждём
-    // именно молчание рынка, а не первое же событие в канале.
-    let disconnected = loop {
-        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
-            .await
-            .expect("тишина рынка при живых pong-ах обязана дать Disconnected, а не висеть")
-            .expect("канал жив");
-        if matches!(ev, ConnEvent::Disconnected { .. }) {
-            break ev;
+    // Окно заведомо дольше, чем нужно для первого превышения порога
+    // (~50 мс: интервалы пинга по 10 мс, порог 40 мс) — молчание длится
+    // весь прогон (pong не рынок, эпизод не кончается), поэтому за всё окно
+    // обязано быть ровно одно предупреждение, не больше.
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let mut silence_events = 0u32;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
         }
-    };
-    assert_eq!(
-        disconnected,
-        ConnEvent::Disconnected {
-            first_of_socket: true
-        },
-        "молчание рынка на отвечающем на пинг сокете — та же смерть, что обрыв"
-    );
-
-    // Переподключение: цикл обязан вызвать `connect()` заново, а не
-    // остановиться на первом `Disconnected`.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(ConnEvent::Disconnected { .. })) => {
+                panic!("тишина рынка при живых pong-ах не должна рвать соединение (владелец 24.09)")
+            }
+            Ok(Some(ConnEvent::MarketSilence { .. })) => silence_events += 1,
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
     handle.abort();
-    assert!(
-        connects.load(std::sync::atomic::Ordering::SeqCst) >= 2,
-        "после молчания рынка соединение обязано переподключиться"
+
+    assert_eq!(
+        silence_events, 1,
+        "один непрерывный эпизод молчания — ровно одно предупреждение, не поток"
+    );
+    assert_eq!(
+        connects.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "соединение не переподключается по тишине рынка (владелец 24.09)"
+    );
+}
+
+/// Транспорт «pong, потом одно рыночное сообщение, потом снова pong»: нужен,
+/// чтобы проверить границу эпизода — доработка V5 (2026-09-24) считает эпизод
+/// молчания законченным на первом `Book`/`Trade`, и следующее превышение
+/// порога обязано дать **новое** предупреждение, а не быть проглоченным
+/// прежним `silence_warned`.
+struct TwoEpisodesTransport {
+    tick: Duration,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    /// Номер вызова `recv()` (считая с 1), на котором вместо `pong`
+    /// отдаётся рыночный снапшот — заканчивает первый эпизод.
+    market_at_call: usize,
+}
+
+impl Transport for TwoEpisodesTransport {
+    async fn send_text(&mut self, _msg: String) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    fn recv(&mut self) -> impl Future<Output = Result<Frame, TransportError>> + Send {
+        let tick = self.tick;
+        let calls = self.calls.clone();
+        let market_at_call = self.market_at_call;
+        async move {
+            tokio::time::sleep(tick).await;
+            let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if n == market_at_call {
+                Ok(Frame::Text(orderbook_msg(
+                    "snapshot",
+                    1,
+                    1,
+                    &[(1.0, 5.0)],
+                    &[],
+                )))
+            } else {
+                Ok(Frame::Text(r#"{"op":"pong"}"#.to_string().into()))
+            }
+        }
+    }
+}
+
+struct TwoEpisodesConnector {
+    tick: Duration,
+    market_at_call: usize,
+    connects: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl TransportConnector for TwoEpisodesConnector {
+    type Transport = TwoEpisodesTransport;
+
+    fn connect(
+        &mut self,
+    ) -> impl Future<Output = Result<TwoEpisodesTransport, TransportError>> + Send {
+        self.connects
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let tick = self.tick;
+        let market_at_call = self.market_at_call;
+        async move {
+            Ok(TwoEpisodesTransport {
+                tick,
+                calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                market_at_call,
+            })
+        }
+    }
+}
+
+/// Доработка V5 (2026-09-24): эпизод молчания кончается на первом
+/// `Book`/`Trade` (`silence_warned` сбрасывается там же, где двигается
+/// `last_market_ns`) — следующее превышение порога после этого обязано дать
+/// **второе**, отдельное предупреждение, а не молчать до конца прогона.
+#[tokio::test]
+async fn market_event_ends_the_episode_and_the_next_silence_warns_again() {
+    let mut cfg = test_cfg("SOLUSDT");
+    cfg.ping_interval = Duration::from_millis(10);
+    cfg.recv_timeout = Duration::from_millis(40);
+    // Тик 4 мс: снапшот на 20-м вызове recv() приходит около t≈80 мс — после
+    // первого предупреждения (~t≈50 мс, первый тик пинга с превышением
+    // 40-мс порога) и достаточно раньше конца окна, чтобы второй эпизод
+    // (порог снова превышен около t≈120 мс) успел дать своё предупреждение.
+    let connects = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let connector = TwoEpisodesConnector {
+        tick: Duration::from_millis(4),
+        market_at_call: 20,
+        connects: connects.clone(),
+    };
+    let (tx, mut rx) = mpsc::channel(16);
+    let handle = tokio::spawn(Connection::new(connector, cfg).run(SystemClock, tx));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
+    let mut silence_events = 0u32;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(ConnEvent::Disconnected { .. })) => {
+                panic!("тишина рынка не должна рвать соединение (владелец 24.09)")
+            }
+            Ok(Some(ConnEvent::MarketSilence { .. })) => silence_events += 1,
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+    handle.abort();
+
+    assert_eq!(
+        silence_events, 2,
+        "рыночное событие кончает эпизод — следующая тишина обязана дать новое предупреждение"
+    );
+    assert_eq!(
+        connects.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "соединение не переподключается по тишине рынка (владелец 24.09)"
     );
 }
 

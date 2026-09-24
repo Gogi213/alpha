@@ -257,6 +257,16 @@ struct SessionCtx {
     /// `session.json`.
     resyncs_by_stream: [u64; STREAM_COUNT],
     unrouted: u64,
+    /// Эпизодов молчания рынка за прогон (V5, доработка 2026-09-24,
+    /// `feed::GapKind::MarketSilence`): дольше `recv_timeout` нет `Book`/
+    /// `Trade`, соединение живо и не рвётся (решение владельца) — один на
+    /// эпизод, снимается первым же рыночным событием.
+    silence_episodes: u64,
+    /// Наибольшая тишина на момент обнаружения среди всех эпизодов прогона,
+    /// наносекунды. `None`, пока не было ни одного эпизода — считать «самая
+    /// долгая тишина — 0» без единого замера значило бы изобретённое число
+    /// (правило 1 `interfaces.md`), а не измеренное.
+    silence_max_ns: Option<i64>,
     /// Отказов `connect()` за прогон (K1, 2026-09-17): сокет не открылся —
     /// ни `reconnects`, ни `frames_failed` этого не показывают, а устойчивый
     /// `403`/`429` до этой правки не давал вообще ничего.
@@ -382,6 +392,8 @@ impl SessionCtx {
             resyncs: 0,
             resyncs_by_stream: [0; STREAM_COUNT],
             unrouted: 0,
+            silence_episodes: 0,
+            silence_max_ns: None,
             connect_failed: 0,
             subscribe_failed: 0,
             gap_rows_failed: AtomicU64::new(0),
@@ -1028,6 +1040,8 @@ impl SessionCtx {
             reconnects: self.reconnects,
             resyncs: self.resyncs,
             unrouted: self.unrouted,
+            silence_episodes: self.silence_episodes,
+            silence_max_ns: self.silence_max_ns,
             connect_failed: self.connect_failed,
             subscribe_failed: self.subscribe_failed,
             gap_rows_failed: self.gap_rows_failed.load(Ordering::Relaxed),
@@ -1164,6 +1178,7 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                 local_ts_ns,
                 kind,
                 depth,
+                silence_ns,
                 detail,
             } => {
                 // Неразрешённый маршрут — не строка `gaps.csv`: у неё
@@ -1171,6 +1186,18 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                 // неизвестно. Считаем отдельно и печатаем в сводке.
                 if kind == FeedGapKind::Unrouted {
                     ctx.unrouted += 1;
+                    continue;
+                }
+                // Тишина рынка (V5, доработка 2026-09-24) — не потеря кадра
+                // и не шов покрытия: соединение по ней не рвётся (решение
+                // владельца), книга инструмента остаётся доверенной. Строки
+                // `gaps.csv` не даёт, тем же приёмом, что `Unrouted`; несёт
+                // только счётчик эпизодов и максимум длительности.
+                if kind == FeedGapKind::MarketSilence {
+                    ctx.silence_episodes += 1;
+                    if let Some(ns) = silence_ns {
+                        ctx.silence_max_ns = Some(ctx.silence_max_ns.map_or(ns, |m| m.max(ns)));
+                    }
                     continue;
                 }
                 let idx = symbol as usize;
@@ -1190,6 +1217,7 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                 let slot = depth.and_then(sink::stream_of_depth);
                 let record_kind = match kind {
                     FeedGapKind::Unrouted => unreachable!("отсеян выше"),
+                    FeedGapKind::MarketSilence => unreachable!("отсеян выше"),
                     FeedGapKind::ParseFailed => GapKind::ParseError,
                     FeedGapKind::SequenceGap => {
                         ctx.resyncs += 1;
@@ -1349,7 +1377,8 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
         eprintln!(
             "session: CPU средний {avg:.1}% ядра (бюджет `PLAN.md` 6.1: < 5%); RSS начало \
              {:.1} МиБ, конец {:.1} МиБ; сэмплов {}; байт {}; reconnects={} resyncs={} \
-             frames_failed={} unrouted={} connect_failed={} subscribe_failed={}",
+             frames_failed={} unrouted={} connect_failed={} subscribe_failed={} \
+             silence_episodes={} silence_max_ns={}",
             start as f64 / (1024.0 * 1024.0),
             end as f64 / (1024.0 * 1024.0),
             summary.samples.len(),
@@ -1359,7 +1388,11 @@ pub fn run_session(args: &SessionArgs) -> anyhow::Result<SessionSummary> {
             summary.frames_failed,
             summary.unrouted,
             summary.connect_failed,
-            summary.subscribe_failed
+            summary.subscribe_failed,
+            summary.silence_episodes,
+            summary
+                .silence_max_ns
+                .map_or("н/д".to_string(), |ns| ns.to_string())
         );
     }
     Ok(summary)
