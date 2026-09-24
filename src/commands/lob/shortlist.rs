@@ -1124,6 +1124,17 @@ fn conf_profiles_from_table(
         .collect()
 }
 
+/// Итог подтверждающей фазы. Именованная структура вместо кортежа из четырёх
+/// элементов (clippy::type_complexity на сигнатуре `run_confirmatory`) —
+/// `order_size_usd` нужен ещё раз джекнайфу, `rows`/`conf_profiles` — числам
+/// шапки.
+struct ConfirmatoryOutcome {
+    rows: Vec<ConfirmRow>,
+    verdict: ShortlistVerdict,
+    conf_profiles: Vec<ConfProfile>,
+    order_size_usd: BTreeMap<String, f64>,
+}
+
 /// Подтверждающая фаза: прогон сетки на подтверждающих сутках (времянка на
 /// `runs_out` — не новое испытание, Decision 27) → таблица подтверждения →
 /// вердикт. Часть `run_shortlist` (W10 ревью 23.09).
@@ -1135,12 +1146,7 @@ fn run_confirmatory(
     pool: &[String],
     frozen: &FrozenShortlist,
     trials: usize,
-) -> anyhow::Result<(
-    Vec<ConfirmRow>,
-    ShortlistVerdict,
-    Vec<ConfProfile>,
-    BTreeMap<String, f64>,
-)> {
+) -> anyhow::Result<ConfirmatoryOutcome> {
     let conf_scratch = ScratchRoot::new("conf")?;
     build_filtered_root(
         conf_scratch.path(),
@@ -1165,7 +1171,12 @@ fn run_confirmatory(
     let rows = confirmatory_table(Some(frozen), &conf_profiles, trials)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let verdict = decide_verdict(&rows);
-    Ok((rows, verdict, conf_profiles, order_size_usd))
+    Ok(ConfirmatoryOutcome {
+        rows,
+        verdict,
+        conf_profiles,
+        order_size_usd,
+    })
 }
 
 /// Числа шапки, не считая джекнайфа: DSR подтверждённого профиля, PBO/CPCV
@@ -1398,7 +1409,12 @@ pub fn run_shortlist(args: &ShortlistArgs) -> anyhow::Result<ShortlistSummary> {
     let split = load_or_write_boundary(&args.preregistration, &days)?;
 
     let (frozen, trials) = run_exploratory(args, &instruments_csv, &by_day, &split, &grid)?;
-    let (rows, verdict, conf_profiles, order_size_usd) = run_confirmatory(
+    let ConfirmatoryOutcome {
+        rows,
+        verdict,
+        conf_profiles,
+        order_size_usd,
+    } = run_confirmatory(
         args,
         &instruments_csv,
         &by_day,
