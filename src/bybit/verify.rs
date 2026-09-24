@@ -120,6 +120,12 @@ fn top_asks_e9(book: &Book, tick_e9: i64, step_e9: i64) -> Vec<(i64, i64, i64)> 
 /// Тик снапшота восстанавливается делением на шаг (снимок биржи по построению
 /// на тиках; неделимый остаток фиксируется как mismatch того же тика).
 /// Порядок детерминирован: по убыванию тика.
+///
+/// Частный случай `compare_side_bracket` при `after = before` (W10 ревью
+/// 23.09): без второго состояния скобка `s != b && s != a` вырождается в
+/// `s != b`, а объединение `before ∪ after ∪ snap` — в `before ∪ snap`, то
+/// есть ровно это сравнение. Раньше было отдельной копией той же логики на
+/// `BTreeMap`/`BTreeSet`.
 fn compare_side(
     side: Side,
     book: &[(i64, i64, i64)],
@@ -128,44 +134,7 @@ fn compare_side(
     mismatches: &mut Vec<LevelMismatch>,
 ) {
     debug_assert!(tick_e9 > 0);
-    use std::collections::{BTreeMap, BTreeSet};
-    let mut book_map: BTreeMap<i64, i64> = BTreeMap::new();
-    for &(tick, _, qty_e9) in book {
-        book_map.insert(tick, qty_e9);
-    }
-    let mut snap_map: BTreeMap<i64, i64> = BTreeMap::new();
-    let mut off_tick: BTreeSet<i64> = BTreeSet::new();
-    for &(s_px, s_qty) in snap {
-        let tick = s_px.div_euclid(tick_e9);
-        snap_map.insert(tick, s_qty);
-        if s_px.rem_euclid(tick_e9) != 0 {
-            off_tick.insert(tick);
-        }
-    }
-    let mut union: BTreeSet<i64> = BTreeSet::new();
-    union.extend(book_map.keys().copied());
-    union.extend(snap_map.keys().copied());
-    for tick in union.into_iter().rev() {
-        let b = book_map.get(&tick).copied();
-        let s = snap_map.get(&tick).copied();
-        if off_tick.contains(&tick) {
-            mismatches.push(LevelMismatch {
-                side,
-                tick,
-                snapshot_qty_e9: s,
-                book_qty_e9: b,
-            });
-            continue;
-        }
-        if b != s {
-            mismatches.push(LevelMismatch {
-                side,
-                tick,
-                snapshot_qty_e9: s,
-                book_qty_e9: b,
-            });
-        }
-    }
+    compare_side_bracket(side, book, Some(book), snap, tick_e9, mismatches);
 }
 
 /// Скобочное сравнение для живого тика: уровень — mismatch, только если
@@ -860,6 +829,30 @@ impl VerifySummary {
     }
 }
 
+/// Накопление счётчиков одного файла (или обрыва по разрыву последовательности
+/// в его середине) в сводку каталога — `run_verify` копировал эти четырнадцать
+/// строк дважды (после разрыва и на хвосте файла, W10 ревью 23.09), поле в
+/// поле, один и тот же список.
+impl std::ops::AddAssign<&VerifyStats> for VerifySummary {
+    fn add_assign(&mut self, s: &VerifyStats) {
+        self.updates_applied += s.updates_applied;
+        self.sequence_gaps += s.sequence_gaps;
+        self.invariant_violations += s.invariant_violations;
+        self.trades_total += s.trades_total;
+        self.trades_out_of_range += s.trades_out_of_range;
+        self.trades_violations += s.trades_violations;
+        self.trades_indeterminate += s.trades_indeterminate;
+        self.violations_block += s.violations_block;
+        self.violations_rpi += s.violations_rpi;
+        self.violations_inside_spread += s.violations_inside_spread;
+        self.violations_adjacent += s.violations_adjacent;
+        self.violations_far += s.violations_far;
+        self.violations_no_side += s.violations_no_side;
+        self.violations_stale_20ms += s.violations_stale_20ms;
+        self.violations_stale_100ms += s.violations_stale_100ms;
+    }
+}
+
 /// Хронологический ключ файла `<SYMBOL>-<день>[-pN].binlog[.zst]`: день,
 /// потом часть суток. Правило — `binlog::binlog_file_order_key` (одно на все
 /// слои; `bybit` не зависит от `commands`, граница слоёв, поэтому общее
@@ -948,15 +941,24 @@ pub fn verify_file(path: &Path) -> anyhow::Result<VerifySummary> {
 }
 
 fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<()> {
-    let data = std::fs::read(path)
+    // Потоково (W10 ревью 23.09): раньше `std::fs::read` разом клал в память
+    // весь суточный файл (десятки–сотни МБ на инструмент), хотя `Reader`
+    // читает кадр за кадром и второй раз к байтам не возвращается —
+    // `BufReader` даёт то же число системных чтений без держания файла целиком.
+    let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("файл {} не читается: {e}", path.display()))?;
-    let mut reader = crate::binlog::Reader::open(&data[..])
+    let mut reader = crate::binlog::Reader::open(std::io::BufReader::new(file))
         .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
     let header = reader.header();
     let mut verifier = Verifier::new(header.tick_e9, header.step_e9);
     // Один конвертер на весь файл: сообщение обязано лежать в двух кадрах,
     // и незакрытая группа переживает границу кадра внутри него.
     let mut replayer = FileReplayer::new();
+    // Буферы конвертера — на весь файл, не на кадр (W10 ревью 23.09): раньше
+    // `Vec::new()` внутри цикла аллоцировал заново на каждый кадр; `.clear()`
+    // держит вместимость с предыдущего кадра, аллокаций меньше числа кадров.
+    let mut updates = Vec::new();
+    let mut trades = Vec::new();
     loop {
         // Мягкий вариант (A4, 2026-09-17): `lob verify` читает в том числе
         // живой корень, а запись кладёт кадр не одним `write` — обрезанный
@@ -971,8 +973,8 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
             );
         }
         let Some(records) = frame else { break };
-        let mut updates = Vec::new();
-        let mut trades = Vec::new();
+        updates.clear();
+        trades.clear();
         replayer.push_frame(
             &records,
             header.tick_e9,
@@ -984,22 +986,7 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
             // Разрыв в файловом реплее означает битый файл, а не рынок:
             // дальше этот файл не идёт, следующий — с чистого Verifier.
             if verifier.apply_update(up).is_err() {
-                let s = verifier.stats();
-                summary.updates_applied += s.updates_applied;
-                summary.sequence_gaps += s.sequence_gaps;
-                summary.invariant_violations += s.invariant_violations;
-                summary.trades_total += s.trades_total;
-                summary.trades_out_of_range += s.trades_out_of_range;
-                summary.trades_violations += s.trades_violations;
-                summary.trades_indeterminate += s.trades_indeterminate;
-                summary.violations_block += s.violations_block;
-                summary.violations_rpi += s.violations_rpi;
-                summary.violations_inside_spread += s.violations_inside_spread;
-                summary.violations_adjacent += s.violations_adjacent;
-                summary.violations_far += s.violations_far;
-                summary.violations_no_side += s.violations_no_side;
-                summary.violations_stale_20ms += s.violations_stale_20ms;
-                summary.violations_stale_100ms += s.violations_stale_100ms;
+                *summary += &verifier.stats();
                 return Ok(());
             }
         }
@@ -1015,22 +1002,7 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
             break;
         }
     }
-    let s = verifier.stats();
-    summary.updates_applied += s.updates_applied;
-    summary.sequence_gaps += s.sequence_gaps;
-    summary.invariant_violations += s.invariant_violations;
-    summary.trades_total += s.trades_total;
-    summary.trades_out_of_range += s.trades_out_of_range;
-    summary.trades_violations += s.trades_violations;
-    summary.trades_indeterminate += s.trades_indeterminate;
-    summary.violations_block += s.violations_block;
-    summary.violations_rpi += s.violations_rpi;
-    summary.violations_inside_spread += s.violations_inside_spread;
-    summary.violations_adjacent += s.violations_adjacent;
-    summary.violations_far += s.violations_far;
-    summary.violations_no_side += s.violations_no_side;
-    summary.violations_stale_20ms += s.violations_stale_20ms;
-    summary.violations_stale_100ms += s.violations_stale_100ms;
+    *summary += &verifier.stats();
     Ok(())
 }
 
