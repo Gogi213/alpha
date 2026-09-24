@@ -22,7 +22,10 @@ ssh "${KEY[@]}" ubuntu@139.99.91.22 'systemctl is-active alpha-collector | sed "
   # Наблюдение за соединениями (владелец 24.09: «ничего не рви, только следи»): монеты, чья запись за сегодня
   # не росла больше 5 мин. Одна-две — обычно неликвид; много разом — похоже на повисшее соединение.
   d=$(date -u +%F); cd /opt/alpha/root 2>/dev/null || exit 0
-  all=$(ls ./*-"$d"*.binlog 2>/dev/null | wc -l); quiet=$(find . -maxdepth 1 -name "*-$d*.binlog" -mmin +5 2>/dev/null | sed "s|^\./||; s|-$d.*||" | sort -u)
+  # Только последняя часть монеты (-pN после перезапуска): закрытые части суток расти и не должны (24.09).
+  latest=$(ls -t ./*-"$d"*.binlog 2>/dev/null | sed "s|^\./||" | awk -F"-$d" "!seen[\$1]++")
+  all=$(printf "%s
+" "$latest" | grep -c .); quiet=$(for f in $latest; do find "./$f" -mmin +5; done | sed "s|^\./||; s|-$d.*||" | sort -u)
   n=$(printf "%s" "$quiet" | grep -c .); echo "   молчат > 5 мин: $n из $all$( [ "$n" -gt 0 ] && echo ": $(echo $quiet | cut -c1-150)")"
   [ "$n" -ge 10 ] && echo "   ВНИМАНИЕ: много монет молчат разом — проверить соединения"; true' 2>/dev/null || echo "   недоступен"
 
