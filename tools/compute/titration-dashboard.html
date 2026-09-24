@@ -105,8 +105,8 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     <h1>Лонг в просадке</h1>
     <p class="lede">Лонг от старой бид-стены (≥ $10k, стоит ≥ 45 мин), вход лестницей на подходе — только когда BTC за
       последний час просел сильнее, чем в 80 % времени. <b id="acct-line"></b> Деньги ниже — то, что бэктест заработал
-      на этом размере позиции, а не пересчёт. Периоды: история 01–15.09 (архив Bybit, правило их не видело), запись
-      16–22.09 (наш коллектор), обвал 10–11.10.2025.</p>
+      на этом размере позиции, а не пересчёт. Периоды: история <span class="ep-hist">01–15.09</span> (архив Bybit, правило их не видело), запись
+      <span class="ep-rec">16–22.09</span> (наш коллектор), обвал 10–11.10.2025.</p>
     <div class="chips">
       <span class="chip warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z"/></svg>Кандидат, не доказательство</span>
       <span class="chip">проверено ~900 вариантов (52 + 756 + 96)</span>
@@ -180,7 +180,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   </section>
 
   <section class="panel" aria-labelledby="h-coins">
-    <div class="panel-head"><h2 id="h-coins">По монетам</h2><p class="note">Все 100 монет пула за 01–22.09. Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
+    <div class="panel-head"><h2 id="h-coins">По монетам</h2><p class="note">Все 100 монет пула за <span class="ep-all">01–22.09</span>. Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
     <div class="toggle" id="coin-variants"></div>
     <p class="case-answer" id="coin-summary"></p>
     <div class="scroll"><table id="coin-table"></table></div>
@@ -272,6 +272,13 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const AXIS_MIN = dayTimes.length ? dayTimes[0] : Date.UTC(2026, 8, 1);
   const AXIS_MAX = (dayTimes.length ? dayTimes[dayTimes.length - 1] : Date.UTC(2026, 8, 22)) + 86400e3;
   const BOUNDARY = (D.epochs && D.epochs[1]) ? dayMs(D.epochs[1].from) : AXIS_MIN;
+  // Подписи периодов — тоже из данных (24.09: запись выросла до 23.09, а подписи стояли литералом «16–22.09»).
+  const dm = s => s.slice(8, 10) + "." + s.slice(5, 7);
+  const span = e => e ? (e.from.slice(5, 7) === e.to.slice(5, 7) ? e.from.slice(8, 10) + "–" + dm(e.to) : dm(e.from) + "–" + dm(e.to)) : "";
+  const EP_HIST = span(D.epochs[0]) || "01–15.09", EP_REC = span(D.epochs[1]) || "16–22.09";
+  const EP_ALL = (D.epochs[0] && D.epochs[D.epochs.length - 1]) ? span({from: D.epochs[0].from, to: D.epochs[D.epochs.length - 1].to}) : "01–22.09";
+  for (const [cls, txt] of [["ep-hist", EP_HIST], ["ep-rec", EP_REC], ["ep-all", EP_ALL]])
+    for (const el of document.getElementsByClassName(cls)) el.textContent = txt;
   const IN_SAMPLE_DAYS = 5; // форма подбиралась на первых сутках эпохи «запись» (16–20.09) — шапка страницы
   const IN_SAMPLE = [BOUNDARY, Math.min(AXIS_MAX, BOUNDARY + IN_SAMPLE_DAYS * 86400e3)];
   const REASON = {deadline: "дедлайн", stop: "стоп −2 %", take: "тейк", trail: "трейлинг", wall_gone: "стену сняли", eaten_by_trades: "стену съели"};
@@ -426,7 +433,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const BASE_F10 = D.position_usd ? "form:" + BASE_SET + "/cand" : "sets:" + BASE_SET;
   const BASE_LABEL = D.position_usd ? "без фильтра просадки" : "база F10";
   function kpiTable(tableId, src, compareSrc, compareLabel) {
-    const cols = [[HIST, "История 01–15.09"], [REC, "Запись 16–22.09"], [null, "Вместе"]];
+    const cols = [[HIST, "История " + EP_HIST], [REC, "Запись " + EP_REC], [null, "Вместе"]];
     const S = cols.map(([e]) => stats(trades(src, e)));
     const B = compareSrc ? cols.map(([e]) => stats(trades(compareSrc, e))) : null;
     const rows = [
@@ -572,7 +579,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
     }
     const vars = c.variants(caseSet);
     const cols = [HIST, REC];
-    let html = "<thead><tr class='grp'><th></th><th colspan='6' class='sep'>История 01–15.09</th><th colspan='6' class='sep'>Запись 16–22.09</th><th class='sep'></th></tr>" +
+    let html = "<thead><tr class='grp'><th></th><th colspan='6' class='sep'>История " + EP_HIST + "</th><th colspan='6' class='sep'>Запись " + EP_REC + "</th><th class='sep'></th></tr>" +
       "<tr><th>Вариант</th>" + cols.map(() => "<th class='sep'>сделок</th><th>итог</th><th>bps</th><th>сверх рынка</th><th>в плюс</th><th>откат</th>").join("") + "<th class='sep'>плюс в обеих</th></tr></thead><tbody>";
     vars.forEach(([src, label], i) => {
       const S = cols.map(e => stats(trades(src, e)));
@@ -819,7 +826,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const dstopLabel = d => d ? "−" + String(d).replace(".", ",") + " %" : "нет";
   const rfLabel = g => g.rf == null ? "—" : g.rf.toFixed(1).replace(".", ",");
   const recLabel = g => g.rec_days.toFixed(1).replace(".", ",") + (g.unrecovered ? "+" : "");
-  const EPOCH_LABEL = {"история": "История 01–15.09", "запись": "Запись 16–22.09", "сентябрь": "Сентябрь 01–22 подряд", "обвал": "Обвал 10–11.10.2025"};
+  const EPOCH_LABEL = {"история": "История " + EP_HIST, "запись": "Запись " + EP_REC, "сентябрь": "Сентябрь " + EP_ALL.replace(/\.09$/, "") + " подряд", "обвал": "Обвал 10–11.10.2025"};
   function protToggle(id, label, values, fmt, field) {
     const tg = document.getElementById(id);
     tg.innerHTML = "<span>" + label + ":</span>";
@@ -886,7 +893,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
         (maxNoKlines === 1 ? "неё" : "них") + " посчитана по закрытым сделкам, не по минутам."
       : "";
     const gs = G[P.epochs.indexOf("сентябрь")], gc = G[P.epochs.indexOf("обвал")];
-    document.getElementById("prot-answer").innerHTML = gs ? "<b>" + s.variant + "</b>: сентябрь 01–22 — " + usd(gs.total_usd) + " (" + pnum(gs.total_pct) +
+    document.getElementById("prot-answer").innerHTML = gs ? "<b>" + s.variant + "</b>: сентябрь " + EP_ALL.replace(/\.09$/, "") + " — " + usd(gs.total_usd) + " (" + pnum(gs.total_pct) +
       "), просадка " + pnum(-gs.dd_pct) + ", фактор восстановления " + rfLabel(gs) + (gc ? "; обвал 10–11.10 — " + usd(gc.total_usd) + " (" + pnum(gc.total_pct) + ")" : "") +
       ". Если провал застанет пик позиций и выключатель не сработает — " + pnum(-Math.max(...G.filter(Boolean).map(g => g.stress_pct))) + "." : "";
     // все сочетания: сентябрь подряд и обвал
