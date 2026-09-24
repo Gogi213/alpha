@@ -2541,3 +2541,66 @@ fn the_driver_counts_the_exit_reasons_into_the_tally() {
     assert_eq!(gone.exits.wall_gone, 1, "«сняли» — своя строка");
     assert_eq!(gone.exits.eaten_by_trades, 0, "«съели» не при чём");
 }
+
+/// B1 (ревью 23.09): нога входа исполнилась **частично до** потолка отмены —
+/// это исполненное уже позиция плана (`entry_qty`), её ведут стоп и выход.
+/// Сирота отвечает только за исполнение после усыновления: гасить по рынку
+/// то, что план держит, нельзя (прежде партия заводилась с `accounted = 0`,
+/// и первая уборка продавала 0.5 поверх позиции плана — план потом выходил
+/// ещё раз, и позиция на бирже уходила в минус).
+#[test]
+fn an_entry_orphan_does_not_flatten_what_the_plan_already_holds() {
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+        // Очередь 5 съедена, нашей ноге 2.0 досталось 0.5 — до срока жизни.
+        trade_at(3 * S / 10, true, 100.0, 5.5),
+        // После потолка (снятие летит 5 с, потолок 1 с): план уже в `Holding`.
+        depth_at(2 * S, true, 100.0, 5.0),
+        depth_at(3 * S, true, 100.0, 5.0),
+    ];
+    let mut hbt = build_backtest(
+        &feed,
+        1.0,
+        0.1,
+        slow_cancel_latency(),
+        QueueModelKind::Prob { n: 3.0 },
+    );
+    let mut plan = cancel_wait_plan(S / 2);
+    if let TradePlan::Bounce { lot_qty, .. } = &mut plan {
+        *lot_qty = 0.1;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+
+    // Цикл `drive` с наблюдением сирот по шагам: подтверждение снятия (5 с)
+    // крейт доигрывает после конца данных, к концу записи сирота отпущена.
+    let mut actions = Vec::new();
+    let mut orphan_seen = false;
+    loop {
+        let r = hbt.elapse(100_000_000).unwrap();
+        actions.push(on_event(&mut hbt, &mut state).unwrap());
+        orphan_seen |= state.has_orphans();
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::EntrySubmitted { .. })),
+        "{actions:?}"
+    );
+    assert!(
+        (state.position() - 0.5).abs() < 1e-9,
+        "позиция плана — исполненные до потолка 0.5: {} ({:?})",
+        state.position(),
+        state.phase
+    );
+    assert!(orphan_seen, "нога после потолка — сирота");
+    assert_eq!(
+        state.orphan_fills(),
+        0,
+        "исполненное до усыновления — не сироты, гасить нечего: {actions:?}"
+    );
+}

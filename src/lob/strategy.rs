@@ -686,12 +686,22 @@ impl StrategyState {
     /// Потолок отмены сорвал ожидание: ноги `first .. first + legs` — новая
     /// партия сирот (F8c, К1). Ёмкость исчерпана — вытесняется старейшая,
     /// переполнение считается.
-    fn adopt_orphans(&mut self, first: u64, legs: u8, kind: OrphanKind) {
+    ///
+    /// `accounted` — исполненное этих ног, **уже** учтённое планом к моменту
+    /// усыновления (B1, ревью 23.09): у ног входа — `entry_qty` (позиция,
+    /// которую план дальше ведёт со стопом и выходом), у заявки выхода —
+    /// `exit_accounted` (уже в `exit_qty`). Прежде партия заводилась с нулём, и
+    /// первая же уборка считала это исполнение заново: вход гасился по рынку
+    /// поверх позиции плана (план потом выходил ещё раз — позиция на бирже
+    /// уходила в минус), выход зачитывался дважды (план считал позицию
+    /// закрытой, а она оставалась — без стопа). Сирота отвечает только за
+    /// исполнение **после** усыновления.
+    fn adopt_orphans(&mut self, first: u64, legs: u8, kind: OrphanKind, accounted: f64) {
         let b = OrphanBatch {
             first,
             legs: legs.max(1),
             kind,
-            accounted: 0.0,
+            accounted: accounted.max(0.0),
         };
         let n = self.orphans.len();
         if n < MAX_ORPHAN_BATCHES {
@@ -1774,7 +1784,7 @@ where
     // стратегии, а не бросается.
     if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
         state.exit_cancel_timeouts = state.exit_cancel_timeouts.saturating_add(1);
-        state.adopt_orphans(order_id, 1, OrphanKind::Exit);
+        state.adopt_orphans(order_id, 1, OrphanKind::Exit, state.exit_accounted);
         state.phase = Phase::Holding { entry_ns };
     }
     Ok(Action::Idle)
@@ -1884,7 +1894,9 @@ where
     if now.saturating_sub(cancel_sent_ns) >= CANCEL_WAIT_NS {
         // Ноги остаются сиротами (F8c, К1): снятие повторится на каждом
         // событии, исполнение погасится по рынку и будет посчитано.
-        state.adopt_orphans(order_id, legs, OrphanKind::Entry);
+        // `observe_entry` выше — по тем же ногам: `entry_qty` и есть их
+        // исполненное, уже ставшее позицией плана (B1).
+        state.adopt_orphans(order_id, legs, OrphanKind::Entry, state.entry_qty);
         if state.position() > 0.0 {
             state.enter_holding(now);
             return Ok(Action::Idle);
