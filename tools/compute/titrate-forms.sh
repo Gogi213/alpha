@@ -6,7 +6,7 @@
 # после снятия стены), titrate-be.sh (be, безубыток после снятия). Поведение и имена каталогов не
 # менялись при выделении каркаса (2026-09-23) — прежние три скрипта делали то же самое каждый сам.
 #
-#   titrate-forms.sh <профиль fix|trail|wall|gone|be> <метка>
+#   [EPOCHS="<дом>:<сутки> …"] titrate-forms.sh <профиль fix|trail|wall|gone|be> <метка>
 #
 # Каталоги: fix|trail|wall → b5/titrx-<метка>-<профиль>; gone → b5/titrg-<метка>; be → b5/titrb-<метка>.
 # Лог семьи: study/titrate-<exit|gone|be>-<метка>.log (общий у fix/trail/wall — три вызова одной
@@ -76,9 +76,12 @@ case "$PROFILE" in
     ;;
 esac
 
-say "прогон: история и запись"
+# EPOCHS — «дом:первые сутки» через пробел; умолчание — две эпохи сентября. Другой месяц (E25, август):
+# EPOCHS="$A/epochs/e-aug:2026-08-01" — каталоги и сводки те же по имени, но в доме своей эпохи.
+EPOCHS="${EPOCHS:-$HIST:2026-09-01 $A:2026-09-16}"
+say "прогон: $EPOCHS"
 declare -A PIDS
-for epoch in "$HIST:2026-09-01" "$A:2026-09-16"; do
+for epoch in $EPOCHS; do
   home="${epoch%%:*}"; from="${epoch##*:}"
   errlog="$A/study/titrate-$FAMILY-$TAG-$PROFILE-$(basename "$home").err"
   : > "$errlog"
