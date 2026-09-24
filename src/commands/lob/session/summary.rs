@@ -1,9 +1,21 @@
 //! Запись о сессии — `session.json`: часть файла (`BinlogPart`), замер
 //! ресурсов (`ResourceSample`) и сама сводка (`SessionSummary`). Отдельно —
 //! это контракт для читателей (`profiles`/`watch`/`pilot`/`dashboard`), а не
-//! логика записи; сам файл пишет `SessionCtx::write_session_json`.
+//! логика записи на диск; файл пишет `SessionCtx::write_session_json`
+//! (`session.rs`), а саму сводку из текущего состояния собирает
+//! `SessionCtx::build_summary` ниже (вынесено из `write_session_json` W6,
+//! ревью 23.09: «build_summary — в session/summary.rs»).
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+
+use crate::bybit::conn::{Clock, SUBSCRIBED_DEPTHS};
+use crate::commands::record::ts_utc_of_ns;
+
+use super::args::is_debug_session;
+use super::resources::sample_resources;
+use super::sink::STREAM_COUNT;
+use super::{SessionCtx, SessionPlan};
 
 /// Один файл-часть в `session.json.binlog_files` (таск 22, критерий
 /// приёмки «перечисляет части и их `started_utc`»). Список накапливается
@@ -217,4 +229,124 @@ pub struct SessionSummary {
     /// читатель старых `session.json` не обязан их знать.
     #[serde(default)]
     pub streams: Vec<DepthCounters>,
+}
+
+impl SessionCtx {
+    /// Собирает `SessionSummary` из текущего состояния — без записи на диск
+    /// (запись и `rename` — `SessionCtx::write_session_json`, `session.rs`).
+    /// `clock` — трейт, не конкретный `SystemClock` (ремонт W6, ревью
+    /// 23.09/18.09): время «сейчас» приходит извне, как у `bybit::conn::
+    /// Connection::run`.
+    pub(super) fn build_summary<C: Clock>(&self, closed: bool, clock: &C) -> SessionSummary {
+        let now_ns = clock.now_ns();
+        let duration_s =
+            u64::try_from((now_ns - self.started_ns).max(0) / 1_000_000_000).unwrap_or(0);
+        let samples = self.samples.lock().map(|v| v.clone()).unwrap_or_default();
+        let resources_end = sample_resources(self.resources_pid);
+        let (cpu_pct_avg, rss_bytes_start, rss_bytes_end) =
+            match (self.resources_start, resources_end) {
+                (Some((cpu0, rss0)), Some((cpu1, rss1))) => {
+                    let wall_s = self.resources_wall_start.elapsed().as_secs_f64();
+                    let avg = if wall_s > 0.0 {
+                        Some((cpu1 - cpu0).max(0.0) / wall_s * 100.0)
+                    } else {
+                        None
+                    };
+                    (avg, Some(rss0), Some(rss1))
+                }
+                _ => (None, None, None),
+            };
+        let cpu_pct_max = samples.iter().filter_map(|s| s.cpu_pct).reduce(f64::max);
+        let (pilot, pilot_minutes) = match self.plan {
+            SessionPlan::Timed { pilot_minutes, .. } => (pilot_minutes.is_some(), pilot_minutes),
+            SessionPlan::AlwaysOn => (false, None),
+        };
+        SessionSummary {
+            started_utc: self.started_utc.clone(),
+            start_hour_utc: self.start_hour_utc,
+            duration_s,
+            instruments: {
+                // По одному разу на имя, в порядке первого появления:
+                // снятый и вернувшийся символ (A8.1) — это два состояния, но
+                // один инструмент в записи, и дубликата в списке быть не
+                // должно (читатели идут по `instruments`, как по набору).
+                let mut out: Vec<String> = Vec::with_capacity(self.states.len());
+                for state in &self.states {
+                    if !out.iter().any(|s| s == &state.member.symbol) {
+                        out.push(state.member.symbol.clone());
+                    }
+                }
+                out
+            },
+            records_total: self
+                .states
+                .iter()
+                .flat_map(|s| s.streams.iter())
+                .map(|s| s.records_written)
+                .sum(),
+            gaps: self.gaps,
+            clock_samples: self.clock_samples.load(Ordering::Relaxed),
+            parse_p99_ns: self.parse_latencies_ns.percentile(99),
+            queue_p99_ns: self.queue_latencies_ns.percentile(99),
+            cpu_pct_avg,
+            cpu_pct_max,
+            rss_bytes_start,
+            rss_bytes_end,
+            out: self.root.clone(),
+            debug: is_debug_session(duration_s),
+            pilot,
+            pilot_minutes,
+            always_on: self.plan == SessionPlan::AlwaysOn,
+            reconnects: self.reconnects,
+            resyncs: self.resyncs,
+            unrouted: self.unrouted,
+            silence_episodes: self.silence_episodes,
+            silence_max_ns: self.silence_max_ns,
+            connect_failed: self.connect_failed,
+            subscribe_failed: self.subscribe_failed,
+            gap_rows_failed: self.gap_rows_failed.load(Ordering::Relaxed),
+            frames_failed: self
+                .states
+                .iter()
+                .flat_map(|s| s.streams.iter())
+                .map(|s| s.frames_failed)
+                .sum(),
+            bytes_written: self
+                .states
+                .iter()
+                .flat_map(|s| s.streams.iter())
+                .map(|s| s.writer.get_ref().bytes_written())
+                .sum(),
+            // Раздельные счётчики по потокам (T45, критерий приёмки):
+            // записи, байты и разрывы каждого потока отдельно — по ним
+            // видно, что `.200` действительно пишется своим файлом, а не
+            // растворяется в сумме.
+            streams: (0..STREAM_COUNT)
+                .map(|slot| DepthCounters {
+                    depth: SUBSCRIBED_DEPTHS[slot],
+                    records: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].records_written)
+                        .sum(),
+                    bytes: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].writer.get_ref().bytes_written())
+                        .sum(),
+                    resyncs: self.resyncs_by_stream[slot],
+                    frames_failed: self
+                        .states
+                        .iter()
+                        .map(|s| s.streams[slot].frames_failed)
+                        .sum(),
+                })
+                .collect(),
+            updated_utc: ts_utc_of_ns(now_ns),
+            closed,
+            samples,
+            binlog_files: self.binlog_files.clone(),
+            pool_removals: self.pool_removals.clone(),
+        }
+    }
 }
