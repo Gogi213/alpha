@@ -450,7 +450,6 @@ fn lob_help_lists_all_subcommands() {
         "bounce-verdict",
         "clock",
         "dashboard",
-        "export",
         "fee-rate",
         "fill-capacity",
         "import-archive",
