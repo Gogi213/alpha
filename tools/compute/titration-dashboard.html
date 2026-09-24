@@ -1,15 +1,20 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Лонг в просадке</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root {
-  --bg: #f6f5f1; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #807e77;
-  --rule: #e2e0d9; --rule-strong: #cbc8bf; --chip: #efede7;
-  --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100; --c5: #e87ba4;
-  --hist: #4a3aa7; --rec: #1baf7a; --gain: #2a78d6; --loss: #e34948;
-  --band: rgba(235, 104, 52, 0.07);
-  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b; --warn-ink: #6b4a00;
+  color-scheme: light;
+  --bg: #f3f5f7; --surface: #ffffff; --surface-2: #eceef1; --chip: #e8eaee;
+  --ink: #11151b; --ink-2: #4a505c; --ink-3: #838a97;
+  --rule: #e0e3e9; --rule-strong: #c5c9d2;
+  --accent: #2a78d6; --series-2: #1baf7a; --series-3: #4a3aa7;
+  --gain: #2a78d6; --loss: #e34948;
+  --good: #0ca30c; --warn: #b8860b; --critical: #c23b3b;
+  --band-tuned: rgba(184, 134, 11, 0.10);
+  --focus: #2a78d6;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-head: "IBM Plex Sans Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -17,240 +22,241 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #131312; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8d84;
-    --rule: #2c2c29; --rule-strong: #43423e; --chip: #262624;
-    --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181;
-    --hist: #9085e9; --rec: #199e70; --gain: #3987e5; --loss: #e66767;
-    --band: rgba(217, 89, 38, 0.10); --warn-ink: #fab219;
+    --bg: #0e1013; --surface: #171a1f; --surface-2: #1e222a; --chip: #232830;
+    --ink: #edf0f3; --ink-2: #b7bcc6; --ink-3: #7c8290;
+    --rule: #262b34; --rule-strong: #383f4c;
+    --accent: #4c92ea; --series-2: #199e70; --series-3: #9c92ee;
+    --gain: #4c92ea; --loss: #e97a7a;
+    --good: #2fbf2f; --warn: #d7a53a; --critical: #e05c5c;
+    --band-tuned: rgba(215, 165, 58, 0.12);
+    --focus: #6fa8ec;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #131312; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8d84;
-  --rule: #2c2c29; --rule-strong: #43423e; --chip: #262624;
-  --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500; --c5: #d55181;
-  --hist: #9085e9; --rec: #199e70; --gain: #3987e5; --loss: #e66767;
-  --band: rgba(217, 89, 38, 0.10); --warn-ink: #fab219;
+  --bg: #0e1013; --surface: #171a1f; --surface-2: #1e222a; --chip: #232830;
+  --ink: #edf0f3; --ink-2: #b7bcc6; --ink-3: #7c8290;
+  --rule: #262b34; --rule-strong: #383f4c;
+  --accent: #4c92ea; --series-2: #199e70; --series-3: #9c92ee;
+  --gain: #4c92ea; --loss: #e97a7a;
+  --good: #2fbf2f; --warn: #d7a53a; --critical: #e05c5c;
+  --band-tuned: rgba(215, 165, 58, 0.12);
+  --focus: #6fa8ec;
 }
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); padding-inline: 16px; padding-block: 28px 64px; }
-.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-inline: 16px; padding-block: 24px 72px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 22px; min-width: 0; }
+/* сетки-контейнеры не должны раздуваться до min-content широких детей (таблиц, графиков) —
+   классическая утечка grid/flex-блока за пределы экрана без этого правила */
+.wrap > *, .grid2 > *, section.panel { min-width: 0; }
 h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; margin: 0; }
-h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.05; }
-h2 { font-size: 22px; font-weight: 600; }
-h3 { font-size: 16px; font-weight: 600; }
+h1 { font-size: clamp(26px, 4.4vw, 38px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.08; }
+h2 { font-size: 19px; font-weight: 600; }
+h3 { font-size: 14px; font-weight: 600; color: var(--ink-2); }
 p { margin: 0; }
-.eyebrow { font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
-.lede { max-width: 72ch; color: var(--ink-2); font-size: 16px; }
+a { color: var(--accent); }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-header { display: grid; gap: 12px; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--chip); color: var(--ink-2); font-size: 13px; }
-.chip svg { width: 14px; height: 14px; flex: none; }
-.chip.warn { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn-ink); font-weight: 600; }
-.chip.good { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--ink); font-weight: 600; }
-.chip.crit { background: color-mix(in srgb, var(--crit) 16%, var(--surface)); color: var(--ink); font-weight: 600; }
-.chip.good svg { color: var(--good); } .chip.crit svg { color: var(--crit); } .chip.warn svg { color: var(--warn-ink); }
-section.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; display: grid; gap: 16px; }
-.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
-.note { color: var(--ink-3); font-size: 13px; max-width: 86ch; }
-.rule-card { border-left: 3px solid var(--c1); padding: 4px 0 4px 14px; display: grid; gap: 4px; }
-.rule-card b { font-weight: 600; }
-.sub-block { display: grid; gap: 16px; }
-.sub-block + .sub-block { padding-top: 16px; border-top: 1px solid var(--rule); }
-.nav { display: flex; flex-wrap: wrap; gap: 8px; }
-.nav button, .toggle button {
-  font: 500 14px/1.3 var(--font-body); padding: 8px 12px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); text-align: left;
-}
-.nav button small { display: block; color: var(--ink-3); font-size: 12px; }
-.nav button[aria-pressed="true"], .toggle button[aria-pressed="true"] { border-color: var(--c1); box-shadow: inset 0 0 0 1px var(--c1); }
-.toggle { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.toggle span { color: var(--ink-2); font-size: 14px; margin-right: 4px; }
-button:focus-visible { outline: 2px solid var(--c1); outline-offset: 2px; }
-th[role="button"]:focus-visible, tr[role="button"]:focus-visible { outline: 2px solid var(--c1); outline-offset: -2px; }
-.case-answer { font-size: 16px; max-width: 86ch; }
-.scroll { overflow-x: auto; max-width: 100%; }
-table { border-collapse: collapse; width: 100%; font-size: 14px; }
-th, td { padding: 7px 9px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-thead th { font: 500 12px/1.3 var(--font-mono); letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); border-bottom-color: var(--rule-strong); }
-thead tr.grp th { text-align: center; color: var(--ink-2); }
-td.sep, th.sep { border-left: 1px solid var(--rule-strong); }
-.pos { color: var(--gain); } .neg { color: var(--loss); }
-.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
-.kpi td:first-child { color: var(--ink-2); }
-.kpi td.big { font-size: 16px; }
-.chart { position: relative; width: 100%; }
-.h-eq { height: 360px; } .h-md { height: 260px; } .h-sm { height: 220px; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 20px; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
-.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
-.legend i.dash { border-top-style: dashed; }
-.legend i.box { width: 10px; height: 10px; border: 0; border-radius: 2px; }
-.heat td, .heat th { text-align: center; padding: 6px 8px; }
-.heat th:first-child, .heat td:first-child { text-align: left; }
-.heat td.cell { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
-.trades th { cursor: pointer; user-select: none; }
-.more { justify-self: start; font: 500 14px var(--font-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
-details summary { cursor: pointer; font-weight: 600; }
-details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 6px; max-width: 90ch; }
-.extra:empty { display: none; }
+.pos { color: var(--gain); } .neg { color: var(--loss); } .muted { color: var(--ink-3); }
+.eyebrow { font: 600 11px/1.4 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.lede { max-width: 76ch; color: var(--ink-2); font-size: 15px; }
+button:focus-visible, [tabindex]:focus-visible, th[role="button"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- шапка ---------- */
+header { display: grid; gap: 14px; }
+.strategy-line { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--ink-2); font-size: 13px; }
+.strategy-line b { color: var(--ink); font-weight: 600; }
+.status-banner { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 10px; border: 1px solid; }
+.status-banner.crit { background: color-mix(in srgb, var(--critical) 10%, var(--surface)); border-color: color-mix(in srgb, var(--critical) 35%, var(--rule)); }
+.status-banner.warn { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border-color: color-mix(in srgb, var(--warn) 35%, var(--rule)); }
+.status-banner svg { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.status-banner.crit svg { color: var(--critical); } .status-banner.warn svg { color: var(--warn); }
+.status-banner .headline { font: 600 15px/1.4 var(--font-body); }
+.status-banner .sub { color: var(--ink-2); font-size: 13px; margin-top: 3px; }
+
+.controls { display: grid; gap: 8px; }
+.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.control-row .label { font: 600 12px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); margin-right: 2px; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; background: var(--surface-2); border-radius: 10px; }
+.seg button {
+  font: 500 13px/1.3 var(--font-body); padding: 7px 12px; border-radius: 7px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--ink-2); white-space: nowrap;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); border-color: var(--rule-strong); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.variant-desc { color: var(--ink-3); font-size: 12.5px; }
+
+/* ---------- панели ---------- */
+section.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; display: grid; gap: 14px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.note { color: var(--ink-3); font-size: 12.5px; max-width: 90ch; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font: 500 11.5px/1.3 var(--font-body); padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--ink-2); }
+.badge.warn { color: var(--warn); } .badge.warn::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--warn); }
+.badge.progress::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-3); }
+
+/* ---------- подсказки ---------- */
+.hint { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px;
+  border-radius: 50%; border: 1px solid var(--ink-3); color: var(--ink-3); font: 600 9px/1 var(--font-mono); cursor: help; margin-left: 5px; }
+.hint::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%);
+  width: max-content; max-width: 230px; background: var(--ink); color: var(--bg); font: 400 12px/1.4 var(--font-body);
+  padding: 7px 9px; border-radius: 7px; opacity: 0; pointer-events: none; transition: opacity .12s ease; z-index: 30; text-align: left; }
+.hint::before { content: ""; position: absolute; left: 50%; bottom: calc(100% + 2px); transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--ink); opacity: 0; transition: opacity .12s ease; }
+.hint:hover::after, .hint:focus-visible::after, .hint.show::after { opacity: 1; }
+.hint:hover::before, .hint:focus-visible::before, .hint.show::before { opacity: 1; }
+
+/* ---------- KPI ---------- */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.kpi-tile { background: var(--surface); padding: 12px 14px; display: grid; gap: 4px; align-content: start; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.kpi-label { font: 500 11.5px/1.3 var(--font-body); color: var(--ink-3); display: flex; align-items: center; }
+.kpi-value { font: 600 21px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 11.5px; color: var(--ink-3); }
+.kpi-caveat { grid-column: 1 / -1; font-size: 12px; color: var(--warn); padding: 2px 2px 0; }
+
+/* ---------- графики ---------- */
+.chart { position: relative; width: 100%; }
+.h-eq { height: 300px; } .h-dd { height: 110px; } .h-bar { height: 220px; } .h-hist { height: 220px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 6px; }
+.legend i.dash { border-top-style: dashed; }
+.chart-caption { color: var(--ink-2); font-size: 12.5px; }
+
+/* ---------- таблицы ---------- */
+.scroll { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font: 500 11px/1.3 var(--font-mono); letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); border-bottom-color: var(--rule-strong); }
+thead tr.grp th { text-align: center; color: var(--ink-2); font-size: 12px; }
+td.sep, th.sep { border-left: 1px solid var(--rule-strong); }
+th[role="button"] { cursor: pointer; user-select: none; }
+th[role="button"]:hover { color: var(--ink); }
+th .arrow { font-size: 9px; margin-left: 3px; }
+.heat-table td, .heat-table th { text-align: center; padding: 5px 7px; }
+.heat-table th:first-child, .heat-table td:first-child { text-align: left; }
+.heat-table td.cell { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; position: relative; }
+.heat-table td.cell.picked { box-shadow: inset 0 0 0 2px var(--accent); font-weight: 600; }
+tr.total td { font-weight: 600; border-top: 1px solid var(--rule-strong); }
+
+/* ---------- календарь ---------- */
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal .dow { font: 500 10.5px/1 var(--font-mono); color: var(--ink-3); text-align: center; padding-bottom: 3px; text-transform: uppercase; }
+.cal .day { aspect-ratio: 1.35; border-radius: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font: 500 11px/1.1 var(--font-mono); color: var(--ink-2); background: var(--surface-2); gap: 1px; }
+.cal .day.empty { background: transparent; }
+.cal .day .d { font-size: 10px; color: var(--ink-3); }
+.cal .day .v { font-weight: 600; }
+
+/* ---------- по монетам, разбор причин ---------- */
+.reason-row { display: grid; grid-template-columns: 100px 1fr 70px 60px 70px; gap: 10px; align-items: center; font-size: 13px; }
+.reason-row .bar-track { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.reason-row .bar-fill { height: 100%; border-radius: 4px; }
+
+/* ---------- методика ---------- */
+details.methodology { border: 1px solid var(--rule); border-radius: 10px; padding: 14px 18px; background: var(--surface); }
+details.methodology summary { cursor: pointer; font: 600 14px var(--font-head); color: var(--ink); }
+details.methodology[open] summary { margin-bottom: 10px; }
+details.methodology ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 7px; max-width: 92ch; font-size: 13.5px; }
+footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 </style>
 
 <div class="wrap">
   <header>
     <p class="eyebrow">alpha · бэктест на реальной позиции · данные на <span id="gen"></span> UTC</p>
     <h1>Лонг в просадке</h1>
-    <p class="lede">Лонг от старой бид-стены (≥ $10k, стоит ≥ 45 мин), вход лестницей на подходе — только когда BTC за
-      последний час просел сильнее, чем в 80 % времени. <b id="acct-line"></b> Деньги ниже — то, что бэктест заработал
-      на этом размере позиции, а не пересчёт. Периоды: история <span class="ep-hist">01–15.09</span> (архив Bybit, правило их не видело), запись
-      <span class="ep-rec">16–22.09</span> (наш коллектор), обвал 10–11.10.2025.</p>
-    <div class="chips">
-      <span class="chip warn"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z"/></svg>Кандидат, не доказательство</span>
-      <span class="chip">проверено ~900 вариантов (52 + 756 + 96)</span>
-      <span class="chip">форма подбиралась на 16–20.09 — на графиках заштриховано</span>
-      <span class="chip">«история» — поток 200 уровней (100 мс), запись — 50 уровней: двойник не посчитан</span>
-      <span class="chip warn" id="data-note" hidden></span>
+    <p class="lede">Лонг от старой крупной бид-стены на подходе цены — сделка входит только тогда, когда рынок только
+      что просел (фильтр по ходу BTC). <span id="acct-line"></span></p>
+    <div id="status-banner"></div>
+    <div class="controls">
+      <div class="control-row">
+        <span class="label">Период</span>
+        <div class="seg" id="period-toggle" role="group" aria-label="Период"></div>
+      </div>
+      <div class="control-row">
+        <span class="label">Вариант</span>
+        <div class="seg" id="variant-toggle" role="group" aria-label="Вариант"></div>
+      </div>
+      <p class="variant-desc" id="variant-desc"></p>
     </div>
   </header>
 
-  <section class="panel">
-    <details>
-      <summary>Глоссарий: коротко о терминах на этой странице</summary>
-      <ul>
-        <li><b>bps</b> (базисный пункт) — сотая доля процента; 100 bps = 1 %.</li>
-        <li><b>«в плюс»</b> — доля сделок (или дней), закрывшихся с прибылью; не то же самое, что средний результат.</li>
-        <li><b>просадка</b> — насколько капитал проседал от своего прежнего пика в худший момент.</li>
-        <li><b>фактор восстановления</b> — прибыль, делённая на просадку в долларах: больше 3 — запас надёжный, меньше 1 — просадка съедает прибыль.</li>
-        <li><b>выключатель</b> — аварийная остановка: при резком падении BTC все открытые позиции закрываются и новые не открываются, пока падение держится.</li>
-        <li><b>история / запись / обвал</b> — три проверенных периода: история — архив Bybit до начала записи (правило их не видело), запись — данные нашего коллектора, обвал — стресс-тест на резком падении рынка 10–11.10.2025.</li>
-        <li><b>набор</b> — отбор сделок по условию входа (например, «просадка BTC за 1 ч»); внутри набора потом сравнивают варианты выхода.</li>
-        <li><b>форма</b> — конкретное сочетание входа и выхода (стоп, тейк, трейлинг, срок удержания), проверенное на сделках набора.</li>
-      </ul>
-    </details>
+  <section class="panel" id="panel-kpi">
+    <div class="panel-head"><h2>Показатели</h2><span class="note" id="kpi-scope"></span></div>
+    <div class="kpi-grid" id="kpi-grid"></div>
   </section>
 
-  <section class="panel" aria-labelledby="h-prot" id="prot">
-    <div class="panel-head"><h2 id="h-prot">Счёт</h2><p class="note" id="prot-note"></p></div>
-    <p class="case-answer" id="prot-answer"></p>
-    <div class="toggle" id="prot-variant"></div>
-    <div class="toggle" id="prot-pos"></div>
-    <div class="toggle" id="prot-kill"></div>
-    <div class="toggle" id="prot-excl"></div>
-    <div class="toggle" id="prot-day"></div>
-    <div class="scroll"><table class="kpi" id="prot-kpi"></table></div>
-    <p class="note" id="prot-footnote"></p>
-    <div style="min-width:0;display:grid;gap:8px">
-      <h3>Все сочетания защит для выбранного варианта</h3>
-      <p class="note">Строка — выбрать её выше (клавиатура: Tab до строки, затем Enter или пробел); заголовок — отсортировать.</p>
-      <div class="scroll"><table class="trades" id="prot-table"></table></div>
-    </div>
-    <details><summary>Как считается</summary><ul>
-      <li>Сделки — бэктест с реальной позицией: заявка на всю лестницу входа, модель очереди заполняет её частично;
-        деньги сделки — заполненная часть × результат. Позиции, открытые к полуночи UTC, досчитаны на следующих сутках.</li>
-      <li>Все сделки идут одним счётом во времени: вход — момент сигнала (с запасом: заявка стоит до 30 мин), выход — как в бэктесте.</li>
-      <li><b>Прирост</b> — прибыль к депозиту. <b>Просадка</b> — самое глубокое падение капитала от его пика, по минутной
-        переоценке открытых позиций (цена между сделками движется по свечам монеты); рядом мелким — та же просадка «по
-        закрытым сделкам» (без переоценки, старая модель для сравнения — она всегда меньше или равна минутной).
-        <b>Фактор восстановления</b> — прибыль, делённая на самую глубокую просадку в долларах (больше 3 — хорошо).
-        <b>Восстановление</b> — самый долгий срок от пика капитала до нового пика; «+» — к концу периода ещё не вышел.</li>
-      <li><b>Позиций</b> — не больше N одновременно; сигнал сверх — пропуск. «Занята» в пропусках — сигнал по монете, где
-        предыдущая позиция ещё не закрылась (на монету — одна позиция, как торгует бот). <b>Дневной стоп</b> — реализованный
-        убыток суток UTC дошёл до порога — до конца суток новых входов нет.</li>
-      <li><b>Выключатель</b> — BTC за последний час упал сильнее порога: все открытые позиции закрываются рыночным по
-        закрытию следующей минуты, новых входов нет, пока падение держится (цена — минутная свеча монеты, приближение).</li>
-      <li><b>Исключение монет</b> — монеты, у которых за 01–23.09 было падение ≥ 10 % за 15 минут (список выбран на тех же
-        днях, что и счёт; честная версия — скользящее окно, проверка впереди).</li>
-      <li><b>Стресс</b> — сценарий, которого в сделках не было: провал вроде 10.10.2025, выключатель не сработал, все
-        позиции на пике — по −59,7 % (худший прокид монеты пула в тот вечер).</li>
-    </ul></details>
+  <section class="panel" id="panel-equity">
+    <div class="panel-head"><h2>Капитал и просадка</h2><span class="note">$, накопительно по дням, минутная переоценка счёта</span></div>
+    <div class="legend" id="equity-legend"></div>
+    <div class="chart h-eq"><canvas id="chart-equity"></canvas></div>
+    <div class="chart h-dd"><canvas id="chart-drawdown"></canvas></div>
+    <p class="note" id="equity-note"></p>
   </section>
 
-  <section class="panel" aria-labelledby="h-rule">
-    <div class="panel-head"><h2 id="h-rule">Правило</h2><p class="note">Механика входа и выхода без чисел; точные пороги — в разделах «Счёт» и «Детали».</p></div>
-    <div class="rule-card">
-      <span><b>Вход:</b> лонг от старой крупной бид-стены — только когда рынок (BTC) незадолго до этого просел заметно
-        сильнее обычного; входим лестницей ордеров по мере приближения цены к стене.</span>
-      <span><b>Выход:</b> стоп на случай ошибки; трейлинг-стоп фиксирует прибыль по мере роста цены и закрывает позицию
-        при откате от лучшей отметки; есть предел по времени удержания. На то, что стену сняли или её съели сделками, не
-        реагируем — стена нужна только как точка входа.</span>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-coins">
-    <div class="panel-head"><h2 id="h-coins">По монетам</h2><p class="note">Все 100 монет пула за <span class="ep-all">01–22.09</span>. Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
-    <div class="toggle" id="coin-variants"></div>
-    <p class="case-answer" id="coin-summary"></p>
-    <div class="scroll"><table id="coin-table"></table></div>
-    <p class="note" id="coin-idle"></p>
-  </section>
-
-  <section class="panel" aria-labelledby="h-cases">
-    <div class="panel-head"><h2 id="h-cases">Надёжность</h2><p class="note">Держится ли правило в обеих эпохах по семи осям, а не только в одной удачной ячейке. Выберите вопрос.</p></div>
-    <div class="nav" id="case-nav"></div>
-    <div id="case-body" style="display:grid;gap:16px">
-      <div class="panel-head"><h2 id="case-title"></h2><span id="case-verdict"></span></div>
-      <p class="case-answer" id="case-answer"></p>
-      <div class="toggle" id="case-sets"></div>
-      <div class="scroll"><table id="case-table"></table></div>
+  <section class="panel" id="panel-daily">
+    <div class="panel-head"><h2>Результат по дням</h2></div>
+    <div class="grid2">
       <div>
-        <div class="legend" id="case-legend"></div>
-        <div class="chart h-eq"><canvas id="case-eq" role="img" aria-label="Эквити вариантов кейса"></canvas></div>
-      </div>
-      <div class="extra" id="case-extra"></div>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="h-details">
-    <div class="panel-head"><h2 id="h-details">Детали</h2><p class="note">Кандидат без защит счёта, полный список сделок, частота просадок и методология.</p></div>
-
-    <div class="sub-block">
-      <div class="panel-head"><h3 id="h-cand">Кандидат: показатели без защит счёта</h3><p class="note">Собран из проверок «Надёжность» выше; зарегистрировать и проверять на новых днях.</p></div>
-      <p class="case-answer" id="cand-bridge"></p>
-      <div class="scroll"><table class="kpi" id="cand-kpi"></table></div>
-      <div>
-        <div class="legend" id="cand-legend"></div>
-        <div class="chart h-eq"><canvas id="cand-eq" role="img" aria-label="Эквити кандидата, базы и рынка"></canvas></div>
-        <p class="note">«Рынок» — вход в ту же монету на то же время удержания без всякой стены: средний ход монеты за это
-          время в тот же день минус комиссии. Слева от вертикали — «история», справа — «запись».</p>
+        <h3>Прибыль и убыток за день, $</h3>
+        <div class="chart h-bar"><canvas id="chart-daily"></canvas></div>
       </div>
       <div>
-        <h3>Кандидат по дням, $</h3>
-        <div class="chart h-md"><canvas id="cand-daily" role="img" aria-label="Результат кандидата по дням"></canvas></div>
+        <h3 id="cal-title">Календарь</h3>
+        <div class="cal" id="calendar"></div>
       </div>
     </div>
-
-    <div class="sub-block">
-      <div class="panel-head"><h3 id="h-trades">Сделки кандидата</h3><p class="note">Нажмите на заголовок столбца, чтобы отсортировать.</p></div>
-      <div class="grid2">
-        <div><h3>Результат сделки, bps — доля сделок эпохи</h3><div class="chart h-sm"><canvas id="hist" role="img" aria-label="Распределение результата сделок"></canvas></div></div>
-        <div class="scroll"><h3>Чем закончилась сделка</h3><table id="reasons"></table></div>
-      </div>
-      <div class="scroll"><h3>Монеты, которые дали больше всего (по модулю $)</h3><table id="coins"></table></div>
-      <div class="scroll"><table class="trades" id="trades"></table></div>
-      <button class="more" id="more" type="button">Показать ещё 100</button>
-    </div>
-
-    <div class="sub-block">
-      <div class="panel-head"><h3 id="h-dips">Как часто бывает просадка</h3><p class="note">Отрезки с перерывом меньше часа — одна просадка. Рынок за день — медиана хода 100 монет пула.</p></div>
-      <div class="scroll"><table id="dips"></table></div>
-    </div>
-
-    <details>
-      <summary>Как это посчитано и чему не верить</summary>
-      <ul>
-        <li>Вход во всех кейсах — замороженная форма F10 (E16): подход D20, лестница, срок жизни входа 30 мин, очередь prob:3, задержка В-68. Режим и возраст — фильтры входа (E18); выход — E19; реакция на стену — E20.</li>
-        <li>Проверено около 900 вариантов. Лучшая клетка всегда выглядит лучше, чем будет в жизни, — поэтому выводы строятся на закономерностях, повторённых в обеих эпохах, а не на одной клетке.</li>
-        <li>Лучшее легло на край сетки (стоп 2 %, удержание 4 ч): настоящий максимум может быть дальше.</li>
-        <li>«История» — архив Bybit, поток 200 уровней с шагом 100 мс; запись — наш поток 50 уровней с шагом 20 мс. Насколько это меняет результат — задача G1 (двойник).</li>
-        <li>Пик одновременных позиций считается от момента сигнала до выхода — это оценка сверху (вход исполняется в пределах 30 минут после сигнала); при совпадении минуты открытие считается раньше закрытия — тоже в пользу оценки сверху.</li>
-        <li>Контроль «рынок» — M19: ход той же монеты в тот же день за то же время минус комиссии.</li>
-        <li>Разборы: `docs/findings/titration-regime-2026-09-23.md`, `exit-titration-2026-09-23.md` (§5 — защита после снятия); термин «просадка» — В-86; шорт отложен — В-87.</li>
-      </ul>
-    </details>
   </section>
+
+  <section class="panel" id="panel-dist">
+    <div class="panel-head"><h2>Результаты сделок</h2></div>
+    <div class="grid2">
+      <div>
+        <h3>Распределение, bps</h3>
+        <div class="chart h-hist"><canvas id="chart-hist"></canvas></div>
+        <p class="chart-caption" id="hist-caption"></p>
+      </div>
+      <div>
+        <h3>Причина выхода</h3>
+        <div id="reasons"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-coins">
+    <div class="panel-head"><h2>По монетам</h2><span class="note">клик по заголовку — сортировка</span></div>
+    <div class="scroll"><table id="coins-table"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel" id="panel-compare">
+    <div class="panel-head"><h2>Сентябрь против августа</h2><span class="note">подбор против проверки на месяце, которого правило не видело</span></div>
+    <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
+    <p class="note">Август правило не видело: пороги режима и выбор выхода заморожены по 01–15.09. «*» — отдельный
+      счёт (модель портфеля с ограничением по числу позиций) для этого варианта ещё не считался, доля в плюс — по сделкам напрямую.</p>
+  </section>
+
+  <section class="panel" id="panel-exit">
+    <div class="panel-head"><h2>Устойчивость выхода</h2><span class="badge progress" id="exit-aug-badge">август — в расчёте</span></div>
+    <p class="note">Средний результат (bps на сделку) по сетке «стоп × тейк» и по трейлингу, удержание 4 ч — сентябрь,
+      обе части вместе. Выделена точка кандидата.</p>
+    <div class="grid2">
+      <div class="scroll"><h3>Стоп × тейк</h3><table class="heat-table" id="heat-table"></table></div>
+      <div class="scroll"><h3>Трейлинг: включение × откат (стоп 2 %)</h3><table class="heat-table" id="trail-table"></table></div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-protections">
+    <div class="panel-head"><h2>Защиты счёта</h2><span class="note" id="prot-scope"></span></div>
+    <div class="scroll"><table id="prot-table"><thead></thead><tbody></tbody></table></div>
+    <p class="note">Показано для кандидата (просадка BTC за 1 ч, трейл 1 % / откат 1 %) — счёт $2500, одна позиция на монету.</p>
+  </section>
+
+  <details class="methodology">
+    <summary>Методика и оговорки</summary>
+    <ul id="methodology-list"></ul>
+  </details>
+
+  <footer class="pagefoot">alpha · внутренний бэктест, не инвестиционная рекомендация</footer>
 </div>
 
 <script id="data" type="application/json">__DATA__</script>
@@ -259,699 +265,365 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
 (function () {
   "use strict";
   const D = JSON.parse(document.getElementById("data").textContent);
-  const COL = {epoch: 0, day: 1, sym: 2, t0: 3, exit: 4, net: 5, ctrl: 6, reason: 7, fill: 8, usd: 9};
-  // Деньги сделки — результат (bps) × заполненная позиция, $ (колонка usd из бэктеста на реальном размере).
-  // У данных без колонки (прогоны на минимальном лоте до 23.09) — прежний пересчёт на $1000.
-  const cash = (r, b) => b / 1e4 * (r[COL.usd] != null ? r[COL.usd] : 1000);
-  const POS_USD = D.position_usd || 1000;
-  const EPOCHS = D.epochs.map(e => e.name);
-  const HIST = EPOCHS[0], REC = EPOCHS[1];
-  // Даты осей — из данных, не литералом: первые/последние сутки D.days, граница эпох — начало второй D.epochs.
-  const dayMs = s => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
-  const dayTimes = (D.days || []).map(d => dayMs(d.day)).sort((a, b) => a - b);
-  const AXIS_MIN = dayTimes.length ? dayTimes[0] : Date.UTC(2026, 8, 1);
-  const AXIS_MAX = (dayTimes.length ? dayTimes[dayTimes.length - 1] : Date.UTC(2026, 8, 22)) + 86400e3;
-  const BOUNDARY = (D.epochs && D.epochs[1]) ? dayMs(D.epochs[1].from) : AXIS_MIN;
-  // Подписи периодов — тоже из данных (24.09: запись выросла до 23.09, а подписи стояли литералом «16–22.09»).
-  const dm = s => s.slice(8, 10) + "." + s.slice(5, 7);
-  const span = e => e ? (e.from.slice(5, 7) === e.to.slice(5, 7) ? e.from.slice(8, 10) + "–" + dm(e.to) : dm(e.from) + "–" + dm(e.to)) : "";
-  const EP_HIST = span(D.epochs[0]) || "01–15.09", EP_REC = span(D.epochs[1]) || "16–22.09";
-  const EP_ALL = (D.epochs[0] && D.epochs[D.epochs.length - 1]) ? span({from: D.epochs[0].from, to: D.epochs[D.epochs.length - 1].to}) : "01–22.09";
-  for (const [cls, txt] of [["ep-hist", EP_HIST], ["ep-rec", EP_REC], ["ep-all", EP_ALL]])
-    for (const el of document.getElementsByClassName(cls)) el.textContent = txt;
-  const IN_SAMPLE_DAYS = 5; // форма подбиралась на первых сутках эпохи «запись» (16–20.09) — шапка страницы
-  const IN_SAMPLE = [BOUNDARY, Math.min(AXIS_MAX, BOUNDARY + IN_SAMPLE_DAYS * 86400e3)];
-  const REASON = {deadline: "дедлайн", stop: "стоп −2 %", take: "тейк", trail: "трейлинг", wall_gone: "стену сняли", eaten_by_trades: "стену съели"};
-  const AXIS_NAME = {btc1h: "BTC за 1 ч", btc4h: "BTC за 4 ч", pool1h: "Рынок за 1 ч", pool4h: "Рынок за 4 ч"};
-  const CAND_SET = "t-bid-btc1h-q1";
-  const BASE_SET = "t-bid-age-45";
-  document.getElementById("gen").textContent = D.generated_utc;
-  document.getElementById("acct-line").textContent = D.deposit_usd && D.position_usd
-    ? "Счёт $" + D.deposit_usd.toLocaleString("ru-RU") + ", позиция $" + D.position_usd.toLocaleString("ru-RU") + ", без плеча."
-    : "Деньги — на лот $1000 за сделку (прогон на минимальном лоте).";
-  if (D.data_note) { const n = document.getElementById("data-note"); n.textContent = D.data_note; n.hidden = false; }
-
-  // ---------- общие вычисления ----------
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const money = v => (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("ru-RU");
-  const bps = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1);
-  const cls = v => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-  const dayLabel = d => d.slice(8, 10) + "." + d.slice(5, 7);
-  const pct = v => (v / 100).toFixed(2).replace("-", "−");
-  // Клавиатура: делает элемент (th сортировки, tr выбора) кликабельным и активируемым с клавиатуры —
-  // Tab доходит до него, Enter/пробел делают то же, что клик.
-  function makeActivatable(el, handler) {
-    el.tabIndex = 0;
-    el.setAttribute("role", "button");
-    el.addEventListener("click", handler);
-    el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") { e.preventDefault(); handler(e); } });
-  }
-  function edges(axis) { const p = D.points[axis]; return [p.q20, p.q40, p.q60, p.q80].map(Number); }
-  function binLabel(axis, k) {
-    const e = edges(axis);
-    if (k === 1) return "≤ " + pct(e[0]) + " %";
-    if (k === 5) return "≥ " + pct(e[3]) + " %";
-    return pct(e[k - 2]) + "…" + pct(e[k - 1]) + " %";
-  }
-  // Сделки варианта: `sets:<набор>` — форма F10 титрования режима; `form:<набор>/<вариант>` — титрование выхода.
-  function trades(src, epoch) {
-    const [kind, key] = src.split(":");
-    const t = (kind === "sets" ? D.sets[key] : (D.form_trades || {})[key]) || [];
-    return epoch ? t.filter(r => r[COL.epoch] === epoch) : t;
-  }
-  function stats(t) {
-    const n = t.length;
-    if (!n) return null;
-    const sorted = t.slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
-    let cum = 0, peak = 0, dd = 0;
-    for (const r of sorted) { cum += cash(r, r[COL.net]); peak = Math.max(peak, cum); dd = Math.min(dd, cum - peak); }
-    const byDay = {};
-    for (const r of t) byDay[r[COL.day]] = (byDay[r[COL.day]] || 0) + cash(r, r[COL.net]);
-    const days = Object.values(byDay);
-    const sum = f => t.reduce((s, r) => s + f(r), 0);
-    const wins = t.filter(r => r[COL.net] > 0), losses = t.filter(r => r[COL.net] <= 0);
-    const gw = wins.reduce((s, r) => s + r[COL.net], 0), gl = -losses.reduce((s, r) => s + r[COL.net], 0);
-    // Одновременные позиции: от сигнала до выхода (оценка сверху — вход в пределах 30 мин); при совпадении
-    // минуты открытие считается раньше закрытия — та же оценка сверху. Заодно — реальный $ в рынке на пике
-    // (сумма колонки usd открытых на тот момент сделок, а не число позиций × условный размер).
-    const usdOf = r => r[COL.usd] != null ? r[COL.usd] : POS_USD;
-    const ev = [];
-    for (const r of t) { const u = usdOf(r); ev.push([r[COL.t0], 1, u]); ev.push([r[COL.exit], -1, u]); }
-    ev.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-    let open = 0, openUsd = 0, maxOpen = 0, peakUsd = 0;
-    for (const [, d, u] of ev) {
-      open += d; openUsd += d * u;
-      if (open > maxOpen) { maxOpen = open; peakUsd = openUsd; }
-      else if (open === maxOpen && openUsd > peakUsd) { peakUsd = openUsd; }
-    }
-    return {
-      n, win: wins.length / n, avg: sum(r => r[COL.net]) / n, usd: sum(r => cash(r, r[COL.net])),
-      excess: sum(r => cash(r, r[COL.net] - r[COL.ctrl])), excessAvg: sum(r => r[COL.net] - r[COL.ctrl]) / n,
-      dd, daysPos: days.filter(v => v > 0).length, days: days.length,
-      hold: sum(r => r[COL.exit] - r[COL.t0]) / n,
-      avgWin: wins.length ? gw / wins.length : 0, avgLoss: losses.length ? -gl / losses.length : 0,
-      pf: gl > 0 ? gw / gl : null, maxOpen, peakUsd,
-    };
-  }
-  function equity(src, field) {
-    const t = trades(src).slice().sort((a, b) => a[COL.exit] - b[COL.exit]);
-    const out = []; let i = 0, cum = 0;
-    for (let ts = AXIS_MIN; ts <= AXIS_MAX; ts += 3600e3) {
-      while (i < t.length && t[i][COL.exit] * 60e3 <= ts) { cum += cash(t[i], field(t[i])); i++; }
-      out.push({x: ts, y: Math.round(cum * 100) / 100});
-    }
-    return out;
+  const money = v => v == null ? "—" : (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("ru-RU");
+  const moneyFine = v => { if (v == null) return "—"; const a = Math.abs(v); const s = a < 10 ? a.toFixed(2) : Math.round(a).toLocaleString("ru-RU"); return (v < 0 ? "−$" : "+$") + s; };
+  const moneyPlain = v => v == null ? "—" : "$" + Math.round(Math.abs(v)).toLocaleString("ru-RU");
+  const pctFmt = v => v == null ? "—" : (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1).replace(".", ",") + " %";
+  const pctPlain = v => v == null ? "—" : Math.abs(v).toFixed(1).replace(".", ",") + " %";
+  const bpsFmt = v => v == null ? "—" : (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1).replace(".", ",");
+  const cls = v => v == null ? "" : (v > 0 ? "pos" : v < 0 ? "neg" : "");
+  const intFmt = v => v == null ? "—" : Math.round(v).toLocaleString("ru-RU");
+  const dm = s => s.slice(8, 10) + "." + s.slice(5, 7);
+  const REASON_RU = {deadline: "дедлайн", stop: "стоп", take: "тейк", trail: "трейлинг", wall_gone: "стену сняли", eaten_by_trades: "стену съели"};
+  const R = {day: 0, sym: 1, t0: 2, exit: 3, net: 4, ctrl: 5, reason: 6, fill: 7, usd: 8};
+  const cash = (r, posUsd) => r[R.net] / 1e4 * (r[R.usd] != null ? r[R.usd] : posUsd);
+
+  const PERIOD_LABEL = {sep: "Сентябрь", aug: "Август", crash: "Обвал"};
+  const VARIANT_PILL = {cand: "BTC 1 ч, трейл 1/1", btc4h_trail: "BTC 4 ч, трейл 1/1", btc4h_take: "BTC 4 ч, тейк 1,75 %", nofilter: "Без фильтра"};
+  const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
+  const VARIANT_FULL = {}; D.variants.forEach(v => VARIANT_FULL[v.key] = v.label);
+
+  document.getElementById("gen").textContent = D.generated_utc;
+  document.getElementById("acct-line").innerHTML =
+    "Счёт: депозит <b>$" + intFmt(D.deposit_usd) + "</b>, позиция <b>$" + intFmt(D.position_usd) +
+    "</b>, без плеча, издержки и очередь заявок учтены.";
+
+  // ---------- подсказки (тап на телефоне) ----------
+  document.addEventListener("click", e => {
+    const hint = e.target.closest(".hint");
+    document.querySelectorAll(".hint.show").forEach(h => { if (h !== hint) h.classList.remove("show"); });
+    if (hint) hint.classList.toggle("show");
+  });
+  const hint = (id, tip) => "<span class='hint' tabindex='0' data-tip='" + tip.replace(/'/g, "&#39;") + "'>" + "?" + "</span>";
+
+  // ---------- состояние ----------
+  let state = {period: "sep", variant: "cand"};
+
+  function periodPillLabel(key) {
+    const p = D.periods.find(x => x.key === key);
+    return PERIOD_LABEL[key] + " " + dm(p.from) + "–" + dm(p.to);
   }
 
-  // ---------- графики ----------
+  function buildToggles() {
+    const pt = document.getElementById("period-toggle");
+    pt.innerHTML = D.periods.map(p => "<button data-period='" + p.key + "' aria-pressed='" + (p.key === state.period) + "'>" + periodPillLabel(p.key) + "</button>").join("");
+    const vt = document.getElementById("variant-toggle");
+    vt.innerHTML = D.variants.map(v => "<button data-variant='" + v.key + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>").join("");
+    pt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; renderAll(); }));
+    vt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
+  }
+
+  // ---------- статус в шапке (кандидат не подтвердился) ----------
+  function renderStatus() {
+    const aug = D.account.aug.cand;
+    const box = document.getElementById("status-banner");
+    const warnIcon = "<svg viewBox='0 0 16 16' aria-hidden='true' fill='none'><path d='M8 1.5 15 14H1L8 1.5Z' stroke='currentColor' stroke-width='1.3' stroke-linejoin='round'/><path d='M8 6v3.4M8 11.6v.1' stroke='currentColor' stroke-width='1.4' stroke-linecap='round'/></svg>";
+    box.innerHTML = "<div class='status-banner crit'>" + warnIcon +
+      "<div><div class='headline'>Кандидат (просадка BTC за 1 ч) не подтвердился вне выборки: август " + money(aug.net_usd) + " (" + pctFmt(aug.net_pct) + " на депозит)</div>" +
+      "<div class='sub'>«Просадка BTC за 4 ч» в плюсе на всех трёх отрезках (" + money(D.account.sep.btc4h_trail ? D.account.sep.btc4h_trail.net_usd : null) +
+      "* / " + money(D.account.aug.btc4h_trail.net_usd) + ") — направление для проверки, не кандидат: смотрелся один из трёх вариантов одновременно.</div></div></div>";
+  }
+
+  // ---------- данные для текущего выбора ----------
+  function combo(period, variant) {
+    const acc = (D.account[period] || {})[variant] || null;
+    const kpi = (D.kpi[period] || {})[variant] || null;
+    const trades = ((D.trades[period] || {})[variant]) || [];
+    return {acc, kpi, trades};
+  }
+  function sharpeSortino(dailyUsd, depositUsd) {
+    const vals = Object.values(dailyUsd || {}).map(v => v / depositUsd * 100);
+    if (vals.length < 2) return [null, null];
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+    const down = vals.filter(v => v < 0);
+    let dstd = 0;
+    if (down.length >= 2) { const dm2 = down.reduce((a, b) => a + b, 0) / down.length; dstd = Math.sqrt(down.reduce((a, b) => a + (b - dm2) ** 2, 0) / down.length); }
+    else if (down.length === 1) dstd = Math.abs(down[0]);
+    const ann = Math.sqrt(365);
+    return [std > 0 ? mean / std * ann : null, dstd > 0 ? mean / dstd * ann : null];
+  }
+  function dailySeriesFor(period, variant) {
+    const {acc, kpi} = combo(period, variant);
+    return acc ? acc.daily_usd : (kpi ? kpi.daily_usd : {});
+  }
+
+  // ---------- KPI ----------
+  function renderKpi() {
+    const {acc, kpi} = combo(state.period, state.variant);
+    const grid = document.getElementById("kpi-grid");
+    document.getElementById("kpi-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_FULL[state.variant];
+    if (!kpi) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>нет данных для этого сочетания периода и варианта</div></div>"; return; }
+    const n = acc ? acc.n : kpi.n;
+    const netUsd = acc ? acc.net_usd : kpi.net_usd;
+    const netPct = acc ? acc.net_pct : (netUsd / D.deposit_usd * 100);
+    const ddPct = acc ? acc.dd_pct : kpi.dd_pct_trade;
+    const rf = acc ? acc.recovery_factor : (kpi.dd_usd_trade ? +( -netUsd === 0 ? 0 : netUsd / Math.abs(kpi.dd_usd_trade)).toFixed(2) : null);
+    const win = acc ? acc.win_rate : kpi.win_rate;
+    const peakN = acc ? acc.peak_n : kpi.peak_n;
+    const peakUsd = acc ? acc.peak_usd : kpi.peak_usd;
+    let sharpe, sortino;
+    if (acc) { sharpe = acc.sharpe; sortino = acc.sortino; } else { [sharpe, sortino] = sharpeSortino(kpi.daily_usd, D.deposit_usd); }
+    const tiles = [
+      ["Чистая прибыль", money(netUsd), null, cls(netUsd), "Сумма результата всех сделок в долларах на реальном размере позиции."],
+      ["Доходность", pctFmt(netPct), "от депозита $" + intFmt(D.deposit_usd), cls(netPct), "Чистая прибыль, делённая на депозит счёта."],
+      ["Просадка", "−" + pctPlain(ddPct), "макс. по счёту", "neg", "Самый глубокий откат капитала от предыдущего пика, в % депозита."],
+      ["Фактор восстановления", rf == null ? "—" : rf.toFixed(2), null, cls(rf != null ? rf - 1 : null), "Чистая прибыль, делённая на максимальную просадку: сколько просадок «уложилось» в итог."],
+      ["Шарп", sharpe == null ? "—" : sharpe.toFixed(2), "по дням, годовых", cls(sharpe), "Средняя дневная доходность к её разбросу, приведено к году (√365)."],
+      ["Сортино", sortino == null ? "—" : sortino.toFixed(2), "по дням, годовых", cls(sortino), "Как Шарп, но разброс считается только по убыточным дням."],
+      ["Профит-фактор", kpi.profit_factor == null ? "—" : kpi.profit_factor.toFixed(2), null, cls(kpi.profit_factor != null ? kpi.profit_factor - 1 : null), "Сумма прибыльных сделок, делённая на сумму убыточных."],
+      ["Доля прибыльных", pctPlain(win * 100), "сделок", "", "Доля сделок, закрытых в плюс."],
+      ["Сделок", intFmt(n), null, "", "Число закрытых сделок за период."],
+      ["Средняя сделка", moneyFine(kpi.avg_usd), bpsFmt(kpi.avg_bps) + " bps", cls(kpi.avg_usd), "Результат одной сделки в среднем — в долларах и в базисных пунктах."],
+      ["Ожидание", bpsFmt(kpi.win_rate * kpi.avg_win_bps - (1 - kpi.win_rate) * Math.abs(kpi.avg_loss_bps)) + " bps", "на сделку", cls(kpi.avg_bps), "Доля прибыльных × средний плюс минус доля убыточных × средний минус."],
+      ["Время в рынке", pctPlain(kpi.pct_time_in_market * 100), "доля календаря", "", "Доля времени периода, когда была открыта хотя бы одна позиция."],
+      ["Пик позиций", peakN + " / " + moneyPlain(peakUsd), "факт. плечо", "", "Наибольшее число одновременно открытых сделок и сумма в рынке в этот момент."],
+    ];
+    grid.innerHTML = tiles.map(([label, value, sub, cl, tip]) =>
+      "<div class='kpi-tile'><div class='kpi-label'>" + label + hint(label, tip) + "</div>" +
+      "<div class='kpi-value num " + cl + "'>" + value + "</div>" + (sub ? "<div class='kpi-sub'>" + sub + "</div>" : "") + "</div>"
+    ).join("") + (acc ? "" : "<div class='kpi-caveat'>Отдельный прогон счёта для этого сочетания ещё не считался — цифры выше по сделкам, без модели портфеля (нет ограничения по числу одновременных позиций).</div>");
+  }
+
+  // ---------- капитал / просадка ----------
   const charts = {};
   function baseOptions() {
     return {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: {mode: "index", intersect: false},
-      plugins: {
-        legend: {display: false},
-        tooltip: {
-          backgroundColor: css("--surface"), titleColor: css("--ink"), bodyColor: css("--ink-2"),
+      plugins: { legend: {display: false},
+        tooltip: { backgroundColor: css("--surface"), titleColor: css("--ink"), bodyColor: css("--ink-2"),
           borderColor: css("--rule-strong"), borderWidth: 1, padding: 10, boxPadding: 4,
-          titleFont: {family: "IBM Plex Sans", weight: "600"}, bodyFont: {family: "IBM Plex Mono"},
-        },
-      },
+          titleFont: {family: "IBM Plex Sans", weight: "600"}, bodyFont: {family: "IBM Plex Mono"} } },
       scales: {
         x: {grid: {color: css("--rule"), drawTicks: false}, border: {color: css("--rule-strong")}, ticks: {color: css("--ink-3"), padding: 6}},
-        y: {grid: {color: css("--rule")}, border: {display: false}, ticks: {color: css("--ink-3"), padding: 6}},
-      },
+        y: {grid: {color: css("--rule")}, border: {display: false}, ticks: {color: css("--ink-3"), padding: 6}} },
     };
   }
-  const epochPlugin = {
-    id: "epochs",
-    beforeDatasetsDraw(chart) {
+  function tunedBandPlugin(period) {
+    return { id: "tuned-" + period, beforeDatasetsDraw(chart) {
+      if (period !== "sep") return;
+      const p = D.periods.find(x => x.key === "sep");
       const {ctx, chartArea: a, scales: {x}} = chart;
-      if (!x || x.type !== "linear") return;
-      const x0 = x.getPixelForValue(IN_SAMPLE[0]), x1 = x.getPixelForValue(IN_SAMPLE[1]);
-      ctx.save();
-      ctx.fillStyle = css("--band");
+      if (!x) return;
+      const x0 = x.getPixelForValue(Date.parse(p.tuned_from + "T00:00:00Z")), x1 = x.getPixelForValue(Date.parse(p.tuned_to + "T00:00:00Z"));
+      ctx.save(); ctx.fillStyle = css("--band-tuned");
       ctx.fillRect(Math.max(x0, a.left), a.top, Math.min(x1, a.right) - Math.max(x0, a.left), a.bottom - a.top);
-      const xb = x.getPixelForValue(BOUNDARY);
+      const xb = x.getPixelForValue(Date.parse(p.boundary + "T00:00:00Z"));
       ctx.strokeStyle = css("--ink-3"); ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(xb, a.top); ctx.lineTo(xb, a.bottom); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = css("--ink-3"); ctx.font = "12px IBM Plex Mono, monospace";
-      ctx.textAlign = "right"; ctx.fillText(HIST, xb - 6, a.top + 14);
-      ctx.textAlign = "left"; ctx.fillText(REC, xb + 6, a.top + 14);
       ctx.restore();
-    },
-  };
-  function lineChart(key, canvasId, legendId, ds) {
-    ds.forEach(d => { d.pointRadius = 0; d.pointHoverRadius = 4; d.tension = 0; d.fill = false; d.borderWidth = d.borderWidth || 2; });
-    document.getElementById(legendId).innerHTML = ds.map(d => "<span><i" + (d.borderDash ? " class='dash'" : "") + " style='border-color:" + d.borderColor + "'></i>" + d.label + "</span>").join("");
-    const o = baseOptions();
-    o.scales.x.type = "linear"; o.scales.x.min = AXIS_MIN; o.scales.x.max = AXIS_MAX;
-    o.scales.x.ticks.stepSize = 2 * 86400e3;
-    o.scales.x.ticks.callback = v => { const d = new Date(v); return String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0"); };
-    o.scales.y.ticks.callback = v => money(v);
-    o.plugins.tooltip.callbacks = {
-      title: items => { const d = new Date(items[0].parsed.x); return String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0") + " " + String(d.getUTCHours()).padStart(2, "0") + ":00 UTC"; },
-      label: it => " " + it.dataset.label + ": " + money(it.parsed.y),
-    };
-    if (charts[key]) charts[key].destroy();
-    charts[key] = new Chart(document.getElementById(canvasId), {type: "line", data: {datasets: ds}, options: o, plugins: [epochPlugin]});
+    }};
   }
-  function barEpochs(key, canvas, labels, hv, rv, tip) {
-    const o = baseOptions();
-    o.scales.y.title = {display: true, text: "bps на сделку", color: css("--ink-3"), font: {size: 12}};
-    o.plugins.tooltip.callbacks = {label: it => " " + it.dataset.label + ": " + (tip ? tip(it) : (it.parsed.y == null ? "—" : bps(it.parsed.y) + " bps"))};
-    if (charts[key]) charts[key].destroy();
-    const mk = (label, vals, color, epoch) => ({label, data: vals.map(v => v == null ? null : Math.round(v * 10) / 10), backgroundColor: color, borderRadius: 4, borderSkipped: "start", maxBarThickness: 26, _epoch: epoch});
-    charts[key] = new Chart(canvas, {type: "bar", data: {labels, datasets: [mk("история", hv, css("--hist"), HIST), mk("запись", rv, css("--rec"), REC)]}, options: o});
+  function dateTicks(o, from, to) {
+    const span = (Date.parse(to) - Date.parse(from)) / 86400e3;
+    const step = Math.max(1, Math.round(span / 8)) * 86400e3;
+    o.scales.x.type = "linear"; o.scales.x.min = Date.parse(from + "T00:00:00Z"); o.scales.x.max = Date.parse(to + "T00:00:00Z") + 86400e3;
+    o.scales.x.ticks.stepSize = step;
+    o.scales.x.ticks.callback = v => dm(new Date(v).toISOString().slice(0, 10));
   }
-  const SERIES = ["--c1", "--c2", "--c3", "--c4", "--c5"];
-
-  // ---------- кандидат ----------
-  const CAND = "form:" + CAND_SET + "/cand";
-  // База для сравнения: прогон на реальной позиции — тот же выход без фильтра просадки (из того же прогона);
-  // старые данные — F10 из титрования режима.
-  const BASE_F10 = D.position_usd ? "form:" + BASE_SET + "/cand" : "sets:" + BASE_SET;
-  const BASE_LABEL = D.position_usd ? "без фильтра просадки" : "база F10";
-  function kpiTable(tableId, src, compareSrc, compareLabel) {
-    const cols = [[HIST, "История " + EP_HIST], [REC, "Запись " + EP_REC], [null, "Вместе"]];
-    const S = cols.map(([e]) => stats(trades(src, e)));
-    const B = compareSrc ? cols.map(([e]) => stats(trades(compareSrc, e))) : null;
-    const rows = [
-      ["Сделок", s => s.n, null],
-      ["Итог, $", s => money(s.usd), s => s.usd],
-      ["Сверх рынка, $", s => money(s.excess), s => s.excess],
-      ["Средняя сделка, bps", s => bps(s.avg), s => s.avg],
-      ["В плюс, % сделок", s => Math.round(s.win * 100) + " %", null],
-      ["Средний плюс / минус, bps", s => bps(s.avgWin) + " / " + bps(s.avgLoss), null],
-      ["Профит-фактор", s => s.pf == null ? "—" : s.pf.toFixed(2), null],
-      ["Худший откат капитала, $", s => money(s.dd), s => s.dd],
-      ["Пик: позиций / в рынке", s => s.maxOpen + " / $" + Math.round(s.peakUsd).toLocaleString("ru-RU"), null],
-      ["Дней в плюсе", s => s.daysPos + " из " + s.days, null],
-      ["Удержание в среднем, мин", s => Math.round(s.hold), null],
-    ];
-    let html = "<thead><tr><th></th>" + cols.map(c => "<th>" + c[1] + "</th>").join("") + "</tr></thead><tbody>";
-    for (const [label, fmt, sign] of rows) {
-      html += "<tr><td>" + label + "</td>";
-      S.forEach((s, i) => {
-        if (!s) { html += "<td class='num'>—</td>"; return; }
-        html += "<td class='num big " + (sign ? cls(sign(s)) : "") + "'>" + fmt(s) +
-          (B && B[i] ? "<span style='display:block;color:var(--ink-3);font-size:12px'>" + compareLabel + ": " + fmt(B[i]) + "</span>" : "") + "</td>";
-      });
-      html += "</tr>";
+  function renderEquity() {
+    const p = D.periods.find(x => x.key === state.period);
+    const daily = dailySeriesFor(state.period, state.variant);
+    const days = Object.keys(daily).sort();
+    let cum = 0, peak = 0;
+    const eqPts = [], ddPts = [];
+    for (const d of days) {
+      cum += daily[d]; peak = Math.max(peak, cum);
+      eqPts.push({x: Date.parse(d + "T00:00:00Z"), y: Math.round(cum * 100) / 100});
+      ddPts.push({x: Date.parse(d + "T00:00:00Z"), y: Math.round((cum - peak) * 100) / 100});
     }
-    document.getElementById(tableId).innerHTML = html + "</tbody>";
+    document.getElementById("equity-legend").innerHTML =
+      "<span><i style='border-color:" + css("--series-3") + "'></i>капитал, $</span>" +
+      (state.period === "sep" ? "<span><i class='dash' style='border-color:" + css("--ink-3") + "'></i>16.09 — смена источника данных</span>" : "");
+    const oEq = baseOptions(); dateTicks(oEq, p.from, p.to);
+    oEq.scales.y.ticks.callback = v => money(v);
+    oEq.plugins.tooltip.callbacks = { title: items => dm(new Date(items[0].parsed.x).toISOString().slice(0, 10)), label: it => " капитал: " + money(it.parsed.y) };
+    if (charts.eq) charts.eq.destroy();
+    charts.eq = new Chart(document.getElementById("chart-equity"), { type: "line",
+      data: {datasets: [{label: "капитал", data: eqPts, borderColor: css("--series-3"), backgroundColor: css("--series-3") + "22", fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.08, borderWidth: 2}]},
+      options: oEq, plugins: [tunedBandPlugin(state.period)] });
+    const oDd = baseOptions(); dateTicks(oDd, p.from, p.to);
+    oDd.scales.y.ticks.callback = v => money(v);
+    oDd.plugins.tooltip.callbacks = { title: items => dm(new Date(items[0].parsed.x).toISOString().slice(0, 10)), label: it => " просадка: " + money(it.parsed.y) };
+    if (charts.dd) charts.dd.destroy();
+    charts.dd = new Chart(document.getElementById("chart-drawdown"), { type: "line",
+      data: {datasets: [{label: "просадка", data: ddPts, borderColor: css("--loss"), backgroundColor: css("--loss") + "33", fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.08, borderWidth: 1.5}]},
+      options: oDd, plugins: [tunedBandPlugin(state.period)] });
+    document.getElementById("equity-note").textContent = state.period === "sep"
+      ? "Заштрихован период 16–20.09 — на этих сутках подбирался вход; 16.09 — переход с архива Bybit на собственный коллектор."
+      : (state.period === "aug" ? "Архив Bybit, тот же источник весь месяц." : "Обвал 10–11.10.2025 — двое суток, отдельный стресс-эпизод.");
   }
-  function renderCandidate() {
-    kpiTable("cand-kpi", CAND, BASE_F10, BASE_LABEL);
-    lineChart("candEq", "cand-eq", "cand-legend", [
-      {label: "Кандидат", data: equity(CAND, r => r[COL.net]), borderColor: css("--c1")},
-      {label: D.position_usd ? "Тот же выход без фильтра просадки" : "База F10: все входы, стоп 2 %, 1:1, 2 ч", data: equity(BASE_F10, r => r[COL.net]), borderColor: css("--c2"), borderWidth: 1.5},
-      {label: "Рынок для сделок кандидата", data: equity(CAND, r => r[COL.ctrl]), borderColor: css("--ink-3"), borderDash: [6, 4]},
-    ]);
-    const byDay = {};
-    for (const r of trades(CAND)) { const d = byDay[r[COL.day]] || (byDay[r[COL.day]] = {usd: 0, n: 0}); d.usd += cash(r, r[COL.net]); d.n++; }
-    const days = D.days.map(d => d.day);
-    const vals = days.map(d => byDay[d] ? Math.round(byDay[d].usd) : 0);
+
+  // ---------- дневной результат + календарь ----------
+  function renderDaily() {
+    const daily = dailySeriesFor(state.period, state.variant);
+    const days = Object.keys(daily).sort();
     const o = baseOptions();
     o.scales.y.ticks.callback = v => money(v);
-    o.plugins.tooltip.callbacks = {
-      title: items => { const d = D.days[items[0].dataIndex]; return dayLabel(d.day) + " · " + d.epoch; },
-      label: it => { const d = D.days[it.dataIndex], b = byDay[d.day] || {usd: 0, n: 0};
-        return [" кандидат: " + money(b.usd) + " за " + b.n + " сд.", " рынок за день: " + (d.pool_pct == null ? "—" : (d.pool_pct > 0 ? "+" : "") + d.pool_pct.toFixed(1).replace("-", "−") + " %"), " просадок BTC за 1 ч: " + d.dips.btc1h]; },
-    };
-    if (charts.candDaily) charts.candDaily.destroy();
-    charts.candDaily = new Chart(document.getElementById("cand-daily"), {type: "bar",
-      data: {labels: days.map(dayLabel), datasets: [{data: vals, backgroundColor: vals.map(v => v >= 0 ? css("--gain") : css("--loss")), borderRadius: 4, borderSkipped: "start", maxBarThickness: 28}]}, options: o});
+    o.plugins.tooltip.callbacks = {label: it => " " + money(it.parsed.y)};
+    if (charts.bar) charts.bar.destroy();
+    charts.bar = new Chart(document.getElementById("chart-daily"), { type: "bar",
+      data: {labels: days.map(dm), datasets: [{data: days.map(d => Math.round(daily[d] * 100) / 100),
+        backgroundColor: days.map(d => daily[d] >= 0 ? css("--gain") : css("--loss")), borderRadius: 3, maxBarThickness: 22}]},
+      options: o });
+    renderCalendar(daily);
+  }
+  const DOW = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+  function renderCalendar(daily) {
+    const p = D.periods.find(x => x.key === state.period);
+    const first = new Date(p.from + "T00:00:00Z"), last = new Date(p.to + "T00:00:00Z");
+    const year = first.getUTCFullYear(), month = first.getUTCMonth();
+    const monthNames = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+    document.getElementById("cal-title").textContent = "Календарь — " + monthNames[month] + " " + year;
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const firstDow = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // 0=Пн
+    const vals = Object.values(daily).map(Math.abs);
+    const scaleMax = vals.length ? Math.max(...vals) : 1;
+    let html = DOW.map(d => "<div class='dow'>" + d + "</div>").join("");
+    for (let i = 0; i < firstDow; i++) html += "<div class='day empty'></div>";
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = year + "-" + String(month + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+      const v = daily[key];
+      let style = "";
+      if (v != null) { const t = Math.min(1, Math.abs(v) / (scaleMax || 1)); style = "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.round(t * 55) + "%, var(--surface-2))"; }
+      html += "<div class='day' style='" + style + "' title='" + key + (v != null ? ": " + money(v) : "") + "'><span class='d'>" + d + "</span>" + (v != null ? "<span class='v'>" + money(v) + "</span>" : "") + "</div>";
+    }
+    document.getElementById("calendar").innerHTML = html;
   }
 
-  // ---------- кейсы («Надёжность») ----------
-  const SET_TOGGLE = [["t-bid-btc1h-q1", "Просадка BTC за 1 ч"], ["t-bid-btc4h-q1", "Просадка BTC за 4 ч"], ["t-bid-age-45", "База лонга"]];
-  const CASES = [
-    {id: "regime", title: "Когда входить: режим рынка", short: "режим рынка",
-      verdict: ["good", "держится в обеих эпохах"],
-      answer: "Лонг от стены зарабатывает, когда вход идёт в просадке — BTC или рынок за последний час просели сильнее обычного. На спокойном рынке и плавном сползании лонг теряет; без фильтра на днях, которых форма не видела, база играет в ноль.",
-      variants: () => [["sets:t-bid-btc1h-q1", "Просадка BTC за 1 ч (≤ −0,21 %)"], ["sets:t-bid-btc4h-q1", "Просадка BTC за 4 ч (≤ −0,45 %)"], ["sets:t-bid-pool1h-q1", "Просадка рынка за 1 ч (≤ −0,31 %)"], ["sets:" + BASE_SET, "База: все входы"], ["sets:t-bid-pool4h-q2", "Сползание рынка за 4 ч (антипример)"]],
-      extra: "dose-bid", note: "Выход у всех вариантов одинаковый — форма F10: стоп 2 %, тейк 1:1, 2 ч."},
-    {id: "age", title: "Возраст стены", short: "возраст стены",
-      verdict: ["warn", "нужен ≥ 45–60 мин; выше не растёт"],
-      answer: "На истории молодые стены — главный источник убытка (≥ 15 мин: −$2548), от 45 минут — около нуля, лучше всего 60 минут; старше часа лучше не становится. На записи все пороги в плюсе — рынок рос.",
-      variants: () => [["sets:t-bid-age-15", "Стена ≥ 15 мин"], ["sets:t-bid-age-30", "Стена ≥ 30 мин"], ["sets:t-bid-age-45", "Стена ≥ 45 мин"], ["sets:t-bid-age-60", "Стена ≥ 60 мин"], ["sets:t-bid-age-120", "Стена ≥ 120 мин"]],
-      extra: "age-bid", note: "Фильтр режима здесь не стоит — это все входы с порогом возраста; выход — форма F10."},
-    {id: "hold", title: "Сколько держать", short: "удержание", sets: true,
-      verdict: ["warn", "4 ч — на истории; на записи 2 ч ≈ 4 ч"],
-      answer: "На истории чем дольше держим, тем лучше: 1 ч → 2 ч → 4 ч. На записи (8 суток) лучшие 2 ч, 4 ч чуть хуже, 1 ч хуже обоих. Мы зарабатываем на отскоке рынка после просадки, а ему нужно время; 4 часа — край проверенной сетки. Цифры — на позиции $500 (пересчёт 24.09).",
-      variants: s => [["form:" + s + "/h1", "1 час"], ["form:" + s + "/h2", "2 часа"], ["form:" + s + "/h4", "4 часа"]],
-      extra: "hold", note: "Стоп 2 %, тейк 1,75 %."},
-    {id: "stop", title: "Какой стоп", short: "стоп", sets: true,
-      verdict: ["good", "2 % — лучший или не хуже в обеих эпохах"],
-      answer: "На истории чем шире стоп, тем лучше: 0,5 % почти обнуляет результат, 2 % — лучший. На записи разница мала — 2 % не хуже узких (0,5 % там не проигрывает). Тесный стоп выбивает сделку шумом раньше, чем рынок отскочит. Хвост: за 22 дня 99 % стопов 2 % исполнились не дальше −2,4 %, худший — около −3 %; настоящего прострела в эти дни не было, и бэктест продаёт по лучшему биду без прохода вглубь стакана — риск прострела он недооценивает.",
-      variants: s => [["form:" + s + "/s05", "Стоп 0,5 %"], ["form:" + s + "/s1", "Стоп 1 %"], ["form:" + s + "/s15", "Стоп 1,5 %"], ["form:" + s + "/h4", "Стоп 2 %"]],
-      extra: "heat", note: "Тейк 1,75 %, удержание 4 ч. Ниже — вся карта «стоп × тейк» при 4 ч."},
-    {id: "take", title: "Тейк или трейлинг", short: "тейк / трейл", sets: true,
-      verdict: ["good", "поздний трейл ≈ тейк 1,75 %"],
-      answer: "Поздний трейлинг (включение +1–2 %, откат 0,5–1 %) и фиксированный тейк 1,75 % дают почти одно и то же; ранний трейлинг (включение +0,5 %) и тейк 1 % режут прибыльные сделки. Трейлинг — не большой рычаг.",
-      variants: s => [["form:" + s + "/cand", "Трейл: +1 % / откат 1 % (кандидат)"], ["form:" + s + "/tr2x05", "Трейл: +2 % / откат 0,5 %"], ["form:" + s + "/h4", "Тейк 1,75 %"], ["form:" + s + "/tk1", "Тейк 1 %"], ["form:" + s + "/tr05", "Ранний трейл: +0,5 % / откат 0,25 %"]],
-      extra: "trail", note: "Стоп 2 %, удержание 4 ч. Ниже — вся таблица трейлинга."},
-    {id: "wall", title: "Реакция на стену: съели, сняли, защита", short: "реакция на стену", sets: true,
-      verdict: ["good", "не реагировать — в обеих эпохах"],
-      answer: "Реакция на стену в позиции почти всегда стоит денег: выход, когда стену съели на 20 %, выход сразу при снятии и перенос стопа в безубыток после снятия — хуже, чем держать, в обеих эпохах. Трейлинг 1 % после снятия на записи чуть лучше (+$78 против +$67), но на истории заметно хуже (+$74 против +$130) — в сумме держать лучше. Чем чувствительнее реакция, тем хуже. Стену снимают примерно в 60 % сделок, а цена всё равно отскакивает: зарабатываем на отскоке рынка, стена — только точка входа. Защита — стоп 2 %.",
-      variants: s => [["form:" + s + "/cand", "Не реагировать (кандидат)"], ["form:" + s + "/gone90be", "Сняли → стоп в безубыток"], ["form:" + s + "/gone90tr1", "Сняли → трейл, откат 1 %"], ["form:" + s + "/gone90", "Сняли → выход сразу"], ["form:" + s + "/eat20", "Съели 20 % → выход (тейк 1:1)"]],
-      extra: "", note: "Стоп 2 %, трейл +1 % / откат 1 %, удержание 4 ч; «сняли» — размер стены упал на 90 % без сделок."},
-    {id: "short", title: "Шорт от аск-стены", short: "шорт",
-      verdict: ["crit", "не работает — отложен (В-87)"],
-      answer: "Ни один вариант шорта не держится в обеих эпохах: база в минусе и на истории, и на записи. Шорт после резкого роста был в плюсе на истории, но на записи рост продолжался и тот же вариант ушёл в минус. Сверх рынка шорт даёт немного — этого не хватает против хода рынка.",
-      variants: () => [["sets:t-ask-age-45", "База шорта: все входы"], ["sets:t-ask-btc1h-q5", "После роста BTC за 1 ч (≥ +0,20 %)"], ["sets:t-ask-pool4h-q5", "После роста рынка за 4 ч (≥ +0,42 %)"], ["sets:t-ask-btc1h-q1", "В просадке BTC за 1 ч"], ["sets:t-ask-age-90", "Стена ≥ 90 мин"]],
-      extra: "dose-ask", note: "Выход — форма F10: стоп 2 %, тейк 1:1, 2 ч."},
-  ];
-  // Кейсы показываются, только если у всех их сделок есть колонка usd (реальная позиция, не условный лот);
-  // D.hide_cases — ручной флаг, форсирует скрытие своим текстом даже поверх этой проверки.
-  // Кейсы, не пересчитанные на реальной позиции (D.skip_cases; 24.09 — режим, возраст, шорт: их прогоны ещё на
-  // минимальном лоте, доллары там не деньги сделки, В-93), не показываются; причина — в заметке раздела.
-  if (Array.isArray(D.skip_cases)) {
-    for (let i = CASES.length - 1; i >= 0; i--) if (D.skip_cases.includes(CASES[i].id)) CASES.splice(i, 1);
-    const note = document.querySelector("#h-cases + .note");
-    if (note && D.skip_cases_note) note.textContent = D.skip_cases_note;
-  }
-  function caseVariantSrcs(c) {
-    const out = [];
-    if (c.sets) { for (const [s] of SET_TOGGLE) out.push(...c.variants(s).map(v => v[0])); }
-    else out.push(...c.variants().map(v => v[0]));
-    return out;
-  }
-  function casesHaveRealUsd() {
-    let any = false;
-    for (const c of CASES) {
-      for (const src of caseVariantSrcs(c)) {
-        const t = trades(src);
-        if (!t.length) continue;
-        any = true;
-        if (!t.every(r => r[COL.usd] != null)) return false;
-      }
-    }
-    return any;
-  }
-  const AUTO_HIDE_CASES_MSG = "Проверки надёжности посчитаны на условном лоте, не на реальном размере позиции — раздел появится после пересчёта.";
-  const hideCasesMsg = D.hide_cases || (casesHaveRealUsd() ? null : AUTO_HIDE_CASES_MSG);
-  // Первый показанный кейс — первый не скрытый (D.skip_cases мог убрать «режим»).
-  let caseId = CASES.length ? CASES[0].id : "regime", caseSet = CAND_SET;
-  function verdictChip([kind, text]) {
-    const icon = kind === "good" ? "<path fill='currentColor' d='M6.5 11.2 3.3 8l1-1 2.2 2.2L11.7 4l1 1z'/>" : kind === "crit" ? "<path fill='currentColor' d='M4.4 3.3 8 6.9l3.6-3.6 1.1 1.1L9.1 8l3.6 3.6-1.1 1.1L8 9.1l-3.6 3.6-1.1-1.1L6.9 8 3.3 4.4z'/>" : "<path fill='currentColor' d='M8 1.5 15 14H1L8 1.5Zm0 4.2c-.4 0-.7.3-.7.7v3.3a.7.7 0 0 0 1.4 0V6.4c0-.4-.3-.7-.7-.7Zm0 6a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z'/>";
-    return "<span class='chip " + kind + "'><svg viewBox='0 0 16 16' aria-hidden='true'>" + icon + "</svg>" + text + "</span>";
-  }
-  function buildNav() {
-    const nav = document.getElementById("case-nav");
-    nav.innerHTML = "";
-    CASES.forEach((c, i) => {
-      const b = document.createElement("button");
-      b.type = "button"; b.innerHTML = (i + 1) + ". " + c.title + "<small>" + c.verdict[1] + "</small>";
-      b.setAttribute("aria-pressed", String(c.id === caseId));
-      b.addEventListener("click", () => { caseId = c.id; buildNav(); renderCase(); });
-      nav.appendChild(b);
-    });
-  }
-  function renderCase() {
-    const c = CASES.find(x => x.id === caseId);
-    document.getElementById("case-title").textContent = c.title;
-    document.getElementById("case-verdict").innerHTML = verdictChip(c.verdict);
-    document.getElementById("case-answer").textContent = c.answer;
-    const tg = document.getElementById("case-sets");
-    tg.innerHTML = "";
-    if (c.sets) {
-      tg.innerHTML = "<span>Набор:</span>";
-      for (const [s, label] of SET_TOGGLE) {
-        const b = document.createElement("button");
-        b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(s === caseSet));
-        b.addEventListener("click", () => { caseSet = s; renderCase(); });
-        tg.appendChild(b);
-      }
-    }
-    const vars = c.variants(caseSet);
-    const cols = [HIST, REC];
-    let html = "<thead><tr class='grp'><th></th><th colspan='6' class='sep'>История " + EP_HIST + "</th><th colspan='6' class='sep'>Запись " + EP_REC + "</th><th class='sep'></th></tr>" +
-      "<tr><th>Вариант</th>" + cols.map(() => "<th class='sep'>сделок</th><th>итог</th><th>bps</th><th>сверх рынка</th><th>в плюс</th><th>откат</th>").join("") + "<th class='sep'>плюс в обеих</th></tr></thead><tbody>";
-    vars.forEach(([src, label], i) => {
-      const S = cols.map(e => stats(trades(src, e)));
-      const both = S.every(s => s && s.usd > 0);
-      html += "<tr><td><span class='swatch' style='background:" + css(SERIES[i % SERIES.length]) + "'></span>" + label + "</td>";
-      for (const s of S) {
-        if (!s) { html += "<td class='sep'>—</td><td></td><td></td><td></td><td></td><td></td>"; continue; }
-        html += "<td class='num sep'>" + s.n + "</td><td class='num " + cls(s.usd) + "'>" + money(s.usd) + "</td><td class='num " + cls(s.avg) + "'>" + bps(s.avg) +
-          "</td><td class='num " + cls(s.excessAvg) + "'>" + bps(s.excessAvg) + "</td><td class='num'>" + Math.round(s.win * 100) + " %</td><td class='num neg'>" + money(s.dd) + "</td>";
-      }
-      html += "<td class='sep'>" + (both ? "да" : "нет") + "</td></tr>";
-    });
-    document.getElementById("case-table").innerHTML = html + "</tbody>";
-    lineChart("caseEq", "case-eq", "case-legend", vars.map(([src, label], i) => ({label, data: equity(src, r => r[COL.net]), borderColor: css(SERIES[i % SERIES.length])})));
-    renderExtra(c);
-  }
-
-  // ---------- дополнительные графики кейсов ----------
-  const AGG = (D.exit_agg || []).map(r => {
-    const m = r.form.match(/pct([0-9.]+)-(tk[0-9.]+|tr[0-9.]+x[0-9.]+|1to1)-(\d+)-ttl1800(-eat20)?$/);
-    if (!m) return null;
-    const num = k => (r[k] === "" || r[k] == null ? null : Number(r[k]));
-    return {set: r.set, stop: Number(m[1]), take: m[2], dl: Number(m[3]) / 3600, wall: !!m[4],
-      h: {n: num("история_n"), net: num("история_net"), usd: num("история_usd")}, r: {n: num("запись_n"), net: num("запись_net"), usd: num("запись_usd")}};
-  }).filter(Boolean);
-  const avgOf = (rows, ep) => { const v = rows.map(x => x[ep].net).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-  const heatBg = v => v == null ? "" : "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.min(55, Math.abs(v) * 1.2).toFixed(0) + "%, var(--surface))";
-  const fmtCell = v => v == null ? "—" : bps(v);
-  function setsDose(side) {
-    const box = document.getElementById("case-extra");
-    let html = "<p class='note'>Средняя сделка по корзинам режима: q1 — пятая часть времени с самым сильным падением, q5 — с самым сильным ростом; края одни для обеих эпох.</p><div class='grid2'>";
-    const axes = ["btc1h", "btc4h", "pool1h", "pool4h"];
-    for (const a of axes) html += "<div><h3>" + AXIS_NAME[a] + "</h3><div class='chart h-sm'><canvas id='dose-" + a + "'></canvas></div></div>";
-    html += "</div><div><h3>Возраст стены (накопительно)</h3><div class='chart h-sm'><canvas id='dose-age'></canvas></div></div>";
-    box.innerHTML = html;
-    const tipFor = names => it => { const s = stats(trades("sets:" + names[it.dataIndex], it.dataset._epoch)); return s ? bps(s.avg) + " bps · " + s.n + " сд. · " + money(s.usd) : "нет сделок"; };
-    for (const a of axes) {
-      const names = [1, 2, 3, 4, 5].map(k => "t-" + side + "-" + a + "-q" + k);
-      const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
-      barEpochs("dose-" + a, document.getElementById("dose-" + a), [1, 2, 3, 4, 5].map(k => "q" + k + " " + binLabel(a, k)), val(HIST), val(REC), tipFor(names));
-    }
-    const ages = [15, 30, 45, 60, 90, 120], names = ages.map(x => "t-" + side + "-age-" + x);
-    const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
-    barEpochs("dose-age", document.getElementById("dose-age"), ages.map(x => "≥ " + x + " мин"), val(HIST), val(REC), tipFor(names));
-  }
-  function renderExtra(c) {
-    const box = document.getElementById("case-extra");
-    for (const k of Object.keys(charts)) if (k.startsWith("dose-") || k === "exHold") { charts[k].destroy(); delete charts[k]; }
-    box.innerHTML = "";
-    const note = c.note ? "<p class='note'>" + c.note + "</p>" : "";
-    if (c.extra === "dose-bid") { setsDose("bid"); box.insertAdjacentHTML("afterbegin", note); return; }
-    if (c.extra === "dose-ask") { setsDose("ask"); box.insertAdjacentHTML("afterbegin", note); return; }
-    if (c.extra === "age-bid") {
-      box.innerHTML = note + "<div class='chart h-sm'><canvas id='dose-age'></canvas></div>";
-      const ages = [15, 30, 45, 60, 90, 120], names = ages.map(x => "t-bid-age-" + x);
-      const val = e => names.map(n => { const s = stats(trades("sets:" + n, e)); return s ? s.avg : null; });
-      barEpochs("dose-age", document.getElementById("dose-age"), ages.map(x => "≥ " + x + " мин"), val(HIST), val(REC));
-      return;
-    }
-    const fix = AGG.filter(x => x.set === caseSet && x.take.startsWith("tk") && !x.wall);
-    if (c.extra === "hold") {
-      box.innerHTML = note + "<h3>Средняя сделка по удержанию — среднее по всем стопам и тейкам (0,5–2 %)</h3><div class='chart h-sm'><canvas id='ex-hold'></canvas></div>";
-      const dls = [1, 2, 4];
-      barEpochs("exHold", document.getElementById("ex-hold"), dls.map(d => d + " ч"), dls.map(d => avgOf(fix.filter(x => x.dl === d), "h")), dls.map(d => avgOf(fix.filter(x => x.dl === d), "r")));
-      return;
-    }
-    if (c.extra === "heat") {
-      const stops = [...new Set(fix.map(x => x.stop))].sort((a, b) => a - b);
-      const takes = [...new Set(fix.map(x => x.take))].sort((a, b) => parseFloat(a.slice(2)) - parseFloat(b.slice(2)));
-      let html = note + "<div class='grid2'>";
-      for (const [ep, title] of [["h", "история"], ["r", "запись"]]) {
-        html += "<div class='scroll'><h3>Стоп × тейк, 4 ч — " + title + ", bps на сделку</h3><table class='heat'><thead><tr><th>стоп \\ тейк</th>" + takes.map(k => "<th>" + k.slice(2).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
-        for (const s of stops) {
-          html += "<tr><td>" + String(s).replace(".", ",") + " %</td>";
-          for (const k of takes) { const x = fix.find(y => y.stop === s && y.take === k && y.dl === 4); const v = x ? x[ep].net : null;
-            html += "<td class='cell' style='" + heatBg(v) + "' title='" + (x ? x[ep].n + " сд., " + money(x[ep].usd) : "") + "'>" + fmtCell(v) + "</td>"; }
-          html += "</tr>";
-        }
-        html += "</tbody></table></div>";
-      }
-      box.innerHTML = html + "</div>";
-      return;
-    }
-    if (c.extra === "trail") {
-      const tr = AGG.filter(x => x.set === caseSet && x.take.startsWith("tr") && x.dl === 4);
-      const acts = ["0.5", "1", "1.5", "2"], gbs = ["0.25", "0.5", "1"];
-      let html = note + "<div class='scroll'><h3>Трейлинг, 4 ч, среднее по стопам 1 / 1,5 / 2 % — bps на сделку, история / запись</h3><table class='heat'><thead><tr><th>включение \\ откат</th>" + gbs.map(g => "<th>" + g.replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
-      for (const a of acts) {
-        html += "<tr><td>+" + a.replace(".", ",") + " %</td>";
-        for (const g of gbs) { const cells = tr.filter(x => x.take === "tr" + a + "x" + g); const h = avgOf(cells, "h"), r = avgOf(cells, "r");
-          html += cells.length ? "<td class='cell' style='" + heatBg(h) + "'>" + fmtCell(h) + " / " + fmtCell(r) + "</td>" : "<td class='cell'>—</td>"; }
-        html += "</tr>";
-      }
-      box.innerHTML = html + "</tbody></table></div>";
-      return;
-    }
-    box.innerHTML = note;
-  }
-
-  // ---------- сделки кандидата ----------
-  let tradeRows = 100, sortKey = "t0", sortDir = -1;
-  function renderHist() {
-    const lo = -250, w = 25, nb = 20;
-    const labels = Array.from({length: nb}, (_, i) => (lo + i * w) + "…" + (lo + (i + 1) * w));
-    const mk = (epoch, color) => { const t = trades(CAND, epoch), c = new Array(nb).fill(0);
-      for (const r of t) c[Math.min(nb - 1, Math.max(0, Math.floor((r[COL.net] - lo) / w)))]++;
-      return {label: epoch === HIST ? "история" : "запись", data: c.map(v => t.length ? Math.round(v / t.length * 1000) / 10 : 0), _counts: c, backgroundColor: color, borderRadius: 3, borderSkipped: "start", barPercentage: 0.9, categoryPercentage: 0.9}; };
+  // ---------- распределение и причины ----------
+  function quantile(sorted, q) { const pos = (sorted.length - 1) * q, base = Math.floor(pos), rest = pos - base; return sorted[base + 1] !== undefined ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base]; }
+  function renderDist() {
+    const {trades} = combo(state.period, state.variant);
+    const bpsArr = trades.map(r => r[R.net]).sort((a, b) => a - b);
+    if (!bpsArr.length) { document.getElementById("hist-caption").textContent = "нет сделок"; if (charts.hist) charts.hist.destroy(); document.getElementById("reasons").innerHTML = ""; return; }
+    const mean = bpsArr.reduce((a, b) => a + b, 0) / bpsArr.length;
+    const median = quantile(bpsArr, 0.5), p10 = quantile(bpsArr, 0.1), p90 = quantile(bpsArr, 0.9);
+    document.getElementById("hist-caption").textContent = "среднее " + bpsFmt(mean) + " bps · медиана " + bpsFmt(median) + " bps · 10–90 перцентиль [" + bpsFmt(p10) + "; " + bpsFmt(p90) + "]";
+    const binW = 20;
+    const min = Math.floor(bpsArr[0] / binW) * binW, max = Math.ceil(bpsArr[bpsArr.length - 1] / binW) * binW;
+    const bins = []; for (let b = min; b < max; b += binW) bins.push(b);
+    const counts = bins.map(b => bpsArr.filter(v => v >= b && v < b + binW).length);
     const o = baseOptions();
-    o.scales.y.ticks.callback = v => v + " %"; o.scales.x.ticks.maxRotation = 0; o.scales.x.ticks.autoSkipPadding = 12;
-    o.plugins.tooltip.callbacks = {title: items => items[0].label + " bps", label: it => " " + it.dataset.label + ": " + it.parsed.y + " % (" + it.dataset._counts[it.dataIndex] + " сд.)"};
+    o.plugins.tooltip.callbacks = {title: items => bins[items[0].dataIndex] + " … " + (bins[items[0].dataIndex] + binW) + " bps", label: it => " сделок: " + it.parsed.y};
     if (charts.hist) charts.hist.destroy();
-    charts.hist = new Chart(document.getElementById("hist"), {type: "bar", data: {labels, datasets: [mk(HIST, css("--hist")), mk(REC, css("--rec"))]}, options: o});
-  }
-  function renderReasons() {
-    const reasons = [...new Set(trades(CAND).map(r => r[COL.reason]))];
-    let html = "<thead><tr><th>Выход</th><th>История: сд.</th><th>$</th><th>Запись: сд.</th><th>$</th></tr></thead><tbody>";
-    for (const reason of reasons) {
-      html += "<tr><td>" + (REASON[reason] || reason) + "</td>";
-      for (const e of [HIST, REC]) { const t = trades(CAND, e).filter(r => r[COL.reason] === reason); const usd = t.reduce((s, r) => s + cash(r, r[COL.net]), 0);
-        html += "<td class='num'>" + t.length + "</td><td class='num " + cls(usd) + "'>" + money(usd) + "</td>"; }
-      html += "</tr>";
-    }
-    document.getElementById("reasons").innerHTML = html + "</tbody>";
-  }
-  function renderCoins() {
-    const by = {};
-    for (const r of trades(CAND)) { const c = by[r[COL.sym]] || (by[r[COL.sym]] = {n: 0, usd: 0, h: 0, r: 0}); c.n++; c.usd += cash(r, r[COL.net]); if (r[COL.epoch] === HIST) c.h += cash(r, r[COL.net]); else c.r += cash(r, r[COL.net]); }
-    const total = Object.values(by).reduce((s, c) => s + c.usd, 0);
-    const top = Object.entries(by).sort((a, b) => Math.abs(b[1].usd) - Math.abs(a[1].usd)).slice(0, 10);
-    let html = "<thead><tr><th>Монета</th><th>Сделок</th><th>Итог</th><th>История</th><th>Запись</th></tr></thead><tbody>";
-    for (const [sym, c] of top) html += "<tr><td>" + sym + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) + "</td><td class='num " + cls(c.h) + "'>" + money(c.h) + "</td><td class='num " + cls(c.r) + "'>" + money(c.r) + "</td></tr>";
-    html += "<tr><td>Всего по " + Object.keys(by).length + " монетам</td><td class='num'>" + trades(CAND).length + "</td><td class='num " + cls(total) + "'>" + money(total) + "</td><td></td><td></td></tr>";
-    document.getElementById("coins").innerHTML = html + "</tbody>";
-  }
-  function renderTrades() {
-    const keyOf = {t0: r => r[COL.t0], sym: r => r[COL.sym], net: r => r[COL.net], ctrl: r => r[COL.ctrl], hold: r => r[COL.exit] - r[COL.t0], reason: r => r[COL.reason], epoch: r => r[COL.epoch]};
-    const t = trades(CAND).slice().sort((a, b) => { const x = keyOf[sortKey](a), y = keyOf[sortKey](b); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
-    const head = [["epoch", "Эпоха"], ["t0", "Сигнал, UTC"], ["sym", "Монета"], ["hold", "Удержание, мин"], ["net", "Сделка, bps"], ["net", "$"], ["ctrl", "Рынок, bps"], ["reason", "Выход"]];
-    let html = "<thead><tr>" + head.map(([k, l], i) => "<th data-k='" + k + "'" + (k === sortKey && i !== 5 ? " aria-sort='" + (sortDir > 0 ? "ascending" : "descending") + "'" : "") + ">" + l + "</th>").join("") + "</tr></thead><tbody>";
-    for (const r of t.slice(0, tradeRows)) {
-      const d = new Date(r[COL.t0] * 60e3);
-      html += "<tr><td>" + r[COL.epoch] + "</td><td class='num'>" + String(d.getUTCDate()).padStart(2, "0") + ".09 " + String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0") +
-        "</td><td>" + r[COL.sym] + "</td><td class='num'>" + (r[COL.exit] - r[COL.t0]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + bps(r[COL.net]) + "</td><td class='num " + cls(r[COL.net]) + "'>" + money(cash(r, r[COL.net])) +
-        "</td><td class='num'>" + bps(r[COL.ctrl]) + "</td><td>" + (REASON[r[COL.reason]] || r[COL.reason]) + "</td></tr>";
-    }
-    const tbl = document.getElementById("trades");
-    tbl.innerHTML = html + "</tbody>";
-    tbl.querySelectorAll("th").forEach(th => makeActivatable(th, () => { const k = th.dataset.k; if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = -1; } renderTrades(); }));
-    const more = document.getElementById("more");
-    more.hidden = tradeRows >= t.length;
-    more.textContent = "Показать ещё 100 (всего " + t.length + ")";
-  }
-  function renderDips() {
-    let html = "<thead><tr><th>День</th><th>Эпоха</th><th>Рынок за день</th><th>Просадок BTC 1 ч</th><th>BTC 4 ч</th><th>Рынок 1 ч</th><th>Время в просадке BTC 1 ч</th></tr></thead><tbody>";
-    for (const d of D.days) { const p = d.pool_pct;
-      html += "<tr><td>" + dayLabel(d.day) + "</td><td>" + d.epoch + "</td><td class='num " + cls(p || 0) + "'>" + (p == null ? "—" : (p > 0 ? "+" : "") + p.toFixed(1).replace("-", "−") + " %") +
-        "</td><td class='num'>" + d.dips.btc1h + "</td><td class='num'>" + d.dips.btc4h + "</td><td class='num'>" + d.dips.pool1h + "</td><td class='num'>" + Math.round(d.dip_share.btc1h * 100) + " %</td></tr>"; }
-    document.getElementById("dips").innerHTML = html + "</tbody>";
+    charts.hist = new Chart(document.getElementById("chart-hist"), { type: "bar",
+      data: {labels: bins.map(b => b), datasets: [{data: counts, backgroundColor: bins.map(b => (b + binW / 2) >= 0 ? css("--gain") : css("--loss")), borderRadius: 3, categoryPercentage: 1, barPercentage: 0.96}]},
+      options: o });
+    const {kpi} = combo(state.period, state.variant);
+    const reasons = kpi.reasons || {};
+    const total = Object.values(reasons).reduce((a, r) => a + r.n, 0) || 1;
+    const rows = Object.entries(reasons).sort((a, b) => b[1].n - a[1].n);
+    document.getElementById("reasons").innerHTML = "<div style='display:grid;gap:8px'>" + rows.map(([k, r]) =>
+      "<div class='reason-row'><span>" + (REASON_RU[k] || k) + "</span>" +
+      "<span class='bar-track'><span class='bar-fill' style='width:" + Math.round(r.n / total * 100) + "%;background:" + (r.usd >= 0 ? css("--gain") : css("--loss")) + "'></span></span>" +
+      "<span class='num'>" + r.n + " сд.</span><span class='num'>" + Math.round(r.win_share * 100) + " %</span>" +
+      "<span class='num " + cls(r.usd) + "'>" + money(r.usd) + "</span></div>"
+    ).join("") + "</div>";
   }
 
   // ---------- по монетам ----------
-  const COIN_VARIANTS = [
-    ["form:" + CAND_SET + "/cand", "Кандидат: просадка BTC 1 ч, стоп 2 %, трейл, 4 ч"],
-    ["form:" + CAND_SET + "/tr05", "Гладкий: тот же вход, ранний трейл 0,5 / 0,25 %"],
-    ["form:t-bid-btc4h-q1/h4", "Просадка BTC 4 ч, стоп 2 %, тейк 1,75 %, 4 ч"],
-    ["sets:" + BASE_SET, "База F10: все входы"],
-  ];
-  let coinVariant = COIN_VARIANTS[0][0], coinSort = "usd", coinDir = -1;
-  function coinRows(src) {
+  let coinSort = "usd", coinDir = -1;
+  function coinRows() {
+    const {trades} = combo(state.period, state.variant);
     const by = {};
-    for (const r of trades(src)) (by[r[COL.sym]] = by[r[COL.sym]] || []).push(r);
-    return Object.entries(by).map(([sym, t]) => {
-      const s = stats(t), h = t.filter(r => r[COL.epoch] === HIST), rc = t.filter(r => r[COL.epoch] === REC);
-      return {sym, n: s.n, nh: h.length, nr: rc.length, win: s.win, usd: s.usd,
-        uh: h.reduce((a, r) => a + cash(r, r[COL.net]), 0), ur: rc.reduce((a, r) => a + cash(r, r[COL.net]), 0), avg: s.avg, dd: s.dd};
-    });
+    for (const r of trades) { const c = by[r[R.sym]] || (by[r[R.sym]] = {sym: r[R.sym], n: 0, usd: 0, sumBps: 0, win: 0}); c.n++; c.usd += cash(r, D.position_usd); c.sumBps += r[R.net]; if (r[R.net] > 0) c.win++; }
+    return Object.values(by).map(c => ({...c, win_share: c.win / c.n, avg_bps: c.sumBps / c.n}));
   }
-  function renderCoinStats() {
-    const tg = document.getElementById("coin-variants");
-    tg.innerHTML = "<span>Вариант:</span>";
-    for (const [src, label] of COIN_VARIANTS) {
-      const b = document.createElement("button");
-      b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(src === coinVariant));
-      b.addEventListener("click", () => { coinVariant = src; renderCoinStats(); });
-      tg.appendChild(b);
-    }
-    const rows = coinRows(coinVariant);
-    const total = rows.reduce((a, r) => a + r.usd, 0);
-    const byUsd = rows.slice().sort((a, b) => b.usd - a.usd);
-    const top5 = byUsd.slice(0, 5).reduce((a, r) => a + r.usd, 0);
-    const pos = rows.filter(r => r.usd > 0).length;
-    const pool = D.pool || [];
-    document.getElementById("coin-summary").innerHTML = "Торговали <b>" + rows.length + "</b> монет из " + (pool.length || "—") +
-      ", в плюсе <b>" + pos + "</b>, в минусе " + (rows.length - pos) + ". Итог " + money(total) + "; пять лучших монет дают " + money(top5) +
-      (total > 0 ? " — <b>" + Math.round(top5 / total * 100) + " %</b> прибыли" : "") + ".";
-    // Монеты пула без сделок — тоже строками таблицы (владелец: «стата по всем монетам»).
-    const tradedSet = new Set(rows.map(r => r.sym));
-    for (const sym of pool) if (!tradedSet.has(sym)) rows.push({sym, n: 0, nh: 0, nr: 0, win: 0, usd: 0, uh: 0, ur: 0, avg: 0, dd: 0, idle: true});
-    const key = {sym: r => r.sym, n: r => r.n, win: r => r.win, usd: r => r.usd, uh: r => r.uh, ur: r => r.ur, avg: r => r.avg, dd: r => r.dd};
-    rows.sort((a, b) => {
-      if (!!a.idle !== !!b.idle) return a.idle ? 1 : -1;  // монеты без сделок — всегда внизу
-      const x = key[coinSort](a), y = key[coinSort](b);
-      return (x < y ? -1 : x > y ? 1 : 0) * coinDir;
-    });
-    const head = [["sym", "Монета"], ["n", "Сделок"], ["win", "В плюс"], ["usd", "Доход"], ["uh", "История"], ["ur", "Запись"], ["avg", "Средняя, bps"], ["dd", "Худшая просадка"]];
-    let html = "<thead><tr>" + head.map(([k, l]) => "<th data-k='" + k + "'" + (k === coinSort ? " aria-sort='" + (coinDir > 0 ? "ascending" : "descending") + "'" : "") + ">" + l + "</th>").join("") + "</tr></thead><tbody>";
-    for (const r of rows) {
-      if (r.idle) {
-        html += "<tr><td style='color:var(--ink-3)'>" + r.sym + "</td><td class='num' style='color:var(--ink-3)'>0</td><td class='num' style='color:var(--ink-3)'>—</td><td class='num' style='color:var(--ink-3)'>$0</td><td></td><td></td><td></td><td></td></tr>";
-        continue;
-      }
-      html += "<tr><td>" + r.sym + "</td><td class='num'>" + r.n + " <span style='color:var(--ink-3)'>(" + r.nh + " / " + r.nr + ")</span></td><td class='num'>" + Math.round(r.win * 100) +
-        " %</td><td class='num " + cls(r.usd) + "'>" + money(r.usd) + "</td><td class='num " + cls(r.uh) + "'>" + money(r.uh) + "</td><td class='num " + cls(r.ur) + "'>" + money(r.ur) +
-        "</td><td class='num " + cls(r.avg) + "'>" + bps(r.avg) + "</td><td class='num " + cls(r.dd) + "'>" + money(r.dd) + "</td></tr>";
-    }
-    const tbl = document.getElementById("coin-table");
-    tbl.innerHTML = html + "</tbody>";
-    tbl.querySelectorAll("th").forEach(th => makeActivatable(th, () => { const k = th.dataset.k; if (k === coinSort) coinDir = -coinDir; else { coinSort = k; coinDir = k === "sym" ? 1 : -1; } renderCoinStats(); }));
-    const idleN = rows.filter(r => r.idle).length;
-    document.getElementById("coin-idle").textContent = idleN ? "Без сделок за период: " + idleN + " монет — показаны серым с нулями." : "";
+  const COIN_COLS = [["sym", "монета"], ["n", "сделок"], ["usd", "$"], ["win_share", "в плюс"], ["avg_bps", "bps/сделку"]];
+  function renderCoins() {
+    const rows = coinRows().sort((a, b) => (a[coinSort] - b[coinSort]) * coinDir || (a.sym < b.sym ? -1 : 1));
+    const thead = document.getElementById("coins-table").querySelector("thead");
+    thead.innerHTML = "<tr>" + COIN_COLS.map(([k, l]) => "<th role='button' tabindex='0' data-k='" + k + "'>" + l + (coinSort === k ? "<span class='arrow'>" + (coinDir < 0 ? "▼" : "▲") + "</span>" : "") + "</th>").join("") + "</tr>";
+    thead.querySelectorAll("th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (coinSort === k) coinDir *= -1; else { coinSort = k; coinDir = -1; } renderCoins(); }));
+    document.getElementById("coins-table").querySelector("tbody").innerHTML = rows.map(c =>
+      "<tr><td>" + c.sym.replace(/USDT$/, "") + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) +
+      "</td><td class='num'>" + Math.round(c.win_share * 100) + " %</td><td class='num " + cls(c.avg_bps) + "'>" + bpsFmt(c.avg_bps) + "</td></tr>"
+    ).join("");
   }
 
-  // ---------- счёт депозита и защита (G11, В-88) ----------
-  const P = D.protection;
-  // По умолчанию (В-90…В-92, 23.09): без лимита позиций (0, если он есть в данных, иначе наибольший из
-  // проверенных), выключатель BTC −1,5 % за 1 ч, исключение монет с прокидами; вариант — «Кандидат…».
-  const protSel = P ? {
-    variant: (P.variants.find(v => v.name.indexOf("Кандидат") === 0) || P.variants[0]).name,
-    max_pos: P.max_pos.includes(0) ? 0 : Math.max(...P.max_pos),
-    day_stop: 0,
-    kill: P.kill.includes(150) ? 150 : P.kill[P.kill.length - 1],
-    exclude: (P.exclude.find(x => x.name === "прокиды") || P.exclude[P.exclude.length - 1]).name,
-  } : null;
-  const EPOCH_ORDER = ["история", "запись", "сентябрь", "обвал"];
-  if (P) P.epochs.sort((a, b) => (EPOCH_ORDER.indexOf(a) + 1 || 99) - (EPOCH_ORDER.indexOf(b) + 1 || 99));
-  let protSort = "sep_rf", protDir = -1;
-  const PIDX = {};
-  const protKey = (v, e, mp, ds, k, x) => [v, e, mp, ds, k, x].join("|");
-  if (P) for (const g of P.grid) PIDX[protKey(g.variant, g.epoch, g.max_pos, g.day_stop, g.kill, g.exclude)] = g;
-  const pnum = v => (v > 0.005 ? "+" : v < -0.005 ? "−" : "") + Math.abs(v).toFixed(2).replace(".", ",") + " %";
-  const usd = v => (v < 0 ? "−$" : "+$") + Math.abs(Math.round(v)).toLocaleString("ru-RU");
-  const killLabel = k => k ? "BTC −" + String(k / 100).replace(".", ",") + " % за 1 ч" : "нет";
-  const posLabel = n => n ? "до " + n : "без потолка";
-  const dstopLabel = d => d ? "−" + String(d).replace(".", ",") + " %" : "нет";
-  const rfLabel = g => g.rf == null ? "—" : g.rf.toFixed(1).replace(".", ",");
-  const recLabel = g => g.rec_days.toFixed(1).replace(".", ",") + (g.unrecovered ? "+" : "");
-  const EPOCH_LABEL = {"история": "История " + EP_HIST, "запись": "Запись " + EP_REC, "сентябрь": (/^\d\d–\d\d\.09$/.test(EP_ALL) ? "Сентябрь " + EP_ALL.replace(/\.09$/, "") : "Подряд " + EP_ALL) + (/^\d\d–\d\d\.09$/.test(EP_ALL) ? " подряд" : ""), "обвал": "Обвал 10–11.10.2025"};
-  function protToggle(id, label, values, fmt, field) {
-    const tg = document.getElementById(id);
-    tg.innerHTML = "<span>" + label + ":</span>";
-    for (const v of values) {
-      const b = document.createElement("button");
-      b.type = "button"; b.textContent = fmt(v); b.setAttribute("aria-pressed", String(v === protSel[field]));
-      b.addEventListener("click", () => { protSel[field] = v; renderProtection(); });
-      tg.appendChild(b);
-    }
-  }
-  // Мост к «Кандидату»: одна строка — чем цифры без защит счёта отличаются от защищённого счёта
-  // (сделок, прибыль, просадка), для того же правила («Кандидат…») за тот же период (сентябрь = история+запись).
-  function renderBridge() {
-    const el = document.getElementById("cand-bridge");
-    if (!el) return;
-    const s = stats(trades(CAND));
-    if (!P || !s) { el.textContent = ""; return; }
-    const v = P.variants.find(x => x.name.indexOf("Кандидат") === 0) || P.variants[0];
-    const g = PIDX[protKey(v.name, "сентябрь", protSel.max_pos, protSel.day_stop, protSel.kill, protSel.exclude)];
-    el.textContent = g
-      ? "Здесь — без защит счёта: " + s.n + " сделок, итог " + money(s.usd) + ", просадка " + money(s.dd) +
-        ". На счету с текущими защитами за сентябрь: " + g.n + " сделок, прибыль " + usd(g.total_usd) + " (" + pnum(g.total_pct) + "), просадка " + pnum(-g.dd_pct) + "."
-      : "";
-  }
-  function renderProtection() {
-    if (!P) { document.getElementById("prot").hidden = true; return; }
-    const s = protSel, dep = P.deposit_usd;
-    document.getElementById("prot-note").textContent = "Депозит $" + dep.toLocaleString("ru-RU") + ", позиция $" +
-      Math.round(P.position_usd || 0).toLocaleString("ru-RU") + " (" + ((P.position_usd || 0) / dep * 100).toFixed(0) + " % депозита), деньги — из бэктеста на этом размере.";
-    protToggle("prot-variant", "Вариант", P.variants.map(v => v.name), v => v, "variant");
-    protToggle("prot-pos", "Позиций одновременно", P.max_pos, posLabel, "max_pos");
-    protToggle("prot-kill", "Выключатель", P.kill, killLabel, "kill");
-    protToggle("prot-excl", "Исключить монеты", P.exclude.map(x => x.name), v => v, "exclude");
-    protToggle("prot-day", "Дневной стоп", P.day_stop, dstopLabel, "day_stop");
-    const at = (e, mp, ds, k, x) => PIDX[protKey(s.variant, e, mp, ds, k, x)];
-    const G = P.epochs.map(e => at(e, s.max_pos, s.day_stop, s.kill, s.exclude));
-    const rows = [
-      ["Сделок", g => g.n + " <span style='color:var(--ink-3);font-size:12px'>позиция в среднем $" + Math.round(g.usd_mean) + " (" + Math.round(g.fill * 100) + " %)</span>", null],
-      ["Прибыль", g => usd(g.total_usd), g => g.total_usd],
-      ["Прирост депозита", g => pnum(g.total_pct), g => g.total_pct],
-      ["Макс. просадка", g => pnum(-g.dd_pct) + " <span style='color:var(--ink-3);font-size:12px'>" + usd(-g.dd_usd) +
-        (g.dd_closed_pct != null ? " · по закрытым сделкам: " + pnum(-g.dd_closed_pct) : "") + "</span>", g => -g.dd_pct],
-      ["Фактор восстановления", g => rfLabel(g), g => g.rf],
-      ["Самое долгое восстановление, дней", g => recLabel(g), null],
-      ["Худшие сутки", g => pnum(g.worst_day_pct) + " <span style='color:var(--ink-3);font-size:12px'>" + dayLabel(g.worst_day) + "</span>", g => g.worst_day_pct],
-      ["Худшая сделка", g => usd(g.worst_trade_usd), g => g.worst_trade_usd],
-      ["В плюс, % сделок", g => Math.round(g.win * 100) + " %", null],
-      ["Пик: позиций / в рынке", g => g.peak_n + " / $" + Math.round(g.peak_usd).toLocaleString("ru-RU"), null],
-      ["Пропущено: позиций / BTC / монеты / дн. стоп / занята", g => g.skip["позиций"] + " / " + g.skip["btc"] + " / " + g.skip["монета"] + " / " + g.skip["день"] + " / " + (g.skip["занята"] || 0), null],
-      ["Закрыто выключателем", g => g.killed, null],
-      ["Стресс: провал без выключателя", g => pnum(-g.stress_pct), g => -g.stress_pct],
-    ];
-    let html = "<thead><tr><th></th>" + P.epochs.map(e => "<th>" + (EPOCH_LABEL[e] || e) + "</th>").join("") + "</tr></thead><tbody>";
-    for (const [label, fmt, sign] of rows) {
-      html += "<tr><td>" + label + "</td>";
-      for (const g of G) html += g ? "<td class='num big " + (sign ? cls(sign(g)) : "") + "'>" + fmt(g) + "</td>" : "<td class='num'>—</td>";
-      html += "</tr>";
-    }
-    document.getElementById("prot-kpi").innerHTML = html + "</tbody>";
-    const maxNoKlines = Math.max(0, ...G.filter(Boolean).map(g => g.n_no_klines || 0));
-    const fnEl = document.getElementById("prot-footnote");
-    if (fnEl) fnEl.textContent = maxNoKlines > 0
-      ? "* " + maxNoKlines + " " + (maxNoKlines === 1 ? "монета" : "монет") + " без минутных свечей в этом сочетании — просадка для " +
-        (maxNoKlines === 1 ? "неё" : "них") + " посчитана по закрытым сделкам, не по минутам."
-      : "";
-    const gs = G[P.epochs.indexOf("сентябрь")], gc = G[P.epochs.indexOf("обвал")];
-    document.getElementById("prot-answer").innerHTML = gs ? "<b>" + s.variant + "</b>: сентябрь " + EP_ALL.replace(/\.09$/, "") + " — " + usd(gs.total_usd) + " (" + pnum(gs.total_pct) +
-      "), просадка " + pnum(-gs.dd_pct) + ", фактор восстановления " + rfLabel(gs) + (gc ? "; обвал 10–11.10 — " + usd(gc.total_usd) + " (" + pnum(gc.total_pct) + ")" : "") +
-      ". Если провал застанет пик позиций и выключатель не сработает — " + pnum(-Math.max(...G.filter(Boolean).map(g => g.stress_pct))) + "." : "";
-    // все сочетания: сентябрь подряд и обвал
-    const eS = "сентябрь", eC = "обвал";
-    const combos = [];
-    for (const mp of P.max_pos) for (const k of P.kill) for (const x of P.exclude.map(e => e.name)) for (const ds of P.day_stop) {
-      const a = at(eS, mp, ds, k, x), c = at(eC, mp, ds, k, x);
-      if (a || c) combos.push({mp, k, x, ds, a, c, stress: Math.max(a ? a.stress_pct : 0, c ? c.stress_pct : 0)});
-    }
-    const val = (g, f) => g ? g[f] : -1e9;
-    const keyf = {mp: c => c.mp || 1e9, k: c => c.k, x: c => c.x, ds: c => c.ds, sep_pct: c => val(c.a, "total_pct"), sep_dd: c => -val(c.a, "dd_pct"),
-      sep_rf: c => (c.a && c.a.rf != null ? c.a.rf : -1e9), sep_rec: c => -val(c.a, "rec_days"), cr_pct: c => val(c.c, "total_pct"), cr_dd: c => -val(c.c, "dd_pct"), stress: c => -c.stress};
-    combos.sort((a, b) => { const x = keyf[protSort](a), y = keyf[protSort](b); return (x < y ? -1 : x > y ? 1 : 0) * protDir; });
-    const th = (k, l, extra) => "<th data-k='" + k + "'" + (k === protSort ? " aria-sort='" + (protDir > 0 ? "ascending" : "descending") + "'" : "") + (extra || "") + ">" + l + "</th>";
-    let t = "<thead><tr class='grp'><th colspan='4'></th><th colspan='4' class='sep'>" + EPOCH_LABEL[eS] + "</th><th colspan='2' class='sep'>" + EPOCH_LABEL[eC] +
-      "</th><th class='sep'></th></tr><tr>" + th("mp", "Позиций") + th("k", "Выключатель") + th("x", "Исключить") + th("ds", "Дн. стоп") +
-      th("sep_pct", "Прирост", " class='sep'") + th("sep_dd", "Просадка") + th("sep_rf", "Ф. восст.") + th("sep_rec", "Восст., дн") +
-      th("cr_pct", "Прирост", " class='sep'") + th("cr_dd", "Просадка") + th("stress", "Стресс", " class='sep'") + "</tr></thead><tbody>";
-    const cell = (g, cl, fmt) => g ? "<td class='num " + cl + "'>" + fmt(g) + "</td>" : "<td class='" + cl + "'>—</td>";
-    for (const c of combos) {
-      const cur = c.mp === s.max_pos && c.k === s.kill && c.x === s.exclude && c.ds === s.day_stop;
-      t += "<tr data-c='" + [c.mp, c.k, c.x, c.ds].join("|") + "' style='cursor:pointer" + (cur ? ";background:var(--chip);font-weight:600" : "") + "'><td>" + posLabel(c.mp) +
-        "</td><td>" + killLabel(c.k) + "</td><td>" + c.x + "</td><td>" + dstopLabel(c.ds) + "</td>" +
-        cell(c.a, "sep " + (c.a ? cls(c.a.total_pct) : ""), g => pnum(g.total_pct)) + cell(c.a, "neg", g => pnum(-g.dd_pct)) + cell(c.a, "", rfLabel) + cell(c.a, "", recLabel) +
-        cell(c.c, "sep " + (c.c ? cls(c.c.total_pct) : ""), g => pnum(g.total_pct)) + cell(c.c, "neg", g => pnum(-g.dd_pct)) +
-        "<td class='num sep neg'>" + pnum(-c.stress) + "</td></tr>";
-    }
-    const tbl = document.getElementById("prot-table");
-    tbl.innerHTML = t + "</tbody>";
-    tbl.querySelectorAll("th[data-k]").forEach(h => makeActivatable(h, () => { const k = h.dataset.k; if (k === protSort) protDir = -protDir; else { protSort = k; protDir = ["mp", "k", "x", "ds"].includes(k) ? 1 : -1; } renderProtection(); }));
-    tbl.querySelectorAll("tr[data-c]").forEach(r => makeActivatable(r, () => { const [mp, k, x, ds] = r.dataset.c.split("|"); s.max_pos = Number(mp); s.kill = Number(k); s.exclude = x; s.day_stop = Number(ds); renderProtection(); }));
-    renderBridge();
+  // ---------- сентябрь против августа ----------
+  function renderCompare() {
+    const rows = D.variants.map(v => {
+      const s = D.account.sep[v.key], a = D.account.aug[v.key];
+      const sk = D.kpi.sep[v.key], ak = D.kpi.aug[v.key];
+      return {label: VARIANT_PILL[v.key], s: s || sk, a: a || ak, sReal: !!s, aReal: !!a};
+    });
+    const cell = (x, real) => !x ? "<td class='sep'>—</td><td></td><td></td><td></td><td></td>" :
+      "<td class='num sep'>" + (x.n) + "</td><td class='num " + cls(x.net_usd) + "'>" + money(x.net_usd) + "</td>" +
+      "<td class='num " + cls(x.net_pct) + "'>" + pctFmt(x.net_pct != null ? x.net_pct : x.net_usd / D.deposit_usd * 100) + "</td>" +
+      "<td class='num neg'>−" + pctPlain(x.dd_pct != null ? x.dd_pct : x.dd_pct_trade) + "</td>" +
+      "<td class='num'>" + Math.round((x.win_rate) * 100) + " %" + (real ? "" : "*") + "</td>";
+    document.getElementById("compare-table").innerHTML =
+      "<thead><tr><th></th><th class='sep' colspan='5'>Сентябрь</th><th class='sep' colspan='5'>Август — вне выборки</th></tr>" +
+      "<tr><th>вариант</th><th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th><th class='num'>в плюс</th>" +
+      "<th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th><th class='num'>в плюс</th></tr></thead>" +
+      "<tbody>" + rows.map(r => "<tr><td>" + r.label + "</td>" + cell(r.s, r.sReal) + cell(r.a, r.aReal) + "</tr>").join("") + "</tbody>";
   }
 
-  function renderCharts() {
-    if (typeof Chart === "undefined") return;
-    Chart.defaults.font.family = "IBM Plex Sans, Segoe UI, system-ui, sans-serif";
-    Chart.defaults.color = css("--ink-2");
-    renderCandidate(); if (!hideCasesMsg) renderCase(); renderHist();
+  // ---------- устойчивость выхода ----------
+  const heatBg = v => v == null ? "" : "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.min(55, Math.abs(v) * 1.4).toFixed(0) + "%, var(--surface))";
+  function renderExit() {
+    const setKey = VARIANT_SET[state.variant];
+    const heat = (D.exit_heat.sep.heat || {})[setKey] || [];
+    const trail = (D.exit_heat.sep.trail || {})[setKey] || [];
+    const pickHeat = state.variant === "btc4h_take" ? {stop: 2, take_pct: 1.75} : null;
+    const pickTrail = (state.variant === "cand" || state.variant === "btc4h_trail" || state.variant === "nofilter") ? {stop: 2, act_pct: 1, gap_pct: 1} : null;
+    const stops = [...new Set(heat.map(c => c.stop))].sort((a, b) => a - b);
+    const takes = [...new Set(heat.map(c => c.take_pct))].sort((a, b) => a - b);
+    let h = "<thead><tr><th>стоп \\ тейк</th>" + takes.map(t => "<th>" + String(t).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+    for (const s of stops) {
+      h += "<tr><td>" + String(s).replace(".", ",") + " %</td>";
+      for (const t of takes) { const c = heat.find(x => x.stop === s && x.take_pct === t); const picked = pickHeat && pickHeat.stop === s && pickHeat.take_pct === t;
+        h += "<td class='cell" + (picked ? " picked" : "") + "' style='" + heatBg(c ? c.net_bps : null) + "' title='" + (c ? c.n + " сд., " + money(c.usd) : "") + "'>" + (c ? bpsFmt(c.net_bps) : "—") + "</td>"; }
+      h += "</tr>";
+    }
+    document.getElementById("heat-table").innerHTML = h + "</tbody>";
+    const trailStop2 = trail.filter(c => c.stop === 2);
+    const acts = [...new Set(trailStop2.map(c => c.act_pct))].sort((a, b) => a - b);
+    const gaps = [...new Set(trailStop2.map(c => c.gap_pct))].sort((a, b) => a - b);
+    let tt = "<thead><tr><th>включение \\ откат</th>" + gaps.map(g => "<th>" + String(g).replace(".", ",") + " %</th>").join("") + "</tr></thead><tbody>";
+    for (const a of acts) {
+      tt += "<tr><td>+" + String(a).replace(".", ",") + " %</td>";
+      for (const g of gaps) { const c = trailStop2.find(x => x.act_pct === a && x.gap_pct === g); const picked = pickTrail && pickTrail.act_pct === a && pickTrail.gap_pct === g;
+        tt += "<td class='cell" + (picked ? " picked" : "") + "' style='" + heatBg(c ? c.net_bps : null) + "' title='" + (c ? c.n + " сд., " + money(c.usd) : "") + "'>" + (c ? bpsFmt(c.net_bps) : "—") + "</td>"; }
+      tt += "</tr>";
+    }
+    document.getElementById("trail-table").innerHTML = tt + "</tbody>";
+    document.getElementById("exit-aug-badge").hidden = D.exit_agg_status.aug !== "in_progress";
   }
-  document.getElementById("more").addEventListener("click", () => { tradeRows += 100; renderTrades(); });
-  if (hideCasesMsg) {
-    document.getElementById("case-nav").hidden = true; document.getElementById("case-body").hidden = true;
-    const n = document.createElement("p"); n.className = "case-answer"; n.textContent = hideCasesMsg;
-    document.getElementById("case-nav").after(n);
-  } else buildNav();
-  kpiTable("cand-kpi", CAND, BASE_F10, BASE_LABEL);
-  renderReasons(); renderCoins(); renderTrades(); renderDips(); renderCoinStats(); renderProtection();
-  renderCharts();
-  try { window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderCharts); } catch (e) {}
-  new MutationObserver(renderCharts).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
+
+  // ---------- защиты счёта ----------
+  function renderProtections() {
+    const table = document.getElementById("prot-table");
+    const rows = D.protections[state.period];
+    document.getElementById("prot-scope").textContent = PERIOD_LABEL[state.period];
+    if (!rows) { table.innerHTML = "<tbody><tr><td>для этого периода счёт с защитами не считался</td></tr></tbody>"; return; }
+    table.innerHTML = "<thead><tr><th>защита</th><th class='num'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th></tr></thead><tbody>" +
+      rows.map((r, i) => "<tr" + (i === rows.length - 1 ? " class='total'" : "") + "><td>" + r.label + "</td><td class='num'>" + intFmt(r.n) + "</td>" +
+        "<td class='num " + cls(r.net_usd) + "'>" + money(r.net_usd) + "</td><td class='num " + cls(r.net_pct) + "'>" + pctFmt(r.net_pct) + "</td>" +
+        "<td class='num neg'>−" + pctPlain(r.dd_pct) + "</td></tr>").join("") + "</tbody>";
+  }
+
+  // ---------- методика ----------
+  document.getElementById("methodology-list").innerHTML = [
+    "Данные: 01–15.09 и август 2026 — архив Bybit (200 уровней стакана, шаг 100 мс); 16–23.09 — собственный коллектор (50 уровней, 20 мс). Обвал 10–11.10.2025 — архив Bybit.",
+    "Исполнение — модель очереди (лестница заявок, приоритет по времени и цене) и задержка по замерам биржи; издержки биржи включены в результат каждой сделки.",
+    "Пороги фильтра по BTC заморожены по 01–15.09.2026 и не подбирались заново ни на записи, ни на августе, ни на обвале.",
+    "Проверено около 900 сочетаний входа, стопа, тейка и удержания (титрование) — при таком числе попыток часть побеждает случайно; кандидат — это гипотеза, а не доказательство.",
+    "Список исключённых монет-«прокидов» (раздел «Защиты счёта») выбран на тех же данных сентября — для августа это ещё не проверялось на новом отрезке.",
+    "Не проверено: независимый второй месяц вне выборки (например, июль или октябрь), двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
+  ].map(t => "<li>" + t + "</li>").join("");
+
+  // ---------- сборка ----------
+  function renderAll() {
+    document.querySelectorAll("#period-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
+    document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
+    document.getElementById("variant-desc").textContent = VARIANT_FULL[state.variant];
+    renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
+  }
+  buildToggles(); renderStatus(); renderCompare(); renderAll();
 })();
 </script>

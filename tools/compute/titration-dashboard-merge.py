@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Сборка одного JSON для нового дашборда «Лонг в просадке» (план 2026-09-25) из уже
+собранных `titration-dashboard-data.py` файлов (сентябрь/август/обвал) и сводок
+`portfolio-sim.py` (защиты счёта). Считает готовые для отрисовки числа один раз здесь —
+страница только показывает, ничего не пересчитывает по-другому.
+
+Вход — фиксированные файлы `data/titration-dashboard/` (не в git):
+    titration-dashboard-u500r-cases.json   сентябрь (история 01–15.09 + запись 16–23.09)
+    titration-dashboard-aug-u500r.json     август (форма cand/tr05/h4 по 3 наборам)
+    titration-dashboard-crash-u500r.json   обвал 10–11.10.2025 (те же формы)
+    protection-u500r.json                  счёт $2500: сентябрь + обвал, 4 варианта
+    protection-aug-u500r.json              счёт $2500: август, те же 4 варианта
+    protection-aug-btc4h-u500r.json        счёт $2500: август, «BTC 4 ч, трейл 1/1» (E25)
+
+Выход: --out data/titration-dashboard/data-merged.json → на вход titration-dashboard-build.py.
+
+    titration-dashboard-merge.py --in-dir data/titration-dashboard --out data/titration-dashboard/data-merged.json
+"""
+import argparse
+import json
+import os
+import re
+import statistics as st
+
+# 4 варианта страницы: ключ → (набор, форма-суффикс из titration-dashboard-data.py).
+VARIANTS = [
+    ("cand", "просадка BTC за 1 ч, трейл 1 % / откат 1 %", "t-bid-btc1h-q1", "cand"),
+    ("btc4h_trail", "просадка BTC за 4 ч, трейл 1 % / откат 1 %", "t-bid-btc4h-q1", "cand"),
+    ("btc4h_take", "просадка BTC за 4 ч, тейк 1,75 %", "t-bid-btc4h-q1", "h4"),
+    ("nofilter", "без фильтра просадки (база)", "t-bid-age-45", "cand"),
+]
+# Имя варианта в protection-*.json (portfolio-sim) — где счёт посчитан отдельным прогоном.
+ACCOUNT_VARIANT_NAME = {
+    "cand": "Кандидат: трейл 1/1",
+    "btc4h_take": "BTC 4 ч: тейк 1,75 %",
+    "nofilter": "Без фильтра просадки",
+}
+ACCOUNT_VARIANT_NAME_BTC4H = "BTC 4 ч: трейл 1/1"  # только в protection-aug-btc4h-u500r.json
+
+
+def load(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def cash(net_bps, usd, position_usd):
+    u = usd if usd is not None else position_usd
+    return net_bps / 1e4 * u
+
+
+def trade_rows(doc, set_name, form_key, position_usd):
+    """Строки form_trades[<set>/<form_key>] → компактные списки без имени эпохи (она не
+    нужна: период один на файл, суточная граница подэпох — в periods)."""
+    key = f"{set_name}/{form_key}"
+    rows = (doc.get("form_trades") or {}).get(key) or []
+    out = []
+    for r in rows:
+        # columns: epoch, day, symbol, t0_min, exit_min, net_bps, control_bps, reason, fill_frac, usd
+        _epoch, day, sym, t0, exit_, net, ctrl, reason, fill, usd = r
+        out.append([day, sym, int(t0), int(exit_), round(net, 2), round(ctrl, 2), reason, fill,
+                    round(usd, 2) if usd is not None else None])
+    return out
+
+
+R_DAY, R_SYM, R_T0, R_EXIT, R_NET, R_CTRL, R_REASON, R_FILL, R_USD = range(9)
+
+
+def day_bucket_usd(rows, position_usd):
+    by_day = {}
+    for r in rows:
+        by_day[r[R_DAY]] = by_day.get(r[R_DAY], 0.0) + cash(r[R_NET], r[R_USD], position_usd)
+    return by_day
+
+
+def sweep_open(rows, position_usd):
+    """Открытые позиции по минутам (вход..выход) — пик числа и пик $ в рынке, доля времени
+    с хотя бы одной открытой позицией (оценка сверху: вход/выход в пределах своей минуты)."""
+    ev = []
+    for r in rows:
+        u = r[R_USD] if r[R_USD] is not None else position_usd
+        ev.append((r[R_T0], 1, u))
+        ev.append((r[R_EXIT], -1, u))
+    if not ev:
+        return {"peak_n": 0, "peak_usd": 0.0, "open_minutes": 0}
+    ev.sort(key=lambda x: (x[0], -x[1]))
+    open_n = open_usd = 0
+    peak_n = peak_usd = 0
+    open_minutes = 0
+    prev_t = None
+    for t, d, u in ev:
+        if prev_t is not None and open_n > 0:
+            open_minutes += max(0, t - prev_t)
+        open_n += d
+        open_usd += d * u
+        if open_n > peak_n:
+            peak_n, peak_usd = open_n, open_usd
+        elif open_n == peak_n and open_usd > peak_usd:
+            peak_usd = open_usd
+        prev_t = t
+    return {"peak_n": peak_n, "peak_usd": round(peak_usd, 2), "open_minutes": open_minutes}
+
+
+def trade_stats(rows, position_usd, deposit_usd, span_minutes):
+    n = len(rows)
+    if not n:
+        return None
+    wins = [r for r in rows if r[R_NET] > 0]
+    losses = [r for r in rows if r[R_NET] <= 0]
+    net_usd = sum(cash(r[R_NET], r[R_USD], position_usd) for r in rows)
+    avg_bps = sum(r[R_NET] for r in rows) / n
+    avg_win_bps = sum(r[R_NET] for r in wins) / len(wins) if wins else 0.0
+    avg_loss_bps = sum(r[R_NET] for r in losses) / len(losses) if losses else 0.0
+    gw = sum(r[R_NET] for r in wins)
+    gl = -sum(r[R_NET] for r in losses)
+    pf = (gw / gl) if gl > 0 else None
+    win_rate = len(wins) / n
+    hold_min = sum(r[R_EXIT] - r[R_T0] for r in rows) / n
+    by_day = day_bucket_usd(rows, position_usd)
+    sweep = sweep_open(rows, position_usd)
+    # просадка по цепочке закрытий сделок (не минутная переоценка счёта — грубее account.dd_pct)
+    cum = peak = dd = 0.0
+    for r in sorted(rows, key=lambda r: r[R_EXIT]):
+        cum += cash(r[R_NET], r[R_USD], position_usd)
+        peak = max(peak, cum)
+        dd = min(dd, cum - peak)
+    reasons = {}
+    for r in rows:
+        rr = reasons.setdefault(r[R_REASON], {"n": 0, "usd": 0.0, "win": 0})
+        rr["n"] += 1
+        rr["usd"] += cash(r[R_NET], r[R_USD], position_usd)
+        if r[R_NET] > 0:
+            rr["win"] += 1
+    for rr in reasons.values():
+        rr["usd"] = round(rr["usd"], 2)
+        rr["win_share"] = round(rr["win"] / rr["n"], 3)
+    return {
+        "n": n, "net_usd": round(net_usd, 2), "avg_usd": round(net_usd / n, 2),
+        "avg_bps": round(avg_bps, 2), "avg_win_bps": round(avg_win_bps, 2),
+        "avg_loss_bps": round(avg_loss_bps, 2), "win_rate": round(win_rate, 4),
+        "profit_factor": round(pf, 3) if pf is not None else None,
+        "hold_min": round(hold_min, 1), "dd_usd_trade": round(dd, 2),
+        "dd_pct_trade": round(-dd / deposit_usd * 100, 3) if deposit_usd else None,
+        "peak_n": sweep["peak_n"], "peak_usd": sweep["peak_usd"],
+        "pct_time_in_market": round(sweep["open_minutes"] / span_minutes, 4) if span_minutes else None,
+        "days_pos": sum(1 for v in by_day.values() if v > 0), "days_total": len(by_day),
+        "reasons": reasons, "daily_usd": {k: round(v, 2) for k, v in by_day.items()},
+    }
+
+
+def sharpe_sortino(daily_pct, annualize=365):
+    vals = list(daily_pct.values())
+    if len(vals) < 2:
+        return None, None
+    mean = st.mean(vals)
+    std = st.pstdev(vals)
+    sharpe = (mean / std * (annualize ** 0.5)) if std > 0 else None
+    downside = [v for v in vals if v < 0]
+    dstd = st.pstdev(downside) if len(downside) >= 2 else (abs(downside[0]) if len(downside) == 1 else 0)
+    sortino = (mean / dstd * (annualize ** 0.5)) if dstd else None
+    return (round(sharpe, 2) if sharpe is not None else None,
+            round(sortino, 2) if sortino is not None else None)
+
+
+def account_row(grid, variant_name, epoch_name, max_pos, day_stop, kill, exclude_name):
+    for g in grid:
+        if (g["variant"] == variant_name and g["epoch"] == epoch_name and g["max_pos"] == max_pos
+                and g["day_stop"] == day_stop and g["kill"] == kill and g["exclude"] == exclude_name):
+            return g
+    return None
+
+
+def account_summary(g, deposit_usd):
+    if g is None:
+        return None
+    daily_pct = {d: v / deposit_usd * 100 for d, v in g["daily"].items()}
+    sharpe, sortino = sharpe_sortino(daily_pct)
+    return {
+        "n": g["n"], "net_usd": round(g["total_usd"], 2), "net_pct": round(g["total_pct"], 3),
+        "dd_usd": round(g["dd_usd"], 2), "dd_pct": round(g["dd_pct"], 3),
+        "recovery_factor": round(g["rf"], 3) if g.get("rf") is not None else None,
+        "win_rate": round(g["win"], 4), "peak_n": g["peak_n"], "peak_usd": round(g["peak_usd"], 2),
+        "worst_day": g["worst_day"], "worst_day_usd": round(g["worst_day_usd"], 2),
+        "worst_day_pct": round(g["worst_day_pct"], 3), "fill": round(g["fill"], 4),
+        "sharpe": sharpe, "sortino": sortino, "daily_usd": g["daily"],
+    }
+
+
+AGG_RE = re.compile(r"pct([0-9.]+)-(tk[0-9.]+|tr[0-9.]+x[0-9.]+|1to1)-(\d+)-ttl1800(-eat20)?$")
+SET_KEY = {"t-bid-btc1h-q1": "btc1h_q1", "t-bid-btc4h-q1": "btc4h_q1", "t-bid-age-45": "age_45"}
+
+
+def build_exit_heat(exit_agg, epoch_names):
+    """Тепловая карта «стоп × тейк» и таблица трейлинга (4 ч, без реакции на стену) —
+    сумма $ и средняя bps по обеим эпохам сентября, из сводки exit-titration-read.py."""
+    hist_name, rec_name = epoch_names
+    heat, trail = {}, {}
+    for row in exit_agg:
+        m = AGG_RE.search(row["form"])
+        if not m:
+            continue
+        set_key = SET_KEY.get(row["set"])
+        if not set_key:
+            continue
+        stop, take, dl, wall = float(m.group(1)), m.group(2), int(m.group(3)) // 3600, bool(m.group(4))
+
+        def num(prefix, field):
+            v = row.get(f"{prefix}_{field}")
+            return None if v in (None, "") else float(v)
+
+        n_h, n_r = num(hist_name, "n") or 0, num(rec_name, "n") or 0
+        n = n_h + n_r
+        if n == 0:
+            continue
+        usd_h, usd_r = num(hist_name, "usd") or 0, num(rec_name, "usd") or 0
+        net_h, net_r = num(hist_name, "net"), num(rec_name, "net")
+        net_avg = ((net_h or 0) * n_h + (net_r or 0) * n_r) / n if n else None
+        entry = {"n": int(n), "usd": round(usd_h + usd_r, 2), "net_bps": round(net_avg, 2) if net_avg is not None else None}
+        if dl == 4 and not wall and take.startswith("tk"):
+            heat.setdefault(set_key, []).append({"stop": stop, "take_pct": round(float(take[2:]), 2), **entry})
+        if dl == 4 and not wall and take.startswith("tr"):
+            act, gap = take[2:].split("x")
+            trail.setdefault(set_key, []).append({"stop": stop, "act_pct": float(act), "gap_pct": float(gap), **entry})
+    return heat, trail
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--in-dir", default="data/titration-dashboard")
+    ap.add_argument("--out", required=True)
+    a = ap.parse_args()
+    d = a.in_dir
+    sep = load(os.path.join(d, "titration-dashboard-u500r-cases.json"))
+    aug = load(os.path.join(d, "titration-dashboard-aug-u500r.json"))
+    crash = load(os.path.join(d, "titration-dashboard-crash-u500r.json"))
+    prot_sep = load(os.path.join(d, "protection-u500r.json"))
+    prot_aug = load(os.path.join(d, "protection-aug-u500r.json"))
+    prot_aug_b4 = load(os.path.join(d, "protection-aug-btc4h-u500r.json"))
+
+    position_usd, deposit_usd = sep["position_usd"], sep["deposit_usd"]
+    hist_ep, rec_ep = sep["epochs"][0]["name"], sep["epochs"][1]["name"]
+
+    out = {
+        "generated_utc": sep["generated_utc"], "position_usd": position_usd, "deposit_usd": deposit_usd,
+        "points": sep["points"], "pool": sep.get("pool") or [],
+        "variants": [{"key": k, "label": lbl} for k, lbl, _, _ in VARIANTS],
+        "periods": [
+            {"key": "sep", "label": "Сентябрь", "from": sep["epochs"][0]["from"], "to": sep["epochs"][1]["to"],
+             "boundary": rec_ep and sep["epochs"][1]["from"], "tuned_from": "2026-09-16", "tuned_to": "2026-09-20",
+             "days": sep["days"]},
+            {"key": "aug", "label": "Август", "from": aug["epochs"][0]["from"], "to": aug["epochs"][0]["to"],
+             "days": aug["days"]},
+            {"key": "crash", "label": "Обвал 10–11.10.2025", "from": crash["epochs"][0]["from"],
+             "to": crash["epochs"][0]["to"], "days": crash["days"]},
+        ],
+        "trades": {}, "kpi": {}, "account": {}, "exit_heat": {}, "protections": {}, "exit_agg_status": {"sep": "ready", "aug": "in_progress"},
+    }
+
+    docs_by_period = {"sep": sep, "aug": aug, "crash": crash}
+    # точная длина периода в минутах — по календарным суткам от from до to включительно
+    import datetime as dt
+    def minutes_span(frm, to):
+        d0 = dt.datetime.strptime(frm, "%Y-%m-%d")
+        d1 = dt.datetime.strptime(to, "%Y-%m-%d") + dt.timedelta(days=1)
+        return int((d1 - d0).total_seconds() // 60)
+    span_minutes = {p["key"]: minutes_span(p["from"], p["to"]) for p in out["periods"]}
+
+    for pkey, doc in docs_by_period.items():
+        out["trades"][pkey] = {}
+        out["kpi"][pkey] = {}
+        for vkey, _label, set_name, form_key in VARIANTS:
+            rows = trade_rows(doc, set_name, form_key, position_usd)
+            out["trades"][pkey][vkey] = rows
+            out["kpi"][pkey][vkey] = trade_stats(rows, position_usd, deposit_usd, span_minutes[pkey])
+
+    # account (portfolio-sim) — сентябрь и обвал из protection-u500r.json, август из своих файлов
+    out["account"]["sep"] = {}
+    out["account"]["crash"] = {}
+    out["account"]["aug"] = {}
+    combo = dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")
+    for vkey, aname in ACCOUNT_VARIANT_NAME.items():
+        out["account"]["sep"][vkey] = account_summary(
+            account_row(prot_sep["grid"], aname, "сентябрь", **combo), deposit_usd)
+        out["account"]["crash"][vkey] = account_summary(
+            account_row(prot_sep["grid"], aname, "обвал", **combo), deposit_usd)
+        out["account"]["aug"][vkey] = account_summary(
+            account_row(prot_aug["grid"], aname, "август", **combo), deposit_usd)
+    out["account"]["aug"]["btc4h_trail"] = account_summary(
+        account_row(prot_aug_b4["grid"], ACCOUNT_VARIANT_NAME_BTC4H, "август", **combo), deposit_usd)
+    out["account"]["sep"]["btc4h_trail"] = None
+    out["account"]["crash"]["btc4h_trail"] = None
+
+    # защиты счёта — 3 канонических шага для варианта «кандидат», сентябрь и август
+    def protection_steps(grid, variant_name, epoch_name):
+        steps = [
+            ("Без защит", dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")),
+            ("+ выключатель BTC −1,5 %/1 ч и исключение прокидов", dict(max_pos=0, day_stop=0.0, kill=150.0, exclude_name="прокиды")),
+            ("+ потолок 3 позиции", dict(max_pos=3, day_stop=0.0, kill=150.0, exclude_name="прокиды")),
+        ]
+        out_rows = []
+        for label, c in steps:
+            g = account_row(grid, variant_name, epoch_name, **c)
+            s = account_summary(g, deposit_usd)
+            out_rows.append({"label": label, **(s or {})})
+        return out_rows
+    out["protections"]["sep"] = protection_steps(prot_sep["grid"], "Кандидат: трейл 1/1", "сентябрь")
+    out["protections"]["aug"] = protection_steps(prot_aug["grid"], "Кандидат: трейл 1/1", "август")
+
+    heat_sep, trail_sep = build_exit_heat(sep.get("exit_agg") or [], (hist_ep, rec_ep))
+    out["exit_heat"]["sep"] = {"heat": heat_sep, "trail": trail_sep}
+
+    with open(a.out, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+    print(f"{a.out}: {os.path.getsize(a.out) / 1e6:.2f} МБ")
+
+
+if __name__ == "__main__":
+    main()

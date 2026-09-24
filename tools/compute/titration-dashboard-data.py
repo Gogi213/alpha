@@ -8,6 +8,10 @@
 
     titration-dashboard-data.py --tag titr-v1 --epoch история=<дом>:2026-09-01:2026-09-15 \
         --epoch запись=<дом>:2026-09-16:2026-09-22 --points <titration-points.csv> --out data.json
+
+`--epoch` принимает пятое поле через двоеточие — период для группировки на странице
+(например, две эпохи сентября — один период «Сентябрь»): `имя=дом:с:по:период`. Без него
+период равен имени эпохи (прежнее поведение, обратная совместимость).
 """
 import argparse
 import csv
@@ -85,10 +89,12 @@ def main():
            "points": points, "epochs": [], "sets": {}, "days": []}
     for spec_ in a.epoch:
         name, rest = spec_.split("=", 1)
-        home, d_from, d_to = rest.split(":")
+        parts = rest.split(":")
+        home, d_from, d_to = parts[0], parts[1], parts[2]
+        period = parts[3] if len(parts) > 3 else name
         run_dir = os.path.join(home, "b5", a.tag)
         days = sorted(d for d in os.listdir(run_dir) if d[:4].isdigit() and d_from <= d <= d_to and os.path.isdir(os.path.join(run_dir, d)))
-        out["epochs"].append({"name": name, "from": d_from, "to": d_to, "days": days})
+        out["epochs"].append({"name": name, "from": d_from, "to": d_to, "period": period, "days": days})
         mids = placebo.Mids(os.path.join(home, "study", "touches"))
         for day in days:
             rows = regime_rows(home, day)
