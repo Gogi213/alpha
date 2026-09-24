@@ -1,6 +1,21 @@
 use super::*;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day_part};
 
+/// Двойник прежней сигнатуры `build_dashboard` (до W7, ревью 23.09): та
+/// собирала `CoinChart` каждой монеты в `Vec` и отдавала его вызывающему
+/// вместе со сводкой — теперь `build_dashboard` отдаёт график через
+/// `on_chart` сразу после расчёта (в бою — пишет на диск, `render_once`), а
+/// тесты по-прежнему проверяют числа без ввода-вывода: здесь `on_chart`
+/// просто копит графики в `Vec`, как раньше.
+fn build_dashboard_collecting(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<CoinChart>)> {
+    let mut charts = Vec::new();
+    let dashboard = build_dashboard(args, |c| {
+        charts.push(c);
+        Ok(())
+    })?;
+    Ok((dashboard, charts))
+}
+
 fn write_instruments_csv(root: &Path, symbols: &[&str]) {
     let mut s = String::from(
         "symbol,turnover_usd_e9,tick_e9,step_e9,h3_lots,k,median_trade_lots,\
@@ -123,7 +138,7 @@ fn fixture_with(dir: &Path, frames: &[Vec<crate::commands::lob::Record>]) -> Das
 fn coin_page_shows_live_levels_outcomes_and_bars() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture(dir.path());
-    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard_collecting(&args).expect("расчёт обязан пройти на фикстуре");
     assert_eq!(d.coins.len(), 1);
     let c = &d.coins[0];
     assert!(
@@ -180,7 +195,7 @@ fn touch_row<'a>(rows: &'a [TouchRow], label: &str) -> &'a TouchRow {
 fn touches_block_counts_a_bounce_and_a_death_with_axes_cross_and_marks() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture_with(dir.path(), &touch_frames());
-    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard_collecting(&args).expect("расчёт обязан пройти на фикстуре");
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -343,7 +358,7 @@ fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separate
         delta_frame(60_000, &[(10000, 0)], &[]),
     ];
     let args = fixture_with(dir.path(), &frames);
-    let (d, charts) = build_dashboard(&args).expect("расчёт обязан пройти на фикстуре");
+    let (d, charts) = build_dashboard_collecting(&args).expect("расчёт обязан пройти на фикстуре");
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -368,7 +383,7 @@ fn a_touch_without_frontrun_lands_in_the_zero_bucket_and_swept_is_shown_separate
 fn a_coin_without_touches_gets_a_zero_block_not_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let args = fixture_with(dir.path(), &no_touch_frames());
-    let (d, charts) = build_dashboard(&args).unwrap();
+    let (d, charts) = build_dashboard_collecting(&args).unwrap();
     let c = &d.coins[0];
     assert!(c.error.is_none(), "{:?}", c.error);
     let t = &c.touches;
@@ -485,7 +500,7 @@ fn a_coin_without_binlog_is_reported_not_dropped() {
         false,
     );
     args.h3_k = None;
-    let (d, charts) = build_dashboard(&args).unwrap();
+    let (d, charts) = build_dashboard_collecting(&args).unwrap();
     assert_eq!(d.coins.len(), 2);
     assert_eq!(charts.len(), 2, "файл графика — и у непрочитанной монеты");
     assert!(charts[1].error.is_some());

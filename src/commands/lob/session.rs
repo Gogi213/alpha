@@ -502,10 +502,10 @@ impl SessionCtx {
         self.write_session_json(true, clock)
     }
 
-    /// Пишет `session.json` — через временный файл и `rename`, чтобы
-    /// читатель живого каталога не застал полфайла. Сама сводка —
-    /// `build_summary` (`session/summary.rs`, W6): здесь только запись на
-    /// диск, не расчёт.
+    /// Пишет `session.json` — через временный файл и `rename` (`super::
+    /// write_atomic`, общий с `dashboard.rs`, W7), чтобы читатель живого
+    /// каталога не застал полфайла. Сама сводка — `build_summary`
+    /// (`session/summary.rs`, W6): здесь только запись на диск, не расчёт.
     fn write_session_json<C: Clock>(
         &self,
         closed: bool,
@@ -514,8 +514,11 @@ impl SessionCtx {
         let summary = self.build_summary(closed, clock);
         let final_path = self.root.join("session.json");
         let tmp_path = self.root.join("session.json.tmp");
-        std::fs::write(&tmp_path, serde_json::to_string_pretty(&summary)?)?;
-        std::fs::rename(&tmp_path, &final_path)?;
+        super::write_atomic(
+            &final_path,
+            &tmp_path,
+            serde_json::to_string_pretty(&summary)?.as_bytes(),
+        )?;
         Ok(summary)
     }
 }

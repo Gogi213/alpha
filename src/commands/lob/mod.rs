@@ -109,6 +109,31 @@ pub(crate) fn require_verified(
     );
     Ok(())
 }
+
+/// Пишет `bytes` во временный файл и переименовывает поверх `path` — читатель
+/// живого каталога никогда не видит полуфайл (`session.json`, `dashboard`'s
+/// `data.json`/`coin-<SYMBOL>.json`). Общий помощник вместо двух копий
+/// (ревью 23.09, W7): `session.rs` и `dashboard.rs` держали один и тот же
+/// приём порознь. `tmp_path` — параметром, не выводится из `path` здесь:
+/// у `session.json` он `session.json.tmp` (дописанное расширение), у файлов
+/// дашборда — `path.with_extension("tmp")` (заменённое); унификация имени
+/// временного файла не входит в этот ремонт, только сама запись+переименование.
+pub(crate) fn write_atomic(
+    path: &std::path::Path,
+    tmp_path: &std::path::Path,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    std::fs::write(tmp_path, bytes)
+        .map_err(|e| anyhow::anyhow!("не записать {}: {e}", tmp_path.display()))?;
+    std::fs::rename(tmp_path, path).map_err(|e| {
+        anyhow::anyhow!(
+            "не переименовать {} → {}: {e}",
+            tmp_path.display(),
+            path.display()
+        )
+    })
+}
+
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};

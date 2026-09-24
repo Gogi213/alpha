@@ -61,7 +61,7 @@ use clap::Args;
 use crate::book::Side;
 use crate::commands::record::FRAME_LOSS_WINDOW_SECS;
 use crate::lob::costs::{mean_net_bps, observation_at, Observation, ROUNDTRIP_FEES_BPS};
-use crate::lob::levels::{H3Mode, LevelsConfig, LiveLevel, Outcome, TouchRecord};
+use crate::lob::levels::{H3Mode, LevelRecord, LevelsConfig, LiveLevel, Outcome, TouchRecord};
 use crate::lob::markout::{
     approaches_for_touch, markouts_for_level, markouts_for_touch_outside, mid_double_tick,
     raw_return_bps, within_touch, MidSample, APPROACH_MS, HORIZONS_MS,
@@ -80,8 +80,8 @@ use crate::stats::{count_f64, count_f64_u64, G_MIN};
 use super::profiles::{distance_bps_at_birth, distance_bucket, lifetime_bucket, size_bucket};
 use super::session::SessionSummary;
 use super::{
-    median_trade_lots_for_symbol, replay_symbol, resolve_h3_mode_with_k, H3ModeArg,
-    DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
+    median_trade_lots_for_symbol, outcome_name, replay_symbol, resolve_h3_mode_with_k, side_name,
+    H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::commands::record::instruments_csv_path;
 
@@ -242,7 +242,7 @@ pub struct LevelNow {
 }
 
 /// Одна строка «что стало»: по исходу или по корзине оси.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Row {
     pub label: String,
     pub n: usize,
@@ -462,7 +462,7 @@ pub struct CoinChart {
 }
 
 /// Одна строка блока касаний: по исходу, по корзине оси или «все».
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TouchRow {
     pub label: String,
     pub n: usize,
@@ -482,7 +482,7 @@ pub struct TouchRow {
 }
 
 /// Клетка креста исход × возраст (В-44: один крест).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TouchCell {
     pub outcome: String,
     pub age: String,
@@ -496,7 +496,7 @@ pub struct TouchCell {
 /// Блок «Касания: цена дошла до плотности» (таск 36): касания из
 /// `ReplayDay.touches`, корзины — `lob::touch_axes` (В-44), длительность и
 /// размер — те же корзины, что у уровней (`LIFETIME_LABELS`/`SIZE_LABELS`).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Touches {
     pub total: usize,
     pub bounced: usize,
@@ -544,7 +544,7 @@ pub struct Touches {
     pub within_touch: [usize; 4],
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Coin {
     pub symbol: String,
     pub error: Option<String>,
@@ -641,13 +641,16 @@ pub fn run_dashboard(args: &DashboardArgs) -> anyhow::Result<DashboardSummary> {
 /// графики монет, потом `data.json` (страница, увидев новый `data.json`,
 /// найдёт уже новые `coin-*.json`), последним `index.html`.
 fn render_once(args: &DashboardArgs) -> anyhow::Result<DashboardSummary> {
-    let (data, charts) = build_dashboard(args)?;
     std::fs::create_dir_all(&args.out)
         .map_err(|e| anyhow::anyhow!("не создать {}: {e}", args.out.display()))?;
-    for chart in &charts {
+    // `on_chart` пишет файл графика монеты сразу, как только он посчитан
+    // (`build_dashboard`, W7, ревью 23.09: раньше `CoinChart` всех монет пула
+    // копились в `Vec` до конца расчёта — на неделе записи при пуле 100 это
+    // ~2.5 ГБ пика; в памяти теперь только лёгкий `Coin`).
+    let data = build_dashboard(args, |chart| {
         let path = args.out.join(chart_file_name(&chart.symbol));
-        write_atomic(&path, serde_json::to_string(chart)?.as_bytes())?;
-    }
+        write_atomic(&path, serde_json::to_string(&chart)?.as_bytes())
+    })?;
     let json_path = args.out.join("data.json");
     let html_path = args.out.join("index.html");
     let json = serde_json::to_string(&data)?;
@@ -664,17 +667,11 @@ fn render_once(args: &DashboardArgs) -> anyhow::Result<DashboardSummary> {
 
 /// Временный файл и переименование — тот же приём, что у `session.json`
 /// (`session.rs`): читатель живого каталога никогда не видит полуфайл.
+/// `super::write_atomic` — общий помощник (ревью 23.09, W7): здесь только имя
+/// временного файла (`.with_extension("tmp")`, у `session.json` — другое).
 fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)
-        .map_err(|e| anyhow::anyhow!("не записать {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        anyhow::anyhow!(
-            "не переименовать {} → {}: {e}",
-            tmp.display(),
-            path.display()
-        )
-    })
+    super::write_atomic(path, &tmp, bytes)
 }
 
 /// Имя файла графика монеты рядом с `data.json`.
@@ -682,13 +679,20 @@ pub fn chart_file_name(symbol: &str) -> String {
     format!("coin-{symbol}.json")
 }
 
-/// Читает каталог и собирает всю страницу как данные: сводку (`data.json`)
-/// и график на монету (`coin-<SYMBOL>.json`, в том же порядке, что
-/// `Dashboard.coins`). Отдельно от записи файлов — тесты проверяют числа,
-/// а не ввод-вывод. Инструменты идут по одному: реплей и его срезы середины
-/// живут только пока считается эта монета (суточная запись — миллионы
-/// срезов на инструмент); в файл графика идёт один срез в секунду.
-pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<CoinChart>)> {
+/// Читает каталог и собирает страницу как данные (сводку `data.json`),
+/// отдавая график каждой монеты (`coin-<SYMBOL>.json`) вызывающему через
+/// `on_chart` сразу после расчёта — вместо накопления `Vec<CoinChart>` всех
+/// монет пула до конца прохода (W7, ревью 23.09: на неделе записи при пуле
+/// 100 это ~2.5 ГБ пика; в памяти этой функции теперь живёт только лёгкий
+/// `Coin`, без баров/касаний). `render_once` передаёт замыкание, которое
+/// пишет файл на диск; тесты — замыкание, которое собирает график в свой
+/// `Vec` (числа проверяются без ввода-вывода, как раньше). Инструменты идут
+/// по одному: реплей и его срезы середины живут только пока считается эта
+/// монета (суточная запись — миллионы срезов на инструмент).
+pub fn build_dashboard(
+    args: &DashboardArgs,
+    mut on_chart: impl FnMut(CoinChart) -> anyhow::Result<()>,
+) -> anyhow::Result<Dashboard> {
     let session_path = args.root.join("session.json");
     let raw = std::fs::read_to_string(&session_path).map_err(|e| {
         anyhow::anyhow!(
@@ -719,7 +723,6 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<C
     let generated_utc = now.to_rfc3339();
     let h3_debug_marker = instruments_csv_marker(&args.root);
     let mut coins: Vec<Coin> = Vec::with_capacity(summary.instruments.len());
-    let mut charts: Vec<CoinChart> = Vec::with_capacity(summary.instruments.len());
     let mut days = std::collections::BTreeSet::new();
     for symbol in &summary.instruments {
         match build_coin(
@@ -732,12 +735,12 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<C
         ) {
             Ok((c, chart)) => {
                 coins.push(c);
-                charts.push(chart);
+                on_chart(chart)?;
             }
             Err(e) => {
                 let err = e.to_string();
                 coins.push(empty_coin(symbol, Some(err.clone())));
-                charts.push(empty_chart(symbol, &generated_utc, Some(err)));
+                on_chart(empty_chart(symbol, &generated_utc, Some(err)))?;
             }
         }
     }
@@ -787,7 +790,48 @@ pub fn build_dashboard(args: &DashboardArgs) -> anyhow::Result<(Dashboard, Vec<C
         coins,
         glossary: glossary(),
     };
-    Ok((page, charts))
+    Ok(page)
+}
+
+/// Первый и последний срез середины по всем суткам подряд — общая точка
+/// `build_coin` (граница записи, последняя цена «сейчас») и `build_chart`
+/// (`t0`/`to_ms` файла графика): раньше каждая считала её отдельным кодом
+/// (W7, ревью 23.09). Возвращает саму последнюю точку, не только её `ts_ms`
+/// — `build_coin` берёт из неё ещё бид/аск.
+fn time_extent(days: &[super::ReplayDay]) -> (Option<i64>, Option<MidSample>) {
+    let first_ms = days
+        .iter()
+        .filter_map(|d| d.mids.first().map(|s| s.ts_ms))
+        .min();
+    let last = days
+        .iter()
+        .filter_map(|d| d.mids.last().copied())
+        .max_by_key(|s| s.ts_ms);
+    (first_ms, last)
+}
+
+/// Полоска умершего уровня — тот же приём, что `mark_of` у касания: строится
+/// один раз в `build_coin`, идёт и в свёртки (через `Sample`), и в файл
+/// графика (W7, ревью 23.09: раньше литерал `Bar { .. }` стоял прямо в теле
+/// цикла `build_coin`, второй такой же — для живых уровней — в `build_chart`).
+fn bar_of(
+    rec: &LevelRecord,
+    outcome: Outcome,
+    m: [Option<f64>; 4],
+    t0: i64,
+    px: &dyn Fn(i64) -> f64,
+    scale: f64,
+    h3_lots: i64,
+) -> Bar {
+    Bar {
+        b: rec.birth_ms - t0,
+        d: Some(rec.death_ms - t0),
+        p: round_to(px(rec.price_tick), scale),
+        s: side_code(rec.side),
+        o: outcome_code(outcome),
+        x: round_to(size_ratio(rec.size_max, h3_lots), 100.0),
+        m: m[H10S].map(|v| round_to(v, 100.0)),
+    }
 }
 
 /// Одна монета: реплей тем же кодом, что `lob levels`/`markout`, и всё, что
@@ -821,19 +865,10 @@ fn build_coin(
     let step_e9 = stats.step_e9;
     let px = |tick: i64| price_of(tick, tick_e9);
 
-    let first_ms = stats
-        .days
-        .iter()
-        .filter_map(|d| d.mids.first().map(|s| s.ts_ms))
-        .min();
-    let last = stats
-        .days
-        .iter()
-        .filter_map(|d| d.mids.last().copied())
-        .max_by_key(|s| s.ts_ms);
+    let (first_ms, last) = time_extent(&stats.days);
     let last_ts_ms = last.map(|s| s.ts_ms);
     let recorded_hours = match (first_ms, last_ts_ms) {
-        (Some(f), Some(l)) => ms_f64((l - f).max(0)) / 3_600_000.0,
+        (Some(f), Some(l)) => to_f64((l - f).max(0)) / 3_600_000.0,
         _ => 0.0,
     };
 
@@ -850,10 +885,10 @@ fn build_coin(
     }
 
     // Свёртки: по исходам, по всем, по осям профиля.
-    let mut all = Acc::default();
-    let mut by_outcome: Vec<(&str, Acc)> = [Outcome::Eaten, Outcome::Pulled, Outcome::Mixed]
+    let mut all = LevelAggs::default();
+    let mut by_outcome: Vec<(&str, LevelAggs)> = [Outcome::Eaten, Outcome::Pulled, Outcome::Mixed]
         .iter()
-        .map(|o| (outcome_name(*o), Acc::default()))
+        .map(|o| (outcome_name(*o), LevelAggs::default()))
         .collect();
     let mut by_side = labelled(&SIDE_LABELS);
     let mut by_size = labelled(&SIZE_LABELS);
@@ -874,15 +909,7 @@ fn build_coin(
             let outcome = rec.outcome();
             let m = markouts_for_level(rec, &day.mids);
             let obs = observation_at(rec, &day.mids, HORIZONS_MS[H10S]);
-            bars.push(Bar {
-                b: rec.birth_ms - t0,
-                d: Some(rec.death_ms - t0),
-                p: round_to(px(rec.price_tick), scale),
-                s: side_code(rec.side),
-                o: outcome_code(outcome),
-                x: round_to(size_ratio(rec.size_max, h3_lots), 100.0),
-                m: m[H10S].map(|v| round_to(v, 100.0)),
-            });
+            bars.push(bar_of(rec, outcome, m, t0, &px, scale, h3_lots));
             let sample = Sample {
                 outcome,
                 lifetime_ms: rec.lifetime_ms,
@@ -905,10 +932,25 @@ fn build_coin(
         }
     }
 
+    // Подход за 1 с и markout «наружу» — раз на касание (`touch_calc`, W7,
+    // ревью 23.09: раньше `approaches_for_touch`/`markouts_for_touch_outside`
+    // звались на одно и то же касание дважды — здесь для свёрток, в
+    // `build_chart`/`mark_of` для метки графика).
+    let touch_calcs: Vec<Vec<TouchCalc>> = stats
+        .days
+        .iter()
+        .map(|day| {
+            day.touches
+                .iter()
+                .map(|t| touch_calc(t, &day.mids))
+                .collect()
+        })
+        .collect();
     let chart = build_chart(
         symbol,
         generated_utc,
         &stats.days,
+        &touch_calcs,
         &stats.open,
         bars,
         &ChartAxes {
@@ -921,10 +963,13 @@ fn build_coin(
     let k_stub = h3_k_is_stub(&args.root, symbol, h3, args.h3_k);
     let touches = build_touches(
         &stats.days,
+        &touch_calcs,
         h3_lots,
         recorded_hours,
-        debug_marker.is_none(),
-        k_stub,
+        TouchFlags {
+            stack_shown: debug_marker.is_none(),
+            k_stub,
+        },
     );
 
     let coin = Coin {
@@ -971,32 +1016,19 @@ fn empty_coin(symbol: &str, error: Option<String>) -> Coin {
     Coin {
         symbol: symbol.to_string(),
         error,
-        tick_e9: 0,
-        step_e9: 0,
-        price_decimals: 0,
-        h3_lots: 0,
-        h3_source: String::new(),
-        last_ts_ms: None,
-        last_age_secs: None,
-        bid: None,
-        ask: None,
-        recorded_hours: 0.0,
-        levels_total: 0,
-        levels_per_hour: None,
-        levels_now: Vec::new(),
-        outcomes: Vec::new(),
-        all: Acc::default().row("все", 0),
-        by_side: Vec::new(),
-        by_size: Vec::new(),
-        by_distance: Vec::new(),
-        by_lifetime: Vec::new(),
-        by_repeat: Vec::new(),
+        all: LevelAggs::default().row("все", 0),
         chart_file: chart_file_name(symbol),
-        chart_bars: 0,
-        chart_bars_total: 0,
-        chart_touches: 0,
-        chart_touches_total: 0,
-        touches: build_touches(&[], 0, 0.0, true, false),
+        touches: build_touches(
+            &[],
+            &[],
+            0,
+            0.0,
+            TouchFlags {
+                stack_shown: true,
+                k_stub: false,
+            },
+        ),
+        ..Default::default()
     }
 }
 
@@ -1046,7 +1078,7 @@ fn level_now(
         age_secs: (now_ms - lv.birth_ms).max(0) / 1000,
         repeat_count: lv.repeat_count,
         traded_share: if lv.size_max > 0 {
-            ms_f64(lv.traded_lots) / ms_f64(lv.size_max)
+            to_f64(lv.traded_lots) / to_f64(lv.size_max)
         } else {
             0.0
         },
@@ -1063,7 +1095,7 @@ struct Sample {
 
 /// Накопитель строки.
 #[derive(Default)]
-struct Acc {
+struct LevelAggs {
     n: usize,
     eaten: usize,
     lifetimes: Vec<f64>,
@@ -1071,13 +1103,13 @@ struct Acc {
     obs: Vec<Observation>,
 }
 
-impl Acc {
+impl LevelAggs {
     fn push(&mut self, s: &Sample) {
         self.n += 1;
         if s.outcome == Outcome::Eaten {
             self.eaten += 1;
         }
-        self.lifetimes.push(ms_f64(s.lifetime_ms));
+        self.lifetimes.push(to_f64(s.lifetime_ms));
         for (i, m) in s.m.iter().enumerate() {
             if let Some(v) = m {
                 self.m[i].push(*v);
@@ -1110,8 +1142,8 @@ impl Acc {
     }
 }
 
-/// Накопители по меткам оси в порядке меток — один для уровней (`Acc`) и
-/// для касаний (`TouchAcc`).
+/// Накопители по меткам оси в порядке меток — один для уровней (`LevelAggs`) и
+/// для касаний (`TouchAggs`).
 fn labelled<A: Default>(labels: &[&'static str]) -> Vec<(&'static str, A)> {
     labels.iter().map(|l| (*l, A::default())).collect()
 }
@@ -1122,19 +1154,44 @@ fn find_labelled<'a, A>(accs: &'a mut [(&str, A)], label: &str) -> Option<&'a mu
         .map(|(_, acc)| acc)
 }
 
-fn push_labelled(accs: &mut [(&str, Acc)], label: &str, s: &Sample) {
+fn push_labelled(accs: &mut [(&str, LevelAggs)], label: &str, s: &Sample) {
     if let Some(acc) = find_labelled(accs, label) {
         acc.push(s);
     }
 }
 
-fn rows(accs: &[(&str, Acc)], total: usize) -> Vec<Row> {
+fn rows(accs: &[(&str, LevelAggs)], total: usize) -> Vec<Row> {
     accs.iter().map(|(l, a)| a.row(l, total)).collect()
 }
 
 // ---------------------------------------------------------------------------
 // Касания (таск 36)
 // ---------------------------------------------------------------------------
+
+/// Подход за 1 с и markout «наружу» одного касания — считаются один раз
+/// (`touch_calc`, W7, ревью 23.09) в `build_coin`, используются и в свёртках
+/// (`build_touches`), и в метке графика (`mark_of`): без этого
+/// `approaches_for_touch`/`markouts_for_touch_outside` звались бы на одно и
+/// то же касание дважды, с каждой стороны по разу.
+struct TouchCalc {
+    approach0: Option<f64>,
+    markout_outside: [Option<f64>; 4],
+}
+
+fn touch_calc(t: &TouchRecord, mids: &[MidSample]) -> TouchCalc {
+    TouchCalc {
+        approach0: approaches_for_touch(t, mids)[0],
+        markout_outside: markouts_for_touch_outside(t, mids),
+    }
+}
+
+/// Флаги `build_touches`, которые раньше шли двумя соседними позиционными
+/// `bool` (`stack_shown, k_stub`, W7, ревью 23.09) — на вызове их легко
+/// перепутать местами, компилятор такую перестановку не ловит.
+struct TouchFlags {
+    stack_shown: bool,
+    k_stub: bool,
+}
 
 /// Одно касание для свёрток: исход и markout «в сторону отскока».
 struct TouchSample {
@@ -1144,14 +1201,14 @@ struct TouchSample {
 
 /// Накопитель строки касаний.
 #[derive(Default)]
-struct TouchAcc {
+struct TouchAggs {
     n: usize,
     bounced: usize,
     m: [Vec<f64>; 4],
     m10s_bounced: Vec<f64>,
 }
 
-impl TouchAcc {
+impl TouchAggs {
     fn push(&mut self, s: &TouchSample) {
         self.n += 1;
         if s.bounced {
@@ -1198,13 +1255,13 @@ fn share_of(part: usize, total: usize) -> Option<f64> {
     (total > 0).then(|| count_f64(part) / count_f64(total))
 }
 
-fn push_touch(accs: &mut [(&str, TouchAcc)], label: &str, s: &TouchSample) {
+fn push_touch(accs: &mut [(&str, TouchAggs)], label: &str, s: &TouchSample) {
     if let Some(acc) = find_labelled(accs, label) {
         acc.push(s);
     }
 }
 
-fn touch_rows(accs: &[(&str, TouchAcc)], total: usize) -> Vec<TouchRow> {
+fn touch_rows(accs: &[(&str, TouchAggs)], total: usize) -> Vec<TouchRow> {
     accs.iter().map(|(l, a)| a.row(l, total)).collect()
 }
 
@@ -1215,13 +1272,17 @@ fn touch_rows(accs: &[(&str, TouchAcc)], total: usize) -> Vec<TouchRow> {
 /// Без касаний — блок с нулями и всеми метками, не ошибка.
 fn build_touches(
     days: &[super::ReplayDay],
+    touch_calcs: &[Vec<TouchCalc>],
     h3_lots: i64,
     recorded_hours: f64,
-    stack_shown: bool,
-    k_stub: bool,
+    flags: TouchFlags,
 ) -> Touches {
-    let mut all = TouchAcc::default();
-    let mut by_outcome: Vec<(&str, TouchAcc)> = labelled(&TOUCH_OUTCOME_LABELS);
+    let TouchFlags {
+        stack_shown,
+        k_stub,
+    } = flags;
+    let mut all = TouchAggs::default();
+    let mut by_outcome: Vec<(&str, TouchAggs)> = labelled(&TOUCH_OUTCOME_LABELS);
     let mut by_age = labelled(&AGE_LABELS);
     let mut by_frontrun = labelled(&FRONTRUN_LABELS);
     let mut by_round = labelled(&ROUND_LABELS);
@@ -1231,12 +1292,12 @@ fn build_touches(
     let mut by_side = labelled(&SIDE_LABELS);
     let mut by_size = labelled(&SIZE_LABELS);
     // Крест исход × возраст: клетки по строкам исхода, внутри — по возрасту.
-    let mut cross: Vec<((&str, &str), TouchAcc)> = TOUCH_OUTCOME_LABELS
+    let mut cross: Vec<((&str, &str), TouchAggs)> = TOUCH_OUTCOME_LABELS
         .iter()
         .flat_map(|o| {
             AGE_LABELS
                 .iter()
-                .map(move |a| ((*o, *a), TouchAcc::default()))
+                .map(move |a| ((*o, *a), TouchAggs::default()))
         })
         .collect();
     let mut total = 0usize;
@@ -1245,8 +1306,8 @@ fn build_touches(
     let mut stacks: Vec<f64> = Vec::new();
     let mut within = [0usize; 4];
 
-    for day in days {
-        for t in &day.touches {
+    for (day, calcs) in days.iter().zip(touch_calcs) {
+        for (t, calc) in day.touches.iter().zip(calcs) {
             total += 1;
             let outcome = touch_outcome(t.ended_by_death);
             for (c, inside) in within.iter_mut().zip(within_touch(t.duration_ms)) {
@@ -1255,7 +1316,7 @@ fn build_touches(
             // Горизонт внутри касания — `None` в средних (В-45 (2)).
             let sample = TouchSample {
                 bounced: !t.ended_by_death,
-                m: markouts_for_touch_outside(t, &day.mids),
+                m: calc.markout_outside,
             };
             all.push(&sample);
             push_touch(&mut by_outcome, outcome, &sample);
@@ -1276,7 +1337,7 @@ fn build_touches(
             }
             push_touch(&mut by_round, round_bucket(t.round_zeros), &sample);
             push_touch(&mut by_index, touch_index_bucket(t.touch_index), &sample);
-            match approaches_for_touch(t, &day.mids)[0].and_then(approach_bucket) {
+            match calc.approach0.and_then(approach_bucket) {
                 Some(l) => push_touch(&mut by_approach, l, &sample),
                 None => approach_missing += 1,
             }
@@ -1288,7 +1349,7 @@ fn build_touches(
                 Some(l) => push_touch(&mut by_size, l, &sample),
                 None => size_below_h3 += 1,
             }
-            stacks.push(ms_f64(i64::from(t.stack_levels)));
+            stacks.push(to_f64(i64::from(t.stack_levels)));
         }
     }
 
@@ -1343,6 +1404,7 @@ fn build_chart(
     symbol: &str,
     generated_utc: &str,
     days: &[super::ReplayDay],
+    touch_calcs: &[Vec<TouchCalc>],
     open: &[LiveLevel],
     dead: Vec<Bar>,
     axes: &ChartAxes<'_>,
@@ -1350,14 +1412,8 @@ fn build_chart(
     let px = axes.px;
     let price_decimals = axes.price_decimals;
     let h3_lots = axes.h3_lots;
-    let (Some(t0), Some(to_ms)) = (
-        days.iter()
-            .filter_map(|d| d.mids.first().map(|s| s.ts_ms))
-            .min(),
-        days.iter()
-            .filter_map(|d| d.mids.last().map(|s| s.ts_ms))
-            .max(),
-    ) else {
+    let (first_ms, last) = time_extent(days);
+    let (Some(t0), Some(to_ms)) = (first_ms, last.map(|s| s.ts_ms)) else {
         return empty_chart(symbol, generated_utc, None);
     };
 
@@ -1401,9 +1457,9 @@ fn build_chart(
     bars.sort_by_key(|b| b.b);
 
     let mut touches: Vec<Mark> = Vec::new();
-    for day in days {
-        for t in &day.touches {
-            touches.push(mark_of(t, &day.mids, pxr(t.price_tick), h3_lots, t0));
+    for (day, calcs) in days.iter().zip(touch_calcs) {
+        for (t, calc) in day.touches.iter().zip(calcs) {
+            touches.push(mark_of(t, calc, pxr(t.price_tick), h3_lots, t0));
         }
     }
     let touches_total = touches.len();
@@ -1442,7 +1498,7 @@ fn keep_largest<T>(v: &mut Vec<T>, cap: usize, size: impl Fn(&T) -> f64) {
     }
 }
 
-fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64, t0: i64) -> Mark {
+fn mark_of(t: &TouchRecord, calc: &TouchCalc, price: f64, h3_lots: i64, t0: i64) -> Mark {
     Mark {
         t: t.start_ms - t0,
         p: price,
@@ -1452,10 +1508,10 @@ fn mark_of(t: &TouchRecord, mids: &[MidSample], price: f64, h3_lots: i64, t0: i6
         x: round_to(size_ratio(t.size_at_touch, h3_lots), 100.0),
         fr: frontrun_share(t.frontrun_lots, t.size_at_touch).map(|v| round_to(v, 1000.0)),
         sw: frontrun_share(t.swept_lots, t.size_at_touch).map(|v| round_to(v, 1000.0)),
-        ap: approaches_for_touch(t, mids)[0].map(|v| round_to(v, 100.0)),
+        ap: calc.approach0.map(|v| round_to(v, 100.0)),
         i: t.touch_index,
         d: t.duration_ms,
-        m: markouts_for_touch_outside(t, mids)[H10S].map(|v| round_to(v, 100.0)),
+        m: calc.markout_outside[H10S].map(|v| round_to(v, 100.0)),
     }
 }
 
@@ -1660,25 +1716,29 @@ fn h3_source_label(
 // ---------------------------------------------------------------------------
 
 /// `i64` → `f64` для миллисекунд, лотов и прочих счётчиков вне горячего
-/// пути: единственная точка каста в модуле.
-#[allow(clippy::cast_precision_loss)]
-fn ms_f64(v: i64) -> f64 {
+/// пути. Не единственная точка каста в модуле (правка W7, ревью 23.09: доку
+/// врал — `h3_source_label`/`ExecLatencyMs::measured` тоже кастуют `as f64`
+/// у назначенных чисел) и `clippy::cast_precision_loss` не входит в набор
+/// линтов проекта (`-D warnings` без `pedantic`), поэтому `#[allow(...)]`
+/// был декорацией без эффекта — снят вместе с прежним именем `ms_f64`
+/// (значения — не только миллисекунды: лоты, счётчики).
+fn to_f64(v: i64) -> f64 {
     v as f64
 }
 
 /// Цена в единицах котировки: тик × шаг тика. Только для показа — везде до
 /// этой строки цена целая (A1).
 fn price_of(tick: i64, tick_e9: i64) -> f64 {
-    ms_f64(tick) * ms_f64(tick_e9) / 1e9
+    to_f64(tick) * to_f64(tick_e9) / 1e9
 }
 
 fn lots_of(lots: i64, step_e9: i64) -> f64 {
-    ms_f64(lots) * ms_f64(step_e9) / 1e9
+    to_f64(lots) * to_f64(step_e9) / 1e9
 }
 
 fn size_ratio(lots: i64, h3_lots: i64) -> f64 {
     if h3_lots > 0 {
-        ms_f64(lots) / ms_f64(h3_lots)
+        to_f64(lots) / to_f64(h3_lots)
     } else {
         0.0
     }
@@ -1696,21 +1756,6 @@ fn decimals_of_e9(tick_e9: i64) -> u32 {
         zeros += 1;
     }
     9 - zeros
-}
-
-fn side_name(side: Side) -> &'static str {
-    match side {
-        Side::Bid => SIDE_LABELS[0],
-        Side::Ask => SIDE_LABELS[1],
-    }
-}
-
-fn outcome_name(o: Outcome) -> &'static str {
-    match o {
-        Outcome::Eaten => "eaten",
-        Outcome::Pulled => "pulled",
-        Outcome::Mixed => "mixed",
-    }
 }
 
 fn rfc3339_ms(s: &str) -> Option<i64> {
