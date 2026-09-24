@@ -386,8 +386,8 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
    `/opt/alpha/verify/<день>/`, при этом `/opt/alpha/verify/<день>.log` (построчные вердикты + итог
    `ok/fail/missing`) и маркеры боевого корня `root/verify-<SYM>.status` (последние сутки) остаются.
    Второй толстый и нечитаемый пласт — `root/deep/` (`.200`, T45): на счётную **не** переносится и
-   никем не читается (~3 ГБ на сутки). Проверка перед удалением суток: они уже на счётной
-   (`alpha-sync.timer`, `study/f3-gate`-подобная сверка «имя+размер», `нет на счётной = 0`).
+   никем не читается (~3 ГБ на сутки). Проверка перед удалением суток: они уже **на деке** (`~/alpha/root`,
+   ночной забор `alpha-pull.timer` дека; сверка «имя+размер», `нет на деке = 0`) — с 24.09 отправка на VPS выключена.
    Код возврата — 0 и при `fail`: `fail` это вердикт о данных, а не сбой службы; настоящий сбой
    виден строкой `verify: day=...` и отсутствием маркеров. Бинарник для сверки — `/opt/alpha/alpha-verify`
    (копия `~/alpha-build/target/release/alpha`), тот же, что чинит/архивирует руками по ранбуку; сам
@@ -398,7 +398,9 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
    4 vCPU Xeon Gold, 7.9 ГБ, соседи держат < 1 ГБ). Раскладка: `/opt/alpha-compute/{src,bin,root,b5}` —
    исходники (копия HEAD: `git archive HEAD src Cargo.toml Cargo.lock tools rust-toolchain.toml` → scp →
    `tar -xzf`), сборка `~/.cargo/bin/cargo build --release -j 3` (тулчейн 1.93.1 уже стоит; ~3 мин),
-   бинарник `bin/alpha-<hash>` и симлинк `bin/alpha`. **Данные** приезжают ночью с коллектора:
+   бинарник `bin/alpha-<hash>` и симлинк `bin/alpha`. **Выключено 24.09** (`systemctl disable --now alpha-sync.timer`
+   на коллекторе; владелец: «это же вообще другой VPS»): счёт живёт на деке, у которого свой забор, а копия на VPS
+   (~3,7 ГБ за ночь) забила его диск до 99 % рядом с чужими службами. Прежде **данные** приезжали ночью с коллектора:
    `alpha-sync.timer` (`tools/systemd/alpha-sync.timer`, **00:45 UTC**, после сверки 00:20) →
    `alpha-sync.service` → `/opt/alpha/tools/sync-to-compute.sh [день]` — `rsync -a --partial --bwlimit=25000`
    под `nice 19`/`ionice idle` вчерашних `*-<день>*.binlog` потока `.50` (не `deep/`), `instruments.csv`,
