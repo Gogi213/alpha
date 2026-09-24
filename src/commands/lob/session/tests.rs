@@ -1419,6 +1419,7 @@ fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
             silence_ns: None,
+            first_of_episode: false,
             detail: "разрыв u глубокого потока".to_string(),
         }),
         // Событие следующих суток приходит только быстрым потоком.
@@ -1519,6 +1520,7 @@ fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
             silence_ns: None,
+            first_of_episode: false,
             detail: "разрыв u глубокого потока".to_string(),
         }),
         // Дельта глубокого потока в сутках D+1 — она же и ротирует его часть.
@@ -2016,6 +2018,7 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
         // роняет оба потока сразу (T45).
         depth: None,
         silence_ns: None,
+        first_of_episode: false,
         detail: "разрыв".to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
@@ -2040,6 +2043,56 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
     );
 }
 
+/// MAJOR независимой проверки 7af2c0b: `bybit::conn` шлёт `MarketSilence` на
+/// каждом тике эпизода, не только на первом — иначе `silence_max_ns` застыл
+/// бы на значении первого срабатывания. Счётчик эпизодов растёт только на
+/// `first_of_episode: true`, максимум — на каждом событии, включая эпизод,
+/// не кончившийся к моменту, когда пришёл тик остановки сессии (реальное
+/// поведение: `bybit::conn` продолжал бы слать обновления, здесь сценарий
+/// просто кончается раньше). Строки `gaps.csv` тишина не даёт вовсе — как у
+/// `unrouted` в тесте выше.
+#[test]
+fn market_silence_counts_episodes_once_and_tracks_the_true_max() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let silence = |local_ts_ns, silence_ns, first_of_episode| Event::Gap {
+        symbol: 0,
+        local_ts_ns,
+        kind: FeedGapKind::MarketSilence,
+        depth: None,
+        silence_ns: Some(silence_ns),
+        first_of_episode,
+        detail: "тишина".to_string(),
+    };
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        // Эпизод 1: старт + два тихих обновления, максимум растёт до 90.
+        Step::Ev(silence(NOON_NS, 40, true)),
+        Step::Ev(silence(NOON_NS + 10, 60, false)),
+        Step::Ev(silence(NOON_NS + 20, 90, false)),
+        // Эпизод 2 (рынок вернулся между ними, здесь это не моделируется
+        // отдельным Book/Trade — `bybit::conn` сам не пришлёт новый
+        // `first_of_episode: true`, пока не увидит рынок): свой старт с
+        // меньшей тишиной, чем максимум уже виденного — общий максимум
+        // обязан остаться от эпизода 1, а не откатиться.
+        Step::Ev(silence(NOON_NS + 30, 40, true)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    assert_eq!(
+        (
+            summary.silence_episodes,
+            summary.silence_max_ns,
+            summary.gaps
+        ),
+        (2, Some(90), 0),
+        "два эпизода (по first_of_episode), максимум — фактическая длина, а не первое \
+         срабатывание; тишина не даёт строк gaps.csv"
+    );
+}
+
 /// Переподключение и ресинк — числом в `session.json` и строкой в
 /// `gaps.csv` каждый: без них сутки записи нечем оценить. T45: разрывы
 /// считаются и **раздельно по потокам** — разрыв `.200` не разрыв `.50`.
@@ -2055,6 +2108,7 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
         kind,
         depth,
         silence_ns: None,
+        first_of_episode: false,
         detail: detail.to_string(),
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
@@ -2136,6 +2190,7 @@ fn a_refused_subscription_is_counted_and_written_to_the_journal() {
             kind: FeedGapKind::SubscribeFailed,
             depth: None,
             silence_ns: None,
+            first_of_episode: false,
             detail: "подписка не состоялась: orderbook.50.SYM — error:handler not found"
                 .to_string(),
         }),
@@ -2728,6 +2783,7 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                 kind: crate::feed::GapKind::Disconnected,
                 depth: None,
                 silence_ns: None,
+                first_of_episode: false,
                 detail: "снятый символ".to_string(),
             }),
             Step::Ev(Event::Tick {
@@ -3037,6 +3093,7 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
             kind: FeedGapKind::ConnectFailed,
             depth: None,
             silence_ns: None,
+            first_of_episode: false,
             detail: "connect() отклонён биржей: HTTP 429 — Too Many Requests (попытка 1)"
                 .to_string(),
         }),

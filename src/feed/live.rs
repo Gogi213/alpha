@@ -868,6 +868,7 @@ impl LiveFeed {
                     },
                     depth: None,
                     silence_ns: None,
+                    first_of_episode: false,
                     detail: "ОС-поток шарда ввода-вывода завершился — его инструменты \
                              больше не получают данных"
                         .to_string(),
@@ -925,6 +926,7 @@ impl Feed for LiveFeed {
                 // символа, ни потока.
                 depth: None,
                 silence_ns: None,
+                first_of_episode: false,
                 detail: format!("кадр не разобрался: {err:?}"),
             },
             ConnEvent::SequenceGap {
@@ -937,6 +939,7 @@ impl Feed for LiveFeed {
                 kind: GapKind::SequenceGap,
                 depth: Some(depth),
                 silence_ns: None,
+                first_of_episode: false,
                 detail: format!(
                     "разрыв u потока .{depth}: ждали {expected}, пришло {got} — ресинк снапшотом"
                 ),
@@ -947,6 +950,7 @@ impl Feed for LiveFeed {
                 kind: GapKind::BookInvariant,
                 depth: Some(depth),
                 silence_ns: None,
+                first_of_episode: false,
                 detail: format!("книга потока .{depth} нарушена: {err:?} — ресинк снапшотом"),
             },
             ConnEvent::Disconnected { first_of_socket } => Event::Gap {
@@ -961,6 +965,7 @@ impl Feed for LiveFeed {
                 // сразу: у него нет одной глубины.
                 depth: None,
                 silence_ns: None,
+                first_of_episode: false,
                 detail: "транспорт переподключился — шов покрытия".to_string(),
             },
             ConnEvent::ConnectFailed {
@@ -976,6 +981,7 @@ impl Feed for LiveFeed {
                     // Сокет не открылся — потока нет ни у одного из них.
                     depth: None,
                     silence_ns: None,
+                    first_of_episode: false,
                     detail: match http_status {
                         Some(status) => {
                             format!("connect() отклонён биржей: HTTP {status} — {err} (попытка {attempt})")
@@ -990,6 +996,7 @@ impl Feed for LiveFeed {
                 kind: GapKind::Unrouted,
                 depth: None,
                 silence_ns: None,
+                first_of_episode: false,
                 detail: "топик кадра не сопоставлен ни одному инструменту сокета".to_string(),
             },
             ConnEvent::SubscribeFailed {
@@ -1005,6 +1012,7 @@ impl Feed for LiveFeed {
                 // Какой именно топик отказан — в детали.
                 depth: None,
                 silence_ns: None,
+                first_of_episode: false,
                 detail: match topic {
                     Some(topic) => format!("подписка не состоялась: {topic} — {ret_msg}"),
                     None => format!("подписка не состоялась: {ret_msg}"),
@@ -1017,12 +1025,14 @@ impl Feed for LiveFeed {
             ConnEvent::MarketSilence {
                 local_ts_ns,
                 silence_ns,
+                first_of_episode,
             } => Event::Gap {
                 symbol: idx,
                 local_ts_ns,
                 kind: GapKind::MarketSilence,
                 depth: None,
                 silence_ns: Some(silence_ns),
+                first_of_episode,
                 detail: format!(
                     "рыночных событий (Book/Trade) нет {silence_ns} нс — соединение живо, не рвётся"
                 ),
