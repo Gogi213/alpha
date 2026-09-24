@@ -5,7 +5,7 @@ use crate::commands::lob::replay_symbol;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
 use crate::commands::lob::H3ModeArg;
 use crate::lob::excursion::SecondMids;
-use crate::lob::levels::{ApproachEnd, ApproachRecord, TouchRecord};
+use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
 
 fn touches_args(root: &std::path::Path) -> TouchesArgs {
