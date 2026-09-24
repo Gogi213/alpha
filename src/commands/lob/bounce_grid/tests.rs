@@ -2350,3 +2350,16 @@ fn fixed_order_qty_off_the_lot_step_is_refused() {
     let err = run_bounce_grid(&a).unwrap_err().to_string();
     assert!(err.contains("не кратен шагу лота"), "{err}");
 }
+
+/// Замечание проверки R2: явный нулевой лот — отказ, а не круг без размера
+/// (`0 % шаг == 0` проходил проверку кратности).
+#[test]
+fn zero_fixed_order_qty_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.order_qty_e9 = Some(0);
+    a.out_dir = dir.path().join("grid-zero-lot");
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("не положителен"), "{err}");
+}
