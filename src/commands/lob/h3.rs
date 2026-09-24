@@ -108,24 +108,30 @@ pub struct ExecutionArgs {
 /// (`h3_lots_for_symbol`, `median_trade_lots_for_symbol` ниже) и подпись
 /// дашборда (`h3_k_for_symbol`, `dashboard.rs`; W9 ревью 23.09). Позиции
 /// колонок ищутся по имени в заголовке — порядок столбцов файла не зафиксирован.
-/// `None` — колонки `column` или `symbol` нет в заголовке, строки символа
-/// нет, или сама строка не читается (кривой CSV обрывает скан целиком, той
-/// же реакцией, что раньше была у `h3_k_for_symbol`, — не пропуском строки).
+/// `Ok(None)` — колонки `column` или `symbol` нет в заголовке либо строки
+/// символа нет; `Err` — строка файла не читается (кривой CSV после ручной
+/// правки пула): вызывающий печатает «файл повреждён», а не вводящее в
+/// заблуждение «нет строки» (замечание проверки W9). Скан обрывается на
+/// первой кривой строке, как и раньше, — не пропуском.
 pub(crate) fn instruments_symbol_field(
     reader: &mut csv::Reader<std::fs::File>,
     headers: &csv::StringRecord,
     symbol: &str,
     column: &str,
-) -> Option<String> {
-    let col_idx = headers.iter().position(|h| h == column)?;
-    let sym_idx = headers.iter().position(|h| h == "symbol")?;
+) -> Result<Option<String>, csv::Error> {
+    let (Some(col_idx), Some(sym_idx)) = (
+        headers.iter().position(|h| h == column),
+        headers.iter().position(|h| h == "symbol"),
+    ) else {
+        return Ok(None);
+    };
     for row in reader.records() {
-        let row = row.ok()?;
+        let row = row?;
         if row.get(sym_idx) == Some(symbol) {
-            return row.get(col_idx).map(str::to_string);
+            return Ok(row.get(col_idx).map(str::to_string));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Пол `H3` символа из `instruments.csv`: нет файла, нет колонки, нет
@@ -148,7 +154,9 @@ fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i6
         "{}: нет колонки h3_lots (пишет отдельный шаг сборки пула)",
         instruments_csv.display()
     );
-    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "h3_lots") else {
+    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "h3_lots")
+        .map_err(|e| anyhow::anyhow!("{}: строка не читается ({e})", instruments_csv.display()))?
+    else {
         anyhow::bail!(
             "{symbol}: нет строки в {} (режим floor)",
             instruments_csv.display()
@@ -186,7 +194,9 @@ pub(crate) fn median_trade_lots_for_symbol(
         "{}: нет колонки median_trade_lots (пишет lob pick)",
         instruments_csv.display()
     );
-    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "median_trade_lots") else {
+    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "median_trade_lots")
+        .map_err(|e| anyhow::anyhow!("{}: строка не читается ({e})", instruments_csv.display()))?
+    else {
         anyhow::bail!(
             "{symbol}: нет строки в {} (median_trade_lots)",
             instruments_csv.display()

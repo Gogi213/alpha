@@ -1636,7 +1636,7 @@ pub const K_STUB: f64 = 1.0;
 fn h3_k_for_symbol(instruments_csv: &Path, symbol: &str) -> Option<f64> {
     let mut r = crate::commands::lob::pick::instruments_csv_reader(instruments_csv).ok()?;
     let headers = r.headers().ok()?.clone();
-    let raw = instruments_symbol_field(&mut r, &headers, symbol, "k")?;
+    let raw = instruments_symbol_field(&mut r, &headers, symbol, "k").ok()??;
     raw.trim().parse().ok()
 }
 
