@@ -759,7 +759,22 @@ fn frame_claiming_more_bytes_than_remain_is_an_error() {
 #[test]
 fn corrupt_length_prefix_does_not_pre_allocate_ahead_of_the_stream() {
     const HUGE: u32 = 200 * 1024 * 1024; // 200 МиБ — заведомо больше, чем есть на "диске"
-    let mut w = Writer::create(Vec::new(), header(), zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
+                                         // Свой заголовок, не общий `header()` (ремонт W3, ревью 23.09): `read_
+                                         // body` теперь сравнивает `len` с потолком заголовка (`max_frame_bytes_
+                                         // on_disk`) ДО чтения, и на `DEFAULT_TEST_MAX_RECORDS_PER_FRAME`
+                                         // (~80 МиБ потолка) `HUGE` сама была бы отвергнута этой более ранней
+                                         // проверкой — тест тогда доказывал бы её, а не то, ради чего он
+                                         // написан: что чтение кусками не аллоцирует объявленный объём вперёд,
+                                         // когда `len` ещё правдоподобна для потолка заголовка, но больше того,
+                                         // что реально есть на диске. Потолок здесь намеренно поднят щедрым
+                                         // `max_records_per_frame`, чтобы `HUGE` осталась в его границах с
+                                         // большим запасом.
+    let hdr = Header {
+        tick_e9: TICK_E9,
+        step_e9: STEP_E9,
+        max_records_per_frame: 10_000_000,
+    };
+    let mut w = Writer::create(Vec::new(), hdr, zstd::DEFAULT_COMPRESSION_LEVEL).unwrap();
     w.write_frame(&[rec(ev_snapshot_bid(), 0, 1, 10, 10)])
         .unwrap();
     let mut bytes = w.into_inner();
@@ -1155,6 +1170,114 @@ fn frame_exceeding_the_header_ceiling_is_rejected_without_full_allocation() {
          в этом тесте), а не расти пропорционально разжатому объёму (16 000 008 байт) — \
          реально выделено {} байт",
         counts.bytes
+    );
+}
+
+/// Ремонт W3 (ревью 23.09): потолок заголовка теперь сравнивается с `len`
+/// сразу после чтения префикса длины, **до** единого байта тела — раньше
+/// `corrupt_length_prefix_does_not_pre_allocate_ahead_of_the_stream` (выше)
+/// доказывал только вторую защиту (чтение кусками, не аллокация `len` байт
+/// заранее); этот тест — первую и более раннюю: `len`, для которой ни один
+/// настоящий кадр этого заголовка не может существовать
+/// (`> max_frame_bytes_on_disk`), отвергается до попытки прочитать тело
+/// вовсе — на диске после длины нет ни байта, и без этой правки читатель
+/// получил бы `ShortRead` вместо честного «кадр за потолком заголовка».
+#[test]
+fn length_exceeding_the_on_disk_ceiling_is_rejected_before_reading_the_body() {
+    let max = 10u32;
+    let hdr = Header {
+        tick_e9: TICK_E9,
+        step_e9: STEP_E9,
+        max_records_per_frame: max,
+    };
+    let ceiling = max_frame_bytes_on_disk(max as usize);
+    let mut bytes = Writer::create(Vec::new(), hdr, zstd::DEFAULT_COMPRESSION_LEVEL)
+        .unwrap()
+        .into_inner();
+    assert_eq!(bytes.len(), HEADER_LEN, "только заголовок, кадров ещё нет");
+    // Заявленная длина — на один байт за потолком, тела на "диске" для неё
+    // нет вовсе (файл кончается сразу после этих четырёх байт).
+    let over = u32::try_from(ceiling + 1).unwrap();
+    bytes.extend_from_slice(&over.to_le_bytes());
+
+    let mut r = Reader::open(&bytes[..]).unwrap();
+    let (result, counts) = alloc_count::measure(|| r.read_body());
+    assert_eq!(
+        result.unwrap_err(),
+        BinlogError::FrameExceedsHeaderCeiling {
+            max_records_per_frame: max,
+            ceiling_bytes: ceiling,
+        },
+        "длина за потолком обязана отвергаться им явно, не выглядеть усечением"
+    );
+    assert!(
+        counts.bytes < 4096,
+        "потолок обязан сработать раньше первого байта тела — аллокация осталась малой: \
+         {} байт",
+        counts.bytes
+    );
+}
+
+/// Ремонт W3 (ревью 23.09): заголовок с испорченным `max_records_per_frame`
+/// (здесь — `u32::MAX`, то же значение, которым `a_corrupt_header_cannot_
+/// raise_the_ceiling_past_the_day_budget` выше насыщает потолок разжатого
+/// тела об `HARD_PAYLOAD_CEILING`, ~1.5 ГБ) не имеет права требовать под
+/// разжатие настоящего кадра, чьё сжатое тело на диске — считаные байты,
+/// приближения к этой границе: второй, более тесный потолок от реального
+/// размера кадра на диске (`MAX_DECOMPRESSION_RATIO`) обязан включиться
+/// раньше, чем `bulk::Decompressor::decompress` попросит у аллокатора
+/// заметную долю гигабайта. Кадр при этом настоящий и **честно записан** —
+/// испорчен только заголовок постфактум (один перевёрнутый бит на диске,
+/// не программная ошибка), поэтому чтение обязано не просто не разорваться
+/// в аллокации, а вернуть его штатно.
+#[test]
+fn a_corrupt_max_records_per_frame_does_not_balloon_allocation_for_a_tiny_real_frame() {
+    let mut bytes = write_all(header(), &[vec![rec(ev_snapshot_bid(), 0, 1, 10, 10)]]);
+    // Затираем max_records_per_frame заголовка испорченным значением
+    // напрямую в байтах (смещение 21..25, см. `Writer::create`) — тело
+    // единственного кадра при этом остаётся настоящим, крошечным.
+    bytes[21..25].copy_from_slice(&u32::MAX.to_le_bytes());
+
+    let mut r = Reader::open(&bytes[..]).unwrap();
+    assert_eq!(r.header().max_records_per_frame, u32::MAX);
+    let (result, counts) = alloc_count::measure(|| r.read_frame());
+    let frame = result
+        .expect(
+            "настоящий крошечный кадр обязан читаться штатно, несмотря на испорченный заголовок",
+        )
+        .expect("это первый кадр — None здесь значило бы, что в файле их не осталось");
+    assert_eq!(frame.len(), 1);
+    assert!(
+        counts.bytes < 1024 * 1024,
+        "испорченный max_records_per_frame не имеет права требовать гигабайты под кадр \
+         в считаные байты на диске — реально выделено {} байт",
+        counts.bytes
+    );
+}
+
+/// Ремонт W3, часть (в) (ревью 23.09): `read_upto` — общий примитив чтения
+/// и обычного файла, и разжимающегося на лету потока архива (T46) — не
+/// имеет права довериться `Read::read`, сообщившему больше байт, чем ему
+/// давали читать: `filled += n` без `min` увело бы `filled` за `buf.len()`,
+/// и следующая итерация `&mut buf[filled..]` запаниковала бы на срезе с
+/// началом за концом (Decision 7: усечение обязано быть видно как ошибка,
+/// не как паника). Ни `File`, ни `zstd::stream::read::Decoder` контракт не
+/// нарушают — оборону проверяет подставной источник, который врёт нарочно.
+struct OverreadingSource;
+
+impl std::io::Read for OverreadingSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(buf.len() + 7)
+    }
+}
+
+#[test]
+fn read_upto_survives_a_read_impl_that_overreports_bytes_written() {
+    let mut buf = [0u8; 16];
+    let status = super::read_upto(&mut OverreadingSource, &mut buf).unwrap();
+    assert!(
+        matches!(status, ReadStatus::Full),
+        "буфер обязан считаться полностью заполненным, не переполненным"
     );
 }
 

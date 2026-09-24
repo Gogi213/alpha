@@ -150,6 +150,16 @@ pub use archive::{
     DEFAULT_LEVEL as ARCHIVE_DEFAULT_LEVEL,
 };
 
+/// Кодеки, которые существуют только ради замера (тикеты 43/44, M1i/M1e) и
+/// совместимости v2 — не часть настоящего формата, поэтому не в `pub` API
+/// этого модуля (ремонт W3, ревью 23.09). `pub(crate)`, а не `pub`: видит
+/// только этот бинарник (`lob binlog-stats`), не внешний потребитель крейта.
+pub(crate) mod experiments;
+pub(crate) use experiments::{
+    decode_frame_payload_v3_ev_table, encode_frame_payload_v2, encode_frame_payload_v3_ev_table,
+    encode_frame_payload_v3_index_simulated,
+};
+
 /// Суффикс обычного суточного файла: `<SYMBOL>-<день>[-pN].binlog`.
 pub const BINLOG_SUFFIX: &str = ".binlog";
 
@@ -787,83 +797,14 @@ pub fn encode_frame_payload_v3(records: &[Record], out: &mut Vec<u8>) -> FieldBy
     encode_frame_payload(records, PriceMode::Delta, EvMode::Inline, out)
 }
 
-/// Симуляция «уровень индексом» — **только замер** M1i тикета 43, в формат не
-/// входит (см. `PriceMode::IndexSimulated`). `indexed[i]` — кодировать ли цену
-/// записи `i` индексом вместо дельты.
-pub fn encode_frame_payload_v3_index_simulated(
-    records: &[Record],
-    indexed: &[bool],
-    out: &mut Vec<u8>,
-) -> FieldBytes {
-    encode_frame_payload(
-        records,
-        PriceMode::IndexSimulated(indexed),
-        EvMode::Inline,
-        out,
-    )
-}
-
-/// Вариант «`ev` таблицей на кадр» — **только замер** M1e тикета 44, в формат
-/// не входит (см. `EvMode::Table`); таблица строится по самим записям кадра.
-pub fn encode_frame_payload_v3_ev_table(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
-    let mut table = [0u64; EV_TABLE_MAX];
-    let mut len = 0usize;
-    for r in records {
-        if len < EV_TABLE_MAX && !table[..len].contains(&r.ev) {
-            table[len] = r.ev;
-            len += 1;
-        }
-    }
-    encode_frame_payload(records, PriceMode::Delta, EvMode::Table(&table[..len]), out)
-}
-
-/// Тело кадра v2 — форма, которую пишет живой коллектор до перезапуска на
-/// новый бинарник. Кодировщик существует ради замера A/B и фикстур
-/// совместимости: `order_id`/`fval` в `Record` больше нет, и на их месте
-/// пишутся нули — ровно те значения, что несут живые данные, поэтому
-/// перекодировка обязана совпасть с файлом на диске до байта (M4б тикета 43).
-pub fn encode_frame_payload_v2(records: &[Record], out: &mut Vec<u8>) -> FieldBytes {
-    let mut fb = FieldBytes::default();
-    let Some(first) = records.first() else {
-        return fb;
-    };
-    let epoch_ns = first.exch_ts_ns;
-    out.extend_from_slice(&epoch_ns.to_le_bytes());
-    fb.epoch += FRAME_EPOCH_LEN;
-
-    let mut st = DeltaState::new();
-    for r in records {
-        let before = out.len();
-        write_uvarint(out, r.ev);
-        fb.ev += took(out, before);
-        let before = out.len();
-        write_zigzag(out, r.exch_ts_ns.wrapping_sub(epoch_ns));
-        fb.exch_ts += took(out, before);
-        let before = out.len();
-        write_zigzag(out, r.local_ts_ns.wrapping_sub(epoch_ns));
-        fb.local_ts += took(out, before);
-        let before = out.len();
-        write_zigzag(out, r.price_ticks.wrapping_sub(st.prev_price_ticks));
-        fb.price += took(out, before);
-        let before = out.len();
-        write_zigzag(out, r.qty_lots.wrapping_sub(st.prev_qty_lots));
-        fb.qty += took(out, before);
-        // Три мёртвых поля v2 — как их писала живая запись: `order_id` = 0
-        // (у публичного L2-потока числового id нет), `ival` — из блочности,
-        // `fval` — бит-паттерн 0.0. RPI в v2 не представим: там нет второго
-        // бита у `ival`, а ненулевой `ival` старый читатель понимает как
-        // блочность, поэтому кодировщик v2 его не пишет (v2 — только чтение
-        // и замер, живая запись идёт в v3).
-        let before = out.len();
-        write_uvarint(out, 0);
-        write_zigzag(out, i64::from(r.block));
-        write_uvarint(out, 0);
-        fb.dead_fields += took(out, before);
-        st.prev_price_ticks = r.price_ticks;
-        st.prev_qty_lots = r.qty_lots;
-    }
-    fb
-}
+// Варианты `PriceMode::IndexSimulated`/`EvMode::Table` (M1i/M1e тикетов
+// 43/44) и перекодировщик v2 живут в `experiments` (ремонт W3, ревью 23.09):
+// `encode_frame_payload_v3_index_simulated`, `encode_frame_payload_v3_ev_table`,
+// `encode_frame_payload_v2` — эти три и парный им `decode_frame_payload_v3_ev_table`
+// ниже. Ни один формат-кадр их не использует — только замер `lob binlog-stats`
+// (в т.ч. `--reencode`), и pub API этого модуля (реального писателя/читателя)
+// им нести незачем; `experiments` — дочерний модуль, поэтому видит
+// `encode_frame_payload`/`PriceMode`/`EvMode`/`EV_TABLE_MAX` этого файла как есть.
 
 /// Сколько записей v2-файла несли ненулевое значение в поле, которого в v3
 /// больше нет. Ненулевое `ival` — это и есть блочность (в `Record` такие
@@ -939,80 +880,8 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
     Ok(out)
 }
 
-/// Разбирает тело кадра варианта «`ev` таблицей» — **только замер** M1e
-/// тикета 44 (в формат не входит, см. `EvMode::Table`). Нужен замеру и тестам
-/// варианта: без обратного чтения «экономия» проверялась бы на слово, а не
-/// round-trip'ом.
-pub fn decode_frame_payload_v3_ev_table(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
-    let epoch_ns = read_frame_epoch(payload)?;
-    let mut pos = FRAME_EPOCH_LEN;
-    let table_len = read_uvarint(payload, &mut pos)?;
-    if table_len > EV_TABLE_MAX as u64 {
-        return Err(BinlogError::Corrupt(format!(
-            "таблица ev объявила {table_len} значений при потолке {EV_TABLE_MAX}"
-        )));
-    }
-    let mut table = [0u64; EV_TABLE_MAX];
-    for i in 0..table_len as usize {
-        let ev = read_uvarint(payload, &mut pos)?;
-        if let Some(slot) = table.get_mut(i) {
-            *slot = ev;
-        }
-    }
-    let mut st = DeltaState::new();
-    let mut out = Vec::new();
-    while pos < payload.len() {
-        let code = read_uvarint(payload, &mut pos)?;
-        let ev = if code < table_len {
-            table.get(code as usize).copied().ok_or_else(|| {
-                BinlogError::Corrupt(format!("код ev {code} вне таблицы {table_len}"))
-            })?
-        } else if code == table_len {
-            read_uvarint(payload, &mut pos)?
-        } else {
-            return Err(BinlogError::Corrupt(format!(
-                "код ev {code} больше длины таблицы {table_len}"
-            )));
-        };
-        let exch_delta = read_zigzag(payload, &mut pos)?;
-        let local_delta = read_zigzag(payload, &mut pos)?;
-        let attrs = read_uvarint(payload, &mut pos)?;
-        if attrs & !ATTRS_KNOWN != 0 {
-            return Err(BinlogError::Corrupt(format!(
-                "неизвестный бит attrs группы: {attrs:#x}"
-            )));
-        }
-        let count = read_uvarint(payload, &mut pos)?;
-        let remaining = (payload.len() - pos) as u64;
-        if count > remaining {
-            return Err(BinlogError::Corrupt(format!(
-                "группа объявила {count} записей, а в кадре осталось {remaining} байт"
-            )));
-        }
-        let exch_ts_ns = epoch_ns.wrapping_add(exch_delta);
-        let local_ts_ns = epoch_ns.wrapping_add(local_delta);
-        let block = attrs & ATTRS_BLOCK != 0;
-        let rpi = attrs & ATTRS_RPI != 0;
-        for _ in 0..count {
-            let price_delta = read_zigzag(payload, &mut pos)?;
-            let qty_delta = read_zigzag(payload, &mut pos)?;
-            let price_ticks = st.prev_price_ticks.wrapping_add(price_delta);
-            let qty_lots = st.prev_qty_lots.wrapping_add(qty_delta);
-            st.prev_price_ticks = price_ticks;
-            st.prev_qty_lots = qty_lots;
-            out.push(Record {
-                ev,
-                exch_ts_ns,
-                local_ts_ns,
-                price_ticks,
-                qty_lots,
-                block,
-                rpi,
-            });
-        }
-    }
-    Ok(out)
-}
+// `decode_frame_payload_v3_ev_table` (парный читатель варианта замера выше)
+// — тоже в `experiments`, тем же обоснованием.
 
 /// Разбирает тело кадра v2 — форму, которую пишет живой коллектор до
 /// перезапуска. `order_id`/`ival`/`fval` читаются, потому что лежат в потоке,
@@ -1218,7 +1087,17 @@ fn read_upto<R: Read>(r: &mut R, buf: &mut [u8]) -> io::Result<ReadStatus> {
     while filled < buf.len() {
         match r.read(&mut buf[filled..]) {
             Ok(0) => break,
-            Ok(n) => filled += n,
+            // `.min(buf.len() - filled)` (ремонт W3, ревью 23.09): `Read::
+            // read` обязан вернуть `n` не больше длины среза, который ему
+            // дали, но контракт — не гарантия компилятора, а обещание
+            // реализации. Источники здесь — обычный файл, и (T46) поток
+            // `zstd::stream::read::Decoder`, разжимающий архив на лету: у
+            // обоих `n` без проверки уже был бы доверенным чужим числом,
+            // и нарушивший контракт `Read` увёл бы `filled` за `buf.len()`,
+            // а следующая итерация — `&mut buf[filled..]` — запаниковала бы
+            // на срезе с началом за концом (Decision 7: усечение обязано
+            // быть видно как ошибка, не как паника).
+            Ok(n) => filled += n.min(buf.len() - filled),
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         }
@@ -1689,18 +1568,39 @@ impl<R: Read> Reader<R> {
         let len = u32::from_le_bytes(len_buf) as usize;
         self.last_frame_bytes = LEN_PREFIX + len;
 
-        // `len` пришла прямо с диска непроверенной и может быть любым
-        // значением до `u32::MAX` (~4.3 ГиБ) из-за одного перевёрнутого
-        // бита — испорченная длина не редкость именно для того потока
-        // (крах посреди записи, битые сектора), для которого этот формат
-        // и спроектирован. Аллоцировать `len` байт заранее значило бы
-        // проверять, хватает ли на диске байт, уже потратив память под
-        // это же чтение: неудачная аллокация такого размера — это abort
-        // процесса (не перехватываемая паника), что прямо противоречит
-        // «никогда не паника» из шапки модуля. Поэтому читаем кусками:
+        // Ремонт W3 (ревью 23.09): раньше потолок заголовка проверялся только
+        // ПОСЛЕ того, как эти `len` байт уже прочитаны — у обычного файла это
+        // ещё сжатые байты, но у контейнера архива (`Body::Archive`) тело
+        // лежит несжатым и читается через разжимающийся на лету поток
+        // (`zstd::stream::read::Decoder`), то есть «прочитаны» там уже значит
+        // «разжаты». Испорченный префикс длины (один перевёрнутый бит, до
+        // `u32::MAX`) тянул в память гигабайты ДО единственной проверки —
+        // ровно то «декомпрессия сначала, проверка после», от которого
+        // Decision 23 (ревизия 10) требует уйти, только на шаг раньше в этой
+        // же функции. Потолок — тот же самый, что раньше стоял после чтения
+        // (`max_frame_record_bytes` для уже разжатого архива,
+        // `max_frame_bytes_on_disk` для ещё сжатого обычного файла — то же
+        // выражение, которым сам `Writer` резервирует буфер под кадр, поэтому
+        // настоящий кадр этого писателя в него гарантированно укладывается),
+        // сравнивается с длиной сразу, до единого байта чтения тела.
+        let len_ceiling = match self.inner {
+            Body::Archive(_) => max_frame_record_bytes(self.header.max_records_per_frame),
+            Body::Plain(_) => max_frame_bytes_on_disk(self.header.max_records_per_frame as usize),
+        };
+        if len > len_ceiling {
+            return Err(BinlogError::FrameExceedsHeaderCeiling {
+                max_records_per_frame: self.header.max_records_per_frame,
+                ceiling_bytes: len_ceiling,
+            });
+        }
+
+        // `len` прошла потолок заголовка, но заголовок — те же данные с
+        // диска, что и поле длины (см. проверку выше и её обоснование):
+        // остаётся читать кусками, а не аллоцировать `len` байт заранее —
         // буфер растёт только на то, что реально пришло, и испорченная
-        // длина обрывается на `ShortRead` первого недостающего куска, а не
-        // на попытке выделить гигабайты впрок.
+        // длина (в границах потолка, но всё ещё больше настоящего файла)
+        // обрывается на `ShortRead` первого недостающего куска, а не на
+        // попытке выделить впрок то, чего на диске нет.
         const READ_CHUNK: usize = 64 * 1024;
         let mut stored = Vec::with_capacity(len.min(READ_CHUNK));
         let mut got = 0usize;
@@ -1737,17 +1637,15 @@ impl<R: Read> Reader<R> {
 
         if matches!(self.inner, Body::Archive(_)) {
             // Тело контейнера лежит несжатым: это и есть тело кадра v3.
-            // Потолок всё равно проверяется — испорченная длина не должна
-            // дать вверх по стеку кадр больше, чем может содержать законный
-            // кадр формата (`max_frame_record_bytes` — верхняя граница
-            // закодированного тела, а не оценка).
-            let ceiling = max_frame_record_bytes(self.header.max_records_per_frame);
-            if stored.len() > ceiling {
-                return Err(BinlogError::FrameExceedsHeaderCeiling {
-                    max_records_per_frame: self.header.max_records_per_frame,
-                    ceiling_bytes: ceiling,
-                });
-            }
+            // Потолок уже проверен выше, до чтения (`len_ceiling`) — `stored.
+            // len() == len` (цикл выше не выходит иначе) не может превысить
+            // его повторно; `debug_assert!` — граница инварианта, а не
+            // рабочая проверка (она и не имеет права сработать в релизе, раз
+            // выше `len > len_ceiling` уже вернула ошибку).
+            debug_assert!(
+                stored.len() <= max_frame_record_bytes(self.header.max_records_per_frame),
+                "len_ceiling выше обязан был отвергнуть этот кадр раньше"
+            );
             return Ok(Some(stored));
         }
 
@@ -1761,7 +1659,31 @@ impl<R: Read> Reader<R> {
         // как эти байты выделены (см. `Decompressor::decompress`/`WriteBuf::
         // write_from` в крейте `zstd-safe`: буфер получает ровно
         // запрошенную ёмкость один раз и не растёт).
-        let ceiling_bytes = max_frame_payload_bytes(self.header.max_records_per_frame);
+        //
+        // Второй, более тесный потолок — от содержимого, не только от
+        // заголовка (ремонт W3, ревью 23.09), и только когда первый уже
+        // насыщен об `HARD_PAYLOAD_CEILING`: насыщение — признак вероятно
+        // испорченного `max_records_per_frame` (ни один вызывающий в этом
+        // дереве, включая тесты с намеренно завышенным потолком, не просит
+        // больше нескольких миллионов записей на кадр, а `HARD_PAYLOAD_
+        // CEILING` — щедрый бюджет **суток**, не одного кадра), и тогда 4
+        // испорченных байта заголовка всё ещё требовали бы до 1.5 ГБ
+        // аллокации под кадр, чьё сжатое тело на диске — считаные байты.
+        // `stored.len() * MAX_DECOMPRESSION_RATIO` — тот же коэффициент
+        // распаковки, которым уже обоснован сам `HARD_PAYLOAD_CEILING`,
+        // только от РЕАЛЬНОГО размера этого кадра на диске. Условие на
+        // насыщении, а не безусловный `min()`, — намеренно: честный
+        // (ненасыщенный) потолок заголовка, каким бы большим он ни был
+        // назначен вызывающим (`DEFAULT_TEST_MAX_RECORDS_PER_FRAME` тестов
+        // этого файла в том числе), этим ремонтом не тронут вовсе — тесно
+        // сравнивать с реальным сжатием годится только тогда, когда сам
+        // заголовок уже не выглядит правдоподобным.
+        let header_ceiling = max_frame_payload_bytes(self.header.max_records_per_frame);
+        let ceiling_bytes = if header_ceiling == HARD_PAYLOAD_CEILING {
+            header_ceiling.min(stored.len().saturating_mul(MAX_DECOMPRESSION_RATIO))
+        } else {
+            header_ceiling
+        };
         let payload = self
             .decompressor
             .decompress(&stored, ceiling_bytes)
