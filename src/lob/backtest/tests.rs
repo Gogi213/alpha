@@ -1807,3 +1807,18 @@ fn executed_notional_falls_back_to_last_price_when_the_venue_kept_no_total() {
         "итог площадки — главнее"
     );
 }
+
+/// B4 (ревью 23.09): остаток шорта гасится **покупкой** — знак остатка для
+/// `flatten_residual` берётся от стороны входа, а не от `position()` без знака.
+#[test]
+fn a_short_residual_is_flattened_by_buying() {
+    assert!(
+        close(signed_residual(HbtSide::Buy, 0.5), 0.5),
+        "лонг — продажей"
+    );
+    assert!(
+        close(signed_residual(HbtSide::Sell, 0.5), -0.5),
+        "шорт — покупкой"
+    );
+    assert_eq!(signed_residual(HbtSide::Sell, 0.0), 0.0);
+}

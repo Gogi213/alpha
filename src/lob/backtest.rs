@@ -944,6 +944,19 @@ where
     })
 }
 
+/// Остаток позиции круга со знаком для `flatten_residual` (B4, ревью 23.09):
+/// `StrategyState::position()` — объём без знака (`entry − exit ≥ 0`) у обеих
+/// сторон, а `flatten_residual` читает знак как сторону позиции (`> 0` — лонг,
+/// гасится продажей; `< 0` — шорт, гасится покупкой). Прежде остаток шорта
+/// приходил положительным и «гасился» продажей — шорт удваивался вместо
+/// закрытия.
+fn signed_residual(entry_side: HbtSide, position: f64) -> f64 {
+    match entry_side {
+        HbtSide::Sell => -position,
+        _ => position,
+    }
+}
+
 enum FlattenOutcome {
     /// Остаток закрыт.
     Flat,
@@ -1724,7 +1737,7 @@ where
     // частичного исполнения не видит (находка F3), и по ней страховка
     // закрывала бы мнимый остаток, помечая честный круг `incomplete`.
     let mut residual = None;
-    let mut left = residual_left;
+    let mut left = signed_residual(side, residual_left);
     if left != 0.0 {
         let mut ended = false;
         while left != 0.0 {
