@@ -2894,6 +2894,79 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
     );
 }
 
+/// Ревью 24.09, блок B: быстрые правки пула подряд — снятие, возврат и снова
+/// снятие того же имени (так шли правки живого пула 24.09 11:28–11:37 UTC).
+/// Каждое снятие закрывает **свой** индекс (сначала исходный, потом выданный
+/// при возврате), возврат получает новую часть, дублей индексов и повисших
+/// активных состояний нет, `pool_removals` помнит оба снятия.
+#[test]
+fn remove_readd_remove_in_quick_succession_closes_each_index_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = two_symbol_ctx(&root);
+    let window_ns = FRAME_LOSS_WINDOW_SECS as i64 * 1_000_000_000;
+    let (r1, r2, r3) = (root.clone(), root.clone(), root.clone());
+    let (mut feed, added, removed) = growing_feed(
+        2,
+        vec![
+            Step::Probe(Box::new(move || rewrite_pool(&r1, &["SYM,0.001,1,0.001"]))),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + window_ns,
+            }),
+            Step::Probe(Box::new(move || {
+                rewrite_pool(&r2, &["SYM,0.001,1,0.001", "DEAD,0.5,1,0.001"]);
+            })),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 2 * window_ns,
+            }),
+            Step::Probe(Box::new(move || rewrite_pool(&r3, &["SYM,0.001,1,0.001"]))),
+            Step::Ev(Event::Tick {
+                local_ts_ns: NOON_NS + 3 * window_ns,
+            }),
+        ],
+    );
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
+
+    assert_eq!(
+        *removed.lock().unwrap(),
+        vec![1u16, 2u16],
+        "снят исходный индекс, затем индекс, выданный при возврате — каждый один раз"
+    );
+    assert_eq!(
+        *added.lock().unwrap(),
+        vec!["DEAD".to_string()],
+        "возврат — одно добавление"
+    );
+    assert_eq!(
+        ctx.states.len(),
+        3,
+        "индексы не переиспользуются: 0, 1 (снят), 2 (возврат, снят)"
+    );
+    assert!(ctx.states[0].active, "SYM не тронут");
+    assert!(
+        !ctx.states[1].active && !ctx.states[2].active,
+        "оба состояния DEAD неактивны — повисшего активного нет"
+    );
+    assert_eq!(
+        summary
+            .pool_removals
+            .iter()
+            .map(|r| r.symbol.as_str())
+            .collect::<Vec<_>>(),
+        vec!["DEAD", "DEAD"],
+        "оба снятия записаны"
+    );
+    assert_eq!(
+        summary.instruments,
+        vec!["SYM".to_string(), "DEAD".to_string()],
+        "история без дублей имени"
+    );
+    assert!(
+        crate::commands::record::day_file_path(&root, "DEAD", TEST_DAY, 2).exists(),
+        "возврат писал в новую часть суток (-p2)"
+    );
+}
+
 /// Замена монеты — это снятие и добавление **за одну перечитку**: старый
 /// индекс уходит в `remove`, новый приходит из `add` со следующим номером.
 #[test]

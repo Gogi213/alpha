@@ -930,6 +930,17 @@ fn order_qty_requires_exactly_one_source() {
     );
     args.order_qty_e9 = Some(7);
     assert_eq!(order_qty_arg(&args).unwrap(), 7);
+    // Ревью 24.09, блок A: нулевой и отрицательный лот — отказ, а не круг без размера.
+    for bad in [0, -5] {
+        args.order_qty_e9 = Some(bad);
+        assert!(
+            order_qty_arg(&args)
+                .unwrap_err()
+                .to_string()
+                .contains("не положителен"),
+            "лот {bad} обязан быть отказом"
+        );
+    }
 }
 
 fn minimal_backtest_args() -> BacktestArgs {

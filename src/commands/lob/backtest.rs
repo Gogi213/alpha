@@ -193,7 +193,7 @@ fn header_comment(args: &BacktestArgs, order_qty_e9: i64) -> String {
 /// отказ, а не подстановка шага книги вместо лота площадки.
 fn order_qty_arg(args: &BacktestArgs) -> anyhow::Result<i64> {
     match (args.order_qty_e9, args.order_qty_from_pool) {
-        (Some(v), false) => Ok(v),
+        (Some(v), false) => positive_order_qty(v),
         (None, false) => anyhow::bail!(
             "нужен --order-qty-e9 (либо --order-qty-from-pool вместе с --touches): \
              изобретённого умолчания нет (§9 плана)"
@@ -203,6 +203,18 @@ fn order_qty_arg(args: &BacktestArgs) -> anyhow::Result<i64> {
              даёт реплей касаний"
         ),
     }
+}
+
+/// Явный лот обязан быть положительным (ревью 24.09, блок A): `drive_signal`
+/// проверяет размер круга только `debug_assert`, и в релизной сборке нулевой
+/// `--order-qty-e9` молча гнал бы круги без размера — тот же отказ, что у
+/// сетки форм (`OrderSizing`, `31a307b`).
+fn positive_order_qty(v: i64) -> anyhow::Result<i64> {
+    anyhow::ensure!(
+        v > 0,
+        "--order-qty-e9 {v} не положителен — круг без размера"
+    );
+    Ok(v)
 }
 
 /// Прогон сделки-отскока по касаниям символа и отчёт по осям В-44.
@@ -334,7 +346,7 @@ fn run_bounce(
     // касания (Decision 22а). Решается здесь, а не в начале: цену даёт реплей
     // касаний, который идёт выше.
     let order_qty_e9 = match (args.order_qty_e9, args.order_qty_from_pool) {
-        (Some(v), false) => v,
+        (Some(v), false) => positive_order_qty(v)?,
         (None, true) => {
             let last = touches
                 .last()
