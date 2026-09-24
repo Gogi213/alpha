@@ -44,14 +44,16 @@ pub struct FilterSet {
     /// Контекст касания (S4): границы в bps по осям `CTX_AXES` — ход монеты
     /// до касания за 10 мин / 1 ч / 4 ч (`ret10m`, `ret1h`, `ret4h`; знак
     /// абсолютный), медиана пула за 1 ч / 4 ч (`pool1h`, `pool4h`) и биток
-    /// (`btc1h`, `btc4h`); ключи `<ось>_min=` / `<ось>_max=`. Касание без
+    /// (`btc1h`, `btc4h`, промежуточные `btc2h`, `btc3h` — E26); ключи
+    /// `<ось>_min=` / `<ось>_max=`. Касание без
     /// значения оси при заданной границе выбывает.
     pub ctx: [Range; CTX_AXES.len()],
 }
 
 /// Оси контекста касания — порядок общий для `FilterSet::ctx` и `TouchContext`.
-pub const CTX_AXES: [&str; 7] = [
-    "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h",
+/// `btc2h`/`btc3h` — в конце: индексы прежних осей не сдвигаются.
+pub const CTX_AXES: [&str; 9] = [
+    "ret10m", "ret1h", "ret4h", "pool1h", "pool4h", "btc1h", "btc4h", "btc2h", "btc3h",
 ];
 
 /// Границы одной оси контекста, bps; `None` — не задана.
@@ -84,10 +86,14 @@ pub struct TouchContext {
     pub axes: [Option<f64>; CTX_AXES.len()],
 }
 
-/// Режим суток по минутам из `regime.py`: `minute_ms → (pool1h, pool4h, btc1h, btc4h)`.
-pub(crate) type RegimeDay = BTreeMap<i64, [Option<f64>; 4]>;
+/// Режим суток по минутам из `regime.py`:
+/// `minute_ms → (pool1h, pool4h, btc1h, btc4h, btc2h, btc3h)`.
+pub(crate) type RegimeDay = BTreeMap<i64, [Option<f64>; 6]>;
 
-pub(crate) fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay> {
+/// Колонки `btc_ret_2h_bps`/`btc_ret_3h_bps` пишет только `regime.py` после E26: в
+/// прежних файлах их нет, и значения — `None`. Если оси нужны наборам (`need_mid`),
+/// нет колонки — отказ (иначе все касания молча выбыли бы из набора).
+pub(crate) fn read_regime_day(dir: &Path, day: &str, need_mid: bool) -> anyhow::Result<RegimeDay> {
     let path = dir.join(format!("{day}.csv"));
     let mut r = csv::ReaderBuilder::new()
         .from_path(&path)
@@ -99,22 +105,35 @@ pub(crate) fn read_regime_day(dir: &Path, day: &str) -> anyhow::Result<RegimeDay
             .position(|h| h == name)
             .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
     };
+    let opt = |name: &str| -> anyhow::Result<Option<usize>> {
+        match header.iter().position(|h| h == name) {
+            Some(i) => Ok(Some(i)),
+            None if need_mid => anyhow::bail!(
+                "{}: нет колонки {name} — оси btc2h/btc3h требуют режим, пересчитанный regime.py",
+                path.display()
+            ),
+            None => Ok(None),
+        }
+    };
     let cols = [
-        idx("minute_ms")?,
-        idx("pool_ret_1h_bps")?,
-        idx("pool_ret_4h_bps")?,
-        idx("btc_ret_1h_bps")?,
-        idx("btc_ret_4h_bps")?,
+        Some(idx("minute_ms")?),
+        Some(idx("pool_ret_1h_bps")?),
+        Some(idx("pool_ret_4h_bps")?),
+        Some(idx("btc_ret_1h_bps")?),
+        Some(idx("btc_ret_4h_bps")?),
+        opt("btc_ret_2h_bps")?,
+        opt("btc_ret_3h_bps")?,
     ];
     let mut out = RegimeDay::new();
     for rec in r.records() {
         let rec = rec?;
         let minute: i64 = rec
-            .get(cols[0])
+            .get(cols[0].expect("minute_ms обязателен"))
             .ok_or_else(|| anyhow::anyhow!("{}: короткая строка", path.display()))?
             .parse()?;
-        let mut vals = [None; 4];
+        let mut vals = [None; 6];
         for (k, c) in cols[1..].iter().enumerate() {
+            let Some(c) = c else { continue };
             let v = rec.get(*c).unwrap_or("");
             vals[k] = if v.is_empty() {
                 None
@@ -144,9 +163,9 @@ pub(crate) fn touch_contexts(
             let m = regime
                 .and_then(|g| g.get(&minute))
                 .copied()
-                .unwrap_or([None; 4]);
+                .unwrap_or([None; 6]);
             TouchContext {
-                axes: [r[0], r[1], r[2], m[0], m[1], m[2], m[3]],
+                axes: [r[0], r[1], r[2], m[0], m[1], m[2], m[3], m[4], m[5]],
             }
         })
         .collect()
@@ -161,6 +180,12 @@ impl FilterSet {
     /// Хоть один ключ режима (`pool*`/`btc*`) задан — нужен `--regime-from`.
     pub(crate) fn uses_regime(&self) -> bool {
         self.ctx[3..].iter().any(|r| r.is_set())
+    }
+
+    /// Хоть один ключ промежуточных осей битка (`btc2h`/`btc3h`) задан — в файлах
+    /// режима нужны их колонки (`read_regime_day`, `need_mid`).
+    pub(crate) fn uses_btc_mid(&self) -> bool {
+        self.ctx[7..].iter().any(|r| r.is_set())
     }
 
     /// Хоть один ключ хода **монеты** до сигнала (`ret10m`/`ret1h`/`ret4h`)
@@ -284,7 +309,7 @@ impl FilterSet {
                         .rsplit_once('_')
                         .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|eaten|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
-                        anyhow::anyhow!("--set {spec:?}: неизвестная ось {axis:?} (ret10m|ret1h|ret4h|pool1h|pool4h|btc1h|btc4h)")
+                        anyhow::anyhow!("--set {spec:?}: неизвестная ось {axis:?} (ret10m|ret1h|ret4h|pool1h|pool4h|btc1h|btc4h|btc2h|btc3h)")
                     })?;
                     let v: f64 = v
                         .parse()

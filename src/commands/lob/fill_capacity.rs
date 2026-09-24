@@ -652,7 +652,10 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
             let regime = if need_regime {
                 let dir = args.regime_from.as_deref().expect("проверено выше");
                 if !regime_days.contains_key(&day.day) {
-                    regime_days.insert(day.day.clone(), read_regime_day(dir, &day.day)?);
+                    regime_days.insert(
+                        day.day.clone(),
+                        read_regime_day(dir, &day.day, sets.iter().any(FilterSet::uses_btc_mid))?,
+                    );
                 }
                 regime_days.get(&day.day)
             } else {

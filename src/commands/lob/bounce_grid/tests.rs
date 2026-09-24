@@ -2373,3 +2373,46 @@ fn zero_fixed_order_qty_is_refused() {
     let err = run_bounce_grid(&a).unwrap_err().to_string();
     assert!(err.contains("не положителен"), "{err}");
 }
+
+/// E26: промежуточные оси битка `btc2h`/`btc3h` — ключи набора, колонки режима
+/// `btc_ret_2h_bps`/`btc_ret_3h_bps`; прежний файл режима без них читается (оси —
+/// `None`), но если оси нужны наборам — отказ, а не молчаливый пустой набор.
+#[test]
+fn btc_mid_axes_parse_and_regime_columns() {
+    let set = FilterSet::parse("x:btc2h_max=-30,btc3h_min=-40").unwrap();
+    assert!(set.uses_regime() && set.uses_btc_mid());
+    assert_eq!(set.ctx[7].max, Some(-30.0));
+    assert_eq!(set.ctx[8].min, Some(-40.0));
+    assert_eq!(set.ctx_label(), "btc2h_max=-30,btc3h_min=-40");
+    assert!(!FilterSet::parse("y:btc4h_max=0").unwrap().uses_btc_mid());
+
+    let dir = tempfile::tempdir().unwrap();
+    let old = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps\n\
+               60000,1,2,5,-10,-40,,\n";
+    std::fs::write(dir.path().join("2026-09-08.csv"), old).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-08", false).unwrap();
+    assert_eq!(
+        day[&60_000],
+        [Some(1.0), Some(2.0), Some(-10.0), Some(-40.0), None, None]
+    );
+    let err = read_regime_day(dir.path(), "2026-09-08", true)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("btc_ret_2h_bps"), "{err}");
+
+    let new = "minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps\n\
+               60000,1,2,5,-10,-40,,,-20,-30\n";
+    std::fs::write(dir.path().join("2026-09-09.csv"), new).unwrap();
+    let day = read_regime_day(dir.path(), "2026-09-09", true).unwrap();
+    assert_eq!(
+        day[&60_000],
+        [
+            Some(1.0),
+            Some(2.0),
+            Some(-10.0),
+            Some(-40.0),
+            Some(-20.0),
+            Some(-30.0)
+        ]
+    );
+}

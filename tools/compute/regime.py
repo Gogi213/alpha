@@ -7,7 +7,7 @@
     python3 tools/compute/regime.py --day 2026-09-17 [--touches study/touches] [--regime-dir study/regime]
 
 Пишет `study/regime/<сутки>.csv`: `minute_ms,pool_ret_1h_bps,pool_ret_4h_bps,n_coins,btc_ret_1h_bps,
-btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps` — ход **к началу** минуты (закрытия предыдущих минут, без
+btc_ret_4h_bps,eth_ret_1h_bps,eth_ret_4h_bps,btc_ret_2h_bps,btc_ret_3h_bps` (два последних — E26) — ход **к началу** минуты (закрытия предыдущих минут, без
 заглядывания внутрь минуты касания) (пусто — нет данных: у пула первые T минут суток без
 `ret_T` — ряды суточные; у BTC/ETH предыдущие сутки есть) и обновляет `study/regime/days.csv`
 (`day_utc,pool_day_ret_pct,pool_coins,pool_up,btc_day_ret_pct,eth_day_ret_pct` — дневная строка:
@@ -23,6 +23,8 @@ import sys
 
 MINUTE_MS = 60_000
 WINDOWS = {"1h": 60, "4h": 240}
+# E26: промежуточные окна битка — отдельные колонки в конце строки (прежние колонки и их порядок не тронуты).
+BTC_MID = {"2h": 120, "3h": 180}
 
 
 def load_minutes(path, key="mid2x"):
@@ -75,7 +77,8 @@ def main():
     with open(out_path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["minute_ms", "pool_ret_1h_bps", "pool_ret_4h_bps", "n_coins",
-                    "btc_ret_1h_bps", "btc_ret_4h_bps", "eth_ret_1h_bps", "eth_ret_4h_bps"])
+                    "btc_ret_1h_bps", "btc_ret_4h_bps", "eth_ret_1h_bps", "eth_ret_4h_bps",
+                    "btc_ret_2h_bps", "btc_ret_3h_bps"])
         minute = day_start
         while minute <= last:
             row = [minute]
@@ -89,6 +92,8 @@ def main():
             for sym in ("BTCUSDT", "ETHUSDT"):
                 for back in WINDOWS.values():
                     row.append(fmt(ret_bps(refs[sym], minute, back)))
+            for back in BTC_MID.values():
+                row.append(fmt(ret_bps(refs["BTCUSDT"], minute, back)))
             w.writerow(row)
             n_rows += 1
             minute += MINUTE_MS

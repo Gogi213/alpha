@@ -35,9 +35,12 @@ _lib_spec.loader.exec_module(_lib)
 AXES = {
     "btc4h": "btc_ret_4h_bps",
     "btc1h": "btc_ret_1h_bps",
+    "btc3h": "btc_ret_3h_bps",  # E26: промежуточные окна битка
+    "btc2h": "btc_ret_2h_bps",
     "pool4h": "pool_ret_4h_bps",
     "pool1h": "pool_ret_1h_bps",
 }
+OPTIONAL_AXES = ("btc3h", "btc2h")
 SIDES = ["bid", "ask"]
 AGE_MIN = [15, 30, 45, 60, 90, 120]
 BASE_AGE_SECS = 2700
@@ -101,6 +104,11 @@ def main():
     a = ap.parse_args()
 
     days, vals = axis_values(a.regime, a.day_from, a.day_to)
+    # Файлы режима до E26 без колонок btc_ret_2h/3h: такие оси пропускаются, прежние наборы — как были.
+    for axis in OPTIONAL_AXES:
+        if not vals[axis]:
+            print(f"{axis}: в режиме нет колонки {AXES[axis]} (regime.py до E26) — ось пропущена", file=sys.stderr)
+            del vals[axis]
     edges_by_axis = {axis: quantile_edges(v) for axis, v in vals.items()}
     with open(a.out, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
