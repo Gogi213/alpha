@@ -1832,6 +1832,7 @@ fn forms_row_puts_every_counter_into_its_own_column() {
         0.5,
         None,
         false,
+        true,
     );
     assert_eq!(
         row.len(),
@@ -1854,6 +1855,37 @@ fn forms_row_puts_every_counter_into_its_own_column() {
     assert_eq!(at("form"), "pct2-1to1-60-eat50");
     assert_eq!(at("n_carried"), "0", "без --carry-root переноса нет");
     assert_eq!(at("carry_unverified"), "false");
+}
+
+/// R6: без `--carry-root` (`with_carry=false`) строка/шапка `forms.csv` —
+/// прежние 33 колонки, `n_carried`/`carry_unverified` не пишутся вовсе (не
+/// «0»/«false» в лишней колонке) — иначе гейт «те же байты» (`gate-g10.sh`,
+/// md5 `forms.csv`) видит расхождение без единого включённого флага.
+#[test]
+fn forms_row_omits_carry_columns_without_the_flag() {
+    let run = run_with_exit_counters(0, 0, 0, 0);
+    let row = forms_row(
+        "SOLUSDT",
+        "2026-09-08",
+        "pct2-1to1-60-eat50",
+        &[],
+        &run,
+        0,
+        0.5,
+        None,
+        false,
+        false,
+    );
+    assert_eq!(
+        row.len(),
+        FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN,
+        "без --carry-root — 33 колонки, не 35"
+    );
+    assert_eq!(
+        row.last().map(String::as_str),
+        Some("0"),
+        "последняя колонка — n_orphan_fills, не carry_unverified"
+    );
 }
 
 /// Перенос круга через полночь (`--carry-root`): `n_carried` считает круги,
@@ -1907,6 +1939,7 @@ fn forms_row_counts_carried_rounds_by_exit_time_past_the_midnight_boundary() {
         0,
         1.0,
         Some(100),
+        true,
         true,
     );
     let at = |name: &str| -> &str {
@@ -2138,8 +2171,17 @@ fn without_carry_root_a_round_still_open_at_day_end_stays_incomplete() {
         "true",
         "без --carry-root круг не дочитан к концу данных суток D"
     );
-    assert_eq!(col(&fh, &forms[0], "n_carried"), "0", "переноса не было");
-    assert_eq!(col(&fh, &forms[0], "carry_unverified"), "false");
+    // R6: без --carry-root колонок переноса нет вовсе — шапка прежняя, 33
+    // колонки (гейт «те же байты», `gate-g10.sh`).
+    assert_eq!(
+        fh.len(),
+        FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN,
+        "без --carry-root шапка прежняя, 33 колонки"
+    );
+    assert!(
+        !fh.iter().any(|h| h == "n_carried" || h == "carry_unverified"),
+        "колонок переноса без флага нет: {fh:?}"
+    );
     let (_, rounds) = read_csv(&m.rounds_path);
     assert!(rounds.is_empty(), "круг без выхода не идёт в rounds.csv");
 }
@@ -2188,6 +2230,11 @@ fn carry_root_finishes_a_round_still_open_at_midnight() {
     let m = run_bounce_grid(&a).unwrap();
     let (fh, forms) = read_csv(&m.forms_path);
     assert_eq!(forms.len(), 1, "одна форма сетки");
+    assert_eq!(
+        fh.len(),
+        FORMS_HEADER.len(),
+        "с --carry-root шапка полная, 35 колонок"
+    );
     assert_eq!(
         col(&fh, &forms[0], "incomplete"),
         "false",

@@ -866,7 +866,10 @@ pub struct BounceGridArgs {
     /// только его собственные касания; довесок несёт лишь события книги/сделок, дочитывающие уже
     /// открытые круги. Части D+1 не требуют маркера сверки (K1 здесь не про новые сигналы), но
     /// `forms.csv` отмечает их отсутствие (`carry_unverified`). Нет частей D+1 (последние сутки
-    /// записи) — поведение прежнее (`incomplete`). Без флага — байт в байт прежний вывод.
+    /// записи) — поведение прежнее (`incomplete`). Без флага — байт в байт прежний вывод: колонки
+    /// `n_carried`/`carry_unverified` в шапке `forms.csv` не пишутся вовсе (33, не 35), не только
+    /// печатаются нулями (R6, ревью 23.09 — до исправления `e5c8847` их писал безусловно, гейт
+    /// «те же байты», `gate-g10.sh`, был сломан для всех, кто флаг не передавал).
     #[arg(long)]
     pub carry_root: Option<PathBuf>,
 }
@@ -1395,6 +1398,12 @@ const ROUNDS_HEADER: [&str; 16] = [
     "legs_rejected",
 ];
 
+// R6 (ревью 23.09): `n_carried`/`carry_unverified` — колонки переноса через
+// полночь (`--carry-root`, e5c8847). Без флага гейт «те же байты» ловит их
+// как расхождение — держим их последними `FORMS_HEADER_CARRY_LEN` полями и
+// без флага пишем срез `FORMS_HEADER[..FORMS_HEADER.len() -
+// FORMS_HEADER_CARRY_LEN]` (33 колонки, прежняя шапка).
+const FORMS_HEADER_CARRY_LEN: usize = 2;
 const FORMS_HEADER: [&str; 35] = [
     "symbol",
     "day_utc",
@@ -1980,6 +1989,8 @@ struct Outputs {
     forms: csv::Writer<std::fs::File>,
     rounds_path: PathBuf,
     forms_path: PathBuf,
+    // R6: колонки переноса через полночь в `forms.csv` — только с `--carry-root`.
+    with_carry: bool,
 }
 
 /// Сигналы формы по часам UTC суток, `h0:h1:…:h23` (В-60): вердикт по одним
@@ -2013,8 +2024,13 @@ fn forms_row(
     mean_fill_frac: f64,
     carry_boundary_ns: Option<i64>,
     carry_unverified: bool,
+    // R6: столбцы переноса — только когда прогон вызван с `--carry-root`
+    // (без флага `carry_boundary_ns`/`carry_unverified` всё равно приходят
+    // `None`/`false`, но это про значение, а не про присутствие колонки —
+    // гейт «те же байты» смотрит на шапку).
+    with_carry: bool,
 ) -> Vec<String> {
-    vec![
+    let mut row = vec![
         symbol.to_string(),
         day.to_string(),
         form_label.to_string(),
@@ -2061,10 +2077,12 @@ fn forms_row(
         format!("{mean_fill_frac:.6}"),
         // F8c (К1): исполнения заявок-сирот.
         run.orphan_fills.to_string(),
+    ];
+    if with_carry {
         // Перенос круга через полночь (`--carry-root`): кругов, чей выход
         // случился уже на данных D+1 (`exit_ns ≥` граница полуночи), и флаг
         // «части довеска без сверки» — в конце, прежние колонки не сдвинуты.
-        match carry_boundary_ns {
+        row.push(match carry_boundary_ns {
             Some(boundary) => run
                 .fill_exit_ns
                 .iter()
@@ -2072,9 +2090,10 @@ fn forms_row(
                 .count()
                 .to_string(),
             None => "0".to_string(),
-        },
-        carry_unverified.to_string(),
-    ]
+        });
+        row.push(carry_unverified.to_string());
+    }
+    row
 }
 
 /// Сумма `net_bps` кругов формы — та же арифметика `roundtrip_net_bps`, что у
@@ -2092,7 +2111,7 @@ fn sum_net_bps(run: &BounceRun) -> f64 {
 }
 
 impl Outputs {
-    fn create(out_dir: &Path, header: &str) -> anyhow::Result<Self> {
+    fn create(out_dir: &Path, header: &str, with_carry: bool) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
         let forms_path = out_dir.join("forms.csv");
@@ -2103,12 +2122,20 @@ impl Outputs {
         let mut rounds = csv::WriterBuilder::new().has_headers(false).from_writer(rf);
         rounds.write_record(ROUNDS_HEADER)?;
         let mut forms = csv::WriterBuilder::new().has_headers(false).from_writer(ff);
-        forms.write_record(FORMS_HEADER)?;
+        // R6: без `--carry-root` шапка — прежние 33 колонки (гейт «те же
+        // байты»); с флагом — все 35, включая `n_carried`/`carry_unverified`.
+        let forms_header = if with_carry {
+            &FORMS_HEADER[..]
+        } else {
+            &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
+        };
+        forms.write_record(forms_header)?;
         Ok(Self {
             rounds,
             forms,
             rounds_path,
             forms_path,
+            with_carry,
         })
     }
 
@@ -2186,6 +2213,7 @@ impl Outputs {
             mean_fill_frac,
             carry_boundary_ns,
             carry_unverified,
+            self.with_carry,
         ))?;
         // Инвариант вердикта по часам (В-60): кругов в часе не больше сигналов.
         debug_assert!({
@@ -2563,7 +2591,7 @@ fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Result<Vec<Ou
             args.out_dir.join(&set.name)
         };
         let header = header_for(set);
-        outs.push(Outputs::create(&dir, &header)?);
+        outs.push(Outputs::create(&dir, &header, args.carry_root.is_some())?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
         writeln!(m, "symbols={}", symbols.join(","))?;
