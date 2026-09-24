@@ -82,6 +82,24 @@ def test_klines_last_close_fallback_and_coverage(tmp_path):
     assert k.last_close("AAAUSDT", 3 * MIN_MS) == pytest.approx(1.3)
     assert k.last_close("AAAUSDT", -MIN_MS) is None  # раньше первой свечи — не знаем
     assert k.last_close("NOPEUSDT", MIN_MS) is None
+    # не старше входа: свеча минуты 1 для входа на минуте 2 — годится, для входа на минуте 3 — нет
+    assert k.last_close("AAAUSDT", 2 * MIN_MS, since_ms=MIN_MS) == pytest.approx(1.1)
+    assert k.last_close("AAAUSDT", 2 * MIN_MS, since_ms=2 * MIN_MS) is None
+
+
+def test_minute_curve_ignores_candles_older_than_the_entry(tmp_path):
+    """24.09: свечи монеты только из чужой эпохи (год назад, цена 2.0), сделка — сейчас по 1.0 с
+    убытком $5. Переоценка не имеет права взять годичную свечу («последняя известная»): иначе
+    мнимые +$1000 поднимают пик капитала, и закрытие даёт ложную просадку ~$1005 вместо $5."""
+    m = load()
+    kdir = tmp_path / "klines"
+    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[0, 2.0]])
+    k = m.Klines([str(kdir)])
+    t0 = 1000 * MIN_MS * 1_000_000
+    trade = {"t0": t0, "t1": t0 + 10 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "pnl": -5.0, "usd": 1000.0,
+             "fill": 1.0, "reason": "stop", "dir": 1, "entry": 1.00, "fee": 0.0}
+    mm = m.minute_curve([trade], k, 1000.0, -5.0)
+    assert mm["dd_usd"] == pytest.approx(5.0)
 
 
 # ---------- minute_curve против closed_drawdown: просадка внутри хода видна только в минутной ----------

@@ -116,15 +116,20 @@ class Klines:
         не считается, только по закрытиям (n_no_klines)."""
         return bool(self._load(sym))
 
-    def last_close(self, sym, minute_ms):
+    def last_close(self, sym, minute_ms, since_ms=None):
         """Цена на эту минуту, а если свечи на неё нет — последняя известная не позже неё (None —
-        свечей вообще не было до этой минуты)."""
+        свечей вообще не было до этой минуты). `since_ms` — не брать свечу старше этой минуты (вход
+        сделки): 24.09 у RAYDIUMUSDT свечей за сентябрь 2026 не было, и «последней известной» стала
+        свеча обвала октября 2025 из соседнего каталога — $1,87 при входе $0,84, мнимые +$460 на
+        позиции и ложная просадка счёта −15,8 % вместо −2 %. Старше входа — не знаем (None)."""
         d = self._load(sym)
         if minute_ms in d:
             return d[minute_ms]
         ks = self.keys[sym]
         i = bisect.bisect_right(ks, minute_ms) - 1
-        return d[ks[i]] if i >= 0 else None
+        if i < 0 or (since_ms is not None and ks[i] < since_ms):
+            return None
+        return d[ks[i]]
 
 
 def day_of(t_ns):
@@ -161,11 +166,13 @@ def minute_curve(taken, klines, deposit, total):
     завышения просадки (см. test_minute_curve_groups_same_minute_events_before_drawdown)."""
     no_kline_syms = {x["sym"] for x in taken if not klines.covered(x["sym"])}
     events = []  # (t_ns, kind, idx, minute_ms) kind 0=переоценка (раньше при равенстве), 1=закрытие
+    entry_min = {}
     for idx, x in enumerate(taken):
         events.append((x["t1"], 1, idx, None))
         if x["sym"] in no_kline_syms:
             continue
         m = (x["t0"] // 1_000_000 // MIN_MS) * MIN_MS
+        entry_min[idx] = m
         tc = (m + MIN_MS) * 1_000_000
         while tc < x["t1"]:
             events.append((tc, 0, idx, m))
@@ -184,7 +191,9 @@ def minute_curve(taken, klines, deposit, total):
         for _, kind, idx, m in group:
             x = taken[idx]
             if kind == 0:
-                px = klines.last_close(x["sym"], m)
+                # Свеча не старше минуты входа: «последняя известная» из чужой эпохи (другой
+                # каталог свечей — год назад) давала мнимую переоценку (24.09, RAYDIUMUSDT).
+                px = klines.last_close(x["sym"], m, since_ms=entry_min.get(idx))
                 if px is None:
                     px = x["entry"]
                 net_bps = (px / x["entry"] - 1) * 1e4 * x["dir"] - x["fee"]
