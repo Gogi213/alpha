@@ -1010,6 +1010,111 @@ impl StrategyState {
         }
     }
 
+    /// Стена на цене уровня на этом событии (E5/E7, F7) — заодно ведёт максимум её размера с
+    /// входа, базу съедания. Без валидного тика/цены размера уровня не существует: `qty` = 0, но
+    /// **ни** «ноль на уровне», ни «стена снята» из этого не следуют (`ok`) — иначе вырождённый
+    /// план с `tick_px = 0` читался бы как полностью съеденная стена.
+    fn observe_wall<MD: MarketDepth>(
+        &mut self,
+        depth: &MD,
+        entry_side: HbtSide,
+        level_px: f64,
+        tick_px: f64,
+    ) -> WallNow {
+        if !(tick_px > 0.0 && level_px > 0.0) {
+            return WallNow {
+                ok: false,
+                qty: 0.0,
+                eaten_pct: 0.0,
+            };
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let level_tick = (level_px / tick_px).round() as i64;
+        let qty = match entry_side {
+            HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
+            _ => depth.ask_qty_at_tick(level_tick),
+        };
+        if qty > self.level_qty_max {
+            self.level_qty_max = qty;
+        }
+        let eaten_pct = if self.level_qty_max > 0.0 {
+            (1.0 - qty / self.level_qty_max) * 100.0
+        } else {
+            0.0
+        };
+        WallNow {
+            ok: true,
+            qty,
+            eaten_pct,
+        }
+    }
+
+    /// Защита по снятию стены: F7 `gone<W>` и её продолжения (владелец 23.09) — трейл после
+    /// снятия `tr<T>` и безубыток `be`/`bex`. Снятие — защёлка: вернувшаяся стена ни трейл, ни
+    /// безубыток не выключает. `entry_px`/`stop_px` — уже сдвинутые к средней исполненного входа.
+    fn observe_gone(
+        &mut self,
+        form: GoneForm,
+        wall: WallNow,
+        favourable: f64,
+        entry_side: HbtSide,
+        entry_px: f64,
+        stop_px: f64,
+    ) -> GoneGuard {
+        // «Сняли» (F7, Б-75): стена упала ниже (1 − W %) от размера на входе, и сделками съедено
+        // меньше половины падения. Размер уровня читается только при валидном тике: иначе «ноль
+        // на уровне» — это отсутствие данных, а не снятая стена.
+        let hit = form.pct > 0.0
+            && self.level_qty_at_entry > 0.0
+            && wall.ok
+            && wall.qty < self.level_qty_at_entry * (1.0 - form.pct / 100.0)
+            && self.eaten_qty < (self.level_qty_at_entry - wall.qty) * 0.5;
+        // Трейл после снятия: снятие взводит трейл ценой этого события (дальше пик ведётся и без
+        // стены), выход — откат от пика после снятия. Откат знаковый (R1, см. `decide_exit`).
+        let trail = form.trail_bps > 0.0;
+        if trail && (hit || self.gone_peak > 0.0) {
+            self.observe_gone_peak(favourable);
+        }
+        let trail_hit = trail
+            && self.gone_peak > 0.0
+            && entry_px > 0.0
+            && f64::from(self.sigma) * (self.gone_peak - favourable) / entry_px * 10_000.0
+                >= form.trail_bps;
+        // Безубыток после снятия: стоп переносится в цену, при которой круг закрывается в ноль с
+        // комиссиями (вход мейкером, выход тейкером), как только позиция у неё или лучше. Жёсткий
+        // режим закрывает позицию хуже безубытка сразу.
+        if form.be > 0 && hit {
+            self.gone_seen = true;
+        }
+        let be_px = match entry_side {
+            HbtSide::Buy => entry_px * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
+            _ => entry_px * (1.0 - crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
+        };
+        if self.gone_seen && !self.be_active && entry_px > 0.0 {
+            let at_be = match entry_side {
+                HbtSide::Buy => favourable >= be_px,
+                _ => favourable <= be_px,
+            };
+            if at_be {
+                self.be_active = true;
+            }
+        }
+        let stop_px = if self.be_active {
+            match entry_side {
+                HbtSide::Buy => stop_px.max(be_px),
+                _ => stop_px.min(be_px),
+            }
+        } else {
+            stop_px
+        };
+        GoneGuard {
+            exit: hit && !trail && form.be == 0,
+            trail_hit,
+            be_hard_exit: form.be == 2 && self.gone_seen && !self.be_active,
+            stop_px,
+        }
+    }
+
     /// Лучший исход с момента снятия стены — для трейла после снятия: первый вызов взводит
     /// трейл ценой снятия, дальше вызывается на каждом событии, пока позиция открыта.
     fn observe_gone_peak(&mut self, price: f64) {
@@ -1221,6 +1326,58 @@ struct ExitDecision {
     frac: f64,
 }
 
+/// Где исполнить выход. `Market` — по лучшей цене встречной стороны на этом событии
+/// (`exit_price`), тейкером; книги нет — выхода нет, круг ждёт следующего события.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ExitAt {
+    Market,
+    /// Тейкером по известной цене: стоп — его уровень, трейл — цена «в пользу» на событии.
+    Taker(f64),
+    /// Лимитом (мейкер): тейк, горизонт Decision 20.
+    Maker(f64),
+}
+
+/// Стена на цене уровня на этом событии (`StrategyState::observe_wall`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WallNow {
+    /// Уровень валиден (есть тик и цена) — без этого размера уровня нет.
+    ok: bool,
+    /// Размер на цене уровня; `0.0`, если уровень не валиден.
+    qty: f64,
+    /// Съедание от максимума с входа, %; `0.0`, если уровня или максимума нет.
+    eaten_pct: f64,
+}
+
+/// Форма защиты по снятию стены — поля плана `exit_gone_pct`, `gone_trail_bps`, `gone_be`
+/// (в сетке `gone<W>[tr<T>|be|bex]`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GoneForm {
+    pct: f64,
+    trail_bps: f64,
+    be: u8,
+}
+
+/// Что решила защита по снятию на этом событии (`StrategyState::observe_gone`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GoneGuard {
+    /// `gone<W>` без продолжений: стену сняли — выход по рынку сейчас.
+    exit: bool,
+    /// `gone<W>tr<T>`: откат от лучшей цены после снятия дошёл до `T`.
+    trail_hit: bool,
+    /// `gone<W>bex`: снятие застало позицию хуже безубытка — выход по рынку сразу.
+    be_hard_exit: bool,
+    /// Стоп с учётом безубытка (`be`/`bex`); без него — стоп плана.
+    stop_px: f64,
+}
+
+/// Лучшие цены и сторона входа — то, от чего решается выход.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Quotes {
+    bid: f64,
+    ask: f64,
+    entry_side: HbtSide,
+}
+
 /// Что решает выход: у плана Decision 20 — только горизонт; у сделки-отскока
 /// (В-44) — стоп, съедание, трейл, тейк, дедлайн, и **порядок здесь часть
 /// плана**: стоп приоритетнее тейка (если цена проскочила оба уровня за
@@ -1234,15 +1391,10 @@ struct ExitDecision {
 /// Decision 20) не рассматриваются — вторая лимитка на тот же остаток не
 /// нужна, — а рыночные (стоп, съедание, трейл, прилипание, дедлайн) решают,
 /// снимать ли её и добивать остаток тейкером.
-/// Лучшие цены и сторона входа — то, от чего решается выход.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Quotes {
-    bid: f64,
-    ask: f64,
-    entry_side: HbtSide,
-}
-
-#[allow(clippy::too_many_lines)]
+///
+/// Здесь — сбор сработавшего и порядок; у двух механизмов со своими защёлками
+/// своё место: стена на уровне — `StrategyState::observe_wall`, защита по
+/// снятию — `StrategyState::observe_gone`.
 fn decide_exit<MD, B>(
     bot: &B,
     state: &mut StrategyState,
@@ -1260,13 +1412,13 @@ where
         ask,
         entry_side,
     } = quotes;
-    let (px, taker, reason, frac) = match state.plan {
+    let (at, reason, frac) = match state.plan {
         TradePlan::SpreadHold => {
             if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {
                 return None;
             }
             let px = exit_price(entry_side, bid, ask)?;
-            (px, false, ExitReason::Horizon, 1.0)
+            (ExitAt::Maker(px), ExitReason::Horizon, 1.0)
         }
         TradePlan::Bounce {
             entry_px,
@@ -1307,48 +1459,8 @@ where
                 _ => ask,
             };
             state.observe_favourable(favourable);
-            // Знак сделки (R1): тот же множитель, что развёл
-            // `observe_favourable`/`observe_gone_peak` по сторонам (`+1`
-            // лонг, `-1` шорт) — трейл и трейл после снятия считают
-            // прибыль/откат от неё им, а не модулем (см. `gain_bps` и
-            // `gone_trail_hit` ниже: `.abs()` над разностью цен превращал
-            // просадку в «прибыль» — лонг, чья лучшая цена после входа всё
-            // время ниже входа, взводил трейл и закрывался в минус с
-            // причиной `Trail`).
-            let sigma_sign = f64::from(state.sigma);
-            // Текущий размер стены на уровне — база и для съедания E7, и для
-            // F7 `gone<W>`. Без валидного тика/цены размера уровня не
-            // существует: `now_qty` = 0, но **ни** «ноль на уровне», ни
-            // «стена снята» из этого не следуют (`level_ok`) — иначе вырождённый
-            // план с `tick_px = 0` читался бы как полностью съеденная стена.
-            let level_ok = tick_px > 0.0 && level_px > 0.0;
-            #[allow(clippy::cast_possible_truncation)]
-            let level_tick = if level_ok {
-                (level_px / tick_px).round() as i64
-            } else {
-                0
-            };
-            let depth = bot.depth(state.asset_no);
-            let now_qty = if level_ok {
-                match entry_side {
-                    HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
-                    _ => depth.ask_qty_at_tick(level_tick),
-                }
-            } else {
-                0.0
-            };
-            if level_ok && now_qty > state.level_qty_max {
-                state.level_qty_max = now_qty;
-            }
-            // Съедание плотности (E5/E7): остаток на цене уровня
-            // против максимума с входа, в процентах. Без валидного уровня
-            // процента нет (`level_ok`) — как было до F7.
-            let eaten_pct = if level_ok && state.level_qty_max > 0.0 {
-                (1.0 - now_qty / state.level_qty_max) * 100.0
-            } else {
-                0.0
-            };
-            // F7 (Б-75): проверка форм выхода «съели» / «сняли». Накопленное
+            let wall = state.observe_wall(bot.depth(state.asset_no), entry_side, level_px, tick_px);
+            // F7 (Б-75): формы выхода «съели» / «сняли». Накопленное
             // исполнение **в стену** (`state.eaten_qty`) зачитывает драйвер
             // (`run_round::observe_wall_trades`): буфер последних сделок
             // (`bot.last_trades`) живёт под управлением драйвера и чистится на
@@ -1358,57 +1470,30 @@ where
             let eat_hit = exit_eat_pct > 0.0
                 && state.level_qty_at_entry > 0.0
                 && state.eaten_qty >= state.level_qty_at_entry * exit_eat_pct / 100.0;
-            let gone_hit = exit_gone_pct > 0.0
-                && state.level_qty_at_entry > 0.0
-                // Размер уровня читается только при валидном тике: иначе «ноль
-                // на уровне» — это отсутствие данных, а не снятая стена.
-                && level_ok
-                && now_qty < state.level_qty_at_entry * (1.0 - exit_gone_pct / 100.0)
-                && state.eaten_qty < (state.level_qty_at_entry - now_qty) * 0.5;
-            // Трейл после снятия (владелец 23.09): снятие взводит трейл ценой этого события
-            // (защёлка — дальше пик ведётся и без стены), выход — откат от пика после снятия.
-            let gone_trail = gone_trail_bps > 0.0;
-            if gone_trail && (gone_hit || state.gone_peak > 0.0) {
-                state.observe_gone_peak(favourable);
-            }
-            let gone_trail_hit = gone_trail
-                && state.gone_peak > 0.0
-                && entry_px > 0.0
-                && sigma_sign * (state.gone_peak - favourable) / entry_px * 10_000.0
-                    >= gone_trail_bps;
-            // Безубыток после снятия (владелец 23.09): снятие взводит защёлку; стоп переносится в
-            // цену, при которой круг закрывается в ноль с комиссиями (вход мейкером, выход тейкером),
-            // как только позиция у неё или лучше. Жёсткий режим закрывает позицию хуже безубытка сразу.
-            if gone_be > 0 && gone_hit {
-                state.gone_seen = true;
-            }
-            let be_px = match entry_side {
-                HbtSide::Buy => entry_px * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
-                _ => entry_px * (1.0 - crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
-            };
-            if state.gone_seen && !state.be_active && entry_px > 0.0 {
-                let at_be = match entry_side {
-                    HbtSide::Buy => favourable >= be_px,
-                    _ => favourable <= be_px,
-                };
-                if at_be {
-                    state.be_active = true;
-                }
-            }
-            let be_hard_exit = gone_be == 2 && state.gone_seen && !state.be_active;
-            let stop_eff = if state.be_active {
-                match entry_side {
-                    HbtSide::Buy => stop_px.max(be_px),
-                    _ => stop_px.min(be_px),
-                }
-            } else {
-                stop_px
-            };
+            let gone = state.observe_gone(
+                GoneForm {
+                    pct: exit_gone_pct,
+                    trail_bps: gone_trail_bps,
+                    be: gone_be,
+                },
+                wall,
+                favourable,
+                entry_side,
+                entry_px,
+                stop_px,
+            );
             let (stop_hit, take_hit) = match entry_side {
-                HbtSide::Buy => (bid <= stop_eff, bid >= take_px),
-                _ => (ask >= stop_eff, ask <= take_px),
+                HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
+                _ => (ask >= gone.stop_px, ask <= take_px),
             };
-            // R1: прибыль и откат — знаковые по `sigma_sign` (см. выше), не по модулю.
+            // Знак сделки (R1): тот же множитель, что развёл
+            // `observe_favourable`/`observe_gone_peak` по сторонам (`+1`
+            // лонг, `-1` шорт) — трейл и трейл после снятия считают
+            // прибыль/откат от неё им, а не модулем: `.abs()` над разностью
+            // цен превращал просадку в «прибыль» — лонг, чья лучшая цена после
+            // входа всё время ниже входа, взводил трейл и закрывался в минус с
+            // причиной `Trail`.
+            let sigma_sign = f64::from(state.sigma);
             let trail_hit = if trail_bps > 0.0 && entry_px > 0.0 {
                 let gain_bps =
                     sigma_sign * (state.best_favourable - entry_px) / entry_px * 10_000.0;
@@ -1423,55 +1508,36 @@ where
             // съедания (E7 «остаток по замедлению»).
             let take_partial = take_frac > 0.0 && take_frac < 1.0;
             let take_active = !(take_partial && state.partial_done);
-            let eaten_all_hit = eaten_all_pct > 0.0 && eaten_pct >= eaten_all_pct;
+            let eaten_all_hit = eaten_all_pct > 0.0 && wall.eaten_pct >= eaten_all_pct;
             let eaten_half_hit =
-                eaten_half_pct > 0.0 && !state.partial_done && eaten_pct >= eaten_half_pct;
+                eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
             if stop_hit {
                 // Сработал перенесённый в безубыток стоп — это защита по снятию («сняли»), а не стоп.
-                let reason = if stop_eff != stop_px {
+                let reason = if gone.stop_px != stop_px {
                     ExitReason::WallGone
                 } else {
                     ExitReason::Stop
                 };
-                (stop_eff, true, reason, 1.0)
-            } else if be_hard_exit {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::WallGone, 1.0),
-                    None => return None,
-                }
+                (ExitAt::Taker(gone.stop_px), reason, 1.0)
+            } else if gone.be_hard_exit {
+                (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if eaten_all_hit {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::Eaten, 1.0),
-                    None => return None,
-                }
+                (ExitAt::Market, ExitReason::Eaten, 1.0)
             } else if trail_hit {
-                (favourable, true, ExitReason::Trail, 1.0)
+                (ExitAt::Taker(favourable), ExitReason::Trail, 1.0)
             } else if maker_allowed && trail_bps <= 0.0 && take_hit && take_active {
-                (
-                    take_px,
-                    false,
-                    ExitReason::Take,
-                    if take_partial { take_frac } else { 1.0 },
-                )
+                let frac = if take_partial { take_frac } else { 1.0 };
+                (ExitAt::Maker(take_px), ExitReason::Take, frac)
             } else if eaten_half_hit {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::Eaten, eaten_half_frac),
-                    None => return None,
-                }
+                (ExitAt::Market, ExitReason::Eaten, eaten_half_frac)
             } else if eat_hit {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::EatenByTrades, 1.0),
-                    None => return None,
-                }
-            } else if gone_hit && !gone_trail && gone_be == 0 {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::WallGone, 1.0),
-                    None => return None,
-                }
-            } else if gone_trail_hit {
+                (ExitAt::Market, ExitReason::EatenByTrades, 1.0)
+            } else if gone.exit {
+                (ExitAt::Market, ExitReason::WallGone, 1.0)
+            } else if gone.trail_hit {
                 // Выход трейла после снятия — та же причина «сняли»: колонки `forms.csv`
                 // не меняются, а форма (`gone<W>tr<T>`) говорит, как именно вышли.
-                (favourable, true, ExitReason::WallGone, 1.0)
+                (ExitAt::Taker(favourable), ExitReason::WallGone, 1.0)
             } else if early_exit_ns > 0
                 && now.saturating_sub(entry_ns) >= early_exit_ns
                 && still_at_level(entry_side, bid, ask, level_px, tick_px)
@@ -1482,19 +1548,18 @@ where
                 // стоп и трейл (если сработали) честнее, тейк-лимит
                 // тоже — он дал бы мейкерскую цену, а здесь выход по
                 // рынку.
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::Early, 1.0),
-                    None => return None,
-                }
+                (ExitAt::Market, ExitReason::Early, 1.0)
             } else if now.saturating_sub(entry_ns) >= deadline_ns {
-                match exit_price(entry_side, bid, ask) {
-                    Some(px) => (px, true, ExitReason::Deadline, 1.0),
-                    None => return None,
-                }
+                (ExitAt::Market, ExitReason::Deadline, 1.0)
             } else {
                 return None;
             }
         }
+    };
+    let (px, taker) = match at {
+        ExitAt::Market => (exit_price(entry_side, bid, ask)?, true),
+        ExitAt::Taker(px) => (px, true),
+        ExitAt::Maker(px) => (px, false),
     };
     Some(ExitDecision {
         px,
