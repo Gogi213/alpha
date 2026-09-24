@@ -16,10 +16,10 @@ B: Bot<MD>>` идёт и в `Backtest`, и в `LiveBot` крейта `hftbacktes
 - **`.memory/index.md`** — состояние и передача (общая память исполнителей, протокол `.memory/MEMORY.md`) — третьим
 - `docs/plan/EXPERIMENTS.md` — реестр экспериментов E01–E23, M01–M21: `prereg` без строки здесь не зарегистрирован,
   вердикт без результата здесь не прочитан
-- `docs/plan/SETTLED.md` — решения владельца В-1…В-94; `docs/plan/BUSINESS-TASK.md` — задача владельца, **не редактировать**
+- `docs/plan/SETTLED.md` — решения владельца В-1…В-95; `docs/plan/BUSINESS-TASK.md` — задача владельца, **не редактировать**
 - `docs/findings/` — разборы; главные сейчас: `titration-regime-2026-09-23.md` (режим, E18), `exit-titration-2026-09-23.md`
   (выход E19, §5 защита после снятия E20, §6 безубыток E21), `design-audit-2026-09-22.md`, `audit-fixes-2026-09-22.md`
-- Дашборд «Лонг в просадке»: https://claude.ai/artifact/WfSGAfj2hhkRTckAnKXSRF (кандидат, 7 кейсов, по монетам; сборка —
+- Дашборд «Лонг в просадке»: https://claude.ai/artifact/WfSGAfj2hhkRTckAnKXSRF (кандидат на $500, счёт $2500, по монетам; кейсы — после пересчёта; сборка —
   `tools/compute/titration-dashboard-data.py` на деке → `titration-dashboard-build.py` + `titration-dashboard.html`)
 - `docs/ARCHITECTURE.md` (A1–A9, обязательны), `docs/COMMANDS.md` (команды, грабли, ранбуки деки/VPS/коллектора)
 - История: `docs/archive/claude-md-history-2026-09-23.md` (прежнее состояние и справка этого файла); планы этапа F
@@ -121,7 +121,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 1001 passed, 0 failed, 7 ignored (2026-09-24, после слияния волны 2; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 1002 passed, 0 failed, 7 ignored (2026-09-24, после слияния волны 2 и ревью; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 26 подкоманд (lob export удалён 24.09), таблица — docs/COMMANDS.md

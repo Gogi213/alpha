@@ -826,7 +826,7 @@ details ul { margin: 8px 0 0; padding-left: 20px; color: var(--ink-2); display: 
   const dstopLabel = d => d ? "−" + String(d).replace(".", ",") + " %" : "нет";
   const rfLabel = g => g.rf == null ? "—" : g.rf.toFixed(1).replace(".", ",");
   const recLabel = g => g.rec_days.toFixed(1).replace(".", ",") + (g.unrecovered ? "+" : "");
-  const EPOCH_LABEL = {"история": "История " + EP_HIST, "запись": "Запись " + EP_REC, "сентябрь": "Сентябрь " + EP_ALL.replace(/\.09$/, "") + " подряд", "обвал": "Обвал 10–11.10.2025"};
+  const EPOCH_LABEL = {"история": "История " + EP_HIST, "запись": "Запись " + EP_REC, "сентябрь": (/^\d\d–\d\d\.09$/.test(EP_ALL) ? "Сентябрь " + EP_ALL.replace(/\.09$/, "") : "Подряд " + EP_ALL) + (/^\d\d–\d\d\.09$/.test(EP_ALL) ? " подряд" : ""), "обвал": "Обвал 10–11.10.2025"};
   function protToggle(id, label, values, fmt, field) {
     const tg = document.getElementById(id);
     tg.innerHTML = "<span>" + label + ":</span>";
