@@ -192,7 +192,7 @@ pub fn is_binlog_file_name(name: &str) -> bool {
 /// чтобы обоим слоям было можно — `lob` не имеет пути до `commands` (граница модулей,
 /// `ARCHITECTURE.md`). `None` — не разобралось как `YYYY-MM-DD` целиком (включая календарно
 /// невозможные дни вроде 30 февраля); вызывающий сам решает, какой ошибкой это обернуть.
-/// `bounce_grid.rs` — намеренно отдельная копия (другая дорожка правок).
+/// `bounce_grid/carry.rs` — намеренно отдельная копия (другая дорожка правок).
 pub fn parse_calendar_day(day: &str) -> Option<chrono::NaiveDate> {
     chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()
 }
