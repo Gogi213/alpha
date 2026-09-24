@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::binlog::{Reader, Record};
+use crate::binlog::{parse_calendar_day, Reader, Record};
 use crate::book::{Book, Side};
 use crate::bybit::verify::{is_trade_ev, FileReplayer};
 use crate::bybit::verify_sidecar::{read_verify_rows, verify_csv_path, VerifyVerdict};
@@ -114,8 +114,7 @@ impl ReplayKeep {
 /// `next` — следующие календарные сутки после `prev` (`YYYY-MM-DD`): перенос возраста только
 /// через **смежную** полночь — пропущенные сутки означают, что уровень никто не видел.
 pub(crate) fn is_next_day(prev: &str, next: &str) -> bool {
-    let parse = |d: &str| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok();
-    match (parse(prev), parse(next)) {
+    match (parse_calendar_day(prev), parse_calendar_day(next)) {
         (Some(a), Some(b)) => a.succ_opt() == Some(b),
         _ => false,
     }

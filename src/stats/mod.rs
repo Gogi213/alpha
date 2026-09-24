@@ -1,7 +1,8 @@
-//! Статистика вывода: wild cluster bootstrap-t, DSR, PBO, CPCV.
+//! Статистика вывода: wild cluster bootstrap-t.
 //!
-//! Реализован только bootstrap-t (шаг 7.2, нужен уже в 5.2 для гейта G2).
-//! DSR, PBO и CPCV — предмет отдельного шага и здесь не начаты.
+//! Здесь реализован только bootstrap-t (шаг 7.2, нужен уже в 5.2 для гейта
+//! G2). DSR, PBO и CPCV — предмет отдельного шага; они реализованы, но не
+//! здесь, а в `crate::lob::final_metrics` (см. doc-комментарий модуля).
 //!
 //! # Почему bootstrap, а не асимптотический кластерный t-тест
 //!
@@ -194,7 +195,6 @@ impl SplitMix64 {
     /// порядка `6 / 2^64` — неразличимо на 9999 репликах ни при каком `alpha`
     /// из этого документа.
     /// Индекс доказуемо < 6 по построению остатка — на любом указателе.
-    #[allow(clippy::cast_possible_truncation)]
     fn next_webb_weight(&mut self) -> f64 {
         webb_weight((self.next_u64() % WEBB_WEIGHT_VALUES as u64) as u32)
     }
@@ -205,20 +205,17 @@ impl SplitMix64 {
 /// в 64 бита: счётчики здесь — длины срезов и числа испытаний в памяти,
 /// порядков единиц–миллионов. Исчерпать предел значило бы не влезть в RAM
 /// на десятки порядков раньше.
-#[allow(clippy::cast_precision_loss)]
 pub(crate) fn count_f64(n: usize) -> f64 {
     n as f64
 }
 
 /// См. `count_f64`: та же точка для счётчиков, уже живущих в `u64`
 /// (сводки по суткам с насыщающим сложением).
-#[allow(clippy::cast_precision_loss)]
 pub(crate) fn count_f64_u64(n: u64) -> f64 {
     n as f64
 }
 
 /// См. `count_f64`: та же аудированная точка для целочисленных счётчиков.
-#[allow(clippy::cast_possible_truncation)]
 pub(crate) fn count_u64(n: usize) -> u64 {
     n as u64
 }
@@ -293,7 +290,6 @@ fn summarize_clusters(groups: &BTreeMap<i64, Vec<f64>>) -> Vec<ClusterSummary> {
 ///
 /// Касты счётчиков в `f64` точные: `n` — число наблюдений в памяти, `g` —
 /// число суток; оба порядков единиц–тысяч, далеко от 2^53.
-#[allow(clippy::cast_precision_loss)]
 fn cluster_robust_t_from_summary(clusters: &[ClusterSummary], weights: &[f64]) -> f64 {
     debug_assert_eq!(
         clusters.len(),
@@ -333,7 +329,6 @@ fn cluster_robust_t_from_summary(clusters: &[ClusterSummary], weights: &[f64]) -
 /// прописаны в PLAN.md как методический, а не рыночный отказ.
 ///
 /// Каст ниже точен: кластеров — дни в памяти (единицы), далеко от 2^32.
-#[allow(clippy::cast_possible_truncation)]
 pub fn wild_cluster_bootstrap_t(
     observations: &[(i64, f64)],
     replications: u32,

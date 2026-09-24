@@ -1,10 +1,17 @@
 use super::*;
-// Элементы подмодулей, которые сам `session.rs` не импортирует — нужны только тестам.
+// Элементы подмодулей, которые сам `session.rs` не импортирует — нужны только тестам
+// (разрезка W6, ревью 23.09: `stream_dir`/`claim_symbol_binlog`/`open_symbol_state` живут
+// в `session::parts`, `is_debug_session` — в `session::args`, `StreamState` — в `session::sink`).
+use super::args::is_debug_session;
+use super::parts::{claim_symbol_binlog, open_symbol_state, stream_dir};
 use super::resources::resource_sample_period;
-use super::sink::SinkFile;
+use super::sink::{FrameSink, SinkFile, StreamState};
 use crate::binlog::Header;
 use crate::binlog::Record;
+use crate::binlog::Writer;
+use crate::bybit::conn::{DEEP_STREAM, SUBSCRIBED_DEPTHS};
 use crate::bybit::rest::BYBIT_MAINNET_URL;
+use crate::commands::record::claim_part_with;
 use crate::feed::replay::ReplayFeed;
 use hftbacktest::types::{
     LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
@@ -290,7 +297,7 @@ fn deep_stream_writes_its_own_file_with_snapshot_first_frame() {
             local_ts_ns: NOON_NS + 20_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     let deep = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1);
     assert!(
@@ -1231,7 +1238,7 @@ fn silent_instrument_frame_reaches_disk_on_the_tick_not_at_shutdown() {
             *seen_probe.lock().unwrap() = frames_on_disk(&probe_path).len();
         })),
     ]));
-    run_session_loop(&mut feed, &mut ctx).unwrap();
+    run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert_eq!(
         *seen.lock().unwrap(),
         2,
@@ -1264,7 +1271,7 @@ fn zero_events_still_writes_session_json_and_stop_closes_it() {
     ]));
     // Финальная запись — дело шва, не теста: `None` от `Feed` обязан
     // закрыть `session.json` сам.
-    let final_summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let final_summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     let mid = mid
         .lock()
         .unwrap()
@@ -1313,7 +1320,7 @@ fn always_on_rotates_at_utc_midnight_with_a_synthetic_snapshot_first() {
             3,
         )),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     let paths = super::super::session_binlog_for(&root, "SYM").unwrap();
     assert_eq!(paths.len(), 2, "две части: сутки D и D+1");
@@ -1365,7 +1372,7 @@ fn late_event_of_the_previous_day_stays_in_the_current_part() {
         )),
         Step::Ev(book_event(0, next_day_ns + 1, late_ms, false, 3)),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert_eq!(summary.binlog_files.len(), 2, "D и D+1, без -p2 для D");
     let paths = super::super::session_binlog_for(&root, "SYM").unwrap();
     assert_eq!(paths.len(), 2);
@@ -1418,7 +1425,13 @@ fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
-            detail: "разрыв u глубокого потока".to_string(),
+            silence_ns: None,
+            first_of_episode: false,
+            detail: crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         }),
         // Событие следующих суток приходит только быстрым потоком.
         Step::Ev(book_event_at_depth(
@@ -1430,7 +1443,7 @@ fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
             ORDERBOOK_DEPTH,
         )),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     // Доверие сброшено по потоку, а не по инструменту.
     assert!(
@@ -1517,7 +1530,13 @@ fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::SequenceGap,
             depth: Some(ORDERBOOK_DEEP_DEPTH),
-            detail: "разрыв u глубокого потока".to_string(),
+            silence_ns: None,
+            first_of_episode: false,
+            detail: crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         }),
         // Дельта глубокого потока в сутках D+1 — она же и ротирует его часть.
         Step::Ev(book_event_at_depth(
@@ -1544,7 +1563,7 @@ fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
             local_ts_ns: next_day_ns + 3,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     let deep_d = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 1);
     let deep_d1 =
@@ -1705,7 +1724,7 @@ fn deep_frame_boundary_loss_reopens_only_the_deep_part() {
             local_ts_ns: NOON_NS + 40_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     // Переоткрылась **только** часть глубокого потока и только она — в `deep/`.
     let deep_p2 = crate::commands::record::day_file_path(&root.join(DEEP_DIR), "SYM", TEST_DAY, 2);
@@ -1839,7 +1858,7 @@ fn failed_frame_write_truncates_to_frame_boundary_and_the_part_stays_readable() 
             local_ts_ns: NOON_NS + 20_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert_eq!(summary.frames_failed, 1);
     let gaps = std::fs::read_to_string(gaps_csv_path(&root)).unwrap();
     assert_eq!(
@@ -1950,7 +1969,7 @@ fn a_full_disk_needs_no_restart_when_space_comes_back() {
         Step::Ev(book_event(0, NOON_NS + 5, ms + 5, false, 6)),
         Step::Ev(tick(5)),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(
         summary.frames_failed, 3,
@@ -2006,14 +2025,20 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let mut ctx = always_on_ctx(&root, NOON_NS);
-    let gap = |symbol, kind| Event::Gap {
+    let gap = |symbol, kind: FeedGapKind| Event::Gap {
         symbol,
         local_ts_ns: NOON_NS,
         kind,
         // Разрыв сокета и неразрешённый кадр потоку не принадлежат: сокет
         // роняет оба потока сразу (T45).
         depth: None,
-        detail: "разрыв".to_string(),
+        silence_ns: None,
+        first_of_episode: false,
+        detail: if kind == FeedGapKind::Unrouted {
+            crate::feed::GapDetail::Unrouted
+        } else {
+            crate::feed::GapDetail::Disconnected
+        },
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         Step::Ev(gap(0, FeedGapKind::Disconnected)),
@@ -2023,7 +2048,7 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
             local_ts_ns: NOON_NS + 20_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert_eq!(
         (summary.reconnects, summary.gaps, summary.unrouted),
         (1, 2, 1),
@@ -2037,6 +2062,56 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
     );
 }
 
+/// MAJOR независимой проверки 7af2c0b: `bybit::conn` шлёт `MarketSilence` на
+/// каждом тике эпизода, не только на первом — иначе `silence_max_ns` застыл
+/// бы на значении первого срабатывания. Счётчик эпизодов растёт только на
+/// `first_of_episode: true`, максимум — на каждом событии, включая эпизод,
+/// не кончившийся к моменту, когда пришёл тик остановки сессии (реальное
+/// поведение: `bybit::conn` продолжал бы слать обновления, здесь сценарий
+/// просто кончается раньше). Строки `gaps.csv` тишина не даёт вовсе — как у
+/// `unrouted` в тесте выше.
+#[test]
+fn market_silence_counts_episodes_once_and_tracks_the_true_max() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut ctx = always_on_ctx(&root, NOON_NS);
+    let silence = |local_ts_ns, silence_ns, first_of_episode| Event::Gap {
+        symbol: 0,
+        local_ts_ns,
+        kind: FeedGapKind::MarketSilence,
+        depth: None,
+        silence_ns: Some(silence_ns),
+        first_of_episode,
+        detail: crate::feed::GapDetail::MarketSilence { silence_ns },
+    };
+    let mut feed = ScriptedFeed(VecDeque::from(vec![
+        // Эпизод 1: старт + два тихих обновления, максимум растёт до 90.
+        Step::Ev(silence(NOON_NS, 40, true)),
+        Step::Ev(silence(NOON_NS + 10, 60, false)),
+        Step::Ev(silence(NOON_NS + 20, 90, false)),
+        // Эпизод 2 (рынок вернулся между ними, здесь это не моделируется
+        // отдельным Book/Trade — `bybit::conn` сам не пришлёт новый
+        // `first_of_episode: true`, пока не увидит рынок): свой старт с
+        // меньшей тишиной, чем максимум уже виденного — общий максимум
+        // обязан остаться от эпизода 1, а не откатиться.
+        Step::Ev(silence(NOON_NS + 30, 40, true)),
+        Step::Ev(Event::Tick {
+            local_ts_ns: NOON_NS + 20_000_000_000,
+        }),
+    ]));
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
+    assert_eq!(
+        (
+            summary.silence_episodes,
+            summary.silence_max_ns,
+            summary.gaps
+        ),
+        (2, Some(90), 0),
+        "два эпизода (по first_of_episode), максимум — фактическая длина, а не первое \
+         срабатывание; тишина не даёт строк gaps.csv"
+    );
+}
+
 /// Переподключение и ресинк — числом в `session.json` и строкой в
 /// `gaps.csv` каждый: без них сутки записи нечем оценить. T45: разрывы
 /// считаются и **раздельно по потокам** — разрыв `.200` не разрыв `.50`.
@@ -2046,38 +2121,58 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let mut ctx = always_on_ctx(&root, NOON_NS);
-    let gap = |kind, depth, detail: &str| Event::Gap {
+    let gap = |kind, depth, detail: crate::feed::GapDetail| Event::Gap {
         symbol: 0,
         local_ts_ns: NOON_NS,
         kind,
         depth,
-        detail: detail.to_string(),
+        silence_ns: None,
+        first_of_episode: false,
+        detail,
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         Step::Ev(gap(
             FeedGapKind::Disconnected,
             None,
-            "транспорт переподключился",
+            crate::feed::GapDetail::Disconnected,
         )),
         Step::Ev(gap(
             FeedGapKind::SequenceGap,
             Some(ORDERBOOK_DEPTH),
-            "разрыв u быстрого потока",
+            crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         )),
         Step::Ev(gap(
             FeedGapKind::BookInvariant,
             Some(ORDERBOOK_DEEP_DEPTH),
-            "книга глубокого потока нарушена",
+            crate::feed::GapDetail::BookInvariant {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                err: crate::book::ApplyError::SequenceGap {
+                    expected: 1,
+                    got: 2,
+                },
+            },
         )),
-        Step::Ev(gap(FeedGapKind::ParseFailed, None, "кадр не разобрался")),
+        Step::Ev(gap(
+            FeedGapKind::ParseFailed,
+            None,
+            crate::feed::GapDetail::ParseFailed(crate::bybit::ws::ParseError::NotJson),
+        )),
         Step::Ev(gap(
             FeedGapKind::ConnectFailed,
             None,
-            "connect() отклонён биржей: HTTP 403",
+            crate::feed::GapDetail::ConnectFailed {
+                attempt: 1,
+                http_status: Some(403),
+                err: "Forbidden".to_string(),
+            },
         )),
     ]));
-    run_session_loop(&mut feed, &mut ctx).unwrap();
-    let summary = ctx.write_session_json(true).unwrap();
+    run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
+    let summary = ctx.write_session_json(true, &SystemClock).unwrap();
     assert_eq!(summary.reconnects, 1);
     assert_eq!(summary.resyncs, 2);
     assert_eq!(summary.gaps, 5);
@@ -2107,7 +2202,7 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     assert!(rows[4].detail.contains("403"), "{}", rows[4].detail);
     // Строка разрыва несёт поток: по ней видно, чей `u` разошёлся.
     assert!(
-        rows[1].detail.contains("разрыв u быстрого потока"),
+        rows[1].detail.contains(&format!(".{ORDERBOOK_DEPTH}")),
         "деталь строки обязана назвать поток: {}",
         rows[1].detail
     );
@@ -2131,12 +2226,16 @@ fn a_refused_subscription_is_counted_and_written_to_the_journal() {
             local_ts_ns: NOON_NS + 1,
             kind: FeedGapKind::SubscribeFailed,
             depth: None,
-            detail: "подписка не состоялась: orderbook.50.SYM — error:handler not found"
-                .to_string(),
+            silence_ns: None,
+            first_of_episode: false,
+            detail: crate::feed::GapDetail::SubscribeFailed {
+                topic: Some("orderbook.50.SYM".to_string()),
+                ret_msg: "error:handler not found".to_string(),
+            },
         }),
     ]));
-    run_session_loop(&mut feed, &mut ctx).unwrap();
-    let summary = ctx.write_session_json(true).unwrap();
+    run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
+    let summary = ctx.write_session_json(true, &SystemClock).unwrap();
 
     assert_eq!(summary.subscribe_failed, 1, "счётчик отказа подписки");
     assert_eq!(summary.connect_failed, 0, "это не отказ рукопожатия");
@@ -2402,7 +2501,7 @@ fn a_row_appended_to_instruments_csv_between_ticks_joins_the_recording_once() {
             }),
         ])),
     };
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     let after_first = after_first
         .lock()
@@ -2479,7 +2578,7 @@ fn a_static_feed_refuses_the_batch_and_the_recording_stays_as_it_was() {
             local_ts_ns: NOON_NS + window_ns,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert_eq!(summary.instruments, vec!["SYM".to_string()]);
     assert!(
         !crate::commands::record::day_file_path(&root, "NEWUSDT", TEST_DAY, 1).exists(),
@@ -2503,7 +2602,7 @@ fn events_of_an_added_symbol_allocate_nothing_after_warmup() {
         steps: ScriptedFeed(VecDeque::new()),
     };
     append_pool_row(&root, "NEWUSDT,0.001,1,0.001");
-    ctx.check_pool_file(&mut feed, NOON_NS);
+    ctx.check_pool_file(&mut feed, NOON_NS, &SystemClock);
     assert_eq!(ctx.states.len(), 2, "символ добавлен");
     let mut u = 1u64;
     let mut delta = || {
@@ -2582,7 +2681,7 @@ fn a_stop_file_ends_the_session_on_the_next_tick_and_is_cleared_on_open() {
             local_ts_ns: NOON_NS + 3 * window_ns,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
     assert!(summary.closed, "stop обязан дать штатное закрытие");
     assert!(
         !consumed.load(std::sync::atomic::Ordering::SeqCst),
@@ -2613,7 +2712,7 @@ fn failed_gap_rows_are_counted_not_swallowed() {
     row("первый отказ");
     row("второй отказ");
 
-    let summary = ctx.write_session_json(true).unwrap();
+    let summary = ctx.write_session_json(true, &SystemClock).unwrap();
     assert_eq!(
         summary.gap_rows_failed, 2,
         "оба отказа журнала посчитаны (session.json пишется в свой каталог и не зависит от gaps.csv)"
@@ -2722,7 +2821,9 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                 local_ts_ns: NOON_NS + window_ns + 2,
                 kind: crate::feed::GapKind::Disconnected,
                 depth: None,
-                detail: "снятый символ".to_string(),
+                silence_ns: None,
+                first_of_episode: false,
+                detail: crate::feed::GapDetail::Disconnected,
             }),
             Step::Ev(Event::Tick {
                 local_ts_ns: NOON_NS + 2 * window_ns,
@@ -2734,11 +2835,12 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                     1,
                     "после снятия в закрытый файл не должно попасть ничего: {on_disk:?}"
                 );
+                let rows = crate::commands::record::read_gap_rows(&probe_root.join("gaps.csv"))
+                    .unwrap_or_default();
                 assert!(
-                    !std::fs::read_to_string(probe_root.join("gaps.csv"))
-                        .unwrap_or_default()
-                        .contains("снятый символ"),
-                    "разрыв снятого символа — следствие нашей остановки сокета, а не шов записи"
+                    rows.is_empty(),
+                    "разрыв снятого символа — следствие нашей остановки сокета, а не шов записи: \
+                     {rows:?}"
                 );
             })),
             // Возврат того же имени в пул — новое состояние и **новый**
@@ -2754,7 +2856,7 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
             }),
         ],
     );
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert!(!ctx.states[1].active, "символ 1 снят");
     assert!(ctx.states[0].active, "символ 0 не тронут");
@@ -2811,7 +2913,7 @@ fn swapping_a_coin_is_a_remove_and_an_add_in_one_reread() {
             }),
         ],
     );
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(*removed.lock().unwrap(), vec![1u16], "снят один индекс");
     assert_eq!(
@@ -2863,7 +2965,7 @@ fn an_unterminated_pool_file_does_not_remove_anything() {
             }),
         ],
     );
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert!(
         ctx.states[0].active && ctx.states[1].active,
@@ -2898,7 +3000,7 @@ fn a_disjoint_full_replacement_removes_the_old_pool_and_adds_the_new_one() {
             }),
         ],
     );
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(
         *removed.lock().unwrap(),
@@ -2938,7 +3040,7 @@ fn rewriting_the_same_pool_changes_nothing() {
             }),
         ],
     );
-    run_session_loop(&mut feed, &mut ctx).unwrap();
+    run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert!(ctx.states[0].active && ctx.states[1].active);
     assert!(removed.lock().unwrap().is_empty());
@@ -2986,7 +3088,7 @@ fn a_removal_without_additions_writes_the_frame_and_the_summary_right_away() {
     );
 
     rewrite_pool(&root, &["SYM,0.001,1,0.001"]);
-    ctx.check_pool_file(&mut feed, NOON_NS + 2);
+    ctx.check_pool_file(&mut feed, NOON_NS + 2, &SystemClock);
 
     assert_eq!(
         frames_on_disk(&dead_path).len(),
@@ -3030,8 +3132,13 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
             local_ts_ns: NOON_NS,
             kind: FeedGapKind::ConnectFailed,
             depth: None,
-            detail: "connect() отклонён биржей: HTTP 429 — Too Many Requests (попытка 1)"
-                .to_string(),
+            silence_ns: None,
+            first_of_episode: false,
+            detail: crate::feed::GapDetail::ConnectFailed {
+                attempt: 1,
+                http_status: Some(429),
+                err: "Too Many Requests".to_string(),
+            },
         }),
         Step::Probe(Box::new(move || {
             assert!(
@@ -3044,7 +3151,7 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
             local_ts_ns: NOON_NS + 20_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(summary.connect_failed, 1, "отказ соединения посчитан");
     assert!(
@@ -3081,7 +3188,7 @@ fn a_backward_local_clock_step_does_not_break_the_recording() {
             local_ts_ns: NOON_NS + 20_000_000_000,
         }),
     ]));
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(
         frames_on_disk(&fast_path).len(),
@@ -3137,7 +3244,7 @@ fn a_rebuilt_socket_gives_the_neighbours_a_visible_seam() {
             ])),
         },
     };
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(*removed.lock().unwrap(), vec![1u16], "снят только DEAD");
     assert_eq!(summary.gaps, 1, "шов соседа посчитан");
@@ -3189,7 +3296,7 @@ fn a_failed_add_is_retried_on_the_next_tick_without_a_new_mtime() {
             ])),
         },
     };
-    let summary = run_session_loop(&mut feed, &mut ctx).unwrap();
+    let summary = run_session_loop(&mut feed, &mut ctx, &SystemClock).unwrap();
 
     assert_eq!(
         *added.lock().unwrap(),

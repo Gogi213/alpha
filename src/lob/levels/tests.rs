@@ -370,7 +370,10 @@ fn steady_frames_allocate_nothing() {
 
 /// Граница модулей (требование архитектуры к шагу 1.1): чистая логика не
 /// знает про транспорт и системные часы, целые не размениваются на
-/// приближённые числа. Проверка — грепом по собственному исходнику.
+/// приближённые числа, а живые карты (`live`/`births`/`carry`) не возвращаются
+/// к дереву-словарю, которое аллоцирует узел на каждое рождение (W4б — было
+/// исправлено на отсортированный `Vec` с двоичным поиском, `SortedVec` по
+/// образцу `Book::HalfBook`, A4). Проверка — грепом по собственному исходнику.
 ///
 /// Запрещённые фрагменты собраны из частей: литерал целиком триггерил бы
 /// эту же проверку сам на себя.
@@ -384,6 +387,8 @@ fn module_stays_detached_from_transport_clocks_and_approx_numbers() {
         concat!("System", "Time"),
         concat!("f", "64"),
         concat!("std::", "time"),
+        concat!("BTree", "Map"),
+        concat!("Hash", "Map"),
     ];
     for b in banned {
         assert!(!SRC.contains(b), "исходник тянет запрещённое: {b}");
@@ -2074,13 +2079,20 @@ fn carried_births_survive_midnight_only_for_levels_in_the_first_frame() {
     assert_eq!(t_carried.len(), 1);
     assert_eq!(t_carried[0].level_birth_ms, 1000, "возраст с прошлых суток");
     let births = carried.live_births();
+    let birth_at = |key: (u8, i64)| -> i64 {
+        births
+            .iter()
+            .find(|&&(k, _)| k == key)
+            .map(|&(_, birth_ms)| birth_ms)
+            .unwrap_or_else(|| panic!("ключ {key:?} не найден в переносе"))
+    };
     assert_eq!(
-        births[&(side_key(b), 97)],
+        birth_at((side_key(b), 97)),
         1000,
         "97 стоял в первом кадре — перенос"
     );
     assert_eq!(
-        births[&(side_key(b), 98)],
+        birth_at((side_key(b), 98)),
         90_001_000,
         "98 появился позже — новорождённый"
     );
@@ -2099,8 +2111,55 @@ fn carried_births_survive_midnight_only_for_levels_in_the_first_frame() {
         ..cfg_touch()
     };
     let with_warmup = LevelTracker::with_carried_births(warm, carry);
-    assert!(
-        with_warmup.carry.is_empty(),
+    assert_eq!(
+        with_warmup.carry.len(),
+        0,
         "режим с прогревом перенос не принимает"
+    );
+}
+
+/// Чистка `births` (W4а): цена, на которой уровень родился и умер один раз
+/// и больше никогда не рождался заново, не должна вечно занимать место в
+/// карте рождений — очередь, чей `count_prior_births` не зовут повторно,
+/// никогда сама себя не тримит. `cleanup_births` обходит карту целиком не
+/// чаще раза в `repeat_window_ms`; здесь окно короткое, чтобы кадры теста
+/// оставались маленькими числами.
+#[test]
+fn births_map_forgets_a_price_that_never_rebirths_after_the_window() {
+    let short_window = LevelsConfig {
+        repeat_window_ms: 1_000,
+        ..cfg()
+    };
+    let mut tr = LevelTracker::new(short_window);
+    let mut out = Vec::new();
+
+    // Рождение на 1000, немедленная смерть (тик исчезает из следующего
+    // кадра — читается как размер ноль, ниже 20% максимума).
+    tr.observe_frame(0, Side::Bid, &[ob(1000, 200)], &mut out);
+    assert_eq!(tr.births.len(), 1, "запись рождения на 1000 появилась");
+    out.clear();
+    tr.observe_frame(10, Side::Bid, &[], &mut out);
+    assert_eq!(out.len(), 1, "1000 умер");
+    out.clear();
+
+    // Кадр внутри старого окна: чистка ещё не должна снести свежую запись.
+    tr.observe_frame(500, Side::Bid, &[ob(2000, 200)], &mut out);
+    out.clear();
+    assert!(
+        tr.births.get(&(side_key(Side::Bid), 1000)).is_some(),
+        "1000 моложе окна — чистка его ещё не трогает"
+    );
+
+    // Кадр за окном от последнего рождения на 1000 (t=0): следующее рождение
+    // на другой цене запускает периодическую чистку, и запись 1000 уходит
+    // вместе с опустевшей очередью, а не висит нулевой длины.
+    tr.observe_frame(2_000, Side::Bid, &[ob(9999, 200)], &mut out);
+    assert!(
+        tr.births.get(&(side_key(Side::Bid), 1000)).is_none(),
+        "запись истёкшей цены удалена целиком, а не оставлена пустой"
+    );
+    assert!(
+        tr.births.get(&(side_key(Side::Bid), 9999)).is_some(),
+        "свежее рождение по-прежнему учтено"
     );
 }

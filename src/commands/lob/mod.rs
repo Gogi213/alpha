@@ -1,9 +1,9 @@
 //! `lob <подкоманда>` — единственная точка входа для всех чисел отчёта.
 //!
-//! Десять подкоманд, каждая — свой файл в этой директории:
-//! `pick` (0.4), `record` (0.3), `verify` (0.6), `export` (6.1) — тонкая
+//! Девять подкоманд, каждая — свой файл в этой директории:
+//! `pick` (0.4), `record` (0.3), `verify` (0.6) — тонкая
 //! печать поверх уже реализованных модулей (`commands::record`,
-//! `bybit::verify`, `lob::export`); `clock` (0.5), `probe` (6.2),
+//! `bybit::verify`); `clock` (0.5), `probe` (6.2),
 //! `levels` (1.1, 1.2), `markout` (2.1), `watch` (4.1), `pilot` (3.1) —
 //! тонкие обёртки поверх уже протестированной логики своих модулей: только
 //! CLI-аргументы, печать артефакта и коды выхода, бизнес-логики нет.
@@ -57,7 +57,6 @@ pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
-mod export;
 pub mod fee_rate;
 pub mod fill_capacity;
 mod h3;
@@ -109,6 +108,31 @@ pub(crate) fn require_verified(
     );
     Ok(())
 }
+
+/// Пишет `bytes` во временный файл и переименовывает поверх `path` — читатель
+/// живого каталога никогда не видит полуфайл (`session.json`, `dashboard`'s
+/// `data.json`/`coin-<SYMBOL>.json`). Общий помощник вместо двух копий
+/// (ревью 23.09, W7): `session.rs` и `dashboard.rs` держали один и тот же
+/// приём порознь. `tmp_path` — параметром, не выводится из `path` здесь:
+/// у `session.json` он `session.json.tmp` (дописанное расширение), у файлов
+/// дашборда — `path.with_extension("tmp")` (заменённое); унификация имени
+/// временного файла не входит в этот ремонт, только сама запись+переименование.
+pub(crate) fn write_atomic(
+    path: &std::path::Path,
+    tmp_path: &std::path::Path,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    std::fs::write(tmp_path, bytes)
+        .map_err(|e| anyhow::anyhow!("не записать {}: {e}", tmp_path.display()))?;
+    std::fs::rename(tmp_path, path).map_err(|e| {
+        anyhow::anyhow!(
+            "не переименовать {} → {}: {e}",
+            tmp_path.display(),
+            path.display()
+        )
+    })
+}
+
 pub use bounce_verdict::{run_bounce_verdict, BounceVerdictArgs};
 pub use clock::{run_clock, ClockArgs};
 pub use dashboard::{run_dashboard, DashboardArgs};
@@ -131,7 +155,7 @@ pub use watch::{run_watch, WatchArgs};
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
 // `parts`, `names`); пути `super::…`/`commands::lob::…` у подкоманд и тестов
 // не менялись — их держат эти ре-экспорты.
-pub(crate) use h3::median_trade_lots_for_symbol;
+pub(crate) use h3::{instruments_symbol_field, median_trade_lots_for_symbol};
 pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
@@ -176,8 +200,6 @@ pub enum LobCommand {
     /// Сверка записанных суток: инварианты и сделки в диапазоне книги (шаг 0.6).
     /// Сверка с REST по u — только живой поток (у файла нет u), см. verify.rs.
     Verify(crate::bybit::verify::VerifyArgs),
-    /// Экспорт суток в `npy` для крейта `hftbacktest` (шаг 6.1, Decision 17).
-    Export(crate::lob::export::ExportArgs),
     /// Замер смещения часов хоста против NTP и `serverTime` (шаг 0.5).
     Clock(ClockArgs),
     /// Распределение RTT полного цикла post-only ордера (шаг 6.2).
@@ -297,7 +319,6 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         }
         LobCommand::Record(args) => record::print_summary(&args),
         LobCommand::Verify(args) => verify::print_summary(&args),
-        LobCommand::Export(args) => export::print_summary(&args),
         LobCommand::Clock(args) => {
             let rows = run_clock(&args)?;
             let violations = check_rows(&rows);
@@ -699,6 +720,27 @@ pub(crate) mod test_support {
         let buf = w.into_inner();
         let path = crate::commands::record::day_file_path(root, symbol, day, part);
         std::fs::write(path, &buf).unwrap();
+    }
+
+    /// Пишет `value` в `<dir>/session.json` — общая точка вместо ручного
+    /// `std::fs::write(dir.join("session.json"), …)`, которым раньше в
+    /// пяти местах (`dashboard`, `shortlist`, `pilot`, `touch_profiles`,
+    /// `commands::lob::tests`) собирали фикстуру то через `serde_json::json!`,
+    /// то через хрупкий ручной `format!` строки (W9 ревью 23.09). Форма
+    /// самого JSON остаётся за вызывающим: `session.json` читают и полным
+    /// `SessionSummary` (дашборд, `pilot::resolve_battle_window_minutes` —
+    /// у него `duration_s`/`records_total`/`gaps`/`clock_samples`/
+    /// `parse_p99_ns`/`queue_p99_ns`/`cpu_pct_avg`/`cpu_pct_max`/
+    /// `rss_bytes_start`/`rss_bytes_end`/`out`/`debug` обязательны — без
+    /// `#[serde(default)]`), и россыпью полей (`session_parts_for`, которому
+    /// достаточно `started_utc`/`start_hour_utc`/`instruments`) — им нужны
+    /// разные поля, а не разный способ положить файл на диск.
+    pub(crate) fn write_session_json(dir: &std::path::Path, value: &serde_json::Value) {
+        std::fs::write(
+            dir.join("session.json"),
+            serde_json::to_string_pretty(value).unwrap(),
+        )
+        .unwrap();
     }
 
     /// Три уровня: съеден (ровно 70% — граница `eaten`), смешанный, снят.

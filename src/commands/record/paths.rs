@@ -6,7 +6,7 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use crate::binlog::Header;
+use crate::binlog::{parse_calendar_day, Header};
 
 use super::errors::RecordError;
 use super::{MAX_RECORDS_PER_FRAME, ZSTD_LEVEL};
@@ -119,10 +119,9 @@ pub fn ts_utc_of_ns(ts_ns: i64) -> String {
 /// пути: сравнение индексов — целочисленное деление без форматирования строк
 /// на событие; строка форматируется только на ротации.
 pub fn day_index_of_day_str(day: &str) -> Result<i64, RecordError> {
-    let date =
-        chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| RecordError::BadDay {
-            day: day.to_string(),
-        })?;
+    let date = parse_calendar_day(day).ok_or_else(|| RecordError::BadDay {
+        day: day.to_string(),
+    })?;
     // Дни от эпохи через публичную арифметику дат, а не через приватный
     // счётчик эры: 1970-01-01 даёт ровно 0, что проверяет тест. `expect`
     // здесь невозможен по режиму линтов, поэтому невероятная ветвь

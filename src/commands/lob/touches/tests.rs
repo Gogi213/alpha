@@ -1,7 +1,12 @@
 use super::*;
+use crate::book::Side;
+use crate::commands::lob::replay::ReplayDay;
 use crate::commands::lob::replay_symbol;
 use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
 use crate::commands::lob::H3ModeArg;
+use crate::lob::excursion::SecondMids;
+use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
+use crate::lob::sigma::SigmaSeries;
 
 fn touches_args(root: &std::path::Path) -> TouchesArgs {
     TouchesArgs {
@@ -369,4 +374,85 @@ fn approach_bands_write_one_file_per_band() {
     let mut bad = touches_args(dir.path());
     bad.approach_bps = vec![0];
     assert!(run_touches(&bad).is_err(), "нулевая полоса — отказ");
+}
+
+fn minimal_touch() -> TouchRecord {
+    TouchRecord {
+        side: Side::Bid,
+        price_tick: 1000,
+        touch_index: 0,
+        start_ms: 0,
+        end_ms: 500,
+        duration_ms: 500,
+        level_birth_ms: 0,
+        size_at_touch: 200,
+        size_max_before: 200,
+        traded_during: 0,
+        frontrun_lots: 0,
+        frontrun_tick: None,
+        swept_lots: 0,
+        round_zeros: 3,
+        ended_by_death: false,
+        stack_levels: 1,
+        stack_next_tick: None,
+        traded_first_s: [0; 3],
+        flow_1h_lots: 0,
+        strength_e2: [-1, -1, -1],
+        strength_held_e2: [-1, -1, -1, -1],
+        repeat_count: 0,
+    }
+}
+
+fn minimal_approach() -> ApproachRecord {
+    ApproachRecord {
+        side: Side::Bid,
+        price_tick: 1000,
+        approach_index: 0,
+        arm_ms: 0,
+        arm_dist_bps: 10,
+        level_birth_ms: 0,
+        size_at_arm: 100,
+        best_own_tick: 999,
+        best_opp_tick: 1010,
+        flow_1h_lots: 0,
+        strength_e2: [-1, -1, -1],
+        touch_start_ms: None,
+        disarm_ms: 100,
+        disarm_reason: ApproachEnd::PriceLeft,
+    }
+}
+
+/// W5г: `TOUCHES_COLUMNS` (заголовок) и `touch_row_pairs` (значения) были
+/// два независимых списка сверенных только по длине — переставить два
+/// соседних имени в одном, забыв про другой, компилировалось молча. Теперь
+/// имя и значение — одна пара на позицию; здесь сверяем порядок имён,
+/// вынутых из пар, с заголовком напрямую (не через `debug_assert_eq!`
+/// внутри `row::touch_row`, который не выполняется в `--release` —
+/// см. `run_touches`, W5б).
+#[test]
+fn touch_row_pair_names_match_the_written_header() {
+    let day = ReplayDay {
+        day: "2026-01-01".to_string(),
+        records: Vec::new(),
+        touches: Vec::new(),
+        approaches: Vec::new(),
+        mids: Vec::new(),
+    };
+    let sigma = SigmaSeries::from_mids(&[]);
+    let second_mids = SecondMids::from_mids(&[]);
+    let names = super::row::touch_row_pair_names(&day, &minimal_touch(), &sigma, &second_mids);
+    assert_eq!(
+        names, TOUCHES_COLUMNS,
+        "порядок имён из пар обязан совпадать с заголовком CSV"
+    );
+}
+
+/// То же для `approaches-<SYMBOL>.csv` (W5г).
+#[test]
+fn approach_row_pair_names_match_the_written_header() {
+    let names = super::row::approach_row_pair_names("2026-01-01", &minimal_approach());
+    assert_eq!(
+        names, APPROACHES_COLUMNS,
+        "порядок имён из пар обязан совпадать с заголовком CSV"
+    );
 }

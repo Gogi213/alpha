@@ -148,10 +148,16 @@ pub struct RunRow {
 /// (тот же приём, что `GAPS_HEADER`: ручная запись, дрейф ловит тест).
 const RUNS_HEADER: [&str; 4] = ["ts_utc", "symbol", "kind", "detail"];
 
-/// Создаёт `runs.csv` с шапкой, если его нет или он пуст. Существующий
-/// непустой файл не трогает — дописывающий прогон не имеет права терять уже
-/// записанные испытания.
-pub fn ensure_runs_csv(path: &Path) -> Result<(), RunsError> {
+/// Создаёт CSV-файл с шапкой, если его нет или он пуст; существующий непустой
+/// не трогает. Общая точка `ensure_runs_csv`/`commands::record::gaps::
+/// ensure_gaps_csv` (W9 ревью 23.09: оба журнала — `ts_utc,symbol,kind,detail`,
+/// шапка всегда, дозапись через `serde`). Обобщена по ошибке (`E: From<io::
+/// Error> + From<csv::Error>`), чтобы направление зависимости не менялось:
+/// `commands` зовёт эту функцию отсюда, а не наоборот.
+pub fn ensure_csv_with_header<E>(path: &Path, header: &[&str]) -> Result<(), E>
+where
+    E: From<io::Error> + From<csv::Error>,
+{
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -167,16 +173,20 @@ pub fn ensure_runs_csv(path: &Path) -> Result<(), RunsError> {
         let mut w = csv::WriterBuilder::new()
             .has_headers(false)
             .from_writer(file);
-        w.write_record(RUNS_HEADER)?;
+        w.write_record(header)?;
         w.flush()?;
     }
     Ok(())
 }
 
-/// Дописывает строку. Шапка пишется тем же вызовом, если файла не было, —
-/// вызывающему не нужно помнить про `ensure_runs_csv` отдельно.
-pub fn append_run_row(path: &Path, row: &RunRow) -> Result<(), RunsError> {
-    ensure_runs_csv(path)?;
+/// Дописывает строку через `serde`, создавая файл и шапку тем же вызовом,
+/// если файла не было. См. `ensure_csv_with_header` — та же общая точка.
+pub fn append_csv_row<T, E>(path: &Path, header: &[&str], row: &T) -> Result<(), E>
+where
+    T: serde::Serialize,
+    E: From<io::Error> + From<csv::Error>,
+{
+    ensure_csv_with_header::<E>(path, header)?;
     let file = OpenOptions::new().create(true).append(true).open(path)?;
     let mut w = csv::WriterBuilder::new()
         .has_headers(false)
@@ -184,6 +194,19 @@ pub fn append_run_row(path: &Path, row: &RunRow) -> Result<(), RunsError> {
     w.serialize(row)?;
     w.flush()?;
     Ok(())
+}
+
+/// Создаёт `runs.csv` с шапкой, если его нет или он пуст. Существующий
+/// непустой файл не трогает — дописывающий прогон не имеет права терять уже
+/// записанные испытания.
+pub fn ensure_runs_csv(path: &Path) -> Result<(), RunsError> {
+    ensure_csv_with_header(path, &RUNS_HEADER)
+}
+
+/// Дописывает строку. Шапка пишется тем же вызовом, если файла не было, —
+/// вызывающему не нужно помнить про `ensure_runs_csv` отдельно.
+pub fn append_run_row(path: &Path, row: &RunRow) -> Result<(), RunsError> {
+    append_csv_row(path, &RUNS_HEADER, row)
 }
 
 /// Читает все строки. Отсутствующего или нулевого файла здесь быть не должно

@@ -103,14 +103,29 @@ pub struct ExecutionArgs {
     pub order_qty_e9: Option<i64>,
 }
 
-/// Строка `instruments.csv`, нужная режиму `floor`: символ и колонка
-/// `h3_lots` (пишет отдельный шаг сборки пула, план D-H3). `h3_lots` читается
-/// строкой — у большинства символов колонка сейчас пуста, парсинг в целое
-/// откладывается до найденной строки нужного символа.
-#[derive(Debug, serde::Deserialize)]
-struct H3FloorRow {
-    symbol: String,
-    h3_lots: String,
+/// Сырое значение колонки `column` первой строки `symbol` в уже открытом
+/// `instruments.csv` — общий проход, которым ищут строку символа порог `H3`
+/// (`h3_lots_for_symbol`, `median_trade_lots_for_symbol` ниже) и подпись
+/// дашборда (`h3_k_for_symbol`, `dashboard.rs`; W9 ревью 23.09). Позиции
+/// колонок ищутся по имени в заголовке — порядок столбцов файла не зафиксирован.
+/// `None` — колонки `column` или `symbol` нет в заголовке, строки символа
+/// нет, или сама строка не читается (кривой CSV обрывает скан целиком, той
+/// же реакцией, что раньше была у `h3_k_for_symbol`, — не пропуском строки).
+pub(crate) fn instruments_symbol_field(
+    reader: &mut csv::Reader<std::fs::File>,
+    headers: &csv::StringRecord,
+    symbol: &str,
+    column: &str,
+) -> Option<String> {
+    let col_idx = headers.iter().position(|h| h == column)?;
+    let sym_idx = headers.iter().position(|h| h == "symbol")?;
+    for row in reader.records() {
+        let row = row.ok()?;
+        if row.get(sym_idx) == Some(symbol) {
+            return row.get(col_idx).map(str::to_string);
+        }
+    }
+    None
 }
 
 /// Пол `H3` символа из `instruments.csv`: нет файла, нет колонки, нет
@@ -133,34 +148,21 @@ fn h3_lots_for_symbol(instruments_csv: &Path, symbol: &str) -> anyhow::Result<i6
         "{}: нет колонки h3_lots (пишет отдельный шаг сборки пула)",
         instruments_csv.display()
     );
-    for row in r.deserialize::<H3FloorRow>() {
-        let row = row?;
-        if row.symbol != symbol {
-            continue;
-        }
-        let raw = row.h3_lots.trim();
-        let v: i64 = raw
-            .parse()
-            .map_err(|_| anyhow::anyhow!("{symbol}: h3_lots {raw:?} в instruments.csv не целое"))?;
-        anyhow::ensure!(
-            v > 0,
-            "{symbol}: h3_lots обязан быть положителен, получено {v}"
+    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "h3_lots") else {
+        anyhow::bail!(
+            "{symbol}: нет строки в {} (режим floor)",
+            instruments_csv.display()
         );
-        return Ok(v);
-    }
-    anyhow::bail!(
-        "{symbol}: нет строки в {} (режим floor)",
-        instruments_csv.display()
+    };
+    let raw = raw.trim();
+    let v: i64 = raw
+        .parse()
+        .map_err(|_| anyhow::anyhow!("{symbol}: h3_lots {raw:?} в instruments.csv не целое"))?;
+    anyhow::ensure!(
+        v > 0,
+        "{symbol}: h3_lots обязан быть положителен, получено {v}"
     );
-}
-
-/// Строка `instruments.csv`, нужная относительному порогу `--h3-k` (таск 18,
-/// В-30/D05): символ и колонка `median_trade_lots` — пишет `lob pick`
-/// (таск 08), та же колонка, что несёт `h3_lots`/`k` рядом.
-#[derive(Debug, serde::Deserialize)]
-struct MedianTradeLotsRow {
-    symbol: String,
-    median_trade_lots: String,
+    Ok(v)
 }
 
 /// Медиана размера сделки символа из `instruments.csv` — вход
@@ -184,30 +186,26 @@ pub(crate) fn median_trade_lots_for_symbol(
         "{}: нет колонки median_trade_lots (пишет lob pick)",
         instruments_csv.display()
     );
-    for row in r.deserialize::<MedianTradeLotsRow>() {
-        let row = row?;
-        if row.symbol != symbol {
-            continue;
-        }
-        let raw = row.median_trade_lots.trim();
-        anyhow::ensure!(
-            !raw.is_empty(),
-            "{symbol}: median_trade_lots не измерена в {} (окно lob pick не поймало сделок)",
+    let Some(raw) = instruments_symbol_field(&mut r, &headers, symbol, "median_trade_lots") else {
+        anyhow::bail!(
+            "{symbol}: нет строки в {} (median_trade_lots)",
             instruments_csv.display()
         );
-        let v: i64 = raw.parse().map_err(|_| {
-            anyhow::anyhow!("{symbol}: median_trade_lots {raw:?} в instruments.csv не целое")
-        })?;
-        anyhow::ensure!(
-            v > 0,
-            "{symbol}: median_trade_lots обязана быть положительна, получено {v}"
-        );
-        return Ok(v);
-    }
-    anyhow::bail!(
-        "{symbol}: нет строки в {} (median_trade_lots)",
+    };
+    let raw = raw.trim();
+    anyhow::ensure!(
+        !raw.is_empty(),
+        "{symbol}: median_trade_lots не измерена в {} (окно lob pick не поймало сделок)",
         instruments_csv.display()
     );
+    let v: i64 = raw.parse().map_err(|_| {
+        anyhow::anyhow!("{symbol}: median_trade_lots {raw:?} в instruments.csv не целое")
+    })?;
+    anyhow::ensure!(
+        v > 0,
+        "{symbol}: median_trade_lots обязана быть положительна, получено {v}"
+    );
+    Ok(v)
 }
 
 /// Режим `H3` из флага: `floor` читает пол из `instruments.csv` корня

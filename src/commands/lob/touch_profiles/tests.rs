@@ -1,7 +1,7 @@
 use super::*;
 use std::path::Path;
 
-use crate::commands::lob::test_support::{delta_frame, snap_frame, write_day};
+use crate::commands::lob::test_support::{delta_frame, snap_frame, write_day, write_session_json};
 use crate::commands::lob::H3ModeArg;
 use crate::lob::runs::{read_run_rows, RunKind};
 use crate::lob::touch_axes::{touch_grid_size, AGE_LABELS, TOUCH_AXES};
@@ -22,11 +22,14 @@ fn write_instruments_csv(root: &Path, symbols: &[(&str, i64)]) {
 /// сверки по флагу. Раскладка — та, что ждёт `session_parts_for`.
 fn write_session_dir(dir: &Path, day: &str, verified: bool, frames: &[Vec<crate::binlog::Record>]) {
     std::fs::create_dir_all(dir).unwrap();
-    let json = format!(
-        "{{\"started_utc\":\"{day}T02:00:00Z\",\"start_hour_utc\":2,\
-         \"instruments\":[\"{SYMBOL}\"]}}"
+    write_session_json(
+        dir,
+        &serde_json::json!({
+            "started_utc": format!("{day}T02:00:00Z"),
+            "start_hour_utc": 2,
+            "instruments": [SYMBOL],
+        }),
     );
-    std::fs::write(dir.join("session.json"), json).unwrap();
     write_day(dir, SYMBOL, day, frames);
     if verified {
         std::fs::write(dir.join(format!("verify-{SYMBOL}.status")), "ok").unwrap();

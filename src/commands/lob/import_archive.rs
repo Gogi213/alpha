@@ -27,10 +27,12 @@ use hftbacktest::types::{
     LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT,
 };
 
-use crate::binlog::{Header, Record, Writer};
+use crate::binlog::{parse_calendar_day, Header, Record, Writer};
 use crate::book::Side;
 use crate::bybit::ws::{parse_e9, parse_message, Event};
-use crate::commands::record::{FRAME_TARGET_RECORDS, MAX_RECORDS_PER_FRAME, ZSTD_LEVEL};
+use crate::commands::record::{
+    day_file_path, FRAME_TARGET_RECORDS, MAX_RECORDS_PER_FRAME, ZSTD_LEVEL,
+};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -209,8 +211,8 @@ impl<W: std::io::Write> Out<W> {
 /// (стакан — по `ts`, сделка — по `T`), так что порядок записей в файле — порядок поступления.
 pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSummary> {
     let (tick_e9, step_e9) = steps(&args.instruments, &args.symbol)?;
-    let day = chrono::NaiveDate::parse_from_str(&args.day, "%Y-%m-%d")
-        .map_err(|_| anyhow::anyhow!("--day {}: ожидается YYYY-MM-DD", args.day))?;
+    let day = parse_calendar_day(&args.day)
+        .ok_or_else(|| anyhow::anyhow!("--day {}: ожидается YYYY-MM-DD", args.day))?;
     let day_start = day
         .and_hms_opt(0, 0, 0)
         .ok_or_else(|| anyhow::anyhow!("--day: полночь не строится"))?
@@ -218,9 +220,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         .timestamp_millis();
     let day_end = day_start + DAY_MS;
     std::fs::create_dir_all(&args.root)?;
-    let out_path = args
-        .root
-        .join(format!("{}-{}.binlog", args.symbol, args.day));
+    let out_path = day_file_path(&args.root, &args.symbol, &args.day, 1);
     anyhow::ensure!(
         !out_path.exists(),
         "{}: файл уже есть — импорт не перезаписывает записанные сутки",

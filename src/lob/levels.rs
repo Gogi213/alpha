@@ -145,7 +145,7 @@
 //! кадра чужой стороны, а своя обновляется этим же кадром. Обе стороны
 //! пишутся в `best_tick` трекера.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 
 use crate::book::Side;
 use crate::lob::markout::HORIZONS_MS;
@@ -921,9 +921,104 @@ struct Touched {
     stack_next_tick: Option<i64>,
 }
 
-/// Трекер уровней. Состояние между кадрами — две карты с предвыделенными
-/// ёмкостями и переиспользуемые буферы новорождённых, свипа и ключей с
-/// событием касания: установившийся кадр без рождений, смертей и касаний
+/// Пары (ключ, значение), отсортированные по ключу в `Vec` — тот же приём,
+/// что `Book::HalfBook` (A4, `ARCHITECTURE.md`), обобщённый на карту: дерево-
+/// словарь аллоцирует узел на каждую вставку и гоняет указатели на обходе
+/// (запреты 1 и 7 горячего пути), здесь вставка и удаление — `memmove` в уже
+/// выделенной ёмкости, поиск — двоичный по ключу. Живых уровней разом немного
+/// (это уже отфильтрованные плотности, а не полная книга на 256 тиков), так
+/// что сдвиг на вставку дешевле дерева — довод тот же, что у `HalfBook`.
+struct SortedVec<K, V> {
+    items: Vec<(K, V)>,
+}
+
+impl<K: Ord + Copy, V> SortedVec<K, V> {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            items: Vec::with_capacity(cap),
+        }
+    }
+
+    /// Уже отсортированные по ключу пары без повторов — вход `with_carried_births`
+    /// (снимок конца прошлых суток; строится обходом `live` в порядке ключа).
+    fn from_sorted(items: Vec<(K, V)>) -> Self {
+        debug_assert!(
+            items.windows(2).all(|w| w[0].0 < w[1].0),
+            "вход обязан быть отсортирован по ключу без повторов"
+        );
+        Self { items }
+    }
+
+    fn find(&self, key: &K) -> Result<usize, usize> {
+        self.items.binary_search_by(|(k, _)| k.cmp(key))
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        self.find(key).ok().map(|i| &self.items[i].1)
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        match self.find(key) {
+            Ok(i) => Some(&mut self.items[i].1),
+            Err(_) => None,
+        }
+    }
+
+    /// Вставляет или заменяет значение на ключе. В горячем пути зовётся
+    /// только для заведомо нового ключа (это доказано вызывающим через
+    /// предшествующий `get_mut`, вернувший `None`), но словарная семантика
+    /// upsert этого не требует.
+    fn insert(&mut self, key: K, value: V) {
+        match self.find(&key) {
+            Ok(i) => self.items[i].1 = value,
+            Err(pos) => self.items.insert(pos, (key, value)),
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        match self.find(key) {
+            Ok(i) => Some(self.items.remove(i).1),
+            Err(_) => None,
+        }
+    }
+
+    /// Значение на ключе — вычисляет и вставляет по умолчанию, если ключа
+    /// ещё не было (замена `entry(..).or_default()` дерева-словаря).
+    fn get_or_insert_with(&mut self, key: K, default: impl FnOnce() -> V) -> &mut V {
+        match self.find(&key) {
+            Ok(i) => &mut self.items[i].1,
+            Err(pos) => {
+                self.items.insert(pos, (key, default()));
+                &mut self.items[pos].1
+            }
+        }
+    }
+
+    fn retain(&mut self, mut f: impl FnMut(&K, &mut V) -> bool) {
+        self.items.retain_mut(|(k, v)| f(k, v));
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &(K, V)> {
+        self.items.iter()
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Подслайс с ключами в `[lo, hi]`: ключи отсортированы, диапазон —
+    /// непрерывный отрезок, `partition_point` — двоичный поиск его границ
+    /// (замена диапазона дерева-словаря, которого у `Vec` нет).
+    fn range(&self, lo: K, hi: K) -> &[(K, V)] {
+        let a = self.items.partition_point(|(k, _)| *k < lo);
+        let b = self.items.partition_point(|(k, _)| *k <= hi);
+        &self.items[a..b]
+    }
+}
+
+/// Трекер уровней. Состояние между кадрами — карты `live`/`births`/`carry`
+/// (`SortedVec` выше) и переиспользуемые буферы новорождённых, свипа и ключей
+/// с событием касания: установившийся кадр без рождений, смертей и касаний
 /// не трогает кучу вообще (требование гейта GC).
 /// Окна соседей для **оси** силы касания (исследование порога В-61,
 /// 2026-09-18): на кадре старта касания считается сила «×соседи» для каждого
@@ -1013,10 +1108,22 @@ fn strength_flags(mode: H3Mode, levels: &[LevelObs], ok: &mut Vec<bool>, prefix:
     }
 }
 
+/// Начальная ёмкость `live`/`births`/`carry`: тот же порядок, что у буферов
+/// силы «×соседи» ниже (`strength_ok`/`strength_prefix`, одна сторона книги),
+/// удвоенный — карта копит уровни обеих сторон разом. Не измеренный потолок:
+/// превышение просто разово растит `Vec`, как у любого другого буфера
+/// трекера (`newborns`/`sweep`/`touched`), сам факт роста поведение не меняет.
+const LEVEL_MAP_CAPACITY: usize = 128;
+
 pub struct LevelTracker {
     cfg: LevelsConfig,
-    live: BTreeMap<(u8, i64), Live>,
-    births: BTreeMap<(u8, i64), VecDeque<i64>>,
+    live: SortedVec<(u8, i64), Live>,
+    births: SortedVec<(u8, i64), VecDeque<i64>>,
+    /// Метка последней чистки `births` по cutoff (пункт «а», W4): без нового
+    /// рождения на том же ключе очередь никогда не проходит через
+    /// `count_prior_births`, и её устаревшие записи не тримятся сами —
+    /// нужен отдельный периодический обход всей карты (`cleanup_births`).
+    births_cleaned_ms: Option<i64>,
     newborns: Vec<(u8, i64, i64)>,
     sweep: Vec<(u8, i64)>,
     touched: Vec<Touched>,
@@ -1041,7 +1148,7 @@ pub struct LevelTracker {
     flow_slot_min: [i64; FLOW_WINDOW_MIN],
     /// Рождения живых уровней конца прошлых суток (`with_carried_births`): уровень, который
     /// стоит на той же цене в **первом** кадре своей стороны новых суток, наследует рождение.
-    carry: BTreeMap<(u8, i64), i64>,
+    carry: SortedVec<(u8, i64), i64>,
     /// Первый кадр стороны ещё не пришёл — перенос для неё открыт.
     carry_open: [bool; 2],
 }
@@ -1241,11 +1348,12 @@ impl LevelTracker {
             "возраст взвода не может быть отрицателен"
         );
         Self {
-            carry: BTreeMap::new(),
+            carry: SortedVec::with_capacity(LEVEL_MAP_CAPACITY),
             carry_open: [false; 2],
             cfg,
-            live: BTreeMap::new(),
-            births: BTreeMap::new(),
+            live: SortedVec::with_capacity(LEVEL_MAP_CAPACITY),
+            births: SortedVec::with_capacity(LEVEL_MAP_CAPACITY),
+            births_cleaned_ms: None,
             newborns: Vec::with_capacity(8),
             sweep: Vec::with_capacity(8),
             touched: Vec::with_capacity(8),
@@ -1287,9 +1395,9 @@ impl LevelTracker {
     /// включены: они живые, просто при смерти не будут эмитированы.
     pub fn live_levels(&self, out: &mut Vec<LiveLevel>) {
         out.clear();
-        for (&key, lv) in &self.live {
+        for (key, lv) in self.live.iter() {
             out.push(LiveLevel {
-                side: side_of(key),
+                side: side_of(*key),
                 price_tick: key.1,
                 birth_ms: lv.birth_ms,
                 size_lots: lv.seen_size,
@@ -1313,17 +1421,18 @@ impl LevelTracker {
     /// рождение, только если стоит на той же цене в первом кадре своей стороны (снимок начала
     /// файла суток) — непрерывность наблюдения. Режимы с прогревом (`percentile`) перенос не
     /// принимают: там прогрев — про порог, а не про рождение.
-    pub fn with_carried_births(cfg: LevelsConfig, births: BTreeMap<(u8, i64), i64>) -> Self {
+    pub fn with_carried_births(cfg: LevelsConfig, births: Vec<((u8, i64), i64)>) -> Self {
         let mut t = Self::new(cfg);
         if t.effective_warmup_ms() == 0 && !births.is_empty() {
-            t.carry = births;
+            t.carry = SortedVec::from_sorted(births);
             t.carry_open = [true, true];
         }
         t
     }
 
-    /// Рождения живых уровней (ключ `(сторона, тик)` → `birth_ms`) — вход переноса.
-    pub fn live_births(&self) -> BTreeMap<(u8, i64), i64> {
+    /// Рождения живых уровней (ключ `(сторона, тик)` → `birth_ms`), отсортированные
+    /// по ключу, — вход переноса (`with_carried_births`).
+    pub fn live_births(&self) -> Vec<((u8, i64), i64)> {
         self.live.iter().map(|(k, lv)| (*k, lv.birth_ms)).collect()
     }
 
@@ -1377,6 +1486,56 @@ impl LevelTracker {
         touches: &mut Vec<TouchRecord>,
         approaches: &mut Vec<ApproachRecord>,
     ) {
+        self.cleanup_births(ts_ms);
+        let ctx = self.begin_frame(ts_ms, side, levels);
+        let carry_open_s = self.carry_open[ctx.s as usize];
+        // Фазы кадра (W4в) — свободные функции над непересекающимися полями,
+        // а не один вложенный метод: каждая берёт только то состояние, что
+        // реально трогает, вызовы идут строго по очереди, поэтому ни одна
+        // пара заимствований не пересекается во времени.
+        scan_levels(
+            &ctx,
+            ts_ms,
+            levels,
+            &self.strength_ok,
+            &self.strength_prefix,
+            &mut self.live,
+            &mut self.births,
+            &mut self.carry,
+            carry_open_s,
+            &mut self.newborns,
+            &mut self.touched,
+            approaches,
+        );
+        close_carry_after_first_frame(&mut self.carry, &mut self.carry_open, ctx.s);
+        detect_sweep(&self.live, &mut self.sweep, ctx.s, ctx.frame);
+        compute_touch_stacks(&self.live, &mut self.touched, ctx.s, ctx.frame, ctx.mode);
+        resolve_deaths(
+            &mut self.live,
+            &mut self.sweep,
+            &self.newborns,
+            &self.touched,
+            ts_ms,
+            ctx.frame,
+            ctx.warm_end,
+            out,
+            touches,
+            approaches,
+        );
+        finalize_surviving_touches(
+            &mut self.live,
+            &mut self.touched,
+            ts_ms,
+            ctx.frame,
+            ctx.warm_end,
+            touches,
+        );
+    }
+
+    /// Разбор кадра до прохода по наблюдениям (W4в, фаза 1): всё, что не
+    /// зависит от конкретного наблюдения, — оборот за час, счётчик кадра,
+    /// окно прогрева, флаги силы «×соседи», лучшие цены сторон.
+    fn begin_frame(&mut self, ts_ms: i64, side: Side, levels: &[LevelObs]) -> FrameCtx {
         // Оборот за час к этому кадру — один раз на кадр, для касаний, начавшихся в нём.
         let flow_1h = self.flow_1h_lots(ts_ms);
         if self.start_ms.is_none() {
@@ -1406,364 +1565,45 @@ impl LevelTracker {
         self.best_tick[s as usize] = best_own;
         let approach_d = self.cfg.approach_bps;
         let approach_min_age_ms = self.cfg.approach_min_age_ms;
-
         self.newborns.clear();
         self.touched.clear();
-        // Сумма лотов строго лучше текущего наблюдения по цене — префикс
-        // кадра до его индекса: на индексе 0 ноль, дальше копится. Рядом —
-        // цена **ближайшего** уровня с ненулевым размером среди этих лучших
-        // (B2): «первый фронтранer», на чью цену ставится вход от фронтрана.
-        let mut better_lots: i64 = 0;
-        let mut near_better_tick: Option<i64> = None;
-        for (i, ob) in levels.iter().enumerate() {
-            let key = (s, ob.tick);
-            let best = i == 0;
-            let strong = self.strength_ok.get(i).copied().unwrap_or(true);
-            match self.live.get_mut(&key) {
-                Some(lv) => {
-                    lv.seen_frame = frame;
-                    lv.seen_top50 = ob.in_top50;
-                    lv.seen_size = ob.size_lots;
-                    lv.seen_strong = strong;
-                    let now_e2 = neighbour_strength_e2(
-                        levels,
-                        &self.strength_prefix,
-                        i,
-                        STRENGTH_HIST_WINDOW_BPS_E2,
-                    );
-                    lv.observe_strength(ts_ms, now_e2);
-                    if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
-                        lv.first_decrease_ms = Some(ts_ms);
-                    }
-                    lv.prev = ob.size_lots;
-                    let max_before = lv.max;
-                    if ob.size_lots > lv.max {
-                        lv.max = ob.size_lots;
-                        lv.max_ms = ts_ms;
-                    }
-                    // Сметённое последним шагом — с последнего кадра до
-                    // касания: читается до того, как значение этого кадра
-                    // его перезапишет; фронтран — за секунду до касания по
-                    // слотам (В-45), после наблюдения этого кадра.
-                    let swept = lv.better_lots;
-                    lv.better_lots = better_lots;
-                    lv.observe_frontrun(ts_ms, better_lots, near_better_tick);
-                    let (frontrun, frontrun_tick) = lv.frontrun_before(ts_ms);
-                    // Касание — переход на лучшую цену уровня, жившего до
-                    // кадра (В-43): был не лучшим на последнем наблюдении и
-                    // родился раньше этой метки. Родившийся лучшей ценой (или
-                    // ставший ею в миллисекунду рождения) касается только
-                    // после ухода с лучшей цены и возврата.
-                    let arrives = best && !lv.was_best && lv.birth_ms < ts_ms;
-                    lv.was_best = best;
-                    match (&mut lv.touch, arrives, best) {
-                        (None, true, _) => {
-                            lv.touch = Some(Touch {
-                                start_ms: ts_ms,
-                                start_frame: frame,
-                                size_at: ob.size_lots,
-                                size_max_before: max_before,
-                                frontrun,
-                                frontrun_tick,
-                                swept,
-                                window_ticks: stack_window_ticks(ob.tick),
-                                traded_at_start: lv.traded,
-                                stack: 0,
-                                stack_next_tick: None,
-                                traded_first_s: [0; REACTION_WINDOWS_S.len()],
-                                flow_1h_lots: flow_1h,
-                                end_pending: false,
-                                strength_e2: std::array::from_fn(|k| {
-                                    neighbour_strength_e2(
-                                        levels,
-                                        &self.strength_prefix,
-                                        i,
-                                        STRENGTH_WINDOWS_BPS[k] * 100,
-                                    )
-                                }),
-                                strength_held_e2: std::array::from_fn(|k| {
-                                    lv.strength_held_e2(
-                                        ts_ms,
-                                        STRENGTH_HELD_WINDOWS_S[k] * 1_000,
-                                        now_e2,
-                                    )
-                                }),
-                                repeat_count: lv.repeat,
-                            });
-                            self.touched.push(Touched {
-                                key,
-                                stack: 0,
-                                stack_next_tick: None,
-                            });
-                        }
-                        (Some(t), _, false) => {
-                            // Конец, отложенный до свипа, разрешается в том же
-                            // кадре — второго ожидающего конца не бывает.
-                            debug_assert!(!t.end_pending);
-                            t.end_pending = true;
-                            self.touched.push(Touched {
-                                key,
-                                stack: 0,
-                                stack_next_tick: None,
-                            });
-                        }
-                        (None, false, _) | (Some(_), _, true) => {}
-                    }
-                    // Сигнал подхода (F1): взвод и снятие по кадру. Умерший в
-                    // этом кадре уровень не трогается — снятие смертью
-                    // эмитится свипом. При `approach_bps = None` блока нет
-                    // вовсе: ни состояния, ни записей.
-                    if let Some(d_bps) = approach_d {
-                        let dying = !ob.in_top50 || below_fraction(ob.size_lots, lv.max);
-                        if !dying {
-                            if let Some(best_opp_tick) = best_opp {
-                                let strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()] =
-                                    std::array::from_fn(|k| {
-                                        neighbour_strength_e2(
-                                            levels,
-                                            &self.strength_prefix,
-                                            i,
-                                            STRENGTH_WINDOWS_BPS[k] * 100,
-                                        )
-                                    });
-                                let holds = mode
-                                    .holds_at_size(ob.tick, ob.size_lots, &strength_e2)
-                                    .unwrap_or(false);
-                                observe_approach(
-                                    lv,
-                                    (d_bps, approach_min_age_ms),
-                                    s,
-                                    holds,
-                                    ApproachFrame {
-                                        ts_ms,
-                                        tick: ob.tick,
-                                        size_lots: ob.size_lots,
-                                        best,
-                                        best_own_tick: best_own.unwrap_or(ob.tick),
-                                        best_opp_tick,
-                                        flow_1h_lots: flow_1h,
-                                        strength_e2,
-                                    },
-                                    lv.birth_ms >= warm_end || lv.carried,
-                                    approaches,
-                                );
-                            }
-                        }
-                    }
-                }
-                None => {
-                    if ob.in_top50 && strong && mode.passes_birth(ob.tick, ob.size_lots) {
-                        let repeat = self.count_prior_births(key, ts_ms, window);
-                        let carried_birth = if self.carry_open[s as usize] {
-                            self.carry.remove(&key)
-                        } else {
-                            None
-                        };
-                        // Рождение лучшей ценой — не касание (В-43): «цена
-                        // дошла» — это переход, а не появление; запоминается
-                        // только `was_best`.
-                        self.live.insert(
-                            key,
-                            Live {
-                                birth_ms: carried_birth.unwrap_or(ts_ms),
-                                carried: carried_birth.is_some(),
-                                max: ob.size_lots,
-                                max_ms: ts_ms,
-                                prev: ob.size_lots,
-                                first_decrease_ms: None,
-                                repeat,
-                                seen_frame: frame,
-                                seen_top50: true,
-                                seen_size: ob.size_lots,
-                                seen_strong: true,
-                                traded: 0,
-                                rpi: 0,
-                                better_lots,
-                                slot_new: FrontrunSlot::new(ts_ms, better_lots, near_better_tick),
-                                slot_old: None,
-                                was_best: best,
-                                touch_index: 0,
-                                touch: None,
-                                approach: None,
-                                approach_index: 0,
-                                approach_clear: true,
-                                sh_ts: [0; STRENGTH_HIST_SLOTS],
-                                sh_e2: [-1; STRENGTH_HIST_SLOTS],
-                                sh_len: 0,
-                                sh_next: 0,
-                            },
-                        );
-                        self.newborns.push((s, ob.tick, ob.size_lots));
-                    }
-                }
-            }
-            better_lots = better_lots.saturating_add(ob.size_lots);
-            if ob.size_lots > 0 {
-                near_better_tick = Some(ob.tick);
-            }
+        FrameCtx {
+            s,
+            frame,
+            mode,
+            window,
+            warm_end,
+            best_own,
+            best_opp,
+            approach_d,
+            approach_min_age_ms,
+            flow_1h,
         }
-        // Перенос возраста действует только на первый кадр стороны: дальше рождение — новое.
-        if self.carry_open[s as usize] {
-            self.carry_open[s as usize] = false;
-            self.carry.retain(|k, _| k.0 != s);
-        }
+    }
 
-        // Свип двухфазный и по своей стороне: кадр несёт одну сторону, и
-        // отсутствие тика читается как ноль только в ней — уровни второй
-        // стороны этот вызов не трогает (иначе бид и аск убивали бы друг друга
-        // по очереди на каждом штампе). Итерация карты уже идёт по возрастанию
-        // ключа — порядок выдачи детерминирован. Куча не растёт, пока хватает
-        // ёмкостей буферов.
-        let live = &self.live;
-        let sweep = &mut self.sweep;
-        sweep.clear();
-        for (key, lv) in live.iter() {
-            if key.0 != s {
-                continue;
-            }
-            if lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max) {
-                sweep.push(*key);
-            }
+    /// Периодическая чистка `births` по cutoff (W4а): без нового рождения на
+    /// том же ключе очередь никогда больше не проходит через
+    /// `count_prior_births`, и её устаревшие записи не тримятся сами — карта
+    /// иначе растёт вечно на ценах, где рождение было один раз. Не чаще раза
+    /// в `repeat_window_ms`: после целого окна прошлые записи гарантированно
+    /// устарели у любого ключа, чаще обходить всю карту незачем. `retain`
+    /// только сдвигает и режет — не аллоцирует и не растит ёмкость.
+    fn cleanup_births(&mut self, ts_ms: i64) {
+        let window = self.cfg.repeat_window_ms;
+        let due = self
+            .births_cleaned_ms
+            .is_none_or(|last| ts_ms.saturating_sub(last) >= window);
+        if !due {
+            return;
         }
-        // «Завал» касаний, начавшихся в кадре (В-45): выжившие свип этой
-        // стороны с размером не ниже `H3` в окне тиков от цены уровня —
-        // диапазон карты по ключу, без обхода всей стороны. Умирающие в этом
-        // кадре не считаются — то же «после свипа», что и раньше.
-        for tk in self.touched.iter_mut() {
-            let Some(t) = live.get(&tk.key).and_then(|lv| lv.touch) else {
-                continue;
-            };
-            if t.start_frame != frame {
-                continue;
+        self.births_cleaned_ms = Some(ts_ms);
+        let cutoff = ts_ms - window;
+        self.births.retain(|_, q| {
+            while q.front().is_some_and(|&t| t <= cutoff) {
+                q.pop_front();
             }
-            let lo = tk.key.1.saturating_sub(t.window_ticks);
-            let hi = tk.key.1.saturating_add(t.window_ticks);
-            let mut n: u32 = 0;
-            // Ближайшая плотность **за** уровнем (бид — ниже, аск — выше):
-            // обход по возрастанию тика, для бида берётся последняя ниже
-            // цены, для аска — первая выше.
-            let mut next_behind: Option<i64> = None;
-            for ((_, lv_tick), lv) in live.range((s, lo)..=(s, hi)) {
-                let dying = lv.seen_frame != frame
-                    || !lv.seen_top50
-                    || below_fraction(lv.seen_size, lv.max);
-                if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
-                    n = n.saturating_add(1);
-                    let behind = if s == side_key(Side::Bid) {
-                        *lv_tick < tk.key.1
-                    } else {
-                        *lv_tick > tk.key.1 && next_behind.is_none()
-                    };
-                    if behind {
-                        next_behind = Some(*lv_tick);
-                    }
-                }
-            }
-            tk.stack = n;
-            tk.stack_next_tick = next_behind;
-        }
-        let newborns = &self.newborns;
-        let touched = &self.touched;
-        let live = &mut self.live;
-        for (ks, tick) in self.sweep.drain(..) {
-            // Ключ только что найден в свипе, который построен обходом `live`
-            // выше без единой вставки между, — отсутствие было бы дефектом
-            // логики, а не данных. Паники при этом нет по режиму линтов:
-            // в релизе дефект даст пропуск уровня (видимый), а в дебаге —
-            // срабатывание ассёрта ниже.
-            debug_assert!(live.contains_key(&(ks, tick)));
-            let Some(lv) = live.remove(&(ks, tick)) else {
-                continue;
-            };
-            if lv.birth_ms < warm_end && !lv.carried {
-                continue;
-            }
-            // Подход, не дождавшийся цены, снимается смертью уровня — перед
-            // записью оборванного смертью касания.
-            if let Some(a) = lv.approach {
-                approaches.push(approach_record(
-                    (ks, tick),
-                    &lv,
-                    a,
-                    ts_ms,
-                    None,
-                    ApproachEnd::LevelDeath,
-                ));
-            }
-            // Касание, оборванное смертью, идёт перед самой смертью: у
-            // начавшегося в этом кадре «завал» — по свипу этого же кадра
-            // (посчитан выше в `touched`).
-            if let Some(t) = lv.touch {
-                let stack = if t.start_frame == frame {
-                    touched
-                        .iter()
-                        .find(|tk| tk.key == (ks, tick))
-                        .map_or((t.stack, t.stack_next_tick), |tk| {
-                            (tk.stack, tk.stack_next_tick)
-                        })
-                } else {
-                    (t.stack, t.stack_next_tick)
-                };
-                touches.push(touch_record((ks, tick), &lv, t, ts_ms, stack, true));
-            }
-            let kind = if lv.seen_frame == frame && !lv.seen_top50 {
-                DeathKind::LeftTop
-            } else {
-                DeathKind::BelowFraction
-            };
-            let repriced = newborns.iter().any(|&(ns, nt, nsize)| {
-                ns == ks
-                    && nt.checked_sub(tick).is_some_and(|d| d == 1 || d == -1)
-                    && comparable_size(nsize, lv.max)
-            });
-            out.push(LevelRecord {
-                side: side_of((ks, tick)),
-                price_tick: tick,
-                birth_ms: lv.birth_ms,
-                death_ms: ts_ms,
-                lifetime_ms: ts_ms - lv.birth_ms,
-                size_max: lv.max,
-                time_to_max_ms: lv.max_ms - lv.birth_ms,
-                size_monotonic: lv.first_decrease_ms.is_none_or(|t| t > lv.max_ms),
-                repeat_count: lv.repeat,
-                repriced,
-                death: kind,
-                traded_lots: lv.traded,
-                rpi_lots: lv.rpi,
-            });
-        }
-
-        // Касания выживших: начавшимся в кадре — «завал» по свипу, ушедшим с
-        // лучшей цены — запись и следующий индекс. Ключ, которого в карте
-        // уже нет, умер в свипе выше — его касание уже выдано со смертью.
-        for tk in self.touched.drain(..) {
-            let key = tk.key;
-            let Some(lv) = live.get_mut(&key) else {
-                continue;
-            };
-            let Some(t) = &mut lv.touch else {
-                continue;
-            };
-            if t.start_frame == frame {
-                t.stack = tk.stack;
-                t.stack_next_tick = tk.stack_next_tick;
-            }
-            if t.end_pending {
-                let t = *t;
-                if lv.birth_ms >= warm_end || lv.carried {
-                    touches.push(touch_record(
-                        key,
-                        lv,
-                        t,
-                        ts_ms,
-                        (t.stack, t.stack_next_tick),
-                        false,
-                    ));
-                }
-                lv.touch = None;
-                lv.touch_index = lv.touch_index.saturating_add(1);
-            }
-        }
+            !q.is_empty()
+        });
     }
 
     /// Один трейд ленты. Находит живой уровень той стороны, которую трейд ест
@@ -1822,18 +1662,463 @@ impl LevelTracker {
             H3Mode::Percentile { .. } => self.cfg.warmup_ms,
         }
     }
+}
 
-    /// Сколько рождений уже было на этом ключе строго внутри окна, и запись
-    /// текущего. Очередь чистится спереди: старые рождения выпадают сами.
-    fn count_prior_births(&mut self, key: (u8, i64), ts_ms: i64, window_ms: i64) -> u32 {
-        let q = self.births.entry(key).or_default();
-        let cutoff = ts_ms - window_ms;
-        while q.front().is_some_and(|&t| t <= cutoff) {
-            q.pop_front();
+/// Часть состояния кадра, общая для всех наблюдений (W4в): собирается один
+/// раз в `LevelTracker::begin_frame`, дальше передаётся фазам по значению —
+/// сам он не хранит ссылок ни на `LevelTracker`, ни на кадр.
+#[derive(Debug, Clone, Copy)]
+struct FrameCtx {
+    s: u8,
+    frame: u64,
+    mode: H3Mode,
+    /// `repeat_window_ms` конфигурации — окно `count_prior_births`.
+    window: i64,
+    warm_end: i64,
+    best_own: Option<i64>,
+    best_opp: Option<i64>,
+    approach_d: Option<i64>,
+    approach_min_age_ms: i64,
+    flow_1h: i64,
+}
+
+/// Сколько рождений уже было на этом ключе строго внутри окна, и запись
+/// текущего (W4в: свободная функция вместо метода — операция только над
+/// картой рождений). Очередь чистится спереди: старые рождения выпадают сами;
+/// полная чистка забытых ключей — отдельно, `LevelTracker::cleanup_births`.
+fn count_prior_births(
+    births: &mut SortedVec<(u8, i64), VecDeque<i64>>,
+    key: (u8, i64),
+    ts_ms: i64,
+    window_ms: i64,
+) -> u32 {
+    let q = births.get_or_insert_with(key, VecDeque::new);
+    let cutoff = ts_ms - window_ms;
+    while q.front().is_some_and(|&t| t <= cutoff) {
+        q.pop_front();
+    }
+    let n = u32::try_from(q.len()).unwrap_or(u32::MAX);
+    q.push_back(ts_ms);
+    n
+}
+
+/// Один проход по наблюдениям кадра (W4в, фаза 2): обновляет существующие
+/// живые уровни (касание, подход, история силы) и заводит новые рождения.
+/// Берёт только поля, которые реально трогает, — карту живых, карту
+/// рождений, перенос возраста и буферы новорождённых/касаний кадра.
+#[allow(clippy::too_many_arguments)]
+fn scan_levels(
+    ctx: &FrameCtx,
+    ts_ms: i64,
+    levels: &[LevelObs],
+    strength_ok: &[bool],
+    strength_prefix: &[i64],
+    live: &mut SortedVec<(u8, i64), Live>,
+    births: &mut SortedVec<(u8, i64), VecDeque<i64>>,
+    carry: &mut SortedVec<(u8, i64), i64>,
+    carry_open_s: bool,
+    newborns: &mut Vec<(u8, i64, i64)>,
+    touched: &mut Vec<Touched>,
+    approaches: &mut Vec<ApproachRecord>,
+) {
+    let FrameCtx {
+        s,
+        frame,
+        mode,
+        window,
+        warm_end,
+        best_own,
+        best_opp,
+        approach_d,
+        approach_min_age_ms,
+        flow_1h,
+    } = *ctx;
+
+    // Сумма лотов строго лучше текущего наблюдения по цене — префикс
+    // кадра до его индекса: на индексе 0 ноль, дальше копится. Рядом —
+    // цена **ближайшего** уровня с ненулевым размером среди этих лучших
+    // (B2): «первый фронтранer», на чью цену ставится вход от фронтрана.
+    let mut better_lots: i64 = 0;
+    let mut near_better_tick: Option<i64> = None;
+    for (i, ob) in levels.iter().enumerate() {
+        let key = (s, ob.tick);
+        let best = i == 0;
+        let strong = strength_ok.get(i).copied().unwrap_or(true);
+        // Считается лениво и не больше раза на наблюдение (W4г): нужна и
+        // новому касанию, и сигналу подхода того же кадра — раньше уровень,
+        // ставший касанием при включённом подходе, платил за неё дважды.
+        let mut strength_e2_window: Option<[i64; STRENGTH_WINDOWS_BPS.len()]> = None;
+        let mut strength_e2_now = || -> [i64; STRENGTH_WINDOWS_BPS.len()] {
+            *strength_e2_window.get_or_insert_with(|| {
+                std::array::from_fn(|k| {
+                    neighbour_strength_e2(levels, strength_prefix, i, STRENGTH_WINDOWS_BPS[k] * 100)
+                })
+            })
+        };
+        match live.get_mut(&key) {
+            Some(lv) => {
+                lv.seen_frame = frame;
+                lv.seen_top50 = ob.in_top50;
+                lv.seen_size = ob.size_lots;
+                lv.seen_strong = strong;
+                let now_e2 =
+                    neighbour_strength_e2(levels, strength_prefix, i, STRENGTH_HIST_WINDOW_BPS_E2);
+                lv.observe_strength(ts_ms, now_e2);
+                if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
+                    lv.first_decrease_ms = Some(ts_ms);
+                }
+                lv.prev = ob.size_lots;
+                let max_before = lv.max;
+                if ob.size_lots > lv.max {
+                    lv.max = ob.size_lots;
+                    lv.max_ms = ts_ms;
+                }
+                // Сметённое последним шагом — с последнего кадра до
+                // касания: читается до того, как значение этого кадра
+                // его перезапишет; фронтран — за секунду до касания по
+                // слотам (В-45), после наблюдения этого кадра.
+                let swept = lv.better_lots;
+                lv.better_lots = better_lots;
+                lv.observe_frontrun(ts_ms, better_lots, near_better_tick);
+                let (frontrun, frontrun_tick) = lv.frontrun_before(ts_ms);
+                // Касание — переход на лучшую цену уровня, жившего до
+                // кадра (В-43): был не лучшим на последнем наблюдении и
+                // родился раньше этой метки. Родившийся лучшей ценой (или
+                // ставший ею в миллисекунду рождения) касается только
+                // после ухода с лучшей цены и возврата.
+                let arrives = best && !lv.was_best && lv.birth_ms < ts_ms;
+                lv.was_best = best;
+                match (&mut lv.touch, arrives, best) {
+                    (None, true, _) => {
+                        lv.touch = Some(Touch {
+                            start_ms: ts_ms,
+                            start_frame: frame,
+                            size_at: ob.size_lots,
+                            size_max_before: max_before,
+                            frontrun,
+                            frontrun_tick,
+                            swept,
+                            window_ticks: stack_window_ticks(ob.tick),
+                            traded_at_start: lv.traded,
+                            stack: 0,
+                            stack_next_tick: None,
+                            traded_first_s: [0; REACTION_WINDOWS_S.len()],
+                            flow_1h_lots: flow_1h,
+                            end_pending: false,
+                            strength_e2: strength_e2_now(),
+                            strength_held_e2: std::array::from_fn(|k| {
+                                lv.strength_held_e2(
+                                    ts_ms,
+                                    STRENGTH_HELD_WINDOWS_S[k] * 1_000,
+                                    now_e2,
+                                )
+                            }),
+                            repeat_count: lv.repeat,
+                        });
+                        touched.push(Touched {
+                            key,
+                            stack: 0,
+                            stack_next_tick: None,
+                        });
+                    }
+                    (Some(t), _, false) => {
+                        // Конец, отложенный до свипа, разрешается в том же
+                        // кадре — второго ожидающего конца не бывает.
+                        debug_assert!(!t.end_pending);
+                        t.end_pending = true;
+                        touched.push(Touched {
+                            key,
+                            stack: 0,
+                            stack_next_tick: None,
+                        });
+                    }
+                    (None, false, _) | (Some(_), _, true) => {}
+                }
+                // Сигнал подхода (F1): взвод и снятие по кадру. Умерший в
+                // этом кадре уровень не трогается — снятие смертью
+                // эмитится свипом. При `approach_bps = None` блока нет
+                // вовсе: ни состояния, ни записей.
+                if let Some(d_bps) = approach_d {
+                    let dying = !ob.in_top50 || below_fraction(ob.size_lots, lv.max);
+                    if !dying {
+                        if let Some(best_opp_tick) = best_opp {
+                            let strength_e2 = strength_e2_now();
+                            let holds = mode
+                                .holds_at_size(ob.tick, ob.size_lots, &strength_e2)
+                                .unwrap_or(false);
+                            observe_approach(
+                                lv,
+                                (d_bps, approach_min_age_ms),
+                                s,
+                                holds,
+                                ApproachFrame {
+                                    ts_ms,
+                                    tick: ob.tick,
+                                    size_lots: ob.size_lots,
+                                    best,
+                                    best_own_tick: best_own.unwrap_or(ob.tick),
+                                    best_opp_tick,
+                                    flow_1h_lots: flow_1h,
+                                    strength_e2,
+                                },
+                                lv.birth_ms >= warm_end || lv.carried,
+                                approaches,
+                            );
+                        }
+                    }
+                }
+            }
+            None => {
+                if ob.in_top50 && strong && mode.passes_birth(ob.tick, ob.size_lots) {
+                    let repeat = count_prior_births(births, key, ts_ms, window);
+                    let carried_birth = if carry_open_s {
+                        carry.remove(&key)
+                    } else {
+                        None
+                    };
+                    // Рождение лучшей ценой — не касание (В-43): «цена
+                    // дошла» — это переход, а не появление; запоминается
+                    // только `was_best`.
+                    live.insert(
+                        key,
+                        Live {
+                            birth_ms: carried_birth.unwrap_or(ts_ms),
+                            carried: carried_birth.is_some(),
+                            max: ob.size_lots,
+                            max_ms: ts_ms,
+                            prev: ob.size_lots,
+                            first_decrease_ms: None,
+                            repeat,
+                            seen_frame: frame,
+                            seen_top50: true,
+                            seen_size: ob.size_lots,
+                            seen_strong: true,
+                            traded: 0,
+                            rpi: 0,
+                            better_lots,
+                            slot_new: FrontrunSlot::new(ts_ms, better_lots, near_better_tick),
+                            slot_old: None,
+                            was_best: best,
+                            touch_index: 0,
+                            touch: None,
+                            approach: None,
+                            approach_index: 0,
+                            approach_clear: true,
+                            sh_ts: [0; STRENGTH_HIST_SLOTS],
+                            sh_e2: [-1; STRENGTH_HIST_SLOTS],
+                            sh_len: 0,
+                            sh_next: 0,
+                        },
+                    );
+                    newborns.push((s, ob.tick, ob.size_lots));
+                }
+            }
         }
-        let n = u32::try_from(q.len()).unwrap_or(u32::MAX);
-        q.push_back(ts_ms);
-        n
+        better_lots = better_lots.saturating_add(ob.size_lots);
+        if ob.size_lots > 0 {
+            near_better_tick = Some(ob.tick);
+        }
+    }
+}
+
+/// Перенос возраста действует только на первый кадр стороны: дальше
+/// рождение — новое (W4в, фаза 3).
+fn close_carry_after_first_frame(
+    carry: &mut SortedVec<(u8, i64), i64>,
+    carry_open: &mut [bool; 2],
+    s: u8,
+) {
+    if carry_open[s as usize] {
+        carry_open[s as usize] = false;
+        carry.retain(|k, _| k.0 != s);
+    }
+}
+
+/// Живые уровни стороны `s`, готовые к свипу этого кадра — не видны в нём,
+/// ушли за топ-50 или упали ниже 20% максимума (W4в, фаза 4). Свип по своей
+/// стороне: кадр несёт одну сторону, и отсутствие тика читается как ноль
+/// только в ней — уровни второй стороны не трогаются (иначе бид и аск
+/// убивали бы друг друга по очереди на каждом штампе). `range` вместо обхода
+/// всей карты — уровни стороны лежат подряд по ключу `(сторона, тик)`.
+/// Итерация уже идёт по возрастанию цены — порядок выдачи детерминирован.
+fn detect_sweep(live: &SortedVec<(u8, i64), Live>, sweep: &mut Vec<(u8, i64)>, s: u8, frame: u64) {
+    sweep.clear();
+    for (key, lv) in live.range((s, i64::MIN), (s, i64::MAX)) {
+        if lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max) {
+            sweep.push(*key);
+        }
+    }
+}
+
+/// «Завал» касаний, начавшихся в этом кадре (В-45; W4в, фаза 5): диапазон
+/// `live` в окне тиков вокруг цены уровня — без обхода всей стороны.
+/// Умирающие в этом кадре не считаются — то же «после свипа», что и у смерти.
+fn compute_touch_stacks(
+    live: &SortedVec<(u8, i64), Live>,
+    touched: &mut [Touched],
+    s: u8,
+    frame: u64,
+    mode: H3Mode,
+) {
+    for tk in touched.iter_mut() {
+        let Some(t) = live.get(&tk.key).and_then(|lv| lv.touch) else {
+            continue;
+        };
+        if t.start_frame != frame {
+            continue;
+        }
+        let lo = tk.key.1.saturating_sub(t.window_ticks);
+        let hi = tk.key.1.saturating_add(t.window_ticks);
+        let mut n: u32 = 0;
+        // Ближайшая плотность **за** уровнем (бид — ниже, аск — выше):
+        // обход по возрастанию тика, для бида берётся последняя ниже
+        // цены, для аска — первая выше.
+        let mut next_behind: Option<i64> = None;
+        for ((_, lv_tick), lv) in live.range((s, lo), (s, hi)) {
+            let dying =
+                lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max);
+            if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
+                n = n.saturating_add(1);
+                let behind = if s == side_key(Side::Bid) {
+                    *lv_tick < tk.key.1
+                } else {
+                    *lv_tick > tk.key.1 && next_behind.is_none()
+                };
+                if behind {
+                    next_behind = Some(*lv_tick);
+                }
+            }
+        }
+        tk.stack = n;
+        tk.stack_next_tick = next_behind;
+    }
+}
+
+/// Смерти этого свипа (W4в, фаза 6): убирает уровень из `live`, эмитит
+/// оборванные смертью подход и касание (если были) и саму запись смерти.
+/// Порядок `(сторона, тик)` уже задан обходом, которым `detect_sweep`
+/// построил `sweep`.
+#[allow(clippy::too_many_arguments)]
+fn resolve_deaths(
+    live: &mut SortedVec<(u8, i64), Live>,
+    sweep: &mut Vec<(u8, i64)>,
+    newborns: &[(u8, i64, i64)],
+    touched: &[Touched],
+    ts_ms: i64,
+    frame: u64,
+    warm_end: i64,
+    out: &mut Vec<LevelRecord>,
+    touches: &mut Vec<TouchRecord>,
+    approaches: &mut Vec<ApproachRecord>,
+) {
+    for (ks, tick) in sweep.drain(..) {
+        // Ключ только что найден в свипе, который построен обходом `live`
+        // выше без единой вставки между, — отсутствие было бы дефектом
+        // логики, а не данных. Паники при этом нет по режиму линтов:
+        // в релизе дефект даст пропуск уровня (видимый), а в дебаге —
+        // срабатывание ассёрта ниже.
+        debug_assert!(live.get(&(ks, tick)).is_some());
+        let Some(lv) = live.remove(&(ks, tick)) else {
+            continue;
+        };
+        if lv.birth_ms < warm_end && !lv.carried {
+            continue;
+        }
+        // Подход, не дождавшийся цены, снимается смертью уровня — перед
+        // записью оборванного смертью касания.
+        if let Some(a) = lv.approach {
+            approaches.push(approach_record(
+                (ks, tick),
+                &lv,
+                a,
+                ts_ms,
+                None,
+                ApproachEnd::LevelDeath,
+            ));
+        }
+        // Касание, оборванное смертью, идёт перед самой смертью: у
+        // начавшегося в этом кадре «завал» — по свипу этого же кадра
+        // (посчитан выше в `touched`).
+        if let Some(t) = lv.touch {
+            let stack = if t.start_frame == frame {
+                touched
+                    .iter()
+                    .find(|tk| tk.key == (ks, tick))
+                    .map_or((t.stack, t.stack_next_tick), |tk| {
+                        (tk.stack, tk.stack_next_tick)
+                    })
+            } else {
+                (t.stack, t.stack_next_tick)
+            };
+            touches.push(touch_record((ks, tick), &lv, t, ts_ms, stack, true));
+        }
+        let kind = if lv.seen_frame == frame && !lv.seen_top50 {
+            DeathKind::LeftTop
+        } else {
+            DeathKind::BelowFraction
+        };
+        let repriced = newborns.iter().any(|&(ns, nt, nsize)| {
+            ns == ks
+                && nt.checked_sub(tick).is_some_and(|d| d == 1 || d == -1)
+                && comparable_size(nsize, lv.max)
+        });
+        out.push(LevelRecord {
+            side: side_of((ks, tick)),
+            price_tick: tick,
+            birth_ms: lv.birth_ms,
+            death_ms: ts_ms,
+            lifetime_ms: ts_ms - lv.birth_ms,
+            size_max: lv.max,
+            time_to_max_ms: lv.max_ms - lv.birth_ms,
+            size_monotonic: lv.first_decrease_ms.is_none_or(|t| t > lv.max_ms),
+            repeat_count: lv.repeat,
+            repriced,
+            death: kind,
+            traded_lots: lv.traded,
+            rpi_lots: lv.rpi,
+        });
+    }
+}
+
+/// Касания выживших (W4в, фаза 7): начавшимся в кадре — «завал» по свипу
+/// (`compute_touch_stacks`), ушедшим с лучшей цены — запись и следующий
+/// индекс. Ключ, которого в `live` уже нет, умер в `resolve_deaths` — его
+/// касание уже выдано со смертью.
+fn finalize_surviving_touches(
+    live: &mut SortedVec<(u8, i64), Live>,
+    touched: &mut Vec<Touched>,
+    ts_ms: i64,
+    frame: u64,
+    warm_end: i64,
+    touches: &mut Vec<TouchRecord>,
+) {
+    for tk in touched.drain(..) {
+        let key = tk.key;
+        let Some(lv) = live.get_mut(&key) else {
+            continue;
+        };
+        let Some(t) = &mut lv.touch else {
+            continue;
+        };
+        if t.start_frame == frame {
+            t.stack = tk.stack;
+            t.stack_next_tick = tk.stack_next_tick;
+        }
+        if t.end_pending {
+            let t = *t;
+            if lv.birth_ms >= warm_end || lv.carried {
+                touches.push(touch_record(
+                    key,
+                    lv,
+                    t,
+                    ts_ms,
+                    (t.stack, t.stack_next_tick),
+                    false,
+                ));
+            }
+            lv.touch = None;
+            lv.touch_index = lv.touch_index.saturating_add(1);
+        }
     }
 }
 
