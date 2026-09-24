@@ -1284,7 +1284,16 @@ fn run_session_loop<F: Feed + DynamicPool + ?Sized>(
                         }
                     }
                 }
-                ctx.log_gap(Some(idx), record_kind, ts_utc_of_ns(local_ts_ns), detail);
+                // Строка собирается здесь, а не в `Feed` (ремонт W2, ревью
+                // 23.09): `detail` — данные (`feed::GapDetail`), не готовый
+                // текст; `Unrouted`/`MarketSilence` ушли из `continue` выше,
+                // не дойдя до этой строки — их `Display` не зовётся вовсе.
+                ctx.log_gap(
+                    Some(idx),
+                    record_kind,
+                    ts_utc_of_ns(local_ts_ns),
+                    detail.to_string(),
+                );
             }
             Event::Tick { local_ts_ns } => {
                 ctx.on_tick(local_ts_ns);

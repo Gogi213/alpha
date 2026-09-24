@@ -76,7 +76,15 @@ pub enum Event {
         /// причин — поле для них не имеет смысла, как `first_of_socket` не
         /// имеет смысла вне `Disconnected`.
         first_of_episode: bool,
-        detail: String,
+        /// Причина структурно, не строкой (ремонт W2, ревью 23.09): `live::
+        /// LiveFeed::next_event` раньше собирала `String` через `format!`/
+        /// `to_string()` на каждый `Gap`, включая `Unrouted`/`MarketSilence`,
+        /// чью деталь никто не читает (`commands::lob::session` уходит из
+        /// ветки `continue`, не тронув поле) — аллокация на потоке решений
+        /// без потребителя, запрет 1 `interfaces.md`. Строку собирает
+        /// писатель `gaps.csv` (`Display`, ниже) ровно там, где решено, что
+        /// строка действительно нужна.
+        detail: GapDetail,
     },
     /// Тик таймера источника (таск 25): живой `Feed` шлёт его раз в
     /// `tick` (`live::LiveFeed::spawn_with_ticks`), даже когда рынок и сеть
@@ -129,6 +137,104 @@ pub enum GapKind {
     /// `gaps.csv` не даёт (как `Unrouted`), только счётчик эпизодов и
     /// максимум длительности в `session.json` (`Event::Gap::silence_ns`).
     MarketSilence,
+}
+
+/// Деталь `Event::Gap` — данные, а не готовый текст (ремонт W2, ревью 23.09):
+/// `live::LiveFeed::next_event` собирает эти варианты из полей `bybit::conn::
+/// ConnEvent` напрямую, без `format!`/`to_string()` на потоке решений (запрет
+/// 1). Текст собирает читатель через `Display` — тот же самый, байт в байт,
+/// что раньше строился в `next_event`: писатель `gaps.csv` (`commands::lob::
+/// session`) зовёт его ровно там, где решено, что строка для журнала
+/// действительно нужна (не для `Unrouted`/`MarketSilence` — их деталь
+/// читатель не разворачивает вовсе, см. `Event::Gap::detail`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum GapDetail {
+    /// Кадр не разобрался — исходная ошибка разбора (`bybit::ws::ParseError`).
+    ParseFailed(crate::bybit::ws::ParseError),
+    /// Разрыв `u` потока `.depth`: ждали `expected`, пришло `got`.
+    SequenceGap { depth: u32, expected: u64, got: u64 },
+    /// Инвариант книги потока `.depth` нарушен (`book::ApplyError` — не
+    /// только `SequenceGap`: `PriceNotOnTick`/`QtyNotOnStep`/`Crossed`).
+    BookInvariant {
+        depth: u32,
+        err: crate::book::ApplyError,
+    },
+    /// Транспорт переподключился — шов покрытия (один текст для
+    /// `GapKind::Disconnected` и его копий `DisconnectedSameSocket`, как и
+    /// раньше: `bybit::conn::ConnEvent::Disconnected` несёт только
+    /// `first_of_socket`, деталь от него не зависит).
+    Disconnected,
+    /// `connect()` не удался: `http_status` — код рукопожатия, если биржа
+    /// отказала им (`None` — обрыв/TLS/DNS), `attempt` — номер попытки.
+    ConnectFailed {
+        attempt: u32,
+        http_status: Option<u16>,
+        err: String,
+    },
+    /// Топик кадра не сопоставлен ни одному инструменту сокета — деталь не
+    /// читается никем (`commands::lob::session` уходит из `continue` раньше),
+    /// вариант нужен только для типа поля.
+    Unrouted,
+    /// Биржа отказала в подписке: `topic` — из `ret_msg`, если он там назван,
+    /// `ret_msg` — как есть.
+    SubscribeFailed {
+        topic: Option<String>,
+        ret_msg: String,
+    },
+    /// ОС-поток шарда ввода-вывода завершился (V12) — его инструменты больше
+    /// не получают данных.
+    ShardDied,
+    /// Молчание рынка живо `silence_ns` — деталь не читается никем
+    /// (`commands::lob::session` считает счётчик и максимум и уходит из
+    /// `continue`, строки `gaps.csv` тишина не даёт), вариант несёт число на
+    /// случай, если это когда-нибудь понадобится другому читателю.
+    MarketSilence { silence_ns: i64 },
+}
+
+impl std::fmt::Display for GapDetail {
+    /// Byte-for-byte те же строки, что раньше строил `format!`/`to_string()`
+    /// внутри `live::LiveFeed::next_event` — `gaps.csv` не имеет права
+    /// измениться этим ремонтом.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ParseFailed(err) => write!(f, "кадр не разобрался: {err:?}"),
+            Self::SequenceGap {
+                depth,
+                expected,
+                got,
+            } => write!(
+                f,
+                "разрыв u потока .{depth}: ждали {expected}, пришло {got} — ресинк снапшотом"
+            ),
+            Self::BookInvariant { depth, err } => {
+                write!(f, "книга потока .{depth} нарушена: {err:?} — ресинк снапшотом")
+            }
+            Self::Disconnected => f.write_str("транспорт переподключился — шов покрытия"),
+            Self::ConnectFailed {
+                attempt,
+                http_status,
+                err,
+            } => match http_status {
+                Some(status) => write!(
+                    f,
+                    "connect() отклонён биржей: HTTP {status} — {err} (попытка {attempt})"
+                ),
+                None => write!(f, "connect() не удался: {err} (попытка {attempt})"),
+            },
+            Self::Unrouted => f.write_str("топик кадра не сопоставлен ни одному инструменту сокета"),
+            Self::SubscribeFailed { topic, ret_msg } => match topic {
+                Some(topic) => write!(f, "подписка не состоялась: {topic} — {ret_msg}"),
+                None => write!(f, "подписка не состоялась: {ret_msg}"),
+            },
+            Self::ShardDied => f.write_str(
+                "ОС-поток шарда ввода-вывода завершился — его инструменты больше не получают данных",
+            ),
+            Self::MarketSilence { silence_ns } => write!(
+                f,
+                "рыночных событий (Book/Trade) нет {silence_ns} нс — соединение живо, не рвётся"
+            ),
+        }
+    }
 }
 
 /// A5: итератор, а не колбэк. Одна и та же сигнатура обслуживает и

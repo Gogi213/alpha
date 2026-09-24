@@ -57,7 +57,7 @@ use crate::bybit::conn::{
 /// `spawn_io_thread` берёт срез потоков, а не отдельную глубину.
 const FAST_DEPTHS: [u32; 1] = [ORDERBOOK_DEPTH];
 
-use super::{Event, Feed, GapKind};
+use super::{Event, Feed, GapDetail, GapKind};
 
 /// Один инструмент пула для живого потока: символ и шаги его цены/размера
 /// из `instruments.csv` (сам пул задача 04 не выбирает — берёт готовым от
@@ -283,6 +283,21 @@ impl StopHandle {
                 .enable_all()
                 .build()
             else {
+                // Молчаливый возврат здесь выглядел бы как «Ctrl+C и SIGTERM
+                // работают», хотя обработчик так и не встал (ремонт W2,
+                // ревью 23.09) — оператор узнал бы об этом только тем, что
+                // второе нажатие не срабатывает, посреди инцидента. Штатная
+                // остановка файлом `<root>/stop` (В-41) этим не задета — она
+                // не зависит от этого рантайма. Метка готовности всё равно
+                // ставится: тест, который её ждёт, иначе повис бы навсегда.
+                eprintln!(
+                    "session: рантайм обработчика Ctrl+C/SIGTERM не поднялся — сигналы \
+                     остановки эта сессия не поймает, штатная остановка осталась только на \
+                     файле <root>/stop"
+                );
+                if let Some(ready) = ready {
+                    ready.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 return;
             };
             let kind = runtime.block_on(wait_for_stop_signal(ready.as_deref()));
@@ -380,8 +395,11 @@ pub struct LiveFeed {
     /// Поток завершается сам, когда канал закрылся (ушёл `LiveFeed` и все
     /// шарды); ручка не читается — смерть таймера без тика неотличима от
     /// тишины, а ломаться в нём нечему (свой рантайм, `interval` и отправка
-    /// в канал).
-    _ticker: Option<std::thread::JoinHandle<()>>,
+    /// в канал). Не `Option` (ремонт W2, ревью 23.09): конструктора без тика
+    /// больше нет — без него `report_dead_shards` не звался никогда и
+    /// `next_event` мог виснуть на `blocking_recv` до бесконечности при
+    /// молчании пула, `should_stop` вызывающего (`lob react`) не проверялся.
+    _ticker: std::thread::JoinHandle<()>,
 }
 
 /// Поднимает один шард — ОС-поток с рантаймом и `Connection` — для группы
@@ -577,7 +595,7 @@ impl LiveFeed {
             pool,
             |_member| BybitPublicLinearConnector,
             SystemClock,
-            Some(tick),
+            tick,
             SUBSCRIBED_DEPTHS.to_vec(),
         )
     }
@@ -622,6 +640,18 @@ impl LiveFeed {
     /// часы — параметры, ничего больше в теле не меняется. Потоки стакана —
     /// один быстрый `.50` (`FAST_DEPTHS`): двухпотоковый вход один и назван
     /// по имени (`spawn_with_ticks`, T45).
+    ///
+    /// **Тик обязателен, не `None`** (ремонт W2, ревью 23.09): без него
+    /// `report_dead_shards` не вызывается никогда (он висит на `Item::Tick`),
+    /// и `next_event` блокируется на `blocking_recv` до первого рыночного
+    /// кадра или явной остановки — живой `should_stop()` вызывающего
+    /// (`lob react`, дедлайн `MAX_MINUTES`/R78, или будущий выключатель по
+    /// стоп-цене) не проверяется вовсе, пока молчит рынок и все шарды
+    /// мертвы. Период — `LIVE_PING_INTERVAL`, тот же факт протокола, что уже
+    /// стоит на пинге сокета этого же соединения, а не новое назначенное
+    /// число: верхняя граница задержки достаточно мала (20 с при потолке
+    /// прогона в минуты у `lob react`) и не хуже интервала, которым уже
+    /// меряется живость транспорта.
     fn spawn_with_clock_and_connector<C, F, K>(
         pool: Vec<PoolMember>,
         make_connector: F,
@@ -636,18 +666,22 @@ impl LiveFeed {
             pool,
             make_connector,
             clock,
-            None,
+            LIVE_PING_INTERVAL,
             FAST_DEPTHS.to_vec(),
         )
     }
 
     /// Шов теста для тика и остановки (таск 25): фейковый транспорт, свои
-    /// часы, свой период тика и свой набор потоков стакана (T45).
+    /// часы, свой период тика и свой набор потоков стакана (T45). `tick` —
+    /// обязательный `Duration`, не `Option` (ремонт W2): конструктора без
+    /// тика больше нет вовсе, ни продового, ни тестового — `report_dead_
+    /// shards` и периодический возврат `next_event` из `blocking_recv`
+    /// обязаны быть у каждого `LiveFeed`.
     pub(crate) fn spawn_with_clock_and_connector_and_ticks<C, F, K>(
         pool: Vec<PoolMember>,
         mut make_connector: F,
         clock: K,
-        tick: Option<Duration>,
+        tick: Duration,
         depths: Vec<u32>,
     ) -> Result<Self, LayoutError>
     where
@@ -669,7 +703,10 @@ impl LiveFeed {
         // Таймер потока решений — своим ОС-потоком (A8.1): тик общий для
         // всего `Feed` (окно потери кадра), а снятие инструмента
         // останавливает произвольный шард — тик обязан это пережить.
-        let ticker = tick.map(|period| spawn_ticker(period, clock.clone(), tx.clone()));
+        // Обязателен у каждого конструктора (ремонт W2) — без него ни один
+        // шард никогда не отчитается о своей смерти, а `next_event` не
+        // возвращает управление при полном молчании пула.
+        let ticker = spawn_ticker(tick, clock.clone(), tx.clone());
         let mut shards_io = Vec::with_capacity(shards.len());
         for symbols in shards {
             let first = &pool[usize::from(symbols[0].index)];
@@ -869,9 +906,7 @@ impl LiveFeed {
                     depth: None,
                     silence_ns: None,
                     first_of_episode: false,
-                    detail: "ОС-поток шарда ввода-вывода завершился — его инструменты \
-                             больше не получают данных"
-                        .to_string(),
+                    detail: GapDetail::ShardDied,
                 });
             }
         }
@@ -881,11 +916,16 @@ impl LiveFeed {
 impl Feed for LiveFeed {
     fn next_event(&mut self) -> Option<Event> {
         // `Connection::run` не возвращается сам по себе (переподключается
-        // вечно) — единственный способ дойти до `None` здесь: канал
-        // закрылся, то есть отправители не пережили процесс (тесты
-        // используют это, обрывая задачи вместо мягкой остановки, как и
-        // `commands::record` не даёт `Connection::run` останавливаться
-        // иначе, кроме как через `conn_task.abort()` снаружи).
+        // вечно), и канал не закрывается сам за счёт отправителей: `LiveFeed`
+        // держит собственный клон (`self.tx`, нужен `stop_handle()`) всю свою
+        // жизнь, поэтому `rx.blocking_recv()` ниже не увидит «отправители не
+        // пережили процесс», пока жив сам `LiveFeed` — прежняя версия этого
+        // комментария обещала `None` именно отсюда, неверно (ремонт W2,
+        // ревью 23.09). Единственный путь к `None` — `Item::Stop` в ветке
+        // ниже: `StopHandle::stop()` (Ctrl+C, SIGTERM, файл `<root>/stop`
+        // — все три ведут туда же) или явная остановка теста; `?` на
+        // `blocking_recv()` ниже — оборона на случай, если инвариант «`self.
+        // tx` жив, пока жив `self`» всё же нарушится, а не рабочий путь.
         if self.stopped {
             return None;
         }
@@ -927,7 +967,7 @@ impl Feed for LiveFeed {
                 depth: None,
                 silence_ns: None,
                 first_of_episode: false,
-                detail: format!("кадр не разобрался: {err:?}"),
+                detail: GapDetail::ParseFailed(err),
             },
             ConnEvent::SequenceGap {
                 depth,
@@ -940,9 +980,11 @@ impl Feed for LiveFeed {
                 depth: Some(depth),
                 silence_ns: None,
                 first_of_episode: false,
-                detail: format!(
-                    "разрыв u потока .{depth}: ждали {expected}, пришло {got} — ресинк снапшотом"
-                ),
+                detail: GapDetail::SequenceGap {
+                    depth,
+                    expected,
+                    got,
+                },
             },
             ConnEvent::BookInvariantViolated { depth, err } => Event::Gap {
                 symbol: idx,
@@ -951,7 +993,7 @@ impl Feed for LiveFeed {
                 depth: Some(depth),
                 silence_ns: None,
                 first_of_episode: false,
-                detail: format!("книга потока .{depth} нарушена: {err:?} — ресинк снапшотом"),
+                detail: GapDetail::BookInvariant { depth, err },
             },
             ConnEvent::Disconnected { first_of_socket } => Event::Gap {
                 symbol: idx,
@@ -966,7 +1008,7 @@ impl Feed for LiveFeed {
                 depth: None,
                 silence_ns: None,
                 first_of_episode: false,
-                detail: "транспорт переподключился — шов покрытия".to_string(),
+                detail: GapDetail::Disconnected,
             },
             ConnEvent::ConnectFailed {
                 local_ts_ns,
@@ -982,11 +1024,10 @@ impl Feed for LiveFeed {
                     depth: None,
                     silence_ns: None,
                     first_of_episode: false,
-                    detail: match http_status {
-                        Some(status) => {
-                            format!("connect() отклонён биржей: HTTP {status} — {err} (попытка {attempt})")
-                        }
-                        None => format!("connect() не удался: {err} (попытка {attempt})"),
+                    detail: GapDetail::ConnectFailed {
+                        attempt,
+                        http_status,
+                        err,
                     },
                 }
             }
@@ -997,7 +1038,7 @@ impl Feed for LiveFeed {
                 depth: None,
                 silence_ns: None,
                 first_of_episode: false,
-                detail: "топик кадра не сопоставлен ни одному инструменту сокета".to_string(),
+                detail: GapDetail::Unrouted,
             },
             ConnEvent::SubscribeFailed {
                 local_ts_ns,
@@ -1013,10 +1054,7 @@ impl Feed for LiveFeed {
                 depth: None,
                 silence_ns: None,
                 first_of_episode: false,
-                detail: match topic {
-                    Some(topic) => format!("подписка не состоялась: {topic} — {ret_msg}"),
-                    None => format!("подписка не состоялась: {ret_msg}"),
-                },
+                detail: GapDetail::SubscribeFailed { topic, ret_msg },
             },
             // V5, доработка 2026-09-24: тишина рынка — не потеря кадра и не
             // разрыв (решение владельца: соединение по ней не рвётся), но
@@ -1033,9 +1071,7 @@ impl Feed for LiveFeed {
                 depth: None,
                 silence_ns: Some(silence_ns),
                 first_of_episode,
-                detail: format!(
-                    "рыночных событий (Book/Trade) нет {silence_ns} нс — соединение живо, не рвётся"
-                ),
+                detail: GapDetail::MarketSilence { silence_ns },
             },
         })
     }

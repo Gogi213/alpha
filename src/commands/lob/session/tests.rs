@@ -1420,7 +1420,11 @@ fn gap_in_deep_stream_leaves_fast_synced_for_its_own_rotation() {
             depth: Some(ORDERBOOK_DEEP_DEPTH),
             silence_ns: None,
             first_of_episode: false,
-            detail: "разрыв u глубокого потока".to_string(),
+            detail: crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         }),
         // Событие следующих суток приходит только быстрым потоком.
         Step::Ev(book_event_at_depth(
@@ -1521,7 +1525,11 @@ fn deep_stream_rotates_on_its_own_part_and_waits_for_the_exchange_snapshot() {
             depth: Some(ORDERBOOK_DEEP_DEPTH),
             silence_ns: None,
             first_of_episode: false,
-            detail: "разрыв u глубокого потока".to_string(),
+            detail: crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         }),
         // Дельта глубокого потока в сутках D+1 — она же и ротирует его часть.
         Step::Ev(book_event_at_depth(
@@ -2010,7 +2018,7 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let mut ctx = always_on_ctx(&root, NOON_NS);
-    let gap = |symbol, kind| Event::Gap {
+    let gap = |symbol, kind: FeedGapKind| Event::Gap {
         symbol,
         local_ts_ns: NOON_NS,
         kind,
@@ -2019,7 +2027,11 @@ fn socket_close_gives_a_row_per_instrument_one_reconnect_and_unrouted_is_counted
         depth: None,
         silence_ns: None,
         first_of_episode: false,
-        detail: "разрыв".to_string(),
+        detail: if kind == FeedGapKind::Unrouted {
+            crate::feed::GapDetail::Unrouted
+        } else {
+            crate::feed::GapDetail::Disconnected
+        },
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         Step::Ev(gap(0, FeedGapKind::Disconnected)),
@@ -2063,7 +2075,7 @@ fn market_silence_counts_episodes_once_and_tracks_the_true_max() {
         depth: None,
         silence_ns: Some(silence_ns),
         first_of_episode,
-        detail: "тишина".to_string(),
+        detail: crate::feed::GapDetail::MarketSilence { silence_ns },
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         // Эпизод 1: старт + два тихих обновления, максимум растёт до 90.
@@ -2102,36 +2114,54 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let mut ctx = always_on_ctx(&root, NOON_NS);
-    let gap = |kind, depth, detail: &str| Event::Gap {
+    let gap = |kind, depth, detail: crate::feed::GapDetail| Event::Gap {
         symbol: 0,
         local_ts_ns: NOON_NS,
         kind,
         depth,
         silence_ns: None,
         first_of_episode: false,
-        detail: detail.to_string(),
+        detail,
     };
     let mut feed = ScriptedFeed(VecDeque::from(vec![
         Step::Ev(gap(
             FeedGapKind::Disconnected,
             None,
-            "транспорт переподключился",
+            crate::feed::GapDetail::Disconnected,
         )),
         Step::Ev(gap(
             FeedGapKind::SequenceGap,
             Some(ORDERBOOK_DEPTH),
-            "разрыв u быстрого потока",
+            crate::feed::GapDetail::SequenceGap {
+                depth: ORDERBOOK_DEPTH,
+                expected: 1,
+                got: 2,
+            },
         )),
         Step::Ev(gap(
             FeedGapKind::BookInvariant,
             Some(ORDERBOOK_DEEP_DEPTH),
-            "книга глубокого потока нарушена",
+            crate::feed::GapDetail::BookInvariant {
+                depth: ORDERBOOK_DEEP_DEPTH,
+                err: crate::book::ApplyError::SequenceGap {
+                    expected: 1,
+                    got: 2,
+                },
+            },
         )),
-        Step::Ev(gap(FeedGapKind::ParseFailed, None, "кадр не разобрался")),
+        Step::Ev(gap(
+            FeedGapKind::ParseFailed,
+            None,
+            crate::feed::GapDetail::ParseFailed(crate::bybit::ws::ParseError::NotJson),
+        )),
         Step::Ev(gap(
             FeedGapKind::ConnectFailed,
             None,
-            "connect() отклонён биржей: HTTP 403",
+            crate::feed::GapDetail::ConnectFailed {
+                attempt: 1,
+                http_status: Some(403),
+                err: "Forbidden".to_string(),
+            },
         )),
     ]));
     run_session_loop(&mut feed, &mut ctx).unwrap();
@@ -2165,7 +2195,7 @@ fn reconnects_and_resyncs_are_counted_and_logged() {
     assert!(rows[4].detail.contains("403"), "{}", rows[4].detail);
     // Строка разрыва несёт поток: по ней видно, чей `u` разошёлся.
     assert!(
-        rows[1].detail.contains("разрыв u быстрого потока"),
+        rows[1].detail.contains(&format!(".{ORDERBOOK_DEPTH}")),
         "деталь строки обязана назвать поток: {}",
         rows[1].detail
     );
@@ -2191,8 +2221,10 @@ fn a_refused_subscription_is_counted_and_written_to_the_journal() {
             depth: None,
             silence_ns: None,
             first_of_episode: false,
-            detail: "подписка не состоялась: orderbook.50.SYM — error:handler not found"
-                .to_string(),
+            detail: crate::feed::GapDetail::SubscribeFailed {
+                topic: Some("orderbook.50.SYM".to_string()),
+                ret_msg: "error:handler not found".to_string(),
+            },
         }),
     ]));
     run_session_loop(&mut feed, &mut ctx).unwrap();
@@ -2784,7 +2816,7 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                 depth: None,
                 silence_ns: None,
                 first_of_episode: false,
-                detail: "снятый символ".to_string(),
+                detail: crate::feed::GapDetail::Disconnected,
             }),
             Step::Ev(Event::Tick {
                 local_ts_ns: NOON_NS + 2 * window_ns,
@@ -2796,11 +2828,12 @@ fn a_removed_row_stops_the_symbol_flushes_its_files_and_is_written_down() {
                     1,
                     "после снятия в закрытый файл не должно попасть ничего: {on_disk:?}"
                 );
+                let rows = crate::commands::record::read_gap_rows(&probe_root.join("gaps.csv"))
+                    .unwrap_or_default();
                 assert!(
-                    !std::fs::read_to_string(probe_root.join("gaps.csv"))
-                        .unwrap_or_default()
-                        .contains("снятый символ"),
-                    "разрыв снятого символа — следствие нашей остановки сокета, а не шов записи"
+                    rows.is_empty(),
+                    "разрыв снятого символа — следствие нашей остановки сокета, а не шов записи: \
+                     {rows:?}"
                 );
             })),
             // Возврат того же имени в пул — новое состояние и **новый**
@@ -3094,8 +3127,11 @@ fn a_snapshot_after_connect_failures_makes_the_book_trusted_again() {
             depth: None,
             silence_ns: None,
             first_of_episode: false,
-            detail: "connect() отклонён биржей: HTTP 429 — Too Many Requests (попытка 1)"
-                .to_string(),
+            detail: crate::feed::GapDetail::ConnectFailed {
+                attempt: 1,
+                http_status: Some(429),
+                err: "Too Many Requests".to_string(),
+            },
         }),
         Step::Probe(Box::new(move || {
             assert!(
