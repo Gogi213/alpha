@@ -120,6 +120,32 @@ def test_minute_curve_no_klines_falls_back_to_closed(tmp_path):
     assert mm["rf"] is None
 
 
+def test_minute_curve_groups_same_minute_events_before_drawdown(tmp_path):
+    """Blocker-фикс: ≥ 2 одновременно открытые позиции РАЗНЫХ монет, чьи ходы в ОДНУ минуту гасят друг
+    друга целиком, не должны рождать фиктивную промежуточную просадку между обновлением первой и
+    второй монеты той же минуты. Без группировки по общей метке времени старый код проводил их
+    по-событийно и после первой (AAAUSDT, −20 %) считал eq = 800 (просадка $200/20 %), не дожидаясь
+    второй (BBBUSDT, +20 %) той же минуты, которая возвращает eq к 1000 — обе входят на 0-й минуте,
+    обе выходят на 9-й с net = 0 (истинная просадка 0)."""
+    m = load()
+    kdir = tmp_path / "klines"
+    # обе монеты: 1.00 на всех минутах, кроме 4-й — там ровно противоположный ход на 20 %
+    closes_a = [1.00] * 9
+    closes_a[4] = 0.80  # AAAUSDT: −20 % на 4-й минуте
+    closes_b = [1.00] * 9
+    closes_b[4] = 1.20  # BBBUSDT: +20 % на 4-й минуте — гасит A в ТУ ЖЕ минуту
+    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[i * MIN_MS, c] for i, c in enumerate(closes_a)])
+    write_csv(kdir / "ref-BBBUSDT-1m.csv", ["minute_ms", "close"], [[i * MIN_MS, c] for i, c in enumerate(closes_b)])
+    k = m.Klines([str(kdir)])
+    mk = lambda sym: {"t0": 0, "t1": 9 * MIN_MS * 1_000_000, "sym": sym, "pnl": 0.0, "usd": 1000.0,
+                       "fill": 1.0, "reason": "take", "dir": 1, "entry": 1.00, "fee": 0.0}
+    mm = m.minute_curve([mk("AAAUSDT"), mk("BBBUSDT")], k, 1000.0, 0.0)
+    assert mm["dd_usd"] == pytest.approx(0.0)  # истинная просадка — 0, не $200 от по-событийного расчёта
+    assert mm["dd_pct"] == pytest.approx(0.0)
+    assert mm["rf"] is None
+    assert mm["unrecovered"] is False
+
+
 def test_minute_curve_and_closed_drawdown_empty_no_crash(tmp_path):
     m = load()
     k = m.Klines([str(tmp_path)])

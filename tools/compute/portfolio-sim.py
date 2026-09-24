@@ -150,7 +150,15 @@ def minute_curve(taken, klines, deposit, total):
     """Просадка и восстановление по минутной переоценке (mark-to-market) открытых позиций: капитал
     между сделками движется по закрытию минутной свечи монеты, направление и издержки круга — как у
     самой сделки. Нет свечи на минуту — берём последнюю известную (`Klines.last_close`); монета без
-    свечей вовсе остаётся на модели «по закрытиям» (её берёт n_no_klines)."""
+    свечей вовсе остаётся на модели «по закрытиям» (её берёт n_no_klines).
+
+    События группируются по общей метке времени `t` (`itertools.groupby` по отсортированному списку):
+    при ≥ 2 одновременно открытых позициях (норма — пик 8–11, SETTLED В-90) переоценки и
+    закрытия РАЗНЫХ монет на одну и ту же минуту применяются к `active`/`realized_total` все разом,
+    и только потом считается `eq` и сверяется с `peak`/`max_dd` — один раз на метку времени, а не
+    по-событийно. По-событийный расчёт (старая версия) видел фиктивные промежуточные состояния
+    капитала между обновлением первой и второй монеты той же группы — искажение только в сторону
+    завышения просадки (см. test_minute_curve_groups_same_minute_events_before_drawdown)."""
     no_kline_syms = {x["sym"] for x in taken if not klines.covered(x["sym"])}
     events = []  # (t_ns, kind, idx, minute_ms) kind 0=переоценка (раньше при равенстве), 1=закрытие
     for idx, x in enumerate(taken):
@@ -172,17 +180,18 @@ def minute_curve(taken, klines, deposit, total):
     open_since = None
     longest = 0.0
     last_t = None
-    for t, kind, idx, m in events:
-        x = taken[idx]
-        if kind == 0:
-            px = klines.last_close(x["sym"], m)
-            if px is None:
-                px = x["entry"]
-            net_bps = (px / x["entry"] - 1) * 1e4 * x["dir"] - x["fee"]
-            active[idx] = net_bps / 1e4 * x["usd"]
-        else:
-            active.pop(idx, None)
-            realized_total += x["pnl"]
+    for t, group in itertools.groupby(events, key=lambda e: e[0]):
+        for _, kind, idx, m in group:
+            x = taken[idx]
+            if kind == 0:
+                px = klines.last_close(x["sym"], m)
+                if px is None:
+                    px = x["entry"]
+                net_bps = (px / x["entry"] - 1) * 1e4 * x["dir"] - x["fee"]
+                active[idx] = net_bps / 1e4 * x["usd"]
+            else:
+                active.pop(idx, None)
+                realized_total += x["pnl"]
         eq = deposit + realized_total + sum(active.values())
         if eq >= peak:
             if open_since is not None:
