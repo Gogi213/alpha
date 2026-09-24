@@ -681,9 +681,13 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
             (arm_ms * 1_000_000).to_string(),
             "t0 — взвод подхода, а не касание: {r:?}"
         );
-        // Ноги — целые тики 99.02/99.06/99.10: средняя по долям 99.06.
+        // Ноги — целые тики 99.02/99.06/99.10 и целые шаги лота (R3): 0.1 при
+        // шаге записи 0.001 — 100 шагов, по трети — 33, остаток шаг — первой
+        // (на равных долях — первая по счёту): 0.034/0.033/0.033, средняя
+        // (0.034×99.02 + 0.033×99.06 + 0.033×99.10) / 0.1 = 99.0596, а не
+        // 99.06 ровных долей.
         let vwap: f64 = col(&rh, r, "entry_vwap").parse().unwrap();
-        assert!((vwap - 99.06).abs() < 1e-6, "entry_vwap {vwap}");
+        assert!((vwap - 99.0596).abs() < 1e-6, "entry_vwap {vwap}");
         assert_eq!(col(&rh, r, "legs_filled"), "3", "три ноги лестницы: {r:?}");
         assert_eq!(col(&rh, r, "legs_rejected"), "0", "{r:?}");
         assert_eq!(col(&rh, r, "fill_frac"), "1.000000", "{r:?}");
@@ -2179,7 +2183,8 @@ fn without_carry_root_a_round_still_open_at_day_end_stays_incomplete() {
         "без --carry-root шапка прежняя, 33 колонки"
     );
     assert!(
-        !fh.iter().any(|h| h == "n_carried" || h == "carry_unverified"),
+        !fh.iter()
+            .any(|h| h == "n_carried" || h == "carry_unverified"),
         "колонок переноса без флага нет: {fh:?}"
     );
     let (_, rounds) = read_csv(&m.rounds_path);
@@ -2292,4 +2297,56 @@ fn carry_events_stops_decoding_past_the_carry_window() {
         "событие за окном попало в результат: {:?}",
         events.iter().map(|e| e.local_ts).collect::<Vec<_>>()
     );
+}
+
+/// R2 (ревью 23.09): лот `--order-usd` — по цене **каждого** касания, а не
+/// одной ценой на символ (прежде — последнего касания всей записи, то есть
+/// заглядывание вперёд). $100 при цене 10.00 — 10 монет, при 20.00 — 5; шаг
+/// лота 0.1. Явный лот (`--order-qty-e9`) от цены не зависит; множитель E7
+/// умножает оба.
+#[test]
+fn order_usd_sizes_each_touch_at_its_own_price() {
+    let lot = PoolLot {
+        min_order_qty_e9: 100_000_000,
+        qty_step_e9: 100_000_000,
+        min_notional_value_e9: 5_000_000_000,
+    };
+    let tick_e9 = 10_000_000; // 0.01
+    let mut cheap = probe_touch();
+    cheap.price_tick = 1_000; // 10.00
+    let mut dear = probe_touch();
+    dear.price_tick = 2_000; // 20.00
+    let touches = [cheap, dear];
+
+    let usd = OrderSizing::Usd(lot, 100.0).touch_qtys(&touches, tick_e9, 1);
+    assert_eq!(usd.len(), 2);
+    assert!((usd[0] - 10.0).abs() < 1e-9, "$100 / 10.00: {}", usd[0]);
+    assert!((usd[1] - 5.0).abs() < 1e-9, "$100 / 20.00: {}", usd[1]);
+
+    let doubled = OrderSizing::Usd(lot, 100.0).touch_qtys(&touches, tick_e9, 2);
+    assert!((doubled[0] - 20.0).abs() < 1e-9 && (doubled[1] - 10.0).abs() < 1e-9);
+
+    let fixed = OrderSizing::Fixed(300_000_000).touch_qtys(&touches, tick_e9, 1);
+    assert!(fixed.iter().all(|q| (q - 0.3).abs() < 1e-12), "{fixed:?}");
+
+    // 22а: минимальный чек $5 при 10.00 — 0.5, при 20.00 — 0.3 (вверх до шага).
+    let pool = OrderSizing::Pool22a(lot).touch_qtys(&touches, tick_e9, 1);
+    assert!(
+        (pool[0] - 0.5).abs() < 1e-9 && (pool[1] - 0.3).abs() < 1e-9,
+        "{pool:?}"
+    );
+}
+
+/// R3 (ревью 23.09, замечание проверки): явный лот `--order-qty-e9`, не
+/// кратный шагу записи, — отказ, а не молчаливое округление ног лестницы
+/// (0.0015 при шаге 0.001 дал бы 2 шага — +33 % к размеру круга).
+#[test]
+fn fixed_order_qty_off_the_lot_step_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.order_qty_e9 = Some(1_500_000);
+    a.out_dir = dir.path().join("grid-off-lot");
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("не кратен шагу лота"), "{err}");
 }

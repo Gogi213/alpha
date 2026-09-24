@@ -390,6 +390,7 @@ where
             local_timestamp: Utc::now().timestamp_nanos_opt().unwrap(),
             req: Status::New,
             exec_price_tick: 0,
+            exec_notional: 0.0,
             exch_timestamp: 0,
             exec_qty: 0.0,
             // Invalid information

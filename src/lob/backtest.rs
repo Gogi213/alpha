@@ -1062,6 +1062,12 @@ pub struct BounceSignal {
     pub sigma: i8,
     pub plan: TradePlan,
     pub profile: u16,
+    /// Размер круга этого сигнала (R2, ревью 23.09): лот по цене **сигнала** —
+    /// номинал `--order-usd` при цене касания, а не одной ценой на символ
+    /// (цена последнего касания записи — заглядывание вперёд: сигнал 1-го
+    /// числа получал размер по цене 30-го). `None` — размер прогона
+    /// `DriveConfig::order_qty` (явный лот, одиночный `lob backtest`, тесты).
+    pub qty: Option<f64>,
 }
 
 /// Чем кончились выходы: тейк / стоп / дедлайн / горизонт. У Decision 20
@@ -1270,6 +1276,26 @@ pub(crate) fn executed_qty(order: &Order) -> f64 {
     (order.qty - order.leaves_qty).max(0.0)
 }
 
+/// Стоимость исполненного заявки накопленным итогом, `Σ exec_price ×
+/// exec_qty` по всем её исполнениям (R7, ревью 23.09). `exec_price()` крейта
+/// — цена **последнего** исполнения: рыночный выход, прошедший несколько
+/// уровней книги, оценивался бы целиком по худшему уровню, а вход-лимитка,
+/// часть которой взяла книгу тейкером, — по цене своего остатка. Итог ведёт
+/// биржа модели (вендорная правка `Order::exec_notional`,
+/// `docs/findings/hftbacktest-partialfill-fix-2026-09-20.md` §R7). Заявка,
+/// чей учёт итога не вёл (нуль при ненулевом исполненном — отклик площадки
+/// без этого поля), оценивается прежним `exec_price × исполненное`, а не
+/// нулём: живой коннектор обязан вести итог, иначе средняя по свипу снова
+/// будет ценой последнего уровня.
+pub(crate) fn executed_notional(order: &Order) -> f64 {
+    let executed = executed_qty(order);
+    if order.exec_notional > 0.0 || executed <= 0.0 {
+        order.exec_notional
+    } else {
+        order.exec_price() * executed
+    }
+}
+
 /// Отложенный вердикт пути исполнения (F3): для ног из `pending` в буфере
 /// последних сделок так и не нашлось сделки, которая могла бы их исполнить, —
 /// значит исполнение пришло обновлением лучшей цены (путь (3)
@@ -1473,8 +1499,11 @@ where
         let exec = executed_qty(o);
         if exec > 0.0 {
             entry_qty += exec;
-            entry_px_sum += o.exec_price();
-            entry_notional += o.exec_price() * exec;
+            // R7: средняя цена ноги — по всем её исполнениям, не цена
+            // последнего уровня свипа.
+            let notional = executed_notional(o);
+            entry_px_sum += notional / exec;
+            entry_notional += notional;
             entry_legs += 1;
             // Комиссия ноги — по флагу `maker` ордера крейта (В-63): у
             // лестницы вход тейкерский, если тейкером исполнилась хотя бы одна
@@ -1513,7 +1542,7 @@ where
         {
             let exec = executed_qty(o);
             exit_qty += exec;
-            exit_notional += o.exec_price() * exec;
+            exit_notional += executed_notional(o);
             exit_ts = exit_ts.max(o.exch_timestamp);
             exit_taker |= !o.maker;
         }
@@ -1640,8 +1669,9 @@ where
     // (`drive_bounce_with`), и в обоих драйверах он один и тот же (гейт
     // «те же круги» на `lob bounce-grid --driver full|setups`).
 
-    let mut state =
-        StrategyState::with_plan(asset_no, sig.sigma, cfg.order_qty, *next_id, sig.plan);
+    let qty = sig.qty.unwrap_or(cfg.order_qty);
+    debug_assert!(qty > 0.0, "размер круга обязан быть положительным: {qty}");
+    let mut state = StrategyState::with_plan(asset_no, sig.sigma, qty, *next_id, sig.plan);
     *next_id = next_id.saturating_add(ID_STRIDE);
     // F8c: сироты прошлого круга живут дальше в новом состоянии — уборка
     // (повтор снятия, учёт исполнения) идёт с первого события этого круга.
@@ -1753,6 +1783,9 @@ pub struct RoundMemo {
 struct MemoEntry {
     sigma: i8,
     plan: TradePlan,
+    /// R2: размер круга — часть ключа, как план: тот же сигнал с другим лотом
+    /// — другой круг (очередь, частичное исполнение).
+    qty: Option<f64>,
     step: Option<SignalStep>,
     /// База номеров заявок прогона, посчитавшего круг, и сколько номеров круг израсходовал;
     /// `0` — движок сигнала не запускался (сироты входа не трогались).
@@ -1774,7 +1807,7 @@ impl RoundMemo {
             .get(&sig.t0_ns)
             .and_then(|v| {
                 v.iter()
-                    .find(|e| e.sigma == sig.sigma && e.plan == sig.plan)
+                    .find(|e| e.sigma == sig.sigma && e.plan == sig.plan && e.qty == sig.qty)
             })
             .map(|e| {
                 let carry = (e.ids_used > 0).then(|| e.carry_out.rebased(e.id_base, id_base));
@@ -1799,6 +1832,7 @@ impl RoundMemo {
         self.by_t0.entry(sig.t0_ns).or_default().push(MemoEntry {
             sigma: sig.sigma,
             plan: sig.plan,
+            qty: sig.qty,
             step,
             id_base,
             ids_used,

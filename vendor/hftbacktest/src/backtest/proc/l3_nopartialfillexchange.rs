@@ -125,6 +125,8 @@ where
         }
 
         order.exec_qty = order.leaves_qty;
+        // ЛОКАЛЬНАЯ ПРАВКА alpha (R7): см. `Order::exec_notional`.
+        order.exec_notional += order.exec_price_tick as f64 * order.tick_size * order.exec_qty;
         order.leaves_qty = 0.0;
         order.status = Status::Filled;
         order.exch_timestamp = timestamp;

@@ -620,7 +620,14 @@ fn a_lot_aligned_order_with_a_float_remainder_is_removed_when_filled() {
         depth_at(7 * S, false, 101.0, 5.0),
     ];
     let mut hbt = prob_backtest(&feed);
-    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 0.3, 1, cancel_wait_plan(30 * S));
+    // Шаг лота плана — тот же, что у биржи модели (`prob_backtest`, 0.1): порог
+    // пыли позиции (R4) — половина шага плана, и при плане с лотом 1.0 позиция
+    // 0.3 читалась бы пылью.
+    let mut plan = cancel_wait_plan(30 * S);
+    if let TradePlan::Bounce { lot_qty, .. } = &mut plan {
+        *lot_qty = 0.1;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 0.3, 1, plan);
 
     let _ = drive(&mut hbt, &mut state);
 
@@ -778,6 +785,7 @@ fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
         sigma: SIGMA_LONG,
         plan: f4_plan(98.0, 102.0, true, 20 * S, 1.0),
         profile: 0,
+        qty: None,
     };
     let run = drive_bounce(&mut hbt, 0, &[signal(S), signal(3 * S)], &cfg).unwrap();
 
@@ -1135,9 +1143,7 @@ fn ladder_leg_qtys_always_sums_to_qty() {
         (0.9, 0.3, [0.5, 0.25, 0.25]),
     ];
     for (qty, lot, fracs3) in cases {
-        let fracs = [
-            fracs3[0], fracs3[1], fracs3[2], 0.0, 0.0, 0.0, 0.0, 0.0,
-        ];
+        let fracs = [fracs3[0], fracs3[1], fracs3[2], 0.0, 0.0, 0.0, 0.0, 0.0];
         let out = ladder_leg_qtys(qty, lot, &fracs, 3);
         let sum: f64 = out[..3].iter().sum();
         assert!(
@@ -1214,18 +1220,21 @@ fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
             .any(|a| matches!(a, Action::EntrySubmitted { .. })),
         "вход обязан быть поставлен: {actions:?}"
     );
-    let submitted = (1..=3)
-        .filter(|id| hbt.orders(0).get(id).is_some())
-        .count();
+    let submitted = (1..=3).filter(|id| hbt.orders(0).get(id).is_some()).count();
     assert_eq!(
-        submitted, 1,
+        submitted,
+        1,
         "одна нога на весь шаг лота, не три дробных: {:?}",
         (1..=3)
             .filter_map(|id| hbt.orders(0).get(&id).map(|o| (id, o.qty)))
             .collect::<Vec<_>>()
     );
     let lower = hbt.orders(0).get(&1).expect("самая тяжёлая нога стоит");
-    assert!(close(lower.qty, 1.0), "весь шаг лота на одну ногу: {}", lower.qty);
+    assert!(
+        close(lower.qty, 1.0),
+        "весь шаг лота на одну ногу: {}",
+        lower.qty
+    );
 }
 
 /// Аудит 21.09, Б1: лимитка тейка стоит в рынке исполненной **частично**
@@ -1377,8 +1386,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
 /// отсутствие позиции, не как пыль.
 #[test]
 fn position_rounds_dust_below_half_lot_step_down_to_flat() {
-    let mut state =
-        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
     state.entry_qty = 1.0;
     // Остаток 1e-12 лота — то же порядок величины, что и накопленная ошибка
     // f64 у суммы частичных исполнений (ноги лестницы, добор F4).
@@ -1394,8 +1402,7 @@ fn position_rounds_dust_below_half_lot_step_down_to_flat() {
 /// позицию целиком.
 #[test]
 fn position_keeps_a_real_remainder_above_half_lot_step() {
-    let mut state =
-        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
     state.entry_qty = 1.0;
     state.exit_qty = 0.3;
     assert!(
@@ -1413,10 +1420,12 @@ fn position_keeps_a_real_remainder_above_half_lot_step() {
 /// находит её и не меняет `exit_qty`, оставляя ровно проверяемый остаток.
 #[test]
 fn on_exit_pending_with_dust_left_goes_idle_without_a_new_exit_order() {
-    let feed = [depth_at(0, true, 100.0, 5.0), depth_at(0, false, 101.0, 5.0)];
+    let feed = [
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 101.0, 5.0),
+    ];
     let mut hbt = prob_backtest(&feed);
-    let mut state =
-        StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(0.0, 0.0, 100.0));
     state.entry_qty = 1.0;
     state.exit_qty = 1.0 - 1e-12;
     state.phase = Phase::ExitPending {
@@ -1466,6 +1475,7 @@ fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::BounceRun {
         sigma: SIGMA_LONG,
         plan,
         profile: 0,
+        qty: None,
     };
     drive_bounce(&mut hbt, 0, &[signal], &cfg).unwrap()
 }
@@ -1839,6 +1849,7 @@ fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<ExitReason> {
         sigma,
         plan,
         profile: 0,
+        qty: None,
     };
     drive_bounce(&mut hbt, 0, &[signal], &cfg)
         .unwrap()
@@ -2419,6 +2430,7 @@ fn the_driver_counts_the_entry_cancel_ceiling() {
         sigma: SIGMA_LONG,
         plan: cancel_wait_plan(S / 10),
         profile: 0,
+        qty: None,
     };
     let run = drive_bounce(&mut hbt, 0, &[signal], &cfg).unwrap();
 
@@ -2471,12 +2483,14 @@ fn an_orphan_survives_the_round_boundary_in_the_driver() {
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(S / 10),
             profile: 0,
+            qty: None,
         },
         BounceSignal {
             t0_ns: 2_400_000_000,
             sigma: SIGMA_LONG,
             plan: cancel_wait_plan(30 * S),
             profile: 0,
+            qty: None,
         },
     ];
     let run = drive_bounce(&mut hbt, 0, &signals, &cfg).unwrap();

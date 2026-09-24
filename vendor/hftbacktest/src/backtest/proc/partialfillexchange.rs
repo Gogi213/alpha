@@ -248,6 +248,9 @@ where
         }
 
         order.exec_qty = exec_qty;
+        // ЛОКАЛЬНАЯ ПРАВКА alpha (R7): стоимость исполненного — по каждому исполнению,
+        // а не ценой последнего уровня свипа на весь объём (см. `Order::exec_notional`).
+        order.exec_notional += order.exec_price_tick as f64 * order.tick_size * exec_qty;
         order.leaves_qty -= exec_qty;
         if (order.leaves_qty / self.depth.lot_size()).round() > 0f64 {
             order.status = Status::PartiallyFilled;

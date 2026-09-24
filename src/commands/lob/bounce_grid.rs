@@ -113,8 +113,8 @@ use hftbacktest::types::Event as HbtEvent;
 use super::backtest::{
     approach_plan, bounce_plan, count_feed_events, count_feed_events_until, deadline_ns_from_secs,
     early_exit_ns_from_secs, exit_reason_label, feed_events_into, feed_events_into_until,
-    open_replay_feed, pool_order_qty, pool_order_qty_usd, read_tick_step, BounceForm, EntryForm,
-    EntryTtl, PlanShape, StopForm, TakeForm,
+    open_replay_feed, read_tick_step, BounceForm, EntryForm, EntryTtl, PlanShape, PoolLot,
+    StopForm, TakeForm,
 };
 use super::bounce_verdict::{form_label_with_entry, DEADLINE_SECS, DEADLINE_SECS_ALLOWED};
 use super::profiles::read_verify_marker;
@@ -685,7 +685,7 @@ pub struct BounceGridArgs {
     /// Лот в e9 — либо он, либо `--order-qty-from-pool`.
     #[arg(long)]
     pub order_qty_e9: Option<i64>,
-    /// Лот — `order_size_22a` от полей пула и цены последнего касания.
+    /// Лот — `order_size_22a` от полей пула и цены **каждого** касания (R2).
     #[arg(long, default_value_t = false)]
     pub order_qty_from_pool: bool,
     /// Лот под номинал в долларах (владелец 20.09): `floor(usd / цена касания /
@@ -1551,6 +1551,7 @@ fn signals_for(
                 sigma: dir,
                 plan,
                 profile: 0,
+                qty: Some(p.order_qtys[ti]),
             })
         })
         .collect();
@@ -1779,6 +1780,72 @@ fn store_event_count(path: &Path, n: usize) {
     }
 }
 
+/// Правило размера круга (R2, ревью 23.09): лот считается по цене **каждого
+/// касания**, а не одной ценой на символ. До исправления лот брался по цене
+/// последнего касания всей записи: сигнал в начале месяца получал размер по
+/// цене его конца — заглядывание вперёд, и номинал круга расходился с
+/// `--order-usd` ровно на движение цены за запись (у монеты, выросшей вдвое,
+/// ранние круги шли на половину заявленного номинала). Поля пула читаются
+/// один раз на символ.
+#[derive(Debug, Clone, Copy)]
+enum OrderSizing {
+    /// `--order-qty-e9` — лот задан числом, от цены не зависит.
+    Fixed(i64),
+    /// `--order-qty-from-pool` — `order_size_22a` при цене касания.
+    Pool22a(PoolLot),
+    /// `--order-usd` — номинал при цене касания, не меньше 22а.
+    Usd(PoolLot, f64),
+}
+
+impl OrderSizing {
+    fn from_args(args: &BounceGridArgs, symbol: &str) -> anyhow::Result<Self> {
+        if let Some(v) = args.order_qty_e9 {
+            return Ok(Self::Fixed(v));
+        }
+        let lot = PoolLot::read(&args.root.join("instruments.csv"), symbol)?;
+        Ok(match args.order_usd {
+            Some(usd) => {
+                anyhow::ensure!(
+                    usd.is_finite() && usd > 0.0,
+                    "{symbol}: --order-usd обязан быть положительным числом"
+                );
+                anyhow::ensure!(
+                    lot.qty_step_e9 > 0,
+                    "{symbol}: шаг лота в пуле обязан быть положительным"
+                );
+                Self::Usd(lot, usd)
+            }
+            None => Self::Pool22a(lot),
+        })
+    }
+
+    /// Лот в 1e-9 при цене `price_tick` (в тиках книги `tick_e9`).
+    fn qty_e9(&self, price_tick: i64, tick_e9: i64) -> i64 {
+        let price_e9 = price_tick.saturating_mul(tick_e9);
+        match *self {
+            Self::Fixed(v) => v,
+            Self::Pool22a(lot) => lot.qty_22a_e9(price_e9),
+            Self::Usd(lot, usd) => lot.qty_usd_e9(price_e9, usd),
+        }
+    }
+
+    /// Размер круга на каждое касание суток — по цене этого касания, с
+    /// множителем `--order-qty-mult` (E7).
+    fn touch_qtys(&self, touches: &[TouchRecord], tick_e9: i64, mult: u32) -> Vec<f64> {
+        touches
+            .iter()
+            .map(|t| {
+                #[allow(clippy::cast_precision_loss)]
+                let q = self
+                    .qty_e9(t.price_tick, tick_e9)
+                    .saturating_mul(i64::from(mult.max(1))) as f64
+                    / 1e9;
+                q
+            })
+            .collect()
+    }
+}
+
 /// Параметры прогона суток одной структурой (clippy держит предел семи аргументов).
 #[derive(Debug, Clone, Copy)]
 struct DayParams<'a> {
@@ -1789,7 +1856,9 @@ struct DayParams<'a> {
     rtt_ns: ExecLatency,
     /// Модель очереди/исполнения суток (`--queue-model`, F3) — одна на процесс.
     queue_model: QueueModelKind,
-    order_qty: f64,
+    /// Размер круга на каждое касание суток (тот же порядок, что `touches`):
+    /// лот по цене **этого** касания (R2, `OrderSizing`).
+    order_qtys: &'a [f64],
     threads: usize,
     /// Вход пост-онли (В-72): у плана `post_only`, у сетки умолчание —
     /// включён (`BounceGridArgs::entry_post_only`).
@@ -1872,7 +1941,9 @@ fn drive_day(
                     break;
                 }
                 let cfg = DriveConfig {
-                    order_qty: p.order_qty,
+                    // R2: размер несёт каждый сигнал (`BounceSignal::qty`,
+                    // `signals_for`); размер прогона сетке не нужен.
+                    order_qty: 0.0,
                     first_order_id: 1,
                     queue_model: p.queue_model,
                 };
@@ -2842,23 +2913,17 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             summary.symbols_without_touches += 1;
             continue;
         }
-        let order_qty_e9 = match (args.order_qty_e9, args.order_usd) {
-            (Some(v), _) => v,
-            (None, usd) => {
-                let last = days
-                    .iter()
-                    .rev()
-                    .find_map(|d| d.touches.last())
-                    .expect("касания есть — проверено выше");
-                let csv = args.root.join("instruments.csv");
-                match usd {
-                    Some(usd) => pool_order_qty_usd(&csv, symbol, last.price_tick, tick_e9, usd)?,
-                    None => pool_order_qty(&csv, symbol, last.price_tick, tick_e9)?,
-                }
-            }
+        let sizing = OrderSizing::from_args(args, symbol)?;
+        // Явный лот обязан быть целым числом шагов записи: ноги лестницы
+        // (R3) считаются целыми шагами, и некратный лот молча менял бы размер
+        // круга (0.25 при шаге 0.1 — `round(2.5)` = 3 шага, +20 %). Лот пула и
+        // номинал (`--order-qty-from-pool`/`--order-usd`) кратны по построению.
+        if let OrderSizing::Fixed(v) = sizing {
+            anyhow::ensure!(
+                step_e9 > 0 && v % step_e9 == 0,
+                "{symbol}: --order-qty-e9 {v} не кратен шагу лота записи {step_e9} (1e-9) —                  биржа такой заявки не примет, а ноги лестницы округлили бы его молча"
+            );
         }
-        .saturating_mul(i64::from(args.order_qty_mult.max(1)));
-        let order_qty = order_qty_e9 as f64 / 1e9;
 
         for day in &days {
             // `--day`: гнать только выбранные сутки. Касания при этом считаются
@@ -2914,6 +2979,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 None
             };
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            let order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
             // G10: память кругов на символ-сутки, по форме — наборы идут по очереди и берут
@@ -2960,7 +3026,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             lot,
                             rtt_ns: args.median_rtt_ns,
                             queue_model,
-                            order_qty,
+                            order_qtys: &order_qtys,
                             threads,
                             post_only: args.entry_post_only(),
                             frontrun_only: set.frontrun_only,

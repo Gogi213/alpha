@@ -499,6 +499,12 @@ pub struct Order {
     /// Executed price in ticks (`executed_price / tick_size`), only available when this order is
     /// executed.
     pub exec_price_tick: i64,
+    /// ЛОКАЛЬНАЯ ПРАВКА alpha (R7, ревью 23.09): накопленная стоимость исполненного по всем
+    /// исполнениям заявки, `Σ exec_price × exec_qty`. `exec_price_tick`/`exec_qty` хранят только
+    /// **последнее** исполнение: рыночная заявка, прошедшая несколько уровней книги, оставляла
+    /// цену последнего уровня, и `exec_price × (qty − leaves_qty)` оценивало весь объём по
+    /// худшему уровню. Средняя цена исполненного — `exec_notional / (qty − leaves_qty)`.
+    pub exec_notional: f64,
     /// Order price in ticks (`price / tick_size`).
     pub price_tick: i64,
     /// The tick size of the asset associated with this order.
@@ -547,6 +553,7 @@ impl Order {
             local_timestamp: 0,
             req: Status::None,
             exec_price_tick: 0,
+            exec_notional: 0.0,
             exec_qty: 0.0,
             order_id,
             q: Box::new(()),
@@ -613,6 +620,7 @@ impl Order {
         // }
         self.req = order.req;
         self.exec_price_tick = order.exec_price_tick;
+        self.exec_notional = order.exec_notional;
         self.exec_qty = order.exec_qty;
         self.order_id = order.order_id;
         self.q = order.q.clone();
@@ -635,6 +643,7 @@ impl Debug for Order {
             .field("local_timestamp", &self.local_timestamp)
             .field("req", &self.req)
             .field("exec_price_tick", &self.exec_price_tick)
+            .field("exec_notional", &self.exec_notional)
             .field("exec_qty", &self.exec_qty)
             .field("order_id", &self.order_id)
             .field("maker", &self.maker)
@@ -650,6 +659,7 @@ impl<Context> Decode<Context> for Order {
             leaves_qty: Decode::decode(decoder)?,
             exec_qty: Decode::decode(decoder)?,
             exec_price_tick: Decode::decode(decoder)?,
+            exec_notional: Decode::decode(decoder)?,
             price_tick: Decode::decode(decoder)?,
             tick_size: Decode::decode(decoder)?,
             exch_timestamp: Decode::decode(decoder)?,
@@ -674,6 +684,7 @@ impl<'de, Context> BorrowDecode<'de, Context> for Order {
             leaves_qty: Decode::decode(decoder)?,
             exec_qty: Decode::decode(decoder)?,
             exec_price_tick: Decode::decode(decoder)?,
+            exec_notional: Decode::decode(decoder)?,
             price_tick: Decode::decode(decoder)?,
             tick_size: Decode::decode(decoder)?,
             exch_timestamp: Decode::decode(decoder)?,
@@ -697,6 +708,7 @@ impl Encode for Order {
         self.leaves_qty.encode(encoder)?;
         self.exec_qty.encode(encoder)?;
         self.exec_price_tick.encode(encoder)?;
+        self.exec_notional.encode(encoder)?;
         self.price_tick.encode(encoder)?;
         self.tick_size.encode(encoder)?;
         self.exch_timestamp.encode(encoder)?;

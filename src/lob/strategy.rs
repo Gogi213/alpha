@@ -31,7 +31,7 @@ use hftbacktest::types::{
 };
 
 use crate::lob::backtest::{
-    entry_price, entry_side, executed_qty, exit_price, ENTRY_TTL_NS, HOLD_NS,
+    entry_price, entry_side, executed_notional, executed_qty, exit_price, ENTRY_TTL_NS, HOLD_NS,
 };
 
 /// Лучшие цены стороны как `(bid, ask)`, `None` — книга неполна
@@ -51,7 +51,8 @@ fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
 
 /// Снимок ног входа по ордерам крейта (F4, В-78): накопленное исполненное
 /// (`qty − leaves_qty`; у крейта `exec_qty` — объём **последнего** исполнения,
-/// а не сумма), стоимость исполненного (`exec_price × исполненное`) и признак
+/// а не сумма), стоимость исполненного (`executed_notional` — по всем
+/// исполнениям ноги, R7) и признак
 /// «вход ещё решается» — в рынке стоит хоть одна нога или её запрос
 /// (постановка/снятие) ещё не подтверждён биржей.
 ///
@@ -63,7 +64,7 @@ fn best_prices<MD: MarketDepth>(depth: &MD) -> Option<(f64, f64)> {
 struct EntrySnapshot {
     /// Накопленное исполненное по всем ногам входа.
     qty: f64,
-    /// Накопленная стоимость исполненного: `Σ exec_price × исполненное`.
+    /// Накопленная стоимость исполненного по всем исполнениям ног (R7).
     notional: f64,
     /// Вход ещё решается: нога стоит в рынке или её запрос летит.
     open: bool,
@@ -94,7 +95,7 @@ where
         let executed = executed_qty(order);
         if executed > 0.0 {
             snap.qty += executed;
-            snap.notional += order.exec_price() * executed;
+            snap.notional += executed_notional(order);
         }
     }
     snap
@@ -1911,9 +1912,11 @@ where
 /// следующая по индексу; свободный шаг не должен теряться, а тяжёлая нога —
 /// та, что вероятнее исполнится [T 1:31:42], поэтому не расточительна).
 ///
-/// Шаг `lot_qty` неизвестен (`<= 0.0` или не конечен — план без данных пула,
-/// `--order-qty-e9` без `--order-qty-from-pool`/`--order-usd`) — деление не
-/// трогаем, прежнее поведение (`qty × frac`), гейт «те же круги» не задет.
+/// Шаг `lot_qty` неизвестен (`<= 0.0` или не конечен — план, собранный без
+/// шага записи: тесты, старое 3-польное имя формы) — деление не трогаем,
+/// прежнее поведение (`qty × frac`), гейт «те же круги» не задет. У сетки
+/// форм `lot_qty` — всегда шаг записи (`step_e9`), каким бы ни был источник
+/// размера круга.
 ///
 /// Сумма возвращённых долей равна `qty` (с точностью f64), пока `qty` сам —
 /// целое число шагов лота: так приходит `state.qty` от `pool_order_qty*`
@@ -1936,7 +1939,7 @@ fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; 
     let total_steps = (qty / lot_qty).round().max(0.0) as i64;
     let mut base = [0i64; MAX_ENTRY_LEGS];
     let mut base_sum: i64 = 0;
-    for i in 0..legs {
+    for (i, slot) in base.iter_mut().take(legs).enumerate() {
         let frac = fracs.get(i).copied().unwrap_or(0.0).max(0.0);
         #[allow(clippy::cast_precision_loss)]
         let ideal = frac * total_steps as f64;
@@ -1953,7 +1956,7 @@ fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; 
         } else {
             ideal.floor() as i64
         };
-        base[i] = steps;
+        *slot = steps;
         base_sum = base_sum.saturating_add(steps);
     }
     let remainder = total_steps.saturating_sub(base_sum).max(0);
@@ -1964,9 +1967,11 @@ fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; 
         }
     }
     base[heaviest] = base[heaviest].saturating_add(remainder);
-    #[allow(clippy::cast_precision_loss)]
-    for i in 0..legs {
-        out[i] = base[i] as f64 * lot_qty;
+    for (o, &steps) in out.iter_mut().zip(base.iter()).take(legs) {
+        #[allow(clippy::cast_precision_loss)]
+        {
+            *o = steps as f64 * lot_qty;
+        }
     }
     out
 }
