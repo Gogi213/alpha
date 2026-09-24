@@ -5,3 +5,6 @@
 *.service text eol=lf
 *.timer text eol=lf
 *.html text eol=lf
+# 2026-09-24 (ревью S1): tools/compute/sets-nightly.txt, читаемый nightly-grid.sh/side-grid.sh,
+# уходит тем же git archive и без правила получал CRLF — тот же класс инцидента, что и выше.
+*.txt text eol=lf
