@@ -167,6 +167,7 @@ def main():
                       f"(позиция ${r['usd']:.0f}); BTC за сделку {fmt(r['btc_move'])} bps, худшее {fmt(r['btc_low'])}")
         for r in taken:
             csv_rows.append({"month": month, "exit_day": utc_day(r["t1"]), "episode": r["episode"], "symbol": r["sym"],
+                             "t0_ns": r["t0"], "t1_ns": r["t1"],
                              "t0_local": local_hm(r["t0"]), "t1_local": local_hm(r["t1"]), "reason": r["reason"],
                              "net_bps": round(r["net"], 2), "usd": round(r["usd"], 2), "pnl_usd": round(r["pnl"], 2),
                              "btc1h_bps": r["btc1h"], "btc4h_bps": r["btc4h"],
