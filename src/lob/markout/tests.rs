@@ -252,6 +252,7 @@ fn touch(side: Side, start_ms: i64) -> TouchRecord {
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,
+        depth_behind_lots: 0,
     }
 }
 

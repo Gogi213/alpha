@@ -1089,6 +1089,7 @@ fn probe_touch() -> TouchRecord {
         strength_e2: [-1; 3],
         strength_held_e2: [-1; 4],
         repeat_count: 0,
+        depth_behind_lots: 0,
     }
 }
 

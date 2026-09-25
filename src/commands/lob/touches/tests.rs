@@ -141,6 +141,9 @@ fn touches_fixture_writes_touch_rows_with_expected_columns() {
     assert_eq!(col(&header, t2, "traded_during"), "4");
     assert_eq!(col(&header, t2, "frontrun_lots"), "10");
     assert_eq!(col(&header, t2, "ended_by_death"), "true");
+    // T2 (Г-07): на кадре старта (5000) бид 99 стал лучшим, книга бида —
+    // {99: 10, 98: 10} (100 и 101 сняты раньше) — позади 99 только 98 (10).
+    assert_eq!(col(&header, t2, "depth_behind_lots"), "10");
 }
 
 /// Обратимость CSV → `TouchRecord` (`read_touches_csv`): записи трекера из
@@ -194,8 +197,14 @@ fn touches_write_pre_touch_returns_and_minute_mids() {
     let summary = run_touches(&touches_args(dir.path())).unwrap();
     let (header, rows) = read_rows(&summary.out);
     assert_eq!(
-        &header[header.len() - 3..],
-        ["ret_10m_bps", "ret_1h_bps", "ret_4h_bps"]
+        &header[header.len() - 4..],
+        [
+            "ret_10m_bps",
+            "ret_1h_bps",
+            "ret_4h_bps",
+            "depth_behind_lots"
+        ],
+        "T2 (П-02) добавил depth_behind_lots аддитивно, в самый конец — после ret_4h_bps"
     );
     for r in &rows {
         for c in ["ret_10m_bps", "ret_1h_bps", "ret_4h_bps"] {
@@ -378,6 +387,7 @@ fn minimal_touch() -> TouchRecord {
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,
+        depth_behind_lots: 0,
     }
 }
 
@@ -394,6 +404,7 @@ fn minimal_approach() -> ApproachRecord {
         best_opp_tick: 1010,
         flow_1h_lots: 0,
         strength_e2: [-1, -1, -1],
+        depth_behind_lots: 0,
         touch_start_ms: None,
         disarm_ms: 100,
         disarm_reason: ApproachEnd::PriceLeft,

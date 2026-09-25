@@ -171,6 +171,7 @@ fn touch_row_pairs(
         ("ret_10m_bps", some_or_empty(pre[0])),
         ("ret_1h_bps", some_or_empty(pre[1])),
         ("ret_4h_bps", some_or_empty(pre[2])),
+        ("depth_behind_lots", t.depth_behind_lots.to_string()),
     ]
 }
 
@@ -230,6 +231,7 @@ fn approach_row_pairs(day: &str, a: &ApproachRecord) -> [(&'static str, String);
         ("disarm_ms", a.disarm_ms.to_string()),
         ("duration_ms", a.duration_ms().to_string()),
         ("disarm_reason", a.disarm_reason.name().to_string()),
+        ("depth_behind_lots", a.depth_behind_lots.to_string()),
     ]
 }
 

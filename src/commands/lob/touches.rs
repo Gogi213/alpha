@@ -148,10 +148,10 @@ pub struct TouchesSummary {
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
 /// расхождение не компилируется.
-const TOUCHES_WIDTH: usize = 61;
+const TOUCHES_WIDTH: usize = 62;
 
 /// Ширина строки `approaches-<SYMBOL>.csv` (F1) — как `TOUCHES_WIDTH`.
-const APPROACHES_WIDTH: usize = 19;
+const APPROACHES_WIDTH: usize = 20;
 
 /// Заголовок `approaches-<SYMBOL>.csv`: поля `ApproachRecord` плюс `day_utc`,
 /// `age_ms` и `duration_ms` (производные, как у касаний; `touch_start_ms`
@@ -178,6 +178,9 @@ pub(crate) const APPROACHES_COLUMNS: [&str; APPROACHES_WIDTH] = [
     "disarm_ms",
     "duration_ms",
     "disarm_reason",
+    // Направленная глубина на кадре взвода (T2, П-02, Г-07) — аддитивная
+    // колонка в конце списка, старые не двигаются.
+    "depth_behind_lots",
 ];
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
@@ -270,6 +273,12 @@ pub(crate) const TOUCHES_COLUMNS: [&str; TOUCHES_WIDTH] = [
     "ret_10m_bps",
     "ret_1h_bps",
     "ret_4h_bps",
+    // Направленная глубина на кадре старта касания (T2, П-02, Г-07):
+    // `lob::levels::TouchRecord::depth_behind_lots` — сумма размеров той же
+    // стороны строго дальше от середины, чем уровень (не симметричное окно
+    // `DISTANCE_MAX_BPS`/`STRENGTH_WINDOWS_BPS`); точность зависит от глубины
+    // записи (`.200` против `.50`, В-106). Аддитивная колонка в конце.
+    "depth_behind_lots",
 ];
 
 /// Окна хода до касания: 10 мин / 1 ч / 4 ч — из цитат практиков про

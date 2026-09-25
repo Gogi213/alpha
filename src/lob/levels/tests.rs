@@ -655,6 +655,7 @@ fn touch_rec(
         strength_e2: [-1, -1, -1],
         strength_held_e2: [-1, -1, -1, -1],
         repeat_count: 0,
+        depth_behind_lots: 0,
     }
 }
 
@@ -722,6 +723,8 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     // B2: цена первого фронтранера — ближайший лучший уровень (101), на том же
     // наблюдении, что лоты фронтрана.
     want.frontrun_tick = Some(101);
+    // T2 (Г-07): позади 100 на кадре старта (2000) — 99(2) + 98(7) + 97(4) = 13.
+    want.depth_behind_lots = 13;
     assert_eq!(touches, vec![want]);
     assert!(out.is_empty(), "смертей нет");
     touches.clear();
@@ -749,6 +752,8 @@ fn a_live_level_at_the_best_price_is_a_touch_with_index_frontrun_and_stack() {
     // Сила «×поток»: к старту второго касания (4000) за час прошла одна
     // сделка на 4 лота (метка 2500) — оборот 4.
     want.flow_1h_lots = 4;
+    // T2 (Г-07): тот же кадр старта (4000), что у первого касания — 13.
+    want.depth_behind_lots = 13;
     assert_eq!(touches, vec![want]);
     assert_eq!(out.len(), 1, "смерть 100");
     assert_eq!(out[0].price_tick, 100);
@@ -833,6 +838,8 @@ fn a_level_born_at_the_best_price_touches_only_after_leaving_and_returning() {
             strength_e2: [-1, -1, 50_000],
             strength_held_e2: [-1, -1, -1, -1],
             repeat_count: 0,
+            // T2 (Г-07): кадр старта (4000) — [ob(200,15), ob(201,3)], позади 200 — 201(3).
+            depth_behind_lots: 3,
         }]
     );
     assert_eq!(touches[0].age_ms(), 3000);
@@ -1589,6 +1596,7 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // Кадр взвода: сосед 10 020 (3 лота) входит в ±20 и ±50 bps,
             // в ±10 bps (10 тиков) — нет.
             strength_e2: [-1, 33_333, 33_333],
+            depth_behind_lots: 0,
             touch_start_ms: Some(4000),
             disarm_ms: 4000,
             disarm_reason: ApproachEnd::Touch,
@@ -1598,6 +1606,96 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
     assert_eq!(ap[0].duration_ms(), 1000);
     assert!(touches.is_empty(), "касание идёт — записи ещё нет");
     assert!(out.is_empty());
+}
+
+/// T2 (Г-07): направленная глубина на подходе — та же стена 10 000, но за
+/// ней (дальше от середины) стоит ещё одна плотность 9950 (7 лотов), вне
+/// окна `DISTANCE_MAX_BPS`/арм-порога. Она не влияет на взвод (порог видит
+/// только сам уровень стены), но входит в `depth_behind_lots`: весь остаток
+/// кадра позади уровня, не симметричное окно `stack_levels`.
+#[test]
+fn approach_depth_behind_lots_sums_the_frame_behind_the_wall() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let mut out = Vec::with_capacity(16);
+    let mut touches = Vec::with_capacity(16);
+    let mut ap = Vec::with_capacity(16);
+    let wall_with_behind: [LevelObs; 3] = [
+        LevelObs {
+            tick: 10020,
+            size_lots: 3,
+            in_top50: true,
+        },
+        LevelObs {
+            tick: 10000,
+            size_lots: 10,
+            in_top50: true,
+        },
+        LevelObs {
+            tick: 9950,
+            size_lots: 7,
+            in_top50: true,
+        },
+    ];
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &WALL,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(ap.is_empty(), "60 bps — вне полосы");
+    // Аск подошёл на 15 bps; на следующем бид-кадре — взвод (та же
+    // последовательность, что у `approach_arms_within_the_band_and_disarms_on_touch`,
+    // только кадр взвода несёт лишнюю плотность 9950 позади стены).
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &wall_with_behind,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert!(
+        ap.is_empty(),
+        "взвод — не запись; запись на снятии (как в соседнем тесте)"
+    );
+    // 10 020 исчез — стена стала лучшей ценой: касание и снятие подхода
+    // записывает `ApproachRecord` со снимком полей взвода (кадр 3000).
+    frame(
+        &mut tr,
+        4000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1);
+    assert_eq!(
+        ap[0].depth_behind_lots, 7,
+        "позади стены 10000 на кадре взвода (3000) — только 9950 (7 лотов)"
+    );
 }
 
 /// Снятие уходом цены за `2 × D` и повторный взвод: 60 bps > 40 — снятие

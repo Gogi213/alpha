@@ -66,6 +66,7 @@ pub(crate) fn ensure_holds_at_touch_checkable(mode: &H3Mode, symbol: &str) -> an
         strength_e2: [i64::MAX; 3],
         strength_held_e2: [-1; 4],
         repeat_count: 0,
+        depth_behind_lots: 0,
     };
     anyhow::ensure!(
         mode.holds_at_touch(&probe).is_some(),

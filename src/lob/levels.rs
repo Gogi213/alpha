@@ -562,6 +562,16 @@ pub struct TouchRecord {
     /// Сколько раз уровень уже рождался на этой цене за скользящий час до
     /// касания (мерцание/«пружинка»): `repeat_count` смерти, но на касании.
     pub repeat_count: u32,
+    /// Направленная глубина (T2, П-02, открывает Г-07): сумма размеров той
+    /// же стороны книги строго **дальше от середины**, чем уровень, на кадре
+    /// начала касания — не симметричное окно `DISTANCE_MAX_BPS`/
+    /// `STRENGTH_WINDOWS_BPS`, а весь остаток кадра позади уровня (`Book::
+    /// levels` идёт от лучшей цены вглубь, В-45: сумма размеров наблюдений
+    /// строго дальше индекса уровня). Точность зависит от глубины исходной
+    /// записи: на `.200` (В-106) кадр несёт до 200 наблюдений на сторону, на
+    /// обычной `.50` — не больше 50, поэтому число на `.50` — грубый прокси,
+    /// не то же самое значение, что дал бы `.200`.
+    pub depth_behind_lots: i64,
 }
 
 impl TouchRecord {
@@ -640,6 +650,9 @@ pub struct ApproachRecord {
     /// Сила «×соседи» на кадре взвода для окон `STRENGTH_WINDOWS_BPS`,
     /// проценты × 100; `-1` — соседей в окне не было (как у касания).
     pub strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    /// Направленная глубина на кадре взвода (см. `TouchRecord::depth_behind_lots`,
+    /// T2 П-02): та же сумма, тот же прокси на `.50` против `.200`.
+    pub depth_behind_lots: i64,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
     /// Кадр снятия подхода (касание, смерть уровня или уход цены).
@@ -761,6 +774,8 @@ struct Touch {
     strength_held_e2: [i64; STRENGTH_HELD_WINDOWS_S.len()],
     /// Прошлых рождений уровня на этой цене в окне `repeat_window_ms`.
     repeat_count: u32,
+    /// Направленная глубина на кадре старта (см. `TouchRecord::depth_behind_lots`).
+    depth_behind_lots: i64,
 }
 
 /// Взведённый подход уровня — целые в `Live`, кучи нет (F1). Поля — состояние
@@ -774,6 +789,9 @@ struct Approach {
     best_opp_tick: i64,
     flow_1h_lots: i64,
     strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    /// Направленная глубина на кадре взвода (см. `TouchRecord::depth_behind_lots`,
+    /// T2 П-02).
+    depth_behind_lots: i64,
 }
 
 /// Один кадр уровня для правила взвода/снятия подхода (F1): всё, что нужно
@@ -792,6 +810,7 @@ struct ApproachFrame {
     best_opp_tick: i64,
     flow_1h_lots: i64,
     strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
+    depth_behind_lots: i64,
 }
 
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
@@ -1185,6 +1204,7 @@ fn touch_record(
         strength_e2: t.strength_e2,
         strength_held_e2: t.strength_held_e2,
         repeat_count: t.repeat_count,
+        depth_behind_lots: t.depth_behind_lots,
     }
 }
 
@@ -1220,6 +1240,7 @@ fn approach_record(
         best_opp_tick: a.best_opp_tick,
         flow_1h_lots: a.flow_1h_lots,
         strength_e2: a.strength_e2,
+        depth_behind_lots: a.depth_behind_lots,
         touch_start_ms,
         disarm_ms,
         disarm_reason: reason,
@@ -1299,6 +1320,7 @@ fn observe_approach(
         best_opp_tick: f.best_opp_tick,
         flow_1h_lots: f.flow_1h_lots,
         strength_e2: f.strength_e2,
+        depth_behind_lots: f.depth_behind_lots,
     });
 }
 
@@ -1740,10 +1762,23 @@ fn scan_levels(
     // (B2): «первый фронтранer», на чью цену ставится вход от фронтрана.
     let mut better_lots: i64 = 0;
     let mut near_better_tick: Option<i64> = None;
+    // Направленная глубина (T2, П-02, Г-07): сумма размеров всего кадра на
+    // этой стороне, один раз до цикла — внутри цикла «позади наблюдения i»
+    // это `total_lots − better_lots (строго лучше i) − ob.size_lots (сам i)`,
+    // без повторного обхода `levels`. Ноль аллокаций — тот же счётчик, что
+    // уже копится по кадру.
+    let total_lots: i64 = levels
+        .iter()
+        .fold(0i64, |acc, o| acc.saturating_add(o.size_lots));
     for (i, ob) in levels.iter().enumerate() {
         let key = (s, ob.tick);
         let best = i == 0;
         let strong = strength_ok.get(i).copied().unwrap_or(true);
+        // Позади наблюдения i — строго дальше от середины (В-45: кадр идёт
+        // от лучшей цены вглубь), не включая сам уровень.
+        let depth_behind_lots = total_lots
+            .saturating_sub(better_lots)
+            .saturating_sub(ob.size_lots);
         // Считается лениво и не больше раза на наблюдение (W4г): нужна и
         // новому касанию, и сигналу подхода того же кадра — раньше уровень,
         // ставший касанием при включённом подходе, платил за неё дважды.
@@ -1814,6 +1849,7 @@ fn scan_levels(
                                 )
                             }),
                             repeat_count: lv.repeat,
+                            depth_behind_lots,
                         });
                         touched.push(Touched {
                             key,
@@ -1860,6 +1896,7 @@ fn scan_levels(
                                     best_opp_tick,
                                     flow_1h_lots: flow_1h,
                                     strength_e2,
+                                    depth_behind_lots,
                                 },
                                 lv.birth_ms >= warm_end || lv.carried,
                                 approaches,

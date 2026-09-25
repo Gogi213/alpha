@@ -49,6 +49,13 @@ fn column_index(
         .ok_or_else(|| anyhow::anyhow!("{}: нет колонки {name}", path.display()))
 }
 
+/// Индекс колонки, если она есть — для полей, добавленных позже (T2, П-02:
+/// `depth_behind_lots`, как раньше `ret_*_bps`): кэш до этого тикета такой
+/// колонки не несёт, и это не порча файла, а старая, ещё годная запись.
+fn optional_column_index(header: &csv::StringRecord, name: &str) -> Option<usize> {
+    header.iter().position(|h| h == name)
+}
+
 /// Касание, прочитанное из `touches-<SYMBOL>.csv`: сутки строки и запись
 /// трекера как есть.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +116,7 @@ pub(crate) fn read_touches_csv(path: &std::path::Path) -> anyhow::Result<Vec<Tou
         stack_next_tick: idx("stack_next_tick")?,
         traded_first: [idx("traded_1s")?, idx("traded_2s")?, idx("traded_3s")?],
         flow_1h_lots: idx("flow_1h_lots")?,
+        depth_behind_lots: optional_column_index(&header, "depth_behind_lots"),
         ret: {
             let cols = [idx("ret_10m_bps"), idx("ret_1h_bps"), idx("ret_4h_bps")];
             if cols.iter().all(Result::is_ok) {
@@ -155,6 +163,9 @@ struct TouchCols {
     stack_next_tick: usize,
     traded_first: [usize; REACTION_WINDOWS_S.len()],
     flow_1h_lots: usize,
+    /// `None` — кэш до T2 (П-02), колонки ещё нет; читается как 0, не как
+    /// «не измерено» — `TouchRecord::depth_behind_lots` не `Option`.
+    depth_behind_lots: Option<usize>,
     ret: Option<[usize; PRE_TOUCH_MS.len()]>,
 }
 
@@ -204,6 +215,10 @@ impl TouchCols {
                 strength_e2(csv_field(rec, self.strength_held[3])?)?,
             ],
             repeat_count: u32::try_from(csv_int(rec, self.repeat_count)?)?,
+            depth_behind_lots: match self.depth_behind_lots {
+                Some(c) => csv_int(rec, c)?,
+                None => 0,
+            },
         };
         let ret_bps = match self.ret {
             None => None,
@@ -270,6 +285,7 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
             idx("strength_w20_pct")?,
             idx("strength_w50_pct")?,
         ],
+        depth_behind_lots: optional_column_index(&header, "depth_behind_lots"),
         touch_start_ms: idx("touch_start_ms")?,
         disarm_ms: idx("disarm_ms")?,
         disarm_reason: idx("disarm_reason")?,
@@ -299,6 +315,8 @@ struct ApproachCols {
     best_opp_tick: usize,
     flow_1h_lots: usize,
     strength: [usize; STRENGTH_WINDOWS_BPS.len()],
+    /// `None` — кэш до T2 (П-02), см. `TouchCols::depth_behind_lots`.
+    depth_behind_lots: Option<usize>,
     touch_start_ms: usize,
     disarm_ms: usize,
     disarm_reason: usize,
@@ -326,6 +344,10 @@ impl ApproachCols {
                 strength_e2(csv_field(rec, self.strength[1])?)?,
                 strength_e2(csv_field(rec, self.strength[2])?)?,
             ],
+            depth_behind_lots: match self.depth_behind_lots {
+                Some(c) => csv_int(rec, c)?,
+                None => 0,
+            },
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,
             disarm_ms: csv_int(rec, self.disarm_ms)?,
             disarm_reason: ApproachEnd::parse(csv_field(rec, self.disarm_reason)?).ok_or_else(
