@@ -61,10 +61,28 @@ def off_low(bars, m, minutes):
     return (c / min(x[1] for x in w) - 1) * 1e4 if w and c else None
 
 
+def rv(bars, m, minutes):
+    """Realized volatility: корень суммы квадратов минутных лог-доходностей за окно, bps."""
+    import math
+    w = bars.window(m, minutes + 1)
+    cl = [x[2] for x in w]
+    if len(cl) < minutes // 2:
+        return None
+    return math.sqrt(sum(math.log(b / a) ** 2 for a, b in zip(cl, cl[1:]) if a > 0 and b > 0)) * 1e4
+
+
 def vol_ratio(bars, m):
     h, d = bars.window(m, 60), bars.window(m, 1440)
     vd = sum(x[3] for x in d)
     return sum(x[3] for x in h) / (vd / 24) if h and vd else None
+
+
+def rv_feats(c, btc, m):
+    c1, c4, c24, b1, b24 = rv(c, m, 60), rv(c, m, 240), rv(c, m, 1440), rv(btc, m, 60), rv(btc, m, 1440)
+    return {"coin_rv_1h": c1, "coin_rv_4h": c4, "coin_rv_24h": c24,
+            "coin_rv_ratio": c1 / c24 * 24 ** 0.5 if c1 and c24 else None,
+            "btc_rv_1h": b1, "btc_rv_24h": b24, "btc_rv_ratio": b1 / b24 * 24 ** 0.5 if b1 and b24 else None,
+            "coin_rv_to_btc": c24 / b24 if c24 and b24 else None}
 
 
 def ranks(xs):
@@ -103,6 +121,9 @@ FEATURES = [
     ("coin_minus_btc_1h", "монета минус BTC за 1 ч"), ("coin_minus_btc_4h", "монета минус BTC за 4 ч"),
     ("coin_range_1h", "размах монеты за 1 ч, bps"), ("coin_off_low_4h", "монета над минимумом 4 ч, bps"),
     ("coin_vol_ratio", "объём монеты за час к среднему часу суток"),
+    ("coin_rv_1h", "RV монеты за 1 ч, bps"), ("coin_rv_4h", "RV монеты за 4 ч, bps"), ("coin_rv_24h", "RV монеты за сутки, bps"),
+    ("coin_rv_ratio", "RV монеты: час к суткам (×√24)"), ("btc_rv_1h", "RV BTC за 1 ч, bps"), ("btc_rv_24h", "RV BTC за сутки, bps"),
+    ("btc_rv_ratio", "RV BTC: час к суткам (×√24)"), ("coin_rv_to_btc", "RV монеты к RV BTC за сутки"),
     ("open_at_entry", "открытых позиций в момент входа"), ("rank_in_wave", "номер входа в волне"),
     ("mins_since_wave", "минут от начала волны"), ("prev_same_loss", "прошлая сделка по монете в минус (1/0)"),
     ("prev_same_mins", "минут с прошлой сделки по монете"), ("weekend", "выходной (1/0)"), ("hour_local", "час GMT+4"),
@@ -165,6 +186,7 @@ def main():
                 "coin_minus_btc_1h": None if c1 is None or b1 is None else c1 - b1,
                 "coin_minus_btc_4h": None if c4 is None or b4 is None else c4 - b4,
                 "coin_range_1h": rng(c, m, 60), "coin_off_low_4h": off_low(c, m, 240), "coin_vol_ratio": vol_ratio(c, m),
+                **rv_feats(c, btc, m),
                 "open_at_entry": sum(1 for q in rows[:i] if int(q["t1_ns"]) // 1_000_000 > t0),
                 "rank_in_wave": wave_rank[e], "mins_since_wave": (t0 - wave_start[e]) / MIN_MS,
                 "prev_same_loss": None if prev is None else (1.0 if prev[1] <= 0 else 0.0),
