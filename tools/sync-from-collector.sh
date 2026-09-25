@@ -10,26 +10,38 @@
 #   уже прошла), instruments.csv, verify-<SYM>.status (маркеры K1), gaps.csv, clock.csv,
 #   session.json и сводка сверки /opt/alpha/verify/<день>.log → root/verify-logs/;
 #   поток `.200` тех же суток из `root/deep/` → ~/alpha/deep/ (G0, 23.09: единственная наша запись
-#   200 уровней, нужна двойнику G1; сетка его не читает). Удаление на коллекторе — не здесь: ключ
-#   только на чтение.
+#   200 уровней, нужна двойнику G1; сетка его не читает).
+#
+# Удаление на коллекторе (владелец 2026-09-25): после забора список файлов этих суток, как они легли
+# здесь («R|D имя размер»), уходит отдельным ключом `~/.ssh/id_prune_collector` в forced command
+# `tools/prune-pulled.sh` коллектора — тот удаляет свои копии с тем же размером (закрытые и сверенные
+# сутки). Нет ключа — удаления нет, забор как прежде.
 #
 # Запуск: пользовательский таймер `alpha-pull.timer` в 01:15 UTC (см. tools/alpha-pull.*),
 # вручную: ~/alpha/bin/sync-from-collector.sh [YYYY-MM-DD]. Идемпотентно (rsync -a --partial).
+# Без аргумента — трое последних закрытых суток: пропущенная ночь (Steam Deck спал) догоняется
+# следующей, уже лежащие файлы rsync не перекачивает.
 # Ключ дека `~/.ssh/id_ed25519` авторизован на коллекторе как
 #   restrict,command="/usr/bin/rrsync -ro /opt/alpha" — только чтение, пути относительно /opt/alpha.
 set -euo pipefail
 
-DAY="${1:-$(date -u -d 'yesterday' +%F)}"
+if [ $# -ge 1 ]; then
+  DAYS="$1"
+else
+  DAYS="$(for n in 3 2 1; do date -u -d "$n days ago" +%F; done)"
+fi
 SRC_HOST="${ALPHA_COLLECTOR:-ubuntu@139.99.91.22}"
 DST="${ALPHA_ROOT:-$HOME/alpha/root}"
 DEEP="${ALPHA_DEEP:-$HOME/alpha/deep}"
 KEY="${ALPHA_PULL_KEY:-$HOME/.ssh/id_ed25519}"
+PRUNE_KEY="${ALPHA_PRUNE_KEY:-$HOME/.ssh/id_prune_collector}"
 KH="$HOME/.ssh/known_hosts"
 LOGDIR="$HOME/alpha/sync"
-LOG="$LOGDIR/${DAY}.log"
 
 mkdir -p "$DST/verify-logs" "$LOGDIR"
 SSH="ssh -i $KEY -o BatchMode=yes -o UserKnownHostsFile=$KH -o StrictHostKeyChecking=yes -o ConnectTimeout=30"
+for DAY in $DAYS; do
+LOG="$LOGDIR/${DAY}.log"
 {
   echo "== $(date -u +%FT%TZ) pull day=$DAY from $SRC_HOST -> $DST"
   nice -n 19 ionice -c3 rsync -a --partial --stats -e "$SSH" \
@@ -47,4 +59,12 @@ SSH="ssh -i $KEY -o BatchMode=yes -o UserKnownHostsFile=$KH -o StrictHostKeyChec
     echo "!! сводки сверки за $DAY на коллекторе нет"
   fi
   echo "== $(date -u +%FT%TZ) done files=$(ls "$DST" | grep -c -- "-${DAY}" || true) deep=$(ls "$DEEP" | grep -c -- "-${DAY}" || true)"
+  if [ -f "$PRUNE_KEY" ]; then
+    { find "$DST" -maxdepth 1 -type f -name "*-${DAY}*.binlog" -printf 'R %f %s\n'
+      find "$DEEP" -maxdepth 1 -type f -name "*-${DAY}*.binlog" -printf 'D %f %s\n'; } \
+      | ssh -i "$PRUNE_KEY" -o BatchMode=yes -o UserKnownHostsFile="$KH" -o StrictHostKeyChecking=yes \
+          -o ConnectTimeout=30 "$SRC_HOST" \
+      || echo "!! удаление на коллекторе за $DAY не прошло"
+  fi
 } >> "$LOG" 2>&1
+done
