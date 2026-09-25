@@ -275,6 +275,9 @@ pub(super) struct DayParams<'a> {
     pub(super) side: Option<Side>,
     /// Доля съедания стены к касанию не больше этого процента (`eaten=`).
     pub(super) eaten_max_pct: Option<f64>,
+    /// T4 (П-02, Г-86): доля съедания стены к касанию не меньше этого
+    /// процента (`eaten_min=`) — зеркало `eaten_max_pct`.
+    pub(super) eaten_min_pct: Option<f64>,
     /// Номинал стены при касании ≥ (`usd_min=`), доллары.
     pub(super) usd_min: Option<f64>,
     /// Контекст касаний суток (тот же порядок, что `touches`) — только когда

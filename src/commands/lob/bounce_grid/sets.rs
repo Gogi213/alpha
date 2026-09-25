@@ -37,6 +37,11 @@ pub struct FilterSet {
     /// size_at_touch / size_max_before)` не больше этого процента. Только
     /// ключ набора `eaten=<%>`, флага у команды нет.
     pub eaten_max_pct: Option<f64>,
+    /// T4 (П-02, Г-86, P-90 «огромный завал уже проедается»): доля съедания к
+    /// касанию не меньше этого процента — зеркало `eaten_max_pct` (там «не
+    /// больше», здесь «не меньше»), для условия входа рынком при сильном
+    /// разъедании. Только ключ набора `eaten_min=<%>`.
+    pub eaten_min_pct: Option<f64>,
     /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
@@ -220,6 +225,7 @@ impl FilterSet {
             min_flow_pct: args.min_flow_pct,
             side: args.side,
             eaten_max_pct: None,
+            eaten_min_pct: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -247,6 +253,7 @@ impl FilterSet {
             min_flow_pct: None,
             side: None,
             eaten_max_pct: None,
+            eaten_min_pct: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         };
@@ -297,6 +304,16 @@ impl FilterSet {
                     );
                     set.eaten_max_pct = Some(pct);
                 }
+                "eaten_min" => {
+                    let pct: f64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: eaten_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        pct.is_finite(),
+                        "--set {spec:?}: eaten_min={v:?} — процент обязан быть числом"
+                    );
+                    set.eaten_min_pct = Some(pct);
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -345,6 +362,7 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) min_flow_pct: Option<f64>,
     pub(crate) side: Option<Side>,
     pub(crate) eaten_max_pct: Option<f64>,
+    pub(crate) eaten_min_pct: Option<f64>,
     pub(crate) usd_min: Option<f64>,
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
@@ -361,6 +379,7 @@ impl<'a> TouchFilter<'a> {
             min_flow_pct: p.min_flow_pct,
             side: p.side,
             eaten_max_pct: p.eaten_max_pct,
+            eaten_min_pct: p.eaten_min_pct,
             usd_min: p.usd_min,
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
@@ -385,6 +404,7 @@ impl<'a> TouchFilter<'a> {
             min_flow_pct: set.min_flow_pct,
             side: set.side.map(Side::from),
             eaten_max_pct: set.eaten_max_pct,
+            eaten_min_pct: set.eaten_min_pct,
             usd_min: set.usd_min,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
@@ -419,6 +439,11 @@ impl<'a> TouchFilter<'a> {
         }
         // Состояние стены: съедена к касанию сильнее порога — не вход.
         if self.eaten_max_pct.is_some_and(|m| eaten_pct(t) > m) {
+            return false;
+        }
+        // T4 (П-02, Г-86): зеркало предыдущей проверки — съедено МЕНЬШЕ
+        // порога не вход (нужен именно сильно проеденный завал).
+        if self.eaten_min_pct.is_some_and(|m| eaten_pct(t) < m) {
             return false;
         }
         // Размер стены: номинал при касании ниже порога набора — не вход.

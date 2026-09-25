@@ -568,6 +568,44 @@ fn bounce_plan_without_frontrun_enters_one_tick_before_the_level() {
     assert!((take - 10.07).abs() < 1e-9, "{take}");
 }
 
+/// T4 (П-02, Г-86): `EntryForm::Market` ставит вход за
+/// `MARKET_CROSS_MARGIN_BPS` от стены (не от фронтранера — фронтран здесь
+/// есть, но форма его игнорирует, в отличие от `single@fr`), и снимает
+/// `post_only` независимо от формы, пришедшей в `PlanShape` (рыночный вход
+/// не может быть мейкером, GTX отклонил бы пересёкшую спред заявку как
+/// Expired, В-72).
+#[test]
+fn bounce_plan_market_entry_crosses_the_spread_and_is_never_post_only() {
+    let tick = 0.01_f64;
+    let touch = bounce_touch(1_000, Some(1_005)); // P = 10.00, фронтран 10.05
+    let mut shape = plain_shape();
+    shape.entry_form = EntryForm::Market;
+    shape.post_only = true; // рыночный вход обязан снять этот флаг сам
+    let (_, plan) = bounce_plan(&touch, tick, base("behind", "1to1"), None, shape).unwrap();
+    let (entry, stop, _) = plan_prices(&plan);
+    let expected_tick = 1_000 + super::forms::bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, 1_000);
+    assert!(
+        (entry - expected_tick as f64 * tick).abs() < 1e-9,
+        "entry = {entry}, expected tick {expected_tick}"
+    );
+    // Стоп формы `behind` не зависит от входа — по-прежнему `P - 1`.
+    assert!((stop - 9.99).abs() < 1e-9, "{stop}");
+    match plan {
+        TradePlan::Bounce { post_only, .. } => {
+            assert!(!post_only, "рыночный вход не может быть GTX (пост-онли)")
+        }
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    }
+}
+
+/// `EntryForm::Market` разбирается из `"market"` и печатается тем же именем
+/// — критерий приёмки T4, как у `single@fr`/`ladder…`.
+#[test]
+fn entry_form_market_round_trips_through_its_label() {
+    assert_eq!(EntryForm::parse("market").unwrap(), EntryForm::Market);
+    assert_eq!(EntryForm::Market.label(), "market");
+}
+
 /// Формы базы (В-65) на бид-уровне `P = 10.00` с фронтранером `10.05`:
 /// `before` → стоп `P+1` = 10.01, тейк 1:1 от входа 10.09; `at` → 10.00 /
 /// 10.10; `behind` → 9.99 / 10.11; `midfr` → середина между 10.05 и 10.00 =

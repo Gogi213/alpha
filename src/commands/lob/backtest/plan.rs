@@ -22,6 +22,7 @@ use crate::commands::lob::side_name;
 
 use super::forms::{
     bps_to_ticks_ceil, ladder_legs, BounceForm, EntryForm, EntryTtl, PlanShape, StopForm, TakeForm,
+    MARKET_CROSS_MARGIN_BPS,
 };
 
 /// Порог В-66 в единицах размера крейта для условия «стена снята» (F5,
@@ -128,6 +129,22 @@ pub(crate) fn bounce_plan(
             let (ladder, avg_tick) = ladder_legs(p_tick, away, legs, from_bps, to_bps, wall_weight);
             (ladder, avg_tick)
         }
+        // T4 (В-73-подобно, П-02, Г-86): рыночный вход — лимит за
+        // `MARKET_CROSS_MARGIN_BPS` от стены, гарантированно пересекающий
+        // спред (симулятор идёт по стакану до фактической цены фила —
+        // дальше этой цели, не по ней).
+        EntryForm::Market => (
+            EntryLadder::NONE,
+            p_tick + away * bps_to_ticks_ceil(MARKET_CROSS_MARGIN_BPS, p_tick),
+        ),
+    };
+    // T4 (Г-86): рыночный вход не может быть мейкером — GTX отклонил бы
+    // заявку, пересёкшую спред, как Expired (В-72); GTC независимо от
+    // `--post-only`/набора.
+    let post_only = if matches!(entry_form, EntryForm::Market) {
+        false
+    } else {
+        post_only
     };
     // Расстояние от уровня «в сторону от плотности», тики (> 0 — по нужную сторону).
     let dist_from_level = (entry_tick - p_tick) * away;

@@ -950,6 +950,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             min_flow_pct: Some(10.0),
             side: None,
             eaten_max_pct: None,
+            eaten_min_pct: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -1249,6 +1250,126 @@ fn usd_min_key_filters_by_wall_notional_at_touch() {
         .all(|r| col(&fh, r, "n_signals") == "0" && col(&fh, r, "n_skipped") == "3"));
     let head = std::fs::read_to_string(&by("u1").forms_path).unwrap();
     assert!(head.contains(" usd_min=Some(1.0) "), "{head}");
+}
+
+/// T4 (П-02, Г-86): ключ `eaten_min=<%>` — зеркало `eaten=<%>` (там «не
+/// больше», здесь «не меньше»). Фикстура `touch_frames()` — размер тика 99
+/// не падает **до** ни одного из трёх касаний (`size_max_before ==
+/// size_at_touch`), поэтому `eaten_pct == 0` у всех: порог 0 не выбивает
+/// ничего (байты те же), любой порог выше нуля выбивает все три.
+#[test]
+fn eaten_min_key_filters_by_wall_erosion_at_touch() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-eaten-min");
+    a.sets = vec![
+        "all:".to_string(),
+        "e0:eaten_min=0".to_string(),
+        "e1:eaten_min=1".to_string(),
+    ];
+    let m = run_bounce_grid(&a).unwrap();
+    let by = |n: &str| m.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(body(&by("e0").rounds_path), body(&by("all").rounds_path));
+    let (fh, e1) = read_csv(&by("e1").forms_path);
+    assert!(e1
+        .iter()
+        .all(|r| col(&fh, r, "n_signals") == "0" && col(&fh, r, "n_skipped") == "3"));
+    let head = std::fs::read_to_string(&by("e1").forms_path).unwrap();
+    assert!(head.contains(" eaten_min=Some(1.0) "), "{head}");
+}
+
+/// `--signal approach` не определяет `eaten_min=` (T4) так же, как `eaten=`
+/// — размер на взводе и есть старт, истории размера нет.
+#[test]
+fn eaten_min_key_is_rejected_with_approach_signal() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    // Не-σ формы и снятые умолчания трекера — требования `--touches-from`
+    // (проверяются раньше нашего ключа, см. `resolve_plan`); сам кэш не
+    // читается до этого отказа, поэтому подойдёт любой существующий каталог.
+    a.stop_form = vec!["behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.signal = SignalArg::Approach;
+    a.touches_from = Some(dir.path().to_path_buf());
+    a.sets = vec!["x:eaten_min=1".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("eaten_min"), "{err}");
+}
+
+/// T4 (П-02, Г-86): `--entry-form market` — вход пересекает спред
+/// (`entry_crossed`), но не отклоняется как пост-онли (В-72 не действует на
+/// рыночный вход: `post_only` снят самой формой) и исполняется.
+#[test]
+fn entry_form_market_crosses_the_spread_instead_of_being_rejected_postonly() {
+    // Свой, тесный спред: `touch_frames()`/`fixture_root()` держат аск в
+    // 600–700 bps от стены (99 против 105/106 — простор для теста подхода и
+    // ряда σ), а рыночному входу нужен реалистичный спред, который его
+    // запас (`MARKET_CROSS_MARGIN_BPS = 500`) пересечёт: аск в 3 тиках от
+    // стены (99 → 102, ≈ 300 bps).
+    fn tight_spread_frames() -> Vec<Vec<crate::binlog::Record>> {
+        vec![
+            snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(102, 10)]),
+            delta_frame(1000, &[(100, 0)], &[]), // 100 снят — 99 лучший: касание.
+            delta_frame(2000, &[(100, 10)], &[]), // конец касания.
+        ]
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        crate::commands::record::instruments_csv_path(dir.path()),
+        "symbol,tick_size,min_order_qty,qty_step,min_notional_value,h3_lots\n\
+         SOLUSDT,0.01,0.1,0.1,5,5\n",
+    )
+    .unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &tight_spread_frames());
+    std::fs::write(
+        dir.path().join("session.json"),
+        "{\"started_utc\":\"2026-09-08T00:00:00Z\",\"start_hour_utc\":0,\"instruments\":[\"SOLUSDT\"]}",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("verify-SOLUSDT.status"), "ok").unwrap();
+
+    let mut a = args(dir.path(), false);
+    a.stop_form = vec!["behind".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.entry_form = vec!["market".to_string()];
+    a.out_dir = dir.path().join("grid-market");
+    let m = run_bounce_grid(&a).unwrap();
+    // Фикстура — три кадра (снимок, снятие 100, возврат 100): достаточно
+    // событий, чтобы сигнал построился и заявка ушла и пересекла спред, но
+    // не достаточно, чтобы обычный дедлайн (мин. 60 с) успел разрешить
+    // круг целиком (`incomplete=true`, ожидаемо на такой короткой записи —
+    // не предмет этого теста). Проверяем сам механизм T4: заявка
+    // действительно **пересекла** спред (`entry_crossed`) и не была
+    // отклонена как пост-онли (`n_rejected_postonly`) — это и отличает
+    // `market` от `single@fr`/`ladder…`, которые на этой же фикстуре и с тем
+    // же `--post-only` (умолчание команды) были бы отклонены `Expired`.
+    let (fh, rows) = read_csv(&m.forms_path);
+    assert!(!rows.is_empty());
+    for r in &rows {
+        assert_eq!(
+            col(&fh, r, "n_rejected_postonly"),
+            "0",
+            "рыночный вход не пост-онли — GTX его бы отклонил как Expired"
+        );
+        assert!(
+            col(&fh, r, "entry_crossed").parse::<u32>().unwrap() >= 1,
+            "рыночный вход обязан пересечь спред: {r:?}"
+        );
+    }
 }
 
 /// Гейт F3/F4: `--queue-model risk-adverse --no-post-only` — прежний движок

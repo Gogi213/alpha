@@ -42,7 +42,8 @@ pub(crate) use feed::{
 };
 pub(crate) use forms::PlanShape;
 pub use forms::{
-    BounceForm, EntryForm, EntryTtl, StopForm, TakeForm, ENTRY_TTL_SECS, SINGLE_ENTRY_LABEL,
+    BounceForm, EntryForm, EntryTtl, StopForm, TakeForm, ENTRY_TTL_SECS, MARKET_CROSS_MARGIN_BPS,
+    SINGLE_ENTRY_LABEL,
 };
 use plan::bounce_rows;
 pub(crate) use plan::{

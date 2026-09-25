@@ -305,7 +305,25 @@ pub enum EntryForm {
         to_bps: f64,
         wall_weight: u32,
     },
+    /// `market` — вход рынком (T4, П-02, открывает Г-86: «огромный завал уже
+    /// проедается» — рыночный вход при `eaten_min=` выше порога, P-90).
+    /// Немедленный тейкерский фил вместо очереди/лимитки: `bounce_plan`
+    /// ставит цену за `MARKET_CROSS_MARGIN_BPS` от стены — гарантированно
+    /// пересекающую спред, — и переводит вход в `GTC` (маркер `post_only`
+    /// формы здесь роли не играет: рыночный вход не может быть мейкером,
+    /// `GTX` отклонил бы пересёкшую спред заявку как `Expired`, В-72).
+    Market,
 }
+
+/// Запас пересечения спреда для рыночного входа (`EntryForm::Market`,
+/// T4/Г-86), bps от цены стены: **техническая гарантия**, что лимит-заявка
+/// действительно пересечёт спред и исполнится тейкером в симуляции очереди
+/// (`hftbacktest`), а не порог исследования — назначаемых чисел решения
+/// здесь нет (В-##). Спред пула — единицы bps (глубина топ-50 мерена
+/// `lob pick`/`coverage_top50_bps`); запас на два порядка шире любого
+/// реального спреда, поэтому фактическая цена исполнения — цена **книги**
+/// на момент фила (симулятор идёт по стакану до неё), не эта цель.
+pub const MARKET_CROSS_MARGIN_BPS: f64 = 500.0;
 
 impl EntryForm {
     /// Разбор имени формы. Каноничность проверяется как у `StopForm`/
@@ -316,9 +334,12 @@ impl EntryForm {
         if spec == SINGLE_ENTRY_LABEL {
             return Ok(Self::SingleFrontrun);
         }
+        if spec == "market" {
+            return Ok(Self::Market);
+        }
         let rest = spec.strip_prefix("ladder").ok_or_else(|| {
             anyhow::anyhow!(
-                "{spec}: форма входа — {SINGLE_ENTRY_LABEL} или ladder<N>x<from>..<to>[w<k>]"
+                "{spec}: форма входа — {SINGLE_ENTRY_LABEL} | market | ladder<N>x<from>..<to>[w<k>]"
             )
         })?;
         let (legs_s, tail) = rest
@@ -372,11 +393,13 @@ impl EntryForm {
         Ok(form)
     }
 
-    /// Имя формы: `single@fr` или `ladder3x2..10` / `ladder3x2..10w2`. Вес 1
-    /// не пишется: равные доли — то же самое, а имя обязано быть одно.
+    /// Имя формы: `single@fr`, `market` или `ladder3x2..10` /
+    /// `ladder3x2..10w2`. Вес 1 не пишется: равные доли — то же самое, а имя
+    /// обязано быть одно.
     pub fn label(self) -> String {
         match self {
             Self::SingleFrontrun => SINGLE_ENTRY_LABEL.to_string(),
+            Self::Market => "market".to_string(),
             Self::Ladder {
                 legs,
                 from_bps,
