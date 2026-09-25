@@ -12,6 +12,17 @@ pub(crate) fn side_name(side: Side) -> &'static str {
     }
 }
 
+/// Сторона агрессора сделки (`TradeHit::aggressor_is_buy`/`Record.ev`) —
+/// `buy`/`sell`, не путать с `side_name` (сторона книги `bid`/`ask`): лента
+/// сделок (`lob trades`, T1) печатает эту сторону, не сторону уровня.
+pub(crate) fn aggressor_side_name(is_buy: bool) -> &'static str {
+    if is_buy {
+        "buy"
+    } else {
+        "sell"
+    }
+}
+
 pub(crate) fn outcome_name(outcome: Outcome) -> &'static str {
     match outcome {
         Outcome::Eaten => "eaten",

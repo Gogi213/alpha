@@ -2,7 +2,7 @@ use super::*;
 use crate::book::Side;
 use crate::commands::lob::replay::ReplayDay;
 use crate::commands::lob::replay_symbol;
-use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, write_day};
+use crate::commands::lob::test_support::{touch_frames, write_day};
 use crate::commands::lob::H3ModeArg;
 use crate::lob::excursion::SecondMids;
 use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
@@ -33,28 +33,6 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         carry_age: false,
         emit_day: None,
     }
-}
-
-/// Бид 100 родился лучшей ценой — не касание (В-43); продавец бьёт в него
-/// 3 лота, на 1000 мс он снят — смерть без касания. Бид 99 стал лучшим
-/// (касание 0, фронтран — 10 лотов бида 100 с прошлого кадра, завал — 98 и
-/// 99); на 2000 мс бид 100 родился заново лучшей ценой (снова не касание) —
-/// 99 ушёл с лучшей цены; на 3000 мс 100 снят — 99 лучший второй раз
-/// (индекс 1); на 4000 мс родился 101 — касание 1 у 99 кончилось; на 5000 мс
-/// 101 снят — касание 2 у 99, внутри сделка 4 лота, на 6000 мс 99 упал до
-/// 1 лота — касание кончилось смертью. Аск 105 и бид 98 касаний не дают.
-fn touch_frames() -> Vec<Vec<crate::binlog::Record>> {
-    vec![
-        snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(105, 10)]),
-        trade_frame(500, 100, 3),
-        delta_frame(1000, &[(100, 0)], &[]),
-        delta_frame(2000, &[(100, 10)], &[]),
-        delta_frame(3000, &[(100, 0)], &[]),
-        delta_frame(4000, &[(101, 10)], &[]),
-        delta_frame(5000, &[(101, 0)], &[]),
-        trade_frame(5500, 99, 4),
-        delta_frame(6000, &[(99, 1)], &[]),
-    ]
 }
 
 fn read_rows(path: &std::path::Path) -> (Vec<String>, Vec<Vec<String>>) {

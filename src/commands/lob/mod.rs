@@ -78,6 +78,7 @@ pub mod session;
 pub mod shortlist;
 pub mod touch_profiles;
 pub mod touches;
+pub mod trades;
 mod verify;
 pub mod watch;
 
@@ -150,6 +151,7 @@ pub use session::{run_session, SessionArgs};
 pub use shortlist::{run_shortlist, ShortlistArgs};
 pub use touch_profiles::{run_touch_profiles, TouchProfilesArgs};
 pub use touches::{run_touches, TouchesArgs};
+pub use trades::{run_trades, TradesArgs};
 pub use watch::{run_watch, WatchArgs};
 
 // Общее для нескольких подкоманд разъехалось по файлам (`h3`, `replay`,
@@ -160,7 +162,7 @@ pub use h3::{
     resolve_h3_mode, resolve_h3_mode_full, resolve_h3_mode_with_k, ExecutionArgs, H3Args,
     H3ModeArg, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS, G0_MIN_PULLED,
 };
-pub(crate) use names::{death_name, outcome_name, side_name, some_or_empty};
+pub(crate) use names::{aggressor_side_name, death_name, outcome_name, side_name, some_or_empty};
 pub(crate) use parts::{
     file_order_key, group_parts_by_day, session_binlog_for, session_days_in_dir, session_parts_for,
     SessionPart,
@@ -259,6 +261,12 @@ pub enum LobCommand {
     /// (таск 35, В-42): уровень стал лучшей ценой и перестал ею быть,
     /// markout «в сторону отскока», подход, фронтран, круглость, завал.
     Touches(TouchesArgs),
+    /// Лента сделок — `trades-<SYMBOL>.csv` (T1, П-02: открывает Г-46 — знак
+    /// CVD, и точную Г-36 — айсберг): та же проверка `Record.ev`
+    /// (`is_trade_ev`), что уже отделяет сделки от книжных дельт в реплее,
+    /// но без книги и без трекера — сырая строка на сделку (сторона
+    /// агрессора, тик и $ цены, лоты, `block`/`rpi`).
+    Trades(TradesArgs),
     /// Таблица профилей касаний `docs/findings/touch-profiles-<дата>.csv`
     /// (таск 37, В-44): маргиналы девяти осей касания плюс крест исход ×
     /// возраст, по инструменту и по пулу, `m` «в сторону отскока» с
@@ -397,6 +405,18 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                         rest.len()
                     ),
                 },
+                summary.out.display()
+            );
+            Ok(())
+        }
+        LobCommand::Trades(args) => {
+            let summary = run_trades(&args)?;
+            println!(
+                "trades: days={} trades={} (buy={} sell={}) out={}",
+                summary.days,
+                summary.trades,
+                summary.buy,
+                summary.sell,
                 summary.out.display()
             );
             Ok(())
@@ -638,7 +658,7 @@ pub(crate) mod test_support {
     use crate::binlog::{Header, Writer};
     use hftbacktest::types::{
         LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT,
-        LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_SELL_TRADE_EVENT,
+        LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT,
     };
 
     pub(crate) const FIX_TICK_E9: i64 = 10_000_000; // 0.01
@@ -679,6 +699,33 @@ pub(crate) mod test_support {
     /// трекер зачтёт как объём против уровня стороны бида.
     pub(crate) fn trade_frame(ts_ms: i64, tick: i64, lots: i64) -> Vec<Record> {
         vec![depth_rec(LOCAL_SELL_TRADE_EVENT, ts_ms, tick, lots)]
+    }
+
+    /// Сделка с явными флагами `block`/`rpi` и выбором стороны агрессора —
+    /// `trade_frame` их всегда обнуляет (сторона всегда продавец); ленте
+    /// `lob trades` (T1) нужен способ включить оба бита и обе стороны в
+    /// тестах.
+    pub(crate) fn trade_frame_flags(
+        ts_ms: i64,
+        tick: i64,
+        lots: i64,
+        is_buy: bool,
+        block: bool,
+        rpi: bool,
+    ) -> Vec<Record> {
+        vec![Record {
+            ev: if is_buy {
+                LOCAL_BUY_TRADE_EVENT
+            } else {
+                LOCAL_SELL_TRADE_EVENT
+            },
+            exch_ts_ns: ts_ms * 1_000_000,
+            local_ts_ns: ts_ms * 1_000_000 + 500_000,
+            price_ticks: tick,
+            qty_lots: lots,
+            block,
+            rpi,
+        }]
     }
 
     pub(crate) fn delta_frame(ts_ms: i64, bids: &[(i64, i64)], asks: &[(i64, i64)]) -> Vec<Record> {
@@ -754,6 +801,34 @@ pub(crate) mod test_support {
             ],
             delta_frame(1000, &[(96, 10), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
             delta_frame(2000, &[(96, 1), (98, 1), (99, 1), (100, 1)], &[(105, 10)]),
+        ]
+    }
+
+    /// Бид 100 родился лучшей ценой — не касание (В-43); продавец бьёт в него
+    /// 3 лота, на 1000 мс он снят — смерть без касания. Бид 99 стал лучшим
+    /// (касание 0, фронтран — 10 лотов бида 100 с прошлого кадра, завал — 98 и
+    /// 99); на 2000 мс бид 100 родился заново лучшей ценой (снова не касание) —
+    /// 99 ушёл с лучшей цены; на 3000 мс 100 снят — 99 лучший второй раз
+    /// (индекс 1); на 4000 мс родился 101 — касание 1 у 99 кончилось; на 5000 мс
+    /// 101 снят — касание 2 у 99, внутри сделка 4 лота, на 6000 мс 99 упал до
+    /// 1 лота — касание кончилось смертью. Аск 105 и бид 98 касаний не дают.
+    ///
+    /// Общая фикстура `touches`/`trades` (T1, П-02): `touches::tests` проверяет
+    /// колонки касания, `trades::tests` сверяет ленту сделок против независимо
+    /// посчитанного `traded_during` того же касания 2 (тик 99, сделка на
+    /// 5500 мс, 4 лота, продавец-агрессор) — обе сверки обязаны стоять на
+    /// одних и тех же байтах, не на двух похожих фикстурах.
+    pub(crate) fn touch_frames() -> Vec<Vec<Record>> {
+        vec![
+            snap_frame(0, &[(98, 10), (99, 10), (100, 10)], &[(105, 10)]),
+            trade_frame(500, 100, 3),
+            delta_frame(1000, &[(100, 0)], &[]),
+            delta_frame(2000, &[(100, 10)], &[]),
+            delta_frame(3000, &[(100, 0)], &[]),
+            delta_frame(4000, &[(101, 10)], &[]),
+            delta_frame(5000, &[(101, 0)], &[]),
+            trade_frame(5500, 99, 4),
+            delta_frame(6000, &[(99, 1)], &[]),
         ]
     }
 }

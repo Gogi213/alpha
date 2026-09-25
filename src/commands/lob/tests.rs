@@ -467,6 +467,7 @@ fn lob_help_lists_all_subcommands() {
         "shortlist",
         "touch-profiles",
         "touches",
+        "trades",
         "verify",
         "watch",
     ];

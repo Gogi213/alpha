@@ -198,7 +198,7 @@ cargo build --release --target-dir target-ci          # target/release/alpha.exe
 cargo test --release --target-dir target-ci 2>&1 | tail -5   # 1003 passed, 0 failed, 7 ignored (2026-09-25, Windows; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # 26 подкоманд (lob export удалён 24.09), таблица — docs/COMMANDS.md
+./target-ci/release/alpha.exe lob --help              # 27 подкоманд (T1 добавил `trades` 25.09; lob export удалён 24.09), таблица — docs/COMMANDS.md
 # олвейс-он коллектор (В-34): с копии бинарника, чтобы не держать target*; instruments.csv скопировать в --root
 cp target-ci/release/alpha.exe data/always-on/alpha-collector.exe
 ./data/always-on/alpha-collector.exe lob session --pool-instruments instruments.csv --root data/always-on/<ts> --always-on
