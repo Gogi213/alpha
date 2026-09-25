@@ -87,6 +87,11 @@ DAYS_WINDOW="${DAYS_WINDOW:-}"
 # ночи. Именно переменной окружения, а не аргументом, — юнит таймера её не задаёт, и ночные сетки
 # пропустить случайно нельзя.
 TOUCHES_ONLY="${TOUCHES_ONLY:-}"
+# В-108 (владелец 25.09): старая база (девять наборов В-65/В-71 + tk/dl/E7/скальп, ~25 мин и ~161 МБ за
+# ночь) не отвечает на текущую задачу («снизить издержки/просадку главного варианта») — на Steam Deck
+# выключается юнитом (`Environment=OLD_BASE=0`). Умолчание здесь — 1 (прежнее поведение): VPS-счётная
+# (`epoch-run.sh`, `/opt/alpha-compute`) OLD_BASE не задаёт и продолжает получать все стадии как раньше.
+OLD_BASE="${OLD_BASE:-1}"
 DAYS_ALL=$(ls root/*.binlog* 2>/dev/null | sed -E 's/.*-([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | sort -u)
 DAY_ARGS=""
 if [ -n "$DAYS_WINDOW" ]; then
@@ -375,36 +380,41 @@ if [ -z "$TOUCHES_ONLY" ]; then
       "$@"
     fi
   }
-  split_n="${BASE_SPLIT:-1}"
-  if [ "$split_n" -le 1 ]; then
-    stage run_sets $BASE_SETS
+  if [ "$OLD_BASE" = 1 ]; then
+    split_n="${BASE_SPLIT:-1}"
+    if [ "$split_n" -le 1 ]; then
+      stage run_sets $BASE_SETS
+    else
+      i=0
+      # shellcheck disable=SC2206
+      all=($BASE_SETS)
+      chunk=$(( (${#all[@]} + split_n - 1) / split_n ))
+      while [ $((i * chunk)) -lt ${#all[@]} ]; do
+        LABEL="base-$((i + 1))" stage run_sets "${all[@]:$((i * chunk)):$chunk}"
+        i=$((i + 1))
+      done
+    fi
+    # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
+    # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
+    LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1" \
+      stage run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+    # S8 удержание (--deadline-secs, 20.09): 30 мин и 4 ч рядом с базовыми; стопы pct1/pct2, тейк 1:1 — 12 форм × 3 набора = 36.
+    LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400" \
+      stage run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+    # E7 — другие формы и лот, поэтому свой процесс.
+    stage run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
+    # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
+    # минуты, стоп у стены (at/behind/stack2 — В-65; before и midfr при входе у фронтранера вырождены — 0 сигналов), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
+    # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
+    # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
+    LABEL=scalp FORMS="--stop-form at --stop-form behind --stop-form stack2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
+      stage run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
   else
-    i=0
-    # shellcheck disable=SC2206
-    all=($BASE_SETS)
-    chunk=$(( (${#all[@]} + split_n - 1) / split_n ))
-    while [ $((i * chunk)) -lt ${#all[@]} ]; do
-      LABEL="base-$((i + 1))" stage run_sets "${all[@]:$((i * chunk)):$chunk}"
-      i=$((i + 1))
-    done
+    echo "== $(date -u +%FT%TZ) OLD_BASE=0 — старая база/tk/dl/E7/скальп пропущены намеренно (В-108)" >> "$LOG"
   fi
-  # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
-  # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
-  LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1" \
-    stage run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
-  # S8 удержание (--deadline-secs, 20.09): 30 мин и 4 ч рядом с базовыми; стопы pct1/pct2, тейк 1:1 — 12 форм × 3 набора = 36.
-  LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400" \
-    stage run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
-  # E7 — другие формы и лот, поэтому свой процесс.
-  stage run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
-  # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
-  # минуты, стоп у стены (at/behind/stack2 — В-65; before и midfr при входе у фронтранера вырождены — 0 сигналов), тейк 1:1, дедлайны 60/600 с (В-38) и выход по
-  # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
-  # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
-  LABEL=scalp FORMS="--stop-form at --stop-form behind --stop-form stack2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
-    stage run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
   # Замороженная живая ветка F10 — out-of-sample с 23.09 (В-85 п. 3): новые сутки → кэш подходов D20,
   # замороженная форма, склейка, вердикт и контроль; журнал study/oos-frozen.log, итог — в лог ночи.
+  # Не гасится OLD_BASE: кэш подходов D20 нужен и главному варианту В-104 ниже (тот же замок суток).
   oos() {
     if ! ALPHA_HOME="$ALPHA_HOME" GRID_THREADS="${GRID_THREADS:-3}" RUNS="$RUNS" "$ALPHA_HOME/bin/oos-frozen.sh" >> "$LOG" 2>&1; then
       alert "oos-frozen: завершился с ошибкой — study/oos-frozen.log"
@@ -412,6 +422,39 @@ if [ -z "$TOUCHES_ONLY" ]; then
   }
   stage oos
   wait
+  # В-108 (владелец 25.09: «свежие данные сразу допрогонять и удалять их копии с сервера»): после кэша
+  # подходов D20 (stage oos выше) — дозаливка минутных свечей монет пула, главный вариант В-104 на
+  # дозаписанных сутках и кандидаты выхода Г-24/25/26 по каждым суткам записи с 24.09. Свечи BTC/ETH
+  # (study/regime) дозаливает ref-klines.py выше, до касаний суток; свечи монет пула (нужны
+  # exit-sim.py/family-titrate.py/fresh-days.py) ночь раньше не трогала — разовая выгрузка была 23.09.
+  POOL_SYMS=$(tail -n +2 root/instruments.csv 2>/dev/null | grep -v '^#' | cut -d, -f1 | grep -vx TRXUSDT | sort -u | paste -sd, -)
+  if [ -n "$POOL_SYMS" ]; then
+    if ! kl_out=$(python3 bin/ref-klines.py --out-dir study/klines --symbols "$POOL_SYMS" 2>&1); then
+      alert "ref-klines (пул): $(echo "$kl_out" | tail -1 | cut -c1-200)"
+    fi
+    echo "== $(date -u +%FT%TZ) ref-klines (пул, $(echo "$POOL_SYMS" | tr ',' '\n' | wc -l) монет): $(echo "$kl_out" | tail -2 | tr '\n' ' ' | cut -c1-200)" >> "$LOG"
+  fi
+  # Главный вариант В-104 (BTC 4 ч, трейл 1/1) — дозапись новых суток в тот же ряд b5/titrc-u500r
+  # (идемпотентно: сутки с готовым forms.csv не пересчитываются). Денежный бинарник — bin/alpha-7bdf9a4,
+  # НЕ bin/alpha (тот — alpha-e5c8847, ночная сетка). FROM_DAY=2026-09-16 — весь ряд, чтобы дозапись
+  # подхватила пропуск, если он когда-то случится; готовые сутки идемпотентно пропускаются.
+  if ! mv_out=$(ALPHA_HOME="$ALPHA_HOME" FROM_DAY=2026-09-16 OOS_DIR=b5/titrc-u500r \
+      SETS="t-bid-age-45:age=2700,side=bid t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17 t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55" \
+      FORM_EXIT="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.75 --deadline-secs 14400 --exit-form none" \
+      FORM_NAME=all ORDER="--order-usd 500" BIN=bin/alpha-7bdf9a4 GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-2}" RUNS="$RUNS" \
+      "$ALPHA_HOME/bin/oos-frozen.sh" 2>&1); then
+    alert "главный вариант (titrc-u500r): $(echo "$mv_out" | tail -1 | cut -c1-200)"
+  fi
+  echo "== $(date -u +%FT%TZ) главный вариант: $(echo "$mv_out" | tail -3 | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
+  # Свежие сутки записи (с 24.09) — главный вариант и кандидаты Г-24/25/26 (заморожены, только
+  # применение готового правила — не подбор), по суткам и итогом по месяцам: study/fresh/.
+  if ! fr_out=$(python3 bin/fresh-days.py --oos-dir b5/titrc-u500r --set t-bid-btc4h-q1 \
+      --form ladder3x2..20w2-pct2-tr1x1-14400-ttl1800 --klines study/klines \
+      --btc-ref study/regime/ref-BTCUSDT-1m.csv --from-day 2026-09-24 --drop TRXUSDT \
+      --csv study/fresh/fresh-days.csv --summary study/fresh/fresh-summary.txt 2>&1); then
+    alert "свежие сутки (fresh-days.py): $(echo "$fr_out" | tail -1 | cut -c1-200)"
+  fi
+  echo "== $(date -u +%FT%TZ) свежие сутки: $(echo "$fr_out" | tr '\n' ' ' | cut -c1-400)" >> "$LOG"
 else
   echo "== $(date -u +%FT%TZ) TOUCHES_ONLY=1 — сетки пропущены намеренно (готовим касания для H2)" >> "$LOG"
 fi
