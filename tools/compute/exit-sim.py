@@ -112,7 +112,14 @@ def simulate(tr, coin, btc, v, s24):
                     tight = True
         if kind != "chandelier":
             gap = TRAIL_GAP
-            act = TRAIL_ACT
+            act = v.get("act", TRAIL_ACT)
+            gap = v.get("gap", gap)
+            if v.get("take"):
+                tpx = entry * (1 + v["take"])
+                if h >= tpx:
+                    return net(max(tpx, o)), "take", m
+                best = max(best, h)
+                continue
             if kind in ("trail_rv", "trail_cap"):
                 r60 = rv_before(i, 60)
                 gap = max(0.0025, p * r60) if r60 else TRAIL_GAP
