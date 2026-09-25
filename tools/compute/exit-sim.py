@@ -85,6 +85,9 @@ def simulate(tr, coin, btc, v, s24):
         t = (m - m_start) / MIN_MS
         if t >= DEADLINE_MIN:
             return net(o), "deadline", m
+        if kind == "chand_quiet" and s24 and s24 <= p:
+            kind = "chandelier"
+            p = 2.5
         if kind == "chandelier" and s4:
             stop = best - p * s4 * entry
         elif kind == "decay":
@@ -99,20 +102,28 @@ def simulate(tr, coin, btc, v, s24):
             if bc and bc <= b0 * (1 - p):
                 return net(o), "btc", m
         if kind == "volexp" and s24:
-            fast = rv_before(i, 30)
-            if fast is not None and fast >= p * s24 * math.sqrt(30 / 1440):
-                if o < entry:
+            n = v.get("n", 30)
+            fast = rv_before(i, n)
+            if fast is not None and fast >= p * s24 * math.sqrt(n / 1440):
+                mode = v.get("mode", "both")
+                if o < entry and mode in ("both", "exit"):
                     return net(o), "rv", m
-                tight = True
+                if o >= entry and mode in ("both", "tight"):
+                    tight = True
         if kind != "chandelier":
             gap = TRAIL_GAP
-            if kind == "trail_rv":
+            act = TRAIL_ACT
+            if kind in ("trail_rv", "trail_cap"):
                 r60 = rv_before(i, 60)
                 gap = max(0.0025, p * r60) if r60 else TRAIL_GAP
+                if kind == "trail_cap":
+                    gap = min(TRAIL_GAP, gap)
+            if kind == "vtrail" and s4:
+                act, gap = min(TRAIL_ACT, v["a"] * s4), min(TRAIL_GAP, v["g"] * s4)
             if tight:
                 gap = 0.005
             lvl = best - gap * entry
-            if best >= entry * (1 + TRAIL_ACT) and l <= lvl:
+            if best >= entry * (1 + act) and l <= lvl:
                 return net(min(lvl, o)), "trail", m
         best = max(best, h)
     m, (o, h, l, c) = bars[-1]
@@ -130,6 +141,18 @@ FAMILIES = {
            + [{"label": f"люстра: максимум − {k:g}σ4ч", "kind": "chandelier", "p": k} for k in (1.5, 2, 2.5)]
            + [{"label": f"разгон RV30 ≥ {r:g}× медленной", "kind": "volexp", "p": r} for r in (2, 3)]
            + [{"label": f"стоп по логарифму времени, к 4 ч {s * 100:g} %", "kind": "decay", "p": s} for s in (0.01, 0.005)],
+    "e30": [{"label": "база: стоп 2 %, трейл 1/1", "kind": "fix"}]
+           + [{"label": f"откат min(1 %, {k:g}×RV60)", "kind": "trail_cap", "p": k} for k in (1, 1.5, 2)]
+           + [{"label": f"включение min(1 %, {a_:g}σ4ч), откат min(1 %, {g_:g}σ4ч)", "kind": "vtrail", "a": a_, "g": g_}
+              for a_, g_ in ((1, 0.5), (1, 0.75), (0.75, 0.5))]
+           + [{"label": "люстра 2,5σ4ч для спокойных (RV сутки ≤ 262 bps)", "kind": "chand_quiet", "p": 0.0262}]
+           + [{"label": "разгон ×3, окно 30: только выход в минусе", "kind": "volexp", "p": 3, "mode": "exit"},
+              {"label": "разгон ×3, окно 30: только поджатие в плюсе", "kind": "volexp", "p": 3, "mode": "tight"},
+              {"label": "разгон ×3, окно 15", "kind": "volexp", "p": 3, "n": 15},
+              {"label": "разгон ×3, окно 60", "kind": "volexp", "p": 3, "n": 60},
+              {"label": "разгон ×2,5, окно 30", "kind": "volexp", "p": 2.5},
+              {"label": "разгон ×3, окно 30 (E29)", "kind": "volexp", "p": 3},
+              {"label": "разгон ×4, окно 30", "kind": "volexp", "p": 4}],
 }
 
 
@@ -141,7 +164,9 @@ def main():
     ap.add_argument("--set", required=True)
     ap.add_argument("--form", required=True)
     ap.add_argument("--drop", default="")
+    ap.add_argument("--trades-csv", help="по сделке и варианту: месяц, монета, t0_ns, вариант, net_bps, причина, $")
     a = ap.parse_args()
+    per_trade = []
     drop = set(x for x in a.drop.split(",") if x)
     months = defaultdict(list)
     for s in a.epoch:
@@ -179,6 +204,8 @@ def main():
                 res = simulate(r, coins[r["sym"]], btc, vv, s24[id(r)]) or (r["net"], r["reason"], r["t1"] // 1_000_000)
                 out.append((r, res))
             pnl = [res[0] / 1e4 * r["usd"] for r, res in out]
+            per_trade += [{"month": month, "symbol": r["sym"], "t0_ns": r["t0"], "variant": v["label"], "net_bps": round(res[0], 2),
+                           "reason": res[1], "pnl_usd": round(p, 3)} for (r, res), p in zip(out, pnl)]
             by = defaultdict(lambda: [0, 0.0])
             day = defaultdict(float)
             for (r, res), p in zip(out, pnl):
@@ -201,6 +228,11 @@ def main():
                 per = sorted(abs(res[0] - r["net"]) for r, res in out)
                 print(f"     сверка базы с бэктестом: итог {total:+.0f}$ против {actual:+.0f}$; причина выхода совпала у "
                       f"{agree} из {len(out)} ({agree / len(out):.0%}); |Δ net| медиана {per[len(per) // 2]:.0f} bps")
+    if a.trades_csv and per_trade:
+        with open(a.trades_csv, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(per_trade[0]))
+            w.writeheader()
+            w.writerows(per_trade)
 
 
 if __name__ == "__main__":
