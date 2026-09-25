@@ -1,106 +1,130 @@
 {
-  "_meta": {
-    "protocol": "docs/research/P-02-batch-wall-entry.md",
-    "section": "Заморожено перед счётом (25.09) / Г-85 x Г-105, 2x2",
-    "bin": "bin/alpha-7bdf9a4",
-    "scripts_commit": "15c3843a42aa74fdb15e233549f0d1684da2b129",
-    "base_form": "ladder3x2..20w2-pct2-tr1x1-14400-ttl1800",
-    "base_run": "b5/titrc-u500r",
-    "set": "t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55",
-    "aug_days": "2026-08-01..2026-08-31 (31)",
-    "sep_days": "2026-09-01..2026-09-23 (23, 24.09+ — ресурс П-01)",
-    "h10_sep_missing_days": ["2026-09-05", "2026-09-14", "2026-09-15"],
-    "note_h10_sep": "деньги на 20 из 23 суток — 3 не досчитались под нагрузкой (см. отчёт, Отступления п.1); база и клетка пересчитаны на общих 20 сутках",
-    "holm_family": "6 p-значений этого отчёта (H10x2, H7x2, пара x2) — не вся семья блока B (§9 протокола до 8)",
-    "bootstrap": "20000 передискретизаций по суткам, 95% CI перцентилем, p из нормального приближения по бутстреп-SE",
-    "eff_n_method": "effective_n_from_autocorr (.claude/skills/alpha-research/scripts/effective_n.py, перенесено на чистый python — на деке нет numpy), капировано сверху числом календарных суток"
+ "_meta": {
+  "protocol": "docs/research/P-02-batch-wall-entry.md",
+  "section": "Заморожено перед счётом (25.09) / Г-85 x Г-105, 2x2",
+  "bin": "bin/alpha-7bdf9a4",
+  "scripts_commit": "15c3843a42aa74fdb15e233549f0d1684da2b129",
+  "base_form": "ladder3x2..20w2-pct2-tr1x1-14400-ttl1800",
+  "base_run": "b5/titrc-u500r",
+  "set": "t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55",
+  "aug_days": "2026-08-01..2026-08-31 (31)",
+  "sep_days": "2026-09-01..2026-09-23 (23, 24.09+ — ресурс П-01)",
+  "h10_sep_missing_days": [
+   "2026-09-05",
+   "2026-09-14",
+   "2026-09-15"
+  ],
+  "note_h10_sep": "деньги на 20 из 23 суток — 3 не досчитались под нагрузкой (см. отчёт, Отступления п.1); база и клетка пересчитаны на общих 20 сутках",
+  "holm_family": "6 p-значений этого отчёта (H10x2, H7x2, пара x2) — не вся семья блока B (§9 протокола до 8)",
+  "bootstrap": "20000 передискретизаций по суткам, 95% CI перцентилем, p из нормального приближения по бутстреп-SE",
+  "eff_n_method": "effective_n_from_autocorr (.claude/skills/alpha-research/scripts/effective_n.py, перенесено на чистый python — на деке нет numpy), капировано сверху числом календарных суток",
+  "updated_2026_09_26": "H10 сентябрь пересчитан второй волной П-02 (docs/findings/p02-stage2-2026-09-26.md): 3 недостающих суток досчитаны"
+ },
+ "rows": [
+  {
+   "cell": "H10 ladder×before",
+   "period": "август",
+   "n_days": 31,
+   "eff_n_raw": 28.1,
+   "eff_n": 28.1,
+   "base_total": 101.75,
+   "cell_total": -180.54,
+   "delta_total": -282.29,
+   "ci_total": [
+    -549.64,
+    -19.22
+   ],
+   "p_raw": 0.03644241337792464,
+   "p_holm": 0.1822,
+   "reject_holm": false
   },
-  "rows": [
-    {
-      "cell": "H10 ladder×before",
-      "period": "август",
-      "n_days": 31,
-      "eff_n_raw": 28.1,
-      "eff_n": 28.1,
-      "base_total": 101.75,
-      "cell_total": -180.54,
-      "delta_total": -282.29,
-      "ci_total": [-549.64, -19.22],
-      "p_raw": 0.03644241337792464,
-      "p_holm": 0.1822,
-      "reject_holm": false
-    },
-    {
-      "cell": "H10 ladder×before",
-      "period": "сентябрь",
-      "n_days": 20,
-      "eff_n_raw": 20.2,
-      "eff_n": 20,
-      "base_total": 124.28,
-      "cell_total": -39.49,
-      "delta_total": -163.77,
-      "ci_total": [-272.37, -51.78],
-      "p_raw": 0.0035975538411832098,
-      "p_holm": 0.0216,
-      "reject_holm": true
-    },
-    {
-      "cell": "H7 single@fr×pct2",
-      "period": "август",
-      "n_days": 31,
-      "eff_n_raw": 14.8,
-      "eff_n": 14.8,
-      "base_total": 101.75,
-      "cell_total": 102.0,
-      "delta_total": 0.25,
-      "ci_total": [-148.38, 143.06],
-      "p_raw": 0.9973262073859142,
-      "p_holm": 1.0,
-      "reject_holm": false
-    },
-    {
-      "cell": "H7 single@fr×pct2",
-      "period": "сентябрь",
-      "n_days": 23,
-      "eff_n_raw": 227.3,
-      "eff_n": 23,
-      "base_total": 103.46,
-      "cell_total": 163.6,
-      "delta_total": 60.14,
-      "ci_total": [-12.17, 139.06],
-      "p_raw": 0.1146290041527005,
-      "p_holm": 0.4585,
-      "reject_holm": false
-    },
-    {
-      "cell": "joint single@fr×before",
-      "period": "август",
-      "n_days": 31,
-      "eff_n_raw": 52.7,
-      "eff_n": 31,
-      "base_total": 101.75,
-      "cell_total": 0.0,
-      "delta_total": -101.75,
-      "ci_total": [-435.4, 219.53],
-      "p_raw": 0.5388959175530155,
-      "p_holm": 1.0,
-      "reject_holm": false,
-      "note": "0 сигналов — StopForm::Before/MidFrontrun гейт dist_from_level<2 всегда срабатывает на single@fr; Δ математически равна минус-базе, не проверка гипотезы"
-    },
-    {
-      "cell": "joint single@fr×before",
-      "period": "сентябрь",
-      "n_days": 23,
-      "eff_n_raw": 34.9,
-      "eff_n": 23,
-      "base_total": 103.46,
-      "cell_total": 0.0,
-      "delta_total": -103.46,
-      "ci_total": [-237.63, 38.94],
-      "p_raw": 0.1432201973112206,
-      "p_holm": 0.4585,
-      "reject_holm": false,
-      "note": "0 сигналов — см. выше"
-    }
-  ]
+  {
+   "cell": "H10 ladder×before",
+   "period": "сентябрь",
+   "n_days": 21,
+   "eff_n_raw": 17.7,
+   "eff_n": 17.7,
+   "base_total": 103.46,
+   "cell_total": -66.15,
+   "delta_total": -169.61,
+   "ci_total": [
+    -280.26,
+    -54.8
+   ],
+   "p_raw": 0.0032,
+   "p_holm": 0.0192,
+   "reject_holm": true,
+   "updated_2026_09_26": "досчитаны 09-05/14/15, обрезка daily до 2026-09-23 вручную (b5/titrc-u500r копится ночной сеткой)"
+  },
+  {
+   "cell": "H7 single@fr×pct2",
+   "period": "август",
+   "n_days": 31,
+   "eff_n_raw": 14.8,
+   "eff_n": 14.8,
+   "base_total": 101.75,
+   "cell_total": 102.0,
+   "delta_total": 0.25,
+   "ci_total": [
+    -148.38,
+    143.06
+   ],
+   "p_raw": 0.9973262073859142,
+   "p_holm": 1.0,
+   "reject_holm": false
+  },
+  {
+   "cell": "H7 single@fr×pct2",
+   "period": "сентябрь",
+   "n_days": 23,
+   "eff_n_raw": 227.3,
+   "eff_n": 23,
+   "base_total": 103.46,
+   "cell_total": 163.6,
+   "delta_total": 60.14,
+   "ci_total": [
+    -12.17,
+    139.06
+   ],
+   "p_raw": 0.1146290041527005,
+   "p_holm": 0.4585,
+   "reject_holm": false
+  },
+  {
+   "cell": "joint single@fr×before",
+   "period": "август",
+   "n_days": 31,
+   "eff_n_raw": 52.7,
+   "eff_n": 31,
+   "base_total": 101.75,
+   "cell_total": 0.0,
+   "delta_total": -101.75,
+   "ci_total": [
+    -435.4,
+    219.53
+   ],
+   "p_raw": 0.5388959175530155,
+   "p_holm": 1.0,
+   "reject_holm": false,
+   "note": "0 сигналов — StopForm::Before/MidFrontrun гейт dist_from_level<2 всегда срабатывает на single@fr; Δ математически равна минус-базе, не проверка гипотезы"
+  },
+  {
+   "cell": "joint single@fr×before",
+   "period": "сентябрь",
+   "n_days": 23,
+   "eff_n_raw": 34.9,
+   "eff_n": 23,
+   "base_total": 103.46,
+   "cell_total": 0.0,
+   "delta_total": -103.46,
+   "ci_total": [
+    -237.63,
+    38.94
+   ],
+   "p_raw": 0.1432201973112206,
+   "p_holm": 0.4585,
+   "reject_holm": false,
+   "note": "0 сигналов — см. выше"
+  }
+ ]
 }
