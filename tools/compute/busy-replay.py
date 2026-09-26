@@ -11,9 +11,10 @@
 
     busy-replay.py <прогон off> <выход> [--keep фильтр.csv] [--sets a,b]
 
-Фильтр — CSV с шапкой; ключ — пересечение его колонок с одним из видов:
+Фильтр — CSV с шапкой; ключ — первый вид, чьи колонки в нём есть:
+  symbol,t0_ns,price_tick[,form]          (склейка с кэшем подходов T-28: arm_ms × 1e6 и тик стены — однозначно)
   symbol,day_utc,signal_index[,form]      (номер сигнала из `signals.csv`)
-  symbol,t0_ns,entry_px[,form]            (склейка с касаниями T-28 по времени взвода; entry_px — до 10 знаков)
+  symbol,t0_ns,entry_px[,form]            (цена входа плана, до 10 знаков)
 Сигнал остаётся, если его ключ есть в фильтре. Итог по каждому набору — `<выход>/busy-replay.txt`.
 """
 import argparse
@@ -22,7 +23,7 @@ import os
 import sys
 from collections import defaultdict
 
-KEYS = (("symbol", "day_utc", "signal_index"), ("symbol", "t0_ns", "entry_px"))
+KEYS = (("symbol", "t0_ns", "price_tick"), ("symbol", "day_utc", "signal_index"), ("symbol", "t0_ns", "entry_px"))
 
 
 def px(v):
@@ -38,7 +39,7 @@ def load_keep(path):
             key = k + (("form",) if "form" in cols else ())
             norm = (lambda r, key=key: tuple(px(r[c]) if c == "entry_px" else r[c].strip() for c in key))
             return key, {norm(r) for r in rows}, norm
-    sys.exit(f"--keep {path}: нужны колонки {KEYS[0]} или {KEYS[1]} (есть {sorted(cols)})")
+    sys.exit(f"--keep {path}: нужны колонки одного из {KEYS} (есть {sorted(cols)})")
 
 
 def read_body(path):

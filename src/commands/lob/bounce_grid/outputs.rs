@@ -112,16 +112,18 @@ pub(super) struct Outputs {
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
-/// `signal_index` — номер в порядке по `t0` (как в `rounds.csv`); `entry_px` — цена входа плана (опознание
-/// сигналов с одним `t0`); `idle_ns` — когда форма снова свободна (`-` — шаг без движка); `residual` —
+/// `signal_index` — номер в порядке по `t0` (как в `rounds.csv`); `price_tick` — тик стены (цена касания /
+/// подхода в тиках, как `price_tick` кэша касаний T-28: склейка признаков по (символ, `t0`, тик) однозначна и
+/// при двух подходах с одним `arm_ms`); `entry_px` — цена входа плана; `idle_ns` — когда форма снова свободна (`-` — шаг без движка); `residual` —
 /// `flat` (остаток закрыт страховкой) / `ended` (запись кончилась в процессе — обрыв суток) / пусто;
 /// `exit_ns` — у исполненного круга, как в `rounds.csv`.
-const SIGNALS_HEADER: [&str; 10] = [
+const SIGNALS_HEADER: [&str; 11] = [
     "symbol",
     "day_utc",
     "form",
     "signal_index",
     "t0_ns",
+    "price_tick",
     "entry_px",
     "step",
     "idle_ns",
@@ -397,6 +399,13 @@ impl Outputs {
                     form.label.to_string(),
                     t.signal.to_string(),
                     sig.map_or(0, |s| s.t0_ns).to_string(),
+                    sig.map_or_else(String::new, |s| match s.plan {
+                        // тот же перевод, что у стратегии (`strategy.rs`, `level_tick`)
+                        TradePlan::Bounce {
+                            level_px, tick_px, ..
+                        } if tick_px > 0.0 => ((level_px / tick_px).round() as i64).to_string(),
+                        _ => String::new(),
+                    }),
                     sig.map_or_else(String::new, |s| match s.plan {
                         TradePlan::Bounce { entry_px, .. } => format!("{entry_px:.10}"),
                         TradePlan::SpreadHold => String::new(),

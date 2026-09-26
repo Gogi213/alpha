@@ -1102,7 +1102,7 @@ fn busy_skip_off_trace_replays_the_default_rounds_byte_for_byte() {
         assert!(!lines(&x.rounds_path)[0].contains("busy_skip"));
         assert_eq!(
             sig[1],
-            "symbol,day_utc,form,signal_index,t0_ns,entry_px,step,idle_ns,residual,exit_ns"
+            "symbol,day_utc,form,signal_index,t0_ns,price_tick,entry_px,step,idle_ns,residual,exit_ns"
         );
         // правило движка над следом — по (символ, сутки, форма), в порядке строк
         let mut kept: std::collections::HashSet<(String, String, String, String)> =
@@ -1118,10 +1118,10 @@ fn busy_skip_off_trace_replays_the_default_rounds_byte_for_byte() {
                 continue;
             }
             kept.insert((key.0, key.1, key.2, c[3].to_string()));
-            if c[6] == "end_of_data" || c[6] == "no_window" || c[8] == "ended" {
+            if c[7] == "end_of_data" || c[7] == "no_window" || c[9] == "ended" {
                 *stopped = true;
             } else {
-                *idle = c[7].parse().unwrap();
+                *idle = c[8].parse().unwrap();
             }
         }
         let off_rows = lines(&y.rounds_path);
