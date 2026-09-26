@@ -1,0 +1,19 @@
+# Hetzner Storage Box (T-06) папкой ~/sb на Steam Deck — только чтение: счёт читает холодные данные
+# оттуда, пишет туда только `tools/sb-push.sh` (rsync по ssh, не через эту папку).
+# Пользовательская служба (Linger=yes — поднимается после перезагрузки без входа), root не нужен:
+#   cp tools/alpha-sb-mount.service ~/.config/systemd/user/ && mkdir -p ~/sb
+#   systemctl --user daemon-reload && systemctl --user enable --now alpha-sb-mount
+# Порт 23 — SFTP Storage Box; ключ ~/.ssh/id_storagebox (пароль владельца не используется).
+[Unit]
+Description=alpha: Hetzner Storage Box -> ~/sb (sshfs, ro)
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/fusermount3 -uz %h/sb
+ExecStart=/usr/bin/sshfs -f u677479@u677479.your-storagebox.de:alpha %h/sb -o ro,port=23,IdentityFile=%h/.ssh/id_storagebox,BatchMode=yes,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,max_conns=4,kernel_cache
+ExecStop=/usr/bin/fusermount3 -u %h/sb
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

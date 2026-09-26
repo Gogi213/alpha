@@ -1,0 +1,12 @@
+# T-30: раз в сутки догнать новые сутки архива Bybit (архив выкладывает вчерашние сутки к ~01–02 UTC).
+# Идущий прогон таймер не трогает — запускает службу, только если она не активна.
+[Unit]
+Description=alpha: daily Bybit archive catch-up -> Storage Box (T-30)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 UTC
+OnBootSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

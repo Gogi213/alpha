@@ -4,6 +4,12 @@
 обновлять в конце каждой задачи. Держать ≤ 60 строк: устаревшее — в `notes/archive/engineer-<дата>.md`.
 
 ## Сейчас делаю
+- **27.09 ~00:50: T-06 + T-30** (журнал `journal/T-06.md`). T-30 переделан на пачки 20 ГБ (владелец) + таймер
+  `alpha-archive-box.timer` (новые сутки, без 01.08–15.09); идёт проба `alpha-archive-test` (05.01, пачка 1 ГБ) →
+  потом `systemctl enable --now alpha-archive-box.timer; systemctl start --no-block alpha-archive-box` → срок CEO.
+  Чистка VPS сделана (8,7 ГБ, отчёт CEO). CEO: хозяйственное решать самому, владельцу — только деньги/риск/его проекты. T-06: `~/sb` на деке (юнит `alpha-sb-mount`, ro), заливка `alpha-sb-push` e-crash → потом
+  `tmp-sb/sb-read.sh` (замер чтения) → план + замер CEO. Не закоммичены: `tools/sb-push.sh`,
+  `tools/alpha-sb-mount.service`, `tools/compute/archive-to-box.sh`, `tools/alpha-archive-box.service`.
 - **Передача 27.09 (клир):** окно №2 + К1 + К3 на деке закрыты (всё код 0; итоги — findings T-23, журнал T-23).
   Дека — у Исследователя (T-29, приоритет ночи). Ждём: (1) «свободно» Исследователя → замер (б) на деке — CEO нужен
   **пик памяти на деке**: `systemd-run --user --unit=alpha-evw-day --collect bash ~/alpha/tmp-evw/day.sh` (скрипт ждёт
@@ -21,6 +27,10 @@
   (ORDER явно) — ждёт задачи CEO. Детали Р6/T-17/T-22/П-01 — `notes/archive/engineer-2026-09-26.md`.
 
 ## Узнал (факты своей зоны, с датой и источником)
+- 27.09 (замер): Storage Box — `ssh -p 23 -i ~/.ssh/id_storagebox u677479@u677479.your-storagebox.de` (дека и VPS,
+  ключ VPS поставлен `install-ssh-key` с деки); оболочка ограничена, но есть `sha256sum`, `mkdir -p`, rsync-сервер.
+  Дека→ящик ~7,5 МБ/с, VPS→ящик ~25 МБ/с, VPS качает Bybit ~45 МБ/с. На деке sshfs 3.7.3 есть, rclone нет.
+  Дека /home: 17 ГБ свободно, Steam владельца — 188 ГБ; `deep/` читает только забор (`sync-from-collector.sh`).
 - 26.09: `perf` есть на VPS (6.8, root) и на деке (`/usr/bin/perf`); `--call-graph dwarf` работает без debuginfo.
   Ночной юнит не задаёт `SCAN_JOBS` (D20 в 3), `bin/alpha` = e5c8847 (до Р1+Р9). PIE-адрес для `addr2line` =
   адрес символа из `nm` + смещение из `perf script -F sym,symoff`. Ночь на новый бинарник — В-113 (решил CEO), условия

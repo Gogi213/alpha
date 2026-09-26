@@ -1,0 +1,21 @@
+# T-30 (В-118): архив Bybit → Hetzner Storage Box пачками по 20 ГБ, конвейером на VPS
+# (`tools/compute/archive-to-box.sh`, журнал /opt/alpha-archive/log/{run.log,done.txt,summary.txt}).
+# 01.01.2026 → вчера, без 01.08–15.09 (есть на Steam Deck); запускает таймер раз в сутки (новые сутки архива),
+# готовое пропускается по журналу. Ставится так:
+#   cp tools/alpha-archive-box.{service,timer} /etc/systemd/system/ && systemctl daemon-reload
+#   systemctl enable --now alpha-archive-box.timer && systemctl start --no-block alpha-archive-box
+# Сбой (пачка не залилась за 3 попытки) — перезапуск через 10 мин, не больше 3 раз за 6 ч, дальше ждёт таймера.
+[Unit]
+Description=alpha: Bybit archive 2026 -> Storage Box (T-30)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=6h
+StartLimitBurst=3
+
+[Service]
+Type=simple
+Environment=HOME=/root JOBS=4 BATCH_GB=20 MIN_FREE_GB=8
+ExecStart=/bin/bash /opt/alpha-archive/bin/archive-to-box.sh 2026-01-01 yesterday
+Nice=10
+Restart=on-failure
+RestartSec=600
