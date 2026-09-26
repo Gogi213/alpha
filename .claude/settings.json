@@ -6,7 +6,29 @@
           {
             "type": "command",
             "command": "python \"C:/visual projects/alpha/.claude/hooks/role_context.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "timeout": 30
           }
         ]
       }

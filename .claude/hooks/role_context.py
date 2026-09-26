@@ -70,7 +70,7 @@ def read(rel):
 
 def context(source):
     try:
-        hook_in = json.load(sys.stdin)
+        hook_in = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
     except Exception:
         hook_in = {}
     source = hook_in.get("source") or source
@@ -96,6 +96,14 @@ def context(source):
         "Устав команды, устав твоей роли и твой блокнот — ниже, перечитывать не нужно. "
         "Общий список задач — .claude/roles/TASKS.md.",
     ]
+    try:  # память ролей: догнать конспект прошлой сессии, дать на него ссылку
+        from role_memory import on_session_start
+        last = on_session_start(hook_in, role, title)
+    except Exception:
+        last = None
+    if last:
+        head.append(f"Конспект прошлой сессии этой роли (до клира/перезапуска): `{os.path.relpath(last, ROOT).replace(os.sep, '/')}` — "
+                    "не читать целиком; грепом/секциями, если блокнота не хватает.")
     if role != "ceo":
         head.append("«Первое в новом чате» в CLAUDE.md — очередь CEO, не твоя задача: действуй только "
                     "по строке TASKS.md своей зоны, сообщению CEO или владельца. " + OUTSIDER)

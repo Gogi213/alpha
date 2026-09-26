@@ -16,3 +16,7 @@ target/
 # индекс плагина dsh-code-index (локальный кеш, не часть проекта)
 .dsh-code-index/
 __pycache__/
+
+# память ролей (хуки .claude/hooks/role_*.py): конспекты разговоров и счётчики — локально, не в git
+.claude/roles/log/
+.claude/roles/.state/

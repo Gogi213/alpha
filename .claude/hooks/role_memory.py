@@ -1,0 +1,187 @@
+"""Память ролей команды alpha без внешних сервисов (замена Hindsight, владелец 26.09).
+
+- UserPromptSubmit: каждое 5-е сообщение сессии-роли — напоминание обновить блокнот роли,
+  если он не менялся с начала этих пяти сообщений.
+- SessionEnd (клир, выход, остановка): конспект разговора — сообщения владельца и сессий,
+  ответы (без инструментов и рассуждений) — в `.claude/roles/log/<роль>/`.
+  Не сработал — `role_context.py` на следующем старте догоняет конспект по записанному пути.
+Хук никогда не падает и не блокирует: ошибка — тишина.
+"""
+import datetime
+import glob
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from role_context import ROLES, ROOT, find_title  # noqa: E402
+
+EVERY = 5
+STATE_DIR = os.path.join(ROOT, ".claude", "roles", ".state")
+LOG_DIR = os.path.join(ROOT, ".claude", "roles", "log")
+GMT4 = datetime.timezone(datetime.timedelta(hours=4))
+
+
+def read_stdin():
+    try:
+        return json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
+    except Exception:
+        return {}
+
+
+def current_role():
+    """(название, роль) текущей сессии или (название, None)."""
+    host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
+    found, title = find_title(host_id, None) if host_id else (False, None)
+    if not found or not title:
+        return None, None
+    return title, next((r for key, r in ROLES if key in title.lower()), None)
+
+
+def state_path():
+    host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID") or "unknown"
+    return os.path.join(STATE_DIR, host_id + ".json")
+
+
+def load_state():
+    try:
+        with open(state_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def save_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    tmp = state_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(state, fh, ensure_ascii=False)
+    os.replace(tmp, state_path())
+
+
+def stamp(iso):
+    try:
+        t = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return t.astimezone(GMT4).strftime("%d.%m %H:%M")
+    except Exception:
+        return "?"
+
+
+def digest_path(role, cli_id):
+    """Путь конспекта: существующий для этой сессии CLI или новый по текущему времени."""
+    old = glob.glob(os.path.join(glob.escape(os.path.join(LOG_DIR, role)), f"*-{cli_id[:8]}.md"))
+    if old:
+        return old[0]
+    name = datetime.datetime.now(GMT4).strftime("%Y-%m-%d_%H%M") + f"-{cli_id[:8]}.md"
+    return os.path.join(LOG_DIR, role, name)
+
+
+def write_digest(transcript, role, title, cli_id, why):
+    """Конспект разговора из транскрипта; возвращает путь или None (пустой разговор)."""
+    if not transcript or not cli_id or not os.path.isfile(transcript):
+        return None
+    turns = []
+    with open(transcript, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if d.get("isSidechain"):
+                continue
+            msg = d.get("message") or {}
+            content = msg.get("content")
+            when = stamp(d.get("timestamp", ""))
+            if d.get("type") == "user" and isinstance(content, str):
+                who = "сообщение сессии" if d.get("isMeta") else "владелец"
+                if d.get("isMeta") and "cross-session-message" not in content:
+                    continue
+                turns.append(f"### {when} · {who}\n{content.strip()}\n")
+            elif d.get("type") == "assistant" and isinstance(content, list):
+                text = "\n".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
+                if text:
+                    turns.append(f"### {when} · ответ\n{text}\n")
+    if not turns:
+        return None
+    path = digest_path(role, cli_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    head = (f"# Конспект сессии «{title}» ({why})\n\n"
+            f"Сессия CLI `{cli_id}`, полный транскрипт: `{transcript}`. Только сообщения и ответы — "
+            f"без инструментов и рассуждений. Читать секциями/грепом, не целиком.\n\n")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(head + "\n".join(turns))
+    os.replace(tmp, path)
+    return path
+
+
+def latest_digest(role, exclude_cli):
+    files = sorted(glob.glob(os.path.join(glob.escape(os.path.join(LOG_DIR, role)), "*.md")))
+    files = [f for f in files if not (exclude_cli and f.endswith(f"-{exclude_cli[:8]}.md"))]
+    return files[-1] if files else None
+
+
+def on_session_start(hook_in, role, title):
+    """Из role_context.py: догнать конспект прошлой сессии, запомнить текущую; путь прошлого конспекта."""
+    cli_id, transcript = hook_in.get("session_id"), hook_in.get("transcript_path")
+    state = load_state()
+    prev_cli, prev_tr = state.get("cli"), state.get("transcript")
+    if prev_cli and prev_cli != cli_id and not glob.glob(os.path.join(
+            glob.escape(os.path.join(LOG_DIR, role)), f"*-{prev_cli[:8]}.md")):
+        write_digest(prev_tr, role, title, prev_cli, "догнан при следующем старте")
+    if prev_cli != cli_id:
+        state = {"cli": cli_id, "transcript": transcript, "n": 0, "window_start": time.time()}
+        save_state(state)
+    return latest_digest(role, cli_id)
+
+
+def on_prompt(hook_in, role):
+    cli_id = hook_in.get("session_id")
+    state = load_state()
+    if state.get("cli") != cli_id:
+        state = {"cli": cli_id, "transcript": hook_in.get("transcript_path"), "n": 0,
+                 "window_start": time.time()}
+    state["n"] = state.get("n", 0) + 1
+    if state["n"] % EVERY == 1:
+        state["window_start"] = time.time()
+    save_state(state)
+    if state["n"] % EVERY:
+        return None
+    notebook = os.path.join(ROOT, ".claude", "roles", "notes", f"{role}.md")
+    try:
+        if os.path.getmtime(notebook) >= state.get("window_start", 0):
+            return None  # блокнот уже обновлён за эти сообщения
+    except OSError:
+        pass
+    text = (f"[память роли] {EVERY} сообщений без обновления блокнота `.claude/roles/notes/{role}.md`. "
+            "В этом ходе, после основной работы, обнови его точечной правкой (≤ 60 строк): «Сейчас делаю», "
+            "новое в «Узнал» (с датой и источником), «Грабли». Нечего добавить — не трогай. "
+            "Владельцу об этом не писать.")
+    if role == "ceo":
+        text += (" CEO: если изменилось общее — ещё `CLAUDE.md` «СОСТОЯНИЕ», `.memory/index.md`, автопамять.")
+    return text
+
+
+def main():
+    hook_in = read_stdin()
+    event = hook_in.get("hook_event_name")
+    try:
+        title, role = current_role()
+        if role is None:
+            return 0
+        if event == "UserPromptSubmit":
+            text = on_prompt(hook_in, role)
+            if text:
+                sys.stdout.write(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit", "additionalContext": text}}, ensure_ascii=True))
+        elif event == "SessionEnd":
+            write_digest(hook_in.get("transcript_path"), role, title, hook_in.get("session_id"),
+                         f"закрытие: {hook_in.get('reason', '?')}")
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
