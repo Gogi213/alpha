@@ -280,7 +280,8 @@ def main():
     results = {}
     for name, (ts, meta) in variants.items():
         r = metrics_for(kn, ts)
-        results[name] = {"n_trades": len(ts), **meta, **r}
+        rl = kn.rolling_kpi(closes_of(ts, None))  # основное определение с 27.09 (CEO): скользящий старт, непрерывный счёт
+        results[name] = {"n_trades": len(ts), **meta, **r, "roll": rl}
 
     base = results["baseline"]
     wa0, ws0, wg0 = worst_days(base)
@@ -312,17 +313,19 @@ def main():
     lines.append(f"База (main-trades.csv без изменений): до перехая авг {wa0s} дн / сен {ws0s} дн / augsep {wg0s} дн; "
                   f"$ авг {base['aug']['usd']:+.2f} / сен {base['sep']['usd']:+.2f} / augsep {base['augsep']['usd']:+.2f} "
                   f"(сверка с BRIEF: 9,6 / 4,0 / 16,9 дн, +106,04 / +110,99).\n")
-    lines.append("| вариант | сделок | до перехая, дни (авг;сен;augsep worst) | $ авг | $ сен | $ augsep | ≤5 дн оба мес |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| вариант | сделок | скольз. старт p90/макс, дн (авг;сен) | от начала месяца, дни (авг;сен;augsep) | $ авг | $ сен | $ augsep | ≤5 дн оба мес (p90 скольз.) |")
+    lines.append("|---|---|---|---|---|---|---|---|")
     best_by_group = {}
     for gname, names in groups.items():
-        lines.append(f"| **{gname}** | | | | | | |")
+        lines.append(f"| **{gname}** | | | | | | | |")
         best, best_key = None, None
         for name in names:
             r = results[name]
             wa, ws, wg = worst_days(r)
-            good = wa is not None and ws is not None and wa <= 5 and ws <= 5
-            lines.append(f"| {name} | {r['n_trades']} | {h(wa)};{h(ws)};{h(wg)} | {d(r['aug']['usd'])} | "
+            R_ = r["roll"]
+            pa, ps = R_["aug"]["max"]["p90"] / 24, R_["sep"]["max"]["p90"] / 24
+            good = pa <= 5 and ps <= 5
+            lines.append(f"| {name} | {r['n_trades']} | {pa:.1f}/{R_['aug']['max']['max'] / 24:.1f};{ps:.1f}/{R_['sep']['max']['max'] / 24:.1f} | {h(wa)};{h(ws)};{h(wg)} | {d(r['aug']['usd'])} | "
                           f"{d(r['sep']['usd'])} | {d(r['augsep']['usd'])} | {'да' if good else ''} |")
             worst_month = min(r["aug"]["usd"], r["sep"]["usd"])
             if best is None or worst_month > best:
@@ -331,7 +334,7 @@ def main():
     lines.append("")
 
     ok5_all = [n for n, r in results.items() if n != "baseline"
-               and (lambda w: w[0] is not None and w[1] is not None and w[0] <= 5 and w[1] <= 5)(worst_days(r))]
+               and r["roll"]["aug"]["max"]["p90"] <= 120 and r["roll"]["sep"]["max"]["p90"] <= 120]
     lines.append(f"≤ 5 дней до перехая в обоих месяцах: {', '.join(ok5_all) if ok5_all else 'нет вариантов'}.\n")
     best_bits = [f"{gname} — **{key}** (авг {d(results[key]['aug']['usd'])}, сен {d(results[key]['sep']['usd'])}, "
                  f"дни {h(worst_days(results[key])[0])};{h(worst_days(results[key])[1])})"
