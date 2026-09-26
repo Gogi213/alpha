@@ -79,7 +79,7 @@ def flags_of_file(path: str, read_outcome: bool):
         for k, smb, td, end in touches:
             if k >= 1:
                 flag = cum >= RATIO * max(smb, 1.0)
-                out.append((flag, None if end is None else (0 if end else 1)))
+                out.append((flag, None if end is None else (0 if end else 1), k))
             cum += td
     return out
 
@@ -115,7 +115,7 @@ def cmd_precount(args) -> int:
     per_month = defaultdict(lambda: [0, 0])  # [касаний k>=1, из них с флагом]
     for day, ddir in sorted(days.items()):
         for _sym, path in iter_files(ddir):
-            for flag, _ in flags_of_file(path, read_outcome=False):
+            for flag, _, _k in flags_of_file(path, read_outcome=False):
                 c = per_month[day[:7]]
                 c[0] += 1
                 c[1] += int(flag)
@@ -134,12 +134,20 @@ def cmd_scan(args) -> int:
     day_counts = {}
     for day, ddir in sorted(days.items()):
         counts = {"yes": [0, 0], "no": [0, 0]}
+        # чтение (после счёта основного, вне счётчика): те же корзины внутри номера касания —
+        # проверка смешения «флаг ↔ номер касания» (повторные касания отскакивают чаще сами)
+        strata = {v: {"yes": [0, 0], "no": [0, 0]} for v in ("g36_read_k1", "g36_read_k2", "g36_read_k3p")}
         for _sym, path in iter_files(ddir):
-            for flag, bounced in flags_of_file(path, read_outcome=True):
-                c = counts["yes" if flag else "no"]
+            for flag, bounced, k in flags_of_file(path, read_outcome=True):
+                b = "yes" if flag else "no"
+                c = counts[b]
                 c[0] += bounced
                 c[1] += 1
-        day_counts[day] = {"month": day[:7], "variants": {"g36_iceberg": counts}}
+                sv = "g36_read_k1" if k == 1 else ("g36_read_k2" if k == 2 else "g36_read_k3p")
+                c = strata[sv][b]
+                c[0] += bounced
+                c[1] += 1
+        day_counts[day] = {"month": day[:7], "variants": {"g36_iceberg": counts, **strata}}
         print(f"[scan] {day}: {counts}", file=sys.stderr)
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump({"day_counts": day_counts}, fh, ensure_ascii=False, indent=1, sort_keys=True)
