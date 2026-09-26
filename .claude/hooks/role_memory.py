@@ -195,7 +195,7 @@ def on_prompt(hook_in, role):
 
 
 def on_prompt_all(hook_in, role):
-    """Все подсказки к сообщению: блокнот/чистка (каждое 5-е) и сторож контекста (от 60 %)."""
+    """Все подсказки к сообщению: блокнот/чистка (каждое 5-е) и сторож контекста (от 55 %)."""
     text = on_prompt(hook_in, role)
     try:
         advice = context_advice(hook_in, load_state(), role)
@@ -205,7 +205,7 @@ def on_prompt_all(hook_in, role):
 
 
 CONTEXT_WINDOW = int(os.environ.get("ALPHA_CONTEXT_WINDOW", "1000000"))  # Opus: 1 млн (замер 26.09: пик 998 тыс.)
-CONTEXT_WARN = 0.60   # владелец 26.09: сначала 65 %, затем «давай сделаем автоклир на 60%»
+CONTEXT_WARN = 0.55   # владелец 26.09: 65 % → 60 %; 27.09: «давай снизим но до 55% хотяб» (30 % — «слишком мало»)
 CONTEXT_URGENT = 0.80
 
 
@@ -235,7 +235,7 @@ CEO_ID_HINT = "CEO (адрес — в блоке «РОЛЬ СЕССИИ»)"
 
 
 def context_advice(hook_in, state, role="ceo"):
-    """≥ 60 % окна: роль сама уходит в клир на границе шага (владелец 26.09 «ну кроме себя»); CEO — советует владельцу."""
+    """≥ 55 % окна: роль сама уходит в клир на границе шага (владелец 26.09 «ну кроме себя»); CEO — советует владельцу."""
     tokens = context_tokens(hook_in.get("transcript_path"))
     frac = tokens / CONTEXT_WINDOW if CONTEXT_WINDOW else 0
     if frac < CONTEXT_WARN:
