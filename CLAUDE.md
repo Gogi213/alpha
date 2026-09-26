@@ -132,14 +132,15 @@ root/instruments.csv`, формы `cand/tr05/h4` по трём наборам) �
 (`titration-dashboard`, порт 8765).
 
 **Код.** Волны 1+2 ревью 23.09 слиты (`docs/plan/review-fixes-2026-09-24.md`); E26 добавил оси `btc2h`/`btc3h`
-(`0075599`); 25.09 `decide_exit` разобран по смыслу (сложность 35 → 20, поведение то же) — **1003 теста / 0 / 7 на
-Windows, clippy ноль**. Открыто: B2 (фильтр/план/защиты в общую стратегию `lob/` — живой бот = бэктест), B4 (целые
+(`0075599`); 25.09 `decide_exit` разобран по смыслу (сложность 35 → 20, поведение то же); 26.09 код П-02 — T1 `lob
+trades` (лента), T2 `depth_behind_lots`, T4 `--entry-form market`/`eaten_min=` (гейт «байт в байт» `8d8e927`) —
+**1015 тестов / 0 / 9 на Windows, clippy ноль** (`9da13d7`). Открыто: B2 (фильтр/план/защиты в общую стратегию `lob/` — живой бот = бэктест), B4 (целые
 тики), B5 (пул буферов коллектора), **B6 ждёт числа** (глубина рыночного свипа), B7 (импорт ob500 для старых обвалов),
 B8 отложен (В-103).
 
 **Машины.** Счёт — Steam Deck `deck@192.168.1.49` (`~/alpha`, ssh только с явными `-i`/`UserKnownHostsFile` —
 кириллический HOME; фоновые задачи — только `systemd-run --user`, `nohup` через ssh умирает с сессией; эпохи
-`e-archive`/`root`/`e-aug`/`e-crash`; бинарники `bin/alpha-7bdf9a4` (деньги) и `bin/alpha-0075599` (E26); `bin/alpha` →
+`e-archive`/`root`/`e-aug`/`e-crash`; бинарники `bin/alpha-7bdf9a4` (деньги), `bin/alpha-0075599` (E26), `bin/alpha-3a9fe23` (П-02); `bin/alpha` →
 `alpha-e5c8847` для ночной сетки — переключать ли, решает владелец). Диск — свободно 24 ГБ; **коллектор хранит только
 ~3 последних суток — на Steam Deck единственные копии записи 16–24.09 (`root/`, 34 ГБ) и глубокого стакана 15–21.09
 (`deep/`, 23 ГБ), не удалять** (В-106). **Steam Deck засыпает при разряде — держать на зарядке.** Сборка — VPS
@@ -202,7 +203,7 @@ DOM и `ConnSink`), `collector-2026-09-12.md` (отсюда `record::ZSTD_LEVEL 
 
 ```bash
 cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5   # 1003 passed, 0 failed, 7 ignored (2026-09-25, Windows; на Linux +1 — тест SIGTERM под cfg(unix))
+cargo test --release --target-dir target-ci 2>&1 | tail -5   # 1015 passed, 0 failed, 9 ignored (2026-09-26, Windows; на Linux +1 — тест SIGTERM под cfg(unix))
 cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
 cargo fmt --check
 ./target-ci/release/alpha.exe lob --help              # 27 подкоманд (T1 добавил `trades` 25.09; lob export удалён 24.09), таблица — docs/COMMANDS.md
