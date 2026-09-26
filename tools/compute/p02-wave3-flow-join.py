@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
+import os
 import sys
 from typing import List, Tuple
 
@@ -45,7 +46,7 @@ def sign(x: float) -> int:
     return 0
 
 
-def load_trades(path: str) -> Tuple[List[int], List[int], List[int]]:
+def load_trades(path: str, ts_col: str = "exch_ts_ms") -> Tuple[List[int], List[int], List[int]]:
     """Возвращает (ts_ms отсортирован, знак сделки +qty/-qty, price_tick) —
     списки одинаковой длины, отсортированные по ts_ms (лента и так в порядке
     записи, но сортируем явно — дешёвая гарантия)."""
@@ -54,7 +55,7 @@ def load_trades(path: str) -> Tuple[List[int], List[int], List[int]]:
         r = csv.DictReader(f)
         for row in r:
             try:
-                ts = int(row["exch_ts_ms"])
+                ts = int(row[ts_col])
                 side = row["side"].strip().lower()
                 qty = float(row["qty_lots"])
                 price = int(row["price_tick"])
@@ -69,13 +70,16 @@ def load_trades(path: str) -> Tuple[List[int], List[int], List[int]]:
     return ts_list, qty_list, price_list
 
 
-def window_features(ts_list, qty_list, price_list, start_ms: int, window_ms: int):
-    """CVD и дельта цены в [start_ms - window_ms, start_ms) по ленте сделок
-    того же символа-суток. Дельта цены — последняя цена в окне минус первая
-    цена в окне (сделками; если сделок < 2, дельта = 0 -> 'na')."""
-    lo = start_ms - window_ms
+def window_features(ts_list, qty_list, price_list, start_ms: int, window_ms: int, end_gap_ms: int = 0):
+    """CVD и дельта цены в [start_ms - end_gap_ms - window_ms, start_ms - end_gap_ms) по ленте
+    сделок того же символа-суток. Дельта цены — последняя цена в окне минус первая
+    цена в окне (сделками; если сделок < 2, дельта = 0 -> 'na'). `end_gap_ms` > 0 — проверка
+    чистоты во времени: сделки последних мс до касания (само касание, рассинхрон книги и ленты)
+    в окно не идут; умолчание 0 — заморожённое окно."""
+    end = start_ms - end_gap_ms
+    lo = end - window_ms
     i0 = bisect.bisect_left(ts_list, lo)
-    i1 = bisect.bisect_left(ts_list, start_ms)
+    i1 = bisect.bisect_left(ts_list, end)
     if i1 <= i0:
         return 0.0, 0
     cvd = sum(qty_list[i0:i1])
@@ -91,10 +95,15 @@ def main(argv=None) -> int:
     p.add_argument("--touches", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--windows-ms", default="60000,300000")
+    # проверка чистоты во времени (26.09): умолчания — заморожённое поведение; обёртка
+    # пересчёта передаёт их через окружение, не меняя своей командной строки
+    p.add_argument("--end-gap-ms", type=int, default=int(os.environ.get("P02_END_GAP_MS", "0")))
+    p.add_argument("--ts-col", default=os.environ.get("P02_TS_COL", "exch_ts_ms"),
+                   choices=("exch_ts_ms", "local_ts_ms"))
     args = p.parse_args(argv)
 
     windows = [int(w) for w in args.windows_ms.split(",")]
-    ts_list, qty_list, price_list = load_trades(args.trades)
+    ts_list, qty_list, price_list = load_trades(args.trades, args.ts_col)
 
     with open(args.touches, encoding="utf-8", newline="") as f, open(
         args.out, "a", encoding="utf-8", newline=""
@@ -113,7 +122,7 @@ def main(argv=None) -> int:
                 continue
             fields = [args.symbol, args.day_utc, side, price_tick, touch_index, ended]
             for w in windows:
-                cvd, pdelta = window_features(ts_list, qty_list, price_list, start_ms, w)
+                cvd, pdelta = window_features(ts_list, qty_list, price_list, start_ms, w, args.end_gap_ms)
                 s_cvd, s_price = sign(cvd), sign(pdelta)
                 if s_cvd == 0 or s_price == 0:
                     mismatch = "na"
