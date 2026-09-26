@@ -5,12 +5,13 @@
 # время. Спецификация `<дом>:<сутки>` (дом — каталог эпохи с `study/root-<сутки>` и `root/`).
 #   OLD=bin/alpha-<старый> NEW=bin/alpha-<новый> gate-carry.sh <дом>:<сутки> ...
 # MEM_ONLY="<дом>:<сутки>:<SYM>" — только новый бинарник на одной монете под потолком MEM_CAP (умолчание 13G,
-# свой scope): замер пика памяти тяжёлых суток, на которых старый не влезает.
+# свой scope, потоков MEM_THREADS, умолчание 1): замер пика памяти тяжёлых суток, на которых старый не влезает.
 set -uo pipefail
 A="${ALPHA_BASE:-$HOME/alpha}"
 OLD="${OLD:?старый бинарник}"; NEW="${NEW:?новый бинарник}"
 OUT="${OUT:-$(mktemp -d)}"
 MEM_CAP="${MEM_CAP:-13G}"
+MEM_THREADS="${MEM_THREADS:-1}"   # Р6, условие Судьи 3: замер при рабочем --threads
 mkdir -p "$OUT" || exit 1
 RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
 FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --order-usd 500 --carry-root root \
@@ -66,7 +67,7 @@ if [ -n "${MEM_ONLY:-}" ]; then
   t0=$(date +%s)
   # shellcheck disable=SC2086
   (cd "$home" && "${SCOPE[@]}" nice -n 5 "$A/$NEW" lob bounce-grid --root "study/root-$day" \
-     --touches-from study/approaches/D20 $FORM --symbol "$sym" --threads 1 --out-dir "$OUT/mem-$sym-$day" \
+     --touches-from study/approaches/D20 $FORM --symbol "$sym" --threads "$MEM_THREADS" --out-dir "$OUT/mem-$sym-$day" \
      > "$OUT/mem-$sym-$day.log" 2>&1) &
   pid=$!; hwm=0
   while kill -0 "$pid" 2>/dev/null; do
