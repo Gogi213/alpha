@@ -438,9 +438,10 @@ pub(super) fn day_windows(
     driver: DriverArg,
     tick: f64,
     lot: f64,
-) -> Option<SignalWindows> {
+    check: bool,
+) -> anyhow::Result<Option<SignalWindows>> {
     match driver {
-        DriverArg::Full => None,
+        DriverArg::Full => Ok(None),
         DriverArg::Setups => {
             let t0s: Vec<i64> = touches
                 .iter()
@@ -455,7 +456,19 @@ pub(super) fn day_windows(
                 w.levels_total() as f64 / w.len().max(1) as f64,
                 started.elapsed().as_secs_f64()
             );
-            Some(w)
+            if check {
+                let started = Instant::now();
+                let reference = SignalWindows::build_crate(events, &t0s, tick, lot);
+                if let Some((t0, field)) = w.first_mismatch(&reference) {
+                    anyhow::bail!("окна: снимок на t0={t0} расходится с книгой крейта: {field}");
+                }
+                eprintln!(
+                    "bounce-grid:   окна: сверка с книгой крейта — {} снимков равны · {:.2}s",
+                    reference.len(),
+                    started.elapsed().as_secs_f64()
+                );
+            }
+            Ok(Some(w))
         }
     }
 }

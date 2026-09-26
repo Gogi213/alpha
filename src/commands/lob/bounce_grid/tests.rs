@@ -173,6 +173,8 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         threads: Some(3),
         driver: DriverArg::Setups,
         round_memo: "on".to_string(),
+        // К3: сверка окон с книгой крейта на всех сутках тестовых сеток.
+        windows_check: true,
         out_dir: root.join("grid"),
         allow_unverified,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).

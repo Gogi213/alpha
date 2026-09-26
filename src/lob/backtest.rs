@@ -71,7 +71,9 @@ use crate::lob::strategy::{
 };
 
 mod compact;
+mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
+pub use window_depth::WindowDepth;
 
 /// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
 /// заявку выхода, тейкерское добивание и гашение сироты (F8c) — прежний запас
@@ -2256,7 +2258,8 @@ where
 /// биржа не работает вовсе, и цена суток определяется числом касаний и
 /// длиной кругов, а не числом событий в стакане.
 ///
-/// Точность: снимок — та же `HashMapMarketDepth` крейта после тех же строк
+/// Точность: снимок — книга крейта (`HashMapMarketDepth`) после тех же строк, по всем полям
+/// (строит её своя книга окон `WindowDepth`, К3)
 /// (обе метки `<= t0`, см. `SignalWindows`), со всеми полями лучших/крайних
 /// тиков, один на обе стороны движка; строки с одной меткой за `t0` каждая
 /// сторона доберёт из среза сама по разу, как и в сплошном прогоне; часы
@@ -2539,7 +2542,8 @@ unsafe fn borrowed_data(events: &[Event]) -> Data<Event> {
 }
 
 /// Снимок `HashMapMarketDepth` крейта в момент `t0`: уровни и **все** поля
-/// лучших/крайних тиков. Из него фабрика `depth` строителя собирает книгу
+/// лучших/крайних тиков (строит своя книга окон `WindowDepth` — те же поля, К3;
+/// `of` — эталон сверки). Из него фабрика `depth` строителя собирает книгу
 /// обеих сторон движка окна ровно той формы, что была бы у сплошного прогона
 /// после тех же строк (перекрещённые «спрятанные» уровни и границы поиска
 /// лучшей цены — тоже; пересобирать книгу событиями нельзя: порядок их
@@ -2619,16 +2623,50 @@ pub struct SignalWindows {
 }
 
 impl SignalWindows {
+    /// Окна на своей книге целых тиков (`WindowDepth`, К3) — снимки те же, что у
+    /// `build_crate`, по всем полям (разностные тесты и `bounce-grid --windows-check`).
     pub fn build<R: EventRows + ?Sized>(
         events: &R,
         t0s: &[i64],
         tick_size: f64,
         lot_size: f64,
     ) -> Self {
+        Self::build_on(
+            events,
+            t0s,
+            tick_size,
+            lot_size,
+            WindowDepth::new(tick_size, lot_size),
+        )
+    }
+
+    /// Прежний путь — книга крейта (`HashMapMarketDepth`) и `DepthSnapshot::of`: эталон
+    /// разностной сверки К3 (условие Судьи b86eed6), в счёте не участвует.
+    pub fn build_crate<R: EventRows + ?Sized>(
+        events: &R,
+        t0s: &[i64],
+        tick_size: f64,
+        lot_size: f64,
+    ) -> Self {
+        Self::build_on(
+            events,
+            t0s,
+            tick_size,
+            lot_size,
+            HashMapMarketDepth::new(tick_size, lot_size),
+        )
+    }
+
+    fn build_on<R: EventRows + ?Sized, B: WindowBook>(
+        events: &R,
+        t0s: &[i64],
+        tick_size: f64,
+        lot_size: f64,
+        mut depth: B,
+    ) -> Self {
         let mut t0s: Vec<i64> = t0s.to_vec();
         t0s.sort_unstable();
         t0s.dedup();
-        let mut depth = HashMapMarketDepth::new(tick_size, lot_size);
         let mut row = 0usize;
         let mut windows = Vec::with_capacity(t0s.len());
         for t0 in t0s {
@@ -2636,20 +2674,13 @@ impl SignalWindows {
                 && events.row_local_ts(row) <= t0
                 && events.row_exch_ts(row) <= t0
             {
-                let ev = &events.row(row);
-                // Порядок веток — как у крейта; строк очистки в нашем
-                // переводе нет (`events_from_feed` шлёт явные нули).
-                if ev.is(LOCAL_BID_DEPTH_EVENT) {
-                    depth.update_bid_depth(ev.px, ev.qty, ev.local_ts);
-                } else if ev.is(LOCAL_ASK_DEPTH_EVENT) {
-                    depth.update_ask_depth(ev.px, ev.qty, ev.local_ts);
-                }
+                depth.apply(&events.row(row));
                 row += 1;
             }
             windows.push(SignalWindow {
                 t0_ns: t0,
                 start: row,
-                depth: DepthSnapshot::of(&depth),
+                depth: depth.snapshot(),
             });
         }
         Self {
@@ -2657,6 +2688,39 @@ impl SignalWindows {
             lot_size,
             windows,
         }
+    }
+
+    /// Первое расхождение с другими окнами тех же `t0` (`None` — все снимки равны по всем
+    /// полям): `t0` окна и что разошлось.
+    pub fn first_mismatch(&self, other: &SignalWindows) -> Option<(i64, &'static str)> {
+        if self.windows.len() != other.windows.len() {
+            return Some((0, "число окон"));
+        }
+        self.windows.iter().zip(&other.windows).find_map(|(a, b)| {
+            let (x, y) = (&a.depth, &b.depth);
+            let field = if a.t0_ns != b.t0_ns {
+                "t0"
+            } else if a.start != b.start {
+                "start"
+            } else if x.bids != y.bids {
+                "bids"
+            } else if x.asks != y.asks {
+                "asks"
+            } else if x.best_bid_tick != y.best_bid_tick {
+                "best_bid_tick"
+            } else if x.best_ask_tick != y.best_ask_tick {
+                "best_ask_tick"
+            } else if x.low_bid_tick != y.low_bid_tick {
+                "low_bid_tick"
+            } else if x.high_ask_tick != y.high_ask_tick {
+                "high_ask_tick"
+            } else if x.timestamp != y.timestamp {
+                "timestamp"
+            } else {
+                return None;
+            };
+            Some((a.t0_ns, field))
+        })
     }
 
     pub fn window_at(&self, t0_ns: i64) -> Option<&SignalWindow> {
@@ -2675,6 +2739,43 @@ impl SignalWindows {
     /// Уровней во всех снимках — оценка памяти окон (16 Б на уровень).
     pub fn levels_total(&self) -> usize {
         self.windows.iter().map(|w| w.depth.levels()).sum()
+    }
+}
+
+/// Книга, которую `SignalWindows::build_on` проводит по событиям суток: своя (`WindowDepth`)
+/// или эталон крейта.
+trait WindowBook {
+    fn apply(&mut self, ev: &Event);
+    fn snapshot(&self) -> DepthSnapshot;
+}
+
+impl WindowBook for WindowDepth {
+    fn apply(&mut self, ev: &Event) {
+        // Порядок веток — как у крейта; строк очистки в нашем переводе нет
+        // (`events_from_feed` шлёт явные нули).
+        if ev.is(LOCAL_BID_DEPTH_EVENT) {
+            self.update_bid_depth(ev.px, ev.qty);
+        } else if ev.is(LOCAL_ASK_DEPTH_EVENT) {
+            self.update_ask_depth(ev.px, ev.qty);
+        }
+    }
+
+    fn snapshot(&self) -> DepthSnapshot {
+        WindowDepth::snapshot(self)
+    }
+}
+
+impl WindowBook for HashMapMarketDepth {
+    fn apply(&mut self, ev: &Event) {
+        if ev.is(LOCAL_BID_DEPTH_EVENT) {
+            self.update_bid_depth(ev.px, ev.qty, ev.local_ts);
+        } else if ev.is(LOCAL_ASK_DEPTH_EVENT) {
+            self.update_ask_depth(ev.px, ev.qty, ev.local_ts);
+        }
+    }
+
+    fn snapshot(&self) -> DepthSnapshot {
+        DepthSnapshot::of(self)
     }
 }
 

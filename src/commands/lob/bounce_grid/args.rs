@@ -306,6 +306,11 @@ pub struct BounceGridArgs {
     /// `off` — прежний счёт каждого набора с нуля (гейт «те же байты»). Только `--driver setups`.
     #[arg(long = "round-memo", default_value = "on", value_parser = ["on", "off"])]
     pub round_memo: String,
+    /// Сверка окон (К3, условие Судьи b86eed6): кроме своей книги окон (`WindowDepth`) строит
+    /// окна прежним путём на книге крейта и сравнивает каждый снимок по всем полям; расхождение —
+    /// отказ с `t0` и полем. Итог счёта не меняет. Только `--driver setups`.
+    #[arg(long, default_value_t = false)]
+    pub windows_check: bool,
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,

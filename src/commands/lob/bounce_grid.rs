@@ -422,7 +422,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             };
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
-            let windows = day_windows(&events, &day.touches, args.driver, tick, lot);
+            let windows = day_windows(
+                &events,
+                &day.touches,
+                args.driver,
+                tick,
+                lot,
+                args.windows_check,
+            )?;
             let regime = if need_regime {
                 let dir = args.regime_from.as_deref().expect("проверено выше");
                 if !regime_days.contains_key(&day.day) {
