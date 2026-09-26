@@ -2588,6 +2588,23 @@ fn carry_root_finishes_a_round_still_open_at_midnight() {
         exit_ns >= day_start_ns_for_test("2026-09-09"),
         "выход исполнился уже после настоящей полуночи D+1: {exit_ns}"
     );
+
+    // T-31 (условие Судьи 3): круг, перенесённый через полночь, при `--busy-skip off` — тот же круг, и след
+    // несёт его `idle_ns`/`exit_ns` после полуночи; занятость у движка — на символ-сутки D, D+1 её не наследует.
+    a.busy_skip = "off".to_string();
+    a.out_dir = dir.path().join("grid-carry-off");
+    let m_off = run_bounce_grid(&a).unwrap();
+    let (_, rounds_off) = read_csv(&m_off.rounds_path);
+    assert_eq!(rounds_off, rounds, "перенесённый круг при `off` — тот же");
+    let (sh, sig) = read_csv(&m_off.rounds_path.with_file_name("signals.csv"));
+    assert_eq!(sig.len(), 1);
+    assert_eq!(col(&sh, &sig[0], "step"), "filled");
+    assert_eq!(col(&sh, &sig[0], "exit_ns"), exit_ns.to_string());
+    let idle: i64 = col(&sh, &sig[0], "idle_ns").parse().unwrap();
+    assert!(
+        idle >= exit_ns,
+        "форма свободна не раньше выхода: {idle} < {exit_ns}"
+    );
 }
 
 /// Перенос ограничен окном времени: событие довеска далеко за окном (здесь —

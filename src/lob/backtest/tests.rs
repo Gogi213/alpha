@@ -1174,6 +1174,40 @@ fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
         .map(|(i, &s)| (s, on.fills[i], on.fill_exit_ns[i]))
         .collect();
     assert_eq!(replay, base, "след `off` обязан воспроизвести круги `on`");
+
+    // Условие Судьи 5: фильтр, отбросивший первый сигнал, освобождает монету — второй (при `on` «занято»)
+    // получает свой круг; ровно то же даёт движок, которому подали сигналы уже без первого.
+    let mut idle = i64::MIN;
+    let mut kept_f: Vec<usize> = Vec::new();
+    for t in off.trace.iter().filter(|t| t.signal != 0) {
+        if signals[t.signal].t0_ns < idle {
+            continue;
+        }
+        kept_f.push(t.signal);
+        idle = t.idle_ns;
+    }
+    assert!(
+        kept_f.contains(&1),
+        "без первого сигнала второй принят: {kept_f:?}"
+    );
+    let engine = drive_bounce_windowed(&feed, &windows, &signals[1..], &drive_cfg(), lat).unwrap();
+    assert_eq!(
+        engine.submitted_signal.len(),
+        kept_f.len(),
+        "движок без первого сигнала отправил столько же входов"
+    );
+    let engine_exits: Vec<i64> = engine.fill_exit_ns.clone();
+    let replay_exits: Vec<i64> = off
+        .fill_signal
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| kept_f.contains(s))
+        .map(|(i, _)| off.fill_exit_ns[i])
+        .collect();
+    assert_eq!(
+        replay_exits, engine_exits,
+        "те же круги, что у движка с фильтром"
+    );
 }
 
 /// Снимок книги воспроизводит `HashMapMarketDepth` крейта поле в поле,

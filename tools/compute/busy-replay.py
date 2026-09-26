@@ -112,7 +112,8 @@ def main():
                 out_rows.append(line)
         dst = os.path.join(a.out, rel)
         os.makedirs(dst, exist_ok=True)
-        note = f"# busy-replay: keep={a.keep or 'всё'} кругов {len(out_rows)} из {len(rows)}\n"
+        # метка реплея (условие Судьи 2): portfolio-sim отличает его от сырого прогона `off`
+        note = f"# busy_replay=keep:{a.keep or 'all'} кругов {len(out_rows)} из {len(rows)}\n"
         with open(os.path.join(dst, "rounds.csv"), "w", encoding="utf-8", newline="") as fh:
             fh.writelines(comments + [note, head] + out_rows)
         n["кругов"] = len(out_rows)
