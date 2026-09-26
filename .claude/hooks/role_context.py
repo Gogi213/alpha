@@ -62,6 +62,24 @@ def find_title(host_id, cli_id):
     return False, None
 
 
+def team_addresses():
+    """«название → id» сессий-ролей этой папки: по id сообщение доходит и до остановленной сессии."""
+    rows = {}
+    for d in session_dirs():
+        for f in glob.glob(os.path.join(glob.escape(d), "*", "*", "local_*.json")):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    meta = json.load(fh)
+            except Exception:
+                continue
+            title = meta.get("title") or ""
+            if meta.get("isArchived") or os.path.normcase(meta.get("cwd") or "") != os.path.normcase(ROOT):
+                continue
+            if any(key in title.lower() for key, _ in ROLES):
+                rows[title] = meta.get("sessionId")
+    return "; ".join(f"`{t}` → `{i}`" for t, i in sorted(rows.items()))
+
+
 def read(rel):
     path = os.path.join(ROLES_DIR, rel)
     with open(path, encoding="utf-8") as fh:
@@ -96,6 +114,13 @@ def context(source):
         "Устав команды, устав твоей роли и твой блокнот — ниже, перечитывать не нужно. "
         "Общий список задач — .claude/roles/TASKS.md.",
     ]
+    try:
+        addresses = team_addresses()
+        if addresses:
+            head.append("Адреса команды для SendMessage (по id доходит и до остановленной сессии, которой нет в "
+                        f"ListAgents): {addresses}.")
+    except Exception:
+        pass
     try:  # память ролей: догнать конспект прошлой сессии, дать на него ссылку
         from role_memory import CONSOLIDATE_TEXT, consolidate_due, on_session_start
         last = on_session_start(hook_in, role, title)
