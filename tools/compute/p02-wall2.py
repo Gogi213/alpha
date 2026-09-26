@@ -296,7 +296,7 @@ def analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key, n_bo
 VARIANTS = {
     "g07_main": ("top", "bottom", "Г-07 основной (терциль depth_behind_lots, .50 грубая версия)"),
     # знак «+» = в сторону гипотезы (H3: глубже позади — чаще bounced; H8: без «пружинки» — чаще bounced)
-    "g88_5min": ("clean", "spring", "Г-88 основной (repeat_count=0 vs >0 на окне 5 мин)"),
+    "g88_5min": ("clean", "spring", "Г-88 пре-проверка (repeat_count=0 vs >0 на окне 5 мин, все касания)"),
     "g07_read_persym": ("top", "bottom", "Г-07 чтение, вне Холма (терциль внутри монеты)"),
 }
 
@@ -322,14 +322,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
                   f"p={r['p_value']:.4f}")
         print()
 
-    for month_prefix, month_label in (("2026-08", "август"), ("2026-09", "сентябрь")):
-        pvals = [("H3 Г-07", results["g07_main"][month_prefix]["p_value"]),
-                 ("H8 Г-88", results["g88_5min"][month_prefix]["p_value"])]
-        adj = holm(pvals)
-        print(f"Холм ({month_label}, 2 p-значения этого счёта — справочно; итог блока A — в сводке П-02):")
-        for name, p, p_adj, sig in adj:
-            print(f"  {name}: p={p:.4f} -> p_adj={p_adj:.4f} значимо@0.05={sig}")
-        print()
+    # Холм здесь не считается: H3 входит в Холм блока A (6 p-значений, П-02 §9) — в сводке П-02;
+    # пре-проверка Г-88 — не H8 по деньгам и ни в какой Холм не входит.
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=1, sort_keys=True)
