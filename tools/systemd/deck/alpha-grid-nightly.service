@@ -24,5 +24,9 @@ Environment=GRID_SLICE=alpha.slice
 # tk/dl/E7/скальп (~25 мин, ~161 МБ за ночь) не отвечает на текущую задачу — выключена здесь; VPS-счётная
 # (`/opt/alpha-compute`, `epoch-run.sh`) переменную не задаёт и продолжает считать её как раньше.
 Environment=OLD_BASE=0
+# T-04 (26.09, приёмка по условию Судьи `docs/research/reviews/one-pass-plan-2026-09-26.md`): касания суток по 8
+# монет разом вместо 3 — сутки 22.09 пула 456 → 284 с (×1,6 на 4 ядрах / 8 потоках), все 276 CSV побайтно те же;
+# память ~60 МБ на процесс.
+Environment=H3_JOBS=8
 ExecStart=%h/alpha/bin/nightly-grid.sh
 Nice=15
