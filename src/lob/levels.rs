@@ -205,7 +205,10 @@ impl H3Mode {
     }
 
     /// Порог рождения в лотах на цене `tick`: у денежного пола — с округлением
-    /// вверх, чтобы `size ≥ порог` означало ровно `номинал ≥ N`.
+    /// вверх, чтобы `size ≥ порог` означало ровно `номинал ≥ N`. Горячий путь
+    /// зовёт не её, а `notional_passes` (то же сравнение без деления); здесь —
+    /// определение, по которому та проверяется тестом.
+    #[cfg(test)]
     fn notional_lots_at(min_usd_e9: i64, tick_e9: i64, step_e9: i64, tick: i64) -> i64 {
         if tick <= 0 {
             return i64::MAX;
@@ -214,6 +217,32 @@ impl H3Mode {
         let den = (tick as i128) * (tick_e9 as i128) * (step_e9 as i128);
         let lots = (num + den - 1) / den;
         lots.clamp(1, i64::MAX as i128) as i64
+    }
+
+    /// `size_lots ≥ notional_lots_at(…)` без деления i128 (Р9, T-17: деление шло
+    /// на каждом неживом уровне каждого кадра). Для `den > 0`:
+    /// `size ≥ ⌈num/den⌉ ⇔ size·den ≥ num`; края `clamp(1, i64::MAX)` — явно:
+    /// порог не ниже 1 (`size ≥ 1`) и не выше `i64::MAX` (размер `i64::MAX`
+    /// проходит всегда). Эквивалентность — тест `notional_passes_matches_lots_at`.
+    fn notional_passes(
+        min_usd_e9: i64,
+        tick_e9: i64,
+        step_e9: i64,
+        tick: i64,
+        size_lots: i64,
+    ) -> bool {
+        if tick <= 0 {
+            return size_lots == i64::MAX;
+        }
+        let num = (min_usd_e9 as i128) * 1_000_000_000i128;
+        let den = (tick as i128) * (tick_e9 as i128) * (step_e9 as i128);
+        debug_assert!(den > 0, "шаг цены и лота обязаны быть положительны");
+        // Переполнение `size·den` (оба > 0) — произведение больше любого `num`.
+        size_lots >= 1
+            && ((size_lots as i128)
+                .checked_mul(den)
+                .is_none_or(|p| p >= num)
+                || size_lots == i64::MAX)
     }
 
     /// Проходит ли наблюдение абсолютный порог **при рождении**: у пола в
@@ -232,7 +261,7 @@ impl H3Mode {
                 tick_e9,
                 step_e9,
                 ..
-            } => size_lots >= Self::notional_lots_at(min_usd_e9, tick_e9, step_e9, tick),
+            } => Self::notional_passes(min_usd_e9, tick_e9, step_e9, tick, size_lots),
             H3Mode::Strength { .. } => size_lots > 0,
         }
     }
@@ -813,7 +842,6 @@ struct ApproachFrame {
     /// Лучшая цена другой стороны на её последнем кадре.
     best_opp_tick: i64,
     flow_1h_lots: i64,
-    strength_e2: [i64; STRENGTH_WINDOWS_BPS.len()],
     depth_behind_lots: i64,
 }
 
@@ -867,14 +895,24 @@ struct Live {
 }
 
 impl Live {
-    /// Выборка силы кадра `ts_ms`: пишется, если с последней прошло не меньше
-    /// `STRENGTH_SAMPLE_MS` (первая — сразу).
-    fn observe_strength(&mut self, ts_ms: i64, e2: i64) {
+    /// Пора ли писать выборку силы кадра `ts_ms`: с последней прошло не меньше
+    /// `STRENGTH_SAMPLE_MS` (первая — сразу). Вынесено, чтобы силу кадра
+    /// считать только тогда, когда она будет записана (Р9, T-17).
+    fn strength_sample_due(&self, ts_ms: i64) -> bool {
         if self.sh_len > 0 {
             let last = (self.sh_next as usize + STRENGTH_HIST_SLOTS - 1) % STRENGTH_HIST_SLOTS;
             if ts_ms.saturating_sub(self.sh_ts[last]) < STRENGTH_SAMPLE_MS {
-                return;
+                return false;
             }
+        }
+        true
+    }
+
+    /// Выборка силы кадра `ts_ms`: пишется, если с последней прошло не меньше
+    /// `STRENGTH_SAMPLE_MS` (первая — сразу).
+    fn observe_strength(&mut self, ts_ms: i64, e2: i64) {
+        if !self.strength_sample_due(ts_ms) {
+            return;
         }
         let i = self.sh_next as usize;
         self.sh_ts[i] = ts_ms;
@@ -1265,11 +1303,18 @@ fn approach_record(
 ///   (`ApproachEnd::LevelDeath`), здесь не видна.
 /// - Записи уровня прогрева считаются (индекс растёт), но не эмитируются
 ///   (`emit = false`) — как у касаний.
+/// - `arm_inputs` — `(holds, strength_e2)` кадра: порог В-66 и сила «×соседи».
+///   Нужны только в момент взвода, поэтому зовутся только когда все прочие
+///   условия взвода выполнены (Р1, T-17: раньше считались на каждом кадре
+///   каждого живого уровня — 2/3 времени `lob touches`, замер
+///   `docs/findings/backtest-optimization-2026-09-26.md`). Обе — чистые функции
+///   кадра, условия взвода — конъюнкция без побочных эффектов, поэтому решение и
+///   записи те же.
 fn observe_approach(
     lv: &mut Live,
     cfg: (i64, i64),
     s: u8,
-    holds: bool,
+    arm_inputs: impl FnOnce() -> (bool, [i64; STRENGTH_WINDOWS_BPS.len()]),
     f: ApproachFrame,
     emit: bool,
     out: &mut Vec<ApproachRecord>,
@@ -1310,10 +1355,14 @@ fn observe_approach(
     if far {
         lv.approach_clear = true;
     }
-    if !near || !lv.approach_clear || f.best || !holds {
+    if !near || !lv.approach_clear || f.best {
         return;
     }
     if f.ts_ms.saturating_sub(lv.birth_ms) < min_age_ms {
+        return;
+    }
+    let (holds, strength_e2) = arm_inputs();
+    if !holds {
         return;
     }
     lv.approach = Some(Approach {
@@ -1323,7 +1372,7 @@ fn observe_approach(
         best_own_tick: f.best_own_tick,
         best_opp_tick: f.best_opp_tick,
         flow_1h_lots: f.flow_1h_lots,
-        strength_e2: f.strength_e2,
+        strength_e2,
         depth_behind_lots: f.depth_behind_lots,
     });
 }
@@ -1800,9 +1849,23 @@ fn scan_levels(
                 lv.seen_top50 = ob.in_top50;
                 lv.seen_size = ob.size_lots;
                 lv.seen_strong = strong;
-                let now_e2 =
-                    neighbour_strength_e2(levels, strength_prefix, i, STRENGTH_HIST_WINDOW_BPS_E2);
-                lv.observe_strength(ts_ms, now_e2);
+                // Р9 (T-17): сила окна истории нужна только выборке (не чаще
+                // `STRENGTH_SAMPLE_MS`) и старту касания — считается лениво,
+                // не больше раза на наблюдение; функция чистая, значения те же.
+                let mut now_e2_cell: Option<i64> = None;
+                let mut now_e2 = || {
+                    *now_e2_cell.get_or_insert_with(|| {
+                        neighbour_strength_e2(
+                            levels,
+                            strength_prefix,
+                            i,
+                            STRENGTH_HIST_WINDOW_BPS_E2,
+                        )
+                    })
+                };
+                if lv.strength_sample_due(ts_ms) {
+                    lv.observe_strength(ts_ms, now_e2());
+                }
                 if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
                     lv.first_decrease_ms = Some(ts_ms);
                 }
@@ -1829,6 +1892,7 @@ fn scan_levels(
                 lv.was_best = best;
                 match (&mut lv.touch, arrives, best) {
                     (None, true, _) => {
+                        let now_e2 = now_e2();
                         lv.touch = Some(Touch {
                             start_ms: ts_ms,
                             start_frame: frame,
@@ -1882,15 +1946,19 @@ fn scan_levels(
                     let dying = !ob.in_top50 || below_fraction(ob.size_lots, lv.max);
                     if !dying {
                         if let Some(best_opp_tick) = best_opp {
-                            let strength_e2 = strength_e2_now();
-                            let holds = mode
-                                .holds_at_size(ob.tick, ob.size_lots, &strength_e2)
-                                .unwrap_or(false);
+                            // Р1: сила и порог — только если дойдёт до взвода.
+                            let arm_inputs = || {
+                                let strength_e2 = strength_e2_now();
+                                let holds = mode
+                                    .holds_at_size(ob.tick, ob.size_lots, &strength_e2)
+                                    .unwrap_or(false);
+                                (holds, strength_e2)
+                            };
                             observe_approach(
                                 lv,
                                 (d_bps, approach_min_age_ms),
                                 s,
-                                holds,
+                                arm_inputs,
                                 ApproachFrame {
                                     ts_ms,
                                     tick: ob.tick,
@@ -1899,7 +1967,6 @@ fn scan_levels(
                                     best_own_tick: best_own.unwrap_or(ob.tick),
                                     best_opp_tick,
                                     flow_1h_lots: flow_1h,
-                                    strength_e2,
                                     depth_behind_lots,
                                 },
                                 lv.birth_ms >= warm_end || lv.carried,

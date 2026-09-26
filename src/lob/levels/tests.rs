@@ -2261,3 +2261,44 @@ fn births_map_forgets_a_price_that_never_rebirths_after_the_window() {
         "свежее рождение по-прежнему учтено"
     );
 }
+
+/// Р9 (T-17): порог номинала без деления — ровно `size ≥ notional_lots_at(…)`, включая края
+/// `clamp(1, i64::MAX)` (нулевой номинал, цена ≤ 0, порог выше `i64::MAX`) и размеры вокруг порога.
+#[test]
+fn notional_passes_matches_lots_at() {
+    let usds = [0i64, 1, 10_000_000_000_000, 123_456_789_012, i64::MAX / 4];
+    let tick_e9s = [1i64, 10, 100_000, 1_000_000_000];
+    let step_e9s = [1i64, 1_000, 1_000_000_000];
+    let ticks = [-5i64, 0, 1, 7, 12_345, 1_000_000_007];
+    let sizes = [
+        i64::MIN,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        99,
+        100,
+        101,
+        1_000_000,
+        i64::MAX - 1,
+        i64::MAX,
+    ];
+    for &u in &usds {
+        for &te in &tick_e9s {
+            for &se in &step_e9s {
+                for &t in &ticks {
+                    let lots = H3Mode::notional_lots_at(u, te, se, t);
+                    let around = [lots.saturating_sub(1), lots, lots.saturating_add(1)];
+                    for &s in sizes.iter().chain(around.iter()) {
+                        assert_eq!(
+                            H3Mode::notional_passes(u, te, se, t, s),
+                            s >= lots,
+                            "usd={u} tick_e9={te} step_e9={se} tick={t} size={s} lots={lots}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

@@ -17,7 +17,8 @@ OLD="${OLD:?старый бинарник}"; NEW="${NEW:?новый бинарн
 OUT="${OUT:-$(mktemp -d)}"
 WINDOWS="${WINDOWS:-3600000 300000}"
 H3="--h3-mode notional --h3-usd 10000"
-BANDS="--approach-bps 20 --approach-min-age-secs 900"
+# BANDS — полоса подхода (умолчание — ночная, с полом 900 с); T-17 Р1 гоняет и без пола: BANDS="--approach-bps 20".
+BANDS="${BANDS:---approach-bps 20 --approach-min-age-secs 900}"
 cd "$A" || exit 1
 [ -x "$OLD" ] && [ -x "$NEW" ] || { echo "нет исполняемых $OLD / $NEW"; exit 1; }
 mkdir -p "$OUT" || exit 1

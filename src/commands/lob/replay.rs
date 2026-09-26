@@ -196,6 +196,8 @@ pub(crate) fn feed_frames(
 /// трекерам — не по разу на конфигурацию). Касания (таск 35) — в
 /// `touches`, записи подхода (F1) — в `approaches`, по вектору на
 /// конфигурацию, как `out`. Вызывается только после успешного `apply`.
+/// `obs` — переиспользуемый буфер кадра стороны (Р9, T-17).
+#[allow(clippy::too_many_arguments)]
 fn feed_frames_multi(
     book: &Book,
     trackers: &mut [LevelTracker],
@@ -204,6 +206,7 @@ fn feed_frames_multi(
     touches: &mut [Vec<TouchRecord>],
     approaches: &mut [Vec<ApproachRecord>],
     mids: &mut Vec<MidSample>,
+    obs: &mut Vec<LevelObs>,
 ) {
     debug_assert_eq!(
         trackers.len(),
@@ -221,22 +224,23 @@ fn feed_frames_multi(
         "трекер и выход подходов обязаны идти парой"
     );
     for side in [Side::Bid, Side::Ask] {
-        let obs: Vec<LevelObs> = book
-            .levels(side)
-            .enumerate()
-            .map(|(i, (tick, lots))| LevelObs {
-                tick,
-                size_lots: lots,
-                in_top50: i < 50,
-            })
-            .collect();
+        obs.clear();
+        obs.extend(
+            book.levels(side)
+                .enumerate()
+                .map(|(i, (tick, lots))| LevelObs {
+                    tick,
+                    size_lots: lots,
+                    in_top50: i < 50,
+                }),
+        );
         for (((tracker, out), touches), approaches) in trackers
             .iter_mut()
             .zip(out.iter_mut())
             .zip(touches.iter_mut())
             .zip(approaches.iter_mut())
         {
-            tracker.observe_frame_with_approaches(ts_ms, side, &obs, out, touches, approaches);
+            tracker.observe_frame_with_approaches(ts_ms, side, obs, out, touches, approaches);
         }
     }
     if let (Some(bid), Some(ask)) = (book.best_bid_tick_opt(), book.best_ask_tick_opt()) {
@@ -322,6 +326,9 @@ pub(crate) fn replay_symbol_over_configs_keep(
         })
         .collect();
     let mut work: Vec<DayWork> = Vec::new();
+    // Р9 (T-17): кадр стороны — один буфер на весь реплей, а не новый `Vec` на
+    // каждую сторону каждого обновления (правило «без аллокаций на событие»).
+    let mut obs_buf: Vec<LevelObs> = Vec::with_capacity(256);
     for path in &files {
         let name = path
             .file_name()
@@ -403,6 +410,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
                         &mut entry.touches,
                         &mut entry.approaches,
                         &mut entry.mids,
+                        &mut obs_buf,
                     );
                     entry.trim(keep);
                 }
@@ -434,6 +442,7 @@ pub(crate) fn replay_symbol_over_configs_keep(
                     &mut entry.touches,
                     &mut entry.approaches,
                     &mut entry.mids,
+                    &mut obs_buf,
                 );
                 entry.trim(keep);
             }
