@@ -89,34 +89,38 @@ one() {
 }
 export -f one
 
-# Одна пачка: rsync одной передачей → манифест → суммы на Storage Box (sha256sum по 150 файлов за вызов) → журнал.
+# Одна пачка — одной передачей (владелец: «балком»), но на VPS ничего не копится (владелец: «сразу как перекачал —
+# валидировать и удалять»): rsync `--remove-source-files` удаляет каждый файл сразу, как только он передан и сверен
+# собственной суммой rsync; затем ящик сам сверяет sha256 всей пачки по манифесту (`sha256sum -c`, один вызов).
+# Не совпал — такой файл в журнал как `fail` (при следующем запуске скачивается с Bybit и импортируется заново).
 push_batch() {
   local b=$1 name; name=$(basename "$b")
-  local files; files=$(cd "$b" && find . -name '*.binlog' -printf '%P\n' | sort)
-  [ -z "$files" ] && { rm -rf "$b"; return 0; }
-  local bytes; bytes=$(du -sb "$b" | cut -f1)
-  [ -f "$b.sha256" ] || (cd "$b" && echo "$files" | xargs sha256sum) > "$b.sha256"
-  local try t0; t0=$(date +%s)
+  if [ ! -f "$b.sha256" ]; then
+    local files; files=$(cd "$b" && find . -name '*.binlog' -printf '%P\n' | sort)
+    [ -z "$files" ] && { rm -rf "$b"; return 0; }
+    (cd "$b" && echo "$files" | xargs stat -c '%n %s') > "$b.sizes"
+    (cd "$b" && echo "$files" | xargs sha256sum) > "$b.sha256"
+  fi
+  local n bytes try t0; n=$(wc -l < "$b.sha256"); bytes=$(awk '{s += $2} END {print s + 0}' "$b.sizes"); t0=$(date +%s)
+  # манифест с путями от домашнего каталога ящика: сверка — один вызов `sha256sum -c` самим ящиком
+  sed 's#  #  alpha/epochs/#' "$b.sha256" > "$b.check"
   for try in 1 2 3; do
-    # манифест с путями от домашнего каталога ящика: сверка — один вызов `sha256sum -c` самим ящиком
-    sed 's#  #  alpha/epochs/#' "$b.sha256" > "$b.check"
-    if rsync -a --partial -e "$SSHC" "$b/" "$SBH:alpha/epochs/"; then
+    if rsync -a --partial --remove-source-files -e "$SSHC" "$b/" "$SBH:alpha/epochs/"; then
       $SSHC $SBH mkdir -p alpha/epochs/manifests
       rsync -a -e "$SSHC" "$b.check" "$SBH:alpha/epochs/manifests/$name.sha256"
-      if $SSHC $SBH sha256sum -c --quiet "alpha/epochs/manifests/$name.sha256" >> "$RUN" 2>&1; then
-        while read -r sha f; do
-          local fn=${f##*/}; local sym=${fn%-20*}; local day=${fn#"$sym"-}; day=${day%.binlog}
-          local st; st=$(grep -E "^$day $sym (ok|gaps)$" "$STAGED" | tail -1 | cut -d' ' -f3)
-          echo "$day $sym ${st:-ok} $(stat -c %s "$b/$f") $sha $name"
-        done < "$b.sha256" | flock "$DONE" sh -c "cat >> '$DONE'"
-        log "пачка $name: $(echo "$files" | wc -l) файлов, $((bytes / 1000000)) МБ за $(( $(date +%s) - t0 )) с, суммы совпали"
-        rm -rf "$b" "$b.sha256" "$b.check"
-        return 0
-      fi
-      log "пачка $name: суммы не совпали (попытка $try)"
-    else
-      log "пачка $name: rsync упал (попытка $try)"
+      local bad; bad=$($SSHC $SBH sha256sum -c --quiet "alpha/epochs/manifests/$name.sha256" 2>&1 \
+        | sed -n 's#^alpha/epochs/\(.*\): FAILED.*#\1#p')
+      while read -r sha f; do
+        local fn=${f##*/}; local sym=${fn%-20*}; local day=${fn#"$sym"-}; day=${day%.binlog}
+        local st; st=$(grep -E "^$day $sym (ok|gaps)$" "$STAGED" | tail -1 | cut -d' ' -f3)
+        grep -qxF "$f" <<< "$bad" && st=fail
+        echo "$day $sym ${st:-ok} $(awk -v f="$f" '$1 == f {print $2}' "$b.sizes") $sha $name"
+      done < "$b.sha256" | flock "$DONE" sh -c "cat >> '$DONE'"
+      log "пачка $name: $n файлов, $((bytes / 1000000)) МБ за $(( $(date +%s) - t0 )) с, не совпало: $(grep -c . <<< "$bad")"
+      rm -rf "$b" "$b.sha256" "$b.check" "$b.sizes"
+      return 0
     fi
+    log "пачка $name: rsync упал (попытка $try), переданные файлы уже удалены, остаток — следующей попыткой"
     sleep 300
   done
   return 1
