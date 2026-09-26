@@ -197,9 +197,9 @@ def test_simulate_allows_reentry_after_close(tmp_path):
 def test_kill_switch_respects_short_direction(tmp_path):
     m = load()
     kdir = tmp_path / "klines"
-    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[11 * MIN_MS, 1.10]])
+    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[10 * MIN_MS, 1.10]])
     k = m.Klines([str(kdir)])
-    minutes, vals = [0, 10 * MIN_MS], [0.0, -999.0]  # BTC обваливается на 10-й минуте
+    minutes, vals = [0, 10 * MIN_MS], [0.0, -999.0]  # BTC обваливается к началу 10-й минуты (закрытие — свеча 10)
     row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 100.0, "reason": "take",
            "entry": 1.00, "fee": 0.0, "dir": -1, "usd": 1000.0, "fill": 1.0}  # шорт
     r = m.simulate([row], (minutes, vals), k, 1000.0, 0, 0.0, 100.0, set(), 59.7)
@@ -207,6 +207,29 @@ def test_kill_switch_respects_short_direction(tmp_path):
     assert r["no_kline"] == 0
     # цена выросла на 10 % — шорту это убыток; старая формула (без dir) посчитала бы прибыль
     assert r["total_usd"] == pytest.approx(-100.0)
+
+
+# ---------- выключатель BTC: строка минуты X известна к началу X (T-20 п.2, как sets.rs:167) ----------
+
+def test_kill_switch_minute_convention(tmp_path):
+    m = load()
+    kdir = tmp_path / "klines"
+    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"],
+              [[5 * MIN_MS, 0.95], [6 * MIN_MS, 0.90], [7 * MIN_MS, 0.85]])
+    k = m.Klines([str(kdir)])
+    base = {"sym": "AAAUSDT", "net": 100.0, "reason": "take", "entry": 1.00, "fee": 0.0, "dir": 1,
+            "usd": 1000.0, "fill": 1.0}
+    ns = lambda ms: ms * 1_000_000
+    # строка 5 — срабатывание, строка 4 — нет: вход в 5:30 видит строку 5 и не берётся (прежде видел строку 4)
+    btc = ([4 * MIN_MS, 5 * MIN_MS], [0.0, -999.0])
+    r = m.simulate([{**base, "t0": ns(5 * MIN_MS + 30_000), "t1": ns(100 * MIN_MS)}], btc, k, 1000.0, 0, 0.0, 100.0,
+                   set(), 59.7)
+    assert r["n"] == 0 and r["skip"]["btc"] == 1
+    # вход в 4:30 (строка 4 спокойна), срабатывание — строка 5 (известна к 5:00): закрытие свечой 5, выход в 6:00
+    r = m.simulate([{**base, "t0": ns(4 * MIN_MS + 30_000), "t1": ns(100 * MIN_MS)}], btc, k, 1000.0, 0, 0.0, 100.0,
+                   set(), 59.7)
+    assert r["killed"] == 1 and r["no_kline"] == 0
+    assert r["total_usd"] == pytest.approx(-50.0)  # 0,95 против входа 1,00 — лонг −5 % на $1000
 
 
 def test_simulate_empty_rows_no_crash(tmp_path):
