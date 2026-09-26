@@ -26,6 +26,16 @@ pub enum ExitForm {
     /// безубытка; жёстко: позиция хуже безубытка закрывается сразу), дальше базовый трейл плана
     /// (владелец 2026-09-23: «снятие — стоп в ноль, дальше базовый трейлинг»).
     GoneBe { pct: f64, hard: bool },
+    /// `gone<W>wall<B>` / `gone<W>wallx<B>` — снятие переносит стоп на уровень стены с буфером
+    /// `B` bps за ним (`0` — ровно на уровне); стоп только поднимается. Мягко — когда позиция у
+    /// нового стопа или лучше; жёстко — позиция хуже нового стопа закрывается сразу. Трейл и
+    /// дедлайн плана — как обычно (владелец 2026-09-26: «не безубыток а стоп на то место где
+    /// была плотность»).
+    GoneWall {
+        pct: f64,
+        hard: bool,
+        buffer_bps: f64,
+    },
 }
 
 impl ExitForm {
@@ -41,6 +51,11 @@ impl ExitForm {
             ExitForm::GoneBe { pct, hard } => {
                 format!("gone{pct}be{}", if *hard { "x" } else { "" })
             }
+            ExitForm::GoneWall {
+                pct,
+                hard,
+                buffer_bps,
+            } => format!("gone{pct}wall{}{buffer_bps}", if *hard { "x" } else { "" }),
         }
     }
 
@@ -57,6 +72,37 @@ impl ExitForm {
             return Ok(ExitForm::Eat { pct });
         }
         if let Some(rest) = spec.strip_prefix("gone") {
+            if let Some((w, tail)) = rest.split_once("wall") {
+                let pct: f64 = w.parse()?;
+                anyhow::ensure!(
+                    pct.is_finite() && pct > 0.0 && pct <= 100.0,
+                    "gone<W>wall<B>: W ∈ (0, 100]"
+                );
+                let (hard, b) = match tail.strip_prefix('x') {
+                    Some(b) => (true, b),
+                    None => (false, tail),
+                };
+                let buffer_bps: f64 = b.parse().map_err(|_| {
+                    anyhow::anyhow!(
+                        "--exit-form {spec:?}: ожидается gone<W>wall<B> или gone<W>wallx<B> (B — bps)"
+                    )
+                })?;
+                anyhow::ensure!(
+                    buffer_bps.is_finite() && (0.0..10_000.0).contains(&buffer_bps),
+                    "gone<W>wall<B>: буфер B — bps за стеной в [0, 10000)"
+                );
+                let form = ExitForm::GoneWall {
+                    pct,
+                    hard,
+                    buffer_bps,
+                };
+                anyhow::ensure!(
+                    form.label() == spec,
+                    "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                    form.label()
+                );
+                return Ok(form);
+            }
             if let Some((w, mode)) = rest.split_once("be") {
                 let pct: f64 = w.parse()?;
                 anyhow::ensure!(

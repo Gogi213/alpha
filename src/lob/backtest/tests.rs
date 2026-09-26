@@ -740,7 +740,7 @@ fn ladder_entry_accumulates_legs_until_the_entry_is_over() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -858,7 +858,7 @@ fn early_exit_leaves_a_level_that_sticks_for_x_seconds() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -947,7 +947,7 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -1020,7 +1020,7 @@ fn windowed_fixture() -> (Vec<Event>, TradePlan) {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     (feed, plan)
 }
@@ -1241,7 +1241,7 @@ fn bench_round_cost_in_a_window() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1331,7 +1331,7 @@ fn bench_dense_round_in_a_window() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let signals = [BounceSignal {
         t0_ns: S,
@@ -1419,7 +1419,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let run = drive_bounce(
         &mut hbt,
@@ -1499,7 +1499,7 @@ fn f3_plan(entry_px: f64, take_px: f64, legs: u8, step: f64) -> TradePlan {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 

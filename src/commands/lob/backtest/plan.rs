@@ -271,19 +271,19 @@ pub(crate) fn bounce_plan(
             exit_gone_pct: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::Gone { pct }
                 | crate::commands::lob::bounce_grid::ExitForm::GoneTrail { pct, .. }
-                | crate::commands::lob::bounce_grid::ExitForm::GoneBe { pct, .. } => pct,
+                | crate::commands::lob::bounce_grid::ExitForm::GoneBe { pct, .. }
+                | crate::commands::lob::bounce_grid::ExitForm::GoneWall { pct, .. } => pct,
                 _ => 0.0,
             },
-            // Безубыток после снятия (владелец 23.09): 1 — мягкий, 2 — жёсткий.
-            gone_be: match shape.exit_form {
+            // Перенос стопа после снятия: безубыток (владелец 23.09) или уровень стены (26.09).
+            gone_stop: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneBe { hard, .. } => {
-                    if hard {
-                        2
-                    } else {
-                        1
-                    }
+                    crate::lob::strategy::GoneStop::Breakeven { hard }
                 }
-                _ => 0,
+                crate::commands::lob::bounce_grid::ExitForm::GoneWall {
+                    hard, buffer_bps, ..
+                } => crate::lob::strategy::GoneStop::Wall { hard, buffer_bps },
+                _ => crate::lob::strategy::GoneStop::Off,
             },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {

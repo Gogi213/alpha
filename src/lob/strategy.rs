@@ -410,12 +410,31 @@ pub enum TradePlan {
         /// (bps от входа). Снятие — защёлка: вернувшаяся стена трейл не выключает. `0` — выход
         /// сразу, как в F7. Вход в сетку как `gone<W>tr<T>`.
         gone_trail_bps: f64,
-        /// Безубыток после снятия стены (владелец 2026-09-23: «снятие — стоп в ноль, дальше базовый
-        /// трейлинг»): `1` — мягкий (`gone<W>be`): стоп переносится в безубыток (вход плюс круг
-        /// комиссий), как только после снятия цена у безубытка или лучше; `2` — жёсткий
-        /// (`gone<W>bex`): то же, но если на снятии позиция хуже безубытка — выход по рынку сразу.
-        /// `0` — выключено. Базовый трейл плана работает как обычно.
-        gone_be: u8,
+        /// Куда переезжает стоп после снятия стены (`GoneStop`): безубыток `gone<W>be[x]`
+        /// (владелец 2026-09-23) или уровень стены `gone<W>wall[x]<B>` (владелец 2026-09-26).
+        /// `Off` — не переезжает. Базовый трейл плана работает как обычно.
+        gone_stop: GoneStop,
+    },
+}
+
+/// Перенос стопа после снятия стены (`gone<W>` сработал; снятие — защёлка). Стоп только
+/// поднимается (у шорта — опускается): цель хуже стопа плана его не трогает. Мягкий режим
+/// переносит стоп, как только позиция у цели или лучше; жёсткий (`hard`) — то же, но если
+/// снятие застало позицию хуже цели, выход по рынку сразу.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GoneStop {
+    Off,
+    /// Безубыток — вход плюс круг комиссий (вход мейкером, выход тейкером). Владелец 2026-09-23:
+    /// «снятие — стоп в ноль, дальше базовый трейлинг». В сетке `gone<W>be` / `gone<W>bex`.
+    Breakeven {
+        hard: bool,
+    },
+    /// Уровень стены (`level_px`) с буфером `buffer_bps` за ним (у лонга ниже стены, у шорта
+    /// выше; `0` — ровно на уровне). Владелец 2026-09-26: «не безубыток а стоп на то место где
+    /// была плотность». В сетке `gone<W>wall<B>` / `gone<W>wallx<B>`.
+    Wall {
+        hard: bool,
+        buffer_bps: f64,
     },
 }
 
@@ -500,9 +519,9 @@ pub struct StrategyState {
     /// Лучшая цена «в пользу позиции» **с момента снятия стены** — база трейла после снятия
     /// (`gone_trail_bps`). `0.0` — снятия ещё не было (трейл не взведён).
     gone_peak: f64,
-    /// Безубыток после снятия (`gone_be`): снятие уже было (защёлка) и стоп уже в безубытке.
+    /// Перенос стопа после снятия (`gone_stop`): снятие уже было (защёлка) и стоп уже перенесён.
     gone_seen: bool,
-    be_active: bool,
+    gone_stop_active: bool,
     /// E7: частичный выход уже был в этом круге (второй раз не делится).
     partial_done: bool,
     /// Максимум размера плотности уровня с момента входа — база съедания
@@ -643,7 +662,7 @@ impl StrategyState {
             best_favourable: 0.0,
             gone_peak: 0.0,
             gone_seen: false,
-            be_active: false,
+            gone_stop_active: false,
             partial_done: false,
             level_qty_max: 0.0,
             level_qty_at_entry: 0.0,
@@ -1063,9 +1082,13 @@ impl StrategyState {
         }
     }
 
-    /// Защита по снятию стены: F7 `gone<W>` и её продолжения (владелец 23.09) — трейл после
-    /// снятия `tr<T>` и безубыток `be`/`bex`. Снятие — защёлка: вернувшаяся стена ни трейл, ни
-    /// безубыток не выключает. `entry_px`/`stop_px` — уже сдвинутые к средней исполненного входа.
+    /// Защита по снятию стены: F7 `gone<W>` и её продолжения — трейл после снятия `tr<T>`,
+    /// перенос стопа в безубыток `be`/`bex` (владелец 23.09) или на уровень стены `wall`/`wallx`
+    /// (26.09). Снятие — защёлка: вернувшаяся стена ни трейл, ни перенос не выключает.
+    /// `entry_px`/`stop_px` — уже сдвинутые к средней исполненного входа; `level_px` — цена стены
+    /// (не сдвигается: стена стоит, где стояла).
+    // Восемь аргументов — поля одного события выхода; структура ради них — лишний слой.
+    #[allow(clippy::too_many_arguments)]
     fn observe_gone(
         &mut self,
         form: GoneForm,
@@ -1074,6 +1097,7 @@ impl StrategyState {
         entry_side: HbtSide,
         entry_px: f64,
         stop_px: f64,
+        level_px: f64,
     ) -> GoneGuard {
         // «Сняли» (F7, Б-75): стена упала ниже (1 − W %) от размера на входе, и сделками съедено
         // меньше половины падения. Размер уровня читается только при валидном тике: иначе «ноль
@@ -1094,37 +1118,51 @@ impl StrategyState {
             && entry_px > 0.0
             && f64::from(self.sigma) * (self.gone_peak - favourable) / entry_px * 10_000.0
                 >= form.trail_bps;
-        // Безубыток после снятия: стоп переносится в цену, при которой круг закрывается в ноль с
-        // комиссиями (вход мейкером, выход тейкером), как только позиция у неё или лучше. Жёсткий
-        // режим закрывает позицию хуже безубытка сразу.
-        if form.be > 0 && hit {
+        // Перенос стопа после снятия: цель — безубыток (круг закрывается в ноль с комиссиями: вход
+        // мейкером, выход тейкером) или уровень стены с буфером за ним; стоп переезжает, как только
+        // позиция у цели или лучше. Жёсткий режим закрывает позицию хуже цели сразу.
+        let (hard, target) = match form.stop {
+            GoneStop::Off => (false, None),
+            GoneStop::Breakeven { hard } => {
+                let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+                let be_px = match entry_side {
+                    HbtSide::Buy => entry_px * (1.0 + fees),
+                    _ => entry_px * (1.0 - fees),
+                };
+                (hard, (entry_px > 0.0).then_some(be_px))
+            }
+            GoneStop::Wall { hard, buffer_bps } => {
+                let buffer = buffer_bps / 10_000.0;
+                let wall_px = match entry_side {
+                    HbtSide::Buy => level_px * (1.0 - buffer),
+                    _ => level_px * (1.0 + buffer),
+                };
+                (hard, (level_px > 0.0).then_some(wall_px))
+            }
+        };
+        if form.stop != GoneStop::Off && hit {
             self.gone_seen = true;
         }
-        let be_px = match entry_side {
-            HbtSide::Buy => entry_px * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
-            _ => entry_px * (1.0 - crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0),
-        };
-        if self.gone_seen && !self.be_active && entry_px > 0.0 {
-            let at_be = match entry_side {
-                HbtSide::Buy => favourable >= be_px,
-                _ => favourable <= be_px,
+        if let Some(target) = target {
+            let at_target = match entry_side {
+                HbtSide::Buy => favourable >= target,
+                _ => favourable <= target,
             };
-            if at_be {
-                self.be_active = true;
+            if self.gone_seen && at_target {
+                self.gone_stop_active = true;
             }
         }
-        let stop_px = if self.be_active {
-            match entry_side {
-                HbtSide::Buy => stop_px.max(be_px),
-                _ => stop_px.min(be_px),
-            }
-        } else {
-            stop_px
+        let stop_px = match target {
+            Some(target) if self.gone_stop_active => match entry_side {
+                HbtSide::Buy => stop_px.max(target),
+                _ => stop_px.min(target),
+            },
+            _ => stop_px,
         };
         GoneGuard {
-            exit: hit && !trail && form.be == 0,
+            exit: hit && !trail && form.stop == GoneStop::Off,
             trail_hit,
-            be_hard_exit: form.be == 2 && self.gone_seen && !self.be_active,
+            stop_hard_exit: hard && self.gone_seen && !self.gone_stop_active,
             stop_px,
         }
     }
@@ -1362,13 +1400,13 @@ struct WallNow {
     eaten_pct: f64,
 }
 
-/// Форма защиты по снятию стены — поля плана `exit_gone_pct`, `gone_trail_bps`, `gone_be`
-/// (в сетке `gone<W>[tr<T>|be|bex]`).
+/// Форма защиты по снятию стены — поля плана `exit_gone_pct`, `gone_trail_bps`, `gone_stop`
+/// (в сетке `gone<W>[tr<T>|be|bex|wall<B>|wallx<B>]`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct GoneForm {
     pct: f64,
     trail_bps: f64,
-    be: u8,
+    stop: GoneStop,
 }
 
 /// Что решила защита по снятию на этом событии (`StrategyState::observe_gone`).
@@ -1378,9 +1416,10 @@ struct GoneGuard {
     exit: bool,
     /// `gone<W>tr<T>`: откат от лучшей цены после снятия дошёл до `T`.
     trail_hit: bool,
-    /// `gone<W>bex`: снятие застало позицию хуже безубытка — выход по рынку сразу.
-    be_hard_exit: bool,
-    /// Стоп с учётом безубытка (`be`/`bex`); без него — стоп плана.
+    /// `gone<W>bex` / `gone<W>wallx<B>`: снятие застало позицию хуже цели переноса стопа — выход
+    /// по рынку сразу.
+    stop_hard_exit: bool,
+    /// Стоп с учётом переноса (`be`/`bex`/`wall`/`wallx`); без него — стоп плана.
     stop_px: f64,
 }
 
@@ -1451,7 +1490,7 @@ where
             exit_eat_pct,
             exit_gone_pct,
             gone_trail_bps,
-            gone_be,
+            gone_stop,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -1488,13 +1527,14 @@ where
                 GoneForm {
                     pct: exit_gone_pct,
                     trail_bps: gone_trail_bps,
-                    be: gone_be,
+                    stop: gone_stop,
                 },
                 wall,
                 favourable,
                 entry_side,
                 entry_px,
                 stop_px,
+                level_px,
             );
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
@@ -1526,14 +1566,14 @@ where
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
             if stop_hit {
-                // Сработал перенесённый в безубыток стоп — это защита по снятию («сняли»), а не стоп.
+                // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 let reason = if gone.stop_px != stop_px {
                     ExitReason::WallGone
                 } else {
                     ExitReason::Stop
                 };
                 (ExitAt::Taker(gone.stop_px), reason, 1.0)
-            } else if gone.be_hard_exit {
+            } else if gone.stop_hard_exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if eaten_all_hit {
                 (ExitAt::Market, ExitReason::Eaten, 1.0)

@@ -1758,6 +1758,44 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         }
     );
     assert!(ExitForm::parse("gone90bey").is_err());
+    // Стоп на уровень стены после снятия (владелец 26.09): буфер в bps, мягкий и жёсткий.
+    for (spec, hard, buffer_bps) in [
+        ("gone20wall0", false, 0.0),
+        ("gone20wallx0", true, 0.0),
+        ("gone90wall5", false, 5.0),
+        ("gone90wallx2.5", true, 2.5),
+    ] {
+        let form = ExitForm::parse(spec).unwrap();
+        assert_eq!(
+            form,
+            ExitForm::GoneWall {
+                pct: if spec.starts_with("gone20") {
+                    20.0
+                } else {
+                    90.0
+                },
+                hard,
+                buffer_bps
+            },
+            "{spec}"
+        );
+        assert_eq!(form.label(), spec);
+    }
+    for bad in [
+        "gone20wall",
+        "gone20wallx",
+        "gone20wall-1",
+        "gone20wall10000",
+        "gone20wally5",
+        "gone0wall5",
+        "gone20wall05",
+        "gone20wall5.0",
+    ] {
+        assert!(
+            ExitForm::parse(bad).is_err(),
+            "{bad:?} — не форма стопа на стену, обязан быть отказ"
+        );
+    }
     for bad in [
         "eat",
         "eat0",

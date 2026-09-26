@@ -283,7 +283,7 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
 
@@ -359,7 +359,7 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -426,7 +426,7 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
 
@@ -491,7 +491,7 @@ fn a_fraction_below_one_lot_exits_whole() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let mut state = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, plan);
     let actions = drive(&mut hbt, &mut state);
@@ -545,7 +545,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
@@ -845,7 +845,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
@@ -1041,7 +1041,7 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
@@ -1205,7 +1205,7 @@ fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     };
     let feed = [depth_at(0, true, 95.0, 5.0), depth_at(0, false, 100.0, 5.0)];
     let mut hbt = seam6_backtest(&feed);
@@ -1370,7 +1370,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         exit_eat_pct: eat_pct,
         exit_gone_pct: gone_pct,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
@@ -1627,9 +1627,14 @@ fn a_removed_wall_without_a_pullback_keeps_the_position() {
 
 /// План F7 с безубытком после снятия: `gone<gone_pct>be` (`mode = 1`) или `…bex` (`mode = 2`).
 fn f7_plan_gone_be(gone_pct: f64, mode: u8, level_qty: f64) -> TradePlan {
+    f7_plan_gone_stop(gone_pct, GoneStop::Breakeven { hard: mode == 2 }, level_qty)
+}
+
+/// План F7 с переносом стопа после снятия (`gone_stop`).
+fn f7_plan_gone_stop(gone_pct: f64, stop: GoneStop, level_qty: f64) -> TradePlan {
     let mut plan = f7_plan(0.0, gone_pct, level_qty);
-    if let TradePlan::Bounce { gone_be, .. } = &mut plan {
-        *gone_be = mode;
+    if let TradePlan::Bounce { gone_stop, .. } = &mut plan {
+        *gone_stop = stop;
     }
     plan
 }
@@ -1688,6 +1693,178 @@ fn a_removed_wall_below_breakeven_exits_at_once_in_hard_mode() {
         !f7_exits(f7_plan_gone_be(50.0, 1, 10.0), &feed).contains(&ExitReason::WallGone),
         "мягкий режим на той же ленте держит позицию"
     );
+}
+
+/// Стоп на уровень стены после снятия (T-24, владелец 26.09: «не безубыток а стоп на то место где
+/// была плотность»): `gone<W>wall<B>`, `hard` — `…wallx<B>`.
+fn wall_stop(hard: bool, buffer_bps: f64) -> GoneStop {
+    GoneStop::Wall { hard, buffer_bps }
+}
+
+/// `f7_feed_tail` и секунда хвоста: далёкий аск 110 (лучшие цены не меняет) — драйвер решает выход
+/// на шаге после события, и последнему событию ленты нужен следующий шаг.
+fn wall_feed(rest: &[Event], wall: f64) -> Vec<Event> {
+    let last = rest.last().map_or(3 * S, |e| e.exch_ts);
+    let mut rest = rest.to_vec();
+    rest.push(depth_at(last + S, false, 110.0, 5.0));
+    f7_feed_tail(&rest, wall)
+}
+
+/// Бид возвращается на 100 (выше стены 99), стена 99 снята 10 → 3 на 5 с, бид 100 уходит на 6 с —
+/// лучший бид 99 = стена.
+fn wall_removed_then_bid_falls_to_99() -> Vec<Event> {
+    wall_feed(
+        &[
+            depth_at(4 * S, true, 100.0, 5.0),
+            depth_at(5 * S, true, 99.0, 3.0),
+            depth_at(6 * S, true, 100.0, 0.0),
+        ],
+        10.0,
+    )
+}
+
+/// Переезд: на снятии бид 100 выше стены 99 — стоп переезжает с 90 на 99; бид падает к 99 —
+/// выход «сняли» по цене стены. Без формы и с безубытком (100 плюс комиссии выше бида 100) та же
+/// лента позицию держит.
+#[test]
+fn a_removed_wall_moves_the_stop_to_the_wall_level() {
+    let feed = wall_removed_then_bid_falls_to_99();
+    let run = f7_run(f7_plan_gone_stop(50.0, wall_stop(false, 0.0), 10.0), &feed);
+    assert_eq!(run.fill_reason, vec![ExitReason::WallGone]);
+    assert!(
+        run.fills[0].exit_px >= 99.0 - 1e-9,
+        "выход по стопу на стене 99: {}",
+        run.fills[0].exit_px
+    );
+    assert!(
+        !f7_exits(f7_plan(0.0, 0.0, 10.0), &feed).contains(&ExitReason::WallGone),
+        "контроль: без формы стоп 90 — выхода на 99 нет"
+    );
+    assert!(
+        !f7_exits(f7_plan_gone_be(50.0, 1, 10.0), &feed).contains(&ExitReason::WallGone),
+        "контроль: безубыток на той же ленте не взводится"
+    );
+}
+
+/// Буфер: стоп в 100 bps ниже стены (98,01) — бид 99 его не задевает, выход только на 98.
+#[test]
+fn the_wall_stop_buffer_sits_below_the_wall() {
+    let mut rest = vec![
+        depth_at(4 * S, true, 100.0, 5.0),
+        depth_at(5 * S, true, 99.0, 3.0),
+        depth_at(6 * S, true, 100.0, 0.0),
+        depth_at(7 * S, true, 98.0, 5.0),
+    ];
+    rest.push(depth_at(8 * S, true, 99.0, 0.0));
+    let feed = wall_feed(&rest, 10.0);
+    let at_wall = f7_run(f7_plan_gone_stop(50.0, wall_stop(false, 0.0), 10.0), &feed);
+    let buffered = f7_run(
+        f7_plan_gone_stop(50.0, wall_stop(false, 100.0), 10.0),
+        &feed,
+    );
+    assert_eq!(at_wall.fill_reason, vec![ExitReason::WallGone]);
+    assert_eq!(buffered.fill_reason, vec![ExitReason::WallGone]);
+    assert!(
+        at_wall.fill_exit_ns[0] < 7 * S,
+        "без буфера — выход на бид 99 (6 с): {}",
+        at_wall.fill_exit_ns[0]
+    );
+    assert!(
+        buffered.fill_exit_ns[0] >= 8 * S,
+        "с буфером 100 bps бид 99 не выход, выход — на 98 (8 с): {}",
+        buffered.fill_exit_ns[0]
+    );
+}
+
+/// «Уже ниже»: стена 99 снята целиком, лучший бид 98 — позиция хуже нового стопа. Жёсткий режим
+/// выходит сразу, мягкий держит стоп 90; вернувшаяся к 100 цена взводит перенос и в мягком, и
+/// откат к 98 тогда закрывает позицию «сняли».
+#[test]
+fn a_wall_removed_below_the_new_stop_exits_in_hard_mode_and_waits_in_soft() {
+    let below = [
+        depth_at(4 * S, true, 98.0, 5.0),
+        depth_at(5 * S, true, 99.0, 0.0),
+    ];
+    let feed = wall_feed(&below, 10.0);
+    let hard = f7_run(f7_plan_gone_stop(50.0, wall_stop(true, 0.0), 10.0), &feed);
+    assert_eq!(hard.fill_reason, vec![ExitReason::WallGone]);
+    assert!(
+        hard.fill_exit_ns[0] < 6 * S,
+        "жёсткий — выход на снятии: {}",
+        hard.fill_exit_ns[0]
+    );
+    assert!(
+        !f7_exits(f7_plan_gone_stop(50.0, wall_stop(false, 0.0), 10.0), &feed)
+            .contains(&ExitReason::WallGone),
+        "мягкий — стоп остаётся 90, позиция держится"
+    );
+    let mut back = below.to_vec();
+    back.extend_from_slice(&[
+        depth_at(6 * S, true, 100.0, 5.0),
+        depth_at(7 * S, true, 100.0, 0.0),
+    ]);
+    let feed = wall_feed(&back, 10.0);
+    let soft = f7_run(f7_plan_gone_stop(50.0, wall_stop(false, 0.0), 10.0), &feed);
+    assert_eq!(
+        soft.fill_reason,
+        vec![ExitReason::WallGone],
+        "мягкий — цена вернулась выше стены, стоп переехал на 99, откат к 98 его выбил"
+    );
+    assert!(soft.fill_exit_ns[0] >= 7 * S);
+}
+
+/// Стоп не опускается: цель 2000 bps ниже стены (79,2) хуже стопа плана 90 — стоп остаётся 90,
+/// падение к 85 закрывает позицию обычным стопом, не «сняли».
+#[test]
+fn the_wall_stop_never_lowers_the_plan_stop() {
+    let feed = wall_feed(
+        &[
+            depth_at(4 * S, true, 100.0, 5.0),
+            depth_at(5 * S, true, 99.0, 3.0),
+            depth_at(6 * S, true, 100.0, 0.0),
+            depth_at(7 * S, true, 85.0, 5.0),
+            depth_at(8 * S, true, 99.0, 0.0),
+        ],
+        10.0,
+    );
+    assert_eq!(
+        f7_exits(
+            f7_plan_gone_stop(50.0, wall_stop(false, 2000.0), 10.0),
+            &feed
+        ),
+        vec![ExitReason::Stop]
+    );
+}
+
+/// Шорт (аск-стена 101, вход 100, стоп 110): снятие при аске 99 — стоп переезжает **вниз** на
+/// 101 · (1 + 1 %) = 102,01; при аске 103 (хуже нового стопа) жёсткий режим выходит, мягкий держит
+/// 110. Трейл после снятия и `gone<W>` без продолжения при переносе молчат.
+#[test]
+fn a_short_wall_stop_moves_down_to_the_wall_plus_buffer() {
+    let removed = WallNow {
+        ok: true,
+        qty: 3.0,
+        eaten_pct: 70.0,
+    };
+    let guard = |hard: bool, ask: f64| {
+        let mut state = StrategyState::with_plan(0, SIGMA_SHORT, 1.0, 1, f7_plan(0.0, 50.0, 10.0));
+        state.level_qty_at_entry = 10.0;
+        let form = GoneForm {
+            pct: 50.0,
+            trail_bps: 0.0,
+            stop: wall_stop(hard, 100.0),
+        };
+        state.observe_gone(form, removed, ask, HbtSide::Sell, 100.0, 110.0, 101.0)
+    };
+    let soft = guard(false, 99.0);
+    assert!(close(soft.stop_px, 101.0 * 1.01), "{}", soft.stop_px);
+    assert!(!soft.exit && !soft.trail_hit && !soft.stop_hard_exit);
+    let hard_ok = guard(true, 99.0);
+    assert!(close(hard_ok.stop_px, 101.0 * 1.01) && !hard_ok.stop_hard_exit);
+    let soft_worse = guard(false, 103.0);
+    assert!(close(soft_worse.stop_px, 110.0) && !soft_worse.stop_hard_exit);
+    let hard_worse = guard(true, 103.0);
+    assert!(close(hard_worse.stop_px, 110.0) && hard_worse.stop_hard_exit);
 }
 
 /// F7 (Б-75): падение размера **сделками** не даёт `WallGone` — стена 10 → 3,
@@ -1773,7 +1950,7 @@ fn trail_plan(stop_px: f64, take_px: f64, trail_activate_bps: f64, trail_bps: f6
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
@@ -2009,7 +2186,7 @@ fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
         exit_eat_pct: 0.0,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
-        gone_be: 0,
+        gone_stop: crate::lob::strategy::GoneStop::Off,
     }
 }
 
