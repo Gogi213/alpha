@@ -1,0 +1,38 @@
+{
+ "2026-08": {
+  "touches": 9333147,
+  "len_buckets": {
+   "0": 9279301,
+   "1": 47672,
+   "2": 3966,
+   ">=3": 2208
+  },
+  "chain_stop": {
+   "none": 9322650,
+   "nonlink": 7776,
+   "ambiguous": 2721
+  },
+  "share_ambiguous_attempts": 0.0002895120354973037,
+  "len0_touches": 9279301,
+  "len0_ambiguous_first_link": 2372,
+  "share_len0_ambiguous": 0.00025562270261520777
+ },
+ "2026-09": {
+  "touches": 6707747,
+  "len_buckets": {
+   "0": 6651777,
+   "1": 43192,
+   "2": 6880,
+   ">=3": 5898
+  },
+  "chain_stop": {
+   "none": 6698347,
+   "ambiguous": 2539,
+   "nonlink": 6861
+  },
+  "share_ambiguous_attempts": 0.00037380689862913423,
+  "len0_touches": 6651777,
+  "len0_ambiguous_first_link": 1985,
+  "share_len0_ambiguous": 0.0002984164983281911
+ }
+}
