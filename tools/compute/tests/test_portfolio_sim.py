@@ -280,3 +280,21 @@ def test_cli_end_to_end(tmp_path):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_size_mult_scales_usd_linearly(tmp_path):
+    """П-05 §3а: `--size-mult` умножает $ позиции сделки (qty × entry_vwap); 1.0 — прежнее значение."""
+    ps = load()
+    d = tmp_path / "run" / "2026-08-01" / "s"
+    write_csv(d / "rounds.csv",
+              ["symbol", "day_utc", "form", "signal_index", "t0_ns", "dir", "entry_px", "exit_px", "qty", "net_bps",
+               "reason", "exit_ns", "fill_frac", "entry_vwap", "legs_filled", "legs_rejected"],
+              [["AUSDT", "2026-08-01", "f", 0, 60_000_000_000, 1, 2.0, 2.02, 250, 90.0, "take", 120_000_000_000,
+                1.0, 2.0, 3, 0]])
+    base = ps.load_run(str(tmp_path), "run", "s", "f")[0]["usd"]
+    assert base == 500.0
+    ps.SIZE_MULT = 3.0
+    try:
+        assert ps.load_run(str(tmp_path), "run", "s", "f")[0]["usd"] == 1500.0
+    finally:
+        ps.SIZE_MULT = 1.0

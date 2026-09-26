@@ -87,19 +87,30 @@ def taken_stats(taken):
     }
 
 
+# П-05 §3а (владелец 27.09: «меньше сделок, но больше объём за счёт плеча»): множитель размера сделки — $ позиции
+# (`qty × entry_vwap`) × SIZE_MULT, линейно, **без пересчёта очереди** (исполнение и цена — как у прогона). 1.0 — как было.
+SIZE_MULT = 1.0
+
+
 def load_run(home, run, set_name, form):
     rows = []
     for f in sorted(glob.glob(os.path.join(home, run, "20*", set_name, "rounds.csv"))):
         with open(f, encoding="utf-8") as fh:
-            for r in csv.DictReader(line for line in fh if not line.startswith("#")):
-                if r["form"] != form:
-                    continue
-                entry = float(r.get("entry_vwap") or 0) or float(r["entry_px"])
-                gross = (float(r["exit_px"]) / entry - 1) * 1e4 * int(r["dir"])
-                net = float(r["net_bps"])
-                rows.append({"t0": int(r["t0_ns"]), "t1": int(r["exit_ns"]), "sym": r["symbol"], "net": net,
-                             "reason": r["reason"], "entry": entry, "fee": gross - net, "dir": int(r["dir"]),
-                             "usd": float(r["qty"]) * entry, "fill": float(r.get("fill_frac") or 1.0)})
+            lines = fh.readlines()
+        # T-31 (условие Судьи 2): сырой прогон `--busy-skip off` — все сигналы без правила «занято» движка;
+        # считать его можно только после `busy-replay.py` (метка `# busy_replay=`)
+        head = [l for l in lines if l.startswith("#")]
+        if any("busy_skip=off" in l for l in head) and not any(l.startswith("# busy_replay=") for l in head):
+            sys.exit(f"{f}: прогон --busy-skip off без busy-replay.py — занятость движка не применена")
+        for r in csv.DictReader(line for line in lines if not line.startswith("#")):
+            if r["form"] != form:
+                continue
+            entry = float(r.get("entry_vwap") or 0) or float(r["entry_px"])
+            gross = (float(r["exit_px"]) / entry - 1) * 1e4 * int(r["dir"])
+            net = float(r["net_bps"])
+            rows.append({"t0": int(r["t0_ns"]), "t1": int(r["exit_ns"]), "sym": r["symbol"], "net": net,
+                         "reason": r["reason"], "entry": entry, "fee": gross - net, "dir": int(r["dir"]),
+                         "usd": float(r["qty"]) * entry * SIZE_MULT, "fill": float(r.get("fill_frac") or 1.0)})
     return rows
 
 
@@ -385,8 +396,12 @@ def main():
     ap.add_argument("--streak-stop", default="0", help="N убыточных подряд за месяц — монета выключена до конца месяца; 0 — нет")
     ap.add_argument("--drop", default="", help="SYM,SYM — монеты вне торгового пула: их сделки не читаются вовсе")
     ap.add_argument("--stress-gap-pct", type=float, default=59.7)
+    ap.add_argument("--size-mult", type=float, default=1.0,
+                    help="множитель $ позиции каждой сделки (линейно, без пересчёта очереди); 1 — как было")
     ap.add_argument("--json")
     a = ap.parse_args()
+    global SIZE_MULT
+    SIZE_MULT = a.size_mult
     klines = Klines(a.klines)
     drop = set(x for x in a.drop.split(",") if x)
     excl = [("нет", set())] + [(s.split("=", 1)[0], set(x for x in s.split("=", 1)[1].split(",") if x)) for s in a.exclude_set]
