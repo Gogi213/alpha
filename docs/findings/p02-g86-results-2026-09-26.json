@@ -1,0 +1,84 @@
+{
+ "август": {
+  "cells": {
+   "лимит": {
+    "run": "b5/p02-h9e899-aug-limit",
+    "form": null,
+    "days_done": 31,
+    "rounds": 0,
+    "taken": 0,
+    "busy": 0,
+    "total_usd": 0,
+    "fill_mean": 0.0
+   },
+   "рынок": {
+    "run": "b5/p02-h9e899-aug-market",
+    "form": "market-pct2-tr1x1-14400-ttl1800",
+    "days_done": 31,
+    "rounds": 46,
+    "taken": 46,
+    "busy": 0,
+    "total_usd": 60.61,
+    "fill_mean": 1.0
+   }
+  },
+  "n_days_with_money": 16,
+  "delta_total": 60.61,
+  "daily_delta": {
+   "2026-08-01": 3.46,
+   "2026-08-02": 1.65,
+   "2026-08-03": 0.27,
+   "2026-08-06": -0.45,
+   "2026-08-07": 8.65,
+   "2026-08-10": -5.23,
+   "2026-08-11": 1.37,
+   "2026-08-12": 1.95,
+   "2026-08-13": 1.75,
+   "2026-08-14": -10.74,
+   "2026-08-15": 2.2,
+   "2026-08-17": 11.35,
+   "2026-08-19": 9.31,
+   "2026-08-20": 30.58,
+   "2026-08-21": 4.81,
+   "2026-09-01": -0.32
+  },
+  "ci95": [
+   -1.22,
+   135.34
+  ],
+  "p_raw": 0.08209403295115392,
+  "n_eff": 16.0
+ },
+ "сентябрь": {
+  "cells": {
+   "лимит": {
+    "run": "b5/p02-h9e899-sep-limit",
+    "form": null,
+    "days_done": 23,
+    "rounds": 0,
+    "taken": 0,
+    "busy": 0,
+    "total_usd": 0,
+    "fill_mean": 0.0
+   },
+   "рынок": {
+    "run": "b5/p02-h9e899-sep-market",
+    "form": "market-pct2-tr1x1-14400-ttl1800",
+    "days_done": 23,
+    "rounds": 1,
+    "taken": 1,
+    "busy": 0,
+    "total_usd": 0.23,
+    "fill_mean": 1.0
+   }
+  },
+  "n_days_with_money": 1,
+  "delta_total": 0.23,
+  "daily_delta": {
+   "2026-09-04": 0.23
+  },
+  "ci95": null,
+  "p_raw": null,
+  "n_eff": null
+ }
+}
