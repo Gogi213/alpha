@@ -22,6 +22,7 @@ import csv
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,7 +52,18 @@ def old_base_skipped(log_path: str) -> bool:
     if not os.path.exists(log_path):
         return False
     with open(log_path, encoding="utf-8", errors="replace") as f:
-        return "OLD_BASE=0" in f.read()
+        # Точная строка `nightly-grid.sh` (В-108), а не любое упоминание переменной.
+        return "OLD_BASE=0 — старая база" in f.read()
+
+
+def night_work_done(log_path: str) -> bool:
+    """Положительный признак работы ночи без старой базы (замечание Исследователя к T-19): `oos-frozen`
+    дописал хотя бы одни сутки — строка «oos-frozen: готово (новых суток N)» с N ≥ 1 в логе ночи.
+    Ночь, которая тихо ничего не посчитала (нет новых суток, пустой забор), так не прочтётся «ОК»."""
+    if not os.path.exists(log_path):
+        return False
+    with open(log_path, encoding="utf-8", errors="replace") as f:
+        return re.search(r"oos-frozen: готово \(новых суток [1-9]\d*\)", f.read()) is not None
 
 
 def classify(
@@ -59,9 +71,11 @@ def classify(
     verdict_rows: list[list[str]],
     failed_units: list[str],
     verdicts_expected: bool = True,
+    work_done: bool = True,
 ) -> tuple[str, str]:
     """Статус и причина ночи кодом: (ok|look|broken, причина). `verdicts_expected=False` — ночь без
-    старой базы: отсутствие строк вердиктов не поломка; остальные правила те же."""
+    старой базы: отсутствие строк вердиктов не поломка; тогда нужен положительный признак работы
+    (`work_done`, иначе «смотреть — nothing_done»); остальные правила те же."""
     text = "\n".join(alerts)
     if any(u.startswith("alpha-grid-nightly") for u in failed_units):
         return "broken", "unit_failed"
@@ -75,6 +89,8 @@ def classify(
         return "broken", "other"
     if not verdict_rows and verdicts_expected:
         return "broken", "no_verdicts"
+    if not verdicts_expected and not work_done:
+        return "look", "nothing_done"
     if any(any("зелёный" in c for c in r) for r in verdict_rows):
         return "look", "green_verdict"
     return "ok", "none"
@@ -175,8 +191,11 @@ def main() -> int:
 
     alerts = night_alert_rows(os.path.join(a.study, "ALERTS.log"), night)
     vrows = night_verdict_rows(os.path.join(a.study, "verdicts.csv"), night)
-    expected = not old_base_skipped(os.path.join(a.study, f"nightly-{night}.log"))
-    status, cause = classify(alerts, vrows, failed_units(), verdicts_expected=expected)
+    night_log = os.path.join(a.study, f"nightly-{night}.log")
+    expected = not old_base_skipped(night_log)
+    status, cause = classify(
+        alerts, vrows, failed_units(), verdicts_expected=expected, work_done=night_work_done(night_log)
+    )
     label = {"ok": "ОК", "look": "СМОТРЕТЬ", "broken": "СЛОМАНО"}[status]
     opinion = ""
     ans = None

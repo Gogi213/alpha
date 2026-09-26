@@ -50,3 +50,23 @@ def test_old_base_skipped_reads_night_log(tmp_path):
     assert nr.old_base_skipped(str(log)) is False
     log.write_text(OLD_BASE_LINE, encoding="utf-8")
     assert nr.old_base_skipped(str(log)) is True
+
+
+def test_nothing_done_without_old_base_is_looked_at():
+    # Замечание Исследователя: без старой базы нужен положительный признак работы ночи.
+    assert nr.classify(OK_ALERTS, [], [], verdicts_expected=False, work_done=False) == ("look", "nothing_done")
+    # При старой базе признак не требуется — правила прежние.
+    rows = [["2026-09-26", "base", "мало данных", "f", "10", "5", "1"]]
+    assert nr.classify(OK_ALERTS, rows, [], work_done=False) == ("ok", "none")
+
+
+def test_marker_and_work_read_exact_lines(tmp_path):
+    log = tmp_path / "nightly-2026-09-26.log"
+    log.write_text("== x: переменная OLD_BASE=0 упомянута в другом тексте\n", encoding="utf-8")
+    assert nr.old_base_skipped(str(log)) is False  # не точная строка nightly-grid.sh
+    assert nr.night_work_done(str(log)) is False
+    log.write_text(OLD_BASE_LINE + "== 2026-09-26T02:16:06Z oos-frozen: готово (новых суток 0)\n", encoding="utf-8")
+    assert nr.old_base_skipped(str(log)) is True
+    assert nr.night_work_done(str(log)) is False  # ноль новых суток — работы не было
+    log.write_text(OLD_BASE_LINE + "== 2026-09-26T02:16:06Z oos-frozen: готово (новых суток 1)\n", encoding="utf-8")
+    assert nr.night_work_done(str(log)) is True
