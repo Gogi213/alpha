@@ -25,7 +25,7 @@ import random
 from typing import Dict, List, Optional
 
 
-def effective_n_from_autocorr(returns: List[float]) -> Optional[float]:
+def effective_n_from_autocorr(returns: List[float]) -> float:
     r = [x for x in returns if x is not None and not math.isnan(x)]
     n = len(r)
     if n < 8:
@@ -42,8 +42,8 @@ def effective_n_from_autocorr(returns: List[float]) -> Optional[float]:
         rho = num / denom
         total += (1.0 - k / n) * rho
     factor = 1.0 + 2.0 * total
-    if factor < 1.0:  # оценка больше n — «не определено» (В-113, как в навыке)
-        return None
+    if factor < 1.0:  # оценка больше n — потолок n (как в навыке, Судья b8f2988)
+        return float(n)
     return max(1.0, n / factor)
 
 
