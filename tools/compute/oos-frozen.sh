@@ -59,11 +59,37 @@ say() { echo "== $(date -u +%FT%TZ) oos-frozen: $*" | tee -a "$LOG"; }
 # по DAY_JOBS разом, в кэше подходов суток — по SCAN_JOBS монет. Замер на деке 23.09: подходы суток шли
 # 6 мин на 2 монетах из 8 ядер, форма — 3 мин, загрузка дека ~25 %; процесс кэша — 30–60 МБ.
 # На 4 ядрах (VPS) — прежний последовательный ход.
+# Р8 (T-17, 26.09): на деке 2 суток разом, не 3 — `bounce-grid` берёт ~5,7 ГБ на крупнейших сутках, три — выше
+# 14 ГБ RAM в ночь догонки (docs/findings/backtest-optimization-2026-09-26.md).
 NPROC=$(nproc 2>/dev/null || echo 4)
-DAY_JOBS="${DAY_JOBS:-$(( NPROC >= 8 ? 3 : 1 ))}"
+DAY_JOBS="${DAY_JOBS:-$(( NPROC >= 8 ? 2 : 1 ))}"
 SCAN_JOBS="${SCAN_JOBS:-$(( NPROC >= 8 ? 3 : THREADS ))}"
 mkdir -p "$OOS_DIR"
 setargs=""; for s in $SETS; do setargs="$setargs --set $s"; done
+
+# GRID_MEM_DAY — потолок памяти прогона суток (напр. 7G): `bounce-grid` идёт в своём scope, при нехватке убит
+# только он — скрипт жив, уборка ниже выполняется. Пусто (умолчание) — без потолка, как раньше.
+MEMCAP=()
+if [ -n "${GRID_MEM_DAY:-}" ]; then
+  MEMCAP=(systemd-run --scope --quiet -p MemoryMax="$GRID_MEM_DAY" -p MemorySwapMax=0)
+  [ "$(id -u)" = 0 ] || MEMCAP=(systemd-run --user --scope --quiet -p MemoryMax="$GRID_MEM_DAY" -p MemorySwapMax=0)
+fi
+
+# Р8 (T-17, условие Судьи 26.09, docs/research/reviews/backtest-optimization-2026-09-26.md): сутки готовы
+# только по метке `.done`, которую ставит код 0 `bounce-grid`. `forms.csv` создаётся в начале прогона
+# (`outputs.rs:229-235`), поэтому его наличие готовности не доказывает: оборванный прогон (память, питание,
+# убитый юнит) оставлял бы недописанные сутки «готовыми» — и для возобновления, и для склейки. Сутки прежних
+# прогонов без метки признаются готовыми, если их лог несёт итоговую строку `bounce-grid: форм …` (её печатает
+# только законченный прогон), — метка ставится тогда же; без итога — недописанные.
+day_done() {  # $1 — каталог суток прогона
+  local d=$1
+  [ -f "$d/.done" ] && return 0
+  if [ -f "$d/$FIRST_SET/forms.csv" ] && grep -aq '^bounce-grid: форм ' "$d.log" 2>/dev/null; then
+    touch "$d/.done"
+    return 0
+  fi
+  return 1
+}
 
 one_day() {
   local day=$1
@@ -79,16 +105,21 @@ one_day() {
     ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
-  [ -f "$out/$FIRST_SET/forms.csv" ] && return 0
+  day_done "$out" && return 0
+  # Недописанные сутки прошлого прогона — с нуля (Р8).
+  [ -d "$out" ] && { say "$day: недописанные сутки прошлого прогона — пересчёт с нуля"; rm -rf "$out"; }
   say "$day: замороженная форма"
   # shellcheck disable=SC2086
-  nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
-    $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1 || {
+  if "${MEMCAP[@]}" nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
+    $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1; then
+    touch "$out/.done"
+  else
     say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
     # Упавший прогон оставляет шапку forms.csv — без удаления сутки считались бы готовыми с нулём
-    # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json).
+    # сделок и больше не пересчитывались (23.09: архив 01–04 после сбоя session.json). Метки `.done` у
+    # него нет — даже если удаление не успеет (убит весь юнит), сутки не сойдут за готовые (Р8).
     rm -rf "$out"
-  }
+  fi
 }
 
 days=$(ls -d study/root-20??-??-?? 2>/dev/null | sed 's|study/root-||' | sort)
@@ -97,7 +128,7 @@ for day in $days; do
   [[ "$day" < "$FROM_DAY" ]] && continue
   [ -f "study/touches/$day/symbols.txt" ] || { say "$day: нет касаний суток — ждём ночь"; continue; }
   [ -f "study/regime/$day.csv" ] || { say "$day: нет режима суток — ждём ночь"; continue; }
-  [ -f "study/approaches/D20/$day/.done" ] && [ -f "$OOS_DIR/$day/$FIRST_SET/forms.csv" ] && continue
+  [ -f "study/approaches/D20/$day/.done" ] && day_done "$OOS_DIR/$day" && continue
   while [ "$(jobs -rp | wc -l)" -ge "$DAY_JOBS" ]; do wait -n; done
   one_day "$day" &
   new=$((new + 1))
@@ -112,6 +143,8 @@ for s in $SETS; do
   # Склеиваются только сутки ≥ FROM_DAY — прогон другого окна в том же каталоге OOS не загрязнит.
   parts=$(for d in $(ls -d "$OOS_DIR"/20??-??-?? 2>/dev/null | sort); do
     [[ "$(basename "$d")" < "$FROM_DAY" ]] && continue
+    # Р8: недописанные сутки в склейку не идут (в stderr — чтобы не попасть в список частей).
+    day_done "$d" || { echo "== $(date -u +%FT%TZ) oos-frozen: $(basename "$d"): недописанные сутки — вне склейки" | tee -a "$LOG" >&2; continue; }
     [ -d "$d/$set_name" ] && echo "$d/$set_name"
   done)
   [ -n "$parts" ] || { say "$set_name: OOS-суток ещё нет"; continue; }
