@@ -44,6 +44,8 @@ def main():
     episodes = ep.build_episodes(ep.load_regime(ep.REGIME_DIRS))
     trades = ep.load_trades(a.trades)
     hedge = {(r["sym"], int(r["t0_ms"])): r for r in csv.DictReader(open(a.hedge, encoding="utf-8"))}
+    cols = set(next(iter(hedge.values())).keys())
+    hedges = [(h, c) for h, c in HEDGES if c is None or c in cols]  # ETH (T-33, отложена) — только если посчитан
     miss = [t for t in trades if (t["sym"], t["t0"]) not in hedge]
     assert not miss, f"нет хеджа для {len(miss)} сделок"
     ep_of = {id(t): ep.assign_episode(t["t0"], episodes) for t in trades}
@@ -51,7 +53,7 @@ def main():
     limits += [(f"одновременно {n}", ep.variant_cap(trades, n)) for n in (3, 5, 8)]
     limits += [(f"на эпизод {n}", ep.variant_first_n(trades, ep_of, n)) for n in (3, 5, 8)]
     res = {}
-    for hname, col in HEDGES:
+    for hname, col in hedges:
         for lname, sel in limits:
             xs = [{**t, "pnl": t["pnl"] + (float(hedge[(t["sym"], t["t0"])][col]) if col else 0.0)} for t in sel]
             m = ep.metrics_for(kn, xs)
@@ -64,7 +66,7 @@ def main():
          f"≤ 5 дней до перехая в обоих месяцах: {', '.join(ok) if ok else 'нет клеток'}. Клеток {len(res)}; на днях подбора.", "",
          "## Теплокарта: до перехая, дни — худший из августа и сентября (✓ — ≤ 5 в обоих)", "",
          "| хедж \\ ограничение | " + " | ".join(l for l, _ in limits) + " |", "|---" * (len(limits) + 1) + "|"]
-    for hname, _ in HEDGES:
+    for hname, _ in hedges:
         cells = []
         for lname, _ in limits:
             r = res[f"{hname} | {lname}"]
