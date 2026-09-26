@@ -71,7 +71,9 @@ ones. Even capped, the estimate is optimistic under positive dependence on a
 short series: AR(1) φ = 0.5, n = 40 — median 29.6 against a true 13.3, and the
 30-threshold passes half the time (`docs/research/reviews/scripts/effective-n-sim.py`).
 For a decision near the threshold with n < 100, add a block bootstrap by days
-(moving blocks of a few days) and read both — planned for the P-01 reading point.
+(moving blocks of a few days) and read both — for decisions near the threshold
+of 30 on August/September (В-115; fresh days since 24.09 are monitoring only,
+not a reading point).
 
 ## 3. What to do instead
 
