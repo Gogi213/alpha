@@ -114,7 +114,7 @@ pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
 use cache::{cached_approaches, DayTouches};
 use carry::{carry_window_ns, extend_with_carry};
-use drive::{day_events, day_windows, drive_day, DayParams, OrderSizing};
+use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
 pub use forms::{grid_forms, ExitForm, GridForm};
 use outputs::FormDayResult;
 pub(crate) use plan::{ensure_holds_at_touch_checkable, pool_symbols};
@@ -420,10 +420,28 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 )?,
                 None => (None, false),
             };
+            // `--events wide` (CEO 26.09): сутки один раз в 64-байтные строки крейта, компактные
+            // отпускаются сразу — память и скорость как до Р6; итог тот же.
+            let n_events = events.len();
+            let wide: Vec<hftbacktest::types::Event> = if args.events == "wide" {
+                let w = events
+                    .iter()
+                    .map(crate::lob::backtest::CompactEvent::expand)
+                    .collect();
+                events = Vec::new();
+                w
+            } else {
+                Vec::new()
+            };
+            let rows = if args.events == "wide" {
+                DayRows::Wide(&wide)
+            } else {
+                DayRows::Compact(&events)
+            };
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
             let windows = day_windows(
-                &events,
+                rows,
                 &day.touches,
                 args.driver,
                 tick,
@@ -475,7 +493,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             Ok(())
                         };
                     drive_day(
-                        &events,
+                        rows,
                         windows.as_ref(),
                         &day.touches,
                         day.approaches.as_deref(),
@@ -525,7 +543,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 "bounce-grid: {symbol} {} touches={} events={} forms={} rounds={} {:.1}s",
                 day.day,
                 day.touches.len(),
-                events.len(),
+                n_events,
                 forms.len(),
                 rounds,
                 day_started.elapsed().as_secs_f64()

@@ -176,6 +176,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         round_memo: "on".to_string(),
         // К3: сверка окон с книгой крейта на всех сутках тестовых сеток.
         windows_check: true,
+        events: "compact".to_string(),
         out_dir: root.join("grid"),
         allow_unverified,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).
@@ -1000,6 +1001,53 @@ fn round_memo_keeps_every_set_byte_for_byte() {
             x.name
         );
         assert_eq!(body(&x.forms_path), body(&y.forms_path), "forms {}", x.name);
+    }
+}
+
+/// `--events wide` (CEO 26.09): сутки 64-байтными строками крейта против компактных строк Р6 —
+/// файлы наборов побайтно те же (с шапками: вид событий в шапку не идёт), и с драйвером `full`.
+#[test]
+fn wide_events_keep_every_set_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let sets = vec!["all:".to_string(), "bid:side=bid".to_string()];
+    for driver in [DriverArg::Setups, DriverArg::Full] {
+        let run = |events: &str| {
+            let mut a = args(dir.path(), false);
+            // Те же настройки, что у теста кэша касаний: фикстура даёт круги.
+            a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+            a.take_form = vec!["1to1".to_string()];
+            a.take_floor_fees = None;
+            a.h3 = H3Args {
+                h3_mode: H3ModeArg::Floor,
+                h3_lots: None,
+                h3_usd: None,
+                h3_strength_pct: None,
+                h3_strength_window_bps: None,
+            };
+            a.warmup_ms = None;
+            a.repeat_window_ms = None;
+            a.out_dir = dir.path().join(format!("{events}-{}", driver.label()));
+            a.sets = sets.clone();
+            a.driver = driver;
+            a.windows_check = driver == DriverArg::Setups;
+            a.events = events.to_string();
+            run_bounce_grid(&a).unwrap()
+        };
+        let compact = run("compact");
+        let wide = run("wide");
+        assert!(compact.rounds > 0, "фикстура даёт круги");
+        assert_eq!(compact.rounds, wide.rounds);
+        for (x, y) in compact.sets.iter().zip(wide.sets.iter()) {
+            let read = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+            assert_eq!(
+                read(&x.rounds_path),
+                read(&y.rounds_path),
+                "rounds {}",
+                x.name
+            );
+            assert_eq!(read(&x.forms_path), read(&y.forms_path), "forms {}", x.name);
+        }
     }
 }
 

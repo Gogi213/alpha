@@ -315,6 +315,12 @@ pub struct BounceGridArgs {
     /// отказ с `t0` и полем. Итог счёта не меняет. Только `--driver setups`.
     #[arg(long, default_value_t = false)]
     pub windows_check: bool,
+    /// Вид событий суток (CEO 26.09, ночь до Р5): `compact` — 32-байтные строки Р6, круг
+    /// разворачивается в свой буфер (память вдвое меньше); `wide` — сутки разворачиваются
+    /// один раз в 64-байтные строки крейта, круги берут их срезом без копии (скорость и
+    /// память — как до Р6). Итог побайтно тот же; тяжёлым суткам (LSK 14.09) — `compact`.
+    #[arg(long, default_value = "compact", value_parser = ["compact", "wide"])]
+    pub events: String,
     /// Каталог артефактов (`rounds.csv`, `forms.csv`, `manifest.txt`).
     #[arg(long)]
     pub out_dir: PathBuf,

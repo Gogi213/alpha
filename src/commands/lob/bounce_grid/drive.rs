@@ -312,7 +312,7 @@ struct FormOrder<'a> {
 /// `approaches` — записи подхода (F6, `--signal approach`): те же сутки и тот
 /// же порядок, что `touches` (их вид как касания); `None` — сигнал по касаниям.
 pub(super) fn drive_day(
-    events: &[CompactEvent],
+    events: DayRows<'_>,
     windows: Option<&SignalWindows>,
     touches: &[TouchRecord],
     approaches: Option<&[crate::lob::levels::ApproachRecord]>,
@@ -322,10 +322,13 @@ pub(super) fn drive_day(
 ) -> anyhow::Result<usize> {
     // `--driver full` (эталон гейта) держит сутки 64-байтными событиями крейта — одна полная
     // развёртка на сутки, общая для форм; путь по окнам (`setups`) разворачивает только круги (Р6).
-    let full: Vec<HbtEvent> = if windows.is_none() {
-        events.iter().map(CompactEvent::expand).collect()
-    } else {
-        Vec::new()
+    let expanded: Vec<HbtEvent> = match (windows, events) {
+        (None, DayRows::Compact(c)) => c.iter().map(CompactEvent::expand).collect(),
+        _ => Vec::new(),
+    };
+    let full: &[HbtEvent] = match (windows, events) {
+        (None, DayRows::Wide(e)) => e,
+        _ => &expanded,
     };
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
@@ -361,14 +364,26 @@ pub(super) fn drive_day(
                                     let mut m = ms[i]
                                         .lock()
                                         .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                    drive_bounce_windowed_memo(
-                                        events, w, &signals, &cfg, p.rtt_ns, &mut m,
-                                    )
+                                    match events {
+                                        DayRows::Compact(c) => drive_bounce_windowed_memo(
+                                            c, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                        ),
+                                        DayRows::Wide(e) => drive_bounce_windowed_memo(
+                                            e, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                        ),
+                                    }
                                 }
-                                None => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
+                                None => match events {
+                                    DayRows::Compact(c) => {
+                                        drive_bounce_windowed(c, w, &signals, &cfg, p.rtt_ns)
+                                    }
+                                    DayRows::Wide(e) => {
+                                        drive_bounce_windowed(e, w, &signals, &cfg, p.rtt_ns)
+                                    }
+                                },
                             },
                             None => with_backtest_over(
-                                &full,
+                                full,
                                 p.tick,
                                 p.lot,
                                 p.rtt_ns,
@@ -429,11 +444,19 @@ pub(super) fn drive_day(
     Ok(o.done)
 }
 
+/// События суток в том виде, в каком их держит прогон (`--events`): компактные строки Р6
+/// (круг разворачивается в свой буфер) или 64-байтные строки крейта (круг берёт срез без копии).
+#[derive(Clone, Copy)]
+pub(super) enum DayRows<'a> {
+    Compact(&'a [CompactEvent]),
+    Wide(&'a [HbtEvent]),
+}
+
 /// Окна сетапов суток (`--driver setups`): снимок книги на каждый `t0`
 /// касания — один раз на сутки, общий для всех форм **и наборов** (`--set`):
 /// касания те же, фильтры наборов только выбирают из них сигналы.
 pub(super) fn day_windows(
-    events: &[CompactEvent],
+    events: DayRows<'_>,
     touches: &[TouchRecord],
     driver: DriverArg,
     tick: f64,
@@ -448,7 +471,10 @@ pub(super) fn day_windows(
                 .map(|t| t.start_ms.saturating_mul(1_000_000))
                 .collect();
             let started = Instant::now();
-            let w = SignalWindows::build(events, &t0s, tick, lot);
+            let w = match events {
+                DayRows::Compact(c) => SignalWindows::build(c, &t0s, tick, lot),
+                DayRows::Wide(e) => SignalWindows::build(e, &t0s, tick, lot),
+            };
             eprintln!(
                 "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
                 w.len(),
@@ -458,7 +484,10 @@ pub(super) fn day_windows(
             );
             if check {
                 let started = Instant::now();
-                let reference = SignalWindows::build_crate(events, &t0s, tick, lot);
+                let reference = match events {
+                    DayRows::Compact(c) => SignalWindows::build_crate(c, &t0s, tick, lot),
+                    DayRows::Wide(e) => SignalWindows::build_crate(e, &t0s, tick, lot),
+                };
                 if let Some((t0, field)) = w.first_mismatch(&reference) {
                     anyhow::bail!("окна: снимок на t0={t0} расходится с книгой крейта: {field}");
                 }
