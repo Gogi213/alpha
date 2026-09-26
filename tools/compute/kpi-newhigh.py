@@ -116,6 +116,64 @@ def month_metrics(closes, pk):
             "dd_usd": round(dd, 2), "worst_day": round(min(x), 2) if x else None}
 
 
+def rolling_kpi(closes):
+    """KPI, устойчивый к старту (CEO 27.09, В-120): непрерывный счёт «август + сентябрь» (без обнуления 01.09), сетка t —
+    каждый час. «от максимума» (основной): время от t до первого закрытия, после которого счёт строго выше максимума,
+    достигнутого к t; «со старта»: до первого закрытия выше значения счёта в t (как будто бот запущен в t). Незакрытые к
+    концу данных (24.09 00:00) — цензура: считается время до конца, доля цензуры печатается. По месяцам — по t в месяце."""
+    ev = sorted(closes)
+    s0, e0 = ms("2026-08-01"), ms("2026-09-24")
+    times = [t for t, _ in ev]
+    eq, c = [], 0.0
+    for _t, p in ev:
+        c += p
+        eq.append(c)
+    # следующий строгий рекорд после индекса: считаем по сетке часов двумя указателями
+    import bisect
+    out = {"aug": {"max": [], "start": [], "cens_max": 0, "cens_start": 0}, "sep": {"max": [], "start": [], "cens_max": 0, "cens_start": 0}}
+    # префиксный максимум
+    pm, m = [], 0.0
+    for v in eq:
+        m = max(m, v)
+        pm.append(m)
+    # для «со старта»: для каждого уровня ищем первое закрытие выше — линейный поиск вперёд с кешем по часам
+    t = s0
+    while t < e0:
+        pk = "aug" if t < ms("2026-09-01") else "sep"
+        i = bisect.bisect_right(times, t)  # закрытия строго после t
+        cur = eq[i - 1] if i > 0 else 0.0
+        mx = pm[i - 1] if i > 0 else 0.0
+        mx = max(mx, 0.0)
+        r_max = r_st = None
+        for j in range(i, len(ev)):
+            if r_st is None and eq[j] > cur + 1e-9:
+                r_st = (times[j] - t) / MS_H
+            if eq[j] > mx + 1e-9:
+                r_max = (times[j] - t) / MS_H
+                break
+        if r_st is None:
+            for j in range(i, len(ev)):
+                if eq[j] > cur + 1e-9:
+                    r_st = (times[j] - t) / MS_H
+                    break
+        o = out[pk]
+        if r_max is None:
+            o["cens_max"] += 1
+            r_max = (e0 - t) / MS_H
+        if r_st is None:
+            o["cens_start"] += 1
+            r_st = (e0 - t) / MS_H
+        o["max"].append(r_max)
+        o["start"].append(r_st)
+        t += MS_H
+    res = {}
+    for pk, o in out.items():
+        n = len(o["max"])
+        res[pk] = {k: {"median": q(o[k], 0.5), "p90": q(o[k], 0.9), "max": max(o[k]), "cens": round(o["cens_" + k] / n, 3)}
+                   for k in ("max", "start")}
+    return res
+
+
 def load(in_dir):
     """имя → (группа, {pk: closes}) для потолка 0; «+ потолок 3» — отдельными строками."""
     group = {"dash": "дашборд", "money": "П-02", "filt": "П-02 фильтр", "e26": "окна BTC (E26)"}
@@ -152,7 +210,8 @@ def main():
             seen.add(sig)
             uniq[n] = v
     S = uniq
-    res = {n: {"group": g, **{pk: month_metrics(ser[pk], pk) for pk in PERIODS}} for n, (g, ser) in S.items()}
+    res = {n: {"group": g, **{pk: month_metrics(ser[pk], pk) for pk in PERIODS}, "roll": rolling_kpi(ser["augsep"])}
+           for n, (g, ser) in S.items()}
     # смеси «среднее» (без занятости): пары из окон BTC и из 8 лучших по худшему месяцу $, плюс главный с каждым
     single = [n for n in S if "потолок" not in n and "одним счётом" not in n]
     top = sorted(single, key=lambda n: -min(res[n]["aug"]["usd"], res[n]["sep"]["usd"]))[:8]
@@ -161,26 +220,28 @@ def main():
              + [(a.main, n) for n in top if n != a.main]}
     for c in sorted(pairs):
         ser = {pk: [(t, p / len(c)) for n in c for t, p in S[n][1][pk]] for pk in PERIODS}
-        res["смесь: " + " + ".join(c)] = {"group": "смесь среднее (без занятости)", **{pk: month_metrics(ser[pk], pk) for pk in PERIODS}}
+        res["смесь: " + " + ".join(c)] = {"group": "смесь среднее (без занятости)", **{pk: month_metrics(ser[pk], pk) for pk in PERIODS},
+                                         "roll": rolling_kpi(ser["augsep"])}
     ok = [n for n, r in res.items() if r["aug"]["usd"] > 0 and r["sep"]["usd"] > 0 and r["aug"]["n"] >= 30 and r["sep"]["n"] >= 10]
     # счётный p90 вырождается (тысячи сделок → много нулевых периодов на соседних закрытиях при хвостах 200+ ч),
     # поэтому порядок — по p90, взвешенному временем (хвост входит), по худшему месяцу; затем худший период с хвостом
-    key = lambda n: (max(res[n]["aug"]["hours"]["tw_p90"] or 1e9, res[n]["sep"]["hours"]["tw_p90"] or 1e9),
-                     max(res[n]["aug"]["hours"]["worst"], res[n]["sep"]["hours"]["worst"]))
+    # с 27.09 (CEO): порядок — по p90 «от максимума» со скользящим стартом (непрерывный счёт), худший месяц; затем максимум
+    key = lambda n: (max(res[n]["roll"]["aug"]["max"]["p90"], res[n]["roll"]["sep"]["max"]["p90"]),
+                     max(res[n]["roll"]["aug"]["max"]["max"], res[n]["roll"]["sep"]["max"]["max"]))
     rank = sorted(ok, key=key)
     json.dump({"definition": __doc__.split("\n\n")[1], "main": a.main, "n_rows": len(res), "n_pairs": len(pairs),
                "rank": rank, "results": res}, open(a.out, "w", encoding="utf-8", newline=""), ensure_ascii=False, indent=1)
     h = lambda x: "—" if x is None else f"{x:.0f}"
     print(f"рядов {len(res)} (смесей-среднее {len(pairs)}); плюс в обоих месяцах и сделок достаточно: {len(ok)}")
-    print("место | вариант | [авг ; сен] до перехая, ч: p90 по времени / медиана / p90 / макс / хвост | R² | плюс-недель | $ | сделок | эпизодов")
+    print("место | вариант | скользящий старт от максимума, дн [авг ; сен]: медиана / p90 / макс (цензура) | со старта p90 | от начала месяца, дн | $ | сделок")
     show = rank[:15] + ([a.main] if a.main not in rank[:15] else [])
+    d = lambda x: f"{x / 24:.1f}"
     for n in show:
-        r = res[n]
-        f = lambda pk: (f"{h(r[pk]['hours']['tw_p90'])}/{h(r[pk]['hours']['median'])}/{h(r[pk]['hours']['p90'])}/{h(r[pk]['hours']['max'])}/{h(r[pk]['hours']['tail'])}")
+        r, R_ = res[n], res[n]["roll"]
+        f = lambda pk: f"{d(R_[pk]['max']['median'])}/{d(R_[pk]['max']['p90'])}/{d(R_[pk]['max']['max'])} ({R_[pk]['max']['cens']})"
         print(f"{rank.index(n) + 1 if n in rank else '—'} | {n} [{r['group']}] | {f('aug')} ; {f('sep')} | "
-              f"{r['aug']['r2']} ; {r['sep']['r2']} | {r['aug']['plus_weeks']} ; {r['sep']['plus_weeks']} | "
-              f"{r['aug']['usd']:+.0f} ; {r['sep']['usd']:+.0f} | {r['aug']['n']} ; {r['sep']['n']} | {r['aug']['episodes']} ; {r['sep']['episodes']}")
-
+              f"{d(R_['aug']['start']['p90'])} ; {d(R_['sep']['start']['p90'])} | {d(r['aug']['hours']['worst'])} ; {d(r['sep']['hours']['worst'])} | "
+              f"{r['aug']['usd']:+.0f} ; {r['sep']['usd']:+.0f} | {r['aug']['n']} ; {r['sep']['n']}")
 
 if __name__ == "__main__":
     main()

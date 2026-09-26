@@ -57,27 +57,31 @@ def main():
         for lname, sel in limits:
             xs = [{**t, "pnl": t["pnl"] + (float(hedge[(t["sym"], t["t0"])][col]) if col else 0.0)} for t in sel]
             m = ep.metrics_for(kn, xs)
+            rl = kn.rolling_kpi([(t["t1"], t["pnl"]) for t in xs])
             res[f"{hname} | {lname}"] = {"hedge": hname, "limit": lname, **{
                 pk: {"worst_d": round(v["hours"]["worst"] / 24, 1), "tw_p90_h": round(v["hours"]["tw_p90"] or 0),
-                     "n_high": v["hours"]["n"], "dd_usd": v["dd_usd"], "usd": v["usd"], "n": v["n"]} for pk, v in m.items()}}
+                     "n_high": v["hours"]["n"], "dd_usd": v["dd_usd"], "usd": v["usd"], "n": v["n"],
+                     **({"roll_p90_d": round(rl[pk]["max"]["p90"] / 24, 1), "roll_max_d": round(rl[pk]["max"]["max"] / 24, 1),
+                         "roll_cens": rl[pk]["max"]["cens"]} if pk in rl else {})} for pk, v in m.items()}}
     json.dump(res, open(a.out, "w", encoding="utf-8", newline=""), ensure_ascii=False, indent=1)
-    ok = [k for k, r in res.items() if r["aug"]["worst_d"] <= 5 and r["sep"]["worst_d"] <= 5]
+    ok = [k for k, r in res.items() if r["aug"]["roll_p90_d"] <= 5 and r["sep"]["roll_p90_d"] <= 5]
     L = [f"# T-32: хедж × ограничение позиций — сетка на готовых сделках главного", "",
          f"≤ 5 дней до перехая в обоих месяцах: {', '.join(ok) if ok else 'нет клеток'}. Клеток {len(res)}; на днях подбора.", "",
-         "## Теплокарта: до перехая, дни — худший из августа и сентября (✓ — ≤ 5 в обоих)", "",
+         "## Теплокарта: p90 «от максимума» со скользящим стартом, дни — худший месяц (✓ — ≤ 5 в обоих); в скобках — от начала месяца", "",
          "| хедж \\ ограничение | " + " | ".join(l for l, _ in limits) + " |", "|---" * (len(limits) + 1) + "|"]
     for hname, _ in hedges:
         cells = []
         for lname, _ in limits:
             r = res[f"{hname} | {lname}"]
-            w = max(r["aug"]["worst_d"], r["sep"]["worst_d"])
-            cells.append(f"{w:.1f}".replace(".", ",") + (" ✓" if w <= 5 else ""))
+            w = max(r["aug"]["roll_p90_d"], r["sep"]["roll_p90_d"])
+            w0 = max(r["aug"]["worst_d"], r["sep"]["worst_d"])
+            cells.append(f"{w:.1f}".replace(".", ",") + (" ✓" if w <= 5 else "") + f" ({w0:.1f})".replace(".", ","))
         L.append(f"| {hname} | " + " | ".join(cells) + " |")
     L += ["", "## Все клетки (август ; сентябрь)", "",
-          "| хедж | ограничение | до перехая, дн | p90 по времени, ч | новых максимумов | просадка $ | $ | сделок |", "|---" * 8 + "|"]
+          "| хедж | ограничение | скольз. старт p90 / макс, дн | от начала месяца, дн | p90 по времени, ч | новых максимумов | просадка $ | $ | сделок |", "|---" * 9 + "|"]
     for k, r in res.items():
         f = lambda key, fmt="{}": f"{fmt.format(r['aug'][key])} ; {fmt.format(r['sep'][key])}"
-        L.append(f"| {r['hedge']} | {r['limit']} | {f('worst_d')} | {f('tw_p90_h')} | {f('n_high')} | {f('dd_usd', '{:.0f}')} | "
+        L.append(f"| {r['hedge']} | {r['limit']} | {r['aug']['roll_p90_d']}/{r['aug']['roll_max_d']} ; {r['sep']['roll_p90_d']}/{r['sep']['roll_max_d']} | {f('worst_d')} | {f('tw_p90_h')} | {f('n_high')} | {f('dd_usd', '{:.0f}')} | "
                  f"{f('usd', '{:+.0f}')} | {f('n')} |")
     L += ["", "Оговорки: хедж — по закрытиям сделки (без переоценки внутри), маржа хеджа не учтена; ограничения — отбор из "
           "готовых сделок, занятость монеты и очередь не пересчитаны; «одновременно N» — по [t0; t1] сделок главного."]
