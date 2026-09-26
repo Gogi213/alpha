@@ -193,6 +193,62 @@ def on_prompt(hook_in, role):
     return "\n".join(parts) or None
 
 
+def on_prompt_all(hook_in, role):
+    """Все подсказки к сообщению: блокнот/чистка (каждое 5-е) и сторож контекста (от 65 %)."""
+    text = on_prompt(hook_in, role)
+    try:
+        advice = context_advice(hook_in, load_state())
+    except Exception:
+        advice = None
+    return "\n".join(t for t in (text, advice) if t) or None
+
+
+CONTEXT_WINDOW = int(os.environ.get("ALPHA_CONTEXT_WINDOW", "1000000"))  # Opus: 1 млн (замер 26.09: пик 998 тыс.)
+CONTEXT_WARN = 0.65   # владелец 26.09: «если >= 65% то сам скажи, что лучше — компакт или клир»
+CONTEXT_URGENT = 0.80
+
+
+def context_tokens(transcript):
+    """Размер контекста по последнему ответу модели в транскрипте (вход + кэш + вывод)."""
+    if not transcript or not os.path.isfile(transcript):
+        return 0
+    with open(transcript, "rb") as fh:
+        fh.seek(0, 2)
+        fh.seek(max(0, fh.tell() - 600_000))
+        lines = fh.read().decode("utf-8", "replace").splitlines()[1:]
+    for line in reversed(lines):
+        if '"usage"' not in line:
+            continue
+        try:
+            usage = (json.loads(line).get("message") or {}).get("usage") or {}
+        except Exception:
+            continue
+        total = sum(int(usage.get(k) or 0) for k in (
+            "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
+        if total:
+            return total
+    return 0
+
+
+def context_advice(hook_in, state):
+    """≥ 65 % окна: сессия сама советует владельцу клир или компакт (≥ 80 % — на каждом сообщении)."""
+    tokens = context_tokens(hook_in.get("transcript_path"))
+    frac = tokens / CONTEXT_WINDOW if CONTEXT_WINDOW else 0
+    if frac < CONTEXT_WARN:
+        return None
+    if frac < CONTEXT_URGENT and state.get("n", 0) % 3 != 1:
+        return None  # между 65 и 80 % — раз в три сообщения
+    return (f"[контекст] {frac:.0%} окна ({tokens // 1000} тыс. из {CONTEXT_WINDOW // 1000} тыс.). Последней строкой "
+            "ответа владельцу — одна рекомендация: «клир» или «компакт», и почему. Правило: КЛИР — если задача "
+            "закончена или стоит на чистой границе, блокнот обновлён и из этой сессии не идёт фоновая работа (фоновые "
+            "агенты и Monitor умирают при клире; юниты systemd на Steam Deck — нет); после клира хук вернёт устав, "
+            "блокнот, адреса и конспект разговора, новый контекст ≈ 65–95 тыс. КОМПАКТ — если задача в середине и "
+            "рабочее состояние (цепочка отладки, промежуточные числа, договорённости) ещё не записано, или идёт "
+            "фоновая работа из этой сессии; компакт стоит одного дорогого шага и оставляет сжатую сводку. Перед "
+            "любым — обнови блокнот. Ответит «клир» — в конце хода вызови mcp__ccd_session_mgmt__clear_session "
+            "с \"self\" (не вышло — попроси владельца нажать клир); компакт владелец делает сам командой /compact.")
+
+
 def on_skill(hook_in):
     """PostToolUse(Skill): запуск навыка чистки памяти ставит метку."""
     skill = str((hook_in.get("tool_input") or {}).get("skill", ""))
@@ -213,7 +269,7 @@ def main():
         if role is None:
             return 0
         if event == "UserPromptSubmit":
-            text = on_prompt(hook_in, role)
+            text = on_prompt_all(hook_in, role)
             if text:
                 sys.stdout.write(json.dumps({"hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit", "additionalContext": text}}, ensure_ascii=True))
