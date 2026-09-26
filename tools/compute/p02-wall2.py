@@ -11,15 +11,17 @@
 полные `touches-<SYM>.csv` — колонки `stack_levels`/`frontrun_lots`/`round_zeros`/`age_ms`/
 `size_at_touch` там нет (это не нужно Г-07/Г-88, они не входят в этот счёт).
 
-Два режима, как у `p02-wall.py`:
-  scan    — на Steam Deck, без numpy: читает `.csv.gz`, считает терцили Г-07 (август, только
-            значения `depth_behind_lots`), затем доли `bounced` по бакетам обоих месяцев →
-            компактный JSON.
+Три режима:
+  thresholds — на Steam Deck: терцили Г-07 по августу, читается ТОЛЬКО `depth_behind_lots`
+            (колонка исхода не разбирается) → JSON; числа вписываются в протокол до `scan`.
+  scan    — на Steam Deck, без numpy: доли `bounced` по бакетам обоих месяцев на замороженных
+            границах (`--thresholds <json>`) → компактный JSON.
   analyze — бутстреп/эффективное N/Холм (нужен numpy) — переносить JSON на машину с numpy или
             использовать чистый python (см. `p02-h10-fix-analyze.py` для образца без numpy).
 
 Использование:
-    python3 p02-wall2.py scan --aug-dir epochs/e-aug/study/p02c/aug \
+    python3 p02-wall2.py thresholds --aug-dir epochs/e-aug/study/p02c/aug --out p02-wall2-thresholds.json
+    python3 p02-wall2.py scan --thresholds p02-wall2-thresholds.json --aug-dir epochs/e-aug/study/p02c/aug \
         --sept-dirs epochs/e-archive/study/p02c/sept,study/p02c/sept --out p02-wall2-counts.json
     python3 p02-wall2.py analyze --in p02-wall2-counts.json --out p02-wall2-results.json
 """
@@ -66,9 +68,10 @@ def iter_compact_rows(path: str):
                 depth = float(row["depth_behind_lots"])
                 rep = int(row["repeat_count"])
                 ended = row["ended_by_death"].strip().lower() == "true"
+                sym = row["symbol"]
             except (ValueError, KeyError):
                 continue
-            yield depth, rep, ended
+            yield sym, depth, rep, ended
 
 
 def list_day_files(dirs: List[str]) -> Dict[str, str]:
@@ -83,25 +86,65 @@ def list_day_files(dirs: List[str]) -> Dict[str, str]:
     return out
 
 
+def iter_depth_only(path: str):
+    """Только `symbol` и `depth_behind_lots` — колонка исхода в этом проходе не разбирается вовсе."""
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as f:
+        r = csv.reader(f)
+        header = next(r)
+        i_depth = header.index("depth_behind_lots")
+        i_sym = header.index("symbol")
+        for row in r:
+            try:
+                yield row[i_sym], float(row[i_depth])
+            except (ValueError, IndexError):
+                continue
+
+
+def cmd_thresholds(args: argparse.Namespace) -> int:
+    """Терцили Г-07 на августе — отдельный проход до счёта долей (П-02, «вторая очередь»:
+    границы вписываются в протокол до перехода к `bounced`)."""
+    aug_days = list_day_files([args.aug_dir])
+    depth_vals: List[float] = []
+    by_sym: Dict[str, List[float]] = defaultdict(list)
+    for _day, path in sorted(aug_days.items()):
+        for sym, depth in iter_depth_only(path):
+            depth_vals.append(depth)
+            by_sym[sym].append(depth)
+    depth_vals.sort()
+    n = len(depth_vals)
+    # «чтение», вне Холма: признак в лотах, лот у монет разный — общий терциль смешивает масштаб
+    # монеты с глубиной; внутримонетный терциль (граница на августе по каждой монете) снимает это
+    per_sym = {}
+    for sym, vals in by_sym.items():
+        vals.sort()
+        per_sym[sym] = [percentile_sorted(vals, 1.0 / 3.0), percentile_sorted(vals, 2.0 / 3.0), len(vals)]
+    thresholds = {
+        "depth_terc_lo": percentile_sorted(depth_vals, 1.0 / 3.0),
+        "depth_terc_hi": percentile_sorted(depth_vals, 2.0 / 3.0),
+        "n_aug_touches_for_threshold": n,
+        "n_aug_days": len(aug_days),
+        "quantiles": {f"p{q}": percentile_sorted(depth_vals, q / 100.0)
+                      for q in (1, 10, 25, 33, 50, 67, 75, 90, 99)},
+        "share_zero": (sum(1 for v in depth_vals if v == 0.0) / n) if n else None,
+        "per_symbol_terc": per_sym,
+    }
+    with open(args.out, "w", encoding="utf-8") as f:
+        json.dump(thresholds, f, ensure_ascii=False, indent=1, sort_keys=True)
+    print(json.dumps(thresholds, ensure_ascii=False))
+    return 0
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     aug_days = list_day_files([args.aug_dir])
     sept_days = list_day_files(args.sept_dirs.split(","))
     print(f"[scan] август: {len(aug_days)} суток; сентябрь: {len(sept_days)} суток", file=sys.stderr)
 
-    # --- порог Г-07: только август, только depth_behind_lots (ended_by_death не читается) ---
-    depth_vals: List[float] = []
-    for day, path in sorted(aug_days.items()):
-        for depth, _rep, _ended in iter_compact_rows(path):
-            depth_vals.append(depth)
-    depth_vals.sort()
-    thresholds = {
-        "depth_terc_lo": percentile_sorted(depth_vals, 1.0 / 3.0),
-        "depth_terc_hi": percentile_sorted(depth_vals, 2.0 / 3.0),
-        "n_aug_touches_for_threshold": len(depth_vals),
-    }
-    print(f"[scan] порог Г-07 (август, {len(depth_vals)} касаний): {thresholds}", file=sys.stderr)
+    # --- порог Г-07: заморожен заранее проходом `thresholds` (вписан в протокол до этого счёта) ---
+    with open(args.thresholds, encoding="utf-8") as f:
+        thresholds = json.load(f)
+    print(f"[scan] порог Г-07 (заморожен): {thresholds}", file=sys.stderr)
     dtl, dth = thresholds["depth_terc_lo"], thresholds["depth_terc_hi"]
-    del depth_vals
+    per_sym = thresholds.get("per_symbol_terc", {})
 
     # --- счёт по дням: Г-07 (терциль) и Г-88 (repeat_count>0 на окне 5 мин, уже в данных) ---
     day_counts: Dict[str, dict] = {}
@@ -110,7 +153,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         for day, path in sorted(days.items()):
             counts = defaultdict(lambda: defaultdict(lambda: [0, 0]))
             n_rows = 0
-            for depth, rep, ended in iter_compact_rows(path):
+            for sym, depth, rep, ended in iter_compact_rows(path):
                 n_rows += 1
                 bounced = 0 if ended else 1
                 b = bucket(depth, dtl, dth)
@@ -118,6 +161,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     c = counts["g07_main"][b]
                     c[0] += bounced
                     c[1] += 1
+                st = per_sym.get(sym)
+                if st:
+                    b = bucket(depth, st[0], st[1])
+                    if b:
+                        c = counts["g07_read_persym"][b]
+                        c[0] += bounced
+                        c[1] += 1
                 g88 = "spring" if rep > 0 else "clean"
                 c = counts["g88_5min"][g88]
                 c[0] += bounced
@@ -237,7 +287,9 @@ def analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key, n_bo
 
 VARIANTS = {
     "g07_main": ("top", "bottom", "Г-07 основной (терциль depth_behind_lots, .50 грубая версия)"),
-    "g88_5min": ("spring", "clean", "Г-88 основной (repeat_count>0 на окне 5 мин vs =0)"),
+    # знак «+» = в сторону гипотезы (H3: глубже позади — чаще bounced; H8: без «пружинки» — чаще bounced)
+    "g88_5min": ("clean", "spring", "Г-88 основной (repeat_count=0 vs >0 на окне 5 мин)"),
+    "g07_read_persym": ("top", "bottom", "Г-07 чтение, вне Холма (терциль внутри монеты)"),
 }
 
 
@@ -266,7 +318,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         pvals = [("H3 Г-07", results["g07_main"][month_prefix]["p_value"]),
                  ("H8 Г-88", results["g88_5min"][month_prefix]["p_value"])]
         adj = holm(pvals)
-        print(f"Холм ({month_label}, 2 p-значения этого счёта):")
+        print(f"Холм ({month_label}, 2 p-значения этого счёта — справочно; итог блока A — в сводке П-02):")
         for name, p, p_adj, sig in adj:
             print(f"  {name}: p={p:.4f} -> p_adj={p_adj:.4f} значимо@0.05={sig}")
         print()
@@ -281,7 +333,13 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    p_thr = sub.add_parser("thresholds")
+    p_thr.add_argument("--aug-dir", required=True)
+    p_thr.add_argument("--out", default="p02-wall2-thresholds.json")
+    p_thr.set_defaults(func=cmd_thresholds)
+
     p_scan = sub.add_parser("scan")
+    p_scan.add_argument("--thresholds", required=True, help="JSON прохода `thresholds` (заморожен до счёта)")
     p_scan.add_argument("--aug-dir", required=True)
     p_scan.add_argument("--sept-dirs", required=True, help="через запятую — оба каталога сентября")
     p_scan.add_argument("--out", default="p02-wall2-counts.json")
