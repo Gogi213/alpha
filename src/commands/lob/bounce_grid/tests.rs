@@ -2433,6 +2433,53 @@ fn carry_events_stops_decoding_past_the_carry_window() {
     );
 }
 
+/// Р10 (T-22): довесок дописывается прямо в буфер суток — те же события в том же
+/// порядке, что отдельный `carry_events`, а ёмкость буфера растёт ровно на довесок,
+/// без амортизированного удвоения (иначе крупные сутки не влезают в память).
+#[test]
+fn append_carry_events_grows_day_buffer_exactly() {
+    let next_day = "2026-09-09";
+    let start_ms = day_start_ns_for_test(next_day) / 1_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        next_day,
+        &[
+            snap_frame(start_ms, &[(99, 10), (98, 5)], &[(105, 10)]),
+            delta_frame(start_ms + 1_000, &[(99, 9)], &[]),
+            delta_frame(start_ms + 2_000, &[], &[(105, 7)]),
+            delta_frame(start_ms + 3_600_000_000, &[(99, 1)], &[]),
+        ],
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", next_day, 1);
+    let until_ns = day_start_ns_for_test(next_day) + 60_000_000_000;
+    let alone = carry_events(std::slice::from_ref(&path), until_ns).unwrap();
+    assert!(!alone.is_empty(), "довесок в окне обязан быть прочитан");
+    // Буфер «суток» ровно по размеру, как у `day_events`.
+    let day: Vec<hftbacktest::types::Event> = alone.iter().take(1).cloned().collect();
+    let mut events: Vec<hftbacktest::types::Event> = Vec::with_capacity(day.len());
+    events.extend_from_slice(&day);
+    assert_eq!(events.capacity(), events.len());
+    let n = super::carry::append_carry_events(&[path], until_ns, &mut events).unwrap();
+    assert_eq!(n, alone.len());
+    assert_eq!(events.len(), day.len() + alone.len());
+    assert_eq!(
+        events.capacity(),
+        events.len(),
+        "ёмкость — ровно сутки + довесок, без удвоения"
+    );
+    let appended: Vec<(i64, i64, u64)> = events[day.len()..]
+        .iter()
+        .map(|e| (e.local_ts, e.exch_ts, e.ev))
+        .collect();
+    let expected: Vec<(i64, i64, u64)> = alone
+        .iter()
+        .map(|e| (e.local_ts, e.exch_ts, e.ev))
+        .collect();
+    assert_eq!(appended, expected, "те же события в том же порядке");
+}
+
 /// R2 (ревью 23.09): лот `--order-usd` — по цене **каждого** касания, а не
 /// одной ценой на символ (прежде — последнего касания всей записи, то есть
 /// заглядывание вперёд). $100 при цене 10.00 — 10 монет, при 20.00 — 5; шаг

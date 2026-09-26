@@ -89,7 +89,25 @@ pub(super) fn day_start_ns(day: &str) -> anyhow::Result<i64> {
 /// только одна упёрлась в потолок, следующие начнутся ещё позже, читать их
 /// незачем (`count_feed_events_until`/`feed_events_into_until` уже говорят,
 /// уткнулись ли).
+#[cfg(test)]
 pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<Vec<HbtEvent>> {
+    let mut events = Vec::new();
+    append_carry_events(parts, until_ns, &mut events)?;
+    Ok(events)
+}
+
+/// Довесок в окне — прямо в конец `events` (Р10, T-22, 26.09): сперва счёт событий
+/// довеска, затем `reserve_exact` и декод на месте. Раньше довесок собирался
+/// отдельным `Vec` и дописывался `extend`: буфер суток выделен ровно по размеру
+/// (`day_events`), поэтому `extend` растил его амортизированно — ёмкость до
+/// удвоения, плюс копия довеска рядом на время `extend` (LSKUSDT 14.09: 146,6 млн
+/// событий суток не влезли в потолок 12 ГБ). События и их порядок те же — меняется
+/// только выделение памяти. Возвращает число дописанных событий.
+pub(super) fn append_carry_events(
+    parts: &[PathBuf],
+    until_ns: i64,
+    events: &mut Vec<HbtEvent>,
+) -> anyhow::Result<usize> {
     let mut total = 0usize;
     for path in parts {
         let mut feed = open_replay_feed(path)?;
@@ -99,14 +117,15 @@ pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<V
             break;
         }
     }
-    let mut events: Vec<HbtEvent> = Vec::with_capacity(total);
+    events.reserve_exact(total);
+    let before = events.len();
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        if feed_events_into_until(&mut feed, until_ns, &mut events) {
+        if feed_events_into_until(&mut feed, until_ns, events) {
             break;
         }
     }
-    Ok(events)
+    Ok(events.len() - before)
 }
 
 /// Довесок конца суток `day` данными D+1 (см. `carry_window_ns`): дописывает
@@ -134,14 +153,13 @@ pub(super) fn extend_with_carry(
     };
     let boundary = day_start_ns(&next_day)?;
     let until = boundary.saturating_add(window_ns);
-    let carry_ev = carry_events(next_parts, until)?;
+    let n_carry = append_carry_events(next_parts, until, events)?;
     eprintln!(
         "bounce-grid:   довесок {next_day}: событий {} за {:.1}с окна ({} частей)",
-        carry_ev.len(),
+        n_carry,
         window_ns as f64 / 1e9,
         next_parts.len()
     );
-    events.extend(carry_ev);
     let marker = carry_root.join(format!("verify-{symbol}.status"));
     let carry_unverified = !read_verify_marker(&marker);
     Ok((Some(boundary), carry_unverified))
