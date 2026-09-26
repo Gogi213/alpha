@@ -101,6 +101,8 @@ compute the wrong standard error.
 counting error in miniature. The floor is on *effective observations*, and 30
 highly overlapping trades in correlated names can be worth three.
 
+*В alpha порога нет (владелец 26.09); вместо него — R2 (П-02 §12, Судья `b39d9c5`).*
+
 **Sharpe standard errors use `T` in the right unit.** Phase 3 computes
 `SE = sqrt((1 + S²/2)/T)` with `T` in years for an annualized Sharpe. If the
 returns are heavily autocorrelated, even that `T` is optimistic, and the

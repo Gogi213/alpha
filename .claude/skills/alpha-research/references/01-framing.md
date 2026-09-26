@@ -50,6 +50,9 @@ catch flat segments, spikes and stitched vendors faster than any assertion.
 
 ## 3. The out-of-sample contract
 
+*В alpha OOS = перекрёстная подгонка между месяцами и следующий целый месяц (В-115); каждое
+решение на августе/сентябре — на известных данных.*
+
 Split the period *now*, before looking at anything.
 
 - **In-sample**: everything the research touches. Sweeps, plateau reading,

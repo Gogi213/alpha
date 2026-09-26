@@ -101,6 +101,9 @@ real money.
 to test on. Not "run it again on the same data with a tweak": that is fitting
 under another name, and it consumes what is left of the sample.
 
+*В alpha OOS = перекрёстная подгонка между месяцами и следующий целый месяц (В-115); каждое
+решение на августе/сентябре — на известных данных.*
+
 ## 5. Knowing when to stop
 
 Signals that the study is over:
