@@ -1,0 +1,10 @@
+# T-06: после забора (alpha-pull 01:15 UTC); скрипт сам ждёт конца забора.
+[Unit]
+Description=alpha: night root/deep -> Storage Box (T-06)
+
+[Timer]
+OnCalendar=*-*-* 01:45:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

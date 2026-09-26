@@ -1,6 +1,6 @@
 # T-30 (В-118): архив Bybit → Hetzner Storage Box пачками по 20 ГБ, конвейером на VPS
 # (`tools/compute/archive-to-box.sh`, журнал /opt/alpha-archive/log/{run.log,done.txt,summary.txt}).
-# 01.01.2026 → вчера, без 01.08–15.09 (есть на Steam Deck); запускает таймер раз в сутки (новые сутки архива),
+# 01.01.2026 → вчера; запускает таймер раз в сутки (новые сутки архива),
 # готовое пропускается по журналу. Ставится так:
 #   cp tools/alpha-archive-box.{service,timer} /etc/systemd/system/ && systemctl daemon-reload
 #   systemctl enable --now alpha-archive-box.timer && systemctl start --no-block alpha-archive-box

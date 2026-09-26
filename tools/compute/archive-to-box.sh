@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Архив Bybit → Hetzner Storage Box (T-30, владелец 27.09, В-118): 01.01–31.07.2026 и дальше новые сутки по мере
-# появления (август и 01–15.09 не дублируем — они на Steam Deck в `e-aug`/`e-archive`). Тот же импорт, что
+# появления; все месяцы в одном месте — и 01.08–15.09, хотя они есть на Steam Deck (`e-aug`/`e-archive`; CEO 27.09). Тот же импорт, что
 # `archive-import.sh`, конвейером на VPS, без ручных шагов:
 #   рабочие (JOBS): монета-сутки скачана → импорт в бинлог → в накопитель $BASE/stage (сырьё удалено сразу);
 #   заливщик: накопилось ≥ BATCH_GB (или импорт кончился) → пачка одной передачей rsync → манифест sha256,
@@ -21,7 +21,7 @@
 set -uo pipefail
 FIRST="${1:?первые сутки}"; LAST="${2:-yesterday}"
 [ "$LAST" = yesterday ] && LAST=$(date -u -d yesterday +%F)
-SKIP_FROM="${SKIP_FROM:-2026-08-01}"; SKIP_TO="${SKIP_TO:-2026-09-15}"   # есть на Steam Deck: e-aug, e-archive
+SKIP_FROM="${SKIP_FROM:-}"; SKIP_TO="${SKIP_TO:-}"   # пропуск диапазона суток (пусто — без пропуска)
 BASE="${BASE:-/opt/alpha-archive}"
 BIN="${BIN:-$BASE/bin/alpha}"
 JOBS="${JOBS:-4}"
@@ -141,11 +141,11 @@ sync_meta() {   # instruments, сверка по суткам, маркеры K1
 
 days=(); d=$FIRST
 while [[ ! $d > $LAST ]]; do
-  [[ $d < $SKIP_FROM || $d > $SKIP_TO ]] && days+=("$d")
+  [[ -z $SKIP_FROM || $d < $SKIP_FROM || $d > $SKIP_TO ]] && days+=("$d")
   d=$(date -u -d "$d + 1 day" +%F)
 done
 SYMS=$(tail -n +2 "$BASE/instruments.csv" | cut -d, -f1 | grep -v '^#')
-log "== старт ${#days[@]} суток ($FIRST … $LAST, без $SKIP_FROM … $SKIP_TO) × $(echo "$SYMS" | wc -l) монет, $JOBS параллельно, пачка $BATCH_GB ГБ"
+log "== старт ${#days[@]} суток ($FIRST … $LAST, без ${SKIP_FROM:-—} … ${SKIP_TO:-—}) × $(echo "$SYMS" | wc -l) монет, $JOBS параллельно, пачка $BATCH_GB ГБ"
 
 for b in "$BASE"/batch-*/; do [ -d "$b" ] && { push_batch "${b%/}" || { log "недолитая пачка $b не заливается — стоп"; exit 1; }; }; done
 

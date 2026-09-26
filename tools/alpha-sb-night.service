@@ -1,0 +1,11 @@
+# T-06: ночной перенос root/ и deep/ Steam Deck → Storage Box со сверкой sha256; deep/ удаляется с деки после сверки.
+# ~/.config/systemd/user/ на Steam Deck; скрипт — ~/alpha/bin/sb-night.sh (tools/sb-night.sh).
+[Unit]
+Description=alpha: night root/deep -> Storage Box (T-06)
+After=alpha-pull.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/alpha/bin/sb-night.sh
+TimeoutStartSec=infinity
+Nice=15
