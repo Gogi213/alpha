@@ -372,6 +372,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const peakUsd = acc ? acc.peak_usd : kpi.peak_usd;
     let sharpe, sortino;
     if (acc) { sharpe = acc.sharpe; sortino = acc.sortino; } else { [sharpe, sortino] = sharpeSortino(kpi.daily_usd, D.deposit_usd); }
+    // T-20 п.4 (26.09): средние, ожидание, профит-фактор и время в рынке — по сделкам, которые счёт реально
+    // взял (acc), как «Сделок» и «Чистая прибыль»; kpi — только если счёт их не посчитал (старый прогон)
+    const fromAcc = (k) => (acc && acc[k] != null) ? acc[k] : kpi[k];
+    const avgUsd = fromAcc("avg_usd"), avgBps = fromAcc("avg_bps");
+    const avgWin = fromAcc("avg_win_bps"), avgLoss = fromAcc("avg_loss_bps");
+    const pf = fromAcc("profit_factor"), tim = fromAcc("pct_time_in_market");
     const tiles = [
       ["Чистая прибыль", money(netUsd), null, cls(netUsd), "Сумма результата всех сделок в долларах на реальном размере позиции."],
       ["Доходность", pctFmt(netPct), "от депозита $" + intFmt(D.deposit_usd), cls(netPct), "Чистая прибыль, делённая на депозит счёта."],
@@ -379,12 +385,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       ["Фактор восстановления", rf == null ? "—" : rf.toFixed(2), null, cls(rf != null ? rf - 1 : null), "Чистая прибыль, делённая на максимальную просадку: сколько просадок «уложилось» в итог."],
       ["Шарп", sharpe == null ? "—" : sharpe.toFixed(2), "по дням, годовых", cls(sharpe), "Средняя дневная доходность к её разбросу, приведено к году (√365)."],
       ["Сортино", sortino == null ? "—" : sortino.toFixed(2), "по дням, годовых", cls(sortino), "Как Шарп, но разброс считается только по убыточным дням."],
-      ["Профит-фактор", kpi.profit_factor == null ? "—" : kpi.profit_factor.toFixed(2), null, cls(kpi.profit_factor != null ? kpi.profit_factor - 1 : null), "Сумма прибыльных сделок, делённая на сумму убыточных."],
+      ["Профит-фактор", pf == null ? "—" : pf.toFixed(2), null, cls(pf != null ? pf - 1 : null), "Сумма прибыльных сделок, делённая на сумму убыточных."],
       ["Доля прибыльных", pctPlain(win * 100), "сделок", "", "Доля сделок, закрытых в плюс."],
       ["Сделок", intFmt(n), null, "", "Число закрытых сделок за период."],
-      ["Средняя сделка", moneyFine(kpi.avg_usd), bpsFmt(kpi.avg_bps) + " bps", cls(kpi.avg_usd), "Результат одной сделки в среднем — в долларах и в базисных пунктах."],
-      ["Ожидание", bpsFmt(kpi.win_rate * kpi.avg_win_bps - (1 - kpi.win_rate) * Math.abs(kpi.avg_loss_bps)) + " bps", "на сделку", cls(kpi.avg_bps), "Доля прибыльных × средний плюс минус доля убыточных × средний минус."],
-      ["Время в рынке", pctPlain(kpi.pct_time_in_market * 100), "доля календаря", "", "Доля времени периода, когда была открыта хотя бы одна позиция."],
+      ["Средняя сделка", moneyFine(avgUsd), bpsFmt(avgBps) + " bps", cls(avgUsd), "Результат одной сделки в среднем — в долларах и в базисных пунктах."],
+      ["Ожидание", bpsFmt(win * avgWin - (1 - win) * Math.abs(avgLoss)) + " bps", "на сделку", cls(avgBps), "Доля прибыльных × средний плюс минус доля убыточных × средний минус."],
+      ["Время в рынке", pctPlain(tim * 100), "доля календаря", "", "Доля времени периода, когда была открыта хотя бы одна позиция."],
       ["Пик позиций", peakN + " / " + moneyPlain(peakUsd), "факт. плечо", "", "Наибольшее число одновременно открытых сделок и сумма в рынке в этот момент."],
     ];
     grid.innerHTML = tiles.map(([label, value, sub, cl, tip]) =>

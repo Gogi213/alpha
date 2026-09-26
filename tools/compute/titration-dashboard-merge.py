@@ -177,9 +177,21 @@ def account_row(grid, variant_name, epoch_name, max_pos, day_stop, kill, exclude
     return None
 
 
-def account_summary(g, deposit_usd):
+def account_summary(g, deposit_usd, span_minutes=None):
     if g is None:
         return None
+    # T-20 п.4 (26.09): средние и профит-фактор — по сделкам, которые счёт реально взял (нет полей —
+    # прогон `portfolio-sim` старее правки, тогда None и страница берёт прежние значения kpi)
+    pf = g.get("profit_factor")
+    om = g.get("open_minutes")
+    extra = {
+        "avg_usd": round(g["avg_usd"], 2) if "avg_usd" in g else None,
+        "avg_bps": round(g["avg_bps"], 2) if "avg_bps" in g else None,
+        "avg_win_bps": round(g["avg_win_bps"], 2) if "avg_win_bps" in g else None,
+        "avg_loss_bps": round(g["avg_loss_bps"], 2) if "avg_loss_bps" in g else None,
+        "profit_factor": round(pf, 3) if pf is not None else None,
+        "pct_time_in_market": round(om / span_minutes, 4) if (om is not None and span_minutes) else None,
+    }
     daily_pct = {d: v / deposit_usd * 100 for d, v in g["daily"].items()}
     sharpe, sortino = sharpe_sortino(daily_pct)
     return {
@@ -190,6 +202,7 @@ def account_summary(g, deposit_usd):
         "worst_day": g["worst_day"], "worst_day_usd": round(g["worst_day_usd"], 2),
         "worst_day_pct": round(g["worst_day_pct"], 3), "fill": round(g["fill"], 4),
         "sharpe": sharpe, "sortino": sortino, "daily_usd": g["daily"],
+        **extra,
     }
 
 
@@ -301,7 +314,8 @@ def main():
 
     combo = dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")
     for pkey, epoch in PERIOD_EPOCH.items():
-        out["account"][pkey] = {vkey: account_summary(account_row(prot["grid"], aname, epoch, **combo), deposit_usd)
+        out["account"][pkey] = {vkey: account_summary(account_row(prot["grid"], aname, epoch, **combo), deposit_usd,
+                                                       span_minutes.get(pkey))
                                 for vkey, aname in ACCOUNT_VARIANT_NAME.items()}
         out["protections"][pkey] = {vkey: protection_steps(prot["grid"], aname, epoch)
                                     for vkey, aname in ACCOUNT_VARIANT_NAME.items()}

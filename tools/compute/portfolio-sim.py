@@ -54,6 +54,36 @@ MIN_MS = 60_000
 DAY_NS = 86_400 * NS
 
 
+def taken_stats(taken):
+    """Сделки, которые счёт реально взял (после «одна позиция на монету», потолка, стопа дня, выключателя):
+    средняя в $ и bps, средние плюс/минус, профит-фактор (по bps, как `titration-dashboard-merge.trade_stats`),
+    минуты в рынке (объединение интервалов). T-20 п.4 (26.09): плитки дашборда брали их из всех строк прогона."""
+    n = len(taken)
+    if not n:
+        return {"avg_usd": 0.0, "avg_bps": 0.0, "avg_win_bps": 0.0, "avg_loss_bps": 0.0,
+                "profit_factor": None, "open_minutes": 0.0}
+    wins = [x["net"] for x in taken if x["net"] > 0]
+    losses = [x["net"] for x in taken if x["net"] <= 0]
+    gl = -sum(losses)
+    open_ns, cur_a, cur_b = 0, None, None
+    for a, b in sorted((x["t0"], x["t1"]) for x in taken):
+        if cur_b is None or a > cur_b:
+            if cur_b is not None:
+                open_ns += cur_b - cur_a
+            cur_a, cur_b = a, b
+        else:
+            cur_b = max(cur_b, b)
+    open_ns += cur_b - cur_a
+    return {
+        "avg_usd": sum(x["pnl"] for x in taken) / n,
+        "avg_bps": sum(x["net"] for x in taken) / n,
+        "avg_win_bps": sum(wins) / len(wins) if wins else 0.0,
+        "avg_loss_bps": sum(losses) / len(losses) if losses else 0.0,
+        "profit_factor": (sum(wins) / gl) if gl > 0 else None,
+        "open_minutes": open_ns / 60e9,
+    }
+
+
 def load_run(home, run, set_name, form):
     rows = []
     for f in sorted(glob.glob(os.path.join(home, run, "20*", set_name, "rounds.csv"))):
@@ -304,7 +334,7 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
         open_pos.append((t1, pnl, r["usd"], r["sym"]))
         open_syms.add(r["sym"])
         taken.append({"t0": t0, "t1": t1, "sym": r["sym"], "pnl": pnl, "usd": r["usd"], "fill": r["fill"],
-                      "reason": reason, "dir": r["dir"], "entry": r["entry"], "fee": r["fee"]})
+                      "reason": reason, "dir": r["dir"], "entry": r["entry"], "fee": r["fee"], "net": net})
         peak_n = max(peak_n, len(open_pos))
         peak_usd = max(peak_usd, sum(u for _, _, u, _ in open_pos))
     settle(10**20)
@@ -314,7 +344,9 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
     mm = minute_curve(taken, klines, deposit, total)
     worst_day = min(realized.items(), key=lambda kv: kv[1]) if realized else ("—", 0.0)
     n = len(taken)
+    tstats = taken_stats(taken)
     return {
+        **tstats,
         "n": n, "skip": skipped, "killed": killed, "no_kline": no_kline,
         "fill": sum(x["fill"] for x in taken) / n if n else 0.0,
         "usd_mean": sum(x["usd"] for x in taken) / n if n else 0.0,
