@@ -22,6 +22,7 @@ set -uo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_env.sh
 source "$SELF_DIR/_env.sh"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
 cd /opt/alpha-compute || exit 1
 DAY=$(date -u +%F)
 FAMILIES="${FAMILIES:-a45 s100}"
@@ -54,7 +55,7 @@ print(" ".join(f"--symbol {s}" for s in sorted({r["symbol"] for r in rows if int
 PY
 }
 # Касания — из кэша ночного H3 (20.09, гейт пройден — COMMANDS.md); без суток в кэше монета реплеится сама.
-USD="--h3-mode notional --h3-usd 10000 --touches-from study/touches"
+USD="$ALPHA_H3 --touches-from study/touches"   # У3: порог — _env.sh
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 run_one() {
   local kind=$1; shift

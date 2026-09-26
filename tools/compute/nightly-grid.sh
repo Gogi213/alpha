@@ -21,6 +21,7 @@ set -uo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_env.sh
 source "$SELF_DIR/_env.sh"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
 # Машина — окружением (L8, 2026-09-22): ALPHA_HOME (умолчание /opt/alpha-compute — VPS-счётная,
 # root, системные юниты), на Steam Deck ALPHA_HOME=$HOME/alpha и пользовательские юниты (SC).
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
@@ -118,7 +119,7 @@ fi
 # Касания сеток — из кэша H3 (`study/touches/<сутки>/`, считается выше до сеток; 20.09): реплей книги
 # был 83 % времени сетки, гейт «те же rounds/forms» пройден на пяти монетах (COMMANDS.md); монета без
 # суток в кэше идёт реплеем сама (строка в grid.err). σ-форм в ночном наборе нет.
-USD="--h3-mode notional --h3-usd 10000"
+USD="$ALPHA_H3"   # У3: порог — _env.sh
 # Подходы (F10 этапа F, dev-plan-2026-09-20.md; замер M15 — approach-signal-2026-09-20.md):
 # H3-шаг заодно пишет `approaches-<SYMBOL>.csv` рядом с касаниями. Полоса D = 20 bps —
 # из замера (D=20: 276 подходов/сутки к стенам ≥ 45 мин, до касания 25,7 %, медиана 196 с;
@@ -169,7 +170,7 @@ for x in ${EARLY_EXIT:-}; do GRID="$GRID --early-exit-secs $x"; done
 # здесь то же значение ставится явно и экспортируется: иначе ночь упадёт, если
 # умолчание в скрипте когда-нибудь поменяют. Наборы F10 с моделью по объёму
 # включаются `QUEUE_MODEL=prob:<n>` (число — предрегистрация).
-QUEUE_MODEL="${QUEUE_MODEL:-risk-adverse}"
+QUEUE_MODEL="${QUEUE_MODEL:-${ALPHA_QUEUE_TOUCH#--queue-model }}"   # У3: умолчание — _env.sh (risk-adverse)
 export QUEUE_MODEL
 BASE="--stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1"
 # Журнал испытаний пишется один раз на (вид, конфигурацию осей): тег — хеш строки осей и форм.
@@ -397,10 +398,10 @@ if [ -z "$TOUCHES_ONLY" ]; then
     # S8 тейк в % (tk<x>, 20.09): смоук на 5 монетах — ближний тейк режет хвост часа (+$120 → tk1 +$64 → tk0.5 +$27);
     # одна регистрация на всём пуле, чтобы закрыть ось честно; 3 набора × 64 формы = 192 испытания.
     LABEL=tk FORMS="--stop-form pct1 --stop-form pct2 --take-form tk0.5 --take-form tk1" \
-      stage run_sets tk-a45-bid:age=2700,side=bid tk-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 tk-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+      stage run_sets $(alpha_sets tk-a45-bid tk-a45-bid-p4h-neg tk-a45-bid-b4h-neg)
     # S8 удержание (--deadline-secs, 20.09): 30 мин и 4 ч рядом с базовыми; стопы pct1/pct2, тейк 1:1 — 12 форм × 3 набора = 36.
     LABEL=dl FORMS="--stop-form pct1 --stop-form pct2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --deadline-secs 1800 --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400" \
-      stage run_sets dl-a45-bid:age=2700,side=bid dl-a45-bid-p4h-neg:age=2700,side=bid,pool4h_max=0 dl-a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0
+      stage run_sets $(alpha_sets dl-a45-bid dl-a45-bid-p4h-neg dl-a45-bid-b4h-neg)
     # E7 — другие формы и лот, поэтому свой процесс.
     stage run_one e7-a15-s10-any $USD $GRID --min-age-secs 900 --min-flow-pct 10 $E7 $DAY_ARGS
     # Скальп-отскок практиков отдельно от «дрейфа от стены» (аудит дизайна 22.09 §2, В-85 п. 4–5):
@@ -408,7 +409,7 @@ if [ -z "$TOUCHES_ONLY" ]; then
     # «прилипанию» off/1/2/3 с (В-58 п. 5) — главное правило S/D/T, до 22.09 в сетке выключенное.
     # 3 стопа × 2 дедлайна × 4 = 24 формы × 4 набора = 96 испытаний (prereg в runs.csv 22.09).
     LABEL=scalp FORMS="--stop-form at --stop-form behind --stop-form stack2 --take-form 1to1 --deadline-secs 60 --deadline-secs 600 --early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3" \
-      stage run_sets scalp-a45-bid:age=2700,side=bid scalp-a45-ask:age=2700,side=ask scalp-s100-bid:flow=100,side=bid scalp-s100-ask:flow=100,side=ask
+      stage run_sets $(alpha_sets scalp-a45-bid scalp-a45-ask scalp-s100-bid scalp-s100-ask)
   else
     echo "== $(date -u +%FT%TZ) OLD_BASE=0 — старая база/tk/dl/E7/скальп пропущены намеренно (В-108)" >> "$LOG"
   fi
@@ -439,7 +440,7 @@ if [ -z "$TOUCHES_ONLY" ]; then
   # НЕ bin/alpha (тот — alpha-e5c8847, ночная сетка). FROM_DAY=2026-09-16 — весь ряд, чтобы дозапись
   # подхватила пропуск, если он когда-то случится; готовые сутки идемпотентно пропускаются.
   if ! mv_out=$(ALPHA_HOME="$ALPHA_HOME" FROM_DAY=2026-09-16 OOS_DIR=b5/titrc-u500r \
-      SETS="t-bid-age-45:age=2700,side=bid t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17 t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55" \
+      SETS="$(alpha_sets t-bid-age-45 t-bid-btc1h-q1 t-bid-btc4h-q1)" \
       FORM_EXIT="--stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.75 --deadline-secs 14400 --exit-form none" \
       FORM_NAME=all ORDER="--order-usd 500" BIN=bin/alpha-7bdf9a4 GRID_THREADS="${GRID_THREADS:-2}" DAY_JOBS="${DAY_JOBS:-2}" RUNS="$RUNS" \
       "$ALPHA_HOME/bin/oos-frozen.sh" 2>&1); then

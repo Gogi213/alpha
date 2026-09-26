@@ -16,7 +16,12 @@ A="${ALPHA_BASE:-$HOME/alpha}"
 OLD="${OLD:?старый бинарник}"; NEW="${NEW:?новый бинарник}"
 OUT="${OUT:-$(mktemp -d)}"
 WINDOWS="${WINDOWS:-3600000 300000}"
-H3="--h3-mode notional --h3-usd 10000"
+# У3: порог — _env.sh рядом со скриптом (копия гейта вне bin/ берёт его из $A/bin/).
+ENV_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"; [ -f "$ENV_SH" ] || ENV_SH="$A/bin/_env.sh"
+# shellcheck source=_env.sh
+source "$ENV_SH"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
+H3="$ALPHA_H3"
 # BANDS — полоса подхода (умолчание — ночная, с полом 900 с); T-17 Р1 гоняет и без пола: BANDS="--approach-bps 20".
 BANDS="${BANDS:---approach-bps 20 --approach-min-age-secs 900}"
 cd "$A" || exit 1

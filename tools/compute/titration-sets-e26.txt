@@ -1,0 +1,1 @@
+t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55 t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17  t-bid-btc2h-q1:age=2700,side=bid,btc2h_max=-30.56 t-bid-btc3h-q1:age=2700,side=bid,btc3h_max=-38.75

@@ -21,6 +21,9 @@
 # Артефакты: $ALPHA_HOME/b5/<метка>/{rounds.csv,forms.csv,manifest.txt},
 # логи grid.out/grid.err там же; состояние — systemctl status alpha-grid-<метка>.
 set -euo pipefail
+# shellcheck source=_env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"   # У3: задержка и очередь — одно определение
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
 LABEL="${1:?метка прогона}"; shift
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 OUT=$ALPHA_HOME/b5/$LABEL
@@ -32,13 +35,16 @@ UNIT="alpha-grid-$LABEL"
 SCOPE=(); [ "$(id -u)" = 0 ] || SCOPE=(--user)   # без root — пользовательские юниты (дек)
 systemctl "${SCOPE[@]}" reset-failed "$UNIT" 2>/dev/null || true
 SLICE=(); [ -n "${GRID_SLICE:-}" ] && SLICE=(--slice="$GRID_SLICE")   # общий потолок памяти ночи (дек)
+# shellcheck disable=SC2206 # константы _env.sh — строки флагов, делятся по словам
+QUEUE=($ALPHA_QUEUE_TOUCH); [ -n "${QUEUE_MODEL:-}" ] && QUEUE=(--queue-model "$QUEUE_MODEL")
+# shellcheck disable=SC2206
+RTT=($ALPHA_RTT)
 exec systemd-run "${SCOPE[@]}" "${SLICE[@]}" --unit="$UNIT" --nice=15 \
   -p MemoryMax="${GRID_MEM:-4G}" -p MemorySwapMax=0 -p CPUWeight=30 \
   -p WorkingDirectory="$ALPHA_HOME" \
   -p StandardOutput=append:"$OUT/grid.out" -p StandardError=append:"$OUT/grid.err" \
   -- "$ALPHA_HOME/bin/alpha" lob bounce-grid \
     --root "$ALPHA_HOME/root" \
-    --queue-model "${QUEUE_MODEL:-risk-adverse}" \
-    --median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000 \
+    "${QUEUE[@]}" "${RTT[@]}" \
     --order-qty-from-pool --threads "${THREADS:-3}" \
     --out-dir "$OUT" "$@"

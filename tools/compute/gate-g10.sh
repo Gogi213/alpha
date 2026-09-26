@@ -14,26 +14,29 @@ A="${ALPHA_BASE:-$HOME/alpha}"
 OLD="${OLD:?старый бинарник}"; NEW="${NEW:?новый бинарник}"
 OUT="${OUT:-$(mktemp -d)}"
 mkdir -p "$OUT" || { echo "каталог $OUT не создаётся"; exit 1; }
-RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
-USD="--h3-mode notional --h3-usd 10000 --order-qty-from-pool --threads 2"
+# У3/У2: константы и наборы — _env.sh и реестр sets.txt рядом со скриптом (копия гейта вне bin/ берёт их из $A/bin/).
+ENV_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"; [ -f "$ENV_SH" ] || ENV_SH="$A/bin/_env.sh"
+# shellcheck source=_env.sh
+source "$ENV_SH"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
+RTT="$ALPHA_RTT"
+USD="$ALPHA_H3 --order-qty-from-pool --threads 2"
 
 touch_args="--touches-from study/touches --regime-from study/regime --touches-cache-only --signal touch \
-  --entry-form single@fr --entry-ttl-secs wall --band-exit-bps 20 --queue-model risk-adverse $RTT $USD \
+  --entry-form single@fr --entry-ttl-secs wall --band-exit-bps 20 $ALPHA_QUEUE_TOUCH $RTT $USD \
   --stop-form before --stop-form at --stop-form behind --stop-form midfr --stop-form stack2 \
   --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form 1to1 --exit-form none \
-  --set a45-bid:age=2700,side=bid --set a45-ask:age=2700,side=ask --set s100-bid:flow=100,side=bid \
-  --set s100-ask:flow=100,side=ask --set a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
-exit_args="--touches-from study/approaches/D20 --regime-from study/regime --signal approach --queue-model prob:3 $RTT $USD \
+  $(alpha_set_args a45-bid a45-ask s100-bid s100-ask a45-bid-b4h-neg)"
+exit_args="--touches-from study/approaches/D20 --regime-from study/regime --signal approach $ALPHA_QUEUE_APPROACH $RTT $USD \
   --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
   --stop-form pct0.5 --stop-form pct2 --take-form tk0.5 --take-form tk2 --take-form tr1x1 \
   --deadline-secs 3600 --deadline-secs 7200 --deadline-secs 14400 \
   --exit-form none --exit-form eat20 --exit-form gone20 --exit-form gone90tr0.5 \
-  --set t-bid-age-45:age=2700,side=bid --set t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17 \
-  --set t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55 --set t-ask-age-45:age=2700,side=ask"
+  $(alpha_set_args t-bid-age-45 t-bid-btc1h-q1 t-bid-btc4h-q1 t-ask-age-45)"
 e7_args="--touches-from study/touches --regime-from study/regime --touches-cache-only --signal touch \
-  --entry-form single@fr --entry-ttl-secs wall --band-exit-bps 20 --queue-model risk-adverse $RTT $USD \
+  --entry-form single@fr --entry-ttl-secs wall --band-exit-bps 20 $ALPHA_QUEUE_TOUCH $RTT $USD \
   --stop-form pct0.5 --stop-form pct1 --stop-form pct2 --take-form half1to1 --take-form eat50x80 --order-qty-mult 2 \
-  --set a15-s10-any:age=900,flow=10 --set a45-bid:age=2700,side=bid --set a45-ask:age=2700,side=ask"
+  $(alpha_set_args a15-s10-any a45-bid a45-ask)"
 
 run() {  # $1 дом, $2 день, $3 случай, $4 бинарник-метка, $5 бинарник, $6.. доп. флаги
   local home=$1 day=$2 kind=$3 tag=$4 bin=$5; shift 5

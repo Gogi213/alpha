@@ -13,12 +13,15 @@ OUT="${OUT:-$(mktemp -d)}"
 MEM_CAP="${MEM_CAP:-13G}"
 MEM_THREADS="${MEM_THREADS:-1}"   # Р6, условие Судьи 3: замер при рабочем --threads
 mkdir -p "$OUT" || exit 1
-RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
-FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --order-usd 500 --carry-root root \
-  --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
+# У3/У2: константы и наборы — _env.sh и реестр sets.txt рядом со скриптом (копия гейта вне bin/ берёт их из $A/bin/).
+ENV_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"; [ -f "$ENV_SH" ] || ENV_SH="$A/bin/_env.sh"
+# shellcheck source=_env.sh
+source "$ENV_SH"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
+FORM="--signal approach $ALPHA_QUEUE_APPROACH $ALPHA_RTT --regime-from study/regime --order-usd 500 --carry-root root \
+  $ALPHA_H3 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
   --stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.75 --deadline-secs 14400 --exit-form none \
-  --set t-bid-age-45:age=2700,side=bid --set t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17 \
-  --set t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55"
+  $(alpha_set_args t-bid-age-45 t-bid-btc1h-q1 t-bid-btc4h-q1)"
 fail=0
 
 run() {  # $1 дом, $2 сутки, $3 бинарник (абсолютный), $4 каталог выхода, $5.. доп. (напр. --symbol)

@@ -21,6 +21,7 @@ set -uo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_env.sh
 source "$SELF_DIR/_env.sh"
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 cd "$ALPHA_HOME" || exit 1
 FROM_DAY="${FROM_DAY:-2026-09-23}"
@@ -30,7 +31,6 @@ RUNS="${RUNS:-$RUNS_JOURNAL}"
 OOS_DIR="${OOS_DIR:-b5/oos-frozen}"   # другой каталог — проверочный прогон вне официального OOS
 TAG="$(basename "$OOS_DIR")"
 LOG="${LOG:-study/$TAG.log}"
-RTT="--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 --p95-rtt-ns place=4790000,cancel=4550000,taker=6420000"
 # ORDER — размер позиции. Умолчание — минимальный лот биржи (22а, ~$5): так считались все прогоны до 23.09, и
 # доллары в отчётах были процентом × $1000, а не исполнением на $1000. `ORDER="--order-usd 500"` (владелец 23.09:
 # «объём позиции 500, полный») — вся лестница на $500, очередь и выход исполняют реальный размер.
@@ -38,13 +38,13 @@ ORDER="${ORDER:---order-qty-from-pool}"
 # CARRY — позиция, открытая к концу суток UTC, досчитывается на следующих сутках из root/ (исправление 23.09: без
 # него она выпадала из итога — 35 символо-суток на 189 сделок кандидата). Пусто — прежнее поведение.
 CARRY="${CARRY---carry-root root}"
-FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime $ORDER $CARRY \
-  --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
+FORM="--signal approach $ALPHA_QUEUE_APPROACH $ALPHA_RTT --regime-from study/regime $ORDER $CARRY \
+  $ALPHA_H3 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
   ${FORM_EXIT:---stop-form pct2 --take-form 1to1 --deadline-secs 7200 --exit-form none}"
 # FORM_EXIT — титрование выхода (план 2026-09-23, G9): вход тот же замороженный, выход — сетка
 # (`--stop-form`/`--take-form`/`--deadline-secs`/`--exit-form` повторами). Тогда FORM_NAME=all: контроль
 # рынка печатается по каждой форме. Для замороженного OOS не задаётся.
-SETS_FROZEN="a45-bid:age=2700,side=bid a45-bid-b4h-neg:age=2700,side=bid,btc4h_max=0"
+SETS_FROZEN="$(alpha_sets a45-bid a45-bid-b4h-neg)"   # определения — реестр sets.txt (У2)
 # SETS — другие наборы поверх той же замороженной формы (титрование, план 2026-09-23 G4/G5); форма не
 # меняется. Для замороженного OOS не задаётся. VERDICT_FLAGS — `--log-trials` у титрования: каждая
 # корзина — испытание, журнал считает их для DSR.

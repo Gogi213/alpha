@@ -7,6 +7,9 @@
 # Артефакты: study/approaches/D<D>/<сутки>/{touches,approaches}-<SYM>.csv + логи;
 # сводку читает bin/approach-signal.py.
 set -euo pipefail
+# shellcheck source=_env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"   # У3: порог H3 — до `cd`
+: "${ALPHA_H3:?_env.sh без констант У3 — выложить bin/_env.sh и bin/sets.txt}"
 ALPHA_HOME="${ALPHA_HOME:-/opt/alpha-compute}"
 cd "$ALPHA_HOME" || exit 1
 D="${1:?полоса подхода D в bps}"
@@ -27,7 +30,7 @@ for day in "${DAYS[@]}"; do
   fi
   mkdir -p "$out"
   xargs -r -P "$JOBS" -I{} nice -n 15 bash -c \
-    "$BIN lob touches --root '$src' --symbol {} --h3-mode notional --h3-usd 10000 \
+    "$BIN lob touches --root '$src' --symbol {} $ALPHA_H3 \
        --approach-bps $D --out '$out/touches-{}.csv' >'$out/{}.log' 2>&1 \
        || echo {} >> '$out/failed.txt'" < "$syms"
   files=$(ls "$out"/approaches-*.csv 2>/dev/null | wc -l)
