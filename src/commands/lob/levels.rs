@@ -9,7 +9,7 @@
 //! Прогон короче окна `repeat_count` метит первую строку CSV предупреждением
 //! — критерий приёмки таска 02 (`short_run_marks_csv_header_with_debug_warning`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -114,26 +114,43 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
         .out
         .clone()
         .unwrap_or_else(|| args.root.join(format!("levels-{}.csv", args.symbol)));
+    let n = write_levels_csv(&out, &replay.days, args.repeat_window_ms)?;
+    Ok(LevelsSummary {
+        days: replay.days.len(),
+        levels: n,
+        out,
+    })
+}
+
+/// Запись уровней суток реплея в CSV — общий писатель `lob levels` и `lob touches
+/// --levels-out` (T-14, план «один проход» T-05): оба пути пишут одни байты, включая
+/// строку `# debug` прогона короче окна `repeat_count` (`repeat_window_ms` — окно того
+/// реплея, чьи записи пишутся). Возвращает число строк уровней.
+pub(crate) fn write_levels_csv(
+    out: &Path,
+    days: &[super::ReplayDay],
+    repeat_window_ms: i64,
+) -> anyhow::Result<usize> {
     if let Some(parent) = out.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
-    let short_span_ms = replay.days.iter().map(day_span_ms).min();
+    let short_span_ms = days.iter().map(day_span_ms).min();
     let debug_warning = short_span_ms
-        .filter(|&span| span < args.repeat_window_ms)
+        .filter(|&span| span < repeat_window_ms)
         .map(|span| {
             format!(
                 "lob levels: debug — прогон короче окна repeat_count ({span} мс < {} мс), \
              repeat_count занижен, данными не является",
-                args.repeat_window_ms
+                repeat_window_ms
             )
         });
     if let Some(msg) = &debug_warning {
         eprintln!("{msg}");
     }
 
-    let mut file = std::fs::File::create(&out)?;
+    let mut file = std::fs::File::create(out)?;
     if let Some(msg) = &debug_warning {
         use std::io::Write as _;
         writeln!(file, "# {msg}")?;
@@ -157,7 +174,7 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
         "outcome",
     ])?;
     let mut n = 0usize;
-    for day in &replay.days {
+    for day in days {
         for r in &day.records {
             w.write_record([
                 day.day.clone(),
@@ -180,11 +197,7 @@ pub fn run_levels(args: &LevelsArgs) -> anyhow::Result<LevelsSummary> {
         }
     }
     w.flush()?;
-    Ok(LevelsSummary {
-        days: replay.days.len(),
-        levels: n,
-        out,
-    })
+    Ok(n)
 }
 
 #[cfg(test)]

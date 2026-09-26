@@ -392,7 +392,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
         LobCommand::Touches(args) => {
             let summary = run_touches(&args)?;
             println!(
-                "touches: days={} touches={} approaches={}{} out={}",
+                "touches: days={} touches={} approaches={}{} out={}{}",
                 summary.days,
                 summary.touches,
                 summary.approaches,
@@ -405,7 +405,11 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                         rest.len()
                     ),
                 },
-                summary.out.display()
+                summary.out.display(),
+                match &summary.levels_out {
+                    Some((path, n)) => format!(" levels={n} levels_out={}", path.display()),
+                    None => String::new(),
+                }
             );
             Ok(())
         }

@@ -1,8 +1,9 @@
 use super::*;
 use crate::book::Side;
+use crate::commands::lob::levels::{run_levels, LevelsArgs};
 use crate::commands::lob::replay::ReplayDay;
 use crate::commands::lob::replay_symbol;
-use crate::commands::lob::test_support::{touch_frames, write_day};
+use crate::commands::lob::test_support::{three_level_frames, touch_frames, write_day};
 use crate::commands::lob::H3ModeArg;
 use crate::lob::excursion::SecondMids;
 use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
@@ -32,6 +33,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         allow_unverified: true,
         carry_age: false,
         emit_day: None,
+        levels_out: None,
     }
 }
 
@@ -443,5 +445,98 @@ fn approach_row_pair_names_match_the_written_header() {
     assert_eq!(
         names, APPROACHES_COLUMNS,
         "порядок имён из пар обязан совпадать с заголовком CSV"
+    );
+}
+
+/// Аргументы `lob levels` с теми же `--h3-*`/`--warmup-ms`/`--repeat-window-ms`, что у касаний:
+/// эталон `--levels-out` (T-14).
+fn levels_args_like(t: &TouchesArgs, out: std::path::PathBuf) -> LevelsArgs {
+    LevelsArgs {
+        root: t.root.clone(),
+        symbol: t.symbol.clone(),
+        h3: t.h3,
+        h3_k: t.h3_k,
+        warmup_ms: t.warmup_ms,
+        repeat_window_ms: t.repeat_window_ms,
+        out: Some(out),
+    }
+}
+
+/// T-14 (план «один проход», условия Судьи 1 и 3): `lob touches --levels-out` пишет те же
+/// байты, что `lob levels` при тех же флагах, — с полосой подхода и без, при окне
+/// `repeat_count` длиннее прогона (строка `# debug` в шапке) и короче его (строки нет).
+#[test]
+fn levels_out_matches_lob_levels_bytes() {
+    for (name, frames, min_levels) in [
+        ("three", three_level_frames(), 4usize),
+        ("touch", touch_frames(), 1),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        write_day(dir.path(), "SOLUSDT", "2026-09-08", &frames);
+        for window_ms in [3_600_000i64, 1] {
+            for bands in [Vec::new(), vec![700i64]] {
+                let tag = format!("{name}-w{window_ms}-b{}", bands.len());
+                let mut t = touches_args(dir.path());
+                t.repeat_window_ms = window_ms;
+                t.approach_bps = bands;
+                t.out = Some(dir.path().join(&tag).join("touches-SOLUSDT.csv"));
+                let via_touches = dir.path().join(&tag).join("levels-via-touches.csv");
+                t.levels_out = Some(via_touches.clone());
+                let ts = run_touches(&t).unwrap();
+                let reference = dir.path().join(&tag).join("levels-reference.csv");
+                let ls = run_levels(&levels_args_like(&t, reference.clone())).unwrap();
+                let a = std::fs::read(&via_touches).unwrap();
+                let b = std::fs::read(&reference).unwrap();
+                assert_eq!(a, b, "{tag}: уровни из прохода касаний ≠ lob levels");
+                assert_eq!(ts.levels_out, Some((via_touches, ls.levels)), "{tag}");
+                assert!(
+                    ls.levels >= min_levels,
+                    "{tag}: фикстура без уровней — сравнение пустое"
+                );
+                let text = String::from_utf8(a).unwrap();
+                assert_eq!(
+                    text.starts_with("# lob levels: debug"),
+                    window_ms == 3_600_000,
+                    "{tag}: строка debug обязана стоять ровно при окне длиннее прогона"
+                );
+            }
+        }
+    }
+}
+
+/// T-14: без `--levels-out` файла уровней нет и итог его не называет — прежнее поведение.
+#[test]
+fn levels_out_absent_writes_no_levels_file() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &three_level_frames());
+    let summary = run_touches(&touches_args(dir.path())).unwrap();
+    assert_eq!(summary.levels_out, None);
+    assert!(!dir.path().join("levels-SOLUSDT.csv").exists());
+}
+
+/// T-14 (условие Судьи 2): там, где эталона `lob levels` нет, — отказ до реплея, и отказ
+/// называет `--levels-out`.
+#[test]
+fn levels_out_refuses_without_reference() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &three_level_frames());
+    let with_levels = || {
+        let mut t = touches_args(dir.path());
+        t.levels_out = Some(dir.path().join("levels-x.csv"));
+        t
+    };
+    let mut carry = with_levels();
+    carry.carry_age = true;
+    let mut emit = with_levels();
+    emit.emit_day = Some("2026-09-08".to_string());
+    let mut bands = with_levels();
+    bands.approach_bps = vec![700, 300];
+    for (what, args) in [("carry", carry), ("emit", emit), ("bands", bands)] {
+        let err = run_touches(&args).expect_err(what).to_string();
+        assert!(err.contains("--levels-out"), "{what}: {err}");
+    }
+    assert!(
+        !dir.path().join("levels-x.csv").exists(),
+        "отказ — до реплея и записи"
     );
 }

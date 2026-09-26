@@ -73,6 +73,24 @@ pub(super) fn resolve(args: &TouchesArgs) -> anyhow::Result<ResolvedPlan> {
         approach_bps: bands.first().copied(),
         approach_min_age_ms: args.approach_min_age_secs.saturating_mul(1_000),
     };
+    // T-14 (`--levels-out`): эталон уровней — `lob levels`, реплей без переноса возраста, всех
+    // суток корня, одним трекером. Где эталона нет — отказ до реплея (разбор Судьи 26.09,
+    // `docs/research/reviews/one-pass-plan-2026-09-26.md`, условие 2); раньше прочих проверок
+    // переноса — отказ называет именно `--levels-out` в любом режиме.
+    if args.levels_out.is_some() {
+        anyhow::ensure!(
+            !args.carry_age,
+            "--levels-out с --carry-age: у lob levels переноса возраста нет — эталона уровней нет"
+        );
+        anyhow::ensure!(
+            args.emit_day.is_none(),
+            "--levels-out с --emit-day: lob levels пишет все сутки корня — эталона уровней нет"
+        );
+        anyhow::ensure!(
+            bands.len() <= 1,
+            "--levels-out с несколькими полосами --approach-bps: уровни пишет один трекер — задайте одну полосу"
+        );
+    }
     anyhow::ensure!(
         !args.carry_age || !matches!(mode, H3Mode::Percentile { .. }),
         "--carry-age: режим percentile с прогревом перенос возраста не принимает (прогрев — про порог)"

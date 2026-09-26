@@ -131,6 +131,14 @@ pub struct TouchesArgs {
     /// для переноса возраста (`--carry-age`), — но кэш суток остаётся кэшем одних суток.
     #[arg(long)]
     pub emit_day: Option<String>,
+    /// Заодно записать **уровни** этого же реплея в этот CSV (T-14, план «один проход» T-05):
+    /// трекер касаний уже держит записи уровней (`ReplayKeep::ALL`), второй реплей `lob levels`
+    /// не нужен. Писатель общий с `lob levels` (`levels::write_levels_csv`) — при тех же
+    /// `--h3-*`/`--warmup-ms`/`--repeat-window-ms` те же байты (полоса подхода смертей не
+    /// меняет). Без флага файла нет, касания и подходы — прежние байты. Отказ с `--carry-age`,
+    /// `--emit-day` и несколькими полосами `--approach-bps`: там эталона `lob levels` нет.
+    #[arg(long)]
+    pub levels_out: Option<PathBuf>,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -144,6 +152,8 @@ pub struct TouchesSummary {
     /// Файлы записей подхода, если они писались: первый — привычное имя
     /// `approaches-<symbol>.csv`, дальше по полосе на файл (`-D<d>`).
     pub approaches_out: Vec<PathBuf>,
+    /// Файл уровней и число строк в нём (`--levels-out`), если писался.
+    pub levels_out: Option<(PathBuf, usize)>,
 }
 
 /// Ширина строки CSV — один источник арности для заголовка и строки:
@@ -544,6 +554,15 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     // Минутный ряд середины — рядом с касаниями (S3: режим пула по минутам).
     write_mids1m(&mids1m_path(&out, &args.symbol), &replay.days)?;
 
+    // Уровни того же реплея (T-14): отказы без эталона `lob levels` — в `plan::resolve`.
+    let levels_out = match &args.levels_out {
+        Some(path) => {
+            let n = super::levels::write_levels_csv(path, &replay.days, cfg.repeat_window_ms)?;
+            Some((path.clone(), n))
+        }
+        None => None,
+    };
+
     // Переезды плотностей (T42, В-46) — отдельным файлом: окно поиска
     // проверено `plan::resolve` (W5а), здесь оно уже гарантированно задано и
     // положительно.
@@ -571,6 +590,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
         approaches: n_ap,
         out,
         approaches_out: approaches_out.unwrap_or_default(),
+        levels_out,
     })
 }
 

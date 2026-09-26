@@ -550,6 +550,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         allow_unverified: false,
         carry_age: false,
         emit_day: None,
+        levels_out: None,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -649,6 +650,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         allow_unverified: false,
         carry_age: false,
         emit_day: None,
+        levels_out: None,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
