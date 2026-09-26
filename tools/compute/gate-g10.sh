@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Гейт G10 «ускорение без потерь» (владелец 23.09: «даблчек, что ничего не поломается и всё охватится»).
-#   OLD=bin/alpha-<старый> NEW=bin/alpha-<новый> gate-g10.sh
+#   OLD=bin/alpha-<старый> NEW=bin/alpha-<новый> [GATE_JOBS=3] gate-g10.sh
 # На каждом дне и случае — три прогона: старый бинарник, новый с памятью кругов (`--round-memo on`,
 # умолчание), новый без памяти (`off`); тела `rounds.csv` и `forms.csv` каждого набора (строки `#`
 # отброшены — в шапке аргументы) обязаны совпасть побайтово. Случаи:
@@ -50,8 +50,12 @@ for kind in touch exit e7; do
   for spec in $days; do
     home=${spec%%:*}; day=${spec##*:}
     [ "$kind" = e7 ] && [ "$day" != 2026-09-05 ] && [ "$day" != 2026-09-19 ] && continue
+    # GATE_JOBS — сколько из трёх прогонов идут разом (умолчание 3 — прежнее; устав команды 26.09:
+    # `bounce-grid` на деке ≤ 2 процессов, ~5,7 ГБ каждый — GATE_JOBS=2 или 1).
     run "$home" "$day" "$kind" old "$OLD" &
+    [ "${GATE_JOBS:-3}" -lt 2 ] && wait
     run "$home" "$day" "$kind" on "$NEW" &
+    [ "${GATE_JOBS:-3}" -lt 3 ] && wait
     run "$home" "$day" "$kind" off "$NEW" --round-memo off &
     wait
     # Прогон, упавший до записи, — провал гейта, а не «пусто»: пустые каталоги не дают ложного OK.
