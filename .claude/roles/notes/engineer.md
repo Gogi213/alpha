@@ -11,7 +11,12 @@
   гейт Р3 → Р2 (кода-читателя подходов пол 900 нет — спросить Исследователя) → Р5 → Р6.
 - Окно под гейт Р3 — через ≈ 3,5–4 ч от 26.09 ~04:40 UTC (после Г-33 и 14.09 без LSK), Исследователь напишет
   «Steam Deck свободен».
-- Р6 (в работе, Судья «принято», `reviews/backtest-optimization-2026-09-26.md` «План Р6»): CompactEvent 32 Б
+- Р6 КОД ГОТОВ: 975de7d (локально 1022/0/9, VPS 1023/0/9, md5 0cc96c9d…), на деке `bin/alpha-975de7d`; окно №2
+  подготовлено `~/alpha/tmp-r6/window2.sh` (gate-g10 80b58cc→975de7d → gate-carry + LSK 14.09 при --threads 2 →
+  r3 старый/новый → gate-merge Р3), лог `~/alpha/tmp-r6/window2.log`. Запуск — по «Steam Deck свободен» от
+  Исследователя: `systemd-run --user --unit=alpha-r6-window --collect bash ~/alpha/tmp-r6/window2.sh`.
+  Тест малого горизонта поймал недоработку проверки (конец данных внутри Submitted) — исправлено.
+- Р6 (план, Судья «принято», `reviews/backtest-optimization-2026-09-26.md` «План Р6»): CompactEvent 32 Б
   (`local_ts`, `exch_ms<<2|kind`, `px_e9`, `qty_e9`); translate_feed_until → выдаёт компактное, путь Event =
   expand(compact) (одна правда); буфер суток компактный; SignalWindows читает компактный; круг — развёртка до
   горизонта (формула carry_window_ns) в буфер потока, проверка после круга (последняя строка: local_ts и exch_ts
