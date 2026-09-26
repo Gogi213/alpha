@@ -5,7 +5,7 @@
 #   рабочие (JOBS): монета-сутки скачана → импорт в бинлог → в накопитель $BASE/stage (сырьё удалено сразу);
 #   заливщик: накопилось ≥ BATCH_GB (или импорт кончился) → пачка одной передачей rsync → манифест sha256,
 #   сверка сумм самим Storage Box → пачка удалена с VPS → её строки в журнал готового.
-# Владелец 27.09: «балком заливать по 20 гб» (на мелких файлах время съедали рукопожатия и сверка по файлу);
+# Владелец 27.09: «балком заливать по 20 гб», CEO 27.09 — 10 ГБ под диск VPS (на мелких файлах время съедали рукопожатия и сверка по файлу);
 # «чтобы данные не сидели на передержке» — временное: только $BASE/{tmp,stage,batch-*}; рабочие ждут, пока на /
 # меньше MIN_FREE_GB, поэтому накопитель + заливаемая пачка ≤ (свободно − MIN_FREE_GB).
 # Храним только бинлог, как `e-aug`: сырьё Bybit (ob200 zip + сделки ≈ 1,65× бинлога) скачивается заново.
@@ -25,7 +25,8 @@ SKIP_FROM="${SKIP_FROM:-}"; SKIP_TO="${SKIP_TO:-}"   # пропуск диапа
 BASE="${BASE:-/opt/alpha-archive}"
 BIN="${BIN:-$BASE/bin/alpha}"
 JOBS="${JOBS:-4}"
-BATCH_GB="${BATCH_GB:-20}"
+BATCH_GB="${BATCH_GB:-10}"      # CEO 27.09: 10 ГБ (было 20 — VPS 73 ГБ, свободно ~30)
+STAGE_MAX_GB="${STAGE_MAX_GB:-2}"   # пока пачка заливается, накопитель не больше этого (≈ сутки)
 MIN_FREE_GB="${MIN_FREE_GB:-8}"
 SBH=u677479@u677479.your-storagebox.de
 SSHC="ssh -p 23 -i /root/.ssh/id_storagebox -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
@@ -34,7 +35,7 @@ RECENT=$(date -u -d "3 days ago" +%F)
 mkdir -p "$TMP" "$STAGE" "$LOGD/verify"; touch "$DONE" "$STAGED"
 rm -rf "${TMP:?}"/*   # хвосты прошлого сбоя; накопитель и недолитые пачки остаются — их зальёт этот запуск
 log() { echo "$(date -u +%FT%TZ) $*" >> "$RUN"; }
-export BIN SBH SSHC TMP STAGE LOGD DONE STAGED RUN MIN_FREE_GB BASE RECENT
+export BIN SBH SSHC TMP STAGE LOGD DONE STAGED RUN MIN_FREE_GB STAGE_MAX_GB BASE RECENT
 export -f log
 
 mon() { case ${1:5:2} in 01) echo jan;; 02) echo feb;; 03) echo mar;; 04) echo apr;; 05) echo may;; 06) echo jun;;
@@ -47,7 +48,11 @@ one() {
   [ -f "$STAGE/$m/$sym-$day.binlog" ] && return                         # импортирован, ждёт пачки
   ls "$BASE"/batch-*/"$m/root/$sym-$day.binlog" >/dev/null 2>&1 && return      # в недолитой пачке
   [ "$(grep -cE "^$day $sym fail " "$DONE")" -ge 3 ] && return
-  while [ "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" -lt "$MIN_FREE_GB" ]; do sleep 30; done
+  # одна пачка на диске: пока она заливается и сверяется, накопитель растёт не больше STAGE_MAX_GB
+  while [ "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" -lt "$MIN_FREE_GB" ] \
+     || { ls -d "$BASE"/batch-*/ >/dev/null 2>&1 && [ "$(du -s -BG "$STAGE" | tr -dc 0-9)" -ge "$STAGE_MAX_GB" ]; }; do
+    sleep 30
+  done
   local w="$TMP/$sym-$day" st note
   mkdir -p "$w"; ln -sf "$BASE/instruments.csv" "$w/instruments.csv"
   if ! curl -sf --retry 5 --retry-delay 10 --max-time 1800 -o "$w/ob.zip" \
@@ -93,19 +98,19 @@ push_batch() {
   [ -f "$b.sha256" ] || (cd "$b" && echo "$files" | xargs sha256sum) > "$b.sha256"
   local try t0; t0=$(date +%s)
   for try in 1 2 3; do
+    # манифест с путями от домашнего каталога ящика: сверка — один вызов `sha256sum -c` самим ящиком
+    sed 's#  #  alpha/epochs/#' "$b.sha256" > "$b.check"
     if rsync -a --partial -e "$SSHC" "$b/" "$SBH:alpha/epochs/"; then
-      local remote; remote=$(echo "$files" | sed 's#^#alpha/epochs/#' | xargs -n 150 $SSHC $SBH sha256sum 2>&1 \
-        | sed 's#  alpha/epochs/#  #')
-      if diff -q <(sort -k2 "$b.sha256") <(echo "$remote" | sort -k2) >/dev/null; then
-        $SSHC $SBH mkdir -p alpha/epochs/manifests
-        rsync -a -e "$SSHC" "$b.sha256" "$SBH:alpha/epochs/manifests/$name.sha256"
+      $SSHC $SBH mkdir -p alpha/epochs/manifests
+      rsync -a -e "$SSHC" "$b.check" "$SBH:alpha/epochs/manifests/$name.sha256"
+      if $SSHC $SBH sha256sum -c --quiet "alpha/epochs/manifests/$name.sha256" >> "$RUN" 2>&1; then
         while read -r sha f; do
           local fn=${f##*/}; local sym=${fn%-20*}; local day=${fn#"$sym"-}; day=${day%.binlog}
           local st; st=$(grep -E "^$day $sym (ok|gaps)$" "$STAGED" | tail -1 | cut -d' ' -f3)
           echo "$day $sym ${st:-ok} $(stat -c %s "$b/$f") $sha $name"
         done < "$b.sha256" | flock "$DONE" sh -c "cat >> '$DONE'"
         log "пачка $name: $(echo "$files" | wc -l) файлов, $((bytes / 1000000)) МБ за $(( $(date +%s) - t0 )) с, суммы совпали"
-        rm -rf "$b" "$b.sha256"
+        rm -rf "$b" "$b.sha256" "$b.check"
         return 0
       fi
       log "пачка $name: суммы не совпали (попытка $try)"

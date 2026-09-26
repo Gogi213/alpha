@@ -1,4 +1,4 @@
-# T-30 (В-118): архив Bybit → Hetzner Storage Box пачками по 20 ГБ, конвейером на VPS
+# T-30 (В-118): архив Bybit → Hetzner Storage Box пачками по 10 ГБ, конвейером на VPS
 # (`tools/compute/archive-to-box.sh`, журнал /opt/alpha-archive/log/{run.log,done.txt,summary.txt}).
 # 01.01.2026 → вчера; запускает таймер раз в сутки (новые сутки архива),
 # готовое пропускается по журналу. Ставится так:
@@ -14,7 +14,7 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-Environment=HOME=/root JOBS=4 BATCH_GB=20 MIN_FREE_GB=8
+Environment=HOME=/root JOBS=4 BATCH_GB=10 STAGE_MAX_GB=2 MIN_FREE_GB=8
 ExecStart=/bin/bash /opt/alpha-archive/bin/archive-to-box.sh 2026-01-01 yesterday
 Nice=10
 Restart=on-failure
