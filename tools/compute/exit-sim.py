@@ -58,6 +58,14 @@ def rv_24h(bars, m):
     return math.sqrt(sum(math.log(b / a) ** 2 for a, b in zip(cl, cl[1:]) if a > 0 and b > 0))
 
 
+# Комиссия ноги выхода, bps: `src/lob/costs.rs:47-58` (`leg_fee_bps` — мейкер 1,4 / тейкер 3,5 с возвратом 10 %).
+# T-20 п.3 (26.09): `fee` круга (gross − net) содержит комиссию ИСХОДНОГО выхода; пересчитанный выход берёт
+# комиссию своего типа — лимитный тейк мейкерский, остальные (стоп, трейл, дедлайн, разгон, люстра) — тейкерские.
+MAKER_LEG_BPS = 1.4 * (1 - 0.10)
+TAKER_LEG_BPS = 3.5 * (1 - 0.10)
+MAKER_EXIT_REASONS = {"take"}
+
+
 def simulate(tr, coin, btc, v, s24):
     """Выход одной сделки по варианту `v`; возвращает (net_bps, причина, минута выхода) или None без свечей."""
     entry, fee = tr["entry"], tr["fee"]
@@ -79,7 +87,11 @@ def simulate(tr, coin, btc, v, s24):
     s4 = s24 * math.sqrt(240 / 1440) if s24 else None
     b0 = btc.close_at(m_start)
     best, tight = entry, False
-    net = lambda px: (px / entry - 1) * 1e4 - fee
+    orig_leg = MAKER_LEG_BPS if tr.get("reason") in MAKER_EXIT_REASONS else TAKER_LEG_BPS
+    fee_taker = fee - orig_leg + TAKER_LEG_BPS
+    fee_maker = fee - orig_leg + MAKER_LEG_BPS
+    net = lambda px: (px / entry - 1) * 1e4 - fee_taker
+    net_maker = lambda px: (px / entry - 1) * 1e4 - fee_maker
     for i in range(start, len(bars)):
         m, (o, h, l, c) = bars[i]
         t = (m - m_start) / MIN_MS
@@ -117,7 +129,7 @@ def simulate(tr, coin, btc, v, s24):
             if v.get("take"):
                 tpx = entry * (1 + v["take"])
                 if h >= tpx:
-                    return net(max(tpx, o)), "take", m
+                    return net_maker(max(tpx, o)), "take", m
                 best = max(best, h)
                 continue
             if kind in ("trail_rv", "trail_cap"):
