@@ -62,6 +62,17 @@ N_eff = N / (1 + 2·sum_k (1 - k/N)·rho_k)
 Positive autocorrelation, which overlapping positions produce mechanically,
 drives this below `N`.
 
+**Short series (alpha, 26.09, Judge `b8f2988`).** The estimate is capped at `N`:
+sample `rho_k` of a short series are biased down (about −1/n per lag), so an
+independent series of 23 days often gives a negative sum and a value above `N`
+(P-02 saw 39 and 1047 on 23 days). Do not turn that into «undefined»: tried in
+`aed6288`, it fired on 63–80 % of independent series and favoured dependent
+ones. Even capped, the estimate is optimistic under positive dependence on a
+short series: AR(1) φ = 0.5, n = 40 — median 29.6 against a true 13.3, and the
+30-threshold passes half the time (`docs/research/reviews/scripts/effective-n-sim.py`).
+For a decision near the threshold with n < 100, add a block bootstrap by days
+(moving blocks of a few days) and read both — planned for the P-01 reading point.
+
 ## 3. What to do instead
 
 Correcting the trade t-statistic fixes its arithmetic and leaves its deeper
