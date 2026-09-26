@@ -14,6 +14,7 @@ use crate::commands::lob::test_support::{delta_frame, snap_frame, trade_frame, w
 use crate::commands::lob::{H3Args, H3ModeArg};
 use crate::lob::backtest::{BounceRun, QueueModelKind};
 use crate::lob::levels::TouchRecord;
+use crate::lob::strategy::WallStopMode;
 
 /// Фикстура `touches/tests.rs` (три касания бида 99 за 6 секунд), сдвинутая
 /// на `LEAD_S` секунд «тихой» книги впереди: ряд `σ` (В-62) должен покрывать
@@ -1758,12 +1759,14 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         }
     );
     assert!(ExitForm::parse("gone90bey").is_err());
-    // Стоп на уровень стены после снятия (владелец 26.09): буфер в bps, мягкий и жёсткий.
-    for (spec, hard, buffer_bps) in [
-        ("gone20wall0", false, 0.0),
-        ("gone20wallx0", true, 0.0),
-        ("gone90wall5", false, 5.0),
-        ("gone90wallx2.5", true, 2.5),
+    // Стоп на уровень стены после снятия (владелец 26.09): буфер в bps, три режима.
+    for (spec, mode, buffer_bps) in [
+        ("gone20wall0", WallStopMode::Soft, 0.0),
+        ("gone20wallx0", WallStopMode::Hard, 0.0),
+        ("gone20wallk0", WallStopMode::Keep, 0.0),
+        ("gone90wall5", WallStopMode::Soft, 5.0),
+        ("gone90wallx2.5", WallStopMode::Hard, 2.5),
+        ("gone90wallk2.5", WallStopMode::Keep, 2.5),
     ] {
         let form = ExitForm::parse(spec).unwrap();
         assert_eq!(
@@ -1774,7 +1777,7 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
                 } else {
                     90.0
                 },
-                hard,
+                mode,
                 buffer_bps
             },
             "{spec}"
@@ -1787,6 +1790,8 @@ fn exit_forms_parse_and_refuse_unknown_or_out_of_range_values() {
         "gone20wall-1",
         "gone20wall10000",
         "gone20wally5",
+        "gone20wallkx5",
+        "gone20wallk",
         "gone0wall5",
         "gone20wall05",
         "gone20wall5.0",

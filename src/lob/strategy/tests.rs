@@ -1698,7 +1698,20 @@ fn a_removed_wall_below_breakeven_exits_at_once_in_hard_mode() {
 /// Стоп на уровень стены после снятия (T-24, владелец 26.09: «не безубыток а стоп на то место где
 /// была плотность»): `gone<W>wall<B>`, `hard` — `…wallx<B>`.
 fn wall_stop(hard: bool, buffer_bps: f64) -> GoneStop {
-    GoneStop::Wall { hard, buffer_bps }
+    let mode = if hard {
+        WallStopMode::Hard
+    } else {
+        WallStopMode::Soft
+    };
+    GoneStop::Wall { mode, buffer_bps }
+}
+
+/// `gone<W>wallk<B>` — снятие хуже нового стопа оставляет стоп плана до конца сделки.
+fn wall_keep(buffer_bps: f64) -> GoneStop {
+    GoneStop::Wall {
+        mode: WallStopMode::Keep,
+        buffer_bps,
+    }
 }
 
 /// `f7_feed_tail` и секунда хвоста: далёкий аск 110 (лучшие цены не меняет) — драйвер решает выход
@@ -1811,6 +1824,24 @@ fn a_wall_removed_below_the_new_stop_exits_in_hard_mode_and_waits_in_soft() {
         "мягкий — цена вернулась выше стены, стоп переехал на 99, откат к 98 его выбил"
     );
     assert!(soft.fill_exit_ns[0] >= 7 * S);
+    // `wallk` (владелец 26.09: «оба варианта мягкого режима прогнать»): на той же ленте снятие
+    // застало позицию хуже стены — стоп 90 до конца сделки; возврат к 100 и откат к 98 не выход.
+    let keep = f7_exits(f7_plan_gone_stop(50.0, wall_keep(0.0), 10.0), &feed);
+    assert!(
+        !keep.contains(&ExitReason::WallGone),
+        "wallk — стена больше не учитывается: {keep:?}"
+    );
+}
+
+/// `wallk` не отличается от мягкого, когда снятие застало позицию у стены или лучше: перенос на
+/// 99 сразу, выход «сняли» на откате к 99.
+#[test]
+fn wall_keep_moves_the_stop_when_the_removal_finds_the_position_above_the_wall() {
+    let feed = wall_removed_then_bid_falls_to_99();
+    assert_eq!(
+        f7_exits(f7_plan_gone_stop(50.0, wall_keep(0.0), 10.0), &feed),
+        vec![ExitReason::WallGone]
+    );
 }
 
 /// Стоп не опускается: цель 2000 bps ниже стены (79,2) хуже стопа плана 90 — стоп остаётся 90,
@@ -1865,6 +1896,21 @@ fn a_short_wall_stop_moves_down_to_the_wall_plus_buffer() {
     assert!(close(soft_worse.stop_px, 110.0) && !soft_worse.stop_hard_exit);
     let hard_worse = guard(true, 103.0);
     assert!(close(hard_worse.stop_px, 110.0) && hard_worse.stop_hard_exit);
+    // `wallk`: снятие при аске 103 (хуже 102,01) — перенос отменён; аск 99 позже его не взводит.
+    let mut state = StrategyState::with_plan(0, SIGMA_SHORT, 1.0, 1, f7_plan(0.0, 50.0, 10.0));
+    state.level_qty_at_entry = 10.0;
+    let form = GoneForm {
+        pct: 50.0,
+        trail_bps: 0.0,
+        stop: wall_keep(100.0),
+    };
+    for ask in [103.0, 99.0] {
+        let g = state.observe_gone(form, removed, ask, HbtSide::Sell, 100.0, 110.0, 101.0);
+        assert!(
+            close(g.stop_px, 110.0) && !g.stop_hard_exit,
+            "аск {ask}: {g:?}"
+        );
+    }
 }
 
 /// F7 (Б-75): падение размера **сделками** не даёт `WallGone` — стена 10 → 3,

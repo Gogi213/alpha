@@ -6,6 +6,7 @@
 
 use crate::commands::lob::backtest::{BounceForm, EntryForm, EntryTtl, StopForm, TakeForm};
 use crate::commands::lob::bounce_verdict::form_label_with_entry;
+use crate::lob::strategy::WallStopMode;
 
 /// Форма выхода (F7 этапа F, Б-75): как закрывать позицию.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,14 +27,15 @@ pub enum ExitForm {
     /// безубытка; жёстко: позиция хуже безубытка закрывается сразу), дальше базовый трейл плана
     /// (владелец 2026-09-23: «снятие — стоп в ноль, дальше базовый трейлинг»).
     GoneBe { pct: f64, hard: bool },
-    /// `gone<W>wall<B>` / `gone<W>wallx<B>` — снятие переносит стоп на уровень стены с буфером
-    /// `B` bps за ним (`0` — ровно на уровне); стоп только поднимается. Мягко — когда позиция у
-    /// нового стопа или лучше; жёстко — позиция хуже нового стопа закрывается сразу. Трейл и
+    /// `gone<W>wall<B>` / `gone<W>wallx<B>` / `gone<W>wallk<B>` — снятие переносит стоп на уровень
+    /// стены с буфером `B` bps за ним (`0` — ровно на уровне); стоп только поднимается. Если
+    /// снятие застало позицию хуже нового стопа: `wall` — перенос, когда цена вернётся к нему;
+    /// `wallx` — выход сразу; `wallk` — стоп плана до конца сделки (`WallStopMode`). Трейл и
     /// дедлайн плана — как обычно (владелец 2026-09-26: «не безубыток а стоп на то место где
-    /// была плотность»).
+    /// была плотность»; «оба варианта мягкого режима прогнать»).
     GoneWall {
         pct: f64,
-        hard: bool,
+        mode: WallStopMode,
         buffer_bps: f64,
     },
 }
@@ -53,9 +55,16 @@ impl ExitForm {
             }
             ExitForm::GoneWall {
                 pct,
-                hard,
+                mode,
                 buffer_bps,
-            } => format!("gone{pct}wall{}{buffer_bps}", if *hard { "x" } else { "" }),
+            } => {
+                let m = match mode {
+                    WallStopMode::Soft => "",
+                    WallStopMode::Hard => "x",
+                    WallStopMode::Keep => "k",
+                };
+                format!("gone{pct}wall{m}{buffer_bps}")
+            }
         }
     }
 
@@ -78,13 +87,16 @@ impl ExitForm {
                     pct.is_finite() && pct > 0.0 && pct <= 100.0,
                     "gone<W>wall<B>: W ∈ (0, 100]"
                 );
-                let (hard, b) = match tail.strip_prefix('x') {
-                    Some(b) => (true, b),
-                    None => (false, tail),
+                let (mode, b) = if let Some(b) = tail.strip_prefix('x') {
+                    (WallStopMode::Hard, b)
+                } else if let Some(b) = tail.strip_prefix('k') {
+                    (WallStopMode::Keep, b)
+                } else {
+                    (WallStopMode::Soft, tail)
                 };
                 let buffer_bps: f64 = b.parse().map_err(|_| {
                     anyhow::anyhow!(
-                        "--exit-form {spec:?}: ожидается gone<W>wall<B> или gone<W>wallx<B> (B — bps)"
+                        "--exit-form {spec:?}: ожидается gone<W>wall<B>, gone<W>wallx<B> или gone<W>wallk<B> (B — bps)"
                     )
                 })?;
                 anyhow::ensure!(
@@ -93,7 +105,7 @@ impl ExitForm {
                 );
                 let form = ExitForm::GoneWall {
                     pct,
-                    hard,
+                    mode,
                     buffer_bps,
                 };
                 anyhow::ensure!(

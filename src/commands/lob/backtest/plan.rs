@@ -281,8 +281,8 @@ pub(crate) fn bounce_plan(
                     crate::lob::strategy::GoneStop::Breakeven { hard }
                 }
                 crate::commands::lob::bounce_grid::ExitForm::GoneWall {
-                    hard, buffer_bps, ..
-                } => crate::lob::strategy::GoneStop::Wall { hard, buffer_bps },
+                    mode, buffer_bps, ..
+                } => crate::lob::strategy::GoneStop::Wall { mode, buffer_bps },
                 _ => crate::lob::strategy::GoneStop::Off,
             },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.

@@ -420,7 +420,8 @@ pub enum TradePlan {
 /// Перенос стопа после снятия стены (`gone<W>` сработал; снятие — защёлка). Стоп только
 /// поднимается (у шорта — опускается): цель хуже стопа плана его не трогает. Мягкий режим
 /// переносит стоп, как только позиция у цели или лучше; жёсткий (`hard`) — то же, но если
-/// снятие застало позицию хуже цели, выход по рынку сразу.
+/// снятие застало позицию хуже цели, выход по рынку сразу; у стены есть третий режим —
+/// `WallStopMode::Keep` (стоп плана до конца сделки).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GoneStop {
     Off,
@@ -431,11 +432,23 @@ pub enum GoneStop {
     },
     /// Уровень стены (`level_px`) с буфером `buffer_bps` за ним (у лонга ниже стены, у шорта
     /// выше; `0` — ровно на уровне). Владелец 2026-09-26: «не безубыток а стоп на то место где
-    /// была плотность». В сетке `gone<W>wall<B>` / `gone<W>wallx<B>`.
+    /// была плотность». В сетке `gone<W>wall<B>` / `gone<W>wallx<B>` / `gone<W>wallk<B>`.
     Wall {
-        hard: bool,
+        mode: WallStopMode,
         buffer_bps: f64,
     },
+}
+
+/// Что делает перенос стопа на стену, если снятие застало позицию хуже нового стопа (владелец
+/// 2026-09-26: «оба варианта мягкого режима прогнать, не выбирать»).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallStopMode {
+    /// `wall` — стоп плана, пока цена не вернётся к новому стопу; тогда перенос.
+    Soft,
+    /// `wallx` — выход по рынку сразу.
+    Hard,
+    /// `wallk` — стоп плана до конца сделки, стена больше не учитывается.
+    Keep,
 }
 
 impl TradePlan {
@@ -522,6 +535,8 @@ pub struct StrategyState {
     /// Перенос стопа после снятия (`gone_stop`): снятие уже было (защёлка) и стоп уже перенесён.
     gone_seen: bool,
     gone_stop_active: bool,
+    /// `wallk`: снятие застало позицию хуже цели — перенос отменён до конца сделки.
+    gone_stop_off: bool,
     /// E7: частичный выход уже был в этом круге (второй раз не делится).
     partial_done: bool,
     /// Максимум размера плотности уровня с момента входа — база съедания
@@ -663,6 +678,7 @@ impl StrategyState {
             gone_peak: 0.0,
             gone_seen: false,
             gone_stop_active: false,
+            gone_stop_off: false,
             partial_done: false,
             level_qty_max: 0.0,
             level_qty_at_entry: 0.0,
@@ -1120,7 +1136,9 @@ impl StrategyState {
                 >= form.trail_bps;
         // Перенос стопа после снятия: цель — безубыток (круг закрывается в ноль с комиссиями: вход
         // мейкером, выход тейкером) или уровень стены с буфером за ним; стоп переезжает, как только
-        // позиция у цели или лучше. Жёсткий режим закрывает позицию хуже цели сразу.
+        // позиция у цели или лучше. Жёсткий режим закрывает позицию хуже цели сразу; режим `wallk`
+        // в этом случае отменяет перенос до конца сделки.
+        let mut keep = false;
         let (hard, target) = match form.stop {
             GoneStop::Off => (false, None),
             GoneStop::Breakeven { hard } => {
@@ -1131,15 +1149,20 @@ impl StrategyState {
                 };
                 (hard, (entry_px > 0.0).then_some(be_px))
             }
-            GoneStop::Wall { hard, buffer_bps } => {
+            GoneStop::Wall { mode, buffer_bps } => {
                 let buffer = buffer_bps / 10_000.0;
                 let wall_px = match entry_side {
                     HbtSide::Buy => level_px * (1.0 - buffer),
                     _ => level_px * (1.0 + buffer),
                 };
-                (hard, (level_px > 0.0).then_some(wall_px))
+                keep = mode == WallStopMode::Keep;
+                (
+                    mode == WallStopMode::Hard,
+                    (level_px > 0.0).then_some(wall_px),
+                )
             }
         };
+        let first_hit = hit && !self.gone_seen;
         if form.stop != GoneStop::Off && hit {
             self.gone_seen = true;
         }
@@ -1148,7 +1171,10 @@ impl StrategyState {
                 HbtSide::Buy => favourable >= target,
                 _ => favourable <= target,
             };
-            if self.gone_seen && at_target {
+            if keep && first_hit && !at_target {
+                self.gone_stop_off = true;
+            }
+            if self.gone_seen && at_target && !self.gone_stop_off {
                 self.gone_stop_active = true;
             }
         }
