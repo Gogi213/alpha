@@ -2427,9 +2427,9 @@ fn carry_events_stops_decoding_past_the_carry_window() {
     let events = carry_events(&[path], until_ns).unwrap();
     assert!(!events.is_empty(), "событие в окне обязано быть прочитано");
     assert!(
-        events.iter().all(|e| e.local_ts < until_ns),
+        events.iter().all(|e| e.local_ts() < until_ns),
         "событие за окном попало в результат: {:?}",
-        events.iter().map(|e| e.local_ts).collect::<Vec<_>>()
+        events.iter().map(|e| e.local_ts()).collect::<Vec<_>>()
     );
 }
 
@@ -2457,8 +2457,8 @@ fn append_carry_events_grows_day_buffer_exactly() {
     let alone = carry_events(std::slice::from_ref(&path), until_ns).unwrap();
     assert!(!alone.is_empty(), "довесок в окне обязан быть прочитан");
     // Буфер «суток» ровно по размеру, как у `day_events`.
-    let day: Vec<hftbacktest::types::Event> = alone.iter().take(1).cloned().collect();
-    let mut events: Vec<hftbacktest::types::Event> = Vec::with_capacity(day.len());
+    let day: Vec<crate::lob::backtest::CompactEvent> = alone.iter().take(1).copied().collect();
+    let mut events: Vec<crate::lob::backtest::CompactEvent> = Vec::with_capacity(day.len());
     events.extend_from_slice(&day);
     assert_eq!(events.capacity(), events.len());
     let n = super::carry::append_carry_events(&[path], until_ns, &mut events).unwrap();
@@ -2469,15 +2469,11 @@ fn append_carry_events_grows_day_buffer_exactly() {
         events.len(),
         "ёмкость — ровно сутки + довесок, без удвоения"
     );
-    let appended: Vec<(i64, i64, u64)> = events[day.len()..]
-        .iter()
-        .map(|e| (e.local_ts, e.exch_ts, e.ev))
-        .collect();
-    let expected: Vec<(i64, i64, u64)> = alone
-        .iter()
-        .map(|e| (e.local_ts, e.exch_ts, e.ev))
-        .collect();
-    assert_eq!(appended, expected, "те же события в том же порядке");
+    assert_eq!(
+        &events[day.len()..],
+        &alone[..],
+        "те же события в том же порядке"
+    );
 }
 
 /// R2 (ревью 23.09): лот `--order-usd` — по цене **каждого** касания, а не

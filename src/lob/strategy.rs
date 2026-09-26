@@ -427,6 +427,20 @@ impl TradePlan {
             TradePlan::Bounce { entry_ttl_ns, .. } => entry_ttl_ns,
         }
     }
+
+    /// Сколько после сигнала круг этого плана длится до выхода, без подтверждений: срок входа + дедлайн
+    /// (горизонт). Р6: начальный горизонт развёртки событий круга в `bounce-grid`; точность от него не
+    /// зависит — короткий горизонт ловит проверка и пересчитывает круг.
+    pub fn round_span_ns(&self) -> i64 {
+        match *self {
+            TradePlan::SpreadHold => ENTRY_TTL_NS.saturating_add(HOLD_NS),
+            TradePlan::Bounce {
+                entry_ttl_ns,
+                deadline_ns,
+                ..
+            } => entry_ttl_ns.saturating_add(deadline_ns),
+        }
+    }
 }
 
 /// Почему отправлен выход. У Decision 20 причина одна — горизонт; у

@@ -392,6 +392,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 anyhow::bail!("{symbol}: сутки {} есть в реплее, но частей нет", day.day);
             };
             let day_started = Instant::now();
+            let retries_before =
+                crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
             // S4: события одних суток, не всей сессии.
             let mut events = day_events(day_parts)?;
             if events.is_empty() {
@@ -521,6 +523,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 rounds,
                 day_started.elapsed().as_secs_f64()
             );
+            // Р6: пересчёты кругов из-за короткого горизонта развёртки — строка только когда были
+            // (прежний stderr не меняется); на итог не влияют, только на время.
+            let retries = crate::lob::backtest::HORIZON_RETRIES
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .saturating_sub(retries_before);
+            if retries > 0 {
+                eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
+            }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
                     let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));

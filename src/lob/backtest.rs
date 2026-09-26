@@ -70,6 +70,9 @@ use crate::lob::strategy::{
     MAX_ENTRY_LEGS,
 };
 
+mod compact;
+pub use compact::{CompactEvent, EventKind, EventRows};
+
 /// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
 /// заявку выхода, тейкерское добивание и гашение сироты (F8c) — прежний запас
 /// «+4» с лестницей формы F6 давал коллизию id ещё открытой заявки с входом
@@ -1906,6 +1909,45 @@ impl BounceRun {
 /// движок и возвращает его результат; `None` — для сигнала нет данных (там,
 /// где сплошной прогон упёрся бы в конец записи). Учёт кругов, промахов и
 /// причин выхода — здесь, движка он не касается.
+/// Круг упёрся в конец данных (Р6): `SignalStep::EndOfData`, исход круга `EndOfData` или остаток, который
+/// не удалось закрыть до конца данных (`residual: Some(true)`) — все пути, которыми `ElapseResult::EndOfData`
+/// выходит из `drive_signal`.
+fn step_hit_end_of_data(s: &SignalStep) -> bool {
+    match s {
+        SignalStep::EndOfData => true,
+        SignalStep::Submitted {
+            outcome, residual, ..
+        } => matches!(outcome, RoundOutcome::EndOfData) || *residual == Some(true),
+        _ => false,
+    }
+}
+
+/// Пересчётов круга из-за короткого горизонта развёртки (Р6) — счётчик процесса; `bounce-grid` печатает
+/// прирост по символу-суткам. Пересчёт не меняет результат, только время.
+pub static HORIZON_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Запас горизонта развёртки круга сверх `entry_ttl + deadline` плана (Р6): подтверждения и отмены после
+/// дедлайна. Точность не зависит от него — короткий горизонт ловит проверка и пересчитывает круг.
+const HORIZON_MARGIN_NS: i64 = 60_000_000_000;
+
+// Тестовая подмена начального горизонта развёртки (условие Судьи 2 к Р6): искусственно малый горизонт
+// заставляет пересчитывать почти каждый круг — итог обязан остаться побайтно тем же.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static HORIZON_SPAN_OVERRIDE_NS: std::cell::Cell<Option<i64>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn horizon_span_ns(plan: &TradePlan) -> i64 {
+    #[cfg(test)]
+    if let Some(v) = HORIZON_SPAN_OVERRIDE_NS.with(std::cell::Cell::get) {
+        return v.max(1);
+    }
+    plan.round_span_ns()
+        .saturating_add(HORIZON_MARGIN_NS)
+        .max(1)
+}
+
 fn drive_bounce_with<B, MD, S>(
     asset_no: usize,
     signals: &[BounceSignal],
@@ -1916,10 +1958,14 @@ fn drive_bounce_with<B, MD, S>(
 where
     B: Bot<MD>,
     MD: MarketDepth,
+    // Источник круга: сигнал, номер попытки (Р6 — пересчёт с удвоенным горизонтом развёртки) и шаг
+    // стратегии; отдаёт шаг и «данных хватило» (`false` — круг пересчитывается с восстановленными
+    // номерами заявок и переносом сирот, как будто первой попытки не было).
     S: FnMut(
         &BounceSignal,
+        u32,
         &mut dyn FnMut(&mut B) -> Result<SignalStep, B::Error>,
-    ) -> Result<Option<SignalStep>, B::Error>,
+    ) -> Result<Option<(SignalStep, bool)>, B::Error>,
 {
     let mut order: Vec<BounceSignal> = signals.to_vec();
     order.sort_by_key(|s| s.t0_ns);
@@ -1991,9 +2037,23 @@ where
             }
             None => {
                 let id_base = next_id;
-                let step = source(sig, &mut |bot: &mut B| {
-                    drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
-                })?;
+                let carry_base = carry;
+                let mut attempt = 0u32;
+                let step = loop {
+                    let r = source(sig, attempt, &mut |bot: &mut B| {
+                        drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
+                    })?;
+                    match r {
+                        Some((_, false)) => {
+                            next_id = id_base;
+                            carry = carry_base;
+                            attempt = attempt.saturating_add(1);
+                            HORIZON_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        Some((step, true)) => break Some(step),
+                        None => break None,
+                    }
+                };
                 if let Some(m) = memo.as_deref_mut() {
                     m.store(
                         sig,
@@ -2182,8 +2242,9 @@ where
         let profile = signals.first().map(|s| s.profile).unwrap_or(0);
         return Ok(BounceRun::nothing(profile, signals.len() as u64));
     }
-    let run =
-        drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, None, |_, step| step(bot).map(Some))?;
+    let run = drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, None, |_, _, step| {
+        step(bot).map(|s| Some((s, true)))
+    })?;
     bot.clear_inactive_orders(Some(asset_no));
     Ok(run)
 }
@@ -2201,8 +2262,8 @@ where
 /// сторона доберёт из среза сама по разу, как и в сплошном прогоне; часы
 /// окна прибиты к `t0` строкой-якорем. Гейт — побайтово те же круги, что у
 /// `drive_bounce` (тест и `--driver full`).
-pub fn drive_bounce_windowed(
-    events: &[Event],
+pub fn drive_bounce_windowed<R: EventRows + ?Sized>(
+    events: &R,
     windows: &SignalWindows,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
@@ -2214,8 +2275,8 @@ pub fn drive_bounce_windowed(
 /// То же, что `drive_bounce_windowed`, но с памятью кругов (G10): круги, уже посчитанные над теми
 /// же окнами с теми же планами (другим набором той же формы), берутся из `memo`. Итог — побайтово
 /// тот же, что без памяти (гейт «те же байты» в `bounce-grid --round-memo on|off`).
-pub fn drive_bounce_windowed_memo(
-    events: &[Event],
+pub fn drive_bounce_windowed_memo<R: EventRows + ?Sized>(
+    events: &R,
     windows: &SignalWindows,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
@@ -2225,20 +2286,28 @@ pub fn drive_bounce_windowed_memo(
     windowed_with(events, windows, signals, cfg, exec_latency, Some(memo))
 }
 
-fn windowed_with(
-    events: &[Event],
+/// Круги по окнам. Строки `[Event]` крейт занимает как есть (прежний путь). Компактные строки (Р6)
+/// разворачиваются на круг в буфер потока — от `w.start` до горизонта `t0 + (entry_ttl + deadline + запас)
+/// × 2^попытка`; после круга проверка: крейт не дошёл до конца развёрнутого (у последней строки и
+/// `local_ts`, и `exch_ts` позже часов конца круга — каждая сторона крейта берёт строку, только когда её
+/// часы дошли) либо развёрнут весь хвост суток. Иначе круг пересчитывается с удвоенным горизонтом
+/// (`drive_bounce_with` восстанавливает номера заявок и сирот) — поэтому круги побайтно те же, что над
+/// всем хвостом (условие Судьи к Р6).
+fn windowed_with<R: EventRows + ?Sized>(
+    events: &R,
     windows: &SignalWindows,
     signals: &[BounceSignal],
     cfg: &DriveConfig,
     exec_latency: ExecLatency,
     memo: Option<&mut RoundMemo>,
 ) -> Result<BounceRun, BacktestError> {
+    let mut buf: Vec<Event> = Vec::new();
     drive_bounce_with::<Backtest<HashMapMarketDepth>, HashMapMarketDepth, _>(
         0,
         signals,
         cfg,
         memo,
-        |sig, step| {
+        |sig, attempt, step| {
             let Some(w) = windows.window_at(sig.t0_ns) else {
                 return Ok(None);
             };
@@ -2247,22 +2316,51 @@ fn windowed_with(
                 // конец записи, не дойдя до сигнала.
                 return Ok(None);
             }
+            let (rest, whole_tail): (&[Event], bool) = match events.as_events() {
+                Some(all) => (&all[w.start..], true),
+                None => {
+                    let span = horizon_span_ns(&sig.plan);
+                    let until = sig.t0_ns.saturating_add(
+                        span.checked_shl(attempt)
+                            .filter(|v| *v > 0)
+                            .unwrap_or(i64::MAX),
+                    );
+                    buf.clear();
+                    let mut i = w.start;
+                    while i < events.len() && events.row_local_ts(i) <= until {
+                        buf.push(events.row(i));
+                        i += 1;
+                    }
+                    (&buf[..], i >= events.len())
+                }
+            };
+            let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             with_backtest_over_window(
                 &w.depth,
                 sig.t0_ns,
-                &events[w.start..],
+                rest,
                 windows.tick_size,
                 windows.lot_size,
                 exec_latency,
                 cfg.queue_model,
                 |bt| {
-                    if bt.elapse(0)? == ElapseResult::EndOfData {
-                        return Ok(SignalStep::EndOfData);
-                    }
-                    step(bt)
+                    let s = if bt.elapse(0)? == ElapseResult::EndOfData {
+                        SignalStep::EndOfData
+                    } else {
+                        step(bt)?
+                    };
+                    Ok((s, bt.current_timestamp()))
                 },
             )
-            .map(Some)
+            .map(|(s, now)| {
+                // Крейт упёрся в конец развёрнутого — в любом из трёх видов, которыми конец данных
+                // выходит из круга; иначе (и последняя строка позже часов) он видел ровно то же, что
+                // увидел бы над всем хвостом.
+                let enough = whole_tail
+                    || (!step_hit_end_of_data(&s)
+                        && last.is_some_and(|(local, exch)| local > now && exch > now));
+                Some((s, enough))
+            })
         },
     )
 }
@@ -2521,7 +2619,12 @@ pub struct SignalWindows {
 }
 
 impl SignalWindows {
-    pub fn build(events: &[Event], t0s: &[i64], tick_size: f64, lot_size: f64) -> Self {
+    pub fn build<R: EventRows + ?Sized>(
+        events: &R,
+        t0s: &[i64],
+        tick_size: f64,
+        lot_size: f64,
+    ) -> Self {
         let mut t0s: Vec<i64> = t0s.to_vec();
         t0s.sort_unstable();
         t0s.dedup();
@@ -2529,8 +2632,11 @@ impl SignalWindows {
         let mut row = 0usize;
         let mut windows = Vec::with_capacity(t0s.len());
         for t0 in t0s {
-            while row < events.len() && events[row].local_ts <= t0 && events[row].exch_ts <= t0 {
-                let ev = &events[row];
+            while row < events.len()
+                && events.row_local_ts(row) <= t0
+                && events.row_exch_ts(row) <= t0
+            {
+                let ev = &events.row(row);
                 // Порядок веток — как у крейта; строк очистки в нашем
                 // переводе нет (`events_from_feed` шлёт явные нули).
                 if ev.is(LOCAL_BID_DEPTH_EVENT) {

@@ -971,16 +971,9 @@ fn early_exit_does_not_fire_once_the_price_left_the_level() {
     );
     assert_eq!(run.exits.early, 0);
 }
-
-/// Прогон по сетапам (`drive_bounce_windowed`) даёт тот же `BounceRun`, что
-/// сплошной `drive_bounce`: круги, занятые сигналы, время выхода — всё поле в
-/// поле. Второй сигнал приходит внутри первого круга — «занято» у обоих.
-/// Лестница F4 стоит **без шага** (`grid_step_px = 0`): ноги по одной цене
-/// набираются целиком первым же агрессором, средняя равна плановой, и числа
-/// стопа/тейка остаются прежними — тест про драйвер, не про геометрию.
-#[test]
-fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
-    let feed = [
+/// Синтетические сутки гейта «окна = сплошной» и план круга — общие для тестов драйвера по окнам.
+fn windowed_fixture() -> (Vec<Event>, TradePlan) {
+    let feed = vec![
         depth_at(0, true, 100.0, 5.0),
         depth_at(0, false, 105.0, 5.0),
         // Агрессор-продавец по 101 закрывает все четыре ноги входа.
@@ -1029,6 +1022,18 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
         gone_trail_bps: 0.0,
         gone_be: 0,
     };
+    (feed, plan)
+}
+
+/// Прогон по сетапам (`drive_bounce_windowed`) даёт тот же `BounceRun`, что
+/// сплошной `drive_bounce`: круги, занятые сигналы, время выхода — всё поле в
+/// поле. Второй сигнал приходит внутри первого круга — «занято» у обоих.
+/// Лестница F4 стоит **без шага** (`grid_step_px = 0`): ноги по одной цене
+/// набираются целиком первым же агрессором, средняя равна плановой, и числа
+/// стопа/тейка остаются прежними — тест про драйвер, не про геометрию.
+#[test]
+fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
+    let (feed, plan) = windowed_fixture();
     let signal = |t0_ns: i64| BounceSignal {
         t0_ns,
         sigma: SIGMA_LONG,
@@ -1821,4 +1826,81 @@ fn a_short_residual_is_flattened_by_buying() {
         "шорт — покупкой"
     );
     assert_eq!(signed_residual(HbtSide::Sell, 0.0), 0.0);
+}
+
+/// Строка потока в компактном виде — только если она им представима побитно (иначе тест врёт о фикстуре).
+fn compact_of(e: &Event) -> CompactEvent {
+    let kind = if e.is(LOCAL_BID_DEPTH_EVENT) {
+        EventKind::BidDepth
+    } else if e.is(LOCAL_ASK_DEPTH_EVENT) {
+        EventKind::AskDepth
+    } else if e.is(BUY_EVENT) {
+        EventKind::BuyTrade
+    } else {
+        EventKind::SellTrade
+    };
+    assert_eq!(e.exch_ts % 1_000_000, 0, "метка биржи фикстуры — целые мс");
+    let c = CompactEvent::new(
+        kind,
+        e.exch_ts / 1_000_000,
+        e.local_ts,
+        (e.px * 1e9).round() as i64,
+        (e.qty * 1e9).round() as i64,
+    );
+    let back = c.expand();
+    assert!(
+        back.ev == e.ev
+            && back.exch_ts == e.exch_ts
+            && back.local_ts == e.local_ts
+            && back.px.to_bits() == e.px.to_bits()
+            && back.qty.to_bits() == e.qty.to_bits(),
+        "фикстура не представима компактно: {e:?}"
+    );
+    c
+}
+
+/// Р6: сутки компактными событиями — тот же прогон по окнам (и с памятью кругов), что над 64-байтными
+/// строками и сплошной; при искусственно малом горизонте развёртки, когда пересчитывается почти каждый
+/// круг, — тоже тот же (условие Судьи 2).
+#[test]
+fn compact_rows_drive_the_same_rounds_even_with_a_tiny_horizon() {
+    let (feed, plan) = windowed_fixture();
+    let compact: Vec<CompactEvent> = feed.iter().map(compact_of).collect();
+    let signal = |t0_ns: i64| BounceSignal {
+        t0_ns,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let signals = [signal(S), signal(3 * S), signal(61 * S)];
+    let lat = ExecLatency::uniform(1_000_000);
+    let mut hbt = build_backtest(&feed, 1.0, 1.0, lat, QueueModelKind::RiskAdverse);
+    let full = drive_bounce(&mut hbt, 0, &signals, &drive_cfg()).unwrap();
+    let t0s = [S, 3 * S, 61 * S];
+    let windows = SignalWindows::build(&feed, &t0s, 1.0, 1.0);
+    let windows_c = SignalWindows::build(&compact, &t0s, 1.0, 1.0);
+    assert_eq!(windows_c.len(), windows.len());
+    let wide = drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat).unwrap();
+    assert_eq!(
+        wide, full,
+        "компактные строки — тот же прогон, что сплошной"
+    );
+    let before = HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
+    HORIZON_SPAN_OVERRIDE_NS.with(|c| c.set(Some(1)));
+    let tiny = drive_bounce_windowed(&compact, &windows_c, &signals, &drive_cfg(), lat);
+    let mut memo = RoundMemo::default();
+    let tiny_memo =
+        drive_bounce_windowed_memo(&compact, &windows_c, &signals, &drive_cfg(), lat, &mut memo);
+    HORIZON_SPAN_OVERRIDE_NS.with(|c| c.set(None));
+    assert_eq!(tiny.unwrap(), full, "малый горизонт — те же круги");
+    assert_eq!(
+        tiny_memo.unwrap(),
+        full,
+        "малый горизонт с памятью кругов — те же круги"
+    );
+    assert!(
+        HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed) > before,
+        "малый горизонт обязан вызвать пересчёты"
+    );
 }

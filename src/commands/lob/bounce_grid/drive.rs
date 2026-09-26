@@ -17,11 +17,11 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
-    feed_events_into, open_replay_feed, PlanShape, PoolLot,
+    feed_compact_into, open_replay_feed, PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, with_backtest_over, BounceRun,
-    BounceSignal, DriveConfig, ExecLatency, QueueModelKind, RoundMemo, SignalWindows,
+    BounceSignal, CompactEvent, DriveConfig, ExecLatency, QueueModelKind, RoundMemo, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -127,7 +127,7 @@ fn signals_for(
 /// буфер с готовой ёмкостью. Рост удвоением держал старый и новый буфер
 /// вместе (пик до 3× итога) и ронял сетку на сервере по OOM на сутках в
 /// ~20 млн событий (2026-09-18); второй декод дешевле памяти.
-pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
+pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>> {
     let started = Instant::now();
     let mut total = 0usize;
     let mut counted_parts = 0usize;
@@ -144,10 +144,11 @@ pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<HbtEvent>> {
         };
     }
     let counted = started.elapsed().as_secs_f64();
-    let mut events: Vec<HbtEvent> = Vec::with_capacity(total);
+    // Р6: сутки — компактными событиями (32 Б вместо 64); круги разворачивают свой кусок сами.
+    let mut events: Vec<CompactEvent> = Vec::with_capacity(total);
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        feed_events_into(&mut feed, &mut events);
+        feed_compact_into(&mut feed, &mut events);
     }
     // Кэш числа событий — только ёмкость буфера: разошёлся — буфер просто
     // вырос, круги те же; сайдкары переписываются честным пересчётом.
@@ -311,7 +312,7 @@ struct FormOrder<'a> {
 /// `approaches` — записи подхода (F6, `--signal approach`): те же сутки и тот
 /// же порядок, что `touches` (их вид как касания); `None` — сигнал по касаниям.
 pub(super) fn drive_day(
-    events: &[HbtEvent],
+    events: &[CompactEvent],
     windows: Option<&SignalWindows>,
     touches: &[TouchRecord],
     approaches: Option<&[crate::lob::levels::ApproachRecord]>,
@@ -319,6 +320,13 @@ pub(super) fn drive_day(
     p: DayParams<'_>,
     sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
 ) -> anyhow::Result<usize> {
+    // `--driver full` (эталон гейта) держит сутки 64-байтными событиями крейта — одна полная
+    // развёртка на сутки, общая для форм; путь по окнам (`setups`) разворачивает только круги (Р6).
+    let full: Vec<HbtEvent> = if windows.is_none() {
+        events.iter().map(CompactEvent::expand).collect()
+    } else {
+        Vec::new()
+    };
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
     let order = Mutex::new(FormOrder {
@@ -360,7 +368,7 @@ pub(super) fn drive_day(
                                 None => drive_bounce_windowed(events, w, &signals, &cfg, p.rtt_ns),
                             },
                             None => with_backtest_over(
-                                events,
+                                &full,
                                 p.tick,
                                 p.lot,
                                 p.rtt_ns,
@@ -425,7 +433,7 @@ pub(super) fn drive_day(
 /// касания — один раз на сутки, общий для всех форм **и наборов** (`--set`):
 /// касания те же, фильтры наборов только выбирают из них сигналы.
 pub(super) fn day_windows(
-    events: &[HbtEvent],
+    events: &[CompactEvent],
     touches: &[TouchRecord],
     driver: DriverArg,
     tick: f64,

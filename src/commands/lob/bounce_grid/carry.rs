@@ -9,12 +9,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use hftbacktest::types::Event as HbtEvent;
-
 use crate::commands::lob::backtest::{
-    count_feed_events_until, feed_events_into_until, open_replay_feed, EntryTtl,
+    count_feed_events_until, feed_compact_into_until, open_replay_feed, EntryTtl,
 };
 use crate::commands::lob::profiles::read_verify_marker;
+use crate::lob::backtest::CompactEvent;
 
 // ---------------------------------------------------------------------------
 // Перенос круга через полночь (`--carry-root`): круг, ещё открытый на конце
@@ -87,10 +86,10 @@ pub(super) fn day_start_ns(day: &str) -> anyhow::Result<i64> {
 /// точный `Vec` `day_events` (её doc), только предел здесь не «конец файла»,
 /// а окно. Части хронологичны (`session_parts_for`: день, потом часть) — как
 /// только одна упёрлась в потолок, следующие начнутся ещё позже, читать их
-/// незачем (`count_feed_events_until`/`feed_events_into_until` уже говорят,
+/// незачем (`count_feed_events_until`/`feed_compact_into_until` уже говорят,
 /// уткнулись ли).
 #[cfg(test)]
-pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<Vec<HbtEvent>> {
+pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<Vec<CompactEvent>> {
     let mut events = Vec::new();
     append_carry_events(parts, until_ns, &mut events)?;
     Ok(events)
@@ -106,7 +105,7 @@ pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<V
 pub(super) fn append_carry_events(
     parts: &[PathBuf],
     until_ns: i64,
-    events: &mut Vec<HbtEvent>,
+    events: &mut Vec<CompactEvent>,
 ) -> anyhow::Result<usize> {
     let mut total = 0usize;
     for path in parts {
@@ -121,7 +120,7 @@ pub(super) fn append_carry_events(
     let before = events.len();
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        if feed_events_into_until(&mut feed, until_ns, events) {
+        if feed_compact_into_until(&mut feed, until_ns, events) {
             break;
         }
     }
@@ -137,7 +136,7 @@ pub(super) fn append_carry_events(
 /// новых сигналов, — но отсутствие маркера считается).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn extend_with_carry(
-    events: &mut Vec<HbtEvent>,
+    events: &mut Vec<CompactEvent>,
     day: &str,
     carry_root: Option<&Path>,
     carry_parts_by_day: &BTreeMap<String, Vec<PathBuf>>,

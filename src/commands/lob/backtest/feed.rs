@@ -2,7 +2,7 @@
 //! bounce-grid`: заголовок бинлога и `ReplayFeed` (`read_tick_step`/
 //! `open_replay_feed`), перевод `Feed` в события крейта
 //! (`events_from_feed`/`count_feed_events`/`feed_events_into`/
-//! `count_feed_events_until`/`feed_events_into_until`/`translate_feed_until`/
+//! `count_feed_events_until`/`feed_compact_into_until`/`translate_feed_until`/
 //! `push_side`) и модель исполнения `BacktestFillModel` (`profiles::FillModel`
 //! поверх `lob::backtest`, таск 16). Вынесено из `backtest` при разрезке B3
 //! (ревью 23.09), поведение не менялось.
@@ -11,19 +11,15 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use hftbacktest::types::{
-    Event as HbtEvent, EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT,
-    EXCH_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
-    LOCAL_BUY_TRADE_EVENT, LOCAL_EVENT, LOCAL_SELL_TRADE_EVENT,
-};
+use hftbacktest::types::Event as HbtEvent;
 
 use crate::binlog;
 use crate::book::Side;
 use crate::bybit::ws::Event as WsEvent;
 use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
 use crate::lob::backtest::{
-    build_backtest, drive_profile, DriveConfig, ExecLatency, QueueModelKind, Signal, SIGMA_LONG,
-    SIGMA_SHORT,
+    build_backtest, drive_profile, CompactEvent, DriveConfig, EventKind, ExecLatency,
+    QueueModelKind, Signal, SIGMA_LONG, SIGMA_SHORT,
 };
 use crate::lob::levels::LevelRecord;
 use crate::lob::markout::MidSample;
@@ -264,7 +260,21 @@ pub(crate) fn count_feed_events(feed: &mut dyn Feed) -> usize {
 
 /// Перевод `feed` → события крейта в готовый `Vec` (без промежуточного).
 pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
+    translate_feed_until(feed, None, &mut |ev| out.push(ev.expand()));
+}
+
+/// Перевод `feed` в компактные события (Р6) — в готовый `Vec`.
+pub(crate) fn feed_compact_into(feed: &mut dyn Feed, out: &mut Vec<CompactEvent>) {
     translate_feed_until(feed, None, &mut |ev| out.push(ev));
+}
+
+/// Как `feed_compact_into`, но с потолком времени (см. `count_feed_events_until`).
+pub(crate) fn feed_compact_into_until(
+    feed: &mut dyn Feed,
+    until_ns: i64,
+    out: &mut Vec<CompactEvent>,
+) -> bool {
+    translate_feed_until(feed, Some(until_ns), &mut |ev| out.push(ev))
 }
 
 /// Как `count_feed_events`, но с потолком времени (`until_ns`, исключая):
@@ -282,16 +292,6 @@ pub(crate) fn count_feed_events_until(feed: &mut dyn Feed, until_ns: i64) -> (us
     (n, hit)
 }
 
-/// Как `feed_events_into`, но с тем же потолком `until_ns` (см.
-/// `count_feed_events_until`); возвращает, уткнулись ли в потолок.
-pub(crate) fn feed_events_into_until(
-    feed: &mut dyn Feed,
-    until_ns: i64,
-    out: &mut Vec<HbtEvent>,
-) -> bool {
-    translate_feed_until(feed, Some(until_ns), &mut |ev| out.push(ev))
-}
-
 /// Перевод `feed` → события крейта, с необязательным потолком времени.
 /// `until_ns` сравнивается с `local_ts_ns` события (тем же полем, что несёт
 /// каждое рыночное событие) — как только оно дошло до потолка, перевод
@@ -301,7 +301,7 @@ pub(crate) fn feed_events_into_until(
 fn translate_feed_until(
     feed: &mut dyn Feed,
     until_ns: Option<i64>,
-    sink: &mut impl FnMut(HbtEvent),
+    sink: &mut impl FnMut(CompactEvent),
 ) -> bool {
     let mut known_bids: BTreeMap<i64, i64> = BTreeMap::new();
     let mut known_asks: BTreeMap<i64, i64> = BTreeMap::new();
@@ -322,13 +322,14 @@ fn translate_feed_until(
         }
         match payload {
             WsEvent::Book(up) => {
-                let exch_ts = up.cts_ms.saturating_mul(1_000_000);
+                // Р6: метка биржи — в мс, как пришла; `× 10⁶` делает `CompactEvent::expand`.
+                let exch_ms = up.cts_ms;
                 push_side(
                     sink,
                     &mut known_bids,
                     &up.bids,
                     up.is_snapshot,
-                    exch_ts,
+                    exch_ms,
                     local_ts_ns,
                     true,
                 );
@@ -337,28 +338,24 @@ fn translate_feed_until(
                     &mut known_asks,
                     &up.asks,
                     up.is_snapshot,
-                    exch_ts,
+                    exch_ms,
                     local_ts_ns,
                     false,
                 );
             }
             WsEvent::Trade(t) => {
-                let ev_bits = (if t.aggressor_is_buy {
-                    LOCAL_BUY_TRADE_EVENT | EXCH_BUY_TRADE_EVENT
+                let kind = if t.aggressor_is_buy {
+                    EventKind::BuyTrade
                 } else {
-                    LOCAL_SELL_TRADE_EVENT | EXCH_SELL_TRADE_EVENT
-                }) | EXCH_EVENT
-                    | LOCAL_EVENT;
-                sink(HbtEvent {
-                    ev: ev_bits,
-                    exch_ts: t.exch_ms.saturating_mul(1_000_000),
-                    local_ts: local_ts_ns,
-                    px: t.price_e9 as f64 / 1e9,
-                    qty: t.qty_e9 as f64 / 1e9,
-                    order_id: 0,
-                    ival: 0,
-                    fval: 0.0,
-                });
+                    EventKind::SellTrade
+                };
+                sink(CompactEvent::new(
+                    kind,
+                    t.exch_ms,
+                    local_ts_ns,
+                    t.price_e9,
+                    t.qty_e9,
+                ));
             }
             WsEvent::Other | WsEvent::SubscribeFailed { .. } => {}
         }
@@ -368,30 +365,21 @@ fn translate_feed_until(
 
 #[allow(clippy::too_many_arguments)]
 fn push_side(
-    sink: &mut impl FnMut(HbtEvent),
+    sink: &mut impl FnMut(CompactEvent),
     known: &mut BTreeMap<i64, i64>,
     rows: &[(i64, i64)],
     is_snapshot: bool,
-    exch_ts: i64,
+    exch_ms: i64,
     local_ts: i64,
     bid: bool,
 ) {
-    let ev_bits = if bid {
-        LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT
+    let kind = if bid {
+        EventKind::BidDepth
     } else {
-        LOCAL_ASK_DEPTH_EVENT | EXCH_ASK_DEPTH_EVENT
+        EventKind::AskDepth
     };
     let mut push = |px: i64, qty: i64| {
-        sink(HbtEvent {
-            ev: ev_bits,
-            exch_ts,
-            local_ts,
-            px: px as f64 / 1e9,
-            qty: qty as f64 / 1e9,
-            order_id: 0,
-            ival: 0,
-            fval: 0.0,
-        });
+        sink(CompactEvent::new(kind, exch_ms, local_ts, px, qty));
     };
     if is_snapshot {
         let fresh: BTreeSet<i64> = rows.iter().map(|&(px, _)| px).collect();
