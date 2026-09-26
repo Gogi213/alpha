@@ -1,0 +1,98 @@
+[
+  {
+    "cell": "H10 ladder x before",
+    "period": "август",
+    "n_days": 31,
+    "eff_n": 28.1,
+    "base_total": 101.75,
+    "cell_total": -180.54,
+    "delta_total": -282.29,
+    "ci_total": [
+      -546.15,
+      -14.36
+    ],
+    "p_raw": 0.03719633317989457,
+    "p_holm": 0.186,
+    "reject_holm": false
+  },
+  {
+    "cell": "H10 ladder x before",
+    "period": "сентябрь",
+    "n_days": 23,
+    "eff_n": 55.9,
+    "base_total": 111.0,
+    "cell_total": -70.48,
+    "delta_total": -181.48,
+    "ci_total": [
+      -299.54,
+      -64.39
+    ],
+    "p_raw": 0.002585006333629236,
+    "p_holm": 0.0155,
+    "reject_holm": true
+  },
+  {
+    "cell": "H7 single@fr x pct2",
+    "period": "август",
+    "n_days": 31,
+    "eff_n": 14.8,
+    "base_total": 101.75,
+    "cell_total": 102.0,
+    "delta_total": 0.25,
+    "ci_total": [
+      -150.14,
+      146.05
+    ],
+    "p_raw": 0.9973535426088262,
+    "p_holm": 1.0,
+    "reject_holm": false
+  },
+  {
+    "cell": "H7 single@fr x pct2",
+    "period": "сентябрь",
+    "n_days": 23,
+    "eff_n": 242.3,
+    "base_total": 111.0,
+    "cell_total": 173.5,
+    "delta_total": 62.5,
+    "ci_total": [
+      -12.81,
+      144.17
+    ],
+    "p_raw": 0.11564376468090742,
+    "p_holm": 0.4626,
+    "reject_holm": false
+  },
+  {
+    "cell": "joint single@fr x before",
+    "period": "август",
+    "n_days": 31,
+    "eff_n": 52.7,
+    "base_total": 101.75,
+    "cell_total": 0.0,
+    "delta_total": -101.75,
+    "ci_total": [
+      -435.97,
+      226.47
+    ],
+    "p_raw": 0.5402692220271896,
+    "p_holm": 1.0,
+    "reject_holm": false
+  },
+  {
+    "cell": "joint single@fr x before",
+    "period": "сентябрь",
+    "n_days": 23,
+    "eff_n": 39.9,
+    "base_total": 111.0,
+    "cell_total": 0.0,
+    "delta_total": -111.0,
+    "ci_total": [
+      -246.81,
+      32.76
+    ],
+    "p_raw": 0.12122763153952754,
+    "p_holm": 0.4626,
+    "reject_holm": false
+  }
+]
