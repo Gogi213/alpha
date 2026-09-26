@@ -20,7 +20,7 @@
 ## Состояние (2026-09-25, ~22:30 GMT+4 — АКТУАЛЬНОЕ; ветка `audit/design-fixes-2026-09-22`, HEAD — `git log -1`)
 
 **Вечер 25.09 — поворот к протоколам (В-109):** альфу ищем на имеющихся данных; порядок — навык `.claude/skills/alpha-research/`;
-протоколы `docs/research/P-*.md`, журнал `docs/research/JOURNAL.md`, пул Г-01…Г-133 `docs/research/hypothesis-pool-2026-09-25.md`,
+протоколы `docs/research/P-*.md`, журнал `docs/research/JOURNAL.md`, пул Г-01…Г-140 `docs/research/hypothesis-pool-2026-09-25.md`,
 аудит `docs/findings/research-audit-2026-09-25.md` (вне выборки подтверждено 0). **П-02 утверждён** (10 первостепенных, код партией,
 прогон по очереди) — следующий шаг, см. «Первое в новом чате» в `CLAUDE.md`. Ниже — состояние на 12:30 (история).
 
