@@ -39,6 +39,10 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 
+# В-105: TRX вне торгового пула — исключается по имени, как в блоке A (`p02-wall.py`)
+EXCLUDE_SYMBOLS = {"TRXUSDT"}
+
+
 def percentile_sorted(sorted_vals: List[float], q: float) -> Optional[float]:
     n = len(sorted_vals)
     if n == 0:
@@ -71,6 +75,8 @@ def iter_compact_rows(path: str):
                 sym = row["symbol"]
             except (ValueError, KeyError):
                 continue
+            if sym in EXCLUDE_SYMBOLS:
+                continue
             yield sym, depth, rep, ended
 
 
@@ -95,6 +101,8 @@ def iter_depth_only(path: str):
         i_sym = header.index("symbol")
         for row in r:
             try:
+                if row[i_sym] in EXCLUDE_SYMBOLS:
+                    continue
                 yield row[i_sym], float(row[i_depth])
             except (ValueError, IndexError):
                 continue
