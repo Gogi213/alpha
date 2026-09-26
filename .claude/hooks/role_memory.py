@@ -198,7 +198,7 @@ def on_prompt_all(hook_in, role):
     """Все подсказки к сообщению: блокнот/чистка (каждое 5-е) и сторож контекста (от 65 %)."""
     text = on_prompt(hook_in, role)
     try:
-        advice = context_advice(hook_in, load_state())
+        advice = context_advice(hook_in, load_state(), role)
     except Exception:
         advice = None
     return "\n".join(t for t in (text, advice) if t) or None
@@ -231,14 +231,26 @@ def context_tokens(transcript):
     return 0
 
 
-def context_advice(hook_in, state):
-    """≥ 65 % окна: сессия сама советует владельцу клир или компакт (≥ 80 % — на каждом сообщении)."""
+CEO_ID_HINT = "CEO (адрес — в блоке «РОЛЬ СЕССИИ»)"
+
+
+def context_advice(hook_in, state, role="ceo"):
+    """≥ 65 % окна: роль сама уходит в клир на границе шага (владелец 26.09 «ну кроме себя»); CEO — советует владельцу."""
     tokens = context_tokens(hook_in.get("transcript_path"))
     frac = tokens / CONTEXT_WINDOW if CONTEXT_WINDOW else 0
     if frac < CONTEXT_WARN:
         return None
     if frac < CONTEXT_URGENT and state.get("n", 0) % 3 != 1:
         return None  # между 65 и 80 % — раз в три сообщения
+    if role != "ceo":
+        return (f"[контекст] {frac:.0%} окна ({tokens // 1000} тыс. из {CONTEXT_WINDOW // 1000} тыс.). АВТОКЛИР: на "
+                "ближайшей границе шага (шаг закончен, артефакт на диске) — (1) обнови журнал каждой своей задачи «в "
+                "работе» `.claude/roles/journal/T-XX.md` (сделано · идёт сейчас · СЛЕДУЮЩИЙ ШАГ) и блокнот, закоммить "
+                "своими путями; (2) SendMessage " + CEO_ID_HINT + ": «ухожу в клир: T-XX, продолжить с: <следующий "
+                "шаг>»; (3) последним действием хода вызови mcp__ccd_session_mgmt__clear_session с \"self\" — после "
+                "клира CEO пришлёт «продолжай по журналу». НЕ клирься, пока из этой сессии идёт фоновая работа (агент, "
+                "Monitor): дождись её конца; юниты systemd на Steam Deck клиру не мешают. clear_session отказал — "
+                "напиши CEO, клир сделает владелец.")
     return (f"[контекст] {frac:.0%} окна ({tokens // 1000} тыс. из {CONTEXT_WINDOW // 1000} тыс.). Последней строкой "
             "ответа владельцу — одна рекомендация: «клир» или «компакт», и почему. Правило: КЛИР — если задача "
             "закончена или стоит на чистой границе, блокнот обновлён и из этой сессии не идёт фоновая работа (фоновые "
