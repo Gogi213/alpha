@@ -85,6 +85,17 @@ header { display: grid; gap: 14px; }
 }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); border-color: var(--rule-strong); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 .variant-desc { color: var(--ink-3); font-size: 12.5px; }
+.marks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 168px)); gap: 8px; }
+.mark { display: grid; gap: 1px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 9px; background: var(--surface); }
+.mark .k { font: 500 11px/1.3 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; }
+.mark .v { font: 600 18px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.mark.warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--rule)); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); }
+.mark.warn .v { font: 600 14px/1.55 var(--font-body); color: var(--warn); }
+.seg .sep { align-self: stretch; width: 1px; background: var(--rule-strong); margin: 4px 6px; }
+.seg .grp { align-self: center; font: 600 10.5px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); margin-right: 2px; }
+.changed-chip { justify-self: start; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; padding: 5px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--ink); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--rule)); }
+.changed-chip .k { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--warn); }
 .diff-table { font-size: 13px; max-width: 980px; }
 .diff-table td, .diff-table th { text-align: left; white-space: normal; vertical-align: top; }
 .diff-table td:first-child { font: 600 11.5px/1.5 var(--font-mono); text-transform: uppercase; color: var(--ink-3); width: 76px; }
@@ -112,6 +123,8 @@ section.panel { background: var(--surface); border: 1px solid var(--rule); borde
   border: 5px solid transparent; border-top-color: var(--ink); opacity: 0; transition: opacity .12s ease; }
 .hint:hover::after, .hint:focus-visible::after, .hint.show::after { opacity: 1; }
 .hint:hover::before, .hint:focus-visible::before, .hint.show::before { opacity: 1; }
+.hint::after, .hint::before { display: none; }
+.hint:hover::after, .hint:focus-visible::after, .hint.show::after, .hint:hover::before, .hint:focus-visible::before, .hint.show::before { display: block; }
 
 /* ---------- KPI ---------- */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--surface); }
@@ -172,11 +185,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">alpha · бэктест на реальной позиции · данные на <span id="gen"></span> UTC</p>
+    <p class="eyebrow">alpha · бэктест · данные на <span id="gen"></span> UTC</p>
     <h1>Лонг в просадке</h1>
-    <p class="lede">Лонг от старой крупной бид-стены на подходе цены — сделка входит только тогда, когда рынок только
-      что просел (фильтр по ходу BTC). <span id="acct-line"></span></p>
-    <div id="status-banner"></div>
+    <p class="lede">Лонг от старой бид-стены, когда BTC только что просел. Счёт $2 500, позиция $500.</p>
+    <div class="marks" id="marks"></div>
     <div class="controls">
       <div class="control-row">
         <span class="label">Период</span>
@@ -186,24 +198,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
         <span class="label">Вариант</span>
         <div class="seg" id="variant-toggle" role="group" aria-label="Вариант"></div>
       </div>
-      <div class="control-row" id="p02-toggle-row" hidden>
-        <span class="label">Гипотезы П-02 · справочно</span>
-        <div class="seg" id="p02-toggle" role="group" aria-label="Гипотезы П-02"></div>
-      </div>
-      <p class="variant-desc" id="p02-how" hidden>Каждая гипотеза — это главный вариант (BTC 4 ч, трейл 1/1) с одной заменой; в плитках — разница с главным за тот же период. Исключение — Г-86: другой сигнал (касание стены, а не подход), фильтр BTC 4 ч и стена ≥ 45 мин те же.</p>
-      <p class="variant-desc" id="p02-undefined" hidden></p>
-      <p class="variant-desc" id="variant-desc"></p>
-      <div class="scroll" id="p02-diff-box" hidden><table class="diff-table" id="p02-diff"></table></div>
+      <p class="changed-chip" id="changed-chip" hidden></p>
     </div>
   </header>
-
-  <section class="panel" id="panel-compare">
-    <div class="panel-head"><h2>Все варианты по месяцам</h2><span class="note">главный, прежние варианты и гипотезы П-02 — одной таблицей; Δ — разница с главным за тот же период</span></div>
-    <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
-    <p class="note">Счёт $2500, позиция $500, без защит. «Август + сентябрь» — один счёт подряд с 01.08, не сумма двух месяцев.
-      Гипотезы П-02 посчитаны на тех же днях, на которых проверялись, — справочно; вердикт П-02 — по заранее записанному
-      правилу (§10), у сигнальных гипотез он про долю отскоков от стены, а не про деньги.</p>
-  </section>
 
   <section class="panel" id="panel-kpi">
     <div class="panel-head"><h2>Показатели</h2><span class="note" id="kpi-scope"></span></div>
@@ -211,11 +208,15 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   </section>
 
   <section class="panel" id="panel-equity">
-    <div class="panel-head"><h2>Капитал и просадка</h2><span class="note">$, накопительно по дням, минутная переоценка счёта</span></div>
+    <div class="panel-head"><h2>Капитал и просадка</h2><span class="note" id="equity-scope"></span></div>
     <div class="legend" id="equity-legend"></div>
     <div class="chart h-eq"><canvas id="chart-equity"></canvas></div>
     <div class="chart h-dd"><canvas id="chart-drawdown"></canvas></div>
-    <p class="note" id="equity-note"></p>
+  </section>
+
+  <section class="panel" id="panel-compare">
+    <div class="panel-head"><h2>Все варианты по месяцам</h2><span class="note">Δ — разница с главным за тот же период</span></div>
+    <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
   </section>
 
   <section class="panel" id="panel-daily">
@@ -271,7 +272,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   </section>
 
   <details class="methodology">
-    <summary>Методика и оговорки</summary>
+    <summary>Пояснения</summary>
     <ul id="methodology-list"></ul>
   </details>
 
@@ -305,15 +306,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const cash = (r, posUsd) => r[R.net] / 1e4 * (r[R.usd] != null ? r[R.usd] : posUsd);
 
   const PERIOD_LABEL = {sep: "Сентябрь (23 суток, 14.09 без LSKUSDT)", aug: "Август", augsep: "Август + сентябрь", crash: "Обвал"};
-  const VARIANT_PILL = {cand: "BTC 1 ч, трейл 1/1", btc4h_trail: "BTC 4 ч, трейл 1/1", btc4h_take: "BTC 4 ч, тейк 1,75 %", nofilter: "Без фильтра"};
+  const VARIANT_PILL = {cand: "BTC 1 ч", btc4h_trail: "Главный", btc4h_take: "Тейк 1,75 %", nofilter: "Без фильтра"};
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
   const VARIANT_FULL = {}, VARIANT_META = {}; D.variants.forEach(v => { VARIANT_FULL[v.key] = v.label; VARIANT_META[v.key] = v; if (v.pill) VARIANT_PILL[v.key] = v.pill; });
   const isP02 = key => (VARIANT_META[key] || {}).group === "p02";
 
   document.getElementById("gen").textContent = D.generated_utc;
-  document.getElementById("acct-line").innerHTML =
-    "Счёт: депозит <b>$" + intFmt(D.deposit_usd) + "</b>, позиция <b>$" + intFmt(D.position_usd) +
-    "</b>, без плеча, издержки и очередь заявок учтены.";
 
   // ---------- подсказки (тап на телефоне) ----------
   document.addEventListener("click", e => {
@@ -321,62 +319,49 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     document.querySelectorAll(".hint.show").forEach(h => { if (h !== hint) h.classList.remove("show"); });
     if (hint) hint.classList.toggle("show");
   });
-  const hint = (id, tip) => "<span class='hint' tabindex='0' data-tip='" + tip.replace(/'/g, "&#39;") + "'>" + "?" + "</span>";
+  const hint = (id, tip) => "<span class='hint' tabindex='0' data-tip='" + tip.replace(/'/g, "&#39;") + "'>" + "i" + "</span>";
 
   // ---------- состояние ----------
   let state = {period: "augsep", variant: "btc4h_trail"};
 
   function periodPillLabel(key) {
     const p = D.periods.find(x => x.key === key);
-    return PERIOD_LABEL[key] + " " + dm(p.from) + "–" + dm(p.to);
+    return {sep: "Сентябрь", aug: "Август", augsep: "Авг + сен", crash: "Обвал"}[key] || PERIOD_LABEL[key];
   }
 
   function buildToggles() {
     const pt = document.getElementById("period-toggle");
-    pt.innerHTML = D.periods.map(p => "<button data-period='" + p.key + "' aria-pressed='" + (p.key === state.period) + "'>" + periodPillLabel(p.key) + "</button>").join("");
+    pt.innerHTML = D.periods.map(p => "<button data-period='" + p.key + "' title='" + PERIOD_LABEL[p.key] + ", " + dm(p.from) + "–" + dm(p.to) + "' aria-pressed='" + (p.key === state.period) + "'>" + periodPillLabel(p.key) + "</button>").join("");
     const vt = document.getElementById("variant-toggle");
-    const btn = v => "<button data-variant='" + v.key + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>";
-    vt.innerHTML = D.variants.filter(v => !isP02(v.key)).map(btn).join("");
+    const btn = v => "<button data-variant='" + v.key + "' title='" + VARIANT_FULL[v.key].replace(/'/g, "&#39;") + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>";
     const p02v = D.variants.filter(v => isP02(v.key));
-    if (p02v.length) {
-      document.getElementById("p02-toggle-row").hidden = false;
-      document.getElementById("p02-how").hidden = false;
-      document.getElementById("p02-toggle").innerHTML = p02v.map(btn).join("");
-    }
-    if ((D.p02_undefined || []).length) {
-      const u = document.getElementById("p02-undefined");
-      u.hidden = false;
-      u.innerHTML = "Без денежного варианта: " + D.p02_undefined.map(x => "<b>" + x.h + "</b> — " + x.why).join("; ") + ".";
-    }
+    vt.innerHTML = D.variants.filter(v => !isP02(v.key)).map(btn).join("") +
+      (p02v.length ? "<span class='sep' aria-hidden='true'></span><span class='grp' title='Гипотезы П-02: главный вариант с одной заменой, справочно'>П-02</span>" + p02v.map(btn).join("") : "");
     pt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; renderAll(); }));
-    document.querySelectorAll("#variant-toggle button, #p02-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
+    document.querySelectorAll("#variant-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
   }
 
-  // ---------- статус в шапке: главный вариант (В-104) и что ещё не проверено ----------
+  // ---------- метки в шапке: главный вариант (В-104) по месяцам ----------
   function renderStatus() {
-    const acc = (p, v) => (D.account[p] || {})[v] || null;
-    const main = {sep: acc("sep", "btc4h_trail"), aug: acc("aug", "btc4h_trail"), both: acc("augsep", "btc4h_trail")};
-    const c1 = acc("aug", "cand");
-    const box = document.getElementById("status-banner");
-    const warnIcon = "<svg viewBox='0 0 16 16' aria-hidden='true' fill='none'><path d='M8 1.5 15 14H1L8 1.5Z' stroke='currentColor' stroke-width='1.3' stroke-linejoin='round'/><path d='M8 6v3.4M8 11.6v.1' stroke='currentColor' stroke-width='1.4' stroke-linecap='round'/></svg>";
-    const v = x => x ? money(x.net_usd) + " (" + pctFmt(x.net_pct) + ")" : "—";
-    box.innerHTML = "<div class='status-banner warn'>" + warnIcon +
-      "<div><div class='headline'>Просадка BTC за 4 ч, трейл 1/1 — в плюсе оба месяца: сентябрь " + v(main.sep) + ", август " + v(main.aug) +
-      "; два месяца одним счётом " + v(main.both) + "</div>" +
-      "<div class='sub'>Все числа — на данных подбора (август и сентябрь), без интервалов; гипотезы П-02 — отдельными кнопками, справочно. " +
-      "Просадка BTC за 1 ч на августе не подтвердилась: " + v(c1) + "." + (D.drop && D.drop.length ? " Вне торгового пула: " + D.drop.map(s => s.replace(/USDT$/, "")).join(", ") + "." : "") + "</div></div></div>";
+    const acc = p => (D.account[p] || {}).btc4h_trail || null;
+    const aug = acc("aug"), sep = acc("sep"), both = acc("augsep");
+    const mk = (k, v, cl, tip) => "<div class='mark'><span class='k'>" + k + (tip ? hint(k, tip) : "") + "</span><span class='v num " + (cl || "") + "'>" + v + "</span></div>";
+    document.getElementById("marks").innerHTML =
+      mk("Август", aug ? money(aug.net_usd) : "—", aug && cls(aug.net_usd), "Главный вариант (BTC 4 ч, трейл 1/1), август, счёт $2 500 без защит" + (aug ? ": " + pctFmt(aug.net_pct) + " депозита" : "")) +
+      mk("Сентябрь", sep ? money(sep.net_usd) : "—", sep && cls(sep.net_usd), "Главный вариант, 01–23.09 (14.09 без LSKUSDT)" + (sep ? ": " + pctFmt(sep.net_pct) + " депозита" : "")) +
+      mk("Просадка", both ? "−" + pctPlain(both.dd_pct) : "—", "neg", "Максимальная просадка главного варианта за август и сентябрь одним счётом, % депозита") +
+      "<div class='mark warn'><span class='k'>Статус" + hint("Статус", "Все числа посчитаны на тех же днях, на которых подбирали фильтр и выход, без интервалов. Это не проверка на новых данных.") + "</span><span class='v'>данные подбора</span></div>";
   }
 
   // ---------- что изменено: главный против гипотезы по этапам ----------
   function renderDiff() {
-    const box = document.getElementById("p02-diff-box");
+    const chip = document.getElementById("changed-chip");
     const ch = (D.p02_changes || {})[state.variant];
-    if (!isP02(state.variant) || !ch || !D.main_stages) { box.hidden = true; return; }
-    box.hidden = false;
-    document.getElementById("p02-diff").innerHTML = "<thead><tr><th>этап</th><th>главный вариант</th><th>" + VARIANT_PILL[state.variant] + "</th></tr></thead><tbody>" +
-      D.main_stages.map(([st, txt]) => ch[st]
-        ? "<tr class='changed'><td>" + st + "</td><td>" + txt + "</td><td>" + ch[st] + "</td></tr>"
-        : "<tr><td>" + st + "</td><td>" + txt + "</td><td class='same'>так же</td></tr>").join("") + "</tbody>";
+    if (!isP02(state.variant) || !ch) { chip.hidden = true; return; }
+    const meta = VARIANT_META[state.variant] || {};
+    const tip = VARIANT_FULL[state.variant] + ". " + (meta.note ? meta.note + " " : "") + (D.p02_note || "");
+    chip.hidden = false;
+    chip.innerHTML = "<span class='k'>Изменено</span>" + Object.entries(ch).map(([st, t]) => "<span><b>" + st + "</b>: " + t.replace(/^то же \+ /, "+ ") + "</span>").join("<span class='muted'>·</span>") + hint("Изменено", tip);
   }
 
   // ---------- данные для текущего выбора ----------
@@ -407,7 +392,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function renderKpi() {
     const {acc, kpi} = combo(state.period, state.variant);
     const grid = document.getElementById("kpi-grid");
-    document.getElementById("kpi-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_FULL[state.variant];
+    document.getElementById("kpi-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant];
     if (!kpi) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>" + (isP02(state.variant) && state.period === "crash" ? "гипотезы П-02 на обвале не считались" : "нет данных для этого сочетания периода и варианта") + "</div></div>"; return; }
     const n = acc ? acc.n : kpi.n;
     const netUsd = acc ? acc.net_usd : kpi.net_usd;
@@ -524,12 +509,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     charts.dd = new Chart(document.getElementById("chart-drawdown"), { type: "line",
       data: {datasets: [{label: "просадка", data: ddPts, borderColor: css("--loss"), backgroundColor: css("--loss") + "33", fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0.08, borderWidth: 1.5}]},
       options: oDd, plugins: [tunedBandPlugin(state.period)] });
-    document.getElementById("equity-note").textContent = {
+    document.getElementById("equity-scope").innerHTML = "$, накопительно по дням" + hint("Капитал", {
       sep: "Заштрихован период 16–20.09 — на этих сутках подбирался вход; 16.09 — переход с архива Bybit на собственный коллектор.",
       aug: "Архив Bybit, тот же источник весь месяц.",
       augsep: "Один счёт $2500 подряд с 01.08 по 23.09, не сумма двух месяцев. Август и 01–15.09 — архив Bybit, с 16.09 — собственный коллектор; заштрихован период 16–20.09, на котором подбирался вход.",
       crash: "Обвал 10–11.10.2025 — двое суток, отдельный стресс-эпизод.",
-    }[state.period] || "";
+    }[state.period] || "Минутная переоценка счёта.");
   }
 
   // ---------- дневной результат + календарь ----------
@@ -640,7 +625,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function p02Verdict(key) {
     const m = key.match(/\d+/); if (!m || !D.p02) return "";
     const r = D.p02.rows.find(x => x.h.startsWith("Г-" + m[0] + " "));
-    return r ? r.v10 + (r.r2 && r.r2 !== r.v10 ? "<br><span class='muted'>R2: " + r.r2 + "</span>" : "") : "";
+    return r ? r.v10 + (r.r2 && r.r2 !== r.v10 ? hint("R2", "R2 (правило изменено после счёта): " + r.r2) : "") : "";
   }
   function renderCompare() {
     const main = p => (D.account[p] || {}).btc4h_trail;
@@ -654,16 +639,16 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
         "<td class='num'>" + x.n + "</td>" +
         "<td class='num'>" + Math.round(x.win_rate * 100) + " %" + (acc ? "" : "*") + "</td>";
     };
-    const row = v => "<tr" + (v.key === state.variant ? " class='total'" : "") + "><td style='white-space:normal;min-width:190px'>" + VARIANT_PILL[v.key] + "</td>" +
-      COMPARE.map(([p]) => cell(v, p)).join("") + "<td style='text-align:left;white-space:normal;min-width:150px'>" + (isP02(v.key) ? p02Verdict(v.key) : "") + "</td></tr>";
+    const row = v => "<tr" + (v.key === state.variant ? " class='total'" : "") + "><td title='" + VARIANT_FULL[v.key].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[v.key] + "</td>" +
+      COMPARE.map(([p]) => cell(v, p)).join("") + "<td style='text-align:left'>" + (isP02(v.key) ? p02Verdict(v.key) : "") + "</td></tr>";
     const width = 2 + COMPARE.length * 5;
-    const undef = (D.p02_undefined || []).map(u => "<tr><td>" + u.h + "</td><td class='why sep' colspan='" + (width - 2) + "'>нет денег: " + u.why + "</td></tr>").join("");
+    const undef = (D.p02_undefined || []).map(u => "<tr><td style='white-space:normal'>" + u.h + "</td><td class='why sep' colspan='" + (width - 1) + "'>нет денег" + hint(u.h, u.why) + "</td></tr>").join("");
     const sub = "<th class='num sep'>$</th><th class='num'>Δ к главному</th><th class='num'>просадка</th><th class='num'>сделок</th><th class='num'>в плюс</th>";
     document.getElementById("compare-table").innerHTML =
       "<thead><tr><th></th>" + COMPARE.map(([, l]) => "<th class='sep' colspan='5'>" + l + "</th>").join("") + "<th></th></tr>" +
       "<tr><th>вариант</th>" + COMPARE.map(() => sub).join("") + "<th style='text-align:left'>вердикт П-02</th></tr></thead><tbody>" +
       D.variants.filter(v => !isP02(v.key)).map(row).join("") +
-      "<tr class='group'><td colspan='" + width + "'>Гипотезы П-02 · главный вариант с одной заменой · справочно</td></tr>" +
+      "<tr class='group'><td colspan='" + width + "'>Гипотезы П-02 · главный с одной заменой · справочно</td></tr>" +
       D.variants.filter(v => isP02(v.key)).map(row).join("") + undef + "</tbody>";
   }
 
@@ -712,7 +697,15 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
 
   // ---------- методика ----------
+  const acc0 = p => (D.account[p] || {});
+  const c1 = acc0("aug").cand;
   document.getElementById("methodology-list").innerHTML = [
+    "Главный вариант (BTC 4 ч, трейл 1/1): лонг от бид-стены старше 45 мин на подходе цены, только когда BTC за 4 ч упал на 44,55 bps и больше; стоп 2 %, трейл +1 % / откат 1 %, не дольше 4 ч. Все числа — на днях подбора (август и сентябрь), без интервалов." +
+      (c1 ? " Просадка BTC за 1 ч на августе не подтвердилась: " + money(c1.net_usd) + "." : "") + (D.drop && D.drop.length ? " Вне торгового пула: " + D.drop.map(s => s.replace(/USDT$/, "")).join(", ") + "." : ""),
+    "Гипотезы П-02 (кнопки после «П-02»): каждая — главный вариант с одной заменой, что заменено — строкой «Изменено» под кнопками. " + (D.p02_note || "") + " У сигнальных гипотез вердикт П-02 — про долю отскоков от стены, а не про деньги.",
+    ...(D.p02_undefined || []).map(u => "Без денег — " + u.h + ": " + u.why + "."),
+    ...D.variants.filter(v => isP02(v.key) && v.note).map(v => VARIANT_PILL[v.key] + ": " + v.note),
+    "Таблица «Все варианты по месяцам»: счёт $2 500, позиция $500, без защит; «Авг + сен» — один счёт подряд с 01.08, не сумма двух месяцев; «*» — доля в плюс по сделкам, отдельного счёта нет.",
     "Версия 17 (27.09): каждая гипотеза П-02 — отдельным вариантом с полным набором показателей, кривой и днями по месяцам (кнопки «Гипотезы П-02 · справочно»). Денежные (Г-105, Г-85, Г-86) — свои прогоны бэктеста; Г-08 — сделки главного варианта у стены на круглом числе, тем же счётом $2500. Остальные сигнальные (Г-28, Г-33, Г-07, Г-46, Г-36) деньгами пока не показаны: их признак мерился на касании стены, а главный вариант входит на подходе — касание есть лишь у 17 % сделок; по решению владельца (В-117) признак пересчитывается на момент входа, варианты появятся по мере счёта. Таблица «Все варианты по месяцам» перенесена наверх; у гипотезы — таблица «что изменено» и главный вариант пунктиром на графике капитала. Это не вердикт: варианты посчитаны на тех же днях, на которых проверялась гипотеза; вердикт — в разделе «Гипотезы П-02». Обвал для них не считался. Сдвиг к версии 16: из шапки убрана строка «нужен третий, независимый месяц» (решение владельца: решение — по августу и сентябрю, каждый отдельно).",
     "Версия 16 (26.09): выключатель BTC теперь смотрит ход BTC той же минуты, что и фильтр входа (раньше — на минуту позже): с выключателем 150 bps август главного варианта +$89 → +$96 — два входа 22.08 05:11 UTC больше не берутся; без выключателя цифры те же.",
     "Версия 16: сентябрь — 23 суток: 14.09 посчитано без одной монеты (LSKUSDT — прогон не проходит по памяти, исключена во всех вариантах одинаково, решение В-112). Счёт, показатели, кривые, дни и защиты — по 23 суткам; таблицы «Результаты сделок» и «По монетам» пока по 22 суткам (без 14.09) — обновятся в следующей версии.",
@@ -759,10 +752,6 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function renderAll() {
     document.querySelectorAll("#period-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
     document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
-    const meta = VARIANT_META[state.variant] || {};
-    document.getElementById("variant-desc").textContent = VARIANT_FULL[state.variant] +
-      (isP02(state.variant) ? ". " + (meta.note ? meta.note + " " : "") + (D.p02_note || "") : "");
-    document.querySelectorAll("#p02-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
     renderDiff();
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
