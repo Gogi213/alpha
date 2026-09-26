@@ -97,8 +97,10 @@ def context(source):
         "Общий список задач — .claude/roles/TASKS.md.",
     ]
     try:  # память ролей: догнать конспект прошлой сессии, дать на него ссылку
-        from role_memory import on_session_start
+        from role_memory import CONSOLIDATE_TEXT, consolidate_due, on_session_start
         last = on_session_start(hook_in, role, title)
+        if role == "ceo" and consolidate_due():
+            head.append(CONSOLIDATE_TEXT)
     except Exception:
         last = None
     if last:

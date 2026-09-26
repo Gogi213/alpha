@@ -2,6 +2,8 @@
 
 - UserPromptSubmit: каждое 5-е сообщение сессии-роли — напоминание обновить блокнот роли,
   если он не менялся с начала этих пяти сообщений.
+- CEO: раз в сутки, если автопамять менялась, — напоминание запустить навык
+  `anthropic-skills:consolidate-memory` (на старте и в 5-м сообщении); PostToolUse(Skill) ставит метку.
 - SessionEnd (клир, выход, остановка): конспект разговора — сообщения владельца и сессий,
   ответы (без инструментов и рассуждений) — в `.claude/roles/log/<роль>/`.
   Не сработал — `role_context.py` на следующем старте догоняет конспект по записанному пути.
@@ -136,6 +138,30 @@ def on_session_start(hook_in, role, title):
     return latest_digest(role, cli_id)
 
 
+MEMORY_DIR = os.path.join(os.path.expanduser("~"), ".claude", "projects",
+                          "".join(c if c.isascii() and c.isalnum() else "-" for c in ROOT), "memory")
+CONSOLIDATED = os.path.join(STATE_DIR, "consolidated")  # метка последней чистки автопамяти
+CONSOLIDATE_EVERY_S = 24 * 3600
+
+
+def consolidate_due():
+    """Чистка автопамяти нужна: прошло ≥ суток с прошлой и память с тех пор менялась."""
+    try:
+        last = os.path.getmtime(CONSOLIDATED)
+    except OSError:
+        last = 0.0
+    if time.time() - last < CONSOLIDATE_EVERY_S:
+        return False
+    newest = max((os.path.getmtime(f) for f in glob.glob(os.path.join(glob.escape(MEMORY_DIR), "*.md"))),
+                 default=0.0)
+    return newest > last
+
+
+CONSOLIDATE_TEXT = ("[чистка памяти] Автопамять менялась, прошлой чистке больше суток: после основной задачи "
+                    "владельца запусти навык `anthropic-skills:consolidate-memory` (слить повторы, устаревшее — "
+                    "обновить или убрать, оглавление MEMORY.md). Метку ставит хук сам.")
+
+
 def on_prompt(hook_in, role):
     cli_id = hook_in.get("session_id")
     state = load_state()
@@ -148,25 +174,41 @@ def on_prompt(hook_in, role):
     save_state(state)
     if state["n"] % EVERY:
         return None
+    parts = []
     notebook = os.path.join(ROOT, ".claude", "roles", "notes", f"{role}.md")
     try:
-        if os.path.getmtime(notebook) >= state.get("window_start", 0):
-            return None  # блокнот уже обновлён за эти сообщения
+        fresh = os.path.getmtime(notebook) >= state.get("window_start", 0)
     except OSError:
-        pass
-    text = (f"[память роли] {EVERY} сообщений без обновления блокнота `.claude/roles/notes/{role}.md`. "
-            "В этом ходе, после основной работы, обнови его точечной правкой (≤ 60 строк): «Сейчас делаю», "
-            "новое в «Узнал» (с датой и источником), «Грабли». Нечего добавить — не трогай. "
-            "Владельцу об этом не писать.")
-    if role == "ceo":
-        text += (" CEO: если изменилось общее — ещё `CLAUDE.md` «СОСТОЯНИЕ», `.memory/index.md`, автопамять.")
-    return text
+        fresh = False
+    if not fresh:
+        text = (f"[память роли] {EVERY} сообщений без обновления блокнота `.claude/roles/notes/{role}.md`. "
+                "В этом ходе, после основной работы, обнови его точечной правкой (≤ 60 строк): «Сейчас делаю», "
+                "новое в «Узнал» (с датой и источником), «Грабли». Нечего добавить — не трогай. "
+                "Владельцу об этом не писать.")
+        if role == "ceo":
+            text += " CEO: если изменилось общее — ещё `CLAUDE.md` «СОСТОЯНИЕ», `.memory/index.md`, автопамять."
+        parts.append(text)
+    if role == "ceo" and consolidate_due():
+        parts.append(CONSOLIDATE_TEXT)
+    return "\n".join(parts) or None
+
+
+def on_skill(hook_in):
+    """PostToolUse(Skill): запуск навыка чистки памяти ставит метку."""
+    skill = str((hook_in.get("tool_input") or {}).get("skill", ""))
+    if skill.endswith("consolidate-memory"):
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(CONSOLIDATED, "w", encoding="utf-8") as fh:
+            fh.write(datetime.datetime.now(GMT4).isoformat(timespec="minutes") + "\n")
 
 
 def main():
     hook_in = read_stdin()
     event = hook_in.get("hook_event_name")
     try:
+        if event == "PostToolUse":
+            on_skill(hook_in)
+            return 0
         title, role = current_role()
         if role is None:
             return 0
