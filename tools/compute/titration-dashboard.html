@@ -259,6 +259,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <ul id="methodology-list"></ul>
   </details>
 
+  <section class="panel" id="panel-p02">
+    <div class="panel-head"><h2>Гипотезы П-02</h2><span class="badge warn" id="p02-status"></span></div>
+    <p class="note" id="p02-note"></p>
+    <div style="overflow-x:auto"><table id="p02-table"></table></div>
+  </section>
+
   <footer class="pagefoot">alpha · внутренний бэктест, не инвестиционная рекомендация</footer>
 </div>
 
@@ -282,7 +288,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const R = {day: 0, sym: 1, t0: 2, exit: 3, net: 4, ctrl: 5, reason: 6, fill: 7, usd: 8};
   const cash = (r, posUsd) => r[R.net] / 1e4 * (r[R.usd] != null ? r[R.usd] : posUsd);
 
-  const PERIOD_LABEL = {sep: "Сентябрь (22 из 23 суток)", aug: "Август", augsep: "Август + сентябрь (сентябрь 22 из 23 суток)", crash: "Обвал"};
+  const PERIOD_LABEL = {sep: "Сентябрь (23 суток, 14.09 без LSKUSDT)", aug: "Август", augsep: "Август + сентябрь", crash: "Обвал"};
   const VARIANT_PILL = {cand: "BTC 1 ч, трейл 1/1", btc4h_trail: "BTC 4 ч, трейл 1/1", btc4h_take: "BTC 4 ч, тейк 1,75 %", nofilter: "Без фильтра"};
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
   const VARIANT_FULL = {}; D.variants.forEach(v => VARIANT_FULL[v.key] = v.label);
@@ -639,9 +645,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
   // ---------- методика ----------
   document.getElementById("methodology-list").innerHTML = [
-    "Версия 15 (26.09): «Средняя сделка», «Ожидание», «Профит-фактор» и «Время в рынке» считаются по сделкам, которые реально взял счёт, — как «Сделок» и «Чистая прибыль»; в версии 14 они шли по всем сделкам прогона без правила «одна позиция на монету». Главный вариант: сентябрь не изменился, август — $0,22 → $0,21 на сделку.",
-    "Версия 15: просадка строки «+ потолок 3 позиции» за сентябрь стала меньше (главный вариант 1,06 % → 0,99 %) по другой причине: в версии 14 минутные свечи кончались 23.09 в 17:15 UTC, и две сделки вечера 23.09 (DRAM, ATOM) внутри сделки оценивались по цене входа; теперь свечи есть. Сделки и суммы не изменились.",
-    "Сентябрь — 22 из 23 суток: 14.09 не посчитано (прогон не проходит по памяти на одной монете, разбирается); все цифры сентября и «август + сентябрь» — без этих суток.",
+    "Версия 16 (26.09): выключатель BTC теперь смотрит ход BTC той же минуты, что и фильтр входа (раньше — на минуту позже): с выключателем 150 bps август главного варианта +$89 → +$96 — два входа 22.08 05:11 UTC больше не берутся; без выключателя цифры те же.",
+    "Версия 16: сентябрь — 23 суток: 14.09 посчитано без одной монеты (LSKUSDT — прогон не проходит по памяти, исключена во всех вариантах одинаково, решение В-112). Счёт, показатели, кривые, дни и защиты — по 23 суткам; таблицы «Результаты сделок» и «По монетам» пока по 22 суткам (без 14.09) — обновятся в следующей версии.",
+    "Версия 16: раздел «Гипотезы П-02» — десять проверенных идей про стену и вход: что проверяли, август и сентябрь отдельно, эффект с интервалом, доля дней в сторону идеи; вердикт по заранее записанному правилу и по новому правилу R2 (изменено после счёта).",
+    "Версия 15 (26.09): «Средняя сделка», «Ожидание», «Профит-фактор» и «Время в рынке» — по сделкам, которые взял счёт.",
     "Данные: 01–15.09 и август 2026 — архив Bybit (200 уровней стакана, шаг 100 мс); 16–23.09 — собственный коллектор (50 уровней, 20 мс). Обвал 10–11.10.2025 — архив Bybit.",
     "Исполнение — модель очереди (лестница заявок, приоритет по времени и цене) и задержка по замерам биржи; издержки биржи включены в результат каждой сделки.",
     "Пороги фильтра по BTC заморожены по 01–15.09.2026 и не подбирались заново ни на записи, ни на августе, ни на обвале.",
@@ -654,12 +661,38 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   ].map(t => "<li>" + t + "</li>").join("");
 
   // ---------- сборка ----------
+  // ---------- гипотезы П-02 (T-27) ----------
+  function renderP02() {
+    const P = D.p02;
+    const box = document.getElementById("panel-p02");
+    if (!P) { box.style.display = "none"; return; }
+    document.getElementById("p02-status").textContent = "R2 — " + P.r2_status + " · по монетам — " + P.coins_status;
+    document.getElementById("p02-note").textContent = P.note;
+    const cell = (m, unit) => {
+      if (!m) return "<td class='muted'>—</td>";
+      const g = x => (x > 0 ? "+" : x < 0 ? "−" : "") + (unit === "$" ? "$" : "") + Math.abs(x).toFixed(unit === "$" && Math.abs(x) >= 10 ? 0 : 2).replace(".", ",");
+      const f = x => g(x) + (unit === "$" ? "" : " п.п.");
+      const days = m.days ? " · дней в сторону " + m.days_plus + " / " + m.days : "";
+      const cls = m.est > 0 ? "pos" : m.est < 0 ? "neg" : "";
+      return "<td style='text-align:left;white-space:normal'><b class='" + cls + "'>" + f(m.est) + "</b> <span class='muted'>[" + g(m.lo) + "; " + g(m.hi) + "]</span>" +
+        "<br><span class='muted'>p (Холм) " + (m.p_holm < 0.0001 ? "< 0,0001" : m.p_holm.toFixed(4).replace(".", ",")) + days + "</span></td>";
+    };
+    document.getElementById("p02-table").innerHTML =
+      "<thead><tr><th>гипотеза</th><th style='text-align:left'>что проверяли</th><th style='text-align:left'>август</th><th style='text-align:left'>сентябрь</th>" +
+      "<th style='text-align:left'>по монетам</th><th style='text-align:left'>правило протокола (§10)</th><th style='text-align:left'>R2 · изменено после счёта</th></tr></thead><tbody>" +
+      P.rows.map(r => "<tr><td>" + r.h + "</td><td style='text-align:left;white-space:normal;min-width:220px'>" + r.what +
+        (r.why ? "<br><span class='muted'>" + r.why + "</span>" : "") + "</td>" +
+        (r.why ? "<td class='muted' colspan='2' style='text-align:left'>не определена</td>" : cell(r.months["август"], r.unit) + cell(r.months["сентябрь"], r.unit)) +
+        "<td class='muted' style='text-align:left'>" + (r.why ? "—" : P.coins_status) + "</td>" +
+        "<td style='text-align:left'>" + r.v10 + "</td><td style='text-align:left;white-space:normal'>" + r.r2 + "</td></tr>").join("") + "</tbody>";
+  }
+
   function renderAll() {
     document.querySelectorAll("#period-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
     document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
     document.getElementById("variant-desc").textContent = VARIANT_FULL[state.variant];
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
-  buildToggles(); renderStatus(); renderCompare(); renderAll();
+  buildToggles(); renderStatus(); renderCompare(); renderP02(); renderAll();
 })();
 </script>
