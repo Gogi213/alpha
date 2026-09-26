@@ -286,7 +286,7 @@ def analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key, n_bo
     n_eff = en.effective_n_from_autocorr(daily_diffs) if len(daily_diffs) >= 8 else float(len(daily_diffs))
 
     return {
-        "days": len(days), "n_eff_days": round(float(n_eff), 1),
+        "days": len(days), "n_eff_days": None if n_eff is None else round(float(n_eff), 1),
         "n_touch_top": nt_top, "n_touch_bottom": nt_bot,
         "share_top": share_top, "share_bottom": share_bot,
         "diff_pp": diff * 100.0, "ci95_pp": (ci_lo * 100.0, ci_hi * 100.0), "p_value": p_val,
@@ -315,7 +315,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             r = analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key,
                                  n_boot=args.n_boot, seed=args.seed)
             results.setdefault(variant, {})[month_prefix] = r
-            print(f"{label}: n_days={r['days']} n_eff={r['n_eff_days']} "
+            print(f"{label}: n_days={r['days']} n_eff={'не определено' if r['n_eff_days'] is None else r['n_eff_days']} "
                   f"n_touch={r['n_touch_top']}/{r['n_touch_bottom']} "
                   f"share={r['share_top']:.4f}/{r['share_bottom']:.4f} "
                   f"diff={r['diff_pp']:+.2f}pp CI95=[{r['ci95_pp'][0]:+.2f};{r['ci95_pp'][1]:+.2f}]pp "

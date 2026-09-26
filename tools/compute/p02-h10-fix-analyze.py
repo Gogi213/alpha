@@ -22,10 +22,10 @@ import argparse
 import json
 import math
 import random
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
-def effective_n_from_autocorr(returns: List[float]) -> float:
+def effective_n_from_autocorr(returns: List[float]) -> Optional[float]:
     r = [x for x in returns if x is not None and not math.isnan(x)]
     n = len(r)
     if n < 8:
@@ -42,8 +42,8 @@ def effective_n_from_autocorr(returns: List[float]) -> float:
         rho = num / denom
         total += (1.0 - k / n) * rho
     factor = 1.0 + 2.0 * total
-    if factor <= 0:
-        return float(n)
+    if factor < 1.0:  # оценка больше n — «не определено» (В-113, как в навыке)
+        return None
     return max(1.0, n / factor)
 
 
@@ -110,11 +110,14 @@ def main() -> int:
     p = 2 * (1 - 0.5 * (1 + math.erf(abs(z) / math.sqrt(2))))
 
     n_eff_raw = effective_n_from_autocorr(deltas)
-    n_eff = min(n_eff_raw, float(n_days))
+    n_eff = None if n_eff_raw is None else min(n_eff_raw, float(n_days))
 
     print(f"95% CI (бутстреп по суткам, {args.n_boot} передискретизаций) = [{ci_lo:.2f}; {ci_hi:.2f}]")
     print(f"p (нормальное приближение по бутстреп-SE) = {p:.4f}")
-    print(f"эфф. N = {n_eff:.1f} (сырое {n_eff_raw:.1f}, календарных суток {n_days})")
+    if n_eff is None:
+        print(f"эфф. N = не определено (оценка больше n, календарных суток {n_days})")
+    else:
+        print(f"эфф. N = {n_eff:.1f} (сырое {n_eff_raw:.1f}, календарных суток {n_days})")
 
 
 if __name__ == "__main__":

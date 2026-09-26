@@ -60,7 +60,7 @@ def kish_effective_n(corr: np.ndarray) -> float:
 
 
 def effective_n_from_autocorr(returns: Sequence[float],
-                              max_lag: Optional[int] = None) -> float:
+                              max_lag: Optional[int] = None) -> Optional[float]:
     """Effective sample size of one series, from its own autocorrelation.
 
     ``N_eff = N / (1 + 2 * sum_k (1 - k/N) * rho_k)``
@@ -68,6 +68,12 @@ def effective_n_from_autocorr(returns: Sequence[float],
     Positive autocorrelation, which is what overlapping positions produce,
     drives this below N. The Bartlett taper keeps the estimate stable at long
     lags.
+
+    An estimate above N (the sum of autocorrelations is negative, or the
+    denominator is not positive at all) is not information the series holds:
+    on a short series it is mostly sampling noise of ``rho_k``. It returns
+    ``None`` — «не определено», not a number (owner, 26.09, В-113; on 23 days
+    the old code reported 39 and 1047 and a verdict leaned on 39).
     """
     r = np.asarray(returns, dtype=float)
     r = r[~np.isnan(r)]
@@ -87,8 +93,8 @@ def effective_n_from_autocorr(returns: Sequence[float],
         rho = float((x[:-k] * x[k:]).sum()) / denom
         total += (1.0 - k / n) * rho
     factor = 1.0 + 2.0 * total
-    if factor <= 0:
-        return float(n)
+    if factor < 1.0:  # n / factor > n, or no finite estimate — «не определено»
+        return None
     return max(1.0, n / factor)
 
 
@@ -224,7 +230,9 @@ def _selftest(replications: int = 200) -> int:
         corr = _trade_correlation(starts, ends, assets, 0.5)
 
         n_eff_kish.append(kish_effective_n(corr))
-        n_eff_auto.append(effective_n_from_autocorr(daily))
+        auto = effective_n_from_autocorr(daily)
+        if auto is not None:
+            n_eff_auto.append(auto)
 
         if abs(t_on_trades(trades)) > 1.96:
             reject_trades += 1
