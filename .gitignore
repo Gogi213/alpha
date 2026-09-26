@@ -20,3 +20,6 @@ __pycache__/
 # память ролей (хуки .claude/hooks/role_*.py): конспекты разговоров и счётчики — локально, не в git
 .claude/roles/log/
 .claude/roles/.state/
+
+# сторонние конфигурации владельца: в них секреты (токен Telegram) — никогда не в git (26.09)
+examples/сторонние/
