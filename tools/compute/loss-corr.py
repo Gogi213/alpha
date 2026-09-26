@@ -175,7 +175,7 @@ def main():
             b1, b4 = ret(btc, m, 60), ret(btc, m, 240)
             c1, c4 = ret(c, m, 60), ret(c, m, 240)
             e1 = ret(eth, m, 60)
-            p = pool.get(m)
+            p = pool.get(m + MIN_MS)  # строка режима X — ход по закрытиям до X−1, те же свечи, что m (T-20 п.2)
             lt = dt.datetime.fromtimestamp(t0 / 1000, dt.timezone(dt.timedelta(hours=4)))
             feat = {
                 "btc_5m": ret(btc, m, 5), "btc_15m": ret(btc, m, 15), "btc_30m": ret(btc, m, 30), "btc_1h": b1, "btc_4h": b4,

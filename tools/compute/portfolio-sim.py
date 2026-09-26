@@ -9,7 +9,10 @@
 - `--max-pos N` — не больше N позиций одновременно (0 — без потолка);
 - `--day-stop-pct X` — реализованный убыток суток UTC ≥ X % депозита — до конца суток новых входов нет;
 - `--btc-kill-bps K` — BTC за 1 ч ≤ −K bps: новых входов нет, открытые закрываются рыночным по закрытию
-  следующей минуты (минутные свечи монеты `ref-<SYM>-1m.csv`; издержки круга — как у сделки в бэктесте);
+  минуты срабатывания (минутные свечи монеты `ref-<SYM>-1m.csv`; издержки круга — как у сделки в бэктесте).
+  Строка минуты X файла режима — ход по закрытиям до X−1 (`regime.py`), известна к началу X, как у фильтра
+  набора в Rust (`sets.rs:167`): вход смотрит строку своей минуты, срабатывание K > входа закрывает на свече K
+  (минута задержки). До T-20 п.2 все три места брали строку на минуту старее;
 - `--exclude-set имя=SYM,SYM` (повторяемый) — наборы исключённых монет; всегда есть «нет».
 
 `--streak-stop N` (список через запятую, 0 — нет) — монета, закрывшая N убыточных сделок подряд за календарный месяц
@@ -308,8 +311,8 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
             skipped["занята"] += 1
             continue
         if kill_bps:
-            # последняя закрытая минута до входа (значение минуты известно на её закрытии)
-            i = bisect.bisect_right(minutes, t0 // 1_000_000 - MIN_MS) - 1
+            # строка минуты входа X — известна к началу X (ход по закрытиям до X−1)
+            i = bisect.bisect_right(minutes, t0 // 1_000_000) - 1
             if i >= 0 and vals[i] <= -kill_bps:
                 skipped["btc"] += 1
                 continue
@@ -320,14 +323,15 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
             skipped["позиций"] += 1
             continue
         if kills:
-            j = bisect.bisect_right(kills, t0 // 1_000_000 - MIN_MS)
+            # первое срабатывание после входа: строка K известна к началу K > t0; закрытие — свеча K
+            j = bisect.bisect_right(kills, t0 // 1_000_000)
             if j < len(kills) and kills[j] * 1_000_000 < t1:
-                px = klines.close(r["sym"], kills[j] + MIN_MS)
+                px = klines.close(r["sym"], kills[j])
                 if px is None:
                     no_kline += 1
                 else:
                     net = (px / r["entry"] - 1) * 1e4 * r["dir"] - r["fee"]
-                    t1 = (kills[j] + 2 * MIN_MS) * 1_000_000
+                    t1 = (kills[j] + MIN_MS) * 1_000_000
                     reason = "выключатель"
                     killed += 1
         pnl = net / 1e4 * r["usd"]

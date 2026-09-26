@@ -72,7 +72,7 @@ class Btc:
                             if m not in rows or rows[m].get("btc_ret_4h_bps") in (None, ""):
                                 rows[m] = r
             self.regime[day] = rows
-        m = (t_ns // 1_000_000) // MIN_MS * MIN_MS - MIN_MS  # последняя закрытая минута до входа
+        m = (t_ns // 1_000_000) // MIN_MS * MIN_MS  # строка минуты входа: ход к её началу (regime.py), как в Rust
         v = self.regime[day].get(m, {}).get(col)
         return float(v) if v not in (None, "") else None
 
