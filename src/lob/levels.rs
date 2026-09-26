@@ -145,6 +145,7 @@
 //! кадра чужой стороны, а своя обновляется этим же кадром. Обе стороны
 //! пишутся в `best_tick` трекера.
 
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 
 use crate::book::Side;
@@ -1014,8 +1015,84 @@ impl<K: Ord + Copy, V> SortedVec<K, V> {
         self.items.binary_search_by(|(k, _)| k.cmp(key))
     }
 
+    /// Поиск «с пальца» (К1, T-23; Судья b86eed6): `hint` — позиция прошлого
+    /// поиска того же обхода. Уровни кадра идут от лучшего наружу, ключи обхода
+    /// монотонны, и ответ обычно в шаге-двух от пальца: галоп 1, 2, 4, … от `hint`
+    /// в сторону ключа сужает отрезок, двоичный поиск идёт внутри него (профиль
+    /// касаний 26.09: ≈ 36 % сэмплов — двоичный поиск по всему `live`). Ключи
+    /// уникальны и отсортированы, поэтому ответ тот же, что у `find`, при любой
+    /// подсказке — немонотонный обход только дороже: `Ok` — единственный индекс
+    /// ключа, `Err` — единственная точка вставки.
+    fn find_from(&self, hint: usize, key: &K) -> Result<usize, usize> {
+        let items = &self.items;
+        let n = items.len();
+        let h = hint.min(n);
+        let (lo, hi) = if h < n && items[h].0 <= *key {
+            if items[h].0 == *key {
+                return Ok(h);
+            }
+            // Ключ правее пальца: всё до `lo` меньше ключа, `hi` — первый больший.
+            let mut lo = h + 1;
+            let mut step = 1;
+            loop {
+                let probe = h + step;
+                if probe >= n {
+                    break (lo, n);
+                }
+                match items[probe].0.cmp(key) {
+                    Ordering::Less => {
+                        lo = probe + 1;
+                        step *= 2;
+                    }
+                    Ordering::Equal => return Ok(probe),
+                    Ordering::Greater => break (lo, probe),
+                }
+            }
+        } else {
+            // Ключ левее пальца (или палец за концом): от `hi` и дальше — больше ключа.
+            let mut hi = h;
+            let mut step = 1;
+            loop {
+                if step > h {
+                    break (0, hi);
+                }
+                let probe = h - step;
+                match items[probe].0.cmp(key) {
+                    Ordering::Greater => {
+                        hi = probe;
+                        step *= 2;
+                    }
+                    Ordering::Equal => return Ok(probe),
+                    Ordering::Less => break (probe + 1, hi),
+                }
+            }
+        };
+        match items[lo..hi].binary_search_by(|(k, _)| k.cmp(key)) {
+            Ok(j) => Ok(lo + j),
+            Err(j) => Err(lo + j),
+        }
+    }
+
     fn get(&self, key: &K) -> Option<&V> {
         self.find(key).ok().map(|i| &self.items[i].1)
+    }
+
+    /// `get_mut` с пальцем (К1): ищет от `*finger` и ставит палец на ответ —
+    /// индекс ключа или его точку вставки (после `insert` в неё там же и лежит
+    /// новый ключ, палец остаётся верным).
+    fn get_mut_from(&mut self, finger: &mut usize, key: &K) -> Option<&mut V> {
+        let found = self.find_from(*finger, key);
+        debug_assert_eq!(found, self.find(key), "поиск с пальца разошёлся с двоичным");
+        match found {
+            Ok(i) => {
+                *finger = i;
+                Some(&mut self.items[i].1)
+            }
+            Err(pos) => {
+                *finger = pos;
+                None
+            }
+        }
     }
 
     fn get_mut(&mut self, key: &K) -> Option<&mut V> {
@@ -1823,6 +1900,9 @@ fn scan_levels(
     let total_lots: i64 = levels
         .iter()
         .fold(0i64, |acc, o| acc.saturating_add(o.size_lots));
+    // К1 (T-23): палец поиска в `live` — уровни кадра идут от лучшего наружу,
+    // ключ следующего рядом с ответом прошлого; ответ тот же, что у двоичного.
+    let mut finger = 0usize;
     for (i, ob) in levels.iter().enumerate() {
         let key = (s, ob.tick);
         let best = i == 0;
@@ -1843,7 +1923,7 @@ fn scan_levels(
                 })
             })
         };
-        match live.get_mut(&key) {
+        match live.get_mut_from(&mut finger, &key) {
             Some(lv) => {
                 lv.seen_frame = frame;
                 lv.seen_top50 = ob.in_top50;
