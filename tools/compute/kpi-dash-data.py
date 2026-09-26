@@ -66,11 +66,13 @@ def main():
             by_variant[key][pk] = {**{k: (round(v, 1) if isinstance(v, float) else v) for k, v in d.items()},
                                    "periods": [round(x, 1) for x in hrs]}
         # основное определение с 27.09 (CEO): скользящий старт по непрерывному счёту — статистика и гистограмма по часам t
+        dd = kn.drawdown_stats(S[name][1]["augsep"])
         rl = kn.rolling_kpi(S[name][1]["augsep"], raw=True)
         for pk in ("aug", "sep"):
             raw = rl[pk].pop("raw_max")
             by_variant[key][pk]["roll"] = {k: {kk: (round(vv, 1) if isinstance(vv, float) else vv) for kk, vv in v.items()}
                                            for k, v in rl[pk].items()}
+            by_variant[key][pk]["dd"] = {k: (round(v, 1) if isinstance(v, float) else v) for k, v in dd[pk].items()}
             by_variant[key][pk]["roll_hist"] = [sum(EDGES[i] <= x / 24 < EDGES[i + 1] for x in raw) for i in range(len(EDGES) - 1)]
     cols = ("worst", "tail", "tw_p90", "median", "p90", "n")
     row = lambda n: {"name": n, "place": rank.index(n) + 1 if n in rank else None, "group": R[n]["group"], "key": page_key(n),
@@ -78,7 +80,8 @@ def main():
                              "plus_weeks": R[n][pk]["plus_weeks"], "episodes": R[n][pk]["episodes"],
                              **{c: R[n][pk]["hours"][c] for c in cols},
                              **({"roll_p90": R[n]["roll"][pk]["max"]["p90"], "roll_max": R[n]["roll"][pk]["max"]["max"],
-                                 "roll_cens": R[n]["roll"][pk]["max"]["cens"]} if pk in R[n].get("roll", {}) else {})} for pk in PK}}
+                                 "roll_cens": R[n]["roll"][pk]["max"]["cens"], "fall_p90": R[n]["dd"][pk]["fall_p90"],
+                                 "relows": R[n]["dd"][pk]["relows"]} if pk in R[n].get("roll", {}) else {})} for pk in PK}}
     rating = [row(n) for n in rank[:10]] + ([row(main_name)] if main_name not in rank[:10] else [])
     curves = {}
     for n in rank[:3] + [main_name]:

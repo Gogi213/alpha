@@ -176,6 +176,56 @@ def rolling_kpi(closes, raw=False):
     return res
 
 
+DD_MIN_USD = 10.0      # откат меньше $10 (0,4 % депозита на позиции $500) — шум, в распределение не входит
+REBOUND_FRAC = 0.2     # «отскок» — подъём от текущего дна на ≥ 20 % глубины отката к этому моменту
+
+
+def drawdown_stats(closes):
+    """Сторона падения (владелец 27.09 ~04:10: «не на перехай, но не на перелоу»). Непрерывный счёт «август + сентябрь»
+    по закрытиям. Откат — от максимума счёта до возврата выше него (или до конца данных — не закрыт). По каждому откату
+    глубиной ≥ DD_MIN_USD: спад (от пика до дна), глубина $, «перелоу» — сколько раз счёт ушёл ниже прежнего дна после
+    отскока ≥ REBOUND_FRAC глубины, восстановление (от дна до возврата на пик; незакрытые — отдельно). Месяц отката —
+    по месяцу пика."""
+    ev = sorted(closes)
+    s0 = ms("2026-08-01")
+    eps, cum = [], 0.0
+    peak, t_peak = 0.0, s0
+    cur = None
+    for t, p in ev:
+        cum += p
+        if cum > peak + 1e-9:
+            if cur is not None:
+                cur["t_rec"] = t
+                eps.append(cur)
+                cur = None
+            peak, t_peak = cum, t
+            continue
+        if cur is None:
+            cur = {"t_peak": t_peak, "peak": peak, "low": cum, "t_low": t, "relows": 0, "rebounded": False}
+            continue
+        if cum < cur["low"] - 1e-9:
+            if cur["rebounded"]:
+                cur["relows"] += 1
+                cur["rebounded"] = False
+            cur["low"], cur["t_low"] = cum, t
+        elif cum - cur["low"] >= REBOUND_FRAC * (cur["peak"] - cur["low"]):
+            cur["rebounded"] = True
+    if cur is not None:
+        cur["t_rec"] = None
+        eps.append(cur)
+    out = {}
+    for pk, (a, b) in (("aug", ("2026-08-01", "2026-09-01")), ("sep", ("2026-09-01", "2026-09-24"))):
+        xs = [e for e in eps if ms(a) <= e["t_peak"] < ms(b) and e["peak"] - e["low"] >= DD_MIN_USD]
+        fall = [(e["t_low"] - e["t_peak"]) / MS_H for e in xs]
+        depth = [e["peak"] - e["low"] for e in xs]
+        rec = [(e["t_rec"] - e["t_low"]) / MS_H for e in xs if e["t_rec"] is not None]
+        out[pk] = {"n": len(xs), "fall_median": q(fall, 0.5), "fall_p90": q(fall, 0.9), "fall_max": max(fall) if fall else None,
+                   "depth_median": q(depth, 0.5), "depth_max": max(depth) if depth else None,
+                   "relows": sum(e["relows"] for e in xs), "relows_max": max((e["relows"] for e in xs), default=0),
+                   "rec_median": q(rec, 0.5), "rec_max": max(rec) if rec else None, "open": sum(e["t_rec"] is None for e in xs)}
+    return out
+
+
 def load(in_dir):
     """имя → (группа, {pk: closes}) для потолка 0; «+ потолок 3» — отдельными строками."""
     group = {"dash": "дашборд", "money": "П-02", "filt": "П-02 фильтр", "e26": "окна BTC (E26)"}
@@ -212,8 +262,8 @@ def main():
             seen.add(sig)
             uniq[n] = v
     S = uniq
-    res = {n: {"group": g, **{pk: month_metrics(ser[pk], pk) for pk in PERIODS}, "roll": rolling_kpi(ser["augsep"])}
-           for n, (g, ser) in S.items()}
+    res = {n: {"group": g, **{pk: month_metrics(ser[pk], pk) for pk in PERIODS}, "roll": rolling_kpi(ser["augsep"]),
+               "dd": drawdown_stats(ser["augsep"])} for n, (g, ser) in S.items()}
     # смеси «среднее» (без занятости): пары из окон BTC и из 8 лучших по худшему месяцу $, плюс главный с каждым
     single = [n for n in S if "потолок" not in n and "одним счётом" not in n]
     top = sorted(single, key=lambda n: -min(res[n]["aug"]["usd"], res[n]["sep"]["usd"]))[:8]
@@ -223,7 +273,7 @@ def main():
     for c in sorted(pairs):
         ser = {pk: [(t, p / len(c)) for n in c for t, p in S[n][1][pk]] for pk in PERIODS}
         res["смесь: " + " + ".join(c)] = {"group": "смесь среднее (без занятости)", **{pk: month_metrics(ser[pk], pk) for pk in PERIODS},
-                                         "roll": rolling_kpi(ser["augsep"])}
+                                         "roll": rolling_kpi(ser["augsep"]), "dd": drawdown_stats(ser["augsep"])}
     ok = [n for n, r in res.items() if r["aug"]["usd"] > 0 and r["sep"]["usd"] > 0 and r["aug"]["n"] >= 30 and r["sep"]["n"] >= 10]
     # счётный p90 вырождается (тысячи сделок → много нулевых периодов на соседних закрытиях при хвостах 200+ ч),
     # поэтому порядок — по p90, взвешенному временем (хвост входит), по худшему месяцу; затем худший период с хвостом
