@@ -286,6 +286,8 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
             idx("strength_w50_pct")?,
         ],
         depth_behind_lots: optional_column_index(&header, "depth_behind_lots"),
+        stack_levels_at_arm: optional_column_index(&header, "stack_levels_at_arm"),
+        frontrun_lots_at_arm: optional_column_index(&header, "frontrun_lots_at_arm"),
         touch_start_ms: idx("touch_start_ms")?,
         disarm_ms: idx("disarm_ms")?,
         disarm_reason: idx("disarm_reason")?,
@@ -317,6 +319,9 @@ struct ApproachCols {
     strength: [usize; STRENGTH_WINDOWS_BPS.len()],
     /// `None` — кэш до T2 (П-02), см. `TouchCols::depth_behind_lots`.
     depth_behind_lots: Option<usize>,
+    /// `None` — кэш до T-28 (колонки Г-28 на взводе); читается нулём, как `depth_behind_lots`.
+    stack_levels_at_arm: Option<usize>,
+    frontrun_lots_at_arm: Option<usize>,
     touch_start_ms: usize,
     disarm_ms: usize,
     disarm_reason: usize,
@@ -345,6 +350,14 @@ impl ApproachCols {
                 strength_e2(csv_field(rec, self.strength[2])?)?,
             ],
             depth_behind_lots: match self.depth_behind_lots {
+                Some(c) => csv_int(rec, c)?,
+                None => 0,
+            },
+            stack_levels_at_arm: match self.stack_levels_at_arm {
+                Some(c) => u32::try_from(csv_int(rec, c)?)?,
+                None => 0,
+            },
+            frontrun_lots_at_arm: match self.frontrun_lots_at_arm {
                 Some(c) => csv_int(rec, c)?,
                 None => 0,
             },

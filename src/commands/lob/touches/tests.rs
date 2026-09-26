@@ -407,6 +407,8 @@ fn minimal_approach() -> ApproachRecord {
         flow_1h_lots: 0,
         strength_e2: [-1, -1, -1],
         depth_behind_lots: 0,
+        stack_levels_at_arm: 0,
+        frontrun_lots_at_arm: 0,
         touch_start_ms: None,
         disarm_ms: 100,
         disarm_reason: ApproachEnd::PriceLeft,

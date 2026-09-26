@@ -687,6 +687,16 @@ pub struct ApproachRecord {
     /// Направленная глубина на кадре взвода (см. `TouchRecord::depth_behind_lots`,
     /// T2 П-02): та же сумма, тот же прокси на `.50` против `.200`.
     pub depth_behind_lots: i64,
+    /// «Завал» на кадре взвода (T-28, Г-28 П-02 на подходе): то же правило, что
+    /// `TouchRecord::stack_levels` (живые уровни той же стороны не ниже `H3` не
+    /// дальше `DISTANCE_MAX_BPS`, включая сам уровень, после свипа кадра), но на
+    /// кадре взвода, а не старта касания.
+    pub stack_levels_at_arm: u32,
+    /// Лоты впереди уровня к взводу (T-28): то же правило, что
+    /// `TouchRecord::frontrun_lots` (В-45, кадр не позже секунды до), от метки
+    /// взвода. На взводе цена ещё в полосе от стены — это всё, что стоит между
+    /// стеной и ценой, больше фронтрана касания.
+    pub frontrun_lots_at_arm: i64,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
     /// Кадр снятия подхода (касание, смерть уровня или уход цены).
@@ -826,6 +836,10 @@ struct Approach {
     /// Направленная глубина на кадре взвода (см. `TouchRecord::depth_behind_lots`,
     /// T2 П-02).
     depth_behind_lots: i64,
+    /// Лоты впереди уровня к взводу (`ApproachRecord::frontrun_lots_at_arm`).
+    frontrun_lots: i64,
+    /// «Завал» на кадре взвода — ставится после свипа кадра (`compute_arm_stacks`).
+    stack_levels: u32,
 }
 
 /// Один кадр уровня для правила взвода/снятия подхода (F1): всё, что нужно
@@ -844,6 +858,8 @@ struct ApproachFrame {
     best_opp_tick: i64,
     flow_1h_lots: i64,
     depth_behind_lots: i64,
+    /// Лоты впереди уровня за секунду до кадра (`Live::frontrun_before`).
+    frontrun_lots: i64,
 }
 
 /// Живой уровень: всё состояние — несколько целых, кучи нет.
@@ -1265,6 +1281,8 @@ pub struct LevelTracker {
     newborns: Vec<(u8, i64, i64)>,
     sweep: Vec<(u8, i64)>,
     touched: Vec<Touched>,
+    /// Уровни, взведшие подход в этом кадре (T-28): «завал» на взводе — после свипа.
+    armed: Vec<(u8, i64)>,
     /// Буфер касаний для `observe_frame` без выхода касаний: те же события
     /// считаются, записи отбрасываются, ёмкость переиспользуется.
     touch_scratch: Vec<TouchRecord>,
@@ -1360,13 +1378,16 @@ fn approach_record(
         flow_1h_lots: a.flow_1h_lots,
         strength_e2: a.strength_e2,
         depth_behind_lots: a.depth_behind_lots,
+        stack_levels_at_arm: a.stack_levels,
+        frontrun_lots_at_arm: a.frontrun_lots,
         touch_start_ms,
         disarm_ms,
         disarm_reason: reason,
     }
 }
 
-/// Правило взвода и снятия подхода (F1) по одному кадру уровня.
+/// Правило взвода и снятия подхода (F1) по одному кадру уровня. `true` — подход
+/// взведён в этом кадре («завал» на взводе ставится после свипа, T-28).
 ///
 /// - **Взвод** — уровень жив, не лучший на своей стороне (цена ещё не дошла),
 ///   держит порог В-66 (`holds`, тот же, что у касания), возраст не меньше
@@ -1395,7 +1416,7 @@ fn observe_approach(
     f: ApproachFrame,
     emit: bool,
     out: &mut Vec<ApproachRecord>,
-) {
+) -> bool {
     let (d_bps, min_age_ms) = cfg;
     let key = (s, f.tick);
     // Знаковое расстояние от уровня до чужой лучшей цены: у бида чужая цена
@@ -1427,20 +1448,20 @@ fn observe_approach(
             // снятие касанием такого ухода не даёт.
             lv.approach_clear = far;
         }
-        return;
+        return false;
     }
     if far {
         lv.approach_clear = true;
     }
     if !near || !lv.approach_clear || f.best {
-        return;
+        return false;
     }
     if f.ts_ms.saturating_sub(lv.birth_ms) < min_age_ms {
-        return;
+        return false;
     }
     let (holds, strength_e2) = arm_inputs();
     if !holds {
-        return;
+        return false;
     }
     lv.approach = Some(Approach {
         arm_ms: f.ts_ms,
@@ -1451,7 +1472,10 @@ fn observe_approach(
         flow_1h_lots: f.flow_1h_lots,
         strength_e2,
         depth_behind_lots: f.depth_behind_lots,
+        frontrun_lots: f.frontrun_lots,
+        stack_levels: 0,
     });
+    true
 }
 
 fn side_key(side: Side) -> u8 {
@@ -1509,6 +1533,7 @@ impl LevelTracker {
             newborns: Vec::with_capacity(8),
             sweep: Vec::with_capacity(8),
             touched: Vec::with_capacity(8),
+            armed: Vec::with_capacity(8),
             touch_scratch: Vec::with_capacity(8),
             approach_scratch: Vec::with_capacity(8),
             best_tick: [None; 2],
@@ -1657,11 +1682,13 @@ impl LevelTracker {
             carry_open_s,
             &mut self.newborns,
             &mut self.touched,
+            &mut self.armed,
             approaches,
         );
         close_carry_after_first_frame(&mut self.carry, &mut self.carry_open, ctx.s);
         detect_sweep(&self.live, &mut self.sweep, ctx.s, ctx.frame);
         compute_touch_stacks(&self.live, &mut self.touched, ctx.s, ctx.frame, ctx.mode);
+        compute_arm_stacks(&mut self.live, &self.armed, ctx.s, ctx.frame, ctx.mode);
         resolve_deaths(
             &mut self.live,
             &mut self.sweep,
@@ -1719,6 +1746,7 @@ impl LevelTracker {
         let approach_min_age_ms = self.cfg.approach_min_age_ms;
         self.newborns.clear();
         self.touched.clear();
+        self.armed.clear();
         FrameCtx {
             s,
             frame,
@@ -1871,6 +1899,7 @@ fn scan_levels(
     carry_open_s: bool,
     newborns: &mut Vec<(u8, i64, i64)>,
     touched: &mut Vec<Touched>,
+    armed: &mut Vec<(u8, i64)>,
     approaches: &mut Vec<ApproachRecord>,
 ) {
     let FrameCtx {
@@ -2034,7 +2063,7 @@ fn scan_levels(
                                     .unwrap_or(false);
                                 (holds, strength_e2)
                             };
-                            observe_approach(
+                            let armed_now = observe_approach(
                                 lv,
                                 (d_bps, approach_min_age_ms),
                                 s,
@@ -2048,10 +2077,14 @@ fn scan_levels(
                                     best_opp_tick,
                                     flow_1h_lots: flow_1h,
                                     depth_behind_lots,
+                                    frontrun_lots: frontrun,
                                 },
                                 lv.birth_ms >= warm_end || lv.carried,
                                 approaches,
                             );
+                            if armed_now {
+                                armed.push(key);
+                            }
                         }
                     }
                 }
@@ -2155,30 +2188,60 @@ fn compute_touch_stacks(
         if t.start_frame != frame {
             continue;
         }
-        let lo = tk.key.1.saturating_sub(t.window_ticks);
-        let hi = tk.key.1.saturating_add(t.window_ticks);
-        let mut n: u32 = 0;
-        // Ближайшая плотность **за** уровнем (бид — ниже, аск — выше):
-        // обход по возрастанию тика, для бида берётся последняя ниже
-        // цены, для аска — первая выше.
-        let mut next_behind: Option<i64> = None;
-        for ((_, lv_tick), lv) in live.range((s, lo), (s, hi)) {
-            let dying =
-                lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max);
-            if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
-                n = n.saturating_add(1);
-                let behind = if s == side_key(Side::Bid) {
-                    *lv_tick < tk.key.1
-                } else {
-                    *lv_tick > tk.key.1 && next_behind.is_none()
-                };
-                if behind {
-                    next_behind = Some(*lv_tick);
-                }
+        (tk.stack, tk.stack_next_tick) =
+            stack_around(live, s, tk.key.1, t.window_ticks, frame, mode);
+    }
+}
+
+/// «Завал» вокруг цены `tick` стороны `s` на этом кадре: живые уровни в окне `±window_ticks` с
+/// порогом стека, умирающие в кадре не считаются (после свипа), и ближайшая плотность **за**
+/// ценой (бид — ниже, аск — выше). Общее правило касания (`compute_touch_stacks`) и взвода
+/// подхода (`compute_arm_stacks`, T-28).
+fn stack_around(
+    live: &SortedVec<(u8, i64), Live>,
+    s: u8,
+    tick: i64,
+    window_ticks: i64,
+    frame: u64,
+    mode: H3Mode,
+) -> (u32, Option<i64>) {
+    let lo = tick.saturating_sub(window_ticks);
+    let hi = tick.saturating_add(window_ticks);
+    let mut n: u32 = 0;
+    // Обход по возрастанию тика: для бида берётся последняя ниже цены, для аска — первая выше.
+    let mut next_behind: Option<i64> = None;
+    for ((_, lv_tick), lv) in live.range((s, lo), (s, hi)) {
+        let dying =
+            lv.seen_frame != frame || !lv.seen_top50 || below_fraction(lv.seen_size, lv.max);
+        if !dying && lv.seen_strong && mode.passes_stack(*lv_tick, lv.seen_size) {
+            n = n.saturating_add(1);
+            let behind = if s == side_key(Side::Bid) {
+                *lv_tick < tick
+            } else {
+                *lv_tick > tick && next_behind.is_none()
+            };
+            if behind {
+                next_behind = Some(*lv_tick);
             }
         }
-        tk.stack = n;
-        tk.stack_next_tick = next_behind;
+    }
+    (n, next_behind)
+}
+
+/// «Завал» на кадре взвода подходов этого кадра (T-28, Г-28 на подходе): то же правило и окно,
+/// что у касания (`stack_around`, `stack_window_ticks`), пишется во взведённый `Approach`.
+fn compute_arm_stacks(
+    live: &mut SortedVec<(u8, i64), Live>,
+    armed: &[(u8, i64)],
+    s: u8,
+    frame: u64,
+    mode: H3Mode,
+) {
+    for &key in armed {
+        let (n, _) = stack_around(live, s, key.1, stack_window_ticks(key.1), frame, mode);
+        if let Some(a) = live.get_mut(&key).and_then(|lv| lv.approach.as_mut()) {
+            a.stack_levels = n;
+        }
     }
 }
 

@@ -232,6 +232,8 @@ fn approach_row_pairs(day: &str, a: &ApproachRecord) -> [(&'static str, String);
         ("duration_ms", a.duration_ms().to_string()),
         ("disarm_reason", a.disarm_reason.name().to_string()),
         ("depth_behind_lots", a.depth_behind_lots.to_string()),
+        ("stack_levels_at_arm", a.stack_levels_at_arm.to_string()),
+        ("frontrun_lots_at_arm", a.frontrun_lots_at_arm.to_string()),
     ]
 }
 

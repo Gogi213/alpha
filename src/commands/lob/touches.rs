@@ -161,7 +161,7 @@ pub struct TouchesSummary {
 const TOUCHES_WIDTH: usize = 62;
 
 /// Ширина строки `approaches-<SYMBOL>.csv` (F1) — как `TOUCHES_WIDTH`.
-const APPROACHES_WIDTH: usize = 20;
+const APPROACHES_WIDTH: usize = 22;
 
 /// Заголовок `approaches-<SYMBOL>.csv`: поля `ApproachRecord` плюс `day_utc`,
 /// `age_ms` и `duration_ms` (производные, как у касаний; `touch_start_ms`
@@ -191,6 +191,11 @@ pub(crate) const APPROACHES_COLUMNS: [&str; APPROACHES_WIDTH] = [
     // Направленная глубина на кадре взвода (T2, П-02, Г-07) — аддитивная
     // колонка в конце списка, старые не двигаются.
     "depth_behind_lots",
+    // Г-28 на подходе (T-28): «завал» на кадре взвода и лоты впереди уровня к
+    // взводу — правила касания (`stack_levels`, `frontrun_lots`) от метки
+    // взвода. Аддитивные колонки в конце.
+    "stack_levels_at_arm",
+    "frontrun_lots_at_arm",
 ];
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —

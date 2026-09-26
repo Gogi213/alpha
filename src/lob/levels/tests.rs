@@ -1597,6 +1597,10 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // в ±10 bps (10 тиков) — нет.
             strength_e2: [-1, 33_333, 33_333],
             depth_behind_lots: 0,
+            // T-28: на кадре взвода в окне стека одна плотность — сама стена;
+            // впереди неё (строго лучше) 10 020 с 3 лотами за секунду до взвода.
+            stack_levels_at_arm: 1,
+            frontrun_lots_at_arm: 3,
             touch_start_ms: Some(4000),
             disarm_ms: 4000,
             disarm_reason: ApproachEnd::Touch,
