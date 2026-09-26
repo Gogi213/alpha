@@ -116,7 +116,7 @@ def month_metrics(closes, pk):
             "dd_usd": round(dd, 2), "worst_day": round(min(x), 2) if x else None}
 
 
-def rolling_kpi(closes):
+def rolling_kpi(closes, raw=False):
     """KPI, устойчивый к старту (CEO 27.09, В-120): непрерывный счёт «август + сентябрь» (без обнуления 01.09), сетка t —
     каждый час. «от максимума» (основной): время от t до первого закрытия, после которого счёт строго выше максимума,
     достигнутого к t; «со старта»: до первого закрытия выше значения счёта в t (как будто бот запущен в t). Незакрытые к
@@ -171,6 +171,8 @@ def rolling_kpi(closes):
         n = len(o["max"])
         res[pk] = {k: {"median": q(o[k], 0.5), "p90": q(o[k], 0.9), "max": max(o[k]), "cens": round(o["cens_" + k] / n, 3)}
                    for k in ("max", "start")}
+        if raw:
+            res[pk]["raw_max"] = o["max"]
     return res
 
 
