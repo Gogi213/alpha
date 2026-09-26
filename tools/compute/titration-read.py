@@ -71,7 +71,9 @@ def main():
                 row[f"{name}_{k}"] = "" if v is None else v[k]
             if v is not None and v["n"] >= a.min_n:
                 signs.append(v["net"] > 0)
-        row["holds"] = "да" if len(signs) == len(epochs) and len(set(signs)) == 1 else "нет"
+        # «держится» — знак net положительный во всех эпохах (как exit-titration-read.py); до T-20 п.5
+        # (26.09) проверялось только совпадение знака — общий минус тоже давал «да»
+        row["holds"] = "да" if len(signs) == len(epochs) and len(set(signs)) == 1 and signs[0] else "нет"
         table.append(row)
 
     head = f"{'набор':<22}" + "".join(f" | {name:^38}" for name, _ in epochs) + " | держится"

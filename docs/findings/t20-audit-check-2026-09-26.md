@@ -20,7 +20,7 @@
 ## Что дальше (по плану унификации, `reviews/consistency-plan-2026-09-26.md`)
 
 Исправления — отдельными коммитами с числами до/после, **раньше У4**:
-- п.5 — `titration-read.py`: `and signs[0]` (как `exit-titration-read.py`); до/после — 12 строк E18 `да → нет`.
+- п.5 — **сделано**: `titration-read.py` — `and signs[0]` (как `exit-titration-read.py`); до/после — «держится» 23 → 11 из 52 корзин E18 (12 шорт-корзин `да → нет`), поправка — в `titration-regime-2026-09-23.md`.
 - п.4 — `titration-dashboard-merge.py` (`account_summary`: средние из `acc`) и страница — средние из того же
   источника, что «Сделок» и net; до/после — плитки v14 по периодам.
 - п.2 — `portfolio-sim.py:282` и `loss-days.py:75`: строка минуты входа X (как Rust); до/после — варианты
