@@ -45,8 +45,14 @@
 }
 * { box-sizing: border-box; }
 html, body { background: var(--bg); }
-body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-inline: 16px; padding-block: 24px 72px; }
-.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 22px; min-width: 0; }
+body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-inline: clamp(16px, 2vw, 32px); padding-block: 24px 72px; }
+.wrap { margin: 0 auto; display: grid; gap: 22px; min-width: 0; }
+/* во всю ширину (владелец 27.09): на широком экране — две колонки панелей, широкие панели на всю строку */
+@media (min-width: 1500px) {
+  .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-p05, details.methodology, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
+  .h-eq { height: 380px; }
+}
 /* сетки-контейнеры не должны раздуваться до min-content широких детей (таблиц, графиков) —
    классическая утечка grid/flex-блока за пределы экрана без этого правила */
 .wrap > *, .grid2 > *, section.panel { min-width: 0; }
@@ -136,7 +142,9 @@ section.panel { background: var(--surface); border: 1px solid var(--rule); borde
 
 /* ---------- графики ---------- */
 .chart { position: relative; width: 100%; }
-.h-eq { height: 300px; } .h-dd { height: 110px; } .h-bar { height: 220px; } .h-hist { height: 220px; }
+.h-eq { height: 300px; } .h-dd { height: 110px; } .h-bar { height: 220px; } .h-hist { height: 220px; } .h-curves { height: 320px; }
+.kpi-tile.first { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+#rating-table tr.click { cursor: pointer; } #rating-table tr.click:hover td { background: var(--surface-2); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
 .legend i { display: inline-block; width: 16px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 6px; }
@@ -228,11 +236,25 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
   </section>
 
+  <section class="panel" id="panel-rating">
+    <div class="panel-head"><h2>Ровность роста — рейтинг по KPI «до перехая»</h2><span class="badge warn" id="rating-status"></span></div>
+    <p class="note" id="rating-note"></p>
+    <div class="legend" id="curves-legend"></div>
+    <div class="chart h-curves"><canvas id="chart-curves"></canvas></div>
+    <div class="scroll"><table id="rating-table"></table></div>
+  </section>
+
   <section class="panel" id="panel-p05">
     <div class="panel-head"><h2>Сетки П-05</h2><span class="badge warn" id="p05-status"></span></div>
     <p class="note" id="p05-note"></p>
     <div class="p05-grid" id="p05-heat"></div>
     <div class="p05-grid" id="p05-tables" style="margin-top:16px"></div>
+  </section>
+
+  <section class="panel" id="panel-nh">
+    <div class="panel-head"><h2>Периоды до перехая</h2><span class="note" id="nh-scope"></span></div>
+    <div class="chart h-hist"><canvas id="chart-nh"></canvas></div>
+    <p class="chart-caption" id="nh-caption"></p>
   </section>
 
   <section class="panel" id="panel-daily">
@@ -338,6 +360,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
   const isP05 = key => (VARIANT_META[key] || {}).group === "p05";
   const vsMain = key => isP02(key) || isP05(key);
+  // KPI владельца «до перехая» (В-120): кривая по закрытиям сделок, все периоды максимум → новый максимум, часы
+  const NH = D.nh || null;
+  const nhFor = (period, key) => (NH && NH.by_variant[key] && NH.by_variant[key][period]) || null;
+  const dayFmt = h => h == null ? "—" : (h / 24).toFixed(1).replace(".", ",") + " дн";
+  const hFmt = h => h == null ? "—" : Math.round(h) + " ч";
+  const NH_TIP = "Кривая счёта по закрытиям сделок; новый максимум — счёт строго выше всех прежних. Период до перехая — от максимума до следующего максимума; собраны все периоды. Незакрытый хвост — от последнего максимума до конца периода. Не зависит от размера позиции.";
 
   document.getElementById("gen").textContent = D.generated_utc;
 
@@ -502,8 +530,13 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       ["В рынке на пике", lev == null ? "—" : "×" + lev.toFixed(1).replace(".", ","), "депозита", lev != null && lev > 1 ? "neg" : "", "Сумма открытых позиций на пике, делённая на депозит $2 500: фактическое плечо счёта."],
       ["Запас до ликвидации", liq == null ? "—" : pctPlain(liq), "ход цены против всех позиций", liq != null && liq < 5 ? "neg" : "", "Насколько цена всех открытых на пике позиций должна разом пойти против нас до ликвидации (кросс-маржа, поддерживающая ставка 1 % — медиана пула, первый уровень Bybit). Стоп сделки — 2 %. Без пересчёта очереди: при большей позиции исполнение хуже, чем здесь."],
     ];
+    const nh = nhFor(state.period, state.variant);
+    if (nh) tiles.unshift(
+      ["До перехая", dayFmt(nh.worst), "самый долгий" + (nh.tail >= nh.worst ? " — хвост до конца периода" : "") + " · " + nh.n + " новых максимумов", "first", "Главный KPI владельца (В-120): самый долгий период от максимума счёта до нового максимума, включая незакрытый хвост. " + NH_TIP],
+      ["p90 по времени", hFmt(nh.tw_p90), "90 % времени — в периодах не длиннее", "first", "Длина периода до перехая, в котором проходит 90 % времени (хвост входит). " + NH_TIP],
+      ["Медиана / p90", hFmt(nh.median) + " / " + hFmt(nh.p90), "по числу периодов", "first", "Медиана и p90 длины периодов до перехая по их числу: при многих сделках большинство перехаев — на соседних закрытиях. " + NH_TIP]);
     grid.innerHTML = tiles.map(([label, value, sub, cl, tip]) =>
-      "<div class='kpi-tile'><div class='kpi-label'>" + label + hint(label, tip) + "</div>" +
+      "<div class='kpi-tile" + (cl === "first" ? " first" : "") + "'><div class='kpi-label'>" + label + hint(label, tip) + "</div>" +
       "<div class='kpi-value num " + cl + "'>" + value + "</div>" + (sub ? "<div class='kpi-sub'>" + sub + "</div>" : "") + "</div>"
     ).join("") + (acc ? "" : "<div class='kpi-caveat'>Отдельный прогон счёта для этого сочетания ещё не считался — цифры выше по сделкам, без модели портфеля (нет ограничения по числу одновременных позиций).</div>");
   }
@@ -704,9 +737,11 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const main = p => accFor(p, "btc4h_trail");
     const cell = (v, p) => {
       const acc = accFor(p, v.key), k = scaleKpi((D.kpi[p] || {})[v.key] || null, K()), x = acc || k;
-      if (!x) return "<td class='sep muted'>—</td><td></td><td></td><td></td><td></td>";
+      const nh = nhFor(p, v.key);
+      const nhCell = "<td class='num sep'>" + (nh ? dayFmt(nh.worst) : "—") + "</td>";
+      if (!x) return nhCell + "<td class='muted'>—</td><td></td><td></td><td></td><td></td>";
       const m = main(p), d = (m && v.key !== "btc4h_trail") ? x.net_usd - m.net_usd : null;
-      return "<td class='num sep " + cls(x.net_usd) + "'>" + money(x.net_usd) + "</td>" +
+      return nhCell + "<td class='num " + cls(x.net_usd) + "'>" + money(x.net_usd) + "</td>" +
         "<td class='num " + cls(d) + "'>" + (d == null ? "" : money(d)) + "</td>" +
         "<td class='num neg'>" + (x.dd_approx ? "≈ " : "") + "−" + pctPlain(x.dd_pct != null ? x.dd_pct : x.dd_pct_trade) + "</td>" +
         "<td class='num'>" + x.n + "</td>" +
@@ -714,11 +749,11 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     };
     const row = v => "<tr" + (v.key === state.variant ? " class='total'" : "") + "><td title='" + VARIANT_FULL[v.key].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[v.key] + "</td>" +
       COMPARE.map(([p]) => cell(v, p)).join("") + "<td style='text-align:left'>" + (isP02(v.key) ? p02Verdict(v.key) : "") + "</td></tr>";
-    const width = 2 + COMPARE.length * 5;
+    const width = 2 + COMPARE.length * 6;
     const undef = (D.p02_undefined || []).map(u => "<tr><td style='white-space:normal'>" + u.h + "</td><td class='why sep' colspan='" + (width - 1) + "'>нет денег" + hint(u.h, u.why) + "</td></tr>").join("");
-    const sub = "<th class='num sep'>$</th><th class='num'>Δ к главному</th><th class='num'>просадка</th><th class='num'>сделок</th><th class='num'>в плюс</th>";
+    const sub = "<th class='num sep'>до перехая" + hint("до перехая", "Самый долгий период до нового максимума счёта, с хвостом (KPI В-120).") + "</th><th class='num'>$</th><th class='num'>Δ к главному</th><th class='num'>просадка</th><th class='num'>сделок</th><th class='num'>в плюс</th>";
     document.getElementById("compare-table").innerHTML =
-      "<thead><tr><th></th>" + COMPARE.map(([, l]) => "<th class='sep' colspan='5'>" + l + "</th>").join("") + "<th></th></tr>" +
+      "<thead><tr><th></th>" + COMPARE.map(([, l]) => "<th class='sep' colspan='6'>" + l + "</th>").join("") + "<th></th></tr>" +
       "<tr><th>вариант</th>" + COMPARE.map(() => sub).join("") + "<th style='text-align:left'>вердикт П-02</th></tr></thead><tbody>" +
       D.variants.filter(v => !isP02(v.key)).map(row).join("") +
       "<tr class='group'><td colspan='" + width + "'>Гипотезы П-02 · главный с одной заменой · справочно</td></tr>" +
@@ -780,6 +815,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     ...(D.p02_undefined || []).map(u => "Без денег — " + u.h + ": " + u.why + "."),
     ...D.variants.filter(v => isP02(v.key) && v.note).map(v => VARIANT_PILL[v.key] + ": " + v.note),
     "Таблица «Все варианты по месяцам»: счёт $2 500, позиция $500, без защит; «Авг + сен» — один счёт подряд с 01.08, не сумма двух месяцев; «*» — доля в плюс по сделкам, отдельного счёта нет.",
+    "Версия 19 (27.09): главный KPI владельца «до перехая» (В-120) — плитки первыми, гистограмма всех периодов, колонка в сводной таблице; рейтинг «Ровность роста» с кривыми топ-3 и главного; страница во всю ширину экрана.",
     "Версия 18 (27.09): переключатель «Позиция» $500…$2 500 — деньги пересчитаны линейно, без пересчёта очереди (при большей позиции исполнение хуже); просадка в % — точным прогоном у главного и пяти точек П-05, у остальных — оценкой «≈». Плитки «В рынке на пике» и «Запас до ликвидации» (ставка маржи 1 %). Раздел «Сетки П-05» — возраст × размер стены, сила; клик по клетке — этот вариант во всех плитках; на проверке у Судьи.",
     "Версия 17 (27.09): каждая гипотеза П-02 — отдельным вариантом с полным набором показателей, кривой и днями по месяцам (кнопки «Гипотезы П-02 · справочно»). Денежные (Г-105, Г-85, Г-86) — свои прогоны бэктеста; Г-08 — сделки главного варианта у стены на круглом числе, тем же счётом $2500. Остальные сигнальные (Г-28, Г-33, Г-07, Г-46, Г-36) деньгами пока не показаны: их признак мерился на касании стены, а главный вариант входит на подходе — касание есть лишь у 17 % сделок; по решению владельца (В-117) признак пересчитывается на момент входа, варианты появятся по мере счёта. Таблица «Все варианты по месяцам» перенесена наверх; у гипотезы — таблица «что изменено» и главный вариант пунктиром на графике капитала. Это не вердикт: варианты посчитаны на тех же днях, на которых проверялась гипотеза; вердикт — в разделе «Гипотезы П-02». Обвал для них не считался. Сдвиг к версии 16: из шапки убрана строка «нужен третий, независимый месяц» (решение владельца: решение — по августу и сентябрю, каждый отдельно).",
     "Версия 16 (26.09): выключатель BTC теперь смотрит ход BTC той же минуты, что и фильтр входа (раньше — на минуту позже): с выключателем 150 bps август главного варианта +$89 → +$96 — два входа 22.08 05:11 UTC больше не берутся; без выключателя цифры те же.",
@@ -824,6 +860,60 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
         "<td style='text-align:left'>" + r.v10 + "</td><td style='text-align:left;white-space:normal'>" + r.r2 + "</td></tr>").join("") + "</tbody>";
   }
 
+  // ---------- KPI «до перехая»: гистограмма периодов и рейтинг (В-120) ----------
+  function renderNh() {
+    const box = document.getElementById("panel-nh");
+    if (!NH) { box.style.display = "none"; return; }
+    const nh = nhFor(state.period, state.variant);
+    document.getElementById("nh-scope").innerHTML = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant] + hint("Периоды", NH_TIP);
+    if (charts.nh) charts.nh.destroy();
+    if (!nh) { document.getElementById("nh-caption").textContent = "для этого сочетания кривая по закрытиям не считалась"; return; }
+    const edges = [0, 0.25, 1, 2, 3, 5, 7, 10, 1e9];
+    const labels = ["< 6 ч", "6 ч – 1 дн", "1–2 дн", "2–3 дн", "3–5 дн", "5–7 дн", "7–10 дн", "> 10 дн"];
+    const cnt = labels.map((_, i) => nh.periods.filter(h => h / 24 >= edges[i] && h / 24 < edges[i + 1]).length);
+    const tailBin = labels.findIndex((_, i) => nh.tail / 24 >= edges[i] && nh.tail / 24 < edges[i + 1]);
+    const o = baseOptions();
+    o.scales.x.stacked = true; o.scales.y.stacked = true;
+    o.plugins.tooltip.callbacks = {label: it => " " + it.dataset.label + ": " + it.parsed.y};
+    charts.nh = new Chart(document.getElementById("chart-nh"), { type: "bar",
+      data: {labels, datasets: [
+        {label: "периодов", data: cnt, backgroundColor: css("--accent"), borderRadius: 3},
+        {label: "незакрытый хвост", data: labels.map((_, i) => i === tailBin ? 1 : 0), backgroundColor: css("--warn"), borderRadius: 3}]},
+      options: o });
+    document.getElementById("nh-caption").textContent = nh.n + " периодов до нового максимума · медиана " + hFmt(nh.median) + " · p75 " + hFmt(nh.p75) +
+      " · p90 " + hFmt(nh.p90) + " · самый долгий " + dayFmt(nh.max) + " · хвост " + dayFmt(nh.tail) + " (жёлтым)";
+  }
+  function renderRating() {
+    const box = document.getElementById("panel-rating");
+    if (!NH) { box.style.display = "none"; return; }
+    const pk = state.period === "crash" ? "augsep" : state.period;
+    document.getElementById("rating-status").textContent = "справочно: на тех же днях подбора";
+    document.getElementById("rating-note").innerHTML = "Из " + NH.n_rows + " готовых рядов (главный и соседи, П-02, " + "клетки П-05, окна BTC, потолок 3, смеси 2 вариантов) плюс в обоих месяцах и сделок ≥ 30 / ≥ 10 — у " + NH.n_pass +
+      ". Порядок — по p90 по времени худшего месяца. Клик по строке — вариант во всех плитках, если он есть на странице." +
+      hint("Рейтинг", "Смесь «среднее» — два варианта на половине позиции, без учёта занятости монеты. «+ потолок 3» — не больше 3 позиций разом. " + NH.status + ". Между местами — доли суток при 285 просмотренных рядах: это выбор из шума, не находка.");
+    const cols = ["aug", "sep"];
+    const cell = (r, k) => "<td class='num sep'>" + dayFmt(r[k].worst) + "</td><td class='num'>" + hFmt(r[k].tw_p90) + "</td><td class='num " + cls(r[k].usd) + "'>" + money(r[k].usd * K()) + "</td><td class='num'>" + r[k].n_trades + "</td><td class='num'>" + (r[k].r2 == null ? "—" : r[k].r2.toFixed(2).replace(".", ",")) + "</td>";
+    document.getElementById("rating-table").innerHTML = "<thead><tr><th></th><th></th>" + ["Август", "Сентябрь"].map(l => "<th class='sep' colspan='5'>" + l + "</th>").join("") + "<th class='sep'>Авг + сен</th></tr>" +
+      "<tr><th>место</th><th>вариант</th>" + cols.map(() => "<th class='num sep'>до перехая</th><th class='num'>p90 по времени</th><th class='num'>$</th><th class='num'>сделок</th><th class='num'>R²</th>").join("") + "<th class='num sep'>до перехая</th></tr></thead><tbody>" +
+      NH.rating.map(r => "<tr class='" + (r.key ? "click" : "") + (r.key === state.variant ? " total" : "") + "'" + (r.key ? " data-key='" + r.key + "'" : "") + "><td class='num'>" + (r.place || "—") + "</td><td style='white-space:normal;min-width:220px'>" + r.name + " <span class='muted'>· " + r.group + "</span></td>" +
+        cols.map(k => cell(r, k)).join("") + "<td class='num sep'>" + dayFmt(r.augsep.worst) + "</td></tr>").join("") + "</tbody>";
+    document.querySelectorAll("#rating-table tr[data-key]").forEach(tr => tr.addEventListener("click", () => {
+      state.variant = tr.dataset.key; if (state.period === "crash") state.period = "augsep"; renderAll();
+      document.getElementById("panel-kpi").scrollIntoView({behavior: "smooth", block: "start"}); }));
+    const colors = [css("--series-3"), css("--series-2"), css("--warn"), css("--ink-3")];
+    const names = Object.keys(NH.curves);
+    const ds = names.map((n, i) => ({label: n, data: NH.curves[n][pk].map(([t, c]) => ({x: t, y: Math.round(c * K() * 100) / 100})),
+      borderColor: colors[i % colors.length], borderDash: i === names.length - 1 ? [5, 4] : [], pointRadius: 0, stepped: true, borderWidth: 1.8, fill: false}));
+    document.getElementById("curves-legend").innerHTML = names.map((n, i) => "<span><i" + (i === names.length - 1 ? " class='dash'" : "") + " style='border-color:" + colors[i % colors.length] + "'></i>" + n + "</span>").join("") +
+      "<span class='muted'>кривая по закрытиям, $ на позицию $" + state.size.toLocaleString("ru-RU") + ", " + (pk === "augsep" ? "август + сентябрь одним счётом" : pk === "aug" ? "август" : "сентябрь") + "</span>";
+    const p = D.periods.find(x => x.key === pk);
+    const o = baseOptions(); dateTicks(o, p.from, p.to);
+    o.scales.y.ticks.callback = v => money(v);
+    o.interaction = {mode: "nearest", intersect: false};
+    o.plugins.tooltip.callbacks = {title: items => new Date(items[0].parsed.x).toISOString().slice(0, 16).replace("T", " ") + " UTC", label: it => " " + it.dataset.label + ": " + money(it.parsed.y)};
+    if (charts.curves) charts.curves.destroy();
+    charts.curves = new Chart(document.getElementById("chart-curves"), {type: "line", data: {datasets: ds}, options: o});
+  }
   // ---------- сетки П-05 (владелец 27.09) ----------
   function pickP05(name) {
     state.variant = "p05:" + name;
@@ -886,7 +976,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     document.getElementById("lede-pos").textContent = "$" + state.size.toLocaleString("ru-RU") + (state.size !== D.position_usd ? " (пересчёт линейно)" : "");
     document.getElementById("p05-pill").innerHTML = isP05(state.variant) ? "<span class='sep' aria-hidden='true'></span><button aria-pressed='true' title='" +
       VARIANT_FULL[state.variant].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[state.variant] + "</button>" : "";
-    renderDiff(); renderP05();
+    renderDiff(); renderP05(); renderNh(); renderRating();
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
   buildToggles(); renderStatus(); renderCompare(); renderP02(); renderAll();
