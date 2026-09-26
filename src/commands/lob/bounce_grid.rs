@@ -508,6 +508,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             lot,
                             rtt_ns: args.median_rtt_ns,
                             queue_model,
+                            busy_skip: args.busy_skip == "on",
                             order_qtys: &order_qtys,
                             threads,
                             post_only: args.entry_post_only(),

@@ -174,6 +174,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         threads: Some(3),
         driver: DriverArg::Setups,
         round_memo: "on".to_string(),
+        busy_skip: "on".to_string(),
         // К3: сверка окон с книгой крейта на всех сутках тестовых сеток.
         windows_check: true,
         events: "compact".to_string(),
@@ -1048,6 +1049,101 @@ fn wide_events_keep_every_set_byte_for_byte() {
             );
             assert_eq!(read(&x.forms_path), read(&y.forms_path), "forms {}", x.name);
         }
+    }
+}
+
+/// T-31 (`--busy-skip off`): шапка помечена, рядом `signals.csv`; правило «занят при `t0 < idle_ns`
+/// прошлого принятого шага, обрыв — конец суток» над `signals.csv` отбирает из `rounds.csv` режима `off`
+/// ровно строки прогона `on`, в том же порядке, байт в байт (это и делает `tools/compute/busy-replay.py`).
+/// С драйвером `full` режим — отказ.
+#[test]
+fn busy_skip_off_trace_replays_the_default_rounds_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let sets = vec!["all:".to_string(), "bid:side=bid".to_string()];
+    let run = |busy: &str, driver: DriverArg| {
+        let mut a = args(dir.path(), false);
+        a.stop_form = vec!["pct1".to_string(), "behind".to_string()];
+        a.take_form = vec!["1to1".to_string()];
+        a.take_floor_fees = None;
+        a.h3 = H3Args {
+            h3_mode: H3ModeArg::Floor,
+            h3_lots: None,
+            h3_usd: None,
+            h3_strength_pct: None,
+            h3_strength_window_bps: None,
+        };
+        a.warmup_ms = None;
+        a.repeat_window_ms = None;
+        a.out_dir = dir.path().join(format!("busy-{busy}-{}", driver.label()));
+        a.sets = sets.clone();
+        a.driver = driver;
+        a.busy_skip = busy.to_string();
+        run_bounce_grid(&a)
+    };
+    let err = run("off", DriverArg::Full).unwrap_err().to_string();
+    assert!(err.contains("--busy-skip off"), "{err}");
+    let on = run("on", DriverArg::Setups).unwrap();
+    let off = run("off", DriverArg::Setups).unwrap();
+    assert!(on.rounds > 0, "фикстура даёт круги");
+    assert!(off.rounds >= on.rounds, "{} < {}", off.rounds, on.rounds);
+    let lines = |p: &std::path::Path| -> Vec<String> {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    };
+    for (x, y) in on.sets.iter().zip(off.sets.iter()) {
+        assert!(!x.rounds_path.with_file_name("signals.csv").exists());
+        let sig = lines(&y.rounds_path.with_file_name("signals.csv"));
+        assert!(sig[0].contains("busy_skip=off"), "{}", sig[0]);
+        assert!(lines(&y.rounds_path)[0].contains("busy_skip=off"));
+        assert!(!lines(&x.rounds_path)[0].contains("busy_skip"));
+        assert_eq!(
+            sig[1],
+            "symbol,day_utc,form,signal_index,t0_ns,entry_px,step,idle_ns,residual,exit_ns"
+        );
+        // правило движка над следом — по (символ, сутки, форма), в порядке строк
+        let mut kept: std::collections::HashSet<(String, String, String, String)> =
+            std::collections::HashSet::new();
+        let mut state: std::collections::HashMap<(String, String, String), (i64, bool)> =
+            std::collections::HashMap::new();
+        for row in &sig[2..] {
+            let c: Vec<&str> = row.split(',').collect();
+            let key = (c[0].to_string(), c[1].to_string(), c[2].to_string());
+            let (idle, stopped) = state.entry(key.clone()).or_insert((i64::MIN, false));
+            let t0: i64 = c[4].parse().unwrap();
+            if *stopped || t0 < *idle {
+                continue;
+            }
+            kept.insert((key.0, key.1, key.2, c[3].to_string()));
+            if c[6] == "end_of_data" || c[6] == "no_window" || c[8] == "ended" {
+                *stopped = true;
+            } else {
+                *idle = c[7].parse().unwrap();
+            }
+        }
+        let off_rows = lines(&y.rounds_path);
+        let replay: Vec<&String> = off_rows[2..]
+            .iter()
+            .filter(|r| {
+                let c: Vec<&str> = r.split(',').collect();
+                kept.contains(&(
+                    c[0].to_string(),
+                    c[1].to_string(),
+                    c[2].to_string(),
+                    c[3].to_string(),
+                ))
+            })
+            .collect();
+        let on_rows = lines(&x.rounds_path);
+        assert_eq!(
+            replay,
+            on_rows[2..].iter().collect::<Vec<_>>(),
+            "набор {}",
+            x.name
+        );
     }
 }
 
@@ -2044,6 +2140,7 @@ fn run_with_exit_counters(
         observations: Vec::new(),
         incomplete: false,
         residual_flattened: 0,
+        trace: Vec::new(),
     }
 }
 

@@ -16,7 +16,7 @@ use crate::lob::levels::{H3Mode, TouchRecord};
 
 use super::args::{
     ensure_entry_conditions_args, parse_early_exits, parse_entry_forms, parse_entry_ttls,
-    parse_exit_forms, BounceGridArgs, SideArg, SignalArg,
+    parse_exit_forms, BounceGridArgs, DriverArg, SideArg, SignalArg,
 };
 use super::forms::{grid_forms_with_early, ExitForm, GridForm};
 use super::outputs::Outputs;
@@ -112,6 +112,10 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
     // Модель очереди/исполнения (F3): обязательный флаг, разбирается один раз
     // на процесс — она не часть фильтров набора (`--set`), а движок.
     let queue_model = args.queue_model;
+    anyhow::ensure!(
+        args.busy_skip == "on" || matches!(args.driver, DriverArg::Setups),
+        "--busy-skip off — только --driver setups: сплошной прогон (`full`) один движок на сутки,          перекрытый круг в нём не посчитать (T-31)"
+    );
     let threads = args
         .threads
         .unwrap_or_else(|| {
@@ -329,6 +333,10 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
     if args.touches_cache_only {
         exit_forms = format!("{exit_forms} touches_cache_only=on");
     }
+    // T-31: шапка — только при `off`, без флага байт в байт прежняя.
+    if args.busy_skip == "off" {
+        exit_forms = format!("{exit_forms} busy_skip=off");
+    }
     let header_for = |set: &FilterSet| {
         format!(
         "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} eaten_min={:?} usd_min={:?} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
@@ -402,7 +410,12 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.out_dir.join(&set.name)
         };
         let header = header_for(set);
-        outs.push(Outputs::create(&dir, &header, args.carry_root.is_some())?);
+        outs.push(Outputs::create(
+            &dir,
+            &header,
+            args.carry_root.is_some(),
+            args.busy_skip == "off",
+        )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
         writeln!(m, "symbols={}", symbols.join(","))?;

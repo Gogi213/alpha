@@ -779,6 +779,7 @@ fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
+        busy_skip: true,
     };
     let signal = |t0_ns: i64| BounceSignal {
         t0_ns,
@@ -1469,6 +1470,7 @@ fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::BounceRun {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
+        busy_skip: true,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2066,6 +2068,7 @@ fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<ExitReason> {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
+        busy_skip: true,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2647,6 +2650,7 @@ fn the_driver_counts_the_entry_cancel_ceiling() {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
+        busy_skip: true,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2698,6 +2702,7 @@ fn an_orphan_survives_the_round_boundary_in_the_driver() {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
+        busy_skip: true,
     };
     // Срок жизни входа 0.1 с: снятие на 1.2 с, потолок на 2.2 с — круг закрыт.
     let signals = [

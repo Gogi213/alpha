@@ -859,6 +859,7 @@ fn bounce_run(fills: Vec<crate::lob::backtest::Fill>, reasons: Vec<ExitReason>) 
         observations: Vec::new(),
         incomplete: false,
         residual_flattened: 0,
+        trace: Vec::new(),
     }
 }
 

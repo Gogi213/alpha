@@ -450,6 +450,7 @@ fn drive_cfg() -> DriveConfig {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
+        busy_skip: true,
     }
 }
 
@@ -1109,6 +1110,72 @@ fn windowed_driver_matches_the_continuous_one_on_a_synthetic_day() {
     );
 }
 
+/// T-31: без пропуска «занято» сигнал внутри круга получает свой круг, а след шагов позволяет вне
+/// движка повторить правило занятости: «занят при `t0 < idle_ns` прошлого принятого» над следом `off`
+/// даёт ровно круги прогона `on` — те же исполнения и выходы.
+#[test]
+fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
+    let (feed, plan) = windowed_fixture();
+    let signal = |t0_ns: i64| BounceSignal {
+        t0_ns,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let signals = [signal(S), signal(3 * S), signal(61 * S)];
+    let windows = SignalWindows::build(&feed, &[S, 3 * S, 61 * S], 1.0, 1.0);
+    let lat = ExecLatency::uniform(1_000_000);
+    let on = drive_bounce_windowed(&feed, &windows, &signals, &drive_cfg(), lat).unwrap();
+    assert!(on.trace.is_empty(), "при `on` след не пишется");
+    let off_cfg = DriveConfig {
+        busy_skip: false,
+        ..drive_cfg()
+    };
+    let off = drive_bounce_windowed(&feed, &windows, &signals, &off_cfg, lat).unwrap();
+    assert_eq!(off.misses.busy, 0, "{off:?}");
+    assert!(off.busy_signal.is_empty());
+    assert_eq!(off.trace.len(), 3, "по шагу на сигнал: {:?}", off.trace);
+    assert_eq!(
+        off.trace.iter().map(|t| t.signal).collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_eq!(on.busy_signal, [1], "при `on` второй сигнал — «занято»");
+    assert!(
+        off.submitted_signal.contains(&1),
+        "при `off` второй сигнал — свой круг (вход отправлен): {off:?}"
+    );
+
+    // правило движка над следом: занят при t0 < idle прошлого принятого; обрыв — конец суток
+    let mut idle = i64::MIN;
+    let mut kept: Vec<usize> = Vec::new();
+    for t in &off.trace {
+        if signals[t.signal].t0_ns < idle {
+            continue;
+        }
+        kept.push(t.signal);
+        if matches!(t.step, TraceStep::EndOfData | TraceStep::NoWindow) || t.residual == Some(true)
+        {
+            break;
+        }
+        idle = t.idle_ns;
+    }
+    let replay: Vec<(usize, Fill, i64)> = off
+        .fill_signal
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| kept.contains(s))
+        .map(|(i, &s)| (s, off.fills[i], off.fill_exit_ns[i]))
+        .collect();
+    let base: Vec<(usize, Fill, i64)> = on
+        .fill_signal
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| (s, on.fills[i], on.fill_exit_ns[i]))
+        .collect();
+    assert_eq!(replay, base, "след `off` обязан воспроизвести круги `on`");
+}
+
 /// Снимок книги воспроизводит `HashMapMarketDepth` крейта поле в поле,
 /// включая перекрещённые «спрятанные» уровни и границы поиска лучшей цены.
 #[test]
@@ -1435,6 +1502,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
             order_qty: 2.0,
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,
+            busy_skip: true,
         },
     )
     .unwrap();
@@ -1570,6 +1638,7 @@ fn partial_fill_records_real_qty_and_fill_frac() {
         order_qty: 2.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
+        busy_skip: true,
     };
     let mut hbt = build_backtest(
         &feed,
@@ -1651,6 +1720,7 @@ fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
         order_qty: 1.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
+        busy_skip: true,
     };
     let mut hbt = build_backtest(
         &feed,
@@ -1708,6 +1778,7 @@ fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
         order_qty: 3.0,
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
+        busy_skip: true,
     };
     let mut hbt = build_backtest(
         &feed,

@@ -251,6 +251,8 @@ pub(super) struct DayParams<'a> {
     pub(super) rtt_ns: ExecLatency,
     /// Модель очереди/исполнения суток (`--queue-model`, F3) — одна на процесс.
     pub(super) queue_model: QueueModelKind,
+    /// Пропуск «позиция занята» (`--busy-skip`, T-31): `false` — каждый сигнал свой круг, след в `trace`.
+    pub(super) busy_skip: bool,
     /// Размер круга на каждое касание суток (тот же порядок, что `touches`):
     /// лот по цене **этого** касания (R2, `OrderSizing`).
     pub(super) order_qtys: &'a [f64],
@@ -354,6 +356,7 @@ pub(super) fn drive_day(
                     order_qty: 0.0,
                     first_order_id: 1,
                     queue_model: p.queue_model,
+                    busy_skip: p.busy_skip,
                 };
                 let step = signals_for(touches, approaches, p.sigma, &forms[i], &p).and_then(
                     |(signals, skipped)| {

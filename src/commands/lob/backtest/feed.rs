@@ -153,6 +153,7 @@ impl BacktestFillModel {
             order_qty,
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,
+            busy_skip: true,
         };
         let signals: Vec<Signal> = records
             .iter()

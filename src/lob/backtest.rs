@@ -699,6 +699,55 @@ pub struct DriveConfig {
     /// Модель очереди/исполнения этого прогона (F3): её ставит вызывающий
     /// (`lob bounce-grid --queue-model`), умолчания нет.
     pub queue_model: QueueModelKind,
+    /// Пропуск «позиция занята» (T-31): `true` — прежнее поведение, сигнал до `idle_ns` прошлого круга —
+    /// промах `PositionBusy`. `false` (`bounce-grid --busy-skip off`, только драйвер сетапов, где круг —
+    /// свежий движок над окном `t0`): каждый сигнал — свой круг, обрыв суток счёт не прерывает, а след
+    /// каждого шага (`BounceRun::trace`) уходит в `signals.csv` — занятость потом решает фильтр
+    /// (`tools/compute/busy-replay.py`) тем же правилом.
+    pub busy_skip: bool,
+}
+
+/// Чем кончился шаг драйвера на сигнале (след T-31, `signals.csv`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceStep {
+    /// Книга не была готова — попытки не было (`SignalStep::NotSubmitted`).
+    NotSubmitted,
+    /// Вход не исполнился и снят (TTL, стена, цена ушла, отказ биржи).
+    TimedOut,
+    Filled,
+    /// Круг не сошёлся (`RoundOutcome::Inconsistent`).
+    Inconsistent,
+    /// Запись кончилась: при `busy_skip` здесь сутки обрываются.
+    EndOfData,
+    /// Окна для `t0` нет (драйвер сетапов): при `busy_skip` здесь сутки обрываются.
+    NoWindow,
+}
+
+impl TraceStep {
+    pub fn label(self) -> &'static str {
+        match self {
+            TraceStep::NotSubmitted => "not_submitted",
+            TraceStep::TimedOut => "timed_out",
+            TraceStep::Filled => "filled",
+            TraceStep::Inconsistent => "inconsistent",
+            TraceStep::EndOfData => "end_of_data",
+            TraceStep::NoWindow => "no_window",
+        }
+    }
+}
+
+/// След одного сигнала (T-31): всё, что нужно, чтобы вне движка повторить правило «занято» —
+/// занят при `t0 < idle_ns` прошлого принятого шага; `EndOfData`, `NoWindow` или остаток, который закрывали
+/// до конца записи (`residual_ended`), обрывают сутки.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignalTrace {
+    /// Номер сигнала в порядке по `t0` (как `fill_signal` и `signal_index` в `rounds.csv`).
+    pub signal: usize,
+    pub step: TraceStep,
+    /// Часы, когда стратегия снова `Idle`; `i64::MIN` — шаг без движка (`NoWindow`, `EndOfData` до `t0`).
+    pub idle_ns: i64,
+    /// Остаток закрывали по рынку страховкой; `Some(true)` — запись кончилась в процессе.
+    pub residual: Option<bool>,
 }
 
 /// Итог прогона одного профиля на одной RTT-сценарии: done-condition 6.3
@@ -1190,6 +1239,8 @@ pub struct BounceRun {
     /// закрыть по рынку страховкой (2026-09-18). Ноль — норма; каждое
     /// срабатывание печатается и делает прогон `incomplete`.
     pub residual_flattened: u64,
+    /// След каждого сигнала — только при `DriveConfig::busy_skip == false` (T-31), иначе пуст.
+    pub trace: Vec<SignalTrace>,
 }
 
 /// Сколько ног входа ставит этот план: у Decision 20 — одна, у лестницы
@@ -1903,6 +1954,7 @@ impl BounceRun {
             observations: Vec::new(),
             incomplete: true,
             residual_flattened: 0,
+            trace: Vec::new(),
         }
     }
 }
@@ -2023,11 +2075,12 @@ where
         filled: false,
     };
 
+    let mut trace: Vec<SignalTrace> = Vec::new();
     for (sig_idx, sig) in order.iter().enumerate() {
         if entry_side(sig.sigma).is_none() {
             continue;
         }
-        if sig.t0_ns < idle_ns {
+        if cfg.busy_skip && sig.t0_ns < idle_ns {
             busy_signal.push(sig_idx);
             busy_wait_ns_max = busy_wait_ns_max.max(idle_ns.saturating_sub(sig.t0_ns));
             misses.record(MissReason::PositionBusy);
@@ -2076,19 +2129,45 @@ where
                 step
             }
         };
+        // Без пропуска «занято» (T-31) обрыв суток счёт не прерывает: сигналы после него — свои круги,
+        // а обрывает ли шаг сутки, решает фильтр по следу (`SignalTrace`) — если этот шаг он примет.
+        let end_day = |trace: &mut Vec<SignalTrace>, step: TraceStep, residual: Option<bool>| {
+            if !cfg.busy_skip {
+                trace.push(SignalTrace {
+                    signal: sig_idx,
+                    step,
+                    idle_ns: i64::MIN,
+                    residual,
+                });
+            }
+            cfg.busy_skip
+        };
         let Some(step) = step else {
             incomplete = true;
-            break;
+            if end_day(&mut trace, TraceStep::NoWindow, None) {
+                break;
+            }
+            continue;
         };
         match step {
             SignalStep::EndOfData => {
                 incomplete = true;
-                break;
+                if end_day(&mut trace, TraceStep::EndOfData, None) {
+                    break;
+                }
             }
             SignalStep::NotSubmitted { idle_ns: idle } => {
                 idle_ns = idle;
                 misses.record(MissReason::EntryTimeout);
                 observations.push(miss_observation(sig.t0_ns));
+                if !cfg.busy_skip {
+                    trace.push(SignalTrace {
+                        signal: sig_idx,
+                        step: TraceStep::NotSubmitted,
+                        idle_ns: idle,
+                        residual: None,
+                    });
+                }
             }
             SignalStep::Submitted {
                 crossed,
@@ -2109,12 +2188,19 @@ where
                 if let Some(s) = spread {
                     spread_at_entry.push(s);
                 }
+                let mut kind = TraceStep::Filled;
                 match outcome {
                     RoundOutcome::EndOfData => {
                         incomplete = true;
-                        break;
+                        if end_day(&mut trace, TraceStep::EndOfData, None) {
+                            break;
+                        }
+                        continue;
                     }
-                    RoundOutcome::Inconsistent => incomplete = true,
+                    RoundOutcome::Inconsistent => {
+                        incomplete = true;
+                        kind = TraceStep::Inconsistent;
+                    }
                     RoundOutcome::TimedOut {
                         entry_status,
                         legs_rejected,
@@ -2151,6 +2237,7 @@ where
                         // не «занято».
                         rejected_postonly =
                             rejected_postonly.saturating_add(u64::from(legs_rejected));
+                        kind = TraceStep::TimedOut;
                         misses.record(MissReason::EntryTimeout);
                         observations.push(miss_observation(sig.t0_ns));
                     }
@@ -2193,8 +2280,19 @@ where
                     residual_flattened = residual_flattened.saturating_add(1);
                     incomplete = true;
                     if ended {
-                        break;
+                        if end_day(&mut trace, kind, residual) {
+                            break;
+                        }
+                        continue;
                     }
+                }
+                if !cfg.busy_skip {
+                    trace.push(SignalTrace {
+                        signal: sig_idx,
+                        step: kind,
+                        idle_ns: idle,
+                        residual,
+                    });
                 }
             }
         }
@@ -2226,6 +2324,7 @@ where
         observations,
         incomplete,
         residual_flattened,
+        trace,
     })
 }
 

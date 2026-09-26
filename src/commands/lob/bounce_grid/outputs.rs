@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::commands::lob::backtest::exit_reason_label;
 use crate::lob::backtest::{roundtrip_net_bps, BounceRun, BounceSignal};
+use crate::lob::strategy::TradePlan;
 
 use super::forms::GridForm;
 
@@ -106,7 +107,27 @@ pub(super) struct Outputs {
     pub(super) forms_path: PathBuf,
     // R6: колонки переноса через полночь в `forms.csv` — только с `--carry-root`.
     with_carry: bool,
+    // T-31: `signals.csv` — след каждого сигнала, только с `--busy-skip off`.
+    signals: Option<csv::Writer<std::fs::File>>,
 }
+
+/// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
+/// `signal_index` — номер в порядке по `t0` (как в `rounds.csv`); `entry_px` — цена входа плана (опознание
+/// сигналов с одним `t0`); `idle_ns` — когда форма снова свободна (`-` — шаг без движка); `residual` —
+/// `flat` (остаток закрыт страховкой) / `ended` (запись кончилась в процессе — обрыв суток) / пусто;
+/// `exit_ns` — у исполненного круга, как в `rounds.csv`.
+const SIGNALS_HEADER: [&str; 10] = [
+    "symbol",
+    "day_utc",
+    "form",
+    "signal_index",
+    "t0_ns",
+    "entry_px",
+    "step",
+    "idle_ns",
+    "residual",
+    "exit_ns",
+];
 
 /// Сигналы формы по часам UTC суток, `h0:h1:…:h23` (В-60): вердикт по одним
 /// суткам кластеризует интервал `net_fill` по часам, и промахи (у них в
@@ -226,7 +247,12 @@ pub(super) fn sum_net_bps(run: &BounceRun) -> f64 {
 }
 
 impl Outputs {
-    pub(super) fn create(out_dir: &Path, header: &str, with_carry: bool) -> anyhow::Result<Self> {
+    pub(super) fn create(
+        out_dir: &Path,
+        header: &str,
+        with_carry: bool,
+        with_signals: bool,
+    ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
         let forms_path = out_dir.join("forms.csv");
@@ -245,12 +271,22 @@ impl Outputs {
             &FORMS_HEADER[..FORMS_HEADER.len() - FORMS_HEADER_CARRY_LEN]
         };
         forms.write_record(forms_header)?;
+        let signals = if with_signals {
+            let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
+            writeln!(sf, "{header}")?;
+            let mut w = csv::WriterBuilder::new().has_headers(false).from_writer(sf);
+            w.write_record(SIGNALS_HEADER)?;
+            Some(w)
+        } else {
+            None
+        };
         Ok(Self {
             rounds,
             forms,
             rounds_path,
             forms_path,
             with_carry,
+            signals,
         })
     }
 
@@ -343,6 +379,49 @@ impl Outputs {
                 .collect();
             (0..24).all(|h| fills_by_hour[h] <= sig_by_hour[h])
         });
+        if let Some(w) = self.signals.as_mut() {
+            // тот же порядок, что у драйвера: устойчивая сортировка копии по `t0`
+            let mut order: Vec<&BounceSignal> = signals.iter().collect();
+            order.sort_by_key(|s| s.t0_ns);
+            let mut exit_of: Vec<Option<i64>> = vec![None; order.len()];
+            for (i, &sig) in run.fill_signal.iter().enumerate() {
+                if let Some(e) = exit_of.get_mut(sig) {
+                    *e = Some(run.fill_exit_ns[i]);
+                }
+            }
+            for t in &run.trace {
+                let sig = order.get(t.signal);
+                w.write_record([
+                    symbol.to_string(),
+                    day.to_string(),
+                    form.label.to_string(),
+                    t.signal.to_string(),
+                    sig.map_or(0, |s| s.t0_ns).to_string(),
+                    sig.map_or_else(String::new, |s| match s.plan {
+                        TradePlan::Bounce { entry_px, .. } => format!("{entry_px:.10}"),
+                        TradePlan::SpreadHold => String::new(),
+                    }),
+                    t.step.label().to_string(),
+                    if t.idle_ns == i64::MIN {
+                        "-".to_string()
+                    } else {
+                        t.idle_ns.to_string()
+                    },
+                    match t.residual {
+                        None => "",
+                        Some(false) => "flat",
+                        Some(true) => "ended",
+                    }
+                    .to_string(),
+                    exit_of
+                        .get(t.signal)
+                        .copied()
+                        .flatten()
+                        .map_or_else(String::new, |e| e.to_string()),
+                ])?;
+            }
+            w.flush()?;
+        }
         self.rounds.flush()?;
         self.forms.flush()?;
         Ok(run.fills.len() as u64)
