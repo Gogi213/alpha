@@ -154,6 +154,62 @@ def cmd_link(args: argparse.Namespace) -> int:
     return 0
 
 
+def round_zeros(price_tick: int) -> int:
+    """Копия `src/lob/levels.rs:717` (`ROUND_ZEROS_CAP = 3`): хвостовые десятичные нули цены в тиках."""
+    n, z = abs(price_tick), 0
+    while n != 0 and n % 10 == 0 and z < 3:
+        n //= 10
+        z += 1
+    return z
+
+
+def cmd_filter(args: argparse.Namespace) -> int:
+    """Вид-прогон `<home>/<out-sub>/<день>/<набор>/rounds.csv`: `f-all` — все сделки главной формы (сверка счёта с
+    базой), `f-g08` — только стена на круглом числе (`round_zeros(price_tick подхода) ≥ 2`, порог П-02 H4). Г-08 —
+    единственная из шести сигнальных гипотез, чей признак не требует касания: он от цены стены, а она есть у подхода
+    (связь сделка → подход — как в `link`). Сделка без однозначного подхода в `f-g08` не входит (счётчик `unlinked`)."""
+    appr_home = args.appr_home if args.appr_home is not None else args.home
+    tot: Dict[str, int] = defaultdict(int)
+    for day in daterange(args.day_from, args.day_to):
+        rounds_path = os.path.join(args.home, args.rounds_sub, day, "t-bid-btc4h-q1", "rounds.csv")
+        if not os.path.exists(rounds_path):
+            continue
+        with open(rounds_path, newline="", encoding="utf-8") as f:
+            lines = [l for l in f if not l.startswith("#")]
+        rows = [r for r in csv.DictReader(lines) if r["form"] == MAIN_FORM and r["symbol"] not in EXCLUDE_SYMBOLS]
+        header = next(csv.reader(lines[:1]))
+        out = {"f-all": rows, "f-g08": []}
+        by_sym: Dict[str, list] = defaultdict(list)
+        for r in rows:
+            by_sym[r["symbol"]].append(r)
+        for sym, srows in by_sym.items():
+            arm: Dict[int, list] = defaultdict(list)
+            appr_path = os.path.join(appr_home, args.appr_root, day, f"approaches-{sym}.csv")
+            if os.path.exists(appr_path):
+                with open(appr_path, newline="", encoding="utf-8") as f:
+                    for a in csv.DictReader(f):
+                        if a["side"] == "bid" and int(a["age_ms"]) >= MIN_AGE_MS:
+                            arm[int(a["arm_ms"])].append(a)
+            for r in srows:
+                tot[f"{day[:7]}/total"] += 1
+                c = arm.get(int(r["t0_ns"]) // 1_000_000, [])
+                if len(c) != 1:
+                    tot[f"{day[:7]}/unlinked"] += 1
+                    continue
+                if round_zeros(int(c[0]["price_tick"])) >= 2:
+                    out["f-g08"].append(r)
+                    tot[f"{day[:7]}/g08"] += 1
+        for set_name, srows in out.items():
+            d = os.path.join(args.home, args.out_sub, day, set_name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "rounds.csv"), "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=header)
+                w.writeheader()
+                w.writerows(srows)
+    print(json.dumps(dict(tot), ensure_ascii=False))
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -168,6 +224,16 @@ def main(argv=None) -> int:
     p_link.add_argument("--day-to", required=True)
     p_link.add_argument("--out", default=None)
     p_link.set_defaults(func=cmd_link)
+
+    p_f = sub.add_parser("filter", help="вид-прогон f-all / f-g08 для portfolio-sim и страницы")
+    p_f.add_argument("--home", required=True)
+    p_f.add_argument("--rounds-sub", default="b5/titrc-u500r")
+    p_f.add_argument("--appr-home", default=None)
+    p_f.add_argument("--appr-root", default="study/approaches/D20")
+    p_f.add_argument("--out-sub", default="b5/v17-filt")
+    p_f.add_argument("--day-from", required=True)
+    p_f.add_argument("--day-to", required=True)
+    p_f.set_defaults(func=cmd_filter)
 
     args = p.parse_args(argv)
     return args.func(args)
