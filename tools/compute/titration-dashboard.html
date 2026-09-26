@@ -178,6 +178,11 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
         <span class="label">Вариант</span>
         <div class="seg" id="variant-toggle" role="group" aria-label="Вариант"></div>
       </div>
+      <div class="control-row" id="p02-toggle-row" hidden>
+        <span class="label">Гипотезы П-02 · справочно</span>
+        <div class="seg" id="p02-toggle" role="group" aria-label="Гипотезы П-02"></div>
+      </div>
+      <p class="variant-desc" id="p02-undefined" hidden></p>
       <p class="variant-desc" id="variant-desc"></p>
     </div>
   </header>
@@ -291,7 +296,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const PERIOD_LABEL = {sep: "Сентябрь (23 суток, 14.09 без LSKUSDT)", aug: "Август", augsep: "Август + сентябрь", crash: "Обвал"};
   const VARIANT_PILL = {cand: "BTC 1 ч, трейл 1/1", btc4h_trail: "BTC 4 ч, трейл 1/1", btc4h_take: "BTC 4 ч, тейк 1,75 %", nofilter: "Без фильтра"};
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
-  const VARIANT_FULL = {}; D.variants.forEach(v => VARIANT_FULL[v.key] = v.label);
+  const VARIANT_FULL = {}, VARIANT_META = {}; D.variants.forEach(v => { VARIANT_FULL[v.key] = v.label; VARIANT_META[v.key] = v; if (v.pill) VARIANT_PILL[v.key] = v.pill; });
+  const isP02 = key => (VARIANT_META[key] || {}).group === "p02";
 
   document.getElementById("gen").textContent = D.generated_utc;
   document.getElementById("acct-line").innerHTML =
@@ -318,9 +324,20 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const pt = document.getElementById("period-toggle");
     pt.innerHTML = D.periods.map(p => "<button data-period='" + p.key + "' aria-pressed='" + (p.key === state.period) + "'>" + periodPillLabel(p.key) + "</button>").join("");
     const vt = document.getElementById("variant-toggle");
-    vt.innerHTML = D.variants.map(v => "<button data-variant='" + v.key + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>").join("");
+    const btn = v => "<button data-variant='" + v.key + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>";
+    vt.innerHTML = D.variants.filter(v => !isP02(v.key)).map(btn).join("");
+    const p02v = D.variants.filter(v => isP02(v.key));
+    if (p02v.length) {
+      document.getElementById("p02-toggle-row").hidden = false;
+      document.getElementById("p02-toggle").innerHTML = p02v.map(btn).join("");
+    }
+    if ((D.p02_undefined || []).length) {
+      const u = document.getElementById("p02-undefined");
+      u.hidden = false;
+      u.innerHTML = "Без денежного варианта: " + D.p02_undefined.map(x => "<b>" + x.h + "</b> — " + x.why).join("; ") + ".";
+    }
     pt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; renderAll(); }));
-    vt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
+    document.querySelectorAll("#variant-toggle button, #p02-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
   }
 
   // ---------- статус в шапке: главный вариант (В-104) и что ещё не проверено ----------
@@ -334,7 +351,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     box.innerHTML = "<div class='status-banner warn'>" + warnIcon +
       "<div><div class='headline'>Просадка BTC за 4 ч, трейл 1/1 — в плюсе оба месяца: сентябрь " + v(main.sep) + ", август " + v(main.aug) +
       "; два месяца одним счётом " + v(main.both) + "</div>" +
-      "<div class='sub'>Для решения о запуске нужен третий, независимый месяц: пороги и выход подобраны на сентябре, август уже просмотрен. " +
+      "<div class='sub'>Все числа — на данных подбора (август и сентябрь), без интервалов; гипотезы П-02 — отдельными кнопками, справочно. " +
       "Просадка BTC за 1 ч на августе не подтвердилась: " + v(c1) + "." + (D.drop && D.drop.length ? " Вне торгового пула: " + D.drop.map(s => s.replace(/USDT$/, "")).join(", ") + "." : "") + "</div></div></div>";
   }
 
@@ -367,7 +384,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const {acc, kpi} = combo(state.period, state.variant);
     const grid = document.getElementById("kpi-grid");
     document.getElementById("kpi-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_FULL[state.variant];
-    if (!kpi) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>нет данных для этого сочетания периода и варианта</div></div>"; return; }
+    if (!kpi) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>" + (isP02(state.variant) && state.period === "crash" ? "гипотезы П-02 на обвале не считались" : "нет данных для этого сочетания периода и варианта") + "</div></div>"; return; }
     const n = acc ? acc.n : kpi.n;
     const netUsd = acc ? acc.net_usd : kpi.net_usd;
     const netPct = acc ? acc.net_pct : (netUsd / D.deposit_usd * 100);
@@ -581,9 +598,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
 
   // ---------- сентябрь, август и два месяца подряд ----------
-  const COMPARE = [["sep", "Сентябрь"], ["aug", "Август — вне выборки"], ["augsep", "Август + сентябрь, один счёт"]];
+  const COMPARE = [["sep", "Сентябрь"], ["aug", "Август"], ["augsep", "Август + сентябрь, один счёт"]];
   function renderCompare() {
-    const rows = D.variants.map(v => ({label: VARIANT_PILL[v.key], cols: COMPARE.map(([p]) => {
+    const rows = D.variants.map(v => ({label: VARIANT_PILL[v.key] + (isP02(v.key) ? " <span class='muted'>· П-02</span>" : ""), cols: COMPARE.map(([p]) => {
       const acc = (D.account[p] || {})[v.key], k = (D.kpi[p] || {})[v.key];
       return {x: acc || k, real: !!acc};
     })}));
@@ -602,7 +619,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // ---------- устойчивость выхода ----------
   const heatBg = v => v == null ? "" : "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.min(55, Math.abs(v) * 1.4).toFixed(0) + "%, var(--surface))";
   function renderExit() {
-    const setKey = VARIANT_SET[state.variant];
+    const setKey = VARIANT_SET[state.variant] || "btc4h_q1";
     const heat = (D.exit_heat.sep.heat || {})[setKey] || [];
     const trail = (D.exit_heat.sep.trail || {})[setKey] || [];
     const pickHeat = state.variant === "btc4h_take" ? {stop: 2, take_pct: 1.75} : null;
@@ -645,6 +662,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
   // ---------- методика ----------
   document.getElementById("methodology-list").innerHTML = [
+    "Версия 17 (27.09): каждая гипотеза П-02 — отдельным вариантом с полным набором показателей, кривой и днями по месяцам (кнопки «Гипотезы П-02 · справочно»). Денежные (Г-105, Г-85, Г-86) — свои прогоны бэктеста; сигнальные — сделки главного варианта, отобранные по признаку гипотезы, тем же счётом $2500. Это не вердикт: варианты посчитаны на тех же днях, на которых проверялась гипотеза; вердикт — в разделе «Гипотезы П-02». Обвал для них не считался. Сдвиг к версии 16: из шапки убрана строка «нужен третий, независимый месяц» (решение владельца: решение — по августу и сентябрю, каждый отдельно).",
     "Версия 16 (26.09): выключатель BTC теперь смотрит ход BTC той же минуты, что и фильтр входа (раньше — на минуту позже): с выключателем 150 bps август главного варианта +$89 → +$96 — два входа 22.08 05:11 UTC больше не берутся; без выключателя цифры те же.",
     "Версия 16: сентябрь — 23 суток: 14.09 посчитано без одной монеты (LSKUSDT — прогон не проходит по памяти, исключена во всех вариантах одинаково, решение В-112). Счёт, показатели, кривые, дни и защиты — по 23 суткам; таблицы «Результаты сделок» и «По монетам» пока по 22 суткам (без 14.09) — обновятся в следующей версии.",
     "Версия 16: раздел «Гипотезы П-02» — десять проверенных идей про стену и вход: что проверяли, август и сентябрь отдельно, эффект с интервалом, доля дней в сторону идеи; вердикт по заранее записанному правилу и по новому правилу R2 (изменено после счёта).",
@@ -657,7 +675,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     "Все цифры — пересчёт 24.09 со всеми исправлениями ревью: размер позиции по цене сигнала, средняя цена рыночного выхода, позиции через полночь досчитаны; август — после пересчёта суток 18.08 (25.09). Цифры страниц до 24.09 недействительны.",
     "Вне торгового пула (решение владельца 25.09): " + ((D.drop || []).map(s => s.replace(/USDT$/, "")).join(", ") || "—") + " — сделок этих монет нет ни в одном варианте и периоде, ни в счёте; коллектор их по-прежнему записывает.",
     "Фильтры «режим рынка» (кроме просадки BTC), «возраст стены» и шорт на позицию $500 ещё не пересчитаны — на странице их нет.",
-    "Не проверено: третий, независимый месяц (например, июль 2026) с предрегистрацией до счёта, двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
+    "Не проверено: двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
   ].map(t => "<li>" + t + "</li>").join("");
 
   // ---------- сборка ----------
@@ -690,7 +708,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function renderAll() {
     document.querySelectorAll("#period-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
     document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
-    document.getElementById("variant-desc").textContent = VARIANT_FULL[state.variant];
+    const meta = VARIANT_META[state.variant] || {};
+    document.getElementById("variant-desc").textContent = VARIANT_FULL[state.variant] +
+      (isP02(state.variant) ? ". " + (meta.note ? meta.note + " " : "") + (D.p02_note || "") : "");
+    document.querySelectorAll("#p02-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
   buildToggles(); renderStatus(); renderCompare(); renderP02(); renderAll();

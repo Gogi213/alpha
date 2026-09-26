@@ -39,6 +39,40 @@ ACCOUNT_VARIANT_NAME = {
     "cand": "Кандидат: трейл 1/1",
     "nofilter": "Без фильтра просадки",
 }
+# Гипотезы П-02 вариантами (владелец 26.09 ~23:20: «все гипотезы надо с деньгами, пнл, винрейтом и т. д.») — справочно:
+# варианты на тех же днях подбора, не вердикт (вердикт — отчёты П-02). Ключ → (кнопка, подпись, имя в portfolio-sim,
+# ключ сделок в --extra файлах titration-dashboard-data.py, оговорка). Нет сделок ни в одном периоде — вариант не
+# показывается. Обвал для них не считался.
+P02_VARIANTS = [
+    ("g105", "Г-105 стоп перед стеной", "Г-105: стоп перед стеной вместо 2 %, остальное как у главного",
+     "Г-105 стоп перед стеной", "t-bid-btc4h-q1/h10", None),
+    ("g85", "Г-85 вход от фронтрана", "Г-85: вход одной заявкой вплотную к фронтрану вместо лестницы, остальное как у главного",
+     "Г-85 вход от фронтрана", "t-bid-btc4h-q1/h7", None),
+    ("g86", "Г-86 рыночный вход", "Г-86: рыночный вход на касании, когда стену проели ≥ 89,9 % (сигнал касания, не подхода)",
+     "Г-86 рыночный вход", "t-bid-btc4h-q1/h9",
+     "Лимитной стороны нет: на сигнале касания лимитная заявка всегда пересекает спред и отклоняется — сравнивать не с чем. "
+     "В сентябре таких касаний почти не было (1 сделка)."),
+    ("g28", "Г-28 сильная стена", "Г-28: только сделки у сильной стены (верхняя треть: уровни рядом + фронтран)",
+     "Г-28 сильная стена", "f-g28/main", None),
+    ("g28w", "Г-28 слабая стена", "Г-28 обратная: только сделки у слабой стены (нижняя треть) — направление, которое показал счёт",
+     "Г-28 слабая стена", "f-g28w/main", None),
+    ("g08", "Г-08 круглое число", "Г-08: только сделки, где стена на круглом числе (≥ 2 нулей в цене)",
+     "Г-08 круглое число", "f-g08/main", None),
+    ("g33", "Г-33 без декоративных", "Г-33: без сделок у декоративной стены (цепочка перестановок ≥ 2 без торговли)",
+     "Г-33 без декоративных", "f-g33/main", None),
+    ("g07", "Г-07 глубина позади", "Г-07: только сделки, где позади стены глубокий стакан (верхняя треть)",
+     "Г-07 глубина позади", "f-g07/main", None),
+    ("g46", "Г-46 поток против цены", "Г-46: только сделки, где поток тейкеров за 60 с шёл против движения цены",
+     "Г-46 поток против цены", "f-g46/main", None),
+    ("g36", "Г-36 айсберг", "Г-36: только сделки у стены-айсберга (прошлые касания проторговали ≥ её видимого размера)",
+     "Г-36 айсберг", "f-g36/main", None),
+]
+# Гипотезы П-02 без денежного варианта — одной строкой, почему.
+P02_UNDEFINED = [
+    ("Г-88 вход после закола", "закол обнуляет возраст стены, а главный вариант берёт только стены старше 45 минут — сделок нет по построению"),
+    ("Г-85 × Г-105 вместе", "0 сделок: стоп перед стеной отклоняет план, когда заявка фронтрана стоит в 1 тике от стены (почти всегда)"),
+]
+P02_NOTE = "Справочно: вариант посчитан на тех же днях, на которых проверялась гипотеза, — это не вердикт (вердикт — в разделе «Гипотезы П-02»)."
 # Период страницы → эпоха portfolio-sim.
 PERIOD_EPOCH = {"sep": "сентябрь", "aug": "август", "augsep": "август+сентябрь", "crash": "обвал"}
 
@@ -248,6 +282,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in-dir", default="data/titration-dashboard")
     ap.add_argument("--protection", default="protection-dash-notrx.json")
+    ap.add_argument("--extra", action="append", default=[],
+                    help="период=файл titration-dashboard-data.py со сделками вариантов П-02 (sep|aug), повторяемый")
+    ap.add_argument("--extra-protection", action="append", default=[],
+                    help="прогон portfolio-sim.py --json с вариантами П-02 (те же эпохи), повторяемый")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     d = a.in_dir
@@ -257,6 +295,15 @@ def main():
     prot = load(os.path.join(d, a.protection))
     # Одна правда о пуле: монеты вне торгового пула берутся из прогона счёта — сделки страницы и счёт совпадают.
     drop = frozenset(prot.get("drop") or [])
+    extra_trades = {"sep": {}, "aug": {}}
+    for spec in a.extra:
+        pkey, path = spec.split("=", 1)
+        extra_trades[pkey].update(load(path).get("form_trades") or {})
+    for path in a.extra_protection:
+        ep = load(path)
+        assert sorted(ep.get("drop") or []) == sorted(drop), f"{path}: другой --drop, чем у основного прогона"
+        prot["grid"] = prot["grid"] + ep["grid"]
+    p02 = [v for v in P02_VARIANTS if any(v[4] in extra_trades[p] for p in extra_trades)]
 
     position_usd, deposit_usd = sep["position_usd"], sep["deposit_usd"]
     hist_ep, rec_ep = sep["epochs"][0]["name"], sep["epochs"][1]["name"]
@@ -265,7 +312,10 @@ def main():
     out = {
         "generated_utc": sep["generated_utc"], "position_usd": position_usd, "deposit_usd": deposit_usd,
         "points": sep["points"], "pool": [c for c in (sep.get("pool") or []) if c not in drop], "drop": sorted(drop),
-        "variants": [{"key": k, "label": lbl} for k, lbl, _, _ in VARIANTS],
+        "variants": [{"key": k, "label": lbl} for k, lbl, _, _ in VARIANTS] +
+                    [{"key": k, "label": lbl, "pill": pill, "group": "p02", "note": note}
+                     for k, pill, lbl, _acc, _tk, note in p02],
+        "p02_undefined": [{"h": h, "why": why} for h, why in P02_UNDEFINED], "p02_note": P02_NOTE,
         "periods": [
             {"key": "sep", "label": "Сентябрь", "from": sep["epochs"][0]["from"], "to": sep["epochs"][1]["to"],
              "boundary": sep_boundary, "tuned_from": "2026-09-16", "tuned_to": "2026-09-20",
@@ -293,10 +343,15 @@ def main():
     for pkey, doc in {"sep": sep, "aug": aug, "crash": crash}.items():
         out["trades"][pkey] = {vkey: trade_rows(doc, set_name, form_key, position_usd, drop)
                                for vkey, _label, set_name, form_key in VARIANTS}
-    out["trades"]["augsep"] = {vkey: out["trades"]["aug"][vkey] + out["trades"]["sep"][vkey] for vkey, *_ in VARIANTS}
+    for pkey in ("sep", "aug"):
+        for vkey, _pill, _lbl, _acc, tkey, _note in p02:
+            out["trades"][pkey][vkey] = trade_rows({"form_trades": extra_trades[pkey]}, *tkey.split("/", 1), position_usd, drop)
+    vkeys = [v[0] for v in VARIANTS] + [v[0] for v in p02]
+    out["trades"]["augsep"] = {vkey: out["trades"]["aug"][vkey] + out["trades"]["sep"][vkey] for vkey in vkeys}
     for pkey in PERIOD_EPOCH:
-        out["kpi"][pkey] = {vkey: trade_stats(out["trades"][pkey][vkey], position_usd, deposit_usd, span_minutes[pkey])
-                            for vkey, *_ in VARIANTS}
+        out["kpi"][pkey] = {vkey: trade_stats(out["trades"][pkey].get(vkey) or [], position_usd, deposit_usd, span_minutes[pkey])
+                            for vkey in vkeys}
+    account_names = {**ACCOUNT_VARIANT_NAME, **{v[0]: v[3] for v in p02}}
 
     # счёт (portfolio-sim) и защиты — по каждому периоду и варианту, из одного прогона
     def protection_steps(grid, variant_name, epoch_name):
@@ -310,15 +365,15 @@ def main():
             g = account_row(grid, variant_name, epoch_name, **c)
             s = account_summary(g, deposit_usd)
             out_rows.append({"label": label, **(s or {})})
-        return out_rows
+        return out_rows if any("n" in r for r in out_rows) else None
 
     combo = dict(max_pos=0, day_stop=0.0, kill=0.0, exclude_name="нет")
     for pkey, epoch in PERIOD_EPOCH.items():
         out["account"][pkey] = {vkey: account_summary(account_row(prot["grid"], aname, epoch, **combo), deposit_usd,
                                                        span_minutes.get(pkey))
-                                for vkey, aname in ACCOUNT_VARIANT_NAME.items()}
+                                for vkey, aname in account_names.items()}
         out["protections"][pkey] = {vkey: protection_steps(prot["grid"], aname, epoch)
-                                    for vkey, aname in ACCOUNT_VARIANT_NAME.items()}
+                                    for vkey, aname in account_names.items()}
 
     heat_sep, trail_sep = build_exit_heat(sep.get("exit_agg") or [], (hist_ep, rec_ep))
     out["exit_heat"]["sep"] = {"heat": heat_sep, "trail": trail_sep}
