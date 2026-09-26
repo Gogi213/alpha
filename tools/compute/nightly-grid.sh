@@ -448,11 +448,21 @@ if [ -z "$TOUCHES_ONLY" ]; then
   echo "== $(date -u +%FT%TZ) главный вариант: $(echo "$mv_out" | tail -3 | tr '\n' ' ' | cut -c1-300)" >> "$LOG"
   # Свежие сутки записи (с 24.09) — главный вариант и кандидаты Г-24/25/26 (заморожены, только
   # применение готового правила — не подбор), по суткам и итогом по месяцам: study/fresh/.
-  if ! fr_out=$(python3 bin/fresh-days.py --oos-dir b5/titrc-u500r --set t-bid-btc4h-q1 \
+  # П-01 считает ЗАКРЕПЛЁННЫМИ копиями зависимостей (`tools/compute/p01_frozen/` → `bin/p01/`; разбор Судьи
+  # `docs/research/reviews/P-01-2026-09-26-pin-deps.md`): md5 сверяются с зашитыми значениями README копии, а не
+  # с репо — общие модули изменятся по плану унификации У4/У6/У7. Расхождение — тревога, П-01 в эту ночь не
+  # считается (числа не пишутся).
+  P01_MD5="ae6962143ca0c33bd3ede8dbcfc8840e  bin/p01/fresh-days.py
+82a484d8e0187b26cafdf8b89841e879  bin/p01/portfolio-sim.py
+22e95d38084c7f39481867dba3755ac6  bin/p01/exit-sim.py"
+  if ! p01_check=$(echo "$P01_MD5" | md5sum -c --quiet 2>&1); then
+    alert "свежие сутки П-01: md5 закреплённых зависимостей bin/p01/ не сходится — П-01 в эту ночь не считается ($(echo "$p01_check" | tr '\n' ' ' | cut -c1-200))"
+    fr_out="пропущено: md5 bin/p01/"
+  elif ! fr_out=$(python3 bin/p01/fresh-days.py --oos-dir b5/titrc-u500r --set t-bid-btc4h-q1 \
       --form ladder3x2..20w2-pct2-tr1x1-14400-ttl1800 --klines study/klines \
       --btc-ref study/regime/ref-BTCUSDT-1m.csv --from-day 2026-09-24 --drop TRXUSDT \
       --csv study/fresh/fresh-days.csv --summary study/fresh/fresh-summary.txt 2>&1); then
-    alert "свежие сутки (fresh-days.py): $(echo "$fr_out" | tail -1 | cut -c1-200)"
+    alert "свежие сутки (bin/p01/fresh-days.py): $(echo "$fr_out" | tail -1 | cut -c1-200)"
   fi
   echo "== $(date -u +%FT%TZ) свежие сутки: $(echo "$fr_out" | tr '\n' ' ' | cut -c1-400)" >> "$LOG"
 else
