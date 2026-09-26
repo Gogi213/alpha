@@ -374,6 +374,8 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
         "win": sum(1 for x in taken if x["pnl"] > 0) / n if n else 0.0,
         "peak_n": peak_n, "peak_usd": peak_usd, "stress_pct": peak_usd * gap_pct / 100 / deposit * 100,
         "daily": {d: round(v, 2) for d, v in sorted(realized.items())},
+        # кривая по закрытиям сделок (мс закрытия, $) — для KPI «до перехая» в часах (В-120); в --json не пишется
+        "_closes": sorted((x["t1"] // 1_000_000, round(x["pnl"], 4)) for x in taken),
     }
 
 
@@ -399,6 +401,8 @@ def main():
     ap.add_argument("--size-mult", type=float, default=1.0,
                     help="множитель $ позиции каждой сделки (линейно, без пересчёта очереди); 1 — как было")
     ap.add_argument("--json")
+    ap.add_argument("--closes-out", help="JSON: вариант → период → потолок → [[мс закрытия, $], …] — только строки без "
+                                         "дневного стопа, выключателя, исключений и серии (KPI «до перехая», В-120)")
     a = ap.parse_args()
     global SIZE_MULT
     SIZE_MULT = a.size_mult
@@ -425,7 +429,10 @@ def main():
         set_name, form = rest.split("/", 1)
         data = {}
         for name, (home, runs, btc) in epochs.items():
-            data[name] = ([r for r in load_rounds(home, runs, set_name, form) if r["sym"] not in drop], btc)
+            # «набор1+набор2» — сигналы нескольких наборов одним счётом (смесь окон BTC, В-120): один и тот же сигнал
+            # в двух наборах — вторая копия пропускается правилом «монета занята» (та же минута входа)
+            rows = [r for s in set_name.split("+") for r in load_rounds(home, runs, s, form)]
+            data[name] = ([r for r in rows if r["sym"] not in drop], btc)
             if not data[name][0]:
                 print(f"!! {vname}/{name}: нет сделок {set_name}/{form} в {home}/{runs}", file=sys.stderr)
         for name, parts in joins.items():
@@ -439,7 +446,7 @@ def main():
 
     head = ["вариант", "период", "поз", "дн.стоп", "выкл", "искл", "серия", "сделок", "занята", "заполн", "прибыль$", "прирост%",
             "просадка%", "закр.дд%", "ф.восст", "восст.дн", "худш.сутки%", "пик$", "стресс%"]
-    table, grid = [], []
+    table, grid, closes = [], [], {}
     for mp, ds, kb, (xname, xset), ss in itertools.product(floats(a.max_pos), floats(a.day_stop_pct), floats(a.btc_kill_bps),
                                                            excl, floats(a.streak_stop)):
         for vname, _, _, data in variants:
@@ -448,6 +455,9 @@ def main():
                 if not rows:
                     continue
                 r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct, int(ss))
+                cl = r.pop("_closes")
+                if a.closes_out and not ds and not kb and xname == "нет" and not ss:
+                    closes.setdefault(vname, {}).setdefault(name, {})[str(int(mp))] = cl
                 table.append([vname, name, int(mp) or "—", ds or "—", f"-{kb / 100:g}%" if kb else "—", xname, int(ss) or "—", r["n"],
                               r["skip"]["занята"], f"{r['fill'] * 100:.0f}%", f"{r['total_usd']:+.0f}", f"{r['total_pct']:+.2f}",
                               f"-{r['dd_pct']:.2f}", f"-{r['dd_closed_pct']:.2f}",
@@ -469,6 +479,9 @@ def main():
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(meta, fh, ensure_ascii=False, separators=(",", ":"))
         print(f"{len(grid)} строк → {a.json}", file=sys.stderr)
+    if a.closes_out:
+        with open(a.closes_out, "w", encoding="utf-8") as fh:
+            json.dump(closes, fh, ensure_ascii=False, separators=(",", ":"))
 
 
 if __name__ == "__main__":
