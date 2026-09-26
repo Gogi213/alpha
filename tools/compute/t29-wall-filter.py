@@ -50,12 +50,13 @@ def main() -> int:
     ap.add_argument("--out-sub", default="b5/t29-wall")
     ap.add_argument("--day-from", required=True)
     ap.add_argument("--day-to", required=True)
-    ap.add_argument("--cut", action="append", default=[], help="имя:возраст_мин:номинал_usd")
+    ap.add_argument("--cut", action="append", default=[], help="имя:возраст_мин:номинал_usd[:сила_%%]")
     a = ap.parse_args()
     ah = a.appr_home or a.home
-    cuts = [(n, float(m) * 60_000, float(u)) for n, m, u in (c.split(":") for c in a.cut)]
+    # сила владельца (В-67, ключ набора `flow`, `sets.rs:429-431`): размер стены / оборот монеты за час × 100
+    cuts = [(p[0], float(p[1]) * 60_000, float(p[2]), float(p[3]) if len(p) > 3 else 0.0) for p in (c.split(":") for c in a.cut)]
     cnt = defaultdict(int)
-    usd_all, age_all = [], []
+    usd_all, age_all, flow_all = [], [], []
     for day in days(a.day_from, a.day_to):
         rp = os.path.join(a.home, a.rounds_sub, day, "t-bid-btc4h-q1", "rounds.csv")
         if not os.path.exists(rp):
@@ -68,7 +69,7 @@ def main() -> int:
             lines = [l for l in f if not l.startswith("#")]
         header = next(csv.reader(lines[:1]))
         rows = [r for r in csv.DictReader(lines) if r["form"] == MAIN_FORM and r["symbol"] not in EXCLUDE]
-        out = {"f-all": rows, **{n: [] for n, _, _ in cuts}}
+        out = {"f-all": rows, **{c[0]: [] for c in cuts}}
         arm_cache = {}
         for r in rows:
             sym = r["symbol"]
@@ -89,10 +90,14 @@ def main() -> int:
             tick, step = inst[sym]
             usd = int(c[0]["price_tick"]) * tick * int(c[0]["size_at_arm"]) * step
             age = int(c[0]["age_ms"])
+            fl = int(c[0]["flow_1h_lots"])
+            flow = int(c[0]["size_at_arm"]) / fl * 100 if fl > 0 else None  # без оборота — фильтр силы не проходит
             usd_all.append(usd)
             age_all.append(age / 60_000)
-            for n, amin, umin in cuts:
-                if age >= amin and usd >= umin:
+            if flow is not None:
+                flow_all.append(flow)
+            for n, amin, umin, fmin in cuts:
+                if age >= amin and usd >= umin and (fmin <= 0 or (flow is not None and flow >= fmin)):
                     out[n].append(r)
                     cnt[n] += 1
         for n, srows in out.items():
@@ -103,7 +108,9 @@ def main() -> int:
                 w.writeheader()
                 w.writerows(srows)
     print(json.dumps({"home": a.home, "counts": dict(cnt), "usd_q": quantiles(usd_all),
-                      "age_min_q": quantiles(age_all)}, ensure_ascii=False))
+                      "age_min_q": quantiles(age_all), "flow_pct_q": {k: v for k, v in
+                      zip(("0.5", "0.75", "0.9"), (sorted(flow_all)[int(q * len(flow_all))] for q in (0.5, 0.75, 0.9)))}
+                      if flow_all else {}, "flow_n": len(flow_all)}, ensure_ascii=False))
     return 0
 
 
