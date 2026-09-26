@@ -35,6 +35,10 @@ from collections import defaultdict
 from typing import Dict, List, Tuple
 
 
+# В-105: TRX вне торгового пула — исключается по имени, как в блоке A и второй очереди
+EXCLUDE_SYMBOLS = {"TRXUSDT"}
+
+
 def list_day_files(dirs: List[str]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for d in dirs:
@@ -60,7 +64,7 @@ def iter_gz_rows(path: str):
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
-    wall_days = list_day_files(args.wall_dirs.split(","))
+    wall_days = list_day_files([d for d in args.wall_dirs.split(",") if d])
     flow_days = list_day_files(args.flow_dirs.split(","))
     print(f"[scan] wall: {len(wall_days)} суток; flow: {len(flow_days)} суток", file=sys.stderr)
 
@@ -71,6 +75,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         counts = defaultdict(lambda: defaultdict(lambda: [0, 0]))
         n_rows = 0
         for row in iter_gz_rows(path):
+            if row.get("symbol") in EXCLUDE_SYMBOLS:
+                continue
             try:
                 ended = row["ended_by_death"].strip().lower() == "true"
             except KeyError:
@@ -96,6 +102,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         counts = defaultdict(lambda: defaultdict(lambda: [0, 0]))
         n_rows = 0
         for row in iter_gz_rows(path):
+            if row.get("symbol") in EXCLUDE_SYMBOLS:
+                continue
             try:
                 ended = row["ended_by_death"].strip().lower() == "true"
             except KeyError:
@@ -245,6 +253,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     for month_prefix, month_label in (("2026-08", "август"), ("2026-09", "сентябрь")):
         print(f"=== {month_label} ===")
         for variant, (top_key, bottom_key, label) in VARIANTS.items():
+            if not any(variant in v["variants"] for v in day_counts.values()):
+                continue  # вариант не считался (напр. Г-33/Г-36 до поправки §12)
             r = analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key, n_boot=args.n_boot, seed=args.seed)
             results.setdefault(variant, {})[month_prefix] = r
             print(
@@ -257,13 +267,11 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print()
 
     for month_prefix, month_label in (("2026-08", "август"), ("2026-09", "сентябрь")):
-        pvals = [
-            ("H2 Г-33 (>=2)", results["g33_chain2"][month_prefix]["p_value"]),
-            ("H6 Г-36", results["g36_iceberg"][month_prefix]["p_value"]),
-            ("H5 Г-46 (60с)", results["g46_mismatch60"][month_prefix]["p_value"]),
-        ]
+        pvals = [(name, results[v][month_prefix]["p_value"])
+                 for name, v in (("H2 Г-33 (>=2)", "g33_chain2"), ("H6 Г-36", "g36_iceberg"),
+                                 ("H5 Г-46 (60с)", "g46_mismatch60")) if v in results]
         adj = holm(pvals)
-        print(f"Холм ({month_label}, 3 основных p-значения третьей очереди):")
+        print(f"Холм ({month_label}, {len(pvals)} основных p-значения — справочно; итог блока A — в сводке П-02):")
         for name, p, p_adj, sig in adj:
             print(f"  {name}: p={p:.4f} -> p_adj={p_adj:.4f} значимо@0.05={sig}")
         print()
@@ -279,7 +287,7 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_scan = sub.add_parser("scan")
-    p_scan.add_argument("--wall-dirs", required=True, help="через запятую")
+    p_scan.add_argument("--wall-dirs", default="", help="через запятую; пусто — Г-33/Г-36 не считаются")
     p_scan.add_argument("--flow-dirs", required=True, help="через запятую")
     p_scan.add_argument("--out", default="p02-wave3-counts.json")
     p_scan.set_defaults(func=cmd_scan)
