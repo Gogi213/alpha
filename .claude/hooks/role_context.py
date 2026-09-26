@@ -84,19 +84,34 @@ ROLE_NAMES = {"researcher": "Исследователь", "engineer": "Инже�
 JOURNAL_DIR = os.path.join(ROLES_DIR, "journal")
 
 
-def active_tasks(role):
-    """Строки `TASKS.md` в работе у роли: [(ид, текст задачи)]."""
+def role_rows(role, status):
+    """Строки `TASKS.md` роли с этим статусом: [(ид, задача, зависит от)]."""
     name = ROLE_NAMES.get(role, "")
     rows = []
     try:
         with open(os.path.join(ROLES_DIR, "TASKS.md"), encoding="utf-8") as fh:
             for line in fh:
                 cells = [c.strip() for c in line.strip().strip("|").split("|")]
-                if len(cells) >= 5 and cells[0].startswith("T-") and name in cells[2] and "в работе" in cells[4]:
-                    rows.append((cells[0], cells[1]))
+                if len(cells) >= 5 and cells[0].startswith("T-") and name in cells[2] and cells[4].startswith(status):
+                    rows.append((cells[0], cells[1], cells[3]))
     except OSError:
         pass
     return rows
+
+
+def active_tasks(role):
+    """Строки `TASKS.md` в работе у роли: [(ид, текст задачи)]."""
+    return [(tid, text) for tid, text, _ in role_rows(role, "в работе")]
+
+
+def queue(role):
+    """Очередь роли («ждёт»): что брать, пока задача в работе ждёт чужого сигнала."""
+    rows = role_rows(role, "ждёт")
+    if not rows:
+        return None
+    lines = [f"- {tid} (зависит от: {dep or '—'}): {text[:160]}" for tid, text, dep in rows]
+    return ("--- очередь роли в TASKS.md («ждёт») — пока задача в работе ждёт чужого сигнала, бери отсюда первую без "
+            "блокирующей зависимости; простаивать при непустой очереди — брак ---\n" + "\n".join(lines))
 
 
 def journals(role):
@@ -170,6 +185,9 @@ def context(source):
                     "по строке TASKS.md своей зоны, сообщению CEO или владельца. " + OUTSIDER)
     try:
         parts.extend(journals(role))
+        q = queue(role)
+        if q:
+            parts.append(q)
     except Exception:
         pass
     return "\n".join(head) + "\n\n" + "\n".join(parts)
