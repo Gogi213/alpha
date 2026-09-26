@@ -80,6 +80,40 @@ def team_addresses():
     return "; ".join(f"`{t}` → `{i}`" for t, i in sorted(rows.items()))
 
 
+ROLE_NAMES = {"researcher": "Исследователь", "engineer": "Инженер", "judge": "Судья", "ceo": "CEO"}
+JOURNAL_DIR = os.path.join(ROLES_DIR, "journal")
+
+
+def active_tasks(role):
+    """Строки `TASKS.md` в работе у роли: [(ид, текст задачи)]."""
+    name = ROLE_NAMES.get(role, "")
+    rows = []
+    try:
+        with open(os.path.join(ROLES_DIR, "TASKS.md"), encoding="utf-8") as fh:
+            for line in fh:
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                if len(cells) >= 5 and cells[0].startswith("T-") and name in cells[2] and "в работе" in cells[4]:
+                    rows.append((cells[0], cells[1]))
+    except OSError:
+        pass
+    return rows
+
+
+def journals(role):
+    """Журналы задач роли в работе — чтобы после клира/сжатия продолжить с того же места."""
+    out = []
+    for tid, text in active_tasks(role):
+        path = os.path.join(JOURNAL_DIR, f"{tid}.md")
+        head = f"--- журнал {tid}: {text[:240]} ---"
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().strip().splitlines()
+            out.append(head + "\n" + "\n".join(lines[-80:]))
+        except OSError:
+            out.append(head + f"\nЖУРНАЛА НЕТ — заведи `.claude/roles/journal/{tid}.md` (формат — README «Журнал задачи»).")
+    return out
+
+
 def read(rel):
     path = os.path.join(ROLES_DIR, rel)
     with open(path, encoding="utf-8") as fh:
@@ -134,6 +168,10 @@ def context(source):
     if role != "ceo":
         head.append("«Первое в новом чате» в CLAUDE.md — очередь CEO, не твоя задача: действуй только "
                     "по строке TASKS.md своей зоны, сообщению CEO или владельца. " + OUTSIDER)
+    try:
+        parts.extend(journals(role))
+    except Exception:
+        pass
     return "\n".join(head) + "\n\n" + "\n".join(parts)
 
 
