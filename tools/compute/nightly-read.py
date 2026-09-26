@@ -44,8 +44,24 @@ CONTEXT = (
 )
 
 
-def classify(alerts: list[str], verdict_rows: list[list[str]], failed_units: list[str]) -> tuple[str, str]:
-    """Статус и причина ночи кодом: (ok|look|broken, причина)."""
+def old_base_skipped(log_path: str) -> bool:
+    """Ночь без старой базы (`OLD_BASE=0`, В-108): стадии, пишущие строки `verdicts.csv`, пропущены
+    намеренно — пустые вердикты такой ночи не поломка (T-19, 26.09). Факт берётся из лога ночи (строку
+    пишет `nightly-grid.sh`), а не из окружения читателя: чтение вручную утром отвечает так же."""
+    if not os.path.exists(log_path):
+        return False
+    with open(log_path, encoding="utf-8", errors="replace") as f:
+        return "OLD_BASE=0" in f.read()
+
+
+def classify(
+    alerts: list[str],
+    verdict_rows: list[list[str]],
+    failed_units: list[str],
+    verdicts_expected: bool = True,
+) -> tuple[str, str]:
+    """Статус и причина ночи кодом: (ok|look|broken, причина). `verdicts_expected=False` — ночь без
+    старой базы: отсутствие строк вердиктов не поломка; остальные правила те же."""
     text = "\n".join(alerts)
     if any(u.startswith("alpha-grid-nightly") for u in failed_units):
         return "broken", "unit_failed"
@@ -57,7 +73,7 @@ def classify(alerts: list[str], verdict_rows: list[list[str]], failed_units: lis
         return "broken", "grid_failed"
     if "ПРОВАЛ" in text:
         return "broken", "other"
-    if not verdict_rows:
+    if not verdict_rows and verdicts_expected:
         return "broken", "no_verdicts"
     if any(any("зелёный" in c for c in r) for r in verdict_rows):
         return "look", "green_verdict"
@@ -159,7 +175,8 @@ def main() -> int:
 
     alerts = night_alert_rows(os.path.join(a.study, "ALERTS.log"), night)
     vrows = night_verdict_rows(os.path.join(a.study, "verdicts.csv"), night)
-    status, cause = classify(alerts, vrows, failed_units())
+    expected = not old_base_skipped(os.path.join(a.study, f"nightly-{night}.log"))
+    status, cause = classify(alerts, vrows, failed_units(), verdicts_expected=expected)
     label = {"ok": "ОК", "look": "СМОТРЕТЬ", "broken": "СЛОМАНО"}[status]
     opinion = ""
     ans = None
