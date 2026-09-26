@@ -17,7 +17,7 @@ FORM="--signal approach --queue-model prob:3 $RTT --regime-from study/regime --o
   --h3-mode notional --h3-usd 10000 --entry-form ladder3x2..20w2 --entry-ttl-secs 1800 --band-exit-bps 20 \
   --stop-form pct2 --take-form tr1x1 --take-form tr0.5x0.25 --take-form tk1.75 --deadline-secs 14400 --exit-form none \
   --set t-bid-age-45:age=2700,side=bid --set t-bid-btc1h-q1:age=2700,side=bid,btc1h_max=-21.17 \
-  --set t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55 --threads 2"
+  --set t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55"
 fail=0
 
 run() {  # $1 дом, $2 сутки, $3 бинарник (абсолютный), $4 каталог выхода, $5.. доп. (напр. --symbol)
@@ -26,7 +26,7 @@ run() {  # $1 дом, $2 сутки, $3 бинарник (абсолютный),
   t0=$(date +%s)
   # shellcheck disable=SC2086
   (cd "$home" && exec nice -n 5 "$bin" lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
-     $FORM "$@" --out-dir "$out" > "$out.log" 2>&1) &
+     $FORM --threads 2 "$@" --out-dir "$out" > "$out.log" 2>&1) &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     for p in $(pgrep -P "$pid") "$pid"; do
