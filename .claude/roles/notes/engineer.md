@@ -8,6 +8,9 @@
   на главном варианте (`age=2700` против окна 5/10 мин). Г-88 → «не определена на главном варианте» (§12, 5bd0816).
   Попутно — комментарий `TouchRecord::repeat_count` исправлен (при рождении, не на касании).
 - T-03 (ночь 26.09) — после 05:30 GMT+4, по сигналу CEO (будильники не ставлю).
+- T-05 план отдан CEO 26.09: Э1 `lob touches --levels-out` (писатель уровней из `levels.rs` в общую функцию; отказ с
+  `--carry-age`), Э3 `tools/compute/export-pass.sh`; Э2 `--trades-out` не советовал (лента 0,71 с против 16,2 с).
+  Ждёт «да» CEO на код.
 
 ## Узнал (факты своей зоны, с датой и источником)
 - 26.09: `repeat_count` = рождения на (сторона, тик) за W **до рождения самого уровня** (`count_prior_births` при
@@ -16,6 +19,12 @@
 - 26.09: `--signal approach` — только кэш `--touches-from`, реплея нет (`bounce_grid/plan.rs:198-203`); кэш подходов
   `repeat_count` не несёт (`backtest/plan.rs:338` ставит 0). С кэшем `--repeat-window-ms` запрещён (`plan.rs:212-214`).
 - Главный вариант: `t-bid-btc4h-q1:age=2700,side=bid,btc4h_max=-44.55` (`tools/compute/gate-g10.sh:32`).
+- 26.09: `lob touches` реплеит с `ReplayKeep::ALL` — записи уровней уже в памяти, не пишутся; `lob levels` — тот же
+  `replay_symbol` без полосы подхода. Цена прохода монеты-суток (CRVUSDT, 22.09): касания 16,2 с, уровни 8,95 с,
+  лента 0,71 с; пул касаний 3 процесса — 469 с/сутки (`docs/findings/steamdeck-throughput-2026-09-26.md`).
+- Ночные касания: `--h3-mode notional --h3-usd 10000 --approach-bps 20 --approach-min-age-secs 900`, без
+  `--carry-age` (перенос — у сетки `--carry-root`); скрипты П-02 `p02-wave3-{levels,wall}-recompute.sh` гоняют
+  одинаковый `lob levels` дважды.
 - Идея дешёвого пути для «пружинки при рождении»: боковой файл с `prior_birth_gap_ms` по уровню — один реплей с
   окном 1 ч отвечает на `repeat_max=0` при любом W ≤ 1 ч (gap ≥ W).
 
