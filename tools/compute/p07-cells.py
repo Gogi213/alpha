@@ -119,7 +119,7 @@ def all_cells():
     a = [c for c in a if c[0] != "p07a-h3-25000"]
     b = [cell("p07b-base", ENTRY_B)]
     b += [cell(f"p07b-h2-{e.split('..')[1][:-3]}", e) for e in ENTRY_B_H2]
-    b += axes_1d("p07b", ENTRY_B, ["pct1.5", "pct3", "before", "at", "behind"])
+    b += axes_1d("p07b", ENTRY_B, ["pct1.5", "pct3", "at", "behind"])  # `before` — нет (Судья TK-004 23:29, `e01719d`)
     b += [cell(f"p07b-h7-{t}", ENTRY_B, take=t) for t in ("tr1.5x1", "tr1x1.5", "tr2x1", "1to1")]
     return a + b
 
