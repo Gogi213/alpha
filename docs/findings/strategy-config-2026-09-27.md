@@ -71,7 +71,7 @@
 | зависимость от BTC (окно/порог) | BTC за 4 ч ≤ −44,55 bps (`btc4h_max=-44.55`, набор `t-bid-btc4h-q1`) | как у главного | **BTC за 1 ч ≤ −21,17 bps** (`btc1h_max=-21.17`, набор `t-bid-btc1h-q1`) | **нет зависимости от BTC** (набор `t-bid-age-45`, только возраст ≥ 45 мин) | как у главного | как у главного | как у главного | как у главного | как у главного |
 | пул и исключения | 76 монет (В-95, `docs/plan/SETTLED.md:418`), TRX вне пула (В-105, `SETTLED.md:486`) | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного |
 | выключатель BTC (kill-switch −1,5 %/1 ч) | **нет в форме варианта** — надстройка счёта поверх готовых сделок (см. примечание ниже); заголовок дашборда — без него (`combo`, `titration-dashboard-merge.py:399-406`) | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного |
-| исключение «прокидов» | **нет в форме варианта** — тоже надстройка счёта (`protection_steps` шаг 2, `exclude_name="прокиды"`, `titration-dashboard-merge.py:388-398`); точный 12 монет: APTUSDT, ASTERUSDT, CYSUSDT, DASHUSDT, FILUSDT, ICPUSDT, PENGUUSDT, STEEMUSDT, STORJUSDT, TIAUSDT, TRUMPUSDT, WLFIUSDT (`~/alpha/.dash-notrx.sh:4`, `EXCL=`, на Steam Deck, в git не лежит) | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного |
+| исключение «прокидов» | **нет в форме варианта** — тоже надстройка счёта (`protection_steps` шаг 2, `exclude_name="прокиды"`, `titration-dashboard-merge.py:388-398`); точный 12 монет: APTUSDT, ASTERUSDT, CYSUSDT, DASHUSDT, FILUSDT, ICPUSDT, PENGUUSDT, STEEMUSDT, STORJUSDT, TIAUSDT, TRUMPUSDT, WLFIUSDT (источник — `docs/findings/pump-exclude-2026-09-23.csv`, В-92; на Steam Deck — `~/alpha/.dash-notrx.sh:4`) | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного | как у главного |
 
 ### Исполнение
 
@@ -204,7 +204,7 @@ kill=0.0, exclude_name="нет")`). Раздел «Защиты счёта» п�
 
 ## Что проверено, не найдено
 
-- Список монет набора «прокиды» найден на Steam Deck, не в git: `~/alpha/.dash-notrx.sh:4` — APTUSDT, ASTERUSDT, CYSUSDT, DASHUSDT, FILUSDT, ICPUSDT, PENGUUSDT, STEEMUSDT, STORJUSDT, TIAUSDT, TRUMPUSDT, WLFIUSDT.
+- Список монет набора «прокиды» перенесён в git: `docs/findings/pump-exclude-2026-09-23.csv` (из `~/alpha/.dash-notrx.sh:4`) — APTUSDT, ASTERUSDT, CYSUSDT, DASHUSDT, FILUSDT, ICPUSDT, PENGUUSDT, STEEMUSDT, STORJUSDT, TIAUSDT, TRUMPUSDT, WLFIUSDT.
 - Всё остальное, перечисленное в двух таблицах, — найдено в источниках выше со ссылкой `файл:строка`; неполные места
   явно помечены в ячейках: **Г-85б без сделок и денег** (счёт не запускался, В-126/В-127) — это не пробел в поиске,
   а факт состояния проекта на 27.09; **эпохи Г-85а/Г-85б у П-07** — своя запись счёта ещё не выделена, использую

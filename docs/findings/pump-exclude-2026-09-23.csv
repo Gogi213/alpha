@@ -1,0 +1,16 @@
+# Набор «прокиды» (В-92): монеты с прокидом ≥ 10 % за 15 минут хотя бы раз на истории 01–15.09 (замер В-88: 40 случаев, 12 монет).
+# Источник — `~/alpha/.dash-notrx.sh:4` (Steam Deck, EXCL=, файл от 2026-09-25), перенесено в git 2026-09-27 (CEO).
+# Использование: `portfolio-sim.py --exclude-set "прокиды=<symbols через запятую>"` — шаг 2 «Защит счёта»; список выбран на днях подбора (оговорка В-92).
+symbol
+APTUSDT
+ASTERUSDT
+CYSUSDT
+DASHUSDT
+FILUSDT
+ICPUSDT
+PENGUUSDT
+STEEMUSDT
+STORJUSDT
+TIAUSDT
+TRUMPUSDT
+WLFIUSDT
