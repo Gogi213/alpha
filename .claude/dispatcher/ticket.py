@@ -7,8 +7,12 @@
 `updated`. `backlog` — задача перенесена (например из TASKS.md), но ещё не в работе: диспетчер её
 не трогает (`dispatch.decide()`), в `todo` переводит `tickets.py start <ID>`.
 
-Тело: свободное описание, затем заголовок `## Лог` — записи вида
-`### <ISO-время> <автор>` + текст; упоминания `@researcher`/`@engineer`/`@judge`/`@ceo`.
+Тело: свободное описание, затем заголовок `## Лог` — по формату записи `### <ISO-время> <автор>` +
+текст, но заголовок НЕ обязателен (CEO 27.09, TK-005: роли пишут по-разному — «- 27.09 ~23:50
+(инженер, запуск 1) …», «- 27.09 23:25 [researcher]» — без `###`). «Роль написала что-то» диспетчер
+определяет по РОСТУ сырого текста секции «## Лог» (длина/содержимое), не по наличию заголовка;
+упоминания `@researcher`/`@engineer`/`@judge`/`@ceo` разбираются и в строках без заголовка —
+см. `mentions_since()`.
 
 Только stdlib. Роли и авторы записей — латинские ключи (researcher/engineer/judge/ceo/
 dispatcher), не русские названия: так упоминания и авторство сравниваются без транслитерации.
@@ -23,6 +27,7 @@ from pathlib import Path
 HEADER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 LOG_HEADING_RE = re.compile(r"^##\s*Лог\s*$", re.M)
 ENTRY_RE = re.compile(r"^###\s+(\S+)\s+(.+?)\s*$", re.M)
+HEADER_LINE_RE = re.compile(r"^###\s+(\S+)\s+(.+?)\s*$")  # для построчного разбора автора в mentions_since
 MENTION_RE = re.compile(r"@(researcher|engineer|judge|ceo)\b", re.I)
 ROLE_TOKENS = ("researcher", "engineer", "judge", "ceo")
 
@@ -57,6 +62,7 @@ class Ticket:
     header: dict
     description: str
     log: list
+    log_raw: str = ""  # сырой текст секции «## Лог» целиком — для роста-детекции и mentions_since()
 
     @property
     def id(self) -> str:
@@ -125,13 +131,45 @@ def _parse_log(rest: str):
     return entries
 
 
+def log_section_text(text: str) -> str:
+    """Сырой текст секции «## Лог» целиком (после заголовка секции), без разбора на записи —
+    для отслеживания «выросла ли секция» и поиска упоминаний в строках без заголовка `### <ISO> <автор>`
+    (CEO 27.09, TK-005: роли пишут по-разному, заголовок не гарантирован)."""
+    heading = LOG_HEADING_RE.search(text)
+    return text[heading.end():] if heading else ""
+
+
+def mentions_since(log_raw: str, seen_len: int) -> set:
+    """@упоминания в тексте, добавленном в «## Лог» ПОСЛЕ первых `seen_len` символов раздела — считает
+    и заголовки `### <ISO> <автор>` (автор известен точно), и вольные строки без заголовка (автор
+    неизвестен). Самоупоминание/`dispatcher` исключаются только там, где автор строки известен (из
+    ближайшего предшествующего заголовка внутри этого же хвоста) — для безголовых строк исключение не
+    делаем: пропущенный сигнал дороже лишнего повтора (та же асимметрия цены ошибок, что и везде в
+    диспетчере)."""
+    tail = log_raw[max(0, seen_len):]
+    current_author = None
+    found = set()
+    for line in tail.splitlines():
+        m = HEADER_LINE_RE.match(line)
+        if m:
+            current_author = m.group(2).strip().lower()
+            continue
+        for role in MENTION_RE.findall(line):
+            role = role.lower()
+            if current_author is not None and (role == current_author or current_author == "dispatcher"):
+                continue
+            found.add(role)
+    return found
+
+
 def parse_text(text: str, path: Path = None) -> Ticket:
     header, body_start = _parse_header(text)
     rest = text[body_start:]
     heading = LOG_HEADING_RE.search(rest)
     description = (rest[: heading.start()] if heading else rest).strip()
     log = _parse_log(rest)
-    return Ticket(path=path, header=header, description=description, log=log)
+    log_raw = rest[heading.end():] if heading else ""
+    return Ticket(path=path, header=header, description=description, log=log, log_raw=log_raw)
 
 
 def read_ticket(path) -> Ticket:

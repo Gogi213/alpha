@@ -95,10 +95,11 @@ PROMPT_TEMPLATE = (
     "Задача: .claude/tickets/{tid}.md. Лимит этого запуска — {timeout_min} мин; шаг длиннее — выноси в фон "
     "(например systemd-run на Steam Deck) и ставь status: waiting + wait_for, не жди в сессии. Трать минимум: "
     "самый короткий путь к результату задачи; траты каждого запуска записываются и сравниваются с "
-    "результатом. Сделай следующий шаг и допиши запись в «## Лог» (что сделал, что дальше) ДО истечения "
-    "лимита — записанный частичный прогресс не провал, диспетчер продолжит с него сам; обнови "
-    "status/wait_for в шапке сама (не «todo», если работа не закончена — иначе задача просто возьмётся в "
-    "работу заново). Упоминай @роль, если нужен другой."
+    "результатом. Сделай следующий шаг; запись в лог — командой "
+    "`python .claude/dispatcher/tickets.py comment {tid} --author {role} --text \"...\"` (что сделал, что "
+    "дальше) ДО истечения лимита — записанный частичный прогресс не провал, диспетчер продолжит с него сам; "
+    "обнови status/wait_for в шапке сама (не «todo», если работа не закончена — иначе задача просто "
+    "возьмётся в работу заново). Упоминай @роль, если нужен другой."
 )
 
 RUNNING = {}  # tid -> {role, popen, pid, started, attempt, run_file, err_file, out_fh, err_fh, reason}
@@ -327,24 +328,15 @@ def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
         return None  # перенесено из TASKS.md, ещё не в работе — диспетчер не трогает; см. `tickets.py start`
     sessions = state.setdefault("sessions", {})
 
-    def last_woken(role):
-        v = sessions.get(f"{tid}::{role}", {}).get("last_woken")
-        return T.parse_dt(v) if v else None
-
-    # (б) новая запись лога с @роль после последнего запуска этой роли по задаче. Не считаем: автор —
-    # сама упомянутая роль (самонапоминание, судья 27.09 «можно потом») и автор "dispatcher" (иначе
-    # собственная запись диспетчера «Запуск роли @role — … — нужен @ceo» будит ту же роль на
-    # blocked-тикете следующим тиком — судья 27.09, п.1 «обязательно», симуляция 1).
-    for entry in tkt.log:
-        author = entry.author.lower()
-        if author == "dispatcher":
-            continue
-        for role in entry.mentions:
-            if role not in ROLE_KEYS or role == author:
-                continue
-            cutoff = last_woken(role)
-            if cutoff is None or entry.ts > cutoff:
-                return Decision(role=role, reason="mention")
+    # (б) новая запись лога с @роль после последнего запуска этой роли по задаче — по РОСТУ сырого
+    # текста секции «## Лог» (T.mentions_since), не по разбору заголовков `### <ISO> <автор>`: роли
+    # пишут по-разному (CEO 27.09, TK-005 — «- 27.09 ~23:50 (инженер, запуск 1) …» без заголовка).
+    # Самоупоминание/`dispatcher`-автор исключаются там, где автор известен (см. mentions_since);
+    # cутки без заголовка — упоминание не исключается (асимметрия цены ошибок).
+    for role in ROLE_KEYS:
+        seen_len = sessions.get(f"{tid}::{role}", {}).get("log_len_at_launch", 0)
+        if role in T.mentions_since(tkt.log_raw, seen_len):
+            return Decision(role=role, reason="mention")
 
     status = tkt.status
     owner = tkt.owner
@@ -743,8 +735,9 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         launch_tkt = T.read_ticket(ticket_path)
         status_at_launch = launch_tkt.status
         executor = launch_tkt.executor
+        log_len_at_launch = len(launch_tkt.log_raw)
     except Exception:
-        status_at_launch, executor = None, ""
+        status_at_launch, executor, log_len_at_launch = None, "", 0
     # executor: haiku (судья TK-002 п.5) — заведомо проверенный на whitelist/обход тикетом (tickets.py
     # new и haiku_refused_reason() в tick()); здесь только сама подмена модели.
     model = CLAUDE_HAIKU_MODEL if executor == "haiku" else CLAUDE_MODEL
@@ -771,15 +764,20 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
         "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
+        "log_len_at_launch": log_len_at_launch,
     }
-    # last_woken — для дедупа правила (б) «упоминание»; всегда на (задачу, роль), не зависит от SESSION_SCOPE
-    state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})["last_woken"] = T.now_iso(now)
+    # last_woken/log_len_at_launch — для дедупа правила (б) «упоминание» (T.mentions_since — по росту
+    # текста секции, не по заголовкам); всегда на (задачу, роль), не зависит от SESSION_SCOPE
+    sess_entry = state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})
+    sess_entry["last_woken"] = T.now_iso(now)
+    sess_entry["log_len_at_launch"] = log_len_at_launch
     _record_launch(state, tid, now)
     # зеркало в state.json (pid, задача, роль, старт) — переживает перезапуск диспетчера (recover_active_runs)
     state.setdefault("active_runs", {})[tid] = {
         "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
         "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
         "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
+        "log_len_at_launch": log_len_at_launch,
     }
     save_state(state)
 
@@ -857,7 +855,11 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     # Судья 27.09, п.7 «обязательно»: таймаут сам по себе — не провал, если роль успела записать
     # прогресс до убийства процесса (RUN_TIMEOUT назван в промпте — роль знает лимит шага). Раньше
     # `logged` форсировалось в False при timed_out=True независимо от факта записи.
-    logged = tkt.logged_since(role, info["started"])
+    # CEO 27.09, TK-005: «есть запись» — это РОСТ секции «## Лог» (длина текста после launch), не
+    # наличие заголовка `### <ISO> <автор>` — роли пишут по-разному (без заголовка, TK-005 ложный
+    # blocked дважды подряд, b0b63cb/e657090). Секция — «допиши», не «перепиши»: рост length — точный
+    # признак записи независимо от формата строки.
+    logged = len(tkt.log_raw) > info.get("log_len_at_launch", 0)
     stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
     status_changed = tkt.status != info.get("status_at_launch")
 
@@ -945,7 +947,7 @@ def recover_active_runs(state: dict, now) -> None:
             "run_file": Path(saved["run_file"]), "err_file": Path(saved.get("err_file") or ""),
             "out_fh": None, "err_fh": None, "reason": saved.get("reason", "recovered"),
             "run_cap_usd": saved.get("run_cap_usd", 0.0), "status_at_launch": saved.get("status_at_launch"),
-            "executor": saved.get("executor", ""),
+            "executor": saved.get("executor", ""), "log_len_at_launch": saved.get("log_len_at_launch", 0),
         }
         if _pid_alive(saved.get("pid")):
             RUNNING[tid] = info

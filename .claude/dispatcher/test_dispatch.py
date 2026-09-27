@@ -77,6 +77,48 @@ class TicketParsingTests(unittest.TestCase):
         self.assertEqual(tkt.log, [])
         self.assertEqual(tkt.description, "Описание.")
 
+    def test_log_raw_captures_whole_section_including_headerless_lines(self):
+        """CEO 27.09, TK-005: роли пишут без заголовка `###` — log_raw должен содержать их текст,
+        даже если `_parse_log` (по заголовкам) их не разобрал как LogEntry."""
+        text = ("---\nid: TK-005\nowner: engineer\nstatus: in_progress\nupdated: 2026-09-27T23:00:00+04:00\n"
+                "---\n\n## Лог\n\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг, дальше доделать\n")
+        tkt = T.parse_text(text, Path("TK-005.md"))
+        self.assertEqual(tkt.log, [])  # ни одной по-настоящему разобранной записи — заголовка нет
+        self.assertIn("сделал шаг", tkt.log_raw)
+
+
+class MentionsSinceTests(unittest.TestCase):
+    """CEO 27.09, TK-005: упоминания и рост секции — по сырому тексту, не по заголовкам `###`."""
+
+    def test_headerless_bullet_mention_is_found(self):
+        log_raw = "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг, дальше @judge глянь\n"
+        self.assertEqual(T.mentions_since(log_raw, 0), {"judge"})
+
+    def test_researcher_bracket_style_mention_is_found(self):
+        log_raw = "\n- 27.09 23:25 [researcher] нашёл эффект, @ceo интересно посмотреть\n"
+        self.assertEqual(T.mentions_since(log_raw, 0), {"ceo"})
+
+    def test_self_mention_excluded_when_author_known_from_preceding_header(self):
+        log_raw = ("\n### 2026-09-27T21:00:00+04:00 engineer\nзапуск 1\n"
+                    "- 27.09 ~23:50 (инженер) заметка себе на будущее @engineer\n")
+        self.assertEqual(T.mentions_since(log_raw, 0), set())
+
+    def test_self_mention_not_excluded_without_any_preceding_header(self):
+        """Автор неизвестен (нет заголовка вообще) — не исключаем: пропуск дороже лишнего повтора."""
+        log_raw = "\n- 27.09 ~23:50 (инженер) заметка себе @engineer, но без заголовка выше\n"
+        self.assertEqual(T.mentions_since(log_raw, 0), {"engineer"})
+
+    def test_nothing_new_since_seen_len_is_silent(self):
+        log_raw = "\n- 27.09 ~23:50 @judge глянь\n"
+        self.assertEqual(T.mentions_since(log_raw, len(log_raw)), set())
+
+    def test_only_tail_after_seen_len_is_scanned(self):
+        head = "\n- старая запись без упоминаний\n"
+        tail = "- новая запись @judge посмотри\n"
+        log_raw = head + tail
+        self.assertEqual(T.mentions_since(log_raw, len(head)), {"judge"})
+        self.assertEqual(T.mentions_since(log_raw, 0), {"judge"})  # то же упоминание видно и от начала
+
 
 class TicketMutationTests(unittest.TestCase):
     def setUp(self):
@@ -138,8 +180,10 @@ class DispatchDecisionTests(unittest.TestCase):
         # чтобы изолированно проверить именно дедуп упоминания, а не правило (а') in_progress-resume
         text = ("---\nid: TK-2\nowner: researcher\nstatus: waiting\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
                 "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь план.\n")
-        self.state.setdefault("sessions", {})["TK-2::judge"] = {"last_woken": "2026-09-27T11:06:00+04:00"}
-        dec = D.decide(self.ticket_from(text), self.state, self.now)
+        tkt = self.ticket_from(text)
+        # v1.5: дедуп упоминания — по длине секции на момент запуска (log_len_at_launch), не по времени
+        self.state.setdefault("sessions", {})["TK-2::judge"] = {"log_len_at_launch": len(tkt.log_raw)}
+        dec = D.decide(tkt, self.state, self.now)
         self.assertIsNone(dec)
 
     def test_waiting_file_condition_met(self):
@@ -895,6 +939,57 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(D.RUNNING, {}, "прогресс есть — не должно быть повтора")
         self.assertEqual(T.read_ticket(path).status, "in_progress")  # роль сама решит дальше, не blocked
 
+    def test_tk005_headerless_engineer_bullet_is_not_a_false_blocked(self):
+        """Воспроизводит боевой TK-005 (CEO 27.09): Инженер дважды дописал «- 27.09 ~23:50 (инженер,
+        запуск 1) …» без заголовка `###`; диспетчер считал это отсутствием записи → повтор → blocked."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="TK-005",
+                                now=dt("2026-09-27T23:00:00+04:00"))
+        T.write_header_updates(path, {"status": "in_progress"}, now=dt("2026-09-27T23:00:00+04:00"))
+        log_len_at_launch = len(T.read_ticket(path).log_raw)
+        started = dt("2026-09-27T23:00:00+04:00")
+
+        # роль дописывает БЕЗ заголовка ### — ровно формат из боевого лога
+        content = path.read_text(encoding="utf-8")
+        content += "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг, дальше доделать\n"
+        path.write_text(content, encoding="utf-8")
+
+        run_file = self.dispatcher_dir / "tk005.json"
+        run_file.write_text(json.dumps({"session_id": "s-tk005", "total_cost_usd": 0.2}), encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": started, "attempt": 0,
+                "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None, "reason": "todo",
+                "run_cap_usd": 1.0, "status_at_launch": "in_progress", "log_len_at_launch": log_len_at_launch}
+        state = D.load_state()
+        D._finish_run(path.stem, info, state, started + timedelta(minutes=5), timed_out=False)
+        self.assertEqual(T.read_ticket(path).status, "in_progress", "не должно было уйти в blocked")
+
+    def test_tk005_second_headerless_bullet_also_counts(self):
+        """Второй безголовый допис (как в бою — b0b63cb, затем e657090) тоже должен засчитаться."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="TK-005b",
+                                now=dt("2026-09-27T23:00:00+04:00"))
+        T.write_header_updates(path, {"status": "in_progress"}, now=dt("2026-09-27T23:00:00+04:00"))
+        content = path.read_text(encoding="utf-8")
+        content += "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг 1\n"
+        path.write_text(content, encoding="utf-8")
+        log_len_at_launch2 = len(T.read_ticket(path).log_raw)  # снимок на старте ВТОРОГО запуска
+
+        content2 = path.read_text(encoding="utf-8")
+        content2 += "- 27.09 ~00:05 (инженер, запуск 2) доделал, status: in_progress\n"
+        path.write_text(content2, encoding="utf-8")
+
+        run_file = self.dispatcher_dir / "tk005b.json"
+        run_file.write_text(json.dumps({"session_id": "s-tk005b", "total_cost_usd": 0.2}), encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T23:50:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "in_progress-resume", "run_cap_usd": 1.0, "status_at_launch": "in_progress",
+                "log_len_at_launch": log_len_at_launch2}
+        state = D.load_state()
+        D._finish_run(path.stem, info, state, dt("2026-09-28T00:10:00+04:00"), timed_out=False)
+        self.assertEqual(T.read_ticket(path).status, "in_progress")
+
+    def test_prompt_tells_role_to_use_tickets_comment(self):
+        prompt = D.build_prompt("engineer", "TK-005")
+        self.assertIn("tickets.py comment TK-005 --author engineer", prompt)
+
 
 import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
 
@@ -1501,6 +1596,27 @@ class DeckSshTests(unittest.TestCase):
         """Живой прогон 27.09 поймал: shlex.quote('~/x') = "'~/x'" — remote-шелл её не раскрывает."""
         self.assertEqual(D._remote_test_arg("~/alpha/queue/STATUS"), "~/alpha/queue/STATUS")
         self.assertEqual(D._remote_test_arg("~"), "~")
+
+    def test_tilde_nested_job_marker_path(self):
+        """CEO 27.09: wait_for: deck: с маркером ~/alpha/queue/done/<id>.job — вложенный путь, фикс
+        v1.1 общий для любой глубины после ~/, не только однокомпонентных путей."""
+        arg = D._remote_test_arg("~/alpha/queue/done/T-38.job")
+        self.assertEqual(arg, "~/alpha/queue/done/T-38.job")  # безопасные символы — без кавычек
+
+    def test_wait_for_deck_job_marker_used_via_check_wait_for(self):
+        calls = []
+
+        def fake_deck_file_exists(remote_path):
+            calls.append(remote_path)
+            return True
+
+        orig = D._deck_file_exists
+        D._deck_file_exists = fake_deck_file_exists
+        try:
+            self.assertTrue(D.check_wait_for("deck:~/alpha/queue/done/T-38.job"))
+        finally:
+            D._deck_file_exists = orig
+        self.assertEqual(calls, ["~/alpha/queue/done/T-38.job"])
 
     def test_tilde_path_rest_still_escaped(self):
         import shlex
