@@ -160,6 +160,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         sets: Vec::new(),
         cells: None,
         sigma_from: None,
+        hold_step: "poll".to_string(),
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {

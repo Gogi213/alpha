@@ -112,6 +112,7 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
         // очереди выбирается только у сетки форм (`--queue-model`, F3).
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
 
     let mut reports = Vec::with_capacity(signals.len());
@@ -378,6 +379,7 @@ fn run_bounce(
         // выбирается только у сетки форм (`lob bounce-grid --queue-model`, F3).
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
     let mut bt = build_backtest(events, tick, lot_size, args.median_rtt_ns, cfg.queue_model);
     let run: BounceRun = drive_bounce(&mut bt, 0, &signals, &cfg)?;

@@ -8,13 +8,13 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
 }
 
+use crate::lob::backtest::fast_depth::FastMarketDepth;
 use hftbacktest::backtest::assettype::LinearAsset;
 use hftbacktest::backtest::data::Data;
 use hftbacktest::backtest::models::{
     CommonFees, ConstantLatency, RiskAdverseQueueModel, TradingValueFeeModel,
 };
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
-use hftbacktest::depth::HashMapMarketDepth;
 use hftbacktest::types::{
     ElapseResult, Event, EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT,
     EXCH_EVENT, EXCH_SELL_TRADE_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT,
@@ -69,7 +69,7 @@ fn trade_at(exch_ts: i64, sell: bool, px: f64, qty: f64) -> Event {
     }
 }
 
-fn seam6_backtest(feed: &[Event]) -> Backtest<HashMapMarketDepth> {
+fn seam6_backtest(feed: &[Event]) -> Backtest<FastMarketDepth> {
     let (entry, response) = latency_from_rtt(1_000_000);
     Backtest::builder()
         .add_asset(
@@ -80,7 +80,7 @@ fn seam6_backtest(feed: &[Event]) -> Backtest<HashMapMarketDepth> {
                 .fee_model(TradingValueFeeModel::new(CommonFees::new(0.0002, 0.00055)))
                 .queue_model(RiskAdverseQueueModel::new())
                 .exchange(ExchangeKind::NoPartialFillExchange)
-                .depth(|| HashMapMarketDepth::new(1.0, 1.0))
+                .depth(|| FastMarketDepth::new(1.0, 1.0))
                 .build()
                 .unwrap(),
         )
@@ -94,7 +94,7 @@ const S: i64 = 1_000_000_000;
 /// синтетического фида — тот самый "прогон на `Backtest` крейта через
 /// шов 6", который требует критерий приёмки. `on_event` сама не зовёт
 /// `elapse` (doc модуля) — это работа вызывающего, здесь тестового цикла.
-fn drive(hbt: &mut Backtest<HashMapMarketDepth>, state: &mut StrategyState) -> Vec<Action> {
+fn drive(hbt: &mut Backtest<FastMarketDepth>, state: &mut StrategyState) -> Vec<Action> {
     let mut actions = Vec::new();
     loop {
         let r = hbt.elapse(100_000_000).unwrap();
@@ -551,7 +551,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
 
 /// Бэктест с моделью очереди по объёму (`PartialFillExchange`): только она
 /// отдаёт частичное исполнение, ради которого и заведена частичная позиция.
-fn prob_backtest(feed: &[Event]) -> Backtest<HashMapMarketDepth> {
+fn prob_backtest(feed: &[Event]) -> Backtest<FastMarketDepth> {
     build_backtest(
         feed,
         1.0,
@@ -780,6 +780,7 @@ fn a_post_only_entry_that_crosses_the_spread_is_not_placed_and_is_not_busy() {
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
         busy_skip: true,
+        hold_skip: false,
     };
     let signal = |t0_ns: i64| BounceSignal {
         t0_ns,
@@ -854,7 +855,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
 /// проверки «вход жил ровно потолок» (F5): по меткам видно, когда вход
 /// отправлен и когда снят.
 fn drive_stamped(
-    hbt: &mut Backtest<HashMapMarketDepth>,
+    hbt: &mut Backtest<FastMarketDepth>,
     state: &mut StrategyState,
 ) -> Vec<(i64, Action)> {
     let mut out = Vec::new();
@@ -1471,6 +1472,7 @@ fn f7_run(plan: TradePlan, feed: &[Event]) -> crate::lob::backtest::BounceRun {
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2069,6 +2071,7 @@ fn trail_exits(plan: TradePlan, feed: &[Event], sigma: i8) -> Vec<ExitReason> {
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2484,7 +2487,7 @@ fn an_entry_leg_whose_place_was_in_flight_is_cancelled_by_the_retry() {
 /// фаза — `ExitCancelPending`. Хедж-состояние собирается полями: ветку
 /// естественного круга (`Holding` → частичный тейк → рыночная причина)
 /// проверяет Б1-тест, а здесь проверяется сам предохранитель.
-fn racing_exit_state(hbt: &mut Backtest<HashMapMarketDepth>) -> StrategyState {
+fn racing_exit_state(hbt: &mut Backtest<FastMarketDepth>) -> StrategyState {
     hbt.submit_sell_order(
         0,
         EXIT_ID,
@@ -2651,6 +2654,7 @@ fn the_driver_counts_the_entry_cancel_ceiling() {
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
     let signal = BounceSignal {
         t0_ns: S,
@@ -2703,6 +2707,7 @@ fn an_orphan_survives_the_round_boundary_in_the_driver() {
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     };
     // Срок жизни входа 0.1 с: снятие на 1.2 с, потолок на 2.2 с — круг закрыт.
     let signals = [
@@ -2830,5 +2835,43 @@ fn an_entry_orphan_does_not_flatten_what_the_plan_already_holds() {
         state.orphan_fills(),
         0,
         "исполненное до усыновления — не сироты, гасить нечего: {actions:?}"
+    );
+}
+
+/// Э-04б (условие Судьи 1): пропуск пустых шагов удержания (`hold_wakeup_ns`) опирается на то, что решение
+/// удержания зависит от времени только через досрочный выход и дедлайн. Новое сравнение с `now` в
+/// `on_holding` / `decide_exit` ломает этот тест — тогда порог надо добавить в `hold_wakeup_ns`.
+#[test]
+fn holding_decision_reads_time_only_at_the_known_thresholds() {
+    const SRC: &str = include_str!("../strategy.rs");
+    let uses = |name: &str| -> Vec<String> {
+        let start = SRC.find(&format!("\nfn {name}<")).expect("функция есть");
+        let end = SRC[start + 5..]
+            .find("\nfn ")
+            .map_or(SRC.len(), |e| start + 5 + e);
+        SRC[start..end]
+            .lines()
+            .filter(|l| {
+                l.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .any(|w| w == "now")
+            })
+            .map(|l| l.trim().to_string())
+            .collect()
+    };
+    assert_eq!(
+        uses("decide_exit"),
+        [
+            "now: i64,",
+            "if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {",
+            "&& now.saturating_sub(entry_ns) >= early_exit_ns",
+            "} else if now.saturating_sub(entry_ns) >= deadline_ns {",
+        ]
+    );
+    assert_eq!(
+        uses("on_holding"),
+        [
+            "now: i64,",
+            "match decide_exit(bot, state, entry_ns, now, quotes, true) {",
+        ]
     );
 }

@@ -416,6 +416,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             let day_started = Instant::now();
             let retries_before =
                 crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
+            let skips_before =
+                crate::lob::backtest::HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
             // S4: события одних суток, не всей сессии.
             let mut events = day_events(day_parts)?;
             if events.is_empty() {
@@ -545,6 +547,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             rtt_ns: args.median_rtt_ns,
                             queue_model,
                             busy_skip: args.busy_skip == "on",
+                            hold_skip: args.hold_step == "skip",
                             order_qtys: &order_qtys,
                             threads,
                             post_only: args.entry_post_only(),
@@ -594,6 +597,13 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 .saturating_sub(retries_before);
             if retries > 0 {
                 eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
+            }
+            // Э-04б: строка только при `--hold-step skip` (прежний stderr не меняется).
+            let skips = crate::lob::backtest::HOLD_SKIPS
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .saturating_sub(skips_before);
+            if skips > 0 {
+                eprintln!("bounce-grid:   удержание: пропусков пустых шагов {skips}");
             }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {

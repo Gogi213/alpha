@@ -645,6 +645,20 @@ impl OrphanCarry {
     /// Те же партии в нумерации другого прогона: номера заявок сдвинуты с базы `from` на базу
     /// `to` (память кругов сетки, G10: круг, взятый из памяти другого набора, отдаёт сирот в
     /// нумерации своего прогона — иначе номер сироты мог бы совпасть с заявкой следующего круга).
+    /// Одна партия сирот входа (тест ключа памяти кругов, `lob::backtest`).
+    #[cfg(test)]
+    pub(crate) fn test_entry(first: u64, legs: u8) -> OrphanCarry {
+        let mut c = OrphanCarry::NONE;
+        c.batches[0] = OrphanBatch {
+            first,
+            legs,
+            kind: OrphanKind::Entry,
+            accounted: 0.0,
+        };
+        c.n = 1;
+        c
+    }
+
     pub fn rebased(mut self, from: u64, to: u64) -> OrphanCarry {
         for b in self.batches.iter_mut().take(usize::from(self.n)) {
             b.first = b.first.wrapping_sub(from).wrapping_add(to);
@@ -1211,6 +1225,35 @@ impl StrategyState {
 
     pub fn is_idle(&self) -> bool {
         matches!(self.phase, Phase::Idle)
+    }
+
+    /// Ближайший момент, когда решение удержания может измениться **без событий рынка** (Э-04б, T-38):
+    /// в фазе `Holding` плана `Bounce` без сирот `decide_exit` зависит от времени только через досрочный
+    /// выход (вход + `early_exit_ns`, пока не пройден) и дедлайн (вход + `deadline_ns`); остальные входы
+    /// решения — цены, стена, съедание — меняют только события. `None` — фаза или план другие (драйвер
+    /// шагает как прежде). Драйвер (`run_round`) по нему пропускает пустые шаги опроса.
+    pub fn hold_wakeup_ns(&self, now: i64) -> Option<i64> {
+        let Phase::Holding { entry_ns } = self.phase else {
+            return None;
+        };
+        let TradePlan::Bounce {
+            deadline_ns,
+            early_exit_ns,
+            ..
+        } = self.plan
+        else {
+            return None;
+        };
+        if self.has_orphans() {
+            return None;
+        }
+        let deadline = entry_ns.saturating_add(deadline_ns);
+        let early = entry_ns.saturating_add(early_exit_ns);
+        Some(if early_exit_ns > 0 && early > now {
+            early.min(deadline)
+        } else {
+            deadline
+        })
     }
 
     /// Размер круга: драйверу он нужен для `Fill`, сам драйвер его не хранит.
@@ -2371,8 +2414,8 @@ mod hot_path_guard {
     ///
     /// Запрет 7 (книга — не хеш-отображение) добавлен таском 17 через два
     /// токена, не через голое имя типа: голое имя ловило бы легитимный
-    /// `HashMapMarketDepth` — синтетическую книгу крейта `hftbacktest`,
-    /// которой `mod tests` ниже кормит `Backtest` в шве 6 (`ARCHITECTURE.md`,
+    /// `HashMapMarketDepth` — синтетическую книгу крейта `hftbacktest` (с Э-05 тесты кормят `Backtest` её копией
+    /// `FastMarketDepth` из `lob::backtest`) в шве 6 (`ARCHITECTURE.md`,
     /// `interfaces.md` «Швы для тестов»). Запрет 6 (цена/размер не числом с
     /// плавающей запятой) сюда сознательно не включён: `MarketDepth` крейта
     /// `hftbacktest` сама отдаёт `best_bid`/`best_ask` этим типом — это

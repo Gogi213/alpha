@@ -55,7 +55,7 @@ use hftbacktest::backtest::models::{
 };
 use hftbacktest::backtest::BacktestError;
 use hftbacktest::backtest::{Backtest, DataSource, ExchangeKind, L2AssetBuilder};
-use hftbacktest::depth::{HashMapMarketDepth, L2MarketDepth, MarketDepth};
+use hftbacktest::depth::{L2MarketDepth, MarketDepth};
 use hftbacktest::types::{
     Bot, ElapseResult, Event, OrdType, Order, Side as HbtSide, Status, TimeInForce, BUY_EVENT,
     EXCH_BID_DEPTH_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT, SELL_EVENT,
@@ -71,6 +71,8 @@ use crate::lob::strategy::{
 };
 
 mod compact;
+pub mod fast_depth;
+use fast_depth::FastMarketDepth;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
 pub use window_depth::WindowDepth;
@@ -705,6 +707,12 @@ pub struct DriveConfig {
     /// каждого шага (`BounceRun::trace`) уходит в `signals.csv` — занятость потом решает фильтр
     /// (`tools/compute/busy-replay.py`) тем же правилом.
     pub busy_skip: bool,
+    /// Пропуск пустых шагов опроса в удержании (Э-04б, T-38, `bounce-grid --hold-step skip`): в фазе
+    /// `Holding` без заявок круг ждёт следующего события ленты (`wait_next_feed`) и встаёт на ту же точку
+    /// сетки `ON_EVENT_POLL_STEP_NS`, что и пошаговый опрос; пороги времени плана (досрочный выход, дедлайн)
+    /// посещаются. Итог байт в байт тот же, что у `false` (прежний шаг 10 мс на каждой точке сетки).
+    /// Только драйвер окон (знает конец данных круга); полный прогон суток шагает как прежде.
+    pub hold_skip: bool,
 }
 
 /// Чем кончился шаг драйвера на сигнале (след T-31, `signals.csv`).
@@ -958,7 +966,7 @@ where
 
         // Остаток позиции здесь не страхуется: круг Decision 20 — одна нога
         // входа и одна нога выхода, и `Bot::position` на этом плане честен.
-        let (outcome, _residual) = run_round(bot, asset_no, &mut state, entry_id, 1, side)?;
+        let (outcome, _residual) = run_round(bot, asset_no, &mut state, entry_id, 1, side, None)?;
         match outcome {
             RoundOutcome::EndOfData => {
                 incomplete = true;
@@ -1424,6 +1432,58 @@ where
 /// Возвращает исход круга и **свою** позицию стратегии на его конце (F4,
 /// В-78): на ней стоит страховка остатка — `Bot::position` крейта частичного
 /// исполнения не видит и после частичного входа врёт со знаком.
+/// Пропусков пустых шагов удержания (Э-04б) — счётчик процесса для строки итога суток и тестов; на итог
+/// счёта не влияет.
+pub static HOLD_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
+/// ответы биржи идут по своим часам — пустые шаги опроса не пропускаются (Э-04б).
+fn has_open_orders<B, MD>(bot: &B, asset_no: usize) -> bool
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    bot.orders(asset_no)
+        .values()
+        .any(|o| matches!(o.status, Status::New | Status::PartiallyFilled))
+}
+
+/// Шаг удержания с пропуском пустых шагов опроса (Э-04б, T-38). Пошаговый опрос проходит точки
+/// `now + k · ON_EVENT_POLL_STEP_NS`; решение удержания без событий рынка меняется только на порогах
+/// времени (`hold_wakeup_ns`). Поэтому: ждём следующее событие ленты не дальше первой точки сетки ≥ порога
+/// и встаём на первую точку сетки ≥ этого события — крейт к ней обработал ровно те же события в том же
+/// порядке, что и пошаговый опрос (`goto` идёт по одной очереди событий, границы шагов её не меняют).
+/// `cap` — конец данных круга (меньшая из меток последней строки): дальше последней точки сетки до него
+/// не прыгаем, чтобы исчерпание данных (`EndOfData`, часы крейта не двигаются) случилось на том же шаге,
+/// что и у опроса.
+fn hold_step<B, MD>(bot: &mut B, wakeup_ns: i64, cap: i64) -> Result<ElapseResult, B::Error>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let step = ON_EVENT_POLL_STEP_NS;
+    let now = bot.current_timestamp();
+    // Точка сетки ≥ порога, не ближе следующей; и последняя точка сетки строго до конца данных.
+    let k_wake = wakeup_ns.saturating_sub(now).div_euclid(step)
+        + i64::from(wakeup_ns.saturating_sub(now).rem_euclid(step) != 0);
+    let k_cap = (cap.saturating_sub(now) - 1).div_euclid(step);
+    let k = k_wake.min(k_cap);
+    if k <= 1 {
+        return bot.elapse(step);
+    }
+    let target = now.saturating_add(k.saturating_mul(step));
+    HOLD_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    match bot.wait_next_feed(false, target - now)? {
+        ElapseResult::MarketFeed => {
+            let e = bot.current_timestamp();
+            let ke = (e - now).div_euclid(step) + i64::from((e - now).rem_euclid(step) != 0);
+            let g = now.saturating_add(ke.max(1).saturating_mul(step));
+            bot.elapse(g - e)
+        }
+        other => Ok(other),
+    }
+}
+
 fn run_round<B, MD>(
     bot: &mut B,
     asset_no: usize,
@@ -1431,6 +1491,7 @@ fn run_round<B, MD>(
     entry_id: u64,
     legs: u8,
     side: HbtSide,
+    skip_cap: Option<i64>,
 ) -> Result<(RoundOutcome, f64), B::Error>
 where
     B: Bot<MD>,
@@ -1454,7 +1515,18 @@ where
     // остаток: `n_partial` считает именно доли E7, а не число заявок выхода.
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     loop {
-        if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+        // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
+        let wakeup = match skip_cap {
+            Some(_) if entry_pending == 0 && !has_open_orders(bot, asset_no) => {
+                state.hold_wakeup_ns(bot.current_timestamp())
+            }
+            _ => None,
+        };
+        let stepped = match (wakeup, skip_cap) {
+            (Some(th), Some(cap)) => hold_step(bot, th, cap)?,
+            _ => bot.elapse(ON_EVENT_POLL_STEP_NS)?,
+        };
+        if stepped == ElapseResult::EndOfData {
             // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
             // исполнения не нужен.
             return Ok((RoundOutcome::EndOfData, state.position()));
@@ -1715,6 +1787,7 @@ fn drive_signal<B, MD>(
     cfg: &DriveConfig,
     next_id: &mut u64,
     carry: &mut OrphanCarry,
+    data_end_ns: Option<i64>,
 ) -> Result<SignalStep, B::Error>
 where
     B: Bot<MD>,
@@ -1772,8 +1845,17 @@ where
         }
     }
 
-    let (outcome, residual_left) =
-        run_round(bot, asset_no, &mut state, entry_id, legs_of(sig.plan), side)?;
+    // Э-04б: пропуск пустых шагов — только с флагом и известным концом данных круга.
+    let skip_cap = data_end_ns.filter(|_| cfg.hold_skip);
+    let (outcome, residual_left) = run_round(
+        bot,
+        asset_no,
+        &mut state,
+        entry_id,
+        legs_of(sig.plan),
+        side,
+        skip_cap,
+    )?;
     if matches!(outcome, RoundOutcome::EndOfData) {
         *carry = state.take_orphans();
         return Ok(SignalStep::Submitted {
@@ -1855,6 +1937,10 @@ struct MemoEntry {
     /// R2: размер круга — часть ключа, как план: тот же сигнал с другим лотом
     /// — другой круг (очередь, частичное исполнение).
     qty: Option<f64>,
+    /// Сироты, с которыми круг **начинался** (номера — от базы прогона, `rebased(id_base, 0)`): часть ключа.
+    /// Круг наследует сирот прошлого сигнала (`inherit_orphans`), а прошлый сигнал у наборов с разным
+    /// допуском разный — круг с другими сиротами на входе из памяти брать нельзя (ревью бага memo 27.09).
+    carry_in: OrphanCarry,
     step: Option<SignalStep>,
     /// База номеров заявок прогона, посчитавшего круг, и сколько номеров круг израсходовал;
     /// `0` — движок сигнала не запускался (сироты входа не трогались).
@@ -1870,13 +1956,19 @@ impl RoundMemo {
         &mut self,
         sig: &BounceSignal,
         id_base: u64,
+        carry_in: OrphanCarry,
     ) -> Option<(Option<SignalStep>, u64, Option<OrphanCarry>)> {
+        let carry_key = carry_in.rebased(id_base, 0);
         let hit = self
             .by_t0
             .get(&sig.t0_ns)
             .and_then(|v| {
-                v.iter()
-                    .find(|e| e.sigma == sig.sigma && e.plan == sig.plan && e.qty == sig.qty)
+                v.iter().find(|e| {
+                    e.sigma == sig.sigma
+                        && e.plan == sig.plan
+                        && e.qty == sig.qty
+                        && e.carry_in == carry_key
+                })
             })
             .map(|e| {
                 let carry = (e.ids_used > 0).then(|| e.carry_out.rebased(e.id_base, id_base));
@@ -1890,18 +1982,22 @@ impl RoundMemo {
         hit
     }
 
+    // Поля одной записи памяти — по смыслу, структура ради счётчика аргументов — лишний слой.
+    #[allow(clippy::too_many_arguments)]
     fn store(
         &mut self,
         sig: &BounceSignal,
         step: Option<SignalStep>,
         id_base: u64,
         ids_used: u64,
+        carry_in: OrphanCarry,
         carry_out: OrphanCarry,
     ) {
         self.by_t0.entry(sig.t0_ns).or_default().push(MemoEntry {
             sigma: sig.sigma,
             plan: sig.plan,
             qty: sig.qty,
+            carry_in: carry_in.rebased(id_base, 0),
             step,
             id_base,
             ids_used,
@@ -2026,7 +2122,8 @@ where
     S: FnMut(
         &BounceSignal,
         u32,
-        &mut dyn FnMut(&mut B) -> Result<SignalStep, B::Error>,
+        // Шаг стратегии получает конец данных круга (Э-04б: `None` — неизвестен, пропуска шагов нет).
+        &mut dyn FnMut(&mut B, Option<i64>) -> Result<SignalStep, B::Error>,
     ) -> Result<Option<(SignalStep, bool)>, B::Error>,
 {
     let mut order: Vec<BounceSignal> = signals.to_vec();
@@ -2089,7 +2186,9 @@ where
         }
         // Память кругов (G10): круг, уже посчитанный над тем же окном с тем же планом, берётся
         // готовым; номера заявок и сироты продолжаются так, как если бы его считали здесь.
-        let recalled = memo.as_deref_mut().and_then(|m| m.recall(sig, next_id));
+        let recalled = memo
+            .as_deref_mut()
+            .and_then(|m| m.recall(sig, next_id, carry));
         let step = match recalled {
             Some((step, ids_used, carry_out)) => {
                 next_id = next_id.saturating_add(ids_used);
@@ -2103,8 +2202,8 @@ where
                 let carry_base = carry;
                 let mut attempt = 0u32;
                 let step = loop {
-                    let r = source(sig, attempt, &mut |bot: &mut B| {
-                        drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry)
+                    let r = source(sig, attempt, &mut |bot: &mut B, data_end: Option<i64>| {
+                        drive_signal(bot, asset_no, sig, cfg, &mut next_id, &mut carry, data_end)
                     })?;
                     match r {
                         Some((_, false)) => {
@@ -2123,6 +2222,7 @@ where
                         step.clone(),
                         id_base,
                         next_id.wrapping_sub(id_base),
+                        carry_base,
                         carry,
                     );
                 }
@@ -2352,7 +2452,7 @@ where
         return Ok(BounceRun::nothing(profile, signals.len() as u64));
     }
     let run = drive_bounce_with::<B, MD, _>(asset_no, signals, cfg, None, |_, _, step| {
-        step(bot).map(|s| Some((s, true)))
+        step(bot, None).map(|s| Some((s, true)))
     })?;
     bot.clear_inactive_orders(Some(asset_no));
     Ok(run)
@@ -2365,7 +2465,7 @@ where
 /// биржа не работает вовсе, и цена суток определяется числом касаний и
 /// длиной кругов, а не числом событий в стакане.
 ///
-/// Точность: снимок — книга крейта (`HashMapMarketDepth`) после тех же строк, по всем полям
+/// Точность: снимок — книга движка (`FastMarketDepth` — копия `HashMapMarketDepth` крейта, Э-05) после тех же строк, по всем полям
 /// (строит её своя книга окон `WindowDepth`, К3)
 /// (обе метки `<= t0`, см. `SignalWindows`), со всеми полями лучших/крайних
 /// тиков, один на обе стороны движка; строки с одной меткой за `t0` каждая
@@ -2413,7 +2513,7 @@ fn windowed_with<R: EventRows + ?Sized>(
     memo: Option<&mut RoundMemo>,
 ) -> Result<BounceRun, BacktestError> {
     let mut buf: Vec<Event> = Vec::new();
-    drive_bounce_with::<Backtest<HashMapMarketDepth>, HashMapMarketDepth, _>(
+    drive_bounce_with::<Backtest<FastMarketDepth>, FastMarketDepth, _>(
         0,
         signals,
         cfg,
@@ -2449,6 +2549,8 @@ fn windowed_with<R: EventRows + ?Sized>(
                 }
             };
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
+            // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).
+            let data_end = last.map(|(local, exch)| local.min(exch));
             with_backtest_over_window(
                 &w.depth,
                 sig.t0_ns,
@@ -2461,7 +2563,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                     let s = if bt.elapse(0)? == ElapseResult::EndOfData {
                         SignalStep::EndOfData
                     } else {
-                        step(bt)?
+                        step(bt, data_end)?
                     };
                     Ok((s, bt.current_timestamp()))
                 },
@@ -2596,11 +2698,11 @@ pub fn build_backtest(
     lot_size: f64,
     exec_latency: ExecLatency,
     queue_model: QueueModelKind,
-) -> Backtest<HashMapMarketDepth> {
+) -> Backtest<FastMarketDepth> {
     build_backtest_from(
         vec![DataSource::Data(Data::from_data(events))],
         exec_latency,
-        move || HashMapMarketDepth::new(tick_size, lot_size),
+        move || FastMarketDepth::new(tick_size, lot_size),
         queue_model,
     )
 }
@@ -2623,14 +2725,14 @@ pub fn with_backtest_over<R>(
     lot_size: f64,
     exec_latency: ExecLatency,
     queue_model: QueueModelKind,
-    f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
+    f: impl FnOnce(&mut Backtest<FastMarketDepth>) -> R,
 ) -> R {
     // SAFETY: см. док выше — буфер жив до конца функции, крейт только читает.
     let data = unsafe { borrowed_data(events) };
     let mut bt = build_backtest_from(
         vec![DataSource::Data(data)],
         exec_latency,
-        move || HashMapMarketDepth::new(tick_size, lot_size),
+        move || FastMarketDepth::new(tick_size, lot_size),
         queue_model,
     );
     let out = f(&mut bt);
@@ -2652,7 +2754,7 @@ unsafe fn borrowed_data(events: &[Event]) -> Data<Event> {
     unsafe { Data::from_data_ptr(DataPtr::from_ptr(bytes), 0) }
 }
 
-/// Снимок `HashMapMarketDepth` крейта в момент `t0`: уровни и **все** поля
+/// Снимок книги движка `FastMarketDepth` (Э-05: копия `HashMapMarketDepth` крейта) в момент `t0`: уровни и **все** поля
 /// лучших/крайних тиков (строит своя книга окон `WindowDepth` — те же поля, К3;
 /// `of` — эталон сверки). Из него фабрика `depth` строителя собирает книгу
 /// обеих сторон движка окна ровно той формы, что была бы у сплошного прогона
@@ -2671,7 +2773,7 @@ pub struct DepthSnapshot {
 }
 
 impl DepthSnapshot {
-    pub fn of(d: &HashMapMarketDepth) -> Self {
+    pub fn of(d: &FastMarketDepth) -> Self {
         let mut bids: Vec<(i64, f64)> = d.bid_depth.iter().map(|(t, q)| (*t, *q)).collect();
         let mut asks: Vec<(i64, f64)> = d.ask_depth.iter().map(|(t, q)| (*t, *q)).collect();
         bids.sort_unstable_by_key(|(t, _)| *t);
@@ -2687,8 +2789,8 @@ impl DepthSnapshot {
         }
     }
 
-    pub fn build(&self, tick_size: f64, lot_size: f64) -> HashMapMarketDepth {
-        let mut d = HashMapMarketDepth::new(tick_size, lot_size);
+    pub fn build(&self, tick_size: f64, lot_size: f64) -> FastMarketDepth {
+        let mut d = FastMarketDepth::new(tick_size, lot_size);
         d.bid_depth.extend(self.bids.iter().copied());
         d.ask_depth.extend(self.asks.iter().copied());
         d.best_bid_tick = self.best_bid_tick;
@@ -2751,7 +2853,7 @@ impl SignalWindows {
         )
     }
 
-    /// Прежний путь — книга крейта (`HashMapMarketDepth`) и `DepthSnapshot::of`: эталон
+    /// Прежний путь — книга движка (`FastMarketDepth`, копия книги крейта) и `DepthSnapshot::of`: эталон
     /// разностной сверки К3 (условие Судьи b86eed6), в счёте не участвует.
     pub fn build_crate<R: EventRows + ?Sized>(
         events: &R,
@@ -2764,7 +2866,7 @@ impl SignalWindows {
             t0s,
             tick_size,
             lot_size,
-            HashMapMarketDepth::new(tick_size, lot_size),
+            FastMarketDepth::new(tick_size, lot_size),
         )
     }
 
@@ -2876,7 +2978,7 @@ impl WindowBook for WindowDepth {
     }
 }
 
-impl WindowBook for HashMapMarketDepth {
+impl WindowBook for FastMarketDepth {
     fn apply(&mut self, ev: &Event) {
         if ev.is(LOCAL_BID_DEPTH_EVENT) {
             self.update_bid_depth(ev.px, ev.qty, ev.local_ts);
@@ -2893,7 +2995,7 @@ impl WindowBook for HashMapMarketDepth {
 /// Движок одного окна: книга обеих сторон — из снимка, события — срез суток с
 /// первой строки после `t0` (без копии), часы прибиты к `t0` строкой-якорем.
 ///
-/// Якорь — нулевая заявка бида по цене 0: у `HashMapMarketDepth` это
+/// Якорь — нулевая заявка бида по цене 0: у `FastMarketDepth` это
 /// заведомо пустой ход (тика 0 в книге нет, лучшему он не равен, границы
 /// поиска при нулевом объёме не трогаются), но это событие ленты, и первое
 /// `elapse(0)` ставит часы окна ровно на `t0` — как `elapse(t0 - now)` в
@@ -2911,7 +3013,7 @@ pub fn with_backtest_over_window<R>(
     lot_size: f64,
     exec_latency: ExecLatency,
     queue_model: QueueModelKind,
-    f: impl FnOnce(&mut Backtest<HashMapMarketDepth>) -> R,
+    f: impl FnOnce(&mut Backtest<FastMarketDepth>) -> R,
 ) -> R {
     let anchor = [Event {
         ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
@@ -2947,9 +3049,9 @@ pub fn with_backtest_over_window<R>(
 fn build_backtest_from(
     sources: Vec<DataSource<Event>>,
     exec_latency: ExecLatency,
-    depth_builder: impl Fn() -> HashMapMarketDepth + 'static,
+    depth_builder: impl Fn() -> FastMarketDepth + 'static,
     queue_model: QueueModelKind,
-) -> Backtest<HashMapMarketDepth> {
+) -> Backtest<FastMarketDepth> {
     // Обе ветки — одинаковый набор параметров, кроме пары очередь/исполнение:
     // `L2AssetBuilder` типизирован моделью очереди, поэтому ветка компилируется
     // в свой `Asset`, а `Backtest` стирает его в `dyn Processor`.
@@ -2977,11 +3079,9 @@ fn build_backtest_from(
                 TAKER_FEE_BPS / 10_000.0,
             )))
             .last_trades_capacity(LAST_TRADES_CAPACITY)
-            .queue_model(
-                ProbQueueModel::<PowerProbQueueFunc, HashMapMarketDepth>::new(
-                    PowerProbQueueFunc::new(n),
-                ),
-            )
+            .queue_model(ProbQueueModel::<PowerProbQueueFunc, FastMarketDepth>::new(
+                PowerProbQueueFunc::new(n),
+            ))
             .exchange(ExchangeKind::PartialFillExchange)
             .depth(depth_builder)
             .build()

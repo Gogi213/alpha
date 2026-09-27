@@ -46,8 +46,21 @@ fn random_level(rng: &mut Rng) -> (bool, f64, f64) {
     (bid, px, qty)
 }
 
+/// Снимок книги **крейта** (эталон): те же поля, что `DepthSnapshot::of` у книги движка (Э-05).
 fn crate_snapshot(d: &HashMapMarketDepth) -> DepthSnapshot {
-    DepthSnapshot::of(d)
+    let mut bids: Vec<(i64, f64)> = d.bid_depth.iter().map(|(t, q)| (*t, *q)).collect();
+    let mut asks: Vec<(i64, f64)> = d.ask_depth.iter().map(|(t, q)| (*t, *q)).collect();
+    bids.sort_unstable_by_key(|(t, _)| *t);
+    asks.sort_unstable_by_key(|(t, _)| *t);
+    DepthSnapshot {
+        bids,
+        asks,
+        best_bid_tick: d.best_bid_tick,
+        best_ask_tick: d.best_ask_tick,
+        low_bid_tick: d.low_bid_tick,
+        high_ask_tick: d.high_ask_tick,
+        timestamp: d.timestamp,
+    }
 }
 
 /// После **каждой** строки своя книга равна книге крейта по всем полям снимка: пересечения,

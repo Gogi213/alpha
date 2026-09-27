@@ -361,7 +361,7 @@ fn risk_adverse_queue_moves_only_on_same_price_trades() {
     use hftbacktest::depth::L2MarketDepth;
     use hftbacktest::types::{OrdType, TimeInForce};
 
-    let mut depth = HashMapMarketDepth::new(1.0, 1.0);
+    let mut depth = FastMarketDepth::new(1.0, 1.0);
     depth.update_bid_depth(100.0, 5.0, 0);
     let qm = RiskAdverseQueueModel::new();
     let mut order = hftbacktest::types::Order::new(
@@ -451,6 +451,7 @@ fn drive_cfg() -> DriveConfig {
         first_order_id: 1,
         queue_model: QueueModelKind::RiskAdverse,
         busy_skip: true,
+        hold_skip: false,
     }
 }
 
@@ -1130,6 +1131,7 @@ fn busy_skip_off_runs_every_signal_and_its_trace_replays_the_busy_run() {
     assert!(on.trace.is_empty(), "при `on` след не пишется");
     let off_cfg = DriveConfig {
         busy_skip: false,
+        hold_skip: false,
         ..drive_cfg()
     };
     let off = drive_bounce_windowed(&feed, &windows, &signals, &off_cfg, lat).unwrap();
@@ -1226,7 +1228,7 @@ fn depth_snapshot_rebuilds_the_crate_book_field_by_field() {
     let windows = SignalWindows::build(&feed, &[10 * S], 1.0, 1.0);
     let w = windows.window_at(10 * S).unwrap();
     assert_eq!(w.start, feed.len(), "все строки до t0 — в снимке");
-    let mut want = HashMapMarketDepth::new(1.0, 1.0);
+    let mut want = FastMarketDepth::new(1.0, 1.0);
     for ev in &feed {
         if ev.is(LOCAL_BID_DEPTH_EVENT) {
             want.update_bid_depth(ev.px, ev.qty, ev.local_ts);
@@ -1537,6 +1539,7 @@ fn a_two_leg_exit_is_one_fill_with_a_weighted_exit_price() {
             first_order_id: 1,
             queue_model: QueueModelKind::RiskAdverse,
             busy_skip: true,
+            hold_skip: false,
         },
     )
     .unwrap();
@@ -1673,6 +1676,7 @@ fn partial_fill_records_real_qty_and_fill_frac() {
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
         busy_skip: true,
+        hold_skip: false,
     };
     let mut hbt = build_backtest(
         &feed,
@@ -1755,6 +1759,7 @@ fn fill_by_cross_is_flagged_when_no_trade_could_fill() {
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
         busy_skip: true,
+        hold_skip: false,
     };
     let mut hbt = build_backtest(
         &feed,
@@ -1813,6 +1818,7 @@ fn trade_below_our_price_fills_by_priority_and_is_not_a_cross() {
         first_order_id: 1,
         queue_model: QueueModelKind::Prob { n: 3.0 },
         busy_skip: true,
+        hold_skip: false,
     };
     let mut hbt = build_backtest(
         &feed,
@@ -2008,4 +2014,139 @@ fn compact_rows_drive_the_same_rounds_even_with_a_tiny_horizon() {
         HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed) > before,
         "малый горизонт обязан вызвать пересчёты"
     );
+}
+
+/// Э-04б (T-38): пропуск пустых шагов удержания (`DriveConfig::hold_skip`) даёт тот же `BounceRun`, что
+/// пошаговый опрос 10 мс: выход по дедлайну без событий, досрочный выход («прилипание»), трейл на
+/// редких событиях, событие ровно на точке сетки, конец данных посреди удержания; с пропуском «занято»
+/// и без. События — не на точках сетки (+3 мс, +7,5 мс), чтобы проверить выравнивание.
+#[test]
+fn hold_skip_matches_polling_byte_for_byte() {
+    let ms = 1_000_000;
+    let (_, base) = windowed_fixture();
+    let with = |deadline_ns: i64, early_exit_ns: i64, trail: (f64, f64)| match base {
+        TradePlan::Bounce { .. } => {
+            let mut p = base;
+            if let TradePlan::Bounce {
+                deadline_ns: d,
+                early_exit_ns: e,
+                trail_bps,
+                trail_activate_bps,
+                grid_legs,
+                ..
+            } = &mut p
+            {
+                *d = deadline_ns;
+                *e = early_exit_ns;
+                *trail_bps = trail.0;
+                *trail_activate_bps = trail.1;
+                *grid_legs = 1;
+            }
+            p
+        }
+        TradePlan::SpreadHold => unreachable!(),
+    };
+    // Вход по 101 агрессором на 2 с; дальше книга редкая.
+    let head = |tail: &[Event]| {
+        let mut f = vec![
+            depth_at(0, true, 100.0, 5.0),
+            depth_at(0, false, 105.0, 5.0),
+            trade_at(2 * S + 3 * ms, true, 101.0, 5.0),
+        ];
+        f.extend_from_slice(tail);
+        f
+    };
+    let sparse = head(&[
+        depth_at(9 * S + 7 * ms + ms / 2, false, 104.0, 5.0),
+        // Ровно на точке сетки круга (старт окна — 1 с, шаг 10 мс; `local_ts` = exch + 500 нс).
+        depth_at(20 * S - 500, true, 100.0, 6.0),
+        depth_at(47 * S + 3 * ms, false, 103.0, 5.0),
+        depth_at(300 * S, false, 104.0, 5.0),
+    ]);
+    let rising = head(&[
+        depth_at(5 * S + 3 * ms, true, 103.0, 5.0),
+        depth_at(5 * S + 3 * ms, false, 104.0, 5.0),
+        depth_at(31 * S + 7 * ms, true, 102.0, 5.0),
+        depth_at(400 * S, false, 104.0, 5.0),
+    ]);
+    // Данные кончаются посреди удержания (дедлайн 60 с, последняя строка — 40 с).
+    let short = head(&[depth_at(40 * S + 3 * ms, false, 104.0, 5.0)]);
+    let cases = [
+        (
+            "дедлайн без событий",
+            sparse.clone(),
+            with(60 * S, 0, (0.0, 0.0)),
+        ),
+        (
+            "прилипание",
+            sparse.clone(),
+            with(60 * S, 5 * S, (0.0, 0.0)),
+        ),
+        ("трейл", rising, with(120 * S, 0, (50.0, 100.0))),
+        ("конец данных", short, with(60 * S, 0, (0.0, 0.0))),
+    ];
+    let lat = ExecLatency::uniform(1_000_000);
+    for (name, feed, plan) in cases {
+        let signal = |t0_ns: i64| BounceSignal {
+            t0_ns,
+            sigma: SIGMA_LONG,
+            plan,
+            profile: 0,
+            qty: None,
+        };
+        let signals = [signal(S), signal(3 * S)];
+        let windows = SignalWindows::build(&feed, &[S, 3 * S], 1.0, 1.0);
+        for busy_skip in [true, false] {
+            let poll = DriveConfig {
+                busy_skip,
+                ..drive_cfg()
+            };
+            let skip = DriveConfig {
+                hold_skip: true,
+                ..poll
+            };
+            let a = drive_bounce_windowed(&feed, &windows, &signals, &poll, lat).unwrap();
+            let before = HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
+            let b = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat).unwrap();
+            assert!(
+                HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed) > before,
+                "{name}: пропуск обязан сработать"
+            );
+            assert_eq!(a, b, "{name}, busy_skip {busy_skip}");
+            if name != "конец данных" {
+                assert!(
+                    !a.fills.is_empty(),
+                    "{name}: круг обязан исполниться — {a:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Память кругов (G10) берёт круг только при тех же сиротах на входе (в нумерации от базы прогона): круг
+/// наследует сирот прошлого сигнала, а прошлый сигнал у наборов с разным допуском разный (ревью бага memo,
+/// Исследователь 27.09). Те же сироты при другой базе номеров — попадание, другие — промах.
+#[test]
+fn round_memo_keys_on_inherited_orphans() {
+    let (_, plan) = windowed_fixture();
+    let sig = BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let mut memo = RoundMemo::default();
+    let carry = crate::lob::strategy::OrphanCarry::test_entry(105, 2);
+    memo.store(&sig, None, 100, 7, carry, carry);
+    // Та же партия в нумерации прогона с базой 1000 (1005 = 1000 + 5) — попадание.
+    let same = crate::lob::strategy::OrphanCarry::test_entry(1005, 2);
+    assert!(memo.recall(&sig, 1000, same).is_some());
+    // Без сирот или с другой партией — промах: круг начинался бы иначе.
+    assert!(memo
+        .recall(&sig, 1000, crate::lob::strategy::OrphanCarry::NONE)
+        .is_none());
+    let other = crate::lob::strategy::OrphanCarry::test_entry(1006, 2);
+    assert!(memo.recall(&sig, 1000, other).is_none());
+    assert_eq!(memo.stats(), (1, 2));
 }
