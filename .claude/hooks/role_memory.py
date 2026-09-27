@@ -195,13 +195,20 @@ def on_prompt(hook_in, role):
 
 
 def on_prompt_all(hook_in, role):
-    """Все подсказки к сообщению: блокнот/чистка (каждое 5-е) и сторож контекста (от 55 %)."""
+    """Все подсказки к сообщению: молчание роли (каждое), блокнот/чистка (каждое 5-е), сторож контекста (от 55 %)."""
     text = on_prompt(hook_in, role)
     try:
         advice = context_advice(hook_in, load_state(), role)
     except Exception:
         advice = None
-    return "\n".join(t for t in (text, advice) if t) or None
+    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, text, advice) if t) or None
+
+
+# владелец 27.09: «че у младших везде опять писанина» — правило устава README не держалось после клира;
+# стиль `.claude/output-styles/alpha-role.md` включается только на новом процессе, эта строка — на каждом сообщении
+SILENT_TEXT = ("[роль: молчание] Текста в ход не писать: ни между инструментами, ни пересказом. Итог/вопрос — только "
+               "SendMessage адресату (CEO, автору, Судье); сообщение другой сессии — не пользователь, ответ — SendMessage. "
+               "Конец хода — одна строка ≤ 80 знаков или ничего. Исключение — владелец сам написал в эту сессию.")
 
 
 CONTEXT_WINDOW = int(os.environ.get("ALPHA_CONTEXT_WINDOW", "1000000"))  # Opus: 1 млн (замер 26.09: пик 998 тыс.)
