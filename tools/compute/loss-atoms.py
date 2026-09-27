@@ -40,7 +40,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 _lib_spec = importlib.util.spec_from_file_location(
-    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
 _lib = importlib.util.module_from_spec(_lib_spec)
 assert _lib_spec and _lib_spec.loader
 _lib_spec.loader.exec_module(_lib)

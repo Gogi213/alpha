@@ -16,7 +16,7 @@ import importlib.util
 import os
 import re
 
-_spec = importlib.util.spec_from_file_location("_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
+_spec = importlib.util.spec_from_file_location("_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
 _lib = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_lib)
 

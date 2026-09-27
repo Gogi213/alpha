@@ -44,7 +44,7 @@ def test_exit_read_dollars_come_from_filled_size(tmp_path):
 
 
 def test_lib_fill_usd_skips_rows_without_size(tmp_path):
-    lib = load("_lib", "_lib.py")
+    lib = load("_lib", "_lib/__init__.py")
     write(tmp_path / "run/2026-09-16/S/rounds.csv",
           "form,net_bps,qty,entry_vwap,entry_px\nF,100,2,50,50\nF,50,,,\n")
     assert lib.fill_usd_by_form(str(tmp_path / "run"), "S") == {"F": pytest.approx(1.0)}

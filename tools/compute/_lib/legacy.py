@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
-"""Общие читатели счётных Python-скриптов (В-39: одна реализация вместо нескольких копий).
-
-Загружать динамически по пути рядом со своим файлом (не `import _lib`: скрипты в `bin/` на счётной
-машине лежат в плоском каталоге, а тесты грузят модуль напрямую по файлу — `sys.path` в обоих случаях
-может не включать этот каталог):
-
-    import importlib.util, os
-    _spec = importlib.util.spec_from_file_location(
-        "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib.py"))
-    _lib = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(_lib)
+"""Три исходных читателя `_lib.py` (В-39), перенесённые сюда байт-в-байт при переходе на пакет
+`_lib/` (T-21, `docs/findings/t21-metrics-canon-2026-09-27.md` §3 п.5): формулы не менялись, только
+адрес файла. Публичный доступ — через `_lib/__init__.py` (`_lib.read_csv` и т.д.), этот файл сам не
+грузится вызывающими скриптами.
 
 `read_csv` — то же самое, что было продублировано в breakdown.py/equity-report.py/loss-atoms.py:
 шапка-метаданные сетки на `#` пропускается, дальше обычный `csv.DictReader`. `read_regime_day` —
