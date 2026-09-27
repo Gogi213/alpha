@@ -416,6 +416,36 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(captured_env.get("ALPHA_ROLE"), "researcher")
         for info in list(D.RUNNING.values()):
             info["popen"].wait(timeout=10)
+            for fh in (info.get("out_fh"), info.get("err_fh")):
+                if fh:
+                    fh.close()
+        D.RUNNING.clear()
+
+    def test_launch_run_sets_model_effort_and_budget_cap(self):
+        """v1.3 (владелец 27.09): модель/усилие ВСЕГДА явно — пилот на умолчаниях CLI стоил $6,8."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        captured_cmd = []
+        orig_popen = D._popen
+
+        def spy_popen(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return orig_popen(cmd, **kwargs)
+
+        D._popen = spy_popen
+        try:
+            path = T.create_ticket(self.tickets_dir, owner="judge", title="Проверка флагов")
+            D.tick()
+        finally:
+            D._popen = orig_popen
+        self.assertEqual(captured_cmd[captured_cmd.index("--model") + 1], D.CLAUDE_MODEL)
+        self.assertEqual(captured_cmd[captured_cmd.index("--effort") + 1], "xhigh")  # ROLE_EFFORT[judge]
+        cap = float(captured_cmd[captured_cmd.index("--max-budget-usd") + 1])
+        self.assertAlmostEqual(cap, min(D.RUN_CAP_USD, D.DEFAULT_TICKET_BUDGET_USD))
+        for info in list(D.RUNNING.values()):
+            info["popen"].wait(timeout=10)
+            for fh in (info.get("out_fh"), info.get("err_fh")):
+                if fh:
+                    fh.close()
         D.RUNNING.clear()
 
     def test_no_log_entry_retries_once_then_blocks(self):
@@ -563,6 +593,106 @@ class DispatchRunTests(unittest.TestCase):
         # дедуп: второй тик не должен добавить вторую такую же строку
         D.tick()
         self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("суточный потолок стоимости исчерпан"), 1)
+
+    def test_hour_budget_blocks_new_launches(self):
+        """v1.3, п.4: часовая скорость трат по всем ролям исчерпана — пауза + строка CEO."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        state = D.load_state()
+        D._record_cost_event(state, datetime.now().astimezone(), D.HOUR_COST_USD)
+        D.save_state(state)
+        T.create_ticket(self.tickets_dir, owner="researcher", title="Быстро потратили")
+        n = D.tick()
+        self.assertEqual(n, 0)
+        self.assertEqual(D.RUNNING, {})
+        self.assertIn("скорость трат", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_ticket_budget_blocks_new_launches_and_sets_needs_owner(self):
+        """v1.3, п.2: бюджет ИМЕННО этой задачи исчерпан — needs_owner, другие тикеты не задеты."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        expensive = T.create_ticket(self.tickets_dir, owner="researcher", title="Дорогая")
+        cheap = T.create_ticket(self.tickets_dir, owner="engineer", title="Обычная")
+        state = D.load_state()
+        D.set_ticket_budget(state, expensive.stem, 5.0)
+        D.add_ticket_cost(state, expensive.stem, 5.5)
+        D.save_state(state)
+        D.MAX_PARALLEL = 2
+        n = D.tick()
+        self.assertEqual(T.read_ticket(expensive).status, "needs_owner")
+        self.assertIn(expensive.stem, D.CEO_INBOX.read_text(encoding="utf-8"))
+        self.assertEqual(n, 1)  # дешёвая задача не задета чужим бюджетом
+        self.assertIn(cheap.stem, D.RUNNING)
+        for info in list(D.RUNNING.values()):
+            info["popen"].wait(timeout=10)
+            for fh in (info.get("out_fh"), info.get("err_fh")):
+                if fh:
+                    fh.close()
+        D.RUNNING.clear()
+
+    def test_money_cost_falls_back_to_run_cap_when_no_json(self):
+        """п.3: запуск без JSON (убит) — потрачённым считается весь потолок ЭТОГО запуска, не 0."""
+        state = D.load_state()
+        run_file = self.dispatcher_dir / "nocost.json"
+        run_file.write_text("", encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "todo", "run_cap_usd": 4.25, "status_at_launch": "todo"}
+        T.create_ticket(self.tickets_dir, owner="engineer", title="Без JSON")
+        tid = T.list_tickets(self.tickets_dir)[0].stem
+        info_by_tid = dict(info)
+        D._finish_run(tid, info_by_tid, state, dt("2026-09-27T12:05:00+04:00"), timed_out=True)
+        self.assertAlmostEqual(D.ticket_cost_spent(state, tid), 4.25)
+        self.assertAlmostEqual(state.get("daily_cost", {}).get("2026-09-27", 0.0), 4.25)
+
+    def test_money_idle_run_over_half_budget_blocks_immediately(self):
+        """п.5, холостой ход: дороже половины бюджета и ни записи, ни смены статуса — сразу blocked,
+        без обычного одного повтора."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Холостой", now=dt("2026-09-27T12:00:00+04:00"))
+        tid = path.stem
+        state = D.load_state()
+        D.set_ticket_budget(state, tid, 10.0)
+        run_file = self.dispatcher_dir / "idle.json"
+        run_file.write_text(json.dumps({"session_id": "s1", "total_cost_usd": 6.0}), encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "todo", "run_cap_usd": 6.0, "status_at_launch": "todo"}
+        D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
+        tkt = T.read_ticket(path)
+        self.assertEqual(tkt.status, "blocked")
+        self.assertIn("холостой ход", tkt.log[-1].text)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("холостой ход", inbox)
+
+    def test_money_idle_run_does_not_fire_when_status_changed(self):
+        """Дорогой запуск, но статус изменился (роль что-то сделала) — не холостой ход."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Не холостой",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        tid = path.stem
+        T.write_header_updates(path, {"status": "waiting", "wait_for": "file:/nope"},
+                                now=dt("2026-09-27T12:00:30+04:00"))
+        state = D.load_state()
+        D.set_ticket_budget(state, tid, 10.0)
+        run_file = self.dispatcher_dir / "notidle.json"
+        run_file.write_text(json.dumps({"session_id": "s1", "total_cost_usd": 6.0}), encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "todo", "run_cap_usd": 6.0, "status_at_launch": "todo"}
+        D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
+        self.assertEqual(T.read_ticket(path).status, "waiting")  # не blocked — статус роль таки сменила
+
+    def test_money_model_usage_warning_reaches_ceo_inbox(self):
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Не opus",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        tid = path.stem
+        T.append_log(path, "engineer", "готово", now=dt("2026-09-27T12:00:30+04:00"))
+        state = D.load_state()
+        run_file = self.dispatcher_dir / "badmodel.json"
+        run_file.write_text(json.dumps({"session_id": "s1", "total_cost_usd": 0.1,
+                                         "modelUsage": {"fable-5-1": {"cost": 0.1}}}), encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "todo", "run_cap_usd": 8.0, "status_at_launch": "todo"}
+        D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
+        self.assertIn("fable-5-1", D.CEO_INBOX.read_text(encoding="utf-8"))
 
     def test_recover_active_runs_adopts_alive_process(self):
         """v1.1: перезапуск диспетчера во время прогона — живой pid подхватывается, не запускается повторно."""
@@ -717,16 +847,22 @@ import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
 
 
 class TicketsCliStartTests(unittest.TestCase):
-    """v1.1: `tickets.py start` — backlog → todo, и только backlog."""
+    """v1.1: `tickets.py start` — backlog → todo, и только backlog.
+    v1.3: `cmd_new`/`cmd_status` теперь всегда трогают state.json (бюджет задачи) — ОБЯЗАТЕЛЬНО
+    песочница и на TK.TICKETS_DIR, и на D.STATE_FILE, иначе тест пишет в боевой state.json (было
+    поймано на живом файле 27.09 — TK-001/TK-002 утекли в ticket_budget)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tickets_dir = Path(self.tmp.name) / "tickets"
-        self._orig = TK.TICKETS_DIR
+        self._orig_tickets_dir = TK.TICKETS_DIR
+        self._orig_state_file = D.STATE_FILE
         TK.TICKETS_DIR = self.tickets_dir
+        D.STATE_FILE = Path(self.tmp.name) / "state.json"
 
     def tearDown(self):
-        TK.TICKETS_DIR = self._orig
+        TK.TICKETS_DIR = self._orig_tickets_dir
+        D.STATE_FILE = self._orig_state_file
         self.tmp.cleanup()
 
     def test_start_moves_backlog_to_todo(self):
@@ -770,6 +906,39 @@ class TicketsCliStartTests(unittest.TestCase):
         TK.main(["new", "--owner", "judge", "--title", "Судейское"])
         tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
         self.assertEqual(tkt.reviewer, "")
+
+    def test_new_budget_flag_writes_state_not_header(self):
+        """v1.3: --budget пишет в state.json, НЕ в шапку тикета (роль бюджет не видит)."""
+        TK.main(["new", "--owner", "engineer", "--title", "Дорогая", "--budget", "L"])
+        path = T.list_tickets(self.tickets_dir)[0]
+        self.assertNotIn("budget_usd", T.read_ticket(path).header)
+        state = D.load_state()
+        self.assertEqual(D.ticket_budget_usd(state, path.stem), 25.0)
+
+    def test_new_default_budget_is_m(self):
+        TK.main(["new", "--owner", "researcher", "--title", "Обычная"])
+        path = T.list_tickets(self.tickets_dir)[0]
+        state = D.load_state()
+        self.assertEqual(D.ticket_budget_usd(state, path.stem), D.BUDGET_PRESETS["M"])
+
+    def test_new_budget_rejects_garbage(self):
+        rc = TK.main(["new", "--owner", "researcher", "--title", "Плохой бюджет", "--budget", "много"])
+        self.assertEqual(rc, 1)
+
+    def test_status_shows_spent_column_for_ceo(self):
+        TK.main(["new", "--owner", "engineer", "--title", "С тратами", "--budget", "S"])
+        path = T.list_tickets(self.tickets_dir)[0]
+        state = D.load_state()
+        D.add_ticket_cost(state, path.stem, 1.5)
+        D.save_state(state)
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            TK.main(["status"])
+        out = buf.getvalue()
+        self.assertIn("потрачено", out)
+        self.assertIn("$1.50/$3.00", out)
 
 
 class JudgeSimulationDecideTests(unittest.TestCase):
@@ -896,6 +1065,130 @@ class RateLimitAndBudgetTests(unittest.TestCase):
         D._add_cost(self.state, self.now, D.DAILY_COST_USD)
         tomorrow = self.now + timedelta(days=1)
         self.assertFalse(D._daily_budget_exceeded(self.state, tomorrow))
+
+
+class MoneyControlsTests(unittest.TestCase):
+    """v1.3 (владелец 27.09): модель/усилие, бюджет задачи, потолок запуска, часовое окно, холостой ход.
+    Чистые функции — без процессов и без сети; сквозные (--max-budget-usd, cost-фолбэк, blocked) — в
+    DispatchRunTests (test_launch_run_sets_model_effort_and_budget_cap, test_money_* ниже)."""
+
+    def setUp(self):
+        self.state = {}
+        self.now = dt("2026-09-27T12:00:00+04:00")
+        self.tmp = tempfile.TemporaryDirectory()
+        self._orig_inbox, self._orig_wake = D.CEO_INBOX, D.CEO_WAKE_LOG
+        D.CEO_INBOX = Path(self.tmp.name) / "ceo-inbox.md"
+        D.CEO_WAKE_LOG = Path(self.tmp.name) / "ceo-wake.log"
+
+    def tearDown(self):
+        D.CEO_INBOX, D.CEO_WAKE_LOG = self._orig_inbox, self._orig_wake
+        self.tmp.cleanup()
+
+    # --- п.1: модель/усилие ---
+
+    def test_role_effort_mapping(self):
+        self.assertEqual(D.ROLE_EFFORT["judge"], "xhigh")
+        self.assertEqual(D.ROLE_EFFORT["engineer"], "high")
+        self.assertEqual(D.ROLE_EFFORT["researcher"], "high")
+
+    def test_model_usage_warning_none_when_absent_or_empty(self):
+        self.assertIsNone(D._model_usage_warning({}))
+        self.assertIsNone(D._model_usage_warning({"modelUsage": {}}))
+        self.assertIsNone(D._model_usage_warning({"modelUsage": "not-a-dict"}))
+
+    def test_model_usage_warning_silent_for_opus_only(self):
+        self.assertIsNone(D._model_usage_warning({"modelUsage": {"claude-opus-5-5": {"cost": 1.2}}}))
+
+    def test_model_usage_warning_flags_non_opus(self):
+        warn = D._model_usage_warning({"modelUsage": {"fable-5-1": {"cost": 6.8}}})
+        self.assertIsNotNone(warn)
+        self.assertIn("fable-5-1", warn)
+
+    # --- п.2: бюджет задачи (только state.json — роли не видно) ---
+
+    def test_parse_budget_arg_presets_and_number(self):
+        self.assertEqual(D.parse_budget_arg("S"), 3.0)
+        self.assertEqual(D.parse_budget_arg("m"), 10.0)
+        self.assertEqual(D.parse_budget_arg("L"), 25.0)
+        self.assertEqual(D.parse_budget_arg("17.5"), 17.5)
+        with self.assertRaises(ValueError):
+            D.parse_budget_arg("не число")
+
+    def test_ticket_budget_default_is_m(self):
+        self.assertEqual(D.ticket_budget_usd(self.state, "TK-1"), D.BUDGET_PRESETS["M"])
+
+    def test_ticket_budget_set_and_spend(self):
+        D.set_ticket_budget(self.state, "TK-1", 5.0)
+        self.assertEqual(D.ticket_budget_usd(self.state, "TK-1"), 5.0)
+        self.assertFalse(D.ticket_budget_exceeded(self.state, "TK-1"))
+        D.add_ticket_cost(self.state, "TK-1", 3.0)
+        self.assertFalse(D.ticket_budget_exceeded(self.state, "TK-1"))
+        D.add_ticket_cost(self.state, "TK-1", 2.5)
+        self.assertTrue(D.ticket_budget_exceeded(self.state, "TK-1"))
+        self.assertAlmostEqual(D.ticket_cost_spent(self.state, "TK-1"), 5.5)
+
+    def test_ticket_budget_isolated_per_ticket(self):
+        D.set_ticket_budget(self.state, "TK-1", 3.0)
+        D.add_ticket_cost(self.state, "TK-2", 100.0)
+        self.assertFalse(D.ticket_budget_exceeded(self.state, "TK-1"))
+
+    def test_notify_ticket_budget_exceeded_sets_needs_owner(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = T.create_ticket(Path(d), owner="researcher", title="Дорогая")
+            D.set_ticket_budget(self.state, path.stem, 5.0)
+            D.add_ticket_cost(self.state, path.stem, 6.0)
+            D.notify_ticket_budget_exceeded(path, path.stem, self.state, self.now)
+            self.assertEqual(T.read_ticket(path).status, "needs_owner")
+            self.assertIn("бюджет задачи исчерпан", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_notify_ticket_budget_exceeded_silent_under_budget(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = T.create_ticket(Path(d), owner="researcher", title="Норм")
+            D.set_ticket_budget(self.state, path.stem, 5.0)
+            D.add_ticket_cost(self.state, path.stem, 1.0)
+            D.notify_ticket_budget_exceeded(path, path.stem, self.state, self.now)
+            self.assertEqual(T.read_ticket(path).status, "todo")
+            self.assertFalse(D.CEO_INBOX.exists())
+
+    def test_budget_proportionality_silent_under_80_percent(self):
+        D.set_ticket_budget(self.state, "TK-1", 10.0)
+        D.add_ticket_cost(self.state, "TK-1", 7.9)
+        D.notify_budget_proportionality("TK-1", self.state, self.now)
+        self.assertFalse(D.CEO_INBOX.exists())
+
+    def test_budget_proportionality_flags_at_80_percent(self):
+        D.set_ticket_budget(self.state, "TK-1", 10.0)
+        D.add_ticket_cost(self.state, "TK-1", 8.0)
+        D.notify_budget_proportionality("TK-1", self.state, self.now)
+        self.assertIn("проверить соразмерность", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_budget_proportionality_notifies_once(self):
+        D.set_ticket_budget(self.state, "TK-1", 10.0)
+        D.add_ticket_cost(self.state, "TK-1", 9.0)
+        D.notify_budget_proportionality("TK-1", self.state, self.now)
+        D.notify_budget_proportionality("TK-1", self.state, self.now)
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("проверить соразмерность"), 1)
+
+    # --- п.4: часовое окно по всем ролям ---
+
+    def test_hour_window_pauses_and_resumes(self):
+        D._record_cost_event(self.state, self.now, D.HOUR_COST_USD)
+        self.assertTrue(D._hour_budget_exceeded(self.state, self.now))
+        later = self.now + timedelta(hours=1, minutes=1)
+        self.assertFalse(D._hour_budget_exceeded(self.state, later), "час прошёл — окно очистилось")
+
+    def test_hour_window_sums_across_tickets(self):
+        D._record_cost_event(self.state, self.now, D.HOUR_COST_USD / 2)
+        D._record_cost_event(self.state, self.now + timedelta(minutes=1), D.HOUR_COST_USD / 2 + 0.01)
+        self.assertTrue(D._hour_budget_exceeded(self.state, self.now + timedelta(minutes=2)))
+
+    def test_notify_hour_budget_only_on_transition(self):
+        D._record_cost_event(self.state, self.now, D.HOUR_COST_USD)
+        self.assertTrue(D._notify_hour_budget(self.state, self.now))
+        inbox_after_first = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertTrue(D._notify_hour_budget(self.state, self.now))  # всё ещё превышено — без новой строки
+        inbox_after_second = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertEqual(inbox_after_first, inbox_after_second)
 
 
 class ContextTokensTests(unittest.TestCase):

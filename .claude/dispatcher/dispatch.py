@@ -49,6 +49,22 @@ MAX_RUNS_PER_TICKET_HOUR = int(os.environ.get("ALPHA_DISPATCH_MAX_RUNS_PER_TICKE
 MIN_GAP_S = float(os.environ.get("ALPHA_DISPATCH_MIN_GAP_S", "60"))
 DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 
+# Модель и перерасход (владелец 27.09, v1.2 — пилот Судьи на умолчаниях CLI стоил $6,8 на Fable 5.1
+# xhigh): модель и усилие теперь ВСЕГДА явно в команде запуска, не полагаемся на умолчание CLI.
+CLAUDE_MODEL = os.environ.get("ALPHA_DISPATCH_MODEL", "claude-opus-5-5")
+ROLE_EFFORT = {"judge": "xhigh", "engineer": "high", "researcher": "high"}
+
+# Потолок одного запуска (--max-budget-usd, встроенный флаг CLI) — min(остаток бюджета задачи, этот
+# потолок). Часовая скорость трат — скользящее окно 60 мин по ВСЕМ ролям сразу (не на роль/задачу).
+RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_RUN_CAP_USD", "8"))
+HOUR_COST_USD = float(os.environ.get("ALPHA_DISPATCH_HOUR_COST_USD", "15"))
+
+# Бюджет задачи (владелец 27.09, поправка: «запрещено добивать задачи до их бюджетов, раздувая
+# токены» — bюджет и траты живут ТОЛЬКО в state.json, роль их не видит ни в шапке тикета, ни в
+# промпте). `tickets.py new --budget S|M|L|<число>` пишет в state через set_ticket_budget().
+BUDGET_PRESETS = {"S": 3.0, "M": 10.0, "L": 25.0}
+DEFAULT_TICKET_BUDGET_USD = BUDGET_PRESETS["M"]
+
 ROLE_KEYS = ("researcher", "engineer", "judge")  # роли, которых диспетчер запускает; ceo — человек/CEO-сессия
 
 # Область сессии на роль (владелец 27.09): "ticket" — сессия на (задача, роль), --resume в пределах
@@ -70,10 +86,12 @@ ROTATE_TOKENS = int(os.environ.get("ALPHA_DISPATCH_ROTATE_TOKENS", "250000"))
 PROMPT_TEMPLATE = (
     "Ты — {role} команды alpha. Устав: .claude/roles/{role}.md, блокнот: .claude/roles/notes/{role}.md. "
     "Задача: .claude/tickets/{tid}.md. Лимит этого запуска — {timeout_min} мин; шаг длиннее — выноси в фон "
-    "(например systemd-run на Steam Deck) и ставь status: waiting + wait_for, не жди в сессии. Сделай следующий "
-    "шаг и допиши запись в «## Лог» (что сделал, что дальше) ДО истечения лимита — записанный частичный "
-    "прогресс не провал, диспетчер продолжит с него сам; обнови status/wait_for в шапке сама (не «todo», если "
-    "работа не закончена — иначе задача просто возьмётся в работу заново). Упоминай @роль, если нужен другой."
+    "(например systemd-run на Steam Deck) и ставь status: waiting + wait_for, не жди в сессии. Трать минимум: "
+    "самый короткий путь к результату задачи; траты каждого запуска записываются и сравниваются с "
+    "результатом. Сделай следующий шаг и допиши запись в «## Лог» (что сделал, что дальше) ДО истечения "
+    "лимита — записанный частичный прогресс не провал, диспетчер продолжит с него сам; обнови "
+    "status/wait_for в шапке сама (не «todo», если работа не закончена — иначе задача просто возьмётся в "
+    "работу заново). Упоминай @роль, если нужен другой."
 )
 
 RUNNING = {}  # tid -> {role, popen, pid, started, attempt, run_file, err_file, out_fh, err_fh, reason}
@@ -391,6 +409,111 @@ def _notify_budget_once(state: dict, now) -> None:
     notified["day"] = day
 
 
+def parse_budget_arg(raw: str) -> float:
+    """S|M|L или число долларов — для `tickets.py new --budget`."""
+    raw = (raw or "").strip().upper()
+    if raw in BUDGET_PRESETS:
+        return BUDGET_PRESETS[raw]
+    return float(raw)
+
+
+def set_ticket_budget(state: dict, tid: str, budget_usd) -> None:
+    state.setdefault("ticket_budget", {})[tid] = float(budget_usd)
+
+
+def ticket_budget_usd(state: dict, tid: str) -> float:
+    return state.get("ticket_budget", {}).get(tid, DEFAULT_TICKET_BUDGET_USD)
+
+
+def ticket_cost_spent(state: dict, tid: str) -> float:
+    return state.get("ticket_cost", {}).get(tid, 0.0)
+
+
+def add_ticket_cost(state: dict, tid: str, cost) -> None:
+    if not cost:
+        return
+    costs = state.setdefault("ticket_cost", {})
+    costs[tid] = round(costs.get(tid, 0.0) + float(cost), 6)
+
+
+def ticket_budget_exceeded(state: dict, tid: str) -> bool:
+    return ticket_cost_spent(state, tid) >= ticket_budget_usd(state, tid)
+
+
+def notify_ticket_budget_exceeded(path: Path, tid: str, state: dict, now) -> None:
+    """п.2: бюджет задачи исчерпан → новые запуски не стартуют, status: needs_owner, строка CEO."""
+    if not ticket_budget_exceeded(state, tid):
+        return
+    notified = state.setdefault("ceo_ticket_budget_notified", {})
+    if tid in notified:
+        return
+    spent = ticket_cost_spent(state, tid)
+    budget = ticket_budget_usd(state, tid)
+    T.write_header_updates(path, {"status": "needs_owner"}, now=now)
+    append_ceo_inbox(tid, "budget", f"бюджет задачи исчерпан: потрачено ${spent:.2f} из ${budget:.2f}", now)
+    notified[tid] = True
+
+
+def notify_budget_proportionality(tid: str, state: dict, now) -> None:
+    """Поправка владельца 27.09: при закрытии задачи (status: done) — если потрачено ≥ 80% бюджета,
+    строка CEO «проверить соразмерность» (один раз на первое достижение done)."""
+    notified = state.setdefault("ceo_budget_proportionality_notified", {})
+    if tid in notified:
+        return
+    notified[tid] = True
+    budget = ticket_budget_usd(state, tid)
+    if budget <= 0:
+        return
+    frac = ticket_cost_spent(state, tid) / budget
+    if frac >= 0.8:
+        spent = ticket_cost_spent(state, tid)
+        append_ceo_inbox(tid, "budget-check",
+                          f"закрыта на {frac:.0%} бюджета (${spent:.2f} из ${budget:.2f}) — проверить соразмерность",
+                          now)
+
+
+def _record_cost_event(state: dict, now, cost) -> None:
+    """Скользящее часовое окно по ВСЕМ ролям (п.4) — история (время, сумма), обрезаем с запасом."""
+    if not cost:
+        return
+    hist = state.setdefault("cost_history", [])
+    hist.append([T.now_iso(now), float(cost)])
+    cutoff = now - timedelta(hours=2)
+    state["cost_history"] = [e for e in hist if T.parse_dt(e[0]) > cutoff]
+
+
+def _rolling_hour_cost(state: dict, now) -> float:
+    cutoff = now - timedelta(hours=1)
+    return sum(c for t, c in state.get("cost_history", []) if T.parse_dt(t) > cutoff)
+
+
+def _hour_budget_exceeded(state: dict, now) -> bool:
+    return _rolling_hour_cost(state, now) >= HOUR_COST_USD
+
+
+def _notify_hour_budget(state: dict, now) -> bool:
+    """Возвращает, стоит ли пауза по скорости; пишет строку CEO только на переходе False → True."""
+    exceeded = _hour_budget_exceeded(state, now)
+    was_paused = state.get("hour_cost_paused", False)
+    if exceeded and not was_paused:
+        cost = _rolling_hour_cost(state, now)
+        append_ceo_inbox("*", "hour-budget", f"скорость трат — пауза: ${cost:.2f} за час ≥ ${HOUR_COST_USD}", now)
+    state["hour_cost_paused"] = exceeded
+    return exceeded
+
+
+def _model_usage_warning(result: dict) -> str:
+    """п.1: «проверь, что в JSON modelUsage только opus» — автоматическая, не разовая проверка:
+    если запуск использовал модель без "opus" в имени, несмотря на явный --model, строка CEO."""
+    usage = result.get("modelUsage")
+    if not isinstance(usage, dict) or not usage:
+        return None
+    bad = [m for m in usage if "opus" not in str(m).lower()]
+    if bad:
+        return f"modelUsage содержит не-opus модели ({', '.join(bad)}) при --model {CLAUDE_MODEL}"
+    return None
+
+
 def _pid_alive(pid, expect_name: str = None) -> bool:
     """Жив ли pid — и похож ли на наш `claude` (судья 27.09, «можно потом»): подстрочный поиск pid в
     `tasklist` ловил чужие совпадения (123 ⊂ 1234), а pid мог переиспользоваться ОС после перезагрузки
@@ -489,9 +612,18 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         extra_note = " ".join(x for x in (extra_note, rotate_note) if x)
 
     prompt = build_prompt(role, tid, extra_note)
-    cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions"]
+    remaining_budget = max(0.0, ticket_budget_usd(state, tid) - ticket_cost_spent(state, tid))
+    run_cap = min(remaining_budget, RUN_CAP_USD)
+    cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions",
+           "--model", CLAUDE_MODEL, "--effort", ROLE_EFFORT.get(role, "high"),
+           "--max-budget-usd", f"{run_cap:.2f}"]
     if sid:
         cmd += ["--resume", sid]
+
+    try:
+        status_at_launch = T.read_ticket(ticket_path).status
+    except Exception:
+        status_at_launch = None
 
     env = dict(os.environ)
     # Судья 27.09, п.4 «обязательно»: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID
@@ -509,6 +641,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     RUNNING[tid] = {
         "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
+        "run_cap_usd": run_cap, "status_at_launch": status_at_launch,
     }
     # last_woken — для дедупа правила (б) «упоминание»; всегда на (задачу, роль), не зависит от SESSION_SCOPE
     state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})["last_woken"] = T.now_iso(now)
@@ -517,6 +650,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     state.setdefault("active_runs", {})[tid] = {
         "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
         "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
+        "run_cap_usd": run_cap, "status_at_launch": status_at_launch,
     }
     save_state(state)
 
@@ -529,15 +663,20 @@ def _read_run_result(run_file: Path) -> dict:
         return {}
 
 
-def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool) -> None:
+def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool, resolved_cost: float,
+                      ticket_spent: float) -> None:
     RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
     usage = result.get("usage") or {}
-    cost = result.get("total_cost_usd", "-")
     status = "timeout" if timed_out else ("ok" if result else "no_output")
+    # cost_usd — реальный из JSON, если есть; ticket_spent — накоплено по ЭТОЙ задаче ПОСЛЕ этого запуска
+    # (поправка владельца 27.09: колонка «потрачено по задаче» — CEO видит её здесь и в tickets.py status,
+    # роль — нигде, бюджет ей не называем)
     line = (f"{T.now_iso(now)} {tid} {info['role']} reason={info.get('reason')} "
             f"attempt={info.get('attempt', 0)} session={result.get('session_id', '-')} "
-            f"cost_usd={cost} in_tok={usage.get('input_tokens', '-')} out_tok={usage.get('output_tokens', '-')} "
-            f"ctx_last={_context_tokens_last(result)} ctx_sum={_context_tokens_sum(usage)} status={status}\n")
+            f"cost_usd={result.get('total_cost_usd', '-')} resolved_cost={resolved_cost:.4f} "
+            f"ticket_spent={ticket_spent:.4f} in_tok={usage.get('input_tokens', '-')} "
+            f"out_tok={usage.get('output_tokens', '-')} ctx_last={_context_tokens_last(result)} "
+            f"ctx_sum={_context_tokens_sum(usage)} status={status}\n")
     with open(RUNS_LOG, "a", encoding="utf-8") as fh:
         fh.write(line)
 
@@ -550,8 +689,20 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
             pass
     state.setdefault("active_runs", {}).pop(tid, None)
     result = _read_run_result(info["run_file"])
-    _log_run_summary(tid, info, result, now, timed_out)
-    _add_cost(state, now, result.get("total_cost_usd"))
+
+    # Стоимость: реальная из JSON, а без него (убит по таймауту/вручную) — консервативно весь потолок
+    # ЭТОГО запуска (--max-budget-usd), а не 0 (владелец 27.09, п.3). Копится сразу в трёх местах:
+    # по дате (суточный потолок), по задаче (её бюджет) и в скользящем часовом окне (скорость).
+    raw_cost = result.get("total_cost_usd")
+    resolved_cost = float(raw_cost) if raw_cost is not None else float(info.get("run_cap_usd", 0.0) or 0.0)
+    _add_cost(state, now, resolved_cost)
+    add_ticket_cost(state, tid, resolved_cost)
+    _record_cost_event(state, now, resolved_cost)
+    _log_run_summary(tid, info, result, now, timed_out, resolved_cost, ticket_cost_spent(state, tid))
+
+    model_warn = _model_usage_warning(result)
+    if model_warn:
+        append_ceo_inbox(tid, "model", model_warn, now)
 
     role = info["role"]
     key = f"{tid}::{role}"
@@ -571,6 +722,23 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     # `logged` форсировалось в False при timed_out=True независимо от факта записи.
     logged = tkt.logged_since(role, info["started"])
     stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
+    status_changed = tkt.status != info.get("status_at_launch")
+
+    # Холостой ход (п.5, владелец 27.09): запуск стоил дороже половины бюджета задачи и не оставил ни
+    # записи, ни смены статуса — сразу blocked, без обычного одного повтора (повтор может сжечь
+    # ещё половину бюджета так же безрезультатно).
+    budget = ticket_budget_usd(state, tid)
+    if (not logged) and (not status_changed) and budget > 0 and resolved_cost > 0.5 * budget:
+        T.write_header_updates(path, {"status": "blocked"}, now=now)
+        T.append_log(path, "dispatcher",
+                     f"Запуск роли {role} стоил ${resolved_cost:.2f} (> половины бюджета задачи) и не "
+                     "оставил ни записи, ни смены статуса — холостой ход, задача заблокирована, нужен @ceo.",
+                     now=now)
+        sess["retries"] = 0
+        append_ceo_inbox(tid, "blocked", f"{role}: холостой ход, ${resolved_cost:.2f} без результата", now)
+        save_state(state)
+        return
+
     if logged and not stuck_todo:
         sess["retries"] = 0
         save_state(state)
@@ -588,6 +756,14 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
         if _daily_budget_exceeded(state, now):
             _notify_budget_once(state, now)
             append_ceo_inbox(tid, "budget", "повтор отложен — суточный потолок стоимости достигнут", now)
+            save_state(state)
+            return
+        if _hour_budget_exceeded(state, now):
+            append_ceo_inbox(tid, "hour-budget", "повтор отложен — часовая скорость трат исчерпана", now)
+            save_state(state)
+            return
+        if ticket_budget_exceeded(state, tid):
+            notify_ticket_budget_exceeded(path, tid, state, now)
             save_state(state)
             return
         launch_run(path, role, state, now, reason="retry", attempt=info.get("attempt", 0) + 1, extra_note=note)
@@ -631,6 +807,7 @@ def recover_active_runs(state: dict, now) -> None:
             "started": T.parse_dt(saved["started"]), "attempt": saved.get("attempt", 0),
             "run_file": Path(saved["run_file"]), "err_file": Path(saved.get("err_file") or ""),
             "out_fh": None, "err_fh": None, "reason": saved.get("reason", "recovered"),
+            "run_cap_usd": saved.get("run_cap_usd", 0.0), "status_at_launch": saved.get("status_at_launch"),
         }
         if _pid_alive(saved.get("pid")):
             RUNNING[tid] = info
@@ -651,6 +828,7 @@ def tick(now=None) -> int:
     budget_exceeded = _daily_budget_exceeded(state, now)
     if budget_exceeded:
         _notify_budget_once(state, now)
+    hour_exceeded = _notify_hour_budget(state, now)  # скорость трат по ВСЕМ ролям — п.4
 
     launched = 0
     for path in T.list_tickets(TICKETS_DIR):
@@ -663,15 +841,21 @@ def tick(now=None) -> int:
         handle_ceo_mentions(tkt, state, now)
         notify_status_for_ceo(tkt, state, now)
         notify_done_without_reviewer(tkt, state, now)
+        if tkt.status == "done":
+            notify_budget_proportionality(tkt.id, state, now)
 
         tid = tkt.id
+        ticket_over_budget = ticket_budget_exceeded(state, tid)
+        if ticket_over_budget:
+            notify_ticket_budget_exceeded(path, tid, state, now)  # п.2: needs_owner + строка CEO
+
         if tid in RUNNING or len(RUNNING) >= MAX_PARALLEL:
             continue
         decision = decide(tkt, state, now)
         if decision is None:
             continue
-        if budget_exceeded:
-            continue  # суточный потолок стоимости — новые запуски не стартуют
+        if budget_exceeded or hour_exceeded or ticket_over_budget:
+            continue  # суточный/часовой потолок или бюджет задачи — новые запуски не стартуют
         if _role_busy(decision.role):
             continue  # SESSION_SCOPE="role": у роли уже идёт другая задача — своей очереди ждём
         if _rate_limited(state, tid, now):
