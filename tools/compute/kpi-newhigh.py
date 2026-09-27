@@ -390,65 +390,74 @@ def _frac_gt_h_pair(ev, h_days):
     return r["aug"]["frac_gt_h"], r["sep"]["frac_gt_h"]
 
 
+_NO_RANGE = {"min": {"aug": None, "sep": None}, "max": {"aug": None, "sep": None}}
+
+
+def _frac_range(rests, h_days):
+    """Доли `frac_gt_h` по месяцам на каждом ряду-исключении → {"min": {aug, sep}, "max": {aug, sep}}. Минимум нужен
+    «не проходит» (Судья, возврат на b0f8097: остаётся > 0,10 при ЛЮБОМ исключении = минимум > 0,10), максимум —
+    «проходит» (остаётся ≤ 0,10 при любом = максимум ≤ 0,10). Месяц без долей — None."""
+    got = {"aug": [], "sep": []}
+    for rest in rests:
+        fa, fs = _frac_gt_h_pair(rest, h_days)
+        if fa is not None:
+            got["aug"].append(fa)
+        if fs is not None:
+            got["sep"].append(fs)
+    return {"min": {pk: (min(v) if v else None) for pk, v in got.items()},
+            "max": {pk: (max(v) if v else None) for pk, v in got.items()}}
+
+
 def stability_by_day(closes, h_days=H_DAYS):
     """Судья 3d3a5f6 п.2: убрать по очереди сделки одних календарных суток (UTC) из непрерывного счёта
-    «август+сентябрь», пересчитать долю `frac_gt_h` по месяцам; вернуть худший (максимум — риск не пройти) случай.
-    Пустой ряд или единственные сутки — доля не меняется (max = точка)."""
+    «август+сентябрь», пересчитать долю `frac_gt_h` по месяцам; вернуть размах по исключениям
+    {"min": {aug, sep}, "max": {aug, sep}} (возврат Судьи на b0f8097: прежде — только максимум)."""
     ev = sorted(closes)
     if not ev:
-        return {"aug": None, "sep": None}
+        return _NO_RANGE
     days = sorted({dt.datetime.fromtimestamp(t / 1000, dt.timezone.utc).date() for t, _ in ev})
-    worst = {"aug": 0.0, "sep": 0.0}
+    rests = []
     for day in days:
         d0 = int(dt.datetime.combine(day, dt.time(), tzinfo=dt.timezone.utc).timestamp() * 1000)
         d1 = d0 + 24 * 3_600_000
-        rest = [(t, p) for t, p in ev if not (d0 <= t < d1)]
-        fa, fs = _frac_gt_h_pair(rest, h_days)
-        if fa is not None:
-            worst["aug"] = max(worst["aug"], fa)
-        if fs is not None:
-            worst["sep"] = max(worst["sep"], fs)
-    return worst
+        rests.append([(t, p) for t, p in ev if not (d0 <= t < d1)])
+    return _frac_range(rests, h_days)
 
 
 def stability_by_symbol(closes, symbol_of, h_days=H_DAYS):
     """То же, по монетам (Судья 3d3a5f6 п.2). `symbol_of`: t1_ms → символ. Если карта не покрывает все закрытия ряда
-    целиком (другой вариант, другие сделки) — возвращается (None, None): «не проверено», а не число по обрезку."""
+    целиком (другой вариант, другие сделки) — возвращаются None: «не проверено», а не число по обрезку."""
     ev = sorted(closes)
     if not ev or any(t not in symbol_of for t, _ in ev):
-        return {"aug": None, "sep": None}
-    syms = {symbol_of[t] for t, _ in ev}
-    worst = {"aug": 0.0, "sep": 0.0}
-    for sym in syms:
-        rest = [(t, p) for t, p in ev if symbol_of[t] != sym]
-        fa, fs = _frac_gt_h_pair(rest, h_days)
-        if fa is not None:
-            worst["aug"] = max(worst["aug"], fa)
-        if fs is not None:
-            worst["sep"] = max(worst["sep"], fs)
-    return worst
+        return _NO_RANGE
+    syms = sorted({symbol_of[t] for t, _ in ev})
+    return _frac_range([[(t, p) for t, p in ev if symbol_of[t] != sym] for sym in syms], h_days)
 
 
 def verdict_kpi(base, stab_day, stab_sym):
     """Судья, третья сдача П-07 (`3d3a5f6`), правило 2: «проходит» — доля ≤ 0,10 в обоих месяцах и остаётся ≤ 0,10
-    без сделок любых одних суток и любой одной монеты; «не проходит» — > 0,10 хотя бы в одном месяце и остаётся
-    > 0,10 при тех же исключениях; иначе — «на границе». Подпись обязательна: суждение по точке на двух месяцах, не
-    статистика (бутстреп — справочная колонка отдельно, без порога). Монета — только если есть карта (иначе
-    устойчивость — по суткам одним, признак `sym_checked`)."""
-    def month_state(b, d, s):
+    без сделок любых одних суток и любой одной монеты (максимум по исключениям ≤ 0,10); «не проходит» — > 0,10 хотя
+    бы в одном месяце и остаётся > 0,10 при ЛЮБОМ из тех же исключений (минимум по исключениям > 0,10 — возврат
+    Судьи на b0f8097: прежде сравнивался максимум, и «не проходит» выходило почти автоматически); иначе — «на
+    границе». `stab_day`/`stab_sym` — размах {"min", "max"} из `stability_by_*`. Подпись обязательна: суждение по
+    точке на двух месяцах, не статистика (бутстреп — справочная колонка отдельно, без порога). Монета — только если
+    есть карта (иначе устойчивость — по суткам одним, признак `sym_checked`)."""
+    def month_state(pk):
+        b = base[pk]
         if b is None:
             return "нет данных", False
-        worst = d if d is not None else 0.0
-        sym_checked = s is not None
-        if sym_checked:
-            worst = max(worst, s)
-        if b <= PASS_FRAC and worst <= PASS_FRAC:
+        sym_checked = stab_sym["max"][pk] is not None
+        highs = [x for x in (stab_day["max"][pk], stab_sym["max"][pk]) if x is not None]
+        lows = [x for x in (stab_day["min"][pk], stab_sym["min"][pk]) if x is not None]
+        hi = max(highs) if highs else b
+        lo = min(lows) if lows else b
+        if b <= PASS_FRAC and hi <= PASS_FRAC:
             return "OK", sym_checked
-        if b > PASS_FRAC and worst > PASS_FRAC:
+        if b > PASS_FRAC and lo > PASS_FRAC:
             return "FAIL", sym_checked
         return "EDGE", sym_checked
-    st_aug, sc_aug = month_state(base["aug"], stab_day["aug"], stab_sym["aug"])
-    st_sep, sc_sep = month_state(base["sep"], stab_day["sep"], stab_sym["sep"])
+    st_aug, sc_aug = month_state("aug")
+    st_sep, sc_sep = month_state("sep")
     states = {"aug": st_aug, "sep": st_sep}
     if "нет данных" in states.values():
         v = "нет данных"
@@ -611,7 +620,9 @@ def main():
         stab_sym = stability_by_symbol(closes, symbol_of)
         v, states, note = verdict_kpi(base, stab_day, stab_sym)
         boot = bootstrap_share_le(closes)
-        res[n]["kpi07"] = {"frac": base, "n_main": n_main, "stability_day_max": stab_day, "stability_symbol_max": stab_sym,
+        res[n]["kpi07"] = {"frac": base, "n_main": n_main,
+                            "stability_day_max": stab_day["max"], "stability_symbol_max": stab_sym["max"],
+                            "stability_day_min": stab_day["min"], "stability_symbol_min": stab_sym["min"],
                             "states": states, "verdict": v, "note": note, "boot_le010": boot,
                             "n_trades_note": {pk: n_note(res[n][pk]["n"]) for pk in ("aug", "sep")}}
     json.dump({"definition": __doc__.split("\n\n")[1], "main": a.main, "n_rows": len(res), "n_pairs": len(pairs),
@@ -620,7 +631,7 @@ def main():
     print(f"рядов {len(res)} (смесей-среднее {len(pairs)}); плюс в обоих месяцах и сделок достаточно: {len(ok)}")
     print(f"главное (правило П-07, Судья 3d3a5f6): доля часов месяца с ожиданием перехая > H={H_HOURS / 24:.0f} сут "
           f"(без цензуры, t ≤ 24.09−H; n_main — число таких t); порог ≤ {PASS_FRAC:.2f} в обоих месяцах")
-    print("место | вариант | доля > H [авг(n_main) ; сен(n_main)] | вердикт (устойч. сутки/монета, макс. доля) | "
+    print("место | вариант | доля > H [авг(n_main) ; сен(n_main)] | вердикт (устойч. сутки/монета: мин–макс доли) | "
           "бутстреп ≤0,10 [авг;сен] | скользящий старт от максимума, дн (К-М, ⚠=цензура) [авг ; сен] | $ | сделок")
     d = lambda x: "—" if x is None else f"{x / 24:.1f}"
     star = lambda flag: "⚠" if flag else ""
@@ -632,10 +643,11 @@ def main():
                         f"{d(R_[pk]['max']['max'])}{star(R_[pk]['max']['max_censored'])} ({R_[pk]['max']['cens']})")
         k07 = r.get("kpi07")
         if k07:
-            sd = k07["stability_day_max"]
-            ss = k07["stability_symbol_max"]
-            sym_txt = f", мон {ss['aug']:.0%}/{ss['sep']:.0%}" if ss["aug"] is not None else ""
-            vtxt = f"{k07['verdict']} (сут {sd['aug']:.0%}/{sd['sep']:.0%}{sym_txt})"
+            rng = lambda lo, hi, pk: "—" if hi[pk] is None else f"{lo[pk]:.0%}–{hi[pk]:.0%}"
+            sd, sdl = k07["stability_day_max"], k07["stability_day_min"]
+            ss, ssl = k07["stability_symbol_max"], k07["stability_symbol_min"]
+            sym_txt = f", мон {rng(ssl, ss, 'aug')}/{rng(ssl, ss, 'sep')}" if ss["aug"] is not None else ""
+            vtxt = f"{k07['verdict']} (сут {rng(sdl, sd, 'aug')}/{rng(sdl, sd, 'sep')}{sym_txt})"
             boottxt = f"{k07['boot_le010']['aug']:.2f};{k07['boot_le010']['sep']:.2f}"
         else:
             vtxt = boottxt = "—"

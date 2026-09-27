@@ -119,10 +119,11 @@ def test_stability_by_day_worst_case_ge_point():
     ожидания нет вовсе -- частный случай), а необязательно совпадает с точкой."""
     s0 = kn.ms("2026-08-01")
     closes = [(s0 + kn.MS_H, 100.0), (s0 + 10 * 24 * kn.MS_H, 50.0)]
-    worst = kn.stability_by_day(closes, h_days=5)
+    rng = kn.stability_by_day(closes, h_days=5)
     base = kn.rolling_kpi(closes, h_days=5)
     # худший случай (максимум по исключениям) не может быть строго лучше точки -- исключать нечего в дни без сделок
-    assert worst["aug"] >= (base["aug"]["frac_gt_h"] or 0.0) - 1e-9
+    assert rng["max"]["aug"] >= (base["aug"]["frac_gt_h"] or 0.0) - 1e-9
+    assert rng["min"]["aug"] <= rng["max"]["aug"]
 
 
 def test_stability_by_symbol_no_map_returns_none():
@@ -131,28 +132,49 @@ def test_stability_by_symbol_no_map_returns_none():
     s0 = kn.ms("2026-08-01")
     closes = [(s0 + kn.MS_H, 100.0), (s0 + 2 * kn.MS_H, -30.0)]
     r = kn.stability_by_symbol(closes, {})
-    assert r == {"aug": None, "sep": None}
+    none = {"min": {"aug": None, "sep": None}, "max": {"aug": None, "sep": None}}
+    assert r == none
     r2 = kn.stability_by_symbol(closes, {s0 + kn.MS_H: "BTCUSDT"})  # покрыт только один из двух
-    assert r2 == {"aug": None, "sep": None}
+    assert r2 == none
     r3 = kn.stability_by_symbol(closes, {s0 + kn.MS_H: "BTCUSDT", s0 + 2 * kn.MS_H: "BTCUSDT"})  # покрыт, одна монета
-    assert r3["aug"] is not None
+    assert r3["max"]["aug"] is not None
+
+
+def _rng(lo, hi):
+    return {"min": lo, "max": hi}
+
+
+NONE2 = {"aug": None, "sep": None}
 
 
 def test_verdict_kpi_pass_fail_edge():
-    """Судья 3d3a5f6, правило 2: точка + устойчивость (без бутстреп-порога)."""
+    """Судья 3d3a5f6, правило 2: точка + устойчивость (без бутстреп-порога); «не проходит» — по минимуму."""
     ok = {"aug": 0.05, "sep": 0.05}
-    v, states, note = kn.verdict_kpi(ok, {"aug": 0.08, "sep": 0.09}, {"aug": 0.07, "sep": 0.08})
+    v, states, note = kn.verdict_kpi(ok, _rng({"aug": 0.01, "sep": 0.02}, {"aug": 0.08, "sep": 0.09}),
+                                     _rng({"aug": 0.03, "sep": 0.04}, {"aug": 0.07, "sep": 0.08}))
     assert v == "проходит" and states == {"aug": "OK", "sep": "OK"}
     bad = {"aug": 0.42, "sep": 0.15}
-    v2, states2, _ = kn.verdict_kpi(bad, {"aug": 0.5, "sep": 0.2}, {"aug": None, "sep": None})
+    v2, states2, _ = kn.verdict_kpi(bad, _rng({"aug": 0.3, "sep": 0.12}, {"aug": 0.5, "sep": 0.2}), _rng(NONE2, NONE2))
     assert v2 == "не проходит"
     edge = {"aug": 0.12, "sep": 0.05}
-    v3, states3, _ = kn.verdict_kpi(edge, {"aug": 0.08, "sep": 0.06}, {"aug": None, "sep": None})
-    # база > 0,10 в августе, но устойчивость (макс. по исключениям) опускает <= 0,10 -- не FAIL и не OK -> граница
+    v3, states3, _ = kn.verdict_kpi(edge, _rng({"aug": 0.08, "sep": 0.03}, {"aug": 0.15, "sep": 0.06}), _rng(NONE2, NONE2))
+    # база > 0,10 в августе, но одно из исключений опускает <= 0,10 (минимум 0,08) -- не FAIL и не OK -> граница
     assert v3 == "на границе" and states3["aug"] == "EDGE"
     none_case = {"aug": None, "sep": 0.05}
-    v4, _, _ = kn.verdict_kpi(none_case, {"aug": None, "sep": 0.0}, {"aug": None, "sep": None})
+    v4, _, _ = kn.verdict_kpi(none_case, _rng({"aug": None, "sep": 0.0}, {"aug": None, "sep": 0.0}), _rng(NONE2, NONE2))
     assert v4 == "нет данных"
+
+
+def test_verdict_kpi_fail_needs_min_not_max():
+    """Возврат Судьи на b0f8097: П-05 a45-u25k — точка авг 0,16, без одних суток 0,09–0,38. По максимуму (прежний
+    код) выходило «не проходит»; по правилу — минимум 0,09 <= 0,10 -> «на границе»."""
+    base = {"aug": 0.16, "sep": 0.0}
+    v, states, _ = kn.verdict_kpi(base, _rng({"aug": 0.09, "sep": 0.0}, {"aug": 0.38, "sep": 0.30}), _rng(NONE2, NONE2))
+    assert v == "на границе" and states == {"aug": "EDGE", "sep": "EDGE"}
+    # монета опускает до порога, сутки нет -- всё равно граница (минимум по всем исключениям)
+    v2, _, _ = kn.verdict_kpi({"aug": 0.45, "sep": 0.05}, _rng({"aug": 0.15, "sep": 0.0}, {"aug": 0.74, "sep": 0.08}),
+                              _rng({"aug": 0.10, "sep": 0.01}, {"aug": 0.6, "sep": 0.07}))
+    assert v2 == "на границе"
 
 
 def test_drawdown_stats_sensitivity_and_episode_list_present():

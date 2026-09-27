@@ -463,6 +463,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const nhFor = (period, key) => (NH && NH.by_variant[key] && NH.by_variant[key][period]) || null;
   // вердикт П-07 (Судья 3d3a5f6) — не по периоду, один на вариант (оба месяца сразу)
   const kpi07For = key => (NH && NH.by_variant[key] && NH.by_variant[key].kpi07) || null;
+  // размах доли по исключениям (возврат Судьи на b0f8097); старые данные без *_min — только максимум
+  const rng07 = (lo, hi, pk) => (lo && lo[pk] != null ? pct0(lo[pk]) + "–" : "до ") + pct0(hi[pk]);
   // основное определение с 27.09 (CEO, на проверке у Судьи): скользящий старт по непрерывному счёту; «авг + сен» — худший месяц
   function rollFor(period, key) {
     const one = pk => { const x = nhFor(pk, key); return x && x.roll ? {...x.roll.max, start: x.roll.start, hist: x.roll_hist, month: pk} : null; };
@@ -663,9 +665,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       const gtxt = "авг " + pct0(gt.frac.aug) + " (" + gt.n_main.aug + " ч) · сен " + pct0(gt.frac.sep) + " (" + gt.n_main.sep + " ч)";
       tiles.unshift(["Доля часов ожидания > 5 сут (П-07)", gv, null, "first",
         "Правило владельца «p90 ≤ 5 суток» (принято Судьёй " + "3d3a5f6" + "): доля часов месяца, для которых точно известно (без цензуры, t ≤ 19.09), что ждать нового максимума счёта дольше 5 суток — должна быть ≤ 0,10 в обоих месяцах. " +
-        gtxt + " · " + gt.note + ". «Проходит» — держится и без сделок любых одних суток (худший случай сут " +
-        pct0(gt.stability_day_max.aug) + "/" + pct0(gt.stability_day_max.sep) + ")" +
-        (gt.stability_symbol_max.aug != null ? " и без любой одной монеты (мон " + pct0(gt.stability_symbol_max.aug) + "/" + pct0(gt.stability_symbol_max.sep) + ")" : " (по монете не проверено — нет карты символов у этого ряда)") +
+        gtxt + " · " + gt.note + ". «Проходит» — доля ≤ 0,10 и без сделок любых одних суток и любой одной монеты (максимум по исключениям ≤ 0,10); «не проходит» — > 0,10 и остаётся > 0,10 при любом исключении (минимум > 0,10); иначе «на границе». Без одних суток, мин–макс: сут " +
+        rng07(gt.stability_day_min, gt.stability_day_max, "aug") + " / " + rng07(gt.stability_day_min, gt.stability_day_max, "sep") +
+        (gt.stability_symbol_max.aug != null ? "; без одной монеты: мон " + rng07(gt.stability_symbol_min, gt.stability_symbol_max, "aug") + " / " + rng07(gt.stability_symbol_min, gt.stability_symbol_max, "sep") : " (по монете не проверено — нет карты символов у этого ряда)") +
         ". Бутстреп «доля выборок ≤ 0,10» — справочно, без порога: авг " + gt.boot_le010.aug.toFixed(2) + " / сен " + gt.boot_le010.sep.toFixed(2) +
         ". Отбор по той же мере на тех же днях, что и подбор варианта, — не проверка на новых данных."]);
     }
