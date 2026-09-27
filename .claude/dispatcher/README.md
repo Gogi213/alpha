@@ -54,9 +54,13 @@
 `ALPHA_DISPATCH_SESSION_SCOPE=judge:role,engineer:ticket`). `"ticket"` — `--resume` в пределах
 (задача, роль), как раньше. `"role"` — одна долгая сессия роли на все задачи; диспетчер не запускает
 вторую задачу такой роли, пока не закончена текущая (задачи — по очереди). **Ротация:** если контекст
-прошлого запуска роли (`input + cache_read + cache_creation` из `usage`) превысил `ROTATE_TOKENS`
-(умолч. 250 000, `ALPHA_DISPATCH_ROTATE_TOKENS`) — следующий запуск идёт без `--resume`, в промпт
-добавляется просьба перечитать блокнот и `docs/research/reviews/` по нужной задаче.
+**последнего хода** прошлого запуска роли превысил `ROTATE_TOKENS` (умолч. 250 000,
+`ALPHA_DISPATCH_ROTATE_TOKENS`) — следующий запуск идёт без `--resume`, в промпт добавляется просьба
+перечитать блокнот и `docs/research/reviews/` по нужной задаче. `usage` в JSON `claude -p` — сумма
+`input + cache_read + cache_creation` по ВСЕМ ходам запуска, не одного хода (CEO 27.09, живой прогон:
+сумма 333 886 при реальном контексте хода ~52 тыс.) — контекст последнего хода
+(`_context_tokens_last`) берётся из `usage.iterations[-1]`, а без неё — оценкой `сумма // num_turns`;
+оба числа видны в `runs.log` (`ctx_last=`/`ctx_sum=`).
 
 ## Запуск
 

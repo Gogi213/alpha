@@ -236,10 +236,34 @@ def _resume_store(state: dict, tid: str, role: str) -> dict:
     return state.setdefault("ticket_sessions", {}).setdefault(f"{tid}::{role}", {})
 
 
-def _context_tokens(usage: dict) -> int:
-    usage = usage or {}
-    return (int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0) +
-            int(usage.get("cache_creation_input_tokens") or 0))
+def _tokens_of(d: dict) -> int:
+    d = d or {}
+    return (int(d.get("input_tokens") or 0) + int(d.get("cache_read_input_tokens") or 0) +
+            int(d.get("cache_creation_input_tokens") or 0))
+
+
+def _context_tokens_sum(usage: dict) -> int:
+    """Сумма input+cache_read+cache_creation по ВСЕМУ usage из JSON `claude -p` — это сумма по всем
+    ходам запуска, не контекст одного хода (см. _context_tokens_last). Для runs.log (ctx_sum=)."""
+    return _tokens_of(usage)
+
+
+def _context_tokens_last(result: dict) -> int:
+    """Контекст, который реально понесёт следующий `--resume` — последний ход ЭТОГО запуска, не сумма
+    по всем его ходам: usage в JSON claude -p суммирует по ходам, и на многоходовом запуске это
+    завышает контекст в разы, рвя ротацию раньше времени (CEO 27.09, живой прогон: ctx_sum=333 886
+    при реальном контексте хода ~52 тыс.). usage.iterations[-1] — контекст последнего хода; нет
+    iterations — запасной вариант ctx_sum // num_turns."""
+    usage = result.get("usage") or {}
+    iterations = usage.get("iterations")
+    if isinstance(iterations, list) and iterations:
+        return _tokens_of(iterations[-1])
+    total = _context_tokens_sum(usage)
+    try:
+        num_turns = int(result.get("num_turns") or 1) or 1
+    except (TypeError, ValueError):
+        num_turns = 1
+    return total // num_turns
 
 
 def _role_busy(role: str) -> bool:
@@ -419,7 +443,7 @@ def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool) -
     line = (f"{T.now_iso(now)} {tid} {info['role']} reason={info.get('reason')} "
             f"attempt={info.get('attempt', 0)} session={result.get('session_id', '-')} "
             f"cost_usd={cost} in_tok={usage.get('input_tokens', '-')} out_tok={usage.get('output_tokens', '-')} "
-            f"ctx_tok={_context_tokens(usage)} status={status}\n")
+            f"ctx_last={_context_tokens_last(result)} ctx_sum={_context_tokens_sum(usage)} status={status}\n")
     with open(RUNS_LOG, "a", encoding="utf-8") as fh:
         fh.write(line)
 
@@ -441,7 +465,7 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     store = _resume_store(state, tid, role)  # session_id/токены — по SESSION_SCOPE[role]
     if result.get("session_id"):
         store["session_id"] = result["session_id"]
-    store["last_context_tokens"] = _context_tokens(result.get("usage"))
+    store["last_context_tokens"] = _context_tokens_last(result)  # контекст последнего хода, не сумма по ходам
 
     path = TICKETS_DIR / f"{tid}.md"
     if not path.exists():

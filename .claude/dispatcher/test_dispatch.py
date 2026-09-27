@@ -254,7 +254,8 @@ if "## Лог" not in text:
 text += f"\n### 2099-01-01T00:00:00+04:00 {role}\nШаг. status: done.\n"
 path.write_text(text, encoding="utf-8")
 ctx = int(os.environ.get("FAKE_CTX_TOKENS", "10"))
-print(json.dumps({"session_id": f"sess-{role}-{tid}", "total_cost_usd": 0.01,
+turns = int(os.environ.get("FAKE_NUM_TURNS", "1"))
+print(json.dumps({"session_id": f"sess-{role}-{tid}", "total_cost_usd": 0.01, "num_turns": turns,
                    "usage": {"input_tokens": ctx}}))
 """
 
@@ -465,6 +466,32 @@ class DispatchRunTests(unittest.TestCase):
         self.assertIn("Начинаем новую сессию", calls[1]["prompt"])
         self.assertIn(".claude/roles/notes/judge.md", calls[1]["prompt"])
 
+    def test_multiturn_run_does_not_rotate_on_summed_usage(self):
+        """CEO 27.09: usage — сумма по ходам запуска. Многоходовой прогон с большой суммой, но
+        нормальным контекстом последнего хода, НЕ должен рвать долгую сессию (раньше рвал — баг)."""
+        self.set_fake_bin(FAKE_BIN_RECORD)
+        # сумма по 5 ходам (≈ 1,25×порога) за порогом, но на ход — четверть порога, сильно меньше
+        per_turn = D.ROTATE_TOKENS // 4
+        os.environ["FAKE_CTX_TOKENS"] = str(per_turn * 5)
+        os.environ["FAKE_NUM_TURNS"] = "5"
+        self.assertGreater(per_turn * 5, D.ROTATE_TOKENS, "сумма должна была бы превышать порог")
+        self.assertLess(per_turn, D.ROTATE_TOKENS, "а контекст хода — нет")
+        self.addCleanup(lambda: os.environ.pop("FAKE_CTX_TOKENS", None))
+        self.addCleanup(lambda: os.environ.pop("FAKE_NUM_TURNS", None))
+        T.create_ticket(self.tickets_dir, owner="judge", title="Проверка A")
+        T.create_ticket(self.tickets_dir, owner="judge", title="Проверка B")
+
+        D.tick()
+        self.wait_running()
+        D.tick()
+        self.wait_running()
+
+        calls = [json.loads(l) for l in (self.tickets_dir.parent / "calls.jsonl").read_text(encoding="utf-8")
+                 .splitlines()]
+        self.assertEqual(len(calls), 2)
+        self.assertIsNotNone(calls[1]["resumed"], "контекст ХОДА не превышен — сессия должна продолжиться")
+        self.assertNotIn("Начинаем новую сессию", calls[1]["prompt"])
+
     def test_stuck_todo_after_log_retries_then_blocks(self):
         """v1.1: лог есть, но status остался todo — тоже ошибка роли (повтор → blocked)."""
         self.set_fake_bin(FAKE_BIN_STUCK_TODO)
@@ -663,6 +690,56 @@ class RateLimitAndBudgetTests(unittest.TestCase):
         D._add_cost(self.state, self.now, D.DAILY_COST_USD)
         tomorrow = self.now + timedelta(days=1)
         self.assertFalse(D._daily_budget_exceeded(self.state, tomorrow))
+
+
+class ContextTokensTests(unittest.TestCase):
+    """v1.1 (CEO 27.09): usage в JSON `claude -p` — сумма по всем ходам запуска, не контекст одного
+    хода. Ротация должна смотреть на последний ход (usage.iterations[-1] или ctx_sum // num_turns),
+    иначе долгий многоходовый запуск рвёт долгую сессию сразу же (живой прогон: ctx_sum=333886 при
+    реальном контексте хода ~52 тыс.)."""
+
+    def test_sum_is_plain_total_of_usage_dict(self):
+        usage = {"input_tokens": 100, "cache_read_input_tokens": 200, "cache_creation_input_tokens": 50}
+        self.assertEqual(D._context_tokens_sum(usage), 350)
+        self.assertEqual(D._context_tokens_sum(None), 0)
+
+    def test_last_uses_final_iteration_when_present(self):
+        result = {
+            "num_turns": 3,
+            "usage": {
+                "input_tokens": 300, "cache_read_input_tokens": 300_000, "cache_creation_input_tokens": 33_586,
+                "iterations": [
+                    {"input_tokens": 50, "cache_read_input_tokens": 10_000, "cache_creation_input_tokens": 20_000},
+                    {"input_tokens": 60, "cache_read_input_tokens": 15_000, "cache_creation_input_tokens": 5_000},
+                    {"input_tokens": 162, "cache_read_input_tokens": 50_000, "cache_creation_input_tokens": 2_000},
+                ],
+            },
+        }
+        # контекст последнего хода — только третья итерация, не сумма usage целиком (333 886)
+        self.assertEqual(D._context_tokens_last(result), 162 + 50_000 + 2_000)
+        self.assertEqual(D._context_tokens_sum(result["usage"]), 300 + 300_000 + 33_586)
+
+    def test_last_falls_back_to_sum_over_num_turns_without_iterations(self):
+        # живой смоук 27.09 (без iterations в реальном выводе на тот момент): ctx_sum=333886, ходов не 1
+        result = {"num_turns": 5, "usage": {"input_tokens": 162, "cache_read_input_tokens": 300_000,
+                                             "cache_creation_input_tokens": 33_724}}
+        total = D._context_tokens_sum(result["usage"])
+        self.assertEqual(D._context_tokens_last(result), total // 5)
+        self.assertLess(D._context_tokens_last(result), total)  # не завышен суммой всех ходов
+
+    def test_last_falls_back_to_sum_when_num_turns_missing_or_zero(self):
+        result = {"usage": {"input_tokens": 100}}
+        self.assertEqual(D._context_tokens_last(result), 100)
+        result_zero = {"num_turns": 0, "usage": {"input_tokens": 100}}
+        self.assertEqual(D._context_tokens_last(result_zero), 100)  # 0 ходов — не делить на ноль
+
+    def test_last_handles_empty_result(self):
+        self.assertEqual(D._context_tokens_last({}), 0)
+
+    def test_single_turn_run_sum_equals_last(self):
+        """Однократный запуск (как в большинстве фейковых тестов) — сумма и последний ход совпадают."""
+        result = {"usage": {"input_tokens": 250_001}}
+        self.assertEqual(D._context_tokens_last(result), D._context_tokens_sum(result["usage"]))
 
 
 class DeckSshTests(unittest.TestCase):
