@@ -26,6 +26,7 @@ age в имени `t-bid-btc4h-q1` было бы неуникально) пер�
     python3 p07-cells.py --status                         # сколько клетка-суток осталось
     python3 p07-cells.py --submit                          # положить весь остаток в gridq (сигнал владельца/CEO нужен)
     python3 p07-cells.py --submit --only-day 2026-08-03    # одни сутки (проверка)
+    python3 p07-cells.py --submit --only-day 2026-08-03 --check-base   # проба: + база Г-85а в p07a-base-recheck (сверка побайтно)
     python3 p07-cells.py --submit --mem-normal-gb 2.5 --mem-big-gb 6   # переопределить резерв (CEO 27.09: гейт дал пик 1,9 ГБ на 03.08 — 2500/6144 МБ достаточно с запасом, не 6144 всегда)
 """
 import os
@@ -33,7 +34,7 @@ import subprocess
 import sys
 
 A = os.path.expanduser("~/alpha")
-BIN = "bin/alpha-cda9acd"
+BIN = "bin/alpha-e74f200-v3"  # T-38 принят Судьёй `2b93ed7` (TK-004)
 CELLS_DIR = f"{A}/tmp-p07/cells-by-day"
 
 HOMES = [
@@ -57,12 +58,14 @@ RTT = ("--median-rtt-ns place=4200000,cancel=3980000,taker=5650000 "
        "--p95-rtt-ns place=4790000,cancel=4550000,taker=6420000")
 COMMON = (f"--signal approach --queue-model prob:3 {RTT} --regime-from study/regime "
           "--order-usd 500 --carry-root root --h3-mode notional --h3-usd 10000 "
-          "--entry-ttl-secs 1800 --band-exit-bps 20 --busy-skip off --threads 1")
+          "--entry-ttl-secs 1800 --band-exit-bps 20 --busy-skip off --threads 1 "
+          "--hold-step skip --exit-group on")
 
 BASE_SPEC = "age=2700,side=bid,btc4h_max=-44.55"
 BASE_SET = "t-bid-btc4h-q1"
+SIGMA_FROM = f"{A}/study/sigma240"  # В-131: σ₂₄₀ₘᵢₙ на взводе (`sigma-table.py`)
 
-# П-04 на Г-85а (П-07 §13 поправка 2): 3 режима W50/B0 + для каждого 3 соседа W90/B0, W50/B10, W30/B0.
+# П-04 на Г-85а/Г-85б (П-07 §13 поправка 2): 3 режима W50/B0 + для каждого 3 соседа W90/B0, W50/B10, W30/B0.
 EXITS = [
     "gone50wall0", "gone50wallx0", "gone50wallk0",
     "gone90wall0", "gone90wallx0", "gone90wallk0",
@@ -70,89 +73,111 @@ EXITS = [
     "gone30wall0", "gone30wallx0", "gone30wallk0",
 ]
 
+# Г-85а — `single@fr` (имя формы без поля входа); Г-85б — σ-лестница В-131 (П-07 поправка 4), k = k₀ × {1/3, 2/3, 1, 5/3}.
+ENTRY_A = "single@fr"
+ENTRY_B = "ladder3x0..0.0409sw2"
+ENTRY_B_H2 = ["ladder3x0..0.0136sw2", "ladder3x0..0.0273sw2", "ladder3x0..0.0682sw2"]
 
-def static_cells():
-    """(out_name, form_label, call_set_name, call_set_spec, canonical_subdir) — одни и те же для
-    всех 54 суток (H6 новые, H13=П-04, H8, H4, H5); H3 недостающее — h3_cells(), по суткам."""
-    c = []
-    c.append(("h6-at", "at-tr1x1-14400-ttl1800", BASE_SET, BASE_SPEC, BASE_SET))
-    c.append(("h6-behind", "behind-tr1x1-14400-ttl1800", BASE_SET, BASE_SPEC, BASE_SET))
-    for e in EXITS:
-        c.append((f"h13-{e}", f"pct2-tr1x1-14400-ttl1800-{e}", BASE_SET, BASE_SPEC, BASE_SET))
-    c.append(("h8-3600", "pct2-tr1x1-3600-ttl1800", BASE_SET, BASE_SPEC, BASE_SET))
-    c.append(("h8-7200", "pct2-tr1x1-7200-ttl1800", BASE_SET, BASE_SPEC, BASE_SET))
-    for v in (900, 1800, 3600, 5400):
-        c.append((f"h4-{v}", "pct2-tr1x1-14400-ttl1800", f"h4-{v}",
-                   f"age={v},side=bid,btc4h_max=-44.55", BASE_SET))
-    c.append(("h5-btc1h", "pct2-tr1x1-14400-ttl1800", "t-bid-btc1h-q1",
-              "age=2700,side=bid,btc1h_max=-21.17", "t-bid-btc1h-q1"))
-    c.append(("h5-btc2h", "pct2-tr1x1-14400-ttl1800", "t-bid-btc2h-q1",
-              "age=2700,side=bid,btc2h_max=-30.56", "t-bid-btc2h-q1"))
-    c.append(("h5-btc3h", "pct2-tr1x1-14400-ttl1800", "t-bid-btc3h-q1",
-              "age=2700,side=bid,btc3h_max=-38.75", "t-bid-btc3h-q1"))
+H5_SETS = [
+    ("btc1h", "t-bid-btc1h-q1", "age=2700,side=bid,btc1h_max=-21.17"),
+    ("btc2h", "t-bid-btc2h-q1", "age=2700,side=bid,btc2h_max=-30.56"),
+    ("btc3h", "t-bid-btc3h-q1", "age=2700,side=bid,btc3h_max=-38.75"),
+]
+
+
+def cell(outdir, entry, stop="pct2", take="tr1x1", dl=14400, exit_form="none",
+         set_name=BASE_SET, spec=BASE_SPEC, canon=BASE_SET):
+    """Клетка: (каталог b5/<outdir>, вход, стоп, тейк, дедлайн, выход, набор CLI, спец набора, имя подпапки)."""
+    return (outdir, entry, stop, take, dl, exit_form, set_name, spec, canon)
+
+
+def label(c):
+    """Имя формы в rounds/forms/signals.csv — как `grid_forms_with_axes` + `form_label_with_entry`."""
+    _o, entry, stop, take, dl, ex, *_ = c
+    base = f"{stop}-{take}-{dl}" if entry == ENTRY_A else f"{entry}-{stop}-{take}-{dl}"
+    base += "-ttl1800"
+    return base if ex == "none" else f"{base}-{ex}"
+
+
+def axes_1d(prefix, entry, stops):
+    """Одномерные оси §13 от базы варианта (H3–H8, H13); H3 у каждого варианта — $25k/$50k/$100k."""
+    c = [cell(f"{prefix}-h6-{s}", entry, stop=s) for s in stops]
+    c += [cell(f"{prefix}-h13-{e}", entry, exit_form=e) for e in EXITS]
+    c += [cell(f"{prefix}-h8-{d}", entry, dl=d) for d in (3600, 7200)]
+    c += [cell(f"{prefix}-h4-{v}", entry, set_name=f"h4-{v}",
+               spec=f"age={v},side=bid,btc4h_max=-44.55") for v in (900, 1800, 3600, 5400)]
+    c += [cell(f"{prefix}-h5-{n}", entry, set_name=s, spec=sp, canon=s) for n, s, sp in H5_SETS]
+    c += [cell(f"{prefix}-h3-{v}", entry, set_name=f"h3-{v}",
+               spec=f"{BASE_SPEC},usd_min={v}") for v in (25000, 50000, 100000)]
     return c
 
 
-def h3_cells():
-    return [
-        ("h3-50000", "pct2-tr1x1-14400-ttl1800", "h3-50000",
-         "age=2700,side=bid,btc4h_max=-44.55,usd_min=50000", BASE_SET),
-        ("h3-100000", "pct2-tr1x1-14400-ttl1800", "h3-100000",
-         "age=2700,side=bid,btc4h_max=-44.55,usd_min=100000", BASE_SET),
-    ]
+def all_cells():
+    """TK-004: остаток Г-85а (ступень 3 + H6 at/behind + H13) и Г-85б целиком (база + H2–H8, H13).
+    Г-85а база, H6 pct1.5/pct3/before, H7, H2, h3-25000 — уже посчитаны (`.done`) и не пересчитываются."""
+    a = axes_1d("p07a", ENTRY_A, ["at", "behind"])
+    a = [c for c in a if c[0] != "p07a-h3-25000"]
+    b = [cell("p07b-base", ENTRY_B)]
+    b += [cell(f"p07b-h2-{e.split('..')[1][:-3]}", e) for e in ENTRY_B_H2]
+    b += axes_1d("p07b", ENTRY_B, ["pct1.5", "pct3", "before", "at", "behind"])
+    b += [cell(f"p07b-h7-{t}", ENTRY_B, take=t) for t in ("tr1.5x1", "tr1x1.5", "tr2x1", "1to1")]
+    return a + b
 
 
 def day_done(home, out_name, day):
-    return os.path.exists(f"{home}/b5/p07a-{out_name}/{day}/.done")
+    return os.path.exists(f"{home}/b5/{out_name}/{day}/.done")
 
 
-def remaining_for_day(home, day):
-    cells = [c for c in static_cells() if not day_done(home, c[0], day)]
-    cells += [c for c in h3_cells() if not day_done(home, c[0], day)]
+def remaining_for_day(home, day, check_base=False):
+    cells = [c for c in all_cells() if not day_done(home, c[0], day)]
+    if check_base and cells:
+        # Сверка метода: база Г-85а уже есть — пересчитать её в этом же вызове в p07a-base-recheck и сравнить побайтно.
+        cells.append(cell("p07a-base-recheck", ENTRY_A))
     return cells
 
 
 def build_job(bname, home, day, cells):
     os.makedirs(CELLS_DIR, exist_ok=True)
-    stops = sorted({"pct2", "at", "behind"})
-    exits_present = sorted({c[1].split("-ttl1800-", 1)[1] for c in cells if "-ttl1800-" in c[1]})
-    sets_needed = {(c[2], c[3]) for c in cells}
+    uniq = lambda i: sorted({c[i] for c in cells}, key=str)
+    sets_needed = sorted({(c[6], c[7]) for c in cells})
 
     cells_path = f"{CELLS_DIR}/{bname}-{day}.txt"
     with open(cells_path, "w", newline="\n") as f:
         for c in cells:
-            f.write(f"{c[1]} {c[2]}\n")
+            f.write(f"{label(c)} {c[6]}\n")
 
-    axes = ["--entry-form single@fr"]
-    for s in stops:
-        axes.append(f"--stop-form {s}")
-    axes.append("--take-form tr1x1")
-    for d in (3600, 7200, 14400):
-        axes.append(f"--deadline-secs {d}")
-    axes.append("--exit-form none")
-    for e in exits_present:
-        axes.append(f"--exit-form {e}")
-    for name, spec in sorted(sets_needed):
-        axes.append(f"--set {name}:{spec}")
+    axes = [f"--entry-form {e}" for e in uniq(1)]
+    axes += [f"--stop-form {s}" for s in uniq(2)]
+    axes += [f"--take-form {t}" for t in uniq(3)]
+    axes += [f"--deadline-secs {d}" for d in uniq(4)]
+    axes += [f"--exit-form {e}" for e in uniq(5)]
+    axes += [f"--set {n}:{s}" for n, s in sets_needed]
+    if any(e != ENTRY_A for e in uniq(1)):
+        axes.append(f"--sigma-from {SIGMA_FROM}")
     axes_str = " ".join(axes)
 
     out_rel = f"b5/.cellstmp-{day}"
     split_lines = []
-    for out_name, label, set_name, _spec, canon in cells:
-        dest = f"b5/p07a-{out_name}/{day}"
+    for c in cells:
+        out_name, set_name, canon = c[0], c[6], c[8]
+        dest = f"b5/{out_name}/{day}"
         split_lines.append(f'mkdir -p "{dest}/{canon}"')
         for f in ("rounds.csv", "forms.csv", "signals.csv"):
             split_lines.append(
-                f'awk -F, -v f="{label}" \'NR==1 || $3==f\' {out_rel}/{set_name}/{f} '
+                f'awk -F, -v f="{label(c)}" \'NR==1 || $3==f\' {out_rel}/{set_name}/{f} '
                 f'> "{dest}/{canon}/{f}"'
             )
+        # имя формы не совпало — forms.csv без строк: стоп, а не пустая клетка с `.done`
+        split_lines.append(f'[ "$(wc -l < "{dest}/{canon}/forms.csv")" -ge 2 ] || '
+                           f'{{ echo "нет формы {label(c)} в {set_name}" >&2; exit 3; }}')
         split_lines.append(f'touch "{dest}/.done"')
     split_script = "\n".join(split_lines)
 
     script = f"""set -e
 rm -rf {out_rel}
-{BIN} lob bounce-grid --root study/root-{day} --touches-from study/approaches/D20 {COMMON} {axes_str} \\
+{BIN} lob bounce-grid --root study/root-{day} --touches-from study/approaches/D20 {COMMON} {axes_str} \
   --cells {cells_path} --out-dir {out_rel} > {out_rel}.log 2>&1
+cp {out_rel}.log {CELLS_DIR}/{bname}-{day}.grid.log
 {split_script}
 rm -rf {out_rel}
 """
@@ -161,7 +186,7 @@ rm -rf {out_rel}
 
 def submit(bname, home, day, cells, mem_gb):
     script = build_job(bname, home, day, cells)
-    cmd = ["bin/q-add.sh", "--tag", "p07a-cells", "--mem-gb", str(mem_gb),
+    cmd = ["bin/q-add.sh", "--tag", "p07-cells", "--mem-gb", str(mem_gb),
            "--home", home, "--log", f"tmp-p07/cells-by-day/{bname}-{day}.log",
            "--", "bash", "-c", script]
     out = subprocess.run(cmd, cwd=A, capture_output=True, text=True)
@@ -174,6 +199,7 @@ def main():
     mem_normal = MEM_NORMAL_GB
     mem_big = MEM_BIG_GB
     args = sys.argv[1:]
+    check_base = "--check-base" in args
     for i, a in enumerate(args):
         if a == "--only-day" and i + 1 < len(args):
             only_day = args[i + 1]
@@ -188,7 +214,7 @@ def main():
         for day in days:
             if only_day and day != only_day:
                 continue
-            cells = remaining_for_day(home, day)
+            cells = remaining_for_day(home, day, check_base)
             if not cells:
                 continue
             total_days += 1
