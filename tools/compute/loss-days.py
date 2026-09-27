@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Разбор убыточных дней счёта (владелец 25.09: «сначала все убыточные дни разобрать, потом собирать гипотезы»).
 
-Сделки — как в счёте дашборда (`portfolio-sim.py` без потолка и выключателя): одна позиция на монету, монеты
+Сделки — как в счёте дашборда (`_lib.portfolio.load_rounds`/`one_per_coin`, T-21 batch 1, без потолка и
+выключателя): одна позиция на монету, монеты
 `--drop` вне пула, день — по закрытию сделки (UTC, как столбики «Результат по дням»). Для каждого убыточного дня:
 итог по причинам выхода, эпизоды входа (перерыв между входами > `--gap-min` — новый эпизод: одна просадка рынка),
 ход BTC от первого входа эпизода (минимум за время его сделок и к последнему выходу), BTC 1 ч / 4 ч на входе
@@ -20,9 +21,9 @@ import importlib.util
 import os
 from collections import defaultdict
 
-_spec = importlib.util.spec_from_file_location("psim", os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio-sim.py"))
-psim = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(psim)
+_spec = importlib.util.spec_from_file_location("_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_lib)
 
 NS, MIN_MS = 1_000_000_000, 60_000
 LOCAL = dt.timezone(dt.timedelta(hours=4))
@@ -97,27 +98,24 @@ def main():
     drop = set(x for x in a.drop.split(",") if x)
     months = defaultdict(list)
     for spec in a.epoch:
-        name, rest = spec.split("=", 1)
-        home, run = rest.split(":", 1)
-        months[name].append((home, run))
+        # T-21 batch 1: `_lib.epoch.parse_epoch` по одной спеке, не `parse_epochs` — см. exit-sim.py
+        # (та же причина: повтор имени с разным домом, здесь тоже документирован в докстринге модуля)
+        e = _lib.parse_epoch(spec)
+        months[e.name].append((e.home, ",".join(e.runs)))
 
     csv_rows = []
     for month, parts in months.items():
         btc = Btc([h for h, _ in parts])
         rows = []
         for home, run in parts:
-            rows += [r for r in psim.load_rounds(home, run, a.set, a.form) if r["sym"] not in drop]
+            rows += [r for r in _lib.load_rounds(home, run, a.set, a.form) if r["sym"] not in drop]
         # одна позиция на монету — как счёт дашборда
-        taken, busy_until = [], {}
-        for r in sorted(rows, key=lambda x: x["t0"]):
-            if busy_until.get(r["sym"], 0) > r["t0"]:
-                continue
-            busy_until[r["sym"]] = r["t1"]
+        taken = _lib.one_per_coin(rows)
+        for r in taken:
             r["pnl"] = r["net"] / 1e4 * r["usd"]
             r["btc_move"] = bps(btc.at(r["t0"]), btc.at(r["t1"]))
             r["btc_low"] = bps(btc.at(r["t0"]), btc.low(r["t0"], r["t1"]))
             r["btc1h"], r["btc4h"] = btc.ret(r["t0"], "btc_ret_1h_bps"), btc.ret(r["t0"], "btc_ret_4h_bps")
-            taken.append(r)
         # эпизоды входа
         ep, last_t0 = 0, None
         for r in taken:

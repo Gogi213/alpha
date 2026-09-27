@@ -72,8 +72,11 @@ def main():
     drop = set(x for x in a.drop.split(",") if x)
     months = defaultdict(list)
     for s in a.epoch:
-        n, rest = s.split("=", 1)
-        months[n].append(rest.split(":", 1))
+        # T-21 batch 1: разбор по одной спеке через `_lib.epoch.parse_epoch` (у exit-sim, откуда
+        # берётся `_lib` этой сессии, — та же причина в комментарии там: повтор имени с разным
+        # домом, `parse_epochs` бы его дописал в чужой дом).
+        e = esim._lib.parse_epoch(s)
+        months[e.name].append((e.home, ",".join(e.runs)))
     kl = {s.split("=", 1)[0]: s.split("=", 1)[1].split(",") for s in a.klines}
 
     # pnl[month] = список (rv24h, {вариант: $})
@@ -82,13 +85,8 @@ def main():
         btc = esim.Bars([os.path.join(h, "study", "regime", "ref-BTCUSDT-1m.csv") for h, _ in parts])
         rows = []
         for h, run in parts:
-            rows += [r for r in esim.psim.load_rounds(h, run, a.set, a.form) if r["sym"] not in drop]
-        taken, busy = [], {}
-        for r in sorted(rows, key=lambda x: x["t0"]):
-            if busy.get(r["sym"], 0) > r["t0"]:
-                continue
-            busy[r["sym"]] = r["t1"]
-            taken.append(r)
+            rows += [r for r in esim._lib.load_rounds(h, run, a.set, a.form) if r["sym"] not in drop]
+        taken = esim._lib.one_per_coin(rows)
         coins, out = {}, []
         grades = None
         if a.family_by == "grade":

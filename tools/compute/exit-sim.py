@@ -2,8 +2,8 @@
 """E28/E29: пересчёт выхода сделок по минутным свечам — стоп под волатильность, выход по BTC (E28) и выходы на
 быстрой и медленной realized volatility (E29).
 
-Входы не меняются: сделки счёта дашборда (`portfolio-sim.load_rounds`, монеты `--drop` вне пула, одна позиция на
-монету). Позиция стартует с первой минуты от сигнала, где low монеты дошёл до средней цены входа (не позже 30 мин;
+Входы не меняются: сделки счёта дашборда (`_lib.portfolio.load_rounds`, монеты `--drop` вне пула, одна позиция на
+монету — `_lib.portfolio.one_per_coin`, T-21 batch 1). Позиция стартует с первой минуты от сигнала, где low монеты дошёл до средней цены входа (не позже 30 мин;
 иначе — минута сигнала). Дальше поминутно, в порядке приоритета плана: стоп (low ≤ стоп; выход по стопу или по open,
 если минута открылась ниже), выход по BTC / по разгону волатильности (решение по закрытым минутам, исполнение по
 следующей), трейл (лучший high ≥ вход × 1,01, затем цена ≤ лучший − откат × вход), дедлайн 4 ч. Издержки сделки — как в
@@ -24,9 +24,9 @@ import math
 import os
 from collections import defaultdict
 
-_spec = importlib.util.spec_from_file_location("psim", os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolio-sim.py"))
-psim = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(psim)
+_spec = importlib.util.spec_from_file_location("_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_lib)
 
 MIN_MS = 60_000
 STOP, TRAIL_ACT, TRAIL_GAP, DEADLINE_MIN, FILL_WAIT_MIN, PRE_MIN = 0.02, 0.01, 0.01, 240, 30, 60
@@ -189,21 +189,21 @@ def main():
     drop = set(x for x in a.drop.split(",") if x)
     months = defaultdict(list)
     for s in a.epoch:
-        n, rest = s.split("=", 1)
-        months[n].append(rest.split(":", 1))
+        # T-21 batch 1: разбор одной спеки через `_lib.epoch.parse_epoch`, а не `parse_epochs` —
+        # тот дописывает только `runs` в ОДИН дом первого вхождения; этот скрипт документирует
+        # (себя выше) повтор имени с РАЗНЫМ домом («сентябрь=...:...» дважды), и такое дописывание
+        # `parse_epochs` бы молча сломало (второй дом потерялся бы). Список `(дом, прогоны)` на имя
+        # — как было.
+        e = _lib.parse_epoch(s)
+        months[e.name].append((e.home, ",".join(e.runs)))
     kl = {s.split("=", 1)[0]: s.split("=", 1)[1].split(",") for s in a.klines}
 
     for month, parts in months.items():
         btc = Bars([os.path.join(h, "study", "regime", "ref-BTCUSDT-1m.csv") for h, _ in parts])
         rows = []
         for h, run in parts:
-            rows += [r for r in psim.load_rounds(h, run, a.set, a.form) if r["sym"] not in drop]
-        taken, busy = [], {}
-        for r in sorted(rows, key=lambda x: x["t0"]):
-            if busy.get(r["sym"], 0) > r["t0"]:
-                continue
-            busy[r["sym"]] = r["t1"]
-            taken.append(r)
+            rows += [r for r in _lib.load_rounds(h, run, a.set, a.form) if r["sym"] not in drop]
+        taken = _lib.one_per_coin(rows)
         coins, s24 = {}, {}
         for r in taken:
             if r["sym"] not in coins:
@@ -230,7 +230,7 @@ def main():
             for (r, res), p in zip(out, pnl):
                 by[res[1]][0] += 1
                 by[res[1]][1] += p
-                day[psim.day_of(res[2] * 1_000_000)] += p
+                day[_lib.day_of(res[2] * 1_000_000)] += p
             cum = peak = dd = 0.0
             for (r, res), p in sorted(zip(out, pnl), key=lambda z: z[0][1][2]):
                 cum += p

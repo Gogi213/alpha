@@ -91,6 +91,23 @@ def taken_stats(taken):
     }
 
 
+def one_per_coin(rows):
+    """Одна позиция на монету — подбор входов «как торгует бот» ДО полного `simulate` (используют
+    E28/E29/E30/E31 через `exit-sim.py`/`family-titrate.py` и `loss-days.py`; T-21 batch 1, было
+    тройной копией `busy[sym]`/`busy_until[sym]` — во всех трёх байт-в-байт одно правило, сверено):
+    вход монеты пропускается, пока не закрылась предыдущая (строго `>` — совпадение `t1 == t0`
+    новый вход не блокирует, как и `simulate`'s `open_syms`, но здесь без учёта потолка/стопа дня —
+    это лишь дедупликация перекрывающихся входов той же монеты). Сортирует `rows` по `t0` (как было
+    на месте каждого вызова) — результат в этом порядке."""
+    taken, busy = [], {}
+    for r in sorted(rows, key=lambda x: x["t0"]):
+        if busy.get(r["sym"], 0) > r["t0"]:
+            continue
+        busy[r["sym"]] = r["t1"]
+        taken.append(r)
+    return taken
+
+
 def load_run(home, run, set_name, form):
     rows = []
     for f in sorted(glob.glob(os.path.join(home, run, "20*", set_name, "rounds.csv"))):

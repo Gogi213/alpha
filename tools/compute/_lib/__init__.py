@@ -6,7 +6,8 @@
   `_lib.trade`    — каноническая строка сделки (`Trade`, `from_row`) — T-21 §5/условие 3.
   `_lib.epoch`    — один разборщик `--epoch` (`parse_epoch`, `parse_epochs`) — T-21 §2.
   `_lib.metrics`  — день/месяц/Шарп/просадка-по-закрытиям (строка `Trade`) — T-21 §2/§5 (решения Судьи).
-  `_lib.portfolio`— правила портфеля (`simulate`, потолок/стоп дня/серия/выключатель BTC), «просадка
+  `_lib.portfolio`— правила портфеля (`simulate`, потолок/стоп дня/серия/выключатель BTC), «одна
+                    позиция на монету» до полного `simulate` (`one_per_coin`, T-21 batch 1), «просадка
                     счёта» П1 (`minute_curve`), чтение прогонов (`load_run`/`load_rounds`/`load_btc1h`),
                     `Klines`/`Funding` — перенесены из `portfolio-sim.py` шагом после T-21-«_lib-пакетом»
                     (см. докстроку файла).
@@ -77,6 +78,7 @@ drawdown_closed = _metrics.drawdown_closed
 _portfolio = _load("portfolio", "portfolio.py")
 DROP_DEFAULT = _portfolio.DROP_DEFAULT
 taken_stats = _portfolio.taken_stats
+one_per_coin = _portfolio.one_per_coin
 load_run = _portfolio.load_run
 load_rounds = _portfolio.load_rounds
 load_btc1h = _portfolio.load_btc1h
