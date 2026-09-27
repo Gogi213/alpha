@@ -339,12 +339,12 @@ def simulate(p, variant, cell):
     return keep
 
 
-def run_cell(p, kn, variant, cell, results):
+def run_cell(p, kn, variant, cell, results, tag=""):
     keep = simulate(p, variant, cell)
-    keep_path = os.path.join(OUT_ROOT, f"h9r-{variant}-{cell}", "keep.csv")
+    keep_path = os.path.join(OUT_ROOT, f"h9r-{variant}{tag}-{cell}", "keep.csv")
     p.write_keep(keep, keep_path)
-    outs = p.busy_replay_for(variant, f"h9r-{cell}", keep_path)
-    ps, co = p.portfolio_sim_for(variant, f"h9r-{cell}", outs, max_pos=0)
+    outs = p.busy_replay_for(variant, f"h9r{tag}-{cell}", keep_path)
+    ps, co = p.portfolio_sim_for(variant, f"h9r{tag}-{cell}", outs, max_pos=0)
     results[cell] = p.kpi_of(kn, co, variant)
     print(f"{cell}: n_signals_kept={len(keep)} kpi={results[cell]}", flush=True)
 
@@ -353,19 +353,30 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--variant", required=True, choices=["a", "b"])
     ap.add_argument("--cells", required=True, help="через запятую из: " + ",".join(ALL_CELLS))
+    # TK-009 (П-07 поправка 6): тот же фильтр к другой клетке варианта — её каталог `b5/<base-dir>` и имя формы;
+    # без флагов — прежняя база `p07<variant>-base` (тождество с TK-004).
+    ap.add_argument("--base-dir", help="каталог клетки в b5/ вместо p07<variant>-base (TK-009)")
+    ap.add_argument("--form", help="имя формы клетки в rounds.csv (обязательно с --base-dir)")
     a = ap.parse_args()
+    if bool(a.base_dir) != bool(a.form):
+        raise SystemExit("--base-dir и --form — только вместе")
     cells = [c.strip() for c in a.cells.split(",") if c.strip()]
     for c in cells:
         if c not in ALL_CELLS:
             raise SystemExit(f"неизвестная клетка {c!r}, ожидались: {ALL_CELLS}")
 
     p = load_p07base()
+    tag = ""
+    if a.base_dir:
+        p.base_dir_for = lambda _v: a.base_dir
+        p.FORM_OF[a.variant] = a.form
+        tag = f"-{a.base_dir}"
     kn = p.load_kn()
-    out_json = os.path.join(OUT_ROOT, f"h9r-h14-{a.variant}.json")
+    out_json = os.path.join(OUT_ROOT, f"h9r-h14-{a.variant}{tag}.json")
     results = json.load(open(out_json, encoding="utf-8")) if os.path.exists(out_json) else {}
 
     for cell in cells:
-        run_cell(p, kn, a.variant, cell, results)
+        run_cell(p, kn, a.variant, cell, results, tag)
 
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=1)
