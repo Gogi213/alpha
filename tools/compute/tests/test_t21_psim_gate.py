@@ -21,7 +21,7 @@ def load():
 
 def test_synthetic_gate_all_cases_match():
     gate = load()
-    assert gate.run_synthetic("HEAD") is True
+    assert gate.run_synthetic(gate.PRE_PORT_REF) is True
 
 
 if __name__ == "__main__":

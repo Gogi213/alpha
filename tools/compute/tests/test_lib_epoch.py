@@ -72,3 +72,14 @@ def test_repeated_name_syntax_b_is_an_error():
 def test_epoch_without_equals_sign_is_an_error():
     with pytest.raises(ValueError):
         epoch.parse_epoch("root:b5/titrc")
+
+
+def test_parse_epochs_repeat_name_other_home_keeps_both_parts():
+    """Повтор имени с другим домом (exit-sim/loss-days/family-titrate) — обе части в `parts`, ничего не теряется."""
+    parsed = epoch.parse_epochs([
+        "сентябрь=epochs/e-archive:b5/titrc-u500r",
+        "сентябрь=.:b5/titrc-u500r",
+    ])
+    e = parsed["сентябрь"]
+    assert e.parts == [("epochs/e-archive", ["b5/titrc-u500r"]), (".", ["b5/titrc-u500r"])]
+    assert e.home == "epochs/e-archive" and e.runs == ["b5/titrc-u500r"]

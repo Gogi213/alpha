@@ -56,6 +56,10 @@ def _load(name: str, path: Path):
     return mod
 
 
+# коммит перед переносом правил в _lib/portfolio.py (e7e8379): «старое» закреплено, HEAD после переноса — уже новое
+PRE_PORT_REF = "e7e8379~1"
+
+
 def old_module_path(tmp_dir: Path, old_ref: str) -> Path:
     """Старый `portfolio-sim.py` — `git show <old_ref>:tools/compute/portfolio-sim.py`, во временный
     файл. По умолчанию `old_ref=HEAD` — верно, пока этот гейт запущен ДО коммита переноса (в этой
@@ -284,7 +288,7 @@ def run_real(args: list, old_ref: str) -> bool:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--old-ref", default="HEAD", help="git-ссылка на СТАРЫЙ portfolio-sim.py (до переноса)")
+    ap.add_argument("--old-ref", default=PRE_PORT_REF, help="git-ссылка на СТАРЫЙ portfolio-sim.py (до переноса)")
     ap.add_argument("--real", nargs=argparse.REMAINDER, help="ARGS… — прогон CLI на реальных данных вместо синтетики")
     a = ap.parse_args()
     ok = run_real(a.real, a.old_ref) if a.real is not None else run_synthetic(a.old_ref)

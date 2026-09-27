@@ -36,6 +36,9 @@ class Epoch:
     study_dir: str | None = None          # синтаксис В
     range_start: str | None = None        # канон "@с..по" поверх прогонов А
     range_end: str | None = None
+    # повтор имени формы А: все (дом, прогоны) по порядку — дома могут различаться
+    # (`сентябрь=epochs/e-archive:…` + `сентябрь=.:…` в exit-sim/loss-days/family-titrate)
+    parts: list[tuple[str, list[str]]] = field(default_factory=list)
 
 
 def parse_epoch(spec: str) -> Epoch:
@@ -59,8 +62,9 @@ def parse_epoch(spec: str) -> Epoch:
         runs_part, rng = runs_part.split("@", 1)
         if ".." in rng:
             range_start, range_end = rng.split("..", 1)
-    return Epoch(name=name, home=home, runs=runs_part.split(","),
-                 range_start=range_start, range_end=range_end)
+    runs = runs_part.split(",")
+    return Epoch(name=name, home=home, runs=runs, range_start=range_start, range_end=range_end,
+                 parts=[(home, list(runs))])
 
 
 def parse_epochs(specs) -> dict[str, Epoch]:
@@ -77,7 +81,11 @@ def parse_epochs(specs) -> dict[str, Epoch]:
         if prev.runs is None or e.runs is None:
             raise ValueError(
                 f"--epoch {e.name}: повтор имени поддержан только для формы А (список прогонов)")
-        prev.runs = prev.runs + e.runs
+        # дом другой — дописывается часть (дом, прогоны); `home`/`runs` первого вхождения остаются
+        # для однодомных вызовов (portfolio-sim), `parts` — полный список (находка перевода T-21, batch 1)
+        if e.home == prev.home:
+            prev.runs = prev.runs + e.runs
+        prev.parts = prev.parts + e.parts
         if e.range_start or e.range_end:
             prev.range_start, prev.range_end = e.range_start, e.range_end
     return out
