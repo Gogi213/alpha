@@ -64,6 +64,13 @@ def check_blocks(D):
                 out.append((BROKEN, f"{p}/{key}", f"закрытий portfolio-sim {nc}, а счёта на странице нет"))
             elif a["n"] != nc:
                 out.append((BROKEN, f"{p}/{key}", f"плитки {a['n']} сделок (счёт) ≠ закрытий portfolio-sim {nc}"))
+        nc = m.get("n_closes") or {}
+        if "aug" in nc and "sep" in nc:  # возврат Судьи 00:55: «авг+сен» — счёт portfolio-sim, n = n_aug + n_sep
+            a = (acc_all.get("augsep") or {}).get(key)
+            if not a:
+                out.append((BROKEN, f"augsep/{key}", "у варианта с закрытиями portfolio-sim нет счёта «авг+сен»"))
+            elif a["n"] != nc["aug"] + nc["sep"]:
+                out.append((BROKEN, f"augsep/{key}", f"«авг+сен» {a['n']} сделок ≠ {nc['aug']} + {nc['sep']}"))
     periods = sorted(set(acc_all) | set(kpi_all) | set(tr_all))
     for p in periods:
         variants = sorted(set(acc_all.get(p, {})) | set(kpi_all.get(p, {})) | set(tr_all.get(p, {})))

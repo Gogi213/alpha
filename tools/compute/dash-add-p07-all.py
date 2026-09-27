@@ -43,9 +43,47 @@ AXES = [
 H9 = [("pause", "H9 пауза после закрытия, мин", lambda v: v.replace("Stop", "после стопа ")),
       ("cap", "H10 потолок позиций", lambda v: "≤ " + v)]
 H9R = [("h9r-s", "H9р запрет после стопа, сетап", lambda v: "S" + v),
-       ("h9r-k", "H14 только первые K подходов", lambda v: "K ≤ " + v),
+       ("h9r-k", "H14 подходов до K", lambda v: "K ≤ " + v),
        ("h9r-n", "H14 с N-го подхода", lambda v: "N ≥ " + v),
        ("h9r-keep", "H9р/H14 без фильтра (= база)", lambda v: "база")]
+H9R_SHOWN = [x for x in H9R if x[0] != "h9r-n"]  # TK-007: «с N-го подхода» не показывать (владелец, п.3) — данные остаются
+
+
+def acc_augsep(aa, asp, dep, sp_a, sp_s):
+    """Счёт «авг+сен» из двух месячных счётов portfolio-sim — как у g85 на странице (398 = 297 + 101): суммы и
+    веса по сделкам, просадка/пик/худший день — худший из месяцев, Шарп — по объединённым суткам."""
+    n = aa["n"] + asp["n"]
+    wsum = lambda f: sum(x[f] * x["n"] for x in (aa, asp) if x.get(f) is not None)
+    net = round(aa["net_usd"] + asp["net_usd"], 2)
+    worst = min((aa, asp), key=lambda x: x["worst_day_usd"])
+    dd = max((aa, asp), key=lambda x: x["dd_usd"])
+    daily = dict(aa["daily_usd"])  # сутки на стыке месяцев бывают в обоих счетах — складывать, не затирать
+    for d, v in asp["daily_usd"].items():
+        daily[d] = round(daily.get(d, 0) + v, 2)
+    sh, so = merge.sharpe_sortino({d: v / dep * 100 for d, v in daily.items()})
+    wn = {id(x): x["win_rate"] * x["n"] for x in (aa, asp)}
+    def side(f, cnt):
+        tot = sum(x[f] * cnt(x) for x in (aa, asp) if x.get(f) is not None)
+        c = sum(cnt(x) for x in (aa, asp) if x.get(f) is not None)
+        return round(tot / c, 2) if c else None
+    gl = [x["net_usd"] / (x["profit_factor"] - 1) for x in (aa, asp) if x.get("profit_factor") not in (None, 1)]
+    pf = None
+    if len(gl) == 2:
+        gw = sum(x["profit_factor"] * g for x, g in zip((aa, asp), gl))
+        pf = round(gw / sum(gl), 3) if sum(gl) else None
+    tim = [x.get("pct_time_in_market") for x in (aa, asp)]
+    return {"n": n, "net_usd": net, "net_pct": round(net / dep * 100, 3), "dd_usd": dd["dd_usd"], "dd_pct": dd["dd_pct"],
+            "recovery_factor": round(net / dd["dd_usd"], 3) if dd["dd_usd"] else None,
+            "win_rate": round((wn[id(aa)] + wn[id(asp)]) / n, 4) if n else 0,
+            "peak_n": max(aa["peak_n"], asp["peak_n"]), "peak_usd": max(aa["peak_usd"], asp["peak_usd"]),
+            "worst_day": worst["worst_day"], "worst_day_usd": worst["worst_day_usd"], "worst_day_pct": worst["worst_day_pct"],
+            "fill": round(wsum("fill") / n, 4) if n else 0, "sharpe": sh, "sortino": so, "daily_usd": daily,
+            "avg_usd": round(net / n, 2) if n else None, "avg_bps": round(wsum("avg_bps") / n, 2) if n else None,
+            "avg_win_bps": side("avg_win_bps", lambda x: wn[id(x)]), "avg_loss_bps": side("avg_loss_bps", lambda x: x["n"] - wn[id(x)]),
+            "profit_factor": pf,
+            "pct_time_in_market": round((tim[0] * sp_a + tim[1] * sp_s) / (sp_a + sp_s), 4) if None not in tim else None}
+
+
 STAGE12 = {"h6-pct15": "H6-pct1.5", "h6-pct3": "H6-pct3", "h6-before": "H6-before", "h7-tr15x1": "H7-tr1.5x1",
            "h7-tr1x15": "H7-tr1x1.5", "h7-tr2x1": "H7-tr2x1", "h7-1to1": "H7-1to1", "h2-fr1": "H2-fr1", "h2-fr2": "H2-fr2",
            "h2-fr3": "H2-fr3", "h9-pause0": "H9-pause0(=base)", "h9-pause30": "H9-pause30", "h9-pause60": "H9-pause60",
@@ -151,7 +189,7 @@ def main():
                         D["trades"][pk][key] = b["trades"][pk]
                         D["kpi"][pk][key] = merge.trade_stats(b["trades"][pk], pos, dep, spans[pk])
                 if b["trades"]:
-                    D["trades"]["augsep"][key] = os1.one_per_coin(b["trades"]["aug"] + b["trades"]["sep"])
+                    D["trades"]["augsep"][key] = b["trades"]["aug"] + b["trades"]["sep"]  # = счёт «авг+сен» (сумма месяцев, возврат Судьи 00:55)
                     D["kpi"]["augsep"][key] = merge.trade_stats(D["trades"]["augsep"][key], pos, dep, spans["augsep"])
                 meta["n_closes"] = {pk: len(b["closes"][pk]) for pk in RU}
                 closes = {pk: [tuple(x) for x in b["closes"][pk]] for pk in RU}
@@ -159,6 +197,19 @@ def main():
                 D["nh"]["by_variant"][key] = ap07.by_variant(closes)
             metas.append(meta)
             rows.setdefault((side, bucket), {}).setdefault(lab, []).append(key)
+    # TK-007 возврат Судьи 00:55: «авг+сен» — счёт portfolio-sim (сумма месяцев, как g85), не kpi по сделкам
+    A = D["account"]
+    ref = acc_augsep(A["aug"]["g85"], A["sep"]["g85"], dep, spans["aug"], spans["sep"])
+    for f in ("n", "net_usd", "dd_usd", "recovery_factor", "win_rate", "fill", "sharpe", "sortino", "avg_usd", "avg_bps",
+              "avg_win_bps", "avg_loss_bps", "profit_factor", "pct_time_in_market"):
+        tol = 0.15 if f in ("sharpe", "sortino") else 0.011  # Шарп/Сортино g85: 3,80/4,33 у счёта против 3,73/4,22 по объединённым суткам (иной учёт пустых суток)
+        assert abs((ref[f] or 0) - (A["augsep"]["g85"][f] or 0)) <= tol, (f, ref[f], A["augsep"]["g85"][f])
+    fixed = []
+    for key in [m["key"] for m in metas if not m.get("nocalc")] + ["g85b"]:
+        if key in A["aug"] and key in A["sep"]:
+            A["augsep"][key] = acc_augsep(A["aug"][key], A["sep"][key], dep, spans["aug"], spans["sep"])
+            fixed.append(key)
+    print("авг+сен из счёта:", len(fixed), "вариантов; g85 воспроизведён")
     # H9 пауза/потолок и H9р Г-85б, которых нет у Г-85б, но есть у Г-85а — заглушки «нет расчёта» уже созданы выше
     D["variants"] = [v for v in D["variants"] if not str(v["key"]).startswith("p07")] + metas
     order = lambda side, bucket, axes: [{"axis": lab, "keys": rows[(side, bucket)][lab]} for _, lab, _ in axes if lab in rows.get((side, bucket), {})]
@@ -168,9 +219,9 @@ def main():
         {"title": "П-05", "p05": True},
         {"title": "Г-85а · П-07", "lines": order("a", "grid", AXES)},
         {"title": "Г-85а · H9 пауза/потолок", "lines": order("a", "h9", H9)},
-        {"title": "Г-85а · H9р/H14", "lines": order("a", "h9r", H9R)},
+        {"title": "Г-85а · H9р/H14", "lines": order("a", "h9r", H9R_SHOWN)},
         {"title": "Г-85б · П-07", "lines": order("b", "grid", AXES)},
-        {"title": "Г-85б · надстройки H9/H10/H9р/H14", "lines": order("b", "b-extra", H9 + H9R)},
+        {"title": "Г-85б · надстройки H9/H10/H9р/H14", "lines": order("b", "b-extra", H9 + H9R_SHOWN)},
     ]
     D["generated_utc"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     s = json.dumps(D, ensure_ascii=False, separators=(",", ":"))
