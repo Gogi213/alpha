@@ -697,12 +697,120 @@ pub struct ApproachRecord {
     /// взвода. На взводе цена ещё в полосе от стены — это всё, что стоит между
     /// стеной и ценой, больше фронтрана касания.
     pub frontrun_lots_at_arm: i64,
+    /// Признаки П-08 (TK-012) на кадре взвода; `None` — кэш подходов до TK-012
+    /// (колонок нет), трекер пишет всегда `Some`.
+    pub p08: Option<ArmP08>,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
     /// Кадр снятия подхода (касание, смерть уровня или уход цены).
     pub disarm_ms: i64,
     /// Чем подход кончился.
     pub disarm_reason: ApproachEnd,
+}
+
+/// Признаки П-08 §12 п. 4–8 (TK-012) на кадре взвода подхода — лоты целые,
+/// флаг — `bool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ArmP08 {
+    /// Г-36: исполнено по цене стены с её рождения к взводу — `Live::traded`
+    /// (без RPI и блочных, как `LevelRecord::traded_lots`).
+    pub traded_lots: i64,
+    /// Г-36: наибольший видимый размер стены с рождения по кадр взвода включительно.
+    pub size_max: i64,
+    /// Г-36: правило `LevelRecord::size_monotonic` (первое уменьшение позже
+    /// кадра максимума или его не было), но на состоянии кадра взвода.
+    pub size_monotonic: bool,
+    /// Г-55: исполнено по цене стены (без RPI) в секундах `[S − 59, S]`, где
+    /// `S` — секунда взвода (`arm_ms div 1000`), по секунде метки исполнения:
+    /// 60 целых секунд, сделка в секунду `S − 60` (ровно за 60 с) — вне окна.
+    pub eat_60s_lots: i64,
+    /// Г-55: наибольший видимый размер стены в тех же секундах (видимый
+    /// размер держится до следующего наблюдения; до рождения — ноль).
+    pub size_max_60s_lots: i64,
+    /// Г-07: то же, что `depth_behind_lots`, но сумма только по первым
+    /// `DEPTH50_LEVELS` наблюдениям стороны от лучшей цены (у стены глубже —
+    /// ноль): смысл один на `.200` и `.50`.
+    pub depth_behind50_lots: i64,
+}
+
+/// Сколько первых наблюдений стороны берёт `ArmP08::depth_behind50_lots` —
+/// глубина записи `.50` (В-106), чтобы дни `ob200` значили то же.
+pub const DEPTH50_LEVELS: usize = 50;
+
+/// Слотов в секундном кольце Г-55 (`EatRing`) — окно 60 с (П-08 §12 п. 5).
+const EAT_RING_S: usize = 60;
+
+/// Кольцо Г-55 уровня: 60 слотов по секунде — сумма сделок по цене стены и
+/// наибольший видимый размер. Слот секунды `t` — `t mod 60`; `sec` — самая
+/// поздняя секунда, до которой кольцо продвинуто. Продвижение обнуляет
+/// пропущенные секунды (не больше 60 — дальше всё кольцо): сделок в них ноль,
+/// размер — последний видимый (он и стоял всё это время). Кучи нет.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EatRing {
+    sec: i64,
+    lots: [i64; EAT_RING_S],
+    max: [i64; EAT_RING_S],
+}
+
+impl EatRing {
+    /// Кольцо уровня, родившегося в секунду `sec` с размером `size`: секунды
+    /// до рождения — ноль сделок и ноль размера.
+    fn new(sec: i64, size: i64) -> Self {
+        let mut r = Self {
+            sec,
+            lots: [0; EAT_RING_S],
+            max: [0; EAT_RING_S],
+        };
+        r.max[Self::slot(sec)] = size;
+        r
+    }
+
+    fn slot(sec: i64) -> usize {
+        sec.rem_euclid(EAT_RING_S as i64) as usize
+    }
+
+    /// Слот секунды `sec` после продвижения к ней (`visible` — размер,
+    /// видимый в пропущенных секундах); `None` — секунда старше окна.
+    fn slot_at(&mut self, sec: i64, visible: i64) -> Option<usize> {
+        if sec > self.sec {
+            let n = sec.saturating_sub(self.sec).min(EAT_RING_S as i64);
+            for k in 0..n {
+                let i = Self::slot(sec - k);
+                self.lots[i] = 0;
+                self.max[i] = visible;
+            }
+            self.sec = sec;
+        }
+        (self.sec.saturating_sub(sec) < EAT_RING_S as i64).then(|| Self::slot(sec))
+    }
+
+    fn add_trade(&mut self, sec: i64, lots: i64, visible: i64) {
+        if let Some(i) = self.slot_at(sec, visible) {
+            self.lots[i] = self.lots[i].saturating_add(lots);
+        }
+    }
+
+    fn observe_size(&mut self, sec: i64, size: i64, visible: i64) {
+        if let Some(i) = self.slot_at(sec, visible) {
+            self.max[i] = self.max[i].max(size);
+        }
+    }
+
+    /// `(сделки, наибольший размер)` за секунды `[sec − 59, sec]`, известные
+    /// кольцу (не позже `self.sec` и не старше окна).
+    fn window(&self, sec: i64) -> (i64, i64) {
+        let mut lots = 0i64;
+        let mut max = 0i64;
+        for k in 0..EAT_RING_S as i64 {
+            let t = sec - k;
+            if t <= self.sec && self.sec - t < EAT_RING_S as i64 {
+                let i = Self::slot(t);
+                lots = lots.saturating_add(self.lots[i]);
+                max = max.max(self.max[i]);
+            }
+        }
+        (lots, max)
+    }
 }
 
 impl ApproachRecord {
@@ -840,6 +948,8 @@ struct Approach {
     frontrun_lots: i64,
     /// «Завал» на кадре взвода — ставится после свипа кадра (`compute_arm_stacks`).
     stack_levels: u32,
+    /// Признаки П-08 на кадре взвода (`ApproachRecord::p08`).
+    p08: ArmP08,
 }
 
 /// Один кадр уровня для правила взвода/снятия подхода (F1): всё, что нужно
@@ -858,6 +968,8 @@ struct ApproachFrame {
     best_opp_tick: i64,
     flow_1h_lots: i64,
     depth_behind_lots: i64,
+    /// `ArmP08::depth_behind50_lots` этого наблюдения.
+    depth_behind50_lots: i64,
     /// Лоты впереди уровня за секунду до кадра (`Live::frontrun_before`).
     frontrun_lots: i64,
 }
@@ -909,6 +1021,9 @@ struct Live {
     sh_e2: [i64; STRENGTH_HIST_SLOTS],
     sh_len: u8,
     sh_next: u8,
+    /// Кольцо Г-55 (`ArmP08::eat_60s_lots`/`size_max_60s_lots`): ведётся
+    /// только при включённом подходе (`approach_bps`).
+    eat: EatRing,
 }
 
 impl Live {
@@ -1380,6 +1495,7 @@ fn approach_record(
         depth_behind_lots: a.depth_behind_lots,
         stack_levels_at_arm: a.stack_levels,
         frontrun_lots_at_arm: a.frontrun_lots,
+        p08: Some(a.p08),
         touch_start_ms,
         disarm_ms,
         disarm_reason: reason,
@@ -1463,6 +1579,15 @@ fn observe_approach(
     if !holds {
         return false;
     }
+    let (eat_60s_lots, size_max_60s_lots) = lv.eat.window(f.ts_ms.div_euclid(1_000));
+    let p08 = ArmP08 {
+        traded_lots: lv.traded,
+        size_max: lv.max,
+        size_monotonic: lv.first_decrease_ms.is_none_or(|t| t > lv.max_ms),
+        eat_60s_lots,
+        size_max_60s_lots,
+        depth_behind50_lots: f.depth_behind50_lots,
+    };
     lv.approach = Some(Approach {
         arm_ms: f.ts_ms,
         arm_dist_bps: gap_bps(gap, f.tick),
@@ -1474,6 +1599,7 @@ fn observe_approach(
         depth_behind_lots: f.depth_behind_lots,
         frontrun_lots: f.frontrun_lots,
         stack_levels: 0,
+        p08,
     });
     true
 }
@@ -1816,6 +1942,12 @@ impl LevelTracker {
                 lv.rpi = lv.rpi.saturating_add(tr.lots);
             } else {
                 lv.traded = lv.traded.saturating_add(tr.lots);
+                // Г-55 (TK-012): секундное кольцо — только при подходе.
+                if self.cfg.approach_bps.is_some() {
+                    let visible = lv.prev;
+                    lv.eat
+                        .add_trade(tr.exch_ms.div_euclid(1_000), tr.lots, visible);
+                }
                 // Окно реакции (E4): объём в первые секунды идущего касания —
                 // по метке исполнения относительно старта касания.
                 if let Some(t) = &mut lv.touch {
@@ -1929,6 +2061,12 @@ fn scan_levels(
     let total_lots: i64 = levels
         .iter()
         .fold(0i64, |acc, o| acc.saturating_add(o.size_lots));
+    // Г-07 на `.50` (TK-012): та же сумма, но по первым `DEPTH50_LEVELS`
+    // наблюдениям стороны — у наблюдения глубже неё «позади» ноль.
+    let total50_lots: i64 = levels
+        .iter()
+        .take(DEPTH50_LEVELS)
+        .fold(0i64, |acc, o| acc.saturating_add(o.size_lots));
     // К1 (T-23): палец поиска в `live` — уровни кадра идут от лучшего наружу,
     // ключ следующего рядом с ответом прошлого; ответ тот же, что у двоичного.
     let mut finger = 0usize;
@@ -1941,6 +2079,13 @@ fn scan_levels(
         let depth_behind_lots = total_lots
             .saturating_sub(better_lots)
             .saturating_sub(ob.size_lots);
+        let depth_behind50_lots = if i < DEPTH50_LEVELS {
+            total50_lots
+                .saturating_sub(better_lots)
+                .saturating_sub(ob.size_lots)
+        } else {
+            0
+        };
         // Считается лениво и не больше раза на наблюдение (W4г): нужна и
         // новому касанию, и сигналу подхода того же кадра — раньше уровень,
         // ставший касанием при включённом подходе, платил за неё дважды.
@@ -1977,6 +2122,12 @@ fn scan_levels(
                 }
                 if ob.size_lots < lv.prev && lv.first_decrease_ms.is_none() {
                     lv.first_decrease_ms = Some(ts_ms);
+                }
+                if approach_d.is_some() {
+                    // Г-55: размер до этого кадра стоял во всех пропущенных секундах.
+                    let visible = lv.prev;
+                    lv.eat
+                        .observe_size(ts_ms.div_euclid(1_000), ob.size_lots, visible);
                 }
                 lv.prev = ob.size_lots;
                 let max_before = lv.max;
@@ -2077,6 +2228,7 @@ fn scan_levels(
                                     best_opp_tick,
                                     flow_1h_lots: flow_1h,
                                     depth_behind_lots,
+                                    depth_behind50_lots,
                                     frontrun_lots: frontrun,
                                 },
                                 lv.birth_ms >= warm_end || lv.carried,
@@ -2129,6 +2281,7 @@ fn scan_levels(
                             sh_e2: [-1; STRENGTH_HIST_SLOTS],
                             sh_len: 0,
                             sh_next: 0,
+                            eat: EatRing::new(ts_ms.div_euclid(1_000), ob.size_lots),
                         },
                     );
                     newborns.push((s, ob.tick, ob.size_lots));

@@ -6,7 +6,7 @@
 
 use crate::book::Side;
 use crate::lob::levels::{
-    ApproachEnd, ApproachRecord, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S,
+    ApproachEnd, ApproachRecord, ArmP08, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S,
     STRENGTH_WINDOWS_BPS,
 };
 
@@ -288,6 +288,21 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
         depth_behind_lots: optional_column_index(&header, "depth_behind_lots"),
         stack_levels_at_arm: optional_column_index(&header, "stack_levels_at_arm"),
         frontrun_lots_at_arm: optional_column_index(&header, "frontrun_lots_at_arm"),
+        p08: {
+            let cols = [
+                optional_column_index(&header, "traded_lots_at_arm"),
+                optional_column_index(&header, "size_max_at_arm"),
+                optional_column_index(&header, "size_monotonic_at_arm"),
+                optional_column_index(&header, "eat_60s_lots"),
+                optional_column_index(&header, "size_max_60s_lots"),
+                optional_column_index(&header, "depth_behind50_lots_at_arm"),
+            ];
+            if cols.iter().all(Option::is_some) {
+                Some(cols.map(|c| c.expect("проверено")))
+            } else {
+                None
+            }
+        },
         touch_start_ms: idx("touch_start_ms")?,
         disarm_ms: idx("disarm_ms")?,
         disarm_reason: idx("disarm_reason")?,
@@ -322,6 +337,9 @@ struct ApproachCols {
     /// `None` — кэш до T-28 (колонки Г-28 на взводе); читается нулём, как `depth_behind_lots`.
     stack_levels_at_arm: Option<usize>,
     frontrun_lots_at_arm: Option<usize>,
+    /// Колонки `ArmP08` (TK-012) по порядку `APPROACHES_COLUMNS`; `None` — кэш до
+    /// TK-012 (нет хоть одной), тогда `ApproachRecord::p08 = None`.
+    p08: Option<[usize; 6]>,
     touch_start_ms: usize,
     disarm_ms: usize,
     disarm_reason: usize,
@@ -361,6 +379,21 @@ impl ApproachCols {
             frontrun_lots_at_arm: match self.frontrun_lots_at_arm {
                 Some(c) => csv_int(rec, c)?,
                 None => -1,
+            },
+            p08: match self.p08 {
+                Some(c) => Some(ArmP08 {
+                    traded_lots: csv_int(rec, c[0])?,
+                    size_max: csv_int(rec, c[1])?,
+                    size_monotonic: match csv_field(rec, c[2])? {
+                        "0" => false,
+                        "1" => true,
+                        other => anyhow::bail!("size_monotonic_at_arm {other:?}"),
+                    },
+                    eat_60s_lots: csv_int(rec, c[3])?,
+                    size_max_60s_lots: csv_int(rec, c[4])?,
+                    depth_behind50_lots: csv_int(rec, c[5])?,
+                }),
+                None => None,
             },
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,
             disarm_ms: csv_int(rec, self.disarm_ms)?,

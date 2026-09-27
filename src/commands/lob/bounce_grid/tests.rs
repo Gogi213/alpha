@@ -162,6 +162,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         sigma_from: None,
         hold_step: "poll".to_string(),
         exit_group: "off".to_string(),
+        p08_cols: false,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -560,6 +561,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         carry_age: false,
         emit_day: None,
         levels_out: None,
+        minute_flow: None,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -654,6 +656,7 @@ fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
         carry_age: false,
         emit_day: None,
         levels_out: None,
+        minute_flow: None,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1);
@@ -774,6 +777,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         carry_age: false,
         emit_day: None,
         levels_out: None,
+        minute_flow: None,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -3165,4 +3169,128 @@ fn g07_keys_through_grid() {
         !head.contains("behind_min") && !head.contains("stack_min"),
         "{head}"
     );
+}
+
+/// TK-012 (`--p08-cols`): без флага `signals.csv` — прежние 11 колонок; с флагом — те же байты в
+/// первых 11 и шесть колонок `ArmP08` подхода в конце; кэш без колонок П-08 — отказ; флаг без
+/// `--busy-skip off` — отказ.
+#[test]
+fn p08_cols_in_signals_csv() {
+    use crate::commands::lob::touches::{read_approaches_csv, run_touches, TouchesArgs};
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root_approach(dir.path());
+    let h3 = || H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    let cache = dir.path().join("approaches");
+    let summary = run_touches(&TouchesArgs {
+        root: dir.path().to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        h3: h3(),
+        h3_k: None,
+        warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
+        repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
+        out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
+        approach_bps: vec![750],
+        approach_min_age_secs: 0,
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
+        numbers: None,
+        allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
+        levels_out: None,
+        minute_flow: None,
+    })
+    .unwrap();
+    let ap_path = summary.approaches_out[0].clone();
+    let ap = read_approaches_csv(&ap_path).unwrap();
+    assert_eq!(ap.len(), 1);
+    let p = ap[0].approach.p08.expect("новый кэш несёт колонки П-08");
+
+    let grid = |name: &str, p08: bool, busy_off: bool| {
+        let mut a = args(dir.path(), false);
+        a.signal = SignalArg::Approach;
+        a.entry_form = vec!["ladder3x2..10".to_string()];
+        a.stop_form = vec!["at".to_string()];
+        a.take_form = vec!["1to1".to_string()];
+        a.take_floor_fees = None;
+        a.deadline_secs = vec![60];
+        a.h3 = h3();
+        a.warmup_ms = None;
+        a.repeat_window_ms = None;
+        a.touches_from = Some(cache.clone());
+        if busy_off {
+            a.busy_skip = "off".to_string();
+        }
+        a.p08_cols = p08;
+        a.out_dir = dir.path().join(name);
+        run_bounce_grid(&a)
+    };
+    let off = grid("g-off", false, true).unwrap();
+    let on = grid("g-on", true, true).unwrap();
+    let sig_off = std::fs::read_to_string(off.rounds_path.with_file_name("signals.csv")).unwrap();
+    let sig_on = std::fs::read_to_string(on.rounds_path.with_file_name("signals.csv")).unwrap();
+    let (h_off, r_off) = read_csv_from(sig_off.as_bytes());
+    let (h_on, r_on) = read_csv_from(sig_on.as_bytes());
+    assert_eq!(h_off.len(), 11, "без флага шапка прежняя: {h_off:?}");
+    assert_eq!(h_on[..11], h_off[..]);
+    assert_eq!(
+        h_on[11..],
+        [
+            "traded_lots_at_arm",
+            "size_max_at_arm",
+            "size_monotonic_at_arm",
+            "eat_60s_lots",
+            "size_max_60s_lots",
+            "depth_behind50_lots_at_arm"
+        ]
+    );
+    assert!(!r_off.is_empty());
+    assert_eq!(r_on.len(), r_off.len());
+    for (a, b) in r_on.iter().zip(&r_off) {
+        assert_eq!(a[..11], b[..]);
+        assert_eq!(a[11..], super::outputs::p08_cells(&p));
+    }
+
+    // Старый кэш: те же строки без колонок П-08 — без флага счёт тот же байт в байт, с флагом отказ.
+    let text = std::fs::read_to_string(&ap_path).unwrap();
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_reader(text.as_bytes());
+    let head = r.headers().unwrap().clone();
+    let keep: Vec<usize> = (0..head.len() - 6).collect();
+    let mut w = csv::Writer::from_writer(Vec::new());
+    w.write_record(keep.iter().map(|&i| &head[i])).unwrap();
+    for rec in r.records() {
+        let rec = rec.unwrap();
+        w.write_record(keep.iter().map(|&i| &rec[i])).unwrap();
+    }
+    std::fs::write(&ap_path, w.into_inner().unwrap()).unwrap();
+    assert!(read_approaches_csv(&ap_path).unwrap()[0]
+        .approach
+        .p08
+        .is_none());
+    let old = grid("g-old", false, true).unwrap();
+    let body = |p: &std::path::Path| {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        body(&old.rounds_path.with_file_name("signals.csv")),
+        body(&off.rounds_path.with_file_name("signals.csv"))
+    );
+    let err = grid("g-old-p08", true, true).unwrap_err().to_string();
+    assert!(err.contains("--p08-cols"), "{err}");
+    let err = grid("g-busy-on", true, false).unwrap_err().to_string();
+    assert!(err.contains("--busy-skip off"), "{err}");
 }

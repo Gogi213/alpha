@@ -19,7 +19,7 @@ use crate::commands::lob::bounce_verdict::DEADLINE_SECS;
 use crate::commands::lob::replay::ReplayDay;
 use crate::commands::lob::{side_name, some_or_empty};
 use crate::lob::excursion::SecondMids;
-use crate::lob::levels::{ApproachRecord, TouchRecord};
+use crate::lob::levels::{ApproachRecord, ArmP08, TouchRecord};
 use crate::lob::markout::{
     approaches_for_touch, distance_bps_at_birth, long_markouts_for_touch, markouts_for_touch,
     touch_base, within_touch,
@@ -234,7 +234,30 @@ fn approach_row_pairs(day: &str, a: &ApproachRecord) -> [(&'static str, String);
         ("depth_behind_lots", a.depth_behind_lots.to_string()),
         ("stack_levels_at_arm", a.stack_levels_at_arm.to_string()),
         ("frontrun_lots_at_arm", a.frontrun_lots_at_arm.to_string()),
+        (
+            "traded_lots_at_arm",
+            p08_cell(a, |p| p.traded_lots.to_string()),
+        ),
+        ("size_max_at_arm", p08_cell(a, |p| p.size_max.to_string())),
+        (
+            "size_monotonic_at_arm",
+            p08_cell(a, |p| u8::from(p.size_monotonic).to_string()),
+        ),
+        ("eat_60s_lots", p08_cell(a, |p| p.eat_60s_lots.to_string())),
+        (
+            "size_max_60s_lots",
+            p08_cell(a, |p| p.size_max_60s_lots.to_string()),
+        ),
+        (
+            "depth_behind50_lots_at_arm",
+            p08_cell(a, |p| p.depth_behind50_lots.to_string()),
+        ),
     ]
+}
+
+/// Клетка признака П-08 (TK-012): пусто — запись из кэша до TK-012.
+fn p08_cell(a: &ApproachRecord, f: impl FnOnce(&ArmP08) -> String) -> String {
+    a.p08.as_ref().map_or(String::new(), f)
 }
 
 /// Строка `approaches-<SYMBOL>.csv`, значения без имён, в порядке

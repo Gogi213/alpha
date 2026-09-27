@@ -34,6 +34,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         carry_age: false,
         emit_day: None,
         levels_out: None,
+        minute_flow: None,
     }
 }
 
@@ -409,6 +410,7 @@ fn minimal_approach() -> ApproachRecord {
         depth_behind_lots: 0,
         stack_levels_at_arm: 0,
         frontrun_lots_at_arm: 0,
+        p08: Some(Default::default()),
         touch_start_ms: None,
         disarm_ms: 100,
         disarm_reason: ApproachEnd::PriceLeft,
@@ -541,4 +543,44 @@ fn levels_out_refuses_without_reference() {
         !dir.path().join("levels-x.csv").exists(),
         "отказ — до реплея и записи"
     );
+}
+
+/// TK-012: `--minute-flow <каталог>` пишет `minute-flow-<SYMBOL>.csv` со строкой на минуту
+/// с кадром, а касания — те же байты, что без флага.
+#[test]
+fn minute_flow_dir_writes_series_and_keeps_touch_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let touches = dir.path().join("touches-SOLUSDT.csv");
+    run_touches(&touches_args(dir.path())).unwrap();
+    let before = std::fs::read(&touches).unwrap();
+    let flow_dir = dir.path().join("flow");
+    std::fs::create_dir_all(&flow_dir).unwrap();
+    let mut a = touches_args(dir.path());
+    a.minute_flow = Some(flow_dir.clone());
+    run_touches(&a).unwrap();
+    assert_eq!(std::fs::read(&touches).unwrap(), before);
+    let (header, rows) = read_rows(&flow_dir.join("minute-flow-SOLUSDT.csv"));
+    assert_eq!(
+        header,
+        [
+            "minute_ms",
+            "symbol",
+            "add_lots",
+            "cancel_lots",
+            "trade_lots"
+        ]
+    );
+    assert!(!rows.is_empty());
+    let mut prev = i64::MIN;
+    for r in &rows {
+        let m: i64 = r[0].parse().unwrap();
+        assert_eq!(m.rem_euclid(60_000), 0);
+        assert!(m > prev);
+        prev = m;
+        assert_eq!(r[1], "SOLUSDT");
+        for v in &r[2..] {
+            assert!(v.parse::<i64>().unwrap() >= 0);
+        }
+    }
 }

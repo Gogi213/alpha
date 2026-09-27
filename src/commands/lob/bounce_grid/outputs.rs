@@ -109,6 +109,8 @@ pub(super) struct Outputs {
     with_carry: bool,
     // T-31: `signals.csv` — след каждого сигнала, только с `--busy-skip off`.
     signals: Option<csv::Writer<std::fs::File>>,
+    // TK-012: колонки П-08 в `signals.csv` — только с `--p08-cols`.
+    with_p08: bool,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -130,6 +132,29 @@ const SIGNALS_HEADER: [&str; 11] = [
     "residual",
     "exit_ns",
 ];
+
+/// Колонки П-08 (TK-012, `--p08-cols`) в конце `signals.csv` — те же имена, что в кэше подходов
+/// (`lob::levels::ArmP08` на кадре взвода сигнала); без флага их нет.
+const SIGNALS_P08_HEADER: [&str; 6] = [
+    "traded_lots_at_arm",
+    "size_max_at_arm",
+    "size_monotonic_at_arm",
+    "eat_60s_lots",
+    "size_max_60s_lots",
+    "depth_behind50_lots_at_arm",
+];
+
+/// Клетки `SIGNALS_P08_HEADER` одного подхода.
+pub(super) fn p08_cells(p: &crate::lob::levels::ArmP08) -> [String; 6] {
+    [
+        p.traded_lots.to_string(),
+        p.size_max.to_string(),
+        u8::from(p.size_monotonic).to_string(),
+        p.eat_60s_lots.to_string(),
+        p.size_max_60s_lots.to_string(),
+        p.depth_behind50_lots.to_string(),
+    ]
+}
 
 /// Сигналы формы по часам UTC суток, `h0:h1:…:h23` (В-60): вердикт по одним
 /// суткам кластеризует интервал `net_fill` по часам, и промахи (у них в
@@ -254,6 +279,7 @@ impl Outputs {
         header: &str,
         with_carry: bool,
         with_signals: bool,
+        with_p08: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -277,7 +303,11 @@ impl Outputs {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
             let mut w = csv::WriterBuilder::new().has_headers(false).from_writer(sf);
-            w.write_record(SIGNALS_HEADER)?;
+            if with_p08 {
+                w.write_record(SIGNALS_HEADER.iter().chain(SIGNALS_P08_HEADER.iter()))?;
+            } else {
+                w.write_record(SIGNALS_HEADER)?;
+            }
             Some(w)
         } else {
             None
@@ -289,6 +319,7 @@ impl Outputs {
             forms_path,
             with_carry,
             signals,
+            with_p08,
         })
     }
 
@@ -306,6 +337,8 @@ impl Outputs {
         // флаг «части довеска без сверки» (`forms_row`).
         carry_boundary_ns: Option<i64>,
         carry_unverified: bool,
+        // TK-012: записи подхода суток (`--signal approach`) — источник колонок П-08.
+        approaches: Option<&[crate::lob::levels::ApproachRecord]>,
     ) -> anyhow::Result<u64> {
         anyhow::ensure!(
             run.fill_reason.len() == run.fills.len()
@@ -391,21 +424,38 @@ impl Outputs {
                     *e = Some(run.fill_exit_ns[i]);
                 }
             }
+            // TK-012: подход сигнала — по (`arm_ms`, тик стены), тот же ключ склейки, что у
+            // `price_tick` строки; ищется только с `--p08-cols`.
+            let p08_index: Vec<(i64, i64, usize)> = match (self.with_p08, approaches) {
+                (true, Some(ap)) => {
+                    let mut v: Vec<(i64, i64, usize)> = ap
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| (a.arm_ms, a.price_tick, i))
+                        .collect();
+                    v.sort_unstable();
+                    v
+                }
+                (true, None) => anyhow::bail!("{symbol} {day}: --p08-cols без записей подхода"),
+                _ => Vec::new(),
+            };
             for t in &run.trace {
                 let sig = order.get(t.signal);
-                w.write_record([
+                let tick = sig.and_then(|s| match s.plan {
+                    // тот же перевод, что у стратегии (`strategy.rs`, `level_tick`)
+                    TradePlan::Bounce {
+                        level_px, tick_px, ..
+                    } if tick_px > 0.0 => Some((level_px / tick_px).round() as i64),
+                    _ => None,
+                });
+                let mut row: Vec<String> = Vec::with_capacity(SIGNALS_HEADER.len() + 6);
+                row.extend([
                     symbol.to_string(),
                     day.to_string(),
                     form.label.to_string(),
                     t.signal.to_string(),
                     sig.map_or(0, |s| s.t0_ns).to_string(),
-                    sig.map_or_else(String::new, |s| match s.plan {
-                        // тот же перевод, что у стратегии (`strategy.rs`, `level_tick`)
-                        TradePlan::Bounce {
-                            level_px, tick_px, ..
-                        } if tick_px > 0.0 => ((level_px / tick_px).round() as i64).to_string(),
-                        _ => String::new(),
-                    }),
+                    tick.map_or_else(String::new, |v| v.to_string()),
                     sig.map_or_else(String::new, |s| match s.plan {
                         TradePlan::Bounce { entry_px, .. } => format!("{entry_px:.10}"),
                         TradePlan::SpreadHold => String::new(),
@@ -427,7 +477,30 @@ impl Outputs {
                         .copied()
                         .flatten()
                         .map_or_else(String::new, |e| e.to_string()),
-                ])?;
+                ]);
+                if self.with_p08 {
+                    let (Some(s), Some(tick), Some(ap)) = (sig, tick, approaches) else {
+                        anyhow::bail!(
+                            "{symbol} {day} {}: --p08-cols — у сигнала {} нет тика стены",
+                            form.label,
+                            t.signal
+                        );
+                    };
+                    let arm_ms = s.t0_ns.div_euclid(1_000_000);
+                    let at = p08_index
+                        .binary_search_by(|&(a, k, _)| (a, k).cmp(&(arm_ms, tick)))
+                        .ok()
+                        .and_then(|j| p08_index.get(j))
+                        .map(|&(_, _, i)| &ap[i]);
+                    let Some(p) = at.and_then(|a| a.p08) else {
+                        anyhow::bail!(
+                            "{symbol} {day} {}: --p08-cols — нет признаков подхода arm_ms={arm_ms} тик {tick}",
+                            form.label
+                        );
+                    };
+                    row.extend(p08_cells(&p));
+                }
+                w.write_record(&row)?;
             }
             w.flush()?;
         }

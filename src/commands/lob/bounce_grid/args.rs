@@ -339,6 +339,13 @@ pub struct BounceGridArgs {
     /// что `off`. Только `--busy-skip off` и `--driver setups`, иначе флаг ничего не меняет.
     #[arg(long = "exit-group", default_value = "off", value_parser = ["on", "off"])]
     pub exit_group: String,
+    /// П-08 §12 п. 4–8 (TK-012): дописать в конец `signals.csv` признаки подхода на кадре взвода
+    /// (`traded_lots_at_arm`, `size_max_at_arm`, `size_monotonic_at_arm`, `eat_60s_lots`,
+    /// `size_max_60s_lots`, `depth_behind50_lots_at_arm` — колонки кэша подходов). Только
+    /// `--signal approach` и `--busy-skip off`; кэш без этих колонок — отказ. Без флага
+    /// `signals.csv` байт в байт прежний.
+    #[arg(long = "p08-cols", default_value_t = false)]
+    pub p08_cols: bool,
     /// Сверка окон (К3, условие Судьи b86eed6): кроме своей книги окон (`WindowDepth`) строит
     /// окна прежним путём на книге крейта и сравнивает каждый снимок по всем полям; расхождение —
     /// отказ с `t0` и полем. Итог счёта не меняет. Только `--driver setups`.

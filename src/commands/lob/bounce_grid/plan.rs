@@ -216,6 +216,10 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
     // F6 (В-73): сигнал по записи подхода — только из кэша F1, реплея
     // подходов у сетки нет (полосу `D` выбирает прогон `lob touches
     // --approach-bps`; в часы ночи их пишет шаг H3).
+    anyhow::ensure!(
+        !args.p08_cols || (args.signal == SignalArg::Approach && args.busy_skip == "off"),
+        "--p08-cols: признаки взвода пишутся в signals.csv — нужны --signal approach и --busy-skip off"
+    );
     if args.signal == SignalArg::Approach {
         anyhow::ensure!(
             args.touches_from.is_some(),
@@ -521,6 +525,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             &header,
             args.carry_root.is_some(),
             args.busy_skip == "off",
+            args.p08_cols,
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;

@@ -44,6 +44,7 @@ use crate::lob::markout::{mid_double_tick, raw_return_bps, sample_asof};
 
 use super::{H3Args, ReplayKeep, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
+mod minute_flow;
 mod moves;
 mod numbers;
 mod plan;
@@ -139,6 +140,16 @@ pub struct TouchesArgs {
     /// `--emit-day` и несколькими полосами `--approach-bps`: там эталона `lob levels` нет.
     #[arg(long)]
     pub levels_out: Option<PathBuf>,
+    /// Минутный поток заявок по всей видимой книге обеих сторон (TK-012, П-08 §12, Г-140):
+    /// CSV `minute_ms,symbol,add_lots,cancel_lots,trade_lots` — рост размера и новая цена
+    /// внутри окна видимости — `add`; падение и исчезновение внутри окна — сначала сделки на
+    /// этой цене с прошлого кадра, остаток — `cancel`; уход за худшую видимую цену — не
+    /// отмена; `trade_lots` — все сделки минуты без блочных и RPI (правила —
+    /// `crate::lob::minute_flow`). Строка на минуту с кадром. Путь — файл; существующий
+    /// каталог — `<каталог>/minute-flow-<SYMBOL>.csv` (сутки подряд, как `touches-<SYMBOL>.csv`);
+    /// с `--emit-day` — только эти сутки. Отдельный проход по файлам: без флага байты прежние.
+    #[arg(long)]
+    pub minute_flow: Option<PathBuf>,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -161,7 +172,7 @@ pub struct TouchesSummary {
 const TOUCHES_WIDTH: usize = 62;
 
 /// Ширина строки `approaches-<SYMBOL>.csv` (F1) — как `TOUCHES_WIDTH`.
-const APPROACHES_WIDTH: usize = 22;
+const APPROACHES_WIDTH: usize = 28;
 
 /// Заголовок `approaches-<SYMBOL>.csv`: поля `ApproachRecord` плюс `day_utc`,
 /// `age_ms` и `duration_ms` (производные, как у касаний; `touch_start_ms`
@@ -196,6 +207,15 @@ pub(crate) const APPROACHES_COLUMNS: [&str; APPROACHES_WIDTH] = [
     // взвода. Аддитивные колонки в конце.
     "stack_levels_at_arm",
     "frontrun_lots_at_arm",
+    // П-08 §12 п. 4–8 (TK-012): признаки на кадре взвода — `lob::levels::ArmP08`
+    // (Г-36 исполнено/максимум/монотонность с рождения, Г-55 окно 60 с, Г-07
+    // глубина по первым 50 наблюдениям). Аддитивные колонки в конце.
+    "traded_lots_at_arm",
+    "size_max_at_arm",
+    "size_monotonic_at_arm",
+    "eat_60s_lots",
+    "size_max_60s_lots",
+    "depth_behind50_lots_at_arm",
 ];
 
 /// Заголовок CSV: запись касания как есть, затем производные. `birth_ms` —
@@ -582,6 +602,16 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             &args.symbol,
             path,
         )?;
+    }
+
+    if let Some(arg) = &args.minute_flow {
+        let (path, n) = minute_flow::write_minute_flow(
+            &args.root,
+            &args.symbol,
+            args.emit_day.as_deref(),
+            arg,
+        )?;
+        eprintln!("minute-flow: {n} минут → {}", path.display());
     }
 
     if args.numbers.is_some() {

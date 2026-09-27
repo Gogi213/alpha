@@ -1601,6 +1601,14 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
             // впереди неё (строго лучше) 10 020 с 3 лотами за секунду до взвода.
             stack_levels_at_arm: 1,
             frontrun_lots_at_arm: 3,
+            p08: Some(ArmP08 {
+                traded_lots: 0,
+                size_max: 10,
+                size_monotonic: true,
+                eat_60s_lots: 0,
+                size_max_60s_lots: 10,
+                depth_behind50_lots: 0,
+            }),
             touch_start_ms: Some(4000),
             disarm_ms: 4000,
             disarm_reason: ApproachEnd::Touch,
@@ -2410,4 +2418,217 @@ fn finger_is_exact_on_non_monotone_and_repeated_keys() {
             assert_eq!(finger, at, "step={step} key={key:?}");
         }
     }
+}
+
+/// TK-012 (Г-55): окно кольца — секунды `[S − 59, S]`: сделка в секунду `S − 60`
+/// (ровно за 60 с до взвода) вне окна, в `S − 59` — внутри; размер — наибольший
+/// видимый в тех же секундах.
+#[test]
+fn eat_ring_window_is_sixty_whole_seconds() {
+    let mut r = EatRing::new(0, 10);
+    r.observe_size(40, 30, 10); // размер 30 с секунды 40
+    r.add_trade(40, 5, 30); // S − 60 при S = 100 — вне окна
+    r.observe_size(41, 12, 30); // в секунде 41 видно 30 (стояло с 40), затем 12
+    r.add_trade(41, 7, 12); // S − 59 — внутри
+    r.observe_size(100, 12, 12);
+    let (lots, max) = r.window(100);
+    assert_eq!(lots, 7, "сделка ровно за 60 с — вне окна, за 59 с — внутри");
+    assert_eq!(max, 30, "в секунде 41 ещё виден размер 30 до наблюдения 12");
+    // Та же секунда 40 при S = 99 — внутри.
+    let mut r = EatRing::new(0, 10);
+    r.add_trade(40, 5, 10);
+    r.observe_size(99, 10, 10);
+    assert_eq!(r.window(99).0, 5);
+}
+
+/// TK-012 (Г-55): пропуск времени обнуляет слоты — сделки старше окна не
+/// всплывают в слоте той же секунды `mod 60`, размер пропущенных секунд —
+/// последний видимый; пропуск больше 60 с сбрасывает всё кольцо.
+#[test]
+fn eat_ring_resets_skipped_seconds() {
+    let mut r = EatRing::new(0, 50);
+    r.add_trade(5, 9, 50);
+    r.observe_size(6, 8, 50);
+    // Пропуск 55 с: секунда 65 делит слот с секундой 5.
+    r.add_trade(65, 1, 8);
+    assert_eq!(
+        r.window(65),
+        (1, 50),
+        "сделки 5-й секунды вне окна; 50 видно в секунде 6"
+    );
+    // Пропуск больше окна: всё кольцо — последний видимый размер, ноль сделок.
+    r.observe_size(1000, 4, 8);
+    assert_eq!(r.window(1000), (0, 8));
+    // Метка старше окна не пишется.
+    r.add_trade(900, 100, 4);
+    assert_eq!(r.window(1000), (0, 8));
+}
+
+/// TK-012 (Г-36, Г-55): признаки на кадре взвода — исполнено с рождения (без
+/// RPI), максимум, монотонность по правилу `size_monotonic` (уменьшение до
+/// максимума — `false`), съеденное и максимум за 60 с (после пропуска времени).
+#[test]
+fn approach_p08_features_at_arm() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let (mut out, mut touches, mut ap) = (Vec::new(), Vec::new(), Vec::new());
+    let bid = |size: i64| [ob(10020, 3), ob(10000, size)];
+    let hit = |lots: i64, exch_ms: i64, rpi: bool| TradeHit {
+        tick: 10000,
+        lots,
+        aggressor_is_buy: false,
+        block: false,
+        rpi,
+        exch_ms,
+    };
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &bid(10),
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Bid,
+        &bid(8),
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &bid(20),
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        5000,
+        Side::Bid,
+        &bid(15),
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    tr.observe_trade(hit(4, 1500, false));
+    tr.observe_trade(hit(2, 10_000, false)); // секунда 10 = S − 60 — вне окна
+    tr.observe_trade(hit(3, 11_000, false));
+    tr.observe_trade(hit(100, 20_000, true)); // RPI — мимо
+    frame(
+        &mut tr,
+        69_000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        70_000,
+        Side::Bid,
+        &bid(15),
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        71_000,
+        Side::Bid,
+        &[ob(10000, 15)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1);
+    assert_eq!(ap[0].arm_ms, 70_000);
+    assert_eq!(
+        ap[0].p08,
+        Some(ArmP08 {
+            traded_lots: 9,
+            size_max: 20,
+            size_monotonic: false,
+            eat_60s_lots: 3,
+            size_max_60s_lots: 15,
+            depth_behind50_lots: 0,
+        })
+    );
+}
+
+/// TK-012 (Г-07): `depth_behind50_lots` суммирует только первые 50 наблюдений
+/// стороны; `depth_behind_lots` — весь кадр, как раньше.
+#[test]
+fn approach_depth_behind50_cuts_at_fifty_levels() {
+    let mut tr = LevelTracker::new(cfg_approach(20, 500));
+    let (mut out, mut touches, mut ap) = (Vec::new(), Vec::new(), Vec::new());
+    // Лучший бид 10 020, стена 10 000 (индекс 1), позади — 58 уровней по 1 лоту
+    // (индексы 2..59): в первых 50 из них 48.
+    let mut book = vec![ob(10020, 3), ob(10000, 10)];
+    for k in 0..58 {
+        book.push(ob(9990 - k, 1));
+    }
+    frame(
+        &mut tr,
+        1000,
+        Side::Bid,
+        &book,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        1000,
+        Side::Ask,
+        &[ob(10060, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        2000,
+        Side::Ask,
+        &[ob(10015, 4)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        3000,
+        Side::Bid,
+        &book,
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    frame(
+        &mut tr,
+        4000,
+        Side::Bid,
+        &[ob(10000, 10)],
+        &mut out,
+        &mut touches,
+        &mut ap,
+    );
+    assert_eq!(ap.len(), 1);
+    assert_eq!(ap[0].depth_behind_lots, 58);
+    assert_eq!(ap[0].p08.map(|p| p.depth_behind50_lots), Some(48));
 }

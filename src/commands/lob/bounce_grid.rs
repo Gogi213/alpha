@@ -316,6 +316,18 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 "{symbol}: `stack_min=` на подходах — нужен кэш с колонкой stack_levels_at_arm (T-28, `{}`)",
                 dir.display()
             );
+            // TK-012: `--p08-cols` читает колонки `ArmP08` кэша подходов; старый кэш без них — отказ,
+            // а не пустые клетки.
+            anyhow::ensure!(
+                !args.p08_cols
+                    || days.iter().all(|d| {
+                        d.approaches
+                            .as_deref()
+                            .is_some_and(|ap| ap.iter().all(|a| a.p08.is_some()))
+                    }),
+                "{symbol}: --p08-cols — нужен кэш подходов с колонками traded_lots_at_arm… (TK-012, `{}`), пересчитайте `lob touches --approach-bps`",
+                dir.display()
+            );
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
@@ -534,6 +546,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                                 r.skipped,
                                 carry_boundary_ns,
                                 carry_unverified,
+                                day.approaches.as_deref(),
                             )?;
                             rounds = rounds.saturating_add(n);
                             Ok(())

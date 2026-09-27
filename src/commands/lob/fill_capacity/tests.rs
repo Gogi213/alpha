@@ -81,6 +81,7 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         carry_age: false,
         emit_day: None,
         levels_out: None,
+        minute_flow: None,
     })
     .unwrap();
     cache
