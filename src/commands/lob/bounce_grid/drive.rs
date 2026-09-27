@@ -17,7 +17,7 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
-    feed_compact_into, open_replay_feed, PlanShape, PoolLot,
+    feed_compact_into, open_replay_feed, EntryForm, PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, with_backtest_over, BounceRun,
@@ -28,6 +28,7 @@ use crate::lob::sigma::SigmaSeries;
 
 use super::args::{BounceGridArgs, DriverArg};
 use super::carry::{cached_event_count, store_event_count};
+use super::entry_sigma::EntrySigma;
 use super::forms::GridForm;
 use super::outputs::FormDayResult;
 use super::sets::{Range, TouchContext, TouchFilter, CTX_AXES};
@@ -100,6 +101,11 @@ fn signals_for(
                 band_exit_bps: p.band_exit_bps,
                 // F7 (Б-75): форма выхода — ось сетки (`--exit-form`).
                 exit_form: form.exit_form,
+                // В-131: σ на взводе — только σ-лестнице (`t.start_ms` у подхода — `arm_ms`).
+                entry_sigma_bps: match form.entry_form {
+                    EntryForm::LadderSigma { .. } => p.entry_sigma.and_then(|s| s.at(t.start_ms)),
+                    _ => None,
+                },
             };
             let built = match approaches {
                 Some(ap) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
@@ -274,6 +280,8 @@ pub(super) struct DayParams<'a> {
     /// Полоса ухода цены, bps (F5, В-74, `--band-exit-bps`); `0` — условие
     /// выключено (режим `touch`).
     pub(super) band_exit_bps: f64,
+    /// σ монеты на взводе для σ-лестницы (В-131, `--sigma-from`); `None` — флага нет.
+    pub(super) entry_sigma: Option<&'a EntrySigma>,
     /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
     pub(super) min_age_ms: Option<i64>,
     pub(super) min_flow_pct: Option<f64>,

@@ -159,6 +159,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         entry_form: Vec::new(),
         sets: Vec::new(),
         cells: None,
+        sigma_from: None,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -615,6 +616,120 @@ fn touches_cache_gives_byte_identical_rounds() {
     a.warmup_ms = Some(0);
     a.touches_from = Some(cache);
     assert!(run_bounce_grid(&a).is_err(), "прогрев с кэшем — отказ");
+}
+
+/// В-131: σ-лестница на подходе — σ на взводе из `--sigma-from` (`sigma-<SYMBOL>.csv`, окно по последней
+/// закрытой минуте до `arm_ms`): ноги σ·(a…b) bps, нераздельные; строки нет — сигнала нет (`n_no_sigma`,
+/// `n_skipped`). Без `--sigma-from` σ-форма — отказ, `--sigma-from` без σ-формы — отказ.
+#[test]
+fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
+    use crate::commands::lob::touches::{run_touches, TouchesArgs};
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root_approach(dir.path());
+    let h3 = || H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    };
+    let cache = dir.path().join("approaches");
+    let summary = run_touches(&TouchesArgs {
+        root: dir.path().to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        h3: h3(),
+        h3_k: None,
+        warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
+        repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
+        out: Some(cache.join("2026-09-08").join("touches-SOLUSDT.csv")),
+        approach_bps: vec![750],
+        approach_min_age_secs: 0,
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
+        numbers: None,
+        allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
+        levels_out: None,
+    })
+    .unwrap();
+    assert_eq!(summary.approaches, 1);
+    let arm_ms = LEAD_S * 1_000 + 4_000;
+    let end_ms = arm_ms.div_euclid(60_000) * 60_000;
+    let sigma_dir = dir.path().join("sigma");
+    std::fs::create_dir_all(&sigma_dir).unwrap();
+    let grid = |entry: &str, sigma: Option<&std::path::Path>, out: &str| {
+        let mut a = args(dir.path(), false);
+        a.signal = SignalArg::Approach;
+        a.entry_form = vec![entry.to_string()];
+        a.stop_form = vec!["at".to_string()];
+        a.take_form = vec!["1to1".to_string()];
+        a.take_floor_fees = None;
+        a.deadline_secs = vec![60];
+        a.h3 = h3();
+        a.warmup_ms = None;
+        a.repeat_window_ms = None;
+        a.touches_from = Some(cache.clone());
+        a.sigma_from = sigma.map(std::path::Path::to_path_buf);
+        a.out_dir = dir.path().join(out);
+        run_bounce_grid(&a)
+    };
+    // Стена 99.00 (9 900 тиков по 0.01): 1 тик ≈ 1,01 bps. σ = 100 bps, `ladder3x0.02..0.1s` — полоса
+    // 2…10 bps, те же ноги 99.02/99.06/99.10, что у `ladder3x2..10` соседнего теста.
+    std::fs::write(
+        sigma_dir.join("sigma-SOLUSDT.csv"),
+        format!(
+            "window_end_ms,sigma_bps
+{},55
+{end_ms},100
+",
+            end_ms - 60_000
+        ),
+    )
+    .unwrap();
+    let m = grid("ladder3x0.02..0.1s", Some(&sigma_dir), "grid-sigma").unwrap();
+    assert_eq!((m.n_no_sigma, m.n_sigma_signals), (0, 1));
+    assert!(m.rounds > 0, "σ есть — круг на свипе в стену");
+    let (rh, rounds) = read_csv(&m.rounds_path);
+    for r in &rounds {
+        let vwap: f64 = col(&rh, r, "entry_vwap").parse().unwrap();
+        assert!((vwap - 99.0596).abs() < 1e-6, "entry_vwap {vwap}");
+        assert_eq!(col(&rh, r, "legs_filled"), "3", "{r:?}");
+    }
+    let head = std::fs::read_to_string(&m.forms_path).unwrap();
+    assert!(
+        head.contains(&format!(
+            " entry_forms=ladder3x0.02..0.1s sigma_from={} ",
+            sigma_dir.display()
+        )),
+        "{head}"
+    );
+    // Строки на минуту взвода нет — сигнала нет, он в `n_no_sigma` и `n_skipped` формы.
+    std::fs::write(
+        sigma_dir.join("sigma-SOLUSDT.csv"),
+        format!(
+            "window_end_ms,sigma_bps
+{},55
+",
+            end_ms - 60_000
+        ),
+    )
+    .unwrap();
+    let m = grid("ladder3x0.02..0.1s", Some(&sigma_dir), "grid-no-sigma").unwrap();
+    assert_eq!((m.n_no_sigma, m.n_sigma_signals, m.rounds), (1, 1, 0));
+    let (fh, forms) = read_csv(&m.forms_path);
+    assert_eq!(col(&fh, &forms[0], "n_signals"), "0");
+    assert_eq!(col(&fh, &forms[0], "n_skipped"), "1");
+    // Отказы флага.
+    assert!(grid("ladder3x0.02..0.1s", None, "grid-x1").is_err());
+    assert!(grid("ladder3x2..10", Some(&sigma_dir), "grid-x2").is_err());
+    let missing = dir.path().join("nosigma");
+    std::fs::create_dir_all(&missing).unwrap();
+    assert!(
+        grid("ladder3x0.02..0.1s", Some(&missing), "grid-x3").is_err(),
+        "нет таблицы монеты"
+    );
 }
 
 /// F6 (В-73): `--signal approach` берёт сигнал из записи подхода F1

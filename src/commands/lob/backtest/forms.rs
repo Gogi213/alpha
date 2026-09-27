@@ -313,8 +313,9 @@ pub enum EntryForm {
     /// `ladder<N>x<a>..<b>s[w<k>]` (В-131, владелец 27.09: «у кого-то 20 bps это ничто, у кого-то значимо —
     /// учесть шаг цены и волатильность») — `N` ног от `a·σ` до `b·σ` над стеной, σ монеты на момент взвода;
     /// ноги **не сливаются**: каждая следующая хотя бы на тик дальше предыдущей, первая не ближе `P ± 1`
-    /// (`ladder_legs_distinct`). Доли — как у `Ladder`. Источник σ — по решению Судьи; до него форма
-    /// разбирается, но `bounce-grid` её отвергает.
+    /// (`ladder_legs_distinct`). Доли — как у `Ladder`. σ — `PlanShape::entry_sigma_bps` (В-131: √Σr² минутных
+    /// лог-доходностей закрытий за 240 мин до взвода, `bounce-grid --sigma-from`); нет σ — нет плана.
+    /// `a = 0` разрешено: ближняя нога — `P ± 1`.
     LadderSigma {
         legs: u8,
         from_sigma: f64,
@@ -417,9 +418,16 @@ impl EntryForm {
         let to_bps: f64 = to_s
             .parse()
             .map_err(|_| anyhow::anyhow!("{spec}: to {to_s:?} не число"))?;
+        // В-131 (Судья 27.09, «Окончательно»): у σ-лестницы ближняя нога может стоять на `a = 0` — её цена
+        // тогда `P ± 1` (пол `ladder_legs_distinct`); у лестницы в bps — прежнее 0 < from.
+        let from_ok = if in_sigma {
+            from_bps >= 0.0
+        } else {
+            from_bps > 0.0
+        };
         anyhow::ensure!(
-            from_bps.is_finite() && to_bps.is_finite() && from_bps > 0.0 && to_bps > from_bps,
-            "{spec}: полоса лестницы — конечные 0 < from < to bps"
+            from_bps.is_finite() && to_bps.is_finite() && from_ok && to_bps > from_bps,
+            "{spec}: полоса лестницы — конечные 0 < from < to bps (у σ-лестницы 0 ≤ from < to)"
         );
         let form = if in_sigma {
             Self::LadderSigma {
@@ -551,8 +559,6 @@ pub(super) fn ladder_legs(
 /// предыдущая, первая не ближе `P ± 1` (`bps_to_ticks_ceil` ≥ 1). У монеты с крупным шагом цены и малой
 /// шириной лестницы ноги встают на соседние тики, а не в одну цену. Доли — как у `ladder_legs`; второе
 /// значение — средняя цена входа по долям.
-// Вызывается планом σ-лестницы, когда будет подведён источник σ (решение Судьи, В-131); пока — тестами.
-#[cfg_attr(not(test), allow(dead_code))]
 #[allow(clippy::cast_precision_loss)]
 pub(super) fn ladder_legs_distinct(
     p_tick: i64,
@@ -624,6 +630,10 @@ pub(crate) struct PlanShape {
     /// Форма выхода (F7, Б-75): `none` — прежнее поведение, `eat<X>` — стена
     /// съедена сделками ≥ X %, `gone<W>` — стена снята без сделок.
     pub(crate) exit_form: crate::commands::lob::bounce_grid::ExitForm,
+    /// σ монеты на взводе, bps (В-131) — только для σ-лестницы (`EntryForm::LadderSigma`): √Σr² минутных
+    /// лог-доходностей закрытий за 240 мин до сигнала (`bounce-grid --sigma-from`). `None` — σ нет, у
+    /// σ-лестницы плана нет; остальные формы поле не читают.
+    pub(crate) entry_sigma_bps: Option<f64>,
 }
 
 /// Режим срока жизни входа (F5, В-74): у сделки-отскока вход снимается по

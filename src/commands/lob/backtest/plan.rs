@@ -21,8 +21,8 @@ use crate::commands::lob::profiles::size_bucket;
 use crate::commands::lob::side_name;
 
 use super::forms::{
-    bps_to_ticks_ceil, ladder_legs, BounceForm, EntryForm, EntryTtl, PlanShape, StopForm, TakeForm,
-    MARKET_CROSS_MARGIN_BPS,
+    bps_to_ticks_ceil, ladder_legs, ladder_legs_distinct, BounceForm, EntryForm, EntryTtl,
+    PlanShape, StopForm, TakeForm, MARKET_CROSS_MARGIN_BPS,
 };
 
 /// Порог В-66 в единицах размера крейта для условия «стена снята» (F5,
@@ -77,6 +77,7 @@ pub(crate) fn bounce_plan(
         h3_usd,
         band_exit_bps,
         exit_form: _,
+        entry_sigma_bps,
     } = shape;
     let p_tick = touch.price_tick;
     let p = p_tick as f64 * tick;
@@ -142,9 +143,24 @@ pub(crate) fn bounce_plan(
             let (ladder, avg_tick) = ladder_legs(p_tick, away, legs, from_bps, to_bps, wall_weight);
             (ladder, avg_tick)
         }
-        // В-131: σ монеты на взводе ещё не подведена (источник — по решению Судьи); `bounce-grid` отвергает
-        // форму до чтения данных, плана у неё нет.
-        EntryForm::LadderSigma { .. } => return None,
+        // В-131: ноги — σ монеты на взводе × (a…b) bps, нераздельные (каждая ≥ 1 тика дальше предыдущей,
+        // первая не ближе `P ± 1`); σ нет — плана нет (`n_no_sigma` у сетки).
+        EntryForm::LadderSigma {
+            legs,
+            from_sigma,
+            to_sigma,
+            wall_weight,
+        } => {
+            let sigma = entry_sigma_bps?;
+            ladder_legs_distinct(
+                p_tick,
+                away,
+                legs,
+                from_sigma * sigma,
+                to_sigma * sigma,
+                wall_weight,
+            )
+        }
         // T4 (В-73-подобно, П-02, Г-86): рыночный вход — лимит за
         // `MARKET_CROSS_MARGIN_BPS` от стены, гарантированно пересекающий
         // спред (симулятор идёт по стакану до фактической цены фила —

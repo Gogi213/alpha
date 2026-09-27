@@ -593,6 +593,13 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 s.rounds_path.display(),
                 s.forms_path.display()
             );
+            // В-131: строка σ на взводе — только с `--sigma-from` (прежний вывод не меняется).
+            if args.sigma_from.is_some() {
+                println!(
+                    "bounce-grid: σ на взводе (В-131): n_no_sigma {} из {} сигналов",
+                    s.n_no_sigma, s.n_sigma_signals
+                );
+            }
             Ok(())
         }
         LobCommand::FillCapacity(args) => {

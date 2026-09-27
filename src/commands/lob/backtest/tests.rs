@@ -338,6 +338,8 @@ fn plain_shape() -> PlanShape {
         entry_form: EntryForm::SingleFrontrun,
         // F7/F8: форма выхода — не используется в одиночном backtest.
         exit_form: crate::commands::lob::bounce_grid::ExitForm::None,
+        // В-131: σ на взводе — только σ-лестнице, у прежних форм не читается.
+        entry_sigma_bps: None,
     }
 }
 
@@ -1201,10 +1203,21 @@ fn entry_form_parses_the_sigma_ladder() {
         EntryForm::parse("ladder3x2..20w2").unwrap(),
         EntryForm::Ladder { .. }
     ));
+    // В-131 «Окончательно»: у σ-лестницы ближняя нога на `a = 0` (Г-85б `ladder3x0..<k>sw2`).
+    assert_eq!(
+        EntryForm::parse("ladder3x0..0.0409sw2").unwrap(),
+        EntryForm::LadderSigma {
+            legs: 3,
+            from_sigma: 0.0,
+            to_sigma: 0.0409,
+            wall_weight: 2,
+        }
+    );
     for bad in [
         "ladder3x0.25..1.5sw1",
         "ladder3x1.5..0.25s",
-        "ladder3x0..1s",
+        "ladder3x0..1",
+        "ladder3x-0.1..1s",
         "ladder3x0.25s..1.5",
         "ladder3x0.25..1.5ss",
         "ladder3x0.250..1.5s",
@@ -1233,6 +1246,38 @@ fn distinct_ladder_legs_never_share_a_tick() {
     let (a, _) = super::forms::ladder_legs(100_000, 1, 3, 2.0, 20.0, 1);
     let (b, _) = super::forms::ladder_legs_distinct(100_000, 1, 3, 2.0, 20.0, 1);
     assert_eq!(a, b);
+}
+
+/// В-131: план σ-лестницы — ноги σ·(a…b) bps от стены, нераздельные; `a = 0` — ближняя на `P + 1`;
+/// нет σ — нет плана. Г-85б `ladder3x0..0.0409sw2` при σ = 110 bps: дальняя — 4,5 bps.
+#[test]
+fn sigma_ladder_plan_takes_legs_from_entry_sigma() {
+    let touch = bounce_touch(100_000, None);
+    let shape = |sigma: Option<f64>| PlanShape {
+        entry_form: EntryForm::parse("ladder3x0..0.0409sw2").unwrap(),
+        entry_sigma_bps: sigma,
+        ..plain_shape()
+    };
+    let bf = base("pct2", "1to1");
+    assert!(
+        bounce_plan(&touch, 0.01, bf, None, shape(None)).is_none(),
+        "нет σ — нет плана"
+    );
+    let (_, plan) = bounce_plan(&touch, 0.01, bf, None, shape(Some(110.0))).unwrap();
+    let TradePlan::Bounce { ladder, .. } = plan else {
+        panic!("отскок обязан быть Bounce");
+    };
+    // 100 000 тиков: 1 тик = 0,1 bps; средняя 0,0409/2·110 = 2,2495 bps → 23 тика, дальняя 4,499 → 45.
+    assert_eq!(ladder.n, 3);
+    assert_eq!(&ladder.ticks[..3], &[100_001, 100_023, 100_045]);
+    assert!((ladder.frac[0] - 0.5).abs() < 1e-12, "вес к стене 2 из 4");
+    // Крупный шаг (цена 100 тиков, 1 тик = 100 bps): ноги не сливаются — P+1, P+2, P+3.
+    let coarse = bounce_touch(100, None);
+    let (_, plan) = bounce_plan(&coarse, 0.01, bf, None, shape(Some(110.0))).unwrap();
+    let TradePlan::Bounce { ladder, .. } = plan else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert_eq!(&ladder.ticks[..3], &[101, 102, 103]);
 }
 
 #[test]

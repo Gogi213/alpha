@@ -315,6 +315,8 @@ fn run_bounce(
                     band_exit_bps: 0.0,
                     // F7/F8: форма выхода — одиночный backtest не использует ось выхода.
                     exit_form: crate::commands::lob::bounce_grid::ExitForm::None,
+                    // В-131: σ-лестница живёт в сетке (`--sigma-from`), здесь вход — `single@fr`.
+                    entry_sigma_bps: None,
                 },
             );
             match built {

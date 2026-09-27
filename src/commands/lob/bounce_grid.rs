@@ -104,6 +104,7 @@ mod args;
 mod cache;
 mod carry;
 mod drive;
+mod entry_sigma;
 mod forms;
 mod outputs;
 mod plan;
@@ -115,6 +116,7 @@ pub(crate) use cache::cached_touches;
 use cache::{cached_approaches, DayTouches};
 use carry::{carry_window_ns, extend_with_carry};
 use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
+use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
 use outputs::FormDayResult;
 pub(crate) use plan::{ensure_holds_at_touch_checkable, pool_symbols};
@@ -378,6 +380,11 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             continue;
         }
         let sizing = OrderSizing::from_args(args, symbol)?;
+        // В-131: таблица σ на взводе — одна на символ (все сутки записи).
+        let entry_sigma = match args.sigma_from.as_deref() {
+            Some(dir) => Some(EntrySigma::read(dir, symbol)?),
+            None => None,
+        };
         // Явный лот обязан быть целым числом шагов записи: ноги лестницы
         // (R3) считаются целыми шагами, и некратный лот молча менял бы размер
         // круга (0.25 при шаге 0.1 — `round(2.5)` = 3 шага, +20 %). Лот пула и
@@ -476,6 +483,18 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 None
             };
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            // В-131: сколько сигналов суток без σ на взводе (до фильтров наборов) — в итог и строкой суток.
+            if let Some(es) = &entry_sigma {
+                let n = day.touches.len() as u64;
+                let no = day
+                    .touches
+                    .iter()
+                    .filter(|t| es.at(t.start_ms).is_none())
+                    .count() as u64;
+                summary.n_sigma_signals += n;
+                summary.n_no_sigma += no;
+                eprintln!("bounce-grid:   σ на взводе (В-131): без σ {no} из {n}");
+            }
             let order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
@@ -543,6 +562,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             h3_usd: args.h3.h3_usd,
                             band_exit_bps,
                             sigma: &sigma_series,
+                            entry_sigma: entry_sigma.as_ref(),
                         },
                         &mut sink,
                     )?

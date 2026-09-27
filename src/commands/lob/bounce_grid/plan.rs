@@ -181,11 +181,18 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         None => 0.0,
     };
     let entries = parse_entry_forms(&args.entry_form)?;
+    // В-131: σ-лестнице — таблица σ на взводе (`--sigma-from`); таблица без σ-лестницы не читается — отказ,
+    // чтобы флаг не создавал видимость, что σ где-то учтена.
+    let sigma_entries = entries
+        .iter()
+        .any(|e| matches!(e, EntryForm::LadderSigma { .. }));
     anyhow::ensure!(
-        !entries
-            .iter()
-            .any(|e| matches!(e, EntryForm::LadderSigma { .. })),
-        "--entry-form ladder…s: σ-лестница (В-131) ждёт источник σ монеты на взводе (решение Судьи) — пока не считается"
+        !sigma_entries || args.sigma_from.is_some(),
+        "--entry-form ladder…s: σ-лестнице (В-131) нужен --sigma-from <каталог> (sigma-<SYMBOL>.csv, tools/compute/sigma-table.py)"
+    );
+    anyhow::ensure!(
+        sigma_entries || args.sigma_from.is_none(),
+        "--sigma-from без σ-лестницы в --entry-form — таблицу σ никто не читает"
     );
     let exits = parse_exit_forms(&args.exit_form)?;
     let earlies = parse_early_exits(&args.early_exit_secs)?;
@@ -470,11 +477,18 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         // F6 (В-73): по какому сигналу вход (`touch` — гейт, `approach` —
         // запись подхода F1) и какими формами входа (ось `--entry-form`).
         args.signal.label(),
-        entries
-            .iter()
-            .map(|e| e.label())
-            .collect::<Vec<_>>()
-            .join("+"),
+        {
+            let labels = entries
+                .iter()
+                .map(|e| e.label())
+                .collect::<Vec<_>>()
+                .join("+");
+            // В-131: источник σ-лестницы — в шапку только заданным, без флага шапка байт в байт прежняя.
+            match &args.sigma_from {
+                Some(d) => format!("{labels} sigma_from={}", d.display()),
+                None => labels,
+            }
+        },
         // F7/F8 (Б-75): форма выхода (ось `--exit-form`).
         exit_forms,
         args.touches_from

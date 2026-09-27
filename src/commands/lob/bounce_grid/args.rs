@@ -285,6 +285,11 @@ pub struct BounceGridArgs {
     /// какие из них считать и в каком наборе; формы вне файла не считаются. Без флага — прежнее произведение.
     #[arg(long)]
     pub cells: Option<PathBuf>,
+    /// σ монеты на взводе для σ-лестницы `--entry-form ladder<N>x<a>..<b>s[w<k>]` (В-131): каталог с
+    /// `sigma-<SYMBOL>.csv` (`window_end_ms,sigma_bps`, `tools/compute/sigma-table.py`). Обязателен при
+    /// σ-лестнице и запрещён без неё; сигнал без σ не торгуется и считается в `n_no_sigma` итога.
+    #[arg(long)]
+    pub sigma_from: Option<PathBuf>,
     /// Режим по минутам для ключей `pool*`/`btc*` наборов (S3/S4 плана по
     /// сторонам): каталог `study/regime` с `<сутки>.csv` от `regime.py`.
     /// Без него эти ключи — отказ; сутки без файла — отказ.
@@ -451,6 +456,10 @@ pub struct BounceGridSummary {
     pub symbols_from_cache: usize,
     pub symbol_days: usize,
     pub rounds: u64,
+    /// В-131 (`--sigma-from`): сигналов символ-суток (до фильтров наборов) и из них без σ на взводе — у
+    /// σ-лестницы таких нет в `rounds`, они в `n_skipped` форм. Без флага — нули, строки итога нет.
+    pub n_sigma_signals: u64,
+    pub n_no_sigma: u64,
     /// Пути первого (или единственного) набора — как раньше.
     pub rounds_path: PathBuf,
     pub forms_path: PathBuf,
