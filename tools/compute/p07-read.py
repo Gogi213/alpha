@@ -56,6 +56,39 @@ CELLS = [
 # H9/H10 — уже посчитаны (p07-h9h10.py); здесь читаются их готовые ps-closes.json без нового счёта.
 # busy_dir_of: откуда брать rounds.csv для символьной карты (cap3/cap5 используют busy-replay пары pause0,
 # как и сам p07-h9h10.py: portfolio_sim_for(..., outs0, max_pos=cap)).
+# TK-004 (`--variant`): «b» — Г-85б целиком (база σ-лестница, одномерные оси, В-131/П-07 поправка 4),
+# «a3» — ступень 3 и остаток Г-85а (запечатана: читать только по правилу А/Б/В). Клетки — из `p07-cells.py`.
+EB = "ladder3x0..0.0409sw2"
+EXITS = ["gone50wall0", "gone50wallx0", "gone50wallk0", "gone90wall0", "gone90wallx0", "gone90wallk0",
+         "gone50wall10", "gone50wallx10", "gone50wallk10", "gone30wall0", "gone30wallx0", "gone30wallk0"]
+H5 = [("btc1h", "t-bid-btc1h-q1"), ("btc2h", "t-bid-btc2h-q1"), ("btc3h", "t-bid-btc3h-q1")]
+
+
+def axes_cells(v, entry, stops):
+    pre = "" if entry == "single@fr" else f"{entry}-"
+    f = lambda stop="pct2", take="tr1x1", dl=14400, ex=None:         f"{pre}{stop}-{take}-{dl}-ttl1800" + (f"-{ex}" if ex else "")
+    c = [(f"H6-{s}", f"p07{v}-h6-{s}", f(stop=s), SET_) for s in stops]
+    c += [(f"H13-{e}", f"p07{v}-h13-{e}", f(ex=e), SET_) for e in EXITS]
+    c += [(f"H8-{d}", f"p07{v}-h8-{d}", f(dl=d), SET_) for d in (3600, 7200)]
+    c += [(f"H4-{a}", f"p07{v}-h4-{a}", f(), SET_) for a in (900, 1800, 3600, 5400)]
+    c += [(f"H5-{n}", f"p07{v}-h5-{n}", f(), s) for n, s in H5]
+    c += [(f"H3-{u}", f"p07{v}-h3-{u}", f(), SET_) for u in (25000, 50000, 100000)]
+    return c, f
+
+
+def cells_for(variant):
+    if variant == "a":
+        return [(n, o, fm, SET_) for n, o, fm in CELLS]
+    if variant == "a3":
+        c, f = axes_cells("a", "single@fr", ["at", "behind"])
+        return [("base", "p07a-base", f(), SET_)] + c
+    c, f = axes_cells("b", EB, ["pct1.5", "pct3", "at", "behind"])
+    h2 = [(f"H2-{k}", f"p07b-h2-{k}", f"ladder3x0..{k}sw2-pct2-tr1x1-14400-ttl1800", SET_)
+          for k in ("0.0136", "0.0273", "0.0682")]
+    h7 = [(f"H7-{t}", f"p07b-h7-{t}", f(take=t), SET_) for t in ("tr1.5x1", "tr1x1.5", "tr2x1", "1to1")]
+    return [("base", "p07b-base", f(), SET_)] + h2 + c + h7
+
+
 H9H10 = [
     ("H9-pause0(=base)", "pause0", "pause0", "0"),
     ("H9-pause30", "pause30", "pause30", "0"),
@@ -89,19 +122,19 @@ def load_mod(path, name):
     return m
 
 
-def busy_replay_cell(out_name, tag_name):
+def busy_replay_cell(out_name, tag_name, set_=SET_, pre="read-a"):
     outs = {}
     for tag, home in HOMES.items():
         src = os.path.join(home, "b5", out_name)
-        out_dir = os.path.join(OUT_ROOT, f"read-a-{tag_name}", tag)
+        out_dir = os.path.join(OUT_ROOT, f"{pre}-{tag_name}", tag)
         os.makedirs(out_dir, exist_ok=True)
-        run(["python3", BUSY_REPLAY, src, out_dir, "--sets", SET_])
+        run(["python3", BUSY_REPLAY, src, out_dir, "--sets", set_])
         outs[tag] = out_dir
     return outs
 
 
-def portfolio_sim_cell(tag_name, form, outs):
-    d = os.path.join(OUT_ROOT, f"read-a-{tag_name}")
+def portfolio_sim_cell(tag_name, form, outs, set_=SET_, pre="read-a"):
+    d = os.path.join(OUT_ROOT, f"{pre}-{tag_name}")
     os.makedirs(d, exist_ok=True)
     j = os.path.join(d, "ps.json")
     co = os.path.join(d, "ps-closes.json")
@@ -110,7 +143,7 @@ def portfolio_sim_cell(tag_name, form, outs):
            "--epoch", f"запись={outs['rec']}:.",
            "--epoch", f"август={outs['aug']}:.",
            "--join", "сентябрь=история+запись",
-           "--variant", f"cell={SET_}/{form}",
+           "--variant", f"cell={set_}/{form}",
            "--klines", os.path.join(HOME, "study/klines"),
            "--klines", os.path.join(HOME, "epochs/e-aug/study/klines"),
            "--deposit-usd", "2500", "--position-usd", "500", "--max-pos", "0",
@@ -127,11 +160,11 @@ def closes_of(co, vname="cell", cap="0"):
     return out
 
 
-def symbol_map(dirs_by_tag, form):
+def symbol_map(dirs_by_tag, form, set_=SET_):
     """t1_ms (round(exit_ns/1e6)) -> symbol, из rounds.csv busy-replay выходов данной клетки/формы."""
     m = {}
     for tag, out_dir in dirs_by_tag.items():
-        for f in glob.glob(os.path.join(out_dir, "20*", SET_, "rounds.csv")):
+        for f in glob.glob(os.path.join(out_dir, "20*", set_, "rounds.csv")):
             with open(f, encoding="utf-8", newline="") as fh:
                 for r in csv.DictReader(l for l in fh if not l.startswith("#")):
                     if r["form"] != form:
@@ -281,6 +314,8 @@ def n_note(n_trades):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--variant", choices=["a", "a3", "b"], default="a",
+                    help="a — ступени 1–2 Г-85а (прежнее), a3 — ступень 3/остаток Г-85а, b — Г-85б (TK-004)")
     ap.add_argument("--skip-compute", action="store_true",
                      help="не гонять busy-replay/portfolio-sim заново, только дочитать уже посчитанные read-a-*/ps-closes.json")
     a = ap.parse_args()
@@ -290,18 +325,19 @@ def main():
     base_closes = None
     base_sym = None
 
-    for name, out_name, form in CELLS:
+    pre = "read-b" if a.variant == "b" else "read-a"
+    for name, out_name, form, set_ in cells_for(a.variant):
         tag_name = name.lower().replace(".", "")
-        d = os.path.join(OUT_ROOT, f"read-a-{tag_name}")
+        d = os.path.join(OUT_ROOT, f"{pre}-{tag_name}")
         co_path = os.path.join(d, "ps-closes.json")
         if a.skip_compute and os.path.exists(co_path):
             co = json.load(open(co_path, encoding="utf-8", newline=""))
             outs = {tag: os.path.join(d, tag) for tag in HOMES}
         else:
-            outs = busy_replay_cell(out_name, tag_name)
-            _, co = portfolio_sim_cell(tag_name, form, outs)
+            outs = busy_replay_cell(out_name, tag_name, set_, pre)
+            _, co = portfolio_sim_cell(tag_name, form, outs, set_, pre)
         closes = closes_of(co)
-        sym = symbol_map(outs, form)
+        sym = symbol_map(outs, form, set_)
         all_closes = sorted(closes["aug"] + closes["sep"])
         n_aug, usd_aug = len(closes["aug"]), round(sum(p for _, p in closes["aug"]), 2)
         n_sep, usd_sep = len(closes["sep"]), round(sum(p for _, p in closes["sep"]), 2)
@@ -321,7 +357,7 @@ def main():
 
     # H9/H10 — читаем готовые ps-closes.json (p07-h9h10.py), символьная карта — из соответствующих
     # busy-replay каталогов tmp-p07/h9-a-<busy_dir>/ (cap3/cap5 переиспользуют h9-a-pause0)
-    for name, out_tag, busy_dir, cap in H9H10:
+    for name, out_tag, busy_dir, cap in (H9H10 if a.variant == "a" else []):
         d = os.path.join(OUT_ROOT, f"h9-a-{out_tag}")
         co = json.load(open(os.path.join(d, "ps-closes.json"), encoding="utf-8", newline=""))
         closes = closes_of(co, vname="п07a", cap=cap)
