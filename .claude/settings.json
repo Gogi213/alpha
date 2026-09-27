@@ -56,5 +56,127 @@
         ]
       }
     ]
+  },
+  "skillOverrides": {
+    "autopilot": {
+      "hidden": true
+    },
+    "brand-guidelines": {
+      "hidden": true
+    },
+    "canvas-design": {
+      "hidden": true
+    },
+    "domain-modeling": {
+      "hidden": true
+    },
+    "frontend-design": {
+      "hidden": true
+    },
+    "grill-me": {
+      "hidden": true
+    },
+    "grill-with-docs": {
+      "hidden": true
+    },
+    "grilling": {
+      "hidden": true
+    },
+    "implement": {
+      "hidden": true
+    },
+    "setup-matt-pocock-skills": {
+      "hidden": true
+    },
+    "theme-factory": {
+      "hidden": true
+    },
+    "to-spec": {
+      "hidden": true
+    },
+    "to-tickets": {
+      "hidden": true
+    },
+    "typesafe-ai": {
+      "hidden": true
+    },
+    "ui-ux-pro-max": {
+      "hidden": true
+    },
+    "wayfinder": {
+      "hidden": true
+    },
+    "mp-code-review": {
+      "hidden": true
+    },
+    "plan-autopilot": {
+      "hidden": true
+    },
+    "typesafe:typesafe-ai": {
+      "hidden": true
+    },
+    "exa:exa-agent": {
+      "hidden": true
+    },
+    "exa:search": {
+      "hidden": true
+    },
+    "anthropic-skills:docx": {
+      "hidden": true
+    },
+    "anthropic-skills:pptx": {
+      "hidden": true
+    },
+    "anthropic-skills:xlsx": {
+      "hidden": true
+    },
+    "anthropic-skills:pdf": {
+      "hidden": true
+    },
+    "anthropic-skills:morning": {
+      "hidden": true
+    },
+    "anthropic-skills:import-memory": {
+      "hidden": true
+    },
+    "anthropic-skills:setup-claude": {
+      "hidden": true
+    },
+    "anthropic-skills:learn": {
+      "hidden": true
+    },
+    "anthropic-skills:docs": {
+      "hidden": true
+    },
+    "anthropic-skills:computer-use": {
+      "hidden": true
+    },
+    "anthropic-skills:chrome-browser": {
+      "hidden": true
+    },
+    "anthropic-skills:deep-research": {
+      "hidden": true
+    },
+    "anthropic-skills:skill-creator": {
+      "hidden": true
+    },
+    "keybindings-help": {
+      "hidden": true
+    },
+    "fewer-permission-prompts": {
+      "hidden": true
+    },
+    "init": {
+      "hidden": true
+    },
+    "security-review": {
+      "hidden": true
+    },
+    "claude-api": {
+      "hidden": true
+    }
+  },
+  "enabledPlugins": {
+    "typesafe@typesafe-ai": false
   }
 }
