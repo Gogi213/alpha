@@ -50,7 +50,7 @@ body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-in
 /* во всю ширину (владелец 27.09): на широком экране — две колонки панелей, широкие панели на всю строку */
 @media (min-width: 1500px) {
   .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-t32, #panel-p05, details.methodology, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
+  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-t32, #panel-p05, #panel-approach, #panel-lev, details.methodology, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
   .h-eq { height: 380px; }
 }
 /* сетки-контейнеры не должны раздуваться до min-content широких детей (таблиц, графиков) —
@@ -253,6 +253,19 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     </div>
   </section>
 
+  <section class="panel" id="panel-approach">
+    <div class="panel-head"><h2>Номер подхода (главный вариант)</h2><span class="badge warn">на проверке у Судьи</span></div>
+    <p class="note" id="approach-note"></p>
+    <div class="scroll"><h3>По номеру подхода на входе</h3><table id="approach-number"></table></div>
+    <div class="scroll" style="margin-top:16px"><h3>Правила «все / только N-й / первые K / с N-го»</h3><table id="approach-rules"></table></div>
+  </section>
+
+  <section class="panel" id="panel-lev">
+    <div class="panel-head"><h2>Плечо ×1…×5 (главный вариант, депозит $2 500)</h2><span class="badge warn">на проверке у Судьи</span></div>
+    <p class="note" id="lev-note"></p>
+    <div class="scroll"><table id="lev-table"></table></div>
+  </section>
+
   <section class="panel" id="panel-p05">
     <div class="panel-head"><h2>Сетки П-05</h2><span class="badge warn" id="p05-status"></span></div>
     <p class="note" id="p05-note"></p>
@@ -379,6 +392,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // KPI владельца «до перехая» (В-120): кривая по закрытиям сделок, все периоды максимум → новый максимум, часы
   const NH = D.nh || null;
   const nhFor = (period, key) => (NH && NH.by_variant[key] && NH.by_variant[key][period]) || null;
+  // вердикт П-07 (Судья 3d3a5f6) — не по периоду, один на вариант (оба месяца сразу)
+  const kpi07For = key => (NH && NH.by_variant[key] && NH.by_variant[key].kpi07) || null;
   // основное определение с 27.09 (CEO, на проверке у Судьи): скользящий старт по непрерывному счёту; «авг + сен» — худший месяц
   function rollFor(period, key) {
     const one = pk => { const x = nhFor(pk, key); return x && x.roll ? {...x.roll.max, start: x.roll.start, hist: x.roll_hist, month: pk} : null; };
@@ -417,7 +432,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // ---------- состояние ----------
   let state = {period: "augsep", variant: "btc4h_trail", size: D.position_usd};
   // размер позиции (П-05 §3а): деньги — линейно, без пересчёта очереди; просадка в % — точно, где был прогон `--size-mult`
-  const SIZES = [500, 1000, 1500, 2500];
+  const SIZES = [500, 1000, 1500, 2000, 2500];  // плечо ×1..×5 при депозите $2 500 (владелец 27.09)
   const K = () => state.size / D.position_usd;
   function ddScaled(ddUsd, ddPct, k, exact) {
     if (k === 1 || ddUsd == null || !ddPct) return {v: ddPct, approx: false};
@@ -460,8 +475,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     vt.innerHTML = D.variants.filter(v => !isP02(v.key)).map(btn).join("") +
       (p02v.length ? "<span class='sep' aria-hidden='true'></span><span class='grp' title='Гипотезы П-02: главный вариант с одной заменой, справочно'>П-02</span>" + p02v.map(btn).join("") : "") +
       "<span id='p05-pill'></span>";
-    document.getElementById("size-toggle").innerHTML = SIZES.map(z => "<button data-size='" + z + "' title='Позиция $" + z.toLocaleString("ru-RU") +
-      " на счёте $2 500: деньги пересчитаны линейно, исполнение и очередь — как у $500' aria-pressed='" + (z === state.size) + "'>$" + z.toLocaleString("ru-RU") + "</button>").join("");
+    document.getElementById("size-toggle").innerHTML = SIZES.map(z => "<button data-size='" + z + "' title='Плечо ×" + (z / D.position_usd) + " (позиция $" + z.toLocaleString("ru-RU") +
+      ") на депозите $2 500: деньги пересчитаны линейно, исполнение и очередь — как у ×1 ($500)' aria-pressed='" + (z === state.size) + "'>×" + (z / D.position_usd) + " ($" + z.toLocaleString("ru-RU") + ")</button>").join("");
     document.querySelectorAll("#size-toggle button").forEach(b => b.addEventListener("click", () => { state.size = +b.dataset.size; renderStatus(); renderAll(); }));
     pt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; renderAll(); }));
     document.querySelectorAll("#variant-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
@@ -572,6 +587,17 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       ["До перехая, p90", dayFmt(rl.p90), "медиана " + dayFmt(rl.median) + (rl.worstMonth ? " · худший месяц — " + (rl.worstMonth === "aug" ? "август" : "сентябрь") : ""), "first", "Главный KPI владельца (В-120), определение с 27.09, на проверке у Судьи: из любого часа — сколько ждать закрытия выше максимума счёта, достигнутого к этому часу; счёт непрерывный август + сентябрь. p90 — 90 % часов ждут не дольше. " + NH_TIP],
       ["До перехая, максимум", dayFmt(rl.max), (rl.cens ? "не дождались к 24.09: " + pct0(rl.cens) + " часов" : "все часы дождались") + (nh ? " · от начала месяца " + dayFmt(nh.worst) : ""), "first", "Самое долгое ожидание нового максимума из какого-то часа. Если к концу данных (24.09) перехая нет — считается время до конца (цензура). «От начала месяца» — прежнее определение, справочно."],
       ["Со старта, p90", dayFmt(rl.start.p90), "бот запущен в случайный час", "first", "Сколько ждать, пока счёт станет выше, чем в момент запуска, если запустить бота в любой час месяца; p90 по часам."]);
+    const gt = kpi07For(state.variant);
+    if (gt) {
+      const gv = gt.verdict;
+      const gtxt = "авг " + pct0(gt.frac.aug) + " (" + gt.n_main.aug + " ч) · сен " + pct0(gt.frac.sep) + " (" + gt.n_main.sep + " ч)";
+      tiles.unshift(["Доля часов ожидания > 5 сут (П-07)", gv, gtxt + " · " + gt.note, "first",
+        "Правило владельца «p90 ≤ 5 суток» (принято Судьёй " + "3d3a5f6" + "): доля часов месяца, для которых точно известно (без цензуры, t ≤ 19.09), что ждать нового максимума счёта дольше 5 суток — должна быть ≤ 0,10 в обоих месяцах. «Проходит» — держится и без сделок любых одних суток (худший случай сут " +
+        pct0(gt.stability_day_max.aug) + "/" + pct0(gt.stability_day_max.sep) + ")" +
+        (gt.stability_symbol_max.aug != null ? " и без любой одной монеты (мон " + pct0(gt.stability_symbol_max.aug) + "/" + pct0(gt.stability_symbol_max.sep) + ")" : " (по монете не проверено — нет карты символов у этого ряда)") +
+        ". Бутстреп «доля выборок ≤ 0,10» — справочно, без порога: авг " + gt.boot_le010.aug.toFixed(2) + " / сен " + gt.boot_le010.sep.toFixed(2) +
+        ". Отбор по той же мере на тех же днях, что и подбор варианта, — не проверка на новых данных."]);
+    }
     const dd = ddFor(state.period, state.variant);
     if (dd) tiles.splice(3, 0,
       ["Спад, p90", dayFmt(dd.fall_p90), "от пика до дна · самый долгий " + dayFmt(dd.fall_max) + " · откатов " + dd.n, "first", "Сторона падения (владелец 27.09): сколько счёт падает от максимума до дна отката; откаты глубже $10, месяц — по пику; непрерывный счёт август + сентябрь. На проверке у Судьи."],
@@ -952,6 +978,64 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       T.exits.map(r => "<tr" + (r.name === "baseline" ? " class='total'" : "") + "><td>" + nm(r.name) + "</td><td class='num sep " + (r.aug.roll_p90_d > 5 ? "neg" : "") + "'>" + r.aug.roll_p90_d.toFixed(1).replace(".", ",") + " дн</td><td class='num " + cls(r.aug.usd) + "'>" + money(r.aug.usd * k) +
         "</td><td class='num sep " + (r.sep.roll_p90_d > 5 ? "neg" : "") + "'>" + r.sep.roll_p90_d.toFixed(1).replace(".", ",") + " дн</td><td class='num " + cls(r.sep.usd) + "'>" + money(r.sep.usd * k) + "</td></tr>").join("") + "</tbody>";
   }
+  // ---------- номер подхода (владелец 27.09: «добавим количество подходов в дашборд») ----------
+  function renderApproach() {
+    const box = document.getElementById("panel-approach"), A = NH && NH.approach;
+    if (!A || !A.by_number) { box.style.display = "none"; return; }
+    document.getElementById("approach-note").innerHTML = "Только главный вариант (BTC 4 ч, трейл 1/1), готовые сделки, без нового бэктеста: " +
+      A.notes.join("; ") + ". Сделок: август " + A.n_trades.aug + ", сентябрь " + A.n_trades.sep + "; максимум номера подхода — " + A.max_approach_number + ".";
+    const pc = x => x == null ? "—" : Math.round(x * 100) + "%";
+    const rowN = r => "<tr><td>" + r.key + "</td>" + ["aug", "sep"].map(m => {
+      const v = r[m];
+      return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num'>" + moneyFine(v.usd_per_trade) +
+        "</td><td class='num'>" + pc(v.win) + "</td><td class='num'>" + pc(v.stop) + "</td>";
+    }).join("<td class='sep'></td>") + "</tr>";
+    document.getElementById("approach-number").innerHTML =
+      "<thead><tr><th>подход</th><th colspan='5'>август</th><th class='sep'></th><th colspan='5'>сентябрь</th></tr>" +
+      "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th><th class='sep'></th>" +
+      "<th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th></tr></thead><tbody>" +
+      A.by_number.map(rowN).join("") + "</tbody>";
+    const n_note = v => v.n < 10 ? "сделок нет" : (v.n < 30 ? " (описание)" : "");
+    const gtCell = v => v.n < 10 ? "—" : pc(v.frac_gt_5d) + n_note(v);
+    const pmCell = v => v.n < 10 ? "—" : dayFmt((v.p90_days || 0) * 24) + (v.p90_censored ? "*" : "") + " / " + dayFmt((v.max_days || 0) * 24) + (v.max_censored ? "*" : "");
+    const rowR = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
+      const v = r[m];
+      return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num " + (v.n >= 10 && v.frac_gt_5d > 0.10 ? "neg" : "") +
+        "'>" + gtCell(v) + "</td><td class='num muted'>" + pmCell(v) + "</td>";
+    }).join("<td class='sep'></td>") + "</tr>";
+    document.getElementById("approach-rules").innerHTML =
+      "<thead><tr><th>правило</th><th colspan='4'>август</th><th class='sep'></th><th colspan='4'>сентябрь</th></tr>" +
+      "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>p90/max, дн</th><th class='sep'></th>" +
+      "<th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>p90/max, дн</th></tr></thead><tbody>" +
+      A.rules.map(rowR).join("") + "</tbody>" +
+      "<tfoot><tr><td colspan='10' class='muted'>Просмотрено правил: " + A.n_rules + " (все выписаны, без подбора, на тех же днях главного варианта — не проверка). Цель — доля &le; 10 %. Г-85 — считается (размеченных сделок по номеру подхода для Г-85 пока нет).</td></tr></tfoot>";
+  }
+
+  // ---------- плечо ×1..×5 (владелец 27.09: «не размер позиции а в плечах») ----------
+  function renderLev() {
+    const box = document.getElementById("panel-lev"), L = NH && NH.lev;
+    if (!L || !L.rows) { box.style.display = "none"; return; }
+    document.getElementById("lev-note").innerHTML = L.notes.join("; ") + ". " + L.note_scale_invariant +
+      (L.frac_gt_h ? " (август " + Math.round(L.frac_gt_h.aug * 100) + "%, сентябрь " + Math.round(L.frac_gt_h.sep * 100) + "%, все ×)." : ".");
+    const mults = [1, 2, 3, 4, 5];
+    const metric = (label, get, fmt) => "<tr><td>" + label + "</td>" + ["aug", "sep"].map(m => mults.map(x => {
+      const r = (L.rows[m] || {})[x]; if (!r) return "<td class='num'>—</td>";
+      const v = get(r);
+      const approx = r.dd_pct_approx && label.includes("просадк");
+      return "<td class='num" + (approx ? " muted" : "") + "'>" + (v == null ? "—" : fmt(v)) + (approx ? " ≈" : "") + "</td>";
+    }).join("")).join("<td class='sep'></td>") + "</tr>";
+    let h = "<thead><tr><th>×</th>" + ["август", "сентябрь"].map(mo => "<th colspan='5'>" + mo + "</th>").join("<th class='sep'></th>") + "</tr>" +
+      "<tr><th></th>" + ["aug", "sep"].map(() => mults.map(x => "<th class='num'>×" + x + " ($" + L.sizes[x] + ")</th>").join("")).join("<th class='sep'></th>") + "</tr></thead><tbody>";
+    h += metric("$", r => r.usd, v => money(v));
+    h += metric("% депозита", r => r.pct, v => v.toFixed(1) + "%");
+    h += metric("максимальная просадка, % депозита", r => r.dd_pct, v => v.toFixed(1) + "%");
+    h += metric("худшие сутки, % депозита", r => r.worst_day_pct, v => v.toFixed(1) + "%");
+    h += metric("стресс обвала (−59,7 % на пике), потеря % депозита", r => r.stress_pct,
+      v => Math.abs(v) >= 100 ? "<span class='neg'>счёт обнулён</span> <span class='muted'>(" + Math.abs(v).toFixed(0) + "%)</span>" : Math.abs(v).toFixed(0) + "%");
+    h += metric("пиковое фактическое плечо", r => r.lev, v => "×" + v.toFixed(1));
+    document.getElementById("lev-table").innerHTML = h + "</tbody>";
+  }
+
   function renderRating() {
     const box = document.getElementById("panel-rating");
     if (!NH) { box.style.display = "none"; return; }
@@ -1045,7 +1129,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     document.getElementById("lede-pos").textContent = "$" + state.size.toLocaleString("ru-RU") + (state.size !== D.position_usd ? " (пересчёт линейно)" : "");
     document.getElementById("p05-pill").innerHTML = isP05(state.variant) ? "<span class='sep' aria-hidden='true'></span><button aria-pressed='true' title='" +
       VARIANT_FULL[state.variant].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[state.variant] + "</button>" : "";
-    renderDiff(); renderP05(); renderNh(); renderRating(); renderT32();
+    renderDiff(); renderP05(); renderNh(); renderRating(); renderT32(); renderApproach(); renderLev();
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
   buildToggles(); renderStatus(); renderCompare(); renderP02(); renderAll();

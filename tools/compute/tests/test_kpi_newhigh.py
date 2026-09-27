@@ -51,15 +51,15 @@ def test_rolling_kpi_frac_gt_h_and_censoring():
     closes = [(s0 + kn.MS_H, 100.0)]
     roll = kn.rolling_kpi(closes)
     aug, sep = roll["aug"], roll["sep"]
-    # календарная сетка не зависит от данных: 31 сутки августа целиком видны (t <= 24.09 - 7 сут = 17.09);
-    # в сентябре -- только по 17.09 00:00 включительно (16 суток + 1 час)
+    # календарная сетка не зависит от данных: 31 сутки августа целиком видны (t <= 24.09 - H сут; по умолчанию
+    # H = 5 -- правило П-07, Судья 3d3a5f6 -- отсечка 19.09); в сентябре -- по 19.09 00:00 включительно (18 суток + 1 час)
     assert aug["n_main"] == 31 * 24
-    assert sep["n_main"] == 16 * 24 + 1
+    assert sep["n_main"] == 18 * 24 + 1
     # единственная точка «жду <= H» в августе -- самый первый час (закрытие +100 приходит через 1 ч)
     assert aug["frac_gt_h"] == round((31 * 24 - 1) / (31 * 24), 3)
     # весь сентябрь идёт после единственного закрытия -- везде цензура (кроме ровно точки отсечки, где
     # оставшееся время == H, не «> H»)
-    assert sep["frac_gt_h"] == round((16 * 24) / (16 * 24 + 1), 3)
+    assert sep["frac_gt_h"] == round((18 * 24) / (18 * 24 + 1), 3)
     # максимум месяца в августе так и не обновился за время данных -- это нижняя граница, не число
     assert aug["max"]["max_censored"] is True
     assert aug["max"]["median_censored"] is True
@@ -99,6 +99,60 @@ def test_drawdown_stats_hourly_survives_month_boundary():
     assert dd["aug"]["hourly"]["max_usd"] == pytest.approx(80.0, abs=0.5)
     assert dd["sep"]["hourly"]["max_usd"] == pytest.approx(90.0, abs=0.5)
     assert dd["sep"]["hourly"]["max_usd"] > (dd["sep"]["depth_max"] or 0)
+
+
+def test_drawdown_stats_hourly_uses_d_usd_threshold():
+    """В-123 (владелец, 27.09): порог показа стороны падения -- 2 % депозита $2500 = $50 (не $25, слово владельца,
+    меняемо), поле называется `frac_gtD` и несёт свой порог `d_usd` -- дашборд не должен опираться на magic-число 25."""
+    s0 = kn.ms("2026-08-01")
+    day = 24 * kn.MS_H
+    closes = [(s0 + 1 * kn.MS_H, 100.0), (s0 + 5 * day, -30.0)]  # просадка $30: между $25 (старый порог) и $50 (новый)
+    dd = kn.drawdown_stats(closes)
+    assert dd["aug"]["hourly"]["d_usd"] == kn.FALL_SHOW_D_USD == 50.0
+    assert dd["aug"]["hourly"]["frac_gtD"] == 0.0  # $30 не глубже $50 -- новый порог не считает это "глубоко"
+    assert dd["aug"]["hourly"]["frac_gt0"] > 0  # но это по-прежнему просадка > $0
+
+
+def test_stability_by_day_worst_case_ge_point():
+    """Исключение любых одних суток не может улучшить долю сильнее, чем убрать день, который единственный сдвигал
+    её вниз -- на простом ряду с одним закрытием исключение того самого дня обязано дать 0 (перехай сразу, часов
+    ожидания нет вовсе -- частный случай), а необязательно совпадает с точкой."""
+    s0 = kn.ms("2026-08-01")
+    closes = [(s0 + kn.MS_H, 100.0), (s0 + 10 * 24 * kn.MS_H, 50.0)]
+    worst = kn.stability_by_day(closes, h_days=5)
+    base = kn.rolling_kpi(closes, h_days=5)
+    # худший случай (максимум по исключениям) не может быть строго лучше точки -- исключать нечего в дни без сделок
+    assert worst["aug"] >= (base["aug"]["frac_gt_h"] or 0.0) - 1e-9
+
+
+def test_stability_by_symbol_no_map_returns_none():
+    """Нет карты монет для этого ряда (или она не покрывает все закрытия) -- `None`, не число по частичному
+    подмножеству: так устойчивость по монете сейчас есть только у главного варианта (data/t32/main-trades.csv)."""
+    s0 = kn.ms("2026-08-01")
+    closes = [(s0 + kn.MS_H, 100.0), (s0 + 2 * kn.MS_H, -30.0)]
+    r = kn.stability_by_symbol(closes, {})
+    assert r == {"aug": None, "sep": None}
+    r2 = kn.stability_by_symbol(closes, {s0 + kn.MS_H: "BTCUSDT"})  # покрыт только один из двух
+    assert r2 == {"aug": None, "sep": None}
+    r3 = kn.stability_by_symbol(closes, {s0 + kn.MS_H: "BTCUSDT", s0 + 2 * kn.MS_H: "BTCUSDT"})  # покрыт, одна монета
+    assert r3["aug"] is not None
+
+
+def test_verdict_kpi_pass_fail_edge():
+    """Судья 3d3a5f6, правило 2: точка + устойчивость (без бутстреп-порога)."""
+    ok = {"aug": 0.05, "sep": 0.05}
+    v, states, note = kn.verdict_kpi(ok, {"aug": 0.08, "sep": 0.09}, {"aug": 0.07, "sep": 0.08})
+    assert v == "проходит" and states == {"aug": "OK", "sep": "OK"}
+    bad = {"aug": 0.42, "sep": 0.15}
+    v2, states2, _ = kn.verdict_kpi(bad, {"aug": 0.5, "sep": 0.2}, {"aug": None, "sep": None})
+    assert v2 == "не проходит"
+    edge = {"aug": 0.12, "sep": 0.05}
+    v3, states3, _ = kn.verdict_kpi(edge, {"aug": 0.08, "sep": 0.06}, {"aug": None, "sep": None})
+    # база > 0,10 в августе, но устойчивость (макс. по исключениям) опускает <= 0,10 -- не FAIL и не OK -> граница
+    assert v3 == "на границе" and states3["aug"] == "EDGE"
+    none_case = {"aug": None, "sep": 0.05}
+    v4, _, _ = kn.verdict_kpi(none_case, {"aug": None, "sep": 0.0}, {"aug": None, "sep": None})
+    assert v4 == "нет данных"
 
 
 def test_drawdown_stats_sensitivity_and_episode_list_present():
