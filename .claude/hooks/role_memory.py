@@ -228,7 +228,7 @@ def deck_alert():
            "-o", f"UserKnownHostsFile={home}/.ssh/known_hosts", "-i", f"{home}/.ssh/id_rsa", DECK,
            "for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && echo \"$(basename $f): $(head -c 200 $f)\"; done; true"]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=7).stdout.strip()
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=7).stdout.strip()
         text = f"[Steam Deck] тревога очереди: {out} — разобраться (роль/Инженер), владельцу не ждать вопроса." if out else ""
     except Exception:
         text = ""  # дека недоступна — молчим, не мешаем разговору
