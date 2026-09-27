@@ -359,6 +359,10 @@ pub(super) struct DayParams<'a> {
     pub(super) frontrun_min_lots: Option<i64>,
     /// Номинал стены при касании ≥ (`usd_min=`), доллары.
     pub(super) usd_min: Option<f64>,
+    /// Г-07: глубина позади ≥ % размера (`behind_min=`).
+    pub(super) behind_min_pct: Option<i64>,
+    /// Г-07: уровней в стопке ≥ (`stack_min=`).
+    pub(super) stack_min: Option<u32>,
     /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
     /// у набора есть ключи контекста; границы — `ctx_ranges`.
     pub(super) ctx: Option<&'a [TouchContext]>,

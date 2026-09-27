@@ -1078,6 +1078,8 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             usd_min: None,
+            behind_min_pct: None,
+            stack_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
@@ -3081,4 +3083,86 @@ fn exit_groups_and_hold_skip_match_the_plain_run_byte_for_byte() {
             );
         }
     }
+}
+
+/// Г-07 (TK-012): ключи `behind_min=<%>` и `stack_min=<n>` — разбор, граница «равно проходит» в
+/// `TouchFilter::admits` (целые лоты), шапка без ключей прежняя, с ключами — только заданные.
+#[test]
+fn g07_behind_and_stack_keys() {
+    let s = FilterSet::parse("g:behind_min=150,stack_min=2").unwrap();
+    assert_eq!((s.behind_min_pct, s.stack_min), (Some(150), Some(2)));
+    let s = FilterSet::parse("g:behind_min=0").unwrap();
+    assert_eq!((s.behind_min_pct, s.stack_min), (Some(0), None));
+    for bad in [
+        "x:behind_min=-1",
+        "x:behind_min=1.5",
+        "x:behind_min=a",
+        "x:stack_min=0",
+        "x:stack_min=-1",
+        "x:stack_min=a",
+        "x:stack_min=1,stack_min=2",
+    ] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
+    }
+
+    let set = FilterSet::parse("g:behind_min=150,stack_min=2").unwrap();
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let f = super::sets::TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+    let t = |depth: i64, stack: u32| TouchRecord {
+        size_at_touch: 10,
+        depth_behind_lots: depth,
+        stack_levels: stack,
+        ..probe_touch()
+    };
+    assert!(
+        f.admits(0, &t(15, 2)),
+        "15 × 100 == 150 × 10, стопка 2 == 2 — проходит"
+    );
+    assert!(!f.admits(0, &t(14, 2)), "позади меньше порога");
+    assert!(!f.admits(0, &t(15, 1)), "стопка меньше порога");
+    let none = FilterSet::parse("n:").unwrap();
+    let f = super::sets::TouchFilter::from_set(&none, mode, 0.01, 1.0, &[]);
+    assert!(f.admits(0, &t(0, 0)), "без ключей фильтр прежний");
+
+    assert_eq!(super::plan::g07_label(&none), "");
+    assert_eq!(super::plan::g07_label(&set), " behind_min=150 stack_min=2");
+}
+
+/// Г-07 сквозь сетку: `behind_min=0` не выбивает ничего (байты те же, шапка с ключом), огромный
+/// `stack_min` выбивает всё; набор без ключей — шапка без `behind_min`/`stack_min`.
+#[test]
+fn g07_keys_through_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-g07");
+    a.sets = vec![
+        "all:".to_string(),
+        "b0:behind_min=0".to_string(),
+        "sbig:stack_min=1000000".to_string(),
+    ];
+    let m = run_bounce_grid(&a).unwrap();
+    let by = |n: &str| m.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            )
+    };
+    assert_eq!(body(&by("b0").rounds_path), body(&by("all").rounds_path));
+    let (fh, big) = read_csv(&by("sbig").forms_path);
+    assert!(big.iter().all(|r| col(&fh, r, "n_signals") == "0"));
+    let head = std::fs::read_to_string(&by("b0").forms_path).unwrap();
+    assert!(head.contains(" usd_min=None behind_min=0 ctx="), "{head}");
+    let head = std::fs::read_to_string(&by("all").forms_path).unwrap();
+    assert!(head.contains(" usd_min=None ctx="), "{head}");
+    assert!(
+        !head.contains("behind_min") && !head.contains("stack_min"),
+        "{head}"
+    );
 }

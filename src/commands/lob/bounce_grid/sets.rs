@@ -50,6 +50,12 @@ pub struct FilterSet {
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
     pub usd_min: Option<f64>,
+    /// Г-07 (TK-012): глубина позади стены не меньше стольких процентов её размера (`behind_min=<%>`, целое ≥ 0):
+    /// `depth_behind_lots × 100 ≥ pct × size_at_touch` (у подхода — на взводе). Только ключ набора.
+    pub behind_min_pct: Option<i64>,
+    /// Г-07 (TK-012): уровней той же стороны в стопке не меньше `n` (`stack_min=<n>`, n ≥ 1; `stack_levels`,
+    /// у подхода — `stack_levels_at_arm`). Только ключ набора.
+    pub stack_min: Option<u32>,
     /// Контекст касания (S4): границы в bps по осям `CTX_AXES` — ход монеты
     /// до касания за 10 мин / 1 ч / 4 ч (`ret10m`, `ret1h`, `ret4h`; знак
     /// абсолютный), медиана пула за 1 ч / 4 ч (`pool1h`, `pool4h`) и биток
@@ -232,6 +238,8 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             usd_min: None,
+            behind_min_pct: None,
+            stack_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
     }
@@ -261,6 +269,8 @@ impl FilterSet {
             eaten_min_pct: None,
             frontrun_min_lots: None,
             usd_min: None,
+            behind_min_pct: None,
+            stack_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
@@ -299,6 +309,26 @@ impl FilterSet {
                         "--set {spec:?}: usd_min={v:?} — доллары обязаны быть неотрицательным числом"
                     );
                     set.usd_min = Some(usd);
+                }
+                "behind_min" => {
+                    let pct: i64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: behind_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        pct >= 0,
+                        "--set {spec:?}: behind_min={v:?} — целый процент ≥ 0"
+                    );
+                    set.behind_min_pct = Some(pct);
+                }
+                "stack_min" => {
+                    let n: u32 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: stack_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        n >= 1,
+                        "--set {spec:?}: stack_min={v:?} — целое число уровней ≥ 1"
+                    );
+                    set.stack_min = Some(n);
                 }
                 "eaten" => {
                     let pct: f64 = v
@@ -340,7 +370,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|eaten|eaten_min|usd_min|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|eaten|eaten_min|usd_min|behind_min|stack_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!("--set {spec:?}: неизвестная ось {axis:?} (ret10m|ret1h|ret4h|pool1h|pool4h|btc1h|btc4h|btc2h|btc3h)")
                     })?;
@@ -381,6 +411,8 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) eaten_min_pct: Option<f64>,
     pub(crate) frontrun_min_lots: Option<i64>,
     pub(crate) usd_min: Option<f64>,
+    pub(crate) behind_min_pct: Option<i64>,
+    pub(crate) stack_min: Option<u32>,
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
 }
@@ -399,6 +431,8 @@ impl<'a> TouchFilter<'a> {
             eaten_min_pct: p.eaten_min_pct,
             frontrun_min_lots: p.frontrun_min_lots,
             usd_min: p.usd_min,
+            behind_min_pct: p.behind_min_pct,
+            stack_min: p.stack_min,
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
         }
@@ -425,6 +459,8 @@ impl<'a> TouchFilter<'a> {
             eaten_min_pct: set.eaten_min_pct,
             frontrun_min_lots: set.frontrun_min_lots,
             usd_min: set.usd_min,
+            behind_min_pct: set.behind_min_pct,
+            stack_min: set.stack_min,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
         }
@@ -472,6 +508,15 @@ impl<'a> TouchFilter<'a> {
         if self.usd_min.is_some_and(|m| {
             t.price_tick as f64 * self.tick * t.size_at_touch as f64 * self.lot < m
         }) {
+            return false;
+        }
+        // Г-07 (TK-012): позади стены меньше `pct` % её размера — не вход (целые лоты, без f64).
+        if self.behind_min_pct.is_some_and(|pct| {
+            i128::from(t.depth_behind_lots) * 100 < i128::from(pct) * i128::from(t.size_at_touch)
+        }) {
+            return false;
+        }
+        if self.stack_min.is_some_and(|n| t.stack_levels < n) {
             return false;
         }
         // Контекст (S4): ход до касания и режим — вне границ набора или

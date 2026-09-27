@@ -339,7 +339,7 @@ pub(crate) fn bounce_plan(
 /// `frontrun_tick: None` (ключ `--frontrun-only` подходы выбрасывает —
 /// фронтрана на взводе не считаем), `traded_during` 0, `size_max_before` =
 /// `size_at_arm` (ключ `eaten=` на подходах смысла не имеет — вызов с ним
-/// отвергается), стопки 0.
+/// отвергается), стопка — `stack_levels_at_arm` (Г-07, ключ `stack_min=`).
 ///
 /// Единственное место отображения: `lob fill-capacity --targets approaches`
 /// (F2) зовёт эту же функцию (аудит 21.09, В3 — прежде была вторая копия без
@@ -363,7 +363,7 @@ pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
         swept_lots: 0,
         round_zeros: crate::lob::levels::round_zeros(a.price_tick),
         ended_by_death: false,
-        stack_levels: 0,
+        stack_levels: a.stack_levels_at_arm,
         stack_next_tick: None,
         traded_first_s: [0; REACTION_WINDOWS_S.len()],
         flow_1h_lots: a.flow_1h_lots,

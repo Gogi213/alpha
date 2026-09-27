@@ -308,6 +308,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 "{symbol}: `frontrun_min=` на подходах — нужен кэш с колонкой frontrun_lots_at_arm (T-28, `{}`)",
                 dir.display()
             );
+            // Г-07: `stack_min=` на подходах читает `stack_levels_at_arm` (те же колонки T-28, что
+            // `frontrun_lots_at_arm`); старый кэш без них — отказ, а не молчаливый ноль сигналов.
+            anyhow::ensure!(
+                !sets.iter().any(|s| s.stack_min.is_some())
+                    || days.iter().all(|d| d.touches.iter().all(|t| t.frontrun_lots >= 0)),
+                "{symbol}: `stack_min=` на подходах — нужен кэш с колонкой stack_levels_at_arm (T-28, `{}`)",
+                dir.display()
+            );
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
@@ -561,6 +569,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             eaten_min_pct: set.eaten_min_pct,
                             frontrun_min_lots: set.frontrun_min_lots,
                             usd_min: set.usd_min,
+                            behind_min_pct: set.behind_min_pct,
+                            stack_min: set.stack_min,
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,
                             mode,
