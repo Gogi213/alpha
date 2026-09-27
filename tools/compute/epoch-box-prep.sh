@@ -32,7 +32,7 @@ cd "$H" || exit 1
 scan="$H/approach-scan-t28.sh"
 sed 's#^BIN=bin/alpha$#BIN=bin/alpha-16f0a80#' "$A/bin/approach-scan.sh" > "$scan"
 grep -q '^BIN=bin/alpha-16f0a80$' "$scan" || { echo "подмена BIN не удалась"; exit 1; }
-cp "$A/bin/_env.sh" "$A/bin/sets.txt" "$H/"
+cp "$A/bin/_env.sh" "$H/"
 for day in "$@"; do
   [ -f "study/approaches/D20/$day/.done" ] && { say "$day уже готов"; continue; }
   dir="study/root-$day"; rm -rf "$dir"; mkdir -p "$dir" "study/touches/$day"
