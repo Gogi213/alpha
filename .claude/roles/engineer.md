@@ -15,7 +15,7 @@ Steam Deck; SSH — только `-i`/`UserKnownHostsFile`).
 
 - `docs/ARCHITECTURE.md` (A1–A9), «Правила, которые ловят ревью» (`CLAUDE.md`) обязательны; новое —
   за флагом, умолчание = старое; тесты в `<модуль>/tests.rs`; перед коммитом `fmt --check`, `clippy
-  -D warnings`, `cargo test --target-dir target-ci`; сборка — одна за раз (`alpha_one_build.py`).
+  -D warnings`, тесты — всё на VPS: `bash tools/vps-check.sh <дерево> all` (В-147: cargo на машине владельца запрещён, хук).
 - Выкладка: сборка VPS (`.build.lock`) → бинарник на Steam Deck → гейт «байт в байт»
   (`gate-g10.sh`); время на деке — очередь `alpha-gridq`, `queue/HOLD` — через `@ceo`.
 - **«Раунд ревью»** (девять осей: мёртвый код, дублирование, запахи, длина файлов, сложность и др.)
