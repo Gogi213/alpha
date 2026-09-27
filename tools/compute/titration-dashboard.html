@@ -238,6 +238,18 @@ div.wrap > .seg.tabs button { font-size: 14px; padding: 6px 18px; }
 section.panel dl.cfg-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13.5px; }
 section.panel dl.cfg-grid dt { color: var(--ink-3); }
 section.panel dl.cfg-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.vrows { margin-top: 8px; display: grid; gap: 3px; min-width: 0; }
+.vrows .vg { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; border-top: 1px solid var(--rule); padding-top: 3px; }
+.vrows .vt { font: 600 10px/1.3 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-3); }
+.vrows .vt .lab { font: 600 10px/1.3 var(--font-mono); color: var(--ink-2); margin-right: 6px; }
+.vrows .vl { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; min-width: 0; }
+.vrows .ax { font-size: 10.5px; color: var(--ink-3); margin-right: 3px; white-space: nowrap; }
+.vrows button { font: 11px/1.25 var(--font-body); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.vrows button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--surface); font-weight: 600; }
+.vrows button.cand { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.vrows button.pass { border-color: var(--good); }
+.vrows button.edge { border-color: var(--warn); }
+.vrows button.nocalc { color: var(--ink-3); border-style: dashed; background: transparent; }
 section.panel .chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
 section.panel .chip-list button { font: 12px var(--font-body); padding: 3px 8px; border-radius: 7px; border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink-2); cursor: pointer; text-align: left; }
 section.panel .chip-list button[aria-pressed="true"] { border-color: var(--rule-strong); color: var(--ink); font-weight: 600; }
@@ -258,15 +270,12 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
         <div class="seg" id="period-toggle" role="group" aria-label="Период"></div>
       </div>
       <div class="control-row">
-        <span class="label">Вариант</span>
-        <div class="seg" id="variant-toggle" role="group" aria-label="Вариант"></div>
-      </div>
-      <div class="control-row">
         <span class="label">Плечо</span>
         <div class="seg" id="size-toggle" role="group" aria-label="Плечо (размер позиции)"></div>
       </div>
     </div>
     </div>
+    <div class="vrows" id="variant-toggle" role="group" aria-label="Вариант"></div>
     <p class="changed-chip" id="changed-chip" hidden></p>
   </header>
 
@@ -422,6 +431,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
   const PERIOD_LABEL = {sep: "Сентябрь (23 суток, 14.09 без LSKUSDT)", aug: "Август", augsep: "Август + сентябрь", crash: "Обвал"};
   const VARIANT_PILL = {cand: "BTC 1 ч", btc4h_trail: "Главный", btc4h_take: "Тейк 1,75 %", nofilter: "Без фильтра"};
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
+  const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   const VARIANT_FULL = {}, VARIANT_META = {}; D.variants.forEach(v => { VARIANT_FULL[v.key] = v.label; VARIANT_META[v.key] = v; if (v.pill) VARIANT_PILL[v.key] = v.pill; });
   const isP02 = key => (VARIANT_META[key] || {}).group === "p02";
   // Г-85 (В-122 — кандидат владельца; T-35: на подходах фронтрана нет, это одна заявка на тик перед стеной)
@@ -443,7 +453,23 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     for (const p in P5.account) { D.account[p] = D.account[p] || {}; Object.assign(D.account[p], P5.account[p]); }
   }
   const isP05 = key => (VARIANT_META[key] || {}).group === "p05";
-  const vsMain = key => isP02(key) || isP05(key);
+  // П-07 (TK-007 v33): клетки Г-85а / Г-85б — варианты со своей кнопкой в строке оси
+  const isP07 = key => /^p07[ab]$/.test((VARIANT_META[key] || {}).group || "");
+  const noCalc = key => !!(VARIANT_META[key] || {}).nocalc;
+  const vsMain = key => isP02(key) || isP05(key) || isP07(key);
+  // статус варианта (владелец 28.09): принято Судьёй / на проверке у Судьи / не проходит / база сравнения
+  function statusOf(key) {
+    const m = VARIANT_META[key] || {};
+    if (m.status) return m.status;
+    if (key === "btc4h_trail") return "база сравнения (В-121)";
+    if (key === "btc4h_take" || key === "cand" || key === "nofilter") return "база сравнения";
+    if (key === "g85") return "не проходит (П-07 ступени 1–2, случай В, Судья 4d49252)";
+    if (key === "g85b") return "на проверке у Судьи";
+    if (isP05(key)) { const g = kpi07For(key); return g ? (g.verdict === "не проходит" ? "не проходит" : "на проверке у Судьи") + " · KPI клетки: " + g.verdict : (P5.status || "на проверке у Судьи"); }
+    if (isP02(key)) return "П-02: " + (p02Verdict(key).replace(/<[^>]*>/g, "").split("R2")[0] || "справочно");
+    return "—";
+  }
+  const statusCls = t => /^не проходит/.test(t) ? "crit" : /^принято/.test(t) ? "ok" : /^база/.test(t) ? "neutral" : /^нет расчёта/.test(t) ? "neutral" : "warn";
   // KPI владельца «до перехая» (В-120): кривая по закрытиям сделок, все периоды максимум → новый максимум, часы
   const NH = D.nh || null;
   const nhFor = (period, key) => (NH && NH.by_variant[key] && NH.by_variant[key][period]) || null;
@@ -529,16 +555,29 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const pt = document.getElementById("period-toggle");
     pt.innerHTML = D.periods.map(p => "<button data-period='" + p.key + "' title='" + PERIOD_LABEL[p.key] + ", " + dm(p.from) + "–" + dm(p.to) + "' aria-pressed='" + (p.key === state.period) + "'>" + periodPillLabel(p.key) + "</button>").join("");
     const vt = document.getElementById("variant-toggle");
-    const btn = v => "<button data-variant='" + v.key + "' title='" + VARIANT_FULL[v.key].replace(/'/g, "&#39;") + "' aria-pressed='" + (v.key === state.variant) + "'>" + VARIANT_PILL[v.key] + "</button>";
-    const p02v = D.variants.filter(v => isP02(v.key));
-    vt.innerHTML = D.variants.filter(v => !isP02(v.key)).map(btn).join("") +
-      (p02v.length ? "<span class='sep' aria-hidden='true'></span><span class='grp' title='Гипотезы П-02: главный вариант с одной заменой, справочно'>П-02</span>" + p02v.map(btn).join("") : "") +
-      "<span id='p05-pill'></span>";
+    const q = t => String(t).replace(/'/g, "&#39;");
+    const btn = (key, text, extra) => { const m = VARIANT_META[key] || {}, nc = noCalc(key);
+      return "<button data-variant='" + key + "' class='" + (extra || "") + (nc ? " nocalc" : "") + "' title='" + q((VARIANT_FULL[key] || key) + " · статус: " + statusOf(key)) +
+        "' aria-pressed='" + (key === state.variant) + "'>" + esc(text || m.btn || VARIANT_PILL[key] || key) + (nc ? " · нет расчёта" : "") + "</button>"; };
+    const p05line = () => {
+      const by = {};
+      Object.keys(P5.cells).forEach(n => { const c = P5.cells[n]; const a = c.age != null ? c.age : 45, lab = "возраст " + a + " мин" + (c.age == null ? " (не задан)" : "");
+        (by[lab] = by[lab] || {a: a + (c.age == null ? 0.5 : 0), keys: []}).keys.push(n); });
+      return Object.entries(by).sort((x, y) => x[1].a - y[1].a).map(([lab, g]) => "<div class='vl'><span class='ax'>" + lab + "</span>" +
+        g.keys.sort((x, y) => ((P5.cells[x].usd || 0) - (P5.cells[y].usd || 0)) || ((P5.cells[x].force || 0) - (P5.cells[y].force || 0))).map(n => {
+          const c = P5.cells[n], g7 = kpi07For("p05:" + n);
+          const t = [c.usd != null ? "$" + (c.usd / 1000) + "k" : null, c.force != null ? "≥" + String(c.force).replace(".", ",") + "%" : null].filter(Boolean).join(" ");
+          return btn("p05:" + n, t, g7 ? (g7.verdict === "проходит" ? "pass" : g7.verdict === "на границе" ? "edge" : "") : ""); }).join("") + "</div>").join("");
+    };
+    vt.innerHTML = (D.vrows || []).map(g => "<div class='vg'><div class='vt'><span class='lab'>" + esc(g.title) + "</span></div>" +
+      (g.p05 ? (P5 ? p05line() : "<div class='vl'><span class='ax'>нет данных П-05</span></div>") :
+        g.lines.map(l => "<div class='vl'>" + (l.axis ? "<span class='ax'>" + esc(l.axis) + ":</span>" : "") +
+          l.keys.filter(k => VARIANT_META[k]).map(k => btn(k, l.axis ? null : VARIANT_PILL[k], (g.cand || []).includes(k) ? "cand" : "")).join("") + "</div>").join("")) + "</div>").join("");
     document.getElementById("size-toggle").innerHTML = SIZES.map(z => "<button data-size='" + z + "' title='Плечо ×" + (z / D.position_usd) + " (позиция $" + z.toLocaleString("ru-RU") +
       ") на депозите $2 500: деньги пересчитаны линейно, исполнение и очередь — как у ×1 ($500)' aria-pressed='" + (z === state.size) + "'>×" + (z / D.position_usd) + " ($" + z.toLocaleString("ru-RU") + ")</button>").join("");
     document.querySelectorAll("#size-toggle button").forEach(b => b.addEventListener("click", () => { state.size = +b.dataset.size; renderStatus(); renderAll(); }));
     pt.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; renderAll(); }));
-    document.querySelectorAll("#variant-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; renderAll(); }));
+    document.querySelectorAll("#variant-toggle button").forEach(b => b.addEventListener("click", () => { state.variant = b.dataset.variant; if (state.period === "crash") state.period = "augsep"; renderAll(); }));
   }
 
   // ---------- метки в шапке: главный вариант (В-104) по месяцам ----------
@@ -600,7 +639,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const {acc, kpi} = combo(state.period, state.variant);
     const grid = document.getElementById("kpi-grid");
     document.getElementById("kpi-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant];
-    if (!kpi && !acc) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>" + (isP02(state.variant) && state.period === "crash" ? "гипотезы П-02 на обвале не считались" : "нет данных для этого сочетания периода и варианта") + "</div></div>"; return; }
+    if (!kpi && !acc) { grid.innerHTML = "<div class='kpi-tile'><div class='kpi-label'>" + (noCalc(state.variant) ? "нет расчёта portfolio-sim для этого варианта — кнопка показывает только конфиг" : state.period === "crash" && isP07(state.variant) ? "клетки П-07 на обвале не считались" : (isP02(state.variant) && state.period === "crash" ? "гипотезы П-02 на обвале не считались" : "нет данных для этого сочетания периода и варианта")) + "</div></div>"; return; }
     const kp = kpi || {};
     const n = acc ? acc.n : kp.n;
     const netUsd = acc ? acc.net_usd : kpi.net_usd;
@@ -723,7 +762,8 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
       const md = dailySeriesFor(state.period, "btc4h_trail"), all = [...new Set([...days, ...Object.keys(md)])].sort();
       let c = 0; for (const d of all) { c += md[d] || 0; mainPts.push({x: Date.parse(d + "T00:00:00Z"), y: Math.round(c * 100) / 100}); }
     }
-    document.getElementById("equity-legend").innerHTML =
+    const noEq = !days.length ? "<span class='muted'>" + (noCalc(state.variant) ? "нет расчёта portfolio-sim — кривой нет" : "нет данных для этого варианта и периода") + "</span>" : "";
+    document.getElementById("equity-legend").innerHTML = noEq +
       "<span><i style='border-color:" + css("--series-3") + "'></i>капитал, $" + (mainPts.length ? " — " + VARIANT_PILL[state.variant] : "") + "</span>" +
       (mainPts.length ? "<span><i class='dash' style='border-color:" + css("--series-2") + "'></i>главный вариант, $</span>" : "") +
       (p.boundary ? "<span><i class='dash' style='border-color:" + css("--ink-3") + "'></i>16.09 — смена источника данных</span>" : "");
@@ -763,6 +803,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
         backgroundColor: days.map(d => daily[d] >= 0 ? css("--gain") : css("--loss")), borderRadius: 3, maxBarThickness: 22}]},
       options: o });
     renderCalendar(daily);
+    if (!days.length) document.getElementById("calendar").innerHTML = "<p class='note'>" + "нет данных для этого варианта" + "</p>";
   }
   const DOW = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
   function renderCalendar(daily) {
@@ -816,7 +857,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const thead = document.getElementById("coins-table").querySelector("thead");
     thead.innerHTML = "<tr>" + COIN_COLS.map(([k, l]) => "<th role='button' tabindex='0' data-k='" + k + "'>" + l + (coinSort === k ? "<span class='arrow'>" + (coinDir < 0 ? "▼" : "▲") + "</span>" : "") + "</th>").join("") + "</tr>";
     thead.querySelectorAll("th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (coinSort === k) coinDir *= -1; else { coinSort = k; coinDir = -1; } renderCoins(); }));
-    if (!rows.length) { document.getElementById("coins-table").querySelector("tbody").innerHTML = "<tr><td colspan='6' class='muted' style='text-align:left'>" + (isP05(state.variant) ? "у клеток П-05 список сделок не собирался" : "нет сделок") + "</td></tr>"; return; }
+    if (!rows.length) { document.getElementById("coins-table").querySelector("tbody").innerHTML = "<tr><td colspan='6' class='muted' style='text-align:left'>" + (isP05(state.variant) ? "нет данных для этого варианта (у клеток П-05 список сделок не собирался)" : (VARIANT_META[state.variant] || {}).trades_note ? "нет данных для этого варианта (" + VARIANT_META[state.variant].trades_note + ")" : "нет данных для этого варианта") + "</td></tr>"; return; }
     document.getElementById("coins-table").querySelector("tbody").innerHTML = rows.map(c =>
       "<tr><td>" + c.sym.replace(/USDT$/, "") + "</td><td class='num'>" + c.n + "</td><td class='num " + cls(c.usd) + "'>" + money(c.usd) +
       "</td><td class='num'>" + Math.round(c.win_share * 100) + " %</td><td class='num " + cls(c.avg_bps) + "'>" + bpsFmt(c.avg_bps) + "</td>" +
@@ -854,15 +895,21 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     document.getElementById("compare-table").innerHTML =
       "<thead><tr><th></th>" + COMPARE.map(([, l]) => "<th class='sep' colspan='6'>" + l + "</th>").join("") + "<th></th></tr>" +
       "<tr><th>вариант</th>" + COMPARE.map(() => sub).join("") + "<th style='text-align:left'>вердикт П-02</th></tr></thead><tbody>" +
-      D.variants.filter(v => !isP02(v.key)).map(row).join("") +
+      D.variants.filter(v => !isP02(v.key) && !v.group).map(row).join("") +
       "<tr class='group'><td colspan='" + width + "'>Гипотезы П-02 · главный с одной заменой · справочно</td></tr>" +
       D.variants.filter(v => isP02(v.key)).map(row).join("") + undef +
-      (isP05(state.variant) ? "<tr class='group'><td colspan='" + width + "'>П-05 · выбранная клетка · на проверке у Судьи</td></tr>" + row({key: state.variant}) : "") + "</tbody>";
+      (isP05(state.variant) ? "<tr class='group'><td colspan='" + width + "'>П-05 · выбранная клетка · на проверке у Судьи</td></tr>" + row({key: state.variant}) : "") +
+      (isP07(state.variant) ? "<tr class='group'><td colspan='" + width + "'>П-07 · выбранная клетка · " + esc(statusOf(state.variant)) + "</td></tr>" + row({key: state.variant}) : "") + "</tbody>";
   }
 
   // ---------- устойчивость выхода ----------
   const heatBg = v => v == null ? "" : "background:color-mix(in srgb, var(" + (v >= 0 ? "--gain" : "--loss") + ") " + Math.min(55, Math.abs(v) * 1.4).toFixed(0) + "%, var(--surface))";
   function renderExit() {
+    if (isP05(state.variant) || isP07(state.variant) || /^g85/.test(state.variant)) {
+      const msg = "<tbody><tr><td class='muted' style='text-align:left'>" + "нет данных для этого варианта" + " (сетка выхода считалась на наборах главного и соседей)</td></tr></tbody>";
+      document.getElementById("heat-table").innerHTML = msg; document.getElementById("trail-table").innerHTML = msg;
+      document.getElementById("exit-aug-badge").hidden = true; return;
+    }
     const setKey = VARIANT_SET[state.variant] || "btc4h_q1";
     const heat = (D.exit_heat.sep.heat || {})[setKey] || [];
     const trail = (D.exit_heat.sep.trail || {})[setKey] || [];
@@ -970,7 +1017,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const nh = nhFor(state.period, state.variant), rl = rollFor(state.period, state.variant);
     document.getElementById("nh-scope").innerHTML = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant] + " · на проверке у Судьи" + hint("Периоды", "Из каждого часа периода — сколько ждать нового максимума счёта (скользящий старт, непрерывный счёт). Высота столбца — число часов с таким ожиданием; 5 дней — цель владельца.");
     if (charts.nh) charts.nh.destroy();
-    if (!rl) { document.getElementById("nh-caption").textContent = "для этого сочетания кривая по закрытиям не считалась"; return; }
+    if (!rl) { document.getElementById("nh-caption").textContent = "нет данных для этого варианта"; return; }
     const labels = ["< 6 ч", "6 ч – 1 дн", "1–2 дн", "2–3 дн", "3–5 дн", "5–7 дн", "7–10 дн", "> 10 дн"];
     const cnt = rl.hist;
     const o = baseOptions();
@@ -999,8 +1046,9 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
       NH.rating.map(r => "<tr class='" + (r.key ? "click" : "") + (r.key === state.variant ? " total" : "") + "'" + (r.key ? " data-key='" + r.key + "'" : "") + "><td class='num'>" + (r.place || "—") + "</td><td style='white-space:normal;min-width:220px'>" + r.name.split(G85_OLD).join(G85_NEW) + " <span class='muted'>· " + r.group + "</span></td>" +
         cols.map(k => cell(r, k)).join("") + "<td class='num sep'>" + dayFmt(r.augsep.worst) + "</td></tr>").join("") + "</tbody>";
     document.querySelectorAll("#rating-table tr[data-key]").forEach(tr => tr.addEventListener("click", () => {
+      if (!VARIANT_META[tr.dataset.key]) return;
       state.variant = tr.dataset.key; if (state.period === "crash") state.period = "augsep"; renderAll();
-      document.getElementById("panel-kpi").scrollIntoView({behavior: "smooth", block: "start"}); }));
+      window.scrollTo({top: 0, behavior: "smooth"}); }));
     const colors = [css("--series-3"), css("--series-2"), css("--warn"), css("--ink-3")];
     const names = Object.keys(NH.curves);
     const ds = names.map((n, i) => ({label: n.split(G85_OLD).join(G85_NEW), data: NH.curves[n][pk].map(([t, c]) => ({x: t, y: Math.round(c * K() * 100) / 100})),
@@ -1072,7 +1120,6 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
   }
   // ---------- конфиг варианта (TK-007): подпись, набор, стена и клетки П-05, «Подходов до» ----------
   const WALL_MAIN = "возраст ≥ 45 мин, размер ≥ $10k, без порога силы";
-  const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   // «0,685 FAIL [0,301–0,704]» из отчёта → доли двумя знаками
   const f2str = t => String(t).replace(/(\d+),(\d{3,})/g, (m, a, b) => f2(parseFloat(a + "." + b)));
   const upToHead = "<thead><tr><th>подходов до</th><th colspan='3' class='sep'>август</th><th colspan='3' class='sep'>сентябрь</th></tr>" +
@@ -1107,7 +1154,7 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const k = state.variant, box = document.getElementById("cfg-body");
     const p05 = isP05(k), meta = VARIANT_META[k] || {};
     const sameAsMain = k === "btc4h_trail" || k === "btc4h_take" || meta.group === "p02";
-    const wall = p05 ? p05Label(k.slice(4)) + "; что не названо — как у главного (" + WALL_MAIN + ")"
+    const wall = isP07(k) ? WALL_MAIN + " (как у главного)" + (/^H[34] /.test(meta.axis) ? ", кроме оси " + meta.axis + " = " + meta.btn : "") : p05 ? p05Label(k.slice(4)) + "; что не названо — как у главного (" + WALL_MAIN + ")"
       : sameAsMain ? WALL_MAIN + (k === "btc4h_trail" ? "" : " (как у главного)")
       : "по набору " + (VARIANT_SET[k] || "—") + " (параметры стены набора)";
     const cells = NH ? Object.keys(NH.by_variant).filter(x => isP05(x) && NH.by_variant[x].kpi07 && P5 && P5.cells[x.slice(4)]) : [];
@@ -1116,15 +1163,20 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     const chips = cells.map(x => { const g = NH.by_variant[x].kpi07;
       return "<button data-p05='" + x.slice(4) + "' aria-pressed='" + (x === k) + "'>" + p05Label(x.slice(4)) + " — <b>" + g.verdict + "</b> (авг " + f2(g.frac.aug) + " · сен " + f2(g.frac.sep) + ")</button>"; }).join("");
     const up = approachUpTo(k);
+    const upSt = k === "btc4h_trail" ? "справочно (не фильтр)" : k === "g85" ? "не проходит" : null;
+    const st = statusOf(k);
+    const p07rows = isP07(k) ? [["Параметр П-07", esc(meta.axis + " = " + meta.btn) + "; остальное — как в базе " + (meta.group === "p07a" ? "Г-85а" : "Г-85б")]]
+      .concat(meta.kpi_note ? [["KPI (Судья)", esc(meta.kpi_note)]] : []).concat(meta.trades_note ? [["Сделки", esc(meta.trades_note)]] : []) : [];
     const rows = [
+      ["Статус", "<span class='badge " + statusCls(st) + "'>" + esc(st) + "</span>"],
       ["Вариант", esc(VARIANT_PILL[k] || k)],
       ["Описание", esc(VARIANT_FULL[k] || "—")],
       ["Набор", esc(VARIANT_SET[k] || (p05 ? VARIANT_SET.btc4h_trail + " (как у главного)" : "—"))],
       ["Стена (П-05)", esc(wall) + (P5 ? " <span class='badge warn'>" + esc(P5.status) + "</span>" : "")],
       ["Клетки П-05 с KPI", P5 ? (cells.length ? "<div class='chip-list'>" + chips + "</div><p class='note'>доля часов ожидания нового максимума &gt; 5 сут (порог 0,10), правило П-07; всего клеток сетки " +
         Object.keys(P5.cells).length + " — в свёрнутом блоке ниже; клик — вариант во всех плитках</p>" : "нет расчёта KPI") : "нет данных П-05"],
-      ["Подходов до", up || "<span class='muted'>нет расчёта</span>"],
-    ];
+      ["Подходов до", up ? (upSt ? "<span class='badge " + statusCls(upSt) + "'>" + upSt + "</span> " : "") + up : "<span class='muted'>нет расчёта</span>"],
+    ].concat(p07rows);
     box.innerHTML = "<dl class='cfg-grid'>" + rows.map(([t, v]) => "<dt>" + t + "</dt><dd>" + v + "</dd>").join("") + "</dl>";
     box.querySelectorAll("[data-p05]").forEach(el => el.addEventListener("click", () => pickP05(el.dataset.p05)));
   }
@@ -1190,8 +1242,6 @@ section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; f
     document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
     document.querySelectorAll("#size-toggle button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.size === state.size)));
 
-    document.getElementById("p05-pill").innerHTML = isP05(state.variant) ? "<span class='sep' aria-hidden='true'></span><button aria-pressed='true' title='" +
-      VARIANT_FULL[state.variant].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[state.variant] + "</button>" : "";
     renderDiff(); renderConfig(); renderP05(); renderNh(); renderRating();
     renderKpi(); renderEquity(); renderDaily(); renderCoins(); renderCompare(); renderExit();
   }

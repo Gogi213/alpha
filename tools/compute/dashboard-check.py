@@ -54,13 +54,23 @@ def check_blocks(D):
     for p, v in ((D.get("p05") or {}).get("account") or {}).items():  # страница вливает счёт П-05 в account
         acc_all.setdefault(p, {}).update(v)
     kpi_all, tr_all = D.get("kpi") or {}, D.get("trades") or {}
+    # TK-007 v33: вариант со своей пометкой «сделок на странице нет» (страница пишет причину) и число закрытий
+    # portfolio-sim (`n_closes`, ps-closes прогона) — плитки обязаны совпасть с закрытиями
+    meta = {v["key"]: v for v in D.get("variants") or []}
+    for key, m in meta.items():
+        for p, nc in (m.get("n_closes") or {}).items():
+            a = (acc_all.get(p) or {}).get(key)
+            if not a:
+                out.append((BROKEN, f"{p}/{key}", f"закрытий portfolio-sim {nc}, а счёта на странице нет"))
+            elif a["n"] != nc:
+                out.append((BROKEN, f"{p}/{key}", f"плитки {a['n']} сделок (счёт) ≠ закрытий portfolio-sim {nc}"))
     periods = sorted(set(acc_all) | set(kpi_all) | set(tr_all))
     for p in periods:
         variants = sorted(set(acc_all.get(p, {})) | set(kpi_all.get(p, {})) | set(tr_all.get(p, {})))
         for v in variants:
             where = f"{p}/{v}"
             acc, kpi, tr = acc_all.get(p, {}).get(v), kpi_all.get(p, {}).get(v), tr_all.get(p, {}).get(v)
-            is_p05 = v.startswith("p05:")
+            is_p05 = v.startswith("p05:") or bool((meta.get(v) or {}).get("trades_note"))
             tr_usd = sum(trade_cash(r, pos) for r in tr) if tr else None
             # плитки (счёт) против «Результаты сделок» / «По монетам» (trades)
             if acc and tr:
