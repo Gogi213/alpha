@@ -153,7 +153,7 @@ launch() {
   fi
 }
 
-reason="—"; swap_prev=""; swap_hold_until=0; under_since=""; idle_since=""
+reason="—"; swap_prev=""; swap_hold_until=0; under_since=""; idle_since=""; rework_at=0
 say "демон стартовал: ядер $CORES, резерв $RESERVE МБ, такт $TICK с"
 while :; do
   reap
@@ -186,7 +186,7 @@ while :; do
   fi
   # повторная работа: процессы — каждый такт, проверка — раз в 5 мин
   track_grids
-  [ $(( now % 300 )) -lt "$TICK" ] && rework_check
+  [ "$now" -ge "$rework_at" ] && { rework_check; rework_at=$(( now + 300 )); }
   # сторож
   load1=$(cut -d' ' -f1 /proc/loadavg)
   np=$(ls "$Q/pending" | grep -c '\.job$'); nr=$(ls "$Q/running" | grep -c '\.job$')
