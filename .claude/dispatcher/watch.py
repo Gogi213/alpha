@@ -243,6 +243,8 @@ def notify_findings(findings: list, ws: dict, now) -> list:
         marker = f"{f.kind}:{f.key}"
         current_keys.add(marker)
         entry = notified.get(marker) or {}
+        if isinstance(entry, str):  # прежний формат watch-state.json (v1.4): значение — только время
+            entry = {"ts": entry}
         sig = _content_signature(f)
         sig_changed = bool(sig) and entry.get("sig") is not None and entry.get("sig") != sig
         last_ts = entry.get("ts")
