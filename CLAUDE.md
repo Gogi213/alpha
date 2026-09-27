@@ -58,7 +58,7 @@ Rust-проект: олвейс-он коллектор пишет стакан 
 - **Сборка — VPS** `13.140.29.171` (`/opt/alpha-compute`, 4 ядра); **коллектор** `139.99.91.22`, пул 76 монет (В-95).
 - **Storage Box** (Hetzner BX11, 1 ТБ): все единственные копии записи (T-37), коллектор пишет туда напрямую с 28.09
   00:10 UTC; архив Bybit янв–сен — T-30. **Единственные копии (`root/`, `deep/`, В-106) не удалять** без «да» владельца.
-- Одна сборка cargo на этой машине за раз (хук `~/.claude/hooks/alpha_one_build.py`); сводка — `bash tools/alpha-status.sh`.
+- Сборки cargo на этой машине запрещены (В-147, хук `~/.claude/hooks/alpha_one_build.py`) — только VPS; сводка — `bash tools/alpha-status.sh`.
 
 ## Доки: правило артефактов
 
@@ -78,12 +78,12 @@ Rust-проект: олвейс-он коллектор пишет стакан 
 
 ## Команды (полностью — `docs/COMMANDS.md`)
 
+**Сборки и тесты cargo — только на VPS (В-147, владелец 28.09: «зачем на моей машине»; хук отказывает локальным):**
+
 ```bash
-cargo build --release --target-dir target-ci          # target/release/alpha.exe занят коллектором
-cargo test --release --target-dir target-ci 2>&1 | tail -5
-cargo clippy --release --target-dir target-ci --all-targets -- -D warnings   # ноль
-cargo fmt --check
-./target-ci/release/alpha.exe lob --help              # подкоманды — docs/COMMANDS.md
+bash tools/vps-check.sh <рабочее дерево> all          # test + clippy -D warnings + fmt на VPS 13.140.29.171
+bash tools/vps-check.sh <рабочее дерево> test <фильтр>
+cargo fmt --check                                     # единственное, что можно локально
 ```
 
 - `lob bounce-grid` — сетка форм (вход/стоп/тейк/дедлайн/выход по стене, наборы `--set`), **`--cells <файл>` — список
