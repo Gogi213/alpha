@@ -518,6 +518,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             side: set.side.map(Side::from),
                             eaten_max_pct: set.eaten_max_pct,
                             eaten_min_pct: set.eaten_min_pct,
+                            frontrun_min_lots: set.frontrun_min_lots,
                             usd_min: set.usd_min,
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,

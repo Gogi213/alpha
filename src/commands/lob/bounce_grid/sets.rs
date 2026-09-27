@@ -42,6 +42,10 @@ pub struct FilterSet {
     /// больше», здесь «не меньше»), для условия входа рынком при сильном
     /// разъедании. Только ключ набора `eaten_min=<%>`.
     pub eaten_min_pct: Option<f64>,
+    /// T-35 (Г-85, В-122): фронтран касания не меньше стольких лотов (`frontrun_min=<лоты>`) — сумма лотов той
+    /// же стороны строго лучше уровня (`TouchRecord::frontrun_lots`, В-45); порог вместо «да/нет» `frontrun`.
+    /// Только ключ набора.
+    pub frontrun_min_lots: Option<i64>,
     /// Номинал стены при касании не меньше стольких долларов (`usd_min=`):
     /// ось «размер стены» поверх пола `--h3-usd` (стены ≥ пола — надмножество,
     /// так что ключ — подмножество тех же касаний).
@@ -226,6 +230,7 @@ impl FilterSet {
             side: args.side,
             eaten_max_pct: None,
             eaten_min_pct: None,
+            frontrun_min_lots: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -254,6 +259,7 @@ impl FilterSet {
             side: None,
             eaten_max_pct: None,
             eaten_min_pct: None,
+            frontrun_min_lots: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         };
@@ -314,6 +320,16 @@ impl FilterSet {
                     );
                     set.eaten_min_pct = Some(pct);
                 }
+                "frontrun_min" => {
+                    let n: i64 = v
+                        .parse()
+                        .map_err(|e| anyhow::anyhow!("--set {spec:?}: frontrun_min={v:?}: {e}"))?;
+                    anyhow::ensure!(
+                        n >= 1,
+                        "--set {spec:?}: frontrun_min={v:?} — целое число лотов ≥ 1"
+                    );
+                    set.frontrun_min_lots = Some(n);
+                }
                 "frontrun" => {
                     anyhow::ensure!(
                         v.is_empty() || v == "1" || v == "true",
@@ -324,7 +340,7 @@ impl FilterSet {
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
-                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|eaten|<ось>_min|<ось>_max)"))?;
+                        .ok_or_else(|| anyhow::anyhow!("--set {spec:?}: неизвестный ключ {k:?} (age|flow|side|frontrun|frontrun_min|eaten|eaten_min|usd_min|<ось>_min|<ось>_max)"))?;
                     let i = CTX_AXES.iter().position(|a| *a == axis).ok_or_else(|| {
                         anyhow::anyhow!("--set {spec:?}: неизвестная ось {axis:?} (ret10m|ret1h|ret4h|pool1h|pool4h|btc1h|btc4h|btc2h|btc3h)")
                     })?;
@@ -363,6 +379,7 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) side: Option<Side>,
     pub(crate) eaten_max_pct: Option<f64>,
     pub(crate) eaten_min_pct: Option<f64>,
+    pub(crate) frontrun_min_lots: Option<i64>,
     pub(crate) usd_min: Option<f64>,
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
@@ -380,6 +397,7 @@ impl<'a> TouchFilter<'a> {
             side: p.side,
             eaten_max_pct: p.eaten_max_pct,
             eaten_min_pct: p.eaten_min_pct,
+            frontrun_min_lots: p.frontrun_min_lots,
             usd_min: p.usd_min,
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
@@ -405,6 +423,7 @@ impl<'a> TouchFilter<'a> {
             side: set.side.map(Side::from),
             eaten_max_pct: set.eaten_max_pct,
             eaten_min_pct: set.eaten_min_pct,
+            frontrun_min_lots: set.frontrun_min_lots,
             usd_min: set.usd_min,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
@@ -415,6 +434,9 @@ impl<'a> TouchFilter<'a> {
     #[allow(clippy::cast_precision_loss)]
     pub(crate) fn admits(&self, ti: usize, t: &TouchRecord) -> bool {
         if self.frontrun_only && t.frontrun_tick.is_none() {
+            return false;
+        }
+        if self.frontrun_min_lots.is_some_and(|n| t.frontrun_lots < n) {
             return false;
         }
         // База E1 (В-66): плотность обязана держать порог при подходе цены,

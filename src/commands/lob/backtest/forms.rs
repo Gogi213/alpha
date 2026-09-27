@@ -295,6 +295,11 @@ pub enum EntryForm {
     /// `single@fr` — прежний вход: цена фронтранера касания, иначе `P ± 1`
     /// тик (T38, В-65). Гейт «те же круги».
     SingleFrontrun,
+    /// `single@fr+N` / `single@fr_N` (T-35, Г-85 П-07, В-122) — та же одиночная заявка, но на `N` тиков от
+    /// цены фронтранера (без фронтрана — от `P ± 1`): `+N` — к рынку (впереди фронтрана), `_N` — к стене (за
+    /// ним). Заявка не встаёт ближе `P ± 1` к стене. `-` в имени нельзя — им разделены поля имени формы.
+    /// `ticks` ≠ 0: нулевой отступ — это `single@fr`, одно имя на форму.
+    SingleFrontrunOffset { ticks: i32 },
     /// `ladder<N>x<from>..<to>[w<k>]` — `N` ног от `from` до `to` bps над
     /// стеной равными долями (`$ / N`), либо **вес к стене** `k`: нижняя
     /// (ближайшая к стене) нога весит `k` долей — цитата практика «основной
@@ -337,9 +342,30 @@ impl EntryForm {
         if spec == "market" {
             return Ok(Self::Market);
         }
+        if let Some(rest) = spec.strip_prefix(SINGLE_ENTRY_LABEL) {
+            let (sign, n_s) = match rest.chars().next() {
+                Some('+') => (1, &rest[1..]),
+                Some('_') => (-1, &rest[1..]),
+                _ => anyhow::bail!("{spec}: отступ от фронтрана — {SINGLE_ENTRY_LABEL}+N (к рынку) | {SINGLE_ENTRY_LABEL}_N (к стене)"),
+            };
+            let n: i32 = n_s
+                .parse()
+                .map_err(|_| anyhow::anyhow!("{spec}: отступ {n_s:?} — целое число тиков"))?;
+            anyhow::ensure!(
+                n >= 1,
+                "{spec}: отступ ≥ 1 тика (нулевой — это {SINGLE_ENTRY_LABEL})"
+            );
+            let form = Self::SingleFrontrunOffset { ticks: sign * n };
+            anyhow::ensure!(
+                form.label() == spec,
+                "{spec}: имя формы входа не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
         let rest = spec.strip_prefix("ladder").ok_or_else(|| {
             anyhow::anyhow!(
-                "{spec}: форма входа — {SINGLE_ENTRY_LABEL} | market | ladder<N>x<from>..<to>[w<k>]"
+                "{spec}: форма входа — {SINGLE_ENTRY_LABEL}[+N|_N] | market | ladder<N>x<from>..<to>[w<k>]"
             )
         })?;
         let (legs_s, tail) = rest
@@ -399,6 +425,12 @@ impl EntryForm {
     pub fn label(self) -> String {
         match self {
             Self::SingleFrontrun => SINGLE_ENTRY_LABEL.to_string(),
+            Self::SingleFrontrunOffset { ticks } if ticks > 0 => {
+                format!("{SINGLE_ENTRY_LABEL}+{ticks}")
+            }
+            Self::SingleFrontrunOffset { ticks } => {
+                format!("{SINGLE_ENTRY_LABEL}_{}", ticks.unsigned_abs())
+            }
             Self::Market => "market".to_string(),
             Self::Ladder {
                 legs,

@@ -606,6 +606,58 @@ fn entry_form_market_round_trips_through_its_label() {
     assert_eq!(EntryForm::Market.label(), "market");
 }
 
+/// T-35 (Г-85): `single@fr+N` / `single@fr_N` — отступ от фронтрана к рынку / к стене; имя туда и обратно,
+/// нулевой, ведущие нули и `-` (разделитель полей имени формы) — отказ.
+#[test]
+fn entry_form_frontrun_offset_round_trips_and_rejects_non_canonical() {
+    for (s, t) in [
+        ("single@fr+2", 2),
+        ("single@fr_3", -3),
+        ("single@fr+10", 10),
+    ] {
+        let f = EntryForm::parse(s).unwrap();
+        assert_eq!(f, EntryForm::SingleFrontrunOffset { ticks: t });
+        assert_eq!(f.label(), s);
+    }
+    for bad in [
+        "single@fr+0",
+        "single@fr_0",
+        "single@fr+02",
+        "single@fr-2",
+        "single@fr2",
+        "single@fr+x",
+    ] {
+        assert!(EntryForm::parse(bad).is_err(), "{bad}");
+    }
+}
+
+/// T-35: бид `P = 10.00`, фронтран `10.05`: `+2` — `10.07`, `_3` — `10.02`, `_9` — не ближе `P + 1` (`10.01`);
+/// без фронтрана отступ от `P + 1`.
+#[test]
+fn bounce_plan_frontrun_offset_moves_the_single_entry_in_ticks() {
+    let tick = 0.01_f64;
+    let entry_of = |fr: Option<i64>, ticks: i32| {
+        let touch = bounce_touch(1_000, fr);
+        let mut shape = plain_shape();
+        shape.entry_form = EntryForm::SingleFrontrunOffset { ticks };
+        let (_, plan) = bounce_plan(&touch, tick, base("behind", "1to1"), None, shape).unwrap();
+        plan_prices(&plan).0
+    };
+    for (fr, ticks, want) in [
+        (Some(1_005), 2, 10.07),
+        (Some(1_005), -3, 10.02),
+        (Some(1_005), -9, 10.01),
+        (None, 2, 10.03),
+        (None, -1, 10.01),
+    ] {
+        let e = entry_of(fr, ticks);
+        assert!(
+            (e - want).abs() < 1e-9,
+            "fr {fr:?} ticks {ticks}: {e} ≠ {want}"
+        );
+    }
+}
+
 /// Формы базы (В-65) на бид-уровне `P = 10.00` с фронтранером `10.05`:
 /// `before` → стоп `P+1` = 10.01, тейк 1:1 от входа 10.09; `at` → 10.00 /
 /// 10.10; `behind` → 9.99 / 10.11; `midfr` → середина между 10.05 и 10.00 =

@@ -958,6 +958,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             side: None,
             eaten_max_pct: None,
             eaten_min_pct: None,
+            frontrun_min_lots: None,
             usd_min: None,
             ctx: [Range::default(); CTX_AXES.len()],
         }
@@ -1144,6 +1145,50 @@ fn busy_skip_off_trace_replays_the_default_rounds_byte_for_byte() {
             "набор {}",
             x.name
         );
+    }
+}
+
+/// T-35 (Г-85): ключ `frontrun_min=<лоты>` — порог фронтрана вместо «да/нет»; порог 1 = `frontrun`, огромный —
+/// ни одного сигнала; без ключа шапка прежняя.
+#[test]
+fn frontrun_min_key_filters_by_frontrun_lots_at_touch() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.out_dir = dir.path().join("grid-frmin");
+    a.sets = vec![
+        "fr:frontrun".to_string(),
+        "fm1:frontrun_min=1".to_string(),
+        "fmbig:frontrun_min=1000000000".to_string(),
+    ];
+    let multi = run_bounce_grid(&a).unwrap();
+    let by_name = |n: &str| multi.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    // фронтран есть ⇔ впереди уровня ≥ 1 лота: порог 1 — те же касания, что «да/нет» `frontrun`
+    assert_eq!(
+        body(&by_name("fm1").rounds_path),
+        body(&by_name("fr").rounds_path)
+    );
+    let (fh, big) = read_csv(&by_name("fmbig").forms_path);
+    for r in &big {
+        assert_eq!(col(&fh, r, "n_signals"), "0", "{r:?}");
+    }
+    let head = std::fs::read_to_string(&by_name("fm1").forms_path).unwrap();
+    assert!(
+        head.contains(" frontrun_only=false frontrun_min=1 "),
+        "{head}"
+    );
+    let head = std::fs::read_to_string(&by_name("fr").forms_path).unwrap();
+    assert!(!head.contains("frontrun_min"), "без ключа шапка прежняя");
+    for bad in ["x:frontrun_min=0", "x:frontrun_min=-1", "x:frontrun_min=a"] {
+        assert!(FilterSet::parse(bad).is_err(), "{bad}");
     }
 }
 

@@ -120,6 +120,19 @@ pub(crate) fn bounce_plan(
                 .frontrun_tick
                 .unwrap_or_else(|| p_tick.saturating_add(away)),
         ),
+        // T-35 (Г-85): отступ от фронтрана в тиках, `ticks > 0` — к рынку; не ближе `P ± 1` к стене.
+        EntryForm::SingleFrontrunOffset { ticks } => {
+            let base = touch
+                .frontrun_tick
+                .unwrap_or_else(|| p_tick.saturating_add(away));
+            let tick = base.saturating_add(away.saturating_mul(i64::from(ticks)));
+            let tick = if tick.saturating_sub(p_tick).saturating_mul(away) < 1 {
+                p_tick.saturating_add(away)
+            } else {
+                tick
+            };
+            (EntryLadder::NONE, tick)
+        }
         EntryForm::Ladder {
             legs,
             from_bps,

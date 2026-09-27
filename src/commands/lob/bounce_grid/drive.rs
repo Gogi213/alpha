@@ -281,6 +281,8 @@ pub(super) struct DayParams<'a> {
     /// T4 (П-02, Г-86): доля съедания стены к касанию не меньше этого
     /// процента (`eaten_min=`) — зеркало `eaten_max_pct`.
     pub(super) eaten_min_pct: Option<f64>,
+    /// T-35: порог фронтрана в лотах (`frontrun_min=`).
+    pub(super) frontrun_min_lots: Option<i64>,
     /// Номинал стены при касании ≥ (`usd_min=`), доллары.
     pub(super) usd_min: Option<f64>,
     /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
