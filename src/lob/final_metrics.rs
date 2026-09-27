@@ -204,26 +204,42 @@ pub fn expected_sharpe_under_null(trial_sharpes: &[f64]) -> Option<f64> {
     match trial_sharpes.len() {
         0 => None,
         1 => Some(0.0),
-        n => {
-            let mean = trial_sharpes.iter().sum::<f64>() / count_f64(n);
-            let var = trial_sharpes
-                .iter()
-                .map(|s| (s - mean) * (s - mean))
-                .sum::<f64>()
-                / count_f64(n - 1);
-            if !var.is_finite() || var < 0.0 {
-                return None;
-            }
-            if var == 0.0 {
-                // Все испытания одинаковы — разброса отбирать не из чего.
-                return Some(0.0);
-            }
-            let nf = count_f64(n);
-            let q1 = normal_inv_cdf(1.0 - 1.0 / nf);
-            let q2 = normal_inv_cdf(1.0 - 1.0 / (nf * std::f64::consts::E));
-            Some(var.sqrt() * ((1.0 - EULER_MASCHERONI) * q1 + EULER_MASCHERONI * q2))
-        }
+        n => expected_sharpe_under_null_with_variance(n, trial_sharpe_variance(trial_sharpes)?),
     }
+}
+
+/// Выборочная дисперсия среза пробных Шарпов (делитель `n−1`) — параметр `V`
+/// формулы `SR0`. `None` — меньше двух испытаний, неконечные значения или
+/// неконечная дисперсия.
+pub fn trial_sharpe_variance(trial_sharpes: &[f64]) -> Option<f64> {
+    let n = trial_sharpes.len();
+    if n < 2 || trial_sharpes.iter().any(|s| !s.is_finite()) {
+        return None;
+    }
+    let mean = trial_sharpes.iter().sum::<f64>() / count_f64(n);
+    let var = trial_sharpes
+        .iter()
+        .map(|s| (s - mean) * (s - mean))
+        .sum::<f64>()
+        / count_f64(n - 1);
+    (var.is_finite() && var >= 0.0).then_some(var)
+}
+
+/// `SR0` по числу испытаний `n` и дисперсии их Шарпов `v`, заданным отдельно
+/// (T-26: `N` — журнал или процедура, `V` — измерена на сетке или `1/T`).
+/// Одно испытание или нулевая дисперсия — отбирать не из чего, ожидание ноль.
+/// `None` — `n = 0` или `v` неконечна/отрицательна.
+pub fn expected_sharpe_under_null_with_variance(n: usize, v: f64) -> Option<f64> {
+    if n == 0 || !v.is_finite() || v < 0.0 {
+        return None;
+    }
+    if n == 1 || v == 0.0 {
+        return Some(0.0);
+    }
+    let nf = count_f64(n);
+    let q1 = normal_inv_cdf(1.0 - 1.0 / nf);
+    let q2 = normal_inv_cdf(1.0 - 1.0 / (nf * std::f64::consts::E));
+    Some(v.sqrt() * ((1.0 - EULER_MASCHERONI) * q1 + EULER_MASCHERONI * q2))
 }
 
 /// Синтетическая выборка длины `n` с точным нулевым средним и точной
@@ -274,7 +290,44 @@ pub fn dsr(
     if !observed_sr.is_finite() || !skew.is_finite() || !kurtosis.is_finite() || num_obs < 2 {
         return None;
     }
-    let sr0 = expected_sharpe_under_null(trial_sharpes)?;
+    dsr_with_sr0(
+        observed_sr,
+        num_obs,
+        skew,
+        kurtosis,
+        expected_sharpe_under_null(trial_sharpes)?,
+    )
+}
+
+/// DSR при `SR0` из числа испытаний `n_trials` и дисперсии их Шарпов `v`,
+/// заданных отдельно (T-26) — тот же `dsr`, другой источник `SR0`.
+pub fn dsr_with_variance(
+    observed_sr: f64,
+    num_obs: usize,
+    skew: f64,
+    kurtosis: f64,
+    n_trials: usize,
+    v: f64,
+) -> Option<f64> {
+    if !observed_sr.is_finite() || !skew.is_finite() || !kurtosis.is_finite() || num_obs < 2 {
+        return None;
+    }
+    dsr_with_sr0(
+        observed_sr,
+        num_obs,
+        skew,
+        kurtosis,
+        expected_sharpe_under_null_with_variance(n_trials, v)?,
+    )
+}
+
+fn dsr_with_sr0(
+    observed_sr: f64,
+    num_obs: usize,
+    skew: f64,
+    kurtosis: f64,
+    sr0: f64,
+) -> Option<f64> {
     if !sr0.is_finite() {
         return None;
     }
@@ -312,7 +365,33 @@ pub fn required_sharpe_for_dsr(n_trials: usize, num_obs: usize, dsr_target: f64)
     if num_obs < 2 || !dsr_target.is_finite() || !(0.0..1.0).contains(&dsr_target) {
         return None;
     }
-    let sr0 = expected_sharpe_under_null_for_trial_count(n_trials)?;
+    required_sharpe_for_sr0(
+        expected_sharpe_under_null_for_trial_count(n_trials)?,
+        num_obs,
+        dsr_target,
+    )
+}
+
+/// Требуемый Шарп при `SR0` из `n_trials` и измеренной дисперсии `v` (T-26) —
+/// обратная задача к `dsr_with_variance` при нормальном ряде, как
+/// `required_sharpe_for_dsr`.
+pub fn required_sharpe_for_dsr_with_variance(
+    n_trials: usize,
+    v: f64,
+    num_obs: usize,
+    dsr_target: f64,
+) -> Option<f64> {
+    if num_obs < 2 || !dsr_target.is_finite() || !(0.0..1.0).contains(&dsr_target) {
+        return None;
+    }
+    required_sharpe_for_sr0(
+        expected_sharpe_under_null_with_variance(n_trials, v)?,
+        num_obs,
+        dsr_target,
+    )
+}
+
+fn required_sharpe_for_sr0(sr0: f64, num_obs: usize, dsr_target: f64) -> Option<f64> {
     let z = normal_inv_cdf(dsr_target);
     if !z.is_finite() {
         return None;

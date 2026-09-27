@@ -550,3 +550,109 @@ fn report_cpcv_params_admit_exactly_four_daily_observations() {
     assert!(cpcv_mean_oos_sharpe(&four, REPORT_CPCV_PARAMS).is_some());
     assert!(cpcv_mean_oos_sharpe(&four[..3], REPORT_CPCV_PARAMS).is_none());
 }
+
+/// T-26: `SR0` при заданной дисперсии — та же формула `√V·(…)`, и срез с
+/// измеренной `V` даёт то же, что `N` и `V` по отдельности.
+#[test]
+fn sr0_with_variance_matches_slice_and_hand_formula() {
+    let slice = [0.3, -0.1, 0.25, 0.05, -0.2, 0.4];
+    let v = trial_sharpe_variance(&slice).unwrap();
+    let from_slice = expected_sharpe_under_null(&slice).unwrap();
+    assert_eq!(
+        expected_sharpe_under_null_with_variance(slice.len(), v),
+        Some(from_slice)
+    );
+    let nf = 6.0;
+    let hand = v.sqrt()
+        * ((1.0 - EULER_MASCHERONI) * normal_inv_cdf(1.0 - 1.0 / nf)
+            + EULER_MASCHERONI * normal_inv_cdf(1.0 - 1.0 / (nf * std::f64::consts::E)));
+    assert!(close(from_slice, hand, 1e-12), "{from_slice} {hand}");
+    // V = 1 — прежняя обёртка G-POWER-A.
+    assert!(close(
+        expected_sharpe_under_null_with_variance(42, 1.0).unwrap(),
+        expected_sharpe_under_null_for_trial_count(42).unwrap(),
+        1e-12
+    ));
+    assert_eq!(expected_sharpe_under_null_with_variance(1, 0.5), Some(0.0));
+    assert_eq!(expected_sharpe_under_null_with_variance(0, 0.5), None);
+    assert_eq!(expected_sharpe_under_null_with_variance(5, -1.0), None);
+    assert_eq!(trial_sharpe_variance(&[0.1]), None);
+}
+
+/// T-26: требуемый Шарп при измеренной `V` — обратная задача к
+/// `dsr_with_variance`: подстановка назад даёт ровно цель; при `V = 1` — то
+/// же, что прежняя `required_sharpe_for_dsr`.
+#[test]
+fn required_sharpe_with_variance_inverts_dsr_with_variance() {
+    let (n, v, t) = (1388usize, 1.0 / 31.0, 31usize);
+    let x = required_sharpe_for_dsr_with_variance(n, v, t, 0.95).unwrap();
+    let back = dsr_with_variance(x, t, 0.0, 3.0, n, v).unwrap();
+    assert!(close(back, 0.95, 1e-6), "x={x} back={back}");
+    // Порядок величины из проверки Судьи `11a3d1e`: N журнала, V = 1/T, T = 31 → ≈ 0,9.
+    assert!(x > 0.8 && x < 1.0, "x={x}");
+    assert!(close(
+        required_sharpe_for_dsr_with_variance(179, 1.0, 100, 0.95).unwrap(),
+        required_sharpe_for_dsr(179, 100, 0.95).unwrap(),
+        1e-12
+    ));
+}
+
+/// Нормальные числа без зависимостей: xorshift64* + Бокс — Мюллер.
+struct Gauss(u64);
+
+impl Gauss {
+    fn uniform(&mut self) -> f64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        let x = self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11;
+        (x as f64 + 0.5) / (1u64 << 53) as f64
+    }
+
+    fn normal(&mut self) -> f64 {
+        let (u1, u2) = (self.uniform(), self.uniform());
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    }
+}
+
+/// DSR суточного ряда лучшей по Шарпу формы сетки, `V = max(V_изм, 1/T)` —
+/// ровно так, как `lob bounce-verdict` (T-26).
+fn grid_dsr(g: &mut Gauss, forms: usize, days: usize, edge: f64) -> f64 {
+    let series: Vec<Vec<f64>> = (0..forms)
+        .map(|_| (0..days).map(|_| edge + g.normal()).collect())
+        .collect();
+    let sharpes: Vec<f64> = series
+        .iter()
+        .map(|s| sharpe_ratio(s).unwrap_or(0.0))
+        .collect();
+    let v = trial_sharpe_variance(&sharpes)
+        .map_or(1.0 / count_f64(days), |v| v.max(1.0 / count_f64(days)));
+    let best = (0..forms)
+        .max_by(|a, b| sharpes[*a].total_cmp(&sharpes[*b]))
+        .unwrap();
+    let m = moments(&series[best]).unwrap();
+    dsr_with_variance(m.mean / m.std, m.n, m.skew, m.kurtosis, forms, v).unwrap()
+}
+
+/// Калибровка T-26 (условие 2 Судьи `11a3d1e`): сетка из 20 форм без края на
+/// T = 31 сутках — DSR ≥ 0,95 не чаще 5 % повторов; форма с истинным дневным
+/// Шарпом 1,0 при N = 1 проходит в большинстве повторов.
+#[test]
+fn daily_dsr_is_calibrated_on_synthetic_grids() {
+    const REPEATS: usize = 400;
+    let mut g = Gauss(0x9E37_79B9_7F4A_7C15);
+    let false_pass = (0..REPEATS)
+        .filter(|_| grid_dsr(&mut g, 20, 31, 0.0) >= DSR_TARGET)
+        .count();
+    assert!(
+        false_pass * 20 <= REPEATS,
+        "шум прошёл {false_pass} из {REPEATS}"
+    );
+    let true_pass = (0..REPEATS)
+        .filter(|_| grid_dsr(&mut g, 1, 31, 1.0) >= DSR_TARGET)
+        .count();
+    assert!(
+        true_pass * 2 > REPEATS,
+        "край прошёл лишь {true_pass} из {REPEATS}"
+    );
+}

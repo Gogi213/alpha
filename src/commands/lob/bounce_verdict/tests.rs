@@ -42,7 +42,27 @@ fn write_grid(
     // Кругов на пару (символ, сутки): фиксированно или по-разному на каждый
     // день — как в жизни; одинаковые суточные суммы делают реплики
     // бутстрэпа сумм пропорциональными и дают ровно ноль в квантили.
-    let fills_of = |si: usize, di: usize| fills.unwrap_or(10 + 3 * di as u64 + si as u64);
+    write_grid_with(
+        dir,
+        symbols,
+        days,
+        signals,
+        |si, di| fills.unwrap_or(10 + 3 * di as u64 + si as u64),
+        favoured,
+        bias,
+    );
+}
+
+/// `write_grid` с кругами на пару (символ, сутки) функцией `fills_of`.
+fn write_grid_with(
+    dir: &Path,
+    symbols: &[&str],
+    days: &[&str],
+    signals: u64,
+    fills_of: impl Fn(usize, usize) -> u64,
+    favoured: &str,
+    bias: f64,
+) {
     std::fs::create_dir_all(dir).unwrap();
     let mut forms = String::from(
         "# synthetic grid\nsymbol,day_utc,form,n_signals,n_submitted,n_fills,n_busy,entry_rejected,entry_crossed,sum_net_bps,n_stop,n_take,n_trail,n_deadline,n_early,n_horizon,incomplete,n_skipped,n_residual_flattened,signals_by_hour\n",
@@ -183,25 +203,32 @@ fn trial_slice_counts_only_this_procedures_rows() {
     assert_eq!(runs::count_trials(&rows), 3);
 }
 
-/// Полный синтетический прогон: 48 форм × 2 символа × 8 суток, у одной формы
+/// Двенадцать суток одного месяца — порог `MIN_FILL_DAYS_PER_MONTH` (10) пройден.
+const DAYS12: [&str; 12] = [
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-13",
+    "2026-09-14",
+    "2026-09-15",
+    "2026-09-16",
+    "2026-09-17",
+    "2026-09-18",
+    "2026-09-19",
+    "2026-09-20",
+    "2026-09-21",
+];
+
+/// Полный синтетический прогон: 48 форм × 2 символа × 12 суток, у одной формы
 /// все круги +5 bps. Вердикт: лучшая — она, нижняя граница интервала > 0,
-/// суток с кругами 8 ≥ G_MIN, кругов ≥ 100, DSR при 48 испытаниях, PBO и
-/// CPCV посчитаны, итог — «зелёный» (точка ≥ 3 bps на сигнал при 100 %
-/// исполнении).
+/// суток с кругами 12 ≥ порога месяца, DSR по суткам при 48 формах ≥ 0,95
+/// (отчёт), PBO и CPCV посчитаны, итог — «зелёный» (точка ≥ 3 bps на сигнал
+/// при 100 % исполнении).
 #[test]
 fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
     let dir = tempfile::tempdir().unwrap();
     let grid = dir.path().join("grid");
-    let days = [
-        "2026-09-10",
-        "2026-09-11",
-        "2026-09-12",
-        "2026-09-13",
-        "2026-09-14",
-        "2026-09-15",
-        "2026-09-16",
-        "2026-09-17",
-    ];
+    let days = DAYS12;
     write_grid(
         &grid,
         &["AAAUSDT", "BBBUSDT"],
@@ -218,17 +245,18 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
 
     assert_eq!(s.forms, 48);
     assert_eq!(s.symbols, 2);
-    assert_eq!(s.days, 8);
+    assert_eq!(s.days, 12);
     assert_eq!(s.trials, 48);
     assert_eq!(s.best_form, "s1-t2-600");
     let expected_fills: u64 = (0..2usize)
-        .flat_map(|si| (0..8usize).map(move |di| 10 + 3 * di as u64 + si as u64))
+        .flat_map(|si| (0..12usize).map(move |di| 10 + 3 * di as u64 + si as u64))
         .sum();
     assert_eq!(
         s.best_n_fills, expected_fills,
         "сумма кругов по символам и суткам"
     );
-    assert_eq!(s.best_days, 8);
+    assert_eq!(s.best_days, 12);
+    assert_eq!(s.best_month_fill_days, vec![("2026-09".to_string(), 12)]);
     let point = s.best_point_bps.expect("точка интервала");
     let lower = s.best_lower_bps.expect("нижняя граница");
     assert!(point > 4.0 && point < 6.0, "точка ≈ 5 bps: {point}");
@@ -236,9 +264,11 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
         lower > 0.0 && lower < point,
         "нижняя граница между 0 и точкой: {lower}"
     );
-    assert!(s.dsr.is_some(), "DSR при 48 испытаниях");
-    assert!(s.pbo.is_some(), "PBO по матрице 48×8");
-    assert!(s.cpcv.is_some(), "CPCV по матрице 48×8");
+    let dsr = s.dsr.expect("DSR по суткам при 48 формах");
+    assert!(dsr >= DSR_TARGET, "ровный плюс по суткам проходит: {dsr}");
+    assert!(s.v_used >= 1.0 / 12.0, "V не меньше 1/T: {}", s.v_used);
+    assert!(s.pbo.is_some(), "PBO по матрице 48×12");
+    assert!(s.cpcv.is_some(), "CPCV по матрице 48×12");
     assert_eq!(s.verdict, Verdict::Green);
 
     let text = std::fs::read_to_string(&out).unwrap();
@@ -247,16 +277,82 @@ fn verdict_uses_day_clustered_interval_gates_and_selection_metrics() {
         text.contains("без деления выборки"),
         "оговорка владельца в шапке"
     );
+    assert!(
+        text.contains("# dsr_basis=days dsr_gate=off min_days=10 T=12 n_forms=48"),
+        "метки T-26: {text}"
+    );
+    assert!(text.contains("DSR — отчёт, не ворота"), "{text}");
     let data_rows = text.lines().filter(|l| !l.starts_with('#')).count();
     assert_eq!(data_rows, 49, "шапка + 48 форм");
 }
 
-/// В-60 (владелец 2026-09-18: «одного дня минимум хватает»): при суток
-/// меньше `G_MIN` кластер интервала — час UTC; трое суток по 60 кругов раз в
-/// 10 минут дают десятки часовых кластеров, и вердикт выносится (форма с
-/// преимуществом +5 bps), а не «мало данных».
+/// T-26: порог — сутки с кругами в **каждом** месяце сетки. Август — 12 суток
+/// с кругами, сентябрь — 12 суток сетки, из них с кругами 5 → «мало данных»,
+/// хотя суток с кругами всего 17 и кругов сотни. Суточный ряд формы — сумма по
+/// символам, пустые сутки — ровно 0.
 #[test]
-fn few_days_get_a_verdict_through_hour_clusters() {
+fn thin_month_is_not_enough_data_and_empty_days_are_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let grid = dir.path().join("grid");
+    let mut days: Vec<String> = (1..=12).map(|d| format!("2026-08-{d:02}")).collect();
+    days.extend((1..=12).map(|d| format!("2026-09-{d:02}")));
+    let days: Vec<&str> = days.iter().map(String::as_str).collect();
+    let fills_of = |si: usize, di: usize| {
+        if di >= 12 && (di - 12) >= 5 {
+            0
+        } else {
+            10 + 3 * (di as u64 % 12) + si as u64
+        }
+    };
+    write_grid_with(
+        &grid,
+        &["AAAUSDT", "BBBUSDT"],
+        &days,
+        60,
+        fills_of,
+        "s1-t2-600",
+        5.0,
+    );
+    let runs_csv = dir.path().join("runs.csv");
+    journal_with_grid(&runs_csv);
+    let s = run_bounce_verdict(&args(&grid, &runs_csv, &dir.path().join("v.csv"))).unwrap();
+    assert_eq!(s.best_form, "s1-t2-600");
+    assert_eq!(s.best_days, 17);
+    assert_eq!(
+        s.best_month_fill_days,
+        vec![("2026-08".to_string(), 12), ("2026-09".to_string(), 5)]
+    );
+    assert_eq!(s.verdict, Verdict::NotEnoughData);
+
+    let data = read_grid(&grid).unwrap();
+    let f = form_verdict(&data, "s1-t2-600").unwrap();
+    assert_eq!(f.daily.len(), 24);
+    let rounds = std::fs::read_to_string(grid.join("rounds.csv")).unwrap();
+    for (di, day) in days.iter().enumerate() {
+        let expected: f64 = rounds
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(|l| l.split(',').collect::<Vec<_>>())
+            .filter(|c| c[1] == *day && c[2] == "s1-t2-600")
+            .map(|c| c[9].parse::<f64>().unwrap())
+            .sum();
+        assert!(
+            (f.daily[di] - expected).abs() < 1e-9,
+            "{day}: {} против {expected}",
+            f.daily[di]
+        );
+        if di >= 17 {
+            assert_eq!(f.daily[di], 0.0, "{day}: сутки без кругов — ноль");
+        }
+    }
+}
+
+/// В-60: при суток меньше `G_MIN` кластер интервала — час UTC; трое суток по
+/// 60 кругов раз в 10 минут дают десятки часовых кластеров и интервал. Но с
+/// T-26 порог данных — `MIN_FILL_DAYS_PER_MONTH` суток с кругами в месяце:
+/// трёх суток мало, итог «мало данных» (часы не заменяют суток).
+#[test]
+fn few_days_use_hour_clusters_but_stay_below_the_day_floor() {
     let dir = tempfile::tempdir().unwrap();
     let grid = dir.path().join("grid");
     write_grid(
@@ -274,7 +370,8 @@ fn few_days_get_a_verdict_through_hour_clusters() {
     let s = run_bounce_verdict(&args(&grid, &runs_csv, &out)).unwrap();
     assert_eq!(s.best_n_fills, 180);
     assert_eq!(s.best_days, 3);
-    assert_ne!(s.verdict, Verdict::NotEnoughData, "{s:?}");
+    assert!(s.best_lower_bps.is_some(), "интервал по часам посчитан");
+    assert_eq!(s.verdict, Verdict::NotEnoughData, "{s:?}");
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(text.contains("cluster_unit"), "{text}");
     assert!(text.contains(",hour,"), "кластер — час: {text}");
@@ -316,26 +413,26 @@ fn hour_clusters_sum_signals_across_symbols() {
     assert_eq!(s.best_n_fills, 240);
 }
 
-/// Форма без преимущества — интервал не отделяется от нуля: «красный».
+/// Форма без преимущества — интервал не отделяется от нуля: «красный»; DSR
+/// лучшей из 48 шумовых форм по суткам ниже цели.
 #[test]
 fn no_edge_is_red() {
     let dir = tempfile::tempdir().unwrap();
     let grid = dir.path().join("grid");
-    let days = [
-        "2026-09-10",
-        "2026-09-11",
-        "2026-09-12",
-        "2026-09-13",
-        "2026-09-14",
-        "2026-09-15",
-        "2026-09-16",
-        "2026-09-17",
-    ];
-    write_grid(&grid, &["AAAUSDT", "BBBUSDT"], &days, 10, None, "none", 0.0);
+    write_grid(
+        &grid,
+        &["AAAUSDT", "BBBUSDT"],
+        &DAYS12,
+        10,
+        None,
+        "none",
+        0.0,
+    );
     let runs_csv = dir.path().join("runs.csv");
     journal_with_grid(&runs_csv);
     let s = run_bounce_verdict(&args(&grid, &runs_csv, &dir.path().join("v.csv"))).unwrap();
     assert_eq!(s.verdict, Verdict::Red);
+    assert!(s.dsr.is_some_and(|d| d < DSR_TARGET), "шум: {:?}", s.dsr);
 }
 
 /// K4: неполная сетка (47 форм) или разное число сигналов между формами — отказ.

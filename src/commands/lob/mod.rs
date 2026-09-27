@@ -617,7 +617,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 None => "—".to_string(),
             };
             println!(
-                "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} · net_fill точка={} нижняя={} bps · DSR={} · PBO={} · CPCV={} · {}",
+                "bounce-verdict: ИТОГ={} · форм {} · символов {} · суток {} · испытаний {} (журнал {}) · лучшая {} · кругов {} · суток с кругами {} ({}) · net_fill точка={} нижняя={} bps · DSR={} по суткам, отчёт (журнал: {}) · PBO={} · CPCV={} · {}",
                 s.verdict.label(),
                 s.forms,
                 s.symbols,
@@ -627,9 +627,15 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                 s.best_form,
                 s.best_n_fills,
                 s.best_days,
+                s.best_month_fill_days
+                    .iter()
+                    .map(|(m, n)| format!("{m}: {n}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 num(s.best_point_bps),
                 num(s.best_lower_bps),
                 num(s.dsr),
+                num(s.dsr_at_journal_trials),
                 num(s.pbo),
                 num(s.cpcv),
                 s.out.display()

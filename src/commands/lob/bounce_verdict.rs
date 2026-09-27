@@ -12,16 +12,19 @@
 //!   `costs::net_fill_interval` (wild cluster bootstrap-t, кластер — сутки,
 //!   Decision 9), что у `lob backtest`; кластер суток общий для всех символов
 //!   (режим дня один на рынок — консервативно);
-//! - `DSR` лучшей формы по числу испытаний **этой** процедуры из `runs.csv`
-//!   (строки `bounce_form`), рядом — по всему журналу;
+//! - `DSR` лучшей формы по **суточному** ряду (T-26: наблюдение — сутки сетки,
+//!   `r_d` — сумма `net` её кругов за сутки, сутки без кругов — 0), испытания —
+//!   суточные Шарпы форм сетки, `V = max(V_изм, 1/T)`; печатается при `N` = форм
+//!   сетки и при `N` журнала `runs.csv` (контекст перебора). **Отчёт, не ворота**
+//!   (Судья `11a3d1e`: правильное `N` задаёт протокол, решение — по его правилу);
 //! - **PBO и CPCV** по матрице «форма × сутки» (ячейка — `net_fill` формы за
 //!   сутки: сумма `net` кругов на число сигналов), теми же оценщиками и
 //!   параметрами, что у `lob shortlist` (`REPORT_PBO_PARTITIONS`,
 //!   `REPORT_CPCV_PARAMS`, правило отбора «лучший по среднему на IS-сутках»);
-//! - **гейты §7**: `n ≥ CONFIRM_MIN_N` кругов и `G ≥ G_MIN` суток с кругами у
-//!   лучшей формы — иначе итог «мало данных», а не вердикт; при гейтах —
-//!   «красный» (нижняя граница ≤ 0 или `DSR < DSR_TARGET`), «зелёный без
-//!   ёмкости» (нижняя граница > 0, точка < `GREEN_NET_BPS`), «зелёный».
+//! - **порог данных**: у лучшей формы ≥ `MIN_FILL_DAYS_PER_MONTH` суток с кругами
+//!   в каждом месяце сетки и `G ≥ G_MIN` кластеров с кругами — иначе итог «мало
+//!   данных», а не вердикт; при пороге — «красный» (нижняя граница ≤ 0),
+//!   «зелёный без ёмкости» (нижняя граница > 0, точка < `GREEN_NET_BPS`), «зелёный».
 //!
 //! Деления на разведочную/подтверждающую выборки нет (решение владельца
 //! 2026-09-17, В-58) — это записано в шапке артефакта: вердикт означает «на
@@ -46,7 +49,14 @@ use crate::stats::{BOOTSTRAP_REPLICATIONS, GATE_ALPHA, G_MIN};
 
 use super::backtest::{EntryForm, EntryTtl, StopForm, TakeForm, SINGLE_ENTRY_LABEL};
 use super::shortlist::{select_best_mean_net, CPCV_SELECTION_RULE};
-use crate::lob::shortlist::CONFIRM_MIN_N;
+
+/// Порог данных вердикта: суток с кругами у лучшей формы в **каждом** месяце
+/// сетки (месяц — `YYYY-MM` суток). Аудит Судьи 27.09 п. 11
+/// (`docs/research/reviews/rules-audit-2026-09-27.md`: «пол — не число
+/// сделок», навык 07 §4) и условие «а» проверки плана T-26 (Судья `11a3d1e`,
+/// `docs/research/reviews/t26-dsr-plan-2026-09-27.md`); заменил прежний
+/// `n ≥ CONFIRM_MIN_N` кругов.
+pub const MIN_FILL_DAYS_PER_MONTH: usize = 10;
 
 /// Дедлайны сетки В-58, секунды (В-62: они же — окна `σ_H` в `touches`).
 pub const DEADLINE_SECS: [u64; 4] = [60, 600, 3600, 7200];
@@ -212,8 +222,16 @@ pub struct FormVerdict {
     pub net_per_fill_bps: Option<f64>,
     pub sharpe: Option<f64>,
     pub exits: [u64; EXIT_REASONS.len()],
-    /// Ряд `net` кругов — вход DSR.
+    /// Ряд `net` кругов.
     pub returns: Vec<f64>,
+    /// Суточный ряд — вход DSR (T-26): на каждые сутки сетки сумма `net`
+    /// кругов формы по всем символам, сутки без кругов — `0`.
+    pub daily: Vec<f64>,
+    /// Шарп суточного ряда (среднее / σ), `None` — ряд без дисперсии.
+    pub daily_sharpe: Option<f64>,
+    /// Суток с кругами по месяцам сетки (`YYYY-MM`, все месяцы сетки — и
+    /// те, где кругов нет).
+    pub month_fill_days: Vec<(String, usize)>,
 }
 
 impl FormVerdict {
@@ -236,13 +254,14 @@ impl FormVerdict {
 /// Итог §7 для лучшей формы.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// Гейты `n ≥ CONFIRM_MIN_N`, `G ≥ G_MIN` не пройдены — вердикта нет.
+    /// Порог данных (`MIN_FILL_DAYS_PER_MONTH` в каждом месяце, `G ≥ G_MIN`)
+    /// не пройден — вердикта нет.
     NotEnoughData,
-    /// Нижняя граница интервала ≤ 0 или `DSR < DSR_TARGET`.
+    /// Нижняя граница интервала ≤ 0.
     Red,
-    /// Нижняя граница > 0 и `DSR ≥ DSR_TARGET`, но точка < `GREEN_NET_BPS`.
+    /// Нижняя граница > 0, но точка < `GREEN_NET_BPS`.
     GreenNoCapacity,
-    /// Нижняя граница > 0, `DSR ≥ DSR_TARGET`, точка ≥ `GREEN_NET_BPS`.
+    /// Нижняя граница > 0, точка ≥ `GREEN_NET_BPS`.
     Green,
 }
 
@@ -269,9 +288,19 @@ pub struct BounceVerdictSummary {
     pub best_days: usize,
     pub best_point_bps: Option<f64>,
     pub best_lower_bps: Option<f64>,
+    /// Суток с кругами у лучшей формы по месяцам сетки.
+    pub best_month_fill_days: Vec<(String, usize)>,
+    /// DSR суточного ряда лучшей формы при `N` = форм сетки и при `N` журнала
+    /// (отчёт, не ворота — T-26); `V` — `v_used`.
     pub dsr: Option<f64>,
     pub dsr_at_journal_trials: Option<f64>,
+    /// Требуемый дневной Шарп для `DSR_TARGET` при тех же `N` и `V`.
     pub required_sharpe: Option<f64>,
+    pub required_sharpe_at_journal_trials: Option<f64>,
+    /// Измеренная дисперсия суточных Шарпов форм (`None` — меньше двух форм).
+    pub v_measured: Option<f64>,
+    /// `max(V_изм, 1/T)`, `T` — суток сетки (условие 1 Судьи `11a3d1e`).
+    pub v_used: f64,
     pub pbo: Option<f64>,
     pub cpcv: Option<f64>,
     pub verdict: Verdict,
@@ -793,6 +822,20 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
     } else {
         Some(returns.iter().sum::<f64>() / crate::stats::count_f64(returns.len()))
     };
+    let daily: Vec<f64> = data
+        .days
+        .iter()
+        .map(|day| {
+            data.fills
+                .get(&(form.to_string(), day.clone()))
+                .map_or(0.0, |nets| nets.iter().map(|(net, _)| net).sum())
+        })
+        .collect();
+    let mut month_fill_days: BTreeMap<&str, usize> =
+        data.days.iter().map(|d| (month_of(d), 0)).collect();
+    for day in &days_with_fills {
+        *month_fill_days.entry(month_of(day)).or_insert(0) += 1;
+    }
     Ok(FormVerdict {
         form: form.to_string(),
         stop,
@@ -808,7 +851,19 @@ fn form_verdict(data: &GridData, form: &str) -> anyhow::Result<FormVerdict> {
         sharpe: final_metrics::sharpe_ratio(&returns),
         exits,
         returns,
+        daily_sharpe: final_metrics::sharpe_ratio(&daily),
+        daily,
+        month_fill_days: month_fill_days
+            .into_iter()
+            .map(|(m, n)| (m.to_string(), n))
+            .collect(),
     })
+}
+
+/// Месяц суток `YYYY-MM-DD` — `YYYY-MM`; имя короче — само себе месяц (порог
+/// по нему строже, не мягче).
+fn month_of(day: &str) -> &str {
+    day.get(..7).unwrap_or(day)
 }
 
 /// Матрица «форма × сутки»: ячейка — `net_fill` формы за сутки по всем
@@ -841,17 +896,21 @@ fn form_day_matrix(data: &GridData) -> Vec<Vec<f64>> {
         .collect()
 }
 
-fn verdict_of(best: &FormVerdict, dsr: Option<f64>) -> Verdict {
-    // В-60: хотя бы одни сутки с кругами и `G_MIN` кластеров (суток или часов).
-    if best.n_fills < CONFIRM_MIN_N || best.days_with_fills < 1 || best.clusters_with_fills < G_MIN
-    {
+/// Вердикт лучшей формы: порог данных — суток с кругами в каждом месяце сетки
+/// и `G_MIN` кластеров (суток или часов, В-60), затем интервал. DSR сюда не
+/// входит — отчёт (T-26, Судья `11a3d1e`, ответ «в»).
+fn verdict_of(best: &FormVerdict) -> Verdict {
+    let thin_month = best
+        .month_fill_days
+        .iter()
+        .any(|(_, n)| *n < MIN_FILL_DAYS_PER_MONTH);
+    if thin_month || best.clusters_with_fills < G_MIN {
         return Verdict::NotEnoughData;
     }
     let Some(iv) = best.interval.as_ref() else {
         return Verdict::NotEnoughData;
     };
-    let dsr_ok = dsr.is_some_and(|d| d >= DSR_TARGET);
-    if iv.lower_bps <= 0.0 || !dsr_ok {
+    if iv.lower_bps <= 0.0 {
         Verdict::Red
     } else if iv.point_bps < GREEN_NET_BPS {
         Verdict::GreenNoCapacity
@@ -866,19 +925,28 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     for f in &data.forms {
         forms.push(form_verdict(&data, f)?);
     }
-    // Шарп нужен каждой форме: срез пробных Шарпов — вход поправки, и форма
-    // без Шарпа молча выпала бы из среза, занизив `N`. Форма, у которой
-    // кругов меньше двух (ряд без дисперсии), входит в срез с Шарпом 0:
-    // это испытание, которое ничего не дало, — `N` не занижается, а
-    // дисперсия среза не растёт от неё (19.09: на полах В-66 у формы
-    // `before-1to1-3600` один круг на пул — отказ ронял весь вердикт).
-    let trial_sharpes: Vec<f64> = forms.iter().map(|f| f.sharpe.unwrap_or(0.0)).collect();
-    let forms_without_sharpe = forms.iter().filter(|f| f.sharpe.is_none()).count();
+    // Суточный Шарп нужен каждой форме: срез пробных Шарпов — вход `V`, и
+    // форма без Шарпа молча выпала бы из среза. Форма, у которой суточный ряд
+    // без дисперсии (меньше двух суток или все сутки одинаковы — например, без
+    // кругов), входит в срез с Шарпом 0: испытание, которое ничего не дало
+    // (19.09: у формы с одним кругом на пул отказ ронял весь вердикт).
+    let trial_sharpes: Vec<f64> = forms
+        .iter()
+        .map(|f| f.daily_sharpe.unwrap_or(0.0))
+        .collect();
+    let forms_without_sharpe = forms.iter().filter(|f| f.daily_sharpe.is_none()).count();
     if forms_without_sharpe > 0 {
         eprintln!(
-            "bounce-verdict: форм без Шарпа (< 2 кругов) — {forms_without_sharpe}, в срезе DSR как 0"
+            "bounce-verdict: форм без суточного Шарпа (ряд без дисперсии) — {forms_without_sharpe}, в срезе DSR как 0"
         );
     }
+    // Условие 1 Судьи `11a3d1e`: формы одной сетки коррелированы (одни
+    // сигналы), измеренная `V` занижена — берётся не меньше `1/T`, дисперсии
+    // оценки Шарпа под нулём на `T` суток.
+    let num_days = data.days.len();
+    let v_floor = 1.0 / crate::stats::count_f64(num_days.max(1));
+    let v_measured = final_metrics::trial_sharpe_variance(&trial_sharpes);
+    let v_used = v_measured.map_or(v_floor, |v| v.max(v_floor));
 
     let labels: Vec<String> = forms.iter().map(|f| f.form.clone()).collect();
     if args.log_trials {
@@ -916,12 +984,26 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
             pa.total_cmp(&pb)
         })
         .expect("форм ≥ 48");
-    let dsr = final_metrics::dsr_from_returns(&best.returns, &trial_sharpes);
-    let dsr_at_journal_trials = best.sharpe.and_then(|sr| {
-        final_metrics::dsr_for_trial_count(sr, best.returns.len(), 0.0, 3.0, journal_trials)
-    });
-    let required_sharpe =
-        final_metrics::required_sharpe_for_dsr(trials, best.returns.len(), DSR_TARGET);
+    let best_moments = final_metrics::moments(&best.daily);
+    let dsr_at = |n_trials: usize| {
+        best_moments.as_ref().and_then(|m| {
+            final_metrics::dsr_with_variance(
+                m.mean / m.std,
+                m.n,
+                m.skew,
+                m.kurtosis,
+                n_trials,
+                v_used,
+            )
+        })
+    };
+    let required_at = |n_trials: usize| {
+        final_metrics::required_sharpe_for_dsr_with_variance(n_trials, v_used, num_days, DSR_TARGET)
+    };
+    let dsr = dsr_at(forms.len());
+    let dsr_at_journal_trials = dsr_at(journal_trials);
+    let required_sharpe = required_at(forms.len());
+    let required_sharpe_at_journal_trials = required_at(journal_trials);
 
     let matrix = form_day_matrix(&data);
     let scored: Vec<Vec<f64>> = matrix
@@ -932,12 +1014,18 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     let pbo = final_metrics::pbo(&scored, REPORT_PBO_PARTITIONS);
     let cpcv_params: CpcvParams = REPORT_CPCV_PARAMS;
     let cpcv = final_metrics::cpcv_selection_oos_sharpe(&scored, cpcv_params, select_best_mean_net);
-    let verdict = verdict_of(best, dsr);
+    let verdict = verdict_of(best);
 
     let num = |v: Option<f64>| match v {
         Some(x) => format!("{x:.6}"),
         None => "—".to_string(),
     };
+    let month_days_text = best
+        .month_fill_days
+        .iter()
+        .map(|(m, n)| format!("{m}: {n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     if let Some(parent) = args.out.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
@@ -957,11 +1045,12 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     )?;
     writeln!(
         file,
-        "# лучшая форма (по точке net_fill): {} — кругов {} из {} сигналов, суток с кругами {}, net_fill точка={} нижняя={} bps (alpha={GATE_ALPHA}, кластер={}, wild cluster bootstrap-t ×{BOOTSTRAP_REPLICATIONS}), DSR={} при {trials} испытаниях (при {journal_trials}: {}), требуемый Шарп для DSR={DSR_TARGET}: {}",
+        "# лучшая форма (по точке net_fill): {} — кругов {} из {} сигналов, суток с кругами {} ({}), net_fill точка={} нижняя={} bps (alpha={GATE_ALPHA}, кластер={}, wild cluster bootstrap-t ×{BOOTSTRAP_REPLICATIONS}), DSR={} по суткам при {} формах сетки (при {journal_trials} испытаниях журнала — контекст перебора: {}), требуемый дневной Шарп для DSR={DSR_TARGET}: {} (при журнале: {}); дневной Шарп формы {}",
         best.form,
         best.n_fills,
         best.n_signals,
         best.days_with_fills,
+        month_days_text,
         num(best.interval.as_ref().map(|i| i.point_bps)),
         num(best.interval.as_ref().map(|i| i.lower_bps)),
         // Аудит дизайна 22.09 §4 С2: при суток < G_MIN кластер интервала — час UTC, а шапка
@@ -972,8 +1061,26 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
             "сутки"
         },
         num(dsr),
+        forms.len(),
         num(dsr_at_journal_trials),
-        num(required_sharpe)
+        num(required_sharpe),
+        num(required_sharpe_at_journal_trials),
+        num(best.daily_sharpe)
+    )?;
+    // Метки T-26 (условие 4 Судьи `11a3d1e`): артефакт без `dsr_basis` —
+    // прежний DSR по кругам, воротами не читать (`docs/COMMANDS.md`).
+    writeln!(
+        file,
+        "# dsr_basis=days dsr_gate=off min_days={MIN_FILL_DAYS_PER_MONTH} T={num_days} n_forms={} n_journal={journal_trials} v={} V_изм={} 1/T={} V={}",
+        forms.len(),
+        if v_measured.is_some_and(|v| v >= v_floor) {
+            "измерено"
+        } else {
+            "1/T"
+        },
+        num(v_measured),
+        num(Some(v_floor)),
+        num(Some(v_used))
     )?;
     writeln!(
         file,
@@ -989,7 +1096,7 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
     )?;
     writeln!(
         file,
-        "# гейты §7 + В-60: n ≥ {CONFIRM_MIN_N} кругов, суток с кругами ≥ 1, кластеров с кругами ≥ {G_MIN} (кластер — сутки при ≥ {G_MIN} сутках в сетке, иначе час UTC), нижняя граница > 0, DSR ≥ {DSR_TARGET}, ёмкость ≥ {GREEN_NET_BPS} bps → ИТОГ: {}",
+        "# гейты §7 + В-60 + T-26: суток с кругами ≥ {MIN_FILL_DAYS_PER_MONTH} в каждом месяце сетки, кластеров с кругами ≥ {G_MIN} (кластер — сутки при ≥ {G_MIN} сутках в сетке, иначе час UTC), нижняя граница > 0, ёмкость ≥ {GREEN_NET_BPS} bps; DSR — отчёт, не ворота → ИТОГ: {}",
         verdict.label()
     )?;
     let mut w = csv::Writer::from_writer(file);
@@ -1053,11 +1160,15 @@ pub fn run_bounce_verdict(args: &BounceVerdictArgs) -> anyhow::Result<BounceVerd
         best_form: best.form.clone(),
         best_n_fills: best.n_fills,
         best_days: best.days_with_fills,
+        best_month_fill_days: best.month_fill_days.clone(),
         best_point_bps: best.interval.as_ref().map(|i| i.point_bps),
         best_lower_bps: best.interval.as_ref().map(|i| i.lower_bps),
         dsr,
         dsr_at_journal_trials,
         required_sharpe,
+        required_sharpe_at_journal_trials,
+        v_measured,
+        v_used,
         pbo,
         cpcv,
         verdict,
