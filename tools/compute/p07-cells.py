@@ -128,8 +128,10 @@ def day_done(home, out_name, day):
     return os.path.exists(f"{home}/b5/{out_name}/{day}/.done")
 
 
-def remaining_for_day(home, day, check_base=False):
-    cells = [c for c in all_cells() if not day_done(home, c[0], day)]
+def remaining_for_day(home, day, check_base=False, redo=False):
+    # redo — пересчитать клетки пачки поверх (без удаления `.done`); h3-50000 прежнего планировщика не трогать
+    cells = [c for c in all_cells()
+             if (redo and c[0] != "p07a-h3-50000") or not day_done(home, c[0], day)]
     if check_base and cells:
         # Сверка метода: база Г-85а уже есть — пересчитать её в этом же вызове в p07a-base-recheck и сравнить побайтно.
         cells.append(cell("p07a-base-recheck", ENTRY_A))
@@ -164,11 +166,12 @@ def build_job(bname, home, day, cells):
         split_lines.append(f'mkdir -p "{dest}/{canon}"')
         for f in ("rounds.csv", "forms.csv", "signals.csv"):
             split_lines.append(
-                f'awk -F, -v f="{label(c)}" \'NR==1 || $3==f\' {out_rel}/{set_name}/{f} '
+                f'awk -F, -v f="{label(c)}" \'NR<=2 || $3==f\' {out_rel}/{set_name}/{f} '
                 f'> "{dest}/{canon}/{f}"'
             )
+        # строка 1 — «# lob bounce-grid: …», 2 — имена колонок (проба 03.08: NR==1 их теряла)
         # имя формы не совпало — forms.csv без строк: стоп, а не пустая клетка с `.done`
-        split_lines.append(f'[ "$(wc -l < "{dest}/{canon}/forms.csv")" -ge 2 ] || '
+        split_lines.append(f'[ "$(wc -l < "{dest}/{canon}/forms.csv")" -ge 3 ] || '
                            f'{{ echo "нет формы {label(c)} в {set_name}" >&2; exit 3; }}')
         split_lines.append(f'touch "{dest}/.done"')
     split_script = "\n".join(split_lines)
@@ -193,6 +196,10 @@ def submit(bname, home, day, cells, mem_gb):
     return out.stdout.strip() or out.stderr.strip()
 
 
+def only_day_given(args):
+    return "--only-day" in args  # --redo — только для одних суток
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "--status"
     only_day = None
@@ -200,6 +207,7 @@ def main():
     mem_big = MEM_BIG_GB
     args = sys.argv[1:]
     check_base = "--check-base" in args
+    redo = "--redo" in args and only_day_given(args)
     for i, a in enumerate(args):
         if a == "--only-day" and i + 1 < len(args):
             only_day = args[i + 1]
@@ -214,7 +222,7 @@ def main():
         for day in days:
             if only_day and day != only_day:
                 continue
-            cells = remaining_for_day(home, day, check_base)
+            cells = remaining_for_day(home, day, check_base, redo)
             if not cells:
                 continue
             total_days += 1
