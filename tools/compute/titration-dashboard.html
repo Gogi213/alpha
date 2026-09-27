@@ -50,7 +50,7 @@ body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-in
 /* во всю ширину (владелец 27.09): на широком экране — две колонки панелей, широкие панели на всю строку */
 @media (min-width: 1500px) {
   .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-t32, #panel-p05, #panel-approach, #panel-lev, details.methodology, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
+  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-t32, #panel-p05, #panel-approach, #panel-lev, details.methodology, #panel-hyp, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
   .h-eq { height: 380px; }
 }
 /* сетки-контейнеры не должны раздуваться до min-content широких детей (таблиц, графиков) —
@@ -141,6 +141,9 @@ section.panel { background: var(--surface); border: 1px solid var(--rule); borde
 .badge { display: inline-flex; align-items: center; gap: 5px; font: 500 11.5px/1.3 var(--font-body); padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--ink-2); }
 .badge.warn { color: var(--warn); } .badge.warn::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--warn); }
 .badge.progress::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-3); }
+.badge.ok { color: var(--good); } .badge.ok::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--good); }
+.badge.crit { color: var(--critical); } .badge.crit::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--critical); }
+.badge.neutral { color: var(--ink-3); } .badge.neutral::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-3); }
 
 /* ---------- подсказки ---------- */
 .hint { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px;
@@ -389,6 +392,14 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <summary>Пояснения</summary>
     <ul id="methodology-list"></ul>
   </details>
+
+  <section class="panel" id="panel-hyp">
+    <div class="panel-head"><h2>Гипотезы — сводная таблица (T-36)</h2><span class="badge warn" id="hyp-status"></span></div>
+    <p class="note">Статусы на проверке у Судьи; всё на тех же днях подбора, если не сказано иное.</p>
+    <div class="seg" id="hyp-filter" role="group" aria-label="Статус"></div>
+    <p class="note" id="hyp-note"></p>
+    <div class="scroll"><table id="hyp-table"></table></div>
+  </section>
 
   <section class="panel" id="panel-p02">
     <div class="panel-head"><h2>Гипотезы П-02</h2><span class="badge warn" id="p02-status"></span></div>
@@ -957,6 +968,49 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     "Не проверено: двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
   ].map(t => "<li>" + t + "</li>").join("");
 
+  // ---------- гипотезы: сводная таблица (T-36) ----------
+  let hypFilter = "all";
+  function hypBucket(status) {
+    if (/^подтверждено/.test(status)) return "ok";
+    if (/^опровергнуто/.test(status)) return "crit";
+    if (/не ясно|описание, не вердикт/.test(status)) return "warn";
+    if (/не проверено|не определена/.test(status)) return "neutral";
+    return "neutral";
+  }
+  function renderHyp() {
+    const H = D.hyp;
+    const box = document.getElementById("panel-hyp");
+    if (!H || !H.rows) { if (box) box.style.display = "none"; return; }
+    document.getElementById("hyp-status").textContent = H.rows.length + " строк · " + (H.generated || "");
+    document.getElementById("hyp-note").textContent = H.note || "";
+    const fBox = document.getElementById("hyp-filter");
+    const counts = {all: H.rows.length, ok: 0, crit: 0, warn: 0, neutral: 0};
+    H.rows.forEach(r => counts[hypBucket(r.status)]++);
+    const filters = [["all", "все"], ["ok", "подтверждено"], ["crit", "опровергнуто"], ["warn", "не ясно / описание"], ["neutral", "не проверено"]];
+    fBox.innerHTML = filters.map(([k, label]) => "<button data-hf='" + k + "' aria-pressed='" + (k === hypFilter) + "'>" + label + " (" + counts[k] + ")</button>").join("");
+    fBox.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { hypFilter = b.dataset.hf; renderHyp(); }));
+    const share = s => s == null ? "—" : "авг " + Math.round(s.august * 100) + "% · сен " + Math.round(s.september * 100) + "%";
+    const rows = H.rows.filter(r => hypFilter === "all" || hypBucket(r.status) === hypFilter);
+    document.getElementById("hyp-table").innerHTML =
+      "<thead><tr><th style='text-align:left'>Г-№</th><th style='text-align:left'>формулировка</th><th style='text-align:left'>класс</th>" +
+      "<th style='text-align:left'>что проверяли</th><th style='text-align:left'>август</th><th style='text-align:left'>сентябрь</th>" +
+      "<th style='text-align:left'>доля часов &gt;5 сут</th><th style='text-align:left'>статус</th><th style='text-align:left'>источник</th>" +
+      "<th style='text-align:left'>кто проверил</th></tr></thead><tbody>" +
+      rows.map(r => {
+        const bucket = hypBucket(r.status);
+        return "<tr><td style='text-align:left;white-space:nowrap'>" + r.id + "</td>" +
+          "<td style='text-align:left;white-space:normal;min-width:220px'>" + r.formulation + "</td>" +
+          "<td style='text-align:left;white-space:normal'>" + r.class + "</td>" +
+          "<td style='text-align:left;white-space:normal;min-width:180px' class='muted'>" + r.metric + "</td>" +
+          "<td style='text-align:left;white-space:normal;min-width:160px'>" + r.result_august + "</td>" +
+          "<td style='text-align:left;white-space:normal;min-width:160px'>" + r.result_september + "</td>" +
+          "<td style='text-align:left;white-space:nowrap' class='muted'>" + share(r.share_hours_gt5d) + "</td>" +
+          "<td style='text-align:left;white-space:nowrap'><span class='badge " + bucket + "'>" + r.status + "</span></td>" +
+          "<td style='text-align:left;white-space:normal;min-width:160px' class='muted'>" + r.source + "</td>" +
+          "<td style='text-align:left;white-space:normal;min-width:140px' class='muted'>" + r.confirmed_by + "</td></tr>";
+      }).join("") + "</tbody>";
+  }
+
   // ---------- сборка ----------
   // ---------- гипотезы П-02 (T-27) ----------
   function renderP02() {
@@ -1283,6 +1337,6 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     renderDiff(); renderP05(); renderNh(); renderRating(); renderT32(); renderApproach(); renderLev();
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
-  buildToggles(); renderStatus(); renderCompare(); renderP02(); renderAll();
+  buildToggles(); renderStatus(); renderCompare(); renderHyp(); renderP02(); renderAll();
 })();
 </script>
