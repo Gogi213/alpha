@@ -14,6 +14,7 @@ MEM_NORMAL_GB (прочие), и всегда под systemd-run --user --scope 
     python3 p07-sched.py            # старт всей очереди
     python3 p07-sched.py --status   # что готово / что в очереди
 """
+import fcntl
 import os
 import subprocess
 import sys
@@ -92,6 +93,28 @@ CELLS.sort(key=lambda c: PRIORITY[c[1]])
 
 def say(msg):
     LOG.write(f"== {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {msg}\n")
+
+
+def max_workers():
+    """Число воркеров: файл tmp-p07/max_workers (правится на ходу, без перезапуска), иначе MAX_WORKERS."""
+    try:
+        return int(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "max_workers")).read().strip())
+    except (OSError, ValueError):
+        return MAX_WORKERS
+
+
+def lock_held(home, day, out_name):
+    """Сутки уже считает процесс, переживший перезапуск планировщика (держит flock своего дня)."""
+    path = os.path.join(home, f"study/.day-lock-{day}-{out_name}")
+    if not os.path.exists(path):
+        return False
+    with open(path, "a") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return False
 
 
 def mem_avail_gb():
@@ -192,8 +215,12 @@ def main():
             cell, out_name, bname, home, day = t
             big = (bname, day) in BIG_DAYS
             need = MEM_BIG_GB if big else MEM_NORMAL_GB
-            ok = (time.time() - last_start >= GAP_S and len(running) < MAX_WORKERS
+            ok = (time.time() - last_start >= GAP_S and len(running) < max_workers()
                   and mem_avail_gb() >= need)
+            if (ok or not running) and lock_held(home, day, out_name):
+                tasks.append(tasks.pop(0))  # считается осиротевшим процессом после перезапуска — в конец, не трогать
+                time.sleep(1)
+                continue
             if ok or not running:
                 tasks.pop(0)
                 variant, axis, suffix, entry, stop, take, dl, set_name, setspec = cell
