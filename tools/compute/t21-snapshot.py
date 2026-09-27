@@ -24,11 +24,33 @@ none, sharpe:merge, funding:no. Теги — по коду продюсера н
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import json
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def norm_source(s) -> str:
+    """Путь источника одним видом (Судья 09b31f6, условие 3): прямые «/», относительно корня репо, если внутри —
+    иначе «до» (Windows) и «после» (дека) не сойдутся по id."""
+    s = str(s).replace("\\", "/")
+    root = str(ROOT).replace("\\", "/").rstrip("/") + "/"
+    return s[len(root):] if s.lower().startswith(root.lower()) else s
+
+
+def file_meta(p) -> dict:
+    """md5 и размер источника (Судья 09b31f6, условие 2: data/ не в git)."""
+    p = Path(p)
+    if not p.exists():
+        return {"path": norm_source(p), "exists": False}
+    h = hashlib.md5()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return {"path": norm_source(p), "exists": True, "bytes": p.stat().st_size, "md5": h.hexdigest()}
 
 PERIOD_KEYS = {"sep", "aug", "augsep", "crash"}
 PERIOD_LABEL_RU = {"август": "aug", "сентябрь": "sep", "авг": "aug", "сен": "sep"}
@@ -60,6 +82,7 @@ class Recorder:
             return
         if isinstance(value, (dict, list)):
             return  # не скаляр — не запись
+        source = norm_source(source)
         base = f"{source}::{metric}::{period}::{variant}"
         rid = base
         i = 2
@@ -82,7 +105,7 @@ class Recorder:
         self.records.append(rec)
 
 
-def flatten_scalars(prefix_metric, obj, rec: Recorder, source, producer, period, variant, tags):
+def flatten_scalars(prefix_metric, obj, rec: Recorder, source, producer, period, variant, tags, extra=None):
     """Кладёт каждое скалярное поле словаря как отдельную запись metric=<путь через .>."""
     if not isinstance(obj, dict):
         return
@@ -91,16 +114,23 @@ def flatten_scalars(prefix_metric, obj, rec: Recorder, source, producer, period,
             continue
         metric = f"{prefix_metric}.{k}" if prefix_metric else k
         if isinstance(v, dict):
-            flatten_scalars(metric, v, rec, source, producer, period, variant, tags)
+            flatten_scalars(metric, v, rec, source, producer, period, variant, tags, extra)
         elif isinstance(v, list):
             continue  # списки словарей/чисел — не сюда (см. специализированные обходчики)
         else:
-            rec.add(source, producer, metric, period, variant, v, tags)
+            rec.add(source, producer, metric, period, variant, v, tags, extra)
 
 
 # ---------------------------------------------------------------------------
 # 1. Дашборд v29
 # ---------------------------------------------------------------------------
+
+# Судья 09b31f6, условие 1: запасной `kpi` / `D.trades` (без правил счёта, месяц по `day_utc`) дашборд
+# показывает владельцу и при наличии счёта — «Причины выхода» (`kpi.reasons` всегда), «Результаты сделок»
+# (гистограмма) и «По монетам»; плитки — из `account`. Вердиктов на этих блоках нет → не «ошибка», а пометка.
+REASONS_VISIBLE = {"owner_visible": ["Причины выхода"]}
+FALLBACK_VISIBLE = {"owner_visible": ["Результаты сделок", "По монетам", "плитки — только если нет account"]}
+
 
 def extract_dashboard(data: dict, rec: Recorder, html_name: str, missing: list):
     src = f"data/titration-dashboard/{html_name}"
@@ -124,11 +154,13 @@ def extract_dashboard(data: dict, rec: Recorder, html_name: str, missing: list):
                 "kpi_fallback", fields, rec, src, producer, period, variant,
                 ["dollars:Ф1", "drawdown:П2", "portfolio:none", "day:day_utc", "month:epoch",
                  "funding:no"],
+                extra=FALLBACK_VISIBLE,
             )
             for reason, rfields in (fields.get("reasons") or {}).items():
                 flatten_scalars(
                     f"kpi_fallback.reasons.{reason}", rfields, rec, src, producer, period, variant,
                     ["dollars:Ф1", "portfolio:none", "day:day_utc", "month:epoch"],
+                    extra=REASONS_VISIBLE,
                 )
 
     # protections: period -> variant -> [шаги защиты] (label + скаляры, dd_usd_trade/dd_pct_trade = П2)
@@ -443,7 +475,8 @@ def scan_six_places(findings_dir: Path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", default=str(ROOT / "docs/findings/t21-snapshot-before-2026-09-27.json"))
+    ap.add_argument("--out", default=str(ROOT / "docs/findings/t21-snapshot-before-2026-09-27.json.gz"),
+                    help="*.json.gz — gzip (в git кладётся сжатый: полный JSON ~34 МБ)")
     ap.add_argument("--dashboard-html", default=str(ROOT / "data/titration-dashboard/index-v29.html"))
     ap.add_argument("--kpi-roll", default=str(ROOT / "data/kpi/kpi-roll-2026-09-27c.json"))
     ap.add_argument("--t32-dir", default=str(ROOT / "data/t32"))
@@ -501,6 +534,9 @@ def main():
             "canon_doc": "docs/findings/t21-metrics-canon-2026-09-27.md",
             "n_records": len(rec.records),
             "records_per_source": by_source,
+            "sources": [file_meta(p) for p in (
+                [dash_path, Path(args.kpi_roll)] + [t32_dir / f for f in t32_files] +
+                [t32_dir / "busy" / "busy-rules.json", Path(args.p02_r2), Path(args.p07_stage12)])],
         },
         "records": rec.records,
         "missing": missing,
@@ -508,7 +544,12 @@ def main():
     }
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    text = json.dumps(out, ensure_ascii=False, indent=1)
+    if out_path.suffix == ".gz":
+        with gzip.GzipFile(out_path, "wb", compresslevel=9, mtime=0) as f:  # mtime=0 — побайтно воспроизводимо
+            f.write(text.encode("utf-8"))
+    else:
+        out_path.write_text(text, encoding="utf-8")
     print(f"записей: {len(rec.records)}; источников: {len(by_source)}; пропущено: {len(missing)}")
     for s, n in sorted(by_source.items()):
         print(f"  {s}: {n}")

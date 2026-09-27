@@ -160,3 +160,11 @@ def test_extract_dashboard_end_to_end_unique_ids_and_tags(tmp_path):
     p02_rec = by_metric[("p02.rows.months.est", "aug", "Г-1")]
     assert p02_rec["value"] == 1.0
     assert "day:t0" in p02_rec["formula_tags"]
+
+
+def test_norm_source_forward_slashes_relative():
+    """Судья 09b31f6, условие 3: id «до» (Windows) и «после» (дека) сходятся — пути одним «/», от корня репо."""
+    root = str(ts.ROOT)
+    assert ts.norm_source(root + "\data\kpi\x.json") == "data/kpi/x.json"
+    assert ts.norm_source("data\t32\grid.json") == "data/t32/grid.json"
+    assert ts.norm_source("/home/deck/alpha/data/x.json") == "/home/deck/alpha/data/x.json"
