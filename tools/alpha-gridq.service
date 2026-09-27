@@ -1,0 +1,11 @@
+[Unit]
+Description=alpha: очередь счёта Steam Deck — держит занятыми ~7 ядер, пока хватает памяти (CEO 27.09)
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/alpha/bin/gridq.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

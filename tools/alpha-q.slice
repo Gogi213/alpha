@@ -1,0 +1,9 @@
+[Unit]
+Description=alpha: общий потолок памяти заданий очереди alpha-gridq (без свопа)
+
+[Slice]
+# Демон сам не запускает задание, если MemAvailable − 1,5 ГБ меньше его оценки; срез — страховка на всё сразу:
+# 14 ГБ деки − ОС, Steam, sshd. MemoryHigh тормозит реклеймом, MemoryMax — OOM внутри среза, не у системы.
+MemoryHigh=11G
+MemoryMax=12G
+MemorySwapMax=0

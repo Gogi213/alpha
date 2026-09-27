@@ -81,6 +81,21 @@ fi
 # убитый юнит) оставлял бы недописанные сутки «готовыми» — и для возобновления, и для склейки. Сутки прежних
 # прогонов без метки признаются готовыми, если их лог несёт итоговую строку `bounce-grid: форм …` (её печатает
 # только законченный прогон), — метка ставится тогда же; без итога — недописанные.
+# QUEUE=1 (CEO 27.09, очередь `alpha-gridq`): сутки не считаются здесь, а кладутся заданием в очередь Steam Deck
+# (`q-add.sh --wait`) — сколько суток идёт разом, решает демон по ядрам и памяти; DAY_JOBS тогда только верхняя
+# граница ожидающих (по умолчанию 64), MEMCAP и nice — у демона. Команда и её вывод те же (гейт «очередь =
+# DAY_JOBS байт в байт»). Q_TAG — серия в очереди (по умолчанию каталог прогона), Q_PRIO — приоритет 0–9.
+QTAG="${Q_TAG:-$(printf '%s' "$TAG" | tr -c 'A-Za-z0-9._-' '_')}"
+[ -n "${QUEUE:-}" ] && DAY_JOBS="${QUEUE_DAY_JOBS:-64}"
+grid_day() {  # grid_day <каталог суток> <команда…> — сама команда или задание очереди; вывод — в <каталог>.log
+  local out=$1; shift
+  if [ -n "${QUEUE:-}" ]; then
+    "$SELF_DIR/q-add.sh" --wait --tag "$QTAG" --prio "${Q_PRIO:-5}" --home "$ALPHA_HOME" --log "$out.log" -- "$@" > /dev/null
+  else
+    "${MEMCAP[@]}" nice -n 15 "$@" > "$out.log" 2>&1
+  fi
+}
+
 day_done() {  # $1 — каталог суток прогона
   local d=$1
   [ -f "$d/.done" ] && return 0
@@ -98,6 +113,8 @@ one_day() {
   # титрования — другой экземпляр, считающий те же сутки, дожидается, а не пишет вдвоём в одни файлы.
   exec 9>"study/.day-lock-$day"
   flock 9
+  # В режиме очереди суток разом много — кэш подходов строится по одним суткам за раз (свой SCAN_JOBS).
+  [ -n "${QUEUE:-}" ] && { exec 8>"study/.scan-lock"; flock 8; }
   if [ ! -f "study/approaches/D20/$day/.done" ]; then
     say "$day: кэш подходов D20"
     # OUT_BASE — переменная approach-scan.sh (каталог кэша подходов): задаётся явно, иначе чужое окружение
@@ -105,13 +122,14 @@ one_day() {
     ALPHA_HOME="$ALPHA_HOME" JOBS="$SCAN_JOBS" OUT_BASE=study/approaches bin/approach-scan.sh 20 "$day" >> "$LOG" 2>&1 \
       && mkdir -p "study/approaches/D20/$day" && touch "study/approaches/D20/$day/.done"
   fi
+  [ -n "${QUEUE:-}" ] && exec 8>&-
   day_done "$out" && return 0
   # Недописанные сутки прошлого прогона — с нуля (Р8).
   [ -d "$out" ] && { say "$day: недописанные сутки прошлого прогона — пересчёт с нуля"; rm -rf "$out"; }
   say "$day: замороженная форма"
   # shellcheck disable=SC2086
-  if "${MEMCAP[@]}" nice -n 15 $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
-    $FORM $setargs --threads "$THREADS" --out-dir "$out" > "$out.log" 2>&1; then
+  if grid_day "$out" $BIN lob bounce-grid --root "study/root-$day" --touches-from study/approaches/D20 \
+    $FORM $setargs --threads "$THREADS" --out-dir "$out"; then
     touch "$out/.done"
   else
     say "$day: ОШИБКА — $(tail -1 "$out.log" | cut -c1-200)"
