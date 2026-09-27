@@ -23,6 +23,11 @@
 `--drop SYM,SYM` — монеты вне торгового пула (В-105: TRXUSDT): их сделок нет ни в одном варианте, периоде и наборе
 исключений — в отличие от `--exclude-set`, который сравнивается с «нет».
 
+`--funding CSV` (В-135 п.3, по умолчанию выключено — старые прогоны воспроизводимы без изменений): издержка
+фандинга по кругу = Σ ставок фактических отметок `funding_time_ms,funding_rate` в (вход, выход] × номинал позиции
+(«+» — лонг платит, «−» — лонг получает); знак — как у комиссии, вычитается из pnl сделки после принудительного
+закрытия (если оно было).
+
 Отчёт (депозит `--deposit-usd`): прирост % = прибыль / депозит; макс. просадка % — от пика капитала;
 фактор восстановления = прибыль / макс. просадка ($); восстановление — самый долгий отрезок от пика капитала до
 нового пика, дней (не вышел к концу периода — помечается). **Стресс** — сценарий «провал застал пик позиций»:
@@ -55,6 +60,13 @@ import sys
 NS = 1_000_000_000
 MIN_MS = 60_000
 DAY_NS = 86_400 * NS
+
+# В-63 (`src/lob/costs.rs::leg_fee_bps`) — комиссия ноги после возврата 10 %: мейкер 1,26 / тейкер 3,15 bps.
+MAKER_LEG_BPS = 1.26
+TAKER_LEG_BPS = 3.15
+# исходы, у которых выход — лимитный мейкер (`ExitReason::{Take,Horizon}`, `strategy.rs`); всё остальное —
+# уже рынок/тейкер, принудительное закрытие ничего не меняет в комиссии
+MAKER_EXIT_REASONS = {"take", "horizon"}
 
 
 def taken_stats(taken):
@@ -184,6 +196,34 @@ class Klines:
         return d[ks[i]]
 
 
+class Funding:
+    """Фандинг по монете (В-135 п.3): отметки `funding_time_ms,funding_rate` (ставка — доля номинала,
+    «+» лонг платит, «−» лонг получает), интервалы у монет разные — берутся фактические отметки из CSV.
+    По умолчанию (path=None) фандинг выключен — старые прогоны воспроизводимы без изменений."""
+
+    def __init__(self, path):
+        self.marks = {}
+        if not path:
+            return
+        with open(path, encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                self.marks.setdefault(r["symbol"], []).append((int(r["funding_time_ms"]), float(r["funding_rate"])))
+        for sym, ms in self.marks.items():
+            ms.sort()
+
+    def cost_usd(self, sym, t0_ms, t1_ms, direction, usd):
+        """Издержка круга = Σ ставок отметок в (вход, выход] × номинал; знак — как у комиссии (вычитается
+        из pnl): лонг платит положительную ставку (cost>0), шорт — получает (cost<0)."""
+        ms = self.marks.get(sym)
+        if not ms:
+            return 0.0
+        times = [t for t, _ in ms]
+        lo, hi = bisect.bisect_right(times, t0_ms), bisect.bisect_right(times, t1_ms)
+        if hi <= lo:
+            return 0.0
+        return direction * sum(rate for _, rate in ms[lo:hi]) * usd
+
+
 def day_of(t_ns):
     return dt.datetime.fromtimestamp(t_ns / NS, dt.timezone.utc).strftime("%Y-%m-%d")
 
@@ -276,7 +316,8 @@ def minute_curve(taken, klines, deposit, total):
     }
 
 
-def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclude, gap_pct, streak_stop=0):
+def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclude, gap_pct, streak_stop=0,
+             funding=None):
     minutes, vals = btc
     kills = [m for m, v in zip(minutes, vals) if v <= -kill_bps] if kill_bps else []
     open_pos = []  # (t1, pnl_usd, usd, sym)
@@ -309,7 +350,7 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
         open_pos = keep
 
     for r in sorted(rows, key=lambda x: x["t0"]):
-        t0, t1, net, reason = r["t0"], r["t1"], r["net"], r["reason"]
+        t0, t1, net, reason, fee = r["t0"], r["t1"], r["net"], r["reason"], r["fee"]
         settle(t0)
         if r["sym"] in exclude:
             skipped["монета"] += 1
@@ -341,15 +382,24 @@ def simulate(rows, btc, klines, deposit, max_pos, day_stop_pct, kill_bps, exclud
                 if px is None:
                     no_kline += 1
                 else:
-                    net = (px / r["entry"] - 1) * 1e4 * r["dir"] - r["fee"]
+                    # принудительное закрытие — рынок (тейкер), а не исходный выход круга (В-135 п.2,
+                    # разбор Судьи `docs/research/reviews/fees-audit-2026-09-27.md`): если исходный выход
+                    # был лимитным мейкером (тейк/горизонт), доплата за ногу = TAKER_LEG_BPS − MAKER_LEG_BPS
+                    if reason in MAKER_EXIT_REASONS:
+                        fee = r["fee"] + (TAKER_LEG_BPS - MAKER_LEG_BPS)
+                    net = (px / r["entry"] - 1) * 1e4 * r["dir"] - fee
                     t1 = (kills[j] + MIN_MS) * 1_000_000
                     reason = "выключатель"
                     killed += 1
         pnl = net / 1e4 * r["usd"]
+        if funding is not None:
+            # издержка круга = Σ ставок отметок в (вход, выход] × номинал (В-135 п.3); t1 — уже фактический
+            # (после принудительного закрытия, если оно было)
+            pnl -= funding.cost_usd(r["sym"], t0 // 1_000_000, t1 // 1_000_000, r["dir"], r["usd"])
         open_pos.append((t1, pnl, r["usd"], r["sym"]))
         open_syms.add(r["sym"])
         taken.append({"t0": t0, "t1": t1, "sym": r["sym"], "pnl": pnl, "usd": r["usd"], "fill": r["fill"],
-                      "reason": reason, "dir": r["dir"], "entry": r["entry"], "fee": r["fee"], "net": net})
+                      "reason": reason, "dir": r["dir"], "entry": r["entry"], "fee": fee, "net": net})
         peak_n = max(peak_n, len(open_pos))
         peak_usd = max(peak_usd, sum(u for _, _, u, _ in open_pos))
     settle(10**20)
@@ -400,12 +450,16 @@ def main():
     ap.add_argument("--stress-gap-pct", type=float, default=59.7)
     ap.add_argument("--size-mult", type=float, default=1.0,
                     help="множитель $ позиции каждой сделки (линейно, без пересчёта очереди); 1 — как было")
+    ap.add_argument("--funding", default=None,
+                    help="CSV symbol,funding_time_ms,funding_rate — издержка фандинга по факт. отметкам в (вход, "
+                         "выход] (В-135 п.3); по умолчанию выключено, старые прогоны воспроизводимы")
     ap.add_argument("--json")
     ap.add_argument("--closes-out", help="JSON: вариант → период → потолок → [[мс закрытия, $], …] — только строки без "
                                          "дневного стопа, выключателя, исключений и серии (KPI «до перехая», В-120)")
     a = ap.parse_args()
     global SIZE_MULT
     SIZE_MULT = a.size_mult
+    funding = Funding(a.funding) if a.funding else None
     klines = Klines(a.klines)
     drop = set(x for x in a.drop.split(",") if x)
     excl = [("нет", set())] + [(s.split("=", 1)[0], set(x for x in s.split("=", 1)[1].split(",") if x)) for s in a.exclude_set]
@@ -454,7 +508,8 @@ def main():
                 rows, btc = data[name]
                 if not rows:
                     continue
-                r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct, int(ss))
+                r = simulate(rows, btc, klines, a.deposit_usd, int(mp), ds, kb, xset, a.stress_gap_pct, int(ss),
+                             funding)
                 cl = r.pop("_closes")
                 if a.closes_out and not ds and not kb and xname == "нет" and not ss:
                     closes.setdefault(vname, {}).setdefault(name, {})[str(int(mp))] = cl

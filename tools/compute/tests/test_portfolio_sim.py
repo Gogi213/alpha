@@ -200,7 +200,8 @@ def test_kill_switch_respects_short_direction(tmp_path):
     write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[10 * MIN_MS, 1.10]])
     k = m.Klines([str(kdir)])
     minutes, vals = [0, 10 * MIN_MS], [0.0, -999.0]  # BTC обваливается к началу 10-й минуты (закрытие — свеча 10)
-    row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 100.0, "reason": "take",
+    # reason="stop" (не "take"): тест про направление сделки, а не про доплату мейкер→тейкер (см. ниже)
+    row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 100.0, "reason": "stop",
            "entry": 1.00, "fee": 0.0, "dir": -1, "usd": 1000.0, "fill": 1.0}  # шорт
     r = m.simulate([row], (minutes, vals), k, 1000.0, 0, 0.0, 100.0, set(), 59.7)
     assert r["killed"] == 1
@@ -217,7 +218,8 @@ def test_kill_switch_minute_convention(tmp_path):
     write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"],
               [[5 * MIN_MS, 0.95], [6 * MIN_MS, 0.90], [7 * MIN_MS, 0.85]])
     k = m.Klines([str(kdir)])
-    base = {"sym": "AAAUSDT", "net": 100.0, "reason": "take", "entry": 1.00, "fee": 0.0, "dir": 1,
+    # reason="stop" (не "take"): тест про минуту срабатывания, а не про доплату мейкер→тейкер (см. ниже)
+    base = {"sym": "AAAUSDT", "net": 100.0, "reason": "stop", "entry": 1.00, "fee": 0.0, "dir": 1,
             "usd": 1000.0, "fill": 1.0}
     ns = lambda ms: ms * 1_000_000
     # строка 5 — срабатывание, строка 4 — нет: вход в 5:30 видит строку 5 и не берётся (прежде видел строку 4)
@@ -230,6 +232,68 @@ def test_kill_switch_minute_convention(tmp_path):
                    set(), 59.7)
     assert r["killed"] == 1 and r["no_kline"] == 0
     assert r["total_usd"] == pytest.approx(-50.0)  # 0,95 против входа 1,00 — лонг −5 % на $1000
+
+
+# ---------- принудительное закрытие (выключатель) — комиссия выхода по тейкеру, не исходного круга (В-135 п.2) ----------
+
+def test_kill_switch_charges_taker_fee_on_forced_close(tmp_path):
+    m = load()
+    kdir = tmp_path / "klines"
+    write_csv(kdir / "ref-AAAUSDT-1m.csv", ["minute_ms", "close"], [[10 * MIN_MS, 1.00]])  # цена не движется
+    k = m.Klines([str(kdir)])
+    minutes, vals = [0, 10 * MIN_MS], [0.0, -999.0]  # выключатель срабатывает на 10-й минуте
+    base = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 100.0,
+            "entry": 1.00, "fee": 1.26, "dir": 1, "usd": 1000.0, "fill": 1.0}  # fee — исходная (мейкер-выход) круга
+    # исходный выход "take" (лимитный мейкер) — принудительное закрытие доплачивает TAKER_LEG_BPS − MAKER_LEG_BPS
+    r_take = m.simulate([{**base, "reason": "take"}], (minutes, vals), k, 1000.0, 0, 0.0, 100.0, set(), 59.7)
+    assert r_take["killed"] == 1
+    assert r_take["total_usd"] == pytest.approx(
+        -1000.0 * (base["fee"] + (m.TAKER_LEG_BPS - m.MAKER_LEG_BPS)) / 1e4)
+    # исходный выход "stop" (уже рынок/тейкер) — принудительное закрытие ничего не доплачивает
+    r_stop = m.simulate([{**base, "reason": "stop"}], (minutes, vals), k, 1000.0, 0, 0.0, 100.0, set(), 59.7)
+    assert r_stop["killed"] == 1
+    assert r_stop["total_usd"] == pytest.approx(-1000.0 * base["fee"] / 1e4)
+
+
+# ---------- фандинг (В-135 п.3): фактические отметки в (вход, выход], знак как у комиссии ----------
+
+def test_funding_cost_open_close_interval_and_sign(tmp_path):
+    m = load()
+    k = m.Klines([str(tmp_path / "klines")])
+    fpath = tmp_path / "funding.csv"
+    # отметка == t0 (вход) — НЕ считается (интервал открыт слева); отметки 50-й и == t1 (выход) — считаются
+    write_csv(fpath, ["symbol", "funding_time_ms", "funding_rate"],
+              [["AAAUSDT", 0, 0.010], ["AAAUSDT", 50 * MIN_MS, 0.001], ["AAAUSDT", 100 * MIN_MS, 0.002]])
+    funding = m.Funding(str(fpath))
+    row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 0.0, "reason": "stop",
+           "entry": 1.00, "fee": 0.0, "usd": 1000.0, "fill": 1.0}
+    # лонг платит положительную ставку — издержка вычитается из pnl
+    r_long = m.simulate([{**row, "dir": 1}], ([], []), k, 1000.0, 0, 0.0, 0.0, set(), 59.7, funding=funding)
+    assert r_long["total_usd"] == pytest.approx(-(0.001 + 0.002) * 1000.0)
+    # шорт при той же (положительной) ставке — получает: знак издержки обратный
+    r_short = m.simulate([{**row, "dir": -1}], ([], []), k, 1000.0, 0, 0.0, 0.0, set(), 59.7, funding=funding)
+    assert r_short["total_usd"] == pytest.approx((0.001 + 0.002) * 1000.0)
+
+
+def test_funding_disabled_by_default(tmp_path):
+    m = load()
+    k = m.Klines([str(tmp_path / "klines")])
+    row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 0.0, "reason": "stop",
+           "entry": 1.00, "fee": 0.0, "dir": 1, "usd": 1000.0, "fill": 1.0}
+    r = m.simulate([row], ([], []), k, 1000.0, 0, 0.0, 0.0, set(), 59.7)  # funding не передан — старое поведение
+    assert r["total_usd"] == pytest.approx(0.0)
+
+
+def test_funding_no_marks_for_symbol_no_cost(tmp_path):
+    m = load()
+    k = m.Klines([str(tmp_path / "klines")])
+    fpath = tmp_path / "funding.csv"
+    write_csv(fpath, ["symbol", "funding_time_ms", "funding_rate"], [["BBBUSDT", 50 * MIN_MS, 0.05]])
+    funding = m.Funding(str(fpath))
+    row = {"t0": 0, "t1": 100 * MIN_MS * 1_000_000, "sym": "AAAUSDT", "net": 0.0, "reason": "stop",
+           "entry": 1.00, "fee": 0.0, "dir": 1, "usd": 1000.0, "fill": 1.0}
+    r = m.simulate([row], ([], []), k, 1000.0, 0, 0.0, 0.0, set(), 59.7, funding=funding)
+    assert r["total_usd"] == pytest.approx(0.0)
 
 
 def test_simulate_empty_rows_no_crash(tmp_path):
