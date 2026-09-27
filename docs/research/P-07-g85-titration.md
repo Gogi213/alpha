@@ -421,7 +421,7 @@ H3–H8 — прямой `bounce-grid` на готовом кэше подход
 
 | форма | роль | где задана (не менять) |
 |---|---|---|
-| главный В-104 `ladder3x2..20w2`, трейл 1/1 | база сравнения | та же форма и набор, что дали закрытия «BTC 4 ч: трейл 1/1» (`data/kpi/`, `kpi-dash-data.py`) — полную строку формы и набора Исследователь выписывает сюда коммитом до счёта |
+| главный В-104 `ladder3x2..20w2`, трейл 1/1 | база сравнения | закрытия «BTC 4 ч: трейл 1/1» — прогон `b5/titrc-u500r` (август — `epochs/e-aug`; `p02-block-b-2026-09-26.md:53`): форма **`ladder3x2..20w2-pct2-tr1x1-14400-ttl1800`**, набор **`t-bid-btc4h-q1` = `age=2700,side=bid,btc4h_max=-44.55`**, `h3=Notional` (`$ALPHA_H3` из `oos-frozen.sh`; стандарт с 19.09 — $10k, равенство проверяют ворота 03.08), `lot=usd:500x1`, `queue=prob:3`, `entry_ttl=1800`, `band_exit_bps=20`, `signal=approach`, кэш D20, `--carry-root` (35 колонок `forms.csv`); прежний бинарник `alpha-7bdf9a4` шёл с `busy-skip on` (умолчание). На июле — клетка `p07m-main` в том же `--cells` (`--busy-skip off` → `busy-replay`, равенство с `on` — тест `busy_skip_off_trace_replays_the_default_rounds_byte_for_byte`); ворота 03.08 — строки формы `tr1x1` из `titrc-u500r/2026-08-03/t-bid-btc4h-q1/rounds.csv` против `busy-replay` клетки (Исследователь 28.09, до счёта) |
 | база Г-85а `single@fr` | база | `p07-cells.py` `cell("p07a-base", ENTRY_A)` на `0744853` |
 | база Г-85б `ladder3x0..0.0409sw2` | база | `cell("p07b-base", ENTRY_B)`, σ-лестница В-131 |
 | Г-85б H14 «подходов до 1» (K ≤ 1) | справочно, может стать кандидатом (п. 4) | `p07-h9r-h14.py --variant b`, клетка `k1` |
