@@ -250,6 +250,14 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <p class="changed-chip" id="changed-chip" hidden></p>
   </header>
 
+  <details class="methodology" id="panel-cfg" open>
+    <summary><h2 style="display:inline;font:600 14px var(--font-head)">Конфиг вариантов</h2>
+      <span class="note" style="font-weight:400">строка = вариант дашборда, порядок — как в сделке; <b>жирным</b> — отличие от главного (В-104); подсвечена строка выбранного варианта</span></summary>
+    <p class="note" id="cfg-answer" style="white-space:normal"></p>
+    <div class="scroll"><table class="diff-table" id="cfg-table"></table></div>
+    <p class="note" id="cfg-note" style="white-space:normal"></p>
+  </details>
+
   <section class="panel" id="panel-kpi">
     <div class="panel-head"><h2>Показатели</h2><span class="note" id="kpi-scope"></span></div>
     <div class="kpi-grid" id="kpi-grid"></div>
@@ -1038,6 +1046,27 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
         "<td style='text-align:left'>" + r.v10 + "</td><td style='text-align:left;white-space:normal'>" + r.r2 + "</td></tr>").join("") + "</tbody>";
   }
 
+  // ---------- Конфиг вариантов (В-128): таблица из docs/findings/strategy-config-2026-09-27.md ----------
+  function mdLite(s) {
+    if (!s) return "";
+    const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+?)`/g, "<code>$1</code>")
+      .split("\n").map(l => l.replace(/^-\s+/, "• ")).join("<br>");
+  }
+  function renderCfg() {
+    const CFG = D.cfg, box = document.getElementById("panel-cfg");
+    if (!CFG) { box.style.display = "none"; return; }
+    document.getElementById("cfg-answer").innerHTML = "<b>Где стоп на Г-85:</b> " + mdLite(CFG.answer_g85_stop);
+    document.getElementById("cfg-note").innerHTML = mdLite(CFG.protections_note);
+    const cols = CFG.columns.slice(1); // без служебного столбца "ключ"
+    const cellHtml = c => (c.diff ? "<b>" + mdLite(c.text) + "</b>" : mdLite(c.text));
+    document.getElementById("cfg-table").innerHTML =
+      "<thead><tr>" + cols.map(c => "<th style='text-align:left'>" + c + "</th>").join("") + "</tr></thead><tbody>" +
+      CFG.rows.map(r => "<tr" + (r.variant_key && r.variant_key === state.variant ? " class='total'" : "") + ">" +
+        r.cells.slice(1).map(c => "<td style='text-align:left;white-space:normal;min-width:150px;vertical-align:top'>" + cellHtml(c) + "</td>").join("") +
+        "</tr>").join("") + "</tbody>";
+  }
+
   // ---------- KPI «до перехая»: гистограмма периодов и рейтинг (В-120) ----------
   function renderNh() {
     const box = document.getElementById("panel-nh");
@@ -1334,9 +1363,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
     document.getElementById("p05-pill").innerHTML = isP05(state.variant) ? "<span class='sep' aria-hidden='true'></span><button aria-pressed='true' title='" +
       VARIANT_FULL[state.variant].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[state.variant] + "</button>" : "";
-    renderDiff(); renderP05(); renderNh(); renderRating(); renderT32(); renderApproach(); renderLev();
+    renderCfg(); renderDiff(); renderP05(); renderNh(); renderRating(); renderT32(); renderApproach(); renderLev();
     renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
   }
-  buildToggles(); renderStatus(); renderCompare(); renderHyp(); renderP02(); renderAll();
+  buildToggles(); renderStatus(); renderCompare(); renderHyp(); renderP02(); renderCfg(); renderAll();
 })();
 </script>
