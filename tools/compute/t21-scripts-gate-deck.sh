@@ -45,3 +45,5 @@ for c in exitsim-e29 exitsim-e28 lossdays famtitr-rv24h famtitr-grade; do
     cmp -s "$G/$c-old$x" "$G/$c-new$x" && echo "$c$x SAME" || echo "$c$x DIFF"
   done
 done
+# Итог 28.09 (дека, alpha-t21-scripts-gate, 3:14 CPU): old = 08d3c60~1, new = 8acb544 (архивы tools/compute);
+# все 8 выходов SAME, непустые (txt 5–31 КБ, csv 0,1–0,8 МБ), md5 exit-sim old/new различны — гейт не пустой.
