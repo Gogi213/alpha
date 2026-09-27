@@ -2,7 +2,7 @@
 """TK-009 (П-07 поправка 6, п. 1): 12 клеток на форме Г-85б, один `--cells` на сутки (В-136), очередь `alpha-gridq`.
 
 Клетки — база Г-85б (`p07-cells.py`: ENTRY_B, pct2, tr1x1, 14400, ttl1800, набор t-bid-btc4h-q1) с одним изменением:
-Г-86 `market`; Г-110 `early1/2/3`; Г-129 `ttl60/300/900`; П-04 `gone50be/gone90be/gone50tr1/gone90tr1` — одним
+Г-86 `market`; Г-110 `early1/2/3`; Г-129 `ttl60/300` (900 бинарник не принимает — список Б); П-04 `gone50be/gone90be/gone50tr1/gone90tr1` — одним
 проходом; Г-147 `--signal touch` — сигнал не ось сетки, поэтому второй проход тем же заданием суток (кэш подходов тот
 же, `--touches-from study/approaches/D20`, как `p02-stage2-h9-market.sh`). Выход — `b5/p07b-t9-<клетка>/<сутки>/`,
 схема `p07-cells.py`. Фильтр K ≤ 1 — потом, `p07-h9r-h14.py`.
@@ -24,14 +24,14 @@ BASE = f"{B}-pct2-tr1x1-14400"
 # (каталог, имя формы в выходе сетки, сигнал)
 CELLS = [("p07b-t9-market", "market-pct2-tr1x1-14400-ttl1800", "approach")]
 CELLS += [(f"p07b-t9-early{x}", f"{BASE}-ttl1800-early{x}", "approach") for x in (1, 2, 3)]
-CELLS += [(f"p07b-t9-ttl{x}", f"{BASE}-ttl{x}", "approach") for x in (60, 300, 900)]
+CELLS += [(f"p07b-t9-ttl{x}", f"{BASE}-ttl{x}", "approach") for x in (60, 300)]  # 900 — отказ бинарника (В-74: 60/300/1800), в список Б по п. 1 поправки 6
 CELLS += [(f"p07b-t9-{e}", f"{BASE}-ttl1800-{e}", "approach")
           for e in ("gone50be", "gone90be", "gone50tr1", "gone90tr1")]
 CELLS += [("p07b-t9-touch", f"{BASE}-ttl1800", "touch")]
 
 AXES = {
     "approach": (f"--entry-form {B} --entry-form market --stop-form pct2 --take-form tr1x1 --deadline-secs 14400 "
-                 "--entry-ttl-secs 60 --entry-ttl-secs 300 --entry-ttl-secs 900 "
+                 "--entry-ttl-secs 60 --entry-ttl-secs 300 "
                  "--exit-form none --exit-form gone50be --exit-form gone90be --exit-form gone50tr1 --exit-form gone90tr1 "
                  "--early-exit-secs off --early-exit-secs 1 --early-exit-secs 2 --early-exit-secs 3"),
     "touch": f"--entry-form {B} --stop-form pct2 --take-form tr1x1 --deadline-secs 14400 --exit-form none",
