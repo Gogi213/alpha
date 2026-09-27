@@ -11,11 +11,14 @@
     0.0
    ],
    "R": 1.04,
-   "k": 1.0,
-   "pos_usd_eq": 500,
-   "usd_eq": 106.04,
+   "cov": "ok",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
    "delta_eq": null,
-   "delta_eq_ci": null
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 155,
@@ -28,11 +31,14 @@
     0.0
    ],
    "R": 2.14,
-   "k": 1.0,
-   "pos_usd_eq": 500,
-   "usd_eq": 110.99,
+   "cov": "ok",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
    "delta_eq": null,
-   "delta_eq_ci": null
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-a15-u10k": {
@@ -47,14 +53,17 @@
     617.9
    ],
    "R": 0.81,
-   "k": 0.42,
-   "pos_usd_eq": 209,
-   "usd_eq": 82.65,
-   "delta_eq": -23.37,
+   "cov": "ok",
+   "k": 0.29,
+   "pos_usd_eq": 143,
+   "usd_eq": 56.61,
+   "delta_eq": -49.4,
    "delta_eq_ci": [
-    -184.3,
-    70.3
-   ]
+    -276.0,
+    85.7
+   ],
+   "dd_boot_main_med": 4.19,
+   "dd_boot_cell_med": 2.62
   },
   "сентябрь": {
    "n": 747,
@@ -63,18 +72,21 @@
    "win": 0.6,
    "delta": 43.11,
    "delta_ci": [
-    -247.0,
-    413.9
+    -246.1,
+    405.9
    ],
    "R": 0.84,
-   "k": 0.28,
-   "pos_usd_eq": 141,
-   "usd_eq": 43.46,
-   "delta_eq": -67.53,
+   "cov": "ok",
+   "k": 0.51,
+   "pos_usd_eq": 257,
+   "usd_eq": 79.07,
+   "delta_eq": -31.92,
    "delta_eq_ci": [
-    -112.0,
-    13.1
-   ]
+    -141.7,
+    125.2
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 2.94
   }
  },
  "p05-a30-u10k": {
@@ -85,18 +97,21 @@
    "win": 0.571,
    "delta": 7.98,
    "delta_ci": [
-    -136.8,
-    172.5
+    -134.3,
+    173.8
    ],
    "R": 0.82,
-   "k": 0.73,
-   "pos_usd_eq": 365,
-   "usd_eq": 83.26,
-   "delta_eq": -22.75,
+   "cov": "ok",
+   "k": 0.58,
+   "pos_usd_eq": 290,
+   "usd_eq": 66.2,
+   "delta_eq": -39.81,
    "delta_eq_ci": [
-    -142.8,
-    57.7
-   ]
+    -201.8,
+    62.8
+   ],
+   "dd_boot_main_med": 4.35,
+   "dd_boot_cell_med": 3.23
   },
   "сентябрь": {
    "n": 289,
@@ -105,18 +120,21 @@
    "win": 0.626,
    "delta": -23.33,
    "delta_ci": [
-    -137.1,
-    119.2
+    -138.3,
+    119.6
    ],
    "R": 0.93,
-   "k": 0.55,
-   "pos_usd_eq": 276,
-   "usd_eq": 48.37,
-   "delta_eq": -62.63,
+   "cov": "ok",
+   "k": 0.87,
+   "pos_usd_eq": 436,
+   "usd_eq": 76.43,
+   "delta_eq": -34.57,
    "delta_eq_ci": [
-    -105.4,
-    -0.1
-   ]
+    -126.6,
+    81.8
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 2.46
   }
  },
  "p05-a45-u10k": {
@@ -131,6 +149,7 @@
     0.0
    ],
    "R": 1.04,
+   "cov": "ok",
    "k": 1.0,
    "pos_usd_eq": 500,
    "usd_eq": 106.04,
@@ -138,7 +157,9 @@
    "delta_eq_ci": [
     0.0,
     0.0
-   ]
+   ],
+   "dd_boot_main_med": 4.22,
+   "dd_boot_cell_med": 4.24
   },
   "сентябрь": {
    "n": 155,
@@ -151,6 +172,7 @@
     0.0
    ],
    "R": 2.14,
+   "cov": "ok",
    "k": 1.0,
    "pos_usd_eq": 500,
    "usd_eq": 110.99,
@@ -158,7 +180,9 @@
    "delta_eq_ci": [
     0.0,
     0.0
-   ]
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 1.24
   }
  },
  "p05-a60-u10k": {
@@ -169,18 +193,21 @@
    "win": 0.555,
    "delta": -92.35,
    "delta_ci": [
-    -257.2,
-    13.0
+    -256.9,
+    9.9
    ],
    "R": 0.16,
-   "k": 1.21,
-   "pos_usd_eq": 603,
-   "usd_eq": 16.5,
-   "delta_eq": -89.52,
+   "cov": "ok",
+   "k": 1.33,
+   "pos_usd_eq": 666,
+   "usd_eq": 18.21,
+   "delta_eq": -87.81,
    "delta_eq_ci": [
-    -200.9,
-    -17.6
-   ]
+    -173.1,
+    -29.6
+   ],
+   "dd_boot_main_med": 4.25,
+   "dd_boot_cell_med": 4.95
   },
   "сентябрь": {
    "n": 102,
@@ -189,18 +216,21 @@
    "win": 0.716,
    "delta": 18.2,
    "delta_ci": [
-    -32.7,
-    63.0
+    -33.2,
+    63.3
    ],
    "R": 3.77,
-   "k": 1.51,
-   "pos_usd_eq": 757,
-   "usd_eq": 195.69,
-   "delta_eq": 84.69,
+   "cov": "ok",
+   "k": 1.48,
+   "pos_usd_eq": 739,
+   "usd_eq": 190.86,
+   "delta_eq": 79.85,
    "delta_eq_ci": [
-    12.9,
-    139.5
-   ]
+    10.7,
+    133.3
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 0.86
   }
  },
  "p05-a90-u10k": {
@@ -211,18 +241,21 @@
    "win": 0.59,
    "delta": -58.88,
    "delta_ci": [
-    -404.9,
-    190.8
+    -405.1,
+    182.3
    ],
    "R": 0.95,
-   "k": 2.04,
-   "pos_usd_eq": 1022,
-   "usd_eq": 96.36,
-   "delta_eq": -9.66,
+   "cov": "ok",
+   "k": 1.58,
+   "pos_usd_eq": 791,
+   "usd_eq": 74.55,
+   "delta_eq": -31.47,
    "delta_eq_ci": [
-    -284.9,
-    223.1
-   ]
+    -331.8,
+    204.7
+   ],
+   "dd_boot_main_med": 4.3,
+   "dd_boot_cell_med": 2.44
   },
   "сентябрь": {
    "n": 50,
@@ -231,18 +264,21 @@
    "win": 0.6,
    "delta": -103.66,
    "delta_ci": [
-    -167.2,
-    -24.3
+    -166.8,
+    -23.5
    ],
    "R": 0.17,
-   "k": 1.18,
-   "pos_usd_eq": 591,
-   "usd_eq": 8.68,
-   "delta_eq": -102.32,
+   "cov": "ok",
+   "k": 2.63,
+   "pos_usd_eq": 1314,
+   "usd_eq": 19.3,
+   "delta_eq": -91.71,
    "delta_eq_ci": [
-    -161.0,
-    -25.5
-   ]
+    -179.0,
+    29.3
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 3.57
   }
  },
  "p05-a120-u10k": {
@@ -253,18 +289,21 @@
    "win": 0.565,
    "delta": -89.92,
    "delta_ci": [
-    -496.2,
-    165.3
+    -496.4,
+    166.0
    ],
    "R": 0.31,
-   "k": 1.94,
-   "pos_usd_eq": 969,
-   "usd_eq": 31.17,
-   "delta_eq": -74.8,
+   "cov": "ok",
+   "k": 2.93,
+   "pos_usd_eq": 1466,
+   "usd_eq": 47.13,
+   "delta_eq": -58.82,
    "delta_eq_ci": [
-    -439.9,
-    165.5
-   ]
+    -421.3,
+    176.2
+   ],
+   "dd_boot_main_med": 4.2,
+   "dd_boot_cell_med": 4.15
   },
   "сентябрь": {
    "n": 26,
@@ -273,18 +312,21 @@
    "win": 0.615,
    "delta": -102.46,
    "delta_ci": [
-    -193.9,
-    11.8
+    -192.6,
+    12.2
    ],
    "R": 0.48,
-   "k": 2.92,
-   "pos_usd_eq": 1460,
-   "usd_eq": 24.97,
-   "delta_eq": -86.06,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 25.65,
+   "delta_eq": -85.38,
    "delta_eq_ci": [
-    -175.0,
-    69.8
-   ]
+    -173.9,
+    75.0
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 1.21
   }
  },
  "p05-a45-u25k": {
@@ -295,18 +337,21 @@
    "win": 0.571,
    "delta": -18.6,
    "delta_ci": [
-    -197.4,
+    -200.8,
     119.8
    ],
    "R": 1.17,
-   "k": 1.37,
-   "pos_usd_eq": 683,
-   "usd_eq": 119.48,
-   "delta_eq": 13.42,
+   "cov": "ok",
+   "k": 1.28,
+   "pos_usd_eq": 641,
+   "usd_eq": 112.11,
+   "delta_eq": 6.06,
    "delta_eq_ci": [
-    -89.5,
-    116.1
-   ]
+    -111.4,
+    113.7
+   ],
+   "dd_boot_main_med": 4.26,
+   "dd_boot_cell_med": 3.57
   },
   "сентябрь": {
    "n": 107,
@@ -316,17 +361,20 @@
    "delta": -42.28,
    "delta_ci": [
     -86.5,
-    16.5
+    16.9
    ],
    "R": 1.42,
-   "k": 1.08,
-   "pos_usd_eq": 538,
-   "usd_eq": 73.9,
-   "delta_eq": -37.1,
+   "cov": "ok",
+   "k": 1.4,
+   "pos_usd_eq": 702,
+   "usd_eq": 96.43,
+   "delta_eq": -14.57,
    "delta_eq_ci": [
-    -79.3,
-    21.2
-   ]
+    -59.7,
+    48.9
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 1.35
   }
  },
  "p05-a45-u50k": {
@@ -337,18 +385,21 @@
    "win": 0.558,
    "delta": -83.29,
    "delta_ci": [
-    -364.7,
-    108.9
+    -363.2,
+    109.8
    ],
    "R": 0.36,
-   "k": 1.63,
-   "pos_usd_eq": 816,
-   "usd_eq": 37.05,
-   "delta_eq": -68.91,
+   "cov": "ok",
+   "k": 1.94,
+   "pos_usd_eq": 969,
+   "usd_eq": 43.99,
+   "delta_eq": -61.96,
    "delta_eq_ci": [
-    -242.3,
-    71.6
-   ]
+    -195.4,
+    60.3
+   ],
+   "dd_boot_main_med": 4.33,
+   "dd_boot_cell_med": 4.06
   },
   "сентябрь": {
    "n": 62,
@@ -357,18 +408,21 @@
    "win": 0.694,
    "delta": -78.49,
    "delta_ci": [
-    -149.9,
-    17.1
+    -148.2,
+    19.2
    ],
    "R": 1.04,
-   "k": 1.67,
-   "pos_usd_eq": 833,
-   "usd_eq": 54.16,
-   "delta_eq": -56.87,
+   "cov": "ok",
+   "k": 2.28,
+   "pos_usd_eq": 1140,
+   "usd_eq": 74.13,
+   "delta_eq": -36.9,
    "delta_eq_ci": [
-    -120.2,
-    42.3
-   ]
+    -106.1,
+    80.4
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 1.16
   }
  },
  "p05-a45-u100k": {
@@ -379,18 +433,21 @@
    "win": 0.635,
    "delta": -74.91,
    "delta_ci": [
-    -426.0,
-    166.5
+    -422.7,
+    158.5
    ],
    "R": 0.89,
-   "k": 2.9,
-   "pos_usd_eq": 1452,
-   "usd_eq": 90.3,
-   "delta_eq": -15.71,
+   "cov": "ok",
+   "k": 2.42,
+   "pos_usd_eq": 1210,
+   "usd_eq": 75.29,
+   "delta_eq": -30.72,
    "delta_eq_ci": [
-    -210.8,
-    161.3
-   ]
+    -253.2,
+    155.6
+   ],
+   "dd_boot_main_med": 4.35,
+   "dd_boot_cell_med": 2.5
   },
   "сентябрь": {
    "n": 33,
@@ -399,18 +456,21 @@
    "win": 0.727,
    "delta": -105.11,
    "delta_ci": [
-    -194.4,
-    17.8
+    -195.8,
+    16.8
    ],
    "R": 0.22,
-   "k": 1.89,
-   "pos_usd_eq": 946,
-   "usd_eq": 11.17,
-   "delta_eq": -99.85,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 17.7,
+   "delta_eq": -93.33,
    "delta_eq_ci": [
-    -180.5,
-    41.8
-   ]
+    -181.7,
+    78.2
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 0.83
   }
  },
  "p05-a45-u250k": {
@@ -421,18 +481,21 @@
    "win": 0.6,
    "delta": -114.85,
    "delta_ci": [
-    -546.4,
-    177.4
+    -559.0,
+    178.3
    ],
    "R": -0.39,
-   "k": 4.5,
-   "pos_usd_eq": 2250,
-   "usd_eq": -39.76,
-   "delta_eq": -145.76,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -26.5,
+   "delta_eq": -132.51,
    "delta_eq_ci": [
-    -498.2,
-    137.4
-   ]
+    -515.9,
+    156.0
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 1.53
   },
   "сентябрь": {
    "n": 3,
@@ -441,18 +504,18 @@
    "win": 0.667,
    "delta": -104.62,
    "delta_ci": [
-    -216.6,
+    -215.9,
     13.5
    ],
    "R": 0.92,
-   "k": 7.51,
-   "pos_usd_eq": 3757,
-   "usd_eq": 47.97,
-   "delta_eq": -63.06,
-   "delta_eq_ci": [
-    -225.1,
-    131.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  }
 }

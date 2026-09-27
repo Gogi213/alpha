@@ -11,11 +11,14 @@
     0.0
    ],
    "R": 1.04,
-   "k": 1.0,
-   "pos_usd_eq": 500,
-   "usd_eq": 106.04,
+   "cov": "ok",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
    "delta_eq": null,
-   "delta_eq_ci": null
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 155,
@@ -28,11 +31,14 @@
     0.0
    ],
    "R": 2.14,
-   "k": 1.0,
-   "pos_usd_eq": 500,
-   "usd_eq": 110.99,
+   "cov": "ok",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
    "delta_eq": null,
-   "delta_eq_ci": null
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a15-u25k": {
@@ -47,14 +53,17 @@
     150.0
    ],
    "R": -0.04,
-   "k": 2.38,
-   "pos_usd_eq": 1192,
-   "usd_eq": -4.57,
-   "delta_eq": -110.64,
+   "cov": "ok",
+   "k": 1.97,
+   "pos_usd_eq": 986,
+   "usd_eq": -3.78,
+   "delta_eq": -109.85,
    "delta_eq_ci": [
-    -384.2,
-    102.2
-   ]
+    -409.5,
+    111.8
+   ],
+   "dd_boot_main_med": 4.19,
+   "dd_boot_cell_med": 2.52
   },
   "сентябрь": {
    "n": 50,
@@ -63,18 +72,21 @@
    "win": 0.6,
    "delta": -81.33,
    "delta_ci": [
-    -171.9,
-    2.7
+    -173.5,
+    2.9
    ],
    "R": 0.74,
-   "k": 1.3,
-   "pos_usd_eq": 651,
-   "usd_eq": 38.64,
-   "delta_eq": -72.35,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 89.0,
+   "delta_eq": -21.99,
    "delta_eq_ci": [
-    -167.0,
-    14.0
-   ]
+    -201.9,
+    130.2
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 2.62
   }
  },
  "p05-f25-a15-u50k": {
@@ -85,18 +97,21 @@
    "win": 0.485,
    "delta": -124.55,
    "delta_ci": [
-    -507.5,
-    149.7
+    -514.2,
+    141.5
    ],
    "R": -0.45,
-   "k": 2.45,
-   "pos_usd_eq": 1225,
-   "usd_eq": -45.36,
-   "delta_eq": -151.41,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -55.55,
+   "delta_eq": -161.61,
    "delta_eq_ci": [
-    -447.3,
-    90.0
-   ]
+    -433.7,
+    74.2
+   ],
+   "dd_boot_main_med": 4.2,
+   "dd_boot_cell_med": 3.77
   },
   "сентябрь": {
    "n": 34,
@@ -105,18 +120,21 @@
    "win": 0.618,
    "delta": -102.15,
    "delta_ci": [
-    -198.4,
-    -4.5
+    -196.1,
+    -2.7
    ],
    "R": 0.36,
-   "k": 2.1,
-   "pos_usd_eq": 1052,
-   "usd_eq": 18.66,
-   "delta_eq": -92.38,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 26.6,
+   "delta_eq": -84.45,
    "delta_eq_ci": [
-    -177.2,
-    -1.2
-   ]
+    -172.5,
+    11.2
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 1.19
   }
  },
  "p05-f25-a15-u100k": {
@@ -127,18 +145,21 @@
    "win": 0.564,
    "delta": -95.6,
    "delta_ci": [
-    -495.2,
-    186.8
+    -492.5,
+    186.5
    ],
    "R": 0.37,
-   "k": 3.65,
-   "pos_usd_eq": 1825,
-   "usd_eq": 38.02,
-   "delta_eq": -67.98,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 31.24,
+   "delta_eq": -74.76,
    "delta_eq_ci": [
-    -365.0,
-    198.8
-   ]
+    -383.7,
+    185.6
+   ],
+   "dd_boot_main_med": 4.2,
+   "dd_boot_cell_med": 2.02
   },
   "сентябрь": {
    "n": 17,
@@ -147,18 +168,21 @@
    "win": 0.647,
    "delta": -101.59,
    "delta_ci": [
-    -212.7,
-    15.6
+    -210.9,
+    18.2
    ],
    "R": 1.05,
-   "k": 5.79,
-   "pos_usd_eq": 2896,
-   "usd_eq": 54.51,
-   "delta_eq": -56.49,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 28.23,
+   "delta_eq": -82.77,
    "delta_eq_ci": [
-    -170.6,
-    79.2
-   ]
+    -193.3,
+    42.6
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 0.29
   }
  },
  "p05-f25-a30-u25k": {
@@ -169,18 +193,21 @@
    "win": 0.46,
    "delta": -122.29,
    "delta_ci": [
-    -501.7,
-    141.9
+    -498.8,
+    135.7
    ],
    "R": -0.36,
-   "k": 2.26,
-   "pos_usd_eq": 1132,
-   "usd_eq": -36.8,
-   "delta_eq": -142.86,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -48.76,
+   "delta_eq": -154.83,
    "delta_eq_ci": [
-    -430.0,
-    79.7
-   ]
+    -394.9,
+    52.4
+   ],
+   "dd_boot_main_med": 4.3,
+   "dd_boot_cell_med": 4.15
   },
   "сентябрь": {
    "n": 29,
@@ -189,18 +216,21 @@
    "win": 0.69,
    "delta": -88.16,
    "delta_ci": [
-    -194.1,
-    12.7
+    -195.4,
+    10.4
    ],
    "R": 1.58,
-   "k": 3.58,
-   "pos_usd_eq": 1792,
-   "usd_eq": 81.88,
-   "delta_eq": -29.15,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 68.54,
+   "delta_eq": -42.48,
    "delta_eq_ci": [
-    -161.9,
-    65.3
-   ]
+    -166.5,
+    48.6
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 0.69
   }
  },
  "p05-f25-a30-u50k": {
@@ -211,18 +241,21 @@
    "win": 0.437,
    "delta": -129.23,
    "delta_ci": [
-    -516.6,
-    144.3
+    -528.3,
+    137.4
    ],
    "R": -0.59,
-   "k": 2.59,
-   "pos_usd_eq": 1295,
-   "usd_eq": -60.12,
-   "delta_eq": -166.16,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -69.61,
+   "delta_eq": -175.65,
    "delta_eq_ci": [
-    -464.8,
-    74.4
-   ]
+    -450.8,
+    59.9
+   ],
+   "dd_boot_main_med": 4.23,
+   "dd_boot_cell_med": 3.69
   },
   "сентябрь": {
    "n": 19,
@@ -231,18 +264,21 @@
    "win": 0.684,
    "delta": -105.97,
    "delta_ci": [
-    -214.7,
-    10.7
+    -214.9,
+    8.7
    ],
    "R": 0.37,
-   "k": 3.82,
-   "pos_usd_eq": 1909,
-   "usd_eq": 19.23,
-   "delta_eq": -91.79,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 15.11,
+   "delta_eq": -95.91,
    "delta_eq_ci": [
-    -201.1,
-    30.9
-   ]
+    -204.7,
+    21.7
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 0.68
   }
  },
  "p05-f25-a30-u100k": {
@@ -253,18 +289,21 @@
    "win": 0.486,
    "delta": -105.41,
    "delta_ci": [
-    -512.5,
-    173.6
+    -509.7,
+    178.1
    ],
    "R": 0.03,
-   "k": 4.16,
-   "pos_usd_eq": 2081,
-   "usd_eq": 2.58,
-   "delta_eq": -103.48,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 1.86,
+   "delta_eq": -104.19,
    "delta_eq_ci": [
-    -372.8,
-    147.0
-   ]
+    -411.6,
+    148.5
+   ],
+   "dd_boot_main_med": 4.16,
+   "dd_boot_cell_med": 1.79
   },
   "сентябрь": {
    "n": 13,
@@ -273,18 +312,21 @@
    "win": 0.769,
    "delta": -102.41,
    "delta_ci": [
-    -214.3,
-    18.2
+    -214.9,
+    16.9
    ],
    "R": 1.01,
-   "k": 6.12,
-   "pos_usd_eq": 3058,
-   "usd_eq": 52.63,
-   "delta_eq": -58.46,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 25.81,
+   "delta_eq": -85.23,
    "delta_eq_ci": [
-    -179.7,
-    83.8
-   ]
+    -200.1,
+    42.1
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 0.15
   }
  },
  "p05-f25-a60-u25k": {
@@ -295,18 +337,21 @@
    "win": 0.456,
    "delta": -136.17,
    "delta_ci": [
-    -541.7,
-    135.6
+    -546.5,
+    135.2
    ],
    "R": -0.73,
-   "k": 2.47,
-   "pos_usd_eq": 1237,
-   "usd_eq": -74.53,
-   "delta_eq": -180.6,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -90.39,
+   "delta_eq": -196.47,
    "delta_eq_ci": [
-    -524.4,
-    69.4
-   ]
+    -514.9,
+    45.2
+   ],
+   "dd_boot_main_med": 4.22,
+   "dd_boot_cell_med": 4.24
   },
   "сентябрь": {
    "n": 13,
@@ -315,18 +360,21 @@
    "win": 0.769,
    "delta": -84.43,
    "delta_ci": [
-    -199.4,
-    20.5
+    -198.3,
+    20.9
    ],
    "R": 2.36,
-   "k": 4.6,
-   "pos_usd_eq": 2300,
-   "usd_eq": 122.24,
-   "delta_eq": 11.2,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 79.74,
+   "delta_eq": -31.29,
    "delta_eq_ci": [
-    -168.2,
-    116.6
-   ]
+    -175.6,
+    66.0
+   ],
+   "dd_boot_main_med": 1.24,
+   "dd_boot_cell_med": 0.62
   }
  },
  "p05-f25-a60-u50k": {
@@ -337,18 +385,21 @@
    "win": 0.435,
    "delta": -140.66,
    "delta_ci": [
-    -564.7,
-    145.9
+    -565.4,
+    141.3
    ],
    "R": -0.99,
-   "k": 2.9,
-   "pos_usd_eq": 1452,
-   "usd_eq": -100.62,
-   "delta_eq": -206.6,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -103.96,
+   "delta_eq": -209.94,
    "delta_eq_ci": [
-    -546.6,
-    55.8
-   ]
+    -548.5,
+    48.3
+   ],
+   "dd_boot_main_med": 4.26,
+   "dd_boot_cell_med": 3.62
   },
   "сентябрь": {
    "n": 9,
@@ -357,18 +408,18 @@
    "win": 0.778,
    "delta": -103.72,
    "delta_ci": [
-    -218.2,
-    17.8
+    -217.0,
+    19.2
    ],
    "R": 1.04,
-   "k": 7.39,
-   "pos_usd_eq": 3697,
-   "usd_eq": 53.92,
-   "delta_eq": -57.18,
-   "delta_eq_ci": [
-    -203.3,
-    111.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a60-u100k": {
@@ -379,18 +430,21 @@
    "win": 0.476,
    "delta": -119.34,
    "delta_ci": [
-    -554.6,
-    176.0
+    -555.3,
+    174.5
    ],
    "R": -0.78,
-   "k": 5.99,
-   "pos_usd_eq": 2996,
-   "usd_eq": -79.74,
-   "delta_eq": -185.83,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -39.92,
+   "delta_eq": -145.98,
    "delta_eq_ci": [
-    -488.6,
-    110.8
-   ]
+    -528.2,
+    141.4
+   ],
+   "dd_boot_main_med": 4.23,
+   "dd_boot_cell_med": 1.35
   },
   "сентябрь": {
    "n": 7,
@@ -399,18 +453,18 @@
    "win": 0.857,
    "delta": -103.65,
    "delta_ci": [
-    -217.9,
-    17.1
+    -219.1,
+    17.9
    ],
    "R": 1.05,
-   "k": 7.39,
-   "pos_usd_eq": 3697,
-   "usd_eq": 54.43,
-   "delta_eq": -56.66,
-   "delta_eq_ci": [
-    -197.5,
-    113.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a90-u25k": {
@@ -421,18 +475,21 @@
    "win": 0.458,
    "delta": -128.98,
    "delta_ci": [
-    -562.5,
-    147.3
+    -563.9,
+    152.4
    ],
    "R": -0.72,
-   "k": 3.18,
-   "pos_usd_eq": 1588,
-   "usd_eq": -72.92,
-   "delta_eq": -178.95,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -68.87,
+   "delta_eq": -174.9,
    "delta_eq_ci": [
-    -551.5,
-    73.7
-   ]
+    -556.2,
+    86.0
+   ],
+   "dd_boot_main_med": 4.28,
+   "dd_boot_cell_med": 3.13
   },
   "сентябрь": {
    "n": 9,
@@ -441,18 +498,18 @@
    "win": 0.667,
    "delta": -101.03,
    "delta_ci": [
-    -213.4,
-    15.9
+    -212.5,
+    17.1
    ],
    "R": 0.76,
-   "k": 3.93,
-   "pos_usd_eq": 1967,
-   "usd_eq": 39.3,
-   "delta_eq": -71.78,
-   "delta_eq_ci": [
-    -207.8,
-    73.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a90-u50k": {
@@ -463,18 +520,21 @@
    "win": 0.538,
    "delta": -115.74,
    "delta_ci": [
-    -562.5,
-    184.9
+    -567.3,
+    185.3
    ],
    "R": -0.61,
-   "k": 6.4,
-   "pos_usd_eq": 3202,
-   "usd_eq": -62.18,
-   "delta_eq": -168.27,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -29.13,
+   "delta_eq": -135.18,
    "delta_eq_ci": [
-    -546.9,
-    148.5
-   ]
+    -548.6,
+    169.0
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 1.31
   },
   "сентябрь": {
    "n": 7,
@@ -483,18 +543,18 @@
    "win": 0.714,
    "delta": -105.7,
    "delta_ci": [
-    -219.2,
-    14.3
+    -219.7,
+    13.0
    ],
    "R": 0.71,
-   "k": 6.97,
-   "pos_usd_eq": 3486,
-   "usd_eq": 37.05,
-   "delta_eq": -74.05,
-   "delta_eq_ci": [
-    -210.0,
-    83.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a90-u100k": {
@@ -505,18 +565,21 @@
    "win": 0.667,
    "delta": -104.67,
    "delta_ci": [
-    -552.8,
-    197.5
+    -557.8,
+    191.1
    ],
    "R": 0.16,
-   "k": 11.8,
-   "pos_usd_eq": 5902,
-   "usd_eq": 16.04,
-   "delta_eq": -90.09,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 4.08,
+   "delta_eq": -101.97,
    "delta_eq_ci": [
-    -463.5,
-    233.0
-   ]
+    -527.2,
+    199.3
+   ],
+   "dd_boot_main_med": 4.17,
+   "dd_boot_cell_med": 0.2
   },
   "сентябрь": {
    "n": 6,
@@ -525,18 +588,18 @@
    "win": 0.833,
    "delta": -105.46,
    "delta_ci": [
-    -218.8,
-    15.6
+    -219.7,
+    14.0
    ],
    "R": 0.75,
-   "k": 6.97,
-   "pos_usd_eq": 3486,
-   "usd_eq": 38.72,
-   "delta_eq": -72.38,
-   "delta_eq_ci": [
-    -206.4,
-    80.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a120-u25k": {
@@ -547,18 +610,21 @@
    "win": 0.472,
    "delta": -119.61,
    "delta_ci": [
-    -565.2,
-    164.3
+    -566.1,
+    166.1
    ],
    "R": -0.53,
-   "k": 3.96,
-   "pos_usd_eq": 1980,
-   "usd_eq": -53.78,
-   "delta_eq": -159.83,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -40.74,
+   "delta_eq": -146.79,
    "delta_eq_ci": [
-    -570.8,
-    100.0
-   ]
+    -568.2,
+    117.8
+   ],
+   "dd_boot_main_med": 4.31,
+   "dd_boot_cell_med": 2.4
   },
   "сентябрь": {
    "n": 9,
@@ -567,18 +633,18 @@
    "win": 0.667,
    "delta": -101.03,
    "delta_ci": [
-    -212.0,
-    16.1
+    -212.1,
+    16.0
    ],
    "R": 0.76,
-   "k": 3.93,
-   "pos_usd_eq": 1967,
-   "usd_eq": 39.3,
-   "delta_eq": -71.78,
-   "delta_eq_ci": [
-    -207.9,
-    74.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a120-u50k": {
@@ -589,18 +655,21 @@
    "win": 0.529,
    "delta": -105.35,
    "delta_ci": [
-    -559.5,
-    193.5
+    -560.1,
+    197.8
    ],
    "R": 0.07,
-   "k": 9.87,
-   "pos_usd_eq": 4935,
-   "usd_eq": 6.7,
-   "delta_eq": -99.41,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 2.04,
+   "delta_eq": -104.01,
    "delta_eq_ci": [
-    -534.0,
-    187.4
-   ]
+    -549.7,
+    187.2
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 0.65
   },
   "сентябрь": {
    "n": 7,
@@ -609,18 +678,18 @@
    "win": 0.714,
    "delta": -105.7,
    "delta_ci": [
-    -219.3,
-    14.1
+    -220.2,
+    11.8
    ],
    "R": 0.71,
-   "k": 6.97,
-   "pos_usd_eq": 3486,
-   "usd_eq": 37.05,
-   "delta_eq": -74.05,
-   "delta_eq_ci": [
-    -208.1,
-    80.9
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f25-a120-u100k": {
@@ -631,18 +700,18 @@
    "win": 0.571,
    "delta": -105.06,
    "delta_ci": [
-    -558.9,
-    191.1
+    -559.5,
+    189.8
    ],
    "R": 0.16,
-   "k": 16.57,
-   "pos_usd_eq": 8284,
-   "usd_eq": 15.9,
-   "delta_eq": -90.12,
-   "delta_eq_ci": [
-    -469.0,
-    178.4
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 6,
@@ -652,17 +721,17 @@
    "delta": -105.46,
    "delta_ci": [
     -218.3,
-    12.9
+    13.4
    ],
    "R": 0.75,
-   "k": 6.97,
-   "pos_usd_eq": 3486,
-   "usd_eq": 38.72,
-   "delta_eq": -72.38,
-   "delta_eq_ci": [
-    -207.3,
-    84.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a15-u25k": {
@@ -673,18 +742,21 @@
    "win": 0.489,
    "delta": -118.59,
    "delta_ci": [
-    -538.5,
-    160.6
+    -538.0,
+    157.4
    ],
    "R": -0.43,
-   "k": 3.46,
-   "pos_usd_eq": 1729,
-   "usd_eq": -43.4,
-   "delta_eq": -149.48,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -37.65,
+   "delta_eq": -143.73,
    "delta_eq_ci": [
-    -476.2,
-    103.9
-   ]
+    -484.8,
+    109.2
+   ],
+   "dd_boot_main_med": 4.33,
+   "dd_boot_cell_med": 2.96
   },
   "сентябрь": {
    "n": 22,
@@ -693,18 +765,21 @@
    "win": 0.591,
    "delta": -107.88,
    "delta_ci": [
-    -207.5,
-    -10.9
+    -209.1,
+    -11.8
    ],
    "R": 0.12,
-   "k": 2.02,
-   "pos_usd_eq": 1009,
-   "usd_eq": 6.34,
-   "delta_eq": -104.71,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 9.43,
+   "delta_eq": -101.64,
    "delta_eq_ci": [
-    -207.1,
-    -10.9
-   ]
+    -226.8,
+    -0.9
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 2.32
   }
  },
  "p05-f50-a15-u50k": {
@@ -715,18 +790,21 @@
    "win": 0.486,
    "delta": -122.88,
    "delta_ci": [
-    -553.0,
-    165.0
+    -552.5,
+    163.0
    ],
    "R": -0.82,
-   "k": 4.95,
-   "pos_usd_eq": 2477,
-   "usd_eq": -83.48,
-   "delta_eq": -189.54,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -50.56,
+   "delta_eq": -156.6,
    "delta_eq_ci": [
-    -530.9,
-    83.8
-   ]
+    -535.4,
+    115.7
+   ],
+   "dd_boot_main_med": 4.25,
+   "dd_boot_cell_med": 2.66
   },
   "сентябрь": {
    "n": 16,
@@ -735,18 +813,21 @@
    "win": 0.562,
    "delta": -112.74,
    "delta_ci": [
-    -217.1,
-    -4.7
+    -214.9,
+    -3.9
    ],
    "R": -0.09,
-   "k": 2.79,
-   "pos_usd_eq": 1397,
-   "usd_eq": -4.83,
-   "delta_eq": -115.86,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -5.18,
+   "delta_eq": -116.22,
    "delta_eq_ci": [
-    -214.3,
-    -7.6
-   ]
+    -213.8,
+    -10.0
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 1.33
   }
  },
  "p05-f50-a15-u100k": {
@@ -757,18 +838,21 @@
    "win": 0.55,
    "delta": -111.04,
    "delta_ci": [
-    -551.2,
-    176.1
+    -541.2,
+    176.5
    ],
    "R": -0.25,
-   "k": 5.13,
-   "pos_usd_eq": 2563,
-   "usd_eq": -25.77,
-   "delta_eq": -131.76,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -15.08,
+   "delta_eq": -121.08,
    "delta_eq_ci": [
-    -481.7,
-    132.7
-   ]
+    -509.4,
+    146.3
+   ],
+   "dd_boot_main_med": 4.25,
+   "dd_boot_cell_med": 1.95
   },
   "сентябрь": {
    "n": 11,
@@ -777,18 +861,21 @@
    "win": 0.636,
    "delta": -104.7,
    "delta_ci": [
-    -213.2,
-    11.6
+    -213.9,
+    10.1
    ],
    "R": 0.58,
-   "k": 4.77,
-   "pos_usd_eq": 2384,
-   "usd_eq": 30.08,
-   "delta_eq": -80.96,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 18.93,
+   "delta_eq": -92.1,
    "delta_eq_ci": [
-    -187.9,
-    43.0
-   ]
+    -200.2,
+    25.3
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 0.15
   }
  },
  "p05-f50-a30-u25k": {
@@ -799,18 +886,21 @@
    "win": 0.447,
    "delta": -129.09,
    "delta_ci": [
-    -556.0,
-    149.4
+    -551.2,
+    156.3
    ],
    "R": -0.73,
-   "k": 3.21,
-   "pos_usd_eq": 1605,
-   "usd_eq": -74.02,
-   "delta_eq": -180.08,
+   "cov": "ok",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -69.17,
+   "delta_eq": -175.23,
    "delta_eq_ci": [
-    -545.0,
-    82.2
-   ]
+    -551.2,
+    88.6
+   ],
+   "dd_boot_main_med": 4.25,
+   "dd_boot_cell_med": 3.21
   },
   "сентябрь": {
    "n": 13,
@@ -819,18 +909,21 @@
    "win": 0.692,
    "delta": -96.2,
    "delta_ci": [
-    -206.6,
-    9.1
+    -205.4,
+    11.5
    ],
    "R": 1.75,
-   "k": 6.14,
-   "pos_usd_eq": 3069,
-   "usd_eq": 90.98,
-   "delta_eq": -20.15,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 44.46,
+   "delta_eq": -66.6,
    "delta_eq_ci": [
-    -153.0,
-    46.0
-   ]
+    -180.0,
+    20.7
+   ],
+   "dd_boot_main_med": 1.23,
+   "dd_boot_cell_med": 0.2
   }
  },
  "p05-f50-a30-u50k": {
@@ -841,18 +934,21 @@
    "win": 0.385,
    "delta": -130.3,
    "delta_ci": [
-    -562.6,
-    162.3
+    -562.5,
+    162.4
    ],
    "R": -0.96,
-   "k": 4.04,
-   "pos_usd_eq": 2019,
-   "usd_eq": -98.01,
-   "delta_eq": -204.04,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -72.83,
+   "delta_eq": -178.86,
    "delta_eq_ci": [
-    -582.4,
-    72.7
-   ]
+    -573.5,
+    101.0
+   ],
+   "dd_boot_main_med": 4.19,
+   "dd_boot_cell_med": 2.73
   },
   "сентябрь": {
    "n": 9,
@@ -861,18 +957,18 @@
    "win": 0.556,
    "delta": -109.39,
    "delta_ci": [
-    -219.1,
-    5.0
+    -218.5,
+    5.7
    ],
    "R": 0.18,
-   "k": 5.87,
-   "pos_usd_eq": 2936,
-   "usd_eq": 9.57,
-   "delta_eq": -101.55,
-   "delta_eq_ci": [
-    -205.9,
-    10.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a30-u100k": {
@@ -883,18 +979,21 @@
    "win": 0.467,
    "delta": -122.91,
    "delta_ci": [
-    -564.9,
-    163.1
+    -561.4,
+    165.5
    ],
    "R": -0.94,
-   "k": 5.65,
-   "pos_usd_eq": 2824,
-   "usd_eq": -95.4,
-   "delta_eq": -201.41,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -50.67,
+   "delta_eq": -156.69,
    "delta_eq_ci": [
-    -579.9,
-    69.0
-   ]
+    -563.8,
+    118.1
+   ],
+   "dd_boot_main_med": 4.29,
+   "dd_boot_cell_med": 2.12
   },
   "сентябрь": {
    "n": 8,
@@ -903,18 +1002,18 @@
    "win": 0.625,
    "delta": -108.6,
    "delta_ci": [
-    -218.4,
-    10.2
+    -219.0,
+    5.6
    ],
    "R": 0.28,
-   "k": 6.12,
-   "pos_usd_eq": 3058,
-   "usd_eq": 14.76,
-   "delta_eq": -96.32,
-   "delta_eq_ci": [
-    -202.8,
-    23.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a60-u25k": {
@@ -925,18 +1024,21 @@
    "win": 0.518,
    "delta": -118.24,
    "delta_ci": [
-    -553.6,
-    173.4
+    -557.2,
+    174.8
    ],
    "R": -0.6,
-   "k": 4.98,
-   "pos_usd_eq": 2488,
-   "usd_eq": -60.73,
-   "delta_eq": -166.82,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -36.62,
+   "delta_eq": -142.68,
    "delta_eq_ci": [
-    -501.1,
-    100.5
-   ]
+    -519.6,
+    128.6
+   ],
+   "dd_boot_main_med": 4.2,
+   "dd_boot_cell_med": 2.03
   },
   "сентябрь": {
    "n": 6,
@@ -945,18 +1047,18 @@
    "win": 0.833,
    "delta": -94.19,
    "delta_ci": [
-    -209.4,
-    7.9
+    -207.9,
+    8.7
    ],
    "R": 2.84,
-   "k": 8.75,
-   "pos_usd_eq": 4376,
-   "usd_eq": 147.22,
-   "delta_eq": 36.13,
-   "delta_eq_ci": [
-    -178.6,
-    122.9
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a60-u50k": {
@@ -967,18 +1069,21 @@
    "win": 0.5,
    "delta": -119.21,
    "delta_ci": [
-    -560.9,
-    169.2
+    -561.8,
+    178.9
    ],
    "R": -0.93,
-   "k": 7.2,
-   "pos_usd_eq": 3599,
-   "usd_eq": -94.94,
-   "delta_eq": -200.96,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -39.57,
+   "delta_eq": -145.59,
    "delta_eq_ci": [
-    -537.4,
-    89.3
-   ]
+    -550.7,
+    138.8
+   ],
+   "dd_boot_main_med": 4.25,
+   "dd_boot_cell_med": 1.37
   },
   "сентябрь": {
    "n": 4,
@@ -987,18 +1092,18 @@
    "win": 0.75,
    "delta": -108.8,
    "delta_ci": [
-    -219.8,
-    8.6
+    -221.4,
+    7.1
    ],
    "R": 0.37,
-   "k": 8.7,
-   "pos_usd_eq": 4351,
-   "usd_eq": 19.24,
-   "delta_eq": -91.86,
-   "delta_eq_ci": [
-    -212.9,
-    40.4
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a60-u100k": {
@@ -1009,18 +1114,18 @@
    "win": 0.556,
    "delta": -112.85,
    "delta_ci": [
-    -552.1,
-    180.3
+    -556.5,
+    177.8
    ],
    "R": -0.74,
-   "k": 11.12,
-   "pos_usd_eq": 5559,
-   "usd_eq": -75.87,
-   "delta_eq": -181.95,
-   "delta_eq_ci": [
-    -497.4,
-    85.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 4,
@@ -1029,18 +1134,18 @@
    "win": 0.75,
    "delta": -108.8,
    "delta_ci": [
-    -218.7,
-    6.5
+    -221.6,
+    9.6
    ],
    "R": 0.37,
-   "k": 8.7,
-   "pos_usd_eq": 4351,
-   "usd_eq": 19.24,
-   "delta_eq": -91.86,
-   "delta_eq_ci": [
-    -214.5,
-    41.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a90-u25k": {
@@ -1051,18 +1156,21 @@
    "win": 0.55,
    "delta": -112.96,
    "delta_ci": [
-    -555.2,
-    181.7
+    -560.6,
+    182.2
    ],
    "R": -0.46,
-   "k": 6.82,
-   "pos_usd_eq": 3411,
-   "usd_eq": -47.23,
-   "delta_eq": -153.37,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -20.77,
+   "delta_eq": -126.84,
    "delta_eq_ci": [
-    -506.2,
-    143.0
-   ]
+    -541.8,
+    166.2
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 1.22
   },
   "сентябрь": {
    "n": 4,
@@ -1071,18 +1179,18 @@
    "win": 0.75,
    "delta": -108.8,
    "delta_ci": [
-    -220.2,
-    7.2
+    -221.0,
+    8.4
    ],
    "R": 0.37,
-   "k": 8.7,
-   "pos_usd_eq": 4351,
-   "usd_eq": 19.24,
-   "delta_eq": -91.86,
-   "delta_eq_ci": [
-    -211.7,
-    40.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a90-u50k": {
@@ -1093,18 +1201,21 @@
    "win": 0.636,
    "delta": -110.66,
    "delta_ci": [
-    -559.4,
-    187.8
+    -557.2,
+    190.8
    ],
    "R": -0.34,
-   "k": 7.55,
-   "pos_usd_eq": 3775,
-   "usd_eq": -34.97,
-   "delta_eq": -141.05,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -13.9,
+   "delta_eq": -119.94,
    "delta_eq_ci": [
-    -518.0,
-    182.7
-   ]
+    -547.9,
+    181.5
+   ],
+   "dd_boot_main_med": 4.27,
+   "dd_boot_cell_med": 0.15
   },
   "сентябрь": {
    "n": 4,
@@ -1113,18 +1224,18 @@
    "win": 0.75,
    "delta": -108.8,
    "delta_ci": [
-    -220.6,
-    8.5
+    -222.8,
+    9.6
    ],
    "R": 0.37,
-   "k": 8.7,
-   "pos_usd_eq": 4351,
-   "usd_eq": 19.24,
-   "delta_eq": -91.86,
-   "delta_eq_ci": [
-    -212.4,
-    40.9
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a90-u100k": {
@@ -1135,18 +1246,18 @@
    "win": 0.714,
    "delta": -105.19,
    "delta_ci": [
-    -551.9,
-    196.1
+    -559.6,
+    193.2
    ],
    "R": 0.11,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": 11.35,
-   "delta_eq": -94.8,
-   "delta_eq_ci": [
-    -439.4,
-    192.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 4,
@@ -1155,18 +1266,18 @@
    "win": 0.75,
    "delta": -108.8,
    "delta_ci": [
-    -222.5,
-    8.5
+    -220.8,
+    8.8
    ],
    "R": 0.37,
-   "k": 8.7,
-   "pos_usd_eq": 4351,
-   "usd_eq": 19.24,
-   "delta_eq": -91.86,
-   "delta_eq_ci": [
-    -211.1,
-    39.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a120-u25k": {
@@ -1177,18 +1288,21 @@
    "win": 0.533,
    "delta": -104.2,
    "delta_ci": [
-    -558.0,
-    187.9
+    -560.8,
+    187.2
    ],
    "R": 0.11,
-   "k": 6.35,
-   "pos_usd_eq": 3177,
-   "usd_eq": 11.68,
-   "delta_eq": -94.46,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 5.52,
+   "delta_eq": -100.56,
    "delta_eq_ci": [
-    -515.7,
-    183.1
-   ]
+    -546.4,
+    181.7
+   ],
+   "dd_boot_main_med": 4.28,
+   "dd_boot_cell_med": 0.79
   },
   "сентябрь": {
    "n": 3,
@@ -1197,18 +1311,18 @@
    "win": 0.667,
    "delta": -109.49,
    "delta_ci": [
-    -219.9,
-    6.7
+    -220.8,
+    7.8
    ],
    "R": 0.31,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 16.1,
-   "delta_eq": -94.98,
-   "delta_eq_ci": [
-    -214.4,
-    35.9
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a120-u50k": {
@@ -1219,18 +1333,18 @@
    "win": 0.667,
    "delta": -101.9,
    "delta_ci": [
-    -563.9,
-    197.1
+    -568.7,
+    196.7
    ],
    "R": 0.98,
-   "k": 24.2,
-   "pos_usd_eq": 12101,
-   "usd_eq": 99.93,
-   "delta_eq": -6.31,
-   "delta_eq_ci": [
-    -417.2,
-    240.9
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 3,
@@ -1239,18 +1353,18 @@
    "win": 0.667,
    "delta": -109.49,
    "delta_ci": [
-    -219.6,
-    5.3
+    -222.0,
+    7.6
    ],
    "R": 0.31,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 16.1,
-   "delta_eq": -94.98,
-   "delta_eq_ci": [
-    -214.5,
-    36.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f50-a120-u100k": {
@@ -1261,18 +1375,18 @@
    "win": 0.75,
    "delta": -102.91,
    "delta_ci": [
-    -558.4,
-    194.4
+    -560.0,
+    192.5
    ],
    "R": 1.03,
-   "k": 33.74,
-   "pos_usd_eq": 16869,
-   "usd_eq": 105.04,
-   "delta_eq": -1.09,
-   "delta_eq_ci": [
-    -340.1,
-    224.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 3,
@@ -1281,18 +1395,18 @@
    "win": 0.667,
    "delta": -109.49,
    "delta_ci": [
-    -221.1,
-    6.4
+    -220.5,
+    9.0
    ],
    "R": 0.31,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 16.1,
-   "delta_eq": -94.98,
-   "delta_eq_ci": [
-    -216.0,
-    36.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a15-u25k": {
@@ -1303,18 +1417,21 @@
    "win": 0.462,
    "delta": -111.51,
    "delta_ci": [
-    -556.3,
-    177.5
+    -554.1,
+    179.5
    ],
    "R": -0.21,
-   "k": 3.87,
-   "pos_usd_eq": 1934,
-   "usd_eq": -21.22,
-   "delta_eq": -127.25,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -16.46,
+   "delta_eq": -122.49,
    "delta_eq_ci": [
-    -517.4,
-    151.8
-   ]
+    -526.7,
+    157.6
+   ],
+   "dd_boot_main_med": 4.22,
+   "dd_boot_cell_med": 1.93
   },
   "сентябрь": {
    "n": 9,
@@ -1323,18 +1440,18 @@
    "win": 0.778,
    "delta": -96.31,
    "delta_ci": [
-    -206.1,
-    10.5
+    -204.6,
+    11.2
    ],
    "R": 1.76,
-   "k": 6.22,
-   "pos_usd_eq": 3109,
-   "usd_eq": 91.4,
-   "delta_eq": -19.66,
-   "delta_eq_ci": [
-    -145.6,
-    49.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a15-u50k": {
@@ -1345,18 +1462,21 @@
    "win": 0.45,
    "delta": -118.08,
    "delta_ci": [
-    -564.5,
-    171.5
+    -556.4,
+    173.2
    ],
    "R": -0.62,
-   "k": 5.23,
-   "pos_usd_eq": 2613,
-   "usd_eq": -63.05,
-   "delta_eq": -169.04,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -36.2,
+   "delta_eq": -142.2,
    "delta_eq_ci": [
-    -549.1,
-    107.2
-   ]
+    -545.4,
+    139.6
+   ],
+   "dd_boot_main_med": 4.26,
+   "dd_boot_cell_med": 1.95
   },
   "сентябрь": {
    "n": 7,
@@ -1365,18 +1485,18 @@
    "win": 0.714,
    "delta": -107.14,
    "delta_ci": [
-    -214.7,
-    4.8
+    -215.2,
+    7.1
    ],
    "R": 0.46,
-   "k": 6.19,
-   "pos_usd_eq": 3097,
-   "usd_eq": 23.97,
-   "delta_eq": -87.09,
-   "delta_eq_ci": [
-    -188.1,
-    29.4
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a15-u100k": {
@@ -1387,18 +1507,21 @@
    "win": 0.538,
    "delta": -117.37,
    "delta_ci": [
-    -561.5,
-    172.2
+    -559.7,
+    173.0
    ],
    "R": -0.6,
-   "k": 5.39,
-   "pos_usd_eq": 2697,
-   "usd_eq": -61.26,
-   "delta_eq": -167.23,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -34.08,
+   "delta_eq": -140.07,
    "delta_eq_ci": [
-    -533.9,
-    115.9
-   ]
+    -543.0,
+    137.7
+   ],
+   "dd_boot_main_med": 4.29,
+   "dd_boot_cell_med": 1.87
   },
   "сентябрь": {
    "n": 7,
@@ -1407,18 +1530,18 @@
    "win": 0.714,
    "delta": -107.14,
    "delta_ci": [
-    -215.1,
-    8.7
+    -215.6,
+    7.1
    ],
    "R": 0.46,
-   "k": 6.19,
-   "pos_usd_eq": 3097,
-   "usd_eq": 23.97,
-   "delta_eq": -87.09,
-   "delta_eq_ci": [
-    -186.5,
-    29.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a30-u25k": {
@@ -1429,18 +1552,21 @@
    "win": 0.409,
    "delta": -121.42,
    "delta_ci": [
-    -572.4,
-    174.0
+    -569.4,
+    176.1
    ],
    "R": -0.66,
-   "k": 4.38,
-   "pos_usd_eq": 2190,
-   "usd_eq": -67.38,
-   "delta_eq": -173.47,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -46.15,
+   "delta_eq": -152.22,
    "delta_eq_ci": [
-    -577.6,
-    118.8
-   ]
+    -568.9,
+    139.6
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 2.07
   },
   "сентябрь": {
    "n": 8,
@@ -1449,18 +1575,18 @@
    "win": 0.75,
    "delta": -97.97,
    "delta_ci": [
-    -209.4,
-    9.7
+    -210.1,
+    10.9
    ],
    "R": 1.56,
-   "k": 6.21,
-   "pos_usd_eq": 3107,
-   "usd_eq": 81.02,
-   "delta_eq": -30.03,
-   "delta_eq_ci": [
-    -168.1,
-    46.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a30-u50k": {
@@ -1471,18 +1597,21 @@
    "win": 0.353,
    "delta": -124.48,
    "delta_ci": [
-    -569.7,
-    169.6
+    -572.0,
+    168.5
    ],
    "R": -0.96,
-   "k": 5.3,
-   "pos_usd_eq": 2648,
-   "usd_eq": -97.74,
-   "delta_eq": -203.77,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -55.38,
+   "delta_eq": -161.4,
    "delta_eq_ci": [
-    -603.3,
-    72.5
-   ]
+    -582.8,
+    116.0
+   ],
+   "dd_boot_main_med": 4.23,
+   "dd_boot_cell_med": 2.25
   },
   "сентябрь": {
    "n": 6,
@@ -1491,18 +1620,18 @@
    "win": 0.667,
    "delta": -108.8,
    "delta_ci": [
-    -219.3,
-    9.1
+    -218.8,
+    9.3
    ],
    "R": 0.26,
-   "k": 6.19,
-   "pos_usd_eq": 3095,
-   "usd_eq": 13.67,
-   "delta_eq": -97.38,
-   "delta_eq_ci": [
-    -206.3,
-    25.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a30-u100k": {
@@ -1513,18 +1642,21 @@
    "win": 0.455,
    "delta": -123.38,
    "delta_ci": [
-    -571.9,
-    163.8
+    -569.6,
+    165.8
    ],
    "R": -0.98,
-   "k": 5.75,
-   "pos_usd_eq": 2875,
-   "usd_eq": -99.84,
-   "delta_eq": -205.83,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -52.1,
+   "delta_eq": -158.1,
    "delta_eq_ci": [
-    -590.4,
-    72.6
-   ]
+    -571.4,
+    127.7
+   ],
+   "dd_boot_main_med": 4.18,
+   "dd_boot_cell_med": 2.06
   },
   "сентябрь": {
    "n": 6,
@@ -1533,18 +1665,18 @@
    "win": 0.667,
    "delta": -108.8,
    "delta_ci": [
-    -218.4,
-    6.7
+    -218.3,
+    8.1
    ],
    "R": 0.26,
-   "k": 6.19,
-   "pos_usd_eq": 3095,
-   "usd_eq": 13.67,
-   "delta_eq": -97.38,
-   "delta_eq_ci": [
-    -205.0,
-    25.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a60-u25k": {
@@ -1555,18 +1687,21 @@
    "win": 0.467,
    "delta": -111.75,
    "delta_ci": [
-    -565.2,
-    189.6
+    -564.4,
+    184.9
    ],
    "R": -0.36,
-   "k": 6.36,
-   "pos_usd_eq": 3181,
-   "usd_eq": -36.43,
-   "delta_eq": -142.48,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -17.18,
+   "delta_eq": -123.21,
    "delta_eq_ci": [
-    -544.5,
-    152.5
-   ]
+    -553.9,
+    166.5
+   ],
+   "dd_boot_main_med": 4.29,
+   "dd_boot_cell_med": 1.11
   },
   "сентябрь": {
    "n": 3,
@@ -1575,18 +1710,18 @@
    "win": 1.0,
    "delta": -94.43,
    "delta_ci": [
-    -207.0,
-    7.3
+    -210.4,
+    9.9
    ],
    "R": 3.41,
-   "k": 10.67,
-   "pos_usd_eq": 5334,
-   "usd_eq": 176.81,
-   "delta_eq": 65.78,
-   "delta_eq_ci": [
-    -177.3,
-    170.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a60-u50k": {
@@ -1597,18 +1732,21 @@
    "win": 0.4,
    "delta": -115.01,
    "delta_ci": [
-    -562.5,
-    182.3
+    -565.7,
+    179.6
    ],
    "R": -0.96,
-   "k": 10.9,
-   "pos_usd_eq": 5450,
-   "usd_eq": -97.99,
-   "delta_eq": -204.01,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -26.97,
+   "delta_eq": -132.99,
    "delta_eq_ci": [
-    -550.7,
-    85.0
-   ]
+    -562.6,
+    155.4
+   ],
+   "dd_boot_main_med": 4.27,
+   "dd_boot_cell_med": 1.06
   },
   "сентябрь": {
    "n": 2,
@@ -1617,18 +1755,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -221.5,
-    8.2
+    -220.2,
+    7.8
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -212.9,
-    45.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a60-u100k": {
@@ -1639,18 +1777,18 @@
    "win": 0.429,
    "delta": -114.47,
    "delta_ci": [
-    -561.8,
-    174.5
+    -563.2,
+    179.9
    ],
    "R": -0.92,
-   "k": 11.11,
-   "pos_usd_eq": 5556,
-   "usd_eq": -93.88,
-   "delta_eq": -199.91,
-   "delta_eq_ci": [
-    -539.8,
-    82.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1659,18 +1797,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -221.7,
-    8.8
+    -220.4,
+    7.7
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -212.5,
-    44.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a90-u25k": {
@@ -1681,18 +1819,21 @@
    "win": 0.5,
    "delta": -104.54,
    "delta_ci": [
-    -554.1,
-    197.2
+    -563.5,
+    200.3
    ],
    "R": 0.2,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": 20.29,
-   "delta_eq": -86.01,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": 4.5,
+   "delta_eq": -101.58,
    "delta_eq_ci": [
-    -468.4,
-    251.7
-   ]
+    -542.9,
+    200.0
+   ],
+   "dd_boot_main_med": 4.22,
+   "dd_boot_cell_med": 0.26
   },
   "сентябрь": {
    "n": 2,
@@ -1701,18 +1842,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -222.4,
-    6.7
+    -218.9,
+    7.7
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -213.9,
-    46.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a90-u50k": {
@@ -1723,18 +1864,18 @@
    "win": 0.5,
    "delta": -107.64,
    "delta_ci": [
-    -566.6,
-    189.2
+    -562.9,
+    193.9
    ],
    "R": -0.21,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": -21.77,
-   "delta_eq": -127.92,
-   "delta_eq_ci": [
-    -501.4,
-    177.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1743,18 +1884,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -221.7,
-    9.4
+    -222.2,
+    6.9
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -213.0,
-    46.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a90-u100k": {
@@ -1765,18 +1906,18 @@
    "win": 0.6,
    "delta": -106.81,
    "delta_ci": [
-    -561.4,
-    193.6
+    -560.0,
+    189.4
    ],
    "R": -0.1,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": -10.61,
-   "delta_eq": -116.7,
-   "delta_eq_ci": [
-    -482.1,
-    183.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1785,18 +1926,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -220.5,
-    9.6
+    -221.5,
+    9.0
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -214.1,
-    45.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a120-u25k": {
@@ -1807,18 +1948,18 @@
    "win": 0.5,
    "delta": -100.78,
    "delta_ci": [
-    -562.1,
-    196.0
+    -562.9,
+    194.1
    ],
    "R": 0.71,
-   "k": 13.69,
-   "pos_usd_eq": 6845,
-   "usd_eq": 71.97,
-   "delta_eq": -34.28,
-   "delta_eq_ci": [
-    -450.5,
-    268.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1827,18 +1968,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -220.6,
-    10.5
+    -221.5,
+    9.6
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -212.8,
-    43.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a120-u50k": {
@@ -1849,18 +1990,18 @@
    "win": 0.5,
    "delta": -103.88,
    "delta_ci": [
-    -564.7,
-    197.2
+    -559.3,
+    191.5
    ],
    "R": 0.86,
-   "k": 40.76,
-   "pos_usd_eq": 20378,
-   "usd_eq": 87.45,
-   "delta_eq": -18.8,
-   "delta_eq_ci": [
-    -372.5,
-    220.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1869,18 +2010,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -221.0,
-    10.2
+    -222.9,
+    7.9
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -211.2,
-    44.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f75-a120-u100k": {
@@ -1891,18 +2032,18 @@
    "win": 0.667,
    "delta": -103.05,
    "delta_ci": [
-    -559.2,
-    194.7
+    -559.5,
+    193.1
    ],
    "R": 4.24,
-   "k": 145.56,
-   "pos_usd_eq": 72779,
-   "usd_eq": 432.44,
-   "delta_eq": 326.28,
-   "delta_eq_ci": [
-    -233.4,
-    997.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -1911,18 +2052,18 @@
    "win": 1.0,
    "delta": -109.0,
    "delta_ci": [
-    -220.3,
-    7.4
+    -221.8,
+    7.3
    ],
    "R": 0.41,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 21.27,
-   "delta_eq": -89.78,
-   "delta_eq_ci": [
-    -214.2,
-    41.6
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a15-u25k": {
@@ -1933,18 +2074,21 @@
    "win": 0.333,
    "delta": -112.98,
    "delta_ci": [
-    -555.0,
-    173.3
+    -555.5,
+    178.1
    ],
    "R": -0.43,
-   "k": 6.36,
-   "pos_usd_eq": 3180,
-   "usd_eq": -44.11,
-   "delta_eq": -150.28,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -20.81,
+   "delta_eq": -126.9,
    "delta_eq_ci": [
-    -493.7,
-    113.5
-   ]
+    -529.5,
+    152.8
+   ],
+   "dd_boot_main_med": 4.23,
+   "dd_boot_cell_med": 1.13
   },
   "сентябрь": {
    "n": 6,
@@ -1953,18 +2097,18 @@
    "win": 0.667,
    "delta": -100.3,
    "delta_ci": [
-    -208.3,
-    2.5
+    -207.7,
+    3.7
    ],
    "R": 1.28,
-   "k": 6.22,
-   "pos_usd_eq": 3109,
-   "usd_eq": 66.6,
-   "delta_eq": -44.47,
-   "delta_eq_ci": [
-    -162.7,
-    5.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a15-u50k": {
@@ -1975,18 +2119,18 @@
    "win": 0.444,
    "delta": -111.63,
    "delta_ci": [
-    -558.3,
-    175.9
+    -557.2,
+    181.8
    ],
    "R": -0.61,
-   "k": 11.12,
-   "pos_usd_eq": 5562,
-   "usd_eq": -62.22,
-   "delta_eq": -168.42,
-   "delta_eq_ci": [
-    -462.7,
-    88.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 5,
@@ -1995,18 +2139,18 @@
    "win": 0.6,
    "delta": -110.13,
    "delta_ci": [
-    -217.3,
-    2.7
+    -217.6,
+    2.9
    ],
    "R": 0.1,
-   "k": 6.19,
-   "pos_usd_eq": 3097,
-   "usd_eq": 5.43,
-   "delta_eq": -105.61,
-   "delta_eq_ci": [
-    -197.9,
-    -8.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a15-u100k": {
@@ -2017,18 +2161,18 @@
    "win": 0.571,
    "delta": -110.33,
    "delta_ci": [
-    -555.7,
-    183.6
+    -550.8,
+    174.8
    ],
    "R": -0.47,
-   "k": 11.13,
-   "pos_usd_eq": 5565,
-   "usd_eq": -47.91,
-   "delta_eq": -153.99,
-   "delta_eq_ci": [
-    -442.2,
-    96.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 5,
@@ -2037,18 +2181,18 @@
    "win": 0.6,
    "delta": -110.13,
    "delta_ci": [
-    -216.5,
-    2.2
+    -216.6,
+    1.6
    ],
    "R": 0.1,
-   "k": 6.19,
-   "pos_usd_eq": 3097,
-   "usd_eq": 5.43,
-   "delta_eq": -105.61,
-   "delta_eq_ci": [
-    -199.1,
-    -9.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a30-u25k": {
@@ -2059,18 +2203,21 @@
    "win": 0.3,
    "delta": -116.11,
    "delta_ci": [
-    -563.9,
-    180.2
+    -568.0,
+    178.1
    ],
    "R": -0.62,
-   "k": 6.29,
-   "pos_usd_eq": 3143,
-   "usd_eq": -63.37,
-   "delta_eq": -169.44,
+   "cov": "desc",
+   "k": 3.0,
+   "pos_usd_eq": 1500,
+   "usd_eq": -30.24,
+   "delta_eq": -136.29,
    "delta_eq_ci": [
-    -549.6,
-    107.2
-   ]
+    -558.7,
+    153.1
+   ],
+   "dd_boot_main_med": 4.21,
+   "dd_boot_cell_med": 1.12
   },
   "сентябрь": {
    "n": 5,
@@ -2079,18 +2226,18 @@
    "win": 0.6,
    "delta": -101.96,
    "delta_ci": [
-    -212.2,
-    1.9
+    -210.5,
+    3.4
    ],
    "R": 1.08,
-   "k": 6.21,
-   "pos_usd_eq": 3107,
-   "usd_eq": 56.23,
-   "delta_eq": -54.83,
-   "delta_eq_ci": [
-    -185.1,
-    1.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a30-u50k": {
@@ -2101,18 +2248,18 @@
    "win": 0.375,
    "delta": -114.84,
    "delta_ci": [
-    -567.4,
-    181.8
+    -566.5,
+    183.4
    ],
    "R": -0.96,
-   "k": 11.11,
-   "pos_usd_eq": 5554,
-   "usd_eq": -97.91,
-   "delta_eq": -203.99,
-   "delta_eq_ci": [
-    -550.6,
-    75.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 4,
@@ -2121,18 +2268,18 @@
    "win": 0.5,
    "delta": -111.79,
    "delta_ci": [
-    -219.9,
-    2.2
+    -221.6,
+    0.1
    ],
    "R": -0.09,
-   "k": 6.19,
-   "pos_usd_eq": 3095,
-   "usd_eq": -4.86,
-   "delta_eq": -115.89,
-   "delta_eq_ci": [
-    -215.6,
-    -12.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a30-u100k": {
@@ -2143,18 +2290,18 @@
    "win": 0.5,
    "delta": -113.54,
    "delta_ci": [
-    -570.5,
-    179.7
+    -557.6,
+    179.6
    ],
    "R": -0.82,
-   "k": 11.11,
-   "pos_usd_eq": 5557,
-   "usd_eq": -83.64,
-   "delta_eq": -189.6,
-   "delta_eq_ci": [
-    -524.9,
-    89.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 4,
@@ -2163,18 +2310,18 @@
    "win": 0.5,
    "delta": -111.79,
    "delta_ci": [
-    -221.0,
-    2.1
+    -220.2,
+    2.6
    ],
    "R": -0.09,
-   "k": 6.19,
-   "pos_usd_eq": 3095,
-   "usd_eq": -4.86,
-   "delta_eq": -115.89,
-   "delta_eq_ci": [
-    -213.0,
-    -13.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a60-u25k": {
@@ -2185,18 +2332,18 @@
    "win": 0.222,
    "delta": -117.31,
    "delta_ci": [
-    -564.0,
-    179.2
+    -571.8,
+    174.0
    ],
    "R": -0.65,
-   "k": 5.85,
-   "pos_usd_eq": 2925,
-   "usd_eq": -66.03,
-   "delta_eq": -172.06,
-   "delta_eq_ci": [
-    -561.7,
-    116.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 2,
@@ -2205,18 +2352,18 @@
    "win": 1.0,
    "delta": -95.18,
    "delta_ci": [
-    -209.9,
-    6.5
+    -207.2,
+    7.9
    ],
    "R": 3.25,
-   "k": 10.67,
-   "pos_usd_eq": 5334,
-   "usd_eq": 168.79,
-   "delta_eq": 57.78,
-   "delta_eq_ci": [
-    -186.8,
-    163.0
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a60-u50k": {
@@ -2227,18 +2374,18 @@
    "win": 0.286,
    "delta": -116.04,
    "delta_ci": [
-    -572.2,
-    178.2
+    -555.6,
+    178.9
    ],
    "R": -0.97,
-   "k": 9.82,
-   "pos_usd_eq": 4909,
-   "usd_eq": -98.38,
-   "delta_eq": -204.4,
-   "delta_eq_ci": [
-    -565.2,
-    81.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2247,18 +2394,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -222.2,
-    5.4
+    -221.6,
+    4.4
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.0,
-    31.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a60-u100k": {
@@ -2269,18 +2416,18 @@
    "win": 0.4,
    "delta": -114.75,
    "delta_ci": [
-    -553.0,
-    180.1
+    -561.1,
+    183.4
    ],
    "R": -0.95,
-   "k": 11.11,
-   "pos_usd_eq": 5554,
-   "usd_eq": -96.99,
-   "delta_eq": -202.99,
-   "delta_eq_ci": [
-    -547.1,
-    76.4
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2289,18 +2436,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -222.4,
-    5.5
+    -222.0,
+    8.6
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -219.7,
-    33.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a90-u25k": {
@@ -2311,18 +2458,18 @@
    "win": 0.333,
    "delta": -109.19,
    "delta_ci": [
-    -562.1,
-    188.1
+    -566.0,
+    187.0
    ],
    "R": -0.32,
-   "k": 10.29,
-   "pos_usd_eq": 5147,
-   "usd_eq": -32.52,
-   "delta_eq": -138.65,
-   "delta_eq_ci": [
-    -523.4,
-    162.4
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2331,18 +2478,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -220.9,
+    -221.7,
     7.4
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.8,
-    33.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a90-u50k": {
@@ -2353,18 +2500,18 @@
    "win": 0.5,
    "delta": -107.92,
    "delta_ci": [
-    -561.4,
-    189.4
+    -560.2,
+    193.1
    ],
    "R": -0.25,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": -25.58,
-   "delta_eq": -131.7,
-   "delta_eq_ci": [
-    -503.8,
-    170.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2373,18 +2520,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -222.7,
-    7.8
+    -221.4,
+    5.4
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.2,
-    31.8
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a90-u100k": {
@@ -2395,18 +2542,18 @@
    "win": 0.667,
    "delta": -107.09,
    "delta_ci": [
-    -562.1,
-    190.7
+    -565.8,
+    188.9
    ],
    "R": -0.14,
-   "k": 13.52,
-   "pos_usd_eq": 6759,
-   "usd_eq": -14.43,
-   "delta_eq": -120.48,
-   "delta_eq_ci": [
-    -488.0,
-    176.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2415,18 +2562,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -221.4,
-    7.3
+    -221.8,
+    4.2
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.1,
-    35.5
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a120-u25k": {
@@ -2437,18 +2584,18 @@
    "win": 0.4,
    "delta": -104.73,
    "delta_ci": [
-    -561.3,
-    194.7
+    -559.2,
+    201.5
    ],
    "R": 0.17,
-   "k": 13.67,
-   "pos_usd_eq": 6834,
-   "usd_eq": 17.74,
-   "delta_eq": -88.39,
-   "delta_eq_ci": [
-    -485.0,
-    179.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2457,18 +2604,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -221.6,
-    8.3
+    -220.5,
+    8.8
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.8,
-    35.3
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a120-u50k": {
@@ -2479,18 +2626,18 @@
    "win": 0.667,
    "delta": -103.46,
    "delta_ci": [
-    -563.5,
-    196.0
+    -560.3,
+    193.9
    ],
    "R": 1.03,
-   "k": 40.76,
-   "pos_usd_eq": 20378,
-   "usd_eq": 104.54,
-   "delta_eq": -1.68,
-   "delta_eq_ci": [
-    -349.3,
-    235.1
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2499,18 +2646,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -222.3,
-    5.5
+    -220.5,
+    6.0
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -219.2,
-    30.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  },
  "p05-f100-a120-u100k": {
@@ -2521,18 +2668,18 @@
    "win": 1.0,
    "delta": -102.63,
    "delta_ci": [
-    -562.0,
-    195.2
+    -559.1,
+    195.9
    ],
    "R": 5.1,
-   "k": 153.22,
-   "pos_usd_eq": 76609,
-   "usd_eq": 519.42,
-   "delta_eq": 413.39,
-   "delta_eq_ci": [
-    -141.4,
-    1111.2
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   },
   "сентябрь": {
    "n": 1,
@@ -2541,18 +2688,18 @@
    "win": 1.0,
    "delta": -109.75,
    "delta_ci": [
-    -220.0,
-    5.7
+    -221.0,
+    5.2
    ],
    "R": 0.26,
-   "k": 10.61,
-   "pos_usd_eq": 5304,
-   "usd_eq": 13.31,
-   "delta_eq": -97.74,
-   "delta_eq_ci": [
-    -218.4,
-    34.7
-   ]
+   "cov": "none",
+   "k": null,
+   "pos_usd_eq": null,
+   "usd_eq": null,
+   "delta_eq": null,
+   "delta_eq_ci": null,
+   "dd_boot_main_med": null,
+   "dd_boot_cell_med": null
   }
  }
 }
