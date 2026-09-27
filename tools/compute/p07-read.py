@@ -101,6 +101,13 @@ H9H10 = [
 ]
 H9H10_FORM = "pct2-tr1x1-14400-ttl1800"
 
+# Г-85б (TK-004): H10 (`p07-h9h10.py --variant b --no-pauses`) и H9р/H14/H1 (`p07-h9r-h14.py --variant b`) —
+# готовые ps-closes.json в tmp-p07/h9-b-<тег>/; символьная карта — busy-replay того же каталога (cap — pause0).
+REPLAY_B = [("H10-cap3", "cap3", "pause0", "3"), ("H10-cap5", "cap5", "pause0", "5")] + [
+    (f"{ax}-{c}", f"h9r-{c}", f"h9r-{c}", "0") for ax, cells in
+    (("H9r", ("s1", "s2", "s3")), ("H14", ("k1", "k2", "k3", "n2", "n3", "n4")), ("H1", ("f25", "f50", "f75")),
+     ("keep", ("keep",))) for c in cells]
+
 AUG_DAYS = [f"2026-08-{d:02d}" for d in range(1, 32)]
 SEP_DAYS = [f"2026-09-{d:02d}" for d in range(1, 24)]  # 23 суток (В-115)
 
@@ -357,16 +364,18 @@ def main():
 
     # H9/H10 — читаем готовые ps-closes.json (p07-h9h10.py), символьная карта — из соответствующих
     # busy-replay каталогов tmp-p07/h9-a-<busy_dir>/ (cap3/cap5 переиспользуют h9-a-pause0)
-    for name, out_tag, busy_dir, cap in (H9H10 if a.variant == "a" else []):
-        d = os.path.join(OUT_ROOT, f"h9-a-{out_tag}")
+    replay = {"a": H9H10, "b": REPLAY_B}.get(a.variant, [])
+    v = a.variant
+    for name, out_tag, busy_dir, cap in replay:
+        d = os.path.join(OUT_ROOT, f"h9-{v}-{out_tag}")
         co = json.load(open(os.path.join(d, "ps-closes.json"), encoding="utf-8", newline=""))
-        closes = closes_of(co, vname="п07a", cap=cap)
-        busy_dirs = {tag: os.path.join(OUT_ROOT, f"h9-a-{busy_dir}", tag) for tag in HOMES}
-        sym = symbol_map(busy_dirs, H9H10_FORM)
+        closes = closes_of(co, vname=f"п07{v}", cap=cap)
+        busy_dirs = {tag: os.path.join(OUT_ROOT, f"h9-{v}-{busy_dir}", tag) for tag in HOMES}
+        sym = symbol_map(busy_dirs, H9H10_FORM if v == "a" else f"{EB}-pct2-tr1x1-14400-ttl1800")
         all_closes = sorted(closes["aug"] + closes["sep"])
         n_aug, usd_aug = len(closes["aug"]), round(sum(p for _, p in closes["aug"]), 2)
         n_sep, usd_sep = len(closes["sep"]), round(sum(p for _, p in closes["sep"]), 2)
-        row = {"form": H9H10_FORM, "n": {"aug": n_aug, "sep": n_sep}, "usd": {"aug": usd_aug, "sep": usd_sep},
+        row = {"form": H9H10_FORM if v == "a" else f"{EB}-pct2-tr1x1-14400-ttl1800", "n": {"aug": n_aug, "sep": n_sep}, "usd": {"aug": usd_aug, "sep": usd_sep},
                "n_trades_note": {"aug": n_note(n_aug), "sep": n_note(n_sep)}}
         row["kpi"] = kpi_block(kn, all_closes, sym) if (n_aug >= 10 or n_sep >= 10) else None
         row["diff_vs_base"] = diff_vs_base(closes, base_closes) if base_closes else None
