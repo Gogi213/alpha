@@ -70,7 +70,10 @@ def main():
         rl = kn.rolling_kpi(S[name][1]["augsep"], raw=True)
         for pk in ("aug", "sep"):
             raw = rl[pk].pop("raw_max")
-            by_variant[key][pk]["roll"] = {k: {kk: (round(vv, 1) if isinstance(vv, float) else vv) for kk, vv in v.items()}
+            # rl[pk] с 27.09 (Судья 1d2a3f4) — не только вложенные словари ("max"/"start"), но и скальные
+            # frac_gt_h/n_main/h_hours (главный показатель по H) — округлять только float, остальное копировать как есть
+            rnd = lambda v: (round(v, 1) if isinstance(v, float) else v)
+            by_variant[key][pk]["roll"] = {k: ({kk: rnd(vv) for kk, vv in v.items()} if isinstance(v, dict) else rnd(v))
                                            for k, v in rl[pk].items()}
             by_variant[key][pk]["dd"] = {k: (round(v, 1) if isinstance(v, float) else v) for k, v in dd[pk].items()}
             by_variant[key][pk]["roll_hist"] = [sum(EDGES[i] <= x / 24 < EDGES[i + 1] for x in raw) for i in range(len(EDGES) - 1)]

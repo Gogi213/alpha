@@ -116,11 +116,69 @@ def month_metrics(closes, pk):
             "dd_usd": round(dd, 2), "worst_day": round(min(x), 2) if x else None}
 
 
-def rolling_kpi(closes, raw=False):
-    """KPI, устойчивый к старту (CEO 27.09, В-120): непрерывный счёт «август + сентябрь» (без обнуления 01.09), сетка t —
-    каждый час. «от максимума» (основной): время от t до первого закрытия, после которого счёт строго выше максимума,
-    достигнутого к t; «со старта»: до первого закрытия выше значения счёта в t (как будто бот запущен в t). Незакрытые к
-    концу данных (24.09 00:00) — цензура: считается время до конца, доля цензуры печатается. По месяцам — по t в месяце."""
+H_HOURS = 7 * 24  # H владельца/Судьи (принято 1d2a3f4): порог «долго ждать перехая», 7 суток
+
+
+def km_quantile(pairs, p):
+    """Оценка квантиля p по Каплану — Мейеру для цензурированного времени ожидания.
+
+    `pairs` — [(длительность, цензурировано?)]. Возвращает (значение, is_lower_bound). Дожитие S(u) считается
+    произведением (1 − d_i/n_i) по моментам-событиям (цензурированные в риске до своего момента, затем выбывают
+    без «смерти»). Квантиль — наименьшее u, где S(u) ≤ 1 − p. Если дожитие не опускается до 1 − p к концу данных,
+    оценка неопределена — возвращается (максимум длительности в выборке, True): читать как «≥ значение (цензура)»."""
+    if not pairs:
+        return None, False
+    rows = sorted(pairs, key=lambda x: x[0])
+    n = len(rows)
+    at_risk = n
+    surv = 1.0
+    thresh = (1 - p) + 1e-9
+    i = 0
+    result = None
+    while i < n:
+        t = rows[i][0]
+        j = i
+        d = c = 0
+        while j < n and rows[j][0] == t:
+            if rows[j][1]:
+                c += 1
+            else:
+                d += 1
+            j += 1
+        if at_risk > 0 and d > 0:
+            surv *= (1 - d / at_risk)
+        at_risk -= (d + c)
+        if result is None and surv <= thresh:
+            result = t
+        i = j
+    if result is not None:
+        return result, False
+    return rows[-1][0], True
+
+
+def rolling_kpi(closes, raw=False, h_days=7):
+    """KPI, устойчивый к старту (CEO 27.09, В-120), с уточнениями Судьи по цензуре (1d2a3f4, 27.09) и по H (e6386a1,
+    27.09: правило П-07 владельца — H = 5 суток, не 7). Непрерывный счёт «август + сентябрь» (без обнуления 01.09),
+    сетка t — каждый час (владелец: ожидание со случайного момента по календарю, не по сделкам). «от максимума»
+    (основной вид): время от t до первого закрытия, после которого счёт строго выше максимума, достигнутого к t;
+    «со старта»: до первого закрытия выше значения счёта в t (как будто бот запущен в t). Данные кончаются 24.09
+    00:00 — если к этому моменту нового максимума не было, время до конца считается цензурированным (истинное
+    ожидание ≥ него, но неизвестно).
+
+    Цензуру нельзя подставлять как наблюдённое значение — она делает медиану/p90/максимум заниженными у вариантов
+    с высокой долей цензуры. Поэтому:
+    - **главный показатель `frac_gt_h`** — доля часов t месяца, для которых точно известно, ждать ли перехая
+      дольше H = `h_days` суток (без цензуры; по умолчанию 7 — определение Судьи 1d2a3f4, для правила П-07 — 5,
+      В-122): только t ≤ 24.09 − H, для них окно [t; t+H] целиком лежит в данных, и ответ «> H или нет» не зависит от
+      того, что будет после 24.09. `n_main` — число таких t (для доли цензуры в целом — `cens`, по всем t месяца, не
+      только вошедшим в `frac_gt_h`);
+    - **медиана и p90** — оценка Каплана — Мейера (`km_quantile`) по всем t месяца, с флагами `median_censored`/
+      `p90_censored`: True — дожитие не опустилось до нужного уровня к концу данных, значение — не оценка, а нижняя
+      граница («≥ X (цензура)»), False — точная оценка;
+    - **`max`** — наибольшее время ожидания среди t месяца (цензурированное подставлено временем до конца, как
+      раньше — совместимость с потребителями поля); `max_censored` — True, если оно само цензурировано (значит,
+      истинный максимум месяца ещё больше и неизвестен)."""
+    h_hours = h_days * 24
     ev = sorted(closes)
     s0, e0 = ms("2026-08-01"), ms("2026-09-24")
     times = [t for t, _ in ev]
@@ -130,12 +188,14 @@ def rolling_kpi(closes, raw=False):
         eq.append(c)
     # следующий строгий рекорд после индекса: считаем по сетке часов двумя указателями
     import bisect
-    out = {"aug": {"max": [], "start": [], "cens_max": 0, "cens_start": 0}, "sep": {"max": [], "start": [], "cens_max": 0, "cens_start": 0}}
+    out = {"aug": {"max": [], "start": [], "cens_max": [], "cens_start": [], "main_ok": []},
+           "sep": {"max": [], "start": [], "cens_max": [], "cens_start": [], "main_ok": []}}
     # префиксный максимум
     pm, m = [], 0.0
     for v in eq:
         m = max(m, v)
         pm.append(m)
+    cutoff = e0 - h_hours * MS_H  # t <= cutoff: окно [t; t+H] целиком в данных, «> H» известно без цензуры
     # для «со старта»: для каждого уровня ищем первое закрытие выше — линейный поиск вперёд с кешем по часам
     t = s0
     while t < e0:
@@ -157,36 +217,77 @@ def rolling_kpi(closes, raw=False):
                     r_st = (times[j] - t) / MS_H
                     break
         o = out[pk]
-        if r_max is None:
-            o["cens_max"] += 1
+        cens_max = r_max is None
+        if cens_max:
             r_max = (e0 - t) / MS_H
-        if r_st is None:
-            o["cens_start"] += 1
+        cens_st = r_st is None
+        if cens_st:
             r_st = (e0 - t) / MS_H
         o["max"].append(r_max)
+        o["cens_max"].append(cens_max)
         o["start"].append(r_st)
+        o["cens_start"].append(cens_st)
+        o["main_ok"].append(t <= cutoff)
         t += MS_H
     res = {}
     for pk, o in out.items():
         n = len(o["max"])
-        res[pk] = {k: {"median": q(o[k], 0.5), "p90": q(o[k], 0.9), "max": max(o[k]), "cens": round(o["cens_" + k] / n, 3)}
-                   for k in ("max", "start")}
-        if raw:
-            res[pk]["raw_max"] = o["max"]
+        month = {}
+        for k, ck in (("max", "cens_max"), ("start", "cens_start")):
+            durs, cens = o[k], o[ck]
+            pairs = list(zip(durs, cens))
+            med, med_c = km_quantile(pairs, 0.5)
+            p90, p90_c = km_quantile(pairs, 0.9)
+            mx = max(durs) if durs else None
+            mx_c = cens[durs.index(mx)] if durs else False
+            month[k] = {"median": med, "median_censored": med_c, "p90": p90, "p90_censored": p90_c,
+                        "max": mx, "max_censored": mx_c, "cens": round(sum(cens) / n, 3) if n else None}
+            if raw:
+                month["raw_" + k] = durs
+        n_main = sum(o["main_ok"])
+        gt_h = sum(1 for ok, d in zip(o["main_ok"], o["max"]) if ok and d > h_hours)
+        month["frac_gt_h"] = round(gt_h / n_main, 3) if n_main else None
+        month["n_main"] = n_main
+        month["h_hours"] = h_hours
+        res[pk] = month
     return res
 
 
 DD_MIN_USD = 10.0      # откат меньше $10 (0,4 % депозита на позиции $500) — шум, в распределение не входит
 REBOUND_FRAC = 0.2     # «отскок» — подъём от текущего дна на ≥ 20 % глубины отката к этому моменту
+SENS_GRID = ((10, 0.2), (5, 0.2), (20, 0.2), (10, 0.1), (10, 0.3))  # чувствительность DD_MIN×REBOUND (Судья e6386a1 п.4)
 
 
-def drawdown_stats(closes):
-    """Сторона падения (владелец 27.09 ~04:10: «не на перехай, но не на перелоу»). Непрерывный счёт «август + сентябрь»
-    по закрытиям. Откат — от максимума счёта до возврата выше него (или до конца данных — не закрыт). По каждому откату
-    глубиной ≥ DD_MIN_USD: спад (от пика до дна), глубина $, «перелоу» — сколько раз счёт ушёл ниже прежнего дна после
-    отскока ≥ REBOUND_FRAC глубины, восстановление (от дна до возврата на пик; незакрытые — отдельно). Месяц отката —
-    по месяцу пика."""
+def iso_h(t_ms):
+    return dt.datetime.fromtimestamp(t_ms / 1000, dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
+def hourly_underwater(closes):
+    """Просадка по часу t (не по пику эпизода): пик и счёт по закрытиям ≤ t на часовой сетке, глубина = пик − счёт.
+    Судья e6386a1 п.2.1: откат, начавшийся в одном месяце и продолжающийся в другом, должен быть виден в обоих —
+    группировка по месяцу пика эпизода теряет глубину месяца, в котором прошло дно (у главного варианта в сентябре
+    так терялось $94 → $45, у Г-85 $138 → $60)."""
     ev = sorted(closes)
+    s0, e0 = ms("2026-08-01"), ms("2026-09-24")
+    out = {"aug": [], "sep": []}
+    i, c, pk_eq = 0, 0.0, 0.0
+    t = s0
+    while t < e0:
+        while i < len(ev) and ev[i][0] <= t:
+            c += ev[i][1]
+            pk_eq = max(pk_eq, c)
+            i += 1
+        out["aug" if t < ms("2026-09-01") else "sep"].append(pk_eq - c)
+        t += MS_H
+    return out
+
+
+def _episodes(ev, dmin=None, rb=None):
+    """Список эпизодов отката (пик → дно → возврат) при заданных порогах — детектор вынесен из `drawdown_stats`,
+    чтобы `docs/research/reviews/scripts/kpi-fall-check.py` (эталон Судьи, меняет модульные DD_MIN_USD/REBOUND_FRAC
+    для чувствительности) продолжал работать без правок."""
+    dmin = DD_MIN_USD if dmin is None else dmin
+    rb = REBOUND_FRAC if rb is None else rb
     s0 = ms("2026-08-01")
     eps, cum = [], 0.0
     peak, t_peak = 0.0, s0
@@ -208,21 +309,61 @@ def drawdown_stats(closes):
                 cur["relows"] += 1
                 cur["rebounded"] = False
             cur["low"], cur["t_low"] = cum, t
-        elif cum - cur["low"] >= REBOUND_FRAC * (cur["peak"] - cur["low"]):
+        elif cum - cur["low"] >= rb * (cur["peak"] - cur["low"]):
             cur["rebounded"] = True
     if cur is not None:
         cur["t_rec"] = None
         eps.append(cur)
+    return [e for e in eps if e["peak"] - e["low"] >= dmin]
+
+
+def drawdown_stats(closes):
+    """Сторона падения (владелец 27.09 ~04:10: «не на перехай, но не на перелоу»); уточнено Судьёй (e6386a1, 27.09).
+    Непрерывный счёт «август + сентябрь» по закрытиям. Откат — от максимума счёта до возврата выше него (или до конца
+    данных — не закрыт). Основные поля (`n`, `fall_*`, `depth_*`, `relows*`, `rec_*`, `open`) — по месяцу ПИКА
+    эпизода, как раньше (совместимость: их читают kpi-dash-data.py, t32-grid.py, t32-exits.py). Квантили на 3–5
+    эпизодах в месяце вырождаются в максимум — не единственный источник цифры, читать вместе с добавленным:
+
+    - **`hourly`** — по часовой кривой «под водой» (`hourly_underwater`, месяц по часу t, не по пику): доля часов
+      глубже $0/$25, «язва» (RMS), максимум месяца, открыт ли откат на конец месяца — не теряет глубину при переносе
+      эпизода через границу месяца;
+    - **`episodes`** — список эпизодов месяца пика без квантилей (даты пика/дна/возврата, глубина, перелоу, спад,
+      восстановление; `open` — не закрыт к концу данных, `rec_hours` тогда `None`);
+    - **`sensitivity`** — перелоу (`relows`/`relows_max`) при `SENS_GRID` порогов DD_MIN_USD×REBOUND_FRAC: владелец
+      порог не выбирал, число «зависит от придуманного числа» (Судья) — печатать рядом, не одно."""
+    ev = sorted(closes)
+    eps_default = _episodes(ev)
+    hrs = hourly_underwater(ev)
     out = {}
     for pk, (a, b) in (("aug", ("2026-08-01", "2026-09-01")), ("sep", ("2026-09-01", "2026-09-24"))):
-        xs = [e for e in eps if ms(a) <= e["t_peak"] < ms(b) and e["peak"] - e["low"] >= DD_MIN_USD]
+        xs = [e for e in eps_default if ms(a) <= e["t_peak"] < ms(b)]
         fall = [(e["t_low"] - e["t_peak"]) / MS_H for e in xs]
         depth = [e["peak"] - e["low"] for e in xs]
         rec = [(e["t_rec"] - e["t_low"]) / MS_H for e in xs if e["t_rec"] is not None]
+        h = hrs[pk]
+        n_h = len(h)
+        rms = math.sqrt(sum(x * x for x in h) / n_h) if n_h else None
+        episodes_view = [{"t_peak": iso_h(e["t_peak"]), "t_low": iso_h(e["t_low"]),
+                          "t_rec": iso_h(e["t_rec"]) if e["t_rec"] is not None else None,
+                          "depth_usd": round(e["peak"] - e["low"], 2), "relows": e["relows"],
+                          "fall_hours": round((e["t_low"] - e["t_peak"]) / MS_H, 1),
+                          "rec_hours": round((e["t_rec"] - e["t_low"]) / MS_H, 1) if e["t_rec"] is not None else None,
+                          "open": e["t_rec"] is None} for e in xs]
+        sens = {}
+        for dmin, rb in SENS_GRID:
+            e2 = [e for e in _episodes(ev, dmin, rb) if ms(a) <= e["t_peak"] < ms(b)]
+            sens[f"dmin{dmin}_rb{rb}"] = {"n": len(e2), "relows": sum(e["relows"] for e in e2),
+                                          "relows_max": max((e["relows"] for e in e2), default=0)}
         out[pk] = {"n": len(xs), "fall_median": q(fall, 0.5), "fall_p90": q(fall, 0.9), "fall_max": max(fall) if fall else None,
                    "depth_median": q(depth, 0.5), "depth_max": max(depth) if depth else None,
                    "relows": sum(e["relows"] for e in xs), "relows_max": max((e["relows"] for e in xs), default=0),
-                   "rec_median": q(rec, 0.5), "rec_max": max(rec) if rec else None, "open": sum(e["t_rec"] is None for e in xs)}
+                   "rec_median": q(rec, 0.5), "rec_max": max(rec) if rec else None, "open": sum(e["t_rec"] is None for e in xs),
+                   "hourly": {"n": n_h, "frac_gt0": round(sum(x > 1e-9 for x in h) / n_h, 3) if n_h else None,
+                              "frac_gt25": round(sum(x > 25 for x in h) / n_h, 3) if n_h else None,
+                              "ulcer_usd": round(rms, 1) if rms is not None else None,
+                              "max_usd": round(max(h), 1) if h else None,
+                              "open_at_end": bool(h and h[-1] > DD_MIN_USD)},
+                   "episodes": episodes_view, "sensitivity": sens}
     return out
 
 
@@ -275,24 +416,27 @@ def main():
         res["смесь: " + " + ".join(c)] = {"group": "смесь среднее (без занятости)", **{pk: month_metrics(ser[pk], pk) for pk in PERIODS},
                                          "roll": rolling_kpi(ser["augsep"]), "dd": drawdown_stats(ser["augsep"])}
     ok = [n for n, r in res.items() if r["aug"]["usd"] > 0 and r["sep"]["usd"] > 0 and r["aug"]["n"] >= 30 and r["sep"]["n"] >= 10]
-    # счётный p90 вырождается (тысячи сделок → много нулевых периодов на соседних закрытиях при хвостах 200+ ч),
-    # поэтому порядок — по p90, взвешенному временем (хвост входит), по худшему месяцу; затем худший период с хвостом
-    # с 27.09 (CEO): порядок — по p90 «от максимума» со скользящим стартом (непрерывный счёт), худший месяц; затем максимум
-    key = lambda n: (max(res[n]["roll"]["aug"]["max"]["p90"], res[n]["roll"]["sep"]["max"]["p90"]),
-                     max(res[n]["roll"]["aug"]["max"]["max"], res[n]["roll"]["sep"]["max"]["max"]))
+    # главное по Судье (1d2a3f4, 27.09): доля часов месяца с ожиданием перехая > H = 7 сут (без цензуры), худший месяц —
+    # меньше лучше; p90/максимум «от максимума» (Каплан — Мейер) — справочно, вторым ключом (прежний порядок, до 27.09 ~05:00)
+    key = lambda n: (max(res[n]["roll"]["aug"]["frac_gt_h"] or 0.0, res[n]["roll"]["sep"]["frac_gt_h"] or 0.0),
+                      max(res[n]["roll"]["aug"]["max"]["p90"], res[n]["roll"]["sep"]["max"]["p90"]))
     rank = sorted(ok, key=key)
     json.dump({"definition": __doc__.split("\n\n")[1], "main": a.main, "n_rows": len(res), "n_pairs": len(pairs),
                "rank": rank, "results": res}, open(a.out, "w", encoding="utf-8", newline=""), ensure_ascii=False, indent=1)
     h = lambda x: "—" if x is None else f"{x:.0f}"
     print(f"рядов {len(res)} (смесей-среднее {len(pairs)}); плюс в обоих месяцах и сделок достаточно: {len(ok)}")
-    print("место | вариант | скользящий старт от максимума, дн [авг ; сен]: медиана / p90 / макс (цензура) | со старта p90 | от начала месяца, дн | $ | сделок")
+    print(f"главное (Судья 1d2a3f4): доля часов месяца с ожиданием перехая > H={H_HOURS / 24:.0f} сут (без цензуры, t ≤ 24.09−H; n_main — число таких t)")
+    print("место | вариант | доля > H [авг(n_main) ; сен(n_main)] | скользящий старт от максимума, дн (К-М, ⚠=цензура) [авг ; сен]: медиана/p90/макс (доля цензуры) | $ | сделок")
     show = rank[:15] + ([a.main] if a.main not in rank[:15] else [])
-    d = lambda x: f"{x / 24:.1f}"
+    d = lambda x: "—" if x is None else f"{x / 24:.1f}"
+    star = lambda flag: "⚠" if flag else ""
     for n in show:
         r, R_ = res[n], res[n]["roll"]
-        f = lambda pk: f"{d(R_[pk]['max']['median'])}/{d(R_[pk]['max']['p90'])}/{d(R_[pk]['max']['max'])} ({R_[pk]['max']['cens']})"
-        print(f"{rank.index(n) + 1 if n in rank else '—'} | {n} [{r['group']}] | {f('aug')} ; {f('sep')} | "
-              f"{d(R_['aug']['start']['p90'])} ; {d(R_['sep']['start']['p90'])} | {d(r['aug']['hours']['worst'])} ; {d(r['sep']['hours']['worst'])} | "
+        gt = lambda pk: f"{R_[pk]['frac_gt_h']:.0%}({R_[pk]['n_main']})" if R_[pk]['frac_gt_h'] is not None else "—"
+        f = lambda pk: (f"{d(R_[pk]['max']['median'])}{star(R_[pk]['max']['median_censored'])}/"
+                        f"{d(R_[pk]['max']['p90'])}{star(R_[pk]['max']['p90_censored'])}/"
+                        f"{d(R_[pk]['max']['max'])}{star(R_[pk]['max']['max_censored'])} ({R_[pk]['max']['cens']})")
+        print(f"{rank.index(n) + 1 if n in rank else '—'} | {n} [{r['group']}] | {gt('aug')} ; {gt('sep')} | {f('aug')} ; {f('sep')} | "
               f"{r['aug']['usd']:+.0f} ; {r['sep']['usd']:+.0f} | {r['aug']['n']} ; {r['sep']['n']}")
 
 if __name__ == "__main__":
