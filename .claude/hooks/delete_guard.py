@@ -42,8 +42,8 @@ def targets(cmd, m):
         return quoted or ["<цель из кода не видна>"]
     end = SEP.search(cmd, m.end())
     tail = cmd[m.end():end.start() if end else len(cmd)]
-    out = [w for w in re.findall(r"\"[^\"]*\"|'[^']*'|\S+", tail) if not w.startswith("-") and w not in (">", "2>")]
-    return out or ["<без цели>"]
+    # без цели (одни ключи, упоминание в тексте) — удалять нечего, не мешаем
+    return [w for w in re.findall(r"\"[^\"]*\"|'[^']*'|\S+", tail) if not w.startswith("-") and w not in (">", "2>")]
 
 
 def allowed(t, cmd, cwd):
