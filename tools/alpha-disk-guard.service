@@ -1,0 +1,7 @@
+# Сторож диска Steam Deck (tools/disk-guard.sh): раз в минуту.
+[Unit]
+Description=alpha: disk guard (freeze alpha-* below 10 GB free)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/alpha/bin/disk-guard.sh
