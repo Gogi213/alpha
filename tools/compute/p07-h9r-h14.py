@@ -68,7 +68,16 @@ BTC_THRESH = -44.55           # порог главного варианта (bt
 CELL_FIRST_K = {"k1": 1, "k2": 2, "k3": 3}
 CELL_FROM_N = {"n2": 2, "n3": 3, "n4": 4}
 CELL_SETUP = {"s1", "s2", "s3"}
-ALL_CELLS = ["keep", "s1", "s2", "s3", "k1", "k2", "k3", "n2", "n3", "n4"]
+# H1 (TK-004, пороги — П-07 после таблицы осей, записаны до счёта): сигнал в клетке, если
+# frontrun_share (кэш подходов, `p07-h1-join.py` -> tmp-p07/h1-join.json) >= порог; только Г-85б.
+CELL_H1 = {"f25": 2.4666, "f50": 4.4387, "f75": 8.5073}
+ALL_CELLS = ["keep", "s1", "s2", "s3", "k1", "k2", "k3", "n2", "n3", "n4", "f25", "f50", "f75"]
+
+
+def load_h1_share():
+    d = json.load(open(os.path.join(OUT_ROOT, "h1-join.json"), encoding="utf-8"))
+    assert d["unmatched"] == 0 and d["ambiguous"] == 0, "H1: соединение с кэшем не 100 %"
+    return {(r[1], r[2], r[3]): r[7] for r in d["rows"]}  # (day, symbol, signal_index) -> share
 
 
 def load_p07base():
@@ -246,6 +255,8 @@ def simulate(p, variant, cell):
     first_k = CELL_FIRST_K.get(cell)
     from_n = CELL_FROM_N.get(cell)
     setup = cell if cell in CELL_SETUP else None
+    h1_thr = CELL_H1.get(cell)
+    h1_share = load_h1_share() if h1_thr is not None else None
 
     keep = []
     for symbol, rows in by_symbol.items():
@@ -289,6 +300,10 @@ def simulate(p, variant, cell):
                     excluded = True
             elif setup == "s3":
                 if t0 < s3_ban_until:
+                    excluded = True
+            elif h1_thr is not None:
+                sh = h1_share[(r["day_utc"], symbol, r["signal_index"])]
+                if sh is None or sh < h1_thr:
                     excluded = True
 
             if excluded:

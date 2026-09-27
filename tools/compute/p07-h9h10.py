@@ -53,6 +53,10 @@ def read_body(path):
     return comments, body
 
 
+# имя формы базы в rounds.csv (TK-004: у Г-85б — σ-лестница, у Г-85а single@fr без поля входа)
+FORM_OF = {"a": "pct2-tr1x1-14400-ttl1800", "b": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800"}
+
+
 def base_dir_for(variant):
     return f"p07{variant}-base"
 
@@ -185,7 +189,7 @@ def portfolio_sim_for(variant, name, outs, max_pos=0):
            "--epoch", f"запись={outs['rec']}:.",
            "--epoch", f"август={outs['aug']}:.",
            "--join", "сентябрь=история+запись",
-           "--variant", f"п07{variant}={SET_}/pct2-tr1x1-14400-ttl1800",
+           "--variant", f"п07{variant}={SET_}/{FORM_OF[variant]}",
            "--klines", os.path.join(HOME, "study/klines"),
            "--klines", os.path.join(HOME, "epochs/e-aug/study/klines"),
            "--deposit-usd", "2500", "--position-usd", "500", "--max-pos", str(max_pos),
@@ -216,6 +220,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--variant", required=True, choices=["a", "b"])
     ap.add_argument("--caps-only", action="store_true", help="только потолки H10 (дописать в готовый json)")
+    ap.add_argument("--no-pauses", action="store_true",
+                    help="без H9 «пауза» (заменена H9р/H14, поправка 3): база pause0 + потолки H10")
     a = ap.parse_args()
     kn = load_kn()
     out_json0 = os.path.join(OUT_ROOT, f"h9h10-{a.variant}.json")
@@ -227,7 +233,7 @@ def main():
     results["pause0"] = kpi_of(kn, co, a.variant)
     print("pause0:", results["pause0"], flush=True)
 
-    for pause_min, stop_only, tag in ([] if a.caps_only else ((30, False, "pause30"), (60, False, "pause60"),
+    for pause_min, stop_only, tag in ([] if (a.caps_only or a.no_pauses) else ((30, False, "pause30"), (60, False, "pause60"),
                                        (120, False, "pause120"), (60, True, "pauseStop60"),
                                        (120, True, "pauseStop120"))):
         keep = simulate_pause(a.variant, pause_min, stop_only)
