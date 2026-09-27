@@ -752,7 +752,6 @@ impl StrategyState {
     /// поля входа к этому моменту `on_holding`/`decide_exit` уже не читают
     /// (`on_entry_pending` — единственный читатель входных полей плана,
     /// а он отработал до форка), так что подмена безопасна.
-
     pub(crate) fn set_plan(&mut self, plan: TradePlan) {
         self.plan = plan;
     }

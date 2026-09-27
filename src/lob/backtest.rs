@@ -2210,6 +2210,7 @@ const GROUP_ID_BASE: u64 = 1 << 40;
 /// (`GROUP_ID_BASE`), а не `variant_next_ids`/`cfg.first_order_id` сольного пути: движок сигнала
 /// свежий (`windowed_with`), поэтому единственное, что должно быть монотонно, — сироты одного и
 /// того же варианта между сигналами, а не пересечение чисел с сольным путём (см. `GROUP_ID_BASE`).
+#[allow(clippy::too_many_arguments)]
 fn drive_signal_group<B, MD>(
     bot: &mut B,
     asset_no: usize,
