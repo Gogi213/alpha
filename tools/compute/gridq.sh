@@ -125,9 +125,10 @@ track_grids() {  # новые процессы bounce-grid → seen.tsv: вре�
 }
 
 rework_check() {  # сутки, разобранные ≥ 2 процессами за 24 ч → ALERT-rework
+  # Пробы и гейты (CEO 27.09) — не повторная работа: --out-dir в рабочем каталоге `tmp-*` или со словом gate/probe.
   local since line
   since=$(( $(date -u +%s) - 86400 ))
-  line=$(awk -F'\t' -v s="$since" '$1 >= s {n[$3]++} END {
+  line=$(awk -F'\t' -v s="$since" '$1 >= s && $4 !~ /(^|\/)tmp-|gate|probe/ {n[$3]++} END {
       for (r in n) if (n[r] >= 2) {k++; t += n[r]; if (n[r] > m) {m = n[r]; w = r}}
       if (k) printf "%d суток разобраны повторно за 24 ч (всего разборов %d); больше всех — %s: %d раз", k, t, w, m }' \
     "$Q/seen.tsv" 2>/dev/null)
