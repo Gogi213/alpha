@@ -71,3 +71,25 @@ for nm in names:
             ok[pk] += r[pk] <= 0.10; bad[pk] += r[pk] > 0.10
     print(f"{nm}: точка доля > 5 сут авг {pt['aug']:.2f} сен {pt['sep']:.2f}; бутстреп «≤ 0,10» авг {ok['aug'] / B:.2f} "
           f"сен {ok['sep'] / B:.2f}")
+
+
+def paired(base_nm, parts, rng, B=400, L=7):
+    """Парно: смесь рядов parts (p / len) против base на одних и тех же выборках суток; доля выборок с Δ < 0 по месяцам."""
+    db = days_of(S[base_nm][1]["augsep"])
+    mix = [(t, p / len(parts)) for nm in parts for t, p in S[nm][1]["augsep"]]
+    dm = days_of(mix)
+    pb, pm = share(db["aug"] + db["sep"], 31), share(dm["aug"] + dm["sep"], 31)
+    better = {"aug": 0, "sep": 0}
+    for _ in range(B):
+        idx = {}
+        for pk in ("aug", "sep"):
+            n = len(db[pk]); s = []
+            while len(s) < n:
+                i = rng.randrange(n); s += [(i + k) % n for k in range(L)]
+            idx[pk] = s[:n]
+        rb = share([db[pk][i] for pk in ("aug", "sep") for i in idx[pk]], 31)
+        rm = share([dm[pk][i] for pk in ("aug", "sep") for i in idx[pk]], 31)
+        for pk in better:
+            better[pk] += rm[pk] < rb[pk]
+    print(f"парно {parts} против {base_nm}: точка база {pb['aug']:.2f}/{pb['sep']:.2f}, смесь {pm['aug']:.2f}/{pm['sep']:.2f}; "
+          f"доля выборок Δ < 0 авг {better['aug'] / B:.2f} сен {better['sep'] / B:.2f}")
