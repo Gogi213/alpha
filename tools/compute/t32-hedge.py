@@ -387,10 +387,30 @@ def main():
             money_src[pk][v] = {"usd": hu, "share_pct": round(100 * hu / main_usd, 1) if main_usd else None,
                                  "removed_usd": round(main_usd - hu, 2)}
 
+    # разложение «снятого» хеджем на комиссию хеджа и рыночную часть (возврат Судьи 27.09, п.1):
+    # removed = main_usd - hedged_usd; commission = cost_usd варианта; market = removed - commission;
+    # wall_remainder = main_usd - market (остаток «от стены», без комиссии хеджа)
+    decomp = {}
+    for v, instr in (("btc_100", "btc"), ("eth_100", "eth"), ("basket_100", "basket")):
+        decomp[instr] = {}
+        for pk in ("aug", "sep", "augsep"):
+            main_usd = metrics["no_hedge"][pk]["usd"]
+            hu = metrics[v][pk]["usd"]
+            commission = metrics[v]["cost_usd"][pk]
+            removed = round(main_usd - hu, 2)
+            market = round(removed - commission, 2)
+            wall = round(main_usd - market, 2)
+            decomp[instr][pk] = {
+                "main_usd": main_usd, "removed_usd": removed, "commission_usd": round(commission, 2),
+                "market_usd": market, "wall_remainder_usd": wall,
+                "market_share_pct": round(100 * market / main_usd, 1) if main_usd else None,
+            }
+
     n_scanned = len(VARIANTS)
     out = {"n_trades": diag["n_trades"], "n_variants_scanned": n_scanned, "variants": metrics,
            "default_beta": diag["default_ct"], "avg_n_minutes_in_window": diag["avg_n_minutes"],
            "sverka_no_hedge": check, "money_source_full_hedge": money_src,
+           "money_source_decomposed": decomp,
            "note": "покрытие свечей проверено: default_beta по всем инструментам 0/658, среднее число валидных "
                    "минут в окне 24ч = 1440 (полное) — данных для беты хватает в обоих месяцах, ограничения нет."}
     with open(a.out_json, "w", encoding="utf-8", newline="") as f:
@@ -433,6 +453,16 @@ def write_summary(path, out, variants):
         parts = ", ".join(f"{k.split('_')[0]} {ms[k]['usd']:+.0f} ({ms[k]['share_pct']}%, снято {ms[k]['removed_usd']:+.0f})"
                            for k in ("btc_100", "eth_100", "basket_100"))
         lines.append(f"- {name}: главный {ms['main_usd']:+.0f} → {parts}")
+    lines.append("")
+    lines.append("**Разложение «снятого» хеджем 100% — комиссия хеджа / рыночная часть / остаток «от стены» "
+                 "(возврат Судьи 27.09, п.1: минус хеджа — в основном его же комиссия, не только рынок):**")
+    lines.append("| инструмент | месяц | снято хеджем $ | из них комиссия $ | рыночная часть $ (доля от главного) | остаток «от стены» $ |")
+    lines.append("|---|---|---|---|---|---|")
+    for instr in ("btc", "eth", "basket"):
+        for pk_m, name in (("aug", "август"), ("sep", "сентябрь")):
+            d = out["money_source_decomposed"][instr][pk_m]
+            lines.append(f"| {instr.upper()} | {name} | {d['removed_usd']:+.0f} | {d['commission_usd']:.0f} | "
+                         f"{d['market_usd']:+.0f} ({d['market_share_pct']}%) | {d['wall_remainder_usd']:+.0f} |")
     lines.append("")
     lines.append(f"**β по умолчанию (< 60 валидных минут в окне 24ч, среднее число валидных минут):** "
                  f"BTC {out['default_beta']['btc24']}/{out['n_trades']} (ср. {out['avg_n_minutes_in_window']['btc24']} мин), "
