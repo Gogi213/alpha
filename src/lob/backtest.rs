@@ -1514,10 +1514,15 @@ where
     // элемент — заявка несла **часть** позиции (`Action::partial`), а не весь
     // остаток: `n_partial` считает именно доли E7, а не число заявок выхода.
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
+    // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
+    let mut decided_in_hold = false;
     loop {
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
+        // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
+        // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
+        // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
-            Some(_) if entry_pending == 0 && !has_open_orders(bot, asset_no) => {
+            Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
                 state.hold_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -1574,7 +1579,11 @@ where
             state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
-        match on_event(bot, state)? {
+        // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
+        let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
+        let action = on_event(bot, state)?;
+        decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
+        match action {
             Action::EntryTimedOut { reason, .. } => {
                 timed_out = true;
                 cancel_reason = reason;

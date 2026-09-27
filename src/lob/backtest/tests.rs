@@ -2071,6 +2071,33 @@ fn hold_skip_matches_polling_byte_for_byte() {
     ]);
     // Данные кончаются посреди удержания (дедлайн 60 с, последняя строка — 40 с).
     let short = head(&[depth_at(40 * S + 3 * ms, false, 104.0, 5.0)]);
+    // Стену (бид 100) снимают частями без сделок: `gone50` и съедание по книге (`eat50x80`).
+    let thinning = head(&[
+        depth_at(9 * S + 7 * ms + ms / 2, true, 100.0, 4.0),
+        depth_at(13 * S + 3 * ms, false, 104.0, 5.0),
+        depth_at(21 * S + 3 * ms + 700, true, 100.0, 2.0),
+        depth_at(33 * S + 1, true, 100.0, 0.5),
+        depth_at(300 * S, false, 104.0, 5.0),
+    ]);
+    let gone_at_fill = vec![
+        depth_at(0, true, 100.0, 5.0),
+        depth_at(0, false, 105.0, 5.0),
+        trade_at(2 * S + 3 * ms, true, 101.0, 5.0),
+        depth_at(2 * S + 3 * ms, true, 100.0, 1.0),
+        depth_at(300 * S, false, 104.0, 5.0),
+    ];
+    let gone = |mut p: TradePlan, pct: f64| {
+        if let TradePlan::Bounce {
+            exit_gone_pct,
+            level_qty,
+            ..
+        } = &mut p
+        {
+            *exit_gone_pct = pct;
+            *level_qty = 5.0;
+        }
+        p
+    };
     let cases = [
         (
             "дедлайн без событий",
@@ -2084,6 +2111,18 @@ fn hold_skip_matches_polling_byte_for_byte() {
         ),
         ("трейл", rising, with(120 * S, 0, (50.0, 100.0))),
         ("конец данных", short, with(60 * S, 0, (0.0, 0.0))),
+        (
+            "стену сняли",
+            thinning.clone(),
+            gone(with(120 * S, 0, (0.0, 0.0)), 50.0),
+        ),
+        // Стену снимают тем же шагом, что исполняется вход: первое решение удержания — на следующем шаге,
+        // без событий (гейт 27.09, 03.08 DOGEUSDT `gone50`).
+        (
+            "стена снята на входе",
+            gone_at_fill,
+            gone(with(120 * S, 0, (0.0, 0.0)), 50.0),
+        ),
     ];
     let lat = ExecLatency::uniform(1_000_000);
     for (name, feed, plan) in cases {
@@ -2108,8 +2147,10 @@ fn hold_skip_matches_polling_byte_for_byte() {
             let a = drive_bounce_windowed(&feed, &windows, &signals, &poll, lat).unwrap();
             let before = HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
             let b = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat).unwrap();
+            // «Стена снята на входе» выходит первым же решением удержания — пропускать нечего.
             assert!(
-                HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed) > before,
+                name == "стена снята на входе"
+                    || HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed) > before,
                 "{name}: пропуск обязан сработать"
             );
             assert_eq!(a, b, "{name}, busy_skip {busy_skip}");
