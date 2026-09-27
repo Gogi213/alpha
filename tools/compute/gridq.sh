@@ -3,8 +3,9 @@
 # скриптами, не памятью ролей). Раз в GRIDQ_TICK с берёт задания из queue/pending (кладёт `q-add.sh`) и запускает
 # их юнитами `systemd-run --user` в срезе alpha-q.slice, пока одновременно:
 #   (а) занято < GRIDQ_CORES ядер (8 из 8 — владелец 27.09: «повышай до 95 %») — считаются и чужие `lob bounce-grid` вне очереди, по их --threads;
-#   (б) MemAvailable − резерв GRIDQ_RESERVE_MB − недобор идущих заданий до их оценки ≥ оценка задания; своп не
-#       растёт (упал SwapFree — запуски стоят GRIDQ_SWAP_HOLD с), у задания MemorySwapMax=0;
+#   (б) MemAvailable − резерв GRIDQ_RESERVE_MB − недобор идущих заданий до их оценки (после GRIDQ_SETTLE_SECS — до
+#       пика × 1,5) ≥ оценка задания; своп не растёт при MemAvailable < GRIDQ_SWAP_MEM_MB (упал SwapFree — запуски
+#       стоят GRIDQ_SWAP_HOLD с), у задания MemorySwapMax=0;
 #   (в) ночь не идёт (alpha-grid-nightly active — после своего ожидания), метка study/.grid-slots/night свободна
 #       (её берут ночь и гейты), нет queue/HOLD. Идущие задания доживают — уступают только новые запуски.
 # Голова очереди, которой не хватает памяти, дольше GRIDQ_RESERVE_AFTER с не обгоняется мелкими (резерв).
@@ -28,6 +29,8 @@ RESERVE_AFTER="${GRIDQ_RESERVE_AFTER:-1200}"
 UNDERLOAD="${GRIDQ_UNDERLOAD:-6}"
 UNDER_SECS="${GRIDQ_UNDER_SECS:-900}"
 IDLE_SECS="${GRIDQ_IDLE_SECS:-1800}"
+SETTLE="${GRIDQ_SETTLE_SECS:-600}"          # после стольких с работы резерв задания — по его пику, а не по оценке
+SWAP_MEM="${GRIDQ_SWAP_MEM_MB:-4096}"       # рост свопа держит запуски, только если MemAvailable ниже этого
 NIGHT_UNIT="${GRIDQ_NIGHT_UNIT:-alpha-grid-nightly.service}"
 NIGHT_LOCK="${GRIDQ_NIGHT_LOCK:-$A/study/.grid-slots/night}"
 SLICE="${GRIDQ_SLICE:-alpha-q.slice}"
@@ -40,9 +43,9 @@ threads_of() { local prev="" a n=1; for a in "$@"; do [ "$prev" = --threads ] &&
 root_of() { local prev="" a; for a in "$@"; do [ "$prev" = --root ] && echo "$a"; prev="$a"; done; }
 kv() { awk -F= -v k="$1" '$1 == k {v = substr($0, length(k) + 2)} END {print v}' "$2"; }
 unit_of() { echo "gridq-$(basename "$1" .job)"; }
-mem_now_mb() {  # текущая память юнита задания, МБ
-  local cg; cg=$("${SCTL[@]}" show -p ControlGroup --value "$(unit_of "$1")" 2>/dev/null)
-  [ -n "$cg" ] && [ -f "/sys/fs/cgroup$cg/memory.current" ] && echo $(( $(cat "/sys/fs/cgroup$cg/memory.current") / 1048576 )) || echo 0
+mem_now_mb() {  # текущая (или пиковая: $2 = peak) память юнита задания, МБ
+  local cg f; cg=$("${SCTL[@]}" show -p ControlGroup --value "$(unit_of "$1")" 2>/dev/null); f="memory.${2:-current}"
+  [ -n "$cg" ] && [ -f "/sys/fs/cgroup$cg/$f" ] && echo $(( $(cat "/sys/fs/cgroup$cg/$f") / 1048576 )) || echo 0
 }
 
 reap() {
@@ -100,11 +103,20 @@ cores_used() {  # свои задания по --threads + чужие bounce-gri
 }
 
 mem_free_mb() {  # MemAvailable − резерв − недобор идущих до их оценки
-  local avail j est cur gap=0
-  avail=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 ))
+  # CEO 27.09: оценка бывает сильно выше факта (проба 6144 МБ при 1191 МБ) — дека простаивала. Задание, идущее
+  # дольше SETTLE с, резервирует не оценку, а свой пик × 1,5 (не меньше пика + 1 ГБ, не больше оценки): крупные сутки
+  # разбираются в первые минуты; ошибся — OOM задания и повтор с оценкой ×2 (reap), чужие не страдают (MemoryMax).
+  local avail j est cur gap=0 start peak now
+  avail=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 )); now=$(date -u +%s)
   for j in "$Q"/running/*.job; do
     [ -e "$j" ] || continue
     est=$(kv JOB_MEM_MB "$j"); cur=$(mem_now_mb "$j")
+    start=$(date -u -d "$(kv JOB_START "$j")" +%s 2>/dev/null || echo "$now")
+    if [ $(( now - start )) -ge "$SETTLE" ]; then
+      peak=$(mem_now_mb "$j" peak); [ "$peak" -lt "$cur" ] && peak=$cur
+      peak=$(( peak * 3 / 2 > peak + 1024 ? peak * 3 / 2 : peak + 1024 ))
+      [ "$peak" -lt "$est" ] && est=$peak
+    fi
     [ "$est" -gt "$cur" ] && gap=$(( gap + est - cur ))
   done
   echo $(( avail - RESERVE - gap ))
@@ -160,7 +172,10 @@ while :; do
   reap
   now=$(date -u +%s)
   swap_free=$(awk '/^SwapFree:/ {print $2}' /proc/meminfo)
-  if [ -n "$swap_prev" ] && [ $(( swap_prev - swap_free )) -gt 65536 ]; then
+  # рост свопа при запасе памяти — ядро выносит спящие страницы (Steam), а не нехватка: держим запуски, только
+  # если MemAvailable < SWAP_MEM (CEO 27.09: пауза стояла при 6 ГБ свободного свопа и 9 ГБ available)
+  mem_avail=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 ))
+  if [ -n "$swap_prev" ] && [ $(( swap_prev - swap_free )) -gt 65536 ] && [ "$mem_avail" -lt "$SWAP_MEM" ]; then
     swap_hold_until=$(( now + SWAP_HOLD )); say "своп растёт ($(( (swap_prev - swap_free) / 1024 )) МБ за такт) — запуски стоят ${SWAP_HOLD} с"
   fi
   swap_prev=$swap_free
