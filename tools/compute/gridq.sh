@@ -12,6 +12,9 @@
 # queue/peaks.tsv (по каталогу --root) — следующая оценка тех же суток не меньше его.
 # Сторож: очередь не пуста, а load1 < GRIDQ_UNDERLOAD дольше 15 мин → queue/ALERT-underload (строка причины);
 # очередь пуста, ничего не идёт, load1 < 2 дольше 30 мин → queue/ALERT-idle-deck; метки снимаются сами.
+# Повторная работа (подроль «производственная эффективность», В-132): каждый замеченный на машине `lob bounce-grid`
+# (свой и чужой) — строка в queue/seen.tsv (время, pid, сутки --root, серия --out-dir); одни сутки, разобранные
+# ≥ 2 разными процессами за 24 ч, → queue/ALERT-rework (строка: сколько раз и какие сутки), снимается сама.
 # Состояние — queue/STATUS (переписывается каждый такт), журнал — queue/gridq.log.
 set -uo pipefail
 Q="${GRIDQ_DIR:-$HOME/alpha/queue}"
@@ -107,6 +110,33 @@ mem_free_mb() {  # MemAvailable − резерв − недобор идущих
   echo $(( avail - RESERVE - gap ))
 }
 
+track_grids() {  # новые процессы bounce-grid → seen.tsv: время, pid:старт, сутки (путь --root), --out-dir
+  local p st args root out cwd
+  for p in $(pgrep -f "lob bounce-grid" 2>/dev/null); do
+    mapfile -d '' -t args < "/proc/$p/cmdline" 2>/dev/null || continue
+    [ "${args[1]:-}" = lob ] && [ "${args[2]:-}" = bounce-grid ] || continue
+    st=$(awk '{print $22}' "/proc/$p/stat" 2>/dev/null) || continue
+    grep -q -- "	$p:$st	" "$Q/seen.tsv" 2>/dev/null && continue
+    cwd=$(readlink "/proc/$p/cwd" 2>/dev/null); root=$(root_of "${args[@]}")
+    case "$root" in /*) ;; *) root="$cwd/$root";; esac
+    out=""; local prev="" a; for a in "${args[@]}"; do [ "$prev" = --out-dir ] && out="$a"; prev="$a"; done
+    printf '%s\t%s:%s\t%s\t%s\n' "$(date -u +%s)" "$p" "$st" "$(readlink -f "$root" 2>/dev/null || echo "$root")" "$out" >> "$Q/seen.tsv"
+  done
+}
+
+rework_check() {  # сутки, разобранные ≥ 2 процессами за 24 ч → ALERT-rework
+  local since line
+  since=$(( $(date -u +%s) - 86400 ))
+  line=$(awk -F'\t' -v s="$since" '$1 >= s {n[$3]++} END {
+      for (r in n) if (n[r] >= 2) {k++; t += n[r]; if (n[r] > m) {m = n[r]; w = r}}
+      if (k) printf "%d суток разобраны повторно за 24 ч (всего разборов %d); больше всех — %s: %d раз", k, t, w, m }' \
+    "$Q/seen.tsv" 2>/dev/null)
+  if [ -n "$line" ]; then
+    [ -f "$Q/ALERT-rework" ] || say "ТРЕВОГА повторная работа: $line"
+    echo "$(date -u +%FT%TZ) $line" > "$Q/ALERT-rework"
+  elif [ -f "$Q/ALERT-rework" ]; then rm -f "$Q/ALERT-rework"; say "повторная работа снята"; fi
+}
+
 launch() {
   local j="$1" id unit est max total
   id=$(basename "$j" .job); unit="gridq-$id"; est=$(kv JOB_MEM_MB "$j")
@@ -154,6 +184,9 @@ while :; do
       first=0
     done
   fi
+  # повторная работа: процессы — каждый такт, проверка — раз в 5 мин
+  track_grids
+  [ $(( now % 300 )) -lt "$TICK" ] && rework_check
   # сторож
   load1=$(cut -d' ' -f1 /proc/loadavg)
   np=$(ls "$Q/pending" | grep -c '\.job$'); nr=$(ls "$Q/running" | grep -c '\.job$')
