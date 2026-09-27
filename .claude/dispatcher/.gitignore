@@ -4,5 +4,7 @@ state.json
 state.json.tmp
 runs.log
 ceo-inbox.md
+ceo-wake.log
+.ceo-inbox-seen
 runs/*
 !runs/.gitkeep

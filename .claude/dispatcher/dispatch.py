@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -32,11 +32,21 @@ STATE_FILE = DISPATCHER_DIR / "state.json"
 RUNS_DIR = DISPATCHER_DIR / "runs"
 RUNS_LOG = DISPATCHER_DIR / "runs.log"
 CEO_INBOX = DISPATCHER_DIR / "ceo-inbox.md"
+CEO_WAKE_LOG = DISPATCHER_DIR / "ceo-wake.log"  # короткая копия каждой строки ceo-inbox — CEO держит на ней Monitor
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or r"C:\Users\Георгий\.local\bin\claude"
 POLL_INTERVAL = float(os.environ.get("ALPHA_DISPATCH_INTERVAL", "15"))
 MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "2"))
 RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(40 * 60)))
+
+# Защита от петли и перерасхода (владелец 27.09, v1.1). MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S —
+# троттлинг решений (а)-(г): тикет просто пропускается этот тик, без ceo-inbox (не ошибка, а
+# пауза); ретраи правила (д) их не считают — они и так ограничены одной попыткой. DAILY_COST_USD —
+# суточный (по календарной дате `now`) потолок расхода `total_cost_usd`: превышен → новые запуски
+# (включая ретраи) не стартуют, одна строка в ceo-inbox на сутки.
+MAX_RUNS_PER_TICKET_HOUR = int(os.environ.get("ALPHA_DISPATCH_MAX_RUNS_PER_TICKET_HOUR", "6"))
+MIN_GAP_S = float(os.environ.get("ALPHA_DISPATCH_MIN_GAP_S", "60"))
+DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 
 ROLE_KEYS = ("researcher", "engineer", "judge")  # роли, которых диспетчер запускает; ceo — человек/CEO-сессия
 
@@ -63,7 +73,9 @@ PROMPT_TEMPLATE = (
     "Упоминай @роль, если нужен другой."
 )
 
-RUNNING = {}  # tid -> {role, popen, started, attempt, run_file, err_file, out_fh, err_fh, reason}
+RUNNING = {}  # tid -> {role, popen, pid, started, attempt, run_file, err_file, out_fh, err_fh, reason}
+# popen=None у записей, восстановленных из state.json["active_runs"] после перезапуска диспетчера
+# (recover_active_runs) — тогда живость и остановка идут по pid (_pid_alive/_pid_kill), не по Popen.
 
 
 @dataclass
@@ -108,11 +120,26 @@ def check_wait_for(spec: str) -> bool:
     return False  # "mention" и незнакомые формы — сами по себе не снимаются, см. правило (б)
 
 
+def _remote_test_arg(remote_path: str) -> str:
+    """`test -e` аргумент: `~`/`~/...` — без кавычек вокруг тильды, иначе remote-шелл не раскроет её
+    в $HOME (shlex.quote экранирует и тильду тоже — поймано боевым вызовом v1.1, 27.09)."""
+    remote_path = remote_path.strip()
+    if remote_path == "~":
+        return "~"
+    if remote_path.startswith("~/"):
+        rest = remote_path[1:]  # оставляем ведущий '~' сырым, остальное — безопасно экранируем
+        return "~" + shlex.quote(rest)
+    return shlex.quote(remote_path)
+
+
 def _deck_file_exists(remote_path: str) -> bool:
+    # Кириллический HOME на этой машине ломает умолчания ssh (В-см. windows-ssh-cyrillic-home) —
+    # ключ, known_hosts и хост берём явно, не полагаясь на ~/.ssh по умолчанию.
     host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
-    key = os.environ.get("ALPHA_DECK_KEY", str(Path.home() / ".ssh" / "id_ed25519"))
-    cmd = ["ssh", "-i", key, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host,
-           f"test -e {shlex.quote(remote_path)}"]
+    key = os.environ.get("ALPHA_DECK_KEY", r"C:/Users/Георгий/.ssh/id_rsa")
+    known_hosts = os.environ.get("ALPHA_DECK_KNOWN_HOSTS", r"C:/Users/Георгий/.ssh/known_hosts")
+    cmd = ["ssh", "-i", key, "-o", f"UserKnownHostsFile={known_hosts}", "-o", "BatchMode=yes",
+           "-o", "ConnectTimeout=8", host, f"test -e {_remote_test_arg(remote_path)}"]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=15)
         return r.returncode == 0
@@ -126,6 +153,9 @@ def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
     CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
     with open(CEO_INBOX, "a", encoding="utf-8") as fh:
         fh.write(f"- {T.now_iso(now)} {tid} [{kind}] {note}\n")
+    # ceo-wake.log — короткая (время, задача, причина) копия для Monitor CEO; ceo-inbox.md остаётся источником деталей
+    with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
+        fh.write(f"{T.now_iso(now)} {tid} {kind}\n")
 
 
 def handle_ceo_mentions(tkt: T.Ticket, state: dict, now) -> None:
@@ -156,6 +186,8 @@ def notify_status_for_ceo(tkt: T.Ticket, state: dict, now) -> None:
 
 def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
     tid = tkt.id
+    if tkt.status == "backlog":
+        return None  # перенесено из TASKS.md, ещё не в работе — диспетчер не трогает; см. `tickets.py start`
     sessions = state.setdefault("sessions", {})
 
     def last_woken(role):
@@ -217,6 +249,101 @@ def _role_busy(role: str) -> bool:
     return any(info["role"] == role for info in RUNNING.values())
 
 
+# --- защита от петли и перерасхода (v1.1) --------------------------------------------------
+
+def _record_launch(state: dict, tid: str, now) -> None:
+    hist = state.setdefault("launch_history", {}).setdefault(tid, [])
+    hist.append(T.now_iso(now))
+    cutoff = now - timedelta(hours=2)  # храним немного с запасом сверх окна MAX_RUNS_PER_TICKET_HOUR
+    state["launch_history"][tid] = [t for t in hist if T.parse_dt(t) > cutoff]
+
+
+def _rate_limited(state: dict, tid: str, now) -> bool:
+    """MAX_RUNS_PER_TICKET_HOUR / MIN_GAP_S — троттлинг решений (а)-(г); ретраи (д) их не проходят."""
+    hist = [T.parse_dt(t) for t in state.get("launch_history", {}).get(tid, [])]
+    if not hist:
+        return False
+    if len([t for t in hist if (now - t) < timedelta(hours=1)]) >= MAX_RUNS_PER_TICKET_HOUR:
+        return True
+    return (now - max(hist)).total_seconds() < MIN_GAP_S
+
+
+def _today(now) -> str:
+    return now.strftime("%Y-%m-%d")
+
+
+def _add_cost(state: dict, now, cost) -> None:
+    if not cost:
+        return
+    daily = state.setdefault("daily_cost", {})
+    day = _today(now)
+    daily[day] = round(daily.get(day, 0.0) + float(cost), 6)
+
+
+def _daily_budget_exceeded(state: dict, now) -> bool:
+    return state.get("daily_cost", {}).get(_today(now), 0.0) >= DAILY_COST_USD
+
+
+def _notify_budget_once(state: dict, now) -> None:
+    day = _today(now)
+    notified = state.setdefault("daily_cost_notified", {})
+    if notified.get("day") == day:
+        return
+    cost = state.get("daily_cost", {}).get(day, 0.0)
+    append_ceo_inbox("*", "budget", f"суточный потолок стоимости исчерпан: ${cost:.2f} ≥ ${DAILY_COST_USD} за {day}",
+                      now)
+    notified["day"] = day
+
+
+def _pid_alive(pid) -> bool:
+    if not pid:
+        return False
+    if os.name == "nt":
+        try:
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                                  capture_output=True, text=True, timeout=5)
+            return str(pid) in (out.stdout or "")
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _pid_kill(pid) -> None:
+    if not pid:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=5)
+        except Exception:
+            pass
+        return
+    try:
+        os.kill(pid, 15)
+    except Exception:
+        pass
+
+
+def _proc_alive(info: dict) -> bool:
+    if info.get("popen") is not None:
+        return info["popen"].poll() is None
+    return _pid_alive(info.get("pid"))
+
+
+def _kill_proc(info: dict) -> None:
+    if info.get("popen") is not None:
+        try:
+            info["popen"].kill()
+            info["popen"].wait(timeout=10)
+        except Exception:
+            pass
+    else:
+        _pid_kill(info.get("pid"))
+
+
 # --- запуск роли ------------------------------------------------------------------------------
 
 def _popen(cmd, **kwargs):
@@ -262,11 +389,18 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     err_fh = open(err_file, "w", encoding="utf-8")
     popen = _popen(cmd, cwd=str(PROJECT_ROOT), env=env, stdout=out_fh, stderr=err_fh, text=True)
     RUNNING[tid] = {
-        "role": role, "popen": popen, "started": now, "attempt": attempt,
+        "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
     }
     # last_woken — для дедупа правила (б) «упоминание»; всегда на (задачу, роль), не зависит от SESSION_SCOPE
     state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})["last_woken"] = T.now_iso(now)
+    _record_launch(state, tid, now)
+    # зеркало в state.json (pid, задача, роль, старт) — переживает перезапуск диспетчера (recover_active_runs)
+    state.setdefault("active_runs", {})[tid] = {
+        "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
+        "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
+    }
+    save_state(state)
 
 
 def _read_run_result(run_file: Path) -> dict:
@@ -296,8 +430,10 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
             fh.close()
         except Exception:
             pass
+    state.setdefault("active_runs", {}).pop(tid, None)
     result = _read_run_result(info["run_file"])
     _log_run_summary(tid, info, result, now, timed_out)
+    _add_cost(state, now, result.get("total_cost_usd"))
 
     role = info["role"]
     key = f"{tid}::{role}"
@@ -309,40 +445,50 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
 
     path = TICKETS_DIR / f"{tid}.md"
     if not path.exists():
+        save_state(state)
         return
     tkt = T.read_ticket(path)
-    ok = (not timed_out) and tkt.logged_since(role, info["started"])
-    if ok:
+    logged = (not timed_out) and tkt.logged_since(role, info["started"])
+    stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
+    if logged and not stuck_todo:
         sess["retries"] = 0
+        save_state(state)
         return
 
-    # (д) запуск завершился, новой записи лога от роли нет
+    # (д) запуск завершился без пригодного результата — один повтор, затем blocked
     if info.get("attempt", 0) < 1:
-        note = ("Предыдущий запуск не оставил новую запись в «## Лог» — обязательно допиши итог и "
-                "обнови status." if not timed_out else
-                "Предыдущий запуск не уложился в таймаут — сократи шаг и обязательно запиши итог.")
+        if not logged:
+            note = ("Предыдущий запуск не оставил новую запись в «## Лог» — обязательно допиши итог и "
+                    "обнови status." if not timed_out else
+                    "Предыдущий запуск не уложился в таймаут — сократи шаг и обязательно запиши итог.")
+        else:
+            note = ("Запись в «## Лог» есть, но status остался todo — обязательно смени статус (например "
+                    "in_progress/waiting/done), иначе задача возьмётся в работу заново.")
+        if _daily_budget_exceeded(state, now):
+            _notify_budget_once(state, now)
+            append_ceo_inbox(tid, "budget", "повтор отложен — суточный потолок стоимости достигнут", now)
+            save_state(state)
+            return
         launch_run(path, role, state, now, reason="retry", attempt=info.get("attempt", 0) + 1, extra_note=note)
         sess["retries"] = sess.get("retries", 0) + 1
     else:
+        why = ("статус остался todo дважды подряд" if stuck_todo else
+               "дважды не уложился в таймаут" if timed_out else
+               "дважды не оставил запись в «## Лог»")
         T.write_header_updates(path, {"status": "blocked"}, now=now)
         T.append_log(path, "dispatcher",
-                     f"Запуск роли @{role} дважды не оставил запись в «## Лог» — задача заблокирована, нужен @ceo.",
-                     now=now)
+                     f"Запуск роли @{role} — {why} — задача заблокирована, нужен @ceo.", now=now)
         sess["retries"] = 0
-        append_ceo_inbox(tid, "blocked", f"{role}: дважды без записи в лог", now)
+        append_ceo_inbox(tid, "blocked", f"{role}: {why}", now)
+    save_state(state)
 
 
 def _poll_running(state: dict, now) -> None:
     for tid in list(RUNNING):
         info = RUNNING[tid]
-        popen = info["popen"]
-        if popen.poll() is None:
+        if _proc_alive(info):
             if (now - info["started"]).total_seconds() > RUN_TIMEOUT:
-                popen.kill()
-                try:
-                    popen.wait(timeout=10)
-                except Exception:
-                    pass
+                _kill_proc(info)
                 del RUNNING[tid]
                 _finish_run(tid, info, state, now, timed_out=True)
             continue
@@ -350,13 +496,38 @@ def _poll_running(state: dict, now) -> None:
         _finish_run(tid, info, state, now, timed_out=False)
 
 
+def recover_active_runs(state: dict, now) -> None:
+    """После перезапуска диспетчера — подхватить зеркало state.json["active_runs"]: живой pid не
+    запускаем повторно (просто продолжаем отслеживать по pid), уже закончившийся — обрабатываем как
+    обычное завершение прогона (лог/ретрай/blocked), раз диспетчер это пропустил, пока не работал."""
+    for tid, saved in list(state.get("active_runs", {}).items()):
+        if tid in RUNNING:
+            continue  # уже отслеживаем в этом процессе (это не перезапуск)
+        info = {
+            "role": saved.get("role"), "popen": None, "pid": saved.get("pid"),
+            "started": T.parse_dt(saved["started"]), "attempt": saved.get("attempt", 0),
+            "run_file": Path(saved["run_file"]), "err_file": Path(saved.get("err_file") or ""),
+            "out_fh": None, "err_fh": None, "reason": saved.get("reason", "recovered"),
+        }
+        if _pid_alive(saved.get("pid")):
+            RUNNING[tid] = info
+        else:
+            state.get("active_runs", {}).pop(tid, None)
+            _finish_run(tid, info, state, now, timed_out=False)
+
+
 # --- тик / цикл -------------------------------------------------------------------------------
 
 def tick(now=None) -> int:
     now = now or datetime.now().astimezone()
     state = load_state()
+    recover_active_runs(state, now)  # диспетчер мог перезапуститься — живые/умершие прогоны из state.json
     _poll_running(state, now)
     save_state(state)
+
+    budget_exceeded = _daily_budget_exceeded(state, now)
+    if budget_exceeded:
+        _notify_budget_once(state, now)
 
     launched = 0
     for path in T.list_tickets(TICKETS_DIR):
@@ -375,8 +546,12 @@ def tick(now=None) -> int:
         decision = decide(tkt, state, now)
         if decision is None:
             continue
+        if budget_exceeded:
+            continue  # суточный потолок стоимости — новые запуски не стартуют
         if _role_busy(decision.role):
             continue  # SESSION_SCOPE="role": у роли уже идёт другая задача — своей очереди ждём
+        if _rate_limited(state, tid, now):
+            continue  # MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S — пауза, не ошибка; попробуем следующим тиком
         if decision.header_updates:
             T.write_header_updates(path, decision.header_updates, now=now)
         launch_run(path, decision.role, state, now, reason=decision.reason)

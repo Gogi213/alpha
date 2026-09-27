@@ -1,7 +1,9 @@
-"""CLI для тикетов диспетчера: `new`, `comment`, `status`. Только stdlib.
+"""CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`. Только stdlib.
 
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--reviewer judge] [--desc "..."]
+    python .claude/dispatcher/tickets.py new --owner researcher --title "..." --backlog   # перенос из TASKS.md
     python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..."
+    python .claude/dispatcher/tickets.py start TK-001                                     # backlog → todo
     python .claude/dispatcher/tickets.py status
 """
 from __future__ import annotations
@@ -21,7 +23,8 @@ PROJECT_ROOT = TICKETS_DIR.parent.parent
 
 def cmd_new(args) -> int:
     path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=args.reviewer,
-                            description=args.desc or "", wait_for=args.wait_for or "")
+                            description=args.desc or "", wait_for=args.wait_for or "",
+                            status="backlog" if args.backlog else "todo")
     try:
         print(path.relative_to(PROJECT_ROOT))
     except ValueError:
@@ -36,6 +39,21 @@ def cmd_comment(args) -> int:
         return 1
     T.append_log(path, args.author, args.text)
     print(f"дописано в {path}")
+    return 0
+
+
+def cmd_start(args) -> int:
+    """backlog → todo: задача, перенесённая из TASKS.md, берётся в работу — диспетчер начинает её видеть."""
+    path = TICKETS_DIR / f"{args.id}.md"
+    if not path.exists():
+        print(f"нет тикета {args.id}", file=sys.stderr)
+        return 1
+    tkt = T.read_ticket(path)
+    if tkt.status != "backlog":
+        print(f"{args.id}: status={tkt.status!r}, не backlog — не трогаю", file=sys.stderr)
+        return 1
+    T.write_header_updates(path, {"status": "todo"})
+    print(f"{args.id}: backlog → todo")
     return 0
 
 
@@ -73,6 +91,8 @@ def main(argv=None) -> int:
     p_new.add_argument("--reviewer", choices=["researcher", "engineer", "judge"])
     p_new.add_argument("--desc", default="")
     p_new.add_argument("--wait-for", dest="wait_for", default="")
+    p_new.add_argument("--backlog", action="store_true",
+                        help="создать сразу в backlog (перенос из TASKS.md) — диспетчер её не трогает до `start`")
     p_new.set_defaults(func=cmd_new)
 
     p_comment = sub.add_parser("comment")
@@ -80,6 +100,10 @@ def main(argv=None) -> int:
     p_comment.add_argument("--author", required=True)
     p_comment.add_argument("--text", required=True)
     p_comment.set_defaults(func=cmd_comment)
+
+    p_start = sub.add_parser("start")
+    p_start.add_argument("id")
+    p_start.set_defaults(func=cmd_start)
 
     p_status = sub.add_parser("status")
     p_status.set_defaults(func=cmd_status)

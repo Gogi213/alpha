@@ -187,6 +187,13 @@ class DispatchDecisionTests(unittest.TestCase):
         dec = D.decide(self.ticket_from(text), self.state, self.now)
         self.assertIsNone(dec)
 
+    def test_backlog_is_fully_ignored_even_with_mention(self):
+        """v1.1: backlog — перенос из TASKS.md, диспетчер её не трогает вообще ни по одному правилу."""
+        text = ("---\nid: TK-9\nowner: researcher\nstatus: backlog\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
+                "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\n@judge даже упоминание не должно будить.\n")
+        dec = D.decide(self.ticket_from(text), self.state, self.now)
+        self.assertIsNone(dec)
+
 
 # --- фейковый «claude» для сквозных тестов --------------------------------------------------
 #
@@ -251,6 +258,49 @@ print(json.dumps({"session_id": f"sess-{role}-{tid}", "total_cost_usd": 0.01,
                    "usage": {"input_tokens": ctx}}))
 """
 
+# Дописывает запись в «## Лог», но НЕ трогает status в шапке — воспроизводит роль, забывшую увести
+# задачу с todo (защита v1.1: логировано, но status остался todo — тоже ошибка роли).
+FAKE_BIN_STUCK_TODO = r"""
+import json, os, re, sys
+from pathlib import Path
+TICKETS_DIR = Path(os.environ["FAKE_TICKETS_DIR"])
+args = sys.argv[1:]
+prompt = args[args.index("-p") + 1]
+tid = re.search(r"tickets/([\w-]+)\.md", prompt).group(1)
+role = next((c for c in ("researcher", "engineer", "judge") if prompt.startswith(f"Ты — {c} ")), "unknown")
+path = TICKETS_DIR / f"{tid}.md"
+text = path.read_text(encoding="utf-8")
+if not text.endswith("\n"):
+    text += "\n"
+if "## Лог" not in text:
+    text += "\n## Лог\n"
+text += f"\n### 2099-01-01T00:00:00+04:00 {role}\nСделал шаг, но забыл поправить статус.\n"
+path.write_text(text, encoding="utf-8")
+print(json.dumps({"session_id": f"sess-{tid}-{role}", "total_cost_usd": 0.05, "usage": {"input_tokens": 5}}))
+"""
+
+# Как FAKE_BIN_OK, но с задержкой — чтобы поймать процесс «на лету» для теста recover_active_runs.
+FAKE_BIN_SLOW_OK = r"""
+import json, os, re, sys, time
+from pathlib import Path
+time.sleep(1.5)
+TICKETS_DIR = Path(os.environ["FAKE_TICKETS_DIR"])
+args = sys.argv[1:]
+prompt = args[args.index("-p") + 1]
+tid = re.search(r"tickets/([\w-]+)\.md", prompt).group(1)
+role = next((c for c in ("researcher", "engineer", "judge") if prompt.startswith(f"Ты — {c} ")), "unknown")
+path = TICKETS_DIR / f"{tid}.md"
+text = path.read_text(encoding="utf-8")
+text = re.sub(r"(?m)^status:.*$", "status: done", text, count=1)
+if not text.endswith("\n"):
+    text += "\n"
+if "## Лог" not in text:
+    text += "\n## Лог\n"
+text += f"\n### 2099-01-01T00:00:00+04:00 {role}\nШаг (медленный). status: done.\n"
+path.write_text(text, encoding="utf-8")
+print(json.dumps({"session_id": f"sess-{tid}-{role}", "total_cost_usd": 0.01, "usage": {"input_tokens": 5}}))
+"""
+
 
 class DispatchRunTests(unittest.TestCase):
     """Сквозные тесты `tick()` с подменённым `CLAUDE_BIN` (без сети и без настоящего claude)."""
@@ -265,13 +315,14 @@ class DispatchRunTests(unittest.TestCase):
 
         self._orig = {k: getattr(D, k) for k in
                       ("TICKETS_DIR", "PROJECT_ROOT", "STATE_FILE", "RUNS_DIR", "RUNS_LOG",
-                       "CEO_INBOX", "CLAUDE_BIN", "MAX_PARALLEL", "RUN_TIMEOUT")}
+                       "CEO_INBOX", "CEO_WAKE_LOG", "CLAUDE_BIN", "MAX_PARALLEL", "RUN_TIMEOUT")}
         D.TICKETS_DIR = self.tickets_dir
         D.PROJECT_ROOT = self.base
         D.STATE_FILE = self.dispatcher_dir / "state.json"
         D.RUNS_DIR = self.dispatcher_dir / "runs"
         D.RUNS_LOG = self.dispatcher_dir / "runs.log"
         D.CEO_INBOX = self.dispatcher_dir / "ceo-inbox.md"
+        D.CEO_WAKE_LOG = self.dispatcher_dir / "ceo-wake.log"
         D.RUNNING.clear()
         self._orig_popen = D._popen
         os.environ["FAKE_TICKETS_DIR"] = str(self.tickets_dir)
@@ -414,6 +465,99 @@ class DispatchRunTests(unittest.TestCase):
         self.assertIn("Начинаем новую сессию", calls[1]["prompt"])
         self.assertIn(".claude/roles/notes/judge.md", calls[1]["prompt"])
 
+    def test_stuck_todo_after_log_retries_then_blocks(self):
+        """v1.1: лог есть, но status остался todo — тоже ошибка роли (повтор → blocked)."""
+        self.set_fake_bin(FAKE_BIN_STUCK_TODO)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Забывчивый")
+        D.tick()
+        self.wait_running()
+        tkt = T.read_ticket(path)
+        self.assertEqual(tkt.status, "blocked")
+        # 2 записи роли (исходная + повтор) + 1 запись dispatcher про блокировку
+        self.assertEqual(len(tkt.log), 3)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("todo дважды подряд", inbox)
+
+    def test_min_gap_prevents_immediate_relaunch_via_tick(self):
+        """v1.1: MIN_GAP_S — троттлинг, не ошибка; ticket остаётся todo, просто не запускается сразу."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Слишком часто")
+        state = D.load_state()
+        D._record_launch(state, path.stem, datetime.now().astimezone())
+        D.save_state(state)
+        n = D.tick()
+        self.assertEqual(n, 0, "MIN_GAP_S должен был не дать перезапуститься сразу")
+        self.assertEqual(D.RUNNING, {})
+
+    def test_daily_budget_blocks_new_launches(self):
+        """v1.1: суточный потолок стоимости исчерпан — новые запуски не стартуют, строка в ceo-inbox."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        state = D.load_state()
+        D._add_cost(state, datetime.now().astimezone(), D.DAILY_COST_USD)
+        D.save_state(state)
+        T.create_ticket(self.tickets_dir, owner="researcher", title="Под потолком")
+        n = D.tick()
+        self.assertEqual(n, 0)
+        self.assertEqual(D.RUNNING, {})
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("суточный потолок стоимости исчерпан", inbox)
+        # дедуп: второй тик не должен добавить вторую такую же строку
+        D.tick()
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("суточный потолок стоимости исчерпан"), 1)
+
+    def test_recover_active_runs_adopts_alive_process(self):
+        """v1.1: перезапуск диспетчера во время прогона — живой pid подхватывается, не запускается повторно."""
+        self.set_fake_bin(FAKE_BIN_SLOW_OK)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Долгий")
+        D.tick()
+        self.assertIn(path.stem, D.RUNNING)
+        pid = D.RUNNING[path.stem]["pid"]
+        real_popen = D.RUNNING[path.stem]["popen"]
+        # закрываем родительские файловые дескрипторы сразу (не через addCleanup — тот выполняется
+        # ПОСЛЕ tearDown, а tearDown уже пытается удалить временный каталог на Windows)
+        D.RUNNING[path.stem]["out_fh"].close()
+        D.RUNNING[path.stem]["err_fh"].close()
+
+        # "перезапуск диспетчера": теряем всё, что жило только в памяти процесса
+        D.RUNNING.clear()
+        state = D.load_state()
+        self.assertIn(path.stem, state.get("active_runs", {}), "зеркало в state.json должно было остаться")
+
+        D.recover_active_runs(state, datetime.now().astimezone())
+        self.assertIn(path.stem, D.RUNNING, "живой pid должен быть подхвачен, не потерян")
+        self.assertIsNone(D.RUNNING[path.stem]["popen"])
+        self.assertEqual(D.RUNNING[path.stem]["pid"], pid)
+        D.save_state(state)
+
+        self.wait_running()  # доиграть до конца по pid (_pid_alive/_finish_run), без второго запуска
+        real_popen.wait(timeout=5)  # реап собственного дочернего процесса (уже завершился)
+        tkt = T.read_ticket(path)
+        self.assertEqual(len(tkt.log), 1, "recover не должен был запустить процесс повторно")
+        self.assertEqual(tkt.status, "done")
+
+    def test_recover_active_runs_processes_finished_while_down(self):
+        """v1.1: процесс успел закончиться, пока диспетчер не работал — recover доводит его до конца сам."""
+        self.set_fake_bin(FAKE_BIN_OK)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Быстрый")
+        D.tick()
+        self.assertIn(path.stem, D.RUNNING)
+        real_popen = D.RUNNING[path.stem]["popen"]
+        real_popen.wait(timeout=10)  # дождались настоящего завершения процесса
+        D.RUNNING[path.stem]["out_fh"].close()
+        D.RUNNING[path.stem]["err_fh"].close()
+        D.RUNNING.clear()  # "перезапуск" — без вызова _poll_running/_finish_run
+
+        state = D.load_state()
+        self.assertIn(path.stem, state.get("active_runs", {}), "зеркало должно остаться, раз мы не поллили")
+        D.recover_active_runs(state, datetime.now().astimezone())
+        D.save_state(state)
+
+        self.assertEqual(D.RUNNING, {}, "процесс уже мёртв — не должен попасть в RUNNING")
+        self.assertNotIn(path.stem, D.load_state().get("active_runs", {}))
+        tkt = T.read_ticket(path)
+        self.assertEqual(len(tkt.log), 1)
+        self.assertEqual(tkt.header.get("status"), "done")
+
     def test_ceo_mention_writes_inbox_not_a_role_run(self):
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Для CEO",
                                 now=dt("2026-09-27T12:00:00+04:00"))
@@ -426,6 +570,148 @@ class DispatchRunTests(unittest.TestCase):
         self.assertIn("@ceo", inbox)
         self.assertIn("needs_owner", inbox)
         self.assertEqual(D.RUNNING, {})  # ceo не запускается диспетчером как роль
+
+    def test_ceo_wake_log_mirrors_inbox(self):
+        """v1.1: каждая запись ceo-inbox.md дублируется короткой строкой в ceo-wake.log (Monitor CEO)."""
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Для CEO",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        T.append_log(path, "researcher", "Нужно решение владельца. @ceo подскажи.",
+                     now=dt("2026-09-27T12:01:00+04:00"))
+        T.write_header_updates(path, {"status": "needs_owner"}, now=dt("2026-09-27T12:01:00+04:00"))
+        D.tick(now=dt("2026-09-27T12:02:00+04:00"))
+        self.assertTrue(D.CEO_WAKE_LOG.exists())
+        wake = D.CEO_WAKE_LOG.read_text(encoding="utf-8")
+        self.assertIn(path.stem, wake)
+        self.assertIn("needs_owner", wake)
+        # столько же строк, сколько записей ушло в ceo-inbox.md за этот тик
+        inbox_lines = [ln for ln in D.CEO_INBOX.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        wake_lines = [ln for ln in wake.splitlines() if ln.strip()]
+        self.assertEqual(len(wake_lines), len(inbox_lines))
+
+
+import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
+
+
+class TicketsCliStartTests(unittest.TestCase):
+    """v1.1: `tickets.py start` — backlog → todo, и только backlog."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tickets_dir = Path(self.tmp.name) / "tickets"
+        self._orig = TK.TICKETS_DIR
+        TK.TICKETS_DIR = self.tickets_dir
+
+    def tearDown(self):
+        TK.TICKETS_DIR = self._orig
+        self.tmp.cleanup()
+
+    def test_start_moves_backlog_to_todo(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Из TASKS.md", status="backlog")
+        rc = TK.main(["start", path.stem])
+        self.assertEqual(rc, 0)
+        self.assertEqual(T.read_ticket(path).status, "todo")
+
+    def test_start_refuses_non_backlog(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Уже todo", status="todo")
+        rc = TK.main(["start", path.stem])
+        self.assertEqual(rc, 1)
+        self.assertEqual(T.read_ticket(path).status, "todo")
+
+    def test_new_backlog_flag(self):
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Перенесено", "--backlog"])
+        self.assertEqual(rc, 0)
+        tickets = T.list_tickets(self.tickets_dir)
+        self.assertEqual(len(tickets), 1)
+        self.assertEqual(T.read_ticket(tickets[0]).status, "backlog")
+
+
+class RateLimitAndBudgetTests(unittest.TestCase):
+    """v1.1, чистые функции — без процессов и без сети."""
+
+    def setUp(self):
+        self.state = {}
+        self.now = dt("2026-09-27T12:00:00+04:00")
+
+    def test_min_gap_blocks_then_clears(self):
+        D._record_launch(self.state, "TK-1", self.now)
+        soon = self.now + timedelta(seconds=10)
+        self.assertTrue(D._rate_limited(self.state, "TK-1", soon))
+        later = self.now + timedelta(seconds=D.MIN_GAP_S + 1)
+        self.assertFalse(D._rate_limited(self.state, "TK-1", later))
+
+    def test_other_ticket_not_affected(self):
+        D._record_launch(self.state, "TK-1", self.now)
+        self.assertFalse(D._rate_limited(self.state, "TK-2", self.now + timedelta(seconds=1)))
+
+    def test_max_runs_per_hour(self):
+        step = timedelta(seconds=D.MIN_GAP_S + 1)
+        for i in range(D.MAX_RUNS_PER_TICKET_HOUR):
+            D._record_launch(self.state, "TK-1", self.now + i * step)
+        probe = self.now + D.MAX_RUNS_PER_TICKET_HOUR * step
+        self.assertTrue(D._rate_limited(self.state, "TK-1", probe), "часовой лимит должен был сработать")
+        far_later = self.now + timedelta(hours=2)
+        self.assertFalse(D._rate_limited(self.state, "TK-1", far_later), "час прошёл — лимит снят")
+
+    def test_daily_budget_exceeded_and_notify_once(self):
+        self.assertFalse(D._daily_budget_exceeded(self.state, self.now))
+        D._add_cost(self.state, self.now, D.DAILY_COST_USD - 1)
+        self.assertFalse(D._daily_budget_exceeded(self.state, self.now))
+        D._add_cost(self.state, self.now, 1.5)
+        self.assertTrue(D._daily_budget_exceeded(self.state, self.now))
+
+    def test_daily_budget_is_per_day(self):
+        D._add_cost(self.state, self.now, D.DAILY_COST_USD)
+        tomorrow = self.now + timedelta(days=1)
+        self.assertFalse(D._daily_budget_exceeded(self.state, tomorrow))
+
+
+class DeckSshTests(unittest.TestCase):
+    """v1.1: умолчания ssh на Steam Deck (кириллический HOME ломает ~/.ssh по умолчанию)."""
+
+    def test_tilde_path_not_quoted_away(self):
+        """Живой прогон 27.09 поймал: shlex.quote('~/x') = "'~/x'" — remote-шелл её не раскрывает."""
+        self.assertEqual(D._remote_test_arg("~/alpha/queue/STATUS"), "~/alpha/queue/STATUS")
+        self.assertEqual(D._remote_test_arg("~"), "~")
+
+    def test_tilde_path_rest_still_escaped(self):
+        import shlex
+        raw = "~/alpha/queue/a b;rm -rf /"
+        arg = D._remote_test_arg(raw)
+        self.assertEqual(arg, "~" + shlex.quote(raw[1:]))
+        self.assertTrue(arg.startswith("~'") or arg.startswith("~/"))  # тильда сама не в кавычках
+
+    def test_absolute_path_quoted_as_before(self):
+        self.assertIn("'", D._remote_test_arg("/tmp/a b"))
+
+    def test_command_uses_expected_key_host_and_options(self):
+        captured = {}
+
+        class FakeResult:
+            returncode = 0
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return FakeResult()
+
+        for var in ("ALPHA_DECK_KEY", "ALPHA_DECK_HOST", "ALPHA_DECK_KNOWN_HOSTS"):
+            os.environ.pop(var, None)
+        orig_run = D.subprocess.run
+        D.subprocess.run = fake_run
+        try:
+            ok = D._deck_file_exists("~/alpha/queue/STATUS")
+        finally:
+            D.subprocess.run = orig_run
+
+        self.assertTrue(ok)
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[0], "ssh")
+        self.assertEqual(cmd[cmd.index("-i") + 1], r"C:/Users/Георгий/.ssh/id_rsa")
+        self.assertIn("UserKnownHostsFile=C:/Users/Георгий/.ssh/known_hosts", cmd)
+        self.assertIn("BatchMode=yes", cmd)
+        self.assertIn("ConnectTimeout=8", cmd)
+        self.assertEqual(cmd[-2], "deck@192.168.1.49")
+        self.assertTrue(cmd[-1].startswith("test -e "))
+        self.assertIn("~/alpha/queue/STATUS", cmd[-1])
 
 
 if __name__ == "__main__":

@@ -2,9 +2,10 @@
 
 Шапка между строками `---` (простые строки `ключ: значение`, без внешнего YAML):
 `id, title, owner` (researcher|engineer|judge), `status`
-(todo|in_progress|waiting|in_review|done|blocked|needs_owner), `reviewer` (опц.),
+(backlog|todo|in_progress|waiting|in_review|done|blocked|needs_owner), `reviewer` (опц.),
 `wait_for` (опц.: `file:<путь>` локально, `deck:<путь>` на Steam Deck через ssh, `mention`),
-`updated`.
+`updated`. `backlog` — задача перенесена (например из TASKS.md), но ещё не в работе: диспетчер её
+не трогает (`dispatch.decide()`), в `todo` переводит `tickets.py start <ID>`.
 
 Тело: свободное описание, затем заголовок `## Лог` — записи вида
 `### <ISO-время> <автор>` + текст; упоминания `@researcher`/`@engineer`/`@judge`/`@ceo`.
@@ -185,11 +186,11 @@ def next_ticket_id(tickets_dir, prefix: str = "TK-") -> str:
 
 def create_ticket(tickets_dir, owner: str, title: str, reviewer: str = None,
                    description: str = "", wait_for: str = "", now: datetime = None,
-                   prefix: str = "TK-") -> Path:
+                   prefix: str = "TK-", status: str = "todo") -> Path:
     tickets_dir = Path(tickets_dir)
     tickets_dir.mkdir(parents=True, exist_ok=True)
     tid = next_ticket_id(tickets_dir, prefix)
-    lines = [f"id: {tid}", f"title: {title}", f"owner: {owner}", "status: todo"]
+    lines = [f"id: {tid}", f"title: {title}", f"owner: {owner}", f"status: {status}"]
     if reviewer:
         lines.append(f"reviewer: {reviewer}")
     lines.append(f"wait_for: {wait_for}")

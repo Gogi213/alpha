@@ -203,8 +203,10 @@ def on_prompt_all(hook_in, role):
     except Exception:
         advice = None
     alert = deck_alert() if role == "ceo" else None
+    inbox = ceo_inbox_alert() if role == "ceo" else None
     pending = pending_permissions() if role == "ceo" else None
-    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, pending, alert, text, advice) if t) or None
+    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, pending, inbox, alert, text, advice)
+                     if t) or None
 
 
 # владелец 27.09: «я же говорил загрузка стимдек на 90%» — простой деки CEO узнаёт от сторожа очереди `alpha-gridq`
@@ -312,6 +314,35 @@ def on_skill(hook_in):
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(CONSOLIDATED, "w", encoding="utf-8") as fh:
             fh.write(datetime.datetime.now(GMT4).isoformat(timespec="minutes") + "\n")
+
+
+# Диспетчер задач (.claude/dispatcher/, владелец 27.09): непрочитанные строки ceo-inbox.md — CEO будить так же,
+# как тревогу Steam Deck (deck_alert); отметка прочитанного — число уже показанных строк.
+DISPATCHER_CEO_INBOX = os.path.join(ROOT, ".claude", "dispatcher", "ceo-inbox.md")
+DISPATCHER_CEO_INBOX_SEEN = os.path.join(ROOT, ".claude", "dispatcher", ".ceo-inbox-seen")
+
+
+def ceo_inbox_alert():
+    try:
+        with open(DISPATCHER_CEO_INBOX, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    try:
+        with open(DISPATCHER_CEO_INBOX_SEEN, encoding="utf-8") as f:
+            seen = int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        seen = 0
+    new = [ln for ln in lines[seen:] if ln.strip()]
+    try:
+        with open(DISPATCHER_CEO_INBOX_SEEN, "w", encoding="utf-8") as f:
+            f.write(str(len(lines)))
+    except OSError:
+        pass
+    if not new:
+        return None
+    return (f"[диспетчер] непрочитанное в ceo-inbox.md ({len(new)}): " + " ".join(ln.strip() for ln in new) +
+            " — разобраться (тикет .claude/tickets/<ID>.md), владельцу не ждать вопроса.")
 
 
 # владелец 27.09 «зачем был запрос?»: вызов Инженера (в тексте был `rm -rf`) 1,5 ч ждал подтверждения в его сессии,
