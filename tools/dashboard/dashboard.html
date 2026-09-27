@@ -195,6 +195,8 @@ input.search { font: 13px var(--font-body); padding: 4px 10px; border-radius: 8p
 #rank td.st { text-align: left; }
 #rank td.name { width: 44%; min-width: 150px !important; }
 #rank th, #rank td { padding: 6px 7px; }
+#rank thead th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
+#rank th[data-s="mx"] { min-width: 64px; }
 #rank .badge { padding: 2px 7px; font-size: 11px; }
 td.kg { color: var(--good); font-weight: 600; } td.kb { color: var(--critical); }
 .more { justify-self: start; font: 13px var(--font-body); padding: 5px 12px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface-2); color: var(--ink); cursor: pointer; }
@@ -454,8 +456,22 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       worst: ka == null && ks == null ? null : Math.max(ka == null ? -1 : ka, ks == null ? -1 : ks),
       ua: a ? a.net_usd : null, us: s ? s.net_usd : null, sum: a || s ? (a ? a.net_usd : 0) + (s ? s.net_usd : 0) : null,
       dd: b ? b.dd_pct : null, ddApprox: b ? b.dd_approx : false,
-      na: a ? a.n : null, ns: s ? s.n : null, n: a || s ? (a ? a.n : 0) + (s ? s.n : 0) : null, st};
+      mx: maxStall(k), na: a ? a.n : null, ns: s ? s.n : null, n: a || s ? (a ? a.n : 0) + (s ? s.n : 0) : null, st};
   }
+  // самый длинный промежуток без нового максимума: счёт авг+сен одним рядом (account.augsep.daily_usd), дни календарные,
+  // незакрытый хвост — до последнего дня; тот же ряд и те же точки, что у полос на графике
+  const MX = {};
+  function maxStall(k) {
+    if (k in MX) return MX[k];
+    const p = D.periods.find(x => x.key === "augsep"), a = (D.account.augsep || {})[k];
+    const pts = cumPts(a && a.daily_usd, p);
+    let best = null;
+    if (pts.length) { let pk = pts[0].y, pt = pts[0].t; best = 0;
+      for (const v of pts.slice(1)) { if (v.y > pk + 1e-9) { best = Math.max(best, v.t - pt); pk = v.y; pt = v.t; } }
+      best = Math.round(Math.max(best, pts[pts.length - 1].t - pt) / DAY); }
+    return (MX[k] = best);
+  }
+  const mxCls = v => v != null && v > 5 ? "neg" : "";
   const kpiCls = v => v == null ? "" : v > 0.10 ? "kb" : "kg";
   const ddTxt = r => r.dd == null ? "—" : (r.ddApprox ? "≈ " : "") + "−" + pctPlain(r.dd);
   const passes = r => !isStage3(r.k) && r.ka != null && r.ks != null && r.ka <= 0.10 && r.ks <= 0.10;
@@ -498,7 +514,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       tile("usd", "Деньги авг / сен", "<span data-t='usd-aug' class='" + cls(r.ua) + "'>" + money(r.ua) + "</span><span class='muted'> / </span><span data-t='usd-sep' class='" + cls(r.us) + "'>" + money(r.us) + "</span>", "",
         "главный " + money(m.ua) + " / " + money(m.us), "Чистый итог счёта $" + intFmt(D.deposit_usd) + " (portfolio-sim), позиция $" + state.size.toLocaleString("ru-RU") + " (×" + K() + ")") +
       tile("dd", "Просадка · сделки", "<span data-t='dd' class='neg'>" + ddTxt(r) + "</span>", "",
-        "сделки авг " + intFmt(r.na) + " + сен " + intFmt(r.ns), "Максимальная просадка счёта за август и сентябрь одним счётом, % депозита" + (r.ddApprox ? "; «≈» — пересчёт от ×1" : ""));
+        "сделки авг " + intFmt(r.na) + " + сен " + intFmt(r.ns) + " · макс. до перехая <span data-t='mx' class='" + mxCls(r.mx) + "'>" + (r.mx == null ? "—" : r.mx) + "</span> дн", "Максимальная просадка счёта за август и сентябрь одним счётом, % депозита" + (r.ddApprox ? "; «≈» — пересчёт от ×1" : ""));
   }
 
   // ---------- капитал (SVG) ----------
@@ -591,6 +607,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     ["ks", "Ожид. сен", r => r.ks, ""],
     ["ua", "$ авг", r => r.ua, ""],
     ["us", "$ сен", r => r.us, ""],
+    ["mx", "Макс. до перехая, дн", r => r.mx, ""],
     ["st", "Статус", r => r.st, ""]];
   const tbl = {sort: null, dir: 1, group: "all", pass: false, query: "", all: false};
   function cmpDefault(a, b) {
@@ -640,9 +657,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       "<td class='num " + kpiCls(r.ks) + "' data-c='kpi-sep'" + (r.ks == null ? " title='нет KPI'" : "") + ">" + f2(r.ks) + "</td>" +
       "<td class='num " + cls(r.ua) + "' data-c='usd-aug'>" + money(r.ua) + "</td>" +
       "<td class='num " + cls(r.us) + "' data-c='usd-sep'>" + money(r.us) + "</td>" +
+      "<td class='num " + mxCls(r.mx) + "' data-c='mx' title='самый длинный промежуток без нового максимума, авг + сен одним счётом, дней'>" + (r.mx == null ? "—" : r.mx) + "</td>" +
       "<td class='st'><span class='badge " + statusCls(r.st) + "' title='" + q(r.st) + "'>" + esc(statusTiny(r.st)) + "</span></td></tr>";
     document.querySelector("#rank tbody").innerHTML = tr(main, true) + (shown.length ? shown.map(r => tr(r, false)).join("") :
-      "<tr><td colspan='6' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
+      "<tr><td colspan='7' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
     const more = document.getElementById("more");
     more.hidden = total <= LIM; more.textContent = tbl.all ? "показать первые " + LIM : "показать все (" + total + ")";
     const withKpi = rows.filter(r => r.ka != null || r.ks != null).length, noCalc = rows.filter(r => !r.calc).length;
