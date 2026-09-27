@@ -1,0 +1,10 @@
+[Unit]
+Description=alpha: closed collector day -> Hetzner Storage Box (T-37)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/bin/bash /opt/alpha/tools/sb-push-day.sh

@@ -1,0 +1,9 @@
+[Unit]
+Description=alpha: daily push of the closed collector day to Storage Box (T-37), before deck pull/prune 01:15 UTC
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 UTC
+Persistent=false
+
+[Install]
+WantedBy=timers.target
