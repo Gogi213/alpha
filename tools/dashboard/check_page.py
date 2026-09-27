@@ -79,6 +79,10 @@ def main():
                   f"плитки=строка {same}, имя {name_ok}, выделение {sel_ok}, график перерисован {cur is not None and cur != prev}")
             prev = cur
 
+        mrow = "#rank tbody tr[data-k='btc4h_trail']"
+        mx_row, mx_tile = pg.inner_text(f"{mrow} [data-c='mx']").strip(), pg.inner_text("#tiles [data-t='mx']").strip()
+        check("главный: макс. до перехая 16,8 в строке и плитке", mx_row == "16,8" and mx_tile == "16,8", f"строка {mx_row}, плитка {mx_tile}")
+
         # период меняет график
         for per in ["sep", "aug", "augsep"]:
             before = path()
