@@ -73,3 +73,7 @@ SETTLED,EXPERIMENTS,HYPOTHESES}.md` · `docs/COMMANDS.md` · `docs/findings/` ·
   [typesafe-ai.md](skills/typesafe-ai.md) (скилл TypeSafe/Jev; **корни скиллов DSH — `~/.agents/skills`, а НЕ
   `~/.claude/skills`**; проверять через Node — PowerShell TLS на хосте не поднимает).
 - [log.md](log.md) — таймлайн. [MEMORY.md](MEMORY.md) — протокол. [SOUL.md](SOUL.md) — рамка.
+
+## 27.09 вечер (CEO)
+Кандидаты Г-85а/Г-85б, П-07 целиком через `--cells` (×4); методика — Судья; роли bypass + страж удаления; очередь деки 95 %;
+сторож CEO 30 мин; outbox при паузе отправки. Подробно — CLAUDE.md «СОСТОЯНИЕ» (блок 27.09 ~18:20), SETTLED В-123…В-135.
