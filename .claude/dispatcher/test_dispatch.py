@@ -448,6 +448,57 @@ class DispatchRunTests(unittest.TestCase):
                     fh.close()
         D.RUNNING.clear()
 
+    def test_launch_run_uses_haiku_model_for_allowed_executor(self):
+        """v1.4, судья TK-002 п.5: executor: haiku подменяет --model, остальное (эффорт, лимиты) как обычно."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Механическая")  # reviewer=None по умолчанию
+        T.write_header_updates(path, {"executor": "haiku", "kind": "file-move"})
+        captured_cmd = []
+        orig_popen = D._popen
+
+        def spy_popen(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return orig_popen(cmd, **kwargs)
+
+        D._popen = spy_popen
+        try:
+            D.tick()
+        finally:
+            D._popen = orig_popen
+        self.assertEqual(captured_cmd[captured_cmd.index("--model") + 1], D.CLAUDE_HAIKU_MODEL)
+        for info in list(D.RUNNING.values()):
+            info["popen"].wait(timeout=10)
+            for fh in (info.get("out_fh"), info.get("err_fh")):
+                if fh:
+                    fh.close()
+        D.RUNNING.clear()
+
+    def test_tick_blocks_ticket_with_forbidden_haiku_combo(self):
+        """Вторая защита в диспетчере (условие г) — на случай ручной правки шапки в обход tickets.py."""
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Обход")
+        T.write_header_updates(path, {"executor": "haiku", "kind": "file-move"})
+        n = D.tick()
+        self.assertEqual(n, 0)
+        tkt = T.read_ticket(path)
+        self.assertEqual(tkt.status, "blocked")
+        self.assertIn("researcher", tkt.log[-1].text)
+        self.assertIn("researcher", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_finish_run_flags_haiku_ticket_actually_run_on_other_model(self):
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Подмена модели")
+        T.write_header_updates(path, {"executor": "haiku", "kind": "file-move"})
+        tid = path.stem
+        state = D.load_state()
+        run_file = self.dispatcher_dir / "wrongmodel.json"
+        run_file.write_text(json.dumps({"session_id": "s-haiku-1", "total_cost_usd": 0.01,
+                                         "modelUsage": {"claude-opus-5-5": {"costUSD": 0.01}}}),
+                             encoding="utf-8")
+        info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": "todo", "run_cap_usd": 1.0, "status_at_launch": "todo", "executor": "haiku"}
+        D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
+        self.assertIn("opus", D.CEO_INBOX.read_text(encoding="utf-8"))
+
     def test_no_log_entry_retries_once_then_blocks(self):
         self.set_fake_bin(FAKE_BIN_SILENT)
         path = T.create_ticket(self.tickets_dir, owner="engineer", title="Молчун",
@@ -628,8 +679,10 @@ class DispatchRunTests(unittest.TestCase):
                     fh.close()
         D.RUNNING.clear()
 
-    def test_money_cost_falls_back_to_run_cap_when_no_json(self):
-        """п.3: запуск без JSON (убит) — потрачённым считается весь потолок ЭТОГО запуска, не 0."""
+    def test_money_no_json_is_undercount_not_run_cap(self):
+        """v1.4 (судья TK-002 п.1д): запуск без JSON (убит) не досчитывается потолком запуска — иначе
+        двойной счёт, если та же сессия потом продолжится (разница на resume уже подберёт реальное).
+        Принимаем недоучёт на этот раз, не гадаем числом (было — списывали run_cap_usd, v1.3)."""
         state = D.load_state()
         run_file = self.dispatcher_dir / "nocost.json"
         run_file.write_text("", encoding="utf-8")
@@ -640,8 +693,8 @@ class DispatchRunTests(unittest.TestCase):
         tid = T.list_tickets(self.tickets_dir)[0].stem
         info_by_tid = dict(info)
         D._finish_run(tid, info_by_tid, state, dt("2026-09-27T12:05:00+04:00"), timed_out=True)
-        self.assertAlmostEqual(D.ticket_cost_spent(state, tid), 4.25)
-        self.assertAlmostEqual(state.get("daily_cost", {}).get("2026-09-27", 0.0), 4.25)
+        self.assertAlmostEqual(D.ticket_cost_spent(state, tid), 0.0)
+        self.assertAlmostEqual(state.get("daily_cost", {}).get("2026-09-27", 0.0), 0.0)
 
     def test_money_idle_run_over_half_budget_blocks_immediately(self):
         """п.5, холостой ход: дороже половины бюджета и ни записи, ни смены статуса — сразу blocked,
@@ -940,6 +993,38 @@ class TicketsCliStartTests(unittest.TestCase):
         self.assertIn("потрачено", out)
         self.assertIn("$1.50/$3.00", out)
 
+    def test_new_haiku_requires_kind(self):
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Без kind", "--executor", "haiku"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(T.list_tickets(self.tickets_dir), [])
+
+    def test_new_haiku_default_reviewer_judge_is_refused(self):
+        """researcher/engineer получают reviewer: judge по умолчанию — с executor: haiku это запрещённая
+        комбинация (условие г), даже если пользователь не просил reviewer явно."""
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Забыли --no-reviewer",
+                      "--executor", "haiku", "--kind", "file-move"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(T.list_tickets(self.tickets_dir), [])
+
+    def test_new_haiku_researcher_owner_is_refused(self):
+        rc = TK.main(["new", "--owner", "researcher", "--title", "Не Haiku", "--no-reviewer",
+                      "--executor", "haiku", "--kind", "publish"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(T.list_tickets(self.tickets_dir), [])
+
+    def test_new_haiku_valid_combo_succeeds(self):
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Механическая", "--no-reviewer",
+                      "--executor", "haiku", "--kind", "table-format"])
+        self.assertEqual(rc, 0)
+        tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
+        self.assertEqual(tkt.executor, "haiku")
+        self.assertEqual(tkt.kind, "table-format")
+        self.assertEqual(tkt.reviewer, "")
+
+    def test_new_kind_without_executor_is_refused(self):
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Странно", "--kind", "publish"])
+        self.assertEqual(rc, 1)
+
 
 class JudgeSimulationDecideTests(unittest.TestCase):
     """Переложение симуляций Судьи (TK-001, 27.09) на unittest — pure `decide()`, без процессов.
@@ -1084,6 +1169,124 @@ class MoneyControlsTests(unittest.TestCase):
         D.CEO_INBOX, D.CEO_WAKE_LOG = self._orig_inbox, self._orig_wake
         self.tmp.cleanup()
 
+    # --- v1.4, судья TK-002 п.3 (взамен привратника TypeSafe): таблица правил кодом ---
+
+    def test_classify_signal_defaults_to_wake(self):
+        for kind in ("blocked", "needs_owner", "budget", "hour-budget", "no-reviewer",
+                     "budget-check", "mention", "parse-error", "какой-то-новый-вид-никто-не-обновил-таблицу"):
+            self.assertEqual(D.classify_signal(kind), "wake", kind)
+
+    def test_classify_signal_model_is_summary(self):
+        self.assertEqual(D.classify_signal("model"), "summary")
+
+    def test_route_ceo_signal_wake_kind_appears_immediately(self):
+        D.route_ceo_signal("TK-1", "blocked", "тест", self.state, self.now)
+        self.assertIn("тест", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_route_ceo_signal_summary_kind_not_lost_flushes_eventually(self):
+        """Ничего не выкидывается в «только журнал» — просто уходит не сразу, а пачкой."""
+        D.route_ceo_signal("TK-1", "model", "не-opus модель X", self.state, self.now)
+        # первый флаш случается сразу (нет last_summary_flush) — но проверим, что текст ГДЕ-ТО есть
+        self.assertTrue(D.CEO_INBOX.exists())
+        self.assertIn("не-opus модель X", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_route_ceo_signal_summary_batches_within_window(self):
+        D.flush_pending_summary(self.state, self.now)  # задаём точку отсчёта окна (пусто — просто маркер)
+        D.route_ceo_signal("TK-1", "model", "первая", self.state, self.now + timedelta(minutes=1))
+        before = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        D.route_ceo_signal("TK-2", "model", "вторая", self.state, self.now + timedelta(minutes=2))
+        after_immediate = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertEqual(before, after_immediate, "вторая копится, не уходит немедленно внутри окна")
+        D.route_ceo_signal("TK-3", "model", "третья", self.state,
+                            self.now + timedelta(hours=D.SUMMARY_EVERY_HOURS, minutes=5))
+        final = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("вторая", final)
+        self.assertIn("третья", final)
+
+    # --- v1.4, судья TK-002 п.5: executor: haiku ---
+
+    def test_haiku_refused_reason_none_for_non_haiku(self):
+        text = ("---\nid: X1\nowner: engineer\nstatus: todo\nupdated: 2026-09-27T12:00:00+04:00\n---\n\n## Лог\n")
+        self.assertIsNone(D.haiku_refused_reason(T.parse_text(text, Path("X1.md"))))
+
+    def test_haiku_refused_reason_bad_kind(self):
+        text = ("---\nid: X2\nowner: engineer\nstatus: todo\nexecutor: haiku\nkind: something-else\n"
+                "updated: 2026-09-27T12:00:00+04:00\n---\n\n## Лог\n")
+        reason = D.haiku_refused_reason(T.parse_text(text, Path("X2.md")))
+        self.assertIsNotNone(reason)
+        self.assertIn("kind", reason)
+
+    def test_haiku_refused_reason_reviewer_judge(self):
+        text = ("---\nid: X3\nowner: engineer\nstatus: todo\nexecutor: haiku\nkind: file-move\nreviewer: judge\n"
+                "updated: 2026-09-27T12:00:00+04:00\n---\n\n## Лог\n")
+        reason = D.haiku_refused_reason(T.parse_text(text, Path("X3.md")))
+        self.assertIsNotNone(reason)
+        self.assertIn("judge", reason)
+
+    def test_haiku_refused_reason_owner_researcher(self):
+        text = ("---\nid: X4\nowner: researcher\nstatus: todo\nexecutor: haiku\nkind: publish\n"
+                "updated: 2026-09-27T12:00:00+04:00\n---\n\n## Лог\n")
+        reason = D.haiku_refused_reason(T.parse_text(text, Path("X4.md")))
+        self.assertIsNotNone(reason)
+        self.assertIn("researcher", reason)
+
+    def test_haiku_refused_reason_allowed_case(self):
+        text = ("---\nid: X5\nowner: engineer\nstatus: todo\nexecutor: haiku\nkind: table-format\n"
+                "updated: 2026-09-27T12:00:00+04:00\n---\n\n## Лог\n")
+        self.assertIsNone(D.haiku_refused_reason(T.parse_text(text, Path("X5.md"))))
+
+    # --- v1.4, судья TK-002 п.1: разница по session_id, не кумулятивный итог ---
+
+    def test_resolve_run_cost_first_call_takes_total_as_is(self):
+        """(б) нет прошлого итога → берём итог как есть, помечаем."""
+        result = {"session_id": "s1", "total_cost_usd": 6.7985, "modelUsage": {"claude-opus-5-5": {"costUSD": 6.7985}}}
+        cost, diff, note = D.resolve_run_cost(self.state, result)
+        self.assertAlmostEqual(cost, 6.7985)
+        self.assertTrue(note)
+        self.assertEqual(self.state["session_cost_seen"]["s1"], 6.7985)
+
+    def test_resolve_run_cost_second_call_is_diff_not_cumulative(self):
+        """Живой случай 27.09: сессия судьи $6,80 → $8,29 → $8,74 кумулятивных, реально — $1,49 и $0,45."""
+        r1 = {"session_id": "s1", "total_cost_usd": 6.798510249999997,
+              "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
+                              "claude-opus-5-5": {"costUSD": 0.5488850000000001}}}
+        r2 = {"session_id": "s1", "total_cost_usd": 8.289092449999998,
+              "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
+                              "claude-opus-5-5": {"costUSD": 2.0394672000000003}}}
+        r3 = {"session_id": "s1", "total_cost_usd": 8.735297849999998,
+              "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
+                              "claude-opus-5-5": {"costUSD": 2.4856726000000005}}}
+        cost1, diff1, note1 = D.resolve_run_cost(self.state, r1)
+        cost2, diff2, note2 = D.resolve_run_cost(self.state, r2)
+        cost3, diff3, note3 = D.resolve_run_cost(self.state, r3)
+        self.assertAlmostEqual(cost2, 1.490582200000001, places=6)
+        self.assertAlmostEqual(cost3, 0.446205400000000, places=6)
+        self.assertFalse(note2)
+        self.assertFalse(note3)
+        # инвариант судьи (г): сумма разниц = последний итог
+        self.assertAlmostEqual(cost1 + cost2 + cost3, r3["total_cost_usd"], places=6)
+        # (в) fable не рос — не в разнице; opus рос — в разнице (ложной тревоги «не-opus» нет)
+        self.assertNotIn("claude-fable-5-1", diff2)
+        self.assertNotIn("claude-fable-5-1", diff3)
+        self.assertIn("claude-opus-5-5", diff2)
+        self.assertIsNone(D._model_usage_warning(diff2))
+        self.assertIsNone(D._model_usage_warning(diff3))
+
+    def test_resolve_run_cost_negative_diff_takes_total_as_is(self):
+        """(б) разница < 0 (например счётчик сброшен на стороне API) → берём итог как есть, помечаем."""
+        D.resolve_run_cost(self.state, {"session_id": "s1", "total_cost_usd": 5.0})
+        cost, diff, note = D.resolve_run_cost(self.state, {"session_id": "s1", "total_cost_usd": 1.0})
+        self.assertAlmostEqual(cost, 1.0)
+        self.assertTrue(note)
+
+    def test_resolve_run_cost_rotation_starts_fresh(self):
+        """(а) разница — по session_id, не «хранилищу роли»: новая сессия после ротации начинает с нуля."""
+        D.resolve_run_cost(self.state, {"session_id": "old-sid", "total_cost_usd": 20.0})
+        cost, diff, note = D.resolve_run_cost(self.state, {"session_id": "new-sid-after-rotation",
+                                                             "total_cost_usd": 0.5})
+        self.assertAlmostEqual(cost, 0.5)  # не 0.5 - 20.0 — это другая сессия
+        self.assertTrue(note)
+
     # --- п.1: модель/усилие ---
 
     def test_role_effort_mapping(self):
@@ -1092,17 +1295,34 @@ class MoneyControlsTests(unittest.TestCase):
         self.assertEqual(D.ROLE_EFFORT["researcher"], "high")
 
     def test_model_usage_warning_none_when_absent_or_empty(self):
+        # v1.4: принимает уже РАЗНИЦУ modelUsage (_model_usage_diff), не сырой результат
         self.assertIsNone(D._model_usage_warning({}))
-        self.assertIsNone(D._model_usage_warning({"modelUsage": {}}))
-        self.assertIsNone(D._model_usage_warning({"modelUsage": "not-a-dict"}))
+        self.assertIsNone(D._model_usage_warning(None))
+        self.assertIsNone(D._model_usage_warning("not-a-dict"))
 
     def test_model_usage_warning_silent_for_opus_only(self):
-        self.assertIsNone(D._model_usage_warning({"modelUsage": {"claude-opus-5-5": {"cost": 1.2}}}))
+        self.assertIsNone(D._model_usage_warning({"claude-opus-5-5": {"cost": 1.2}}))
 
     def test_model_usage_warning_flags_non_opus(self):
-        warn = D._model_usage_warning({"modelUsage": {"fable-5-1": {"cost": 6.8}}})
+        warn = D._model_usage_warning({"fable-5-1": {"cost": 6.8}})
         self.assertIsNotNone(warn)
         self.assertIn("fable-5-1", warn)
+
+    def test_model_usage_diff_ignores_unchanged_historical_model(self):
+        """v1.4 (судья TK-002 п.1в, живой прогон 27.09): модель, не выросшая с прошлого раза —
+        историческая примесь (например Fable из первого домодельного вызова сессии), не тревога."""
+        current = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-opus-5-5": {"costUSD": 2.49}}
+        previous = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-opus-5-5": {"costUSD": 2.04}}
+        diff = D._model_usage_diff(current, previous)
+        self.assertNotIn("claude-fable-5-1", diff)
+        self.assertIn("claude-opus-5-5", diff)
+        self.assertIsNone(D._model_usage_warning(diff))  # opus вырос — тревоги нет, это ожидаемая модель
+
+    def test_model_usage_diff_flags_new_non_opus_model(self):
+        current = {"claude-fable-5-1": {"costUSD": 1.0}}
+        diff = D._model_usage_diff(current, {})
+        self.assertIn("claude-fable-5-1", diff)
+        self.assertIsNotNone(D._model_usage_warning(diff))
 
     # --- п.2: бюджет задачи (только state.json — роли не видно) ---
 

@@ -209,8 +209,9 @@ def on_prompt_all(hook_in, role):
         advice = None
     alert = deck_alert() if role == "ceo" else None
     inbox = ceo_inbox_alert() if role == "ceo" else None
+    watch = watch_alert() if role == "ceo" else None
     pending = pending_permissions() if role == "ceo" else None
-    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, pending, inbox, alert, text, advice)
+    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, pending, inbox, watch, alert, text, advice)
                      if t) or None
 
 
@@ -245,6 +246,29 @@ def deck_alert():
     except OSError:
         pass
     return text or None
+
+
+# Судья TK-002 п.2а («кто сторожит сторожа», v1.4): сторож .claude/dispatcher/watch.py пишет отметку
+# сердцебиения на каждый цикл; здесь только её возраст (сам сторож — свой процесс/крон, не этот хук).
+WATCH_HEARTBEAT_FILE = os.path.join(ROOT, ".claude", "dispatcher", "watch-heartbeat.json")
+WATCH_STALE_S = 2 * 120  # 2 интервала сторожа (WATCH_INTERVAL_S по умолчанию в watch.py — 120 с)
+
+
+def watch_alert():
+    try:
+        with open(WATCH_HEARTBEAT_FILE, encoding="utf-8") as f:
+            hb = json.load(f)
+    except (OSError, ValueError):
+        return ("[сторож] .claude/dispatcher/watch-heartbeat.json не найден — сторож CEO (watch.py) "
+                "ни разу не отчитался или не запущен.")
+    try:
+        ts = datetime.datetime.fromisoformat(str(hb.get("ts", "")).replace("Z", "+00:00"))
+        age = (datetime.datetime.now(ts.tzinfo) - ts).total_seconds()
+    except Exception:
+        return "[сторож] watch-heartbeat.json повреждён — не разобрать время последнего цикла."
+    if age > WATCH_STALE_S:
+        return f"[сторож] сердцебиение watch.py устарело на {age / 60:.0f} мин — проверить, жив ли сторож."
+    return None
 
 
 # владелец 27.09: «че у младших везде опять писанина» — правило устава README не держалось после клира;

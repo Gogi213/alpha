@@ -8,5 +8,9 @@ ceo-wake.log
 .ceo-inbox-seen
 dispatch.pid
 dispatch.*.log
+watch-heartbeat.json
+watch-heartbeat.json.tmp
+watch-state.json
+watch-state.json.tmp
 runs/*
 !runs/.gitkeep

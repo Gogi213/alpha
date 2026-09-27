@@ -74,6 +74,14 @@ class Ticket:
     def reviewer(self) -> str:
         return self.header.get("reviewer") or ""
 
+    @property
+    def executor(self) -> str:
+        return self.header.get("executor") or ""
+
+    @property
+    def kind(self) -> str:
+        return self.header.get("kind") or ""
+
     def logged_since(self, author: str, since: datetime) -> bool:
         author = author.lower()
         return any(e.author.lower() == author and e.ts > since for e in self.log)
@@ -188,13 +196,18 @@ def next_ticket_id(tickets_dir, prefix: str = "TK-") -> str:
 
 def create_ticket(tickets_dir, owner: str, title: str, reviewer: str = None,
                    description: str = "", wait_for: str = "", now: datetime = None,
-                   prefix: str = "TK-", status: str = "todo") -> Path:
+                   prefix: str = "TK-", status: str = "todo", executor: str = None,
+                   kind: str = None) -> Path:
     tickets_dir = Path(tickets_dir)
     tickets_dir.mkdir(parents=True, exist_ok=True)
     tid = next_ticket_id(tickets_dir, prefix)
     lines = [f"id: {tid}", f"title: {title}", f"owner: {owner}", f"status: {status}"]
     if reviewer:
         lines.append(f"reviewer: {reviewer}")
+    if executor:
+        lines.append(f"executor: {executor}")
+    if kind:
+        lines.append(f"kind: {kind}")
     lines.append(f"wait_for: {wait_for}")
     lines.append(f"updated: {now_iso(now)}")
     text = "---\n" + "\n".join(lines) + "\n---\n\n"

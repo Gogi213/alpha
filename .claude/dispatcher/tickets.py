@@ -4,6 +4,8 @@
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --no-reviewer     # явный отказ от ревью
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." --backlog   # перенос из TASKS.md
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --budget L    # S=3/M=10/L=25, умолч. M
+    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --no-reviewer \
+        --executor haiku --kind file-move    # белый список kind; reviewer:judge/owner:researcher — отказ
     python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..."
     python .claude/dispatcher/tickets.py start TK-001                                     # backlog → todo
     python .claude/dispatcher/tickets.py status
@@ -33,15 +35,36 @@ def cmd_new(args) -> int:
         # судья 27.09, п.6 «обязательно»: без ревьюера по умолчанию done молча минует проверку Судьи
         # (числа владельцу должны идти после Судьи) — отказ только явным --no-reviewer
         reviewer = "judge"
-    path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=reviewer,
-                            description=args.desc or "", wait_for=args.wait_for or "",
-                            status="backlog" if args.backlog else "todo")
-    tid = path.stem
+
+    if args.executor == "haiku":
+        # судья TK-002 п.5г: обход проверки Судьи запрещён — отказ до создания файла, не постфактум
+        if args.kind not in D.HAIKU_ALLOWED_KINDS:
+            print(f"--executor haiku требует --kind из {sorted(D.HAIKU_ALLOWED_KINDS)}", file=sys.stderr)
+            return 1
+        if reviewer == "judge":
+            print("--executor haiku нельзя вместе с reviewer: judge (явным или по умолчанию) — "
+                  "числа/вердикты не на Haiku; добавь --no-reviewer, если задача правда механическая",
+                  file=sys.stderr)
+            return 1
+        if args.owner == "researcher":
+            print("--executor haiku нельзя для owner: researcher — исследовательский результат не на Haiku",
+                  file=sys.stderr)
+            return 1
+    elif args.kind:
+        print("--kind без --executor haiku не имеет смысла", file=sys.stderr)
+        return 1
+
     try:
         budget = D.parse_budget_arg(args.budget) if args.budget else D.DEFAULT_TICKET_BUDGET_USD
     except ValueError:
         print(f"--budget: не число и не S|M|L: {args.budget!r}", file=sys.stderr)
         return 1
+
+    path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=reviewer,
+                            description=args.desc or "", wait_for=args.wait_for or "",
+                            status="backlog" if args.backlog else "todo",
+                            executor=args.executor, kind=args.kind)
+    tid = path.stem
     state = D.load_state()
     D.set_ticket_budget(state, tid, budget)
     D.save_state(state)
@@ -122,6 +145,10 @@ def main(argv=None) -> int:
                         help="создать сразу в backlog (перенос из TASKS.md) — диспетчер её не трогает до `start`")
     p_new.add_argument("--budget", default=None,
                         help="S=3/M=10/L=25 или число долларов; умолч. M; только в state.json, не в шапке")
+    p_new.add_argument("--executor", choices=["haiku"], default=None,
+                        help="claude-haiku-4-5 для чисто механических задач — требует --kind")
+    p_new.add_argument("--kind", choices=sorted(D.HAIKU_ALLOWED_KINDS), default=None,
+                        help="вид задачи для --executor haiku")
     p_new.set_defaults(func=cmd_new)
 
     p_comment = sub.add_parser("comment")

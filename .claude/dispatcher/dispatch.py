@@ -54,6 +54,13 @@ DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 CLAUDE_MODEL = os.environ.get("ALPHA_DISPATCH_MODEL", "claude-opus-5-5")
 ROLE_EFFORT = {"judge": "xhigh", "engineer": "high", "researcher": "high"}
 
+# executor: haiku (судья TK-002 п.5) — механические задачи только: белый список видов (--kind при
+# tickets.py new), приёмка результата — кодом (в конкретных скриптах-проверках по виду, не здесь).
+# Обход Судьи запрещён (условие г): reviewer: judge или owner: researcher — не Haiku, tickets.py new
+# отказывает раньше, чем тикет вообще появится; здесь — вторая защита на случай ручной правки шапки.
+CLAUDE_HAIKU_MODEL = os.environ.get("ALPHA_DISPATCH_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+HAIKU_ALLOWED_KINDS = {"file-move", "table-format", "publish"}
+
 # Потолок одного запуска (--max-budget-usd, встроенный флаг CLI) — min(остаток бюджета задачи, этот
 # потолок). Часовая скорость трат — скользящее окно 60 мин по ВСЕМ ролям сразу (не на роль/задачу).
 RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_RUN_CAP_USD", "8"))
@@ -206,6 +213,48 @@ def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
         fh.write(f"{T.now_iso(now)} {tid} {kind}\n")
 
 
+# --- таблица правил «вид сигнала → будить / сводка» (судья TK-002 п.3, взамен привратника TypeSafe) --
+#
+# В-85: классифицирует КОД по виду сигнала (`kind` из append_ceo_inbox), не модель. Судья отверг
+# привратник на Jev в предложенном виде — асимметрия цены ошибок (пропуск сигнала стоит часы простоя
+# команды, лишнее пробуждение — центы); почти все виды здесь структурные, не свободный текст. Ничего не
+# отбрасывается: "summary" копится и уходит одной строкой не реже SUMMARY_EVERY_HOURS — не молчание.
+# Неизвестный вид (кто-то добавит новый append_ceo_inbox без обновления таблицы) — по умолчанию "wake",
+# безопасная сторона асимметрии.
+SIGNAL_SUMMARY_KINDS = {"model"}  # уже само по себе диагностика/лог, не требует немедленной реакции
+SUMMARY_EVERY_HOURS = float(os.environ.get("ALPHA_DISPATCH_SUMMARY_HOURS", "1"))
+
+
+def classify_signal(kind: str) -> str:
+    return "summary" if kind in SIGNAL_SUMMARY_KINDS else "wake"
+
+
+def flush_pending_summary(state: dict, now) -> None:
+    pending = state.get("pending_summary") or []
+    if pending:
+        line = f"- {T.now_iso(now)} * [summary] {len(pending)} сигнал(ов): " + " | ".join(pending)
+        CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
+        with open(CEO_INBOX, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(f"{T.now_iso(now)} * summary({len(pending)})\n")
+    state["pending_summary"] = []
+    state["last_summary_flush"] = T.now_iso(now)
+
+
+def route_ceo_signal(tid: str, kind: str, note: str, state: dict, now) -> None:
+    """append_ceo_inbox() для "wake"-видов; "summary"-виды копятся и уходят пачкой по SUMMARY_EVERY_HOURS."""
+    if classify_signal(kind) != "summary":
+        append_ceo_inbox(tid, kind, note, now)
+        return
+    pending = state.setdefault("pending_summary", [])
+    pending.append(f"{T.now_iso(now)} {tid} [{kind}] {note[:150]}")
+    last_flush = state.get("last_summary_flush")
+    last_flush_dt = T.parse_dt(last_flush) if last_flush else None
+    if last_flush_dt is None or (now - last_flush_dt) >= timedelta(hours=SUMMARY_EVERY_HOURS):
+        flush_pending_summary(state, now)
+
+
 def handle_ceo_mentions(tkt: T.Ticket, state: dict, now) -> None:
     notified = state.setdefault("ceo_mention_notified", {})
     key = f"{tkt.id}::ceo"
@@ -253,6 +302,21 @@ def notify_done_without_reviewer(tkt: T.Ticket, state: dict, now) -> None:
         return
     append_ceo_inbox(tkt.id, "no-reviewer", "done без reviewer — числа минуют проверку Судьи", now)
     notified[tkt.id] = marker
+
+
+def haiku_refused_reason(tkt: T.Ticket) -> str:
+    """None — можно запускать на Haiku; иначе причина отказа. Судья TK-002 п.5: (а) белый список видов
+    (kind), (г) обход проверки Судьи запрещён — reviewer: judge или owner: researcher не бывают Haiku,
+    даже если tickets.py new это пропустил (ручная правка шапки) — вторая защита, уже в диспетчере."""
+    if tkt.executor != "haiku":
+        return None
+    if tkt.kind not in HAIKU_ALLOWED_KINDS:
+        return f"executor: haiku требует kind из {sorted(HAIKU_ALLOWED_KINDS)}, у тикета kind={tkt.kind or '(пусто)'}"
+    if tkt.reviewer.lower() == "judge":
+        return "executor: haiku нельзя вместе с reviewer: judge — числа/вердикты не на Haiku"
+    if tkt.owner == "researcher":
+        return "executor: haiku нельзя для owner: researcher — исследовательский результат не на Haiku"
+    return None
 
 
 # --- решение --------------------------------------------------------------------------------
@@ -502,16 +566,77 @@ def _notify_hour_budget(state: dict, now) -> bool:
     return exceeded
 
 
-def _model_usage_warning(result: dict) -> str:
-    """п.1: «проверь, что в JSON modelUsage только opus» — автоматическая, не разовая проверка:
-    если запуск использовал модель без "opus" в имени, несмотря на явный --model, строка CEO."""
-    usage = result.get("modelUsage")
-    if not isinstance(usage, dict) or not usage:
+def _model_usage_number(v) -> float:
+    """costUSD (или похожее поле) из одной записи modelUsage; неизвестная форма — 1.0 (сам факт есть)."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, dict):
+        for k in ("costUSD", "cost_usd", "cost", "totalCostUsd", "total_cost_usd"):
+            if k in v:
+                try:
+                    return float(v[k])
+                except (TypeError, ValueError):
+                    return 0.0
+        return 1.0
+    return 0.0
+
+
+def _model_usage_diff(current: dict, previous: dict) -> dict:
+    """Модели, реально задействованные В ЭТОМ прогоне — не за всю историю сессии (судья TK-002 п.1в):
+    --resume отдаёт modelUsage кумулятивно, и историческая примесь (например Fable из самого первого,
+    домодельного вызова сессии) иначе вечно всплывает как «не-opus», хотя в этом прогоне её не было —
+    поймано 27.09 на живой сессии судьи (T-38/TK-002, claude-fable-5-1 не рос ни разу после в1.2)."""
+    current = current or {}
+    previous = previous or {}
+    diff = {}
+    for model, val in current.items():
+        cur_n = _model_usage_number(val)
+        prev_n = _model_usage_number(previous.get(model)) if model in previous else 0.0
+        if model not in previous or (cur_n - prev_n) > 0:
+            diff[model] = val
+    return diff
+
+
+def _model_usage_warning(model_usage_diff: dict, expected: str = "opus") -> str:
+    """п.1: «проверь, что в JSON modelUsage только opus» — автоматическая, не разовая проверка, и
+    только по РАЗНИЦЕ этого запуска (см. _model_usage_diff), не по кумулятивной истории сессии.
+    `expected` — "haiku" для executor: haiku (судья TK-002 п.5в: диспетчер проверяет по разнице
+    modelUsage, что запуск реально был на Haiku, не тихо на другой модели)."""
+    if not isinstance(model_usage_diff, dict) or not model_usage_diff:
         return None
-    bad = [m for m in usage if "opus" not in str(m).lower()]
+    bad = [m for m in model_usage_diff if expected not in str(m).lower()]
     if bad:
-        return f"modelUsage содержит не-opus модели ({', '.join(bad)}) при --model {CLAUDE_MODEL}"
+        return f"modelUsage этого запуска содержит модели без «{expected}» ({', '.join(bad)})"
     return None
+
+
+def resolve_run_cost(state: dict, result: dict):
+    """(стоимость ИМЕННО этого запуска, разница modelUsage, нужна_ли_пометка «как есть» в runs.log).
+    Условия судьи TK-002 п.1: --resume отдаёт total_cost_usd/modelUsage КУМУЛЯТИВНО по всей истории
+    session_id, не по этому запуску (живой пример 27.09: сессия судьи сходила с $6,80 → $8,29 → $8,74
+    кумулятивных; реальные траты запусков — $1,49 и $0,45 — записывались как $8,29 и $8,74, отсюда
+    ложная часовая пауза $19,39/ч при реальных ≈ $4,30/ч). (а) разница — по session_id, не по
+    хранилищу роли/задачи (переживает ротацию иначе — новый id начинает с нуля сам по себе, так как
+    для него нет прошлого итога). (б) нет прошлого итога ИЛИ разница < 0 → берём итог как есть,
+    помечаем. Вызывающий должен получить `result` только когда `total_cost_usd` присутствует —
+    отсутствие JSON целиком (таймаут/убит) обрабатывается отдельно, см. _finish_run."""
+    raw_cost = float(result.get("total_cost_usd"))
+    raw_usage = result.get("modelUsage") or {}
+    session_id = result.get("session_id")
+    if not session_id:
+        return raw_cost, raw_usage, True
+    seen_costs = state.setdefault("session_cost_seen", {})
+    seen_usage = state.setdefault("session_model_usage_seen", {})
+    prev_cost = seen_costs.get(session_id)
+    prev_usage = seen_usage.get(session_id, {})
+    if prev_cost is None or (raw_cost - prev_cost) < 0:
+        cost, note = raw_cost, True
+    else:
+        cost, note = raw_cost - prev_cost, False
+    usage_diff = _model_usage_diff(raw_usage, prev_usage)
+    seen_costs[session_id] = raw_cost
+    seen_usage[session_id] = raw_usage
+    return cost, usage_diff, note
 
 
 def _pid_alive(pid, expect_name: str = None) -> bool:
@@ -614,16 +739,20 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     prompt = build_prompt(role, tid, extra_note)
     remaining_budget = max(0.0, ticket_budget_usd(state, tid) - ticket_cost_spent(state, tid))
     run_cap = min(remaining_budget, RUN_CAP_USD)
+    try:
+        launch_tkt = T.read_ticket(ticket_path)
+        status_at_launch = launch_tkt.status
+        executor = launch_tkt.executor
+    except Exception:
+        status_at_launch, executor = None, ""
+    # executor: haiku (судья TK-002 п.5) — заведомо проверенный на whitelist/обход тикетом (tickets.py
+    # new и haiku_refused_reason() в tick()); здесь только сама подмена модели.
+    model = CLAUDE_HAIKU_MODEL if executor == "haiku" else CLAUDE_MODEL
     cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions",
-           "--model", CLAUDE_MODEL, "--effort", ROLE_EFFORT.get(role, "high"),
+           "--model", model, "--effort", ROLE_EFFORT.get(role, "high"),
            "--max-budget-usd", f"{run_cap:.2f}"]
     if sid:
         cmd += ["--resume", sid]
-
-    try:
-        status_at_launch = T.read_ticket(ticket_path).status
-    except Exception:
-        status_at_launch = None
 
     env = dict(os.environ)
     # Судья 27.09, п.4 «обязательно»: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID
@@ -641,7 +770,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     RUNNING[tid] = {
         "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
-        "run_cap_usd": run_cap, "status_at_launch": status_at_launch,
+        "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
     }
     # last_woken — для дедупа правила (б) «упоминание»; всегда на (задачу, роль), не зависит от SESSION_SCOPE
     state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})["last_woken"] = T.now_iso(now)
@@ -650,7 +779,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     state.setdefault("active_runs", {})[tid] = {
         "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
         "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
-        "run_cap_usd": run_cap, "status_at_launch": status_at_launch,
+        "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
     }
     save_state(state)
 
@@ -664,19 +793,20 @@ def _read_run_result(run_file: Path) -> dict:
 
 
 def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool, resolved_cost: float,
-                      ticket_spent: float) -> None:
+                      ticket_spent: float, cost_note: bool = False) -> None:
     RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
     usage = result.get("usage") or {}
     status = "timeout" if timed_out else ("ok" if result else "no_output")
-    # cost_usd — реальный из JSON, если есть; ticket_spent — накоплено по ЭТОЙ задаче ПОСЛЕ этого запуска
-    # (поправка владельца 27.09: колонка «потрачено по задаче» — CEO видит её здесь и в tickets.py status,
-    # роль — нигде, бюджет ей не называем)
+    # cost_usd — сырой (кумулятивный за сессию) из JSON; resolved_cost — разница с прошлым итогом ТОЙ ЖЕ
+    # session_id (судья TK-002 п.1) — то, что реально начислено этому запуску; cost_note=asis — не было
+    # с чем сравнить (новая/ротированная сессия) или разница < 0 — использован сырой итог как есть.
+    # ticket_spent — накоплено по ЭТОЙ задаче ПОСЛЕ этого запуска (колонка CEO, роль её не видит).
     line = (f"{T.now_iso(now)} {tid} {info['role']} reason={info.get('reason')} "
             f"attempt={info.get('attempt', 0)} session={result.get('session_id', '-')} "
             f"cost_usd={result.get('total_cost_usd', '-')} resolved_cost={resolved_cost:.4f} "
-            f"ticket_spent={ticket_spent:.4f} in_tok={usage.get('input_tokens', '-')} "
-            f"out_tok={usage.get('output_tokens', '-')} ctx_last={_context_tokens_last(result)} "
-            f"ctx_sum={_context_tokens_sum(usage)} status={status}\n")
+            f"cost_note={'asis' if cost_note else 'diff'} ticket_spent={ticket_spent:.4f} "
+            f"in_tok={usage.get('input_tokens', '-')} out_tok={usage.get('output_tokens', '-')} "
+            f"ctx_last={_context_tokens_last(result)} ctx_sum={_context_tokens_sum(usage)} status={status}\n")
     with open(RUNS_LOG, "a", encoding="utf-8") as fh:
         fh.write(line)
 
@@ -690,19 +820,26 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     state.setdefault("active_runs", {}).pop(tid, None)
     result = _read_run_result(info["run_file"])
 
-    # Стоимость: реальная из JSON, а без него (убит по таймауту/вручную) — консервативно весь потолок
-    # ЭТОГО запуска (--max-budget-usd), а не 0 (владелец 27.09, п.3). Копится сразу в трёх местах:
-    # по дате (суточный потолок), по задаче (её бюджет) и в скользящем часовом окне (скорость).
-    raw_cost = result.get("total_cost_usd")
-    resolved_cost = float(raw_cost) if raw_cost is not None else float(info.get("run_cap_usd", 0.0) or 0.0)
+    # Стоимость ЭТОГО запуска — разница с прошлым кумулятивным итогом ТОЙ ЖЕ session_id (судья TK-002
+    # п.1: --resume отдаёт total_cost_usd/modelUsage кумулятивно за всю историю сессии, не за этот
+    # запуск — живой пример 27.09: сессия судьи $6,80 → $8,29 → $8,74 кумулятивных при реальных тратах
+    # запусков $1,49 и $0,45, отсюда ложная часовая пауза $19,39/ч). Нет JSON вовсе (убит по таймауту/
+    # вручную) — п.1(д): трата теряется НЕДОУЧЁТОМ на этот раз (не досчитываем потолком запуска, как в
+    # v1.3 — так считали бы дважды: и потолком сейчас, и разницей на следующем resume той же сессии),
+    # суточный/часовой итог в этом случае не точен — известное ограничение, не пытаемся угадать число.
+    if result.get("total_cost_usd") is not None:
+        resolved_cost, model_usage_diff, cost_note = resolve_run_cost(state, result)
+    else:
+        resolved_cost, model_usage_diff, cost_note = 0.0, {}, True
     _add_cost(state, now, resolved_cost)
     add_ticket_cost(state, tid, resolved_cost)
     _record_cost_event(state, now, resolved_cost)
-    _log_run_summary(tid, info, result, now, timed_out, resolved_cost, ticket_cost_spent(state, tid))
+    _log_run_summary(tid, info, result, now, timed_out, resolved_cost, ticket_cost_spent(state, tid), cost_note)
 
-    model_warn = _model_usage_warning(result)
+    expected_model = "haiku" if info.get("executor") == "haiku" else "opus"
+    model_warn = _model_usage_warning(model_usage_diff, expected_model)
     if model_warn:
-        append_ceo_inbox(tid, "model", model_warn, now)
+        route_ceo_signal(tid, "model", model_warn, state, now)
 
     role = info["role"]
     key = f"{tid}::{role}"
@@ -808,6 +945,7 @@ def recover_active_runs(state: dict, now) -> None:
             "run_file": Path(saved["run_file"]), "err_file": Path(saved.get("err_file") or ""),
             "out_fh": None, "err_fh": None, "reason": saved.get("reason", "recovered"),
             "run_cap_usd": saved.get("run_cap_usd", 0.0), "status_at_launch": saved.get("status_at_launch"),
+            "executor": saved.get("executor", ""),
         }
         if _pid_alive(saved.get("pid")):
             RUNNING[tid] = info
@@ -854,6 +992,12 @@ def tick(now=None) -> int:
         decision = decide(tkt, state, now)
         if decision is None:
             continue
+        haiku_reason = haiku_refused_reason(tkt)
+        if haiku_reason:
+            T.write_header_updates(path, {"status": "blocked"}, now=now)
+            T.append_log(path, "dispatcher", f"{haiku_reason} — задача заблокирована, нужен @ceo.", now=now)
+            route_ceo_signal(tid, "blocked", haiku_reason, state, now)
+            continue
         if budget_exceeded or hour_exceeded or ticket_over_budget:
             continue  # суточный/часовой потолок или бюджет задачи — новые запуски не стартуют
         if _role_busy(decision.role):
@@ -865,6 +1009,7 @@ def tick(now=None) -> int:
         launch_run(path, decision.role, state, now, reason=decision.reason)
         launched += 1
 
+    state["last_tick"] = T.now_iso(now)  # судья TK-002 п.2а: сторож проверяет диспетчер жив по этому
     save_state(state)
     return launched
 
