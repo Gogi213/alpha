@@ -212,6 +212,9 @@ details.sub + details.sub { margin-top: 8px; }
 
 /* вкладки */
 div.wrap[data-tab="main"] .tab-hyp, div.wrap[data-tab="hyp"] .tab-main { display: none !important; }
+.tab-hyp, .tab-hyp .note, .tab-hyp table { max-width: none; }
+#hyp-table td:nth-child(8) { white-space: normal !important; min-width: 220px; max-width: 420px; }
+#hyp-table td:nth-child(8) .badge { white-space: normal; border-radius: 8px; }
 section.panel .p05-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
 .p05-grid { display: grid; gap: 16px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }

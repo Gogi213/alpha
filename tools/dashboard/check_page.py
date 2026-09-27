@@ -118,6 +118,9 @@ def main():
             pg.evaluate("window.scrollTo(0, 0)")
             pg.wait_for_timeout(300)
             pg.screenshot(path=os.path.join(a.shots, "new-top-1920.png"))
+            pg.click("#tabs button[data-tab='hyp']")
+            pg.screenshot(path=os.path.join(a.shots, "new-hyp-1920.png"))
+            pg.click("#tabs button[data-tab='main']")
             pg.set_viewport_size({"width": 1400, "height": 900})
 
         # вкладка «Гипотезы»
@@ -126,6 +129,11 @@ def main():
         main_hid = not pg.is_visible("#tiles") and not pg.is_visible("#panel-rank")
         hyp_rows = pg.eval_on_selector_all("#hyp-table tbody tr", "e => e.length")
         check("«Гипотезы» показывает блоки и скрывает главную", hyp_vis and main_hid and hyp_rows > 0, f"блоки {hyp_vis}, главная скрыта {main_hid}, строк T-36 {hyp_rows}")
+        pg.set_viewport_size({"width": 1920, "height": 1080})
+        widths = pg.eval_on_selector_all("section.tab-hyp", "els => els.filter(e => e.offsetParent).map(e => [e.id, e.getBoundingClientRect().width])")
+        narrow = [(i, round(w)) for i, w in widths if w < 0.95 * 1920]
+        check("1920 px: блоки «Гипотез» ≥ 95 % окна", bool(widths) and not narrow, f"блоков {len(widths)}, узкие {narrow}")
+        pg.set_viewport_size({"width": 1400, "height": 900})
         if a.shots:
             pg.evaluate("window.scrollTo(0, 0)")
             pg.screenshot(path=os.path.join(a.shots, "new-hyp-1400.png"))
