@@ -13,7 +13,10 @@
         n_other_signal_15m — число ДРУГИХ монет пула (без TRX, В-105) с сигналом базы B1 (все сигналы `--src`,
         до занятости) в [t0 − 15 мин, t0) — П-08 §12 п. 2 (кэш D20 отсекал всё). База Г-126 — B2 (`--max-pos 3`).
         Сигналы соседних суток подавать вместе (окно через полночь).
-  g140  заготовка: доля пула со всплеском интенсивности — формат минутного ряда пишет TK-012 (TODO).
+  g36   p08-g36-a    g36_ratio ≥ 1,0              p08-g36-b    g36_ratio ≥ 0,46   (§12 п. 5, на взводе)
+  g55   p08-g55-20/50  пропуск: съедено за 60 с ≥ 20 / 50 % видимого и BTC за минуту ≥ −5 bps (§12 п. 6)
+  g140  p08-g140-30/50 доля пула во всплеске (cancel+trade ≥ 3 × медианы 60 мин) < 0,30 / < 0,50 (§12 п. 7)
+  g07   p08-g07-up/mid depth_behind50 ≥ верхней / нижней трети своей монеты по B1 августа (§12 п. 8, --terc-json)
 
 Выход (`--out DIR`): `keep-<клетка>.csv` (symbol,t0_ns,price_tick,form — ест `busy-replay.py --keep`) и
 `feats-<подкоманда>.csv` — признаки и флаги по ВСЕМ сигналам (охват §6); итог — в stdout.
@@ -28,6 +31,7 @@
 """
 import argparse
 import csv
+import json
 import datetime as dt
 import glob
 import importlib.util
@@ -60,7 +64,19 @@ CELLS = {
     "g78": [("p08-g78-q33", "coin_minus_btc_15m", lambda v: v <= -13.134246), ("p08-g78-25", "coin_minus_btc_15m", lambda v: v <= -25)],
     "g126": [("p08-g126-5", "n_other_signal_15m", lambda v: v < 5), ("p08-g126-10", "n_other_signal_15m", lambda v: v < 10)],
 }
+CELLS.update({
+    "g36": [("p08-g36-a", "g36_ratio", lambda v: v >= 1.0), ("p08-g36-b", "g36_ratio", lambda v: v >= 0.46)],
+    "g55": [("p08-g55-20", "g55_eat_share", None), ("p08-g55-50", "g55_eat_share", None)],  # условие — g55_cond
+    "g140": [("p08-g140-30", "g140_pool_share", lambda v: v < 0.30), ("p08-g140-50", "g140_pool_share", lambda v: v < 0.50)],
+    "g07": [("p08-g07-up", "g07_vs_up", lambda v: v >= 0), ("p08-g07-mid", "g07_vs_mid", lambda v: v >= 0)],
+})
 G126_WINDOW_MS = 15 * MIN_MS
+# Столбцы signals.csv от TK-012 (П-08 §12 п. 4–8; имена — по сообщению Исследователя в TK-012, 02:50)
+COL36 = ("traded_lots_at_arm", "size_max_at_arm", "size_monotonic_at_arm")
+COL55 = ("eat_60s_lots", "size_max_60s_lots")
+COL07 = "depth_behind50_lots_at_arm"
+BTC_1M_MIN_BPS = -5.0   # §7 Г-55: BTC за минуту ≥ −5 bps — «BTC стоит»
+G140_SPIKE_X = 3.0      # §7 Г-140: всплеск = минута ≥ 3 × медианы 60 мин
 
 
 # ---------- сигналы ----------
@@ -193,7 +209,119 @@ def signal_wave_feats(signals):
 
 # ---------- Г-140: заготовка ----------
 
+def _num(r, col):
+    v = r.get(col)
+    if v is None:
+        sys.exit(f"в signals.csv нет столбца {col} — нужен бинарник TK-012 с флагом признаков П-08")
+    return float(v) if v not in ("", "nan", "NaN") else None
+
+
+def g36_feats(signals):
+    """Г-36 на взводе (§12 п. 5): частичный снос был (size_monotonic_at_arm = 0) и traded / max(size_max, 1)."""
+    feats = {}
+    for r in signals:
+        tr, sm, mono = (_num(r, c) for c in COL36)
+        if tr is None or sm is None or mono is None:
+            feats[id(r)] = {"g36_ratio": None}
+            continue
+        feats[id(r)] = {"g36_ratio": -1.0 if mono else tr / max(sm, 1.0), "g36_monotonic": int(mono)}
+    return feats
+
+
+def g55_feats(lc, signals, homes):
+    """Г-55 (§12 п. 6): доля съеденного за 60 с до взвода от наибольшего видимого в том же окне; BTC — последняя
+    закрытая к сигналу минута (close→close, `ret` loss-corr)."""
+    btc = lc.Bars([os.path.join(h, "study", "regime", "ref-BTCUSDT-1m.csv") for h in homes])
+    feats = {}
+    for r in signals:
+        eat, smax = (_num(r, c) for c in COL55)
+        b1 = lc.ret(btc, entry_minute(r["t0_ns"]), 1)
+        share = None if eat is None or smax is None else eat / max(smax, 1.0)
+        feats[id(r)] = {"g55_eat_share": share, "g55_btc_1m": b1}
+    return feats
+
+
+def g55_cond(f, thr):
+    """ВХОД, если НЕ «местное съедание»: пропуск при доле ≥ thr и BTC ≥ −5 bps. Что-то не определено — None."""
+    sh, b1 = f.get("g55_eat_share"), f.get("g55_btc_1m")
+    if sh is None or b1 is None:
+        return None
+    return not (sh >= thr and b1 >= BTC_1M_MIN_BPS)
+
+
+def g07_feats(signals, terc_json):
+    """Г-07 (§12 п. 8): depth_behind50 против терцилей своей монеты по сигналам B1 АВГУСТА (заморозка — JSON;
+    нет JSON — считается по августовским строкам входа и пишется; монета с < 30 сигналами — терциль пула)."""
+    import math
+    if os.path.exists(terc_json):
+        terc = json.load(open(terc_json, encoding="utf-8"))
+    else:
+        by = {}
+        for r in signals:
+            if r["day_utc"].startswith("2026-08"):
+                v = _num(r, COL07)
+                if v is not None:
+                    by.setdefault(r["symbol"], []).append(v)
+
+        def q(vs):
+            vs = sorted(vs)
+            return [vs[math.ceil(len(vs) / 3) - 1], vs[math.ceil(2 * len(vs) / 3) - 1]]
+        pool = [v for vs in by.values() for v in vs]
+        if not pool:
+            sys.exit("g07: нет августовских сигналов со столбцом глубины — заморозить терцили нечем")
+        terc = {"_pool": q(pool), "_rule": "треть / две трети сигналов B1 августа; < 30 сигналов — _pool",
+                **{sym: q(vs) for sym, vs in by.items() if len(vs) >= 30}}
+        os.makedirs(os.path.dirname(os.path.abspath(terc_json)), exist_ok=True)
+        with open(terc_json, "w", encoding="utf-8", newline="") as fh:
+            json.dump(terc, fh, ensure_ascii=False, indent=1, sort_keys=True)
+        print(f"g07: терцили заморожены → {terc_json} (своих монет {len(terc) - 2})")
+    feats = {}
+    for r in signals:
+        v = _num(r, COL07)
+        lo, up = terc.get(r["symbol"], terc["_pool"])
+        feats[id(r)] = {"g07_depth": v, "g07_vs_up": None if v is None else v - up,
+                        "g07_vs_mid": None if v is None else v - lo}
+    return feats
+
+
 def intensity_feats(signals, intensity_dir):
+    """Г-140 (§12 п. 7): минутный ряд TK-012 `minute_ms,symbol,add_lots,cancel_lots,trade_lots` (все *.csv под
+    каталогом). x = cancel + trade за минуту. Монета во всплеске в минуте m (последняя закрытая к сигналу), если
+    x(m) ≥ 3 × медиана x за 60 минут до m; монета без строки в m, с < 30 минутами истории или с медианой 0 —
+    «нет данных», в знаменатель не входит. Признак — доля монет пула (без TRX) во всплеске."""
+    import statistics
+    if not intensity_dir:
+        sys.exit("g140: нужен --intensity")
+    series = {}
+    for fp in sorted(glob.glob(os.path.join(intensity_dir, "**", "*.csv"), recursive=True)):
+        with open(fp, encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(line for line in fh if not line.startswith("#")):
+                if r["symbol"] in EXCLUDED:
+                    continue
+                series.setdefault(r["symbol"], {})[int(r["minute_ms"])] = float(r["cancel_lots"]) + float(r["trade_lots"])
+    if not series:
+        sys.exit(f"g140: пустой каталог минутных рядов {intensity_dir}")
+    memo, feats = {}, {}
+    for r in signals:
+        m = entry_minute(r["t0_ns"])
+        if m not in memo:
+            n = k = 0
+            for ser in series.values():
+                x = ser.get(m)
+                prev = [ser[t] for t in range(m - 60 * MIN_MS, m, MIN_MS) if t in ser]
+                if x is None or len(prev) < 30:
+                    continue
+                med = statistics.median(prev)
+                if med <= 0:
+                    continue
+                n += 1
+                k += x >= G140_SPIKE_X * med
+            memo[m] = (k / n if n else None, n)
+        feats[id(r)] = {"g140_pool_share": memo[m][0], "g140_n_coins": memo[m][1]}
+    return feats
+
+
+def _intensity_feats_stub(signals, intensity_dir):
     # TODO(TK-012): формат минутного ряда интенсивностей по монете (снятия + сделки) пишет Инженер. Когда будет:
     # по каждой монете пула (без TRX) — сумма за 60 с до входа против 3 × медианы минутных сумм за 60 мин до входа;
     # доля монет со всплеском ≥ 30 % / ≥ 50 % → сигнал пропускается (клетки p08-g140-30 / p08-g140-50).
@@ -219,7 +347,12 @@ def write_outputs(out, sub, signals, feats, extra_cols=()):
             flags = []
             for name, key, cond in cells:
                 v = f.get(key)
-                ok = v is not None and cond(v)
+                if sub == "g55":
+                    c = g55_cond(f, 0.20 if name.endswith("-20") else 0.50)
+                    v = None if c is None else v
+                    ok = bool(c)
+                else:
+                    ok = v is not None and cond(v)
                 if v is None:
                     stats[name][1] += 1
                 if ok:
@@ -366,7 +499,8 @@ def synthetic(lc, tmp):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["g57", "g78", "g126", "g140", "selfcheck"])
+    ap.add_argument("cmd", choices=["g57", "g78", "g126", "g36", "g55", "g140", "g07", "selfcheck"])
+    ap.add_argument("--terc-json", help="g07: файл заморозки терцилей (нет — считается по августу и пишется)")
     ap.add_argument("--src", action="append", default=[], help="каталог клетки B1 (обход до signals.csv), повторяемый")
     ap.add_argument("--home", action="append", default=[], help="дом: study/klines, study/regime, study/approaches/D20")
     ap.add_argument("--klines", action="append", default=[], help="доп. каталог ref-<SYM>-1m.csv")
@@ -398,9 +532,12 @@ def main():
         sys.exit(0 if ok else 1)
     if not a.out:
         sys.exit("нужен --out")
-    if a.cmd == "g140":
-        intensity_feats(signals, a.intensity)
-    if a.cmd in ("g57", "g78"):
+    if a.cmd in ("g36", "g55", "g140", "g07"):
+        feats = {"g36": lambda: g36_feats(signals), "g55": lambda: g55_feats(lc, signals, a.home),
+                 "g140": lambda: intensity_feats(signals, a.intensity),
+                 "g07": lambda: g07_feats(signals, a.terc_json or os.path.join(a.out, "g07-terc.json"))}[a.cmd]()
+        write_outputs(a.out, a.cmd, signals, feats)
+    elif a.cmd in ("g57", "g78"):
         feats = kline_feats(lc, signals, a.home, a.klines)
         write_outputs(a.out, a.cmd, signals, feats)
     else:
