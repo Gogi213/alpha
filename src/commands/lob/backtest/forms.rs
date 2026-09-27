@@ -310,6 +310,17 @@ pub enum EntryForm {
         to_bps: f64,
         wall_weight: u32,
     },
+    /// `ladder<N>x<a>..<b>s[w<k>]` (В-131, владелец 27.09: «у кого-то 20 bps это ничто, у кого-то значимо —
+    /// учесть шаг цены и волатильность») — `N` ног от `a·σ` до `b·σ` над стеной, σ монеты на момент взвода;
+    /// ноги **не сливаются**: каждая следующая хотя бы на тик дальше предыдущей, первая не ближе `P ± 1`
+    /// (`ladder_legs_distinct`). Доли — как у `Ladder`. Источник σ — по решению Судьи; до него форма
+    /// разбирается, но `bounce-grid` её отвергает.
+    LadderSigma {
+        legs: u8,
+        from_sigma: f64,
+        to_sigma: f64,
+        wall_weight: u32,
+    },
     /// `market` — вход рынком (T4, П-02, открывает Г-86: «огромный завал уже
     /// проедается» — рыночный вход при `eaten_min=` выше порога, P-90).
     /// Немедленный тейкерский фил вместо очереди/лимитки: `bounce_plan`
@@ -392,6 +403,11 @@ impl EntryForm {
             wall_weight >= 1,
             "{spec}: вес к стене — целое ≥ 1 (1 — равные доли)"
         );
+        // В-131: суффикс `s` у полосы — концы в единицах σ монеты, а не в bps.
+        let (range, in_sigma) = match range.strip_suffix('s') {
+            Some(r) => (r, true),
+            None => (range, false),
+        };
         let (from_s, to_s) = range
             .split_once("..")
             .ok_or_else(|| anyhow::anyhow!("{spec}: полоса лестницы — <from>..<to> bps"))?;
@@ -405,11 +421,20 @@ impl EntryForm {
             from_bps.is_finite() && to_bps.is_finite() && from_bps > 0.0 && to_bps > from_bps,
             "{spec}: полоса лестницы — конечные 0 < from < to bps"
         );
-        let form = Self::Ladder {
-            legs,
-            from_bps,
-            to_bps,
-            wall_weight,
+        let form = if in_sigma {
+            Self::LadderSigma {
+                legs,
+                from_sigma: from_bps,
+                to_sigma: to_bps,
+                wall_weight,
+            }
+        } else {
+            Self::Ladder {
+                legs,
+                from_bps,
+                to_bps,
+                wall_weight,
+            }
         };
         anyhow::ensure!(
             form.label() == spec,
@@ -439,6 +464,23 @@ impl EntryForm {
                 wall_weight,
             } => {
                 let base = format!("ladder{legs}x{}..{}", fmt_bps(from_bps), fmt_bps(to_bps));
+                if wall_weight > 1 {
+                    format!("{base}w{wall_weight}")
+                } else {
+                    base
+                }
+            }
+            Self::LadderSigma {
+                legs,
+                from_sigma,
+                to_sigma,
+                wall_weight,
+            } => {
+                let base = format!(
+                    "ladder{legs}x{}..{}s",
+                    fmt_bps(from_sigma),
+                    fmt_bps(to_sigma)
+                );
                 if wall_weight > 1 {
                     format!("{base}w{wall_weight}")
                 } else {
@@ -500,6 +542,44 @@ pub(super) fn ladder_legs(
     }
     // Средняя цена входа в тиках — ближайший тик к взвешенной сумме: цены
     // живут на сетке тиков (так же округляет `level_shift` стратегии).
+    let avg = out.weighted_avg_tick().round() as i64;
+    (out, avg)
+}
+
+/// Нераздельные ноги лестницы (В-131): `N` цен от `from` до `to` bps над стеной, как `ladder_legs`, но
+/// совпавшие тики **не складываются** — каждая следующая нога хотя бы на тик дальше от стены, чем
+/// предыдущая, первая не ближе `P ± 1` (`bps_to_ticks_ceil` ≥ 1). У монеты с крупным шагом цены и малой
+/// шириной лестницы ноги встают на соседние тики, а не в одну цену. Доли — как у `ladder_legs`; второе
+/// значение — средняя цена входа по долям.
+// Вызывается планом σ-лестницы, когда будет подведён источник σ (решение Судьи, В-131); пока — тестами.
+#[cfg_attr(not(test), allow(dead_code))]
+#[allow(clippy::cast_precision_loss)]
+pub(super) fn ladder_legs_distinct(
+    p_tick: i64,
+    away: i64,
+    legs: u8,
+    from_bps: f64,
+    to_bps: f64,
+    wall_weight: u32,
+) -> (EntryLadder, i64) {
+    let n = usize::from(legs.max(2));
+    let mut out = EntryLadder::NONE;
+    let total = wall_weight as f64 + (n - 1) as f64;
+    let mut prev_dist: i64 = 0;
+    for i in 0..n {
+        let bps = from_bps + (to_bps - from_bps) * i as f64 / (n - 1) as f64;
+        let dist = bps_to_ticks_ceil(bps, p_tick).max(prev_dist + 1);
+        prev_dist = dist;
+        let frac = if i == 0 {
+            wall_weight as f64 / total
+        } else {
+            1.0 / total
+        };
+        assert!(
+            out.push(p_tick + away * dist, frac),
+            "ног не больше MAX_ENTRY_LEGS"
+        );
+    }
     let avg = out.weighted_avg_tick().round() as i64;
     (out, avg)
 }

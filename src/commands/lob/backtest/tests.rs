@@ -1178,6 +1178,63 @@ fn pct_take_form_parses_and_sets_the_take_independent_of_the_stop() {
 /// Разбор имени формы входа: каноническое имя (как у `StopForm`/`TakeForm`),
 /// границы полосы и веса, ёмкость ног. Имя — единственный источник чисел
 /// `N`/`from`/`to`/`w` (предрегистрация), умолчаний нет.
+/// В-131: σ-лестница `ladder<N>x<a>..<b>s[w<k>]` — разбор, каноническое имя, отказы; прежняя лестница в bps
+/// разбирается как раньше.
+#[test]
+fn entry_form_parses_the_sigma_ladder() {
+    let f = EntryForm::parse("ladder3x0.25..1.5sw2").unwrap();
+    assert_eq!(
+        f,
+        EntryForm::LadderSigma {
+            legs: 3,
+            from_sigma: 0.25,
+            to_sigma: 1.5,
+            wall_weight: 2,
+        }
+    );
+    assert_eq!(f.label(), "ladder3x0.25..1.5sw2");
+    assert_eq!(
+        EntryForm::parse("ladder4x0.5..2s").unwrap().label(),
+        "ladder4x0.5..2s"
+    );
+    assert!(matches!(
+        EntryForm::parse("ladder3x2..20w2").unwrap(),
+        EntryForm::Ladder { .. }
+    ));
+    for bad in [
+        "ladder3x0.25..1.5sw1",
+        "ladder3x1.5..0.25s",
+        "ladder3x0..1s",
+        "ladder3x0.25s..1.5",
+        "ladder3x0.25..1.5ss",
+        "ladder3x0.250..1.5s",
+    ] {
+        assert!(EntryForm::parse(bad).is_err(), "{bad}");
+    }
+}
+
+/// В-131: нераздельные ноги — на монете с крупным шагом, где `ladder_legs` слил бы ноги в одну цену,
+/// каждая следующая нога на тик дальше, первая не ближе `P ± 1`; при широкой полосе — те же цены, что у
+/// `ladder_legs`; для аска — зеркально.
+#[test]
+fn distinct_ladder_legs_never_share_a_tick() {
+    // Цена 100 тиков: 1 тик = 100 bps; полоса 1..30 bps — у `ladder_legs` все три ноги на P + 1.
+    let (merged, _) = super::forms::ladder_legs(100, 1, 3, 1.0, 30.0, 2);
+    assert_eq!(merged.n, 1);
+    let (legs, avg) = super::forms::ladder_legs_distinct(100, 1, 3, 1.0, 30.0, 2);
+    assert_eq!(legs.n, 3);
+    assert_eq!(&legs.ticks[..3], &[101, 102, 103]);
+    assert!((legs.frac[..3].iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((legs.frac[0] - 0.5).abs() < 1e-12, "вес к стене 2 из 4");
+    assert_eq!(avg, 102);
+    let (ask, _) = super::forms::ladder_legs_distinct(100, -1, 3, 1.0, 30.0, 1);
+    assert_eq!(&ask.ticks[..3], &[99, 98, 97]);
+    // Мелкий шаг (цена 100 000 тиков): ноги и так разные — те же цены, что у прежней лестницы.
+    let (a, _) = super::forms::ladder_legs(100_000, 1, 3, 2.0, 20.0, 1);
+    let (b, _) = super::forms::ladder_legs_distinct(100_000, 1, 3, 2.0, 20.0, 1);
+    assert_eq!(a, b);
+}
+
 #[test]
 fn entry_form_parses_the_ladder_and_the_single_frontrun() {
     assert_eq!(

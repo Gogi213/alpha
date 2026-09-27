@@ -149,11 +149,18 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
         band_exit_bps,
         forms,
         sets,
+        set_forms,
         need_regime,
         need_ret,
         symbols,
         ..
     } = plan;
+    // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
+    let all_forms: Vec<usize> = (0..forms.len()).collect();
+    let set_form_ids: Vec<&[usize]> = match &set_forms {
+        Some(v) => v.iter().map(Vec::as_slice).collect(),
+        None => vec![all_forms.as_slice(); sets.len()],
+    };
     // Режим суток читается один раз на сутки (общий для символов).
     let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
     // Перенос круга через полночь (`--carry-root`): окно — один раз на прогон,
@@ -482,9 +489,10 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 } else {
                     Vec::new()
                 };
-            for (set, out) in sets.iter().zip(outs.iter_mut()) {
+            for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
+                let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
                 let forms_done = {
-                    let forms_ref = &forms;
+                    let forms_ref = &set_forms_list;
                     let mut sink =
                         |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
                             let n = out.write_form(
@@ -505,13 +513,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         windows.as_ref(),
                         &day.touches,
                         day.approaches.as_deref(),
-                        &forms,
+                        &set_forms_list,
                         DayParams {
                             memos: if memos.is_empty() {
                                 None
                             } else {
                                 Some(memos.as_slice())
                             },
+                            form_ids: ids,
                             tick,
                             lot,
                             rtt_ns: args.median_rtt_ns,
@@ -539,12 +548,12 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                     )?
                 };
                 anyhow::ensure!(
-                    forms_done == forms.len(),
+                    forms_done == set_forms_list.len(),
                     "{symbol} {} {}: форм посчитано {}, ожидалось {}",
                     day.day,
                     set.name,
                     forms_done,
-                    forms.len()
+                    set_forms_list.len()
                 );
             }
             summary.rounds = summary.rounds.saturating_add(rounds);

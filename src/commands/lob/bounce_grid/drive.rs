@@ -246,6 +246,9 @@ impl OrderSizing {
 pub(super) struct DayParams<'a> {
     /// Память кругов по форме (G10, `--round-memo`); `None` — счёт с нуля.
     pub(super) memos: Option<&'a [Mutex<RoundMemo>]>,
+    /// Номер каждой формы `forms` в общем списке прогона — индекс памяти кругов (`--cells`, T-38: у набора
+    /// своё подмножество форм; без флага — `0..forms.len()`).
+    pub(super) form_ids: &'a [usize],
     pub(super) tick: f64,
     pub(super) lot: f64,
     pub(super) rtt_ns: ExecLatency,
@@ -366,7 +369,7 @@ pub(super) fn drive_day(
                             Some(w) => match p.memos {
                                 // Память формы берёт один поток за раз: форма в наборе одна.
                                 Some(ms) => {
-                                    let mut m = ms[i]
+                                    let mut m = ms[p.form_ids[i]]
                                         .lock()
                                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                                     match events {

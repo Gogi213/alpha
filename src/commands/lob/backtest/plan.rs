@@ -142,6 +142,9 @@ pub(crate) fn bounce_plan(
             let (ladder, avg_tick) = ladder_legs(p_tick, away, legs, from_bps, to_bps, wall_weight);
             (ladder, avg_tick)
         }
+        // В-131: σ монеты на взводе ещё не подведена (источник — по решению Судьи); `bounce-grid` отвергает
+        // форму до чтения данных, плана у неё нет.
+        EntryForm::LadderSigma { .. } => return None,
         // T4 (В-73-подобно, П-02, Г-86): рыночный вход — лимит за
         // `MARKET_CROSS_MARGIN_BPS` от стены, гарантированно пересекающий
         // спред (симулятор идёт по стакану до фактической цены фила —

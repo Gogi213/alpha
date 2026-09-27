@@ -158,6 +158,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         signal: SignalArg::Touch,
         entry_form: Vec::new(),
         sets: Vec::new(),
+        cells: None,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -963,6 +964,82 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
+}
+
+/// `--cells` (T-38): клетки «форма × набор» списком вместо произведения — строки каждой клетки байт в байт
+/// те же, что в прогоне произведением, других форм в наборе нет; кривой файл клеток — отказ.
+#[test]
+fn cells_match_the_product_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let sets = vec!["all:".to_string(), "bid:side=bid".to_string()];
+    let mut full = args(dir.path(), false);
+    full.out_dir = dir.path().join("cells-full");
+    full.sets = sets.clone();
+    let product = run_bounce_grid(&full).unwrap();
+    let (fh, rows) = read_csv(&product.sets[0].forms_path);
+    let labels: Vec<String> = {
+        let mut v: Vec<String> = rows
+            .iter()
+            .map(|r| col(&fh, r, "form").to_string())
+            .collect();
+        v.dedup();
+        v
+    };
+    assert!(labels.len() >= 6, "{labels:?}");
+    let pick = |set: usize, forms: &[&str]| -> (Vec<String>, Vec<String>) {
+        let keep = |p: &std::path::Path| -> Vec<String> {
+            let (h, rs) = read_csv(p);
+            rs.iter()
+                .filter(|r| forms.contains(&col(&h, r, "form")))
+                .map(|r| r.join(","))
+                .collect()
+        };
+        (
+            keep(&product.sets[set].rounds_path),
+            keep(&product.sets[set].forms_path),
+        )
+    };
+    let cells = dir.path().join("cells.txt");
+    std::fs::write(
+        &cells,
+        format!(
+            "# клетки\n{} all\n\n{} all\n{} bid\n",
+            labels[3], labels[0], labels[5]
+        ),
+    )
+    .unwrap();
+    let mut c = args(dir.path(), false);
+    c.out_dir = dir.path().join("cells-list");
+    c.sets = sets.clone();
+    c.cells = Some(cells.clone());
+    let listed = run_bounce_grid(&c).unwrap();
+    assert_eq!(listed.forms, 3, "формы вне файла не считаются");
+    for (si, forms) in [
+        (0, vec![labels[0].as_str(), labels[3].as_str()]),
+        (1, vec![labels[5].as_str()]),
+    ] {
+        let (want_rounds, want_forms) = pick(si, &forms);
+        let (h, rs) = read_csv(&listed.sets[si].rounds_path);
+        let got_rounds: Vec<String> = rs.iter().map(|r| r.join(",")).collect();
+        let (hf, fs) = read_csv(&listed.sets[si].forms_path);
+        let got_forms: Vec<String> = fs.iter().map(|r| r.join(",")).collect();
+        assert_eq!(got_rounds, want_rounds, "rounds набора {si}");
+        assert_eq!(got_forms, want_forms, "forms набора {si}");
+        assert!(fs.iter().all(|r| forms.contains(&col(&hf, r, "form"))));
+        let _ = h;
+    }
+    for bad in [
+        "нет-такой-формы all\n".to_string(),
+        format!("{} zzz\n", labels[0]),
+        format!("{} all\n{} all\n", labels[0], labels[0]),
+        format!("{} all\n", labels[0]),
+        format!("{} all extra\n", labels[0]),
+    ] {
+        std::fs::write(&cells, &bad).unwrap();
+        c.out_dir = dir.path().join("cells-bad");
+        assert!(run_bounce_grid(&c).is_err(), "{bad:?}");
+    }
 }
 
 /// G10: память кругов (`--round-memo on`, умолчание) против прежнего счёта с нуля (`off`) на тех

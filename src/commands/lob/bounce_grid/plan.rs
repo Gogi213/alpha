@@ -89,6 +89,8 @@ pub(crate) struct GridPlan {
     pub(crate) exits: Vec<ExitForm>,
     pub(crate) forms: Vec<GridForm>,
     pub(crate) sets: Vec<FilterSet>,
+    /// `--cells` (T-38): номера форм (в `forms`) по наборам; `None` — все формы в каждом наборе.
+    pub(crate) set_forms: Option<Vec<Vec<usize>>>,
     pub(crate) need_regime: bool,
     pub(crate) need_ret: bool,
     pub(crate) symbols: Vec<String>,
@@ -179,6 +181,12 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         None => 0.0,
     };
     let entries = parse_entry_forms(&args.entry_form)?;
+    anyhow::ensure!(
+        !entries
+            .iter()
+            .any(|e| matches!(e, EntryForm::LadderSigma { .. })),
+        "--entry-form ladder…s: σ-лестница (В-131) ждёт источник σ монеты на взводе (решение Судьи) — пока не считается"
+    );
     let exits = parse_exit_forms(&args.exit_form)?;
     let earlies = parse_early_exits(&args.early_exit_secs)?;
     let forms = grid_forms_with_early(
@@ -269,6 +277,13 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
     if let Some(dir) = &args.regime_from {
         anyhow::ensure!(dir.is_dir(), "--regime-from {}: не каталог", dir.display());
     }
+    let (forms, set_forms) = match &args.cells {
+        Some(path) => {
+            let (f, s) = select_cells(path, forms, &sets)?;
+            (f, Some(s))
+        }
+        None => (forms, None),
+    };
     let need_regime = args.regime_from.is_some() && sets.iter().any(FilterSet::uses_regime);
     let need_ret = sets.iter().any(|s| s.ctx[..3].iter().any(|r| r.is_set()));
     let symbols = if args.symbols.is_empty() {
@@ -286,10 +301,81 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         exits,
         forms,
         sets,
+        set_forms,
         need_regime,
         need_ret,
         symbols,
     })
+}
+
+/// `--cells` (T-38): из произведения осей — только формы, названные в файле клеток, в порядке произведения;
+/// по наборам — номера этих форм (в порядке произведения, без повторов). Имя формы вне произведения,
+/// неизвестный набор, повтор клетки или набор без клеток — отказ.
+pub(super) fn select_cells(
+    path: &std::path::Path,
+    forms: Vec<GridForm>,
+    sets: &[FilterSet],
+) -> anyhow::Result<(Vec<GridForm>, Vec<Vec<usize>>)> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("--cells {}: {e}", path.display()))?;
+    let mut wanted: Vec<std::collections::BTreeSet<&str>> =
+        vec![std::collections::BTreeSet::new(); sets.len()];
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        let (Some(form), Some(set), None) = (it.next(), it.next(), it.next()) else {
+            anyhow::bail!(
+                "--cells {}:{}: строка — `<имя формы> <набор>`",
+                path.display(),
+                n + 1
+            );
+        };
+        anyhow::ensure!(
+            forms.iter().any(|f| f.label == form),
+            "--cells {}:{}: формы {form} нет в произведении осей",
+            path.display(),
+            n + 1
+        );
+        let si = sets.iter().position(|s| s.name == set).ok_or_else(|| {
+            anyhow::anyhow!(
+                "--cells {}:{}: набора {set} нет среди --set",
+                path.display(),
+                n + 1
+            )
+        })?;
+        anyhow::ensure!(
+            wanted[si].insert(form),
+            "--cells {}:{}: клетка {form} {set} повторена",
+            path.display(),
+            n + 1
+        );
+    }
+    for (s, w) in sets.iter().zip(&wanted) {
+        anyhow::ensure!(
+            !w.is_empty(),
+            "--cells {}: у набора {} нет клеток — лишний --set",
+            path.display(),
+            s.name
+        );
+    }
+    let used: Vec<GridForm> = forms
+        .into_iter()
+        .filter(|f| wanted.iter().any(|w| w.contains(f.label)))
+        .collect();
+    let set_forms = wanted
+        .iter()
+        .map(|w| {
+            used.iter()
+                .enumerate()
+                .filter(|(_, f)| w.contains(f.label))
+                .map(|(i, _)| i)
+                .collect()
+        })
+        .collect();
+    Ok((used, set_forms))
 }
 
 /// Артефакты наборов: `<out-dir>[/<набор>]/{rounds,forms,manifest}` с шапками из плана.
