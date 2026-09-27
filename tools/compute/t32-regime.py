@@ -30,6 +30,11 @@ spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.p
 kn = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kn)
 
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+_lib_spec.loader.exec_module(_lib)
+
 PERIODS = kn.PERIODS  # aug/sep/augsep -> (name, start_day, end_day)
 
 
@@ -40,7 +45,8 @@ def iso(t_ms):
 # ---------- load ----------
 
 def load_trades():
-    rows = list(csv.DictReader(open(os.path.join(ROOT, "main-trades.csv"), encoding="utf-8")))
+    # T-21 batch 2: `_lib.read_csv` вместо своей копии `open` + `csv.DictReader` (main-trades.csv без `#` в шапке).
+    rows = _lib.read_csv(os.path.join(ROOT, "main-trades.csv"))[1]
     for r in rows:
         r["t0_ms"] = int(r["t0_ms"]); r["t1_ms"] = int(r["t1_ms"]); r["pnl_usd"] = float(r["pnl_usd"])
         r["usd"] = float(r["usd"]); r["net_bps"] = float(r["net_bps"])

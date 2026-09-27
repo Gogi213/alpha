@@ -18,7 +18,6 @@ KPI — только tools/compute/kpi-newhigh.py: month_metrics(closes,pk).hour
     python tools/compute/t32-retries.py --out data/t32/retries.json --summary data/t32/retries-summary.md
 """
 import argparse
-import csv
 import datetime as dt
 import importlib.util
 import json
@@ -30,6 +29,11 @@ TOUCHIDX = "data/t32/retries-touchidx.json"
 MS_H = 3_600_000
 MS_MIN = 60_000
 
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+_lib_spec.loader.exec_module(_lib)
+
 
 def load_mod(path, name):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -39,11 +43,12 @@ def load_mod(path, name):
 
 
 def load_trades(path):
+    # T-21 batch 2: было своим `open` + `csv.DictReader` — тот же дословный `_lib.read_csv` (шапка на
+    # `#` в main-trades.csv не встречается, поведение не меняется).
     rows = []
-    with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            rows.append({"month": r["month"], "sym": r["sym"], "t0": int(r["t0_ms"]), "t1": int(r["t1_ms"]),
-                         "pnl": float(r["pnl_usd"]), "reason": r["reason"]})
+    for r in _lib.read_csv(path)[1]:
+        rows.append({"month": r["month"], "sym": r["sym"], "t0": int(r["t0_ms"]), "t1": int(r["t1_ms"]),
+                     "pnl": float(r["pnl_usd"]), "reason": r["reason"]})
     return rows
 
 
@@ -51,10 +56,9 @@ def load_link(path):
     out = {}
     if not os.path.exists(path):
         return out
-    with open(path, newline="", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            key = (r["month"], r["sym"], int(r["t0_ms"]))
-            out[key] = r
+    for r in _lib.read_csv(path)[1]:
+        key = (r["month"], r["sym"], int(r["t0_ms"]))
+        out[key] = r
     return out
 
 

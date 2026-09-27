@@ -31,6 +31,11 @@ TAIL_MS = 31 * 60_000
 THRESH = -44.55
 REGIME_DIRS = ["data/t32/epochs/e-aug/study/regime", "data/t32/epochs/e-archive/study/regime", "data/t32/study/regime"]
 
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+_lib_spec.loader.exec_module(_lib)
+
 
 def load_kn():
     spec = importlib.util.spec_from_file_location("kn", "tools/compute/kpi-newhigh.py")
@@ -91,8 +96,9 @@ def assign_episode(t0, episodes):
 
 
 def load_trades(path):
+    # T-21 batch 2: `_lib.read_csv` вместо своей копии `open` + `csv.DictReader` (main-trades.csv без `#` в шапке).
     rows = []
-    for r in csv.DictReader(open(path, encoding="utf-8")):
+    for r in _lib.read_csv(path)[1]:
         rows.append({"month": r["month"], "sym": r["sym"], "t0": int(r["t0_ms"]), "t1": int(r["t1_ms"]),
                      "pnl": float(r["pnl_usd"])})
     return rows

@@ -68,6 +68,11 @@ KLINES_DIR = {"aug": "data/t32/epochs/e-aug/study/klines", "sep": "data/t32/stud
 PERIODS = {"aug": ("август", "2026-08-01", "2026-09-01"), "sep": ("сентябрь", "2026-09-01", "2026-09-24"),
            "augsep": ("август+сентябрь", "2026-08-01", "2026-09-24")}
 
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+_lib_spec.loader.exec_module(_lib)
+
 
 def load_series(files):
     closes = {}
@@ -225,13 +230,13 @@ def hedge_pnl(share_beta, usd, ret):
 
 
 def load_trades(path):
+    # T-21 batch 2: `_lib.read_csv` вместо своей копии `open` + `csv.DictReader` (main-trades.csv без `#` в шапке).
     out = []
-    with open(path, encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            out.append({
-                "month": row["month"], "sym": row["sym"], "t0_ms": int(row["t0_ms"]), "t1_ms": int(row["t1_ms"]),
-                "usd": float(row["usd"]), "pnl_usd": float(row["pnl_usd"]), "reason": row["reason"],
-            })
+    for row in _lib.read_csv(path)[1]:
+        out.append({
+            "month": row["month"], "sym": row["sym"], "t0_ms": int(row["t0_ms"]), "t1_ms": int(row["t1_ms"]),
+            "usd": float(row["usd"]), "pnl_usd": float(row["pnl_usd"]), "reason": row["reason"],
+        })
     return out
 
 

@@ -31,15 +31,25 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
+import importlib.util
+
+_lib_spec = importlib.util.spec_from_file_location(
+    "_lib", os.path.join(os.path.dirname(os.path.abspath(__file__)), "_lib", "__init__.py"))
+_lib = importlib.util.module_from_spec(_lib_spec)
+assert _lib_spec and _lib_spec.loader
+_lib_spec.loader.exec_module(_lib)
+
 # Издержки круга мейкер-вход + выход по рынку, bps (В-63; `costs.rs` ROUNDTRIP_FEES_BPS).
 ROUNDTRIP_FEES_BPS = 4.41
 
 
 def load_rounds(path: str, form: str | None) -> list[dict]:
-    with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        body = [l for l in f if not l.startswith("#")]
+    # T-21 batch 2: чтение rounds.csv (шапка на `#` пропускается) — было своей копией того же кода,
+    # что и в `_lib.read_csv` (см. его докстроку: «то же самое, что было продублировано в
+    # breakdown.py/equity-report.py/loss-atoms.py»); здесь та же дословная копия, теперь на _lib.
+    _, raw = _lib.read_csv(path)
     out = []
-    for r in csv.DictReader(body):
+    for r in raw:
         if form and r["form"] != form:
             continue
         try:
