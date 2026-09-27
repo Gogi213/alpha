@@ -19,6 +19,7 @@ ROLES = [
 ]
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROLES_DIR = os.path.join(ROOT, ".claude", "roles")
+TICKETS_DIR = os.path.join(ROOT, ".claude", "tickets")
 
 MANUAL = (
     "Если эта сессия — участник команды alpha, до любых действий вызови "
@@ -104,14 +105,42 @@ def active_tasks(role):
     return [(tid, text) for tid, text, _ in role_rows(role, "в работе")]
 
 
+def ticket_header(path):
+    """Шапка тикета `.claude/tickets/<ID>.md` (`ключ: значение` между `---`), без диспетчера — только чтение."""
+    header = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return header
+    if not text.startswith("---"):
+        return header
+    end = text.find("\n---", 3)
+    if end == -1:
+        return header
+    for line in text[3:end].splitlines():
+        if ":" in line:
+            key, _, value = line.partition(":")
+            header[key.strip()] = value.strip()
+    return header
+
+
 def queue(role):
-    """Очередь роли («ждёт»): что брать, пока задача в работе ждёт чужого сигнала."""
-    rows = role_rows(role, "ждёт")
+    """Задачи роли в `.claude/tickets/` (В-138) — не `done`: что брать, пока текущая ждёт чужого сигнала."""
+    try:
+        paths = sorted(glob.glob(os.path.join(TICKETS_DIR, "*.md")))
+    except OSError:
+        return None
+    rows = []
+    for p in paths:
+        h = ticket_header(p)
+        if h.get("owner") == role and h.get("status", "") not in ("", "done"):
+            rows.append((h.get("id", os.path.basename(p)[:-3]), h.get("status", "?"), h.get("title", "")))
     if not rows:
         return None
-    lines = [f"- {tid} (зависит от: {dep or '—'}): {text[:160]}" for tid, text, dep in rows]
-    return ("--- очередь роли в TASKS.md («ждёт») — пока задача в работе ждёт чужого сигнала, бери отсюда первую без "
-            "блокирующей зависимости; простаивать при непустой очереди — брак ---\n" + "\n".join(lines))
+    lines = [f"- {tid} [{status}]: {title[:160]}" for tid, status, title in rows]
+    return ("--- задачи роли в .claude/tickets/ (не done) — бери следующую по готовности, статус и лог правь сама "
+            "(`tickets.py comment`), простаивать при непустой очереди — брак ---\n" + "\n".join(lines))
 
 
 def journals(role):
