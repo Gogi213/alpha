@@ -1247,6 +1247,75 @@ class RateLimitAndBudgetTests(unittest.TestCase):
         self.assertFalse(D._daily_budget_exceeded(self.state, tomorrow))
 
 
+class LogLenMigrationTests(unittest.TestCase):
+    """v1.5.2 (CEO 28.09, перед загрузкой bf121da): у сессий/активных запусков старого диспетчера
+    (схема `last_woken`, без `log_len_at_launch`) — decide() иначе берёт 0 и правило (б) на первом
+    тике после перезапуска будит все роли на ВСЕ исторические @упоминания (холостые запуски)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tickets_dir = Path(self.tmp.name) / "tickets"
+        self.tickets_dir.mkdir(parents=True)
+        self._orig_tickets_dir = D.TICKETS_DIR
+        D.TICKETS_DIR = self.tickets_dir
+
+    def tearDown(self):
+        D.TICKETS_DIR = self._orig_tickets_dir
+        self.tmp.cleanup()
+
+    def write_ticket(self, tid, log_body):
+        text = (f"---\nid: {tid}\nowner: researcher\nstatus: waiting\n"
+                f"updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n{log_body}")
+        (self.tickets_dir / f"{tid}.md").write_text(text, encoding="utf-8")
+        return T.read_ticket(self.tickets_dir / f"{tid}.md")
+
+    def test_old_session_entry_backfilled_to_current_log_length(self):
+        tkt = self.write_ticket("TK-90", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
+        state = {"sessions": {"TK-90::judge": {"last_woken": "2026-09-27T11:06:00+04:00"}}}
+        migrated = D.migrate_log_len_at_launch(state)
+        self.assertEqual(migrated, 1)
+        self.assertEqual(state["sessions"]["TK-90::judge"]["log_len_at_launch"], len(tkt.log_raw))
+
+    def test_already_migrated_entry_is_left_untouched(self):
+        self.write_ticket("TK-91", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
+        state = {"sessions": {"TK-91::judge": {"log_len_at_launch": 5}}}
+        migrated = D.migrate_log_len_at_launch(state)
+        self.assertEqual(migrated, 0)
+        self.assertEqual(state["sessions"]["TK-91::judge"]["log_len_at_launch"], 5)
+
+    def test_active_run_entry_also_backfilled(self):
+        tkt = self.write_ticket("TK-92", "\n### 2026-09-27T11:05:00+04:00 researcher\nработаю.\n")
+        state = {"active_runs": {"TK-92": {"role": "researcher", "pid": 123}}}
+        migrated = D.migrate_log_len_at_launch(state)
+        self.assertEqual(migrated, 1)
+        self.assertEqual(state["active_runs"]["TK-92"]["log_len_at_launch"], len(tkt.log_raw))
+
+    def test_missing_ticket_file_is_skipped_without_crash(self):
+        state = {"sessions": {"TK-ghost::judge": {"last_woken": "x"}}}
+        migrated = D.migrate_log_len_at_launch(state)
+        self.assertEqual(migrated, 0)
+        self.assertNotIn("log_len_at_launch", state["sessions"]["TK-ghost::judge"])
+
+    def test_no_missing_entries_returns_zero_and_reads_no_tickets(self):
+        state = {"sessions": {"TK-93::judge": {"log_len_at_launch": 5}},
+                 "active_runs": {"TK-94": {"log_len_at_launch": 9}}}
+        # ни один тикет TK-93/TK-94 не создан на диске — если бы функция их читала, упала бы; она
+        # должна выйти раньше по пустому missing_tids
+        self.assertEqual(D.migrate_log_len_at_launch(state), 0)
+
+    def test_decide_no_longer_refires_old_mention_after_migration(self):
+        """До миграции decide() видит log_len_at_launch=0 (default) и будит на старое упоминание —
+        это и есть баг CEO 28.09; после миграции — тот же тикет больше не будит."""
+        tkt = self.write_ticket("TK-95", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
+        old_schema_state = {"sessions": {"TK-95::judge": {"last_woken": "2026-09-27T11:06:00+04:00"}}}
+        # воспроизводим баг: без поля decide() берёт 0 → будит
+        dec_before = D.decide(tkt, old_schema_state, dt("2026-09-27T12:00:00+04:00"))
+        self.assertEqual((dec_before.role, dec_before.reason), ("judge", "mention"))
+        D.migrate_log_len_at_launch(old_schema_state)
+        dec_after = D.decide(tkt, old_schema_state, dt("2026-09-27T12:00:00+04:00"))
+        self.assertIsNone(dec_after)
+
+
 class MoneyControlsTests(unittest.TestCase):
     """v1.3 (владелец 27.09): модель/усилие, бюджет задачи, потолок запуска, часовое окно, холостой ход.
     Чистые функции — без процессов и без сети; сквозные (--max-budget-usd, cost-фолбэк, blocked) — в

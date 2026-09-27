@@ -934,6 +934,46 @@ def _poll_running(state: dict, now) -> None:
         _finish_run(tid, info, state, now, timed_out=False)
 
 
+def migrate_log_len_at_launch(state: dict) -> int:
+    """Миграция схемы (CEO 28.09, перед загрузкой bf121da): у сессий/активных запусков, заведённых
+    старым диспетчером (схема `last_woken`, без `log_len_at_launch`), проставить ТЕКУЩУЮ длину
+    «## Лог» — старое считается увиденным. Без этого decide() строка `sessions.get(...).get(
+    "log_len_at_launch", 0)` берёт 0, и правило (б) на первом тике после перезапуска будит все роли
+    на ВСЕ исторические @упоминания в открытых тикетах (T-38, TK-001…TK-007 — холостые запуски).
+    Вызывается КАЖДЫЙ тик (не только сразу после рестарта): дёшево (нет пропусков — рано выходит,
+    если мигрировать нечего) и идемпотентно — после миграции поле есть у всех, повторный вызов
+    ничего не делает. Возвращает число мигрированных записей (для лога при желании)."""
+    sessions = state.get("sessions", {})
+    active_runs = state.get("active_runs", {})
+    missing_tids = {key.split("::", 1)[0] for key, info in sessions.items()
+                    if "log_len_at_launch" not in info}
+    missing_tids |= {tid for tid, info in active_runs.items() if "log_len_at_launch" not in info}
+    if not missing_tids:
+        return 0
+    log_lens = {}
+    for path in T.list_tickets(TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+        except Exception:
+            continue
+        if tkt.id in missing_tids:
+            log_lens[tkt.id] = len(tkt.log_raw)
+    migrated = 0
+    for key, info in sessions.items():
+        if "log_len_at_launch" in info:
+            continue
+        tid = key.split("::", 1)[0]
+        if tid in log_lens:
+            info["log_len_at_launch"] = log_lens[tid]
+            migrated += 1
+    for tid, info in active_runs.items():
+        if "log_len_at_launch" in info or tid not in log_lens:
+            continue
+        info["log_len_at_launch"] = log_lens[tid]
+        migrated += 1
+    return migrated
+
+
 def recover_active_runs(state: dict, now) -> None:
     """После перезапуска диспетчера — подхватить зеркало state.json["active_runs"]: живой pid не
     запускаем повторно (просто продолжаем отслеживать по pid), уже закончившийся — обрабатываем как
@@ -961,6 +1001,7 @@ def recover_active_runs(state: dict, now) -> None:
 def tick(now=None) -> int:
     now = now or datetime.now().astimezone()
     state = load_state()
+    migrate_log_len_at_launch(state)  # схема до v1.5 (last_woken) — старое считается увиденным, см. докстринг
     recover_active_runs(state, now)  # диспетчер мог перезапуститься — живые/умершие прогоны из state.json
     _poll_running(state, now)
     save_state(state)
