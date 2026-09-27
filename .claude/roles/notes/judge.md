@@ -28,9 +28,6 @@
 - Неопределимые формы — «не определена», p = 1 в Холме, m не уменьшать.
 - `oos-frozen.sh` на деке `DAY_JOBS=2`: любой параметр «на сутки» (`SCAN_JOBS`) умножается на число суток разом —
   сверять с уставом ресурсов (T-23, 26.09).
-- Двойной проход `append_carry_events` (carry.rs) — исправление OOM LSK (`reserve_exact`), не лишний декод.
-- Гейт argv (`tools/compute/gate-argv.sh`) — только Linux; сам гоняю на VPS в `/tmp/judge-argv` из `git archive`.
-  `titrate*`/`crash-stress`/`recompute-carry` берут наборы из `study/titration-sets-*.txt`, не из `sets.txt`.
 - DSR `bounce-verdict`: по сделкам, V = 1 (`unit_variance_trials`) → требуемый Шарп ≈ 2,9 на сделку — непроходим (T-25).
 
 - В-129 (27.09): в протоколе §5 «Конфиг вариантов» — ворота: все варианты и столбцы, сверены с формами/наборами, «нет» где нет.
