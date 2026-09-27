@@ -6,10 +6,10 @@
 *-closes.json` (`kpi-newhigh.load`, ключ страницы — `kpi-dash-data.page_key`); П-07 и Г-85б — `p07-all-r2.json`
 (выгрузка portfolio-sim с деки, ключ — `dash-add-p07-all.suffix`). Сетку не гонять. Вердикт — только перенесённый
 из проверенного Судьёй файла (ступени 1–2 Г-85а `p07-stage12`, ступень 2 Г-85б `p07-tk004-stage2`), иначе «только
-доля». Готовые kpi07 (9 рядов) не трогаются, но пересчитываются для сверки. Остальное = входной data-v34.
+доля». Готовые kpi07 (9 рядов) не трогаются, но пересчитываются для сверки. Остальное = входной файл (v35 → v36: + max_gap_h, вердикт H6 Г-85а).
 
-    python tools/compute/dash-kpi07-all.py --in data/titration-dashboard/data-v34.json \\
-        --out data/titration-dashboard/data-v35.json
+    python tools/compute/dash-kpi07-all.py --in data/titration-dashboard/data-v35.json \\
+        --out data/titration-dashboard/data-v36.json
 """
 import argparse
 import importlib.util
@@ -61,6 +61,16 @@ def point(closes):
     return {pk: r[pk]["frac_gt_h"] for pk in PK}, {pk: r[pk]["n_main"] for pk in PK}
 
 
+def max_gap(closes):
+    """Добавка владельца 28.09 ~01:40 (TK-008, CEO): «max дней до перехая» — наибольшее ожидание нового максимума
+    счёта «от максимума» по часовой сетке t на счёте авг+сен одним счётом (= `rolling_kpi` roll.max.max, как
+    «до перехая, максимум» у главного, 403,9 ч), максимум по обоим месяцам; `censored` — если он сам упёрся в
+    конец данных 24.09 (истинный больше)."""
+    r = kn.rolling_kpi(sorted(closes), h_days=5)
+    m = max((r[pk]["max"] for pk in PK if r[pk]["max"]["max"] is not None), key=lambda x: x["max"])
+    return round(m["max"], 1), m["max_censored"]
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument("--in", dest="inp", required=True)
@@ -95,6 +105,9 @@ def main():
         reviewed[stage12_key(name)] = ("p07-stage12-2026-09-27", c["kpi"]["frac_gt_5d"], c["kpi"]["verdict"])
     for name, c in json.load(open(a.tk004, encoding="utf-8"))["g85b"].items():
         reviewed[tk004_key(name)] = ("p07-tk004-stage2-2026-09-28", c["frac"], c["verdict"])
+    for name, c in json.load(open(a.tk004, encoding="utf-8"))["g85a_h6"].items():  # Судья 1bd98e8 п.1: H6 at/behind Г-85а
+        if name != "base":
+            reviewed[stage12_key(name)] = ("p07-tk004-stage2-2026-09-28 (g85a_h6)", c["frac"], c["verdict"])
 
     bad, added, same, nocl = [], 0, 0, []
     for key, v in BV.items():
@@ -102,12 +115,19 @@ def main():
             nocl.append(key)
             continue
         frac, n_main = point(closes[key])
+        gap, gap_c = max_gap(closes[key])
         if "kpi07" in v:
             same += 1
             if v["kpi07"]["frac"] != frac or v["kpi07"]["n_main"] != n_main:
                 bad.append(("готовый kpi07", key, v["kpi07"]["frac"], frac))
+            v["kpi07"].update(max_gap_h=gap, max_gap_censored=gap_c)
+            if v["kpi07"].get("verdict") == "только доля" and key in reviewed:
+                src, rfrac, verdict = reviewed[key]
+                if rfrac != frac:
+                    bad.append((src, key, rfrac, frac))
+                v["kpi07"].update(verdict=verdict, note=f"вердикт — из {src} (проверено Судьёй); доля пересчитана из закрытий")
             continue
-        k07 = {"frac": frac, "n_main": n_main, "verdict": "только доля",
+        k07 = {"frac": frac, "n_main": n_main, "max_gap_h": gap, "max_gap_censored": gap_c, "verdict": "только доля",
                "note": "точка на двух месяцах; устойчивость по суткам/монете и бутстреп не считались (TK-008)"}
         if key in reviewed:
             src, rfrac, verdict = reviewed[key]
@@ -120,6 +140,11 @@ def main():
     print(f"вариантов {len(BV)}: kpi07 добавлен {added}, готовых сверено {same}, без закрытий {len(nocl)} {nocl}")
     print(f"вердикт перенесён из проверенных: {sum(1 for k in reviewed if k in BV)}; имён проверенных без ключа: {miss}")
     print("g85b:", BV["g85b"]["kpi07"]["frac"], "g85:", BV["g85"]["kpi07"]["frac"])
+    for key, ref in (("btc4h_trail", 403.9), ("g85", 383.3), ("g85b", 320.3), ("cand", 617.9)):  # сверка CEO 01:39
+        got = BV[key]["kpi07"]["max_gap_h"]
+        print(f"max_gap_h {key}: {got} (сверка {ref})")
+        if got != ref:
+            bad.append(("max_gap_h", key, ref, got))
     for b in bad:
         print("РАСХОЖДЕНИЕ", *b)
     if bad or miss:
