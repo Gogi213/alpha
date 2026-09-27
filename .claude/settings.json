@@ -44,6 +44,17 @@
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

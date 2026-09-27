@@ -203,7 +203,8 @@ def on_prompt_all(hook_in, role):
     except Exception:
         advice = None
     alert = deck_alert() if role == "ceo" else None
-    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, alert, text, advice) if t) or None
+    pending = pending_permissions() if role == "ceo" else None
+    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, pending, alert, text, advice) if t) or None
 
 
 # владелец 27.09: «я же говорил загрузка стимдек на 90%» — простой деки CEO узнаёт от сторожа очереди `alpha-gridq`
@@ -223,11 +224,11 @@ def deck_alert():
         return cached.get("text") or None
     home = os.path.expanduser("~")
     git_ssh = r"C:\Program Files\Git\usr\bin\ssh.exe"
-    cmd = [git_ssh if os.path.exists(git_ssh) else "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+    cmd = [git_ssh if os.path.exists(git_ssh) else "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4",
            "-o", f"UserKnownHostsFile={home}/.ssh/known_hosts", "-i", f"{home}/.ssh/id_rsa", DECK,
            "for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && echo \"$(basename $f): $(head -c 200 $f)\"; done; true"]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=7).stdout.strip()
         text = f"[Steam Deck] тревога очереди: {out} — разобраться (роль/Инженер), владельцу не ждать вопроса." if out else ""
     except Exception:
         text = ""  # дека недоступна — молчим, не мешаем разговору
@@ -313,6 +314,43 @@ def on_skill(hook_in):
             fh.write(datetime.datetime.now(GMT4).isoformat(timespec="minutes") + "\n")
 
 
+# владелец 27.09 «зачем был запрос?»: вызов Инженера (в тексте был `rm -rf`) 1,5 ч ждал подтверждения в его сессии,
+# куда никто не смотрел. Уведомление роли «нужно разрешение» пишется меткой; CEO видит её на своём сообщении.
+PENDING = os.path.join(ROOT, ".claude", "roles", ".state", "pending-permission.json")
+
+
+def on_notification(hook_in, role):
+    if role == "ceo":
+        return
+    msg = hook_in.get("message") or ""
+    if "permission" not in (msg + " " + (hook_in.get("notification_type") or "")).lower():
+        return
+    try:
+        with open(PENDING, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    data[role] = {"ts": time.time(), "message": msg[:200]}
+    with open(PENDING, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
+
+def pending_permissions():
+    try:
+        with open(PENDING, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    fresh = {r: v for r, v in data.items() if time.time() - v.get("ts", 0) < 3 * 3600}
+    if not fresh:
+        return None
+    items = "; ".join(f"{r} с {datetime.datetime.fromtimestamp(v['ts']).strftime('%H:%M')} — {v.get('message', '')}"
+                      for r, v in fresh.items())
+    return (f"[разрешения] роль ждёт подтверждения в своей сессии: {items}. Если ещё стоит (list_events) — сразу сказать "
+            "владельцу, какая сессия и что подтвердить; stop_session не делать — роль примет его за отказ владельца. "
+            "Разобрано — удалить запись роли из .claude/roles/.state/pending-permission.json.")
+
+
 def main():
     hook_in = read_stdin()
     event = hook_in.get("hook_event_name")
@@ -328,6 +366,8 @@ def main():
             if text:
                 sys.stdout.write(json.dumps({"hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit", "additionalContext": text}}, ensure_ascii=True))
+        elif event == "Notification":
+            on_notification(hook_in, role)
         elif event == "SessionEnd":
             write_digest(hook_in.get("transcript_path"), role, title, hook_in.get("session_id"),
                          f"закрытие: {hook_in.get('reason', '?')}")
