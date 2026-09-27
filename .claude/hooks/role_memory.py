@@ -13,6 +13,7 @@ import datetime
 import glob
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -201,7 +202,41 @@ def on_prompt_all(hook_in, role):
         advice = context_advice(hook_in, load_state(), role)
     except Exception:
         advice = None
-    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, text, advice) if t) or None
+    alert = deck_alert() if role == "ceo" else None
+    return "\n".join(t for t in (SILENT_TEXT if role != "ceo" else None, alert, text, advice) if t) or None
+
+
+# владелец 27.09: «я же говорил загрузка стимдек на 90%» — простой деки CEO узнаёт от сторожа очереди `alpha-gridq`
+# (метки `~/alpha/queue/ALERT-*`, Инженер c5f797d), не от владельца; ssh не чаще раза в 15 мин, итог кэшируется
+DECK = "deck@192.168.1.49"
+DECK_CHECK_EVERY = 15 * 60
+
+
+def deck_alert():
+    cache = os.path.join(ROOT, ".claude", "roles", ".state", "deck-alert.json")
+    try:
+        with open(cache, encoding="utf-8") as f:
+            cached = json.load(f)
+    except (OSError, ValueError):
+        cached = {}
+    if time.time() - cached.get("ts", 0) < DECK_CHECK_EVERY:
+        return cached.get("text") or None
+    home = os.path.expanduser("~")
+    git_ssh = r"C:\Program Files\Git\usr\bin\ssh.exe"
+    cmd = [git_ssh if os.path.exists(git_ssh) else "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+           "-o", f"UserKnownHostsFile={home}/.ssh/known_hosts", "-i", f"{home}/.ssh/id_rsa", DECK,
+           "for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && echo \"$(basename $f): $(head -c 200 $f)\"; done; true"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        text = f"[Steam Deck] тревога очереди: {out} — разобраться (роль/Инженер), владельцу не ждать вопроса." if out else ""
+    except Exception:
+        text = ""  # дека недоступна — молчим, не мешаем разговору
+    try:
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump({"ts": time.time(), "text": text}, f, ensure_ascii=False)
+    except OSError:
+        pass
+    return text or None
 
 
 # владелец 27.09: «че у младших везде опять писанина» — правило устава README не держалось после клира;
