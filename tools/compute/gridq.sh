@@ -2,7 +2,7 @@
 # Демон очереди счёта Steam Deck `alpha-gridq` (CEO 27.09, владелец: «загрузка стимдек на 90 %», предохранители —
 # скриптами, не памятью ролей). Раз в GRIDQ_TICK с берёт задания из queue/pending (кладёт `q-add.sh`) и запускает
 # их юнитами `systemd-run --user` в срезе alpha-q.slice, пока одновременно:
-#   (а) занято < GRIDQ_CORES ядер (7 из 8) — считаются и чужие `lob bounce-grid` вне очереди, по их --threads;
+#   (а) занято < GRIDQ_CORES ядер (8 из 8 — владелец 27.09: «повышай до 95 %») — считаются и чужие `lob bounce-grid` вне очереди, по их --threads;
 #   (б) MemAvailable − резерв GRIDQ_RESERVE_MB − недобор идущих заданий до их оценки ≥ оценка задания; своп не
 #       растёт (упал SwapFree — запуски стоят GRIDQ_SWAP_HOLD с), у задания MemorySwapMax=0;
 #   (в) ночь не идёт (alpha-grid-nightly active — после своего ожидания), метка study/.grid-slots/night свободна
@@ -17,12 +17,12 @@ set -uo pipefail
 Q="${GRIDQ_DIR:-$HOME/alpha/queue}"
 A="${ALPHA_HOME:-$HOME/alpha}"
 BIN_DIR="${GRIDQ_BIN:-$A/bin}"
-CORES="${GRIDQ_CORES:-7}"
+CORES="${GRIDQ_CORES:-8}"
 RESERVE="${GRIDQ_RESERVE_MB:-1536}"
 TICK="${GRIDQ_TICK:-10}"
 SWAP_HOLD="${GRIDQ_SWAP_HOLD:-300}"
 RESERVE_AFTER="${GRIDQ_RESERVE_AFTER:-1200}"
-UNDERLOAD="${GRIDQ_UNDERLOAD:-5}"
+UNDERLOAD="${GRIDQ_UNDERLOAD:-6}"
 UNDER_SECS="${GRIDQ_UNDER_SECS:-900}"
 IDLE_SECS="${GRIDQ_IDLE_SECS:-1800}"
 NIGHT_UNIT="${GRIDQ_NIGHT_UNIT:-alpha-grid-nightly.service}"
