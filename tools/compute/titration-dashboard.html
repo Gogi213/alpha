@@ -50,7 +50,7 @@ body { color: var(--ink); font: 15px/1.5 var(--font-body); margin: 0; padding-in
 /* во всю ширину (владелец 27.09): на широком экране — две колонки панелей, широкие панели на всю строку */
 @media (min-width: 1500px) {
   .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-  .wrap > header, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-t32, #panel-p05, #panel-approach, #panel-lev, details.methodology, #panel-hyp, #panel-p02, footer.pagefoot { grid-column: 1 / -1; }
+  .wrap > header, #tab-toggle, #panel-config, #panel-kpi, #panel-equity, #panel-compare, #panel-rating, #panel-hyp, #panel-p02, #panel-p07, #panel-sources, footer.pagefoot { grid-column: 1 / -1; }
   .h-eq { height: 380px; }
 }
 /* сетки-контейнеры не должны раздуваться до min-content широких детей (таблиц, графиков) —
@@ -230,9 +230,25 @@ details.methodology summary { cursor: pointer; font: 600 14px var(--font-head); 
 details.methodology[open] summary { margin-bottom: 10px; }
 details.methodology ul { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 7px; max-width: 92ch; font-size: 13.5px; }
 footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
+
+/* ---------- вкладки и конфиг варианта (TK-007) ---------- */
+div.wrap[data-tab="main"] > .tab-hyp, div.wrap[data-tab="hyp"] > .tab-main { display: none; }
+div.wrap > .seg.tabs { justify-self: start; }
+div.wrap > .seg.tabs button { font-size: 14px; padding: 6px 18px; }
+section.panel dl.cfg-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13.5px; }
+section.panel dl.cfg-grid dt { color: var(--ink-3); }
+section.panel dl.cfg-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+section.panel .chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+section.panel .chip-list button { font: 12px var(--font-body); padding: 3px 8px; border-radius: 7px; border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink-2); cursor: pointer; text-align: left; }
+section.panel .chip-list button[aria-pressed="true"] { border-color: var(--rule-strong); color: var(--ink); font-weight: 600; }
+section.panel ul.src { margin: 0; padding-left: 20px; display: grid; gap: 4px; font: 12.5px var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  section.panel dl.cfg-grid { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  section.panel dl.cfg-grid dd { margin-bottom: 8px; }
+}
 </style>
 
-<div class="wrap">
+<div class="wrap" data-tab="main">
   <header>
     <div class="top-row">
     <div class="marks" id="marks"></div>
@@ -254,24 +270,40 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <p class="changed-chip" id="changed-chip" hidden></p>
   </header>
 
-  <section class="panel" id="panel-kpi">
+  <div class="seg tabs" id="tab-toggle" role="group" aria-label="Вкладка">
+    <button data-tab="main" aria-pressed="true">Главная</button>
+    <button data-tab="hyp" aria-pressed="false">Гипотезы</button>
+  </div>
+
+  <section class="panel tab-main" id="panel-config">
+    <div class="panel-head"><h2>Конфиг варианта</h2><span class="badge warn" id="p05-status"></span></div>
+    <div id="cfg-body"></div>
+    <details class="sub" id="p05-details" style="margin-top:10px">
+      <summary>Сетки П-05 — тепловые карты и клетки (клик — вариант во всех плитках)</summary>
+      <p class="note" id="p05-note"></p>
+      <div class="p05-grid" id="p05-heat"></div>
+      <div class="p05-grid" id="p05-tables" style="margin-top:16px"></div>
+    </details>
+  </section>
+
+  <section class="panel tab-main" id="panel-kpi">
     <div class="panel-head"><h2>Показатели</h2><span class="note" id="kpi-scope"></span></div>
     <div class="kpi-grid" id="kpi-grid"></div>
   </section>
 
-  <section class="panel" id="panel-equity">
+  <section class="panel tab-main" id="panel-equity">
     <div class="panel-head"><h2>Капитал и просадка</h2><span class="note" id="equity-scope"></span></div>
     <div class="legend" id="equity-legend"></div>
     <div class="chart h-eq"><canvas id="chart-equity"></canvas></div>
     <div class="chart h-dd"><canvas id="chart-drawdown"></canvas></div>
   </section>
 
-  <section class="panel" id="panel-compare">
+  <section class="panel tab-main" id="panel-compare">
     <div class="panel-head"><h2>Все варианты по месяцам</h2><span class="note">Δ — разница с главным за тот же период</span></div>
     <div class="scroll"><table id="compare-table"><thead></thead><tbody></tbody></table></div>
   </section>
 
-  <section class="panel" id="panel-rating">
+  <section class="panel tab-main" id="panel-rating">
     <div class="panel-head"><h2>Ровность роста — рейтинг по KPI «до перехая»</h2><span class="badge warn" id="rating-status"></span></div>
     <p class="note" id="rating-note"></p>
     <div class="legend" id="curves-legend"></div>
@@ -279,68 +311,13 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="scroll"><table id="rating-table"></table></div>
   </section>
 
-  <section class="panel" id="panel-t32">
-    <div class="panel-head"><h2>Хедж × ограничение позиций и другие ручки (T-32)</h2><span class="badge warn">на проверке у Судьи</span></div>
-    <p class="note" id="t32-note"></p>
-    <div class="p05-grid">
-      <div class="scroll"><h3>p90 ожидания нового максимума, худший месяц, дни (✓ — ≤ 5 в обоих)</h3><table class="heat-table" id="t32-heat"></table></div>
-      <div class="scroll"><h3>Пауза, отступ, ранний выход (Г-102/103/108/110)</h3><table id="t32-exits"></table></div>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-approach">
-    <div class="panel-head"><h2>Номер подхода (главный вариант)</h2><span class="badge warn">на проверке у Судьи</span></div>
-    <p class="note" id="approach-note"></p>
-    <div class="scroll"><h3>По номеру подхода на входе</h3><table id="approach-number"></table></div>
-
-    <div class="scroll" style="margin-top:16px">
-      <h3>Правила «все / только N-й / первые K / с N-го» — с пересчётом занятости (busy-replay)</h3>
-      <table id="approach-busy-rules"></table>
-    </div>
-    <p class="note" id="approach-busy-note"></p>
-    <details class="sub" style="margin-top:8px">
-      <summary>Прежняя таблица правил — без пересчёта занятости (сделки выпадают — искажает)</summary>
-      <div class="scroll"><table id="approach-rules"></table></div>
-    </details>
-
-    <div style="margin-top:16px">
-      <h3>Срезы</h3>
-      <p class="note" id="slices-headline"></p>
-      <div class="seg" id="slices-switch" role="group" aria-label="Срез"></div>
-      <div class="p05-grid" id="slices-tables" style="margin-top:10px"></div>
-      <p class="note" id="slices-note"></p>
-    </div>
-
-    <div style="margin-top:16px">
-      <h3>Просадка и плечо по правилам (вопрос владельца про 4-й подход)</h3>
-      <div class="p05-grid">
-        <div class="scroll"><table id="approach-dd-table"></table></div>
-        <div class="scroll"><table id="approach-lev-table"></table></div>
-      </div>
-      <p class="note" id="approach-dd-note"></p>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-lev">
-    <div class="panel-head"><h2>Плечо ×1…×5 (главный вариант, депозит $2 500)</h2><span class="badge warn">на проверке у Судьи</span></div>
-    <p class="note" id="lev-note"></p>
-    <div class="scroll"><table id="lev-table"></table></div>
-  </section>
-
-  <section class="panel" id="panel-p05">
-    <div class="panel-head"><h2>Сетки П-05</h2><span class="badge warn" id="p05-status"></span></div>
-    <p class="note" id="p05-note"></p>
-    <div class="p05-grid" id="p05-heat"></div>
-    <div class="p05-grid" id="p05-tables" style="margin-top:16px"></div>
-  </section>
-
-  <section class="panel" id="panel-nh">
+  <section class="panel tab-main" id="panel-nh">
     <div class="panel-head"><h2>Периоды до перехая</h2><span class="note" id="nh-scope"></span></div>
     <div class="chart h-hist"><canvas id="chart-nh"></canvas></div>
     <p class="chart-caption" id="nh-caption"></p>
   </section>
 
-  <section class="panel" id="panel-daily">
+  <section class="panel tab-main" id="panel-daily">
     <div class="panel-head"><h2>Результат по дням</h2></div>
     <div class="grid2">
       <div>
@@ -354,28 +331,13 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     </div>
   </section>
 
-  <section class="panel" id="panel-dist">
-    <div class="panel-head"><h2>Результаты сделок</h2></div>
-    <div class="grid2">
-      <div>
-        <h3>Распределение, bps</h3>
-        <div class="chart h-hist"><canvas id="chart-hist"></canvas></div>
-        <p class="chart-caption" id="hist-caption"></p>
-      </div>
-      <div>
-        <h3>Причина выхода</h3>
-        <div id="reasons"></div>
-      </div>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-coins">
+  <section class="panel tab-main" id="panel-coins">
     <div class="panel-head"><h2>По монетам</h2><span class="note">клик по заголовку — сортировка; серия убытков — самая длинная цепочка убыточных сделок монеты подряд (по времени входа)</span></div>
     <div class="scroll"><table id="coins-table"><thead></thead><tbody></tbody></table></div>
   </section>
 
 
-  <section class="panel" id="panel-exit">
+  <section class="panel tab-main" id="panel-exit">
     <div class="panel-head"><h2>Устойчивость выхода</h2><span class="badge progress" id="exit-aug-badge">август — в расчёте</span></div>
     <p class="note">Средний результат (bps на сделку) по сетке «стоп × тейк» и по трейлингу, удержание 4 ч — сентябрь,
       обе части вместе. Выделена точка выбранного варианта. На августе (E25) тот же выбор держится: стоп 2 % и
@@ -386,18 +348,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     </div>
   </section>
 
-  <section class="panel" id="panel-protections">
-    <div class="panel-head"><h2>Защиты счёта</h2><span class="note" id="prot-scope"></span></div>
-    <div class="scroll"><table id="prot-table"><thead></thead><tbody></tbody></table></div>
-    <p class="note">Показано для выбранного варианта и периода — счёт $2500, одна позиция на монету.</p>
-  </section>
-
-  <details class="methodology">
-    <summary>Пояснения</summary>
-    <ul id="methodology-list"></ul>
-  </details>
-
-  <section class="panel" id="panel-hyp">
+  <section class="panel tab-hyp" id="panel-hyp">
     <div class="panel-head"><h2>Гипотезы — сводная таблица (T-36)</h2><span class="badge warn" id="hyp-status"></span></div>
     <p class="note">Статусы на проверке у Судьи; всё на тех же днях подбора, если не сказано иное.</p>
     <div class="seg" id="hyp-filter" role="group" aria-label="Статус"></div>
@@ -405,10 +356,44 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="scroll"><table id="hyp-table"></table></div>
   </section>
 
-  <section class="panel" id="panel-p02">
+  <section class="panel tab-hyp" id="panel-p02">
     <div class="panel-head"><h2>Гипотезы П-02</h2><span class="badge warn" id="p02-status"></span></div>
     <p class="note" id="p02-note"></p>
     <div style="overflow-x:auto"><table id="p02-table"></table></div>
+  </section>
+
+  <section class="panel tab-hyp" id="panel-p07">
+    <div class="panel-head"><h2>П-07 — базы Г-85а и Г-85б</h2><span class="badge warn">на проверке у Судьи</span></div>
+    <p class="note" id="p07-note"></p>
+    <div class="scroll"><table id="p07-base"></table></div>
+    <p class="note" id="p07-g85b-note"></p>
+    <details class="sub" style="margin-top:10px" open>
+      <summary>Г-85а: ступени 1–2 (H-оси) и H9р / H14 — результаты с вердиктом Судьи</summary>
+      <p class="note" id="p07-stage-judge"></p>
+      <div class="scroll"><table id="p07-stage"></table></div>
+      <p class="note" id="p07-h-judge" style="margin-top:12px"></p>
+      <div class="scroll"><h3>H9р — память неудач</h3><table id="p07-h9r"></table></div>
+      <div class="scroll" style="margin-top:10px"><h3>H14 — номер подхода</h3><table id="p07-h14"></table></div>
+    </details>
+  </section>
+
+  <section class="panel tab-hyp" id="panel-apnum">
+    <div class="panel-head"><h2>Номер подхода — срезы</h2><span class="badge warn">на проверке у Судьи</span></div>
+    <p class="note" id="apnum-note"></p>
+    <div class="scroll"><h3>По номеру подхода на входе (главный вариант)</h3><table id="approach-number"></table></div>
+  </section>
+
+  <section class="panel tab-hyp" id="panel-sources">
+    <div class="panel-head"><h2>Источники</h2></div>
+    <ul class="src">
+      <li>docs/research/P-02-batch-wall-entry.md · docs/research/P-02-code-tickets-2026-09-26.md — протокол П-02</li>
+      <li>docs/research/P-05-wall-age-size.md — протокол П-05 (сетки возраст × размер × сила)</li>
+      <li>docs/research/P-07-g85-titration.md — протокол П-07 (Г-85а / Г-85б)</li>
+      <li>docs/findings/p07-stage12-2026-09-27.json · docs/findings/p07-stage12-2026-09-27.md — П-07 ступени 1–2</li>
+      <li>docs/findings/p07-h9r-h14-2026-09-27.md — П-07 H9р / H14</li>
+      <li>docs/research/hypothesis-pool-2026-09-25.md — пул гипотез</li>
+      <li>docs/research/reviews/ — проверки Судьи (П-07: P-07-2026-09-27-protocol.md, P-07-2026-09-27-continuation-rule.md, P-07-2026-09-27-h9r-h14.md)</li>
+    </ul>
   </section>
 
   <footer class="pagefoot">alpha · внутренний бэктест, не инвестиционная рекомендация</footer>
@@ -445,6 +430,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     VARIANT_FULL.g85 = "Г-85а: одна заявка у стены — одна лимитная заявка на тик перед стеной вместо лестницы 2–20 bps, остальное как у главного. Кандидат владельца (В-122). На сигнале подхода фронтрана нет, поэтому это не «вход от фронтранера» (T-35).";
     if (D.p02_changes && D.p02_changes.g85) D.p02_changes.g85 = {"вход": "одна лимитная заявка на тик перед стеной, без лестницы"};
   }
+  if (VARIANT_FULL.g85b) VARIANT_FULL.g85b += " · $500 на всю лестницу (w2 делит тот же объём по ногам)";
   const G85_OLD = "Г-85 вход от фронтрана", G85_NEW = "Г-85: одна заявка у стены (кандидат)";
   // П-05 (владелец 27.09): клетки сеток — варианты без кнопки, выбираются кликом по клетке раздела «Сетки П-05»
   const P5 = D.p05 || null;
@@ -464,7 +450,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // вердикт П-07 (Судья 3d3a5f6) — не по периоду, один на вариант (оба месяца сразу)
   const kpi07For = key => (NH && NH.by_variant[key] && NH.by_variant[key].kpi07) || null;
   // размах доли по исключениям (возврат Судьи на b0f8097); старые данные без *_min — только максимум
-  const rng07 = (lo, hi, pk) => (lo && lo[pk] != null ? pct0(lo[pk]) + "–" : "до ") + pct0(hi[pk]);
+  const rng07 = (lo, hi, pk) => (lo && lo[pk] != null ? f2(lo[pk]) + "–" : "до ") + f2(hi[pk]);
   // основное определение с 27.09 (CEO, на проверке у Судьи): скользящий старт по непрерывному счёту; «авг + сен» — худший месяц
   function rollFor(period, key) {
     const one = pk => { const x = nhFor(pk, key); return x && x.roll ? {...x.roll.max, start: x.roll.start, hist: x.roll_hist, month: pk} : null; };
@@ -476,6 +462,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     return {...w, hist: a.hist.map((v, i) => v + b.hist[i]), worstMonth: w.month};
   }
   const pct0 = x => Math.round(x * 100) + " %";
+  // доля часов ожидания > 5 сут — всегда два знака (Судья к v32: 0,27, не 0,3)
+  const f2 = x => x == null ? "—" : x.toFixed(2).replace(".", ",");
   // сторона падения: у «авг + сен» — худший месяц по p90 спада, перелоу — сумма
   function ddFor(period, key) {
     const one = pk => { const x = nhFor(pk, key); return x && x.dd ? x.dd : null; };
@@ -662,7 +650,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const gt = kpi07For(state.variant);
     if (gt) {
       const gv = gt.verdict;
-      const gtxt = "авг " + pct0(gt.frac.aug) + " (" + gt.n_main.aug + " ч) · сен " + pct0(gt.frac.sep) + " (" + gt.n_main.sep + " ч)";
+      const gtxt = "авг " + f2(gt.frac.aug) + " (" + gt.n_main.aug + " ч) · сен " + f2(gt.frac.sep) + " (" + gt.n_main.sep + " ч)";
       tiles.unshift(["Доля часов ожидания > 5 сут (П-07)", gv, null, "first",
         "Правило владельца «p90 ≤ 5 суток» (принято Судьёй " + "3d3a5f6" + "): доля часов месяца, для которых точно известно (без цензуры, t ≤ 19.09), что ждать нового максимума счёта дольше 5 суток — должна быть ≤ 0,10 в обоих месяцах. " +
         gtxt + " · " + gt.note + ". «Проходит» — доля ≤ 0,10 и без сделок любых одних суток и любой одной монеты (максимум по исключениям ≤ 0,10); «не проходит» — > 0,10 и остаётся > 0,10 при любом исключении (минимум > 0,10); иначе «на границе». Без одних суток, мин–макс: сут " +
@@ -808,35 +796,6 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
   // ---------- распределение и причины ----------
   function quantile(sorted, q) { const pos = (sorted.length - 1) * q, base = Math.floor(pos), rest = pos - base; return sorted[base + 1] !== undefined ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base]; }
-  function renderDist() {
-    const {trades} = combo(state.period, state.variant);
-    const bpsArr = trades.map(r => r[R.net]).sort((a, b) => a - b);
-    if (!bpsArr.length) { document.getElementById("hist-caption").textContent = isP05(state.variant) ? "у клеток П-05 список сделок не собирался — только счёт" : "нет сделок"; if (charts.hist) charts.hist.destroy(); document.getElementById("reasons").innerHTML = ""; return; }
-    const mean = bpsArr.reduce((a, b) => a + b, 0) / bpsArr.length;
-    const median = quantile(bpsArr, 0.5), p10 = quantile(bpsArr, 0.1), p90 = quantile(bpsArr, 0.9);
-    document.getElementById("hist-caption").textContent = "среднее " + bpsFmt(mean) + " bps · медиана " + bpsFmt(median) + " bps · 10–90 перцентиль [" + bpsFmt(p10) + "; " + bpsFmt(p90) + "]";
-    const binW = 20;
-    const min = Math.floor(bpsArr[0] / binW) * binW, max = Math.ceil(bpsArr[bpsArr.length - 1] / binW) * binW;
-    const bins = []; for (let b = min; b < max; b += binW) bins.push(b);
-    const counts = bins.map(b => bpsArr.filter(v => v >= b && v < b + binW).length);
-    const o = baseOptions();
-    o.plugins.tooltip.callbacks = {title: items => bins[items[0].dataIndex] + " … " + (bins[items[0].dataIndex] + binW) + " bps", label: it => " сделок: " + it.parsed.y};
-    if (charts.hist) charts.hist.destroy();
-    charts.hist = new Chart(document.getElementById("chart-hist"), { type: "bar",
-      data: {labels: bins.map(b => b), datasets: [{data: counts, backgroundColor: bins.map(b => (b + binW / 2) >= 0 ? css("--gain") : css("--loss")), borderRadius: 3, categoryPercentage: 1, barPercentage: 0.96}]},
-      options: o });
-    const {kpi} = combo(state.period, state.variant);
-    const reasons = kpi.reasons || {};
-    const total = Object.values(reasons).reduce((a, r) => a + r.n, 0) || 1;
-    const rows = Object.entries(reasons).sort((a, b) => b[1].n - a[1].n);
-    document.getElementById("reasons").innerHTML = "<div style='display:grid;gap:8px'>" + rows.map(([k, r]) =>
-      "<div class='reason-row'><span>" + (REASON_RU[k] || k) + "</span>" +
-      "<span class='bar-track'><span class='bar-fill' style='width:" + Math.round(r.n / total * 100) + "%;background:" + (r.usd >= 0 ? css("--gain") : css("--loss")) + "'></span></span>" +
-      "<span class='num'>" + r.n + " сд.</span><span class='num'>" + Math.round(r.win_share * 100) + " %</span>" +
-      "<span class='num " + cls(r.usd) + "'>" + money(r.usd) + "</span></div>"
-    ).join("") + "</div>";
-  }
-
   // ---------- по монетам ----------
   let coinSort = "usd", coinDir = -1;
   function coinRows() {
@@ -934,46 +893,6 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
 
   // ---------- защиты счёта ----------
-  function renderProtections() {
-    const table = document.getElementById("prot-table");
-    const rows = (((D.protections[state.period] || {})[state.variant]) || null) && D.protections[state.period][state.variant].map((r, i) => r.n != null ? scaleAcc(r, K(), state.period, i === 0 ? state.variant : "") : r);
-    document.getElementById("prot-scope").textContent = PERIOD_LABEL[state.period] + " · " + VARIANT_PILL[state.variant];
-    if (!rows) { table.innerHTML = "<tbody><tr><td>для этого периода счёт с защитами не считался</td></tr></tbody>"; return; }
-    table.innerHTML = "<thead><tr><th>защита</th><th class='num'>сделок</th><th class='num'>$</th><th class='num'>%</th><th class='num'>просадка</th></tr></thead><tbody>" +
-      rows.map((r, i) => "<tr" + (i === rows.length - 1 ? " class='total'" : "") + "><td>" + r.label + "</td><td class='num'>" + intFmt(r.n) + "</td>" +
-        "<td class='num " + cls(r.net_usd) + "'>" + money(r.net_usd) + "</td><td class='num " + cls(r.net_pct) + "'>" + pctFmt(r.net_pct) + "</td>" +
-        "<td class='num neg'>" + (r.dd_approx ? "≈ " : "") + "−" + pctPlain(r.dd_pct) + "</td></tr>").join("") + "</tbody>";
-  }
-
-  // ---------- методика ----------
-  const acc0 = p => (D.account[p] || {});
-  const c1 = acc0("aug").cand;
-  document.getElementById("methodology-list").innerHTML = [
-    "Главный вариант (BTC 4 ч, трейл 1/1): лонг от бид-стены старше 45 мин на подходе цены, только когда BTC за 4 ч упал на 44,55 bps и больше; стоп 2 %, трейл +1 % / откат 1 %, не дольше 4 ч. Все числа — на днях подбора (август и сентябрь), без интервалов." +
-      (c1 ? " Просадка BTC за 1 ч на августе не подтвердилась: " + money(c1.net_usd) + "." : "") + (D.drop && D.drop.length ? " Вне торгового пула: " + D.drop.map(s => s.replace(/USDT$/, "")).join(", ") + "." : ""),
-    "Гипотезы П-02 (кнопки после «П-02»): каждая — главный вариант с одной заменой, что заменено — строкой «Изменено» под кнопками. " + (D.p02_note || "") + " У сигнальных гипотез вердикт П-02 — про долю отскоков от стены, а не про деньги.",
-    ...(D.p02_undefined || []).map(u => "Без денег — " + u.h + ": " + u.why + "."),
-    ...D.variants.filter(v => isP02(v.key) && v.note).map(v => VARIANT_PILL[v.key] + ": " + v.note),
-    "Таблица «Все варианты по месяцам»: счёт $2 500, позиция $500, без защит; «Авг + сен» — один счёт подряд с 01.08, не сумма двух месяцев; «*» — доля в плюс по сделкам, отдельного счёта нет.",
-    "Версия 20 (27.09): KPI «до перехая» по новому определению; сторона падения — плитки «Спад, p90» и «Перелоу», колонка в рейтинге; — из любого часа, сколько ждать нового максимума счёта (скользящий старт, непрерывный счёт август + сентябрь; p90, медиана, максимум, доля не дождавшихся к 24.09); прежнее «от начала месяца» — справочно. Рейтинг пересчитан; раздел T-32 — хедж × ограничение и Г-102/103/108/110. На проверке у Судьи.",
-    "Версия 19 (27.09): главный KPI владельца «до перехая» (В-120) — плитки первыми, гистограмма всех периодов, колонка в сводной таблице; рейтинг «Ровность роста» с кривыми топ-3 и главного; страница во всю ширину экрана.",
-    "Версия 18 (27.09): переключатель «Позиция» $500…$2 500 — деньги пересчитаны линейно, без пересчёта очереди (при большей позиции исполнение хуже); просадка в % — точным прогоном у главного и пяти точек П-05, у остальных — оценкой «≈». Плитки «В рынке на пике» и «Запас до ликвидации» (ставка маржи 1 %). Раздел «Сетки П-05» — возраст × размер стены, сила; клик по клетке — этот вариант во всех плитках; на проверке у Судьи.",
-    "Версия 17 (27.09): каждая гипотеза П-02 — отдельным вариантом с полным набором показателей, кривой и днями по месяцам (кнопки «Гипотезы П-02 · справочно»). Денежные (Г-105, Г-85, Г-86) — свои прогоны бэктеста; Г-08 — сделки главного варианта у стены на круглом числе, тем же счётом $2500. Остальные сигнальные (Г-28, Г-33, Г-07, Г-46, Г-36) деньгами пока не показаны: их признак мерился на касании стены, а главный вариант входит на подходе — касание есть лишь у 17 % сделок; по решению владельца (В-117) признак пересчитывается на момент входа, варианты появятся по мере счёта. Таблица «Все варианты по месяцам» перенесена наверх; у гипотезы — таблица «что изменено» и главный вариант пунктиром на графике капитала. Это не вердикт: варианты посчитаны на тех же днях, на которых проверялась гипотеза; вердикт — в разделе «Гипотезы П-02». Обвал для них не считался. Сдвиг к версии 16: из шапки убрана строка «нужен третий, независимый месяц» (решение владельца: решение — по августу и сентябрю, каждый отдельно).",
-    "Версия 16 (26.09): выключатель BTC теперь смотрит ход BTC той же минуты, что и фильтр входа (раньше — на минуту позже): с выключателем 150 bps август главного варианта +$89 → +$96 — два входа 22.08 05:11 UTC больше не берутся; без выключателя цифры те же.",
-    "Версия 16: сентябрь — 23 суток: 14.09 посчитано без одной монеты (LSKUSDT — прогон не проходит по памяти, исключена во всех вариантах одинаково, решение В-112). Счёт, показатели, кривые, дни и защиты — по 23 суткам; таблицы «Результаты сделок» и «По монетам» пока по 22 суткам (без 14.09) — обновятся в следующей версии.",
-    "Версия 16: раздел «Гипотезы П-02» — десять проверенных идей про стену и вход: что проверяли, август и сентябрь отдельно, эффект с интервалом, доля дней в сторону идеи; вердикт по заранее записанному правилу и по новому правилу R2 (изменено после счёта).",
-    "Версия 15 (26.09): «Средняя сделка», «Ожидание», «Профит-фактор» и «Время в рынке» — по сделкам, которые взял счёт.",
-    "Данные: 01–15.09 и август 2026 — архив Bybit (200 уровней стакана, шаг 100 мс); 16–23.09 — собственный коллектор (50 уровней, 20 мс). Обвал 10–11.10.2025 — архив Bybit.",
-    "Исполнение — модель очереди (лестница заявок, приоритет по времени и цене) и задержка по замерам биржи; издержки биржи включены в результат каждой сделки.",
-    "Пороги фильтра по BTC заморожены по 01–15.09.2026 и не подбирались заново ни на записи, ни на августе, ни на обвале.",
-    "Проверено около 900 сочетаний входа, стопа, тейка и удержания (титрование) — при таком числе попыток часть побеждает случайно; кандидат — это гипотеза, а не доказательство.",
-    "Список исключённых монет-«прокидов» (раздел «Защиты счёта») выбран на тех же данных сентября — для августа это ещё не проверялось на новом отрезке.",
-    "Все цифры — пересчёт 24.09 со всеми исправлениями ревью: размер позиции по цене сигнала, средняя цена рыночного выхода, позиции через полночь досчитаны; август — после пересчёта суток 18.08 (25.09). Цифры страниц до 24.09 недействительны.",
-    "Вне торгового пула (решение владельца 25.09): " + ((D.drop || []).map(s => s.replace(/USDT$/, "")).join(", ") || "—") + " — сделок этих монет нет ни в одном варианте и периоде, ни в счёте; коллектор их по-прежнему записывает.",
-    "Фильтры «режим рынка» (кроме просадки BTC), «возраст стены» и шорт на позицию $500 ещё не пересчитаны — на странице их нет.",
-    "Не проверено: двойник живого исполнения на архивном потоке против собственного, устойчивость при других рыночных режимах.",
-  ].map(t => "<li>" + t + "</li>").join("");
-
   // ---------- гипотезы: сводная таблица (T-36) ----------
   let hypFilter = "all";
   function hypBucket(status) {
@@ -995,7 +914,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const filters = [["all", "все"], ["ok", "подтверждено"], ["crit", "опровергнуто"], ["warn", "не ясно / описание"], ["neutral", "не проверено"]];
     fBox.innerHTML = filters.map(([k, label]) => "<button data-hf='" + k + "' aria-pressed='" + (k === hypFilter) + "'>" + label + " (" + counts[k] + ")</button>").join("");
     fBox.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { hypFilter = b.dataset.hf; renderHyp(); }));
-    const share = s => s == null ? "—" : "авг " + Math.round(s.august * 100) + "% · сен " + Math.round(s.september * 100) + "%";
+    const share = s => s == null ? "—" : "авг " + f2(s.august) + " · сен " + f2(s.september);
     const rows = H.rows.filter(r => hypFilter === "all" || hypBucket(r.status) === hypFilter);
     document.getElementById("hyp-table").innerHTML =
       "<thead><tr><th style='text-align:left'>Г-№</th><th style='text-align:left'>формулировка</th><th style='text-align:left'>класс</th>" +
@@ -1065,194 +984,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       " · максимум " + dayFmt(rl.max) + (rl.cens ? " · не дождались к 24.09 — " + pct0(rl.cens) : "") + " · красным — дольше 5 дней" +
       (nh ? " · справочно, от начала месяца: самый долгий " + dayFmt(nh.worst) + ", новых максимумов " + nh.n : "");
   }
-  function renderT32() {
-    const box = document.getElementById("panel-t32"), T = NH && NH.t32;
-    if (!T || !T.grid) { box.style.display = "none"; return; }
-    const k = K();
-    document.getElementById("t32-note").innerHTML = "На готовых сделках главного, без нового бэктеста: убранные сделки выпадают, занятость монеты не пересчитана; хедж — шорт инструмента на бету монеты за 24 ч до входа, тейкер 5,5 bps на вход и выход. Цель владельца — p90 ≤ 5 дней в обоих месяцах: не достигает ни одна клетка." +
-      hint("T-32", "Скользящий старт по непрерывному счёту (август + сентябрь). При полном хедже август уходит в минус (BTC −$76, ETH −$63, корзина −$244): прибыль августа — отскок рынка после падения BTC, не отскок монеты от стены. Всё — на днях подбора.");
-    const hedges = [...new Set(T.grid.map(r => r.hedge))], limits = [...new Set(T.grid.map(r => r.limit))];
-    const w = r => Math.max(r.aug.roll_p90_d, r.sep.roll_p90_d);
-    const maxW = Math.max(...T.grid.map(w));
-    const bg = v => "background:color-mix(in srgb, var(" + (v <= 5 ? "--gain" : "--loss") + ") " + Math.round(Math.min(1, v / maxW) * 55) + "%, var(--surface))";
-    let h = "<thead><tr><th>хедж \\ ограничение</th>" + limits.map(l => "<th>" + l + "</th>").join("") + "</tr></thead><tbody>";
-    for (const hd of hedges) {
-      h += "<tr><td>" + hd + "</td>";
-      for (const l of limits) {
-        const r = T.grid.find(x => x.hedge === hd && x.limit === l); if (!r) { h += "<td>—</td>"; continue; }
-        const v = w(r);
-        h += "<td class='cell' style='" + bg(v) + "' title='август: p90 " + r.aug.roll_p90_d + " дн, " + money(r.aug.usd * k) + ", " + r.aug.n + " сд.; сентябрь: p90 " + r.sep.roll_p90_d + " дн, " + money(r.sep.usd * k) + ", " + r.sep.n + " сд.'>" + v.toFixed(1).replace(".", ",") + (v <= 5 ? " ✓" : "") + "</td>";
-      }
-      h += "</tr>";
-    }
-    document.getElementById("t32-heat").innerHTML = h + "</tbody>";
-    const NAME = {baseline: "главный (сверка)", g103_pause30: "Г-103 пауза 30 мин", g103_pause60: "Г-103 пауза 60 мин", g103_pause120: "Г-103 пауза 120 мин", g103_pause240: "Г-103 пауза 240 мин",
-      g103_pauseStop120: "Г-103 пауза 120 мин после стопа", g103_pauseStop240: "Г-103 пауза 240 мин после стопа", g102_offset50: "Г-102 отступ 50 bps", g102_offset100: "Г-102 отступ 100 bps", g102_offset200: "Г-102 отступ 200 bps",
-      g108_level20: "Г-108 уровень 20 bps", g108_level50: "Г-108 уровень 50 bps", g108_level100: "Г-108 уровень 100 bps"};
-    const nm = s => NAME[s] || s.replace(/^g110_N(\d+)_m(\d+)$/, "Г-110 через $1 мин, порог +$2 bps");
-    document.getElementById("t32-exits").innerHTML = "<thead><tr><th>вариант</th><th class='num sep'>p90, авг</th><th class='num'>$ авг</th><th class='num sep'>p90, сен</th><th class='num'>$ сен</th></tr></thead><tbody>" +
-      T.exits.map(r => "<tr" + (r.name === "baseline" ? " class='total'" : "") + "><td>" + nm(r.name) + "</td><td class='num sep " + (r.aug.roll_p90_d > 5 ? "neg" : "") + "'>" + r.aug.roll_p90_d.toFixed(1).replace(".", ",") + " дн</td><td class='num " + cls(r.aug.usd) + "'>" + money(r.aug.usd * k) +
-        "</td><td class='num sep " + (r.sep.roll_p90_d > 5 ? "neg" : "") + "'>" + r.sep.roll_p90_d.toFixed(1).replace(".", ",") + " дн</td><td class='num " + cls(r.sep.usd) + "'>" + money(r.sep.usd * k) + "</td></tr>").join("") + "</tbody>";
-  }
-  // ---------- номер подхода (владелец 27.09: «добавим количество подходов в дашборд») ----------
-  function renderApproach() {
-    const box = document.getElementById("panel-approach"), A = NH && NH.approach;
-    if (!A || !A.by_number) { box.style.display = "none"; return; }
-    document.getElementById("approach-note").innerHTML = "Только главный вариант (BTC 4 ч, трейл 1/1), готовые сделки, без нового бэктеста: " +
-      A.notes.join("; ") + ". Сделок: август " + A.n_trades.aug + ", сентябрь " + A.n_trades.sep + "; максимум номера подхода — " + A.max_approach_number + ".";
-    const pc = x => x == null ? "—" : Math.round(x * 100) + "%";
-    const rowN = r => "<tr><td>" + r.key + "</td>" + ["aug", "sep"].map(m => {
-      const v = r[m];
-      return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num'>" + moneyFine(v.usd_per_trade) +
-        "</td><td class='num'>" + pc(v.win) + "</td><td class='num'>" + pc(v.stop) + "</td>";
-    }).join("<td class='sep'></td>") + "</tr>";
-    document.getElementById("approach-number").innerHTML =
-      "<thead><tr><th>подход</th><th colspan='5'>август</th><th class='sep'></th><th colspan='5'>сентябрь</th></tr>" +
-      "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th><th class='sep'></th>" +
-      "<th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th></tr></thead><tbody>" +
-      A.by_number.map(rowN).join("") + "</tbody>";
-    const n_note = v => v.n < 10 ? "сделок нет" : (v.n < 30 ? " (описание)" : "");
-    const gtCell = v => v.n < 10 ? "—" : pc(v.frac_gt_5d) + n_note(v);
-    const pmCell = v => v.n < 10 ? "—" : dayFmt((v.p90_days || 0) * 24) + (v.p90_censored ? "*" : "") + " / " + dayFmt((v.max_days || 0) * 24) + (v.max_censored ? "*" : "");
-    const rowR = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
-      const v = r[m];
-      return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num " + (v.n >= 10 && v.frac_gt_5d > 0.10 ? "neg" : "") +
-        "'>" + gtCell(v) + "</td><td class='num muted'>" + pmCell(v) + "</td>";
-    }).join("<td class='sep'></td>") + "</tr>";
-    document.getElementById("approach-rules").innerHTML =
-      "<thead><tr><th>правило</th><th colspan='4'>август</th><th class='sep'></th><th colspan='4'>сентябрь</th></tr>" +
-      "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>p90/max, дн</th><th class='sep'></th>" +
-      "<th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>p90/max, дн</th></tr></thead><tbody>" +
-      A.rules.map(rowR).join("") + "</tbody>" +
-      "<tfoot><tr><td colspan='10' class='muted'>Просмотрено правил: " + A.n_rules + " (все выписаны, без подбора, на тех же днях главного варианта — не проверка). Цель — доля &le; 10 %. Г-85 — считается (размеченных сделок по номеру подхода для Г-85 пока нет).</td></tr></tfoot>";
-
-    // ---------- правила с пересчётом занятости (busy-replay, T-31) ----------
-    const B = A.busy;
-    if (B && B.rules_kpi) {
-      const bnote = v => v.n < 30 ? " (описание)" : "";
-      const bgt = v => v.n < 10 ? "сделок нет" : pc(v.frac_gt_5d) + bnote(v);
-      const bpeak = v => v.n < 10 ? "сделок нет" : pc(v.at_peak_share) + " / " + pc(v.below_peak_share);
-      const rowB = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
-        const v = r[m];
-        return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num " +
-          (v.n >= 10 && v.frac_gt_5d > 0.10 ? "neg" : "") + "'>" + bgt(v) + "</td><td class='num muted'>" + bpeak(v) + "</td>";
-      }).join("<td class='sep'></td>") + "</tr>";
-      document.getElementById("approach-busy-rules").innerHTML =
-        "<thead><tr><th>правило</th><th colspan='4'>август</th><th class='sep'></th><th colspan='4'>сентябрь</th></tr>" +
-        "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>на пике / в просадке</th><th class='sep'></th>" +
-        "<th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>на пике / в просадке</th></tr></thead><tbody>" +
-        B.rules_kpi.map(rowB).join("") + "</tbody>";
-      document.getElementById("approach-busy-note").innerHTML =
-        "гейт T-31 на проверке у Судьи; 508 из 4264 сигналов без номера исключены — строка «все» здесь &ne; база (сентябрь 31 % против 13 %), " +
-        "сравнивать правила только внутри этой таблицы. Занятость меняет и KPI, и сам состав сделок правила (сделка правилом выпадает — освободившаяся " +
-        "монета раньше впускает следующий сигнал). Цель — доля &le; 10 %.";
-    }
-
-    // ---------- просадка и плечо по правилам (busy-replay, вопрос владельца про 4-й подход) ----------
-    if (B && B.dd_rows) {
-      const rowDD = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
-        const v = r[m];
-        return "<td class='num neg'>" + moneyPlain(v.dd_usd) + "</td><td class='num neg'>" + money(v.worst_day_usd) + "</td><td class='num'>" + pc(v.underwater_gt50) + "</td>";
-      }).join("<td class='sep'></td>") + "</tr>";
-      document.getElementById("approach-dd-table").innerHTML =
-        "<caption style='caption-side:top;text-align:left;font:600 12.5px var(--font-body);color:var(--ink-2);padding-bottom:6px'>Просадка (busy-replay)</caption>" +
-        "<thead><tr><th>правило</th><th colspan='3'>август</th><th class='sep'></th><th colspan='3'>сентябрь</th></tr>" +
-        "<tr><th></th><th class='num'>макс. просадка</th><th class='num'>худшие сутки</th><th class='num'>часов под водой &gt;$50</th><th class='sep'></th>" +
-        "<th class='num'>макс. просадка</th><th class='num'>худшие сутки</th><th class='num'>часов под водой &gt;$50</th></tr></thead><tbody>" +
-        B.dd_rows.map(rowDD).join("") + "</tbody>";
-      const stressTxt = v => Math.abs(v) >= 100 ? "<span class='neg'>обнулён</span> (" + Math.abs(v).toFixed(0) + "%)" : "−" + Math.abs(v).toFixed(0) + "%";
-      const rowLev = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
-        const wd = [1, 2, 3].map(x => (r[m].worst_day_pct * x).toFixed(1).replace("-", "−") + "%").join(" / ");
-        const dd = [1, 2, 3].map(x => "−" + (r[m].dd_pct * x).toFixed(1) + "%").join(" / ");
-        const st = [1, 2, 3].map(x => stressTxt(r[m + "_stress"] * x)).join(" / ");
-        return "<td>" + wd + "</td><td>" + dd + "</td><td>" + st + "</td>";
-      }).join("<td class='sep'></td>") + "</tr>";
-      document.getElementById("approach-lev-table").innerHTML =
-        "<caption style='caption-side:top;text-align:left;font:600 12.5px var(--font-body);color:var(--ink-2);padding-bottom:6px'>Плечо ×1 / ×2 / ×3 (линейный масштаб позиции, не прогон ликвидации)</caption>" +
-        "<thead><tr><th>правило</th><th colspan='3'>август</th><th class='sep'></th><th colspan='3'>сентябрь</th></tr>" +
-        "<tr><th></th><th class='num'>худшие сутки, % депо</th><th class='num'>просадка, % депо</th><th class='num'>стресс обвала</th><th class='sep'></th>" +
-        "<th class='num'>худшие сутки, % депо</th><th class='num'>просадка, % депо</th><th class='num'>стресс обвала</th></tr></thead><tbody>" +
-        B.lev_rows.map(rowLev).join("") + "</tbody>";
-      const top3Txt = B.top3.map((e, i) => "−" + Math.abs(e.usd4).toFixed(1) + " из −" + e.depth_usd.toFixed(0) + " (" + e.n4 + " из " + e.n_total + " сделок)").join(", ");
-      document.getElementById("approach-dd-note").innerHTML =
-        "Вклад сделок подхода 4+ в топ-3 самых глубоких эпизода просадки базы (без пересчёта занятости): " + top3Txt + " — просадку делают в основном сделки 1–3, не 4+. " +
-        "Стопов подхода 4+ — " + (B.stop_days_n4.together + B.stop_days_n4.alone) + " суток, из них " + B.stop_days_n4.together + " совпадают со стопом другого подхода в те же сутки и " +
-        B.stop_days_n4.alone + " — «одни». <b>Просадку делают сделки 1–3; плечо фатально при любом номере подхода.</b>";
-    }
-    renderSlices();
-  }
-
-  // ---------- срезы по номеру подхода (владелец 27.09 через CEO: «детализируй по срезам») ----------
-  const SLICE_LABEL = {age: "возраст стены", size: "размер стены", gap: "время с прошлого подхода", outcome: "исход прошлого подхода",
-    before45: "подходов до 45 мин", traded_serial: "номер среди торгуемых", btc: "глубина BTC", episode_minute: "минута эпизода", family: "семейство волатильности"};
-  function sliceCell(c) {
-    if (!c || !c.n) return "<td class='cell thin'>—</td>";
-    if (c.n < 10) return "<td class='cell thin'>мало <span class='muted'>(n=" + c.n + ")</span></td>";
-    const pc = x => x == null ? "—" : Math.round(x * 100) + "%";
-    return "<td class='cell'>n=" + c.n + "<br>" + moneyFine(c.usd_pt) + "/сд · " + pc(c.win) + "</td>";
-  }
-  function sliceHeat(fam, pk, title) {
-    const table = fam.table[pk];
-    const buckets = Object.keys(table);
-    const allN = new Set();
-    buckets.forEach(b => Object.keys(table[b]).forEach(n => { if (table[b][n].n) allN.add(n); }));
-    const order = ["1", "2", "3", "4", "5", "6", "7+"].filter(n => allN.has(n));
-    if (!order.length) return "";
-    let h = "<div class='scroll'><h4 style='margin:0 0 6px;font:600 12.5px var(--font-body);color:var(--ink-2)'>" + title + "</h4><table class='heat-table'><thead><tr><th>подход &rarr;</th>" +
-      order.map(n => "<th>" + n + "</th>").join("") + "</tr></thead><tbody>";
-    for (const b of buckets) {
-      h += "<tr><td>" + (b === "" ? "все" : b) + "</td>" + order.map(n => sliceCell(table[b][n])).join("") + "</tr>";
-    }
-    return h + "</tbody></table></div>";
-  }
-  function renderSlices() {
-    const A = NH && NH.approach, S = A && A.slices;
-    const swBox = document.getElementById("slices-switch"), tBox = document.getElementById("slices-tables");
-    if (!S || !S.families) { if (swBox) swBox.innerHTML = ""; if (tBox) tBox.innerHTML = ""; return; }
-    swBox.innerHTML = Object.keys(SLICE_LABEL).map(k => "<button data-slice='" + k + "' aria-pressed='" + (k === sliceKey) + "'>" + SLICE_LABEL[k] + "</button>").join("");
-    swBox.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { sliceKey = b.dataset.slice; renderSlices(); }));
-    const ap = S.age_pooled;
-    const frac2 = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2).replace(".", ",");
-    const bps0 = v => (v >= 0 ? "+" : "−") + Math.abs(Math.round(v));
-    document.getElementById("slices-headline").innerHTML = "<b>Главное</b>: номер подхода внутри корзины возраста стены — август &Delta; доли в плюс " +
-      frac2(ap.aug.pooled_win_diff_2plus_vs_1) + " / " + bps0(ap.aug.pooled_bps_diff_2plus_vs_1) + " bps, сентябрь " +
-      frac2(ap.sep.pooled_win_diff_2plus_vs_1) + " / " + bps0(ap.sep.pooled_bps_diff_2plus_vs_1) + " bps — знак разный между месяцами, эффекта нет.";
-    const fam = S.families[sliceKey];
-    tBox.innerHTML = sliceHeat(fam, "aug", "Август") + sliceHeat(fam, "sep", "Сентябрь");
-    document.getElementById("slices-note").textContent = S.n_cells + " клеток на тех же днях (" + fam.title + ") — карта-описание, не проверка; правило из любой клетки — только новым протоколом.";
-  }
-
-  // ---------- плечо ×1..×5 (владелец 27.09: «не размер позиции а в плечах») ----------
-  function renderLev() {
-    const box = document.getElementById("panel-lev"), L = NH && NH.lev;
-    if (!L || !L.rows) { box.style.display = "none"; return; }
-    document.getElementById("lev-note").innerHTML = L.notes.join("; ") + ". " + L.note_scale_invariant +
-      (L.frac_gt_h ? " (август " + Math.round(L.frac_gt_h.aug * 100) + "%, сентябрь " + Math.round(L.frac_gt_h.sep * 100) + "%, все ×)." : ".");
-    const mults = [1, 2, 3, 4, 5];
-    const metric = (label, get, fmt) => "<tr><td>" + label + "</td>" + ["aug", "sep"].map(m => mults.map(x => {
-      const r = (L.rows[m] || {})[x]; if (!r) return "<td class='num'>—</td>";
-      const v = get(r);
-      const approx = r.dd_pct_approx && label.includes("просадк");
-      return "<td class='num" + (approx ? " muted" : "") + "'>" + (v == null ? "—" : fmt(v)) + (approx ? " ≈" : "") + "</td>";
-    }).join("")).join("<td class='sep'></td>") + "</tr>";
-    let h = "<thead><tr><th>×</th>" + ["август", "сентябрь"].map(mo => "<th colspan='5'>" + mo + "</th>").join("<th class='sep'></th>") + "</tr>" +
-      "<tr><th></th>" + ["aug", "sep"].map(() => mults.map(x => "<th class='num'>×" + x + " ($" + L.sizes[x] + ")</th>").join("")).join("<th class='sep'></th>") + "</tr></thead><tbody>";
-    h += metric("$", r => r.usd, v => money(v));
-    h += metric("% депозита", r => r.pct, v => v.toFixed(1) + "%");
-    h += metric("максимальная просадка, % депозита", r => r.dd_pct, v => v.toFixed(1) + "%");
-    h += metric("худшие сутки, % депозита", r => r.worst_day_pct, v => v.toFixed(1) + "%");
-    h += metric("стресс обвала (−59,7 % на пике), потеря % депозита", r => r.stress_pct,
-      v => Math.abs(v) >= 100 ? "<span class='neg'>счёт обнулён</span> <span class='muted'>(" + Math.abs(v).toFixed(0) + "%)</span>" : Math.abs(v).toFixed(0) + "%");
-    h += metric("пиковое фактическое плечо", r => r.lev, v => "×" + v.toFixed(1));
-    document.getElementById("lev-table").innerHTML = h + "</tbody>";
-  }
-
   function renderRating() {
     const box = document.getElementById("panel-rating");
     if (!NH) { box.style.display = "none"; return; }
     const pk = state.period === "crash" ? "augsep" : state.period;
     document.getElementById("rating-status").textContent = "справочно: на тех же днях подбора";
-    document.getElementById("rating-note").innerHTML = "Из " + NH.n_rows + " готовых рядов (главный и соседи, П-02, " + "клетки П-05, окна BTC, потолок 3, смеси 2 вариантов) плюс в обоих месяцах и сделок ≥ 30 / ≥ 10 — у " + NH.n_pass +
+    document.getElementById("rating-note").innerHTML = "<b>Сравнение вариантов — описание, не вердикт</b> (П-07, поправка 1 п.3). Из " + NH.n_rows + " готовых рядов (главный и соседи, П-02, " + "клетки П-05, окна BTC, потолок 3, смеси 2 вариантов) плюс в обоих месяцах и сделок ≥ 30 / ≥ 10 — у " + NH.n_pass +
       ". Порядок — по p90 ожидания нового максимума из любого часа (скользящий старт) худшего месяца; на проверке у Судьи. Клик по строке — вариант во всех плитках, если он есть на странице." +
       hint("Рейтинг", "Смесь «среднее» — два варианта на половине позиции, без учёта занятости монеты. «+ потолок 3» — не больше 3 позиций разом. " + NH.status + ". Между местами — доли суток при 285 просмотренных рядах: это выбор из шума, не находка.");
     const cols = ["aug", "sep"];
@@ -1286,7 +1023,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     document.getElementById("panel-kpi").scrollIntoView({behavior: "smooth", block: "start"});
   }
   function renderP05() {
-    const box = document.getElementById("panel-p05");
+    const box = document.getElementById("p05-details");
     if (!P5) { box.style.display = "none"; return; }
     const k = K();
     document.getElementById("p05-status").textContent = P5.status;
@@ -1333,6 +1070,121 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       table("Сила × возраст × размер", c => c.part === "c");
     box.querySelectorAll("[data-p05]").forEach(el => el.addEventListener("click", () => pickP05(el.dataset.p05)));
   }
+  // ---------- конфиг варианта (TK-007): подпись, набор, стена и клетки П-05, «Подходов до» ----------
+  const WALL_MAIN = "возраст ≥ 45 мин, размер ≥ $10k, без порога силы";
+  const esc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  // «0,685 FAIL [0,301–0,704]» из отчёта → доли двумя знаками
+  const f2str = t => String(t).replace(/(\d+),(\d{3,})/g, (m, a, b) => f2(parseFloat(a + "." + b)));
+  const upToHead = "<thead><tr><th>подходов до</th><th colspan='3' class='sep'>август</th><th colspan='3' class='sep'>сентябрь</th></tr>" +
+    "<tr><th></th>" + [0, 1].map(() => "<th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th>").join("") + "</tr></thead>";
+  function approachUpTo(key) {
+    if (key === "btc4h_trail") {
+      const B = NH && NH.approach && NH.approach.busy;
+      if (!B || !B.rules_kpi) return null;
+      const sh = v => v.n < 10 ? "сделок нет" : f2(v.frac_gt_5d) + (v.n < 30 ? " (описание)" : "");
+      const td = v => "<td class='num sep'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num " +
+        (v.n >= 10 && v.frac_gt_5d > 0.10 ? "neg" : "") + "'>" + sh(v) + "</td>";
+      const rows = B.rules_kpi.filter(r => /^все|^первые/.test(r.rule));
+      return "<div class='scroll'><table>" + upToHead + "<tbody>" + rows.map(r => "<tr><td>" + (/^все/.test(r.rule) ? "все" : "≤ " + r.rule.replace("первые ", "")) + "</td>" +
+        td(r.aug) + td(r.sep) + "</tr>").join("") + "</tbody></table></div><p class='note'>Пересчёт с занятостью монеты (busy-replay, T-31), $ на позицию $" +
+        D.position_usd + "; 508 из 4264 сигналов без номера подхода исключены — строка «все» здесь &ne; база (сентябрь 0,31 против 0,13), сравнивать строки только между собой. " +
+        "Цель — доля &le; 0,10. На проверке у Судьи.</p>";
+    }
+    const P7 = D.p07;
+    if (key === "g85" && P7 && P7.h14) {
+      const base = (P7.stage12.cells || []).find(c => c.cell === "base");
+      const tdB = m => "<td class='num sep'>" + base.n[m] + "</td><td class='num " + cls(base.usd[m]) + "'>" + money(base.usd[m]) + "</td><td class='num " + (base.frac[m] > 0.10 ? "neg" : "") + "'>" + f2(base.frac[m]) + "</td>";
+      const ks = P7.h14.rows.filter(r => /^k\d/.test(r[0]));
+      const tdR = (r, i) => "<td class='num sep'>" + esc(r[i]) + "</td><td class='num'>" + esc(r[i + 1]) + "</td><td class='num'>" + esc(f2str(r[i + 2])) + "</td>";
+      return "<div class='scroll'><table>" + upToHead + "<tbody>" + (base ? "<tr><td>все</td>" + tdB("aug") + tdB("sep") + "</tr>" : "") +
+        ks.map(r => "<tr><td>≤ " + r[0].match(/^k(\d)/)[1] + "</td>" + tdR(r, 1) + tdR(r, 4) + "</tr>").join("") +
+        "</tbody></table></div><p class='note'>П-07 H14 на Г-85а (последовательный проход, [интервал] — устойчивость по исключениям); " + esc(P7.h_judge.split(" (")[0]) +
+        ": «не проходит» во всех клетках, случай В.</p>";
+    }
+    return null;
+  }
+  function renderConfig() {
+    const k = state.variant, box = document.getElementById("cfg-body");
+    const p05 = isP05(k), meta = VARIANT_META[k] || {};
+    const sameAsMain = k === "btc4h_trail" || k === "btc4h_take" || meta.group === "p02";
+    const wall = p05 ? p05Label(k.slice(4)) + "; что не названо — как у главного (" + WALL_MAIN + ")"
+      : sameAsMain ? WALL_MAIN + (k === "btc4h_trail" ? "" : " (как у главного)")
+      : "по набору " + (VARIANT_SET[k] || "—") + " (параметры стены набора)";
+    const cells = NH ? Object.keys(NH.by_variant).filter(x => isP05(x) && NH.by_variant[x].kpi07 && P5 && P5.cells[x.slice(4)]) : [];
+    const ord = v => v === "проходит" ? 0 : v === "на границе" ? 1 : 2;
+    cells.sort((a, b) => ord(NH.by_variant[a].kpi07.verdict) - ord(NH.by_variant[b].kpi07.verdict));
+    const chips = cells.map(x => { const g = NH.by_variant[x].kpi07;
+      return "<button data-p05='" + x.slice(4) + "' aria-pressed='" + (x === k) + "'>" + p05Label(x.slice(4)) + " — <b>" + g.verdict + "</b> (авг " + f2(g.frac.aug) + " · сен " + f2(g.frac.sep) + ")</button>"; }).join("");
+    const up = approachUpTo(k);
+    const rows = [
+      ["Вариант", esc(VARIANT_PILL[k] || k)],
+      ["Описание", esc(VARIANT_FULL[k] || "—")],
+      ["Набор", esc(VARIANT_SET[k] || (p05 ? VARIANT_SET.btc4h_trail + " (как у главного)" : "—"))],
+      ["Стена (П-05)", esc(wall) + (P5 ? " <span class='badge warn'>" + esc(P5.status) + "</span>" : "")],
+      ["Клетки П-05 с KPI", P5 ? (cells.length ? "<div class='chip-list'>" + chips + "</div><p class='note'>доля часов ожидания нового максимума &gt; 5 сут (порог 0,10), правило П-07; всего клеток сетки " +
+        Object.keys(P5.cells).length + " — в свёрнутом блоке ниже; клик — вариант во всех плитках</p>" : "нет расчёта KPI") : "нет данных П-05"],
+      ["Подходов до", up || "<span class='muted'>нет расчёта</span>"],
+    ];
+    box.innerHTML = "<dl class='cfg-grid'>" + rows.map(([t, v]) => "<dt>" + t + "</dt><dd>" + v + "</dd>").join("") + "</dl>";
+    box.querySelectorAll("[data-p05]").forEach(el => el.addEventListener("click", () => pickP05(el.dataset.p05)));
+  }
+  // ---------- вкладка «Гипотезы»: номер подхода — срезы ----------
+  function renderApNum() {
+    const box = document.getElementById("panel-apnum"), A = NH && NH.approach;
+    if (!A || !A.by_number) { box.style.display = "none"; return; }
+    document.getElementById("apnum-note").innerHTML = "Только главный вариант (BTC 4 ч, трейл 1/1), готовые сделки без пересчёта занятости — срез, не правило. Сделок: август " +
+      A.n_trades.aug + ", сентябрь " + A.n_trades.sep + "; максимум номера подхода — " + A.max_approach_number + ". Правило «подходов до» — в конфиге варианта на главной.";
+    const pc = x => x == null ? "—" : Math.round(x * 100) + "%";
+    const rowN = r => "<tr><td>" + r.key + "</td>" + ["aug", "sep"].map(m => {
+      const v = r[m];
+      return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num'>" + moneyFine(v.usd_per_trade) +
+        "</td><td class='num'>" + pc(v.win) + "</td><td class='num'>" + pc(v.stop) + "</td>";
+    }).join("<td class='sep'></td>") + "</tr>";
+    document.getElementById("approach-number").innerHTML =
+      "<thead><tr><th>подход</th><th colspan='5'>август</th><th class='sep'></th><th colspan='5'>сентябрь</th></tr>" +
+      "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th><th class='sep'></th>" +
+      "<th class='num'>n</th><th class='num'>$</th><th class='num'>$/сделку</th><th class='num'>в плюс</th><th class='num'>стопов</th></tr></thead><tbody>" +
+      A.by_number.map(rowN).join("") + "</tbody>";
+  }
+  // ---------- вкладка «Гипотезы»: П-07 (базы Г-85а/б — из тех же данных, что плитки: счёт account + KPI kpi07) ----------
+  function renderP07() {
+    const P7 = D.p07 || null;
+    const lab = {g85: "Г-85а — одна заявка P+1", g85b: "Г-85б — 3 заявки, ширина в σ монеты · $500 на всю лестницу (w2 делит тот же объём по ногам)"};
+    document.getElementById("p07-note").innerHTML = "<b>Сравнение вариантов — описание, не вердикт</b> (П-07, поправка 1 п.3). Август и сентябрь отдельно; $ и просадка — на позицию $" +
+      D.position_usd + " (без переключателя «Плечо»); KPI — доля часов ожидания нового максимума &gt; 5 сут, порог 0,10.";
+    const row = key => { const g = kpi07For(key);
+      return "<tr><td style='white-space:normal;min-width:220px'>" + lab[key] + "</td>" + ["aug", "sep"].map(m => {
+        const a = (D.account[m] || {})[key] || null, fr = g && g.frac ? g.frac[m] : null;
+        return "<td class='num sep'>" + (a ? intFmt(a.n) : "—") + "</td><td class='num " + cls(a && a.net_usd) + "'>" + (a ? money(a.net_usd) : "—") +
+          "</td><td class='num neg'>" + (a ? "−" + pctPlain(a.dd_pct) + " · " + moneyPlain(a.dd_usd) : "—") + "</td><td class='num " + (fr != null && fr > 0.10 ? "neg" : "") + "'>" +
+          (fr != null ? f2(fr) : "<span class='muted'>в счёте</span>") + "</td>"; }).join("") +
+        "<td class='sep'>" + (g ? g.verdict : "<span class='muted'>—</span>") + "</td></tr>"; };
+    document.getElementById("p07-base").innerHTML = "<thead><tr><th>база</th><th colspan='4' class='sep'>август</th><th colspan='4' class='sep'>сентябрь</th><th class='sep'>KPI П-07</th></tr><tr><th></th>" +
+      [0, 1].map(() => "<th class='num sep'>сделок</th><th class='num'>$</th><th class='num'>просадка</th><th class='num'>доля &gt; 5 сут</th>").join("") + "<th class='sep'></th></tr></thead><tbody>" +
+      ["g85", "g85b"].filter(k => VARIANT_META[k]).map(row).join("") + "</tbody>";
+    document.getElementById("p07-g85b-note").innerHTML = "Статус — на проверке у Судьи. H9р/H14/H10 для Г-85б — в счёте (replay TK-004), появятся следующей версией.";
+    if (!P7) { document.getElementById("p07-stage").closest("details").style.display = "none"; return; }
+    document.getElementById("p07-stage-judge").innerHTML = "Ступени 1–2 на Г-85а — " + esc(P7.stage12.judge) + ". Источник: " + esc(P7.stage12.src) + ".";
+    document.getElementById("p07-stage").innerHTML = "<thead><tr><th>клетка</th><th>форма</th><th class='num sep'>сделок авг / сен</th><th class='num'>$ авг / сен</th><th class='num'>доля &gt; 5 сут авг / сен</th><th class='sep'>вердикт</th></tr></thead><tbody>" +
+      P7.stage12.cells.map(c => "<tr" + (c.cell === "base" ? " class='total'" : "") + "><td>" + esc(c.cell) + "</td><td class='muted'>" + esc(c.form) + "</td><td class='num sep'>" + c.n.aug + " / " + c.n.sep +
+        "</td><td class='num'>" + money(c.usd.aug) + " / " + money(c.usd.sep) + "</td><td class='num " + (c.frac && (c.frac.aug > 0.10 || c.frac.sep > 0.10) ? "neg" : "") + "'>" +
+        (c.frac ? f2(c.frac.aug) + " / " + f2(c.frac.sep) : "—") + "</td><td class='sep'>" + esc(c.verdict) + "</td></tr>").join("") + "</tbody>";
+    document.getElementById("p07-h-judge").innerHTML = esc(P7.h_judge) + ". Таблицы — из отчёта " + esc(P7.h14.src) + " (доли — двумя знаками).";
+    const tbl = T => "<thead><tr>" + T.head.map(h => "<th>" + esc(h) + "</th>").join("") + "</tr></thead><tbody>" +
+      T.rows.map(r => "<tr>" + r.map((c, i) => "<td" + (i ? " class='num'" : "") + ">" + esc(/5\s*сут/.test(T.head[i]) ? f2str(c) : c) + "</td>").join("") + "</tr>").join("") + "</tbody>";
+    document.getElementById("p07-h9r").innerHTML = tbl(P7.h9r);
+    document.getElementById("p07-h14").innerHTML = tbl(P7.h14);
+  }
+  // ---------- вкладки (TK-007): «Главная» / «Гипотезы», выбор помнится в браузере ----------
+  function buildTabs() {
+    const wrap = document.querySelector(".wrap"), btns = document.querySelectorAll("#tab-toggle button");
+    let t = "main";
+    try { const v = localStorage.getItem("alpha-dash-tab"); if (v === "main" || v === "hyp") t = v; } catch (e) { /* хранилище недоступно */ }
+    const set = v => { wrap.dataset.tab = v; btns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tab === v)));
+      try { localStorage.setItem("alpha-dash-tab", v); } catch (e) { /* хранилище недоступно */ } };
+    btns.forEach(b => b.addEventListener("click", () => set(b.dataset.tab)));
+    set(t);
+  }
   function renderAll() {
     document.querySelectorAll("#period-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.period === state.period)));
     document.querySelectorAll("#variant-toggle button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.variant === state.variant)));
@@ -1340,9 +1192,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
     document.getElementById("p05-pill").innerHTML = isP05(state.variant) ? "<span class='sep' aria-hidden='true'></span><button aria-pressed='true' title='" +
       VARIANT_FULL[state.variant].replace(/'/g, "&#39;") + "'>" + VARIANT_PILL[state.variant] + "</button>" : "";
-    renderDiff(); renderP05(); renderNh(); renderRating(); renderT32(); renderApproach(); renderLev();
-    renderKpi(); renderEquity(); renderDaily(); renderDist(); renderCoins(); renderCompare(); renderExit(); renderProtections();
+    renderDiff(); renderConfig(); renderP05(); renderNh(); renderRating();
+    renderKpi(); renderEquity(); renderDaily(); renderCoins(); renderCompare(); renderExit();
   }
-  buildToggles(); renderStatus(); renderCompare(); renderHyp(); renderP02(); renderAll();
+  buildTabs(); buildToggles(); renderStatus(); renderCompare(); renderHyp(); renderP02(); renderApNum(); renderP07(); renderAll();
 })();
 </script>
