@@ -5,6 +5,9 @@
 (полные версии 26.09 — `notes/archive/ceo-2026-09-26.md`, `ceo-2026-09-26-evening.md`).
 
 ## Сейчас делаю (27.09 ~18:55; вечер до клира — `notes/archive/ceo-2026-09-27-evening.md`)
+- **23:17 В-140:** HOLD снят (`HOLD.off-2026-09-27`), TK-004 большая пачка авг/сен (Иссл. с 23:13, бюджет L) — состав
+  Судье, `--cells` на сутки `bin/alpha-e74f200-v3 --hold-step skip --exit-group on`; моя оценка счёта 1–2 ч; к 23:40
+  очередь должна наполниться. watch.py починен (`a7b8763`, прежний формат state). coder = Opus medium, reader = Haiku.
 - **23:05:** диспетчер v1.4 `3ca7200` (учёт разницей, watch.py, таблица правил, executor haiku — без код-приёмки →
   Haiku-задачи пока не ставить) запущен; `watch.py` фоном (pid в `watch.pid`), мой крон снят (заменён сторожем по
   Судье), Monitor на ceo-wake.log — перевзводить. TK-003 (Иссл., $1,37): `tools/compute/dashboard-check.py`, дашборд
