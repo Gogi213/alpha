@@ -161,6 +161,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         cells: None,
         sigma_from: None,
         hold_step: "poll".to_string(),
+        exit_group: "off".to_string(),
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -3027,4 +3028,57 @@ fn btc_mid_axes_parse_and_regime_columns() {
             Some(-30.0)
         ]
     );
+}
+
+/// Э-08 (T-38): группы выходов (`--exit-group on`) и пропуск шагов удержания (`--hold-step skip`) дают те же
+/// `rounds.csv`, `forms.csv`, `signals.csv` (и тот же порядок строк), что прежний счёт (`off` / `poll`), —
+/// на сетке с разными стопами, тейками и дедлайнами при одном входе (условия Судьи 1 и 2 к Э-08).
+#[test]
+fn exit_groups_and_hold_skip_match_the_plain_run_byte_for_byte() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let run = |group: &str, hold: &str, out: &str| {
+        let mut a = args(dir.path(), false);
+        a.busy_skip = "off".to_string();
+        a.stop_form = vec!["s1".to_string(), "s2".to_string(), "pct1".to_string()];
+        a.take_form = vec!["t1".to_string(), "1to1".to_string()];
+        a.deadline_secs = vec![60, 600];
+        a.exit_group = group.to_string();
+        a.hold_step = hold.to_string();
+        a.out_dir = dir.path().join(out);
+        run_bounce_grid(&a).unwrap()
+    };
+    let base = run("off", "poll", "plain");
+    assert!(base.rounds > 0, "фикстура обязана дать круги");
+    for (group, hold, out) in [
+        ("on", "poll", "g-poll"),
+        ("on", "skip", "g-skip"),
+        ("off", "skip", "skip"),
+    ] {
+        let before =
+            crate::lob::backtest::EXIT_GROUP_ROUNDS.load(std::sync::atomic::Ordering::Relaxed);
+        let got = run(group, hold, out);
+        if group == "on" {
+            assert!(
+                crate::lob::backtest::EXIT_GROUP_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+                    > before,
+                "группы обязаны сработать"
+            );
+        }
+        for name in ["rounds.csv", "forms.csv", "signals.csv"] {
+            let body = |p: &std::path::Path| -> String {
+                std::fs::read_to_string(p.parent().unwrap().join(name))
+                    .unwrap()
+                    .lines()
+                    .filter(|l| !l.starts_with('#'))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            assert_eq!(
+                body(&got.rounds_path),
+                body(&base.rounds_path),
+                "{group}/{hold}: {name}"
+            );
+        }
+    }
 }

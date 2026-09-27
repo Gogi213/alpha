@@ -20,8 +20,9 @@ use crate::commands::lob::backtest::{
     feed_compact_into, open_replay_feed, EntryForm, PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
-    drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, with_backtest_over, BounceRun,
-    BounceSignal, CompactEvent, DriveConfig, ExecLatency, QueueModelKind, RoundMemo, SignalWindows,
+    drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
+    with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
+    QueueModelKind, RoundMemo, SignalWindows,
 };
 use crate::lob::levels::{H3Mode, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -126,6 +127,64 @@ fn signals_for(
         .collect();
     signals.sort_by_key(|s| s.t0_ns);
     Ok((signals, skipped))
+}
+
+/// Предсчёт групп выходов (Э-08) для форм суток: группы — по `entry_form` и `entry_ttl`, из двух и больше
+/// форм; сигналы — те же, что у формы (`signals_for`). Печатает число групповых кругов.
+fn exit_groups(
+    events: DayRows<'_>,
+    windows: &SignalWindows,
+    touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
+    forms: &[GridForm],
+    p: &DayParams<'_>,
+    memos: &[Mutex<RoundMemo>],
+) -> anyhow::Result<()> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (i, f) in forms.iter().enumerate() {
+        match groups.iter_mut().find(|g| {
+            let h = &forms[g[0]];
+            h.entry_form == f.entry_form && h.entry_ttl == f.entry_ttl
+        }) {
+            Some(g) => g.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    let cfg = DriveConfig {
+        order_qty: 0.0,
+        first_order_id: 1,
+        queue_model: p.queue_model,
+        busy_skip: p.busy_skip,
+        hold_skip: p.hold_skip,
+    };
+    let mut rounds: u64 = 0;
+    for g in groups.into_iter().filter(|g| g.len() > 1) {
+        let mut sigs: Vec<Vec<BounceSignal>> = Vec::with_capacity(g.len());
+        for &i in &g {
+            sigs.push(signals_for(touches, approaches, p.sigma, &forms[i], p)?.0);
+        }
+        let mut guards: Vec<_> = g
+            .iter()
+            .map(|&i| {
+                memos[p.form_ids[i]]
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+            })
+            .collect();
+        let mut refs: Vec<&mut RoundMemo> = guards.iter_mut().map(|m| &mut **m).collect();
+        let sig_refs: Vec<&[BounceSignal]> = sigs.iter().map(Vec::as_slice).collect();
+        rounds += match events {
+            DayRows::Compact(c) => {
+                precompute_exit_group(c, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
+            }
+            DayRows::Wide(e) => {
+                precompute_exit_group(e, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
+            }
+        }
+        .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
+    }
+    eprintln!("bounce-grid:   группы выходов: групповых кругов {rounds}");
+    Ok(())
 }
 
 /// События суток крейта из всех частей дня — в `Vec` **точного** размера:
@@ -264,6 +323,8 @@ pub(super) struct DayParams<'a> {
     pub(super) busy_skip: bool,
     /// Пропуск пустых шагов удержания (`--hold-step skip`, Э-04б): итог тот же, быстрее.
     pub(super) hold_skip: bool,
+    /// Группы выходов (`--exit-group on`, Э-08): предсчёт кругов группы в память форм.
+    pub(super) exit_group: bool,
     /// Размер круга на каждое касание суток (тот же порядок, что `touches`):
     /// лот по цене **этого** касания (R2, `OrderSizing`).
     pub(super) order_qtys: &'a [f64],
@@ -347,6 +408,13 @@ pub(super) fn drive_day(
         (None, DayRows::Wide(e)) => e,
         _ => &expanded,
     };
+    // Э-08: формы с одним входом (`entry_form`, `entry_ttl`) — круги группы заранее, одним движком на
+    // сигнал, в память каждой формы; дальше формы идут прежним путём и берут круги из памяти.
+    if p.exit_group && !p.busy_skip {
+        if let (Some(w), Some(ms)) = (windows, p.memos) {
+            exit_groups(events, w, touches, approaches, forms, &p, ms)?;
+        }
+    }
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
     let order = Mutex::new(FormOrder {

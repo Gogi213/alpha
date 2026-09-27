@@ -502,14 +502,15 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             let day_label = day.day.clone();
             // G10: память кругов на символ-сутки, по форме — наборы идут по очереди и берут
             // посчитанные круги готовыми. Один набор повторов не даёт — памяти нет.
-            let memos: Vec<Mutex<RoundMemo>> =
-                if windows.is_some() && args.round_memo == "on" && sets.len() > 1 {
-                    (0..forms.len())
-                        .map(|_| Mutex::new(RoundMemo::default()))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
+            let memos: Vec<Mutex<RoundMemo>> = if windows.is_some()
+                && ((args.round_memo == "on" && sets.len() > 1) || args.exit_group == "on")
+            {
+                (0..forms.len())
+                    .map(|_| Mutex::new(RoundMemo::default()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
             for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
                 let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
                 let forms_done = {
@@ -548,6 +549,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             queue_model,
                             busy_skip: args.busy_skip == "on",
                             hold_skip: args.hold_step == "skip",
+                            exit_group: args.exit_group == "on",
                             order_qtys: &order_qtys,
                             threads,
                             post_only: args.entry_post_only(),

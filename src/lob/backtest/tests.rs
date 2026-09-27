@@ -2191,3 +2191,223 @@ fn round_memo_keys_on_inherited_orphans() {
     assert!(memo.recall(&sig, 1000, other).is_none());
     assert_eq!(memo.stats(), (1, 2));
 }
+
+// ---------------------------------------------------------------------------
+// Э-08 (T-38, «один проход на вход»): группа форм с общим входом — общий
+// `drive_signal_group`/`run_round_group` обязан дать те же круги, что сольный
+// `drive_signal` по разу на форму (условия Судьи к Э-08).
+// ---------------------------------------------------------------------------
+
+/// Один сигнал К вариантов, сольно (свежий движок на вариант) — эталон для сравнения с группой.
+fn solo_signal_steps(
+    feed: &[Event],
+    variants: &[TradePlan],
+    sig0: impl Fn(TradePlan) -> BounceSignal,
+    cfg: &DriveConfig,
+    data_end_ns: Option<i64>,
+) -> Vec<SignalStep> {
+    variants
+        .iter()
+        .map(|&plan| {
+            let mut hbt = build_backtest(
+                feed,
+                1.0,
+                1.0,
+                ExecLatency::uniform(1_000_000),
+                QueueModelKind::RiskAdverse,
+            );
+            hbt.elapse(0).unwrap();
+            let mut next_id = 1u64;
+            let mut carry = crate::lob::strategy::OrphanCarry::NONE;
+            drive_signal(
+                &mut hbt,
+                0,
+                &sig0(plan),
+                cfg,
+                &mut next_id,
+                &mut carry,
+                data_end_ns,
+            )
+            .unwrap()
+        })
+        .collect()
+}
+
+/// Тот же сигнал, группой (`drive_signal_group`) — один общий вход, К своих выходов.
+fn group_signal_steps(
+    feed: &[Event],
+    variants: &[TradePlan],
+    sig0: impl Fn(TradePlan) -> BounceSignal,
+    cfg: &DriveConfig,
+) -> Vec<SignalStep> {
+    let mut hbt = build_backtest(
+        feed,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+    );
+    hbt.elapse(0).unwrap();
+    let mut next_group_id = GROUP_ID_BASE;
+    let mut carries = vec![crate::lob::strategy::OrphanCarry::NONE; variants.len()];
+    drive_signal_group(
+        &mut hbt,
+        0,
+        &sig0(variants[0]),
+        variants,
+        cfg,
+        &mut next_group_id,
+        &mut carries,
+        None,
+    )
+    .unwrap()
+}
+
+/// `TradePlan::Bounce` не поддерживает `..base` (обновление есть только у структур, не у полей
+/// варианта перечисления) — правит стоп/дедлайн явным `match`, остальные поля несёт исходный план.
+fn with_stop_and_deadline(plan: TradePlan, stop_px: f64, deadline_ns: i64) -> TradePlan {
+    match plan {
+        TradePlan::Bounce {
+            entry_px,
+            take_px,
+            entry_ttl_ns,
+            level_floor_qty,
+            band_exit_bps,
+            early_exit_ns,
+            level_px,
+            tick_px,
+            post_only,
+            trail_bps,
+            trail_activate_bps,
+            grid_legs,
+            grid_step_px,
+            ladder,
+            take_frac,
+            eaten_half_pct,
+            eaten_all_pct,
+            eaten_half_frac,
+            level_qty,
+            lot_qty,
+            exit_eat_pct,
+            exit_gone_pct,
+            gone_trail_bps,
+            gone_stop,
+            ..
+        } => TradePlan::Bounce {
+            entry_px,
+            stop_px,
+            take_px,
+            deadline_ns,
+            entry_ttl_ns,
+            level_floor_qty,
+            band_exit_bps,
+            early_exit_ns,
+            level_px,
+            tick_px,
+            post_only,
+            trail_bps,
+            trail_activate_bps,
+            grid_legs,
+            grid_step_px,
+            ladder,
+            take_frac,
+            eaten_half_pct,
+            eaten_all_pct,
+            eaten_half_frac,
+            level_qty,
+            lot_qty,
+            exit_eat_pct,
+            exit_gone_pct,
+            gone_trail_bps,
+            gone_stop,
+        },
+        TradePlan::SpreadHold => plan,
+    }
+}
+
+/// К вариантов с общим входом расходятся тремя разными причинами выхода — тейк лимитом (мейкер,
+/// план как есть — В-44), дедлайн (укорочен — рынком раньше тейка) и стоп (поднят к 102 — сделка
+/// по 103 на 4 с его пересекает, рынком раньше тейка): группа обязана дать то же поле в поле, что
+/// сольный `drive_signal` по разу на вариант, — исход, `fill`, время выхода, `idle_ns`, `crossed`/
+/// `spread`, счётчики F8b/F8c и порядок (индекс варианта — тот же, что и в `variant_plans`).
+#[test]
+fn group_round_matches_three_solo_runs_with_divergent_exits() {
+    let (feed, base_plan) = windowed_fixture();
+    let take_variant = base_plan;
+    let deadline_variant = with_stop_and_deadline(base_plan, 99.0, S);
+    let stop_variant = with_stop_and_deadline(base_plan, 102.0, 60 * S);
+    let variants = [take_variant, deadline_variant, stop_variant];
+    let sig0 = |plan: TradePlan| BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let cfg = DriveConfig {
+        busy_skip: false,
+        ..drive_cfg()
+    };
+
+    let solo = solo_signal_steps(&feed, &variants, sig0, &cfg, None);
+    let group = group_signal_steps(&feed, &variants, sig0, &cfg);
+    assert_eq!(
+        group.len(),
+        variants.len(),
+        "группа обязана вернуть шаг на каждый вариант, в его порядке"
+    );
+    for (i, (g, s)) in group.iter().zip(solo.iter()).enumerate() {
+        assert_eq!(g, s, "вариант {i}: групповой круг разошёлся с сольным");
+    }
+    // Три варианта и вправду разошлись причиной (иначе тест ничего не проверяет про форк —
+    // конкретную причину каждого не фиксируем: она зависит от точных секунд синтетического
+    // фида, а не от факта форка).
+    let reason_of = |s: &SignalStep| match s {
+        SignalStep::Submitted {
+            outcome: RoundOutcome::Filled { reason, .. },
+            ..
+        } => Some(*reason),
+        _ => None,
+    };
+    let reasons: Vec<_> = solo.iter().map(reason_of).collect();
+    assert!(
+        reasons.iter().all(Option::is_some),
+        "все три круга обязаны исполниться — иначе тест не про форк, а про промах: {reasons:?}"
+    );
+    assert!(
+        reasons[0] != reasons[1] || reasons[1] != reasons[2],
+        "варианты обязаны разойтись хоть одной причиной выхода: {reasons:?}"
+    );
+}
+
+/// Группа не читает `--hold-step` вовсе (см. `run_round_group`): итог не зависит от него.
+/// Вместе с `group_round_matches_three_solo_runs_with_divergent_exits` (группа == сольно с
+/// `poll`, `data_end_ns = None`) это и есть условие Судьи к Э-08: `skip + group on == poll +
+/// group off`.
+#[test]
+fn group_ignores_hold_skip_flag() {
+    let (feed, base_plan) = windowed_fixture();
+    let variants = [base_plan, with_stop_and_deadline(base_plan, 99.0, 55 * S)];
+    let sig0 = |plan: TradePlan| BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan,
+        profile: 0,
+        qty: None,
+    };
+    let poll_cfg = DriveConfig {
+        busy_skip: false,
+        hold_skip: false,
+        ..drive_cfg()
+    };
+    let skip_cfg = DriveConfig {
+        hold_skip: true,
+        ..poll_cfg
+    };
+    let group_poll = group_signal_steps(&feed, &variants, sig0, &poll_cfg);
+    let group_skip = group_signal_steps(&feed, &variants, sig0, &skip_cfg);
+    assert_eq!(
+        group_poll, group_skip,
+        "--hold-step не должен ничего менять в группе (Э-08 не пользуется Э-04б)"
+    );
+}
