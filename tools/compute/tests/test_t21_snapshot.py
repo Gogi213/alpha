@@ -165,6 +165,7 @@ def test_extract_dashboard_end_to_end_unique_ids_and_tags(tmp_path):
 def test_norm_source_forward_slashes_relative():
     """Судья 09b31f6, условие 3: id «до» (Windows) и «после» (дека) сходятся — пути одним «/», от корня репо."""
     root = str(ts.ROOT)
-    assert ts.norm_source(root + "\data\kpi\x.json") == "data/kpi/x.json"
-    assert ts.norm_source("data\t32\grid.json") == "data/t32/grid.json"
+    bs = chr(92)
+    assert ts.norm_source(root + bs + bs.join(["data", "kpi", "x.json"])) == "data/kpi/x.json"
+    assert ts.norm_source(bs.join(["data", "t32", "grid.json"])) == "data/t32/grid.json"
     assert ts.norm_source("/home/deck/alpha/data/x.json") == "/home/deck/alpha/data/x.json"
