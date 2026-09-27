@@ -357,6 +357,13 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const VARIANT_SET = {cand: "btc1h_q1", btc4h_trail: "btc4h_q1", btc4h_take: "btc4h_q1", nofilter: "age_45"};
   const VARIANT_FULL = {}, VARIANT_META = {}; D.variants.forEach(v => { VARIANT_FULL[v.key] = v.label; VARIANT_META[v.key] = v; if (v.pill) VARIANT_PILL[v.key] = v.pill; });
   const isP02 = key => (VARIANT_META[key] || {}).group === "p02";
+  // Г-85 (В-122 — кандидат владельца; T-35: на подходах фронтрана нет, это одна заявка на тик перед стеной)
+  if (VARIANT_META.g85) {
+    VARIANT_PILL.g85 = "Г-85 · кандидат";
+    VARIANT_FULL.g85 = "Г-85: одна заявка у стены — одна лимитная заявка на тик перед стеной вместо лестницы 2–20 bps, остальное как у главного. Кандидат владельца (В-122). На сигнале подхода фронтрана нет, поэтому это не «вход от фронтранера» (T-35).";
+    if (D.p02_changes && D.p02_changes.g85) D.p02_changes.g85 = {"вход": "одна лимитная заявка на тик перед стеной, без лестницы"};
+  }
+  const G85_OLD = "Г-85 вход от фронтрана", G85_NEW = "Г-85: одна заявка у стены (кандидат)";
   // П-05 (владелец 27.09): клетки сеток — варианты без кнопки, выбираются кликом по клетке раздела «Сетки П-05»
   const P5 = D.p05 || null;
   const p05Label = n => { const c = P5.cells[n]; return [c.force != null ? "сила ≥ " + String(c.force).replace(".", ",") + " %" : null,
@@ -957,16 +964,16 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const cell = (r, k) => "<td class='num sep " + (r[k].roll_p90 > 120 ? "neg" : "") + "'>" + dayFmt(r[k].roll_p90) + "</td><td class='num'>" + dayFmt(r[k].roll_max) + "</td><td class='num'>" + dayFmt(r[k].fall_p90) + " · " + (r[k].relows == null ? "—" : r[k].relows) + "</td><td class='num " + cls(r[k].usd) + "'>" + money(r[k].usd * K()) + "</td><td class='num'>" + r[k].n_trades + "</td><td class='num muted'>" + dayFmt(r[k].worst) + "</td>";
     document.getElementById("rating-table").innerHTML = "<thead><tr><th></th><th></th>" + ["Август", "Сентябрь"].map(l => "<th class='sep' colspan='6'>" + l + "</th>").join("") + "<th class='sep'>Авг + сен</th></tr>" +
       "<tr><th>место</th><th>вариант</th>" + cols.map(() => "<th class='num sep'>p90</th><th class='num'>максимум</th><th class='num'>спад p90 · перелоу</th><th class='num'>$</th><th class='num'>сделок</th><th class='num'>от начала мес.</th>").join("") + "<th class='num sep'>от начала мес.</th></tr></thead><tbody>" +
-      NH.rating.map(r => "<tr class='" + (r.key ? "click" : "") + (r.key === state.variant ? " total" : "") + "'" + (r.key ? " data-key='" + r.key + "'" : "") + "><td class='num'>" + (r.place || "—") + "</td><td style='white-space:normal;min-width:220px'>" + r.name + " <span class='muted'>· " + r.group + "</span></td>" +
+      NH.rating.map(r => "<tr class='" + (r.key ? "click" : "") + (r.key === state.variant ? " total" : "") + "'" + (r.key ? " data-key='" + r.key + "'" : "") + "><td class='num'>" + (r.place || "—") + "</td><td style='white-space:normal;min-width:220px'>" + r.name.split(G85_OLD).join(G85_NEW) + " <span class='muted'>· " + r.group + "</span></td>" +
         cols.map(k => cell(r, k)).join("") + "<td class='num sep'>" + dayFmt(r.augsep.worst) + "</td></tr>").join("") + "</tbody>";
     document.querySelectorAll("#rating-table tr[data-key]").forEach(tr => tr.addEventListener("click", () => {
       state.variant = tr.dataset.key; if (state.period === "crash") state.period = "augsep"; renderAll();
       document.getElementById("panel-kpi").scrollIntoView({behavior: "smooth", block: "start"}); }));
     const colors = [css("--series-3"), css("--series-2"), css("--warn"), css("--ink-3")];
     const names = Object.keys(NH.curves);
-    const ds = names.map((n, i) => ({label: n, data: NH.curves[n][pk].map(([t, c]) => ({x: t, y: Math.round(c * K() * 100) / 100})),
+    const ds = names.map((n, i) => ({label: n.split(G85_OLD).join(G85_NEW), data: NH.curves[n][pk].map(([t, c]) => ({x: t, y: Math.round(c * K() * 100) / 100})),
       borderColor: colors[i % colors.length], borderDash: i === names.length - 1 ? [5, 4] : [], pointRadius: 0, stepped: true, borderWidth: 1.8, fill: false}));
-    document.getElementById("curves-legend").innerHTML = names.map((n, i) => "<span><i" + (i === names.length - 1 ? " class='dash'" : "") + " style='border-color:" + colors[i % colors.length] + "'></i>" + n + "</span>").join("") +
+    document.getElementById("curves-legend").innerHTML = names.map((n, i) => "<span><i" + (i === names.length - 1 ? " class='dash'" : "") + " style='border-color:" + colors[i % colors.length] + "'></i>" + n.split(G85_OLD).join(G85_NEW) + "</span>").join("") +
       "<span class='muted'>кривая по закрытиям, $ на позицию $" + state.size.toLocaleString("ru-RU") + ", " + (pk === "augsep" ? "август + сентябрь одним счётом" : pk === "aug" ? "август" : "сентябрь") + "</span>";
     const p = D.periods.find(x => x.key === pk);
     const o = baseOptions(); dateTicks(o, p.from, p.to);
