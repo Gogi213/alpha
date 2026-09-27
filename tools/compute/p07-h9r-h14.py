@@ -357,6 +357,7 @@ def main():
     # без флагов — прежняя база `p07<variant>-base` (тождество с TK-004).
     ap.add_argument("--base-dir", help="каталог клетки в b5/ вместо p07<variant>-base (TK-009)")
     ap.add_argument("--form", help="имя формы клетки в rounds.csv (обязательно с --base-dir)")
+    ap.add_argument("--set-dir", help="подпапка набора в клетке, если не t-bid-btc4h-q1 (H5: t-bid-btc<N>h-q1)")
     a = ap.parse_args()
     if bool(a.base_dir) != bool(a.form):
         raise SystemExit("--base-dir и --form — только вместе")
@@ -370,6 +371,8 @@ def main():
     if a.base_dir:
         p.base_dir_for = lambda _v: a.base_dir
         p.FORM_OF[a.variant] = a.form
+        if a.set_dir:
+            p.SET_ = a.set_dir
         tag = f"-{a.base_dir}"
     kn = p.load_kn()
     out_json = os.path.join(OUT_ROOT, f"h9r-h14-{a.variant}{tag}.json")
