@@ -12,5 +12,7 @@ watch-heartbeat.json
 watch-heartbeat.json.tmp
 watch-state.json
 watch-state.json.tmp
+watch.pid
+watch.*.log
 runs/*
 !runs/.gitkeep

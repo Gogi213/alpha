@@ -164,6 +164,124 @@ class SteamDeckWatchTests(WatchSandbox):
         self.assertEqual(W.check_steam_deck(fake_ssh), [])
 
 
+class SshEncodingTests(WatchSandbox):
+    def test_ssh_run_decodes_as_utf8(self):
+        """CEO 27.09: вывод ssh шёл кракозябрами — subprocess.run без явной кодировки брал локальную
+        (Windows-консоль), как уже исправлено для role_memory.py:deck_alert."""
+        captured = {}
+        orig_run = W.subprocess.run
+
+        class FakeResult:
+            returncode = 0
+            stdout = "ALERT-rework: очередь застряла"
+            stderr = ""
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            return FakeResult()
+
+        W.subprocess.run = fake_run
+        try:
+            W._ssh_run("echo test")
+        finally:
+            W.subprocess.run = orig_run
+        self.assertEqual(captured.get("encoding"), "utf-8")
+        self.assertEqual(captured.get("errors"), "replace")
+
+
+class SteamDeckHoldTests(WatchSandbox):
+    """CEO 27.09: ALERT-idle-deck при активном HOLD — ожидаемое состояние (паузу ставит CEO по слову
+    владельца) — не будить, а в сводку; другие тревоги (например ALERT-rework) под HOLD всё равно будят."""
+
+    def test_idle_deck_alert_under_hold_goes_to_summary_kind(self):
+        def fake_ssh(cmd, timeout=10.0):
+            if "ALERT" in cmd:
+                return True, "ALERT-idle-deck: очередь простаивает 18:26Z"
+            return True, "HOLD"
+        findings = W.check_steam_deck(fake_ssh)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].kind, "deck-idle-expected")
+
+    def test_other_alert_under_hold_still_wakes(self):
+        def fake_ssh(cmd, timeout=10.0):
+            if "ALERT" in cmd:
+                return True, "ALERT-rework: 54 суток разобраны повторно 18:26Z"
+            return True, "HOLD"
+        findings = W.check_steam_deck(fake_ssh)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].kind, "deck-alert")
+
+    def test_idle_deck_alert_without_hold_still_wakes(self):
+        """ALERT-idle-deck без HOLD — это уже НЕ ожидаемое состояние, будим как обычно."""
+        def fake_ssh(cmd, timeout=10.0):
+            if "ALERT" in cmd:
+                return True, "ALERT-idle-deck: простаивает"
+            return True, "NOHOLD"
+        findings = W.check_steam_deck(fake_ssh)
+        self.assertTrue(any(f.kind == "deck-alert" for f in findings))
+        self.assertFalse(any(f.kind == "deck-idle-expected" for f in findings))
+
+    def test_summary_kind_goes_out_as_batched_summary_not_bare_wake(self):
+        """Формат — «watch-summary» пачкой, не отдельная срочная строка watch-deck-idle-expected."""
+        ws = {}
+        f = [W.Finding("deck-idle-expected", "ALERT-idle-deck", "простаивает 18:26Z")]
+        W.notify_findings(f, ws, self.now)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("watch-summary", inbox)
+        self.assertNotIn("watch-deck-idle-expected", inbox)
+
+    def test_second_occurrence_within_window_batches_not_immediate(self):
+        ws = {}
+        f1 = [W.Finding("deck-idle-expected", "ALERT-idle-deck", "простаивает 18:26Z")]
+        W.notify_findings(f1, ws, self.now)  # первое — само задаёт точку отсчёта окна и уходит сразу
+        before = D.CEO_INBOX.read_text(encoding="utf-8")
+        f2 = [W.Finding("deck-idle-expected", "ALERT-idle-deck", "простаивает ДРУГАЯ ПРИЧИНА")]
+        W.notify_findings(f2, ws, self.now + timedelta(minutes=5))
+        after = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertEqual(before, after, "второе в течение окна должно копиться, не уходить немедленно")
+        later = self.now + timedelta(hours=W.WATCH_SUMMARY_EVERY_HOURS, minutes=5)
+        W.notify_findings(f2, ws, later)
+        self.assertIn("ДРУГАЯ ПРИЧИНА", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+
+class ContentFingerprintDedupTests(WatchSandbox):
+    """CEO 27.09: ALERT-rework перезаписывается каждые ~15 мин с той же сутью, новой меткой времени —
+    сравнивать текст без времени, будить один раз, не на каждое перезаписывание."""
+
+    def test_same_content_different_timestamp_is_not_reposted(self):
+        ws = {}
+        W.notify_findings([W.Finding("deck-alert", "ALERT-rework", "разобрано повторно 18:26Z")], ws, self.now)
+        posted2 = W.notify_findings(
+            [W.Finding("deck-alert", "ALERT-rework", "разобрано повторно 18:41Z")], ws,
+            self.now + timedelta(minutes=15))
+        self.assertEqual(posted2, [])
+
+    def test_genuinely_different_content_reposts_immediately(self):
+        ws = {}
+        W.notify_findings([W.Finding("deck-alert", "ALERT-rework", "разобрано повторно 18:26Z")], ws, self.now)
+        posted2 = W.notify_findings(
+            [W.Finding("deck-alert", "ALERT-rework", "СОВСЕМ ДРУГАЯ ПРИЧИНА 18:41Z")], ws,
+            self.now + timedelta(minutes=15))
+        self.assertEqual(len(posted2), 1)
+
+    def test_non_deck_kinds_unaffected_by_message_drift(self):
+        """orphan-ticket/budget-watch сообщения естественно меняются (возраст, суммы) — это НЕ повод
+        считать сигнал новым; сигнатура для них не участвует, только временное окно."""
+        ws = {}
+        W.notify_findings([W.Finding("orphan-ticket", "TK-1", "TK-1: без записи 2.0 ч")], ws, self.now)
+        posted2 = W.notify_findings([W.Finding("orphan-ticket", "TK-1", "TK-1: без записи 2.3 ч")], ws,
+                                     self.now + timedelta(minutes=15))
+        self.assertEqual(posted2, [])
+
+    def test_same_content_after_repeat_window_reposts_as_reminder(self):
+        ws = {}
+        f = [W.Finding("deck-alert", "ALERT-rework", "разобрано повторно 18:26Z")]
+        W.notify_findings(f, ws, self.now)
+        later = self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS, minutes=1)
+        posted2 = W.notify_findings(f, ws, later)
+        self.assertEqual(len(posted2), 1)
+
+
 class DedupTests(WatchSandbox):
     def test_first_occurrence_posts(self):
         ws = {}
@@ -202,10 +320,19 @@ class RunOnceTests(WatchSandbox):
         W.run_once(self.now, ssh_run=fake_ssh)
         self.assertTrue(W.WATCH_HEARTBEAT_FILE.exists())
 
-    def test_end_to_end_posts_dispatcher_down(self):
+    def test_first_ever_cycle_no_last_tick_is_grace_not_finding(self):
+        """CEO 27.09: «нет last_tick» сразу после старта — грация 2 интервала, не находка."""
         def fake_ssh(cmd, timeout=10.0):
             return True, "" if "ALERT" in cmd else "HOLD"
         posted = W.run_once(self.now, ssh_run=fake_ssh)  # state.json нет вовсе -> last_tick отсутствует
+        self.assertFalse(any(f.kind == "dispatcher-down" for f in posted))
+
+    def test_no_last_tick_after_grace_window_is_a_finding(self):
+        def fake_ssh(cmd, timeout=10.0):
+            return True, "" if "ALERT" in cmd else "HOLD"
+        W.run_once(self.now, ssh_run=fake_ssh)  # первый цикл — задаёт started_at
+        later = self.now + timedelta(minutes=D.POLL_INTERVAL / 60 * 3)  # заведомо за пределами 2×POLL_INTERVAL
+        posted = W.run_once(later, ssh_run=fake_ssh)
         self.assertTrue(any(f.kind == "dispatcher-down" for f in posted))
 
 

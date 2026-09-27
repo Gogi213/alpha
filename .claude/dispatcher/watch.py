@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -44,10 +45,14 @@ class Finding:
 
 # --- сбор находок (чистые функции — без сети, кроме ssh-хелперов ниже) ------------------------
 
-def check_dispatcher_alive(state: dict, now) -> list:
-    """п.2б: диспетчер жив — по времени последнего тика (dispatch.tick() пишет state["last_tick"])."""
+def check_dispatcher_alive(state: dict, now, started_at=None) -> list:
+    """п.2б: диспетчер жив — по времени последнего тика (dispatch.tick() пишет state["last_tick"]).
+    CEO 27.09: «нет last_tick» сразу после старта — не находка, а грация в 2 интервала диспетчера
+    (POLL_INTERVAL) — сторож и диспетчер могли стартовать одновременно, первый тик ещё не случился."""
     last_tick = state.get("last_tick")
     if not last_tick:
+        if started_at is not None and (now - started_at).total_seconds() < 2 * D.POLL_INTERVAL:
+            return []
         return [Finding("dispatcher-down", "last_tick", "в state.json нет last_tick — диспетчер ни разу не тикнул "
                                                           "с начала наблюдения или это не тот state.json")]
     age_min = (now - T.parse_dt(last_tick)).total_seconds() / 60
@@ -113,14 +118,17 @@ def check_orphan_tickets(now) -> list:
 
 def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
     """Общий ssh-вызов на Steam Deck теми же умолчаниями, что и dispatch._deck_file_exists (кириллический
-    HOME). Возвращает (ok, stdout) — ok=False на любой ошибке (сама по себе становится находкой, п.2в)."""
+    HOME) плюс явная кодировка UTF-8 (CEO 27.09: без неё вывод шёл кракозябрами — Python декодировал
+    ssh-байты локальной кодировкой Windows-консоли, как уже исправлено в role_memory.py:deck_alert).
+    Возвращает (ok, stdout) — ok=False на любой ошибке (сама по себе становится находкой, п.2в)."""
     host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
     key = os.environ.get("ALPHA_DECK_KEY", r"C:/Users/Георгий/.ssh/id_rsa")
     known_hosts = os.environ.get("ALPHA_DECK_KNOWN_HOSTS", r"C:/Users/Георгий/.ssh/known_hosts")
     cmd = ["ssh", "-i", key, "-o", f"UserKnownHostsFile={known_hosts}", "-o", "BatchMode=yes",
            "-o", "ConnectTimeout=8", host, cmd_suffix]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                            timeout=timeout)
         if r.returncode != 0:
             return False, (r.stderr or "").strip()[:200]
         return True, (r.stdout or "").strip()
@@ -128,41 +136,53 @@ def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
         return False, f"{type(e).__name__}: {e}"
 
 
+# CEO 27.09: ALERT-idle-deck при существующем HOLD — ожидаемое состояние (паузу ставит CEO по слову
+# владельца), не будить — одной строкой в сводку (см. WATCH_SUMMARY_KINDS/notify_findings).
+DECK_IDLE_ALERT_NAME = "ALERT-idle-deck"
+
+
 def check_steam_deck(ssh_run=_ssh_run) -> list:
     """п.2б/в: ALERT-* Steam Deck + простой при непустой очереди; ssh-хелпер подменяем в тестах."""
     out = []
     ok, alerts = ssh_run("for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && "
                           "echo \"$(basename $f): $(head -c 200 $f)\"; done; true")
+    ok_hold, hold_out = ssh_run("[ -f ~/alpha/queue/HOLD ] && echo HOLD || echo NOHOLD")
+    hold_active = ok_hold and hold_out.strip() == "HOLD"
     if not ok:
         out.append(Finding("deck-ssh-error", "alerts", f"не удалось проверить тревоги Steam Deck: {alerts}"))
     elif alerts.strip():
         for line in alerts.strip().splitlines():
             name = line.split(":", 1)[0].strip()
-            out.append(Finding("deck-alert", name, f"Steam Deck: {line[:200]}"))
+            if name == DECK_IDLE_ALERT_NAME and hold_active:
+                out.append(Finding("deck-idle-expected", name, f"Steam Deck (HOLD активен, ожидаемо): {line[:200]}"))
+            else:
+                out.append(Finding("deck-alert", name, f"Steam Deck: {line[:200]}"))
 
     # простой при непустой очереди: HOLD снят, очередь непуста, но STATUS давно не обновлялся
-    ok2, status_info = ssh_run(
-        "if [ -f ~/alpha/queue/HOLD ]; then echo HOLD; else "
-        "n=$(ls ~/alpha/queue/*.json 2>/dev/null | wc -l); "
-        "age=$(( $(date +%s) - $(stat -c %Y ~/alpha/queue/STATUS 2>/dev/null || echo 0) )); "
-        "echo \"$n $age\"; fi")
-    if not ok2:
-        out.append(Finding("deck-ssh-error", "queue", f"не удалось проверить очередь Steam Deck: {status_info}"))
-    elif status_info.strip() and status_info.strip() != "HOLD":
-        try:
-            n_pending, age_s = (int(x) for x in status_info.split())
-            if n_pending > 0 and age_s > DECK_QUEUE_STALE_MINUTES * 60:
-                out.append(Finding("deck-idle", "queue",
-                                    f"очередь Steam Deck не пуста ({n_pending}), STATUS не обновлялся "
-                                    f"{age_s // 60:.0f} мин — похоже на простой"))
-        except ValueError:
-            pass  # неожиданный вывод — не валим находками на угад, но и не молчим полностью:
+    if not ok_hold:
+        out.append(Finding("deck-ssh-error", "hold", f"не удалось проверить HOLD Steam Deck: {hold_out}"))
+    elif not hold_active:
+        ok2, status_info = ssh_run(
+            "n=$(ls ~/alpha/queue/*.json 2>/dev/null | wc -l); "
+            "age=$(( $(date +%s) - $(stat -c %Y ~/alpha/queue/STATUS 2>/dev/null || echo 0) )); "
+            "echo \"$n $age\"")
+        if not ok2:
+            out.append(Finding("deck-ssh-error", "queue", f"не удалось проверить очередь Steam Deck: {status_info}"))
+        elif status_info.strip():
+            try:
+                n_pending, age_s = (int(x) for x in status_info.split())
+                if n_pending > 0 and age_s > DECK_QUEUE_STALE_MINUTES * 60:
+                    out.append(Finding("deck-idle", "queue",
+                                        f"очередь Steam Deck не пуста ({n_pending}), STATUS не обновлялся "
+                                        f"{age_s // 60:.0f} мин — похоже на простой"))
+            except ValueError:
+                pass  # неожиданный вывод — не валим находками на угад, но и не молчим полностью
     return out
 
 
-def collect_findings(state: dict, now, ssh_run=_ssh_run) -> list:
+def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None) -> list:
     findings = []
-    findings += check_dispatcher_alive(state, now)
+    findings += check_dispatcher_alive(state, now, started_at)
     findings += check_budgets(state, now)
     findings += check_blocked_and_needs_owner(now)
     findings += check_orphan_tickets(now)
@@ -171,6 +191,22 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run) -> list:
 
 
 # --- дедуп (вид, ключ) с повтором раз в WATCH_DEDUP_REPEAT_HOURS, пока не снято (п.2г) -----------
+#
+# Steam Deck перезаписывает ALERT-* каждые ~15 мин с той же сутью, но новой меткой времени внутри
+# (CEO 27.09: «18:26Z → 18:41Z → 18:56Z», иначе будило бы на каждое перезаписывание) — для deck-alert/
+# deck-idle-expected сравниваем СОДЕРЖИМОЕ без времени, не только (вид, ключ): та же суть — молчим до
+# истечения WATCH_DEDUP_REPEAT_HOURS, другая суть — будим сразу, как новую находку.
+_TIME_TOKEN_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:Z|UTC)?\b", re.IGNORECASE)
+
+WATCH_SUMMARY_KINDS = {"deck-idle-expected"}
+WATCH_SUMMARY_EVERY_HOURS = float(os.environ.get("ALPHA_WATCH_SUMMARY_HOURS", "1"))
+
+
+def _content_signature(f) -> str:
+    if f.kind not in ("deck-alert", "deck-idle-expected"):
+        return ""  # для остальных видов сигнатура не участвует — только временное окно дедупа
+    return _TIME_TOKEN_RE.sub("<t>", f.message).strip()
+
 
 def load_watch_state() -> dict:
     try:
@@ -186,23 +222,54 @@ def save_watch_state(ws: dict) -> None:
     tmp.replace(WATCH_STATE_FILE)
 
 
+def _flush_pending_summary(ws: dict, now) -> None:
+    pending = ws.get("pending_summary") or []
+    if pending:
+        line = f"{len(pending)} сигнал(ов): " + " | ".join(pending)
+        D.append_ceo_inbox("*", "watch-summary", line, now)
+    ws["pending_summary"] = []
+    ws["last_summary_flush"] = T.now_iso(now)
+
+
 def notify_findings(findings: list, ws: dict, now) -> list:
-    """Возвращает находки, по которым реально написали (для тестов); дедуп — по (kind, key)."""
+    """Возвращает находки, по которым реально написали (для тестов). Дедуп — (kind, key) + для
+    Steam Deck ещё и содержимое без времени (см. выше). Виды из WATCH_SUMMARY_KINDS не будят сразу —
+    копятся и уходят одной строкой не реже WATCH_SUMMARY_EVERY_HOURS (не молчание, просто не срочно;
+    CEO 27.09: ALERT-idle-deck при активном HOLD — ожидаемое состояние)."""
     notified = ws.setdefault("notified", {})
     current_keys = set()
     posted = []
     for f in findings:
         marker = f"{f.kind}:{f.key}"
         current_keys.add(marker)
-        last = notified.get(marker)
-        if last is None or (now - T.parse_dt(last)).total_seconds() >= WATCH_DEDUP_REPEAT_HOURS * 3600:
-            D.append_ceo_inbox("*", f"watch-{f.kind}", f.message, now)
-            notified[marker] = T.now_iso(now)
+        entry = notified.get(marker) or {}
+        sig = _content_signature(f)
+        sig_changed = bool(sig) and entry.get("sig") is not None and entry.get("sig") != sig
+        last_ts = entry.get("ts")
+        time_elapsed = last_ts is None or (now - T.parse_dt(last_ts)).total_seconds() >= (
+            WATCH_DEDUP_REPEAT_HOURS * 3600)
+        if sig_changed or time_elapsed:
+            if f.kind in WATCH_SUMMARY_KINDS:
+                pending = ws.setdefault("pending_summary", [])
+                pending.append(f"{T.now_iso(now)} [{f.kind}] {f.message[:150]}")
+            else:
+                D.append_ceo_inbox("*", f"watch-{f.kind}", f.message, now)
+            notified[marker] = {"sig": sig, "ts": T.now_iso(now)}
             posted.append(f)
-    # снятые находки — забыть, чтобы будущее повторение не ждало старого 2-часового окна
+        else:
+            entry["sig"] = sig  # молча освежаем — на случай, если контент чуть дрейфует без смены сути
+    # снятые находки — забыть, чтобы будущее повторение не ждало старого окна дедупа
     for marker in list(notified):
         if marker not in current_keys:
             notified.pop(marker, None)
+    # периодический флаш накопленной сводки — независимо от того, добавилось что-то в этом цикле или нет
+    last_flush = ws.get("last_summary_flush")
+    last_flush_dt = T.parse_dt(last_flush) if last_flush else None
+    due = last_flush_dt is None or (now - last_flush_dt).total_seconds() >= WATCH_SUMMARY_EVERY_HOURS * 3600
+    if ws.get("pending_summary") and due:
+        _flush_pending_summary(ws, now)
+    elif "last_summary_flush" not in ws:
+        ws["last_summary_flush"] = T.now_iso(now)  # точка отсчёта окна с первого же цикла
     return posted
 
 
@@ -216,9 +283,12 @@ def write_heartbeat(now, findings_count: int) -> None:
 
 def run_once(now=None, ssh_run=_ssh_run) -> list:
     now = now or datetime.now().astimezone()
-    state = D.load_state()
-    findings = collect_findings(state, now, ssh_run)
     ws = load_watch_state()
+    if "started_at" not in ws:
+        ws["started_at"] = T.now_iso(now)  # с первого цикла — точка отсчёта грации check_dispatcher_alive
+    started_at = T.parse_dt(ws["started_at"])
+    state = D.load_state()
+    findings = collect_findings(state, now, ssh_run, started_at)
     posted = notify_findings(findings, ws, now)
     save_watch_state(ws)
     write_heartbeat(now, len(findings))
