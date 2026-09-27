@@ -113,7 +113,19 @@ details.sub[open] summary { margin-bottom: 8px; }
 * { box-sizing: border-box; }
 html, body { background: var(--bg); }
 body { color: var(--ink); font: 14px/1.45 var(--font-body); margin: 0; }
-.wrap { max-width: 1440px; margin: 0 auto; padding: 0 clamp(12px, 2vw, 28px) 64px; display: grid; gap: 16px; min-width: 0; }
+.wrap { margin: 0; padding: 0 10px 64px; display: grid; gap: 14px; min-width: 0; }
+@media (max-width: 480px) { .wrap { padding: 0 8px 48px; } }
+/* верхний блок: слева панель + плитки + капитал, справа «Все варианты» на высоту левой колонки */
+.top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.top > * { min-width: 0; }
+.top-left { display: grid; gap: 14px; align-content: start; min-width: 0; }
+@media (min-width: 1100px) {
+  div.wrap[data-tab="main"] .top { grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); }
+  .top-right { position: relative; }
+  .top-right > #panel-rank { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; }
+  .top-right .tscroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+  .top-right .more { align-self: flex-start; }
+}
 .wrap > * { min-width: 0; }
 h2 { font: 600 17px/1.2 var(--font-head); margin: 0; }
 h3 { font: 600 13px/1.3 var(--font-head); color: var(--ink-2); margin: 0 0 6px; }
@@ -145,7 +157,7 @@ section.panel { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px 
 @media (max-width: 860px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; display: grid; gap: 3px; align-content: start; min-width: 0; }
 .tile .k { font: 500 11px/1.3 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
-.tile .v { font: 600 24px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile .v { font: 600 21px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .tile .s { font-size: 12px; color: var(--ink-3); }
 .tile.good { border-color: color-mix(in srgb, var(--good) 45%, var(--rule)); } .tile.good .v { color: var(--good); }
 .tile.bad { border-color: color-mix(in srgb, var(--critical) 45%, var(--rule)); } .tile.bad .v { color: var(--critical); }
@@ -180,13 +192,14 @@ input.search { font: 13px var(--font-body); padding: 4px 10px; border-radius: 8p
 #rank tr.pin td { border-bottom: 2px solid var(--rule-strong); }
 #rank tr.nocalc { color: var(--ink-3); cursor: default; }
 #rank tr.nocalc:hover td { background: none; }
-#rank td.st { text-align: left; white-space: normal; min-width: 150px; }
-#rank td.st .badge { white-space: normal; }
-#rank td.name { width: 38%; }
+#rank td.st { text-align: left; }
+#rank td.name { width: 44%; min-width: 150px !important; }
+#rank th, #rank td { padding: 6px 7px; }
+#rank .badge { padding: 2px 7px; font-size: 11px; }
 td.kg { color: var(--good); font-weight: 600; } td.kb { color: var(--critical); }
 .more { justify-self: start; font: 13px var(--font-body); padding: 5px 12px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface-2); color: var(--ink); cursor: pointer; }
 .count { color: var(--ink-3); font-size: 12px; }
-@media (max-width: 600px) { #rank td.name { min-width: 170px; } #rank .opt { display: none; } }
+
 
 /* конфиг */
 table.cfg { font-size: 13px; max-width: 900px; }
@@ -207,6 +220,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 </style>
 
 <div class="wrap" data-tab="main">
+  <div class="top">
+  <div class="top-left">
   <div class="bar" id="bar">
     <div class="seg tabs" id="tabs" role="group" aria-label="Вкладка"><button data-tab="main">Главная</button><button data-tab="hyp">Гипотезы</button></div>
     <div class="ctl"><span class="label">Период</span><div class="seg" id="period" role="group" aria-label="Период"></div></div>
@@ -221,6 +236,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="eq-box" id="eq-box"><svg id="eq" role="img" aria-label="Капитал"></svg><svg id="dd" role="img" aria-label="Просадка"></svg><div class="tip" id="eq-tip" hidden></div></div>
   </section>
 
+  </div>
+  <div class="top-right tab-main">
   <section class="panel tab-main" id="panel-rank">
     <div class="panel-head"><h2>Все варианты</h2><span class="count" id="rank-count"></span></div>
     <div class="tools" id="chips"></div>
@@ -228,6 +245,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="tscroll"><table id="rank"><thead></thead><tbody></tbody></table></div>
     <button class="more" id="more" hidden></button>
   </section>
+  </div>
+  </div>
 
   <section class="panel tab-main" id="panel-cfg">
     <div class="panel-head"><h2>Конфиг</h2></div>
@@ -396,6 +415,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   }
   const statusCls = t => /^не проходит/.test(t) ? "crit" : /^принято/.test(t) ? "ok" : /^база/.test(t) ? "neutral" : /^нет расчёта/.test(t) || /^ступень 3/.test(t) ? "neutral" : "warn";
   const statusShort = t => t.split(/ \(| · /)[0];
+  const statusTiny = t => /^база/.test(t) ? "база" : /^не проходит/.test(t) ? "нет" : /^ступень 3/.test(t) ? "ст. 3" : /^нет расчёта/.test(t) ? "нет расч." :
+    /^принято/.test(t) ? "принято" : /проверк/.test(t) ? "у Судьи" : /^П-02/.test(t) ? "П-02" : statusShort(t);
 
   // ---------- состояние и деньги ×k ----------
   const state = {variant: MAIN, period: "augsep", size: D.position_usd};
@@ -567,8 +588,6 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     ["ks", "Ожид. сен", r => r.ks, ""],
     ["ua", "$ авг", r => r.ua, ""],
     ["us", "$ сен", r => r.us, ""],
-    ["dd", "Просадка", r => r.dd, "opt"],
-    ["n", "Сделки", r => r.n, "opt"],
     ["st", "Статус", r => r.st, ""]];
   const tbl = {sort: null, dir: 1, group: "all", pass: false, query: "", all: false};
   function cmpDefault(a, b) {
@@ -612,17 +631,15 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       (tbl.sort === k ? (tbl.dir > 0 ? " ▲" : " ▼") : "") + "</th>").join("") + "</tr>";
     head.querySelectorAll("th").forEach(th => th.addEventListener("click", () => {
       const k = th.dataset.s; if (tbl.sort === k) { if (tbl.dir < 0) { tbl.sort = null; tbl.dir = 1; } else tbl.dir = -1; } else { tbl.sort = k; tbl.dir = (k === "ua" || k === "us" || k === "n") ? -1 : 1; } renderTable(); }));
-    const tr = (r, pin) => "<tr data-k='" + q(r.k) + "' class='" + (pin ? "pin " : "") + (r.k === state.variant ? "cur " : "") + (r.calc ? "" : "nocalc") + "' title='" + q(r.k + " · " + ((META[r.k] || {}).label || "")) + "'>" +
+    const tr = (r, pin) => "<tr data-k='" + q(r.k) + "' class='" + (pin ? "pin " : "") + (r.k === state.variant ? "cur " : "") + (r.calc ? "" : "nocalc") + "' title='" + q("просадка " + ddTxt(r) + " · сделки " + intFmt(r.n) + " · " + r.k + " · " + ((META[r.k] || {}).label || "")) + "'>" +
       "<td class='name' data-c='name'>" + esc(r.name) + (r.calc ? "" : " <span class='muted'>· нет расчёта</span>") + "</td>" +
       "<td class='num " + kpiCls(r.ka) + "' data-c='kpi-aug'" + (r.ka == null ? " title='нет KPI'" : "") + ">" + f2(r.ka) + "</td>" +
       "<td class='num " + kpiCls(r.ks) + "' data-c='kpi-sep'" + (r.ks == null ? " title='нет KPI'" : "") + ">" + f2(r.ks) + "</td>" +
       "<td class='num " + cls(r.ua) + "' data-c='usd-aug'>" + money(r.ua) + "</td>" +
       "<td class='num " + cls(r.us) + "' data-c='usd-sep'>" + money(r.us) + "</td>" +
-      "<td class='num neg opt' data-c='dd'>" + ddTxt(r) + "</td>" +
-      "<td class='num opt'>" + intFmt(r.n) + "</td>" +
-      "<td class='st'><span class='badge " + statusCls(r.st) + "' title='" + q(r.st) + "'>" + esc(statusShort(r.st)) + "</span></td></tr>";
+      "<td class='st'><span class='badge " + statusCls(r.st) + "' title='" + q(r.st) + "'>" + esc(statusTiny(r.st)) + "</span></td></tr>";
     document.querySelector("#rank tbody").innerHTML = tr(main, true) + (shown.length ? shown.map(r => tr(r, false)).join("") :
-      "<tr><td colspan='8' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
+      "<tr><td colspan='6' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
     const more = document.getElementById("more");
     more.hidden = total <= LIM; more.textContent = tbl.all ? "показать первые " + LIM : "показать все (" + total + ")";
     const withKpi = rows.filter(r => r.ka != null || r.ks != null).length, noCalc = rows.filter(r => !r.calc).length;

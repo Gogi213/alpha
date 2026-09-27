@@ -52,6 +52,11 @@ def main():
         pg.goto(url, wait_until="load")
         pg.wait_for_selector("#rank tbody tr[data-k]")
 
+        # раскладка 1400 px: таблица справа от графика
+        eq = pg.eval_on_selector("#eq-box", "e => e.getBoundingClientRect().right")
+        tb = pg.eval_on_selector("#panel-rank", "e => e.getBoundingClientRect().left")
+        check("1400 px: таблица справа от графика", tb > eq, f"левый край таблицы {tb:.0f} > правый край графика {eq:.0f}")
+
         # все строки — чтобы выбрать случайные с расчётом
         pg.click("#more") if pg.is_visible("#more") else None
         keys = pg.eval_on_selector_all("#rank tbody tr[data-k]:not(.nocalc)", "els => els.map(e => e.dataset.k)")
@@ -109,6 +114,11 @@ def main():
             pg.screenshot(path=os.path.join(a.shots, "new-table-1400.png"))
             pg.eval_on_selector("#panel-cfg", "e => e.scrollIntoView()")
             pg.screenshot(path=os.path.join(a.shots, "new-cfg-1400.png"))
+            pg.set_viewport_size({"width": 1920, "height": 1080})
+            pg.evaluate("window.scrollTo(0, 0)")
+            pg.wait_for_timeout(300)
+            pg.screenshot(path=os.path.join(a.shots, "new-top-1920.png"))
+            pg.set_viewport_size({"width": 1400, "height": 900})
 
         # вкладка «Гипотезы»
         pg.click("#tabs button[data-tab='hyp']")
