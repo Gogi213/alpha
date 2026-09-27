@@ -141,17 +141,24 @@ def context(source):
     except Exception:
         hook_in = {}
     source = hook_in.get("source") or source
-    host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
-    try:
-        found, title = find_title(host_id, hook_in.get("session_id"))
-    except Exception as e:
-        return f"=== РОЛЬ СЕССИИ: не определена ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}"
-    if not found or not title:
-        why = "метаданные сессии не найдены" if not found else "у сессии нет названия"
-        return f"=== РОЛЬ СЕССИИ: не определена ({why}) ===\n{MANUAL}\n{OUTSIDER}"
-    role = next((r for key, r in ROLES if key in title.lower()), None)
-    if role is None:
-        return f"=== Сессия «{title}» — не роль команды alpha ===\n{OUTSIDER}"
+    env_role = os.environ.get("ALPHA_ROLE")
+    if env_role in ROLE_NAMES:
+        # Диспетчер задач (.claude/dispatcher/) запускает роль через `claude -p` с ALPHA_ROLE=<role> —
+        # роль берётся из переменной окружения, определение по названию сессии не нужно.
+        role = env_role
+        title = f"ALPHA_ROLE={env_role}"
+    else:
+        host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
+        try:
+            found, title = find_title(host_id, hook_in.get("session_id"))
+        except Exception as e:
+            return f"=== РОЛЬ СЕССИИ: не определена ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}"
+        if not found or not title:
+            why = "метаданные сессии не найдены" if not found else "у сессии нет названия"
+            return f"=== РОЛЬ СЕССИИ: не определена ({why}) ===\n{MANUAL}\n{OUTSIDER}"
+        role = next((r for key, r in ROLES if key in title.lower()), None)
+        if role is None:
+            return f"=== Сессия «{title}» — не роль команды alpha ===\n{OUTSIDER}"
     try:
         parts = [read("README.md"), read(f"{role}.md"), read(os.path.join("notes", f"{role}.md"))]
     except Exception as e:
