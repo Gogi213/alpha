@@ -4,8 +4,10 @@
 Определения — `docs/research/P-07-g85-titration.md` §13, «Поправка 3». КЛЕТКИ НЕ СЧИТАТЬ до «ок»
 Судьи на определения — этот файл только готовит инструмент и тождество.
 
-**H9р — запрет повторного входа после неудачи (F1 = выход по стопу, reason=='stop' в rounds.csv)
-в том же сетапе** (3 клетки, F2 снят по слову владельца 27.09):
+**H9р — запрет повторного входа после неудачи (F1 = выход по стопу `reason=='stop'` в rounds.csv
+С ЦЕНОЙ ВЫХОДА НИЖЕ ЦЕНЫ ВХОДА ПО VWAP — решение владельца к поправке 3 через CEO `b275d84`: стоп на
+уровне входа или выше — безубыток/сдвиг стопа, НЕ неудача) в том же сетапе** (3 клетки, F2 снят по
+слову владельца 27.09):
   S1 — та же стена `(side=bid, price_tick, birth_ms)`: запрет до её СНЯТИЯ. «Снятие» = disarm_ms
        подхода с `disarm_reason=='level_death'` где-либо в истории этой стены (по всем суткам того
        же дома — аug/hist/rec отдельно, стены разных месяцев не путаются); если снятие не найдено в
@@ -129,6 +131,37 @@ def wall_death_ms(home, symbol, price_tick, birth_ms):
     return death_idx.get((int(price_tick), int(birth_ms)))
 
 
+# ---------- цены круга (entry_px/exit_px из rounds.csv) — p07base несёт в r["round"] только
+# (exit_ns, reason), без цен; неудача H9р определяется ценой, поэтому читаем rounds.csv второй раз
+# тем же ключом (symbol, day_utc, form, signal_index) ----------
+
+
+def load_round_prices(day_dir, set_name):
+    fp = os.path.join(day_dir, set_name, "rounds.csv")
+    idx = {}
+    if not os.path.exists(fp):
+        return idx
+    with open(fp, newline="", encoding="utf-8") as fh:
+        lines = fh.read().splitlines(keepends=True)
+    body = [l for l in lines if not l.startswith("#")]
+    if not body:
+        return idx
+    for row in csv.DictReader(body):
+        key = (row["symbol"], row["day_utc"], row["form"], row["signal_index"])
+        idx[key] = (float(row["entry_px"]), float(row["exit_px"]))
+    return idx
+
+
+def is_stop_failure(round_tuple, px):
+    """Неудача H9р: reason == 'stop' И цена выхода ниже цены входа (VWAP). Безубыток/стоп на
+    уровне входа или выше (сдвиг после трейла, стоп на уровне снятой стены) — НЕ неудача."""
+    if round_tuple is None or px is None:
+        return False
+    _exit_ns, reason = round_tuple
+    entry_px, exit_px = px
+    return reason == "stop" and exit_px < entry_px
+
+
 # ---------- эпизоды просадки BTC (логика t32-epcap.py:load_regime/build_episodes, скопирована — на
 # деке файла t32-epcap.py вне git нет) ----------
 
@@ -202,9 +235,12 @@ def simulate(p, variant, cell):
     for tag, home in p.HOMES.items():
         for d in sorted(glob.glob(os.path.join(home, "b5", bd, "20*"))):
             day_utc = os.path.basename(d)
+            px_idx = load_round_prices(d, p.SET_)
             for r in p.load_signals(d):
                 r["_home"] = home
                 r["_day_utc"] = day_utc
+                key = (r["symbol"], r["day_utc"], r["form"], r["signal_index"])
+                r["_px"] = px_idx.get(key)
                 by_symbol.setdefault(r["symbol"], []).append(r)
 
     first_k = CELL_FIRST_K.get(cell)
@@ -264,21 +300,27 @@ def simulate(p, variant, cell):
             else:
                 day_idle = r["idle_ns"]
 
-            if setup is not None and r["round"] is not None:
-                exit_ns, reason = r["round"]
-                if reason == "stop":
-                    if setup == "s1" and wall is not None:
-                        death_ms = wall_death_ms(r["_home"], symbol, int(r["price_tick"]), int(wall["birth_ms"]))
-                        ban_until_ns = death_ms * 1_000_000 if death_ms is not None else 2 ** 62
-                        s1_bans[(int(r["price_tick"]), int(wall["birth_ms"]))] = ban_until_ns
-                    elif setup == "s2":
-                        day_end_ns = (day_start_ms(r["_day_utc"]) + 86_400_000) * 1_000_000
-                        s2_bans[int(r["price_tick"])] = day_end_ns
-                    elif setup == "s3":
-                        eps = episodes_for(r["_home"])
-                        ep = episode_containing(eps, t0 // 1_000_000)
-                        if ep is not None:
-                            s3_ban_until = max(s3_ban_until, (ep[1] + TAIL_MS) * 1_000_000)
+            if setup is not None and is_stop_failure(r["round"], r.get("_px")):
+                if setup == "s1" and wall is not None:
+                    death_ms = wall_death_ms(r["_home"], symbol, int(r["price_tick"]), int(wall["birth_ms"]))
+                    ban_until_ns = death_ms * 1_000_000 if death_ms is not None else 2 ** 62
+                    s1_bans[(int(r["price_tick"]), int(wall["birth_ms"]))] = ban_until_ns
+                elif setup == "s2":
+                    day_end_ns = (day_start_ms(r["_day_utc"]) + 86_400_000) * 1_000_000
+                    s2_bans[int(r["price_tick"])] = day_end_ns
+                elif setup == "s3":
+                    eps = episodes_for(r["_home"])
+                    ep = episode_containing(eps, t0 // 1_000_000)
+                    if ep is not None:
+                        s3_ban_until = max(s3_ban_until, (ep[1] + TAIL_MS) * 1_000_000)
+
+        # память: кэш подходов D20 по (home, symbol) читает ВСЮ историю символа (десятки суток,
+        # ~13 ГБ на дом на августовской эпохе) — без выселения после каждого символа процесс
+        # накапливает кэш по всем 76 монетам разом и падает по памяти (замерено 27.09, 11.3 ГБ
+        # пик + 6.1 ГБ подкачки на сверке соединения). by_symbol.items() проходит каждый символ
+        # ровно один раз, дальше к его записям в _SYM_CACHE возврата нет — выселяем сразу.
+        for _key in [k for k in _SYM_CACHE if k[1] == symbol]:
+            del _SYM_CACHE[_key]
     return keep
 
 
