@@ -195,11 +195,11 @@ def portfolio_sim_for(variant, name, outs, max_pos=0):
     return json.load(open(j, encoding="utf-8")), json.load(open(co, encoding="utf-8"))
 
 
-def kpi_of(kn, ps_closes, variant):
+def kpi_of(kn, ps_closes, variant, cap=0):
     v = f"п07{variant}"
     money = {}
     for pk in ("август", "сентябрь"):
-        money[pk] = ps_closes.get(v, {}).get(pk, {}).get("0", [])
+        money[pk] = ps_closes.get(v, {}).get(pk, {}).get(str(cap), [])  # ключ closes — значение --max-pos
     aug_closes = money["август"]
     sep_closes = money["сентябрь"]
     all_closes = sorted([tuple(c) for c in aug_closes] + [tuple(c) for c in sep_closes])
@@ -215,9 +215,11 @@ def kpi_of(kn, ps_closes, variant):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--variant", required=True, choices=["a", "b"])
+    ap.add_argument("--caps-only", action="store_true", help="только потолки H10 (дописать в готовый json)")
     a = ap.parse_args()
     kn = load_kn()
-    results = {}
+    out_json0 = os.path.join(OUT_ROOT, f"h9h10-{a.variant}.json")
+    results = json.load(open(out_json0, encoding="utf-8")) if a.caps_only else {}
 
     # база (pause=0) - прямой busy-replay без фильтра, гейт H0 (сверка с посчитанной базой отдельно)
     outs0 = busy_replay_for(a.variant, "pause0", None)
@@ -225,9 +227,9 @@ def main():
     results["pause0"] = kpi_of(kn, co, a.variant)
     print("pause0:", results["pause0"], flush=True)
 
-    for pause_min, stop_only, tag in ((30, False, "pause30"), (60, False, "pause60"),
+    for pause_min, stop_only, tag in ([] if a.caps_only else ((30, False, "pause30"), (60, False, "pause60"),
                                        (120, False, "pause120"), (60, True, "pauseStop60"),
-                                       (120, True, "pauseStop120")):
+                                       (120, True, "pauseStop120"))):
         keep = simulate_pause(a.variant, pause_min, stop_only)
         keep_path = os.path.join(OUT_ROOT, f"h9-{a.variant}-{tag}", "keep.csv")
         write_keep(keep, keep_path)
@@ -239,7 +241,7 @@ def main():
     for cap in (3, 5):
         tag = f"cap{cap}"
         ps, co = portfolio_sim_for(a.variant, tag, outs0, max_pos=cap)
-        results[tag] = kpi_of(kn, co, a.variant)
+        results[tag] = kpi_of(kn, co, a.variant, cap)
         print(f"{tag}: {results[tag]}", flush=True)
 
     out_json = os.path.join(OUT_ROOT, f"h9h10-{a.variant}.json")
