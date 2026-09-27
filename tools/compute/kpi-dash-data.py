@@ -21,15 +21,13 @@ PAGE = {"BTC 4 ч: трейл 1/1": "btc4h_trail", "BTC 4 ч: тейк 1,75 %": 
 PK = {"aug": "август", "sep": "сентябрь", "augsep": "август+сентябрь"}
 EDGES = [0, 0.25, 1, 2, 3, 5, 7, 10, 1e9]  # корзины гистограммы, дни
 LEV_MONTH = {"aug": "август", "sep": "сентябрь"}
-LEV_EXACT = (1, 2, 3, 5)  # точные прогоны portfolio-sim --size-mult (data/p05/protection-p05-lev-x{m}.json); 4 -- нет
+LEV_EXACT = (1, 2, 3, 4, 5)  # прогоны portfolio-sim --size-mult (data/p05/protection-p05-lev-x{m}.json); ×4 — tmp-t29/p05-lev-x4.sh (CEO 27.09: без среднего ×3/×5)
 
 
 def load_lev(dirpath, variant="главный"):
     """Плечо ×1..×5 при депозите $2500 (владелец 27.09: «не размер позиции а в плечах»), только читает готовые
-    прогоны `data/p05/protection-p05-lev-x{1,2,3,5}.json` (portfolio-sim --size-mult, эти файлы не мои -- не
-    трогать). ×4 = $2000 не считался отдельно: total_pct/worst_day_pct/stress_pct/peak_usd/lev растут от ×1 ровно
-    линейно (проверено: ×2 совпадает с 2××1 до 4 знаков) -- для них ×4 = 4×(значение ×1), это не оценка. `dd_pct`
-    линейно не растёт (fee/mark-to-market по минутам) -- для ×4 показывается average(×3, ×5) с пометкой "approx"."""
+    прогоны `data/p05/protection-p05-lev-x{1..5}.json` (portfolio-sim --size-mult одним счётом `tmp-t29/p05-lev.sh`,
+    ×4 — `tmp-t29/p05-lev-x4.sh`): все клетки — один и тот же простой масштаб позиции, без оценок."""
     rows = {}
     for m in LEV_EXACT:
         p = os.path.join(dirpath, f"protection-p05-lev-x{m}.json")
@@ -45,18 +43,10 @@ def load_lev(dirpath, variant="главный"):
                                           "dd_pct": round(g["dd_pct"], 2), "worst_day_pct": round(g["worst_day_pct"], 2),
                                           "peak_usd": round(g["peak_usd"], 1), "lev": round(g["peak_usd"] / dep, 2),
                                           "stress_pct": round(g["stress_pct"], 1) if g.get("stress_pct") is not None else None}
-    for pk in rows:
-        r1, r3, r5 = rows[pk].get(1), rows[pk].get(3), rows[pk].get(5)
-        if r1 and r3 and r5:
-            rows[pk][4] = {"usd": round(r1["usd"] * 4, 2), "pct": round(r1["pct"] * 4, 2),
-                           "dd_pct": round((r3["dd_pct"] + r5["dd_pct"]) / 2, 2), "dd_pct_approx": True,
-                           "worst_day_pct": round(r1["worst_day_pct"] * 4, 2), "peak_usd": round(r1["peak_usd"] * 4, 1),
-                           "lev": round(r1["lev"] * 4, 2),
-                           "stress_pct": round(r1["stress_pct"] * 4, 1) if r1.get("stress_pct") is not None else None}
     return {"deposit_usd": 2500.0, "sizes": {m: 500 * m for m in (1, 2, 3, 4, 5)}, "rows": rows,
             "note_scale_invariant": "доля часов > 5 сут от масштаба не меняется — плечо ускоряет деньги, не перехай",
             "notes": ["простым масштабом позиции — точных прогонов --order-usd нет, крупная заявка иначе исполняется в очереди",
-                      "на проверке у Судьи", "×4 ($2000): dd_pct — average(×3,×5), помечено approx; остальное — точно 4×(значение ×1) (проверенная линейность)"]}
+                      "на проверке у Судьи"]}
 
 
 def page_key(name):
