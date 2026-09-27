@@ -8,7 +8,7 @@
 
 Клетки (условие ВХОДА; иначе сигнал выпадает из keep; неопределённый признак — выпадает, счёт в итоге):
   g57   p08-g57-rv   coin_rv_1h > 46 bps          p08-g57-rng  coin_range_1h > 54 bps
-  g78   p08-g78-15   coin_minus_btc_15m ≤ −50 bps  p08-g78-25   coin_minus_btc_15m ≤ −25 bps
+  g78   p08-g78-q33  coin_minus_btc_15m ≤ −13,134246 bps (§12 п. 12)  p08-g78-25   coin_minus_btc_15m ≤ −25 bps
   g126  p08-g126-5   n_other_signal_15m < 5        p08-g126-10  n_other_signal_15m < 10
         n_other_signal_15m — число ДРУГИХ монет пула (без TRX, В-105) с сигналом базы B1 (все сигналы `--src`,
         до занятости) в [t0 − 15 мин, t0) — П-08 §12 п. 2 (кэш D20 отсекал всё). База Г-126 — B2 (`--max-pos 3`).
@@ -57,7 +57,7 @@ def load_loss_corr(path=None):
 # ---------- клетки §7: имя → (признак, условие ВХОДА) ----------
 CELLS = {
     "g57": [("p08-g57-rv", "coin_rv_1h", lambda v: v > 46), ("p08-g57-rng", "coin_range_1h", lambda v: v > 54)],
-    "g78": [("p08-g78-15", "coin_minus_btc_15m", lambda v: v <= -50), ("p08-g78-25", "coin_minus_btc_15m", lambda v: v <= -25)],
+    "g78": [("p08-g78-q33", "coin_minus_btc_15m", lambda v: v <= -13.134246), ("p08-g78-25", "coin_minus_btc_15m", lambda v: v <= -25)],
     "g126": [("p08-g126-5", "n_other_signal_15m", lambda v: v < 5), ("p08-g126-10", "n_other_signal_15m", lambda v: v < 10)],
 }
 G126_WINDOW_MS = 15 * MIN_MS
