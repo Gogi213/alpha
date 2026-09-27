@@ -7,7 +7,7 @@
 |---|---|---|
 | `CEO` | говорит с владельцем, планирует, раздаёт задачи, сводит отчёты | `CLAUDE.md` «СОСТОЯНИЕ», `docs/plan/SETTLED.md`, `.memory/index.md`, приоритеты; устав и хуки `.claude/roles/`, `.claude/hooks/`; текст навыка `.claude/skills/alpha-research/` (SKILL, templates, references) |
 | `Роль: Исследователь` | протоколы от начала до конца: пороги → счёт на Steam Deck → анализ → отчёт | очередь счёта Steam Deck, `docs/research/*`, `docs/findings/*`, `docs/plan/{EXPERIMENTS,HYPOTHESES}.md`, скрипты анализа `tools/compute/*.py`, скрипты навыка `.claude/skills/alpha-research/scripts/*.py` (правка — с проверкой Судьи) |
-| `Роль: Инженер` | Rust-тикеты, сборка, выкладка, машины (коллектор, ночь, забор, диск) | `src/`, `Cargo.*`, `docs/{COMMANDS,ARCHITECTURE}.md`, `tools/*.sh`, `tools/systemd/`, `tools/compute/*.sh` |
+| `Роль: Инженер` | Rust-тикеты, сборка, выкладка, машины (коллектор, ночь, забор, диск) | `src/`, `Cargo.*`, `docs/{COMMANDS,ARCHITECTURE}.md`, `docs/efficiency-register.md`, `tools/*.sh`, `tools/systemd/`, `tools/compute/*.sh` |
 | `Роль: Судья` | независимая проверка: протокол до счёта, вывод до владельца | `docs/research/reviews/*` |
 
 ## Как в Agent Teams (по смыслу)
