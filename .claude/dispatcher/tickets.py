@@ -1,6 +1,7 @@
 """CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`. Только stdlib.
 
-    python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--reviewer judge] [--desc "..."]
+    python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--desc "..."]  # reviewer: judge по умолчанию
+    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --no-reviewer     # явный отказ от ревью
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." --backlog   # перенос из TASKS.md
     python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..."
     python .claude/dispatcher/tickets.py start TK-001                                     # backlog → todo
@@ -22,7 +23,12 @@ PROJECT_ROOT = TICKETS_DIR.parent.parent
 
 
 def cmd_new(args) -> int:
-    path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=args.reviewer,
+    reviewer = args.reviewer
+    if reviewer is None and not args.no_reviewer and args.owner in ("researcher", "engineer"):
+        # судья 27.09, п.6 «обязательно»: без ревьюера по умолчанию done молча минует проверку Судьи
+        # (числа владельцу должны идти после Судьи) — отказ только явным --no-reviewer
+        reviewer = "judge"
+    path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=reviewer,
                             description=args.desc or "", wait_for=args.wait_for or "",
                             status="backlog" if args.backlog else "todo")
     try:
@@ -89,6 +95,8 @@ def main(argv=None) -> int:
     p_new.add_argument("--owner", required=True, choices=["researcher", "engineer", "judge"])
     p_new.add_argument("--title", required=True)
     p_new.add_argument("--reviewer", choices=["researcher", "engineer", "judge"])
+    p_new.add_argument("--no-reviewer", action="store_true",
+                        help="явный отказ от умолчания --reviewer judge (researcher/engineer)")
     p_new.add_argument("--desc", default="")
     p_new.add_argument("--wait-for", dest="wait_for", default="")
     p_new.add_argument("--backlog", action="store_true",

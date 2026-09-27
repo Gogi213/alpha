@@ -153,7 +153,9 @@ def write_header_updates(path, updates: dict, now: datetime = None, stamp_update
         if key not in seen:
             new_lines.append(f"{key}: {value}")
     new_header = "---\n" + "\n".join(new_lines) + "\n---\n"
-    path.write_text(new_header + text[m.end():], encoding="utf-8")
+    # newline="\n" — иначе на Windows write_text переводит \n в CRLF (судья 27.09: `git commit`
+    # предупреждал «CRLF will be replaced by LF», цель fc2faa3 «задачи всегда LF» не держалась)
+    path.write_text(new_header + text[m.end():], encoding="utf-8", newline="\n")
 
 
 def append_log(path, author: str, text: str, now: datetime = None) -> None:
@@ -169,7 +171,7 @@ def append_log(path, author: str, text: str, now: datetime = None) -> None:
     if not content.endswith("\n\n"):
         content += "\n"
     content += f"### {now_iso(now)} {author}\n{text.strip()}\n"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
 
 
 def next_ticket_id(tickets_dir, prefix: str = "TK-") -> str:
@@ -200,7 +202,7 @@ def create_ticket(tickets_dir, owner: str, title: str, reviewer: str = None,
         text += description.strip() + "\n\n"
     text += "## Лог\n"
     path = tickets_dir / f"{tid}.md"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     return path
 
 

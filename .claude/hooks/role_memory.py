@@ -34,7 +34,12 @@ def read_stdin():
 
 
 def current_role():
-    """(название, роль) текущей сессии или (название, None)."""
+    """(название, роль) текущей сессии или (название, None). Сначала ALPHA_ROLE (диспетчерский запуск
+    `claude -p`, как в role_context.py) — иначе, если launch_run не снял CLAUDE_CODE_HOST_SESSION_ID
+    сессии CEO из env, find_title() принимает роль за CEO (судья 27.09, пилот TK-001, п.4 «обязательно»)."""
+    env_role = os.environ.get("ALPHA_ROLE")
+    if env_role in {r for _, r in ROLES}:
+        return f"ALPHA_ROLE={env_role}", env_role
     host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
     found, title = find_title(host_id, None) if host_id else (False, None)
     if not found or not title:

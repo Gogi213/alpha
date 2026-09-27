@@ -6,5 +6,7 @@ runs.log
 ceo-inbox.md
 ceo-wake.log
 .ceo-inbox-seen
+dispatch.pid
+dispatch.*.log
 runs/*
 !runs/.gitkeep

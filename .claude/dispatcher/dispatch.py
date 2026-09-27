@@ -35,6 +35,7 @@ CEO_INBOX = DISPATCHER_DIR / "ceo-inbox.md"
 CEO_WAKE_LOG = DISPATCHER_DIR / "ceo-wake.log"  # короткая копия каждой строки ceo-inbox — CEO держит на ней Monitor
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or r"C:\Users\Георгий\.local\bin\claude"
+PID_EXPECT_NAME = "claude"  # _pid_alive: подстрока имени образа процесса; тесты подменяют на "python"
 POLL_INTERVAL = float(os.environ.get("ALPHA_DISPATCH_INTERVAL", "15"))
 MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "2"))
 RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(40 * 60)))
@@ -68,9 +69,11 @@ ROTATE_TOKENS = int(os.environ.get("ALPHA_DISPATCH_ROTATE_TOKENS", "250000"))
 
 PROMPT_TEMPLATE = (
     "Ты — {role} команды alpha. Устав: .claude/roles/{role}.md, блокнот: .claude/roles/notes/{role}.md. "
-    "Задача: .claude/tickets/{tid}.md. Сделай следующий шаг, допиши запись в «## Лог» (что сделал, что дальше), "
-    "обнови status/wait_for в шапке, если ждёшь фоновую работу — status: waiting + wait_for и выходи, не жди в сессии. "
-    "Упоминай @роль, если нужен другой."
+    "Задача: .claude/tickets/{tid}.md. Лимит этого запуска — {timeout_min} мин; шаг длиннее — выноси в фон "
+    "(например systemd-run на Steam Deck) и ставь status: waiting + wait_for, не жди в сессии. Сделай следующий "
+    "шаг и допиши запись в «## Лог» (что сделал, что дальше) ДО истечения лимита — записанный частичный "
+    "прогресс не провал, диспетчер продолжит с него сам; обнови status/wait_for в шапке сама (не «todo», если "
+    "работа не закончена — иначе задача просто возьмётся в работу заново). Упоминай @роль, если нужен другой."
 )
 
 RUNNING = {}  # tid -> {role, popen, pid, started, attempt, run_file, err_file, out_fh, err_fh, reason}
@@ -117,7 +120,21 @@ def check_wait_for(spec: str) -> bool:
         return path.exists()
     if spec.startswith("deck:"):
         return _deck_file_exists(spec[len("deck:"):].strip())
+    if spec.startswith("ticket:"):
+        return _other_ticket_done(spec[len("ticket:"):].strip())
     return False  # "mention" и незнакомые формы — сами по себе не снимаются, см. правило (б)
+
+
+def _other_ticket_done(other_id: str) -> bool:
+    """`wait_for: ticket:<ID>` — ждём, пока другой тикет дойдёт до status: done (судья 27.09, «можно потом»:
+    зависимости T-XX жили только прозой TASKS.md, диспетчер их не видел)."""
+    other_path = TICKETS_DIR / f"{other_id}.md"
+    if not other_path.exists():
+        return False
+    try:
+        return T.read_ticket(other_path).status == "done"
+    except Exception:
+        return False
 
 
 def _remote_test_arg(remote_path: str) -> str:
@@ -132,7 +149,18 @@ def _remote_test_arg(remote_path: str) -> str:
     return shlex.quote(remote_path)
 
 
+_DECK_CACHE = {}  # remote_path -> (time.time() отметка, результат) — см. _deck_file_exists
+DECK_CHECK_CACHE_S = float(os.environ.get("ALPHA_DISPATCH_DECK_CACHE_S", "60"))
+
+
 def _deck_file_exists(remote_path: str) -> bool:
+    # Судья 27.09 («можно потом»): без кэша ssh дёргается на каждый ждущий тикет каждые 15 с —
+    # кэшируем результат на DECK_CHECK_CACHE_S, как deck_alert() в role_memory.py (15 мин там,
+    # здесь короче — это условие продолжения работы, не редкая тревога).
+    cached = _DECK_CACHE.get(remote_path)
+    now_ts = time.time()
+    if cached and (now_ts - cached[0]) < DECK_CHECK_CACHE_S:
+        return cached[1]
     # Кириллический HOME на этой машине ломает умолчания ssh (В-см. windows-ssh-cyrillic-home) —
     # ключ, known_hosts и хост берём явно, не полагаясь на ~/.ssh по умолчанию.
     host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
@@ -142,9 +170,11 @@ def _deck_file_exists(remote_path: str) -> bool:
            "-o", "ConnectTimeout=8", host, f"test -e {_remote_test_arg(remote_path)}"]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=15)
-        return r.returncode == 0
+        result = r.returncode == 0
     except Exception:
-        return False
+        result = False
+    _DECK_CACHE[remote_path] = (now_ts, result)
+    return result
 
 
 # --- ceo-inbox ---------------------------------------------------------------------------------
@@ -182,6 +212,31 @@ def notify_status_for_ceo(tkt: T.Ticket, state: dict, now) -> None:
     notified[tkt.id] = marker
 
 
+def notify_parse_error(tid: str, err_text: str, state: dict, now) -> None:
+    """Дедуп по (тикет, текст ошибки) — судья 27.09, п.5 «обязательно»: без дедупа сломанный вручную
+    тикет пишет строку в ceo-inbox.md/ceo-wake.log КАЖДЫЙ тик (симуляция: 240/час при POLL_INTERVAL=15с)."""
+    notified = state.setdefault("ceo_parse_error_notified", {})
+    if notified.get(tid) == err_text:
+        return
+    append_ceo_inbox(tid, "parse-error", err_text, now)
+    notified[tid] = err_text
+
+
+def notify_done_without_reviewer(tkt: T.Ticket, state: dict, now) -> None:
+    """Судья 27.09, п.6 «обязательно»: `done` без `reviewer` никого не уведомляет — тикет минует
+    проверку Судьи молча (вопреки «числа владельцу — после Судьи»). `tickets.py new` теперь ставит
+    `reviewer: judge` по умолчанию для researcher/engineer; здесь — сеть на случай явного отказа/старых
+    тикетов без reviewer вовсе."""
+    if tkt.status != "done" or tkt.reviewer in ROLE_KEYS:
+        return
+    notified = state.setdefault("ceo_no_reviewer_notified", {})
+    marker = f"done@{tkt.header.get('updated', '')}"
+    if notified.get(tkt.id) == marker:
+        return
+    append_ceo_inbox(tkt.id, "no-reviewer", "done без reviewer — числа минуют проверку Судьи", now)
+    notified[tkt.id] = marker
+
+
 # --- решение --------------------------------------------------------------------------------
 
 def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
@@ -194,10 +249,16 @@ def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
         v = sessions.get(f"{tid}::{role}", {}).get("last_woken")
         return T.parse_dt(v) if v else None
 
-    # (б) новая запись лога с @роль после последнего запуска этой роли по задаче
+    # (б) новая запись лога с @роль после последнего запуска этой роли по задаче. Не считаем: автор —
+    # сама упомянутая роль (самонапоминание, судья 27.09 «можно потом») и автор "dispatcher" (иначе
+    # собственная запись диспетчера «Запуск роли @role — … — нужен @ceo» будит ту же роль на
+    # blocked-тикете следующим тиком — судья 27.09, п.1 «обязательно», симуляция 1).
     for entry in tkt.log:
+        author = entry.author.lower()
+        if author == "dispatcher":
+            continue
         for role in entry.mentions:
-            if role not in ROLE_KEYS:
+            if role not in ROLE_KEYS or role == author:
                 continue
             cutoff = last_woken(role)
             if cutoff is None or entry.ts > cutoff:
@@ -210,19 +271,30 @@ def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
     if status == "todo" and owner in ROLE_KEYS:
         return Decision(role=owner, reason="todo")
 
+    # (а') in_progress без активного запуска → владелец, чтобы продолжить многошаговую задачу (судья
+    # 27.09, п.2 «обязательно»: раньше такой тикет замирал после первой сессии — устав ролей обещает
+    # продолжение другой сессией, а диспетчер никого не будил). Троттлинг — MIN_GAP_S/MAX_RUNS_PER_TICKET_HOUR
+    # в tick(), как у любого решения; уходит через явную смену status (done/waiting/blocked/…).
+    if status == "in_progress" and owner in ROLE_KEYS:
+        return Decision(role=owner, reason="in_progress-resume")
+
     # (в) waiting и условие wait_for выполнено → owner
     if status == "waiting" and owner in ROLE_KEYS:
         if check_wait_for(tkt.header.get("wait_for", "")):
             return Decision(role=owner, reason="wait_for-met")
         return None
 
-    # (г) done при заданном reviewer и без записи ревьюера → in_review, будит ревьюера
+    # (г) done при заданном reviewer → in_review, будит ревьюера — но не когда последняя запись лога
+    # уже от самого ревьюера (или dispatcher): это штатный конец состоявшегося ревью, не новый раунд.
+    # Раньше проверялось по updated-таймстампу — тот становится новее записи ревьюера, стоит роли
+    # проставить status ПОСЛЕ append_log, и (г) будило ревьюера повторно за его же вердикт (судья
+    # 27.09, п.3 «обязательно»; при SESSION_SCOPE="role" это занимало единственную сессию судьи).
     if status == "done" and tkt.reviewer in ROLE_KEYS:
         reviewer = tkt.reviewer
-        updated = tkt.header.get("updated")
-        cutoff = T.parse_dt(updated) if updated else None
-        if cutoff is None or not tkt.logged_since(reviewer, cutoff):
-            return Decision(role=reviewer, reason="review", header_updates={"status": "in_review"})
+        last_author = tkt.log[-1].author.lower() if tkt.log else None
+        if last_author in (reviewer.lower(), "dispatcher"):
+            return None
+        return Decision(role=reviewer, reason="review", header_updates={"status": "in_review"})
 
     return None
 
@@ -319,21 +391,36 @@ def _notify_budget_once(state: dict, now) -> None:
     notified["day"] = day
 
 
-def _pid_alive(pid) -> bool:
+def _pid_alive(pid, expect_name: str = None) -> bool:
+    """Жив ли pid — и похож ли на наш `claude` (судья 27.09, «можно потом»): подстрочный поиск pid в
+    `tasklist` ловил чужие совпадения (123 ⊂ 1234), а pid мог переиспользоваться ОС после перезагрузки
+    — точное сравнение PID-колонки через `/FO CSV` + проверка имени образа снижают оба риска (не
+    устраняют полностью: другой процесс `claude.exe` с тем же pid теоретически всё ещё возможен)."""
+    expect_name = PID_EXPECT_NAME if expect_name is None else expect_name
     if not pid:
         return False
     if os.name == "nt":
         try:
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                                   capture_output=True, text=True, timeout=5)
-            return str(pid) in (out.stdout or "")
+            for line in (out.stdout or "").splitlines():
+                fields = [f.strip().strip('"') for f in line.split(",")]
+                if len(fields) >= 2 and fields[1] == str(pid):
+                    return (expect_name or "").lower() in fields[0].lower()
+            return False
         except Exception:
             return False
     try:
         os.kill(pid, 0)
-        return True
     except Exception:
         return False
+    if not expect_name:
+        return True
+    try:
+        with open(f"/proc/{pid}/comm", encoding="utf-8", errors="replace") as fh:
+            return expect_name.lower() in fh.read().lower()
+    except OSError:
+        return True  # /proc недоступен (не Linux) — не валим проверку живости из-за этого
 
 
 def _pid_kill(pid) -> None:
@@ -376,7 +463,7 @@ def _popen(cmd, **kwargs):
 
 
 def build_prompt(role: str, tid: str, extra_note: str = None) -> str:
-    prompt = PROMPT_TEMPLATE.format(role=role, tid=tid)
+    prompt = PROMPT_TEMPLATE.format(role=role, tid=tid, timeout_min=int(RUN_TIMEOUT // 60))
     if extra_note:
         prompt += " " + extra_note
     return prompt
@@ -407,6 +494,13 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         cmd += ["--resume", sid]
 
     env = dict(os.environ)
+    # Судья 27.09, п.4 «обязательно»: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID
+    # сессии CEO (диспетчер сам запущен из неё) — role_context.py/role_memory.py принимают роль за CEO
+    # (тревоги/inbox/«молчание» ломаются на все роли). ALPHA_ROLE сама по себе не спасает: find_title()
+    # срабатывает раньше при непустом host_id, если сама переменная не снята.
+    for _k in list(env):
+        if "HOST_SESSION" in _k.upper():
+            env.pop(_k, None)
     env["ALPHA_ROLE"] = role
 
     out_fh = open(run_file, "w", encoding="utf-8")
@@ -472,7 +566,10 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
         save_state(state)
         return
     tkt = T.read_ticket(path)
-    logged = (not timed_out) and tkt.logged_since(role, info["started"])
+    # Судья 27.09, п.7 «обязательно»: таймаут сам по себе — не провал, если роль успела записать
+    # прогресс до убийства процесса (RUN_TIMEOUT назван в промпте — роль знает лимит шага). Раньше
+    # `logged` форсировалось в False при timed_out=True независимо от факта записи.
+    logged = tkt.logged_since(role, info["started"])
     stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
     if logged and not stuck_todo:
         sess["retries"] = 0
@@ -500,8 +597,10 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
                "дважды не уложился в таймаут" if timed_out else
                "дважды не оставил запись в «## Лог»")
         T.write_header_updates(path, {"status": "blocked"}, now=now)
+        # роль без "@" намеренно (судья 27.09, п.1 «обязательно», защита №2 сверх исключения
+        # author=="dispatcher" в decide(): своя запись не должна выглядеть упоминанием роли)
         T.append_log(path, "dispatcher",
-                     f"Запуск роли @{role} — {why} — задача заблокирована, нужен @ceo.", now=now)
+                     f"Запуск роли {role} — {why} — задача заблокирована, нужен @ceo.", now=now)
         sess["retries"] = 0
         append_ceo_inbox(tid, "blocked", f"{role}: {why}", now)
     save_state(state)
@@ -558,11 +657,12 @@ def tick(now=None) -> int:
         try:
             tkt = T.read_ticket(path)
         except Exception as e:
-            append_ceo_inbox(path.stem, "parse-error", f"{type(e).__name__}: {e}", now)
+            notify_parse_error(path.stem, f"{type(e).__name__}: {e}", state, now)
             continue
 
         handle_ceo_mentions(tkt, state, now)
         notify_status_for_ceo(tkt, state, now)
+        notify_done_without_reviewer(tkt, state, now)
 
         tid = tkt.id
         if tid in RUNNING or len(RUNNING) >= MAX_PARALLEL:

@@ -134,7 +134,9 @@ class DispatchDecisionTests(unittest.TestCase):
         self.assertEqual((dec.role, dec.reason), ("judge", "mention"))
 
     def test_mention_not_repeated_after_wake(self):
-        text = ("---\nid: TK-2\nowner: researcher\nstatus: in_progress\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
+        # status: waiting (без выполненного wait_for) — нейтральный статус без своего правила,
+        # чтобы изолированно проверить именно дедуп упоминания, а не правило (а') in_progress-resume
+        text = ("---\nid: TK-2\nowner: researcher\nstatus: waiting\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
                 "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь план.\n")
         self.state.setdefault("sessions", {})["TK-2::judge"] = {"last_woken": "2026-09-27T11:06:00+04:00"}
         dec = D.decide(self.ticket_from(text), self.state, self.now)
@@ -181,11 +183,13 @@ class DispatchDecisionTests(unittest.TestCase):
         dec = D.decide(self.ticket_from(text), self.state, self.now)
         self.assertIsNone(dec)
 
-    def test_in_progress_without_mention_is_idle(self):
+    def test_in_progress_without_mention_wakes_owner_to_resume(self):
+        """v1.1 (судья 27.09, п.2 «обязательно»): без этого многошаговый тикет замирал после первой
+        сессии — устав ролей обещает продолжение другой сессией, диспетчер никого не будил."""
         text = ("---\nid: TK-8\nowner: researcher\nstatus: in_progress\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
                 "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\nРаботаю дальше.\n")
         dec = D.decide(self.ticket_from(text), self.state, self.now)
-        self.assertIsNone(dec)
+        self.assertEqual((dec.role, dec.reason), ("researcher", "in_progress-resume"))
 
     def test_backlog_is_fully_ignored_even_with_mention(self):
         """v1.1: backlog — перенос из TASKS.md, диспетчер её не трогает вообще ни по одному правилу."""
@@ -316,7 +320,8 @@ class DispatchRunTests(unittest.TestCase):
 
         self._orig = {k: getattr(D, k) for k in
                       ("TICKETS_DIR", "PROJECT_ROOT", "STATE_FILE", "RUNS_DIR", "RUNS_LOG",
-                       "CEO_INBOX", "CEO_WAKE_LOG", "CLAUDE_BIN", "MAX_PARALLEL", "RUN_TIMEOUT")}
+                       "CEO_INBOX", "CEO_WAKE_LOG", "CLAUDE_BIN", "MAX_PARALLEL", "RUN_TIMEOUT",
+                       "PID_EXPECT_NAME")}
         D.TICKETS_DIR = self.tickets_dir
         D.PROJECT_ROOT = self.base
         D.STATE_FILE = self.dispatcher_dir / "state.json"
@@ -324,6 +329,8 @@ class DispatchRunTests(unittest.TestCase):
         D.RUNS_LOG = self.dispatcher_dir / "runs.log"
         D.CEO_INBOX = self.dispatcher_dir / "ceo-inbox.md"
         D.CEO_WAKE_LOG = self.dispatcher_dir / "ceo-wake.log"
+        # фейковый "claude" в тестах — это sys.executable (python.exe/python3), не claude.exe
+        D.PID_EXPECT_NAME = Path(sys.executable).stem
         D.RUNNING.clear()
         self._orig_popen = D._popen
         os.environ["FAKE_TICKETS_DIR"] = str(self.tickets_dir)
@@ -385,6 +392,31 @@ class DispatchRunTests(unittest.TestCase):
                           f"sess-{path.stem}-researcher")
         self.assertTrue(D.RUNS_LOG.exists())
         self.assertIn(path.stem, D.RUNS_LOG.read_text(encoding="utf-8"))
+
+    def test_launch_run_strips_host_session_env(self):
+        """(4) обязательно: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID сессии CEO —
+        role_context.py/role_memory.py принимают роль за CEO (судья 27.09, пилот TK-001)."""
+        os.environ["CLAUDE_CODE_HOST_SESSION_ID"] = "local_ceo-host-id-fake"
+        self.addCleanup(lambda: os.environ.pop("CLAUDE_CODE_HOST_SESSION_ID", None))
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        captured_env = {}
+        orig_popen = D._popen
+
+        def spy_popen(cmd, **kwargs):
+            captured_env.update(kwargs.get("env") or {})
+            return orig_popen(cmd, **kwargs)
+
+        D._popen = spy_popen
+        try:
+            path = T.create_ticket(self.tickets_dir, owner="researcher", title="Утечка env")
+            D.tick()
+        finally:
+            D._popen = orig_popen
+        self.assertNotIn("CLAUDE_CODE_HOST_SESSION_ID", captured_env)
+        self.assertEqual(captured_env.get("ALPHA_ROLE"), "researcher")
+        for info in list(D.RUNNING.values()):
+            info["popen"].wait(timeout=10)
+        D.RUNNING.clear()
 
     def test_no_log_entry_retries_once_then_blocks(self):
         self.set_fake_bin(FAKE_BIN_SILENT)
@@ -615,6 +647,71 @@ class DispatchRunTests(unittest.TestCase):
         wake_lines = [ln for ln in wake.splitlines() if ln.strip()]
         self.assertEqual(len(wake_lines), len(inbox_lines))
 
+    def test_sim5_parse_error_flood_is_deduped(self):
+        """(5) обязательно: сломанный тикет — одна строка в ceo-inbox, не строка на каждый тик."""
+        (self.tickets_dir / "X5.md").write_text("нет шапки тут\n", encoding="utf-8")
+        for i in range(3):
+            D.tick(now=dt("2026-09-27T12:00:00+04:00") + timedelta(seconds=15 * i))
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertEqual(inbox.count("parse-error"), 1, "3 тика с одной и той же ошибкой — одна строка")
+
+    def test_notify_parse_error_renotifies_on_different_text(self):
+        """Дедуп ключом (тикет, ТЕКСТ ошибки) — сменился текст ошибки, значит сменилась причина."""
+        state = {}
+        D.notify_parse_error("X5", "ValueError: тикет без шапки", state, dt("2026-09-27T12:00:00+04:00"))
+        D.notify_parse_error("X5", "ValueError: тикет без шапки", state, dt("2026-09-27T12:00:15+04:00"))
+        D.notify_parse_error("X5", "UnicodeDecodeError: 'utf-8' codec can't decode byte", state,
+                              dt("2026-09-27T12:00:30+04:00"))
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("parse-error"), 2)
+
+    def test_sim4_done_without_reviewer_notifies_ceo(self):
+        """(4) обязательно: done без reviewer раньше никого не уведомлял — числа минуют Судью молча."""
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Без ревью",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        T.append_log(path, "researcher", "готово, числа: KPI 0,097", now=dt("2026-09-27T12:01:00+04:00"))
+        T.write_header_updates(path, {"status": "done"}, now=dt("2026-09-27T12:01:00+04:00"))
+        D.tick(now=dt("2026-09-27T12:02:00+04:00"))
+        self.assertTrue(D.CEO_INBOX.exists())
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("no-reviewer", inbox)
+        self.assertEqual(D.RUNNING, {})  # без reviewer некого запускать — но CEO уведомлён
+        # дедуп: второй тик с тем же updated не добавляет вторую строку
+        D.tick(now=dt("2026-09-27T12:02:15+04:00"))
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("no-reviewer"), 1)
+
+    def test_sim6_timeout_with_logged_progress_is_not_a_failure(self):
+        """(6) обязательно: RUN_TIMEOUT назван в промпте, а прогресс до таймаута — не провал."""
+        self.assertIn(str(int(D.RUN_TIMEOUT // 60)), D.build_prompt("engineer", "X6"))
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Долгий шаг",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        T.write_header_updates(path, {"status": "in_progress"}, now=dt("2026-09-27T12:00:00+04:00"))
+        started = dt("2026-09-27T12:00:00+04:00")
+        T.append_log(path, "engineer", "сделал шаг 1 (артефакт a.csv), дальше шаг 2",
+                     now=started + timedelta(minutes=20))
+
+        class FakeTimedOutPopen:
+            pid = 424242
+
+            def poll(self):
+                return None  # «висит» до самого таймаута
+
+            def kill(self):
+                pass
+
+            def wait(self, timeout=None):
+                pass
+
+        run_file = self.dispatcher_dir / "x6.json"
+        run_file.write_text("", encoding="utf-8")  # процесс убит — JSON не дописан
+        D.RUNNING["X6"] = {"role": "engineer", "popen": FakeTimedOutPopen(), "pid": 424242, "started": started,
+                            "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None,
+                            "err_fh": None, "reason": "todo"}
+        state = D.load_state()
+        D._poll_running(state, started + timedelta(minutes=D.RUN_TIMEOUT // 60 + 1))
+        D.save_state(state)
+        self.assertEqual(D.RUNNING, {}, "прогресс есть — не должно быть повтора")
+        self.assertEqual(T.read_ticket(path).status, "in_progress")  # роль сама решит дальше, не blocked
+
 
 import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
 
@@ -650,6 +747,115 @@ class TicketsCliStartTests(unittest.TestCase):
         tickets = T.list_tickets(self.tickets_dir)
         self.assertEqual(len(tickets), 1)
         self.assertEqual(T.read_ticket(tickets[0]).status, "backlog")
+
+    def test_new_defaults_reviewer_judge_for_researcher_and_engineer(self):
+        """(6) обязательно: без reviewer по умолчанию done молча минует проверку Судьи."""
+        TK.main(["new", "--owner", "researcher", "--title", "А"])
+        TK.main(["new", "--owner", "engineer", "--title", "Б"])
+        tickets = {t.header["owner"]: t for t in (T.read_ticket(p) for p in T.list_tickets(self.tickets_dir))}
+        self.assertEqual(tickets["researcher"].reviewer, "judge")
+        self.assertEqual(tickets["engineer"].reviewer, "judge")
+
+    def test_new_no_reviewer_flag_opts_out(self):
+        TK.main(["new", "--owner", "researcher", "--title", "Без ревью", "--no-reviewer"])
+        tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
+        self.assertEqual(tkt.reviewer, "")
+
+    def test_new_explicit_reviewer_overrides_default(self):
+        TK.main(["new", "--owner", "researcher", "--title", "Себе на проверку", "--reviewer", "engineer"])
+        tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
+        self.assertEqual(tkt.reviewer, "engineer")
+
+    def test_new_judge_owner_has_no_default_reviewer(self):
+        TK.main(["new", "--owner", "judge", "--title", "Судейское"])
+        tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
+        self.assertEqual(tkt.reviewer, "")
+
+
+class JudgeSimulationDecideTests(unittest.TestCase):
+    """Переложение симуляций Судьи (TK-001, 27.09) на unittest — pure `decide()`, без процессов.
+    Источник: `.claude/tickets/TK-001.md` «## Лог» (запись judge 21:39) и
+    `docs/research/reviews/scripts/dispatcher-sim-2026-09-27.py` (номера симуляций совпадают)."""
+
+    def setUp(self):
+        self.t0 = dt("2026-09-27T22:00:00+04:00")
+
+    def mk(self, tid, hdr, log=""):
+        text = "---\n" + "\n".join(f"{k}: {v}" for k, v in hdr.items()) + "\n---\n\nописание\n\n## Лог\n" + log
+        return T.parse_text(text, Path(f"{tid}.md"))
+
+    def test_sim1_blocked_after_dispatcher_own_entry_no_longer_rewakes(self):
+        """(1) обязательно: своя запись dispatcher про blocked не должна выглядеть упоминанием роли."""
+        tkt = self.mk("X1", dict(id="X1", title="t", owner="researcher", status="blocked",
+                                  updated=iso(self.t0)))
+        # append_log пишет ЧЕРЕЗ файл — соберём текст руками, как делает симуляция Судьи
+        entry_text = "Запуск роли researcher — дважды не оставил запись в «## Лог» — задача заблокирована, нужен @ceo."
+        tkt.log.append(T.LogEntry(ts=self.t0, ts_raw=iso(self.t0), author="dispatcher", text=entry_text))
+        state = {"sessions": {"X1::researcher": {"last_woken": iso(self.t0 - timedelta(minutes=5))}}}
+        dec = D.decide(tkt, state, self.t0 + timedelta(minutes=2))
+        self.assertIsNone(dec, "запись dispatcher не должна снова будить researcher на blocked-тикете")
+
+    def test_sim2_in_progress_orphan_now_resumed(self):
+        """(2) обязательно: in_progress без активного запуска и без упоминания — раньше замирал навсегда."""
+        tkt = self.mk("X2", dict(id="X2", title="t", owner="engineer", status="in_progress",
+                                  updated=iso(self.t0)), f"### {iso(self.t0)} engineer\nсделал шаг 1, дальше шаг 2\n")
+        dec = D.decide(tkt, {}, self.t0 + timedelta(hours=3))
+        self.assertEqual((dec.role, dec.reason), ("engineer", "in_progress-resume"))
+
+    def test_sim3_review_accepted_then_done_no_longer_rewakes_judge(self):
+        """(3) обязательно: ревьюер написал «принято» и поставил done — не будить его снова."""
+        tkt = self.mk("X3", dict(id="X3", title="t", owner="researcher", status="in_review",
+                                  reviewer="judge", updated=iso(self.t0)))
+        t1 = self.t0 + timedelta(minutes=10)
+        tkt.log.append(T.LogEntry(ts=t1, ts_raw=iso(t1), author="judge", text="принято @ceo"))
+        tkt.header["status"] = "done"  # write_header_updates(now=t1+30s) в реальности — updated новее записи
+        state = {"sessions": {"X3::judge": {"last_woken": iso(self.t0)}}}
+        dec = D.decide(tkt, state, t1 + timedelta(minutes=2))
+        self.assertIsNone(dec, "последняя запись лога — самого ревьюера, повторный вызов не нужен")
+
+    def test_sim3b_review_left_in_review_is_not_touched_by_rule_g(self):
+        """(3b) судья прокомментировал, но не поставил done — правило (г) не про этот статус вообще."""
+        tkt = self.mk("X3b", dict(id="X3b", title="t", owner="researcher", status="in_review",
+                                   reviewer="judge", updated=iso(self.t0)))
+        t1 = self.t0 + timedelta(minutes=10)
+        tkt.log.append(T.LogEntry(ts=t1, ts_raw=iso(t1), author="judge", text="принято"))
+        state = {"sessions": {"X3b::judge": {"last_woken": iso(self.t0)}}}
+        dec = D.decide(tkt, state, t1 + timedelta(minutes=2))
+        self.assertIsNone(dec)
+
+    def test_sim7_self_mention_does_not_rewake_author(self):
+        """(7) можно потом: роль напоминает сама себе — не должна запускать сама себя повторно."""
+        tkt = self.mk("X7", dict(id="X7", title="t", owner="researcher", status="in_review",
+                                  reviewer="judge", updated=iso(self.t0)),
+                       f"### {iso(self.t0 + timedelta(minutes=5))} researcher\n"
+                       "сделал; напоминание себе: @researcher завтра проверить\n")
+        state = {"sessions": {"X7::researcher": {"last_woken": iso(self.t0)}}}
+        dec = D.decide(tkt, state, self.t0 + timedelta(minutes=6))
+        # researcher не владелец решения (в), reviewer=judge, status=in_review — ни одно правило не должно
+        # сработать САМО НА researcher из-за самоупоминания; judge не упомянут вовсе
+        self.assertIsNone(dec)
+
+    def test_ticket_wait_for_condition(self):
+        """«Можно потом»: `wait_for: ticket:<ID>` — зависимость от другого тикета (раньше жила прозой)."""
+        with tempfile.TemporaryDirectory() as d:
+            tdir = Path(d)
+            orig_dir = D.TICKETS_DIR
+            D.TICKETS_DIR = tdir
+            try:
+                T.create_ticket(tdir, owner="engineer", title="Блокер", status="in_progress")
+                blocker = T.list_tickets(tdir)[0]
+                text = (f"---\nid: X8\nowner: researcher\nstatus: waiting\nwait_for: ticket:{blocker.stem}\n"
+                        f"updated: {iso(self.t0)}\n---\n\n## Лог\n")
+                tkt = T.parse_text(text, Path("X8.md"))
+                self.assertIsNone(D.decide(tkt, {}, self.t0))  # блокер ещё не done
+                T.write_header_updates(blocker, {"status": "done"})
+                self.assertEqual(D.decide(tkt, {}, self.t0).reason, "wait_for-met")
+            finally:
+                D.TICKETS_DIR = orig_dir
+
+
+def iso(d):
+    return d.isoformat(timespec="seconds")
 
 
 class RateLimitAndBudgetTests(unittest.TestCase):
@@ -745,6 +951,39 @@ class ContextTokensTests(unittest.TestCase):
 class DeckSshTests(unittest.TestCase):
     """v1.1: умолчания ssh на Steam Deck (кириллический HOME ломает ~/.ssh по умолчанию)."""
 
+    def setUp(self):
+        D._DECK_CACHE.clear()
+
+    def tearDown(self):
+        D._DECK_CACHE.clear()
+
+    def test_repeated_checks_within_cache_window_hit_ssh_once(self):
+        """«Можно потом»: без кэша ssh дёргается на каждый ждущий тикет каждые 15 с."""
+        calls = []
+
+        class FakeResult:
+            returncode = 0
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return FakeResult()
+
+        fake_clock = [1000.0]
+        orig_run, orig_time = D.subprocess.run, D.time.time
+        D.subprocess.run = fake_run
+        D.time.time = lambda: fake_clock[0]
+        try:
+            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
+            fake_clock[0] += D.DECK_CHECK_CACHE_S / 2  # ещё внутри окна кэша
+            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
+            self.assertEqual(len(calls), 1, "второй вызов внутри окна кэша не должен дёргать ssh")
+            fake_clock[0] += D.DECK_CHECK_CACHE_S + 1  # окно истекло
+            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
+            self.assertEqual(len(calls), 2, "после истечения окна кэша — новый вызов")
+        finally:
+            D.subprocess.run = orig_run
+            D.time.time = orig_time
+
     def test_tilde_path_not_quoted_away(self):
         """Живой прогон 27.09 поймал: shlex.quote('~/x') = "'~/x'" — remote-шелл её не раскрывает."""
         self.assertEqual(D._remote_test_arg("~/alpha/queue/STATUS"), "~/alpha/queue/STATUS")
@@ -789,6 +1028,47 @@ class DeckSshTests(unittest.TestCase):
         self.assertEqual(cmd[-2], "deck@192.168.1.49")
         self.assertTrue(cmd[-1].startswith("test -e "))
         self.assertIn("~/alpha/queue/STATUS", cmd[-1])
+
+
+HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"
+
+
+class RoleMemoryHookTests(unittest.TestCase):
+    """v1.1 (судья 27.09, п.4 «обязательно»): current_role() — сначала ALPHA_ROLE, как в
+    role_context.py, иначе (если launch_run не снял CLAUDE_CODE_HOST_SESSION_ID) все роли считаются
+    за CEO — тревоги/inbox/«молчание» ломаются на всех."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HOOKS_DIR))
+        import role_memory as rm
+        self.rm = rm
+        self._orig_alpha_role = os.environ.get("ALPHA_ROLE")
+        self._orig_host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
+
+    def tearDown(self):
+        for key, val in (("ALPHA_ROLE", self._orig_alpha_role), ("CLAUDE_CODE_HOST_SESSION_ID", self._orig_host_id)):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+    def test_alpha_role_wins_even_with_ceo_host_session_id_present(self):
+        os.environ["ALPHA_ROLE"] = "judge"
+        os.environ["CLAUDE_CODE_HOST_SESSION_ID"] = "local_ceo-host-id-fake"
+        title, role = self.rm.current_role()
+        self.assertEqual(role, "judge")
+        self.assertIn("judge", title)
+
+    def test_no_alpha_role_falls_back_to_host_session_lookup(self):
+        os.environ.pop("ALPHA_ROLE", None)
+        os.environ.pop("CLAUDE_CODE_HOST_SESSION_ID", None)
+        # без host_id find_title() не находит ничего — (None, None), не падает
+        self.assertEqual(self.rm.current_role(), (None, None))
+
+    def test_unknown_alpha_role_value_falls_back(self):
+        os.environ["ALPHA_ROLE"] = "not-a-real-role"
+        os.environ.pop("CLAUDE_CODE_HOST_SESSION_ID", None)
+        self.assertEqual(self.rm.current_role(), (None, None))
 
 
 if __name__ == "__main__":
