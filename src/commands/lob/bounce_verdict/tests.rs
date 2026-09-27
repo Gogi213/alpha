@@ -580,3 +580,24 @@ fn exit_columns_are_read_when_only_some_of_them_are_present() {
         "чужих причин из отсутствующих колонок не выдумано"
     );
 }
+
+/// T-31 (условие Судьи 2): каталог прогона `--busy-skip off` — не сетка для вердикта, отказ с подсказкой.
+#[test]
+fn read_grid_refuses_a_busy_skip_off_run() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("forms.csv"),
+        "# lob bounce-grid: root=x exit_forms=none busy_skip=off\nsymbol,day_utc,form\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("rounds.csv"),
+        "# lob bounce-grid: busy_skip=off\nsymbol,day_utc,form\n",
+    )
+    .unwrap();
+    let err = match read_grid(dir.path()) {
+        Ok(_) => panic!("прогон off прочитан как сетка"),
+        Err(e) => e.to_string(),
+    };
+    assert!(err.contains("busy-skip off"), "{err}");
+}

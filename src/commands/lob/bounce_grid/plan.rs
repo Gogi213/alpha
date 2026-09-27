@@ -254,10 +254,6 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
             "--signal approach: ключ `eaten=` у подхода не определён — размер на взводе и есть старт"
         );
         anyhow::ensure!(
-            !sets.iter().any(|s| s.frontrun_min_lots.is_some()),
-            "--signal approach: ключ `frontrun_min=` у подхода пока не определён (T-35) — фронтрана на взводе в кэше нет"
-        );
-        anyhow::ensure!(
             !sets.iter().any(|s| s.eaten_min_pct.is_some()),
             "--signal approach: ключ `eaten_min=` у подхода не определён (T4) — размер на взводе и есть старт"
         );

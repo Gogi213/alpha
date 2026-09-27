@@ -337,7 +337,9 @@ pub(crate) fn touch_view_of_approach(a: &ApproachRecord) -> TouchRecord {
         size_at_touch: a.size_at_arm,
         size_max_before: a.size_at_arm,
         traded_during: 0,
-        frontrun_lots: 0,
+        // T-35 (Г-85 на подходах, Исследователь 27.09): лоты впереди стены на взводе — ключ `frontrun_min=`;
+        // цены первого фронтранера на взводе нет, поэтому `frontrun_tick` пуст и `single@fr` — `P ± 1`.
+        frontrun_lots: a.frontrun_lots_at_arm,
         frontrun_tick: None,
         swept_lots: 0,
         round_zeros: crate::lob::levels::round_zeros(a.price_tick),

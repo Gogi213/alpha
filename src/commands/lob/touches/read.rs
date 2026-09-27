@@ -357,9 +357,10 @@ impl ApproachCols {
                 Some(c) => u32::try_from(csv_int(rec, c)?)?,
                 None => 0,
             },
+            // T-35: нет колонки (кэш до T-28) — −1, «неизвестно»: `frontrun_min=` такой кэш отвергает
             frontrun_lots_at_arm: match self.frontrun_lots_at_arm {
                 Some(c) => csv_int(rec, c)?,
-                None => 0,
+                None => -1,
             },
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,
             disarm_ms: csv_int(rec, self.disarm_ms)?,

@@ -451,6 +451,16 @@ fn read_grid(dir: &Path) -> anyhow::Result<GridData> {
     let rounds_path = dir.join("rounds.csv");
     let forms_text = std::fs::read_to_string(&forms_path)
         .with_context(|| format!("{}: forms.csv не читается", forms_path.display()))?;
+    // T-31 (условие Судьи 2): прогон `--busy-skip off` — все сигналы без правила «занято» движка, его
+    // `forms.csv`/`rounds.csv` — не сетка для вердикта (счёт — только после `busy-replay.py`).
+    anyhow::ensure!(
+        !forms_text
+            .lines()
+            .take_while(|l| l.starts_with('#'))
+            .any(|l| l.contains(" busy_skip=off")),
+        "{}: прогон `--busy-skip off` — не сетка для вердикта (T-31: сначала busy-replay.py)",
+        dir.display()
+    );
     let mut r = csv::ReaderBuilder::new()
         .comment(Some(b'#'))
         .from_reader(forms_text.as_bytes());

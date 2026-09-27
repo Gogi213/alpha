@@ -291,6 +291,14 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 summary.symbols_without_touches += 1;
                 continue;
             };
+            // T-35: `frontrun_min=` на подходах читает `frontrun_lots_at_arm` (T-28); в старом кэше колонки нет
+            // (читается как −1) — отказ, а не молчаливый ноль сигналов.
+            anyhow::ensure!(
+                !sets.iter().any(|s| s.frontrun_min_lots.is_some())
+                    || days.iter().all(|d| d.touches.iter().all(|t| t.frontrun_lots >= 0)),
+                "{symbol}: `frontrun_min=` на подходах — нужен кэш с колонкой frontrun_lots_at_arm (T-28, `{}`)",
+                dir.display()
+            );
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
