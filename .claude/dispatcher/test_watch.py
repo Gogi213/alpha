@@ -189,6 +189,111 @@ class SshEncodingTests(WatchSandbox):
         self.assertEqual(captured.get("errors"), "replace")
 
 
+class SshImmediateRetryTests(WatchSandbox):
+    """CEO 27.09: разовый ssh-таймаут (23:59, 00:11), а сразу следом ssh отвечал за 0,44 с — один
+    немедленный повтор внутри _ssh_run должен был отфильтровать это ещё до классификации находки."""
+
+    def test_success_on_immediate_retry_counts_as_success(self):
+        calls = []
+
+        def fake_once(cmd_suffix, timeout=10.0):
+            calls.append(cmd_suffix)
+            if len(calls) == 1:
+                return False, "Connection timed out"
+            return True, "ok"
+
+        orig = W._ssh_run_once
+        W._ssh_run_once = fake_once
+        try:
+            ok, out = W._ssh_run("echo test")
+        finally:
+            W._ssh_run_once = orig
+        self.assertTrue(ok)
+        self.assertEqual(out, "ok")
+        self.assertEqual(len(calls), 2)
+
+    def test_failure_persists_after_retry_exhausted(self):
+        def fake_once(cmd_suffix, timeout=10.0):
+            return False, "Connection timed out"
+
+        orig = W._ssh_run_once
+        W._ssh_run_once = fake_once
+        try:
+            ok, out = W._ssh_run("echo test")
+        finally:
+            W._ssh_run_once = orig
+        self.assertFalse(ok)
+
+    def test_first_success_makes_no_retry_call(self):
+        calls = []
+
+        def fake_once(cmd_suffix, timeout=10.0):
+            calls.append(cmd_suffix)
+            return True, "ok"
+
+        orig = W._ssh_run_once
+        W._ssh_run_once = fake_once
+        try:
+            W._ssh_run("echo test")
+        finally:
+            W._ssh_run_once = orig
+        self.assertEqual(len(calls), 1)
+
+
+class SshFailStreakTests(WatchSandbox):
+    """CEO 27.09: будить только после N ПОДРЯД неудачных ЦИКЛОВ; разовые/парные — в сводку."""
+
+    def test_first_two_failures_are_transient_not_wake(self):
+        ws = {}
+        f = [W.Finding("deck-ssh-error", "alerts", "timeout")]
+        out1 = W._apply_ssh_fail_streak(f, ws)
+        self.assertEqual(out1[0].kind, "deck-ssh-error-transient")
+        out2 = W._apply_ssh_fail_streak(f, ws)
+        self.assertEqual(out2[0].kind, "deck-ssh-error-transient")
+
+    def test_third_consecutive_failure_wakes(self):
+        ws = {}
+        f = [W.Finding("deck-ssh-error", "alerts", "timeout")]
+        W._apply_ssh_fail_streak(f, ws)
+        W._apply_ssh_fail_streak(f, ws)
+        out3 = W._apply_ssh_fail_streak(f, ws)
+        self.assertEqual(out3[0].kind, "deck-ssh-error")
+
+    def test_success_in_between_resets_streak(self):
+        ws = {}
+        f_fail = [W.Finding("deck-ssh-error", "alerts", "timeout")]
+        W._apply_ssh_fail_streak(f_fail, ws)
+        W._apply_ssh_fail_streak(f_fail, ws)
+        W._apply_ssh_fail_streak([], ws)  # цикл без ошибки — ssh снова отвечает
+        out = W._apply_ssh_fail_streak(f_fail, ws)
+        self.assertEqual(out[0].kind, "deck-ssh-error-transient", "счётчик должен был сброситься")
+
+    def test_non_ssh_findings_are_untouched(self):
+        ws = {}
+        f = [W.Finding("orphan-ticket", "TK-1", "застряла")]
+        out = W._apply_ssh_fail_streak(f, ws)
+        self.assertEqual(out, f)
+
+    def test_end_to_end_two_transient_cycles_go_to_summary_not_inbox(self):
+        def fake_ssh_always_fails(cmd, timeout=10.0):
+            return False, "Connection timed out"
+
+        W.run_once(self.now, ssh_run=fake_ssh_always_fails)
+        W.run_once(self.now + timedelta(minutes=2), ssh_run=fake_ssh_always_fails)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertNotIn("[watch-deck-ssh-error]", inbox)
+        self.assertIn("watch-summary", inbox)
+
+    def test_end_to_end_third_consecutive_cycle_wakes(self):
+        def fake_ssh_always_fails(cmd, timeout=10.0):
+            return False, "Connection timed out"
+
+        for i in range(3):
+            W.run_once(self.now + timedelta(minutes=2 * i), ssh_run=fake_ssh_always_fails)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn("watch-deck-ssh-error", inbox)
+
+
 class SteamDeckHoldTests(WatchSandbox):
     """CEO 27.09: ALERT-idle-deck при активном HOLD — ожидаемое состояние (паузу ставит CEO по слову
     владельца) — не будить, а в сводку; другие тревоги (например ALERT-rework) под HOLD всё равно будят."""

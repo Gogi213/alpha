@@ -116,11 +116,7 @@ def check_orphan_tickets(now) -> list:
     return out
 
 
-def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
-    """Общий ssh-вызов на Steam Deck теми же умолчаниями, что и dispatch._deck_file_exists (кириллический
-    HOME) плюс явная кодировка UTF-8 (CEO 27.09: без неё вывод шёл кракозябрами — Python декодировал
-    ssh-байты локальной кодировкой Windows-консоли, как уже исправлено в role_memory.py:deck_alert).
-    Возвращает (ok, stdout) — ok=False на любой ошибке (сама по себе становится находкой, п.2в)."""
+def _ssh_run_once(cmd_suffix: str, timeout: float = 10.0):
     host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
     key = os.environ.get("ALPHA_DECK_KEY", r"C:/Users/Георгий/.ssh/id_rsa")
     known_hosts = os.environ.get("ALPHA_DECK_KNOWN_HOSTS", r"C:/Users/Георгий/.ssh/known_hosts")
@@ -134,6 +130,25 @@ def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
         return True, (r.stdout or "").strip()
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+
+
+DECK_SSH_IMMEDIATE_RETRIES = int(os.environ.get("ALPHA_WATCH_DECK_SSH_RETRIES", "1"))
+
+
+def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
+    """Общий ssh-вызов на Steam Deck теми же умолчаниями, что и dispatch._deck_file_exists (кириллический
+    HOME) плюс явная кодировка UTF-8 (CEO 27.09: без неё вывод шёл кракозябрами — Python декодировал
+    ssh-байты локальной кодировкой Windows-консоли, как уже исправлено в role_memory.py:deck_alert).
+    Один немедленный повтор при неудаче (CEO 27.09: разовый ssh-таймаут, а через мгновение сам ssh
+    отвечает за 0,44 с — без повтора это была ложная тревога) — фильтрует разовый сетевой сбой внутри
+    ОДНОГО цикла; устойчивость к сбоям ПОДРЯД НЕСКОЛЬКИХ циклов — в _apply_ssh_fail_streak.
+    Возвращает (ok, stdout) — ok=False на любой ошибке (сама по себе становится находкой, п.2в)."""
+    result = _ssh_run_once(cmd_suffix, timeout)
+    for _ in range(DECK_SSH_IMMEDIATE_RETRIES):
+        if result[0]:
+            return result
+        result = _ssh_run_once(cmd_suffix, timeout)
+    return result
 
 
 # CEO 27.09: ALERT-idle-deck при существующем HOLD — ожидаемое состояние (паузу ставит CEO по слову
@@ -198,8 +213,34 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None) -> lis
 # истечения WATCH_DEDUP_REPEAT_HOURS, другая суть — будим сразу, как новую находку.
 _TIME_TOKEN_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:Z|UTC)?\b", re.IGNORECASE)
 
-WATCH_SUMMARY_KINDS = {"deck-idle-expected"}
+WATCH_SUMMARY_KINDS = {"deck-idle-expected", "deck-ssh-error-transient"}
 WATCH_SUMMARY_EVERY_HOURS = float(os.environ.get("ALPHA_WATCH_SUMMARY_HOURS", "1"))
+
+# CEO 27.09: разовые ssh-таймауты (23:59, 00:11 — сразу после ssh отвечал за 0,44 с, ни нагрузки, ни
+# давления I/O) будили немедленно. Один повтор внутри цикла — в _ssh_run; здесь — устойчивость к
+# ПОДРЯД НЕСКОЛЬКИМ неудачным ЦИКЛАМ: будим только после DECK_SSH_FAIL_STREAK_TO_WAKE подряд (умолч.
+# 3 цикла × WATCH_INTERVAL_S ≈ 6 мин), разовые/парные неудачи — в сводку (deck-ssh-error-transient).
+DECK_SSH_FAIL_STREAK_TO_WAKE = int(os.environ.get("ALPHA_WATCH_DECK_SSH_FAIL_STREAK", "3"))
+
+
+def _apply_ssh_fail_streak(findings: list, ws: dict) -> list:
+    streaks = ws.setdefault("deck_ssh_fail_streak", {})
+    failed_keys_this_cycle = {f.key for f in findings if f.kind == "deck-ssh-error"}
+    out = []
+    for f in findings:
+        if f.kind != "deck-ssh-error":
+            out.append(f)
+            continue
+        streaks[f.key] = streaks.get(f.key, 0) + 1
+        if streaks[f.key] >= DECK_SSH_FAIL_STREAK_TO_WAKE:
+            out.append(f)
+        else:
+            out.append(Finding("deck-ssh-error-transient", f.key,
+                                f"{f.message} (сбой {streaks[f.key]}/{DECK_SSH_FAIL_STREAK_TO_WAKE} циклов подряд)"))
+    for key in list(streaks):
+        if key not in failed_keys_this_cycle:
+            streaks.pop(key, None)  # ssh снова отвечает — счётчик подряд сбрасывается
+    return out
 
 
 def _content_signature(f) -> str:
@@ -291,6 +332,7 @@ def run_once(now=None, ssh_run=_ssh_run) -> list:
     started_at = T.parse_dt(ws["started_at"])
     state = D.load_state()
     findings = collect_findings(state, now, ssh_run, started_at)
+    findings = _apply_ssh_fail_streak(findings, ws)
     posted = notify_findings(findings, ws, now)
     save_watch_state(ws)
     write_heartbeat(now, len(findings))
