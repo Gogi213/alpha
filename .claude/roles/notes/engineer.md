@@ -11,15 +11,19 @@
 - **T-37** (`journal/T-37.md`): единственные копии на ящике сверены; коллектор → ящик напрямую — таймер
   `alpha-sb-push` 00:10 UTC, первый прогон 28.09 → итог CEO строкой; архив Aug–15.09 — сверить деку с ящиком после T-30.
 - **Очередь `alpha-gridq`** (`journal/gridq.md`): на деке с 11:16 UTC, 8 ядер (`97e7834`); дальше Р7, Р5.
-- **T-38** (`journal/T-38.md` — там порядок): проба ×3,4 (формы) / ×5,9 (наборы) байт в байт; `--cells` + В-131 без σ —
-  `cda9acd`; гейт `--cells` на деке (`alpha-t38-cells`); `ALERT-rework` работает. Дальше: В-131 целиком (σ из свечей,
-  `--sigma-from`, a = 0), запросы Судьи (T-35 на новом кэше, `frontrun_share_min=`), T-26 родословная N.
+- **T-38** (`journal/T-38.md` — там порядок): `--cells` `cda9acd` (гейт зелёный ×4,1); **В-131 целиком `961afdd`** —
+  сборка VPS, гейт `tmp-t38/sigma-gate.sh`; таблицы `study/sigma240`. Дальше: T-35 на новом кэше, `frontrun_share_min=`,
+  T-26 родословная N. Фандинг (В-135) — `study/funding/`, итог Исследователю.
 - Сообщения (README `2eaf24e`): итог одним сообщением тому, кто действует; копии — коммитом; на паузе — outbox.
 - Ночной `approach-scan.sh` (`BIN=bin/alpha`) — перевести на бинарник с T-28 до включения ночи.
 - Фоном: T-30 (VPS `alpha-archive-box`), `alpha-sb-night`, `alpha-disk-guard`. Ждут: замер (б) пика памяти; У3+У2
   (`953d993`) у Судьи — на деке `oos-frozen.sh` до У3; очередь CEO: T-18, T-20 п.1. Архив — `notes/archive/`.
 
 ## Узнал (факты своей зоны, с датой и источником)
+- 27.09: свечи монет — сентябрь `~/alpha/study/klines` (26 монет с 16.09, докачка 31.08–16.09 — `study/klines-0831`),
+  август `epochs/e-aug/study/klines` (31.07–01.09); скрипты на деке — в `~/alpha/bin/*.py` (`tools/` там нет).
+- 27.09: VPS-сборка — `git archive <h> | ssh tar x -C /opt/alpha-compute/src-<h>`, скрипт `build-<h>.sh` (sed от прежнего),
+  `systemd-run --unit=alpha-build-<h> --setenv=HOME=/root`.
 - 27.09: `study/root-2026-09-16…19` на деке держали маркеры K1 ссылками на общий `root/verify-*.status` (его
   перезаписывает ночная сверка последних суток) — пересобраны из `root/verify-logs/<сутки>.log`; с 20.09 — посуточно.
 - 27.09 (замер): Storage Box — `ssh -p 23 -i ~/.ssh/id_storagebox u677479@u677479.your-storagebox.de` (дека и VPS,
