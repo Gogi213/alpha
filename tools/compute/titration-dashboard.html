@@ -195,6 +195,12 @@ th .arrow { font-size: 9px; margin-left: 3px; }
 .p05-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
 #p05-tables td.num { white-space: nowrap; line-height: 1.25; }
 tr.total td { font-weight: 600; border-top: 1px solid var(--rule-strong); }
+td.cell.thin { color: var(--ink-3); }
+
+/* ---------- срезы / свёрнутые таблицы внутри панели ---------- */
+details.sub { border: 1px solid var(--rule); border-radius: 9px; padding: 10px 14px; background: var(--surface-2); overflow: hidden; min-width: 0; }
+details.sub summary { cursor: pointer; font: 600 13px var(--font-body); color: var(--ink-2); }
+details.sub[open] summary { margin-bottom: 8px; }
 
 /* ---------- календарь ---------- */
 .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
@@ -279,7 +285,33 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     <div class="panel-head"><h2>Номер подхода (главный вариант)</h2><span class="badge warn">на проверке у Судьи</span></div>
     <p class="note" id="approach-note"></p>
     <div class="scroll"><h3>По номеру подхода на входе</h3><table id="approach-number"></table></div>
-    <div class="scroll" style="margin-top:16px"><h3>Правила «все / только N-й / первые K / с N-го»</h3><table id="approach-rules"></table></div>
+
+    <div class="scroll" style="margin-top:16px">
+      <h3>Правила «все / только N-й / первые K / с N-го» — с пересчётом занятости (busy-replay)</h3>
+      <table id="approach-busy-rules"></table>
+    </div>
+    <p class="note" id="approach-busy-note"></p>
+    <details class="sub" style="margin-top:8px">
+      <summary>Прежняя таблица правил — без пересчёта занятости (сделки выпадают — искажает)</summary>
+      <div class="scroll"><table id="approach-rules"></table></div>
+    </details>
+
+    <div style="margin-top:16px">
+      <h3>Срезы</h3>
+      <p class="note" id="slices-headline"></p>
+      <div class="seg" id="slices-switch" role="group" aria-label="Срез"></div>
+      <div class="p05-grid" id="slices-tables" style="margin-top:10px"></div>
+      <p class="note" id="slices-note"></p>
+    </div>
+
+    <div style="margin-top:16px">
+      <h3>Просадка и плечо по правилам (вопрос владельца про 4-й подход)</h3>
+      <div class="p05-grid">
+        <div class="scroll"><table id="approach-dd-table"></table></div>
+        <div class="scroll"><table id="approach-lev-table"></table></div>
+      </div>
+      <p class="note" id="approach-dd-note"></p>
+    </div>
   </section>
 
   <section class="panel" id="panel-lev">
@@ -452,6 +484,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
 
   // ---------- состояние ----------
   let state = {period: "augsep", variant: "btc4h_trail", size: D.position_usd};
+  let sliceKey = "age"; // T-32 срезы по номеру подхода — переключатель внутри панели «Номер подхода»
   // размер позиции (П-05 §3а): деньги — линейно, без пересчёта очереди; просадка в % — точно, где был прогон `--size-mult`
   const SIZES = [500, 1000, 1500, 2000, 2500];  // плечо ×1..×5 при депозите $2 500 (владелец 27.09)
   const K = () => state.size / D.position_usd;
@@ -613,8 +646,9 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     if (gt) {
       const gv = gt.verdict;
       const gtxt = "авг " + pct0(gt.frac.aug) + " (" + gt.n_main.aug + " ч) · сен " + pct0(gt.frac.sep) + " (" + gt.n_main.sep + " ч)";
-      tiles.unshift(["Доля часов ожидания > 5 сут (П-07)", gv, gtxt + " · " + gt.note, "first",
-        "Правило владельца «p90 ≤ 5 суток» (принято Судьёй " + "3d3a5f6" + "): доля часов месяца, для которых точно известно (без цензуры, t ≤ 19.09), что ждать нового максимума счёта дольше 5 суток — должна быть ≤ 0,10 в обоих месяцах. «Проходит» — держится и без сделок любых одних суток (худший случай сут " +
+      tiles.unshift(["Доля часов ожидания > 5 сут (П-07)", gv, null, "first",
+        "Правило владельца «p90 ≤ 5 суток» (принято Судьёй " + "3d3a5f6" + "): доля часов месяца, для которых точно известно (без цензуры, t ≤ 19.09), что ждать нового максимума счёта дольше 5 суток — должна быть ≤ 0,10 в обоих месяцах. " +
+        gtxt + " · " + gt.note + ". «Проходит» — держится и без сделок любых одних суток (худший случай сут " +
         pct0(gt.stability_day_max.aug) + "/" + pct0(gt.stability_day_max.sep) + ")" +
         (gt.stability_symbol_max.aug != null ? " и без любой одной монеты (мон " + pct0(gt.stability_symbol_max.aug) + "/" + pct0(gt.stability_symbol_max.sep) + ")" : " (по монете не проверено — нет карты символов у этого ряда)") +
         ". Бутстреп «доля выборок ≤ 0,10» — справочно, без порога: авг " + gt.boot_le010.aug.toFixed(2) + " / сен " + gt.boot_le010.sep.toFixed(2) +
@@ -1031,6 +1065,101 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       "<th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>p90/max, дн</th></tr></thead><tbody>" +
       A.rules.map(rowR).join("") + "</tbody>" +
       "<tfoot><tr><td colspan='10' class='muted'>Просмотрено правил: " + A.n_rules + " (все выписаны, без подбора, на тех же днях главного варианта — не проверка). Цель — доля &le; 10 %. Г-85 — считается (размеченных сделок по номеру подхода для Г-85 пока нет).</td></tr></tfoot>";
+
+    // ---------- правила с пересчётом занятости (busy-replay, T-31) ----------
+    const B = A.busy;
+    if (B && B.rules_kpi) {
+      const bnote = v => v.n < 30 ? " (описание)" : "";
+      const bgt = v => v.n < 10 ? "сделок нет" : pc(v.frac_gt_5d) + bnote(v);
+      const bpeak = v => v.n < 10 ? "сделок нет" : pc(v.at_peak_share) + " / " + pc(v.below_peak_share);
+      const rowB = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
+        const v = r[m];
+        return "<td class='num'>" + v.n + "</td><td class='num " + cls(v.usd) + "'>" + money(v.usd) + "</td><td class='num " +
+          (v.n >= 10 && v.frac_gt_5d > 0.10 ? "neg" : "") + "'>" + bgt(v) + "</td><td class='num muted'>" + bpeak(v) + "</td>";
+      }).join("<td class='sep'></td>") + "</tr>";
+      document.getElementById("approach-busy-rules").innerHTML =
+        "<thead><tr><th>правило</th><th colspan='4'>август</th><th class='sep'></th><th colspan='4'>сентябрь</th></tr>" +
+        "<tr><th></th><th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>на пике / в просадке</th><th class='sep'></th>" +
+        "<th class='num'>n</th><th class='num'>$</th><th class='num'>доля &gt; 5 сут</th><th class='num'>на пике / в просадке</th></tr></thead><tbody>" +
+        B.rules_kpi.map(rowB).join("") + "</tbody>";
+      document.getElementById("approach-busy-note").innerHTML =
+        "гейт T-31 на проверке у Судьи; 508 из 4264 сигналов без номера исключены — строка «все» здесь &ne; база (сентябрь 31 % против 13 %), " +
+        "сравнивать правила только внутри этой таблицы. Занятость меняет и KPI, и сам состав сделок правила (сделка правилом выпадает — освободившаяся " +
+        "монета раньше впускает следующий сигнал). Цель — доля &le; 10 %.";
+    }
+
+    // ---------- просадка и плечо по правилам (busy-replay, вопрос владельца про 4-й подход) ----------
+    if (B && B.dd_rows) {
+      const rowDD = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
+        const v = r[m];
+        return "<td class='num neg'>" + moneyPlain(v.dd_usd) + "</td><td class='num neg'>" + money(v.worst_day_usd) + "</td><td class='num'>" + pc(v.underwater_gt50) + "</td>";
+      }).join("<td class='sep'></td>") + "</tr>";
+      document.getElementById("approach-dd-table").innerHTML =
+        "<caption style='caption-side:top;text-align:left;font:600 12.5px var(--font-body);color:var(--ink-2);padding-bottom:6px'>Просадка (busy-replay)</caption>" +
+        "<thead><tr><th>правило</th><th colspan='3'>август</th><th class='sep'></th><th colspan='3'>сентябрь</th></tr>" +
+        "<tr><th></th><th class='num'>макс. просадка</th><th class='num'>худшие сутки</th><th class='num'>часов под водой &gt;$50</th><th class='sep'></th>" +
+        "<th class='num'>макс. просадка</th><th class='num'>худшие сутки</th><th class='num'>часов под водой &gt;$50</th></tr></thead><tbody>" +
+        B.dd_rows.map(rowDD).join("") + "</tbody>";
+      const stressTxt = v => Math.abs(v) >= 100 ? "<span class='neg'>обнулён</span> (" + Math.abs(v).toFixed(0) + "%)" : "−" + Math.abs(v).toFixed(0) + "%";
+      const rowLev = r => "<tr><td>" + r.rule + "</td>" + ["aug", "sep"].map(m => {
+        const wd = [1, 2, 3].map(x => (r[m].worst_day_pct * x).toFixed(1).replace("-", "−") + "%").join(" / ");
+        const dd = [1, 2, 3].map(x => "−" + (r[m].dd_pct * x).toFixed(1) + "%").join(" / ");
+        const st = [1, 2, 3].map(x => stressTxt(r[m + "_stress"] * x)).join(" / ");
+        return "<td>" + wd + "</td><td>" + dd + "</td><td>" + st + "</td>";
+      }).join("<td class='sep'></td>") + "</tr>";
+      document.getElementById("approach-lev-table").innerHTML =
+        "<caption style='caption-side:top;text-align:left;font:600 12.5px var(--font-body);color:var(--ink-2);padding-bottom:6px'>Плечо ×1 / ×2 / ×3 (линейный масштаб позиции, не прогон ликвидации)</caption>" +
+        "<thead><tr><th>правило</th><th colspan='3'>август</th><th class='sep'></th><th colspan='3'>сентябрь</th></tr>" +
+        "<tr><th></th><th class='num'>худшие сутки, % депо</th><th class='num'>просадка, % депо</th><th class='num'>стресс обвала</th><th class='sep'></th>" +
+        "<th class='num'>худшие сутки, % депо</th><th class='num'>просадка, % депо</th><th class='num'>стресс обвала</th></tr></thead><tbody>" +
+        B.lev_rows.map(rowLev).join("") + "</tbody>";
+      const top3Txt = B.top3.map((e, i) => "−" + Math.abs(e.usd4).toFixed(1) + " из −" + e.depth_usd.toFixed(0) + " (" + e.n4 + " из " + e.n_total + " сделок)").join(", ");
+      document.getElementById("approach-dd-note").innerHTML =
+        "Вклад сделок подхода 4+ в топ-3 самых глубоких эпизода просадки базы (без пересчёта занятости): " + top3Txt + " — просадку делают в основном сделки 1–3, не 4+. " +
+        "Стопов подхода 4+ — " + (B.stop_days_n4.together + B.stop_days_n4.alone) + " суток, из них " + B.stop_days_n4.together + " совпадают со стопом другого подхода в те же сутки и " +
+        B.stop_days_n4.alone + " — «одни». <b>Просадку делают сделки 1–3; плечо фатально при любом номере подхода.</b>";
+    }
+    renderSlices();
+  }
+
+  // ---------- срезы по номеру подхода (владелец 27.09 через CEO: «детализируй по срезам») ----------
+  const SLICE_LABEL = {age: "возраст стены", size: "размер стены", gap: "время с прошлого подхода", outcome: "исход прошлого подхода",
+    before45: "подходов до 45 мин", traded_serial: "номер среди торгуемых", btc: "глубина BTC", episode_minute: "минута эпизода", family: "семейство волатильности"};
+  function sliceCell(c) {
+    if (!c || !c.n) return "<td class='cell thin'>—</td>";
+    if (c.n < 10) return "<td class='cell thin'>мало <span class='muted'>(n=" + c.n + ")</span></td>";
+    const pc = x => x == null ? "—" : Math.round(x * 100) + "%";
+    return "<td class='cell'>n=" + c.n + "<br>" + moneyFine(c.usd_pt) + "/сд · " + pc(c.win) + "</td>";
+  }
+  function sliceHeat(fam, pk, title) {
+    const table = fam.table[pk];
+    const buckets = Object.keys(table);
+    const allN = new Set();
+    buckets.forEach(b => Object.keys(table[b]).forEach(n => { if (table[b][n].n) allN.add(n); }));
+    const order = ["1", "2", "3", "4", "5", "6", "7+"].filter(n => allN.has(n));
+    if (!order.length) return "";
+    let h = "<div class='scroll'><h4 style='margin:0 0 6px;font:600 12.5px var(--font-body);color:var(--ink-2)'>" + title + "</h4><table class='heat-table'><thead><tr><th>подход &rarr;</th>" +
+      order.map(n => "<th>" + n + "</th>").join("") + "</tr></thead><tbody>";
+    for (const b of buckets) {
+      h += "<tr><td>" + (b === "" ? "все" : b) + "</td>" + order.map(n => sliceCell(table[b][n])).join("") + "</tr>";
+    }
+    return h + "</tbody></table></div>";
+  }
+  function renderSlices() {
+    const A = NH && NH.approach, S = A && A.slices;
+    const swBox = document.getElementById("slices-switch"), tBox = document.getElementById("slices-tables");
+    if (!S || !S.families) { if (swBox) swBox.innerHTML = ""; if (tBox) tBox.innerHTML = ""; return; }
+    swBox.innerHTML = Object.keys(SLICE_LABEL).map(k => "<button data-slice='" + k + "' aria-pressed='" + (k === sliceKey) + "'>" + SLICE_LABEL[k] + "</button>").join("");
+    swBox.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { sliceKey = b.dataset.slice; renderSlices(); }));
+    const ap = S.age_pooled;
+    const frac2 = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2).replace(".", ",");
+    const bps0 = v => (v >= 0 ? "+" : "−") + Math.abs(Math.round(v));
+    document.getElementById("slices-headline").innerHTML = "<b>Главное</b>: номер подхода внутри корзины возраста стены — август &Delta; доли в плюс " +
+      frac2(ap.aug.pooled_win_diff_2plus_vs_1) + " / " + bps0(ap.aug.pooled_bps_diff_2plus_vs_1) + " bps, сентябрь " +
+      frac2(ap.sep.pooled_win_diff_2plus_vs_1) + " / " + bps0(ap.sep.pooled_bps_diff_2plus_vs_1) + " bps — знак разный между месяцами, эффекта нет.";
+    const fam = S.families[sliceKey];
+    tBox.innerHTML = sliceHeat(fam, "aug", "Август") + sliceHeat(fam, "sep", "Сентябрь");
+    document.getElementById("slices-note").textContent = S.n_cells + " клеток на тех же днях (" + fam.title + ") — карта-описание, не проверка; правило из любой клетки — только новым протоколом.";
   }
 
   // ---------- плечо ×1..×5 (владелец 27.09: «не размер позиции а в плечах») ----------

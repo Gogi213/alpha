@@ -49,6 +49,70 @@ def load_lev(dirpath, variant="главный"):
                       "на проверке у Судьи"]}
 
 
+FAMILY_KEYS = [("age", "1_age"), ("size", "2_size"), ("gap", "3_gap"), ("outcome", "3_outcome"),
+               ("before45", "4_before45"), ("traded_serial", "4_traded_serial"),
+               ("btc", "5_btc"), ("episode_minute", "5_episode_minute"), ("family", "6_family")]
+FAMILY_TITLE = {"traded_serial": "N x номер среди торгуемых (traded_serial, вместо номера от рождения)"}
+# §7.x п.1: "часов под водой >$50" — busy-stress.json хранит только суточную `daily`-кривую, часовой ряд не
+# сохранён; числа транскрибированы из docs/findings/retries-2026-09-27.md §7.x (approach-slices-summary.md
+# §7.x п.1), гейт T-31 зелёный, на проверке у Судьи — не пересчитано здесь
+UNDERWATER_GT50 = {"все": {"aug": 0.20, "sep": 0.0}, "первые 3": {"aug": 0.22, "sep": 0.0},
+                    "первые 4": {"aug": 0.21, "sep": 0.0}, "с 4-го": {"aug": 0.0, "sep": 0.0}}
+STRESS_DD_ROWS = [("все (номер известен, busy-replay)", "все"), ("первые 3 (busy-replay)", "первые 3"),
+                   ("первые 4 (busy-replay)", "первые 4"), ("с 4-го и дальше (busy-replay)", "с 4-го")]
+STRESS_LEV_ROWS = [("все (номер известен, busy-replay)", "все"), ("первые 3 (busy-replay)", "первые 3")]
+# §7.x п.2: вклад сделок подхода 4+ в топ-3 эпизода просадки БАЗЫ — тоже не в json (approach-slices-summary.md
+# §7.x п.2), порядок совпадает с busy-stress.json["top3_episodes"] (по убыванию глубины)
+N4_CONTRIB = [{"n4": 10, "n_total": 87, "usd4": -13.7}, {"n4": 15, "n_total": 148, "usd4": -3.4},
+              {"n4": 7, "n_total": 66, "usd4": -3.8}]
+
+
+def slim_cell(c):
+    n = c.get("n", 0)
+    if not n:
+        return {"n": 0, "note": c.get("note", "нет сделок")}
+    return {"n": n, "usd_pt": round(c["usd"] / n, 3), "win": c.get("win"), "note": c.get("note", "")}
+
+
+def slim_family(raw, key):
+    """T-32 срезы по номеру подхода (владелец 27.09 через CEO): только читает `data/t32/approach-slices.json`
+    (t32-approach-slices.py — не менять); клетки ужаты до n/$-за-сделку/доля-в-плюс для дашборда."""
+    table = raw.get("table")
+    if table is None:  # traded_serial — плоский, без корзин
+        table = {"aug": {"": raw["aug"]}, "sep": {"": raw["sep"]}}
+    return {"title": FAMILY_TITLE.get(key, raw.get("title", "")),
+            "table": {pk: {bucket: {n: slim_cell(cell) for n, cell in cells.items()} for bucket, cells in table[pk].items()}
+                      for pk in ("aug", "sep")}}
+
+
+def load_slices(path):
+    if not os.path.exists(path):
+        return {}
+    sl = json.load(open(path, encoding="utf-8"))
+    return {"n_trades": sl["n_trades"], "n_cells": sl["n_cells_viewed"], "btc_tertile_cuts_aug": sl["btc_tertile_cuts_aug"],
+            "families": {key: slim_family(sl[jk], key) for key, jk in FAMILY_KEYS}, "age_pooled": sl["1_pooled_1_vs_2plus_by_age"]}
+
+
+def load_busy(path):
+    """T-31 busy-replay (владелец 27.09: «после 4 подхода масштабируется просадка?»), только читает
+    `data/t32/busy-stress.json` (t32-busy-stress.py — не менять)."""
+    if not os.path.exists(path):
+        return {}
+    bs = json.load(open(path, encoding="utf-8"))
+    pertrade = lambda v: round(v["usd"] / v["n"], 3) if v.get("n") else None
+    rules_kpi = [{"rule": k, **{m: {**v[m], "usd_pt": pertrade(v[m])} for m in ("aug", "sep")}} for k, v in bs["rules_kpi"].items()]
+    dd_rows = [{"rule": label, **{pk: {"dd_usd": round(bs["stress"][jk][pk]["dd_usd"], 1),
+                                        "worst_day_usd": round(bs["stress"][jk][pk]["worst_day_usd"], 1),
+                                        "underwater_gt50": UNDERWATER_GT50[label][pk]} for pk in ("aug", "sep")}}
+               for jk, label in STRESS_DD_ROWS]
+    lev_rows = [{"rule": label, **{pk: {k: round(bs["stress"][jk][pk][k], 2) for k in ("worst_day_pct", "dd_pct")}
+                                    for pk in ("aug", "sep")} | {pk + "_stress": round(bs["stress"][jk][pk]["stress_pct"], 1) for pk in ("aug", "sep")}}
+                for jk, label in STRESS_LEV_ROWS]
+    top3 = [{"depth_usd": round(e["depth_usd"], 1), **N4_CONTRIB[i]} for i, e in enumerate(bs["top3_episodes"])]
+    return {"rules_kpi": rules_kpi, "dd_rows": dd_rows, "lev_rows": lev_rows, "top3": top3,
+            "stop_days_n4": {"together": bs["stop_days_n4_together"], "alone": bs["stop_days_n4_alone"]}}
+
+
 def page_key(name):
     if name in PAGE:
         return PAGE[name]
@@ -155,6 +219,9 @@ def main():
                               "сделки выпадают без пересчёта занятости монеты и очереди входа",
                               f"{ra['n_rules']} правил на тех же днях главного варианта — не проверка, не подбор",
                               "Г-85 — считается (размеченных сделок по номеру подхода для Г-85 пока нет, только для главного варианта)"]}
+    if a.t32_dir:
+        approach["slices"] = load_slices(os.path.join(a.t32_dir, "approach-slices.json"))
+        approach["busy"] = load_busy(os.path.join(a.t32_dir, "busy-stress.json"))
     lev = load_lev(a.p05_lev_dir) if a.p05_lev_dir else None
     if lev is not None and main_name in R:
         lev["frac_gt_h"] = {pk: R[main_name]["roll"][pk]["frac_gt_h"] for pk in ("aug", "sep")}
