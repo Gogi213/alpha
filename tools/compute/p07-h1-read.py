@@ -10,7 +10,8 @@
 Монета без минутных свечей (dc250dc, «то же правило — для января–июня»; уточнение Судьи 225814e, п. 7): в сутки с
 флагом `n_no_sigma` > 1 % у монеты сигналы без σ и ни одной строки σ₂₄₀ за сутки. Сутки раньше первой свечи
 (+ 240 мин окна σ) — «рынка ещё не было»: монета вон из всех форм на весь месяц (`--drop`, как TRX), ворота
-пересчитываются без неё, имя и первая свеча печатаются. Свечей нет/пусто/дыра — сбой light: стоп месяца (код 1).
+пересчитываются без неё, имя и первая свеча печатаются. Файл свечей из одних заголовков, вынесенный Инженером в
+`study/klines-empty/` после повтора light (у Bybit свечей за месяц нет), — тоже «рынка не было». Свечей нет/пусто/дыра — сбой light: стоп месяца (код 1).
 
     python3 p07-h1-read.py --month jan --data-gate
     python3 p07-h1-read.py --month jan --out ~/alpha/tmp-p07/h1-read/jan.json
@@ -84,7 +85,12 @@ def no_candle_coins(jr):
             if sym in jr.DROP_SET or jr.dropped_no_sigma(sym, day)[0] == 0 or day in sigma_days(jr, sym):
                 continue
             fc = first_candle_ms(jr, sym)
-            if fc is None:
+            empty = os.path.join(jr.JUL_HOME, "study", "klines-empty", f"ref-{sym}-1m.csv")
+            if fc is None and os.path.exists(empty):
+                # Инженер 06:42: у Bybit свечей за месяц нет (файл из одних заголовков после повтора light) —
+                # рынка не было весь месяц (SPCX май, KORU июнь)
+                drop[sym] = "нет за весь месяц (Bybit, study/klines-empty)"
+            elif fc is None:
                 stop.append(f"{sym} {day}: нет свечей (сбой light)")
             elif d0 < fc + 240 * 60_000:
                 drop[sym] = dt.datetime.fromtimestamp(fc / 1000, dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
