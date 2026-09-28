@@ -202,7 +202,11 @@ def run_row(row):
         except ValueError:
             done = False
     try:
-        if keep and keep[0] in ("pause", "h9r"):
+        kp = os.path.join(d, "keep.csv")
+        if done and keep and keep[0] in ("pause", "h9r") and os.path.isfile(kp):
+            with open(kp, encoding="utf-8") as fh:
+                n_keep = sum(1 for _ in fh) - 1  # без заголовка write_keep
+        elif keep and keep[0] in ("pause", "h9r"):
             side = cell_dir[3]
             ph.base_dir_for = lambda _v, cd=cell_dir: cd
             ph.FORM_OF[side] = form
