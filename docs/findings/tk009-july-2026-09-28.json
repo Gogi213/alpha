@@ -1,0 +1,8140 @@
+{
+ "_meta": {
+  "protocol": "П-07 поправка 5 п. 4; отбор В-146 (TK-009)",
+  "m_holm": 33,
+  "days": [
+   "2026-07-01",
+   "2026-07-31"
+  ],
+  "h_days": 5,
+  "deposit": 2500,
+  "position": 500,
+  "drop": "TRXUSDT,KORUUSDT",
+  "created_utc": "2026-09-28T10:22:11.789561+00:00",
+  "h2_0136_eq_0273": false
+ },
+ "b-k1": {
+  "cell_dir": "p07b-base",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 645,
+  "n_trades": 260,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -37.77,
+   "ci95": [
+    -204.79,
+    113.19
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.413,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.173,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 246.8352325,
+   "max_wait_censored": false,
+   "max_wait_text": "246.8 ч"
+  }
+ },
+ "p07b-h2-0.0136": {
+  "cell_dir": "p07b-h2-0.0136",
+  "form": "ladder3x0..0.0136sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 645,
+  "n_trades": 256,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -41.54,
+   "ci95": [
+    -205.52,
+    107.56
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.418,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.178,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 249.23535666666666,
+   "max_wait_censored": false,
+   "max_wait_text": "249.2 ч"
+  },
+  "p": 0.59772,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.592,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.589,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.418,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.422,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.413,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.397,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.427,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.421,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.373,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -3.77,
+    "ci95": [
+     -15.93,
+     3.74
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h2-0.0273": {
+  "cell_dir": "p07b-h2-0.0273",
+  "form": "ladder3x0..0.0273sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 645,
+  "n_trades": 256,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -41.56,
+   "ci95": [
+    -205.54,
+    107.56
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.418,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.178,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 249.23535666666666,
+   "max_wait_censored": false,
+   "max_wait_text": "249.2 ч"
+  },
+  "p": 0.59772,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.592,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.589,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.418,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.422,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.413,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.397,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.427,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.421,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.373,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -3.79,
+    "ci95": [
+     -15.93,
+     3.69
+    ]
+   },
+   "result": "описание"
+  }
+ },
+ "p07b-h2-0.0682": {
+  "cell_dir": "p07b-h2-0.0682",
+  "form": "ladder3x0..0.0682sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 634,
+  "n_trades": 277,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -34.58,
+   "ci95": [
+    -196.96,
+    117.63
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.418,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.178,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 249.23535666666666,
+   "max_wait_censored": false,
+   "max_wait_text": "249.2 ч"
+  },
+  "p": 0.71531,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.592,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.589,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.222,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.323,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.626,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.421,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.418,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.397,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.427,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.421,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.373,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.421,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.613,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 3.19,
+    "ci95": [
+     -14.27,
+     18.27
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h6-pct1.5": {
+  "cell_dir": "p07b-h6-pct1.5",
+  "form": "ladder3x0..0.0409sw2-pct1.5-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 656,
+  "n_trades": 264,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -88.82,
+   "ci95": [
+    -269.16,
+    64.4
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.378,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.01795,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.941,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.418,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.418,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.818,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.626,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.613,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.626,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": false,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -51.05,
+    "ci95": [
+     -94.84,
+     -9.72
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h6-pct3": {
+  "cell_dir": "p07b-h6-pct3",
+  "form": "ladder3x0..0.0409sw2-pct3-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 644,
+  "n_trades": 258,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": 1.74,
+   "ci95": [
+    -181.69,
+    181.61
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.397,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.592,
+   "excl_min": 0.173,
+   "stability_day_max": 0.592,
+   "stability_symbol_max": 0.541,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 236.79441444444444,
+   "max_wait_censored": false,
+   "max_wait_text": "236.8 ч"
+  },
+  "p": 0.19014,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.568,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.52,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.211,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.218,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.397,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.413,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.421,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.413,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.299,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.386,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.43,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.352,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.397,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.352,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.592,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.397,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.592,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.397,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 39.51,
+    "ci95": [
+     -11.48,
+     106.69
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h13-gone50wallk0": {
+  "cell_dir": "p07b-h13-gone50wallk0",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk0",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 890,
+  "n_trades": 428,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -38.83,
+   "ci95": [
+    -147.11,
+    67.61
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.779,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.536,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 607.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 607.0 ч"
+  },
+  "p": 0.98545,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.779,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.797,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.818,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.536,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.779,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.779,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.779,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.779,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.779,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.779,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.779,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.779,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.779,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.779,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.779,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.779,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.779,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.779,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -1.06,
+    "ci95": [
+     -107.73,
+     112.0
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h13-gone90wall0": {
+  "cell_dir": "p07b-h13-gone90wall0",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wall0",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 855,
+  "n_trades": 405,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -19.57,
+   "ci95": [
+    -129.56,
+    87.19
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.941,
+   "excl_min": 0.426,
+   "stability_day_max": 0.941,
+   "stability_symbol_max": 0.819,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.70146,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.818,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.941,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.818,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.426,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.818,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.818,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.818,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 18.19,
+    "ci95": [
+     -67.76,
+     112.83
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h13-gone90wallk0": {
+  "cell_dir": "p07b-h13-gone90wallk0",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90wallk0",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 791,
+  "n_trades": 351,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -7.42,
+   "ci95": [
+    -120.89,
+    111.02
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.941,
+   "excl_min": 0.584,
+   "stability_day_max": 0.941,
+   "stability_symbol_max": 0.941,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.58217,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.818,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.941,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.622,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.622,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.622,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.626,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.622,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 30.35,
+    "ci95": [
+     -67.63,
+     144.66
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h13-gone50wallk10": {
+  "cell_dir": "p07b-h13-gone50wallk10",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50wallk10",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 830,
+  "n_trades": 377,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -43.67,
+   "ci95": [
+    -153.01,
+    50.58
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.64,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.446,
+   "stability_day_max": 0.941,
+   "stability_symbol_max": 0.989,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 378.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 378.0 ч"
+  },
+  "p": 0.9026,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.797,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.478,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.941,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.446,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.941,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.64,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.941,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.64,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.941,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.739,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.749,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.749,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.64,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.64,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.64,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.64,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.64,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.64,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -5.9,
+    "ci95": [
+     -98.02,
+     89.77
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h8-3600": {
+  "cell_dir": "p07b-h8-3600",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-3600-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 753,
+  "n_trades": 332,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -21.54,
+   "ci95": [
+    -124.26,
+    72.66
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.427,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.994,
+   "excl_min": 0.288,
+   "stability_day_max": 0.822,
+   "stability_symbol_max": 0.994,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 280.67719916666664,
+   "max_wait_censored": false,
+   "max_wait_text": "280.7 ч"
+  },
+  "p": 0.73931,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.427,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.741,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.382,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.288,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.427,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.426,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.822,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.427,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.382,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.427,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.515,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.822,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.63,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.63,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.427,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.427,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.427,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.488,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.352,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.427,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 16.23,
+    "ci95": [
+     -70.82,
+     118.07
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h8-7200": {
+  "cell_dir": "p07b-h8-7200",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-7200-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 705,
+  "n_trades": 300,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -29.34,
+   "ci95": [
+    -210.56,
+    151.97
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.579,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.992,
+   "excl_min": 0.406,
+   "stability_day_max": 0.992,
+   "stability_symbol_max": 0.669,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 390.2839216666667,
+   "max_wait_censored": false,
+   "max_wait_text": "390.3 ч"
+  },
+  "p": 0.89266,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.406,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.579,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.579,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.565,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.57,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.573,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.579,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.662,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.579,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.573,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.565,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.662,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.662,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.992,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.579,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.579,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.579,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.579,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.602,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.579,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 8.43,
+    "ci95": [
+     -88.19,
+     137.99
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h4-900": {
+  "cell_dir": "p07b-h4-900",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 3446,
+  "n_trades": 916,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": 358.46,
+   "ci95": [
+    -179.84,
+    870.46
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.186,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.307,
+   "excl_min": 0.11,
+   "stability_day_max": 0.307,
+   "stability_symbol_max": 0.28,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 208.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 208.0 ч"
+  },
+  "p": 0.04565,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.186,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.208,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.141,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.168,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.186,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.242,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.307,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.186,
+     "base": 0.422,
+     "ok": true
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.186,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.186,
+     "base": 0.312,
+     "ok": true
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.186,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.28,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.186,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.186,
+     "base": 0.416,
+     "ok": true
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.186,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.186,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.186,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.27,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.122,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.11,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.11,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.186,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 396.23,
+    "ci95": [
+     -1.88,
+     777.57
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h4-1800": {
+  "cell_dir": "p07b-h4-1800",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 1287,
+  "n_trades": 457,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": 82.75,
+   "ci95": [
+    -201.82,
+    353.24
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.211,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.499,
+   "excl_min": 0.138,
+   "stability_day_max": 0.466,
+   "stability_symbol_max": 0.499,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 208.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 208.0 ч"
+  },
+  "p": 0.12749,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.211,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.211,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.141,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.333,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.141,
+     "base": 0.323,
+     "ok": true
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.333,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.333,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.333,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.211,
+     "base": 0.312,
+     "ok": true
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.288,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.322,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.307,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.211,
+     "base": 0.416,
+     "ok": true
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.211,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.466,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.211,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.211,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.178,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.211,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 120.51,
+    "ci95": [
+     -30.89,
+     274.42
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h4-3600": {
+  "cell_dir": "p07b-h4-3600",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 380,
+  "n_trades": 169,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -33.49,
+   "ci95": [
+    -184.19,
+    99.18
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.989,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.998,
+   "excl_min": 0.312,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.998,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 738.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 738.0 ч"
+  },
+  "p": 0.9082,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.989,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.677,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.678,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.989,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.989,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.989,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.989,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.678,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.989,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.989,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.794,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.989,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.989,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.973,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 4.27,
+    "ci95": [
+     -60.25,
+     81.26
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h4-5400": {
+  "cell_dir": "p07b-h4-5400",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 183,
+  "n_trades": 79,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -31.73,
+   "ci95": [
+    -111.03,
+    26.82
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.509,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.646,
+   "excl_min": 0.187,
+   "stability_day_max": 0.613,
+   "stability_symbol_max": 0.646,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 438.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 438.0 ч"
+  },
+  "p": 0.91345,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.509,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.542,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.509,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.509,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.523,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.509,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.509,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.509,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.509,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.613,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.317,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.315,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.509,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.317,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.509,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.509,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.509,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.509,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 6.04,
+    "ci95": [
+     -107.41,
+     110.61
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h5-btc1h": {
+  "cell_dir": "p07b-h5-btc1h",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc1h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 1100,
+  "n_trades": 451,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -26.61,
+   "ci95": [
+    -288.08,
+    229.26
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.304,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.659,
+   "excl_min": 0.206,
+   "stability_day_max": 0.659,
+   "stability_symbol_max": null,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум); устойчивость по монете не проверена — нет карты символов у этого ряда",
+   "max_wait_hours": 246.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 246.0 ч"
+  },
+  "p": 0.90295,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.659,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.302,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.288,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.288,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.512,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.611,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.512,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.304,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.219,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.226,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.304,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.301,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.304,
+     "base": 0.416,
+     "ok": true
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.413,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.304,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.304,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.333,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.304,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.206,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.304,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 11.16,
+    "ci95": [
+     -150.96,
+     192.6
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h5-btc2h": {
+  "cell_dir": "p07b-h5-btc2h",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc2h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 838,
+  "n_trades": 343,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -6.64,
+   "ci95": [
+    -312.54,
+    286.05
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.573,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.874,
+   "excl_min": 0.378,
+   "stability_day_max": 0.874,
+   "stability_symbol_max": null,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум); устойчивость по монете не проверена — нет карты символов у этого ряда",
+   "max_wait_hours": 333.21061444444445,
+   "max_wait_censored": false,
+   "max_wait_text": "333.2 ч"
+  },
+  "p": 0.74451,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.573,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.541,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.57,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.619,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.378,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.656,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.619,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.672,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.573,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.57,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.573,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.672,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.619,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.656,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.874,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.573,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.635,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.573,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.573,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.573,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 31.13,
+    "ci95": [
+     -145.12,
+     220.41
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h5-btc3h": {
+  "cell_dir": "p07b-h5-btc3h",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc3h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 689,
+  "n_trades": 299,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -13.45,
+   "ci95": [
+    -282.64,
+    229.06
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.357,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.65,
+   "excl_min": 0.23,
+   "stability_day_max": 0.65,
+   "stability_symbol_max": null,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум); устойчивость по монете не проверена — нет карты символов у этого ряда",
+   "max_wait_hours": 264.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 264.0 ч"
+  },
+  "p": 0.74706,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.357,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.314,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.357,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.23,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.256,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.65,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.357,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.357,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.344,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.453,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.446,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.446,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.446,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.357,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.406,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.357,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.357,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.357,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 24.32,
+    "ci95": [
+     -128.09,
+     166.16
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h3-25000": {
+  "cell_dir": "p07b-h3-25000",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 317,
+  "n_trades": 180,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -34.7,
+   "ci95": [
+    -182.12,
+    105.08
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.382,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.989,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.9037,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.989,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.406,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.406,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.598,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.602,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.598,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.598,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.598,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 3.07,
+    "ci95": [
+     -46.24,
+     51.82
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h3-50000": {
+  "cell_dir": "p07b-h3-50000",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 185,
+  "n_trades": 98,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -22.83,
+   "ci95": [
+    -107.75,
+    61.41
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.989,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.806,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.989,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 738.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 738.0 ч"
+  },
+  "p": 0.77171,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.835,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.989,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.989,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.989,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.989,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.989,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.989,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.989,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.989,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.989,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.989,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.989,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.989,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.989,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.989,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.989,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 14.94,
+    "ci95": [
+     -72.39,
+     117.28
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h7-tr1.5x1": {
+  "cell_dir": "p07b-h7-tr1.5x1",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1.5x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 643,
+  "n_trades": 258,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -37.26,
+   "ci95": [
+    -209.43,
+    116.77
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.373,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.626,
+   "excl_min": 0.178,
+   "stability_day_max": 0.622,
+   "stability_symbol_max": 0.626,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 249.23535666666666,
+   "max_wait_censored": false,
+   "max_wait_text": "249.2 ч"
+  },
+  "p": 0.9737,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.547,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.496,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.178,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.178,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.267,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.376,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.562,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.376,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.373,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.352,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.622,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.413,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.429,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.373,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.429,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.373,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.437,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.373,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 0.51,
+    "ci95": [
+     -29.73,
+     29.2
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h7-tr1x1.5": {
+  "cell_dir": "p07b-h7-tr1x1.5",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1.5-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 644,
+  "n_trades": 259,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -60.65,
+   "ci95": [
+    -244.69,
+    110.1
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.744,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.998,
+   "excl_min": 0.299,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.998,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 481.2848627777778,
+   "max_wait_censored": false,
+   "max_wait_text": "481.3 ч"
+  },
+  "p": 0.23004,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.499,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.499,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.299,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.499,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.744,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.939,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.744,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.685,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.49,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.939,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.666,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.939,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.666,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.939,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.744,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.939,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.744,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -22.88,
+    "ci95": [
+     -57.78,
+     15.5
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h7-tr2x1": {
+  "cell_dir": "p07b-h7-tr2x1",
+  "form": "ladder3x0..0.0409sw2-pct2-tr2x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 642,
+  "n_trades": 257,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -65.8,
+   "ci95": [
+    -230.06,
+    79.38
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.501,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.998,
+   "excl_min": 0.301,
+   "stability_day_max": 0.749,
+   "stability_symbol_max": 0.998,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 329.2030688888889,
+   "max_wait_censored": false,
+   "max_wait_text": "329.2 ч"
+  },
+  "p": 0.32543,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.733,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.496,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.378,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.378,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.496,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.501,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.746,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.501,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.496,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.491,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.749,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.536,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.557,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.501,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.749,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.554,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.565,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.501,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -28.03,
+    "ci95": [
+     -88.88,
+     19.17
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-h7-1to1": {
+  "cell_dir": "p07b-h7-1to1",
+  "form": "ladder3x0..0.0409sw2-pct2-1to1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 642,
+  "n_trades": 257,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -48.29,
+   "ci95": [
+    -208.95,
+    92.17
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.379,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.819,
+   "excl_min": 0.269,
+   "stability_day_max": 0.627,
+   "stability_symbol_max": 0.819,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 253.20306888888888,
+   "max_wait_censored": false,
+   "max_wait_text": "253.2 ч"
+  },
+  "p": 0.63472,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.549,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.542,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.269,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.269,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.373,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.379,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.563,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.379,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.373,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.373,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.627,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.429,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.435,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.379,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.627,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.43,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.443,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.379,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -10.52,
+    "ci95": [
+     -53.66,
+     31.16
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-market": {
+  "cell_dir": "p07b-t9-market",
+  "form": "market-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 471,
+  "n_trades": 466,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -83.66,
+   "ci95": [
+    -429.41,
+    209.08
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.328,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.818,
+   "excl_min": 0.139,
+   "stability_day_max": 0.818,
+   "stability_symbol_max": 0.818,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 237.39444805555556,
+   "max_wait_censored": false,
+   "max_wait_text": "237.4 ч"
+  },
+  "p": 0.64902,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.328,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.427,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.139,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.253,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.141,
+     "base": 0.323,
+     "ok": true
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.539,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.539,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.347,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.347,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.306,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.328,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.328,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.328,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.574,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.328,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.414,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.354,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.328,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -45.89,
+    "ci95": [
+     -248.85,
+     138.55
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-ttl60": {
+  "cell_dir": "p07b-t9-ttl60",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl60",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 814,
+  "n_trades": 210,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -32.99,
+   "ci95": [
+    -170.11,
+    83.28
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.21,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.587,
+   "excl_min": 0.165,
+   "stability_day_max": 0.405,
+   "stability_symbol_max": 0.587,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 223.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 223.0 ч"
+  },
+  "p": 0.87011,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.283,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.21,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.21,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.21,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.21,
+     "base": 0.323,
+     "ok": true
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.21,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.328,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.328,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.21,
+     "base": 0.312,
+     "ok": true
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.21,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.317,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.165,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.405,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.203,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.405,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.21,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.405,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.21,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 4.78,
+    "ci95": [
+     -48.18,
+     66.8
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-ttl300": {
+  "cell_dir": "p07b-t9-ttl300",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl300",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 687,
+  "n_trades": 253,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -25.99,
+   "ci95": [
+    -196.0,
+    118.61
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.218,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.494,
+   "excl_min": 0.165,
+   "stability_day_max": 0.418,
+   "stability_symbol_max": 0.494,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 223.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 223.0 ч"
+  },
+  "p": 0.29399,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.394,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.341,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.21,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.211,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.299,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.222,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.418,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.218,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.218,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.218,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.322,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.173,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.413,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.173,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.413,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.221,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.413,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.218,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 11.78,
+    "ci95": [
+     -9.09,
+     34.14
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-gone50be": {
+  "cell_dir": "p07b-t9-gone50be",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50be",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 780,
+  "n_trades": 352,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -84.57,
+   "ci95": [
+    -190.65,
+    1.35
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.998,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.998,
+   "excl_min": 0.818,
+   "stability_day_max": 0.998,
+   "stability_symbol_max": 0.998,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 744.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 744.0 ч"
+  },
+  "p": 0.41198,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.998,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.998,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.998,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.998,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.998,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.998,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.998,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.998,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.998,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.998,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.998,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.998,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.998,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.998,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.998,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.998,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.998,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.998,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -46.8,
+    "ci95": [
+     -163.4,
+     64.23
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-gone90be": {
+  "cell_dir": "p07b-t9-gone90be",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90be",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 734,
+  "n_trades": 315,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -71.24,
+   "ci95": [
+    -186.34,
+    25.35
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.998,
+   "excl_min": 0.378,
+   "stability_day_max": 0.998,
+   "stability_symbol_max": 0.998,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.38938,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.998,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.998,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.818,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.378,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.818,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.818,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.818,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -33.47,
+    "ci95": [
+     -111.39,
+     39.83
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-gone50tr1": {
+  "cell_dir": "p07b-t9-gone50tr1",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone50tr1",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 705,
+  "n_trades": 299,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -80.55,
+   "ci95": [
+    -214.39,
+    41.23
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.234,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.941,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.22624,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.941,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.626,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.234,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.818,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.818,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.622,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.626,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -42.78,
+    "ci95": [
+     -117.44,
+     22.06
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-gone90tr1": {
+  "cell_dir": "p07b-t9-gone90tr1",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800-gone90tr1",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 694,
+  "n_trades": 289,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -108.25,
+   "ci95": [
+    -247.63,
+    19.9
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.818,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.989,
+   "excl_min": 0.818,
+   "stability_day_max": 0.989,
+   "stability_symbol_max": 0.941,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 631.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 631.0 ч"
+  },
+  "p": 0.0614,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.989,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.941,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.818,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.818,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.818,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.818,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.818,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.818,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.818,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.818,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.818,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.818,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.818,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.818,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": false,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -70.48,
+    "ci95": [
+     -149.21,
+     -0.97
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "p07b-t9-touch": {
+  "cell_dir": "p07b-t9-touch",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1",
+  "max_pos": 0,
+  "n_signals_kept": 793,
+  "n_trades": 59,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": 16.5,
+   "ci95": [
+    -21.38,
+    58.21
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.797,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.797,
+   "excl_min": 0.203,
+   "stability_day_max": 0.797,
+   "stability_symbol_max": 0.797,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 618.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 618.0 ч"
+  },
+  "p": 0.48848,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.797,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.797,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.717,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.797,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.443,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.797,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.797,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.797,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.797,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.203,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.797,
+     "base": 0.818,
+     "ok": false
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.797,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.797,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.797,
+     "base": 0.368,
+     "ok": false
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.797,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.797,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.797,
+     "base": 0.608,
+     "ok": false
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.635,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.797,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 54.27,
+    "ci95": [
+     -85.77,
+     211.35
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "k1f25": {
+  "cell_dir": "p07b-base",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1f25",
+  "max_pos": 0,
+  "n_signals_kept": 570,
+  "n_trades": 220,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -16.5,
+   "ci95": [
+    -159.72,
+    119.45
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.214,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.622,
+   "excl_min": 0.17,
+   "stability_day_max": 0.622,
+   "stability_symbol_max": 0.614,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 223.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 223.0 ч"
+  },
+  "p": 0.42003,
+  "vs_k1": {
+   "C1": true,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.387,
+     "base": 0.589,
+     "ok": true
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.338,
+     "base": 0.584,
+     "ok": true
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.213,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.213,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.622,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.214,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.226,
+     "base": 0.422,
+     "ok": true
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.219,
+     "base": 0.418,
+     "ok": true
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.211,
+     "base": 0.312,
+     "ok": true
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.211,
+     "base": 0.386,
+     "ok": true
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.614,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.216,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.41,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.17,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.41,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.41,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.41,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.214,
+     "base": 0.413,
+     "ok": true
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": 21.26,
+    "ci95": [
+     -27.67,
+     75.13
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ },
+ "k1cap5": {
+  "cell_dir": "p07b-base",
+  "form": "ladder3x0..0.0409sw2-pct2-tr1x1-14400-ttl1800",
+  "set": "t-bid-btc4h-q1",
+  "keep": "k1cap5",
+  "max_pos": 5,
+  "n_signals_kept": 645,
+  "n_trades": 208,
+  "n_out_of_month": 0,
+  "usd": {
+   "n_days": 31,
+   "b": 4,
+   "est": -39.84,
+   "ci95": [
+    -190.52,
+    93.88
+   ]
+  },
+  "kpi": {
+   "frac_gt_5d": 0.418,
+   "n_main": 625,
+   "h_hours": 120,
+   "excl_max": 0.806,
+   "excl_min": 0.165,
+   "stability_day_max": 0.779,
+   "stability_symbol_max": 0.806,
+   "state": "не проходит",
+   "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+   "max_wait_hours": 373.0,
+   "max_wait_censored": true,
+   "max_wait_text": "≥ 373.0 ч"
+  },
+  "p": 0.89606,
+  "vs_k1": {
+   "C1": false,
+   "C2": false,
+   "C2_by_day": [
+    {
+     "day": "2026-07-01",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-02",
+     "cell": 0.779,
+     "base": 0.589,
+     "ok": false
+    },
+    {
+     "day": "2026-07-03",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-04",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-05",
+     "cell": 0.589,
+     "base": 0.584,
+     "ok": false
+    },
+    {
+     "day": "2026-07-06",
+     "cell": 0.408,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-07",
+     "cell": 0.405,
+     "base": 0.218,
+     "ok": false
+    },
+    {
+     "day": "2026-07-08",
+     "cell": 0.413,
+     "base": 0.323,
+     "ok": false
+    },
+    {
+     "day": "2026-07-09",
+     "cell": 0.608,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-10",
+     "cell": 0.616,
+     "base": 0.422,
+     "ok": false
+    },
+    {
+     "day": "2026-07-11",
+     "cell": 0.608,
+     "base": 0.418,
+     "ok": false
+    },
+    {
+     "day": "2026-07-12",
+     "cell": 0.418,
+     "base": 0.312,
+     "ok": false
+    },
+    {
+     "day": "2026-07-13",
+     "cell": 0.418,
+     "base": 0.386,
+     "ok": false
+    },
+    {
+     "day": "2026-07-14",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-15",
+     "cell": 0.626,
+     "base": 0.818,
+     "ok": true
+    },
+    {
+     "day": "2026-07-16",
+     "cell": 0.178,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-17",
+     "cell": 0.418,
+     "base": 0.416,
+     "ok": false
+    },
+    {
+     "day": "2026-07-18",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-19",
+     "cell": 0.178,
+     "base": 0.368,
+     "ok": true
+    },
+    {
+     "day": "2026-07-20",
+     "cell": 0.418,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-21",
+     "cell": 0.418,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-22",
+     "cell": 0.418,
+     "base": 0.608,
+     "ok": true
+    },
+    {
+     "day": "2026-07-23",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-24",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-25",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-26",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-27",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-28",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-29",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-30",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    },
+    {
+     "day": "2026-07-31",
+     "cell": 0.418,
+     "base": 0.413,
+     "ok": false
+    }
+   ],
+   "C3": true,
+   "diff_usd": {
+    "n_days": 31,
+    "b": 4,
+    "est": -2.07,
+    "ci95": [
+     -32.94,
+     29.66
+    ]
+   },
+   "result": "описание"
+  },
+  "holm_sig": false
+ }
+}
