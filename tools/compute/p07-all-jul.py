@@ -37,7 +37,7 @@ def load(name, fname):
 j9 = load("j9", "p07-tk009-jul.py")
 pc, T9 = j9.pc, j9.T9
 A, JUL_HOME, AUG_HOME, GATE_DAY = pc.A, j9.JUL_HOME, j9.AUG_HOME, j9.GATE_DAY
-MEM_GB = 4.0
+MEM_GB = 2.0  # TK-019: пик RSS bounce-grid ≤ ~0,8 ГБ (VmHWM), остальное в memory.peak — кэш файлов
 TAG = "p07-jall"
 MAIN_ENTRY = "ladder3x2..20w2"
 Q = f"{A}/queue"
