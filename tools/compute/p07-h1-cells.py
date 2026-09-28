@@ -83,9 +83,9 @@ def jobs():
 
 
 def submit(mon, day, cells):
-    """`pc.submit` с `--prio 4` — как подготовка tk015-prep Инженера (В-149: январь–июнь сейчас, впереди p07-t9/p08)."""
+    """`pc.submit` с `--prio 6` — за П-08/p07-t9 (prio 5; CEO 05:52/06:12: на деке первым П-08 + TK-009)."""
     script = pc.build_job(mon, home(mon), day, cells)
-    cmd = ["bin/q-add.sh", "--tag", "p07-h1", "--prio", "4", "--mem-gb", str(MEM_GB),
+    cmd = ["bin/q-add.sh", "--tag", "p07-h1", "--prio", "6", "--mem-gb", str(MEM_GB),
            "--home", home(mon), "--log", f"tmp-p07/cells-by-day/{mon}-{day}.log", "--", "bash", "-c", script]
     out = subprocess.run(cmd, cwd=A, capture_output=True, text=True)
     return out.stdout.strip() or out.stderr.strip()
