@@ -159,8 +159,8 @@ def cmd_decide():
                     if pos >= 1 / 3:
                         sys.exit("g55: доля eat > 0 ≥ 1/3 — ветка квантилей доли съедания не предусмотрена, к Судье")
                     new = ("p08-g55-any", feat, "skip>", 0.0)
-                elif sub == "g07":
-                    sys.exit(f"{name}: терцильная клетка сработала по п. 9/17 — не предусмотрено, к Судье")
+                elif sub == "g07":  # клетка уже — терциль августа (своей монеты); замена не предусмотрена
+                    c["judge_pending"] = "терцильная клетка сработала по п. 9/17 — оставлена как есть до ответа Судьи"
                 else:
                     low = LOW_KEEPS[sub]
                     cut = quantile_cut(aug_vals, keep, low)
@@ -169,7 +169,7 @@ def cmd_decide():
                         new = ("p08-g36-pos", feat, ">", 0.0)
                     else:
                         new = (f"p08-{sub}-q{'33' if keep < 0.5 else '67'}", feat, "<=" if low else ">=", cut)
-                c["decision"] = "заменена"
+                c["decision"] = "к Судье (без изменений)" if "judge_pending" in c else "заменена"
             else:
                 c["decision"] = "без изменений"
             nn, nf, no, nt = new
