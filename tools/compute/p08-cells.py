@@ -59,7 +59,9 @@ def build_job(bname, home, day):
     return f"""set -e
 rm -rf "{cache}" "{dest}"
 mkdir -p "{cache}/D20/{day}" "{mf}" "{dest}"
-xargs -a study/touches/{day}/symbols.txt -P 3 -I{{}} sh -c "nice -n 5 {A}/{BIN} lob touches --root study/root-{day} --symbol {{}} --h3-mode notional --h3-usd 10000 --approach-bps 20 --minute-flow {mf} --out {cache}/D20/{day}/touches-{{}}.csv > {cache}/D20/{day}/{{}}.log 2>&1"
+# монеты без сверки `ok` (LSKUSDT 14.09 — `excluded`, В-112) — не считаются, как в базе p07b-base
+for s in $(cat study/touches/{day}/symbols.txt); do [ "$(cat study/root-{day}/verify-$s.status 2>/dev/null)" = ok ] && echo $s || echo "вне сверки: $s" >&2; done > {cache}/symbols.txt
+xargs -a {cache}/symbols.txt -P 3 -I{{}} sh -c "nice -n 5 {A}/{BIN} lob touches --root study/root-{day} --symbol {{}} --h3-mode notional --h3-usd 10000 --approach-bps 20 --minute-flow {mf} --out {cache}/D20/{day}/touches-{{}}.csv > {cache}/D20/{day}/{{}}.log 2>&1"
 {A}/{BIN} lob bounce-grid --root study/root-{day} --touches-from {cache}/D20 {pc.COMMON} {axes} --p08-cols \
   --cells {cells_path} --out-dir {dest} > {dest}.grid.log 2>&1
 [ "$(wc -l < {dest}/{pc.BASE_SET}/forms.csv)" -ge 3 ] || {{ echo "нет формы" >&2; exit 3; }}
