@@ -11,8 +11,8 @@ while :; do
   n=$(ls "$J"/2026-07-??.done 2>/dev/null | wc -l)
   [ "$n" -ge 31 ] && break
   left=$(ls "$Q"/pending/*-p02jul-*.job "$Q"/running/*-p02jul-* 2>/dev/null | wc -l)
-  # сутки VPS (07-24…31) приходят через ящик — пока приёмщик жив, ждать
-  systemctl --user is-active -q alpha-p02jul-recv alpha-p02jul-probe && left=$((left + 1))
+  # сутки VPS (07-21…31) приходят через ящик или rrsync (vpspull) — пока приёмщик жив, ждать
+  systemctl --user is-active -q alpha-p02jul-recv alpha-p02jul-probe alpha-p02jul-vpspull && left=$((left + 1))
   if [ "$left" -eq 0 ]; then
     echo "rc=incomplete суток=$n $(date -u +%FT%TZ)" > "$T/blockA.finished"
     exit 1
