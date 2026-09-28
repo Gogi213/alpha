@@ -24,7 +24,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~/alpha")
-CAP3 = {"p08-g126-5", "p08-g126-10", "p08-keepall-b2"}  # база B2 — потолок 3 (§5)
+CAP3 = {"p08-keepall-b2"}  # база B2 — потолок 3 (§5); и все клетки Г-126 (включая замену q67, §12 п. 18)
 SUB_OF = {"g57": "g57", "g78": "g78", "g126": "g126", "g36": "g36", "g55": "g55", "g140": "g140", "g07": "g07"}
 
 
@@ -104,7 +104,7 @@ def main():
         print("ИТОГ ворот (г):", "ЗЕЛЁНОЕ" if ok else "КРАСНОЕ — стоп")
         sys.exit(0 if ok else 1)
     for cell in [c for c in a.cells.split(",") if c]:
-        path, n = run_cell(p, cell, merged_keep(a.cov, cell, None), 3 if cell in CAP3 else 0)
+        path, n = run_cell(p, cell, merged_keep(a.cov, cell, None), 3 if cell in CAP3 or cell.startswith("p08-g126-") else 0)
         print(f"{cell}: оставлено сигналов {n} → {path}")
 
 
