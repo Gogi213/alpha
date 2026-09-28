@@ -14,11 +14,13 @@ LIST=$(readlink -f "${1:?список строк}")
 until [ -f /mnt/sb/alpha/derived/jall/readpack.tar.box-done ]; do sleep 20; done
 if [ ! -f $W/.readpack-done ]; then
   rsync -a -e "$SSHC" "$SBH:alpha/derived/jall/readpack.tar" $W/readpack.tar || { say "забор пакета упал"; exit 1; }
-  mkdir -p $W/deckbin $W/jall-read $T
-  for f in /opt/alpha-compute/bin/*; do [ -e "$W/deckbin/$(basename "$f")" ] || ln -s "$f" "$W/deckbin/"; done
-  ln -sfn $W/deckbin $A/bin.new && mv -T $A/bin.new $A/bin
+  mkdir -p $W/bin-x $W/jall-read $T
+  # скрипты деки — отдельным каталогом (распаковка поверх ссылок на /opt/alpha-compute/bin падает EXDEV)
+  tar xf $W/readpack.tar -C $W/bin-x --wildcards 'alpha/bin/*' || { say "распаковка bin упала"; exit 1; }
+  for f in /opt/alpha-compute/bin/*; do [ -e "$W/bin-x/alpha/bin/$(basename "$f")" ] || ln -s "$f" "$W/bin-x/alpha/bin/"; done
+  ln -sfn $W/bin-x/alpha/bin $A/bin.new && mv -T $A/bin.new $A/bin
   [ -L $T/jall-read ] || ln -s $W/jall-read $T/jall-read
-  tar xf $W/readpack.tar -C /home/deck || { say "распаковка упала"; exit 1; }
+  tar xf $W/readpack.tar -C /home/deck --exclude='alpha/bin/*' || { say "распаковка упала"; exit 1; }
   touch $W/.readpack-done; say "пакет распакован"
 fi
 cd $T || exit 1

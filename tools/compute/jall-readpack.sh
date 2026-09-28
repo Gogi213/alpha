@@ -7,6 +7,6 @@ cd /home/deck || exit 1
 P=/home/deck/alpha/tmp-p07/readpack.tar
 tar cf "$P" --exclude=alpha/tmp-p07/jall-read --exclude=alpha/tmp-p07/readpack.tar --exclude='alpha/tmp-p07/*.tar' \
   alpha/tmp-p07 alpha/study/klines alpha/epochs/e-jul/study/klines alpha/epochs/e-jul/b5 \
-  $(cd /home/deck && ls alpha/bin/*.py alpha/bin/*.sh) || { echo "tar упал"; exit 1; }
+  $(cd /home/deck && ls alpha/bin/*.py alpha/bin/*.sh)   $(ls alpha/tmp-*/*.py | grep -v '^alpha/tmp-p07/') alpha/tmp-t29/rec alpha/epochs/e-aug/study/klines   alpha/study/pump-exclude.csv alpha/study/regime   $(find alpha/epochs/e-aug/b5 -maxdepth 3 -name manifest.txt) || { echo "tar упал"; exit 1; }
 rsync -a --mkpath -e "$SSHC" "$P" "$SBH:alpha/derived/jall/readpack.tar" && : > "$P.ok" \
   && rsync -a -e "$SSHC" "$P.ok" "$SBH:alpha/derived/jall/readpack.tar.box-done" && echo "== $(date -u +%T) пакет $(du -h $P | cut -f1) на ящике"
