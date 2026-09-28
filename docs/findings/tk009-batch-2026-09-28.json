@@ -1,0 +1,3047 @@
+{
+ "base": "Г-85б K≤1 (h9r-p07b-base-k1)",
+ "m_holm": 51,
+ "candidates_july": [],
+ "note": "найдено поиском на августе–сентябре (П-07 поправка 6); прежние оси и K≤1×H1/H10 — описание",
+ "cells": {
+  "база K≤1": {
+   "kind": "база",
+   "n": {
+    "aug": 237,
+    "sep": 93
+   },
+   "usd": {
+    "aug": 143.6,
+    "sep": 104.62
+   },
+   "frac": {
+    "aug": 0.156,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     192.2,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   }
+  },
+  "p07b-t9-market": {
+   "kind": "сетка",
+   "n": {
+    "aug": 391,
+    "sep": 128
+   },
+   "usd": {
+    "aug": 198.85,
+    "sep": 152.63
+   },
+   "frac": {
+    "aug": 0.152,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     232.1,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 49.84,
+     "ci95": [
+      -197.8,
+      320.98
+     ]
+    },
+    "sep": {
+     "est": 48.01,
+     "ci95": [
+      -47.5,
+      140.98
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.71136,
+    "sep": 0.32648
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-early1": {
+   "kind": "сетка",
+   "n": {
+    "aug": 382,
+    "sep": 115
+   },
+   "usd": {
+    "aug": -53.53,
+    "sep": -19.34
+   },
+   "frac": {
+    "aug": 0.839,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -194.3,
+     "ci95": [
+      -356.71,
+      -48.55
+     ]
+    },
+    "sep": {
+     "est": -123.96,
+     "ci95": [
+      -204.03,
+      -44.32
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.01325,
+    "sep": 0.00235
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-early2": {
+   "kind": "сетка",
+   "n": {
+    "aug": 377,
+    "sep": 115
+   },
+   "usd": {
+    "aug": -41.64,
+    "sep": -19.53
+   },
+   "frac": {
+    "aug": 0.8,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1129.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -182.41,
+     "ci95": [
+      -335.78,
+      -43.63
+     ]
+    },
+    "sep": {
+     "est": -124.15,
+     "ci95": [
+      -203.85,
+      -44.46
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0139,
+    "sep": 0.00215
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-early3": {
+   "kind": "сетка",
+   "n": {
+    "aug": 375,
+    "sep": 115
+   },
+   "usd": {
+    "aug": -43.06,
+    "sep": -16.98
+   },
+   "frac": {
+    "aug": 0.8,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1129.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -183.84,
+     "ci95": [
+      -342.45,
+      -41.66
+     ]
+    },
+    "sep": {
+     "est": -121.6,
+     "ci95": [
+      -200.89,
+      -42.83
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0161,
+    "sep": 0.0026
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-ttl60": {
+   "kind": "сетка",
+   "n": {
+    "aug": 184,
+    "sep": 70
+   },
+   "usd": {
+    "aug": 110.81,
+    "sep": 71.76
+   },
+   "frac": {
+    "aug": 0.207,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     230.7,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -32.28,
+     "ci95": [
+      -86.74,
+      20.4
+     ]
+    },
+    "sep": {
+     "est": -32.86,
+     "ci95": [
+      -75.49,
+      20.25
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.23614,
+    "sep": 0.17879
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-ttl300": {
+   "kind": "сетка",
+   "n": {
+    "aug": 219,
+    "sep": 90
+   },
+   "usd": {
+    "aug": 143.5,
+    "sep": 91.61
+   },
+   "frac": {
+    "aug": 0.091,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     162.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -0.1,
+     "ci95": [
+      -24.17,
+      25.42
+     ]
+    },
+    "sep": {
+     "est": -13.0,
+     "ci95": [
+      -37.34,
+      5.96
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.99315,
+    "sep": 0.24319
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-gone50be": {
+   "kind": "сетка",
+   "n": {
+    "aug": 302,
+    "sep": 106
+   },
+   "usd": {
+    "aug": 57.54,
+    "sep": 33.41
+   },
+   "frac": {
+    "aug": 0.547,
+    "sep": 0.367
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     526.7,
+     false
+    ],
+    "sep": [
+     278.3,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -85.41,
+     "ci95": [
+      -179.63,
+      3.32
+     ]
+    },
+    "sep": {
+     "est": -71.21,
+     "ci95": [
+      -146.44,
+      11.03
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0678,
+    "sep": 0.07585
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-gone90be": {
+   "kind": "сетка",
+   "n": {
+    "aug": 283,
+    "sep": 99
+   },
+   "usd": {
+    "aug": 71.17,
+    "sep": 25.63
+   },
+   "frac": {
+    "aug": 0.548,
+    "sep": 0.503
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     527.7,
+     false
+    ],
+    "sep": [
+     338.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -72.66,
+     "ci95": [
+      -179.12,
+      30.26
+     ]
+    },
+    "sep": {
+     "est": -78.99,
+     "ci95": [
+      -133.6,
+      -23.47
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.17684,
+    "sep": 0.00455
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-gone50tr1": {
+   "kind": "сетка",
+   "n": {
+    "aug": 250,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 61.9,
+    "sep": 68.07
+   },
+   "frac": {
+    "aug": 0.685,
+    "sep": 0.178
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     671.3,
+     false
+    ],
+    "sep": [
+     161.3,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -81.7,
+     "ci95": [
+      -163.12,
+      -14.87
+     ]
+    },
+    "sep": {
+     "est": -36.55,
+     "ci95": [
+      -79.87,
+      9.36
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0303,
+    "sep": 0.10824
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-gone90tr1": {
+   "kind": "сетка",
+   "n": {
+    "aug": 247,
+    "sep": 95
+   },
+   "usd": {
+    "aug": 77.71,
+    "sep": 72.7
+   },
+   "frac": {
+    "aug": 0.629,
+    "sep": 0.242
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     587.1,
+     false
+    ],
+    "sep": [
+     224.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -65.89,
+     "ci95": [
+      -149.28,
+      4.05
+     ]
+    },
+    "sep": {
+     "est": -31.92,
+     "ci95": [
+      -70.6,
+      2.54
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.089,
+    "sep": 0.08335
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-t9-touch": {
+   "kind": "сетка",
+   "n": {
+    "aug": 74,
+    "sep": 44
+   },
+   "usd": {
+    "aug": 21.02,
+    "sep": 24.58
+   },
+   "frac": {
+    "aug": 0.297,
+    "sep": 0.61
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     311.6,
+     false
+    ],
+    "sep": [
+     350.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -121.57,
+     "ci95": [
+      -306.1,
+      15.8
+     ]
+    },
+    "sep": {
+     "est": -80.04,
+     "ci95": [
+      -145.57,
+      -15.5
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.14079,
+    "sep": 0.01595
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h2-0.0136": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 237,
+    "sep": 93
+   },
+   "usd": {
+    "aug": 136.12,
+    "sep": 104.74
+   },
+   "frac": {
+    "aug": 0.251,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     263.7,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -7.47,
+     "ci95": [
+      -23.01,
+      0.47
+     ]
+    },
+    "sep": {
+     "est": 0.12,
+     "ci95": [
+      0.03,
+      0.24
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.59182,
+    "sep": 0.03255
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h2-0.0273": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 237,
+    "sep": 93
+   },
+   "usd": {
+    "aug": 136.12,
+    "sep": 104.74
+   },
+   "frac": {
+    "aug": 0.251,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     263.7,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -7.47,
+     "ci95": [
+      -23.01,
+      0.47
+     ]
+    },
+    "sep": {
+     "est": 0.12,
+     "ci95": [
+      0.03,
+      0.24
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.59182,
+    "sep": 0.03255
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h2-0.0682": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 248,
+    "sep": 94
+   },
+   "usd": {
+    "aug": 129.71,
+    "sep": 104.2
+   },
+   "frac": {
+    "aug": 0.19,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     217.1,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -13.83,
+     "ci95": [
+      -39.38,
+      8.53
+     ]
+    },
+    "sep": {
+     "est": -0.42,
+     "ci95": [
+      -11.57,
+      12.18
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.25319,
+    "sep": 0.91255
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h6-pct1.5": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 240,
+    "sep": 93
+   },
+   "usd": {
+    "aug": 129.55,
+    "sep": 85.21
+   },
+   "frac": {
+    "aug": 0.431,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     440.7,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -14.05,
+     "ci95": [
+      -47.92,
+      17.19
+     ]
+    },
+    "sep": {
+     "est": -19.41,
+     "ci95": [
+      -47.23,
+      7.06
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.40338,
+    "sep": 0.16209
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h6-pct3": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 234,
+    "sep": 91
+   },
+   "usd": {
+    "aug": 166.19,
+    "sep": 103.43
+   },
+   "frac": {
+    "aug": 0.265,
+    "sep": 0.012
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     273.7,
+     false
+    ],
+    "sep": [
+     124.0,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 22.59,
+     "ci95": [
+      -9.33,
+      63.49
+     ]
+    },
+    "sep": {
+     "est": -1.19,
+     "ci95": [
+      -31.47,
+      28.36
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.22054,
+    "sep": 0.9231
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h6-at": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 395,
+    "sep": 114
+   },
+   "usd": {
+    "aug": -90.84,
+    "sep": -36.83
+   },
+   "frac": {
+    "aug": 0.839,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1076.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -231.62,
+     "ci95": [
+      -405.9,
+      -73.81
+     ]
+    },
+    "sep": {
+     "est": -141.45,
+     "ci95": [
+      -223.73,
+      -59.26
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00545,
+    "sep": 0.0007
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": true
+   }
+  },
+  "p07b-h6-behind": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 360,
+    "sep": 111
+   },
+   "usd": {
+    "aug": -73.98,
+    "sep": 12.39
+   },
+   "frac": {
+    "aug": 0.839,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1063.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -217.66,
+     "ci95": [
+      -392.93,
+      -60.68
+     ]
+    },
+    "sep": {
+     "est": -92.23,
+     "ci95": [
+      -159.14,
+      -18.27
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00925,
+    "sep": 0.0116
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wall0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 380,
+    "sep": 111
+   },
+   "usd": {
+    "aug": -14.18,
+    "sep": 8.72
+   },
+   "frac": {
+    "aug": 0.835,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -154.96,
+     "ci95": [
+      -272.75,
+      -39.5
+     ]
+    },
+    "sep": {
+     "est": -95.9,
+     "ci95": [
+      -161.28,
+      -31.14
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00825,
+    "sep": 0.004
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wallx0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 390,
+    "sep": 112
+   },
+   "usd": {
+    "aug": -29.61,
+    "sep": 1.97
+   },
+   "frac": {
+    "aug": 0.836,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -170.39,
+     "ci95": [
+      -295.62,
+      -48.1
+     ]
+    },
+    "sep": {
+     "est": -102.65,
+     "ci95": [
+      -171.72,
+      -34.2
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00595,
+    "sep": 0.00365
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wallk0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 345,
+    "sep": 110
+   },
+   "usd": {
+    "aug": 15.46,
+    "sep": 24.39
+   },
+   "frac": {
+    "aug": 0.726,
+    "sep": 0.663
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     677.9,
+     false
+    ],
+    "sep": [
+     373.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -125.32,
+     "ci95": [
+      -234.98,
+      -31.17
+     ]
+    },
+    "sep": {
+     "est": -80.23,
+     "ci95": [
+      -141.37,
+      -16.48
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0148,
+    "sep": 0.01205
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone90wall0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 346,
+    "sep": 107
+   },
+   "usd": {
+    "aug": 26.48,
+    "sep": 8.78
+   },
+   "frac": {
+    "aug": 0.815,
+    "sep": 0.64
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     784.3,
+     false
+    ],
+    "sep": [
+     338.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -114.45,
+     "ci95": [
+      -230.85,
+      4.6
+     ]
+    },
+    "sep": {
+     "est": -95.84,
+     "ci95": [
+      -148.84,
+      -42.73
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.05665,
+    "sep": 0.00025
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": true
+   }
+  },
+  "p07b-h13-gone90wallx0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 361,
+    "sep": 109
+   },
+   "usd": {
+    "aug": 4.84,
+    "sep": -1.22
+   },
+   "frac": {
+    "aug": 0.815,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -136.09,
+     "ci95": [
+      -263.42,
+      -8.17
+     ]
+    },
+    "sep": {
+     "est": -105.84,
+     "ci95": [
+      -161.34,
+      -49.92
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.03645,
+    "sep": 0.0001
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": true
+   }
+  },
+  "p07b-h13-gone90wallk0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 298,
+    "sep": 103
+   },
+   "usd": {
+    "aug": 64.67,
+    "sep": 73.01
+   },
+   "frac": {
+    "aug": 0.194,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     202.2,
+     false
+    ],
+    "sep": [
+     117.4,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -76.26,
+     "ci95": [
+      -169.91,
+      5.63
+     ]
+    },
+    "sep": {
+     "est": -31.61,
+     "ci95": [
+      -85.03,
+      33.58
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0861,
+    "sep": 0.30343
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wall10": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 329,
+    "sep": 107
+   },
+   "usd": {
+    "aug": -0.25,
+    "sep": 25.06
+   },
+   "frac": {
+    "aug": 0.708,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1063.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -143.93,
+     "ci95": [
+      -264.29,
+      -35.53
+     ]
+    },
+    "sep": {
+     "est": -79.56,
+     "ci95": [
+      -132.93,
+      -28.83
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.01275,
+    "sep": 0.0036
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wallx10": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 329,
+    "sep": 107
+   },
+   "usd": {
+    "aug": -4.39,
+    "sep": 21.11
+   },
+   "frac": {
+    "aug": 0.708,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1063.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -148.07,
+     "ci95": [
+      -267.96,
+      -38.03
+     ]
+    },
+    "sep": {
+     "est": -83.51,
+     "ci95": [
+      -139.58,
+      -30.26
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.01035,
+    "sep": 0.00345
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone50wallk10": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 324,
+    "sep": 107
+   },
+   "usd": {
+    "aug": 19.23,
+    "sep": 50.38
+   },
+   "frac": {
+    "aug": 0.708,
+    "sep": 0.176
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     684.9,
+     false
+    ],
+    "sep": [
+     173.9,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -124.45,
+     "ci95": [
+      -226.4,
+      -30.9
+     ]
+    },
+    "sep": {
+     "est": -54.24,
+     "ci95": [
+      -102.41,
+      -0.33
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0106,
+    "sep": 0.0366
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h13-gone30wall0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 401,
+    "sep": 111
+   },
+   "usd": {
+    "aug": -47.07,
+    "sep": -3.44
+   },
+   "frac": {
+    "aug": 0.839,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -187.85,
+     "ci95": [
+      -324.17,
+      -58.29
+     ]
+    },
+    "sep": {
+     "est": -108.06,
+     "ci95": [
+      -171.69,
+      -46.04
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00475,
+    "sep": 0.0008
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": true
+   }
+  },
+  "p07b-h13-gone30wallx0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 409,
+    "sep": 112
+   },
+   "usd": {
+    "aug": -60.15,
+    "sep": -10.19
+   },
+   "frac": {
+    "aug": 0.839,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     1158.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -200.92,
+     "ci95": [
+      -342.53,
+      -66.22
+     ]
+    },
+    "sep": {
+     "est": -114.81,
+     "ci95": [
+      -181.47,
+      -49.88
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.00345,
+    "sep": 0.00065
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": true
+   }
+  },
+  "p07b-h13-gone30wallk0": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 375,
+    "sep": 110
+   },
+   "usd": {
+    "aug": -7.11,
+    "sep": 12.23
+   },
+   "frac": {
+    "aug": 0.728,
+    "sep": 0.721
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     702.3,
+     false
+    ],
+    "sep": [
+     373.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -147.89,
+     "ci95": [
+      -278.15,
+      -35.67
+     ]
+    },
+    "sep": {
+     "est": -92.39,
+     "ci95": [
+      -151.04,
+      -31.57
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0161,
+    "sep": 0.0025
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h8-3600": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 282,
+    "sep": 101
+   },
+   "usd": {
+    "aug": 60.01,
+    "sep": 86.11
+   },
+   "frac": {
+    "aug": 0.161,
+    "sep": 0.166
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     225.6,
+     false
+    ],
+    "sep": [
+     191.1,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -81.2,
+     "ci95": [
+      -220.32,
+      16.19
+     ]
+    },
+    "sep": {
+     "est": -18.51,
+     "ci95": [
+      -97.8,
+      64.51
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.17874,
+    "sep": 0.65917
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h8-7200": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 265,
+    "sep": 94
+   },
+   "usd": {
+    "aug": 113.69,
+    "sep": 110.38
+   },
+   "frac": {
+    "aug": 0.175,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     249.2,
+     false
+    ],
+    "sep": [
+     98.7,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -32.37,
+     "ci95": [
+      -93.13,
+      22.68
+     ]
+    },
+    "sep": {
+     "est": 5.76,
+     "ci95": [
+      -69.35,
+      81.37
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.27774,
+    "sep": 0.88086
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h4-900": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 746,
+    "sep": 471
+   },
+   "usd": {
+    "aug": 285.91,
+    "sep": 122.96
+   },
+   "frac": {
+    "aug": 0.219,
+    "sep": 0.097
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     242.3,
+     false
+    ],
+    "sep": [
+     161.3,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 130.68,
+     "ci95": [
+      -308.12,
+      621.99
+     ]
+    },
+    "sep": {
+     "est": 18.34,
+     "ci95": [
+      -260.84,
+      273.46
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.59137,
+    "sep": 0.89306
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h4-1800": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 390,
+    "sep": 176
+   },
+   "usd": {
+    "aug": 140.83,
+    "sep": 104.23
+   },
+   "frac": {
+    "aug": 0.348,
+    "sep": 0.0
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     260.5,
+     false
+    ],
+    "sep": [
+     101.1,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -8.66,
+     "ci95": [
+      -135.12,
+      141.01
+     ]
+    },
+    "sep": {
+     "est": -0.39,
+     "ci95": [
+      -78.87,
+      78.96
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.9058,
+    "sep": 0.9915
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h4-3600": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 161,
+    "sep": 62
+   },
+   "usd": {
+    "aug": 43.01,
+    "sep": 63.68
+   },
+   "frac": {
+    "aug": 0.448,
+    "sep": 0.0
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     452.8,
+     false
+    ],
+    "sep": [
+     117.4,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -97.91,
+     "ci95": [
+      -257.74,
+      13.79
+     ]
+    },
+    "sep": {
+     "est": -40.94,
+     "ci95": [
+      -108.24,
+      30.21
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.16204,
+    "sep": 0.24974
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h4-5400": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 81,
+    "sep": 29
+   },
+   "usd": {
+    "aug": 14.33,
+    "sep": 11.79
+   },
+   "frac": {
+    "aug": 0.645,
+    "sep": 0.453
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     795.1,
+     false
+    ],
+    "sep": [
+     315.1,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -125.72,
+     "ci95": [
+      -322.23,
+      25.31
+     ]
+    },
+    "sep": {
+     "est": -92.83,
+     "ci95": [
+      -184.37,
+      4.99
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.16189,
+    "sep": 0.0537
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h5-btc1h": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 398,
+    "sep": 134
+   },
+   "usd": {
+    "aug": 70.87,
+    "sep": 115.79
+   },
+   "frac": {
+    "aug": 0.358,
+    "sep": 0.416
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     298.8,
+     false
+    ],
+    "sep": [
+     299.1,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -73.74,
+     "ci95": [
+      -233.89,
+      91.65
+     ]
+    },
+    "sep": {
+     "est": 11.17,
+     "ci95": [
+      -139.04,
+      151.53
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.35563,
+    "sep": 0.88146
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h5-btc2h": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 323,
+    "sep": 109
+   },
+   "usd": {
+    "aug": 64.93,
+    "sep": 95.01
+   },
+   "frac": {
+    "aug": 0.36,
+    "sep": 0.584
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     387.7,
+     false
+    ],
+    "sep": [
+     373.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -79.89,
+     "ci95": [
+      -169.31,
+      23.74
+     ]
+    },
+    "sep": {
+     "est": -9.61,
+     "ci95": [
+      -118.87,
+      117.42
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.10569,
+    "sep": 0.87506
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h5-btc3h": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 249,
+    "sep": 90
+   },
+   "usd": {
+    "aug": 164.09,
+    "sep": 88.03
+   },
+   "frac": {
+    "aug": 0.017,
+    "sep": 0.215
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     132.5,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 20.2,
+     "ci95": [
+      -58.25,
+      89.29
+     ]
+    },
+    "sep": {
+     "est": -16.59,
+     "ci95": [
+      -96.62,
+      66.19
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.59332,
+    "sep": 0.68542
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h3-25000": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 156,
+    "sep": 70
+   },
+   "usd": {
+    "aug": 74.63,
+    "sep": 73.86
+   },
+   "frac": {
+    "aug": 0.34,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     318.1,
+     false
+    ],
+    "sep": [
+     88.8,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -68.82,
+     "ci95": [
+      -180.86,
+      24.81
+     ]
+    },
+    "sep": {
+     "est": -30.76,
+     "ci95": [
+      -83.06,
+      30.38
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.19754,
+    "sep": 0.28464
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h3-50000": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 88,
+    "sep": 40
+   },
+   "usd": {
+    "aug": 72.53,
+    "sep": 29.78
+   },
+   "frac": {
+    "aug": 0.075,
+    "sep": 0.079
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     178.9,
+     false
+    ],
+    "sep": [
+     153.9,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -67.3,
+     "ci95": [
+      -234.64,
+      68.61
+     ]
+    },
+    "sep": {
+     "est": -74.84,
+     "ci95": [
+      -182.72,
+      40.65
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.39058,
+    "sep": 0.19089
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h3-100000": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 34,
+    "sep": 20
+   },
+   "usd": {
+    "aug": 22.68,
+    "sep": -17.06
+   },
+   "frac": {
+    "aug": 0.62,
+    "sep": 0.721
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     639.3,
+     false
+    ],
+    "sep": [
+     373.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -117.37,
+     "ci95": [
+      -286.79,
+      21.39
+     ]
+    },
+    "sep": {
+     "est": -121.68,
+     "ci95": [
+      -220.46,
+      -27.05
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.13564,
+    "sep": 0.01305
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h7-tr1.5x1": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 235,
+    "sep": 90
+   },
+   "usd": {
+    "aug": 144.52,
+    "sep": 113.45
+   },
+   "frac": {
+    "aug": 0.098,
+    "sep": 0.069
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     192.2,
+     false
+    ],
+    "sep": [
+     149.6,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -1.62,
+     "ci95": [
+      -39.15,
+      36.48
+     ]
+    },
+    "sep": {
+     "est": 8.83,
+     "ci95": [
+      -7.31,
+      30.78
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.9308,
+    "sep": 0.38083
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h7-tr1x1.5": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 237,
+    "sep": 91
+   },
+   "usd": {
+    "aug": 135.39,
+    "sep": 85.19
+   },
+   "frac": {
+    "aug": 0.169,
+    "sep": 0.224
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     191.2,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -10.75,
+     "ci95": [
+      -37.94,
+      13.08
+     ]
+    },
+    "sep": {
+     "est": -19.43,
+     "ci95": [
+      -52.57,
+      15.84
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.41293,
+    "sep": 0.27174
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h7-tr2x1": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 235,
+    "sep": 90
+   },
+   "usd": {
+    "aug": 111.87,
+    "sep": 104.96
+   },
+   "frac": {
+    "aug": 0.331,
+    "sep": 0.069
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     282.1,
+     false
+    ],
+    "sep": [
+     149.6,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -34.27,
+     "ci95": [
+      -76.56,
+      2.34
+     ]
+    },
+    "sep": {
+     "est": 0.34,
+     "ci95": [
+      -36.16,
+      34.53
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.08975,
+    "sep": 0.98405
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p07b-h7-1to1": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 235,
+    "sep": 90
+   },
+   "usd": {
+    "aug": 102.6,
+    "sep": 102.19
+   },
+   "frac": {
+    "aug": 0.219,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     282.1,
+     false
+    ],
+    "sep": [
+     117.7,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -43.54,
+     "ci95": [
+      -129.19,
+      36.01
+     ]
+    },
+    "sep": {
+     "est": -2.43,
+     "ci95": [
+      -47.88,
+      37.49
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.30343,
+    "sep": 0.91095
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": true,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "k1f25": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 191,
+    "sep": 48
+   },
+   "usd": {
+    "aug": 110.17,
+    "sep": 25.93
+   },
+   "frac": {
+    "aug": 0.241,
+    "sep": 0.721
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "EDGE",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     458.8,
+     false
+    ],
+    "sep": [
+     302.8,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -33.42,
+     "ci95": [
+      -78.56,
+      9.49
+     ]
+    },
+    "sep": {
+     "est": -78.68,
+     "ci95": [
+      -146.36,
+      -11.19
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.13714,
+    "sep": 0.0215
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "k1f50": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 123,
+    "sep": 28
+   },
+   "usd": {
+    "aug": 78.45,
+    "sep": -3.45
+   },
+   "frac": {
+    "aug": 0.261,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     711.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -65.38,
+     "ci95": [
+      -227.58,
+      72.53
+     ]
+    },
+    "sep": {
+     "est": -108.07,
+     "ci95": [
+      -186.72,
+      -33.47
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.39543,
+    "sep": 0.00595
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "k1f75": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 62,
+    "sep": 7
+   },
+   "usd": {
+    "aug": 59.97,
+    "sep": -0.87
+   },
+   "frac": {
+    "aug": 0.308,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     757.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -80.08,
+     "ci95": [
+      -250.13,
+      60.94
+     ]
+    },
+    "sep": {
+     "est": -105.49,
+     "ci95": [
+      -196.35,
+      -12.45
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.31843,
+    "sep": 0.0239
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "k1cap3": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 116,
+    "sep": 73
+   },
+   "usd": {
+    "aug": -15.99,
+    "sep": 105.71
+   },
+   "frac": {
+    "aug": 0.368,
+    "sep": 0.0
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     293.2,
+     false
+    ],
+    "sep": [
+     101.1,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -159.59,
+     "ci95": [
+      -341.34,
+      -28.41
+     ]
+    },
+    "sep": {
+     "est": 1.09,
+     "ci95": [
+      -47.14,
+      58.05
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.04255,
+    "sep": 0.93785
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": false,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "k1cap5": {
+   "kind": "прежняя ось",
+   "n": {
+    "aug": 156,
+    "sep": 83
+   },
+   "usd": {
+    "aug": 41.15,
+    "sep": 91.84
+   },
+   "frac": {
+    "aug": 0.227,
+    "sep": 0.159
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     230.7,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -102.45,
+     "ci95": [
+      -237.27,
+      -7.02
+     ]
+    },
+    "sep": {
+     "est": -12.78,
+     "ci95": [
+      -29.22,
+      0.0
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.0735,
+    "sep": 0.09325
+   },
+   "B1": false,
+   "B2_paired": false,
+   "B3": false,
+   "V144": true,
+   "candidate_rule": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  }
+ }
+}
