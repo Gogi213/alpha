@@ -157,6 +157,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     # --- счёт по дням: Г-07 (терциль) и Г-88 (repeat_count>0 на окне 5 мин, уже в данных) ---
     day_counts: Dict[str, dict] = {}
     all_days = [("2026-08", aug_days), ("2026-09", sept_days)]
+    if getattr(args, "jul_dir", None):  # TK-018 (В-151): июль — описание, пороги августа как есть
+        all_days.insert(0, ("2026-07", list_day_files([args.jul_dir])))
     for month_tag, days in all_days:
         for day, path in sorted(days.items()):
             counts = defaultdict(lambda: defaultdict(lambda: [0, 0]))
@@ -344,6 +346,7 @@ def main(argv=None) -> int:
     p_scan.add_argument("--thresholds", required=True, help="JSON прохода `thresholds` (заморожен до счёта)")
     p_scan.add_argument("--aug-dir", required=True)
     p_scan.add_argument("--sept-dirs", required=True, help="через запятую — оба каталога сентября")
+    p_scan.add_argument("--jul-dir", default="", help="TK-018: компакт-сутки июля (пороги — август, без калибровки)")
     p_scan.add_argument("--out", default="p02-wall2-counts.json")
     p_scan.set_defaults(func=cmd_scan)
 
