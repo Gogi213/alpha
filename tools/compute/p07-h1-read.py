@@ -11,7 +11,8 @@
 флагом `n_no_sigma` > 1 % у монеты сигналы без σ и ни одной строки σ₂₄₀ за сутки. Сутки раньше первой свечи
 (+ 240 мин окна σ) — «рынка ещё не было»: монета вон из всех форм на весь месяц (`--drop`, как TRX), ворота
 пересчитываются без неё, имя и первая свеча печатаются. Файл свечей из одних заголовков, вынесенный Инженером в
-`study/klines-empty/` после повтора light (у Bybit свечей за месяц нет), — тоже «рынка не было». Свечей нет/пусто/дыра — сбой light: стоп месяца (код 1).
+`study/klines-empty/` после повтора light (у Bybit свечей за месяц нет), — тоже «рынка не было», если первая свеча в следующей эпохе
+позже конца месяца (Судья 06:47; иначе стоп); печать — имя, первые сутки стакана, первая свеча. Свечей нет/пусто/дыра — сбой light: стоп месяца (код 1).
 
     python3 p07-h1-read.py --month jan --data-gate
     python3 p07-h1-read.py --month jan --out ~/alpha/tmp-p07/h1-read/jan.json
@@ -54,9 +55,13 @@ def sigma_days(jr, sym):
     return {dt.datetime.fromtimestamp(d * 86400, dt.timezone.utc).strftime("%Y-%m-%d") for d in ms}
 
 
-def first_candle_ms(jr, sym):
+NEXT_HOME = {}  # дом месяца -> дом следующей эпохи (июнь -> e-jul); заполняет setup
+FIRST = {}      # монета -> первые сутки стакана месяца; заполняет main
+
+
+def first_candle_ms(jr, sym, home=None):
     """Первая минутная свеча монеты в `study/klines/ref-<SYM>-1m.csv` (None — файла нет или он пуст)."""
-    p = os.path.join(jr.JUL_HOME, "study", "klines", f"ref-{sym}-1m.csv")
+    p = os.path.join(home or jr.JUL_HOME, "study", "klines", f"ref-{sym}-1m.csv")
     if not os.path.exists(p):
         return None
     with open(p, encoding="utf-8") as fh:
@@ -87,9 +92,17 @@ def no_candle_coins(jr):
             fc = first_candle_ms(jr, sym)
             empty = os.path.join(jr.JUL_HOME, "study", "klines-empty", f"ref-{sym}-1m.csv")
             if fc is None and os.path.exists(empty):
-                # Инженер 06:42: у Bybit свечей за месяц нет (файл из одних заголовков после повтора light) —
-                # рынка не было весь месяц (SPCX май, KORU июнь)
-                drop[sym] = "нет за весь месяц (Bybit, study/klines-empty)"
+                # Инженер 06:42: у Bybit свечей за месяц нет (файл из одних заголовков после повтора light).
+                # Судья 06:47: вон на месяц, только если первая свеча в следующей эпохе позже конца месяца.
+                nxt = first_candle_ms(jr, sym, home=NEXT_HOME[jr.JUL_HOME])
+                month_end = d0 + (len(jr.JUL_DAYS) - int(day[-2:]) + 1) * 86_400_000
+                if nxt is not None and nxt >= month_end:
+                    drop[sym] = (f"свечей за месяц нет, первые сутки стакана {FIRST.get(sym)}, первая свеча "
+                                 f"{dt.datetime.fromtimestamp(nxt / 1000, dt.timezone.utc):%Y-%m-%d %H:%M} UTC "
+                                 "(следующая эпоха)")
+                else:
+                    stop.append(f"{sym} {day}: свечей за месяц нет, а в следующей эпохе "
+                                f"{'нет' if nxt is None else 'есть до конца месяца'} (сбой light)")
             elif fc is None:
                 stop.append(f"{sym} {day}: нет свечей (сбой light)")
             elif d0 < fc + 240 * 60_000:
@@ -105,6 +118,7 @@ def setup(jr, mon):
     first = f"2026-{m:02d}-01"
     nxt = f"2026-{m + 1:02d}-01"
     home = os.path.join(jr.HOME, f"epochs/e-{mon}")
+    NEXT_HOME[home] = os.path.join(jr.HOME, "epochs", "e-" + (MONTHS + ["jul"])[m])
     jr.JUL_HOME = home
     jr.OUT_ROOT = os.path.join(jr.HOME, "tmp-p07/h1-read", mon)
     jr.JUL_DAYS = [f"2026-{m:02d}-{d:02d}" for d in range(1, calendar.monthrange(2026, m)[1] + 1)]
@@ -249,6 +263,7 @@ def main():
     jr = load_jul()
     setup(jr, mon)
     first = first_days(jr)
+    FIRST.update(first)
     jr.POOL_FILTER = lambda pool, day, root: [x for x in pool if x in first and first[x] <= day]
     extra, stop = no_candle_coins(jr)
     if stop:
@@ -258,7 +273,7 @@ def main():
         jr.DROP = ",".join(sorted(jr.DROP_SET | set(extra)))
         jr.DROP_SET = set(jr.DROP.split(","))
         print(f"{mon}: рынка ещё не было (dc250dc) — вон на весь месяц: "
-              + " ".join(f"{k} (первая свеча {v} UTC)" for k, v in sorted(extra.items())))
+              + "; ".join(f"{k} ({v if v.startswith('свеч') else f'первая свеча {v} UTC'})" for k, v in sorted(extra.items())))
     sys.argv = [sys.argv[0]] + args
     try:
         jr.main()
