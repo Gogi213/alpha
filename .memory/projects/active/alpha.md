@@ -3,7 +3,7 @@ title: alpha — бот по плотностям стакана Bybit
 date: 2026-09-25
 type: project
 salience: 1
-last_access: 2026-09-25
+last_access: 2026-09-28
 tags: [alpha, bybit, lob, collector]
 ---
 

@@ -179,11 +179,20 @@ def cmd_filter(args: argparse.Namespace) -> int:
         rows = [r for r in csv.DictReader(lines) if r["form"] == MAIN_FORM and r["symbol"] not in EXCLUDE_SYMBOLS]
         header = next(csv.reader(lines[:1]))
         out = {"f-all": rows, "f-g08": []}
+        if args.g36:
+            out["f-g36"] = []
         by_sym: Dict[str, list] = defaultdict(list)
         for r in rows:
             by_sym[r["symbol"]].append(r)
         for sym, srows in by_sym.items():
             arm: Dict[int, list] = defaultdict(list)
+            prior: Dict[tuple, list] = defaultdict(list)  # стена L → её касания за сутки (Г-36)
+            touch_path = os.path.join(appr_home, args.appr_root, day, f"touches-{sym}.csv")
+            if args.g36 and os.path.exists(touch_path):
+                with open(touch_path, newline="", encoding="utf-8") as f:
+                    for t in csv.DictReader(f):
+                        prior[(t["side"], t["price_tick"], t["birth_ms"])].append(
+                            (int(t["end_ms"]), float(t["traded_during"]), float(t["size_max_before"])))
             appr_path = os.path.join(appr_home, args.appr_root, day, f"approaches-{sym}.csv")
             if os.path.exists(appr_path):
                 with open(appr_path, newline="", encoding="utf-8") as f:
@@ -199,6 +208,21 @@ def cmd_filter(args: argparse.Namespace) -> int:
                 if round_zeros(int(c[0]["price_tick"])) >= 2:
                     out["f-g08"].append(r)
                     tot[f"{day[:7]}/g08"] += 1
+                if args.g36:
+                    # Г-36 на моменте входа A (поправка В-117 §12): касания стены L, кончившиеся до A; флаг — их
+                    # traded_during в сумме ≥ пикового видимого размера L к A = max(size_at_arm, size_max_before).
+                    a0 = c[0]
+                    a_ms = int(a0["arm_ms"])
+                    past = [t for t in prior.get((a0["side"], a0["price_tick"], a0["birth_ms"]), []) if t[0] < a_ms]
+                    if not past:
+                        tot[f"{day[:7]}/g36_no_past"] += 1
+                        continue
+                    peak = max([float(a0["size_at_arm"])] + [t[2] for t in past])
+                    if sum(t[1] for t in past) >= peak:
+                        out["f-g36"].append(r)
+                        tot[f"{day[:7]}/g36"] += 1
+                    else:
+                        tot[f"{day[:7]}/g36_no"] += 1
         for set_name, srows in out.items():
             d = os.path.join(args.home, args.out_sub, day, set_name)
             os.makedirs(d, exist_ok=True)
@@ -231,6 +255,7 @@ def main(argv=None) -> int:
     p_f.add_argument("--appr-home", default=None)
     p_f.add_argument("--appr-root", default="study/approaches/D20")
     p_f.add_argument("--out-sub", default="b5/v17-filt")
+    p_f.add_argument("--g36", action="store_true", help="ещё f-g36 — айсберг на моменте входа (поправка В-117)")
     p_f.add_argument("--day-from", required=True)
     p_f.add_argument("--day-to", required=True)
     p_f.set_defaults(func=cmd_filter)
