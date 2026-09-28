@@ -187,6 +187,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         allow_unverified,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).
         exit_form: Vec::new(),
+        btc_minutes: Vec::new(),
         early_exit_secs: Vec::new(),
         carry_age: false,
         touches_cache_only: false,
@@ -3293,4 +3294,59 @@ fn p08_cols_in_signals_csv() {
     assert!(err.contains("--p08-cols"), "{err}");
     let err = grid("g-busy-on", true, false).unwrap_err().to_string();
     assert!(err.contains("--busy-skip off"), "{err}");
+}
+
+/// TK-014: `weat<X>s<W>{m|l|a}<Y>` — разбор, канонические имена и отказы.
+#[test]
+fn wall_eat_exit_form_parses_canonically() {
+    use super::forms::WallEatMode;
+    let f = ExitForm::parse("weat30s60m10").unwrap();
+    assert_eq!(
+        f,
+        ExitForm::WallEat {
+            pct: 30.0,
+            secs: 60,
+            mode: WallEatMode::Market,
+            btc_bps: 10.0
+        }
+    );
+    assert_eq!(f.label(), "weat30s60m10");
+    assert!(f.needs_btc());
+    for ok in ["weat33.5s3600l0", "weat100s1a2.5"] {
+        assert_eq!(ExitForm::parse(ok).unwrap().label(), ok);
+    }
+    assert!(matches!(
+        ExitForm::parse("weat50s10l5").unwrap(),
+        ExitForm::WallEat {
+            mode: WallEatMode::Local,
+            ..
+        }
+    ));
+    assert!(!ExitForm::parse("eat30").unwrap().needs_btc());
+    for bad in [
+        "weat",
+        "weat0s60m10",
+        "weat101s60m10",
+        "weat30s0m10",
+        "weat30s3601m10",
+        "weat30s60x10",
+        "weat30s60m",
+        "weat30s60m-1",
+        "weat30.0s60m10",
+        "weat30s60m10.0",
+        "weat30s060m10",
+    ] {
+        assert!(ExitForm::parse(bad).is_err(), "{bad} должен отказать");
+    }
+}
+
+/// TK-014: форма `weat*` без `--btc-minutes` — отказ до счёта.
+#[test]
+fn wall_eat_exit_form_requires_btc_minutes() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    let mut a = args(dir.path(), false);
+    a.exit_form = vec!["weat30s60m10".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(err.contains("--btc-minutes"), "{err}");
 }

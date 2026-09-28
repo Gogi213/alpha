@@ -38,6 +38,27 @@ pub enum ExitForm {
         mode: WallStopMode,
         buffer_bps: f64,
     },
+    /// `weat<X>s<W>{m|l|a}<Y>` (TK-014, Г-55 правилом выхода, владелец 28.09): после входа за окно
+    /// `W` с по цене стены исполнено ≥ `X` % наибольшего видимого размера стены в том же окне;
+    /// режим `m` — выход, только если BTC за окно ≤ −`Y` bps, `l` — только если BTC > −`Y` bps,
+    /// `a` — при любом BTC. Дизайн — `docs/findings/tk014-design-2026-09-28.md`.
+    WallEat {
+        pct: f64,
+        secs: u32,
+        mode: WallEatMode,
+        btc_bps: f64,
+    },
+}
+
+/// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallEatMode {
+    /// `m` — «рынок»: только если BTC за окно ≤ −Y bps.
+    Market,
+    /// `l` — «местный продавец»: только если BTC за окно > −Y bps.
+    Local,
+    /// `a` — при любом BTC (причина всё равно раздельная).
+    Any,
 }
 
 impl ExitForm {
@@ -65,12 +86,74 @@ impl ExitForm {
                 };
                 format!("gone{pct}wall{m}{buffer_bps}")
             }
+            ExitForm::WallEat {
+                pct,
+                secs,
+                mode,
+                btc_bps,
+            } => {
+                let m = match mode {
+                    WallEatMode::Market => "m",
+                    WallEatMode::Local => "l",
+                    WallEatMode::Any => "a",
+                };
+                format!("weat{pct}s{secs}{m}{btc_bps}")
+            }
         }
+    }
+
+    /// Форма `weat*` (TK-014) — ей нужен ряд BTC (`--btc-minutes`).
+    pub fn needs_btc(&self) -> bool {
+        matches!(self, ExitForm::WallEat { .. })
+    }
+
+    fn parse_wall_eat(spec: &str, rest: &str) -> anyhow::Result<Self> {
+        let bad = || {
+            anyhow::anyhow!(
+                "--exit-form {spec:?}: ожидается weat<X>s<W>{{m|l|a}}<Y> (X — % в (0, 100], W — с в [1, 3600], Y — bps ≥ 0)"
+            )
+        };
+        let (x, tail) = rest.split_once('s').ok_or_else(bad)?;
+        let pos = tail.find(['m', 'l', 'a']).ok_or_else(bad)?;
+        let (w, tail) = tail.split_at(pos);
+        let mode = match &tail[..1] {
+            "m" => WallEatMode::Market,
+            "l" => WallEatMode::Local,
+            _ => WallEatMode::Any,
+        };
+        let y = &tail[1..];
+        let pct: f64 = x.parse().map_err(|_| bad())?;
+        let secs: u32 = w.parse().map_err(|_| bad())?;
+        let btc_bps: f64 = y.parse().map_err(|_| bad())?;
+        anyhow::ensure!(
+            pct.is_finite() && pct > 0.0 && pct <= 100.0,
+            "weat<X>: X ∈ (0, 100]"
+        );
+        anyhow::ensure!((1..=3600).contains(&secs), "weat<X>s<W>: W ∈ [1, 3600] с");
+        anyhow::ensure!(
+            btc_bps.is_finite() && btc_bps >= 0.0,
+            "weat…<Y>: Y — bps ≥ 0"
+        );
+        let form = ExitForm::WallEat {
+            pct,
+            secs,
+            mode,
+            btc_bps,
+        };
+        anyhow::ensure!(
+            form.label() == spec,
+            "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+            form.label()
+        );
+        Ok(form)
     }
 
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
+        }
+        if let Some(rest) = spec.strip_prefix("weat") {
+            return Self::parse_wall_eat(spec, rest);
         }
         if let Some(rest) = spec.strip_prefix("eat") {
             let pct: f64 = rest.parse()?;
@@ -160,7 +243,9 @@ impl ExitForm {
             );
             return Ok(ExitForm::Gone { pct });
         }
-        anyhow::bail!("--exit-form {spec:?}: ожидается none | eat<X> | gone<W>");
+        anyhow::bail!(
+            "--exit-form {spec:?}: ожидается none | eat<X> | gone<W> | weat<X>s<W>{{m|l|a}}<Y>"
+        );
     }
 }
 

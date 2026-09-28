@@ -195,6 +195,15 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         "--sigma-from без σ-лестницы в --entry-form — таблицу σ никто не читает"
     );
     let exits = parse_exit_forms(&args.exit_form)?;
+    // TK-014: форма `weat*` читает ход BTC — без ряда минут отказ до счёта.
+    if exits.iter().any(ExitForm::needs_btc) {
+        anyhow::ensure!(
+            !args.btc_minutes.is_empty(),
+            "--exit-form weat*: нужен --btc-minutes <файл> (минутные свечи BTC)"
+        );
+        // Исполнение `weat*` в стратегии ещё не подключено — отказ, а не молчаливый счёт как `none`.
+        anyhow::bail!("--exit-form weat*: исполнение формы в стратегии ещё не подключено (TK-014)");
+    }
     let earlies = parse_early_exits(&args.early_exit_secs)?;
     let forms = grid_forms_with_early(
         &stops,
