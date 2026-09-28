@@ -57,6 +57,7 @@ PV = load("p02-variant-filter.py", "p02vf")
 pc = JA.pc
 JUL = JR.JUL_HOME
 OUT_ROOT = os.path.join(HOME, "tmp-p07/jall-read")
+RESUME = False  # --resume: строка с целым ps-closes.json не пересчитывается (воркер убит earlyoom → пул повис, TK-018)
 MAIN_FORM = pc.label(JA.MAIN_EXTRA[0][0])
 
 
@@ -191,6 +192,15 @@ def run_row(row):
     os.makedirs(out_dir, exist_ok=True)
     cmd = ["python3", pr.BUSY_REPLAY, os.path.join(JUL, "b5", cell_dir), out_dir, "--sets", set_]
     n_keep = None
+    co = os.path.join(d, "ps-closes.json")
+    done = False
+    if RESUME and os.path.isfile(co):
+        try:
+            with open(co, encoding="utf-8") as fh:
+                json.load(fh)
+            done = True
+        except ValueError:
+            done = False
     try:
         if keep and keep[0] in ("pause", "h9r"):
             side = cell_dir[3]
@@ -202,13 +212,20 @@ def run_row(row):
             kp = os.path.join(d, "keep.csv")
             ph.write_keep(k, kp)
             cmd += ["--keep", kp]
-        pr.run(cmd)
+        if not done:
+            pr.run(cmd)
         if keep and keep[0] == "g08":
             filt = os.path.join(d, "jul-g08")
-            shutil.rmtree(filt, ignore_errors=True)
-            g08_filter(out_dir, filt)
+            if not done:
+                shutil.rmtree(filt, ignore_errors=True)
+                g08_filter(out_dir, filt)
             out_dir = filt
-        closes = J9R.portfolio_sim(pr, d, set_, form, out_dir, cap)
+        if done:
+            with open(co, encoding="utf-8") as fh:
+                c = json.load(fh)
+            closes = sorted(tuple(x) for x in c.get("cell", {}).get("июль", {}).get(str(cap), []))
+        else:
+            closes = J9R.portfolio_sim(pr, d, set_, form, out_dir, cap)
         sym = pr.symbol_map({"jul": out_dir}, form, set_)
     except AssertionError as e:
         return name, {"cell_dir": cell_dir, "form": form, "set": set_, "undefined": str(e)}, None
@@ -253,7 +270,10 @@ def main():
                     help="0 = по свободной памяти деки (MemAvailable − 2 ГБ) / WORKER_GB, не больше ядер")
     ap.add_argument("--only", help="через запятую — только эти имена (проба, без ворот)")
     ap.add_argument("--list", action="store_true", help="только список вариантов")
+    ap.add_argument("--resume", action="store_true", help="строки с целым <имя>/ps-closes.json взять с диска")
     a = ap.parse_args()
+    global RESUME
+    RESUME = a.resume
     rs = rows()
     if a.list:
         for r in rs:
