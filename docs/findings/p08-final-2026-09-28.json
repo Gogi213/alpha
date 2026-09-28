@@ -1,0 +1,1290 @@
+{
+ "protocol": "docs/research/P-08-new-code-7.md §10.3 (июль), §8, §9 п.3; reviews/P-08-2026-09-28-augsep.md условия 1–5",
+ "july": {
+  "protocol": "docs/research/P-08-new-code-7.md §10.3; Судья 97a6823",
+  "m_holm": 8,
+  "gate_b1": true,
+  "cells": {
+   "B1": {
+    "n": 473,
+    "usd": -70.4,
+    "frac_gt_5d": 0.315,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.626,
+    "excl_min": 0.227,
+    "stability_day_max": 0.626,
+    "stability_symbol_max": 0.598,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 261.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 261.0 ч"
+   },
+   "B2": {
+    "n": 214,
+    "usd": 23.03,
+    "frac_gt_5d": 0.21,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.536,
+    "excl_min": 0.141,
+    "stability_day_max": 0.536,
+    "stability_symbol_max": 0.413,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 208.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 208.0 ч"
+   },
+   "p08-g57-rv": {
+    "base": "B1",
+    "selected": true,
+    "n": 363,
+    "usd": 3.62,
+    "frac_gt_5d": 0.294,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.549,
+    "excl_min": 0.21,
+    "stability_day_max": 0.49,
+    "stability_symbol_max": 0.549,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 261.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 261.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 74.02,
+     "ci95": [
+      16.02,
+      139.68
+     ]
+    },
+    "p": 0.0187,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g57-rng": {
+    "base": "B1",
+    "selected": true,
+    "n": 381,
+    "usd": -10.72,
+    "frac_gt_5d": 0.238,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.586,
+    "excl_min": 0.15,
+    "stability_day_max": 0.549,
+    "stability_symbol_max": 0.586,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 261.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 261.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 59.68,
+     "ci95": [
+      2.56,
+      127.37
+     ]
+    },
+    "p": 0.05925,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g78-q33": {
+    "base": "B1",
+    "selected": false,
+    "n": 238,
+    "usd": 17.77,
+    "frac_gt_5d": 0.456,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.624,
+    "excl_min": 0.363,
+    "stability_day_max": 0.624,
+    "stability_symbol_max": 0.606,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 263.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 263.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 88.17,
+     "ci95": [
+      -32.76,
+      200.89
+     ]
+    },
+    "p": 0.14449,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "описание, не отобран (TK-018)"
+   },
+   "p08-g78-25": {
+    "base": "B1",
+    "selected": false,
+    "n": 136,
+    "usd": 42.77,
+    "frac_gt_5d": 0.298,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.488,
+    "excl_min": 0.214,
+    "stability_day_max": 0.461,
+    "stability_symbol_max": 0.488,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 266.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 266.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 113.17,
+     "ci95": [
+      -40.24,
+      272.53
+     ]
+    },
+    "p": 0.16524,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "описание, не отобран (TK-018)"
+   },
+   "p08-g126-5": {
+    "base": "B2",
+    "selected": true,
+    "n": 209,
+    "usd": 29.88,
+    "frac_gt_5d": 0.21,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.536,
+    "excl_min": 0.141,
+    "stability_day_max": 0.536,
+    "stability_symbol_max": 0.413,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 208.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 208.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 6.84,
+     "ci95": [
+      -30.26,
+      44.02
+     ]
+    },
+    "p": 0.72371,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g126-q67": {
+    "base": "B2",
+    "selected": true,
+    "n": 213,
+    "usd": 21.81,
+    "frac_gt_5d": 0.21,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.536,
+    "excl_min": 0.141,
+    "stability_day_max": 0.536,
+    "stability_symbol_max": 0.413,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 208.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 208.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": -1.23,
+     "ci95": [
+      -28.06,
+      25.29
+     ]
+    },
+    "p": 0.75846,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g36-pos": {
+    "base": "B1",
+    "selected": true,
+    "n": 107,
+    "usd": 25.04,
+    "frac_gt_5d": 0.57,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.701,
+    "excl_min": 0.158,
+    "stability_day_max": 0.701,
+    "stability_symbol_max": 0.594,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 381.3073397222222,
+    "max_wait_censored": false,
+    "max_wait_text": "381.3 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 95.44,
+     "ci95": [
+      -74.06,
+      288.38
+     ]
+    },
+    "p": 0.30703,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g55-any": {
+    "base": "B1",
+    "selected": true,
+    "n": 472,
+    "usd": -74.53,
+    "frac_gt_5d": 0.315,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.626,
+    "excl_min": 0.227,
+    "stability_day_max": 0.626,
+    "stability_symbol_max": 0.598,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 261.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 261.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": -4.13,
+     "ci95": [
+      -12.39,
+      0.0
+     ]
+    },
+    "p": 0.61082,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g140-q33": {
+    "base": "B1",
+    "selected": false,
+    "n": 300,
+    "usd": -64.48,
+    "frac_gt_5d": 0.941,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.979,
+    "excl_min": 0.587,
+    "stability_day_max": 0.979,
+    "stability_symbol_max": 0.941,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 708.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 708.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 5.92,
+     "ci95": [
+      -185.39,
+      205.87
+     ]
+    },
+    "p": 0.95225,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "описание, не отобран (TK-018)"
+   },
+   "p08-g140-q67": {
+    "base": "B1",
+    "selected": true,
+    "n": 409,
+    "usd": -42.88,
+    "frac_gt_5d": 0.437,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.587,
+    "excl_min": 0.141,
+    "stability_day_max": 0.587,
+    "stability_symbol_max": 0.576,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 361.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 361.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 27.51,
+     "ci95": [
+      -59.52,
+      122.02
+     ]
+    },
+    "p": 0.55287,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   },
+   "p08-g07-up": {
+    "base": "B1",
+    "selected": false,
+    "n": 242,
+    "usd": -6.36,
+    "frac_gt_5d": 0.638,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.755,
+    "excl_min": 0.178,
+    "stability_day_max": 0.755,
+    "stability_symbol_max": 0.638,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 502.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 502.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 64.04,
+     "ci95": [
+      -107.82,
+      253.45
+     ]
+    },
+    "p": 0.49473,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "описание, не отобран (TK-018)"
+   },
+   "p08-g07-mid": {
+    "base": "B1",
+    "selected": true,
+    "n": 350,
+    "usd": -9.63,
+    "frac_gt_5d": 0.243,
+    "n_main": 625,
+    "h_hours": 120,
+    "excl_max": 0.554,
+    "excl_min": 0.158,
+    "stability_day_max": 0.554,
+    "stability_symbol_max": 0.363,
+    "state": "не проходит",
+    "note": "суждение по точке на двух месяцах, не статистика (правило Судьи 27.09: «не проходит» — минимум по исключениям тоже > 0,10, не максимум)",
+    "max_wait_hours": 261.0,
+    "max_wait_censored": true,
+    "max_wait_text": "≥ 261.0 ч",
+    "delta_usd": {
+     "n_days": 31,
+     "b": 4,
+     "est": 60.76,
+     "ci95": [
+      -41.42,
+      163.34
+     ]
+    },
+    "p": 0.24994,
+    "C1": false,
+    "C2": false,
+    "C3": true,
+    "verdict": "стоп",
+    "holm_sig": false
+   }
+  }
+ },
+ "stability_and_selection": {
+  "protocol": "docs/research/P-08-new-code-7.md §8, §9 п. 3; условия Судьи 1–2 (P-08-2026-09-28-augsep)",
+  "n_trials": 163,
+  "cells": {
+   "B1": {
+    "aug": {
+     "usd": 171.2,
+     "wo_day_min": 84.78,
+     "wo_day_max": 241.91,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "UNIUSDT",
+      128.61
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      128.61
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.156,
+     "se": 0.181
+    },
+    "sep": {
+     "usd": 116.38,
+     "wo_day_min": 66.66,
+     "wo_day_max": 163.9,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      80.64
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      80.64
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.244,
+     "se": 0.212
+    },
+    "jul": {
+     "usd": -70.4,
+     "wo_day_min": -122.02,
+     "wo_day_max": -11.91,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -92.69
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      -25.27
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.094,
+     "se": 0.18
+    }
+   },
+   "B2": {
+    "aug": {
+     "usd": 21.03,
+     "wo_day_min": -27.91,
+     "wo_day_max": 60.89,
+     "wo_day_sign_flips": 2,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -2.24
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      -2.24
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.037,
+     "se": 0.18
+    },
+    "sep": {
+     "usd": 125.95,
+     "wo_day_min": 82.79,
+     "wo_day_max": 160.7,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      96.33
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      96.33
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.35,
+     "se": 0.215
+    },
+    "jul": {
+     "usd": 23.03,
+     "wo_day_min": -20.68,
+     "wo_day_max": 51.97,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -7.7
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      -7.7
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.054,
+     "se": 0.18
+    }
+   },
+   "p08-g57-rv": {
+    "aug": {
+     "usd": 63.12,
+     "wo_day_min": -7.74,
+     "wo_day_max": 133.83,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "UNIUSDT",
+      25.79
+     ],
+     "wo_abs_coin": [
+      "TRUMPUSDT",
+      100.48
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.068,
+     "se": 0.18,
+     "sharpe_delta_d": -0.382,
+     "e_max_noise": 0.502,
+     "dsr_delta": -0.8841
+    },
+    "sep": {
+     "usd": 105.1,
+     "wo_day_min": 55.32,
+     "wo_day_max": 150.53,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      69.36
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      69.36
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.234,
+     "se": 0.211,
+     "sharpe_delta_d": -0.142,
+     "e_max_noise": 0.565,
+     "dsr_delta": -0.7076
+    },
+    "jul": {
+     "usd": 3.62,
+     "wo_day_min": -46.17,
+     "wo_day_max": 45.45,
+     "wo_day_sign_flips": 12,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -22.11
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      48.76
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.005,
+     "se": 0.18,
+     "sharpe_delta_d": 0.35,
+     "e_max_noise": 0.499,
+     "dsr_delta": -0.1488
+    }
+   },
+   "p08-g57-rng": {
+    "aug": {
+     "usd": 123.08,
+     "wo_day_min": 49.55,
+     "wo_day_max": 194.4,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "UNIUSDT",
+      70.8
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      70.8
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.129,
+     "se": 0.18,
+     "sharpe_delta_d": -0.162,
+     "e_max_noise": 0.488,
+     "dsr_delta": -0.6495
+    },
+    "sep": {
+     "usd": 104.71,
+     "wo_day_min": 54.93,
+     "wo_day_max": 141.35,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      68.96
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      68.96
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.239,
+     "se": 0.211,
+     "sharpe_delta_d": -0.146,
+     "e_max_noise": 0.566,
+     "dsr_delta": -0.7117
+    },
+    "jul": {
+     "usd": -10.72,
+     "wo_day_min": -59.1,
+     "wo_day_max": 42.9,
+     "wo_day_sign_flips": 9,
+     "wo_top_coin": [
+      "BNBUSDT",
+      -34.59
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      39.52
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.015,
+     "se": 0.18,
+     "sharpe_delta_d": 0.338,
+     "e_max_noise": 0.498,
+     "dsr_delta": -0.1598
+    }
+   },
+   "p08-g78-q33": {
+    "aug": {
+     "usd": -9.48,
+     "wo_day_min": -38.56,
+     "wo_day_max": 36.16,
+     "wo_day_sign_flips": 6,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -39.65
+     ],
+     "wo_abs_coin": [
+      "TRUMPUSDT",
+      24.4
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.026,
+     "se": 0.18,
+     "sharpe_delta_d": -0.283,
+     "e_max_noise": 0.494,
+     "dsr_delta": -0.7775
+    },
+    "sep": {
+     "usd": 99.48,
+     "wo_day_min": 70.9,
+     "wo_day_max": 136.36,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "WIFUSDT",
+      70.79
+     ],
+     "wo_abs_coin": [
+      "WIFUSDT",
+      70.79
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.275,
+     "se": 0.212,
+     "sharpe_delta_d": -0.073,
+     "e_max_noise": 0.563,
+     "dsr_delta": -0.6364
+    },
+    "jul": {
+     "usd": 17.77,
+     "wo_day_min": -10.82,
+     "wo_day_max": 71.64,
+     "wo_day_sign_flips": 4,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -17.64
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      53.65
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.034,
+     "se": 0.18,
+     "sharpe_delta_d": 0.192,
+     "e_max_noise": 0.489,
+     "dsr_delta": -0.2966
+    }
+   },
+   "p08-g78-25": {
+    "aug": {
+     "usd": -41.21,
+     "wo_day_min": -64.02,
+     "wo_day_max": -0.77,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -66.66
+     ],
+     "wo_abs_coin": [
+      "TRUMPUSDT",
+      -9.08
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.102,
+     "se": 0.18,
+     "sharpe_delta_d": -0.271,
+     "e_max_noise": 0.493,
+     "dsr_delta": -0.7649
+    },
+    "sep": {
+     "usd": 122.78,
+     "wo_day_min": 98.11,
+     "wo_day_max": 151.01,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ADAUSDT",
+      88.28
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      88.28
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.496,
+     "se": 0.221,
+     "sharpe_delta_d": 0.017,
+     "e_max_noise": 0.563,
+     "dsr_delta": -0.5453
+    },
+    "jul": {
+     "usd": 42.77,
+     "wo_day_min": 13.99,
+     "wo_day_max": 73.05,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ICPUSDT",
+      7.91
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      80.89
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.123,
+     "se": 0.18,
+     "sharpe_delta_d": 0.195,
+     "e_max_noise": 0.489,
+     "dsr_delta": -0.294
+    }
+   },
+   "p08-g126-5": {
+    "aug": {
+     "usd": 13.42,
+     "wo_day_min": -35.51,
+     "wo_day_max": 53.28,
+     "wo_day_sign_flips": 3,
+     "wo_top_coin": [
+      "KORUUSDT",
+      -6.41
+     ],
+     "wo_abs_coin": [
+      "KORUUSDT",
+      -6.41
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.021,
+     "se": 0.18,
+     "sharpe_delta_d": -0.096,
+     "e_max_noise": 0.486,
+     "dsr_delta": -0.5814
+    },
+    "sep": {
+     "usd": 123.54,
+     "wo_day_min": 80.38,
+     "wo_day_max": 158.29,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      99.48
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      99.48
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.34,
+     "se": 0.214,
+     "sharpe_delta_d": -0.209,
+     "e_max_noise": 0.569,
+     "dsr_delta": -0.7772
+    },
+    "jul": {
+     "usd": 29.88,
+     "wo_day_min": -13.83,
+     "wo_day_max": 61.15,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -7.69
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      -7.69
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.069,
+     "se": 0.18,
+     "sharpe_delta_d": 0.063,
+     "e_max_noise": 0.485,
+     "dsr_delta": -0.4218
+    }
+   },
+   "p08-g126-q67": {
+    "aug": {
+     "usd": 3.07,
+     "wo_day_min": -45.87,
+     "wo_day_max": 42.93,
+     "wo_day_sign_flips": 11,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -20.19
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      -20.19
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.001,
+     "se": 0.18,
+     "sharpe_delta_d": -0.236,
+     "e_max_noise": 0.491,
+     "dsr_delta": -0.7274
+    },
+    "sep": {
+     "usd": 125.95,
+     "wo_day_min": 82.79,
+     "wo_day_max": 160.7,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      96.33
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      96.33
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.35,
+     "se": 0.215,
+     "sharpe_delta_d": 0.0,
+     "e_max_noise": 0.563,
+     "dsr_delta": -0.5626
+    },
+    "jul": {
+     "usd": 21.81,
+     "wo_day_min": -21.9,
+     "wo_day_max": 50.74,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -8.93
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      -8.93
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.05,
+     "se": 0.18,
+     "sharpe_delta_d": -0.017,
+     "e_max_noise": 0.485,
+     "dsr_delta": -0.5018
+    }
+   },
+   "p08-g36-pos": {
+    "aug": {
+     "usd": 58.92,
+     "wo_day_min": 25.56,
+     "wo_day_max": 97.52,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ADAUSDT",
+      19.07
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      19.07
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.144,
+     "se": 0.181,
+     "sharpe_delta_d": -0.13,
+     "e_max_noise": 0.487,
+     "dsr_delta": -0.6168
+    },
+    "sep": {
+     "usd": 11.52,
+     "wo_day_min": -2.19,
+     "wo_day_max": 21.94,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      -7.39
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      -7.39
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.099,
+     "se": 0.209,
+     "sharpe_delta_d": -0.254,
+     "e_max_noise": 0.572,
+     "dsr_delta": -0.8258
+    },
+    "jul": {
+     "usd": 25.04,
+     "wo_day_min": 6.06,
+     "wo_day_max": 43.3,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "WLDUSDT",
+      11.07
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      11.07
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.109,
+     "se": 0.18,
+     "sharpe_delta_d": 0.14,
+     "e_max_noise": 0.487,
+     "dsr_delta": -0.3465
+    }
+   },
+   "p08-g55-any": {
+    "aug": {
+     "usd": 184.68,
+     "wo_day_min": 98.26,
+     "wo_day_max": 255.39,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "UNIUSDT",
+      142.09
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      142.09
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.167,
+     "se": 0.181,
+     "sharpe_delta_d": 0.248,
+     "e_max_noise": 0.492,
+     "dsr_delta": -0.2437
+    },
+    "sep": {
+     "usd": 116.86,
+     "wo_day_min": 67.14,
+     "wo_day_max": 164.38,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      81.62
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      81.62
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.245,
+     "se": 0.212,
+     "sharpe_delta_d": 0.088,
+     "e_max_noise": 0.564,
+     "dsr_delta": -0.4753
+    },
+    "jul": {
+     "usd": -74.53,
+     "wo_day_min": -126.15,
+     "wo_day_max": -16.04,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -96.82
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      -29.4
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.099,
+     "se": 0.18,
+     "sharpe_delta_d": -0.18,
+     "e_max_noise": 0.488,
+     "dsr_delta": -0.6681
+    }
+   },
+   "p08-g140-q33": {
+    "aug": {
+     "usd": -19.83,
+     "wo_day_min": -80.0,
+     "wo_day_max": 24.62,
+     "wo_day_sign_flips": 4,
+     "wo_top_coin": [
+      "ADAUSDT",
+      -39.71
+     ],
+     "wo_abs_coin": [
+      "TRUMPUSDT",
+      9.32
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.04,
+     "se": 0.18,
+     "sharpe_delta_d": -0.285,
+     "e_max_noise": 0.494,
+     "dsr_delta": -0.7796
+    },
+    "sep": {
+     "usd": 91.36,
+     "wo_day_min": 38.45,
+     "wo_day_max": 126.82,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "STORJUSDT",
+      67.75
+     ],
+     "wo_abs_coin": [
+      "STORJUSDT",
+      67.75
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.236,
+     "se": 0.211,
+     "sharpe_delta_d": -0.126,
+     "e_max_noise": 0.565,
+     "dsr_delta": -0.6911
+    },
+    "jul": {
+     "usd": -64.48,
+     "wo_day_min": -96.45,
+     "wo_day_max": -26.82,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -80.34
+     ],
+     "wo_abs_coin": [
+      "BCHUSDT",
+      -29.92
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.125,
+     "se": 0.18,
+     "sharpe_delta_d": 0.012,
+     "e_max_noise": 0.485,
+     "dsr_delta": -0.4731
+    }
+   },
+   "p08-g140-q67": {
+    "aug": {
+     "usd": 79.5,
+     "wo_day_min": -3.3,
+     "wo_day_max": 149.85,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "UNIUSDT",
+      51.43
+     ],
+     "wo_abs_coin": [
+      "UNIUSDT",
+      51.43
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.088,
+     "se": 0.18,
+     "sharpe_delta_d": -0.217,
+     "e_max_noise": 0.49,
+     "dsr_delta": -0.707
+    },
+    "sep": {
+     "usd": 81.02,
+     "wo_day_min": 34.91,
+     "wo_day_max": 126.83,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "STORJUSDT",
+      57.4
+     ],
+     "wo_abs_coin": [
+      "STORJUSDT",
+      57.4
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.179,
+     "se": 0.21,
+     "sharpe_delta_d": -0.25,
+     "e_max_noise": 0.571,
+     "dsr_delta": -0.8208
+    },
+    "jul": {
+     "usd": -42.88,
+     "wo_day_min": -84.4,
+     "wo_day_max": 11.87,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "TIAUSDT",
+      -58.99
+     ],
+     "wo_abs_coin": [
+      "WLDUSDT",
+      -6.5
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.065,
+     "se": 0.18,
+     "sharpe_delta_d": 0.083,
+     "e_max_noise": 0.485,
+     "dsr_delta": -0.4025
+    }
+   },
+   "p08-g07-up": {
+    "aug": {
+     "usd": 78.84,
+     "wo_day_min": 45.79,
+     "wo_day_max": 103.11,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "1000PEPEUSDT",
+      52.08
+     ],
+     "wo_abs_coin": [
+      "1000PEPEUSDT",
+      52.08
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.226,
+     "se": 0.182,
+     "sharpe_delta_d": -0.103,
+     "e_max_noise": 0.486,
+     "dsr_delta": -0.5888
+    },
+    "sep": {
+     "usd": -23.46,
+     "wo_day_min": -35.74,
+     "wo_day_max": 5.53,
+     "wo_day_sign_flips": 1,
+     "wo_top_coin": [
+      "ONDOUSDT",
+      -36.53
+     ],
+     "wo_abs_coin": [
+      "TRUMPUSDT",
+      -4.42
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.135,
+     "se": 0.209,
+     "sharpe_delta_d": -0.372,
+     "e_max_noise": 0.582,
+     "dsr_delta": -0.9538
+    },
+    "jul": {
+     "usd": -6.36,
+     "wo_day_min": -23.51,
+     "wo_day_max": 28.15,
+     "wo_day_sign_flips": 7,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -23.76
+     ],
+     "wo_abs_coin": [
+      "ICPUSDT",
+      25.66
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.017,
+     "se": 0.18,
+     "sharpe_delta_d": 0.122,
+     "e_max_noise": 0.486,
+     "dsr_delta": -0.3648
+    }
+   },
+   "p08-g07-mid": {
+    "aug": {
+     "usd": 157.68,
+     "wo_day_min": 94.54,
+     "wo_day_max": 201.43,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ADAUSDT",
+      114.99
+     ],
+     "wo_abs_coin": [
+      "ADAUSDT",
+      114.99
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.214,
+     "se": 0.182,
+     "sharpe_delta_d": -0.018,
+     "e_max_noise": 0.485,
+     "dsr_delta": -0.5031
+    },
+    "sep": {
+     "usd": 26.72,
+     "wo_day_min": 0.11,
+     "wo_day_max": 55.71,
+     "wo_day_sign_flips": 0,
+     "wo_top_coin": [
+      "ATOMUSDT",
+      -2.21
+     ],
+     "wo_abs_coin": [
+      "ATOMUSDT",
+      -2.21
+     ],
+     "unmapped": 0,
+     "sharpe_d": 0.088,
+     "se": 0.209,
+     "sharpe_delta_d": -0.352,
+     "e_max_noise": 0.58,
+     "dsr_delta": -0.932
+    },
+    "jul": {
+     "usd": -9.63,
+     "wo_day_min": -50.71,
+     "wo_day_max": 27.07,
+     "wo_day_sign_flips": 7,
+     "wo_top_coin": [
+      "UNIUSDT",
+      -29.75
+     ],
+     "wo_abs_coin": [
+      "ICPUSDT",
+      18.08
+     ],
+     "unmapped": 0,
+     "sharpe_d": -0.017,
+     "se": 0.18,
+     "sharpe_delta_d": 0.175,
+     "e_max_noise": 0.488,
+     "dsr_delta": -0.3128
+    }
+   }
+  }
+ }
+}
