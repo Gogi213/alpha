@@ -232,8 +232,12 @@ def gate():
         b = [l for l in body(f"{ref}/rounds.csv") if l.startswith("symbol,") or f",{lab}," in l]
         a = body(f"{got}/rounds.csv")
         mode = "rounds+signals"
-        ok = a == b and body(f"{got}/signals.csv") == [
-            l for l in body(f"{ref}/signals.csv") if l.startswith("symbol,") or f",{lab}," in l]
+        if not os.path.exists(f"{ref}/signals.csv"):  # у эталонов П-05 signals.csv бывает не выгружен
+            mode = "rounds"
+            ok = a == b
+        else:
+            ok = a == b and body(f"{got}/signals.csv") == [
+                l for l in body(f"{ref}/signals.csv") if l.startswith("symbol,") or f",{lab}," in l]
         if not ok:  # эталон с busy-skip on — сверка через busy-replay
             rep = f"{tmp}/{name}-{sub}"
             subprocess.run(["python3", f"{A}/bin/busy-replay.py", got, rep], check=True,

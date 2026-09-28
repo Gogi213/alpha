@@ -49,6 +49,8 @@ DEFAULT_SPANS = [
     ("2026-09", "study/approaches/D20", "2026-09-16", "2026-09-23", ("count",)),
     # 24.09 и позже сознательно не включены — это ресурс П-01 (свежие сутки), П-02 их не трогает.
 ]
+# TK-018 (В-151): июль — только счёт по замороженным порогам августа (описание, не проверка П-02).
+JULY_SPAN = ("2026-07", "epochs/e-jul/study/approaches/D20", "2026-07-01", "2026-07-31", ("count",))
 
 
 def daterange(start: str, end: str) -> List[str]:
@@ -144,7 +146,7 @@ def bucket(value: float, lo: float, hi: float) -> Optional[str]:
 def cmd_scan(args: argparse.Namespace) -> int:
     home = os.path.expanduser(args.alpha_home)
     spans = []
-    for month_tag, rel_root, day_from, day_to, roles in DEFAULT_SPANS:
+    for month_tag, rel_root, day_from, day_to, roles in DEFAULT_SPANS + ([JULY_SPAN] if getattr(args, "july", False) else []):
         root_dir = os.path.join(home, rel_root)
         days = daterange(day_from, day_to)
         spans.append((month_tag, root_dir, days, roles))
@@ -426,7 +428,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     print()
 
     results = {}
-    for month_prefix, month_label in (("2026-08", "август"), ("2026-09", "сентябрь")):
+    # TK-018: июль (если есть в счёте scan --july) — описание: в таблицы, не в Холм
+    months = (("2026-08", "август"), ("2026-09", "сентябрь")) + (
+        (("2026-07", "июль"),) if any(v.get("month") == "2026-07" for v in day_counts.values()) else ())
+    for month_prefix, month_label in months:
         print(f"=== {month_label} ===")
         for variant, (top_key, bottom_key, label) in VARIANTS.items():
             r = analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key,
@@ -440,7 +445,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print()
 
     controls = {}
-    for month_prefix, month_label in (("2026-08", "август"), ("2026-09", "сентябрь")):
+    for month_prefix, month_label in months:
         print(f"--- {month_label}: Г-08 контроль по возрасту/размеру/стороне (страты, не для Холма) ---")
         for variant, (top_key, bottom_key, label) in CONTROL_VARIANTS.items():
             r = analyze_variant(day_counts, month_prefix, variant, top_key, bottom_key,
@@ -481,6 +486,7 @@ def main(argv=None) -> int:
     p_scan = sub.add_parser("scan", help="Steam Deck: читает touches-*.csv, без numpy")
     p_scan.add_argument("--alpha-home", default="~/alpha", help="корень ~/alpha на Steam Deck")
     p_scan.add_argument("--out", default="p02-wall-counts.json")
+    p_scan.add_argument("--july", action="store_true", help="TK-018: добавить июль (счёт, пороги — август)")
     p_scan.set_defaults(func=cmd_scan)
 
     p_an = sub.add_parser("analyze", help="считает бутстреп/эффективное N/Холм; нужен numpy")

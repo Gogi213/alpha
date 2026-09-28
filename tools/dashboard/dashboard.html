@@ -684,7 +684,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     if (k === "btc4h_take") c["Выход"] = "тейк 1,75 %; не дольше 4 ч";
     if (k === "cand") c["Рынок"] = "BTC за 1 ч упал на " + String(-((D.points || {}).btc1h || {}).q20).replace(".", ",") + " bps и больше";
     if (k === "nofilter") c["Рынок"] = "без фильтра просадки";
-    const base = isP07(k) ? (m.group === "p07a" ? "g85" : "g85b") : k;
+    const base = isP07(k) ? (m.group === "p07a" ? "g85" : "g85b") : m.base || k;
     const ch = (D.p02_changes || {})[base];
     if (base === "g85") c["Вход"] = "одна лимитная заявка на тик перед стеной (P+1), без лестницы";
     else if (ch) for (const [st, t] of Object.entries(ch)) {
@@ -695,6 +695,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       c["Стена"] = "стене ≥ " + (cell.age != null ? cell.age : 45) + " мин, в ней ≥ $" + (cell.usd != null ? cell.usd : 10000).toLocaleString("ru-RU") +
         (cell.force != null ? ", сила ≥ " + String(cell.force).replace(".", ",") + " %" : ""); }
     if (isP07(k)) { const row = (AXIS_ROW.find(([re]) => re.test(m.axis || "")) || [0, "Ограничения"])[1]; c[row] = m.axis + " = " + m.btn; }
+    if (m.cfg) for (const [r, t] of Object.entries(m.cfg)) c[r] = (c[r] && c[r] !== "нет" ? c[r] + "; " : "") + t;  // П-08: база + фильтр
     return c;
   }
   function renderConfig() {
@@ -869,14 +870,14 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       const days = m.days ? " · дней в сторону " + m.days_plus + " / " + m.days : "";
       const cls = m.est > 0 ? "pos" : m.est < 0 ? "neg" : "";
       return "<td style='text-align:left;white-space:normal'><b class='" + cls + "'>" + f(m.est) + "</b> <span class='muted'>[" + g(m.lo) + "; " + g(m.hi) + "]</span>" +
-        "<br><span class='muted'>p (Холм) " + (m.p_holm < 0.0001 ? "< 0,0001" : m.p_holm.toFixed(4).replace(".", ",")) + days + "</span></td>";
+        "<br><span class='muted'>" + (m.p_holm == null ? "описание, без Холма (июль вне П-02)" : "p (Холм) " + (m.p_holm < 0.0001 ? "< 0,0001" : m.p_holm.toFixed(4).replace(".", ","))) + days + "</span></td>";
     };
     document.getElementById("p02-table").innerHTML =
-      "<thead><tr><th>гипотеза</th><th style='text-align:left'>что проверяли</th><th style='text-align:left'>август</th><th style='text-align:left'>сентябрь</th>" +
+      "<thead><tr><th>гипотеза</th><th style='text-align:left'>что проверяли</th><th style='text-align:left'>июль</th><th style='text-align:left'>август</th><th style='text-align:left'>сентябрь</th>" +
       "<th style='text-align:left'>по монетам</th><th style='text-align:left'>правило протокола (§10)</th><th style='text-align:left'>R2 · изменено после счёта</th></tr></thead><tbody>" +
       P.rows.map(r => "<tr><td>" + r.h + "</td><td style='text-align:left;white-space:normal;min-width:220px'>" + r.what +
         (r.why ? "<br><span class='muted'>" + r.why + "</span>" : "") + "</td>" +
-        (r.why ? "<td class='muted' colspan='2' style='text-align:left'>не определена</td>" : cell(r.months["август"], r.unit) + cell(r.months["сентябрь"], r.unit)) +
+        (r.why ? "<td class='muted' colspan='3' style='text-align:left'>не определена</td>" : cell(r.months["июль"], r.unit) + cell(r.months["август"], r.unit) + cell(r.months["сентябрь"], r.unit)) +
         "<td class='muted' style='text-align:left'>" + (r.why ? "—" : P.coins_status) + "</td>" +
         "<td style='text-align:left'>" + r.v10 + "</td><td style='text-align:left;white-space:normal'>" + r.r2 + "</td></tr>").join("") + "</tbody>";
   }
