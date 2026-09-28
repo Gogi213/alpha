@@ -48,6 +48,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 JUL_HOME = os.path.join(HOME, "epochs/e-jul")
 OUT_ROOT = os.path.join(HOME, "tmp-p07/jul-read")
 GRID_LOGS = os.path.join(HOME, "tmp-p07/cells-by-day")
+GRID_PREFIX = "jul"  # серия `p07-jul-cells.py`; `p07-h1-read.py` подменяет на месяц
 SET_ = "t-bid-btc4h-q1"
 JUL_DAYS = [f"2026-07-{d:02d}" for d in range(1, 32)]
 DROP = "TRXUSDT,KORUUSDT"  # KORUUSDT — Судья dc250dc: нет свечей до 15.07 10:44 → нет σ; вне пула всех пяти форм на весь июль
@@ -125,7 +126,7 @@ def day_gate(day):
             miss += not ok
         if not pool or miss > POOL_MISS_MAX * len(pool):
             flags.append("монеты пула без данных > 10 %")
-    log = os.path.join(GRID_LOGS, f"jul-{day}.grid.log")
+    log = os.path.join(GRID_LOGS, f"{GRID_PREFIX}-{day}.grid.log")
     m = None
     if os.path.exists(log):
         with open(log, encoding="utf-8", errors="replace") as fh:
