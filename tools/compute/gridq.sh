@@ -2,7 +2,8 @@
 # Демон очереди счёта Steam Deck `alpha-gridq` (CEO 27.09, владелец: «загрузка стимдек на 90 %», предохранители —
 # скриптами, не памятью ролей). Раз в GRIDQ_TICK с берёт задания из queue/pending (кладёт `q-add.sh`) и запускает
 # их юнитами `systemd-run --user` в срезе alpha-q.slice, пока одновременно:
-#   (а) занято < GRIDQ_CORES ядер (8 из 8 — владелец 27.09: «повышай до 95 %») — считаются и чужие `lob bounce-grid` вне очереди, по их --threads;
+#   (а) занято < GRIDQ_CORES ядер (8 из 8 — владелец 27.09: «повышай до 95 %») — свои по --threads (не меньше замера
+#       среза), плюс замер ядер, занятых всем вне очереди (TK-019: /proc/stat минус cpu.stat среза за такт);
 #   (б) MemAvailable − резерв GRIDQ_RESERVE_MB − недобор идущих заданий до их оценки (после GRIDQ_SETTLE_SECS — до
 #       пика × 1,5) ≥ оценка задания; своп не растёт при MemAvailable < GRIDQ_SWAP_MEM_MB (упал SwapFree — запуски
 #       стоят GRIDQ_SWAP_HOLD с), у задания MemorySwapMax=0;
@@ -34,6 +35,7 @@ SWAP_MEM="${GRIDQ_SWAP_MEM_MB:-4096}"       # рост свопа держит �
 NIGHT_UNIT="${GRIDQ_NIGHT_UNIT:-alpha-grid-nightly.service}"
 NIGHT_LOCK="${GRIDQ_NIGHT_LOCK:-$A/study/.grid-slots/night}"
 SLICE="${GRIDQ_SLICE:-alpha-q.slice}"
+HZ=$(getconf CLK_TCK 2>/dev/null || echo 100); CPU_PREV=""; QCPU_CORES=0; EXT_CORES=0
 if [ "$(id -u)" = 0 ]; then SCTL=(systemctl); SRUN=(systemd-run); else SCTL=(systemctl --user); SRUN=(systemd-run --user); fi
 mkdir -p "$Q"/{pending,running,done,failed,logs}
 LOG="$Q/gridq.log"
@@ -46,6 +48,11 @@ unit_of() { echo "gridq-$(basename "$1" .job)"; }
 mem_now_mb() {  # текущая (или пиковая: $2 = peak) память юнита задания, МБ
   local cg f; cg=$("${SCTL[@]}" show -p ControlGroup --value "$(unit_of "$1")" 2>/dev/null); f="memory.${2:-current}"
   [ -n "$cg" ] && [ -f "/sys/fs/cgroup$cg/$f" ] && echo $(( $(cat "/sys/fs/cgroup$cg/$f") / 1048576 )) || echo 0
+}
+anon_mb() {  # анонимная память юнита задания, МБ (без кэша файлов: его MemAvailable и так считает свободным)
+  local cg; cg=$("${SCTL[@]}" show -p ControlGroup --value "$(unit_of "$1")" 2>/dev/null)
+  [ -n "$cg" ] || { echo 0; return; }
+  awk '/^anon / {print int($2 / 1048576); f = 1} END {if (!f) print 0}' "/sys/fs/cgroup$cg/memory.stat" 2>/dev/null || echo 0
 }
 
 reap() {
@@ -85,37 +92,50 @@ night_busy() {
   return 1
 }
 
-cores_used() {  # свои задания по --threads + чужие bounce-grid
-  local n=0 j p
+cpu_tick() {  # раз в такт: ядра, занятые очередью (cpu.stat среза) и всем прочим (/proc/stat минус срез) — замер
+  # CEO 28.09 (TK-019): чтение jall/j9 вне очереди держало 7 ядер, очередь их не видела — load 22–25 на 8 ядер
+  local busy q t cg pb pq pt
+  busy=$(awk -v hz="$HZ" '/^cpu / {printf "%.0f", ($2 + $3 + $4 + $7 + $8 + $9) * 1000000 / hz}' /proc/stat)
+  cg=$("${SCTL[@]}" show -p ControlGroup --value "$SLICE" 2>/dev/null)
+  q=$(awk '/^usage_usec/ {print $2}' "/sys/fs/cgroup$cg/cpu.stat" 2>/dev/null); q=${q:-0}
+  t=$(( $(date +%s%N) / 1000 ))
+  if [ -n "$CPU_PREV" ]; then
+    read -r pb pq pt <<< "$CPU_PREV"
+    [ "$q" -lt "$pq" ] && pq=$q   # срез пересоздан — счётчик с нуля
+    read -r QCPU_CORES EXT_CORES < <(awk -v db=$(( busy - pb )) -v dq=$(( q - pq )) -v dt=$(( t - pt )) 'BEGIN {
+      if (dt <= 0) {print 0, 0; exit}
+      e = (db - dq) / dt; if (e < 0) e = 0; c = dq / dt; if (c < 0) c = 0
+      printf "%d %d\n", c + 0.5, e + 0.5 }')
+  fi
+  CPU_PREV="$busy $q $t"
+}
+
+cores_used() {  # свои задания по --threads (не меньше замера среза) + ядра, занятые вне очереди (замер cpu_tick)
+  local n=0 j
   for j in "$Q"/running/*.job; do
     [ -e "$j" ] || continue
     # shellcheck disable=SC1090
     n=$(( n + $(source "$j"; threads_of "${JOB_CMD[@]}") ))
   done
-  for p in $(pgrep -f "lob bounce-grid" 2>/dev/null); do
-    grep -q "gridq-" "/proc/$p/cgroup" 2>/dev/null && continue
-    mapfile -d '' -t args < "/proc/$p/cmdline" 2>/dev/null || continue
-    # сам бинарник (`<alpha…> lob bounce-grid …`), а не обёртки, в чьей строке эти слова (q-add, bash -c, …)
-    [ "${args[1]:-}" = lob ] && [ "${args[2]:-}" = bounce-grid ] || continue
-    n=$(( n + $(threads_of "${args[@]}") ))
-  done
-  echo "$n"
+  [ "$QCPU_CORES" -gt "$n" ] && n=$QCPU_CORES
+  echo $(( n + EXT_CORES ))
 }
 
 mem_free_mb() {  # MemAvailable − резерв − недобор идущих до их оценки
   # CEO 27.09: оценка бывает сильно выше факта (проба 6144 МБ при 1191 МБ) — дека простаивала. Задание, идущее
-  # дольше SETTLE с, резервирует не оценку, а свой пик × 1,5 (не меньше пика + 1 ГБ, не больше оценки): крупные сутки
+  # дольше SETTLE с, резервирует не оценку, а свою память × 1,5 (не меньше + 1 ГБ, не больше оценки): крупные сутки
   # разбираются в первые минуты; ошибся — OOM задания и повтор с оценкой ×2 (reap), чужие не страдают (MemoryMax).
-  local avail j est cur gap=0 start peak now
+  # TK-019 (28.09): память задания — anon, не memory.current/peak: те с кэшем файлов (×2–5 к RSS), а кэш MemAvailable
+  # уже считает свободным. Процессы вне очереди видны через MemAvailable.
+  local avail j est cur gap=0 start now r
   avail=$(( $(awk '/^MemAvailable:/ {print $2}' /proc/meminfo) / 1024 )); now=$(date -u +%s)
   for j in "$Q"/running/*.job; do
     [ -e "$j" ] || continue
-    est=$(kv JOB_MEM_MB "$j"); cur=$(mem_now_mb "$j")
+    est=$(kv JOB_MEM_MB "$j"); cur=$(anon_mb "$j")
     start=$(date -u -d "$(kv JOB_START "$j")" +%s 2>/dev/null || echo "$now")
     if [ $(( now - start )) -ge "$SETTLE" ]; then
-      peak=$(mem_now_mb "$j" peak); [ "$peak" -lt "$cur" ] && peak=$cur
-      peak=$(( peak * 3 / 2 > peak + 1024 ? peak * 3 / 2 : peak + 1024 ))
-      [ "$peak" -lt "$est" ] && est=$peak
+      r=$(( cur * 3 / 2 > cur + 1024 ? cur * 3 / 2 : cur + 1024 ))
+      [ "$r" -lt "$est" ] && est=$r
     fi
     [ "$est" -gt "$cur" ] && gap=$(( gap + est - cur ))
   done
@@ -170,6 +190,7 @@ reason="—"; swap_prev=""; swap_hold_until=0; under_since=""; idle_since=""; re
 say "демон стартовал: ядер $CORES, резерв $RESERVE МБ, такт $TICK с"
 while :; do
   reap
+  cpu_tick
   now=$(date -u +%s)
   swap_free=$(awk '/^SwapFree:/ {print $2}' /proc/meminfo)
   # рост свопа при запасе памяти — ядро выносит спящие страницы (Steam), а не нехватка: держим запуски, только
@@ -223,7 +244,7 @@ while :; do
   else idle_since=""; [ -f "$Q/ALERT-idle-deck" ] && { rm -f "$Q/ALERT-idle-deck"; say "простой снят"; }; fi
   # состояние
   {
-    echo "обновлено $(date -u +%FT%TZ) · load1 $load1 · ядер занято $(cores_used) из $CORES · под задания свободно $(mem_free_mb) МБ · своп свободен $(( swap_free / 1024 )) МБ"
+    echo "обновлено $(date -u +%FT%TZ) · load1 $load1 · ядер занято $(cores_used) из $CORES (вне очереди $EXT_CORES) · под задания свободно $(mem_free_mb) МБ · своп свободен $(( swap_free / 1024 )) МБ"
     echo "в очереди $np · идёт $nr · готово $(ls "$Q/done" | grep -c '\.job$') · упало $(ls "$Q/failed" | grep -c '\.job$') · не запускаю: $reason"
     for d in pending running done failed; do
       ls "$Q/$d" | grep '\.job$' | sed -E 's/^[0-9]-[0-9]+-(.*)-[0-9]+\.job$/\1/' | sort | uniq -c | awk -v d="$d" '{printf "  %s %s: %d\n", d, $2, $1}'
