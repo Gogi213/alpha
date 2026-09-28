@@ -161,7 +161,8 @@ def g86_part(bname, home, day):
     common = pc.COMMON
     pc.COMMON = common.replace("--signal approach", "--signal touch")
     try:
-        return "\n" + pc.build_job(f"jall-g86-{bname}", home, day, [c])
+        # вход market без σ-лестницы: движок отказывает на лишний --sigma-from (ворота 03.08, 08:14Z)
+        return "\n" + pc.build_job(f"jall-g86-{bname}", home, day, [c]).replace(f" --sigma-from {pc.SIGMA_FROM}", "")
     finally:
         pc.COMMON = common
 
@@ -170,7 +171,7 @@ def jobs(only=None):
     out = []
     if only in (None, GATE_DAY):
         old, appr, touch = cells_for("julgate", AUG_HOME, GATE_DAY)
-        if old or appr or touch:
+        if old or appr or touch or g86_part("julgate", AUG_HOME, GATE_DAY):
             out.append(("julgate", AUG_HOME, GATE_DAY, old, appr, touch))
     for day in j9.JUL_DAYS:
         if only and day != only:
@@ -178,7 +179,7 @@ def jobs(only=None):
         if not os.path.exists(f"{JUL_HOME}/study/approaches/D20/{day}/.done"):
             continue
         old, appr, touch = cells_for("jul", JUL_HOME, day)
-        if old or appr or touch:
+        if old or appr or touch or g86_part("jul", JUL_HOME, day):
             out.append(("jul", JUL_HOME, day, old, appr, touch))
     return out
 
