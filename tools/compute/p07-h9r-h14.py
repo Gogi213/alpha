@@ -71,7 +71,11 @@ CELL_SETUP = {"s1", "s2", "s3"}
 # H1 (TK-004, пороги — П-07 после таблицы осей, записаны до счёта): сигнал в клетке, если
 # frontrun_share (кэш подходов, `p07-h1-join.py` -> tmp-p07/h1-join.json) >= порог; только Г-85б.
 CELL_H1 = {"f25": 2.4666, "f50": 4.4387, "f75": 8.5073}
-ALL_CELLS = ["keep", "s1", "s2", "s3", "k1", "k2", "k3", "n2", "n3", "n4", "f25", "f50", "f75"]
+# TK-009 (П-07 поправка 6 п. 2): K ≤ 1 поверх H1 (порог очереди) и H10 (потолок позиций) — описание, не кандидаты
+CELL_K1H1 = {"k1f25": "f25", "k1f50": "f50", "k1f75": "f75"}
+CELL_K1CAP = {"k1cap3": 3, "k1cap5": 5}
+ALL_CELLS = ["keep", "s1", "s2", "s3", "k1", "k2", "k3", "n2", "n3", "n4", "f25", "f50", "f75",
+             *CELL_K1H1, *CELL_K1CAP]
 
 
 def load_h1_share():
@@ -252,10 +256,10 @@ def simulate(p, variant, cell):
                 r["_px"] = px_idx.get(key)
                 by_symbol.setdefault(r["symbol"], []).append(r)
 
-    first_k = CELL_FIRST_K.get(cell)
+    first_k = CELL_FIRST_K.get(cell) or (1 if cell in CELL_K1H1 or cell in CELL_K1CAP else None)
     from_n = CELL_FROM_N.get(cell)
     setup = cell if cell in CELL_SETUP else None
-    h1_thr = CELL_H1.get(cell)
+    h1_thr = CELL_H1.get(CELL_K1H1.get(cell, cell))
     h1_share = load_h1_share() if h1_thr is not None else None
 
     keep = []
@@ -301,7 +305,7 @@ def simulate(p, variant, cell):
             elif setup == "s3":
                 if t0 < s3_ban_until:
                     excluded = True
-            elif h1_thr is not None:
+            if not excluded and h1_thr is not None:  # у прежних клеток h1_thr только без first_k — как было
                 sh = h1_share[(r["day_utc"], symbol, r["signal_index"])]
                 if sh is None or sh < h1_thr:
                     excluded = True
@@ -344,8 +348,9 @@ def run_cell(p, kn, variant, cell, results, tag=""):
     keep_path = os.path.join(OUT_ROOT, f"h9r-{variant}{tag}-{cell}", "keep.csv")
     p.write_keep(keep, keep_path)
     outs = p.busy_replay_for(variant, f"h9r{tag}-{cell}", keep_path)
-    ps, co = p.portfolio_sim_for(variant, f"h9r{tag}-{cell}", outs, max_pos=0)
-    results[cell] = p.kpi_of(kn, co, variant)
+    cap = CELL_K1CAP.get(cell, 0)
+    ps, co = p.portfolio_sim_for(variant, f"h9r{tag}-{cell}", outs, max_pos=cap)
+    results[cell] = p.kpi_of(kn, co, variant, cap=cap)
     print(f"{cell}: n_signals_kept={len(keep)} kpi={results[cell]}", flush=True)
 
 
