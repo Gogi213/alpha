@@ -14,9 +14,16 @@
 
     python3 p07-h1-read.py --month jan --data-gate
     python3 p07-h1-read.py --month jan --out ~/alpha/tmp-p07/h1-read/jan.json
+    python3 p07-h1-read.py --half ~/alpha/tmp-p07/h1-read/half.json   # после всех шести `<мес>.json`
+
+Сверх пути июля (поправка 7, Судья 2d8648b): пул месяца — монета с первых своих суток (`POOL_FILTER`); в json месяца —
+`daily_usd` форм, пары по суткам (Δ$ бутстрепом, Δ доли и Δ доли без каждых суток: база Г-85б − главный, K≤1 − база
+Г-85б; B1–B3 июля сняты — денежных вердиктов нет), монеты пула и поздние, холодный старт, строки п. 5; `--half` — F
+и вердикт главного и базы Г-85б, сумма $ по 181 суткам (блок 6), месяцев в минусе.
 """
 import calendar
 import importlib.util
+import json
 import os
 import sys
 
@@ -74,7 +81,7 @@ def setup(jr, mon):
     jr.JUL_DAYS = [f"2026-{m:02d}-{d:02d}" for d in range(1, calendar.monthrange(2026, m)[1] + 1)]
     jr.FORMS = [f for f in jr.FORMS if f[0] != "a-base"]
     jr.CELL_DIRS = sorted({c for _, c, _, _ in jr.FORMS})
-    jr.PAIRS = [("b-k1", "b-base")]
+    jr.PAIRS = []  # пары — в post_month (поправка 7 п. 4)
     remap = {"2026-08-01": first, "2026-09-24": nxt, "2026-09-01": nxt}
 
     def patch(kn):
@@ -87,8 +94,115 @@ def setup(jr, mon):
     return home
 
 
+def first_days(jr):
+    """Монета -> первые сутки месяца, где у неё есть бинлог (пул месяца — поправка 7 п. 2)."""
+    first = {}
+    for day in jr.JUL_DAYS:
+        root = os.path.join(jr.JUL_HOME, "study", f"root-{day}")
+        if not os.path.isdir(root):
+            continue
+        suf = f"-{day}.binlog"
+        for f in os.listdir(root):
+            if f.endswith(suf):
+                first.setdefault(f[:-len(suf)], day)
+    return first
+
+
+def cold_days(jr):
+    """Сутки без довеска следующих (`--carry-root` не нашёл частей) — по grid-логу серии; 1-е число — без
+    переноса с предыдущих по построению (архив месяца отдельной эпохой)."""
+    out = [jr.JUL_DAYS[0]]
+    for day in jr.JUL_DAYS:
+        log = os.path.join(jr.GRID_LOGS, f"{jr.GRID_PREFIX}-{day}.grid.log")
+        if os.path.exists(log) and "довесок" not in open(log, encoding="utf-8", errors="replace").read():
+            out.append(day)
+    return sorted(set(out))
+
+
+PAIRS7 = [("b-base", "main"), ("b-k1", "b-base")]  # поправка 7 п. 4: описание, первая минус вторая
+NOTES7 = [
+    "пул выбран в сентябре (В-95): на январе — июне меньше монет (январь 54 против 73 в июле), монеты, снятые с "
+    "торгов до сентября, в пул не попали — отбор выживших, вывод не сильнее",
+    "суждение по точке на одном месяце, не статистика (§10)",
+]
+
+
+def closes_of(jr, name):
+    with open(os.path.join(jr.OUT_ROOT, name, "ps-closes.json"), encoding="utf-8") as fh:
+        c = json.load(fh)
+    return sorted(tuple(x) for x in c.get("cell", {}).get("июль", {}).get("0", []))
+
+
+def post_month(jr, mon, path, extra, first):
+    """Дописать в json месяца сверх пути июля (поправка 7): $/сутки, пары, пул, холодный старт, строки п. 5."""
+    pr = jr.load_mod("p07-read.py", "p07read")
+    kn = pr.load_mod(pr.KN_PATH, "kn")
+    orig_ms = jr.patch_july(kn)
+    with open(path, encoding="utf-8") as fh:
+        res = json.load(fh)
+    closes = {}
+    for name, *_ in jr.FORMS:
+        closes[name] = closes_of(jr, name)
+        res[name]["daily_usd"] = pr.daily_series(closes[name], jr.JUL_DAYS)[0]
+        res[name].pop("vs_base", None)  # B1–B3 июля — не здесь: поправка 7 — денежных вердиктов нет
+    pairs = {}
+    for a, b in PAIRS7:
+        ua, ub = res[a]["daily_usd"], res[b]["daily_usd"]
+        fa = (res[a]["kpi"] or {}).get("frac_gt_5d")
+        fb = (res[b]["kpi"] or {}).get("frac_gt_5d")
+        rows = jr.paired_b2(kn, orig_ms, closes[a], closes[b])
+        pairs[f"{a} - {b}"] = {
+            "d_usd": pr.block_boot([x - y for x, y in zip(ua, ub)]),
+            "d_frac": None if fa is None or fb is None else round(fa - fb, 3),
+            "d_frac_without_day": [{"day": r["day"], "d": None if r["cell"] is None or r["base"] is None
+                                    else round(r["cell"] - r["base"], 3)} for r in rows],
+        }
+    res["pairs"] = pairs
+    pool = sorted(s for s in first if s not in jr.DROP_SET)
+    res["_meta"].update({
+        "protocol": "П-07 поправка 7", "month": mon, "drop_no_candles": extra,
+        "pool_coins": len(pool), "pool_late": {s: d for s, d in first.items() if s in pool and d != jr.JUL_DAYS[0]},
+        "cold_start_days": cold_days(jr), "notes": NOTES7,
+        "hours_grid": f"{jr.JUL_DAYS[0]}..{len(jr.JUL_DAYS)} сут (все часы месяца)",
+    })
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        json.dump(res, fh, ensure_ascii=False, indent=1)
+
+
+def half(out):
+    """Полугодие (поправка 7 п. 3–4): F по главному и базе Г-85б, сумма $ по 181 суткам (блок 6), месяцев в минусе."""
+    jr = load_jul()
+    pr = jr.load_mod("p07-read.py", "p07read")
+    root = os.path.join(jr.HOME, "tmp-p07/h1-read")
+    months = {}
+    for mon in MONTHS:
+        p = os.path.join(root, f"{mon}.json")
+        if not os.path.exists(p):
+            raise SystemExit(f"нет {p} — полугодие только после всех шести месяцев")
+        with open(p, encoding="utf-8") as fh:
+            months[mon] = json.load(fh)
+    res = {"_meta": {"protocol": "П-07 поправка 7", "months": MONTHS, "notes": NOTES7}}
+    for name in ("main", "b-base", "b-k1", "a-fr1"):
+        units = [x for mon in MONTHS for x in months[mon][name]["daily_usd"]]
+        states = {mon: (months[mon][name]["kpi"] or {}).get("state") for mon in MONTHS}
+        month_usd = {mon: months[mon][name]["usd"]["est"] for mon in MONTHS}
+        row = {"usd": pr.block_boot(units), "months_minus": sum(v < 0 for v in month_usd.values()),
+               "month_usd": month_usd, "states": states}
+        if name in ("main", "b-base"):
+            f = sum(v == "не проходит" for v in states.values())
+            row["F"] = f
+            row["verdict"] = ("не держит вне выборки" if f >= 3 else "июль — исключение" if f <= 1 else "не ясно")
+        res[name] = row
+    with open(out, "w", encoding="utf-8", newline="") as fh:
+        json.dump(res, fh, ensure_ascii=False, indent=1)
+    print(out)
+    print("готово")
+
+
 def main():
     args = sys.argv[1:]
+    if "--half" in args:
+        return half(args[args.index("--half") + 1])
     if "--month" not in args:
         raise SystemExit("нужен --month jan|feb|mar|apr|may|jun")
     i = args.index("--month")
@@ -98,13 +212,21 @@ def main():
     del args[i:i + 2]
     jr = load_jul()
     setup(jr, mon)
+    first = first_days(jr)
+    jr.POOL_FILTER = lambda pool, day, root: [x for x in pool if x in first and first[x] <= day]
     extra = no_candle_coins(jr)
     if extra:
         jr.DROP = ",".join(sorted(jr.DROP_SET | set(extra)))
         jr.DROP_SET = set(jr.DROP.split(","))
         print(f"{mon}: монеты без минутных свечей (dc250dc) — вон на весь месяц: {' '.join(extra)}")
     sys.argv = [sys.argv[0]] + args
-    jr.main()
+    try:
+        jr.main()
+    except SystemExit as e:
+        if e.code not in (None, 0) or "--out" not in args:
+            raise
+    if "--out" in args:
+        post_month(jr, mon, args[args.index("--out") + 1], extra, first)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,7 @@ JUL_HOME = os.path.join(HOME, "epochs/e-jul")
 OUT_ROOT = os.path.join(HOME, "tmp-p07/jul-read")
 GRID_LOGS = os.path.join(HOME, "tmp-p07/cells-by-day")
 GRID_PREFIX = "jul"  # серия `p07-jul-cells.py`; `p07-h1-read.py` подменяет на месяц
+POOL_FILTER = None  # (pool, day, root) -> pool; `p07-h1-read.py`: монета в пуле с первых своих суток месяца
 SET_ = "t-bid-btc4h-q1"
 JUL_DAYS = [f"2026-07-{d:02d}" for d in range(1, 32)]
 DROP = "TRXUSDT,KORUUSDT"  # KORUUSDT — Судья dc250dc: нет свечей до 15.07 10:44 → нет σ; вне пула всех пяти форм на весь июль
@@ -118,6 +119,8 @@ def day_gate(day):
         with open(inst, encoding="utf-8") as fh:
             pool = [l.split(",", 1)[0].strip() for l in fh.read().splitlines()[1:] if l.strip()]
         pool = [s for s in pool if s not in DROP_SET]
+        if POOL_FILTER is not None:
+            pool = POOL_FILTER(pool, day, root)
         miss = 0
         for s in pool:
             st = os.path.join(root, f"verify-{s}.status")
