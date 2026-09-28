@@ -109,6 +109,92 @@ def axis_of(suf, axes):
     return None
 
 
+TK009_GROUP = "Г-85б K≤1 — пачка TK-009 (авг/сен, найдено поиском)"
+TK009_T9 = {"market": "рынок (Г-86)", "early1": "ранний выход 1 с (Г-110)", "early2": "ранний выход 2 с (Г-110)",
+            "early3": "ранний выход 3 с (Г-110)", "ttl60": "TTL 60 с (Г-129)", "ttl300": "TTL 300 с (Г-129)",
+            "gone50be": "стена −50 % → б/у (П-04)", "gone90be": "стена −90 % → б/у (П-04)",
+            "gone50tr1": "стена −50 % → трейл 1 (П-04)", "gone90tr1": "стена −90 % → трейл 1 (П-04)", "touch": "касание (Г-147)"}
+
+
+def tk009_cell(suf):
+    """Суффикс каталога пачки TK-009 → (имя клетки в tk009-batch.json, подпись оси, кнопка) или None.
+    h9r-p07b-t9-market-k1 → p07b-t9-market; h9r-p07b-h3-25000-k1 → p07b-h3-25000; h9r-p07b-base-k1f25 → k1f25;
+    h9r-p07b-base-k1 → «база K≤1» (= p07b:h9r-k1, ось None)."""
+    if not suf.startswith("h9r-p07b-"):
+        return None
+    body = suf[len("h9r-"):]
+    if body == "p07b-base-k1":
+        return "база K≤1", None, None
+    if body.startswith("p07b-base-k1"):
+        v = body[len("p07b-base-k1"):]
+        if v.startswith("f"):
+            return "k1" + v, "K≤1 × H1 порог f", v
+        return "k1" + v, "K≤1 × H10 потолок позиций", "≤ " + v[3:]
+    assert body.endswith("-k1"), suf
+    cell = body[:-3]
+    rest = cell[len("p07b-"):]
+    if rest.startswith("t9-"):
+        return cell, "K≤1 × пачка TK-009", TK009_T9[rest[3:]]
+    ax, val = rest.split("-", 1)
+    lab = next(l for pre, l, _ in AXES if pre == ax + "-")
+    return cell, "K≤1 × " + lab, ("$" + str(int(val) // 1000) + "k") if ax == "h3" else val.replace(".", ",")
+
+
+def add_tk009(D, B, T, pos, dep, spans):
+    """TK-009 (v37): только добавить клетки пачки TK-009 (каталоги h9-b-h9r-p07b-*) отдельной группой; прежние варианты,
+    строки и данные не трогаются. Статус — §10 из tk009-batch (все candidate_rule = false); база K≤1 = p07b:h9r-k1."""
+    grid = lambda b, pk: next(g for g in b["grid"] if g["epoch"] == RU[pk])
+    cells, lines, metas, seen = T["cells"], {}, [], set()
+    note = "кандидатов на июль нет; описание, найдено поиском, П-07 поправка 6 (" + T["note"] + ")"
+    for name, b in sorted(B.items()):
+        if not name.startswith("h9-b-"):
+            continue
+        side, suf = suffix(name)
+        c = tk009_cell(suf)
+        if c is None:
+            continue
+        cell, lab, btn = c
+        seen.add(cell)
+        ref = cells[cell]
+        for pk in RU:
+            g = grid(b, pk)
+            assert g["n"] == ref["n"][pk] and abs(g["total_usd"] - ref["usd"][pk]) <= 0.02, (cell, pk, g["n"], g["total_usd"], ref["n"][pk], ref["usd"][pk])
+        if lab is None:  # база K≤1 уже есть на странице как p07b:h9r-k1 — сверить и не дублировать
+            for pk in RU:
+                acc = D["account"][pk]["p07b:h9r-k1"]
+                assert (acc["n"], acc["net_usd"]) == (grid(b, pk)["n"], round(grid(b, pk)["total_usd"], 2)), (pk, acc["n"], acc["net_usd"])
+            continue
+        assert ref["candidate_rule"] is False, cell
+        key = f"p07{side}:{suf}"
+        assert key not in D["account"]["aug"], key
+        meta = {"key": key, "group": "p07b", "pill": "Г-85б · " + lab + ": " + btn, "btn": btn, "axis": lab,
+                "label": "Г-85б (П-07), H14 K≤1 и клетка «" + lab + " = " + btn + "»: остальное как в базе Г-85б K≤1"
+                         " (p07b:h9r-k1). Счёт — portfolio-sim пачки TK-009 (busy-replay, без TRX), форма " + b["form"] +
+                         ", набор " + b["set"] + ("" if b["max_pos"] == 0 else f", потолок {b['max_pos']}"),
+                "status": ref["state"] + " · найдено поиском, не кандидат на июль (TK-009)",
+                "kpi_note": "TK-009 (docs/findings/tk009-batch-2026-09-28.md): §10 «" + ref["state"] + "», правило кандидата — нет; " + note,
+                "trades_note": b.get("trades_note") or "список сделок на странице только у главных и кандидатов (размер страницы ≤ 14 МБ)"}
+        for pk in RU:
+            D["account"][pk][key] = merge.account_summary(grid(b, pk), dep, spans[pk])
+            if b["trades"]:
+                D["kpi"][pk][key] = merge.trade_stats(b["trades"][pk], pos, dep, spans[pk])
+        if b["trades"]:  # сделки клеток П-07 на странице не хранятся (как в v33+), kpi по сделкам — остаётся
+            D["kpi"]["augsep"][key] = merge.trade_stats(b["trades"]["aug"] + b["trades"]["sep"], pos, dep, spans["augsep"])
+        D["account"]["augsep"][key] = acc_augsep(D["account"]["aug"][key], D["account"]["sep"][key], dep, spans["aug"], spans["sep"])
+        meta["n_closes"] = {pk: len(b["closes"][pk]) for pk in RU}
+        closes = {pk: [tuple(x) for x in b["closes"][pk]] for pk in RU}
+        closes["augsep"] = closes["aug"] + closes["sep"]
+        D["nh"]["by_variant"][key] = ap07.by_variant(closes)
+        metas.append(meta)
+        lines.setdefault(lab, []).append(key)
+    miss = sorted(set(cells) - seen)
+    assert not miss, ("клетки tk009 без каталога", miss)
+    D["variants"] += metas
+    order = ["K≤1 × пачка TK-009"] + ["K≤1 × " + l for _, l, _ in AXES] + ["K≤1 × H1 порог f", "K≤1 × H10 потолок позиций"]
+    D["vrows"].append({"title": TK009_GROUP, "note": note, "lines": [{"axis": l, "keys": lines[l]} for l in order if l in lines]})
+    return metas
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", required=True)
@@ -116,9 +202,22 @@ def main():
     ap.add_argument("--stage12", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--trades-max-mb", type=float, default=14.0)
+    ap.add_argument("--tk009", help="TK-009: только добавить клетки пачки (tk009-batch-*.json), прежнее не трогать")
     a = ap.parse_args()
     D = json.load(open(a.data, encoding="utf-8"))
     B = json.load(open(a.dump, encoding="utf-8"))
+    if a.tk009:
+        spans = {}
+        for p in D["periods"]:
+            d0 = dt.datetime.strptime(p["from"], "%Y-%m-%d")
+            spans[p["key"]] = int(((dt.datetime.strptime(p["to"], "%Y-%m-%d") - d0).days + 1) * 1440)
+        metas = add_tk009(D, B, json.load(open(a.tk009, encoding="utf-8")), D["position_usd"], D["deposit_usd"], spans)
+        D["generated_utc"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        s = json.dumps(D, ensure_ascii=False, separators=(",", ":"))
+        open(a.out, "w", encoding="utf-8").write(s)
+        print(a.out, f"{len(s.encode('utf-8')) / 1e6:.1f} МБ", "добавлено клеток TK-009:", len(metas),
+              "строки:", [(l["axis"], len(l["keys"])) for l in D["vrows"][-1]["lines"]])
+        return
     S12 = json.load(open(a.stage12, encoding="utf-8"))["cells"]
     grid = lambda b, pk: next(g for g in b["grid"] if g["epoch"] == RU[pk])
     for base, key in (("read-a-base", "g85"), ("read-b-base", "g85b")):
