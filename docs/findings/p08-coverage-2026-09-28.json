@@ -1,0 +1,600 @@
+{
+ "protocol": "docs/research/P-08-new-code-7.md §12 п. 9, 17 (Судья 7ee1483, 128d8f6); исход не читался; Судья 11:31 — охват принят, m_family = 12",
+ "signals_b1": {
+  "aug": 3467,
+  "sep": 568
+ },
+ "b1_trades": {
+  "aug": 424,
+  "sep": 141
+ },
+ "cells": [
+  {
+   "cell": "p08-g57-rv",
+   "sub": "g57",
+   "role": "основная",
+   "feature": "coin_rv_1h",
+   "op": ">",
+   "thr": 46,
+   "f": {
+    "aug": 0.548,
+    "sep": 0.7923
+   },
+   "expected_trades": {
+    "aug": 232.4,
+    "sep": 111.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g57-rv",
+    "op": ">",
+    "thr": 46,
+    "f": {
+     "aug": 0.548,
+     "sep": 0.7923
+    },
+    "expected_trades": {
+     "aug": 232.4,
+     "sep": 111.7
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g57-rng",
+   "sub": "g57",
+   "role": "сосед",
+   "feature": "coin_range_1h",
+   "op": ">",
+   "thr": 54,
+   "f": {
+    "aug": 0.5702,
+    "sep": 0.794
+   },
+   "expected_trades": {
+    "aug": 241.8,
+    "sep": 112.0
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g57-rng",
+    "op": ">",
+    "thr": 54,
+    "f": {
+     "aug": 0.5702,
+     "sep": 0.794
+    },
+    "expected_trades": {
+     "aug": 241.8,
+     "sep": 112.0
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g78-q33",
+   "sub": "g78",
+   "role": "основная",
+   "feature": "coin_minus_btc_15m",
+   "op": "<=",
+   "thr": -13.134246,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.4208
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 59.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g78-q33",
+    "op": "<=",
+    "thr": -13.134246,
+    "f": {
+     "aug": 0.3334,
+     "sep": 0.4208
+    },
+    "expected_trades": {
+     "aug": 141.4,
+     "sep": 59.3
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g78-25",
+   "sub": "g78",
+   "role": "сосед",
+   "feature": "coin_minus_btc_15m",
+   "op": "<=",
+   "thr": -25,
+   "f": {
+    "aug": 0.1578,
+    "sep": 0.2359
+   },
+   "expected_trades": {
+    "aug": 66.9,
+    "sep": 33.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g78-25",
+    "op": "<=",
+    "thr": -25,
+    "f": {
+     "aug": 0.1578,
+     "sep": 0.2359
+    },
+    "expected_trades": {
+     "aug": 66.9,
+     "sep": 33.3
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g126-5",
+   "sub": "g126",
+   "role": "основная",
+   "feature": "n_other_signal_15m",
+   "op": "<",
+   "thr": 5,
+   "f": {
+    "aug": 0.3957,
+    "sep": 0.8961
+   },
+   "expected_trades": {
+    "aug": 167.8,
+    "sep": 126.4
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g126-5",
+    "op": "<",
+    "thr": 5,
+    "f": {
+     "aug": 0.3957,
+     "sep": 0.8961
+    },
+    "expected_trades": {
+     "aug": 167.8,
+     "sep": 126.4
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g126-10",
+   "sub": "g126",
+   "role": "сосед",
+   "feature": "n_other_signal_15m",
+   "op": "<",
+   "thr": 10,
+   "f": {
+    "aug": 0.732,
+    "sep": 0.9806
+   },
+   "expected_trades": {
+    "aug": 310.4,
+    "sep": 138.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "aug_rank": 2312,
+   "decision": "заменена",
+   "final": {
+    "name": "p08-g126-q67",
+    "op": "<=",
+    "thr": 8.0,
+    "f": {
+     "aug": 0.6718,
+     "sep": 0.963
+    },
+    "expected_trades": {
+     "aug": 284.8,
+     "sep": 135.8
+    },
+    "lt30_label": false,
+    "gt90_label": true
+   }
+  },
+  {
+   "cell": "p08-g36-a",
+   "sub": "g36",
+   "role": "основная",
+   "feature": "g36_ratio",
+   "op": ">=",
+   "thr": 1.0,
+   "f": {
+    "aug": 0.0,
+    "sep": 0.0
+   },
+   "expected_trades": {
+    "aug": 0.0,
+    "sep": 0.0
+   },
+   "dead_lt30": true,
+   "mirror_gt90": false,
+   "aug_rank": 1156,
+   "decision": "заменена",
+   "final": {
+    "name": "p08-g36-pos",
+    "op": ">",
+    "thr": 0.0,
+    "f": {
+     "aug": 0.0782,
+     "sep": 0.0898
+    },
+    "expected_trades": {
+     "aug": 33.2,
+     "sep": 12.7
+    },
+    "lt30_label": true,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g36-b",
+   "sub": "g36",
+   "role": "сосед",
+   "feature": "g36_ratio",
+   "op": ">=",
+   "thr": 0.46,
+   "f": {
+    "aug": 0.0035,
+    "sep": 0.0035
+   },
+   "expected_trades": {
+    "aug": 1.5,
+    "sep": 0.5
+   },
+   "dead_lt30": true,
+   "mirror_gt90": false,
+   "aug_rank": 2312,
+   "decision": "заменена — совпала с p08-g36-pos, одна клетка (−1 испытание)",
+   "final": {
+    "name": "p08-g36-pos",
+    "op": ">",
+    "thr": 0.0,
+    "f": {
+     "aug": 0.0782,
+     "sep": 0.0898
+    },
+    "expected_trades": {
+     "aug": 33.2,
+     "sep": 12.7
+    },
+    "lt30_label": true,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g55-20",
+   "sub": "g55",
+   "role": "основная",
+   "feature": "g55_eat_share",
+   "op": "skip>=",
+   "thr": 0.2,
+   "f": {
+    "aug": 0.9954,
+    "sep": 0.9877
+   },
+   "expected_trades": {
+    "aug": 422.0,
+    "sep": 139.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "aug_share_eat_gt0": 0.0164,
+   "decision": "заменена",
+   "final": {
+    "name": "p08-g55-any",
+    "op": "skip>",
+    "thr": 0.0,
+    "f": {
+     "aug": 0.9862,
+     "sep": 0.9754
+    },
+    "expected_trades": {
+     "aug": 418.1,
+     "sep": 137.5
+    },
+    "lt30_label": false,
+    "gt90_label": true,
+    "changed_share": {
+     "aug": 0.0138,
+     "sep": 0.0246
+    }
+   }
+  },
+  {
+   "cell": "p08-g55-50",
+   "sub": "g55",
+   "role": "сосед",
+   "feature": "g55_eat_share",
+   "op": "skip>=",
+   "thr": 0.5,
+   "f": {
+    "aug": 0.9986,
+    "sep": 0.9982
+   },
+   "expected_trades": {
+    "aug": 423.4,
+    "sep": 140.8
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "aug_share_eat_gt0": 0.0164,
+   "decision": "заменена — совпала с p08-g55-any, одна клетка (−1 испытание)",
+   "final": {
+    "name": "p08-g55-any",
+    "op": "skip>",
+    "thr": 0.0,
+    "f": {
+     "aug": 0.9862,
+     "sep": 0.9754
+    },
+    "expected_trades": {
+     "aug": 418.1,
+     "sep": 137.5
+    },
+    "lt30_label": false,
+    "gt90_label": true,
+    "changed_share": {
+     "aug": 0.0138,
+     "sep": 0.0246
+    }
+   }
+  },
+  {
+   "cell": "p08-g140-30",
+   "sub": "g140",
+   "role": "основная",
+   "feature": "g140_pool_share",
+   "op": "<",
+   "thr": 0.3,
+   "f": {
+    "aug": 0.9296,
+    "sep": 0.9525
+   },
+   "expected_trades": {
+    "aug": 394.2,
+    "sep": 134.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "aug_rank": 1156,
+   "decision": "заменена",
+   "final": {
+    "name": "p08-g140-q33",
+    "op": "<=",
+    "thr": 0.026667,
+    "f": {
+     "aug": 0.4009,
+     "sep": 0.456
+    },
+    "expected_trades": {
+     "aug": 170.0,
+     "sep": 64.3
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g140-50",
+   "sub": "g140",
+   "role": "сосед",
+   "feature": "g140_pool_share",
+   "op": "<",
+   "thr": 0.5,
+   "f": {
+    "aug": 0.9726,
+    "sep": 0.9842
+   },
+   "expected_trades": {
+    "aug": 412.4,
+    "sep": 138.8
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "aug_rank": 2312,
+   "decision": "заменена",
+   "final": {
+    "name": "p08-g140-q67",
+    "op": "<=",
+    "thr": 0.075758,
+    "f": {
+     "aug": 0.683,
+     "sep": 0.7782
+    },
+    "expected_trades": {
+     "aug": 289.6,
+     "sep": 109.7
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g07-up",
+   "sub": "g07",
+   "role": "основная",
+   "feature": "g07_vs_up",
+   "op": ">=",
+   "thr": 0,
+   "f": {
+    "aug": 0.3421,
+    "sep": 0.1989
+   },
+   "expected_trades": {
+    "aug": 145.0,
+    "sep": 28.1
+   },
+   "dead_lt30": true,
+   "mirror_gt90": false,
+   "judge_pending": "решено: без изменений",
+   "decision": "без изменений (Судья 11:29/11:31: клетка уже — терциль августа своей монеты; ярлык «в сентябре мало сделок, ожид. 28 < 30» — описание, В-146)",
+   "final": {
+    "name": "p08-g07-up",
+    "op": ">=",
+    "thr": 0,
+    "f": {
+     "aug": 0.3421,
+     "sep": 0.1989
+    },
+    "expected_trades": {
+     "aug": 145.1,
+     "sep": 28.0
+    },
+    "lt30_label": true,
+    "gt90_label": false
+   }
+  },
+  {
+   "cell": "p08-g07-mid",
+   "sub": "g07",
+   "role": "сосед",
+   "feature": "g07_vs_mid",
+   "op": ">=",
+   "thr": 0,
+   "f": {
+    "aug": 0.67,
+    "sep": 0.4208
+   },
+   "expected_trades": {
+    "aug": 284.1,
+    "sep": 59.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "final": {
+    "name": "p08-g07-mid",
+    "op": ">=",
+    "thr": 0,
+    "f": {
+     "aug": 0.67,
+     "sep": 0.4208
+    },
+    "expected_trades": {
+     "aug": 284.1,
+     "sep": 59.3
+    },
+    "lt30_label": false,
+    "gt90_label": false
+   }
+  }
+ ],
+ "final": {
+  "g57": [
+   {
+    "name": "p08-g57-rv",
+    "feature": "coin_rv_1h",
+    "op": ">",
+    "thr": 46
+   },
+   {
+    "name": "p08-g57-rng",
+    "feature": "coin_range_1h",
+    "op": ">",
+    "thr": 54
+   }
+  ],
+  "g78": [
+   {
+    "name": "p08-g78-q33",
+    "feature": "coin_minus_btc_15m",
+    "op": "<=",
+    "thr": -13.134246
+   },
+   {
+    "name": "p08-g78-25",
+    "feature": "coin_minus_btc_15m",
+    "op": "<=",
+    "thr": -25
+   }
+  ],
+  "g126": [
+   {
+    "name": "p08-g126-5",
+    "feature": "n_other_signal_15m",
+    "op": "<",
+    "thr": 5
+   },
+   {
+    "name": "p08-g126-q67",
+    "feature": "n_other_signal_15m",
+    "op": "<=",
+    "thr": 8.0
+   }
+  ],
+  "g36": [
+   {
+    "name": "p08-g36-pos",
+    "feature": "g36_ratio",
+    "op": ">",
+    "thr": 0.0
+   }
+  ],
+  "g55": [
+   {
+    "name": "p08-g55-any",
+    "feature": "g55_eat_share",
+    "op": "skip>",
+    "thr": 0.0
+   }
+  ],
+  "g140": [
+   {
+    "name": "p08-g140-q33",
+    "feature": "g140_pool_share",
+    "op": "<=",
+    "thr": 0.026667
+   },
+   {
+    "name": "p08-g140-q67",
+    "feature": "g140_pool_share",
+    "op": "<=",
+    "thr": 0.075758
+   }
+  ],
+  "g07": [
+   {
+    "name": "p08-g07-up",
+    "feature": "g07_vs_up",
+    "op": ">=",
+    "thr": 0
+   },
+   {
+    "name": "p08-g07-mid",
+    "feature": "g07_vs_mid",
+    "op": ">=",
+    "thr": 0
+   }
+  ]
+ },
+ "m_family": 12,
+ "extra": {
+  "g140_abs_ge_030_share": {
+   "aug": 0.0704,
+   "sep": 0.0475
+  }
+ }
+}
