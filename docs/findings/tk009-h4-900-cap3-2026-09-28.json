@@ -1,0 +1,224 @@
+{
+ "p07b-h4-900": {
+  "augsep_cap0": {
+   "история": {
+    "max_pos": 0,
+    "peak_n": 23,
+    "peak_usd": 7440.0,
+    "n": 359,
+    "usd": 110.84,
+    "skip_pos": 0
+   },
+   "запись": {
+    "max_pos": 0,
+    "peak_n": 15,
+    "peak_usd": 3693.0,
+    "n": 112,
+    "usd": 12.12,
+    "skip_pos": 0
+   },
+   "август": {
+    "max_pos": 0,
+    "peak_n": 29,
+    "peak_usd": 10497.0,
+    "n": 746,
+    "usd": 285.91,
+    "skip_pos": 0
+   },
+   "сентябрь": {
+    "max_pos": 0,
+    "peak_n": 23,
+    "peak_usd": 7440.0,
+    "n": 471,
+    "usd": 122.96,
+    "skip_pos": 0
+   }
+  },
+  "augsep_cap3": {
+   "история": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1376.0,
+    "n": 127,
+    "usd": 40.53,
+    "skip_pos": 240
+   },
+   "запись": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1376.0,
+    "n": 57,
+    "usd": 41.63,
+    "skip_pos": 56
+   },
+   "август": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1499.0,
+    "n": 217,
+    "usd": 66.99,
+    "skip_pos": 544
+   },
+   "сентябрь": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1376.0,
+    "n": 184,
+    "usd": 82.16,
+    "skip_pos": 296
+   }
+  },
+  "augsep_cap3_kpi": {
+   "aug": {
+    "n": 217,
+    "usd": 66.99,
+    "frac_gt_5d": 0.601,
+    "n_main": 744
+   },
+   "sep": {
+    "n": 184,
+    "usd": 82.16,
+    "frac_gt_5d": 0.088,
+    "n_main": 433
+   }
+  },
+  "src": "/home/deck/alpha/tmp-p07/h9-b-h9r-p07b-h4-900-k1",
+  "jul_cap0": {
+   "июль": {
+    "max_pos": 0,
+    "peak_n": 23,
+    "peak_usd": 8608.0,
+    "n": 916,
+    "usd": 358.46,
+    "skip_pos": 0
+   }
+  },
+  "jul_cap3": {
+   "июль": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1500.0,
+    "n": 244,
+    "usd": 72.39,
+    "skip_pos": 686
+   }
+  },
+  "jul_cap3_kpi": {
+   "frac_gt_5d": 0.51,
+   "state": "не проходит",
+   "max_wait_text": "297.6 ч"
+  }
+ },
+ "p07b-base": {
+  "augsep_cap0": {
+   "история": {
+    "max_pos": 0,
+    "peak_n": 9,
+    "peak_usd": 3621.0,
+    "n": 77,
+    "usd": 80.65,
+    "skip_pos": 0
+   },
+   "запись": {
+    "max_pos": 0,
+    "peak_n": 3,
+    "peak_usd": 1376.0,
+    "n": 16,
+    "usd": 23.97,
+    "skip_pos": 0
+   },
+   "август": {
+    "max_pos": 0,
+    "peak_n": 17,
+    "peak_usd": 6244.0,
+    "n": 237,
+    "usd": 143.6,
+    "skip_pos": 0
+   },
+   "сентябрь": {
+    "max_pos": 0,
+    "peak_n": 9,
+    "peak_usd": 3621.0,
+    "n": 93,
+    "usd": 104.62,
+    "skip_pos": 0
+   }
+  },
+  "augsep_cap3": {
+   "история": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1499.0,
+    "n": 57,
+    "usd": 81.74,
+    "skip_pos": 20
+   },
+   "запись": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1376.0,
+    "n": 16,
+    "usd": 23.97,
+    "skip_pos": 0
+   },
+   "август": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1371.0,
+    "n": 116,
+    "usd": -15.99,
+    "skip_pos": 122
+   },
+   "сентябрь": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1499.0,
+    "n": 73,
+    "usd": 105.71,
+    "skip_pos": 20
+   }
+  },
+  "augsep_cap3_kpi": {
+   "aug": {
+    "n": 116,
+    "usd": -15.99,
+    "frac_gt_5d": 0.368,
+    "n_main": 744
+   },
+   "sep": {
+    "n": 73,
+    "usd": 105.71,
+    "frac_gt_5d": 0.0,
+    "n_main": 433
+   }
+  },
+  "src": "/home/deck/alpha/tmp-p07/h9-b-h9r-p07b-base-k1"
+ },
+ "b-k1": {
+  "jul_cap0": {
+   "июль": {
+    "max_pos": 0,
+    "peak_n": 14,
+    "peak_usd": 4496.0,
+    "n": 260,
+    "usd": -37.77,
+    "skip_pos": 0
+   }
+  },
+  "jul_cap3": {
+   "июль": {
+    "max_pos": 3,
+    "peak_n": 3,
+    "peak_usd": 1501.0,
+    "n": 154,
+    "usd": -18.64,
+    "skip_pos": 108
+   }
+  },
+  "jul_cap3_kpi": {
+   "frac_gt_5d": 0.416,
+   "state": "не проходит",
+   "max_wait_text": "≥ 378.0 ч"
+  }
+ }
+}
