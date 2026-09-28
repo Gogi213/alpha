@@ -1,0 +1,847 @@
+{
+ "protocol": "docs/research/P-08-new-code-7.md §6, §10.2 (В-146), §12 п. 18",
+ "m_holm": 12,
+ "note": "август/сентябрь — развитие, не проверка; Г-36 найдена на этих данных; Г-78 мера 15 мин ≠ мере отбора",
+ "bases": {
+  "B1": {
+   "cap": 0,
+   "n": {
+    "aug": 424,
+    "sep": 141
+   },
+   "usd": {
+    "aug": 171.2,
+    "sep": 116.38
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   }
+  },
+  "B2": {
+   "cap": 3,
+   "n": {
+    "aug": 164,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 21.03,
+    "sep": 125.95
+   },
+   "frac": {
+    "aug": 0.489,
+    "sep": 0.132
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     335.9,
+     false
+    ],
+    "sep": [
+     176.9,
+     false
+    ]
+   }
+  }
+ },
+ "cells": {
+  "p08-g57-rv": {
+   "cap": 0,
+   "n": {
+    "aug": 309,
+    "sep": 123
+   },
+   "usd": {
+    "aug": 63.12,
+    "sep": 105.1
+   },
+   "frac": {
+    "aug": 0.317,
+    "sep": 0.296
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     337.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.729,
+    "sep": 0.872
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -105.18,
+     "ci95": [
+      -228.85,
+      -3.88
+     ]
+    },
+    "sep": {
+     "est": -11.28,
+     "ci95": [
+      -36.2,
+      19.7
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.06555,
+    "sep": 0.43363
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": false
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g57-rng": {
+   "cap": 0,
+   "n": {
+    "aug": 327,
+    "sep": 122
+   },
+   "usd": {
+    "aug": 123.08,
+    "sep": 104.71
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.132
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     335.9,
+     false
+    ],
+    "sep": [
+     176.9,
+     false
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.771,
+    "sep": 0.865
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -45.22,
+     "ci95": [
+      -168.56,
+      55.83
+     ]
+    },
+    "sep": {
+     "est": -11.67,
+     "ci95": [
+      -37.86,
+      20.62
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.43913,
+    "sep": 0.44598
+   },
+   "frac_le_base": {
+    "aug": true,
+    "sep": true
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g78-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 220,
+    "sep": 93
+   },
+   "usd": {
+    "aug": -9.48,
+    "sep": 99.48
+   },
+   "frac": {
+    "aug": 0.513,
+    "sep": 0.293
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     393.9,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.519,
+    "sep": 0.66
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -180.37,
+     "ci95": [
+      -442.63,
+      64.86
+     ]
+    },
+    "sep": {
+     "est": -16.9,
+     "ci95": [
+      -107.81,
+      75.44
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.16724,
+    "sep": 0.71756
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": false
+   },
+   "to_july": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g78-25": {
+   "cap": 0,
+   "n": {
+    "aug": 137,
+    "sep": 69
+   },
+   "usd": {
+    "aug": -41.21,
+    "sep": 122.78
+   },
+   "frac": {
+    "aug": 0.616,
+    "sep": 0.088
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     318.1,
+     false
+    ],
+    "sep": [
+     157.4,
+     false
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.323,
+    "sep": 0.489
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -212.68,
+     "ci95": [
+      -555.96,
+      96.73
+     ]
+    },
+    "sep": {
+     "est": 6.4,
+     "ci95": [
+      -128.35,
+      154.07
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.20584,
+    "sep": 0.93245
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": true
+   },
+   "to_july": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g126-5": {
+   "cap": 3,
+   "n": {
+    "aug": 155,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 13.42,
+    "sep": 123.54
+   },
+   "frac": {
+    "aug": 0.493,
+    "sep": 0.097
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     161.3,
+     false
+    ]
+   },
+   "base": "B2",
+   "coverage": {
+    "aug": 0.945,
+    "sep": 1.0
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -7.61,
+     "ci95": [
+      -37.42,
+      18.8
+     ]
+    },
+    "sep": {
+     "est": -2.41,
+     "ci95": [
+      -7.23,
+      0.0
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.60332,
+    "sep": 0.40768
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": true
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g126-q67": {
+   "cap": 3,
+   "n": {
+    "aug": 162,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 3.07,
+    "sep": 125.95
+   },
+   "frac": {
+    "aug": 0.493,
+    "sep": 0.132
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     335.9,
+     false
+    ],
+    "sep": [
+     176.9,
+     false
+    ]
+   },
+   "base": "B2",
+   "coverage": {
+    "aug": 0.988,
+    "sep": 1.0
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -17.96,
+     "ci95": [
+      -50.06,
+      3.63
+     ]
+    },
+    "sep": {
+     "est": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.18269,
+    "sep": 1.0
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": true
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g36-pos": {
+   "cap": 0,
+   "n": {
+    "aug": 98,
+    "sep": 27
+   },
+   "usd": {
+    "aug": 58.92,
+    "sep": 11.52
+   },
+   "frac": {
+    "aug": 0.152,
+    "sep": 0.307
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "EDGE",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     232.9,
+     false
+    ],
+    "sep": [
+     249.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.231,
+    "sep": 0.191
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -111.27,
+     "ci95": [
+      -460.25,
+      248.2
+     ]
+    },
+    "sep": {
+     "est": -104.86,
+     "ci95": [
+      -228.49,
+      15.17
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.53887,
+    "sep": 0.0921
+   },
+   "frac_le_base": {
+    "aug": true,
+    "sep": false
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g55-any": {
+   "cap": 0,
+   "n": {
+    "aug": 422,
+    "sep": 142
+   },
+   "usd": {
+    "aug": 184.68,
+    "sep": 116.86
+   },
+   "frac": {
+    "aug": 0.273,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "states": {
+    "aug": "EDGE",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.995,
+    "sep": 1.007
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 13.48,
+     "ci95": [
+      -0.38,
+      31.93
+     ]
+    },
+    "sep": {
+     "est": 0.48,
+     "ci95": [
+      -1.01,
+      2.45
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.13819,
+    "sep": 0.82476
+   },
+   "frac_le_base": {
+    "aug": true,
+    "sep": true
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g140-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 239,
+    "sep": 86
+   },
+   "usd": {
+    "aug": -19.83,
+    "sep": 91.36
+   },
+   "frac": {
+    "aug": 0.651,
+    "sep": 0.212
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     465.9,
+     false
+    ],
+    "sep": [
+     212.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.564,
+    "sep": 0.61
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -188.71,
+     "ci95": [
+      -460.44,
+      75.91
+     ]
+    },
+    "sep": {
+     "est": -25.02,
+     "ci95": [
+      -105.45,
+      46.67
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.17019,
+    "sep": 0.51932
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": true
+   },
+   "to_july": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g140-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 340,
+    "sep": 119
+   },
+   "usd": {
+    "aug": 79.5,
+    "sep": 81.02
+   },
+   "frac": {
+    "aug": 0.501,
+    "sep": 0.303
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "FAIL",
+    "sep": "EDGE"
+   },
+   "max_gap_h": {
+    "aug": [
+     397.4,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.802,
+    "sep": 0.844
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -88.8,
+     "ci95": [
+      -223.9,
+      38.98
+     ]
+    },
+    "sep": {
+     "est": -35.36,
+     "ci95": [
+      -98.77,
+      18.76
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.18544,
+    "sep": 0.24139
+   },
+   "frac_le_base": {
+    "aug": false,
+    "sep": false
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g07-up": {
+   "cap": 0,
+   "n": {
+    "aug": 201,
+    "sep": 33
+   },
+   "usd": {
+    "aug": 78.84,
+    "sep": -23.46
+   },
+   "frac": {
+    "aug": 0.105,
+    "sep": 0.469
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "EDGE",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     166.0,
+     false
+    ],
+    "sep": [
+     323.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.474,
+    "sep": 0.234
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -86.93,
+     "ci95": [
+      -431.09,
+      244.53
+     ]
+    },
+    "sep": {
+     "est": -139.84,
+     "ci95": [
+      -254.74,
+      -28.35
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.61832,
+    "sep": 0.014
+   },
+   "frac_le_base": {
+    "aug": true,
+    "sep": false
+   },
+   "to_july": false,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "p08-g07-mid": {
+   "cap": 0,
+   "n": {
+    "aug": 313,
+    "sep": 60
+   },
+   "usd": {
+    "aug": 157.68,
+    "sep": 26.72
+   },
+   "frac": {
+    "aug": 0.042,
+    "sep": 0.522
+   },
+   "state": "не проходит",
+   "states": {
+    "aug": "EDGE",
+    "sep": "FAIL"
+   },
+   "max_gap_h": {
+    "aug": [
+     137.1,
+     false
+    ],
+    "sep": [
+     346.0,
+     true
+    ]
+   },
+   "base": "B1",
+   "coverage": {
+    "aug": 0.738,
+    "sep": 0.426
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -8.86,
+     "ci95": [
+      -187.1,
+      186.09
+     ]
+    },
+    "sep": {
+     "est": -89.66,
+     "ci95": [
+      -154.1,
+      -20.13
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.9282,
+    "sep": 0.0086
+   },
+   "frac_le_base": {
+    "aug": true,
+    "sep": false
+   },
+   "to_july": true,
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  }
+ },
+ "to_july": [
+  "p08-g57-rv",
+  "p08-g57-rng",
+  "p08-g126-5",
+  "p08-g126-q67",
+  "p08-g36-pos",
+  "p08-g55-any",
+  "p08-g140-q67",
+  "p08-g07-mid"
+ ]
+}
