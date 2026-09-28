@@ -20,7 +20,7 @@
 
 Ворота данных (п. 2, `--data-gate`): по суткам —
   * `.done` у всех четырёх каталогов `b5/<клетка>/<сутки>/`;
-  * пул — символы `study/root-<сутки>/instruments.csv` без TRXUSDT (В-105); монета «с данными» — есть
+  * пул — символы `study/root-<сутки>/instruments.csv` без DROP (TRXUSDT — В-105, KORUUSDT — Судья dc250dc; их сигналы вычитаются и из n_no_sigma); монета «с данными» — есть
     `<SYM>-<сутки>.binlog` и `verify-<SYM>.status` == ok (тот же критерий K1, без которого `bounce-grid` отказывает
     монете); стоп — нет данных у > 10 % монет пула;
   * `n_no_sigma` — строка `bounce-grid` «n_no_sigma N из M сигналов» в `tmp-p07/cells-by-day/jul-<сутки>.grid.log`
@@ -34,6 +34,7 @@
     python3 ~/alpha/bin/p07-jul-read.py --out ~/alpha/tmp-p07/jul-read/jul-read.json
 """
 import argparse
+import csv
 import datetime as dt
 import importlib.util
 import json
@@ -49,7 +50,8 @@ OUT_ROOT = os.path.join(HOME, "tmp-p07/jul-read")
 GRID_LOGS = os.path.join(HOME, "tmp-p07/cells-by-day")
 SET_ = "t-bid-btc4h-q1"
 JUL_DAYS = [f"2026-07-{d:02d}" for d in range(1, 32)]
-DROP = "TRXUSDT"
+DROP = "TRXUSDT,KORUUSDT"  # KORUUSDT — Судья dc250dc: нет свечей до 15.07 10:44 → нет σ; вне пула всех пяти форм на весь июль
+DROP_SET = set(DROP.split(","))
 POOL_MISS_MAX = 0.10   # п. 2: нет данных у > 10 % монет пула — стоп
 NO_SIGMA_MAX = 0.01    # п. 2: n_no_sigma > 1 % сигналов — стоп
 MARGIN = 0.10          # п. 4: доля клетки <= доля базы − 0,10
@@ -82,6 +84,25 @@ def load_mod(name, alias):
 
 # ---------- ворота данных ----------
 
+def dropped_no_sigma(sym, day):
+    """(сигналов без σ, сигналов) монеты за сутки: строки кэша подходов D20; σ есть, если в таблице σ₂₄₀ есть
+    `window_end_ms = ⌊arm_ms / 1 мин⌋ · 1 мин` (`sigma-table.py`). Нет кэша — (0, 0): монета в проход не шла."""
+    ap = os.path.join(JUL_HOME, "study", "approaches", "D20", day, f"approaches-{sym}.csv")
+    if not os.path.exists(ap):
+        return 0, 0
+    sp = os.path.join(JUL_HOME, "study", "sigma240", f"sigma-{sym}.csv")
+    have = set()
+    if os.path.exists(sp):
+        with open(sp, encoding="utf-8") as fh:
+            have = {l.split(",", 1)[0] for l in fh.read().splitlines()[1:]}
+    n_no = n = 0
+    with open(ap, encoding="utf-8") as fh:
+        for r in csv.DictReader(l for l in fh if not l.startswith("#")):
+            n += 1
+            n_no += str(int(r["arm_ms"]) // 60000 * 60000) not in have
+    return n_no, n
+
+
 def day_gate(day):
     """Флаги стопа суток (пустой список — ok). Числа наружу не отдаются."""
     flags = []
@@ -95,7 +116,7 @@ def day_gate(day):
     else:
         with open(inst, encoding="utf-8") as fh:
             pool = [l.split(",", 1)[0].strip() for l in fh.read().splitlines()[1:] if l.strip()]
-        pool = [s for s in pool if s != DROP]
+        pool = [s for s in pool if s not in DROP_SET]
         miss = 0
         for s in pool:
             st = os.path.join(root, f"verify-{s}.status")
@@ -114,6 +135,10 @@ def day_gate(day):
         flags.append("нет строки n_no_sigma в grid-логе")
     else:
         n_no, n_sig = int(m[0]), int(m[1])
+        # монеты вне пула (DROP) из счёта ворот: их сигналы и сигналы без σ вычитаются (тот же E, что у bounce-grid)
+        for s in DROP_SET:
+            dn, ds = dropped_no_sigma(s, day)
+            n_no, n_sig = n_no - dn, n_sig - ds
         if n_no > NO_SIGMA_MAX * n_sig:
             flags.append("n_no_sigma > 1 % сигналов")
     return flags
