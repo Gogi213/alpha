@@ -247,6 +247,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   <div class="top-right tab-main">
   <section class="panel tab-main" id="panel-rank">
     <div class="panel-head"><h2>Все варианты</h2><span class="count" id="rank-count"></span></div>
+    <p class="note" id="rank-jul-note">Июль — проверка только у 5 форм TK-010 и 8 клеток П-08 (правило до чисел); у остальных — описание. Вариант, выбранный по июлю, — находка на июле, проверка — только на новых сутках (после сентября).</p>
     <div class="tools" id="chips"></div>
     <div class="tools"><input class="search" id="search" type="search" placeholder="поиск по имени" aria-label="Поиск по имени"></div>
     <div class="tscroll"><table id="rank"><thead></thead><tbody></tbody></table></div>
@@ -455,10 +456,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function rowOf(k) {
     const j = accFor("jul", k), a = accFor("aug", k), s = accFor("sep", k), b = accFor("augsep", k);
     const kj = kpiFrac(k, "jul"), ka = kpiFrac(k, "aug"), ks = kpiFrac(k, "sep");
-    const ks3 = [kj, ka, ks].filter(v => v != null);
+    const ks2 = [ka, ks].filter(v => v != null); // рейтинг по умолчанию — только авг/сен (условие Судьи TK-018): июль не влияет
     const st = statusOf(k);
     return {k, name: nameOf(k), group: GROUP[k], calc: hasAcc(k), kj, ka, ks,
-      worst: ks3.length ? Math.max(...ks3) : null, jul: !!j || kj != null, uj: j ? j.net_usd : null, nj: j ? j.n : null,
+      worst: ks2.length ? Math.max(...ks2) : null, jul: !!j || kj != null, uj: j ? j.net_usd : null, nj: j ? j.n : null,
       mxj: (() => { const g = kpi07For(k); return g && g.max_gap_h_jul != null ? {v: g.max_gap_h_jul / 24, cens: !!g.max_gap_censored_jul} : null; })(),
       ua: a ? a.net_usd : null, us: s ? s.net_usd : null, sum: a || s ? (a ? a.net_usd : 0) + (s ? s.net_usd : 0) : null,
       dd: b ? b.dd_pct : null, ddApprox: b ? b.dd_approx : false,
