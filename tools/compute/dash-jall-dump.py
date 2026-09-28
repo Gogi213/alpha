@@ -22,6 +22,10 @@ for name, r in res.items():
         co = json.load(open(os.path.join(d, "ps-closes.json"), encoding="utf-8"))
         v = P["variants"][0]
         grid = [g for g in P["grid"] if g["epoch"] == "июль"]
+        if not grid and r["n_trades"] == 0:  # ни одного сигнала за июль (read-a-h6-before: n_signals 0 во всех сутках)
+            rec.update(form=v["form"], set=v["set"], max_pos=None, grid=None, closes=[])
+            out[name] = rec
+            continue
         assert len(grid) == 1, (name, len(grid))
         g = grid[0]
         closes = co[v["name"]]["июль"][str(g["max_pos"])]
