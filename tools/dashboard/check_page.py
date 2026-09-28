@@ -71,7 +71,7 @@ def main():
             cell = lambda c: pg.inner_text(f"{row} [data-c='{c}']").strip()
             pg.click(f"{row} td.name")
             tile = lambda t: pg.inner_text(f"#tiles [data-t='{t}']").strip()
-            same = all(tile(t) == cell(t) for t in ["kpi-aug", "kpi-sep", "usd-aug", "usd-sep", "mx"])
+            same = all(tile(t) == cell(t) for t in ["kpi-jul", "kpi-aug", "kpi-sep", "usd-jul", "usd-aug", "usd-sep", "mx"])
             name_ok = pg.inner_text("#sel-name").strip() == pg.inner_text(f"{row} [data-c='name']").split(" · нет расчёта")[0].strip()
             sel_ok = "cur" in (pg.get_attribute(row, "class") or "").split()
             cur = path()
@@ -82,6 +82,17 @@ def main():
         mrow = "#rank tbody tr[data-k='btc4h_trail']"
         mx_row, mx_tile = pg.inner_text(f"{mrow} [data-c='mx']").strip(), pg.inner_text("#tiles [data-t='mx']").strip()
         check("главный: макс. до перехая 16,8 в строке и плитке", mx_row == "16,8" and mx_tile == "16,8", f"строка {mx_row}, плитка {mx_tile}")
+
+        # июль: есть в данных — период меняет график; нет — «—» и без ошибок
+        has_jul = pg.evaluate("[...document.querySelectorAll('#rank [data-c=usd-jul]')].some(e => e.textContent.trim() !== '—')")
+        before = path()
+        pg.click("#period button[data-period='jul']")
+        if has_jul:
+            check("июль есть: период «Июль» меняет график", path() is not None and path() != before)
+        else:
+            dash = pg.inner_text("#tiles [data-t='kpi-jul']").strip() == "—" and pg.inner_text("#tiles [data-t='usd-jul']").strip() == "—"
+            check("июля нет: плитка «—», график пуст, без ошибок", dash and path() is None and not errors, f"плитка «—» {dash}")
+        pg.click("#period button[data-period='augsep']")
 
         # период меняет график
         for per in ["sep", "aug", "augsep"]:

@@ -153,7 +153,7 @@ section.panel { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px 
 }
 
 /* плитки */
-.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; scroll-margin-top: 70px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; scroll-margin-top: 70px; }
 @media (max-width: 860px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; display: grid; gap: 3px; align-content: start; min-width: 0; }
 .tile .k { font: 500 11px/1.3 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
@@ -198,7 +198,9 @@ input.search { font: 13px var(--font-body); padding: 4px 10px; border-radius: 8p
 #rank thead th { white-space: normal; vertical-align: bottom; line-height: 1.25; }
 #rank th[data-s="mx"] { min-width: 64px; }
 #rank .badge { padding: 2px 7px; font-size: 11px; }
-td.kg { color: var(--good); font-weight: 600; } td.kb { color: var(--critical); }
+td.kg { color: var(--good); font-weight: 600; }
+#rank .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--ink-3); }
+#rank .dot.crit { background: var(--critical); } #rank .dot.ok { background: var(--good); } #rank .dot.warn { background: var(--warn); } td.kb { color: var(--critical); }
 .more { justify-self: start; font: 13px var(--font-body); padding: 5px 12px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface-2); color: var(--ink); cursor: pointer; }
 .count { color: var(--ink-3); font-size: 12px; }
 
@@ -444,16 +446,20 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const dd = ddScaled(x.dd_usd, x.dd_pct, k, ex); y.dd_pct = dd.v; y.dd_approx = dd.approx;
     return y;
   }
+  // июль (контракт data-v39): account.jul, kpi07.frac.jul, kpi07.max_gap_h_jul; без них — «—»
+  if (!D.periods.find(x => x.key === "jul")) D.periods.push({key: "jul", label: "Июль", from: "2026-07-01", to: "2026-07-31"});
   const accFor = (p, k, withDaily) => scaleAcc((D.account[p] || {})[k] || null, K(), p, k, withDaily);
-  const hasAcc = k => !!((D.account.aug || {})[k] || (D.account.sep || {})[k]);
+  const hasAcc = k => !!((D.account.jul || {})[k] || (D.account.aug || {})[k] || (D.account.sep || {})[k]);
 
   // ---------- строки таблицы: всё из account (portfolio-sim) и kpi07 ----------
   function rowOf(k) {
-    const a = accFor("aug", k), s = accFor("sep", k), b = accFor("augsep", k);
-    const ka = kpiFrac(k, "aug"), ks = kpiFrac(k, "sep");
+    const j = accFor("jul", k), a = accFor("aug", k), s = accFor("sep", k), b = accFor("augsep", k);
+    const kj = kpiFrac(k, "jul"), ka = kpiFrac(k, "aug"), ks = kpiFrac(k, "sep");
+    const ks3 = [kj, ka, ks].filter(v => v != null);
     const st = statusOf(k);
-    return {k, name: nameOf(k), group: GROUP[k], calc: hasAcc(k), ka, ks,
-      worst: ka == null && ks == null ? null : Math.max(ka == null ? -1 : ka, ks == null ? -1 : ks),
+    return {k, name: nameOf(k), group: GROUP[k], calc: hasAcc(k), kj, ka, ks,
+      worst: ks3.length ? Math.max(...ks3) : null, jul: !!j || kj != null, uj: j ? j.net_usd : null, nj: j ? j.n : null,
+      mxj: (() => { const g = kpi07For(k); return g && g.max_gap_h_jul != null ? {v: g.max_gap_h_jul / 24, cens: !!g.max_gap_censored_jul} : null; })(),
       ua: a ? a.net_usd : null, us: s ? s.net_usd : null, sum: a || s ? (a ? a.net_usd : 0) + (s ? s.net_usd : 0) : null,
       dd: b ? b.dd_pct : null, ddApprox: b ? b.dd_approx : false,
       mx: mxOf(k), na: a ? a.n : null, ns: s ? s.n : null, n: a || s ? (a ? a.n : 0) + (s ? s.n : 0) : null, st};
@@ -465,12 +471,12 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   const mxCls = m => m != null && m.v > 5 ? "neg" : "";
   const kpiCls = v => v == null ? "" : v > 0.10 ? "kb" : "kg";
   const ddTxt = r => r.dd == null ? "—" : (r.ddApprox ? "≈ " : "") + "−" + pctPlain(r.dd);
-  const passes = r => !isStage3(r.k) && r.ka != null && r.ks != null && r.ka <= 0.10 && r.ks <= 0.10;
+  const passes = r => !isStage3(r.k) && r.ka != null && r.ks != null && r.ka <= 0.10 && r.ks <= 0.10 && (r.kj == null || r.kj <= 0.10);
 
   // ---------- панель ----------
   function buildBar() {
     const per = document.getElementById("period");
-    per.innerHTML = [["aug", "Август"], ["sep", "Сентябрь"], ["augsep", "Авг + сен"]].map(([k, l]) => "<button data-period='" + k + "'>" + l + "</button>").join("");
+    per.innerHTML = [["jul", "Июль"], ["aug", "Август"], ["sep", "Сентябрь"], ["augsep", "Авг + сен"]].map(([k, l]) => "<button data-period='" + k + "'>" + l + "</button>").join("");
     per.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.period = b.dataset.period; render(); }));
     const sz = document.getElementById("size");
     sz.innerHTML = SIZES.map(z => "<button data-size='" + z + "' title='позиция $" + z.toLocaleString("ru-RU") + " на депозите $" + intFmt(D.deposit_usd) +
@@ -501,6 +507,8 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       return tile("kpi-" + mo, "Ожидание &gt; 5 сут · " + lab, "<span data-t='kpi-" + mo + "'>" + f2(v) + "</span>", v == null ? "" : v > 0.10 ? "bad" : "good",
         (v == null ? "нет KPI" : "порог 0,10") + " · главный " + f2(mv), TIP_KPI); };
     document.getElementById("tiles").innerHTML =
+      tile("jul", "Июль · ожидание · $", "<span data-t='kpi-jul' class='" + (r.kj == null ? "" : r.kj > 0.10 ? "neg" : "pos") + "'>" + f2(r.kj) + "</span><span class='muted'> · </span><span data-t='usd-jul' class='" + cls(r.uj) + "'>" + money(r.uj) + "</span>", "",
+        r.jul ? "сделки " + intFmt(r.nj) + " · макс. до перехая " + mxTxt(r.mxj) + " дн" : "нет расчёта июля", "Июль: доля часов ожидания > 5 сут (порог 0,10) и чистый итог счёта; главный — " + f2(m.kj) + " · " + money(m.uj)) +
       kt("aug", "авг") + kt("sep", "сен") +
       tile("usd", "Деньги авг / сен", "<span data-t='usd-aug' class='" + cls(r.ua) + "'>" + money(r.ua) + "</span><span class='muted'> / </span><span data-t='usd-sep' class='" + cls(r.us) + "'>" + money(r.us) + "</span>", "",
         "главный " + money(m.ua) + " / " + money(m.us), "Чистый итог счёта $" + intFmt(D.deposit_usd) + " (portfolio-sim), позиция $" + state.size.toLocaleString("ru-RU") + " (×" + K() + ")") +
@@ -537,7 +545,7 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
     const pts = cumPts(a && a.daily_usd, p);
     const mainPts = state.variant !== MAIN ? cumPts((accFor(state.period, MAIN, true) || {}).daily_usd, p) : [];
     const bands = stallBands(pts);
-    const perLab = {aug: "август", sep: "сентябрь", augsep: "август + сентябрь одним счётом"}[state.period];
+    const perLab = {jul: "июль", aug: "август", sep: "сентябрь", augsep: "август + сентябрь одним счётом"}[state.period];
     document.getElementById("eq-title").textContent = "Капитал · " + perLab;
     document.getElementById("eq-legend").innerHTML =
       "<span><i style='border-color:var(--series-3)'></i>" + esc(nameOf(state.variant)) + "</span>" +
@@ -594,12 +602,14 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   // ---------- таблица-рейтинг ----------
   const COLS = [
     ["name", "Вариант", r => r.name, ""],
+    ["kj", "Ожид. июл", r => r.kj, ""],
     ["ka", "Ожид. авг", r => r.ka, ""],
     ["ks", "Ожид. сен", r => r.ks, ""],
+    ["uj", "$ июл", r => r.uj, ""],
     ["ua", "$ авг", r => r.ua, ""],
     ["us", "$ сен", r => r.us, ""],
     ["mx", "Макс. до перехая, дн", r => r.mx ? r.mx.v : null, ""],
-    ["st", "Статус", r => r.st, ""]];
+  ];
   const tbl = {sort: null, dir: 1, group: "all", pass: false, query: "", all: false};
   function cmpDefault(a, b) {
     if (a.calc !== b.calc) return a.calc ? -1 : 1;
@@ -616,8 +626,10 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function buildChips() {
     const box = document.getElementById("chips");
     box.innerHTML = "<button class='chip' data-g='all'>все</button>" + GROUPS.map((t, i) => "<button class='chip' data-g='" + i + "'>" + esc(t) + "</button>").join("") +
-      "<button class='chip pass' data-pass='1' title='доля часов ожидания &gt; 5 сут ≤ 0,10 в августе и в сентябре'>только проходящие</button>";
+      "<button class='chip' data-jul='1' title='есть счёт или KPI за июль'>есть июль</button>" +
+      "<button class='chip pass' data-pass='1' title='доля часов ожидания &gt; 5 сут ≤ 0,10 в каждом посчитанном месяце'>только проходящие</button>";
     box.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", () => { tbl.group = b.dataset.g; renderTable(); }));
+    box.querySelector("[data-jul]").addEventListener("click", () => { tbl.jul = !tbl.jul; renderTable(); });
     box.querySelector("[data-pass]").addEventListener("click", () => { tbl.pass = !tbl.pass; renderTable(); });
     document.getElementById("search").addEventListener("input", e => { tbl.query = e.target.value.trim().toLowerCase(); renderTable(); });
     document.getElementById("more").addEventListener("click", () => { tbl.all = !tbl.all; renderTable(); });
@@ -629,10 +641,11 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
   function renderTable() {
     document.querySelectorAll("#chips [data-g]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.g === tbl.group)));
     document.querySelector("#chips [data-pass]").setAttribute("aria-pressed", String(tbl.pass));
+    document.querySelector("#chips [data-jul]").setAttribute("aria-pressed", String(!!tbl.jul));
     const rows = ORDER.map(rowOf);
     const main = rows.find(r => r.k === MAIN);
     let list = rows.filter(r => r.k !== MAIN &&
-      (tbl.group === "all" || String(r.group) === tbl.group) && (!tbl.pass || passes(r)) &&
+      (tbl.group === "all" || String(r.group) === tbl.group) && (!tbl.pass || passes(r)) && (!tbl.jul || r.jul) &&
       (!tbl.query || r.name.toLowerCase().includes(tbl.query) || r.k.toLowerCase().includes(tbl.query)));
     list.sort(tbl.sort ? cmpCol : cmpDefault);
     const total = list.length, LIM = 30;
@@ -642,16 +655,18 @@ footer.pagefoot { color: var(--ink-3); font-size: 12px; text-align: center; }
       (tbl.sort === k ? (tbl.dir > 0 ? " ▲" : " ▼") : "") + "</th>").join("") + "</tr>";
     head.querySelectorAll("th").forEach(th => th.addEventListener("click", () => {
       const k = th.dataset.s; if (tbl.sort === k) { if (tbl.dir < 0) { tbl.sort = null; tbl.dir = 1; } else tbl.dir = -1; } else { tbl.sort = k; tbl.dir = (k === "ua" || k === "us" || k === "n") ? -1 : 1; } renderTable(); }));
-    const tr = (r, pin) => "<tr data-k='" + q(r.k) + "' class='" + (pin ? "pin " : "") + (r.k === state.variant ? "cur " : "") + (r.calc ? "" : "nocalc") + "' title='" + q("просадка " + ddTxt(r) + " · сделки " + intFmt(r.n) + " · " + r.k + " · " + ((META[r.k] || {}).label || "")) + "'>" +
-      "<td class='name' data-c='name'>" + esc(r.name) + (r.calc ? "" : " <span class='muted'>· нет расчёта</span>") + "</td>" +
+    const tr = (r, pin) => "<tr data-k='" + q(r.k) + "' class='" + (pin ? "pin " : "") + (r.k === state.variant ? "cur " : "") + (r.calc ? "" : "nocalc") + "' title='" + q("статус: " + r.st + " · просадка " + ddTxt(r) + " · сделки " + intFmt(r.n) + " · " + r.k + " · " + ((META[r.k] || {}).label || "")) + "'>" +
+      "<td class='name'><span class='dot " + statusCls(r.st) + "' title='" + q(r.st) + "'></span><span data-c='name'>" + esc(r.name) + "</span>" + (r.calc ? "" : " <span class='muted'>· нет расчёта</span>") + "</td>" +
+      "<td class='num " + kpiCls(r.kj) + "' data-c='kpi-jul'" + (r.kj == null ? " title='нет KPI июля'" : "") + ">" + f2(r.kj) + "</td>" +
       "<td class='num " + kpiCls(r.ka) + "' data-c='kpi-aug'" + (r.ka == null ? " title='нет KPI'" : "") + ">" + f2(r.ka) + "</td>" +
       "<td class='num " + kpiCls(r.ks) + "' data-c='kpi-sep'" + (r.ks == null ? " title='нет KPI'" : "") + ">" + f2(r.ks) + "</td>" +
+      "<td class='num " + cls(r.uj) + "' data-c='usd-jul'>" + money(r.uj) + "</td>" +
       "<td class='num " + cls(r.ua) + "' data-c='usd-aug'>" + money(r.ua) + "</td>" +
       "<td class='num " + cls(r.us) + "' data-c='usd-sep'>" + money(r.us) + "</td>" +
       "<td class='num " + mxCls(r.mx) + "' data-c='mx' title='" + q(mxTip(r.mx)) + "'>" + mxTxt(r.mx) + "</td>" +
-      "<td class='st'><span class='badge " + statusCls(r.st) + "' title='" + q(r.st) + "'>" + esc(statusTiny(r.st)) + "</span></td></tr>";
+      "</tr>";
     document.querySelector("#rank tbody").innerHTML = tr(main, true) + (shown.length ? shown.map(r => tr(r, false)).join("") :
-      "<tr><td colspan='7' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
+      "<tr><td colspan='8' class='muted' style='text-align:left'>нет вариантов под этот фильтр</td></tr>");
     const more = document.getElementById("more");
     more.hidden = total <= LIM; more.textContent = tbl.all ? "показать первые " + LIM : "показать все (" + total + ")";
     const withKpi = rows.filter(r => r.ka != null || r.ks != null).length, noCalc = rows.filter(r => !r.calc).length;
