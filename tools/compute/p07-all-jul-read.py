@@ -22,7 +22,7 @@ keep-фильтр (если есть) → busy-replay (`epochs/e-jul/b5/<кле�
 Отбор (В-146, TK-018): «проверка на июле» — только отобранные ранее (TK-009 34 клетки — их чтение j9-read);
 остальные — «описание, не отобран»; метка ставится при вливании в страницу, не здесь.
 
-    python3 ~/alpha/tmp-p07/p07-all-jul-read.py --out ~/alpha/tmp-p07/jall-read/jall-read.json [--jobs 6] [--only a,b]
+    python3 ~/alpha/tmp-p07/p07-all-jul-read.py --out ~/alpha/tmp-p07/jall-read/jall-read.json [--jobs N; 0 = по памяти] [--only a,b]
 """
 import argparse
 import csv
@@ -232,10 +232,25 @@ def gates(rs):
     return bad
 
 
+WORKER_GB = 1.5  # TK-019 14:30: замер RSS процесса-читателя jall 1–1,5 ГБ
+KEEP_GB = 2.0  # не отдавать читателям последние 2 ГБ MemAvailable (заморозка деки утром 28.09)
+
+
+def auto_jobs():
+    """Число процессов по свободной памяти сейчас, а не константой (TK-019)."""
+    avail_gb = 0.0
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                avail_gb = int(line.split()[1]) / 1048576
+    return max(1, min(os.cpu_count() or 1, int((avail_gb - KEEP_GB) // WORKER_GB)))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--jobs", type=int, default=6)
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="0 = по свободной памяти деки (MemAvailable − 2 ГБ) / WORKER_GB, не больше ядер")
     ap.add_argument("--only", help="через запятую — только эти имена (проба, без ворот)")
     ap.add_argument("--list", action="store_true", help="только список вариантов")
     a = ap.parse_args()
@@ -270,6 +285,9 @@ def main():
     res = {"_meta": {"task": "TK-018", "days": [JR.JUL_DAYS[0], JR.JUL_DAYS[-1]], "h_days": 5, "deposit": 2500,
                      "position": 500, "drop": JR.DROP, "created_utc": dt.datetime.now(dt.timezone.utc).isoformat()}}
     units_by = {}
+    if a.jobs <= 0:
+        a.jobs = auto_jobs()
+    print(f"--jobs {a.jobs}", flush=True)
     with mp.get_context("fork").Pool(a.jobs) as pool:
         for name, r, units in pool.imap_unordered(run_row, rs):
             res[name] = r
