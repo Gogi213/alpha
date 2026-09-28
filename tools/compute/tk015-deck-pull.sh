@@ -14,10 +14,19 @@ while :; do
   for day in "$@"; do
     [ -f "study/approaches/D20/$day/.done" ] && continue
     left=$((left + 1))
-    rsync --list-only "$VPS:tk015/$E/study/approaches/D20/$day/.vps-done" >/dev/null 2>&1 || continue  # ключ — только rrsync
+    free=$(df --output=avail -BG "$H" | tail -1 | tr -dc 0-9)
+    [ "$free" -ge 13 ] || { say "$day: на деке свободно ${free} ГБ < 13 (сторож 10 + сутки) — жду места"; break; }
     mkdir -p "study/approaches/D20/$day" "study/touches/$day"
-    rsync -a --exclude=.vps-done "$VPS:tk015/$E/study/approaches/D20/$day/" "study/approaches/D20/$day/" \
-      && rsync -a "$VPS:tk015/$E/study/touches/$day/symbols.txt" "study/touches/$day/symbols.txt" || { say "$day: rsync упал"; continue; }
+    box="$HOME/sb/derived/tk015/$E/D20/$day"
+    if [ -f "$box/.box-done" ]; then  # новые сутки VPS уезжают на ящик целиком (.box-done — последним)
+      rsync -a --exclude=.box-done --exclude=symbols.txt "$box/" "study/approaches/D20/$day/" \
+        && cp "$box/symbols.txt" "study/touches/$day/symbols.txt" || { say "$day: копия с ящика упала"; continue; }
+    else  # первые сутки марта остались на VPS; ключ деки там — только rrsync
+      rsync --list-only "$VPS:tk015/$E/study/approaches/D20/$day/.vps-done" >/dev/null 2>&1 || continue
+      rsync --list-only "$VPS:tk015/$E/study/approaches/D20/$day/" 2>/dev/null | grep -q ' approaches-' || continue
+      rsync -a --exclude=.vps-done "$VPS:tk015/$E/study/approaches/D20/$day/" "study/approaches/D20/$day/" \
+        && rsync -a "$VPS:tk015/$E/study/touches/$day/symbols.txt" "study/touches/$day/symbols.txt" || { say "$day: rsync упал"; continue; }
+    fi
     dir="study/root-$day"; mkdir -p "$dir"
     for f in root/*-"$day".binlog root/*-"$day"-*.binlog root/instruments.csv root/session.json; do
       [ -e "$f" ] && [ ! -e "$dir/$(basename "$f")" ] && ln -s "$PWD/$f" "$dir/$(basename "$f")"
