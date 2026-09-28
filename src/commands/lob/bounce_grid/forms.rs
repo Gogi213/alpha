@@ -6,7 +6,8 @@
 
 use crate::commands::lob::backtest::{BounceForm, EntryForm, EntryTtl, StopForm, TakeForm};
 use crate::commands::lob::bounce_verdict::form_label_with_entry;
-use crate::lob::strategy::WallStopMode;
+pub use crate::lob::strategy::WallEatMode;
+use crate::lob::strategy::{BtcMinutes, WallStopMode};
 
 /// Форма выхода (F7 этапа F, Б-75): как закрывать позицию.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,18 +48,9 @@ pub enum ExitForm {
         secs: u32,
         mode: WallEatMode,
         btc_bps: f64,
+        /// Ряд BTC (`--btc-minutes`), подставляется после разбора; в имени не участвует.
+        btc: Option<&'static BtcMinutes>,
     },
-}
-
-/// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WallEatMode {
-    /// `m` — «рынок»: только если BTC за окно ≤ −Y bps.
-    Market,
-    /// `l` — «местный продавец»: только если BTC за окно > −Y bps.
-    Local,
-    /// `a` — при любом BTC (причина всё равно раздельная).
-    Any,
 }
 
 impl ExitForm {
@@ -91,6 +83,7 @@ impl ExitForm {
                 secs,
                 mode,
                 btc_bps,
+                ..
             } => {
                 let m = match mode {
                     WallEatMode::Market => "m",
@@ -99,6 +92,26 @@ impl ExitForm {
                 };
                 format!("weat{pct}s{secs}{m}{btc_bps}")
             }
+        }
+    }
+
+    /// Та же форма с подставленным рядом BTC (только у `weat*`).
+    pub fn with_btc(self, series: &'static BtcMinutes) -> Self {
+        match self {
+            ExitForm::WallEat {
+                pct,
+                secs,
+                mode,
+                btc_bps,
+                ..
+            } => ExitForm::WallEat {
+                pct,
+                secs,
+                mode,
+                btc_bps,
+                btc: Some(series),
+            },
+            other => other,
         }
     }
 
@@ -139,6 +152,7 @@ impl ExitForm {
             secs,
             mode,
             btc_bps,
+            btc: None,
         };
         anyhow::ensure!(
             form.label() == spec,

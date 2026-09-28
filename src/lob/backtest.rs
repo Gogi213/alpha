@@ -2030,7 +2030,7 @@ where
         .iter()
         .zip(variant_next_ids)
         .map(|(&plan, &id)| {
-            let mut s = *entry_state;
+            let mut s = entry_state.clone();
             s.set_plan(plan);
             s.set_next_order_id(id);
             s
@@ -2960,6 +2960,10 @@ where
                             ExitReason::Eaten => exits.eaten += 1,
                             ExitReason::EatenByTrades => exits.eaten_by_trades += 1,
                             ExitReason::WallGone => exits.wall_gone += 1,
+                            // TK-014: обе причины `weat*` — в `n_eaten_by_trades` (колонки те же).
+                            ExitReason::WallEatBtc | ExitReason::WallEatLocal => {
+                                exits.eaten_by_trades += 1
+                            }
                         }
                         if partial {
                             exits.partial += 1;
@@ -3127,6 +3131,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         exit_gone_pct,
         gone_trail_bps,
         gone_stop,
+        wall_eat,
         ..
     } = &mut p
     {
@@ -3144,6 +3149,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         *exit_gone_pct = 0.0;
         *gone_trail_bps = 0.0;
         *gone_stop = crate::lob::strategy::GoneStop::Off;
+        *wall_eat = crate::lob::strategy::WallEatExit::OFF;
     }
     p
 }

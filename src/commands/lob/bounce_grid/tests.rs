@@ -3307,7 +3307,8 @@ fn wall_eat_exit_form_parses_canonically() {
             pct: 30.0,
             secs: 60,
             mode: WallEatMode::Market,
-            btc_bps: 10.0
+            btc_bps: 10.0,
+            btc: None,
         }
     );
     assert_eq!(f.label(), "weat30s60m10");
@@ -3349,4 +3350,43 @@ fn wall_eat_exit_form_requires_btc_minutes() {
     a.exit_form = vec!["weat30s60m10".to_string()];
     let err = run_bounce_grid(&a).unwrap_err().to_string();
     assert!(err.contains("--btc-minutes"), "{err}");
+}
+
+/// TK-014: ряд BTC сливается из нескольких файлов; не покрывший сутки (час до, дедлайн после)
+/// или без `--day` — отказ до счёта.
+#[test]
+fn btc_minutes_merge_and_coverage_check() {
+    use super::plan::load_btc_minutes;
+    let dir = tempfile::tempdir().unwrap();
+    let day0 = day_start_ns_for_test("2026-09-15") / 1_000_000;
+    let (a, b) = (dir.path().join("a.csv"), dir.path().join("b.csv"));
+    let mut sa = String::from("minute_ms,open,high,low,close,volume\n");
+    let mut sb = String::new();
+    // a: с часа до суток до полудня; b: с полудня до конца суток + 2 ч.
+    let mut m = day0 - 2 * 3_600_000;
+    while m <= day0 + 26 * 3_600_000 {
+        let line = format!("{m},1,1,1,100,1\n");
+        if m < day0 + 12 * 3_600_000 {
+            sa.push_str(&line);
+        } else {
+            sb.push_str(&line);
+        }
+        m += 60_000;
+    }
+    std::fs::write(&a, sa).unwrap();
+    std::fs::write(&b, sb).unwrap();
+    let days = vec!["2026-09-15".to_string()];
+    assert!(load_btc_minutes(&[a.clone(), b.clone()], &days, 3600).is_ok());
+    assert!(
+        load_btc_minutes(std::slice::from_ref(&a), &days, 3600).is_err(),
+        "конец суток не покрыт"
+    );
+    assert!(
+        load_btc_minutes(&[a.clone(), b.clone()], &days, 3 * 3600).is_err(),
+        "дедлайн после суток не покрыт"
+    );
+    assert!(
+        load_btc_minutes(&[a, b], &[], 3600).is_err(),
+        "без --day — отказ"
+    );
 }

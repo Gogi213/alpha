@@ -317,6 +317,23 @@ pub(crate) fn bounce_plan(
                 } => crate::lob::strategy::GoneStop::Wall { mode, buffer_bps },
                 _ => crate::lob::strategy::GoneStop::Off,
             },
+            // TK-014 `weat*`: съедание стены после входа, причина по ходу BTC.
+            wall_eat: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::WallEat {
+                    pct,
+                    secs,
+                    mode,
+                    btc_bps,
+                    btc,
+                } => crate::lob::strategy::WallEatExit {
+                    pct,
+                    secs,
+                    mode,
+                    btc_bps,
+                    btc,
+                },
+                _ => crate::lob::strategy::WallEatExit::OFF,
+            },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {

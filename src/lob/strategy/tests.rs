@@ -281,6 +281,7 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -357,6 +358,7 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -424,6 +426,7 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -489,6 +492,7 @@ fn a_fraction_below_one_lot_exits_whole() {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -543,6 +547,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         lot_qty: 0.1,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -845,6 +850,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1041,6 +1047,7 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         lot_qty: 1.0,
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1205,6 +1212,7 @@ fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
         level_qty: 0.0,
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1370,6 +1378,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         level_qty,
         lot_qty: 1.0,
         exit_eat_pct: eat_pct,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: gone_pct,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1998,6 +2007,7 @@ fn trail_plan(stop_px: f64, take_px: f64, trail_activate_bps: f64, trail_bps: f6
         level_qty: 10.0,
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2236,6 +2246,7 @@ fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
         level_qty: 0.0,
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
+        wall_eat: crate::lob::strategy::WallEatExit::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2863,6 +2874,10 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
         [
             "now: i64,",
             "if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {",
+            // TK-014 `weat*`: пропуск шагов при этой форме выключен (`hold_wakeup_ns` → `None`).
+            "if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {",
+            "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
+            ".and_then(|b| b.move_bps(now, wall_eat.secs))",
             "&& now.saturating_sub(entry_ns) >= early_exit_ns",
             "} else if now.saturating_sub(entry_ns) >= deadline_ns {",
         ]
@@ -2873,5 +2888,127 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
             "now: i64,",
             "match decide_exit(bot, state, entry_ns, now, quotes, true) {",
         ]
+    );
+}
+
+// -----------------------------------------------------------------------
+// TK-014: выход `weat<X>s<W>{m|l|a}<Y>` — съедание стены после входа за окно `W`,
+// причина раздельно по ходу BTC (`docs/findings/tk014-design-2026-09-28.md`).
+// -----------------------------------------------------------------------
+
+fn weat_plan(pct: f64, secs: u32, mode: WallEatMode, btc_bps: f64) -> TradePlan {
+    let mut p = f7_plan(0.0, 0.0, 100.0);
+    if let TradePlan::Bounce { wall_eat, .. } = &mut p {
+        *wall_eat = WallEatExit {
+            pct,
+            secs,
+            mode,
+            btc_bps,
+            btc: None,
+        };
+    }
+    p
+}
+
+/// Без формы `weat*` кольца нет — прежний путь; с формой — кольцо ёмкостью `W`.
+#[test]
+fn wall_ring_is_allocated_only_for_weat_plans() {
+    let off = StrategyState::with_plan(0, SIGMA_LONG, 1.0, 1, f7_plan(50.0, 0.0, 100.0));
+    assert!(off.wall_ring.is_none());
+    let on = StrategyState::with_plan(
+        0,
+        SIGMA_LONG,
+        1.0,
+        1,
+        weat_plan(30.0, 10, WallEatMode::Any, 5.0),
+    );
+    assert_eq!(on.wall_ring.as_ref().map(|r| r.len()), Some(10));
+    let mut forked = off.clone();
+    forked.set_plan(weat_plan(30.0, 7, WallEatMode::Any, 5.0));
+    assert_eq!(forked.wall_ring.as_ref().map(|r| r.len()), Some(7));
+}
+
+/// Окно `[max(вход, t − W), t]`: сделки до входа, не по цене стены и не той стороны не
+/// считаются; сделки и максимум размера старше `W` секунд выпадают.
+#[test]
+fn weat_window_counts_only_post_entry_wall_trades_within_w() {
+    let mut state = StrategyState::with_plan(
+        0,
+        SIGMA_LONG,
+        1.0,
+        1,
+        weat_plan(50.0, 10, WallEatMode::Any, 5.0),
+    );
+    state.phase = Phase::Holding { entry_ns: 100 * S };
+    let trades = [
+        trade_at(95 * S, true, 99.0, 500.0),   // до входа
+        trade_at(101 * S, true, 99.0, 30.0),   // в стену
+        trade_at(101 * S, true, 98.0, 700.0),  // не на цене стены
+        trade_at(102 * S, false, 99.0, 900.0), // покупатель — стену лонга не ест
+        trade_at(105 * S, true, 99.0, 30.0),   // в стену
+    ];
+    state.observe_wall_trades(&trades);
+    state.wall_bucket(101).unwrap().max_qty = 100.0;
+    assert_eq!(state.wall_window(100 * S, 106 * S), (60.0, 100.0));
+    // t = 112 с, W = 10: окно [103, 112] — сделка 101 с и максимум 101 с выпали.
+    assert_eq!(state.wall_window(100 * S, 112 * S), (30.0, 0.0));
+    // Вход позже: окно не раньше секунды входа.
+    assert_eq!(state.wall_window(104 * S, 106 * S), (30.0, 0.0));
+}
+
+/// Ход BTC: последняя закрытая минута против `ceil(W/60)` минут раньше; пропуск — ближайшая
+/// более ранняя; данных нет — `None`.
+#[test]
+fn btc_move_uses_last_closed_minute_and_earlier_on_gaps() {
+    const M: i64 = 60_000;
+    let rows = vec![
+        (7 * M, 100.0),
+        (9 * M, 99.0),
+        (6 * M, 101.0),
+        (9 * M, 55.0),
+        (10 * M, 1.0),
+    ];
+    let b = BtcMinutes::from_rows(rows);
+    let t = (10 * M + 30_000) * 1_000_000; // 10:30 — минута 10 ещё не закрыта
+                                           // W = 60: минута 9 (99) против минуты 8 — её нет, берётся 7 (100): −100 bps.
+    let mv = b.move_bps(t, 60).unwrap();
+    assert!((mv - (-100.0)).abs() < 1e-9, "{mv}");
+    // W = 120: k = 2 — минута 7 (100) тоже.
+    assert!((b.move_bps(t, 120).unwrap() - (-100.0)).abs() < 1e-9);
+    // W = 180: k = 3 — минута 6 (101).
+    assert!((b.move_bps(t, 180).unwrap() - (99.0 / 101.0 - 1.0) * 10_000.0).abs() < 1e-9);
+    // Раньше ряда — нет хода.
+    assert!(b.move_bps(t, 3600).is_none());
+    assert_eq!(b.span_ms(), Some((6 * M, 10 * M)));
+}
+
+/// Режимы m/l/a × BTC ниже/выше −Y: причина раздельная, режим отсекает свой случай.
+#[test]
+fn weat_mode_splits_market_and_local_by_btc_threshold() {
+    let w = |mode| WallEatExit {
+        pct: 30.0,
+        secs: 60,
+        mode,
+        btc_bps: 10.0,
+        btc: None,
+    };
+    use WallEatMode::{Any, Local, Market};
+    assert_eq!(
+        wall_eat_reason_for(w(Market), -10.0),
+        Some(ExitReason::WallEatBtc)
+    );
+    assert_eq!(wall_eat_reason_for(w(Market), -9.9), None);
+    assert_eq!(wall_eat_reason_for(w(Local), -10.0), None);
+    assert_eq!(
+        wall_eat_reason_for(w(Local), 5.0),
+        Some(ExitReason::WallEatLocal)
+    );
+    assert_eq!(
+        wall_eat_reason_for(w(Any), -30.0),
+        Some(ExitReason::WallEatBtc)
+    );
+    assert_eq!(
+        wall_eat_reason_for(w(Any), -9.9),
+        Some(ExitReason::WallEatLocal)
     );
 }

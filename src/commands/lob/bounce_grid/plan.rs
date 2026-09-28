@@ -194,15 +194,20 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         sigma_entries || args.sigma_from.is_none(),
         "--sigma-from без σ-лестницы в --entry-form — таблицу σ никто не читает"
     );
-    let exits = parse_exit_forms(&args.exit_form)?;
+    let mut exits = parse_exit_forms(&args.exit_form)?;
     // TK-014: форма `weat*` читает ход BTC — без ряда минут отказ до счёта.
     if exits.iter().any(ExitForm::needs_btc) {
         anyhow::ensure!(
             !args.btc_minutes.is_empty(),
             "--exit-form weat*: нужен --btc-minutes <файл> (минутные свечи BTC)"
         );
-        // Исполнение `weat*` в стратегии ещё не подключено — отказ, а не молчаливый счёт как `none`.
-        anyhow::bail!("--exit-form weat*: исполнение формы в стратегии ещё не подключено (TK-014)");
+        let max_deadline_secs = deadlines.iter().copied().max().unwrap_or(0);
+        let series: &'static crate::lob::strategy::BtcMinutes = Box::leak(Box::new(
+            load_btc_minutes(&args.btc_minutes, &args.days, max_deadline_secs)?,
+        ));
+        for e in &mut exits {
+            *e = e.with_btc(series);
+        }
     }
     let earlies = parse_early_exits(&args.early_exit_secs)?;
     let forms = grid_forms_with_early(
@@ -572,4 +577,77 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
         out.push_str(&format!(" stack_min={n}"));
     }
     out
+}
+
+/// TK-014: минутные свечи BTC из `--btc-minutes` (`minute_ms,open,high,low,close,volume`; строка
+/// заголовка пропускается), ряды сливаются по `minute_ms`. Ряд обязан покрыть каждые сутки прогона
+/// с запасом: до начала суток — час и ещё минута (окно до 3600 с плюс последняя закрытая минута),
+/// после конца — наибольший дедлайн; иначе отказ до счёта. Сутки берутся из `--day`: без них
+/// покрытие не проверить — отказ.
+pub(crate) fn load_btc_minutes(
+    files: &[std::path::PathBuf],
+    days: &[String],
+    max_deadline_secs: u64,
+) -> anyhow::Result<crate::lob::strategy::BtcMinutes> {
+    anyhow::ensure!(
+        !days.is_empty(),
+        "--btc-minutes: нужен явный --day — покрытие ряда BTC проверяется по суткам прогона"
+    );
+    let mut rows: Vec<(i64, f64)> = Vec::new();
+    for f in files {
+        let text = std::fs::read_to_string(f)
+            .map_err(|e| anyhow::anyhow!("--btc-minutes {}: {e}", f.display()))?;
+        for (n, line) in text.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = line.split(',').collect();
+            let Ok(ms) = cols[0].trim().parse::<i64>() else {
+                anyhow::ensure!(
+                    n == 0,
+                    "--btc-minutes {}: строка {}: не число",
+                    f.display(),
+                    n + 1
+                );
+                continue;
+            };
+            anyhow::ensure!(
+                cols.len() >= 5,
+                "--btc-minutes {}: строка {}: ожидается minute_ms,open,high,low,close,volume",
+                f.display(),
+                n + 1
+            );
+            let close: f64 = cols[4].trim().parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "--btc-minutes {}: строка {}: close не число",
+                    f.display(),
+                    n + 1
+                )
+            })?;
+            anyhow::ensure!(
+                close.is_finite() && close > 0.0,
+                "--btc-minutes {}: строка {}: close ≤ 0",
+                f.display(),
+                n + 1
+            );
+            rows.push((ms, close));
+        }
+    }
+    let series = crate::lob::strategy::BtcMinutes::from_rows(rows);
+    let (first, last) = series
+        .span_ms()
+        .ok_or_else(|| anyhow::anyhow!("--btc-minutes: ряд пуст"))?;
+    #[allow(clippy::cast_possible_wrap)]
+    let after_ms = max_deadline_secs as i64 * 1000;
+    for d in days {
+        let start_ms = super::carry::day_start_ns(d)?.div_euclid(1_000_000);
+        let need_first = start_ms - 3_600_000 - 60_000;
+        let need_last = start_ms + 86_400_000 + after_ms - 60_000;
+        anyhow::ensure!(
+            first <= need_first && last >= need_last,
+            "--btc-minutes: ряд [{first}, {last}] мс не покрывает сутки {d} (нужно [{need_first}, {need_last}])"
+        );
+    }
+    Ok(series)
 }

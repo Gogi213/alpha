@@ -414,7 +414,122 @@ pub enum TradePlan {
         /// (владелец 2026-09-23) или уровень стены `gone<W>wall[x]<B>` (владелец 2026-09-26).
         /// `Off` — не переезжает. Базовый трейл плана работает как обычно.
         gone_stop: GoneStop,
+        /// TK-014 `weat<X>s<W>{m|l|a}<Y>`: съедание стены сделками после входа за окно `W` с,
+        /// причина выхода раздельно по ходу BTC. `WallEatExit::OFF` — выключено.
+        wall_eat: WallEatExit,
     },
+}
+
+/// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallEatMode {
+    /// `m` — «рынок»: только если BTC за окно ≤ −Y bps.
+    Market,
+    /// `l` — «местный продавец»: только если BTC за окно > −Y bps.
+    Local,
+    /// `a` — при любом BTC (причина всё равно раздельная).
+    Any,
+}
+
+/// Минутные свечи BTC (`minute_ms`, `close`), отсортированы по времени, без повторов (TK-014).
+/// Загружаются один раз до счёта и живут до конца процесса (`&'static` в плане — план `Copy`).
+#[derive(Debug)]
+pub struct BtcMinutes {
+    rows: Vec<(i64, f64)>,
+}
+
+/// Ряд один на прогон: равенство — тот же ряд (адрес), без сравнения десятков тысяч строк.
+impl PartialEq for BtcMinutes {
+    fn eq(&self, o: &Self) -> bool {
+        std::ptr::eq(self, o)
+    }
+}
+
+impl BtcMinutes {
+    /// Ряды сливаются по `minute_ms` (первый встреченный выигрывает), затем сортируются.
+    pub fn from_rows(mut rows: Vec<(i64, f64)>) -> Self {
+        rows.sort_by_key(|r| r.0);
+        rows.dedup_by_key(|r| r.0);
+        Self { rows }
+    }
+
+    /// Первая и последняя минута ряда (начала, мс).
+    pub fn span_ms(&self) -> Option<(i64, i64)> {
+        Some((self.rows.first()?.0, self.rows.last()?.0))
+    }
+
+    /// `close` последней минуты с началом ≤ `ms` — двоичный поиск.
+    fn close_at_or_before(&self, ms: i64) -> Option<f64> {
+        let i = self.rows.partition_point(|r| r.0 <= ms);
+        (i > 0).then(|| self.rows[i - 1].1)
+    }
+
+    /// Ход BTC в bps в момент `t_ns` для окна `secs` без заглядывания вперёд: `close` последней
+    /// закрытой минуты (начало ≤ t − 60 с) против `close` на `k = ceil(W/60)` минут раньше;
+    /// пропуск минуты — ближайшая более ранняя.
+    pub fn move_bps(&self, t_ns: i64, secs: u32) -> Option<f64> {
+        let t_ms = t_ns.div_euclid(1_000_000);
+        let last = (t_ms - 60_000).div_euclid(60_000) * 60_000;
+        let k = i64::from(secs.div_ceil(60));
+        let c1 = self.close_at_or_before(last)?;
+        let c0 = self.close_at_or_before(last - k * 60_000)?;
+        (c0 > 0.0).then(|| (c1 / c0 - 1.0) * 10_000.0)
+    }
+}
+
+/// Форма `weat*` в плане (TK-014). `pct == 0` — выключено.
+#[derive(Debug, Clone, Copy)]
+pub struct WallEatExit {
+    pub pct: f64,
+    pub secs: u32,
+    pub mode: WallEatMode,
+    pub btc_bps: f64,
+    pub btc: Option<&'static BtcMinutes>,
+}
+
+impl WallEatExit {
+    pub const OFF: WallEatExit = WallEatExit {
+        pct: 0.0,
+        secs: 0,
+        mode: WallEatMode::Any,
+        btc_bps: 0.0,
+        btc: None,
+    };
+
+    pub fn on(&self) -> bool {
+        self.pct > 0.0 && self.secs > 0
+    }
+}
+
+impl PartialEq for WallEatExit {
+    fn eq(&self, o: &Self) -> bool {
+        self.pct == o.pct
+            && self.secs == o.secs
+            && self.mode == o.mode
+            && self.btc_bps == o.btc_bps
+            && match (self.btc, o.btc) {
+                (None, None) => true,
+                (Some(a), Some(b)) => std::ptr::eq(a, b),
+                _ => false,
+            }
+    }
+}
+
+/// Секундная корзина кольца `weat*`: секунда `exch_ts`, исполнено по цене стены, наибольший
+/// видимый размер стены в эту секунду.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WallBucket {
+    sec: i64,
+    eaten: f64,
+    max_qty: f64,
+}
+
+impl WallBucket {
+    const EMPTY: WallBucket = WallBucket {
+        sec: i64::MIN,
+        eaten: 0.0,
+        max_qty: 0.0,
+    };
 }
 
 /// Перенос стопа после снятия стены (`gone<W>` сработал; снятие — защёлка). Стоп только
@@ -510,6 +625,10 @@ pub enum ExitReason {
     /// размера на входе, И съедение сделками < половины падения. Выход по
     /// рынку всего остатка.
     WallGone,
+    /// TK-014 `weat*`: стену съели сделками после входа, BTC за окно ≤ −Y bps («рынок»).
+    WallEatBtc,
+    /// TK-014 `weat*`: стену съели сделками после входа, BTC за окно > −Y bps («местный»).
+    WallEatLocal,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -517,7 +636,7 @@ pub enum ExitReason {
 /// назначается снаружи один раз при вооружении: какой именно сигнал
 /// ловить — решение уровня `lob/levels`, не этого модуля (границы модулей,
 /// `interfaces.md`). `plan` — чем этот круг торгует (см. `TradePlan`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StrategyState {
     asset_no: usize,
     sigma: i8,
@@ -587,6 +706,9 @@ pub struct StrategyState {
     orphan_fills: u64,
     /// Сколько раз новая партия сирот вытеснила живую из-за переполнения.
     orphan_overflow: u64,
+    /// TK-014 `weat*`: кольцо секундных корзин ёмкостью `W`; выделяется при постановке плана и
+    /// только у формы `weat*` (иначе `None` — прежний путь).
+    wall_ring: Option<Box<[WallBucket]>>,
 }
 
 /// Чьи ноги стали сиротами (F8c, К1): исполнение ноги **входа** — лишняя
@@ -706,7 +828,48 @@ impl StrategyState {
             orphan_exit_open: 0.0,
             orphan_fills: 0,
             orphan_overflow: 0,
+            wall_ring: match plan {
+                TradePlan::Bounce { wall_eat, .. } if wall_eat.on() => {
+                    Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice())
+                }
+                _ => None,
+            },
         }
+    }
+
+    /// Корзина секунды `sec` кольца `weat*` (обнуляется, если в ней лежала другая секунда).
+    fn wall_bucket(&mut self, sec: i64) -> Option<&mut WallBucket> {
+        let ring = self.wall_ring.as_mut()?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let i = sec.rem_euclid(ring.len() as i64) as usize;
+        let b = &mut ring[i];
+        if b.sec != sec {
+            *b = WallBucket {
+                sec,
+                eaten: 0.0,
+                max_qty: 0.0,
+            };
+        }
+        Some(b)
+    }
+
+    /// TK-014: по окну `[max(вход, t − W), t]` (секунды) — исполнено по цене стены и наибольший
+    /// видимый размер стены. Без кольца — `(0, 0)`.
+    fn wall_window(&self, entry_ns: i64, now: i64) -> (f64, f64) {
+        let Some(ring) = self.wall_ring.as_ref() else {
+            return (0.0, 0.0);
+        };
+        let t = now.div_euclid(1_000_000_000);
+        #[allow(clippy::cast_possible_wrap)]
+        let lo = (t - ring.len() as i64 + 1).max(entry_ns.div_euclid(1_000_000_000));
+        let (mut eaten, mut max_qty) = (0.0, 0.0_f64);
+        for b in ring.iter() {
+            if b.sec >= lo && b.sec <= t {
+                eaten += b.eaten;
+                max_qty = max_qty.max(b.max_qty);
+            }
+        }
+        (eaten, max_qty)
     }
 
     /// F8b (В5/Р2): сколько раз круг пережил потолок ожидания подтверждения
@@ -754,6 +917,15 @@ impl StrategyState {
     /// а он отработал до форка), так что подмена безопасна.
     pub(crate) fn set_plan(&mut self, plan: TradePlan) {
         self.plan = plan;
+        // TK-014: клон общего входа группы получает кольцо `weat*` своего плана (раз на круг).
+        if let TradePlan::Bounce { wall_eat, .. } = plan {
+            if wall_eat.on()
+                && self.wall_ring.as_ref().map(|r| r.len()) != Some(wall_eat.secs as usize)
+            {
+                self.wall_ring =
+                    Some(vec![WallBucket::EMPTY; wall_eat.secs as usize].into_boxed_slice());
+            }
+        }
     }
 
     /// Э-08: свой диапазон номеров заявок на клон (иначе K вариантов одного
@@ -1040,6 +1212,9 @@ impl StrategyState {
         else {
             return;
         };
+        if self.wall_ring.is_some() {
+            self.record_wall_eat(trades, level_px, tick_px);
+        }
         // `gone<W>` тоже читает накопленное (сравнение с половиной падения),
         // поэтому счётчик ведётся при любой из двух форм.
         if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 {
@@ -1071,6 +1246,40 @@ impl StrategyState {
             }
         }
         self.eaten_qty += eaten;
+    }
+
+    /// TK-014 `weat*`: сделки в стену **после входа** — в корзину секунды `exch_ts`.
+    fn record_wall_eat(&mut self, trades: &[Event], level_px: f64, tick_px: f64) {
+        let Phase::Holding { entry_ns } = self.phase else {
+            return;
+        };
+        if tick_px <= 0.0 || level_px <= 0.0 {
+            return;
+        }
+        let Some(entry_side) = entry_side(self.sigma) else {
+            return;
+        };
+        let want_sell = entry_side == HbtSide::Buy;
+        #[allow(clippy::cast_possible_truncation)]
+        let level_tick = (level_px / tick_px).round() as i64;
+        // Сторона — все биты маски: `ev & EXCH_SELL_TRADE_EVENT != 0` истинно у любой сделки
+        // биржи (общие биты `TRADE_EVENT | EXCH_EVENT`) и считало бы покупки в бид-стену.
+        let want = if want_sell {
+            EXCH_SELL_TRADE_EVENT
+        } else {
+            EXCH_BUY_TRADE_EVENT
+        };
+        for trade in trades {
+            let hit = trade.ev & want == want;
+            #[allow(clippy::cast_possible_truncation)]
+            let at_level = (trade.px / tick_px).round() as i64 == level_tick;
+            if !hit || !at_level || trade.exch_ts < entry_ns {
+                continue;
+            }
+            if let Some(b) = self.wall_bucket(trade.exch_ts.div_euclid(1_000_000_000)) {
+                b.eaten += trade.qty;
+            }
+        }
     }
 
     /// Лучший исход с момента входа — для трейл-тейка: вызывается на каждом
@@ -1271,7 +1480,8 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() {
+        // TK-014 `weat*`: окно съедания и ход BTC меняются со временем без событий — шаги не пропускаются.
+        if self.has_orphans() || self.wall_ring.is_some() {
             return None;
         }
         let deadline = entry_ns.saturating_add(deadline_ns);
@@ -1496,6 +1706,17 @@ struct WallNow {
     eaten_pct: f64,
 }
 
+/// TK-014: причина выхода `weat*` по ходу BTC `mv` (bps) и режиму формы; `None` — режим
+/// этот случай не закрывает.
+pub(crate) fn wall_eat_reason_for(w: WallEatExit, mv: f64) -> Option<ExitReason> {
+    let market = mv <= -w.btc_bps;
+    match (w.mode, market) {
+        (WallEatMode::Local, true) | (WallEatMode::Market, false) => None,
+        (_, true) => Some(ExitReason::WallEatBtc),
+        (_, false) => Some(ExitReason::WallEatLocal),
+    }
+}
+
 /// Форма защиты по снятию стены — поля плана `exit_gone_pct`, `gone_trail_bps`, `gone_stop`
 /// (в сетке `gone<W>[tr<T>|be|bex|wall<B>|wallx<B>]`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1587,6 +1808,7 @@ where
             exit_gone_pct,
             gone_trail_bps,
             gone_stop,
+            wall_eat,
             ..
         } => {
             // F4 (В-78): стоп и тейк — от **средней цены исполненного**
@@ -1616,6 +1838,26 @@ where
             // каждом шаге, поэтому здесь читается только накопленная сумма.
             // Порядок: стоп и трейл честнее тейка; `eat`/`gone` — защитные
             // выходы, ниже тейка и выше «прилипания» и дедлайна.
+            // TK-014 `weat*`: наибольший видимый размер стены — в корзину секунды события;
+            // ход BTC считается только при пройденном пороге съедания.
+            let wall_eat_reason = if wall_eat.on() {
+                if wall.ok {
+                    if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {
+                        b.max_qty = b.max_qty.max(wall.qty);
+                    }
+                }
+                let (eaten, max_qty) = state.wall_window(entry_ns, now);
+                if max_qty > 0.0 && eaten >= max_qty * wall_eat.pct / 100.0 {
+                    wall_eat
+                        .btc
+                        .and_then(|b| b.move_bps(now, wall_eat.secs))
+                        .and_then(|mv| wall_eat_reason_for(wall_eat, mv))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             let eat_hit = exit_eat_pct > 0.0
                 && state.level_qty_at_entry > 0.0
                 && state.eaten_qty >= state.level_qty_at_entry * exit_eat_pct / 100.0;
@@ -1682,6 +1924,8 @@ where
                 (ExitAt::Market, ExitReason::Eaten, eaten_half_frac)
             } else if eat_hit {
                 (ExitAt::Market, ExitReason::EatenByTrades, 1.0)
+            } else if let Some(r) = wall_eat_reason {
+                (ExitAt::Market, r, 1.0)
             } else if gone.exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if gone.trail_hit {
