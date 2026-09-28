@@ -181,6 +181,8 @@ def cmd_decide():
                           "f": {m: round(share(data[m][sub], nf, no, nt, fm), 4) for m in data}}
             c["final"]["expected_trades"] = {m: round(c["final"]["f"][m] * T[m], 1) for m in data}
             c["final"]["lt30_label"] = any(v < 30 for v in c["final"]["expected_trades"].values())
+            # Судья 04:38: замена одна и последняя; > 90 % после неё — ярлык «почти не действует» (описание)
+            c["final"]["gt90_label"] = any(v > 0.9 for v in c["final"]["f"].values())
             if sub == "g55":
                 c["final"]["changed_share"] = {m: round(1 - c["final"]["f"][m], 4) for m in data}
             cells.append(c)
