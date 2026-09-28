@@ -12,7 +12,9 @@ LOW_GB="${LOW_GB:-10}"; HIGH_GB="${HIGH_GB:-15}"; NEED_GB="${NEED_GB:-12}"
 A="$HOME/alpha"; MARK="$A/sync/DISK-FULL"; LOG="$A/sync/disk-guard.log"
 free_gb() { df --output=avail -BG "$A" | tail -1 | tr -dc 0-9; }
 say() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
-SPARE='^alpha-(pull|sb-|disk-guard)'   # забор, ящик, сторож — не замораживаются
+# забор, ящик, сторож — не замораживаются; TK-016: и любые alpha-*-pull-*/-tobox/-offload (заборы и
+# перенос на ящик под задачу, напр. alpha-tk015-pull-*) — заморозка посреди rsync держит место занятым
+SPARE='^alpha-(pull|sb-|disk-guard)|^alpha-.*-(pull|tobox|offload)([-.]|$)'
 
 if [ "${1:-}" = prepull ]; then
   f=$(free_gb)

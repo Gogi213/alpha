@@ -33,7 +33,8 @@ WATCH_INTERVAL_S = float(os.environ.get("ALPHA_WATCH_INTERVAL", "120"))
 WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2"))
 DISPATCH_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DISPATCH_STALE_MIN", "5"))
 ORPHAN_TICKET_HOURS = float(os.environ.get("ALPHA_WATCH_ORPHAN_HOURS", "2"))
-DECK_QUEUE_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DECK_QUEUE_STALE_MIN", "30"))
+# TK-016: 30 → 10 мин (простой 28.09 07:22–08:31 — очередь стояла 69 мин незамеченной)
+DECK_QUEUE_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DECK_QUEUE_STALE_MIN", "10"))
 
 
 @dataclass
@@ -177,8 +178,9 @@ def check_steam_deck(ssh_run=_ssh_run) -> list:
     if not ok_hold:
         out.append(Finding("deck-ssh-error", "hold", f"не удалось проверить HOLD Steam Deck: {hold_out}"))
     elif not hold_active:
+        # TK-016: задания gridq — queue/pending/*.job (прежний счёт queue/*.json всегда давал 0 → молчание)
         ok2, status_info = ssh_run(
-            "n=$(ls ~/alpha/queue/*.json 2>/dev/null | wc -l); "
+            "n=$(ls ~/alpha/queue/pending/ ~/alpha/queue/running/ 2>/dev/null | grep -c '\\.job$'); "
             "age=$(( $(date +%s) - $(stat -c %Y ~/alpha/queue/STATUS 2>/dev/null || echo 0) )); "
             "echo \"$n $age\"")
         if not ok2:
@@ -187,12 +189,43 @@ def check_steam_deck(ssh_run=_ssh_run) -> list:
             try:
                 n_pending, age_s = (int(x) for x in status_info.split())
                 if n_pending > 0 and age_s > DECK_QUEUE_STALE_MINUTES * 60:
-                    out.append(Finding("deck-idle", "queue",
+                    out.append(Finding("deck-queue-stale", "queue",
                                         f"очередь Steam Deck не пуста ({n_pending}), STATUS не обновлялся "
                                         f"{age_s // 60:.0f} мин — похоже на простой"))
             except ValueError:
                 pass  # неожиданный вывод — не валим находками на угад, но и не молчим полностью
+    out += check_deck_frozen(ssh_run)
     return out
+
+
+# TK-016: disk-guard.sh замораживает счёт (метка ~/alpha/sync/DISK-FULL) — замороженный gridq сам ALERT-*
+# не пишет, STATUS стоит. Отдельный запрос: метка (число «frozen» в ней), свободно ГБ, замороженные юниты.
+DECK_FROZEN_CMD = ("if [ -f ~/alpha/sync/DISK-FULL ]; then echo \"mark $(grep -c '^frozen ' ~/alpha/sync/DISK-FULL)\"; "
+                   "else echo nomark; fi; echo \"free $(df --output=avail -BG ~/alpha | tail -1 | tr -dc 0-9)\"; "
+                   "systemctl --user list-units --state=frozen --no-legend --plain | awk '{print \"frozen \" $1}'; true")
+
+
+def check_deck_frozen(ssh_run=_ssh_run) -> list:
+    ok, info = ssh_run(DECK_FROZEN_CMD)
+    if not ok:
+        return [Finding("deck-ssh-error", "frozen", f"не удалось проверить заморозку Steam Deck: {info}")]
+    mark_n, free_gb, frozen = None, "?", []
+    for line in info.strip().splitlines():
+        head, _, rest = line.strip().partition(" ")
+        if head == "mark":
+            mark_n = rest.strip() or "0"
+        elif head == "free":
+            free_gb = rest.strip() or "?"
+        elif head == "frozen" and rest.strip():
+            frozen.append(rest.strip())
+    if mark_n is None and not frozen:
+        return []
+    why = "метка ~/alpha/sync/DISK-FULL (disk-guard)" if mark_n is not None else "без метки DISK-FULL"
+    n = len(frozen) if frozen else mark_n
+    units = ", ".join(frozen[:6]) + (" …" if len(frozen) > 6 else "")
+    return [Finding("deck-frozen", "frozen",
+                    f"Steam Deck заморожен: {why}, заморожено юнитов {n}, свободно {free_gb} ГБ"
+                    + (f" ({units})" if units else "") + " — счёт стоит, нужно место/разморозка")]
 
 
 def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None) -> list:

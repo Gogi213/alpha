@@ -139,7 +139,7 @@ class SteamDeckWatchTests(WatchSandbox):
             return False, "Connection timed out"
         findings = W.check_steam_deck(fake_ssh)
         self.assertTrue(any(f.kind == "deck-ssh-error" for f in findings))
-        self.assertEqual(len(findings), 2)  # alerts-запрос и queue-запрос — оба упали
+        self.assertEqual(len(findings), 3)  # alerts-, hold- и frozen-запросы — все упали
 
     def test_no_alerts_and_empty_queue_is_silent(self):
         def fake_ssh(cmd, timeout=10.0):
@@ -154,7 +154,47 @@ class SteamDeckWatchTests(WatchSandbox):
                 return True, ""
             return True, f"3 {int(W.DECK_QUEUE_STALE_MINUTES * 60) + 120}"
         findings = W.check_steam_deck(fake_ssh)
-        self.assertTrue(any(f.kind == "deck-idle" for f in findings))
+        self.assertTrue(any(f.kind == "deck-queue-stale" for f in findings))
+
+    def test_queue_count_reads_pending_jobs_dir(self):
+        """TK-016: задания gridq — queue/pending/*.job; прежний счёт queue/*.json всегда давал 0."""
+        cmds = []
+        def fake_ssh(cmd, timeout=10.0):
+            cmds.append(cmd)
+            return True, ""
+        W.check_steam_deck(fake_ssh)
+        queue_cmd = next(c for c in cmds if "STATUS" in c)
+        self.assertIn("queue/pending/", queue_cmd)
+        self.assertIn(".job", queue_cmd)
+
+    def test_disk_full_mark_is_frozen_finding(self):
+        """TK-016 (1): метка DISK-FULL → deck-frozen сразу, с числом юнитов и свободным местом."""
+        def fake_ssh(cmd, timeout=10.0):
+            if "DISK-FULL" in cmd:
+                return True, "mark 10\nfree 8\n"
+            if "ALERT" in cmd:
+                return True, ""
+            return True, "HOLD"
+        f = [x for x in W.check_steam_deck(fake_ssh) if x.kind == "deck-frozen"]
+        self.assertEqual(len(f), 1)
+        self.assertIn("10", f[0].message)
+        self.assertIn("свободно 8 ГБ", f[0].message)
+        self.assertNotIn("deck-frozen", W.WATCH_SUMMARY_KINDS)  # будит сразу, не сводкой
+
+    def test_frozen_units_without_mark_is_frozen_finding(self):
+        """TK-016 (3): systemctl --user list-units --state=frozen не пуст → deck-frozen."""
+        def fake_ssh(cmd, timeout=10.0):
+            if "DISK-FULL" in cmd:
+                return True, "nomark\nfree 40\nfrozen alpha-gridq.service\n"
+            if "ALERT" in cmd:
+                return True, ""
+            return True, "HOLD"
+        f = [x for x in W.check_steam_deck(fake_ssh) if x.kind == "deck-frozen"]
+        self.assertEqual(len(f), 1)
+        self.assertIn("alpha-gridq.service", f[0].message)
+
+    def test_no_mark_no_frozen_is_silent(self):
+        self.assertEqual(W.check_deck_frozen(lambda c, timeout=10.0: (True, "nomark\nfree 40\n")), [])
 
     def test_active_queue_is_silent(self):
         def fake_ssh(cmd, timeout=10.0):
