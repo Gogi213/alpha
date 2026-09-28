@@ -90,7 +90,8 @@ def main():
             n_undef += 1
             continue
         acc = merge.account_summary(rec["grid"], D["deposit_usd"], span)
-        assert (acc["n"], acc["net_usd"]) == (r["n_trades"], round(r["usd"]["est"], 2)), (name, acc["n"], acc["net_usd"])
+        # $ чтения — сумма закрытий (округлённых по сделке), счёт — total_usd сетки: разница только округлением ≤ 0,01
+        assert acc["n"] == r["n_trades"] and abs(acc["net_usd"] - r["usd"]["est"]) <= 0.011, (name, acc["n"], acc["net_usd"])
         roll = kn.rolling_kpi(sorted(tuple(x) for x in rec["closes"]), h_days=5)["aug"]
         if r["kpi"]:
             assert (roll["frac_gt_h"], roll["n_main"]) == (r["kpi"]["frac_gt_5d"], r["kpi"]["n_main"]), name
