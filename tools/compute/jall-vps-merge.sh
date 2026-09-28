@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TK-018 (дека): ворота VPS (4 клетки TK-010 на 07-31, *-vpsgate, против деки побайтно без строк `#`) → при ok
-# перенос готовых суток VPS из e-jul/vps-in/<d>/b5/<клетка>/<d> в e-jul/b5/ (по мере прихода, пока все 10 не здесь).
+# перенос готовых суток VPS из e-jul/vps-in/<d>/b5/<клетка>/<d> в e-jul/b5/ (по мере прихода, пока все сутки VPS не здесь).
 H=/home/deck/alpha/epochs/e-jul
 T=/home/deck/alpha/tmp-p07
 body() { grep -v '^#' "$1"; }
@@ -16,7 +16,7 @@ done > $T/jall-vgate.txt
 [ $ok = 1 ] && echo "ВОРОТА VPS: ok" >> $T/jall-vgate.txt || { echo "ВОРОТА VPS: НЕ ПРОЙДЕНЫ" >> $T/jall-vgate.txt; exit 1; }
 while :; do
   left=0
-  for n in $(seq 22 31); do
+  for n in $(seq 13 31); do
     d=2026-07-$n
     [ -e $H/vps-in/$d.merged ] && continue
     if [ -e $H/vps-in/$d.done ]; then
