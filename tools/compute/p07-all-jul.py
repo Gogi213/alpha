@@ -60,10 +60,11 @@ MAIN_EXTRA = [
      (f"{AUG_HOME}/b5/titrc-u500r", "t-bid-age-45")),
     # П-02 Г-105: стоп «до стены» (`b5/p02-h10-before`)
     (pc.cell("p02-h10-before", MAIN_ENTRY, stop="before"), (f"{AUG_HOME}/b5/p02-h10-before", pc.BASE_SET)),
-    # П-02 Г-86: вход по рынку после съедания ≥ 89,9 % (`~/alpha/b5/p02-h9e899-aug-market`, набор под именем базы)
-    (pc.cell("p02-h9e899-market", "market", set_name="g86-e899", spec=f"{pc.BASE_SPEC},eaten_min=89.9"),
-     (f"{A}/b5/p02-h9e899-aug-market", pc.BASE_SET)),
 ]
+# П-02 Г-86: вход по рынку после съедания ≥ 89,9 % — только `--signal touch` (`eaten_min=` при approach — отказ движка,
+# `p02-stage2-h9-market.sh:3-4`); отдельный проход того же задания. Эталон `~/alpha/b5/p02-h9e899-aug-market`.
+G86 = (pc.cell("p02-h9e899-market", "market", set_name="g86-e899", spec=f"{pc.BASE_SPEC},eaten_min=89.9"),
+       (f"{A}/b5/p02-h9e899-aug-market", pc.BASE_SET))
 
 P05_PARTS = ("a1", "a2", "b", "c")
 
@@ -122,7 +123,8 @@ def build_job(bname, home, day, old, appr, touch):
     """Как `p07-tk009-jul.build_job` (своё имя файлов `jall-*`), ось early для early1/2/3."""
     pre = f"jall-{bname}"
     if not old:
-        return T9.build_job(pre, day, appr + touch)
+        head = T9.build_job(pre, day, appr + touch) if (appr or touch) else "set -e\n"
+        return head + g86_part(bname, home, day)
     script = pc.build_job(pre, home, day, old)
     cells_path = f"{pc.CELLS_DIR}/{pre}-{day}.txt"
     with open(cells_path, "a", newline="\n") as f:
@@ -149,7 +151,19 @@ def build_job(bname, home, day, old, appr, touch):
     script = script[: -len(tail)] + "\n".join(split) + "\n" + tail
     if touch:
         script += T9.build_job(pre, day, touch)
-    return script
+    return script + g86_part(bname, home, day)
+
+
+def g86_part(bname, home, day):
+    c = (G86[0][0] + j9.suffix(bname),) + G86[0][1:]
+    if cell_done(home, c, day):
+        return ""
+    common = pc.COMMON
+    pc.COMMON = common.replace("--signal approach", "--signal touch")
+    try:
+        return "\n" + pc.build_job(f"jall-g86-{bname}", home, day, [c])
+    finally:
+        pc.COMMON = common
 
 
 def jobs(only=None):
@@ -198,7 +212,7 @@ def gate():
     ok_all = True
     tmp = f"{A}/tmp-p07/jallgate"
     os.makedirs(tmp, exist_ok=True)
-    refs = [(c, r) for c, r in grid_cells()]
+    refs = [(c, r) for c, r in grid_cells()] + [G86]
     refs += [(c, (f"{AUG_HOME}/b5/{c[0]}", pc.BASE_SET)) for c in T9_APPR + T9_TOUCH]
     for c, (ref_dir, sub) in refs:
         name = c[0]
@@ -238,10 +252,12 @@ def main():
     only = args[args.index("--only-day") + 1] if "--only-day" in args else None
     if mode == "--submit" and "--cancel-j9" in args:
         cancel_j9()
+    # сутки для VPS (TK-018, CEO 11:57): сценарий пишется, в очередь деки не идёт (метка .vps)
+    vps = set(args[args.index("--vps") + 1].split(",")) if "--vps" in args else set()
     n = total = 0
     for bname, home, day, old, appr, touch in jobs(only):
         mark = f"{pc.CELLS_DIR}/jall-{bname}-{day}.queued"
-        if os.path.exists(mark):
+        if os.path.exists(mark) or os.path.exists(mark[:-7] + ".vps"):
             continue
         n += 1
         k = len(old) + len(appr) + len(touch)
@@ -256,6 +272,10 @@ def main():
         sh = f"{pc.CELLS_DIR}/jall-{bname}-{day}.sh"
         with open(sh, "w", newline="\n") as f:
             f.write(script)
+        if day in vps:
+            open(mark[:-7] + ".vps", "w").write("VPS\n")
+            print(f"{bname} {day}: {k} клеток -> VPS {sh}")
+            continue
         cmd = ["bin/q-add.sh", "--tag", TAG, "--prio", prio, "--mem-gb", str(MEM_GB), "--home", home,
                "--log", f"tmp-p07/cells-by-day/jall-{bname}-{day}.log", "--", "bash", sh]
         r = subprocess.run(cmd, cwd=A, capture_output=True, text=True)
