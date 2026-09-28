@@ -76,6 +76,17 @@ COL36 = ("traded_lots_at_arm", "size_max_at_arm", "size_monotonic_at_arm")
 COL55 = ("eat_60s_lots", "size_max_60s_lots")
 COL07 = "depth_behind50_lots_at_arm"
 BTC_1M_MIN_BPS = -5.0   # §7 Г-55: BTC за минуту ≥ −5 bps — «BTC стоит»
+# Г-55: клетка → (порог доли съедания, строго «>»); p08-g55-any — §12 п. 17 (Судья 128d8f6): «eat > 0» — пропуск
+G55_THR = {"p08-g55-20": (0.20, False), "p08-g55-50": (0.50, False), "p08-g55-any": (0.0, True)}
+OPS = {"<=": lambda t: lambda v: v <= t, "<": lambda t: lambda v: v < t,
+       ">=": lambda t: lambda v: v >= t, ">": lambda t: lambda v: v > t}
+
+
+def apply_cov_json(path):
+    """Пороги клеток — из замороженного JSON охвата (§12 п. 9, 17): `final[<sub>]` = [{name, feature, op, thr}]."""
+    j = json.load(open(path, encoding="utf-8"))
+    for sub, cells in j["final"].items():
+        CELLS[sub] = [(c["name"], c["feature"], None if sub == "g55" else OPS[c["op"]](c["thr"])) for c in cells]
 G140_SPIKE_X = 3.0      # §7 Г-140: всплеск = минута ≥ 3 × медианы 60 мин
 
 
@@ -241,12 +252,13 @@ def g55_feats(lc, signals, homes):
     return feats
 
 
-def g55_cond(f, thr):
-    """ВХОД, если НЕ «местное съедание»: пропуск при доле ≥ thr и BTC ≥ −5 bps. Что-то не определено — None."""
+def g55_cond(f, thr, strict=False):
+    """ВХОД, если НЕ «местное съедание»: пропуск при доле ≥ thr (strict — > thr) и BTC ≥ −5 bps. Что-то не определено —
+    None."""
     sh, b1 = f.get("g55_eat_share"), f.get("g55_btc_1m")
     if sh is None or b1 is None:
         return None
-    return not (sh >= thr and b1 >= BTC_1M_MIN_BPS)
+    return not ((sh > thr if strict else sh >= thr) and b1 >= BTC_1M_MIN_BPS)
 
 
 def g07_feats(signals, terc_json):
@@ -348,7 +360,7 @@ def write_outputs(out, sub, signals, feats, extra_cols=()):
             for name, key, cond in cells:
                 v = f.get(key)
                 if sub == "g55":
-                    c = g55_cond(f, 0.20 if name.endswith("-20") else 0.50)
+                    c = g55_cond(f, *G55_THR[name])
                     v = None if c is None else v
                     ok = bool(c)
                 else:
@@ -510,8 +522,11 @@ def main():
     ap.add_argument("--intensity", help="g140: каталог минутных рядов интенсивностей TK-012")
     ap.add_argument("--loss-corr", help="путь к loss-corr.py (умолчание — рядом или ~/alpha/bin)")
     ap.add_argument("--out", help="каталог выхода")
+    ap.add_argument("--cov-json", help="замороженные пороги клеток (§12 п. 9, 17; p08-cov.py decide)")
     ap.add_argument("--synthetic", action="store_true", help="selfcheck на синтетике во временном каталоге")
     a = ap.parse_args()
+    if a.cov_json:
+        apply_cov_json(a.cov_json)
     lc = load_loss_corr(a.loss_corr)
     print(f"loss-corr: {lc.__path_used__}")
     if a.cmd == "selfcheck" and a.synthetic:
