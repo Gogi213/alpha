@@ -41,13 +41,40 @@ def days(mon):
     return [f"2026-{m:02d}-{d:02d}" for d in range(1, calendar.monthrange(2026, m)[1] + 1)]
 
 
+def last_ms(path):
+    """window_end_ms последней строки таблицы σ₂₄₀ (0 — нет файла или пусто)."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 256))
+            tail = fh.read().decode("utf-8", "replace").strip().splitlines()
+        return int(tail[-1].split(",", 1)[0]) if tail and tail[-1][:1].isdigit() else 0
+    except OSError:
+        return 0
+
+
+def sigma_ready(mon, day):
+    """σ₂₄₀ месяца готова для суток (Инженер TK-015 04:37: light упирался в лимит Bybit 10006 — без σ не считать):
+    у каждой монеты кэша подходов суток таблица σ доходит до конца суток; иначе — строка эпохи в
+    `epochs/tk015-light.summary` (light закончен; недостающую σ ловят ворота данных и правило dc250dc)."""
+    d20 = f"{home(mon)}/study/approaches/D20/{day}"
+    end = int(calendar.timegm(tuple(map(int, day.split("-"))) + (0, 0, 0))) * 1000 + 86_400_000 - 60_000
+    syms = [f[len("approaches-"):-4] for f in os.listdir(d20) if f.startswith("approaches-") and f.endswith(".csv")]
+    if all(last_ms(f"{home(mon)}/study/sigma240/sigma-{s}.csv") >= end for s in syms):
+        return True
+    try:
+        return f"e-{mon}" in open(f"{A}/epochs/tk015-light.summary", encoding="utf-8").read()
+    except OSError:
+        return False
+
+
 def jobs():
     """(имя серии, месяц, сутки, клетки) — только несделанное и с готовым кэшем подходов."""
     out = []
     for mon in MONTHS:
         h = home(mon)
         for day in days(mon):
-            if not os.path.exists(f"{h}/study/approaches/D20/{day}/.done"):
+            if not os.path.exists(f"{h}/study/approaches/D20/{day}/.done") or not sigma_ready(mon, day):
                 continue
             todo = [c for c in CELLS if not pc.day_done(h, c[0], day)]
             if todo:
