@@ -20,6 +20,7 @@ while :; do
     bad=0
     for d in "$H"/study/approaches/D20/*/; do
       day=$(basename "$d"); [ -f "$d/.offloaded" ] && continue
+      [ -f "$d/.linked" ] && { touch "$d/.offloaded"; continue; }  # ссылки на ящик: там уже всё, заливать нечего
       n=$(ls "$d"approaches-*.csv 2>/dev/null | wc -l)
       if rsync -a --mkpath --remove-source-files --exclude=.done --exclude=.offloaded -e "$SSHC" \
            "$d" "$SBH:alpha/derived/tk015/$E/D20/$day/" \

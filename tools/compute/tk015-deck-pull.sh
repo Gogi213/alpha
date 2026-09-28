@@ -15,13 +15,24 @@ while :; do
     [ -f "study/approaches/D20/$day/.done" ] && continue
     left=$((left + 1))
     free=$(df --output=avail -BG "$H" | tail -1 | tr -dc 0-9)
-    [ "$free" -ge 13 ] || { say "$day: на деке свободно ${free} ГБ < 13 (сторож 10 + сутки) — жду места"; break; }
-    mkdir -p "study/approaches/D20/$day" "study/touches/$day"
     box="$HOME/sb/derived/tk015/$E/D20/$day"
-    if [ -f "$box/.box-done" ]; then  # новые сутки VPS уезжают на ящик целиком (.box-done — последним)
+    if [ -f "$box/.box-done" ] && [ "$free" -lt 13 ]; then
+      # Места нет (сторож 10 + сутки): сутки не копируются, а ссылаются на ящик пофайлово (чтение сетки идёт по sshfs,
+      # медленнее, но без ожидания снятия прочитанных месяцев — иначе круг: забор ждёт места, место ждёт READY).
+      # .linked — tk015-offload.sh такие сутки не заливает (ссылки поверх файлов ящика).
+      mkdir -p "study/approaches/D20/$day" "study/touches/$day"
+      for f in "$box"/*; do
+        [ "$(basename "$f")" = symbols.txt ] || ln -sfn "$f" "study/approaches/D20/$day/$(basename "$f")"
+      done
+      cp "$box/symbols.txt" "study/touches/$day/symbols.txt" && touch "study/approaches/D20/$day/.linked" \
+        || { say "$day: ссылки на ящик не вышли"; continue; }
+    elif [ -f "$box/.box-done" ]; then  # новые сутки VPS уезжают на ящик целиком (.box-done — последним)
+      mkdir -p "study/approaches/D20/$day" "study/touches/$day"
       rsync -a --exclude=.box-done --exclude=symbols.txt "$box/" "study/approaches/D20/$day/" \
         && cp "$box/symbols.txt" "study/touches/$day/symbols.txt" || { say "$day: копия с ящика упала"; continue; }
     else  # первые сутки марта остались на VPS; ключ деки там — только rrsync
+      [ "$free" -ge 13 ] || continue
+      mkdir -p "study/approaches/D20/$day" "study/touches/$day"
       rsync --list-only "$VPS:tk015/$E/study/approaches/D20/$day/.vps-done" >/dev/null 2>&1 || continue
       rsync --list-only "$VPS:tk015/$E/study/approaches/D20/$day/" 2>/dev/null | grep -q ' approaches-' || continue
       rsync -a --exclude=.vps-done "$VPS:tk015/$E/study/approaches/D20/$day/" "study/approaches/D20/$day/" \
