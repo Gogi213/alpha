@@ -101,7 +101,7 @@ def load_signals(day_dir):
             "symbol": r["symbol"], "day_utc": r["day_utc"], "form": r["form"],
             "signal_index": r["signal_index"], "t0_ns": int(r["t0_ns"]),
             "price_tick": r["price_tick"], "step": r["step"],
-            "idle_ns": int(r["idle_ns"]) if r["idle_ns"] else None,
+            "idle_ns": int(r["idle_ns"]) if r["idle_ns"] not in ("", "-") else None,  # «-» у end_of_data (июль 31.07): idle не читается
             "residual": r["residual"], "round": rounds_idx.get(key),
         })
     return out
