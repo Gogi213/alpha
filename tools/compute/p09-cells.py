@@ -39,7 +39,9 @@ def cells():
 
 def submit(bname, home, day, todo, mem_gb):
     """Как `pc.submit`, но свой тег/лог и свой временный каталог (`.cellstmp-p09-`) — не пересекается с P-07 в том же доме."""
+    # `--btc-minutes` требует `--day` (покрытие суток рядом BTC проверяется до счёта, da42990)
     script = pc.build_job(bname, home, day, todo).replace("b5/.cellstmp-", "b5/.cellstmp-p09-")
+    script = script.replace(" --cells ", f" --day {day} --cells ", 1)
     cmd = ["bin/q-add.sh", "--tag", "p09-cells", "--mem-gb", str(mem_gb), "--home", home,
            "--log", f"tmp-p09/cells/{bname}-{day}.log", "--", "bash", "-c", script]
     out = subprocess.run(cmd, cwd=A, capture_output=True, text=True)
