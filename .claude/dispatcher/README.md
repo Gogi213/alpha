@@ -1,4 +1,4 @@
-# Диспетчер задач alpha (v1.6, по образцу Paperclip)
+# Диспетчер задач alpha (v1.6.1, по образцу Paperclip)
 
 Вместо четырёх постоянных чатов ролей — очередь тикетов `.claude/tickets/*.md` и цикл, который сам
 решает, кого будить `claude -p`. Только stdlib (`ticket.py`, `dispatch.py`, `tickets.py`, `watch.py`).
@@ -9,10 +9,21 @@
 - Усилие всех ролей (судья, инженер, исследователь) — `xhigh` (было `high` у инженера и исследователя).
 - Новое env `ALPHA_DISPATCH_EFFORT`: `judge:xhigh,engineer:high` (по ролям, как `ALPHA_DISPATCH_SESSION_SCOPE`)
   или одно значение — на все роли.
-- Проверка modelUsage после запуска ждёт семейство из `CLAUDE_MODEL` (`model_family()`: opus/sonnet/haiku по
-  подстроке ID), а не жёстко «opus»; для `executor: haiku` — по-прежнему «haiku». Помощник чтения на Haiku
+- Проверка modelUsage после запуска ждёт семейство модели запуска (`model_family()`: opus/sonnet/haiku по
+  подстроке ID; с v1.6.1 — модели роли, см. ниже), а не жёстко «opus»; для `executor: haiku` — по-прежнему «haiku». Помощник чтения на Haiku
   внутри запуска роли обрабатывается как раньше (строка `[model]` в сводке CEO).
 - Исполнитель-программист (`.claude/agents/coder.md`) — тоже Sonnet 5.5 xhigh.
+
+### v1.6.1 (CEO, уточнение В-153) — Судья остаётся на Opus 5.5 xhigh
+
+- На Sonnet 5.5 — только те, кого рационально (инженер, исследователь); **Судья (проверяет всех) остаётся на
+  Opus 5.5 xhigh — проверку всех не ослабляем.** Словарь `ROLE_MODEL = {"judge": "claude-opus-5-5", "engineer":
+  CLAUDE_MODEL, "researcher": CLAUDE_MODEL}`; `--model` запуска — `ROLE_MODEL.get(роль, CLAUDE_MODEL)`
+  (`executor: haiku` — как раньше).
+- Env `ALPHA_DISPATCH_ROLE_MODEL`: `judge:claude-opus-5-5,engineer:claude-sonnet-5-5` (по ролям, формат как у
+  `ALPHA_DISPATCH_EFFORT`) или одно значение — на все роли.
+- Проверка modelUsage после запуска ждёт семейство модели РОЛИ этого запуска (`_expected_model_family()`), а не
+  общего `CLAUDE_MODEL`: Судья на opus — тишина, opus у инженера — строка `[model]` в сводке CEO.
 
 ## v1.5.2 (CEO, миграция перед перезапуском) — старые сессии не будят на историю
 

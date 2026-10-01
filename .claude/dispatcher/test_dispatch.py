@@ -481,10 +481,39 @@ class DispatchRunTests(unittest.TestCase):
             D.tick()
         finally:
             D._popen = orig_popen
-        self.assertEqual(captured_cmd[captured_cmd.index("--model") + 1], D.CLAUDE_MODEL)
+        # v1.6.1: модель — по роли (ROLE_MODEL[judge], по умолчанию opus), не общий CLAUDE_MODEL
+        self.assertEqual(captured_cmd[captured_cmd.index("--model") + 1], D.ROLE_MODEL["judge"])
         self.assertEqual(captured_cmd[captured_cmd.index("--effort") + 1], "xhigh")  # ROLE_EFFORT[judge]
         cap = float(captured_cmd[captured_cmd.index("--max-budget-usd") + 1])
         self.assertAlmostEqual(cap, min(D.RUN_CAP_USD, D.DEFAULT_TICKET_BUDGET_USD))
+        for info in list(D.RUNNING.values()):
+            info["popen"].wait(timeout=10)
+            for fh in (info.get("out_fh"), info.get("err_fh")):
+                if fh:
+                    fh.close()
+        D.RUNNING.clear()
+
+    def test_launch_run_model_follows_role_not_global(self):
+        """v1.6.1: --model запуска — ROLE_MODEL[роль]; инженер не получает модель Судьи и наоборот."""
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        captured_cmd = []
+        orig_popen = D._popen
+        orig_role_model = D.ROLE_MODEL
+
+        def spy_popen(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return orig_popen(cmd, **kwargs)
+
+        D._popen = spy_popen
+        D.ROLE_MODEL = {"judge": "claude-opus-5-5", "engineer": "claude-sonnet-5-5-test",
+                        "researcher": "claude-sonnet-5-5-test"}
+        try:
+            T.create_ticket(self.tickets_dir, owner="engineer", title="Модель инженера")
+            D.tick()
+        finally:
+            D._popen = orig_popen
+            D.ROLE_MODEL = orig_role_model
+        self.assertEqual(captured_cmd[captured_cmd.index("--model") + 1], "claude-sonnet-5-5-test")
         for info in list(D.RUNNING.values()):
             info["popen"].wait(timeout=10)
             for fh in (info.get("out_fh"), info.get("err_fh")):
@@ -790,6 +819,31 @@ class DispatchRunTests(unittest.TestCase):
                 "reason": "todo", "run_cap_usd": 8.0, "status_at_launch": "todo"}
         D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
         self.assertIn("fable-5-1", D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_finish_run_expects_model_family_of_the_runs_role(self):
+        """v1.6.1: Судья на opus — тишина в ceo-inbox; тот же opus у инженера (ждём sonnet) — тревога."""
+        orig_role_model = D.ROLE_MODEL
+        D.ROLE_MODEL = {"judge": "claude-opus-5-5", "engineer": "claude-sonnet-5-5",
+                        "researcher": "claude-sonnet-5-5"}
+        try:
+            for role, sid, warns in (("judge", "s-j", False), ("engineer", "s-e", True)):
+                path = T.create_ticket(self.tickets_dir, owner=role, title=f"Модель {role}",
+                                        now=dt("2026-09-27T12:00:00+04:00"))
+                tid = path.stem
+                T.append_log(path, role, "готово", now=dt("2026-09-27T12:00:30+04:00"))
+                state = D.load_state()
+                run_file = self.dispatcher_dir / f"model-{role}.json"
+                run_file.write_text(json.dumps({"session_id": sid, "total_cost_usd": 0.1,
+                                                 "modelUsage": {"claude-opus-5-5": {"costUSD": 0.1}}}),
+                                     encoding="utf-8")
+                info = {"role": role, "popen": None, "pid": None, "started": dt("2026-09-27T12:00:00+04:00"),
+                        "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                        "reason": "todo", "run_cap_usd": 8.0, "status_at_launch": "todo"}
+                D._finish_run(tid, info, state, dt("2026-09-27T12:01:00+04:00"), timed_out=False)
+                inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+                self.assertEqual("modelUsage" in inbox, warns, f"{role}: {inbox!r}")
+        finally:
+            D.ROLE_MODEL = orig_role_model
 
     def test_recover_active_runs_adopts_alive_process(self):
         """v1.1: перезапуск диспетчера во время прогона — живой pid подхватывается, не запускается повторно."""
@@ -1466,6 +1520,41 @@ class MoneyControlsTests(unittest.TestCase):
                          {"judge": "high", "engineer": "high", "researcher": "high"})
         self.assertEqual(D._parse_role_map("", base), base)
         self.assertEqual(base["engineer"], "xhigh")  # исходный словарь не меняется
+
+    def test_role_model_defaults_and_env_override(self):
+        # v1.6.1: Судья — Opus 5.5 (проверка всех не ослабляется), остальные — CLAUDE_MODEL
+        if not os.environ.get("ALPHA_DISPATCH_ROLE_MODEL"):
+            self.assertEqual(D.ROLE_MODEL, {"judge": "claude-opus-5-5", "engineer": D.CLAUDE_MODEL,
+                                            "researcher": D.CLAUDE_MODEL})
+        base = {"judge": "claude-opus-5-5", "engineer": "claude-sonnet-5-5", "researcher": "claude-sonnet-5-5"}
+        self.assertEqual(D._parse_role_map("judge:claude-opus-5-5,engineer:claude-opus-5-5", base),
+                         {"judge": "claude-opus-5-5", "engineer": "claude-opus-5-5",
+                          "researcher": "claude-sonnet-5-5"})
+        self.assertEqual(D._parse_role_map("claude-sonnet-5-5", base),
+                         {"judge": "claude-sonnet-5-5", "engineer": "claude-sonnet-5-5",
+                          "researcher": "claude-sonnet-5-5"})
+        self.assertEqual(base["judge"], "claude-opus-5-5")  # исходный словарь не меняется
+
+    def test_expected_model_family_follows_role_model(self):
+        orig_role_model = D.ROLE_MODEL
+        D.ROLE_MODEL = {"judge": "claude-opus-5-5", "engineer": "claude-sonnet-5-5",
+                        "researcher": "claude-sonnet-5-5"}
+        try:
+            self.assertEqual(D._expected_model_family({"role": "judge"}), "opus")
+            self.assertEqual(D._expected_model_family({"role": "engineer"}), "sonnet")
+            self.assertEqual(D._expected_model_family({"role": "researcher"}), "sonnet")
+            # роль вне словаря — семейство общего CLAUDE_MODEL; executor haiku — «haiku» при любой роли
+            self.assertEqual(D._expected_model_family({"role": "ceo"}), D.model_family(D.CLAUDE_MODEL))
+            self.assertEqual(D._expected_model_family({"role": "judge", "executor": "haiku"}), "haiku")
+            # на практике: судья на opus — тишина; тот же opus у инженера — тревога (и наоборот)
+            usage = {"claude-opus-5-5": {"cost": 1.0}}
+            self.assertIsNone(D._model_usage_warning(usage, D._expected_model_family({"role": "judge"})))
+            self.assertIsNotNone(D._model_usage_warning(usage, D._expected_model_family({"role": "engineer"})))
+            usage = {"claude-sonnet-5-5": {"cost": 1.0}}
+            self.assertIsNone(D._model_usage_warning(usage, D._expected_model_family({"role": "engineer"})))
+            self.assertIsNotNone(D._model_usage_warning(usage, D._expected_model_family({"role": "judge"})))
+        finally:
+            D.ROLE_MODEL = orig_role_model
 
     def test_model_family_from_id(self):
         self.assertEqual(D.model_family("claude-sonnet-5-5"), "sonnet")

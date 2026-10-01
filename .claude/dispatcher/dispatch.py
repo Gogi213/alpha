@@ -74,6 +74,12 @@ def _parse_role_map(spec: str, base: dict) -> dict:
 
 ROLE_EFFORT = _parse_role_map(os.environ.get("ALPHA_DISPATCH_EFFORT", ""), ROLE_EFFORT)
 
+# В-153 уточнение (02.10, v1.6.1): на Sonnet 5.5 — только те, кого рационально; Судья (проверяет всех)
+# остаётся на Opus 5.5 xhigh. Переопределение: ALPHA_DISPATCH_ROLE_MODEL=judge:claude-opus-5-5,engineer:...
+# (или одно значение — на все роли). Роль вне словаря и executor haiku — см. launch_run.
+ROLE_MODEL = _parse_role_map(os.environ.get("ALPHA_DISPATCH_ROLE_MODEL", ""),
+                             {"judge": "claude-opus-5-5", "engineer": CLAUDE_MODEL, "researcher": CLAUDE_MODEL})
+
 
 def model_family(model_id: str) -> str:
     """Семейство из ID модели: opus/sonnet/haiku (подстрока); иначе — сам ID в нижнем регистре."""
@@ -82,6 +88,15 @@ def model_family(model_id: str) -> str:
         if fam in low:
             return fam
     return low
+
+
+def _expected_model_family(info: dict) -> str:
+    """Ожидаемое семейство в modelUsage запуска: executor haiku → «haiku»; иначе — семейство модели
+    РОЛИ этого запуска (ROLE_MODEL, v1.6.1: Судья — opus, остальные — CLAUDE_MODEL), не общего CLAUDE_MODEL."""
+    if info.get("executor") == "haiku":
+        return "haiku"
+    return model_family(ROLE_MODEL.get(info.get("role"), CLAUDE_MODEL))
+
 
 # executor: haiku (судья TK-002 п.5) — механические задачи только: белый список видов (--kind при
 # tickets.py new), приёмка результата — кодом (в конкретных скриптах-проверках по виду, не здесь).
@@ -619,8 +634,9 @@ def _model_usage_diff(current: dict, previous: dict) -> dict:
 
 
 def _model_usage_warning(model_usage_diff: dict, expected: str = None) -> str:
-    """п.1: «проверь, что в JSON modelUsage только opus» (с В-153 — только семейство CLAUDE_MODEL,
-    `expected` по умолчанию = model_family(CLAUDE_MODEL)) — автоматическая, не разовая проверка, и
+    """п.1: «проверь, что в JSON modelUsage только opus» (с В-153 — только семейство модели запуска;
+    в _finish_run `expected` = `_expected_model_family(info)` — семейство модели РОЛИ, v1.6.1;
+    по умолчанию — model_family(CLAUDE_MODEL)) — автоматическая, не разовая проверка, и
     только по РАЗНИЦЕ этого запуска (см. _model_usage_diff), не по кумулятивной истории сессии.
     `expected` — "haiku" для executor: haiku (судья TK-002 п.5в: диспетчер проверяет по разнице
     modelUsage, что запуск реально был на Haiku, не тихо на другой модели)."""
@@ -772,7 +788,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         status_at_launch, executor, log_len_at_launch = None, "", 0
     # executor: haiku (судья TK-002 п.5) — заведомо проверенный на whitelist/обход тикетом (tickets.py
     # new и haiku_refused_reason() в tick()); здесь только сама подмена модели.
-    model = CLAUDE_HAIKU_MODEL if executor == "haiku" else CLAUDE_MODEL
+    model = CLAUDE_HAIKU_MODEL if executor == "haiku" else ROLE_MODEL.get(role, CLAUDE_MODEL)
     cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions",
            "--model", model, "--effort", ROLE_EFFORT.get(role, "high"),
            "--max-budget-usd", f"{run_cap:.2f}"]
@@ -866,7 +882,7 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     _record_cost_event(state, now, resolved_cost)
     _log_run_summary(tid, info, result, now, timed_out, resolved_cost, ticket_cost_spent(state, tid), cost_note)
 
-    expected_model = "haiku" if info.get("executor") == "haiku" else model_family(CLAUDE_MODEL)
+    expected_model = _expected_model_family(info)
     model_warn = _model_usage_warning(model_usage_diff, expected_model)
     if model_warn:
         route_ceo_signal(tid, "model", model_warn, state, now)
