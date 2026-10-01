@@ -163,6 +163,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         hold_step: "poll".to_string(),
         exit_group: "off".to_string(),
         p08_cols: false,
+        r1_cols: false,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -563,6 +564,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -658,6 +660,7 @@ fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1);
@@ -779,6 +782,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -1085,6 +1089,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
@@ -3207,6 +3212,7 @@ fn p08_cols_in_signals_csv() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     let ap_path = summary.approaches_out[0].clone();

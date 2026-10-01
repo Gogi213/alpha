@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::book::Side;
-use crate::lob::levels::{H3Mode, TouchRecord};
+use crate::lob::levels::{ApproachRecord, H3Mode, TouchRecord};
+use crate::lob::r1::{ArmR1, FLOW_N, R1_UNDEF};
 
 use super::args::{BounceGridArgs, SideArg};
 use super::cache::eaten_pct;
@@ -56,6 +57,10 @@ pub struct FilterSet {
     /// Г-07 (TK-012): уровней той же стороны в стопке не меньше `n` (`stack_min=<n>`, n ≥ 1; `stack_levels`,
     /// у подхода — `stack_levels_at_arm`). Только ключ набора.
     pub stack_min: Option<u32>,
+    /// TK-025 (R1): границы колонок пакета R1 на подходе (`r1_<колонка>_min|_max=<целое>`), по
+    /// порядку колонок `ArmR1::names()` — порядок в записи `--set` на набор не влияет. Только
+    /// ключи набора и только `--signal approach`.
+    pub r1: Vec<R1Bound>,
     /// Контекст касания (S4): границы в bps по осям `CTX_AXES` — ход монеты
     /// до касания за 10 мин / 1 ч / 4 ч (`ret10m`, `ret1h`, `ret4h`; знак
     /// абсолютный), медиана пула за 1 ч / 4 ч (`pool1h`, `pool4h`) и биток
@@ -63,6 +68,28 @@ pub struct FilterSet {
     /// `<ось>_min=` / `<ось>_max=`. Касание без
     /// значения оси при заданной границе выбывает.
     pub ctx: [Range; CTX_AXES.len()],
+}
+
+/// Границы одной колонки R1 (`r1_<колонка>_min|_max`); `col` — номер в `ArmR1::names()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct R1Bound {
+    pub col: usize,
+    pub min: Option<i64>,
+    pub max: Option<i64>,
+}
+
+impl R1Bound {
+    /// Значение колонки внутри границ. Нет записи R1 или `R1_UNDEF` — не проходит: «не
+    /// определено» не может удовлетворить порогу (как ось контекста без значения).
+    pub fn holds(&self, r1: Option<&ArmR1>) -> bool {
+        let Some(r1) = r1 else { return false };
+        let v = if self.col < FLOW_N {
+            r1.flow[self.col]
+        } else {
+            r1.level[self.col - FLOW_N]
+        };
+        v != R1_UNDEF && self.min.is_none_or(|m| v >= m) && self.max.is_none_or(|m| v <= m)
+    }
 }
 
 /// Оси контекста касания — порядок общий для `FilterSet::ctx` и `TouchContext`.
@@ -192,6 +219,11 @@ impl FilterSet {
         self.ctx.iter().any(|r| r.is_set())
     }
 
+    /// Хоть один ключ пакета R1 (`r1_*`) задан — нужен кэш подходов с колонками R1.
+    pub(crate) fn uses_r1(&self) -> bool {
+        !self.r1.is_empty()
+    }
+
     /// Хоть один ключ режима (`pool*`/`btc*`) задан — нужен `--regime-from`.
     pub(crate) fn uses_regime(&self) -> bool {
         self.ctx[3..].iter().any(|r| r.is_set())
@@ -240,6 +272,7 @@ impl FilterSet {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
     }
@@ -271,6 +304,7 @@ impl FilterSet {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         };
         let mut seen = std::collections::BTreeSet::new();
@@ -367,6 +401,8 @@ impl FilterSet {
                     );
                     set.frontrun_only = true;
                 }
+                // TK-025: `r1_<колонка>_min|_max=<целое>`; раньше `_`, иначе ключ ушёл бы в оси контекста.
+                _ if k.starts_with("r1_") => set.r1_key(spec, k, v)?,
                 _ => {
                     let (axis, bound) = k
                         .rsplit_once('_')
@@ -391,7 +427,54 @@ impl FilterSet {
                 }
             }
         }
+        set.r1.sort_unstable_by_key(|b| b.col);
         Ok(set)
+    }
+
+    /// Ключ `r1_<колонка>_min|_max=<целое>`: колонка — из `ArmR1::names()`, граница — целое, не
+    /// `R1_UNDEF`; `min > max` пустил бы набор молча — отказ.
+    fn r1_key(&mut self, spec: &str, k: &str, v: &str) -> anyhow::Result<()> {
+        let rest = k.strip_prefix("r1_").unwrap_or(k);
+        let (name, bound) = rest.rsplit_once('_').unwrap_or((rest, ""));
+        anyhow::ensure!(
+            matches!(bound, "min" | "max"),
+            "--set {spec:?}: {k:?} — ожидается r1_<колонка>_min или r1_<колонка>_max"
+        );
+        let col = ArmR1::names().position(|n| n == name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "--set {spec:?}: неизвестная колонка R1 {name:?} в {k:?} (колонки: {})",
+                ArmR1::names().collect::<Vec<_>>().join("|")
+            )
+        })?;
+        let n: i64 = v
+            .parse()
+            .map_err(|e| anyhow::anyhow!("--set {spec:?}: {k}={v:?}: {e}"))?;
+        anyhow::ensure!(
+            n != R1_UNDEF,
+            "--set {spec:?}: {k}={v:?} — «не определено» порогом быть не может"
+        );
+        let at = match self.r1.iter().position(|b| b.col == col) {
+            Some(i) => i,
+            None => {
+                self.r1.push(R1Bound {
+                    col,
+                    min: None,
+                    max: None,
+                });
+                self.r1.len() - 1
+            }
+        };
+        let b = &mut self.r1[at];
+        if bound == "min" {
+            b.min = Some(n);
+        } else {
+            b.max = Some(n);
+        }
+        anyhow::ensure!(
+            b.min.zip(b.max).is_none_or(|(lo, hi)| lo <= hi),
+            "--set {spec:?}: r1_{name}_min > r1_{name}_max — набор был бы пуст"
+        );
+        Ok(())
     }
 }
 
@@ -413,6 +496,8 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) usd_min: Option<f64>,
     pub(crate) behind_min_pct: Option<i64>,
     pub(crate) stack_min: Option<u32>,
+    /// TK-025: границы колонок R1 набора; проверяются `admits_r1` на записи подхода.
+    pub(crate) r1: &'a [R1Bound],
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
 }
@@ -433,6 +518,7 @@ impl<'a> TouchFilter<'a> {
             usd_min: p.usd_min,
             behind_min_pct: p.behind_min_pct,
             stack_min: p.stack_min,
+            r1: p.r1,
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
         }
@@ -441,7 +527,7 @@ impl<'a> TouchFilter<'a> {
     /// Фильтр набора над касаниями суток с готовым контекстом (`touch_contexts`):
     /// контекст подаётся, только если у набора есть ключи контекста.
     pub(crate) fn from_set(
-        set: &FilterSet,
+        set: &'a FilterSet,
         mode: H3Mode,
         tick: f64,
         lot: f64,
@@ -461,9 +547,17 @@ impl<'a> TouchFilter<'a> {
             usd_min: set.usd_min,
             behind_min_pct: set.behind_min_pct,
             stack_min: set.stack_min,
+            r1: &set.r1,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
         }
+    }
+
+    /// Границы R1 набора на записи подхода `a` (параллельна касаниям суток при
+    /// `--signal approach`). Без ключей — всегда да; нет записи или R1 — нет.
+    pub(crate) fn admits_r1(&self, a: Option<&ApproachRecord>) -> bool {
+        let r1 = a.and_then(|a| a.r1.as_ref());
+        self.r1.iter().all(|b| b.holds(r1))
     }
 
     /// Проходит ли касание `t` с индексом `ti` (индекс — в контекст суток).

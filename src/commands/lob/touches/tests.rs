@@ -35,6 +35,7 @@ fn touches_args(root: &std::path::Path) -> TouchesArgs {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     }
 }
 

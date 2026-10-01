@@ -9,6 +9,7 @@ use crate::lob::levels::{
     ApproachEnd, ApproachRecord, ArmP08, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S,
     STRENGTH_WINDOWS_BPS,
 };
+use crate::lob::r1::{ArmR1, FLOW_N, R1_UNDEF};
 
 use super::PRE_TOUCH_MS;
 
@@ -54,6 +55,46 @@ fn column_index(
 /// колонки не несёт, и это не порча файла, а старая, ещё годная запись.
 fn optional_column_index(header: &csv::StringRecord, name: &str) -> Option<usize> {
     header.iter().position(|h| h == name)
+}
+
+/// Индексы колонок R1 (TK-025) по порядку `ArmR1::names()`: все есть — `Some`, ни одной —
+/// `None` (кэш без `--r1-cols`), часть — отказ с названием недостающей: наполовину
+/// записанный кэш молча читался бы как «без R1» и отдавал не те числа.
+fn r1_column_indices(
+    header: &csv::StringRecord,
+    path: &std::path::Path,
+) -> anyhow::Result<Option<Vec<usize>>> {
+    let found: Vec<(&'static str, Option<usize>)> = ArmR1::names()
+        .map(|n| (n, optional_column_index(header, n)))
+        .collect();
+    let present = found.iter().filter(|(_, c)| c.is_some()).count();
+    if present == 0 {
+        return Ok(None);
+    }
+    if let Some((missing, _)) = found.iter().find(|(_, c)| c.is_none()) {
+        anyhow::bail!(
+            "{}: колонки R1 заданы не полностью ({present} из {}; нет, например, {missing}) —              кэш подходов нужно пересчитать целиком с --r1-cols",
+            path.display(),
+            found.len()
+        );
+    }
+    Ok(Some(found.into_iter().filter_map(|(_, c)| c).collect()))
+}
+
+/// Колонки R1 одной строки; пустая клетка — `R1_UNDEF` (обратное к `row::r1_cells`).
+fn r1_from_record(rec: &csv::StringRecord, cols: &[usize]) -> anyhow::Result<ArmR1> {
+    let mut r1 = ArmR1::undefined();
+    for (k, (&c, name)) in cols.iter().zip(ArmR1::names()).enumerate() {
+        let v = csv_opt_int(rec, c)
+            .map_err(|e| anyhow::anyhow!("колонка R1 {name}: {e}"))?
+            .unwrap_or(R1_UNDEF);
+        if k < FLOW_N {
+            r1.flow[k] = v;
+        } else {
+            r1.level[k - FLOW_N] = v;
+        }
+    }
+    Ok(r1)
 }
 
 /// Касание, прочитанное из `touches-<SYMBOL>.csv`: сутки строки и запись
@@ -303,6 +344,7 @@ pub(crate) fn read_approaches_csv(path: &std::path::Path) -> anyhow::Result<Vec<
                 None
             }
         },
+        r1: r1_column_indices(&header, path)?,
         touch_start_ms: idx("touch_start_ms")?,
         disarm_ms: idx("disarm_ms")?,
         disarm_reason: idx("disarm_reason")?,
@@ -340,6 +382,11 @@ struct ApproachCols {
     /// Колонки `ArmP08` (TK-012) по порядку `APPROACHES_COLUMNS`; `None` — кэш до
     /// TK-012 (нет хоть одной), тогда `ApproachRecord::p08 = None`.
     p08: Option<[usize; 6]>,
+    /// Колонки `ArmR1` (TK-025) по порядку `ArmR1::names()`; `None` — кэш без `--r1-cols`.
+    /// Есть колонки — `ApproachRecord::r1 = Some(..)` у КАЖДОЙ строки, в том числе у подхода без
+    /// касания (все клетки пусты → `R1_UNDEF`): так `r1.is_some()` ⇔ «кэш несёт R1», и сетка
+    /// отличает старый кэш от кэша с «не определено» по одному признаку.
+    r1: Option<Vec<usize>>,
     touch_start_ms: usize,
     disarm_ms: usize,
     disarm_reason: usize,
@@ -395,7 +442,10 @@ impl ApproachCols {
                 }),
                 None => None,
             },
-            r1: None,
+            r1: match &self.r1 {
+                Some(c) => Some(r1_from_record(rec, c)?),
+                None => None,
+            },
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,
             disarm_ms: csv_int(rec, self.disarm_ms)?,
             disarm_reason: ApproachEnd::parse(csv_field(rec, self.disarm_reason)?).ok_or_else(
