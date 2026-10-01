@@ -461,7 +461,9 @@ fn trade_size_percentiles_hand_calc() {
     );
 }
 
-fn ladder() -> (Vec<(i64, i64)>, Vec<(i64, i64)>) {
+type Ladder = Vec<(i64, i64)>;
+
+fn ladder() -> (Ladder, Ladder) {
     let bids = (0..12).map(|i| (100 - i, 10 * (i + 1))).collect();
     let asks = (0..12).map(|i| (101 + i, 12)).collect();
     (bids, asks)
@@ -668,8 +670,6 @@ fn late_event_does_not_overwrite_newer_slot() {
 }
 
 const K: i64 = 2_000;
-
-type Ladder = Vec<(i64, i64)>;
 
 /// Отражение книги: цена p → K − p, стороны меняются местами, порядок «лучшая первой» сохраняется.
 fn mirrored(bids: &[(i64, i64)], asks: &[(i64, i64)]) -> (Ladder, Ladder) {
