@@ -176,7 +176,7 @@ def main():
     if a.quiet:
         print(f"OK {len(rows)} клеток, {len(fam_rows)} семей; чисел не печатаю (--quiet)")
         return
-    for lab, r in list(("B1", b1), ("B2", b2)) + list(rows.items()):
+    for lab, r in [("B1", b1), ("B2", b2)] + list(rows.items()):
         print(lab, r["n"], r["usd"], r["frac"], r["max_gap_h"], r["state"], r.get("coverage", ""),
               r.get("delta_usd", ""), r.get("p", ""), "отбор" if r.get("to_selection") else "", r.get("label", ""))
     print("в отбор на проверку вне выборки:", sel)
