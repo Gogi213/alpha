@@ -293,12 +293,15 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = cached_approaches(dir, symbol, parts_by_day.keys()) else {
-                eprintln!(
-                    "bounce-grid: {symbol} — кэш подходов не годится, символ пропущен (нужен прогон `lob touches --approach-bps D`)"
-                );
-                summary.symbols_without_touches += 1;
-                continue;
+            let days = match cached_approaches(dir, symbol, parts_by_day.keys()) {
+                Ok(days) => days,
+                Err(e) => {
+                    eprintln!(
+                        "bounce-grid: {symbol} — кэш подходов не годится ({e:#}), символ пропущен (нужен прогон `lob touches --approach-bps D`)"
+                    );
+                    summary.symbols_without_touches += 1;
+                    continue;
+                }
             };
             // T-35: `frontrun_min=` на подходах читает `frontrun_lots_at_arm` (T-28); в старом кэше колонки нет
             // (читается как −1) — отказ, а не молчаливый ноль сигналов.

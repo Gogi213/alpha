@@ -73,7 +73,8 @@ fn r1_column_indices(
     }
     if let Some((missing, _)) = found.iter().find(|(_, c)| c.is_none()) {
         anyhow::bail!(
-            "{}: колонки R1 заданы не полностью ({present} из {}; нет, например, {missing}) —              кэш подходов нужно пересчитать целиком с --r1-cols",
+            "{}: колонки R1 заданы не полностью ({present} из {}; нет, например, {missing}) — \
+             кэш подходов нужно пересчитать целиком с --r1-cols",
             path.display(),
             found.len()
         );

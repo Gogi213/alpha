@@ -7,6 +7,7 @@ use crate::commands::lob::test_support::{three_level_frames, touch_frames, write
 use crate::commands::lob::H3ModeArg;
 use crate::lob::excursion::SecondMids;
 use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
+use crate::lob::r1::{ArmR1, FLOW_N, FLOW_NAMES, R1_UNDEF};
 use crate::lob::sigma::SigmaSeries;
 
 fn touches_args(root: &std::path::Path) -> TouchesArgs {
@@ -452,6 +453,217 @@ fn approach_row_pair_names_match_the_written_header() {
         names, APPROACHES_COLUMNS,
         "порядок имён из пар обязан совпадать с заголовком CSV"
     );
+}
+
+/// Файл подходов так, как его пишет `run_touches`: шапка и строки, с колонками R1 или без.
+fn write_approach_csv(path: &std::path::Path, rows: &[ApproachRecord], with_r1: bool) {
+    let mut w = csv::Writer::from_path(path).unwrap();
+    if with_r1 {
+        w.write_record(APPROACHES_COLUMNS.iter().copied().chain(ArmR1::names()))
+            .unwrap();
+    } else {
+        w.write_record(APPROACHES_COLUMNS).unwrap();
+    }
+    for a in rows {
+        let row = super::row::approach_row("2026-09-08", a);
+        if with_r1 {
+            w.write_record(row.into_iter().chain(super::row::r1_cells(a.r1.as_ref())))
+                .unwrap();
+        } else {
+            w.write_record(row).unwrap();
+        }
+    }
+    w.flush().unwrap();
+}
+
+/// Записи R1 с границами `i64`, нулём и «не определено» вперемешку.
+fn varied_r1() -> ArmR1 {
+    let mut r1 = ArmR1::undefined();
+    r1.flow[0] = 0;
+    r1.flow[1] = 12_345;
+    r1.flow[FLOW_N - 1] = -700;
+    r1.level[0] = i64::MAX;
+    r1.level[1] = i64::MIN + 1;
+    r1
+}
+
+/// TK-025: клетки R1 — пусто только для «нет записи» и `R1_UNDEF`; ноль и границы `i64` пишутся числом.
+#[test]
+fn r1_cells_are_empty_for_none_and_undef_only() {
+    let cells = super::row::r1_cells(Some(&varied_r1()));
+    assert_eq!(cells.len(), 62);
+    assert_eq!(cells.len(), ArmR1::names().count());
+    assert_eq!(cells[0], "0");
+    assert_eq!(cells[1], "12345");
+    assert!(cells[2..FLOW_N - 1].iter().all(String::is_empty));
+    assert_eq!(cells[FLOW_N - 1], "-700");
+    assert_eq!(cells[FLOW_N], i64::MAX.to_string());
+    assert_eq!(cells[FLOW_N + 1], (i64::MIN + 1).to_string());
+    assert!(cells[FLOW_N + 2..].iter().all(String::is_empty));
+    let none = super::row::r1_cells(None);
+    assert_eq!(none.len(), 62);
+    assert!(none.iter().all(String::is_empty));
+}
+
+/// TK-025: запись → чтение. Значения и «не определено» возвращаются как были; запись без R1 (`None`)
+/// у кэша с колонками читается как «всё не определено» (`Some`, пустые клетки) — так `r1.is_some()`
+/// значит «кэш несёт R1»; кэш без колонок — `None`; наполовину записанный — отказ с названием колонки.
+#[test]
+fn r1_columns_round_trip_through_the_approaches_csv() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut with = minimal_approach();
+    with.r1 = Some(varied_r1());
+    let mut undef = minimal_approach();
+    undef.approach_index = 1;
+    undef.r1 = Some(ArmR1::undefined());
+    let mut none = minimal_approach();
+    none.approach_index = 2;
+    none.r1 = None;
+    let rows = [with, undef, none];
+
+    let path = dir.path().join("with-r1.csv");
+    write_approach_csv(&path, &rows, true);
+    let (header, raw) = read_rows(&path);
+    assert_eq!(header.len(), APPROACHES_COLUMNS.len() + 62);
+    assert!(raw.iter().all(|r| r.len() == header.len()));
+    let read = read_approaches_csv(&path).unwrap();
+    assert_eq!(read.len(), 3);
+    assert_eq!(
+        read[0].approach, with,
+        "значения и UNDEF возвращаются как были"
+    );
+    assert_eq!(
+        read[0].approach.r1.unwrap().get("since_far_ms"),
+        Some(R1_UNDEF)
+    );
+    assert_eq!(read[1].approach.r1, Some(ArmR1::undefined()));
+    assert_eq!(
+        read[2].approach.r1,
+        Some(ArmR1::undefined()),
+        "None у кэша с колонками читается как «не определено»"
+    );
+
+    // Кэш без колонок R1 — прежний файл: r1 = None, остальное то же.
+    let old = dir.path().join("without-r1.csv");
+    write_approach_csv(&old, &rows, false);
+    let (old_header, _) = read_rows(&old);
+    assert_eq!(old_header, APPROACHES_COLUMNS.map(str::to_string).to_vec());
+    let read_old = read_approaches_csv(&old).unwrap();
+    assert!(read_old.iter().all(|r| r.approach.r1.is_none()));
+    assert_eq!(read_old[0].approach, ApproachRecord { r1: None, ..with });
+
+    // Часть колонок — отказ: наполовину записанный кэш не читается как «без R1».
+    let (header, raw) = read_rows(&path);
+    let partial = dir.path().join("partial.csv");
+    let mut w = csv::Writer::from_path(&partial).unwrap();
+    w.write_record(&header[..header.len() - 1]).unwrap();
+    for r in &raw {
+        w.write_record(&r[..r.len() - 1]).unwrap();
+    }
+    w.flush().unwrap();
+    let err = format!("{:#}", read_approaches_csv(&partial).unwrap_err());
+    assert!(err.contains("61 из 62"), "{err}");
+    assert!(
+        err.contains("since_far_ms"),
+        "названа недостающая колонка: {err}"
+    );
+
+    // Не целое в клетке R1 — отказ с названием колонки.
+    let bad = dir.path().join("bad-cell.csv");
+    let mut w = csv::Writer::from_path(&bad).unwrap();
+    w.write_record(&header).unwrap();
+    let mut row = raw[0].clone();
+    let at = APPROACHES_COLUMNS.len() + 5;
+    row[at] = "1.5".to_string();
+    w.write_record(&row).unwrap();
+    w.flush().unwrap();
+    let err = format!("{:#}", read_approaches_csv(&bad).unwrap_err());
+    assert!(err.contains(FLOW_NAMES[5]), "{err}");
+}
+
+/// TK-025: `--r1-cols` дописывает 62 колонки в КОНЕЦ шапки после колонок П-08, а без флага шапка и
+/// строки — прежние байты (файл касаний флаг не трогает вовсе).
+#[test]
+fn r1_cols_flag_appends_the_62_columns_and_keeps_the_old_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let run = |sub: &str, r1_cols: bool| {
+        let mut a = touches_args(dir.path());
+        a.approach_bps = vec![700];
+        a.r1_cols = r1_cols;
+        a.out = Some(dir.path().join(sub).join("touches-SOLUSDT.csv"));
+        run_touches(&a).unwrap()
+    };
+    let off = run("off", false);
+    let on = run("on", true);
+    assert_eq!(off.approaches, 1);
+    assert_eq!(on.approaches, 1);
+    assert_eq!(
+        std::fs::read(&off.out).unwrap(),
+        std::fs::read(&on.out).unwrap(),
+        "файл касаний флаг не меняет"
+    );
+
+    // Без флага — ровно шапка и строки подхода, без единой колонки R1.
+    let cfg = LevelsConfig {
+        mode: crate::lob::levels::H3Mode::Percentile { h3_lots: 5 },
+        warmup_ms: 0,
+        repeat_window_ms: 3_600_000,
+        approach_bps: Some(700),
+        approach_min_age_ms: 0,
+    };
+    let replay = replay_symbol(dir.path(), "SOLUSDT", cfg).unwrap();
+    let records: Vec<ApproachRecord> = replay
+        .days
+        .iter()
+        .flat_map(|d| d.approaches.iter().copied())
+        .collect();
+    let expected = dir.path().join("expected-old.csv");
+    write_approach_csv(&expected, &records, false);
+    assert_eq!(
+        std::fs::read(&off.approaches_out[0]).unwrap(),
+        std::fs::read(&expected).unwrap(),
+        "без --r1-cols файл подходов — прежние байты"
+    );
+
+    let (h_off, r_off) = read_rows(&off.approaches_out[0]);
+    let (h_on, r_on) = read_rows(&on.approaches_out[0]);
+    let old = APPROACHES_COLUMNS.len();
+    assert_eq!(h_off, APPROACHES_COLUMNS.map(str::to_string).to_vec());
+    assert_eq!(h_on.len(), old + 62);
+    assert_eq!(h_on[..old], h_off[..], "прежние колонки на прежних местах");
+    let names: Vec<String> = ArmR1::names().map(str::to_string).collect();
+    assert_eq!(
+        h_on[old..],
+        names[..],
+        "62 колонки R1 в конце, в порядке ArmR1::names()"
+    );
+    assert_eq!(r_on.len(), r_off.len());
+    for (a, b) in r_on.iter().zip(&r_off) {
+        assert_eq!(a.len(), old + 62);
+        assert_eq!(a[..old], b[..]);
+    }
+
+    // Чтение: с колонками — запись R1 у каждой строки, без — None.
+    assert!(read_approaches_csv(&on.approaches_out[0])
+        .unwrap()
+        .iter()
+        .all(|r| r.approach.r1.is_some()));
+    assert!(read_approaches_csv(&off.approaches_out[0])
+        .unwrap()
+        .iter()
+        .all(|r| r.approach.r1.is_none()));
+}
+
+/// TK-025: `--r1-cols` без `--approach-bps` — отказ (колонкам R1 некуда лечь), как и другие флаги подхода.
+#[test]
+fn r1_cols_without_approach_bps_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
+    let mut a = touches_args(dir.path());
+    a.r1_cols = true;
+    let err = run_touches(&a).unwrap_err().to_string();
+    assert!(err.contains("--r1-cols"), "{err}");
 }
 
 /// Аргументы `lob levels` с теми же `--h3-*`/`--warmup-ms`/`--repeat-window-ms`, что у касаний:
