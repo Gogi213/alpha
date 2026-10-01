@@ -18,6 +18,7 @@ pub mod markup;
 pub mod minute_flow;
 pub mod moves;
 pub mod r1;
+pub mod r1_flow;
 pub mod runs;
 pub mod shortlist;
 pub mod sigma;
