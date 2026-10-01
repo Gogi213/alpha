@@ -101,6 +101,12 @@ pub(super) fn resolve(args: &TouchesArgs) -> anyhow::Result<ResolvedPlan> {
             "--approach-min-age-secs задан без --approach-bps: пола взвода нет, записи подхода тоже"
         );
     }
+    if bands.is_empty() {
+        anyhow::ensure!(
+            !args.r1_cols,
+            "--r1-cols задан без --approach-bps: записей подхода нет — колонкам R1 некуда лечь"
+        );
+    }
     // Порог в лотах — только для чисел практиков `--numbers` (оси «×H3»): у
     // режимов В-61 единого порога нет, и `--numbers` с ними — отказ.
     let h3_lots = mode.single_h3_lots();

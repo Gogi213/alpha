@@ -111,6 +111,8 @@ pub(super) struct Outputs {
     signals: Option<csv::Writer<std::fs::File>>,
     // TK-012: колонки П-08 в `signals.csv` — только с `--p08-cols`.
     with_p08: bool,
+    // TK-025: колонки R1 в `signals.csv` (после П-08) — только с `--r1-cols`.
+    with_r1: bool,
 }
 
 /// Колонки `signals.csv` (T-31, `--busy-skip off`): по строке на сигнал набора, который дошёл до драйвера.
@@ -280,6 +282,7 @@ impl Outputs {
         with_carry: bool,
         with_signals: bool,
         with_p08: bool,
+        with_r1: bool,
     ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(out_dir)?;
         let rounds_path = out_dir.join("rounds.csv");
@@ -303,11 +306,14 @@ impl Outputs {
             let mut sf = std::fs::File::create(out_dir.join("signals.csv"))?;
             writeln!(sf, "{header}")?;
             let mut w = csv::WriterBuilder::new().has_headers(false).from_writer(sf);
+            let mut names: Vec<&str> = SIGNALS_HEADER.to_vec();
             if with_p08 {
-                w.write_record(SIGNALS_HEADER.iter().chain(SIGNALS_P08_HEADER.iter()))?;
-            } else {
-                w.write_record(SIGNALS_HEADER)?;
+                names.extend(SIGNALS_P08_HEADER);
             }
+            if with_r1 {
+                names.extend(crate::lob::r1::ArmR1::names());
+            }
+            w.write_record(names)?;
             Some(w)
         } else {
             None
@@ -320,6 +326,7 @@ impl Outputs {
             with_carry,
             signals,
             with_p08,
+            with_r1,
         })
     }
 
@@ -425,20 +432,26 @@ impl Outputs {
                 }
             }
             // TK-012: подход сигнала — по (`arm_ms`, тик стены), тот же ключ склейки, что у
-            // `price_tick` строки; ищется только с `--p08-cols`.
-            let p08_index: Vec<(i64, i64, usize)> = match (self.with_p08, approaches) {
-                (true, Some(ap)) => {
-                    let mut v: Vec<(i64, i64, usize)> = ap
-                        .iter()
-                        .enumerate()
-                        .map(|(i, a)| (a.arm_ms, a.price_tick, i))
-                        .collect();
-                    v.sort_unstable();
-                    v
-                }
-                (true, None) => anyhow::bail!("{symbol} {day}: --p08-cols без записей подхода"),
-                _ => Vec::new(),
+            // `price_tick` строки; ищется только с `--p08-cols` / `--r1-cols`.
+            let flag = if self.with_p08 {
+                "--p08-cols"
+            } else {
+                "--r1-cols"
             };
+            let p08_index: Vec<(i64, i64, usize)> =
+                match (self.with_p08 || self.with_r1, approaches) {
+                    (true, Some(ap)) => {
+                        let mut v: Vec<(i64, i64, usize)> = ap
+                            .iter()
+                            .enumerate()
+                            .map(|(i, a)| (a.arm_ms, a.price_tick, i))
+                            .collect();
+                        v.sort_unstable();
+                        v
+                    }
+                    (true, None) => anyhow::bail!("{symbol} {day}: {flag} без записей подхода"),
+                    _ => Vec::new(),
+                };
             for t in &run.trace {
                 let sig = order.get(t.signal);
                 let tick = sig.and_then(|s| match s.plan {
@@ -478,10 +491,10 @@ impl Outputs {
                         .flatten()
                         .map_or_else(String::new, |e| e.to_string()),
                 ]);
-                if self.with_p08 {
+                if self.with_p08 || self.with_r1 {
                     let (Some(s), Some(tick), Some(ap)) = (sig, tick, approaches) else {
                         anyhow::bail!(
-                            "{symbol} {day} {}: --p08-cols — у сигнала {} нет тика стены",
+                            "{symbol} {day} {}: {flag} — у сигнала {} нет тика стены",
                             form.label,
                             t.signal
                         );
@@ -492,13 +505,24 @@ impl Outputs {
                         .ok()
                         .and_then(|j| p08_index.get(j))
                         .map(|&(_, _, i)| &ap[i]);
-                    let Some(p) = at.and_then(|a| a.p08) else {
-                        anyhow::bail!(
-                            "{symbol} {day} {}: --p08-cols — нет признаков подхода arm_ms={arm_ms} тик {tick}",
-                            form.label
-                        );
-                    };
-                    row.extend(p08_cells(&p));
+                    if self.with_p08 {
+                        let Some(p) = at.and_then(|a| a.p08) else {
+                            anyhow::bail!(
+                                "{symbol} {day} {}: --p08-cols — нет признаков подхода arm_ms={arm_ms} тик {tick}",
+                                form.label
+                            );
+                        };
+                        row.extend(p08_cells(&p));
+                    }
+                    if self.with_r1 {
+                        let Some(r) = at.and_then(|a| a.r1) else {
+                            anyhow::bail!(
+                                "{symbol} {day} {}: --r1-cols — нет признаков R1 подхода arm_ms={arm_ms} тик {tick}",
+                                form.label
+                            );
+                        };
+                        row.extend(crate::commands::lob::touches::r1_cells(Some(&r)));
+                    }
                 }
                 w.write_record(&row)?;
             }

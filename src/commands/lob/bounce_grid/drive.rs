@@ -32,7 +32,7 @@ use super::carry::{cached_event_count, store_event_count};
 use super::entry_sigma::EntrySigma;
 use super::forms::GridForm;
 use super::outputs::FormDayResult;
-use super::sets::{Range, TouchContext, TouchFilter, CTX_AXES};
+use super::sets::{R1Bound, Range, TouchContext, TouchFilter, CTX_AXES};
 
 /// Сигналы формы: план базы на каждое касание (`σ_H` за окно дедлайна — только
 /// σ-формам); касания, для которых форму не построить, пропускаются и
@@ -72,7 +72,7 @@ fn signals_for(
         .iter()
         .enumerate()
         .filter_map(|(ti, t)| {
-            if !filter.admits(ti, t) {
+            if !filter.admits(ti, t) || !filter.admits_r1(approaches.map(|ap| &ap[ti])) {
                 skipped += 1;
                 return None;
             }
@@ -363,6 +363,8 @@ pub(super) struct DayParams<'a> {
     pub(super) behind_min_pct: Option<i64>,
     /// Г-07: уровней в стопке ≥ (`stack_min=`).
     pub(super) stack_min: Option<u32>,
+    /// TK-025: границы колонок R1 (`r1_<колонка>_min|_max=`), проверяются на записи подхода.
+    pub(super) r1: &'a [R1Bound],
     /// Контекст касаний суток (тот же порядок, что `touches`) — только когда
     /// у набора есть ключи контекста; границы — `ctx_ranges`.
     pub(super) ctx: Option<&'a [TouchContext]>,

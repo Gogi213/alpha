@@ -234,6 +234,10 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         !args.p08_cols || (args.signal == SignalArg::Approach && args.busy_skip == "off"),
         "--p08-cols: признаки взвода пишутся в signals.csv — нужны --signal approach и --busy-skip off"
     );
+    anyhow::ensure!(
+        !args.r1_cols || (args.signal == SignalArg::Approach && args.busy_skip == "off"),
+        "--r1-cols: признаки R1 пишутся в signals.csv — нужны --signal approach и --busy-skip off"
+    );
     if args.signal == SignalArg::Approach {
         anyhow::ensure!(
             args.touches_from.is_some(),
@@ -274,6 +278,11 @@ pub(crate) fn plan_grid(args: &BounceGridArgs) -> anyhow::Result<GridPlan> {
         );
         parsed
     };
+    // TK-025: колонки R1 есть только у кэша подходов — на касаниях ключ `r1_*` молча выбросил бы все сигналы.
+    anyhow::ensure!(
+        args.signal == SignalArg::Approach || !sets.iter().any(FilterSet::uses_r1),
+        "--set r1_*: колонки R1 несёт только кэш подходов — нужен --signal approach"
+    );
     // F6 (В-73): у записи подхода нет ни истории размера (ключ `eaten=`), ни
     // хода **монеты** до взвода (ключи `ret*` — их несёт только кэш касаний) —
     // фильтры, которые их читают, молча выбросили бы все сигналы; отказ, как
@@ -450,7 +459,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
     }
     let header_for = |set: &FilterSet| {
         format!(
-        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} eaten_min={:?} usd_min={:?}{} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
+        "# lob bounce-grid: root={} days={} forms={} base=В-65(stop_form={:?} take_form={:?} take_floor_fees={:?} frontrun_only={} min_age_secs={:?} min_flow_pct={:?} side={} eaten_max={:?} eaten_min={:?} usd_min={:?}{}{} ctx={} deadlines={:?}) RTT={}нс {} h3={:?} lot={} threads={} driver={} queue={} entry_post_only={} entry_ttl={} band_exit_bps={} signal={} entry_forms={} exit_forms={} paths=1:сделки-на-нашей-цене-частично(очередь) 2:сделка-в-сторону-от-нас-весь-остаток(приоритет-цены) 3:лучшая-цена-дошла-до-нашей-без-сделки-весь-остаток(оптимистично-по-размеру,-счётчик-n_fill_by_cross) touches={} verified={}{}",
         args.root.display(),
         if args.days.is_empty() {
             "all".to_string()
@@ -474,6 +483,8 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
         set.usd_min,
         // Г-07: ключи — в шапку только заданными, без них шапка байт в байт прежняя
         g07_label(set),
+        // TK-025: ключи пакета R1 — тем же слотом, в каноническом порядке колонок
+        r1_label(set),
         set.ctx_label(),
         deadlines,
         args.median_rtt_ns,
@@ -540,6 +551,7 @@ pub(super) fn open_outputs(args: &BounceGridArgs, plan: &GridPlan) -> anyhow::Re
             args.carry_root.is_some(),
             args.busy_skip == "off",
             args.p08_cols,
+            args.r1_cols,
         )?);
         let mut m = std::fs::File::create(dir.join("manifest.txt"))?;
         writeln!(m, "{header}")?;
@@ -575,6 +587,22 @@ pub(super) fn g07_label(set: &FilterSet) -> String {
     }
     if let Some(n) = set.stack_min {
         out.push_str(&format!(" stack_min={n}"));
+    }
+    out
+}
+
+/// TK-025: `" r1_<колонка>_min=<n> r1_<колонка>_max=<n>"` по порядку колонок — только заданные ключи; без них
+/// пусто. Порядок канонический (не как в записи `--set`): шапка набора — его идентичность.
+pub(super) fn r1_label(set: &FilterSet) -> String {
+    let names: Vec<&str> = crate::lob::r1::ArmR1::names().collect();
+    let mut out = String::new();
+    for b in &set.r1 {
+        if let Some(v) = b.min {
+            out.push_str(&format!(" r1_{}_min={v}", names[b.col]));
+        }
+        if let Some(v) = b.max {
+            out.push_str(&format!(" r1_{}_max={v}", names[b.col]));
+        }
     }
     out
 }

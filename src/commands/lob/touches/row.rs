@@ -24,6 +24,7 @@ use crate::lob::markout::{
     approaches_for_touch, distance_bps_at_birth, long_markouts_for_touch, markouts_for_touch,
     touch_base, within_touch,
 };
+use crate::lob::r1::{ArmR1, R1_UNDEF};
 use crate::lob::sigma::SigmaSeries;
 
 use super::{APPROACHES_COLUMNS, APPROACHES_WIDTH, PRE_TOUCH_MS, TOUCHES_COLUMNS, TOUCHES_WIDTH};
@@ -270,6 +271,25 @@ pub(super) fn approach_row(day: &str, a: &ApproachRecord) -> [String; APPROACHES
         "имя колонки и её значение обязаны стоять на одной позиции"
     );
     pairs.map(|(_, v)| v)
+}
+
+/// Клетки R1 в порядке `ArmR1::names()` (TK-025): пусто — записи R1 нет (`None`) или значение
+/// «не определено» (`R1_UNDEF`). Общая для `approaches-*.csv` и `signals.csv` сетки; обратное
+/// для первого — `read::r1_from_record`.
+pub(crate) fn r1_cells(r1: Option<&ArmR1>) -> Vec<String> {
+    match r1 {
+        Some(r) => r
+            .values()
+            .map(|v| {
+                if v == R1_UNDEF {
+                    String::new()
+                } else {
+                    v.to_string()
+                }
+            })
+            .collect(),
+        None => vec![String::new(); ArmR1::names().count()],
+    }
 }
 
 /// Имена колонок из пар — только для теста (см. `touch_row_pair_names`).

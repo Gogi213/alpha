@@ -293,12 +293,15 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = cached_approaches(dir, symbol, parts_by_day.keys()) else {
-                eprintln!(
-                    "bounce-grid: {symbol} — кэш подходов не годится, символ пропущен (нужен прогон `lob touches --approach-bps D`)"
-                );
-                summary.symbols_without_touches += 1;
-                continue;
+            let days = match cached_approaches(dir, symbol, parts_by_day.keys()) {
+                Ok(days) => days,
+                Err(e) => {
+                    eprintln!(
+                        "bounce-grid: {symbol} — кэш подходов не годится ({e:#}), символ пропущен (нужен прогон `lob touches --approach-bps D`)"
+                    );
+                    summary.symbols_without_touches += 1;
+                    continue;
+                }
             };
             // T-35: `frontrun_min=` на подходах читает `frontrun_lots_at_arm` (T-28); в старом кэше колонки нет
             // (читается как −1) — отказ, а не молчаливый ноль сигналов.
@@ -326,6 +329,19 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             .is_some_and(|ap| ap.iter().all(|a| a.p08.is_some()))
                     }),
                 "{symbol}: --p08-cols — нужен кэш подходов с колонками traded_lots_at_arm… (TK-012, `{}`), пересчитайте `lob touches --approach-bps`",
+                dir.display()
+            );
+            // TK-025: колонки R1 — для `--r1-cols` и для ключей `r1_*` наборов; старый кэш без них —
+            // отказ, а не пустые клетки и не молчаливый ноль сигналов (читатель даёт `r1 = Some` ровно
+            // тогда, когда колонки в файле есть).
+            anyhow::ensure!(
+                !(args.r1_cols || sets.iter().any(FilterSet::uses_r1))
+                    || days.iter().all(|d| {
+                        d.approaches
+                            .as_deref()
+                            .is_some_and(|ap| ap.iter().all(|a| a.r1.is_some()))
+                    }),
+                "{symbol}: --r1-cols / ключи r1_* — нужен кэш подходов с колонками R1 (TK-025, `{}`), пересчитайте `lob touches --approach-bps --r1-cols`",
                 dir.display()
             );
             summary.symbols_from_cache += 1;
@@ -584,6 +600,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             usd_min: set.usd_min,
                             behind_min_pct: set.behind_min_pct,
                             stack_min: set.stack_min,
+                            r1: &set.r1,
                             ctx: if set.uses_ctx() { Some(&ctx) } else { None },
                             ctx_ranges: set.ctx,
                             mode,

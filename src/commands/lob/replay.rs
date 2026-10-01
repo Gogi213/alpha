@@ -80,6 +80,9 @@ pub(crate) struct ReplayKeep {
     /// трекер следующих **смежных** суток наследует рождения уровней, стоящих на той же цене в
     /// первом кадре стороны. `false` — прежнее поведение (трекер с нуля в 00:00 UTC).
     pub(crate) carry_age: bool,
+    /// Включить счёт колонок R1 у каждого трекера (`lob touches --r1-cols`, TK-025): без него
+    /// `ApproachRecord::r1 == None` и цена счёта нулевая.
+    pub(crate) r1: bool,
 }
 
 /// Что хранить из срезов середины.
@@ -98,16 +101,23 @@ impl ReplayKeep {
         records: true,
         mids: MidsKeep::All,
         carry_age: false,
+        r1: false,
     };
     pub(crate) const TOUCHES_AND_SECOND_MIDS: Self = Self {
         records: false,
         mids: MidsKeep::PerSecond,
         carry_age: false,
+        r1: false,
     };
 
     /// То же хранение с переносом возраста через полночь.
     pub(crate) const fn with_carry_age(self, carry_age: bool) -> Self {
         Self { carry_age, ..self }
+    }
+
+    /// То же хранение со счётом колонок R1.
+    pub(crate) const fn with_r1(self, r1: bool) -> Self {
+        Self { r1, ..self }
     }
 }
 
@@ -358,6 +368,12 @@ pub(crate) fn replay_symbol_over_configs_keep(
                     .collect(),
                 _ => cfgs.iter().map(|&cfg| LevelTracker::new(cfg)).collect(),
             };
+            let mut trackers = trackers;
+            if keep.r1 {
+                for t in &mut trackers {
+                    t.enable_r1();
+                }
+            }
             work.push(DayWork {
                 day,
                 records: cfgs.iter().map(|_| Vec::new()).collect(),

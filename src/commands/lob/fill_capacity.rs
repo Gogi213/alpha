@@ -502,6 +502,11 @@ pub fn run_fill_capacity(args: &FillCapacityArgs) -> anyhow::Result<FillCapacity
         args.regime_from.is_some() || !sets.iter().any(FilterSet::uses_regime),
         "ключи pool*/btc* у наборов требуют --regime-from <study/regime>"
     );
+    // TK-025: замер ёмкости читает кэш касаний/подходов без колонок R1 — ключ `r1_*` молча ничего бы не фильтровал.
+    anyhow::ensure!(
+        !sets.iter().any(FilterSet::uses_r1),
+        "--set r1_*: ключи пакета R1 понимает только `lob bounce-grid --signal approach`"
+    );
     if let Some(dir) = &args.regime_from {
         anyhow::ensure!(dir.is_dir(), "--regime-from {}: не каталог", dir.display());
     }
