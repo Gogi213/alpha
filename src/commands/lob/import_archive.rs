@@ -185,6 +185,21 @@ fn read_trades(path: &Path) -> anyhow::Result<Vec<Trade>> {
     Ok(out)
 }
 
+/// В день листинга первый (пустой) снимок несёт `"seq":-1` — `u64` его не разбирает (TK-021: 19
+/// монето-суток, `BadShape("orderbook")`). `seq` в импорте не участвует (контроль — по `u`), поэтому
+/// отрицательное значение заменяется нулём; правка только в импорте, живой разбор не затронут.
+fn zero_negative_seq(line: &str) -> std::borrow::Cow<'_, str> {
+    const KEY: &str = "\"seq\":-";
+    let Some(at) = line.find(KEY) else {
+        return std::borrow::Cow::Borrowed(line);
+    };
+    let digits = at + KEY.len();
+    let end = line[digits..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map_or(line.len(), |n| digits + n);
+    std::borrow::Cow::Owned(format!("{}\"seq\":0{}", &line[..at], &line[end..]))
+}
+
 #[derive(serde::Deserialize)]
 struct PublishTs {
     ts: i64,
@@ -284,9 +299,6 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         let ts = serde_json::from_str::<PublishTs>(&line)
             .map_err(|e| anyhow::anyhow!("строка стакана без ts: {e}"))?
             .ts;
-        if ts < day_start {
-            continue;
-        }
         if ts >= day_end {
             sum.dropped_after_day += 1;
             continue;
@@ -305,8 +317,23 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
                 sum.trades_before_snapshot += 1;
             }
         }
+        let line = zero_negative_seq(&line);
         let events =
             parse_message(&line).map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
+        if ts < day_start {
+            // Снимок начала суток архив иногда публикует на миллисекунды раньше полуночи
+            // (TK-021: UNI, ATOM, BCH — 13 монето-суток), за ним идут дельты суток с тем же
+            // потоком `u`: такой снимок — начало суток, а не «чужие» сообщения. Всё остальное до
+            // полуночи пропускается, как прежде.
+            let starts_day = events
+                .iter()
+                .any(|e| matches!(e, Event::Book(u) if u.is_snapshot));
+            if !has_snapshot && !starts_day {
+                continue;
+            }
+        }
+        // Время получения записи не раньше начала суток: файл суток не выходит за них.
+        let ts = ts.max(day_start);
         for ev in events {
             let Event::Book(update) = ev else { continue };
             sum.messages += 1;

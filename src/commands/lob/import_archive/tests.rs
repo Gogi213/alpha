@@ -151,3 +151,116 @@ fn trade_numbers_in_exponent_form_parse_exactly() {
     assert_eq!(parse_decimal_e9("0.0082300"), Some(8_230_000));
     assert_eq!(parse_decimal_e9("1e-10"), None, "точнее 1e-9 — отказ");
 }
+
+fn write_day(dir: &Path, ob: &[String]) -> ImportArchiveArgs {
+    let args = fixture(dir);
+    std::fs::write(&args.ob, ob.join("\n")).unwrap();
+    args
+}
+
+fn all_records(out: &Path) -> Vec<Record> {
+    let data = std::fs::read(out).unwrap();
+    let mut r = Reader::open(&data[..]).unwrap();
+    let mut recs = Vec::new();
+    while let Some(f) = r.read_frame().unwrap() {
+        recs.extend(f);
+    }
+    recs
+}
+
+/// Снимок начала суток на миллисекунду раньше полуночи (архив: UNI, ATOM, BCH) — начало суток,
+/// а не пропуск: дельты суток ложатся на него, `u` без разрыва, время получения — не раньше полуночи.
+#[test]
+fn snapshot_just_before_midnight_starts_the_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START - 1,
+            START - 120,
+            10,
+            r#"["1.00","5"]"#,
+            r#"["1.01","3"]"#,
+        ),
+        msg("delta", START + 300, START + 290, 11, r#"["1.00","4"]"#, ""),
+    ];
+    let args = write_day(dir.path(), &ob);
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!((sum.snapshots, sum.messages, sum.u_gaps), (1, 2, 0));
+    let recs = all_records(&sum.out);
+    assert_eq!(recs[0].ev, LOCAL_BID_DEPTH_SNAPSHOT_EVENT);
+    assert_eq!(
+        recs[0].local_ts_ns,
+        START * 1_000_000,
+        "не раньше начала суток"
+    );
+    assert_eq!(
+        recs[0].exch_ts_ns,
+        (START - 120) * 1_000_000,
+        "время биржи — как есть"
+    );
+}
+
+/// Сообщения до полуночи без снимка в начале по-прежнему пропускаются.
+#[test]
+fn deltas_before_midnight_without_snapshot_are_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg("delta", START - 5, START - 6, 9, r#"["1.00","1"]"#, ""),
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            10,
+            r#"["1.00","5"]"#,
+            r#"["1.01","3"]"#,
+        ),
+    ];
+    let args = write_day(dir.path(), &ob);
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!((sum.snapshots, sum.messages), (1, 1));
+}
+
+/// День листинга: первый снимок пуст и несёт `"seq":-1` — разбирается, дельты ложатся на пустую книгу.
+#[test]
+fn empty_listing_snapshot_with_negative_seq_is_accepted() {
+    let dir = tempfile::tempdir().unwrap();
+    let first =
+        msg("snapshot", START + 100, START + 90, 1, "", "").replace(r#""seq":1"#, r#""seq":-1"#);
+    assert!(first.contains(r#""seq":-1"#));
+    let ob = [
+        first,
+        msg(
+            "delta",
+            START + 300,
+            START + 290,
+            2,
+            r#"["1.00","4"]"#,
+            r#"["1.01","2"]"#,
+        ),
+    ];
+    let args = write_day(dir.path(), &ob);
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!((sum.snapshots, sum.messages, sum.u_gaps), (1, 2, 0));
+    let depth = all_records(&sum.out)
+        .iter()
+        .filter(|r| r.ev != LOCAL_BUY_TRADE_EVENT && r.ev != LOCAL_SELL_TRADE_EVENT)
+        .count();
+    assert_eq!(
+        depth, 2,
+        "пустой снимок — без записей, дельта — две стороны"
+    );
+}
+
+#[test]
+fn negative_seq_is_zeroed_only_when_present() {
+    assert_eq!(
+        zero_negative_seq(r#"{"seq":-1,"x":2}"#),
+        r#"{"seq":0,"x":2}"#
+    );
+    assert_eq!(
+        zero_negative_seq(r#"{"u":1,"seq":-25}"#),
+        r#"{"u":1,"seq":0}"#
+    );
+    assert_eq!(zero_negative_seq(r#"{"seq":7}"#), r#"{"seq":7}"#);
+}
