@@ -1,0 +1,9 @@
+[Unit]
+Description=alpha: hourly transfer of closed collector days to Storage Box (TK-020; replaces alpha-sb-push.timer)
+
+[Timer]
+OnCalendar=*-*-* *:10:00 UTC
+Persistent=false
+
+[Install]
+WantedBy=timers.target

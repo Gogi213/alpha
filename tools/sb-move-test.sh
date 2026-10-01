@@ -4,9 +4,10 @@
 #   bash sb-move-test.sh <каталог с sb-move.sh и sb-push-day.sh> <рабочий каталог теста>
 set -uo pipefail
 T=${1:?каталог скриптов}; W=${2:?рабочий каталог}
-export ALPHA_TEST=1 ALPHA_BASE=$W SB_REMOTE_PREFIX=alpha/tk020-test/$(basename "$W") ALPHA_TODAY=2026-02-01 DISK_USE_FAKE=10 BOX_USE_FAKE=10 HOME=${HOME}
+[ "$(id -u)" -eq 0 ] || { echo "запускать от root (sudo): боевой юнит — root, коллектор — root"; exit 2; }
+export ALPHA_TEST=1 ALPHA_BASE=$W SB_REMOTE_PREFIX=alpha/tk020-test/$(basename "$W") ALPHA_TODAY=2026-02-01 DISK_USE_FAKE=10 BOX_USE_FAKE=10 SB_KEYDIR=${SB_KEYDIR:-/home/ubuntu/.ssh}
 SBH=u677479@u677479.your-storagebox.de
-SSHC="ssh -p 23 -i $HOME/.ssh/id_storagebox -o BatchMode=yes"
+SSHC="ssh -p 23 -i $SB_KEYDIR/id_storagebox -o UserKnownHostsFile=$SB_KEYDIR/known_hosts -o BatchMode=yes"
 $SSHC $SBH mkdir -p alpha/tk020-test/$(basename "$W")/root alpha/tk020-test/$(basename "$W")/deep
 mkdir -p "$W/root/deep" "$W/verify" "$W/sync/sb"; printf 'ts,event\n' > "$W/root/gaps.csv"
 ok=0; fail=0
@@ -56,7 +57,10 @@ check "S4 догон: поздний ушёл" '[ ! -e $W/root/LATEUSDT-$D.binlo
 # S5: файл открыт процессом → цел, ALERT
 D=2026-01-06
 for c in AAA BBB; do mk "$W/root" "${c}USDT-$D.binlog"; done; echo ok > "$W/verify/$D.log"
-exec 8< "$W/root/AAAUSDT-$D.binlog"; run "$D"; exec 8<&-
+( exec 8< "$W/root/AAAUSDT-$D.binlog"; exec sleep 25 ) & HP=$!; sleep 1   # держит отдельный процесс root, как коллектор
+check "S5 fuser под ubuntu файл root-процесса не видит (почему нужен root)" '! runuser -u ubuntu -- fuser -s "$W/root/AAAUSDT-$D.binlog" 2>/dev/null'
+check "S5 fuser под root видит" 'fuser -s "$W/root/AAAUSDT-$D.binlog" 2>/dev/null'
+run "$D"; kill $HP 2>/dev/null; wait $HP 2>/dev/null
 check "S5 открытый цел и ALERT" '[ -f $W/root/AAAUSDT-$D.binlog ] && [ -f $W/root/BBBUSDT-$D.binlog ] && [ -s $W/sync/sb/ALERT-$D ]'
 
 # S6: сутки не закрыты
@@ -75,4 +79,15 @@ run; check "S8 тревоги снимаются" '[ ! -e $W/sync/sb/ALERT-box ]
 # S9: догон — без аргумента обходит все сутки (S7 получает сверку и уходит)
 echo ok > "$W/verify/2026-01-07.log"; run
 check "S9 догон без аргумента" '[ ! -e $W/root/AAAUSDT-2026-01-07.binlog ]'
+# S10: удаление не прошло (файл неизменяемый, chattr +i) → PARTIAL, не MOVED, ALERT; после снятия — догон
+D=2026-01-08; for c in AAA BBB; do mk "$W/root" "${c}USDT-$D.binlog"; done; echo ok > "$W/verify/$D.log"
+chattr +i "$W/root/BBBUSDT-$D.binlog"; run "$D"
+check "S10 PARTIAL, не MOVED, ALERT, неудалённый цел" 'grep -q "PARTIAL $D" $W/sync/sb/move.log && ! grep -q "MOVED $D" $W/sync/sb/move.log && [ -s $W/sync/sb/ALERT-$D ] && [ -f $W/root/BBBUSDT-$D.binlog ] && [ ! -e $W/root/AAAUSDT-$D.binlog ]'
+chattr -i "$W/root/BBBUSDT-$D.binlog"; run "$D"
+check "S10 после снятия: MOVED, ALERT снят" 'grep -q "MOVED $D" $W/sync/sb/move.log && [ ! -e $W/sync/sb/ALERT-$D ] && [ ! -e $W/root/BBBUSDT-$D.binlog ]'
+
+# S11: запуск не от root → выход с кодом 3, ничего не тронуто
+D=2026-01-09; mk "$W/root" "AAAUSDT-$D.binlog"; echo ok > "$W/verify/$D.log"
+runuser -u ubuntu -- bash "$T/sb-move.sh" "$D" > /dev/null 2>&1; rc=$?
+check "S11 не от root: код 3, файл цел" '[ $rc -eq 3 ] && [ -f $W/root/AAAUSDT-$D.binlog ]'
 echo "ИТОГ: pass $ok, fail $fail"; [ "$fail" -eq 0 ]

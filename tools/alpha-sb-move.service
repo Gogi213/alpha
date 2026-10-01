@@ -1,0 +1,11 @@
+[Unit]
+Description=alpha: closed collector days -> Hetzner Storage Box, check, delete local (TK-020)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=SB_KEYDIR=/home/ubuntu/.ssh
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/bin/bash /opt/alpha/tools/sb-move.sh

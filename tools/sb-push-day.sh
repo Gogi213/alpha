@@ -15,7 +15,8 @@ BASE="${ALPHA_BASE:-/opt/alpha}"; RP="${SB_REMOTE_PREFIX:-alpha}"; TODAY="${ALPH
 LOG=$OUT/push-$DAY.log; exec >> "$LOG" 2>&1
 BW="${SB_BWLIMIT_KBPS:-3000}"; BATCH=150
 SBH=u677479@u677479.your-storagebox.de
-SSHC="ssh -p 23 -i $HOME/.ssh/id_storagebox -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+KEYDIR="${SB_KEYDIR:-$HOME/.ssh}"   # боевой запуск от root: ключ и known_hosts ящика лежат у ubuntu — SB_KEYDIR=/home/ubuntu/.ssh
+SSHC="ssh -p 23 -i $KEYDIR/id_storagebox -o UserKnownHostsFile=$KEYDIR/known_hosts -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 say() { echo "== $(date -u +%FT%TZ) $*"; }
 [[ $DAY < $TODAY ]] || { say "$DAY не закрыт — стоп"; exit 2; }
 T0=$(date -u +%FT%TZ); D0=$(wc -l < "$OUT/done.txt")

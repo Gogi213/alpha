@@ -13,6 +13,10 @@
 # (появился после), остаётся и уйдёт следующим прогоном. Сутки целиком либо ничего: любое расхождение → ничего не
 # удалено, ALERT-<сутки>. Тревоги — $BASE/sync/sb/ALERT-*: <сутки> (сбой/зависло), disk (диск коллектора > 70 %),
 # box (ящик > 85 %); их показывает tools/alpha-status.sh. Журнал — $BASE/sync/sb/move.log.
+# Запускать ТОЛЬКО от root (коллектор и каталог записи — root; от ubuntu `fuser` не видит открытые коллектором файлы,
+# а удаление не проходит): юнит alpha-sb-move — User=root, Environment=SB_KEYDIR=/home/ubuntu/.ssh (ключ и known_hosts
+# ящика у ubuntu); не от root — выход с кодом 3. Удалённым считается только удалённое: после `rm` файла быть не должно,
+# иначе строка PARTIAL (не MOVED) и ALERT-<сутки>.
 # Проверка на копии: ALPHA_TEST=1 ALPHA_BASE=<копия> SB_REMOTE_PREFIX=alpha/tk020-test ALPHA_TODAY=<сутки>.
 set -uo pipefail
 export LC_ALL=C
@@ -20,9 +24,11 @@ BASE="${ALPHA_BASE:-/opt/alpha}"; RP="${SB_REMOTE_PREFIX:-alpha}"; TODAY="${ALPH
 ROOT=$BASE/root; OUT=$BASE/sync/sb; mkdir -p "$OUT"; touch "$OUT/done.txt"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SBH=u677479@u677479.your-storagebox.de
-SSHC="ssh -p 23 -i $HOME/.ssh/id_storagebox -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+KEYDIR="${SB_KEYDIR:-$HOME/.ssh}"
+SSHC="ssh -p 23 -i $KEYDIR/id_storagebox -o UserKnownHostsFile=$KEYDIR/known_hosts -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 ML=$OUT/move.log
 say() { echo "== $(date -u +%FT%TZ) $*" >> "$ML"; }
+[ "$(id -u)" -eq 0 ] || { say "запуск не от root (uid $(id -u)) — fuser не видит процессы коллектора, удаление не пройдёт — выход"; exit 3; }
 exec 9> "$OUT/move.lock"; flock -n 9 || { say "уже идёт другой прогон — выход"; exit 0; }
 YESTERDAY=$(date -u -d "$TODAY - 1 day" +%F)
 
@@ -87,17 +93,23 @@ move_day() {
     return 0
   fi
   # удаление: ровно манифест, не новее манифеста
-  local del=0 kept=0 bytes=0 sz
+  local del=0 kept=0 bytes=0 sz fail=0
   for kind in root deep; do
     src=$ROOT; [ $kind = deep ] && src=$ROOT/deep
     MAN=$OUT/$kind-$D.sha256; [ -f "$MAN" ] || continue
     while read -r h n; do
       [ -f "$src/$n" ] || continue
       if [ "$src/$n" -nt "$MAN" ]; then kept=$((kept + 1)); say "$D $kind/$n: новее манифеста — оставлен"; continue; fi
-      sz=$(stat -c %s "$src/$n"); rm -f -- "$src/$n" "$BASE/verify/$D/$n"
-      del=$((del + 1)); bytes=$((bytes + sz))
+      sz=$(stat -c %s "$src/$n")
+      if rm -f -- "$src/$n" "$BASE/verify/$D/$n" 2>> "$ML" && [ ! -e "$src/$n" ] && [ ! -e "$BASE/verify/$D/$n" ]; then
+        del=$((del + 1)); bytes=$((bytes + sz))
+      else fail=$((fail + 1)); say "$D $kind/$n: НЕ УДАЛЁН (rm не прошёл)"; fi
     done < "$MAN"
   done
+  if [ "$fail" -gt 0 ]; then
+    say "PARTIAL $D: удалено файлов $del, байт $bytes, НЕ удалено $fail, оставлено $kept"
+    alert "$D" "удалено $del, не удалось удалить $fail файлов — проверить права/атрибуты"; return 0
+  fi
   say "MOVED $D: удалено файлов $del, байт $bytes, оставлено $kept"
   clear_alert "$D"
 }
