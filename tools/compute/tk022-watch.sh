@@ -11,7 +11,7 @@ wake() { echo "$(date +%FT%T%z) $*" >> data/tk022/wake; }
 gate_run() { V 'python3 /opt/alpha-compute/tk022/tk022-gate.py' > data/tk022/gate.txt 2>&1; }
 gate_done=0
 while [ ! -e data/tk022/wake ]; do
-  r=$(V 'cd /home/deck/alpha/epochs; n=$(ls e-{jan,feb,mar,apr,may,jun}/vps-status/*.rc 2>/dev/null | wc -l); bad=$(grep -L "rc=0" e-{jan,feb,mar,apr,may,jun}/vps-status/*.rc 2>/dev/null | wc -l); g=0; for d in 2026-01-03 2026-01-05 2026-01-06; do [ -e e-jan/vps-status/$d.rc ] && g=$((g+1)); done; l=$(systemctl list-units "alpha-t22-*" --no-legend | grep -c running); echo "$n $bad $g $l"' 2>/dev/null) || { sleep 120; continue; }
+  r=$(V 'cd /home/deck/alpha/epochs; n=$(ls e-{jan,feb,mar,apr,may,jun}/vps-status/*.rc 2>/dev/null | wc -l); bad=$(grep -L "rc=0" e-{jan,feb,mar,apr,may,jun}/vps-status/*.rc 2>/dev/null | grep -v -E "^e-jan/vps-status/2026-01-01.rc$" | wc -l); g=0; for d in 2026-01-03 2026-01-05 2026-01-06; do [ -e e-jan/vps-status/$d.rc ] && g=$((g+1)); done; l=$(systemctl list-units "alpha-t22-*" --no-legend | grep -c running); echo "$n $bad $g $l"' 2>/dev/null) || { sleep 120; continue; }
   set -- $r
   n=$1 bad=$2 g=$3 lanes=$4
   echo "$(date +%T) готово $n/181, rc≠0: $bad, полос: $lanes" > data/tk022/progress.txt

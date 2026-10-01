@@ -9,7 +9,7 @@ DECK=deck@192.168.1.49
 VPS=root@13.140.29.171
 ssh "${KEY[@]}" $DECK "cd ~/alpha/epochs && tar -cf - --exclude=e-$M/study/approaches --exclude=e-$M/study/touches e-$M/root e-$M/study" |
   ssh "${KEY[@]}" $VPS "mkdir -p /home/deck/alpha/epochs && tar -C /home/deck/alpha/epochs -xf -"
-ssh "${KEY[@]}" $DECK "cd ~/alpha && tar -cf - tmp-p07/cells-by-day/jall-$M-2026-*" |
+ssh "${KEY[@]}" $DECK "cd ~/alpha && tar -cf - tmp-p07/cells-by-day/jall-$M-2026-* tmp-p07/cells-by-day/t9-touch-jall-$M-2026-*.txt tmp-p07/cells-by-day/jall-g86-$M-2026-*.txt" |
   ssh "${KEY[@]}" $VPS "mkdir -p /home/deck/alpha && tar -C /home/deck/alpha -xf -"
 ssh "${KEY[@]}" $VPS "cd /home/deck/alpha/epochs/e-$M && ln -sfn /home/deck/alpha/bin bin && mkdir -p b5 study/approaches/D20 vps-status &&
   for d in /mnt/sb/alpha/derived/tk015/e-$M/D20/*/; do ln -sfn \"\${d%/}\" study/approaches/D20/\$(basename \"\$d\"); done
