@@ -1,0 +1,2534 @@
+{
+ "protocol": "docs/research/P-10-code-exists-batch.md §10.1–10.2, §14 п. 5",
+ "m_holm": 19,
+ "note": "найдено на авг/сен — поиск, не проверка; семья проходит при хотя бы одной клетке; T/U/V — описание",
+ "bases": {
+  "B1": {
+   "cap": 0,
+   "n": {
+    "aug": 424,
+    "sep": 141
+   },
+   "usd": {
+    "aug": 171.2,
+    "sep": 116.38
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 84.78,
+    "sep": 66.66
+   }
+  },
+  "B2": {
+   "cap": 3,
+   "n": {
+    "aug": 164,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 21.03,
+    "sep": 125.95
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.489,
+    "sep": 0.132
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     335.9,
+     false
+    ],
+    "sep": [
+     176.9,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 3,
+    "sep": 3
+   },
+   "usd_wo_best_day": {
+    "aug": -27.91,
+    "sep": 82.79
+   }
+  },
+  "market_all": {
+   "cap": 0,
+   "n": {
+    "aug": 649,
+    "sep": 187
+   },
+   "usd": {
+    "aug": 206.12,
+    "sep": 121.9
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 21
+   },
+   "frac": {
+    "aug": 0.332,
+    "sep": 0.254
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     235.4,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 34,
+    "sep": 19
+   },
+   "usd_wo_best_day": {
+    "aug": 19.83,
+    "sep": 54.84
+   }
+  }
+ },
+ "cells": {
+  "g11-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 200,
+    "sep": 53
+   },
+   "usd": {
+    "aug": 75.09,
+    "sep": -4.95
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 17
+   },
+   "frac": {
+    "aug": 0.23,
+    "sep": 0.667
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     474.1,
+     false
+    ],
+    "sep": [
+     315.1,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 20,
+    "sep": 6
+   },
+   "usd_wo_best_day": {
+    "aug": 31.8,
+    "sep": -21.76
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.472,
+    "sep": 0.376
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -95.04,
+     "ci95": [
+      -365.41,
+      172.71
+     ]
+    },
+    "sep": {
+     "est": -121.33,
+     "ci95": [
+      -247.48,
+      -9.9
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.49493,
+    "sep": 0.0442
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": false
+   },
+   "c3": {
+    "aug": true,
+    "sep": false
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": false
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "H",
+   "охват_ярлык": ""
+  },
+  "g11-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 309,
+    "sep": 89
+   },
+   "usd": {
+    "aug": 90.45,
+    "sep": 36.6
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 18
+   },
+   "frac": {
+    "aug": 0.485,
+    "sep": 0.721
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     565.4,
+     false
+    ],
+    "sep": [
+     338.4,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 22,
+    "sep": 10
+   },
+   "usd_wo_best_day": {
+    "aug": 5.62,
+    "sep": 8.05
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.729,
+    "sep": 0.631
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -81.42,
+     "ci95": [
+      -218.37,
+      58.4
+     ]
+    },
+    "sep": {
+     "est": -79.78,
+     "ci95": [
+      -177.28,
+      17.33
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.24934,
+    "sep": 0.10739
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "H",
+   "охват_ярлык": ""
+  },
+  "g62-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 206,
+    "sep": 62
+   },
+   "usd": {
+    "aug": 117.64,
+    "sep": 27.81
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 16
+   },
+   "frac": {
+    "aug": 0.208,
+    "sep": 0.503
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     234.9,
+     false
+    ],
+    "sep": [
+     338.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 16,
+    "sep": 6
+   },
+   "usd_wo_best_day": {
+    "aug": 53.13,
+    "sep": 9.12
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.486,
+    "sep": 0.44
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -57.41,
+     "ci95": [
+      -369.42,
+      217.95
+     ]
+    },
+    "sep": {
+     "est": -88.57,
+     "ci95": [
+      -164.5,
+      -9.29
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.70756,
+    "sep": 0.02495
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": false
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "I",
+   "охват_ярлык": ""
+  },
+  "g62-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 340,
+    "sep": 116
+   },
+   "usd": {
+    "aug": 102.96,
+    "sep": 84.64
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 18
+   },
+   "frac": {
+    "aug": 0.388,
+    "sep": 0.617
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     316.4,
+     false
+    ],
+    "sep": [
+     348.5,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 22,
+    "sep": 13
+   },
+   "usd_wo_best_day": {
+    "aug": 22.9,
+    "sep": 52.98
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.802,
+    "sep": 0.823
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -68.24,
+     "ci95": [
+      -229.22,
+      76.55
+     ]
+    },
+    "sep": {
+     "est": -31.74,
+     "ci95": [
+      -72.65,
+      8.48
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.38663,
+    "sep": 0.12579
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "I",
+   "охват_ярлык": ""
+  },
+  "g74-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 176,
+    "sep": 34
+   },
+   "usd": {
+    "aug": 5.99,
+    "sep": 23.74
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 9
+   },
+   "frac": {
+    "aug": 0.472,
+    "sep": 0.718
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     548.7,
+     false
+    ],
+    "sep": [
+     302.7,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 19,
+    "sep": 7
+   },
+   "usd_wo_best_day": {
+    "aug": -17.39,
+    "sep": -5.39
+   },
+   "defined": {
+    "aug": true,
+    "sep": false
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.415,
+    "sep": 0.241
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -159.78,
+     "ci95": [
+      -526.19,
+      184.02
+     ]
+    },
+    "sep": {
+     "est": -92.64,
+     "ci95": [
+      -218.19,
+      28.14
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.38428,
+    "sep": 1.0
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": false,
+    "sep": false
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "J",
+   "охват_ярлык": "мало сделок"
+  },
+  "g74-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 320,
+    "sep": 77
+   },
+   "usd": {
+    "aug": 123.06,
+    "sep": 43.76
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 16
+   },
+   "frac": {
+    "aug": 0.438,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     823.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 24,
+    "sep": 10
+   },
+   "usd_wo_best_day": {
+    "aug": 35.4,
+    "sep": 21.34
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.755,
+    "sep": 0.546
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -44.25,
+     "ci95": [
+      -164.33,
+      76.24
+     ]
+    },
+    "sep": {
+     "est": -72.62,
+     "ci95": [
+      -156.92,
+      5.27
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.47388,
+    "sep": 0.07705
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "J",
+   "охват_ярлык": ""
+  },
+  "g76-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 210,
+    "sep": 57
+   },
+   "usd": {
+    "aug": 118.14,
+    "sep": 67.9
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 18
+   },
+   "frac": {
+    "aug": 0.171,
+    "sep": 0.303
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     221.5,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 19,
+    "sep": 7
+   },
+   "usd_wo_best_day": {
+    "aug": 59.2,
+    "sep": 45.14
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.495,
+    "sep": 0.404
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -51.02,
+     "ci95": [
+      -411.4,
+      279.62
+     ]
+    },
+    "sep": {
+     "est": -48.48,
+     "ci95": [
+      -176.69,
+      60.68
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.77791,
+    "sep": 0.42453
+   },
+   "c1": {
+    "aug": true,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "K",
+   "охват_ярлык": ""
+  },
+  "g76-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 333,
+    "sep": 116
+   },
+   "usd": {
+    "aug": 208.35,
+    "sep": 154.07
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.191,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     244.7,
+     false
+    ],
+    "sep": [
+     88.7,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 24,
+    "sep": 9
+   },
+   "usd_wo_best_day": {
+    "aug": 134.45,
+    "sep": 107.53
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.785,
+    "sep": 0.823
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 38.62,
+     "ci95": [
+      -137.73,
+      198.5
+     ]
+    },
+    "sep": {
+     "est": 37.69,
+     "ci95": [
+      -2.54,
+      87.53
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.65472,
+    "sep": 0.0999
+   },
+   "c1": {
+    "aug": false,
+    "sep": true
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "K",
+   "охват_ярлык": ""
+  },
+  "g22-thin33": {
+   "cap": 0,
+   "n": {
+    "aug": 127,
+    "sep": 26
+   },
+   "usd": {
+    "aug": -2.11,
+    "sep": 83.66
+   },
+   "days_with_trades": {
+    "aug": 24,
+    "sep": 11
+   },
+   "frac": {
+    "aug": 0.706,
+    "sep": 0.127
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     658.6,
+     false
+    ],
+    "sep": [
+     151.6,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 11,
+    "sep": 6
+   },
+   "usd_wo_best_day": {
+    "aug": -41.36,
+    "sep": 62.93
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "мало сделок",
+   "coverage": {
+    "aug": 0.3,
+    "sep": 0.184
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -167.87,
+     "ci95": [
+      -568.5,
+      193.71
+     ]
+    },
+    "sep": {
+     "est": -32.72,
+     "ci95": [
+      -135.83,
+      72.96
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.39458,
+    "sep": 0.54267
+   },
+   "c1": {
+    "aug": false,
+    "sep": true
+   },
+   "usd_ge0": {
+    "aug": false,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": false,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "L",
+   "охват_ярлык": ""
+  },
+  "g22-thin67": {
+   "cap": 0,
+   "n": {
+    "aug": 262,
+    "sep": 75
+   },
+   "usd": {
+    "aug": -9.85,
+    "sep": 94.41
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 19
+   },
+   "frac": {
+    "aug": 0.684,
+    "sep": 0.67
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     650.3,
+     false
+    ],
+    "sep": [
+     409.3,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 21,
+    "sep": 11
+   },
+   "usd_wo_best_day": {
+    "aug": -62.33,
+    "sep": 68.1
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.618,
+    "sep": 0.532
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -178.52,
+     "ci95": [
+      -425.22,
+      46.57
+     ]
+    },
+    "sep": {
+     "est": -21.97,
+     "ci95": [
+      -113.73,
+      69.52
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.13924,
+    "sep": 0.64237
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": false,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": false,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "L",
+   "охват_ярлык": ""
+  },
+  "g123-cap1": {
+   "cap": 0,
+   "n": {
+    "aug": 424,
+    "sep": 141
+   },
+   "usd": {
+    "aug": 171.2,
+    "sep": 116.38
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 84.78,
+    "sep": 66.66
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ]
+    },
+    "sep": {
+     "est": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ]
+    }
+   },
+   "p": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "M",
+   "охват_ярлык": "почти не действует"
+  },
+  "g48-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 300,
+    "sep": 99
+   },
+   "usd": {
+    "aug": 124.16,
+    "sep": 83.52
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.315,
+    "sep": 0.0
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     244.7,
+     false
+    ],
+    "sep": [
+     118.4,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 21,
+    "sep": 10
+   },
+   "usd_wo_best_day": {
+    "aug": 42.78,
+    "sep": 35.65
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.708,
+    "sep": 0.702
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -44.32,
+     "ci95": [
+      -203.49,
+      132.88
+     ]
+    },
+    "sep": {
+     "est": -32.86,
+     "ci95": [
+      -119.38,
+      50.15
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.61392,
+    "sep": 0.44603
+   },
+   "c1": {
+    "aug": false,
+    "sep": true
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "N",
+   "охват_ярлык": ""
+  },
+  "g48-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 191,
+    "sep": 54
+   },
+   "usd": {
+    "aug": 70.0,
+    "sep": 2.06
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 14
+   },
+   "frac": {
+    "aug": 0.653,
+    "sep": 0.672
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     484.4,
+     false
+    ],
+    "sep": [
+     317.4,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 15,
+    "sep": 8
+   },
+   "usd_wo_best_day": {
+    "aug": 9.52,
+    "sep": -33.66
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.45,
+    "sep": 0.383
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -98.48,
+     "ci95": [
+      -356.37,
+      143.76
+     ]
+    },
+    "sep": {
+     "est": -114.32,
+     "ci95": [
+      -199.48,
+      -28.98
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.44418,
+    "sep": 0.00885
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": false
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": false
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "N",
+   "охват_ярлык": ""
+  },
+  "g31-q33": {
+   "cap": 0,
+   "n": {
+    "aug": 161,
+    "sep": 36
+   },
+   "usd": {
+    "aug": 128.18,
+    "sep": 40.65
+   },
+   "days_with_trades": {
+    "aug": 24,
+    "sep": 13
+   },
+   "frac": {
+    "aug": 0.0,
+    "sep": 0.316
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     109.0,
+     false
+    ],
+    "sep": [
+     236.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 16,
+    "sep": 5
+   },
+   "usd_wo_best_day": {
+    "aug": 104.84,
+    "sep": 23.38
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.38,
+    "sep": 0.255
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -40.49,
+     "ci95": [
+      -453.32,
+      341.85
+     ]
+    },
+    "sep": {
+     "est": -75.73,
+     "ci95": [
+      -197.59,
+      37.54
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.84756,
+    "sep": 0.21009
+   },
+   "c1": {
+    "aug": true,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "O",
+   "охват_ярлык": "мало сделок"
+  },
+  "g31-q67": {
+   "cap": 0,
+   "n": {
+    "aug": 321,
+    "sep": 103
+   },
+   "usd": {
+    "aug": 195.07,
+    "sep": 132.93
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.27,
+    "sep": 0.0
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     303.9,
+     false
+    ],
+    "sep": [
+     87.3,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 23,
+    "sep": 10
+   },
+   "usd_wo_best_day": {
+    "aug": 114.52,
+    "sep": 102.52
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.757,
+    "sep": 0.73
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 25.92,
+     "ci95": [
+      -160.32,
+      190.84
+     ]
+    },
+    "sep": {
+     "est": 16.55,
+     "ci95": [
+      -57.58,
+      90.62
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.77571,
+    "sep": 0.65997
+   },
+   "c1": {
+    "aug": false,
+    "sep": true
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "O",
+   "охват_ярлык": ""
+  },
+  "g47-hist": {
+   "cap": 0,
+   "n": {
+    "aug": 381,
+    "sep": 122
+   },
+   "usd": {
+    "aug": 174.39,
+    "sep": 120.34
+   },
+   "days_with_trades": {
+    "aug": 27,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.383,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     391.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 21,
+    "sep": 12
+   },
+   "usd_wo_best_day": {
+    "aug": 87.97,
+    "sep": 71.73
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.899,
+    "sep": 0.865
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 3.19,
+     "ci95": [
+      -53.15,
+      74.36
+     ]
+    },
+    "sep": {
+     "est": 3.96,
+     "ci95": [
+      -40.46,
+      49.96
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.9286,
+    "sep": 0.85966
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "P",
+   "охват_ярлык": ""
+  },
+  "g14-tea": {
+   "cap": 0,
+   "n": {
+    "aug": 398,
+    "sep": 127
+   },
+   "usd": {
+    "aug": 184.43,
+    "sep": 91.06
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.218,
+    "sep": 0.351
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     337.3,
+     false
+    ],
+    "sep": [
+     213.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 98.01,
+    "sep": 60.23
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.939,
+    "sep": 0.901
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 13.23,
+     "ci95": [
+      -33.68,
+      76.68
+     ]
+    },
+    "sep": {
+     "est": -25.32,
+     "ci95": [
+      -60.34,
+      8.24
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.65417,
+    "sep": 0.14874
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "Q1",
+   "охват_ярлык": "почти не действует"
+  },
+  "g14-asia": {
+   "cap": 0,
+   "n": {
+    "aug": 421,
+    "sep": 137
+   },
+   "usd": {
+    "aug": 165.17,
+    "sep": 118.94
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.143
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     335.9,
+     false
+    ],
+    "sep": [
+     176.9,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 78.75,
+    "sep": 69.22
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.993,
+    "sep": 0.972
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -6.02,
+     "ci95": [
+      -17.82,
+      0.0
+     ]
+    },
+    "sep": {
+     "est": 2.56,
+     "ci95": [
+      -2.21,
+      9.89
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.28659,
+    "sep": 0.56237
+   },
+   "c1": {
+    "aug": false,
+    "sep": true
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "Q2",
+   "охват_ярлык": "почти не действует"
+  },
+  "g14-quiet": {
+   "cap": 0,
+   "n": {
+    "aug": 314,
+    "sep": 96
+   },
+   "usd": {
+    "aug": 42.66,
+    "sep": 75.03
+   },
+   "days_with_trades": {
+    "aug": 26,
+    "sep": 14
+   },
+   "frac": {
+    "aug": 0.366,
+    "sep": 0.206
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     316.4,
+     false
+    ],
+    "sep": [
+     157.4,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": -38.5,
+    "sep": 42.92
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.741,
+    "sep": 0.681
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -123.1,
+     "ci95": [
+      -400.23,
+      106.67
+     ]
+    },
+    "sep": {
+     "est": -41.35,
+     "ci95": [
+      -131.46,
+      63.32
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.34613,
+    "sep": 0.41873
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": false,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "Q3",
+   "охват_ярлык": ""
+  },
+  "g14-wkend": {
+   "cap": 0,
+   "n": {
+    "aug": 354,
+    "sep": 120
+   },
+   "usd": {
+    "aug": 221.6,
+    "sep": 96.85
+   },
+   "days_with_trades": {
+    "aug": 23,
+    "sep": 17
+   },
+   "frac": {
+    "aug": 0.206,
+    "sep": 0.487
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     215.3,
+     false
+    ],
+    "sep": [
+     330.8,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 25,
+    "sep": 8
+   },
+   "usd_wo_best_day": {
+    "aug": 135.18,
+    "sep": 47.13
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.835,
+    "sep": 0.851
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 50.4,
+     "ci95": [
+      -142.65,
+      288.9
+     ]
+    },
+    "sep": {
+     "est": -19.53,
+     "ci95": [
+      -52.58,
+      2.52
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.69547,
+    "sep": 0.15654
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "Q4",
+   "охват_ярлык": ""
+  },
+  "g45-fund": {
+   "cap": 0,
+   "n": {
+    "aug": 395,
+    "sep": 130
+   },
+   "usd": {
+    "aug": 139.0,
+    "sep": 92.89
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.409,
+    "sep": 0.575
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     362.4,
+     false
+    ],
+    "sep": [
+     330.8,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 23,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 52.58,
+    "sep": 43.17
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.932,
+    "sep": 0.922
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -26.76,
+     "ci95": [
+      -132.2,
+      66.36
+     ]
+    },
+    "sep": {
+     "est": -23.49,
+     "ci95": [
+      -61.41,
+      15.68
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.60247,
+    "sep": 0.23279
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "R",
+   "охват_ярлык": "почти не действует"
+  },
+  "g120-block5": {
+   "cap": 0,
+   "n": {
+    "aug": 423,
+    "sep": 141
+   },
+   "usd": {
+    "aug": 173.53,
+    "sep": 116.38
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 20
+   },
+   "frac": {
+    "aug": 0.274,
+    "sep": 0.256
+   },
+   "state": "на границе",
+   "max_gap_h": {
+    "aug": [
+     320.3,
+     false
+    ],
+    "sep": [
+     188.5,
+     false
+    ]
+   },
+   "peak_n": {
+    "aug": 24,
+    "sep": 14
+   },
+   "usd_wo_best_day": {
+    "aug": 87.11,
+    "sep": 66.66
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.998,
+    "sep": 1.0
+   },
+   "delta_usd": {
+    "aug": {
+     "est": 2.34,
+     "ci95": [
+      0.0,
+      7.01
+     ]
+    },
+    "sep": {
+     "est": 0.0,
+     "ci95": [
+      0.0,
+      0.0
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.61057,
+    "sep": 1.0
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "c3": {
+    "aug": true,
+    "sep": true
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": true,
+    "sep": true
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "S",
+   "охват_ярлык": "почти не действует"
+  },
+  "p10-g89-mkt-big": {
+   "cap": 0,
+   "n": {
+    "aug": 235,
+    "sep": 82
+   },
+   "usd": {
+    "aug": -2.31,
+    "sep": -13.93
+   },
+   "days_with_trades": {
+    "aug": 28,
+    "sep": 16
+   },
+   "frac": {
+    "aug": 0.438,
+    "sep": 0.998
+   },
+   "state": "не проходит",
+   "max_gap_h": {
+    "aug": [
+     735.0,
+     true
+    ],
+    "sep": [
+     552.0,
+     true
+    ]
+   },
+   "peak_n": {
+    "aug": 17,
+    "sep": 7
+   },
+   "usd_wo_best_day": {
+    "aug": -64.66,
+    "sep": -34.65
+   },
+   "defined": {
+    "aug": true,
+    "sep": true
+   },
+   "label": "",
+   "coverage": {
+    "aug": 0.554,
+    "sep": 0.582
+   },
+   "delta_usd": {
+    "aug": {
+     "est": -173.07,
+     "ci95": [
+      -405.16,
+      70.43
+     ]
+    },
+    "sep": {
+     "est": -130.31,
+     "ci95": [
+      -234.63,
+      -16.1
+     ]
+    }
+   },
+   "p": {
+    "aug": 0.16004,
+    "sep": 0.01825
+   },
+   "c1": {
+    "aug": false,
+    "sep": false
+   },
+   "usd_ge0": {
+    "aug": false,
+    "sep": false
+   },
+   "c3": {
+    "aug": true,
+    "sep": false
+   },
+   "c2_wo_best_day_ge0": {
+    "aug": false,
+    "sep": false
+   },
+   "on_volume": {
+    "aug": false,
+    "sep": false
+   },
+   "pass_b1": false,
+   "b2": null,
+   "to_selection": false,
+   "family": "G89",
+   "охват_ярлык": "",
+   "vs_market_all": {
+    "delta_usd": {
+     "aug": {
+      "est": -203.13,
+      "ci95": [
+       -725.75,
+       255.68
+      ]
+     },
+     "sep": {
+      "est": -135.84,
+      "ci95": [
+       -296.91,
+       41.8
+      ]
+     }
+    },
+    "p": {
+     "aug": 0.42783,
+     "sep": 0.11614
+    }
+   }
+  }
+ },
+ "families": {
+  "H": {
+   "cells": [
+    "g11-q33",
+    "g11-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.24934,
+    "sep": 0.0442
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "I": {
+   "cells": [
+    "g62-q33",
+    "g62-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.38663,
+    "sep": 0.02495
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "J": {
+   "cells": [
+    "g74-q33",
+    "g74-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.38428,
+    "sep": 0.07705
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "K": {
+   "cells": [
+    "g76-q33",
+    "g76-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.65472,
+    "sep": 0.0999
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "L": {
+   "cells": [
+    "g22-thin33",
+    "g22-thin67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.13924,
+    "sep": 0.54267
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "M": {
+   "cells": [
+    "g123-cap1"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "N": {
+   "cells": [
+    "g48-q33",
+    "g48-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.44418,
+    "sep": 0.00885
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "O": {
+   "cells": [
+    "g31-q33",
+    "g31-q67"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.77571,
+    "sep": 0.21009
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "P": {
+   "cells": [
+    "g47-hist"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.9286,
+    "sep": 0.85966
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "Q1": {
+   "cells": [
+    "g14-tea"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.65417,
+    "sep": 0.14874
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "Q2": {
+   "cells": [
+    "g14-asia"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.28659,
+    "sep": 0.56237
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "Q3": {
+   "cells": [
+    "g14-quiet"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.34613,
+    "sep": 0.41873
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "Q4": {
+   "cells": [
+    "g14-wkend"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.69547,
+    "sep": 0.15654
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "R": {
+   "cells": [
+    "g45-fund"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.60247,
+    "sep": 0.23279
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "S": {
+   "cells": [
+    "g120-block5"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.61057,
+    "sep": 1.0
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "G89": {
+   "cells": [
+    "p10-g89-mkt-big"
+   ],
+   "to_selection": false,
+   "p": {
+    "aug": 0.16004,
+    "sep": 0.01825
+   },
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "T:g24": {
+   "cells": [],
+   "to_selection": false,
+   "p": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "note": "не определена: ворота exit-sim вне допуска, только описание",
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "U:g25": {
+   "cells": [],
+   "to_selection": false,
+   "p": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "note": "не определена: ворота exit-sim вне допуска, только описание",
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  },
+  "V:g109": {
+   "cells": [],
+   "to_selection": false,
+   "p": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "note": "не определена: ворота exit-sim вне допуска, только описание",
+   "holm_sig": {
+    "aug": false,
+    "sep": false
+   }
+  }
+ },
+ "to_selection": []
+}
