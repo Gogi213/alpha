@@ -410,6 +410,14 @@ pub struct Verifier {
     /// Метка биржи последнего применённого обновления, мс. Нужна, чтобы отличать
     /// «книга не успела» (окно троттлинга) от «книга видела, но не то».
     last_update_ms: i64,
+    tick_e9: i64,
+    /// Следующее применённое обновление проверяется полным проходом по книге:
+    /// старт и ошибка применения, после которой книга могла остаться записанной
+    /// частично.
+    full_pass_next: bool,
+    /// В книге есть уровень с неположительным размером: инварианты считаются
+    /// полным проходом, пока он не уйдёт.
+    has_nonpositive: bool,
 }
 
 impl Verifier {
@@ -419,6 +427,9 @@ impl Verifier {
             stats: VerifyStats::default(),
             ever_held: std::collections::HashSet::new(),
             last_update_ms: 0,
+            tick_e9,
+            full_pass_next: true,
+            has_nonpositive: false,
         }
     }
 
@@ -441,14 +452,45 @@ impl Verifier {
                 self.stats.updates_applied += 1;
                 self.last_update_ms = self.last_update_ms.max(up.cts_ms);
                 // Все удерживаемые тики — в историю покрытия (ревизия 17б).
+                // Полный проход — после снапшота/рестарта (книга очищена) и
+                // после сбоя применения; иначе до обновления все удерживаемые
+                // тики уже в истории, и добавлять нужно только тронутые им.
                 // Пустой срез уровней невозможен: apply с нулевыми размерами
                 // уровни удаляет, а не хранит.
-                for side in [Side::Bid, Side::Ask] {
-                    for (tick, _) in self.book.levels(side) {
-                        self.ever_held.insert(tick);
+                let full = self.full_pass_next || up.is_snapshot || up.u == 1;
+                self.full_pass_next = false;
+                let mut touched_nonpositive = false;
+                if full {
+                    for side in [Side::Bid, Side::Ask] {
+                        for (tick, _) in self.book.levels(side) {
+                            self.ever_held.insert(tick);
+                        }
+                    }
+                } else {
+                    for (side, levels) in [(Side::Bid, &up.bids), (Side::Ask, &up.asks)] {
+                        for &(price_e9, _) in levels {
+                            let tick = price_e9 / self.tick_e9;
+                            let held = self.book.qty_lots_at(side, tick);
+                            if held != 0 {
+                                self.ever_held.insert(tick);
+                            }
+                            touched_nonpositive |= held < 0;
+                        }
                     }
                 }
-                let v = check_invariants(&self.book);
+                // `Book::apply` уже отверг пересечение, а уровни в `HalfBook`
+                // отсортированы по построению; остаётся неположительный размер.
+                // Пока таких уровней нет ни до обновления, ни среди тронутых,
+                // полный проход вернул бы пустой список — его и пропускаем.
+                let v = if full || self.has_nonpositive || touched_nonpositive {
+                    let v = check_invariants(&self.book);
+                    self.has_nonpositive = v
+                        .iter()
+                        .any(|x| matches!(x, InvariantViolation::NonPositiveSize { .. }));
+                    v
+                } else {
+                    Vec::new()
+                };
                 self.stats.invariant_violations += v.len() as u64;
                 Ok(v)
             }
@@ -459,10 +501,12 @@ impl Verifier {
                     }
                     crate::book::ApplyError::Crossed { .. } => {
                         self.stats.invariant_violations += 1;
+                        self.full_pass_next = true;
                     }
                     crate::book::ApplyError::PriceNotOnTick { .. }
                     | crate::book::ApplyError::QtyNotOnStep { .. } => {
                         self.stats.invariant_violations += 1;
+                        self.full_pass_next = true;
                     }
                 }
                 Err(e)

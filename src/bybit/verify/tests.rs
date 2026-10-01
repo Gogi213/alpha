@@ -666,6 +666,132 @@ fn steady_updates_allocate_nothing() {
     assert_eq!(v.stats().invariant_violations, 0);
 }
 
+/// Прежний `apply_update`: полный проход по книге на каждое обновление.
+struct FullPassReference {
+    book: Book,
+    ever_held: std::collections::HashSet<i64>,
+    stats: VerifyStats,
+}
+
+impl FullPassReference {
+    fn apply(&mut self, up: &Update) -> Result<Vec<InvariantViolation>, crate::book::ApplyError> {
+        match self.book.apply(up) {
+            Ok(()) => {
+                self.stats.updates_applied += 1;
+                for side in [Side::Bid, Side::Ask] {
+                    for (tick, _) in self.book.levels(side) {
+                        self.ever_held.insert(tick);
+                    }
+                }
+                let v = check_invariants(&self.book);
+                self.stats.invariant_violations += v.len() as u64;
+                Ok(v)
+            }
+            Err(e) => {
+                match e {
+                    crate::book::ApplyError::SequenceGap { .. } => self.stats.sequence_gaps += 1,
+                    _ => self.stats.invariant_violations += 1,
+                }
+                Err(e)
+            }
+        }
+    }
+}
+
+/// Инкрементальный `Verifier` обязан давать то же, что полный проход: результат
+/// каждого обновления, счётчики, историю удерживаемых тиков и книгу — на потоке
+/// со снапшотами, рестартами, разрывами, пересечениями, битыми шагами и
+/// отрицательными размерами.
+#[test]
+fn incremental_verifier_matches_full_pass_reference() {
+    let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+    let mut next = move |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    let mut v = Verifier::new(TICK_E9, STEP_E9);
+    let mut r = FullPassReference {
+        book: Book::new(TICK_E9, STEP_E9),
+        ever_held: std::collections::HashSet::new(),
+        stats: VerifyStats::default(),
+    };
+    let mut u = 0u64;
+    let mut errs = 0;
+    let mut nonpositive_updates = 0;
+    for step in 0..40_000u64 {
+        let kind = next(100);
+        let (is_snapshot, up_u) = match kind {
+            0..=2 => (true, {
+                u += 1 + next(3);
+                u
+            }),
+            3 => (false, 1),
+            4 => (false, u + 2 + next(3)),
+            _ => (false, {
+                u = r.book.last_u().unwrap_or(0) + 1;
+                u
+            }),
+        };
+        let wide = kind < 5 || next(50) == 0;
+        let span = if wide { 30 } else { 8 };
+        let nb = next(6) as usize;
+        let na = next(6) as usize;
+        let mut level = |bid: bool| {
+            let mut t = if bid {
+                100 - next(span) as i64
+            } else {
+                101 + next(span) as i64
+            };
+            if next(60) == 0 {
+                t = if bid {
+                    100 + next(4) as i64
+                } else {
+                    101 - next(4) as i64
+                };
+            }
+            let q = match next(150) {
+                0 => -1,
+                1..=40 => 0,
+                _ => 1 + next(9) as i64,
+            };
+            let mut price = px(t);
+            let mut size = qty(q);
+            match next(400) {
+                0 => price += 1,
+                1 => size += 1,
+                _ => {}
+            }
+            (price, size)
+        };
+        let bids: Vec<_> = (0..nb).map(|_| level(true)).collect();
+        let asks: Vec<_> = (0..na).map(|_| level(false)).collect();
+        let up = Update {
+            is_snapshot,
+            depth: 50,
+            u: up_u,
+            seq: step,
+            cts_ms: step as i64,
+            bids,
+            asks,
+        };
+        let got = v.apply_update(&up);
+        let want = r.apply(&up);
+        assert_eq!(got, want, "шаг {step}: {up:?}");
+        errs += usize::from(got.is_err());
+        nonpositive_updates += usize::from(matches!(&got, Ok(x) if !x.is_empty()));
+        assert_eq!(v.stats(), r.stats, "шаг {step}: счётчики");
+        assert_eq!(v.ever_held, r.ever_held, "шаг {step}: история тиков");
+        assert!(v.book() == &r.book, "шаг {step}: книга");
+    }
+    assert!(errs > 100, "тест не добрал ошибок: {errs}");
+    assert!(
+        nonpositive_updates > 100,
+        "тест не добрал отрицательных размеров: {nonpositive_updates}"
+    );
+}
+
 /// Граница модулей: проверка не знает про транспорт и часы. Литералы собраны
 /// из частей, чтобы проверка не триггерила саму себя.
 #[test]
