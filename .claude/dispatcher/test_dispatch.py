@@ -1403,7 +1403,7 @@ class MoneyControlsTests(unittest.TestCase):
 
     def test_resolve_run_cost_first_call_takes_total_as_is(self):
         """(б) нет прошлого итога → берём итог как есть, помечаем."""
-        result = {"session_id": "s1", "total_cost_usd": 6.7985, "modelUsage": {"claude-opus-5-5": {"costUSD": 6.7985}}}
+        result = {"session_id": "s1", "total_cost_usd": 6.7985, "modelUsage": {"claude-sonnet-5-5": {"costUSD": 6.7985}}}
         cost, diff, note = D.resolve_run_cost(self.state, result)
         self.assertAlmostEqual(cost, 6.7985)
         self.assertTrue(note)
@@ -1413,13 +1413,13 @@ class MoneyControlsTests(unittest.TestCase):
         """Живой случай 27.09: сессия судьи $6,80 → $8,29 → $8,74 кумулятивных, реально — $1,49 и $0,45."""
         r1 = {"session_id": "s1", "total_cost_usd": 6.798510249999997,
               "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
-                              "claude-opus-5-5": {"costUSD": 0.5488850000000001}}}
+                              "claude-sonnet-5-5": {"costUSD": 0.5488850000000001}}}
         r2 = {"session_id": "s1", "total_cost_usd": 8.289092449999998,
               "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
-                              "claude-opus-5-5": {"costUSD": 2.0394672000000003}}}
+                              "claude-sonnet-5-5": {"costUSD": 2.0394672000000003}}}
         r3 = {"session_id": "s1", "total_cost_usd": 8.735297849999998,
               "modelUsage": {"claude-fable-5-1": {"costUSD": 6.249625249999998},
-                              "claude-opus-5-5": {"costUSD": 2.4856726000000005}}}
+                              "claude-sonnet-5-5": {"costUSD": 2.4856726000000005}}}
         cost1, diff1, note1 = D.resolve_run_cost(self.state, r1)
         cost2, diff2, note2 = D.resolve_run_cost(self.state, r2)
         cost3, diff3, note3 = D.resolve_run_cost(self.state, r3)
@@ -1429,10 +1429,10 @@ class MoneyControlsTests(unittest.TestCase):
         self.assertFalse(note3)
         # инвариант судьи (г): сумма разниц = последний итог
         self.assertAlmostEqual(cost1 + cost2 + cost3, r3["total_cost_usd"], places=6)
-        # (в) fable не рос — не в разнице; opus рос — в разнице (ложной тревоги «не-opus» нет)
+        # (в) fable не рос — не в разнице; sonnet рос — в разнице (ложной тревоги «не-sonnet» нет)
         self.assertNotIn("claude-fable-5-1", diff2)
         self.assertNotIn("claude-fable-5-1", diff3)
-        self.assertIn("claude-opus-5-5", diff2)
+        self.assertIn("claude-sonnet-5-5", diff2)
         self.assertIsNone(D._model_usage_warning(diff2))
         self.assertIsNone(D._model_usage_warning(diff3))
 
@@ -1454,9 +1454,29 @@ class MoneyControlsTests(unittest.TestCase):
     # --- п.1: модель/усилие ---
 
     def test_role_effort_mapping(self):
-        self.assertEqual(D.ROLE_EFFORT["judge"], "xhigh")
-        self.assertEqual(D.ROLE_EFFORT["engineer"], "high")
-        self.assertEqual(D.ROLE_EFFORT["researcher"], "high")
+        # В-153: все роли — xhigh (тест в окружении без ALPHA_DISPATCH_EFFORT)
+        if not os.environ.get("ALPHA_DISPATCH_EFFORT"):
+            self.assertEqual(D.ROLE_EFFORT, {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"})
+
+    def test_role_effort_env_override(self):
+        base = {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"}
+        self.assertEqual(D._parse_role_map("judge:xhigh,engineer:high", base),
+                         {"judge": "xhigh", "engineer": "high", "researcher": "xhigh"})
+        self.assertEqual(D._parse_role_map("high", base),
+                         {"judge": "high", "engineer": "high", "researcher": "high"})
+        self.assertEqual(D._parse_role_map("", base), base)
+        self.assertEqual(base["engineer"], "xhigh")  # исходный словарь не меняется
+
+    def test_model_family_from_id(self):
+        self.assertEqual(D.model_family("claude-sonnet-5-5"), "sonnet")
+        self.assertEqual(D.model_family("claude-opus-5-5"), "opus")
+        self.assertEqual(D.model_family("claude-haiku-4-5-20251001"), "haiku")
+        self.assertEqual(D.model_family("Fable-5-1"), "fable-5-1")
+        # ожидаемое по умолчанию — семейство CLAUDE_MODEL, а не жёстко «opus»
+        fam = D.model_family(D.CLAUDE_MODEL)
+        self.assertIsNone(D._model_usage_warning({f"claude-{fam}-x": {"cost": 1.0}}))
+        other = "opus" if fam != "opus" else "sonnet"
+        self.assertIsNotNone(D._model_usage_warning({f"claude-{other}-x": {"cost": 1.0}}))
 
     def test_model_usage_warning_none_when_absent_or_empty(self):
         # v1.4: принимает уже РАЗНИЦУ modelUsage (_model_usage_diff), не сырой результат
@@ -1464,10 +1484,10 @@ class MoneyControlsTests(unittest.TestCase):
         self.assertIsNone(D._model_usage_warning(None))
         self.assertIsNone(D._model_usage_warning("not-a-dict"))
 
-    def test_model_usage_warning_silent_for_opus_only(self):
-        self.assertIsNone(D._model_usage_warning({"claude-opus-5-5": {"cost": 1.2}}))
+    def test_model_usage_warning_silent_for_expected_family_only(self):
+        self.assertIsNone(D._model_usage_warning({"claude-sonnet-5-5": {"cost": 1.2}}))
 
-    def test_model_usage_warning_flags_non_opus(self):
+    def test_model_usage_warning_flags_other_family(self):
         warn = D._model_usage_warning({"fable-5-1": {"cost": 6.8}})
         self.assertIsNotNone(warn)
         self.assertIn("fable-5-1", warn)
@@ -1475,14 +1495,14 @@ class MoneyControlsTests(unittest.TestCase):
     def test_model_usage_diff_ignores_unchanged_historical_model(self):
         """v1.4 (судья TK-002 п.1в, живой прогон 27.09): модель, не выросшая с прошлого раза —
         историческая примесь (например Fable из первого домодельного вызова сессии), не тревога."""
-        current = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-opus-5-5": {"costUSD": 2.49}}
-        previous = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-opus-5-5": {"costUSD": 2.04}}
+        current = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-sonnet-5-5": {"costUSD": 2.49}}
+        previous = {"claude-fable-5-1": {"costUSD": 6.25}, "claude-sonnet-5-5": {"costUSD": 2.04}}
         diff = D._model_usage_diff(current, previous)
         self.assertNotIn("claude-fable-5-1", diff)
-        self.assertIn("claude-opus-5-5", diff)
-        self.assertIsNone(D._model_usage_warning(diff))  # opus вырос — тревоги нет, это ожидаемая модель
+        self.assertIn("claude-sonnet-5-5", diff)
+        self.assertIsNone(D._model_usage_warning(diff))  # sonnet вырос — тревоги нет, это ожидаемая модель
 
-    def test_model_usage_diff_flags_new_non_opus_model(self):
+    def test_model_usage_diff_flags_new_other_family_model(self):
         current = {"claude-fable-5-1": {"costUSD": 1.0}}
         diff = D._model_usage_diff(current, {})
         self.assertIn("claude-fable-5-1", diff)

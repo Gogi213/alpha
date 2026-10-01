@@ -1,7 +1,18 @@
-# Диспетчер задач alpha (v1.5.2, по образцу Paperclip)
+# Диспетчер задач alpha (v1.6, по образцу Paperclip)
 
 Вместо четырёх постоянных чатов ролей — очередь тикетов `.claude/tickets/*.md` и цикл, который сам
 решает, кого будить `claude -p`. Только stdlib (`ticket.py`, `dispatch.py`, `tickets.py`, `watch.py`).
+
+## v1.6 (CEO, В-153) — Sonnet 5.5 xhigh
+
+- Модель по умолчанию — `claude-sonnet-5-5` (было `claude-opus-5-5`); переопределение — как раньше, `ALPHA_DISPATCH_MODEL`.
+- Усилие всех ролей (судья, инженер, исследователь) — `xhigh` (было `high` у инженера и исследователя).
+- Новое env `ALPHA_DISPATCH_EFFORT`: `judge:xhigh,engineer:high` (по ролям, как `ALPHA_DISPATCH_SESSION_SCOPE`)
+  или одно значение — на все роли.
+- Проверка modelUsage после запуска ждёт семейство из `CLAUDE_MODEL` (`model_family()`: opus/sonnet/haiku по
+  подстроке ID), а не жёстко «opus»; для `executor: haiku` — по-прежнему «haiku». Помощник чтения на Haiku
+  внутри запуска роли обрабатывается как раньше (строка `[model]` в сводке CEO).
+- Исполнитель-программист (`.claude/agents/coder.md`) — тоже Sonnet 5.5 xhigh.
 
 ## v1.5.2 (CEO, миграция перед перезапуском) — старые сессии не будят на историю
 

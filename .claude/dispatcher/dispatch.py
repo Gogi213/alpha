@@ -51,8 +51,37 @@ DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 
 # Модель и перерасход (владелец 27.09, v1.2 — пилот Судьи на умолчаниях CLI стоил $6,8 на Fable 5.1
 # xhigh): модель и усилие теперь ВСЕГДА явно в команде запуска, не полагаемся на умолчание CLI.
-CLAUDE_MODEL = os.environ.get("ALPHA_DISPATCH_MODEL", "claude-opus-5-5")
-ROLE_EFFORT = {"judge": "xhigh", "engineer": "high", "researcher": "high"}
+# В-153 (02.10): все роли — Sonnet 5.5 с усилием xhigh. Усилие переопределяемо через
+# ALPHA_DISPATCH_EFFORT=judge:xhigh,engineer:high (или одно значение — на все роли).
+CLAUDE_MODEL = os.environ.get("ALPHA_DISPATCH_MODEL", "claude-sonnet-5-5")
+ROLE_EFFORT = {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"}
+
+
+def _parse_role_map(spec: str, base: dict) -> dict:
+    """«role:val,role:val» → правки к base; одно значение без «:» — на все роли base."""
+    out = dict(base)
+    spec = (spec or "").strip()
+    if not spec:
+        return out
+    if ":" not in spec:
+        return {r: spec for r in out}
+    for _pair in spec.split(","):
+        _role, _, _val = _pair.partition(":")
+        if _role.strip() and _val.strip():
+            out[_role.strip()] = _val.strip()
+    return out
+
+
+ROLE_EFFORT = _parse_role_map(os.environ.get("ALPHA_DISPATCH_EFFORT", ""), ROLE_EFFORT)
+
+
+def model_family(model_id: str) -> str:
+    """Семейство из ID модели: opus/sonnet/haiku (подстрока); иначе — сам ID в нижнем регистре."""
+    low = str(model_id or "").lower()
+    for fam in ("opus", "sonnet", "haiku"):
+        if fam in low:
+            return fam
+    return low
 
 # executor: haiku (судья TK-002 п.5) — механические задачи только: белый список видов (--kind при
 # tickets.py new), приёмка результата — кодом (в конкретных скриптах-проверках по виду, не здесь).
@@ -589,13 +618,16 @@ def _model_usage_diff(current: dict, previous: dict) -> dict:
     return diff
 
 
-def _model_usage_warning(model_usage_diff: dict, expected: str = "opus") -> str:
-    """п.1: «проверь, что в JSON modelUsage только opus» — автоматическая, не разовая проверка, и
+def _model_usage_warning(model_usage_diff: dict, expected: str = None) -> str:
+    """п.1: «проверь, что в JSON modelUsage только opus» (с В-153 — только семейство CLAUDE_MODEL,
+    `expected` по умолчанию = model_family(CLAUDE_MODEL)) — автоматическая, не разовая проверка, и
     только по РАЗНИЦЕ этого запуска (см. _model_usage_diff), не по кумулятивной истории сессии.
     `expected` — "haiku" для executor: haiku (судья TK-002 п.5в: диспетчер проверяет по разнице
     modelUsage, что запуск реально был на Haiku, не тихо на другой модели)."""
     if not isinstance(model_usage_diff, dict) or not model_usage_diff:
         return None
+    if expected is None:
+        expected = model_family(CLAUDE_MODEL)
     bad = [m for m in model_usage_diff if expected not in str(m).lower()]
     if bad:
         return f"modelUsage этого запуска содержит модели без «{expected}» ({', '.join(bad)})"
@@ -834,7 +866,7 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     _record_cost_event(state, now, resolved_cost)
     _log_run_summary(tid, info, result, now, timed_out, resolved_cost, ticket_cost_spent(state, tid), cost_note)
 
-    expected_model = "haiku" if info.get("executor") == "haiku" else "opus"
+    expected_model = "haiku" if info.get("executor") == "haiku" else model_family(CLAUDE_MODEL)
     model_warn = _model_usage_warning(model_usage_diff, expected_model)
     if model_warn:
         route_ceo_signal(tid, "model", model_warn, state, now)
