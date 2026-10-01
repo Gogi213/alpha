@@ -1,0 +1,48 @@
+test,desc,n,bytes,secs,MB_per_s,note
+ping,gateway,15,0,0,0,rtt min/avg/max/mdev = 2.609/3.706/6.662/1.125 ms
+ping,box,15,0,0,0,rtt min/avg/max/mdev = 69.920/71.799/78.645/2.140 ms
+ping,fsn1-speed,15,0,0,0,rtt min/avg/max/mdev = 69.370/70.990/72.668/1.029 ms
+curl,HTTPS fsn1-speed.hetzner.com/1GB.bin (ширина домашнего канала),1,129711870,20.00,6.49,
+curl,HTTPS fsn1-speed.hetzner.com/1GB.bin (ширина домашнего канала),4,123486016,20.00,6.17,
+curl,HTTPS fsn1-speed.hetzner.com/1GB.bin (ширина домашнего канала),8,86393288,20.00,4.32,
+sshfs-now,"sshfs как сейчас, разные файлы",1,58720256,20.11,2.92,
+sshfs-now,"sshfs как сейчас, разные файлы",1,37748736,20.09,1.88,
+sshfs-now,"sshfs как сейчас, разные файлы",2,96468992,21.00,4.59,
+sshfs-now,"sshfs как сейчас, разные файлы",4,117440512,22.54,5.21,
+sshfs-now,"sshfs как сейчас, разные файлы",8,121634816,25.81,4.71,
+sshfs-now,"sshfs как сейчас, разные файлы",16,150994944,23.80,6.35,
+ssh-dd,"ssh box dd, 1 поток, шифр по умолчанию",1,120586240,20.06,6.01,
+ssh-dd,"ssh box dd, 1 поток, шифр aes128-gcm@openssh.com",1,136314880,20.15,6.77,
+ssh-dd,"ssh box dd, 1 поток, шифр chacha20-poly1305@openssh.com",1,0,0.25,0.00,
+ssh-dd,"ssh box dd, 1 поток, шифр aes128-ctr",1,138412032,20.13,6.88,
+ssh-dd,"ssh box dd, 1 поток, Compression=yes (zlib)",1,127926272,20.01,6.39,
+ssh-dd,"ssh box dd, куски одного файла, aes128-gcm",2,123731968,20.32,6.09,ошибки соединений — по числу байт
+ssh-dd,"ssh box dd, куски одного файла, aes128-gcm",4,138412032,20.71,6.68,ошибки соединений — по числу байт
+ssh-dd,"ssh box dd, куски одного файла, aes128-gcm",8,143654912,20.86,6.89,ошибки соединений — по числу байт
+ssh-dd,"ssh box dd, куски одного файла, aes128-gcm",16,145752064,21.62,6.74,ошибки соединений — по числу байт
+ssh-dd,"ssh box dd, разные файлы целиком, aes128-gcm",4,140509184,20.34,6.91,
+ssh-dd,"ssh box dd, разные файлы целиком, aes128-gcm",8,140509184,21.20,6.63,
+sftp,sftp по умолчанию (-R64 -B32K),1,181075968,25.00,7.24,
+sftp,sftp -R256 -B32K,1,184156160,25.00,7.37,
+sftp,sftp -R64 -B128K,1,149422080,25.00,5.98,
+sftp,sftp -R256 -B128K,1,164364288,25.00,6.57,
+sftp,sftp -R256 -B128K aes128-gcm,1,125435904,25.00,5.02,
+scp,"scp (протокол sftp, OpenSSH 10)",1,152755200,25.06,6.10,
+scp,scp -O (старый протокол),1,127401984,25.05,5.09,
+rsync,"rsync по ssh, один файл",1,147062784,25.05,5.87,
+rsync,"rsync по ssh, aes128-gcm",1,114294784,25.05,4.56,
+sftp,"sftp -R256 -B128K, 4 параллельно разными файлами",4,161349632,25.00,6.45,
+sftp,"sftp -R256 -B128K, 8 параллельно разными файлами",8,166592512,25.00,6.66,
+compress,zlib-1 на 24 МБ бинлога AKEUSDT-2026-09-20.binlog,0,25165824,0,0,ratio=1.00
+compress,zlib-3 на 24 МБ бинлога AKEUSDT-2026-09-20.binlog,0,25165824,0,0,ratio=1.00
+compress,zlib-6 на 24 МБ бинлога AKEUSDT-2026-09-20.binlog,0,25165824,0,0,ratio=1.00
+sshfs-a,"sshfs aes128-gcm, 1 соед., разные файлы",1,58720256,21.03,2.79,
+sshfs-b,"sshfs aes128-gcm, max_conns=8, разные файлы",1,50331648,20.77,2.42,
+sshfs-b,"sshfs aes128-gcm, max_conns=8, разные файлы",8,113246208,22.90,4.94,
+sshfs-b,"sshfs aes128-gcm, max_conns=8, куски одного файла",8,71303168,28.86,2.47,
+sshfs-c,"sshfs aes128-gcm, max_conns=8, direct_io, разные файлы",1,77658807,18.77,4.14,
+sshfs-c,"sshfs aes128-gcm, max_conns=8, direct_io, разные файлы",4,150994944,22.95,6.58,
+sshfs-c,"sshfs aes128-gcm, max_conns=8, direct_io, куски одного файла",8,67108864,28.90,2.32,
+sshfs-d,"sshfs max_read=1M, max_conns=8, разные файлы",1,46137344,21.54,2.14,
+ram-stage,"pipeline rsync 2 потока в /dev/shm/alpha-stage, сутки 2026-01-01 (root+D20), sha256 ok",2,1180000000,173,6.80,"sha ok 270 файлов"
+ram-stage,"pipeline rsync 2 потока в /dev/shm/alpha-stage, сутки 2026-01-02 (root+D20), sha256 ok",2,2010000000,262.6,7.65,"sha ok 270 файлов"
