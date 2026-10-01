@@ -152,6 +152,8 @@ use crate::book::Side;
 use crate::lob::markout::HORIZONS_MS;
 use crate::lob::shortlist::DISTANCE_MAX_BPS;
 
+use self::r1_state::{ObsCtx, PendingTouch, R1State};
+
 /// Как задан порог `H3` — план D-H3 (таск 02): два режима, какой войдёт в
 /// предрегистрацию, решает двухчасовой пилот, не этот код. Явный выбор без
 /// умолчания — вызывающий (`commands/lob`) обязан подставить один из двух.
@@ -1425,6 +1427,8 @@ pub struct LevelTracker {
     carry: SortedVec<(u8, i64), i64>,
     /// Первый кадр стороны ещё не пришёл — перенос для неё открыт.
     carry_open: [bool; 2],
+    /// Состояние колонок R1 (TK-025): `None`, пока не вызван `enable_r1` — тогда ничего не ведётся.
+    r1: Option<Box<R1State>>,
 }
 
 /// Запись касания из состояния уровня в момент конца.
@@ -1638,7 +1642,12 @@ fn comparable_size(a: i64, b: i64) -> bool {
 impl LevelTracker {
     /// Включает состояние и запись колонок R1 (TK-025, `--r1-cols`): без вызова
     /// `ApproachRecord::r1` всегда `None`, лишней работы нет. Звать до первого события.
-    pub fn enable_r1(&mut self) {}
+    pub fn enable_r1(&mut self) {
+        // Колонки пишутся только в запись подхода: без полосы подхода записей нет.
+        if self.cfg.approach_bps.is_some() && self.r1.is_none() {
+            self.r1 = Some(R1State::new());
+        }
+    }
 
     /// Создаёт трекер. Порог должен быть положителен, окно — тоже, прогрев
     /// неотрицателен: нулевой порог рождал бы уровень из пустого места.
@@ -1677,6 +1686,7 @@ impl LevelTracker {
             frame: 0,
             flow_ring: [0; FLOW_WINDOW_MIN],
             flow_slot_min: [-1; FLOW_WINDOW_MIN],
+            r1: None,
         }
     }
 
@@ -1818,7 +1828,11 @@ impl LevelTracker {
             &mut self.touched,
             &mut self.armed,
             approaches,
+            self.r1.as_deref_mut(),
         );
+        if let Some(r1) = self.r1.as_deref_mut() {
+            r1.finish_frame(&self.live, approaches);
+        }
         close_carry_after_first_frame(&mut self.carry, &mut self.carry_open, ctx.s);
         detect_sweep(&self.live, &mut self.sweep, ctx.s, ctx.frame);
         compute_touch_stacks(&self.live, &mut self.touched, ctx.s, ctx.frame, ctx.mode);
@@ -1834,6 +1848,7 @@ impl LevelTracker {
             out,
             touches,
             approaches,
+            self.r1.as_deref_mut(),
         );
         finalize_surviving_touches(
             &mut self.live,
@@ -1856,6 +1871,9 @@ impl LevelTracker {
         }
         self.frame += 1;
         let frame = self.frame;
+        if let Some(r1) = self.r1.as_deref_mut() {
+            r1.on_frame(ts_ms, side_key(side), levels);
+        }
         let mode = self.cfg.mode;
         let window = self.cfg.repeat_window_ms;
         // Граница прогрева: рождения строго раньше не эмитируются — ни
@@ -1940,6 +1958,9 @@ impl LevelTracker {
                 self.flow_ring[slot] = 0;
             }
             self.flow_ring[slot] = self.flow_ring[slot].saturating_add(tr.lots);
+        }
+        if let Some(r1) = self.r1.as_deref_mut() {
+            r1.on_trade(&tr);
         }
         let key = (u8::from(tr.aggressor_is_buy), tr.tick);
         if let Some(lv) = self.live.get_mut(&key) {
@@ -2041,6 +2062,7 @@ fn scan_levels(
     touched: &mut Vec<Touched>,
     armed: &mut Vec<(u8, i64)>,
     approaches: &mut Vec<ApproachRecord>,
+    mut r1: Option<&mut R1State>,
 ) {
     let FrameCtx {
         s,
@@ -2060,6 +2082,8 @@ fn scan_levels(
     // цена **ближайшего** уровня с ненулевым размером среди этих лучших
     // (B2): «первый фронтранer», на чью цену ставится вход от фронтрана.
     let mut better_lots: i64 = 0;
+    // Занятых цен строго лучше наблюдения — для `frontrun_levels` R1.
+    let mut better_n: u32 = 0;
     let mut near_better_tick: Option<i64> = None;
     // Направленная глубина (T2, П-02, Г-07): сумма размеров всего кадра на
     // этой стороне, один раз до цикла — внутри цикла «позади наблюдения i»
@@ -2078,6 +2102,7 @@ fn scan_levels(
     // К1 (T-23): палец поиска в `live` — уровни кадра идут от лучшего наружу,
     // ключ следующего рядом с ответом прошлого; ответ тот же, что у двоичного.
     let mut finger = 0usize;
+    let mut r1_finger = 0usize;
     for (i, ob) in levels.iter().enumerate() {
         let key = (s, ob.tick);
         let best = i == 0;
@@ -2137,6 +2162,7 @@ fn scan_levels(
                     lv.eat
                         .observe_size(ts_ms.div_euclid(1_000), ob.size_lots, visible);
                 }
+                let prev_size = lv.prev;
                 lv.prev = ob.size_lots;
                 let max_before = lv.max;
                 if ob.size_lots > lv.max {
@@ -2151,6 +2177,26 @@ fn scan_levels(
                 lv.better_lots = better_lots;
                 lv.observe_frontrun(ts_ms, better_lots, near_better_tick);
                 let (frontrun, frontrun_tick) = lv.frontrun_before(ts_ms);
+                if let Some(r1) = r1.as_deref_mut() {
+                    r1.observe_level(
+                        &mut r1_finger,
+                        &ObsCtx {
+                            ts_ms,
+                            s,
+                            tick: ob.tick,
+                            size: ob.size_lots,
+                            prev_size,
+                            traded_total: lv.traded,
+                            birth_ms: lv.birth_ms,
+                            armed: lv.approach.is_some(),
+                            better_lots,
+                            better_n,
+                            best_own: best_own.unwrap_or(ob.tick),
+                            best_opp,
+                            d_bps: approach_d.unwrap_or(0),
+                        },
+                    );
+                }
                 // Касание — переход на лучшую цену уровня, жившего до
                 // кадра (В-43): был не лучшим на последнем наблюдении и
                 // родился раньше этой метки. Родившийся лучшей ценой (или
@@ -2222,6 +2268,7 @@ fn scan_levels(
                                     .unwrap_or(false);
                                 (holds, strength_e2)
                             };
+                            let approaches_before = approaches.len();
                             let armed_now = observe_approach(
                                 lv,
                                 (d_bps, approach_min_age_ms),
@@ -2244,6 +2291,26 @@ fn scan_levels(
                             );
                             if armed_now {
                                 armed.push(key);
+                                if let Some(r1) = r1.as_deref_mut() {
+                                    r1.arm(&key);
+                                }
+                            }
+                            let touched_off = approaches.len() > approaches_before
+                                && matches!(
+                                    approaches[approaches_before].disarm_reason,
+                                    ApproachEnd::Touch
+                                );
+                            if touched_off {
+                                if let Some(r1) = r1.as_deref_mut() {
+                                    r1.push_touch(PendingTouch {
+                                        idx: approaches_before,
+                                        ts_ms,
+                                        key,
+                                        birth_ms: lv.birth_ms,
+                                        size: ob.size_lots,
+                                        frontrun_lots: frontrun,
+                                    });
+                                }
                             }
                         }
                     }
@@ -2293,12 +2360,22 @@ fn scan_levels(
                         },
                     );
                     newborns.push((s, ob.tick, ob.size_lots));
+                    if let Some(r1) = r1.as_deref_mut() {
+                        r1.birth(
+                            key,
+                            ts_ms,
+                            best_own.unwrap_or(ob.tick),
+                            carried_birth.is_some(),
+                            (better_lots, better_n),
+                        );
+                    }
                 }
             }
         }
         better_lots = better_lots.saturating_add(ob.size_lots);
         if ob.size_lots > 0 {
             near_better_tick = Some(ob.tick);
+            better_n = better_n.saturating_add(1);
         }
     }
 }
@@ -2422,6 +2499,7 @@ fn resolve_deaths(
     out: &mut Vec<LevelRecord>,
     touches: &mut Vec<TouchRecord>,
     approaches: &mut Vec<ApproachRecord>,
+    mut r1: Option<&mut R1State>,
 ) {
     for (ks, tick) in sweep.drain(..) {
         // Ключ только что найден в свипе, который построен обходом `live`
@@ -2433,6 +2511,10 @@ fn resolve_deaths(
         let Some(lv) = live.remove(&(ks, tick)) else {
             continue;
         };
+        // Память смертей R1 ведётся и по уровням прогрева: «прошлая смерть» не зависит от эмиссии.
+        if let Some(r1) = r1.as_deref_mut() {
+            r1.on_death((ks, tick), &lv, ts_ms, newborns);
+        }
         if lv.birth_ms < warm_end && !lv.carried {
             continue;
         }
@@ -2533,6 +2615,8 @@ fn finalize_surviving_touches(
         }
     }
 }
+
+mod r1_state;
 
 #[cfg(test)]
 mod tests;
