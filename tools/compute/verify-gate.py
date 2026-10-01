@@ -87,13 +87,17 @@ def main():
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--work", default="/opt/alpha-compute/tk021/w")
     ap.add_argument("--seed", type=int, default=21)
+    ap.add_argument("--only", default="", help="метки каталогов через запятую; без фиксированных пар; --per-dir 0 = все монеты")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.work, exist_ok=True)
     rnd = random.Random(args.seed)
     src = sources()
     jobs, seen = [], set()
+    only = set(filter(None, args.only.split(",")))
     for label, sym, days in FIXED:
+        if only:
+            break
         names = [f for f in sorted(os.listdir(src[label])) if (m := NAME.match(f)) and m.group("sym") == sym
                  and m.group("day") in days]
         if names:
@@ -102,15 +106,17 @@ def main():
         else:
             print(f"нет файлов: {label} {sym} {days}", file=sys.stderr)
     for label, d in src.items():
+        if only and label not in only:
+            continue
         by = {}
         for f in sorted(os.listdir(d)):
             m = NAME.match(f)
             if m and os.path.exists(f"{d}/{f}"):
                 by.setdefault(m.group("sym"), []).append(f)
         syms = sorted(s for s in by if (label, s) not in seen)
-        for sym in rnd.sample(syms, min(args.per_dir, len(syms))):
+        for sym in (syms if args.per_dir == 0 else rnd.sample(syms, min(args.per_dir, len(syms)))):
             fs = by[sym]
-            pick = sorted(rnd.sample(fs, min(args.files, len(fs))))
+            pick = fs if args.files == 0 else sorted(rnd.sample(fs, min(args.files, len(fs))))
             jobs.append((label, d, sym, pick))
     print(f"пар: {len(jobs)}", flush=True)
     rows = []
