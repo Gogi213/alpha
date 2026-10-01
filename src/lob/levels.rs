@@ -152,7 +152,7 @@ use crate::book::Side;
 use crate::lob::markout::HORIZONS_MS;
 use crate::lob::shortlist::DISTANCE_MAX_BPS;
 
-use self::r1_state::{ObsCtx, PendingTouch, R1State};
+use self::r1_state::{ObsCtx, PendingArm, R1State};
 
 /// Как задан порог `H3` — план D-H3 (таск 02): два режима, какой войдёт в
 /// предрегистрацию, решает двухчасовой пилот, не этот код. Явный выбор без
@@ -702,8 +702,8 @@ pub struct ApproachRecord {
     /// Признаки П-08 (TK-012) на кадре взвода; `None` — кэш подходов до TK-012
     /// (колонок нет), трекер пишет всегда `Some`.
     pub p08: Option<ArmP08>,
-    /// Признаки R1 (TK-025) на кадре касания; `None` — трекер без `--r1-cols`, подход не
-    /// кончился касанием или кэш без колонок R1.
+    /// Признаки R1 (TK-025) на кадре взвода, у подходов любой причины конца; `None` — трекер без
+    /// `--r1-cols`, кэш без колонок R1 или уровень взведён и умер в бид-проходе того же кадра.
     pub r1: Option<crate::lob::r1::ArmR1>,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
@@ -1810,6 +1810,7 @@ impl LevelTracker {
         self.cleanup_births(ts_ms);
         let ctx = self.begin_frame(ts_ms, side, levels);
         let carry_open_s = self.carry_open[ctx.s as usize];
+        let first_new = approaches.len();
         // Фазы кадра (W4в) — свободные функции над непересекающимися полями,
         // а не один вложенный метод: каждая берёт только то состояние, что
         // реально трогает, вызовы идут строго по очереди, поэтому ни одна
@@ -1831,7 +1832,7 @@ impl LevelTracker {
             self.r1.as_deref_mut(),
         );
         if let Some(r1) = self.r1.as_deref_mut() {
-            r1.finish_frame(&self.live, approaches);
+            r1.finish_frame(ctx.s, &self.live);
         }
         close_carry_after_first_frame(&mut self.carry, &mut self.carry_open, ctx.s);
         detect_sweep(&self.live, &mut self.sweep, ctx.s, ctx.frame);
@@ -1850,6 +1851,9 @@ impl LevelTracker {
             approaches,
             self.r1.as_deref_mut(),
         );
+        if let Some(r1) = self.r1.as_deref_mut() {
+            r1.attach(&mut approaches[first_new..]);
+        }
         finalize_surviving_touches(
             &mut self.live,
             &mut self.touched,
@@ -2188,7 +2192,6 @@ fn scan_levels(
                             prev_size,
                             traded_total: lv.traded,
                             birth_ms: lv.birth_ms,
-                            armed: lv.approach.is_some(),
                             better_lots,
                             better_n,
                             best_own: best_own.unwrap_or(ob.tick),
@@ -2268,7 +2271,6 @@ fn scan_levels(
                                     .unwrap_or(false);
                                 (holds, strength_e2)
                             };
-                            let approaches_before = approaches.len();
                             let armed_now = observe_approach(
                                 lv,
                                 (d_bps, approach_min_age_ms),
@@ -2292,18 +2294,7 @@ fn scan_levels(
                             if armed_now {
                                 armed.push(key);
                                 if let Some(r1) = r1.as_deref_mut() {
-                                    r1.arm(&key);
-                                }
-                            }
-                            let touched_off = approaches.len() > approaches_before
-                                && matches!(
-                                    approaches[approaches_before].disarm_reason,
-                                    ApproachEnd::Touch
-                                );
-                            if touched_off {
-                                if let Some(r1) = r1.as_deref_mut() {
-                                    r1.push_touch(PendingTouch {
-                                        idx: approaches_before,
+                                    r1.push_arm(PendingArm {
                                         ts_ms,
                                         key,
                                         birth_ms: lv.birth_ms,

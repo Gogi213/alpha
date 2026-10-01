@@ -1,4 +1,4 @@
-//! Пакет признаков R1 (TK-025): колонки кэша подходов на кадре касания.
+//! Пакет признаков R1 (TK-025): колонки кэша подходов на кадре взвода (`arm_ms`) — у всех подходов, любой причины конца.
 //!
 //! Определения «имя → формула → гипотеза» — `docs/findings/tk025-design-2026-10-02.md`. Здесь —
 //! единственное место имён и порядка колонок: заголовок CSV, чтение кэша и общий ключ
@@ -62,7 +62,7 @@ pub const FLOW_NAMES: [&str; FLOW_N] = [
 ];
 
 /// Число колонок состояния уровня.
-pub const LEVEL_N: usize = 22;
+pub const LEVEL_N: usize = 21;
 
 /// Колонки состояния уровня, порядок = порядок в CSV и в массиве `ArmR1::level`.
 pub const LEVEL_NAMES: [&str; LEVEL_N] = [
@@ -84,13 +84,12 @@ pub const LEVEL_NAMES: [&str; LEVEL_N] = [
     "best_move_10s_cbps",
     "opp_wall_dist_cbps",
     "opp_wall_ratio_bp",
-    "frontrun_lots_at_touch",
     "frontrun_delta_10s_lots",
     "frontrun_levels",
     "since_far_ms",
 ];
 
-/// Все колонки R1 одного подхода на кадре касания (`ApproachRecord::r1`).
+/// Все колонки R1 одного подхода на кадре взвода (`ApproachRecord::r1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArmR1 {
     pub flow: [i64; FLOW_N],

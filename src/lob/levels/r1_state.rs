@@ -6,12 +6,16 @@
 //! ёмкости, время — только из кадров и сделок, цена и размер — целые (`i128` в промежуточном счёте).
 //!
 //! Решения при разночтениях определения (записаны и в отчёт кодера B):
-//! - интервал «взвод → t0» для `wall_add_*`/`front_add_*` — переходы кадров **строго после** кадра взвода
-//!   по кадр касания включительно; при равных приростах остаётся первый кадр (как `time_to_max_ms`);
+//! - момент — кадр взвода подхода (`arm_ms`), у всех подходов независимо от причины конца (как `ArmP08`):
+//!   колонки считаются в кадре взвода и хранятся в `armed` до снятия подхода (касание, уход цены, смерть);
+//! - интервал `wall_add_*`/`front_add_*` — переходы кадров от рождения уровня по кадр взвода включительно
+//!   (на взводе интервала «взвод → t0» нет); при равных приростах остаётся первый кадр (как `time_to_max_ms`);
+//! - кадр монеты — пара проходов трекера (бид, затем аск; `feed_frames_multi`): снимок потока и колонки
+//!   считаются в конце аск-прохода, когда обе половины книги на метке кадра (бид/аск зеркальны, Н1);
 //! - «зона между лучшей ценой и стеной» исключает оба конца: лучшую цену и сам уровень стены;
-//! - `frontrun_levels` и база `frontrun_delta_10s_lots` берутся с того же наблюдения, что и
-//!   `frontrun_lots_at_touch` (кадр за 1–2 с до касания, `frontrun_before`): на самом кадре касания стена —
-//!   лучшая цена и впереди неё по построению пусто; `frontrun(t0)` в дельте — это `frontrun_lots_at_touch`;
+//! - `frontrun_levels` берётся с наблюдения `frontrun_before` (кадр за 1–2 с до t0), база
+//!   `frontrun_delta_10s_lots` — последний кадр не позже `t0 − 10 с`; `frontrun(t0)` в дельте — это
+//!   `frontrun_lots_at_arm` подхода (`Live::frontrun_before` на кадре взвода);
 //! - сдвиг `born_shift_cbps` — от цены умершего уровня (старой цены), остальные cbps — от цены стены;
 //! - `born_shift_lots` — размер новорождённого минус `size_max` умершего (по нему же идёт сопоставимость);
 //! - отмены и счётчики окон `cancel_*` — по кадрам стороны стены; `since_far_ms` — по кадрам стороны стены
@@ -22,7 +26,7 @@ use crate::lob::r1::{ArmR1, LEVEL_N, R1_UNDEF};
 use crate::lob::r1_flow::{BookView, R1Flow, BOOK_DEPTH};
 
 use super::{
-    classify_outcome, comparable_size, side_of, ApproachRecord, LevelObs, Live, Outcome, SortedVec,
+    classify_outcome, comparable_size, side_key, side_of, ApproachRecord, LevelObs, Live, Outcome, SortedVec,
     TradeHit, BPS_PER_UNIT, FRONTRUN_BACK_MS, LEVEL_MAP_CAPACITY,
 };
 
@@ -203,7 +207,7 @@ struct LiveR1 {
     cancel_sec: TagRing<SEC_SLOTS>,
     cancel_min: TagRing<MIN_SLOTS>,
     cancel_life: i64,
-    /// Максимальный прирост размера стены за переход кадров с взвода, лоты и метка кадра (UNDEF — не было).
+    /// Максимальный прирост размера стены за переход кадров с рождения, лоты и метка кадра (UNDEF — не было).
     wall_add_lots: i64,
     wall_add_ms: i64,
     /// То же для цен строго между лучшей ценой стороны и стеной.
@@ -299,8 +303,6 @@ pub(super) struct ObsCtx {
     pub prev_size: i64,
     pub traded_total: i64,
     pub birth_ms: i64,
-    /// Подход взведён на прошлом кадре (интервал «взвод → t0» идёт).
-    pub armed: bool,
     pub better_lots: i64,
     pub better_n: u32,
     pub best_own: i64,
@@ -308,17 +310,15 @@ pub(super) struct ObsCtx {
     pub d_bps: i64,
 }
 
-/// Касание, снятое в кадре, — колонки заполняются после обхода кадра (`R1State::finish_frame`):
+/// Подход, взведённый в кадре, — колонки заполняются в конце кадра монеты (`R1State::finish_frame`):
 /// для ближайшего чужого уровня нужен весь `live`, который обход держит заимствованным.
 #[derive(Clone, Copy)]
-pub(super) struct PendingTouch {
-    /// Номер записи в `approaches` вызывающего.
-    pub idx: usize,
+pub(super) struct PendingArm {
     pub ts_ms: i64,
     pub key: (u8, i64),
     pub birth_ms: i64,
     pub size: i64,
-    /// `Live::frontrun_before` на кадре касания (то же, что `TouchRecord::frontrun_lots`).
+    /// `Live::frontrun_before` на кадре взвода (то же, что `ApproachRecord::frontrun_lots_at_arm`).
     pub frontrun_lots: i64,
 }
 
@@ -332,7 +332,9 @@ pub(super) struct R1State {
     live: SortedVec<(u8, i64), LiveR1>,
     deaths: DeathRing,
     start_ms: Option<i64>,
-    pending: Vec<PendingTouch>,
+    pending: Vec<PendingArm>,
+    /// Колонки взведённых подходов до снятия: ключ — уровень (подход уровня один).
+    armed: SortedVec<(u8, i64), ArmR1>,
 }
 
 impl R1State {
@@ -347,6 +349,7 @@ impl R1State {
             deaths: DeathRing::new(),
             start_ms: None,
             pending: Vec::with_capacity(8),
+            armed: SortedVec::with_capacity(LEVEL_MAP_CAPACITY),
         })
     }
 
@@ -355,7 +358,8 @@ impl R1State {
         self.flow.on_trade(tr);
     }
 
-    /// Кадр стороны `s`: снимок книги (лучшая цена первой, до `BOOK_DEPTH` непустых цен) и ход потока.
+    /// Кадр стороны `s`: снимок книги (лучшая цена первой, до `BOOK_DEPTH` непустых цен); ход потока — на аск-проходе
+    /// (парный бид-проход уже сохранён), чтобы обе половины книги были на метке кадра.
     #[inline(never)]
     pub(super) fn on_frame(&mut self, ts_ms: i64, s: u8, levels: &[LevelObs]) {
         if self.start_ms.is_none() {
@@ -370,6 +374,9 @@ impl R1State {
             n += 1;
         }
         self.book_len[si][c] = n;
+        if s == 0 {
+            return;
+        }
         let (cb, ca) = (self.cur[0], self.cur[1]);
         let view = BookView {
             bids: &self.book[0][cb][..self.book_len[0][cb]],
@@ -394,15 +401,11 @@ impl R1State {
         );
     }
 
-    /// Подход уровня взведён в этом кадре: интервал «взвод → t0» начинается заново.
+    /// Подход уровня взведён в этом кадре: колонки — в конце кадра монеты. Прежние значения ключа стираются.
     #[inline(never)]
-    pub(super) fn arm(&mut self, key: &(u8, i64)) {
-        if let Some(l) = self.live.get_mut(key) {
-            l.wall_add_lots = 0;
-            l.wall_add_ms = R1_UNDEF;
-            l.front_add_lots = 0;
-            l.front_add_ms = R1_UNDEF;
-        }
+    pub(super) fn push_arm(&mut self, p: PendingArm) {
+        self.armed.remove(&p.key);
+        self.pending.push(p);
     }
 
     /// Наблюдение живого уровня в кадре своей стороны. Зовётся до обновления `Live::prev`.
@@ -445,24 +448,22 @@ impl R1State {
                 l.last_far_ms = c.ts_ms;
             }
         }
-        if c.armed {
-            let grow = c.size.saturating_sub(c.prev_size);
-            if grow > l.wall_add_lots {
-                l.wall_add_lots = grow;
-                l.wall_add_ms = c.ts_ms;
-            }
-            let si = usize::from(c.s);
-            let (cc, pc) = (cur[si], cur[si] ^ 1);
-            let g = zone_growth_max(
-                &book[si][cc][..book_len[si][cc]],
-                &book[si][pc][..book_len[si][pc]],
-                c.s == 0,
-                c.tick,
-            );
-            if g > l.front_add_lots {
-                l.front_add_lots = g;
-                l.front_add_ms = c.ts_ms;
-            }
+        let grow = c.size.saturating_sub(c.prev_size);
+        if grow > l.wall_add_lots {
+            l.wall_add_lots = grow;
+            l.wall_add_ms = c.ts_ms;
+        }
+        let si = usize::from(c.s);
+        let (cc, pc) = (cur[si], cur[si] ^ 1);
+        let g = zone_growth_max(
+            &book[si][cc][..book_len[si][cc]],
+            &book[si][pc][..book_len[si][pc]],
+            c.s == 0,
+            c.tick,
+        );
+        if g > l.front_add_lots {
+            l.front_add_lots = g;
+            l.front_add_ms = c.ts_ms;
         }
     }
 
@@ -477,6 +478,7 @@ impl R1State {
         newborns: &[(u8, i64, i64)],
     ) {
         self.live.remove(&key);
+        self.armed.remove(&key);
         let outcome = match classify_outcome(lv.traded, lv.max) {
             Outcome::Eaten => 1,
             Outcome::Pulled => 0,
@@ -507,20 +509,14 @@ impl R1State {
         }
     }
 
-    /// Касание, снятое в этом кадре: запомнить до конца обхода.
+    /// Конец прохода: на аск-проходе (обе половины книги на метке кадра) заполняются колонки взведённых в
+    /// этом кадре подходов обеих сторон. Уровень без состояния (рождён до `enable_r1` или умер в бид-проходе)
+    /// оставляет подход без колонок.
     #[inline(never)]
-    pub(super) fn push_touch(&mut self, p: PendingTouch) {
-        self.pending.push(p);
-    }
-
-    /// Конец обхода кадра: колонки R1 в записи подходов, снятых касанием. Уровень без состояния
-    /// (рождён до `enable_r1`) оставляет `r1 = None`.
-    #[inline(never)]
-    pub(super) fn finish_frame(
-        &mut self,
-        live: &SortedVec<(u8, i64), Live>,
-        approaches: &mut [ApproachRecord],
-    ) {
+    pub(super) fn finish_frame(&mut self, s: u8, live: &SortedVec<(u8, i64), Live>) {
+        if s == 0 {
+            return;
+        }
         for i in 0..self.pending.len() {
             let p = self.pending[i];
             let Some(l) = self.live.get(&p.key) else {
@@ -529,14 +525,24 @@ impl R1State {
             let mut r = ArmR1::undefined();
             self.flow.fill(side_of(p.key), p.ts_ms, &mut r.flow);
             r.level = self.level_columns(&p, l, live);
-            approaches[p.idx].r1 = Some(r);
+            self.armed.insert(p.key, r);
         }
         self.pending.clear();
     }
 
+    /// Записи подходов, снятых в этом проходе: колонки взвода из `armed` (снятие стирает ключ).
+    #[inline(never)]
+    pub(super) fn attach(&mut self, emitted: &mut [ApproachRecord]) {
+        for rec in emitted {
+            if let Some(r) = self.armed.remove(&(side_key(rec.side), rec.price_tick)) {
+                rec.r1 = Some(r);
+            }
+        }
+    }
+
     fn level_columns(
         &self,
-        c: &PendingTouch,
+        c: &PendingArm,
         l: &LiveR1,
         live: &SortedVec<(u8, i64), Live>,
     ) -> [i64; LEVEL_N] {
@@ -613,12 +619,11 @@ impl R1State {
             fr_lots, c.frontrun_lots,
             "кольцо R1 разошлось с Live::frontrun_before"
         );
-        o[18] = c.frontrun_lots;
         if let Some(base) = l.fr.lots_at_or_before(t0.saturating_sub(HORIZONS_MS[2])) {
-            o[19] = c.frontrun_lots.saturating_sub(base);
+            o[18] = c.frontrun_lots.saturating_sub(base);
         }
-        o[20] = i64::from(fr_n);
-        o[21] = t0.saturating_sub(l.last_far_ms.max(c.birth_ms));
+        o[19] = i64::from(fr_n);
+        o[20] = t0.saturating_sub(l.last_far_ms.max(c.birth_ms));
         o
     }
 }
