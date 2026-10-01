@@ -2619,4 +2619,6 @@ fn finalize_surviving_touches(
 mod r1_state;
 
 #[cfg(test)]
+mod r1_tests;
+#[cfg(test)]
 mod tests;
