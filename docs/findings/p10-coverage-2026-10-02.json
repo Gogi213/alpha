@@ -1,0 +1,899 @@
+{
+ "protocol": "docs/research/P-10-code-exists-batch.md §6.2, §7, §14 п. 6; признаки без колонок исхода (исход читает только блок Г-120 — знак net_bps закрытий B1)",
+ "signals_b1": {
+  "aug": 3467,
+  "sep": 568
+ },
+ "signals_market": {
+  "aug": 3467,
+  "sep": 568
+ },
+ "b1_trades": {
+  "aug": 424,
+  "sep": 141
+ },
+ "cells": [
+  {
+   "cell": "g11-q33",
+   "family": "H",
+   "hypothesis": "Г-11",
+   "feature": "coin_abs_minus_btc_1h",
+   "kind": "low",
+   "op": "<=",
+   "thr": 12.639635547794237,
+   "f": {
+    "aug": 0.3337,
+    "sep": 0.3169
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.5,
+    "sep": 44.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g11-q67",
+   "family": "H",
+   "hypothesis": "Г-11",
+   "feature": "coin_abs_minus_btc_1h",
+   "kind": "low",
+   "op": "<=",
+   "thr": 29.43370516005461,
+   "f": {
+    "aug": 0.6669,
+    "sep": 0.5827
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.7,
+    "sep": 82.2
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g62-q33",
+   "family": "I",
+   "hypothesis": "Г-62",
+   "feature": "g62_er",
+   "kind": "high",
+   "op": ">=",
+   "thr": 0.146341463414647,
+   "f": {
+    "aug": 0.3337,
+    "sep": 0.2817
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.5,
+    "sep": 39.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g62-q67",
+   "family": "I",
+   "hypothesis": "Г-62",
+   "feature": "g62_er",
+   "kind": "high",
+   "op": ">=",
+   "thr": 0.06329113924050744,
+   "f": {
+    "aug": 0.6671,
+    "sep": 0.6813
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.9,
+    "sep": 96.1
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g74-q33",
+   "family": "J",
+   "hypothesis": "Г-74",
+   "feature": "g74_hi5_bps",
+   "kind": "low",
+   "op": "<=",
+   "thr": 22.505626406602502,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.2042
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 28.8
+   },
+   "dead_lt30": true,
+   "mirror_gt90": false,
+   "decision": "замена §7 по квантилю августа совпадает с самой клеткой — без изменений",
+   "label": "мало сделок"
+  },
+  {
+   "cell": "g74-q67",
+   "family": "J",
+   "hypothesis": "Г-74",
+   "feature": "g74_hi5_bps",
+   "kind": "low",
+   "op": "<=",
+   "thr": 34.06326034063155,
+   "f": {
+    "aug": 0.6669,
+    "sep": 0.5158
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.7,
+    "sep": 72.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g76-q33",
+   "family": "K",
+   "hypothesis": "Г-76",
+   "feature": "g76_low60_sigma",
+   "kind": "low",
+   "op": "<=",
+   "thr": -0.04794149907446121,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.257
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 36.2
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g76-q67",
+   "family": "K",
+   "hypothesis": "Г-76",
+   "feature": "g76_low60_sigma",
+   "kind": "low",
+   "op": "<=",
+   "thr": 0.03418476255304572,
+   "f": {
+    "aug": 0.6669,
+    "sep": 0.6743
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.7,
+    "sep": 95.1
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g22-thin33",
+   "family": "L",
+   "hypothesis": "Г-22/Г-54",
+   "feature": "g22_turnover24_usd",
+   "kind": "low",
+   "op": "<=",
+   "thr": 6781028.7623,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.2201
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 31.0
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g22-thin67",
+   "family": "L",
+   "hypothesis": "Г-22/Г-54",
+   "feature": "g22_turnover24_usd",
+   "kind": "low",
+   "op": "<=",
+   "thr": 21057981.8901,
+   "f": {
+    "aug": 0.6671,
+    "sep": 0.6567
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.9,
+    "sep": 92.6
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g123-cap1",
+   "family": "M",
+   "hypothesis": "Г-123",
+   "feature": "g123_cap_pct",
+   "kind": "le",
+   "op": "<=",
+   "thr": 1.0,
+   "f": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 424.0,
+    "sep": 141.0
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "decision": "без замены (клетка без квантиля) — ярлык",
+   "label": "почти не действует"
+  },
+  {
+   "cell": "g48-q33",
+   "family": "N",
+   "hypothesis": "Г-48/Г-49",
+   "feature": "g48_stop_share_14d",
+   "kind": "skip-high",
+   "op": "<=",
+   "thr": 0.1111111111111111,
+   "f": {
+    "aug": 0.7139,
+    "sep": 0.6778
+   },
+   "defined_share": {
+    "aug": 0.8601,
+    "sep": 0.8099
+   },
+   "expected_trades": {
+    "aug": 302.7,
+    "sep": 95.6
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g48-q67",
+   "family": "N",
+   "hypothesis": "Г-48/Г-49",
+   "feature": "g48_stop_share_14d",
+   "kind": "skip-high",
+   "op": "<=",
+   "thr": 0.0,
+   "f": {
+    "aug": 0.4511,
+    "sep": 0.4085
+   },
+   "defined_share": {
+    "aug": 0.8601,
+    "sep": 0.8099
+   },
+   "expected_trades": {
+    "aug": 191.3,
+    "sep": 57.6
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g31-q33",
+   "family": "O",
+   "hypothesis": "Г-31",
+   "feature": "g31_off_center",
+   "kind": "high",
+   "op": ">=",
+   "thr": 0.738095238095229,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.2095
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 29.5
+   },
+   "dead_lt30": true,
+   "mirror_gt90": false,
+   "decision": "замена §7 по квантилю августа совпадает с самой клеткой — без изменений",
+   "label": "мало сделок"
+  },
+  {
+   "cell": "g31-q67",
+   "family": "O",
+   "hypothesis": "Г-31",
+   "feature": "g31_off_center",
+   "kind": "high",
+   "op": ">=",
+   "thr": 0.5277777777777743,
+   "f": {
+    "aug": 0.6669,
+    "sep": 0.5423
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 282.7,
+    "sep": 76.5
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g47-hist",
+   "family": "P",
+   "hypothesis": "Г-47",
+   "feature": "g47_wall_traded",
+   "kind": "eq1",
+   "op": "==1",
+   "thr": null,
+   "f": {
+    "aug": 0.8119,
+    "sep": 0.7993
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 344.3,
+    "sep": 112.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g14-tea",
+   "family": "Q1",
+   "hypothesis": "Г-14",
+   "feature": "g14_tea",
+   "kind": "eq0",
+   "op": "==0",
+   "thr": null,
+   "f": {
+    "aug": 0.8823,
+    "sep": 0.9243
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 374.1,
+    "sep": 130.3
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "decision": "без замены (клетка без квантиля) — ярлык",
+   "label": "почти не действует"
+  },
+  {
+   "cell": "g14-asia",
+   "family": "Q2",
+   "hypothesis": "Г-14",
+   "feature": "g14_asia",
+   "kind": "eq0",
+   "op": "==0",
+   "thr": null,
+   "f": {
+    "aug": 0.9942,
+    "sep": 0.9842
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 421.6,
+    "sep": 138.8
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "decision": "без замены (клетка без квантиля) — ярлык",
+   "label": "почти не действует"
+  },
+  {
+   "cell": "g14-quiet",
+   "family": "Q3",
+   "hypothesis": "Г-14",
+   "feature": "g14_quiet",
+   "kind": "eq0",
+   "op": "==0",
+   "thr": null,
+   "f": {
+    "aug": 0.7208,
+    "sep": 0.625
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 305.6,
+    "sep": 88.1
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g14-wkend",
+   "family": "Q4",
+   "hypothesis": "Г-14",
+   "feature": "g14_wkend",
+   "kind": "eq0",
+   "op": "==0",
+   "thr": null,
+   "f": {
+    "aug": 0.8497,
+    "sep": 0.831
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 360.3,
+    "sep": 117.2
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": ""
+  },
+  {
+   "cell": "g45-fund",
+   "family": "R",
+   "hypothesis": "Г-45",
+   "feature": "g45_min_to_fund",
+   "kind": "gt",
+   "op": ">",
+   "thr": 60.0,
+   "f": {
+    "aug": 0.8913,
+    "sep": 0.9155
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 377.9,
+    "sep": 129.1
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "decision": "без замены (клетка без квантиля) — ярлык",
+   "label": "почти не действует"
+  },
+  {
+   "cell": "g120-block5",
+   "family": "S",
+   "hypothesis": "Г-120",
+   "feature": null,
+   "kind": "s-block",
+   "op": "блок",
+   "thr": null,
+   "f": {
+    "aug": 0.9957,
+    "sep": 1.0
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 422.2,
+    "sep": 141.0
+   },
+   "dead_lt30": false,
+   "mirror_gt90": true,
+   "decision": "без замены (клетка без квантиля) — ярлык",
+   "label": "почти не действует",
+   "blocked_signals": {
+    "aug": 15,
+    "sep": 0
+   },
+   "block_events_total": 2
+  },
+  {
+   "cell": "p10-g89-mkt-big",
+   "family": "G89",
+   "hypothesis": "Г-89",
+   "feature": "g89_usd",
+   "kind": "usd-top",
+   "op": ">=",
+   "thr": 44552.1,
+   "f": {
+    "aug": 0.3334,
+    "sep": 0.2746
+   },
+   "defined_share": {
+    "aug": 1.0,
+    "sep": 1.0
+   },
+   "expected_trades": {
+    "aug": 141.4,
+    "sep": 38.7
+   },
+   "dead_lt30": false,
+   "mirror_gt90": false,
+   "decision": "без изменений",
+   "label": "",
+   "usd_min": 44552.1,
+   "usd_min_rule": "верхняя треть номинала стены по сигналам B1 августа (ранг ⌈n/3⌉ по убыванию), условие «≥»",
+   "usd_n_aug": 3467
+  }
+ ],
+ "final": {
+  "H": [
+   {
+    "name": "g11-q33",
+    "feature": "coin_abs_minus_btc_1h",
+    "op": "<=",
+    "thr": 12.639635547794237,
+    "label": ""
+   },
+   {
+    "name": "g11-q67",
+    "feature": "coin_abs_minus_btc_1h",
+    "op": "<=",
+    "thr": 29.43370516005461,
+    "label": ""
+   }
+  ],
+  "I": [
+   {
+    "name": "g62-q33",
+    "feature": "g62_er",
+    "op": ">=",
+    "thr": 0.146341463414647,
+    "label": ""
+   },
+   {
+    "name": "g62-q67",
+    "feature": "g62_er",
+    "op": ">=",
+    "thr": 0.06329113924050744,
+    "label": ""
+   }
+  ],
+  "J": [
+   {
+    "name": "g74-q33",
+    "feature": "g74_hi5_bps",
+    "op": "<=",
+    "thr": 22.505626406602502,
+    "label": "мало сделок"
+   },
+   {
+    "name": "g74-q67",
+    "feature": "g74_hi5_bps",
+    "op": "<=",
+    "thr": 34.06326034063155,
+    "label": ""
+   }
+  ],
+  "K": [
+   {
+    "name": "g76-q33",
+    "feature": "g76_low60_sigma",
+    "op": "<=",
+    "thr": -0.04794149907446121,
+    "label": ""
+   },
+   {
+    "name": "g76-q67",
+    "feature": "g76_low60_sigma",
+    "op": "<=",
+    "thr": 0.03418476255304572,
+    "label": ""
+   }
+  ],
+  "L": [
+   {
+    "name": "g22-thin33",
+    "feature": "g22_turnover24_usd",
+    "op": "<=",
+    "thr": 6781028.7623,
+    "label": ""
+   },
+   {
+    "name": "g22-thin67",
+    "feature": "g22_turnover24_usd",
+    "op": "<=",
+    "thr": 21057981.8901,
+    "label": ""
+   }
+  ],
+  "M": [
+   {
+    "name": "g123-cap1",
+    "feature": "g123_cap_pct",
+    "op": "<=",
+    "thr": 1.0,
+    "label": "почти не действует"
+   }
+  ],
+  "N": [
+   {
+    "name": "g48-q33",
+    "feature": "g48_stop_share_14d",
+    "op": "<=",
+    "thr": 0.1111111111111111,
+    "label": ""
+   },
+   {
+    "name": "g48-q67",
+    "feature": "g48_stop_share_14d",
+    "op": "<=",
+    "thr": 0.0,
+    "label": ""
+   }
+  ],
+  "O": [
+   {
+    "name": "g31-q33",
+    "feature": "g31_off_center",
+    "op": ">=",
+    "thr": 0.738095238095229,
+    "label": "мало сделок"
+   },
+   {
+    "name": "g31-q67",
+    "feature": "g31_off_center",
+    "op": ">=",
+    "thr": 0.5277777777777743,
+    "label": ""
+   }
+  ],
+  "P": [
+   {
+    "name": "g47-hist",
+    "feature": "g47_wall_traded",
+    "op": "==1",
+    "thr": null,
+    "label": ""
+   }
+  ],
+  "Q1": [
+   {
+    "name": "g14-tea",
+    "feature": "g14_tea",
+    "op": "==0",
+    "thr": null,
+    "label": "почти не действует"
+   }
+  ],
+  "Q2": [
+   {
+    "name": "g14-asia",
+    "feature": "g14_asia",
+    "op": "==0",
+    "thr": null,
+    "label": "почти не действует"
+   }
+  ],
+  "Q3": [
+   {
+    "name": "g14-quiet",
+    "feature": "g14_quiet",
+    "op": "==0",
+    "thr": null,
+    "label": ""
+   }
+  ],
+  "Q4": [
+   {
+    "name": "g14-wkend",
+    "feature": "g14_wkend",
+    "op": "==0",
+    "thr": null,
+    "label": ""
+   }
+  ],
+  "R": [
+   {
+    "name": "g45-fund",
+    "feature": "g45_min_to_fund",
+    "op": ">",
+    "thr": 60.0,
+    "label": "почти не действует"
+   }
+  ],
+  "S": [
+   {
+    "name": "g120-block5",
+    "feature": null,
+    "op": "блок",
+    "thr": null,
+    "label": "почти не действует"
+   }
+  ],
+  "G89": [
+   {
+    "name": "p10-g89-mkt-big",
+    "feature": "g89_usd",
+    "op": ">=",
+    "thr": 44552.1,
+    "label": ""
+   }
+  ]
+ },
+ "merged": [],
+ "families_p": [
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q1",
+  "Q2",
+  "Q3",
+  "Q4",
+  "R",
+  "S",
+  "G89"
+ ],
+ "families_exitsim": [
+  "T:g24",
+  "U:g25",
+  "V:g109"
+ ],
+ "m_family_p": 16,
+ "m_family": 19,
+ "m_family_without_merge": 19,
+ "cells_after": 23,
+ "usd_min_g89": 44552.1,
+ "gates": {
+  "b": {
+   "p08_b1_eq_p07b_base_days_differ": 0,
+   "p10-keepall": {
+    "signals": 4035,
+    "closes": 706,
+    "ref": "/home/deck/alpha/tmp-p08/run/h9-b-p08-keepall/ps-closes.json",
+    "byte_equal": true,
+    "ok": true
+   },
+   "p10-keepall-b2": {
+    "signals": 4035,
+    "closes": 356,
+    "ref": "/home/deck/alpha/tmp-p08/run/h9-b-p08-keepall-b2/ps-closes.json",
+    "byte_equal": true,
+    "ok": true
+   },
+   "p10-keepall-market": {
+    "signals": 4035,
+    "closes": 1023,
+    "ref": "busy-replay без фильтра на p07b-t9-market",
+    "byte_equal": true,
+    "ok": true,
+    "note": ""
+   },
+   "ok": true
+  },
+  "v": {
+   "day": "2026-08-03",
+   "signals": 520,
+   "signals_indep": 520,
+   "features": {
+    "coin_abs_minus_btc_1h": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    },
+    "g62_er": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    },
+    "g74_hi5_bps": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    },
+    "g76_low60_sigma": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    },
+    "g22_turnover24_usd": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    },
+    "g31_off_center": {
+     "defined": 520,
+     "defined_share": 1.0,
+     "mismatches": 0
+    }
+   },
+   "ok": true
+  },
+  "g": {
+   "pairs": 606,
+   "status_counts": {
+    "ok": 606
+   },
+   "file": "/home/deck/alpha/tmp-p10/cov/p10-days.csv",
+   "ok": true
+  },
+  "ok": true
+ }
+}
