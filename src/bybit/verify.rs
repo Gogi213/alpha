@@ -302,8 +302,8 @@ pub fn check_invariants(book: &Book) -> Vec<InvariantViolation> {
 /// Диапазон, накрытый книгой: от худшего удерживаемого бида до худшего
 /// удерживаемого аска. `None` — книга пуста, судить не по чему.
 pub fn book_span_ticks(book: &Book) -> Option<(i64, i64)> {
-    let min_bid = book.levels(Side::Bid).map(|(t, _)| t).min()?;
-    let max_ask = book.levels(Side::Ask).map(|(t, _)| t).max()?;
+    let min_bid = book.deepest_tick_opt(Side::Bid)?;
+    let max_ask = book.deepest_tick_opt(Side::Ask)?;
     Some((min_bid, max_ask))
 }
 

@@ -784,6 +784,13 @@ fn incremental_verifier_matches_full_pass_reference() {
         assert_eq!(v.stats(), r.stats, "шаг {step}: счётчики");
         assert_eq!(v.ever_held, r.ever_held, "шаг {step}: история тиков");
         assert!(v.book() == &r.book, "шаг {step}: книга");
+        let min_bid = r.book.levels(Side::Bid).map(|(t, _)| t).min();
+        let max_ask = r.book.levels(Side::Ask).map(|(t, _)| t).max();
+        assert_eq!(
+            book_span_ticks(v.book()),
+            min_bid.zip(max_ask),
+            "шаг {step}: диапазон книги"
+        );
     }
     assert!(errs > 100, "тест не добрал ошибок: {errs}");
     assert!(

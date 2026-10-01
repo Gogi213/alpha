@@ -280,6 +280,16 @@ impl Book {
         self.asks.levels.first().map(|l| l.0)
     }
 
+    /// Самый глубокий (худший по цене) уровень стороны: у бидов минимальный тик,
+    /// у асков максимальный. За O(1), а не обходом `levels`.
+    pub fn deepest_tick_opt(&self, side: Side) -> Option<i64> {
+        match side {
+            Side::Bid => self.bids.levels.first(),
+            Side::Ask => self.asks.levels.last(),
+        }
+        .map(|l| l.0)
+    }
+
     pub fn depth(&self, side: Side) -> usize {
         match side {
             Side::Bid => self.bids.len(),

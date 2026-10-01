@@ -51,13 +51,24 @@ def run_unit(label, src, sym, files, work, out, parts_w, units_w):
         shutil.copy(INSTR, f"{w}/instruments.csv")
         if os.path.exists(f"{src}/gaps.csv"):
             shutil.copy(f"{src}/gaps.csv", f"{w}/gaps.csv")
+        # ссылки на каталоги Steam Deck на ящике не разрешаются: в проверку не берём, в parts.csv — отдельной строкой
+        real = [f for f in files if os.path.exists(f"{src}/{f}")]
         sizes = {}
-        for f in files:
+        for f in real:
             shutil.copyfile(f"{src}/{f}", f"{w}/{f}")
             sizes[f] = os.path.getsize(f"{w}/{f}")
-        p = subprocess.run([BIN, "lob", "verify", "--symbol", sym, "--root", w],
-                           capture_output=True, text=True)
+        files_all, files = files, real
+        if real:
+            p = subprocess.run([BIN, "lob", "verify", "--symbol", sym, "--root", w],
+                               capture_output=True, text=True)
+        else:
+            p = subprocess.CompletedProcess([], 0, "", "")
         rows, status = [], None
+        for f in files_all:
+            if f not in real:
+                m = NAME.match(f)
+                rows.append([label, sym, f, m.group("day") if m else "", (m.group("part") or "-p1")[2:] if m else "",
+                             0, 0, 0, 0, 0, 0, 0, "ссылка-битая"])
         for line in p.stdout.splitlines():
             if line.startswith("verify: part="):
                 name = line.split("part=")[1].split()[0]
@@ -77,7 +88,7 @@ def run_unit(label, src, sym, files, work, out, parts_w, units_w):
             for r in rows:
                 parts_w.writerow(r)
             units_w.writerow([label, sym, len(files), sum(sizes.values()),
-                              (status or {}).get("status", "err"), (status or {}).get("gaps_csv", ""),
+                              (status or {}).get("status", "err" if real else "ссылки"), (status or {}).get("gaps_csv", ""),
                               (status or {}).get("seams", ""), (status or {}).get("losses", ""),
                               (status or {}).get("step_changes", ""), p.returncode, int(time.time() - t0)])
             out["parts"].flush(); out["units"].flush()
