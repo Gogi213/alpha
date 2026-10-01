@@ -55,10 +55,12 @@ one() {
   done
   local w="$TMP/$sym-$day" st note
   mkdir -p "$w"; ln -sf "$BASE/instruments.csv" "$w/instruments.csv"
-  if ! curl -sf --retry 5 --retry-delay 10 --max-time 1800 -o "$w/ob.zip" \
+  # --retry-all-errors: public.bybit.com изредка отвечает 403 на существующий файл (TK-021, 01.10: 5 монето-суток
+  # записаны «missing» ложно); без флага curl 403 не повторяет. Настоящий 404 стоит 5 повторов (~1 мин).
+  if ! curl -sf --retry 5 --retry-delay 10 --retry-all-errors --max-time 1800 -o "$w/ob.zip" \
       "https://quote-saver.bycsi.com/orderbook/linear/$sym/${day}_${sym}_ob200.data.zip"; then
     st=missing; note="source=archive (нет стакана в архиве)"
-  elif ! curl -sf --retry 5 --retry-delay 10 --max-time 1800 "https://public.bybit.com/trading/$sym/$sym$day.csv.gz" \
+  elif ! curl -sf --retry 5 --retry-delay 10 --retry-all-errors --max-time 1800 "https://public.bybit.com/trading/$sym/$sym$day.csv.gz" \
       | gunzip -c > "$w/trades.csv"; then
     st=missing; note="source=archive (нет сделок в архиве)"
   else
