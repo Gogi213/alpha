@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Гейт TK-025, проверка кэша подходов с --r1-cols против прежнего:
 #   python3 gate-r1-cols.py <approaches-old.csv> <approaches-r1.csv>
-# Прежние колонки (и заголовок) — побайтно те же строки; следом ровно 62 новые колонки R1 в порядке
+# Прежние колонки (и заголовок) — побайтно те же строки; следом ровно 61 новая колонка R1 в порядке
 # src/lob/r1.rs (FLOW_NAMES, затем LEVEL_NAMES); печатает долю определённых клеток по колонкам.
 import csv
 import sys
@@ -19,10 +19,10 @@ LEVEL = (
     "cancel_1s_lots cancel_3s_lots cancel_60m_lots cancel_life_lots wall_add_max_lots wall_add_max_age_ms "
     "front_add_max_lots front_add_max_age_ms born_shift_cbps born_shift_lots prev_death_gap_ms prev_death_outcome "
     "size_share15_bp nz_levels15 best_move_1s_cbps best_move_10s_cbps opp_wall_dist_cbps opp_wall_ratio_bp "
-    "frontrun_lots_at_touch frontrun_delta_10s_lots frontrun_levels since_far_ms"
+    "frontrun_delta_10s_lots frontrun_levels since_far_ms"
 ).split()
 NAMES = FLOW + LEVEL
-assert len(FLOW) == 40 and len(LEVEL) == 22
+assert len(FLOW) == 40 and len(LEVEL) == 21
 
 
 def rows(path):
@@ -40,8 +40,8 @@ def main():
         bad.append("заголовок прежних колонок изменился")
     if new[0][k:] != NAMES:
         bad.append(f"имена новых колонок не по r1.rs: {new[0][k:][:3]}…")
-    if any(len(r) != k + 62 for r in new[1:]):
-        bad.append("есть строки не с k+62 клеток")
+    if any(len(r) != k + 61 for r in new[1:]):
+        bad.append("есть строки не с k+61 клеток")
     ndiff = sum(1 for o, n in zip(old[1:], new[1:]) if n[:k] != o)
     if ndiff:
         bad.append(f"строк с изменёнными прежними клетками: {ndiff}")
@@ -49,9 +49,9 @@ def main():
         print("DIFF " + "; ".join(bad))
         return 1
     n = len(old) - 1
-    undef = [sum(1 for r in new[1:] if r[k + i] == "") for i in range(62)]
-    print(f"OK   прежние {k} колонок побайтно, +62 новых, {n} строк")
-    print("     определено, %: " + " ".join(f"{NAMES[i]}={100 * (n - undef[i]) / max(n, 1):.1f}" for i in range(62)))
+    undef = [sum(1 for r in new[1:] if r[k + i] == "") for i in range(61)]
+    print(f"OK   прежние {k} колонок побайтно, +61 новых, {n} строк")
+    print("     определено, %: " + " ".join(f"{NAMES[i]}={100 * (n - undef[i]) / max(n, 1):.1f}" for i in range(61)))
     return 0
 
 

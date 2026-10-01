@@ -4,7 +4,7 @@
 # Метка `:t` — случай ещё и для замера скорости (REPS повторов, прогоны ПООЧЕРЁДНО, по одному — эталон с
 # занятой деки врёт). Флаги — как у боевого кэша авг/сен (`lob touches`, нотионал 10 000, полоса 20, минутные потоки).
 # По случаю: old = OLD без флага; off = NEW без флага (все файлы побайтно = old); on = NEW с `--r1-cols`
-# (touches/минутные потоки побайтно = old; approaches — прежние колонки те же + 62 новых, gate-r1-cols.py).
+# (touches/минутные потоки побайтно = old; approaches — прежние колонки те же + 61 новых, gate-r1-cols.py).
 # Результат — построчно OK/DIFF/TIME; код выхода 1 при любом расхождении.
 set -uo pipefail
 A="${ALPHA_BASE:-$HOME/alpha}"
@@ -62,7 +62,7 @@ for spec in "$@"; do
   for i in $(seq 1 "$n"); do
     same_dir "$OUT/$tag/old1" "$OUT/$tag/off$i" "$tag off$i = old1" || fail=1
   done
-  # со флагом: всё, кроме approaches, побайтно; approaches — прежние колонки + 62 новых
+  # со флагом: всё, кроме approaches, побайтно; approaches — прежние колонки + 61 новых
   same_dir "$OUT/$tag/old1" "$OUT/$tag/on1" "$tag on1 = old1 (кроме approaches)" "approaches-$sym.csv" || fail=1
   if python3 "$HERE/gate-r1-cols.py" "$OUT/$tag/old1/approaches-$sym.csv" "$OUT/$tag/on1/approaches-$sym.csv"; then :; else echo "DIFF $tag approaches on1"; fail=1; fi
   for i in $(seq 2 "$n"); do cmp -s "$OUT/$tag/on1/approaches-$sym.csv" "$OUT/$tag/on$i/approaches-$sym.csv" || { echo "DIFF $tag on$i ≠ on1 (повтор)"; fail=1; }; done
