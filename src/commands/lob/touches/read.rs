@@ -395,6 +395,7 @@ impl ApproachCols {
                 }),
                 None => None,
             },
+            r1: None,
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,
             disarm_ms: csv_int(rec, self.disarm_ms)?,
             disarm_reason: ApproachEnd::parse(csv_field(rec, self.disarm_reason)?).ok_or_else(

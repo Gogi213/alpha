@@ -700,6 +700,9 @@ pub struct ApproachRecord {
     /// Признаки П-08 (TK-012) на кадре взвода; `None` — кэш подходов до TK-012
     /// (колонок нет), трекер пишет всегда `Some`.
     pub p08: Option<ArmP08>,
+    /// Признаки R1 (TK-025) на кадре касания; `None` — трекер без `--r1-cols`, подход не
+    /// кончился касанием или кэш без колонок R1.
+    pub r1: Option<crate::lob::r1::ArmR1>,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
     /// Кадр снятия подхода (касание, смерть уровня или уход цены).
@@ -1496,6 +1499,7 @@ fn approach_record(
         stack_levels_at_arm: a.stack_levels,
         frontrun_lots_at_arm: a.frontrun_lots,
         p08: Some(a.p08),
+        r1: None,
         touch_start_ms,
         disarm_ms,
         disarm_reason: reason,

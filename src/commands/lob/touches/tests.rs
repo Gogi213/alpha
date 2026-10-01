@@ -411,6 +411,7 @@ fn minimal_approach() -> ApproachRecord {
         stack_levels_at_arm: 0,
         frontrun_lots_at_arm: 0,
         p08: Some(Default::default()),
+        r1: None,
         touch_start_ms: None,
         disarm_ms: 100,
         disarm_reason: ApproachEnd::PriceLeft,

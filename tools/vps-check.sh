@@ -11,13 +11,15 @@ WHAT="${2:-all}"
 FILTER="${3:-}"
 KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Георгий/.ssh/known_hosts -o ConnectTimeout=15 -o ServerAliveInterval=30)
 HOST=root@13.140.29.171
-SRC=/opt/alpha-compute/wave2-src
-TGT=/opt/alpha-compute/target-wave2
+TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
+SRC=/opt/alpha-compute/wave2-src$TAG
+TGT=/opt/alpha-compute/target-wave2$TAG
+ARCR=/opt/alpha-compute/wave2$TAG.tgz
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
 cd "$TREE"
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
-scp -q "${KEY[@]}" "$ARC" "$HOST:/opt/alpha-compute/wave2.tgz"
+scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
 case "$WHAT" in
   test)   CMD="cargo test --release --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
@@ -28,5 +30,5 @@ case "$WHAT" in
   *) echo "неизвестно: $WHAT"; exit 2 ;;
 esac
 # shellcheck disable=SC2029
-ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf /opt/alpha-compute/wave2.tgz -C $SRC \
+ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC \
   && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock nice -n 5 bash -c '$CMD'"

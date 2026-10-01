@@ -1609,6 +1609,7 @@ fn approach_arms_within_the_band_and_disarms_on_touch() {
                 size_max_60s_lots: 10,
                 depth_behind50_lots: 0,
             }),
+            r1: None,
             touch_start_ms: Some(4000),
             disarm_ms: 4000,
             disarm_reason: ApproachEnd::Touch,
