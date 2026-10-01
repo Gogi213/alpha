@@ -350,11 +350,13 @@ impl R1State {
         })
     }
 
+    #[inline(never)]
     pub(super) fn on_trade(&mut self, tr: &TradeHit) {
         self.flow.on_trade(tr);
     }
 
     /// Кадр стороны `s`: снимок книги (лучшая цена первой, до `BOOK_DEPTH` непустых цен) и ход потока.
+    #[inline(never)]
     pub(super) fn on_frame(&mut self, ts_ms: i64, s: u8, levels: &[LevelObs]) {
         if self.start_ms.is_none() {
             self.start_ms = Some(ts_ms);
@@ -377,6 +379,7 @@ impl R1State {
     }
 
     /// Рождение уровня: заводит состояние.
+    #[inline(never)]
     pub(super) fn birth(
         &mut self,
         key: (u8, i64),
@@ -392,6 +395,7 @@ impl R1State {
     }
 
     /// Подход уровня взведён в этом кадре: интервал «взвод → t0» начинается заново.
+    #[inline(never)]
     pub(super) fn arm(&mut self, key: &(u8, i64)) {
         if let Some(l) = self.live.get_mut(key) {
             l.wall_add_lots = 0;
@@ -402,6 +406,7 @@ impl R1State {
     }
 
     /// Наблюдение живого уровня в кадре своей стороны. Зовётся до обновления `Live::prev`.
+    #[inline(never)]
     pub(super) fn observe_level(&mut self, finger: &mut usize, c: &ObsCtx) {
         let Self {
             live,
@@ -463,6 +468,7 @@ impl R1State {
 
     /// Смерть уровня `key` (состояние `lv` до удаления): память смертей, снятие состояния, пометка
     /// новорождённых, которых это переустановка (то же правило, что `LevelRecord::repriced`).
+    #[inline(never)]
     pub(super) fn on_death(
         &mut self,
         key: (u8, i64),
@@ -502,12 +508,14 @@ impl R1State {
     }
 
     /// Касание, снятое в этом кадре: запомнить до конца обхода.
+    #[inline(never)]
     pub(super) fn push_touch(&mut self, p: PendingTouch) {
         self.pending.push(p);
     }
 
     /// Конец обхода кадра: колонки R1 в записи подходов, снятых касанием. Уровень без состояния
     /// (рождён до `enable_r1`) оставляет `r1 = None`.
+    #[inline(never)]
     pub(super) fn finish_frame(
         &mut self,
         live: &SortedVec<(u8, i64), Live>,
