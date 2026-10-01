@@ -21,6 +21,9 @@ echo "== коллектор 139.99.91.22"
 ssh "${KEY[@]}" ubuntu@139.99.91.22 'systemctl is-active alpha-collector | sed "s/^/   коллектор: /"; df -h /opt/alpha | tail -1 | awk "{print \"   диск: \" \$5 \" занято, свободно \" \$4}"
   # Наблюдение за соединениями (владелец 24.09: «ничего не рви, только следи»): монеты, чья запись за сегодня
   # не росла больше 5 мин. Одна-две — обычно неликвид; много разом — похоже на повисшее соединение.
+  # Режим переноса (TK-020): тревоги sb-move.sh — ALERT-<сутки>, ALERT-disk, ALERT-box; последняя строка журнала.
+  al=$(ls /opt/alpha/sync/sb/ALERT-* 2>/dev/null); if [ -n "$al" ]; then for f in $al; do echo "   ТРЕВОГА переноса ${f##*/ALERT-}: $(cut -c1-120 "$f")"; done; else echo "   тревог переноса нет"; fi
+  tail -1 /opt/alpha/sync/sb/move.log 2>/dev/null | cut -c1-120 | sed "s/^/   перенос: /"
   d=$(date -u +%F); cd /opt/alpha/root 2>/dev/null || exit 0
   # Только последняя часть монеты (-pN после перезапуска): закрытые части суток расти и не должны (24.09).
   latest=$(ls -t ./*-"$d"*.binlog 2>/dev/null | sed "s|^\./||" | awk -F"-$d" "!seen[\$1]++")

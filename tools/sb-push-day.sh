@@ -11,14 +11,14 @@
 set -uo pipefail
 export LC_ALL=C
 DAY="${1:-$(date -u -d yesterday +%F)}"
-BASE=/opt/alpha; ROOT=$BASE/root; OUT=$BASE/sync/sb; mkdir -p "$OUT"; touch "$OUT/done.txt"
+BASE="${ALPHA_BASE:-/opt/alpha}"; RP="${SB_REMOTE_PREFIX:-alpha}"; TODAY="${ALPHA_TODAY:-$(date -u +%F)}"; ROOT=$BASE/root; OUT=$BASE/sync/sb; mkdir -p "$OUT"; touch "$OUT/done.txt"
 LOG=$OUT/push-$DAY.log; exec >> "$LOG" 2>&1
 BW="${SB_BWLIMIT_KBPS:-3000}"; BATCH=150
 SBH=u677479@u677479.your-storagebox.de
 SSHC="ssh -p 23 -i $HOME/.ssh/id_storagebox -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 say() { echo "== $(date -u +%FT%TZ) $*"; }
-[[ $DAY < $(date -u +%F) ]] || { say "$DAY не закрыт — стоп"; exit 2; }
-T0=$(date -u +%FT%TZ)
+[[ $DAY < $TODAY ]] || { say "$DAY не закрыт — стоп"; exit 2; }
+T0=$(date -u +%FT%TZ); D0=$(wc -l < "$OUT/done.txt")
 say "старт $DAY, bwlimit ${BW} КБ/с"
 for kind in root deep; do
   src=$ROOT; [ $kind = deep ] && src=$ROOT/deep
@@ -26,14 +26,15 @@ for kind in root deep; do
   n=$(printf '%s' "$list" | grep -c . || true)
   [ "$n" -gt 0 ] || { say "$kind: файлов $DAY нет"; continue; }
   printf '%s\n' "$list" | nice -n 19 ionice -c3 rsync -a --partial --bwlimit="$BW" --files-from=- -e "$SSHC" \
-    "$src/" "$SBH:alpha/$kind/" || say "$kind: rsync код $? (файлы, удалённые prune, — пропуск)"
+    "$src/" "$SBH:$RP/$kind/" || say "$kind: rsync код $? (файлы, удалённые prune, — пропуск)"
   MAN=$OUT/$kind-$DAY.sha256
   (cd "$src" && printf '%s\n' "$list" | while read -r f; do [ -f "$f" ] && echo "$f"; done \
     | tr '\n' '\0' | nice -n 19 ionice -c3 xargs -0 -r sha256sum) > "$MAN"
+  [ -n "${ALPHA_TEST_HOOK:-}" ] && eval "$ALPHA_TEST_HOOK"
   m=$(wc -l < "$MAN"); : > "$MAN.remote"
-  mapfile -t files < <(cut -c67- "$MAN"); files=("${files[@]/#/alpha/$kind/}")
+  mapfile -t files < <(cut -c67- "$MAN"); files=("${files[@]/#/$RP/$kind/}")
   for ((i = 0; i < m; i += BATCH)); do
-    $SSHC $SBH sha256sum "${files[@]:i:BATCH}" 2>&1 | while read -r h f; do echo "$h  ${f#alpha/$kind/}"; done >> "$MAN.remote" || true
+    $SSHC $SBH sha256sum "${files[@]:i:BATCH}" 2>&1 | while read -r h f; do echo "$h  ${f#$RP/$kind/}"; done >> "$MAN.remote" || true
   done
   bad=0
   while read -r h f; do
@@ -48,8 +49,8 @@ for kind in root deep; do
   [ -f "$OUT/$kind-$DAY.sha256" ] && sed "s|  |  $kind/|" "$OUT/$kind-$DAY.sha256" >> "$OUT/collector-$DAY.sha256"
 done
 if [ -s "$OUT/collector-$DAY.sha256" ]; then
-  $SSHC $SBH mkdir -p alpha/epochs/manifests
-  rsync -a -e "$SSHC" "$OUT/collector-$DAY.sha256" "$SBH:alpha/epochs/manifests/" || say "манифест на ящик не лёг"
+  $SSHC $SBH mkdir -p $RP/epochs/manifests
+  rsync -a -e "$SSHC" "$OUT/collector-$DAY.sha256" "$SBH:$RP/epochs/manifests/" || say "манифест на ящик не лёг"
 fi
 T1=$(date -u +%FT%TZ)
 # (б) швы в окне заливки против того же окна трёх прошлых ночей
@@ -62,8 +63,9 @@ for k in 1 2 3; do
 done
 say "швы gaps.csv в окне $T0…$T1: $now (прошлые 3 ночи, максимум: $prev)"
 if [ "$now" -gt "$prev" ]; then
-  sudo -n systemctl disable --now alpha-sb-push.timer && say "НОВЫЕ ШВЫ — таймер alpha-sb-push выключен"
+  [ -z "${ALPHA_TEST:-}" ] && sudo -n systemctl disable --now alpha-sb-push.timer && say "НОВЫЕ ШВЫ — таймер alpha-sb-push выключен"
 fi
-bad=$(grep -c "^$DAY .* MISMATCH " "$OUT/done.txt"); nok=$(grep -c "^$DAY .* ok " "$OUT/done.txt")
+# только строки этого прогона: старые MISMATCH прошлой попытки не должны вечно портить вердикт повтора
+bad=$(tail -n +$((D0 + 1)) "$OUT/done.txt" | grep -c "^$DAY .* MISMATCH " || true); nok=$(tail -n +$((D0 + 1)) "$OUT/done.txt" | grep -c "^$DAY .* ok " || true)
 if [ "$nok" -eq 0 ] && [ "$bad" -eq 0 ]; then say "VERDICT EMPTY $DAY: файлов нет"
 else say "VERDICT $([ "$bad" -eq 0 ] && echo OK || echo MISMATCH) $DAY: ok $nok, расхождений $bad"; fi
