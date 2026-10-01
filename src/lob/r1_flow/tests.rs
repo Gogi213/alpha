@@ -78,10 +78,7 @@ fn layout_matches_names() {
                 "tape_burst_with_30s_bp",
             ],
         ),
-        (
-            I_AVG,
-            &["tape_press_avg_30s_e2", "tape_with_avg_30s_e2"],
-        ),
+        (I_AVG, &["tape_press_avg_30s_e2", "tape_with_avg_30s_e2"]),
         (I_SIGN, &["sign_ac_15s_bp", "sign_ac_60s_bp"]),
         (I_VPIN, &["vpin_bp"]),
         (I_SIZE, &["trade_size_p50_15m", "trade_size_p90_15m"]),
@@ -108,14 +105,18 @@ fn empty_state_is_all_undefined() {
     // Сделки без единого кадра: начало наблюдения неизвестно — всё не определено.
     let mut f = R1Flow::new();
     f.on_trade(&tr(B, 5, true));
-    assert!(at(&f, Side::Bid, B + 4_000_000)
-        .iter()
-        .all(|&v| v == UNDEF));
+    assert!(at(&f, Side::Bid, B + 4_000_000).iter().all(|&v| v == UNDEF));
     // Пустой кадр не паникует: книжные колонки не определены.
     let mut f = R1Flow::default();
     frame(&mut f, B, &[], &[]);
     let o = at(&f, Side::Ask, B + 20_000);
-    for name in ["obi1_bp", "obi5_bp", "obi10_bp", "obi50_bp", "micro_off_cbps"] {
+    for name in [
+        "obi1_bp",
+        "obi5_bp",
+        "obi10_bp",
+        "obi50_bp",
+        "micro_off_cbps",
+    ] {
         assert_eq!(col(&o, name), UNDEF, "{name}");
     }
 }
@@ -221,8 +222,16 @@ fn warm_up_boundaries() {
         let before = build(B + warm - 1);
         let after = build(B + warm);
         for side in [Side::Bid, Side::Ask] {
-            assert_eq!(col(&at(&before, side, B + warm - 1), name), UNDEF, "{name} до");
-            assert_ne!(col(&at(&after, side, B + warm), name), UNDEF, "{name} после");
+            assert_eq!(
+                col(&at(&before, side, B + warm - 1), name),
+                UNDEF,
+                "{name} до"
+            );
+            assert_ne!(
+                col(&at(&after, side, B + warm), name),
+                UNDEF,
+                "{name} после"
+            );
         }
     }
 }
@@ -234,10 +243,7 @@ fn warm_up_counts_from_first_frame_not_first_trade() {
     fr1(&mut f, B + 30_000, (100, 10), (101, 10));
     fr1(&mut f, B + 40_000, (100, 10), (101, 10)); // следующий кадр начало не переносит
     f.on_trade(&tr(B + 44_000, 1, true));
-    assert_eq!(
-        col(&at(&f, Side::Bid, B + 44_999), "tape_all_n_15s"),
-        UNDEF
-    );
+    assert_eq!(col(&at(&f, Side::Bid, B + 44_999), "tape_all_n_15s"), UNDEF);
     assert_eq!(col(&at(&f, Side::Bid, B + 45_000), "tape_all_n_15s"), 1);
 }
 
@@ -327,19 +333,22 @@ fn sign_autocorrelation_hand_calc() {
     let mut f = flow_with_start();
     // s0 = 36 100. Пара относится к слоту более поздней сделки, предыдущий знак — по монете.
     for (ms, buy) in [
-        (B + 60_000, true),   // возраст 40: пары нет
-        (B + 70_000, true),   // 30: пара (+,+) = +1
-        (B + 90_000, false),  // 10: пара (+,−) = −1 — в окне 15 с, хотя партнёр вне его
-        (B + 91_000, false),  // 9: +1
-        (B + 92_000, true),   // 8: −1
-        (B + 92_500, false),  // 8: −1 (та же секунда, порядок поступления)
+        (B + 60_000, true),  // возраст 40: пары нет
+        (B + 70_000, true),  // 30: пара (+,+) = +1
+        (B + 90_000, false), // 10: пара (+,−) = −1 — в окне 15 с, хотя партнёр вне его
+        (B + 91_000, false), // 9: +1
+        (B + 92_000, true),  // 8: −1
+        (B + 92_500, false), // 8: −1 (та же секунда, порядок поступления)
     ] {
         f.on_trade(&tr(ms, 1, buy));
     }
     let t0 = B + 100_500;
     // 15 с: −1+1−1−1 = −2 на 4 пары → −5000; 60 с: добавляется +1 → −1 на 5 → −2000.
     // Сторона стены на автокорреляцию не влияет.
-    let cases = [("sign_ac_15s_bp", -5000, -5000), ("sign_ac_60s_bp", -2000, -2000)];
+    let cases = [
+        ("sign_ac_15s_bp", -5000, -5000),
+        ("sign_ac_60s_bp", -2000, -2000),
+    ];
     check(&at(&f, Side::Bid, t0), &at(&f, Side::Ask, t0), &cases);
 
     // Усечение к нулю: пары −1, −1, +1 → −1/3 → −3333 (не −3334).
@@ -363,7 +372,7 @@ fn vpin_hand_calc() {
     assert_eq!((f.bars_len, f.bar_size), (0, 0));
     // (время, лоты, покупка, оборот часа после сделки → размер бара, открытый бар: размер/набрано, закрыто баров)
     let steps = [
-        (39_661_000, 40, true, (0, 0), 5),    // 440/50 = 8: 5 баров ровно
+        (39_661_000, 40, true, (0, 0), 5),     // 440/50 = 8: 5 баров ровно
         (39_662_000, 360, false, (16, 8), 27), // 800/50 = 16: 22 бара + 8 в открытом
         (39_663_000, 200, true, (20, 12), 37), // дозакрыть 16-бар (8 пок. + 8 прод.), 1000/50 = 20: 9 баров + 12
         (39_664_000, 100, false, (22, 4), 42), // 8 дозакрывают 20-бар; 1100/50 = 22: 4 бара + 4
@@ -372,7 +381,10 @@ fn vpin_hand_calc() {
     ];
     for (ms, lots, buy, (size, fill), closed) in steps {
         f.on_trade(&tr(ms, lots, buy));
-        assert_eq!((f.bar_size, if size == 0 { 0 } else { f.bar_fill }), (size, fill));
+        assert_eq!(
+            (f.bar_size, if size == 0 { 0 } else { f.bar_fill }),
+            (size, fill)
+        );
         assert_eq!(f.bars_len, closed.min(VPIN_BARS));
         let v = col(&at(&f, Side::Bid, ms + 500), "vpin_bp");
         if closed < VPIN_BARS {
@@ -411,17 +423,17 @@ fn trade_size_percentiles_hand_calc() {
     let mut f = flow_with_start();
     // t0 = B + 930 000: минута 615, окно минут 601..=615.
     for (ms, lots) in [
-        (B + 5_000, 1 << 40),     // минута 600: вне окна (возраст 15)
-        (B + 61_000, 100),        // минута 601: возраст 14, внутри; корзина 6
-        (B + 301_000, 1),         // минута 605
+        (B + 5_000, 1 << 40), // минута 600: вне окна (возраст 15)
+        (B + 61_000, 100),    // минута 601: возраст 14, внутри; корзина 6
+        (B + 301_000, 1),     // минута 605
         (B + 302_000, 1),
         (B + 303_000, 1),
         (B + 304_000, 2),
         (B + 305_000, 3),
-        (B + 601_000, 5),         // минута 610
+        (B + 601_000, 5), // минута 610
         (B + 602_000, 5),
         (B + 603_000, 9),
-        (B + 901_000, 1000),      // минута 615
+        (B + 901_000, 1000), // минута 615
     ] {
         f.on_trade(&tr(ms, lots, ms % 2 == 0));
     }
@@ -432,18 +444,21 @@ fn trade_size_percentiles_hand_calc() {
     check(
         &at(&f, Side::Bid, t0),
         &at(&f, Side::Ask, t0),
-        &[
-            ("trade_size_p50_15m", 2, 2),
-            ("trade_size_p90_15m", 64, 64),
-        ],
+        &[("trade_size_p50_15m", 2, 2), ("trade_size_p90_15m", 64, 64)],
     );
     // Нижняя граница корзины, а не сам размер; крупная сделка.
     let mut g = flow_with_start();
     g.on_trade(&tr(B + 900_000, (1 << 40) + 5, true));
-    assert_eq!(col(&at(&g, Side::Bid, B + 930_000), "trade_size_p50_15m"), 1 << 40);
+    assert_eq!(
+        col(&at(&g, Side::Bid, B + 930_000), "trade_size_p50_15m"),
+        1 << 40
+    );
     // Нет сделок в окне — не определено.
     let h = flow_with_start();
-    assert_eq!(col(&at(&h, Side::Bid, B + 930_000), "trade_size_p50_15m"), UNDEF);
+    assert_eq!(
+        col(&at(&h, Side::Bid, B + 930_000), "trade_size_p50_15m"),
+        UNDEF
+    );
 }
 
 fn ladder() -> (Vec<(i64, i64)>, Vec<(i64, i64)>) {
@@ -476,8 +491,8 @@ fn obi_hand_calc() {
         &at(&f, Side::Bid, t0),
         &at(&f, Side::Ask, t0),
         &[
-            ("obi1_bp", 2000, -2000),   // (30−20)/50
-            ("obi50_bp", 3333, -3333),  // (40−20)/60
+            ("obi1_bp", 2000, -2000),  // (30−20)/50
+            ("obi50_bp", 3333, -3333), // (40−20)/60
         ],
     );
     // Одна сторона пуста: (own − 0)/own = 10⁴; обе пусты — не определено.
@@ -582,8 +597,8 @@ fn best_price_flips_hand_calc() {
     fr1(&mut f, B + 20_000, (101, 5), (111, 5)); // аск: b+20
     fr1(&mut f, B + 30_000, (102, 5), (111, 5)); // бид: b+30
     fr1(&mut f, B + 50_000, (101, 5), (111, 5)); // бид: b+50
-    // s0 = b+60: 15 с — окно b+46..b+60 (бид 1, аск 0); 60 с — b+1..b+60 (бид 3, аск 1).
-    // «Своя» сторона стены: у бид-стены — бид.
+                                                 // s0 = b+60: 15 с — окно b+46..b+60 (бид 1, аск 0); 60 с — b+1..b+60 (бид 3, аск 1).
+                                                 // «Своя» сторона стены: у бид-стены — бид.
     let t0 = B + 60_500;
     check(
         &at(&f, Side::Bid, t0),
@@ -670,15 +685,27 @@ fn scenario(mirror: bool) -> Box<R1Flow> {
             vec![(1000, 30), (999, 20), (998, 10)],
             vec![(1002, 10), (1003, 25), (1004, 5)],
         ),
-        (B + 1_000, vec![(1000, 35), (999, 20)], vec![(1002, 8), (1003, 25)]),
+        (
+            B + 1_000,
+            vec![(1000, 35), (999, 20)],
+            vec![(1002, 8), (1003, 25)],
+        ),
         (
             39_661_500,
             vec![(1001, 12), (1000, 35), (999, 20)],
             vec![(1003, 9), (1004, 5)],
         ),
-        (39_664_500, vec![(1001, 12), (1000, 35)], vec![(1002, 20), (1003, 9)]),
+        (
+            39_664_500,
+            vec![(1001, 12), (1000, 35)],
+            vec![(1002, 20), (1003, 9)],
+        ),
         // bid + ask = K: микроцена отражается в себя.
-        (39_665_500, vec![(999, 40), (998, 3)], vec![(1001, 17), (1002, 20)]),
+        (
+            39_665_500,
+            vec![(999, 40), (998, 3)],
+            vec![(1001, 17), (1002, 20)],
+        ),
     ];
     let trades = [
         (B + 600_000, 400, false),
