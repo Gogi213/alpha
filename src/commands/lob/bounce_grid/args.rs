@@ -353,7 +353,7 @@ pub struct BounceGridArgs {
     /// `signals.csv` байт в байт прежний.
     #[arg(long = "p08-cols", default_value_t = false)]
     pub p08_cols: bool,
-    /// Пакет R1 (TK-025): дописать в конец `signals.csv` (после колонок П-08, если они есть) 62
+    /// Пакет R1 (TK-025): дописать в конец `signals.csv` (после колонок П-08, если они есть) 61
     /// целые колонки R1 подхода на кадре взвода — имена и порядок `ArmR1::names()`, те же, что у
     /// `lob touches --r1-cols`; пустая клетка — «не определено». Только `--signal approach` и
     /// `--busy-skip off`; кэш без колонок R1 — отказ. Без флага `signals.csv` байт в байт прежний.

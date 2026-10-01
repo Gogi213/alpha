@@ -7,7 +7,7 @@ use crate::commands::lob::test_support::{three_level_frames, touch_frames, write
 use crate::commands::lob::H3ModeArg;
 use crate::lob::excursion::SecondMids;
 use crate::lob::levels::{ApproachEnd, ApproachRecord, LevelsConfig, TouchRecord};
-use crate::lob::r1::{ArmR1, FLOW_N, FLOW_NAMES, R1_UNDEF};
+use crate::lob::r1::{ArmR1, FLOW_N, FLOW_NAMES, LEVEL_N, R1_UNDEF};
 use crate::lob::sigma::SigmaSeries;
 
 fn touches_args(root: &std::path::Path) -> TouchesArgs {
@@ -491,7 +491,7 @@ fn varied_r1() -> ArmR1 {
 #[test]
 fn r1_cells_are_empty_for_none_and_undef_only() {
     let cells = super::row::r1_cells(Some(&varied_r1()));
-    assert_eq!(cells.len(), 62);
+    assert_eq!(cells.len(), FLOW_N + LEVEL_N);
     assert_eq!(cells.len(), ArmR1::names().count());
     assert_eq!(cells[0], "0");
     assert_eq!(cells[1], "12345");
@@ -501,7 +501,7 @@ fn r1_cells_are_empty_for_none_and_undef_only() {
     assert_eq!(cells[FLOW_N + 1], (i64::MIN + 1).to_string());
     assert!(cells[FLOW_N + 2..].iter().all(String::is_empty));
     let none = super::row::r1_cells(None);
-    assert_eq!(none.len(), 62);
+    assert_eq!(none.len(), FLOW_N + LEVEL_N);
     assert!(none.iter().all(String::is_empty));
 }
 
@@ -524,7 +524,7 @@ fn r1_columns_round_trip_through_the_approaches_csv() {
     let path = dir.path().join("with-r1.csv");
     write_approach_csv(&path, &rows, true);
     let (header, raw) = read_rows(&path);
-    assert_eq!(header.len(), APPROACHES_COLUMNS.len() + 62);
+    assert_eq!(header.len(), APPROACHES_COLUMNS.len() + FLOW_N + LEVEL_N);
     assert!(raw.iter().all(|r| r.len() == header.len()));
     let read = read_approaches_csv(&path).unwrap();
     assert_eq!(read.len(), 3);
@@ -562,7 +562,10 @@ fn r1_columns_round_trip_through_the_approaches_csv() {
     }
     w.flush().unwrap();
     let err = format!("{:#}", read_approaches_csv(&partial).unwrap_err());
-    assert!(err.contains("61 из 62"), "{err}");
+    assert!(
+        err.contains(&format!("{} из {}", FLOW_N + LEVEL_N - 1, FLOW_N + LEVEL_N)),
+        "{err}"
+    );
     assert!(
         err.contains("since_far_ms"),
         "названа недостающая колонка: {err}"
@@ -581,10 +584,10 @@ fn r1_columns_round_trip_through_the_approaches_csv() {
     assert!(err.contains(FLOW_NAMES[5]), "{err}");
 }
 
-/// TK-025: `--r1-cols` дописывает 62 колонки в КОНЕЦ шапки после колонок П-08, а без флага шапка и
+/// TK-025: `--r1-cols` дописывает 61 колонку (FLOW_N + LEVEL_N) в КОНЕЦ шапки после колонок П-08, а без флага шапка и
 /// строки — прежние байты (файл касаний флаг не трогает вовсе).
 #[test]
-fn r1_cols_flag_appends_the_62_columns_and_keeps_the_old_bytes() {
+fn r1_cols_flag_appends_the_61_columns_and_keeps_the_old_bytes() {
     let dir = tempfile::tempdir().unwrap();
     write_day(dir.path(), "SOLUSDT", "2026-09-08", &touch_frames());
     let run = |sub: &str, r1_cols: bool| {
@@ -630,17 +633,17 @@ fn r1_cols_flag_appends_the_62_columns_and_keeps_the_old_bytes() {
     let (h_on, r_on) = read_rows(&on.approaches_out[0]);
     let old = APPROACHES_COLUMNS.len();
     assert_eq!(h_off, APPROACHES_COLUMNS.map(str::to_string).to_vec());
-    assert_eq!(h_on.len(), old + 62);
+    assert_eq!(h_on.len(), old + FLOW_N + LEVEL_N);
     assert_eq!(h_on[..old], h_off[..], "прежние колонки на прежних местах");
     let names: Vec<String> = ArmR1::names().map(str::to_string).collect();
     assert_eq!(
         h_on[old..],
         names[..],
-        "62 колонки R1 в конце, в порядке ArmR1::names()"
+        "61 колонка R1 в конце, в порядке ArmR1::names()"
     );
     assert_eq!(r_on.len(), r_off.len());
     for (a, b) in r_on.iter().zip(&r_off) {
-        assert_eq!(a.len(), old + 62);
+        assert_eq!(a.len(), old + FLOW_N + LEVEL_N);
         assert_eq!(a[..old], b[..]);
     }
 

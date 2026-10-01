@@ -3520,13 +3520,13 @@ fn r1_keys_parse_bounds_and_refuse() {
 
 /// TK-025 сквозь сетку: значения R1 кладёт в кэш сам тест (проверяются провода — чтение, фильтр набора,
 /// `signals.csv`, а не счёт признаков). Ключи пускают/режут сигналы по границам, `R1_UNDEF` не проходит
-/// даже при сколь угодно низком минимуме; `--r1-cols` дописывает 62 колонки после колонок П-08; кэш без
+/// даже при сколь угодно низком минимуме; `--r1-cols` дописывает 61 колонку (FLOW_N + LEVEL_N) после колонок П-08; кэш без
 /// колонок R1 и ключи/флаг — отказ с текстом, а без них счёт тот же байт в байт; флаг без `--signal
 /// approach` / `--busy-skip off` и ключи без `--signal approach` — отказ.
 #[test]
 fn r1_cols_and_keys_through_grid() {
     use crate::commands::lob::touches::{r1_cells, read_approaches_csv};
-    use crate::lob::r1::{ArmR1, FLOW_N};
+    use crate::lob::r1::{ArmR1, FLOW_N, LEVEL_N};
     let dir = tempfile::tempdir().unwrap();
     let ap_path = approach_cache(dir.path());
     let old_text = std::fs::read_to_string(&ap_path).unwrap();
@@ -3612,7 +3612,7 @@ fn r1_cols_and_keys_through_grid() {
     let head = std::fs::read_to_string(&by("all").forms_path).unwrap();
     assert!(!head.contains("r1_"), "без ключей шапка прежняя: {head}");
 
-    // `--r1-cols`: те же 11 колонок, затем (с --p08-cols — после шести колонок П-08) 62 колонки R1.
+    // `--r1-cols`: те же 11 колонок, затем (с --p08-cols — после шести колонок П-08) 61 колонка R1 (FLOW_N + LEVEL_N).
     let signals = |m: &BounceGridSummary, name: &str| {
         let p = m
             .sets
@@ -3638,15 +3638,15 @@ fn r1_cols_and_keys_through_grid() {
     let (h_on, r_on) = signals(&on, "all");
     let (h_both, r_both) = signals(&both, "all");
     assert_eq!(h_off.len(), 11, "без флага шапка прежняя: {h_off:?}");
-    assert_eq!(h_on.len(), 11 + 62);
+    assert_eq!(h_on.len(), 11 + FLOW_N + LEVEL_N);
     assert_eq!(h_on[..11], h_off[..]);
     let want: Vec<String> = names.iter().map(|s| s.to_string()).collect();
     assert_eq!(
         h_on[11..],
         want[..],
-        "62 колонки R1 в порядке ArmR1::names()"
+        "61 колонка R1 в порядке ArmR1::names()"
     );
-    assert_eq!(h_both.len(), 11 + 6 + 62);
+    assert_eq!(h_both.len(), 11 + 6 + FLOW_N + LEVEL_N);
     assert_eq!(h_both[..11], h_off[..]);
     assert_eq!(h_both[17..], want[..], "R1 — после колонок П-08");
     assert!(!r_off.is_empty());
