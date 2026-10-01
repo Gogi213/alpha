@@ -11,7 +11,8 @@ import argparse, csv, hashlib, os, re, subprocess, sys, time
 
 SBH = 'u677479@u677479.your-storagebox.de'
 SSH = ['ssh', '-p', '23', '-i', os.path.expanduser('~/.ssh/id_storagebox'), '-o', 'BatchMode=yes',
-       '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', SBH]
+       '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4'] + \
+      (['-o', 'UserKnownHostsFile=' + os.environ['SB_KNOWN_HOSTS']] if os.environ.get('SB_KNOWN_HOSTS') else []) + [SBH]
 SAFE = re.compile(r'^[A-Za-z0-9._/@+=,-]+$')
 BATCH = 100
 ORDER = {'e-aug': 0, 'e-archive': 1, 'deep': 2, 'root': 3}
