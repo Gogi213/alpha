@@ -3,7 +3,7 @@
 #   tk022-deck-day.sh <YYYY-MM-DD> [дом]   дом по умолчанию — ~/alpha/epochs/e-<мес> (воротам — отдельный дом с пустым b5)
 #   PREP=1 …    только собрать вид и три отрезка seg1/seg2/seg3.sh (основной / t9 / Г-86), без счёта
 #   PASS=n …    выполнить отрезок n готового вида (для очереди alpha-gridq: один процесс = один проход); вид собирает PREP
-#   STAGE=<каталог> — вместо ~/alpha/stage (сухие проверки)
+#   STAGE=<каталог> — вместо /dev/shm/alpha-stage (В-162: stage в RAM деки; сухие проверки)
 # Вход (Инженер, TK-026): $STAGE/<D>/{root/<SYM>-<D>.binlog (mtime с ящика), D20/ (= D20/<D>/ с ящика), .ready};
 # довесок переноса через полночь читает D+1 → нужен $STAGE/<D+1>/.ready, если D+1 есть в e-<мес>/root (как у прежних результатов).
 # Выход: b5/<клетка>/<D>/ (как у jall-скриптов), статус ~/alpha/tk022/status/<D>.rc (только в своём доме) и <D>.p<n>.rc
@@ -17,7 +17,7 @@ M="${MN[$((10#${D:5:2} - 1))]}"
 EH="$A/epochs/e-$M"
 H="${2:-$EH}"
 N="$(date -u -d "$D +1 day" +%F)"
-ST="${STAGE:-$A/stage}"
+ST="${STAGE:-/dev/shm/alpha-stage}"
 S="$ST/$D"; SN="$ST/$N"
 SC="$A/tmp-p07/cells-by-day/jall-$M-$D.sh"
 V="$A/tk022/view/$D"
