@@ -17,7 +17,7 @@ for d in "${DL[@]}"; do
   for f in "$E/study/root-$d"/*; do n=$(basename "$f"); case "$n" in *.binlog) ln -sf "$S/$n" "$R/$n";; *) cp -L "$f" "$R/$n";; esac; done
 done
 python3 "$A/bin/p07-all-month.py" aug --days "$DAYS" --merge --bin "${BIN:-alpha-tk029-merge-v3}" > "$O/gen.out" 2>&1
-sed -i "s#/epochs/e-aug/study/sigma240#/epochs/e-jul/study/sigma240#g" "$A"/tmp-p07/cells-by-day/jall-aug-2026-08-0[1-9].sh
+sed -i "s#/epochs/e-aug/study/sigma240#/epochs/e-jul/study/sigma240#g" "$A"/tmp-p07/cells-by-day/jall-aug-2026-08-0[1-9].sh "$A"/tmp-p07/cells-by-day/jall-aug-2026-08-0[1-9].extra.txt
 cd "$H" || exit 2
 body() { find b5 -path "*$1*" -type f ! -name "*.log" | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(grep -v '^#' "$f" | sha256sum | cut -d' ' -f1)" "$f"; done; }
 runday() { local d="$1" m="$2"

@@ -71,6 +71,12 @@ def main():
         old, appr, touch = ja.cells_for(mon, home, day)
         script = ja.build_job(mon, home, day, old, appr, touch)
         sh = f"{pc.CELLS_DIR}/jall-{mon}-{day}.sh"
+        if "--merge" in args:
+            binname = args[args.index("--bin") + 1] if "--bin" in args else "alpha-e74f200-v3"
+            extra_path = f"{pc.CELLS_DIR}/jall-{mon}-{day}.extra.txt"
+            script, extra = merge_script(script, day, extra_path, binname)
+            with open(extra_path, "w", newline=NL) as f:
+                f.write(extra)
         with open(sh, "w", newline="\n") as f:
             f.write(script)
         k = len(old) + len(appr) + len(touch)
