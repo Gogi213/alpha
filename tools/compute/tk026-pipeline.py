@@ -148,7 +148,7 @@ def main():
     ap.add_argument('--root-fmt', default='alpha/epochs/e-{mon}/root', help='{mon}=jan..dec {year} {day}')
     ap.add_argument('--d20-fmt', default='alpha/derived/tk015/e-{mon}/D20/{day}')
     ap.add_argument('--budget-gb', type=float, default=14.0, help='потолок занятого stage (новые сутки не начинаются выше)')
-    ap.add_argument('--reserve-gb', type=float, default=8.0, help='свободное место на диске, которое не трогаем')
+    ap.add_argument('--reserve-gb', type=float, default=8.0, help='свободное место в --stage (tmpfs: место RAM-диска; MemAvailable не проверяется, только печатается), которое не трогаем')
     ap.add_argument('--streams', type=int, default=2)
     ap.add_argument('--bwlimit', type=int, default=0, help='rsync --bwlimit КБ/с на поток; 0 — без лимита')
     ap.add_argument('--once', action='store_true', help='качать, пока все сутки не .ready, и выйти (без уборки .release)')
