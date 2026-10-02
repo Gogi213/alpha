@@ -10,7 +10,7 @@
 //! стороны зависит отсчёт («далеко» последний раз), ожидание своё для `m`.
 
 use super::*;
-use crate::lob::r1::{LEVEL_N, LEVEL_NAMES, R1_UNDEF};
+use crate::lob::r1::{ArmR1, LEVEL_N, LEVEL_NAMES, R1_UNDEF};
 
 const U: i64 = R1_UNDEF;
 const HOUR: i64 = 3_600_000;
