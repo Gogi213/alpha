@@ -192,6 +192,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         carry_age: false,
         touches_cache_only: false,
         carry_root: None,
+        extra_runs: None,
     }
 }
 
