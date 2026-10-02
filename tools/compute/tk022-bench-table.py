@@ -41,10 +41,12 @@ def machine(name, d):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    argv = sys.argv[1:]
+    out = argv[argv.index('--out') + 1] if '--out' in argv else None
+    args = [a for a in argv if '=' in a]
     text = '\n'.join(machine(*a.split('=', 1)) for a in args)
-    if '--out' in sys.argv:
-        open(sys.argv[sys.argv.index('--out') + 1], 'w', encoding='utf-8').write(text)
+    if out:
+        open(out, 'w', encoding='utf-8').write(text)
     print(text)
 
 
