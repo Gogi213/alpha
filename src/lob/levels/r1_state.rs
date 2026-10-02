@@ -26,8 +26,8 @@ use crate::lob::r1::{ArmR1, LEVEL_N, R1_UNDEF};
 use crate::lob::r1_flow::{BookView, R1Flow, BOOK_DEPTH};
 
 use super::{
-    classify_outcome, comparable_size, side_key, side_of, ApproachRecord, LevelObs, Live, Outcome, SortedVec,
-    TradeHit, BPS_PER_UNIT, FRONTRUN_BACK_MS, LEVEL_MAP_CAPACITY,
+    classify_outcome, comparable_size, side_key, side_of, ApproachRecord, LevelObs, Live, Outcome,
+    SortedVec, TradeHit, BPS_PER_UNIT, FRONTRUN_BACK_MS, LEVEL_MAP_CAPACITY,
 };
 
 /// Слотов секундного кольца отмен: окно до 3 с (`cancel_3s_lots`).
