@@ -2,8 +2,6 @@ mod local;
 mod nopartialfillexchange;
 mod partialfillexchange;
 
-use std::collections::HashMap;
-
 pub use local::Local;
 pub use nopartialfillexchange::NoPartialFillExchange;
 pub use partialfillexchange::PartialFillExchange;
@@ -18,7 +16,7 @@ pub use l3_nopartialfillexchange::L3NoPartialFillExchange;
 use crate::{
     backtest::BacktestError,
     depth::MarketDepth,
-    prelude::{Event, OrdType, Order, OrderId, Side, StateValues, TimeInForce},
+    prelude::{Event, OrdType, OrderId, Side, StateValues, TimeInForce},
 };
 
 /// Provides local-specific interaction.

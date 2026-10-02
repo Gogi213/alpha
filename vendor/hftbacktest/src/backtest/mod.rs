@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::Error as IoError,
     ops::{Deref, DerefMut},
 };
@@ -27,7 +26,6 @@ use crate::{
     prelude::{
         Bot,
         OrdType,
-        Order,
         OrderId,
         OrderRequest,
         Side,
