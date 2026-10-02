@@ -57,6 +57,11 @@ pub struct ImportArchiveArgs {
     /// Корень эпохи: файл `<root>/<SYMBOL>-<день>.binlog`.
     #[arg(long)]
     pub root: PathBuf,
+    /// Шаги цены и количества суток — по первому снимку суток (НОД цен и размеров, не крупнее
+    /// шага пула): Bybit менял шаг в течение года, а усечение по одному шагу пула слепляет цены
+    /// (TK-035). Нет флага — шаги пула, как раньше. Любое значение вне сетки — отказ.
+    #[arg(long)]
+    pub steps_from_snapshot: bool,
 }
 
 /// Итог импорта суток.
@@ -73,6 +78,10 @@ pub struct ImportSummary {
     /// Сообщения стакана за концом суток (снимок 00:00 следующих суток) — не пишутся.
     pub dropped_after_day: u64,
     pub records: u64,
+    /// Цены/размеры стакана, не кратные шагам файла (усечение их исказило бы).
+    pub off_grid: u64,
+    /// Сделки с ценой/размером мельче сетки стакана (улучшение цены RPI) — усекаются, как раньше.
+    pub trade_off_grid: u64,
 }
 
 struct Trade {
@@ -117,6 +126,50 @@ fn steps(instruments: &Path, symbol: &str) -> anyhow::Result<(i64, i64)> {
 }
 
 /// Время сделки выгрузки (`1789948800.4366` — секунды с долями) → мс, доли отбрасываются.
+fn gcd(a: i64, b: i64) -> i64 {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+type Lines = Box<dyn Iterator<Item = std::io::Result<String>>>;
+
+/// Шаги суток по первому снимку: НОД шага пула и НОД цен/размеров снимка — не крупнее пула, поэтому
+/// там, где шаг архива равен или крупнее шага пула, результат тот же, что у прежнего импорта.
+/// Прочитанные строки возвращаются, чтобы разбор пошёл с начала.
+fn steps_from_snapshot(
+    lines: &mut Lines,
+    pool_tick_e9: i64,
+    pool_step_e9: i64,
+) -> anyhow::Result<(i64, i64, Vec<String>)> {
+    let mut seen = Vec::new();
+    for line in lines.by_ref() {
+        let line = line?;
+        let events = if line.trim().is_empty() {
+            Vec::new()
+        } else {
+            parse_message(&zero_negative_seq(&line))
+                .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?
+        };
+        seen.push(line);
+        for ev in events {
+            let Event::Book(u) = ev else { continue };
+            if !u.is_snapshot {
+                continue;
+            }
+            let (mut gp, mut gq) = (0, 0);
+            for &(p, q) in u.bids.iter().chain(u.asks.iter()) {
+                gp = gcd(gp, p);
+                gq = gcd(gq, q);
+            }
+            return Ok((gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq), seen));
+        }
+    }
+    Ok((pool_tick_e9, pool_step_e9, seen))
+}
+
 fn trade_ms(s: &str) -> Option<i64> {
     let (sec, frac) = s.split_once('.').unwrap_or((s, ""));
     let sec: i64 = sec.parse().ok()?;
@@ -225,7 +278,7 @@ impl<W: std::io::Write> Out<W> {
 /// Импорт одних суток. Читает поток стакана построчно и сливает с ним сделки по времени
 /// (стакан — по `ts`, сделка — по `T`), так что порядок записей в файле — порядок поступления.
 pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSummary> {
-    let (tick_e9, step_e9) = steps(&args.instruments, &args.symbol)?;
+    let (pool_tick_e9, pool_step_e9) = steps(&args.instruments, &args.symbol)?;
     let day = parse_calendar_day(&args.day)
         .ok_or_else(|| anyhow::anyhow!("--day {}: ожидается YYYY-MM-DD", args.day))?;
     let day_start = day
@@ -250,6 +303,18 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             std::fs::File::open(&args.ob)?,
         ))
     };
+    let mut lines: Lines = Box::new(reader.lines());
+    let (tick_e9, step_e9) = if args.steps_from_snapshot {
+        let (t, st, seen) = steps_from_snapshot(&mut lines, pool_tick_e9, pool_step_e9)?;
+        lines = Box::new(seen.into_iter().map(Ok).chain(lines));
+        eprintln!(
+            "import-archive: {} {} — шаг цены {t} e9 (пул {pool_tick_e9}), шаг размера {st} e9 (пул {pool_step_e9})",
+            args.symbol, args.day
+        );
+        (t, st)
+    } else {
+        (pool_tick_e9, pool_step_e9)
+    };
     let header = Header {
         tick_e9,
         step_e9,
@@ -271,6 +336,8 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         trades_before_snapshot: 0,
         dropped_after_day: 0,
         records: 0,
+        off_grid: 0,
+        trade_off_grid: 0,
     };
     let mut has_snapshot = false;
     let mut last_u: Option<u64> = None;
@@ -291,7 +358,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             rpi: t.rpi,
         });
     };
-    for line in reader.lines() {
+    for line in lines {
         let line = line?;
         if line.trim().is_empty() {
             continue;
@@ -312,6 +379,8 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             }
             if has_snapshot {
                 push_trade(t, &mut out);
+                sum.trade_off_grid +=
+                    u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % step_e9 != 0);
                 sum.trades += 1;
             } else {
                 sum.trades_before_snapshot += 1;
@@ -355,6 +424,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
             let local_ts_ns = ts.saturating_mul(1_000_000);
             for (side, levels) in [(Side::Bid, &update.bids), (Side::Ask, &update.asks)] {
                 for &(price_e9, qty_e9) in levels {
+                    sum.off_grid += u64::from(price_e9 % tick_e9 != 0 || qty_e9 % step_e9 != 0);
                     out.batch.push(Record {
                         ev: depth_flags(side, update.is_snapshot),
                         exch_ts_ns,
@@ -380,6 +450,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         }
         if has_snapshot {
             push_trade(t, &mut out);
+            sum.trade_off_grid += u64::from(t.price_e9 % tick_e9 != 0 || t.qty_e9 % step_e9 != 0);
             sum.trades += 1;
         } else {
             sum.trades_before_snapshot += 1;
@@ -395,6 +466,15 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         "{}: в потоке стакана нет снимка суток",
         args.symbol
     );
+    if args.steps_from_snapshot && sum.off_grid > 0 {
+        let _ = std::fs::remove_file(&tmp_path);
+        anyhow::bail!(
+            "{} {}: {} значений не кратны шагам суток (шаг цены {tick_e9} e9, размера {step_e9} e9) — файл не записан",
+            args.symbol,
+            args.day,
+            sum.off_grid
+        );
+    }
     std::fs::rename(&tmp_path, &out_path)?;
     Ok(sum)
 }

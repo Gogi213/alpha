@@ -77,6 +77,7 @@ fn fixture(dir: &Path) -> ImportArchiveArgs {
         trades: dir.join("trades.csv"),
         instruments: dir.join("instruments.csv"),
         root: dir.join("root"),
+        steps_from_snapshot: false,
     }
 }
 
@@ -263,4 +264,84 @@ fn negative_seq_is_zeroed_only_when_present() {
         r#"{"u":1,"seq":0}"#
     );
     assert_eq!(zero_negative_seq(r#"{"seq":7}"#), r#"{"seq":7}"#);
+}
+
+/// TK-035: в архиве шаг цены мельче шага пула (HYPE: 0,001 против 0,01). Прежний импорт усекает
+/// 1.001 и 1.009 в один тик и пересекает книгу; с флагом шаги суток — из снимка, ничего не слеплено.
+#[test]
+fn steps_from_snapshot_keeps_finer_archive_grid() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.003","5"],["1.001","2.5"]"#,
+            r#"["1.005","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            2,
+            r#"["1.004","4.2"]"#,
+            "",
+        ),
+    ];
+    let args = write_day(dir.path(), &ob);
+    let old = run_import_archive(&args).unwrap();
+    let old_recs = all_records(&old.out);
+    assert!(old.off_grid > 0, "прежний импорт молча усекает");
+    assert_eq!(old_recs[0].price_ticks, old_recs[1].price_ticks, "слеплены");
+    std::fs::remove_file(&old.out).unwrap();
+
+    let mut args = args;
+    args.steps_from_snapshot = true;
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    let data = std::fs::read(&sum.out).unwrap();
+    let r = Reader::open(&data[..]).unwrap();
+    assert_eq!(r.header().tick_e9, 1_000_000);
+    assert_eq!(
+        r.header().step_e9,
+        500_000_000 / 5,
+        "НОД размеров 5, 2.5, 3, 4.2 = 0.1"
+    );
+    let recs = all_records(&sum.out);
+    let prices: Vec<i64> = recs.iter().map(|x| x.price_ticks).collect();
+    assert_eq!(prices[..3], [1003, 1001, 1005]);
+    assert!(recs
+        .iter()
+        .any(|x| x.ev == LOCAL_BID_DEPTH_EVENT && x.price_ticks == 1004));
+}
+
+/// Шаг архива равен шагу пула — файл с флагом тот же, что без него (гейт «байт в байт»).
+#[test]
+fn steps_from_snapshot_same_file_when_grid_matches_pool() {
+    let dir_a = tempfile::tempdir().unwrap();
+    let a = run_import_archive(&fixture(dir_a.path())).unwrap();
+    let dir_b = tempfile::tempdir().unwrap();
+    let mut args = fixture(dir_b.path());
+    args.steps_from_snapshot = true;
+    let b = run_import_archive(&args).unwrap();
+    assert_eq!(
+        std::fs::read(&a.out).unwrap(),
+        std::fs::read(&b.out).unwrap()
+    );
+}
+
+/// Сделка RPI с ценой мельче сетки стакана (HYPE 2026-08-20: 69.735 при шаге 0.01) не отказывает
+/// режим `--steps-from-snapshot`: она усекается, как раньше, и считается в `trade_off_grid`.
+#[test]
+fn steps_from_snapshot_tolerates_sub_tick_trade_price() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut args = fixture(dir.path());
+    args.steps_from_snapshot = true;
+    let t = std::fs::read_to_string(&args.trades).unwrap();
+    let t = t.replacen(",1.01,PlusTick,c,", ",1.015,PlusTick,c,", 1);
+    std::fs::write(&args.trades, t).unwrap();
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    assert_eq!(sum.trade_off_grid, 1);
 }
