@@ -2,8 +2,6 @@ mod local;
 mod nopartialfillexchange;
 mod partialfillexchange;
 
-use std::collections::HashMap;
-
 pub use local::Local;
 pub use nopartialfillexchange::NoPartialFillExchange;
 pub use partialfillexchange::PartialFillExchange;
@@ -18,7 +16,7 @@ pub use l3_nopartialfillexchange::L3NoPartialFillExchange;
 use crate::{
     backtest::BacktestError,
     depth::MarketDepth,
-    prelude::{Event, OrdType, Order, OrderId, Side, StateValues, TimeInForce},
+    prelude::{Event, OrdType, OrderId, Side, StateValues, TimeInForce},
 };
 
 /// Provides local-specific interaction.
@@ -84,7 +82,7 @@ where
     fn depth(&self) -> &MD;
 
     /// Returns a hash map of order IDs and their corresponding [`Order`]s.
-    fn orders(&self) -> &HashMap<OrderId, Order>;
+    fn orders(&self) -> &crate::types::OrderMap;
 
     /// Returns the last market trades.
     fn last_trades(&self) -> &[Event];

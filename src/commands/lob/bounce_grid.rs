@@ -126,7 +126,7 @@ pub(crate) use sets::{read_regime_day, touch_contexts, FilterSet, RegimeDay, Tou
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::backtest::read_tick_step;
@@ -136,63 +136,213 @@ use super::{
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::book::Side;
-use crate::lob::backtest::{BounceSignal, RoundMemo};
+use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo};
 use crate::lob::levels::LevelsConfig;
 use crate::lob::sigma::SigmaSeries;
 
+type CarryKey = (String, Option<PathBuf>, Option<i64>);
+type SharedHit = (Arc<Vec<CompactEvent>>, Option<i64>, bool);
+
+/// TK-029 (`--extra-runs`): события суток символа (после довеска), прочитанные один раз на все прогоны с
+/// тем же ключом (сутки, `--carry-root`, окно переноса). Держит только текущий символ.
+#[derive(Default)]
+struct SharedEvents {
+    symbol: String,
+    map: BTreeMap<CarryKey, SharedHit>,
+}
+
+impl SharedEvents {
+    fn get(&self, symbol: &str, key: &CarryKey) -> Option<SharedHit> {
+        if self.symbol == symbol {
+            self.map.get(key).cloned()
+        } else {
+            None
+        }
+    }
+
+    fn put(&mut self, symbol: &str, key: CarryKey, hit: SharedHit) {
+        if self.symbol != symbol {
+            self.symbol = symbol.to_string();
+            self.map.clear();
+        }
+        self.map.insert(key, hit);
+    }
+}
+
+#[derive(clap::Parser)]
+struct ExtraRun {
+    #[command(flatten)]
+    args: BounceGridArgs,
+}
+
+/// Один прогон сетки: разобранный план, открытые выходы и итог; символы идут по одному (`run_symbol`).
+struct GridRun<'a> {
+    args: &'a BounceGridArgs,
+    queue_model: crate::lob::backtest::QueueModelKind,
+    threads: usize,
+    band_exit_bps: f64,
+    forms: Vec<GridForm>,
+    sets: Vec<FilterSet>,
+    set_forms: Option<Vec<Vec<usize>>>,
+    need_regime: bool,
+    need_ret: bool,
+    symbols: Vec<String>,
+    outs: Vec<outputs::Outputs>,
+    regime_days: BTreeMap<String, RegimeDay>,
+    carry_window: Option<i64>,
+    summary: BounceGridSummary,
+}
+
 pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
-    let plan = plan_grid(args)?;
-    let mut outs = open_outputs(args, &plan)?;
-    let GridPlan {
-        queue_model,
-        threads,
-        deadlines,
-        entry_ttls,
-        band_exit_bps,
-        forms,
-        sets,
-        set_forms,
-        need_regime,
-        need_ret,
-        symbols,
-        ..
-    } = plan;
-    // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
-    let all_forms: Vec<usize> = (0..forms.len()).collect();
-    let set_form_ids: Vec<&[usize]> = match &set_forms {
-        Some(v) => v.iter().map(Vec::as_slice).collect(),
-        None => vec![all_forms.as_slice(); sets.len()],
+    let Some(path) = args.extra_runs.as_deref() else {
+        let mut run = GridRun::new(args)?;
+        for symbol in run.symbols.clone() {
+            run.run_symbol(&symbol, None)?;
+        }
+        return Ok(run.summary);
     };
-    // Режим суток читается один раз на сутки (общий для символов).
-    let mut regime_days: BTreeMap<String, RegimeDay> = BTreeMap::new();
-    // Перенос круга через полночь (`--carry-root`): окно — один раз на прогон,
-    // те же числа сетки для всех символов и суток (`carry_window_ns`).
-    let carry_window = match &args.carry_root {
-        Some(_) => Some(carry_window_ns(
-            &entry_ttls,
-            &deadlines,
-            args.p95_rtt_ns.taker_ns,
-        )?),
-        None => None,
-    };
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("--extra-runs {}: {e}", path.display()))?;
+    let mut extras: Vec<BounceGridArgs> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let parsed = <ExtraRun as clap::Parser>::try_parse_from(
+            std::iter::once("bounce-grid").chain(line.split_whitespace()),
+        )
+        .map_err(|e| anyhow::anyhow!("--extra-runs {} строка {}: {e}", path.display(), i + 1))?;
+        anyhow::ensure!(
+            parsed.args.extra_runs.is_none(),
+            "--extra-runs {} строка {}: вложенный --extra-runs",
+            path.display(),
+            i + 1
+        );
+        extras.push(parsed.args);
+    }
+    let mut runs = vec![GridRun::new(args)?];
+    for e in &extras {
+        runs.push(GridRun::new(e)?);
+    }
+    let mut order: Vec<String> = runs[0].symbols.clone();
+    for r in &runs[1..] {
+        for s in &r.symbols {
+            if !order.contains(s) {
+                order.push(s.clone());
+            }
+        }
+    }
+    let mut shared = SharedEvents::default();
+    for symbol in &order {
+        for r in runs.iter_mut() {
+            if r.symbols.contains(symbol) {
+                r.run_symbol(symbol, Some(&mut shared))?;
+            }
+        }
+    }
+    for (i, r) in runs.iter().enumerate().skip(1) {
+        let s = &r.summary;
+        eprintln!(
+            "bounce-grid[доп. прогон {i}]: форм {} · символов {} (без маркера {}, без касаний {}) · символ-суток {} · кругов {} · {} · {}",
+            s.forms,
+            s.symbols_done,
+            s.symbols_skipped_unverified,
+            s.symbols_without_touches,
+            s.symbol_days,
+            s.rounds,
+            s.rounds_path.display(),
+            s.forms_path.display()
+        );
+    }
+    Ok(std::mem::take(&mut runs[0].summary))
+}
 
-    let mut summary = BounceGridSummary {
-        forms: forms.len(),
-        rounds_path: outs[0].rounds_path.clone(),
-        forms_path: outs[0].forms_path.clone(),
-        sets: sets
-            .iter()
-            .zip(&outs)
-            .map(|(s, o)| SetPaths {
-                name: s.name.clone(),
-                rounds_path: o.rounds_path.clone(),
-                forms_path: o.forms_path.clone(),
-            })
-            .collect(),
-        ..Default::default()
-    };
+impl<'a> GridRun<'a> {
+    fn new(args: &'a BounceGridArgs) -> anyhow::Result<Self> {
+        let plan = plan_grid(args)?;
+        let outs = open_outputs(args, &plan)?;
+        // Перенос круга через полночь (`--carry-root`): окно — один раз на прогон,
+        // те же числа сетки для всех символов и суток (`carry_window_ns`).
+        let carry_window = match &args.carry_root {
+            Some(_) => Some(carry_window_ns(
+                &plan.entry_ttls,
+                &plan.deadlines,
+                args.p95_rtt_ns.taker_ns,
+            )?),
+            None => None,
+        };
+        let summary = BounceGridSummary {
+            forms: plan.forms.len(),
+            rounds_path: outs[0].rounds_path.clone(),
+            forms_path: outs[0].forms_path.clone(),
+            sets: plan
+                .sets
+                .iter()
+                .zip(&outs)
+                .map(|(s, o)| SetPaths {
+                    name: s.name.clone(),
+                    rounds_path: o.rounds_path.clone(),
+                    forms_path: o.forms_path.clone(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let GridPlan {
+            queue_model,
+            threads,
+            band_exit_bps,
+            forms,
+            sets,
+            set_forms,
+            need_regime,
+            need_ret,
+            symbols,
+            ..
+        } = plan;
+        Ok(Self {
+            args,
+            queue_model,
+            threads,
+            band_exit_bps,
+            forms,
+            sets,
+            set_forms,
+            need_regime,
+            need_ret,
+            symbols,
+            outs,
+            // Режим суток читается один раз на сутки (общий для символов).
+            regime_days: BTreeMap::new(),
+            carry_window,
+            summary,
+        })
+    }
 
-    for symbol in &symbols {
+    fn run_symbol(
+        &mut self,
+        symbol: &str,
+        mut shared: Option<&mut SharedEvents>,
+    ) -> anyhow::Result<()> {
+        let args = self.args;
+        let queue_model = self.queue_model;
+        let threads = self.threads;
+        let band_exit_bps = self.band_exit_bps;
+        let need_regime = self.need_regime;
+        let need_ret = self.need_ret;
+        let carry_window = self.carry_window;
+        let forms = &self.forms;
+        let sets = &self.sets;
+        let outs = &mut self.outs;
+        let regime_days = &mut self.regime_days;
+        let summary = &mut self.summary;
+        // `--cells` (T-38): у каждого набора — свои формы (номера в `forms`); без флага — все формы.
+        let all_forms: Vec<usize> = (0..forms.len()).collect();
+        let set_form_ids: Vec<&[usize]> = match &self.set_forms {
+            Some(v) => v.iter().map(Vec::as_slice).collect(),
+            None => vec![all_forms.as_slice(); sets.len()],
+        };
+
         let marker = args.root.join(format!("verify-{symbol}.status"));
         if !args.allow_unverified && !read_verify_marker(&marker) {
             eprintln!(
@@ -200,7 +350,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 marker.display()
             );
             summary.symbols_skipped_unverified += 1;
-            continue;
+            return Ok(());
         }
         let started = Instant::now();
         let parts = session_parts_for(&args.root, symbol)?;
@@ -274,7 +424,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                             "bounce-grid: {symbol} — в кэше касаний нет ни одних суток корня, символ пропущен (--touches-cache-only)"
                         );
                         summary.symbols_without_touches += 1;
-                        continue;
+                        return Ok(());
                     }
                     if parts_by_day.len() < before {
                         eprintln!(
@@ -298,7 +448,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                     "bounce-grid: {symbol} — кэш подходов не годится, символ пропущен (нужен прогон `lob touches --approach-bps D`)"
                 );
                 summary.symbols_without_touches += 1;
-                continue;
+                return Ok(());
             };
             // T-35: `frontrun_min=` на подходах читает `frontrun_lots_at_arm` (T-28); в старом кэше колонки нет
             // (читается как −1) — отказ, а не молчаливый ноль сигналов.
@@ -345,7 +495,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                         "bounce-grid: {symbol} — кэш касаний не годится ({why}), символ пропущен (--touches-cache-only)"
                     );
                     summary.symbols_without_touches += 1;
-                    continue;
+                    return Ok(());
                 }
                 other => {
                     if let Some(Err(why)) = other {
@@ -397,7 +547,7 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             };
             eprintln!("bounce-grid: {symbol} — {what} нет, символ пропущен");
             summary.symbols_without_touches += 1;
-            continue;
+            return Ok(());
         }
         let sizing = OrderSizing::from_args(args, symbol)?;
         // В-131: таблица σ на взводе — одна на символ (все сутки записи).
@@ -438,49 +588,53 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
                 crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
             let skips_before =
                 crate::lob::backtest::HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
-            // S4: события одних суток, не всей сессии.
-            let mut events = day_events(day_parts)?;
-            if events.is_empty() {
+            // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
+            // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
+            let carry_key = (day.day.clone(), args.carry_root.clone(), carry_window);
+            let (base, carry_boundary_ns, carry_unverified) =
+                match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
+                    Some(hit) => hit,
+                    None => {
+                        let mut ev = day_events(day_parts)?;
+                        // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
+                        // ДО построения окон сетапов; сигналы дня от довеска не зависят.
+                        let carry = match carry_window {
+                            Some(window) if !ev.is_empty() => extend_with_carry(
+                                &mut ev,
+                                &day.day,
+                                args.carry_root.as_deref(),
+                                &carry_parts_by_day,
+                                symbol,
+                                window,
+                            )?,
+                            _ => (None, false),
+                        };
+                        let hit = (Arc::new(ev), carry.0, carry.1);
+                        if let Some(s) = shared.as_mut() {
+                            s.put(symbol, carry_key, hit.clone());
+                        }
+                        hit
+                    }
+                };
+            if base.is_empty() {
                 eprintln!(
                     "bounce-grid: {symbol} {} — событий нет, сутки пропущены",
                     day.day
                 );
                 continue;
             }
-            // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
-            // ДО построения окон сетапов — тот же приём, что уже склеивает
-            // части одних суток (`day_events`: части хронологичны, каждая
-            // несёт свой снапшот, поэтому конкатенация корректна без ручной
-            // сшивки книги). Сигналы дня (`day.touches` ниже) от довеска не
-            // зависят — он только дописывает хвост потока книги/сделок.
-            let (carry_boundary_ns, carry_unverified) = match carry_window {
-                Some(window) => extend_with_carry(
-                    &mut events,
-                    &day.day,
-                    args.carry_root.as_deref(),
-                    &carry_parts_by_day,
-                    symbol,
-                    window,
-                )?,
-                None => (None, false),
-            };
-            // `--events wide` (CEO 26.09): сутки один раз в 64-байтные строки крейта, компактные
-            // отпускаются сразу — память и скорость как до Р6; итог тот же.
+            let events: &[CompactEvent] = base.as_slice();
+            // `--events wide` (CEO 26.09): сутки один раз в 64-байтные строки крейта; итог тот же.
             let n_events = events.len();
             let wide: Vec<hftbacktest::types::Event> = if args.events == "wide" {
-                let w = events
-                    .iter()
-                    .map(crate::lob::backtest::CompactEvent::expand)
-                    .collect();
-                events = Vec::new();
-                w
+                events.iter().map(CompactEvent::expand).collect()
             } else {
                 Vec::new()
             };
             let rows = if args.events == "wide" {
                 DayRows::Wide(&wide)
             } else {
-                DayRows::Compact(&events)
+                DayRows::Compact(events)
             };
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
@@ -647,8 +801,8 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
             touches_total,
             started.elapsed().as_secs_f64()
         );
+        Ok(())
     }
-    Ok(summary)
 }
 
 #[cfg(test)]

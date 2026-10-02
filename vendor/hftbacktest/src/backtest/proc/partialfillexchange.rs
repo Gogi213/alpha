@@ -84,10 +84,10 @@ where
     FM: FeeModel,
 {
     // key: order_id, value: Order
-    orders: Rc<RefCell<HashMap<OrderId, Order>>>,
+    orders: Rc<RefCell<crate::types::OrderMap>>,
     // key: order's price tick, value: order_ids
-    buy_orders: HashMap<i64, HashSet<OrderId>>,
-    sell_orders: HashMap<i64, HashSet<OrderId>>,
+    buy_orders: HashMap<i64, HashSet<OrderId, crate::types::FxBuild>, crate::types::FxBuild>,
+    sell_orders: HashMap<i64, HashSet<OrderId, crate::types::FxBuild>, crate::types::FxBuild>,
 
     order_e2l: ExchToLocal<LM>,
 

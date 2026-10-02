@@ -1,4 +1,4 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::hash_map::Entry;
 
 use crate::{
     backtest::{
@@ -39,7 +39,7 @@ where
     MD: MarketDepth,
     FM: FeeModel,
 {
-    orders: HashMap<OrderId, Order>,
+    orders: crate::types::OrderMap,
     order_l2e: LocalToExch<LM>,
     depth: MD,
     state: State<AT, FM>,
@@ -253,7 +253,7 @@ where
         &self.depth
     }
 
-    fn orders(&self) -> &HashMap<u64, Order> {
+    fn orders(&self) -> &crate::types::OrderMap {
         &self.orders
     }
 

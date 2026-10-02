@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::Error as IoError,
     ops::{Deref, DerefMut},
 };
@@ -27,7 +26,6 @@ use crate::{
     prelude::{
         Bot,
         OrdType,
-        Order,
         OrderId,
         OrderRequest,
         Side,
@@ -913,7 +911,7 @@ where
     }
 
     #[inline]
-    fn orders(&self, asset_no: usize) -> &HashMap<u64, Order> {
+    fn orders(&self, asset_no: usize) -> &crate::types::OrderMap {
         self.local.get(asset_no).unwrap().orders()
     }
 

@@ -476,7 +476,7 @@ where
     }
 
     #[inline]
-    fn orders(&self, asset_no: usize) -> &HashMap<OrderId, Order> {
+    fn orders(&self, asset_no: usize) -> &crate::types::OrderMap {
         &self.instruments.get(asset_no).unwrap().orders
     }
 

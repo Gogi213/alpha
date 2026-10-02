@@ -20,7 +20,7 @@ pub struct Instrument<MD> {
     lot_size: f64,
     depth: MD,
     last_trades: Vec<Event>,
-    orders: HashMap<OrderId, Order>,
+    orders: crate::types::OrderMap,
     last_feed_latency: Option<(i64, i64)>,
     last_order_latency: Option<(i64, i64, i64)>,
     state: StateValues,
