@@ -59,6 +59,7 @@ pub mod clock;
 pub mod dashboard;
 pub mod fee_rate;
 pub mod fill_capacity;
+pub mod gaps;
 mod h3;
 pub mod import_archive;
 pub mod latency;
@@ -87,6 +88,7 @@ pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
+pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
@@ -277,6 +279,10 @@ pub enum LobCommand {
     /// записи, скорость, объём»): записи, кадры, типы событий и живые поля.
     /// Только чтение, ни одного порога.
     BinlogStats(BinlogStatsArgs),
+    /// Дыры по времени в суточных бинлогах (TK-033): CSV на файл — покрытие суток, самая длинная
+    /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
+    /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
+    Gaps(GapsArgs),
     /// Сутки публичного архива Bybit (поток `orderbook.200` + сделки) → суточный бинлог v3 —
     /// эпоха «история» (владелец 22.09; сверка архива с нашей записью — M21). Разбор строк —
     /// тем же `bybit::ws`, записи — как у коллектора; существующий файл не перезаписывается.
@@ -467,6 +473,10 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
                     println!("{line}");
                 }
             }
+            Ok(())
+        }
+        LobCommand::Gaps(args) => {
+            run_gaps(&args)?;
             Ok(())
         }
         LobCommand::Archive(args) => {

@@ -452,6 +452,7 @@ fn lob_help_lists_all_subcommands() {
         "dashboard",
         "fee-rate",
         "fill-capacity",
+        "gaps",
         "import-archive",
         "latency",
         "levels",
