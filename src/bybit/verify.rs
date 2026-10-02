@@ -828,6 +828,10 @@ pub struct VerifyArgs {
     /// Корень записи: суточные файлы и заголовки (`tickSize`/`qtyStep`).
     #[arg(long, default_value = "data/bybit")]
     pub root: PathBuf,
+    /// Диагностика: не обрывать файл на первой ошибке применения, а считать
+    /// нарушения по видам и идти дальше (маркер сверки не пишется).
+    #[arg(long, default_value_t = false)]
+    pub keep_going: bool,
 }
 
 /// Итог файлового прогона для печати и `VerifyStats` вызывающему.
@@ -966,7 +970,7 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
     }
     let mut summary = VerifySummary::default();
     for path in &files {
-        verify_one_file(path, &mut summary)?;
+        verify_one_file(path, &mut summary, None)?;
     }
     summary.files = files.len();
     Ok(summary)
@@ -979,12 +983,219 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
 /// `run_verify` выше — тот же `verify_one_file`, только по своему обходу.
 pub fn verify_file(path: &Path) -> anyhow::Result<VerifySummary> {
     let mut summary = VerifySummary::default();
-    verify_one_file(path, &mut summary)?;
+    verify_one_file(path, &mut summary, None)?;
     summary.files = 1;
     Ok(summary)
 }
 
-fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<()> {
+/// Вид нарушения в режиме `--keep-going`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrokenKind {
+    Crossed,
+    NonPositiveSize,
+    UnorderedLevels,
+    PriceNotOnTick,
+    QtyNotOnStep,
+    DeltaBeforeSnapshot,
+}
+
+impl BrokenKind {
+    pub const ALL: [BrokenKind; 6] = [
+        BrokenKind::Crossed,
+        BrokenKind::NonPositiveSize,
+        BrokenKind::UnorderedLevels,
+        BrokenKind::PriceNotOnTick,
+        BrokenKind::QtyNotOnStep,
+        BrokenKind::DeltaBeforeSnapshot,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Crossed => "crossed",
+            Self::NonPositiveSize => "nonpositive_size",
+            Self::UnorderedLevels => "unordered_levels",
+            Self::PriceNotOnTick => "price_not_on_tick",
+            Self::QtyNotOnStep => "qty_not_on_step",
+            Self::DeltaBeforeSnapshot => "delta_before_snapshot",
+        }
+    }
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|k| *k == self).unwrap_or(0)
+    }
+}
+
+/// Сколько примеров нарушений хранит отчёт `--keep-going`.
+pub const KEEP_GOING_EXAMPLES: usize = 10;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrokenExample {
+    pub kind: BrokenKind,
+    pub exch_ms: i64,
+    /// Номер обновления в файле, с 1.
+    pub update_no: u64,
+    pub detail: String,
+}
+
+/// Отчёт `--keep-going` по одному файлу. Файл `u` не хранит, поэтому «разрыв
+/// u» здесь только дельта до первого снапшота; синтетический `u` после
+/// ошибки продолжается от `last_u` книги, а чистая книга возвращается на
+/// следующем снапшоте (`u = 1`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeepGoingReport {
+    pub updates: u64,
+    pub broken_updates: u64,
+    pub counts: [u64; 6],
+    pub examples: Vec<BrokenExample>,
+    /// Снапшоты, после которых книга снова чистая.
+    pub resyncs: u64,
+    pub first_ms: Option<i64>,
+    pub last_ms: i64,
+    pub first_broken_ms: Option<i64>,
+    /// Миллисекунды обменных меток, прожитые в битом состоянии.
+    pub broken_ms: i64,
+    pub trades_while_broken: u64,
+    broken: bool,
+    prev_ms: i64,
+}
+
+impl KeepGoingReport {
+    fn note(&mut self, kind: BrokenKind, ms: i64, detail: impl FnOnce() -> String) {
+        self.counts[kind.index()] += 1;
+        if self.examples.len() < KEEP_GOING_EXAMPLES {
+            self.examples.push(BrokenExample {
+                kind,
+                exch_ms: ms,
+                update_no: self.updates,
+                detail: detail(),
+            });
+        }
+    }
+
+    fn on_update(&mut self, verifier: &mut Verifier, up: &mut Update) {
+        let ms = up.cts_ms;
+        self.updates += 1;
+        if self.first_ms.is_none() {
+            self.first_ms = Some(ms);
+        }
+        if self.broken {
+            self.broken_ms += (ms - self.prev_ms).max(0);
+        }
+        self.prev_ms = ms;
+        self.last_ms = ms;
+        // Синтетический `u` обязан продолжать книгу и там, где прошлое
+        // применение упало и `last_u` не сдвинулся.
+        if !up.is_snapshot && up.u != 1 {
+            if let Some(last) = verifier.book().last_u() {
+                up.u = last + 1;
+                up.seq = up.u;
+            }
+        }
+        let was_broken = self.broken;
+        let result = verifier.apply_update(up);
+        let detail = |up: &Update, v: &Verifier| {
+            format!(
+                "snap={} bids={} asks={} best_bid={:?} best_ask={:?}",
+                up.is_snapshot,
+                up.bids.len(),
+                up.asks.len(),
+                v.book().best_bid_tick_opt(),
+                v.book().best_ask_tick_opt()
+            )
+        };
+        match result {
+            Err(e) => {
+                let kind = match e {
+                    crate::book::ApplyError::Crossed { .. } => BrokenKind::Crossed,
+                    crate::book::ApplyError::PriceNotOnTick { .. } => BrokenKind::PriceNotOnTick,
+                    crate::book::ApplyError::QtyNotOnStep { .. } => BrokenKind::QtyNotOnStep,
+                    crate::book::ApplyError::SequenceGap { .. } => BrokenKind::DeltaBeforeSnapshot,
+                };
+                self.note(kind, ms, || detail(up, verifier));
+                self.broken = true;
+                self.broken_updates += 1;
+            }
+            Ok(viol) => {
+                for v in &viol {
+                    let kind = match v {
+                        InvariantViolation::CrossedBook { .. } => BrokenKind::Crossed,
+                        InvariantViolation::NonPositiveSize { .. } => BrokenKind::NonPositiveSize,
+                        InvariantViolation::UnorderedLevels { .. } => BrokenKind::UnorderedLevels,
+                    };
+                    self.note(kind, ms, || detail(up, verifier));
+                }
+                self.broken = !viol.is_empty();
+                if self.broken {
+                    self.broken_updates += 1;
+                } else if was_broken && up.is_snapshot {
+                    self.resyncs += 1;
+                }
+            }
+        }
+        if self.broken && self.first_broken_ms.is_none() {
+            self.first_broken_ms = Some(ms);
+        }
+    }
+
+    /// Доля суток в битом состоянии, ppm от размаха обменных меток файла.
+    pub fn broken_share_ppm(&self) -> Option<i64> {
+        let span = self.last_ms - self.first_ms?;
+        if span <= 0 {
+            return None;
+        }
+        Some(self.broken_ms * 1_000_000 / span)
+    }
+
+    pub fn lines(&self, name: &str) -> Vec<String> {
+        let counts: Vec<String> = BrokenKind::ALL
+            .iter()
+            .map(|k| format!("{}={}", k.name(), self.counts[k.index()]))
+            .collect();
+        let share = self
+            .broken_share_ppm()
+            .map_or("n/a".to_string(), |p| p.to_string());
+        let mut out = vec![format!(
+            "keep-going: part={name} updates={} broken_updates={} {} resyncs={} \
+             first_broken_ms={} broken_ms={} span_ms={} broken_share_ppm={share} \
+             trades_while_broken={}",
+            self.updates,
+            self.broken_updates,
+            counts.join(" "),
+            self.resyncs,
+            self.first_broken_ms
+                .map_or("none".to_string(), |m| m.to_string()),
+            self.broken_ms,
+            self.first_ms.map_or(0, |f| self.last_ms - f),
+            self.trades_while_broken,
+        )];
+        for e in &self.examples {
+            out.push(format!(
+                "keep-going: part={name} example kind={} exch_ms={} update_no={} {}",
+                e.kind.name(),
+                e.exch_ms,
+                e.update_no,
+                e.detail
+            ));
+        }
+        out
+    }
+}
+
+/// Как `verify_file`, но без обрыва на первой ошибке: считает нарушения по
+/// видам и идёт дальше (`--keep-going`).
+pub fn verify_file_keep_going(path: &Path) -> anyhow::Result<(VerifySummary, KeepGoingReport)> {
+    let mut summary = VerifySummary::default();
+    let mut report = KeepGoingReport::default();
+    verify_one_file(path, &mut summary, Some(&mut report))?;
+    summary.files = 1;
+    Ok((summary, report))
+}
+
+fn verify_one_file(
+    path: &Path,
+    summary: &mut VerifySummary,
+    mut keep: Option<&mut KeepGoingReport>,
+) -> anyhow::Result<()> {
     // Потоково (W10 ревью 23.09): раньше `std::fs::read` разом клал в память
     // весь суточный файл (десятки–сотни МБ на инструмент), хотя `Reader`
     // читает кадр за кадром и второй раз к байтам не возвращается —
@@ -1026,24 +1237,41 @@ fn verify_one_file(path: &Path, summary: &mut VerifySummary) -> anyhow::Result<(
             &mut updates,
             &mut trades,
         );
-        for up in &updates {
-            // Разрыв в файловом реплее означает битый файл, а не рынок:
-            // дальше этот файл не идёт, следующий — с чистого Verifier.
-            if verifier.apply_update(up).is_err() {
-                *summary += &verifier.stats();
-                return Ok(());
+        if let Some(kg) = keep.as_deref_mut() {
+            for up in updates.iter_mut() {
+                kg.on_update(&mut verifier, up);
+            }
+        } else {
+            for up in &updates {
+                // Разрыв в файловом реплее означает битый файл, а не рынок:
+                // дальше этот файл не идёт, следующий — с чистого Verifier.
+                if verifier.apply_update(up).is_err() {
+                    *summary += &verifier.stats();
+                    return Ok(());
+                }
             }
         }
         for t in &trades {
             verifier.observe_trade(t.tick, t.exch_ms, t.block, t.rpi, t.aggressor_is_buy);
         }
+        if let Some(kg) = keep.as_deref_mut() {
+            if kg.broken {
+                kg.trades_while_broken += trades.len() as u64;
+            }
+        }
     }
     // Хвост файла: сообщение, закрывшееся концом потока, а не следующим.
     let mut tail = Vec::new();
     replayer.finish(&mut tail);
-    for up in &tail {
-        if verifier.apply_update(up).is_err() {
-            break;
+    if let Some(kg) = keep {
+        for up in tail.iter_mut() {
+            kg.on_update(&mut verifier, up);
+        }
+    } else {
+        for up in &tail {
+            if verifier.apply_update(up).is_err() {
+                break;
+            }
         }
     }
     *summary += &verifier.stats();

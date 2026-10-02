@@ -568,6 +568,7 @@ fn live_fixture_replays_clean_on_invariants() {
     let summary = match run_verify(&VerifyArgs {
         symbol: "BTCUSDT".to_string(),
         root: std::path::PathBuf::from("tests/fixtures"),
+        keep_going: false,
     }) {
         Ok(s) => s,
         Err(e) => panic!("фикстура обязана читаться: {e:?}"),
@@ -604,6 +605,7 @@ fn run_verify_reports_the_undated_legacy_file_by_name_with_a_rename_hint() {
     let err = run_verify(&VerifyArgs {
         symbol: "SOLUSDT".to_string(),
         root: dir.path().to_path_buf(),
+        keep_going: false,
     })
     .expect_err("файл без даты обязан провалить run_verify");
     let msg = err.to_string();
@@ -622,6 +624,7 @@ fn run_verify_without_any_symbol_file_still_gets_the_generic_no_daily_files_mess
     let err = run_verify(&VerifyArgs {
         symbol: "SOLUSDT".to_string(),
         root: dir.path().to_path_buf(),
+        keep_going: false,
     })
     .expect_err("пустой каталог обязан провалить run_verify");
     let msg = err.to_string();

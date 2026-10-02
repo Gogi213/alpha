@@ -173,6 +173,7 @@ fn verify_marker_lets_profiles_read_the_day_without_allow_unverified() {
     print_summary(&VerifyArgs {
         symbol: "SOLUSDT".to_string(),
         root: session_dir.clone(),
+        keep_going: false,
     })
     .expect("lob verify на каталоге сессии");
     assert_eq!(
@@ -455,4 +456,44 @@ fn verify_tolerates_a_truncated_tail_frame() {
         report.total.files > 0,
         "прочитанное обязано быть посчитано, а не выброшено"
     );
+}
+
+/// TK-034: нарушение в начале суток. Без флага файл обрывается на нём
+/// (прежнее поведение), с `--keep-going` — идёт дальше, считает вид и время
+/// в битом состоянии, а следующий снапшот возвращает чистую книгу.
+#[test]
+fn keep_going_continues_past_an_early_crossed_book_and_counts_the_kind() {
+    use crate::commands::lob::test_support::delta_frame;
+    let dir = tempfile::tempdir().unwrap();
+    write_day_part(
+        dir.path(),
+        "SOLUSDT",
+        "2026-09-08",
+        1,
+        &[
+            snap_frame(0, &[(98, 10), (100, 10)], &[(105, 10)]),
+            delta_frame(1000, &[(106, 5)], &[]),
+            delta_frame(2000, &[(106, 0)], &[]),
+            delta_frame(3000, &[(99, 4)], &[]),
+            snap_frame(4000, &[(98, 10)], &[(105, 10)]),
+            delta_frame(5000, &[(97, 1)], &[]),
+        ],
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-08", 1);
+
+    let plain = verify_file(&path).unwrap();
+    assert_eq!(plain.invariant_violations, 1);
+    assert_eq!(plain.updates_applied, 1, "прежний режим встаёт на ошибке");
+
+    let (summary, report) = verify_file_keep_going(&path).unwrap();
+    assert_eq!(summary.updates_applied, 5, "всё, кроме упавшего обновления");
+    assert_eq!(report.updates, 6);
+    assert_eq!(report.counts[0], 1, "одно пересечение книги: {report:?}");
+    assert_eq!(report.broken_updates, 1);
+    assert_eq!(report.first_broken_ms, Some(1000));
+    assert_eq!(report.broken_ms, 1000);
+    assert_eq!(report.broken_share_ppm(), Some(200_000));
+    assert_eq!(report.examples.len(), 1);
+    assert_eq!(report.examples[0].update_no, 2);
+    assert_eq!(report.examples[0].exch_ms, 1000);
 }

@@ -24,7 +24,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::bybit::verify::{verify_file, VerifyArgs, VerifySummary};
+use crate::bybit::verify::{verify_file, verify_file_keep_going, VerifyArgs, VerifySummary};
 use crate::commands::record::{gaps_csv_path, read_gap_rows, GapKind, GapRow};
 
 /// Вердикт маркера сверки — то единственное слово, что лежит в
@@ -278,6 +278,9 @@ pub(crate) fn format_summary(s: &VerifySummary) -> String {
 /// `lob verify --symbol S --root DIR`: строка на часть с сутками, сумма,
 /// вердикт и путь маркера. Маркер ложится в тот же `--root`.
 pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
+    if args.keep_going {
+        return print_keep_going(args);
+    }
     let report = verify_and_mark(&args.root, &args.root, &args.symbol)?;
     for p in &report.parts {
         let name = p
@@ -306,6 +309,24 @@ pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
         report.gaps.step_changes,
         report.marker.display()
     );
+    Ok(())
+}
+
+/// `lob verify --keep-going`: диагностика без маркера — по каждой части
+/// символа виды нарушений, доля времени в битом состоянии, первые примеры.
+fn print_keep_going(args: &VerifyArgs) -> anyhow::Result<()> {
+    for path in super::session_binlog_for(&args.root, &args.symbol)? {
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let (summary, report) = verify_file_keep_going(&path)?;
+        println!("verify: part={name} {}", format_summary(&summary));
+        for line in report.lines(&name) {
+            println!("{line}");
+        }
+    }
+    println!("verify: --keep-going — маркер сверки не записан");
     Ok(())
 }
 
