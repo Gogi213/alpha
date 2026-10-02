@@ -3,23 +3,26 @@
 Шапка между строками `---` (простые строки `ключ: значение`, без внешнего YAML):
 `id, title, owner` (researcher|engineer|judge), `status`
 (backlog|todo|in_progress|waiting|in_review|done|blocked|needs_owner), `reviewer` (опц.),
-`wait_for` (опц.: `file:<путь>` локально, `deck:<путь>` на Steam Deck через ssh, `mention`),
+`wait_for` (опц.: `file:<путь>` локально, `deck:<путь>` на Steam Deck через ssh, `ticket:<ID>`),
+`next` (опц., v2: `researcher|engineer|judge|ceo` — кого запустить один раз; пишет
+`tickets.py comment --next`, диспетчер очищает при запуске), `effort` (опц., v2: `low|medium|high|xhigh`),
 `updated`. `backlog` — задача перенесена (например из TASKS.md), но ещё не в работе: диспетчер её
 не трогает (`dispatch.decide()`), в `todo` переводит `tickets.py start <ID>`.
 
-Тело: свободное описание, затем заголовок `## Лог` — по формату записи `### <ISO-время> <автор>` +
-текст, но заголовок НЕ обязателен (CEO 27.09, TK-005: роли пишут по-разному — «- 27.09 ~23:50
-(инженер, запуск 1) …», «- 27.09 23:25 [researcher]» — без `###`). «Роль написала что-то» диспетчер
-определяет по РОСТУ сырого текста секции «## Лог» (длина/содержимое), не по наличию заголовка;
-упоминания `@researcher`/`@engineer`/`@judge`/`@ceo` разбираются и в строках без заголовка —
-см. `mentions_since()`.
+Тело: свободное описание, затем заголовок `## Лог` — записи `### <ISO-время> <автор>` + текст.
+v2 (02.10): «роль оставила запись» диспетчер определяет по НОВОМУ заголовку записи этой роли
+(`role_entry_keys()`), не по росту секции; @упоминания в тексте — обычный текст и никого не будят.
+Лог больше 20 КБ ужимается (`compact_log()`): всё, кроме последних 8 записей, уходит в
+`archive/<ID>-log.md`.
 
 Только stdlib. Роли и авторы записей — латинские ключи (researcher/engineer/judge/ceo/
 dispatcher), не русские названия: так упоминания и авторство сравниваются без транслитерации.
 """
 from __future__ import annotations
 
+import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,9 +30,17 @@ from pathlib import Path
 HEADER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 LOG_HEADING_RE = re.compile(r"^##\s*Лог\s*$", re.M)
 ENTRY_RE = re.compile(r"^###\s+(\S+)\s+(.+?)\s*$", re.M)
-HEADER_LINE_RE = re.compile(r"^###\s+(\S+)\s+(.+?)\s*$")  # для построчного разбора автора в mentions_since
 MENTION_RE = re.compile(r"@(researcher|engineer|judge|ceo)\b", re.I)
 ROLE_TOKENS = ("researcher", "engineer", "judge", "ceo")
+VALID_EFFORTS = ("low", "medium", "high", "xhigh")
+
+# v2 (02.10): компакция лога тикета — файл > LOG_COMPACT_BYTES → всё, кроме последних LOG_KEEP_ENTRIES
+# записей, переезжает в archive/<ID>-log.md (дословно); в логе остаётся одна строка-указатель.
+LOG_COMPACT_BYTES = 20 * 1024
+LOG_KEEP_ENTRIES = 8
+ARCHIVE_DIRNAME = "archive"
+ARCHIVE_POINTER_PREFIX = "> Архив лога:"
+_POINTER_LINE_RE = re.compile(r"^" + re.escape(ARCHIVE_POINTER_PREFIX) + r".*\n?", re.M)
 
 
 def now_iso(now: datetime | None = None) -> str:
@@ -62,7 +73,7 @@ class Ticket:
     header: dict
     description: str
     log: list
-    log_raw: str = ""  # сырой текст секции «## Лог» целиком — для роста-детекции и mentions_since()
+    log_raw: str = ""  # сырой текст секции «## Лог» целиком (диспетчер им больше не пользуется; для утилит)
 
     @property
     def id(self) -> str:
@@ -87,6 +98,18 @@ class Ticket:
     @property
     def kind(self) -> str:
         return self.header.get("kind") or ""
+
+    @property
+    def next_role(self) -> str:
+        """v2: кого запустить один раз (`next:` в шапке); пусто/незнакомое значение — никого."""
+        value = (self.header.get("next") or "").strip().lower()
+        return value if value in ROLE_TOKENS else ""
+
+    @property
+    def effort(self) -> str:
+        """v2: усилие запуска по тикету (`effort:`); пусто/незнакомое значение — роль решает по умолчанию."""
+        value = (self.header.get("effort") or "").strip().lower()
+        return value if value in VALID_EFFORTS else ""
 
     def logged_since(self, author: str, since: datetime) -> bool:
         author = author.lower()
@@ -131,35 +154,85 @@ def _parse_log(rest: str):
     return entries
 
 
-def log_section_text(text: str) -> str:
-    """Сырой текст секции «## Лог» целиком (после заголовка секции), без разбора на записи —
-    для отслеживания «выросла ли секция» и поиска упоминаний в строках без заголовка `### <ISO> <автор>`
-    (CEO 27.09, TK-005: роли пишут по-разному, заголовок не гарантирован)."""
+def author_is(author: str, role: str) -> bool:
+    """Автор записи — эта роль: первое слово заголовка без скобок («engineer», «engineer (запуск 2)»)."""
+    words = (author or "").strip().lower().split()
+    return bool(words) and words[0].strip("[]():,") == role.lower()
+
+
+def role_entry_keys(tkt: "Ticket", role: str) -> list:
+    """Ключи «<ts> <автор>» записей лога, оставленных ролью (заголовок `### <ts> <роль>`). v2 (02.10):
+    «роль оставила запись» = в логе появился ключ, которого не было на старте запуска; от смещений
+    (компакция лога, правки текста) не зависит — только от заголовков записей."""
+    return [f"{e.ts_raw} {e.author}" for e in tkt.log if author_is(e.author, role)]
+
+
+def atomic_write_text(path, text: str, retries: int = 8) -> None:
+    """Запись через временный файл + os.replace. На Windows replace падает с PermissionError, пока
+    другой процесс (диспетчер) держит файл открытым на чтение, — несколько коротких повторов."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8", newline="\n")
+    for i in range(retries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == retries - 1:
+                raise
+            time.sleep(0.05 * (i + 1))
+
+
+def _entry_starts(body: str) -> list:
+    """Смещения начала записей `### <ISO-время> <автор>` в тексте секции лога."""
+    starts = []
+    for m in ENTRY_RE.finditer(body):
+        try:
+            parse_dt(m.group(1))
+        except ValueError:
+            continue  # «### Заметка» внутри записи — не граница записей
+        starts.append(m.start())
+    return starts
+
+
+def compact_log(path, keep: int = None, limit_bytes: int = None) -> int:
+    """v2 (02.10): файл тикета > limit_bytes (20 КБ) → все записи лога, кроме последних `keep` (8),
+    дописываются ДОСЛОВНО в `archive/<ID>-log.md` (рядом с каталогом тикетов; `list_tickets` берёт только
+    `*.md` верхнего уровня), в логе остаётся одна строка-указатель. Запись атомарная (tmp + replace);
+    сперва архив, потом тикет — при сбое между ними записи продублируются, но не потеряются.
+    Возвращает число перенесённых записей (0 — ничего не делали)."""
+    keep = LOG_KEEP_ENTRIES if keep is None else keep
+    limit_bytes = LOG_COMPACT_BYTES if limit_bytes is None else limit_bytes
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+    if len(text.encode("utf-8")) <= limit_bytes:
+        return 0
     heading = LOG_HEADING_RE.search(text)
-    return text[heading.end():] if heading else ""
-
-
-def mentions_since(log_raw: str, seen_len: int) -> set:
-    """@упоминания в тексте, добавленном в «## Лог» ПОСЛЕ первых `seen_len` символов раздела — считает
-    и заголовки `### <ISO> <автор>` (автор известен точно), и вольные строки без заголовка (автор
-    неизвестен). Самоупоминание/`dispatcher` исключаются только там, где автор строки известен (из
-    ближайшего предшествующего заголовка внутри этого же хвоста) — для безголовых строк исключение не
-    делаем: пропущенный сигнал дороже лишнего повтора (та же асимметрия цены ошибок, что и везде в
-    диспетчере)."""
-    tail = log_raw[max(0, seen_len):]
-    current_author = None
-    found = set()
-    for line in tail.splitlines():
-        m = HEADER_LINE_RE.match(line)
-        if m:
-            current_author = m.group(2).strip().lower()
-            continue
-        for role in MENTION_RE.findall(line):
-            role = role.lower()
-            if current_author is not None and (role == current_author or current_author == "dispatcher"):
-                continue
-            found.add(role)
-    return found
+    if not heading:
+        return 0
+    body = text[heading.end():]
+    starts = _entry_starts(body)
+    if len(starts) <= keep:
+        return 0
+    cut = starts[-keep] if keep > 0 else len(body)
+    old_part = _POINTER_LINE_RE.sub("", body[:cut]).strip("\n")  # прежний указатель в архив не уносим
+    if not old_part.strip():
+        return 0
+    moved = len([s for s in starts if s < cut])
+    archive = path.parent / ARCHIVE_DIRNAME / f"{path.stem}-log.md"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if archive.exists():
+        prev = archive.read_text(encoding="utf-8")
+    else:
+        prev = (f"# {path.stem} — архив лога\n\nЗаписи, перенесённые из `.claude/tickets/{path.stem}.md` "
+                "(старые сверху, текст дословно).\n")
+    if not prev.endswith("\n"):
+        prev += "\n"
+    atomic_write_text(archive, prev + "\n" + old_part + "\n")
+    pointer = (f"{ARCHIVE_POINTER_PREFIX} .claude/tickets/{ARCHIVE_DIRNAME}/{path.stem}-log.md — старые записи "
+               "(читать grep-ом, только если нужно).")
+    atomic_write_text(path, text[:heading.start()] + "## Лог\n\n" + pointer + "\n\n" + body[cut:])
+    return moved
 
 
 def parse_text(text: str, path: Path = None) -> Ticket:
@@ -235,7 +308,7 @@ def next_ticket_id(tickets_dir, prefix: str = "TK-") -> str:
 def create_ticket(tickets_dir, owner: str, title: str, reviewer: str = None,
                    description: str = "", wait_for: str = "", now: datetime = None,
                    prefix: str = "TK-", status: str = "todo", executor: str = None,
-                   kind: str = None) -> Path:
+                   kind: str = None, effort: str = None) -> Path:
     tickets_dir = Path(tickets_dir)
     tickets_dir.mkdir(parents=True, exist_ok=True)
     tid = next_ticket_id(tickets_dir, prefix)
@@ -246,6 +319,8 @@ def create_ticket(tickets_dir, owner: str, title: str, reviewer: str = None,
         lines.append(f"executor: {executor}")
     if kind:
         lines.append(f"kind: {kind}")
+    if effort:
+        lines.append(f"effort: {effort}")
     lines.append(f"wait_for: {wait_for}")
     lines.append(f"updated: {now_iso(now)}")
     text = "---\n" + "\n".join(lines) + "\n---\n\n"

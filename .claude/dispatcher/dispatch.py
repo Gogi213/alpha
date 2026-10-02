@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -37,8 +38,11 @@ CEO_WAKE_LOG = DISPATCHER_DIR / "ceo-wake.log"  # короткая копия к
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or r"C:\Users\Георгий\.local\bin\claude"
 PID_EXPECT_NAME = "claude"  # _pid_alive: подстрока имени образа процесса; тесты подменяют на "python"
 POLL_INTERVAL = float(os.environ.get("ALPHA_DISPATCH_INTERVAL", "15"))
-MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "2"))
-RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(40 * 60)))
+# v2 (02.10, аудит ролевой системы): всего параллельно ≤ 3 запусков и не больше ОДНОГО запуска на роль
+# (по всем тикетам сразу, см. _role_busy); таймаут запуска 20 мин (было 40 — фоновые помощники в `-p` висели
+# до убийства, а цена убитого запуска в учёте — $0).
+MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "3"))
+RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(20 * 60)))
 
 # Защита от петли и перерасхода (владелец 27.09, v1.1). MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S —
 # троттлинг решений (а)-(г): тикет просто пропускается этот тик, без ceo-inbox (не ошибка, а
@@ -54,7 +58,10 @@ DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 # В-153 (02.10): все роли — Sonnet 5.5 с усилием xhigh. Усилие переопределяемо через
 # ALPHA_DISPATCH_EFFORT=judge:xhigh,engineer:high (или одно значение — на все роли).
 CLAUDE_MODEL = os.environ.get("ALPHA_DISPATCH_MODEL", "claude-sonnet-5-5")
-ROLE_EFFORT = {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"}
+# v2 (02.10): усилие — по виду задачи (статья «spending your effort»): исследователь и инженер — high, Судья
+# (вердикт) — xhigh; на тикете переопределяется полем `effort: low|medium|high|xhigh` в шапке
+# (`tickets.py new --effort`), см. effort_for().
+ROLE_EFFORT = {"judge": "xhigh", "engineer": "high", "researcher": "high"}
 
 
 def _parse_role_map(spec: str, base: dict) -> dict:
@@ -108,6 +115,11 @@ HAIKU_ALLOWED_KINDS = {"file-move", "table-format", "publish"}
 # Потолок одного запуска (--max-budget-usd, встроенный флаг CLI) — min(остаток бюджета задачи, этот
 # потолок). Часовая скорость трат — скользящее окно 60 мин по ВСЕМ ролям сразу (не на роль/задачу).
 RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_RUN_CAP_USD", "8"))
+# v2: потолок запуска не ниже MIN_RUN_CAP_USD — крошечный остаток бюджета ($0,04) раньше уходил в
+# `--max-budget-usd` и убивал повтор на старте (TK-027, 02.10 04:04). Повтор — только при остатке бюджета
+# задачи ≥ MIN_RETRY_BUDGET_USD, иначе одна строка CEO.
+MIN_RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_MIN_RUN_CAP_USD", "3"))
+MIN_RETRY_BUDGET_USD = float(os.environ.get("ALPHA_DISPATCH_MIN_RETRY_BUDGET_USD", "1"))
 HOUR_COST_USD = float(os.environ.get("ALPHA_DISPATCH_HOUR_COST_USD", "15"))
 
 # Бюджет задачи (владелец 27.09, поправка: «запрещено добивать задачи до их бюджетов, раздувая
@@ -119,10 +131,11 @@ DEFAULT_TICKET_BUDGET_USD = BUDGET_PRESETS["M"]
 ROLE_KEYS = ("researcher", "engineer", "judge")  # роли, которых диспетчер запускает; ceo — человек/CEO-сессия
 
 # Область сессии на роль (владелец 27.09): "ticket" — сессия на (задача, роль), --resume в пределах
-# задачи (как раньше); "role" — одна долгая сессия роли на ВСЕ задачи (в промпте каждый раз названа
-# текущая задача); при "role" диспетчер не запускает вторую задачу этой роли, пока не закончена первая
-# (задачи роли — по очереди). Переопределяемо через ALPHA_DISPATCH_SESSION_SCOPE=judge:role,engineer:ticket.
-SESSION_SCOPE = {"judge": "role", "researcher": "ticket", "engineer": "ticket"}
+# задачи; "role" — одна долгая сессия роли на ВСЕ задачи (в промпте каждый раз названа текущая задача).
+# v2 (02.10): Судья тоже "ticket" — одна сессия на все задачи копила контекст чужих тикетов (аудит).
+# Не больше одного запуска на роль теперь действует всегда (_role_busy), а не только при "role".
+# Переопределяемо через ALPHA_DISPATCH_SESSION_SCOPE=judge:role,engineer:ticket.
+SESSION_SCOPE = {"judge": "ticket", "researcher": "ticket", "engineer": "ticket"}
 if os.environ.get("ALPHA_DISPATCH_SESSION_SCOPE"):
     for _pair in os.environ["ALPHA_DISPATCH_SESSION_SCOPE"].split(","):
         _role, _, _scope = _pair.partition(":")
@@ -132,18 +145,25 @@ if os.environ.get("ALPHA_DISPATCH_SESSION_SCOPE"):
 # Ротация долгой сессии: если контекст прошлого запуска (input + cache_read + cache_creation, по usage
 # из JSON-вывода claude) превысил это число токенов — следующий запуск роли начинает новую сессию (без
 # --resume) и получает в промпте напоминание перечитать блокнот и прежние решения по нужной задаче.
-ROTATE_TOKENS = int(os.environ.get("ALPHA_DISPATCH_ROTATE_TOKENS", "250000"))
+# v2: 250 000 → 120 000 — при окне Sonnet 200 тыс. прежний порог не срабатывал (TK-025: одна сессия $36).
+ROTATE_TOKENS = int(os.environ.get("ALPHA_DISPATCH_ROTATE_TOKENS", "120000"))
 
+# v2 (02.10): промпт без призыва @-упоминать роли — будит только явный `--next`; читать шапку, описание и
+# последние записи лога (старое — в archive/<ID>-log.md); никаких фоновых помощников/задач внутри сессии.
 PROMPT_TEMPLATE = (
     "Ты — {role} команды alpha. Устав: .claude/roles/{role}.md, блокнот: .claude/roles/notes/{role}.md. "
-    "Задача: .claude/tickets/{tid}.md. Лимит этого запуска — {timeout_min} мин; шаг длиннее — выноси в фон "
-    "(например systemd-run на Steam Deck) и ставь status: waiting + wait_for, не жди в сессии. Трать минимум: "
+    "Задача: .claude/tickets/{tid}.md — прочитай шапку, описание и последние записи «## Лог» (старые записи "
+    "лежат в .claude/tickets/archive/{tid}-log.md — grep только при необходимости). Лимит этого запуска — "
+    "{timeout_min} мин. Не запускай в сессии фоновых помощников и фоновых задач; долгая работа — systemd-run "
+    "на машинах (Steam Deck/VPS) + status: waiting + wait_for, и выйди, не жди в сессии. Трать минимум: "
     "самый короткий путь к результату задачи; траты каждого запуска записываются и сравниваются с "
-    "результатом. Сделай следующий шаг; запись в лог — командой "
+    "результатом. Сделай следующий шаг и запиши итог командой "
     "`python .claude/dispatcher/tickets.py comment {tid} --author {role} --text \"...\"` (что сделал, что "
-    "дальше) ДО истечения лимита — записанный частичный прогресс не провал, диспетчер продолжит с него сам; "
-    "обнови status/wait_for в шапке сама (не «todo», если работа не закончена — иначе задача просто "
-    "возьмётся в работу заново). Упоминай @роль, если нужен другой."
+    "дальше) ДО истечения лимита — запись с твоим заголовком обязательна, частичный прогресс не провал; "
+    "status/wait_for в шапке обнови сама (не «todo», если работа не закончена). Передать работу другой "
+    "роли — один раз `--next <researcher|engineer|judge>` в той же команде comment, без копий «для "
+    "сведения»; владелец после передачи ставит status: waiting (иначе его запустят снова). `--next ceo` — "
+    "только если задача заблокирована или нужно решение владельца. @упоминания в тексте никого не будят."
 )
 
 RUNNING = {}  # tid -> {role, popen, pid, started, attempt, run_file, err_file, out_fh, err_fh, reason}
@@ -192,7 +212,7 @@ def check_wait_for(spec: str) -> bool:
         return _deck_file_exists(spec[len("deck:"):].strip())
     if spec.startswith("ticket:"):
         return _other_ticket_done(spec[len("ticket:"):].strip())
-    return False  # "mention" и незнакомые формы — сами по себе не снимаются, см. правило (б)
+    return False  # незнакомые формы (в т.ч. старое `mention`) сами не снимаются — тикет ждёт явного `next`
 
 
 def _other_ticket_done(other_id: str) -> bool:
@@ -300,16 +320,19 @@ def route_ceo_signal(tid: str, kind: str, note: str, state: dict, now) -> None:
         flush_pending_summary(state, now)
 
 
-def handle_ceo_mentions(tkt: T.Ticket, state: dict, now) -> None:
-    notified = state.setdefault("ceo_mention_notified", {})
-    key = f"{tkt.id}::ceo"
-    cutoff = T.parse_dt(notified[key]) if key in notified else None
-    for entry in tkt.log:
-        if "ceo" in entry.mentions and (cutoff is None or entry.ts > cutoff):
-            first_line = (entry.text.splitlines() or [""])[0][:200]
-            append_ceo_inbox(tkt.id, "mention", f"{entry.author} → @ceo: {first_line}", now)
-            notified[key] = T.now_iso(now)
-            cutoff = T.parse_dt(notified[key])
+def _first_line(text: str, limit: int = 200) -> str:
+    return ((text or "").strip().splitlines() or [""])[0][:limit]
+
+
+def handle_next_ceo(path: Path, tkt: T.Ticket, state: dict, now) -> None:
+    """v2 (02.10): `next: ceo` в шапке (`tickets.py comment --next ceo`) — единственный способ позвать CEO
+    из записи лога; @ceo в тексте больше ничего не значит. Одна строка CEO, `next` очищается — повторов нет."""
+    if tkt.next_role != "ceo":
+        return
+    last = tkt.log[-1] if tkt.log else None
+    who = f"{last.author}: " if last else ""
+    append_ceo_inbox(tkt.id, "next-ceo", f"{who}{_first_line(last.text if last else '')}", now)
+    T.write_header_updates(path, {"next": ""}, now=now, stamp_updated=False)
 
 
 def notify_status_for_ceo(tkt: T.Ticket, state: dict, now) -> None:
@@ -334,18 +357,54 @@ def notify_parse_error(tid: str, err_text: str, state: dict, now) -> None:
     notified[tid] = err_text
 
 
-def notify_done_without_reviewer(tkt: T.Ticket, state: dict, now) -> None:
-    """Судья 27.09, п.6 «обязательно»: `done` без `reviewer` никого не уведомляет — тикет минует
-    проверку Судьи молча (вопреки «числа владельцу — после Судьи»). `tickets.py new` теперь ставит
-    `reviewer: judge` по умолчанию для researcher/engineer; здесь — сеть на случай явного отказа/старых
-    тикетов без reviewer вовсе."""
-    if tkt.status != "done" or tkt.reviewer in ROLE_KEYS:
+def _review_pending(tkt: T.Ticket) -> bool:
+    """done при заданном reviewer, но последняя запись лога не от ревьюера (и не dispatcher) — правило (г)
+    ещё запустит ревью: задача не закончена."""
+    if tkt.status != "done" or tkt.reviewer not in ROLE_KEYS:
+        return False
+    last_author = tkt.log[-1].author.lower() if tkt.log else None
+    return last_author not in (tkt.reviewer.lower(), "dispatcher")
+
+
+def _done_marker(tkt: T.Ticket) -> str:
+    return f"done@{tkt.header.get('updated', '')}"
+
+
+def baseline_done_notified(state: dict) -> None:
+    """Первый тик после перехода на v2: уже закрытые тикеты — «известные», иначе CEO получит по строке `done`
+    на каждый тикет истории. Ключ `ceo_done_notified` есть → ничего не делаем."""
+    if "ceo_done_notified" in state:
         return
-    notified = state.setdefault("ceo_no_reviewer_notified", {})
-    marker = f"done@{tkt.header.get('updated', '')}"
+    notified = state.setdefault("ceo_done_notified", {})
+    for path in T.list_tickets(TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+        except Exception:
+            continue
+        if tkt.status == "done":
+            notified[tkt.id] = _done_marker(tkt)
+
+
+def notify_done(tkt: T.Ticket, state: dict, now) -> None:
+    """v2 (02.10): `done` — одна строка CEO, когда работа реально закончена: ревьюера нет (теперь норма —
+    `tickets.py new` не ставит reviewer по умолчанию) либо ревью уже состоялось. Если ждёт ревью — молчим,
+    строка придёт после вердикта. Доля бюджета ≥ 80 % дописывается в ту же строку (раньше — отдельный
+    `budget-check`). Дедуп по (задача, `updated`)."""
+    if tkt.status != "done" or _review_pending(tkt):
+        return
+    notified = state.setdefault("ceo_done_notified", {})
+    marker = _done_marker(tkt)
     if notified.get(tkt.id) == marker:
         return
-    append_ceo_inbox(tkt.id, "no-reviewer", "done без reviewer — числа минуют проверку Судьи", now)
+    title = (tkt.header.get("title") or "")[:80]
+    last = tkt.log[-1] if tkt.log else None
+    tail = f" — {last.author}: {_first_line(last.text, 120)}" if last else ""
+    budget = ticket_budget_usd(state, tkt.id)
+    spent = ticket_cost_spent(state, tkt.id)
+    note = ""
+    if budget > 0 and spent / budget >= 0.8:
+        note = f" (потрачено {spent / budget:.0%} бюджета: ${spent:.2f} из ${budget:.2f} — проверить соразмерность)"
+    append_ceo_inbox(tkt.id, "done", f"{title}{tail}{note}", now)
     notified[tkt.id] = marker
 
 
@@ -366,21 +425,25 @@ def haiku_refused_reason(tkt: T.Ticket) -> str:
 
 # --- решение --------------------------------------------------------------------------------
 
+# Приоритет кандидатов на запуск (tick): явный `next` — раньше статусных правил; продолжение in_progress —
+# последним. Внутри одного приоритета — кто дольше не запускался (иначе тикет с in_progress-resume
+# вытеснял бы остальные: на роль теперь один запуск).
+REASON_PRIORITY = {"next": 0, "in_progress-resume": 2}
+
+
 def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
-    tid = tkt.id
+    """Кого будить по тикету. v2 (02.10): @упоминания в тексте больше не будят (аудит: 77 % запусков и 67 %
+    денег — запуски по упоминаниям, в том числе «для сведения» и на статусе waiting). Будят: явное поле
+    `next:` (пишет `tickets.py comment --next`), `todo` → владелец, `in_progress` → владелец (продолжить),
+    `waiting` с выполненным `wait_for` → владелец, `done` с `reviewer` → ревьюер. `waiting` без `wait_for`
+    молчит всегда — только явный `next`. `next: ceo` — не запуск роли (см. handle_next_ceo)."""
     if tkt.status == "backlog":
         return None  # перенесено из TASKS.md, ещё не в работе — диспетчер не трогает; см. `tickets.py start`
-    sessions = state.setdefault("sessions", {})
 
-    # (б) новая запись лога с @роль после последнего запуска этой роли по задаче — по РОСТУ сырого
-    # текста секции «## Лог» (T.mentions_since), не по разбору заголовков `### <ISO> <автор>`: роли
-    # пишут по-разному (CEO 27.09, TK-005 — «- 27.09 ~23:50 (инженер, запуск 1) …» без заголовка).
-    # Самоупоминание/`dispatcher`-автор исключаются там, где автор известен (см. mentions_since);
-    # cутки без заголовка — упоминание не исключается (асимметрия цены ошибок).
-    for role in ROLE_KEYS:
-        seen_len = sessions.get(f"{tid}::{role}", {}).get("log_len_at_launch", 0)
-        if role in T.mentions_since(tkt.log_raw, seen_len):
-            return Decision(role=role, reason="mention")
+    # (0) явная передача: `next: <роль>` — один запуск этой роли, поле очищается при запуске (tick)
+    nxt = tkt.next_role
+    if nxt in ROLE_KEYS:
+        return Decision(role=nxt, reason="next", header_updates={"next": ""})
 
     status = tkt.status
     owner = tkt.owner
@@ -406,7 +469,7 @@ def decide(tkt: T.Ticket, state: dict, now) -> "Decision | None":
     # уже от самого ревьюера (или dispatcher): это штатный конец состоявшегося ревью, не новый раунд.
     # Раньше проверялось по updated-таймстампу — тот становится новее записи ревьюера, стоит роли
     # проставить status ПОСЛЕ append_log, и (г) будило ревьюера повторно за его же вердикт (судья
-    # 27.09, п.3 «обязательно»; при SESSION_SCOPE="role" это занимало единственную сессию судьи).
+    # 27.09, п.3 «обязательно»).
     if status == "done" and tkt.reviewer in ROLE_KEYS:
         reviewer = tkt.reviewer
         last_author = tkt.log[-1].author.lower() if tkt.log else None
@@ -457,9 +520,9 @@ def _context_tokens_last(result: dict) -> int:
 
 
 def _role_busy(role: str) -> bool:
-    """При scope="role" — идёт ли уже где-то (на другой задаче) единственная сессия этой роли."""
-    if SESSION_SCOPE.get(role, "ticket") != "role":
-        return False
+    """v2 (02.10): не больше ОДНОГО активного запуска на роль по всем тикетам сразу (раньше — только при
+    scope="role"; аудит: одну задачу вели три сессии Исследователя, до 6 запусков параллельно). Занята —
+    запуск ждёт следующего тика."""
     return any(info["role"] == role for info in RUNNING.values())
 
 
@@ -540,36 +603,37 @@ def ticket_budget_exceeded(state: dict, tid: str) -> bool:
     return ticket_cost_spent(state, tid) >= ticket_budget_usd(state, tid)
 
 
-def notify_ticket_budget_exceeded(path: Path, tid: str, state: dict, now) -> None:
-    """п.2: бюджет задачи исчерпан → новые запуски не стартуют, status: needs_owner, строка CEO."""
+def notify_ticket_budget_exceeded(tid: str, state: dict, now) -> None:
+    """п.2: бюджет задачи исчерпан → новые запуски не стартуют + ОДНА строка CEO. v2 (02.10): статус тикета
+    не меняется (раньше needs_owner — «блокировка» чужой работы за расход); повторная строка — только если
+    бюджет подняли и он исчерпан снова (ключ — значение бюджета)."""
     if not ticket_budget_exceeded(state, tid):
         return
     notified = state.setdefault("ceo_ticket_budget_notified", {})
-    if tid in notified:
+    budget = ticket_budget_usd(state, tid)
+    prev = notified.get(tid)
+    if prev is True:  # старый формат (до v2): «уже сообщали» — считаем, что про текущий бюджет
+        notified[tid] = budget
+        return
+    if prev == budget:
         return
     spent = ticket_cost_spent(state, tid)
-    budget = ticket_budget_usd(state, tid)
-    T.write_header_updates(path, {"status": "needs_owner"}, now=now)
-    append_ceo_inbox(tid, "budget", f"бюджет задачи исчерпан: потрачено ${spent:.2f} из ${budget:.2f}", now)
-    notified[tid] = True
+    append_ceo_inbox(tid, "budget", f"бюджет задачи исчерпан: потрачено ${spent:.2f} из ${budget:.2f} — "
+                                     "новые запуски стоят; поднять — `tickets.py budget`", now)
+    notified[tid] = budget
 
 
-def notify_budget_proportionality(tid: str, state: dict, now) -> None:
-    """Поправка владельца 27.09: при закрытии задачи (status: done) — если потрачено ≥ 80% бюджета,
-    строка CEO «проверить соразмерность» (один раз на первое достижение done)."""
-    notified = state.setdefault("ceo_budget_proportionality_notified", {})
-    if tid in notified:
-        return
-    notified[tid] = True
+def notify_retry_skipped_low_budget(tid: str, state: dict, now) -> None:
+    """Повтор не запущен: остаток бюджета задачи < MIN_RETRY_BUDGET_USD — одна строка CEO вместо повтора."""
+    notified = state.setdefault("ceo_low_budget_notified", {})
     budget = ticket_budget_usd(state, tid)
-    if budget <= 0:
+    if notified.get(tid) == budget:
         return
-    frac = ticket_cost_spent(state, tid) / budget
-    if frac >= 0.8:
-        spent = ticket_cost_spent(state, tid)
-        append_ceo_inbox(tid, "budget-check",
-                          f"закрыта на {frac:.0%} бюджета (${spent:.2f} из ${budget:.2f}) — проверить соразмерность",
-                          now)
+    remaining = max(0.0, budget - ticket_cost_spent(state, tid))
+    append_ceo_inbox(tid, "budget", f"повтор не запущен: остаток бюджета ${remaining:.2f} < "
+                                     f"${MIN_RETRY_BUDGET_USD:.2f} (потрачено ${ticket_cost_spent(state, tid):.2f} "
+                                     f"из ${budget:.2f})", now)
+    notified[tid] = budget
 
 
 def _record_cost_event(state: dict, now, cost) -> None:
@@ -750,6 +814,21 @@ def _popen(cmd, **kwargs):
     return subprocess.Popen(cmd, **kwargs)
 
 
+def effort_for(role: str, tkt=None) -> str:
+    """v2: усилие запуска — поле `effort:` тикета, иначе умолчание роли (ROLE_EFFORT: исследователь/инженер
+    high, Судья xhigh; env ALPHA_DISPATCH_EFFORT переопределяет умолчания ролей, не поле тикета)."""
+    if tkt is not None and getattr(tkt, "effort", ""):
+        return tkt.effort
+    return ROLE_EFFORT.get(role, "high")
+
+
+def run_cap_for(state: dict, tid: str) -> float:
+    """v2: потолок одного запуска = min(остаток бюджета, RUN_CAP_USD), но не ниже MIN_RUN_CAP_USD ($3):
+    крошечный остаток ($0,04) не передаём в `--max-budget-usd` (запуск умирал на старте)."""
+    remaining = max(0.0, ticket_budget_usd(state, tid) - ticket_cost_spent(state, tid))
+    return max(MIN_RUN_CAP_USD, min(remaining, RUN_CAP_USD))
+
+
 def build_prompt(role: str, tid: str, extra_note: str = None) -> str:
     prompt = PROMPT_TEMPLATE.format(role=role, tid=tid, timeout_min=int(RUN_TIMEOUT // 60))
     if extra_note:
@@ -776,21 +855,26 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
                         f"docs/research/reviews/ по нужной задаче.")
         extra_note = " ".join(x for x in (extra_note, rotate_note) if x)
 
+    if reason == "next":
+        next_note = ("Запуск по явной передаче (`--next`): прочитай последнюю запись лога, сделай "
+                     "запрошенное и запиши итог.")
+        extra_note = " ".join(x for x in (extra_note, next_note) if x)
     prompt = build_prompt(role, tid, extra_note)
-    remaining_budget = max(0.0, ticket_budget_usd(state, tid) - ticket_cost_spent(state, tid))
-    run_cap = min(remaining_budget, RUN_CAP_USD)
+    run_cap = run_cap_for(state, tid)
     try:
         launch_tkt = T.read_ticket(ticket_path)
         status_at_launch = launch_tkt.status
         executor = launch_tkt.executor
-        log_len_at_launch = len(launch_tkt.log_raw)
+        effort = effort_for(role, launch_tkt)
+        # v2: «роль оставила запись» — новый заголовок записи ЭТОЙ роли (ключи на старте), а не рост лога
+        log_keys_at_launch = T.role_entry_keys(launch_tkt, role)
     except Exception:
-        status_at_launch, executor, log_len_at_launch = None, "", 0
+        status_at_launch, executor, effort, log_keys_at_launch = None, "", effort_for(role), []
     # executor: haiku (судья TK-002 п.5) — заведомо проверенный на whitelist/обход тикетом (tickets.py
     # new и haiku_refused_reason() в tick()); здесь только сама подмена модели.
     model = CLAUDE_HAIKU_MODEL if executor == "haiku" else ROLE_MODEL.get(role, CLAUDE_MODEL)
     cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions",
-           "--model", model, "--effort", ROLE_EFFORT.get(role, "high"),
+           "--model", model, "--effort", effort,
            "--max-budget-usd", f"{run_cap:.2f}"]
     if sid:
         cmd += ["--resume", sid]
@@ -812,20 +896,19 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
         "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
-        "log_len_at_launch": log_len_at_launch,
+        "log_keys_at_launch": log_keys_at_launch, "effort": effort,
     }
-    # last_woken/log_len_at_launch — для дедупа правила (б) «упоминание» (T.mentions_since — по росту
-    # текста секции, не по заголовкам); всегда на (задачу, роль), не зависит от SESSION_SCOPE
+    # last_woken — приоритет очереди запусков внутри роли (кто дольше не запускался — тот первый, см. tick);
+    # всегда на (задачу, роль), не зависит от SESSION_SCOPE
     sess_entry = state.setdefault("sessions", {}).setdefault(f"{tid}::{role}", {})
     sess_entry["last_woken"] = T.now_iso(now)
-    sess_entry["log_len_at_launch"] = log_len_at_launch
     _record_launch(state, tid, now)
     # зеркало в state.json (pid, задача, роль, старт) — переживает перезапуск диспетчера (recover_active_runs)
     state.setdefault("active_runs", {})[tid] = {
         "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
         "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
         "run_cap_usd": run_cap, "status_at_launch": status_at_launch, "executor": executor,
-        "log_len_at_launch": log_len_at_launch,
+        "log_keys_at_launch": log_keys_at_launch, "effort": effort,
     }
     save_state(state)
 
@@ -855,6 +938,116 @@ def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool, r
             f"ctx_last={_context_tokens_last(result)} ctx_sum={_context_tokens_sum(usage)} status={status}\n")
     with open(RUNS_LOG, "a", encoding="utf-8") as fh:
         fh.write(line)
+
+
+def _role_logged(tkt: T.Ticket, role: str, info: dict) -> bool:
+    """v2 (02.10): роль оставила НОВУЮ запись лога — заголовок `### <ts> <роль>`, которого не было на старте
+    запуска (`log_keys_at_launch`). Не «лог вырос»: запись CEO/dispatcher/другой роли не считается, правка
+    текста тоже; от компакции лога (смещений) не зависит. Запуск из старого state.json без снимка ключей
+    (диспетчер перезапущен посреди запуска) — запасной путь: запись этой роли с временем не раньше старта."""
+    keys = T.role_entry_keys(tkt, role)
+    before = info.get("log_keys_at_launch")
+    if before is not None:
+        return bool(Counter(keys) - Counter(before))  # Counter: две одинаковые записи в одну секунду — две
+    started = info.get("started")
+    if started is None:
+        return bool(keys)
+    return any(e.ts >= started for e in tkt.log if T.author_is(e.author, role))
+
+
+def _block_ticket(path: Path, tid: str, role: str, why: str, state: dict, now, log_text: str) -> None:
+    T.write_header_updates(path, {"status": "blocked"}, now=now)
+    # роль без "@" намеренно: @упоминания никого не будят (v2), а запись dispatcher не должна выглядеть
+    # просьбой к роли
+    T.append_log(path, "dispatcher", log_text, now=now)
+    append_ceo_inbox(tid, "blocked", f"{role}: {why}", now)
+
+
+def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, resolved_cost: float,
+                      result: dict) -> None:
+    """Что делать с тикетом после запуска (деньги/модель уже учтены в _finish_run)."""
+    role = info["role"]
+    key = f"{tid}::{role}"
+    sess = state.setdefault("sessions", {}).setdefault(key, {})  # retries — всегда на (задачу, роль)
+    store = _resume_store(state, tid, role)  # session_id/токены — по SESSION_SCOPE[role]
+    if result.get("session_id"):
+        store["session_id"] = result["session_id"]
+    store["last_context_tokens"] = _context_tokens_last(result)  # контекст последнего хода, не сумма по ходам
+
+    path = TICKETS_DIR / f"{tid}.md"
+    if not path.exists():
+        save_state(state)
+        return
+    tkt = T.read_ticket(path)
+
+    # v2 (02.10): провалом считается только запуск ВЛАДЕЛЬЦА задачи без новой записи. Ревьюер/адресат
+    # `--next` без записи — не провал и тикет не блокирует (раньше «дважды без записи» блокировало задачу
+    # владельца из-за чужого холостого запуска — TK-027 04:04).
+    if role != tkt.owner:
+        sess["retries"] = 0
+        save_state(state)
+        return
+
+    # Судья 27.09, п.7: таймаут сам по себе — не провал, если роль успела записать прогресс до убийства.
+    logged = _role_logged(tkt, role, info)
+    stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
+    status_changed = tkt.status != info.get("status_at_launch")
+
+    # Холостой ход (п.5, владелец 27.09): запуск стоил дороже половины бюджета задачи и не оставил ни
+    # записи, ни смены статуса — сразу blocked, без обычного одного повтора (повтор может сжечь ещё
+    # половину бюджета так же безрезультатно).
+    budget = ticket_budget_usd(state, tid)
+    if (not logged) and (not status_changed) and budget > 0 and resolved_cost > 0.5 * budget:
+        _block_ticket(path, tid, role, f"холостой ход, ${resolved_cost:.2f} без результата", state, now,
+                      f"Запуск роли {role} стоил ${resolved_cost:.2f} (> половины бюджета задачи) и не "
+                      "оставил ни записи, ни смены статуса — холостой ход, задача заблокирована, нужен CEO.")
+        sess["retries"] = 0
+        save_state(state)
+        return
+
+    if logged and not stuck_todo:
+        sess["retries"] = 0
+        save_state(state)
+        return
+
+    # (д) запуск владельца завершился без пригодного результата — один повтор, затем blocked
+    if info.get("attempt", 0) < 1:
+        if not logged:
+            note = ("Предыдущий запуск не оставил новую запись в «## Лог» — обязательно допиши итог "
+                    "командой tickets.py comment и обнови status." if not timed_out else
+                    "Предыдущий запуск не уложился в таймаут — сократи шаг и обязательно запиши итог.")
+        else:
+            note = ("Запись в «## Лог» есть, но status остался todo — обязательно смени статус (например "
+                    "in_progress/waiting/done), иначе задача возьмётся в работу заново.")
+        if _daily_budget_exceeded(state, now):
+            _notify_budget_once(state, now)
+            append_ceo_inbox(tid, "budget", "повтор отложен — суточный потолок стоимости достигнут", now)
+            save_state(state)
+            return
+        if _hour_budget_exceeded(state, now):
+            append_ceo_inbox(tid, "hour-budget", "повтор отложен — часовая скорость трат исчерпана", now)
+            save_state(state)
+            return
+        # v2: остаток бюджета задачи < MIN_RETRY_BUDGET_USD — повтор не запускаем (раньше получал потолок
+        # в центы и умирал на старте), одна строка CEO; бюджет исчерпан совсем — своя строка (один раз)
+        if ticket_budget_exceeded(state, tid):
+            notify_ticket_budget_exceeded(tid, state, now)
+            save_state(state)
+            return
+        if budget - ticket_cost_spent(state, tid) < MIN_RETRY_BUDGET_USD:
+            notify_retry_skipped_low_budget(tid, state, now)
+            save_state(state)
+            return
+        launch_run(path, role, state, now, reason="retry", attempt=info.get("attempt", 0) + 1, extra_note=note)
+        sess["retries"] = sess.get("retries", 0) + 1
+    else:
+        why = ("статус остался todo дважды подряд" if stuck_todo else
+               "дважды не уложился в таймаут" if timed_out else
+               "дважды не оставил запись в «## Лог»")
+        _block_ticket(path, tid, role, why, state, now,
+                      f"Запуск роли {role} — {why} — задача заблокирована, нужен CEO.")
+        sess["retries"] = 0
+    save_state(state)
 
 
 def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None:
@@ -887,86 +1080,7 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool) -> None
     if model_warn:
         route_ceo_signal(tid, "model", model_warn, state, now)
 
-    role = info["role"]
-    key = f"{tid}::{role}"
-    sess = state.setdefault("sessions", {}).setdefault(key, {})  # retries — всегда на (задачу, роль)
-    store = _resume_store(state, tid, role)  # session_id/токены — по SESSION_SCOPE[role]
-    if result.get("session_id"):
-        store["session_id"] = result["session_id"]
-    store["last_context_tokens"] = _context_tokens_last(result)  # контекст последнего хода, не сумма по ходам
-
-    path = TICKETS_DIR / f"{tid}.md"
-    if not path.exists():
-        save_state(state)
-        return
-    tkt = T.read_ticket(path)
-    # Судья 27.09, п.7 «обязательно»: таймаут сам по себе — не провал, если роль успела записать
-    # прогресс до убийства процесса (RUN_TIMEOUT назван в промпте — роль знает лимит шага). Раньше
-    # `logged` форсировалось в False при timed_out=True независимо от факта записи.
-    # CEO 27.09, TK-005: «есть запись» — это РОСТ секции «## Лог» (длина текста после launch), не
-    # наличие заголовка `### <ISO> <автор>` — роли пишут по-разному (без заголовка, TK-005 ложный
-    # blocked дважды подряд, b0b63cb/e657090). Секция — «допиши», не «перепиши»: рост length — точный
-    # признак записи независимо от формата строки.
-    logged = len(tkt.log_raw) > info.get("log_len_at_launch", 0)
-    stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
-    status_changed = tkt.status != info.get("status_at_launch")
-
-    # Холостой ход (п.5, владелец 27.09): запуск стоил дороже половины бюджета задачи и не оставил ни
-    # записи, ни смены статуса — сразу blocked, без обычного одного повтора (повтор может сжечь
-    # ещё половину бюджета так же безрезультатно).
-    budget = ticket_budget_usd(state, tid)
-    if (not logged) and (not status_changed) and budget > 0 and resolved_cost > 0.5 * budget:
-        T.write_header_updates(path, {"status": "blocked"}, now=now)
-        T.append_log(path, "dispatcher",
-                     f"Запуск роли {role} стоил ${resolved_cost:.2f} (> половины бюджета задачи) и не "
-                     "оставил ни записи, ни смены статуса — холостой ход, задача заблокирована, нужен @ceo.",
-                     now=now)
-        sess["retries"] = 0
-        append_ceo_inbox(tid, "blocked", f"{role}: холостой ход, ${resolved_cost:.2f} без результата", now)
-        save_state(state)
-        return
-
-    if logged and not stuck_todo:
-        sess["retries"] = 0
-        save_state(state)
-        return
-
-    # (д) запуск завершился без пригодного результата — один повтор, затем blocked
-    if info.get("attempt", 0) < 1:
-        if not logged:
-            note = ("Предыдущий запуск не оставил новую запись в «## Лог» — обязательно допиши итог и "
-                    "обнови status." if not timed_out else
-                    "Предыдущий запуск не уложился в таймаут — сократи шаг и обязательно запиши итог.")
-        else:
-            note = ("Запись в «## Лог» есть, но status остался todo — обязательно смени статус (например "
-                    "in_progress/waiting/done), иначе задача возьмётся в работу заново.")
-        if _daily_budget_exceeded(state, now):
-            _notify_budget_once(state, now)
-            append_ceo_inbox(tid, "budget", "повтор отложен — суточный потолок стоимости достигнут", now)
-            save_state(state)
-            return
-        if _hour_budget_exceeded(state, now):
-            append_ceo_inbox(tid, "hour-budget", "повтор отложен — часовая скорость трат исчерпана", now)
-            save_state(state)
-            return
-        if ticket_budget_exceeded(state, tid):
-            notify_ticket_budget_exceeded(path, tid, state, now)
-            save_state(state)
-            return
-        launch_run(path, role, state, now, reason="retry", attempt=info.get("attempt", 0) + 1, extra_note=note)
-        sess["retries"] = sess.get("retries", 0) + 1
-    else:
-        why = ("статус остался todo дважды подряд" if stuck_todo else
-               "дважды не уложился в таймаут" if timed_out else
-               "дважды не оставил запись в «## Лог»")
-        T.write_header_updates(path, {"status": "blocked"}, now=now)
-        # роль без "@" намеренно (судья 27.09, п.1 «обязательно», защита №2 сверх исключения
-        # author=="dispatcher" в decide(): своя запись не должна выглядеть упоминанием роли)
-        T.append_log(path, "dispatcher",
-                     f"Запуск роли {role} — {why} — задача заблокирована, нужен @ceo.", now=now)
-        sess["retries"] = 0
-        append_ceo_inbox(tid, "blocked", f"{role}: {why}", now)
-    save_state(state)
+    _finish_role_part(tid, info, state, now, timed_out, resolved_cost, result)
 
 
 def _poll_running(state: dict, now) -> None:
@@ -982,50 +1096,12 @@ def _poll_running(state: dict, now) -> None:
         _finish_run(tid, info, state, now, timed_out=False)
 
 
-def migrate_log_len_at_launch(state: dict) -> int:
-    """Миграция схемы (CEO 28.09, перед загрузкой bf121da): у сессий/активных запусков, заведённых
-    старым диспетчером (схема `last_woken`, без `log_len_at_launch`), проставить ТЕКУЩУЮ длину
-    «## Лог» — старое считается увиденным. Без этого decide() строка `sessions.get(...).get(
-    "log_len_at_launch", 0)` берёт 0, и правило (б) на первом тике после перезапуска будит все роли
-    на ВСЕ исторические @упоминания в открытых тикетах (T-38, TK-001…TK-007 — холостые запуски).
-    Вызывается КАЖДЫЙ тик (не только сразу после рестарта): дёшево (нет пропусков — рано выходит,
-    если мигрировать нечего) и идемпотентно — после миграции поле есть у всех, повторный вызов
-    ничего не делает. Возвращает число мигрированных записей (для лога при желании)."""
-    sessions = state.get("sessions", {})
-    active_runs = state.get("active_runs", {})
-    missing_tids = {key.split("::", 1)[0] for key, info in sessions.items()
-                    if "log_len_at_launch" not in info}
-    missing_tids |= {tid for tid, info in active_runs.items() if "log_len_at_launch" not in info}
-    if not missing_tids:
-        return 0
-    log_lens = {}
-    for path in T.list_tickets(TICKETS_DIR):
-        try:
-            tkt = T.read_ticket(path)
-        except Exception:
-            continue
-        if tkt.id in missing_tids:
-            log_lens[tkt.id] = len(tkt.log_raw)
-    migrated = 0
-    for key, info in sessions.items():
-        if "log_len_at_launch" in info:
-            continue
-        tid = key.split("::", 1)[0]
-        if tid in log_lens:
-            info["log_len_at_launch"] = log_lens[tid]
-            migrated += 1
-    for tid, info in active_runs.items():
-        if "log_len_at_launch" in info or tid not in log_lens:
-            continue
-        info["log_len_at_launch"] = log_lens[tid]
-        migrated += 1
-    return migrated
-
-
 def recover_active_runs(state: dict, now) -> None:
     """После перезапуска диспетчера — подхватить зеркало state.json["active_runs"]: живой pid не
     запускаем повторно (просто продолжаем отслеживать по pid), уже закончившийся — обрабатываем как
-    обычное завершение прогона (лог/ретрай/blocked), раз диспетчер это пропустил, пока не работал."""
+    обычное завершение прогона (лог/ретрай/blocked), раз диспетчер это пропустил, пока не работал.
+    Зеркало от диспетчера до v2 снимка `log_keys_at_launch` не содержит — тогда «новая запись» ищется
+    по времени старта (см. _role_logged)."""
     for tid, saved in list(state.get("active_runs", {}).items()):
         if tid in RUNNING:
             continue  # уже отслеживаем в этом процессе (это не перезапуск)
@@ -1035,7 +1111,8 @@ def recover_active_runs(state: dict, now) -> None:
             "run_file": Path(saved["run_file"]), "err_file": Path(saved.get("err_file") or ""),
             "out_fh": None, "err_fh": None, "reason": saved.get("reason", "recovered"),
             "run_cap_usd": saved.get("run_cap_usd", 0.0), "status_at_launch": saved.get("status_at_launch"),
-            "executor": saved.get("executor", ""), "log_len_at_launch": saved.get("log_len_at_launch", 0),
+            "executor": saved.get("executor", ""), "log_keys_at_launch": saved.get("log_keys_at_launch"),
+            "effort": saved.get("effort", ""),
         }
         if _pid_alive(saved.get("pid")):
             RUNNING[tid] = info
@@ -1046,12 +1123,24 @@ def recover_active_runs(state: dict, now) -> None:
 
 # --- тик / цикл -------------------------------------------------------------------------------
 
+def _apply_header_updates(path: Path, updates: dict, now) -> None:
+    """Правка шапки перед запуском; одно лишь очищение `next` поле `updated` не двигает (иначе у blocked/
+    needs_owner менялся бы маркер уведомления CEO)."""
+    only_next = set(updates) <= {"next"}
+    T.write_header_updates(path, updates, now=now, stamp_updated=not only_next)
+
+
+def _candidate_sort_key(state: dict, tkt: T.Ticket, decision: Decision):
+    last = state.get("sessions", {}).get(f"{tkt.id}::{decision.role}", {}).get("last_woken") or ""
+    return (REASON_PRIORITY.get(decision.reason, 1), last, tkt.id)
+
+
 def tick(now=None) -> int:
     now = now or datetime.now().astimezone()
     state = load_state()
-    migrate_log_len_at_launch(state)  # схема до v1.5 (last_woken) — старое считается увиденным, см. докстринг
     recover_active_runs(state, now)  # диспетчер мог перезапуститься — живые/умершие прогоны из state.json
     _poll_running(state, now)
+    baseline_done_notified(state)  # v2: историю `done` CEO не пересказываем (один раз, ключ в state.json)
     save_state(state)
 
     budget_exceeded = _daily_budget_exceeded(state, now)
@@ -1059,7 +1148,7 @@ def tick(now=None) -> int:
         _notify_budget_once(state, now)
     hour_exceeded = _notify_hour_budget(state, now)  # скорость трат по ВСЕМ ролям — п.4
 
-    launched = 0
+    candidates = []  # (path, ticket, decision) — кого можно запустить; порядок и лимиты — ниже
     for path in T.list_tickets(TICKETS_DIR):
         try:
             tkt = T.read_ticket(path)
@@ -1067,18 +1156,18 @@ def tick(now=None) -> int:
             notify_parse_error(path.stem, f"{type(e).__name__}: {e}", state, now)
             continue
 
-        handle_ceo_mentions(tkt, state, now)
+        # CEO получает строку только по: `next: ceo`, blocked/needs_owner, done, исчерпанию бюджета.
+        # @ceo (и любые @упоминания) в тексте записей — просто текст.
+        handle_next_ceo(path, tkt, state, now)
         notify_status_for_ceo(tkt, state, now)
-        notify_done_without_reviewer(tkt, state, now)
-        if tkt.status == "done":
-            notify_budget_proportionality(tkt.id, state, now)
+        notify_done(tkt, state, now)
 
         tid = tkt.id
         ticket_over_budget = ticket_budget_exceeded(state, tid)
         if ticket_over_budget:
-            notify_ticket_budget_exceeded(path, tid, state, now)  # п.2: needs_owner + строка CEO
+            notify_ticket_budget_exceeded(tid, state, now)  # одна строка CEO; статус тикета не трогаем
 
-        if tid in RUNNING or len(RUNNING) >= MAX_PARALLEL:
+        if tid in RUNNING:
             continue
         decision = decide(tkt, state, now)
         if decision is None:
@@ -1086,17 +1175,24 @@ def tick(now=None) -> int:
         haiku_reason = haiku_refused_reason(tkt)
         if haiku_reason:
             T.write_header_updates(path, {"status": "blocked"}, now=now)
-            T.append_log(path, "dispatcher", f"{haiku_reason} — задача заблокирована, нужен @ceo.", now=now)
+            T.append_log(path, "dispatcher", f"{haiku_reason} — задача заблокирована, нужен CEO.", now=now)
             route_ceo_signal(tid, "blocked", haiku_reason, state, now)
             continue
         if budget_exceeded or hour_exceeded or ticket_over_budget:
             continue  # суточный/часовой потолок или бюджет задачи — новые запуски не стартуют
+        candidates.append((path, tkt, decision))
+
+    launched = 0
+    for path, tkt, decision in sorted(candidates, key=lambda c: _candidate_sort_key(state, c[1], c[2])):
+        tid = tkt.id
+        if len(RUNNING) >= MAX_PARALLEL:
+            break
         if _role_busy(decision.role):
-            continue  # SESSION_SCOPE="role": у роли уже идёт другая задача — своей очереди ждём
+            continue  # у роли уже идёт запуск (на любой задаче) — ждёт следующего тика
         if _rate_limited(state, tid, now):
             continue  # MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S — пауза, не ошибка; попробуем следующим тиком
         if decision.header_updates:
-            T.write_header_updates(path, decision.header_updates, now=now)
+            _apply_header_updates(path, decision.header_updates, now)
         launch_run(path, decision.role, state, now, reason=decision.reason)
         launched += 1
 
@@ -1105,14 +1201,25 @@ def tick(now=None) -> int:
     return launched
 
 
+USAGE = """Диспетчер задач alpha (v2, 02.10).
+  python .claude/dispatcher/dispatch.py          # цикл раз в ALPHA_DISPATCH_INTERVAL (15 с) — БОЕВОЙ запуск
+  python .claude/dispatcher/dispatch.py --once   # один тик (тоже боевой: может запустить роли)
+  python .claude/dispatcher/dispatch.py --help   # эта справка (ничего не запускает)
+Правила — .claude/dispatcher/README.md (раздел «v2»)."""
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if "--help" in argv or "-h" in argv:  # раньше любой аргумент запускал боевой цикл
+        print(USAGE)
+        return 0
     TICKETS_DIR.mkdir(parents=True, exist_ok=True)
     if "--once" in argv:
         n = tick()
         print(f"[dispatch] once: launched={n} running={len(RUNNING)}")
         return 0
-    print(f"[dispatch] loop every {POLL_INTERVAL}s, MAX_PARALLEL={MAX_PARALLEL}, CLAUDE_BIN={CLAUDE_BIN}")
+    print(f"[dispatch] v2 loop every {POLL_INTERVAL}s, MAX_PARALLEL={MAX_PARALLEL}, run timeout "
+          f"{RUN_TIMEOUT / 60:.0f} min, CLAUDE_BIN={CLAUDE_BIN}")
     while True:
         try:
             tick()

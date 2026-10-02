@@ -6,6 +6,13 @@ WATCH_DEDUP_REPEAT_HOURS, пока проблема не снята (п.2г). П
 при находке; сердцебиение (`watch-heartbeat.json`) обновляется каждый цикл независимо от находок —
 его возраст проверяет хук `role_memory.py` (кто сторожит сторожа, п.2а).
 
+v2 (02.10, аудит ролевой системы — «сторож: тревога с меткой времени в подписи → повтор каждые 10 мин»):
+тревоги Steam Deck сравниваются по нормализованной сигнатуре (без ISO-времён, кусков вроде `T23:`, времён
+суток и счётчиков «всего разборов N») и сообщаются один раз, пока тревога не исчезнет или не изменится по
+сути (напоминание — раз в WATCH_LONG_REPEAT_HOURS); известные тревоги не «забываются» после цикла с
+ошибкой ssh; таймаут проверки HOLD не превращает ожидаемый простой в тревогу; budget/orphan по закрытым
+(done/cancelled) тикетам молчат, по открытым повторяются не чаще раза в сутки.
+
 Запуск: python .claude/dispatcher/watch.py --once   (для крона/планировщика Windows)
         python .claude/dispatcher/watch.py           (цикл раз в WATCH_INTERVAL_S)
 """
@@ -31,6 +38,11 @@ WATCH_STATE_FILE = DISPATCHER_DIR / "watch-state.json"
 
 WATCH_INTERVAL_S = float(os.environ.get("ALPHA_WATCH_INTERVAL", "120"))
 WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2"))
+# v2: виды находок, которые повторяются не чаще раза в сутки (или пока не изменятся по сути); blocked/needs_owner
+# диспетчер уже сообщил один раз (`ceo-inbox`), сторож лишь страхует — раз в сутки
+WATCH_LONG_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_LONG_REPEAT_HOURS", "24"))
+WATCH_LONG_REPEAT_KINDS = {"budget-watch", "orphan-ticket", "deck-alert", "deck-idle-expected", "blocked", "needs_owner"}
+CLOSED_TICKET_STATUSES = ("done", "cancelled")
 DISPATCH_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DISPATCH_STALE_MIN", "5"))
 ORPHAN_TICKET_HOURS = float(os.environ.get("ALPHA_WATCH_ORPHAN_HOURS", "2"))
 # TK-016: 30 → 10 мин (простой 28.09 07:22–08:31 — очередь стояла 69 мин незамеченной)
@@ -63,6 +75,15 @@ def check_dispatcher_alive(state: dict, now, started_at=None) -> list:
     return []
 
 
+def _ticket_status(tid: str):
+    """status тикета по id или None (файла нет/не читается)."""
+    path = D.TICKETS_DIR / f"{tid}.md"
+    try:
+        return T.read_ticket(path).status
+    except Exception:
+        return None
+
+
 def check_budgets(state: dict, now) -> list:
     """п.2б: траты против бюджета — вторая (независимая) проверка сверх собственных гейтов dispatch.py."""
     out = []
@@ -74,6 +95,10 @@ def check_budgets(state: dict, now) -> list:
         out.append(Finding("budget-watch", "hour", f"часовой расход ${cost:.2f} ≥ ${D.HOUR_COST_USD:.2f}"))
     for tid, budget in state.get("ticket_budget", {}).items():
         if D.ticket_budget_exceeded(state, tid):
+            # v2: закрытые (done/cancelled) и исчезнувшие тикеты не сигналят — по ним бюджет уже ничего не решает
+            status = _ticket_status(tid)
+            if status is None or status in CLOSED_TICKET_STATUSES:
+                continue
             spent = D.ticket_cost_spent(state, tid)
             out.append(Finding("budget-watch", f"ticket:{tid}", f"{tid}: потрачено ${spent:.2f} из ${budget:.2f}"))
     return out
@@ -104,7 +129,7 @@ def check_orphan_tickets(now) -> list:
             tkt = T.read_ticket(path)
         except Exception:
             continue
-        if tkt.status not in ("in_progress", "waiting"):
+        if tkt.status in CLOSED_TICKET_STATUSES or tkt.status not in ("in_progress", "waiting"):
             continue
         last_ts = tkt.log[-1].ts if tkt.log else T.parse_dt(tkt.header.get("updated")) if tkt.header.get(
             "updated") else None
@@ -157,13 +182,22 @@ def _ssh_run(cmd_suffix: str, timeout: float = 10.0):
 DECK_IDLE_ALERT_NAME = "ALERT-idle-deck"
 
 
-def check_steam_deck(ssh_run=_ssh_run) -> list:
-    """п.2б/в: ALERT-* Steam Deck + простой при непустой очереди; ssh-хелпер подменяем в тестах."""
+def check_steam_deck(ssh_run=_ssh_run, hold_hint=None, observed: dict = None) -> list:
+    """п.2б/в: ALERT-* Steam Deck + простой при непустой очереди; ssh-хелпер подменяем в тестах.
+    v2: `hold_hint` — последнее известное состояние HOLD (из watch-state); если проверка HOLD сама упала
+    (таймаут ssh), используем его (нет подсказки — считаем HOLD активным: сам сбой проверки сообщается
+    отдельно как deck-ssh-error), чтобы ожидаемый простой не превращался в тревогу. `observed` — словарь,
+    куда кладём свежее состояние HOLD (`observed["hold"]`), если его удалось прочитать."""
     out = []
     ok, alerts = ssh_run("for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && "
                           "echo \"$(basename $f): $(head -c 200 $f)\"; done; true")
     ok_hold, hold_out = ssh_run("[ -f ~/alpha/queue/HOLD ] && echo HOLD || echo NOHOLD")
-    hold_active = ok_hold and hold_out.strip() == "HOLD"
+    if ok_hold:
+        hold_active = hold_out.strip() == "HOLD"
+        if observed is not None:
+            observed["hold"] = hold_active
+    else:
+        hold_active = True if hold_hint is None else bool(hold_hint)
     if not ok:
         out.append(Finding("deck-ssh-error", "alerts", f"не удалось проверить тревоги Steam Deck: {alerts}"))
     elif alerts.strip():
@@ -228,13 +262,14 @@ def check_deck_frozen(ssh_run=_ssh_run) -> list:
                     + (f" ({units})" if units else "") + " — счёт стоит, нужно место/разморозка")]
 
 
-def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None) -> list:
+def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None, hold_hint=None,
+                     observed: dict = None) -> list:
     findings = []
     findings += check_dispatcher_alive(state, now, started_at)
     findings += check_budgets(state, now)
     findings += check_blocked_and_needs_owner(now)
     findings += check_orphan_tickets(now)
-    findings += check_steam_deck(ssh_run)
+    findings += check_steam_deck(ssh_run, hold_hint=hold_hint, observed=observed)
     return findings
 
 
@@ -245,6 +280,32 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None) -> lis
 # deck-idle-expected сравниваем СОДЕРЖИМОЕ без времени, не только (вид, ключ): та же суть — молчим до
 # истечения WATCH_DEDUP_REPEAT_HOURS, другая суть — будим сразу, как новую находку.
 _TIME_TOKEN_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:Z|UTC)?\b", re.IGNORECASE)
+
+# v2 (02.10): нормализация сигнатуры. Прежняя вырезала только «ЧЧ:ММ», и от ISO-метки «2026-10-02T00:03:40Z»
+# оставалось «2026-10-02T00:<t>» — час менялся, и сигнатура «дрейфовала» каждый час; счётчики тревог
+# («всего разборов 3», «1 суток», «load1 0.31») дрейфовали тоже — один и тот же ALERT-rework уходил CEO
+# снова и снова.
+_ISO_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:T\d{1,2}(?::\d{0,2}){0,2}|\s\d{1,2}:\d{2}(?::\d{2})?)"
+                        r"(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
+_T_FRAGMENT_RE = re.compile(r"\bT\d{1,2}:\d{0,2}")  # «T23:» — метка, обрезанная на границе строки
+_COUNTER_RES = (
+    (re.compile(r"(всего\s+\S+\s+)\d+", re.IGNORECASE), r"\1#"),            # «всего разборов 3»
+    (re.compile(r"\b\d+(\s+суток)\b"), r"#\1"),                              # «1 суток»
+    (re.compile(r"\b\d+(\s+р(?:аз|аза)?)\b"), r"#\1"),                       # «3 р», «3 раз»
+    (re.compile(r"\b(load\d*\s+)\d+(?:\.\d+)?", re.IGNORECASE), r"\1#"),     # «load1 0.31»
+    (re.compile(r"\b\d+\.\d+\b"), "#"),                                      # прочие десятичные (замеры)
+)
+SIGNATURE_MAX_CHARS = 140  # хвост строки обрезан `head -c 200` и «плавает» вместе с шириной чисел — не сравниваем
+
+
+def normalize_signature(text: str) -> str:
+    """Суть тревоги без дрейфующих частей: ISO-времена, «T23:», время суток, счётчики → заглушки."""
+    t = _ISO_TS_RE.sub("<ts>", text)
+    t = _T_FRAGMENT_RE.sub("<ts>", t)
+    t = _TIME_TOKEN_RE.sub("<t>", t)
+    for rx, repl in _COUNTER_RES:
+        t = rx.sub(repl, t)
+    return re.sub(r"\s+", " ", t).strip()[:SIGNATURE_MAX_CHARS]
 
 WATCH_SUMMARY_KINDS = {"deck-idle-expected", "deck-ssh-error-transient"}
 WATCH_SUMMARY_EVERY_HOURS = float(os.environ.get("ALPHA_WATCH_SUMMARY_HOURS", "1"))
@@ -279,7 +340,13 @@ def _apply_ssh_fail_streak(findings: list, ws: dict) -> list:
 def _content_signature(f) -> str:
     if f.kind not in ("deck-alert", "deck-idle-expected"):
         return ""  # для остальных видов сигнатура не участвует — только временное окно дедупа
-    return _TIME_TOKEN_RE.sub("<t>", f.message).strip()
+    return normalize_signature(f.message)
+
+
+def _repeat_hours(kind: str) -> float:
+    """Через сколько часов та же находка напоминается: budget/orphan/deck-alert — раз в сутки (v2), остальные —
+    WATCH_DEDUP_REPEAT_HOURS."""
+    return WATCH_LONG_REPEAT_HOURS if kind in WATCH_LONG_REPEAT_KINDS else WATCH_DEDUP_REPEAT_HOURS
 
 
 def load_watch_state() -> dict:
@@ -313,6 +380,9 @@ def notify_findings(findings: list, ws: dict, now) -> list:
     notified = ws.setdefault("notified", {})
     current_keys = set()
     posted = []
+    # v2: цикл с ошибкой ssh не видит тревог Steam Deck вовсе — их маркеры НЕ забываем, иначе первый же
+    # успешный цикл сообщит те же самые тревоги заново
+    ssh_failed = any(f.kind in ("deck-ssh-error", "deck-ssh-error-transient") for f in findings)
     for f in findings:
         marker = f"{f.kind}:{f.key}"
         current_keys.add(marker)
@@ -323,7 +393,7 @@ def notify_findings(findings: list, ws: dict, now) -> list:
         sig_changed = bool(sig) and entry.get("sig") is not None and entry.get("sig") != sig
         last_ts = entry.get("ts")
         time_elapsed = last_ts is None or (now - T.parse_dt(last_ts)).total_seconds() >= (
-            WATCH_DEDUP_REPEAT_HOURS * 3600)
+            _repeat_hours(f.kind) * 3600)
         if sig_changed or time_elapsed:
             if f.kind in WATCH_SUMMARY_KINDS:
                 pending = ws.setdefault("pending_summary", [])
@@ -337,6 +407,8 @@ def notify_findings(findings: list, ws: dict, now) -> list:
     # снятые находки — забыть, чтобы будущее повторение не ждало старого окна дедупа
     for marker in list(notified):
         if marker not in current_keys:
+            if ssh_failed and marker.startswith("deck-") and not marker.startswith("deck-ssh-error"):
+                continue  # проверка Steam Deck в этом цикле не состоялась — «снятой» тревога не считается
             notified.pop(marker, None)
     # периодический флаш накопленной сводки — независимо от того, добавилось что-то в этом цикле или нет
     last_flush = ws.get("last_summary_flush")
@@ -364,7 +436,10 @@ def run_once(now=None, ssh_run=_ssh_run) -> list:
         ws["started_at"] = T.now_iso(now)  # с первого цикла — точка отсчёта грации check_dispatcher_alive
     started_at = T.parse_dt(ws["started_at"])
     state = D.load_state()
-    findings = collect_findings(state, now, ssh_run, started_at)
+    observed = {}
+    findings = collect_findings(state, now, ssh_run, started_at, hold_hint=ws.get("deck_hold"), observed=observed)
+    if "hold" in observed:
+        ws["deck_hold"] = observed["hold"]  # последнее известное состояние HOLD — на случай таймаута его проверки
     findings = _apply_ssh_fail_streak(findings, ws)
     posted = notify_findings(findings, ws, now)
     save_watch_state(ws)

@@ -77,10 +77,37 @@ class BudgetWatchTests(WatchSandbox):
         self.assertTrue(any(f.key == "hour" for f in findings))
 
     def test_ticket_budget_exceeded(self):
-        state = {"ticket_budget": {"TK-1": 5.0}, "ticket_cost": {"TK-1": 6.0}}
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Дорогая", status="in_progress")
+        state = {"ticket_budget": {p.stem: 5.0}, "ticket_cost": {p.stem: 6.0}}
         findings = W.check_budgets(state, self.now)
-        self.assertTrue(any(f.key == "ticket:TK-1" for f in findings))
+        self.assertTrue(any(f.key == f"ticket:{p.stem}" for f in findings))
 
+    def test_ticket_budget_of_closed_ticket_is_silent(self):
+        """v2: по закрытым (done/cancelled) тикетам budget-watch не сигналит (раньше раз в 2 ч по TK-007)."""
+        for status in ("done", "cancelled"):
+            p = T.create_ticket(self.tickets_dir, owner="engineer", title=f"Закрытая {status}")
+            T.write_header_updates(p, {"status": status})
+            state = {"ticket_budget": {p.stem: 5.0}, "ticket_cost": {p.stem: 6.0}}
+            self.assertEqual(W.check_budgets(state, self.now), [], status)
+
+    def test_ticket_budget_of_missing_ticket_is_silent(self):
+        state = {"ticket_budget": {"TK-404": 5.0}, "ticket_cost": {"TK-404": 6.0}}
+        self.assertEqual(W.check_budgets(state, self.now), [])
+
+    def test_budget_watch_repeats_at_most_once_per_24h(self):
+        ws = {}
+        f = [W.Finding("budget-watch", "ticket:TK-1", "TK-1: потрачено $10.02 из $10.00")]
+        self.assertEqual(len(W.notify_findings(f, ws, self.now)), 1)
+        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS + 1)), [])
+        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=23)), [])
+        self.assertEqual(len(W.notify_findings(f, ws, self.now + timedelta(hours=24, minutes=1))), 1)
+
+    def test_orphan_repeats_at_most_once_per_24h_and_closed_never(self):
+        ws = {}
+        f = [W.Finding("orphan-ticket", "TK-14", "TK-14: status=waiting без новой записи 90.2 ч")]
+        self.assertEqual(len(W.notify_findings(f, ws, self.now)), 1)
+        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=5)), [])
+        self.assertEqual(len(W.notify_findings(f, ws, self.now + timedelta(hours=24, minutes=1))), 1)
 
 class BlockedNeedsOwnerTests(WatchSandbox):
     def test_blocked_and_needs_owner_are_findings(self):
@@ -123,6 +150,13 @@ class OrphanTicketTests(WatchSandbox):
         T.write_header_updates(p, {"status": "done"}, now=self.now - timedelta(hours=10))
         self.assertEqual(W.check_orphan_tickets(self.now), [])
 
+
+    def test_cancelled_ticket_is_not_orphan_even_if_old(self):
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Отменена", status="todo",
+                             now=self.now - timedelta(hours=10))
+        T.write_header_updates(p, {"status": "cancelled"}, now=self.now - timedelta(hours=10))
+        T.append_log(p, "engineer", "отменено", now=self.now - timedelta(hours=10))
+        self.assertEqual(W.check_orphan_tickets(self.now), [])
 
 class SteamDeckWatchTests(WatchSandbox):
     def test_alert_file_becomes_finding(self):
@@ -389,6 +423,52 @@ class SteamDeckHoldTests(WatchSandbox):
         self.assertIn("ДРУГАЯ ПРИЧИНА", D.CEO_INBOX.read_text(encoding="utf-8"))
 
 
+    # --- v2 (02.10): таймаут проверки HOLD не превращает ожидаемый простой в тревогу ---
+
+    def idle_ssh(self, hold_answer):
+        def fake_ssh(cmd, timeout=10.0):
+            if "ALERT" in cmd:
+                return True, "ALERT-idle-deck: очередь простаивает"
+            if "HOLD" in cmd and "NOHOLD" in cmd:  # проверка HOLD
+                return hold_answer
+            return True, ""
+        return fake_ssh
+
+    def test_hold_check_timeout_with_hold_hint_keeps_idle_expected(self):
+        findings = W.check_steam_deck(self.idle_ssh((False, "TimeoutExpired: timed out")), hold_hint=True)
+        kinds = {f.kind for f in findings}
+        self.assertIn("deck-idle-expected", kinds)
+        self.assertNotIn("deck-alert", kinds)
+        self.assertIn("deck-ssh-error", kinds)  # сам сбой проверки HOLD по-прежнему сообщается (через серию)
+
+    def test_hold_check_timeout_without_hint_is_still_not_an_alert(self):
+        findings = W.check_steam_deck(self.idle_ssh((False, "TimeoutExpired: timed out")), hold_hint=None)
+        self.assertNotIn("deck-alert", {f.kind for f in findings})
+
+    def test_hold_check_timeout_with_nohold_hint_is_a_real_alert(self):
+        findings = W.check_steam_deck(self.idle_ssh((False, "TimeoutExpired: timed out")), hold_hint=False)
+        self.assertIn("deck-alert", {f.kind for f in findings})
+
+    def test_observed_hold_is_recorded_when_check_succeeds(self):
+        observed = {}
+        W.check_steam_deck(self.idle_ssh((True, "HOLD")), observed=observed)
+        self.assertIs(observed["hold"], True)
+        observed = {}
+        W.check_steam_deck(self.idle_ssh((True, "NOHOLD")), observed=observed)
+        self.assertIs(observed["hold"], False)
+        observed = {}
+        W.check_steam_deck(self.idle_ssh((False, "timeout")), observed=observed)
+        self.assertNotIn("hold", observed)
+
+    def test_run_once_remembers_hold_and_uses_it_when_next_check_times_out(self):
+        W.run_once(self.now, ssh_run=self.idle_ssh((True, "HOLD")))
+        self.assertIs(W.load_watch_state()["deck_hold"], True)
+        W.run_once(self.now + timedelta(minutes=2), ssh_run=self.idle_ssh((False, "TimeoutExpired")))
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertNotIn("watch-deck-alert", inbox)
+        self.assertIs(W.load_watch_state()["deck_hold"], True, "неудачная проверка подсказку не затирает")
+
+
 class ContentFingerprintDedupTests(WatchSandbox):
     """CEO 27.09: ALERT-rework перезаписывается каждые ~15 мин с той же сутью, новой меткой времени —
     сравнивать текст без времени, будить один раз, не на каждое перезаписывание."""
@@ -418,14 +498,91 @@ class ContentFingerprintDedupTests(WatchSandbox):
                                      self.now + timedelta(minutes=15))
         self.assertEqual(posted2, [])
 
-    def test_same_content_after_repeat_window_reposts_as_reminder(self):
+    def test_same_content_after_long_repeat_window_reposts_as_reminder(self):
+        """v2: та же тревога Steam Deck — раз в сутки (WATCH_LONG_REPEAT_HOURS), не раз в 2 ч; пока нет суток —
+        тишина."""
         ws = {}
         f = [W.Finding("deck-alert", "ALERT-rework", "разобрано повторно 18:26Z")]
         W.notify_findings(f, ws, self.now)
-        later = self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS, minutes=1)
+        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS + 1)), [])
+        later = self.now + timedelta(hours=W.WATCH_LONG_REPEAT_HOURS, minutes=1)
         posted2 = W.notify_findings(f, ws, later)
         self.assertEqual(len(posted2), 1)
 
+    # --- v2 (02.10): нормализованная сигнатура — реальные тексты ALERT-* из ceo-inbox ---
+
+    REWORK_A = ("Steam Deck: ALERT-rework: 2026-10-01T23:12:59Z 1 суток разобраны повторно за 24 ч (всего разборов 3); "
+                "больше всех — /home/deck/alpha/tk022/view/2026-01-01/root-2026-01-01: 3 р")
+    REWORK_B = ("Steam Deck: ALERT-rework: 2026-10-02T00:03:40Z 2 суток разобраны повторно за 24 ч (всего разборов 4); "
+                "больше всех — /home/deck/alpha/tk022/view/2026-01-01/root-2026-01-01: 4 р")
+    IDLE_A = ("Steam Deck: ALERT-idle-deck: 2026-10-01T22:07:01Z очередь пуста, заданий нет, load1 0.31 — "
+              "простой дольше 30 мин")
+    IDLE_B = ("Steam Deck: ALERT-idle-deck: 2026-10-01T23:04:30Z очередь пуста, заданий нет, load1 0.76 — "
+              "простой дольше 30 мин")
+
+    def test_normalize_strips_iso_times_t_fragments_and_counters(self):
+        self.assertEqual(W.normalize_signature(self.REWORK_A), W.normalize_signature(self.REWORK_B))
+        self.assertEqual(W.normalize_signature(self.IDLE_A), W.normalize_signature(self.IDLE_B))
+        n = W.normalize_signature("x 2026-10-01T23: y T23: z 18:26Z (всего разборов 12)")
+        self.assertNotIn("23", n)
+        self.assertNotIn("12", n)
+        self.assertNotIn("2026", n)
+
+    def test_normalize_keeps_substance(self):
+        other = self.REWORK_A.replace("разобраны повторно", "НЕ ХВАТАЕТ МЕСТА НА ДИСКЕ")
+        self.assertNotEqual(W.normalize_signature(self.REWORK_A), W.normalize_signature(other))
+        self.assertNotEqual(W.normalize_signature(self.REWORK_A), W.normalize_signature(self.IDLE_A))
+
+    def test_hourly_timestamp_drift_does_not_repost(self):
+        """Прежняя нормализация оставляла «2026-10-02T00:<t>» → сигнатура менялась каждый час."""
+        ws = {}
+        W.notify_findings([W.Finding("deck-alert", "ALERT-rework", self.REWORK_A)], ws, self.now)
+        for h in range(1, 8):
+            msg = self.REWORK_A.replace("2026-10-01T23:12:59Z", f"2026-10-02T{(23 + h) % 24:02d}:12:59Z")
+            posted = W.notify_findings([W.Finding("deck-alert", "ALERT-rework", msg)], ws,
+                                       self.now + timedelta(hours=h))
+            self.assertEqual(posted, [], f"через {h} ч")
+
+    def test_alert_known_before_ssh_error_cycle_is_not_resignalled_after(self):
+        """Цикл с ошибкой ssh не видит тревог Deck; маркеры известных тревог не «забываются» — первый же
+        успешный цикл не сообщает их заново."""
+        ws = {}
+        alert = W.Finding("deck-alert", "ALERT-rework", self.REWORK_A)
+        W.notify_findings([alert], ws, self.now)
+        ssh_err = W.Finding("deck-ssh-error-transient", "alerts", "не удалось проверить тревоги (сбой 1/3)")
+        W.notify_findings([ssh_err], ws, self.now + timedelta(minutes=2))
+        self.assertIn("deck-alert:ALERT-rework", ws["notified"])
+        posted = W.notify_findings([W.Finding("deck-alert", "ALERT-rework", self.REWORK_B)], ws,
+                                   self.now + timedelta(minutes=4))
+        self.assertEqual(posted, [])
+
+    def test_alert_forgotten_when_check_succeeded_without_it(self):
+        ws = {}
+        alert = W.Finding("deck-alert", "ALERT-rework", self.REWORK_A)
+        W.notify_findings([alert], ws, self.now)
+        W.notify_findings([], ws, self.now + timedelta(minutes=2))  # проверка прошла, тревоги нет — снята
+        self.assertEqual(len(W.notify_findings([alert], ws, self.now + timedelta(minutes=4))), 1)
+
+    def test_non_deck_marker_is_forgotten_even_in_ssh_error_cycle(self):
+        ws = {}
+        W.notify_findings([W.Finding("blocked", "TK-1", "TK-1: status=blocked")], ws, self.now)
+        ssh_err = W.Finding("deck-ssh-error-transient", "alerts", "сбой")
+        W.notify_findings([ssh_err], ws, self.now + timedelta(minutes=2))
+        self.assertNotIn("blocked:TK-1", ws["notified"])
+
+    def test_end_to_end_alert_rewritten_every_cycle_is_signalled_once(self):
+        calls = {"n": 0}
+
+        def fake_ssh(cmd, timeout=10.0):
+            if "ALERT" in cmd:
+                calls["n"] += 1
+                return True, f"ALERT-rework: 2026-10-01T2{calls['n'] % 10}:12:59Z 1 суток (всего разборов {calls['n']})"
+            return True, "NOHOLD" if "HOLD" in cmd else "0 0"
+
+        for i in range(6):
+            W.run_once(self.now + timedelta(minutes=2 * i), ssh_run=fake_ssh)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertEqual(inbox.count("watch-deck-alert"), 1)
 
 class DedupTests(WatchSandbox):
     def test_first_occurrence_posts(self):
@@ -443,11 +600,21 @@ class DedupTests(WatchSandbox):
 
     def test_repeat_after_window_reposts(self):
         ws = {}
-        f = [W.Finding("blocked", "TK-1", "TK-1: status=blocked")]
+        f = [W.Finding("dispatcher-down", "last_tick", "последний тик диспетчера 9 мин назад")]
         W.notify_findings(f, ws, self.now)
         later = self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS, minutes=1)
         posted2 = W.notify_findings(f, ws, later)
         self.assertEqual(len(posted2), 1)
+
+    def test_blocked_and_needs_owner_repeat_only_daily(self):
+        """v2: диспетчер уже сообщил о blocked/needs_owner один раз; сторож страхует раз в сутки, не раз в 2 ч."""
+        for kind in ("blocked", "needs_owner"):
+            ws = {}
+            f = [W.Finding(kind, "TK-27", f"TK-27: status={kind}")]
+            W.notify_findings(f, ws, self.now)
+            self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS + 1)), [])
+            later = self.now + timedelta(hours=W.WATCH_LONG_REPEAT_HOURS, minutes=1)
+            self.assertEqual(len(W.notify_findings(f, ws, later)), 1)
 
     def test_resolved_finding_forgotten_so_recurrence_posts_immediately(self):
         ws = {}

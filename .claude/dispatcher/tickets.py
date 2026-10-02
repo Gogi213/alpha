@@ -1,14 +1,20 @@
-"""CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`. Только stdlib.
+"""CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`, `budget`. Только stdlib.
 
-    python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--desc "..."]  # reviewer: judge по умолчанию
-    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --no-reviewer     # явный отказ от ревью
+    python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--desc "..."]  # ревьюера нет (v2)
+    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --reviewer judge  # Судья — только явно
+    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --effort medium   # low|medium|high|xhigh
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." --backlog   # перенос из TASKS.md
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --budget L    # S=3/M=10/L=25, умолч. M
-    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --no-reviewer \
-        --executor haiku --kind file-move    # белый список kind; reviewer:judge/owner:researcher — отказ
-    python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..."
+    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --executor haiku --kind file-move
+        # белый список kind; --reviewer judge и owner:researcher с haiku — отказ
+    python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..." [--next judge]
     python .claude/dispatcher/tickets.py start TK-001                                     # backlog → todo
     python .claude/dispatcher/tickets.py status
+    python .claude/dispatcher/tickets.py budget TK-001 L                                  # сменить бюджет (S|M|L|число)
+
+`--next researcher|engineer|judge|ceo` — единственный способ разбудить другую роль (или CEO) записью лога:
+пишет `next: <роль>` в шапку, диспетчер запускает роль ОДИН раз и очищает поле. @упоминания в тексте никого
+не будят. После записи лог больше 20 КБ ужимается: всё, кроме последних 8 записей, — в `archive/<ID>-log.md`.
 
 Бюджет задачи (--budget) живёт только в state.json (dispatch.py), не в шапке тикета — роль его не
 видит (владелец 27.09: «запрещено добивать задачи до их бюджетов, раздувая токены»).
@@ -30,11 +36,9 @@ PROJECT_ROOT = TICKETS_DIR.parent.parent
 
 
 def cmd_new(args) -> int:
+    # v2 (02.10): ревьюера по умолчанию НЕТ — Судья только по явному `--reviewer judge` (исследования с
+    # выводом и необратимое); `--no-reviewer` принимается как no-op (совместимость со старыми командами)
     reviewer = args.reviewer
-    if reviewer is None and not args.no_reviewer and args.owner in ("researcher", "engineer"):
-        # судья 27.09, п.6 «обязательно»: без ревьюера по умолчанию done молча минует проверку Судьи
-        # (числа владельцу должны идти после Судьи) — отказ только явным --no-reviewer
-        reviewer = "judge"
 
     if args.executor == "haiku":
         # судья TK-002 п.5г: обход проверки Судьи запрещён — отказ до создания файла, не постфактум
@@ -42,8 +46,7 @@ def cmd_new(args) -> int:
             print(f"--executor haiku требует --kind из {sorted(D.HAIKU_ALLOWED_KINDS)}", file=sys.stderr)
             return 1
         if reviewer == "judge":
-            print("--executor haiku нельзя вместе с reviewer: judge (явным или по умолчанию) — "
-                  "числа/вердикты не на Haiku; добавь --no-reviewer, если задача правда механическая",
+            print("--executor haiku нельзя вместе с --reviewer judge — числа/вердикты не на Haiku",
                   file=sys.stderr)
             return 1
         if args.owner == "researcher":
@@ -63,7 +66,7 @@ def cmd_new(args) -> int:
     path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=reviewer,
                             description=args.desc or "", wait_for=args.wait_for or "",
                             status="backlog" if args.backlog else "todo",
-                            executor=args.executor, kind=args.kind)
+                            executor=args.executor, kind=args.kind, effort=args.effort)
     tid = path.stem
     state = D.load_state()
     D.set_ticket_budget(state, tid, budget)
@@ -81,7 +84,31 @@ def cmd_comment(args) -> int:
         print(f"нет тикета {args.id}", file=sys.stderr)
         return 1
     T.append_log(path, args.author, args.text)
-    print(f"дописано в {path}")
+    if args.next:
+        # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)
+        T.write_header_updates(path, {"next": args.next}, stamp_updated=False)
+    moved = T.compact_log(path)
+    print(f"дописано в {path}" + (f"; next: {args.next}" if args.next else "")
+          + (f"; в архив перенесено записей: {moved}" if moved else ""))
+    return 0
+
+
+def cmd_budget(args) -> int:
+    """Сменить бюджет задачи (живёт только в state.json). Нужен, когда бюджет исчерпан: диспетчер один раз
+    сообщил CEO и задачу больше не запускает, пока бюджет не поднят."""
+    path = TICKETS_DIR / f"{args.id}.md"
+    if not path.exists():
+        print(f"нет тикета {args.id}", file=sys.stderr)
+        return 1
+    try:
+        budget = D.parse_budget_arg(args.value)
+    except ValueError:
+        print(f"бюджет: не число и не S|M|L: {args.value!r}", file=sys.stderr)
+        return 1
+    state = D.load_state()
+    D.set_ticket_budget(state, args.id, budget)
+    D.save_state(state)
+    print(f"{args.id}: бюджет ${budget:.2f} (потрачено ${D.ticket_cost_spent(state, args.id):.2f})")
     return 0
 
 
@@ -136,9 +163,12 @@ def main(argv=None) -> int:
     p_new = sub.add_parser("new")
     p_new.add_argument("--owner", required=True, choices=["researcher", "engineer", "judge"])
     p_new.add_argument("--title", required=True)
-    p_new.add_argument("--reviewer", choices=["researcher", "engineer", "judge"])
+    p_new.add_argument("--reviewer", choices=["researcher", "engineer", "judge"],
+                        help="ревьюер; по умолчанию его нет (Судья — только явно: --reviewer judge)")
     p_new.add_argument("--no-reviewer", action="store_true",
-                        help="явный отказ от умолчания --reviewer judge (researcher/engineer)")
+                        help="no-op (v2: ревьюера по умолчанию нет); оставлено для совместимости")
+    p_new.add_argument("--effort", choices=list(T.VALID_EFFORTS), default=None,
+                        help="усилие запусков по этому тикету; без поля — исследователь/инженер high, Судья xhigh")
     p_new.add_argument("--desc", default="")
     p_new.add_argument("--wait-for", dest="wait_for", default="")
     p_new.add_argument("--backlog", action="store_true",
@@ -155,7 +185,14 @@ def main(argv=None) -> int:
     p_comment.add_argument("id")
     p_comment.add_argument("--author", required=True)
     p_comment.add_argument("--text", required=True)
+    p_comment.add_argument("--next", choices=["researcher", "engineer", "judge", "ceo"], default=None,
+                            help="разбудить эту роль один раз (ceo — только blocked/нужно решение владельца)")
     p_comment.set_defaults(func=cmd_comment)
+
+    p_budget = sub.add_parser("budget")
+    p_budget.add_argument("id")
+    p_budget.add_argument("value", help="S|M|L или число долларов")
+    p_budget.set_defaults(func=cmd_budget)
 
     p_start = sub.add_parser("start")
     p_start.add_argument("id")

@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dispatch as D  # noqa: E402
 import ticket as T  # noqa: E402
+import tickets as TK  # noqa: E402  (CLI — new/comment/start/status/budget)
 
 TZ = timezone(timedelta(hours=4))  # GMT+4 (память проекта)
 
@@ -87,37 +88,154 @@ class TicketParsingTests(unittest.TestCase):
         self.assertIn("сделал шаг", tkt.log_raw)
 
 
-class MentionsSinceTests(unittest.TestCase):
-    """CEO 27.09, TK-005: упоминания и рост секции — по сырому тексту, не по заголовкам `###`."""
+class RoleEntryKeysTests(unittest.TestCase):
+    """v2 (02.10): «роль оставила запись» — по заголовку `### <ts> <роль>`, не по росту секции лога и не по
+    @упоминаниям (раньше — MentionsSinceTests/mentions_since: упоминания будили роли, 77 % запусков)."""
 
-    def test_headerless_bullet_mention_is_found(self):
-        log_raw = "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг, дальше @judge глянь\n"
-        self.assertEqual(T.mentions_since(log_raw, 0), {"judge"})
+    def mk(self, log):
+        text = ("---\nid: X\nowner: engineer\nstatus: todo\nupdated: 2026-10-02T10:00:00+04:00\n---\n\nописание\n\n"
+                "## Лог\n" + log)
+        return T.parse_text(text, Path("X.md"))
 
-    def test_researcher_bracket_style_mention_is_found(self):
-        log_raw = "\n- 27.09 23:25 [researcher] нашёл эффект, @ceo интересно посмотреть\n"
-        self.assertEqual(T.mentions_since(log_raw, 0), {"ceo"})
+    def test_keys_only_for_entries_with_role_heading(self):
+        tkt = self.mk("\n### 2026-10-02T10:01:00+04:00 engineer\nсделал\n\n### 2026-10-02T10:02:00+04:00 judge\nок\n"
+                      "\n- 02.10 10:03 (инженер) строка без заголовка\n")
+        self.assertEqual(T.role_entry_keys(tkt, "engineer"), ["2026-10-02T10:01:00+04:00 engineer"])
+        self.assertEqual(T.role_entry_keys(tkt, "judge"), ["2026-10-02T10:02:00+04:00 judge"])
+        self.assertEqual(T.role_entry_keys(tkt, "researcher"), [])
 
-    def test_self_mention_excluded_when_author_known_from_preceding_header(self):
-        log_raw = ("\n### 2026-09-27T21:00:00+04:00 engineer\nзапуск 1\n"
-                    "- 27.09 ~23:50 (инженер) заметка себе на будущее @engineer\n")
-        self.assertEqual(T.mentions_since(log_raw, 0), set())
+    def test_author_with_suffix_still_matches_role(self):
+        tkt = self.mk("\n### 2026-10-02T10:01:00+04:00 engineer (запуск 2)\nсделал\n")
+        self.assertEqual(len(T.role_entry_keys(tkt, "engineer")), 1)
 
-    def test_self_mention_not_excluded_without_any_preceding_header(self):
-        """Автор неизвестен (нет заголовка вообще) — не исключаем: пропуск дороже лишнего повтора."""
-        log_raw = "\n- 27.09 ~23:50 (инженер) заметка себе @engineer, но без заголовка выше\n"
-        self.assertEqual(T.mentions_since(log_raw, 0), {"engineer"})
+    def test_mentions_inside_text_are_plain_text_for_keys(self):
+        tkt = self.mk("\n### 2026-10-02T10:01:00+04:00 researcher\n@judge глянь, @ceo @engineer\n")
+        self.assertEqual(T.role_entry_keys(tkt, "judge"), [])
+        self.assertEqual(T.role_entry_keys(tkt, "ceo"), [])
 
-    def test_nothing_new_since_seen_len_is_silent(self):
-        log_raw = "\n- 27.09 ~23:50 @judge глянь\n"
-        self.assertEqual(T.mentions_since(log_raw, len(log_raw)), set())
+    def test_next_role_and_effort_properties(self):
+        text = ("---\nid: X\nowner: engineer\nstatus: waiting\nnext: Judge\neffort: Medium\n"
+                "updated: 2026-10-02T10:00:00+04:00\n---\n\n## Лог\n")
+        tkt = T.parse_text(text, Path("X.md"))
+        self.assertEqual(tkt.next_role, "judge")
+        self.assertEqual(tkt.effort, "medium")
+        bad = T.parse_text(text.replace("next: Judge", "next: somebody").replace("effort: Medium", "effort: max"),
+                           Path("X.md"))
+        self.assertEqual((bad.next_role, bad.effort), ("", ""))
+        empty = T.parse_text(text.replace("next: Judge", "next:").replace("effort: Medium\n", ""), Path("X.md"))
+        self.assertEqual((empty.next_role, empty.effort), ("", ""))
 
-    def test_only_tail_after_seen_len_is_scanned(self):
-        head = "\n- старая запись без упоминаний\n"
-        tail = "- новая запись @judge посмотри\n"
-        log_raw = head + tail
-        self.assertEqual(T.mentions_since(log_raw, len(head)), {"judge"})
-        self.assertEqual(T.mentions_since(log_raw, 0), {"judge"})  # то же упоминание видно и от начала
+    def test_create_ticket_writes_effort_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = T.create_ticket(Path(d), owner="engineer", title="С усилием", effort="low")
+            self.assertEqual(T.read_ticket(path).effort, "low")
+            self.assertEqual(T.read_ticket(T.create_ticket(Path(d), owner="engineer", title="Без")).effort, "")
+
+
+class LogCompactionTests(unittest.TestCase):
+    """v2: файл тикета > 20 КБ → всё, кроме последних 8 записей, — дословно в archive/<ID>-log.md; детекция
+    «новой записи роли» от компакции не зависит (заголовки, не смещения)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.path = T.create_ticket(self.dir, owner="engineer", title="Длинный лог",
+                                    description="Описание задачи.", now=dt("2026-10-02T09:00:00+04:00"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add_entries(self, n, size=600, start=0, author="engineer"):
+        for i in range(start, start + n):
+            T.append_log(self.path, author, f"запись №{i} " + ("текст " * (size // 6)),
+                         now=dt("2026-10-02T10:00:00+04:00") + timedelta(minutes=i))
+
+    def test_small_ticket_is_not_touched(self):
+        self.add_entries(12, size=100)
+        before = self.path.read_text(encoding="utf-8")
+        self.assertEqual(T.compact_log(self.path), 0)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), before)
+
+    def test_compacts_to_last_8_and_archives_verbatim(self):
+        self.add_entries(20)
+        full = T.read_ticket(self.path)
+        self.assertGreater(len(self.path.read_text(encoding="utf-8").encode("utf-8")), T.LOG_COMPACT_BYTES)
+        moved = T.compact_log(self.path)
+        self.assertEqual(moved, 12)
+        after = T.read_ticket(self.path)
+        self.assertEqual([e.ts_raw for e in after.log], [e.ts_raw for e in full.log[-8:]])
+        self.assertIn("Описание задачи.", after.description)
+        archive = self.dir / "archive" / f"{self.path.stem}-log.md"
+        arch_text = archive.read_text(encoding="utf-8")
+        for e in full.log[:12]:  # старые записи — дословно, в исходном порядке
+            self.assertIn(f"### {e.ts_raw} {e.author}\n{e.text}", arch_text)
+        for e in full.log[12:]:
+            self.assertNotIn(f"### {e.ts_raw} {e.author}", arch_text)
+        # одна строка-указатель в логе; сам файл теперь меньше порога
+        self.assertEqual(self.path.read_text(encoding="utf-8").count(T.ARCHIVE_POINTER_PREFIX), 1)
+        self.assertLess(len(self.path.read_text(encoding="utf-8").encode("utf-8")), T.LOG_COMPACT_BYTES)
+
+    def test_second_compaction_appends_and_keeps_single_pointer(self):
+        self.add_entries(20)
+        T.compact_log(self.path)
+        self.add_entries(14, start=20)
+        moved2 = T.compact_log(self.path)
+        self.assertEqual(moved2, 14)
+        text = self.path.read_text(encoding="utf-8")
+        self.assertEqual(text.count(T.ARCHIVE_POINTER_PREFIX), 1)
+        self.assertEqual(len(T.read_ticket(self.path).log), 8)
+        arch_text = (self.dir / "archive" / f"{self.path.stem}-log.md").read_text(encoding="utf-8")
+        self.assertEqual(arch_text.count("\n### "), 12 + 14)  # дозапись, а не перезапись
+        self.assertNotIn(T.ARCHIVE_POINTER_PREFIX, arch_text)  # указатель в архив не уносится
+        self.assertIn("запись №0 ", arch_text)
+        self.assertIn("запись №25 ", arch_text)
+
+    def test_archive_is_not_listed_as_ticket_and_no_tmp_left(self):
+        self.add_entries(20)
+        T.compact_log(self.path)
+        self.assertEqual([p.name for p in T.list_tickets(self.dir)], [self.path.name])
+        self.assertEqual([p.name for p in self.dir.glob("*.tmp")], [])
+
+    def test_comment_cli_compacts_after_append(self):
+        self.add_entries(19)
+        orig_dir = TK.TICKETS_DIR
+        TK.TICKETS_DIR = self.dir
+        try:
+            rc = TK.main(["comment", self.path.stem, "--author", "engineer", "--text", "новая " + "текст " * 250])
+        finally:
+            TK.TICKETS_DIR = orig_dir
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(T.read_ticket(self.path).log), 8)
+        self.assertTrue((self.dir / "archive" / f"{self.path.stem}-log.md").exists())
+
+    def test_seen_entries_detection_survives_compaction(self):
+        """Снимок ключей записей роли на старте запуска + компакция лога + новая запись роли = «записала»;
+        компакция сама (старые записи ушли) «записью» не считается."""
+        self.add_entries(20)
+        keys_at_launch = T.role_entry_keys(T.read_ticket(self.path), "engineer")
+        info = {"role": "engineer", "started": dt("2026-10-02T10:00:00+04:00"), "log_keys_at_launch": keys_at_launch}
+        T.compact_log(self.path)  # лог укоротился на 12 записей
+        self.assertFalse(D._role_logged(T.read_ticket(self.path), "engineer", info))
+        self.add_entries(1, start=40)  # роль дописала новую запись (ей же компакция уже не нужна)
+        self.assertTrue(D._role_logged(T.read_ticket(self.path), "engineer", info))
+        # запись ДРУГОГО автора ролью не засчитывается
+        other = dict(info, log_keys_at_launch=T.role_entry_keys(T.read_ticket(self.path), "engineer"))
+        T.append_log(self.path, "ceo", "комментарий", now=dt("2026-10-02T12:00:00+04:00"))
+        T.append_log(self.path, "dispatcher", "служебная", now=dt("2026-10-02T12:01:00+04:00"))
+        self.assertFalse(D._role_logged(T.read_ticket(self.path), "engineer", other))
+
+    def test_legacy_active_run_without_keys_falls_back_to_start_time(self):
+        self.add_entries(2, size=50)  # записи 10:00 и 10:01
+        info = {"role": "engineer", "started": dt("2026-10-02T10:00:30+04:00")}  # зеркало до v2: ключей нет
+        self.assertTrue(D._role_logged(T.read_ticket(self.path), "engineer", info))  # 10:01 ≥ старта
+        info["started"] = dt("2026-10-02T10:30:00+04:00")
+        self.assertFalse(D._role_logged(T.read_ticket(self.path), "engineer", info))
+
+    def test_identical_entries_in_same_second_both_count(self):
+        T.append_log(self.path, "engineer", "раз", now=dt("2026-10-02T10:00:00+04:00"))
+        keys = T.role_entry_keys(T.read_ticket(self.path), "engineer")
+        T.append_log(self.path, "engineer", "раз", now=dt("2026-10-02T10:00:00+04:00"))
+        self.assertTrue(D._role_logged(T.read_ticket(self.path), "engineer", {"log_keys_at_launch": keys}))
 
 
 class TicketMutationTests(unittest.TestCase):
@@ -169,22 +287,44 @@ class DispatchDecisionTests(unittest.TestCase):
         dec = D.decide(self.ticket_from(text), self.state, self.now)
         self.assertEqual((dec.role, dec.reason), ("researcher", "todo"))
 
-    def test_mention_wakes_role_regardless_of_status(self):
+    def test_mention_no_longer_wakes_anyone(self):
+        """v2 (02.10): @упоминание в тексте записи не будит роль ни на каком статусе (аудит: 77 % запусков)."""
+        for status in ("in_review", "blocked", "needs_owner", "waiting", "done"):
+            text = (f"---\nid: TK-2\nowner: researcher\nstatus: {status}\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
+                    "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\nНужна проверка. @judge глянь план. "
+                    "@engineer @ceo для сведения.\n")
+            self.assertIsNone(D.decide(self.ticket_from(text), self.state, self.now), status)
+
+    def test_mention_in_in_progress_only_resumes_owner_not_mentioned_role(self):
         text = ("---\nid: TK-2\nowner: researcher\nstatus: in_progress\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
                 "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\nНужна проверка. @judge глянь план.\n")
         dec = D.decide(self.ticket_from(text), self.state, self.now)
-        self.assertEqual((dec.role, dec.reason), ("judge", "mention"))
+        self.assertEqual((dec.role, dec.reason), ("researcher", "in_progress-resume"))
 
-    def test_mention_not_repeated_after_wake(self):
-        # status: waiting (без выполненного wait_for) — нейтральный статус без своего правила,
-        # чтобы изолированно проверить именно дедуп упоминания, а не правило (а') in_progress-resume
-        text = ("---\nid: TK-2\nowner: researcher\nstatus: waiting\nupdated: 2026-09-27T11:00:00+04:00\n---\n\n"
-                "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь план.\n")
-        tkt = self.ticket_from(text)
-        # v1.5: дедуп упоминания — по длине секции на момент запуска (log_len_at_launch), не по времени
-        self.state.setdefault("sessions", {})["TK-2::judge"] = {"log_len_at_launch": len(tkt.log_raw)}
-        dec = D.decide(tkt, self.state, self.now)
-        self.assertIsNone(dec)
+    def test_next_wakes_named_role_once_and_clears_field(self):
+        text = ("---\nid: TK-2\nowner: researcher\nstatus: waiting\nnext: judge\nupdated: 2026-09-27T11:00:00+04:00\n"
+                "---\n\n## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\nПрошу вердикт.\n")
+        dec = D.decide(self.ticket_from(text), self.state, self.now)
+        self.assertEqual((dec.role, dec.reason), ("judge", "next"))
+        self.assertEqual(dec.header_updates, {"next": ""})
+
+    def test_next_beats_status_rules_and_works_on_waiting_without_wait_for(self):
+        for status in ("todo", "in_progress", "waiting", "blocked", "needs_owner", "done"):
+            text = (f"---\nid: TK-2\nowner: researcher\nstatus: {status}\nnext: engineer\nwait_for:\n"
+                    "updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n")
+            dec = D.decide(self.ticket_from(text), self.state, self.now)
+            self.assertEqual((dec.role, dec.reason), ("engineer", "next"), status)
+
+    def test_next_ceo_or_garbage_is_not_a_role_run(self):
+        for value in ("ceo", "somebody"):
+            text = (f"---\nid: TK-2\nowner: researcher\nstatus: waiting\nnext: {value}\n"
+                    "updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n")
+            self.assertIsNone(D.decide(self.ticket_from(text), self.state, self.now), value)
+
+    def test_waiting_with_text_but_without_wait_for_or_next_stays_silent(self):
+        text = ("---\nid: TK-2\nowner: researcher\nstatus: waiting\nwait_for:\nupdated: 2026-09-27T11:00:00+04:00\n---"
+                "\n\n## Лог\n\n### 2026-09-27T11:05:00+04:00 judge\n@researcher ответ готов, @engineer глянь.\n")
+        self.assertIsNone(D.decide(self.ticket_from(text), self.state, self.now))
 
     def test_waiting_file_condition_met(self):
         with tempfile.TemporaryDirectory() as d:
@@ -241,6 +381,11 @@ class DispatchDecisionTests(unittest.TestCase):
                 "## Лог\n\n### 2026-09-27T11:05:00+04:00 researcher\n@judge даже упоминание не должно будить.\n")
         dec = D.decide(self.ticket_from(text), self.state, self.now)
         self.assertIsNone(dec)
+
+    def test_backlog_is_ignored_even_with_next(self):
+        text = ("---\nid: TK-9\nowner: researcher\nstatus: backlog\nnext: judge\n"
+                "updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n")
+        self.assertIsNone(D.decide(self.ticket_from(text), self.state, self.now))
 
 
 # --- фейковый «claude» для сквозных тестов --------------------------------------------------
@@ -377,6 +522,10 @@ class DispatchRunTests(unittest.TestCase):
         D.PID_EXPECT_NAME = Path(sys.executable).stem
         D.RUNNING.clear()
         self._orig_popen = D._popen
+        self._orig_scope = dict(D.SESSION_SCOPE)
+        # по умолчанию подпроцесс — безвредный `python -c pass`: тесты, доходящие до launch_run (повтор в
+        # _finish_run и т. п.), не запускают настоящий `claude`; set_fake_bin() подменяет на фейк роли
+        D._popen = lambda cmd, **kwargs: subprocess.Popen([sys.executable, "-c", "pass"], **kwargs)
         os.environ["FAKE_TICKETS_DIR"] = str(self.tickets_dir)
 
     def tearDown(self):
@@ -393,6 +542,8 @@ class DispatchRunTests(unittest.TestCase):
                     pass
         D.RUNNING.clear()
         D._popen = self._orig_popen
+        D.SESSION_SCOPE.clear()
+        D.SESSION_SCOPE.update(self._orig_scope)
         del os.environ["FAKE_TICKETS_DIR"]
         for k, v in self._orig.items():
             setattr(D, k, v)
@@ -595,17 +746,26 @@ class DispatchRunTests(unittest.TestCase):
         D.tick()
         self.assertEqual(len(D.RUNNING), 1)
 
-    def test_ticket_scope_allows_parallel_same_role(self):
-        """researcher/engineer — scope "ticket": разные задачи одной роли не сериализуются."""
-        self.set_fake_bin(FAKE_BIN_SILENT)
-        D.MAX_PARALLEL = 2
-        T.create_ticket(self.tickets_dir, owner="researcher", title="Первая")
-        T.create_ticket(self.tickets_dir, owner="researcher", title="Вторая")
+    def test_one_run_per_role_globally(self):
+        """v2 (02.10): не больше ОДНОГО запуска на роль по всем тикетам; разные роли — параллельно (≤ MAX_PARALLEL);
+        вторая задача роли не теряется — стартует, когда роль освободилась."""
+        self.set_fake_bin(FAKE_BIN_OK)
+        D.MAX_PARALLEL = 3
+        first = T.create_ticket(self.tickets_dir, owner="researcher", title="Первая")
+        second = T.create_ticket(self.tickets_dir, owner="researcher", title="Вторая")
+        T.create_ticket(self.tickets_dir, owner="engineer", title="Третья")
         D.tick()
-        self.assertEqual(len(D.RUNNING), 2)
+        self.assertEqual(sorted(i["role"] for i in D.RUNNING.values()), ["engineer", "researcher"])
+        self.assertIn(first.stem, D.RUNNING)
+        self.assertNotIn(second.stem, D.RUNNING)
+        self.wait_running()
+        D.tick()
+        self.assertIn(second.stem, D.RUNNING, "роль освободилась — вторая задача берётся")
 
     def test_role_scope_serializes_and_shares_session(self):
-        """judge — scope "role": не больше одной активной сессии сразу, вторая задача продолжает ту же сессию."""
+        """judge со scope "role" (только по env/правке словаря): вторая задача продолжает ту же сессию;
+        запуск на роль — один (теперь так у всех ролей, см. test_one_run_per_role_globally)."""
+        D.SESSION_SCOPE["judge"] = "role"
         self.set_fake_bin(FAKE_BIN_RECORD)
         os.environ["FAKE_CTX_TOKENS"] = "10"
         self.addCleanup(lambda: os.environ.pop("FAKE_CTX_TOKENS", None))
@@ -614,7 +774,7 @@ class DispatchRunTests(unittest.TestCase):
         T.create_ticket(self.tickets_dir, owner="judge", title="Проверка B")
 
         D.tick()
-        self.assertEqual(len(D.RUNNING), 1, "SESSION_SCOPE[judge]=role — вторая задача не должна стартовать сразу")
+        self.assertEqual(len(D.RUNNING), 1, "одна роль — один запуск: вторая задача не должна стартовать сразу")
         self.wait_running()
 
         D.tick()
@@ -633,6 +793,7 @@ class DispatchRunTests(unittest.TestCase):
 
     def test_role_scope_rotates_after_big_context(self):
         """Контекст прошлого запуска роли выше ROTATE_TOKENS → следующий запуск без --resume + напоминание."""
+        D.SESSION_SCOPE["judge"] = "role"
         self.set_fake_bin(FAKE_BIN_RECORD)
         os.environ["FAKE_CTX_TOKENS"] = str(D.ROTATE_TOKENS + 1)
         self.addCleanup(lambda: os.environ.pop("FAKE_CTX_TOKENS", None))
@@ -655,6 +816,7 @@ class DispatchRunTests(unittest.TestCase):
     def test_multiturn_run_does_not_rotate_on_summed_usage(self):
         """CEO 27.09: usage — сумма по ходам запуска. Многоходовой прогон с большой суммой, но
         нормальным контекстом последнего хода, НЕ должен рвать долгую сессию (раньше рвал — баг)."""
+        D.SESSION_SCOPE["judge"] = "role"
         self.set_fake_bin(FAKE_BIN_RECORD)
         # сумма по 5 ходам (≈ 1,25×порога) за порогом, но на ход — четверть порога, сильно меньше
         per_turn = D.ROTATE_TOKENS // 4
@@ -730,8 +892,9 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(D.RUNNING, {})
         self.assertIn("скорость трат", D.CEO_INBOX.read_text(encoding="utf-8"))
 
-    def test_ticket_budget_blocks_new_launches_and_sets_needs_owner(self):
-        """v1.3, п.2: бюджет ИМЕННО этой задачи исчерпан — needs_owner, другие тикеты не задеты."""
+    def test_ticket_budget_exhaustion_signals_ceo_once_and_keeps_status(self):
+        """v2: бюджет ИМЕННО этой задачи исчерпан — новые запуски стоят, ОДНА строка CEO, статус тикета не
+        меняется (раньше needs_owner), другие тикеты не задеты."""
         self.set_fake_bin(FAKE_BIN_SILENT)
         expensive = T.create_ticket(self.tickets_dir, owner="researcher", title="Дорогая")
         cheap = T.create_ticket(self.tickets_dir, owner="engineer", title="Обычная")
@@ -741,16 +904,19 @@ class DispatchRunTests(unittest.TestCase):
         D.save_state(state)
         D.MAX_PARALLEL = 2
         n = D.tick()
-        self.assertEqual(T.read_ticket(expensive).status, "needs_owner")
-        self.assertIn(expensive.stem, D.CEO_INBOX.read_text(encoding="utf-8"))
+        self.assertEqual(T.read_ticket(expensive).status, "todo", "статус тикета не трогаем")
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertIn(expensive.stem, inbox)
+        self.assertEqual(inbox.count("бюджет задачи исчерпан"), 1)
         self.assertEqual(n, 1)  # дешёвая задача не задета чужим бюджетом
         self.assertIn(cheap.stem, D.RUNNING)
-        for info in list(D.RUNNING.values()):
-            info["popen"].wait(timeout=10)
-            for fh in (info.get("out_fh"), info.get("err_fh")):
-                if fh:
-                    fh.close()
-        D.RUNNING.clear()
+        self.assertNotIn(expensive.stem, D.RUNNING)
+        self.wait_running()
+        D.tick()
+        D.tick()
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("бюджет задачи исчерпан"), 1,
+                         "повторных строк по той же задаче нет")
+        self.assertEqual(T.read_ticket(expensive).status, "todo")
 
     def test_money_no_json_is_undercount_not_run_cap(self):
         """v1.4 (судья TK-002 п.1д): запуск без JSON (убит) не досчитывается потолком запуска — иначе
@@ -898,16 +1064,19 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(len(tkt.log), 1)
         self.assertEqual(tkt.header.get("status"), "done")
 
-    def test_ceo_mention_writes_inbox_not_a_role_run(self):
+    def test_ceo_mention_in_text_is_plain_text_status_signals_still_work(self):
+        """v2: @ceo в записи — обычный текст, строки CEO нет и роль не стартует; сигнал даёт статус needs_owner."""
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Для CEO",
                                 now=dt("2026-09-27T12:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-09-27T12:00:30+04:00"))
         T.append_log(path, "researcher", "Нужно решение владельца. @ceo подскажи.",
                      now=dt("2026-09-27T12:01:00+04:00"))
-        T.write_header_updates(path, {"status": "needs_owner"}, now=dt("2026-09-27T12:01:00+04:00"))
         D.tick(now=dt("2026-09-27T12:02:00+04:00"))
-        self.assertTrue(D.CEO_INBOX.exists())
+        self.assertFalse(D.CEO_INBOX.exists() and D.CEO_INBOX.read_text(encoding="utf-8").strip())
+        self.assertEqual(D.RUNNING, {})
+        T.write_header_updates(path, {"status": "needs_owner"}, now=dt("2026-09-27T12:03:00+04:00"))
+        D.tick(now=dt("2026-09-27T12:04:00+04:00"))
         inbox = D.CEO_INBOX.read_text(encoding="utf-8")
-        self.assertIn("@ceo", inbox)
         self.assertIn("needs_owner", inbox)
         self.assertEqual(D.RUNNING, {})  # ceo не запускается диспетчером как роль
 
@@ -915,8 +1084,7 @@ class DispatchRunTests(unittest.TestCase):
         """v1.1: каждая запись ceo-inbox.md дублируется короткой строкой в ceo-wake.log (Monitor CEO)."""
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Для CEO",
                                 now=dt("2026-09-27T12:00:00+04:00"))
-        T.append_log(path, "researcher", "Нужно решение владельца. @ceo подскажи.",
-                     now=dt("2026-09-27T12:01:00+04:00"))
+        T.append_log(path, "researcher", "Нужно решение владельца.", now=dt("2026-09-27T12:01:00+04:00"))
         T.write_header_updates(path, {"status": "needs_owner"}, now=dt("2026-09-27T12:01:00+04:00"))
         D.tick(now=dt("2026-09-27T12:02:00+04:00"))
         self.assertTrue(D.CEO_WAKE_LOG.exists())
@@ -945,20 +1113,22 @@ class DispatchRunTests(unittest.TestCase):
                               dt("2026-09-27T12:00:30+04:00"))
         self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("parse-error"), 2)
 
-    def test_sim4_done_without_reviewer_notifies_ceo(self):
-        """(4) обязательно: done без reviewer раньше никого не уведомлял — числа минуют Судью молча."""
+    def test_done_without_reviewer_signals_ceo_one_line(self):
+        """v2: done без reviewer (теперь норма) — ровно одна строка CEO «done»; дедуп по `updated`."""
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Без ревью",
                                 now=dt("2026-09-27T12:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-09-27T12:00:10+04:00"))
+        D.tick(now=dt("2026-09-27T12:00:20+04:00"))  # первый тик задаёт базу «известных» done
         T.append_log(path, "researcher", "готово, числа: KPI 0,097", now=dt("2026-09-27T12:01:00+04:00"))
         T.write_header_updates(path, {"status": "done"}, now=dt("2026-09-27T12:01:00+04:00"))
         D.tick(now=dt("2026-09-27T12:02:00+04:00"))
-        self.assertTrue(D.CEO_INBOX.exists())
         inbox = D.CEO_INBOX.read_text(encoding="utf-8")
-        self.assertIn("no-reviewer", inbox)
-        self.assertEqual(D.RUNNING, {})  # без reviewer некого запускать — но CEO уведомлён
-        # дедуп: второй тик с тем же updated не добавляет вторую строку
-        D.tick(now=dt("2026-09-27T12:02:15+04:00"))
-        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("no-reviewer"), 1)
+        self.assertEqual(inbox.count("[done]"), 1)
+        self.assertIn("Без ревью", inbox)
+        self.assertIn("KPI 0,097", inbox)
+        self.assertEqual(D.RUNNING, {})  # без reviewer некого запускать
+        D.tick(now=dt("2026-09-27T12:02:30+04:00"))  # дедуп: тот же updated — второй строки нет
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("[done]"), 1)
 
     def test_sim6_timeout_with_logged_progress_is_not_a_failure(self):
         """(6) обязательно: RUN_TIMEOUT назван в промпте, а прогресс до таймаута — не провал."""
@@ -993,16 +1163,15 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(D.RUNNING, {}, "прогресс есть — не должно быть повтора")
         self.assertEqual(T.read_ticket(path).status, "in_progress")  # роль сама решит дальше, не blocked
 
-    def test_tk005_headerless_engineer_bullet_is_not_a_false_blocked(self):
-        """Воспроизводит боевой TK-005 (CEO 27.09): Инженер дважды дописал «- 27.09 ~23:50 (инженер,
-        запуск 1) …» без заголовка `###`; диспетчер считал это отсутствием записи → повтор → blocked."""
+    def test_headerless_bullet_is_not_an_entry_owner_gets_one_retry_not_blocked(self):
+        """TK-005 (27.09) → v2 (02.10): запись роли — только новый заголовок `### <ts> <роль>` (промпт велит
+        писать командой tickets.py comment); безголовая строка записью не считается — владелец получает
+        один повтор, но задача при этом НЕ блокируется."""
         path = T.create_ticket(self.tickets_dir, owner="engineer", title="TK-005",
                                 now=dt("2026-09-27T23:00:00+04:00"))
         T.write_header_updates(path, {"status": "in_progress"}, now=dt("2026-09-27T23:00:00+04:00"))
-        log_len_at_launch = len(T.read_ticket(path).log_raw)
+        keys_at_launch = T.role_entry_keys(T.read_ticket(path), "engineer")
         started = dt("2026-09-27T23:00:00+04:00")
-
-        # роль дописывает БЕЗ заголовка ### — ровно формат из боевого лога
         content = path.read_text(encoding="utf-8")
         content += "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг, дальше доделать\n"
         path.write_text(content, encoding="utf-8")
@@ -1011,41 +1180,306 @@ class DispatchRunTests(unittest.TestCase):
         run_file.write_text(json.dumps({"session_id": "s-tk005", "total_cost_usd": 0.2}), encoding="utf-8")
         info = {"role": "engineer", "popen": None, "pid": None, "started": started, "attempt": 0,
                 "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None, "reason": "todo",
-                "run_cap_usd": 1.0, "status_at_launch": "in_progress", "log_len_at_launch": log_len_at_launch}
+                "run_cap_usd": 1.0, "status_at_launch": "in_progress", "log_keys_at_launch": keys_at_launch}
         state = D.load_state()
         D._finish_run(path.stem, info, state, started + timedelta(minutes=5), timed_out=False)
-        self.assertEqual(T.read_ticket(path).status, "in_progress", "не должно было уйти в blocked")
+        self.assertEqual(T.read_ticket(path).status, "in_progress", "не blocked: повтор, а не блокировка")
+        self.assertIn(path.stem, D.RUNNING)
+        self.assertEqual(D.RUNNING[path.stem]["reason"], "retry")
 
-    def test_tk005_second_headerless_bullet_also_counts(self):
-        """Второй безголовый допис (как в бою — b0b63cb, затем e657090) тоже должен засчитаться."""
+    def test_entry_with_heading_counts_even_if_its_timestamp_is_older_than_launch(self):
+        """Роль пишет заголовок вручную с выдуманным временем (раньше старта запуска) — запись всё равно
+        новая (ключи заголовков, а не часы и не смещения)."""
         path = T.create_ticket(self.tickets_dir, owner="engineer", title="TK-005b",
                                 now=dt("2026-09-27T23:00:00+04:00"))
         T.write_header_updates(path, {"status": "in_progress"}, now=dt("2026-09-27T23:00:00+04:00"))
-        content = path.read_text(encoding="utf-8")
-        content += "\n- 27.09 ~23:50 (инженер, запуск 1) сделал шаг 1\n"
-        path.write_text(content, encoding="utf-8")
-        log_len_at_launch2 = len(T.read_ticket(path).log_raw)  # снимок на старте ВТОРОГО запуска
-
-        content2 = path.read_text(encoding="utf-8")
-        content2 += "- 27.09 ~00:05 (инженер, запуск 2) доделал, status: in_progress\n"
-        path.write_text(content2, encoding="utf-8")
-
+        keys_at_launch = T.role_entry_keys(T.read_ticket(path), "engineer")
+        T.append_log(path, "engineer", "сделал шаг 1, status: in_progress", now=dt("2026-09-27T20:00:00+04:00"))
         run_file = self.dispatcher_dir / "tk005b.json"
         run_file.write_text(json.dumps({"session_id": "s-tk005b", "total_cost_usd": 0.2}), encoding="utf-8")
         info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-09-27T23:50:00+04:00"),
                 "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
                 "reason": "in_progress-resume", "run_cap_usd": 1.0, "status_at_launch": "in_progress",
-                "log_len_at_launch": log_len_at_launch2}
+                "log_keys_at_launch": keys_at_launch}
         state = D.load_state()
         D._finish_run(path.stem, info, state, dt("2026-09-28T00:10:00+04:00"), timed_out=False)
+        self.assertEqual(D.RUNNING, {}, "запись есть — повтора нет")
         self.assertEqual(T.read_ticket(path).status, "in_progress")
+
+    def finish_info(self, role, keys=None, attempt=0, status_at_launch="todo", reason="todo"):
+        run_file = self.dispatcher_dir / f"fin-{role}-{attempt}.json"
+        run_file.write_text(json.dumps({"session_id": f"s-{role}", "total_cost_usd": 0.05}), encoding="utf-8")
+        return {"role": role, "popen": None, "pid": None, "started": dt("2026-10-02T10:00:00+04:00"),
+                "attempt": attempt, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
+                "reason": reason, "run_cap_usd": 3.0, "status_at_launch": status_at_launch,
+                "log_keys_at_launch": [] if keys is None else keys}
+
+    def test_entry_by_other_author_does_not_count_for_owner(self):
+        """Лог вырос, но записал CEO/dispatcher, а не роль — это не «роль оставила запись» (раньше считался
+        любой рост секции)."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Чужая запись",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        T.append_log(path, "ceo", "комментарий владельца", now=dt("2026-10-02T10:01:00+04:00"))
+        T.append_log(path, "dispatcher", "служебное", now=dt("2026-10-02T10:02:00+04:00"))
+        state = D.load_state()
+        D._finish_run(path.stem, self.finish_info("engineer"), state, dt("2026-10-02T10:05:00+04:00"),
+                      timed_out=False)
+        self.assertIn(path.stem, D.RUNNING)
+        self.assertEqual(D.RUNNING[path.stem]["reason"], "retry")
+
+    def test_non_owner_run_without_entry_is_not_a_failure(self):
+        """v2: запуск НЕ владельца (ревьюер, адресат --next) без записи — не провал: ни повтора, ни blocked,
+        ни строки CEO (раньше «дважды без записи» блокировало задачу владельца — TK-027, 02.10 04:04)."""
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Чужой запуск",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-10-02T10:00:30+04:00"))
+        for attempt in (0, 1):
+            state = D.load_state()
+            D._finish_run(path.stem, self.finish_info("judge", attempt=attempt, status_at_launch="waiting",
+                                                       reason="next"), state,
+                          dt("2026-10-02T10:05:00+04:00"), timed_out=(attempt == 1))
+            D.save_state(state)
+        self.assertEqual(D.RUNNING, {})
+        self.assertEqual(T.read_ticket(path).status, "waiting")
+        self.assertFalse(D.CEO_INBOX.exists() and "blocked" in D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_non_owner_run_with_expensive_idle_does_not_block(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Дорогой чужой холостой",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        state = D.load_state()
+        D.set_ticket_budget(state, path.stem, 10.0)
+        info = self.finish_info("judge", status_at_launch="todo")
+        info["run_file"].write_text(json.dumps({"session_id": "sj", "total_cost_usd": 6.0}), encoding="utf-8")
+        D._finish_run(path.stem, info, state, dt("2026-10-02T10:05:00+04:00"), timed_out=False)
+        self.assertEqual(T.read_ticket(path).status, "todo")
+
+    def test_retry_skipped_when_remaining_budget_below_one_dollar(self):
+        """v2: остаток бюджета < $1 — повтор не запускаем (раньше он получал потолок в центы и умирал на
+        старте), одна строка CEO; тикет не блокируется и не уходит в needs_owner."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Остаток мал",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        state = D.load_state()
+        D.set_ticket_budget(state, path.stem, 5.0)
+        D.add_ticket_cost(state, path.stem, 4.5)
+        D._finish_run(path.stem, self.finish_info("engineer"), state, dt("2026-10-02T10:05:00+04:00"),
+                      timed_out=False)
+        self.assertEqual(D.RUNNING, {})
+        self.assertEqual(T.read_ticket(path).status, "todo")
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertEqual(inbox.count("повтор не запущен"), 1)
+        D._finish_run(path.stem, self.finish_info("engineer"), state, dt("2026-10-02T10:06:00+04:00"),
+                      timed_out=False)
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("повтор не запущен"), 1, "строка — одна")
+
+    def test_retry_runs_when_remaining_budget_is_enough(self):
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Остаток есть",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        state = D.load_state()
+        D.set_ticket_budget(state, path.stem, 5.0)
+        D.add_ticket_cost(state, path.stem, 3.5)  # остаток $1,5 − 0,05 текущего запуска ≥ $1
+        D._finish_run(path.stem, self.finish_info("engineer"), state, dt("2026-10-02T10:05:00+04:00"),
+                      timed_out=False)
+        self.assertIn(path.stem, D.RUNNING)
+        self.assertEqual(D.RUNNING[path.stem]["attempt"], 1)
+
+    def test_run_cap_never_below_three_dollars(self):
+        """v2: потолок запуска — min(остаток, RUN_CAP_USD), но не ниже MIN_RUN_CAP_USD ($3)."""
+        state = {}
+        D.set_ticket_budget(state, "TK-1", 10.0)
+        D.add_ticket_cost(state, "TK-1", 9.96)  # остаток $0,04
+        self.assertAlmostEqual(D.run_cap_for(state, "TK-1"), D.MIN_RUN_CAP_USD)
+        self.assertGreaterEqual(D.MIN_RUN_CAP_USD, 3.0)
+        D.set_ticket_budget(state, "TK-2", 10.0)
+        D.add_ticket_cost(state, "TK-2", 5.0)  # остаток $5 — между порогами: берём остаток
+        self.assertAlmostEqual(D.run_cap_for(state, "TK-2"), min(5.0, D.RUN_CAP_USD))
+        D.set_ticket_budget(state, "TK-3", 100.0)
+        self.assertAlmostEqual(D.run_cap_for(state, "TK-3"), D.RUN_CAP_USD)
+
+    def test_launch_passes_min_cap_not_tiny_remainder_to_cli(self):
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Остаток копейки")
+        state = D.load_state()
+        D.set_ticket_budget(state, path.stem, 10.0)
+        D.add_ticket_cost(state, path.stem, 9.96)
+        D.save_state(state)
+        captured = []
+        orig_popen = D._popen
+        D._popen = lambda cmd, **kw: (captured.extend(cmd), orig_popen(cmd, **kw))[1]
+        D.tick()
+        self.assertEqual(captured[captured.index("--max-budget-usd") + 1], f"{D.MIN_RUN_CAP_USD:.2f}")
+
+    def test_effort_defaults_by_role_and_ticket_header_overrides(self):
+        """v2: умолчания — исследователь/инженер high, Судья xhigh; `effort:` в шапке тикета — приоритетнее."""
+        if os.environ.get("ALPHA_DISPATCH_EFFORT"):
+            self.skipTest("ALPHA_DISPATCH_EFFORT задан в окружении")
+        self.assertEqual(D.ROLE_EFFORT, {"judge": "xhigh", "engineer": "high", "researcher": "high"})
+        cases = [("researcher", None, "high"), ("engineer", None, "high"), ("judge", None, "xhigh"),
+                 ("engineer", "low", "low"), ("researcher", "medium", "medium"), ("judge", "high", "high"),
+                 ("engineer", "xhigh", "xhigh")]
+        for role, effort, expected in cases:
+            self.set_fake_bin(FAKE_BIN_SILENT)
+            path = T.create_ticket(self.tickets_dir, owner=role, title=f"Усилие {role} {effort}", effort=effort)
+            captured = []
+            orig_popen = D._popen
+            D._popen = lambda cmd, _o=orig_popen, **kw: (captured.extend(cmd), _o(cmd, **kw))[1]
+            try:
+                D.launch_run(path, role, D.load_state(), datetime.now().astimezone(), reason="todo")
+            finally:
+                D._popen = orig_popen
+            self.assertEqual(captured[captured.index("--effort") + 1], expected, f"{role}/{effort}")
+            for info in list(D.RUNNING.values()):
+                info["popen"].wait(timeout=10)
+                for fh in (info.get("out_fh"), info.get("err_fh")):
+                    if fh:
+                        fh.close()
+            D.RUNNING.clear()
+            path.unlink()
+
+    def test_next_launches_role_once_and_clears_field(self):
+        self.set_fake_bin(FAKE_BIN_RECORD)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Передача")
+        T.write_header_updates(path, {"status": "waiting", "next": "judge"})
+        D.tick()
+        self.assertIn(path.stem, D.RUNNING)
+        self.assertEqual(D.RUNNING[path.stem]["role"], "judge")
+        self.assertEqual(D.RUNNING[path.stem]["reason"], "next")
+        self.assertEqual(T.read_ticket(path).next_role, "", "поле очищено при запуске")
+        self.wait_running()
+        D.tick()
+        D.tick()
+        calls = (self.tickets_dir.parent / "calls.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 1, "next сработал один раз")
+        self.assertIn("Запуск по явной передаче", json.loads(calls[0])["prompt"])
+
+    def test_next_waits_while_target_role_is_busy_and_keeps_field(self):
+        self.set_fake_bin(FAKE_BIN_SLOW_OK)
+        a = T.create_ticket(self.tickets_dir, owner="researcher", title="Занимает исследователя")
+        D.MAX_PARALLEL = 3
+        D.tick()
+        self.assertEqual({t: i["role"] for t, i in D.RUNNING.items()}, {a.stem: "researcher"})
+        b = T.create_ticket(self.tickets_dir, owner="engineer", title="Просит исследователя")
+        T.write_header_updates(b, {"status": "waiting", "next": "researcher"})
+        D.tick()
+        self.assertEqual(list(D.RUNNING), [a.stem], "исследователь занят — запуск ждёт")
+        self.assertEqual(T.read_ticket(b).next_role, "researcher", "ждёт следующего тика, не потеряно")
+
+    def test_next_has_priority_over_in_progress_resume(self):
+        self.set_fake_bin(FAKE_BIN_SLOW_OK)
+        a = T.create_ticket(self.tickets_dir, owner="researcher", title="Продолжение")
+        T.write_header_updates(a, {"status": "in_progress"})
+        b = T.create_ticket(self.tickets_dir, owner="engineer", title="Передача")
+        T.write_header_updates(b, {"status": "waiting", "next": "researcher"})
+        D.tick()
+        self.assertEqual({t: i["role"] for t, i in D.RUNNING.items()}, {b.stem: "researcher"})
+
+    def test_longest_waiting_ticket_goes_first_within_role(self):
+        """Один запуск на роль + порядок по имени вытеснял бы поздние тикеты; при равном приоритете первым
+        идёт тот, кого роль дольше не запускала."""
+        self.set_fake_bin(FAKE_BIN_SLOW_OK)
+        a = T.create_ticket(self.tickets_dir, owner="researcher", title="Недавно запускали")
+        b = T.create_ticket(self.tickets_dir, owner="researcher", title="Давно не запускали")
+        for p in (a, b):
+            T.write_header_updates(p, {"status": "in_progress"})
+        state = D.load_state()
+        now = datetime.now().astimezone()
+        state["sessions"] = {f"{a.stem}::researcher": {"last_woken": T.now_iso(now - timedelta(minutes=10))},
+                             f"{b.stem}::researcher": {"last_woken": T.now_iso(now - timedelta(hours=3))}}
+        D.save_state(state)
+        D.tick()
+        self.assertEqual(list(D.RUNNING), [b.stem])
+
+    def test_next_ceo_writes_one_inbox_line_and_clears_next(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Нужен CEO",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting", "next": "ceo"}, now=dt("2026-09-27T12:00:30+04:00"))
+        T.append_log(path, "researcher", "Нужно решение владельца по бюджету.", now=dt("2026-09-27T12:01:00+04:00"))
+        D.tick(now=dt("2026-09-27T12:02:00+04:00"))
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertEqual(inbox.count("[next-ceo]"), 1)
+        self.assertIn("решение владельца по бюджету", inbox)
+        self.assertEqual(T.read_ticket(path).next_role, "")
+        self.assertEqual(T.read_ticket(path).header["updated"], "2026-09-27T12:00:30+04:00",
+                         "очистка next поле updated не двигает")
+        D.tick(now=dt("2026-09-27T12:02:20+04:00"))
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("[next-ceo]"), 1)
+        self.assertEqual(D.RUNNING, {})
+
+    def test_done_history_is_not_resignalled_on_first_tick(self):
+        """Первый тик после перехода на v2: закрытые заранее тикеты — известные, CEO по ним строк не получает."""
+        for i in range(3):
+            p = T.create_ticket(self.tickets_dir, owner="researcher", title=f"Старая {i}",
+                                 now=dt("2026-09-27T12:00:00+04:00"))
+            T.write_header_updates(p, {"status": "done"}, now=dt("2026-09-27T12:01:00+04:00"))
+        D.tick(now=dt("2026-09-27T12:02:00+04:00"))
+        self.assertFalse(D.CEO_INBOX.exists() and "[done]" in D.CEO_INBOX.read_text(encoding="utf-8"))
+
+    def test_done_with_pending_review_is_signalled_only_after_verdict(self):
+        self.set_fake_bin(FAKE_BIN_SILENT)
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="С ревью", reviewer="judge",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-10-02T10:00:10+04:00"))
+        D.tick(now=dt("2026-10-02T10:00:20+04:00"))  # база
+        T.append_log(path, "researcher", "готово, прошу вердикт", now=dt("2026-10-02T10:01:00+04:00"))
+        T.write_header_updates(path, {"status": "done"}, now=dt("2026-10-02T10:01:00+04:00"))
+        D.tick(now=dt("2026-10-02T10:02:00+04:00"))  # правило (г): ревьюер запущен, статус in_review
+        self.assertEqual(T.read_ticket(path).status, "in_review")
+        self.assertEqual(D.RUNNING[path.stem]["role"], "judge")
+        self.assertFalse(D.CEO_INBOX.exists() and "[done]" in D.CEO_INBOX.read_text(encoding="utf-8"))
+        T.append_log(path, "judge", "принято", now=dt("2026-10-02T10:10:00+04:00"))
+        T.write_header_updates(path, {"status": "done"}, now=dt("2026-10-02T10:10:00+04:00"))
+        D.RUNNING[path.stem]["popen"].kill()
+        D.RUNNING[path.stem]["popen"].wait(timeout=5)
+        for fh in (D.RUNNING[path.stem].get("out_fh"), D.RUNNING[path.stem].get("err_fh")):
+            fh.close()
+        D.RUNNING.clear()
+        D.tick(now=dt("2026-10-02T10:11:00+04:00"))
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("[done]"), 1)
+
+    def test_done_line_carries_budget_note_at_80_percent(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Дорогая",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-10-02T10:00:10+04:00"))
+        D.tick(now=dt("2026-10-02T10:00:20+04:00"))
+        state = D.load_state()
+        D.set_ticket_budget(state, path.stem, 10.0)
+        D.add_ticket_cost(state, path.stem, 8.5)
+        D.save_state(state)
+        T.write_header_updates(path, {"status": "done"}, now=dt("2026-10-02T10:01:00+04:00"))
+        D.tick(now=dt("2026-10-02T10:02:00+04:00"))
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertEqual(inbox.count("[done]"), 1)
+        self.assertIn("85% бюджета", inbox)
+        self.assertNotIn("budget-check", inbox)
+
+    def test_prompt_has_next_rules_and_no_mention_encouragement(self):
+        prompt = D.build_prompt("researcher", "TK-005")
+        self.assertIn("--next", prompt)
+        self.assertIn("@упоминания в тексте никого не будят", prompt)
+        self.assertNotIn("Упоминай @", prompt)
+        self.assertIn("копий «для сведения»", prompt)
+        self.assertIn("--next ceo", prompt)
+        self.assertIn(".claude/tickets/archive/TK-005-log.md", prompt)
+        self.assertIn("последние записи", prompt)
+        self.assertIn("фоновых помощников", prompt)
+        self.assertIn("systemd-run", prompt)
+        self.assertIn("status: waiting + wait_for", prompt)
+
+    def test_v2_constants(self):
+        for var, expected in (("ALPHA_DISPATCH_MAX_PARALLEL", 3), ("ALPHA_DISPATCH_TIMEOUT", 1200.0),
+                              ("ALPHA_DISPATCH_ROTATE_TOKENS", 120000)):
+            if os.environ.get(var):
+                self.skipTest(f"{var} задан в окружении")
+        self.assertEqual((D.MAX_PARALLEL, D.RUN_TIMEOUT, D.ROTATE_TOKENS), (3, 1200.0, 120000))
+        if not os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD"):
+            self.assertEqual(D.DAILY_COST_USD, 150.0)  # потолки без изменений (env может их переопределять)
+        if not os.environ.get("ALPHA_DISPATCH_HOUR_COST_USD"):
+            self.assertEqual(D.HOUR_COST_USD, 15.0)
+        self.assertEqual(set(D.SESSION_SCOPE.values()), {"ticket"})
 
     def test_prompt_tells_role_to_use_tickets_comment(self):
         prompt = D.build_prompt("engineer", "TK-005")
         self.assertIn("tickets.py comment TK-005 --author engineer", prompt)
 
-
-import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
 
 
 class TicketsCliStartTests(unittest.TestCase):
@@ -1086,28 +1520,70 @@ class TicketsCliStartTests(unittest.TestCase):
         self.assertEqual(len(tickets), 1)
         self.assertEqual(T.read_ticket(tickets[0]).status, "backlog")
 
-    def test_new_defaults_reviewer_judge_for_researcher_and_engineer(self):
-        """(6) обязательно: без reviewer по умолчанию done молча минует проверку Судьи."""
+    def test_new_has_no_default_reviewer(self):
+        """v2 (02.10): ревьюера по умолчанию нет — Судья только по явному `--reviewer judge`."""
         TK.main(["new", "--owner", "researcher", "--title", "А"])
         TK.main(["new", "--owner", "engineer", "--title", "Б"])
         tickets = {t.header["owner"]: t for t in (T.read_ticket(p) for p in T.list_tickets(self.tickets_dir))}
-        self.assertEqual(tickets["researcher"].reviewer, "judge")
-        self.assertEqual(tickets["engineer"].reviewer, "judge")
+        self.assertEqual(tickets["researcher"].reviewer, "")
+        self.assertEqual(tickets["engineer"].reviewer, "")
 
-    def test_new_no_reviewer_flag_opts_out(self):
-        TK.main(["new", "--owner", "researcher", "--title", "Без ревью", "--no-reviewer"])
+    def test_new_no_reviewer_flag_is_accepted_noop(self):
+        rc = TK.main(["new", "--owner", "researcher", "--title", "Без ревью", "--no-reviewer"])
+        self.assertEqual(rc, 0)
         tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
         self.assertEqual(tkt.reviewer, "")
 
-    def test_new_explicit_reviewer_overrides_default(self):
-        TK.main(["new", "--owner", "researcher", "--title", "Себе на проверку", "--reviewer", "engineer"])
+    def test_new_explicit_reviewer_judge_is_written(self):
+        TK.main(["new", "--owner", "researcher", "--title", "С Судьёй", "--reviewer", "judge"])
         tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
-        self.assertEqual(tkt.reviewer, "engineer")
+        self.assertEqual(tkt.reviewer, "judge")
 
     def test_new_judge_owner_has_no_default_reviewer(self):
         TK.main(["new", "--owner", "judge", "--title", "Судейское"])
         tkt = T.read_ticket(T.list_tickets(self.tickets_dir)[0])
         self.assertEqual(tkt.reviewer, "")
+
+    def test_new_effort_flag_writes_header_and_rejects_garbage(self):
+        TK.main(["new", "--owner", "engineer", "--title", "Лёгкая", "--effort", "medium"])
+        self.assertEqual(T.read_ticket(T.list_tickets(self.tickets_dir)[0]).effort, "medium")
+        with self.assertRaises(SystemExit):
+            import contextlib
+            import io
+            with contextlib.redirect_stderr(io.StringIO()):
+                TK.main(["new", "--owner", "engineer", "--title", "Странная", "--effort", "ultra"])
+
+    def test_comment_next_writes_header_without_touching_updated(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Передача",
+                                now=dt("2026-10-02T10:00:00+04:00"))
+        rc = TK.main(["comment", path.stem, "--author", "researcher", "--text", "Прошу вердикт. @judge", "--next",
+                      "judge"])
+        self.assertEqual(rc, 0)
+        tkt = T.read_ticket(path)
+        self.assertEqual(tkt.next_role, "judge")
+        self.assertEqual(tkt.header["updated"], "2026-10-02T10:00:00+04:00")
+        self.assertEqual(tkt.log[-1].author, "researcher")
+        # без --next поле не трогаем
+        TK.main(["comment", path.stem, "--author", "researcher", "--text", "ещё запись"])
+        self.assertEqual(T.read_ticket(path).next_role, "judge")
+
+    def test_comment_next_rejects_unknown_role(self):
+        path = T.create_ticket(self.tickets_dir, owner="researcher", title="Передача")
+        import contextlib
+        import io
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                TK.main(["comment", path.stem, "--author", "researcher", "--text", "x", "--next", "everyone"])
+
+    def test_budget_command_sets_state_budget(self):
+        TK.main(["new", "--owner", "engineer", "--title", "Бюджет"])
+        path = T.list_tickets(self.tickets_dir)[0]
+        self.assertEqual(TK.main(["budget", path.stem, "L"]), 0)
+        self.assertEqual(D.ticket_budget_usd(D.load_state(), path.stem), 25.0)
+        self.assertEqual(TK.main(["budget", path.stem, "17.5"]), 0)
+        self.assertEqual(D.ticket_budget_usd(D.load_state(), path.stem), 17.5)
+        self.assertEqual(TK.main(["budget", path.stem, "много"]), 1)
+        self.assertEqual(TK.main(["budget", "TK-999", "L"]), 1)
 
     def test_new_budget_flag_writes_state_not_header(self):
         """v1.3: --budget пишет в state.json, НЕ в шапку тикета (роль бюджет не видит)."""
@@ -1147,13 +1623,16 @@ class TicketsCliStartTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(T.list_tickets(self.tickets_dir), [])
 
-    def test_new_haiku_default_reviewer_judge_is_refused(self):
-        """researcher/engineer получают reviewer: judge по умолчанию — с executor: haiku это запрещённая
-        комбинация (условие г), даже если пользователь не просил reviewer явно."""
-        rc = TK.main(["new", "--owner", "engineer", "--title", "Забыли --no-reviewer",
+    def test_new_haiku_without_reviewer_flag_is_allowed_but_explicit_judge_is_refused(self):
+        """v2: ревьюера по умолчанию нет, так что `--executor haiku` проходит без `--no-reviewer`; явный
+        `--reviewer judge` с haiku по-прежнему запрещён (условие г судьи TK-002)."""
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Механическая без флага",
+                      "--executor", "haiku", "--kind", "file-move"])
+        self.assertEqual(rc, 0)
+        rc = TK.main(["new", "--owner", "engineer", "--title", "Обход", "--reviewer", "judge",
                       "--executor", "haiku", "--kind", "file-move"])
         self.assertEqual(rc, 1)
-        self.assertEqual(T.list_tickets(self.tickets_dir), [])
+        self.assertEqual(len(T.list_tickets(self.tickets_dir)), 1)
 
     def test_new_haiku_researcher_owner_is_refused(self):
         rc = TK.main(["new", "--owner", "researcher", "--title", "Не Haiku", "--no-reviewer",
@@ -1301,75 +1780,6 @@ class RateLimitAndBudgetTests(unittest.TestCase):
         self.assertFalse(D._daily_budget_exceeded(self.state, tomorrow))
 
 
-class LogLenMigrationTests(unittest.TestCase):
-    """v1.5.2 (CEO 28.09, перед загрузкой bf121da): у сессий/активных запусков старого диспетчера
-    (схема `last_woken`, без `log_len_at_launch`) — decide() иначе берёт 0 и правило (б) на первом
-    тике после перезапуска будит все роли на ВСЕ исторические @упоминания (холостые запуски)."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.tickets_dir = Path(self.tmp.name) / "tickets"
-        self.tickets_dir.mkdir(parents=True)
-        self._orig_tickets_dir = D.TICKETS_DIR
-        D.TICKETS_DIR = self.tickets_dir
-
-    def tearDown(self):
-        D.TICKETS_DIR = self._orig_tickets_dir
-        self.tmp.cleanup()
-
-    def write_ticket(self, tid, log_body):
-        text = (f"---\nid: {tid}\nowner: researcher\nstatus: waiting\n"
-                f"updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n{log_body}")
-        (self.tickets_dir / f"{tid}.md").write_text(text, encoding="utf-8")
-        return T.read_ticket(self.tickets_dir / f"{tid}.md")
-
-    def test_old_session_entry_backfilled_to_current_log_length(self):
-        tkt = self.write_ticket("TK-90", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
-        state = {"sessions": {"TK-90::judge": {"last_woken": "2026-09-27T11:06:00+04:00"}}}
-        migrated = D.migrate_log_len_at_launch(state)
-        self.assertEqual(migrated, 1)
-        self.assertEqual(state["sessions"]["TK-90::judge"]["log_len_at_launch"], len(tkt.log_raw))
-
-    def test_already_migrated_entry_is_left_untouched(self):
-        self.write_ticket("TK-91", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
-        state = {"sessions": {"TK-91::judge": {"log_len_at_launch": 5}}}
-        migrated = D.migrate_log_len_at_launch(state)
-        self.assertEqual(migrated, 0)
-        self.assertEqual(state["sessions"]["TK-91::judge"]["log_len_at_launch"], 5)
-
-    def test_active_run_entry_also_backfilled(self):
-        tkt = self.write_ticket("TK-92", "\n### 2026-09-27T11:05:00+04:00 researcher\nработаю.\n")
-        state = {"active_runs": {"TK-92": {"role": "researcher", "pid": 123}}}
-        migrated = D.migrate_log_len_at_launch(state)
-        self.assertEqual(migrated, 1)
-        self.assertEqual(state["active_runs"]["TK-92"]["log_len_at_launch"], len(tkt.log_raw))
-
-    def test_missing_ticket_file_is_skipped_without_crash(self):
-        state = {"sessions": {"TK-ghost::judge": {"last_woken": "x"}}}
-        migrated = D.migrate_log_len_at_launch(state)
-        self.assertEqual(migrated, 0)
-        self.assertNotIn("log_len_at_launch", state["sessions"]["TK-ghost::judge"])
-
-    def test_no_missing_entries_returns_zero_and_reads_no_tickets(self):
-        state = {"sessions": {"TK-93::judge": {"log_len_at_launch": 5}},
-                 "active_runs": {"TK-94": {"log_len_at_launch": 9}}}
-        # ни один тикет TK-93/TK-94 не создан на диске — если бы функция их читала, упала бы; она
-        # должна выйти раньше по пустому missing_tids
-        self.assertEqual(D.migrate_log_len_at_launch(state), 0)
-
-    def test_decide_no_longer_refires_old_mention_after_migration(self):
-        """До миграции decide() видит log_len_at_launch=0 (default) и будит на старое упоминание —
-        это и есть баг CEO 28.09; после миграции — тот же тикет больше не будит."""
-        tkt = self.write_ticket("TK-95", "\n### 2026-09-27T11:05:00+04:00 researcher\n@judge глянь.\n")
-        old_schema_state = {"sessions": {"TK-95::judge": {"last_woken": "2026-09-27T11:06:00+04:00"}}}
-        # воспроизводим баг: без поля decide() берёт 0 → будит
-        dec_before = D.decide(tkt, old_schema_state, dt("2026-09-27T12:00:00+04:00"))
-        self.assertEqual((dec_before.role, dec_before.reason), ("judge", "mention"))
-        D.migrate_log_len_at_launch(old_schema_state)
-        dec_after = D.decide(tkt, old_schema_state, dt("2026-09-27T12:00:00+04:00"))
-        self.assertIsNone(dec_after)
-
-
 class MoneyControlsTests(unittest.TestCase):
     """v1.3 (владелец 27.09): модель/усилие, бюджет задачи, потолок запуска, часовое окно, холостой ход.
     Чистые функции — без процессов и без сети; сквозные (--max-budget-usd, cost-фолбэк, blocked) — в
@@ -1508,9 +1918,9 @@ class MoneyControlsTests(unittest.TestCase):
     # --- п.1: модель/усилие ---
 
     def test_role_effort_mapping(self):
-        # В-153: все роли — xhigh (тест в окружении без ALPHA_DISPATCH_EFFORT)
+        # v2 (02.10): исследователь/инженер — high, Судья — xhigh (тест в окружении без ALPHA_DISPATCH_EFFORT)
         if not os.environ.get("ALPHA_DISPATCH_EFFORT"):
-            self.assertEqual(D.ROLE_EFFORT, {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"})
+            self.assertEqual(D.ROLE_EFFORT, {"judge": "xhigh", "engineer": "high", "researcher": "high"})
 
     def test_role_effort_env_override(self):
         base = {"judge": "xhigh", "engineer": "xhigh", "researcher": "xhigh"}
@@ -1625,42 +2035,57 @@ class MoneyControlsTests(unittest.TestCase):
         D.add_ticket_cost(self.state, "TK-2", 100.0)
         self.assertFalse(D.ticket_budget_exceeded(self.state, "TK-1"))
 
-    def test_notify_ticket_budget_exceeded_sets_needs_owner(self):
+    def test_notify_ticket_budget_exceeded_one_line_no_status_change(self):
+        """v2: исчерпание бюджета задачи — ОДНА строка CEO; статус тикета не меняется (раньше needs_owner)."""
         with tempfile.TemporaryDirectory() as d:
             path = T.create_ticket(Path(d), owner="researcher", title="Дорогая")
             D.set_ticket_budget(self.state, path.stem, 5.0)
             D.add_ticket_cost(self.state, path.stem, 6.0)
-            D.notify_ticket_budget_exceeded(path, path.stem, self.state, self.now)
-            self.assertEqual(T.read_ticket(path).status, "needs_owner")
-            self.assertIn("бюджет задачи исчерпан", D.CEO_INBOX.read_text(encoding="utf-8"))
+            D.notify_ticket_budget_exceeded(path.stem, self.state, self.now)
+            D.notify_ticket_budget_exceeded(path.stem, self.state, self.now)
+            self.assertEqual(T.read_ticket(path).status, "todo")
+            self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("бюджет задачи исчерпан"), 1)
 
     def test_notify_ticket_budget_exceeded_silent_under_budget(self):
-        with tempfile.TemporaryDirectory() as d:
-            path = T.create_ticket(Path(d), owner="researcher", title="Норм")
-            D.set_ticket_budget(self.state, path.stem, 5.0)
-            D.add_ticket_cost(self.state, path.stem, 1.0)
-            D.notify_ticket_budget_exceeded(path, path.stem, self.state, self.now)
-            self.assertEqual(T.read_ticket(path).status, "todo")
-            self.assertFalse(D.CEO_INBOX.exists())
-
-    def test_budget_proportionality_silent_under_80_percent(self):
-        D.set_ticket_budget(self.state, "TK-1", 10.0)
-        D.add_ticket_cost(self.state, "TK-1", 7.9)
-        D.notify_budget_proportionality("TK-1", self.state, self.now)
+        D.set_ticket_budget(self.state, "TK-77", 5.0)
+        D.add_ticket_cost(self.state, "TK-77", 1.0)
+        D.notify_ticket_budget_exceeded("TK-77", self.state, self.now)
         self.assertFalse(D.CEO_INBOX.exists())
 
-    def test_budget_proportionality_flags_at_80_percent(self):
-        D.set_ticket_budget(self.state, "TK-1", 10.0)
-        D.add_ticket_cost(self.state, "TK-1", 8.0)
-        D.notify_budget_proportionality("TK-1", self.state, self.now)
-        self.assertIn("проверить соразмерность", D.CEO_INBOX.read_text(encoding="utf-8"))
+    def test_budget_exhaustion_signal_rearms_after_budget_is_raised(self):
+        D.set_ticket_budget(self.state, "TK-77", 5.0)
+        D.add_ticket_cost(self.state, "TK-77", 5.5)
+        D.notify_ticket_budget_exceeded("TK-77", self.state, self.now)
+        D.set_ticket_budget(self.state, "TK-77", 10.0)  # CEO поднял бюджет
+        D.notify_ticket_budget_exceeded("TK-77", self.state, self.now)  # не исчерпан — тишина
+        D.add_ticket_cost(self.state, "TK-77", 5.0)  # исчерпан снова — вторая строка (бюджет другой)
+        D.notify_ticket_budget_exceeded("TK-77", self.state, self.now)
+        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("бюджет задачи исчерпан"), 2)
 
-    def test_budget_proportionality_notifies_once(self):
-        D.set_ticket_budget(self.state, "TK-1", 10.0)
-        D.add_ticket_cost(self.state, "TK-1", 9.0)
-        D.notify_budget_proportionality("TK-1", self.state, self.now)
-        D.notify_budget_proportionality("TK-1", self.state, self.now)
-        self.assertEqual(D.CEO_INBOX.read_text(encoding="utf-8").count("проверить соразмерность"), 1)
+    def test_budget_exhaustion_legacy_notified_flag_does_not_resignal(self):
+        """state.json до v2 хранит `ceo_ticket_budget_notified[tid] = True` — по уже названным задачам
+        повторной строки после перехода на v2 нет."""
+        D.set_ticket_budget(self.state, "TK-77", 5.0)
+        D.add_ticket_cost(self.state, "TK-77", 5.5)
+        self.state["ceo_ticket_budget_notified"] = {"TK-77": True}
+        D.notify_ticket_budget_exceeded("TK-77", self.state, self.now)
+        self.assertFalse(D.CEO_INBOX.exists())
+        self.assertEqual(self.state["ceo_ticket_budget_notified"]["TK-77"], 5.0)
+
+    def test_done_line_budget_note_only_from_80_percent(self):
+        """Соразмерность бюджета — часть единственной строки `done` (отдельного `budget-check` больше нет)."""
+        for spent, expect in ((7.9, False), (8.0, True), (9.5, True)):
+            state = {}
+            D.set_ticket_budget(state, "TK-1", 10.0)
+            D.add_ticket_cost(state, "TK-1", spent)
+            tkt = T.parse_text("---\nid: TK-1\ntitle: Закрытая\nowner: researcher\nstatus: done\n"
+                               "updated: 2026-09-27T11:00:00+04:00\n---\n\n## Лог\n", Path("TK-1.md"))
+            if D.CEO_INBOX.exists():
+                D.CEO_INBOX.unlink()
+            D.notify_done(tkt, state, self.now)
+            text = D.CEO_INBOX.read_text(encoding="utf-8")
+            self.assertEqual("проверить соразмерность" in text, expect, spent)
+            self.assertEqual(text.count("[done]"), 1)
 
     # --- п.4: часовое окно по всем ролям ---
 
