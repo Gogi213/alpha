@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# TK-029: неделя августа сутками параллельно на ЛОКАЛЬНЫХ данных (stage ~/alpha/tk028/stage/root, без сети).
+# TK-029: неделя августа сутками параллельно на ЛОКАЛЬНЫХ данных (stage ~/alpha/tk029/stage/root, без сети).
 # tk029-local.sh <тег> <полосы через запятую> <сутки через запятую>. Гейт: sha без '#'-строк против wk2/ref (эталон прошлой недели).
 set -uo pipefail
 TAG="${1:?}"; LANES="${2:?}"; DAYS="${3:?}"
-A="$HOME/alpha"; S="$A/tk028/stage/root"; H="$A/tk028/stageL"; O="$A/tk029/$TAG"; E="$A/epochs/e-augbench"
+A="$HOME/alpha"; S="$A/tk029/stage/root"; H="$A/tk029/stageL"; O="$A/tk029/$TAG"; E="$A/epochs/e-augbench"
 mkdir -p "$O/ref" "$H/study" "$H/b5" "$H/carry"; rm -f "$O/DONE" "$O/summary.txt"
 cp "$A"/tk028/wk2/ref/body-*.sha "$O/ref/"
 ln -sfn "$A/bin" "$H/bin"; ln -sfn "$H/carry" "$H/root"
