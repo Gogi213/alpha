@@ -7,7 +7,9 @@ import argparse, csv, datetime as dt, json, os, re, shutil, subprocess, sys, thr
 
 MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 ROOT_NAME = re.compile(r'^(?P<sym>.+?)-(?P<day>\d{4}-\d\d-\d\d)(?P<tail>(-p\d+)?\.binlog(\.zst)?)$')
-HOME = '/home/deck'
+HOME = os.environ.get('BENCH_HOME', '/home/deck')
+BOX = 'u677479@u677479.your-storagebox.de'
+KEY = os.path.expanduser('~/.ssh/id_storagebox')
 A = HOME + '/alpha'
 ST_DIR = A + '/tk022/status'
 VIEW = A + '/tk022/view'
@@ -40,6 +42,12 @@ class Bench:
         self.lanes = 1
         self.logf = open(f'{self.out}/bench.log', 'a', buffering=1)
         self.t_start = now()
+        self.lscache = {}
+        if a.fresh:
+            for x in os.listdir(self.stage):
+                p = f'{self.stage}/{x}'
+                if re.fullmatch(r'\d{4}-\d\d-\d\d', x) and os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p)
 
     @staticmethod
     def expand(spec):
@@ -54,13 +62,32 @@ class Bench:
     # ---------- доставка ----------
     def paths(self, day):
         mon = MON[int(day[5:7]) - 1]
-        return (f'{self.a.box}/alpha/epochs/e-{mon}/root', f'{self.a.box}/alpha/derived/tk015/e-{mon}/D20/{day}')
+        pre = '' if self.a.box_ssh else self.a.box + '/'
+        return (f'{pre}alpha/epochs/e-{mon}/root', f'{pre}alpha/derived/tk015/e-{mon}/D20/{day}')
+
+    def ssh_ls(self, path):
+        if path not in self.lscache:
+            r = subprocess.run(['ssh', '-n', '-p', '23', '-i', KEY, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', BOX, f'ls -l {path}'],
+                               capture_output=True, text=True, timeout=300)
+            if r.returncode:
+                raise RuntimeError(f'ls {path}: {r.stderr.strip()}')
+            out = {}
+            for ln in r.stdout.splitlines():
+                q = ln.split()
+                if len(q) >= 9 and q[4].isdigit():
+                    out[q[8]] = int(q[4])
+            self.lscache[path] = out
+        return self.lscache[path]
 
     def plan(self, day):
         rdir, ddir = self.paths(day)
-        root = {n: os.path.getsize(f'{rdir}/{n}') for n in os.listdir(rdir)
-                if (m := ROOT_NAME.match(n)) and m.group('day') == day}
-        d20 = {n: os.path.getsize(f'{ddir}/{n}') for n in os.listdir(ddir) if os.path.isfile(f'{ddir}/{n}')}
+        if self.a.box_ssh:
+            root = {n: sz for n, sz in self.ssh_ls(rdir).items() if (m := ROOT_NAME.match(n)) and m.group('day') == day}
+            d20 = dict(self.ssh_ls(ddir))
+        else:
+            root = {n: os.path.getsize(f'{rdir}/{n}') for n in os.listdir(rdir)
+                    if (m := ROOT_NAME.match(n)) and m.group('day') == day}
+            d20 = {n: os.path.getsize(f'{ddir}/{n}') for n in os.listdir(ddir) if os.path.isfile(f'{ddir}/{n}')}
         if not root or not d20:
             raise RuntimeError(f'на ящике нет файлов суток {day}')
         return rdir, ddir, root, d20
@@ -94,10 +121,18 @@ class Bench:
         def one(lst):
             for sub in ('root', 'D20'):
                 fs = [f'{src}/{n}' for sb, src, n in lst if sb == sub]
-                if fs:
+                if not fs:
+                    continue
+                if self.a.box_ssh:
+                    lf = f'{dst}/.list{id(lst)}-{sub}'
+                    open(lf, 'w').write('\n'.join(n for sb, src, n in lst if sb == sub) + '\n')
+                    r = subprocess.run(['rsync', '-t', '--partial-dir=.part', '-e', f'ssh -p 23 -i {KEY} -o BatchMode=yes', '--files-from', lf,
+                                        f'{BOX}:{rdir if sub == "root" else ddir}/', f'{dst}/{sub}/'], capture_output=True, text=True)
+                    os.remove(lf)
+                else:
                     r = subprocess.run(['cp', '-p', '--'] + fs + [f'{dst}/{sub}/'], capture_output=True, text=True)
-                    if r.returncode:
-                        errs.append(r.stderr.strip()[:200])
+                if r.returncode:
+                    errs.append(r.stderr.strip()[:200])
 
         t0 = now()
         ths = [threading.Thread(target=one, args=(l,)) for l in lists if l]
@@ -106,6 +141,8 @@ class Bench:
         for t in ths:
             t.join()
         el = now() - t0
+        for sub in ('root', 'D20'):
+            shutil.rmtree(f'{dst}/{sub}/.part', ignore_errors=True)
         bad = [n for sub, files in (('root', root), ('D20', d20)) for n, s in files.items()
                if not os.path.isfile(f'{dst}/{sub}/{n}') or os.path.getsize(f'{dst}/{sub}/{n}') != s]
         if errs or bad:
@@ -359,6 +396,8 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--stage', default=A + '/tk026/stage')
     ap.add_argument('--box', default='/mnt/sb')
+    ap.add_argument('--box-ssh', action='store_true', help='читать ящик rsync по ssh (порт 23, ключ ~/.ssh/id_storagebox) вместо монтирования --box')
+    ap.add_argument('--fresh', action='store_true', help='в начале удалить старые каталоги суток в --stage')
     ap.add_argument('--streams', type=int, default=4)
     ap.add_argument('--budget-gb', type=float, default=9.0)
     ap.add_argument('--reserve-gb', type=float, default=5.0)
