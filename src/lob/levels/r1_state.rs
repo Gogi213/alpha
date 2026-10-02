@@ -477,8 +477,9 @@ impl R1State {
         ts_ms: i64,
         newborns: &[(u8, i64, i64)],
     ) {
+        // `armed` не трогаем: подход, оборванный этой смертью, снимается записью `LevelDeath` позже в том же
+        // проходе и забирает свои колонки (`attach`); устаревшая запись заменяется на следующем `push_arm`.
         self.live.remove(&key);
-        self.armed.remove(&key);
         let outcome = match classify_outcome(lv.traded, lv.max) {
             Outcome::Eaten => 1,
             Outcome::Pulled => 0,
