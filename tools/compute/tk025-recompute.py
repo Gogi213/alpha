@@ -222,7 +222,7 @@ def iter_frames(path):
 
 
 class Row:
-    __slots__ = ("line", "s", "price", "t0", "birth", "cells", "done", "side")
+    __slots__ = ("line", "s", "price", "t0", "birth", "cells", "done", "side", "jt")
 
     def __init__(self, line, side, price, t0, birth, cells):
         self.line = line
@@ -233,7 +233,7 @@ class Row:
         self.birth = birth
         self.cells = cells
         self.done = None
-
+        self.jt = None  # индекс кадра, на котором найдено касание
 
 class VpinMachine:
     """Объёмные бары VPIN: размер бара = max(1, flow_1h/50) на открытии; сделка делится между барами."""
@@ -272,8 +272,13 @@ class VpinMachine:
 
 
 class Sim:
-    def __init__(self, rows, approach_bps, atomic=False):
+    def __init__(self, rows, approach_bps, atomic=False, fr_req=None):
         self.D = approach_bps
+        # frontrun_levels: журнал времён кадров (первый проход) и запросы «число занятых цен строго лучше стены на кадре i»
+        # (второй проход): {индекс кадра: [(строка CSV, сторона, тик)]}
+        self.frame_ms = array("q")
+        self.fr_req = fr_req or {}
+        self.fr_cnt = {}
         self.atomic = atomic
         self.book = [{}, {}]  # 0 бид, 1 аск: тик -> лоты
         self.best = [None, None]
@@ -455,6 +460,7 @@ class Sim:
         if self.last_frame_ms is not None and ms < self.last_frame_ms:
             self.nonmono_frames += 1
         self.last_frame_ms = ms
+        self.frame_ms.append(ms)
         befs = [None, None]
         for s in (0, 1):
             d = book[s]
@@ -500,6 +506,15 @@ class Sim:
     def after_pass(self, s, ms, bef, pbest):
         book = self.book
         best = self.best
+        if self.fr_req:
+            reqs = self.fr_req.get(self.n_frames - 1)
+            if reqs:
+                dd = book[s]
+                for line, rs, tick in reqs:
+                    if rs == s:
+                        # занятых цен строго МЕЖДУ лучшей ценой стороны и стеной: лучше стены минус сама лучшая цена
+                        n_better = sum(1 for p in dd if (p > tick if s == 0 else p < tick))
+                        self.fr_cnt[line] = n_better - 1 if n_better > 0 else 0
         # отмены на ценах стен этой стороны
         if bef:
             tr_all = self.tr_all
@@ -557,6 +572,7 @@ class Sim:
         if pend:
             for row in list(pend):
                 if row.s == s and best[s] == row.price and pbest[s] != row.price:
+                    row.jt = self.n_frames - 1
                     self.results.append((row, self.snapshot(row, ms)))
                     pend.remove(row)
                     row.done = True
@@ -670,11 +686,11 @@ class Sim:
             pre = "" if sfx == "a" else "alt:"
             post = "" if sfx == "a" else "@без-RPI-в-вычитании"
             for W in (1, 3):
-                lo = max((s0 - W + 1) * 1000, birth)
+                lo = max((s0 - W + 1) * 1000, birth + 1)  # переход кадра рождения не считается (уровня до него не было)
                 o[f"{pre}cancel_{W}s_lots{post}"] = sum(e[ix] for e in ev if e[0] >= lo) if warm >= W * 1000 else UND
-            o[f"{pre}cancel_life_lots{post}"] = sum(e[ix] for e in ev if e[0] >= birth)
+            o[f"{pre}cancel_life_lots{post}"] = sum(e[ix] for e in ev if e[0] > birth)
             if t0 - birth >= 3_600_000 and warm >= 3_600_000:
-                lo = max((m0 - FLOW_WINDOW_MIN + 1) * 60000, birth)
+                lo = max((m0 - FLOW_WINDOW_MIN + 1) * 60000, birth + 1)
                 o[f"{pre}cancel_60m_lots{post}"] = sum(e[ix] for e in ev if e[0] >= lo)
             else:
                 o[f"{pre}cancel_60m_lots{post}"] = UND
@@ -755,20 +771,24 @@ def main():
                             int(rec["birth_ms"]), {c: rec[c] for c in r1_cols}))
     print(f"кэш {a.cache}: строк {n_all}, с касанием {n_touch}, колонок R1 {len(r1_cols)}")
 
-    sim = Sim(rows, a.approach_bps, atomic=a.atomic_frame)
-    n_rec = 0
-    ok = True
-    for frame in iter_frames(a.binlog):
-        n_rec += len(frame)
-        rec = sim.record
-        for ev, ts, px, q, at in frame:
-            if not rec(ev, ts, px, q, at):
-                ok = False
+    def replay(sm):
+        n = 0
+        good = True
+        for frame in iter_frames(a.binlog):
+            n += len(frame)
+            rec = sm.record
+            for ev, ts, px, q, at in frame:
+                if not rec(ev, ts, px, q, at):
+                    good = False
+                    break
+            if not good:
                 break
-        if not ok:
-            break
-    if ok and sim.has_open:
-        sim.flush()
+        if good and sm.has_open:
+            sm.flush()
+        return n, good
+
+    sim = Sim(rows, a.approach_bps, atomic=a.atomic_frame)
+    n_rec, ok = replay(sim)
     print(f"бинлог {a.binlog}: записей {n_rec}, кадров книги {sim.n_frames}, сделок (не блок) {len(sim.t_ms)}, "
           f"блочных {sim.n_block}, RPI {sim.n_rpi}; не монотонных сделок {sim.nonmono_trades}, кадров {sim.nonmono_frames}; "
           f"ошибка={sim.error}; {time.time() - t_start:.1f} с")
@@ -776,6 +796,41 @@ def main():
     print(f"касаний найдено в потоке {len(sim.results)} из {len(rows)}; не найдено {len(unmatched)}")
     for r in unmatched[:5]:
         print(f"  не найдено: строка {r.line} t0={r.t0} {r.side} {r.price}")
+
+    # frontrun_levels: число занятых цен строго лучше стены на «кадре за 1–2 с до касания» (кадр определяется слотами выборки
+    # от рождения уровня: новый слот — на первом кадре, отстоящем от начала слота на ≥ 1 с; читается последнее наблюдение
+    # предыдущего слота, если оно не позже t0 − 1 с, иначе первое). Времена кадров известны после первого прохода,
+    # книга на нужном кадре — вторым проходом без лент и снимков.
+    if sim.results and not sim.error and not a.atomic_frame:
+        fm = sim.frame_ms
+        by_j0 = {}
+        for row, _ in sim.results:
+            by_j0.setdefault(bisect.bisect_left(fm, row.birth), []).append(row)
+        req = {}
+        for j0, rs in by_j0.items():
+            jmax = max(r.jt for r in rs)
+            starts = [j0]
+            cur = j0
+            while True:
+                nxt = bisect.bisect_left(fm, fm[cur] + 1000, cur + 1, jmax + 1)
+                if nxt > jmax:
+                    break
+                starts.append(nxt)
+                cur = nxt
+            for r in rs:
+                k = bisect.bisect_right(starts, r.jt) - 1
+                if k == 0:
+                    tgt = starts[0]
+                else:
+                    last = starts[k] - 1
+                    tgt = last if fm[last] + 1000 <= r.t0 else starts[k - 1]
+                req.setdefault(tgt, []).append((r.line, r.s, r.price))
+        sim2 = Sim([], a.approach_bps, fr_req=req)
+        replay(sim2)
+        for row, vals in sim.results:
+            vals["frontrun_levels"] = sim2.fr_cnt.get(row.line)
+        print(f"frontrun_levels: второй проход, запросов кадров {len(req)}, получено {len(sim2.fr_cnt)} из {len(sim.results)}; "
+              f"{time.time() - t_start:.1f} с")
 
     # поколоночная сверка
     stats = {}  # (колонка, сторона) -> счётчики
