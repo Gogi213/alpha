@@ -27,8 +27,8 @@ cmd() { sed -n '3p' "$O/seg$1.sh" | sed -e 's#^bin/alpha-e74f200-v3 lob bounce-g
 {
   echo 'set -e'
   sed "$RN" "$O/seg1.sh" | grep -v '^set -e$' | awk -v x="$O/new/extra.txt" 'NR==2 { sub(/ > b5\//, " --extra-runs " x " > b5/") } { print }'
-  sed "$RN" "$O/seg2.sh" | grep -v '^set -e$' | sed -n '3,$p' | grep -v '^cp ' | sed 's#\.t9tmp-touch-#.m2tmp-#g'
-  sed "$RN" "$O/seg3.sh" | grep -v '^set -e$' | sed -n '3,$p' | grep -v '^cp ' | sed 's#\.cellstmp-#.m3tmp-#g'
+  sed "$RN" "$O/seg2.sh" | grep -v '^set -e$' | sed -n '3,$p' | grep -v '^cp ' | sed "s#\.t9tmp-touch-$D#.m2tmp#g"
+  sed "$RN" "$O/seg3.sh" | grep -v '^set -e$' | sed -n '3,$p' | grep -v '^cp ' | sed "s#\.cellstmp-$D#.m3tmp#g"
 } > "$O/new/seg.sh"
 for w in old new; do
   H="$O/$w"
