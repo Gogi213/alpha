@@ -1,13 +1,21 @@
-"""SessionStart: возвращает сессии команды alpha её роль — при старте, клире, сжатии, возобновлении.
+"""SessionStart: возвращает сессии команды alpha её роль.
 
-Роль = название сессии в Claude Desktop (устав `.claude/roles/README.md`). Название берётся из
-метаданных приложения по `CLAUDE_CODE_HOST_SESSION_ID` (оно переживает клир); в контекст
-вставляются устав команды, устав роли и блокнот роли. Хук никогда не падает: не вышло определить
-роль — вставляет инструкцию определить её вручную запросом `get_session("self")`.
+Роль — переменная `ALPHA_ROLE` (запуск диспетчера `claude -p`, одна задача — один тикет, id тикета —
+`ALPHA_TICKET`, если диспетчер его передал), иначе название сессии в Claude Desktop (метаданные приложения по
+`CLAUDE_CODE_HOST_SESSION_ID`, переживает клир).
+
+Размер вставки — всегда ≤ LIMIT (8000) знаков: Claude Code режет всё, что больше ~10 тыс., до превью ~2 КБ, и
+тогда роль не видит свой устав (аудит 02.10). Поэтому:
+- resume / compact — 1–2 строки: роль и путь устава (разговор и так в контексте / сжат в сводку);
+- startup / clear — личность роли, её устав `.claude/roles/<роль>.md` (целиком, если влезает; иначе путь),
+  конец блокнота роли (≤ 4000 знаков), пути README команды и тикета. Не влезло — режется низший приоритет
+  (блокнот → устав → указатели); личность не режется.
+Хук никогда не падает: сбой — короткая строка, роль определяется вручную.
 """
 import glob
 import json
 import os
+import re
 import sys
 
 # (подстрока названия в нижнем регистре, файл устава) — первое совпадение
@@ -17,21 +25,23 @@ ROLES = [
     ("судья", "judge"),
     ("ceo", "ceo"),
 ]
+ROLE_NAMES = {"researcher": "Исследователь", "engineer": "Инженер", "judge": "Судья", "ceo": "CEO"}
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROLES_DIR = os.path.join(ROOT, ".claude", "roles")
 TICKETS_DIR = os.path.join(ROOT, ".claude", "tickets")
 
+LIMIT = 8000          # знаков вставки; больше — Claude Code покажет роли только превью ~2 КБ
+NOTEBOOK_TAIL = 4000  # знаков конца блокнота роли
+SHORT_SOURCES = ("resume", "compact")
+
 MANUAL = (
-    "Если эта сессия — участник команды alpha, до любых действий вызови "
-    "mcp__ccd_session_mgmt__get_session с session_id \"self\" и по полю title прочитай: "
-    ".claude/roles/README.md, устав роли (`CEO` → ceo.md, `Роль: Исследователь` → researcher.md, "
-    "`Роль: Инженер` → engineer.md, `Роль: Судья` → judge.md) и блокнот .claude/roles/notes/<роль>.md. "
-    "Название не из списка — ты не в команде: см. правило ниже."
+    "Роль сессии автоматически не определена. Если ты участник команды alpha — роль назовёт владелец "
+    "(`CEO`, `Роль: Исследователь`, `Роль: Инженер`, `Роль: Судья`); уставы — .claude/roles/<ceo|researcher|"
+    "engineer|judge>.md, команда — .claude/roles/README.md. Не из команды — правило ниже."
 )
 OUTSIDER = (
     "Общую память проекта (CLAUDE.md «СОСТОЯНИЕ», .memory/, docs/plan/SETTLED.md, автопамять "
-    "~/.claude/projects/…/memory/) пишет только сессия `CEO`; задачи из .claude/roles/TASKS.md "
-    "без просьбы владельца не брать."
+    "~/.claude/projects/…/memory/) пишет только сессия `CEO`; задачи команды без просьбы владельца не брать."
 )
 
 
@@ -63,180 +73,171 @@ def find_title(host_id, cli_id):
     return False, None
 
 
-def team_addresses():
-    """«название → id» сессий-ролей этой папки: по id сообщение доходит и до остановленной сессии."""
-    rows = {}
-    for d in session_dirs():
-        for f in glob.glob(os.path.join(glob.escape(d), "*", "*", "local_*.json")):
-            try:
-                with open(f, encoding="utf-8") as fh:
-                    meta = json.load(fh)
-            except Exception:
-                continue
-            title = meta.get("title") or ""
-            if meta.get("isArchived") or os.path.normcase(meta.get("cwd") or "") != os.path.normcase(ROOT):
-                continue
-            if any(key in title.lower() for key, _ in ROLES):
-                rows[title] = meta.get("sessionId")
-    return "; ".join(f"`{t}` → `{i}`" for t, i in sorted(rows.items()))
+def env_role():
+    """Роль из `ALPHA_ROLE` (запуск диспетчера) или None."""
+    r = os.environ.get("ALPHA_ROLE")
+    return r if r in ROLE_NAMES else None
 
 
-ROLE_NAMES = {"researcher": "Исследователь", "engineer": "Инженер", "judge": "Судья", "ceo": "CEO"}
-JOURNAL_DIR = os.path.join(ROLES_DIR, "journal")
+def ticket_id():
+    """Id тикета запуска диспетчера (`ALPHA_TICKET`), если передан и безопасен для имени файла."""
+    t = os.environ.get("ALPHA_TICKET") or os.environ.get("ALPHA_TICKET_ID") or ""
+    return t if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", t) else None
 
 
-def role_rows(role, status):
-    """Строки `TASKS.md` роли с этим статусом: [(ид, задача, зависит от)]."""
-    name = ROLE_NAMES.get(role, "")
-    rows = []
+def rel(path):
+    return os.path.relpath(path, ROOT).replace(os.sep, "/")
+
+
+def ticket_path():
+    """Относительный путь файла тикета запуска или None."""
+    tid = ticket_id()
+    if tid and os.path.isfile(os.path.join(TICKETS_DIR, tid + ".md")):
+        return f".claude/tickets/{tid}.md"
+    return None
+
+
+def detect(hook_in):
+    """(роль, название, None) или (None, название|None, текст-вместо-вставки)."""
+    er = env_role()
+    if er:
+        return er, f"ALPHA_ROLE={er}", None
+    host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
     try:
-        with open(os.path.join(ROLES_DIR, "TASKS.md"), encoding="utf-8") as fh:
-            for line in fh:
-                cells = [c.strip() for c in line.strip().strip("|").split("|")]
-                if len(cells) >= 5 and cells[0].startswith("T-") and name in cells[2] and cells[4].startswith(status):
-                    rows.append((cells[0], cells[1], cells[3]))
-    except OSError:
-        pass
-    return rows
+        found, title = find_title(host_id, hook_in.get("session_id"))
+    except Exception as e:
+        return None, None, f"=== РОЛЬ СЕССИИ: не определена ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}"
+    if not found or not title:
+        why = "метаданные сессии не найдены" if not found else "у сессии нет названия"
+        return None, None, f"=== РОЛЬ СЕССИИ: не определена ({why}) ===\n{MANUAL}\n{OUTSIDER}"
+    role = next((r for key, r in ROLES if key in title.lower()), None)
+    if role is None:
+        return None, title, f"=== Сессия «{title}» — не роль команды alpha ===\n{OUTSIDER}"
+    return role, title, None
 
 
-def active_tasks(role):
-    """Строки `TASKS.md` в работе у роли: [(ид, текст задачи)]."""
-    return [(tid, text) for tid, text, _ in role_rows(role, "в работе")]
-
-
-def ticket_header(path):
-    """Шапка тикета `.claude/tickets/<ID>.md` (`ключ: значение` между `---`), без диспетчера — только чтение."""
-    header = {}
-    try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
-        return header
-    if not text.startswith("---"):
-        return header
-    end = text.find("\n---", 3)
-    if end == -1:
-        return header
-    for line in text[3:end].splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            header[key.strip()] = value.strip()
-    return header
-
-
-def queue(role):
-    """Задачи роли в `.claude/tickets/` (В-138) — не `done`: что брать, пока текущая ждёт чужого сигнала."""
-    try:
-        paths = sorted(glob.glob(os.path.join(TICKETS_DIR, "*.md")))
-    except OSError:
-        return None
-    rows = []
-    for p in paths:
-        h = ticket_header(p)
-        if h.get("owner") == role and h.get("status", "") not in ("", "done"):
-            rows.append((h.get("id", os.path.basename(p)[:-3]), h.get("status", "?"), h.get("title", "")))
-    if not rows:
-        return None
-    lines = [f"- {tid} [{status}]: {title[:160]}" for tid, status, title in rows]
-    return ("--- задачи роли в .claude/tickets/ (не done) — бери следующую по готовности, статус и лог правь сама "
-            "(`tickets.py comment`), простаивать при непустой очереди — брак ---\n" + "\n".join(lines))
-
-
-def journals(role):
-    """Журналы задач роли в работе — чтобы после клира/сжатия продолжить с того же места."""
-    out = []
-    for tid, text in active_tasks(role):
-        path = os.path.join(JOURNAL_DIR, f"{tid}.md")
-        head = f"--- журнал {tid}: {text[:240]} ---"
-        try:
-            with open(path, encoding="utf-8") as fh:
-                lines = fh.read().strip().splitlines()
-            out.append(head + "\n" + "\n".join(lines[-80:]))
-        except OSError:
-            out.append(head + f"\nЖУРНАЛА НЕТ — заведи `.claude/roles/journal/{tid}.md` (формат — README «Журнал задачи»).")
-    return out
-
-
-def read(rel):
-    path = os.path.join(ROLES_DIR, rel)
+def read_file(path):
     with open(path, encoding="utf-8") as fh:
-        return f"--- .claude/roles/{rel.replace(os.sep, '/')} ---\n{fh.read().strip()}\n"
+        return fh.read().strip()
 
 
-def context(source):
+def tail_chars(text, limit):
+    """Конец текста ≤ limit знаков по границе строки (первая неполная строка отбрасывается)."""
+    if len(text) <= limit:
+        return text
+    cut = text[-limit:]
+    nl = cut.find("\n")
+    return cut[nl + 1:] if 0 <= nl < len(cut) - 1 else cut
+
+
+def short_context(role, title, source):
+    """resume/compact: 1–2 строки — роль и путь устава."""
+    lines = [f"=== РОЛЬ СЕССИИ: ты — «{ROLE_NAMES[role]}» команды alpha (хук role_context.py, событие: {source}) ===",
+             f"Устав роли — .claude/roles/{role}.md, блокнот — .claude/roles/notes/{role}.md; "
+             "если контекст сжат — перечитай устав."]
+    tp = ticket_path()
+    if tp:
+        lines[1] += f" Тикет запуска — {tp}."
+    return "\n".join(lines)
+
+
+def full_context(role, title, source, hook_in):
+    """startup/clear: личность + устав роли + конец блокнота + пути; итог ≤ LIMIT."""
+    dispatcher = env_role() is not None
+    name = ROLE_NAMES[role]
+    shown = name if dispatcher else title
+    tp = ticket_path()
+    head = [f"=== РОЛЬ СЕССИИ: ты — «{shown}» команды alpha (хук .claude/hooks/role_context.py, событие: {source}) ==="]
+    if dispatcher:
+        head.append(f"Запуск диспетчера (ALPHA_ROLE={role}): одна задача — один тикет"
+                    + (f" `{tp}`" if tp else " (`.claude/tickets/`; id — в промпте)")
+                    + ": шапка, описание, последние записи `## Лог`.")
+    elif role == "ceo":
+        head.append("Ты говоришь с владельцем; работа команды — тикеты `.claude/tickets/`.")
+    else:
+        head.append("Работа — тикет `.claude/tickets/<ID>.md`, который назвал владелец или CEO.")
+    head.append(f"Связь с командой — только лог тикета: `python .claude/dispatcher/tickets.py comment <ID> "
+                f"--author {role} --text \"...\" [--next <роль>]` (`--next` — кого разбудить следующим; "
+                "@упоминания никого не будят).")
+    if role != "ceo":
+        head.append("«Первое в новом чате» из CLAUDE.md — очередь CEO, не твоя. Общую память проекта (CLAUDE.md "
+                    "«СОСТОЯНИЕ», .memory/, docs/plan/SETTLED.md, автопамять) пишет только `CEO`; ты работаешь по "
+                    "своему тикету.")
+    try:  # память ролей: догнать конспект прошлой сессии, дать на него ссылку
+        from role_memory import on_session_start
+        last = on_session_start(hook_in, role, title)
+    except Exception:
+        last = None
+    if last:
+        head.append(f"Конспект прошлой сессии этой роли: `{rel(last)}` — не читать целиком, грепом/секциями.")
+    paths = ["Устав команды — .claude/roles/README.md (читать по необходимости)."]
+    if tp:
+        paths.append(f"Тикет — {tp}.")
+    must = "\n".join(head + paths)
+
+    budget = LIMIT - len(must) - 80   # 80 — заголовки блоков и переводы строк
+    charter_rel = f".claude/roles/{role}.md"
+    notebook_rel = f".claude/roles/notes/{role}.md"
+    blocks = [must]
+    try:
+        charter = read_file(os.path.join(ROLES_DIR, f"{role}.md"))
+        if len(charter) <= budget:
+            blocks.append(f"--- {charter_rel} ---\n{charter}")
+            budget -= len(charter)
+        else:
+            blocks.append(f"Устав роли не влез в вставку — прочитай {charter_rel}.")
+    except Exception as e:
+        blocks.append(f"Устав роли не прочитан ({type(e).__name__}) — {charter_rel}.")
+    try:
+        notebook = read_file(os.path.join(ROLES_DIR, "notes", f"{role}.md"))
+        take = min(NOTEBOOK_TAIL, budget)
+        if take >= 400:
+            tail = tail_chars(notebook, take)
+            cut = f", конец {len(tail)} из {len(notebook)} знаков; начало — в файле" if len(tail) < len(notebook) else ""
+            blocks.append(f"--- блокнот {notebook_rel}{cut} ---\n{tail}")
+        else:
+            blocks.append(f"Блокнот роли не влез в вставку — прочитай {notebook_rel}.")
+    except Exception:
+        pass
+    return "\n\n".join(blocks)
+
+
+def fit(text):
+    """Самопроверка: итог ≤ LIMIT. Сюда доходит только непредвиденное — последняя страховка."""
+    if len(text) <= LIMIT:
+        return text
+    mark = "\n…[вставка обрезана хуком до лимита]"
+    return text[:LIMIT - len(mark)] + mark
+
+
+def context(source, hook_in):
+    role, title, text = detect(hook_in)
+    if role is None:
+        return fit(text)
+    if source in SHORT_SOURCES:
+        try:  # догнать конспект прошлой сессии, если она оборвалась (без вывода)
+            from role_memory import on_session_start
+            on_session_start(hook_in, role, title)
+        except Exception:
+            pass
+        return fit(short_context(role, title, source))
+    return fit(full_context(role, title, source, hook_in))
+
+
+def main():
     try:
         hook_in = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
     except Exception:
         hook_in = {}
-    source = hook_in.get("source") or source
-    env_role = os.environ.get("ALPHA_ROLE")
-    if env_role in ROLE_NAMES:
-        # Диспетчер задач (.claude/dispatcher/) запускает роль через `claude -p` с ALPHA_ROLE=<role> —
-        # роль берётся из переменной окружения, определение по названию сессии не нужно.
-        role = env_role
-        title = f"ALPHA_ROLE={env_role}"
-    else:
-        host_id = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID")
-        try:
-            found, title = find_title(host_id, hook_in.get("session_id"))
-        except Exception as e:
-            return f"=== РОЛЬ СЕССИИ: не определена ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}"
-        if not found or not title:
-            why = "метаданные сессии не найдены" if not found else "у сессии нет названия"
-            return f"=== РОЛЬ СЕССИИ: не определена ({why}) ===\n{MANUAL}\n{OUTSIDER}"
-        role = next((r for key, r in ROLES if key in title.lower()), None)
-        if role is None:
-            return f"=== Сессия «{title}» — не роль команды alpha ===\n{OUTSIDER}"
+    source = hook_in.get("source") or (sys.argv[1] if len(sys.argv) > 1 else "?")
     try:
-        parts = [read("README.md"), read(f"{role}.md"), read(os.path.join("notes", f"{role}.md"))]
-    except Exception as e:
-        return (f"=== РОЛЬ СЕССИИ: «{title}», но устав не прочитан ({type(e).__name__}: {e}) ===\n"
-                f"{MANUAL}")
-    head = [
-        f"=== РОЛЬ СЕССИИ: ты — «{title}» команды alpha (вставлено хуком "
-        f".claude/hooks/role_context.py, событие: {source}) ===",
-        "Устав команды, устав твоей роли и твой блокнот — ниже, перечитывать не нужно. "
-        "Общий список задач — .claude/roles/TASKS.md.",
-    ]
-    try:
-        addresses = team_addresses()
-        if addresses:
-            head.append("Адреса команды для SendMessage (по id доходит и до остановленной сессии, которой нет в "
-                        f"ListAgents): {addresses}.")
-    except Exception:
-        pass
-    try:  # память ролей: догнать конспект прошлой сессии, дать на него ссылку
-        from role_memory import CONSOLIDATE_TEXT, consolidate_due, on_session_start
-        last = on_session_start(hook_in, role, title)
-        if role == "ceo" and consolidate_due():
-            head.append(CONSOLIDATE_TEXT)
-    except Exception:
-        last = None
-    if last:
-        head.append(f"Конспект прошлой сессии этой роли (до клира/перезапуска): `{os.path.relpath(last, ROOT).replace(os.sep, '/')}` — "
-                    "не читать целиком; грепом/секциями, если блокнота не хватает.")
-    if role != "ceo":
-        head.append("«Первое в новом чате» в CLAUDE.md — очередь CEO, не твоя задача: действуй только "
-                    "по строке TASKS.md своей зоны, сообщению CEO или владельца. " + OUTSIDER)
-    try:
-        parts.extend(journals(role))
-        q = queue(role)
-        if q:
-            parts.append(q)
-    except Exception:
-        pass
-    return "\n".join(head) + "\n\n" + "\n".join(parts)
-
-
-def main():
-    source = sys.argv[1] if len(sys.argv) > 1 else "?"
-    try:
-        text = context(source)
+        text = fit(context(source, hook_in))
     except Exception as e:  # хук не должен ломать старт сессии
-        text = f"=== РОЛЬ СЕССИИ: сбой хука ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}"
+        text = fit(f"=== РОЛЬ СЕССИИ: сбой хука ({type(e).__name__}: {e}) ===\n{MANUAL}\n{OUTSIDER}")
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
-    sys.stdout.write(json.dumps(out, ensure_ascii=True))
+    # ensure_ascii=False: кириллица не раздувается в \uXXXX (вывод ≈ длине текста); байты — UTF-8 напрямую
+    sys.stdout.buffer.write(json.dumps(out, ensure_ascii=False).encode("utf-8", "replace"))
+    sys.stdout.buffer.flush()
     return 0
 
 
