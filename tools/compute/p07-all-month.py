@@ -3,11 +3,15 @@
 Один сценарий = один `bounce-grid --cells` на сутки со всеми клетками (В-136) + Г-86 отдельным проходом `touch`.
 Пишет `~/alpha/tmp-p07/cells-by-day/jall-<мес>-<сутки>.{sh,txt}`; запуск — из дома `~/alpha/epochs/e-<мес>`.
 
-    python3 bin/p07-all-month.py <jan|feb|mar|apr|may|jun> [--days 2026-01-01,2026-01-02]
+    python3 bin/p07-all-month.py <jan|feb|mar|apr|may|jun|aug> [--days 2026-01-01,2026-01-02] [--merge] [--bin <имя>]
+
+`--merge` (TK-029): три отрезка суток одним проходом — отрезок 1 + `--extra-runs` из команд отрезков 2 и 3 (общий декод суток);
+`--bin` — имя бинарника в `bin/` вместо alpha-e74f200-v3 (для --merge нужен бинарник с --extra-runs).
 """
 import calendar
 import importlib.util
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +20,38 @@ ja = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ja)
 pc, T9 = ja.pc, ja.T9
 
-MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun"], 1)}
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"], 1)}
+
+
+OLDBIN = "bin/alpha-e74f200-v3"
+NL = chr(10)
+
+
+def merge_script(script, day, extra_path, binname):
+    """Тот же разбор, что в tools/compute/tk029-gate3.sh (гейт sha OK, янв 01): 3 отрезка → один прогон."""
+    segs, cur = [], None
+    for ln in script.split(NL):
+        if ln == "set -e":
+            cur = []
+            segs.append(cur)
+        if cur is not None:
+            cur.append(ln)
+    if len(segs) != 3:
+        raise SystemExit(f"{day}: ожидалось 3 отрезка, есть {len(segs)}")
+    pre = f"{OLDBIN} lob bounce-grid "
+    extra = []
+    for k in (2, 3):
+        c = segs[k - 1][2]
+        if not c.startswith(pre):
+            raise SystemExit(f"{day}: отрезок {k}: строка 3 не bounce-grid")
+        c = re.sub(r" > b5/\S+ 2>&1$", "", c[len(pre):])
+        extra.append(re.sub(r"--out-dir b5/\S+", f"--out-dir b5/.m{k}tmp", c))
+    out = list(segs[0])
+    out[2] = re.sub(r" > b5/", f" --extra-runs {extra_path} > b5/", out[2], count=1)
+    for k, old in ((2, f".t9tmp-touch-{day}"), (3, f".cellstmp-{day}")):
+        out += [ln.replace(old, f".m{k}tmp") for ln in segs[k - 1][3:] if not ln.startswith("cp ")]
+    text = NL.join(out)
+    return text.replace(OLDBIN, f"bin/{binname}"), NL.join(extra) + NL
 
 
 def main():
