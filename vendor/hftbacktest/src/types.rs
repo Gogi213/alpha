@@ -301,6 +301,39 @@ pub const UNTIL_END_OF_DATA: i64 = i64::MAX;
 
 pub type OrderId = u64;
 
+/// Fx-хеш целочисленных ключей (замена SipHash на горячем пути симуляции; порядок обхода и так не задан).
+#[derive(Default, Clone, Copy)]
+pub struct FxHasher(u64);
+
+const FX_K: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+
+impl std::hash::Hasher for FxHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ u64::from(b)).wrapping_mul(FX_K);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, v: u64) {
+        self.0 = (self.0.rotate_left(5) ^ v).wrapping_mul(FX_K);
+    }
+
+    #[inline]
+    fn write_i64(&mut self, v: i64) {
+        self.0 = (self.0.rotate_left(5) ^ v as u64).wrapping_mul(FX_K);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+pub type FxBuild = std::hash::BuildHasherDefault<FxHasher>;
+pub type OrderMap = HashMap<OrderId, Order, FxBuild>;
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum WaitOrderResponse {
     None,
@@ -827,7 +860,7 @@ where
     /// Returns a hash map of order IDs and their corresponding [`Order`]s.
     ///
     /// * `asset_no` - Asset number from which orders will be retrieved.
-    fn orders(&self, asset_no: usize) -> &HashMap<OrderId, Order>;
+    fn orders(&self, asset_no: usize) -> &OrderMap;
 
     /// Places a buy order.
     ///

@@ -84,7 +84,7 @@ where
     fn depth(&self) -> &MD;
 
     /// Returns a hash map of order IDs and their corresponding [`Order`]s.
-    fn orders(&self) -> &HashMap<OrderId, Order>;
+    fn orders(&self) -> &crate::types::OrderMap;
 
     /// Returns the last market trades.
     fn last_trades(&self) -> &[Event];

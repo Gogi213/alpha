@@ -913,7 +913,7 @@ where
     }
 
     #[inline]
-    fn orders(&self, asset_no: usize) -> &HashMap<u64, Order> {
+    fn orders(&self, asset_no: usize) -> &crate::types::OrderMap {
         self.local.get(asset_no).unwrap().orders()
     }
 
