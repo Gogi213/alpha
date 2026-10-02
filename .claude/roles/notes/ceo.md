@@ -23,3 +23,10 @@
 - Ключ ящика есть на ПК владельца (`%USERPROFILE%\.ssh\id_storagebox`, 28.09).
 - `examples/research.md` — файл владельца, не перекладывать.
 - Остановленную сессию ListAgents не показывает — писать по id.
+
+## Следующий шаг (05:10, лимит использования)
+- Диспетчер v2 закоммичен (5c2f544), НЕ перезапущен: перезапуск — команда в отчёте coder (PowerShell), сохранить env
+  ALPHA_DISPATCH_RUN_CAP_USD=30, DAILY/HOUR_COST_USD=1000000. Потом — проверить один запуск роли.
+- Хуки v2 — помощник ещё дописывал (role_context/role_memory/delete_guard + тесты): проверить `git status .claude/hooks`,
+  прогнать `python -m unittest .claude/hooks/test_delete_guard.py`, закоммитить.
+- `docs/research/reviews/scripts/dispatcher-sim-2026-09-27.py` ломается (handle_ceo_mentions удалён) — историческое.
