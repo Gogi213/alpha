@@ -1010,6 +1010,9 @@ class Sim(BookStream):
                     o[f"tape_burst_with_{W}s_bp"] = tdiv(ww * 3600 * 10000, W * w60) if w60 > 0 else None
             for name, vm, _a, _r, _s in self.vp:
                 o["vpin_bp" if name == VPIN_MAIN else f"alt:vpin_bp@{name}"] = vm.value()
+        for name, _vm, _a, _r, _s in self.vp:
+            if name != VPIN_MAIN:
+                o.setdefault(f"alt:vpin_bp@{name}", None)
         # размер сделки за 15 мин
         if warm >= 15 * 60000:
             idx = bisect.bisect_left(self.t_ms, (m0 - 14) * 60000, 0, N)
@@ -1319,13 +1322,13 @@ def print_report(rows, r1_cols, stats, diffs, n_rows, bad_rows, max_diffs):
     cov = coverage(stats, set(r1_cols))
     print("ПОКРЫТИЕ ПО ГРУППАМ (договор Судьи, п. C): колонок в кэше / сверено / без расхождений на обеих сторонах")
     for g in cov:
-        mark = "ОК" if g["clean"] else ("есть расхождения" if g["compared"] else "НЕ СВЕРЕНО")
+        mark = "есть чистая колонка" if g["clean"] else ("расхождения по всем сверенным" if g["compared"] else "НЕ СВЕРЕНО")
         print(f"  {g['group']:12} {len(g['in_cache'])}/{len(g['listed'])} в кэше, сверено {len(g['compared'])}, чисто {len(g['clean'])}: {mark}"
               + (f"  [чисто: {', '.join(g['clean'])}]" if g["clean"] else ""))
         no_cache = [c for c in g["listed"] if c not in g["in_cache"]]
         if no_cache:
             print(f"      нет в шапке кэша: {', '.join(no_cache)}")
-    extra = [c for c in r1_cols if c not in GROUP_OF]
+    extra = [c for c in r1_cols if c not in GROUP_OF and c not in CALIB_COLS]
     if extra:
         print(f"  колонки кэша вне списка скрипта (скриптом не покрыты): {', '.join(extra)}")
     approx_in = [c for c in APPROX if c in set(r1_cols)]
@@ -1334,6 +1337,7 @@ def print_report(rows, r1_cols, stats, diffs, n_rows, bad_rows, max_diffs):
         for c in approx_in:
             print(f"    {c}: {APPROX[c]}")
     print()
+    print("калибровочная колонка frontrun_lots_at_arm (сумма лотов впереди на кадре «за 1–2 с до t0») — не из договора, проверка правила слотов")
     print(f"строк по флагу кадра (сверено / из них с расхождением в основных колонках): "
           + ", ".join(f"{f} {n_rows.get(f, 0)}/{bad_rows.get(f, 0)}" for f in FRAME_FLAGS))
     ofl = [r for r in rows if r.flag == "arm-frame" and r.opp_ok is False]
