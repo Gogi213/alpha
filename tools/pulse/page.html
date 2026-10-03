@@ -31,6 +31,7 @@
   --accent: #45b3a3; --good: #5bbf82; --warn: #dea04c; --bad: #ea6b60; --idle: #6c7873; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 32px; display: grid; gap: 18px; }
 .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
@@ -297,8 +298,11 @@ footer { font-size: 12px; color: var(--muted); }
 
   async function poll() {
     if (!mcp) return;
+    clearTimeout(timer);
+    if (!last) notice("Спрашиваю сборщик на компьютере с alpha…");
+    const signal = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined;
     try {
-      const res = await mcp.callTool(SERVER, TOOL, {}, { cache: false });
+      const res = await mcp.callTool(SERVER, TOOL, {}, { cache: false, signal });
       const d = res && res.payload;
       if (d && typeof d === "object" && d.v) { lastOkAt = Date.now(); render(d); }
       else notice("Сборщик ответил без сводки. Повторю через 10 секунд.");
@@ -314,6 +318,11 @@ footer { font-size: 12px; color: var(--muted); }
           button: "Открыть разрешения",
           onClick: async () => { try { const p = await claude.use("permissions"); if (p) await p.manage(); } catch (_) {} stopped = false; poll(); },
         });
+      } else if (code === "cancelled" && signal && signal.aborted) {
+        notice("Сборщик не ответил за 15 секунд. Обычно это значит, что приложение Claude ещё не подключило сборщик alpha-pulse: перезапустите приложение Claude. Пробую снова каждые 30 секунд.", {
+          button: "Проверить сейчас", onClick: () => { stopped = false; poll(); },
+        });
+        schedule(30000);
       } else if (code === "cancelled") {
         stopped = true;
         retryButton("Запрос к сборщику отклонён в приложении.");
@@ -338,6 +347,7 @@ footer { font-size: 12px; color: var(--muted); }
   setInterval(renderFresh, 1000);
 
   (async () => {
+    notice("Подключаюсь к приложению Claude…");
     try { mcp = await window.claude?.use?.("mcp"); } catch (_) { mcp = null; }
     if (!mcp) {
       notice("Живые данные доступны, когда страницу открывает владелец в приложении Claude на компьютере с alpha.");
