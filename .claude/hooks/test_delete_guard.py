@@ -21,6 +21,13 @@ def denied(cmd, cwd=CWD):
     return dg.check(cmd, cwd) is not None
 
 
+def outside_dir(prefix="dg-outside-"):
+    """Свежий каталог ВНЕ корней стража и вне временного каталога (временные файлы стражу разрешены): под домашним."""
+    d = tempfile.mkdtemp(prefix=prefix, dir=str(Path.home()))
+    assert dg.temp_rest(dg.norm(Path(d).as_posix())) is None, d
+    return d
+
+
 class Allowed(unittest.TestCase):
     """Не удаление либо удаление внутри своей папки — пропускается."""
 
@@ -364,7 +371,7 @@ class Denied(unittest.TestCase):
         self.no("rm -rf ../x")
 
     def test_rm_relative_after_cd_out(self):
-        self.no("cd /tmp && rm -rf data")
+        self.no("cd /c/Users/x && rm -rf data")
 
     def test_rm_relative_in_ssh(self):
         self.no("ssh deck@192.168.1.49 'rm -rf tk026/stage'")
@@ -496,7 +503,7 @@ class Overwrite(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.out = tempfile.mkdtemp(prefix="dg-outside-")          # вне корней: системный temp, не папка проекта
+        cls.out = outside_dir()                                   # вне корней и вне temp: каталог под домашним
         base = Path(cls.out)
         (base / "f.txt").write_text("x", encoding="utf-8")
         (base / "d").mkdir()
@@ -776,11 +783,10 @@ class CeoResources0310(unittest.TestCase):
         for host in ("root@13.140.29.171", "deck@192.168.1.49", "root@139.99.91.22"):
             self.no(f"ssh {host} 'rm -rf /root/tk031/x'")
             self.no(f"ssh {host} 'rm -rf /data/tk031/x'")
-            self.no(f"ssh {host} 'rm -rf /tmp/x'")
         self.no("rm -rf /root/tk031/x")                                  # локально
-        self.no("rm -rf /tmp/x")
+        self.no("ssh root@139.99.91.22 'rm -rf /tmp/x'")                 # закрытый узел: и /tmp/ нельзя
         self.no("ssh $H 'rm -rf /tmp/x'")                                # хост не определён
-        self.no(f"ssh {self.DED} 'ssh root@13.140.29.171 rm -rf /tmp/x'")  # вложенный ssh — уже другой хост
+        self.no(f"ssh {self.DED} 'ssh root@139.99.91.22 rm -rf /tmp/x'")  # вложенный ssh — уже другой хост
 
     # --- (2) git reset --hard / clean -f вне основного дерева
     def test_git_in_scratch_dir_by_cd_variable_and_git_c(self):
@@ -870,7 +876,7 @@ class CeoResources0310(unittest.TestCase):
             self.ok(f"echo x >| {base}/alpha-state.md")
         home = "~/.claude/projects/" + self.MEM
         self.ok(f"cp /c/tmp/new.md {home}/x.md")
-        self.ok(f"mv /c/tmp/new.md {home}/x.md")
+        self.ok(f"mv data/new.md {home}/x.md")
         self.ok(f"truncate -s 0 {home}/x.md")
         self.ok(f"dd if=a of={home}/x.md")
         self.ok(f"cd {home} && echo x > MEMORY.md")
@@ -880,7 +886,7 @@ class CeoResources0310(unittest.TestCase):
         self.no(f"rm {home}/x.md")                                        # только запись, удаление — нет
         self.no(f"rm -rf {home}")
         self.no("ssh deck@192.168.1.49 'echo x > ~/.claude/projects/" + self.MEM + "/x.md'")   # удалённый ~ — другой
-        with tempfile.TemporaryDirectory(prefix="dg-mem-") as d:
+        with tempfile.TemporaryDirectory(prefix="dg-mem-", dir=str(Path.home())) as d:
             base = Path(d) / ".claude" / "projects"
             for proj in ("c--other-project", "c--visual-projects-alpha"):
                 (base / proj / "memory").mkdir(parents=True)
@@ -891,6 +897,480 @@ class CeoResources0310(unittest.TestCase):
         self.assertFalse(dg.write_only_ok("~/.claude/projects/C--visual-projects-alpha/memory/../../../settings.json"))
         self.assertFalse(dg.write_only_ok("~/.claude/projects/C--visual-projects-alpha/memory"))   # сам каталог — нет
         self.no("ssh root@13.140.29.171 'echo x > ~/.claude/settings.json'")
+
+
+class SecondAudit(unittest.TestCase):
+    """Второй проход аудита 03.10 (CEO): (а) `mv` — источник как удаление; (б) Write/Edit/MultiEdit/NotebookEdit;
+    (в) `tee`, `find -exec`, git checkout/restore/switch/branch -D/stash/push+delete; (г) fail-closed; (д) temp."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = outside_dir()                                   # вне корней и вне temp: каталог под домашним
+        base = Path(cls.out)
+        (base / "f.txt").write_text("x", encoding="utf-8")
+        (base / "d").mkdir()
+        (base / "d" / "a").write_text("x", encoding="utf-8")
+        cls.f = (base / "f.txt").as_posix()
+        cls.d = (base / "d").as_posix()
+        cls.new = (base / "new.txt").as_posix()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def no(self, cmd, cwd=CWD):
+        self.assertIsNotNone(dg.check(cmd, cwd), f"пропущено: {cmd!r}")
+
+    def ok(self, cmd, cwd=CWD):
+        reason = dg.check(cmd, cwd)
+        self.assertIsNone(reason, f"ложный отказ: {cmd!r} → {reason}")
+
+    def no_ceo(self, cmd, cwd=CWD):
+        reason = dg.check(cmd, cwd)
+        self.assertIsNotNone(reason, f"пропущено: {cmd!r}")
+        self.assertIn("через CEO", reason, cmd)
+
+    # ------------------------------------------------------------------------------------------ (а) mv: источник
+    def test_mv_deep_then_rm_is_refused_at_the_move(self):
+        self.no('mv "/c/visual projects/alpha/data/deep/x.bin" ./trash && rm -rf ./trash')
+        self.no("mv data/deep/x.bin ./trash && rm -rf ./trash")
+        self.no("mv data/root/2026-08-01 data/old && ls")
+        self.no("ssh deck@192.168.1.49 'mv ~/alpha/e-aug/root/x ~/alpha/trash'")
+
+    def test_mv_source_outside_roots(self):
+        self.no("mv /c/Users/x/a.bin data/")
+        self.no("mv -n /c/Users/x/a.bin data/new.bin")                # -n охраняет приёмник, источник всё равно исчезает
+        self.no("mv -t data/old /c/Users/x/a data/b")
+        self.no("mv data/a /c/Users/x/b data/old/")                   # хотя бы один источник вне папки
+        self.no("sudo mv /c/Users/x/a data/")
+        self.no("bash -c 'mv /c/Users/x/a data/'")
+        self.no("ssh deck@192.168.1.49 'mv /home/deck/other/a ~/alpha/x'")
+
+    def test_mv_unknown_or_stdin_sources(self):
+        self.no('mv "$f" data/')
+        self.no("ls | xargs mv -t data/old")
+        self.no("ls data/tmp | xargs -I{} mv {} data/old/")
+        self.no("mv $(cat list.txt) data/old/")
+
+    def test_mv_inside_roots_is_fine(self):
+        self.ok("mv data/a.bin data/b.bin")
+        self.ok("mv -t data/old data/a data/b")
+        self.ok("mv data/tmp/*.csv data/old/")
+        self.ok('mv "/c/visual projects/alpha/data/a" "/c/visual projects/alpha/data/b"')
+        self.ok(f'mv data/a "{SCRATCH}/b"')
+        self.ok("ssh deck@192.168.1.49 'mv ~/alpha/tk026/a ~/alpha/tk026/b'")
+        self.ok("mv --help")
+
+    def test_cp_source_is_only_read(self):
+        self.ok("cp /c/Users/x/a.bin data/new.bin")
+        self.ok(f'cp "{self.f}" data/f.txt')
+
+    def test_find_exec_mv(self):
+        self.no(f'find "{self.d}" -name "a" -exec mv {{}} data/old \\;')
+        self.no("find /c/Users/x -name '*.t' -exec mv {} data/old/ \\;")
+        self.ok("find data/tmp -name '*.part' -exec mv {} data/old/ \\;")
+
+    def test_powershell_move_and_rename(self):
+        self.no("Move-Item C:\\Users\\x\\a.txt data\\b.txt")
+        self.no("Move-Item -Path C:\\Users\\x\\a.txt -Destination data\\b.txt")
+        self.no("mi C:\\Users\\x\\a.txt data\\b.txt")
+        self.no("move C:\\Users\\x\\a.txt data\\b.txt")
+        self.no("Move-Item data\\deep\\a.txt data\\b.txt")
+        self.no("Rename-Item C:\\Users\\x\\a.txt b.txt")
+        self.no("ren C:\\Users\\x\\a.txt b.txt")
+        self.ok("Move-Item data\\a.txt data\\b.txt")
+        self.ok("Move-Item -Path data\\a.txt -Destination data\\b.txt -Force")
+        self.ok("Rename-Item data\\a.txt b.txt")
+        self.ok("Move-Item C:\\Users\\x\\a.txt data\\b.txt -WhatIf")
+
+    def test_powershell_copy_overwrite(self):
+        self.no(f'Copy-Item data\\a.txt "{self.f}"')
+        self.no(f'Copy-Item -Path data\\a.txt -Destination "{self.f}" -Force')
+        self.no(f'Move-Item data\\a.txt "{self.f}"')
+        self.ok("Copy-Item C:\\Users\\x\\a.txt data\\b.txt")            # источник Copy-Item только читается
+        self.ok(f'Copy-Item data\\a.txt "{self.new}"')
+
+    # ------------------------------------------------------------------------------------------ (б) файловые инструменты
+    def tool(self, name, path, cwd=CWD, key=None):
+        key = key or ("notebook_path" if name == "NotebookEdit" else "file_path")
+        return dg.check_tool({"tool_name": name, "tool_input": {key: path}, "cwd": cwd})
+
+    def test_file_tools_existing_outside_refused(self):
+        for name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+            reason = self.tool(name, self.f)
+            self.assertIsNotNone(reason, name)
+            self.assertIn("вне своей папки", reason)
+        self.assertIsNotNone(self.tool("Write", self.f.replace("/", "\\")))     # путь Windows с обратными чертами
+
+    def test_file_tools_new_file_outside_is_creation(self):
+        for name in ("Write", "Edit", "NotebookEdit"):
+            self.assertIsNone(self.tool(name, self.new), name)
+
+    def test_file_tools_inside_roots(self):
+        for path in ("C:\\visual projects\\alpha\\src\\lob\\x.rs", "C:/visual projects/alpha/docs/a.md",
+                     "/c/visual projects/alpha/.claude/roles/notes/ceo.md", f"{SCRATCH}/p.py", "data/out.txt"):
+            self.assertIsNone(self.tool("Write", path), path)
+            self.assertIsNone(self.tool("Edit", path), path)
+        self.assertIsNone(self.tool("MultiEdit", "src/lob/x.rs", cwd="C:/visual projects/alpha"))
+
+    def test_file_tools_memory_and_temp(self):
+        mem = "C:/Users/x/.claude/projects/C--visual-projects-alpha/memory/MEMORY.md"
+        self.assertIsNone(self.tool("Write", mem))
+        self.assertIsNone(self.tool("Edit", "C:/Users/x/AppData/Local/Temp/anything/f.txt"))
+        self.assertIsNone(self.tool("Write", "/tmp/note.txt"))
+
+    def test_file_tools_forbidden_segments_in_project(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory(prefix="dg-proj-") as d:
+            base = dg.norm(Path(d).as_posix())
+            (Path(d) / "data" / "root").mkdir(parents=True)
+            (Path(d) / "data" / "root" / "x.bin").write_text("x", encoding="utf-8")
+            with mock.patch.object(dg, "LOCAL_ROOTS", (base + "/",)):
+                self.assertIsNotNone(self.tool("Edit", f"{base}/data/root/x.bin", cwd=base))      # единственная копия
+                self.assertIsNotNone(self.tool("Write", f"{base}/data/root/x.bin", cwd=base))
+                self.assertIsNone(self.tool("Write", f"{base}/data/ok.txt", cwd=base))
+
+    def test_file_tools_without_path_or_odd_input_refused(self):
+        self.assertIsNotNone(dg.check_tool({"tool_name": "Write", "tool_input": {"content": "x"}, "cwd": CWD}))
+        self.assertIsNotNone(dg.check_tool({"tool_name": "Edit", "tool_input": None, "cwd": CWD}))
+        self.assertIsNotNone(dg.check_tool({"tool_name": "Write", "tool_input": {"file_path": "  "}, "cwd": CWD}))
+        self.assertIsNotNone(self.tool("Write", self.f, key="path"))                 # запасное имя ключа тоже читается
+
+    def test_check_tool_routing(self):
+        self.assertIsNone(dg.check_tool({"tool_name": "Read", "tool_input": {"file_path": self.f}, "cwd": CWD}))
+        self.assertIsNone(dg.check_tool({"tool_name": "Grep", "tool_input": {}, "cwd": CWD}))
+        self.assertIsNotNone(dg.check_tool({"tool_name": "Bash", "tool_input": {"command": "rm -rf /c/Users/x"}, "cwd": CWD}))
+        self.assertIsNotNone(dg.check_tool({"tool_name": "PowerShell", "tool_input": {"command": "del C:\\x"}, "cwd": CWD}))
+        self.assertIsNone(dg.check_tool({"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": CWD}))
+        self.assertIsNone(dg.check_tool({"tool_name": "Bash", "tool_input": {}, "cwd": CWD}))
+
+    # ------------------------------------------------------------------------------------------ (в) tee
+    def test_tee_truncates(self):
+        self.no(f'echo x | tee "{self.f}"')
+        self.no(f'echo x | tee -p "{self.f}"')
+        self.no(f'echo x | sudo tee "{self.f}"')
+        self.no(f'echo x | tee "{self.f}" data/o.txt')
+        self.no('echo x | tee "$OUT"')
+        self.no("ssh deck@192.168.1.49 'echo x | tee /home/deck/other/f'")
+        self.no(f"bash -c 'echo x | tee \"{self.f}\"'")
+
+    def test_tee_append_new_inside_harmless_are_fine(self):
+        self.ok(f'echo x | tee -a "{self.f}"')
+        self.ok(f'echo x | tee --append "{self.f}"')
+        self.ok(f'echo x | tee -ia "{self.f}"')
+        self.ok(f'echo x | tee "{self.new}"')
+        self.ok("echo x | tee data/out.txt")
+        self.ok("echo x | tee /dev/null")
+        self.ok("echo x | tee")
+        self.ok("ssh deck@192.168.1.49 'echo x | tee ~/alpha/tk026/o.log'")
+
+    def test_powershell_writers(self):
+        self.no(f'"x" | Out-File "{self.f}"')
+        self.no(f'"x" | Out-File -FilePath "{self.f}" -Encoding utf8')
+        self.no(f'Set-Content -Path "{self.f}" -Value x')
+        self.no(f'Set-Content "{self.f}" x')
+        self.no(f'sc "{self.f}" x')
+        self.no(f'Clear-Content "{self.f}"')
+        self.no(f'Get-Date | Tee-Object -FilePath "{self.f}"')
+        self.no(f'Get-Date | Tee-Object "{self.f}"')
+        self.ok(f'"x" | Out-File "{self.f}" -Append')
+        self.ok(f'"x" | Out-File "{self.f}" -NoClobber')
+        self.ok(f'Set-Content "{self.f}" x -WhatIf')
+        self.ok(f'Get-Date | Tee-Object -Variable v')
+        self.ok(f'Set-Content "{self.new}" x')
+        self.ok('"x" | Out-File data\\o.txt')
+        self.ok('Set-Content -Path data\\o.txt -Value x')
+
+    def test_powershell_variable_without_spaces_is_tracked(self):
+        self.ok('$out="data\\dashboard"; Set-Content "$out\\x.pid" 1')
+        self.no(f'$out="{self.out}"; Set-Content "$out\\f.txt" 1')
+
+    # ------------------------------------------------------------------------------------------ (в) find -exec
+    def test_find_exec_overwrites_found_files(self):
+        self.no(f'find "{self.d}" -name a -exec cp b {{}} \\;')
+        self.no(f'find "{self.d}" -name a -exec truncate -s0 {{}} \\;')
+        self.no(f'find "{self.d}" -name a -exec tee {{}} \\;')
+        self.no(f'find "{self.d}" -name a -execdir cp b {{}} +')
+        self.no(f'find data -name "*.x" -exec cp {{}} "{self.d}/" \\;')       # члены каталога вне папки неизвестны
+        self.no(f'find data -name "*.x" -exec cp {{}} "{self.d}/{{}}" \\;')
+        self.no(f'find data -name "*.x" -exec cp -t "{self.d}" {{}} +')
+        self.no(f'find data -fprint "{self.f}"')
+        self.no(f'find data -fprintf "{self.f}" "%p\\n"')
+        self.no("find /c/Users/x -name '*.t' -exec sh -c 'echo x > \"$1\"' _ {} \\;")
+
+    def test_find_exec_inside_roots_is_fine(self):
+        self.ok("find data -name '*.x' -exec cp a {} \\;")
+        self.ok("find data -name '*.x' -exec cp {} data/old/ \\;")
+        self.ok("find data -name '*.x' -exec cp {} data/old/{} \\;")
+        self.ok("find data -fprint data/list.txt")
+        self.ok(f'find "{self.d}" -name a -exec cp {{}} data/old/ \\;')           # чтение из внешнего каталога
+        self.ok(f'find "{self.d}" -name a -exec grep -l x {{}} \\;')
+        self.ok(f'find "{self.d}" -name a -print')
+
+    # ------------------------------------------------------------------------------------------ (в) git
+    def test_git_discard_commands_refused(self):
+        for cmd in ("git checkout -- .", "git checkout -- src/x.rs", "git checkout .", "git checkout HEAD -- f",
+                    "git checkout HEAD~1 f", "git checkout stash@{0} -- f", "git checkout -f", "git checkout -f main",
+                    "git checkout -p", "git checkout --ours -- x", "git checkout *.rs", "git -C . checkout -- x",
+                    "git -c core.x=y checkout -- x", "git restore x", "git restore .", "git restore --worktree x",
+                    "git restore -SW x", "git restore --source=HEAD~1 x", "git restore -p",
+                    "git switch -f main", "git switch --discard-changes main", "git switch --force main",
+                    "git branch -D x", "git branch -d -f x", "git branch -fd x", "git branch --delete --force x",
+                    "git branch -M new", "git branch -f main HEAD~1", "git branch -C a b",
+                    "git stash clear", "git stash drop", "git stash drop stash@{1}",
+                    "sudo git checkout -- x", "bash -c 'git restore x'", 'echo "$(git stash drop)"',
+                    "ssh deck@192.168.1.49 'cd ~/alpha && git checkout -- x'", "echo ok && git branch -D x"):
+            self.no_ceo(cmd)
+
+    def test_git_push_plus_and_delete_refused(self):
+        for cmd in ("git push origin +main", "git push origin +HEAD:main", "git push origin :old",
+                    "git push origin --delete old", "git push -d origin old", "git push --mirror",
+                    "git push --prune origin", "git push origin main --delete"):
+            self.no_ceo(cmd)
+
+    def test_git_safe_forms_are_fine(self):
+        for cmd in ("git checkout main", "git checkout feature/x", "git checkout -b feature", "git checkout -B f origin/main",
+                    "git checkout -", "git checkout --detach HEAD", "git checkout -q main", "git switch main",
+                    "git switch -c new", "git switch -", "git restore --staged x", "git restore -S .",
+                    "git restore --staged --source=HEAD x", "git branch", "git branch -a", "git branch -vv",
+                    "git branch -d merged", "git branch new-branch", "git branch --list", "git branch -r",
+                    "git stash", "git stash list", "git stash pop", "git stash push -m x", "git stash apply",
+                    "git push origin main", "git push origin HEAD:refs/heads/x", "git push -u origin feature",
+                    "git push --tags", "git checkout --help", "git restore --help"):
+            self.ok(cmd)
+
+    def test_git_text_mentions_are_not_commands(self):
+        self.ok('git commit -m "не делать git checkout -- . и git stash drop и git branch -D"')
+        self.ok("echo git restore .")
+        self.ok("grep -n 'git checkout -- ' README.md")
+        self.ok("rg 'git push --delete' docs")
+
+    def test_git_discard_allowed_in_scratch_repos_only(self):
+        wt = SCRATCH + "/wt"
+        for cmd in ("git checkout -- .", "git restore .", "git switch -f main", "git branch -D tmp", "git stash drop",
+                    "git stash clear"):
+            self.ok(f'cd "{wt}" && {cmd}')
+            self.ok(f'git -C "{wt}" {cmd[4:]}')
+            self.ok(cmd, cwd=wt)
+            self.no(cmd)                                                   # основное дерево
+            self.no(f'cd "C:/visual projects/alpha" && {cmd}')
+        self.ok("ssh root@13.140.29.171 'cd /opt/alpha-compute/wt1 && git checkout -- . && git stash drop'")
+        self.no("ssh root@13.140.29.171 'cd /opt/alpha-compute && git checkout -- .'")
+        self.no(f'cd "{wt}" && git push origin +main')                    # push — всегда через CEO
+        self.no(f'cd "{wt}" && git push origin --delete x')
+
+    def test_git_checkout_existing_path_without_double_dash(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory(prefix="dg-proj-") as d:
+            base = dg.norm(Path(d).as_posix())
+            (Path(d) / "tracked.txt").write_text("x", encoding="utf-8")
+            with mock.patch.object(dg, "LOCAL_ROOTS", (base + "/",)):
+                self.no("git checkout tracked.txt", cwd=base)                 # такой файл есть: это восстановление пути
+                self.ok("git checkout feature-x", cwd=base)                   # файла нет: переключение ветки
+
+    # ------------------------------------------------------------------------------------------ (г) fail-closed
+    def test_crash_in_scan_is_refusal_not_pass(self):
+        from unittest import mock
+        with mock.patch.object(dg, "scan_text", side_effect=RuntimeError("boom")):
+            reason = dg.check("ls", CWD)
+        self.assertIsNotNone(reason)
+        self.assertIn("Страж удаления упал", reason)
+        self.assertIn("RuntimeError", reason)
+
+    def test_crash_in_target_check_is_refusal_not_pass(self):
+        from unittest import mock
+        with mock.patch.object(dg, "allowed", side_effect=ValueError("bad")):
+            self.assertIn("Страж удаления упал", dg.check("rm -rf data/x", CWD))
+
+    def test_crash_in_legacy_fallback_is_refusal(self):
+        from unittest import mock
+        with mock.patch.object(dg, "legacy_found", side_effect=RuntimeError("boom")):
+            self.assertIn("Страж удаления упал", dg.check("echo 'unterminated", CWD))
+
+    def test_crash_in_check_tool_is_refusal(self):
+        from unittest import mock
+        ev = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": CWD}
+        with mock.patch.object(dg, "check", side_effect=RuntimeError("boom")):
+            self.assertIn("Страж удаления упал", dg.check_tool(ev))
+        ev = {"tool_name": "Write", "tool_input": {"file_path": self.f}, "cwd": CWD}
+        with mock.patch.object(dg, "may_exist", side_effect=RuntimeError("boom")):
+            self.assertIn("Страж удаления упал", dg.check_tool(ev))
+        self.assertIn("Страж удаления упал", dg.check_tool("не объект"))
+        self.assertIn("Страж удаления упал", dg.check_tool(None))
+
+    def test_unterminated_quote_still_uses_legacy_regex(self):
+        self.no("rm -rf '/c/Users/x")
+        self.ok("echo 'abc")
+
+    # ------------------------------------------------------------------------------------------ (д) временные файлы
+    def test_temp_variables_and_tmp_allowed(self):
+        for target in ("$TMP/x", "$TEMP/x.log", "${TMPDIR}/a/b", "${TMPDIR:-/tmp}/x", "$env:TEMP\\x.txt",
+                       "$env:TMP/y", "%TEMP%\\x", "/tmp/x", "/tmp/judge/a.log", "$TMP/claude/s/out.txt",
+                       "C:/Users/x/AppData/Local/Temp/f.txt", "/c/Users/x/AppData/Local/Temp/dir/f", "C:\\Users\\3D6B~1\\AppData\\Local\\Temp\\f"):
+            self.ok(f'echo x > "{target}"')
+            self.ok(f'rm -rf "{target}"')
+            self.ok(f'truncate -s 0 "{target}"')
+            self.ok(f'cp data/a.txt "{target}"')
+            self.ok(f'mv "{target}" data/')
+            self.ok(f'echo x | tee "{target}"')
+
+    def test_temp_with_existing_files_is_not_data(self):
+        t = Path(tempfile.mkdtemp(prefix="dg-temp-"))                        # настоящий системный temp, файл уже есть
+        self.addCleanup(shutil.rmtree, t, True)
+        (t / "f.txt").write_text("x", encoding="utf-8")
+        self.ok(f'echo x > "{(t / "f.txt").as_posix()}"')
+        self.ok(f'rm -f "{(t / "f.txt").as_posix()}"')
+        self.ok(f'cp data/a.txt "{(t / "f.txt").as_posix()}"')
+        self.assertIsNone(self.tool("Write", (t / "f.txt").as_posix()))
+        self.assertIsNone(self.tool("Edit", str(t / "f.txt")))
+
+    def test_temp_in_remote_hosts(self):
+        for host in ("root@13.140.29.171", "deck@192.168.1.49", "root@89.163.242.211"):
+            self.ok(f"ssh {host} 'rm -rf /tmp/x'")
+            self.ok(f"ssh {host} 'echo x > /tmp/dbg.out'")
+            self.ok(f"ssh {host} 'cd /tmp/work && rm -rf out'")
+            self.ok(f"ssh {host} 'echo x > $TMP/y; rm -f $TMPDIR/y'")
+            self.no(f"ssh {host} 'rm -rf /tmp'")
+            self.no(f"ssh {host} 'rm -rf /tmp/*'")
+            self.no(f"ssh {host} 'rm -rf /tmp/../etc/x'")
+
+    def test_temp_not_in_closed_nodes(self):
+        self.no("ssh root@139.99.91.22 'rm -rf /tmp/x'")                      # коллектор
+        self.no("ssh root@139.99.91.22 'echo x > /tmp/x'")
+        self.no("ssh -p 23 u1@u1.your-storagebox.de 'rm -rf /tmp/x'")
+        self.no("ssh $H 'rm -rf /tmp/x'")                                     # хост не определён
+        self.no("ssh $H 'echo x > $TMP/x'")
+
+    def test_temp_roots_themselves_dotdot_glob_and_segments_stay_closed(self):
+        for target in ("$TMP", "$TEMP/", "/tmp", "/tmp/", "/tmp/*", "$TMP/*", "$TMP/../x", "/tmp/../etc/x",
+                       "/tmp/x/../../etc", "$TEMP/..", "C:/Users/x/AppData/Local/Temp/../Documents/f",
+                       "/tmp/data/root/x", "$TMP/deep/x", "/tmp/root", "${TMP}/../x", "$env:TEMP\\..\\x"):
+            self.no(f'rm -rf "{target}"')
+        self.no("cd /tmp && rm -rf *")
+        self.ok("cd /tmp && rm -rf data")
+
+    def test_temp_known_variable_overrides_environment(self):
+        self.no("TMP=/c/Users/x; rm -rf $TMP/y")                              # переменная переопределена в самой команде
+        self.no(f'TEMP="{self.out}"; echo x > "$TEMP/f.txt"')                 # файл существует — перезапись вне папки
+        self.ok('TMP=/tmp/work; rm -rf "$TMP/y"')
+
+    def test_mktemp_results(self):
+        self.ok("rm -rf $(mktemp -d)/a")
+        self.ok('echo x > "$(mktemp -d)/log"')
+        self.ok("T=$(mktemp); echo x > $T; rm -f $T")
+        self.ok('W=$(mktemp -d); echo x > "$W/o.txt"; rm -rf "$W/o.txt"')
+        self.ok('W=$(mktemp -d /tmp/w.XXXX) && cd "$W" && rm -rf stage')
+        self.ok('W=$(mktemp -d) && cd "$W" && echo x > f.txt')
+        self.ok('W=`mktemp -d`; rm -rf $W/x')
+        self.ok('cp a.txt "$(mktemp -d)/b"')
+        self.ok("rm -rf $(mktemp -d)")                                        # только что созданный временный каталог
+        self.ok("ssh deck@192.168.1.49 'W=$(mktemp -d); rm -rf $W/x'")
+        self.ok("mktemp -d")
+
+    def test_mktemp_with_explicit_directory_is_not_temp(self):
+        self.no("rm -rf $(mktemp -d -p /c/Users/x)/a")
+        self.no("rm -rf $(mktemp -d --tmpdir=/c/Users/x)/a")
+        self.no("rm -rf $(mktemp -d /c/Users/x/w.XXXX)/a")
+        self.no('W=$(mktemp -d -p /c/Users/x); rm -rf "$W/a"')
+        self.no("rm -rf $(mktemp -d)/../a")
+        self.no("rm -rf $(mktemp -d)/root/a")
+        self.no("ssh root@139.99.91.22 'W=$(mktemp -d); rm -rf $W/x'")
+
+    def test_temp_reason_text_and_other_users_dirs_still_closed(self):
+        self.no("rm -rf C:/Users/x/Documents/f")
+        self.no("rm -rf C:/Users/x/AppData/Local/Programs/f")
+        self.no("rm -rf C:/Users/x/AppData/Roaming/f")
+
+
+class UserHookWiring(unittest.TestCase):
+    """Пользовательский хук `~/.claude/hooks/alpha_one_build.py` (вне репо): точка входа для Write/Edit/MultiEdit/
+    NotebookEdit и fail-closed. Нет файла (чужая машина) — пропуск."""
+
+    HOOK = Path.home() / ".claude" / "hooks" / "alpha_one_build.py"
+
+    def setUp(self):
+        if not self.HOOK.is_file():
+            self.skipTest("нет ~/.claude/hooks/alpha_one_build.py")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("alpha_one_build_under_test", str(self.HOOK))
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+        self.out = outside_dir()
+        self.addCleanup(shutil.rmtree, self.out, True)
+        (Path(self.out) / "f.txt").write_text("x", encoding="utf-8")
+
+    def run_hook(self, event, guard_dir=None):
+        import contextlib
+        import io
+        import json
+        from unittest import mock
+        stdout = io.StringIO()
+        with contextlib.ExitStack() as st:
+            st.enter_context(mock.patch.object(sys, "stdin", io.StringIO(json.dumps(event))))
+            st.enter_context(mock.patch.object(sys, "stdout", stdout))
+            here = os.path.dirname(os.path.abspath(__file__))
+            st.enter_context(mock.patch.object(sys, "path", list(sys.path)))        # хук правит sys.path
+            st.enter_context(mock.patch.dict(sys.modules))                          # и подгружает delete_guard
+            if guard_dir is not None:
+                st.enter_context(mock.patch.object(self.mod, "GUARD_DIR", guard_dir))
+                sys.modules.pop("delete_guard", None)
+                sys.path[:] = [x for x in sys.path if os.path.abspath(x) != here]   # настоящего стража на пути нет
+            self.mod.main()
+        out = stdout.getvalue().strip()
+        return json.loads(out)["hookSpecificOutput"] if out else None
+
+    def event(self, tool, **ti):
+        return {"tool_name": tool, "tool_input": ti, "cwd": CWD}
+
+    def test_write_edit_outside_denied_inside_allowed(self):
+        f = (Path(self.out) / "f.txt").as_posix()
+        for tool, key in (("Write", "file_path"), ("Edit", "file_path"), ("MultiEdit", "file_path"),
+                          ("NotebookEdit", "notebook_path")):
+            out = self.run_hook(self.event(tool, **{key: f}))
+            self.assertEqual(out["permissionDecision"], "deny", tool)
+            self.assertIsNone(self.run_hook(self.event(tool, **{key: "C:/visual projects/alpha/docs/x.md"})), tool)
+
+    def test_other_projects_and_tools_untouched(self):
+        f = (Path(self.out) / "f.txt").as_posix()
+        ev = self.event("Write", file_path=f)
+        ev["cwd"] = "C:/some/other/project"
+        self.assertIsNone(self.run_hook(ev))
+        self.assertIsNone(self.run_hook(self.event("Read", file_path=f)))
+
+    def test_bash_still_guarded(self):
+        out = self.run_hook(self.event("Bash", command="rm -rf /c/Users/x"))
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertIsNone(self.run_hook(self.event("Bash", command="ls data")))
+
+    def test_broken_guard_is_refusal_but_project_files_stay_editable(self):
+        with tempfile.TemporaryDirectory(prefix="dg-broken-") as d:
+            (Path(d) / "delete_guard.py").write_text("def check(:\n", encoding="utf-8")        # синтаксическая ошибка
+            out = self.run_hook(self.event("Bash", command="ls data"), guard_dir=d)
+            self.assertEqual(out["permissionDecision"], "deny")
+            self.assertIn("Страж удаления", out["permissionDecisionReason"])
+            out = self.run_hook(self.event("Write", file_path=(Path(self.out) / "f.txt").as_posix()), guard_dir=d)
+            self.assertEqual(out["permissionDecision"], "deny")
+            self.assertIsNone(self.run_hook(self.event("Edit", file_path="C:/visual projects/alpha/.claude/hooks/delete_guard.py"),
+                                            guard_dir=d))                                       # чинить страж можно
+        with tempfile.TemporaryDirectory(prefix="dg-missing-") as d:                            # файла стража нет вовсе
+            out = self.run_hook(self.event("PowerShell", command="Get-Date"), guard_dir=d)
+            self.assertEqual(out["permissionDecision"], "deny")
+
+    def test_garbage_stdin_in_alpha_is_refusal(self):
+        import io
+        import json
+        from unittest import mock
+        stdout = io.StringIO()
+        with mock.patch.object(sys, "stdin", io.StringIO("не json")), mock.patch.object(sys, "stdout", stdout), \
+                mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "C:/visual projects/alpha"}):
+            self.mod.main()
+        self.assertEqual(json.loads(stdout.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")
+        stdout = io.StringIO()
+        with mock.patch.object(sys, "stdin", io.StringIO("не json")), mock.patch.object(sys, "stdout", stdout), \
+                mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "C:/some/other"}), \
+                mock.patch.object(os, "getcwd", return_value="C:/some/other"):
+            self.mod.main()
+        self.assertEqual(stdout.getvalue().strip(), "")
 
 
 class Lexer(unittest.TestCase):
