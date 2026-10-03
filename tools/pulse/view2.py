@@ -3,6 +3,9 @@
 `make(H, …)` зовёт collect.py; H — модуль collect (хелперы: tk_norm, wait_text, short_title, fmt_num, eta_text, news_time…).
 Шаги — из плана (`.claude/pulse/plans/<ТК>.json`, пишет `plan.py`); плана нет — один шаг из текущего состояния (как v1).
 Ход с серверов (`/data/progress`): `step_n` → шаг n, без него — шаг в состоянии «идёт». Вопросы — `.claude/pulse/questions`.
+Волны: шаг — `after` (по умолчанию предыдущий) → `wave = 1 + max(wave(after))`; процесс — строка `depends:` в шапке тикета.
+Состояния шага: run делается · review проверяется · repair чинится · wait ждёт вас · bad проблема · done · todo.
+Общий прогресс (`progress`), «осталось» вилкой по критической цепочке, «прошло» — рабочее время; строка-итог процесса — Haiku.
 """
 from __future__ import annotations
 
@@ -18,6 +21,15 @@ MORDER = ("pc", "vps", "calc", "col")
 V2 = {"collector": "col"}  # id машины v1 → v2
 ROLE_LC = {"engineer": "инженер", "researcher": "исследователь", "judge": "судья", "ceo": "CEO"}
 EMPTY_FOR = {"text": "", "on": None}
+ACTIVE = ("run", "review", "repair")  # «в работе»: делается / проверяется / чинится
+STATE_RU = {"done": "готово", "run": "делается", "review": "проверяется", "repair": "чинится", "wait": "ждёт решения владельца",
+            "bad": "проблема", "todo": "впереди"}
+COUNT_KEYS = ("done", "run", "review", "repair", "wait", "todo", "bad")
+EXECUTORS = ("инженер", "исследователь")  # чьи «делается»-шаги после возврата Судьи становятся «чинится»
+ETA_LO, ETA_HI = 0.75, 1.4   # вилка «осталось»: доли суммы eta_min шагов критической цепочки
+ETA_MIN_MEASURES = 2         # меньше замеров (шагов цепочки с eta_min) — вилку не показываем
+WORK_GAP_MIN = 45            # «прошло»: промежуток между событиями длиннее — засчитывается как столько минут
+_last_psum: dict = {}        # процесс → последняя строка-итог (пока модель отвечает на новое состояние — показываем её)
 
 
 def _mid(m: str) -> str:
@@ -26,21 +38,165 @@ def _mid(m: str) -> str:
 
 def _step(n, title, who, on, forr, state, **kw) -> dict:
     d = {"n": n, "title": title, "who": who, "on": on, "for": forr, "state": state, "pct": None, "detail": None,
-         "eta_min": None, "started": None, "finished": None, "question": None}
+         "eta_min": None, "started": None, "finished": None, "question": None, "after": None, "wave": 1}
     d.update(kw)
     return d
 
 
+def step_waves(steps: list) -> None:
+    """`after` (None — предыдущий шаг; пусто — стартует сразу; ссылки только на более ранние) → `after` и `wave` шага."""
+    for i, s in enumerate(steps, 1):
+        raw = s.get("after")
+        if raw is None:
+            raw = [i - 1] if i > 1 else []
+        a = sorted({x for x in raw if isinstance(x, int) and not isinstance(x, bool) and 1 <= x < i})
+        s["after"] = a
+        s["wave"] = 1 + max((steps[x - 1]["wave"] for x in a), default=0)
+
+
+def proc_waves(ids: list, deps: dict) -> dict:
+    """Волна процесса = 1 + максимум волн процессов из `depends`; цикл не роняет (ребро внутрь цикла не считается)."""
+    memo: dict = {}
+
+    def w(i, stack=()):
+        if i in memo:
+            return memo[i]
+        if i in stack:
+            return 1
+        v = 1 + max((w(d, stack + (i,)) for d in deps.get(i, []) if d != i and d in ids), default=0)
+        memo[i] = v
+        return v
+
+    return {i: w(i) for i in ids}
+
+
+def plural(n: int, forms: tuple) -> str:
+    if 11 <= n % 100 <= 14:
+        return forms[2]
+    return forms[0] if n % 10 == 1 else forms[1] if 2 <= n % 10 <= 4 else forms[2]
+
+
+def wave_groups(procs: list) -> list:
+    """Группы обзора: «ВОЛНА 1 · 2 процесса параллельно», «ВОЛНА 2 · ждёт волну 1», в конце — «БЕЗ ХОЗЯИНА»."""
+    groups: dict = {}
+    orph = []
+    for p in procs:
+        (orph if p["wave"] is None else groups.setdefault(p["wave"], [])).append(p)
+    out = []
+    for w in sorted(groups):
+        ps = groups[w]
+        st = "done" if all(p["state"] == "done" for p in ps) else "todo" if all(p["state"] == "todo" for p in ps) else "run"
+        parts = [f"ВОЛНА {w}"]
+        if len(ps) > 1:
+            parts.append(f"{len(ps)} {plural(len(ps), ('процесс', 'процесса', 'процессов'))} параллельно")
+        out.append({"n": w, "label": parts, "state": st, "procs": [p["id"] for p in ps]})
+    for g in out:
+        if g["state"] == "todo":
+            before = [h["n"] for h in out if h["n"] < g["n"] and h["state"] != "done"]
+            if before:
+                g["label"].append(f"ждёт волну {max(before)}")
+        elif g["state"] == "done":
+            g["label"].append("готова")
+        g["label"] = " · ".join(g["label"])
+    if orph:
+        out.append({"n": None, "label": "БЕЗ ХОЗЯИНА", "state": "bad", "procs": [p["id"] for p in orph]})
+    return out
+
+
+def step_weight(s: dict) -> float:
+    if s["state"] == "done":
+        return 1.0
+    return max(0.0, min(1.0, s["pct"] / 100)) if s.get("pct") is not None else 0.0
+
+
+def critical_eta(work: list):
+    """Критическая цепочка шагов (самый длинный путь по eta_min через шаги и зависимости процессов) → вилка «осталось».
+    None — замеров (шагов цепочки с eta_min) меньше ETA_MIN_MEASURES."""
+    best: dict = {}
+    by_id = {p["id"]: p for p in work}
+    sinks = {p["id"]: [s["n"] for s in p["steps"] if not any(s["n"] in x["after"] for x in p["steps"])] for p in work}
+    for p in sorted(work, key=lambda p: (p["wave"] or 0, p["n"])):
+        entry = [(d, n) for d in p.get("depends") or [] if d in by_id for n in sinks.get(d, [])]
+        for s in p["steps"]:
+            preds = [(p["id"], a) for a in s["after"]] or entry
+            w = float(s["eta_min"]) if s["state"] != "done" and s.get("eta_min") is not None else 0.0
+            bp = max(preds, key=lambda k: best[k][0], default=None)
+            best[(p["id"], s["n"])] = ((best[bp][0] if bp else 0.0) + w, bp)
+    if not best:
+        return None
+    k = max(best, key=lambda k: best[k][0])
+    path = []
+    while k:
+        path.append(k)
+        k = best[k][1]
+    path.reverse()
+    pick = [(pid, n) for pid, n in path if by_id[pid]["steps"][n - 1]["state"] != "done"]
+    meas = [(pid, n) for pid, n in pick if by_id[pid]["steps"][n - 1].get("eta_min") is not None]
+    if len(meas) < ETA_MIN_MEASURES:
+        return None
+    tot = sum(float(by_id[pid]["steps"][n - 1]["eta_min"]) for pid, n in meas)
+    return {"lo_min": max(1, round(ETA_LO * tot)), "hi_min": max(1, round(ETA_HI * tot)), "measured": len(meas),
+            "chain": [{"process": pid, "n": n} for pid, n in pick]}
+
+
+def work_minutes(stamps: list, now_ts: float, gap: float = WORK_GAP_MIN):
+    """Рабочее время: промежутки между событиями > gap мин засчитываются как gap (и последний — до «сейчас»)."""
+    ts = sorted(set(stamps))
+    if not ts:
+        return None
+    tot = sum(min(gap, (b - a) / 60) for a, b in zip(ts, ts[1:]))
+    return int(round(tot + min(gap, max(0.0, (now_ts - ts[-1]) / 60))))
+
+
+def progress_block(work: list, stamps: list, now_ts: float):
+    """Общая полоса: вес шага 1, у шага с pct — частично; процессы «без хозяина» не в счёте (это не работа к цели)."""
+    total = sum(len(p["steps"]) for p in work)
+    if not total:
+        return None
+    done = sum(step_weight(s) for p in work for s in p["steps"])
+    pct = int(100 * done / total + 0.5)
+    if done < total:
+        pct = min(pct, 99)
+    return {"pct": pct, "done": round(done, 2), "total": total, "eta": critical_eta(work),
+            "spent_min": work_minutes(stamps, now_ts)}
+
+
+def judge_returned(H, t) -> bool:
+    """Последняя запись Судьи — «вернуть/возврат», а тикет с тех пор на ревью не сдан снова (status != in_review) и не закрыт."""
+    if t is None or t.status in ("in_review", "done"):
+        return False
+    last = next((e for e in reversed(H.all_entries(t)) if H._role_key(e.author) == "judge"), None)
+    return bool(last and re.search(r"вернуть|возврат", last.text, re.I))
+
+
+def adjust_states(steps: list, t, returned: bool) -> None:
+    """Три активных состояния из «идёт»: шаг судьи → проверяется; тикет in_review → проверяется; после возврата Судьи
+    шаг исполнителя → чинится. Явные review/repair из плана остаются как есть."""
+    in_review = t is not None and t.status == "in_review"
+    for s in steps:
+        if s["state"] != "run":
+            continue
+        if s["who"] == "судья" or (in_review and s["who"] not in ("автомат", "вы")):
+            s["state"] = "review"
+        elif returned and s["who"] in EXECUTORS:
+            s["state"] = "repair"
+    if in_review and not any(s["state"] in ACTIVE + ("wait", "bad") for s in steps):
+        todo = [s for s in steps if s["state"] == "todo"]
+        pick = next((s for s in todo if s["who"] == "судья"), todo[0] if todo else None)
+        if pick:
+            pick["state"] = "review"
+
+
 def _pstate(steps: list) -> str:
     st = {s["state"] for s in steps}
-    for k in ("bad", "wait", "run"):
+    for k in ("bad", "wait", "repair", "review", "run"):
         if k in st:
             return k
     return "done" if st == {"done"} else "todo"
 
 
 def _step_now(steps: list) -> int:
-    for pick in (("run", "wait"), ("bad",), ("todo",)):
+    for pick in (ACTIVE + ("wait",), ("bad",), ("todo",)):
         for s in steps:
             if s["state"] in pick:
                 return s["n"]
@@ -98,10 +254,12 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         steps = []
         for i, s in enumerate(plan["steps"], 1):
             q = s.get("question")
+            af = s.get("after")
             steps.append(_step(i, s.get("title", ""), s.get("who", ""), s.get("on", "pc"), s.get("for") or "",
                                s.get("state", "todo"), detail=s.get("detail"), started=P.hhmm(s.get("started_at")),
-                               finished=P.hhmm(s.get("finished_at")), question=q if q in qopen_ids else None))
-        run_i = next((i for i, s in enumerate(steps) if s["state"] == "run"), None)
+                               finished=P.hhmm(s.get("finished_at")), question=q if q in qopen_ids else None,
+                               after=af if isinstance(af, list) else None))
+        run_i = next((i for i, s in enumerate(steps) if s["state"] in ACTIVE), None)
         for j in jobs.get(tid, []):
             try:
                 i = int(j.get("step_n")) - 1
@@ -141,6 +299,8 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             r = live[tid]
             add(H.ROLE_DO.get(r["role"], r["role"]), ROLE_LC.get(r["role"], r["role"]), "pc", "run",
                 started=(now_dt - timedelta(minutes=r["minutes"])).strftime("%H:%M"))
+        if not steps and t.status == "in_review":
+            add(H.ROLE_DO["judge"], "судья", "pc", "run")
         if not steps:
             wt = H.wait_text(t)
             owner = t.status == "needs_owner"
@@ -164,7 +324,8 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             steps, mids = synth_steps(tid, t)
             flow = [{"text": "идёт на", "on": m} for m in dict.fromkeys(mids)] or [{"text": "в очереди на", "on": "pc"}]
             forr, title = EMPTY_FOR, ptitle(tid)
-        procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps})
+        adjust_states(steps, t, judge_returned(H, t))
+        procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps, "has_plan": bool(plan)})
 
     # --- «без хозяина»: по одному на машину
     for mid in ("vps", "calc", "col"):
@@ -185,27 +346,80 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                                "todo", detail="исполнит CEO" if ans else None))
         procs.append({"id": pid, "title": f"Старые задачи без хозяина ×{len(ws)}" if len(ws) > 1 else "Старая задача без хозяина",
                       "flow": [{"text": "висят на", "on": mid}], "for": {"text": "кто запустил — неизвестно", "on": None},
-                      "steps": steps})
+                      "steps": steps, "has_plan": False})
 
-    # --- итог по процессам
+    # --- волны шагов; волны процессов (depends в шапке тикета); итог по процессам
+    for p in procs:
+        step_waves(p["steps"])
+    real = [p["id"] for p in procs if not p["id"].startswith("orphans-")]
+    deps = {}
+    for pid in real:
+        raw = tickets[pid].header.get("depends") or ""
+        deps[pid] = [d for d in dict.fromkeys(P.tk_id(x) for x in re.findall(r"(?i)tk[-_]?\d+", raw)) if d in real and d != pid]
+    pw = proc_waves(real, deps)
+
     def sortkey(p):
-        return (p["state"] == "done", p["id"].startswith("orphans-"), p["id"])
+        return (p["id"].startswith("orphans-"), p.get("wave") or 0, p["state"] == "done", p["id"])
+
+    def summary_of(p):
+        """Строка-итог: фраза Haiku (по названию и шагам с состояниями; без смены состояний модель не зовётся) + «N из M»."""
+        t = tickets.get(p["id"])
+        if H.AUTO is None or t is None:
+            return None
+        es = [e for e in H.all_entries(t) if H._role_key(e.author) in H.ROLE_RU]
+        payload = {"title": p["title"], "steps": "\n".join(f"{s['n']}. {s['title']} — {STATE_RU[s['state']]}" for s in p["steps"]),
+                   "entry": es[-1].text if es else ""}
+        r = H.AUTO.get("psum", p["id"], payload, 1)
+        ph = (r or {}).get("summary") or _last_psum.get(p["id"])  # ответа ещё нет — прежняя строка
+        if not ph:
+            return None
+        _last_psum[p["id"]] = ph
+        if not p.get("has_plan"):
+            return ph
+        return f"{ph} — {sum(1 for s in p['steps'] if s['state'] == 'done')} из {len(p['steps'])} готово"
 
     for p in procs:
         st = p["steps"]
-        run = next((s for s in st if s["state"] == "run"), None)
+        run = next((s for s in st if s["state"] in ACTIVE), None)
         pq = [q for q in openq if q.get("process") == p["id"]]
         p.update(state=_pstate(st), step_now=_step_now(st), steps_total=len(st),
                  eta_min=run["eta_min"] if run else None,
-                 wait_min=max((mins_since(q.get("since")) or 0 for q in pq), default=None) if pq else None)
+                 wait_min=max((mins_since(q.get("since")) or 0 for q in pq), default=None) if pq else None,
+                 wave=pw.get(p["id"]), depends=deps.get(p["id"], []))
+        p["summary"] = summary_of(p)
     procs.sort(key=sortkey)
     for i, p in enumerate(procs, 1):
         p["n"] = i
+    waves = wave_groups(procs)
+
+    # --- общий прогресс: «прошло» — рабочее время по событиям процессов
+    stamps = []
+    for p in procs:
+        if p["id"].startswith("orphans-"):
+            continue
+        for e in H.all_entries(tickets[p["id"]]):
+            stamps.append(e.ts.timestamp())
+        for s in (plans.get(p["id"]) or {}).get("steps", []):
+            for k in ("started_at", "finished_at"):
+                d = P.parse(s.get(k))
+                if d:
+                    stamps.append(d.timestamp())
+        for q in allq:
+            if q.get("process") == p["id"]:
+                for k in ("since", "answered_at"):
+                    d = P.parse(q.get(k))
+                    if d:
+                        stamps.append(d.timestamp())
+    progress = progress_block([p for p in procs if not p["id"].startswith("orphans-")], stamps, now)
 
     # --- вопросы (неотвеченные)
-    questions = [{"id": q["id"], "n": i, "process": q.get("process"), "from": q.get("from"), "on": q.get("on"),
-                  "text": q.get("text"), "options": q.get("options") or [], "since": when(q.get("since")),
-                  "wait_min": mins_since(q.get("since"))} for i, q in enumerate(openq, 1)]
+    questions = []
+    for i, q in enumerate(openq, 1):
+        keys = {o.get("key") for o in q.get("options") or []}
+        questions.append({"id": q["id"], "n": i, "process": q.get("process"), "from": q.get("from"), "on": q.get("on"),
+                          "text": q.get("text"), "options": q.get("options") or [],
+                          "default": q.get("default") if q.get("default") in keys else None,
+                          "since": when(q.get("since")), "wait_min": mins_since(q.get("since"))})
 
     # --- машины
     mviews = []
@@ -214,7 +428,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if not m:
             continue
         runs = [(p, s) for p in procs if not p["id"].startswith("orphans-") for s in p["steps"]
-                if s["on"] == mid and s["state"] == "run"]
+                if s["on"] == mid and s["state"] in ACTIVE]
         load = list(dict.fromkeys(f"{s['who']} · {p['title']}" for p, s in runs))
         n_or = len(warns.get(mid) or [])
         if n_or:
@@ -231,7 +445,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         elif runs:
             p, s = runs[0]
             eta = f" {H.eta_text(s['eta_min']).replace('ещё ', '')}" if s.get("eta_min") is not None else ""
-            now_ = {"state": "run", "text": s["title"] + eta}
+            now_ = {"state": s["state"], "text": s["title"] + eta}
         elif off:
             now_ = {"state": "off", "text": "задач нет"}
         else:
@@ -276,7 +490,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         problems.append("диспетчер стоит")
     elif not watch_ok:
         problems.append("сторож стоит")
-    cnt = {k: 0 for k in ("done", "run", "wait", "todo", "bad")}
+    cnt = {k: 0 for k in COUNT_KEYS}
     for p in procs:
         for s in p["steps"]:
             cnt[s["state"]] = cnt.get(s["state"], 0) + 1
@@ -285,6 +499,9 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
     elif questions:
         head = {"state": "wait", "text": f"ждёт вас: {len(questions)}"}
     else:
-        head = {"state": "ok", "text": plain.get("headline") or ("всё идёт" if cnt["run"] else "сейчас ничего не идёт")}
-    return {"time": now_dt.strftime("%H:%M"), "headline": head, "counters": cnt, "tags": TAGS, "machines": mviews,
-            "processes": procs, "questions": questions, "feed": [f for _, f in feed[-8:]]}
+        head = {"state": "ok", "text": plain.get("headline") or ("всё идёт" if sum(cnt[k] for k in ACTIVE) else "сейчас ничего не идёт")}
+    for p in procs:
+        p.pop("has_plan", None)
+    return {"time": now_dt.strftime("%H:%M"), "built_ts": round(now, 1), "tick_s": getattr(H, "TICK_S", 5), "headline": head,
+            "counters": cnt, "progress": progress, "tags": TAGS, "machines": mviews, "waves": waves, "processes": procs,
+            "questions": questions, "feed": [f for _, f in feed[-8:]]}

@@ -3,10 +3,14 @@
 
     plan.py set TK-044 --title "Проверка данных на порчу" --flow "код пишет:pc,запускает и проверяет:vps" \\
         --for "данные дней:vps" --step "правила проверки|инженер|pc|код для VPS" --step "сборка и тесты|автомат|vps|запуск"
-    plan.py step TK-044 2 run [--detail "231 из 492 монето-месяцев"]     # run|done|wait|bad|todo; started/finished — сами
+    plan.py step TK-044 2 run [--detail "231 из 492 монето-месяцев"]     # run|review|repair|wait|bad|todo|done
     plan.py show TK-044
 
-Шаг: `название|кто|где|для чего` (кто: инженер, исследователь, судья, автомат, вы, CEO; где: pc vps calc col you).
+Шаг: `название|кто|где|для чего|after=2,3` (кто: инженер, исследователь, судья, автомат, вы, CEO; где: pc vps calc col you).
+`after=` — необязательное: номера шагов, после которых идёт этот; по умолчанию — предыдущий шаг (цепочка). Волна шага =
+1 + максимум волн его `after`; шаги одной волны идут параллельно и стоят на табло столбиком. `after=` без номеров —
+шаг стартует сразу (волна 1). Ссылаться можно только на более ранние шаги.
+Состояния: run — делается, review — проверяется (шаг судьи видно и без этого), repair — чинится (после возврата Судьи).
 `set` поверх существующего плана сохраняет состояние шагов с тем же названием. Файл — `.claude/pulse/plans/<TK>.json`.
 Время — GMT+4. Ход шага на сервере: `alpha-progress … step_n` (номер шага) — табло берёт процент оттуда.
 """
@@ -19,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pulsedata as P  # noqa: E402
 
-MARK = {"done": "✓", "run": "▶", "wait": "⏸", "bad": "✗", "todo": "·"}
+MARK = {"done": "✓", "run": "▶", "review": "◉", "repair": "↻", "wait": "⏸", "bad": "✗", "todo": "·"}
 
 
 def plan_path(pid: str) -> Path:
@@ -36,15 +40,31 @@ def parse_place(s: str, what: str) -> dict:
     raise ValueError(f"--{what}: «{s}» — нужно «текст:{'|'.join(P.VALID_ON)}»")
 
 
+def parse_after(text: str, spec: str) -> list:
+    try:
+        return sorted({int(x) for x in text.replace(";", ",").split(",") if x.strip()})
+    except ValueError:
+        raise ValueError(f"--step «{spec}»: after= — номера шагов через запятую, не «{text}»") from None
+
+
 def parse_step(spec: str) -> dict:
     parts = [x.strip() for x in spec.split("|")]
     if len(parts) < 3 or not parts[0]:
-        raise ValueError(f"--step «{spec}»: нужно «название|кто|где[|для чего]»")
+        raise ValueError(f"--step «{spec}»: нужно «название|кто|где[|для чего][|after=2,3]»")
     title, who, on = parts[0], parts[1], parts[2]
     if on not in P.VALID_ON:
         raise ValueError(f"--step «{spec}»: где = {'|'.join(P.VALID_ON)}, не «{on}»")
-    return {"title": title, "who": who, "on": on, "for": parts[3] if len(parts) > 3 else "", "state": "todo",
-            "detail": None, "started_at": None, "finished_at": None, "question": None}
+    rest = parts[3:]
+    after = None  # None — по умолчанию предыдущий шаг
+    for x in list(rest):
+        if x.lower().startswith("after="):
+            after = parse_after(x[6:], spec)
+            rest.remove(x)
+    d = {"title": title, "who": who, "on": on, "for": rest[0] if rest else "", "state": "todo",
+         "detail": None, "started_at": None, "finished_at": None, "question": None}
+    if after is not None:
+        d["after"] = after
+    return d
 
 
 def cmd_set(a) -> int:
@@ -59,6 +79,12 @@ def cmd_set(a) -> int:
     if not steps:
         print("нужен хотя бы один --step", file=sys.stderr)
         return 2
+    for i, st in enumerate(steps, 1):  # after — только более ранние шаги (иначе цикл)
+        bad = [x for x in st.get("after", []) if not 1 <= x < i]
+        if bad:
+            print(f"шаг {i} «{st['title']}»: after={','.join(map(str, bad))} — можно только номера более ранних шагов (1…{i - 1})",
+                  file=sys.stderr)
+            return 2
     old = P.read_json(plan_path(pid)) or {}
     prev = {s.get("title"): s for s in old.get("steps", []) if isinstance(s, dict)}
     for s in steps:  # пересоставили план — состояние шагов с тем же названием не теряем
@@ -80,7 +106,7 @@ def apply_state(s: dict, state: str, now: str, detail: str | None) -> None:
     elif state == "done":
         s["started_at"] = s.get("started_at") or now
         s["finished_at"] = now
-    else:  # run / wait / bad
+    else:  # run / review / repair / wait / bad
         s["started_at"] = s.get("started_at") or now
         s["finished_at"] = None
     if detail is not None:
@@ -127,7 +153,8 @@ def cmd_show(a) -> int:
         when = f" {P.hhmm(s.get('started_at')) or ''}–{P.hhmm(s.get('finished_at')) or ''}" if s.get("started_at") else ""
         q = f" вопрос {s['question']}" if s.get("question") else ""
         d = f" · {s['detail']}" if s.get("detail") else ""
-        print(f"  {i} {MARK.get(s['state'], '?')} {s['title']} · {s['who']} · {s['on']} · {s.get('for') or '—'}{d}{when}{q}")
+        af = f" · после {','.join(map(str, s['after'])) or 'ничего'}" if s.get("after") is not None else ""
+        print(f"  {i} {MARK.get(s['state'], '?')} {s['title']} · {s['who']} · {s['on']} · {s.get('for') or '—'}{af}{d}{when}{q}")
     return 0
 
 

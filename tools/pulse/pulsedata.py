@@ -17,7 +17,7 @@ QUESTIONS_DIR = PULSE_DIR / "questions"
 TZ = timezone(timedelta(hours=4))  # GMT+4
 
 VALID_ON = ("pc", "vps", "calc", "col", "you")  # метки машин + «вы»
-STEP_STATES = ("todo", "run", "wait", "bad", "done")
+STEP_STATES = ("todo", "run", "review", "repair", "wait", "bad", "done")  # run делается · review проверяется · repair чинится
 
 
 def now_dt() -> datetime:

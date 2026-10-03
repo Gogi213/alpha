@@ -2,11 +2,12 @@
 """Вопросы владельцу через табло v2 (`tools/pulse/VIEW2.md`): вариант с последствием — владелец отвечает одной клавишей.
 
     ask.py new TK-044 --from инженер --on pc --text "Признак «цены не было»: только число или браковать сутки?" \\
-        --opt "a|только число|запустит «прогон» на VPS" --opt "b|браковать сутки|…" [--step 3] [--no-log]
+        --opt "a|только число|запустит «прогон» на VPS" --opt "b|браковать сутки|…" [--default a] [--step 3] [--no-log]
     ask.py answer q-TK-044-1 a      # владелец ответил (клавиша в TUI / кнопка на странице / MCP pulse_answer)
     ask.py list [--all]
 
-new: файл `.claude/pulse/questions/<id>.json`; процесс — тикет → ещё запись в его лог («ВОПРОС ВЛАДЕЛЬЦУ (табло)», без
+new: файл `.claude/pulse/questions/<id>.json`; `--default a` — вариант по умолчанию (рекомендация спросившего): на табло
+помечен «(предлагаю)», Enter / кнопка «Ок» отвечает им; без `--default` ответ — только явным выбором варианта; процесс — тикет → ещё запись в его лог («ВОПРОС ВЛАДЕЛЬЦУ (табло)», без
 `--next`); `--step n` — шаг n плана тикета становится «вы · ждёт» с этим вопросом; `--no-log` — без записи в тикет.
 answer: помечает отвеченным; тикет → запись «Владелец (табло, …)» (+ `--next` ролью, которая спросила); строка в
 `.claude/dispatcher/ceo-inbox.md` — CEO записывает решение. Само решение табло НЕ исполняет (исполняет CEO).
@@ -64,7 +65,7 @@ def next_id(process: str) -> str:
 
 
 def new_question(process: str, frm: str, on: str, text: str, opts: list[str], step: int | None = None,
-                 log: bool = True) -> tuple[str, list[str]]:
+                 log: bool = True, default: str | None = None) -> tuple[str, list[str]]:
     """→ (id, предупреждения). Исключение ValueError — вход негоден (ничего не записано)."""
     process = P.tk_id(process)
     if frm.lower() not in FROM:
@@ -74,10 +75,13 @@ def new_question(process: str, frm: str, on: str, text: str, opts: list[str], st
     options = [parse_opt(o) for o in opts]
     if len(options) < 2 or len({o["key"] for o in options}) != len(options):
         raise ValueError("нужно ≥ 2 --opt с разными клавишами")
+    default = (default or "").strip().lower() or None
+    if default is not None and default not in {o["key"] for o in options}:
+        raise ValueError(f"--default «{default}»: нет такого варианта (есть: {', '.join(o['key'] for o in options)})")
     frm_ru, role = FROM[frm.lower()]
     qid = next_id(process)
     q = {"id": qid, "process": process, "from": frm_ru, "from_role": role, "on": on, "text": text.strip(),
-         "options": options, "step": step, "since": P.iso(), "answered_at": None, "answer": None}
+         "options": options, "default": default, "step": step, "since": P.iso(), "answered_at": None, "answer": None}
     P.write_json(qpath(qid), q)
     warns: list[str] = []
     if step is not None:
@@ -87,7 +91,8 @@ def new_question(process: str, frm: str, on: str, text: str, opts: list[str], st
         except Exception as e:  # noqa: BLE001
             warns.append(f"шаг {step} не обновлён: {e}")
     if log and P.is_ticket(process):
-        vs = "; ".join(f"{o['key']}) {o['label']}" + (f" — {o['effect']}" if o["effect"] else "") for o in options)
+        vs = "; ".join(f"{o['key']}) {o['label']}" + (" (предлагаю)" if o["key"] == default else "") +
+                       (f" — {o['effect']}" if o["effect"] else "") for o in options)
         err = ticket_comment(process, role, f"ВОПРОС ВЛАДЕЛЬЦУ (табло): {q['text']} Варианты: {vs}.")
         if err:
             warns.append(err)
@@ -138,7 +143,7 @@ def answer_question(qid: str, key: str) -> tuple[bool, str, list[str]]:
 
 def cmd_new(a) -> int:
     try:
-        qid, warns = new_question(a.process, a.from_, a.on, a.text, a.opt, a.step, not a.no_log)
+        qid, warns = new_question(a.process, a.from_, a.on, a.text, a.opt, a.step, not a.no_log, a.default)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 2
@@ -165,7 +170,8 @@ def cmd_list(a) -> int:
         ans = f" → {q.get('answer')} ({q.get('answer_label')})" if q.get("answered_at") else ""
         print(f"{q['id']} [{q['process']}] {q['from']}→вы {P.hhmm(q['since'])}: {q['text']}{ans}")
         for o in q["options"]:
-            print(f"    {o['key']}) {o['label']}" + (f" — {o['effect']}" if o.get("effect") else ""))
+            print(f"    {o['key']}) {o['label']}" + (" (предлагаю)" if o["key"] == q.get("default") else "") +
+                  (f" — {o['effect']}" if o.get("effect") else ""))
     return 0
 
 
@@ -184,6 +190,7 @@ def main(argv=None) -> int:
     s.add_argument("--text", required=True)
     s.add_argument("--opt", action="append", default=[])
     s.add_argument("--step", type=int, default=None)
+    s.add_argument("--default", default=None, help="клавиша варианта по умолчанию («предлагаю»)")
     s.add_argument("--no-log", action="store_true")
     s.set_defaults(func=cmd_new)
     s = sub.add_parser("answer")
