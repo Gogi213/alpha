@@ -1,0 +1,349 @@
+<title>Ход работ alpha</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Диспетчерская сводка: задачи слева, стойка машин справа, лента снизу; на телефоне — одна колонка */
+:root {
+  --bg: #eef0ec;
+  --surface: #fbfcfa;
+  --ink: #18201d;
+  --muted: #5b6862;
+  --line: #d6dcd7;
+  --track: #e2e7e3;
+  --accent: #0e6b60;
+  --good: #2c7a47;
+  --warn: #a8620c;
+  --bad: #b0352c;
+  --idle: #8a958f;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111615; --surface: #171e1c; --ink: #e2eae6; --muted: #8e9c96; --line: #27312e; --track: #222b28;
+    --accent: #45b3a3; --good: #5bbf82; --warn: #dea04c; --bad: #ea6b60; --idle: #6c7873; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111615; --surface: #171e1c; --ink: #e2eae6; --muted: #8e9c96; --line: #27312e; --track: #222b28;
+  --accent: #45b3a3; --good: #5bbf82; --warn: #dea04c; --bad: #ea6b60; --idle: #6c7873; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 32px; display: grid; gap: 18px; }
+.mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand b { font: 600 22px/1 var(--f-display); letter-spacing: .02em; }
+.brand span { font: 500 15px/1 var(--f-display); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.fresh { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; }
+.dot.ok { background: var(--good); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+.dot.live { animation: beat 2s ease-in-out infinite; }
+@keyframes beat { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
+
+.goal { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.label { font: 600 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+.goal .text { font: 500 16px/1.3 var(--f-body); }
+
+.notice { padding: 12px 14px; border: 1px solid var(--warn); border-radius: 6px; background: var(--surface); display: grid; gap: 8px; }
+.notice.bad { border-color: var(--bad); }
+.notice p { margin: 0; max-width: 70ch; }
+button { font: 500 13px/1 var(--f-body); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 7px 12px; cursor: pointer; justify-self: start; }
+button:hover { border-color: var(--accent); color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+section { display: grid; gap: 10px; min-width: 0; }
+h2 { margin: 0; font: 600 13px/1 var(--f-display); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+
+.tasks { display: grid; gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.task { padding: 12px 14px; display: grid; gap: 8px; border-top: 1px solid var(--line); min-width: 0; }
+.task:first-child { border-top: 0; }
+.task-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; }
+.tid { font: 500 13px/1.2 var(--f-data); color: var(--accent); }
+.ttitle { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.trole { color: var(--muted); font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.chip.wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.job { display: grid; gap: 5px; }
+.bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .6s ease; }
+.bar.done i { background: var(--good); }
+.jobtext { font: 13px/1.35 var(--f-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.next { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.next b { font-weight: 500; color: var(--ink); }
+.free { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+
+.rack { display: grid; gap: 10px; }
+.machine { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 11px 14px; display: grid; gap: 8px; min-width: 0; }
+.machine.off { background: transparent; border-style: dashed; }
+.m-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.m-name { font: 600 15px/1.2 var(--f-display); letter-spacing: .02em; }
+.m-host { font: 12px/1 var(--f-data); color: var(--muted); }
+.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.meter { display: grid; gap: 4px; }
+.meter .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.meter .v { font: 500 14px/1 var(--f-data); font-variant-numeric: tabular-nums; }
+.meter .bar { height: 4px; }
+.meter .bar.hot i { background: var(--warn); }
+.m-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font: 12.5px/1.4 var(--f-data); color: var(--muted); }
+.m-lines li { overflow-wrap: anywhere; }
+.m-lines li::before { content: "· "; color: var(--accent); }
+
+.events { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.events li { display: grid; grid-template-columns: 3.4em 4.6em minmax(0, 1fr); gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.events li:first-child { border-top: 0; }
+.events .t { font-family: var(--f-data); color: var(--muted); }
+.events .w { font-family: var(--f-data); color: var(--accent); }
+.events .x { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .events li { grid-template-columns: 3.4em minmax(0, 1fr); } .events .w { display: none; } }
+
+.empty { padding: 14px; color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 6px; }
+footer { font-size: 12px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><b>alpha</b><span>ход работ</span></div>
+    <div class="fresh" aria-live="polite"><i class="dot" id="fresh-dot"></i><span id="fresh-text">жду сводку…</span></div>
+  </header>
+
+  <div class="goal"><span class="label">Цель</span><span class="text" id="goal">—</span></div>
+
+  <div id="notice" class="notice" hidden>
+    <p id="notice-text"></p>
+    <button id="notice-btn" type="button" hidden>Проверить снова</button>
+  </div>
+
+  <div class="grid">
+    <section aria-labelledby="h-tasks">
+      <h2 id="h-tasks">Задачи</h2>
+      <div id="tasks" class="tasks"><div class="empty">Здесь появятся задачи команды: что идёт, сколько сделано, сколько осталось.</div></div>
+      <div id="free" class="free"></div>
+    </section>
+    <section aria-labelledby="h-machines">
+      <h2 id="h-machines">Машины</h2>
+      <div id="rack" class="rack"><div class="empty">Здесь появятся сервер счёта, VPS, коллектор и этот ПК.</div></div>
+    </section>
+  </div>
+
+  <section aria-labelledby="h-events">
+    <h2 id="h-events">Последние события</h2>
+    <ul id="events" class="events"><li><span class="t">—</span><span class="w"></span><span class="x muted">событий пока нет</span></li></ul>
+  </section>
+
+  <footer>Сводку собирает скрипт на компьютере с alpha, без модели. Страница спрашивает его раз в 10 секунд.</footer>
+</div>
+
+<script>
+(() => {
+  const SERVER = "host:alpha-pulse";
+  const TOOL = "pulse_status";
+  const PERIOD = 10000;
+  const $ = (id) => document.getElementById(id);
+  let mcp = null, timer = null, stopped = false, last = null, lastOkAt = 0;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function bar(pct, extra) {
+    const b = el("div", "bar" + (extra ? " " + extra : ""));
+    const i = el("i");
+    i.style.width = Math.max(0, Math.min(100, pct || 0)) + "%";
+    b.append(i);
+    return b;
+  }
+  function clock(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return "—";
+    return d.toLocaleTimeString("ru-RU", { timeZone: "Asia/Dubai", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function notice(text, opts = {}) {
+    const box = $("notice");
+    if (!text) { box.hidden = true; return; }
+    box.hidden = false;
+    box.classList.toggle("bad", !!opts.bad);
+    $("notice-text").textContent = text;
+    const btn = $("notice-btn");
+    btn.hidden = !opts.button;
+    if (opts.button) { btn.textContent = opts.button; btn.onclick = opts.onClick; }
+  }
+
+  function renderFresh() {
+    const dot = $("fresh-dot"), txt = $("fresh-text");
+    if (!last) { dot.className = "dot"; return; }
+    const age = Math.max(0, Math.round(Date.now() / 1000 - (last.built_ts || 0)));
+    const when = clock(last.built_at);
+    dot.className = "dot " + (age <= 30 ? "ok live" : age <= 120 ? "warn" : "bad");
+    txt.textContent = `сводка ${when} GMT+4 · ${age < 60 ? age + " с" : Math.round(age / 60) + " мин"} назад`;
+  }
+
+  function renderTasks(d) {
+    const box = $("tasks");
+    box.replaceChildren();
+    const list = d.tickets || [];
+    if (!list.length) { box.append(el("div", "empty", "Активных задач нет.")); }
+    for (const t of list) {
+      const row = el("div", "task");
+      const head = el("div", "task-head");
+      head.append(el("span", "tid", t.id), el("span", "ttitle", t.title || ""));
+      const chip = el("span", "chip" + (t.live ? " live" : /ждёт|очеред/.test(t.status || "") ? " wait" : ""));
+      if (t.live) chip.append(el("i", "dot ok live"));
+      chip.append(document.createTextNode(t.status || "—"));
+      head.append(chip);
+      row.append(head);
+      const role = el("div", "trole", t.role || "");
+      row.append(role);
+      for (const j of t.jobs || []) {
+        const job = el("div", "job");
+        job.append(bar(j.pct, j.done >= j.total ? "done" : ""), el("div", "jobtext", j.text || ""));
+        row.append(job);
+        if (j.next) { const n = el("div", "next"); n.append(el("b", "", "дальше: "), document.createTextNode(j.next)); row.append(n); }
+      }
+      if (t.next && !(t.jobs || []).some((j) => j.next)) {
+        const n = el("div", "next"); n.append(el("b", "", "дальше: "), document.createTextNode(t.next)); row.append(n);
+      }
+      box.append(row);
+    }
+    const free = $("free");
+    free.replaceChildren();
+    if ((d.roles_free || []).length) {
+      free.append(el("span", "", "свободны:"));
+      for (const r of d.roles_free) free.append(el("span", "chip", r));
+    }
+  }
+
+  function meter(k, v, unit, pct, hot) {
+    const m = el("div", "meter");
+    m.append(el("span", "k", k), el("span", "v", v == null ? "—" : v + unit));
+    if (pct != null) m.append(bar(pct, hot ? "hot" : ""));
+    return m;
+  }
+
+  function renderMachines(d) {
+    const rack = $("rack");
+    rack.replaceChildren();
+    for (const m of d.machines || []) {
+      const card = el("div", "machine" + (m.state === "off" ? " off" : ""));
+      const head = el("div", "m-head");
+      const cls = m.state === "ok" ? "ok" : m.state === "off" ? "" : m.state === "connecting" ? "warn" : "bad";
+      head.append(el("i", "dot " + cls), el("span", "m-name", m.name), el("span", "m-host", m.host));
+      if (m.state === "down") head.append(el("span", "chip wait", "нет связи"));
+      if (m.state === "connecting") head.append(el("span", "chip", "подключаюсь"));
+      card.append(head);
+      if (m.state !== "off") {
+        const ms = el("div", "meters");
+        ms.append(
+          meter("ЦП", m.cpu, " %", m.cpu, m.cpu >= 85),
+          meter("ОЗУ", m.mem, " %", m.mem, m.mem >= 85),
+          meter("диск", m.disk_mb_s, " МБ/с", null)
+        );
+        card.append(ms);
+      }
+      if ((m.lines || []).length) {
+        const ul = el("ul", "m-lines");
+        for (const ln of m.lines) ul.append(el("li", "", ln));
+        card.append(ul);
+      }
+      rack.append(card);
+    }
+  }
+
+  function renderEvents(d) {
+    const ul = $("events");
+    ul.replaceChildren();
+    const ev = (d.events || []).slice().reverse();
+    if (!ev.length) { ul.append(Object.assign(el("li"), {})); ul.lastChild.append(el("span", "t", "—"), el("span", "w", ""), el("span", "x muted", "событий пока нет")); }
+    for (const e of ev) {
+      const li = el("li");
+      li.append(el("span", "t", e.time || ""), el("span", "w", e.who || ""), el("span", "x", e.text || ""));
+      ul.append(li);
+    }
+  }
+
+  function render(d) {
+    last = d;
+    $("goal").textContent = d.goal || "—";
+    renderTasks(d);
+    renderMachines(d);
+    renderEvents(d);
+    renderFresh();
+    if (d.error) notice("Сборщик сообщил об ошибке: " + d.error, { bad: true });
+    else notice(null);
+  }
+
+  function schedule(ms) {
+    clearTimeout(timer);
+    if (!stopped && !document.hidden) timer = setTimeout(poll, ms);
+  }
+
+  function retryButton(text) {
+    notice(text, { button: "Проверить снова", onClick: () => { stopped = false; notice(null); poll(); } });
+  }
+
+  async function poll() {
+    if (!mcp) return;
+    try {
+      const res = await mcp.callTool(SERVER, TOOL, {}, { cache: false });
+      const d = res && res.payload;
+      if (d && typeof d === "object" && d.v) { lastOkAt = Date.now(); render(d); }
+      else notice("Сборщик ответил без сводки. Повторю через 10 секунд.");
+      schedule(PERIOD);
+    } catch (e) {
+      const code = (e && e.code) || "upstream_error";
+      if (code === "server_not_connected") {
+        stopped = true;
+        retryButton("Сборщик alpha-pulse не подключён к приложению Claude. Он уже прописан в настройках: перезапустите приложение Claude на компьютере с alpha и нажмите «Проверить снова».");
+      } else if (code === "not_in_manifest" || code === "not_granted" || code === "blocked_by_policy" || code === "approval_required") {
+        stopped = true;
+        notice("Доступ к сборщику для этой страницы выключен. Включите его в разрешениях страницы.", {
+          button: "Открыть разрешения",
+          onClick: async () => { try { const p = await claude.use("permissions"); if (p) await p.manage(); } catch (_) {} stopped = false; poll(); },
+        });
+      } else if (code === "cancelled") {
+        stopped = true;
+        retryButton("Запрос к сборщику отклонён в приложении.");
+      } else if (code === "capability_disabled" || code === "capability_removed") {
+        stopped = true;
+        notice("Живые данные здесь недоступны. Откройте страницу в приложении Claude на компьютере с alpha.");
+      } else if (code === "tool_error") {
+        notice("Сборщик ответил ошибкой: " + (e.message || "без текста") + ". Повторю через 30 секунд.", { bad: true });
+        schedule(30000);
+      } else {
+        notice("Сборщик сейчас не отвечает. Показываю последнюю сводку, повторю через 30 секунд.");
+        schedule(e && e.retryAfterMs ? Math.max(e.retryAfterMs, 10000) : 30000);
+      }
+      renderFresh();
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !stopped && mcp) poll();
+    else clearTimeout(timer);
+  });
+  setInterval(renderFresh, 1000);
+
+  (async () => {
+    try { mcp = await window.claude?.use?.("mcp"); } catch (_) { mcp = null; }
+    if (!mcp) {
+      notice("Живые данные доступны, когда страницу открывает владелец в приложении Claude на компьютере с alpha.");
+      return;
+    }
+    poll();
+  })();
+})();
+</script>
