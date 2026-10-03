@@ -78,6 +78,7 @@ fn fixture(dir: &Path) -> ImportArchiveArgs {
         instruments: dir.join("instruments.csv"),
         root: dir.join("root"),
         steps_from_snapshot: false,
+        steps_from_day: false,
     }
 }
 
@@ -314,6 +315,49 @@ fn steps_from_snapshot_keeps_finer_archive_grid() {
     assert!(recs
         .iter()
         .any(|x| x.ev == LOCAL_BID_DEPTH_EVENT && x.price_ticks == 1004));
+}
+
+/// TK-037 (PAXG, LAB): шаг цены сменился внутри суток — снимок на сетке 0.01, дельта позже на 0.001.
+/// По первому снимку суток импорт отказывает; НОД по всем уровням суток даёт одну сетку на файл.
+#[test]
+fn steps_from_day_handles_mid_day_step_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.01","5"],["1.00","2"]"#,
+            r#"["1.02","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            2,
+            r#"["1.003","4"]"#,
+            "",
+        ),
+    ];
+    let mut args = write_day(dir.path(), &ob);
+    args.steps_from_snapshot = true;
+    let err = run_import_archive(&args).unwrap_err().to_string();
+    assert!(err.contains("не кратны"), "{err}");
+
+    args.steps_from_snapshot = false;
+    args.steps_from_day = true;
+    let sum = run_import_archive(&args).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    let data = std::fs::read(&sum.out).unwrap();
+    let r = Reader::open(&data[..]).unwrap();
+    assert_eq!(r.header().tick_e9, 1_000_000);
+    let prices: Vec<i64> = all_records(&sum.out)
+        .iter()
+        .map(|x| x.price_ticks)
+        .collect();
+    assert_eq!(prices[..3], [1010, 1000, 1020]);
+    assert!(prices.contains(&1003));
 }
 
 /// Шаг архива равен шагу пула — файл с флагом тот же, что без него (гейт «байт в байт»).

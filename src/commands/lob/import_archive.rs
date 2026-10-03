@@ -62,6 +62,10 @@ pub struct ImportArchiveArgs {
     /// (TK-035). Нет флага — шаги пула, как раньше. Любое значение вне сетки — отказ.
     #[arg(long)]
     pub steps_from_snapshot: bool,
+    /// Как `--steps-from-snapshot`, но НОД берётся по всем уровням суток (снимки и дельты): нужен
+    /// там, где Bybit сменил шаг внутри суток (TK-037, 112 монето-суток). Требует `--ob` файлом.
+    #[arg(long)]
+    pub steps_from_day: bool,
 }
 
 /// Итог импорта суток.
@@ -168,6 +172,52 @@ fn steps_from_snapshot(
         }
     }
     Ok((pool_tick_e9, pool_step_e9, seen))
+}
+
+/// Шаги суток по всем уровням после первого снимка до конца суток: одна сетка на файл, пригодная и
+/// при смене шага биржей внутри суток. Второе число пары — НОД только снимков (для сравнения).
+fn steps_from_day(
+    path: &Path,
+    day_end: i64,
+    pool_tick_e9: i64,
+    pool_step_e9: i64,
+) -> anyhow::Result<((i64, i64), (i64, i64))> {
+    let rdr = BufReader::with_capacity(1 << 20, std::fs::File::open(path)?);
+    let (mut gp, mut gq, mut sp, mut sq) = (0, 0, 0, 0);
+    let mut has_snapshot = false;
+    for line in rdr.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let ts = serde_json::from_str::<PublishTs>(&line)
+            .map_err(|e| anyhow::anyhow!("строка стакана без ts: {e}"))?
+            .ts;
+        if ts >= day_end {
+            continue;
+        }
+        let events = parse_message(&zero_negative_seq(&line))
+            .map_err(|e| anyhow::anyhow!("сообщение стакана: {e:?}"))?;
+        for ev in events {
+            let Event::Book(u) = ev else { continue };
+            has_snapshot |= u.is_snapshot;
+            if !has_snapshot {
+                continue;
+            }
+            for &(p, q) in u.bids.iter().chain(u.asks.iter()) {
+                gp = gcd(gp, p);
+                gq = gcd(gq, q);
+                if u.is_snapshot {
+                    sp = gcd(sp, p);
+                    sq = gcd(sq, q);
+                }
+            }
+        }
+    }
+    Ok((
+        (gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq)),
+        (gcd(pool_tick_e9, sp), gcd(pool_step_e9, sq)),
+    ))
 }
 
 fn trade_ms(s: &str) -> Option<i64> {
@@ -304,7 +354,19 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         ))
     };
     let mut lines: Lines = Box::new(reader.lines());
-    let (tick_e9, step_e9) = if args.steps_from_snapshot {
+    let (tick_e9, step_e9) = if args.steps_from_day {
+        anyhow::ensure!(
+            args.ob.as_os_str() != "-",
+            "--steps-from-day: --ob должен быть файлом (нужен второй проход)"
+        );
+        let ((t, st), (snap_t, snap_st)) =
+            steps_from_day(&args.ob, day_end, pool_tick_e9, pool_step_e9)?;
+        eprintln!(
+            "import-archive: {} {} — шаг суток по всем уровням: цена {t} e9, размер {st} e9; по снимкам: {snap_t}/{snap_st} (пул {pool_tick_e9}/{pool_step_e9})",
+            args.symbol, args.day
+        );
+        (t, st)
+    } else if args.steps_from_snapshot {
         let (t, st, seen) = steps_from_snapshot(&mut lines, pool_tick_e9, pool_step_e9)?;
         lines = Box::new(seen.into_iter().map(Ok).chain(lines));
         eprintln!(
@@ -466,7 +528,7 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         "{}: в потоке стакана нет снимка суток",
         args.symbol
     );
-    if args.steps_from_snapshot && sum.off_grid > 0 {
+    if (args.steps_from_snapshot || args.steps_from_day) && sum.off_grid > 0 {
         let _ = std::fs::remove_file(&tmp_path);
         anyhow::bail!(
             "{} {}: {} значений не кратны шагам суток (шаг цены {tick_e9} e9, размера {step_e9} e9) — файл не записан",
