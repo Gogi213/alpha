@@ -132,12 +132,27 @@ def clip(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
-def first_phrase(text: str, limit: int) -> str:
-    t = re.sub(r"[`*]+", "", text)
-    t = re.sub(r"\s+", " ", t).strip()
-    t = re.sub(r"^(CEO|Судья|Инженер|Исследователь)\s*:\s*", "", t)
-    t = re.split(r"(?<=[.!?])\s+(?=[А-ЯЁA-Z«\"(\d])", t, maxsplit=1)[0].rstrip(".")
-    return clip(t, limit)
+def clean_text(text: str) -> str:
+    """Текст записи лога одной строкой: без markdown-таблиц, заголовков, оград кода и разметки."""
+    keep = []
+    for ln in text.splitlines():
+        t = ln.strip()
+        if not t or t.startswith(("|", "#", "```")) or t.count("|") >= 2 or re.fullmatch(r"[-=*_ |:]+", t):
+            continue
+        keep.append(re.sub(r"^([-*•]|\d+[.)])\s+", "", t))
+    t = re.sub(r"[`*]+", "", " ".join(keep))
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def first_phrase(text: str, limit: int, semi: bool = True) -> str:
+    """Первая осмысленная фраза: до «. » / «;» (не внутри «т.е.») или `limit` символов."""
+    t = clean_text(text)
+    for m in re.finditer(r"\.(?=\s|$)" + (r"|;" if semi else ""), t):
+        if m.group() == "." and re.search(r"\w\.\w$", t[max(0, m.start() - 3):m.start()]):
+            continue
+        t = t[: m.start()]
+        break
+    return clip(t.rstrip(" .;"), limit)
 
 
 def short_title(title: str, n: int = 24) -> str:
@@ -357,6 +372,27 @@ def load_tickets() -> dict:
     return out
 
 
+_arch_cache: dict = {}
+
+
+def all_entries(t) -> list:
+    """Записи лога тикета + перенесённые в `archive/<ID>-log.md` (компакция лога уносит старые), по времени."""
+    import ticket as T
+    ents = list(t.log)
+    ap = TICKETS / "archive" / f"{t.id}-log.md"
+    try:
+        st = ap.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        hit = _arch_cache.get(ap.name)
+        if not hit or hit[0] != key:
+            hit = (key, T._parse_log("## Лог\n" + ap.read_text(encoding="utf-8")))
+            _arch_cache[ap.name] = hit
+        ents += hit[1]
+    except OSError:
+        pass
+    return sorted(ents, key=lambda e: e.ts)
+
+
 def load_state() -> dict:
     s = read_json(DISP / "state.json")
     if isinstance(s, dict):
@@ -408,7 +444,7 @@ def next_hint(t):
     for e in reversed(t.log[-3:]):
         m = re.search(r"[Дд]альше\s*[:—-]\s*(.+)", e.text, re.S)
         if m:
-            return first_phrase(m.group(1), 110)
+            return first_phrase(m.group(1), 120, semi=False)
     return None
 
 
@@ -448,7 +484,7 @@ def read_events(tickets: dict, limit: int = 6) -> list:
     except OSError:
         return []
     out = []
-    prefix = {"done": "готово: ", "blocked": "стоп: ", "needs_owner": "нужен владелец: "}
+    prefix = {"done": "готово · ", "blocked": "стоп · ", "needs_owner": "нужен владелец · "}
     for ln in lines:
         p = ln.split(None, 2)
         if len(p) < 3:
@@ -463,12 +499,13 @@ def read_events(tickets: dict, limit: int = 6) -> list:
             continue
         text = None
         t = tickets.get(who)
-        if t:
-            ent = [e for e in t.log if e.ts <= ts + timedelta(seconds=5)]
-            if ent:
-                text = prefix.get(kind, "") + first_phrase(ent[-1].text, 70)
+        if t:  # запись лога пишется за секунды до строки wake-лога: берём последнюю с ts ≤ событие (+5 с на часы)
+            ent = [e for e in all_entries(t) if e.ts <= ts + timedelta(seconds=5)]
+            ph = first_phrase(ent[-1].text, 90) if ent else ""
+            if ph:
+                text = prefix.get(kind, "") + ph
         if text is None:
-            text = clip(rest, 70)
+            text = clip(rest, 90)
         out.append({"ts": ts.astimezone(TZ).isoformat(timespec="seconds"), "time": ts.astimezone(TZ).strftime("%H:%M"),
                     "who": who if who != "*" else "—", "text": text, "_t": ts.timestamp()})
     ded = []
@@ -528,11 +565,12 @@ def build(feeds, pc, etas) -> dict:
             except (KeyError, TypeError, ValueError):
                 continue
             eta = etas.eta((f.host["id"], job), p)
-            txt = f"{p.get('step', '')} {fmt_num(done)}/{fmt_num(total)} {p.get('unit', '')}".strip()
-            txt += " · готово" if done >= total else (f" · {eta_text(eta)}" if eta is not None else "")
+            prog = f"{fmt_num(done)}/{fmt_num(total)} {p.get('unit', '')}".strip()
+            etxt = "готово" if done >= total else (eta_text(eta) if eta is not None else None)
+            txt = f"{p.get('step', '')} {prog}".strip() + (f" · {etxt}" if etxt else "")
             jobs_by_ticket.setdefault(str(p.get("ticket", "")).upper(), []).append(
                 {"machine": f.host["id"], "job": job, "step": p.get("step", ""), "done": done, "total": total,
-                 "unit": p.get("unit", ""), "pct": round(100 * done / total) if total else 0,
+                 "unit": p.get("unit", ""), "pct": round(100 * done / total) if total else 0, "progress": prog, "eta": etxt,
                  "eta_min": None if eta is None else round(eta, 1), "text": txt, "next": p.get("next") or None})
 
     # строки тикетов
