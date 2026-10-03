@@ -104,7 +104,8 @@ def check_blocked_and_needs_owner(now) -> list:
 
 
 def check_orphan_tickets(now) -> list:
-    """п.2б: in_progress/waiting без новой записи дольше порога — сирота (TK-001 п.2, до правила
+    """п.2б: in_progress/waiting/in_review без новой записи дольше порога — сирота (in_review — аудит 03.10: ревьюер
+    мог упасть, и тикет висел бы вечно) (TK-001 п.2, до правила
     (а') это значило «замерла навсегда»; правило (а') её теперь будит, но сторож всё равно следит на
     случай, если тикет застрял по другой причине — троттлинг/сама роль не отвечает)."""
     out = []
@@ -113,7 +114,7 @@ def check_orphan_tickets(now) -> list:
             tkt = T.read_ticket(path)
         except Exception:
             continue
-        if tkt.status in CLOSED_TICKET_STATUSES or tkt.status not in ("in_progress", "waiting"):
+        if tkt.status in CLOSED_TICKET_STATUSES or tkt.status not in ("in_progress", "waiting", "in_review"):
             continue
         last_ts = tkt.log[-1].ts if tkt.log else T.parse_dt(tkt.header.get("updated")) if tkt.header.get(
             "updated") else None

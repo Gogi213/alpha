@@ -116,6 +116,23 @@ class OrphanTicketTests(WatchSandbox):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].kind, "orphan-ticket")
 
+    def test_stale_in_review_is_orphan(self):
+        """A4: `in_review` без новой записи дольше порога — сигнал, как для in_progress/waiting (ревьюер мог упасть)."""
+        p = T.create_ticket(self.tickets_dir, owner="researcher", title="Зависла на ревью", status="todo",
+                             reviewer="judge", now=self.now - timedelta(hours=5))
+        T.write_header_updates(p, {"status": "in_review"}, now=self.now - timedelta(hours=5))
+        T.append_log(p, "researcher", "готово, прошу проверку", now=self.now - timedelta(hours=5))
+        findings = W.check_orphan_tickets(self.now)
+        self.assertEqual([f.kind for f in findings], ["orphan-ticket"])
+        self.assertIn("in_review", findings[0].message)
+
+    def test_recent_in_review_is_silent(self):
+        p = T.create_ticket(self.tickets_dir, owner="researcher", title="Свежее ревью", status="todo",
+                             reviewer="judge")
+        T.write_header_updates(p, {"status": "in_review"})
+        T.append_log(p, "researcher", "прошу проверку", now=self.now - timedelta(minutes=5))
+        self.assertEqual(W.check_orphan_tickets(self.now), [])
+
     def test_recent_in_progress_is_silent(self):
         p = T.create_ticket(self.tickets_dir, owner="engineer", title="Свежая", status="todo")
         T.write_header_updates(p, {"status": "in_progress"})

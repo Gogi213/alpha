@@ -223,5 +223,63 @@ class Prompts(unittest.TestCase):
             self.assertIn("· владелец", fh.read())
 
 
+class TicketScopedDigests(unittest.TestCase):
+    """A7 (аудит 03.10): диспетчер передаёт `ALPHA_TICKET`; состояние и «конспект прошлой сессии» — по тикету: роль,
+    взявшая новый тикет, не получает ссылку на конспект чужого."""
+
+    def setUp(self):
+        for k in ("ALPHA_ROLE", "ALPHA_TICKET", "CLAUDE_CODE_HOST_SESSION_ID"):
+            os.environ.pop(k, None)
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in ("ALPHA_ROLE", "ALPHA_TICKET")])
+        self.role = "engineer"
+        self.transcript = os.path.join(TMP, "ticket-turns.jsonl")
+        rows = [{"type": "user", "timestamp": "2026-10-03T00:30:00Z", "message": {"content": "Тикет"}},
+                {"type": "assistant", "timestamp": "2026-10-03T00:31:00Z",
+                 "message": {"content": [{"type": "text", "text": "Готово"}]}}]
+        with open(self.transcript, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
+        shutil.rmtree(os.path.join(rm.LOG_DIR, self.role), ignore_errors=True)
+        shutil.rmtree(rm.STATE_DIR, ignore_errors=True)
+
+    def digest(self, ticket, cli):
+        os.environ["ALPHA_ROLE"] = self.role
+        if ticket:
+            os.environ["ALPHA_TICKET"] = ticket
+        else:
+            os.environ.pop("ALPHA_TICKET", None)
+        return rm.write_digest(self.transcript, self.role, "t", cli, "тест")
+
+    def test_digest_of_dispatcher_run_lands_in_ticket_folder(self):
+        path = self.digest("TK-030", "aaaaaaaa-1")
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "TK-030")
+        self.assertEqual(os.path.basename(os.path.dirname(os.path.dirname(path))), self.role)
+
+    def test_latest_digest_is_per_ticket(self):
+        a = self.digest("TK-030", "aaaaaaaa-1")
+        b = self.digest("TK-031", "bbbbbbbb-2")
+        os.environ["ALPHA_ROLE"] = self.role
+        os.environ["ALPHA_TICKET"] = "TK-030"
+        self.assertEqual(rm.latest_digest(self.role, "other-cli"), a)
+        os.environ["ALPHA_TICKET"] = "TK-031"
+        self.assertEqual(rm.latest_digest(self.role, "other-cli"), b)
+        os.environ["ALPHA_TICKET"] = "TK-099"
+        self.assertIsNone(rm.latest_digest(self.role, "other-cli"))      # новый тикет — чужого конспекта нет
+        os.environ.pop("ALPHA_TICKET")
+        self.assertIsNone(rm.latest_digest(self.role, "other-cli"))      # без тикета — только каталог роли
+
+    def test_session_without_ticket_keeps_role_folder(self):
+        path = self.digest(None, "cccccccc-3")
+        self.assertEqual(os.path.basename(os.path.dirname(path)), self.role)
+
+    def test_catch_up_of_previous_session_goes_to_the_same_ticket(self):
+        os.environ["ALPHA_ROLE"] = self.role
+        os.environ["ALPHA_TICKET"] = "TK-040"
+        rm.on_session_start({"session_id": "dddddddd-4", "transcript_path": self.transcript}, self.role, "t")
+        last = rm.on_session_start({"session_id": "eeeeeeee-5", "transcript_path": self.transcript}, self.role, "t")
+        self.assertIsNotNone(last)
+        self.assertEqual(os.path.basename(os.path.dirname(last)), "TK-040")
+        self.assertTrue(last.endswith("-dddddddd.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
