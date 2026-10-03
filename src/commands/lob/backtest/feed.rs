@@ -8,7 +8,8 @@
 //! (ревью 23.09), поведение не менялось.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::path::{Path, PathBuf};
 
 use hftbacktest::types::Event as HbtEvent;
@@ -340,8 +341,8 @@ fn translate_feed_until(
     until_ns: Option<i64>,
     sink: &mut impl FnMut(CompactEvent),
 ) -> bool {
-    let mut known_bids: BTreeMap<i64, i64> = BTreeMap::new();
-    let mut known_asks: BTreeMap<i64, i64> = BTreeMap::new();
+    let mut known_bids = PriceSet::default();
+    let mut known_asks = PriceSet::default();
 
     while let Some(ev) = feed.next_event() {
         let FeedEvent::Market {
@@ -400,10 +401,32 @@ fn translate_feed_until(
     false
 }
 
+/// Множество цен известных уровней: нужно только «есть ли»; порядок обхода
+/// не значим (stale сортируется перед выдачей, как раньше шёл `BTreeMap`).
+type PriceSet = HashSet<i64, BuildHasherDefault<PriceHasher>>;
+
+#[derive(Default)]
+struct PriceHasher(u64);
+
+impl Hasher for PriceHasher {
+    fn finish(&self) -> u64 {
+        // цены кратны тику (младшие биты нулевые) — старшие биты произведения в индекс
+        self.0 ^ (self.0 >> 32)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+    fn write_i64(&mut self, v: i64) {
+        self.0 = (v as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push_side(
     sink: &mut impl FnMut(CompactEvent),
-    known: &mut BTreeMap<i64, i64>,
+    known: &mut PriceSet,
     rows: &[(i64, i64)],
     is_snapshot: bool,
     exch_ms: i64,
@@ -419,12 +442,13 @@ fn push_side(
         sink(CompactEvent::new(kind, exch_ms, local_ts, px, qty));
     };
     if is_snapshot {
-        let fresh: BTreeSet<i64> = rows.iter().map(|&(px, _)| px).collect();
-        let stale: Vec<i64> = known
-            .keys()
+        let fresh: PriceSet = rows.iter().map(|&(px, _)| px).collect();
+        let mut stale: Vec<i64> = known
+            .iter()
             .copied()
             .filter(|px| !fresh.contains(px))
             .collect();
+        stale.sort_unstable();
         for px in stale {
             known.remove(&px);
             push(px, 0);
@@ -432,7 +456,7 @@ fn push_side(
     }
     for &(px, qty) in rows {
         if qty > 0 {
-            known.insert(px, qty);
+            known.insert(px);
         } else {
             known.remove(&px);
         }
