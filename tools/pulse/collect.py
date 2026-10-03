@@ -2,9 +2,11 @@
 """Сборщик экрана хода работ (без модели): раз в 5 с пишет `.claude/pulse/status.json` — всё для кадра.
 
 Источники: тикеты и диспетчер (`.claude/tickets`, `.claude/dispatcher`), лента `ceo-wake.log`, цель `.claude/pulse-goal.txt`,
-человеческие тексты `.claude/pulse/plain.json` (пишет CEO: заголовок, названия задач и шагов, «дальше», вопросы владельцу,
-что было, старые процессы без задачи), по ОДНОМУ долгоживущему ssh на машину (счёт, VPS, коллектор; параллельно, с
-переподключением): ЦП/ОЗУ/диск, процессы проекта, ход задач `/data/progress/*.json` (пишет `tools/compute/progress.sh`).
+человеческие тексты (названия задач и шагов, «дальше», вопросы владельцу, что было, старые процессы без задачи) —
+переводчик на Haiku `plainify.py` (поток в этом процессе, зовёт модель только при изменении входа, кэш
+`.claude/pulse/plain-auto.json`); `.claude/pulse/plain.json` — ручное переопределение, главнее. По ОДНОМУ долгоживущему
+ssh на машину (счёт, VPS, коллектор; параллельно, с переподключением): ЦП/ОЗУ/диск, процессы проекта, ход задач
+`/data/progress/*.json` (пишет `tools/compute/progress.sh`).
 Этот ПК — своими силами, Steam Deck не опрашивается.
 Связь «процесс → задача → машина» считается здесь (`make_view`): раздел `view` в status.json — готовый к показу вид
 (задачи с «где», машины с «для какой задачи», вопросы, что было); `pulse.py` и страница только рисуют `view`.
@@ -29,6 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DISP = ROOT / ".claude" / "dispatcher"
 sys.path.insert(0, str(DISP))  # ticket.py — разбор тикетов (stdlib)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # plainify.py — переводчик строк (Haiku)
+import plainify  # noqa: E402  (переводчик строк, Haiku)
 PULSE_DIR = ROOT / ".claude" / "pulse"
 STATUS = PULSE_DIR / "status.json"
 PIDFILE = PULSE_DIR / "collect.pid"
@@ -382,7 +386,7 @@ class Feed(threading.Thread):
         groups: dict = {}
         for pid, etimes, times, unit, args in rows:
             name = unit[:-8] if unit.endswith(".service") else proc_name(args)
-            g = groups.setdefault(name, {"name": name, "cpu": 0.0, "etimes": 0, "count": 0})
+            g = groups.setdefault(name, {"name": name, "cpu": 0.0, "etimes": 0, "count": 0, "args": args[:160]})
             g["count"] += 1
             g["etimes"] = max(g["etimes"], etimes)
             if warm:
@@ -391,7 +395,7 @@ class Feed(threading.Thread):
         procs = sorted(groups.values(), key=lambda g: (-g["cpu"], -g["etimes"]))
         snap["warm"] = warm
         snap["procs"] = [{"name": g["name"], "cpu": round(g["cpu"]) if warm else None,
-                          "minutes": g["etimes"] // 60, "count": g["count"]} for g in procs]
+                          "minutes": g["etimes"] // 60, "count": g["count"], "args": g["args"]} for g in procs]
         snap["units"] = [{"name": u[0], "state": u[1] if len(u) > 1 else "?"} for u in blk["U"]]
         snap["lock"] = None
         if self.host["lock"]:
@@ -613,7 +617,7 @@ def read_events(tickets: dict, limit: int = 6) -> list:
 
 # --- человеческий вид: процесс → задача → машина ----------------------------------------------------------------------
 def load_plain() -> dict:
-    """`.claude/pulse/plain.json` (пишет CEO руками) в нормальной форме; нет файла/битый — пустые разделы."""
+    """`.claude/pulse/plain.json` — РУЧНОЕ переопределение (главнее авто-строк) в нормальной форме; нет файла/битый — пусто."""
     p = read_json_cached(PLAIN)
     p = p if isinstance(p, dict) else {}
 
@@ -631,6 +635,153 @@ def load_plain() -> dict:
     return {"headline": str(p.get("headline") or "").strip(), "tasks": dic("tasks"), "next": strs("next"),
             "questions": strs("questions"), "news": news, "legacy": dic("legacy"), "units": dic("units"),
             "machines": dic("machines")}
+
+
+# --- человеческие строки от Haiku (plainify.py): то же, что в plain.json, но само, по изменению входа -----------------------
+AUTO = None  # plainify.Translator; поднимает main(). None (сборщик не запущен здесь) — пустой авто-вид, прежнее поведение
+NEWS_CAND = 12             # столько самых свежих записей лога (всех тикетов) переводится для ленты «что было»
+NEWS_AGE_S = 48 * 3600
+NEXT_MAX = 4
+QUESTIONS_MAX = 3
+
+
+def _role_key(author: str) -> str:
+    return (author or "").split()[0].lower() if (author or "").split() else ""
+
+
+def news_time(ts: datetime) -> str:
+    """Пять знаков (колонка ленты): сегодня — ЧЧ:ММ, вчера — «вчера», раньше — ДД.ММ."""
+    d = ts.astimezone(TZ)
+    days = (datetime.now(TZ).date() - d.date()).days
+    return d.strftime("%H:%M") if days <= 0 else "вчера" if days == 1 else d.strftime("%d.%m")
+
+
+def auto_plain(tickets: dict, live: dict, machines: list, jobs_all: dict, skip_legacy=()) -> dict:
+    """Авто-строки (та же форма, что у load_plain): названия задач, шаги и единицы хода, «дальше», вопросы владельцу,
+    лента, старые процессы. Всё — из кэша переводчика; чего в кэше нет, то ставится в очередь и появится позже."""
+    out = {"tasks": {}, "next": [], "questions": [], "news": [], "legacy": {}, "units": {}}
+    if AUTO is None:
+        return out
+    now = time.time()
+    job_tids = {tk_norm(k) or k for k in jobs_all}
+    rel = {}  # тикеты, которые табло показывает (то же правило, что у строк в build)
+    for tid, t in tickets.items():
+        if tid in live or tid in job_tids or t.status in ("todo", "in_progress", "in_review", "needs_owner") or \
+                (t.status == "waiting" and now - t_updated(t, now) < WAITING_MAX_AGE_S):
+            rel[tid] = t
+    order = sorted(rel, key=lambda i: (i not in live, -t_updated(rel[i], now)))
+
+    def entries_of(t):
+        return [e for e in all_entries(t) if _role_key(e.author) in ROLE_RU]  # служебные записи диспетчера — мимо
+
+    def entry_out(t, e, prio):
+        return AUTO.get("entry", f"{t.id} {e.ts_raw}", {"ticket": short_title(t.header.get("title", ""), 70),
+                                                         "author": ROLE_RU[_role_key(e.author)], "text": e.text}, prio)
+
+    # 1. названия задач
+    for tid in order:
+        t = rel[tid]
+        r = AUTO.get("title", tid, {"title": t.header.get("title", ""), "start": clip(clean_text(t.description), 500)}, 0)
+        if r and r.get("title"):
+            out["tasks"][tid] = {"title": r["title"]}
+
+    # 2. последняя запись каждого показанного тикета → вопрос владельцу, «дальше»
+    nxt, ques = [], []
+    last = {}
+    for tid in order:
+        es = entries_of(rel[tid])
+        if es:
+            last[tid] = (es[-1], entry_out(rel[tid], es[-1], 0))
+
+    # 3. ход задач: шаг и единица по-людски, «дальше» из файла прогресса
+    for key, jl in jobs_all.items():
+        for j in jl:
+            tid = tk_norm(key) or key or f"job:{j['job']}"
+            tk = tickets.get(tid)
+            r = AUTO.get("step", f"{tid}:{j['job']}", {"ticket": short_title(tk.header.get("title", ""), 60) if tk else "",
+                                                       "step": j["step"], "next": j.get("next") or "", "unit": j["unit"]}, 0)
+            if not r:
+                continue
+            if r.get("step") and j["step"] and not plainify.looks_plain(j["step"]):  # понятный шаг («готово») не трогаем
+                out["tasks"].setdefault(tid, {}).setdefault("steps", {})[j["step"]] = r["step"]
+            if r.get("unit") and j["unit"]:
+                out["units"][j["unit"]] = r["unit"]
+            if r.get("next"):
+                nxt.append(r["next"])
+
+    for tid in order:
+        t = rel[tid]
+        if tid not in last:
+            continue
+        e, r = last[tid]
+        if r and r.get("next"):
+            nxt.append(r["next"])
+        if tid not in live and wait_text(t) in ("ждёт: CEO", "ждёт: владельца"):  # вопрос живёт, пока ждут CEO/владельца
+            q = r.get("question") if r else None
+            if q and _role_key(e.author) != "ceo" and "владел" not in e.text.lower():
+                q = None  # вопрос Судье/CEO, который модель приняла за вопрос владельцу: в записи владелец не назван
+            if q:
+                ques.append(q)
+            elif t.status == "needs_owner":
+                ques.append("Ждёт вашего решения: " + short_title(t.header.get("title", ""), 60))
+    seen = set()
+    for lst, dst, lim in ((nxt, out["next"], NEXT_MAX), (ques, out["questions"], QUESTIONS_MAX)):
+        for x in lst:
+            if x.lower() not in seen and len(dst) < lim:
+                seen.add(x.lower())
+                dst.append(x)
+
+    # 4. лента: самые свежие записи лога всех тикетов; служебные модель отсеивает (news = null)
+    cands = []
+    for tid, t in tickets.items():
+        try:
+            if now - t.path.stat().st_mtime > NEWS_AGE_S:
+                continue
+        except OSError:
+            continue
+        for e in entries_of(t):
+            if now - e.ts.timestamp() <= NEWS_AGE_S:
+                cands.append((e.ts, t, e))
+    cands.sort(key=lambda c: c[0], reverse=True)
+    items = []
+    for ts, t, e in cands[:NEWS_CAND]:
+        r = entry_out(t, e, 1)
+        if r and r.get("news"):
+            items.append((ts, r["news"]))
+    out["news"] = [{"time": news_time(ts), "text": tx} for ts, tx in items[:5]]
+
+    # 5. процессы на машинах без задачи
+    for m in machines:
+        if m["id"] in ("pc", "deck"):
+            continue
+        for g in m.get("procs", []):
+            name = g["name"]
+            if tk_norm(name, prefix=True) or name in UNIT_DO or name in skip_legacy or is_build_proc(name) or g["minutes"] < 5:
+                continue
+            r = AUTO.get("proc", name, {"name": name, "args": g.get("args", "")}, 2)
+            if r and r.get("what"):
+                out["legacy"][name] = f"{r['what']} — без задачи, висит {fmt_min(g['minutes'])}"
+    return out
+
+
+def merge_plain(auto: dict, manual: dict) -> dict:
+    """Ручное (plain.json) главнее авто: ключ есть — берётся он (списки — целиком, словари — по ключам)."""
+    tasks = {}
+    for tid in set(auto["tasks"]) | set(manual["tasks"]):
+        a, m = auto["tasks"].get(tid) or {}, manual["tasks"].get(tid)
+        m = m if isinstance(m, dict) else {}
+        d = {}
+        if m.get("title") or a.get("title"):
+            d["title"] = m.get("title") or a.get("title")
+        steps = dict(a.get("steps") or {})
+        steps.update(m.get("steps") if isinstance(m.get("steps"), dict) else {})
+        if steps:
+            d["steps"] = steps
+        tasks[tid] = d
+    return {"headline": manual["headline"], "tasks": tasks, "next": manual["next"] or auto["next"],
+            "questions": manual["questions"] or auto["questions"], "news": manual["news"] or auto["news"],
+            "legacy": {**auto["legacy"], **manual["legacy"]}, "units": {**auto["units"], **manual["units"]},
+            "machines": manual["machines"]}
 
 
 def is_build_proc(name: str) -> bool:
@@ -944,7 +1095,12 @@ def build(feeds, pc, etas) -> dict:
     except OSError:
         goal = ""
     events = read_events(tickets)
-    plain = load_plain()
+    manual = load_plain()
+    try:
+        auto = auto_plain(tickets, live, machines, jobs_all, manual["legacy"])
+    except Exception:  # переводчик не должен ронять кадр: прежнее поведение (заголовок тикета, первая фраза записи)
+        auto = {"tasks": {}, "next": [], "questions": [], "news": [], "legacy": {}, "units": {}}
+    plain = merge_plain(auto, manual)
     view = make_view(plain, tickets, live, machines, jobs_all, disp_ok, watch_ok, events)
     return {"v": 2, "built_at": datetime.now(TZ).isoformat(timespec="seconds"), "built_ts": now, "pid": os.getpid(),
             "goal": goal, "dispatcher": {"ok": disp_ok, "tick_age_s": tick_age, "watch_ok": watch_ok},
@@ -1002,6 +1158,11 @@ def main() -> int:
     PIDFILE.write_text(str(os.getpid()))
     STOP.unlink(missing_ok=True)
     import ticket as T
+    global AUTO
+    try:
+        AUTO = plainify.Translator().start()
+    except Exception:
+        AUTO = None  # без переводчика — прежнее поведение
     feeds = [Feed(h) for h in HOSTS]
     for f in feeds:
         f.start()

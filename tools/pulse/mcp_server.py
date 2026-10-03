@@ -19,8 +19,8 @@ PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 TOOL = {
     "name": "pulse_status",
     "description": "Ход работ проекта alpha одним JSON. Раздел `view` — готовый человеческий вид (что идёт и где, что "
-                   "дальше, вопросы владельцу, на какой машине какая задача или «без задачи», что было); `plain` — тексты "
-                   "CEO из .claude/pulse/plain.json; `tickets`/`machines`/`events` — сырые данные (тикеты, ЦП/ОЗУ/диск, "
+                   "дальше, вопросы владельцу, на какой машине какая задача или «без задачи», что было); `plain` — человеческие "
+                   "строки (переводчик на Haiku, кэш .claude/pulse/plain-auto.json; ручное — plain.json);`tickets`/`machines`/`events` — сырые данные (тикеты, ЦП/ОЗУ/диск, "
                    "процессы, сборки, лента); время GMT+4. Источник — .claude/pulse/status.json, его раз в 5 с пишет collect.py.",
     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     "outputSchema": {"type": "object"},
