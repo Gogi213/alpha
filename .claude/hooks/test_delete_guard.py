@@ -3,10 +3,12 @@
 Правило: отказ — только когда КОМАНДНОЕ слово простой команды удаляет и цель вне своей папки (или не определяется);
 слова rm/unlink/rmtree в тексте аргументов, комментариях, heredoc-данных, grep-шаблонах — не удаление.
 """
-import datetime
 import os
+import shutil
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import delete_guard as dg  # noqa: E402
@@ -189,10 +191,6 @@ class Allowed(unittest.TestCase):
 
     def test_help_flag(self):
         self.ok("rm --help")
-
-    def test_dedupe_exception(self):
-        if datetime.date.today().isoformat() <= dg.DEDUPE_UNTIL:
-            self.ok("ssh deck@192.168.1.49 'python3 tk020-dedupe-apply.py --apply'")
 
     def test_remove_item_whatif(self):
         self.ok("Remove-Item C:\\Windows\\x -Recurse -WhatIf")
@@ -473,6 +471,257 @@ class Denied(unittest.TestCase):
 
     def test_variable_command_word(self):
         self.no("$SSH deck@192.168.1.49 'rm -rf /home/deck/other'")
+
+
+class NoNameExemption(unittest.TestCase):
+    """A3(а), аудит 03.10: строка `tk020-dedupe-apply.sh` в команде отключала проверку целиком —
+    `echo tk020-dedupe-apply.sh; rm -rf /` проходил. Исключения по имени скрипта больше нет."""
+
+    def test_script_name_in_text_does_not_disable_check(self):
+        for name in ("tk020-dedupe-apply.sh", "tk020-dedupe-apply.py"):
+            self.assertIsNotNone(dg.check(f"echo {name}; rm -rf /c/Users/x", CWD), name)
+            self.assertIsNotNone(dg.check(f"rm -rf /c/Users/x # {name}", CWD), name)
+            self.assertIsNotNone(
+                dg.check(f"ssh deck@192.168.1.49 'python3 {name} && rm -rf /home/deck/other'", CWD), name)
+
+    def test_exemption_machinery_is_gone(self):
+        for attr in ("DEDUPE_APPLY", "DEDUPE_UNTIL"):
+            self.assertFalse(hasattr(dg, attr), attr)
+
+
+class Overwrite(unittest.TestCase):
+    """A3(б): перезапись/усечение — как удаление, с теми же разрешёнными корнями: `> файл` (не `>>`), `truncate`,
+    `dd of=`, `cp`/`mv` поверх существующего вне корней. Внутри своих корней — можно. Существование проверяется
+    для локальных буквальных путей (новый файл — не перезапись); удалённый хост/непроверяемый путь — «существует»."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = tempfile.mkdtemp(prefix="dg-outside-")          # вне корней: системный temp, не папка проекта
+        base = Path(cls.out)
+        (base / "f.txt").write_text("x", encoding="utf-8")
+        (base / "d").mkdir()
+        (base / "d" / "a").write_text("x", encoding="utf-8")
+        cls.f = (base / "f.txt").as_posix()
+        cls.d = (base / "d").as_posix()
+        cls.new = (base / "new.txt").as_posix()                   # не существует
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)               # свой временный каталог
+
+    def no(self, cmd, cwd=CWD):
+        self.assertIsNotNone(dg.check(cmd, cwd), f"пропущено: {cmd!r}")
+
+    def ok(self, cmd, cwd=CWD):
+        reason = dg.check(cmd, cwd)
+        self.assertIsNone(reason, f"ложный отказ: {cmd!r} → {reason}")
+
+    # --- перенаправление `>`
+    def test_redirect_truncates_existing_outside(self):
+        self.no(f'echo x > "{self.f}"')
+
+    def test_redirect_forms(self):
+        self.no(f'echo x >| "{self.f}"')
+        self.no(f'echo x &> "{self.f}"')
+        self.no(f'echo x 2> "{self.f}"')
+        self.no(f'echo x 1>"{self.f}"')
+
+    def test_redirect_without_command(self):
+        self.no(f'> "{self.f}"')
+        self.no(f': > "{self.f}"')
+
+    def test_heredoc_to_existing_outside(self):
+        self.no(f"cat > \"{self.f}\" <<'EOF'\nx\nEOF")
+
+    def test_redirect_after_chain(self):
+        self.no(f'ls && echo x > "{self.f}"')
+
+    def test_append_is_not_truncation(self):
+        self.ok(f'echo x >> "{self.f}"')
+        self.ok(f'echo x 2>> "{self.f}"')
+
+    def test_redirect_to_new_local_file_is_creation(self):
+        self.ok(f'echo x > "{self.new}"')
+
+    def test_harmless_targets(self):
+        self.ok("ls > /dev/null 2>&1")
+        self.ok("ls &>/dev/null")
+        self.ok("ls 2>/dev/null")
+        self.ok("echo x >/dev/stderr")
+        self.ok("ls > $null")
+        self.ok("ls >&2")
+
+    def test_redirect_inside_roots_is_fine(self):
+        self.ok("echo x > data/out.txt")
+        self.ok('echo x > "/c/visual projects/alpha/data/out.txt"')
+        self.ok(f'echo x > "{SCRATCH}/note.txt"')
+        self.ok("ssh deck@192.168.1.49 'echo x > ~/alpha/tk026/out.log'")
+
+    def test_redirect_remote_outside_roots(self):
+        self.no("ssh deck@192.168.1.49 'echo x > /home/deck/other/f'")
+        self.no("ssh ubuntu@13.140.29.171 'ls > /root/out.txt'")
+
+    def test_redirect_unknown_variable_target(self):
+        self.no('echo x > "$OUT"')
+
+    def test_redirect_environment_variable_target_is_checked_on_disk(self):
+        os.environ["DG_TEST_OUT"] = self.out
+        self.addCleanup(lambda: os.environ.pop("DG_TEST_OUT", None))
+        self.no('echo x > "$DG_TEST_OUT/f.txt"')                 # существует — перезапись
+        self.ok('echo x > "$DG_TEST_OUT/new.txt"')               # нет — создание
+        self.ok('echo x > "${DG_TEST_OUT}/new.txt"')
+        self.no("cat > \"$DG_TEST_OUT/f.txt\" <<'EOF'\nx\nEOF")
+        os.environ.pop("DG_TEST_OUT")
+        self.no('echo x > "$DG_TEST_OUT/new.txt"')               # переменная неизвестна — отказ
+
+    def test_redirect_known_variable_target(self):
+        self.ok('OUT="/c/visual projects/alpha/data/o.txt"; echo x > "$OUT"')
+
+    def test_redirect_to_root_or_deep_segment_remote(self):
+        self.no("ssh deck@192.168.1.49 'echo x > ~/alpha/e-aug/root/x.binlog'")
+        self.no("ssh deck@192.168.1.49 'echo x > ~/alpha/deep/x'")
+
+    def test_redirect_to_storage_box_over_ssh(self):
+        self.no("ssh -p 23 u677479@u677479.your-storagebox.de 'cat > alpha/x <<EOF\nx\nEOF'")
+
+    # --- truncate
+    def test_truncate(self):
+        self.no(f'truncate -s 0 "{self.f}"')
+        self.no(f'truncate --size=0 "{self.f}"')
+        self.no("ssh deck@192.168.1.49 'truncate -s 0 /var/log/x.log'")
+
+    def test_truncate_inside_roots(self):
+        self.ok("truncate -s 0 data/x.log")
+        self.ok("ssh deck@192.168.1.49 'truncate -s0 ~/alpha/x.log'")
+
+    # --- dd
+    def test_dd_of(self):
+        self.no(f'dd if=/dev/zero of="{self.f}" bs=1 count=1')
+        self.no("dd if=/dev/zero of=/dev/sda bs=1M")
+        self.no("ssh deck@192.168.1.49 'dd if=a of=/home/deck/other/b'")
+
+    def test_dd_harmless_and_inside(self):
+        self.ok("dd if=/dev/zero of=/dev/null bs=1M count=1")
+        self.ok("dd if=a of=data/b bs=1M")
+        self.ok("dd if=a bs=1M | wc -c")
+
+    # --- cp / mv
+    def test_cp_over_existing_file(self):
+        self.no(f'cp a.txt "{self.f}"')
+        self.no(f'mv a.txt "{self.f}"')
+        self.no(f'cp -f a.txt "{self.f}"')
+
+    def test_cp_into_existing_dir_overwrites_member(self):
+        self.no(f'cp a "{self.d}"')            # d/a существует
+        self.no(f'cp b a "{self.d}/"')
+        self.no(f'mv a "{self.d}"')
+        self.no(f'cp -t "{self.d}" a')
+
+    def test_cp_into_existing_dir_new_member(self):
+        self.ok(f'cp b "{self.d}"')            # d/b нет — это создание
+        self.ok(f'mv b "{self.d}/"')
+
+    def test_cp_to_new_path_outside(self):
+        self.ok(f'cp a.txt "{self.new}"')
+
+    def test_cp_no_clobber(self):
+        self.ok(f'cp -n a.txt "{self.f}"')
+        self.ok(f'mv --no-clobber a.txt "{self.f}"')
+
+    def test_cp_inside_roots(self):
+        self.ok("cp a.txt data/b.txt")
+        self.ok("mv data/a.txt data/b.txt")
+        self.ok(f'cp a.txt "{SCRATCH}/b.txt"')
+        self.ok("ssh deck@192.168.1.49 'cp a ~/alpha/b'")
+
+    def test_cp_remote_outside_roots(self):
+        self.no("ssh deck@192.168.1.49 'cp a /home/deck/other/b'")
+        self.no("ssh ubuntu@13.140.29.171 'mv a /root/b'")
+
+    def test_cp_unknown_destination(self):
+        self.no('cp a "$DEST"')
+
+    def test_cp_through_wrapper_and_find(self):
+        self.no(f'sudo cp a "{self.f}"')
+        self.no(f"bash -c 'cp a \"{self.f}\"'")
+        self.no(f'find data -name "*.x" -exec cp {{}} "{self.f}" \\;')
+
+    def test_find_exec_cp_is_not_deletion_of_find_path(self):
+        self.ok(f'find /c/Windows -name "*.log" -exec cp {{}} "{self.new}" \\;')
+
+    def test_cp_without_destination_is_not_overwrite(self):
+        self.ok("cp --help")
+        self.ok("cp")
+
+
+class GitIrreversible(unittest.TestCase):
+    """A3(в): `git reset --hard`, `git clean -f…`, `git push --force/-f/--force-with-lease` — отказ с причиной
+    «только через CEO» (в любом каталоге: это не вопрос пути)."""
+
+    def no(self, cmd, cwd=CWD):
+        reason = dg.check(cmd, cwd)
+        self.assertIsNotNone(reason, f"пропущено: {cmd!r}")
+        self.assertIn("через CEO", reason, cmd)
+
+    def ok(self, cmd, cwd=CWD):
+        reason = dg.check(cmd, cwd)
+        self.assertIsNone(reason, f"ложный отказ: {cmd!r} → {reason}")
+
+    def test_reset_hard(self):
+        self.no("git reset --hard")
+        self.no("git reset --hard HEAD~1")
+        self.no("git reset HEAD~1 --hard")
+        self.no("git -C . reset --hard origin/main")
+        self.no("git -c core.x=y reset --hard")
+
+    def test_reset_soft_and_paths_are_fine(self):
+        self.ok("git reset --soft HEAD~1")
+        self.ok("git reset HEAD file.txt")
+        self.ok("git reset --mixed")
+        self.ok("git reset")
+
+    def test_clean_force(self):
+        self.no("git clean -f")
+        self.no("git clean -fd")
+        self.no("git clean -fdx")
+        self.no("git clean -f -d")
+        self.no("git clean --force -d")
+        self.no("git clean -fd data/tmp")          # раньше внутри проекта пропускалось
+        self.no("git -C data clean -fd")
+
+    def test_clean_dry_run_and_status_are_fine(self):
+        self.ok("git clean -n")
+        self.ok("git clean -nd")
+        self.ok("git clean -nfd")
+        self.ok("git clean --dry-run -f")
+        self.ok("git status --short")
+
+    def test_push_force(self):
+        self.no("git push --force")
+        self.no("git push -f")
+        self.no("git push --force-with-lease")
+        self.no("git push --force-with-lease=main origin main")
+        self.no("git push origin main -f")
+        self.no("git push -fu origin feature")
+
+    def test_push_plain_is_fine(self):
+        self.ok("git push")
+        self.ok("git push origin main")
+        self.ok("git push -u origin feature")
+        self.ok("git push --tags")
+        self.ok("git push --follow-tags origin main")
+
+    def test_through_wrappers_and_remote(self):
+        self.no("sudo git push -f")
+        self.no("bash -c 'git reset --hard'")
+        self.no("ssh deck@192.168.1.49 'cd ~/alpha && git clean -fd'")
+        self.no("echo ok && git push --force")
+        self.no('echo "$(git reset --hard)"')
+
+    def test_text_mentions_are_not_commands(self):
+        self.ok('git commit -m "не делать git reset --hard и git push --force"')
+        self.ok("echo git clean -fd")
+        self.ok("grep -n 'git push -f' README.md")
 
 
 class Lexer(unittest.TestCase):

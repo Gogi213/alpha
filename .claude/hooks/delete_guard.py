@@ -12,13 +12,18 @@
 кавычки и heredoc учитываются), и удалением считается только простая команда, у которой КОМАНДНОЕ слово — rm/rmdir/unlink/
 shred/del/erase/rd/Remove-Item/ri, `find … -delete|-exec rm`, `git clean`, `rsync --delete*|--remove-source-files`,
 либо исполняемый Python (`-c`, stdin/heredoc), вызывающий shutil.rmtree/os.remove/os.unlink/os.rmdir/Path.unlink/.rmdir().
+Перезапись и усечение (аудит 03.10) — то же, что удаление, с теми же разрешёнными корнями: `> файл` (`>|`, `&>`, `2>`; не
+`>>`), `truncate`, `dd of=`, `cp`/`mv` поверх существующего. Цель вне корней разрешена, только если локальный буквальный путь
+не существует (создание нового файла); удалённый хост и непроверяемый путь считаются «существует». `git reset --hard`,
+`git clean -f…`, `git push --force/-f/--force-with-lease` — отказ «только через CEO» в любом каталоге. Исключений по имени
+скрипта нет: строка в тексте команды проверку не отключает.
 Через обёртки (sudo/env/nohup/xargs/systemd-run/timeout/…), `ssh хост '<строка>'`, `bash|sh -c`, `powershell -Command`,
 `cmd /c`, eval — разбор рекурсивный. Текст в аргументах прочих команд (git commit -m, tickets.py --text, echo, grep,
 `cat > файл <<EOF`) удалением не считается. Не удалось разобрать (незакрытая кавычка) — прежний регэксп как страховка.
 """
 import ast
 import base64
-import datetime
+import os
 import posixpath
 import re
 import textwrap
@@ -33,8 +38,24 @@ REASON = ("Удаление запрещено вне своей папки (в�
           "папки»). Можно только явным путём: локально — внутри C:/visual projects/alpha или scratchpad сессии; "
           "на Steam Deck — ~/alpha/<подкаталог>; на VPS — /opt/alpha-compute/<подкаталог>. Коллектор, Storage Box, "
           "записи root/ и deep/ — никогда (только владелец через CEO). Непроверяемая цель: {t}")
+REASON_OVERWRITE = ("Перезапись/усечение файла (`> файл`, truncate, dd of=, cp/mv поверх существующего) вне своей папки "
+                    "запрещены, как и удаление: локально — внутри C:/visual projects/alpha или scratchpad сессии; на Steam "
+                    "Deck — ~/alpha/<подкаталог>; на VPS — /opt/alpha-compute/<подкаталог>. Новый локальный файл вне папки "
+                    "можно создать (его ещё нет). Коллектор, Storage Box, записи root/ и deep/ — никогда. Цель: {t}")
+REASON_IRREVERSIBLE = ("Необратимая команда git ({t}): только через CEO — не выполнять самому, передать CEO записью "
+                       "тикета (`tickets.py comment <ID> --author <роль> --text \"...\" --next ceo`).")
 UNKNOWN_TARGET = "<цель из кода не видна>"
+# куда писать можно всегда: не файлы (устройства-стоки, пустышка Windows/PowerShell)
+HARMLESS_SINK = re.compile(r"^(?:/dev/(?:null|stdout|stderr|tty|zero|full|fd/\d+)|/proc/self/fd/\d+|nul|con|\$null)$", re.I)
 MAX_DEPTH = 8
+
+
+class Over(str):
+    """Цель перезаписи/усечения (не удаления): вне корней отказ, только если файл существует или это неизвестно."""
+
+
+class Forbid(str):
+    """Необратимая команда (git reset --hard и т. п.): отказ «только через CEO», путь не при чём."""
 
 
 def norm(p):
@@ -76,12 +97,13 @@ class ParseError(Exception):
 
 
 class Cmd:
-    __slots__ = ("words", "heredocs", "pipe_from")
+    __slots__ = ("words", "heredocs", "pipe_from", "overwrites")
 
     def __init__(self, words=None):
         self.words = list(words or [])
         self.heredocs = []      # тела heredoc / here-string этой команды (её stdin)
         self.pipe_from = None   # предыдущая команда конвейера
+        self.overwrites = []    # цели усекающих перенаправлений `> f` `>| f` `&> f` `2> f` (не `>>`)
 
 
 ESCAPABLE = ";|&<>()\"' $\\`"
@@ -151,7 +173,7 @@ class _Lexer:
         self.cur = Cmd()
         self.buf = []
         self.inword = False
-        self.skip = False   # следующее слово — цель перенаправления (True) или here-string ("here")
+        self.skip = False   # следующее слово — цель перенаправления (True), here-string ("here") или усекающего `>` ("out")
         self.pending = []   # heredoc, тела которых читаются после перевода строки
 
     # --- слова и команды
@@ -164,6 +186,8 @@ class _Lexer:
             w = "".join(self.buf)
             if self.skip == "here":
                 self.cur.heredocs.append(w)
+            elif self.skip == "out":
+                self.cur.overwrites.append(w)
             elif not self.skip:
                 self.cur.words.append(w)
             self.skip = False
@@ -174,7 +198,7 @@ class _Lexer:
         self.end_word()
         self.skip = False
         done = self.cur
-        if done.words:
+        if done.words or done.overwrites:
             self.cmds.append(done)
         self.cur = Cmd()
         if sep == "|" and done.words:
@@ -255,8 +279,9 @@ class _Lexer:
                     self.i += 2
                 elif s.startswith("&>", i):
                     self.end_word()
-                    self.i += 3 if s.startswith("&>>", i) else 2
-                    self.skip = True
+                    append = s.startswith("&>>", i)
+                    self.i += 3 if append else 2
+                    self.skip = True if append else "out"
                 else:
                     self.end_cmd("&")
                     self.i += 1
@@ -345,21 +370,24 @@ class _Lexer:
             self.i = m.end()
             return
         i += 1
+        append = False
         if i < n and s[i] == c and c == ">":
-            i += 1                      # `>>`
+            i += 1                      # `>>` — дописывание, файл не усекается
+            append = True
+        trunc = "out" if (c == ">" and not append) else True
         if i < n and s[i] == "&":
             i += 1                      # `>&2`, `2>&1`, `>&-`
             while i < n and (s[i].isdigit() or s[i] == "-"):
                 i += 1
         elif i < n and s[i] == "|":
             i += 1
-            self.skip = True
+            self.skip = trunc
         elif i < n and s[i] == "(":     # process substitution `<(…)` / `>(…)`
             j = find_close(s, i + 1)
             self.sub(s[i + 1:j])
             i = j + 1
         else:
-            self.skip = True
+            self.skip = trunc
         self.i = i
 
     def read_heredocs(self):
@@ -733,14 +761,16 @@ def find_scan(args, ctx, vars_, depth):
                 sub.append(expr[k])
                 k += 1
             inner = list(scan_one(Cmd(sub), ctx, vars_, (), depth + 1))
-            if inner:
-                deleting = True
-                extra += [x for x in inner if "{}" not in x[0]]
+            if any(not isinstance(x[0], (Over, Forbid)) for x in inner):
+                deleting = True                     # внутри -exec удаление: целью становятся и пути find
+            extra += [x for x in inner if "{}" not in x[0]]
         k += 1
     if deleting:
         for p in paths or ["."]:
             yield (p, ctx.copy())
         yield from extra
+    else:
+        yield from (x for x in extra if isinstance(x[0], (Over, Forbid)))
 
 
 def rsync_scan(args, ctx):
@@ -791,16 +821,144 @@ def git_scan(args, ctx, vars_):
             j += 1
         else:
             break
-    if j >= len(args) or args[j] != "clean":
+    if j >= len(args):
         return
-    rest = args[j + 1:]
+    sub, rest = args[j], args[j + 1:]
+    if sub == "reset":
+        if "--hard" in rest:
+            yield (Forbid("git reset --hard"), ctx.copy())
+        return
+    if sub == "push":
+        if any(a == "--force" or a.startswith("--force-with-lease")
+               or (a.startswith("-") and not a.startswith("--") and "f" in a[1:]) for a in rest):
+            yield (Forbid("git push --force"), ctx.copy())
+        return
+    if sub != "clean":
+        return
     if any(a == "--dry-run" or (a.startswith("-") and not a.startswith("--") and "n" in a) for a in rest):
+        return
+    if any(a == "--force" or (a.startswith("-") and not a.startswith("--") and "f" in a[1:]) for a in rest):
+        yield (Forbid("git clean -f"), ctx.copy())
         return
     after = rest[rest.index("--") + 1:] if "--" in rest else []
     specs = after or [a for a in rest if not a.startswith("-")]
     b = base or "."
     for sp in (specs or [None]):
         yield ((b if sp is None else posixpath.join(b, sp)), ctx.copy())
+
+
+def fs_path(t, ctx):
+    """Путь для проверки существования на этой машине или None (неизвестная переменная, glob, подстановка, `{}`,
+    относительный путь без известного cwd — не определить)."""
+    p = t.strip().strip("'\"")
+    p = re.sub(r"\$(\w+)|\$\{(\w+)\}|%(\w+)%",   # переменные окружения этой машины (`$TEMP/x.py`) — известны
+               lambda m: os.environ.get(m.group(1) or m.group(2) or m.group(3), m.group(0)), p)
+    if not p or any(c in p for c in "$%`*?[{<"):
+        return None
+    p = p.replace("\\", "/")
+    if p.startswith("~"):
+        p = os.path.expanduser(p)
+    m = re.match(r"^/([A-Za-z])/(.*)$", p)
+    if m and os.name == "nt":
+        p = f"{m.group(1)}:/{m.group(2)}"                # путь Git Bash `/c/Users/x` → `c:/Users/x`
+    if p.startswith("/") or re.match(r"^[A-Za-z]:/", p):
+        return p
+    cwd = getattr(ctx, "cwd", None)
+    return posixpath.join(cwd, p) if cwd else None
+
+
+def may_exist(t, ctx):
+    """Цель перезаписи, возможно, существует: удалённый узел и непроверяемый путь — да; локальный буквальный — по ФС."""
+    if getattr(ctx, "remote", False):
+        return True
+    fp = fs_path(t, ctx)
+    if fp is None or fp.startswith("/dev/"):              # устройство (`of=/dev/sda`) — всегда «существует»
+        return True
+    try:
+        return os.path.lexists(fp)
+    except OSError:
+        return True
+
+
+def over(t, vars_, ctx):
+    """Цель усечения/перезаписи → запись для проверки; устройства-стоки (`/dev/null`, `$null`) — не файлы."""
+    t = expand_vars(t, vars_)
+    if HARMLESS_SINK.match(t.strip().strip("'\"")):
+        return ()
+    return ((Over(t), ctx.copy()),)
+
+
+def cp_scan(args, ctx, vars_):
+    """`cp`/`mv`: цель — существующий файл (или `каталог/имя` существующего каталога); `-n`/`--no-clobber` — не трогает."""
+    pos = []
+    dest_opt = None
+    noclobber = False
+    options = True
+    k = 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if options and a == "--":
+            options = False
+        elif options and a.startswith("--"):
+            if a in ("--help", "--version"):
+                return
+            if a == "--no-clobber":
+                noclobber = True
+            elif a == "--target-directory" and k < len(args):
+                dest_opt = args[k]
+                k += 1
+            elif a.startswith("--target-directory="):
+                dest_opt = a.split("=", 1)[1]
+        elif options and a.startswith("-") and len(a) > 1:
+            cluster = a[1:]
+            noclobber = noclobber or "n" in cluster
+            if cluster.endswith("t") and k < len(args):
+                dest_opt = args[k]
+                k += 1
+        else:
+            pos.append(a)
+    if noclobber:
+        return
+    if dest_opt is not None:
+        dest, srcs = dest_opt, pos
+    elif len(pos) >= 2:
+        dest, srcs = pos[-1], pos[:-1]
+    else:
+        return
+    dest = expand_vars(dest, vars_)
+    fp = None if ctx.remote else fs_path(dest, ctx)
+    is_dir = dest_opt is not None or dest.endswith(("/", "\\")) or (fp is not None and os.path.isdir(fp))
+    if is_dir and not ctx.remote and fp is not None:      # известный каталог: затрагиваются только его члены
+        for src in srcs:
+            name = posixpath.basename(expand_vars(src, vars_).replace("\\", "/").rstrip("/"))
+            yield from over(dest.rstrip("/\\") + "/" + name, {}, ctx)
+    else:
+        yield from over(dest, {}, ctx)
+
+
+def truncate_scan(args, ctx, vars_):
+    pos = []
+    k = 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a in ("--help", "--version"):
+            return
+        if a in ("-s", "--size", "-r", "--reference"):
+            k += 1
+        elif a.startswith("-") and len(a) > 1:
+            continue
+        else:
+            pos.append(a)
+    for t in pos:
+        yield from over(t, vars_, ctx)
+
+
+def dd_scan(args, ctx, vars_):
+    for a in args:
+        if a.startswith("of="):
+            yield from over(a[3:], vars_, ctx)
 
 
 def ssh_scan(args, ctx, vars_, stdin, depth):
@@ -892,6 +1050,8 @@ def record_var(vars_, word, depth):
 def scan_one(cmd, ctx, vars_, stdin, depth):
     """Удаления одной простой команды: (цель, контекст) по каждой."""
     words = list(cmd.words)
+    for t in cmd.overwrites:                          # `> файл` усекает файл — как удаление
+        yield from over(t, vars_, ctx)
     sin = list(cmd.heredocs) + list(stdin) + pipe_src(cmd)
     if not words:
         return
@@ -951,6 +1111,12 @@ def scan_one(cmd, ctx, vars_, stdin, depth):
         yield from find_scan(args, ctx, vars_, depth)
     elif name == "rsync":
         yield from rsync_scan(args, ctx)
+    elif name in ("cp", "mv"):
+        yield from cp_scan(args, ctx, vars_)
+    elif name == "truncate":
+        yield from truncate_scan(args, ctx, vars_)
+    elif name == "dd":
+        yield from dd_scan(args, ctx, vars_)
     elif name == "git":
         yield from git_scan(args, ctx, vars_)
     elif name == "rclone":
@@ -1095,17 +1261,9 @@ def legacy_found(cmd, cwd):
     return found
 
 
-# Узкое исключение (В-154, владелец 02.10: «удаляй лишнее точно»): дедуп TK-020 — только скриптом по манифесту,
-# который перед удалением каждого файла заново сверяет sha256 с каноном на Storage Box. Срок — до 2026-10-09.
-DEDUPE_APPLY = re.compile(r"tk020-dedupe-apply\.(?:sh|py)")
-DEDUPE_UNTIL = "2026-10-09"
-
-
 def check(cmd, cwd):
     """Причина отказа или None."""
     cmd = cmd or ""
-    if DEDUPE_APPLY.search(cmd) and datetime.date.today().isoformat() <= DEDUPE_UNTIL:
-        return None
     start = Ctx(norm(cwd).rstrip("/") if cwd else None, False, frozenset(FUNC_DEF.findall(cmd)))
     try:
         found = list(scan_text(cmd, start))
@@ -1115,6 +1273,12 @@ def check(cmd, cwd):
         except Exception:
             found = [("<команду не удалось разобрать>", start)] if LEGACY_VERBS.search(cmd) else []
     for target, ctx in found:
+        if isinstance(target, Forbid):
+            return REASON_IRREVERSIBLE.format(t=target)
+        if isinstance(target, Over):
+            if not allowed(target, ctx) and may_exist(target, ctx):
+                return REASON_OVERWRITE.format(t=target)
+            continue
         if not allowed(target, ctx):
             return REASON.format(t=target)
     return None
