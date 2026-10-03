@@ -1,5 +1,5 @@
 //! Контейнер архива закрытых суток (T46): **один** zstd-поток над
-//! `[маркер ABLA | версия | уровень]` + `[заголовок v3 (25 Б)]` +
+//! `[маркер ABLA | версия | уровень]` + `[заголовок v3 (25 Б) или v4]` +
 //! `[u32 длина | тело кадра без сжатия]*`.
 //!
 //! # Зачем отдельный контейнер, а не «пересжать кадры»
@@ -37,7 +37,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use super::{
-    strip_binlog_suffix, BinlogError, Header, Reader, BINLOG_ARCHIVE_SUFFIX, MAGIC, VERSION,
+    header_bytes, strip_binlog_suffix, BinlogError, Reader, BINLOG_ARCHIVE_SUFFIX, VERSION,
+    VERSION_V4,
 };
 
 /// Магия контейнера: `ABLA` — «alpha binlog archive». Лежит **внутри**
@@ -159,7 +160,8 @@ impl<W: Write> Write for CountingWriter<W> {
 
 /// Пишет контейнер архива из уже открытого читателя в приёмник.
 ///
-/// Источник обязан быть версии 3 (`VERSION`): v2-файл живого коллектора
+/// Источник обязан быть версии 3 (`VERSION`) или 4 (`VERSION_V4`, заголовок с
+/// расписанием шагов переносится как есть): v2-файл живого коллектора
 /// архивировать нечем — его тело устроено иначе, и «архив» из него читался бы
 /// v3-декодером как мусор. Требование сформулировано ошибкой, а не молчанием.
 ///
@@ -172,7 +174,7 @@ pub fn write_container<R: Read, W: Write>(
     level: i32,
     out: W,
 ) -> Result<ArchiveWrite, BinlogError> {
-    if src.version() != VERSION {
+    if src.version() != VERSION && src.version() != VERSION_V4 {
         return Err(BinlogError::UnsupportedVersion { got: src.version() });
     }
     if !(1..=max_level()).contains(&level) {
@@ -195,7 +197,7 @@ pub fn write_container<R: Read, W: Write>(
     container[4] = ARCHIVE_VERSION;
     container[HEADER_LEVEL_AT] = level_byte;
     encoder.write_all(&container)?;
-    encoder.write_all(&header_bytes(&src.header()))?;
+    encoder.write_all(&header_bytes(&src.header(), src.step_schedule()))?;
 
     let mut frames = 0u64;
     let mut len_buf = [0u8; 4];
@@ -214,20 +216,6 @@ pub fn write_container<R: Read, W: Write>(
         level,
         write_ms: started.elapsed().as_millis(),
     })
-}
-
-/// Заголовок суток как 25 байт: та же раскладка, что пишет `Writer::create`.
-/// Собирается из `Header`, а не копируется байтами из источника: «архив
-/// хранит тот же заголовок» — свойство, которое здесь и берётся из одного
-/// места с обычной записью (`binlog`), а не из второго литерала.
-fn header_bytes(header: &Header) -> [u8; super::HEADER_LEN] {
-    let mut buf = [0u8; super::HEADER_LEN];
-    buf[0..4].copy_from_slice(&MAGIC);
-    buf[4] = VERSION;
-    buf[5..13].copy_from_slice(&header.tick_e9.to_le_bytes());
-    buf[13..21].copy_from_slice(&header.step_e9.to_le_bytes());
-    buf[21..25].copy_from_slice(&header.max_records_per_frame.to_le_bytes());
-    buf
 }
 
 /// Сверяет контейнер с источником **покадрово**: заголовок, число кадров,
@@ -249,6 +237,13 @@ pub fn verify_round_trip<R1: Read, R2: Read>(
             "заголовок контейнера {:?} не равен исходному {:?}",
             dst.header(),
             src.header()
+        )));
+    }
+    if src.step_schedule() != dst.step_schedule() {
+        return Err(BinlogError::Corrupt(format!(
+            "расписание шагов контейнера {:?} не равно исходному {:?}",
+            dst.step_schedule(),
+            src.step_schedule()
         )));
     }
     let mut frames = 0u64;

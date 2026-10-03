@@ -3,7 +3,7 @@
 //! записей.
 
 use super::*;
-use crate::binlog::{is_binlog_file_name, Header, Record, Writer};
+use crate::binlog::{is_binlog_file_name, Header, Record, StepAt, Writer};
 use hftbacktest::types::{
     LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_EVENT,
     LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_BUY_TRADE_EVENT,
@@ -84,6 +84,110 @@ fn archive_round_trips_frames_and_records_byte_for_byte() {
         let report = verify_round_trip(&mut src, &mut dst).unwrap();
         assert_eq!(report.frames, 3);
         assert_eq!(report.records, 5);
+    }
+}
+
+/// Расписание шагов v4: на начало суток шаги крупнее заголовка, со второй метки
+/// — мельчайшие (шаги заголовка).
+fn schedule() -> Vec<StepAt> {
+    vec![
+        StepAt {
+            ts_ns: 0,
+            tick_e9: 10 * TICK_E9,
+            step_e9: 5 * STEP_E9,
+        },
+        StepAt {
+            ts_ns: 1_000_000,
+            tick_e9: TICK_E9,
+            step_e9: STEP_E9,
+        },
+    ]
+}
+
+/// Суточный файл v4 тем же `Writer`, что пишет расписание.
+fn plain_file_v4(sched: &[StepAt], frames: &[Vec<Record>]) -> Vec<u8> {
+    let mut w = Writer::create_with_schedule(Vec::new(), header(), sched, 0).unwrap();
+    for f in frames {
+        w.write_frame(f).unwrap();
+    }
+    w.into_inner()
+}
+
+/// Длина заголовка v4 с двумя записями расписания: 25 + n(2) + 2 × 24.
+const V4_HEADER_LEN: usize = 25 + 2 + 2 * 24;
+
+/// Источник v4 архивируется: заголовок переменной длины лежит в контейнере как
+/// есть (байт в байт), читатель разбирает его как у обычного файла, а сверка
+/// видит те же заголовок, расписание, кадры и записи.
+#[test]
+fn v4_source_round_trips_through_the_container() {
+    let sched = schedule();
+    let plain = plain_file_v4(&sched, &sample_frames());
+    for level in [1, DEFAULT_LEVEL] {
+        let packed = archive(&plain, level);
+        let inner = zstd::stream::decode_all(&packed[..]).unwrap();
+        assert_eq!(
+            inner[HEADER_LEN..HEADER_LEN + V4_HEADER_LEN],
+            plain[..V4_HEADER_LEN],
+            "уровень {level}: заголовок v4 копируется как есть"
+        );
+        let mut src = Reader::open(&plain[..]).unwrap();
+        let mut dst = Reader::open(&packed[..]).unwrap();
+        assert_eq!(dst.archive_level(), Some(level as u8));
+        assert_eq!(dst.version(), crate::binlog::VERSION_V4);
+        assert_eq!(dst.header(), header());
+        assert_eq!(dst.step_schedule(), &sched[..]);
+        let report = verify_round_trip(&mut src, &mut dst).unwrap();
+        assert_eq!((report.frames, report.records), (3, 5));
+        let mut reader = Reader::open(&packed[..]).unwrap();
+        let mut frames = Vec::new();
+        while let Some(f) = reader.read_frame().unwrap() {
+            frames.push(f);
+        }
+        assert_eq!(frames, sample_frames());
+    }
+}
+
+/// У контейнера с v3 расписания нет: пусто, версия внутри — 3.
+#[test]
+fn v3_container_has_an_empty_step_schedule() {
+    let packed = archive(&plain_file(&sample_frames()), 1);
+    let dst = Reader::open(&packed[..]).unwrap();
+    assert_eq!(dst.version(), crate::binlog::VERSION);
+    assert!(dst.step_schedule().is_empty());
+}
+
+/// Сверка сравнивает и расписание: тот же заголовок и кадры при другом
+/// расписании — не «архив совпал».
+#[test]
+fn verify_round_trip_rejects_a_different_schedule() {
+    let sched = schedule();
+    let mut other = schedule();
+    other[1].ts_ns += 1;
+    let a = plain_file_v4(&sched, &sample_frames());
+    let b = plain_file_v4(&other, &sample_frames());
+    let mut src = Reader::open(&a[..]).unwrap();
+    let mut dst = Reader::open(&b[..]).unwrap();
+    let err = verify_round_trip(&mut src, &mut dst).unwrap_err();
+    assert!(
+        matches!(err, BinlogError::Corrupt(ref m) if m.contains("расписание")),
+        "ожидалась ошибка про расписание, получено {err:?}"
+    );
+}
+
+/// Контейнер, оборванный внутри заголовка v4, — `TruncatedHeader` на любой
+/// длине, не паника: поток zstd целый, усечение внутри формата.
+#[test]
+fn truncated_v4_container_header_is_an_error_at_every_cut() {
+    let packed = archive(&plain_file_v4(&schedule(), &sample_frames()), 1);
+    let inner = zstd::stream::decode_all(&packed[..]).unwrap();
+    for cut in 0..HEADER_LEN + V4_HEADER_LEN {
+        let junk = zstd::stream::encode_all(&inner[..cut], 1).unwrap();
+        let err = Reader::open(&junk[..]).unwrap_err();
+        assert!(
+            matches!(err, BinlogError::TruncatedHeader { .. }),
+            "обрезка до {cut} байт: ожидался TruncatedHeader, получено {err:?}"
+        );
     }
 }
 

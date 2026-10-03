@@ -24,6 +24,11 @@
 //!                                                     записи кадра
 //! ```
 //!
+//! Версия 4 (расписание шагов внутри суток, TK-037): общая часть заголовка, затем
+//! `n(2 LE) | n × (ts_ns i64 LE, tick_e9 i64 LE, step_e9 i64 LE)`; `tick_e9`/
+//! `step_e9` общей части — мельчайший шаг суток, каждая запись расписания им
+//! кратна. Тело кадра то же, что у v3; `Writer::create` по-прежнему пишет v3.
+//!
 //! Версия 2 (её пишет живой коллектор до перезапуска) читается тем же
 //! читателем: восемь полей на запись (`ev`, `exch_ts`, `local_ts`, цена,
 //! размер, `order_id`, `ival`, `fval`). Три последних в живых данных
@@ -47,7 +52,7 @@
 //!
 //! ```text
 //! [маркер ABLA(4) | версия контейнера(1) | уровень zstd(1)]
-//! [заголовок v3 (25 Б, тот же) ]
+//! [заголовок v3 (25 Б, тот же) или v4 (с расписанием шагов)]
 //! [кадр 0: u32 длина LE | тело кадра БЕЗ сжатия]
 //! [кадр 1: ...]*
 //! ```
@@ -278,6 +283,10 @@ pub const VERSION: u8 = 3;
 /// её форму держит только legacy-декодер `decode_frame_payload_v2`.
 pub const VERSION_V2: u8 = 2;
 
+/// Версия 4: заголовок v3 плюс расписание шагов суток (`StepAt`). Пишется
+/// только `Writer::create_with_schedule`; тело кадра то же, что у v3.
+pub const VERSION_V4: u8 = 4;
+
 /// magic(4) + version(1) — этого достаточно, чтобы решить, версия ли это,
 /// которую понимает остальной код. Читается отдельно от хвоста заголовка
 /// (`HEADER_TAIL_LEN`) и до него: у более старой версии хвост другой длины
@@ -291,6 +300,12 @@ const HEADER_TAIL_LEN: usize = 8 + 8 + 4;
 
 /// Полная длина заголовка текущей версии.
 const HEADER_LEN: usize = MAGIC_VERSION_LEN + HEADER_TAIL_LEN;
+
+/// Число записей расписания v4 — `u16 LE` сразу за общей частью заголовка.
+const SCHEDULE_COUNT_LEN: usize = 2;
+
+/// Запись расписания v4: `ts_ns`, `tick_e9`, `step_e9` — по восемь байт.
+const STEP_AT_LEN: usize = 3 * 8;
 
 /// Длина префикса кадра — `u32`, как назначено Decision 7. Публичная, потому
 /// что замер формата (`lob binlog-stats --reencode`) собирает кадры в памяти и
@@ -329,6 +344,81 @@ fn validate_header(h: Header) -> Result<(), BinlogError> {
         });
     }
     Ok(())
+}
+
+/// Шаг цены и количества, действующий с момента `ts_ns` (наносекунды Unix) до
+/// следующей записи расписания, в тех же единицах 1e-9, что и `Header`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StepAt {
+    pub ts_ns: i64,
+    pub tick_e9: i64,
+    pub step_e9: i64,
+}
+
+/// Расписание v4: от двух записей, метки строго по возрастанию, каждый шаг
+/// положителен и кратен шагу заголовка (мельчайшему шагу суток). `checked_rem`,
+/// не `%`: заголовок и расписание приходят с диска, и деление на ноль или
+/// `i64::MIN % -1` не вправе паниковать.
+fn validate_schedule(h: &Header, schedule: &[StepAt]) -> Result<(), BinlogError> {
+    let bad = |index: usize, reason: &'static str| BinlogError::InvalidSchedule { index, reason };
+    if schedule.len() < 2 {
+        return Err(bad(0, "меньше двух записей"));
+    }
+    if schedule.len() > usize::from(u16::MAX) {
+        return Err(bad(0, "больше 65535 записей"));
+    }
+    let mut prev_ts: Option<i64> = None;
+    for (i, a) in schedule.iter().enumerate() {
+        if a.tick_e9 <= 0 || a.step_e9 <= 0 {
+            return Err(bad(i, "шаг не положителен"));
+        }
+        if a.tick_e9.checked_rem(h.tick_e9) != Some(0)
+            || a.step_e9.checked_rem(h.step_e9) != Some(0)
+        {
+            return Err(bad(i, "шаг не кратен шагу заголовка"));
+        }
+        if prev_ts.is_some_and(|p| p >= a.ts_ns) {
+            return Err(bad(i, "метки времени не по возрастанию"));
+        }
+        prev_ts = Some(a.ts_ns);
+    }
+    Ok(())
+}
+
+/// Заголовок суток как байты: v3 при пустом расписании (раскладка и байты те же,
+/// что до v4), иначе v4. Расписание обязано быть уже проверено
+/// (`validate_schedule`); общая точка для `Writer` и контейнера архива.
+fn header_bytes(header: &Header, schedule: &[StepAt]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(
+        HEADER_LEN
+            + if schedule.is_empty() {
+                0
+            } else {
+                SCHEDULE_COUNT_LEN + schedule.len() * STEP_AT_LEN
+            },
+    );
+    buf.extend_from_slice(&MAGIC);
+    buf.push(if schedule.is_empty() {
+        VERSION
+    } else {
+        VERSION_V4
+    });
+    buf.extend_from_slice(&header.tick_e9.to_le_bytes());
+    buf.extend_from_slice(&header.step_e9.to_le_bytes());
+    buf.extend_from_slice(&header.max_records_per_frame.to_le_bytes());
+    if !schedule.is_empty() {
+        buf.extend_from_slice(
+            &u16::try_from(schedule.len())
+                .unwrap_or(u16::MAX)
+                .to_le_bytes(),
+        );
+        for s in schedule {
+            buf.extend_from_slice(&s.ts_ns.to_le_bytes());
+            buf.extend_from_slice(&s.tick_e9.to_le_bytes());
+            buf.extend_from_slice(&s.step_e9.to_le_bytes());
+        }
+    }
+    buf
 }
 
 /// Одна запись — сырое событие внутри группы (сообщения биржи). Поля, которые
@@ -402,6 +492,12 @@ pub enum BinlogError {
         step_e9: i64,
         max_records_per_frame: u32,
     },
+    /// Расписание шагов v4 не прошло проверку (`validate_schedule`): `index` —
+    /// запись, на которой оно нарушено (0 — расписание целиком).
+    InvalidSchedule {
+        index: usize,
+        reason: &'static str,
+    },
     /// Кадр объявил длину, для которой на диске не хватило байт: это
     /// усечённый хвост, а не повреждённое содержимое, и Decision 7 требует
     /// различать эти два случая — усечение диагностируется без разбора
@@ -462,6 +558,9 @@ impl fmt::Display for BinlogError {
                 "заголовок неисправен: tick_e9={tick_e9}, step_e9={step_e9}, \
                  max_records_per_frame={max_records_per_frame}"
             ),
+            BinlogError::InvalidSchedule { index, reason } => {
+                write!(f, "расписание шагов неисправно (запись {index}): {reason}")
+            }
             BinlogError::ShortRead { context, want, got } => {
                 write!(f, "короткое чтение ({context}): {got} байт из {want}")
             }
@@ -1081,6 +1180,68 @@ fn read_header_tail<R: Read>(body: &mut Body<R>, before: usize) -> Result<Header
     Ok(header)
 }
 
+/// Расписание шагов v4 за общей частью заголовка: `n u16 LE` и `n` записей.
+/// `before` — как у `read_header_tail`; `TruncatedHeader` называет смещение в
+/// заголовке целиком, включая расписание.
+fn read_schedule_tail<R: Read>(
+    body: &mut Body<R>,
+    before: usize,
+    header: &Header,
+) -> Result<Vec<StepAt>, BinlogError> {
+    let base = before + HEADER_LEN;
+    let mut count_buf = [0u8; SCHEDULE_COUNT_LEN];
+    match body.read_upto(&mut count_buf)? {
+        ReadStatus::Full => {}
+        ReadStatus::Partial(got) => {
+            return Err(BinlogError::TruncatedHeader {
+                got: base + got,
+                want: base + SCHEDULE_COUNT_LEN,
+            })
+        }
+        ReadStatus::Eof => {
+            return Err(BinlogError::TruncatedHeader {
+                got: base,
+                want: base + SCHEDULE_COUNT_LEN,
+            })
+        }
+    }
+    let n = usize::from(u16::from_le_bytes(count_buf));
+    let mut raw = vec![0u8; n * STEP_AT_LEN];
+    let want = base + SCHEDULE_COUNT_LEN + raw.len();
+    match body.read_upto(&mut raw)? {
+        ReadStatus::Full => {}
+        ReadStatus::Partial(got) => {
+            return Err(BinlogError::TruncatedHeader {
+                got: base + SCHEDULE_COUNT_LEN + got,
+                want,
+            })
+        }
+        ReadStatus::Eof => {
+            return Err(BinlogError::TruncatedHeader {
+                got: base + SCHEDULE_COUNT_LEN,
+                want,
+            })
+        }
+    }
+    let field = |chunk: &[u8], at: usize| -> Result<i64, BinlogError> {
+        chunk
+            .get(at..at + 8)
+            .and_then(|s| s.try_into().ok())
+            .map(i64::from_le_bytes)
+            .ok_or_else(|| BinlogError::Corrupt("запись расписания не легла в i64".into()))
+    };
+    let mut schedule = Vec::with_capacity(n);
+    for chunk in raw.chunks_exact(STEP_AT_LEN) {
+        schedule.push(StepAt {
+            ts_ns: field(chunk, 0)?,
+            tick_e9: field(chunk, 8)?,
+            step_e9: field(chunk, 16)?,
+        });
+    }
+    validate_schedule(header, &schedule)?;
+    Ok(schedule)
+}
+
 /// `Read::read_exact` не годится: при ошибке он не сообщает, сколько байт
 /// успел прочитать, а формату нужно различать «ровно ноль байт — конец
 /// файла» и «часть кадра есть, но не вся — усечение» (Decision 7). Читает
@@ -1162,15 +1323,34 @@ impl<W: Write> Writer<W> {
     /// `level` — параметр, не константа модуля: число, которым Decision 23
     /// торгует размер против CPU, назначается пилотом 3.1 по измеренному
     /// байту на запись, а не изобретается здесь.
-    pub fn create(mut inner: W, header: Header, level: i32) -> Result<Self, BinlogError> {
+    pub fn create(inner: W, header: Header, level: i32) -> Result<Self, BinlogError> {
+        Self::create_checked(inner, header, &[], level)
+    }
+
+    /// Файл v4: заголовок суток плюс расписание шагов (`StepAt`). `header.tick_e9`
+    /// и `header.step_e9` — мельчайший шаг суток; расписание проверяется
+    /// (`validate_schedule`: от двух записей, время строго растёт, шаги
+    /// положительны и кратны шагам заголовка) до единого записанного байта.
+    pub fn create_with_schedule(
+        inner: W,
+        header: Header,
+        schedule: &[StepAt],
+        level: i32,
+    ) -> Result<Self, BinlogError> {
         validate_header(header)?;
-        let mut buf = [0u8; HEADER_LEN];
-        buf[0..4].copy_from_slice(&MAGIC);
-        buf[4] = VERSION;
-        buf[5..13].copy_from_slice(&header.tick_e9.to_le_bytes());
-        buf[13..21].copy_from_slice(&header.step_e9.to_le_bytes());
-        buf[21..25].copy_from_slice(&header.max_records_per_frame.to_le_bytes());
-        inner.write_all(&buf)?;
+        validate_schedule(&header, schedule)?;
+        Self::create_checked(inner, header, schedule, level)
+    }
+
+    /// Пустое `schedule` — v3, непустое (уже проверенное) — v4.
+    fn create_checked(
+        mut inner: W,
+        header: Header,
+        schedule: &[StepAt],
+        level: i32,
+    ) -> Result<Self, BinlogError> {
+        validate_header(header)?;
+        inner.write_all(&header_bytes(&header, schedule))?;
         let compressor = zstd::bulk::Compressor::new(level)?;
         Ok(Self {
             inner,
@@ -1293,6 +1473,8 @@ pub struct Reader<R: Read> {
     inner: Body<R>,
     header: Header,
     version: u8,
+    /// Расписание шагов v4; пусто у v2/v3.
+    schedule: Vec<StepAt>,
     frames_read: u64,
     /// Счётчики мёртвых полей версии 2 (у v3 таких полей нет вовсе). Копятся
     /// по ходу чтения, потому что иначе их неоткуда взять: в `Record` этих
@@ -1361,6 +1543,7 @@ impl<R: Read> fmt::Debug for Reader<R> {
         f.debug_struct("Reader")
             .field("header", &self.header)
             .field("version", &self.version)
+            .field("schedule_len", &self.schedule.len())
             .field("frames_read", &self.frames_read)
             .field("archive_level", &self.archive_level)
             .finish()
@@ -1422,15 +1605,21 @@ impl<R: Read> Reader<R> {
             });
         }
         let version = prefix[4];
-        if version != VERSION && version != VERSION_V2 {
+        if version != VERSION && version != VERSION_V2 && version != VERSION_V4 {
             return Err(BinlogError::UnsupportedVersion { got: version });
         }
         let mut body = Body::Plain(inner);
         let header = read_header_tail(&mut body, 0)?;
+        let schedule = if version == VERSION_V4 {
+            read_schedule_tail(&mut body, 0, &header)?
+        } else {
+            Vec::new()
+        };
         Ok(Self {
             inner: body,
             header,
             version,
+            schedule,
             frames_read: 0,
             legacy_dead: LegacyDeadFields::default(),
             last_frame_bytes: 0,
@@ -1441,7 +1630,7 @@ impl<R: Read> Reader<R> {
     }
 
     /// Дочитывает контейнер архива: свой маркер, а за ним — обычный заголовок
-    /// v3. Только версия 3: контейнер собирается из v3-файлов (v2 в него не
+    /// v3 или v4. Только версии 3 и 4: контейнер собирается из них (v2 в него не
     /// кладут — `archive::write_container` отказывается), и версия внутри
     /// контейнера проверяется ровно так же строго, как в файле. Ошибки
     /// `TruncatedHeader` считают `got`/`want` в байтах **распакованного**
@@ -1492,16 +1681,21 @@ impl<R: Read> Reader<R> {
                 ],
             });
         }
-        if magic_version[4] != VERSION {
-            return Err(BinlogError::UnsupportedVersion {
-                got: magic_version[4],
-            });
+        let version = magic_version[4];
+        if version != VERSION && version != VERSION_V4 {
+            return Err(BinlogError::UnsupportedVersion { got: version });
         }
         let header = read_header_tail(&mut body, archive::HEADER_LEN)?;
+        let schedule = if version == VERSION_V4 {
+            read_schedule_tail(&mut body, archive::HEADER_LEN, &header)?
+        } else {
+            Vec::new()
+        };
         Ok(Self {
             inner: body,
             header,
-            version: VERSION,
+            version,
+            schedule,
             frames_read: 0,
             legacy_dead: LegacyDeadFields::default(),
             last_frame_bytes: 0,
@@ -1515,10 +1709,17 @@ impl<R: Read> Reader<R> {
         self.header
     }
 
-    /// Версия формата из заголовка: `VERSION` (текущая, её пишет `Writer`) или
-    /// `VERSION_V2` (живой коллектор до перезапуска).
+    /// Версия формата из заголовка: `VERSION` (текущая, её пишет `Writer`),
+    /// `VERSION_V4` (с расписанием шагов) или `VERSION_V2` (живой коллектор до
+    /// перезапуска).
     pub fn version(&self) -> u8 {
         self.version
+    }
+
+    /// Расписание шагов суток из заголовка v4; пусто у v2/v3 (шаг один — из
+    /// `header()`), в том числе внутри контейнера архива с v3.
+    pub fn step_schedule(&self) -> &[StepAt] {
+        &self.schedule
     }
 
     /// Уровень zstd контейнера архива (T46), `None` у обычного суточного
