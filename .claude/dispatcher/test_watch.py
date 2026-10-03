@@ -63,46 +63,23 @@ class DispatcherAliveTests(WatchSandbox):
         self.assertEqual(W.check_dispatcher_alive(state, self.now), [])
 
 
-class BudgetWatchTests(WatchSandbox):
-    def test_silent_when_nothing_exceeded(self):
-        self.assertEqual(W.check_budgets({}, self.now), [])
+class NoMoneyWatchTests(WatchSandbox):
+    """В-173 (на тикет) и В-149 (в час/в сутки): лимитов денег нет — сторож трат не проверяет и не сигналит."""
 
-    def test_daily_budget_exceeded(self):
-        state = {"daily_cost": {D._today(self.now): D.DAILY_COST_USD + 1}}
-        findings = W.check_budgets(state, self.now)
-        self.assertTrue(any(f.key == "daily" for f in findings))
+    def test_money_checks_are_gone(self):
+        self.assertFalse(hasattr(W, "check_budgets"))
+        self.assertNotIn("budget-watch", W.WATCH_LONG_REPEAT_KINDS)
 
-    def test_hour_budget_exceeded(self):
-        state = {"cost_history": [[T.now_iso(self.now), D.HOUR_COST_USD + 1]]}
-        findings = W.check_budgets(state, self.now)
-        self.assertTrue(any(f.key == "hour" for f in findings))
+    def test_huge_spend_gives_no_finding(self):
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Дорогая", status="todo")
+        W.DECK_OFF_FLAG.write_text("x", encoding="utf-8")  # ssh не нужен
+        state = {"last_tick": T.now_iso(self.now - timedelta(seconds=10)),
+                 "daily_cost": {D._today(self.now): 1e6}, "cost_history": [[T.now_iso(self.now), 1e6]],
+                 "ticket_cost": {p.stem: 1e6}, "ticket_budget": {p.stem: 5.0}}  # ticket_budget — наследие state.json
+        self.assertEqual(W.collect_findings(state, self.now), [])
 
-    def test_ticket_budget_exceeded(self):
-        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Дорогая", status="in_progress")
-        state = {"ticket_budget": {p.stem: 5.0}, "ticket_cost": {p.stem: 6.0}}
-        findings = W.check_budgets(state, self.now)
-        self.assertTrue(any(f.key == f"ticket:{p.stem}" for f in findings))
 
-    def test_ticket_budget_of_closed_ticket_is_silent(self):
-        """v2: по закрытым (done/cancelled) тикетам budget-watch не сигналит (раньше раз в 2 ч по TK-007)."""
-        for status in ("done", "cancelled"):
-            p = T.create_ticket(self.tickets_dir, owner="engineer", title=f"Закрытая {status}")
-            T.write_header_updates(p, {"status": status})
-            state = {"ticket_budget": {p.stem: 5.0}, "ticket_cost": {p.stem: 6.0}}
-            self.assertEqual(W.check_budgets(state, self.now), [], status)
-
-    def test_ticket_budget_of_missing_ticket_is_silent(self):
-        state = {"ticket_budget": {"TK-404": 5.0}, "ticket_cost": {"TK-404": 6.0}}
-        self.assertEqual(W.check_budgets(state, self.now), [])
-
-    def test_budget_watch_repeats_at_most_once_per_24h(self):
-        ws = {}
-        f = [W.Finding("budget-watch", "ticket:TK-1", "TK-1: потрачено $10.02 из $10.00")]
-        self.assertEqual(len(W.notify_findings(f, ws, self.now)), 1)
-        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=W.WATCH_DEDUP_REPEAT_HOURS + 1)), [])
-        self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=23)), [])
-        self.assertEqual(len(W.notify_findings(f, ws, self.now + timedelta(hours=24, minutes=1))), 1)
-
+class OrphanRepeatTests(WatchSandbox):
     def test_orphan_repeats_at_most_once_per_24h_and_closed_never(self):
         ws = {}
         f = [W.Finding("orphan-ticket", "TK-14", "TK-14: status=waiting без новой записи 90.2 ч")]
@@ -541,7 +518,7 @@ class ContentFingerprintDedupTests(WatchSandbox):
         self.assertEqual(len(posted2), 1)
 
     def test_non_deck_kinds_unaffected_by_message_drift(self):
-        """orphan-ticket/budget-watch сообщения естественно меняются (возраст, суммы) — это НЕ повод
+        """orphan-ticket сообщения естественно меняются (возраст) — это НЕ повод
         считать сигнал новым; сигнатура для них не участвует, только временное окно."""
         ws = {}
         W.notify_findings([W.Finding("orphan-ticket", "TK-1", "TK-1: без записи 2.0 ч")], ws, self.now)

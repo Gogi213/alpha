@@ -1,28 +1,26 @@
-"""CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`, `budget`. Только stdlib.
+"""CLI для тикетов диспетчера: `new`, `comment`, `start`, `status`. Только stdlib.
 
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." [--desc "..."]  # ревьюера нет (v2)
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --reviewer judge  # Судья — только явно
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --effort medium   # low|medium|high|xhigh
     python .claude/dispatcher/tickets.py new --owner researcher --title "..." --backlog   # перенос из TASKS.md
-    python .claude/dispatcher/tickets.py new --owner engineer --title "..." --budget L    # S=3/M=10/L=25, умолч. M
     python .claude/dispatcher/tickets.py new --owner engineer --title "..." --executor haiku --kind file-move
         # белый список kind; --reviewer judge и owner:researcher с haiku — отказ
     python .claude/dispatcher/tickets.py comment TK-001 --author researcher --text "..." [--next judge]
     python .claude/dispatcher/tickets.py start TK-001                                     # backlog → todo
-    python .claude/dispatcher/tickets.py status
-    python .claude/dispatcher/tickets.py budget TK-001 L                                  # сменить бюджет (S|M|L|число)
+    python .claude/dispatcher/tickets.py status                                           # потрачено по задачам
 
 `--next researcher|engineer|judge|ceo` — единственный способ разбудить другую роль (или CEO) записью лога:
 пишет `next: <роль>` в шапку, диспетчер запускает роль ОДИН раз и очищает поле. @упоминания в тексте никого
 не будят. После записи лог больше 20 КБ ужимается: всё, кроме последних 8 записей, — в `archive/<ID>-log.md`.
 
-Бюджет задачи (--budget) живёт только в state.json (dispatch.py), не в шапке тикета — роль его не
-видит (владелец 27.09: «запрещено добивать задачи до их бюджетов, раздувая токены»).
+Лимитов денег на тикет нет (В-173, 03.10): `status` показывает только потрачено (учёт из state.json).
 """
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -57,20 +55,10 @@ def cmd_new(args) -> int:
         print("--kind без --executor haiku не имеет смысла", file=sys.stderr)
         return 1
 
-    try:
-        budget = D.parse_budget_arg(args.budget) if args.budget else D.DEFAULT_TICKET_BUDGET_USD
-    except ValueError:
-        print(f"--budget: не число и не S|M|L: {args.budget!r}", file=sys.stderr)
-        return 1
-
     path = T.create_ticket(TICKETS_DIR, owner=args.owner, title=args.title, reviewer=reviewer,
                             description=args.desc or "", wait_for=args.wait_for or "",
                             status="backlog" if args.backlog else "todo",
                             executor=args.executor, kind=args.kind, effort=args.effort)
-    tid = path.stem
-    state = D.load_state()
-    D.set_ticket_budget(state, tid, budget)
-    D.save_state(state)
     try:
         print(path.relative_to(PROJECT_ROOT))
     except ValueError:
@@ -90,25 +78,6 @@ def cmd_comment(args) -> int:
     moved = T.compact_log(path)
     print(f"дописано в {path}" + (f"; next: {args.next}" if args.next else "")
           + (f"; в архив перенесено записей: {moved}" if moved else ""))
-    return 0
-
-
-def cmd_budget(args) -> int:
-    """Сменить бюджет задачи (живёт только в state.json). Нужен, когда бюджет исчерпан: диспетчер один раз
-    сообщил CEO и задачу больше не запускает, пока бюджет не поднят."""
-    path = TICKETS_DIR / f"{args.id}.md"
-    if not path.exists():
-        print(f"нет тикета {args.id}", file=sys.stderr)
-        return 1
-    try:
-        budget = D.parse_budget_arg(args.value)
-    except ValueError:
-        print(f"бюджет: не число и не S|M|L: {args.value!r}", file=sys.stderr)
-        return 1
-    state = D.load_state()
-    D.set_ticket_budget(state, args.id, budget)
-    D.save_state(state)
-    print(f"{args.id}: бюджет ${budget:.2f} (потрачено ${D.ticket_cost_spent(state, args.id):.2f})")
     return 0
 
 
@@ -137,10 +106,7 @@ def cmd_status(args) -> int:
             rows.append((path.stem, f"<ошибка разбора: {e}>", "", "", "", "", ""))
             continue
         tid = tkt.id
-        spent = D.ticket_cost_spent(state, tid)
-        budget = D.ticket_budget_usd(state, tid)
-        # владелец 27.09: бюджет и остаток роли не называть, но CEO — да; ${потрачено}/${бюджет}
-        spent_col = f"${spent:.2f}/${budget:.2f}"
+        spent_col = f"${D.ticket_cost_spent(state, tid):.2f}"  # учёт, не лимит (В-173)
         rows.append((tid, tkt.header.get("title", "")[:40], tkt.owner, tkt.status,
                      tkt.reviewer, spent_col, tkt.header.get("updated", "")))
     if not rows:
@@ -152,6 +118,9 @@ def cmd_status(args) -> int:
     print(fmt.format(*header))
     for r in rows:
         print(fmt.format(*r))
+    now = datetime.now().astimezone()
+    print(f"потрачено: за сутки ${state.get('daily_cost', {}).get(D._today(now), 0.0):.2f}, "
+          f"за последний час ${D._rolling_hour_cost(state, now):.2f}")
     return 0
 
 
@@ -173,8 +142,6 @@ def main(argv=None) -> int:
     p_new.add_argument("--wait-for", dest="wait_for", default="")
     p_new.add_argument("--backlog", action="store_true",
                         help="создать сразу в backlog (перенос из TASKS.md) — диспетчер её не трогает до `start`")
-    p_new.add_argument("--budget", default=None,
-                        help="S=3/M=10/L=25 или число долларов; умолч. M; только в state.json, не в шапке")
     p_new.add_argument("--executor", choices=["haiku"], default=None,
                         help="claude-haiku-4-5 для чисто механических задач — требует --kind")
     p_new.add_argument("--kind", choices=sorted(D.HAIKU_ALLOWED_KINDS), default=None,
@@ -188,11 +155,6 @@ def main(argv=None) -> int:
     p_comment.add_argument("--next", choices=["researcher", "engineer", "judge", "ceo"], default=None,
                             help="разбудить эту роль один раз (ceo — только blocked/нужно решение владельца)")
     p_comment.set_defaults(func=cmd_comment)
-
-    p_budget = sub.add_parser("budget")
-    p_budget.add_argument("id")
-    p_budget.add_argument("value", help="S|M|L или число долларов")
-    p_budget.set_defaults(func=cmd_budget)
 
     p_start = sub.add_parser("start")
     p_start.add_argument("id")

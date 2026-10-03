@@ -1,5 +1,5 @@
 """Сторож CEO без модели (судья TK-002 п.2) — заменяет получасовой крон CEO. Покрывает то же самое:
-диспетчер жив, траты против бюджета, тревоги Steam Deck (ALERT-*), простой Steam Deck при непустой
+диспетчер жив, тревоги Steam Deck (ALERT-*), простой Steam Deck при непустой
 очереди, тикеты-сироты (in_progress/waiting без новой записи дольше порога), blocked/needs_owner.
 Ошибка ssh/чтения — сама сигнал (не молчание, п.2в). Дедуп по (вид, ключ), повтор раз в
 WATCH_DEDUP_REPEAT_HOURS, пока проблема не снята (п.2г). Пишет `ceo-wake.log`/`ceo-inbox.md` только
@@ -10,8 +10,9 @@ v2 (02.10, аудит ролевой системы — «сторож: трев
 тревоги Steam Deck сравниваются по нормализованной сигнатуре (без ISO-времён, кусков вроде `T23:`, времён
 суток и счётчиков «всего разборов N») и сообщаются один раз, пока тревога не исчезнет или не изменится по
 сути (напоминание — раз в WATCH_LONG_REPEAT_HOURS); известные тревоги не «забываются» после цикла с
-ошибкой ssh; таймаут проверки HOLD не превращает ожидаемый простой в тревогу; budget/orphan по закрытым
+ошибкой ssh; таймаут проверки HOLD не превращает ожидаемый простой в тревогу; orphan по закрытым
 (done/cancelled) тикетам молчат, по открытым повторяются не чаще раза в сутки.
+v3 (03.10, В-173): проверки трат (суточный/часовой расход, бюджет тикета) удалены — лимитов денег нет.
 
 Запуск: python .claude/dispatcher/watch.py --once   (для крона/планировщика Windows)
         python .claude/dispatcher/watch.py           (цикл раз в WATCH_INTERVAL_S)
@@ -44,7 +45,7 @@ WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2")
 # v2: виды находок, которые повторяются не чаще раза в сутки (или пока не изменятся по сути); blocked/needs_owner
 # диспетчер уже сообщил один раз (`ceo-inbox`), сторож лишь страхует — раз в сутки
 WATCH_LONG_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_LONG_REPEAT_HOURS", "24"))
-WATCH_LONG_REPEAT_KINDS = {"budget-watch", "orphan-ticket", "deck-alert", "deck-idle-expected", "blocked", "needs_owner"}
+WATCH_LONG_REPEAT_KINDS = {"orphan-ticket", "deck-alert", "deck-idle-expected", "blocked", "needs_owner"}
 CLOSED_TICKET_STATUSES = ("done", "cancelled")
 DISPATCH_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DISPATCH_STALE_MIN", "5"))
 ORPHAN_TICKET_HOURS = float(os.environ.get("ALPHA_WATCH_ORPHAN_HOURS", "2"))
@@ -87,26 +88,6 @@ def _ticket_status(tid: str):
         return None
 
 
-def check_budgets(state: dict, now) -> list:
-    """п.2б: траты против бюджета — вторая (независимая) проверка сверх собственных гейтов dispatch.py."""
-    out = []
-    if D._daily_budget_exceeded(state, now):
-        spent = state.get("daily_cost", {}).get(D._today(now), 0.0)
-        out.append(Finding("budget-watch", "daily", f"суточный расход ${spent:.2f} ≥ ${D.DAILY_COST_USD:.2f}"))
-    if D._hour_budget_exceeded(state, now):
-        cost = D._rolling_hour_cost(state, now)
-        out.append(Finding("budget-watch", "hour", f"часовой расход ${cost:.2f} ≥ ${D.HOUR_COST_USD:.2f}"))
-    for tid, budget in state.get("ticket_budget", {}).items():
-        if D.ticket_budget_exceeded(state, tid):
-            # v2: закрытые (done/cancelled) и исчезнувшие тикеты не сигналят — по ним бюджет уже ничего не решает
-            status = _ticket_status(tid)
-            if status is None or status in CLOSED_TICKET_STATUSES:
-                continue
-            spent = D.ticket_cost_spent(state, tid)
-            out.append(Finding("budget-watch", f"ticket:{tid}", f"{tid}: потрачено ${spent:.2f} из ${budget:.2f}"))
-    return out
-
-
 def check_blocked_and_needs_owner(now) -> list:
     """п.2б: blocked/needs_owner — сторож пересобирает список сам (не полагаясь только на то, что
     dispatch.py однажды уже написал в ceo-inbox — вдруг тот запуск и был тем, что легло)."""
@@ -125,7 +106,7 @@ def check_blocked_and_needs_owner(now) -> list:
 def check_orphan_tickets(now) -> list:
     """п.2б: in_progress/waiting без новой записи дольше порога — сирота (TK-001 п.2, до правила
     (а') это значило «замерла навсегда»; правило (а') её теперь будит, но сторож всё равно следит на
-    случай, если тикет застрял по другой причине — троттлинг/бюджет/сама роль не отвечает)."""
+    случай, если тикет застрял по другой причине — троттлинг/сама роль не отвечает)."""
     out = []
     for path in T.list_tickets(D.TICKETS_DIR):
         try:
@@ -279,7 +260,6 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None, hold_h
                      observed: dict = None) -> list:
     findings = []
     findings += check_dispatcher_alive(state, now, started_at)
-    findings += check_budgets(state, now)
     findings += check_blocked_and_needs_owner(now)
     findings += check_orphan_tickets(now)
     findings += check_steam_deck(ssh_run, hold_hint=hold_hint, observed=observed)
@@ -357,7 +337,7 @@ def _content_signature(f) -> str:
 
 
 def _repeat_hours(kind: str) -> float:
-    """Через сколько часов та же находка напоминается: budget/orphan/deck-alert — раз в сутки (v2), остальные —
+    """Через сколько часов та же находка напоминается: orphan/deck-alert — раз в сутки (v2), остальные —
     WATCH_DEDUP_REPEAT_HOURS."""
     return WATCH_LONG_REPEAT_HOURS if kind in WATCH_LONG_REPEAT_KINDS else WATCH_DEDUP_REPEAT_HOURS
 

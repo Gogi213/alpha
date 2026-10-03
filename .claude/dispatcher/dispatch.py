@@ -44,14 +44,13 @@ POLL_INTERVAL = float(os.environ.get("ALPHA_DISPATCH_INTERVAL", "15"))
 MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "3"))
 RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(20 * 60)))
 
-# Защита от петли и перерасхода (владелец 27.09, v1.1). MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S —
-# троттлинг решений (а)-(г): тикет просто пропускается этот тик, без ceo-inbox (не ошибка, а
-# пауза); ретраи правила (д) их не считают — они и так ограничены одной попыткой. DAILY_COST_USD —
-# суточный (по календарной дате `now`) потолок расхода `total_cost_usd`: превышен → новые запуски
-# (включая ретраи) не стартуют, одна строка в ceo-inbox на сутки.
+# Защита от петли (владелец 27.09, v1.1). MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S — троттлинг решений (а)-(г):
+# тикет просто пропускается этот тик, без ceo-inbox (не ошибка, а пауза); ретраи правила (д) их не считают —
+# они и так ограничены одной попыткой. Лимитов денег (на тикет, в час, в сутки) НЕТ: В-149 снял часовой и
+# суточный, В-173 (03.10) — на тикет; деньги только учитываются (runs.log, state.json) и ограничиваются
+# потолком ОДНОГО запуска (RUN_CAP_USD ниже).
 MAX_RUNS_PER_TICKET_HOUR = int(os.environ.get("ALPHA_DISPATCH_MAX_RUNS_PER_TICKET_HOUR", "6"))
 MIN_GAP_S = float(os.environ.get("ALPHA_DISPATCH_MIN_GAP_S", "60"))
-DAILY_COST_USD = float(os.environ.get("ALPHA_DISPATCH_DAILY_COST_USD", "150"))
 
 # Модель и перерасход (владелец 27.09, v1.2 — пилот Судьи на умолчаниях CLI стоил $6,8 на Fable 5.1
 # xhigh): модель и усилие теперь ВСЕГДА явно в команде запуска, не полагаемся на умолчание CLI.
@@ -112,21 +111,12 @@ def _expected_model_family(info: dict) -> str:
 CLAUDE_HAIKU_MODEL = os.environ.get("ALPHA_DISPATCH_HAIKU_MODEL", "claude-haiku-4-5-20251001")
 HAIKU_ALLOWED_KINDS = {"file-move", "table-format", "publish"}
 
-# Потолок одного запуска (--max-budget-usd, встроенный флаг CLI) — min(остаток бюджета задачи, этот
-# потолок). Часовая скорость трат — скользящее окно 60 мин по ВСЕМ ролям сразу (не на роль/задачу).
+# Потолок ОДНОГО запуска (--max-budget-usd, встроенный флаг CLI) — защита от зацикливания внутри запуска; от
+# денег задачи не зависит (В-173: лимитов на тикет нет). Учёт трат (по задаче, за сутки, скользящий час) —
+# state.json (`ticket_cost`, `daily_cost`, `cost_history`) и runs.log, только как показатель.
 RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_RUN_CAP_USD", "8"))
-# v2: потолок запуска не ниже MIN_RUN_CAP_USD — крошечный остаток бюджета ($0,04) раньше уходил в
-# `--max-budget-usd` и убивал повтор на старте (TK-027, 02.10 04:04). Повтор — только при остатке бюджета
-# задачи ≥ MIN_RETRY_BUDGET_USD, иначе одна строка CEO.
-MIN_RUN_CAP_USD = float(os.environ.get("ALPHA_DISPATCH_MIN_RUN_CAP_USD", "3"))
-MIN_RETRY_BUDGET_USD = float(os.environ.get("ALPHA_DISPATCH_MIN_RETRY_BUDGET_USD", "1"))
-HOUR_COST_USD = float(os.environ.get("ALPHA_DISPATCH_HOUR_COST_USD", "15"))
-
-# Бюджет задачи (владелец 27.09, поправка: «запрещено добивать задачи до их бюджетов, раздувая
-# токены» — bюджет и траты живут ТОЛЬКО в state.json, роль их не видит ни в шапке тикета, ни в
-# промпте). `tickets.py new --budget S|M|L|<число>` пишет в state через set_ticket_budget().
-BUDGET_PRESETS = {"S": 3.0, "M": 10.0, "L": 25.0}
-DEFAULT_TICKET_BUDGET_USD = BUDGET_PRESETS["M"]
+# Холостой ход (запуск владельца: ни записи, ни смены статуса): дороже этой доли потолка запуска — сразу blocked.
+IDLE_RUN_CAP_FRACTION = 0.5
 
 ROLE_KEYS = ("researcher", "engineer", "judge")  # роли, которых диспетчер запускает; ceo — человек/CEO-сессия
 
@@ -388,8 +378,7 @@ def baseline_done_notified(state: dict) -> None:
 def notify_done(tkt: T.Ticket, state: dict, now) -> None:
     """v2 (02.10): `done` — одна строка CEO, когда работа реально закончена: ревьюера нет (теперь норма —
     `tickets.py new` не ставит reviewer по умолчанию) либо ревью уже состоялось. Если ждёт ревью — молчим,
-    строка придёт после вердикта. Доля бюджета ≥ 80 % дописывается в ту же строку (раньше — отдельный
-    `budget-check`). Дедуп по (задача, `updated`)."""
+    строка придёт после вердикта. Дедуп по (задача, `updated`)."""
     if tkt.status != "done" or _review_pending(tkt):
         return
     notified = state.setdefault("ceo_done_notified", {})
@@ -399,12 +388,7 @@ def notify_done(tkt: T.Ticket, state: dict, now) -> None:
     title = (tkt.header.get("title") or "")[:80]
     last = tkt.log[-1] if tkt.log else None
     tail = f" — {last.author}: {_first_line(last.text, 120)}" if last else ""
-    budget = ticket_budget_usd(state, tkt.id)
-    spent = ticket_cost_spent(state, tkt.id)
-    note = ""
-    if budget > 0 and spent / budget >= 0.8:
-        note = f" (потрачено {spent / budget:.0%} бюджета: ${spent:.2f} из ${budget:.2f} — проверить соразмерность)"
-    append_ceo_inbox(tkt.id, "done", f"{title}{tail}{note}", now)
+    append_ceo_inbox(tkt.id, "done", f"{title}{tail}", now)
     notified[tkt.id] = marker
 
 
@@ -557,37 +541,6 @@ def _add_cost(state: dict, now, cost) -> None:
     daily[day] = round(daily.get(day, 0.0) + float(cost), 6)
 
 
-def _daily_budget_exceeded(state: dict, now) -> bool:
-    return state.get("daily_cost", {}).get(_today(now), 0.0) >= DAILY_COST_USD
-
-
-def _notify_budget_once(state: dict, now) -> None:
-    day = _today(now)
-    notified = state.setdefault("daily_cost_notified", {})
-    if notified.get("day") == day:
-        return
-    cost = state.get("daily_cost", {}).get(day, 0.0)
-    append_ceo_inbox("*", "budget", f"суточный потолок стоимости исчерпан: ${cost:.2f} ≥ ${DAILY_COST_USD} за {day}",
-                      now)
-    notified["day"] = day
-
-
-def parse_budget_arg(raw: str) -> float:
-    """S|M|L или число долларов — для `tickets.py new --budget`."""
-    raw = (raw or "").strip().upper()
-    if raw in BUDGET_PRESETS:
-        return BUDGET_PRESETS[raw]
-    return float(raw)
-
-
-def set_ticket_budget(state: dict, tid: str, budget_usd) -> None:
-    state.setdefault("ticket_budget", {})[tid] = float(budget_usd)
-
-
-def ticket_budget_usd(state: dict, tid: str) -> float:
-    return state.get("ticket_budget", {}).get(tid, DEFAULT_TICKET_BUDGET_USD)
-
-
 def ticket_cost_spent(state: dict, tid: str) -> float:
     return state.get("ticket_cost", {}).get(tid, 0.0)
 
@@ -599,45 +552,9 @@ def add_ticket_cost(state: dict, tid: str, cost) -> None:
     costs[tid] = round(costs.get(tid, 0.0) + float(cost), 6)
 
 
-def ticket_budget_exceeded(state: dict, tid: str) -> bool:
-    return ticket_cost_spent(state, tid) >= ticket_budget_usd(state, tid)
-
-
-def notify_ticket_budget_exceeded(tid: str, state: dict, now) -> None:
-    """п.2: бюджет задачи исчерпан → новые запуски не стартуют + ОДНА строка CEO. v2 (02.10): статус тикета
-    не меняется (раньше needs_owner — «блокировка» чужой работы за расход); повторная строка — только если
-    бюджет подняли и он исчерпан снова (ключ — значение бюджета)."""
-    if not ticket_budget_exceeded(state, tid):
-        return
-    notified = state.setdefault("ceo_ticket_budget_notified", {})
-    budget = ticket_budget_usd(state, tid)
-    prev = notified.get(tid)
-    if prev is True:  # старый формат (до v2): «уже сообщали» — считаем, что про текущий бюджет
-        notified[tid] = budget
-        return
-    if prev == budget:
-        return
-    spent = ticket_cost_spent(state, tid)
-    append_ceo_inbox(tid, "budget", f"бюджет задачи исчерпан: потрачено ${spent:.2f} из ${budget:.2f} — "
-                                     "новые запуски стоят; поднять — `tickets.py budget`", now)
-    notified[tid] = budget
-
-
-def notify_retry_skipped_low_budget(tid: str, state: dict, now) -> None:
-    """Повтор не запущен: остаток бюджета задачи < MIN_RETRY_BUDGET_USD — одна строка CEO вместо повтора."""
-    notified = state.setdefault("ceo_low_budget_notified", {})
-    budget = ticket_budget_usd(state, tid)
-    if notified.get(tid) == budget:
-        return
-    remaining = max(0.0, budget - ticket_cost_spent(state, tid))
-    append_ceo_inbox(tid, "budget", f"повтор не запущен: остаток бюджета ${remaining:.2f} < "
-                                     f"${MIN_RETRY_BUDGET_USD:.2f} (потрачено ${ticket_cost_spent(state, tid):.2f} "
-                                     f"из ${budget:.2f})", now)
-    notified[tid] = budget
-
-
 def _record_cost_event(state: dict, now, cost) -> None:
-    """Скользящее часовое окно по ВСЕМ ролям (п.4) — история (время, сумма), обрезаем с запасом."""
+    """Учёт: скользящее окно по ВСЕМ ролям — история (время, сумма), обрезаем с запасом; показатель «за час»
+    в `tickets.py status`, никого не блокирует."""
     if not cost:
         return
     hist = state.setdefault("cost_history", [])
@@ -649,21 +566,6 @@ def _record_cost_event(state: dict, now, cost) -> None:
 def _rolling_hour_cost(state: dict, now) -> float:
     cutoff = now - timedelta(hours=1)
     return sum(c for t, c in state.get("cost_history", []) if T.parse_dt(t) > cutoff)
-
-
-def _hour_budget_exceeded(state: dict, now) -> bool:
-    return _rolling_hour_cost(state, now) >= HOUR_COST_USD
-
-
-def _notify_hour_budget(state: dict, now) -> bool:
-    """Возвращает, стоит ли пауза по скорости; пишет строку CEO только на переходе False → True."""
-    exceeded = _hour_budget_exceeded(state, now)
-    was_paused = state.get("hour_cost_paused", False)
-    if exceeded and not was_paused:
-        cost = _rolling_hour_cost(state, now)
-        append_ceo_inbox("*", "hour-budget", f"скорость трат — пауза: ${cost:.2f} за час ≥ ${HOUR_COST_USD}", now)
-    state["hour_cost_paused"] = exceeded
-    return exceeded
 
 
 def _model_usage_number(v) -> float:
@@ -822,13 +724,6 @@ def effort_for(role: str, tkt=None) -> str:
     return ROLE_EFFORT.get(role, "high")
 
 
-def run_cap_for(state: dict, tid: str) -> float:
-    """v2: потолок одного запуска = min(остаток бюджета, RUN_CAP_USD), но не ниже MIN_RUN_CAP_USD ($3):
-    крошечный остаток ($0,04) не передаём в `--max-budget-usd` (запуск умирал на старте)."""
-    remaining = max(0.0, ticket_budget_usd(state, tid) - ticket_cost_spent(state, tid))
-    return max(MIN_RUN_CAP_USD, min(remaining, RUN_CAP_USD))
-
-
 def build_prompt(role: str, tid: str, extra_note: str = None) -> str:
     prompt = PROMPT_TEMPLATE.format(role=role, tid=tid, timeout_min=int(RUN_TIMEOUT // 60))
     if extra_note:
@@ -860,7 +755,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
                      "запрошенное и запиши итог.")
         extra_note = " ".join(x for x in (extra_note, next_note) if x)
     prompt = build_prompt(role, tid, extra_note)
-    run_cap = run_cap_for(state, tid)
+    run_cap = RUN_CAP_USD  # потолок одного запуска; от денег задачи не зависит (В-173)
     try:
         launch_tkt = T.read_ticket(ticket_path)
         status_at_launch = launch_tkt.status
@@ -993,14 +888,14 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
     stuck_todo = logged and tkt.status == "todo"  # роль отчиталась, но забыла увести статус с todo
     status_changed = tkt.status != info.get("status_at_launch")
 
-    # Холостой ход (п.5, владелец 27.09): запуск стоил дороже половины бюджета задачи и не оставил ни
-    # записи, ни смены статуса — сразу blocked, без обычного одного повтора (повтор может сжечь ещё
-    # половину бюджета так же безрезультатно).
-    budget = ticket_budget_usd(state, tid)
-    if (not logged) and (not status_changed) and budget > 0 and resolved_cost > 0.5 * budget:
+    # Холостой ход (п.5, владелец 27.09; В-173: от потолка запуска, не от бюджета задачи): запуск стоил дороже
+    # половины потолка запуска и не оставил ни записи, ни смены статуса — сразу blocked, без обычного одного
+    # повтора (повтор может сжечь столько же так же безрезультатно) — защита от зацикливания.
+    if (not logged) and (not status_changed) and resolved_cost > IDLE_RUN_CAP_FRACTION * RUN_CAP_USD:
         _block_ticket(path, tid, role, f"холостой ход, ${resolved_cost:.2f} без результата", state, now,
-                      f"Запуск роли {role} стоил ${resolved_cost:.2f} (> половины бюджета задачи) и не "
-                      "оставил ни записи, ни смены статуса — холостой ход, задача заблокирована, нужен CEO.")
+                      f"Запуск роли {role} стоил ${resolved_cost:.2f} (> половины потолка запуска "
+                      f"${RUN_CAP_USD:.2f}) и не оставил ни записи, ни смены статуса — холостой ход, задача "
+                      "заблокирована, нужен CEO.")
         sess["retries"] = 0
         save_state(state)
         return
@@ -1019,25 +914,6 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
         else:
             note = ("Запись в «## Лог» есть, но status остался todo — обязательно смени статус (например "
                     "in_progress/waiting/done), иначе задача возьмётся в работу заново.")
-        if _daily_budget_exceeded(state, now):
-            _notify_budget_once(state, now)
-            append_ceo_inbox(tid, "budget", "повтор отложен — суточный потолок стоимости достигнут", now)
-            save_state(state)
-            return
-        if _hour_budget_exceeded(state, now):
-            append_ceo_inbox(tid, "hour-budget", "повтор отложен — часовая скорость трат исчерпана", now)
-            save_state(state)
-            return
-        # v2: остаток бюджета задачи < MIN_RETRY_BUDGET_USD — повтор не запускаем (раньше получал потолок
-        # в центы и умирал на старте), одна строка CEO; бюджет исчерпан совсем — своя строка (один раз)
-        if ticket_budget_exceeded(state, tid):
-            notify_ticket_budget_exceeded(tid, state, now)
-            save_state(state)
-            return
-        if budget - ticket_cost_spent(state, tid) < MIN_RETRY_BUDGET_USD:
-            notify_retry_skipped_low_budget(tid, state, now)
-            save_state(state)
-            return
         launch_run(path, role, state, now, reason="retry", attempt=info.get("attempt", 0) + 1, extra_note=note)
         sess["retries"] = sess.get("retries", 0) + 1
     else:
@@ -1143,11 +1019,6 @@ def tick(now=None) -> int:
     baseline_done_notified(state)  # v2: историю `done` CEO не пересказываем (один раз, ключ в state.json)
     save_state(state)
 
-    budget_exceeded = _daily_budget_exceeded(state, now)
-    if budget_exceeded:
-        _notify_budget_once(state, now)
-    hour_exceeded = _notify_hour_budget(state, now)  # скорость трат по ВСЕМ ролям — п.4
-
     candidates = []  # (path, ticket, decision) — кого можно запустить; порядок и лимиты — ниже
     for path in T.list_tickets(TICKETS_DIR):
         try:
@@ -1156,17 +1027,13 @@ def tick(now=None) -> int:
             notify_parse_error(path.stem, f"{type(e).__name__}: {e}", state, now)
             continue
 
-        # CEO получает строку только по: `next: ceo`, blocked/needs_owner, done, исчерпанию бюджета.
+        # CEO получает строку только по: `next: ceo`, blocked/needs_owner, done.
         # @ceo (и любые @упоминания) в тексте записей — просто текст.
         handle_next_ceo(path, tkt, state, now)
         notify_status_for_ceo(tkt, state, now)
         notify_done(tkt, state, now)
 
         tid = tkt.id
-        ticket_over_budget = ticket_budget_exceeded(state, tid)
-        if ticket_over_budget:
-            notify_ticket_budget_exceeded(tid, state, now)  # одна строка CEO; статус тикета не трогаем
-
         if tid in RUNNING:
             continue
         decision = decide(tkt, state, now)
@@ -1178,8 +1045,6 @@ def tick(now=None) -> int:
             T.append_log(path, "dispatcher", f"{haiku_reason} — задача заблокирована, нужен CEO.", now=now)
             route_ceo_signal(tid, "blocked", haiku_reason, state, now)
             continue
-        if budget_exceeded or hour_exceeded or ticket_over_budget:
-            continue  # суточный/часовой потолок или бюджет задачи — новые запуски не стартуют
         candidates.append((path, tkt, decision))
 
     launched = 0
