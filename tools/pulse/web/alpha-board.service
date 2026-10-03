@@ -1,0 +1,22 @@
+[Unit]
+Description=alpha board: веб-табло для владельца (порт 8787)
+After=network.target
+
+[Service]
+User=alpha-board
+Group=alpha-board
+ExecStart=/usr/bin/python3 -u /opt/alpha-board/server.py
+Restart=always
+RestartSec=3
+Nice=10
+CPUQuota=20%
+MemoryMax=200M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+CapabilityBoundingSet=
+ReadWritePaths=/data/board
+
+[Install]
+WantedBy=multi-user.target

@@ -54,3 +54,15 @@
 Уточнения сборщика (03.10, `view2.py`): `for.text` может быть пустым (плана нет); `feed` — по возрастанию времени, свежие
 внизу, ≤ 8 (Haiku-строки v1 + завершённые шаги плана + вопросы/ответы); у шага без плана — один шаг из текущего состояния;
 у вопроса процесс может быть не тикетом (`orphans-<машина>`); `pulse_answer {id, key}` — ответ владельца (MCP).
+
+## Веб-табло (04.10): то же табло из браузера и с телефона
+
+Сервер счёта `89.163.242.211`, юнит `alpha-board` (CPUQuota 20 %, Nice 10, MemoryMax 200M), порт 8787, адрес с секретом
+`http://89.163.242.211:8787/<токен>/` (токен — `/etc/alpha-board/token`; у CEO — `.claude/pulse/board-url.txt`, gitignored).
+Код — `tools/pulse/web/` (`server.py` — HTTP на stdlib, `bridge.py` — приём сводки и выдача ответов, `board.html` — страница
+из `page2.html`, `alpha-board.service`); на сервере — `/opt/alpha-board/` (код) и `/data/board/` (`status.json`, `answers.jsonl`).
+Маршруты под токеном: `GET /` страница, `GET /status.json` (`view2` + `built_at` + `age_s`), `POST /answer {id,key}` (вопрос и
+вариант есть в текущей сводке; ≤ 30 ответов в час; один ответ на вопрос); остальное — 404. Доставка: `BoardLink` в
+`collect.py` держит ОДНО ssh к счёту (`bridge.py`): сводка строкой JSON раз в 5 с в stdin, ответы возвращаются в stdout и
+исполняются `ask.py answer <id> <key>`; смещение обработанного — `.claude/pulse/board-offset.txt`, журнал — `board-link.log`.
+Деплой: `tar` файлов `tools/pulse/web` в `/opt/alpha-board`, `systemctl restart alpha-board`; сборщик — файл `.claude/pulse/stop`.

@@ -85,7 +85,8 @@ done
 ROLE_RU = {"engineer": "Инженер", "researcher": "Исследователь", "judge": "Судья", "ceo": "CEO"}
 ROLE_DO = {"engineer": "инженер пишет код", "researcher": "исследователь работает", "judge": "судья проверяет",
            "ceo": "CEO работает"}
-UNIT_DO = {"alpha-collector": "пишет стакан Bybit"}
+UNIT_DO = {"alpha-collector": "пишет стакан Bybit",
+           "alpha-board": "табло для владельца", "bridge.py": "табло для владельца"}  # веб-табло на счёте (tools/pulse/web)
 MACH_ORDER = ("calc", "vps", "collector", "pc", "deck")
 # служебные процессы сборки cargo и закачки дерева (vps-check.sh): принадлежат задаче по держателю замка сборки
 BUILD_NAMES = {"rustc", "cargo", "flock", "nice", "set", "tar", "rm", "scp", "sftp-server", "cc", "ld", "rustfmt",
@@ -417,6 +418,118 @@ class Feed(threading.Thread):
     def get(self):
         with self.lock:
             return self.state, dict(self.snap), dict(self.progress if self.state == "ok" else {})
+
+
+# --- веб-табло: сводка на счётный сервер, ответы владельца обратно -------------------------------------------------------
+BOARD_TARGET = HOSTS[0]["target"]  # сервер счёта: там юнит alpha-board (tools/pulse/web)
+BOARD_CMD = "python3 -u /opt/alpha-board/bridge.py {off}"
+BOARD_OFFSET = PULSE_DIR / "board-offset.txt"   # сколько байт /data/board/answers.jsonl уже обработано
+BOARD_LOG = PULSE_DIR / "board-link.log"
+ASK_PY = Path(__file__).resolve().parent / "ask.py"
+
+
+class BoardLink(threading.Thread):
+    """ОДНО долгоживущее ssh на счётный сервер для веб-табло: в stdin — view2 строкой JSON раз в тик (пишет поток-писатель,
+    сборщик не ждёт сеть), из stdout — ответы владельца со страницы → `ask.py answer <id> <key>`, смещение — в файл."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.cv = threading.Condition()
+        self.line = None  # последняя сводка (bytes), ещё не отправленная
+        self.proc = None
+        self.state = "connecting"
+        self.sent_at = 0.0
+        self.stopping = False
+
+    def push(self, view2: dict, built_at: str):
+        data = json.dumps({"view2": view2, "built_at": built_at}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        with self.cv:
+            self.line = data + b"\n"
+            self.cv.notify()
+
+    def info(self) -> dict:
+        return {"link": self.state, "sent_age_s": round(time.time() - self.sent_at) if self.sent_at else None}
+
+    def kill(self):
+        p = self.proc
+        if p and p.poll() is None:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    def log(self, text: str):
+        try:
+            with open(BOARD_LOG, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now(TZ).isoformat(timespec='seconds')} {text}\n")
+        except OSError:
+            pass
+
+    def run(self):
+        while not self.stopping:
+            try:
+                self._session()
+            except Exception as e:  # noqa: BLE001
+                self.log(f"сессия: {type(e).__name__}: {e}")
+            self.state = "down"
+            self.kill()
+            for _ in range(10):  # пауза перед переподключением
+                if self.stopping:
+                    return
+                time.sleep(0.5)
+
+    def _writer(self, p):
+        last = None
+        while not self.stopping and p.poll() is None:
+            with self.cv:
+                if self.line is None or self.line is last:
+                    self.cv.wait(timeout=2)
+                line = self.line
+            if line is None or line is last:
+                continue
+            try:
+                p.stdin.write(line)
+                p.stdin.flush()
+            except (OSError, ValueError):
+                return
+            last = line
+            self.sent_at = time.time()
+            self.state = "ok"
+
+    def _session(self):
+        try:
+            off = int(read_text_shared(BOARD_OFFSET).strip())
+        except (OSError, ValueError):
+            off = 0
+        self.proc = p = subprocess.Popen(
+            [SSH_EXE, *SSH_OPTS, BOARD_TARGET, BOARD_CMD.format(off=off)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, creationflags=0x00000200 | 0x08000000)  # NEW_PROCESS_GROUP | NO_WINDOW
+        threading.Thread(target=self._writer, args=(p,), daemon=True).start()
+        for raw in p.stdout:
+            self._answer(raw)
+
+    def _answer(self, raw: bytes):
+        try:
+            r = json.loads(raw.decode("utf-8", "replace"))
+            qid, key, off = str(r["id"]), str(r["key"]), int(r["off"])
+        except (ValueError, KeyError, TypeError):
+            return
+        if re.fullmatch(r"q-[\w.-]{1,78}", qid) and re.fullmatch(r"\w{1,20}", key):  # id/key пришли из сети — только безопасный вид
+            try:
+                res = subprocess.run([sys.executable, str(ASK_PY), "answer", qid, key], capture_output=True, text=True,
+                                     encoding="utf-8", errors="replace", timeout=120, cwd=str(ROOT), creationflags=0x08000000,
+                                     env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"))
+                msg = (res.stdout.strip() or res.stderr.strip()).replace("\n", " | ")[:300]
+                self.log(f"ответ {qid} {key}: код {res.returncode}: {msg}")
+            except (OSError, subprocess.SubprocessError) as e:
+                self.log(f"ответ {qid} {key}: не выполнен: {type(e).__name__}: {e}")
+                return  # смещение не двигаем — повторим при следующем соединении
+        else:
+            self.log(f"ответ с недопустимым видом пропущен: {qid[:40]!r}")
+        try:
+            BOARD_OFFSET.write_text(str(off))
+        except OSError:
+            pass
 
 
 # --- этот ПК ----------------------------------------------------------------------------------------------------------
@@ -1178,6 +1291,8 @@ def main() -> int:
     feeds = [Feed(h) for h in HOSTS]
     for f in feeds:
         f.start()
+    board = BoardLink()
+    board.start()
     pc, etas, last = Pc(), EtaWindows(), None
     time.sleep(1.0)
     try:
@@ -1189,6 +1304,9 @@ def main() -> int:
                 st = dict(last or {"v": 1, "tickets": [], "machines": [], "events": [], "roles_free": [], "goal": ""})
                 st.update(built_at=datetime.now(TZ).isoformat(timespec="seconds"), built_ts=time.time(),
                           pid=os.getpid(), error=f"{type(e).__name__}: {e}")
+            if isinstance(st.get("view2"), dict):
+                board.push(st["view2"], st["built_at"])
+            st["board"] = board.info()
             T.atomic_write_text(STATUS, json.dumps(st, ensure_ascii=False, indent=1))
             PIDFILE.touch()
             if STOP.exists():
@@ -1198,6 +1316,8 @@ def main() -> int:
         for f in feeds:
             f.stopping = True
             f.kill()
+        board.stopping = True
+        board.kill()
         STOP.unlink(missing_ok=True)
         PIDFILE.unlink(missing_ok=True)
     return 0
