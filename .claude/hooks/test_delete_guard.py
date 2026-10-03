@@ -918,6 +918,12 @@ class SecondAudit(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.out, ignore_errors=True)
 
+    def setUp(self):
+        from unittest import mock
+        p = mock.patch.dict(os.environ, {"ALPHA_ROLE": "engineer"})   # файловые правила этого прохода — для запуска диспетчера
+        p.start()
+        self.addCleanup(p.stop)
+
     def no(self, cmd, cwd=CWD):
         self.assertIsNotNone(dg.check(cmd, cwd), f"пропущено: {cmd!r}")
 
@@ -1282,6 +1288,120 @@ class SecondAudit(unittest.TestCase):
         self.no("rm -rf C:/Users/x/AppData/Roaming/f")
 
 
+class ThirdAudit(unittest.TestCase):
+    """Третий проход аудита 03.10: (е) файловые инструменты вне проекта ограничены только для запусков диспетчера;
+    (ж) `.git` — удаление никому, запись — не запускам диспетчера; (з) настройки Claude Code — не запускам диспетчера."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = outside_dir()
+        base = Path(cls.out)
+        (base / "settings.json").write_text("{}", encoding="utf-8")
+        (base / "repo").mkdir()
+        (base / "repo" / "main.py").write_text("x", encoding="utf-8")
+        (base / "deep").mkdir()
+        (base / "deep" / "x.bin").write_text("x", encoding="utf-8")
+        cls.settings = (base / "settings.json").as_posix()
+        cls.repo_file = (base / "repo" / "main.py").as_posix()
+        cls.deep_file = (base / "deep" / "x.bin").as_posix()
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def as_role(self, role):
+        from unittest import mock
+        env = {"ALPHA_ROLE": role} if role else {}
+        p = mock.patch.dict(os.environ, env)
+        p.start()
+        if not role:
+            os.environ.pop("ALPHA_ROLE", None)
+        self.addCleanup(p.stop)
+
+    def tool(self, name, path, cwd=CWD):
+        key = "notebook_path" if name == "NotebookEdit" else "file_path"
+        return dg.check_tool({"tool_name": name, "tool_input": {key: path}, "cwd": cwd})
+
+    # ------------------------------------------------------------------------------------------ (е) чьи правила
+    def test_ceo_session_edits_outside_project(self):
+        self.as_role(None)
+        for name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+            self.assertIsNone(self.tool(name, self.settings), name)          # ~/.claude/settings.json и т. п.
+            self.assertIsNone(self.tool(name, self.repo_file), name)         # соседний репозиторий (сам плагин)
+
+    def test_ceo_session_still_never_root_deep(self):
+        self.as_role(None)
+        reason = self.tool("Edit", self.deep_file)
+        self.assertIsNotNone(reason)
+        self.assertIn("никогда", reason)
+        self.assertIsNone(self.tool("Write", self.out + "/deep/new.bin"))      # нового файла ещё нет — создание
+
+    def test_dispatcher_role_keeps_full_rule(self):
+        for role in ("engineer", "researcher", "judge"):
+            self.as_role(role)
+            self.assertIsNotNone(self.tool("Edit", self.repo_file), role)
+            self.assertIn("вне своей папки", self.tool("Write", self.settings), role)
+
+    def test_unknown_role_value_is_ceo_session(self):
+        self.as_role("ceo")                                                # не роль диспетчера — правила сессии CEO
+        self.assertIsNone(self.tool("Edit", self.repo_file))
+
+    def test_home_root_user_is_not_root_segment(self):
+        from unittest import mock
+        self.as_role(None)
+        with mock.patch.object(dg.os.path, "expanduser", return_value="/root"):
+            self.assertFalse(dg.hard_forbidden_file("/root/.claude/settings.json", dg.Ctx(None)))
+            self.assertTrue(dg.hard_forbidden_file("/root/data/root/x.bin", dg.Ctx(None)))
+
+    # ------------------------------------------------------------------------------------------ (ж) .git
+    def test_git_dir_deletion_refused_for_everyone(self):
+        for role in (None, "engineer"):
+            self.as_role(role)
+            for cmd in ("rm -rf .git", "rm -rf ./.git/", 'rm -rf "C:/visual projects/alpha/.git"', "rm -rf .*",
+                        "rm -rf .[!.]*", "rm -rf .g*", "rm -f .git/config", "rm -rf .git/objects",
+                        "mv .git /c/Users/x/old-git", "cd .git && rm -rf objects", "find .git -delete",
+                        "ssh deck@192.0.2.49 'rm -rf ~/alpha/repo/.git'", "Remove-Item -Recurse .git"):
+                reason = dg.check(cmd, CWD)
+                self.assertIsNotNone(reason, f"{role}: {cmd}")
+            self.assertIn(".git", dg.check("rm -rf .git", CWD))
+
+    def test_git_dir_neighbours_and_locks_allowed(self):
+        self.as_role("engineer")
+        for cmd in ("rm -f .git/index.lock", "rm -f .git/refs/heads/main.lock", "rm -rf .github/old",
+                    "rm -f .gitignore.bak", "rm -rf node_modules/.cache", "rm -rf .claude/worktrees/agent-1",
+                    "rm -f .*.swp", "rm -rf /tmp/clone/.git", "git status", "echo x >> .git/info/exclude"):
+            self.assertIsNone(dg.check(cmd, CWD), cmd)
+
+    def test_git_dir_writes(self):
+        self.as_role("engineer")
+        self.assertIsNotNone(self.tool("Edit", "C:/visual projects/alpha/.git/config"))
+        self.assertIsNotNone(dg.check("echo ref > .git/HEAD", CWD))
+        self.as_role(None)                                                 # CEO: правка .git/hooks и т. п. — можно
+        self.assertIsNone(self.tool("Edit", "C:/visual projects/alpha/.git/hooks/pre-commit"))
+        self.assertIsNone(dg.check("echo ref > .git/info/exclude", CWD))
+
+    # ------------------------------------------------------------------------------------------ (з) настройки
+    def test_settings_closed_to_dispatcher_roles(self):
+        self.as_role("engineer")
+        for name in ("Write", "Edit", "MultiEdit"):
+            for path in ("C:/visual projects/alpha/.claude/settings.json", ".claude/settings.local.json",
+                         "C:\\visual projects\\alpha\\.claude\\settings.local.json"):
+                reason = self.tool(name, path)
+                self.assertIsNotNone(reason, f"{name} {path}")
+                self.assertIn("Настройки Claude Code", reason)
+        for cmd in ("echo '{}' > .claude/settings.json", "cp /c/x/s.json .claude/settings.local.json",
+                    "rm .claude/settings.json", "mv .claude/settings.json data/old.json",
+                    "cat x | tee .claude/settings.local.json"):
+            self.assertIn("Настройки Claude Code", dg.check(cmd, CWD) or "", cmd)
+        self.assertIsNone(self.tool("Write", "C:/visual projects/alpha/.claude/roles/notes/engineer.md"))
+        self.assertIsNone(dg.check("cat .claude/settings.json", CWD))
+
+    def test_settings_open_to_ceo(self):
+        self.as_role(None)
+        self.assertIsNone(self.tool("Edit", "C:/visual projects/alpha/.claude/settings.json"))
+        self.assertIsNone(dg.check("echo '{}' > .claude/settings.local.json", CWD))
+
+
 class UserHookWiring(unittest.TestCase):
     """Пользовательский хук `~/.claude/hooks/alpha_one_build.py` (вне репо): точка входа для Write/Edit/MultiEdit/
     NotebookEdit и fail-closed. Нет файла (чужая машина) — пропуск."""
@@ -1323,11 +1443,16 @@ class UserHookWiring(unittest.TestCase):
         return {"tool_name": tool, "tool_input": ti, "cwd": CWD}
 
     def test_write_edit_outside_denied_inside_allowed(self):
+        from unittest import mock
         f = (Path(self.out) / "f.txt").as_posix()
         for tool, key in (("Write", "file_path"), ("Edit", "file_path"), ("MultiEdit", "file_path"),
                           ("NotebookEdit", "notebook_path")):
-            out = self.run_hook(self.event(tool, **{key: f}))
+            with mock.patch.dict(os.environ, {"ALPHA_ROLE": "engineer"}):   # аудит-3: правило — для запусков диспетчера
+                out = self.run_hook(self.event(tool, **{key: f}))
             self.assertEqual(out["permissionDecision"], "deny", tool)
+            with mock.patch.dict(os.environ):
+                os.environ.pop("ALPHA_ROLE", None)
+                self.assertIsNone(self.run_hook(self.event(tool, **{key: f})), tool)   # сессия CEO/владельца — можно
             self.assertIsNone(self.run_hook(self.event(tool, **{key: "C:/visual projects/alpha/docs/x.md"})), tool)
 
     def test_other_projects_and_tools_untouched(self):
