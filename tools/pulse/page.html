@@ -3,7 +3,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Диспетчерская сводка: задачи слева, стойка машин справа, лента снизу; на телефоне — одна колонка */
+/* Одна колонка сверху вниз, как экран pulse.py: что идёт и ГДЕ → дальше → ждёт ответа → машины и ДЛЯ КАКОЙ ЗАДАЧИ → что было.
+   Цвет: идёт — зелёный, ждёт вас / без задачи — жёлтый, проблема / нет связи — красный, свободна / стоит — серый. */
 :root {
   --bg: #eef0ec;
   --surface: #fbfcfa;
@@ -33,7 +34,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--f-body); }
-.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 32px; display: grid; gap: 18px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 32px; display: grid; gap: 18px; }
 .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 
@@ -41,7 +42,12 @@ header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content:
 .brand { display: flex; align-items: baseline; gap: 10px; }
 .brand b { font: 600 22px/1 var(--f-display); letter-spacing: .02em; }
 .brand span { font: 500 15px/1 var(--f-display); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-.fresh { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+.hl { display: flex; align-items: center; gap: 8px; font: 600 16px/1.3 var(--f-body); min-width: 0; overflow-wrap: anywhere; }
+.hl.ok { color: var(--good); }
+.hl.bad { color: var(--bad); }
+.hl.idle { color: var(--muted); }
+.fresh { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: -10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; }
 .dot.ok { background: var(--good); }
 .dot.warn { background: var(--warn); }
@@ -50,10 +56,6 @@ header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content:
 @keyframes beat { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
 
-.goal { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
-.label { font: 600 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
-.goal .text { font: 500 16px/1.3 var(--f-body); }
-
 .notice { padding: 12px 14px; border: 1px solid var(--warn); border-radius: 6px; background: var(--surface); display: grid; gap: 8px; }
 .notice.bad { border-color: var(--bad); }
 .notice p { margin: 0; max-width: 70ch; }
@@ -61,86 +63,112 @@ button { font: 500 13px/1 var(--f-body); color: var(--ink); background: transpar
 button:hover { border-color: var(--accent); color: var(--accent); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 section { display: grid; gap: 10px; min-width: 0; }
 h2 { margin: 0; font: 600 13px/1 var(--f-display); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+h2.ask-h { color: var(--warn); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.cols { display: grid; gap: 4px 16px; padding: 9px 14px 0; font: 600 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
 
-.tasks { display: grid; gap: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
-.task { padding: 12px 14px; display: grid; gap: 8px; border-top: 1px solid var(--line); min-width: 0; }
-.task:first-child { border-top: 0; }
-.task-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; }
-.tid { font: 500 13px/1.2 var(--f-data); color: var(--accent); }
-.ttitle { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.trole { color: var(--muted); font-size: 13px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1; padding: 5px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.chip.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
-.chip.wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
-.job { display: grid; gap: 5px; }
-.bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .6s ease; }
-.bar.done i { background: var(--good); }
-.jobtext { font: 13px/1.35 var(--f-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.next { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.next b { font-weight: 500; color: var(--ink); }
-.free { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+/* СЕЙЧАС ИДЁТ: [полоса / «идёт N мин»] [что делаем] [ГДЕ] */
+.task, .cols.t { grid-template-columns: 11.5rem minmax(0, 1fr) minmax(0, 17rem); }
+.task { display: grid; gap: 6px 16px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: start; }
+.cols + .task { border-top: 0; }
+.pcell { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.pct { font: 500 14px/1 var(--f-data); font-variant-numeric: tabular-nums; }
+.bar { height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--good); border-radius: 4px; transition: width .6s ease; }
+.run { display: inline-flex; align-items: center; gap: 8px; color: var(--good); font-weight: 500; }
+.ttext { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.tdetail { color: var(--muted); font-weight: 400; }
+.tag { display: inline-block; margin-left: 8px; font: 11px/1 var(--f-data); color: var(--muted); opacity: .75; vertical-align: 1px; }
+.where { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13.5px; min-width: 0; }
+.where li { overflow-wrap: anywhere; }
+.where .eta { color: var(--muted); margin-left: 8px; }
+.where .what { color: var(--muted); }
+.k { display: none; font: 600 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin-bottom: 4px; }
 
-.rack { display: grid; gap: 10px; }
-.machine { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 11px 14px; display: grid; gap: 8px; min-width: 0; }
-.machine.off { background: transparent; border-style: dashed; }
-.m-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.m-name { font: 600 15px/1.2 var(--f-display); letter-spacing: .02em; }
-.m-host { font: 12px/1 var(--f-data); color: var(--muted); }
-.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.meter { display: grid; gap: 4px; }
-.meter .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-.meter .v { font: 500 14px/1 var(--f-data); font-variant-numeric: tabular-nums; }
-.meter .bar { height: 4px; }
-.meter .bar.hot i { background: var(--warn); }
-.m-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font: 12.5px/1.4 var(--f-data); color: var(--muted); }
-.m-lines li { overflow-wrap: anywhere; }
-.m-lines li::before { content: "· "; color: var(--accent); }
+.order { margin: 0; padding: 12px 14px 12px 34px; display: grid; gap: 6px; }
+.order li { padding-left: 4px; overflow-wrap: anywhere; }
+.order li::marker { color: var(--muted); font-family: var(--f-data); }
 
-.events { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
-.events li { display: grid; grid-template-columns: 3.4em 4.6em minmax(0, 1fr); gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 13.5px; }
-.events li:first-child { border-top: 0; }
-.events .t { font-family: var(--f-data); color: var(--muted); }
-.events .w { font-family: var(--f-data); color: var(--accent); }
-.events .x { min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 480px) { .events li { grid-template-columns: 3.4em minmax(0, 1fr); } .events .w { display: none; } }
+.ask { border-color: var(--warn); }
+.q { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); align-items: start; }
+.q:first-child { border-top: 0; }
+.q b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--warn); color: var(--surface); font: 600 13px/1 var(--f-display); }
+.q span { color: var(--warn); font-weight: 500; overflow-wrap: anywhere; }
 
-.empty { padding: 14px; color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 6px; }
+/* МАШИНЫ: [машина и состояние] [для какой задачи] [ЦП] */
+.mrow, .cols.m { grid-template-columns: 11.5rem minmax(0, 1fr) 5.5rem; }
+.mrow { display: grid; gap: 6px 16px; padding: 11px 14px; border-top: 1px solid var(--line); align-items: start; }
+.cols + .mrow { border-top: 0; }
+.mname { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.mname b { font: 600 15px/1.2 var(--f-display); letter-spacing: .02em; }
+.st { font-size: 12.5px; font-weight: 500; }
+.st.s-busy, .st.s-ok { color: var(--good); }
+.st.s-idle, .st.s-stopped, .st.s-off, .st.s-connecting { color: var(--muted); }
+.st.s-down, .st.s-bad { color: var(--bad); }
+.mrow.s-down, .mrow.s-bad { background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; min-width: 0; }
+.items li { display: grid; grid-template-columns: 1.3em minmax(0, 1fr); gap: 2px; overflow-wrap: anywhere; }
+.items li.warn { color: var(--warn); font-weight: 500; }
+.items li.note { color: var(--muted); }
+.items .mk { color: var(--muted); }
+.items li.warn .mk { color: var(--warn); }
+.cpu { font: 12.5px/1.4 var(--f-data); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+.news { list-style: none; margin: 0; padding: 0; }
+.news li { display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 10px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.news li:first-child { border-top: 0; }
+.news .t { font-family: var(--f-data); color: var(--muted); }
+.news .x { min-width: 0; overflow-wrap: anywhere; }
+
+.empty { padding: 14px; color: var(--muted); }
 footer { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 720px) {
+  .cols { display: none; }
+  .task, .mrow { grid-template-columns: minmax(0, 1fr); }
+  .k { display: block; }
+  .cpu { text-align: left; }
+  .mrow { position: relative; }
+}
 </style>
 
 <div class="wrap">
   <header>
     <div class="brand"><b>alpha</b><span>ход работ</span></div>
-    <div class="fresh" aria-live="polite"><i class="dot" id="fresh-dot"></i><span id="fresh-text">жду сводку…</span></div>
+    <div class="status" id="status"></div>
   </header>
-
-  <div class="goal"><span class="label">Цель</span><span class="text" id="goal">—</span></div>
+  <div class="fresh" aria-live="polite"><i class="dot" id="fresh-dot"></i><span id="fresh-text">жду сводку…</span></div>
 
   <div id="notice" class="notice" hidden>
     <p id="notice-text"></p>
     <button id="notice-btn" type="button" hidden>Проверить снова</button>
   </div>
 
-  <div class="grid">
-    <section aria-labelledby="h-tasks">
-      <h2 id="h-tasks">Задачи</h2>
-      <div id="tasks" class="tasks"><div class="empty">Здесь появятся задачи команды: что идёт, сколько сделано, сколько осталось.</div></div>
-      <div id="free" class="free"></div>
-    </section>
-    <section aria-labelledby="h-machines">
-      <h2 id="h-machines">Машины</h2>
-      <div id="rack" class="rack"><div class="empty">Здесь появятся сервер счёта, VPS, коллектор и этот ПК.</div></div>
-    </section>
-  </div>
+  <section aria-labelledby="h-now">
+    <h2 id="h-now">Сейчас идёт</h2>
+    <div id="now" class="panel"><div class="empty">Здесь появятся задачи, которые идут прямо сейчас, и где именно.</div></div>
+  </section>
 
-  <section aria-labelledby="h-events">
-    <h2 id="h-events">Последние события</h2>
-    <ul id="events" class="events"><li><span class="t">—</span><span class="w"></span><span class="x muted">событий пока нет</span></li></ul>
+  <section aria-labelledby="h-next" id="sec-next" hidden>
+    <h2 id="h-next">Дальше</h2>
+    <ol id="next" class="panel order"></ol>
+  </section>
+
+  <section aria-labelledby="h-ask" id="sec-ask" hidden>
+    <h2 id="h-ask" class="ask-h">Ждёт вашего ответа</h2>
+    <div id="ask" class="panel ask"></div>
+  </section>
+
+  <section aria-labelledby="h-machines">
+    <h2 id="h-machines">Машины</h2>
+    <div id="rack" class="panel"><div class="empty">Здесь появятся сервер счёта, VPS, коллектор и этот ПК.</div></div>
+  </section>
+
+  <section aria-labelledby="h-news">
+    <h2 id="h-news">Что было</h2>
+    <ul id="news" class="news panel"><li><span class="t">—</span><span class="x muted">пока ничего</span></li></ul>
   </section>
 
   <footer>Сводку собирает скрипт на компьютере с alpha, без модели. Страница спрашивает его раз в 10 секунд.</footer>
@@ -160,17 +188,16 @@ footer { font-size: 12px; color: var(--muted); }
     if (text != null) n.textContent = text;
     return n;
   }
-  function bar(pct, extra) {
-    const b = el("div", "bar" + (extra ? " " + extra : ""));
-    const i = el("i");
-    i.style.width = Math.max(0, Math.min(100, pct || 0)) + "%";
-    b.append(i);
-    return b;
-  }
   function clock(iso) {
     const d = new Date(iso);
     if (isNaN(d)) return "—";
     return d.toLocaleTimeString("ru-RU", { timeZone: "Asia/Dubai", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function minutes(m) {
+    m = Math.round(m);
+    if (m < 1) return "<1 мин";
+    if (m < 60) return m + " мин";
+    return Math.floor(m / 60) + " ч " + String(m % 60).padStart(2, "0") + " мин";
   }
 
   function notice(text, opts = {}) {
@@ -193,97 +220,131 @@ footer { font-size: 12px; color: var(--muted); }
     txt.textContent = `сводка ${when} GMT+4 · ${age < 60 ? age + " с" : Math.round(age / 60) + " мин"} назад`;
   }
 
-  function renderTasks(d) {
-    const box = $("tasks");
+  function renderStatus(v) {
+    const box = $("status");
     box.replaceChildren();
-    const list = d.tickets || [];
-    if (!list.length) { box.append(el("div", "empty", "Активных задач нет.")); }
-    for (const t of list) {
+    const h = v.headline || { text: "—", level: "idle" };
+    const hl = el("div", "hl " + h.level);
+    hl.append(el("i", "dot " + (h.level === "ok" ? "ok live" : h.level === "bad" ? "bad" : "")), el("span", "", h.text));
+    box.append(hl);
+    if (v.attention) {
+      const q = el("div", "hl", "ждёт вашего ответа: " + v.attention);
+      q.style.color = "var(--warn)";
+      box.append(q);
+    }
+  }
+
+  function placeLi(p) {
+    const li = el("li");
+    li.append(el("b", "", p.name));
+    if (p.what) li.append(document.createTextNode(" "), el("span", "what", "(" + p.what + ")"));
+    if (p.eta) li.append(el("span", "eta", p.eta));
+    return li;
+  }
+
+  function renderNow(v) {
+    const box = $("now");
+    box.replaceChildren();
+    const rows = v.now || [];
+    if (!rows.length) { box.append(el("div", "empty", "Сейчас ничего не идёт.")); return; }
+    const cols = el("div", "cols t");
+    cols.append(el("span"), el("span"), el("span", "", "Где"));
+    box.append(cols);
+    for (const r of rows) {
       const row = el("div", "task");
-      const head = el("div", "task-head");
-      head.append(el("span", "tid", t.id), el("span", "ttitle", t.title || ""));
-      const chip = el("span", "chip" + (t.live ? " live" : /ждёт|очеред/.test(t.status || "") ? " wait" : ""));
-      if (t.live) chip.append(el("i", "dot ok live"));
-      chip.append(document.createTextNode(t.status || "—"));
-      head.append(chip);
-      row.append(head);
-      const role = el("div", "trole", t.role || "");
-      row.append(role);
-      for (const j of t.jobs || []) {
-        const job = el("div", "job");
-        job.append(bar(j.pct, j.done >= j.total ? "done" : ""), el("div", "jobtext", j.text || ""));
-        row.append(job);
-        if (j.next) { const n = el("div", "next"); n.append(el("b", "", "дальше: "), document.createTextNode(j.next)); row.append(n); }
+      if (r.pct != null) {
+        const c = el("div", "pcell");
+        const b = el("div", "bar");
+        const i = el("i");
+        i.style.width = Math.max(0, Math.min(100, r.pct)) + "%";
+        b.append(i);
+        c.append(b, el("span", "pct", r.pct + " %"));
+        row.append(c);
+      } else {
+        const run = el("div", "run");
+        run.append(el("i", "dot ok live"), document.createTextNode("идёт" + (r.since_min != null ? " " + minutes(r.since_min) : "")));
+        row.append(run);
       }
-      if (t.next && !(t.jobs || []).some((j) => j.next)) {
-        const n = el("div", "next"); n.append(el("b", "", "дальше: "), document.createTextNode(t.next)); row.append(n);
-      }
+      const tx = el("div", "ttext");
+      tx.append(document.createTextNode(r.text || ""));
+      if (r.detail) tx.append(document.createTextNode(" · "), el("span", "tdetail", r.detail));
+      if (r.tag) tx.append(el("span", "tag", r.tag));
+      row.append(tx);
+      const wh = el("div");
+      wh.append(el("div", "k", "Где"));
+      const ul = el("ul", "where");
+      for (const p of r.where || []) ul.append(placeLi(p));
+      wh.append(ul);
+      row.append(wh);
       box.append(row);
     }
-    const free = $("free");
-    free.replaceChildren();
-    if ((d.roles_free || []).length) {
-      free.append(el("span", "", "свободны:"));
-      for (const r of d.roles_free) free.append(el("span", "chip", r));
+  }
+
+  function renderNext(v) {
+    const ol = $("next");
+    ol.replaceChildren();
+    for (const t of v.next || []) ol.append(el("li", "", t));
+    $("sec-next").hidden = !(v.next || []).length;
+  }
+
+  function renderAsk(v) {
+    const box = $("ask");
+    box.replaceChildren();
+    for (const t of v.questions || []) {
+      const q = el("div", "q");
+      q.append(el("b", "", "?"), el("span", "", t));
+      box.append(q);
     }
+    $("sec-ask").hidden = !(v.questions || []).length;
   }
 
-  function meter(k, v, unit, pct, hot) {
-    const m = el("div", "meter");
-    m.append(el("span", "k", k), el("span", "v", v == null ? "—" : v + unit));
-    if (pct != null) m.append(bar(pct, hot ? "hot" : ""));
-    return m;
-  }
-
-  function renderMachines(d) {
+  function renderMachines(v) {
     const rack = $("rack");
     rack.replaceChildren();
-    for (const m of d.machines || []) {
-      const card = el("div", "machine" + (m.state === "off" ? " off" : ""));
-      const head = el("div", "m-head");
-      const cls = m.state === "ok" ? "ok" : m.state === "off" ? "" : m.state === "connecting" ? "warn" : "bad";
-      head.append(el("i", "dot " + cls), el("span", "m-name", m.name), el("span", "m-host", m.host));
-      if (m.state === "down") head.append(el("span", "chip wait", "нет связи"));
-      if (m.state === "connecting") head.append(el("span", "chip", "подключаюсь"));
-      card.append(head);
-      if (m.state !== "off") {
-        const ms = el("div", "meters");
-        ms.append(
-          meter("ЦП", m.cpu, " %", m.cpu, m.cpu >= 85),
-          meter("ОЗУ", m.mem, " %", m.mem, m.mem >= 85),
-          meter("диск", m.disk_mb_s, " МБ/с", null)
-        );
-        card.append(ms);
-      }
-      if ((m.lines || []).length) {
-        const ul = el("ul", "m-lines");
-        for (const ln of m.lines) ul.append(el("li", "", ln));
-        card.append(ul);
-      }
-      rack.append(card);
+    const ms = v.machines || [];
+    if (!ms.length) { rack.append(el("div", "empty", "Машин пока нет в сводке.")); return; }
+    const cols = el("div", "cols m");
+    cols.append(el("span", "", "Машина"), el("span", "", "Для какой задачи"), el("span"));
+    rack.append(cols);
+    for (const m of ms) {
+      const row = el("div", "mrow s-" + m.state);
+      const nm = el("div", "mname");
+      nm.append(el("b", "", m.name), el("span", "st s-" + m.state, m.state_text));
+      const ul = el("ul", "items");
+      for (const t of m.items || []) { const li = el("li"); li.append(el("span", "mk", "→"), el("span", "", t)); ul.append(li); }
+      for (const t of m.warns || []) { const li = el("li", "warn"); li.append(el("span", "mk", "⚠"), el("span", "", t)); ul.append(li); }
+      if (m.note) { const li = el("li", "note"); li.append(el("span", "mk"), el("span", "", m.note)); ul.append(li); }
+      row.append(nm, ul, el("div", "cpu", m.cpu != null ? "ЦП " + m.cpu + " %" : ""));
+      rack.append(row);
     }
   }
 
-  function renderEvents(d) {
-    const ul = $("events");
+  function renderNews(v) {
+    const ul = $("news");
     ul.replaceChildren();
-    const ev = (d.events || []).slice().reverse();
-    if (!ev.length) { ul.append(Object.assign(el("li"), {})); ul.lastChild.append(el("span", "t", "—"), el("span", "w", ""), el("span", "x muted", "событий пока нет")); }
-    for (const e of ev) {
+    const items = (v.news || []).slice(0, 5);
+    if (!items.length) { const li = el("li"); li.append(el("span", "t", "—"), el("span", "x muted", "пока ничего")); ul.append(li); }
+    for (const n of items) {
       const li = el("li");
-      li.append(el("span", "t", e.time || ""), el("span", "w", e.who || ""), el("span", "x", e.text || ""));
+      const who = v.news_src === "events" && n.who ? n.who + " · " : "";
+      li.append(el("span", "t", n.time || ""), el("span", "x", who + (n.text || "")));
       ul.append(li);
     }
   }
 
   function render(d) {
     last = d;
-    $("goal").textContent = d.goal || "—";
-    renderTasks(d);
-    renderMachines(d);
-    renderEvents(d);
+    if (d.view) {
+      renderStatus(d.view);
+      renderNow(d.view);
+      renderNext(d.view);
+      renderAsk(d.view);
+      renderMachines(d.view);
+      renderNews(d.view);
+    }
     renderFresh();
-    if (d.error) notice("Сборщик сообщил об ошибке: " + d.error, { bad: true });
+    if (!d.view) notice("Сборщик старой версии: перезапустите его (файл .claude/pulse/stop), экран поднимет новый.", { bad: true });
+    else if (d.error) notice("Сборщик сообщил об ошибке: " + d.error, { bad: true });
     else notice(null);
   }
 

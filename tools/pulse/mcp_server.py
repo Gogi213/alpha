@@ -18,9 +18,10 @@ import collect as C  # noqa: E402
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 TOOL = {
     "name": "pulse_status",
-    "description": "Ход работ проекта alpha одним JSON: цель, активные тикеты (роль, прогресс, ETA, следующий шаг), "
-                   "свободные роли, машины (ЦП/ОЗУ/диск, процессы, сборки), лента событий; время GMT+4. "
-                   "Источник — .claude/pulse/status.json, который раз в 5 с пишет collect.py.",
+    "description": "Ход работ проекта alpha одним JSON. Раздел `view` — готовый человеческий вид (что идёт и где, что "
+                   "дальше, вопросы владельцу, на какой машине какая задача или «без задачи», что было); `plain` — тексты "
+                   "CEO из .claude/pulse/plain.json; `tickets`/`machines`/`events` — сырые данные (тикеты, ЦП/ОЗУ/диск, "
+                   "процессы, сборки, лента); время GMT+4. Источник — .claude/pulse/status.json, его раз в 5 с пишет collect.py.",
     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     "outputSchema": {"type": "object"},
     "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},

@@ -2,8 +2,12 @@
 """Сборщик экрана хода работ (без модели): раз в 5 с пишет `.claude/pulse/status.json` — всё для кадра.
 
 Источники: тикеты и диспетчер (`.claude/tickets`, `.claude/dispatcher`), лента `ceo-wake.log`, цель `.claude/pulse-goal.txt`,
-по ОДНОМУ долгоживущему ssh на машину (счёт, VPS, коллектор; параллельно, с переподключением): ЦП/ОЗУ/диск, процессы проекта,
-ход задач `/data/progress/*.json` (пишет `tools/compute/progress.sh`). Этот ПК — своими силами, Steam Deck не опрашивается.
+человеческие тексты `.claude/pulse/plain.json` (пишет CEO: заголовок, названия задач и шагов, «дальше», вопросы владельцу,
+что было, старые процессы без задачи), по ОДНОМУ долгоживущему ssh на машину (счёт, VPS, коллектор; параллельно, с
+переподключением): ЦП/ОЗУ/диск, процессы проекта, ход задач `/data/progress/*.json` (пишет `tools/compute/progress.sh`).
+Этот ПК — своими силами, Steam Deck не опрашивается.
+Связь «процесс → задача → машина» считается здесь (`make_view`): раздел `view` в status.json — готовый к показу вид
+(задачи с «где», машины с «для какой задачи», вопросы, что было); `pulse.py` и страница только рисуют `view`.
 Запуск: `pulse.py` / `mcp_server.py` поднимают сборщик сами (`ensure_collector`); вручную: `python tools/pulse/collect.py`.
 Остановка: создать файл `.claude/pulse/stop`. Экран читает status.json — `pulse.py`, MCP-сервер, страница-артефакт.
 """
@@ -30,6 +34,7 @@ STATUS = PULSE_DIR / "status.json"
 PIDFILE = PULSE_DIR / "collect.pid"
 STOP = PULSE_DIR / "stop"
 GOAL = ROOT / ".claude" / "pulse-goal.txt"
+PLAIN = PULSE_DIR / "plain.json"
 TICKETS = ROOT / ".claude" / "tickets"
 WAKE_LOG = DISP / "ceo-wake.log"
 TZ = timezone(timedelta(hours=4))  # GMT+4
@@ -73,6 +78,13 @@ done
 '''
 
 ROLE_RU = {"engineer": "Инженер", "researcher": "Исследователь", "judge": "Судья", "ceo": "CEO"}
+ROLE_DO = {"engineer": "инженер пишет код", "researcher": "исследователь работает", "judge": "судья проверяет",
+           "ceo": "CEO работает"}
+UNIT_DO = {"alpha-collector": "пишет стакан Bybit"}
+MACH_ORDER = ("calc", "vps", "collector", "pc", "deck")
+# служебные процессы сборки cargo и закачки дерева (vps-check.sh): принадлежат задаче по держателю замка сборки
+BUILD_NAMES = {"rustc", "cargo", "flock", "nice", "set", "tar", "rm", "scp", "sftp-server", "cc", "ld", "rustfmt",
+               "clippy-driver", "cargo-clippy", "cargo-fmt"}
 WORK_ROLES = ("engineer", "judge", "researcher")
 ACTIVE = ("todo", "in_progress", "waiting", "in_review", "needs_owner")
 
@@ -132,6 +144,12 @@ def clip(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+def tk_norm(s, prefix: bool = False):
+    """«tk042-run» / «TK-042» → «TK-042» (prefix=True — только в начале строки), иначе None."""
+    m = (re.match if prefix else re.search)(r"(?i)tk[-_]?(\d+)", s or "")
+    return f"TK-{int(m.group(1)):03d}" if m else None
+
+
 def clean_text(text: str) -> str:
     """Текст записи лога одной строкой: без markdown-таблиц, заголовков, оград кода и разметки."""
     keep = []
@@ -164,11 +182,83 @@ def short_title(title: str, n: int = 24) -> str:
     return t
 
 
+def read_text_shared(path, encoding: str = "utf-8", errors: str = "strict", retries: int = 5) -> str:
+    """Прочитать файл целиком, не мешая его атомарной замене (os.replace) другим процессом. Обычный open() на Windows
+    не даёт FILE_SHARE_DELETE — пока мы читаем, диспетчер получает PermissionError на `state.json.tmp → state.json`.
+    Здесь файл открывается через CreateFileW с FILE_SHARE_READ|WRITE|DELETE, читается сразу целиком и закрывается;
+    при ошибке — до `retries` повторов с паузой 20 мс (файла нет — сразу FileNotFoundError)."""
+    if os.name != "nt":
+        return Path(path).read_text(encoding=encoding, errors=errors)
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                              wintypes.DWORD, ctypes.c_void_p]
+    k.CreateFileW.restype = ctypes.c_void_p
+    k.ReadFile.argtypes = [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+                           ctypes.c_void_p]
+    k.ReadFile.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [ctypes.c_void_p]
+    invalid = ctypes.c_void_p(-1).value
+    last = 0
+    for _ in range(retries):
+        # GENERIC_READ, SHARE_READ|WRITE|DELETE, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL
+        h = k.CreateFileW(str(path), 0x80000000, 7, None, 3, 0x80, None)
+        if h is None or h == invalid:
+            last = ctypes.get_last_error()
+            if last in (2, 3):
+                raise FileNotFoundError(str(path))
+            time.sleep(0.02)
+            continue
+        chunks, ok = [], True
+        try:
+            buf = ctypes.create_string_buffer(1 << 16)
+            n = wintypes.DWORD(0)
+            while True:
+                if not k.ReadFile(h, buf, len(buf), ctypes.byref(n), None):
+                    ok, last = False, ctypes.get_last_error()
+                    break
+                if n.value == 0:
+                    break
+                chunks.append(buf.raw[: n.value])
+        finally:
+            k.CloseHandle(h)
+        if ok:
+            text = b"".join(chunks).decode(encoding, errors)
+            return text.replace("\r\n", "\n").replace("\r", "\n")  # как read_text (универсальные переводы строк)
+        time.sleep(0.02)
+    raise OSError(f"не удалось прочитать {path} (код {last})")
+
+
 def read_json(path: Path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(read_text_shared(path))
     except Exception:
         return None
+
+
+_json_cache: dict = {}
+
+
+def read_json_cached(path: Path, settle_s: float = 0.0):
+    """Файл читается только после изменения (stat файл не открывает) и не раньше чем через `settle_s` после него.
+    Зачем: на Windows os.replace падает, пока файл открыт кем угодно — даже с FILE_SHARE_DELETE (проверено), поэтому
+    диспетчер, заменяя `state.json`, получал PermissionError, когда мы читали его раз в 5 с. Читаем раз на запись,
+    через пару секунд после неё, — следующая замена будет не раньше следующего тика диспетчера."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _json_cache.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    if hit and settle_s and time.time() - st.st_mtime < settle_s:
+        return hit[1]  # только что записан (возможна вторая запись подряд) — читаем на следующем тике
+    val = read_json(path)
+    if val is None:
+        return hit[1] if hit else None
+    _json_cache[path] = (key, val)
+    return val
 
 
 # --- машины по ssh ----------------------------------------------------------------------------------------------------
@@ -310,7 +400,9 @@ class Feed(threading.Thread):
                 et, _, args = blk["L"].strip().partition(" ")
                 m = re.search(r"cargo\s+(test|clippy|build|fmt|check)", args)
                 what = f"cargo {m.group(1)}" if m else clip(args.split(self.host["lock"], 1)[-1].strip(), 40)
-                snap["lock"] = {"busy": True, "what": what, "minutes": int(et) // 60 if et.isdigit() else 0}
+                lab = re.search(r"ALPHA_TICKET=(\S+)", args)  # метку ставит tools/vps-check.sh: `env ALPHA_TICKET=… nice …`
+                snap["lock"] = {"busy": True, "what": what, "minutes": int(et) // 60 if et.isdigit() else 0,
+                                "label": lab.group(1) if lab else None, "ticket": tk_norm(lab.group(1)) if lab else None}
         with self.lock:
             self.state = "ok"
             self.block_at = time.time()
@@ -364,7 +456,7 @@ def load_tickets() -> dict:
             key = (st.st_mtime_ns, st.st_size)
             hit = _tk_cache.get(p.name)
             if not hit or hit[0] != key:
-                hit = (key, T.read_ticket(p))
+                hit = (key, T.parse_text(read_text_shared(p), p))
                 _tk_cache[p.name] = hit
             out[hit[1].id or p.stem] = hit[1]
         except Exception:
@@ -385,7 +477,7 @@ def all_entries(t) -> list:
         key = (st.st_mtime_ns, st.st_size)
         hit = _arch_cache.get(ap.name)
         if not hit or hit[0] != key:
-            hit = (key, T._parse_log("## Лог\n" + ap.read_text(encoding="utf-8")))
+            hit = (key, T._parse_log("## Лог\n" + read_text_shared(ap)))
             _arch_cache[ap.name] = hit
         ents += hit[1]
     except OSError:
@@ -394,7 +486,7 @@ def all_entries(t) -> list:
 
 
 def load_state() -> dict:
-    s = read_json(DISP / "state.json")
+    s = read_json_cached(DISP / "state.json", settle_s=2.0)
     if isinstance(s, dict):
         _state_cache["s"] = s
     return _state_cache.get("s", {})
@@ -480,7 +572,7 @@ class EtaWindows:
 
 def read_events(tickets: dict, limit: int = 6) -> list:
     try:
-        lines = WAKE_LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
+        lines = read_text_shared(WAKE_LOG, errors="replace").splitlines()[-300:]
     except OSError:
         return []
     out = []
@@ -517,6 +609,229 @@ def read_events(tickets: dict, limit: int = 6) -> list:
     for e in ded:
         e.pop("_t", None)
     return ded[-limit:]
+
+
+# --- человеческий вид: процесс → задача → машина ----------------------------------------------------------------------
+def load_plain() -> dict:
+    """`.claude/pulse/plain.json` (пишет CEO руками) в нормальной форме; нет файла/битый — пустые разделы."""
+    p = read_json_cached(PLAIN)
+    p = p if isinstance(p, dict) else {}
+
+    def dic(k):
+        v = p.get(k)
+        return v if isinstance(v, dict) else {}
+
+    def strs(k):
+        v = p.get(k)
+        return [str(x).strip() for x in v if str(x).strip()] if isinstance(v, list) else []
+
+    raw_news = p.get("news") if isinstance(p.get("news"), list) else []
+    news = [{"time": str(n.get("time") or "").strip(), "text": str(n["text"]).strip()}
+            for n in raw_news if isinstance(n, dict) and n.get("text")]
+    return {"headline": str(p.get("headline") or "").strip(), "tasks": dic("tasks"), "next": strs("next"),
+            "questions": strs("questions"), "news": news, "legacy": dic("legacy"), "units": dic("units"),
+            "machines": dic("machines")}
+
+
+def is_build_proc(name: str) -> bool:
+    return name in BUILD_NAMES or name.startswith(("rustc", "cargo", "build-script"))
+
+
+def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict, disp_ok: bool, watch_ok: bool,
+              events: list) -> dict:
+    """Готовый к показу вид для `pulse.py` и страницы. Задача «идёт», если у неё есть: сессия роли (этот ПК), ход
+    в /data/progress, процесс с префиксом tkNNN, сборка на VPS под её меткой. Остальные процессы — «⚠» (старые из
+    plain.legacy или «без задачи»)."""
+    mach = {m["id"]: m for m in machines}
+    ptasks = plain["tasks"]
+    legacy = plain["legacy"]
+
+    def pt(tid):
+        v = ptasks.get(tid)
+        return v if isinstance(v, dict) else {}
+
+    def title_of(tid):
+        t = pt(tid).get("title")
+        if t:
+            return str(t)
+        tk = tickets.get(tid)
+        return (short_title(tk.header.get("title", ""), 60) if tk else "") or tid
+
+    def short_of(tid):  # для строки машины: без хвостовой скобки «(минуты и часы)»
+        t = title_of(tid)
+        return re.sub(r"\s*\([^)]*\)\s*$", "", t).strip() or t
+
+    def step_of(tid, step):
+        st = pt(tid).get("steps")
+        return str((st or {}).get(step) or step) if isinstance(st, dict) else step
+
+    def known(tid):
+        return bool(tid) and tid in tickets
+
+    def active(tid):
+        t = tickets.get(tid)
+        return tid in live or (t is not None and t.status in ACTIVE)
+
+    entries: list = []  # {tid, mid, kind: job|proc|build|session|unit, what, eta, text, pct, detail, minutes}
+    warns: dict = {}
+
+    def warn(mid, text):
+        if text not in warns.setdefault(mid, []):
+            warns[mid].append(text)
+
+    # 1. ход задач (/data/progress)
+    for key, jl in jobs.items():
+        for j in jl:
+            tid = tk_norm(key) or key or f"job:{j['job']}"
+            if j["done"] >= j["total"] and known(tid) and not active(tid):
+                continue  # закончено, тикет уже закрыт
+            unit = str(plain["units"].get(j["unit"]) or j["unit"]).strip()
+            detail = f"{fmt_num(j['done'])} из {fmt_num(j['total'])} {unit}".strip()
+            entries.append({"tid": tid, "mid": j["machine"], "kind": "job", "what": "", "eta": j["eta"],
+                            "text": step_of(tid, j["step"]) or j["job"], "pct": j["pct"], "detail": detail,
+                            "minutes": None})
+    job_at = {(e["tid"], e["mid"]) for e in entries}
+
+    # 2. процессы машин и замок сборки
+    for m in machines:
+        mid = m["id"]
+        if mid in ("pc", "deck"):
+            continue
+        lock = m.get("lock") or {}
+        for g in m.get("procs", []):
+            name, mins = g["name"], g["minutes"]
+            tid = tk_norm(name, prefix=True)
+            if tid:
+                if active(tid):
+                    if (tid, mid) not in job_at:
+                        entries.append({"tid": tid, "mid": mid, "kind": "proc", "what": "идёт счёт", "eta": None,
+                                        "text": None, "pct": None, "detail": None, "minutes": mins})
+                else:
+                    warn(mid, f"без задачи: {name}")
+            elif name in legacy:
+                warn(mid, str(legacy[name]))
+            elif name in UNIT_DO:
+                entries.append({"tid": None, "mid": mid, "kind": "unit", "what": "", "eta": None, "text": UNIT_DO[name],
+                                "pct": None, "detail": None, "minutes": mins})
+            elif is_build_proc(name):
+                if not lock.get("busy") and mins >= 10:
+                    warn(mid, f"без задачи: {name}")
+            else:
+                warn(mid, f"без задачи: {name}")
+        if lock.get("busy"):
+            tid = lock.get("ticket")
+            if known(tid):
+                entries.append({"tid": tid, "mid": mid, "kind": "build", "what": "сборка кода", "eta": None,
+                                "text": None, "pct": None, "detail": None, "minutes": lock.get("minutes")})
+            else:
+                lab = f" ({lock['label']})" if lock.get("label") else ""
+                warn(mid, f"без задачи: сборка кода{lab}")
+
+    # 3. сессии ролей на этом ПК
+    for tid, r in live.items():
+        entries.append({"tid": tid, "mid": "pc", "kind": "session", "what": ROLE_DO.get(r["role"], r["role"]),
+                        "eta": None, "text": None, "pct": None, "detail": None, "minutes": r["minutes"]})
+
+    def place(e):
+        return {"mid": e["mid"], "name": mach[e["mid"]]["name"] if e["mid"] in mach else e["mid"], "what": e["what"],
+                "eta": e["eta"]}
+
+    def mkey(p):
+        return MACH_ORDER.index(p["mid"]) if p["mid"] in MACH_ORDER else 99
+
+    # --- задачи (СЕЙЧАС ИДЁТ)
+    by_tid: dict = {}
+    for e in entries:
+        if e["tid"]:
+            by_tid.setdefault(e["tid"], []).append(e)
+    now_rows = []
+    for tid, es in by_tid.items():
+        jobs_e = [e for e in es if e["kind"] == "job"]
+        job_mids = {e["mid"] for e in jobs_e}
+        others, seen = [], set()
+        for e in es:
+            if e["kind"] != "job" and e["mid"] not in job_mids and e["mid"] not in seen:
+                seen.add(e["mid"])
+                others.append(place(e))
+        others.sort(key=mkey)
+        mins = [e["minutes"] for e in es if e.get("minutes") is not None]
+        since = max(mins) if mins else None
+        tag = tid if tk_norm(tid) else ""
+        if jobs_e:
+            for i, e in enumerate(jobs_e):
+                now_rows.append({"tag": tag, "text": e["text"], "detail": e["detail"], "pct": e["pct"], "since_min": since,
+                                 "where": [place(e)] + (others if i == 0 else [])})
+        else:
+            now_rows.append({"tag": tag, "text": title_of(tid), "detail": None, "pct": None, "since_min": since,
+                             "where": others})
+    now_rows.sort(key=lambda r: (r["pct"] is None, r["tag"], r["text"]))
+
+    # --- машины (для какой задачи)
+    problems = []
+    mv = []
+    for m in machines:
+        mid = m["id"]
+        items = []
+        for e in entries:
+            if e["mid"] != mid:
+                continue
+            if e["kind"] == "job":
+                txt = f"{e['text']} ({e['pct']} %)"
+            elif e["kind"] == "unit":
+                txt = e["text"]
+            else:
+                txt = f"{short_of(e['tid'])}: {e['what']}"
+            if txt not in items:
+                items.append(txt)
+        note = None
+        if mid == "pc":
+            if not disp_ok:
+                st, stext = "bad", "диспетчер стоит"
+                problems.append("диспетчер стоит")
+            elif not watch_ok:
+                st, stext = "bad", "сторож стоит"
+                problems.append("сторож стоит")
+            else:
+                st, stext = "ok", "в норме"
+        elif mid == "deck":
+            st, stext = "off", m["lines"][0] if m.get("lines") else "выведен"
+        elif m["state"] == "down":
+            st, stext = "down", "нет связи"
+            problems.append(f"нет связи с машиной «{m['name']}»")
+        elif m["state"] == "connecting":
+            st, stext = "connecting", "подключаюсь…"
+        else:
+            units = m.get("units") or []
+            if any(u["state"] == "failed" for u in units):
+                st, stext = "bad", "сбой"
+                problems.append(f"сбой службы на машине «{m['name']}»")
+            elif items:
+                st, stext = "busy", "занят"
+            elif units and any(u["state"] != "active" for u in units):
+                st, stext = "stopped", "стоит"
+                note = str(plain["machines"].get(mid) or "выключен")
+            else:
+                st, stext = "idle", "свободна"
+        mv.append({"id": mid, "name": m["name"], "state": st, "state_text": stext,
+                   "cpu": m.get("cpu") if st in ("busy", "idle") else None,
+                   "items": items, "warns": warns.get(mid, []), "note": note})
+
+    # --- заголовок
+    n_run = len(now_rows)
+    if problems:
+        head = {"text": "есть проблема: " + "; ".join(problems), "level": "bad"}
+    else:
+        head = {"text": plain["headline"] or ("всё идёт" if n_run else "сейчас ничего не идёт"),
+                "level": "ok" if n_run else "idle"}
+
+    news = [{"time": n["time"], "text": n["text"]} for n in plain["news"][:5]]
+    news_src = "plain"
+    if not news:
+        news_src = "events"
+        news = [{"time": e["time"], "text": e["text"], "who": e["who"]} for e in reversed(events[-5:])]
+
+    return {"headline": head, "attention": len(plain["questions"]), "questions": plain["questions"], "now": now_rows,
+            "next": plain["next"], "machines": mv, "news": news, "news_src": news_src}
 
 
 # --- сборка кадра -----------------------------------------------------------------------------------------------------
@@ -573,6 +888,8 @@ def build(feeds, pc, etas) -> dict:
                  "unit": p.get("unit", ""), "pct": round(100 * done / total) if total else 0, "progress": prog, "eta": etxt,
                  "eta_min": None if eta is None else round(eta, 1), "text": txt, "next": p.get("next") or None})
 
+    jobs_all = {k: list(v) for k, v in jobs_by_ticket.items()}  # для вида: ниже jobs_by_ticket разбирается
+
     # строки тикетов
     rows = []
     for tid, t in tickets.items():
@@ -606,7 +923,7 @@ def build(feeds, pc, etas) -> dict:
     except (KeyError, ValueError):
         pass
     disp_ok = pid_alive(read_pid(DISP / "dispatch.pid")) and tick_age is not None and tick_age <= 90
-    hb = read_json(DISP / "watch-heartbeat.json") or {}
+    hb = read_json_cached(DISP / "watch-heartbeat.json", settle_s=2.0) or {}
     try:
         hb_age = int(now - datetime.fromisoformat(hb["ts"]).timestamp())
     except (KeyError, ValueError):
@@ -623,13 +940,16 @@ def build(feeds, pc, etas) -> dict:
                      "lines": ["выведен" if deck_off else "не опрашивается"]})
 
     try:
-        goal = next((ln.strip() for ln in GOAL.read_text(encoding="utf-8").splitlines() if ln.strip()), "")
+        goal = next((ln.strip() for ln in read_text_shared(GOAL).splitlines() if ln.strip()), "")
     except OSError:
         goal = ""
-    return {"v": 1, "built_at": datetime.now(TZ).isoformat(timespec="seconds"), "built_ts": now, "pid": os.getpid(),
+    events = read_events(tickets)
+    plain = load_plain()
+    view = make_view(plain, tickets, live, machines, jobs_all, disp_ok, watch_ok, events)
+    return {"v": 2, "built_at": datetime.now(TZ).isoformat(timespec="seconds"), "built_ts": now, "pid": os.getpid(),
             "goal": goal, "dispatcher": {"ok": disp_ok, "tick_age_s": tick_age, "watch_ok": watch_ok},
-            "tickets": rows, "roles_free": roles_free, "machines": machines, "events": read_events(tickets),
-            "error": None}
+            "plain": plain, "view": view,
+            "tickets": rows, "roles_free": roles_free, "machines": machines, "events": events, "error": None}
 
 
 def t_updated(t, default: float) -> float:
@@ -641,7 +961,7 @@ def t_updated(t, default: float) -> float:
 
 def read_pid(path: Path):
     try:
-        return int(path.read_text().strip())
+        return int(read_text_shared(path).strip())
     except (OSError, ValueError):
         return None
 

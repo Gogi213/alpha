@@ -18,6 +18,9 @@ ARCR=/opt/alpha-compute/wave2$TAG.tgz
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
 cd "$TREE"
+# метка задачи в командной строке замка (видна в `ps` на VPS — экран хода работ по ней находит задачу сборки):
+# ALPHA_TICKET сессии роли (его ставит диспетчер), иначе имя рабочего дерева; на поведение сборки не влияет
+LABEL="$(printf '%s' "${ALPHA_TICKET:-$(basename "$PWD")}" | tr -c 'A-Za-z0-9._-' '_')"
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
@@ -31,4 +34,4 @@ case "$WHAT" in
 esac
 # shellcheck disable=SC2029
 ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC \
-  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock nice -n 5 bash -c '$CMD'"
+  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 bash -c '$CMD'"
