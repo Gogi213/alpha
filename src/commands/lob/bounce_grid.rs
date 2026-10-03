@@ -673,7 +673,19 @@ impl<'a> GridRun<'a> {
             }
             let step_schedule = read_day_schedule(day_parts, tick_e9, step_e9)
                 .map_err(|e| anyhow::anyhow!("{symbol} {}: {e}", day.day))?;
-            let order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
+            let mut order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
+            if let Some(sc) = step_schedule.as_ref() {
+                // В-172: размер ордера кратен лоту, действовавшему в момент касания (вверх — минимум не нарушаем).
+                for (q, t) in order_qtys.iter_mut().zip(&day.touches) {
+                    let lot_e9 = sc.at(t.start_ms.saturating_mul(1_000_000)).1;
+                    if lot_e9 > 0 {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+                        let q_e9 = (*q * 1e9).round() as i64;
+                        let steps = (q_e9 + lot_e9 - 1) / lot_e9;
+                        *q = (steps.saturating_mul(lot_e9)) as f64 / 1e9;
+                    }
+                }
+            }
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
             // G10: память кругов на символ-сутки, по форме — наборы идут по очереди и берут

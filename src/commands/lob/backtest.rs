@@ -71,6 +71,11 @@ pub fn run_backtest(args: &BacktestArgs) -> anyhow::Result<BacktestSummary> {
     super::require_verified(&args.session_root, &args.symbol, args.allow_unverified)?;
     let binlog_paths = super::session_binlog_for(&args.session_root, &args.symbol)?;
     let (tick_e9, step_e9) = read_tick_step(&binlog_paths[0])?;
+    anyhow::ensure!(
+        read_day_schedule(&binlog_paths, tick_e9, step_e9)?.is_none(),
+        "бинлог сессии с расписанием шагов (v4, TK-037): одиночный `lob backtest` его не читает — \
+         лот и тик взялись бы одни на всю сессию; используйте `lob bounce-grid`"
+    );
     let tick_size = tick_e9 as f64 / 1e9;
     let lot_size = step_e9 as f64 / 1e9;
 
