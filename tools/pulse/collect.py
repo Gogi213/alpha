@@ -33,6 +33,7 @@ DISP = ROOT / ".claude" / "dispatcher"
 sys.path.insert(0, str(DISP))  # ticket.py — разбор тикетов (stdlib)
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # plainify.py — переводчик строк (Haiku)
 import plainify  # noqa: E402  (переводчик строк, Haiku)
+import view2  # noqa: E402  (раздел view2: процессы, шаги, вопросы — контракт VIEW2.md)
 PULSE_DIR = ROOT / ".claude" / "pulse"
 STATUS = PULSE_DIR / "status.json"
 PIDFILE = PULSE_DIR / "collect.pid"
@@ -747,8 +748,9 @@ def auto_plain(tickets: dict, live: dict, machines: list, jobs_all: dict, skip_l
     for ts, t, e in cands[:NEWS_CAND]:
         r = entry_out(t, e, 1)
         if r and r.get("news"):
-            items.append((ts, r["news"]))
-    out["news"] = [{"time": news_time(ts), "text": tx} for ts, tx in items[:5]]
+            items.append((ts, r["news"], t.id))
+    out["news"] = [{"time": news_time(ts), "text": tx, "ts": ts.astimezone(TZ).isoformat(timespec="seconds"), "ticket": tid}
+                   for ts, tx, tid in items[:5]]  # ts/ticket — для ленты view2; v1 берёт только time/text
 
     # 5. процессы на машинах без задачи
     for m in machines:
@@ -1037,7 +1039,8 @@ def build(feeds, pc, etas) -> dict:
             jobs_by_ticket.setdefault(str(p.get("ticket", "")).upper(), []).append(
                 {"machine": f.host["id"], "job": job, "step": p.get("step", ""), "done": done, "total": total,
                  "unit": p.get("unit", ""), "pct": round(100 * done / total) if total else 0, "progress": prog, "eta": etxt,
-                 "eta_min": None if eta is None else round(eta, 1), "text": txt, "next": p.get("next") or None})
+                 "eta_min": None if eta is None else round(eta, 1), "text": txt, "next": p.get("next") or None,
+                 "step_n": p.get("step_n")})  # номер шага плана (alpha-progress … step_n); нет — шаг «идёт»
 
     jobs_all = {k: list(v) for k, v in jobs_by_ticket.items()}  # для вида: ниже jobs_by_ticket разбирается
 
@@ -1102,10 +1105,19 @@ def build(feeds, pc, etas) -> dict:
         auto = {"tasks": {}, "next": [], "questions": [], "news": [], "legacy": {}, "units": {}}
     plain = merge_plain(auto, manual)
     view = make_view(plain, tickets, live, machines, jobs_all, disp_ok, watch_ok, events)
+    try:  # view2 не должен ронять кадр: v1 (view) живёт отдельно
+        view2, view2_error = view2_build(plain, tickets, live, machines, jobs_all, events, view, disp_ok, watch_ok, now), None
+    except Exception as e:  # noqa: BLE001
+        view2, view2_error = None, f"{type(e).__name__}: {e}"
     return {"v": 2, "built_at": datetime.now(TZ).isoformat(timespec="seconds"), "built_ts": now, "pid": os.getpid(),
             "goal": goal, "dispatcher": {"ok": disp_ok, "tick_age_s": tick_age, "watch_ok": watch_ok},
-            "plain": plain, "view": view,
+            "plain": plain, "view": view, "view2": view2, "view2_error": view2_error,
             "tickets": rows, "roles_free": roles_free, "machines": machines, "events": events, "error": None}
+
+
+def view2_build(plain, tickets, live, machines, jobs_all, events, view, disp_ok, watch_ok, now) -> dict:
+    return view2.make(sys.modules[__name__], plain=plain, tickets=tickets, live=live, machines=machines, jobs_all=jobs_all,
+                      events=events, view=view, disp_ok=disp_ok, watch_ok=watch_ok, now=now)
 
 
 def t_updated(t, default: float) -> float:

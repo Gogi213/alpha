@@ -28,6 +28,23 @@ TOOL = {
 }
 
 
+TOOL_ANSWER = {
+    "name": "pulse_answer",
+    "description": "Ответ владельца на вопрос табло (раздел view2.questions): id вопроса и клавиша варианта. Помечает вопрос "
+                   "отвеченным, пишет в журнал задачи и в ceo-inbox (CEO записывает решение). Само решение НЕ исполняет.",
+    "inputSchema": {"type": "object", "properties": {"id": {"type": "string", "description": "id вопроса, напр. q-TK-044-1"},
+                                                      "key": {"type": "string", "description": "клавиша варианта, напр. a"}},
+                    "required": ["id", "key"], "additionalProperties": False},
+    "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+}
+
+
+def pulse_answer(qid: str, key: str) -> dict:
+    import ask  # печатает только CLI; здесь stdout — канал протокола
+    ok, msg, warns = ask.answer_question(str(qid), str(key))
+    return {"ok": ok, "message": msg, "warnings": warns}
+
+
 def pulse_status() -> dict:
     C.ensure_collector()
     t0 = time.time()
@@ -53,15 +70,21 @@ def handle(msg: dict):
         want = params.get("protocolVersion")
         res = {"protocolVersion": want if want in PROTOCOLS else PROTOCOLS[0],
                "capabilities": {"tools": {"listChanged": False}},
-               "serverInfo": {"name": "alpha-pulse", "version": "1.0.0"}}
+               "serverInfo": {"name": "alpha-pulse", "version": "1.1.0"}}
     elif method == "ping":
         res = {}
     elif method == "tools/list":
-        res = {"tools": [TOOL]}
+        res = {"tools": [TOOL, TOOL_ANSWER]}
     elif method == "tools/call":
-        if params.get("name") != TOOL["name"]:
+        if params.get("name") not in (TOOL["name"], TOOL_ANSWER["name"]):
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": f"неизвестный инструмент: {params.get('name')}"}}
         try:
+            if params["name"] == TOOL_ANSWER["name"]:
+                args = params.get("arguments") or {}
+                st = pulse_answer(args.get("id", ""), args.get("key", ""))
+                res = {"content": [{"type": "text", "text": "\n".join([st["message"]] + [f"⚠ {w}" for w in st["warnings"]])}],
+                       "structuredContent": st, "isError": not st["ok"]}
+                return {"jsonrpc": "2.0", "id": mid, "result": res}
             st = pulse_status()
             res = {"content": [{"type": "text", "text": json.dumps(st, ensure_ascii=False)}], "structuredContent": st}
         except Exception as e:
