@@ -56,6 +56,7 @@
 - Удаление — только внутри своей папки (В-134): проект и scratchpad; Steam Deck `~/alpha/<подкаталог>`,
   `/dev/shm/alpha-stage`; VPS `/opt/alpha-compute/<подкаталог>`; коллектор, Storage Box, `root/`/`deep/` — никогда.
   Держит `.claude/hooks/delete_guard.py`.
+- Долгая задача на машине (> 5 мин) пишет ход в `/data/progress/<job>.json` через `tools/compute/progress.sh` (на счётном сервере и VPS — `alpha-progress`): на каждом шаге и не реже раза в минуту. Это экран владельца `tools/pulse/pulse.py`; без файла задача на экране не видна.
 - Быстрый режим (fast mode) запрещён владельцем.
 
 ## Расход

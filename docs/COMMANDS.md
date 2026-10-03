@@ -39,6 +39,8 @@
 `data/always-on/20260912T122440Z/` и удалён 2026-09-17 как устаревший: этот абзац ловили на дрейфе
 четыре раза (2026-09-15, 2026-09-16, 2026-09-17 и в аудите 17.09).
 
+**Экран хода работ (одобрил владелец 04.10):** `python tools/pulse/pulse.py` (живой TUI, `--once` — один кадр; сборщик `collect.py` поднимается сам и раз в 5 с пишет `.claude/pulse/status.json`, остановка — файл `.claude/pulse/stop`; для Claude — MCP `tools/pulse/mcp_server.py`, инструмент `pulse_status`); долгая задача на машине пишет ход `alpha-progress <job> <TK-xx> <шаг> <done> <total> [ед.] [дальше]` (= `tools/compute/progress.sh`, установлен на счётном сервере и VPS → `/data/progress/<job>.json`).
+
 ## Грабли
 
 - `--h3-mode floor|percentile` обязателен, умолчания нет — у `levels`, `markout`,
