@@ -38,6 +38,7 @@ class WatchSandbox(unittest.TestCase):
         D.CEO_WAKE_LOG = base / "ceo-wake.log"
         W.WATCH_STATE_FILE = base / "watch-state.json"
         W.WATCH_HEARTBEAT_FILE = base / "watch-heartbeat.json"
+        W.DECK_OFF_FLAG = base / "deck-off"  # боевой флаг не влияет на тесты; тест «флаг есть» создаёт его сам
         self.now = dt("2026-09-27T12:00:00+04:00")
 
     def tearDown(self):
@@ -236,6 +237,56 @@ class SteamDeckWatchTests(WatchSandbox):
                 return True, ""
             return True, "3 30"  # свежо
         self.assertEqual(W.check_steam_deck(fake_ssh), [])
+
+
+class DeckOffFlagTests(WatchSandbox):
+    """Владелец 03.10 04:26: флаг `deck-off` — сторож не ходит на Steam Deck (ssh_run не вызывается)."""
+
+    def _counting_ssh(self):
+        calls = []
+
+        def fake_ssh(cmd, timeout=10.0):
+            calls.append(cmd)
+            return False, "Connection timed out"
+        return calls, fake_ssh
+
+    def test_flag_present_check_steam_deck_makes_no_ssh_call(self):
+        W.DECK_OFF_FLAG.write_text("владелец: Steam Deck не трогаем", encoding="utf-8")
+        calls, fake_ssh = self._counting_ssh()
+        self.assertEqual(W.check_steam_deck(fake_ssh), [])
+        self.assertEqual(calls, [])
+
+    def test_flag_present_check_deck_frozen_makes_no_ssh_call(self):
+        W.DECK_OFF_FLAG.write_text("x", encoding="utf-8")
+        calls, fake_ssh = self._counting_ssh()
+        self.assertEqual(W.check_deck_frozen(fake_ssh), [])
+        self.assertEqual(calls, [])
+
+    def test_flag_present_run_once_no_ssh_and_no_deck_findings(self):
+        W.DECK_OFF_FLAG.write_text("x", encoding="utf-8")
+        calls, fake_ssh = self._counting_ssh()
+        posted = W.run_once(self.now, ssh_run=fake_ssh)
+        self.assertEqual(calls, [])
+        self.assertFalse(any(f.kind.startswith("deck-") for f in posted))
+        self.assertTrue(W.WATCH_HEARTBEAT_FILE.exists())  # сторож жив, остальные проверки идут
+
+    def test_flag_appearing_between_cycles_takes_effect_without_restart(self):
+        calls, fake_ssh = self._counting_ssh()
+        W.run_once(self.now, ssh_run=fake_ssh)
+        self.assertTrue(calls)  # флага нет — прежнее поведение, на деку ходим
+        calls.clear()
+        W.DECK_OFF_FLAG.write_text("x", encoding="utf-8")
+        W.run_once(self.now + timedelta(minutes=2), ssh_run=fake_ssh)
+        self.assertEqual(calls, [])
+        W.DECK_OFF_FLAG.unlink()
+        W.run_once(self.now + timedelta(minutes=4), ssh_run=fake_ssh)
+        self.assertTrue(calls)  # флаг снят — снова ходим
+
+    def test_without_flag_behaviour_unchanged(self):
+        calls, fake_ssh = self._counting_ssh()
+        findings = W.check_steam_deck(fake_ssh)
+        self.assertEqual(len(calls), 3)  # alerts, hold, frozen
+        self.assertTrue(any(f.kind == "deck-ssh-error" for f in findings))
 
 
 class SshEncodingTests(WatchSandbox):

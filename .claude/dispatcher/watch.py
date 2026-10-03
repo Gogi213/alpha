@@ -35,6 +35,9 @@ import ticket as T  # noqa: E402
 DISPATCHER_DIR = Path(__file__).resolve().parent
 WATCH_HEARTBEAT_FILE = DISPATCHER_DIR / "watch-heartbeat.json"
 WATCH_STATE_FILE = DISPATCHER_DIR / "watch-state.json"
+# Владелец 03.10 04:26: «стимдек больше не трогаем». Файл есть — сторож вообще не ходит на Steam Deck по ssh
+# (ни ALERT-*/HOLD/очередь, ни заморозка); наличие проверяется на КАЖДОМ цикле — перезапуск не нужен.
+DECK_OFF_FLAG = DISPATCHER_DIR / "deck-off"
 
 WATCH_INTERVAL_S = float(os.environ.get("ALPHA_WATCH_INTERVAL", "120"))
 WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2"))
@@ -142,6 +145,11 @@ def check_orphan_tickets(now) -> list:
     return out
 
 
+def deck_off() -> bool:
+    """Флаг `.claude/dispatcher/deck-off` — Steam Deck выключен/не трогаем: проверки деки пропускаются."""
+    return DECK_OFF_FLAG.exists()
+
+
 def _ssh_run_once(cmd_suffix: str, timeout: float = 10.0):
     host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
     key = os.environ.get("ALPHA_DECK_KEY", r"C:/Users/Георгий/.ssh/id_rsa")
@@ -187,7 +195,10 @@ def check_steam_deck(ssh_run=_ssh_run, hold_hint=None, observed: dict = None) ->
     v2: `hold_hint` — последнее известное состояние HOLD (из watch-state); если проверка HOLD сама упала
     (таймаут ssh), используем его (нет подсказки — считаем HOLD активным: сам сбой проверки сообщается
     отдельно как deck-ssh-error), чтобы ожидаемый простой не превращался в тревогу. `observed` — словарь,
-    куда кладём свежее состояние HOLD (`observed["hold"]`), если его удалось прочитать."""
+    куда кладём свежее состояние HOLD (`observed["hold"]`), если его удалось прочитать.
+    Есть флаг `deck-off` — ssh не вызывается вовсе, находок нет."""
+    if deck_off():
+        return []
     out = []
     ok, alerts = ssh_run("for f in ~/alpha/queue/ALERT-*; do [ -f \"$f\" ] && "
                           "echo \"$(basename $f): $(head -c 200 $f)\"; done; true")
@@ -240,6 +251,8 @@ DECK_FROZEN_CMD = ("if [ -f ~/alpha/sync/DISK-FULL ]; then echo \"mark $(grep -c
 
 
 def check_deck_frozen(ssh_run=_ssh_run) -> list:
+    if deck_off():
+        return []
     ok, info = ssh_run(DECK_FROZEN_CMD)
     if not ok:
         return [Finding("deck-ssh-error", "frozen", f"не удалось проверить заморозку Steam Deck: {info}")]
