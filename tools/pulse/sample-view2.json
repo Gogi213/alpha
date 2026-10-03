@@ -1,0 +1,63 @@
+{"view2": {
+  "time": "02:30",
+  "headline": {"state": "wait", "text": "ждёт вас: 2"},
+  "counters": {"done": 5, "run": 1, "wait": 2, "todo": 4, "bad": 2},
+  "tags": {
+    "pc": {"tag": "ПК", "name": "этот ПК", "color": "purple"},
+    "vps": {"tag": "VPS", "name": "VPS София", "color": "teal"},
+    "calc": {"tag": "СЧЁТ", "name": "сервер счёта", "color": "blue"},
+    "col": {"tag": "КОЛ", "name": "коллектор", "color": "gray"},
+    "you": {"tag": "ВЫ", "name": "вы", "color": "amber"}
+  },
+  "machines": [
+    {"id": "pc", "state": "ok", "load": "инженер · Умная проверка", "now": {"state": "wait", "text": "ждёт вас"}, "orphans": 0, "cpu": 10, "mem": 76, "disk_mb_s": null},
+    {"id": "vps", "state": "ok", "load": "Умная проверка · без хозяина", "now": {"state": "idle", "text": "простаивает"}, "orphans": 2, "cpu": 3, "mem": 22, "disk_mb_s": 0},
+    {"id": "calc", "state": "ok", "load": "автомат · Добор данных", "now": {"state": "run", "text": "сверка ~5 мин"}, "orphans": 0, "cpu": 18, "mem": 2, "disk_mb_s": 77},
+    {"id": "col", "state": "off", "load": "выключен вами", "now": {"state": "off", "text": "задач нет"}, "orphans": 0, "cpu": 1, "mem": 14, "disk_mb_s": 0}
+  ],
+  "processes": [
+    {"id": "TK-042", "n": 1, "title": "Добор и проверка данных",
+     "flow": [{"text": "делается на", "on": "calc"}], "for": {"text": "база дней", "on": "calc"},
+     "state": "run", "step_now": 3, "steps_total": 4, "eta_min": 5, "wait_min": null,
+     "steps": [
+      {"n": 1, "title": "найти пропуски", "who": "автомат", "on": "calc", "for": "список", "state": "done", "pct": null, "detail": null, "eta_min": null, "started": "00:45", "finished": "00:48", "question": null},
+      {"n": 2, "title": "добор", "who": "автомат", "on": "calc", "for": "база дней", "state": "done", "pct": 100, "detail": "93 из 93 суток", "eta_min": null, "started": "00:48", "finished": "00:51", "question": null},
+      {"n": 3, "title": "сверка", "who": "автомат", "on": "calc", "for": "база дней", "state": "run", "pct": 47, "detail": "231 из 492 монето-месяцев", "eta_min": 5, "started": "00:59", "finished": null, "question": null},
+      {"n": 4, "title": "запись в базу", "who": "автомат", "on": "calc", "for": "база дней", "state": "todo", "pct": null, "detail": null, "eta_min": null, "started": null, "finished": null, "question": null}
+     ]},
+    {"id": "TK-044", "n": 2, "title": "Умная проверка данных",
+     "flow": [{"text": "код пишет", "on": "pc"}, {"text": "запускает и проверяет", "on": "vps"}], "for": {"text": "данные дней", "on": "vps"},
+     "state": "wait", "step_now": 3, "steps_total": 5, "eta_min": null, "wait_min": 6,
+     "steps": [
+      {"n": 1, "title": "правила проверки", "who": "инженер", "on": "pc", "for": "код для VPS", "state": "done", "pct": null, "detail": null, "eta_min": null, "started": "01:16", "finished": "02:16", "question": null},
+      {"n": 2, "title": "сборка кода", "who": "автомат", "on": "vps", "for": "запуск на VPS", "state": "done", "pct": null, "detail": null, "eta_min": null, "started": "02:17", "finished": "02:22", "question": null},
+      {"n": 3, "title": "вопрос владельцу", "who": "вы", "on": "you", "for": "правило для шага 4", "state": "wait", "pct": null, "detail": null, "eta_min": null, "started": "02:24", "finished": null, "question": "q-TK-044-1"},
+      {"n": 4, "title": "прогон проверки", "who": "автомат", "on": "vps", "for": "данные на VPS", "state": "todo", "pct": null, "detail": null, "eta_min": null, "started": null, "finished": null, "question": null},
+      {"n": 5, "title": "отчёт", "who": "инженер", "on": "pc", "for": "для вас", "state": "todo", "pct": null, "detail": null, "eta_min": null, "started": null, "finished": null, "question": null}
+     ]},
+    {"id": "orphans-vps", "n": 3, "title": "Старые задачи без хозяина ×2",
+     "flow": [{"text": "висят на", "on": "vps"}], "for": {"text": "кто запустил — неизвестно", "on": null},
+     "state": "bad", "step_now": 2, "steps_total": 3, "eta_min": null, "wait_min": 30,
+     "steps": [
+      {"n": 1, "title": "без хозяина", "who": "автомат", "on": "vps", "for": "2 шт.", "state": "bad", "pct": null, "detail": "заливка на Storage Box с 02.10; пересылка (jall) с 28.09", "eta_min": null, "started": null, "finished": null, "question": null},
+      {"n": 2, "title": "вопрос владельцу", "who": "вы", "on": "you", "for": "остановить?", "state": "wait", "pct": null, "detail": null, "eta_min": null, "started": "02:00", "finished": null, "question": "q-vps-orphans"},
+      {"n": 3, "title": "остановить", "who": "автомат", "on": "vps", "for": "VPS", "state": "todo", "pct": null, "detail": null, "eta_min": null, "started": null, "finished": null, "question": null}
+     ]}
+  ],
+  "questions": [
+    {"id": "q-TK-044-1", "n": 1, "process": "TK-044", "from": "инженер", "on": "pc",
+     "text": "Признак «цены не было»: только число или браковать сутки?",
+     "options": [{"key": "a", "label": "только число", "effect": "запустит «прогон» на VPS"}, {"key": "b", "label": "браковать сутки", "effect": "запустит «прогон» на VPS, ~20 % суток малоликвидных — в брак"}],
+     "since": "02:24", "wait_min": 6},
+    {"id": "q-vps-orphans", "n": 2, "process": "orphans-vps", "from": "CEO", "on": "vps",
+     "text": "Остановить 2 старые задачи на VPS?",
+     "options": [{"key": "y", "label": "да", "effect": "остановит их на VPS"}, {"key": "n", "label": "нет", "effect": "оставит как есть"}],
+     "since": "02:00", "wait_min": 30}
+  ],
+  "feed": [
+    {"time": "02:16", "state": "done", "on": ["pc"], "to": null, "text": "правила проверки"},
+    {"time": "02:21", "state": "done", "on": ["calc"], "to": null, "text": "добор 100 %"},
+    {"time": "02:24", "state": "wait", "on": ["pc"], "to": "you", "text": "вопрос 1"},
+    {"time": "02:27", "state": "bad", "on": ["vps"], "to": null, "text": "найдены 2 задачи без хозяина"}
+  ]
+}}
