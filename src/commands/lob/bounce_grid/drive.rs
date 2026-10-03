@@ -83,6 +83,7 @@ fn signals_for(
             };
             let shape = PlanShape {
                 lot: p.lot,
+                level_lot: None,
                 post_only: p.post_only,
                 trail_bps: 0.0,
                 trail_activate_bps: 0.0,

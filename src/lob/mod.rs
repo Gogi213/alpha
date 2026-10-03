@@ -22,6 +22,7 @@ pub mod r1_flow;
 pub mod runs;
 pub mod shortlist;
 pub mod sigma;
+pub mod step_schedule;
 pub mod strategy;
 pub mod touch_axes;
 pub mod watch;

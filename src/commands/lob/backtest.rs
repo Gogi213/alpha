@@ -297,6 +297,7 @@ fn run_bounce(
                 sigma_bps,
                 PlanShape {
                     lot: lot_size,
+                    level_lot: None,
                     post_only: args.post_only,
                     trail_bps: args.trail_bps,
                     trail_activate_bps: args.trail_activate_bps,

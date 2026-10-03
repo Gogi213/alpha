@@ -1,12 +1,14 @@
 use super::feed::events_from_feed;
-use super::plan::EARLY_EXITS_S;
+use super::plan::{approach_plan_sched, bounce_plan_sched, EARLY_EXITS_S};
 use super::*;
+use crate::binlog::StepAt;
 use crate::book::{Side, Update};
 use crate::bybit::ws::Event as WsEvent;
 use crate::commands::lob::profiles::FillModel;
 use crate::feed::{Event as FeedEvent, Feed};
 use crate::lob::backtest::{ExecLatency, SIGMA_SHORT};
 use crate::lob::levels::LevelRecord;
+use crate::lob::step_schedule::StepSchedule;
 use crate::lob::strategy::{ExitReason, TradePlan};
 use hftbacktest::types::{
     EXCH_ASK_DEPTH_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BUY_TRADE_EVENT, EXCH_EVENT,
@@ -320,6 +322,7 @@ fn compare_with_table_falls_back_to_net_bps_on_the_task10_fixture() {
 fn plain_shape() -> PlanShape {
     PlanShape {
         lot: 1.0,
+        level_lot: None,
         post_only: false,
         trail_bps: 0.0,
         trail_activate_bps: 0.0,
@@ -1470,5 +1473,313 @@ fn ladder_at_capacity_fills_every_leg_and_keeps_the_share_sum() {
     assert!(
         (entry_px - nearest).abs() < 1e-9,
         "средняя плана — взвешенная по долям: {entry_px} против {weighted}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// TK-037 п.3 (В-172): план на действующей сетке биржи (`bounce_plan_sched`).
+// -----------------------------------------------------------------------
+
+fn at_step(ts_ns: i64, tick_e9: i64, step_e9: i64) -> StepAt {
+    StepAt {
+        ts_ns,
+        tick_e9,
+        step_e9,
+    }
+}
+
+/// Цена лежит на сетке шага `step` (допуск на двоичную запись).
+fn on_step(px: f64, step: f64) -> bool {
+    let n = px / step;
+    (n - n.round()).abs() < 1e-6
+}
+
+/// Смена шага цены на PAXG-подобной монете: сетка данных 0.001, до `CHANGE_NS` действовал шаг 0.01.
+const CHANGE_NS: i64 = 5_000_000_000;
+
+fn paxg_schedule() -> StepSchedule {
+    StepSchedule::from_header(
+        1_000_000,
+        1_000_000,
+        &[
+            at_step(0, 10_000_000, 1_000_000),
+            at_step(CHANGE_NS, 1_000_000, 1_000_000),
+        ],
+    )
+    .unwrap()
+}
+
+/// Касание, начавшееся в `start_ms`, на цене `price_tick` (тики сетки данных 0.001).
+fn paxg_touch(start_ms: i64, price_tick: i64, frontrun_tick: Option<i64>) -> TouchRecord {
+    TouchRecord {
+        start_ms,
+        end_ms: start_ms + 1_000,
+        ..bounce_touch(price_tick, frontrun_tick)
+    }
+}
+
+fn paxg_shape() -> PlanShape {
+    PlanShape {
+        lot: 0.001,
+        ..plain_shape()
+    }
+}
+
+fn sched_plan(
+    touch: &TouchRecord,
+    schedule: &StepSchedule,
+    form: BounceForm,
+    shape: PlanShape,
+) -> Option<(i8, TradePlan)> {
+    bounce_plan_sched(touch, 1_000_000, 1_000_000, schedule, form, None, shape)
+}
+
+fn plan_tick_px(plan: &TradePlan) -> f64 {
+    match plan {
+        TradePlan::Bounce { tick_px, .. } => *tick_px,
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    }
+}
+
+/// До смены шага цены ордера встают только на старую (грубую) цену, `tick_px` — старый шаг.
+#[test]
+fn sched_before_the_price_step_change_keeps_every_price_on_the_old_step() {
+    let schedule = paxg_schedule();
+    for frontrun in [None, Some(3_000_010), Some(3_000_030)] {
+        let touch = paxg_touch(1_000, 3_000_000, frontrun);
+        let (_, plan) = sched_plan(&touch, &schedule, base("pct2", "1to1"), paxg_shape())
+            .expect("план строится");
+        let (entry, stop, take) = plan_prices(&plan);
+        let TradePlan::Bounce { level_px, .. } = plan else {
+            panic!("отскок обязан быть Bounce");
+        };
+        for px in [entry, stop, take, level_px] {
+            assert!(on_step(px, 0.01), "{px} не на шаге 0.01 ({frontrun:?})");
+        }
+        assert!(close(plan_tick_px(&plan), 0.01));
+        assert!(close(level_px, 3_000.0));
+        // Без фронтрана вход — 1 действующий тик (0.01), не мелкий 0.001.
+        if frontrun.is_none() {
+            assert!(close(entry - level_px, 0.01), "{entry}");
+        }
+        // Прежний `bounce_plan` на сетке данных поставил бы вход на мелкую цену 0.001.
+        if frontrun.is_none() {
+            let (_, old) = bounce_plan(&touch, 0.001, base("pct2", "1to1"), None, paxg_shape())
+                .expect("план строится");
+            assert!(!on_step(plan_prices(&old).0, 0.01));
+        }
+    }
+    // Уровень вне старой сетки — плана нет (вызывающий считает пропуск).
+    let off_grid = paxg_touch(1_000, 3_000_005, None);
+    assert!(sched_plan(&off_grid, &schedule, base("pct2", "1to1"), paxg_shape()).is_none());
+}
+
+/// После смены — новый шаг: вход в 1 тик = 0.001, `tick_px` = 0.001, план равен прежнему `bounce_plan`.
+#[test]
+fn sched_after_the_price_step_change_uses_the_new_step() {
+    let schedule = paxg_schedule();
+    let form = base("pct2", "1to1");
+    let touch = paxg_touch(6_000, 3_000_005, None);
+    let sched = sched_plan(&touch, &schedule, form, paxg_shape());
+    let (_, plan) = sched.expect("план строится");
+    let (entry, _, _) = plan_prices(&plan);
+    let TradePlan::Bounce { level_px, .. } = plan else {
+        panic!("отскок обязан быть Bounce");
+    };
+    assert!(close(plan_tick_px(&plan), 0.001));
+    assert!(close(entry - level_px, 0.001), "{entry} против {level_px}");
+    assert_eq!(
+        sched,
+        bounce_plan(&touch, 0.001, form, None, paxg_shape()),
+        "один шаг — прежний план байт в байт"
+    );
+    // Ровно на метке смены (`ts <= t`) уже действует новый шаг.
+    let on_edge = paxg_touch(5_000, 3_000_005, None);
+    assert!(sched_plan(&on_edge, &schedule, form, paxg_shape()).is_some());
+}
+
+/// Смена лота (LAB-подобная монета): до смены `lot_qty` — старый лот, `level_qty` прежний; после — как раньше.
+#[test]
+fn sched_before_the_lot_change_uses_the_old_lot_and_keeps_level_qty() {
+    // Сетка данных 0.01 / 0.1; до смены лот 1.0, после — 0.1; шаг цены не менялся.
+    let schedule = StepSchedule::from_header(
+        10_000_000,
+        100_000_000,
+        &[
+            at_step(0, 10_000_000, 1_000_000_000),
+            at_step(CHANGE_NS, 10_000_000, 100_000_000),
+        ],
+    )
+    .unwrap();
+    let form = base("pct2", "1to1");
+    let shape = PlanShape {
+        lot: 0.1,
+        ..plain_shape()
+    };
+    let lot_fields = |plan: &TradePlan| match plan {
+        TradePlan::Bounce {
+            level_qty,
+            lot_qty,
+            tick_px,
+            ..
+        } => (*level_qty, *lot_qty, *tick_px),
+        TradePlan::SpreadHold => panic!("отскок обязан быть Bounce"),
+    };
+    let sched = |t: &TouchRecord| {
+        bounce_plan_sched(t, 10_000_000, 100_000_000, &schedule, form, None, shape)
+    };
+
+    let mut before = bounce_touch(1_000, Some(1_005));
+    before.size_at_touch = 25;
+    let (_, old) = bounce_plan(&before, 0.01, form, None, shape).unwrap();
+    let (_, plan) = sched(&before).expect("план строится");
+    let (level_qty, lot_qty, tick_px) = lot_fields(&plan);
+    assert_eq!(level_qty, lot_fields(&old).0, "level_qty не меняется");
+    assert_eq!(level_qty, 25.0 * 0.1);
+    assert_eq!(lot_qty, 1.0, "lot_qty — действующий лот");
+    assert!(close(tick_px, 0.01));
+    assert_eq!(
+        plan_prices(&plan),
+        plan_prices(&old),
+        "цены те же: шаг цены не менялся"
+    );
+
+    let mut after = bounce_touch(1_000, Some(1_005));
+    after.start_ms = 6_000;
+    after.end_ms = 7_000;
+    after.size_at_touch = 25;
+    assert_eq!(sched(&after), bounce_plan(&after, 0.01, form, None, shape));
+}
+
+/// Сутки без смены шага (пустое расписание или запись равна сетке): план — прежний `bounce_plan`, `==`.
+#[test]
+fn sched_without_a_change_equals_the_plain_bounce_plan() {
+    let empty = StepSchedule::from_header(10_000_000, 100_000_000, &[]).unwrap();
+    let flat = StepSchedule::from_header(
+        10_000_000,
+        100_000_000,
+        &[
+            at_step(0, 10_000_000, 100_000_000),
+            at_step(CHANGE_NS, 10_000_000, 100_000_000),
+        ],
+    )
+    .unwrap();
+    let shape = PlanShape {
+        lot: 0.1,
+        ..plain_shape()
+    };
+    let mut ask = bounce_touch(1_000, Some(995));
+    ask.side = Side::Ask;
+    for touch in [
+        bounce_touch(1_000, None),
+        bounce_touch(1_000, Some(1_005)),
+        ask,
+    ] {
+        for form in [
+            base("pct2", "1to1"),
+            base("stack2", "1to1"),
+            base("before", "1to1"),
+        ] {
+            let plain = bounce_plan(&touch, 0.01, form, Some(20.0), shape);
+            for schedule in [&empty, &flat] {
+                let sched = bounce_plan_sched(
+                    &touch,
+                    10_000_000,
+                    100_000_000,
+                    schedule,
+                    form,
+                    Some(20.0),
+                    shape,
+                );
+                assert_eq!(sched, plain, "{touch:?}");
+            }
+        }
+    }
+}
+
+/// Округление недостающих тиков — в сторону уровня / от рынка, вход не ближе одного действующего тика.
+#[test]
+fn sched_rounds_frontrun_and_stack_toward_the_level_and_away_from_the_market() {
+    let schedule = paxg_schedule();
+    let entry_of = |touch: &TouchRecord| {
+        let (_, plan) = sched_plan(touch, &schedule, base("pct2", "1to1"), paxg_shape())
+            .expect("план строится");
+        plan_prices(&plan).0
+    };
+    // Бид: фронтран 3000.013 → вниз к 3000.010; 3000.004 → вниз к самому уровню → не ближе 1 тика (3000.01).
+    assert!(close(
+        entry_of(&paxg_touch(1_000, 3_000_000, Some(3_000_013))),
+        3_000.01
+    ));
+    assert!(close(
+        entry_of(&paxg_touch(1_000, 3_000_000, Some(3_000_004))),
+        3_000.01
+    ));
+    // Аск: фронтран 2999.987 → вверх (к уровню) до 2999.990.
+    let mut ask = paxg_touch(1_000, 3_000_000, Some(2_999_987));
+    ask.side = Side::Ask;
+    assert!(close(entry_of(&ask), 2_999.99));
+
+    // Стоп «за второй плотностью»: плотность бида на 2999.987 → вниз до 2999.980, стоп на тик глубже — 2999.97.
+    let stop_of = |touch: &TouchRecord| {
+        let (_, plan) = sched_plan(touch, &schedule, base("stack2", "1to1"), paxg_shape())
+            .expect("план строится");
+        plan_prices(&plan).1
+    };
+    let mut bid = paxg_touch(1_000, 3_000_000, Some(3_000_020));
+    bid.stack_next_tick = Some(2_999_987);
+    assert!(close(stop_of(&bid), 2_999.97), "{}", stop_of(&bid));
+    // Аск: плотность на 3000.013 → вверх до 3000.020, стоп — 3000.03.
+    ask.stack_next_tick = Some(3_000_013);
+    assert!(close(stop_of(&ask), 3_000.03), "{}", stop_of(&ask));
+}
+
+/// Подход: тот же план, что у вида подхода как касания (`touch_view_of_approach`), время — взвод.
+#[test]
+fn approach_plan_sched_is_the_sched_plan_of_the_touch_view() {
+    let schedule = paxg_schedule();
+    let approach = crate::lob::levels::ApproachRecord {
+        side: Side::Bid,
+        price_tick: 3_000_000,
+        approach_index: 0,
+        arm_ms: 1_000,
+        arm_dist_bps: 10,
+        level_birth_ms: 0,
+        size_at_arm: 100,
+        best_own_tick: 2_999_000,
+        best_opp_tick: 3_010_000,
+        flow_1h_lots: 0,
+        strength_e2: [-1, -1, -1],
+        depth_behind_lots: 0,
+        stack_levels_at_arm: 0,
+        frontrun_lots_at_arm: 0,
+        p08: Some(Default::default()),
+        r1: None,
+        touch_start_ms: None,
+        disarm_ms: 2_000,
+        disarm_reason: crate::lob::levels::ApproachEnd::PriceLeft,
+    };
+    let form = base("pct2", "1to1");
+    let by_approach = approach_plan_sched(
+        &approach,
+        1_000_000,
+        1_000_000,
+        &schedule,
+        form,
+        None,
+        paxg_shape(),
+    );
+    let by_view = sched_plan(
+        &touch_view_of_approach(&approach),
+        &schedule,
+        form,
+        paxg_shape(),
+    );
+    assert!(by_approach.is_some());
+    assert_eq!(by_approach, by_view);
+    let (_, plan) = by_approach.unwrap();
+    assert!(
+        close(plan_tick_px(&plan), 0.01),
+        "взвод до смены — старый шаг"
     );
 }

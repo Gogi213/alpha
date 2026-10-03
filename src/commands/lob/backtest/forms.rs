@@ -599,6 +599,10 @@ pub(crate) struct PlanShape {
     /// Шаг лота в единицах крейта (`step_e9 / 1e9`): размер плотности на
     /// сигнале в план (E7 съедание) и округление дробного выхода.
     pub(crate) lot: f64,
+    /// Шаг лота, в котором выражен `size_at_touch` касания (лоты сетки данных): из него
+    /// `level_qty = size_at_touch × level_lot`. `None` — тот же `lot`. Нужен, когда действующий
+    /// лот грубее сетки (`bounce_plan_sched`, В-172): `level_qty` не меняется, `lot_qty` — `lot`.
+    pub(crate) level_lot: Option<f64>,
     pub(crate) post_only: bool,
     pub(crate) trail_bps: f64,
     pub(crate) trail_activate_bps: f64,

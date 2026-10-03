@@ -12,6 +12,7 @@ use crate::lob::backtest::{SIGMA_LONG, SIGMA_SHORT};
 use crate::lob::levels::{
     ApproachRecord, TouchRecord, REACTION_WINDOWS_S, STRENGTH_HELD_WINDOWS_S,
 };
+use crate::lob::step_schedule::StepSchedule;
 use crate::lob::strategy::{EntryLadder, TradePlan};
 use crate::lob::touch_axes::{
     age_bucket, frontrun_bucket, frontrun_share, round_bucket, touch_index_bucket,
@@ -65,6 +66,7 @@ pub(crate) fn bounce_plan(
 ) -> Option<(i8, TradePlan)> {
     let PlanShape {
         lot,
+        level_lot,
         post_only,
         trail_bps,
         trail_activate_bps,
@@ -293,7 +295,7 @@ pub(crate) fn bounce_plan(
                 TakeForm::Eaten { .. } => 0.5,
                 _ => 0.0,
             },
-            level_qty: touch.size_at_touch.max(0) as f64 * lot,
+            level_qty: touch.size_at_touch.max(0) as f64 * level_lot.unwrap_or(lot),
             lot_qty: lot,
             // F7 (Б-75): форма выхода — из оси сетки (`--exit-form`).
             exit_eat_pct: match shape.exit_form {
@@ -407,6 +409,107 @@ pub(crate) fn approach_plan(
     bounce_plan(
         &touch_view_of_approach(approach),
         tick,
+        form,
+        sigma_bps,
+        shape,
+    )
+}
+
+/// Целое отношение `a / b` двух положительных шагов; нет — `None`.
+fn exact_ratio(a: i64, b: i64) -> Option<i64> {
+    if a > 0 && b > 0 && a % b == 0 {
+        Some(a / b)
+    } else {
+        None
+    }
+}
+
+/// Тик сетки данных → тик действующей сетки (шаг в `k` раз крупнее): `dir > 0` — вверх, иначе вниз.
+fn to_effective_tick(tick: i64, k: i64, dir: i64) -> i64 {
+    if dir > 0 {
+        -(-tick).div_euclid(k)
+    } else {
+        tick.div_euclid(k)
+    }
+}
+
+/// `bounce_plan` на **действующей** сетке биржи (В-172, TK-037): книга, касания и уровни — в тиках и
+/// лотах сетки данных (`grid_*_e9`, мельчайшая сетка суток), а шаги, действовавшие в момент касания
+/// (`schedule.at(start_ms)`), могут быть крупнее. До смены шага ордера ставятся только на старой
+/// цене и кратно старому лоту. Шаг сетки данных — единственный в этот момент (`k_p = k_q = 1`) —
+/// прежний `bounce_plan` с теми же аргументами, байт в байт.
+///
+/// Иначе: цена уровня не кратна действующему шагу — `None` (вызывающий считает пропуск); фронтран и
+/// «вторая плотность» пересчитаны в действующие тики с округлением в сторону уровня/от рынка;
+/// `level_qty` прежний (`size_at_touch × лот сетки`), `lot_qty` и `tick_px` — действующие. Шаг
+/// действующей сетки не кратен сетке данных — `None` (расписание из `StepSchedule::from_header`
+/// такого не даёт). Работает на этапе плана, не в горячем пути стратегии.
+// Подключается к `bounce-grid`/`backtest` следующим шагом TK-037 п.3.
+#[allow(dead_code, clippy::cast_precision_loss)]
+pub(crate) fn bounce_plan_sched(
+    touch: &TouchRecord,
+    grid_tick_e9: i64,
+    grid_lot_e9: i64,
+    schedule: &StepSchedule,
+    form: BounceForm,
+    sigma_bps: Option<f64>,
+    shape: PlanShape,
+) -> Option<(i8, TradePlan)> {
+    let (eff_tick_e9, eff_lot_e9) = schedule.at(touch.start_ms.saturating_mul(1_000_000));
+    let k_p = exact_ratio(eff_tick_e9, grid_tick_e9)?;
+    let k_q = exact_ratio(eff_lot_e9, grid_lot_e9)?;
+    if k_p == 1 && k_q == 1 {
+        return bounce_plan(touch, grid_tick_e9 as f64 / 1e9, form, sigma_bps, shape);
+    }
+    if touch.price_tick.rem_euclid(k_p) != 0 {
+        return None;
+    }
+    let away: i64 = match touch.side {
+        Side::Bid => 1,
+        Side::Ask => -1,
+    };
+    let level = touch.price_tick / k_p;
+    // Округление — в сторону `-away` (к уровню и от рынка): вход не агрессивнее цены, которую видели
+    // (приоритета в очереди, которого не было, не выдумываем), а стоп «за второй плотностью» остаётся за ней.
+    let eff_tick_of = |t: i64| to_effective_tick(t, k_p, -away);
+    let mut eff = *touch;
+    eff.price_tick = level;
+    // Фронтран не ближе одного действующего тика к уровню — как прежний `P ± 1` без фронтрана.
+    eff.frontrun_tick = touch.frontrun_tick.map(|f| {
+        let r = eff_tick_of(f);
+        if (r - level) * away < 1 {
+            level + away
+        } else {
+            r
+        }
+    });
+    eff.stack_next_tick = touch.stack_next_tick.map(eff_tick_of);
+    let shape = PlanShape {
+        lot: eff_lot_e9 as f64 / 1e9,
+        level_lot: Some(shape.level_lot.unwrap_or(shape.lot)),
+        ..shape
+    };
+    bounce_plan(&eff, eff_tick_e9 as f64 / 1e9, form, sigma_bps, shape)
+}
+
+/// `approach_plan` на действующей сетке биржи: вид подхода как касания и `bounce_plan_sched`
+/// (время взвода — `arm_ms`).
+// Подключается к `bounce-grid` следующим шагом TK-037 п.3.
+#[allow(dead_code)]
+pub(crate) fn approach_plan_sched(
+    approach: &ApproachRecord,
+    grid_tick_e9: i64,
+    grid_lot_e9: i64,
+    schedule: &StepSchedule,
+    form: BounceForm,
+    sigma_bps: Option<f64>,
+    shape: PlanShape,
+) -> Option<(i8, TradePlan)> {
+    bounce_plan_sched(
+        &touch_view_of_approach(approach),
+        grid_tick_e9,
+        grid_lot_e9,
+        schedule,
         form,
         sigma_bps,
         shape,
