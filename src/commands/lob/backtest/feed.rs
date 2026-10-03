@@ -39,6 +39,41 @@ pub(crate) fn read_tick_step(path: &Path) -> anyhow::Result<(i64, i64)> {
     Ok((header.tick_e9, header.step_e9))
 }
 
+/// Расписание шагов суток по частям (TK-037, В-172): `None` — ни одна часть не v4 (шаг один, сетка
+/// данных; прежний путь). Часть v4 допустима только единственной в сутках и с заголовком = сетка
+/// символа `(tick_e9, step_e9)`; иначе отказ — тихо взять не ту сетку нельзя.
+pub(crate) fn read_day_schedule(
+    paths: &[PathBuf],
+    tick_e9: i64,
+    step_e9: i64,
+) -> anyhow::Result<Option<crate::lob::step_schedule::StepSchedule>> {
+    let mut found = None;
+    for path in paths {
+        let file = std::fs::File::open(path)
+            .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;
+        let reader = binlog::Reader::open(file)
+            .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
+        let sched = reader.step_schedule();
+        if sched.is_empty() {
+            continue;
+        }
+        let h = reader.header();
+        anyhow::ensure!(
+            paths.len() == 1 && h.tick_e9 == tick_e9 && h.step_e9 == step_e9,
+            "{}: расписание шагов (v4) допустимо только в единственной части суток с сеткой символа              ({tick_e9}, {step_e9}); в файле ({}, {}), частей в сутках {}",
+            path.display(),
+            h.tick_e9,
+            h.step_e9,
+            paths.len()
+        );
+        found = Some(
+            crate::lob::step_schedule::StepSchedule::from_header(h.tick_e9, h.step_e9, sched)
+                .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?,
+        );
+    }
+    Ok(found)
+}
+
 pub(crate) fn open_replay_feed(path: &Path) -> anyhow::Result<ReplayFeed<std::fs::File>> {
     let file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("бинлог {} не открывается: {e}", path.display()))?;

@@ -16,8 +16,9 @@ use hftbacktest::types::Event as HbtEvent;
 
 use crate::book::Side;
 use crate::commands::lob::backtest::{
-    approach_plan, bounce_plan, count_feed_events, deadline_ns_from_secs, early_exit_ns_from_secs,
-    feed_compact_into, open_replay_feed, EntryForm, PlanShape, PoolLot,
+    approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
+    deadline_ns_from_secs, early_exit_ns_from_secs, feed_compact_into, open_replay_feed, EntryForm,
+    PlanShape, PoolLot,
 };
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
@@ -26,6 +27,7 @@ use crate::lob::backtest::{
 };
 use crate::lob::levels::{H3Mode, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
+use crate::lob::step_schedule::StepSchedule;
 
 use super::args::{BounceGridArgs, DriverArg};
 use super::carry::{cached_event_count, store_event_count};
@@ -109,9 +111,21 @@ fn signals_for(
                     _ => None,
                 },
             };
-            let built = match approaches {
-                Some(ap) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
-                None => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
+            let built = match (p.step_schedule, approaches) {
+                (Some(sc), Some(ap)) => approach_plan_sched(
+                    &ap[ti],
+                    p.grid_e9.0,
+                    p.grid_e9.1,
+                    sc,
+                    form.form,
+                    sigma_bps,
+                    shape,
+                ),
+                (Some(sc), None) => {
+                    bounce_plan_sched(t, p.grid_e9.0, p.grid_e9.1, sc, form.form, sigma_bps, shape)
+                }
+                (None, Some(ap)) => approach_plan(&ap[ti], p.tick, form.form, sigma_bps, shape),
+                (None, None) => bounce_plan(t, p.tick, form.form, sigma_bps, shape),
             };
             let Some((dir, plan)) = built else {
                 skipped += 1;
@@ -317,6 +331,10 @@ pub(super) struct DayParams<'a> {
     pub(super) form_ids: &'a [usize],
     pub(super) tick: f64,
     pub(super) lot: f64,
+    /// Сетка данных `(tick_e9, step_e9)` и расписание действующих шагов суток (v4, В-172); `None` —
+    /// шаг один, план прежний.
+    pub(super) grid_e9: (i64, i64),
+    pub(super) step_schedule: Option<&'a StepSchedule>,
     pub(super) rtt_ns: ExecLatency,
     /// Модель очереди/исполнения суток (`--queue-model`, F3) — одна на процесс.
     pub(super) queue_model: QueueModelKind,

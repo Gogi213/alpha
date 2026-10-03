@@ -444,8 +444,7 @@ fn to_effective_tick(tick: i64, k: i64, dir: i64) -> i64 {
 /// `level_qty` прежний (`size_at_touch × лот сетки`), `lot_qty` и `tick_px` — действующие. Шаг
 /// действующей сетки не кратен сетке данных — `None` (расписание из `StepSchedule::from_header`
 /// такого не даёт). Работает на этапе плана, не в горячем пути стратегии.
-// Подключается к `bounce-grid`/`backtest` следующим шагом TK-037 п.3.
-#[allow(dead_code, clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss)]
 pub(crate) fn bounce_plan_sched(
     touch: &TouchRecord,
     grid_tick_e9: i64,
@@ -494,8 +493,6 @@ pub(crate) fn bounce_plan_sched(
 
 /// `approach_plan` на действующей сетке биржи: вид подхода как касания и `bounce_plan_sched`
 /// (время взвода — `arm_ms`).
-// Подключается к `bounce-grid` следующим шагом TK-037 п.3.
-#[allow(dead_code)]
 pub(crate) fn approach_plan_sched(
     approach: &ApproachRecord,
     grid_tick_e9: i64,

@@ -1783,3 +1783,45 @@ fn approach_plan_sched_is_the_sched_plan_of_the_touch_view() {
         "взвод до смены — старый шаг"
     );
 }
+
+fn write_sched_binlog(path: &std::path::Path, tick_e9: i64, sched: &[crate::binlog::StepAt]) {
+    let header = crate::binlog::Header {
+        tick_e9,
+        step_e9: 1_000_000,
+        max_records_per_frame: 8,
+    };
+    let file = std::fs::File::create(path).unwrap();
+    let w = if sched.is_empty() {
+        crate::binlog::Writer::create(file, header, 1).unwrap()
+    } else {
+        crate::binlog::Writer::create_with_schedule(file, header, sched, 1).unwrap()
+    };
+    drop(w.into_inner());
+}
+
+#[test]
+fn read_day_schedule_none_for_v3_some_for_v4_and_fails_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let at = |ts, tick| crate::binlog::StepAt {
+        ts_ns: ts,
+        tick_e9: tick,
+        step_e9: 1_000_000,
+    };
+    let v3 = dir.path().join("a.binlog");
+    let v4 = dir.path().join("b.binlog");
+    write_sched_binlog(&v3, 1_000_000, &[]);
+    write_sched_binlog(&v4, 1_000_000, &[at(0, 10_000_000), at(5, 1_000_000)]);
+    assert!(
+        read_day_schedule(std::slice::from_ref(&v3), 1_000_000, 1_000_000)
+            .unwrap()
+            .is_none()
+    );
+    let sc = read_day_schedule(std::slice::from_ref(&v4), 1_000_000, 1_000_000)
+        .unwrap()
+        .unwrap();
+    assert_eq!(sc.at(4), (10_000_000, 1_000_000));
+    assert_eq!(sc.at(5), (1_000_000, 1_000_000));
+    // две части в сутках с v4 и сетка символа не равна заголовку — отказ
+    assert!(read_day_schedule(&[v3, v4.clone()], 1_000_000, 1_000_000).is_err());
+    assert!(read_day_schedule(&[v4], 2_000_000, 1_000_000).is_err());
+}

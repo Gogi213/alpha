@@ -38,7 +38,7 @@ use feed::events_from_paths;
 pub use feed::BacktestFillModel;
 pub(crate) use feed::{
     count_feed_events, count_feed_events_until, feed_compact_into, feed_compact_into_until,
-    open_replay_feed, read_tick_step,
+    open_replay_feed, read_day_schedule, read_tick_step,
 };
 pub(crate) use forms::PlanShape;
 pub use forms::{
@@ -47,8 +47,8 @@ pub use forms::{
 };
 use plan::bounce_rows;
 pub(crate) use plan::{
-    approach_plan, bounce_plan, deadline_ns_from_secs, early_exit_ns_from_secs,
-    touch_view_of_approach,
+    approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, deadline_ns_from_secs,
+    early_exit_ns_from_secs, touch_view_of_approach,
 };
 use pool::pool_order_qty;
 pub(crate) use pool::PoolLot;

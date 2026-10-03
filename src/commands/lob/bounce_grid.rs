@@ -129,7 +129,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use super::backtest::read_tick_step;
+use super::backtest::{read_day_schedule, read_tick_step};
 use super::profiles::read_verify_marker;
 use super::{
     replay_symbol_touches_and_second_mids, resolve_h3_mode_full, session_parts_for,
@@ -671,6 +671,8 @@ impl<'a> GridRun<'a> {
                 summary.n_no_sigma += no;
                 eprintln!("bounce-grid:   σ на взводе (В-131): без σ {no} из {n}");
             }
+            let step_schedule = read_day_schedule(day_parts, tick_e9, step_e9)
+                .map_err(|e| anyhow::anyhow!("{symbol} {}: {e}", day.day))?;
             let order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
@@ -720,6 +722,8 @@ impl<'a> GridRun<'a> {
                             form_ids: ids,
                             tick,
                             lot,
+                            grid_e9: (tick_e9, step_e9),
+                            step_schedule: step_schedule.as_ref(),
                             rtt_ns: args.median_rtt_ns,
                             queue_model,
                             busy_skip: args.busy_skip == "on",
