@@ -3,13 +3,15 @@
 # Выход: <out>.days.csv (все сутки) и <out>.csv (монета, месяц, день смены, сетка до/после, участки).
 import os, re, struct, sys, csv, collections
 V = '/data/tk037/vroots'; out = sys.argv[1]
+# Эпохи старого счёта: argv[2:] = метка=каталог (вместо vroots)
+SRC = dict(a.split('=', 1) for a in sys.argv[2:]) or {m: f'{V}/{m}' for m in sorted(os.listdir(V))}
 rx = re.compile(r'^(.+USDT)-(\d{4}-\d{2}-\d{2})\.binlog$')
 days = collections.defaultdict(list)
-for m in sorted(os.listdir(V)):
-    for f in os.listdir(f'{V}/{m}'):
+for m, d in sorted(SRC.items()):
+    for f in os.listdir(d):
         g = rx.match(f)
         if not g: continue
-        with open(f'{V}/{m}/{f}', 'rb') as fh: h = fh.read(21)
+        with open(f'{d}/{f}', 'rb') as fh: h = fh.read(21)
         t, s = struct.unpack('<qq', h[5:21])
         days[(m, g.group(1))].append((g.group(2), t, s, h[4]))
 with open(out + '.days.csv', 'w', newline='') as fd, open(out + '.csv', 'w', newline='') as fc:
