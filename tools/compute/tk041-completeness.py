@@ -83,7 +83,7 @@ for (s, d), cat in sorted(req.items()):
         p = c[0][1]
         if c[0][0] == "raw":
             vstat = marker(os.path.join(os.path.dirname(p), "verify-%s.status" % s)) or "none"
-            valstat = "not-run"
+            valstat = val.get((s, d), "not-run")
     reason = ""
     if st != "present":
         reason = "|".join("%s:%s" % v for v in [miss_reason.get((s, d), ("", ""))] if v[0]) or "no-record"
