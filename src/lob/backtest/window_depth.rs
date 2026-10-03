@@ -27,9 +27,8 @@ use hftbacktest::depth::{INVALID_MAX, INVALID_MIN};
 
 use super::DepthSnapshot;
 
-/// Книга окон: биды отсортированы по возрастанию тика, аски — по убыванию, так что лучшая цена
-/// каждой стороны — в конце массива (вставки и снятия у лучшей цены не сдвигают хвост);
-/// значения — исходные `qty` событий, все `> 0`. Снимок отдаёт аски по возрастанию.
+/// Книга окон: обе стороны отсортированы по возрастанию тика (у бидов лучшая — в конце, у
+/// асков — в начале); значения — исходные `qty` событий, все `> 0`.
 #[derive(Debug, Clone)]
 pub struct WindowDepth {
     tick_size: f64,
@@ -53,10 +52,9 @@ fn depth_below(levels: &[(i64, f64)], start: i64, end: i64) -> i64 {
 }
 
 /// Наименьший тик в `(start, end]` или `INVALID_MAX` — `depth_above` крейта.
-/// `levels` — по убыванию тика: тики `> start` — префикс, наименьший из них — его последний.
 fn depth_above(levels: &[(i64, f64)], start: i64, end: i64) -> i64 {
-    let i = levels.partition_point(|l| l.0 > start);
-    match i.checked_sub(1).and_then(|j| levels.get(j)) {
+    let i = levels.partition_point(|l| l.0 <= start);
+    match levels.get(i) {
         Some(&(t, _)) if t <= end => t,
         _ => INVALID_MAX,
     }
@@ -64,13 +62,8 @@ fn depth_above(levels: &[(i64, f64)], start: i64, end: i64) -> i64 {
 
 /// Ставит `qty` на тик (или снимает уровень при `qty_lot == 0`) — ветки `Entry` крейта.
 #[allow(clippy::indexing_slicing)] // индексы доказаны `binary_search_by_key`
-fn set_level(levels: &mut Vec<(i64, f64)>, tick: i64, qty: f64, qty_lot: i64, descending: bool) {
-    let found = if descending {
-        levels.binary_search_by(|l| tick.cmp(&l.0))
-    } else {
-        levels.binary_search_by_key(&tick, |l| l.0)
-    };
-    match found {
+fn set_level(levels: &mut Vec<(i64, f64)>, tick: i64, qty: f64, qty_lot: i64) {
+    match levels.binary_search_by_key(&tick, |l| l.0) {
         Ok(i) => {
             if qty_lot > 0 {
                 levels[i].1 = qty;
@@ -104,7 +97,7 @@ impl WindowDepth {
     pub fn update_bid_depth(&mut self, price: f64, qty: f64) {
         let price_tick = (price / self.tick_size).round() as i64;
         let qty_lot = (qty / self.lot_size).round() as i64;
-        set_level(&mut self.bids, price_tick, qty, qty_lot, false);
+        set_level(&mut self.bids, price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_bid_tick {
                 self.best_bid_tick = depth_below(&self.bids, self.best_bid_tick, self.low_bid_tick);
@@ -128,7 +121,7 @@ impl WindowDepth {
     pub fn update_ask_depth(&mut self, price: f64, qty: f64) {
         let price_tick = (price / self.tick_size).round() as i64;
         let qty_lot = (qty / self.lot_size).round() as i64;
-        set_level(&mut self.asks, price_tick, qty, qty_lot, true);
+        set_level(&mut self.asks, price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_ask_tick {
                 self.best_ask_tick =
@@ -154,7 +147,7 @@ impl WindowDepth {
     pub fn snapshot(&self) -> DepthSnapshot {
         DepthSnapshot {
             bids: self.bids.clone(),
-            asks: self.asks.iter().rev().copied().collect(),
+            asks: self.asks.clone(),
             best_bid_tick: self.best_bid_tick,
             best_ask_tick: self.best_ask_tick,
             low_bid_tick: self.low_bid_tick,

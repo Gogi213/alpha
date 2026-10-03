@@ -128,11 +128,10 @@ fn range_search_matches_the_crate_bounds() {
     assert_eq!(depth_below(&levels, 5, 4), INVALID_MIN);
     assert_eq!(depth_below(&levels, 3, INVALID_MAX), INVALID_MIN);
     assert_eq!(depth_below(&[], 3, 0), INVALID_MIN);
-    let desc = [(9, 1.0), (5, 1.0), (3, 1.0)];
-    assert_eq!(depth_above(&desc, 3, 9), 5, "start не включается");
-    assert_eq!(depth_above(&desc, 5, 9), 9, "end включается");
-    assert_eq!(depth_above(&desc, 5, 8), INVALID_MAX);
-    assert_eq!(depth_above(&desc, 3, INVALID_MIN), INVALID_MAX);
+    assert_eq!(depth_above(&levels, 3, 9), 5, "start не включается");
+    assert_eq!(depth_above(&levels, 5, 9), 9, "end включается");
+    assert_eq!(depth_above(&levels, 5, 8), INVALID_MAX);
+    assert_eq!(depth_above(&levels, 3, INVALID_MIN), INVALID_MAX);
     assert_eq!(depth_above(&[], 3, 9), INVALID_MAX);
 }
 
