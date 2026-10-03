@@ -432,6 +432,32 @@ fn unverified_symbol_is_skipped_unless_allowed() {
     assert_eq!(summary.symbols_done, 1);
 }
 
+/// В-172: части записи с разной сеткой (тик, лот) — отказ, не тихий счёт на сетке первой части;
+/// та же сетка во второй части — не отказ.
+#[test]
+fn mixed_grid_parts_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), true);
+    write_day(dir.path(), "SOLUSDT", "2026-09-09", &touch_frames());
+    run_bounce_grid(&args(dir.path(), false)).expect("одна сетка — счёт идёт");
+
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", "2026-09-09", 1);
+    let (tick_e9, step_e9) = read_tick_step(&path).unwrap();
+    let header = crate::binlog::Header {
+        tick_e9: tick_e9 * 10,
+        step_e9,
+        max_records_per_frame: 4096,
+    };
+    let mut w = crate::binlog::Writer::create(Vec::new(), header, 1).unwrap();
+    for f in &touch_frames() {
+        w.write_frame(f).unwrap();
+    }
+    w.flush().unwrap();
+    std::fs::write(&path, w.into_inner()).unwrap();
+    let err = run_bounce_grid(&args(dir.path(), false)).unwrap_err();
+    assert!(format!("{err:#}").contains("смешанные сетки"), "{err:#}");
+}
+
 /// Лот задаётся ровно одним способом — как у `lob backtest`.
 #[test]
 fn lot_must_come_from_exactly_one_source() {
