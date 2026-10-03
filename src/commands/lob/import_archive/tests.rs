@@ -360,6 +360,343 @@ fn steps_from_day_handles_mid_day_step_change() {
     assert!(prices.contains(&1003));
 }
 
+/// Версия, заголовок и расписание шагов записанных суток.
+fn schedule_of(out: &Path) -> (u8, Header, Vec<StepAt>) {
+    let data = std::fs::read(out).unwrap();
+    let r = Reader::open(&data[..]).unwrap();
+    (r.version(), r.header(), r.step_schedule().to_vec())
+}
+
+/// Запись расписания: время — `cts` биржи как смещение от начала суток в мс, шаги в 1e-9.
+fn at(cts_offset_ms: i64, tick_e9: i64, step_e9: i64) -> StepAt {
+    StepAt {
+        ts_ns: (START + cts_offset_ms) * 1_000_000,
+        tick_e9,
+        step_e9,
+    }
+}
+
+fn steps_from_day_args(dir: &Path, ob: &[String]) -> ImportArchiveArgs {
+    let mut args = write_day(dir, ob);
+    args.steps_from_day = true;
+    args
+}
+
+/// TK-037, В-172: шаг цены сменился внутри суток (0.1 → 0.01), шаг размера — нет. Файл — v4:
+/// расписание = начало (время первого снимка) и момент первого сообщения вне старой сетки;
+/// заголовок — мельчайший шаг цены суток; дельта на старой сетке и дельты на новой записей не плодят.
+#[test]
+fn price_step_change_inside_day_writes_v4_schedule() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.0","5"],["0.9","2"]"#,
+            r#"["1.1","3"]"#,
+        ),
+        msg("delta", START + 1010, START + 1000, 2, r#"["1.0","4"]"#, ""),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            3,
+            r#"["1.01","4"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 2500,
+            START + 2490,
+            4,
+            "",
+            r#"["1.02","1"]"#,
+        ),
+    ];
+    let sum = run_import_archive(&steps_from_day_args(dir.path(), &ob)).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    let (version, header, sched) = schedule_of(&sum.out);
+    assert_eq!(version, crate::binlog::VERSION_V4);
+    assert_eq!(
+        header.tick_e9, 10_000_000,
+        "заголовок — мельчайший шаг цены"
+    );
+    assert_eq!(
+        header.step_e9, 100_000_000,
+        "шаг размера: НОД пула 0.1 и суток 1"
+    );
+    assert_eq!(
+        sched,
+        vec![
+            at(480, 100_000_000, 1_000_000_000),
+            at(1490, 10_000_000, 1_000_000_000)
+        ],
+        "шаг размера не менялся"
+    );
+    let recs = all_records(&sum.out);
+    let snap: Vec<(i64, i64)> = recs[..3]
+        .iter()
+        .map(|x| (x.price_ticks, x.qty_lots))
+        .collect();
+    assert_eq!(
+        snap,
+        [(100, 50), (90, 20), (110, 30)],
+        "цены — в тиках мельчайшего шага"
+    );
+    assert!(recs
+        .iter()
+        .any(|x| x.ev == LOCAL_BID_DEPTH_EVENT && x.price_ticks == 101));
+}
+
+/// То же для размера: шаг количества 1 → 0.25, цена на одной сетке. Заголовок — НОД пула (0.1) и
+/// мельчайшего шага размера (0.25), то есть 0.05; в записях размер — в этих шагах.
+#[test]
+fn qty_step_change_inside_day_writes_v4_schedule() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.00","5"],["0.99","2"]"#,
+            r#"["1.01","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1010,
+            START + 1000,
+            2,
+            r#"["1.00","4"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            3,
+            r#"["1.00","0.25"]"#,
+            "",
+        ),
+    ];
+    let sum = run_import_archive(&steps_from_day_args(dir.path(), &ob)).unwrap();
+    let (version, header, sched) = schedule_of(&sum.out);
+    assert_eq!(version, crate::binlog::VERSION_V4);
+    assert_eq!((header.tick_e9, header.step_e9), (10_000_000, 50_000_000));
+    assert_eq!(
+        sched,
+        vec![
+            at(480, 10_000_000, 1_000_000_000),
+            at(1490, 10_000_000, 250_000_000)
+        ],
+        "шаг цены не менялся"
+    );
+    let last_bid = all_records(&sum.out)
+        .into_iter()
+        .rfind(|x| x.ev == LOCAL_BID_DEPTH_EVENT)
+        .unwrap();
+    assert_eq!((last_bid.price_ticks, last_bid.qty_lots), (100, 5));
+}
+
+/// Сутки без смены шага — файл v3 без расписания, байт в байт как прежним путём
+/// (`--steps-from-snapshot`) и как без флагов (шаги пула совпали с сеткой архива): гейт TK-037.
+#[test]
+fn day_without_step_change_is_v3_byte_identical_to_the_old_path() {
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.00","5"],["0.99","2"]"#,
+            r#"["1.01","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            2,
+            r#"["1.00","4"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 2500,
+            START + 2490,
+            3,
+            "",
+            r#"["1.01","0"],["1.02","1"]"#,
+        ),
+        msg(
+            "snapshot",
+            START + 86_400_500,
+            START + 86_400_480,
+            1,
+            r#"["1.00","5"]"#,
+            r#"["1.01","3"]"#,
+        ),
+    ];
+    let dir_day = tempfile::tempdir().unwrap();
+    let day = run_import_archive(&steps_from_day_args(dir_day.path(), &ob)).unwrap();
+    let dir_snap = tempfile::tempdir().unwrap();
+    let mut args = write_day(dir_snap.path(), &ob);
+    args.steps_from_snapshot = true;
+    let snap = run_import_archive(&args).unwrap();
+    let dir_plain = tempfile::tempdir().unwrap();
+    let plain = run_import_archive(&write_day(dir_plain.path(), &ob)).unwrap();
+
+    let (version, _, sched) = schedule_of(&day.out);
+    assert_eq!(version, crate::binlog::VERSION, "без смены — v3");
+    assert!(sched.is_empty());
+    let day_bytes = std::fs::read(&day.out).unwrap();
+    assert_eq!(day_bytes, std::fs::read(&snap.out).unwrap());
+    assert_eq!(day_bytes, std::fs::read(&plain.out).unwrap());
+}
+
+/// PAXG-подобные числа: цена ~3412 сменила шаг 0.01 → 0.001 внутри суток (TK-037, PAXGUSDT 01-12),
+/// размер на сетке 0.001 всё время. Заголовок — 0.001, до смены действует 0.01.
+#[test]
+fn paxg_like_price_step_change_from_hundredths_to_thousandths() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["3412.51","0.123"],["3412.50","1.5"]"#,
+            r#"["3412.52","0.5"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1010,
+            START + 1000,
+            2,
+            "",
+            r#"["3412.53","0.2"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1500,
+            START + 1490,
+            3,
+            r#"["3412.501","0.2"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 2500,
+            START + 2490,
+            4,
+            r#"["3412.502","0.7"]"#,
+            "",
+        ),
+    ];
+    let sum = run_import_archive(&steps_from_day_args(dir.path(), &ob)).unwrap();
+    assert_eq!(sum.off_grid, 0);
+    let (version, header, sched) = schedule_of(&sum.out);
+    assert_eq!(version, crate::binlog::VERSION_V4);
+    assert_eq!((header.tick_e9, header.step_e9), (1_000_000, 1_000_000));
+    assert_eq!(
+        sched,
+        vec![
+            at(480, 10_000_000, 1_000_000),
+            at(1490, 1_000_000, 1_000_000)
+        ]
+    );
+    let recs = all_records(&sum.out);
+    let prices: Vec<i64> = recs.iter().map(|x| x.price_ticks).collect();
+    assert_eq!(prices[..3], [3_412_510, 3_412_500, 3_412_520]);
+    assert!(prices.contains(&3_412_501));
+}
+
+/// Цена и размер меняются независимо: каждое сообщение вне сетки — запись; обе оси в одном
+/// сообщении — одна запись; сообщения на уже новой сетке записей не добавляют.
+#[test]
+fn price_and_qty_steps_change_independently_one_entry_per_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.0","5"],["0.9","2"]"#,
+            r#"["1.1","3"]"#,
+        ),
+        msg(
+            "delta",
+            START + 1010,
+            START + 1000,
+            2,
+            r#"["1.01","4"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 2010,
+            START + 2000,
+            3,
+            r#"["1.01","0.5"]"#,
+            "",
+        ),
+        msg(
+            "delta",
+            START + 3010,
+            START + 3000,
+            4,
+            "",
+            r#"["1.103","0.25"]"#,
+        ),
+        msg(
+            "delta",
+            START + 4010,
+            START + 4000,
+            5,
+            r#"["1.001","0.25"]"#,
+            "",
+        ),
+    ];
+    let sum = run_import_archive(&steps_from_day_args(dir.path(), &ob)).unwrap();
+    let (version, header, sched) = schedule_of(&sum.out);
+    assert_eq!(version, crate::binlog::VERSION_V4);
+    assert_eq!((header.tick_e9, header.step_e9), (1_000_000, 50_000_000));
+    assert_eq!(
+        sched,
+        vec![
+            at(480, 100_000_000, 1_000_000_000),
+            at(1000, 10_000_000, 1_000_000_000),
+            at(2000, 10_000_000, 500_000_000),
+            at(3000, 1_000_000, 250_000_000),
+        ]
+    );
+}
+
+/// Смена в сообщении с тем же `cts`, что у начала расписания: метка — строго позже (требование
+/// писателя), на 1 нс; файл при этом пишется, а не отказывает.
+#[test]
+fn step_change_with_the_same_cts_as_the_start_is_one_ns_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let ob = [
+        msg(
+            "snapshot",
+            START + 500,
+            START + 480,
+            1,
+            r#"["1.0","5"],["0.9","2"]"#,
+            r#"["1.1","3"]"#,
+        ),
+        msg("delta", START + 510, START + 480, 2, r#"["1.01","4"]"#, ""),
+    ];
+    let sum = run_import_archive(&steps_from_day_args(dir.path(), &ob)).unwrap();
+    let (_, _, sched) = schedule_of(&sum.out);
+    assert_eq!(sched.len(), 2);
+    assert_eq!(sched[1].ts_ns, (START + 480) * 1_000_000 + 1);
+    assert_eq!(sched[1].tick_e9, 10_000_000);
+}
+
 /// Шаг архива равен шагу пула — файл с флагом тот же, что без него (гейт «байт в байт»).
 #[test]
 fn steps_from_snapshot_same_file_when_grid_matches_pool() {

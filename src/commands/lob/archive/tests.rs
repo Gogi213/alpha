@@ -80,6 +80,50 @@ fn container_is_readable_by_the_plain_reader() {
     assert_eq!(frames as u64, summary.frames);
 }
 
+/// Сутки v4 (расписание шагов внутри суток, TK-037) архивируются: контейнер несёт ту же версию и то
+/// же расписание, сверка round-trip сходится.
+#[test]
+fn v4_day_with_step_schedule_is_archived() {
+    use crate::binlog::{Header, Reader, StepAt, Writer, VERSION_V4};
+    let dir = tempfile::tempdir().unwrap();
+    let src = orig_path(dir.path(), "SOLUSDT", "2026-09-08");
+    let header = Header {
+        tick_e9: test_support::FIX_TICK_E9,
+        step_e9: 1_000_000,
+        max_records_per_frame: 4096,
+    };
+    let schedule = [
+        StepAt {
+            ts_ns: 0,
+            tick_e9: 2 * test_support::FIX_TICK_E9,
+            step_e9: 2_000_000,
+        },
+        StepAt {
+            ts_ns: 1_000_000_000,
+            tick_e9: test_support::FIX_TICK_E9,
+            step_e9: 1_000_000,
+        },
+    ];
+    let mut w = Writer::create_with_schedule(Vec::new(), header, &schedule, 1).unwrap();
+    for f in test_support::three_level_frames() {
+        w.write_frame(&f).unwrap();
+    }
+    w.flush().unwrap();
+    std::fs::write(&src, w.into_inner()).unwrap();
+
+    let summary = run_archive(&args_of(&src)).unwrap();
+    let mut plain = Reader::open(std::fs::File::open(&src).unwrap()).unwrap();
+    let mut packed = Reader::open(std::fs::File::open(&summary.out).unwrap()).unwrap();
+    assert_eq!(plain.version(), VERSION_V4);
+    assert_eq!(packed.version(), VERSION_V4);
+    assert_eq!(packed.step_schedule(), &schedule);
+    assert_eq!(packed.header(), plain.header());
+    while let Some(f) = packed.read_frame().unwrap() {
+        assert_eq!(f, plain.read_frame().unwrap().expect("кадров не меньше"));
+    }
+    assert!(plain.read_frame().unwrap().is_none());
+}
+
 /// `--out` в другой каталог и свой уровень: контейнер ложится туда, где
 /// сказано, и объявляет запрошенный уровень.
 #[test]

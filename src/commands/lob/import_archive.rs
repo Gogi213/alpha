@@ -27,7 +27,7 @@ use hftbacktest::types::{
     LOCAL_BID_DEPTH_SNAPSHOT_EVENT, LOCAL_BUY_TRADE_EVENT, LOCAL_SELL_TRADE_EVENT,
 };
 
-use crate::binlog::{parse_calendar_day, Header, Record, Writer};
+use crate::binlog::{parse_calendar_day, Header, Record, StepAt, Writer};
 use crate::book::Side;
 use crate::bybit::ws::{parse_e9, parse_message, Event};
 use crate::commands::record::{
@@ -64,6 +64,8 @@ pub struct ImportArchiveArgs {
     pub steps_from_snapshot: bool,
     /// Как `--steps-from-snapshot`, но НОД берётся по всем уровням суток (снимки и дельты): нужен
     /// там, где Bybit сменил шаг внутри суток (TK-037, 112 монето-суток). Требует `--ob` файлом.
+    /// Если шаг цены или количества менялся внутри суток, файл пишется v4 с расписанием действующих
+    /// шагов (момент смены — первое сообщение вне старой сетки); без смены — v3, как раньше.
     #[arg(long)]
     pub steps_from_day: bool,
 }
@@ -174,17 +176,75 @@ fn steps_from_snapshot(
     Ok((pool_tick_e9, pool_step_e9, seen))
 }
 
-/// Шаги суток по всем уровням после первого снимка до конца суток: одна сетка на файл, пригодная и
-/// при смене шага биржей внутри суток. Второе число пары — НОД только снимков (для сравнения).
+/// Действующие шаги цены и количества по ходу суток (TK-037, В-172: как было на бирже). Начальный
+/// шаг — НОД уровней первого снимка (без пула); сообщение, у которого есть уровень вне текущей
+/// сетки, — момент смены: новый шаг = НОД(текущий, уровни сообщения), цена и размер независимо.
+/// Момент смены — оценка сверху: первое сообщение вне старой сетки (раньше мелкого уровня биржа
+/// его не покажет, а укрупнение шага из потока не видно).
+#[derive(Default)]
+struct StepTracker {
+    tick_e9: i64,
+    step_e9: i64,
+    start_ns: Option<i64>,
+    schedule: Vec<StepAt>,
+}
+
+impl StepTracker {
+    /// Одно сообщение стакана после первого снимка: `exch_ts_ns` — время записей бинлога
+    /// (`cts` биржи), `gp`/`gq` — НОД цен и размеров его уровней (0 — уровней нет).
+    fn observe(&mut self, exch_ts_ns: i64, gp: i64, gq: i64) {
+        let start = *self.start_ns.get_or_insert(exch_ts_ns);
+        if self.tick_e9 == 0 || self.step_e9 == 0 {
+            // Начальный шаг ещё не известен целиком (день листинга: снимок пуст) — берётся из
+            // первых уровней; запись «начало» несёт время первого снимка.
+            self.tick_e9 = gcd(self.tick_e9, gp);
+            self.step_e9 = gcd(self.step_e9, gq);
+            if self.tick_e9 != 0 && self.step_e9 != 0 {
+                self.schedule.push(StepAt {
+                    ts_ns: start,
+                    tick_e9: self.tick_e9,
+                    step_e9: self.step_e9,
+                });
+            }
+            return;
+        }
+        let (t, s) = (gcd(self.tick_e9, gp), gcd(self.step_e9, gq));
+        if (t, s) != (self.tick_e9, self.step_e9) {
+            // Метка строго после предыдущей записи (требование писателя): `cts` двух сообщений
+            // может совпасть или чуть отстать.
+            let prev = self.schedule.last().map_or(start, |a| a.ts_ns);
+            self.schedule.push(StepAt {
+                ts_ns: exch_ts_ns.max(prev.saturating_add(1)),
+                tick_e9: t,
+                step_e9: s,
+            });
+            (self.tick_e9, self.step_e9) = (t, s);
+        }
+    }
+}
+
+/// Шаги суток по всем уровням после первого снимка до конца суток.
+struct DaySteps {
+    /// НОД пула и всех уровней суток — заголовок файла (одна сетка на файл, мельчайший шаг суток).
+    grid: (i64, i64),
+    /// То же по одним снимкам (для сравнения в журнале).
+    snapshot: (i64, i64),
+    /// Расписание действующих шагов; одна запись — сутки без смены шага.
+    schedule: Vec<StepAt>,
+}
+
+/// Один проход по файлу стакана: сетка файла (НОД по всем уровням, пригодная и при смене шага
+/// биржей внутри суток) и расписание действующих шагов (`StepTracker`).
 fn steps_from_day(
     path: &Path,
     day_end: i64,
     pool_tick_e9: i64,
     pool_step_e9: i64,
-) -> anyhow::Result<((i64, i64), (i64, i64))> {
+) -> anyhow::Result<DaySteps> {
     let rdr = BufReader::with_capacity(1 << 20, std::fs::File::open(path)?);
     let (mut gp, mut gq, mut sp, mut sq) = (0, 0, 0, 0);
     let mut has_snapshot = false;
+    let mut tracker = StepTracker::default();
     for line in rdr.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -204,20 +264,25 @@ fn steps_from_day(
             if !has_snapshot {
                 continue;
             }
+            let (mut mp, mut mq) = (0, 0);
             for &(p, q) in u.bids.iter().chain(u.asks.iter()) {
-                gp = gcd(gp, p);
-                gq = gcd(gq, q);
-                if u.is_snapshot {
-                    sp = gcd(sp, p);
-                    sq = gcd(sq, q);
-                }
+                mp = gcd(mp, p);
+                mq = gcd(mq, q);
             }
+            gp = gcd(gp, mp);
+            gq = gcd(gq, mq);
+            if u.is_snapshot {
+                sp = gcd(sp, mp);
+                sq = gcd(sq, mq);
+            }
+            tracker.observe(u.cts_ms.saturating_mul(1_000_000), mp, mq);
         }
     }
-    Ok((
-        (gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq)),
-        (gcd(pool_tick_e9, sp), gcd(pool_step_e9, sq)),
-    ))
+    Ok(DaySteps {
+        grid: (gcd(pool_tick_e9, gp), gcd(pool_step_e9, gq)),
+        snapshot: (gcd(pool_tick_e9, sp), gcd(pool_step_e9, sq)),
+        schedule: tracker.schedule,
+    })
 }
 
 fn trade_ms(s: &str) -> Option<i64> {
@@ -354,16 +419,26 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
         ))
     };
     let mut lines: Lines = Box::new(reader.lines());
+    let mut schedule: Vec<StepAt> = Vec::new();
     let (tick_e9, step_e9) = if args.steps_from_day {
         anyhow::ensure!(
             args.ob.as_os_str() != "-",
             "--steps-from-day: --ob должен быть файлом (нужен второй проход)"
         );
-        let ((t, st), (snap_t, snap_st)) =
-            steps_from_day(&args.ob, day_end, pool_tick_e9, pool_step_e9)?;
+        let day_steps = steps_from_day(&args.ob, day_end, pool_tick_e9, pool_step_e9)?;
+        let (t, st) = day_steps.grid;
+        let (snap_t, snap_st) = day_steps.snapshot;
+        schedule = day_steps.schedule;
         eprintln!(
-            "import-archive: {} {} — шаг суток по всем уровням: цена {t} e9, размер {st} e9; по снимкам: {snap_t}/{snap_st} (пул {pool_tick_e9}/{pool_step_e9})",
-            args.symbol, args.day
+            "import-archive: {} {} — шаг суток по всем уровням: цена {t} e9, размер {st} e9; по снимкам: {snap_t}/{snap_st} (пул {pool_tick_e9}/{pool_step_e9}); записей расписания шагов {}{}",
+            args.symbol,
+            args.day,
+            schedule.len(),
+            if schedule.len() >= 2 {
+                format!(" (смен {}, файл v4)", schedule.len() - 1)
+            } else {
+                String::new()
+            }
         );
         (t, st)
     } else if args.steps_from_snapshot {
@@ -384,8 +459,14 @@ pub fn run_import_archive(args: &ImportArchiveArgs) -> anyhow::Result<ImportSumm
     };
     let tmp_path = out_path.with_extension("binlog.part");
     let file = std::io::BufWriter::new(std::fs::File::create(&tmp_path)?);
+    // Смена шага внутри суток — файл v4 с расписанием; без смены — v3, как всегда (байт в байт).
+    let writer = if schedule.len() >= 2 {
+        Writer::create_with_schedule(file, header, &schedule, ZSTD_LEVEL)?
+    } else {
+        Writer::create(file, header, ZSTD_LEVEL)?
+    };
     let mut out = Out {
-        writer: Writer::create(file, header, ZSTD_LEVEL)?,
+        writer,
         batch: Vec::with_capacity(FRAME_TARGET_RECORDS + 512),
         records: 0,
     };

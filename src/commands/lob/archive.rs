@@ -216,17 +216,21 @@ pub fn run_archive(args: &ArchiveArgs) -> anyhow::Result<ArchiveSummary> {
     let source_bytes = archive::file_bytes(&src)?;
 
     // Источник открывается один раз: версия проверяется до записи, чтобы на
-    // v2-файле не осталось даже временного контейнера.
+    // v2-файле не осталось даже временного контейнера. v4 (расписание шагов
+    // внутри суток, TK-037) контейнер несёт как есть.
     let src_file = std::fs::File::open(&src)?;
     let mut src_reader = Reader::open(src_file)
         .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", src.display()))?;
-    if src_reader.version() != crate::binlog::VERSION {
+    if src_reader.version() != crate::binlog::VERSION
+        && src_reader.version() != crate::binlog::VERSION_V4
+    {
         anyhow::bail!(
-            "{} — версия {}, а архивируются сутки версии {}: перепишите файл \
+            "{} — версия {}, а архивируются сутки версии {} или {}: перепишите файл \
              (`lob binlog-stats --path {} --rewrite-out <файл>`) или оставьте как есть",
             src.display(),
             src_reader.version(),
             crate::binlog::VERSION,
+            crate::binlog::VERSION_V4,
             src.display()
         );
     }
