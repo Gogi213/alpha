@@ -360,6 +360,16 @@ impl<'a> GridRun<'a> {
             args.root.display()
         );
         let (tick_e9, step_e9) = read_tick_step(&parts[0].path)?;
+        // В-172: сетка символа одна на запись (реплей уровней тоже берёт parts[0]); часть с другой сеткой — отказ, не тихий счёт.
+        for p in &parts[1..] {
+            let g = read_tick_step(&p.path)?;
+            anyhow::ensure!(
+                g == (tick_e9, step_e9),
+                "{symbol}: сетка (тик, лот) {} = {g:?}, а первой части записи {} = ({tick_e9}, {step_e9}) — смешанные сетки в одной записи не поддержаны (сутки со сменой шага v4 считать отдельным корнем)",
+                p.path.display(),
+                parts[0].path.display()
+            );
+        }
         let tick = tick_e9 as f64 / 1e9;
         let lot = step_e9 as f64 / 1e9;
         // Порог плотности — любой из режимов В-61 (`--h3-mode notional|strength|both`)
