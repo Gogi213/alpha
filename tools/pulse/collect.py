@@ -8,6 +8,9 @@
 ssh на машину (счёт, VPS, коллектор; параллельно, с переподключением): ЦП/ОЗУ/диск, процессы проекта, ход задач
 `/data/progress/*.json` (пишет `tools/compute/progress.sh`).
 Этот ПК — своими силами, Steam Deck не опрашивается.
+Будильник (`Waker`): задание с `ticket` в `/data/progress` дошло до done >= total (или файл не обновлялся > 10 мин при
+неактивном юните) — один раз `tickets.py comment <TK> --author ceo --next <owner>`; повторы — `.claude/pulse/woken.json`,
+журнал — `.claude/pulse/wake.log`.
 Связь «процесс → задача → машина» считается здесь (`make_view`): раздел `view` в status.json — готовый к показу вид
 (задачи с «где», машины с «для какой задачи», вопросы, что было); `pulse.py` и страница только рисуют `view`.
 Запуск: `pulse.py` / `mcp_server.py` поднимают сборщик сами (`ensure_collector`); вручную: `python tools/pulse/collect.py`.
@@ -1100,6 +1103,153 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
             "next": plain["next"], "machines": mv, "news": news, "news_src": news_src}
 
 
+# --- будильник: конец серверного задания будит исполнителя тикета -----------------------------------------------------------
+TICKETS_PY = DISP / "tickets.py"
+WOKEN = PULSE_DIR / "woken.json"    # «машина:job:updated» → что сделано; защита от повторов, переживает перезапуск сборщика
+WOKE_LOG = PULSE_DIR / "wake.log"
+STALL_S = 600                       # файл хода не обновлялся дольше — при неактивном юните это «остановилось, не дойдя»
+WOKEN_KEEP_S = 7 * 86400
+WAKE_TRIES = 3                      # неудачных вызовов tickets.py на один ключ, потом запись «ошибка» и отказ
+WAKE_RETRY_S = 60
+WAKE = None                         # Waker; поднимает main(); None (кадр строится не сборщиком) — не будим
+
+
+def _num(x: float) -> str:
+    return str(int(x)) if float(x).is_integer() else f"{x:.1f}"
+
+
+class Waker:
+    """Задание на машине (`/data/progress/<job>.json`, поле ticket) дошло до done >= total — или файл не обновлялся > 10 мин,
+    а процессов тикета на машине нет — тогда ОДИН раз `tickets.py comment <TK> --author ceo --text … --next <owner>`: диспетчер
+    серверных заданий не видит, а тикет в `waiting` без `next` не просыпается. Не будим: тикет не активен (done/stopped/
+    backlog/blocked) или его нет; роль-владелец сейчас работает (отложено до конца сессии); в логе тикета уже есть запись
+    роли позже хода задания (кто-то отреагировал). Повторов нет: ключ «машина:job:updated» в `woken.json`."""
+
+    def __init__(self, tickets_py=None, woken=None, log=None):
+        self.tickets_py = Path(tickets_py or TICKETS_PY)
+        self.woken_path = Path(woken or WOKEN)
+        self.log_path = Path(log or WOKE_LOG)
+        self.lock = threading.Lock()
+        self.busy: set = set()   # ключи, по которым tickets.py вызван и ещё не вернулся
+        self.tries: dict = {}    # ключ → [неудач, не раньше чем (время)]
+        self.noted: set = set()  # «отложено» пишем в лог один раз на ключ
+        raw = read_json(self.woken_path)
+        now = time.time()
+        self.woken = {k: v for k, v in (raw if isinstance(raw, dict) else {}).items()
+                      if isinstance(v, dict) and now - float(v.get("ts") or 0) < WOKEN_KEEP_S}
+
+    def log(self, text: str):
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now(TZ).isoformat(timespec='seconds')} {text}\n")
+        except OSError:
+            pass
+
+    def _record(self, key: str, tid: str, kind: str, result: str):
+        """Запомнить итог по ключу (под self.lock) и записать woken.json."""
+        import ticket as T
+        self.woken[key] = {"ts": time.time(), "at": datetime.now(TZ).isoformat(timespec="seconds"), "ticket": tid,
+                           "kind": kind, "result": result}
+        T.atomic_write_text(self.woken_path, json.dumps(self.woken, ensure_ascii=False, indent=1))
+        self.log(f"{key} {tid} {kind}: {result}")
+
+    @staticmethod
+    def alive(procs: list, tid: str, job: str) -> bool:
+        """На машине есть процесс тикета: имя группы (юнит) с префиксом tkNNN, либо tkNNN / имя задания в аргументах."""
+        slug = tid.lower().replace("-", "")
+        for g in procs:
+            name = str(g.get("name") or "")
+            text = (name + " " + str(g.get("args") or "")).lower()
+            if tk_norm(name, prefix=True) == tid or slug in text or (len(job) >= 4 and job.lower() in text):
+                return True
+        return False
+
+    def observe(self, jobs: list, tickets: dict, live: dict, now: float):
+        """jobs — по заданию на каждую запись хода: {mid, mname, job, p (файл хода как есть), procs (процессы машины)}."""
+        for j in jobs:
+            p, job = j["p"], j["job"]
+            try:
+                done, total = float(p["done"]), float(p["total"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            tid = tk_norm(str(p.get("ticket") or ""))
+            if not tid or total <= 0:
+                continue
+            upd_raw = str(p.get("updated") or "")
+            try:
+                upd = datetime.fromisoformat(upd_raw).timestamp()
+            except ValueError:
+                upd = None
+            if done >= total:
+                kind = "done"
+            elif upd is not None and now - upd > STALL_S and not self.alive(j["procs"], tid, job):
+                kind = "stalled"
+            else:
+                continue
+            key = f"{j['mid']}:{job}:{upd_raw}"
+            with self.lock:
+                if key in self.woken or key in self.busy:
+                    continue
+                t = tickets.get(tid)
+                if t is None:
+                    self._record(key, tid, kind, "не будим: тикета нет")
+                    continue
+                if t.status not in ACTIVE:
+                    self._record(key, tid, kind, f"не будим: тикет {t.status or '?'}")
+                    continue
+                role = t.owner
+                if role not in ROLE_RU:
+                    self._record(key, tid, kind, f"не будим: owner {role!r} не роль")
+                    continue
+                if tid in live:
+                    if key not in self.noted:
+                        self.noted.add(key)
+                        self.log(f"{key} {tid} {kind}: отложено — сессия {live[tid].get('role')} работает")
+                    continue
+                if upd is not None and any(
+                        _role_key(e.author) in ROLE_RU and e.ts.timestamp() > upd and not e.text.startswith("Сервер (")
+                        for e in t.log):
+                    self._record(key, tid, kind, "не будим: в логе уже есть запись после хода задания")
+                    continue
+                fail = self.tries.get(key)
+                if fail and now < fail[1]:
+                    continue
+                self.busy.add(key)
+            hhmm = datetime.fromtimestamp(upd or now, TZ).strftime("%H:%M")
+            step = str(p.get("step") or job)
+            at = f"{_num(done)}/{_num(total)}"
+            if kind == "done":
+                text = f"Сервер ({j['mname']}): задание «{step}» закончено ({at}) в {hhmm} GMT+4 — продолжай по тикету."
+            else:
+                text = f"Сервер ({j['mname']}): задание «{step}» остановилось на {at}, юнит не активен — разберись."
+            threading.Thread(target=self._wake, args=(key, tid, kind, role, text), daemon=True).start()
+
+    def _wake(self, key: str, tid: str, kind: str, role: str, text: str):
+        ok, msg = False, ""
+        try:
+            res = subprocess.run(
+                [sys.executable, str(self.tickets_py), "comment", tid, "--author", "ceo", "--text", text, "--next", role],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90, cwd=str(ROOT),
+                creationflags=0x08000000, env=dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8"))
+            ok = res.returncode == 0
+            msg = (res.stdout.strip() or res.stderr.strip()).replace("\n", " | ")[:200]
+        except (OSError, subprocess.SubprocessError) as e:
+            msg = f"{type(e).__name__}: {e}"
+        with self.lock:
+            self.busy.discard(key)
+            try:
+                if ok:
+                    self._record(key, tid, kind, f"разбужен: {role}")
+                else:
+                    n = (self.tries.get(key) or [0])[0] + 1
+                    self.tries[key] = [n, time.time() + WAKE_RETRY_S]
+                    self.log(f"{key} {tid} {kind}: tickets.py не вышло ({n}/{WAKE_TRIES}): {msg}")
+                    if n >= WAKE_TRIES:
+                        self._record(key, tid, kind, f"ошибка: {msg}")
+            except Exception as e:  # noqa: BLE001  (запись итога не должна ронять поток)
+                self.log(f"{key} {tid} {kind}: итог не записан: {type(e).__name__}: {e}")
+
+
 # --- сборка кадра -----------------------------------------------------------------------------------------------------
 def machine_view(host: dict, state: str, snap: dict) -> dict:
     m = {"id": host["id"], "name": host["name"], "host": host["target"].split("@")[1], "state": state,
@@ -1135,12 +1285,14 @@ def build(feeds, pc, etas) -> dict:
             live[tid] = {"role": r.get("role", ""), "minutes": int((now - started) // 60)}
 
     # машины и ход задач
-    machines, jobs_by_ticket = [], {}
+    machines, jobs_by_ticket, wake_jobs = [], {}, []
     for f in feeds:
         f.watchdog()
         st, snap, prog = f.get()
         machines.append(machine_view(f.host, st, snap))
         for job, p in prog.items():
+            wake_jobs.append({"mid": f.host["id"], "mname": f.host["name"], "job": job, "p": p,
+                              "procs": snap.get("procs") or []})
             try:
                 done, total = float(p["done"]), float(p["total"])
             except (KeyError, TypeError, ValueError):
@@ -1156,6 +1308,12 @@ def build(feeds, pc, etas) -> dict:
                  "step_n": p.get("step_n")})  # номер шага плана (alpha-progress … step_n); нет — шаг «идёт»
 
     jobs_all = {k: list(v) for k, v in jobs_by_ticket.items()}  # для вида: ниже jobs_by_ticket разбирается
+
+    if WAKE is not None:  # конец серверного задания будит исполнителя; сбой будильника кадр не роняет
+        try:
+            WAKE.observe(wake_jobs, tickets, live, now)
+        except Exception as e:  # noqa: BLE001
+            WAKE.log(f"observe: {type(e).__name__}: {e}")
 
     # строки тикетов
     rows = []
@@ -1283,11 +1441,12 @@ def main() -> int:
     PIDFILE.write_text(str(os.getpid()))
     STOP.unlink(missing_ok=True)
     import ticket as T
-    global AUTO
+    global AUTO, WAKE
     try:
         AUTO = plainify.Translator().start()
     except Exception:
         AUTO = None  # без переводчика — прежнее поведение
+    WAKE = Waker()
     feeds = [Feed(h) for h in HOSTS]
     for f in feeds:
         f.start()
