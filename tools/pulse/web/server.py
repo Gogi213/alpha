@@ -6,9 +6,8 @@
     GET  /<токен>/dispetcher    то же
     GET  /<токен>/phosphor.css, phosphor.js   оболочка и ядро страницы
     GET  /<токен>/status.json   {view2, built_at, age_s} — последняя сводка (её кладёт bridge.py в /data/board/status.json)
-    POST /<токен>/answer        {id, key} — ответ владельца: вопрос и вариант должны быть в текущей сводке;
-                                строка JSON дописывается в /data/board/answers.jsonl (≤ 30 в час, один ответ на вопрос)
-Ответы забирает ПК (collect.py → bridge.py → `ask.py answer`); сам сервер ничего не исполняет. Токен в логи не пишется.
+Только чтение: POST (в том числе /answer) — 404, ответы на вопросы даются в чате с CEO. Сервер ничего не исполняет.
+Мост bridge.py по-прежнему кладёт сводку в /data/board/status.json. Токен в логи не пишется.
 """
 from __future__ import annotations
 
@@ -16,9 +15,7 @@ import hmac
 import json
 import os
 import sys
-import threading
 import time
-from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -27,16 +24,10 @@ DATA = Path(os.environ.get("BOARD_DATA", "/data/board"))
 TOKEN_FILE = Path(os.environ.get("BOARD_TOKEN_FILE", "/etc/alpha-board/token"))
 PORT = int(os.environ.get("BOARD_PORT", "8787"))
 STATUS = DATA / "status.json"
-ANSWERS = DATA / "answers.jsonl"
-MAX_PER_HOUR = 30
-MAX_BODY = 4096
-TZ = timezone(timedelta(hours=4))  # GMT+4, как на табло
-LOCK = threading.Lock()
 TOKEN = TOKEN_FILE.read_text(encoding="utf-8").strip()
 if len(TOKEN) < 24:
     sys.exit("токен короче 24 символов — выпустите новый")
 TOKEN_B = TOKEN.encode()
-_answers_cache: dict = {"key": None, "rows": []}
 HTML = "text/html; charset=utf-8"
 # маршрут после токена → (файл рядом с этим, тип); только этот список отдаётся с диска
 PAGES = {
@@ -45,26 +36,6 @@ PAGES = {
     "/phosphor.css": ("phosphor.css", "text/css; charset=utf-8"),
     "/phosphor.js": ("phosphor.js", "application/javascript; charset=utf-8"),
 }
-
-
-def read_answers() -> list:
-    """Строки answers.jsonl (кэш по mtime+размер)."""
-    try:
-        st = ANSWERS.stat()
-    except OSError:
-        return []
-    key = (st.st_mtime_ns, st.st_size)
-    if _answers_cache["key"] != key:
-        rows = []
-        for ln in ANSWERS.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                r = json.loads(ln)
-            except ValueError:
-                continue
-            if isinstance(r, dict) and r.get("id"):
-                rows.append(r)
-        _answers_cache.update(key=key, rows=rows)
-    return _answers_cache["rows"]
 
 
 def load_status():
@@ -77,9 +48,6 @@ def load_status():
     v2 = d.get("view2") if isinstance(d, dict) else None
     if not isinstance(v2, dict):
         return None, "сводка без view2"
-    web = {r["id"]: str(r.get("key", "")) for r in read_answers()}
-    v2 = dict(v2)
-    v2["questions"] = [dict(q, web_answer=web[q["id"]]) if q.get("id") in web else q for q in v2.get("questions") or []]
     return {"view2": v2, "built_at": d.get("built_at"), "age_s": max(0, int(time.time() - st.st_mtime))}, None
 
 
@@ -142,46 +110,7 @@ class H(BaseHTTPRequestHandler):
 
     do_HEAD = do_GET
 
-    def do_POST(self):
-        if self._rest() != "/answer":
-            return self._404()
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            n = 0
-        if n <= 0 or n > MAX_BODY:
-            return self._json(400, {"ok": False, "error": "тело запроса пустое или слишком большое"})
-        try:
-            req = json.loads(self.rfile.read(n).decode("utf-8"))
-            qid, key = req["id"], req["key"]
-            if not isinstance(qid, str) or not isinstance(key, str) or len(qid) > 120 or len(key) > 40:
-                raise ValueError
-        except (ValueError, KeyError, TypeError, UnicodeDecodeError):
-            return self._json(400, {"ok": False, "error": "нужен JSON {id, key}"})
-        key = key.strip().lower()
-        with LOCK:
-            doc, err = load_status()
-            q = next((q for q in (doc["view2"].get("questions") or []) if q.get("id") == qid), None) if doc else None
-            if q is None:
-                return self._json(404, {"ok": False, "error": "такого вопроса сейчас нет"})
-            opt = next((o for o in q.get("options") or [] if str(o.get("key", "")).lower() == key), None)
-            if opt is None:
-                return self._json(400, {"ok": False, "error": "у вопроса нет такого варианта"})
-            rows = read_answers()
-            if any(r["id"] == qid for r in rows):
-                return self._json(409, {"ok": False, "error": "ответ на этот вопрос уже принят"})
-            if sum(1 for r in rows if r.get("t", 0) > time.time() - 3600) >= MAX_PER_HOUR:
-                return self._json(429, {"ok": False, "error": f"не больше {MAX_PER_HOUR} ответов в час"})
-            rec = {"ts": datetime.now(TZ).isoformat(timespec="seconds"), "t": int(time.time()), "id": qid, "key": key}
-            DATA.mkdir(parents=True, exist_ok=True)
-            with open(ANSWERS, "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                f.flush()
-                os.fsync(f.fileno())
-        print(f"answer {qid} {key}", flush=True)
-        self._json(200, {"ok": True, "label": opt.get("label")})
-
-    do_PUT = do_DELETE = do_PATCH = do_OPTIONS = lambda self: self._404()
+    do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = lambda self: self._404()
 
 
 if __name__ == "__main__":

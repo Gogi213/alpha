@@ -72,6 +72,9 @@
 .d3 .ask .qh .qn{padding:0;background:transparent;box-shadow:none}
 .d3 .opts{grid-template-columns:minmax(0,1fr)}
 .d3 .opt .df{font-size:var(--fs-s)}
+.d3 .opt{cursor:default}
+.d3 .opt:hover{border-color:rgba(var(--fg-rgb),.5);box-shadow:none}
+.d3 .asknote{margin-top:.6em}
 
 /* что стало возможно */
 .d3 .sums{display:grid;gap:.6em;margin:0;padding:0;list-style:none}
@@ -145,9 +148,7 @@
   .d3 .tl li .tm{grid-column:2;grid-row:2}.d3 .tl li .pip{grid-column:1;grid-row:1}.d3 .tl li .tb{grid-column:2;grid-row:1}
   .d3 .tl li::after{left:.52em}
   .d3 .dr{padding:.8em 1.4ch}
-  /* кнопки на телефоне остаются нажимаемыми */
-  .d3 .opt{min-height:40px;align-content:center}
-  .d3 .okb,.d3 .cbtn{min-height:38px;padding-block:0;display:inline-flex;align-items:center}
+  /* кнопки на телефоне остаются нажимаемыми (вопросы только для чтения) */
   .d3 .pick button{min-height:34px}
   .d3 .key{min-height:36px;padding:0 12px}
 }
@@ -183,8 +184,8 @@
       const sel = ui.sel && all.find((p) => p.id === ui.sel) ? ui.sel : (act[0] || all[0] || {}).id;
       const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, text: (m.now || {}).text || "", load: m.load || "", m }));
       arr(all.flatMap((p) => arr(p.steps).map((s) => s.on))).forEach((id) => { if (id && id !== "you" && !machines.some((r) => r.id === id)) machines.push({ id, state: "idle", text: "", load: "", m: null }); });
-      const nq = arr(v.questions).filter((q) => !ui.answered[q.id] && !q.web_answer).length;
-      machines.push({ id: "you", state: nq ? "wait" : "idle", text: nq ? `ждут ваших ответов: ${nq}` : "ничего не ждёт", load: nq ? "ответьте на вопросы, и работа пойдёт дальше" : "", m: null });
+      const nq = arr(v.questions).length;
+      machines.push({ id: "you", state: nq ? "wait" : "idle", text: nq ? `ждут ваших ответов: ${nq}` : "ничего не ждёт", load: nq ? "ответьте в чате с CEO, и работа пойдёт дальше" : "", m: null });
 
       const np = act.length;
       let mx = "";
@@ -202,7 +203,7 @@
       const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
       const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
       const selP = all.find((p) => p.id === sel);
-      const asks = arr(v.questions).length ? `<div class="asks">${arr(v.questions).map((q) => `<section class="ask">${Board.qHTML(q)}</section>`).join("")}</div>` : `<div class="none">вопросов к вам нет</div>`;
+      const asks = arr(v.questions).length ? `<div class="asks">${arr(v.questions).map((q) => `<section class="ask">${Board.qHTML(q)}</section>`).join("")}</div><div class="dim small asknote">ответ — в чате с CEO</div>` : `<div class="none">вопросов к вам нет</div>`;
       const pick = all.length > 1 ? `<div class="pick${done.length ? " hd" : ""}"><span class="dim">подробно о задаче:</span>${all.map((p) => `<button type="button"${p.state === "done" ? "" : ' class="pa"'} data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : "";
       return `<div class="lay">
    <div class="top"><div class="ttl"><h1>Диспетчерская</h1>${headline()}</div><div class="pr"><span>${pr.left}</span>${pr.strip}<span>${pr.right}</span></div></div>

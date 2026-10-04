@@ -1,7 +1,7 @@
-/* Общее ядро трёх живых страниц веб-табло: опрос status.json, плашка «нет связи / сводка устарела», вопросы с ответом
-   кнопками (подтверждение; вариант по умолчанию — одна кнопка «Ок»), общие кирпичи вёрстки. Каждая страница
+/* Ядро живой страницы веб-табло: опрос status.json, плашка «нет связи / сводка устарела», вопросы только для чтения
+   (ответ даётся в чате с CEO), общие кирпичи вёрстки. Каждая страница
    (сейчас одна: dispetcher) вызывает Board.start({... render(v, ui) → HTML}) и рисует только своё.
-   Данные — view2 (tools/pulse/VIEW2.md); ответ — POST answer {id, key} на этот же сервер. Идентификаторы тикетов
+   Данные — view2 (tools/pulse/VIEW2.md). Идентификаторы тикетов
    на экран не выводятся: только названия и слова по-людски. */
 (function () {
   "use strict";
@@ -16,7 +16,7 @@
 
   let V = {};
   let cfg = null, view = null, loaded = false, netFail = false, ageAt = 0, fetchedAt = 0, lastJson = "", timer = null, ph = "green";
-  const ui = { open: new Set(), sel: null, pending: null, answered: {}, busy: null, focus: null };
+  const ui = { open: new Set(), sel: null };
   B.ui = ui;
   B.E = E;
   B.arr = arr;
@@ -117,48 +117,18 @@
   const legendPip = () => `<div class="legend">${Object.keys(ST).map((k) => `<span><i class="pip s-${k}"></i>${ST[k].toLowerCase()} <span class="dim">· ${STM[k]}</span></span>`).join("")}</div>`;
   const feedWho = (f) => `${arr(f.on).map(mt).join(" ")}${f.to ? " → " + mt(f.to) : ""}`;
 
-  // ---------- вопрос владельцу ----------
-  const optLabel = (q, key) => { const o = arr(q.options).find((x) => String(x.key).toLowerCase() === String(key).toLowerCase()); return o ? o.label : String(key); };
+  // ---------- вопрос владельцу (только чтение: ответ даётся в чате с CEO) ----------
   const qHTML = (q) => {
     const p = proc(q.process);
-    const done = ui.answered[q.id] || (q.web_answer ? optLabel(q, q.web_answer) : null);
-    let h = `<div class="q" data-q="${E(q.id)}"><div class="qh"><span class="inv qn">ВОПРОС ${E(q.n)}</span><span class="dim">${q.from ? E(q.from) : ""}${q.on ? " на " + mt(q.on) : ""}${p ? " · «" + E(p.title) + "»" : ""}${q.wait_min != null ? " · ждёт " + fmtMin(q.wait_min) : ""}</span></div><p class="qt">${E(q.text)}</p>`;
-    if (done) return h + `<div class="ans"><span class="st s-done">[ОТВЕТ ЗАПИСАН]</span> «${E(done)}» <span class="dim">ПК заберёт его в течение минуты</span></div></div>`;
     const def = q.default != null && q.default !== "" ? String(q.default) : null;
-    const pend = ui.pending && ui.pending.q === q.id ? String(ui.pending.k) : null;
-    const busy = ui.busy === q.id ? " disabled" : "";
-    h += `<div class="opts" role="group" aria-label="Варианты ответа на вопрос ${E(q.n)}">` +
-      arr(q.options).map((o) => `<button type="button" class="opt" data-act="pick" data-q="${E(q.id)}" data-k="${E(o.key)}" aria-pressed="${String(o.key) === pend}"${busy}><span class="ol">${E(o.label)}</span>${o.effect ? `<span class="ef">${E(o.effect)}</span>` : ""}${def !== null && String(o.key) === def ? '<span class="df">предлагаю</span>' : ""}</button>`).join("") + "</div>";
-    if (def !== null && arr(q.options).some((o) => String(o.key) === def)) {
-      h += `<div class="okrow"><button type="button" class="okb" data-act="ok" data-q="${E(q.id)}" data-k="${E(def)}"${busy}>Ок</button><span class="dim">ответить предложенным: «${E(optLabel(q, def))}»</span></div>`;
-    }
-    if (pend !== null) {
-      h += `<div class="confirm" role="alert"><span>Ответить «${E(optLabel(q, pend))}»?</span><button type="button" class="cbtn" data-act="confirm"${busy}>Да, ответить</button><button type="button" class="cbtn no" data-act="cancel"${busy}>Нет</button></div>`;
-    }
-    return h + "</div>";
+    return `<div class="q" data-q="${E(q.id)}"><div class="qh"><span class="inv qn">ВОПРОС ${E(q.n)}</span><span class="dim">${q.from ? E(q.from) : ""}${q.on ? " на " + mt(q.on) : ""}${p ? " · «" + E(p.title) + "»" : ""}${q.wait_min != null ? " · ждёт " + fmtMin(q.wait_min) : ""}</span></div><p class="qt">${E(q.text)}</p>` +
+      `<div class="opts" role="list" aria-label="Варианты ответа на вопрос ${E(q.n)}">` +
+      arr(q.options).map((o) => `<div class="opt" role="listitem"><span class="ol">${E(o.label)}</span>${o.effect ? `<span class="ef">${E(o.effect)}</span>` : ""}${def !== null && String(o.key) === def ? '<span class="df">предлагаю</span>' : ""}</div>`).join("") + "</div></div>";
   };
   const questions = () => (arr(V.questions).length ? arr(V.questions).map(qHTML).join("") : `<div class="none">вопросов к вам нет</div>`);
 
   Object.assign(B, { ST, STM, sk, tagOf, mt, mn, tok, fmtMin, procs, proc, qOf, lamp, forTxt, flow, whoOn, tm, sdet, waitTxt, pinfo, mProg, seg, bar, meter, groups, stepWaves, hasParallel, counts, headline, progress, legend, legendPip, feedWho, qHTML, questions });
   B.view = () => V;
-
-  // ---------- ответ ----------
-  const toast = (text, err) => {
-    const t = document.getElementById("toast"); t.textContent = text; t.className = "toast" + (err ? " err" : ""); t.hidden = false;
-    clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 4500);
-  };
-  async function send(qid, key) {
-    const q = qOf(qid); const label = q ? optLabel(q, key) : key;
-    ui.busy = qid; render();
-    try {
-      const res = await fetch("answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: qid, key }) });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok && j.ok) { ui.answered[qid] = j.label || label; toast("Ответ записан"); }
-      else if (res.status === 409) { ui.answered[qid] = label; toast("Ответ на этот вопрос уже принят"); }
-      else toast("Ответ не записан: " + (j.error || "ошибка " + res.status), true);
-    } catch (e) { toast("Ответ не записан: нет связи с сервером", true); }
-    ui.busy = null; ui.pending = null; render(); poll();
-  }
 
   // ---------- отрисовка ----------
   const actKey = (n) => (n && n.dataset && n.dataset.act ? n.dataset.act + "|" + (n.dataset.q || n.dataset.id || "") + "|" + (n.dataset.k || "") : null);
@@ -166,11 +136,9 @@
     if (!loaded) return;
     const was = actKey(document.activeElement);
     view.innerHTML = cfg.render(V, ui);
-    let target = null;
-    if (ui.focus) { target = view.querySelector(ui.focus); ui.focus = null; }
-    else if (was) target = [...view.querySelectorAll("[data-act]")].find((n) => actKey(n) === was);
+    const target = was ? [...view.querySelectorAll("[data-act]")].find((n) => actKey(n) === was) : null;
     if (target) target.focus({ preventScroll: true });
-    const n = arr(V.questions).filter((q) => !ui.answered[q.id] && !q.web_answer).length;
+    const n = arr(V.questions).length;
     if (cfg.after) cfg.after();
     document.title = (n ? "(" + n + ") " : "") + cfg.title;
     document.querySelector(".mon").style.setProperty("--rollh", Math.max(600, Math.round(view.getBoundingClientRect().height * 1)));
@@ -230,21 +198,16 @@
           <div class="status"><span class="tg">ТАБЛО</span><span class="wide">${E(c.path)}</span><span class="fill"></span><span class="wide" id="phl"></span><span id="lnk">загрузка</span><span class="wide" id="stt"></span></div>
         </div><i class="ov grain"></i><i class="ov scan"></i><i class="ov roll"></i>${c.extra || ""}<i class="ov vignette"></i><i class="ov glass"></i></div>
         <div class="strip"><div class="brand"><i class="led"></i><span class="brand-name">Alpha</span><span class="brand-model">${E(c.model)}</span></div><span class="fill"></span>
-          <div class="dials" role="group" aria-label="Люминофор"><span class="dial-label">Люминофор</span>${Object.keys(PH).map((k) => `<button type="button" class="key" data-phk="${k}" aria-pressed="${k === ph}" aria-label="${PH[k][2]}" style="--c:${PH[k][1]}"><i class="lamp-k"></i>${PH[k][0]}</button>`).join("")}</div></div></div>
-      <div class="toast" id="toast" hidden role="status"></div>`);
+          <div class="dials" role="group" aria-label="Люминофор"><span class="dial-label">Люминофор</span>${Object.keys(PH).map((k) => `<button type="button" class="key" data-phk="${k}" aria-pressed="${k === ph}" aria-label="${PH[k][2]}" style="--c:${PH[k][1]}"><i class="lamp-k"></i>${PH[k][0]}</button>`).join("")}</div></div></div>`);
     view = document.getElementById("view");
     const mon = document.querySelector(".mon");
     const setPh = (k) => { ph = k; mon.dataset.ph = k; document.getElementById("phl").textContent = "[" + PH[k][0] + "]"; mon.querySelectorAll("[data-phk]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.phk === k))); try { localStorage.setItem("board-ph-" + c.id, k); } catch (e) { /* нет хранилища — не страшно */ } };
     setPh(ph);
     mon.querySelectorAll("[data-phk]").forEach((b) => b.addEventListener("click", () => setPh(b.dataset.phk)));
     view.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
+      const b = e.target.closest("[data-act]"); if (!b) return;
       const a = b.dataset.act;
-      if (a === "pick") { ui.pending = { q: b.dataset.q, k: b.dataset.k }; ui.focus = '[data-act="confirm"]'; render(); }
-      else if (a === "cancel") { ui.pending = null; render(); }
-      else if (a === "confirm") { if (ui.pending) send(ui.pending.q, ui.pending.k); }
-      else if (a === "ok") send(b.dataset.q, b.dataset.k);
-      else if (a === "toggle") { const id = b.dataset.id; if (ui.open.has(id)) ui.open.delete(id); else ui.open.add(id); render(); }
+      if (a === "toggle") { const id = b.dataset.id; if (ui.open.has(id)) ui.open.delete(id); else ui.open.add(id); render(); }
       else if (a === "select") { ui.sel = b.dataset.id; render(); }
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); else clearTimeout(timer); });
