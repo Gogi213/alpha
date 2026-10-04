@@ -1,6 +1,6 @@
 /* Общее ядро трёх живых страниц веб-табло: опрос status.json, плашка «нет связи / сводка устарела», вопросы с ответом
    кнопками (подтверждение; вариант по умолчанию — одна кнопка «Ок»), общие кирпичи вёрстки. Каждая страница
-   (seans / konveyer / dispetcher) вызывает Board.start({... render(v, ui) → HTML}) и рисует только своё.
+   (сейчас одна: dispetcher) вызывает Board.start({... render(v, ui) → HTML}) и рисует только своё.
    Данные — view2 (tools/pulse/VIEW2.md); ответ — POST answer {id, key} на этот же сервер. Идентификаторы тикетов
    на экран не выводятся: только названия и слова по-людски. */
 (function () {
@@ -230,7 +230,6 @@
           <div class="status"><span class="tg">ТАБЛО</span><span class="wide">${E(c.path)}</span><span class="fill"></span><span class="wide" id="phl"></span><span id="lnk">загрузка</span><span class="wide" id="stt"></span></div>
         </div><i class="ov grain"></i><i class="ov scan"></i><i class="ov roll"></i>${c.extra || ""}<i class="ov vignette"></i><i class="ov glass"></i></div>
         <div class="strip"><div class="brand"><i class="led"></i><span class="brand-name">Alpha</span><span class="brand-model">${E(c.model)}</span></div><span class="fill"></span>
-          <a class="key" href="./">Выбор вида</a>
           <div class="dials" role="group" aria-label="Люминофор"><span class="dial-label">Люминофор</span>${Object.keys(PH).map((k) => `<button type="button" class="key" data-phk="${k}" aria-pressed="${k === ph}" aria-label="${PH[k][2]}" style="--c:${PH[k][1]}"><i class="lamp-k"></i>${PH[k][0]}</button>`).join("")}</div></div></div>
       <div class="toast" id="toast" hidden role="status"></div>`);
     view = document.getElementById("view");

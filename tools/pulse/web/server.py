@@ -2,12 +2,9 @@
 """Веб-табло alpha для владельца (счётный сервер, юнит `alpha-board`): только стандартная библиотека Python.
 
 Маршруты — только под секретным префиксом `/<токен>/` (токен — /etc/alpha-board/token), всё остальное — 404:
-    GET  /<токен>/              страница выбора из трёх видов (choose.html)
-    GET  /<токен>/seans         «Сеанс»          (seans.html)
-    GET  /<токен>/konveyer      «Конвейер»       (konveyer.html)
-    GET  /<токен>/dispetcher    «Диспетчерская»  (dispetcher.html)
-    GET  /<токен>/old           прежняя страница (board.html)
-    GET  /<токен>/phosphor.css, phosphor.js   общая оболочка и ядро трёх видов
+    GET  /<токен>/              «Диспетчерская» (dispetcher.html)
+    GET  /<токен>/dispetcher    то же
+    GET  /<токен>/phosphor.css, phosphor.js   оболочка и ядро страницы
     GET  /<токен>/status.json   {view2, built_at, age_s} — последняя сводка (её кладёт bridge.py в /data/board/status.json)
     POST /<токен>/answer        {id, key} — ответ владельца: вопрос и вариант должны быть в текущей сводке;
                                 строка JSON дописывается в /data/board/answers.jsonl (≤ 30 в час, один ответ на вопрос)
@@ -43,11 +40,8 @@ _answers_cache: dict = {"key": None, "rows": []}
 HTML = "text/html; charset=utf-8"
 # маршрут после токена → (файл рядом с этим, тип); только этот список отдаётся с диска
 PAGES = {
-    "/": ("choose.html", HTML),
-    "/seans": ("seans.html", HTML),
-    "/konveyer": ("konveyer.html", HTML),
+    "/": ("dispetcher.html", HTML),
     "/dispetcher": ("dispetcher.html", HTML),
-    "/old": ("board.html", HTML),
     "/phosphor.css": ("phosphor.css", "text/css; charset=utf-8"),
     "/phosphor.js": ("phosphor.js", "application/javascript; charset=utf-8"),
 }

@@ -128,10 +128,9 @@ Enter / кнопка «Ок» отвечает им (`ask.py answer <id> <defaul
 
 Сервер счёта `89.163.242.211`, юнит `alpha-board` (CPUQuota 20 %, Nice 10, MemoryMax 200M), порт 8787, адрес с секретом
 `http://89.163.242.211:8787/<токен>/` (токен — `/etc/alpha-board/token`; у CEO — `.claude/pulse/board-url.txt`, gitignored).
-Код — `tools/pulse/web/` (`server.py` — HTTP на stdlib, `bridge.py` — приём сводки и выдача ответов, `board.html` — страница
-из `page2.html`, `alpha-board.service`); на сервере — `/opt/alpha-board/` (код) и `/data/board/` (`status.json`, `answers.jsonl`).
-Маршруты под токеном: `GET /` выбор из трёх видов (`choose.html`), `GET /seans` · `/konveyer` · `/dispetcher` — живые страницы
-(`seans.html`, `konveyer.html`, `dispetcher.html` на общих `phosphor.css` / `phosphor.js`), `GET /old` прежняя `board.html`,
+Код — `tools/pulse/web/` (`server.py` — HTTP на stdlib, `bridge.py` — приём сводки и выдача ответов, `dispetcher.html` — страница на `phosphor.css` / `phosphor.js`,
+`alpha-board.service`); на сервере — `/opt/alpha-board/` (код) и `/data/board/` (`status.json`, `answers.jsonl`).
+Маршруты под токеном: `GET /` и `GET /dispetcher` — «Диспетчерская» (`dispetcher.html`), `GET /phosphor.css`, `GET /phosphor.js`,
 `GET /status.json` (`view2` + `built_at` + `age_s`), `POST /answer {id,key}` (вопрос и
 вариант есть в текущей сводке; ≤ 30 ответов в час; один ответ на вопрос); остальное — 404. Доставка: `BoardLink` в
 `collect.py` держит ОДНО ssh к счёту (`bridge.py`): сводка строкой JSON раз в 5 с в stdin, ответы возвращаются в stdout и
