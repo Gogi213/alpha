@@ -164,7 +164,9 @@ PROMPT_TEMPLATE = (
     "Задача: .claude/tickets/{tid}.md — прочитай шапку, описание и последние записи «## Лог» (старые записи "
     "лежат в .claude/tickets/archive/{tid}-log.md — grep только при необходимости). Лимит этого запуска — "
     "{timeout_min} мин. Не запускай в сессии фоновых помощников и фоновых задач; долгая работа — systemd-run "
-    "на машинах (Steam Deck/VPS) + status: waiting + wait_for, и выйди, не жди в сессии. Трать минимум: "
+    "на машинах (Steam Deck/VPS) + status: waiting + wait_for (`python .claude/dispatcher/tickets.py wait {tid} "
+    "host:calc:/data/progress/<job>.json`; формы: host:calc|vps:<путь | unit:имя>, file:<путь>, ticket:<ID>), и выйди, "
+    "не жди в сессии. Трать минимум: "
     "самый короткий путь к результату задачи; траты каждого запуска записываются и сравниваются с "
     "результатом. Сделай следующий шаг и запиши итог командой "
     "`python .claude/dispatcher/tickets.py comment {tid} --author {role} --text \"...\"` (что сделал, что "
@@ -208,20 +210,20 @@ def save_state(state: dict) -> None:
 # --- wait_for ---------------------------------------------------------------------------------
 
 def check_wait_for(spec: str) -> bool:
-    spec = (spec or "").strip()
-    if not spec:
+    """Условие `wait_for` выполнено? Формы — `ticket.parse_wait_for` (README, «v4»). Незнакомая форма (в т.ч. свободный
+    текст и старое `mention`) → False, но тихо не остаётся: `notify_wait_for_problem` пишет строку в ceo-inbox."""
+    parsed = T.parse_wait_for(spec)
+    if parsed is None:
         return False
-    if spec.startswith("file:"):
-        p = spec[len("file:"):].strip()
-        path = Path(p)
+    if parsed[0] == "file":
+        path = Path(parsed[1])
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         return path.exists()
-    if spec.startswith("deck:"):
-        return _deck_file_exists(spec[len("deck:"):].strip())
-    if spec.startswith("ticket:"):
-        return _other_ticket_done(spec[len("ticket:"):].strip())
-    return False  # незнакомые формы (в т.ч. старое `mention`) сами не снимаются — тикет ждёт явного `next`
+    if parsed[0] == "ticket":
+        return _other_ticket_done(parsed[1])
+    _, alias, what, arg = parsed
+    return _host_wait_met(alias, what, arg)
 
 
 def _other_ticket_done(other_id: str) -> bool:
@@ -248,32 +250,86 @@ def _remote_test_arg(remote_path: str) -> str:
     return shlex.quote(remote_path)
 
 
-_DECK_CACHE = {}  # remote_path -> (time.time() отметка, результат) — см. _deck_file_exists
-DECK_CHECK_CACHE_S = float(os.environ.get("ALPHA_DISPATCH_DECK_CACHE_S", "60"))
+_WAIT_CACHE = {}  # (алиас, "path"|"unit", арг) -> (time.time() отметка, результат) — см. _host_wait_met
+WAIT_CHECK_CACHE_S = float(os.environ.get("ALPHA_DISPATCH_DECK_CACHE_S", "60"))
+WAIT_ERR_EVERY_S = 600.0  # ошибка ssh по одному условию — строка в dispatch.err.log не чаще раза в 10 мин
+_WAIT_ERR_LAST = {}  # ключ условия -> time.time() последней строки
+_UNIT_RUNNING = ("active", "activating", "reloading", "deactivating", "refreshing")
 
 
-def _deck_file_exists(remote_path: str) -> bool:
-    # Судья 27.09 («можно потом»): без кэша ssh дёргается на каждый ждущий тикет каждые 15 с —
-    # кэшируем результат на DECK_CHECK_CACHE_S, как deck_alert() в role_memory.py (15 мин там,
-    # здесь короче — это условие продолжения работы, не редкая тревога).
-    cached = _DECK_CACHE.get(remote_path)
+def _wait_err(key: str, msg: str) -> None:
     now_ts = time.time()
-    if cached and (now_ts - cached[0]) < DECK_CHECK_CACHE_S:
-        return cached[1]
+    last = _WAIT_ERR_LAST.get(key)
+    if last is not None and (now_ts - last) < WAIT_ERR_EVERY_S:
+        return
+    _WAIT_ERR_LAST[key] = now_ts
+    print(f"[dispatch] {T.now_iso()} wait_for {key}: {msg}", file=sys.stderr, flush=True)
+
+
+def _ssh_cmd(alias: str, remote_cmd: str) -> list:
     # Кириллический HOME на этой машине ломает умолчания ssh (В-см. windows-ssh-cyrillic-home) —
     # ключ, known_hosts и хост берём явно, не полагаясь на ~/.ssh по умолчанию.
-    host = os.environ.get("ALPHA_DECK_HOST", "deck@192.168.1.49")
+    host = os.environ.get(f"ALPHA_{alias.upper()}_HOST", T.WAIT_FOR_HOSTS[alias])
     key = os.environ.get("ALPHA_DECK_KEY", r"C:/Users/Георгий/.ssh/id_rsa")
     known_hosts = os.environ.get("ALPHA_DECK_KNOWN_HOSTS", r"C:/Users/Георгий/.ssh/known_hosts")
-    cmd = ["ssh", "-i", key, "-o", f"UserKnownHostsFile={known_hosts}", "-o", "BatchMode=yes",
-           "-o", "ConnectTimeout=8", host, f"test -e {_remote_test_arg(remote_path)}"]
+    return ["ssh", "-i", key, "-o", f"UserKnownHostsFile={known_hosts}", "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8", host, remote_cmd]
+
+
+def _progress_done(text: str):
+    """Содержимое `.json` — файл хода (`alpha-progress`: числа `done`/`total`)? → done >= total (и total > 0, чтобы
+    не сработать на заготовке с нулями); иначе None — это не файл хода, достаточно того, что он существует."""
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=15)
-        result = r.returncode == 0
-    except Exception:
-        result = False
-    _DECK_CACHE[remote_path] = (now_ts, result)
+        obj = json.loads(text)
+        done, total = obj["done"], obj["total"]
+        if isinstance(done, bool) or isinstance(total, bool):
+            return None
+        done, total = float(done), float(total)
+    except (ValueError, KeyError, TypeError):
+        return None
+    return total > 0 and done >= total
+
+
+def _host_wait_met(alias: str, what: str, arg: str) -> bool:
+    """`host:<алиас>:<путь>` — путь на машине существует (`.json` с done/total — done >= total); `host:<алиас>:unit:<имя>` —
+    юнит не работает (`systemctl is-active` ≠ active: задание закончилось или упало). `deck:<путь>` — то же с алиасом deck.
+    Судья 27.09 («можно потом»): без кэша ssh дёргается на каждый ждущий тикет каждые 15 с — результат на
+    WAIT_CHECK_CACHE_S; ошибка ssh (код 255, таймаут) = «не выполнено» + строка в dispatch.err.log раз в 10 мин."""
+    ckey = (alias, what, arg)
+    cached = _WAIT_CACHE.get(ckey)
+    now_ts = time.time()
+    if cached and (now_ts - cached[0]) < WAIT_CHECK_CACHE_S:
+        return cached[1]
+    if what == "unit":
+        remote = f"systemctl is-active {shlex.quote(arg)}"
+    elif arg.endswith(".json"):
+        remote = f"cat {_remote_test_arg(arg)}"
+    else:
+        remote = f"test -e {_remote_test_arg(arg)}"
+    label = f"host:{alias}:{'unit:' if what == 'unit' else ''}{arg}"
+    result = False
+    try:
+        r = subprocess.run(_ssh_cmd(alias, remote), capture_output=True, timeout=15)
+        out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")
+        if what == "unit":
+            state = (out.strip().splitlines() or [""])[0]
+            if r.returncode == 255 or not state:
+                _wait_err(label, f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
+            else:
+                result = state not in _UNIT_RUNNING
+        elif r.returncode == 0:
+            progress = _progress_done(out) if arg.endswith(".json") else None
+            result = True if progress is None else progress
+        elif r.returncode != 1:  # 1 — файла нет (штатно); остальное (255…) — сбой ssh/хоста
+            _wait_err(label, f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
+    except Exception as e:
+        _wait_err(label, f"ssh: {type(e).__name__}: {e}")
+    _WAIT_CACHE[ckey] = (now_ts, result)
     return result
+
+
+def _ssh_stderr(r) -> str:
+    return ((getattr(r, "stderr", b"") or b"").decode("utf-8", "replace").strip().splitlines() or ["—"])[-1][:200]
 
 
 # --- ceo-inbox ---------------------------------------------------------------------------------
@@ -385,6 +441,42 @@ def notify_parse_error(tid: str, err_text: str, state: dict, now) -> None:
         return
     append_ceo_inbox(tid, "parse-error", err_text, now)
     notified[tid] = err_text
+
+
+WAIT_NOTICE_EVERY = timedelta(days=1)    # одна и та же претензия к wait_for тикета — не чаще раза в сутки
+WAIT_EMPTY_AFTER = timedelta(minutes=30)  # waiting с пустым wait_for молчит 30 мин (роль как раз правит шапку)
+
+
+def notify_wait_for_problem(tkt: T.Ticket, state: dict, now) -> None:
+    """`waiting`, который диспетчер не умеет снять, не молчит (разбор 04.10: роли писали в wait_for что попало — тикет ждал
+    вечно, ни ошибки, ни строки): непустой `wait_for` неизвестной формы или ПУСТОЙ дольше 30 мин (от `updated`) → строка
+    CEO в ceo-inbox, раз в сутки на тикет. Не трогаем: тикет в запуске, ждущий `next` (уйдёт на этом же тике)."""
+    if tkt.status != "waiting" or tkt.id in RUNNING or tkt.next_role:
+        return
+    spec = (tkt.header.get("wait_for") or "").strip()
+    if spec:
+        if T.parse_wait_for(spec) is not None:
+            return
+        note = f"wait_for не понят: {spec[:150]} — допустимо: {T.WAIT_FOR_FORMATS}"
+    else:
+        try:
+            idle = now - T.parse_dt(tkt.header.get("updated", ""))
+        except ValueError:
+            return
+        if idle < WAIT_EMPTY_AFTER:
+            return
+        note = (f"ждёт, но не сказано чего: waiting при пустом wait_for уже {int(idle.total_seconds() // 60)} мин — "
+                f"задать (`tickets.py wait {tkt.id} <форма>`: {T.WAIT_FOR_FORMATS}) или сменить статус")
+    notified = state.setdefault("ceo_wait_for_notified", {})
+    prev = notified.get(tkt.id) or {}
+    if prev.get("spec") == spec and prev.get("at"):
+        try:
+            if now - T.parse_dt(prev["at"]) < WAIT_NOTICE_EVERY:
+                return
+        except ValueError:
+            pass
+    append_ceo_inbox(tkt.id, "wait-for", note, now)
+    notified[tkt.id] = {"spec": spec, "at": T.now_iso(now)}
 
 
 def _review_returns(state: dict, tid: str) -> int:
@@ -1402,6 +1494,7 @@ def tick(now=None) -> int:
         handle_next_ceo(path, tkt, state, now)
         notify_status_for_ceo(tkt, state, now)
         notify_done(tkt, state, now)
+        notify_wait_for_problem(tkt, state, now)
 
         tid = tkt.id
         if tid in RUNNING:

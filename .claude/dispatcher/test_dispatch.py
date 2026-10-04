@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -1326,6 +1328,20 @@ class DispatchRunTests(unittest.TestCase):
             D.tick(now=dt("2026-09-27T12:00:00+04:00") + timedelta(seconds=15 * i))
         inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
         self.assertEqual(inbox.count("parse-error"), 1, "3 тика с одной и той же ошибкой — одна строка")
+
+    def test_tick_reports_waiting_with_unknown_wait_for_once_and_launches_nobody(self):
+        """v4: свободный текст в wait_for — одна строка CEO за несколько тиков, роль не запускается."""
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Ждёт непонятно",
+                                now=dt("2026-09-27T12:00:00+04:00"))
+        T.write_header_updates(path, {"status": "waiting"}, now=dt("2026-09-27T12:00:10+04:00"))
+        text = path.read_text(encoding="utf-8").replace(
+            "wait_for: \n", "wait_for: прогон на сервере — готов, когда done=total\n")  # роль правит шапку руками
+        path.write_text(text, encoding="utf-8")
+        for i in range(3):
+            self.assertEqual(D.tick(now=dt("2026-09-27T12:00:30+04:00") + timedelta(seconds=15 * i)), 0)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
+        self.assertEqual(inbox.count("wait_for не понят"), 1)
+        self.assertEqual(D.RUNNING, {})
 
     def test_notify_parse_error_renotifies_on_different_text(self):
         """Дедуп ключом (тикет, ТЕКСТ ошибки) — сменился текст ошибки, значит сменилась причина."""
@@ -3083,10 +3099,10 @@ class DeckSshTests(unittest.TestCase):
     """v1.1: умолчания ssh на Steam Deck (кириллический HOME ломает ~/.ssh по умолчанию)."""
 
     def setUp(self):
-        D._DECK_CACHE.clear()
+        D._WAIT_CACHE.clear()
 
     def tearDown(self):
-        D._DECK_CACHE.clear()
+        D._WAIT_CACHE.clear()
 
     def test_repeated_checks_within_cache_window_hit_ssh_once(self):
         """«Можно потом»: без кэша ssh дёргается на каждый ждущий тикет каждые 15 с."""
@@ -3104,12 +3120,12 @@ class DeckSshTests(unittest.TestCase):
         D.subprocess.run = fake_run
         D.time.time = lambda: fake_clock[0]
         try:
-            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
-            fake_clock[0] += D.DECK_CHECK_CACHE_S / 2  # ещё внутри окна кэша
-            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
+            self.assertTrue(D._host_wait_met("deck", "path", "~/alpha/queue/STATUS"))
+            fake_clock[0] += D.WAIT_CHECK_CACHE_S / 2  # ещё внутри окна кэша
+            self.assertTrue(D._host_wait_met("deck", "path", "~/alpha/queue/STATUS"))
             self.assertEqual(len(calls), 1, "второй вызов внутри окна кэша не должен дёргать ssh")
-            fake_clock[0] += D.DECK_CHECK_CACHE_S + 1  # окно истекло
-            self.assertTrue(D._deck_file_exists("~/alpha/queue/STATUS"))
+            fake_clock[0] += D.WAIT_CHECK_CACHE_S + 1  # окно истекло
+            self.assertTrue(D._host_wait_met("deck", "path", "~/alpha/queue/STATUS"))
             self.assertEqual(len(calls), 2, "после истечения окна кэша — новый вызов")
         finally:
             D.subprocess.run = orig_run
@@ -3129,17 +3145,17 @@ class DeckSshTests(unittest.TestCase):
     def test_wait_for_deck_job_marker_used_via_check_wait_for(self):
         calls = []
 
-        def fake_deck_file_exists(remote_path):
-            calls.append(remote_path)
+        def fake_host_wait_met(alias, what, arg):
+            calls.append((alias, what, arg))
             return True
 
-        orig = D._deck_file_exists
-        D._deck_file_exists = fake_deck_file_exists
+        orig = D._host_wait_met
+        D._host_wait_met = fake_host_wait_met
         try:
             self.assertTrue(D.check_wait_for("deck:~/alpha/queue/done/T-38.job"))
         finally:
-            D._deck_file_exists = orig
-        self.assertEqual(calls, ["~/alpha/queue/done/T-38.job"])
+            D._host_wait_met = orig
+        self.assertEqual(calls, [("deck", "path", "~/alpha/queue/done/T-38.job")])
 
     def test_tilde_path_rest_still_escaped(self):
         import shlex
@@ -3166,7 +3182,7 @@ class DeckSshTests(unittest.TestCase):
         orig_run = D.subprocess.run
         D.subprocess.run = fake_run
         try:
-            ok = D._deck_file_exists("~/alpha/queue/STATUS")
+            ok = D._host_wait_met("deck", "path", "~/alpha/queue/STATUS")
         finally:
             D.subprocess.run = orig_run
 
@@ -3180,6 +3196,282 @@ class DeckSshTests(unittest.TestCase):
         self.assertEqual(cmd[-2], "deck@192.168.1.49")
         self.assertTrue(cmd[-1].startswith("test -e "))
         self.assertIn("~/alpha/queue/STATUS", cmd[-1])
+
+
+class WaitForHostTests(unittest.TestCase):
+    """v4 (04.10): `wait_for: host:<calc|vps|deck>:<путь>` / `host:<…>:unit:<имя>` (deck: — синоним), прогресс-json,
+    проверка формы. ssh подменён, сети нет."""
+
+    def setUp(self):
+        D._WAIT_CACHE.clear()
+        D._WAIT_ERR_LAST.clear()
+        self.cmds = []
+        self.reply = (0, b"", b"")
+        self._orig_run = D.subprocess.run
+        D.subprocess.run = self._fake_run
+        self._env = {k: os.environ.pop(k, None) for k in
+                     ("ALPHA_CALC_HOST", "ALPHA_VPS_HOST", "ALPHA_DECK_HOST", "ALPHA_DECK_KEY", "ALPHA_DECK_KNOWN_HOSTS")}
+
+    def tearDown(self):
+        D.subprocess.run = self._orig_run
+        D._WAIT_CACHE.clear()
+        D._WAIT_ERR_LAST.clear()
+        for k, v in self._env.items():
+            if v is not None:
+                os.environ[k] = v
+            else:
+                os.environ.pop(k, None)
+
+    def _fake_run(self, cmd, **kwargs):
+        self.cmds.append(cmd)
+        rc, out, err = self.reply
+
+        class R:
+            returncode = rc
+            stdout = out
+            stderr = err
+        return R()
+
+    def met(self, spec):
+        D._WAIT_CACHE.clear()
+        return D.check_wait_for(spec)
+
+    # --- разбор формы ---
+    def test_parse_wait_for_forms(self):
+        ok = {
+            "file:data/x": ("file", "data/x"),
+            "ticket:TK-044": ("ticket", "TK-044"),
+            "deck:~/alpha/q/done": ("host", "deck", "path", "~/alpha/q/done"),
+            "host:deck:~/alpha/q/done": ("host", "deck", "path", "~/alpha/q/done"),
+            "host:calc:/data/progress/tk044.json": ("host", "calc", "path", "/data/progress/tk044.json"),
+            "host:vps:/opt/alpha-compute/done": ("host", "vps", "path", "/opt/alpha-compute/done"),
+            "host:calc:unit:tk044-run3": ("host", "calc", "unit", "tk044-run3"),
+            "host:vps:unit:tk044.service": ("host", "vps", "unit", "tk044.service"),
+        }
+        for spec, want in ok.items():
+            self.assertEqual(T.parse_wait_for(spec), want, spec)
+        bad = ["", "mention", "ceo — решение владельца", "прогон окон на сервере счёта (…) — готов, когда done=total",
+               "file:", "ticket:", "ticket:TK 1", "deck:", "host:calc", "host:calc:", "host:calc:unit:",
+               "host:calc:unit:a b", "host:nas:/x", "host:calc/x", "calc:/x"]
+        for spec in bad:
+            self.assertIsNone(T.parse_wait_for(spec), spec)
+
+    # --- путь на машине ---
+    def test_host_path_exists_uses_alias_host_and_same_ssh_options(self):
+        for spec, host in (("host:calc:/data/x/DONE", "root@89.163.242.211"), ("host:vps:/opt/x/DONE", "root@13.140.29.171"),
+                           ("host:deck:~/alpha/x", "deck@192.168.1.49"), ("deck:~/alpha/x", "deck@192.168.1.49")):
+            self.cmds.clear()
+            self.reply = (0, b"", b"")
+            self.assertTrue(self.met(spec), spec)
+            cmd = self.cmds[0]
+            self.assertEqual(cmd[0], "ssh")
+            self.assertEqual(cmd[cmd.index("-i") + 1], r"C:/Users/Георгий/.ssh/id_rsa")
+            self.assertIn("UserKnownHostsFile=C:/Users/Георгий/.ssh/known_hosts", cmd)
+            self.assertIn("BatchMode=yes", cmd)
+            self.assertIn("ConnectTimeout=8", cmd)
+            self.assertEqual(cmd[-2], host, spec)
+            self.assertTrue(cmd[-1].startswith("test -e "), cmd[-1])
+
+    def test_host_path_missing_is_not_met_and_not_an_error(self):
+        self.reply = (1, b"", b"")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertFalse(self.met("host:calc:/data/x/DONE"))
+        self.assertEqual(err.getvalue(), "")  # «файла нет» — штатно, не сбой
+
+    def test_host_env_override(self):
+        os.environ["ALPHA_CALC_HOST"] = "me@10.0.0.9"
+        self.met("host:calc:/x")
+        self.assertEqual(self.cmds[0][-2], "me@10.0.0.9")
+
+    # --- файл хода (.json с done/total) ---
+    def test_progress_json_done_vs_total(self):
+        cases = [(b'{"done": 3, "total": 10}', False), (b'{"done": 10, "total": 10, "step": "x"}', True),
+                 (b'{"done": 11, "total": 10}', True), (b'{"done": "10", "total": "10"}', True),
+                 (b'{"done": 0, "total": 0}', False),               # заготовка с нулями — не конец
+                 ("{\"ticket\": \"TK-1\", \"note\": \"готово\"}".encode(), True),   # не файл хода — достаточно существования
+                 (b"", True)]
+        for body, want in cases:
+            self.cmds.clear()
+            self.reply = (0, body, b"")
+            self.assertEqual(self.met("host:calc:/data/progress/tk044.json"), want, body)
+            self.assertTrue(self.cmds[0][-1].startswith("cat /data/progress/tk044.json"), self.cmds[0][-1])
+
+    def test_progress_json_missing_not_met(self):
+        self.reply = (1, b"", b"cat: No such file")
+        self.assertFalse(self.met("host:calc:/data/progress/tk044.json"))
+
+    # --- юнит ---
+    def test_unit_met_when_not_active(self):
+        for out, want in ((b"active\n", False), (b"activating\n", False), (b"inactive\n", True), (b"failed\n", True),
+                          (b"unknown\n", True)):
+            self.cmds.clear()
+            self.reply = (0 if out.startswith(b"active") else 3, out, b"")
+            self.assertEqual(self.met("host:calc:unit:tk044-run3"), want, out)
+            self.assertEqual(self.cmds[0][-1], "systemctl is-active tk044-run3")
+            self.assertEqual(self.cmds[0][-2], "root@89.163.242.211")
+
+    def test_unit_ssh_error_is_not_met(self):
+        self.reply = (255, b"", b"ssh: connect to host ... timed out\n")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertFalse(self.met("host:calc:unit:tk044-run3"))
+        self.assertIn("host:calc:unit:tk044-run3", err.getvalue())
+
+    # --- кэш и частота ошибок ---
+    def test_cache_60s_per_condition(self):
+        clock = [1000.0]
+        orig_time = D.time.time
+        D.time.time = lambda: clock[0]
+        try:
+            self.reply = (3, b"inactive\n", b"")
+            self.assertTrue(D.check_wait_for("host:calc:unit:u1"))
+            clock[0] += 30
+            self.assertTrue(D.check_wait_for("host:calc:unit:u1"))
+            self.assertEqual(len(self.cmds), 1)
+            self.assertTrue(D.check_wait_for("host:calc:unit:u2"))  # другое условие — свой ssh
+            self.assertEqual(len(self.cmds), 2)
+            clock[0] += 31
+            self.assertTrue(D.check_wait_for("host:calc:unit:u1"))
+            self.assertEqual(len(self.cmds), 3)
+        finally:
+            D.time.time = orig_time
+
+    def test_ssh_errors_logged_once_per_10_min_per_condition(self):
+        clock = [1000.0]
+        orig_time = D.time.time
+        D.time.time = lambda: clock[0]
+        err = io.StringIO()
+        try:
+            self.reply = (255, b"", b"Connection timed out")
+            with contextlib.redirect_stderr(err):
+                for _ in range(5):                       # 5 проверок с интервалом 61 с (~5 мин): строка одна
+                    self.assertFalse(D.check_wait_for("host:calc:/data/x/DONE"))
+                    clock[0] += 61
+                self.assertFalse(D.check_wait_for("host:vps:/data/x/DONE"))  # другое условие — своя строка
+                clock[0] += 600
+                self.assertFalse(D.check_wait_for("host:calc:/data/x/DONE"))  # прошло > 10 мин — снова
+        finally:
+            D.time.time = orig_time
+        lines = [ln for ln in err.getvalue().splitlines() if ln]
+        self.assertEqual(len(lines), 3, lines)
+        self.assertEqual(sum("host:calc:/data/x/DONE" in ln for ln in lines), 2)
+
+    def test_ssh_exception_is_not_met_and_logged(self):
+        def boom(cmd, **kw):
+            raise subprocess.TimeoutExpired(cmd, 15)
+        D.subprocess.run = boom
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertFalse(self.met("host:calc:unit:u1"))
+        self.assertIn("TimeoutExpired", err.getvalue())
+
+
+class WaitForNoticeTests(unittest.TestCase):
+    """v4: `waiting` с непонятным или пустым `wait_for` — строка в ceo-inbox (раз в сутки), не молчание; запись формы."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self._orig = {k: getattr(D, k) for k in ("TICKETS_DIR", "CEO_INBOX", "CEO_WAKE_LOG")}
+        D.TICKETS_DIR = self.base / "tickets"
+        D.CEO_INBOX = self.base / "ceo-inbox.md"
+        D.CEO_WAKE_LOG = self.base / "ceo-wake.log"
+        self._orig_tk_dir = TK.TICKETS_DIR
+        TK.TICKETS_DIR = D.TICKETS_DIR
+        D.RUNNING.clear()
+        self.now = dt("2026-10-04T12:00:00+04:00")
+        self.state = {}
+
+    def tearDown(self):
+        for k, v in self._orig.items():
+            setattr(D, k, v)
+        TK.TICKETS_DIR = self._orig_tk_dir
+        D.RUNNING.clear()
+        self.tmp.cleanup()
+
+    def tkt(self, wait_for, status="waiting", updated="2026-10-04T11:00:00+04:00", extra=""):
+        text = (f"---\nid: TK-9\nowner: engineer\nstatus: {status}\n{extra}wait_for: {wait_for}\n"
+                f"updated: {updated}\n---\n\n## Лог\n")
+        return T.parse_text(text, Path("TK-9.md"))
+
+    def inbox(self):
+        return D.CEO_INBOX.read_text(encoding="utf-8").splitlines() if D.CEO_INBOX.exists() else []
+
+    def test_unknown_format_reported_once_a_day(self):
+        tkt = self.tkt("прогон окон на сервере счёта — готов, когда done=total")
+        D.notify_wait_for_problem(tkt, self.state, self.now)
+        D.notify_wait_for_problem(tkt, self.state, self.now + timedelta(hours=5))
+        lines = self.inbox()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("TK-9", lines[0])
+        self.assertIn("wait_for не понят: прогон окон", lines[0])
+        self.assertIn("host:<calc|vps|deck>", lines[0])  # подсказка форм
+        D.notify_wait_for_problem(tkt, self.state, self.now + timedelta(hours=25))
+        self.assertEqual(len(self.inbox()), 2)           # через сутки — напоминание
+        D.notify_wait_for_problem(self.tkt("ещё другой текст"), self.state, self.now + timedelta(hours=26))
+        self.assertEqual(len(self.inbox()), 3)           # текст сменился — новая строка сразу
+
+    def test_empty_wait_for_reported_only_after_30_min(self):
+        D.notify_wait_for_problem(self.tkt("", updated="2026-10-04T11:45:00+04:00"), self.state, self.now)  # 15 мин
+        self.assertEqual(self.inbox(), [])
+        D.notify_wait_for_problem(self.tkt("", updated="2026-10-04T11:20:00+04:00"), self.state, self.now)  # 40 мин
+        lines = self.inbox()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("ждёт, но не сказано чего", lines[0])
+        D.notify_wait_for_problem(self.tkt("", updated="2026-10-04T11:20:00+04:00"), self.state,
+                                  self.now + timedelta(hours=1))
+        self.assertEqual(len(self.inbox()), 1)
+
+    def test_no_notice_for_valid_forms_other_statuses_next_or_running(self):
+        for spec in ("host:calc:/data/progress/x.json", "host:vps:unit:u", "deck:~/x", "file:x", "ticket:TK-1"):
+            D.notify_wait_for_problem(self.tkt(spec), self.state, self.now)
+        D.notify_wait_for_problem(self.tkt("мусор", status="in_progress"), self.state, self.now)
+        D.notify_wait_for_problem(self.tkt("мусор", extra="next: judge\n"), self.state, self.now)
+        D.RUNNING["TK-9"] = {}
+        D.notify_wait_for_problem(self.tkt("мусор"), self.state, self.now)
+        self.assertEqual(self.inbox(), [])
+
+    def test_empty_waiting_without_updated_is_silent(self):
+        text = "---\nid: TK-9\nowner: engineer\nstatus: waiting\nwait_for:\n---\n\n## Лог\n"
+        D.notify_wait_for_problem(T.parse_text(text, Path("TK-9.md")), self.state, self.now)
+        self.assertEqual(self.inbox(), [])
+
+    def test_unknown_format_never_wakes_owner(self):
+        self.assertIsNone(D.decide(self.tkt("мусор"), {}, self.now))
+
+    # --- запись формы ---
+    def test_write_header_updates_refuses_unknown_wait_for(self):
+        path = T.create_ticket(D.TICKETS_DIR, owner="engineer", title="t")
+        with self.assertRaises(ValueError) as cm:
+            T.write_header_updates(path, {"status": "waiting", "wait_for": "готов, когда done=total"})
+        self.assertIn("host:<calc|vps|deck>", str(cm.exception))
+        self.assertEqual(T.read_ticket(path).status, "todo")  # ничего не записано
+        T.write_header_updates(path, {"wait_for": "host:calc:/data/progress/tk044.json"})
+        T.write_header_updates(path, {"status": "in_progress", "wait_for": ""})  # снять ожидание можно
+
+    def test_cli_new_refuses_unknown_wait_for_without_creating_file(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = TK.main(["new", "--owner", "engineer", "--title", "t", "--wait-for", "потом посмотрю"])
+        self.assertEqual(rc, 1)
+        self.assertIn("wait_for не понят", err.getvalue())
+        self.assertEqual(list(D.TICKETS_DIR.glob("TK-*.md")) if D.TICKETS_DIR.exists() else [], [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(TK.main(["new", "--owner", "engineer", "--title", "t", "--wait-for", "host:calc:unit:u"]), 0)
+
+    def test_cli_wait_sets_status_and_checks_form(self):
+        path = T.create_ticket(D.TICKETS_DIR, owner="engineer", title="t", status="in_progress")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(TK.main(["wait", path.stem, "host:calc:/data/progress/tk044.json"]), 0)
+        tkt = T.read_ticket(path)
+        self.assertEqual((tkt.status, tkt.header["wait_for"]), ("waiting", "host:calc:/data/progress/tk044.json"))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(TK.main(["wait", path.stem, "когда закончится"]), 1)
+            self.assertEqual(TK.main(["wait", "TK-777", "file:x"]), 1)
+        self.assertIn("host:<calc|vps|deck>", err.getvalue())
+        self.assertEqual(T.read_ticket(path).header["wait_for"], "host:calc:/data/progress/tk044.json")
 
 
 HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"
