@@ -40,6 +40,7 @@ type Co<R> = Coroutine<(), (), R, DefaultStack>;
 type Key = Reverse<(i64, u8, u32, u32)>;
 
 struct Req {
+    birth: Option<i64>,
     wnf: bool,
     wait: WaitOrderResponse,
     bound: i64,
@@ -76,7 +77,17 @@ where
     slot_ver: [u32; 3],
     start: Option<i64>,
     data_end: Option<i64>,
+    mk: MkParts<AT, LM, QM, FM>,
+    born_ok: bool,
+    fresh: bool,
 }
+
+type MkParts<AT, LM, QM, FM> = Box<
+    dyn Fn() -> (
+        Local<AT, LM, SharedDepth, FM>,
+        PartialFillExchange<AT, LM, QM, SharedDepth, FM>,
+    ),
+>;
 
 impl<AT, LM, QM, FM> Circle<AT, LM, QM, FM>
 where
@@ -151,10 +162,28 @@ where
     }
 
     fn block(&mut self, wnf: bool, wait: WaitOrderResponse, bound: i64) -> ElapseResult {
-        self.cm().req = Some(Req { wnf, wait, bound });
+        self.cm().req = Some(Req {
+            birth: None,
+            wnf,
+            wait,
+            bound,
+        });
         unsafe { (*self.y).suspend(()) };
         let c = self.cm();
         c.out
+    }
+
+    /// Новый круг на `t0` (`t0 >=` часов круга): прежние заявки и книги круга отбрасываются, как у нового
+    /// окна сигнала. `false` — строк с метками `> t0` в ленте нет (окна нет), круг прежний.
+    pub fn rebirth(&mut self, t0: i64) -> bool {
+        self.cm().req = Some(Req {
+            birth: Some(t0),
+            wnf: false,
+            wait: WaitOrderResponse::None,
+            bound: t0,
+        });
+        unsafe { (*self.y).suspend(()) };
+        self.c().born_ok
     }
 
     fn init(&mut self) -> bool {
@@ -478,12 +507,43 @@ where
     where
         F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
     {
+        let once = std::cell::RefCell::new(Some(queue_model));
         self.add_circle_inner(
             None,
             asset_type,
             fee_model,
             order_latency,
-            queue_model,
+            Box::new(move || {
+                once.borrow_mut()
+                    .take()
+                    .expect("модель очереди одного круга")
+            }),
+            last_trades_cap,
+            body,
+        )
+    }
+
+    /// Круг-ячейка: первое же `rebirth(t0)` рождает круг на `t0`, каждое следующее — новый круг (новое окно
+    /// сигнала) с моделью очереди из `mk_queue`; ячейки идут по одной ленте независимо.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_cell<F>(
+        &mut self,
+        asset_type: AT,
+        fee_model: FM,
+        order_latency: LM,
+        mk_queue: Box<dyn Fn() -> QM>,
+        last_trades_cap: usize,
+        body: F,
+    ) -> std::io::Result<u32>
+    where
+        F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
+    {
+        self.add_circle_inner(
+            None,
+            asset_type,
+            fee_model,
+            order_latency,
+            mk_queue,
             last_trades_cap,
             body,
         )
@@ -506,12 +566,17 @@ where
     where
         F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
     {
+        let once = std::cell::RefCell::new(Some(queue_model));
         self.add_circle_inner(
             Some(t0),
             asset_type,
             fee_model,
             order_latency,
-            queue_model,
+            Box::new(move || {
+                once.borrow_mut()
+                    .take()
+                    .expect("модель очереди одного круга")
+            }),
             last_trades_cap,
             body,
         )
@@ -524,27 +589,33 @@ where
         asset_type: AT,
         fee_model: FM,
         order_latency: LM,
-        queue_model: QM,
+        mk_queue: Box<dyn Fn() -> QM>,
         last_trades_cap: usize,
         body: F,
     ) -> std::io::Result<u32>
     where
         F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
     {
-        let (order_e2l, order_l2e) = order_bus(order_latency);
         let local_depth = self.local_book.follower();
-        let local = Local::new(
-            local_depth.clone(),
-            State::new(asset_type.clone(), fee_model.clone()),
-            last_trades_cap,
-            order_l2e,
-        );
-        let exch = PartialFillExchange::new(
-            self.exch_book.follower(),
-            State::new(asset_type, fee_model),
-            queue_model,
-            order_e2l,
-        );
+        let exch_depth = self.exch_book.follower();
+        let ld = local_depth.clone();
+        let mk: MkParts<AT, LM, QM, FM> = Box::new(move || {
+            let (order_e2l, order_l2e) = order_bus(order_latency.clone());
+            let local = Local::new(
+                ld.clone(),
+                State::new(asset_type.clone(), fee_model.clone()),
+                last_trades_cap,
+                order_l2e,
+            );
+            let exch = PartialFillExchange::new(
+                exch_depth.clone(),
+                State::new(asset_type.clone(), fee_model.clone()),
+                mk_queue(),
+                order_e2l,
+            );
+            (local, exch)
+        });
+        let (local, exch) = mk();
         let mut c = Box::new(Circle {
             local,
             exch,
@@ -566,6 +637,9 @@ where
             slot_ver: [0; 3],
             start,
             data_end: self.rows.last().map(|e| e.local_ts.min(e.exch_ts)),
+            mk,
+            born_ok: true,
+            fresh: true,
         });
         let ptr: *mut Circle<AT, LM, QM, FM> = &mut *c;
         let id = self.circles.len() as u32;
@@ -643,6 +717,20 @@ where
     fn register(&mut self, id: usize, now: i64) {
         let c = &mut self.circles[id];
         let req = c.req.take().expect("запрос ожидания");
+        if let Some(t0) = req.birth {
+            assert!(
+                t0 >= now,
+                "рождение круга в прошлом: t0 {t0} < часы ленты {now}"
+            );
+            c.cs = Cs::Unborn;
+            c.start = Some(t0);
+            c.eod = false;
+            for s in 0..3 {
+                self.set_slot(id, s, i64::MAX);
+            }
+            self.set_slot(id, S_WAKE, t0);
+            return;
+        }
         c.cs = Cs::Waiting;
         c.wnf = req.wnf;
         c.wait = req.wait;
@@ -687,8 +775,21 @@ where
         }
         let end = self.local_row.unwrap_or(0).min(self.rows.len());
         self.set_slot(id, S_WAKE, i64::MAX);
+        let no_window = self.m_cursor >= self.rows.len();
         let c = &mut self.circles[id];
         c.cs = Cs::Running;
+        if no_window {
+            c.born_ok = false;
+            self.resume(id, t0);
+            return;
+        }
+        c.born_ok = true;
+        if !c.fresh {
+            let (local, exch) = (c.mk)();
+            c.local = local;
+            c.exch = exch;
+        }
+        c.fresh = false;
         c.cur_ts = t0;
         c.local.apply_feed(&Event {
             ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
