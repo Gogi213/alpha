@@ -104,6 +104,7 @@ mod args;
 mod cache;
 mod carry;
 mod drive;
+mod e2e;
 mod entry_sigma;
 mod forms;
 mod outputs;
@@ -211,6 +212,21 @@ struct GridRun<'a> {
 }
 
 pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
+    e2e::run_row(
+        "run",
+        serde_json::json!({
+            "root": args.root.display().to_string(),
+            "verdict_csv": args.verdict_csv.as_ref().map(|p| p.display().to_string()),
+            "threads": args.threads,
+            "symbols": args.symbols.len(),
+        }),
+    );
+    let res = run_bounce_grid_inner(args);
+    e2e::run_row("end", serde_json::json!({ "ok": res.is_ok() }));
+    res
+}
+
+fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
     if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -535,6 +551,7 @@ impl<'a> GridRun<'a> {
                 }
             }
         }
+        let e2e_touches = e2e::Mark::now();
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
             let dir = args
                 .touches_from
@@ -638,6 +655,13 @@ impl<'a> GridRun<'a> {
                 }
             }
         };
+        e2e::stage(
+            symbol,
+            "*",
+            "touches_load",
+            e2e_touches,
+            serde_json::json!({}),
+        );
         let touches_total: usize = days.iter().map(|d| d.touches.len()).sum();
         if touches_total == 0 {
             let what = if args.signal == SignalArg::Approach {
@@ -684,6 +708,8 @@ impl<'a> GridRun<'a> {
                 anyhow::bail!("{symbol}: сутки {} есть в реплее, но частей нет", day.day);
             };
             let day_started = Instant::now();
+            let e2e_day = e2e::Mark::now();
+            let e2e_events = e2e::Mark::now();
             let retries_before =
                 crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
             let skips_before =
@@ -716,6 +742,13 @@ impl<'a> GridRun<'a> {
                         hit
                     }
                 };
+            e2e::stage(
+                symbol,
+                &day.day,
+                "events",
+                e2e_events,
+                serde_json::json!({ "n_events": base.len() }),
+            );
             if base.is_empty() {
                 eprintln!(
                     "bounce-grid: {symbol} {} — событий нет, сутки пропущены",
@@ -756,6 +789,7 @@ impl<'a> GridRun<'a> {
             } else {
                 None
             };
+            let e2e_windows = e2e::Mark::now();
             let windows: Option<Arc<SignalWindows>> = match cached {
                 Some((t0s, _, _, w)) if own_t0s.iter().all(|t| t0s.binary_search(t).is_ok()) => {
                     eprintln!(
@@ -785,6 +819,14 @@ impl<'a> GridRun<'a> {
                     w
                 }
             };
+            e2e::stage(
+                symbol,
+                &day.day,
+                "windows",
+                e2e_windows,
+                serde_json::json!({ "snapshots": windows.as_ref().map(|w| w.len()) }),
+            );
+            let e2e_prep = e2e::Mark::now();
             let regime = if need_regime {
                 let dir = args.regime_from.as_deref().expect("проверено выше");
                 if !regime_days.contains_key(&day.day) {
@@ -848,6 +890,16 @@ impl<'a> GridRun<'a> {
                     }
                 }
             }
+            e2e::stage(
+                symbol,
+                &day.day,
+                "prep",
+                e2e_prep,
+                serde_json::json!({ "touches": day.touches.len() }),
+            );
+            let e2e_drive = e2e::Mark::now();
+            let e2e_ctr = e2e_counters();
+            let mut e2e_write_s = 0f64;
             let mut rounds: u64 = 0;
             let day_label = day.day.clone();
             // G10: память кругов на символ-сутки, по форме — наборы идут по очереди и берут
@@ -867,6 +919,7 @@ impl<'a> GridRun<'a> {
                     let forms_ref = &set_forms_list;
                     let mut sink =
                         |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
+                            let w0 = e2e_drive.map(|_| Instant::now());
                             let n = out.write_form(
                                 symbol,
                                 &day_label,
@@ -878,6 +931,9 @@ impl<'a> GridRun<'a> {
                                 carry_unverified,
                                 day.approaches.as_deref(),
                             )?;
+                            if let Some(w0) = w0 {
+                                e2e_write_s += w0.elapsed().as_secs_f64();
+                            }
                             rounds = rounds.saturating_add(n);
                             Ok(())
                         };
@@ -935,6 +991,39 @@ impl<'a> GridRun<'a> {
                     forms_done,
                     set_forms_list.len()
                 );
+            }
+            if e2e_drive.is_some() {
+                let after = e2e_counters();
+                let d = |i: usize| after[i].saturating_sub(e2e_ctr[i]);
+                e2e::stage(
+                    symbol,
+                    &day.day,
+                    "drive",
+                    e2e_drive,
+                    serde_json::json!({
+                        "write_wall": e2e_write_s,
+                        "rounds": rounds,
+                        "sets": sets.len(),
+                        "forms": forms.len(),
+                        "attempt_runs": [d(0), d(1), d(2), d(3)],
+                        "attempt_rows": [d(4), d(5), d(6), d(7)],
+                        "step_kinds": [d(8), d(9), d(10)],
+                        "horizon_retries": d(11),
+                        "hold_skips": d(12),
+                    }),
+                );
+                let mut o = serde_json::Map::new();
+                o.insert("n_events".into(), serde_json::json!(n_events));
+                o.insert("touches".into(), serde_json::json!(day.touches.len()));
+                o.insert("rounds".into(), serde_json::json!(rounds));
+                e2e::stage(
+                    symbol,
+                    &day.day,
+                    "day_total",
+                    e2e_day,
+                    serde_json::json!({}),
+                );
+                e2e::day_row(symbol, &day.day, o);
             }
             summary.rounds = summary.rounds.saturating_add(rounds);
             summary.symbol_days += 1;
@@ -1016,6 +1105,25 @@ impl<'a> GridRun<'a> {
         );
         Ok(())
     }
+}
+
+/// Счётчики процесса для строки стадии `drive` (ТК-052): прогоны/строки по попыткам, шаги, пересчёты, пропуски.
+fn e2e_counters() -> [u64; 13] {
+    use crate::lob::backtest::{
+        ATTEMPT_ROWS, ATTEMPT_RUNS, HOLD_SKIPS, HORIZON_RETRIES, STEP_KINDS,
+    };
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut v = [0u64; 13];
+    for i in 0..4 {
+        v[i] = ATTEMPT_RUNS[i].load(Relaxed);
+        v[4 + i] = ATTEMPT_ROWS[i].load(Relaxed);
+    }
+    for i in 0..3 {
+        v[8 + i] = STEP_KINDS[i].load(Relaxed);
+    }
+    v[11] = HORIZON_RETRIES.load(Relaxed);
+    v[12] = HOLD_SKIPS.load(Relaxed);
+    v
 }
 
 #[cfg(test)]
