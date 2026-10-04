@@ -23,6 +23,8 @@ hftbacktest = { version = "0.9.4", default-features = false, features = ["backte
 # Decision 12: подпись приватных запросов Bybit. Ключи только из переменных окружения.
 hmac = "0.13"
 sha2 = "0.11"
+# TK-049: стековые сопрограммы — круги общего прохода бэктеста (пересадка 10–50 нс вместо потока ОС).
+corosensei = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

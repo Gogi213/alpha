@@ -73,6 +73,8 @@ use crate::lob::strategy::{
 mod compact;
 pub mod fast_depth;
 mod levels;
+#[allow(dead_code)]
+pub mod sched;
 use fast_depth::FastMarketDepth;
 mod trim;
 mod window_depth;
