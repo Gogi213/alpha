@@ -101,6 +101,12 @@ where
     }
 }
 
+const ST_N: usize = 12;
+const ST_NAMES: [&str; ST_N] = [
+    "rows_local", "rows_exch", "deliv_local", "deliv_exch", "births", "mk_calls", "pop_lo", "pop_eo", "pop_birth",
+    "pop_wake", "stale_pops", "wnf_wakes",
+];
+
 const S_LO: usize = 0;
 const S_EO: usize = 1;
 const S_WAKE: usize = 2;
@@ -458,6 +464,7 @@ where
     heap: BinaryHeap<Key>,
     results: Vec<(u32, R)>,
     m_cursor: usize,
+    st: [u64; ST_N],
 }
 
 impl<AT, LM, QM, FM, R> MultiEngine<AT, LM, QM, FM, R>
@@ -491,6 +498,7 @@ where
             heap: BinaryHeap::new(),
             results: Vec::new(),
             m_cursor: 0,
+            st: [0; ST_N],
         }
     }
 
@@ -765,6 +773,7 @@ where
     /// первого `elapse` отдаёт `Local` якорь `(t0, t0)` и строки `[m..)` с `local_ts <= t0` (`m` — первая
     /// строка с любой меткой `> t0`); здесь то же самое, строки — те, что лента уже прошла.
     fn birth(&mut self, id: usize, t0: i64) {
+        self.st[4] += 1;
         while self.m_cursor < self.rows.len() {
             let e = &self.rows[self.m_cursor];
             if e.local_ts <= t0 && e.exch_ts <= t0 {
@@ -785,6 +794,7 @@ where
         }
         c.born_ok = true;
         if !c.fresh {
+            self.st[5] += 1;
             let (local, exch) = (c.mk)();
             c.local = local;
             c.exch = exch;
@@ -821,12 +831,16 @@ where
         } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
             self.local_book.update_ask_depth(ev.px, ev.qty, ev.local_ts);
         }
+        self.st[0] += 1;
         for c in self.circles.iter_mut().filter(|c| c.live()) {
+            self.st[2] += 1;
             c.local.apply_feed(ev);
         }
     }
 
     fn process_exch(&mut self, ev: &Event) -> Result<(), BacktestError> {
+        self.st[1] += 1;
+        self.st[3] += self.circles.iter().filter(|c| c.live()).count() as u64;
         if ev.is(EXCH_BID_DEPTH_CLEAR_EVENT) {
             self.exch_book.clear_depth(Side::Buy, ev.px);
         } else if ev.is(EXCH_ASK_DEPTH_CLEAR_EVENT) {
@@ -866,6 +880,7 @@ where
                 break;
             }
             self.heap.pop();
+            self.st[10] += 1;
         }
     }
 
@@ -903,6 +918,7 @@ where
                         if c.cs == Cs::Waiting && c.wnf {
                             c.bound = now;
                             c.result = ElapseResult::MarketFeed;
+                            self.st[11] += 1;
                             self.set_slot(id, S_WAKE, now);
                         }
                     }
@@ -930,6 +946,7 @@ where
             let id = id as usize;
             match kind {
                 K_LOCAL_ORDER => {
+                    self.st[6] += 1;
                     let c = &mut self.circles[id];
                     let wait_id = match c.wait {
                         WaitOrderResponse::Specified { order_id, .. } => Some(order_id),
@@ -948,6 +965,7 @@ where
                     self.check_end(id, ts);
                 }
                 K_EXCH_ORDER => {
+                    self.st[7] += 1;
                     let c = &mut self.circles[id];
                     let _ = c.exch.process_recv_order(ts, None)?;
                     let eo = c.exch.earliest_recv_order_timestamp();
@@ -957,9 +975,11 @@ where
                     self.check_end(id, ts);
                 }
                 _ if self.circles[id].cs == Cs::Unborn => {
+                    self.st[8] += 1;
                     self.birth(id, ts);
                 }
                 _ => {
+                    self.st[9] += 1;
                     let c = &mut self.circles[id];
                     if c.eod {
                         c.out = ElapseResult::EndOfData;
@@ -971,6 +991,13 @@ where
                     self.resume(id, ts);
                 }
             }
+        }
+        if std::env::var_os("ALPHA_SHARED_STATS").is_some() {
+            let mut line = format!("SHARED_STATS circles={} rows={}", self.circles.len(), self.rows.len());
+            for (n, v) in ST_NAMES.iter().zip(self.st) {
+                line.push_str(&format!(" {n}={v}"));
+            }
+            eprintln!("{line}");
         }
         Ok(std::mem::take(&mut self.results))
     }
