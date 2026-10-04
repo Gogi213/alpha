@@ -1,0 +1,637 @@
+<title>Табло alpha: три направления</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&family=Fira+Mono:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: три монитора-рамки друг под другом на всю ширину, над каждым подпись (имя, идея, палитра, шрифт).
+   Внутри экрана разная раскладка: 1 сеанс в одну колонку, 2 волны и цепочки шагов, 3 таблица машина x задача.
+   Стиль общий и взят у фосфорного терминала 019: одна краска, три ступени яркости, свечение, строки развёртки.
+   Палитра страницы (корпус): --page, --case, --ink, --ink-dim, --ink-hi. Палитра экрана: см. .mon[data-ph].
+   Шрифты: IBM Plex Mono (1), Fira Mono (2), Anonymous Pro (3), все с кириллицей. */
+:root{
+  --page:#0a0b09; --case:#1d1f1a; --case-lo:#0e0f0c;
+  --ink:#b9b3a2; --ink-dim:#8d887a; --ink-hi:#d4cebd; --rule:#262822;
+  --f-chrome:"IBM Plex Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--page)}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.55 var(--f-chrome);-webkit-font-smoothing:antialiased}
+
+/* ---------- страница ---------- */
+.page{max-width:1320px;margin:0 auto;padding:clamp(24px,4vw,52px) clamp(16px,3vw,40px) 64px;display:flex;flex-direction:column;gap:clamp(44px,6vw,76px)}
+.intro{display:grid;gap:14px;max-width:78ch}
+.intro h1{margin:0;font:700 clamp(20px,2.6vw,28px)/1.2 var(--f-chrome);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-hi);text-wrap:balance}
+.intro p{margin:0;color:var(--ink-dim);line-height:1.65}
+.intro p b{color:var(--ink);font-weight:500}
+.cap{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px clamp(24px,4vw,56px);margin-bottom:18px;align-items:start}
+.cap .eyebrow{font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--ink-dim)}
+.cap h2{margin:8px 0 10px;font:700 clamp(24px,3.2vw,36px)/1.05 var(--f-chrome);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-hi)}
+.cap p{margin:0;max-width:64ch;line-height:1.65}
+.cap dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px 18px;font-size:12.5px;align-items:baseline}
+.cap dt{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-dim)}
+.cap dd{margin:0;color:var(--ink)}
+.pal{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0;padding:0;list-style:none}
+.pal li{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.pal i{width:14px;height:14px;border-radius:2px;border:1px solid rgba(255,255,255,.2);flex:none}
+.pal span{color:var(--ink-dim)}
+
+/* ---------- корпус монитора, как у 019 ---------- */
+.mon{
+  --fg:#33ff66; --fg-rgb:51,255,102; --bg:#031a07; --bg-hi:#073012; --bg-lo:#010c03; --hot:#dcffe5;
+  --lh:1.45; --bezel:clamp(8px,1.8vw,26px); --pad-x:clamp(14px,2.6vw,44px);
+  --shadow:0 0 1px rgba(var(--fg-rgb),.9),0 0 6px rgba(var(--fg-rgb),.5),0 0 17px rgba(var(--fg-rgb),.22);
+  position:relative;border-radius:18px;padding:var(--bezel) var(--bezel) 0;font-family:var(--mono);color:var(--fg);
+  background:
+    radial-gradient(120% 70% at 50% -10%,rgba(255,255,255,.05),transparent 60%),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px),
+    linear-gradient(#1d1f1a,#121310 70%,#0e0f0c);
+  box-shadow:0 0 0 1px #000,0 24px 60px rgba(0,0,0,.55);
+}
+.mon[data-ph="amber"]{--fg:#ffb000;--fg-rgb:255,176,0;--bg:#1a0f00;--bg-hi:#2c1a02;--bg-lo:#0c0600;--hot:#fff1cc}
+.mon[data-ph="ice"]{--fg:#9fe7ff;--fg-rgb:159,231,255;--bg:#02111a;--bg-hi:#07243a;--bg-lo:#01070c;--hot:#f2fcff}
+.d1{--mono:"IBM Plex Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;--fs:clamp(12.5px,.42rem + .52vw,16px)}
+.d2{--mono:"Fira Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;--fs:clamp(12px,.4rem + .46vw,15px)}
+.d3{--mono:"Anonymous Pro","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;--fs:clamp(14px,.46rem + .54vw,17.5px);--lh:1.4}
+
+.screen{position:relative;overflow:hidden;isolation:isolate;border-radius:30px/26px;background:#000;
+  box-shadow:0 0 0 1px #000,0 0 0 6px #161814,0 0 0 7px #262822,0 0 70px 6px rgba(var(--fg-rgb),.09),0 14px 40px rgba(0,0,0,.6);transition:box-shadow .6s ease}
+.crt{position:relative;background:radial-gradient(120% 95% at 50% 46%,var(--bg-hi) 0%,var(--bg) 52%,var(--bg-lo) 100%);transition:background .5s ease}
+.term{padding:clamp(16px,2.6vw,36px) var(--pad-x) clamp(18px,2.4vw,30px);font-size:var(--fs);line-height:var(--lh);text-shadow:var(--shadow);min-width:0}
+.term button{font:inherit}
+.status{display:flex;align-items:center;gap:1.4ch;padding:.5em var(--pad-x);font-size:calc(var(--fs)*.8);letter-spacing:.05em;white-space:nowrap;overflow:hidden;
+  background:rgba(var(--fg-rgb),.86);color:var(--bg);box-shadow:0 0 26px rgba(var(--fg-rgb),.38),0 -1px 0 rgba(var(--fg-rgb),.5)}
+.status .tg{font-weight:700;background:var(--bg);color:var(--fg);padding:.12em .7ch;text-shadow:0 0 6px rgba(var(--fg-rgb),.8)}
+.fill{flex:1}
+
+/* стекло: зерно, строки развёртки, бегущая полоса, виньетка, блик */
+.ov{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
+.grain{z-index:4;opacity:.05;mix-blend-mode:screen;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+.scan{z-index:5;background:repeating-linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,.26) 2px,rgba(0,0,0,.26) 3px)}
+.scan::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,40,40,.03) 0 1px,rgba(40,255,40,.018) 1px 2px,rgba(40,40,255,.03) 2px 3px)}
+.roll{z-index:6;inset:auto 0 auto 0;top:0;height:14%;border-radius:0;
+  background:linear-gradient(180deg,rgba(var(--fg-rgb),0) 0%,rgba(var(--fg-rgb),.02) 55%,rgba(var(--fg-rgb),.05) 90%,rgba(var(--fg-rgb),.07) 96%,rgba(var(--fg-rgb),0) 100%);animation:roll 9s linear infinite}
+@keyframes roll{from{transform:translateY(-100%)}to{transform:translateY(780%)}}
+.vignette{z-index:8;background:radial-gradient(ellipse 80% 76% at 50% 50%,rgba(0,0,0,0) 60%,rgba(0,0,0,.22) 80%,rgba(0,0,0,.6) 100%);box-shadow:inset 0 0 70px 10px rgba(0,0,0,.55),inset 0 0 8px 2px rgba(0,0,0,.9)}
+.glass{z-index:9;background:radial-gradient(55% 30% at 20% 4%,rgba(255,255,255,.06),rgba(255,255,255,0) 70%),linear-gradient(168deg,rgba(255,255,255,.03) 0%,rgba(255,255,255,0) 28%)}
+
+/* нижняя планка корпуса: лампа, марка, переключатель люминофора */
+.strip{display:flex;align-items:center;flex-wrap:wrap;gap:8px clamp(10px,1.6vw,22px);padding:calc(var(--bezel)*.5) var(--bezel) calc(var(--bezel)*.7);color:#9d9889;font-family:var(--f-chrome)}
+.brand{display:flex;align-items:center;gap:10px}
+.led{width:9px;height:9px;border-radius:50%;background:#1a2a1c;box-shadow:inset 0 1px 1px rgba(0,0,0,.6)}
+.led.lit{background:var(--fg);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6),inset 0 -1px 1px rgba(0,0,0,.3)}
+.brand-name{font-size:12px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;color:#b9b3a2;text-shadow:0 1px 0 #000}
+.brand-model{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#7a7668}
+.dials{display:flex;align-items:center;gap:8px}
+.dial-label{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#7a7668;margin-right:2px}
+.key{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 var(--f-chrome);letter-spacing:.14em;text-transform:uppercase;color:#d4cebd;
+  background:linear-gradient(#2d2f29,#1e201b 60%,#1a1b17);border:1px solid #060705;border-radius:5px;padding:9px 12px 8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 -2px 0 rgba(0,0,0,.25),0 2px 0 #050604,0 4px 8px rgba(0,0,0,.45);cursor:pointer;transition:transform .07s ease,box-shadow .07s ease}
+.key:hover{color:#fff8e6}
+.key:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 0 0 #050604,0 1px 3px rgba(0,0,0,.5)}
+.key:focus-visible{outline:2px solid #d4cebd;outline-offset:3px}
+.lamp-k{position:relative;width:7px;height:7px;border-radius:50%;background:#141510;box-shadow:inset 0 1px 1px rgba(0,0,0,.7)}
+.lamp-k::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--c);opacity:.26;transition:opacity .25s,box-shadow .25s}
+.key[aria-pressed="true"] .lamp-k::after{opacity:1;box-shadow:0 0 6px var(--c),0 0 12px var(--c)}
+
+/* ---------- язык экрана: одна краска, ступени яркости ---------- */
+.hot{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.75),0 0 26px rgba(var(--fg-rgb),.4)}
+.dim{color:rgba(var(--fg-rgb),.62);text-shadow:0 0 5px rgba(var(--fg-rgb),.25)}
+.faint{color:rgba(var(--fg-rgb),.32);text-shadow:none}
+.inv{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 12px rgba(var(--fg-rgb),.55)}
+.small{font-size:.86em}
+.term b{font-weight:700}
+.term :focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+.mt{color:rgba(var(--fg-rgb),.78);white-space:nowrap}
+.mt.you{background:var(--fg);color:var(--bg);text-shadow:none;padding:0 .3ch}
+
+/* состояния: слово в скобках, ступень яркости, инверсия. Семь состояний */
+.st{white-space:nowrap;letter-spacing:.03em}
+.st.s-done{color:rgba(var(--fg-rgb),.62);text-shadow:0 0 4px rgba(var(--fg-rgb),.2)}
+.st.s-run{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.75),0 0 24px rgba(var(--fg-rgb),.4);animation:breathe 2.6s ease-in-out infinite}
+.st.s-check{color:var(--hot);text-decoration:underline dotted;text-underline-offset:3px;text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.st.s-fix{color:var(--hot);text-decoration:underline wavy;text-decoration-thickness:1px;text-underline-offset:3px;text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.st.s-wait{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 12px rgba(var(--fg-rgb),.55);padding:0 .4ch;font-weight:700}
+.st.s-todo{color:rgba(var(--fg-rgb),.52);text-shadow:none}
+.st.s-bad{color:var(--hot);font-weight:700;padding:0 .4ch;box-shadow:0 0 0 1px var(--fg),0 0 14px rgba(var(--fg-rgb),.5),inset 0 0 8px rgba(var(--fg-rgb),.25);text-shadow:0 0 6px rgba(var(--fg-rgb),.8)}
+@keyframes breathe{0%,100%{filter:brightness(1)}50%{filter:brightness(1.4)}}
+@keyframes blinkb{0%,55%{opacity:1}56%,100%{opacity:.2}}
+
+/* лампа машины, как светодиод на корпусе */
+.lamp{display:inline-block;width:.72em;height:.72em;border-radius:50%;margin-right:.9ch;vertical-align:-.04em;background:transparent;box-shadow:inset 0 0 0 1px rgba(var(--fg-rgb),.4)}
+.lamp.l-run{background:var(--hot);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6);animation:breathe 2.6s ease-in-out infinite}
+.lamp.l-wait{background:var(--fg);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6);animation:blinkb 1.2s steps(1) infinite}
+.lamp.l-idle{background:rgba(var(--fg-rgb),.5);box-shadow:none}
+.lamp.l-bad{background:var(--hot);box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--fg),0 0 12px var(--fg)}
+
+/* полоса шагов: один квадрат на шаг, группы по задачам */
+.seg{display:flex;align-items:center;gap:0;min-width:0;height:1em;width:100%}
+.seg .g{display:flex;gap:2px;flex:var(--n) 1 0;min-width:0}
+.seg .g+.g{margin-left:.9ch}
+.seg i{flex:1 1 0;min-width:3px;height:.86em;background:rgba(var(--fg-rgb),.16)}
+.seg i.s-done{background:var(--fg);box-shadow:0 0 6px rgba(var(--fg-rgb),.6)}
+.seg i.s-run{background:var(--hot);box-shadow:0 0 10px var(--fg);animation:breathe 2.6s ease-in-out infinite}
+.seg i.s-check{background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px)}
+.seg i.s-fix{background:repeating-linear-gradient(0deg,var(--fg) 0 2px,transparent 2px 4px)}
+.seg i.s-wait{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--fg),0 0 8px rgba(var(--fg-rgb),.4)}
+.seg i.s-bad{background:transparent;box-shadow:inset 0 0 0 2px var(--hot),0 0 8px var(--fg)}
+.seg i.s-todo{background:rgba(var(--fg-rgb),.16)}
+/* шкала процента */
+.bar{display:inline-flex;gap:.1em;vertical-align:-.08em}
+.bar b{display:block;width:.5em;height:.84em;background:rgba(var(--fg-rgb),.2)}
+.bar b.on{background:var(--fg);box-shadow:0 0 6px rgba(var(--fg-rgb),.6)}
+/* значок состояния в клетках таблицы */
+.pip{display:inline-block;position:relative;flex:none;width:.86em;height:.86em;margin-right:.7ch;vertical-align:-.1em;border:1px solid var(--fg)}
+.pip::after{position:absolute;inset:0;display:grid;place-items:center;font-size:.72em;font-weight:700;line-height:1;color:var(--bg);text-shadow:none}
+.pip.s-done{background:rgba(var(--fg-rgb),.5);border-color:rgba(var(--fg-rgb),.5)}
+.pip.s-run{background:var(--hot);border-color:var(--hot);box-shadow:0 0 8px var(--fg),0 0 18px rgba(var(--fg-rgb),.5);animation:breathe 2.6s ease-in-out infinite}
+.pip.s-check{background:transparent}.pip.s-check::after{content:"";width:.34em;height:.34em;margin:auto;background:var(--fg);inset:0}
+.pip.s-fix{background:repeating-linear-gradient(135deg,var(--fg) 0 1px,transparent 1px 3px)}
+.pip.s-wait{background:var(--fg);box-shadow:0 0 10px rgba(var(--fg-rgb),.6)}.pip.s-wait::after{content:"?"}
+.pip.s-todo{border-style:dashed;border-color:rgba(var(--fg-rgb),.45)}
+.pip.s-bad{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px var(--fg)}.pip.s-bad::after{content:"!"}
+
+/* варианты ответа */
+.opts{display:grid;gap:.5em;min-width:0}
+.opt{font:inherit;color:inherit;text-shadow:inherit;text-align:left;background:transparent;border:1px solid rgba(var(--fg-rgb),.5);padding:.4em 1.2ch;cursor:pointer;display:grid;gap:.1em 2ch;min-width:0;align-items:baseline}
+.opt:hover{border-color:var(--fg);box-shadow:0 0 10px rgba(var(--fg-rgb),.3)}
+.opt[aria-pressed="true"]{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 14px rgba(var(--fg-rgb),.5)}
+.opt .ol{font-weight:700}
+.opt .ef{opacity:.88;overflow-wrap:anywhere}
+.opt .ef::before{content:"что будет: ";opacity:.65}
+.opt .df{font-size:.8em;letter-spacing:.08em;text-transform:uppercase;border:1px solid currentColor;padding:0 .8ch;justify-self:start;white-space:nowrap}
+.qh{display:flex;flex-wrap:wrap;gap:.2em 1.2ch;align-items:baseline}
+.qn{font-weight:700;padding:0 .8ch;letter-spacing:.06em}
+.qt{margin:.45em 0 .6em;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6);font-weight:700;max-width:70ch}
+.q+.q{margin-top:1.3em}
+
+/* кнопка-строка (раскрыть процесс) */
+.rp{display:block;width:100%;text-align:left;background:transparent;border:0;padding:0;color:inherit;text-shadow:inherit;cursor:pointer}
+.rp:hover .nm b{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.m{display:inline-block;width:3ch;color:var(--hot)}
+.proc .m::before{content:"[+]"}
+.proc[data-open="1"] .m::before{content:"[-]"}
+.proc[data-open="0"] .steps{display:none}
+
+.legend{display:flex;flex-wrap:wrap;gap:.3em 2.6ch;font-size:.9em}
+.legend span{white-space:nowrap}
+.pk{font-size:.92em}
+
+/* ===================== 1. СЕАНС ===================== */
+.d1 .hdr{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:1em 3ch}
+.wm{display:grid;grid-template-columns:repeat(var(--c),1fr);grid-auto-rows:1fr;width:calc(var(--c)*.5em);font-size:calc(var(--fs)*1.45);max-width:100%}
+.wm i{display:block;aspect-ratio:1;margin:.06em;background:rgba(var(--fg-rgb),.07)}
+.wm i.on{background:var(--fg);box-shadow:0 0 5px var(--fg),0 0 16px rgba(var(--fg-rgb),.6)}
+.d1 .sub{margin-top:.7em}
+.d1 .hl{text-align:right}
+.d1 .big{display:inline-block;padding:.1em .8ch;font-size:calc(var(--fs)*1.5);font-weight:700;letter-spacing:.04em}
+.d1 .hl .dim{margin-top:.5em}
+.d1 .ps{margin:1.7em 0 .55em;white-space:pre-wrap}
+.d1 .ps1{font-weight:700}
+.d1 .cmd{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.d1 .ind{padding-left:2ch;display:grid;gap:.7em}
+.d1 .prog{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center}
+.d1 .counts{display:flex;flex-wrap:wrap;gap:.2em 3ch}
+.d1 .sum{margin:0;max-width:92ch}
+.d1 .opts{max-width:100ch}
+.d1 .opt{grid-template-columns:minmax(14ch,24ch) minmax(0,1fr) auto}
+.d1 .mrow{display:grid;grid-template-columns:minmax(14ch,20ch) minmax(16ch,24ch) minmax(0,1fr) minmax(0,auto);gap:.1em 2ch;align-items:baseline;padding:.2em 0}
+.d1 .mrow .nums{text-align:right}
+.d1 .rp{display:grid;grid-template-columns:3ch 13ch minmax(0,1fr) minmax(8ch,15ch) minmax(0,.7fr);gap:.1em 2ch;align-items:baseline;padding:.3em 0}
+.d1 .rp .nm{display:grid;gap:.1em;min-width:0}
+.d1 .rp .m{width:auto}
+.d1 .steps{margin:.15em 0 .9em 5ch;display:grid;gap:.1em;border-top:1px dotted rgba(var(--fg-rgb),.3);padding-top:.5em}
+.d1 .stp{display:grid;grid-template-columns:2ch 13ch minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.7fr);gap:.1em 2ch;align-items:baseline;padding:.2em 0}
+.d1 .stp .n{color:rgba(var(--fg-rgb),.62)}
+.d1 .stp .t2 b{display:block}
+.d1 .stp.s-todo b{color:rgba(var(--fg-rgb),.55);font-weight:400}
+.d1 .stp.s-done b{font-weight:400}
+.d1 .feed{display:grid;gap:.1em}
+.d1 .fl{display:grid;grid-template-columns:6ch 13ch minmax(0,1fr);gap:0 2ch;align-items:baseline}
+.d1 .caret{display:inline-block;min-width:1ch;background:var(--fg);color:var(--bg);box-shadow:0 0 10px rgba(var(--fg-rgb),.75),0 0 2px var(--fg);animation:blinkb 1.06s steps(1) infinite}
+.d1 .endp{margin-top:1.6em}
+.d1 .flick{z-index:7;background:#000;opacity:0;animation:flicker 5.3s steps(1) infinite}
+@keyframes flicker{0%{opacity:.02}8%{opacity:0}12%{opacity:.03}23%{opacity:.05}34%{opacity:.03}41%{opacity:0}52%{opacity:.06}63%{opacity:.04}77%{opacity:.05}90%{opacity:.03}}
+
+/* ===================== 2. КОНВЕЙЕР ===================== */
+.d2 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(16rem,21rem);grid-template-areas:"top top" "main ask" "main mach" "main feed" "leg leg";gap:1.5em 3ch;align-items:start}
+.d2 .top{grid-area:top;display:grid;gap:.9em}
+.d2 .ttl{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6em 3ch}
+.d2 .ttl h3{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.2em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 12px rgba(var(--fg-rgb),.7)}
+.d2 .ttl .inv{font-weight:700;letter-spacing:.06em;padding:.15em 1ch}
+.d2 .pr{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center}
+.d2 .sm{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.2em 2ch;max-width:100ch}
+.d2 .sm dt{color:var(--hot);letter-spacing:.1em;text-transform:uppercase;font-size:.88em}
+.d2 .sm dd{margin:0}
+.d2 .main{grid-area:main;display:grid;gap:0;min-width:0}
+.d2 .ask{grid-area:ask}.d2 .mach{grid-area:mach}.d2 .fd{grid-area:feed}.d2 .leg{grid-area:leg}
+.d2 .win,.d2 .pn{border:1px solid rgba(var(--fg-rgb),.5);padding:0 1.6ch 1em;min-width:0}
+.d2 .wt,.d2 .pnt{display:flex;gap:1.5ch;align-items:baseline;margin:0 -1.6ch 1em;padding:.22em 1.6ch;font-size:.88em;letter-spacing:.14em;text-transform:uppercase;background:rgba(var(--fg-rgb),.88);color:var(--bg);text-shadow:none;font-weight:700}
+.d2 .wt .n,.d2 .pnt .n{font-weight:400;letter-spacing:.06em;text-transform:none}
+.d2 .pn:not(.ask) .pnt,.d2 .win.later .wt{background:rgba(var(--fg-rgb),.3);color:var(--hot)}
+.d2 .wgap{display:flex;flex-direction:column;align-items:center;gap:.2em;padding:.6em 0;color:rgba(var(--fg-rgb),.62);font-size:.88em}
+.d2 .wgap::before,.d2 .wgap::after{content:"";width:1px;height:1.1em;background:rgba(var(--fg-rgb),.5)}
+.d2 .lane{padding:.9em 0 1em;border-top:1px dashed rgba(var(--fg-rgb),.3)}
+.d2 .lane:first-of-type{border-top:0;padding-top:.2em}
+.d2 .rp{display:flex;flex-wrap:wrap;align-items:baseline;gap:.2em 1.6ch}
+.d2 .rp .nm b{font-size:1.1em;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.55)}
+.d2 .rp .if{margin-left:auto}
+.d2 .lflow{margin:.35em 0 0 4.6ch;font-size:.92em}
+.d2 .chain{display:flex;gap:2.2ch;margin-top:1em;align-items:stretch}
+.d2 .nd{position:relative;flex:1 1 0;min-width:0;border:1px solid rgba(var(--fg-rgb),.55);padding:.5em .9ch .6em;display:flex;flex-direction:column;gap:.2em}
+.d2 .nd+.nd::before{content:"";position:absolute;right:100%;top:1.2em;width:2.2ch;height:1px;background:rgba(var(--fg-rgb),.7)}
+.d2 .nd+.nd::after{content:"";position:absolute;right:calc(100% - 1px);top:calc(1.2em - 3.5px);border-style:solid;border-width:3.5px 0 3.5px 6px;border-color:transparent transparent transparent rgba(var(--fg-rgb),.85)}
+.d2 .nd.s-todo::before{background:repeating-linear-gradient(90deg,rgba(var(--fg-rgb),.6) 0 3px,transparent 3px 6px)!important}
+.d2 .nd .nn{font-size:.82em;opacity:.75}
+.d2 .nd .nt{font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+.d2 .nd .nk{font-size:.76em;letter-spacing:.12em;text-transform:uppercase;margin-top:auto;padding-top:.3em}
+.d2 .nd .nw,.d2 .nd .nf,.d2 .nd .ns{font-size:.86em;overflow-wrap:anywhere;opacity:.88}
+.d2 .nd .nf,.d2 .nd .ns{display:none}
+.d2 .proc[data-open="1"] .nd .nf,.d2 .proc[data-open="1"] .nd .ns{display:block}
+.d2 .nd.s-done{border-color:rgba(var(--fg-rgb),.35);color:rgba(var(--fg-rgb),.65);text-shadow:none}
+.d2 .nd.s-run{border-color:var(--hot);color:var(--hot);box-shadow:0 0 14px rgba(var(--fg-rgb),.4),inset 0 0 14px rgba(var(--fg-rgb),.12)}
+.d2 .nd.s-wait{background:var(--fg);color:var(--bg);text-shadow:none;border-color:var(--fg);box-shadow:0 0 18px rgba(var(--fg-rgb),.5)}
+.d2 .nd.s-todo{border-style:dashed;border-color:rgba(var(--fg-rgb),.4);color:rgba(var(--fg-rgb),.55);text-shadow:none}
+.d2 .nd.s-bad{border:3px double var(--hot);padding:.4em calc(.9ch - 2px) .5em;color:var(--hot);box-shadow:0 0 16px rgba(var(--fg-rgb),.45)}
+.d2 .nd .bar{margin-top:.2em}
+.d2 .later-i{display:flex;flex-wrap:wrap;gap:.2em 1.6ch;align-items:baseline}
+.d2 .mi{display:grid;gap:.05em;padding:.35em 0}
+.d2 .mi+.mi{border-top:1px dashed rgba(var(--fg-rgb),.25)}
+.d2 .fl{display:grid;grid-template-columns:5.5ch minmax(0,1fr);gap:0 1.6ch;padding:.15em 0}
+.d2 .opt{grid-template-columns:minmax(0,1fr)}
+.d2 .ask .q+.q{margin-top:1.1em;padding-top:1.1em;border-top:1px dashed rgba(var(--fg-rgb),.3)}
+.d2 .qt{font-size:1em}
+
+/* ===================== 3. ДИСПЕТЧЕРСКАЯ ===================== */
+.d3 .ttl{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.4em 3ch}
+.d3 .ttl h3{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 12px rgba(var(--fg-rgb),.7)}
+.d3 .pr{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center;margin-top:.8em}
+.d3 .sm{margin:.6em 0 0;max-width:100ch}
+.d3 .asks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.4em 3ch;margin-top:1.4em}
+.d3 .ask{border:1px solid var(--fg);padding:0 1.4ch 1em;box-shadow:0 0 18px rgba(var(--fg-rgb),.2),inset 0 0 22px rgba(var(--fg-rgb),.06);min-width:0}
+.d3 .ask .qh{margin:0 -1.4ch .6em;padding:.2em 1.4ch;background:var(--fg);color:var(--bg);text-shadow:none}
+.d3 .ask .qh .dim,.d3 .ask .qh .mt{color:var(--bg);text-shadow:none}
+.d3 .ask .qh .qn{padding:0;background:transparent;box-shadow:none}
+.d3 .opts{grid-template-columns:repeat(auto-fit,minmax(14ch,1fr))}
+.d3 .opt{grid-template-columns:minmax(0,1fr)}
+.d3 .h4{margin:1.8em 0 .6em;font-size:.9em;letter-spacing:.2em;text-transform:uppercase;display:flex;gap:1.4ch;align-items:center}
+.d3 .h4::after{content:"";flex:1;height:1px;background:rgba(var(--fg-rgb),.35)}
+.d3 .mx{display:grid;grid-template-columns:minmax(14rem,19rem) repeat(3,minmax(0,1fr));border:1px solid rgba(var(--fg-rgb),.55)}
+.d3 .mx>div,.d3 .mx>button{min-width:0;padding:.65em 1.4ch;border-right:1px solid rgba(var(--fg-rgb),.24);border-bottom:1px solid rgba(var(--fg-rgb),.24)}
+.d3 .mx>:nth-child(4n){border-right:0}
+.d3 .mx>:nth-last-child(-n+4){border-bottom:0}
+.d3 .mx .corner{color:rgba(var(--fg-rgb),.62);font-size:.86em;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:flex-end}
+.d3 .ch{font:inherit;color:inherit;text-shadow:inherit;text-align:left;background:transparent;border-top:0;border-left:0;cursor:pointer;display:grid;gap:.25em;align-content:start}
+.d3 .ch:hover{background:rgba(var(--fg-rgb),.07)}
+.d3 .ch[aria-pressed="true"]{background:rgba(var(--fg-rgb),.12);box-shadow:inset 0 -3px 0 var(--fg),0 0 18px rgba(var(--fg-rgb),.15)}
+.d3 .ch b{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.55);line-height:1.2}
+.d3 .mc{display:grid;gap:.18em;align-content:start}
+.d3 .mc .mh{display:flex;align-items:baseline;flex-wrap:wrap}
+.d3 .mc .mh b{color:var(--hot)}
+.d3 .mt-row{display:grid;grid-template-columns:9.6ch auto auto;gap:0 1.2ch;align-items:center;font-size:.9em}
+.d3 .yr{background:rgba(var(--fg-rgb),.1)}
+.d3 .cl{display:grid;gap:.45em;align-content:start}
+.d3 .cs{line-height:1.25}
+.d3 .cs .d{margin:.1em 0 0 calc(.86em + .7ch + 1ch)}
+.d3 .cs .n{color:rgba(var(--fg-rgb),.62);margin-right:.8ch}
+.d3 .cs.s-todo b{font-weight:400;color:rgba(var(--fg-rgb),.55)}
+.d3 .cs.s-done b{font-weight:400}
+.d3 .dr{border:1px solid rgba(var(--fg-rgb),.5);padding:1em 2ch 1.1em}
+.d3 .drh{display:grid;gap:.3em;margin-bottom:1em}
+.d3 .tl{margin:0;padding:0;list-style:none}
+.d3 .tl li{position:relative;display:grid;grid-template-columns:13ch .9em minmax(0,1fr);gap:0 1.6ch;padding-bottom:.9em}
+.d3 .tl li::after{content:"";position:absolute;left:calc(13ch + 1.6ch + .43em);top:1.3em;bottom:-.05em;width:1px;background:rgba(var(--fg-rgb),.35)}
+.d3 .tl li:last-child{padding-bottom:0}.d3 .tl li:last-child::after{display:none}
+.d3 .tl .pip{margin:.15em 0 0}
+.d3 .tl .tm{color:rgba(var(--fg-rgb),.62);font-size:.92em;padding-top:.1em}
+.d3 .tl .tb b{color:var(--hot)}
+.d3 .tl .s-todo .tb b{color:rgba(var(--fg-rgb),.6);font-weight:400}
+.d3 .fl{display:grid;grid-template-columns:6ch 3.2ch minmax(0,1fr);gap:0 1.4ch;align-items:baseline}
+.d3 .legend{margin-top:1.6em}
+
+/* ---------- узкие экраны ---------- */
+@media (max-width:980px){
+  .cap{grid-template-columns:minmax(0,1fr)}
+  .brand-model{display:none}
+  .d3 .asks{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:1080px){
+  .d2 .grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "ask" "main" "mach" "feed" "leg"}
+}
+@media (max-width:860px){
+  .d3 .mx{grid-template-columns:minmax(0,1fr);border:0}
+  .d3 .mx>div,.d3 .mx>button{border:0;border-bottom:1px solid rgba(var(--fg-rgb),.2)}
+  .d3 .mx .corner,.d3 .mx .ch.hd{display:none}
+  .d3 .mx .mc{border-top:1px solid rgba(var(--fg-rgb),.55)!important;background:rgba(var(--fg-rgb),.08)}
+  .d3 .mx .cl.empty{display:none}
+  .d3 .mx .cl::before{content:attr(data-t);font-size:.82em;letter-spacing:.12em;text-transform:uppercase;color:rgba(var(--fg-rgb),.62)}
+  .d3 .mx .cl{padding-left:calc(1.4ch + 1ch)}
+}
+@media (max-width:760px){
+  .status .wide{display:none}
+  .strip .dial-label{display:none}
+  .d1 .prog,.d2 .pr,.d3 .pr{grid-template-columns:minmax(0,1fr)}
+  .d1 .opt{grid-template-columns:minmax(0,1fr)}
+  .d1 .mrow{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .d1 .mrow .ld{grid-column:1/-1}.d1 .mrow .nums{text-align:left;grid-column:1/-1}
+  .d1 .rp{grid-template-columns:3ch minmax(0,1fr);gap:.2em 1.6ch}
+  .d1 .rp>*:nth-child(n+2){grid-column:2}
+  .d1 .steps{margin-left:0}
+  .d1 .stp{grid-template-columns:2ch minmax(0,1fr)}
+  .d1 .stp>*:nth-child(n+3){grid-column:2}
+  .d1 .fl{grid-template-columns:6ch minmax(0,1fr)}.d1 .fl>*:nth-child(3){grid-column:2}
+  .d1 .hl{text-align:left}
+  .d2 .chain{flex-direction:column;gap:2em}
+  .d2 .nd+.nd::before{right:auto;left:1.6ch;top:auto;bottom:100%;width:1px;height:2em;background:rgba(var(--fg-rgb),.7)}
+  .d2 .nd+.nd::after{display:none}
+  .d2 .nd.s-todo::before{background:repeating-linear-gradient(180deg,rgba(var(--fg-rgb),.6) 0 3px,transparent 3px 6px)!important}
+  .d2 .lflow{margin-left:0}
+  .d2 .rp .if{margin-left:0;flex-basis:100%}
+  .d3 .tl li{grid-template-columns:.9em minmax(0,1fr)}
+  .d3 .tl li .tm{grid-column:2;grid-row:2}.d3 .tl li .pip{grid-column:1;grid-row:1}.d3 .tl li .tb{grid-column:2;grid-row:1}
+  .d3 .tl li::after{left:.43em}
+  .d3 .dr{padding:.9em 1.4ch}
+}
+@media (prefers-reduced-motion:reduce){
+  .roll,.d1 .flick{display:none}
+  .st.s-run,.lamp,.seg i.s-run,.pip.s-run,.caret{animation:none!important}
+}
+</style>
+
+<main class="page">
+  <header class="intro">
+    <h1>Табло alpha: три направления</h1>
+    <p>Три раскладки в духе фосфорного терминала HELIOS/OS, который выбрал владелец. Краска одна, различие только по яркости и инверсии, статусы подписаны словами. Все три экрана построены на одних данных из <b>sample-view2.json</b>: машины, три процесса, два вопроса, лента.</p>
+    <p>Пример, а не боевые данные: волны, строка «стало возможно», вилка «осталось» и вариант по умолчанию. Внизу каждого монитора переключатель люминофора: любую раскладку можно посмотреть зелёной, янтарной или ледяной.</p>
+  </header>
+
+  <section class="dir" aria-labelledby="t1">
+    <div class="cap">
+      <div>
+        <div class="eyebrow">Направление 1 · ближе всего к 019</div>
+        <h2 id="t1">Сеанс</h2>
+        <p>Табло как сеанс в терминале: одна колонка, заголовки-команды, сверху итог и ваши вопросы, ниже машины, процессы и лента. Процесс раскрывается списком шагов прямо под строкой.</p>
+      </div>
+      <dl>
+        <dt>Палитра</dt>
+        <dd><ul class="pal">
+          <li><i style="background:#33ff66"></i>#33ff66 <span>люминофор</span></li>
+          <li><i style="background:#dcffe5"></i>#dcffe5 <span>яркий</span></li>
+          <li><i style="background:#073012"></i>#073012 <span>подсветка</span></li>
+          <li><i style="background:#031a07"></i>#031a07 <span>экран</span></li>
+          <li><i style="background:#1d1f1a"></i>#1d1f1a <span>корпус</span></li>
+        </ul></dd>
+        <dt>Шрифт</dt>
+        <dd>IBM Plex Mono, 400, 500 и 700. Шрифт из списка самого 019.</dd>
+      </dl>
+    </div>
+    <div id="s1"></div>
+  </section>
+
+  <section class="dir" aria-labelledby="t2">
+    <div class="cap">
+      <div>
+        <div class="eyebrow">Направление 2 · процессы и волны</div>
+        <h2 id="t2">Конвейер</h2>
+        <p>Работа как конвейер: волны задач в рамках-окнах, у каждой задачи цепочка шагов, а там, где всё встало, узел «вы». Вопросы к вам лежат справа и первыми на телефоне.</p>
+      </div>
+      <dl>
+        <dt>Палитра</dt>
+        <dd><ul class="pal">
+          <li><i style="background:#ffb000"></i>#ffb000 <span>люминофор</span></li>
+          <li><i style="background:#fff1cc"></i>#fff1cc <span>яркий</span></li>
+          <li><i style="background:#2c1a02"></i>#2c1a02 <span>подсветка</span></li>
+          <li><i style="background:#1a0f00"></i>#1a0f00 <span>экран</span></li>
+          <li><i style="background:#1d1f1a"></i>#1d1f1a <span>корпус</span></li>
+        </ul></dd>
+        <dt>Шрифт</dt>
+        <dd>Fira Mono, 400, 500 и 700. Плотные узлы цепочек читаются мелким кеглем.</dd>
+      </dl>
+    </div>
+    <div id="s2"></div>
+  </section>
+
+  <section class="dir" aria-labelledby="t3">
+    <div class="cap">
+      <div>
+        <div class="eyebrow">Направление 3 · машины и «для чего»</div>
+        <h2 id="t3">Диспетчерская</h2>
+        <p>Таблица «машина × задача»: в клетке видно, что именно эта машина делает для этой задачи. Строка «вы» показывает, где ждут вас. Подробности выбранной задачи открываются под таблицей.</p>
+      </div>
+      <dl>
+        <dt>Палитра</dt>
+        <dd><ul class="pal">
+          <li><i style="background:#9fe7ff"></i>#9fe7ff <span>люминофор</span></li>
+          <li><i style="background:#f2fcff"></i>#f2fcff <span>яркий</span></li>
+          <li><i style="background:#07243a"></i>#07243a <span>подсветка</span></li>
+          <li><i style="background:#02111a"></i>#02111a <span>экран</span></li>
+          <li><i style="background:#1d1f1a"></i>#1d1f1a <span>корпус</span></li>
+        </ul></dd>
+        <dt>Шрифт</dt>
+        <dd>Anonymous Pro, 400 и 700. Узкие знаки дают таблице больше слов в клетке.</dd>
+      </dl>
+    </div>
+    <div id="s3"></div>
+  </section>
+</main>
+
+<script>
+/* Данные: sample-view2.json (контракт VIEW2.md). Пример, не из боя: waves, summary, fork, def. */
+const D={
+  time:"02:30",
+  headline:{state:"wait",text:"ждёт вас: 2"},
+  tags:{pc:{tag:"ПК",name:"этот ПК"},vps:{tag:"VPS",name:"VPS София"},calc:{tag:"СЧЁТ",name:"сервер счёта"},col:{tag:"КОЛ",name:"коллектор"},you:{tag:"ВЫ",name:"вы"}},
+  machines:[
+    {id:"pc",state:"ok",load:"инженер · Умная проверка",now:{state:"wait",text:"ждёт вас"},cpu:10,mem:76,disk:null},
+    {id:"vps",state:"ok",load:"Умная проверка · без хозяина",now:{state:"idle",text:"простаивает"},cpu:3,mem:22,disk:0,orphans:2},
+    {id:"calc",state:"ok",load:"автомат · Добор данных",now:{state:"run",text:"сверка ~5 мин"},cpu:18,mem:2,disk:77},
+    {id:"col",state:"off",load:"выключен вами",now:{state:"off",text:"задач нет"},cpu:1,mem:14,disk:0}
+  ],
+  processes:[
+    {id:"a",title:"Добор и проверка данных",flow:[{text:"делается на",on:"calc"}],for:{text:"база дней",on:"calc"},state:"run",step_now:3,steps_total:4,eta_min:5,wait_min:null,
+     steps:[
+      {n:1,title:"найти пропуски",who:"автомат",on:"calc",for:"список",state:"done",pct:null,detail:null,eta_min:null,started:"00:45",finished:"00:48",question:null},
+      {n:2,title:"добор",who:"автомат",on:"calc",for:"база дней",state:"done",pct:100,detail:"93 из 93 суток",eta_min:null,started:"00:48",finished:"00:51",question:null},
+      {n:3,title:"сверка",who:"автомат",on:"calc",for:"база дней",state:"run",pct:47,detail:"231 из 492 монето-месяцев",eta_min:5,started:"00:59",finished:null,question:null},
+      {n:4,title:"запись в базу",who:"автомат",on:"calc",for:"база дней",state:"todo",pct:null,detail:null,eta_min:null,started:null,finished:null,question:null}]},
+    {id:"b",title:"Умная проверка данных",flow:[{text:"код пишет",on:"pc"},{text:"запускает и проверяет",on:"vps"}],for:{text:"данные дней",on:"vps"},state:"wait",step_now:3,steps_total:5,eta_min:null,wait_min:6,
+     steps:[
+      {n:1,title:"правила проверки",who:"инженер",on:"pc",for:"код для VPS",state:"done",pct:null,detail:null,eta_min:null,started:"01:16",finished:"02:16",question:null},
+      {n:2,title:"сборка кода",who:"автомат",on:"vps",for:"запуск на VPS",state:"done",pct:null,detail:null,eta_min:null,started:"02:17",finished:"02:22",question:null},
+      {n:3,title:"вопрос владельцу",who:"вы",on:"you",for:"правило для шага 4",state:"wait",pct:null,detail:null,eta_min:null,started:"02:24",finished:null,question:"q1"},
+      {n:4,title:"прогон проверки",who:"автомат",on:"vps",for:"данные на VPS",state:"todo",pct:null,detail:null,eta_min:null,started:null,finished:null,question:null},
+      {n:5,title:"отчёт",who:"инженер",on:"pc",for:"для вас",state:"todo",pct:null,detail:null,eta_min:null,started:null,finished:null,question:null}]},
+    {id:"c",title:"Старые задачи без хозяина ×2",flow:[{text:"висят на",on:"vps"}],for:{text:"кто запустил — неизвестно",on:null},state:"bad",step_now:2,steps_total:3,eta_min:null,wait_min:30,
+     steps:[
+      {n:1,title:"без хозяина",who:"автомат",on:"vps",for:"2 шт.",state:"bad",pct:null,detail:"заливка на Storage Box с 02.10 и пересылка файлов с 28.09",eta_min:null,started:null,finished:null,question:null},
+      {n:2,title:"вопрос владельцу",who:"вы",on:"you",for:"остановить?",state:"wait",pct:null,detail:null,eta_min:null,started:"02:00",finished:null,question:"q2"},
+      {n:3,title:"остановить",who:"автомат",on:"vps",for:"VPS",state:"todo",pct:null,detail:null,eta_min:null,started:null,finished:null,question:null}]}
+  ],
+  questions:[
+    {id:"q1",n:1,process:"b",from:"инженер",on:"pc",text:"Признак «цены не было»: только число или браковать сутки?",
+     options:[{key:"a",label:"только число",effect:"запустит «прогон» на VPS"},{key:"b",label:"браковать сутки",effect:"запустит «прогон» на VPS, ~20 % суток малоликвидных — в брак"}],since:"02:24",wait_min:6,def:"a"},
+    {id:"q2",n:2,process:"c",from:"CEO",on:"vps",text:"Остановить 2 старые задачи на VPS?",
+     options:[{key:"y",label:"да",effect:"остановит их на VPS"},{key:"n",label:"нет",effect:"оставит как есть"}],since:"02:00",wait_min:30,def:"n"}
+  ],
+  feed:[
+    {time:"02:16",state:"done",on:["pc"],to:null,text:"правила проверки"},
+    {time:"02:21",state:"done",on:["calc"],to:null,text:"добор 100 %"},
+    {time:"02:24",state:"wait",on:["pc"],to:"you",text:"вопрос 1"},
+    {time:"02:27",state:"bad",on:["vps"],to:null,text:"найдены 2 задачи без хозяина"}
+  ],
+  summary:{can:"считать на готовых данных: 25 100 из 25 107 дней по монетам",cannot:"доверять им без умной проверки, она ждёт вашего ответа"},
+  fork:"40–70 мин",forkIf:"если ответите в ближайшие 10 мин",
+  waves:[
+    {n:1,title:"идёт сейчас",note:"три задачи параллельно",procs:[0,1,2]},
+    {n:2,title:"ждёт",note:"начнётся, когда закончится волна 1",later:[{title:"Подсчёт на проверенных данных",on:"calc",after:"Умная проверка данных"}]}
+  ]
+};
+
+/* ---------- общие кирпичи ---------- */
+const E=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const ST={done:"ГОТОВО",run:"ДЕЛАЕТСЯ",check:"ПРОВЕРЯЕТСЯ",fix:"ЧИНИТСЯ",wait:"ЖДЁТ ВАС",todo:"ВПЕРЕДИ",bad:"ПРОБЛЕМА"};
+const STM={done:"сделано",run:"идёт сейчас",check:"проверяют результат",fix:"нашли ошибку, правят",wait:"ваш ход",todo:"в очереди",bad:"застряло"};
+const mt=id=>`<span class="mt${id==="you"?" you":""}">[${E(D.tags[id].tag)}]</span>`;
+const mn=id=>`${mt(id)} ${E(D.tags[id].name)}`;
+const tok=s=>`<span class="st s-${s}">[${ST[s]}]</span>`;
+const ALL=D.processes.flatMap(p=>p.steps);
+const CNT=s=>ALL.filter(x=>x.state===s).length;
+const proc=id=>D.processes.find(p=>p.id===id);
+const qOf=id=>D.questions.find(q=>q.id===id);
+const seg=ps=>`<span class="seg" role="img" aria-label="готово ${ps.flatMap(p=>p.steps).filter(s=>s.state==="done").length} из ${ps.flatMap(p=>p.steps).length} шагов">${ps.map(p=>`<span class="g" style="--n:${p.steps.length}">${p.steps.map(s=>`<i class="s-${s.state}"></i>`).join("")}</span>`).join("")}</span>`;
+const bar=(pct,n=20)=>{const on=Math.round(pct/100*n);let h="";for(let i=0;i<n;i++)h+=`<b${i<on?' class="on"':""}></b>`;return `<span class="bar" role="img" aria-label="${pct} %">${h}</span>`};
+const flow=p=>p.flow.map(f=>`${E(f.text)} ${mt(f.on)}`).join(" → ");
+const forP=p=>p.for.text?`для: ${E(p.for.text)}${p.for.on?" "+mt(p.for.on):""}`:"";
+const whoOn=s=>s.who==="вы"?"вы":`${E(s.who)} на ${mt(s.on)}`;
+const tm=s=>s.finished?`${s.started}–${s.finished}`:s.started?`с ${s.started}`:"";
+const sdet=s=>{const a=[];if(s.detail)a.push(E(s.detail));if(s.state==="run"&&s.pct!=null)a.push(s.pct+" %");if(s.eta_min)a.push("ещё ~"+s.eta_min+" мин");return a.join(" · ")};
+const waitTxt=s=>{const q=s.question&&qOf(s.question);return q?`ждёт вас ${q.wait_min} мин · вопрос ${q.n}`:""};
+const pinfo=p=>{const a=[`шаг ${p.step_now} из ${p.steps_total}`];if(p.state==="run"&&p.eta_min)a.push(`ещё ~${p.eta_min} мин`);if(p.state==="wait"&&p.wait_min)a.push(`ждёт вас ${p.wait_min} мин`);if(p.state==="bad"&&p.wait_min)a.push(`висит ${p.wait_min} мин`);return a.join(" · ")};
+const lamp=s=>`<i class="lamp l-${s}" aria-hidden="true"></i>`;
+const nowS=m=>m.now.state;
+const GLY={"Т":["11111","00100","00100","00100","00100","00100","00100"],"А":["01110","10001","10001","11111","10001","10001","10001"],"Б":["11111","10000","10000","11110","10001","10001","11110"],"Л":["00111","01001","01001","01001","01001","10001","10001"],"О":["01110","10001","10001","10001","10001","10001","01110"]};
+function wordmark(w){const L=[...w].map(c=>GLY[c]);const cols=L.length*6-1;let h="";for(let r=0;r<7;r++){for(let k=0;k<L.length;k++){for(let c=0;c<5;c++)h+=`<i${L[k][r][c]==="1"?' class="on"':""}></i>`;if(k<L.length-1)h+="<i></i>"}}return `<div class="wm" style="--c:${cols}" role="img" aria-label="${w}">${h}</div>`}
+function qHTML(q){return `<div class="q"><div class="qh"><span class="inv qn">ВОПРОС ${q.n}</span><span class="dim">${E(q.from)} на ${mt(q.on)} · «${E(proc(q.process).title)}» · ждёт ${q.wait_min} мин</span></div>
+  <p class="qt">${E(q.text)}</p>
+  <div class="opts" role="group" aria-label="Варианты ответа на вопрос ${q.n}">${q.options.map(o=>`<button type="button" class="opt" aria-pressed="${o.key===q.def}"><span class="ol">${E(o.label)}</span><span class="ef">${E(o.effect)}</span>${o.key===q.def?'<span class="df">по умолчанию</span>':""}</button>`).join("")}</div></div>`}
+const feedWord=s=>({done:"готово",wait:"ждёт вас",bad:"проблема",run:"идёт"}[s]);
+const legendTok=()=>`<div class="legend">${Object.keys(ST).map(k=>`<span>${tok(k)} <span class="dim">${STM[k]}</span></span>`).join("")}</div>`;
+const legendPip=()=>`<div class="legend">${Object.keys(ST).map(k=>`<span><i class="pip s-${k}"></i>${ST[k].toLowerCase()} <span class="dim">· ${STM[k]}</span></span>`).join("")}</div>`;
+const counts=()=>["done","run","wait","bad","todo"].map(k=>`<span>${tok(k)} <b>${CNT(k)}</b></span>`).join("");
+
+/* ---------- корпус монитора ---------- */
+function monitor(cls,ph,title,path,model,body,extra=""){
+  const keys=[["green","P1","#33ff66","Зелёный люминофор"],["amber","P3","#ffb000","Янтарный люминофор"],["ice","Лёд","#9fe7ff","Ледяной люминофор"]];
+  return `<div class="mon ${cls}" data-ph="${ph}">
+   <div class="screen"><div class="crt"><div class="term">${body}</div>
+     <div class="status"><span class="tg">${title}</span><span class="wide">${path}</span><span class="fill"></span><span class="phl"></span><span class="wide">связь есть</span><span>${D.time}</span></div></div>
+     <i class="ov grain"></i><i class="ov scan"></i><i class="ov roll"></i>${extra}<i class="ov vignette"></i><i class="ov glass"></i></div>
+   <div class="strip"><div class="brand"><i class="led lit"></i><span class="brand-name">Alpha</span><span class="brand-model">${model}</span></div><span class="fill"></span>
+     <div class="dials" role="group" aria-label="Люминофор"><span class="dial-label">Люминофор</span>${keys.map(k=>`<button type="button" class="key" data-phk="${k[0]}" aria-pressed="${k[0]===ph}" aria-label="${k[3]}" style="--c:${k[2]}"><i class="lamp-k"></i>${k[1]}</button>`).join("")}</div></div></div>`;
+}
+
+/* ---------- 1. Сеанс ---------- */
+function r1(){
+  const ps=c=>`<div class="ps"><span class="ps1">alpha@табло:~$</span> <span class="cmd">${c}</span></div>`;
+  const body=`
+  <div class="hdr"><div>${wordmark("ТАБЛО")}<div class="dim sub">ход работ · alpha · ${D.time} по вашему времени</div></div>
+    <div class="hl"><span class="inv big">${E(D.headline.text.toUpperCase())}</span><div class="dim">связь есть · обновляется само</div></div></div>
+  ${ps("итог")}
+  <div class="ind">
+    <div class="prog"><span>готово <b class="hot">${CNT("done")}</b> из ${ALL.length} шагов</span>${seg(D.processes)}<span>осталось <b class="hot">${D.fork}</b> <span class="dim">${D.forkIf}</span></span></div>
+    <div class="counts">${counts()}</div>
+    <p class="sum"><b class="hot">стало возможно:</b> ${D.summary.can}<br><span class="dim">ещё нельзя:</span> ${D.summary.cannot}</p>
+  </div>
+  ${ps("вопросы")}
+  <div class="ind">${D.questions.map(qHTML).join("")}</div>
+  ${ps("машины")}
+  <div class="ind">${D.machines.map(m=>`<div class="mrow"><span>${mn(m.id)}</span><span>${lamp(nowS(m))}${E(m.now.text)}</span><span class="dim ld">${E(m.load)}</span><span class="dim nums small">${m.state==="off"?"не работает":`процессор ${m.cpu} % · память ${m.mem} %${m.disk?` · диск ${m.disk} МБ/с`:""}`}</span></div>`).join("")}</div>
+  ${ps("процессы")}
+  <div class="ind">${D.processes.map((p,i)=>`<div class="proc" data-open="${i===1?1:0}">
+    <button type="button" class="rp" aria-expanded="${i===1}"><span class="m" aria-hidden="true"></span><span>${tok(p.state)}</span>
+      <span class="nm"><b>${E(p.title)}</b><span class="dim small">${flow(p)} · ${forP(p)}</span></span><span>${seg([p])}</span><span class="dim small">${pinfo(p)}</span></button>
+    <div class="steps">${p.steps.map(s=>`<div class="stp s-${s.state}"><span class="n">${s.n}</span><span>${tok(s.state)}</span>
+      <span class="t2"><b>${E(s.title)}</b>${s.state==="run"&&s.pct!=null?`<span>${bar(s.pct,14)}</span>`:""}${sdet(s)?`<span class="dim small">${sdet(s)}</span>`:""}</span>
+      <span>${whoOn(s)}</span><span class="dim">${s.for?"для: "+E(s.for):""}</span><span class="dim small">${s.state==="wait"?waitTxt(s):tm(s)}</span></div>`).join("")}</div></div>`).join("")}</div>
+  ${ps("лента")}
+  <div class="ind feed">${D.feed.map(f=>`<div class="fl"><span class="dim">${f.time}</span><span>${tok(f.state)}</span><span>${f.on.map(mt).join(" ")}${f.to?" → "+mt(f.to):""} ${E(f.text)}</span></div>`).join("")}</div>
+  ${ps("обозначения")}
+  <div class="ind">${legendTok()}</div>
+  <div class="ps endp"><span class="ps1">alpha@табло:~$</span> <span class="caret">&nbsp;</span></div>`;
+  return monitor("d1","green","ТАБЛО ALPHA","alpha@табло:~","Табло · Сеанс",body,'<i class="ov flick"></i>');
+}
+
+/* ---------- 2. Конвейер ---------- */
+function node(s){
+  const nb=s.state==="run"&&s.pct!=null?bar(s.pct,10):"";
+  const ns=s.state==="wait"?waitTxt(s):[tm(s),sdet(s)].filter(Boolean).join(" · ");
+  return `<div class="nd s-${s.state}"><span class="nn">шаг ${s.n}</span><span class="nt">${E(s.title)}</span><span class="nw">${s.who==="вы"?mt("you"):`${E(s.who)} · ${mt(s.on)}`}</span><span class="nf">${s.for?"для: "+E(s.for):""}</span><span class="ns">${ns}</span>${nb}<span class="nk">${ST[s.state]}</span></div>`;
+}
+function lane(p,open){
+  return `<div class="proc lane" data-open="${open?1:0}"><button type="button" class="rp" aria-expanded="${open}"><span class="m" aria-hidden="true"></span>${tok(p.state)}<span class="nm"><b>${E(p.title)}</b></span><span class="if dim">${pinfo(p)}</span></button>
+    <div class="lflow dim">${flow(p)}${p.for.text?" · "+forP(p):""}</div><div class="chain">${p.steps.map(node).join("")}</div></div>`;
+}
+function r2(){
+  const w1=D.waves[0],w2=D.waves[1];
+  const main=`<section class="win" aria-label="Волна 1"><div class="wt"><span>Волна ${w1.n} · ${w1.title}</span><span class="fill"></span><span class="n">${w1.note}</span></div>${w1.procs.map(i=>lane(D.processes[i],i===1)).join("")}</section>
+    <div class="wgap">ждём конца волны 1</div>
+    <section class="win later" aria-label="Волна 2"><div class="wt"><span>Волна ${w2.n} · ${w2.title}</span><span class="fill"></span><span class="n">${w2.note}</span></div>${w2.later.map(x=>`<div class="later-i">${tok("todo")}<b>${E(x.title)}</b><span class="dim">на ${mt(x.on)} · ждёт: «${E(x.after)}»</span></div>`).join("")}</section>`;
+  const body=`<div class="grid">
+   <div class="top"><div class="ttl"><h3>Конвейер · ход работ</h3><span class="inv">${E(D.headline.text.toUpperCase())}</span></div>
+     <div class="pr"><span>готово <b class="hot">${CNT("done")}</b> из ${ALL.length} шагов</span>${seg(D.processes)}<span>осталось <b class="hot">${D.fork}</b> <span class="dim">${D.forkIf}</span></span></div>
+     <dl class="sm"><dt>возможно</dt><dd>${D.summary.can}</dd><dt>нельзя</dt><dd class="dim">${D.summary.cannot}</dd></dl></div>
+   <div class="main">${main}</div>
+   <section class="pn ask" aria-label="Вопросы вам"><div class="pnt"><span>Вам ответить · ${D.questions.length}</span></div>${D.questions.map(qHTML).join("")}</section>
+   <section class="pn mach" aria-label="Машины"><div class="pnt"><span>Где что делается</span></div>${D.machines.map(m=>`<div class="mi"><span>${lamp(nowS(m))}<b>${E(D.tags[m.id].name)}</b> ${mt(m.id)}</span><span class="dim small">${E(m.now.text)} · ${E(m.load)}</span></div>`).join("")}</section>
+   <section class="pn fd" aria-label="Лента"><div class="pnt"><span>Недавно</span></div>${D.feed.map(f=>`<div class="fl"><span class="dim">${f.time}</span><span>${tok(f.state)} ${f.on.map(mt).join(" ")}${f.to?" → "+mt(f.to):""} ${E(f.text)}</span></div>`).join("")}</section>
+   <div class="leg">${legendTok()}</div></div>`;
+  return monitor("d2","amber","КОНВЕЙЕР","alpha@табло:~/волны","Табло · Конвейер",body);
+}
+
+/* ---------- 3. Диспетчерская ---------- */
+function meter(l,v){return `<div class="mt-row"><span class="dim">${l}</span>${bar(v,10)}<span>${v} %</span></div>`}
+function cell(mid,p){
+  const ss=p.steps.filter(s=>s.on===mid);
+  if(!ss.length)return `<div class="cl empty" data-t="${E(p.title)}"><span class="faint">—</span></div>`;
+  return `<div class="cl" data-t="${E(p.title)}">${ss.map(s=>`<div class="cs s-${s.state}"><i class="pip s-${s.state}"></i><span class="n">${s.n}</span><b>${E(s.title)}</b>${mid==="you"?`<div class="dim d">${s.question?"вопрос "+qOf(s.question).n+" · ":""}${E(s.for)}</div>`:""}${sdet(s)?`<div class="dim d">${sdet(s)}</div>`:""}</div>`).join("")}</div>`;
+}
+function r3(){
+  const rows=D.machines.map(m=>({id:m.id,state:nowS(m),text:m.now.text,load:m.load,m}));
+  rows.push({id:"you",state:"wait",text:`ждут ${D.questions.length} ответа`,load:"вопросы по двум задачам",m:null});
+  const head=`<div class="corner">машина · что делает</div>`+D.processes.map((p,i)=>`<button type="button" class="ch hd" data-p="${i}" aria-pressed="${i===1}"><b>${E(p.title)}</b><span class="dim small">${forP(p)}</span>${seg([p])}<span class="small">${tok(p.state)} <span class="dim">${pinfo(p)}</span></span></button>`).join("");
+  const body_rows=rows.map(r=>{
+    const you=r.id==="you";
+    const mc=`<div class="mc${you?" yr":""}"><div class="mh">${lamp(r.state)}<b>${you?"вы":E(D.tags[r.id].name)}</b>&nbsp;${mt(r.id)}</div><div>${E(r.text)}</div><div class="dim small">${E(r.load)}</div>${r.m&&r.m.state!=="off"?meter("процессор",r.m.cpu)+meter("память",r.m.mem)+(r.m.disk?`<div class="mt-row"><span class="dim">диск</span><span>${r.m.disk} МБ/с</span></div>`:""):""}</div>`;
+    return mc+D.processes.map(p=>cell(r.id,p).replace('class="cl','class="cl'+(you?" yr":""))).join("");
+  }).join("");
+  const drawers=D.processes.map((p,i)=>`<div class="dr" data-p="${i}"${i===1?"":" hidden"}><div class="drh"><b class="hot">${E(p.title)}</b><span class="dim">${flow(p)}${p.for.text?" · "+forP(p):""} · ${pinfo(p)}</span></div>
+    <ol class="tl">${p.steps.map(s=>`<li class="s-${s.state}"><span class="tm">${tm(s)||"—"}</span><i class="pip s-${s.state}"></i><div class="tb"><b>${E(s.title)}</b> ${tok(s.state)}<div class="dim">${whoOn(s)}${s.for?" · для: "+E(s.for):""}${sdet(s)?" · "+sdet(s):""}${s.state==="wait"?" · "+waitTxt(s):""}</div></div></li>`).join("")}</ol></div>`).join("");
+  const body=`<div class="ttl"><h3>Диспетчерская</h3><span class="inv big2" style="font-weight:700;padding:.1em 1ch;letter-spacing:.06em">${E(D.headline.text.toUpperCase())}</span></div>
+   <div class="pr"><span>готово <b class="hot">${CNT("done")}</b> из ${ALL.length} шагов</span>${seg(D.processes)}<span>осталось <b class="hot">${D.fork}</b> <span class="dim">${D.forkIf}</span></span></div>
+   <p class="sm"><b class="hot">стало возможно:</b> ${D.summary.can}<br><span class="dim">ещё нельзя:</span> ${D.summary.cannot}</p>
+   <div class="asks">${D.questions.map(q=>`<section class="ask">${qHTML(q)}</section>`).join("")}</div>
+   <div class="h4 hot">Кто что делает и для чего</div>
+   <div class="mx">${head}${body_rows}</div>
+   <div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>
+   ${drawers}
+   <div class="h4 hot">Недавно</div>
+   ${D.feed.map(f=>`<div class="fl"><span class="dim">${f.time}</span><i class="pip s-${f.state}"></i><span>${f.on.map(mt).join(" ")}${f.to?" → "+mt(f.to):""} ${E(f.text)} <span class="dim">· ${feedWord(f.state)}</span></span></div>`).join("")}
+   <div class="h4 hot">Обозначения</div>${legendPip()}`;
+  return monitor("d3","ice","ДИСПЕТЧЕРСКАЯ","alpha@табло:~/машины","Табло · Диспетчерская",body);
+}
+
+/* ---------- сборка и поведение ---------- */
+document.getElementById("s1").innerHTML=r1();
+document.getElementById("s2").innerHTML=r2();
+document.getElementById("s3").innerHTML=r3();
+const PH={green:"[P1:ЗЕЛ]",amber:"[P3:ЯНТ]",ice:"[ЛЁД]"};
+document.querySelectorAll(".mon").forEach(m=>{
+  const setPh=ph=>{m.dataset.ph=ph;m.querySelector(".phl").textContent=PH[ph];m.querySelectorAll("[data-phk]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.phk===ph)))};
+  setPh(m.dataset.ph);
+  m.querySelectorAll("[data-phk]").forEach(b=>b.addEventListener("click",()=>setPh(b.dataset.phk)));
+  m.querySelectorAll(".opt").forEach(b=>b.addEventListener("click",()=>{b.closest(".opts").querySelectorAll(".opt").forEach(o=>o.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true")}));
+  m.querySelectorAll(".rp").forEach(b=>b.addEventListener("click",()=>{const p=b.closest(".proc");const open=p.dataset.open!=="1";p.dataset.open=open?"1":"0";b.setAttribute("aria-expanded",String(open))}));
+  m.querySelectorAll(".ch").forEach(b=>b.addEventListener("click",()=>{m.querySelectorAll(".ch").forEach(c=>c.setAttribute("aria-pressed",String(c===b)));m.querySelectorAll(".dr").forEach(d=>{d.hidden=d.dataset.p!==b.dataset.p})}));
+});
+</script>
