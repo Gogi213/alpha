@@ -160,7 +160,7 @@ if [ -d /data/progress ]; then
   FOREIGN+=$(find /data/progress -maxdepth 1 -name '*.json' -mmin -2 ! -name "${PROGJOB:-@}.json" -printf '%f ' 2>/dev/null)
 fi
 FOREIGN+=$(systemctl list-units --type=service,scope --state=running --no-legend 'tk*' 'alpha-*' 2>/dev/null \
-  | awk '$1 !~ /^alpha-calibrate-/{printf "%s ", $1}')
+  | awk '$1 !~ /^(alpha-calibrate-|alpha-board.|alpha-bus.|alpha-bus-watcher.)/{printf "%s ", $1}')
 {
   echo "# calibrate.sh $(date -Is) $(hostname) units=$UNITS ($NUNITS) cmd=$CMD done=${DONE:-<нет: временные результаты>}"
   echo "# устройства: ${DEVS[*]:-?}; readahead был (КБ): $(for d in "${DEVS[@]+"${DEVS[@]}"}"; do printf '%s=%s ' "$d" $(( ${RA0[$d]:-0} / 2 )); done)"
