@@ -2470,6 +2470,37 @@ class TicketsCliStartTests(unittest.TestCase):
         TK.main(["comment", path.stem, "--author", "researcher", "--text", "ещё запись"])
         self.assertEqual(T.read_ticket(path).next_role, "judge")
 
+    def test_judge_comment_without_next_wakes_ticket_owner(self):
+        """Запись Судьи без --next на тикете не в done → next = owner (stdout сообщает); done, другие авторы и
+        тикет самого Судьи — без изменений. in_review после записи Судьи — тоже владелец."""
+        import contextlib
+        import io
+        events = []
+        orig_emit = TK.bus_emit
+        TK.bus_emit = lambda tid, kind, payload: events.append((kind, payload["next"]))  # живую шину не трогаем
+        self.addCleanup(lambda: setattr(TK, "bus_emit", orig_emit))
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Возврат")
+        for status in ("in_progress", "in_review"):
+            T.write_header_updates(path, {"status": status, "next": ""})
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(TK.main(["comment", path.stem, "--author", "judge", "--text", "Статус: у инженера"]), 0)
+            self.assertEqual(T.read_ticket(path).next_role, "engineer", status)
+            self.assertIn("next проставлен автоматически", out.getvalue())
+        T.write_header_updates(path, {"status": "done", "next": ""})  # done — вердикт, будить некого
+        TK.main(["comment", path.stem, "--author", "judge", "--text", "Принято"])
+        self.assertEqual(T.read_ticket(path).next_role, "")
+        T.write_header_updates(path, {"status": "in_progress", "next": ""})  # другой автор — без изменений
+        TK.main(["comment", path.stem, "--author", "engineer", "--text", "делаю"])
+        self.assertEqual(T.read_ticket(path).next_role, "")
+        T.write_header_updates(path, {"next": ""})  # явный --next главнее
+        TK.main(["comment", path.stem, "--author", "judge", "--text", "CEO", "--next", "ceo"])
+        self.assertEqual(T.read_ticket(path).next_role, "ceo")
+        own = T.create_ticket(self.tickets_dir, owner="judge", title="Своё")  # Судья не будит сам себя
+        TK.main(["comment", own.stem, "--author", "judge", "--text", "шаг"])
+        self.assertEqual(T.read_ticket(own).next_role, "")
+        self.assertEqual(events[:2], [("сдано", "engineer")] * 2)  # автоназначенный next идёт на шину как «сдано»
+
     def test_comment_next_rejects_unknown_role(self):
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Передача")
         import contextlib

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-os.environ["ALPHA_BUS_DISABLE"] = ""
+os.environ.setdefault("ALPHA_BUS_DISABLE", "1")  # не затирать флаг test_dispatch: при совместном запуске тесты CLI слали события на живую шину (TK-001.к_ceo, 04.10)
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1] / "tools" / "bus"))

@@ -14,7 +14,8 @@
 
 `--next researcher|engineer|judge|ceo` — единственный способ разбудить другую роль (или CEO) записью лога:
 пишет `next: <роль>` в шапку, диспетчер запускает роль ОДИН раз и очищает поле. @упоминания в тексте никого
-не будят. После записи лог больше 20 КБ ужимается: всё, кроме последних 8 записей, — в `archive/<ID>-log.md`.
+не будят. Исключение: запись Судьи (`--author judge`) без `--next` на тикете не в `done` сама ставит `next: <owner>`
+(owner researcher|engineer; печатает «next проставлен автоматически»). После записи лог больше 20 КБ ужимается: всё, кроме последних 8 записей, — в `archive/<ID>-log.md`.
 
 `stop <ID> --text "<новая постановка>" [--next <роль>]` — только CEO (запись в лог — от `ceo`; из сессии роли — отказ): заявка
 диспетчеру снять запущенную роль всем деревом процессов и дать новую постановку (подробно — README диспетчера, «Остановка
@@ -91,18 +92,26 @@ def cmd_comment(args) -> int:
     if not path.exists():
         print(f"нет тикета {args.id}", file=sys.stderr)
         return 1
+    nxt, auto_next = args.next, False
     with T.ticket_lock(path):  # запись, `next` и сжатие лога — одним куском (диспетчер правит шапку тем же замком)
         T.append_log(path, args.author, args.text)
-        if args.next:
+        if not nxt and T.author_is(args.author, "judge"):
+            # Судья вернул тикет без `--next` (TK-044, 04.10: дважды «Статус: у инженера» без будильника — тикет висел):
+            # пока тикет не done, ход возвращается владельцу (in_review тоже — Судья не ждёт сам себя)
+            tkt = T.read_ticket(path)
+            if tkt.status != "done" and tkt.owner in ("researcher", "engineer"):
+                nxt, auto_next = tkt.owner, True
+        if nxt:
             # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)
-            T.write_header_updates(path, {"next": args.next}, stamp_updated=False)
+            T.write_header_updates(path, {"next": nxt}, stamp_updated=False)
         moved = T.compact_log(path)
     if args.text.lstrip().upper().startswith("ВОПРОС ВЛАДЕЛЬЦУ"):
         kind = "вопрос_владельцу"
     else:
-        kind = "статус" if not args.next else "к_ceo" if args.next == "ceo" else "сдано"
-    bus_emit(args.id, kind, {"author": args.author, "next": args.next or ""})
-    print(f"дописано в {path}" + (f"; next: {args.next}" if args.next else "")
+        kind = "статус" if not nxt else "к_ceo" if nxt == "ceo" else "сдано"
+    bus_emit(args.id, kind, {"author": args.author, "next": nxt or ""})
+    print(f"дописано в {path}" + (f"; next: {nxt}" if nxt else "")
+          + (f"; next проставлен автоматически (запись Судьи без --next → владелец тикета: {nxt})" if auto_next else "")
           + (f"; в архив перенесено записей: {moved}" if moved else ""))
     return 0
 
