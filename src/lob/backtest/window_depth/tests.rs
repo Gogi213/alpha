@@ -195,3 +195,70 @@ fn first_mismatch_names_the_field() {
     let none = SignalWindows::build(&events, &[], TICK, LOT);
     assert_eq!(a.first_mismatch(&none), Some((0, "число окон")));
 }
+
+#[test]
+fn round_half_away_matches_std_round() {
+    let mut xs = vec![
+        0.0,
+        -0.0,
+        0.5,
+        -0.5,
+        1.5,
+        2.5,
+        -2.5,
+        0.49999999999999994,
+        -0.49999999999999994,
+        4503599627370497.5,
+        4503599627370496.5,
+        1e300,
+        -1e300,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    let mut s = 0x9E37_79B9_7F4A_7C15_u64;
+    for _ in 0..200_000 {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        xs.push((s >> 11) as f64 / (1u64 << 40) as f64 - 4096.0);
+        xs.push(((s % 2_000_001) as f64 - 1_000_000.0) / 2.0);
+    }
+    for x in xs {
+        assert_eq!(round_half_away(x).to_bits(), x.round().to_bits(), "{x}");
+    }
+    assert!(round_half_away(f64::NAN).is_nan());
+}
+
+/// Диапазон тиков шире порога прямой адресации и рост вниз/вверх: сторона переходит на
+/// сортированный массив, снимок и границы по-прежнему равны книге крейта.
+#[test]
+fn wide_tick_range_matches_the_crate_book() {
+    for seed in 1..=20u64 {
+        let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+        let mut own = WindowDepth::new(TICK, LOT);
+        let mut reference = HashMapMarketDepth::new(TICK, LOT);
+        for step in 0..2000 {
+            let (bid, px, qty) = random_level(&mut rng);
+            let shift = match rng.below(60) {
+                0 => 3_000_000.0,
+                1 => -2_000_000.0,
+                2 => 700.0,
+                3 => -900.0,
+                _ => 0.0,
+            };
+            let px = px + shift * TICK;
+            if bid {
+                own.update_bid_depth(px, qty);
+                reference.update_bid_depth(px, qty, step);
+            } else {
+                own.update_ask_depth(px, qty);
+                reference.update_ask_depth(px, qty, step);
+            }
+            assert_eq!(
+                own.snapshot(),
+                crate_snapshot(&reference),
+                "seed {seed}, шаг {step}"
+            );
+        }
+    }
+}

@@ -5,10 +5,11 @@
 //! порядка обхода отображения не зависит (снимок сортируется), поэтому итог байт в байт тот же, что у книги
 //! крейта. L3 (заявки по номерам) движку сетки не нужен и не реализован.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+use super::levels::Levels;
+use super::window_depth::round_half_away;
 use hftbacktest::backtest::data::Data;
 use hftbacktest::depth::{ApplySnapshot, L2MarketDepth, MarketDepth, INVALID_MAX, INVALID_MIN};
 use hftbacktest::types::{
@@ -49,32 +50,12 @@ pub struct FastMarketDepth {
     pub tick_size: f64,
     pub lot_size: f64,
     pub timestamp: i64,
-    pub ask_depth: TickMap,
-    pub bid_depth: TickMap,
+    pub ask_depth: Levels,
+    pub bid_depth: Levels,
     pub best_bid_tick: i64,
     pub best_ask_tick: i64,
     pub low_bid_tick: i64,
     pub high_ask_tick: i64,
-}
-
-#[inline(always)]
-fn depth_below(depth: &TickMap, start: i64, end: i64) -> i64 {
-    for t in (end..start).rev() {
-        if *depth.get(&t).unwrap_or(&0f64) > 0f64 {
-            return t;
-        }
-    }
-    INVALID_MIN
-}
-
-#[inline(always)]
-fn depth_above(depth: &TickMap, start: i64, end: i64) -> i64 {
-    for t in (start + 1)..(end + 1) {
-        if *depth.get(&t).unwrap_or(&0f64) > 0f64 {
-            return t;
-        }
-    }
-    INVALID_MAX
 }
 
 impl FastMarketDepth {
@@ -83,14 +64,24 @@ impl FastMarketDepth {
             tick_size,
             lot_size,
             timestamp: 0,
-            ask_depth: TickMap::default(),
-            bid_depth: TickMap::default(),
+            ask_depth: Levels::default(),
+            bid_depth: Levels::default(),
             best_bid_tick: INVALID_MIN,
             best_ask_tick: INVALID_MAX,
             low_bid_tick: INVALID_MAX,
             high_ask_tick: INVALID_MIN,
         }
     }
+}
+
+/// Строки глубины по удалению от своей лучшей цены в тиках: ≤3 / ≤10 / ≤30 / дальше — замер TK-049, на счёт не влияет.
+pub static DEPTH_ROW_BANDS: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+
+fn note_band(price_tick: i64, best_tick: i64) {
+    let d = (price_tick - best_tick).unsigned_abs();
+    let k = usize::from(d > 3) + usize::from(d > 10) + usize::from(d > 30);
+    DEPTH_ROW_BANDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 // Числа и приведения — как в крейте, строка в строку (гейт «байт в байт»).
@@ -102,31 +93,17 @@ impl L2MarketDepth for FastMarketDepth {
         qty: f64,
         timestamp: i64,
     ) -> (i64, i64, i64, f64, f64, i64) {
-        let price_tick = (price / self.tick_size).round() as i64;
-        let qty_lot = (qty / self.lot_size).round() as i64;
+        let price_tick = round_half_away(price / self.tick_size) as i64;
+        let qty_lot = round_half_away(qty / self.lot_size) as i64;
         let prev_best_bid_tick = self.best_bid_tick;
-        let prev_qty;
-        match self.bid_depth.entry(price_tick) {
-            Entry::Occupied(mut entry) => {
-                prev_qty = *entry.get();
-                if qty_lot > 0 {
-                    *entry.get_mut() = qty;
-                } else {
-                    entry.remove();
-                }
-            }
-            Entry::Vacant(entry) => {
-                prev_qty = 0f64;
-                if qty_lot > 0 {
-                    entry.insert(qty);
-                }
-            }
-        }
+        note_band(price_tick, prev_best_bid_tick);
+        let prev_qty = self
+            .bid_depth
+            .replace(price_tick, if qty_lot > 0 { qty } else { 0.0 });
 
         if qty_lot == 0 {
             if price_tick == self.best_bid_tick {
-                self.best_bid_tick =
-                    depth_below(&self.bid_depth, self.best_bid_tick, self.low_bid_tick);
+                self.best_bid_tick = self.bid_depth.below(self.best_bid_tick, self.low_bid_tick);
                 if self.best_bid_tick == INVALID_MIN {
                     self.low_bid_tick = INVALID_MAX;
                 }
@@ -136,7 +113,7 @@ impl L2MarketDepth for FastMarketDepth {
                 self.best_bid_tick = price_tick;
                 if self.best_bid_tick >= self.best_ask_tick {
                     self.best_ask_tick =
-                        depth_above(&self.ask_depth, self.best_bid_tick, self.high_ask_tick);
+                        self.ask_depth.above(self.best_bid_tick, self.high_ask_tick);
                 }
             }
             self.low_bid_tick = self.low_bid_tick.min(price_tick);
@@ -157,31 +134,17 @@ impl L2MarketDepth for FastMarketDepth {
         qty: f64,
         timestamp: i64,
     ) -> (i64, i64, i64, f64, f64, i64) {
-        let price_tick = (price / self.tick_size).round() as i64;
-        let qty_lot = (qty / self.lot_size).round() as i64;
+        let price_tick = round_half_away(price / self.tick_size) as i64;
+        let qty_lot = round_half_away(qty / self.lot_size) as i64;
         let prev_best_ask_tick = self.best_ask_tick;
-        let prev_qty;
-        match self.ask_depth.entry(price_tick) {
-            Entry::Occupied(mut entry) => {
-                prev_qty = *entry.get();
-                if qty_lot > 0 {
-                    *entry.get_mut() = qty;
-                } else {
-                    entry.remove();
-                }
-            }
-            Entry::Vacant(entry) => {
-                prev_qty = 0f64;
-                if qty_lot > 0 {
-                    entry.insert(qty);
-                }
-            }
-        }
+        note_band(price_tick, prev_best_ask_tick);
+        let prev_qty = self
+            .ask_depth
+            .replace(price_tick, if qty_lot > 0 { qty } else { 0.0 });
 
         if qty_lot == 0 {
             if price_tick == self.best_ask_tick {
-                self.best_ask_tick =
-                    depth_above(&self.ask_depth, self.best_ask_tick, self.high_ask_tick);
+                self.best_ask_tick = self.ask_depth.above(self.best_ask_tick, self.high_ask_tick);
                 if self.best_ask_tick == INVALID_MAX {
                     self.high_ask_tick = INVALID_MIN;
                 }
@@ -191,7 +154,7 @@ impl L2MarketDepth for FastMarketDepth {
                 self.best_ask_tick = price_tick;
                 if self.best_bid_tick >= self.best_ask_tick {
                     self.best_bid_tick =
-                        depth_below(&self.bid_depth, self.best_ask_tick, self.low_bid_tick);
+                        self.bid_depth.below(self.best_ask_tick, self.low_bid_tick);
                 }
             }
             self.high_ask_tick = self.high_ask_tick.max(price_tick);
@@ -213,13 +176,10 @@ impl L2MarketDepth for FastMarketDepth {
                     let clear_upto = (clear_upto_price / self.tick_size).round() as i64;
                     if self.best_bid_tick != INVALID_MIN {
                         for t in clear_upto..(self.best_bid_tick + 1) {
-                            if self.bid_depth.contains_key(&t) {
-                                self.bid_depth.remove(&t);
-                            }
+                            self.bid_depth.replace(t, 0.0);
                         }
                     }
-                    self.best_bid_tick =
-                        depth_below(&self.bid_depth, clear_upto - 1, self.low_bid_tick);
+                    self.best_bid_tick = self.bid_depth.below(clear_upto - 1, self.low_bid_tick);
                 } else {
                     self.bid_depth.clear();
                     self.best_bid_tick = INVALID_MIN;
@@ -233,13 +193,10 @@ impl L2MarketDepth for FastMarketDepth {
                     let clear_upto = (clear_upto_price / self.tick_size).round() as i64;
                     if self.best_ask_tick != INVALID_MAX {
                         for t in self.best_ask_tick..(clear_upto + 1) {
-                            if self.ask_depth.contains_key(&t) {
-                                self.ask_depth.remove(&t);
-                            }
+                            self.ask_depth.replace(t, 0.0);
                         }
                     }
-                    self.best_ask_tick =
-                        depth_above(&self.ask_depth, clear_upto + 1, self.high_ask_tick);
+                    self.best_ask_tick = self.ask_depth.above(clear_upto + 1, self.high_ask_tick);
                 } else {
                     self.ask_depth.clear();
                     self.best_ask_tick = INVALID_MAX;
@@ -295,12 +252,12 @@ impl MarketDepth for FastMarketDepth {
 
     #[inline(always)]
     fn best_bid_qty(&self) -> f64 {
-        *self.bid_depth.get(&self.best_bid_tick).unwrap_or(&0.0)
+        self.bid_depth.get(self.best_bid_tick)
     }
 
     #[inline(always)]
     fn best_ask_qty(&self) -> f64 {
-        *self.ask_depth.get(&self.best_ask_tick).unwrap_or(&0.0)
+        self.ask_depth.get(self.best_ask_tick)
     }
 
     #[inline(always)]
@@ -315,12 +272,12 @@ impl MarketDepth for FastMarketDepth {
 
     #[inline(always)]
     fn bid_qty_at_tick(&self, price_tick: i64) -> f64 {
-        *self.bid_depth.get(&price_tick).unwrap_or(&0.0)
+        self.bid_depth.get(price_tick)
     }
 
     #[inline(always)]
     fn ask_qty_at_tick(&self, price_tick: i64) -> f64 {
-        *self.ask_depth.get(&price_tick).unwrap_or(&0.0)
+        self.ask_depth.get(price_tick)
     }
 }
 
@@ -337,15 +294,15 @@ impl ApplySnapshot for FastMarketDepth {
             let price = data[row_num].px;
             let qty = data[row_num].qty;
 
-            let price_tick = (price / self.tick_size).round() as i64;
+            let price_tick = round_half_away(price / self.tick_size) as i64;
             if data[row_num].ev & BUY_EVENT == BUY_EVENT {
                 self.best_bid_tick = self.best_bid_tick.max(price_tick);
                 self.low_bid_tick = self.low_bid_tick.min(price_tick);
-                *self.bid_depth.entry(price_tick).or_insert(0f64) = qty;
+                self.bid_depth.replace(price_tick, qty);
             } else if data[row_num].ev & SELL_EVENT == SELL_EVENT {
                 self.best_ask_tick = self.best_ask_tick.min(price_tick);
                 self.high_ask_tick = self.high_ask_tick.max(price_tick);
-                *self.ask_depth.entry(price_tick).or_insert(0f64) = qty;
+                self.ask_depth.replace(price_tick, qty);
             }
         }
     }
@@ -355,8 +312,7 @@ impl ApplySnapshot for FastMarketDepth {
         let mut bid_depth = self
             .bid_depth
             .iter()
-            .filter(|&(&px_tick, _)| px_tick <= self.best_bid_tick)
-            .map(|(&px_tick, &qty)| (px_tick, qty))
+            .filter(|&(px_tick, _)| px_tick <= self.best_bid_tick)
             .collect::<Vec<_>>();
         bid_depth.sort_by(|a, b| b.0.cmp(&a.0));
         for (px_tick, qty) in bid_depth {
@@ -374,8 +330,7 @@ impl ApplySnapshot for FastMarketDepth {
         let mut ask_depth = self
             .ask_depth
             .iter()
-            .filter(|&(&px_tick, _)| px_tick >= self.best_ask_tick)
-            .map(|(&px_tick, &qty)| (px_tick, qty))
+            .filter(|&(px_tick, _)| px_tick >= self.best_ask_tick)
             .collect::<Vec<_>>();
         ask_depth.sort_by(|a, b| a.0.cmp(&b.0));
         for (px_tick, qty) in ask_depth {

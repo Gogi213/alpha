@@ -1,3 +1,4 @@
+use crate::utils::RoundHa;
 use std::{
     cell::RefCell,
     cmp::Ordering,
@@ -252,7 +253,7 @@ where
         // а не ценой последнего уровня свипа на весь объём (см. `Order::exec_notional`).
         order.exec_notional += order.exec_price_tick as f64 * order.tick_size * exec_qty;
         order.leaves_qty -= exec_qty;
-        if (order.leaves_qty / self.depth.lot_size()).round() > 0f64 {
+        if (order.leaves_qty / self.depth.lot_size()).round_ha() > 0f64 {
             order.status = Status::PartiallyFilled;
         } else {
             order.status = Status::Filled;
@@ -430,8 +431,8 @@ where
                                 let mut cum_qty = 0f64;
                                 for t in self.depth.best_ask_tick()..=order.price_tick {
                                     cum_qty += self.depth.ask_qty_at_tick(t);
-                                    if (cum_qty / self.depth.lot_size()).round()
-                                        >= (order.qty / self.depth.lot_size()).round()
+                                    if (cum_qty / self.depth.lot_size()).round_ha()
+                                        >= (order.qty / self.depth.lot_size()).round_ha()
                                     {
                                         execute = true;
                                         break;
@@ -558,8 +559,8 @@ where
                                 let mut cum_qty = 0f64;
                                 for t in (order.price_tick..=self.depth.best_bid_tick()).rev() {
                                     cum_qty += self.depth.bid_qty_at_tick(t);
-                                    if (cum_qty / self.depth.lot_size()).round()
-                                        >= (order.qty / self.depth.lot_size()).round()
+                                    if (cum_qty / self.depth.lot_size()).round_ha()
+                                        >= (order.qty / self.depth.lot_size()).round_ha()
                                     {
                                         execute = true;
                                         break;
@@ -787,7 +788,7 @@ where
                 self.on_best_ask_update(prev_best_ask_tick, best_ask_tick, timestamp)?;
             }
         } else if event.is(EXCH_BUY_TRADE_EVENT) {
-            let price_tick = (event.px / self.depth.tick_size()).round() as i64;
+            let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
             let qty = event.qty;
             {
                 let orders = self.orders.clone();
@@ -813,7 +814,7 @@ where
             }
             self.remove_filled_orders();
         } else if event.is(EXCH_SELL_TRADE_EVENT) {
-            let price_tick = (event.px / self.depth.tick_size()).round() as i64;
+            let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
             let qty = event.qty;
             {
                 let orders = self.orders.clone();

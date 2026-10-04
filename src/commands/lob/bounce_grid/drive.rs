@@ -567,7 +567,7 @@ pub(super) enum DayRows<'a> {
 /// касания те же, фильтры наборов только выбирают из них сигналы.
 pub(super) fn day_windows(
     events: DayRows<'_>,
-    touches: &[TouchRecord],
+    t0s: &[i64],
     driver: DriverArg,
     tick: f64,
     lot: f64,
@@ -576,14 +576,10 @@ pub(super) fn day_windows(
     match driver {
         DriverArg::Full => Ok(None),
         DriverArg::Setups => {
-            let t0s: Vec<i64> = touches
-                .iter()
-                .map(|t| t.start_ms.saturating_mul(1_000_000))
-                .collect();
             let started = Instant::now();
             let w = match events {
-                DayRows::Compact(c) => SignalWindows::build(c, &t0s, tick, lot),
-                DayRows::Wide(e) => SignalWindows::build(e, &t0s, tick, lot),
+                DayRows::Compact(c) => SignalWindows::build(c, t0s, tick, lot),
+                DayRows::Wide(e) => SignalWindows::build(e, t0s, tick, lot),
             };
             eprintln!(
                 "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
@@ -595,8 +591,8 @@ pub(super) fn day_windows(
             if check {
                 let started = Instant::now();
                 let reference = match events {
-                    DayRows::Compact(c) => SignalWindows::build_crate(c, &t0s, tick, lot),
-                    DayRows::Wide(e) => SignalWindows::build_crate(e, &t0s, tick, lot),
+                    DayRows::Compact(c) => SignalWindows::build_crate(c, t0s, tick, lot),
+                    DayRows::Wide(e) => SignalWindows::build_crate(e, t0s, tick, lot),
                 };
                 if let Some((t0, field)) = w.first_mismatch(&reference) {
                     anyhow::bail!("окна: снимок на t0={t0} расходится с книгой крейта: {field}");

@@ -43,9 +43,9 @@ fn same(a: &FastMarketDepth, b: &HashMapMarketDepth, ctx: &str) {
         b.best_ask_qty().to_bits(),
         "{ctx}"
     );
-    let mut ab: Vec<(i64, u64)> = a.bid_depth.iter().map(|(t, q)| (*t, q.to_bits())).collect();
+    let mut ab: Vec<(i64, u64)> = a.bid_depth.iter().map(|(t, q)| (t, q.to_bits())).collect();
     let mut bb: Vec<(i64, u64)> = b.bid_depth.iter().map(|(t, q)| (*t, q.to_bits())).collect();
-    let mut aa: Vec<(i64, u64)> = a.ask_depth.iter().map(|(t, q)| (*t, q.to_bits())).collect();
+    let mut aa: Vec<(i64, u64)> = a.ask_depth.iter().map(|(t, q)| (t, q.to_bits())).collect();
     let mut ba: Vec<(i64, u64)> = b.ask_depth.iter().map(|(t, q)| (*t, q.to_bits())).collect();
     ab.sort_unstable();
     bb.sort_unstable();

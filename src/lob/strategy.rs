@@ -168,6 +168,10 @@ fn still_at_level(entry_side: HbtSide, bid: f64, ask: f64, level_px: f64, tick_p
 /// (`StrategyState::sweep_orphans`).
 pub const CANCEL_WAIT_NS: i64 = 1_000_000_000;
 
+/// Непрозрачная метка фазы для сравнения «не сменилась» (`StrategyState::phase_mark`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhaseMark(Phase);
+
 /// Фаза одного круга. Спрятана от вызывающего (`interfaces.md`: модуль
 /// `lob/strategy` «прячет: триггер, состояние») — снаружи виден только
 /// `Action`, возвращённый из `on_event`.
@@ -1491,6 +1495,51 @@ impl StrategyState {
         } else {
             deadline
         })
+    }
+
+    /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
+    /// был повтором решения на тех же входах.
+    pub fn phase_mark(&self) -> PhaseMark {
+        PhaseMark(self.phase)
+    }
+
+    /// Как `hold_wakeup_ns`, но для всех фаз круга плана `Bounce` (в том числе с живыми заявками):
+    /// решение меняется без событий рынка и ответов биржи только на таймерах — срок входа
+    /// (`entry_ttl`), потолок ожидания отмены (`CANCEL_WAIT_NS`), досрочный выход и дедлайн (под
+    /// стоящей лимиткой выхода `decide_exit` читает те же пороги). `None` — шаги не пропускаются.
+    pub fn step_wakeup_ns(&self, now: i64) -> Option<i64> {
+        let TradePlan::Bounce {
+            entry_ttl_ns,
+            deadline_ns,
+            early_exit_ns,
+            ..
+        } = self.plan
+        else {
+            return None;
+        };
+        if self.has_orphans() || self.wall_ring.is_some() {
+            return None;
+        }
+        let held = |entry_ns: i64| {
+            let deadline = entry_ns.saturating_add(deadline_ns);
+            let early = entry_ns.saturating_add(early_exit_ns);
+            if early_exit_ns > 0 && early > now {
+                early.min(deadline)
+            } else {
+                deadline
+            }
+        };
+        match self.phase {
+            Phase::Idle => None,
+            Phase::Holding { entry_ns } | Phase::ExitPending { entry_ns, .. } => {
+                Some(held(entry_ns))
+            }
+            Phase::EntryPending { sent_ns, .. } => Some(sent_ns.saturating_add(entry_ttl_ns)),
+            Phase::CancelPending { cancel_sent_ns, .. }
+            | Phase::ExitCancelPending { cancel_sent_ns, .. } => {
+                Some(cancel_sent_ns.saturating_add(CANCEL_WAIT_NS))
+            }
+        }
     }
 
     /// Размер круга: драйверу он нужен для `Fill`, сам драйвер его не хранит.

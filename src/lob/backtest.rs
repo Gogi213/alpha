@@ -72,6 +72,7 @@ use crate::lob::strategy::{
 
 mod compact;
 pub mod fast_depth;
+mod levels;
 use fast_depth::FastMarketDepth;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
@@ -1436,6 +1437,13 @@ where
 /// счёта не влияет.
 pub static HOLD_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Событийные шаги при живых заявках (`ALPHA_EVENT_STEPS=1`): между событиями рынка/ответами биржи и
+/// таймерами фазы шаг опроса не нужен — решение то же. Умолчание — прежний шаг 10 мс.
+fn event_steps() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "1"))
+}
+
 /// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
 /// ответы биржи идут по своим часам — пустые шаги опроса не пропускаются (Э-04б).
 fn has_open_orders<B, MD>(bot: &B, asset_no: usize) -> bool
@@ -1456,7 +1464,12 @@ where
 /// `cap` — конец данных круга (меньшая из меток последней строки): дальше последней точки сетки до него
 /// не прыгаем, чтобы исчерпание данных (`EndOfData`, часы крейта не двигаются) случилось на том же шаге,
 /// что и у опроса.
-fn hold_step<B, MD>(bot: &mut B, wakeup_ns: i64, cap: i64) -> Result<ElapseResult, B::Error>
+fn hold_step<B, MD>(
+    bot: &mut B,
+    wakeup_ns: i64,
+    cap: i64,
+    include_order_resp: bool,
+) -> Result<ElapseResult, B::Error>
 where
     B: Bot<MD>,
     MD: MarketDepth,
@@ -1473,8 +1486,8 @@ where
     }
     let target = now.saturating_add(k.saturating_mul(step));
     HOLD_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    match bot.wait_next_feed(false, target - now)? {
-        ElapseResult::MarketFeed => {
+    match bot.wait_next_feed(include_order_resp, target - now)? {
+        ElapseResult::MarketFeed | ElapseResult::OrderResponse => {
             let e = bot.current_timestamp();
             let ke = (e - now).div_euclid(step) + i64::from((e - now).rem_euclid(step) != 0);
             let g = now.saturating_add(ke.max(1).saturating_mul(step));
@@ -1516,20 +1529,38 @@ where
     let mut exits: Vec<(u64, ExitReason, bool)> = Vec::new();
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
+    let ev_steps = event_steps();
+    let mut stable = false;
     loop {
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
         // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
-            Some(_) if decided_in_hold && entry_pending == 0 && !has_open_orders(bot, asset_no) => {
+            Some(_) if ev_steps && stable && entry_pending == 0 => {
+                state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_)
+                if !ev_steps
+                    && decided_in_hold
+                    && entry_pending == 0
+                    && !has_open_orders(bot, asset_no) =>
+            {
                 state.hold_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
         };
         let stepped = match (wakeup, skip_cap) {
-            (Some(th), Some(cap)) => hold_step(bot, th, cap)?,
-            _ => bot.elapse(ON_EVENT_POLL_STEP_NS)?,
+            (Some(th), Some(cap)) => {
+                STEP_KINDS[2].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let resp = !state.is_holding() || has_open_orders(bot, asset_no);
+                hold_step(bot, th, cap, resp)?
+            }
+            _ => {
+                let k = usize::from(has_open_orders(bot, asset_no));
+                STEP_KINDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                bot.elapse(ON_EVENT_POLL_STEP_NS)?
+            }
         };
         if stepped == ElapseResult::EndOfData {
             // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
@@ -1581,8 +1612,10 @@ where
         }
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
+        let mark_before = state.phase_mark();
         let action = on_event(bot, state)?;
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
+        stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
         match action {
             Action::EntryTimedOut { reason, .. } => {
                 timed_out = true;
@@ -1956,8 +1989,23 @@ where
     let mut entry_seen: u64 = 0;
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
+    let ev_steps = event_steps();
+    let mut entry_stable = false;
     loop {
-        if bot.elapse(ON_EVENT_POLL_STEP_NS)? == ElapseResult::EndOfData {
+        let entry_wake = match skip_cap {
+            Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
+                entry_state.step_wakeup_ns(bot.current_timestamp())
+            }
+            _ => None,
+        };
+        let entry_stepped = match (entry_wake, skip_cap) {
+            (Some(th), Some(cap)) => {
+                let resp = !entry_state.is_holding() || has_open_orders(bot, asset_no);
+                hold_step(bot, th, cap, resp)?
+            }
+            _ => bot.elapse(ON_EVENT_POLL_STEP_NS)?,
+        };
+        if entry_stepped == ElapseResult::EndOfData {
             let now = bot.current_timestamp();
             return Ok(broadcast(
                 entry_state,
@@ -1997,7 +2045,11 @@ where
             entry_state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
-        match on_event(bot, entry_state)? {
+        let entry_mark = entry_state.phase_mark();
+        let entry_action = on_event(bot, entry_state)?;
+        entry_stable =
+            entry_state.phase_mark() == entry_mark && matches!(entry_action, Action::Idle);
+        match entry_action {
             Action::EntryTimedOut { reason, .. } => {
                 timed_out = true;
                 cancel_reason = reason;
@@ -2048,12 +2100,31 @@ where
     // вариантов решение удержания уже принято на этой точке (`decided`), заявок в движке нет, а порог —
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
+    let mut stable: Vec<bool> = vec![false; n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
         }
         let wakeup = match skip_cap {
-            Some(_) if !has_open_orders(bot, asset_no) => {
+            Some(_) if ev_steps && entry_pending == 0 => {
+                let now = bot.current_timestamp();
+                let mut th: Option<i64> = None;
+                let mut all = true;
+                for i in 0..n {
+                    if outcome[i].is_some() {
+                        continue;
+                    }
+                    match (stable[i], states[i].step_wakeup_ns(now)) {
+                        (true, Some(t)) => th = Some(th.map_or(t, |x: i64| x.min(t))),
+                        _ => {
+                            all = false;
+                            break;
+                        }
+                    }
+                }
+                th.filter(|_| all)
+            }
+            Some(_) if !ev_steps && !has_open_orders(bot, asset_no) => {
                 let now = bot.current_timestamp();
                 let mut th: Option<i64> = None;
                 let mut all = true;
@@ -2074,7 +2145,14 @@ where
             _ => None,
         };
         let stepped = match (wakeup, skip_cap) {
-            (Some(th), Some(cap)) => hold_step(bot, th, cap)?,
+            (Some(th), Some(cap)) => {
+                let resp = has_open_orders(bot, asset_no)
+                    || states
+                        .iter()
+                        .zip(&outcome)
+                        .any(|(s, o)| o.is_none() && !s.is_holding());
+                hold_step(bot, th, cap, resp)?
+            }
             _ => bot.elapse(ON_EVENT_POLL_STEP_NS)?,
         };
         if stepped == ElapseResult::EndOfData {
@@ -2132,7 +2210,10 @@ where
                 continue;
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
-            match on_event(bot, &mut states[i])? {
+            let mark_before = states[i].phase_mark();
+            let act = on_event(bot, &mut states[i])?;
+            stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
+            match act {
                 Action::ExitSubmitted {
                     order_id,
                     reason,
@@ -2684,6 +2765,10 @@ pub static ATTEMPT_RUNS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+
+/// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
+pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 
 fn note_attempt(attempt: u32, rows: usize) {
     let k = (attempt as usize).min(3);
@@ -3608,8 +3693,8 @@ pub struct DepthSnapshot {
 
 impl DepthSnapshot {
     pub fn of(d: &FastMarketDepth) -> Self {
-        let mut bids: Vec<(i64, f64)> = d.bid_depth.iter().map(|(t, q)| (*t, *q)).collect();
-        let mut asks: Vec<(i64, f64)> = d.ask_depth.iter().map(|(t, q)| (*t, *q)).collect();
+        let mut bids: Vec<(i64, f64)> = d.bid_depth.iter().collect();
+        let mut asks: Vec<(i64, f64)> = d.ask_depth.iter().collect();
         bids.sort_unstable_by_key(|(t, _)| *t);
         asks.sort_unstable_by_key(|(t, _)| *t);
         Self {

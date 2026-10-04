@@ -153,6 +153,8 @@ struct SharedEvents {
     /// Окна сетапов суток (В-183, TK-048): чистая функция событий и `t0` ⇒ один проход на символ-сутки для
     /// всех прогонов; запись — отсортированные `t0` и окна (+ тик/лот: другой тик — другие окна).
     windows: BTreeMap<CarryKey, SharedWindows>,
+    /// `t0` всех прогонов символа по суткам, заранее из кэшей касаний/подходов: окна строятся один раз на все.
+    pre_t0: BTreeMap<String, Vec<i64>>,
 }
 
 type SharedWindows = (Vec<i64>, u64, u64, Arc<SignalWindows>);
@@ -166,11 +168,19 @@ impl SharedEvents {
         }
     }
 
+    fn set_pre(&mut self, symbol: &str, pre: BTreeMap<String, Vec<i64>>) {
+        self.symbol = symbol.to_string();
+        self.map.clear();
+        self.windows.clear();
+        self.pre_t0 = pre;
+    }
+
     fn put(&mut self, symbol: &str, key: CarryKey, hit: SharedHit) {
         if self.symbol != symbol {
             self.symbol = symbol.to_string();
             self.map.clear();
             self.windows.clear();
+            self.pre_t0.clear();
         }
         self.map.insert(key, hit);
     }
@@ -242,6 +252,15 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
     }
     let mut shared = SharedEvents::default();
     for symbol in &order {
+        let mut pre: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+        if !args.windows_check {
+            for r in runs.iter().filter(|r| r.symbols.contains(symbol)) {
+                for (day, t0s) in r.prescan_t0(symbol) {
+                    pre.entry(day).or_default().extend(t0s);
+                }
+            }
+        }
+        shared.set_pre(symbol, pre);
         for r in runs.iter_mut() {
             if r.symbols.contains(symbol) {
                 r.run_symbol(symbol, Some(&mut shared))?;
@@ -266,6 +285,35 @@ pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummar
 }
 
 impl<'a> GridRun<'a> {
+    /// `t0` сетапов прогона по суткам из кэша касаний/подходов (дёшево, без реплея); нет кэша — пусто:
+    /// тогда окна строятся прежним объединением по ходу прогонов.
+    fn prescan_t0(&self, symbol: &str) -> BTreeMap<String, Vec<i64>> {
+        let args = self.args;
+        let mut out = BTreeMap::new();
+        let Some(dir) = args.touches_from.as_deref() else {
+            return out;
+        };
+        let Ok(parts) = session_parts_for(&args.root, symbol) else {
+            return out;
+        };
+        let days: std::collections::BTreeSet<String> =
+            parts.iter().map(|p| p.day_utc.clone()).collect();
+        let got = if args.signal == SignalArg::Approach {
+            cached_approaches(dir, symbol, days.iter())
+        } else {
+            cached_touches(dir, symbol, days.iter(), false)
+        };
+        for d in got.unwrap_or_default() {
+            let t0s = d
+                .touches
+                .iter()
+                .map(|t| t.start_ms.saturating_mul(1_000_000))
+                .collect();
+            out.insert(d.day, t0s);
+        }
+        out
+    }
+
     fn new(args: &'a BounceGridArgs) -> anyhow::Result<Self> {
         let plan = plan_grid(args)?;
         let outs = open_outputs(args, &plan)?;
@@ -714,7 +762,12 @@ impl<'a> GridRun<'a> {
                 }
                 other => {
                     let known: &[i64] = other.as_ref().map_or(&[], |e| e.0.as_slice());
-                    let mut all: Vec<i64> = own_t0s.iter().chain(known).copied().collect();
+                    let pre: &[i64] = shared
+                        .as_ref()
+                        .and_then(|s| s.pre_t0.get(&day.day))
+                        .map_or(&[], Vec::as_slice);
+                    let mut all: Vec<i64> =
+                        own_t0s.iter().chain(known).chain(pre).copied().collect();
                     all.sort_unstable();
                     all.dedup();
                     let w = day_windows(rows, &all, args.driver, tick, lot, args.windows_check)?
@@ -876,7 +929,7 @@ impl<'a> GridRun<'a> {
                 eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
                 if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
                     use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS};
-                    let g = |a: &[std::sync::atomic::AtomicU64; 4]| {
+                    let g = |a: &[std::sync::atomic::AtomicU64]| {
                         a.iter()
                             .map(|x| x.load(std::sync::atomic::Ordering::Relaxed).to_string())
                             .collect::<Vec<_>>()
@@ -886,6 +939,14 @@ impl<'a> GridRun<'a> {
                         "bounce-grid:   попытки (0/1/2/3+, нарастающим итогом процесса): прогонов {} строк {}",
                         g(&ATTEMPT_RUNS),
                         g(&ATTEMPT_ROWS)
+                    );
+                    eprintln!(
+                        "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
+                        g(&crate::lob::backtest::STEP_KINDS)
+                    );
+                    eprintln!(
+                        "bounce-grid:   строки глубины по удалению от лучшей (≤3/≤10/≤30/дальше тиков): {}",
+                        g(&crate::lob::backtest::fast_depth::DEPTH_ROW_BANDS)
                     );
                 }
             }

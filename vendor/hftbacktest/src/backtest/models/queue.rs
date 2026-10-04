@@ -1,3 +1,4 @@
+use crate::utils::RoundHa;
 use std::{
     any::Any,
     collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
@@ -85,7 +86,7 @@ where
 
     fn is_filled(&self, order: &mut Order, depth: &MD) -> f64 {
         let front_q_qty = order.q.as_any_mut().downcast_mut::<f64>().unwrap();
-        let exec = (-*front_q_qty / depth.lot_size()).round() as i64;
+        let exec = (-*front_q_qty / depth.lot_size()).round_ha() as i64;
         if exec > 0 {
             *front_q_qty = 0.0;
             (exec as f64) * depth.lot_size()
@@ -206,7 +207,7 @@ where
 
     fn is_filled(&self, order: &mut Order, depth: &MD) -> f64 {
         let q = order.q.as_any_mut().downcast_mut::<QueuePos>().unwrap();
-        let exec = (-q.front_q_qty / depth.lot_size()).round() as i64;
+        let exec = (-q.front_q_qty / depth.lot_size()).round_ha() as i64;
         if exec > 0 {
             q.front_q_qty = 0.0;
             (exec as f64) * depth.lot_size()
@@ -647,7 +648,7 @@ where
 
     fn add_market_feed_order(&mut self, order: &Event, depth: &MD) -> Result<(), BacktestError> {
         let tick_size = depth.tick_size();
-        let order_price_tick = (order.px / tick_size).round() as i64;
+        let order_price_tick = (order.px / tick_size).round_ha() as i64;
         let side;
         let order_id = order.order_id;
 
@@ -877,7 +878,7 @@ where
             .mkt_feed_orders
             .get_mut(&order_id)
             .ok_or(BacktestError::OrderNotFound)?;
-        let new_price_tick = (order.px / depth.tick_size()).round() as i64;
+        let new_price_tick = (order.px / depth.tick_size()).round_ha() as i64;
 
         match side {
             Side::Buy => {
@@ -980,7 +981,7 @@ where
                 .get(&order_id)
                 .ok_or(BacktestError::OrderNotFound)?
         };
-        let exec_price_tick = (order.px / depth.tick_size()).round() as i64;
+        let exec_price_tick = (order.px / depth.tick_size()).round_ha() as i64;
 
         match side {
             Side::Buy => {

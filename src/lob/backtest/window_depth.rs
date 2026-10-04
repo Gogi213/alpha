@@ -33,12 +33,29 @@ use super::DepthSnapshot;
 pub struct WindowDepth {
     tick_size: f64,
     lot_size: f64,
-    bids: Vec<(i64, f64)>,
-    asks: Vec<(i64, f64)>,
+    bids: Side,
+    asks: Side,
     best_bid_tick: i64,
     best_ask_tick: i64,
     low_bid_tick: i64,
     high_ask_tick: i64,
+}
+
+/// `x.round()` (к ближайшему, половина от нуля) без вызова libm: сборка без SSE4.1 вызывала `trunc` функцией
+/// (8 % ЦП, TK-048). `a + 2^52 - 2^52` — ближайшее целое с чётной половиной, точное; ничью, ушедшую вниз,
+/// поднимаем (`a - r == 0.5`); от 2^52 число уже целое. Побитно то же, что `f64::round`.
+#[inline(always)]
+pub(crate) fn round_half_away(x: f64) -> f64 {
+    const MAGIC: f64 = 4503599627370496.0;
+    let a = x.abs();
+    if a >= MAGIC {
+        return x;
+    }
+    let mut r = (a + MAGIC) - MAGIC;
+    if a - r >= 0.5 {
+        r += 1.0;
+    }
+    r.copysign(x)
 }
 
 /// Наибольший тик в `[end, start)` или `INVALID_MIN` — `depth_below` крейта: он обходит
@@ -79,13 +96,211 @@ fn set_level(levels: &mut Vec<(i64, f64)>, tick: i64, qty: f64, qty_lot: i64) {
     }
 }
 
+/// Самый широкий диапазон тиков, который держит прямая адресация; шире — сортированный массив.
+const DENSE_SPAN_MAX: i128 = 1 << 20;
+
+/// Прямая адресация: `qty[тик - base]` и битовая маска занятых уровней (`base` кратно 64).
+#[derive(Debug, Clone)]
+struct Dense {
+    base: i64,
+    qty: Vec<f64>,
+    mask: Vec<u64>,
+}
+
+impl Dense {
+    fn to_vec(&self) -> Vec<(i64, f64)> {
+        let mut out = Vec::new();
+        for (w, &word) in self.mask.iter().enumerate() {
+            let mut m = word;
+            while m != 0 {
+                let idx = w * 64 + m.trailing_zeros() as usize;
+                m &= m - 1;
+                if let Some(&q) = self.qty.get(idx) {
+                    out.push((self.base + idx as i64, q));
+                }
+            }
+        }
+        out
+    }
+
+    /// Расширяет диапазон до `tick`; `false`, если он вышел бы за `DENSE_SPAN_MAX`.
+    fn cover(&mut self, tick: i64) -> bool {
+        let len = self.qty.len() as i128;
+        let (t, base) = (i128::from(tick), i128::from(self.base));
+        if len == 0 {
+            let Ok(nb) = i64::try_from(t.div_euclid(64) * 64) else {
+                return false;
+            };
+            self.base = nb;
+            self.qty.resize(64, 0.0);
+            self.mask.resize(1, 0);
+            return true;
+        }
+        if t >= base && t < base + len {
+            return true;
+        }
+        if t >= base {
+            let new_len = ((t - base) / 64 + 1) * 64;
+            let new_len = new_len.max(len + len / 2 / 64 * 64);
+            if new_len > DENSE_SPAN_MAX {
+                return false;
+            }
+            self.qty.resize(new_len as usize, 0.0);
+            self.mask.resize(new_len as usize / 64, 0);
+            return true;
+        }
+        let need = (base - t + 63) / 64 * 64;
+        let add = need.max(len / 2 / 64 * 64);
+        if len + add > DENSE_SPAN_MAX {
+            return false;
+        }
+        let Ok(nb) = i64::try_from(base - add) else {
+            return false;
+        };
+        let add = add as usize;
+        let mut qty = vec![0.0; add];
+        qty.extend_from_slice(&self.qty);
+        let mut mask = vec![0u64; add / 64];
+        mask.extend_from_slice(&self.mask);
+        self.base = nb;
+        self.qty = qty;
+        self.mask = mask;
+        true
+    }
+
+    #[allow(clippy::indexing_slicing)] // индекс внутри `qty`/`mask` по `cover`/проверке диапазона
+    fn set(&mut self, tick: i64, qty: f64, live: bool) -> bool {
+        if live {
+            if !self.cover(tick) {
+                return false;
+            }
+            let idx = (i128::from(tick) - i128::from(self.base)) as usize;
+            self.qty[idx] = qty;
+            self.mask[idx / 64] |= 1 << (idx % 64);
+        } else {
+            let off = i128::from(tick) - i128::from(self.base);
+            if off >= 0 && off < self.qty.len() as i128 {
+                let idx = off as usize;
+                self.mask[idx / 64] &= !(1u64 << (idx % 64));
+            }
+        }
+        true
+    }
+
+    /// Как `depth_below`: наибольший занятый тик в `[end, start)`.
+    #[allow(clippy::indexing_slicing)] // `w` ограничен длиной маски
+    fn below(&self, start: i64, end: i64) -> i64 {
+        let top = i128::from(start) - 1 - i128::from(self.base);
+        if top < 0 || self.qty.is_empty() {
+            return INVALID_MIN;
+        }
+        let top = top.min(self.qty.len() as i128 - 1) as usize;
+        let mut w = top / 64;
+        let mut m = self.mask[w] & (u64::MAX >> (63 - top % 64));
+        loop {
+            if m != 0 {
+                let t = i128::from(self.base) + (w * 64 + 63 - m.leading_zeros() as usize) as i128;
+                return if t >= i128::from(end) {
+                    t as i64
+                } else {
+                    INVALID_MIN
+                };
+            }
+            if w == 0 {
+                return INVALID_MIN;
+            }
+            w -= 1;
+            m = self.mask[w];
+        }
+    }
+
+    /// Как `depth_above`: наименьший занятый тик в `(start, end]`.
+    #[allow(clippy::indexing_slicing)] // `w` ограничен длиной маски
+    fn above(&self, start: i64, end: i64) -> i64 {
+        let from = i128::from(start) + 1 - i128::from(self.base);
+        let len = self.qty.len() as i128;
+        if len == 0 || from >= len {
+            return INVALID_MAX;
+        }
+        let from = from.max(0) as usize;
+        let mut w = from / 64;
+        let mut m = self.mask[w] & (u64::MAX << (from % 64));
+        loop {
+            if m != 0 {
+                let t = i128::from(self.base) + (w * 64 + m.trailing_zeros() as usize) as i128;
+                return if t <= i128::from(end) {
+                    t as i64
+                } else {
+                    INVALID_MAX
+                };
+            }
+            w += 1;
+            if w >= self.mask.len() {
+                return INVALID_MAX;
+            }
+            m = self.mask[w];
+        }
+    }
+}
+
+/// Одна сторона книги: прямая адресация, а при диапазоне шире `DENSE_SPAN_MAX` — сортированный массив.
+#[derive(Debug, Clone)]
+enum Side {
+    Dense(Dense),
+    Sorted(Vec<(i64, f64)>),
+}
+
+impl Side {
+    fn new() -> Self {
+        Side::Dense(Dense {
+            base: 0,
+            qty: Vec::new(),
+            mask: Vec::new(),
+        })
+    }
+
+    fn set(&mut self, tick: i64, qty: f64, qty_lot: i64) {
+        match self {
+            Side::Dense(d) => {
+                if !d.set(tick, qty, qty_lot > 0) {
+                    let mut v = d.to_vec();
+                    set_level(&mut v, tick, qty, qty_lot);
+                    *self = Side::Sorted(v);
+                }
+            }
+            Side::Sorted(v) => set_level(v, tick, qty, qty_lot),
+        }
+    }
+
+    fn below(&self, start: i64, end: i64) -> i64 {
+        match self {
+            Side::Dense(d) => d.below(start, end),
+            Side::Sorted(v) => depth_below(v, start, end),
+        }
+    }
+
+    fn above(&self, start: i64, end: i64) -> i64 {
+        match self {
+            Side::Dense(d) => d.above(start, end),
+            Side::Sorted(v) => depth_above(v, start, end),
+        }
+    }
+
+    fn to_vec(&self) -> Vec<(i64, f64)> {
+        match self {
+            Side::Dense(d) => d.to_vec(),
+            Side::Sorted(v) => v.clone(),
+        }
+    }
+}
+
 impl WindowDepth {
     pub fn new(tick_size: f64, lot_size: f64) -> Self {
         Self {
             tick_size,
             lot_size,
-            bids: Vec::new(),
-            asks: Vec::new(),
+            bids: Side::new(),
+            asks: Side::new(),
             best_bid_tick: INVALID_MIN,
             best_ask_tick: INVALID_MAX,
             low_bid_tick: INVALID_MAX,
@@ -95,12 +310,12 @@ impl WindowDepth {
 
     /// `HashMapMarketDepth::update_bid_depth` крейта, строка в строку по смыслу.
     pub fn update_bid_depth(&mut self, price: f64, qty: f64) {
-        let price_tick = (price / self.tick_size).round() as i64;
-        let qty_lot = (qty / self.lot_size).round() as i64;
-        set_level(&mut self.bids, price_tick, qty, qty_lot);
+        let price_tick = round_half_away(price / self.tick_size) as i64;
+        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        self.bids.set(price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_bid_tick {
-                self.best_bid_tick = depth_below(&self.bids, self.best_bid_tick, self.low_bid_tick);
+                self.best_bid_tick = self.bids.below(self.best_bid_tick, self.low_bid_tick);
                 if self.best_bid_tick == INVALID_MIN {
                     self.low_bid_tick = INVALID_MAX;
                 }
@@ -109,8 +324,7 @@ impl WindowDepth {
             if price_tick > self.best_bid_tick {
                 self.best_bid_tick = price_tick;
                 if self.best_bid_tick >= self.best_ask_tick {
-                    self.best_ask_tick =
-                        depth_above(&self.asks, self.best_bid_tick, self.high_ask_tick);
+                    self.best_ask_tick = self.asks.above(self.best_bid_tick, self.high_ask_tick);
                 }
             }
             self.low_bid_tick = self.low_bid_tick.min(price_tick);
@@ -119,13 +333,12 @@ impl WindowDepth {
 
     /// `HashMapMarketDepth::update_ask_depth` крейта, строка в строку по смыслу.
     pub fn update_ask_depth(&mut self, price: f64, qty: f64) {
-        let price_tick = (price / self.tick_size).round() as i64;
-        let qty_lot = (qty / self.lot_size).round() as i64;
-        set_level(&mut self.asks, price_tick, qty, qty_lot);
+        let price_tick = round_half_away(price / self.tick_size) as i64;
+        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        self.asks.set(price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_ask_tick {
-                self.best_ask_tick =
-                    depth_above(&self.asks, self.best_ask_tick, self.high_ask_tick);
+                self.best_ask_tick = self.asks.above(self.best_ask_tick, self.high_ask_tick);
                 if self.best_ask_tick == INVALID_MAX {
                     self.high_ask_tick = INVALID_MIN;
                 }
@@ -134,8 +347,7 @@ impl WindowDepth {
             if price_tick < self.best_ask_tick {
                 self.best_ask_tick = price_tick;
                 if self.best_bid_tick >= self.best_ask_tick {
-                    self.best_bid_tick =
-                        depth_below(&self.bids, self.best_ask_tick, self.low_bid_tick);
+                    self.best_bid_tick = self.bids.below(self.best_ask_tick, self.low_bid_tick);
                 }
             }
             self.high_ask_tick = self.high_ask_tick.max(price_tick);
@@ -146,8 +358,8 @@ impl WindowDepth {
     /// крейта сортирует обе карты на каждое окно).
     pub fn snapshot(&self) -> DepthSnapshot {
         DepthSnapshot {
-            bids: self.bids.clone(),
-            asks: self.asks.clone(),
+            bids: self.bids.to_vec(),
+            asks: self.asks.to_vec(),
             best_bid_tick: self.best_bid_tick,
             best_ask_tick: self.best_ask_tick,
             low_bid_tick: self.low_bid_tick,

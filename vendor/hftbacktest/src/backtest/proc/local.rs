@@ -1,3 +1,4 @@
+use crate::utils::RoundHa;
 use std::collections::hash_map::Entry;
 
 use crate::{
@@ -157,7 +158,7 @@ where
             return Err(BacktestError::OrderIdExist);
         }
 
-        let price_tick = (price / self.depth.tick_size()).round() as i64;
+        let price_tick = (price / self.depth.tick_size()).round_ha() as i64;
         let mut order = Order::new(
             order_id,
             price_tick,
@@ -197,7 +198,7 @@ where
         let orig_price_tick = order.price_tick;
         let orig_qty = order.qty;
 
-        let price_tick = (price / self.depth.tick_size()).round() as i64;
+        let price_tick = (price / self.depth.tick_size()).round_ha() as i64;
         order.price_tick = price_tick;
         order.qty = qty;
 
