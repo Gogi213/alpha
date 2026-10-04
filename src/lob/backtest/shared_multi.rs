@@ -1,0 +1,584 @@
+//! Многокруговой движок (TK-049, шаг в): одна лента и две общие книги на все круги; круг (`Local` +
+//! `PartialFillExchange` на ведомых видах книг) — сопрограмма с блокирующим API, как у `SharedEngine`.
+//! Глобальный цикл идёт по ключам (метка, вид 0..4, номер круга): лента LocalData=0 / ExchData=2, заказы круга
+//! LocalOrder=1 / ExchOrder=3, пробуждение круга (стратегия) = 4, то есть после всех событий метки — как
+//! `ev_ts > timestamp` в `Backtest::goto`. Каждый круг обязан дать то же, что одиночный `SharedEngine`.
+//! Ошибка обработки события круга прерывает весь прогон (`run` возвращает её).
+
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
+use corosensei::stack::DefaultStack;
+use corosensei::{Coroutine, CoroutineResult, Yielder};
+
+use super::sched::CIRCLE_STACK_BYTES;
+use super::shared_depth::SharedDepth;
+use hftbacktest::backtest::assettype::AssetType;
+use hftbacktest::backtest::models::{FeeModel, LatencyModel, QueueModel};
+use hftbacktest::backtest::order::order_bus;
+use hftbacktest::backtest::proc::{Local, LocalProcessor, PartialFillExchange, Processor};
+use hftbacktest::backtest::state::State;
+use hftbacktest::backtest::BacktestError;
+use hftbacktest::depth::L2MarketDepth;
+use hftbacktest::types::{
+    ElapseResult, Event, OrdType, OrderId, Side, TimeInForce, WaitOrderResponse,
+    EXCH_ASK_DEPTH_CLEAR_EVENT, EXCH_ASK_DEPTH_EVENT, EXCH_ASK_DEPTH_SNAPSHOT_EVENT,
+    EXCH_BID_DEPTH_CLEAR_EVENT, EXCH_BID_DEPTH_EVENT, EXCH_BID_DEPTH_SNAPSHOT_EVENT,
+    EXCH_BUY_TRADE_EVENT, EXCH_DEPTH_CLEAR_EVENT, EXCH_EVENT, EXCH_SELL_TRADE_EVENT,
+    LOCAL_ASK_DEPTH_CLEAR_EVENT, LOCAL_ASK_DEPTH_EVENT, LOCAL_ASK_DEPTH_SNAPSHOT_EVENT,
+    LOCAL_BID_DEPTH_CLEAR_EVENT, LOCAL_BID_DEPTH_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+    LOCAL_DEPTH_CLEAR_EVENT, LOCAL_EVENT, UNTIL_END_OF_DATA,
+};
+
+const K_LOCAL_DATA: u8 = 0;
+const K_LOCAL_ORDER: u8 = 1;
+const K_EXCH_DATA: u8 = 2;
+const K_EXCH_ORDER: u8 = 3;
+const K_WAKE: u8 = 4;
+
+type Co<R> = Coroutine<(), (), R, DefaultStack>;
+type Key = Reverse<(i64, u8, u32, u32)>;
+
+struct Req {
+    wnf: bool,
+    wait: WaitOrderResponse,
+    bound: i64,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum Cs {
+    Running,
+    Waiting,
+    Done,
+}
+
+struct Circle<AT, LM, QM, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    local: Local<AT, LM, SharedDepth, FM>,
+    exch: PartialFillExchange<AT, LM, QM, SharedDepth, FM>,
+    cur_ts: i64,
+    first_ts: i64,
+    req: Option<Req>,
+    out: ElapseResult,
+    cs: Cs,
+    wnf: bool,
+    wait: WaitOrderResponse,
+    bound: i64,
+    result: ElapseResult,
+    eod: bool,
+    slot_ts: [i64; 3],
+    slot_ver: [u32; 3],
+}
+
+const S_LO: usize = 0;
+const S_EO: usize = 1;
+const S_WAKE: usize = 2;
+const SLOT_KIND: [u8; 3] = [K_LOCAL_ORDER, K_EXCH_ORDER, K_WAKE];
+
+/// Рука круга: блокирующий API поверх сопрограммы. Живёт только внутри тела круга.
+pub struct CircleCtx<AT, LM, QM, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    c: *mut Circle<AT, LM, QM, FM>,
+    y: *const Yielder<(), ()>,
+    depth: SharedDepth,
+}
+
+impl<AT, LM, QM, FM> CircleCtx<AT, LM, QM, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    // Круг лежит в Box движка и трогается только пока его сопрограмма работает (движок — когда она
+    // приостановлена); потоки не участвуют.
+    fn c(&self) -> &Circle<AT, LM, QM, FM> {
+        unsafe { &*self.c }
+    }
+
+    fn cm(&mut self) -> &mut Circle<AT, LM, QM, FM> {
+        unsafe { &mut *self.c }
+    }
+
+    pub fn current_timestamp(&self) -> i64 {
+        self.c().cur_ts
+    }
+
+    pub fn depth(&self) -> &SharedDepth {
+        &self.depth
+    }
+
+    pub fn position(&self) -> f64 {
+        self.c().local.position()
+    }
+
+    pub fn state_values(&self) -> &hftbacktest::types::StateValues {
+        self.c().local.state_values()
+    }
+
+    pub fn orders(&self) -> &hftbacktest::types::OrderMap {
+        self.c().local.orders()
+    }
+
+    fn block(&mut self, wnf: bool, wait: WaitOrderResponse, bound: i64) -> ElapseResult {
+        self.cm().req = Some(Req { wnf, wait, bound });
+        unsafe { (*self.y).suspend(()) };
+        let c = self.cm();
+        c.out
+    }
+
+    fn init(&mut self) -> bool {
+        let c = self.cm();
+        if c.cur_ts != i64::MAX {
+            return true;
+        }
+        if c.first_ts == i64::MAX {
+            return false;
+        }
+        c.cur_ts = c.first_ts;
+        true
+    }
+
+    pub fn elapse(&mut self, duration: i64) -> Result<ElapseResult, BacktestError> {
+        if !self.init() {
+            return Ok(ElapseResult::EndOfData);
+        }
+        let b = self.c().cur_ts + duration;
+        Ok(self.block(false, WaitOrderResponse::None, b))
+    }
+
+    pub fn wait_next_feed(
+        &mut self,
+        include_order_resp: bool,
+        timeout: i64,
+    ) -> Result<ElapseResult, BacktestError> {
+        if !self.init() {
+            return Ok(ElapseResult::EndOfData);
+        }
+        let w = if include_order_resp {
+            WaitOrderResponse::Any
+        } else {
+            WaitOrderResponse::None
+        };
+        let b = self.c().cur_ts + timeout;
+        Ok(self.block(true, w, b))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_order(
+        &mut self,
+        order_id: OrderId,
+        side: Side,
+        price: f64,
+        qty: f64,
+        time_in_force: TimeInForce,
+        order_type: OrdType,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        let now = self.c().cur_ts;
+        self.cm()
+            .local
+            .submit_order(order_id, side, price, qty, order_type, time_in_force, now)?;
+        if wait {
+            return Ok(self.block(
+                false,
+                WaitOrderResponse::Specified {
+                    asset_no: 0,
+                    order_id,
+                },
+                UNTIL_END_OF_DATA,
+            ));
+        }
+        Ok(ElapseResult::Ok)
+    }
+
+    pub fn cancel(&mut self, order_id: OrderId, wait: bool) -> Result<ElapseResult, BacktestError> {
+        let now = self.c().cur_ts;
+        self.cm().local.cancel(order_id, now)?;
+        if wait {
+            return Ok(self.block(
+                false,
+                WaitOrderResponse::Specified {
+                    asset_no: 0,
+                    order_id,
+                },
+                UNTIL_END_OF_DATA,
+            ));
+        }
+        Ok(ElapseResult::Ok)
+    }
+}
+
+pub struct MultiEngine<AT, LM, QM, FM, R>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    rows: Vec<Event>,
+    local_row: Option<usize>,
+    exch_row: Option<usize>,
+    ev_ld: i64,
+    ev_ed: i64,
+    first_ts: i64,
+    local_book: SharedDepth,
+    exch_book: SharedDepth,
+    circles: Vec<Box<Circle<AT, LM, QM, FM>>>,
+    cos: Vec<Option<Co<R>>>,
+    heap: BinaryHeap<Key>,
+    results: Vec<(u32, R)>,
+}
+
+impl<AT, LM, QM, FM, R> MultiEngine<AT, LM, QM, FM, R>
+where
+    AT: AssetType + Clone + 'static,
+    LM: LatencyModel + Clone + 'static,
+    QM: QueueModel<SharedDepth> + 'static,
+    FM: FeeModel + Clone + 'static,
+    R: 'static,
+{
+    pub fn new(rows: Vec<Event>, local_book: SharedDepth, exch_book: SharedDepth) -> Self {
+        let l = rows
+            .iter()
+            .find(|e| e.is(LOCAL_EVENT))
+            .map_or(i64::MAX, |e| e.local_ts);
+        let x = rows
+            .iter()
+            .find(|e| e.is(EXCH_EVENT))
+            .map_or(i64::MAX, |e| e.exch_ts);
+        Self {
+            rows,
+            local_row: None,
+            exch_row: None,
+            ev_ld: i64::MAX,
+            ev_ed: i64::MAX,
+            first_ts: l.min(x),
+            local_book,
+            exch_book,
+            circles: Vec::new(),
+            cos: Vec::new(),
+            heap: BinaryHeap::new(),
+            results: Vec::new(),
+        }
+    }
+
+    /// Добавить круг; `body` получает руку круга и возвращает результат круга.
+    pub fn add_circle<F>(
+        &mut self,
+        asset_type: AT,
+        fee_model: FM,
+        order_latency: LM,
+        queue_model: QM,
+        last_trades_cap: usize,
+        body: F,
+    ) -> std::io::Result<u32>
+    where
+        F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
+    {
+        let (order_e2l, order_l2e) = order_bus(order_latency);
+        let local_depth = self.local_book.follower();
+        let local = Local::new(
+            local_depth.clone(),
+            State::new(asset_type.clone(), fee_model.clone()),
+            last_trades_cap,
+            order_l2e,
+        );
+        let exch = PartialFillExchange::new(
+            self.exch_book.follower(),
+            State::new(asset_type, fee_model),
+            queue_model,
+            order_e2l,
+        );
+        let mut c = Box::new(Circle {
+            local,
+            exch,
+            cur_ts: i64::MAX,
+            first_ts: self.first_ts,
+            req: None,
+            out: ElapseResult::Ok,
+            cs: Cs::Running,
+            wnf: false,
+            wait: WaitOrderResponse::None,
+            bound: i64::MAX,
+            result: ElapseResult::Ok,
+            eod: false,
+            slot_ts: [i64::MAX; 3],
+            slot_ver: [0; 3],
+        });
+        let ptr: *mut Circle<AT, LM, QM, FM> = &mut *c;
+        let id = self.circles.len() as u32;
+        self.circles.push(c);
+        let stack = DefaultStack::new(CIRCLE_STACK_BYTES)?;
+        let co = Coroutine::with_stack(stack, move |y: &Yielder<(), ()>, ()| {
+            body(CircleCtx {
+                c: ptr,
+                y: y as *const _,
+                depth: local_depth,
+            })
+        });
+        self.cos.push(Some(co));
+        Ok(id)
+    }
+
+    fn advance_local(&mut self) -> i64 {
+        let start = self.local_row.map_or(0, |r| r + 1);
+        for rn in start..self.rows.len() {
+            let e = &self.rows[rn];
+            if e.is(LOCAL_EVENT) {
+                self.local_row = Some(rn);
+                return e.local_ts;
+            }
+        }
+        self.local_row = Some(self.rows.len());
+        i64::MAX
+    }
+
+    fn advance_exch(&mut self) -> i64 {
+        let start = self.exch_row.map_or(0, |r| r + 1);
+        for rn in start..self.rows.len() {
+            let e = &self.rows[rn];
+            if e.is(EXCH_EVENT) {
+                self.exch_row = Some(rn);
+                return e.exch_ts;
+            }
+        }
+        self.exch_row = Some(self.rows.len());
+        i64::MAX
+    }
+
+    fn set_slot(&mut self, id: usize, slot: usize, ts: i64) {
+        let c = &mut self.circles[id];
+        if c.slot_ts[slot] == ts {
+            return;
+        }
+        c.slot_ts[slot] = ts;
+        c.slot_ver[slot] += 1;
+        if ts != i64::MAX {
+            self.heap.push(Reverse((
+                ts,
+                SLOT_KIND[slot],
+                id as u32,
+                c.slot_ver[slot] * 4 + slot as u32,
+            )));
+        }
+    }
+
+    fn check_end(&mut self, id: usize, now: i64) {
+        let feed_done = self.ev_ld == i64::MAX && self.ev_ed == i64::MAX;
+        let c = &self.circles[id];
+        if feed_done
+            && c.cs == Cs::Waiting
+            && !c.eod
+            && c.slot_ts[S_LO] == i64::MAX
+            && c.slot_ts[S_EO] == i64::MAX
+        {
+            self.circles[id].eod = true;
+            self.set_slot(id, S_WAKE, now);
+        }
+    }
+
+    /// Круг приостановился с запросом: как начало `goto`.
+    fn register(&mut self, id: usize, now: i64) {
+        let c = &mut self.circles[id];
+        let req = c.req.take().expect("запрос ожидания");
+        c.cs = Cs::Waiting;
+        c.wnf = req.wnf;
+        c.wait = req.wait;
+        c.bound = req.bound;
+        c.result = ElapseResult::Ok;
+        c.eod = false;
+        let eo = c.local.earliest_send_order_timestamp();
+        let lo = c.local.earliest_recv_order_timestamp();
+        self.set_slot(id, S_EO, eo);
+        self.set_slot(id, S_LO, lo);
+        let b = self.circles[id].bound;
+        self.set_slot(id, S_WAKE, b);
+        self.check_end(id, now);
+    }
+
+    fn resume(&mut self, id: usize, now: i64) {
+        self.circles[id].cs = Cs::Running;
+        let r = self.cos[id].as_mut().expect("круг жив").resume(());
+        match r {
+            CoroutineResult::Yield(()) => self.register(id, now),
+            CoroutineResult::Return(r) => {
+                self.circles[id].cs = Cs::Done;
+                for s in 0..3 {
+                    self.set_slot(id, s, i64::MAX);
+                }
+                self.results.push((id as u32, r));
+            }
+        }
+    }
+
+    fn process_local(&mut self, ev: &Event) {
+        if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT) {
+            self.local_book.clear_depth(Side::Buy, ev.px);
+        } else if ev.is(LOCAL_ASK_DEPTH_CLEAR_EVENT) {
+            self.local_book.clear_depth(Side::Sell, ev.px);
+        } else if ev.is(LOCAL_DEPTH_CLEAR_EVENT) {
+            self.local_book.clear_depth(Side::None, 0.0);
+        } else if ev.is(LOCAL_BID_DEPTH_EVENT) || ev.is(LOCAL_BID_DEPTH_SNAPSHOT_EVENT) {
+            self.local_book.update_bid_depth(ev.px, ev.qty, ev.local_ts);
+        } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
+            self.local_book.update_ask_depth(ev.px, ev.qty, ev.local_ts);
+        }
+        for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+            c.local.apply_feed(ev);
+        }
+    }
+
+    fn process_exch(&mut self, ev: &Event) -> Result<(), BacktestError> {
+        if ev.is(EXCH_BID_DEPTH_CLEAR_EVENT) {
+            self.exch_book.clear_depth(Side::Buy, ev.px);
+        } else if ev.is(EXCH_ASK_DEPTH_CLEAR_EVENT) {
+            self.exch_book.clear_depth(Side::Sell, ev.px);
+        } else if ev.is(EXCH_DEPTH_CLEAR_EVENT) {
+            self.exch_book.clear_depth(Side::None, 0.0);
+        } else if ev.is(EXCH_BID_DEPTH_EVENT) || ev.is(EXCH_BID_DEPTH_SNAPSHOT_EVENT) {
+            let (t, pb, b, pq, nq, ts) = self.exch_book.update_bid_depth(ev.px, ev.qty, ev.exch_ts);
+            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+                c.exch.apply_bid_delta(t, pb, b, pq, nq, ts)?;
+            }
+        } else if ev.is(EXCH_ASK_DEPTH_EVENT) || ev.is(EXCH_ASK_DEPTH_SNAPSHOT_EVENT) {
+            let (t, pb, b, pq, nq, ts) = self.exch_book.update_ask_depth(ev.px, ev.qty, ev.exch_ts);
+            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+                c.exch.apply_ask_delta(t, pb, b, pq, nq, ts)?;
+            }
+        } else if ev.is(EXCH_BUY_TRADE_EVENT) {
+            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+                c.exch.apply_buy_trade(ev)?;
+            }
+        } else if ev.is(EXCH_SELL_TRADE_EVENT) {
+            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+                c.exch.apply_sell_trade(ev)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn drop_stale(&mut self) {
+        while let Some(&Reverse((ts, _, id, tag))) = self.heap.peek() {
+            let (slot, ver) = ((tag % 4) as usize, tag / 4);
+            let c = &self.circles[id as usize];
+            if c.slot_ver[slot] == ver && c.slot_ts[slot] == ts && c.cs == Cs::Waiting {
+                break;
+            }
+            self.heap.pop();
+        }
+    }
+
+    /// Прогон до конца: результаты кругов — в порядке завершения.
+    pub fn run(&mut self) -> Result<Vec<(u32, R)>, BacktestError> {
+        self.ev_ld = self.advance_local();
+        self.ev_ed = self.advance_exch();
+        for id in 0..self.circles.len() {
+            self.resume(id, self.first_ts);
+        }
+        loop {
+            self.drop_stale();
+            let feed_ts = self.ev_ld.min(self.ev_ed);
+            let feed_kind = if self.ev_ld <= self.ev_ed {
+                K_LOCAL_DATA
+            } else {
+                K_EXCH_DATA
+            };
+            let feed_first = feed_ts != i64::MAX
+                && match self.heap.peek() {
+                    None => true,
+                    Some(Reverse((ts, kind, _, _))) => (feed_ts, feed_kind) < (*ts, *kind),
+                };
+            if feed_first {
+                let now = feed_ts;
+                if feed_kind == K_LOCAL_DATA {
+                    let ev = self.rows[self.local_row.expect("строка")].clone();
+                    self.process_local(&ev);
+                    self.ev_ld = self.advance_local();
+                    for id in 0..self.circles.len() {
+                        let c = &mut self.circles[id];
+                        if c.cs == Cs::Waiting && c.wnf {
+                            c.bound = now;
+                            c.result = ElapseResult::MarketFeed;
+                            self.set_slot(id, S_WAKE, now);
+                        }
+                    }
+                } else {
+                    let ev = self.rows[self.exch_row.expect("строка")].clone();
+                    self.process_exch(&ev)?;
+                    self.ev_ed = self.advance_exch();
+                    for id in 0..self.circles.len() {
+                        if self.circles[id].cs == Cs::Waiting {
+                            let lo = self.circles[id].exch.earliest_send_order_timestamp();
+                            self.set_slot(id, S_LO, lo);
+                        }
+                    }
+                }
+                if self.ev_ld == i64::MAX && self.ev_ed == i64::MAX {
+                    for id in 0..self.circles.len() {
+                        self.check_end(id, now);
+                    }
+                }
+                continue;
+            }
+            let Some(Reverse((ts, kind, id, _))) = self.heap.pop() else {
+                break;
+            };
+            let id = id as usize;
+            match kind {
+                K_LOCAL_ORDER => {
+                    let c = &mut self.circles[id];
+                    let wait_id = match c.wait {
+                        WaitOrderResponse::Specified { order_id, .. } => Some(order_id),
+                        _ => None,
+                    };
+                    if c.local.process_recv_order(ts, wait_id)? || c.wait == WaitOrderResponse::Any
+                    {
+                        c.bound = ts;
+                        if c.wnf {
+                            c.result = ElapseResult::OrderResponse;
+                        }
+                        self.set_slot(id, S_WAKE, ts);
+                    }
+                    let lo = self.circles[id].local.earliest_recv_order_timestamp();
+                    self.set_slot(id, S_LO, lo);
+                    self.check_end(id, ts);
+                }
+                K_EXCH_ORDER => {
+                    let c = &mut self.circles[id];
+                    let _ = c.exch.process_recv_order(ts, None)?;
+                    let eo = c.exch.earliest_recv_order_timestamp();
+                    let lo = c.exch.earliest_send_order_timestamp();
+                    self.set_slot(id, S_EO, eo);
+                    self.set_slot(id, S_LO, lo);
+                    self.check_end(id, ts);
+                }
+                _ => {
+                    let c = &mut self.circles[id];
+                    if c.eod {
+                        c.out = ElapseResult::EndOfData;
+                    } else {
+                        c.cur_ts = c.bound;
+                        c.out = c.result;
+                    }
+                    self.set_slot(id, S_WAKE, i64::MAX);
+                    self.resume(id, ts);
+                }
+            }
+        }
+        Ok(std::mem::take(&mut self.results))
+    }
+}
+
+#[cfg(test)]
+mod tests;

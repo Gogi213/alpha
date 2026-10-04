@@ -30,7 +30,7 @@ fn ev(kind: u8, exch_ts: i64, px: f64, qty: f64) -> Event {
     }
 }
 
-fn rows() -> Vec<Event> {
+pub(crate) fn rows() -> Vec<Event> {
     let mut v = vec![ev(0, 1_000, 100.0, 10.0), ev(1, 1_100, 100.1, 10.0)];
     let mut x: u64 = 12345;
     let mut ts = 1_200;
@@ -52,7 +52,7 @@ fn rows() -> Vec<Event> {
     v
 }
 
-fn snap_orders(o: &hftbacktest::types::OrderMap) -> Vec<String> {
+pub(crate) fn snap_orders(o: &hftbacktest::types::OrderMap) -> Vec<String> {
     let mut ids: Vec<_> = o.keys().copied().collect();
     ids.sort_unstable();
     ids.iter().map(|i| format!("{:?}", o[i])).collect()
