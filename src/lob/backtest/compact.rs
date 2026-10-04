@@ -125,6 +125,11 @@ pub trait EventRows {
     fn as_events(&self) -> Option<&[Event]> {
         None
     }
+    /// Индекс строки вида, с которой читать, если окно начинается с исходной строки `orig_start`
+    /// (у урезанной ленты индексы сжаты, у полной — те же).
+    fn skip_to(&self, orig_start: usize) -> usize {
+        orig_start
+    }
 }
 
 impl EventRows for [Event] {

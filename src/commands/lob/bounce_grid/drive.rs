@@ -23,7 +23,7 @@ use crate::commands::lob::backtest::{
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
     with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
-    QueueModelKind, RoundMemo, SignalWindows,
+    QueueModelKind, RoundMemo, SignalWindows, TrimRows,
 };
 use crate::lob::levels::{H3Mode, TouchRecord};
 use crate::lob::sigma::SigmaSeries;
@@ -195,6 +195,14 @@ fn exit_groups(
             DayRows::Wide(e) => {
                 precompute_exit_group(e, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
             }
+            DayRows::Trimmed(c, k) => precompute_exit_group(
+                &TrimRows::new(c, k),
+                windows,
+                &sig_refs,
+                &cfg,
+                p.rtt_ns,
+                &mut refs,
+            ),
         }
         .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
     }
@@ -481,6 +489,14 @@ pub(super) fn drive_day(
                                         DayRows::Wide(e) => drive_bounce_windowed_memo(
                                             e, w, &signals, &cfg, p.rtt_ns, &mut m,
                                         ),
+                                        DayRows::Trimmed(c, k) => drive_bounce_windowed_memo(
+                                            &TrimRows::new(c, k),
+                                            w,
+                                            &signals,
+                                            &cfg,
+                                            p.rtt_ns,
+                                            &mut m,
+                                        ),
                                     }
                                 }
                                 None => match events {
@@ -490,6 +506,13 @@ pub(super) fn drive_day(
                                     DayRows::Wide(e) => {
                                         drive_bounce_windowed(e, w, &signals, &cfg, p.rtt_ns)
                                     }
+                                    DayRows::Trimmed(c, k) => drive_bounce_windowed(
+                                        &TrimRows::new(c, k),
+                                        w,
+                                        &signals,
+                                        &cfg,
+                                        p.rtt_ns,
+                                    ),
                                 },
                             },
                             None => with_backtest_over(
@@ -560,6 +583,8 @@ pub(super) fn drive_day(
 pub(super) enum DayRows<'a> {
     Compact(&'a [CompactEvent]),
     Wide(&'a [HbtEvent]),
+    /// Компактные строки и индекс оставленных (`ALPHA_TRIM_ROWS`, TK-049): круги читают урезанную ленту.
+    Trimmed(&'a [CompactEvent], &'a [u32]),
 }
 
 /// Окна сетапов суток (`--driver setups`): снимок книги на каждый `t0`
@@ -578,7 +603,9 @@ pub(super) fn day_windows(
         DriverArg::Setups => {
             let started = Instant::now();
             let w = match events {
-                DayRows::Compact(c) => SignalWindows::build(c, t0s, tick, lot),
+                DayRows::Compact(c) | DayRows::Trimmed(c, _) => {
+                    SignalWindows::build(c, t0s, tick, lot)
+                }
                 DayRows::Wide(e) => SignalWindows::build(e, t0s, tick, lot),
             };
             eprintln!(
@@ -591,7 +618,9 @@ pub(super) fn day_windows(
             if check {
                 let started = Instant::now();
                 let reference = match events {
-                    DayRows::Compact(c) => SignalWindows::build_crate(c, t0s, tick, lot),
+                    DayRows::Compact(c) | DayRows::Trimmed(c, _) => {
+                        SignalWindows::build_crate(c, t0s, tick, lot)
+                    }
                     DayRows::Wide(e) => SignalWindows::build_crate(e, t0s, tick, lot),
                 };
                 if let Some((t0, field)) = w.first_mismatch(&reference) {
