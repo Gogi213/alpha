@@ -788,6 +788,18 @@ class CeoResources0310(unittest.TestCase):
         self.no("ssh $H 'rm -rf /tmp/x'")                                # хост не определён
         self.no(f"ssh {self.DED} 'ssh root@139.99.91.22 rm -rf /tmp/x'")  # вложенный ssh — уже другой хост
 
+    def test_vps_archive_dirs_tk047(self):
+        """TK-047, 04.10: на VPS София — только stage/ и dup-reimport/ архива, и только по ssh на этот хост."""
+        vps = "root@13.140.29.171"
+        self.ok(f"ssh {vps} 'rm /opt/alpha-archive/stage/x.bin'")
+        self.ok(f"ssh {vps} 'rm -f /opt/alpha-archive-tk021/dup-reimport/2026-01-01/x.bin'")
+        for path in ("/opt/alpha-archive", "/opt/alpha-archive/", "/opt/alpha-archive/stage", "/opt/alpha-archive/other/x",
+                     "/opt/alpha-archive/stage/../x", "/opt/alpha-archive-tk021", "/opt/alpha-archive-tk021/x",
+                     "/opt/watcher/x", "/opt/alpha-archive/stage/root/x"):
+            self.no(f"ssh {vps} 'rm -rf {path}'")
+        self.no(f"ssh {self.DED} 'rm /opt/alpha-archive/stage/x.bin'")      # другой хост
+        self.no("rm /opt/alpha-archive/stage/x.bin")                         # локально
+
     # --- (2) git reset --hard / clean -f вне основного дерева
     def test_git_in_scratch_dir_by_cd_variable_and_git_c(self):
         self.ok(f'cd "{self.WT}" && git reset -q --hard abc123')

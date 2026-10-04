@@ -3,7 +3,8 @@
 Вызывается из PreToolUse-хука Bash/PowerShell (`~/.claude/hooks/alpha_one_build.py`, только в проекте alpha):
 `check(cmd, cwd)` → причина отказа или None.
 Своя папка: локально — папка проекта и scratchpad сессии; на Steam Deck — `~/alpha/<подкаталог>`; на VPS —
-`/opt/alpha-compute/<подкаталог>`; оперативная стадия `/dev/shm/alpha-stage` (В-162). Никогда: коллектор
+`/opt/alpha-compute/<подкаталог>` и (только по ssh на этот хост, TK-047, 04.10) `/opt/alpha-archive/stage/`,
+`/opt/alpha-archive-tk021/dup-reimport/` (не `/opt/alpha-archive` целиком); оперативная стадия `/dev/shm/alpha-stage` (В-162). Никогда: коллектор
 (`139.99.91.22`), Storage Box (ssh порт 23), записи `root/` и `deep/` (единственные копии, В-106). Цель, которую нельзя
 проверить (переменная без буквального префикса, список из конвейера/xargs, путь из кода), — отказ: переписать явным путём.
 
@@ -56,6 +57,8 @@ STAGE = "/dev/shm/alpha-stage"  # оперативная стадия подка
 # Выделенный сервер (В-165, решение CEO 03.10): сюда НЕ входит `/data/alpha/` — копия данных, подмены только через CEO.
 HOST_ROOTS = {
     "89.163.242.211": ("/home/deck/alpha/", "/root/tk0", "/data/tk0", "/tmp/"),
+    # VPS София (TK-047, 04.10: слово владельца 13:43 «почистить диск софии…» + приёмка Судьи 13:49 — пофайлово после sha256)
+    "13.140.29.171": ("/opt/alpha-archive/stage/", "/opt/alpha-archive-tk021/dup-reimport/"),
 }
 # Корни только на запись/перезапись (удалять там по-прежнему нельзя), относительно домашнего каталога: автопамять проекта.
 WRITE_HOME_ROOTS = (".claude/projects/c--visual-projects-alpha/memory/",)
@@ -63,8 +66,9 @@ FORBIDDEN_SEG = ("root", "deep")
 BOX_RE = re.compile(r"storage-?box|your-storagebox|139\.99\.91\.22", re.I)
 REASON = ("Удаление запрещено вне своей папки (владелец 27.09: «нельзя удалять ничего кроме чего то внутри своей "
           "папки»). Можно только явным путём: локально — внутри C:/visual projects/alpha или scratchpad сессии; "
-          "на Steam Deck — ~/alpha/<подкаталог>; на VPS — /opt/alpha-compute/<подкаталог>; на выделенном сервере "
-          "(root@89.163.242.211) — /home/deck/alpha/, /root/tk0*, /data/tk0*, /tmp/ (но не /data/alpha/). Коллектор, "
+          "на Steam Deck — ~/alpha/<подкаталог>; на VPS — /opt/alpha-compute/<подкаталог> и (root@13.140.29.171, TK-047, 04.10) "
+          "/opt/alpha-archive/stage/, /opt/alpha-archive-tk021/dup-reimport/ (не /opt/alpha-archive целиком); на "
+          "выделенном сервере (root@89.163.242.211) — /home/deck/alpha/, /root/tk0*, /data/tk0*, /tmp/ (но не /data/alpha/). Коллектор, "
           "Storage Box, записи root/ и deep/ — никогда (только владелец через CEO). Непроверяемая цель: {t}")
 REASON_OVERWRITE = ("Перезапись/усечение файла (`> файл`, truncate, dd of=, cp/mv поверх существующего) вне своей папки "
                     "запрещены, как и удаление: локально — внутри C:/visual projects/alpha или scratchpad сессии; на Steam "
