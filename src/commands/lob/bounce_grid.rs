@@ -109,6 +109,7 @@ mod forms;
 mod outputs;
 mod plan;
 mod sets;
+mod verdict;
 
 use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
@@ -344,7 +345,7 @@ impl<'a> GridRun<'a> {
         };
 
         let marker = args.root.join(format!("verify-{symbol}.status"));
-        if !args.allow_unverified && !read_verify_marker(&marker) {
+        if args.verdict_csv.is_none() && !args.allow_unverified && !read_verify_marker(&marker) {
             eprintln!(
                 "bounce-grid: {symbol} — маркер {} не `ok`, символ пропущен (fail-closed; --allow-unverified для отладки)",
                 marker.display()
@@ -389,6 +390,37 @@ impl<'a> GridRun<'a> {
                 .entry(p.day_utc.clone())
                 .or_default()
                 .push(p.path.clone());
+        }
+        // K1 по суткам (`--verdict-csv`, В-181): вместо маркера символа — вердикт гейта на каждые сутки;
+        // сутки не «пускаем» или без строки вердикта отброшены с причиной (fail-closed).
+        if let Some(vp) = args.verdict_csv.as_deref() {
+            let verdicts = verdict::read_day_verdicts(vp, symbol)?;
+            let before = parts_by_day.len();
+            parts_by_day.retain(|day, _| {
+                let allowed = match verdicts.get(day) {
+                    Some((true, _)) => true,
+                    Some((false, why)) => {
+                        eprintln!("bounce-grid: {symbol} {day} — отказ вердикта: {why}");
+                        false
+                    }
+                    None => {
+                        eprintln!(
+                            "bounce-grid: {symbol} {day} — отказ: суток нет в вердикте {}",
+                            vp.display()
+                        );
+                        false
+                    }
+                };
+                allowed
+            });
+            summary.days_refused_verdict += before - parts_by_day.len();
+            if parts_by_day.is_empty() {
+                eprintln!(
+                    "bounce-grid: {symbol} — ни одних суток с вердиктом «пускаем», символ пропущен"
+                );
+                summary.symbols_skipped_unverified += 1;
+                return Ok(());
+            }
         }
         // Довесок (`--carry-root`): части того же символа во **всей** записи
         // (не студийном `--root` одного дня), тем же резолвером, что и выше

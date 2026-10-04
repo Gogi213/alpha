@@ -174,6 +174,7 @@ fn verify_marker_lets_profiles_read_the_day_without_allow_unverified() {
         symbol: "SOLUSDT".to_string(),
         root: session_dir.clone(),
         keep_going: false,
+        windows_out: None,
     })
     .expect("lob verify на каталоге сессии");
     assert_eq!(

@@ -185,6 +185,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         events: "compact".to_string(),
         out_dir: root.join("grid"),
         allow_unverified,
+        verdict_csv: None,
         // F7/F8: форма выхода — по умолчанию `none` (гейт).
         exit_form: Vec::new(),
         btc_minutes: Vec::new(),
@@ -430,6 +431,46 @@ fn unverified_symbol_is_skipped_unless_allowed() {
     let summary = run_bounce_grid(&args(dir.path(), true)).unwrap();
     assert_eq!(summary.symbols_skipped_unverified, 0);
     assert_eq!(summary.symbols_done, 1);
+}
+
+/// K1 по суткам (В-181): `--verdict-csv` заменяет маркер символа; сутки не «пускаем» и сутки без строки — отказ.
+#[test]
+fn verdict_csv_gates_days_instead_of_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture_root(dir.path(), false);
+    let csv = dir.path().join("verdict.csv");
+    let header = "sym,day,month,verdict,reason
+";
+    let run = |body: &str| {
+        std::fs::write(&csv, format!("{header}{body}")).unwrap();
+        let mut a = args(dir.path(), false);
+        a.verdict_csv = Some(csv.clone());
+        run_bounce_grid(&a).unwrap()
+    };
+    let s = run("SOLUSDT,2026-09-08,2026-09,пускаем,
+");
+    assert_eq!(
+        (s.symbols_done, s.days_refused_verdict),
+        (1, 0),
+        "пускаем — счёт без маркера"
+    );
+    let s = run("SOLUSDT,2026-09-08,2026-09,не пускаем,журнал потерь записи
+");
+    assert_eq!(
+        (
+            s.symbols_done,
+            s.symbols_skipped_unverified,
+            s.days_refused_verdict
+        ),
+        (0, 1, 1)
+    );
+    let s = run("ETHUSDT,2026-09-08,2026-09,пускаем,
+");
+    assert_eq!(
+        (s.symbols_done, s.days_refused_verdict),
+        (0, 1),
+        "нет строки вердикта — отказ"
+    );
 }
 
 /// В-172: части записи с разной сеткой (тик, лот) — отказ, не тихий счёт на сетке первой части;

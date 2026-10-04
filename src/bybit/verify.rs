@@ -418,6 +418,8 @@ pub struct Verifier {
     /// В книге есть уровень с неположительным размером: инварианты считаются
     /// полным проходом, пока он не уйдёт.
     has_nonpositive: bool,
+    /// Счётчики по окнам (В-177); `None` — выключено, статистика прежняя.
+    windows: Option<windows::Windows>,
 }
 
 impl Verifier {
@@ -430,7 +432,30 @@ impl Verifier {
             tick_e9,
             full_pass_next: true,
             has_nonpositive: false,
+            windows: None,
         }
+    }
+
+    pub fn enable_windows(&mut self) {
+        self.windows = Some(windows::Windows::default());
+    }
+
+    /// Закрывает окна и отдаёт строки; пусто, если счёт окон не включён.
+    pub fn take_windows(&mut self) -> Vec<windows::WindowRow> {
+        self.windows
+            .as_mut()
+            .map(windows::Windows::finish)
+            .unwrap_or_default()
+    }
+
+    fn book_ticks(book: &Book) -> std::collections::HashSet<i64> {
+        let mut s = std::collections::HashSet::new();
+        for side in [Side::Bid, Side::Ask] {
+            for (t, _) in book.levels(side) {
+                s.insert(t);
+            }
+        }
+        s
     }
 
     pub fn book(&self) -> &Book {
@@ -492,6 +517,18 @@ impl Verifier {
                     Vec::new()
                 };
                 self.stats.invariant_violations += v.len() as u64;
+                if let Some(w) = self.windows.as_mut() {
+                    let tick_e9 = self.tick_e9;
+                    let touched: Vec<i64> = up
+                        .bids
+                        .iter()
+                        .chain(up.asks.iter())
+                        .filter(|(_, q)| *q > 0)
+                        .map(|(p, _)| p / tick_e9)
+                        .collect();
+                    let book = &self.book;
+                    w.on_update(up.cts_ms, &touched, &mut || Self::book_ticks(book));
+                }
                 Ok(v)
             }
             Err(e) => {
@@ -528,11 +565,28 @@ impl Verifier {
         aggressor_is_buy: bool,
     ) {
         self.stats.trades_total += 1;
-        match trade_in_range(&self.book, price_tick) {
+        let range = trade_in_range(&self.book, price_tick);
+        let violation = range == Some(true) && !self.ever_held.contains(&price_tick);
+        if let Some(w) = self.windows.as_mut() {
+            let book = &self.book;
+            let in_range = range == Some(true);
+            let in_spread = in_range && Self::spread_contains(book, price_tick);
+            w.on_trade(
+                exch_ms,
+                price_tick,
+                aggressor_is_buy,
+                in_range,
+                in_spread,
+                violation,
+                rpi || block,
+                &mut || Self::book_ticks(book),
+            );
+        }
+        match range {
             None => self.stats.trades_indeterminate += 1,
             Some(false) => self.stats.trades_out_of_range += 1,
             Some(true) => {
-                if !self.ever_held.contains(&price_tick) {
+                if violation {
                     self.stats.trades_violations += 1;
                     if block {
                         self.stats.violations_block += 1;
@@ -583,8 +637,12 @@ impl Verifier {
     /// об невидимое (RPI) или проскочившее между апдейтами, а не признак битой
     /// книги; счётчик нужен, чтобы это было видно числом.
     fn inside_spread(&self, price_tick: i64) -> bool {
-        let bid = self.book.levels(Side::Bid).map(|(t, _)| t).max();
-        let ask = self.book.levels(Side::Ask).map(|(t, _)| t).min();
+        Self::spread_contains(&self.book, price_tick)
+    }
+
+    fn spread_contains(book: &Book, price_tick: i64) -> bool {
+        let bid = book.levels(Side::Bid).map(|(t, _)| t).max();
+        let ask = book.levels(Side::Ask).map(|(t, _)| t).min();
         matches!((bid, ask), (Some(b), Some(a)) if price_tick > b && price_tick < a)
     }
 
@@ -832,6 +890,10 @@ pub struct VerifyArgs {
     /// нарушения по видам и идти дальше (маркер сверки не пишется).
     #[arg(long, default_value_t = false)]
     pub keep_going: bool,
+    /// Гейт В-177: считать окна минута/час и писать их строками в этот CSV
+    /// (маркер сверки не пишется; числа частей те же, что без флага).
+    #[arg(long)]
+    pub windows_out: Option<PathBuf>,
 }
 
 /// Итог файлового прогона для печати и `VerifyStats` вызывающему.
@@ -970,7 +1032,7 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
     }
     let mut summary = VerifySummary::default();
     for path in &files {
-        verify_one_file(path, &mut summary, None)?;
+        verify_one_file(path, &mut summary, None, None)?;
     }
     summary.files = files.len();
     Ok(summary)
@@ -983,7 +1045,7 @@ pub fn run_verify(args: &VerifyArgs) -> anyhow::Result<VerifySummary> {
 /// `run_verify` выше — тот же `verify_one_file`, только по своему обходу.
 pub fn verify_file(path: &Path) -> anyhow::Result<VerifySummary> {
     let mut summary = VerifySummary::default();
-    verify_one_file(path, &mut summary, None)?;
+    verify_one_file(path, &mut summary, None, None)?;
     summary.files = 1;
     Ok(summary)
 }
@@ -1055,8 +1117,8 @@ pub struct KeepGoingReport {
     /// Миллисекунды обменных меток, прожитые в битом состоянии.
     pub broken_ms: i64,
     pub trades_while_broken: u64,
-    broken: bool,
-    prev_ms: i64,
+    pub(crate) broken: bool,
+    pub(crate) prev_ms: i64,
 }
 
 impl KeepGoingReport {
@@ -1072,7 +1134,7 @@ impl KeepGoingReport {
         }
     }
 
-    fn on_update(&mut self, verifier: &mut Verifier, up: &mut Update) {
+    pub(crate) fn on_update(&mut self, verifier: &mut Verifier, up: &mut Update) {
         let ms = up.cts_ms;
         self.updates += 1;
         if self.first_ms.is_none() {
@@ -1186,15 +1248,41 @@ impl KeepGoingReport {
 pub fn verify_file_keep_going(path: &Path) -> anyhow::Result<(VerifySummary, KeepGoingReport)> {
     let mut summary = VerifySummary::default();
     let mut report = KeepGoingReport::default();
-    verify_one_file(path, &mut summary, Some(&mut report))?;
+    verify_one_file(path, &mut summary, Some(&mut report), None)?;
     summary.files = 1;
     Ok((summary, report))
+}
+
+/// `verify_file_keep_going` плюс строки окон минута/час (диагностика гейта В-177
+/// на сутках, где применение ломается: окна считаются и после ошибки).
+pub fn verify_file_keep_going_windows(
+    path: &Path,
+) -> anyhow::Result<(VerifySummary, KeepGoingReport, Vec<windows::WindowRow>)> {
+    let mut summary = VerifySummary::default();
+    let mut report = KeepGoingReport::default();
+    let mut rows = Vec::new();
+    verify_one_file(path, &mut summary, Some(&mut report), Some(&mut rows))?;
+    summary.files = 1;
+    Ok((summary, report, rows))
+}
+
+/// Как `verify_file`, плюс строки окон минута/час для гейта В-177. Числа
+/// сводки те же, что у `verify_file`.
+pub fn verify_file_windows(
+    path: &Path,
+) -> anyhow::Result<(VerifySummary, Vec<windows::WindowRow>)> {
+    let mut summary = VerifySummary::default();
+    let mut rows = Vec::new();
+    verify_one_file(path, &mut summary, None, Some(&mut rows))?;
+    summary.files = 1;
+    Ok((summary, rows))
 }
 
 fn verify_one_file(
     path: &Path,
     summary: &mut VerifySummary,
     mut keep: Option<&mut KeepGoingReport>,
+    win_out: Option<&mut Vec<windows::WindowRow>>,
 ) -> anyhow::Result<()> {
     // Потоково (W10 ревью 23.09): раньше `std::fs::read` разом клал в память
     // весь суточный файл (десятки–сотни МБ на инструмент), хотя `Reader`
@@ -1206,6 +1294,9 @@ fn verify_one_file(
         .map_err(|e| anyhow::anyhow!("заголовок {}: {e:?}", path.display()))?;
     let header = reader.header();
     let mut verifier = Verifier::new(header.tick_e9, header.step_e9);
+    if win_out.is_some() {
+        verifier.enable_windows();
+    }
     // Один конвертер на весь файл: сообщение обязано лежать в двух кадрах,
     // и незакрытая группа переживает границу кадра внутри него.
     let mut replayer = FileReplayer::new();
@@ -1247,6 +1338,9 @@ fn verify_one_file(
                 // дальше этот файл не идёт, следующий — с чистого Verifier.
                 if verifier.apply_update(up).is_err() {
                     *summary += &verifier.stats();
+                    if let Some(out) = win_out {
+                        out.extend(verifier.take_windows());
+                    }
                     return Ok(());
                 }
             }
@@ -1275,12 +1369,17 @@ fn verify_one_file(
         }
     }
     *summary += &verifier.stats();
+    if let Some(out) = win_out {
+        out.extend(verifier.take_windows());
+    }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // Тесты
 // ---------------------------------------------------------------------------
+
+pub mod windows;
 
 #[cfg(test)]
 mod tests;

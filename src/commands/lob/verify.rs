@@ -24,7 +24,11 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::bybit::verify::{verify_file, verify_file_keep_going, VerifyArgs, VerifySummary};
+use crate::bybit::verify::windows::WindowRow;
+use crate::bybit::verify::{
+    verify_file, verify_file_keep_going, verify_file_keep_going_windows, verify_file_windows,
+    VerifyArgs, VerifySummary,
+};
 use crate::commands::record::{gaps_csv_path, read_gap_rows, GapKind, GapRow};
 
 /// Вердикт маркера сверки — то единственное слово, что лежит в
@@ -281,6 +285,9 @@ pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
     if args.keep_going {
         return print_keep_going(args);
     }
+    if let Some(out) = &args.windows_out {
+        return print_windows(args, out);
+    }
     let report = verify_and_mark(&args.root, &args.root, &args.symbol)?;
     for p in &report.parts {
         let name = p
@@ -312,19 +319,68 @@ pub(super) fn print_summary(args: &VerifyArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `lob verify --keep-going`: диагностика без маркера — по каждой части
-/// символа виды нарушений, доля времени в битом состоянии, первые примеры.
-fn print_keep_going(args: &VerifyArgs) -> anyhow::Result<()> {
+/// `lob verify --windows-out F`: строка сводки на часть (как без флага) и
+/// строки окон в CSV `symbol,part,<WindowRow>`; маркер не пишется.
+fn print_windows(args: &VerifyArgs, out: &Path) -> anyhow::Result<()> {
+    use std::io::Write;
+    let file = std::fs::File::create(out)
+        .map_err(|e| anyhow::anyhow!("файл окон {}: {e}", out.display()))?;
+    let mut w = std::io::BufWriter::new(file);
+    writeln!(w, "symbol,part,{}", WindowRow::CSV_HEADER)?;
     for path in super::session_binlog_for(&args.root, &args.symbol)? {
         let name = path
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let (summary, report) = verify_file_keep_going(&path)?;
+        let (summary, rows) = verify_file_windows(&path)?;
+        println!("verify: part={name} {}", format_summary(&summary));
+        for r in &rows {
+            writeln!(w, "{},{name},{}", args.symbol, r.csv())?;
+        }
+    }
+    w.flush()?;
+    println!(
+        "verify: --windows-out — окна в {}, маркер не записан",
+        out.display()
+    );
+    Ok(())
+}
+
+/// `lob verify --keep-going`: диагностика без маркера — по каждой части
+/// символа виды нарушений, доля времени в битом состоянии, первые примеры.
+fn print_keep_going(args: &VerifyArgs) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut win = match &args.windows_out {
+        Some(out) => {
+            let file = std::fs::File::create(out)
+                .map_err(|e| anyhow::anyhow!("файл окон {}: {e}", out.display()))?;
+            let mut w = std::io::BufWriter::new(file);
+            writeln!(w, "symbol,part,{}", WindowRow::CSV_HEADER)?;
+            Some(w)
+        }
+        None => None,
+    };
+    for path in super::session_binlog_for(&args.root, &args.symbol)? {
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let (summary, report) = if let Some(w) = win.as_mut() {
+            let (summary, report, rows) = verify_file_keep_going_windows(&path)?;
+            for r in &rows {
+                writeln!(w, "{},{name},{}", args.symbol, r.csv())?;
+            }
+            (summary, report)
+        } else {
+            verify_file_keep_going(&path)?
+        };
         println!("verify: part={name} {}", format_summary(&summary));
         for line in report.lines(&name) {
             println!("{line}");
         }
+    }
+    if let Some(mut w) = win {
+        w.flush()?;
     }
     println!("verify: --keep-going — маркер сверки не записан");
     Ok(())

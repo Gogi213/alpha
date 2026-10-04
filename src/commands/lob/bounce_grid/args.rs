@@ -368,6 +368,11 @@ pub struct BounceGridArgs {
     /// Снять требование маркера сверки (отладочные данные; в `runs.csv` не идёт).
     #[arg(long, default_value_t = false)]
     pub allow_unverified: bool,
+    /// K1 по суткам (В-181): csv вердикта гейта порчи (`docs/findings/verify-gate-v177-*.csv`, колонки
+    /// `sym,day,verdict,reason`). Заменяет маркер символа: считаются только сутки с `verdict = пускаем`,
+    /// остальные и сутки без строки отброшены с причиной в stderr. Без флага — прежний маркер.
+    #[arg(long)]
+    pub verdict_csv: Option<PathBuf>,
     /// Переносить возраст уровней через смежную полночь в реплее касаний (аудит дизайна 22.09
     /// Т3; как `lob touches --carry-age`): кэш, посчитанный с переносом, и реплей обязаны
     /// совпадать по режиму. Без флага — прежние байты.
@@ -479,6 +484,8 @@ pub struct BounceGridSummary {
     pub forms: usize,
     pub symbols_done: usize,
     pub symbols_skipped_unverified: usize,
+    /// Суток, отброшенных вердиктом `--verdict-csv`.
+    pub days_refused_verdict: usize,
     pub symbols_without_touches: usize,
     /// Символов, чьи касания пришли из кэша `--touches-from` (остальные — реплей).
     pub symbols_from_cache: usize,

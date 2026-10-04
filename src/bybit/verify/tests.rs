@@ -569,6 +569,7 @@ fn live_fixture_replays_clean_on_invariants() {
         symbol: "BTCUSDT".to_string(),
         root: std::path::PathBuf::from("tests/fixtures"),
         keep_going: false,
+        windows_out: None,
     }) {
         Ok(s) => s,
         Err(e) => panic!("фикстура обязана читаться: {e:?}"),
@@ -606,6 +607,7 @@ fn run_verify_reports_the_undated_legacy_file_by_name_with_a_rename_hint() {
         symbol: "SOLUSDT".to_string(),
         root: dir.path().to_path_buf(),
         keep_going: false,
+        windows_out: None,
     })
     .expect_err("файл без даты обязан провалить run_verify");
     let msg = err.to_string();
@@ -625,6 +627,7 @@ fn run_verify_without_any_symbol_file_still_gets_the_generic_no_daily_files_mess
         symbol: "SOLUSDT".to_string(),
         root: dir.path().to_path_buf(),
         keep_going: false,
+        windows_out: None,
     })
     .expect_err("пустой каталог обязан провалить run_verify");
     let msg = err.to_string();
@@ -846,4 +849,75 @@ fn live_snapshot_compare_via_rest() {
     v.apply_update(&up).unwrap();
     let diff = v.verify_at_seq(&snap, 1, 1).unwrap();
     assert!(diff.is_clean(), "живой снапшот против себя: {diff:?}");
+}
+
+fn gap_snapshot() -> Update {
+    Update {
+        is_snapshot: true,
+        depth: 50,
+        u: 1,
+        seq: 1,
+        cts_ms: 1_000,
+        bids: vec![(px(100), qty(5)), (px(98), qty(7))],
+        asks: vec![(px(101), qty(4)), (px(103), qty(6))],
+    }
+}
+
+#[test]
+fn windows_count_runs_and_window_held_without_changing_stats() {
+    let run = |windows: bool| {
+        let mut v = Verifier::new(TICK_E9, STEP_E9);
+        if windows {
+            v.enable_windows();
+        }
+        v.apply_update(&gap_snapshot()).unwrap();
+        v.observe_trade(99, 1_100, false, false, true);
+        v.observe_trade(99, 1_200, false, false, true);
+        v.observe_trade(100, 1_300, false, false, true);
+        v.observe_trade(99, 1_400, false, true, true);
+        v.observe_trade(100, 61_000, false, false, true);
+        (v.stats(), v.take_windows())
+    };
+    let (off, rows_off) = run(false);
+    let (on, rows) = run(true);
+    assert_eq!(off, on);
+    assert!(rows_off.is_empty());
+    let m0 = rows
+        .iter()
+        .find(|r| r.kind == windows::WindowKind::Minute && r.id == 0)
+        .unwrap();
+    assert_eq!((m0.n, m0.u, m0.v, m0.vw, m0.max_run), (4, 1, 3, 2, 2));
+    let m1 = rows
+        .iter()
+        .find(|r| r.kind == windows::WindowKind::Minute && r.id == 1)
+        .unwrap();
+    assert_eq!((m1.n, m1.v, m1.vw, m1.max_run), (1, 0, 0, 0));
+    let h0 = rows
+        .iter()
+        .find(|r| r.kind == windows::WindowKind::Hour && r.id == 0)
+        .unwrap();
+    assert_eq!((h0.n, h0.v, h0.vw), (5, 3, 2));
+}
+
+#[test]
+fn windows_spread_trades_are_vws_and_executions_merge() {
+    let mut v = Verifier::new(TICK_E9, STEP_E9);
+    v.enable_windows();
+    let mut snap = gap_snapshot();
+    snap.asks = vec![(px(103), qty(4)), (px(104), qty(6))];
+    v.apply_update(&snap).unwrap();
+    // тик 101 внутри спреда 100..103: vws, не vw; три сделки одного исполнения — одно событие
+    v.observe_trade(101, 1_100, false, false, true);
+    v.observe_trade(101, 1_100, false, false, true);
+    v.observe_trade(101, 1_100, false, false, true);
+    // тик 99 между уровнями бидов, в книге не стоял: vw
+    v.observe_trade(99, 1_200, false, false, false);
+    let rows = v.take_windows();
+    let m0 = rows
+        .iter()
+        .find(|r| r.kind == windows::WindowKind::Minute && r.id == 0)
+        .unwrap();
+    assert_eq!((m0.n, m0.vw, m0.vws), (4, 1, 3));
+    assert_eq!((m0.ne, m0.ve, m0.vwe), (2, 2, 1));
+    assert_eq!((m0.max_run, m0.max_run_e), (4, 2));
 }
