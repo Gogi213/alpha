@@ -77,6 +77,7 @@ mod levels;
 pub mod sched;
 #[allow(dead_code)]
 pub mod shared_depth;
+pub mod shared_engine;
 use fast_depth::FastMarketDepth;
 mod trim;
 mod window_depth;
