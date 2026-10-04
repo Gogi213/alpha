@@ -15,5 +15,10 @@ pub mod stats;
 /// аллокаторе. Обёртка стоит один инкремент потоковой переменной на выделение,
 /// поэтому включена всегда: под `cfg(test)` она мерила бы сборку, которая
 /// в бою не работает.
+#[cfg(not(feature = "mimalloc"))]
 #[global_allocator]
 static GLOBAL: alloc_count::CountingAllocator = alloc_count::CountingAllocator;
+
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
