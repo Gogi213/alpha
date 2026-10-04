@@ -46,7 +46,7 @@ def summarize(d, wall, threads):
     top = defaultdict(lambda: [0.0, 0.0])
     for r in st:
         if r["stage"] == "day_total":
-            top[(r["sym"], r["day"])] = [r["cpu"], r["wall"] - r["cpu"]]
+            top[(r["sym"], r["day"])] = [r["cpu"], max(r["wall"] - r["cpu"], 0.0)]
     topcpu = sorted(top.items(), key=lambda kv: -kv[1][0])[:15]
     topwait = sorted(top.items(), key=lambda kv: -kv[1][1])[:15]
     return dict(

@@ -1050,6 +1050,7 @@ fn directory_named_like_a_fresh_session_reads_through_verify_and_levels_untouche
         symbol: "SOLUSDT".to_string(),
         root: root.to_path_buf(),
         keep_going: false,
+        windows_out: None,
     })
     .expect("verify обязан найти суточный файл сессии без переименования");
     assert_eq!(vs.files, 1, "ровно один суточный файл сессии");
