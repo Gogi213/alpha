@@ -945,6 +945,10 @@ impl<'a> GridRun<'a> {
                         g(&crate::lob::backtest::STEP_KINDS)
                     );
                     eprintln!(
+                        "bounce-grid:   вызовы on_event в удержании (входы те же/изменились/первый): {}",
+                        g(&crate::lob::backtest::SIG_KINDS)
+                    );
+                    eprintln!(
                         "bounce-grid:   строки глубины по удалению от лучшей (≤3/≤10/≤30/дальше тиков): {}",
                         g(&crate::lob::backtest::fast_depth::DEPTH_ROW_BANDS)
                     );

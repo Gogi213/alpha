@@ -1497,6 +1497,29 @@ impl StrategyState {
         })
     }
 
+    /// Замер TK-050: подпись входов решения удержания (лучшие цены, объём стены, съеденное сделками) —
+    /// `None` вне `Holding` плана `Bounce`.
+    pub fn hold_input_sig<MD: MarketDepth>(&self, depth: &MD) -> Option<[u64; 4]> {
+        let (Phase::Holding { .. }, TradePlan::Bounce { level_px, tick_px, .. }) =
+            (self.phase, self.plan)
+        else {
+            return None;
+        };
+        let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
+        #[allow(clippy::cast_possible_truncation)]
+        let lt = if tick_px > 0.0 && level_px > 0.0 {
+            (level_px / tick_px).round() as i64
+        } else {
+            0
+        };
+        let q = match self.sigma {
+            s if s == crate::lob::backtest::SIGMA_LONG => depth.bid_qty_at_tick(lt),
+            _ => depth.ask_qty_at_tick(lt),
+        };
+        #[allow(clippy::cast_sign_loss)]
+        Some([bid as u64, ask as u64, q.to_bits(), self.eaten_qty.to_bits()])
+    }
+
     /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
     /// был повтором решения на тех же входах.
     pub fn phase_mark(&self) -> PhaseMark {

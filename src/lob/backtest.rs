@@ -1531,6 +1531,7 @@ where
     let mut decided_in_hold = false;
     let ev_steps = event_steps();
     let mut stable = false;
+    let mut solo_sig: Option<[u64; 4]> = None;
     loop {
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
         // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
@@ -1613,6 +1614,7 @@ where
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         let mark_before = state.phase_mark();
+        note_sig(&mut solo_sig, state.hold_input_sig(bot.depth(asset_no)));
         let action = on_event(bot, state)?;
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
@@ -2101,6 +2103,7 @@ where
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
+    let mut sigs: Vec<Option<[u64; 4]>> = vec![None; n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
@@ -2211,6 +2214,7 @@ where
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
             let mark_before = states[i].phase_mark();
+            note_sig(&mut sigs[i], states[i].hold_input_sig(bot.depth(asset_no)));
             let act = on_event(bot, &mut states[i])?;
             stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
             match act {
@@ -2769,6 +2773,19 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+
+/// Замер TK-050: вызовы `on_event` в удержании по входам решения (0 — те же, что на прошлом вызове, 1 — изменились, 2 — первый вызов/вне удержания).
+pub static SIG_KINDS: [std::sync::atomic::AtomicU64; 3] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+
+fn note_sig(prev: &mut Option<[u64; 4]>, now: Option<[u64; 4]>) {
+    let k = match (*prev, now) {
+        (Some(a), Some(b)) => usize::from(a != b),
+        _ => 2,
+    };
+    SIG_KINDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    *prev = now;
+}
 
 fn note_attempt(attempt: u32, rows: usize) {
     let k = (attempt as usize).min(3);
