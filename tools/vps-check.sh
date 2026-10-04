@@ -33,5 +33,11 @@ case "$WHAT" in
   *) echo "неизвестно: $WHAT"; exit 2 ;;
 esac
 # shellcheck disable=SC2029
+set +e
 ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC \
   && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 bash -c '$CMD'"
+RC=$?
+set -e
+# шина событий (TK-045): сборка готова/упала; недоступность шины результат не меняет
+python "$(dirname "$0")/bus/busclient.py" send "сборка.$([ $RC -eq 0 ] && echo готова || echo упала)"   --payload "{\"tree\":\"$(basename "$PWD")\",\"what\":\"$WHAT\",\"ticket\":\"${ALPHA_TICKET:-}\",\"rc\":$RC}" >/dev/null || true
+exit $RC

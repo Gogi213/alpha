@@ -35,6 +35,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dispatch as D  # noqa: E402
 import ticket as T  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "bus"))
+import busclient  # noqa: E402
+
+
+def bus_emit(tid: str, kind: str, payload: dict) -> None:
+    """Событие на шину (TK-045): недоступность шины не ломает команду — busclient.post не бросает, событие уходит в spool."""
+    busclient.post(f"задача.{tid}.{kind}", payload, timeout=3)
+
 TICKETS_DIR = Path(__file__).resolve().parent.parent / "tickets"
 
 
@@ -89,6 +97,8 @@ def cmd_comment(args) -> int:
             # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)
             T.write_header_updates(path, {"next": args.next}, stamp_updated=False)
         moved = T.compact_log(path)
+    kind = "статус" if not args.next else "вопрос_владельцу" if args.next == "ceo" else "сдано"
+    bus_emit(args.id, kind, {"author": args.author, "next": args.next or ""})
     print(f"дописано в {path}" + (f"; next: {args.next}" if args.next else "")
           + (f"; в архив перенесено записей: {moved}" if moved else ""))
     return 0
@@ -133,6 +143,7 @@ def cmd_wait(args) -> int:
     except ValueError as e:
         print(e, file=sys.stderr)
         return 1
+    bus_emit(args.id, "статус", {"status": "waiting", "wait_for": spec})
     print(f"{args.id}: status: waiting, wait_for: {spec}")
     return 0
 

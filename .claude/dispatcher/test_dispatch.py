@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dispatch as D  # noqa: E402
 import ticket as T  # noqa: E402
+os.environ["ALPHA_BUS_DISABLE"] = "1"  # тесты не шлют события на живую шину (TK-045)
 import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
 
 TZ = timezone(timedelta(hours=4))  # GMT+4 (память проекта)

@@ -1,0 +1,14 @@
+[Unit]
+Description=alpha team event bus (TK-045)
+After=network-online.target
+
+[Service]
+ExecStartPre=/usr/bin/mkdir -p /opt/alpha-compute/bus/data
+ExecStart=/usr/bin/python3 /opt/alpha-compute/bus/bus.py --port 8788 --db /opt/alpha-compute/bus/data/bus.db --routes /opt/alpha-compute/bus/routes.json --token-file /opt/alpha-compute/bus/token
+Restart=always
+RestartSec=2
+CPUQuota=5%
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target
