@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""TK-046: сверка rounds.csv суток новым домом с декой — по общим монетам, строки побайтно. python3 tk046-cmp.py <сутки>"""
+"""TK-046: сверка rounds.csv суток новым домом с декой — по общим монетам, строки побайтно. [MON=aug|jan|feb] python3 tk046-cmp.py <сутки>"""
 import csv, glob, os, sys, collections
-day = sys.argv[1]
-M = "/data/tk046/aug/home/alpha/epochs/e-aug/b5"; D = "/home/deck/alpha/epochs/e-aug/b5"
+day = sys.argv[1]; MON = os.environ.get("MON", "aug")
+M = f"/data/tk046/{MON}/home/alpha/epochs/e-{MON}/b5"; D = f"/home/deck/alpha/epochs/e-{MON}/b5"
 def load(p):
     with open(p, newline="") as f:
         lines = [l for l in f if not l.startswith("#")]

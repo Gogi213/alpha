@@ -45,11 +45,11 @@ def merge_script(script, day, extra_path, binname):
         if not c.startswith(pre):
             raise SystemExit(f"{day}: отрезок {k}: строка 3 не bounce-grid")
         c = re.sub(r" > b5/\S+ 2>&1$", "", c[len(pre):])
-        extra.append(re.sub(r"--out-dir b5/\S+", f"--out-dir b5/.m{k}tmp", c))
+        extra.append(re.sub(r"--out-dir b5/\S+", f"--out-dir b5/.m{k}tmp-{day}", c))
     out = list(segs[0])
     out[2] = re.sub(r" > b5/", f" --extra-runs {extra_path} > b5/", out[2], count=1)
     for k, old in ((2, f".t9tmp-touch-{day}"), (3, f".cellstmp-{day}")):
-        out += [ln.replace(old, f".m{k}tmp") for ln in segs[k - 1][3:] if not ln.startswith("cp ")]
+        out += [ln.replace(old, f".m{k}tmp-{day}") for ln in segs[k - 1][3:] if not ln.startswith("cp ")]
     text = NL.join(out)
     return text.replace(OLDBIN, f"bin/{binname}"), NL.join(extra) + NL
 
@@ -66,6 +66,7 @@ def main():
     pc.SIGMA_FROM = T9.P.SIGMA_FROM = f"{home}/study/sigma240"
     ja.cell_done = lambda *a: False  # деки уже считали 4 формы на части суток янв/мар/апр — на VPS пересчёт всех клеток (ворота)
     pc.day_done = lambda *a: False
+    ja.j9_owned = lambda *a: False  # метки j9-*.queued с деки (июль) отдавали клетки j9 «чужому заданию» → 2 отрезка вместо 3
     total = 0
     for day in days:
         old, appr, touch = ja.cells_for(mon, home, day)

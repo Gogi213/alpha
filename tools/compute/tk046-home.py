@@ -2,16 +2,18 @@
 """TK-046: дом августа для полного пула v171b на сервере счёта: /data/tk046/aug/home/alpha/epochs/e-aug
 (root/, root-<сутки>/, study/{approaches,ax}/D20, sigma240, regime) — симлинки на бинлоги и подходы (старые монеты —
 деки/сервера, новые — /data/tk046/aug/study), regime заново по всему пулу. Набор монето-суток = август в вердикте TK-044.
-    python3 tk046-home.py [verdict.csv]      # затем: cd <E>; HOME=<дом> python3 p07-all-month.py aug --merge --bin alpha-tk044k1-new
+    python3 tk046-home.py [verdict.csv [aug|jan|feb]]      # затем: cd <E>; HOME=<дом> python3 p07-all-month.py aug --merge --bin alpha-tk044k1-new
 """
 import csv, glob, os, shutil, subprocess, sys
 
+MON = sys.argv[2] if len(sys.argv) > 2 else "aug"
+YM = {"jan": "2026-01", "feb": "2026-02", "aug": "2026-08"}[MON]
 VERDICT = sys.argv[1] if len(sys.argv) > 1 else "/data/tk044/final3/verdict.csv"
-HOME = "/data/tk046/aug/home"
-E = f"{HOME}/alpha/epochs/e-aug"
-OLDR = "/data/alpha/epochs/e-aug/root"
-OLDS = "/home/deck/alpha/epochs/e-aug/study"
-NEWS = "/data/tk046/aug/study"
+HOME = f"/data/tk046/{MON}/home"
+E = f"{HOME}/alpha/epochs/e-{MON}"
+OLDR = f"/data/alpha/epochs/e-{MON}/root"
+OLDS = f"/home/deck/alpha/epochs/e-{MON}/study"
+NEWS = f"/data/tk046/{MON}/study"
 KINDS = ("approaches-{}.csv", "touches-{}.csv", "mids1m-{}.csv", "{}.log")
 
 
@@ -22,14 +24,14 @@ def link(src, dst):
 
 
 new = {}
-for ln in open("/data/tk046/aug-new.txt"):
+for ln in open(f"/data/tk046/{MON}-new.txt"):
     s, d, p = ln.split()
     new[(s, d)] = p
 rows = []
 for r in csv.DictReader(open(VERDICT)):
-    if r["day"].startswith("2026-08"):
+    if r["day"].startswith(YM):
         rows.append((r["sym"], r["day"]))
-print("монето-суток в вердикте (август):", len(rows), "новых:", sum(1 for k in rows if k in new))
+print("монето-суток в вердикте (месяц):", len(rows), "новых:", sum(1 for k in rows if k in new))
 
 shutil.rmtree(E, ignore_errors=True)
 os.makedirs(f"{E}/root"); os.makedirs(f"{E}/bin"); os.makedirs(f"{E}/study/sigma240"); os.makedirs(f"{E}/study/regime")
@@ -99,6 +101,6 @@ for d in sorted(byday):
     subprocess.run(["python3", "/opt/alpha-compute/bin/regime.py", "--day", d, "--touches", "study/ax/D20",
                     "--regime-dir", "study/regime"], cwd=E, check=True, stdout=subprocess.DEVNULL)
 print("дней:", len(byday), "монет:", len(bysym), "пропусков:", len(missing))
-with open("/data/tk046/aug/home-missing.txt", "w") as f:
+with open(f"/data/tk046/{MON}/home-missing.txt", "w") as f:
     for m in missing:
         f.write(" ".join(m) + "\n")
