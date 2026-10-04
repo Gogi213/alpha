@@ -211,6 +211,10 @@ struct GridRun<'a> {
 }
 
 pub fn run_bounce_grid(args: &BounceGridArgs) -> anyhow::Result<BounceGridSummary> {
+    if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+        crate::lob::backtest::fast_depth::BAND_STATS_ON
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let Some(path) = args.extra_runs.as_deref() else {
         let mut run = GridRun::new(args)?;
         for symbol in run.symbols.clone() {
@@ -808,6 +812,29 @@ impl<'a> GridRun<'a> {
             }
             let step_schedule = read_day_schedule(day_parts, tick_e9, step_e9)
                 .map_err(|e| anyhow::anyhow!("{symbol} {}: {e}", day.day))?;
+            // TK-049: урезанная лента суток — один раз на монето-сутки; без смены шага цены и только по окнам.
+            let trim_band: Option<i64> = std::env::var("ALPHA_TRIM_ROWS")
+                .ok()
+                .and_then(|v| v.parse().ok());
+            let kept: Vec<u32> = match (trim_band, rows, windows.as_ref(), step_schedule.as_ref()) {
+                (Some(b), DayRows::Compact(c), Some(_), None) => {
+                    let started = std::time::Instant::now();
+                    let k = crate::lob::backtest::kept_rows(c, tick, lot, b);
+                    eprintln!(
+                        "bounce-grid:   урезанная лента (полоса {b}): {} из {} строк ({:.1} %) · {:.2}s",
+                        k.len(),
+                        c.len(),
+                        100.0 * k.len() as f64 / c.len().max(1) as f64,
+                        started.elapsed().as_secs_f64()
+                    );
+                    k
+                }
+                _ => Vec::new(),
+            };
+            let rows = match rows {
+                DayRows::Compact(c) if !kept.is_empty() => DayRows::Trimmed(c, &kept),
+                r => r,
+            };
             let mut order_qtys = sizing.touch_qtys(&day.touches, tick_e9, args.order_qty_mult);
             if let Some(sc) = step_schedule.as_ref() {
                 // В-172: размер ордера кратен лоту, действовавшему в момент касания (вверх — минимум не нарушаем).
@@ -944,6 +971,19 @@ impl<'a> GridRun<'a> {
                         "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
                         g(&crate::lob::backtest::STEP_KINDS)
                     );
+                    eprintln!(
+                        "bounce-grid:   классы обновлений глубины (сдвиг лучшей/на лучшей/на стене/1..3 от лучшей/прочее/±3 от стены): {}",
+                        g(&crate::lob::backtest::fast_depth::DEPTH_ROW_CLASS)
+                    );
+                    for (name, row) in ["вход", "выход-лимит"]
+                        .iter()
+                        .zip(&crate::lob::backtest::fast_depth::ORDER_DIST)
+                    {
+                        eprintln!(
+                            "bounce-grid:   заявки {name} по удалению от лучшей (пересекает/0/1..3/4..10/>10 тиков): {}",
+                            g(row)
+                        );
+                    }
                     eprintln!(
                         "bounce-grid:   строки глубины по удалению от лучшей (≤3/≤10/≤30/дальше тиков): {}",
                         g(&crate::lob::backtest::fast_depth::DEPTH_ROW_BANDS)
