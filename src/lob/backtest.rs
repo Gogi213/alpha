@@ -1531,7 +1531,8 @@ where
     let mut decided_in_hold = false;
     let ev_steps = event_steps();
     let mut stable = false;
-    let mut solo_sig: Option<[u64; 4]> = None;
+    let skip_on = skip_same();
+    let mut solo_sig = SigMemo::default();
     loop {
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
         // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
@@ -1614,8 +1615,16 @@ where
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         let mark_before = state.phase_mark();
-        note_sig(&mut solo_sig, state.hold_input_sig(bot.depth(asset_no)));
-        let action = on_event(bot, state)?;
+        let skip = skip_on
+            && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+        let action = if skip {
+            Action::Idle
+        } else {
+            on_event(bot, state)?
+        };
+        if skip_on && !matches!(action, Action::Idle) {
+            solo_sig.reset();
+        }
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
         match action {
@@ -2103,7 +2112,8 @@ where
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
-    let mut sigs: Vec<Option<[u64; 4]>> = vec![None; n];
+    let skip_on = skip_same();
+    let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
@@ -2214,8 +2224,17 @@ where
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
             let mark_before = states[i].phase_mark();
-            note_sig(&mut sigs[i], states[i].hold_input_sig(bot.depth(asset_no)));
-            let act = on_event(bot, &mut states[i])?;
+            let skip = skip_on
+                && sigs[i]
+                    .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+            let act = if skip {
+                Action::Idle
+            } else {
+                on_event(bot, &mut states[i])?
+            };
+            if skip_on && !matches!(act, Action::Idle) {
+                sigs[i].reset();
+            }
             stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
             match act {
                 Action::ExitSubmitted {
@@ -2774,17 +2793,47 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
 
-/// Замер TK-050: вызовы `on_event` в удержании по входам решения (0 — те же, что на прошлом вызове, 1 — изменились, 2 — первый вызов/вне удержания).
-pub static SIG_KINDS: [std::sync::atomic::AtomicU64; 3] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+/// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
+/// тех же входах повторяется; умолчание — зовём на каждом шаге.
+fn skip_same() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
+}
 
-fn note_sig(prev: &mut Option<[u64; 4]>, now: Option<[u64; 4]>) {
-    let k = match (*prev, now) {
-        (Some(a), Some(b)) => usize::from(a != b),
-        _ => 2,
-    };
-    SIG_KINDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    *prev = now;
+/// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).
+pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Подпись входов последнего вызова круга и число её повторов: пропуск — со второго повтора (первый повтор
+/// доводит накопители состояния до неподвижной точки).
+#[derive(Clone, Copy, Default)]
+struct SigMemo {
+    sig: Option<[u64; 5]>,
+    reps: u8,
+}
+
+impl SigMemo {
+    /// Можно ли пропустить вызов на этих входах.
+    fn skip(&mut self, now: Option<[u64; 5]>) -> bool {
+        match now {
+            Some(s) if self.sig == Some(s) => {
+                let skip = self.reps >= 1;
+                self.reps = self.reps.saturating_add(1);
+                if skip {
+                    SIG_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                skip
+            }
+            other => {
+                self.sig = other;
+                self.reps = 0;
+                false
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        self.sig = None;
+    }
 }
 
 fn note_attempt(attempt: u32, rows: usize) {

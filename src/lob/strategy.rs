@@ -1497,14 +1497,26 @@ impl StrategyState {
         })
     }
 
-    /// Замер TK-050: подпись входов решения удержания (лучшие цены, объём стены, съеденное сделками) —
-    /// `None` вне `Holding` плана `Bounce`.
-    pub fn hold_input_sig<MD: MarketDepth>(&self, depth: &MD) -> Option<[u64; 4]> {
-        let (Phase::Holding { .. }, TradePlan::Bounce { level_px, tick_px, .. }) =
-            (self.phase, self.plan)
+    /// Подпись входов решения удержания (TK-050): лучшие цены, объём стены, съеденное сделками и класс
+    /// времени (пройдены ли пороги досрочного выхода и дедлайна). `None` — вне `Holding` плана `Bounce`,
+    /// а также с сиротами и кольцом стены (там решение читает больше входов).
+    pub fn hold_input_sig<MD: MarketDepth>(&self, depth: &MD, now: i64) -> Option<[u64; 5]> {
+        let (
+            Phase::Holding { entry_ns },
+            TradePlan::Bounce {
+                level_px,
+                tick_px,
+                deadline_ns,
+                early_exit_ns,
+                ..
+            },
+        ) = (self.phase, self.plan)
         else {
             return None;
         };
+        if self.has_orphans() || self.wall_ring.is_some() {
+            return None;
+        }
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
         #[allow(clippy::cast_possible_truncation)]
         let lt = if tick_px > 0.0 && level_px > 0.0 {
@@ -1512,12 +1524,21 @@ impl StrategyState {
         } else {
             0
         };
-        let q = match self.sigma {
-            s if s == crate::lob::backtest::SIGMA_LONG => depth.bid_qty_at_tick(lt),
-            _ => depth.ask_qty_at_tick(lt),
+        let q = if self.sigma == crate::lob::backtest::SIGMA_LONG {
+            depth.bid_qty_at_tick(lt)
+        } else {
+            depth.ask_qty_at_tick(lt)
         };
+        let early = early_exit_ns > 0 && now.saturating_sub(entry_ns) >= early_exit_ns;
+        let late = now.saturating_sub(entry_ns) >= deadline_ns;
         #[allow(clippy::cast_sign_loss)]
-        Some([bid as u64, ask as u64, q.to_bits(), self.eaten_qty.to_bits()])
+        Some([
+            bid as u64,
+            ask as u64,
+            q.to_bits(),
+            self.eaten_qty.to_bits(),
+            u64::from(early) | u64::from(late) << 1,
+        ])
     }
 
     /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
