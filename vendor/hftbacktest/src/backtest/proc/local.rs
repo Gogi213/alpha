@@ -74,6 +74,15 @@ where
         }
     }
 
+    /// Trade buffer and feed latency of a row, without touching the book (the book of a shared
+    /// engine is updated once by the engine itself).
+    pub fn apply_feed(&mut self, ev: &Event) {
+        if ev.is(LOCAL_TRADE_EVENT) && self.trades.capacity() > 0 {
+            self.trades.push(ev.clone());
+        }
+        self.last_feed_latency = Some((ev.exch_ts, ev.local_ts));
+    }
+
     pub fn process_recv_order_<const USE_HANDLER: bool, Handler>(
         &mut self,
         timestamp: i64,
@@ -299,14 +308,7 @@ where
         } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
             self.depth.update_ask_depth(ev.px, ev.qty, ev.local_ts);
         }
-        // Processes a trade event
-        else if ev.is(LOCAL_TRADE_EVENT) && self.trades.capacity() > 0 {
-            self.trades.push(ev.clone());
-        }
-
-        // Stores the current feed latency
-        self.last_feed_latency = Some((ev.exch_ts, ev.local_ts));
-
+        self.apply_feed(ev);
         Ok(())
     }
 
