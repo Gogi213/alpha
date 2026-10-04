@@ -47,6 +47,7 @@ struct Req {
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum Cs {
+    Unborn,
     Running,
     Waiting,
     Done,
@@ -73,6 +74,20 @@ where
     eod: bool,
     slot_ts: [i64; 3],
     slot_ver: [u32; 3],
+    start: Option<i64>,
+    data_end: Option<i64>,
+}
+
+impl<AT, LM, QM, FM> Circle<AT, LM, QM, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    fn live(&self) -> bool {
+        matches!(self.cs, Cs::Running | Cs::Waiting)
+    }
 }
 
 const S_LO: usize = 0;
@@ -116,6 +131,11 @@ where
 
     pub fn depth(&self) -> &SharedDepth {
         &self.depth
+    }
+
+    /// Конец данных: меньшая из меток последней строки ленты (как `data_end` окна).
+    pub fn data_end(&self) -> Option<i64> {
+        self.c().data_end
     }
 
     pub fn position(&self) -> f64 {
@@ -408,6 +428,7 @@ where
     cos: Vec<Option<Co<R>>>,
     heap: BinaryHeap<Key>,
     results: Vec<(u32, R)>,
+    m_cursor: usize,
 }
 
 impl<AT, LM, QM, FM, R> MultiEngine<AT, LM, QM, FM, R>
@@ -440,12 +461,66 @@ where
             cos: Vec::new(),
             heap: BinaryHeap::new(),
             results: Vec::new(),
+            m_cursor: 0,
         }
     }
 
     /// Добавить круг; `body` получает руку круга и возвращает результат круга.
     pub fn add_circle<F>(
         &mut self,
+        asset_type: AT,
+        fee_model: FM,
+        order_latency: LM,
+        queue_model: QM,
+        last_trades_cap: usize,
+        body: F,
+    ) -> std::io::Result<u32>
+    where
+        F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
+    {
+        self.add_circle_inner(
+            None,
+            asset_type,
+            fee_model,
+            order_latency,
+            queue_model,
+            last_trades_cap,
+            body,
+        )
+    }
+
+    /// Круг, рождённый на `t0`: до `t0` он ленты не видит, на `t0` (после всех строк с метками `<= t0`)
+    /// его часы = `t0`, и он идёт как окно сигнала (`with_backtest_over_window`): строки «через `t0`»
+    /// (одна метка `<= t0`, другая нет) его `Local` добирает так же, как окно.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_circle_at<F>(
+        &mut self,
+        t0: i64,
+        asset_type: AT,
+        fee_model: FM,
+        order_latency: LM,
+        queue_model: QM,
+        last_trades_cap: usize,
+        body: F,
+    ) -> std::io::Result<u32>
+    where
+        F: FnOnce(CircleCtx<AT, LM, QM, FM>) -> R + 'static,
+    {
+        self.add_circle_inner(
+            Some(t0),
+            asset_type,
+            fee_model,
+            order_latency,
+            queue_model,
+            last_trades_cap,
+            body,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_circle_inner<F>(
+        &mut self,
+        start: Option<i64>,
         asset_type: AT,
         fee_model: FM,
         order_latency: LM,
@@ -477,7 +552,11 @@ where
             first_ts: self.first_ts,
             req: None,
             out: ElapseResult::Ok,
-            cs: Cs::Running,
+            cs: if start.is_some() {
+                Cs::Unborn
+            } else {
+                Cs::Running
+            },
             wnf: false,
             wait: WaitOrderResponse::None,
             bound: i64::MAX,
@@ -485,6 +564,8 @@ where
             eod: false,
             slot_ts: [i64::MAX; 3],
             slot_ver: [0; 3],
+            start,
+            data_end: self.rows.last().map(|e| e.local_ts.min(e.exch_ts)),
         });
         let ptr: *mut Circle<AT, LM, QM, FM> = &mut *c;
         let id = self.circles.len() as u32;
@@ -592,6 +673,41 @@ where
         }
     }
 
+    /// Рождение круга на `t0` (все строки с метками `<= t0` ленты уже в общих книгах). Окно сигнала до
+    /// первого `elapse` отдаёт `Local` якорь `(t0, t0)` и строки `[m..)` с `local_ts <= t0` (`m` — первая
+    /// строка с любой меткой `> t0`); здесь то же самое, строки — те, что лента уже прошла.
+    fn birth(&mut self, id: usize, t0: i64) {
+        while self.m_cursor < self.rows.len() {
+            let e = &self.rows[self.m_cursor];
+            if e.local_ts <= t0 && e.exch_ts <= t0 {
+                self.m_cursor += 1;
+            } else {
+                break;
+            }
+        }
+        let end = self.local_row.unwrap_or(0).min(self.rows.len());
+        self.set_slot(id, S_WAKE, i64::MAX);
+        let c = &mut self.circles[id];
+        c.cs = Cs::Running;
+        c.cur_ts = t0;
+        c.local.apply_feed(&Event {
+            ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
+            exch_ts: t0,
+            local_ts: t0,
+            px: 0.0,
+            qty: 0.0,
+            order_id: 0,
+            ival: 0,
+            fval: 0.0,
+        });
+        for e in &self.rows[self.m_cursor.min(end)..end] {
+            if e.is(LOCAL_EVENT) {
+                c.local.apply_feed(e);
+            }
+        }
+        self.resume(id, t0);
+    }
+
     fn process_local(&mut self, ev: &Event) {
         if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT) {
             self.local_book.clear_depth(Side::Buy, ev.px);
@@ -604,7 +720,7 @@ where
         } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
             self.local_book.update_ask_depth(ev.px, ev.qty, ev.local_ts);
         }
-        for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+        for c in self.circles.iter_mut().filter(|c| c.live()) {
             c.local.apply_feed(ev);
         }
     }
@@ -618,20 +734,20 @@ where
             self.exch_book.clear_depth(Side::None, 0.0);
         } else if ev.is(EXCH_BID_DEPTH_EVENT) || ev.is(EXCH_BID_DEPTH_SNAPSHOT_EVENT) {
             let (t, pb, b, pq, nq, ts) = self.exch_book.update_bid_depth(ev.px, ev.qty, ev.exch_ts);
-            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+            for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_bid_delta(t, pb, b, pq, nq, ts)?;
             }
         } else if ev.is(EXCH_ASK_DEPTH_EVENT) || ev.is(EXCH_ASK_DEPTH_SNAPSHOT_EVENT) {
             let (t, pb, b, pq, nq, ts) = self.exch_book.update_ask_depth(ev.px, ev.qty, ev.exch_ts);
-            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+            for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_ask_delta(t, pb, b, pq, nq, ts)?;
             }
         } else if ev.is(EXCH_BUY_TRADE_EVENT) {
-            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+            for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_buy_trade(ev)?;
             }
         } else if ev.is(EXCH_SELL_TRADE_EVENT) {
-            for c in self.circles.iter_mut().filter(|c| c.cs != Cs::Done) {
+            for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_sell_trade(ev)?;
             }
         }
@@ -642,7 +758,10 @@ where
         while let Some(&Reverse((ts, _, id, tag))) = self.heap.peek() {
             let (slot, ver) = ((tag % 4) as usize, tag / 4);
             let c = &self.circles[id as usize];
-            if c.slot_ver[slot] == ver && c.slot_ts[slot] == ts && c.cs == Cs::Waiting {
+            if c.slot_ver[slot] == ver
+                && c.slot_ts[slot] == ts
+                && matches!(c.cs, Cs::Waiting | Cs::Unborn)
+            {
                 break;
             }
             self.heap.pop();
@@ -654,7 +773,10 @@ where
         self.ev_ld = self.advance_local();
         self.ev_ed = self.advance_exch();
         for id in 0..self.circles.len() {
-            self.resume(id, self.first_ts);
+            match self.circles[id].start {
+                None => self.resume(id, self.first_ts),
+                Some(t0) => self.set_slot(id, S_WAKE, t0),
+            }
         }
         loop {
             self.drop_stale();
@@ -732,6 +854,9 @@ where
                     self.set_slot(id, S_EO, eo);
                     self.set_slot(id, S_LO, lo);
                     self.check_end(id, ts);
+                }
+                _ if self.circles[id].cs == Cs::Unborn => {
+                    self.birth(id, ts);
                 }
                 _ => {
                     let c = &mut self.circles[id];
