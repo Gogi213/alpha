@@ -752,6 +752,107 @@ where
     }
 }
 
+/// Действие строки на заявки круга, отделённое от обновления книги (общий проход TK-049): книгу
+/// обновляет один раз ведущий, круг получает кортеж `update_*_depth` и сделки ленты. `process` — их композиция.
+impl<AT, LM, QM, MD, FM> PartialFillExchange<AT, LM, QM, MD, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<MD>,
+    MD: MarketDepth + L2MarketDepth,
+    FM: FeeModel,
+{
+    pub fn apply_bid_delta(
+        &mut self,
+        price_tick: i64,
+        prev_best_bid_tick: i64,
+        best_bid_tick: i64,
+        prev_qty: f64,
+        new_qty: f64,
+        timestamp: i64,
+    ) -> Result<(), BacktestError> {
+        self.on_bid_qty_chg(price_tick, prev_qty, new_qty);
+        if best_bid_tick > prev_best_bid_tick {
+            self.on_best_bid_update(prev_best_bid_tick, best_bid_tick, timestamp)?;
+        }
+        Ok(())
+    }
+
+    pub fn apply_ask_delta(
+        &mut self,
+        price_tick: i64,
+        prev_best_ask_tick: i64,
+        best_ask_tick: i64,
+        prev_qty: f64,
+        new_qty: f64,
+        timestamp: i64,
+    ) -> Result<(), BacktestError> {
+        self.on_ask_qty_chg(price_tick, prev_qty, new_qty);
+        if best_ask_tick < prev_best_ask_tick {
+            self.on_best_ask_update(prev_best_ask_tick, best_ask_tick, timestamp)?;
+        }
+        Ok(())
+    }
+
+    pub fn apply_buy_trade(&mut self, event: &Event) -> Result<(), BacktestError> {
+        let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
+        let qty = event.qty;
+        {
+            let orders = self.orders.clone();
+            let mut orders_borrowed = orders.borrow_mut();
+            if self.depth.best_bid_tick() == INVALID_MIN
+                || (orders_borrowed.len() as i64) < price_tick - self.depth.best_bid_tick()
+            {
+                for (_, order) in orders_borrowed.iter_mut() {
+                    if order.side == Side::Sell {
+                        self.check_if_sell_filled(order, price_tick, qty, event.exch_ts)?;
+                    }
+                }
+            } else {
+                for t in (self.depth.best_bid_tick() + 1)..=price_tick {
+                    if let Some(order_ids) = self.sell_orders.get(&t) {
+                        for order_id in order_ids.clone().iter() {
+                            let order = orders_borrowed.get_mut(order_id).unwrap();
+                            self.check_if_sell_filled(order, price_tick, qty, event.exch_ts)?;
+                        }
+                    }
+                }
+            }
+        }
+        self.remove_filled_orders();
+        Ok(())
+    }
+
+    pub fn apply_sell_trade(&mut self, event: &Event) -> Result<(), BacktestError> {
+        let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
+        let qty = event.qty;
+        {
+            let orders = self.orders.clone();
+            let mut orders_borrowed = orders.borrow_mut();
+            if self.depth.best_ask_tick() == INVALID_MAX
+                || (orders_borrowed.len() as i64) < self.depth.best_ask_tick() - price_tick
+            {
+                for (_, order) in orders_borrowed.iter_mut() {
+                    if order.side == Side::Buy {
+                        self.check_if_buy_filled(order, price_tick, qty, event.exch_ts)?;
+                    }
+                }
+            } else {
+                for t in (price_tick..self.depth.best_ask_tick()).rev() {
+                    if let Some(order_ids) = self.buy_orders.get(&t) {
+                        for order_id in order_ids.clone().iter() {
+                            let order = orders_borrowed.get_mut(order_id).unwrap();
+                            self.check_if_buy_filled(order, price_tick, qty, event.exch_ts)?;
+                        }
+                    }
+                }
+            }
+        }
+        self.remove_filled_orders();
+        Ok(())
+    }
+}
+
 impl<AT, LM, QM, MD, FM> Processor for PartialFillExchange<AT, LM, QM, MD, FM>
 where
     AT: AssetType,
@@ -775,70 +876,30 @@ where
             let (price_tick, prev_best_bid_tick, best_bid_tick, prev_qty, new_qty, timestamp) =
                 self.depth
                     .update_bid_depth(event.px, event.qty, event.exch_ts);
-            self.on_bid_qty_chg(price_tick, prev_qty, new_qty);
-            if best_bid_tick > prev_best_bid_tick {
-                self.on_best_bid_update(prev_best_bid_tick, best_bid_tick, timestamp)?;
-            }
+            self.apply_bid_delta(
+                price_tick,
+                prev_best_bid_tick,
+                best_bid_tick,
+                prev_qty,
+                new_qty,
+                timestamp,
+            )?;
         } else if event.is(EXCH_ASK_DEPTH_EVENT) || event.is(EXCH_ASK_DEPTH_SNAPSHOT_EVENT) {
             let (price_tick, prev_best_ask_tick, best_ask_tick, prev_qty, new_qty, timestamp) =
                 self.depth
                     .update_ask_depth(event.px, event.qty, event.exch_ts);
-            self.on_ask_qty_chg(price_tick, prev_qty, new_qty);
-            if best_ask_tick < prev_best_ask_tick {
-                self.on_best_ask_update(prev_best_ask_tick, best_ask_tick, timestamp)?;
-            }
+            self.apply_ask_delta(
+                price_tick,
+                prev_best_ask_tick,
+                best_ask_tick,
+                prev_qty,
+                new_qty,
+                timestamp,
+            )?;
         } else if event.is(EXCH_BUY_TRADE_EVENT) {
-            let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
-            let qty = event.qty;
-            {
-                let orders = self.orders.clone();
-                let mut orders_borrowed = orders.borrow_mut();
-                if self.depth.best_bid_tick() == INVALID_MIN
-                    || (orders_borrowed.len() as i64) < price_tick - self.depth.best_bid_tick()
-                {
-                    for (_, order) in orders_borrowed.iter_mut() {
-                        if order.side == Side::Sell {
-                            self.check_if_sell_filled(order, price_tick, qty, event.exch_ts)?;
-                        }
-                    }
-                } else {
-                    for t in (self.depth.best_bid_tick() + 1)..=price_tick {
-                        if let Some(order_ids) = self.sell_orders.get(&t) {
-                            for order_id in order_ids.clone().iter() {
-                                let order = orders_borrowed.get_mut(order_id).unwrap();
-                                self.check_if_sell_filled(order, price_tick, qty, event.exch_ts)?;
-                            }
-                        }
-                    }
-                }
-            }
-            self.remove_filled_orders();
+            self.apply_buy_trade(event)?;
         } else if event.is(EXCH_SELL_TRADE_EVENT) {
-            let price_tick = (event.px / self.depth.tick_size()).round_ha() as i64;
-            let qty = event.qty;
-            {
-                let orders = self.orders.clone();
-                let mut orders_borrowed = orders.borrow_mut();
-                if self.depth.best_ask_tick() == INVALID_MAX
-                    || (orders_borrowed.len() as i64) < self.depth.best_ask_tick() - price_tick
-                {
-                    for (_, order) in orders_borrowed.iter_mut() {
-                        if order.side == Side::Buy {
-                            self.check_if_buy_filled(order, price_tick, qty, event.exch_ts)?;
-                        }
-                    }
-                } else {
-                    for t in (price_tick..self.depth.best_ask_tick()).rev() {
-                        if let Some(order_ids) = self.buy_orders.get(&t) {
-                            for order_id in order_ids.clone().iter() {
-                                let order = orders_borrowed.get_mut(order_id).unwrap();
-                                self.check_if_buy_filled(order, price_tick, qty, event.exch_ts)?;
-                            }
-                        }
-                    }
-                }
-            }
-            self.remove_filled_orders();
+            self.apply_sell_trade(event)?;
         }
 
         Ok(())
