@@ -101,10 +101,10 @@ where
     }
 }
 
-const ST_N: usize = 12;
+const ST_N: usize = 17;
 const ST_NAMES: [&str; ST_N] = [
     "rows_local", "rows_exch", "deliv_local", "deliv_exch", "births", "mk_calls", "pop_lo", "pop_eo", "pop_birth",
-    "pop_wake", "stale_pops", "wnf_wakes",
+    "pop_wake", "stale_pops", "wnf_wakes", "ns_local", "ns_exch", "ns_resume", "upd_local", "upd_exch",
 ];
 
 const S_LO: usize = 0;
@@ -465,6 +465,7 @@ where
     results: Vec<(u32, R)>,
     m_cursor: usize,
     st: [u64; ST_N],
+    timed: bool,
 }
 
 impl<AT, LM, QM, FM, R> MultiEngine<AT, LM, QM, FM, R>
@@ -499,6 +500,7 @@ where
             results: Vec::new(),
             m_cursor: 0,
             st: [0; ST_N],
+            timed: std::env::var_os("ALPHA_SHARED_STATS").is_some(),
         }
     }
 
@@ -756,7 +758,11 @@ where
 
     fn resume(&mut self, id: usize, now: i64) {
         self.circles[id].cs = Cs::Running;
+        let t = self.timed.then(std::time::Instant::now);
         let r = self.cos[id].as_mut().expect("круг жив").resume(());
+        if let Some(t) = t {
+            self.st[14] += t.elapsed().as_nanos() as u64;
+        }
         match r {
             CoroutineResult::Yield(()) => self.register(id, now),
             CoroutineResult::Return(r) => {
@@ -827,8 +833,10 @@ where
         } else if ev.is(LOCAL_DEPTH_CLEAR_EVENT) {
             self.local_book.clear_depth(Side::None, 0.0);
         } else if ev.is(LOCAL_BID_DEPTH_EVENT) || ev.is(LOCAL_BID_DEPTH_SNAPSHOT_EVENT) {
+            self.st[15] += 1;
             self.local_book.update_bid_depth(ev.px, ev.qty, ev.local_ts);
         } else if ev.is(LOCAL_ASK_DEPTH_EVENT) || ev.is(LOCAL_ASK_DEPTH_SNAPSHOT_EVENT) {
+            self.st[15] += 1;
             self.local_book.update_ask_depth(ev.px, ev.qty, ev.local_ts);
         }
         self.st[0] += 1;
@@ -848,11 +856,13 @@ where
         } else if ev.is(EXCH_DEPTH_CLEAR_EVENT) {
             self.exch_book.clear_depth(Side::None, 0.0);
         } else if ev.is(EXCH_BID_DEPTH_EVENT) || ev.is(EXCH_BID_DEPTH_SNAPSHOT_EVENT) {
+            self.st[16] += 1;
             let (t, pb, b, pq, nq, ts) = self.exch_book.update_bid_depth(ev.px, ev.qty, ev.exch_ts);
             for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_bid_delta(t, pb, b, pq, nq, ts)?;
             }
         } else if ev.is(EXCH_ASK_DEPTH_EVENT) || ev.is(EXCH_ASK_DEPTH_SNAPSHOT_EVENT) {
+            self.st[16] += 1;
             let (t, pb, b, pq, nq, ts) = self.exch_book.update_ask_depth(ev.px, ev.qty, ev.exch_ts);
             for c in self.circles.iter_mut().filter(|c| c.live()) {
                 c.exch.apply_ask_delta(t, pb, b, pq, nq, ts)?;
@@ -911,7 +921,11 @@ where
                 let now = feed_ts;
                 if feed_kind == K_LOCAL_DATA {
                     let ev = self.rows[self.local_row.expect("строка")].clone();
+                    let t = self.timed.then(std::time::Instant::now);
                     self.process_local(&ev);
+                    if let Some(t) = t {
+                        self.st[12] += t.elapsed().as_nanos() as u64;
+                    }
                     self.ev_ld = self.advance_local();
                     for id in 0..self.circles.len() {
                         let c = &mut self.circles[id];
@@ -924,7 +938,11 @@ where
                     }
                 } else {
                     let ev = self.rows[self.exch_row.expect("строка")].clone();
+                    let t = self.timed.then(std::time::Instant::now);
                     self.process_exch(&ev)?;
+                    if let Some(t) = t {
+                        self.st[13] += t.elapsed().as_nanos() as u64;
+                    }
                     self.ev_ed = self.advance_exch();
                     for id in 0..self.circles.len() {
                         if self.circles[id].cs == Cs::Waiting {
