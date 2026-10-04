@@ -41,6 +41,8 @@
 
 **Экран хода работ (одобрил владелец 04.10):** `python tools/pulse/pulse.py` (живой TUI, `--once` — один кадр; сборщик `collect.py` поднимается сам и раз в 5 с пишет `.claude/pulse/status.json`, остановка — файл `.claude/pulse/stop`; для Claude — MCP `tools/pulse/mcp_server.py`, инструмент `pulse_status`); долгая задача на машине пишет ход `alpha-progress <job> <TK-xx> <шаг> <done> <total> [ед.] [дальше]` (= `tools/compute/progress.sh`, установлен на счётном сервере и VPS → `/data/progress/<job>.json`).
 
+**Калибровка режима счёта до прогона дольше ~15 мин (В-178, `tools/compute/calibrate.sh`, на серверах — `/opt/alpha-compute/bin/`):** `bash calibrate.sh --units units.txt --cmd 'one "$1" "$2"' --done 'test -s out/$2.csv' --out /data/<job>/calib [--P 1,2,4,8,16] [--ra cur,16384] [--secs 150] [--quota 1500] [--quick]` — поля единицы = `$1 $2 …`; `--done` = единица уже сделана (результаты калибровки остаются настоящими), без него — во временный каталог; печатает таблицу и «лучший: P=…, readahead=… КБ», пишет `<out>/calibrate.tsv` (в запись тикета); readahead возвращается.
+
 ## Грабли
 
 - `--h3-mode floor|percentile` обязателен, умолчания нет — у `levels`, `markout`,
