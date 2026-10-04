@@ -400,13 +400,31 @@ impl VerifyStats {
 /// Книга с припаянными к ней счётчиками проверок 2-3 и точкой входа проверки 1.
 /// Разрыв последовательности считает и дальше не применяет: книга после разрыва
 /// недоверена, и это состояние видно в статистике, а не только в возврате.
+/// Быстрый хешер тиков для `ever_held`: только вставки и вхождение, порядок не нужен.
+#[derive(Default)]
+struct TickHasher(u64);
+
+impl std::hash::Hasher for TickHasher {
+    fn finish(&self) -> u64 {
+        self.0 ^ (self.0 >> 32)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+    fn write_i64(&mut self, v: i64) {
+        self.0 = (v as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
 pub struct Verifier {
     book: Book,
     stats: VerifyStats,
     /// Каждый тик, который книга держала хоть раз за время покрытия (ревизия
     /// 17б). Только вставки и проверки вхождения — порядок обхода не влияет
     /// ни на что, детерминизм A2 не задет. Память — тысячи distinct тиков.
-    ever_held: std::collections::HashSet<i64>,
+    ever_held: std::collections::HashSet<i64, std::hash::BuildHasherDefault<TickHasher>>,
     /// Метка биржи последнего применённого обновления, мс. Нужна, чтобы отличать
     /// «книга не успела» (окно троттлинга) от «книга видела, но не то».
     last_update_ms: i64,
@@ -427,7 +445,7 @@ impl Verifier {
         Self {
             book: Book::new(tick_e9, step_e9),
             stats: VerifyStats::default(),
-            ever_held: std::collections::HashSet::new(),
+            ever_held: std::collections::HashSet::default(),
             last_update_ms: 0,
             tick_e9,
             full_pass_next: true,
