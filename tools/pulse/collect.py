@@ -89,7 +89,9 @@ ROLE_RU = {"engineer": "Инженер", "researcher": "Исследовател
 ROLE_DO = {"engineer": "инженер пишет код", "researcher": "исследователь работает", "judge": "судья проверяет",
            "ceo": "CEO работает"}
 UNIT_DO = {"alpha-collector": "пишет стакан Bybit",
-           "alpha-board": "табло для владельца", "bridge.py": "табло для владельца"}  # веб-табло на счёте (tools/pulse/web)
+           "alpha-board": "табло для владельца", "bridge.py": "табло для владельца",  # веб-табло на счёте (tools/pulse/web)
+           "alpha-bus": "шина событий команды",  # TK-045, В-180: постоянные юниты шины (bus.py, watcher.py --host calc)
+           "alpha-bus-watcher": "шина: слежка за машиной"}
 MACH_ORDER = ("calc", "vps", "collector", "pc", "deck")
 # служебные процессы сборки cargo и закачки дерева (vps-check.sh): принадлежат задаче по держателю замка сборки
 BUILD_NAMES = {"rustc", "cargo", "flock", "nice", "set", "tar", "rm", "scp", "sftp-server", "cc", "ld", "rustfmt",
@@ -977,11 +979,11 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
                                         "text": None, "pct": None, "detail": None, "minutes": mins})
                 else:
                     warn(mid, f"без задачи: {name}")
-            elif name in legacy:
-                warn(mid, str(legacy[name]))
-            elif name in UNIT_DO:
+            elif name in UNIT_DO:  # постоянная служба — раньше legacy: «без хозяина» ей не бывает
                 entries.append({"tid": None, "mid": mid, "kind": "unit", "what": "", "eta": None, "text": UNIT_DO[name],
                                 "pct": None, "detail": None, "minutes": mins})
+            elif name in legacy:
+                warn(mid, str(legacy[name]))
             elif is_build_proc(name):
                 if not lock.get("busy") and mins >= 10:
                     warn(mid, f"без задачи: {name}")
