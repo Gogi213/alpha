@@ -189,33 +189,203 @@ where
         self.cm()
             .local
             .submit_order(order_id, side, price, qty, order_type, time_in_force, now)?;
+        Ok(self.after_order(order_id, wait))
+    }
+
+    fn after_order(&mut self, order_id: OrderId, wait: bool) -> ElapseResult {
         if wait {
-            return Ok(self.block(
+            return self.block(
                 false,
                 WaitOrderResponse::Specified {
                     asset_no: 0,
                     order_id,
                 },
                 UNTIL_END_OF_DATA,
-            ));
+            );
         }
-        Ok(ElapseResult::Ok)
+        ElapseResult::Ok
     }
 
     pub fn cancel(&mut self, order_id: OrderId, wait: bool) -> Result<ElapseResult, BacktestError> {
         let now = self.c().cur_ts;
         self.cm().local.cancel(order_id, now)?;
-        if wait {
-            return Ok(self.block(
-                false,
-                WaitOrderResponse::Specified {
-                    asset_no: 0,
-                    order_id,
-                },
-                UNTIL_END_OF_DATA,
-            ));
-        }
-        Ok(ElapseResult::Ok)
+        Ok(self.after_order(order_id, wait))
+    }
+}
+
+impl<AT, LM, QM, FM> hftbacktest::types::Bot<SharedDepth> for CircleCtx<AT, LM, QM, FM>
+where
+    AT: AssetType,
+    LM: LatencyModel,
+    QM: QueueModel<SharedDepth>,
+    FM: FeeModel,
+{
+    type Error = BacktestError;
+
+    fn current_timestamp(&self) -> i64 {
+        self.c().cur_ts
+    }
+
+    fn num_assets(&self) -> usize {
+        1
+    }
+
+    fn position(&self, _asset_no: usize) -> f64 {
+        self.c().local.position()
+    }
+
+    fn state_values(&self, _asset_no: usize) -> &hftbacktest::types::StateValues {
+        self.c().local.state_values()
+    }
+
+    fn depth(&self, _asset_no: usize) -> &SharedDepth {
+        &self.depth
+    }
+
+    fn last_trades(&self, _asset_no: usize) -> &[Event] {
+        self.c().local.last_trades()
+    }
+
+    fn clear_last_trades(&mut self, _asset_no: Option<usize>) {
+        self.cm().local.clear_last_trades();
+    }
+
+    fn orders(&self, _asset_no: usize) -> &hftbacktest::types::OrderMap {
+        self.c().local.orders()
+    }
+
+    fn submit_buy_order(
+        &mut self,
+        _asset_no: usize,
+        order_id: OrderId,
+        price: f64,
+        qty: f64,
+        time_in_force: TimeInForce,
+        order_type: OrdType,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::submit_order(
+            self,
+            order_id,
+            Side::Buy,
+            price,
+            qty,
+            time_in_force,
+            order_type,
+            wait,
+        )
+    }
+
+    fn submit_sell_order(
+        &mut self,
+        _asset_no: usize,
+        order_id: OrderId,
+        price: f64,
+        qty: f64,
+        time_in_force: TimeInForce,
+        order_type: OrdType,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::submit_order(
+            self,
+            order_id,
+            Side::Sell,
+            price,
+            qty,
+            time_in_force,
+            order_type,
+            wait,
+        )
+    }
+
+    // Как в `Backtest::submit_order` крейта: сторона всегда Sell.
+    fn submit_order(
+        &mut self,
+        _asset_no: usize,
+        order: hftbacktest::types::OrderRequest,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::submit_order(
+            self,
+            order.order_id,
+            Side::Sell,
+            order.price,
+            order.qty,
+            order.time_in_force,
+            order.order_type,
+            wait,
+        )
+    }
+
+    fn modify(
+        &mut self,
+        _asset_no: usize,
+        order_id: OrderId,
+        price: f64,
+        qty: f64,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        let now = self.c().cur_ts;
+        self.cm().local.modify(order_id, price, qty, now)?;
+        Ok(self.after_order(order_id, wait))
+    }
+
+    fn cancel(
+        &mut self,
+        _asset_no: usize,
+        order_id: OrderId,
+        wait: bool,
+    ) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::cancel(self, order_id, wait)
+    }
+
+    fn clear_inactive_orders(&mut self, _asset_no: Option<usize>) {
+        self.cm().local.clear_inactive_orders();
+    }
+
+    fn wait_order_response(
+        &mut self,
+        _asset_no: usize,
+        order_id: OrderId,
+        timeout: i64,
+    ) -> Result<ElapseResult, BacktestError> {
+        let b = self.c().cur_ts + timeout;
+        Ok(self.block(
+            false,
+            WaitOrderResponse::Specified {
+                asset_no: 0,
+                order_id,
+            },
+            b,
+        ))
+    }
+
+    fn wait_next_feed(
+        &mut self,
+        include_order_resp: bool,
+        timeout: i64,
+    ) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::wait_next_feed(self, include_order_resp, timeout)
+    }
+
+    fn elapse(&mut self, duration: i64) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::elapse(self, duration)
+    }
+
+    fn elapse_bt(&mut self, duration: i64) -> Result<ElapseResult, BacktestError> {
+        CircleCtx::elapse(self, duration)
+    }
+
+    fn close(&mut self) -> Result<(), BacktestError> {
+        Ok(())
+    }
+
+    fn feed_latency(&self, _asset_no: usize) -> Option<(i64, i64)> {
+        self.c().local.feed_latency()
+    }
+
+    fn order_latency(&self, _asset_no: usize) -> Option<(i64, i64, i64)> {
+        self.c().local.order_latency()
     }
 }
 
