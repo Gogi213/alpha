@@ -97,7 +97,10 @@ def cmd_comment(args) -> int:
             # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)
             T.write_header_updates(path, {"next": args.next}, stamp_updated=False)
         moved = T.compact_log(path)
-    kind = "статус" if not args.next else "вопрос_владельцу" if args.next == "ceo" else "сдано"
+    if args.text.lstrip().upper().startswith("ВОПРОС ВЛАДЕЛЬЦУ"):
+        kind = "вопрос_владельцу"
+    else:
+        kind = "статус" if not args.next else "к_ceo" if args.next == "ceo" else "сдано"
     bus_emit(args.id, kind, {"author": args.author, "next": args.next or ""})
     print(f"дописано в {path}" + (f"; next: {args.next}" if args.next else "")
           + (f"; в архив перенесено записей: {moved}" if moved else ""))
