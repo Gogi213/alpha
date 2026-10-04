@@ -137,7 +137,7 @@ use super::{
     DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS,
 };
 use crate::book::Side;
-use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo};
+use crate::lob::backtest::{BounceSignal, CompactEvent, RoundMemo, SignalWindows};
 use crate::lob::levels::LevelsConfig;
 use crate::lob::sigma::SigmaSeries;
 
@@ -150,7 +150,12 @@ type SharedHit = (Arc<Vec<CompactEvent>>, Option<i64>, bool);
 struct SharedEvents {
     symbol: String,
     map: BTreeMap<CarryKey, SharedHit>,
+    /// Окна сетапов суток (В-183, TK-048): чистая функция событий и `t0` ⇒ один проход на символ-сутки для
+    /// всех прогонов; запись — отсортированные `t0` и окна (+ тик/лот: другой тик — другие окна).
+    windows: BTreeMap<CarryKey, SharedWindows>,
 }
+
+type SharedWindows = (Vec<i64>, u64, u64, Arc<SignalWindows>);
 
 impl SharedEvents {
     fn get(&self, symbol: &str, key: &CarryKey) -> Option<SharedHit> {
@@ -165,6 +170,7 @@ impl SharedEvents {
         if self.symbol != symbol {
             self.symbol = symbol.to_string();
             self.map.clear();
+            self.windows.clear();
         }
         self.map.insert(key, hit);
     }
@@ -653,7 +659,7 @@ impl<'a> GridRun<'a> {
                         };
                         let hit = (Arc::new(ev), carry.0, carry.1);
                         if let Some(s) = shared.as_mut() {
-                            s.put(symbol, carry_key, hit.clone());
+                            s.put(symbol, carry_key.clone(), hit.clone());
                         }
                         hit
                     }
@@ -680,14 +686,48 @@ impl<'a> GridRun<'a> {
             };
             // S2: все формы над одним потоком событий, потоками; результат
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
-            let windows = day_windows(
-                rows,
-                &day.touches,
-                args.driver,
-                tick,
-                lot,
-                args.windows_check,
-            )?;
+            // Окна: при `--extra-runs` прогоны символ-суток делят окна. Нет всех своих `t0` в кэше —
+            // строим для своих + кэшированных (одно объединение вместо отдельного прохода на прогон).
+            let own_t0s: Vec<i64> = day
+                .touches
+                .iter()
+                .map(|t| t.start_ms.saturating_mul(1_000_000))
+                .collect();
+            let cache_ok = shared.is_some() && !args.windows_check;
+            let cached = if cache_ok {
+                shared.as_ref().and_then(|s| {
+                    s.windows
+                        .get(&carry_key)
+                        .filter(|e| e.1 == tick.to_bits() && e.2 == lot.to_bits())
+                        .cloned()
+                })
+            } else {
+                None
+            };
+            let windows: Option<Arc<SignalWindows>> = match cached {
+                Some((t0s, _, _, w)) if own_t0s.iter().all(|t| t0s.binary_search(t).is_ok()) => {
+                    eprintln!(
+                        "bounce-grid:   окна: из кэша символ-суток ({} снимков)",
+                        w.len()
+                    );
+                    Some(w)
+                }
+                other => {
+                    let known: &[i64] = other.as_ref().map_or(&[], |e| e.0.as_slice());
+                    let mut all: Vec<i64> = own_t0s.iter().chain(known).copied().collect();
+                    all.sort_unstable();
+                    all.dedup();
+                    let w = day_windows(rows, &all, args.driver, tick, lot, args.windows_check)?
+                        .map(Arc::new);
+                    if let (true, Some(w), Some(s)) = (cache_ok, w.as_ref(), shared.as_mut()) {
+                        s.windows.insert(
+                            carry_key.clone(),
+                            (all, tick.to_bits(), lot.to_bits(), w.clone()),
+                        );
+                    }
+                    w
+                }
+            };
             let regime = if need_regime {
                 let dir = args.regime_from.as_deref().expect("проверено выше");
                 if !regime_days.contains_key(&day.day) {
@@ -763,7 +803,7 @@ impl<'a> GridRun<'a> {
                         };
                     drive_day(
                         rows,
-                        windows.as_ref(),
+                        windows.as_deref(),
                         &day.touches,
                         day.approaches.as_deref(),
                         &set_forms_list,
@@ -834,6 +874,20 @@ impl<'a> GridRun<'a> {
                 .saturating_sub(retries_before);
             if retries > 0 {
                 eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
+                if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
+                    use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS};
+                    let g = |a: &[std::sync::atomic::AtomicU64; 4]| {
+                        a.iter()
+                            .map(|x| x.load(std::sync::atomic::Ordering::Relaxed).to_string())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    };
+                    eprintln!(
+                        "bounce-grid:   попытки (0/1/2/3+, нарастающим итогом процесса): прогонов {} строк {}",
+                        g(&ATTEMPT_RUNS),
+                        g(&ATTEMPT_ROWS)
+                    );
+                }
             }
             // Э-04б: строка только при `--hold-step skip` (прежний stderr не меняется).
             let skips = crate::lob::backtest::HOLD_SKIPS

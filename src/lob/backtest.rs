@@ -2679,6 +2679,18 @@ fn step_hit_end_of_data(s: &SignalStep) -> bool {
 /// прирост по символу-суткам. Пересчёт не меняет результат, только время.
 pub static HORIZON_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Прогонов движка и развёрнутых строк по номеру попытки (0, 1, 2, 3+) — замер TK-049, на итог не влияет.
+pub static ATTEMPT_RUNS: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+
+fn note_attempt(attempt: u32, rows: usize) {
+    let k = (attempt as usize).min(3);
+    ATTEMPT_RUNS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ATTEMPT_ROWS[k].fetch_add(rows as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Запас горизонта развёртки круга сверх `entry_ttl + deadline` плана (Р6): подтверждения и отмены после
 /// дедлайна. Точность не зависит от него — короткий горизонт ловит проверка и пересчитывает круг.
 const HORIZON_MARGIN_NS: i64 = 60_000_000_000;
@@ -3195,6 +3207,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 (&buf[..], i >= events.len())
             }
         };
+        note_attempt(attempt, rest.len());
         let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
         let data_end = last.map(|(local, exch)| local.min(exch));
         let (steps, now) = with_backtest_over_window(
@@ -3368,6 +3381,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                     (&buf[..], i >= events.len())
                 }
             };
+            note_attempt(attempt, rest.len());
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).
             let data_end = last.map(|(local, exch)| local.min(exch));
