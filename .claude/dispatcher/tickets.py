@@ -14,7 +14,7 @@
 
 `--next researcher|engineer|judge|ceo` — единственный способ разбудить другую роль (или CEO) записью лога:
 пишет `next: <роль>` в шапку, диспетчер запускает роль ОДИН раз и очищает поле. @упоминания в тексте никого
-не будят. Исключение: запись Судьи (`--author judge`) без `--next` на тикете не в `done` сама ставит `next: <owner>`
+не будят. Исключение: запись Судьи (`--author judge`) без `--next` на тикете в todo/in_progress/in_review/waiting сама ставит `next: <owner>`
 (owner researcher|engineer; печатает «next проставлен автоматически»). После записи лог больше 20 КБ ужимается: всё, кроме последних 8 записей, — в `archive/<ID>-log.md`.
 
 `stop <ID> --text "<новая постановка>" [--next <роль>]` — только CEO (запись в лог — от `ceo`; из сессии роли — отказ): заявка
@@ -97,9 +97,10 @@ def cmd_comment(args) -> int:
         T.append_log(path, args.author, args.text)
         if not nxt and T.author_is(args.author, "judge"):
             # Судья вернул тикет без `--next` (TK-044, 04.10: дважды «Статус: у инженера» без будильника — тикет висел):
-            # пока тикет не done, ход возвращается владельцу (in_review тоже — Судья не ждёт сам себя)
+            # пока тикет в todo/in_progress/in_review/waiting, ход возвращается владельцу (in_review тоже — Судья не ждёт сам
+            # себя); done, stopped (пауза владельца), needs_owner, blocked — не будим
             tkt = T.read_ticket(path)
-            if tkt.status != "done" and tkt.owner in ("researcher", "engineer"):
+            if tkt.status in ("todo", "in_progress", "in_review", "waiting") and tkt.owner in ("researcher", "engineer"):
                 nxt, auto_next = tkt.owner, True
         if nxt:
             # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)

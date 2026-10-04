@@ -2487,9 +2487,13 @@ class TicketsCliStartTests(unittest.TestCase):
                 self.assertEqual(TK.main(["comment", path.stem, "--author", "judge", "--text", "Статус: у инженера"]), 0)
             self.assertEqual(T.read_ticket(path).next_role, "engineer", status)
             self.assertIn("next проставлен автоматически", out.getvalue())
-        T.write_header_updates(path, {"status": "done", "next": ""})  # done — вердикт, будить некого
-        TK.main(["comment", path.stem, "--author", "judge", "--text", "Принято"])
-        self.assertEqual(T.read_ticket(path).next_role, "")
+        for status in ("done", "stopped", "needs_owner", "blocked"):  # вердикт / пауза владельца / ждёт решения — не будим
+            T.write_header_updates(path, {"status": status, "next": ""})
+            TK.main(["comment", path.stem, "--author", "judge", "--text", "Принято"])
+            self.assertEqual(T.read_ticket(path).next_role, "", status)
+        T.write_header_updates(path, {"status": "waiting", "next": ""})
+        TK.main(["comment", path.stem, "--author", "judge", "--text", "Ждёт"])
+        self.assertEqual(T.read_ticket(path).next_role, "engineer")
         T.write_header_updates(path, {"status": "in_progress", "next": ""})  # другой автор — без изменений
         TK.main(["comment", path.stem, "--author", "engineer", "--text", "делаю"])
         self.assertEqual(T.read_ticket(path).next_role, "")
