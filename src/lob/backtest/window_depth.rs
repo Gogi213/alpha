@@ -354,6 +354,11 @@ impl WindowDepth {
         }
     }
 
+    /// Лучшие тики (бид, аск) сейчас — `INVALID_MIN`/`INVALID_MAX` у пустой стороны.
+    pub fn best_ticks(&self) -> (i64, i64) {
+        (self.best_bid_tick, self.best_ask_tick)
+    }
+
     /// Снимок — копия уже отсортированных сторон, без сортировки (`DepthSnapshot::of` для книги
     /// крейта сортирует обе карты на каждое окно).
     pub fn snapshot(&self) -> DepthSnapshot {

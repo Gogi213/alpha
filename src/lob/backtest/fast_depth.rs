@@ -78,10 +78,77 @@ impl FastMarketDepth {
 pub static DEPTH_ROW_BANDS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
-fn note_band(price_tick: i64, best_tick: i64) {
+/// Классы обновлений глубины (замер TK-049, включается `ALPHA_ATTEMPT_STATS`): 0 — сдвигает лучшую цену своей стороны,
+/// 1 — на лучшей цене без сдвига, 2 — на тике стены (наблюдаемый стратегией уровень), 3 — 1..3 тика от лучшей,
+/// 4 — остальное; 5 — независимый счёт: любые строки в пределах ±3 тика от тика стены.
+pub static DEPTH_ROW_CLASS: [std::sync::atomic::AtomicU64; 6] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 6];
+pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
+}
+
+pub fn set_watch_tick(tick: i64) {
+    if BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        WATCH_TICK.with(|w| w.set(tick));
+    }
+}
+
+/// Удаление цены своей заявки от лучшей цены той же стороны в тиках (замер TK-049, `ALPHA_ATTEMPT_STATS`):
+/// [вход/выход][<0 пересекает / 0 / 1..3 / 4..10 / >10].
+pub static ORDER_DIST: [[std::sync::atomic::AtomicU64; 5]; 2] =
+    [const { [const { std::sync::atomic::AtomicU64::new(0) }; 5] }; 2];
+
+pub fn note_order_dist<MD: hftbacktest::depth::MarketDepth>(
+    exit: bool,
+    buy: bool,
+    px: f64,
+    depth: &MD,
+) {
+    if !BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let t = (px / depth.tick_size()).round() as i64;
+    let d = if buy {
+        depth.best_bid_tick() - t
+    } else {
+        t - depth.best_ask_tick()
+    };
+    let k = match d {
+        i64::MIN..=-1 => 0,
+        0 => 1,
+        1..=3 => 2,
+        4..=10 => 3,
+        _ => 4,
+    };
+    ORDER_DIST[usize::from(exit)][k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn note_band(price_tick: i64, best_tick: i64, moves_best: bool) {
     let d = (price_tick - best_tick).unsigned_abs();
     let k = usize::from(d > 3) + usize::from(d > 10) + usize::from(d > 30);
     DEPTH_ROW_BANDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if !BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let w = WATCH_TICK.with(std::cell::Cell::get);
+    let c = if moves_best {
+        0
+    } else if d == 0 {
+        1
+    } else if price_tick == w {
+        2
+    } else if d <= 3 {
+        3
+    } else {
+        4
+    };
+    DEPTH_ROW_CLASS[c].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if w != i64::MIN && (price_tick - w).abs() <= 3 {
+        DEPTH_ROW_CLASS[5].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 // Числа и приведения — как в крейте, строка в строку (гейт «байт в байт»).
@@ -96,7 +163,15 @@ impl L2MarketDepth for FastMarketDepth {
         let price_tick = round_half_away(price / self.tick_size) as i64;
         let qty_lot = round_half_away(qty / self.lot_size) as i64;
         let prev_best_bid_tick = self.best_bid_tick;
-        note_band(price_tick, prev_best_bid_tick);
+        note_band(
+            price_tick,
+            prev_best_bid_tick,
+            if qty_lot > 0 {
+                price_tick > prev_best_bid_tick
+            } else {
+                price_tick == prev_best_bid_tick
+            },
+        );
         let prev_qty = self
             .bid_depth
             .replace(price_tick, if qty_lot > 0 { qty } else { 0.0 });
@@ -137,7 +212,15 @@ impl L2MarketDepth for FastMarketDepth {
         let price_tick = round_half_away(price / self.tick_size) as i64;
         let qty_lot = round_half_away(qty / self.lot_size) as i64;
         let prev_best_ask_tick = self.best_ask_tick;
-        note_band(price_tick, prev_best_ask_tick);
+        note_band(
+            price_tick,
+            prev_best_ask_tick,
+            if qty_lot > 0 {
+                price_tick < prev_best_ask_tick
+            } else {
+                price_tick == prev_best_ask_tick
+            },
+        );
         let prev_qty = self
             .ask_depth
             .replace(price_tick, if qty_lot > 0 { qty } else { 0.0 });

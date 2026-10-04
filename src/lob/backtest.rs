@@ -74,6 +74,7 @@ mod compact;
 pub mod fast_depth;
 mod levels;
 use fast_depth::FastMarketDepth;
+mod trim;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
 pub use window_depth::WindowDepth;
@@ -3266,7 +3267,8 @@ fn group_round_in_window<R: EventRows + ?Sized>(
     let Some(w) = windows.window_at(rep.t0_ns) else {
         return Ok(None);
     };
-    if w.start >= events.len() {
+    let start = events.skip_to(w.start);
+    if start >= events.len() {
         return Ok(None);
     }
     let span_full = plans.iter().map(horizon_span_ns).max().unwrap_or(1);
@@ -3284,7 +3286,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 };
                 let until = rep.t0_ns.saturating_add(span);
                 buf.clear();
-                let mut i = w.start;
+                let mut i = start;
                 while i < events.len() && events.row_local_ts(i) <= until {
                     buf.push(events.row(i));
                     i += 1;
@@ -3440,7 +3442,8 @@ fn windowed_with<R: EventRows + ?Sized>(
             let Some(w) = windows.window_at(sig.t0_ns) else {
                 return Ok(None);
             };
-            if w.start >= events.len() {
+            let start = events.skip_to(w.start);
+            if start >= events.len() {
                 // Строк после `t0` нет — сплошной прогон здесь упёрся бы в
                 // конец записи, не дойдя до сигнала.
                 return Ok(None);
@@ -3458,7 +3461,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                     };
                     let until = sig.t0_ns.saturating_add(span);
                     buf.clear();
-                    let mut i = w.start;
+                    let mut i = start;
                     while i < events.len() && events.row_local_ts(i) <= until {
                         buf.push(events.row(i));
                         i += 1;
