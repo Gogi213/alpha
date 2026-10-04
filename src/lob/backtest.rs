@@ -82,6 +82,7 @@ mod trim;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
 pub use trim::{kept_rows, TrimRows};
+pub(crate) use window_depth::round_half_away;
 pub use window_depth::WindowDepth;
 
 /// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
