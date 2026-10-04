@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Табло alpha · Диспетчерская</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap">
+<link rel="stylesheet" href="phosphor.css">
+<style>
+/* Направление 3 «Диспетчерская»: таблица «машина × задача» — в клетке видно, что именно эта машина делает для этой задачи.
+   Строка «вы» показывает, где ждут вас. Шапка колонки выбирает задачу, подробности (шаги по времени) — под таблицей.
+   На телефоне таблица раскладывается в список «машина → задачи». Люминофор по умолчанию — ледяной. */
+.d3{--mono:"Anonymous Pro","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;--fs:clamp(14px,.46rem + .5vw,17.5px);--lh:1.4;--maxw:1500px}
+.d3 .ttl{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.4em 3ch}
+.d3 .ttl h1{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 12px rgba(var(--fg-rgb),.7)}
+.d3 .big{padding:.1em 1ch;font-weight:700;letter-spacing:.06em}
+.d3 .big.plain{padding:.1em 0}
+.d3 .pr{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center;margin-top:.8em}
+.d3 .counts{display:flex;flex-wrap:wrap;gap:.2em 3ch;margin-top:.5em}
+.d3 .asks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:1.4em 3ch;margin-top:1.4em}
+.d3 .ask{border:1px solid var(--fg);padding:0 1.4ch 1em;box-shadow:0 0 18px rgba(var(--fg-rgb),.2),inset 0 0 22px rgba(var(--fg-rgb),.06);min-width:0}
+.d3 .ask .qh{margin:0 -1.4ch .6em;padding:.2em 1.4ch;background:var(--fg);color:var(--bg);text-shadow:none}
+.d3 .ask .qh .dim,.d3 .ask .qh .mt{color:var(--bg);text-shadow:none}
+.d3 .ask .qh .qn{padding:0;background:transparent;box-shadow:none}
+.d3 .noask{margin-top:1.4em}
+.d3 .opts{grid-template-columns:repeat(auto-fit,minmax(14ch,1fr))}
+.d3 .h4{margin:1.8em 0 .6em;font-size:.9em;letter-spacing:.2em;text-transform:uppercase;display:flex;gap:1.4ch;align-items:center}
+.d3 .h4::after{content:"";flex:1;height:1px;background:rgba(var(--fg-rgb),.35)}
+.d3 .sums{display:grid;gap:.5em;margin:0;padding:0;list-style:none}
+.d3 .sums li{display:grid;grid-template-columns:minmax(12ch,26ch) minmax(0,1fr);gap:.1em 2.4ch;align-items:baseline}
+.d3 .sums b{color:var(--hot)}
+.d3 .mxw{overflow-x:auto;border:1px solid rgba(var(--fg-rgb),.55)}
+.d3 .mx{display:grid;grid-template-columns:minmax(14rem,18rem) repeat(var(--np),minmax(12.5rem,1fr))}
+.d3 .mx>*{min-width:0;padding:.65em 1.4ch;border-right:1px solid rgba(var(--fg-rgb),.24);border-bottom:1px solid rgba(var(--fg-rgb),.24)}
+.d3 .mx>.lc{border-right:0}.d3 .mx>.lr{border-bottom:0}
+.d3 .mx .corner{color:rgba(var(--fg-rgb),.62);font-size:.86em;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:flex-end}
+.d3 .ch{font:inherit;color:inherit;text-shadow:inherit;text-align:left;background:transparent;cursor:pointer;display:grid;gap:.25em;align-content:start;border-top:0;border-left:0}
+.d3 .ch:hover{background:rgba(var(--fg-rgb),.07)}
+.d3 .ch[aria-pressed="true"]{background:rgba(var(--fg-rgb),.12);box-shadow:inset 0 -3px 0 var(--fg),0 0 18px rgba(var(--fg-rgb),.15)}
+.d3 .ch b{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.55);line-height:1.2;overflow-wrap:anywhere}
+.d3 .mc{display:grid;gap:.18em;align-content:start}
+.d3 .mc .mh{display:flex;align-items:baseline;flex-wrap:wrap}
+.d3 .mc .mh b{color:var(--hot)}
+.d3 .mt-row{display:grid;grid-template-columns:9.6ch auto auto;gap:0 1.2ch;align-items:center;font-size:.9em}
+.d3 .yr{background:rgba(var(--fg-rgb),.1)}
+.d3 .cl{display:grid;gap:.45em;align-content:start}
+.d3 .cs{line-height:1.25}
+.d3 .cs .d{margin:.1em 0 0 calc(.86em + .7ch + 1ch)}
+.d3 .cs .n{color:rgba(var(--fg-rgb),.62);margin-right:.8ch}
+.d3 .cs.s-todo b{font-weight:400;color:rgba(var(--fg-rgb),.55)}
+.d3 .cs.s-done b{font-weight:400}
+.d3 .mxh{margin-top:.4em}
+.d3 .donel{margin-top:.9em;display:flex;flex-wrap:wrap;gap:.3em 2ch;align-items:baseline}
+.d3 .donel button{font:inherit;color:inherit;text-shadow:inherit;background:transparent;border:0;border-bottom:1px dotted rgba(var(--fg-rgb),.6);padding:0;cursor:pointer}
+.d3 .donel button[aria-pressed="true"]{color:var(--hot);border-bottom-style:solid}
+.d3 .dr{border:1px solid rgba(var(--fg-rgb),.5);padding:1em 2ch 1.1em}
+.d3 .drh{display:grid;gap:.3em;margin-bottom:1em}
+.d3 .tl{margin:0;padding:0;list-style:none}
+.d3 .tl li{position:relative;display:grid;grid-template-columns:13ch .9em minmax(0,1fr);gap:0 1.6ch;padding-bottom:.9em}
+.d3 .tl li::after{content:"";position:absolute;left:calc(13ch + 1.6ch + .43em);top:1.3em;bottom:-.05em;width:1px;background:rgba(var(--fg-rgb),.35)}
+.d3 .tl li:last-child{padding-bottom:0}.d3 .tl li:last-child::after{display:none}
+.d3 .tl .pip{margin:.15em 0 0}
+.d3 .tl .tm{color:rgba(var(--fg-rgb),.62);font-size:.92em;padding-top:.1em}
+.d3 .tl .tb b{color:var(--hot)}
+.d3 .tl .s-todo .tb b{color:rgba(var(--fg-rgb),.6);font-weight:400}
+.d3 .fl{display:grid;grid-template-columns:6ch 3.2ch minmax(0,1fr);gap:0 1.4ch;align-items:baseline}
+.d3 .legend{margin-top:.2em}
+@media (max-width:860px){
+  .d3 .mxw{border:0;overflow:visible}
+  .d3 .mx{display:block}
+  .d3 .mx>*{border:0;border-bottom:1px solid rgba(var(--fg-rgb),.2)}
+  .d3 .mx .corner,.d3 .mx .ch.hd{display:none}
+  .d3 .mx .mc{border-top:1px solid rgba(var(--fg-rgb),.55);background:rgba(var(--fg-rgb),.08)}
+  .d3 .mx .cl.empty{display:none}
+  .d3 .mx .cl::before{content:attr(data-t);font-size:.82em;letter-spacing:.12em;text-transform:uppercase;color:rgba(var(--fg-rgb),.62)}
+  .d3 .mx .cl{padding-left:calc(1.4ch + 1ch)}
+}
+@media (max-width:760px){
+  .d3 .pr{grid-template-columns:minmax(0,1fr)}
+  .d3 .sums li{grid-template-columns:minmax(0,1fr)}
+  .d3 .tl li{grid-template-columns:.9em minmax(0,1fr)}
+  .d3 .tl li .tm{grid-column:2;grid-row:2}.d3 .tl li .pip{grid-column:1;grid-row:1}.d3 .tl li .tb{grid-column:2;grid-row:1}
+  .d3 .tl li::after{left:.43em}
+  .d3 .dr{padding:.9em 1.4ch}
+  .d3 .opts{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+</head>
+<body>
+<noscript>Для табло нужен JavaScript.</noscript>
+<script src="phosphor.js"></script>
+<script>
+(() => {
+  const { E, arr, tok, mt, mn, seg, bar, meter, lamp, flow, forTxt, whoOn, tm, sdet, waitTxt, pinfo, procs, qOf, counts, headline, progress, legendPip, questions, feedWho, ui } = Board;
+
+  const cell = (mid, p) => {
+    const ss = arr(p.steps).filter((s) => s.on === mid);
+    if (!ss.length) return `<div class="cl empty" data-t="${E(p.title)}"><span class="faint">—</span></div>`;
+    return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => `<div class="cs s-${Board.sk(s.state)}"><i class="pip s-${Board.sk(s.state)}"></i><span class="n">${E(s.n)}</span><b>${E(s.title)}</b>${mid === "you" ? `<div class="dim d">${s.question && qOf(s.question) ? "вопрос " + E(qOf(s.question).n) + " · " : ""}${E(s.for || "")}</div>` : ""}${sdet(s) ? `<div class="dim d">${sdet(s)}</div>` : ""}</div>`).join("")}</div>`;
+  };
+
+  const drawer = (p) => {
+    const steps = arr(p.steps);
+    return `<div class="dr"><div class="drh"><b class="hot">${E(p.title)}</b><span class="dim">${[flow(p), forTxt(p), pinfo(p)].filter(Boolean).join(" · ")}</span></div>
+    <ol class="tl">${steps.map((s) => `<li class="s-${Board.sk(s.state)}"><span class="tm">${E(tm(s)) || "—"}</span><i class="pip s-${Board.sk(s.state)}"></i><div class="tb"><b>${E(s.title)}</b> ${tok(s.state)}${s.wave != null && steps.length > 1 ? ` <span class="dim small">волна ${E(s.wave)}</span>` : ""}<div class="dim">${[whoOn(s), s.for ? "для: " + E(s.for) : "", sdet(s), s.state === "wait" ? waitTxt(s) : ""].filter(Boolean).join(" · ")}</div></div></li>`).join("") || '<li class="none">шагов в плане нет</li>'}</ol></div>`;
+  };
+
+  Board.start({
+    after() { const w = document.querySelector('.d3 .mxw'), h = document.querySelector('.d3 .mxh'); if (w && h) h.hidden = w.scrollWidth <= w.clientWidth + 1; },
+    id: "dispetcher", cls: "d3", ph: "ice", title: "Табло alpha · Диспетчерская", path: "alpha@табло:~/машины", model: "Табло · Диспетчерская",
+    render(v) {
+      const pr = progress();
+      const all = procs();
+      const act = all.filter((p) => p.state !== "done");
+      const done = all.filter((p) => p.state === "done");
+      const sel = ui.sel && all.find((p) => p.id === ui.sel) ? ui.sel : (act[0] || all[0] || {}).id;
+      const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, text: (m.now || {}).text || "", load: m.load || "", m }));
+      arr(all.flatMap((p) => arr(p.steps).map((s) => s.on))).forEach((id) => { if (id && id !== "you" && !machines.some((r) => r.id === id)) machines.push({ id, state: "idle", text: "", load: "", m: null }); });
+      const nq = arr(v.questions).filter((q) => !ui.answered[q.id] && !q.web_answer).length;
+      machines.push({ id: "you", state: nq ? "wait" : "idle", text: nq ? `ждут ваших ответов: ${nq}` : "ничего не ждёт", load: nq ? "ответьте выше, и работа пойдёт дальше" : "", m: null });
+
+      const np = act.length;
+      let mx = "";
+      if (np) {
+        mx = `<div class="corner">машина · что делает</div>` + act.map((p, i) => `<button type="button" class="ch hd${i === np - 1 ? " lc" : ""}" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}"><b>${E(p.title)}</b><span class="dim small">${forTxt(p)}</span>${seg([p])}<span class="small">${tok(p.state)} <span class="dim">${pinfo(p)}</span></span></button>`).join("");
+        machines.forEach((r, ri) => {
+          const you = r.id === "you", last = ri === machines.length - 1;
+          const m = r.m;
+          const meters = m && m.state === "ok" ? meter("процессор", m.cpu != null ? m.cpu : 0) + meter("память", m.mem != null ? m.mem : 0) + (m.disk_mb_s ? `<div class="mt-row"><span class="dim">диск</span><span>${m.disk_mb_s} МБ/с</span></div>` : "") : "";
+          const state = m && m.state === "down" ? "не отвечает" : "";
+          mx += `<div class="mc${you ? " yr" : ""}${last ? " lr" : ""}"><div class="mh">${lamp(m && m.state === "down" ? "bad" : r.state)}<b>${you ? "вы" : E(Board.tagOf(r.id).name)}</b>&nbsp;${mt(r.id)}</div><div>${E(r.text)}</div>${r.load ? `<div class="dim small">${E(r.load)}</div>` : ""}${state ? `<div class="dim small">${state}</div>` : ""}${meters}</div>`;
+          act.forEach((p, i) => { mx += cell(r.id, p).replace('class="cl', 'class="cl' + (you ? " yr" : "") + (i === np - 1 ? " lc" : "") + (last ? " lr" : "")); });
+        });
+      }
+      const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
+      const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
+      const selP = all.find((p) => p.id === sel);
+      return `
+   <div class="ttl"><h1>Диспетчерская</h1>${headline()}</div>
+   <div class="pr"><span>${pr.left}</span>${pr.strip}<span>${pr.right}</span></div>
+   <div class="counts">${counts()}</div>
+   ${arr(v.questions).length ? `<div class="asks">${arr(v.questions).map((q) => `<section class="ask">${Board.qHTML(q)}</section>`).join("")}</div>` : `<div class="noask none">вопросов к вам нет</div>`}
+   ${sums ? `<div class="h4 hot">Что стало возможно</div><ul class="sums">${sums}</ul>` : ""}
+   <div class="h4 hot">Кто что делает и для чего</div>
+   ${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире экрана: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}
+   ${done.length ? `<div class="donel"><span class="dim">готово:</span>${done.map((p) => `<button type="button" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : ""}
+   ${selP ? `<div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>${drawer(selP)}` : ""}
+   <div class="h4 hot">Недавно</div>${feed}
+   <div class="h4 hot">Обозначения</div>${legendPip()}`;
+    },
+  });
+})();
+</script>
+</body>
+</html>

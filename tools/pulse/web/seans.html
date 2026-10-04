@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Табло alpha · Сеанс</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="phosphor.css">
+<style>
+/* Направление 1 «Сеанс»: табло как сеанс в терминале — одна колонка, заголовки-команды, сверху итог и вопросы,
+   ниже машины, процессы по волнам и лента. Процесс раскрывается списком шагов под строкой. Люминофор по умолчанию — зелёный. */
+.d1{--mono:"IBM Plex Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;--fs:clamp(12px,.4rem + .5vw,16px);--maxw:1320px}
+.d1 .hdr{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:1em 3ch}
+.wm{display:grid;grid-template-columns:repeat(var(--c),1fr);grid-auto-rows:1fr;width:calc(var(--c)*.5em);font-size:calc(var(--fs)*1.45);max-width:100%}
+.wm i{display:block;aspect-ratio:1;margin:.06em;background:rgba(var(--fg-rgb),.07)}
+.wm i.on{background:var(--fg);box-shadow:0 0 5px var(--fg),0 0 16px rgba(var(--fg-rgb),.6)}
+.d1 .sub{margin-top:.7em}
+.d1 .hl{text-align:right}
+.d1 .big{display:inline-block;padding:.1em .8ch;font-size:calc(var(--fs)*1.5);font-weight:700;letter-spacing:.04em}
+.d1 .big.plain{padding:.1em 0}
+.d1 .hl .dim{margin-top:.5em}
+.d1 .ps{margin:1.7em 0 .55em;white-space:pre-wrap}
+.d1 .ps1{font-weight:700}
+.d1 .cmd{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.d1 .ind{padding-left:2ch;display:grid;gap:.7em;min-width:0}
+.d1 .prog{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center}
+.d1 .counts{display:flex;flex-wrap:wrap;gap:.2em 3ch}
+.d1 .opts{max-width:100ch}
+.d1 .opt{grid-template-columns:minmax(14ch,24ch) minmax(0,1fr) auto}
+.d1 .mrow{display:grid;grid-template-columns:minmax(14ch,20ch) minmax(16ch,24ch) minmax(0,1fr) minmax(0,auto);gap:.1em 2ch;align-items:baseline;padding:.2em 0}
+.d1 .mrow .nums{text-align:right}
+.d1 .wh{margin:.9em 0 .2em;color:rgba(var(--fg-rgb),.62);letter-spacing:.14em;font-size:.9em;display:flex;gap:1.2ch;align-items:center}
+.d1 .wh::after{content:"";flex:1;height:1px;background:rgba(var(--fg-rgb),.3)}
+.d1 .wh.s-run{color:var(--hot)}
+.d1 .wh.s-bad{color:var(--hot)}
+.d1 .wh:first-child{margin-top:0}
+.d1 .rp{display:grid;grid-template-columns:3ch 13ch minmax(0,1fr) minmax(8ch,15ch) minmax(0,.7fr);gap:.1em 2ch;align-items:baseline;padding:.3em 0}
+.d1 .rp .nm{display:grid;gap:.1em;min-width:0}
+.d1 .rp .m{width:auto}
+.d1 .steps{margin:.15em 0 .9em 5ch;display:grid;gap:.1em;border-top:1px dotted rgba(var(--fg-rgb),.3);padding-top:.5em}
+.d1 .stp{display:grid;grid-template-columns:2ch 13ch minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.7fr);gap:.1em 2ch;align-items:baseline;padding:.2em 0}
+.d1 .steps.has-w .stp{grid-template-columns:2ch 13ch minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,.7fr) 8ch}
+.d1 .stp .n{color:rgba(var(--fg-rgb),.62)}
+.d1 .stp .t2 b{display:block}
+.d1 .stp.s-todo b{color:rgba(var(--fg-rgb),.55);font-weight:400}
+.d1 .stp.s-done b{font-weight:400}
+.d1 .stp .wv{color:rgba(var(--fg-rgb),.62);font-size:.9em;text-align:right}
+.d1 .feed{display:grid;gap:.1em}
+.d1 .fl{display:grid;grid-template-columns:6ch 13ch minmax(0,1fr);gap:0 2ch;align-items:baseline}
+.d1 .caret{display:inline-block;min-width:1ch;background:var(--fg);color:var(--bg);box-shadow:0 0 10px rgba(var(--fg-rgb),.75),0 0 2px var(--fg);animation:blinkb 1.06s steps(1) infinite}
+.d1 .endp{margin-top:1.6em}
+@media (max-width:760px){
+  .d1 .prog{grid-template-columns:minmax(0,1fr)}
+  .d1 .opt{grid-template-columns:minmax(0,1fr)}
+  .d1 .mrow{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .d1 .mrow .ld{grid-column:1/-1}.d1 .mrow .nums{text-align:left;grid-column:1/-1}
+  .d1 .rp{grid-template-columns:3ch minmax(0,1fr);gap:.2em 1.6ch}
+  .d1 .rp>*:nth-child(n+2){grid-column:2}
+  .d1 .steps{margin-left:0}
+  .d1 .stp,.d1 .steps.has-w .stp{grid-template-columns:2ch minmax(0,1fr)}
+  .d1 .stp>*:nth-child(n+3){grid-column:2}
+  .d1 .stp .wv{text-align:left}
+  .d1 .fl{grid-template-columns:6ch minmax(0,1fr)}.d1 .fl>*:nth-child(3){grid-column:2}
+  .d1 .hl{text-align:left}
+  .d1 .ind{padding-left:0}
+}
+@media (prefers-reduced-motion:reduce){.d1 .caret{animation:none}}
+</style>
+</head>
+<body>
+<noscript>Для табло нужен JavaScript.</noscript>
+<script src="phosphor.js"></script>
+<script>
+(() => {
+  const { E, arr, tok, mt, mn, seg, bar, lamp, flow, forTxt, whoOn, tm, sdet, waitTxt, pinfo, groups, hasParallel, stepWaves, counts, headline, progress, legend, questions, feedWho, ui } = Board;
+  const GLY = { "Т": ["11111", "00100", "00100", "00100", "00100", "00100", "00100"], "А": ["01110", "10001", "10001", "11111", "10001", "10001", "10001"], "Б": ["11111", "10000", "10000", "11110", "10001", "10001", "11110"], "Л": ["00111", "01001", "01001", "01001", "01001", "10001", "10001"], "О": ["01110", "10001", "10001", "10001", "10001", "10001", "01110"] };
+  const wordmark = (w) => {
+    const L = [...w].map((c) => GLY[c]); const cols = L.length * 6 - 1; let h = "";
+    for (let r = 0; r < 7; r++) for (let k = 0; k < L.length; k++) { for (let c = 0; c < 5; c++) h += `<i${L[k][r][c] === "1" ? ' class="on"' : ""}></i>`; if (k < L.length - 1) h += "<i></i>"; }
+    return `<div class="wm" style="--c:${cols}" role="img" aria-label="${w}">${h}</div>`;
+  };
+  const ps = (c) => `<div class="ps"><span class="ps1">alpha@табло:~$</span> <span class="cmd">${c}</span></div>`;
+
+  const step = (s, wv) => `<div class="stp s-${Board.sk(s.state)}"><span class="n">${E(s.n)}</span><span>${tok(s.state)}</span>
+    <span class="t2"><b>${E(s.title)}</b>${s.state === "run" && s.pct != null ? `<span>${bar(s.pct, 14)}</span>` : ""}${sdet(s) ? `<span class="dim small">${sdet(s)}</span>` : ""}</span>
+    <span>${whoOn(s)}</span><span class="dim">${s.for ? "для: " + E(s.for) : ""}</span><span class="dim small">${s.state === "wait" ? waitTxt(s) : tm(s)}</span>${wv ? `<span class="wv">${s.wave != null ? "волна " + s.wave : ""}</span>` : ""}</div>`;
+
+  const proc = (p) => {
+    const open = ui.open.has(p.id), par = hasParallel(p);
+    return `<div class="proc" data-open="${open ? 1 : 0}">
+      <button type="button" class="rp" data-act="toggle" data-id="${E(p.id)}" aria-expanded="${open}"><span class="m" aria-hidden="true"></span><span>${tok(p.state)}</span>
+        <span class="nm"><b>${E(p.title)}</b>${p.summary ? `<span class="sum">${E(p.summary)}</span>` : ""}<span class="dim small">${[flow(p), forTxt(p)].filter(Boolean).join(" · ")}</span></span><span>${seg([p])}</span><span class="dim small">${pinfo(p)}</span></button>
+      <div class="steps${par ? " has-w" : ""}">${arr(p.steps).map((s) => step(s, par)).join("")}</div></div>`;
+  };
+
+  Board.start({
+    id: "seans", cls: "d1", ph: "green", title: "Табло alpha · Сеанс", path: "alpha@табло:~", model: "Табло · Сеанс",
+    extra: '<i class="ov flick"></i>',
+    render(v) {
+      const pr = progress(), g = groups();
+      const mach = arr(v.machines).map((m) => `<div class="mrow"><span>${mn(m.id)}</span><span>${lamp((m.now || {}).state)}${E((m.now || {}).text || "")}</span><span class="dim ld">${E(m.load || "")}</span>
+        <span class="dim nums small">${m.state === "off" ? "" : m.state === "down" ? "не отвечает" : `процессор ${m.cpu != null ? m.cpu : "—"} % · память ${m.mem != null ? m.mem : "—"} %${m.disk_mb_s ? ` · диск ${m.disk_mb_s} МБ/с` : ""}`}</span></div>`).join("");
+      const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><span>${tok(f.state)}</span><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
+      return `
+  <div class="hdr"><div>${wordmark("ТАБЛО")}<div class="dim sub">ход работ · alpha · ${E(v.time || "")} по вашему времени</div></div>
+    <div class="hl">${headline()}<div class="dim">обновляется само раз в 5 секунд</div></div></div>
+  ${ps("итог")}
+  <div class="ind">
+    <div class="prog"><span>${pr.left}</span>${pr.strip}<span>${pr.right}</span></div>
+    <div class="counts">${counts()}</div>
+  </div>
+  ${ps("вопросы")}
+  <div class="ind">${questions()}</div>
+  ${ps("машины")}
+  <div class="ind">${mach || '<div class="none">машин нет в сводке</div>'}</div>
+  ${ps("процессы")}
+  <div class="ind">${g.length ? g.map((w) => `${w.label ? `<div class="wh s-${Board.sk(w.state === "bad" ? "bad" : w.state)}">── ${E(w.label)}</div>` : ""}${w.procs.map(proc).join("")}`).join("") : '<div class="none">процессов нет</div>'}</div>
+  ${ps("лента")}
+  <div class="ind feed">${feed}</div>
+  ${ps("обозначения")}
+  <div class="ind">${legend()}</div>
+  <div class="ps endp"><span class="ps1">alpha@табло:~$</span> <span class="caret">&nbsp;</span></div>`;
+    },
+  });
+})();
+</script>
+</body>
+</html>

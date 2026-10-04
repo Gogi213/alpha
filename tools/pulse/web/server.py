@@ -2,7 +2,12 @@
 """Веб-табло alpha для владельца (счётный сервер, юнит `alpha-board`): только стандартная библиотека Python.
 
 Маршруты — только под секретным префиксом `/<токен>/` (токен — /etc/alpha-board/token), всё остальное — 404:
-    GET  /<токен>/              страница (board.html рядом с этим файлом)
+    GET  /<токен>/              страница выбора из трёх видов (choose.html)
+    GET  /<токен>/seans         «Сеанс»          (seans.html)
+    GET  /<токен>/konveyer      «Конвейер»       (konveyer.html)
+    GET  /<токен>/dispetcher    «Диспетчерская»  (dispetcher.html)
+    GET  /<токен>/old           прежняя страница (board.html)
+    GET  /<токен>/phosphor.css, phosphor.js   общая оболочка и ядро трёх видов
     GET  /<токен>/status.json   {view2, built_at, age_s} — последняя сводка (её кладёт bridge.py в /data/board/status.json)
     POST /<токен>/answer        {id, key} — ответ владельца: вопрос и вариант должны быть в текущей сводке;
                                 строка JSON дописывается в /data/board/answers.jsonl (≤ 30 в час, один ответ на вопрос)
@@ -35,6 +40,17 @@ if len(TOKEN) < 24:
     sys.exit("токен короче 24 символов — выпустите новый")
 TOKEN_B = TOKEN.encode()
 _answers_cache: dict = {"key": None, "rows": []}
+HTML = "text/html; charset=utf-8"
+# маршрут после токена → (файл рядом с этим, тип); только этот список отдаётся с диска
+PAGES = {
+    "/": ("choose.html", HTML),
+    "/seans": ("seans.html", HTML),
+    "/konveyer": ("konveyer.html", HTML),
+    "/dispetcher": ("dispetcher.html", HTML),
+    "/old": ("board.html", HTML),
+    "/phosphor.css": ("phosphor.css", "text/css; charset=utf-8"),
+    "/phosphor.js": ("phosphor.js", "application/javascript; charset=utf-8"),
+}
 
 
 def read_answers() -> list:
@@ -117,9 +133,10 @@ class H(BaseHTTPRequestHandler):
             return self._404()
         if rest == "":
             return self._send(301, "text/plain; charset=utf-8", b"", {"Location": f"/{TOKEN}/"})
-        if rest == "/":
+        if rest in PAGES:
+            name, ctype = PAGES[rest]
             try:
-                return self._send(200, "text/html; charset=utf-8", (CODE / "board.html").read_bytes())
+                return self._send(200, ctype, (CODE / name).read_bytes())
             except OSError:
                 return self._send(500, "text/plain; charset=utf-8", b"no page")
         if rest == "/status.json":
