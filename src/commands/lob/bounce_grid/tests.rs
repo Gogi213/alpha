@@ -3158,6 +3158,60 @@ fn exit_groups_and_hold_skip_match_the_plain_run_byte_for_byte() {
     }
 }
 
+/// TK-049 (`ALPHA_ADMIT_SOA`): `admits` по строкам `AdmitRow` даёт те же ответы, что по записям касаний.
+#[test]
+fn admit_rows_match_records() {
+    use super::sets::{AdmitRow, TouchFilter};
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 5 };
+    let touches: Vec<TouchRecord> = (0..64_i64)
+        .map(|i| TouchRecord {
+            side: if i % 3 == 0 {
+                crate::book::Side::Bid
+            } else {
+                crate::book::Side::Ask
+            },
+            price_tick: 1000 + i,
+            size_at_touch: 3 + i % 17,
+            size_max_before: 10 + i % 11,
+            frontrun_lots: i % 7,
+            frontrun_tick: (i % 4 != 0).then_some(990 + i),
+            depth_behind_lots: i % 23,
+            stack_levels: u32::try_from(i % 5).unwrap(),
+            flow_1h_lots: (i % 6) * 40,
+            level_birth_ms: -(i % 9) * 1_000,
+            ..probe_touch()
+        })
+        .collect();
+    let holds: Vec<bool> = touches
+        .iter()
+        .map(|t| mode.holds_at_touch(t) == Some(true))
+        .collect();
+    let rows: Vec<AdmitRow> = touches.iter().map(AdmitRow::of).collect();
+    for spec in [
+        "a:",
+        "b:behind_min=100,stack_min=2",
+        "c:frontrun,side=bid,age=3",
+        "d:eaten=40,eaten_min=5,usd_min=20",
+        "e:flow=2,frontrun_min=3",
+    ] {
+        let set = FilterSet::parse(spec).unwrap();
+        let mut f = TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+        let want: Vec<bool> = touches
+            .iter()
+            .enumerate()
+            .map(|(i, t)| f.admits(i, t))
+            .collect();
+        f.holds = Some(&holds);
+        f.rows = Some(&rows);
+        let got: Vec<bool> = touches
+            .iter()
+            .enumerate()
+            .map(|(i, t)| f.admits(i, t))
+            .collect();
+        assert_eq!(got, want, "{spec}");
+    }
+}
+
 /// Г-07 (TK-012): ключи `behind_min=<%>` и `stack_min=<n>` — разбор, граница «равно проходит» в
 /// `TouchFilter::admits` (целые лоты), шапка без ключей прежняя, с ключами — только заданные.
 #[test]

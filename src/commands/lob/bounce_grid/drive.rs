@@ -427,6 +427,8 @@ pub(super) struct DayParams<'a> {
     pub(super) admitted: Option<&'a std::sync::OnceLock<Vec<u32>>>,
     /// Порог уровня в момент касания по касаниям суток, один раз на все наборы (`ALPHA_HOLDS_MEMO=1`); `None` — как раньше.
     pub(super) holds: Option<&'a [bool]>,
+    /// Строки скаляров касаний суток для `TouchFilter::admits` (`ALPHA_ADMIT_SOA=1` вместе с `HOLDS_MEMO`); `None` — как раньше.
+    pub(super) rows: Option<&'a [super::sets::AdmitRow]>,
     /// Номер каждой формы `forms` в общем списке прогона — индекс памяти кругов (`--cells`, T-38: у набора
     /// своё подмножество форм; без флага — `0..forms.len()`).
     pub(super) form_ids: &'a [usize],
