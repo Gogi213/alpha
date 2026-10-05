@@ -23,6 +23,22 @@ def load(d):
     return rows
 
 
+def metrics(d):
+    m = {}
+    f = os.path.join(d, "metrics.txt")
+    if os.path.exists(f):
+        for line in open(f, encoding="utf-8"):
+            p = line.split()
+            if len(p) == 2:
+                try:
+                    m[p[0]] = float(p[1])
+                except ValueError:
+                    m[p[0]] = p[1]
+            elif len(p) == 1:
+                m[p[0]] = True
+    return m
+
+
 def summarize(d, wall, threads):
     rows = load(d)
     st = [r for r in rows if r.get("t") == "stage"]
@@ -202,10 +218,22 @@ def main():
             res["orch"] = o
     if a.против:
         o = summarize(a.против, a.wall, a.threads)
-        print("\n### Сравнение (основная − другая), сек\n\n| корзина | Δ |\n|---|---|")
+        ma, mb = metrics(a.dir), metrics(a.против)
+        print("\n### Сравнение (основная − другая), слот-секунды стадий\n\n| корзина | Δ |\n|---|---|")
         for k in STAGES:
             print(f"| ЦП {k} | {s['cpu'][k]-o['cpu'][k]:+,.0f} |")
             print(f"| ожидание {k} | {s['wait'][k]-o['wait'][k]:+,.0f} |")
+        ia, ib = ma.get("interference_pct"), mb.get("interference_pct")
+        bad = [n for n, i in (("основная", ia), ("другая", ib)) if not isinstance(i, float) or i > 5.0]
+        wa, wb = ma.get("wall_s"), mb.get("wall_s")
+        if bad or not isinstance(wa, float) or not isinstance(wb, float):
+            why = ", ".join(f"{n}: помеха {'нет данных' if not isinstance(i, float) else f'{i:.1f} %'}"
+                            for n, i in (("основная", ia), ("другая", ib)) if n in bad) or "нет wall_s в metrics.txt"
+            print(f"\nСтена НЕ сравнивается ({why}; порог 5 %) — сравнимы только слот-секунды стадий.")
+            res["wall_compare"] = "refused"
+        else:
+            print(f"\nСтена: {wa:.1f} с против {wb:.1f} с ({wa-wb:+.1f} с, {100*(wa-wb)/wb:+.1f} %); помеха {ia:.1f} % / {ib:.1f} %.")
+            res["wall_compare"] = {"wall": [wa, wb], "interference": [ia, ib]}
         res["against"] = o
     json.dump(res, open(os.path.join(a.dir, "e2e-report.json"), "w"), ensure_ascii=False, indent=1)
 
