@@ -460,6 +460,7 @@ fn lob_help_lists_all_subcommands() {
         "pick",
         "pilot",
         "power",
+        "prep-events",
         "probe",
         "profiles",
         "react",

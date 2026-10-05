@@ -450,6 +450,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::Gaps(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::PrepEvents(_) => {
+            panic!("разобралась не та подкоманда")
+        }
         crate::commands::lob::LobCommand::Archive(_) => {
             panic!("разобралась не та подкоманда")
         }
