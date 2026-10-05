@@ -30,7 +30,8 @@ ETA_LO, ETA_HI = 0.75, 1.4   # вилка «осталось»: доли сум�
 ETA_MIN_MEASURES = 2         # меньше замеров (шагов цепочки с eta_min) — вилку не показываем
 WORK_GAP_MIN = 45            # «прошло»: промежуток между событиями длиннее — засчитывается как столько минут
 AUTO_TITLE_LEN = 60
-BOARD_RE = re.compile(r"табло|шкал|дашборд|страниц", re.I)
+BOARD_RE = re.compile(r"табло|шкал|дашборд|страниц|диспетчерск", re.I)
+BOARD_TITLE_RE = re.compile(r"табло|дашборд|диспетчерск", re.I)
 FEED_AGE_S = 21600
 
 
@@ -541,17 +542,17 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
 
     def about_board(tid, text) -> bool:  # про само табло в «Недавно» не пишем — только результаты счёта и задач
         t = tickets.get(tid)
-        return bool(BOARD_RE.search(f"{text} {t.header.get('title', '') if t else ''}"))
+        return bool(BOARD_RE.search(text) or BOARD_TITLE_RE.search(t.header.get('title', '') if t else ''))
 
-    for p in procs:  # записи ролей из логов тикетов: заголовок записи без пересказа моделью, машина — по окну шага плана
-        t = tickets.get(p["id"])
-        if t is None or p["id"].startswith("orphans-"):
+    ptit = {p["id"]: p["title"] for p in procs}
+    for tid, t in tickets.items():  # записи ролей из логов ВСЕХ тикетов в окне (и сданных): заголовок записи, машина — по окну шага плана
+        if now - H.t_updated(t, now) > FEED_AGE_S:
             continue
         for e in role_entries(t):
-            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(p["id"], e.text):
+            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(tid, e.text):
                 continue
-            feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
-                                            "text": fact(e), "_tid": p["id"], "_title": H.short_title(p["title"], 20)}))
+            feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(tid, e.ts), "to": None,
+                                            "text": fact(e), "_tid": tid, "_title": H.short_title(ptit.get(tid) or ptitle(tid), 20)}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a:
@@ -562,7 +563,13 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             feed.append((b.timestamp(), {"time": H.news_time(b), "state": "done", "on": [q.get("on", "pc")], "to": None,
                                          "text": f"ответ владельца: {q.get('answer_label')}"}))
     feed.sort(key=lambda x: x[0])
-    last = [f for _, f in feed[-6:]]
+    per, picked = {}, []
+    for _, f in reversed(feed):  # не больше двух строк на задачу, чтобы в ленте были разные события часа
+        k = f.get("_tid") or id(f)
+        per[k] = per.get(k, 0) + 1
+        if per[k] <= 2:
+            picked.append(f)
+    last = picked[:6][::-1]
     for i in range(len(last) - 1, -1, -1):  # префикс задачи — только у самой свежей строки подряд идущих одной задачи
         d = last[i]
         tid, title = d.get("_tid"), d.pop("_title", None)
