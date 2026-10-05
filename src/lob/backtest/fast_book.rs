@@ -20,6 +20,68 @@ type Changes = HashMap<i64, Vec<(u32, f64)>, BuildHasherDefault<TickHasher>>;
 /// Строк ленты между контрольными точками полной книги.
 pub const STRIDE: usize = 4096;
 
+/// Счётчики общей книги: построено лент, обращений к кэшу (попаданий — `TAPE_HITS`), строк, выращенных `grow_to`.
+pub static TAPES_BUILT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TAPE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static TAPE_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Лента окна в кэше суток: книгу держит замок на время круга, ряд растёт один раз для всех форм.
+pub struct TapeSlot {
+    ident: (usize, usize),
+    pub tape: std::sync::Mutex<TapeBook<'static>>,
+}
+
+/// Ленты окон одних суток (ключ — начало окна), общие для форм и потоков. Живёт в `SignalWindows` — те же сутки,
+/// что и срез строк; лента помнит адрес и длину среза и при несовпадении строится заново.
+#[derive(Default)]
+pub struct TapeCache {
+    slots: std::sync::Mutex<HashMap<usize, std::sync::Arc<TapeSlot>>>,
+}
+
+impl Clone for TapeCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for TapeCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TapeCache")
+    }
+}
+
+impl TapeCache {
+    /// Лента окна `w_start` над `all[w_start..]` (`start` — книга окна перед первой строкой).
+    pub fn slot(
+        &self,
+        all: &[Event],
+        w_start: usize,
+        start: &DepthSnapshot,
+        tick: f64,
+        lot: f64,
+    ) -> std::sync::Arc<TapeSlot> {
+        let ident = (all.as_ptr() as usize, all.len());
+        let mut m = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(s) = m.get(&w_start).filter(|s| s.ident == ident) {
+            TAPE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return s.clone();
+        }
+        // SAFETY: срез строк живёт столько же, сколько сутки, которым принадлежит кэш (он лежит в `SignalWindows`
+        // суток); лента читает строки только пока идёт круг этих суток, а чужой срез отсекает `ident`.
+        let rows: &'static [Event] = unsafe { &*std::ptr::from_ref(&all[w_start..]) };
+        TAPES_BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let s = std::sync::Arc::new(TapeSlot {
+            ident,
+            tape: std::sync::Mutex::new(TapeBook::new(rows, 0, start, tick, lot)),
+        });
+        m.insert(w_start, s.clone());
+        s
+    }
+}
+
 pub struct TapeBook<'a> {
     rows: &'a [Event],
     base: usize,
@@ -64,6 +126,10 @@ impl<'a> TapeBook<'a> {
     /// Дорастить ряд и точки до курсора `upto` (строка `upto` не применяется).
     pub fn grow_to(&mut self, upto: usize) {
         let upto = upto.min(self.rows.len());
+        TAPE_ROWS.fetch_add(
+            upto.saturating_sub(self.cur) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         while self.cur < upto {
             let i = self.cur - self.base;
             if i.is_multiple_of(STRIDE) {

@@ -1213,9 +1213,12 @@ impl<'a> GridRun<'a> {
                 if crate::lob::backtest::fast_hold::fast_book_on() {
                     use crate::lob::backtest::fast_hold::{FAST_BOOK_MISMATCH, FAST_BOOK_ROUNDS};
                     eprintln!(
-                        "FASTBOOK кругов на общей книге {}, расхождений старта {}",
+                        "FASTBOOK кругов на общей книге {}, расхождений старта {}, лент построено {}, попаданий в кэш {}, строк ленты {}",
                         FAST_BOOK_ROUNDS.load(Relaxed),
-                        FAST_BOOK_MISMATCH.load(Relaxed)
+                        FAST_BOOK_MISMATCH.load(Relaxed),
+                        crate::lob::backtest::fast_book::TAPES_BUILT.load(Relaxed),
+                        crate::lob::backtest::fast_book::TAPE_HITS.load(Relaxed),
+                        crate::lob::backtest::fast_book::TAPE_ROWS.load(Relaxed)
                     );
                 }
                 use crate::lob::backtest::fast_hold::{
