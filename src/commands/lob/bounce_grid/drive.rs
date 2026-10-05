@@ -145,8 +145,46 @@ fn signals_for(
     Ok((signals, skipped))
 }
 
+/// Сигналы форм, посчитанные в `exit_groups`, — главному проходу суток (TK-050, `ALPHA_SIG_CACHE=<потолок
+/// сигналов на сутки>`, умолчание 0 = выкл): `signals_for` второй раз не зовётся. Сверх потолка форма не
+/// кладётся — считается заново, как раньше (результат тот же).
+type SigSlot = Option<(Vec<BounceSignal>, u64)>;
+
+struct SigCache {
+    slots: Mutex<Vec<SigSlot>>,
+    left: AtomicUsize,
+}
+
+impl SigCache {
+    fn from_env(forms: usize) -> Option<Self> {
+        let cap = std::env::var("ALPHA_SIG_CACHE").ok()?.parse::<usize>().ok()?;
+        (cap > 0).then(|| Self {
+            slots: Mutex::new((0..forms).map(|_| None).collect()),
+            left: AtomicUsize::new(cap),
+        })
+    }
+
+    fn put(&self, i: usize, signals: Vec<BounceSignal>, skipped: u64) {
+        let n = signals.len();
+        if self
+            .left
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |l| l.checked_sub(n))
+            .is_ok()
+        {
+            if let Ok(mut g) = self.slots.lock() {
+                g[i] = Some((signals, skipped));
+            }
+        }
+    }
+
+    fn take(&self, i: usize) -> Option<(Vec<BounceSignal>, u64)> {
+        self.slots.lock().ok()?[i].take()
+    }
+}
+
 /// Предсчёт групп выходов (Э-08) для форм суток: группы — по `entry_form` и `entry_ttl`, из двух и больше
 /// форм; сигналы — те же, что у формы (`signals_for`). Печатает число групповых кругов.
+#[allow(clippy::too_many_arguments)]
 fn exit_groups(
     events: DayRows<'_>,
     windows: &SignalWindows,
@@ -155,6 +193,7 @@ fn exit_groups(
     forms: &[GridForm],
     p: &DayParams<'_>,
     memos: &[Mutex<RoundMemo>],
+    cache: Option<&SigCache>,
 ) -> anyhow::Result<()> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
     for (i, f) in forms.iter().enumerate() {
@@ -176,8 +215,11 @@ fn exit_groups(
     let mut rounds: u64 = 0;
     for g in groups.into_iter().filter(|g| g.len() > 1) {
         let mut sigs: Vec<Vec<BounceSignal>> = Vec::with_capacity(g.len());
+        let mut skips: Vec<u64> = Vec::with_capacity(g.len());
         for &i in &g {
-            sigs.push(signals_for(touches, approaches, p.sigma, &forms[i], p)?.0);
+            let (sg, sk) = signals_for(touches, approaches, p.sigma, &forms[i], p)?;
+            sigs.push(sg);
+            skips.push(sk);
         }
         let mut guards: Vec<_> = g
             .iter()
@@ -206,6 +248,13 @@ fn exit_groups(
             ),
         }
         .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
+        drop(refs);
+        drop(guards);
+        if let Some(c) = cache {
+            for ((&i, sg), sk) in g.iter().zip(sigs).zip(skips) {
+                c.put(i, sg, sk);
+            }
+        }
     }
     eprintln!("bounce-grid:   группы выходов: групповых кругов {rounds}");
     Ok(())
@@ -576,9 +625,10 @@ pub(super) fn drive_day(
     };
     // Э-08: формы с одним входом (`entry_form`, `entry_ttl`) — круги группы заранее, одним движком на
     // сигнал, в память каждой формы; дальше формы идут прежним путём и берут круги из памяти.
+    let sig_cache = SigCache::from_env(forms.len());
     if p.exit_group && !p.busy_skip {
         if let (Some(w), Some(ms)) = (windows, p.memos) {
-            exit_groups(events, w, touches, approaches, forms, &p, ms)?;
+            exit_groups(events, w, touches, approaches, forms, &p, ms, sig_cache.as_ref())?;
         }
     }
     if windows.is_some() && p.memos.is_none() && std::env::var_os("ALPHA_SHARED_ENGINE").is_some() {
@@ -613,7 +663,11 @@ pub(super) fn drive_day(
                     busy_skip: p.busy_skip,
                     hold_skip: p.hold_skip,
                 };
-                let step = signals_for(touches, approaches, p.sigma, &forms[i], &p).and_then(
+                let sigs = match sig_cache.as_ref().and_then(|c| c.take(i)) {
+                    Some(hit) => Ok(hit),
+                    None => signals_for(touches, approaches, p.sigma, &forms[i], &p),
+                };
+                let step = sigs.and_then(
                     |(signals, skipped)| {
                         let driven = match windows {
                             Some(w) => match p.memos {
