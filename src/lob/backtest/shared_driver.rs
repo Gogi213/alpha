@@ -81,3 +81,28 @@ pub fn drive_cells_shared(
     }
     Ok(out)
 }
+
+/// Окна сигналов клетки в строках ленты: `[строка t0, строка t0 + горизонт круга)` — то, что пройдёт окон-путь
+/// (сверху: круг обычно выходит раньше горизонта). Строки упорядочены по `local_ts`, поиск — двоичный.
+pub fn window_row_spans<R: EventRows + ?Sized>(
+    rows: &R,
+    signals: &[BounceSignal],
+    out: &mut Vec<(usize, usize)>,
+) {
+    let lower = |t: i64| -> usize {
+        let (mut lo, mut hi) = (0usize, rows.len());
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if rows.row_local_ts(mid) <= t {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    };
+    out.extend(signals.iter().map(|s| {
+        let until = s.t0_ns.saturating_add(horizon_span_ns(&s.plan));
+        (lower(s.t0_ns), lower(until))
+    }));
+}

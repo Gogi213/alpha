@@ -23,7 +23,7 @@ for m in $1; do
   for d in $days; do V=$E/study/root-2026-$mm-$d; rm -rf $V; mkdir -p $V; X=NONE; { [ $n -lt 8 ] || { [ $n -eq 8 ] && [ $((10#$d)) -le 11 ]; }; } && X=$EXCL
     # монета в вид суток и в ax/D20 — только если её бинлог этих суток есть (нет бинлога — в dropped-<м>.txt)
     unset HAS; declare -A HAS
-    for f in $S/root/*-2026-$mm-$d.binlog; do b=${f##*/}; [[ $b =~ ^($X)-2026 ]] && continue; HAS[${b%%-2026*}]=1; ln -sf $f $V/; done
+    for f in $S/root/*-2026-$mm-$d.binlog; do b=${f##*/}; [[ $b =~ ^($X)-2026 ]] && continue; [ -e $E/study/sigma240/sigma-${b%%-2026*}.csv ] || { echo "$mm-$d ${b%%-2026*} no-sigma240" >> $O/dropped-$m.txt; continue; }; HAS[${b%%-2026*}]=1; ln -sf $f $V/; done
     for f in $S/root/*-2026-$mm-$d.binlog.events; do b=${f##*/}; [ -n "${HAS[${b%%-2026*}]}" ] && cp -n $f $V/; done
     AX=$E/study/ax/D20/2026-$mm-$d; rm -rf $AX; mkdir -p $AX
     for f in $E/study/approaches/D20/2026-$mm-$d/*; do b=${f##*/}; if [ $b = symbols.txt ]; then while read -r sy; do [ -n "${HAS[$sy]}" ] && echo $sy; done < $f > $AX/$b; else sy=${b%.*}; sy=${sy##*-}; [[ $sy =~ ^[A-Z0-9]+$ ]] && [ -z "${HAS[$sy]}" ] && continue; ln -s $(readlink -f $f) $AX/$b; fi; done
