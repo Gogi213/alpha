@@ -2221,6 +2221,18 @@ fn hold_skip_matches_polling_byte_for_byte() {
             let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
             fast_hold::FORCE_ON.with(|f| f.set(false));
             assert_eq!(a, c.unwrap(), "{name}, busy_skip {busy_skip}: быстрый путь");
+            // TK-049: то же с общей книгой окна (ALPHA_FAST_BOOK + сверка старта с движком) — тот же `BounceRun`.
+            fast_hold::FORCE_ON.with(|f| f.set(true));
+            fast_hold::FORCE_BOOK.with(|f| f.set(true));
+            let d = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
+            fast_hold::FORCE_BOOK.with(|f| f.set(false));
+            fast_hold::FORCE_ON.with(|f| f.set(false));
+            assert_eq!(a, d.unwrap(), "{name}, busy_skip {busy_skip}: общая книга");
+            assert_eq!(
+                fast_hold::FAST_BOOK_MISMATCH.load(std::sync::atomic::Ordering::Relaxed),
+                0,
+                "{name}: книга общего ряда на старте круга != книге движка"
+            );
             fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
                 + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
                 - used;
@@ -2233,6 +2245,10 @@ fn hold_skip_matches_polling_byte_for_byte() {
         }
     }
     assert!(fast_used > 0, "быстрый путь обязан хотя бы раз сработать");
+    assert!(
+        fast_hold::FAST_BOOK_ROUNDS.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        "общая книга окна обязана хотя бы раз стартовать круг"
+    );
 }
 
 /// Память кругов (G10) берёт круг только при тех же сиротах на входе (в нумерации от базы прогона): круг

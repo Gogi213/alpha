@@ -3582,6 +3582,7 @@ fn windowed_with<R: EventRows + ?Sized>(
     memo: Option<&mut RoundMemo>,
 ) -> Result<BounceRun, BacktestError> {
     let mut buf: Vec<Event> = Vec::new();
+    let mut tape_slot: Option<(usize, fast_book::TapeBook<'_>)> = None;
     drive_bounce_with::<Backtest<FastMarketDepth>, FastMarketDepth, _>(
         0,
         signals,
@@ -3619,6 +3620,25 @@ fn windowed_with<R: EventRows + ?Sized>(
                 }
             };
             note_attempt(attempt, rest.len());
+            let tape = if fast_hold::fast_book_on() {
+                events.as_events().map(|all| {
+                    if tape_slot.as_ref().is_none_or(|(k, _)| *k != w.start) {
+                        tape_slot = Some((
+                            w.start,
+                            fast_book::TapeBook::new(
+                                &all[w.start..],
+                                0,
+                                &w.depth,
+                                windows.tick_size,
+                                windows.lot_size,
+                            ),
+                        ));
+                    }
+                    &mut tape_slot.as_mut().expect("слот выставлен").1
+                })
+            } else {
+                None
+            };
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).
             let data_end = last.map(|(local, exch)| local.min(exch));
@@ -3641,6 +3661,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                             windows.lot_size,
                             exec_latency,
                             cfg.queue_model,
+                            tape,
                             || step(bt, data_end),
                         )?
                     };

@@ -1210,6 +1210,19 @@ impl<'a> GridRun<'a> {
                     FAST_FALLBACKS.load(Relaxed),
                     FAST_ROWS.load(Relaxed)
                 );
+                use crate::lob::backtest::fast_hold::{
+                    FAST_EXIT_N, FAST_EXIT_ROWS, FAST_SKIPS, FAST_STEPS, FAST_WINROWS,
+                };
+                let n =
+                    |a: &[std::sync::atomic::AtomicU64; 5]| a.each_ref().map(|x| x.load(Relaxed));
+                eprintln!(
+                    "FASTSTAT шагов {} пропусков {} строк окна {} выходы кругов[нет таймера,конец ленты,заявка,не Idle,круг кончен] {:?} строк по выходам {:?}",
+                    FAST_STEPS.load(Relaxed),
+                    FAST_SKIPS.load(Relaxed),
+                    FAST_WINROWS.load(Relaxed),
+                    n(&FAST_EXIT_N),
+                    n(&FAST_EXIT_ROWS)
+                );
             }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {

@@ -4,6 +4,7 @@
 //! биржевая (локальная + строки, уже дошедшие до биржи, но не до локальной стороны; их биржевые флаги в новом
 //! движке сняты, чтобы сторона не применила строку дважды).
 
+use super::fast_book::{SeriesDepth, TapeBook, STRIDE};
 use super::*;
 use hftbacktest::types::{Side, EXCH_EVENT, LOCAL_EVENT};
 use hftbacktest::types::{
@@ -63,6 +64,10 @@ pub struct HoldTracker<'a> {
     clean: bool,
     max_exch_ts: i64,
     book: FastMarketDepth,
+    /// Общая книга окна (`ALPHA_FAST_BOOK`): строки применяет она, один раз на окно; `book` подтягивается до
+    /// `lcur` только перед чтением целиком (`sync_book`), `wcur` — до какой строки он уже дошёл.
+    tape: Option<*mut TapeBook<'static>>,
+    wcur: usize,
     /// Локальные сделки, пришедшие с прошлого `take_trades`.
     pub trades: Vec<Event>,
 }
@@ -77,8 +82,52 @@ impl<'a> HoldTracker<'a> {
             clean: true,
             max_exch_ts: i64::MIN,
             book,
+            tape: None,
+            wcur: base,
             trades: Vec::new(),
         }
+    }
+
+    /// Трекер на общей книге окна: `tape` построена над тем же срезом `rows` с базой 0; рабочая книга берётся
+    /// из неё на строке `base`. Указатель должен жить дольше трекера.
+    pub fn with_tape(rows: &'a [Event], base: usize, tape: *mut TapeBook<'static>) -> Self {
+        // SAFETY: вызывающий держит `tape` живой и без других ссылок на время вызова.
+        let book = unsafe { &mut *tape }.book_at(base);
+        let mut t = Self::new(rows, base, book);
+        t.tape = Some(tape);
+        t
+    }
+
+    /// Подтянуть рабочую книгу до курсора (без общей книги — ничего: она и так на курсоре).
+    pub fn sync_book(&mut self) {
+        let Some(tp) = self.tape else { return };
+        if self.wcur == self.lcur {
+            return;
+        }
+        if self.lcur - self.wcur <= STRIDE / 2 {
+            for ev in &self.rows[self.wcur..self.lcur] {
+                if ev.is(LOCAL_EVENT) {
+                    apply_local(&mut self.book, ev);
+                }
+            }
+        } else {
+            // SAFETY: см. `with_tape`.
+            self.book = unsafe { &mut *tp }.book_at(self.lcur);
+        }
+        self.wcur = self.lcur;
+    }
+
+    /// Подпись входов удержания на курсоре: по ряду общей книги, если он достоверен, иначе по рабочей книге.
+    pub fn input_sig(&mut self, state: &StrategyState, now: i64) -> Option<[u64; 5]> {
+        if let Some(tp) = self.tape {
+            // SAFETY: см. `with_tape`; ряд уже выращен `advance_to`.
+            let tape: &TapeBook<'static> = unsafe { &*tp };
+            if let Some(sd) = SeriesDepth::new(tape, self.lcur) {
+                return state.hold_input_sig(&sd, now);
+            }
+        }
+        self.sync_book();
+        state.hold_input_sig(&self.book, now)
     }
 
     pub fn book(&self) -> &FastMarketDepth {
@@ -101,7 +150,9 @@ impl<'a> HoldTracker<'a> {
                 if ev.local_ts > t {
                     break;
                 }
-                apply_local(&mut self.book, ev);
+                if self.tape.is_none() {
+                    apply_local(&mut self.book, ev);
+                }
                 if ev.is(LOCAL_TRADE_EVENT) {
                     self.trades.push(ev.clone());
                 }
@@ -114,6 +165,10 @@ impl<'a> HoldTracker<'a> {
             }
             self.lcur += 1;
         }
+        if let Some(tp) = self.tape {
+            // SAFETY: см. `with_tape`.
+            unsafe { &mut *tp }.grow_to(self.lcur);
+        }
     }
 
     pub fn take_trades(&mut self) -> std::vec::Drain<'_, Event> {
@@ -122,10 +177,11 @@ impl<'a> HoldTracker<'a> {
 
     /// Состояние для нового движка на `t`; `None` — случай, где биржевую книгу по локальной не восстановить
     /// (строка без пары флагов до курсора или биржа отстаёт от локальной стороны) — круг идёт полным путём.
-    pub fn handoff(&self, t: i64, tick_size: f64, lot_size: f64) -> Option<FastHandoff> {
+    pub fn handoff(&mut self, t: i64, tick_size: f64, lot_size: f64) -> Option<FastHandoff> {
         if !self.clean || self.max_exch_ts > t {
             return None;
         }
+        self.sync_book();
         let mut ecur = self.lcur;
         while let Some(ev) = self.rows.get(ecur) {
             if ev.is(EXCH_EVENT) && ev.exch_ts > t {
@@ -493,13 +549,14 @@ pub(super) fn fast_hold_scan(
         let mark_before = state.phase_mark();
         let before = state.clone();
         let sig_before = sig;
-        let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
+        let skip = skip_on && sig.skip(bot.tracker.input_sig(state, now));
         if skip {
             FAST_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         let action = if skip {
             Action::Idle
         } else {
+            bot.tracker.sync_book();
             match on_event(bot, state) {
                 Ok(a) => a,
                 Err(_) => Action::Idle,
@@ -544,8 +601,34 @@ pub fn fast_hold_on() -> bool {
     *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_HOLD").is_some_and(|v| v == "1"))
 }
 
+/// `ALPHA_FAST_BOOK=1` (поверх `ALPHA_FAST_HOLD=1`) — общая книга окна для кругов; умолчание — выкл.
+pub fn fast_book_on() -> bool {
+    #[cfg(test)]
+    if FORCE_BOOK.with(std::cell::Cell::get) {
+        return true;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_BOOK").is_some_and(|v| v == "1"))
+}
+
+/// `ALPHA_FAST_BOOK_CHECK=1` — сверять книгу общего ряда на старте круга со снимком движка; несовпадение — счётчик
+/// и круг идёт на книге движка.
+fn fast_book_check_on() -> bool {
+    #[cfg(test)]
+    if FORCE_BOOK.with(std::cell::Cell::get) {
+        return true;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_BOOK_CHECK").is_some_and(|v| v == "1"))
+}
+
+/// Кругов быстрого пути, стартовавших на общей книге окна.
+pub static FAST_BOOK_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_BOOK_MISMATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[cfg(test)]
 thread_local! {
+    pub(super) static FORCE_BOOK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     pub(super) static FORCE_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -574,6 +657,7 @@ struct FastCtx {
     lot: f64,
     latency: ExecLatency,
     queue_model: QueueModelKind,
+    tape: Option<*mut TapeBook<'static>>,
 }
 
 thread_local! {
@@ -589,6 +673,7 @@ pub fn with_fast_ctx<R>(
     lot: f64,
     latency: ExecLatency,
     queue_model: QueueModelKind,
+    tape: Option<&mut TapeBook<'_>>,
     f: impl FnOnce() -> R,
 ) -> R {
     if !fast_hold_on() {
@@ -603,6 +688,9 @@ pub fn with_fast_ctx<R>(
             lot,
             latency,
             queue_model,
+            tape: tape
+                .filter(|_| fast_book_on())
+                .map(|t| std::ptr::from_mut(t).cast::<TapeBook<'static>>()),
         }))
     });
     let out = f();
@@ -649,9 +737,30 @@ where
     let Some(cur) = local_cursor_at(rows, 0, t) else {
         return FastOutcome::NotApplied;
     };
-    let book = DepthSnapshot::of(bt.depth(asset_no)).build(ctx.tick, ctx.lot);
+    let tape = ctx.tape.filter(|&tp| {
+        !fast_book_check_on() || {
+            // SAFETY: см. `with_fast_ctx` — книга окна жива и свободна на время шага круга.
+            let same = DepthSnapshot::of(&unsafe { &mut *tp }.book_at(cur))
+                == DepthSnapshot::of(bt.depth(asset_no));
+            if !same {
+                FAST_BOOK_MISMATCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            same
+        }
+    });
     let state_start = state.clone();
-    let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
+    let tracker = match tape {
+        Some(tp) => {
+            FAST_BOOK_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            HoldTracker::with_tape(rows, cur, tp)
+        }
+        None => HoldTracker::new(
+            rows,
+            cur,
+            DepthSnapshot::of(bt.depth(asset_no)).build(ctx.tick, ctx.lot),
+        ),
+    };
+    let mut fb = FastBot::new(tracker, t);
     let r = fast_hold_scan(&mut fb, state, cap, decided_in_hold, stable, sig, skip_on);
     let t2 = fb.current_timestamp();
     let Some(h) = fb.tracker.handoff(t2, ctx.tick, ctx.lot) else {
