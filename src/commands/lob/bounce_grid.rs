@@ -276,6 +276,10 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
         crate::lob::backtest::fast_depth::BAND_STATS_ON
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    if std::env::var_os("ALPHA_NEXT_EVENT_MEMO").is_some_and(|v| v == "1") {
+        crate::lob::backtest::fast_hold::NEXT_EVENT_MEMO
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if std::env::var_os("ALPHA_BAND_COUNT_OFF").is_some_and(|v| v == "1") {
         crate::lob::backtest::fast_depth::BAND_COUNT_OFF
             .store(true, std::sync::atomic::Ordering::Relaxed);

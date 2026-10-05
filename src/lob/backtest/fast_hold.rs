@@ -65,7 +65,14 @@ pub struct HoldTracker<'a> {
     book: FastMarketDepth,
     /// Локальные сделки, пришедшие с прошлого `take_trades`.
     pub trades: Vec<Event>,
+    /// Память `next_event_ts` (`ALPHA_NEXT_EVENT_MEMO=1`): строки `[lcur, ecur)` не дают биржевой метки позже `ecur_now`.
+    ecur: std::cell::Cell<usize>,
+    ecur_now: std::cell::Cell<i64>,
 }
+
+/// `ALPHA_NEXT_EVENT_MEMO=1`: поиск первой строки с биржевой меткой позже `now` идёт с прошлой найденной, а не с `lcur`.
+pub static NEXT_EVENT_MEMO: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 impl<'a> HoldTracker<'a> {
     /// `book` — локальная книга на момент до `rows[base]` (обе стороны движка в этот момент равны).
@@ -78,6 +85,8 @@ impl<'a> HoldTracker<'a> {
             max_exch_ts: i64::MIN,
             book,
             trades: Vec::new(),
+            ecur: std::cell::Cell::new(base),
+            ecur_now: std::cell::Cell::new(i64::MIN),
         }
     }
 
@@ -395,9 +404,19 @@ impl HoldTracker<'_> {
         } else {
             first.exch_ts
         };
-        for ev in &self.rows[self.lcur..] {
+        let memo = NEXT_EVENT_MEMO.load(std::sync::atomic::Ordering::Relaxed);
+        let from = if memo && now >= self.ecur_now.get() {
+            self.ecur.get().max(self.lcur)
+        } else {
+            self.lcur
+        };
+        for (i, ev) in self.rows[from..].iter().enumerate() {
             if ev.is(EXCH_EVENT) && ev.exch_ts > now {
                 next = next.min(ev.exch_ts);
+                if memo {
+                    self.ecur.set(from + i);
+                    self.ecur_now.set(now);
+                }
                 break;
             }
         }
