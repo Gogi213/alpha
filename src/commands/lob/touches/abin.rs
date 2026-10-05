@@ -18,8 +18,18 @@ pub(crate) fn enabled() -> bool {
     std::env::var_os("ALPHA_APPROACH_BIN").is_some_and(|v| v == "1")
 }
 
+/// Рядом с CSV; при `ALPHA_APPROACH_BIN_DIR` — в зеркале пути CSV под этим каталогом (входное дерево не трогаем).
 fn bin_path(csv: &Path) -> PathBuf {
-    let mut s = csv.as_os_str().to_owned();
+    let mut s = match std::env::var_os("ALPHA_APPROACH_BIN_DIR") {
+        Some(dir) => {
+            let rel: PathBuf = csv
+                .components()
+                .filter(|c| matches!(c, std::path::Component::Normal(_)))
+                .collect();
+            PathBuf::from(dir).join(rel).into_os_string()
+        }
+        None => csv.as_os_str().to_owned(),
+    };
     s.push(".abin");
     PathBuf::from(s)
 }
@@ -50,6 +60,9 @@ pub(crate) fn read_approaches_cached(csv: &Path) -> anyhow::Result<Vec<ApproachR
     let rows = read_approaches_csv(csv)?;
     if let Some(bytes) = encode_file(&rows, len, mtime) {
         if decode_file(&bytes, len, mtime).as_deref() == Some(&rows[..]) {
+            if let Some(parent) = bin.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
             let tmp = bin.with_extension(format!("abin.tmp{}", std::process::id()));
             if std::fs::write(&tmp, &bytes).is_ok() && std::fs::rename(&tmp, &bin).is_err() {
                 let _ = std::fs::remove_file(&tmp);
