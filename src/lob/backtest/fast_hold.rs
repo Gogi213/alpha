@@ -666,6 +666,7 @@ thread_local! {
 
 /// Выставляет окно круга на время `f` (только при `ALPHA_FAST_HOLD=1`). `rows` — тот самый срез, что читает
 /// движок окна (`Backtest<FastMarketDepth>` из `with_backtest_over_window`).
+#[allow(clippy::too_many_arguments)]
 pub fn with_fast_ctx<R>(
     engine: usize,
     rows: &[Event],
