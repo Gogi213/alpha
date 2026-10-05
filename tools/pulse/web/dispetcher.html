@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<title>Табло · Диспетчерская</title>
+<title>Диспетчерская</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap">
@@ -226,7 +226,7 @@
 </style>
 </head>
 <body>
-<noscript>Для табло нужен JavaScript.</noscript>
+<noscript>Нужен JavaScript.</noscript>
 <script src="phosphor.js"></script>
 <script>
 (() => {
@@ -266,7 +266,7 @@
     const top = pr ? `<div class="top"><div class="pr"><span>готово <b class="hot">${pr.pct} %</b> · ${Math.floor(pr.done)} из ${pr.total}</span>${seg(list, "готово")}<span>${eta}${pr.spent_min != null ? ` · <span class="dim">прошло ${fmtMin(pr.spent_min)}</span>` : ""}</span></div></div>` : "";
     const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, m }));
     act.forEach((p) => arr(p.steps).forEach((s) => { if (s.on && s.on !== "you" && !machines.some((r) => r.id === s.on)) machines.push({ id: s.on, state: "idle", m: null }); }));
-    machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
+    if (arr(v.questions).length || act.some((p) => arr(p.steps).some((s) => s.on === "you"))) machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
     const np = act.length;
     let mx = "";
     if (np) {
@@ -291,14 +291,14 @@
     <div class="md-h"><span id="md-t">Подключить команду</span><button type="button" class="md-x" id="md-x" aria-label="Закрыть">×</button></div>
     <div id="md-s1"><label class="md-l" for="md-name">Имя команды</label><input class="md-in" id="md-name" type="text" maxlength="40" placeholder="например: Инвойс" autocomplete="off">
       <p class="md-how dim" id="md-err" hidden></p><div class="md-ok"><button type="button" class="cbtn" id="md-make">Выдать ключ</button></div></div>
-    <div id="md-s2" hidden><span class="md-l">Адрес табло</span><div class="md-key"><code class="md-code" id="md-url"></code><button type="button" class="cbtn no" data-copy="md-url">Копировать</button></div>
+    <div id="md-s2" hidden><span class="md-l">Адрес</span><div class="md-key"><code class="md-code" id="md-url"></code><button type="button" class="cbtn no" data-copy="md-url">Копировать</button></div>
       <span class="md-l">Ключ этой команды (показан один раз)</span><div class="md-key"><code class="md-code" id="md-code"></code><button type="button" class="cbtn no" data-copy="md-code">Копировать</button></div>
       <p class="md-how dim">на том компьютере в настройках плагина укажите адрес (RPV_BOARD_URL) и ключ (RPV_BOARD_KEY) — сборщик сам начнёт присылать сводку</p>
       <div class="md-ok"><button type="button" class="cbtn" id="md-done">Готово</button></div></div></div></div>`;
 
   Board.start({
     after() { const w = document.querySelector('.d3 .mxw'), h = document.querySelector('.d3 .mxh'); if (w && h) h.hidden = w.scrollWidth <= w.clientWidth + 1; },
-    id: "dispetcher", cls: "d3", ph: "ice", title: "Табло · Диспетчерская", path: "табло:~/диспетчерская", model: "Табло · Диспетчерская", extra: modal,
+    id: "dispetcher", cls: "d3", ph: "ice", title: "Диспетчерская", path: "", model: "Диспетчерская", extra: modal,
     render(v) {
       return `<div class="hbar"><h1>Диспетчерская</h1><div class="chips" role="group" aria-label="Команды">${Board.teams().map(chip).join("")}<button type="button" class="cbtn add" id="md-open" title="Подключить команду" aria-label="Подключить команду">+</button></div></div><section class="lay">${pane(v)}</section>`;
     },

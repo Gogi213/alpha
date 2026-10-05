@@ -158,16 +158,16 @@
   function paintLink() {
     const banner = document.getElementById("banner"), lnk = document.getElementById("lnk"), stt = document.getElementById("stt"), led = document.querySelector(".led");
     let msg = null, short = "связь есть", ok = true;
-    if (!loaded) { short = netFail ? "НЕТ СВЯЗИ" : "загрузка"; ok = false; if (netFail) msg = ["НЕТ СВЯЗИ", "сервер табло не отвечает, сводки ещё нет"]; }
+    if (!loaded) { short = netFail ? "НЕТ СВЯЗИ" : "загрузка"; ok = false; if (netFail) msg = ["НЕТ СВЯЗИ", "сервер не отвечает, сводки ещё нет"]; }
     else {
       const age = ageAt + (Date.now() - fetchedAt) / 1000, tick = Number(V.tick_s) || 5, limit = 2 * tick + 5;
-      if (netFail) { short = "НЕТ СВЯЗИ"; ok = false; msg = ["НЕТ СВЯЗИ", "сервер табло не отвечает, показана последняя сводка"]; }
+      if (netFail) { short = "НЕТ СВЯЗИ"; ok = false; msg = ["НЕТ СВЯЗИ", "сервер не отвечает, показана последняя сводка"]; }
       else if (age > limit) { short = "СВОДКА УСТАРЕЛА"; ok = false; msg = ["СВОДКА УСТАРЕЛА " + fmtAge(age), "ПК не передаёт данные, показана последняя сводка"]; }
     }
     banner.hidden = !msg;
     if (msg) banner.innerHTML = `<span>${E(msg[0])}</span><span>${E(msg[1])}</span>`;
-    lnk.textContent = short;
-    if (loaded) stt.textContent = "сводка " + (V.time || "--:--");
+    if (lnk) lnk.textContent = short;
+    if (loaded && stt) stt.textContent = "сводка " + (V.time || "--:--");
     led.classList.toggle("lit", ok);
   }
 
@@ -209,13 +209,12 @@
         <div class="screen"><div class="crt">
           <div class="banner" id="banner" role="alert" hidden></div>
           <div class="term"><div class="inner" id="view"><div class="dim">Загружаю сводку…</div></div></div>
-          <div class="status"><span class="tg">ТАБЛО</span><span class="wide">${E(c.path)}</span><span class="fill"></span><span class="wide" id="phl"></span><span id="lnk">загрузка</span><span class="wide" id="stt"></span></div>
         </div><i class="ov grain"></i><i class="ov scan"></i><i class="ov roll"></i>${c.extra || ""}<i class="ov vignette"></i><i class="ov glass"></i></div>
         <div class="strip"><div class="brand"><i class="led"></i><span class="brand-name">Alpha</span><span class="brand-model">${E(c.model)}</span></div><span class="fill"></span>
           <div class="dials" role="group" aria-label="Люминофор"><span class="dial-label">Люминофор</span>${Object.keys(PH).map((k) => `<button type="button" class="key" data-phk="${k}" aria-pressed="${k === ph}" aria-label="${PH[k][2]}" style="--c:${PH[k][1]}"><i class="lamp-k"></i>${PH[k][0]}</button>`).join("")}</div></div></div>`);
     view = document.getElementById("view");
     const mon = document.querySelector(".mon");
-    const setPh = (k) => { ph = k; mon.dataset.ph = k; document.getElementById("phl").textContent = "[" + PH[k][0] + "]"; mon.querySelectorAll("[data-phk]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.phk === k))); try { localStorage.setItem("board-ph-" + c.id, k); } catch (e) { /* нет хранилища — не страшно */ } };
+    const setPh = (k) => { ph = k; mon.dataset.ph = k; mon.querySelectorAll("[data-phk]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.phk === k))); try { localStorage.setItem("board-ph-" + c.id, k); } catch (e) { /* нет хранилища — не страшно */ } };
     setPh(ph);
     mon.querySelectorAll("[data-phk]").forEach((b) => b.addEventListener("click", () => setPh(b.dataset.phk)));
     view.addEventListener("click", (e) => {
