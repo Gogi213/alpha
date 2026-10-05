@@ -221,6 +221,7 @@ pub fn with_backtest_from_handoff<R>(
 /// (курсор по времени ненадёжен — быстрый путь не включается).
 pub fn local_cursor_at(rows: &[Event], start: usize, t: i64) -> Option<usize> {
     let mut prev = i64::MIN;
+    let mut max_exch = i64::MIN;
     let mut i = start;
     while let Some(ev) = rows.get(i) {
         if ev.is(LOCAL_EVENT) {
@@ -232,9 +233,13 @@ pub fn local_cursor_at(rows: &[Event], start: usize, t: i64) -> Option<usize> {
                 break;
             }
         }
+        if ev.is(EXCH_EVENT) {
+            max_exch = max_exch.max(ev.exch_ts);
+        }
         i += 1;
     }
-    Some(i)
+    // Строка до курсора, не дошедшая до биржи к `t`: биржевую книгу по локальной не восстановить.
+    (max_exch <= t).then_some(i)
 }
 
 /// Заглушка бота для быстрого пути: часы и локальная книга из `HoldTracker`, заявок нет. Любая заявка/снятие/
@@ -516,4 +521,119 @@ pub fn fast_hold_scan(
             };
         }
     }
+}
+
+/// `ALPHA_FAST_HOLD=1` — быстрый путь удержания в одиночном драйвере кругов; умолчание — выкл.
+pub fn fast_hold_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_HOLD").is_some_and(|v| v == "1"))
+}
+
+/// Кругов, где движок заменён быстрым путём / где `handoff` не удался и круг пошёл прежним путём / строк ленты,
+/// пройденных плоской книгой (процесс; на итог счёта не влияет).
+pub static FAST_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_FALLBACKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Окно круга для быстрого пути: срез ленты движка (с первой строки после `t0`) и параметры сборки нового движка.
+#[derive(Clone, Copy)]
+struct FastCtx {
+    engine: usize,
+    ptr: *const Event,
+    len: usize,
+    tick: f64,
+    lot: f64,
+    latency: ExecLatency,
+    queue_model: QueueModelKind,
+}
+
+thread_local! {
+    static FAST_CTX: std::cell::Cell<Option<FastCtx>> = const { std::cell::Cell::new(None) };
+}
+
+/// Выставляет окно круга на время `f` (только при `ALPHA_FAST_HOLD=1`). `rows` — тот самый срез, что читает
+/// движок окна (`Backtest<FastMarketDepth>` из `with_backtest_over_window`).
+pub fn with_fast_ctx<R>(
+    engine: usize,
+    rows: &[Event],
+    tick: f64,
+    lot: f64,
+    latency: ExecLatency,
+    queue_model: QueueModelKind,
+    f: impl FnOnce() -> R,
+) -> R {
+    if !fast_hold_on() {
+        return f();
+    }
+    FAST_CTX.with(|c| {
+        c.set(Some(FastCtx {
+            engine,
+            ptr: rows.as_ptr(),
+            len: rows.len(),
+            tick,
+            lot,
+            latency,
+            queue_model,
+        }))
+    });
+    let out = f();
+    FAST_CTX.with(|c| c.set(None));
+    out
+}
+
+pub enum FastOutcome {
+    /// Быстрого пути не было (нет окна, не `Backtest<FastMarketDepth>`, курсор/handoff невозможны): всё как было.
+    NotApplied,
+    /// Удержание пройдено на плоской книге, движок в `bot` заменён новым на часах быстрого пути.
+    Swapped(FastResume),
+}
+
+/// Быстрый путь удержания для `run_round`: плоская книга до момента, когда нужен движок, затем замена движка.
+#[allow(clippy::too_many_arguments)]
+pub fn try_fast_hold<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    state: &mut StrategyState,
+    cap: i64,
+    decided_in_hold: bool,
+    stable: bool,
+    sig: SigMemo,
+    skip_on: bool,
+) -> FastOutcome
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let Some(ctx) = FAST_CTX.with(|c| c.get()) else {
+        return FastOutcome::NotApplied;
+    };
+    let raw = std::ptr::from_mut::<B>(bot);
+    if raw as *mut () as usize != ctx.engine {
+        return FastOutcome::NotApplied;
+    }
+    // SAFETY: адрес совпал с адресом движка окна, выставленным `with_fast_ctx` вокруг шага круга, — значит `B` и
+    // есть `Backtest<FastMarketDepth>`, а других ссылок на движок на время вызова нет (`bot` — `&mut`).
+    let bt = unsafe { &mut *raw.cast::<Backtest<FastMarketDepth>>() };
+    // SAFETY: срез окна живёт дольше этого вызова (его держит `windowed_with` на время шага круга).
+    let rows = unsafe { std::slice::from_raw_parts(ctx.ptr, ctx.len) };
+    let t = bt.current_timestamp();
+    let Some(cur) = local_cursor_at(rows, 0, t) else {
+        return FastOutcome::NotApplied;
+    };
+    let book = DepthSnapshot::of(bt.depth(asset_no)).build(ctx.tick, ctx.lot);
+    let state_start = state.clone();
+    let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
+    let r = fast_hold_scan(&mut fb, state, cap, decided_in_hold, stable, sig, skip_on);
+    let t2 = fb.current_timestamp();
+    let Some(h) = fb.tracker.handoff(t2, ctx.tick, ctx.lot) else {
+        *state = state_start;
+        FAST_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        return FastOutcome::NotApplied;
+    };
+    let used = fb.tracker.cursor().saturating_sub(cur);
+    *bt = build_backtest_from_handoff(&h, rows, ctx.tick, ctx.lot, ctx.latency, ctx.queue_model);
+    let _ = bt.elapse(0);
+    FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
+    FastOutcome::Swapped(r)
 }
