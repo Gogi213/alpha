@@ -80,7 +80,7 @@ pub const WIN_DISTINCT: usize = 37;
 pub const WIN_ROWS: usize = 38;
 pub const WIN_ROWS_DISTINCT: usize = 39;
 
-static C: [AtomicU64; 40] = [const { AtomicU64::new(0) }; 36];
+static C: [AtomicU64; 40] = [const { AtomicU64::new(0) }; 40];
 
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
