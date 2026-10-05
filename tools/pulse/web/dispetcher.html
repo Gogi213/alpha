@@ -213,10 +213,43 @@
 .d3 .md-code{flex:1 1 14em;min-width:0;font:inherit;color:var(--hot);overflow-wrap:anywhere;text-shadow:0 0 2px var(--fg),0 0 8px rgba(var(--fg-rgb),.55)}
 .d3 .md-how{margin:.8em 0 0;line-height:1.4}
 .d3 .md-ok{display:flex;justify-content:flex-end;margin-top:.9em}
+/* шкала задачи (слово владельца 06.10, вариант В макета statusbar-mockup.html): N шагов = N равных сегментов одной высоты, справа «2/6».
+   сделано — спокойная заливка · делается — яркий с пульсом · ждёт вас — штрих · впереди — тонкий контур; тот же язык у значков */
+.d3 i.u{display:block;flex:1 1 0px;min-width:2px;height:100%}
+.d3 i.u.d{background:rgba(var(--fg-rgb),.55)}
+.d3 i.u.r{background:var(--fg);animation:glow 2.6s ease-in-out infinite}
+.d3 i.u.w{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 5px);box-shadow:inset 0 0 0 1px var(--fg)}
+.d3 i.u.t{box-shadow:inset 0 0 0 1px rgba(var(--fg-rgb),.45)}
+.d3 i.u.b{box-shadow:inset 0 0 0 1px var(--hot),0 0 6px rgba(var(--fg-rgb),.6)}
+@keyframes glow{0%,100%{background-color:var(--fg);box-shadow:0 0 0 rgba(var(--fg-rgb),0)}50%{background-color:var(--hot);box-shadow:0 0 9px rgba(var(--fg-rgb),.7)}}
+.d3 .sg{display:flex;width:100%;min-width:0}
+.d3 .sg .g{flex:1 1 0px;min-width:0;display:grid}
+.d3 .sg .s{display:flex;gap:2px;height:6px}
+.d3 .ch.hd{display:flex;flex-direction:column;gap:.1em}
+.d3 .ch .bw{margin-top:auto;padding-top:.45em;display:grid;gap:.3em;min-width:0}
+.d3 .ch .cr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 1ch;align-items:center}
+.d3 .ch .cnt{font-size:var(--fs-s);white-space:nowrap;line-height:1}
+.d3 .pip.s-done{background:rgba(var(--fg-rgb),.55);border-color:rgba(var(--fg-rgb),.55)}
+.d3 .pip.s-run,.d3 .pip.s-review,.d3 .pip.s-repair{background:var(--hot);border-color:var(--hot);box-shadow:0 0 6px rgba(var(--fg-rgb),.7)}
+.d3 .pip.s-review::after{content:none}
+.d3 .pip.s-todo{border-style:solid;border-color:rgba(var(--fg-rgb),.45);background:transparent}
+.d3 .pip.s-wait{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 4px);border-color:var(--fg);box-shadow:none}
+.d3 .pip.s-wait::after{content:none}
+.d3 .cs{display:flex;align-items:baseline;min-width:0;line-height:1.25}
+.d3 .cs .pip{flex:none;align-self:center}
+.d3 .cs .n{flex:none}
+.d3 .cs b{flex:0 1 auto;min-width:3ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.d3 .cs .d{flex:1 1 0px;min-width:0;display:block;margin:0 0 0 .9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-s)}
+.d3 .cs.s-wait b{color:var(--hot)}
 @media (max-width:860px){
   .d3 .mx .mc{padding:.4em 1ch}
   .d3 .mx .cl{padding-left:calc(1ch + 1ch)}
   .d3 .mt-row{max-width:20em}
+  .d3 .mx .ch.hd{display:flex;padding:.5em 1ch}
+  .d3 .mx .ch .sg{max-width:30em}
+}
+@media (prefers-reduced-motion:reduce){
+  .d3 i.u.r{animation:none!important}
 }
 @media (max-width:720px){
   .d3 .md{padding:8px}
@@ -231,12 +264,18 @@
 <script src="phosphor.js"></script>
 <script>
 (() => {
-  const { E, arr, seg, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf, tok, whoOn, tm, waitTxt, pinfo, forTxt, flow } = Board;
+  const { E, arr, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf, tok, whoOn, tm, waitTxt, pinfo, forTxt, flow } = Board;
   const STALE = (v, age) => age == null || age > 2 * (Number(v && v.tick_s) || 5) + 5;
   const ROLE = { engineer: "Инженер", researcher: "Исследователь", judge: "Судья", ceo: "CEO" };
   const n = (c, k) => Number((c || {})[k]) || 0;
 
   const meter = (l, pct, txt) => `<div class="mt-row"><span class="dim">${l}</span>${pct != null ? bar(pct, 10) : "<span></span>"}<span>${txt}</span></div>`;
+
+  const SU = { done: "d", run: "r", review: "r", repair: "r", wait: "w", todo: "t", bad: "b" };
+  const scale = (p) => {
+    const ss = arr(p.steps), dn = ss.filter((s) => s.state === "done").length;
+    return `<span class="bw"><span class="cr"><span class="sg"><span class="g"><span class="s" role="img" aria-label="готово ${dn} из ${ss.length} шагов">${ss.map((s) => `<i class="u ${SU[Board.sk(s.state)]}"></i>`).join("")}</span></span></span><span class="cnt"><b class="hot">${dn}</b><span class="dim">/${ss.length}</span></span></span></span>`;
+  };
 
   const cell = (mid, p) => {
     const ss = arr(p.steps).filter((s) => s.on === mid);
@@ -278,7 +317,7 @@
     if (np) {
       mx = `<div class="corner"></div>` + act.map((p, i) => {
         const q = p.state === "todo" ? "в очереди" : p.state === "wait" ? "ждёт вас" : p.state === "bad" ? "проблема" : "";
-        return `<button type="button" class="ch hd${i === np - 1 ? " lc" : ""}" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}"><b>${E(p.title)}</b><span class="dim small">${E([ROLE[p.role] || "", p.for && p.for.text ? p.for.text : ""].filter(Boolean).join(" · "))}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</button>`;
+        return `<button type="button" class="ch hd${i === np - 1 ? " lc" : ""}" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}"><b>${E(p.title)}</b><span class="dim small">${E([ROLE[p.role] || "", p.for && p.for.text ? p.for.text : ""].filter(Boolean).join(" · "))}</span>${p.plan && arr(p.steps).length ? scale(p) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>${q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}`}</button>`;
       }).join("");
       machines.forEach((r, ri) => {
         const you = r.id === "you", last = ri === machines.length - 1, m = r.m, down = m && m.state === "down";

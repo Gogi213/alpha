@@ -42,15 +42,8 @@ def _mid(m: str) -> str:
 HUMAN_WORDS = 6
 _TECH = re.compile(r"https?://\S+|host:\S+|\S*/\S+|(?<!\w)--?[A-Za-z][\w-]*|\bmd5\b|\bTK-?\d+\S*|\b[ВвTt]-\d+|\bветк\w*\s+\S+|\bИтог\w*", re.I)
 
-# «Недавно»: событие = итог/сдано/принято с числом результата; поправки, «запущен», коды и частоты — не события
-EV_DONE = re.compile(r"итог|принят|сдан|готов|слиян|diff 0", re.I)
-EV_NOISE = re.compile(r"^\W*(?:поправк|запущен|начат|статус|сделано \(не выложено|код готов)", re.I)
-EV_NUM = re.compile(r"[−-]?\d+(?:[.,]\d+)?(?:\s?[…–]\s?\d+(?:[.,]\d+)?)?\s?(?:%|×|с(?!\w)|сек|мин(?!\w)|ч(?!\w)|ГБ|МБ|раз(?!\w))|×\s?\d+|\b\d+\s+из\s+\d+")
-EV_NOT = re.compile(r"оц\]|оценк|прогноз|ожида|по решению|остальные тикеты|ждут|критери", re.I)
-EV_JARGON = re.compile(r"\bwall\b|\buser\b|\w+_\w+|CPUQuota|[A-Z]{3,}[+_][A-Z]|\bFF\b")
-EV_STOP = ("шага", "из", "по", "для", "итог", "готово", "сделано")
-EV_DIFF = re.compile(r"diff 0", re.I)
-EV_CUT = re.compile(r"(?<=[.;])\s+|;\s*|:\s+|\s+[—–]\s+|,\s+")
+FEED_NOT = re.compile(r"ждёт|ждём|ожида|оценк|прогноз|дальше|круг|\b[bB]\d+\w*|PGO|\bFF\b|perf|соло", re.I)
+FEED_NUM = re.compile(r"\d+(?:[.,]\d+)?(?:\s*[–…-]+\s*\d+(?:[.,]\d+)?)?")  # «Недавно»: итог с числом, не ожидание и не оценка
 
 
 def human(text: str, words: int = HUMAN_WORDS) -> str:
@@ -238,6 +231,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
     now_dt = P.now_dt()
     mach = {_mid(m["id"]): m for m in machines if m["id"] != "deck"}
     warns = {_mid(m["id"]): m.get("warns") or [] for m in view["machines"]}
+    afters = {_mid(m["id"]): [i for i in m.get("items") or [] if i.endswith("идёт после сдачи")] for m in view["machines"]}
     jobs = {}
     for k, jl in jobs_all.items():
         for j in jl:
@@ -357,63 +351,6 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
-    def fact(e, limit: int = 56) -> str:  # заголовок записи: без скобок, путей, хэшей; резка по границе слова/фразы
-        s = re.sub(r"[\s–—,-]*@@[\s@–—,-]*", " ", re.sub(r"\([^)]*\)?", "@@", entry_title(e)))
-        s = re.sub(r"(?<![\w])[0-9a-f]{7,40}(?![\w])|коммит|п\.\d+", " ", _TECH.sub(" ", s))
-        s = re.sub(r"\s+", " ", s)
-        s = re.sub(r"\s*[–—-]\s*(?=[,.;:])|\s+[–—-]\s*$", "", s)
-        s = re.sub(r"\s+([,.:;])", lambda m: m.group(1), s).strip(" ,.;:—–-…·")
-        if len(s) > limit:
-            cut = s[: limit + 1]
-            k = max((cut.rfind(x) for x in (", ", "; ", ": ", " — ", " – ")), default=-1)
-            if k < 24:  # заголовок до первого двоеточия, если он короткий, но осмысленный
-                k = next((i for i in (s.find(": "), s.find(" — ")) if 14 <= i <= limit), k)
-            k = k if k >= 14 else -1
-            cut = cut[:k] if k >= 14 else cut[: cut.rfind(" ")] if " " in cut else cut
-            s = cut.rstrip(" ,.;:—–-·") + ("" if k >= 14 else "…")
-        s = re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|юнит|–|-))+$", "", s)
-        return s.strip(" ,.;:—–-…·") or "запись роли"
-
-    def event_line(e):  # строка «Недавно»: что сдано/принято и число результата; None — не событие
-        txt = H.clean_text(e.text)
-        txt = re.sub(r"^(?:Инженер|Исследователь|Судья)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
-        if EV_NOISE.match(txt) or not EV_DONE.search(txt[:200]):
-            return None
-        if EV_NOT.search(txt[:160]):
-            return None
-        m = re.search(r"итог\W*", txt, re.I)
-        body = txt[m.end():] if m else txt
-        gen = bool(m and ":" not in txt[m.start():m.end()])  # «ИТОГ perf-разбора b14 (…)» — после «итог» родительный падеж
-        body = re.sub(r"\((?![\d.,\s]+%\))[^)]*\)?", " ", body)
-        body = re.sub(r"(?<![\w])[0-9a-f]{7,40}(?![\w])|\bpid\s*\d+|\b\d{1,2}:\d{2}\b|\bwall\s+(\d+[.,]\d+)(?:\s*/\s*(?:user|sys)\s+\d+[.,]?\d*)*", lambda m: f"стена {m.group(1)} с" if m.group(1) else " ", _TECH.sub(" ", body))
-        body = re.sub(r"\bd0?1\b", "1 сутки", re.sub(r"\bd15\b", "15 суток", body))
-        parts = [x.strip(" ,.;:—–-…·") for x in EV_CUT.split(re.sub(r"\s+", " ", body)) if x.strip(" ,.;:—–-…·")]
-        res = next((x for x in parts if EV_NUM.search(x)), None) or next((x for x in parts if EV_DIFF.search(x)), None)
-        if not res:
-            return None
-        subj = parts[0] if parts[0] != res and not EV_NUM.search(parts[0]) and 4 <= len(parts[0]) <= 30 and parts[0].lower() not in EV_STOP and not parts[0].lower().startswith("итог") else ""
-        if subj and len(subj.split()[-1]) <= 2:
-            subj = ""
-        if subj and gen:
-            subj = "итог " + subj
-        line = f"{subj}: {res}" if subj else res
-        if EV_JARGON.search(line) or EV_NOT.search(line):
-            return None
-        if len(line) > 70:
-            line = line[:71].rsplit(" ", 1)[0]
-        line = re.sub(r"\b[А-ЯЁ]{3,}\b", lambda m: m.group(0).lower(), line)
-        return re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|–|-))+$", "", line).strip(" ,.;:—–-…·") or None
-
-    # --- записи ролей из лога тикета
-    def role_entries(t) -> list:
-        return [e for e in H.all_entries(t) if H._role_key(e.author) in ROLE_LC]
-
-    def entry_title(e) -> str:
-        txt = H.clean_text(e.text)
-        txt = re.sub(r"^(?:Инженер|Исследователь|Судья|CEO)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
-        txt = re.sub(r"^\W*Итог(?:\s+шага\s*\([^)]*\))?\W*(?:[0-9a-f]{7,40}\W+)?", "", txt, flags=re.I)
-        return H.first_phrase(txt or H.clean_text(e.text), 200)
-
     # задание с чужим (закрытым/неизвестным) тикетом в /data/progress → открытый тикет, что его запустил (wait_for / лог)
     open_ids = [i for i, t in tickets.items() if t.status not in ("done", "stopped")]
     for k in list(jobs):
@@ -456,7 +393,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         pid = f"orphans-{mid}"
         items = "; ".join(re.sub(r"\s*—\s*без задачи,?\s*", ", ", w) for w in ws)
         steps = [_step(1, "без хозяина", "автомат", mid, f"{len(ws)} шт.", "bad", detail=items)]
-        qs = [q for q in allq if q.get("process") == pid]
+        qs = [q for q in allq if q.get("process") == pid and (not q.get("answered_at") or now - (P.parse(q["answered_at"]) or now_dt).timestamp() <= FEED_AGE_S)]  # старый ответ про другие юниты не клеим
         if qs:
             q = qs[-1]
             ans = q.get("answered_at")
@@ -543,6 +480,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         runs = [(p, s) for p in procs if not p["id"].startswith("orphans-") for s in p["steps"]
                 if s["on"] == mid and s["state"] in ACTIVE]
         load = list(dict.fromkeys(f"{s['who']} · {p['title']}" for p, s in runs))
+        load += afters.get(mid, [])
         n_or = len(warns.get(mid) or [])
         if n_or:
             load.append(f"без хозяина ×{n_or}")
@@ -576,26 +514,17 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 return [s["on"]]
         return ["pc"]
 
-    def by_ceo(tid, ts) -> bool:
-        t = tickets.get(tid)
-        return bool(t and ts and any(H._role_key(e.author) == "ceo" and abs((ts - e.ts).total_seconds()) < 2 for e in H.all_entries(t)))
-
-    def about_board(tid, text) -> bool:  # про само табло в «Недавно» не пишем — только результаты счёта и задач
-        t = tickets.get(tid)
-        return bool(BOARD_RE.search(text) or BOARD_TITLE_RE.search(t.header.get('title', '') if t else ''))
-
     ptit = {p["id"]: p["title"] for p in procs}
-    for tid, t in tickets.items():  # записи ролей из логов ВСЕХ тикетов в окне (и сданных): заголовок записи, машина — по окну шага плана
-        if now - H.t_updated(t, now) > FEED_AGE_S:
+    for tid, plan in plans.items():  # итоги из плана: шаг закончен в окне и в его «detail» есть число результата (слова команды, без домыслов)
+        if BOARD_TITLE_RE.search(plan.get("title") or ptitle(tid)):
             continue
-        for e in role_entries(t):
-            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(tid, e.text):
+        for st in plan["steps"]:
+            fin = P.parse(st.get("finished_at"))
+            det = str(st.get("detail") or "").strip()
+            if st.get("state") != "done" or not fin or now - fin.timestamp() > FEED_AGE_S or len(FEED_NUM.findall(det)) != 1 or FEED_NOT.search(det) or FEED_NOT.search(st.get("title") or ""):  # одно число результата, без внутренних кодов
                 continue
-            line = event_line(e)
-            if not line:
-                continue
-            feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(tid, e.ts), "to": None,
-                                            "text": line, "_tid": tid, "_title": H.short_title(ptit.get(tid) or ptitle(tid), 20)}))
+            feed.append((fin.timestamp(), {"time": H.news_time(fin), "state": "done", "on": on_at(tid, fin), "to": None,
+                                           "text": f"{st.get('title', '')}: {det}", "_tid": tid, "_title": ptit.get(tid) or plan.get("title") or ptitle(tid)}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a and now - a.timestamp() <= FEED_AGE_S:
@@ -613,11 +542,10 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if per[k] <= 2:
             picked.append(f)
     last = picked[:6][::-1]
-    for i in range(len(last) - 1, -1, -1):  # префикс задачи — только у самой свежей строки подряд идущих одной задачи
-        d = last[i]
+    for d in last:  # у каждой строки своя задача: события разных задач идут вперемешку
         tid, title = d.get("_tid"), d.pop("_title", None)
-        if tid and not (i + 1 < len(last) and last[i + 1].get("_tid") == tid):
-            d["text"] = f"{title}: {d['text']}"
+        if tid:
+            d["text"] = f"{title} — {d['text']}"
     for d in last:
         d.pop("_tid", None)
 

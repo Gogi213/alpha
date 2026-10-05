@@ -988,6 +988,9 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
                     if (tid, mid) not in job_at:
                         entries.append({"tid": tid, "mid": mid, "kind": "proc", "what": "идёт счёт", "eta": None,
                                         "text": None, "pct": None, "detail": None, "minutes": mins})
+                elif known(tid):  # хозяин назван в имени юнита: сданная задача, юнит живёт после сдачи — не «без хозяина»
+                    entries.append({"tid": tid, "mid": mid, "kind": "after", "what": "идёт после сдачи", "eta": None,
+                                    "text": None, "pct": None, "detail": None, "minutes": mins})
                 else:
                     warn(mid, f"без задачи: {name}")
             elif name in UNIT_DO:  # постоянная служба — раньше legacy: «без хозяина» ей не бывает
@@ -1024,7 +1027,7 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
     # --- задачи (СЕЙЧАС ИДЁТ)
     by_tid: dict = {}
     for e in entries:
-        if e["tid"]:
+        if e["tid"] and e["kind"] != "after":
             by_tid.setdefault(e["tid"], []).append(e)
     now_rows = []
     for tid, es in by_tid.items():
