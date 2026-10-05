@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # pgo-cycle.sh gen|finish <дерево> <имя> [RUSTFLAGS-добавка для обеих сборок, напр. "-C codegen-units=1 -C panic=abort"]
+# TRAIN_ENV="VAR=1 ..." — доп. переменные обучения (gen), напр. ALPHA_SKIP_NOSIGNAL=1
 #   gen:    сборка VPS с -C profile-generate -> бинарник на сервер счёта -> юнит tk051-pgotrain-<имя> обучает на стенде
 #           (ATOM 01-15 + все символы 01-01, связка b1); маркер /data/tk051/pgotrain-<имя>.done. После него — finish.
 #   finish: profraw -> VPS, llvm-profdata merge, сборка с -C profile-use -> /opt/alpha-compute/bin/alpha-<имя>-pgo -> копия на сервер счёта.
@@ -17,7 +18,7 @@ gen)
   ssh "${K[@]}" $CALC "rm -rf $RAW /data/tk051/pgotrain-$N.done; cat > /data/tk051/pgotrain-$N.sh <<'EOF'
 #!/bin/bash
 cd /data/tk051
-for m in atom d01; do bash stand.sh alpha-$N-gen \$m ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 > pgotrain-$N-\$m.out 2>&1; done
+for m in atom d01; do bash stand.sh alpha-$N-gen \$m ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 ${TRAIN_ENV:-} > pgotrain-$N-\$m.out 2>&1; done
 touch /data/tk051/pgotrain-$N.done
 EOF
 systemd-run --quiet --unit=tk051-pgotrain-$N bash /data/tk051/pgotrain-$N.sh; echo обучение запущено"
