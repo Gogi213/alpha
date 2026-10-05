@@ -1456,6 +1456,13 @@ fn event_steps() -> bool {
     *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "1"))
 }
 
+/// Событийные шаги только в ожидании исполнения входа (`ALPHA_EVENT_STEPS=entry`, TK-050): остальные фазы идут
+/// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
+fn event_steps_entry() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
+}
+
 /// Условие быстрого пути (TK-049): пропуск пустых шагов включён, событийные шаги выключены.
 fn skip_on_hold(skip_cap: Option<i64>, ev_steps: bool) -> bool {
     skip_cap.is_some() && !ev_steps
@@ -1547,6 +1554,7 @@ where
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
     let ev_steps = event_steps();
+    let ev_entry = event_steps_entry();
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
@@ -1597,6 +1605,9 @@ where
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
             Some(_) if ev_steps && stable && entry_pending == 0 => {
+                state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
             Some(_)
@@ -2084,10 +2095,19 @@ where
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
     let ev_steps = event_steps();
+    let ev_entry = event_steps_entry();
     let mut entry_stable = false;
     loop {
         let entry_wake = match skip_cap {
             Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
+                entry_state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_)
+                if ev_entry
+                    && entry_stable
+                    && entry_pending == 0
+                    && entry_state.is_entry_pending() =>
+            {
                 entry_state.step_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
