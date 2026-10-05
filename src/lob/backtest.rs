@@ -74,6 +74,7 @@ mod compact;
 pub mod fast_depth;
 #[allow(dead_code)]
 pub mod fast_hold;
+pub mod gstats;
 mod levels;
 #[allow(dead_code)]
 pub mod sched;
@@ -1534,6 +1535,7 @@ where
     B: Bot<MD>,
     MD: MarketDepth,
 {
+    gstats::add(gstats::SOLO_ROUNDS, 1);
     let mut timed_out = false;
     // Почему вход кончился без позиции (F5, В-74): несётся из `on_event` до
     // `RoundOutcome::TimedOut`, чтобы по кругам формы посчитались снятия по
@@ -1589,6 +1591,7 @@ where
                     solo_sig,
                     skip_on,
                 ) {
+                    gstats::add(gstats::FAST_SWAPPED, 1);
                     *state = r.state.clone();
                     decided_in_hold = r.decided_in_hold;
                     stable = r.stable;
@@ -2773,8 +2776,10 @@ impl RoundMemo {
             });
         if hit.is_some() {
             self.hits += 1;
+            gstats::add(gstats::MEMO_HITS, 1);
         } else {
             self.misses += 1;
+            gstats::add(gstats::MEMO_MISSES, 1);
         }
         hit
     }
@@ -3543,10 +3548,15 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     }
     let mut groups: u64 = 0;
     let mut buf: Vec<Event> = Vec::new();
+    gstats::add(gstats::EG_CALLS, 1);
+    gstats::add(gstats::EG_FORMS, forms_signals.len() as u64);
+    gstats::add(gstats::T0S, by_t0.len() as u64);
     for members in by_t0.values() {
+        gstats::add(gstats::SIGS, members.len() as u64);
         let mut parts: Vec<Vec<(usize, BounceSignal)>> = Vec::new();
         for &(k, sig) in members {
             if memos[k].contains(&sig, OrphanCarry::NONE) {
+                gstats::add(gstats::MEMO_PRESKIP, 1);
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));
@@ -3558,16 +3568,70 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                 None => parts.push(vec![(k, sig)]),
             }
         }
+        if gstats::on() {
+            gstats::add(gstats::PARTS, parts.len() as u64);
+            for g in &parts {
+                gstats::part_size(g.len());
+            }
+            if parts.len() > 1 {
+                gstats::add(gstats::SPLIT_T0, 1);
+                let r0 = &parts[0][0].1;
+                for g in &parts[1..] {
+                    let r = &g[0].1;
+                    let i = if r.sigma != r0.sigma {
+                        gstats::SPLIT_SIGMA
+                    } else if r.qty != r0.qty {
+                        gstats::SPLIT_QTY
+                    } else {
+                        gstats::SPLIT_ENTRY
+                    };
+                    gstats::add(i, 1);
+                }
+            }
+        }
         for part in parts.into_iter().filter(|g| g.len() > 1) {
             let rep = part[0].1;
             let plans: Vec<TradePlan> = part.iter().map(|(_, s)| s.plan).collect();
             let Some(steps) =
                 group_round_in_window(events, windows, &rep, &plans, cfg, exec_latency, &mut buf)?
             else {
+                gstats::add(gstats::GROUP_NONE, 1);
+                gstats::add(gstats::GROUP_NONE_MEMBERS, part.len() as u64);
                 continue;
             };
             groups += 1;
             EXIT_GROUP_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if gstats::on() {
+                gstats::add(gstats::GROUPS_RUN, 1);
+                gstats::add(gstats::GROUP_MEMBERS, part.len() as u64);
+                let mut distinct: Vec<&RoundOutcome> = Vec::new();
+                let mut counted = 0u64;
+                for st in &steps {
+                    match st {
+                        SignalStep::EndOfData => gstats::add(gstats::UNCLEAN_EOD_STEP, 1),
+                        SignalStep::NotSubmitted { .. } => gstats::add(gstats::NOT_SUBMITTED, 1),
+                        SignalStep::Submitted {
+                            outcome, residual, ..
+                        } => {
+                            if matches!(outcome, RoundOutcome::EndOfData) {
+                                gstats::add(gstats::UNCLEAN_EOD_OUTCOME, 1);
+                            } else if residual.is_some() {
+                                gstats::add(gstats::UNCLEAN_RESIDUAL, 1);
+                            } else {
+                                counted += 1;
+                                if !distinct.contains(&outcome) {
+                                    distinct.push(outcome);
+                                }
+                            }
+                        }
+                    }
+                }
+                gstats::add(gstats::DIST_SUM, distinct.len() as u64);
+                gstats::add(gstats::DIST_MEMBERS, counted);
+                if counted > 1 && distinct.len() == 1 {
+                    gstats::add(gstats::GROUPS_ALLSAME, 1);
+                }
+            }
             for ((k, sig), step) in part.iter().zip(steps) {
                 let clean = match &step {
                     SignalStep::EndOfData => false,
@@ -3577,6 +3641,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
                     } => residual.is_none() && !matches!(outcome, RoundOutcome::EndOfData),
                 };
                 if clean {
+                    gstats::add(gstats::STORED, 1);
                     memos[*k].store(
                         sig,
                         Some(step),

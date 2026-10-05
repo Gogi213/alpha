@@ -794,6 +794,7 @@ impl<'a> GridRun<'a> {
             let day_started = Instant::now();
             let e2e_day = e2e::Mark::now();
             let e2e_events = e2e::Mark::now();
+            let gstats_before = crate::lob::backtest::gstats::snapshot();
             let retries_before =
                 crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
             let skips_before =
@@ -1174,6 +1175,13 @@ impl<'a> GridRun<'a> {
                 rounds,
                 day_started.elapsed().as_secs_f64()
             );
+            if crate::lob::backtest::gstats::on() {
+                eprintln!(
+                    "GROUP_STATS {symbol} {} rounds={rounds} {}",
+                    day.day,
+                    crate::lob::backtest::gstats::line(&gstats_before)
+                );
+            }
             // Р6: пересчёты кругов из-за короткого горизонта развёртки — строка только когда были
             // (прежний stderr не меняется); на итог не влияют, только на время.
             let retries = crate::lob::backtest::HORIZON_RETRIES
