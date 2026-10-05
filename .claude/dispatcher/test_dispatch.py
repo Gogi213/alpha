@@ -3730,5 +3730,116 @@ class TokenAccountingTest(unittest.TestCase):
         self.assertEqual((new["cr"], new["cw"], new["cache_all"], new["status"]), (30, 4, 34, "timeout"))
 
 
+class OnMetTests(unittest.TestCase):
+    """TK-056 п.2: on_met — команда вместо пробуждения LLM (семантика — запись Судьи 05.10 23:34)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "tools").mkdir()
+        self.tickets = self.root / "tickets"
+        self.tickets.mkdir()
+        self.orig = (D.PROJECT_ROOT, D.RUNS_LOG, D._git_tracked, D.ON_MET_TIMEOUT_S)
+        D.PROJECT_ROOT, D.RUNS_LOG = self.root, self.root / "runs.log"
+        D._git_tracked = lambda rel: (self.root / rel).exists()
+        disp = str(Path(D.__file__).resolve().parent).replace("\\", "/")
+        (self.root / "tools" / "hdr.py").write_text(
+            f"import sys, json; sys.path.insert(0, {disp!r}); import ticket as T\n"
+            "print('hdr done'); T.write_header_updates(sys.argv[1], json.loads(sys.argv[2]))\n", encoding="utf-8")
+        (self.root / "tools" / "fail.py").write_text("import sys; sys.stderr.write('boom'); sys.exit(3)\n", encoding="utf-8")
+        (self.root / "tools" / "sleep.py").write_text("import time; time.sleep(30)\n", encoding="utf-8")
+        self.state = {}
+        self.now = dt("2026-10-05T12:00:00+04:00")
+
+    def tearDown(self):
+        D.PROJECT_ROOT, D.RUNS_LOG, D._git_tracked, D.ON_MET_TIMEOUT_S = self.orig
+        self.tmp.cleanup()
+
+    def ticket(self, on_met, wait_for="file:/x/y"):
+        p = T.create_ticket(self.tickets, owner="engineer", title="Ждёт", status="todo", now=self.now)
+        T.write_header_updates(p, {"status": "waiting", "wait_for": wait_for, "on_met": on_met}, now=self.now)
+        return p
+
+    def run_met(self, p):
+        return D.run_on_met(p, T.read_ticket(p), self.state, self.now)
+
+    def hdr(self, p, upd):
+        return f"python tools/hdr.py {str(p).replace(chr(92), '/')} '{json.dumps(upd)}'"
+
+    def test_ok_with_new_wait_for_stays_silent(self):
+        p = self.ticket("")
+        T.write_header_updates(p, {"on_met": self.hdr(p, {"wait_for": "file:/x/next"})})
+        self.assertTrue(self.run_met(p))
+        t = T.read_ticket(p)
+        self.assertEqual((t.status, t.header["wait_for"], t.header["on_met"]), ("waiting", "file:/x/next", ""))
+        self.assertIn("hdr done", t.log[-1].text)
+        self.assertIn(" on_met reason=on_met", D.RUNS_LOG.read_text(encoding="utf-8"))
+
+    def test_ok_without_new_wait_for_wakes_owner(self):
+        p = self.ticket("")
+        T.write_header_updates(p, {"on_met": self.hdr(p, {"updated": "x"})})
+        self.assertTrue(self.run_met(p))
+        t = T.read_ticket(p)
+        self.assertEqual((t.status, t.header["wait_for"]), ("in_progress", ""))
+
+    def test_nonzero_logs_stderr_and_falls_back(self):
+        p = self.ticket("python tools/fail.py")
+        self.assertFalse(self.run_met(p))
+        t = T.read_ticket(p)
+        self.assertEqual((t.status, t.header["on_met"]), ("waiting", ""))
+        self.assertIn("boom", t.log[-1].text)
+        self.assertIn("код 3", t.log[-1].text)
+
+    def test_timeout_kills_tree(self):
+        D.ON_MET_TIMEOUT_S = 1.0
+        p = self.ticket("python tools/sleep.py")
+        t0 = time.time()
+        self.assertFalse(self.run_met(p))
+        self.assertLess(time.time() - t0, 20)
+        self.assertIn("таймаут", T.read_ticket(p).log[-1].text)
+        self.assertIn("status=timeout", D.RUNS_LOG.read_text(encoding="utf-8"))
+
+    def test_command_cannot_close_ticket(self):
+        for upd in ({"status": "in_review"}, {"status": "done"}, {"next": "judge"}):
+            p = self.ticket("")
+            T.write_header_updates(p, {"on_met": self.hdr(p, upd)})
+            self.assertTrue(self.run_met(p))
+            t = T.read_ticket(p)
+            self.assertEqual((t.status, t.next_role), ("in_progress", ""), upd)
+
+    def test_fourth_in_a_row_wakes_owner(self):
+        p = self.ticket("")
+        tid = T.read_ticket(p).id
+        for i in range(3):
+            T.write_header_updates(p, {"status": "waiting", "wait_for": "file:/x/a", "on_met": self.hdr(p, {"wait_for": f"file:/x/n{i}"})})
+            self.assertTrue(self.run_met(p))
+        T.write_header_updates(p, {"status": "waiting", "wait_for": "file:/x/a", "on_met": self.hdr(p, {"wait_for": "file:/x/z"})})
+        self.assertFalse(self.run_met(p))
+        t = T.read_ticket(p)
+        self.assertEqual(t.header["wait_for"], "file:/x/a")
+        self.assertIn("подряд", t.log[-1].text)
+        self.assertNotIn(tid, self.state["on_met_chain"])
+
+    def test_untracked_or_foreign_script_refused(self):
+        for spec in ("python tools/nope.py", "bash -c 'rm -rf /'", "python src/main.py", "python tools\\hdr.py x",
+                     "python ../evil.py", "cargo build", "python tools/hdr.py 'unterminated"):
+            p = self.ticket(spec)
+            self.assertFalse(self.run_met(p), spec)
+            t = T.read_ticket(p)
+            self.assertEqual(t.header["on_met"], "", spec)
+            self.assertIn("on_met отклонён", t.log[-1].text, spec)
+
+    def test_cleared_before_run_no_repeat_after_crash(self):
+        p = self.ticket("python tools/hdr.py")
+        orig = D.subprocess.Popen
+        D.subprocess.Popen = lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt())
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_met(p)
+        finally:
+            D.subprocess.Popen = orig
+        self.assertEqual(T.read_ticket(p).header["on_met"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

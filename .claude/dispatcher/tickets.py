@@ -152,7 +152,10 @@ def cmd_wait(args) -> int:
         print(f"wait: форма пуста. Допустимо: {T.WAIT_FOR_FORMATS}", file=sys.stderr)
         return 1
     try:
-        T.write_header_updates(path, {"status": "waiting", "wait_for": spec})
+        upd = {"status": "waiting", "wait_for": spec}
+        if getattr(args, "on_met", None):
+            upd["on_met"] = args.on_met.strip()
+        T.write_header_updates(path, upd)
     except ValueError as e:
         print(e, file=sys.stderr)
         return 1
@@ -249,6 +252,8 @@ def main(argv=None) -> int:
     p_wait = sub.add_parser("wait", help="status: waiting + wait_for (форма проверяется)")
     p_wait.add_argument("id")
     p_wait.add_argument("spec", help=T.WAIT_FOR_FORMATS)
+    p_wait.add_argument("--on-met", default=None,
+                        help="команда по закрытии wait_for вместо пробуждения LLM: `python|bash <скрипт под tools/ или .claude/, в git> [арг]`")
     p_wait.set_defaults(func=cmd_wait)
 
     p_stop = sub.add_parser("stop", help="только CEO: остановить запущенную роль тикета и дать новую постановку")

@@ -206,7 +206,7 @@ def triage_waits(ws: dict, now, probe=probe_wait_target) -> set:
                 T.write_header_updates(path, {"status": "blocked"}, now)
             else:
                 T.append_log(path, "watch", why + " — ожидание снято, владелец будится: перезапусти задание или смени wait_for", now)
-                T.write_header_updates(path, {"status": "in_progress", "wait_for": ""}, now)
+                T.write_header_updates(path, {"status": "in_progress", "wait_for": "", "on_met": ""}, now)
         dead[tkt.id] = {"spec": spec, "n": 0, "acted": ent.get("acted", []) + [spec]}
     for tid in list(dead):
         if tid not in seen and tid not in alive:
