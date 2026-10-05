@@ -114,7 +114,7 @@ pub(crate) fn cached_approaches<'a>(
     for day in days {
         let per_day = dir.join(day).join(format!("approaches-{symbol}.csv"));
         let rows: Vec<crate::commands::lob::touches::ApproachRow> = if per_day.is_file() {
-            let rows = crate::commands::lob::touches::read_approaches_csv(&per_day)?;
+            let rows = crate::commands::lob::touches::read_approaches_cached(&per_day)?;
             if let Some(bad) = rows.iter().find(|r| r.day != *day) {
                 anyhow::bail!(
                     "{}: строка суток {} в файле суток {day}",
@@ -125,7 +125,7 @@ pub(crate) fn cached_approaches<'a>(
             rows
         } else if flat.is_file() {
             if flat_rows.is_none() {
-                flat_rows = Some(crate::commands::lob::touches::read_approaches_csv(&flat)?);
+                flat_rows = Some(crate::commands::lob::touches::read_approaches_cached(&flat)?);
             }
             flat_rows
                 .as_ref()

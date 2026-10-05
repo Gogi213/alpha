@@ -44,6 +44,7 @@ use crate::lob::markout::{mid_double_tick, raw_return_bps, sample_asof};
 
 use super::{H3Args, ReplayKeep, DEFAULT_REPEAT_WINDOW_MS, DEFAULT_WARMUP_MS};
 
+mod abin;
 mod minute_flow;
 mod moves;
 mod numbers;
@@ -51,6 +52,7 @@ mod plan;
 mod read;
 mod row;
 
+pub(crate) use abin::read_approaches_cached;
 pub(crate) use read::{read_approaches_csv, read_touches_csv, ApproachRow, TouchRow};
 
 /// Аргументы `lob touches`: читает суточные файлы, пишет касания живых
