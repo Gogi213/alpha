@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::OnceLock;
 
-pub const NAMES: [&str; 40] = [
+pub const NAMES: [&str; 41] = [
     "eg_calls",
     "eg_forms",
     "sigs",
@@ -44,6 +44,7 @@ pub const NAMES: [&str; 40] = [
     "win_distinct",
     "win_rows",
     "win_rows_distinct",
+    "win_cache_hits",
 ];
 pub const EG_CALLS: usize = 0;
 pub const EG_FORMS: usize = 1;
@@ -79,8 +80,9 @@ pub const WIN_CALLS: usize = 36;
 pub const WIN_DISTINCT: usize = 37;
 pub const WIN_ROWS: usize = 38;
 pub const WIN_ROWS_DISTINCT: usize = 39;
+pub const WIN_CACHE_HITS: usize = 40;
 
-static C: [AtomicU64; 40] = [const { AtomicU64::new(0) }; 40];
+static C: [AtomicU64; 41] = [const { AtomicU64::new(0) }; 41];
 
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
@@ -121,11 +123,11 @@ pub fn part_size(n: usize) {
     add(SZ1 + b, 1);
 }
 
-pub fn snapshot() -> [u64; 40] {
+pub fn snapshot() -> [u64; 41] {
     std::array::from_fn(|i| C[i].load(Relaxed))
 }
 
-pub fn line(before: &[u64; 40]) -> String {
+pub fn line(before: &[u64; 41]) -> String {
     let now = snapshot();
     NAMES
         .iter()

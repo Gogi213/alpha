@@ -3663,6 +3663,79 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
     Ok(groups)
 }
 
+/// Ключ развёрнутого окна: строки суток (адрес, длина, метки первой и последней строк — адрес мог достаться
+/// другим суткам) и границы окна.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct WinKey {
+    id: (usize, usize),
+    first_ts: i64,
+    last_ts: i64,
+    start: usize,
+    until: i64,
+}
+
+/// `ALPHA_WIN_CACHE_ROWS=N` (TK-049): память развёрнутых окон потока — до N строк `Event` (64 Б); 0/нет — выкл.
+fn win_cache_budget() -> usize {
+    static B: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *B.get_or_init(|| {
+        std::env::var("ALPHA_WIN_CACHE_ROWS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
+struct WinCache {
+    entries: std::collections::VecDeque<(WinKey, std::rc::Rc<Vec<Event>>)>,
+    rows: usize,
+    spare: Vec<Vec<Event>>,
+}
+
+thread_local! {
+    static WIN_CACHE: std::cell::RefCell<WinCache> = const {
+        std::cell::RefCell::new(WinCache {
+            entries: std::collections::VecDeque::new(),
+            rows: 0,
+            spare: Vec::new(),
+        })
+    };
+}
+
+/// Развёрнутое окно из памяти потока или построенное `fill` (оно возвращает индекс конца); (окно, конец, попадание).
+/// Окно больше бюджета не сохраняется; при переполнении уходят самые старые.
+fn win_cache_get(
+    key: &WinKey,
+    fill: impl FnOnce(&mut Vec<Event>) -> usize,
+) -> (std::rc::Rc<Vec<Event>>, usize, bool) {
+    WIN_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some((_, rc)) = c.entries.iter().find(|(k, _)| k == key) {
+            let rc = rc.clone();
+            let end = key.start + rc.len();
+            return (rc, end, true);
+        }
+        let mut v = c.spare.pop().unwrap_or_default();
+        let end = fill(&mut v);
+        debug_assert_eq!(end, key.start + v.len());
+        let budget = win_cache_budget();
+        let rc = std::rc::Rc::new(v);
+        if rc.len() <= budget {
+            c.rows += rc.len();
+            c.entries.push_back((*key, rc.clone()));
+            while c.rows > budget {
+                let Some((_, old)) = c.entries.pop_front() else {
+                    break;
+                };
+                c.rows -= old.len();
+                if let Ok(v) = std::rc::Rc::try_unwrap(old) {
+                    c.spare.push(v);
+                }
+            }
+        }
+        (rc, end, false)
+    })
+}
+
 fn windowed_with<R: EventRows + ?Sized>(
     events: &R,
     windows: &SignalWindows,
@@ -3672,6 +3745,7 @@ fn windowed_with<R: EventRows + ?Sized>(
     memo: Option<&mut RoundMemo>,
 ) -> Result<BounceRun, BacktestError> {
     let mut buf: Vec<Event> = Vec::new();
+    let mut held: std::rc::Rc<Vec<Event>> = std::rc::Rc::default();
     drive_bounce_with::<Backtest<FastMarketDepth>, FastMarketDepth, _>(
         0,
         signals,
@@ -3699,13 +3773,27 @@ fn windowed_with<R: EventRows + ?Sized>(
                             .unwrap_or(i64::MAX),
                     };
                     let until = sig.t0_ns.saturating_add(span);
-                    buf.clear();
-                    let mut i = start;
-                    while i < events.len() && events.row_local_ts(i) <= until {
-                        buf.push(events.row(i));
-                        i += 1;
-                    }
-                    (&buf[..], i >= events.len())
+                    let end = if win_cache_budget() == 0 {
+                        events.expand_until(start, until, &mut buf)
+                    } else {
+                        let key = WinKey {
+                            id: (
+                                std::ptr::from_ref(events).cast::<u8>() as usize,
+                                events.len(),
+                            ),
+                            first_ts: events.row_local_ts(0),
+                            last_ts: events.row_local_ts(events.len() - 1),
+                            start,
+                            until,
+                        };
+                        let (rc, end, hit) =
+                            win_cache_get(&key, |out| events.expand_until(start, until, out));
+                        held = rc;
+                        gstats::add(gstats::WIN_CACHE_HITS, u64::from(hit));
+                        end
+                    };
+                    let rows: &[Event] = if win_cache_budget() == 0 { &buf } else { &held };
+                    (rows, end >= events.len())
                 }
             };
             gstats::window((sig.t0_ns, attempt, w.start, rest.len()), rest.len());
