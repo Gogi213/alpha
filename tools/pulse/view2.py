@@ -39,6 +39,24 @@ def _mid(m: str) -> str:
     return V2.get(m, m)
 
 
+HUMAN_WORDS = 6
+_TECH = re.compile(r"https?://\S+|host:\S+|\S*/\S+|(?<!\w)--?[A-Za-z][\w-]*|\bmd5\b|\bTK-?\d+\S*|\b[ВвTt]-\d+|\bветк\w*\s+\S+|\bИтог\w*", re.I)
+
+
+def human(text: str, words: int = HUMAN_WORDS) -> str:
+    """Текст шага для клетки табло: без скобок, путей, хэшей, номеров тикетов и флагов; не больше `words` слов."""
+    s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", text or "")
+    s = _TECH.sub(" ", s)
+    s = re.split(r"[:;]|\s—\s", s.strip(" :;—-"), maxsplit=1)[0] if len(s.split()) > words else s
+    out = []
+    for w in s.split():
+        w = w.strip(" ,.;:—-+*=")
+        if not w or (re.search(r"\d", w) and re.search(r"[A-Za-zА-Яа-я]", w)) or re.fullmatch(r"[0-9a-f]{7,}", w):
+            continue
+        out.append(w)
+    return " ".join(out[:words]) or "работа идёт"
+
+
 def _step(n, title, who, on, forr, state, **kw) -> dict:
     d = {"n": n, "title": title, "who": who, "on": on, "for": forr, "state": state, "pct": None, "detail": None,
          "eta_min": None, "started": None, "finished": None, "question": None, "after": None, "wave": 1}
@@ -273,6 +291,24 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             steps[i].update(job_fields(j))
         return steps
 
+    def wait_human(t) -> tuple[str, str]:
+        """Что ждём (по-людски) и на какой машине: wait_for host:calc|vps:… → эта машина, иначе ПК."""
+        wf = (t.header.get("wait_for") or "").strip().lower()
+        m = re.match(r"(?:host:)?(calc|vps)\b", wf)
+        if t.status == "needs_owner":
+            return "ждёт вашего слова", "you"
+        if t.next_role == "ceo" or wf.startswith(("ceo", "mention")) or (t.status == "waiting" and not wf):
+            return "ждёт решения CEO", "pc"
+        if m:
+            return ("ждёт конца счёта", "calc") if m.group(1) == "calc" else ("ждёт конца сборки", "vps")
+        if wf.startswith("ticket:"):
+            return "ждёт другую задачу", "pc"
+        if t.status == "in_review":
+            return "ждёт проверки Судьи", "pc"
+        if t.next_role or t.status in ("todo", "in_progress"):
+            return "в очереди", "pc"
+        return human(H.wait_text(t)), "pc"
+
     # --- шаги без плана: одно состояние сейчас
     def synth_steps(tid, t) -> tuple[list, list]:
         steps, mids = [], []
@@ -287,7 +323,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
 
         for j in jobs.get(tid, []):
             f = job_fields(j)
-            add(step_text(tid, j["step"]) or j["job"], "автомат", _mid(j["machine"]), "done" if f["pct"] == 100 else "run", **f)
+            add(human(step_text(tid, j["step"])).replace("работа идёт", "идёт счёт"), "автомат", _mid(j["machine"]), "done" if f["pct"] == 100 else "run", **f)
         if not steps:
             for m in machines:
                 lk = m.get("lock") or {}
@@ -305,9 +341,9 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if not steps and t.status == "in_review":
             add(H.ROLE_DO["judge"], "судья", "pc", "run")
         if not steps:
-            wt = H.wait_text(t)
+            wt, wmid = wait_human(t)
             owner = t.status == "needs_owner"
-            add(wt, "вы" if owner else ("CEO" if "CEO" in wt else "автомат"), "you" if owner else "pc",
+            add(wt, "вы" if owner else ("CEO" if "CEO" in wt else "автомат"), "you" if owner else wmid,
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
@@ -324,7 +360,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
     def auto_done_steps(t) -> list:
         out = []
         for e in role_entries(t)[-AUTO_DONE_MAX:]:
-            out.append(_step(0, entry_title(e), ROLE_LC[H._role_key(e.author)], "pc", "", "done",
+            out.append(_step(0, human(entry_title(e)), ROLE_LC[H._role_key(e.author)], "pc", "", "done",
                              finished=e.ts.astimezone(P.TZ).strftime("%H:%M")))
         return out
 
@@ -359,8 +395,8 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             auto_n[tid] = len(auto_done) + sum(1 for s in steps if s["pct"] is not None)
             hint = H.next_hint(t)
             tail = []
-            if hint and steps and steps[-1]["state"] != "done" and t.status != "in_review":
-                tail = [_step(0, re.sub(r"^[Дд]альше\s*[:—-]\s*", "", hint), ROLE_LC.get(t.next_role or t.owner, "CEO"), "pc", "", "todo")]
+            if hint and human(hint) != "работа идёт" and steps and steps[-1]["state"] != "done" and t.status != "in_review":
+                tail = [_step(0, human(re.sub(r"^[Дд]альше\s*[:—-]\s*", "", hint)), ROLE_LC.get(t.next_role or t.owner, "CEO"), "pc", "", "todo")]
             steps = auto_done + steps + tail
             for i, s in enumerate(steps, 1):
                 s["n"] = i
@@ -506,8 +542,14 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 return [s["on"]]
         return ["pc"]
 
+    def by_ceo(tid, ts) -> bool:
+        t = tickets.get(tid)
+        return bool(t and ts and any(H._role_key(e.author) == "ceo" and abs((ts - e.ts).total_seconds()) < 2 for e in H.all_entries(t)))
+
     for n in plain.get("news", []):
         ts = P.parse(n.get("ts"))
+        if by_ceo(n.get("ticket"), ts):
+            continue  # поручения и решения CEO — не результат
         feed.append((ts.timestamp() if ts else 0, {"time": n["time"], "state": "done", "on": on_at(n.get("ticket"), ts), "to": None,
                                                   "text": n["text"]}))
     for p in procs:
@@ -522,7 +564,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if t is None or p["id"].startswith("orphans-"):
             continue
         for e in role_entries(t):
-            if now - e.ts.timestamp() > FEED_AGE_S or any(
+            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or any(
                     tk == p["id"] and d and abs((d - e.ts).total_seconds()) < 2 for tk, d in news_ts):
                 continue
             text = None
@@ -532,8 +574,10 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 if r is not None and not r.get("news"):
                     continue  # служебная запись — модель отсеяла
                 text = (r or {}).get("news")
+                if not text:
+                    continue  # модель ещё не ответила — сырую запись не показываем
             feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
-                                            "text": text or f"{ROLE_LC[H._role_key(e.author)]}: {entry_title(e)}"}))
+                                            "text": text or f"{ROLE_LC[H._role_key(e.author)]}: {human(entry_title(e), 10)}"}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a:

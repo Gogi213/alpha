@@ -100,6 +100,7 @@
 .d3 .yr{background:rgba(var(--fg-rgb),.1)}
 .d3 .cl{display:grid;gap:.45em;align-content:start}
 .d3 .cs{line-height:1.25}
+.d3 .cs b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .d3 .cs .d{margin:.1em 0 0 calc(1.05em + .6ch + 1ch)}
 .d3 .cs .n{color:rgba(var(--fg-rgb),.62);margin-right:.8ch}
 .d3 .cs.s-todo b{font-weight:400;color:rgba(var(--fg-rgb),.55)}
@@ -239,7 +240,8 @@
   const meter = (l, pct, txt) => `<div class="mt-row"><span class="dim">${l}</span>${pct != null ? bar(pct, 10) : "<span></span>"}<span>${txt}</span></div>`;
 
   const cell = (mid, p) => {
-    const ss = arr(p.steps).filter((s) => s.on === mid);
+    const cur = arr(p.steps).filter((s) => ["run", "review", "repair", "wait", "bad"].includes(s.state));
+    const ss = (cur.length ? cur : arr(p.steps).filter((s) => s.state === "todo").slice(0, 1)).filter((s) => s.on === mid).slice(0, 1);
     if (!ss.length) return `<div class="cl empty" data-t="${E(p.title)}"><span class="faint">—</span></div>`;
     return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => {
       const q = s.state === "wait" && s.question ? qOf(s.question) : null;
