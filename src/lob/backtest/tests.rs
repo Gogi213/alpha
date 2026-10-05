@@ -2594,3 +2594,33 @@ fn fast_hold_handoff_equals_continuous() {
         fast_hold_handoff_case(QueueModelKind::Prob { n: 3.0 }, step);
     }
 }
+
+/// Кэш развёрнутой ленты (TK-050): срез окна — те же строки, что прямая развёртка до `t0 + span`.
+#[test]
+fn tape_cache_slices_match_direct_expansion() {
+    let (feed, _plan) = windowed_fixture();
+    let t0s: Vec<i64> = vec![S, 2 * S, 3 * S, 61 * S, 400 * S, 401 * S, 5_000 * S];
+    let windows = SignalWindows::build(&feed, &t0s, 1.0, 1.0);
+    let tape = windows.build_tape(&feed).expect("лента монотонна");
+    for (i, w) in windows.windows.iter().enumerate() {
+        let (off, len) = tape.spans[i];
+        let slice = &tape.rows[off..off + len];
+        for span in [1, S, 60 * S, FIRST_HORIZON_NS] {
+            let until = w.t0_ns + span;
+            let direct: Vec<&Event> = feed[w.start..]
+                .iter()
+                .take_while(|e| e.local_ts <= until)
+                .collect();
+            let p = slice.partition_point(|e| e.local_ts <= until);
+            if span == FIRST_HORIZON_NS || p < len {
+                assert_eq!(p, direct.len(), "окно {i} span {span}");
+                assert!(slice[..p].iter().zip(&direct).all(|(a, b)| {
+                    a.ev == b.ev
+                        && a.exch_ts == b.exch_ts
+                        && a.local_ts == b.local_ts
+                        && a.px == b.px
+                }));
+            }
+        }
+    }
+}

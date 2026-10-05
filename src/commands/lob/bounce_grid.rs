@@ -1168,6 +1168,10 @@ impl<'a> GridRun<'a> {
                         g(&ATTEMPT_ROWS)
                     );
                     eprintln!(
+                        "bounce-grid:   кэш ленты (строк в кэшах/выдано попыткам 0): {}",
+                        g(&crate::lob::backtest::TAPE_CACHE_ROWS)
+                    );
+                    eprintln!(
                         "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
                         g(&crate::lob::backtest::STEP_KINDS)
                     );

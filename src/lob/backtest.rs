@@ -3432,14 +3432,24 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                         .filter(|v| *v > 0)
                         .unwrap_or(i64::MAX),
                 };
-                let until = rep.t0_ns.saturating_add(span);
-                buf.clear();
-                let mut i = start;
-                while i < events.len() && events.row_local_ts(i) <= until {
-                    buf.push(events.row(i));
-                    i += 1;
+                let cached = if attempt == 0 {
+                    windows.first_attempt_rows(events, rep.t0_ns, span)
+                } else {
+                    None
+                };
+                match cached {
+                    Some(c) => c,
+                    None => {
+                        let until = rep.t0_ns.saturating_add(span);
+                        buf.clear();
+                        let mut i = start;
+                        while i < events.len() && events.row_local_ts(i) <= until {
+                            buf.push(events.row(i));
+                            i += 1;
+                        }
+                        (&buf[..], i >= events.len())
+                    }
                 }
-                (&buf[..], i >= events.len())
             }
         };
         note_attempt(attempt, rest.len());
@@ -3607,14 +3617,24 @@ fn windowed_with<R: EventRows + ?Sized>(
                             .filter(|v| *v > 0)
                             .unwrap_or(i64::MAX),
                     };
-                    let until = sig.t0_ns.saturating_add(span);
-                    buf.clear();
-                    let mut i = start;
-                    while i < events.len() && events.row_local_ts(i) <= until {
-                        buf.push(events.row(i));
-                        i += 1;
+                    let cached = if attempt == 0 {
+                        windows.first_attempt_rows(events, sig.t0_ns, span)
+                    } else {
+                        None
+                    };
+                    match cached {
+                        Some(c) => c,
+                        None => {
+                            let until = sig.t0_ns.saturating_add(span);
+                            buf.clear();
+                            let mut i = start;
+                            while i < events.len() && events.row_local_ts(i) <= until {
+                                buf.push(events.row(i));
+                                i += 1;
+                            }
+                            (&buf[..], i >= events.len())
+                        }
                     }
-                    (&buf[..], i >= events.len())
                 }
             };
             note_attempt(attempt, rest.len());
@@ -3911,7 +3931,40 @@ pub struct SignalWindows {
     pub tick_size: f64,
     pub lot_size: f64,
     windows: Vec<SignalWindow>,
+    tape: std::sync::OnceLock<Option<ExpandedTape>>,
 }
+
+/// Развёрнутая лента первой попытки кругов (TK-050, `ALPHA_TAPE_CACHE=1`): объединение строк
+/// `[skip_to(w.start), первая строка с local_ts > t0 + FIRST_HORIZON)` по всем окнам суток, один раз.
+/// `spans[i]` — смещение и длина среза окна `i` в `rows`; соседние окна делят строки.
+#[derive(Debug, Clone)]
+struct ExpandedTape {
+    rows: Vec<Event>,
+    spans: Vec<(usize, usize)>,
+}
+
+/// Кэш развёрнутой ленты включён (`ALPHA_TAPE_CACHE=1`); умолчание — разворачиваем на каждый круг.
+fn tape_cache_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_TAPE_CACHE").is_some_and(|v| v == "1"))
+}
+
+/// Потолок кэша ленты на символ-сутки, строк `Event` (`ALPHA_TAPE_CACHE_MB`, по умолчанию 512 МБ);
+/// сверх — прежний путь.
+fn tape_cache_cap_rows() -> usize {
+    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CAP.get_or_init(|| {
+        let mb = std::env::var("ALPHA_TAPE_CACHE_MB")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(512);
+        mb.saturating_mul(1 << 20) / std::mem::size_of::<Event>().max(1)
+    })
+}
+
+/// Строк в кэшах лент и выданных срезов первой попытки (процесс) — замер TK-050, на итог не влияет.
+pub static TAPE_CACHE_ROWS: [std::sync::atomic::AtomicU64; 2] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 2];
 
 impl SignalWindows {
     /// Окна на своей книге целых тиков (`WindowDepth`, К3) — снимки те же, что у
@@ -3978,7 +4031,77 @@ impl SignalWindows {
             tick_size,
             lot_size,
             windows,
+            tape: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Срез первой попытки круга окна `t0_ns` из кэша ленты и признак «до конца данных»; `None` — кэш
+    /// выключен, не влез в потолок или лента не монотонна по `local_ts` — тогда прежний путь. Строки те
+    /// же, что даёт прямая развёртка до `t0 + min(span, FIRST_HORIZON)` (первая строка с большей `local_ts`
+    /// обрывает срез).
+    fn first_attempt_rows<R: EventRows + ?Sized>(
+        &self,
+        events: &R,
+        t0_ns: i64,
+        span_ns: i64,
+    ) -> Option<(&[Event], bool)> {
+        if !tape_cache_on() {
+            return None;
+        }
+        let tape = self.tape.get_or_init(|| self.build_tape(events)).as_ref()?;
+        let idx = self.windows.partition_point(|w| w.t0_ns < t0_ns);
+        let w = self.windows.get(idx).filter(|w| w.t0_ns == t0_ns)?;
+        let (off, len) = tape.spans[idx];
+        let slice = &tape.rows[off..off + len];
+        let until = t0_ns.saturating_add(span_ns);
+        let p = slice.partition_point(|e| e.local_ts <= until);
+        let whole = p == len && events.skip_to(w.start) + len >= events.len();
+        TAPE_CACHE_ROWS[1].fetch_add(p as u64, std::sync::atomic::Ordering::Relaxed);
+        Some((&slice[..p], whole))
+    }
+
+    fn build_tape<R: EventRows + ?Sized>(&self, events: &R) -> Option<ExpandedTape> {
+        let cap = tape_cache_cap_rows();
+        let n = events.len();
+        let mut rows: Vec<Event> = Vec::new();
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(self.windows.len());
+        // Текущий отрезок: строки вида [cur_start, scan) лежат в rows[cur_off..].
+        let (mut cur_start, mut scan, mut cur_off) = (0usize, 0usize, 0usize);
+        let mut have = false;
+        for w in &self.windows {
+            let s = events.skip_to(w.start);
+            let until = w.t0_ns.saturating_add(FIRST_HORIZON_NS);
+            if !have || s < cur_start || s > scan {
+                cur_start = s;
+                scan = s;
+                cur_off = rows.len();
+                have = true;
+            }
+            let off = cur_off + (s - cur_start);
+            let mut end = rows.len();
+            // Строки уже в кэше от s: конец среза — первая с local_ts > until, лента монотонна.
+            let inside = &rows[off.min(rows.len())..];
+            let q = inside.partition_point(|e| e.local_ts <= until);
+            if q < inside.len() {
+                end = off + q;
+            } else {
+                while scan < n && events.row_local_ts(scan) <= until {
+                    if rows.len() >= cap {
+                        return None;
+                    }
+                    let e = events.row(scan);
+                    if rows.len() > cur_off && rows[rows.len() - 1].local_ts > e.local_ts {
+                        return None;
+                    }
+                    rows.push(e);
+                    scan += 1;
+                }
+                end = end.max(rows.len());
+            }
+            spans.push((off, end - off));
+        }
+        TAPE_CACHE_ROWS[0].fetch_add(rows.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        Some(ExpandedTape { rows, spans })
     }
 
     /// Первое расхождение с другими окнами тех же `t0` (`None` — все снимки равны по всем
