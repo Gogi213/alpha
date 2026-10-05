@@ -344,3 +344,141 @@ impl hftbacktest::types::Bot<FastMarketDepth> for FastBot<'_> {
         None
     }
 }
+
+impl HoldTracker<'_> {
+    /// Метка ближайшего события ленты для движка: локальная половина первой непринятой строки или биржевая
+    /// половина первой строки, ещё не дошедшей до биржи к `now` (биржевая раньше на лаг фида).
+    pub fn next_event_ts(&self, now: i64) -> Option<i64> {
+        let first = self.rows.get(self.lcur)?;
+        let mut next = if first.is(LOCAL_EVENT) {
+            first.local_ts
+        } else {
+            first.exch_ts
+        };
+        for ev in &self.rows[self.lcur..] {
+            if ev.is(EXCH_EVENT) && ev.exch_ts > now {
+                next = next.min(ev.exch_ts);
+                break;
+            }
+        }
+        Some(next)
+    }
+}
+
+/// Шаг удержания быстрого пути: то же, что `hold_step`/`elapse(10 мс)` круга, но без движка. `None` — ленты не
+/// осталось (конец данных решает движок).
+fn fast_step(bot: &mut FastBot, wakeup: Option<i64>, cap: i64) -> Option<()> {
+    use hftbacktest::types::Bot;
+    let step = ON_EVENT_POLL_STEP_NS;
+    let now = bot.current_timestamp();
+    let ne = bot.tracker.next_event_ts(now)?;
+    let Some(th) = wakeup else {
+        bot.elapse(step).ok()?;
+        return Some(());
+    };
+    let k_wake = th.saturating_sub(now).div_euclid(step)
+        + i64::from(th.saturating_sub(now).rem_euclid(step) != 0);
+    let k_cap = (cap.saturating_sub(now) - 1).div_euclid(step);
+    let k = k_wake.min(k_cap);
+    if k <= 1 {
+        bot.elapse(step).ok()?;
+        return Some(());
+    }
+    let target = now.saturating_add(k.saturating_mul(step));
+    if ne <= target {
+        let ke = (ne - now).div_euclid(step) + i64::from((ne - now).rem_euclid(step) != 0);
+        let g = now.saturating_add(ke.max(1).saturating_mul(step));
+        bot.elapse(g - now).ok()?;
+    } else {
+        bot.elapse(target - now).ok()?;
+    }
+    Some(())
+}
+
+/// С чем движок продолжает круг после выхода из быстрого пути.
+pub struct FastResume {
+    pub state: StrategyState,
+    pub decided_in_hold: bool,
+    pub stable: bool,
+    pub sig: SigMemo,
+    /// `true`: часы стоят на точке сетки, шаг уже сделан, осталось решение (`on_event`) — первый проход цикла
+    /// пропускает шаг.
+    pub post_step: bool,
+}
+
+/// Удержание без живых заявок на плоской книге (только `ALPHA_SKIP_NOSIGNAL`-режим с `hold_skip`, без
+/// `ev_steps`). Возврат — когда движок нужен: решение просит заявку, `hold_wakeup_ns == None` (сироты,
+/// `wall_ring`), конец ленты, круг закончился.
+pub fn fast_hold_scan(
+    bot: &mut FastBot,
+    state: &mut StrategyState,
+    cap: i64,
+    mut decided_in_hold: bool,
+    mut stable: bool,
+    mut sig: SigMemo,
+    skip_on: bool,
+) -> FastResume {
+    use hftbacktest::types::Bot;
+    loop {
+        let now = bot.current_timestamp();
+        let wake = state.hold_wakeup_ns(now);
+        if wake.is_none() || !state.is_holding() {
+            return FastResume {
+                state: state.clone(),
+                decided_in_hold,
+                stable,
+                sig,
+                post_step: false,
+            };
+        }
+        let wakeup = if decided_in_hold { wake } else { None };
+        if fast_step(bot, wakeup, cap).is_none() {
+            return FastResume {
+                state: state.clone(),
+                decided_in_hold,
+                stable,
+                sig,
+                post_step: false,
+            };
+        }
+        let now = bot.current_timestamp();
+        state.observe_wall_trades(bot.last_trades(0));
+        bot.clear_last_trades(Some(0));
+        let held_before = state.hold_wakeup_ns(now).is_some();
+        let mark_before = state.phase_mark();
+        let before = state.clone();
+        let sig_before = sig;
+        let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
+        let action = if skip {
+            Action::Idle
+        } else {
+            match on_event(bot, state) {
+                Ok(a) => a,
+                Err(_) => Action::Idle,
+            }
+        };
+        if bot.need_engine {
+            return FastResume {
+                state: before,
+                decided_in_hold,
+                stable,
+                sig: sig_before,
+                post_step: true,
+            };
+        }
+        if skip_on && !matches!(action, Action::Idle) {
+            sig.reset();
+        }
+        decided_in_hold = held_before && state.hold_wakeup_ns(now).is_some();
+        stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
+        if state.is_idle() || !matches!(action, Action::Idle) {
+            return FastResume {
+                state: state.clone(),
+                decided_in_hold,
+                stable,
+                sig,
+                post_step: false,
+            };
+        }
+    }
+}
