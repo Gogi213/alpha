@@ -1048,6 +1048,7 @@ impl<'a> GridRun<'a> {
                             rounds = rounds.saturating_add(n);
                             Ok(())
                         };
+                    let admit_cell = std::sync::OnceLock::new();
                     drive_day(
                         rows,
                         windows.as_deref(),
@@ -1055,6 +1056,13 @@ impl<'a> GridRun<'a> {
                         day.approaches.as_deref(),
                         &set_forms_list,
                         DayParams {
+                            admitted: if std::env::var_os("ALPHA_ADMIT_CACHE")
+                                .is_some_and(|v| v == "1")
+                            {
+                                Some(&admit_cell)
+                            } else {
+                                None
+                            },
                             memos: if memos.is_empty() {
                                 None
                             } else {
