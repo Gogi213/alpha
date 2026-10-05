@@ -100,6 +100,34 @@ class NoPlanWakeTests(WatchSandbox):
         self.assertEqual(len(T.read_ticket(p).log), 1)
 
 
+class StalePlanTests(WatchSandbox):
+    def test_stale_plan_wakes_owner_once(self):
+        import json
+        root = Path(self.tmp.name) / "root"
+        (root / ".claude" / "pulse" / "plans").mkdir(parents=True)
+        orig_root = D.PROJECT_ROOT
+        D.PROJECT_ROOT = root
+        try:
+            p = T.create_ticket(self.tickets_dir, owner="engineer", title="План", status="in_progress",
+                                now=self.now - timedelta(hours=3))
+            tid = T.read_ticket(p).id
+            plan = {"id": tid, "steps": [{"state": "run"}], "updated": T.now_iso(self.now - timedelta(hours=2))}
+            (root / ".claude" / "pulse" / "plans" / f"{tid}.json").write_text(json.dumps(plan), encoding="utf-8")
+            self.assertEqual(W.check_stale_plan(self.now), [])  # новой записи роли нет
+            T.append_log(p, "engineer", "сделал", now=self.now - timedelta(hours=1))
+            f = W.check_stale_plan(self.now)
+            self.assertEqual([x.kind for x in f], ["plan-stale"])
+            ws = {}
+            self.assertEqual(len(W.notify_findings(f, ws, self.now)), 1)
+            t = T.read_ticket(p)
+            self.assertEqual(t.next_role, "engineer")
+            self.assertIn("plan.py step", t.log[-1].text)
+            W.notify_findings(f, ws, self.now + timedelta(minutes=5))
+            self.assertEqual(len(T.read_ticket(p).log), 2)
+        finally:
+            D.PROJECT_ROOT = orig_root
+
+
 class BlockedNeedsOwnerTests(WatchSandbox):
     def test_blocked_and_needs_owner_are_findings(self):
         T.create_ticket(self.tickets_dir, owner="engineer", title="Застряла", status="todo")

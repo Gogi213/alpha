@@ -157,6 +157,29 @@ def check_no_progress_view(now) -> list:
     return out
 
 
+def check_stale_plan(now) -> list:
+    """TK-061: у in_progress-тикета есть план, в логе запись роли новее плана, а шаги не менялись > NO_PLAN_MINUTES."""
+    out = []
+    for path in T.list_tickets(D.TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+            if tkt.status != "in_progress" or tkt.owner not in ("researcher", "engineer", "judge"):
+                continue
+            plan = json.loads((D.PROJECT_ROOT / ".claude" / "pulse" / "plans" / f"{tkt.id}.json").read_text(encoding="utf-8"))
+            if not plan.get("steps") or all(s.get("state") == "done" for s in plan["steps"]):
+                continue
+            upd = T.parse_dt(plan["updated"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        except Exception:
+            continue
+        role_logs = [e for e in tkt.log if not T.author_is(e.author, "ceo")]
+        if role_logs and role_logs[-1].ts > upd and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
+            out.append(Finding("plan-stale", tkt.id,
+                               f"{tkt.id}: запись роли в логе новее плана, шаги на табло не менялись > {NO_PLAN_MINUTES:.0f} мин"))
+    return out
+
+
 # --- триаж ожиданий без LLM (TK-056 п.4) ---------------------------------------------------------
 DEAD_WAIT_STRIKES = int(os.environ.get("ALPHA_WATCH_DEAD_WAIT_STRIKES", "2"))  # подряд мёртвых проверок до действия
 
@@ -440,6 +463,7 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None, hold_h
     findings += check_blocked_and_needs_owner(now)
     findings += check_orphan_tickets(now, alive_waits)
     findings += check_no_progress_view(now)
+    findings += check_stale_plan(now)
     findings += check_steam_deck(ssh_run, hold_hint=hold_hint, observed=observed)
     return findings
 
@@ -543,7 +567,7 @@ def _flush_pending_summary(ws: dict, now) -> None:
     ws["last_summary_flush"] = T.now_iso(now)
 
 
-def _wake_for_plan(tid: str, now) -> None:
+def _wake_for_plan(tid: str, now, stale: bool = False) -> None:
     """no-plan: запись в лог тикета и `next: <владелец>` — исполнитель запишет план (plan.py set, 3–6 шагов)."""
     path = D.TICKETS_DIR / f"{tid}.md"
     try:
@@ -551,10 +575,15 @@ def _wake_for_plan(tid: str, now) -> None:
             tkt = T.read_ticket(path)
             if tkt.owner not in ("researcher", "engineer", "judge"):
                 return
-            T.append_log(path, "ceo", "Сторож (без LLM): задача в работе дольше "
-                         f"{NO_PLAN_MINUTES:.0f} мин, а плана шагов на табло нет — табло не может показать процент. "
-                         "Запиши план: `python tools/pulse/plan.py set " + tid + " ...` (3–6 шагов по-людски, "
-                         "справка — `plan.py --help`), затем продолжай работу.")
+            if stale:
+                T.append_log(path, "ceo", "Сторож (без LLM): в логе есть запись роли, а шаги на табло не менялись "
+                             f"> {NO_PLAN_MINUTES:.0f} мин. Обнови по факту: `python tools/pulse/plan.py step " + tid +
+                             " <N> <run|done|todo>` (wait — только когда ждём владельца), затем продолжай работу.")
+            else:
+                T.append_log(path, "ceo", "Сторож (без LLM): задача в работе дольше "
+                             f"{NO_PLAN_MINUTES:.0f} мин, а плана шагов на табло нет — табло не может показать процент. "
+                             "Запиши план: `python tools/pulse/plan.py set " + tid + " ...` (3–6 шагов по-людски, "
+                             "справка — `plan.py --help`), затем продолжай работу.")
             T.write_header_updates(path, {"next": tkt.owner}, stamp_updated=False)
     except Exception as e:
         print(f"[watch] no-plan: не разбудил {tid}: {type(e).__name__}: {e}", file=sys.stderr)
@@ -590,6 +619,8 @@ def notify_findings(findings: list, ws: dict, now) -> list:
                 D.append_ceo_inbox("*", f"watch-{f.kind}", f.message, now)
                 if f.kind == "no-plan":
                     _wake_for_plan(f.key, now)
+                elif f.kind == "plan-stale":
+                    _wake_for_plan(f.key, now, stale=True)
             notified[marker] = {"sig": sig, "ts": T.now_iso(now)}
             posted.append(f)
         else:
