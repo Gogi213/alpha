@@ -2220,6 +2220,7 @@ where
     let mut stable: Vec<bool> = vec![false; n];
     let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
+    let t_hold = gstats::t0();
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
@@ -2367,6 +2368,7 @@ where
             }
         }
     }
+    gstats::add_ns(gstats::GRP_HOLD_NS, t_hold);
     Ok(outcome
         .into_iter()
         .zip(states)
@@ -2482,6 +2484,7 @@ where
         .map(|k| entry_id_base.saturating_add(ID_STRIDE.saturating_mul(k.saturating_add(1))))
         .collect();
     *next_group_id = entry_id_base.saturating_add(ID_STRIDE.saturating_mul(n as u64 + 2));
+    let t_grp = gstats::t0();
     let results = run_round_group(
         bot,
         asset_no,
@@ -2493,6 +2496,7 @@ where
         &variant_ids,
         data_end_ns.filter(|_| cfg.hold_skip),
     )?;
+    gstats::add_ns(gstats::GRP_NS, t_grp);
     let mut steps = Vec::with_capacity(n);
     for (i, r) in results.into_iter().enumerate() {
         variant_carries[i] = r.carry_out;
@@ -2647,6 +2651,7 @@ where
 
     // Э-04б: пропуск пустых шагов — только с флагом и известным концом данных круга.
     let skip_cap = data_end_ns.filter(|_| cfg.hold_skip);
+    let t_solo = gstats::t0();
     let (outcome, residual_left) = run_round(
         bot,
         asset_no,
@@ -2656,6 +2661,7 @@ where
         side,
         skip_cap,
     )?;
+    gstats::add_ns(gstats::SOLO_NS, t_solo);
     if matches!(outcome, RoundOutcome::EndOfData) {
         *carry = state.take_orphans();
         return Ok(SignalStep::Submitted {

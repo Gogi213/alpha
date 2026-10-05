@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::OnceLock;
 
-pub const NAMES: [&str; 33] = [
+pub const NAMES: [&str; 36] = [
     "eg_calls",
     "eg_forms",
     "sigs",
@@ -37,6 +37,9 @@ pub const NAMES: [&str; 33] = [
     "memo_misses",
     "solo_rounds",
     "fast_swapped",
+    "grp_ns",
+    "grp_hold_ns",
+    "solo_ns",
 ];
 pub const EG_CALLS: usize = 0;
 pub const EG_FORMS: usize = 1;
@@ -65,8 +68,11 @@ pub const MEMO_HITS: usize = 29;
 pub const MEMO_MISSES: usize = 30;
 pub const SOLO_ROUNDS: usize = 31;
 pub const FAST_SWAPPED: usize = 32;
+pub const GRP_NS: usize = 33;
+pub const GRP_HOLD_NS: usize = 34;
+pub const SOLO_NS: usize = 35;
 
-static C: [AtomicU64; 33] = [const { AtomicU64::new(0) }; 33];
+static C: [AtomicU64; 36] = [const { AtomicU64::new(0) }; 36];
 
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
@@ -76,6 +82,17 @@ pub fn on() -> bool {
 pub fn add(i: usize, n: u64) {
     if on() {
         C[i].fetch_add(n, Relaxed);
+    }
+}
+
+/// Старт таймера (только при включённых счётчиках).
+pub fn t0() -> Option<std::time::Instant> {
+    on().then(std::time::Instant::now)
+}
+
+pub fn add_ns(i: usize, t: Option<std::time::Instant>) {
+    if let Some(t) = t {
+        C[i].fetch_add(u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
     }
 }
 
@@ -93,11 +110,11 @@ pub fn part_size(n: usize) {
     add(SZ1 + b, 1);
 }
 
-pub fn snapshot() -> [u64; 33] {
+pub fn snapshot() -> [u64; 36] {
     std::array::from_fn(|i| C[i].load(Relaxed))
 }
 
-pub fn line(before: &[u64; 33]) -> String {
+pub fn line(before: &[u64; 36]) -> String {
     let now = snapshot();
     NAMES
         .iter()
