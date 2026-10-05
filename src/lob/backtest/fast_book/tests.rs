@@ -1,5 +1,6 @@
 use super::*;
 use crate::lob::backtest::fast_hold::apply_local;
+use hftbacktest::depth::MarketDepth;
 use hftbacktest::types::{BUY_EVENT, DEPTH_EVENT, EXCH_EVENT, LOCAL_EVENT, SELL_EVENT};
 
 fn rows(n: usize) -> Vec<Event> {
@@ -85,5 +86,35 @@ fn book_at_matches_sequential_apply() {
             DepthSnapshot::of(&want),
             "cursor {cursor}"
         );
+    }
+}
+
+#[test]
+fn series_depth_matches_book() {
+    let tape = rows(2 * STRIDE + 300);
+    let start = DepthSnapshot::of(&FastMarketDepth::new(0.1, 1.0));
+    let mut tb = TapeBook::new(&tape, 0, &start, 0.1, 1.0);
+    tb.grow_to(tape.len());
+    for cursor in [0, 1, 5, STRIDE, STRIDE + 7, 2 * STRIDE + 299, tape.len()] {
+        let want = tb.book_at(cursor);
+        let got = SeriesDepth::new(&tb, cursor).expect("ряд без clear");
+        assert_eq!(got.best_bid_tick(), want.best_bid_tick(), "bid {cursor}");
+        assert_eq!(got.best_ask_tick(), want.best_ask_tick(), "ask {cursor}");
+        assert_eq!(got.best_bid().to_bits(), want.best_bid().to_bits());
+        assert_eq!(got.best_ask().to_bits(), want.best_ask().to_bits());
+        assert_eq!(got.best_bid_qty().to_bits(), want.best_bid_qty().to_bits());
+        assert_eq!(got.best_ask_qty().to_bits(), want.best_ask_qty().to_bits());
+        for tick in 900..1100 {
+            assert_eq!(
+                got.bid_qty_at_tick(tick).to_bits(),
+                want.bid_qty_at_tick(tick).to_bits(),
+                "bid@{tick} {cursor}"
+            );
+            assert_eq!(
+                got.ask_qty_at_tick(tick).to_bits(),
+                want.ask_qty_at_tick(tick).to_bits(),
+                "ask@{tick} {cursor}"
+            );
+        }
     }
 }
