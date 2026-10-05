@@ -1599,6 +1599,11 @@ impl StrategyState {
         ))
     }
 
+    /// Круг ждёт исполнения входа (заявка отправлена, `entry_ttl` не истёк).
+    pub fn is_entry_pending(&self) -> bool {
+        matches!(self.phase, Phase::EntryPending { .. })
+    }
+
     /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
     /// был повтором решения на тех же входах.
     pub fn phase_mark(&self) -> PhaseMark {
