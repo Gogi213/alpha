@@ -1180,6 +1180,10 @@ impl<'a> GridRun<'a> {
                         g(&crate::lob::backtest::STEP_KINDS)
                     );
                     eprintln!(
+                        "bounce-grid:   замер шагов по фазам (вход/удержание/выход/отмена выхода/отмена входа/простой: всего,вход тот же,таймер; [3] — подпись недоступна): {}",
+                        g(&crate::lob::backtest::PROBE)
+                    );
+                    eprintln!(
                         "bounce-grid:   пропущено вызовов on_event (входы те же): {}",
                         crate::lob::backtest::SIG_SKIPS.load(std::sync::atomic::Ordering::Relaxed)
                     );

@@ -1550,6 +1550,7 @@ where
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
+    let mut probe = StepProbe::default();
     // TK-049 (`ALPHA_FAST_HOLD`): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
     let mut fast_tried = !fast_hold::fast_hold_on();
     let mut post_step = false;
@@ -1673,6 +1674,9 @@ where
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         let mark_before = state.phase_mark();
+        if probe_on() {
+            probe.observe::<B, MD>(bot, state);
+        }
         let skip = skip_on
             && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
         let action = if skip {
@@ -2085,6 +2089,7 @@ where
     let mut fill_by_cross = false;
     let ev_steps = event_steps();
     let mut entry_stable = false;
+    let mut entry_probe = StepProbe::default();
     loop {
         let entry_wake = match skip_cap {
             Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
@@ -2140,6 +2145,9 @@ where
             bot.clear_last_trades(Some(asset_no));
         }
         let entry_mark = entry_state.phase_mark();
+        if probe_on() {
+            entry_probe.observe::<B, MD>(bot, entry_state);
+        }
         let entry_action = on_event(bot, entry_state)?;
         entry_stable =
             entry_state.phase_mark() == entry_mark && matches!(entry_action, Action::Idle);
@@ -2197,6 +2205,7 @@ where
     let mut stable: Vec<bool> = vec![false; n];
     let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
+    let mut probes: Vec<StepProbe> = vec![StepProbe::default(); n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
@@ -2307,6 +2316,9 @@ where
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
             let mark_before = states[i].phase_mark();
+            if probe_on() {
+                probes[i].observe::<B, MD>(bot, &states[i]);
+            }
             let skip = skip_on
                 && sigs[i]
                     .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
@@ -2881,6 +2893,49 @@ pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
 fn skip_same() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
+}
+
+/// Замер TK-050 (`ALPHA_STEP_PROBE=1`): по фазам круга — шагов всего / подпись входов не менялась и таймер не
+/// наступил (шаг можно было пропустить) / таймер наступил / подпись недоступна. Счётчики процесса; на итог
+/// счёта не влияют.
+pub static PROBE: [std::sync::atomic::AtomicU64; 24] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 24];
+
+fn probe_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_STEP_PROBE").is_some_and(|v| v == "1"))
+}
+
+#[derive(Clone, Copy, Default)]
+struct StepProbe {
+    sig: Option<(usize, [u64; 6])>,
+    wake: Option<i64>,
+}
+
+impl StepProbe {
+    fn observe<B, MD>(&mut self, bot: &B, state: &StrategyState)
+    where
+        B: Bot<MD>,
+        MD: MarketDepth,
+    {
+        use std::sync::atomic::Ordering::Relaxed;
+        let now = bot.current_timestamp();
+        let cur = state.probe_sig(bot);
+        let Some((tag, s)) = cur else {
+            PROBE[3].fetch_add(1, Relaxed);
+            self.sig = None;
+            self.wake = None;
+            return;
+        };
+        PROBE[tag * 4].fetch_add(1, Relaxed);
+        if self.wake.is_some_and(|w| now >= w) {
+            PROBE[tag * 4 + 2].fetch_add(1, Relaxed);
+        } else if self.sig == Some((tag, s)) {
+            PROBE[tag * 4 + 1].fetch_add(1, Relaxed);
+        }
+        self.sig = Some((tag, s));
+        self.wake = state.step_wakeup_ns(now);
+    }
 }
 
 /// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).

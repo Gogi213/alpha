@@ -1543,6 +1543,62 @@ impl StrategyState {
         ])
     }
 
+    /// Замер TK-050 (`ALPHA_STEP_PROBE`): широкая подпись всех входов решения шага — фаза, лучшие цены,
+    /// объём стены, съеденное, состояние наших заявок. Равная подпись при непройденном таймере — шаг
+    /// мог бы быть пропущен. `None` — вне плана `Bounce` или с сиротами/кольцом стены.
+    pub fn probe_sig<MD: MarketDepth, B: Bot<MD>>(&self, bot: &B) -> Option<(usize, [u64; 6])> {
+        let TradePlan::Bounce {
+            level_px, tick_px, ..
+        } = self.plan
+        else {
+            return None;
+        };
+        if self.has_orphans() || self.wall_ring.is_some() {
+            return None;
+        }
+        let tag = match self.phase {
+            Phase::EntryPending { .. } => 0,
+            Phase::Holding { .. } => 1,
+            Phase::ExitPending { .. } => 2,
+            Phase::ExitCancelPending { .. } => 3,
+            Phase::CancelPending { .. } => 4,
+            Phase::Idle => 5,
+        };
+        let depth = bot.depth(self.asset_no);
+        #[allow(clippy::cast_possible_truncation)]
+        let lt = if tick_px > 0.0 && level_px > 0.0 {
+            round_half_away(level_px / tick_px) as i64
+        } else {
+            0
+        };
+        let q = if self.sigma == crate::lob::backtest::SIGMA_LONG {
+            depth.bid_qty_at_tick(lt)
+        } else {
+            depth.ask_qty_at_tick(lt)
+        };
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |x: u64| h = (h ^ x).wrapping_mul(0x0000_0100_0000_01b3);
+        for o in bot.orders(self.asset_no).values() {
+            mix(o.order_id);
+            mix(u64::from(o.status as u8) | u64::from(o.req as u8) << 8);
+            mix(o.leaves_qty.to_bits());
+            mix(o.exec_qty.to_bits());
+            mix(o.exch_timestamp as u64);
+        }
+        #[allow(clippy::cast_sign_loss)]
+        Some((
+            tag,
+            [
+                depth.best_bid_tick() as u64,
+                depth.best_ask_tick() as u64,
+                q.to_bits(),
+                self.eaten_qty.to_bits(),
+                h,
+                tag as u64,
+            ],
+        ))
+    }
+
     /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
     /// был повтором решения на тех же входах.
     pub fn phase_mark(&self) -> PhaseMark {
