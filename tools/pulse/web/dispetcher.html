@@ -158,7 +158,6 @@
 .d3 .lamp.l-warn{background:#ffb000;box-shadow:0 0 6px #ffb000,0 0 14px rgba(255,176,0,.55)}
 .d3 .warn{color:#ffb000;text-shadow:0 0 5px rgba(255,176,0,.5)}
 .d3 .st.s-live{color:var(--hot)}
-.d3 .ch{cursor:default}
 
 /* уплотнение всей страницы */
 .d3 .term{padding:clamp(6px,.9vw,12px) var(--pad-x) clamp(8px,1vw,14px)}
@@ -232,7 +231,7 @@
 <script src="phosphor.js"></script>
 <script>
 (() => {
-  const { E, arr, seg, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf } = Board;
+  const { E, arr, seg, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf, tok, whoOn, tm, waitTxt, pinfo, forTxt, flow } = Board;
   const STALE = (v, age) => age == null || age > 2 * (Number(v && v.tick_s) || 5) + 5;
   const ROLE = { engineer: "Инженер", researcher: "Исследователь", judge: "Судья", ceo: "CEO" };
   const n = (c, k) => Number((c || {})[k]) || 0;
@@ -245,8 +244,14 @@
     return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => {
       const q = s.state === "wait" && s.question ? qOf(s.question) : null;
       const d = q ? `ждёт вас ${fmtMin(q.wait_min || 0)}` : sdet(s);
-      return `<div class="cs s-${Board.sk(s.state)}"><i class="pip s-${Board.sk(s.state)}"></i><b>${E(s.title)}</b>${d ? `<span class="dim d">${d}</span>` : ""}</div>`;
+      return `<div class="cs s-${Board.sk(s.state)}"><i class="pip s-${Board.sk(s.state)}"></i><span class="n">${E(s.n)}</span><b>${E(s.title)}</b>${d ? `<span class="dim d">${d}</span>` : ""}</div>`;
     }).join("")}</div>`;
+  };
+
+  const drawer = (p) => {
+    const steps = arr(p.steps);
+    return `<div class="dr"><div class="drh"><b class="hot">${E(p.title)}</b><span class="dim">${[flow(p), forTxt(p), pinfo(p)].filter(Boolean).join(" · ")}</span></div>
+    <ol class="tl">${steps.map((s) => `<li class="s-${Board.sk(s.state)}"><span class="tm">${E(tm(s)) || "—"}</span><i class="pip s-${Board.sk(s.state)}"></i><div class="tb"><span class="n">шаг ${E(s.n)}</span> <b>${E(s.title)}</b> ${tok(s.state)}${s.wave != null && steps.length > 1 ? ` <span class="dim small">волна ${E(s.wave)}</span>` : ""}<div class="dim">${[whoOn(s), s.for ? "для: " + E(s.for) : "", sdet(s), s.state === "wait" ? waitTxt(s) : ""].filter(Boolean).join(" · ")}</div></div></li>`).join("") || '<li class="none">шагов в плане нет</li>'}</ol></div>`;
   };
 
   const chip = (t) => {
@@ -270,12 +275,13 @@
     const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, m }));
     act.forEach((p) => arr(p.steps).forEach((s) => { if (s.on && s.on !== "you" && !machines.some((r) => r.id === s.on)) machines.push({ id: s.on, state: "idle", m: null }); }));
     if (arr(v.questions).length || act.some((p) => arr(p.steps).some((s) => s.on === "you"))) machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
-    const np = act.length;
+    const np = act.length, done = all.filter((p) => p.state === "done");
+    const sel = ui.sel && all.some((p) => p.id === ui.sel) ? ui.sel : (act[0] || all[0] || {}).id, selP = all.find((p) => p.id === sel);
     let mx = "";
     if (np) {
       mx = `<div class="corner"></div>` + act.map((p, i) => {
         const q = p.state === "todo" ? "в очереди" : p.state === "wait" ? "ждёт вас" : p.state === "bad" ? "проблема" : "";
-        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${E([ROLE[p.role] || "", p.for && p.for.text ? p.for.text : ""].filter(Boolean).join(" · "))}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
+        return `<button type="button" class="ch hd${i === np - 1 ? " lc" : ""}" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}"><b>${E(p.title)}</b><span class="dim small">${E([ROLE[p.role] || "", p.for && p.for.text ? p.for.text : ""].filter(Boolean).join(" · "))}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</button>`;
       }).join("");
       machines.forEach((r, ri) => {
         const you = r.id === "you", last = ri === machines.length - 1, m = r.m, down = m && m.state === "down";
@@ -285,8 +291,9 @@
       });
     }
     const feed = arr(v.feed).slice().reverse().map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
+    const pick = all.length > 1 ? `<div class="pick${done.length ? " hd" : ""}"><span class="dim">подробно о задаче:</span>${all.map((p) => `<button type="button"${p.state === "done" ? "" : ' class="pa"'} data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : "";
     const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
-    return `${top}<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}</div>
+    return `${top}<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}${pick}${selP ? `<div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>${drawer(selP)}` : ""}</div>
    <div class="rest"><div class="h4 hot">Что стало возможно</div>${sums ? `<ul class="sums">${sums}</ul>` : '<div class="none">пока ничего не закрыто</div>'}<div class="h4 hot">Недавно</div>${feed}</div>`;
   };
 
