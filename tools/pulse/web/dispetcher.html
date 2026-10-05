@@ -47,13 +47,13 @@
 .d3 .pip::after{font-size:11px}
 
 /* раскладка на всю ширину */
-.d3 .lay{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1em 2.4ch;align-items:start;grid-template-areas:"top" "ask" "main" "rest"}
-.d3 .top{grid-area:top;min-width:0}.d3 .askcol{grid-area:ask;min-width:0}.d3 .main{grid-area:main;min-width:0}.d3 .rest{grid-area:rest;min-width:0}
+.d3 .lay{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1em 2.4ch;align-items:start;grid-template-areas:"top" "main" "rest"}
+.d3 .top{grid-area:top;min-width:0}.d3 .main{grid-area:main;min-width:0}.d3 .rest{grid-area:rest;min-width:0}
 @media (min-width:1100px){
-  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(23em,28em);grid-template-rows:auto auto auto 1fr;grid-template-areas:"top top" "main ask" "main rest" "main ."}
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(23em,28em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
 }
 @media (min-width:1700px){
-  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(22em,26em) minmax(22em,26em);grid-template-rows:auto 1fr;grid-template-areas:"top top top" "main ask rest"}
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(22em,26em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
 }
 .d3 .ttl{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.4em 3ch}
 .d3 .ttl h1{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
@@ -203,11 +203,9 @@
       const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
       const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
       const selP = all.find((p) => p.id === sel);
-      const asks = arr(v.questions).length ? `<div class="asks">${arr(v.questions).map((q) => `<section class="ask">${Board.qHTML(q)}</section>`).join("")}</div><div class="dim small asknote">ответ — в чате с CEO</div>` : `<div class="none">вопросов к вам нет</div>`;
       const pick = all.length > 1 ? `<div class="pick${done.length ? " hd" : ""}"><span class="dim">подробно о задаче:</span>${all.map((p) => `<button type="button"${p.state === "done" ? "" : ' class="pa"'} data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : "";
       return `<div class="lay">
    <div class="top"><div class="ttl"><h1>Диспетчерская</h1>${headline()}</div><div class="pr"><span>${pr.left}</span>${pr.strip}<span>${pr.right}</span></div></div>
-   <div class="askcol"><div class="h4 hot">Вам ответить</div>${asks}</div>
    <div class="main">
      <div class="h4 hot">Кто что делает и для чего</div>
      ${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}

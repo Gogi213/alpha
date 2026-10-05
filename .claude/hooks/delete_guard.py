@@ -56,7 +56,8 @@ STAGE = "/dev/shm/alpha-stage"  # оперативная стадия подка
 # Корни конкретной машины — действуют, только когда команда идёт по ssh на этот хост (ключ — хост без `user@`, строчными).
 # Выделенный сервер (В-165, решение CEO 03.10): сюда НЕ входит `/data/alpha/` — копия данных, подмены только через CEO.
 HOST_ROOTS = {
-    "89.163.242.211": ("/home/deck/alpha/", "/root/tk0", "/data/tk0", "/tmp/"),
+    # /opt/alpha-board/ — веб-табло «Диспетчерская» (владелец 06.10 00:30: выкладку табло делать самим)
+    "89.163.242.211": ("/home/deck/alpha/", "/root/tk0", "/data/tk0", "/tmp/", "/opt/alpha-board/"),
     # VPS София (TK-047, 04.10: слово владельца 13:43 «почистить диск софии…» + приёмка Судьи 13:49 — пофайлово после sha256)
     "13.140.29.171": ("/opt/alpha-archive/stage/", "/opt/alpha-archive-tk021/dup-reimport/"),
 }
@@ -68,7 +69,7 @@ REASON = ("Удаление запрещено вне своей папки (в�
           "папки»). Можно только явным путём: локально — внутри C:/visual projects/alpha или scratchpad сессии; "
           "на Steam Deck — ~/alpha/<подкаталог>; на VPS — /opt/alpha-compute/<подкаталог> и (root@13.140.29.171, TK-047, 04.10) "
           "/opt/alpha-archive/stage/, /opt/alpha-archive-tk021/dup-reimport/ (не /opt/alpha-archive целиком); на "
-          "выделенном сервере (root@89.163.242.211) — /home/deck/alpha/, /root/tk0*, /data/tk0*, /tmp/ (но не /data/alpha/). Коллектор, "
+          "выделенном сервере (root@89.163.242.211) — /home/deck/alpha/, /root/tk0*, /data/tk0*, /tmp/, /opt/alpha-board/ (но не /data/alpha/). Коллектор, "
           "Storage Box, записи root/ и deep/ — никогда (только владелец через CEO). Непроверяемая цель: {t}")
 REASON_OVERWRITE = ("Перезапись/усечение файла (`> файл`, truncate, dd of=, cp/mv поверх существующего) вне своей папки "
                     "запрещены, как и удаление: локально — внутри C:/visual projects/alpha или scratchpad сессии; на Steam "
