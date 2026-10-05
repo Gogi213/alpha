@@ -1581,7 +1581,7 @@ where
                     solo_sig,
                     skip_on,
                 ) {
-                    *state = r.state;
+                    *state = r.state.clone();
                     decided_in_hold = r.decided_in_hold;
                     stable = r.stable;
                     solo_sig = r.sig;

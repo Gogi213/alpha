@@ -436,7 +436,7 @@ fn fast_step(bot: &mut FastBot, wakeup: Option<i64>, cap: i64) -> Option<()> {
 }
 
 /// С чем движок продолжает круг после выхода из быстрого пути.
-pub struct FastResume {
+pub(super) struct FastResume {
     pub state: StrategyState,
     pub decided_in_hold: bool,
     pub stable: bool,
@@ -449,7 +449,7 @@ pub struct FastResume {
 /// Удержание без живых заявок на плоской книге (только `ALPHA_SKIP_NOSIGNAL`-режим с `hold_skip`, без
 /// `ev_steps`). Возврат — когда движок нужен: решение просит заявку, `hold_wakeup_ns == None` (сироты,
 /// `wall_ring`), конец ленты, круг закончился.
-pub fn fast_hold_scan(
+pub(super) fn fast_hold_scan(
     bot: &mut FastBot,
     state: &mut StrategyState,
     cap: i64,
@@ -581,16 +581,16 @@ pub fn with_fast_ctx<R>(
     out
 }
 
-pub enum FastOutcome {
+pub(super) enum FastOutcome {
     /// Быстрого пути не было (нет окна, не `Backtest<FastMarketDepth>`, курсор/handoff невозможны): всё как было.
     NotApplied,
     /// Удержание пройдено на плоской книге, движок в `bot` заменён новым на часах быстрого пути.
-    Swapped(FastResume),
+    Swapped(Box<FastResume>),
 }
 
 /// Быстрый путь удержания для `run_round`: плоская книга до момента, когда нужен движок, затем замена движка.
 #[allow(clippy::too_many_arguments)]
-pub fn try_fast_hold<B, MD>(
+pub(super) fn try_fast_hold<B, MD>(
     bot: &mut B,
     asset_no: usize,
     state: &mut StrategyState,
@@ -635,5 +635,5 @@ where
     let _ = bt.elapse(0);
     FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
-    FastOutcome::Swapped(r)
+    FastOutcome::Swapped(Box::new(r))
 }
