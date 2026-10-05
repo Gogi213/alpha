@@ -2472,3 +2472,102 @@ fn group_ignores_hold_skip_flag() {
         "--hold-step не должен ничего менять в группе (Э-08 не пользуется Э-04б)"
     );
 }
+
+/// TK-049: цена строки удержания без ордеров — движок (`elapse` по сетке 10 мс, две книги) против плоской книги
+/// (одна и две копии + чтение лучших цен на точке сетки). Синтетическая лента вокруг лучшей цены, не гейт.
+/// Гонять `cargo test --release -- --ignored bench_hold_rows`.
+#[test]
+#[ignore]
+fn bench_hold_rows_engine_vs_flat() {
+    use hftbacktest::depth::{L2MarketDepth, MarketDepth};
+    use hftbacktest::types::ElapseResult;
+    const LEVELS: usize = 300;
+    let mut feed = Vec::new();
+    for i in 0..LEVELS {
+        feed.push(depth_at(0, true, 1000.0 - i as f64, 1.0));
+        feed.push(depth_at(0, false, 1001.0 + i as f64, 1.0));
+    }
+    let n_rows = 3_000_000usize;
+    let rows_per_step = 40i64;
+    let dt = ON_EVENT_POLL_STEP_NS / rows_per_step;
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for k in 0..n_rows {
+        let r = next();
+        let bid = r & 1 == 0;
+        let off = ((r >> 8) % 30) as f64;
+        let px = if bid { 1000.0 - off } else { 1001.0 + off };
+        let qty = if (r >> 20) % 5 == 0 {
+            0.0
+        } else {
+            1.0 + ((r >> 24) % 7) as f64
+        };
+        feed.push(depth_at(10 * S + k as i64 * dt, bid, px, qty));
+    }
+    let windows = SignalWindows::build(&feed, &[5 * S], 1.0, 1.0);
+    let w = windows.window_at(5 * S).unwrap();
+    let rest = &feed[w.start..];
+
+    let t = std::time::Instant::now();
+    let steps = with_backtest_over_window(
+        &w.depth,
+        5 * S,
+        rest,
+        1.0,
+        1.0,
+        ExecLatency::uniform(1_000_000),
+        QueueModelKind::RiskAdverse,
+        |bt| {
+            let mut s = 0u64;
+            while bt.elapse(ON_EVENT_POLL_STEP_NS).unwrap() != ElapseResult::EndOfData {
+                s += 1;
+            }
+            s
+        },
+    );
+    let eng = t.elapsed().as_secs_f64() * 1e9 / n_rows as f64;
+
+    let flat = |copies: usize| {
+        let mut books: Vec<FastMarketDepth> = (0..copies)
+            .map(|_| {
+                let mut d = FastMarketDepth::new(1.0, 1.0);
+                for e in &feed[..2 * LEVELS] {
+                    if e.ev & LOCAL_BID_DEPTH_EVENT == LOCAL_BID_DEPTH_EVENT {
+                        d.update_bid_depth(e.px, e.qty, e.local_ts);
+                    } else {
+                        d.update_ask_depth(e.px, e.qty, e.local_ts);
+                    }
+                }
+                d
+            })
+            .collect();
+        let t = std::time::Instant::now();
+        let mut acc = 0i64;
+        let mut next_grid = 0i64;
+        for e in &feed[2 * LEVELS..] {
+            let bid = e.ev & LOCAL_BID_DEPTH_EVENT == LOCAL_BID_DEPTH_EVENT;
+            for d in books.iter_mut() {
+                if bid {
+                    d.update_bid_depth(e.px, e.qty, e.local_ts);
+                } else {
+                    d.update_ask_depth(e.px, e.qty, e.local_ts);
+                }
+            }
+            if e.local_ts >= next_grid {
+                next_grid = e.local_ts + ON_EVENT_POLL_STEP_NS;
+                acc += books[0].best_bid_tick() + books[0].best_ask_tick();
+            }
+        }
+        (t.elapsed().as_secs_f64() * 1e9 / n_rows as f64, acc)
+    };
+    let (f1, a1) = flat(1);
+    let (f2, a2) = flat(2);
+    eprintln!(
+        "bench_hold_rows: rows={n_rows} rows_per_step={rows_per_step} steps={steps} engine={eng:.0} ns/row, flat1={f1:.0} ns/row, flat2={f2:.0} ns/row (acc={a1},{a2})"
+    );
+}
