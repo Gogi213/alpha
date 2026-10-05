@@ -163,7 +163,7 @@ def check_stale_plan(now) -> list:
     for path in T.list_tickets(D.TICKETS_DIR):
         try:
             tkt = T.read_ticket(path)
-            if tkt.status != "in_progress" or tkt.owner not in ("researcher", "engineer", "judge"):
+            if tkt.status not in ("in_progress", "waiting") or tkt.owner not in ("researcher", "engineer", "judge"):
                 continue
             plan = json.loads((D.PROJECT_ROOT / ".claude" / "pulse" / "plans" / f"{tkt.id}.json").read_text(encoding="utf-8"))
             if not plan.get("steps") or all(s.get("state") == "done" for s in plan["steps"]):
@@ -175,7 +175,7 @@ def check_stale_plan(now) -> list:
             continue
         role_logs = [e for e in tkt.log if not T.author_is(e.author, "ceo")]
         if role_logs and role_logs[-1].ts > upd and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
-            out.append(Finding("plan-stale", tkt.id,
+            out.append(Finding("plan-stale" if tkt.status == "in_progress" else "plan-stale-waiting", tkt.id,
                                f"{tkt.id}: запись роли в логе новее плана, шаги на табло не менялись > {NO_PLAN_MINUTES:.0f} мин"))
     return out
 
@@ -589,6 +589,17 @@ def _wake_for_plan(tid: str, now, stale: bool = False) -> None:
         print(f"[watch] no-plan: не разбудил {tid}: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+def _remind_plan_waiting(tid: str) -> None:
+    """waiting + застывший план: не будим (запуск впустую) — напоминание в лог, следующий запуск роли обновит шаги."""
+    path = D.TICKETS_DIR / f"{tid}.md"
+    try:
+        T.append_log(path, "ceo", "Сторож (без LLM): запись роли новее плана, а шаги на табло не менялись "
+                     f"> {NO_PLAN_MINUTES:.0f} мин. В следующем запуске обнови по факту: `python tools/pulse/plan.py step "
+                     + tid + " <N> <run|done|todo>`.")
+    except Exception as e:
+        print(f"[watch] plan-stale-waiting: не записал {tid}: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def notify_findings(findings: list, ws: dict, now) -> list:
     """Возвращает находки, по которым реально написали (для тестов). Дедуп — (kind, key) + для
     Steam Deck ещё и содержимое без времени (см. выше). Виды из WATCH_SUMMARY_KINDS не будят сразу —
@@ -621,6 +632,8 @@ def notify_findings(findings: list, ws: dict, now) -> list:
                     _wake_for_plan(f.key, now)
                 elif f.kind == "plan-stale":
                     _wake_for_plan(f.key, now, stale=True)
+                elif f.kind == "plan-stale-waiting":
+                    _remind_plan_waiting(f.key)
             notified[marker] = {"sig": sig, "ts": T.now_iso(now)}
             posted.append(f)
         else:
