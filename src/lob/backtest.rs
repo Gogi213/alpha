@@ -4293,7 +4293,6 @@ pub fn with_backtest_over_window<R>(
     queue_model: QueueModelKind,
     f: impl FnOnce(&mut Backtest<FastMarketDepth>) -> R,
 ) -> R {
-    let t_setup = std::time::Instant::now();
     let anchor = [Event {
         ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
         exch_ts: t0_ns,
@@ -4317,29 +4316,10 @@ pub fn with_backtest_over_window<R>(
         move || snap.build(tick_size, lot_size),
         queue_model,
     );
-    let t_run = std::time::Instant::now();
-    CIRCLE_COST[0].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    CIRCLE_COST[1].fetch_add(
-        (t_run - t_setup).as_nanos() as u64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
     let out = f(&mut bt);
-    let t_drop = std::time::Instant::now();
-    CIRCLE_COST[2].fetch_add(
-        (t_drop - t_run).as_nanos() as u64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
     drop(bt);
-    CIRCLE_COST[3].fetch_add(
-        t_drop.elapsed().as_nanos() as u64,
-        std::sync::atomic::Ordering::Relaxed,
-    );
     out
 }
-
-/// Круги окон (замер TK-050): число, нс сборки Backtest из снимка, нс самого круга, нс drop(bt).
-pub static CIRCLE_COST: [std::sync::atomic::AtomicU64; 4] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
 /// Общий низ трёх строителей: `QueueModelKind` выбирает пару «модель очереди +
 /// модель исполнения» (`ExchangeKind`) движка. Три пути исполнения крейта —
