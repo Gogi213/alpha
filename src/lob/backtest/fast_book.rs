@@ -66,7 +66,7 @@ impl<'a> TapeBook<'a> {
         let upto = upto.min(self.rows.len());
         while self.cur < upto {
             let i = self.cur - self.base;
-            if i % STRIDE == 0 {
+            if i.is_multiple_of(STRIDE) {
                 self.points.push(DepthSnapshot::of(&self.book));
             }
             let ev = &self.rows[self.cur];
