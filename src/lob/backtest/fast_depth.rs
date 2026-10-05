@@ -84,6 +84,10 @@ pub static DEPTH_ROW_BANDS: [std::sync::atomic::AtomicU64; 4] =
 pub static DEPTH_ROW_CLASS: [std::sync::atomic::AtomicU64; 6] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 6];
 pub static BAND_STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// `ALPHA_BAND_COUNT_OFF=1`: не считать `DEPTH_ROW_BANDS` на каждое обновление (атомарный `fetch_add` на горячем пути);
+/// строка печатается только под `ALPHA_ATTEMPT_STATS`, там счёт включён всегда.
+pub static BAND_COUNT_OFF: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 thread_local! {
     static WATCH_TICK: std::cell::Cell<i64> = const { std::cell::Cell::new(i64::MIN) };
@@ -127,10 +131,14 @@ pub fn note_order_dist<MD: hftbacktest::depth::MarketDepth>(
 }
 
 fn note_band(price_tick: i64, best_tick: i64, moves_best: bool) {
+    let stats = BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed);
+    if !stats && BAND_COUNT_OFF.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let d = (price_tick - best_tick).unsigned_abs();
     let k = usize::from(d > 3) + usize::from(d > 10) + usize::from(d > 30);
     DEPTH_ROW_BANDS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if !BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+    if !stats {
         return;
     }
     let w = WATCH_TICK.with(std::cell::Cell::get);
