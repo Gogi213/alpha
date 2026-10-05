@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Табло · Диспетчерская · макет команд</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap">
+<style>
+/* МАКЕТ (06.10), вариант 2 «супер компактно»: «Диспетчерская» с несколькими командами. Статично, данные выдуманы, сервера нет.
+   Три слоя: 1) phosphor.css целиком, 2) раскладка dispetcher.html целиком, 3) новое и уплотнение (в самом конце).
+   Из скрипта — только переключение команды по клику и показ/скрытие окна «Подключить команду». */
+/* Оболочка живой страницы веб-табло (dispetcher.html): монитор, стекло, состояния, вопросы.
+   Стиль: фосфорный монитор по мотивам HELIOS/OS (miaai-lab 019): одна краска, три ступени яркости, свечение, строки
+   развёртки, корпус с планкой. Статус читается словом в скобках, ступенью яркости и формой, а не цветом.
+   Раскладка каждой страницы — в её собственном <style>; здесь только то, что у всех одинаково. */
+html{background:#0a0b09}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:#0a0b09;color:#b9b3a2;font:14px/1.5 monospace;overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+a{color:inherit}
+
+/* ---------- корпус монитора ---------- */
+.mon{
+  --fg:#33ff66; --fg-rgb:51,255,102; --bg:#031a07; --bg-hi:#073012; --bg-lo:#010c03; --hot:#dcffe5;
+  --lh:1.45; --bezel:clamp(6px,1.4vw,22px); --pad-x:clamp(12px,2.6vw,44px);
+  --shadow:0 0 1px rgba(var(--fg-rgb),.9),0 0 6px rgba(var(--fg-rgb),.5),0 0 17px rgba(var(--fg-rgb),.22);
+  position:relative;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+  padding:var(--bezel) var(--bezel) 0;font-family:var(--mono);color:var(--fg);
+  background:
+    radial-gradient(120% 70% at 50% -10%,rgba(255,255,255,.05),transparent 60%),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px),
+    linear-gradient(#1d1f1a,#121310 70%,#0e0f0c);
+}
+.mon[data-ph="amber"]{--fg:#ffb000;--fg-rgb:255,176,0;--bg:#1a0f00;--bg-hi:#2c1a02;--bg-lo:#0c0600;--hot:#fff1cc}
+.mon[data-ph="ice"]{--fg:#9fe7ff;--fg-rgb:159,231,255;--bg:#02111a;--bg-hi:#07243a;--bg-lo:#01070c;--hot:#f2fcff}
+
+.screen{position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;overflow:clip;isolation:isolate;border-radius:30px/26px;background:#000;
+  box-shadow:0 0 0 1px #000,0 0 0 6px #161814,0 0 0 7px #262822,0 0 70px 6px rgba(var(--fg-rgb),.09),0 14px 40px rgba(0,0,0,.6)}
+.crt{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:radial-gradient(120% 95% at 50% 46%,var(--bg-hi) 0%,var(--bg) 52%,var(--bg-lo) 100%)}
+.term{flex:1;padding:clamp(14px,2.4vw,34px) var(--pad-x) clamp(16px,2.2vw,28px);font-size:var(--fs);line-height:var(--lh);text-shadow:var(--shadow);min-width:0}
+.inner{max-width:var(--maxw,1400px);margin:0 auto;min-width:0}
+.term button{font:inherit}
+.term :focus-visible,.strip :focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+.term ::selection{background:var(--fg);color:var(--bg);text-shadow:none}
+.status{display:flex;align-items:center;gap:1.4ch;padding:.5em var(--pad-x);font-size:calc(var(--fs)*.8);letter-spacing:.05em;white-space:nowrap;overflow:hidden;
+  background:rgba(var(--fg-rgb),.86);color:var(--bg);box-shadow:0 0 26px rgba(var(--fg-rgb),.38),0 -1px 0 rgba(var(--fg-rgb),.5)}
+.status .tg{font-weight:700;background:var(--bg);color:var(--fg);padding:.12em .7ch;text-shadow:0 0 6px rgba(var(--fg-rgb),.8)}
+.fill{flex:1}
+
+/* плашка «нет связи / сводка устарела»: инверсия на всю ширину, прилипает к верху окна */
+.banner{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;gap:.1em 1.6ch;align-items:baseline;padding:.45em var(--pad-x);
+  background:var(--fg);color:var(--bg);text-shadow:none;font-weight:700;letter-spacing:.04em;box-shadow:0 0 22px rgba(var(--fg-rgb),.55)}
+.banner span+span{font-weight:400;letter-spacing:0}
+.toast{position:fixed;z-index:20;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);max-width:calc(100vw - 24px);
+  padding:.55em 1.6ch;font:600 13px/1.4 var(--f-chrome,monospace);background:var(--fg,#33ff66);color:var(--bg,#031a07);box-shadow:0 0 24px rgba(var(--fg-rgb,51,255,102),.6);
+  --fg:#33ff66;--fg-rgb:51,255,102;--bg:#031a07}
+.toast.err{background:#dcffe5;color:#031a07;box-shadow:0 0 0 2px #031a07,0 0 0 4px #33ff66}
+.mon[data-ph="amber"]~.toast{--fg:#ffb000;--fg-rgb:255,176,0;--bg:#1a0f00}
+.mon[data-ph="amber"]~.toast.err{background:#fff1cc}
+.mon[data-ph="ice"]~.toast{--fg:#9fe7ff;--fg-rgb:159,231,255;--bg:#02111a}
+.mon[data-ph="ice"]~.toast.err{background:#f2fcff}
+
+/* стекло: зерно, строки развёртки, бегущая полоса, виньетка, блик */
+.ov{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
+.grain{z-index:4;opacity:.05;mix-blend-mode:screen;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+.scan{z-index:5;background:repeating-linear-gradient(180deg,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,.26) 2px,rgba(0,0,0,.26) 3px)}
+.scan::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,40,40,.03) 0 1px,rgba(40,255,40,.018) 1px 2px,rgba(40,40,255,.03) 2px 3px)}
+.roll{z-index:6;inset:auto 0 auto 0;top:0;height:min(14%,360px);border-radius:0;
+  background:linear-gradient(180deg,rgba(var(--fg-rgb),0) 0%,rgba(var(--fg-rgb),.02) 55%,rgba(var(--fg-rgb),.05) 90%,rgba(var(--fg-rgb),.07) 96%,rgba(var(--fg-rgb),0) 100%);animation:roll 9s linear infinite}
+@keyframes roll{from{transform:translateY(-100%)}to{transform:translateY(calc(var(--rollh,3000) * 1px))}}
+.flick{z-index:7;background:#000;opacity:0;animation:flicker 5.3s steps(1) infinite}
+@keyframes flicker{0%{opacity:.02}8%{opacity:0}12%{opacity:.03}23%{opacity:.05}34%{opacity:.03}41%{opacity:0}52%{opacity:.06}63%{opacity:.04}77%{opacity:.05}90%{opacity:.03}}
+.vignette{z-index:8;background:radial-gradient(ellipse 80% 76% at 50% 50%,rgba(0,0,0,0) 60%,rgba(0,0,0,.18) 82%,rgba(0,0,0,.45) 100%);box-shadow:inset 0 0 60px 8px rgba(0,0,0,.5),inset 0 0 8px 2px rgba(0,0,0,.9)}
+.glass{z-index:9;background:radial-gradient(55% 30% at 20% 4%,rgba(255,255,255,.05),rgba(255,255,255,0) 70%),linear-gradient(168deg,rgba(255,255,255,.025) 0%,rgba(255,255,255,0) 28%)}
+
+/* нижняя планка корпуса: лампа, марка, переключатель люминофора */
+.strip{--f-chrome:"IBM Plex Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;display:flex;align-items:center;flex-wrap:wrap;gap:8px clamp(10px,1.6vw,22px);
+  padding:calc(var(--bezel)*.5 + 4px) var(--bezel) calc(var(--bezel)*.7 + 6px + env(safe-area-inset-bottom,0px));color:#9d9889;font-family:var(--f-chrome)}
+.brand{display:flex;align-items:center;gap:10px}
+.led{width:9px;height:9px;border-radius:50%;background:#1a2a1c;box-shadow:inset 0 1px 1px rgba(0,0,0,.6)}
+.led.lit{background:var(--fg);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6),inset 0 -1px 1px rgba(0,0,0,.3)}
+.brand-name{font-size:12px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;color:#b9b3a2;text-shadow:0 1px 0 #000}
+.brand-model{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#7a7668}
+.dials{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dial-label{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#7a7668;margin-right:2px}
+.key{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 var(--f-chrome);letter-spacing:.14em;text-transform:uppercase;color:#d4cebd;text-decoration:none;
+  background:linear-gradient(#2d2f29,#1e201b 60%,#1a1b17);border:1px solid #060705;border-radius:5px;padding:9px 12px 8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 -2px 0 rgba(0,0,0,.25),0 2px 0 #050604,0 4px 8px rgba(0,0,0,.45);cursor:pointer;transition:transform .07s ease,box-shadow .07s ease}
+.key:hover{color:#fff8e6}
+.key:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 0 0 #050604,0 1px 3px rgba(0,0,0,.5)}
+.lamp-k{position:relative;width:7px;height:7px;border-radius:50%;background:#141510;box-shadow:inset 0 1px 1px rgba(0,0,0,.7)}
+.lamp-k::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--c);opacity:.26;transition:opacity .25s,box-shadow .25s}
+.key[aria-pressed="true"] .lamp-k::after{opacity:1;box-shadow:0 0 6px var(--c),0 0 12px var(--c)}
+
+/* ---------- язык экрана: одна краска, ступени яркости ---------- */
+.hot{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.75),0 0 26px rgba(var(--fg-rgb),.4)}
+.dim{color:rgba(var(--fg-rgb),.62);text-shadow:0 0 5px rgba(var(--fg-rgb),.25)}
+.faint{color:rgba(var(--fg-rgb),.36);text-shadow:none}
+.inv{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 12px rgba(var(--fg-rgb),.55)}
+.small{font-size:.86em}
+.term b{font-weight:700}
+.mt{color:rgba(var(--fg-rgb),.78);white-space:nowrap}
+.mt.you{background:var(--fg);color:var(--bg);text-shadow:none;padding:0 .3ch}
+
+/* семь состояний: слово в скобках, ступень яркости, форма */
+.st{white-space:nowrap;letter-spacing:.03em}
+.st.s-done{color:rgba(var(--fg-rgb),.62);text-shadow:0 0 4px rgba(var(--fg-rgb),.2)}
+.st.s-run{color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.75),0 0 24px rgba(var(--fg-rgb),.4);animation:breathe 2.6s ease-in-out infinite}
+.st.s-review{color:var(--hot);text-decoration:underline dotted;text-underline-offset:3px;text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.st.s-repair{color:var(--hot);text-decoration:underline wavy;text-decoration-thickness:1px;text-underline-offset:3px;text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6)}
+.st.s-wait{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 12px rgba(var(--fg-rgb),.55);padding:0 .4ch;font-weight:700}
+.st.s-todo{color:rgba(var(--fg-rgb),.52);text-shadow:none}
+.st.s-bad{color:var(--hot);font-weight:700;padding:0 .4ch;box-shadow:0 0 0 1px var(--fg),0 0 14px rgba(var(--fg-rgb),.5),inset 0 0 8px rgba(var(--fg-rgb),.25);text-shadow:0 0 6px rgba(var(--fg-rgb),.8)}
+@keyframes breathe{0%,100%{filter:brightness(1)}50%{filter:brightness(1.4)}}
+@keyframes blinkb{0%,55%{opacity:1}56%,100%{opacity:.2}}
+
+/* лампа машины */
+.lamp{display:inline-block;width:.72em;height:.72em;border-radius:50%;margin-right:.9ch;vertical-align:-.04em;background:transparent;box-shadow:inset 0 0 0 1px rgba(var(--fg-rgb),.4)}
+.lamp.l-run,.lamp.l-review,.lamp.l-repair{background:var(--hot);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6);animation:breathe 2.6s ease-in-out infinite}
+.lamp.l-wait{background:var(--fg);box-shadow:0 0 6px var(--fg),0 0 14px rgba(var(--fg-rgb),.6);animation:blinkb 1.2s steps(1) infinite}
+.lamp.l-idle{background:rgba(var(--fg-rgb),.5);box-shadow:none}
+.lamp.l-bad{background:var(--hot);box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--fg),0 0 12px var(--fg)}
+
+/* полоса шагов: один квадрат на шаг, группы по задачам */
+.seg{display:flex;align-items:center;min-width:0;height:1em;width:100%}
+.seg .g{display:flex;gap:2px;flex:var(--n) 1 0;min-width:0}
+.seg .g+.g{margin-left:.9ch}
+.seg i{flex:1 1 0;min-width:3px;height:.86em;background:rgba(var(--fg-rgb),.16)}
+.seg i.s-done{background:var(--fg);box-shadow:0 0 6px rgba(var(--fg-rgb),.6)}
+.seg i.s-run{background:var(--hot);box-shadow:0 0 10px var(--fg);animation:breathe 2.6s ease-in-out infinite}
+.seg i.s-review{background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px)}
+.seg i.s-repair{background:repeating-linear-gradient(0deg,var(--fg) 0 2px,transparent 2px 4px)}
+.seg i.s-wait{background:repeating-linear-gradient(135deg,var(--fg) 0 2px,transparent 2px 4px);box-shadow:inset 0 0 0 1px var(--fg),0 0 8px rgba(var(--fg-rgb),.4)}
+.seg i.s-bad{background:transparent;box-shadow:inset 0 0 0 2px var(--hot),0 0 8px var(--fg)}
+.seg i.s-todo{background:rgba(var(--fg-rgb),.16)}
+.seg.empty{opacity:.5}
+/* шкала процента */
+.bar{display:inline-flex;gap:.1em;vertical-align:-.08em}
+.bar b{display:block;width:.5em;height:.84em;background:rgba(var(--fg-rgb),.2)}
+.bar b.on{background:var(--fg);box-shadow:0 0 6px rgba(var(--fg-rgb),.6)}
+/* значок состояния в клетках */
+.pip{display:inline-block;position:relative;flex:none;width:.86em;height:.86em;margin-right:.7ch;vertical-align:-.1em;border:1px solid var(--fg)}
+.pip::after{position:absolute;inset:0;display:grid;place-items:center;font-size:.72em;font-weight:700;line-height:1;color:var(--bg);text-shadow:none}
+.pip.s-done{background:rgba(var(--fg-rgb),.5);border-color:rgba(var(--fg-rgb),.5)}
+.pip.s-run{background:var(--hot);border-color:var(--hot);box-shadow:0 0 8px var(--fg),0 0 18px rgba(var(--fg-rgb),.5);animation:breathe 2.6s ease-in-out infinite}
+.pip.s-review{background:transparent}.pip.s-review::after{content:"";width:.34em;height:.34em;margin:auto;background:var(--fg)}
+.pip.s-repair{background:repeating-linear-gradient(135deg,var(--fg) 0 1px,transparent 1px 3px)}
+.pip.s-wait{background:var(--fg);box-shadow:0 0 10px rgba(var(--fg-rgb),.6)}.pip.s-wait::after{content:"?"}
+.pip.s-todo{border-style:dashed;border-color:rgba(var(--fg-rgb),.45)}
+.pip.s-bad{background:var(--hot);border-color:var(--hot);box-shadow:0 0 10px var(--fg)}.pip.s-bad::after{content:"!"}
+
+/* вопрос владельцу: варианты, «Ок» по умолчанию, подтверждение */
+.q+.q{margin-top:1.3em}
+.qh{display:flex;flex-wrap:wrap;gap:.2em 1.2ch;align-items:baseline}
+.qn{font-weight:700;padding:0 .8ch;letter-spacing:.06em}
+.qt{margin:.45em 0 .6em;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 9px rgba(var(--fg-rgb),.6);font-weight:700;max-width:70ch;overflow-wrap:anywhere}
+.opts{display:grid;gap:.5em;min-width:0}
+.opt{font:inherit;color:inherit;text-shadow:inherit;text-align:left;background:transparent;border:1px solid rgba(var(--fg-rgb),.5);padding:.4em 1.2ch;cursor:pointer;display:grid;gap:.1em 2ch;min-width:0;align-items:baseline;grid-template-columns:minmax(0,1fr)}
+.opt:hover{border-color:var(--fg);box-shadow:0 0 10px rgba(var(--fg-rgb),.3)}
+.opt[aria-pressed="true"]{background:var(--fg);color:var(--bg);text-shadow:none;box-shadow:0 0 14px rgba(var(--fg-rgb),.5)}
+.opt:disabled{opacity:.5;cursor:default}
+.opt .ol{font-weight:700;overflow-wrap:anywhere}
+.opt .ef{opacity:.88;overflow-wrap:anywhere}
+.opt .ef::before{content:"что будет: ";opacity:.65}
+.opt .df{font-size:.8em;letter-spacing:.08em;text-transform:uppercase;border:1px solid currentColor;padding:0 .8ch;justify-self:start;white-space:nowrap}
+.okrow,.confirm{display:flex;flex-wrap:wrap;gap:.4em 1.6ch;align-items:center;margin-top:.8em}
+.okb,.cbtn{font:inherit;font-weight:700;letter-spacing:.06em;text-shadow:none;cursor:pointer;padding:.35em 2.2ch;border:1px solid var(--fg);background:var(--fg);color:var(--bg);box-shadow:0 0 14px rgba(var(--fg-rgb),.5)}
+.okb:hover,.cbtn:hover{box-shadow:0 0 22px rgba(var(--fg-rgb),.85)}
+.cbtn.no{background:transparent;color:var(--fg);text-shadow:inherit;box-shadow:none}
+.okb:disabled,.cbtn:disabled{opacity:.5;cursor:default}
+.confirm{border:1px dashed var(--fg);padding:.5em 1.4ch}
+.ans{margin-top:.5em}
+.none{color:rgba(var(--fg-rgb),.62)}
+
+/* строка-кнопка «раскрыть процесс» */
+.rp{display:block;width:100%;text-align:left;background:transparent;border:0;padding:0;color:inherit;text-shadow:inherit;cursor:pointer}
+.rp:hover .nm b{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.m{display:inline-block;width:3ch;color:var(--hot)}
+.proc .m::before{content:"[+]"}
+.proc[data-open="1"] .m::before{content:"[-]"}
+.proc[data-open="0"] .steps{display:none}
+.legend{display:flex;flex-wrap:wrap;gap:.3em 2.6ch;font-size:.9em}
+.legend span{white-space:nowrap}
+.sum{margin:.15em 0 0;color:var(--hot);text-shadow:0 0 2px var(--fg),0 0 8px rgba(var(--fg-rgb),.45);overflow-wrap:anywhere}
+
+@media (max-width:980px){.brand-model{display:none}}
+@media (max-width:720px){
+  .mon{--bezel:5px}
+  .screen{border-radius:16px/14px;box-shadow:0 0 0 1px #000,0 0 0 4px #161814,0 0 40px 4px rgba(var(--fg-rgb),.09)}
+  .status .wide{display:none}
+  .strip .dial-label{display:none}
+  .strip{gap:8px}
+}
+@media (prefers-reduced-motion:reduce){
+  .roll,.flick{display:none}
+  .st.s-run,.lamp,.seg i.s-run,.pip.s-run{animation:none!important}
+}
+
+/* Направление 3 «Диспетчерская»: таблица «машина × задача» — в клетке видно, что именно эта машина делает для этой задачи.
+   Строка «вы» показывает, где ждут вас. Шапка колонки выбирает задачу, подробности (шаги по времени) — под таблицей.
+   Раскладка на всю ширину окна: таблица слева, вопросы и лента справа (от 1100 px две колонки, от 1700 px три);
+   на телефоне одна колонка: итог, вопросы, таблица списком «машина → задачи», лента. Люминофор по умолчанию — ледяной.
+   Размеры пересчитаны под комфортный просмотр владельца (прежние ×0,75): кегль, отступы, рамка монитора, свечение, планка.
+   Мелкий текст не меньше 11 px (--fs-s). Масштаба в корне нет: всё считается от --fs в em/ch или задано в px заново. */
+.d3{
+  --mono:"Anonymous Pro","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  --fs:clamp(12px,.5vw + 5.5px,13px);          /* было clamp(14px, .46rem + .5vw, 17.5px) */
+  --fs-s:max(11px,calc(var(--fs)*.9));         /* мелкий текст: подписи, шкалы, заголовки блоков */
+  --lh:1.4; --maxw:none;                       /* ограничения ширины нет */
+  --bezel:clamp(4px,.8vw,14px);                /* было clamp(6px, 1.4vw, 22px) */
+  --pad-x:clamp(10px,1.3vw,26px);              /* было clamp(12px, 2.6vw, 44px) */
+  --shadow:0 0 1px rgba(var(--fg-rgb),.9),0 0 5px rgba(var(--fg-rgb),.5),0 0 13px rgba(var(--fg-rgb),.22);
+}
+/* корпус и стекло: рамка, радиус, свечение, отступы экрана */
+.d3 .screen{border-radius:22px/20px;box-shadow:0 0 0 1px #000,0 0 0 4px #161814,0 0 0 5px #262822,0 0 52px 4px rgba(var(--fg-rgb),.09),0 10px 30px rgba(0,0,0,.6)}
+.d3 .term{padding:clamp(10px,1.6vw,26px) var(--pad-x) clamp(12px,1.6vw,22px)}
+.d3 .banner{font-size:var(--fs)}
+.d3 .status{font-size:var(--fs-s)}
+.d3 ~ .toast{font-size:12px}
+.d3 .hot{text-shadow:0 0 1.5px var(--fg),0 0 7px rgba(var(--fg-rgb),.75),0 0 20px rgba(var(--fg-rgb),.4)}
+.d3 .dim{text-shadow:0 0 4px rgba(var(--fg-rgb),.25)}
+.d3 .small{font-size:var(--fs-s)}
+.d3 .strip{gap:6px clamp(8px,1.2vw,16px);padding:calc(var(--bezel)*.6 + 3px) var(--bezel) calc(var(--bezel)*.7 + 4px + env(safe-area-inset-bottom,0px))}
+.d3 .led{width:7px;height:7px}
+.d3 .brand-name{font-size:11px;letter-spacing:.3em}
+.d3 .brand-model,.d3 .dial-label{font-size:11px;letter-spacing:.16em}
+.d3 .key{font-size:11px;gap:6px;padding:7px 10px 6px;border-radius:4px;box-shadow:inset 0 1px 0 rgba(255,255,255,.09),inset 0 -2px 0 rgba(0,0,0,.25),0 1px 0 #050604,0 3px 6px rgba(0,0,0,.45)}
+.d3 .lamp-k{width:6px;height:6px}
+/* светодиоды машин и значки в таблице горят ровно, без анимации */
+.d3 .lamp,.d3 .mx .pip{animation:none!important}
+.d3 .pip{width:1.05em;height:1.05em;margin-right:.6ch}
+.d3 .pip::after{font-size:11px}
+
+/* раскладка на всю ширину */
+.d3 .lay{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1em 2.4ch;align-items:start;grid-template-areas:"top" "main" "rest"}
+.d3 .top{grid-area:top;min-width:0}.d3 .main{grid-area:main;min-width:0}.d3 .rest{grid-area:rest;min-width:0}
+@media (min-width:1100px){
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(23em,28em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
+}
+@media (min-width:1700px){
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(22em,26em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
+}
+.d3 .ttl{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.4em 3ch}
+.d3 .ttl h1{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
+.d3 .big{padding:.1em 1ch;font-weight:700;letter-spacing:.06em}
+.d3 .big.plain{padding:.1em 0}
+.d3 .pr{display:grid;grid-template-columns:auto minmax(8ch,1fr) auto;gap:.3em 2ch;align-items:center;margin-top:.7em}
+.d3 .h4{margin:1.4em 0 .5em;font-size:var(--fs-s);letter-spacing:.2em;text-transform:uppercase;display:flex;gap:1.4ch;align-items:center}
+.d3 .h4:first-child{margin-top:0}
+.d3 .h4::after{content:"";flex:1;height:1px;background:rgba(var(--fg-rgb),.35)}
+
+/* вопросы */
+.d3 .asks{display:grid;gap:1em}
+.d3 .ask{border:1px solid var(--fg);padding:0 1.4ch .9em;box-shadow:0 0 14px rgba(var(--fg-rgb),.2),inset 0 0 16px rgba(var(--fg-rgb),.06);min-width:0}
+.d3 .ask .qh{margin:0 -1.4ch .6em;padding:.2em 1.4ch;background:var(--fg);color:var(--bg);text-shadow:none}
+.d3 .ask .qh .dim,.d3 .ask .qh .mt{color:var(--bg);text-shadow:none}
+.d3 .ask .qh .qn{padding:0;background:transparent;box-shadow:none}
+.d3 .opts{grid-template-columns:minmax(0,1fr)}
+.d3 .opt .df{font-size:var(--fs-s)}
+.d3 .opt{cursor:default}
+.d3 .opt:hover{border-color:rgba(var(--fg-rgb),.5);box-shadow:none}
+.d3 .asknote{margin-top:.6em}
+
+/* что стало возможно */
+.d3 .sums{display:grid;gap:.6em;margin:0;padding:0;list-style:none}
+.d3 .sums li{display:grid;gap:.1em}
+.d3 .sums b{color:var(--hot)}
+
+/* таблица «машина × задача» */
+.d3 .mxw{overflow-x:auto;border:1px solid rgba(var(--fg-rgb),.55)}
+.d3 .mx{display:grid;grid-template-columns:minmax(12em,15em) repeat(var(--np),minmax(10em,1fr))}
+.d3 .mx>*{min-width:0;padding:.65em 1.2ch;border-right:1px solid rgba(var(--fg-rgb),.24);border-bottom:1px solid rgba(var(--fg-rgb),.24)}
+.d3 .mx>.lc{border-right:0}.d3 .mx>.lr{border-bottom:0}
+.d3 .mx .corner{color:rgba(var(--fg-rgb),.62);font-size:var(--fs-s);letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:flex-end}
+.d3 .ch{font:inherit;color:inherit;text-shadow:inherit;text-align:left;background:transparent;cursor:pointer;display:grid;gap:.25em;align-content:start;border-top:0;border-left:0}
+.d3 .ch:hover{background:rgba(var(--fg-rgb),.07)}
+.d3 .ch[aria-pressed="true"]{background:rgba(var(--fg-rgb),.12);box-shadow:inset 0 -2px 0 var(--fg),0 0 14px rgba(var(--fg-rgb),.15)}
+.d3 .ch b{color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 7px rgba(var(--fg-rgb),.55);line-height:1.2;overflow-wrap:anywhere}
+.d3 .mc{display:grid;gap:.18em;align-content:start}
+.d3 .mc .mh{display:flex;align-items:baseline;flex-wrap:wrap}
+.d3 .mc .mh b{color:var(--hot)}
+.d3 .mt-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"l v" "b b";gap:.1em 1.2ch;align-items:baseline;font-size:var(--fs-s)}
+.d3 .mt-row>.dim{grid-area:l}.d3 .mt-row>.bar{grid-area:b;display:flex;gap:1px}.d3 .mt-row>span:last-child{grid-area:v;white-space:nowrap}
+.d3 .mt-row .bar b{flex:1;width:auto;height:.45em}
+.d3 .yr{background:rgba(var(--fg-rgb),.1)}
+.d3 .cl{display:grid;gap:.45em;align-content:start}
+.d3 .cs{line-height:1.25}
+.d3 .cs .d{margin:.1em 0 0 calc(1.05em + .6ch + 1ch)}
+.d3 .cs .n{color:rgba(var(--fg-rgb),.62);margin-right:.8ch}
+.d3 .cs.s-todo b{font-weight:400;color:rgba(var(--fg-rgb),.55)}
+.d3 .cs.s-done b{font-weight:400}
+.d3 .mxh{margin-top:.4em}
+
+/* выбор задачи для подробностей */
+.d3 .pick{margin-top:.8em;display:flex;flex-wrap:wrap;gap:.4em 1.2ch;align-items:baseline}
+.d3 .pick button{font:inherit;color:inherit;text-shadow:inherit;background:transparent;border:1px solid rgba(var(--fg-rgb),.4);padding:.15em 1ch;cursor:pointer;text-align:left}
+.d3 .pick button:hover{border-color:var(--fg)}
+.d3 .pick button[aria-pressed="true"]{background:var(--fg);color:var(--bg);text-shadow:none}
+.d3 .pick{display:none}
+.d3 .pick.hd{display:flex}
+.d3 .pick .pa{display:none}
+
+/* подробности выбранной задачи */
+.d3 .dr{border:1px solid rgba(var(--fg-rgb),.5);padding:.9em 1.6ch 1em}
+.d3 .drh{display:grid;gap:.3em;margin-bottom:.9em}
+.d3 .tl{margin:0;padding:0;list-style:none}
+.d3 .tl li{position:relative;display:grid;grid-template-columns:12ch 1.05em minmax(0,1fr);gap:0 1.4ch;padding-bottom:.8em}
+.d3 .tl li::after{content:"";position:absolute;left:calc(12ch + 1.4ch + .52em);top:1.4em;bottom:-.05em;width:1px;background:rgba(var(--fg-rgb),.35)}
+.d3 .tl li:last-child{padding-bottom:0}.d3 .tl li:last-child::after{display:none}
+.d3 .tl .pip{margin:.1em 0 0}
+.d3 .tl .tm{color:rgba(var(--fg-rgb),.62);font-size:var(--fs-s);padding-top:.1em}
+.d3 .tl .tb b{color:var(--hot)}
+.d3 .tl .s-todo .tb b{color:rgba(var(--fg-rgb),.6);font-weight:400}
+
+/* лента */
+.d3 .fl{display:grid;grid-template-columns:5ch 2.4ch minmax(0,1fr);gap:0 1.2ch;align-items:baseline;padding:.1em 0}
+
+@media (max-width:860px){
+  .d3 .pick{display:flex}
+  .d3 .pick .pa{display:inline-block}
+  .d3 .mxw{border:0;overflow:visible}
+  .d3 .mx{display:block}
+  .d3 .mx>*{border:0;border-bottom:1px solid rgba(var(--fg-rgb),.2)}
+  .d3 .mx .corner,.d3 .mx .ch.hd{display:none}
+  .d3 .mx .mc{border-top:1px solid rgba(var(--fg-rgb),.55);background:rgba(var(--fg-rgb),.08)}
+  .d3 .mx .cl.empty{display:none}
+  .d3 .mx .cl::before{content:attr(data-t);font-size:var(--fs-s);letter-spacing:.12em;text-transform:uppercase;color:rgba(var(--fg-rgb),.62)}
+  .d3 .mx .cl{padding-left:calc(1.2ch + 1ch)}
+}
+@media (max-width:720px){
+  .d3 .pr{grid-template-columns:minmax(0,1fr)}
+  .d3 .tl li{grid-template-columns:1.05em minmax(0,1fr)}
+  .d3 .tl li .tm{grid-column:2;grid-row:2}.d3 .tl li .pip{grid-column:1;grid-row:1}.d3 .tl li .tb{grid-column:2;grid-row:1}
+  .d3 .tl li::after{left:.52em}
+  .d3 .dr{padding:.8em 1.4ch}
+  /* кнопки на телефоне остаются нажимаемыми (вопросы только для чтения) */
+  .d3 .pick button{min-height:34px}
+  .d3 .key{min-height:36px;padding:0 12px}
+}
+
+/* ====================== Макет «несколько команд», вариант 2 (компактно): только новое и уплотнение ====================== */
+.d3 .cbtn{font-size:var(--fs)}
+.d3 .lamp.l-warn{background:#ffb000;box-shadow:0 0 6px #ffb000,0 0 14px rgba(255,176,0,.55)}
+.d3 .warn{color:#ffb000;text-shadow:0 0 5px rgba(255,176,0,.5)}
+.d3 .st.s-live{color:var(--hot)}
+.d3 .ch{cursor:default}
+
+/* уплотнение всей страницы */
+.d3 .term{padding:clamp(6px,.9vw,12px) var(--pad-x) clamp(8px,1vw,14px)}
+.d3 .lay{gap:.4em 2ch}
+.d3 .h4{margin:.8em 0 .35em}
+.d3 .h4:first-child{margin-top:0}
+@media (min-width:1100px){.d3 .lay{grid-template-columns:minmax(0,1fr) minmax(18em,22em)}}
+@media (min-width:1700px){.d3 .lay{grid-template-columns:minmax(0,1fr) minmax(18em,22em)}}
+.d3 .sums{gap:.35em}
+.d3 .sums li{gap:0}
+.d3 .fl{padding:0}
+.d3 .pr{margin-top:0;gap:.2em 1.6ch}
+
+/* шапка: заголовок, чипы команд, «+» — одна строка */
+.d3 .hbar{display:flex;flex-wrap:wrap;align-items:center;gap:.35em 2.2ch;margin-bottom:.55em}
+.d3 .hbar h1{margin:0;font-size:calc(var(--fs)*1.25);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
+.d3 .chips{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1ch}
+.d3 .chip{font:inherit;color:inherit;text-shadow:inherit;background:transparent;border:1px solid rgba(var(--fg-rgb),.4);padding:.1em 1.1ch;cursor:pointer;display:inline-flex;align-items:center;white-space:nowrap}
+.d3 .chip:hover{border-color:var(--fg)}
+.d3 .chip[aria-pressed="true"]{border-color:var(--fg);background:rgba(var(--fg-rgb),.14);box-shadow:0 0 12px rgba(var(--fg-rgb),.35),inset 0 -2px 0 var(--fg)}
+.d3 .chip b{color:var(--hot)}
+.d3 .chip .cn{margin-left:1.2ch}
+.d3 .chip .cq{margin-left:1ch;padding:0 .6ch;background:var(--fg);color:var(--bg);text-shadow:none;font-weight:700;box-shadow:0 0 10px rgba(var(--fg-rgb),.55)}
+.d3 .cbtn.add{padding:.1em 1.4ch;line-height:1.3}
+
+/* матрица плотнее */
+.d3 .mx{grid-template-columns:minmax(9.5em,12em) repeat(var(--np),minmax(9em,1fr))}
+.d3 .mx>*{padding:.4em 1ch}
+.d3 .mx .corner{padding:0}
+.d3 .ch{gap:.1em}
+.d3 .mc{gap:.12em}
+.d3 .mc .mh{align-items:center}
+.d3 .mc .mh .qt-w{flex-basis:100%;margin-left:calc(.72em + .9ch)}
+.d3 .cl{gap:.3em}
+.d3 .cs .d{display:inline;margin:0 0 0 .9ch}
+/* счётчик машины одной строкой: метка, полоска, число */
+.d3 .mt-row{grid-template-columns:4.2ch minmax(0,1fr) 8ch;grid-template-areas:none;gap:0 .8ch;align-items:center;line-height:1.2}
+.d3 .mt-row>.dim,.d3 .mt-row>.bar{grid-area:auto}
+.d3 .mt-row>span:last-child{grid-area:auto;text-align:right}
+
+/* окно «Подключить команду» */
+.d3 .md{position:fixed;inset:0;z-index:3;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.74);background:color-mix(in srgb,var(--bg-lo) 82%,transparent)}
+.d3 .md-box{width:min(34em,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;border:1px solid var(--fg);background:var(--bg);padding:0 2ch 1em;box-shadow:0 0 28px rgba(var(--fg-rgb),.3),inset 0 0 18px rgba(var(--fg-rgb),.07)}
+.d3 .md-h{display:flex;align-items:center;justify-content:space-between;gap:2ch;margin:0 -2ch .7em;padding:.25em 2ch;background:var(--fg);color:var(--bg);text-shadow:none;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.d3 .md-x{font:inherit;font-weight:700;color:var(--bg);background:transparent;border:0;cursor:pointer;padding:0 .5ch;text-shadow:none}
+.d3 .md-l{display:block;margin:.7em 0 .3em;font-size:var(--fs-s);letter-spacing:.14em;text-transform:uppercase;color:rgba(var(--fg-rgb),.7)}
+.d3 .md-in{font:inherit;width:100%;color:var(--hot);background:transparent;border:1px solid rgba(var(--fg-rgb),.55);padding:.4em 1.2ch;text-shadow:inherit;caret-color:var(--hot);border-radius:0}
+.d3 .md-in::placeholder{color:rgba(var(--fg-rgb),.4)}
+.d3 .md-in:focus{outline:none;border-color:var(--fg);box-shadow:0 0 12px rgba(var(--fg-rgb),.3)}
+.d3 .md-key{display:flex;flex-wrap:wrap;gap:.5em 1.6ch;align-items:center;border:1px dashed var(--fg);padding:.45em 1.4ch}
+.d3 .md-code{flex:1 1 14em;min-width:0;font:inherit;color:var(--hot);overflow-wrap:anywhere;text-shadow:0 0 2px var(--fg),0 0 8px rgba(var(--fg-rgb),.55)}
+.d3 .md-how{margin:.8em 0 0;line-height:1.4}
+.d3 .md-ok{display:flex;justify-content:flex-end;margin-top:.9em}
+@media (max-width:860px){
+  .d3 .mx .mc{padding:.4em 1ch}
+  .d3 .mx .cl{padding-left:calc(1ch + 1ch)}
+  .d3 .mt-row{max-width:20em}
+}
+@media (max-width:720px){
+  .d3 .md{padding:8px}
+  .d3 .md-box{padding:0 1.4ch .9em}
+  .d3 .md-h{margin:0 -1.4ch .7em;padding:.25em 1.4ch}
+}
+
+</style>
+</head>
+<body>
+<div class="mon d3" data-ph="ice" style="--rollh:1200">
+  <div class="screen"><div class="crt">
+    <div class="term"><div class="inner">
+
+      <div class="hbar">
+        <h1>Диспетчерская</h1>
+        <div class="chips" role="group" aria-label="Команды"><button type="button" class="chip" data-team="alpha" aria-pressed="true" title="alpha · разработка — на связи, сигнал 12 с назад
+ПК Георгия
+в работе 4 шага, ждут 5
+вопросов к вам нет
+токены за сутки: 349 млн (из них 2,3 млн вых.)"><i class="lamp l-run" aria-hidden="true"></i><b>alpha</b><span class="cn">4·5</span></button><button type="button" class="chip" data-team="invoice" aria-pressed="false" title="Инвойс — молчит 7 мин, последний сигнал 7 мин назад
+Ноутбук офис
+в работе 1 шаг, ждут 2
+вопрос к вам: 1
+токены за сутки: 18 млн (из них 0,2 млн вых.)"><i class="lamp l-warn" aria-hidden="true"></i><b>Инвойс</b><span class="cn">1·2</span><span class="cq">?1</span></button><button type="button" class="cbtn add" id="md-open" title="Подключить команду" aria-label="Подключить команду">+</button></div>
+      </div>
+
+      <section class="lay tp" data-team="alpha">
+   <div class="top"><div class="pr"><span>готово <b class="hot">47 %</b> · 6 из 13</span><span class="seg" role="img" aria-label="готово 4 из 13 шагов"><span class="g" style="--n:3"><i class="s-done"></i><i class="s-done"></i><i class="s-done"></i></span><span class="g" style="--n:3"><i class="s-done"></i><i class="s-run"></i><i class="s-todo"></i></span><span class="g" style="--n:2"><i class="s-run"></i><i class="s-todo"></i></span><span class="g" style="--n:2"><i class="s-run"></i><i class="s-todo"></i></span><span class="g" style="--n:3"><i class="s-run"></i><i class="s-todo"></i><i class="s-todo"></i></span></span><span>осталось <b class="hot">40–70 мин</b> · <span class="dim">прошло 3 ч 20 мин</span></span></div></div>
+   <div class="main">
+     <div class="h4 hot">Кто что делает и для чего</div>
+     <div class="mxw"><div class="mx" style="--np:4"><div class="corner"></div><div class="ch hd"><b>Скорость ×5 — раскладка дисков</b><span class="dim small">Инженер · янв+фев быстрее в 5 раз</span><span class="seg" role="img" aria-label="готово 1 из 3 шагов"><span class="g" style="--n:3"><i class="s-done"></i><i class="s-run"></i><i class="s-todo"></i></span></span></div><div class="ch hd"><b>Сборка b14</b><span class="dim small">Инженер · бинарник со всеми ускорениями</span><span class="seg" role="img" aria-label="готово 0 из 2 шагов"><span class="g" style="--n:2"><i class="s-run"></i><i class="s-todo"></i></span></span></div><div class="ch hd"><b>Общий движок</b><span class="dim small">Инженер · одна книга суток на все круги</span><span class="seg" role="img" aria-label="готово 0 из 2 шагов"><span class="g" style="--n:2"><i class="s-run"></i><i class="s-todo"></i></span></span></div><div class="ch hd lc"><b>Путь к ×10 в объёме работы</b><span class="dim small">Исследователь · сколько работы до ×10 и где</span><span class="seg" role="img" aria-label="готово 0 из 3 шагов"><span class="g" style="--n:3"><i class="s-run"></i><i class="s-todo"></i><i class="s-todo"></i></span></span></div><div class="mc"><div class="mh"><i class="lamp l-run" aria-hidden="true"></i><b>сервер счёта</b></div><div class="mt-row"><span class="dim">CPU</span><span class="bar" role="img" aria-label="87 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b></span><span>87%</span></div><div class="mt-row"><span class="dim">RAM</span><span class="bar" role="img" aria-label="52 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b><b></b><b></b><b></b></span><span>52%</span></div><div class="mt-row"><span class="dim">Диск</span><span class="bar" role="img" aria-label="62 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b><b></b><b></b></span><span>310 МБ/с</span></div></div><div class="cl" data-t="Скорость ×5 — раскладка дисков"><div class="cs s-done"><i class="pip s-done"></i><b>Разложить окна по двум дискам</b><span class="dim d">21:40</span></div><div class="cs s-run"><i class="pip s-run"></i><b>Волна на новой раскладке дисков</b><span class="dim d">62 % · ещё ~14 мин</span></div></div><div class="cl" data-t="Сборка b14"><div class="cs s-todo"><i class="pip s-todo"></i><b>Волна на b14 против эталона</b></div></div><div class="cl" data-t="Общий движок"><div class="cs s-run"><i class="pip s-run"></i><b>Замер потолка: сутки без записи на диск</b><span class="dim d">35 % · ещё ~25 мин</span></div></div><div class="cl lc empty" data-t="Путь к ×10 в объёме работы"><span class="faint">—</span></div><div class="mc"><div class="mh"><i class="lamp l-run" aria-hidden="true"></i><b>VPS София</b></div><div class="mt-row"><span class="dim">CPU</span><span class="bar" role="img" aria-label="96 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b></span><span>96%</span></div><div class="mt-row"><span class="dim">RAM</span><span class="bar" role="img" aria-label="41 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b><b></b><b></b><b></b><b></b></span><span>41%</span></div></div><div class="cl" data-t="Скорость ×5 — раскладка дисков"><div class="cs s-todo"><i class="pip s-todo"></i><b>Сравнить файлы с эталоном</b><span class="dim d">байт в байт</span></div></div><div class="cl" data-t="Сборка b14"><div class="cs s-run"><i class="pip s-run"></i><b>Собрать b14, тесты и проверки</b><span class="dim d">70 % · ещё ~6 мин</span></div></div><div class="cl empty" data-t="Общий движок"><span class="faint">—</span></div><div class="cl lc empty" data-t="Путь к ×10 в объёме работы"><span class="faint">—</span></div><div class="mc lr"><div class="mh"><i class="lamp l-run" aria-hidden="true"></i><b>ПК Георгия</b></div><div class="mt-row"><span class="dim">CPU</span><span class="bar" role="img" aria-label="18 %"><b class="on"></b><b class="on"></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span><span>18%</span></div><div class="mt-row"><span class="dim">RAM</span><span class="bar" role="img" aria-label="58 %"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b><b></b><b></b></span><span>58%</span></div></div><div class="cl lr empty" data-t="Скорость ×5 — раскладка дисков"><span class="faint">—</span></div><div class="cl lr empty" data-t="Сборка b14"><span class="faint">—</span></div><div class="cl lr" data-t="Общий движок"><div class="cs s-todo"><i class="pip s-todo"></i><b>Свести потолок в одну цифру</b></div></div><div class="cl lc lr" data-t="Путь к ×10 в объёме работы"><div class="cs s-run"><i class="pip s-run"></i><b>Свести готовые замеры</b><span class="dim d">40 %</span></div><div class="cs s-todo"><i class="pip s-todo"></i><b>Достроить оценку по замерам диска и движка</b><span class="dim d">ждёт замеров</span></div><div class="cs s-todo"><i class="pip s-todo"></i><b>Написать, сколько работы остаётся до ×10</b></div></div></div></div>
+   </div>
+   <div class="rest">
+     <div class="h4 hot">Что стало возможно</div><ul class="sums"><li><b>Плагин 1.4.0</b><span>Табло принимает несколько команд: у каждой свой ключ, сводки не смешиваются.</span></li><li><b>Шина без потерь</b><span>Сообщения между ролями не пропадают, даже если диспетчер перезапускали.</span></li><li><b>Скорость ×3</b><span>Полный янв+фев считается за 975 с вместо 3 135 с, то есть в 3,2 раза быстрее.</span></li></ul>
+     <div class="h4 hot">Недавно</div><div class="fl"><span class="dim">00:17</span><i class="pip s-done"></i><span><span class="mt">[ПК]</span> плагин 1.4.0 выложен</span></div><div class="fl"><span class="dim">23:45</span><i class="pip s-done"></i><span><span class="mt">[ПК]</span> шина без потерь</span></div><div class="fl"><span class="dim">23:34</span><i class="pip s-done"></i><span><span class="mt">[СЧЁТ]</span> янв+фев b13 ×3,6</span></div>
+   </div>
+ </section><section class="lay tp" data-team="invoice" hidden>
+   <div class="top"><div class="pr"><span>готово <b class="hot">29 %</b> · 1 из 5</span><span class="seg" role="img" aria-label="готово 1 из 5 шагов"><span class="g" style="--n:4"><i class="s-done"></i><i class="s-run"></i><i class="s-wait"></i><i class="s-todo"></i></span><span class="g" style="--n:1"><i class="s-todo"></i></span></span><span><span class="dim">оценки пока нет · прошло 1 ч 10 мин</span></span></div></div>
+   <div class="main">
+     <div class="h4 hot">Кто что делает и для чего</div>
+     <div class="mxw"><div class="mx" style="--np:2"><div class="corner"></div><div class="ch hd"><b>Счета за сентябрь</b><span class="dim small">Исполнитель · 14 клиентам до пятницы</span><span class="seg" role="img" aria-label="готово 1 из 4 шагов"><span class="g" style="--n:4"><i class="s-done"></i><i class="s-run"></i><i class="s-wait"></i><i class="s-todo"></i></span></span></div><div class="ch hd lc"><b>Акт сверки</b><span class="dim small">Исполнитель · закрыть квартал без споров</span><span class="seg" role="img" aria-label="готово 0 из 1 шагов"><span class="g" style="--n:1"><i class="s-todo"></i></span></span><span class="small"><span class="dim">в очереди</span></span></div><div class="mc"><div class="mh"><i class="lamp l-warn" aria-hidden="true"></i><b>Ноутбук офис</b><span class="warn small qt-w">молчит 7 мин</span></div></div><div class="cl" data-t="Счета за сентябрь"><div class="cs s-done"><i class="pip s-done"></i><b>Собрать данные по клиентам</b><span class="dim d">23:52</span></div><div class="cs s-run"><i class="pip s-run"></i><b>Подготовить 14 счетов</b><span class="dim d">6 из 14</span></div><div class="cs s-todo"><i class="pip s-todo"></i><b>Разослать счета клиентам</b></div></div><div class="cl lc" data-t="Акт сверки"><div class="cs s-todo"><i class="pip s-todo"></i><b>Подготовить шаблон акта сверки</b></div></div><div class="mc yr lr"><div class="mh"><i class="lamp l-wait" aria-hidden="true"></i><b>вы</b></div></div><div class="cl yr lr" data-t="Счета за сентябрь"><div class="cs s-wait"><i class="pip s-wait"></i><b>Подтвердить сумму по клиенту «Север»</b><span class="dim d">ждёт вас 7 мин</span></div></div><div class="cl yr lc lr empty" data-t="Акт сверки"><span class="faint">—</span></div></div></div>
+   </div>
+   <div class="rest">
+     <div class="h4 hot">Что стало возможно</div><div class="none">пока ничего не закрыто</div>
+     <div class="h4 hot">Недавно</div><div class="fl"><span class="dim">00:19</span><i class="pip s-run"></i><span><span class="mt">[НБ]</span> подготовлено 6 счетов из 14</span></div><div class="fl"><span class="dim">00:14</span><i class="pip s-wait"></i><span><span class="mt">[НБ]</span> вопрос 1: нужна сумма по клиенту «Север»</span></div><div class="fl"><span class="dim">23:52</span><i class="pip s-done"></i><span><span class="mt">[НБ]</span> собраны данные по клиентам</span></div>
+   </div>
+ </section>
+
+    </div></div>
+    <div class="status"><span class="tg">ТАБЛО</span><span class="wide">табло:~/диспетчерская</span><span class="fill"></span><span class="wide">[Лёд]</span><span>МАКЕТ · данные выдуманы</span><span class="wide">сводка 00:26</span></div>
+  </div>
+  <!-- окно «Подключить команду»: по умолчанию скрыто; внутри стекла, чтобы строки развёртки шли поверх -->
+  <div class="md" id="md" role="dialog" aria-modal="true" aria-labelledby="md-t" hidden>
+    <div class="md-box">
+      <div class="md-h"><span id="md-t">Подключить команду</span><button type="button" class="md-x" id="md-x" aria-label="Закрыть">×</button></div>
+      <label class="md-l" for="md-name">Имя команды</label>
+      <input class="md-in" id="md-name" type="text" value="Закупки" placeholder="например: Инвойс" autocomplete="off">
+      <span class="md-l">Ключ этой команды</span>
+      <div class="md-key"><code class="md-code">rpv_4f9a1c07e5b2d83a60c1f7e94b2d</code><button type="button" class="cbtn no">Копировать</button></div>
+      <p class="md-how dim">на том компьютере в настройках плагина укажите адрес табло и ключ — сборщик сам начнёт присылать сводку</p>
+      <div class="md-ok"><button type="button" class="cbtn" id="md-done">Готово</button></div>
+    </div>
+  </div>
+  <i class="ov grain"></i><i class="ov scan"></i><i class="ov roll"></i><i class="ov flick"></i><i class="ov vignette"></i><i class="ov glass"></i></div>
+  <div class="strip"><div class="brand"><i class="led lit"></i><span class="brand-name">Alpha</span><span class="brand-model">Табло · Диспетчерская · макет</span></div></div>
+</div>
+
+<script>
+(function () {
+  var chips = [].slice.call(document.querySelectorAll(".chip")), panes = [].slice.call(document.querySelectorAll(".tp"));
+  function pick(id) {
+    chips.forEach(function (r) { r.setAttribute("aria-pressed", String(r.getAttribute("data-team") === id)); });
+    panes.forEach(function (p) { p.hidden = p.getAttribute("data-team") !== id; });
+  }
+  chips.forEach(function (r) { r.addEventListener("click", function () { pick(r.getAttribute("data-team")); }); });
+
+  var md = document.getElementById("md"), openBtn = document.getElementById("md-open");
+  function openM() { md.hidden = false; document.getElementById("md-name").focus(); }
+  function closeM() { md.hidden = true; openBtn.focus(); }
+  openBtn.addEventListener("click", openM);
+  document.getElementById("md-done").addEventListener("click", closeM);
+  document.getElementById("md-x").addEventListener("click", closeM);
+  md.addEventListener("click", function (e) { if (e.target === md) closeM(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !md.hidden) closeM(); });
+})();
+</script>
+</body>
+</html>

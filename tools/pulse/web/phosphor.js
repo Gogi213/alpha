@@ -16,8 +16,11 @@
 
   let V = {};
   let cfg = null, view = null, loaded = false, netFail = false, ageAt = 0, fetchedAt = 0, lastJson = "", timer = null, ph = "green";
-  const ui = { open: new Set(), sel: null };
+  const ui = { open: new Set(), sel: null, team: null };
+  let teams = [];
+  try { ui.team = localStorage.getItem("board-team"); } catch (e) { /* нет хранилища */ }
   B.ui = ui;
+  B.teams = () => teams;
   B.E = E;
   B.arr = arr;
 
@@ -129,6 +132,7 @@
 
   Object.assign(B, { ST, STM, sk, tagOf, mt, mn, tok, fmtMin, procs, proc, qOf, lamp, forTxt, flow, whoOn, tm, sdet, waitTxt, pinfo, mProg, seg, bar, meter, groups, stepWaves, hasParallel, counts, headline, progress, legend, legendPip, feedWho, qHTML, questions });
   B.view = () => V;
+  B.poll = () => poll();
 
   // ---------- отрисовка ----------
   const actKey = (n) => (n && n.dataset && n.dataset.act ? n.dataset.act + "|" + (n.dataset.q || n.dataset.id || "") + "|" + (n.dataset.k || "") : null);
@@ -174,16 +178,26 @@
       const res = await fetch("status.json", { cache: "no-store", signal: ctl.signal });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const d = await res.json();
-      if (!d || !d.view2) throw new Error("нет view2");
-      V = d.view2; netFail = false; ageAt = Number(d.age_s) || 0; fetchedAt = Date.now();
+      teams = arr(d && d.teams).length ? d.teams : (d && d.view2 ? [{ id: "alpha", name: "alpha", view2: d.view2, age_s: d.age_s }] : []);
+      if (!teams.length) throw new Error("нет view2");
+      if (!teams.some((t) => t.id === ui.team)) ui.team = teams[0].id;
+      const cur = teams.find((t) => t.id === ui.team);
+      V = cur.view2 || {}; netFail = false; ageAt = Number(cur.age_s) || 0; fetchedAt = Date.now();
       if (!loaded) { loaded = true; const id = defaultOpen(); if (id) { ui.open.add(id); ui.sel = id; } lastJson = ""; }
-      const copy = Object.assign({}, V); delete copy.built_ts;
-      const js = JSON.stringify(copy);
+      const js = JSON.stringify(teams.map((t) => { const v = Object.assign({}, t.view2 || {}); delete v.built_ts; return [t.id, t.name, v, (t.age_s || 0) > 30]; }));
       if (js !== lastJson) { lastJson = js; render(); }   // без лишней перерисовки: нажатие и фокус не пропадают
     } catch (e) { netFail = true; }
     finally { clearTimeout(to); paintLink(); schedule(PERIOD); }
   }
   const schedule = (ms) => { clearTimeout(timer); if (!document.hidden) timer = setTimeout(poll, ms); };
+
+  function selectTeam(id) {
+    const t = teams.find((x) => x.id === id); if (!t) return;
+    ui.team = id; ui.sel = null; ui.open.clear(); V = t.view2 || {}; ageAt = Number(t.age_s) || 0; fetchedAt = Date.now();
+    try { localStorage.setItem("board-team", id); } catch (e) { /* нет хранилища */ }
+    const d = defaultOpen(); if (d) { ui.open.add(d); ui.sel = d; }
+    render(); paintLink();
+  }
 
   // ---------- запуск ----------
   B.start = function (c) {
@@ -209,6 +223,7 @@
       const a = b.dataset.act;
       if (a === "toggle") { const id = b.dataset.id; if (ui.open.has(id)) ui.open.delete(id); else ui.open.add(id); render(); }
       else if (a === "select") { ui.sel = b.dataset.id; render(); }
+      else if (a === "team") { selectTeam(b.dataset.id); }
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); else clearTimeout(timer); });
     setInterval(paintLink, 1000);

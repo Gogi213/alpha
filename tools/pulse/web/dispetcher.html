@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<title>Табло alpha · Диспетчерская</title>
+<title>Табло · Диспетчерская</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap">
@@ -152,6 +152,77 @@
   .d3 .pick button{min-height:34px}
   .d3 .key{min-height:36px;padding:0 12px}
 }
+
+/* ====================== Макет «несколько команд», вариант 2 (компактно): только новое и уплотнение ====================== */
+.d3 .cbtn{font-size:var(--fs)}
+.d3 .lamp.l-warn{background:#ffb000;box-shadow:0 0 6px #ffb000,0 0 14px rgba(255,176,0,.55)}
+.d3 .warn{color:#ffb000;text-shadow:0 0 5px rgba(255,176,0,.5)}
+.d3 .st.s-live{color:var(--hot)}
+.d3 .ch{cursor:default}
+
+/* уплотнение всей страницы */
+.d3 .term{padding:clamp(6px,.9vw,12px) var(--pad-x) clamp(8px,1vw,14px)}
+.d3 .lay{gap:.4em 2ch}
+.d3 .h4{margin:.8em 0 .35em}
+.d3 .h4:first-child{margin-top:0}
+@media (min-width:1100px){.d3 .lay{grid-template-columns:minmax(0,1fr) minmax(18em,22em)}}
+@media (min-width:1700px){.d3 .lay{grid-template-columns:minmax(0,1fr) minmax(18em,22em)}}
+.d3 .sums{gap:.35em}
+.d3 .sums li{gap:0}
+.d3 .fl{padding:0}
+.d3 .pr{margin-top:0;gap:.2em 1.6ch}
+
+/* шапка: заголовок, чипы команд, «+» — одна строка */
+.d3 .hbar{display:flex;flex-wrap:wrap;align-items:center;gap:.35em 2.2ch;margin-bottom:.55em}
+.d3 .hbar h1{margin:0;font-size:calc(var(--fs)*1.25);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
+.d3 .chips{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1ch}
+.d3 .chip{font:inherit;color:inherit;text-shadow:inherit;background:transparent;border:1px solid rgba(var(--fg-rgb),.4);padding:.1em 1.1ch;cursor:pointer;display:inline-flex;align-items:center;white-space:nowrap}
+.d3 .chip:hover{border-color:var(--fg)}
+.d3 .chip[aria-pressed="true"]{border-color:var(--fg);background:rgba(var(--fg-rgb),.14);box-shadow:0 0 12px rgba(var(--fg-rgb),.35),inset 0 -2px 0 var(--fg)}
+.d3 .chip b{color:var(--hot)}
+.d3 .chip .cn{margin-left:1.2ch}
+.d3 .chip .cq{margin-left:1ch;padding:0 .6ch;background:var(--fg);color:var(--bg);text-shadow:none;font-weight:700;box-shadow:0 0 10px rgba(var(--fg-rgb),.55)}
+.d3 .cbtn.add{padding:.1em 1.4ch;line-height:1.3}
+
+/* матрица плотнее */
+.d3 .mx{grid-template-columns:minmax(9.5em,12em) repeat(var(--np),minmax(9em,1fr))}
+.d3 .mx>*{padding:.4em 1ch}
+.d3 .mx .corner{padding:0}
+.d3 .ch{gap:.1em}
+.d3 .mc{gap:.12em}
+.d3 .mc .mh{align-items:center}
+.d3 .mc .mh .qt-w{flex-basis:100%;margin-left:calc(.72em + .9ch)}
+.d3 .cl{gap:.3em}
+.d3 .cs .d{display:inline;margin:0 0 0 .9ch}
+/* счётчик машины одной строкой: метка, полоска, число */
+.d3 .mt-row{grid-template-columns:4.2ch minmax(0,1fr) 8ch;grid-template-areas:none;gap:0 .8ch;align-items:center;line-height:1.2}
+.d3 .mt-row>.dim,.d3 .mt-row>.bar{grid-area:auto}
+.d3 .mt-row>span:last-child{grid-area:auto;text-align:right}
+
+/* окно «Подключить команду» */
+.d3 .md{position:fixed;inset:0;z-index:3;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.74);background:color-mix(in srgb,var(--bg-lo) 82%,transparent)}
+.d3 .md-box{width:min(34em,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;border:1px solid var(--fg);background:var(--bg);padding:0 2ch 1em;box-shadow:0 0 28px rgba(var(--fg-rgb),.3),inset 0 0 18px rgba(var(--fg-rgb),.07)}
+.d3 .md-h{display:flex;align-items:center;justify-content:space-between;gap:2ch;margin:0 -2ch .7em;padding:.25em 2ch;background:var(--fg);color:var(--bg);text-shadow:none;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.d3 .md-x{font:inherit;font-weight:700;color:var(--bg);background:transparent;border:0;cursor:pointer;padding:0 .5ch;text-shadow:none}
+.d3 .md-l{display:block;margin:.7em 0 .3em;font-size:var(--fs-s);letter-spacing:.14em;text-transform:uppercase;color:rgba(var(--fg-rgb),.7)}
+.d3 .md-in{font:inherit;width:100%;color:var(--hot);background:transparent;border:1px solid rgba(var(--fg-rgb),.55);padding:.4em 1.2ch;text-shadow:inherit;caret-color:var(--hot);border-radius:0}
+.d3 .md-in::placeholder{color:rgba(var(--fg-rgb),.4)}
+.d3 .md-in:focus{outline:none;border-color:var(--fg);box-shadow:0 0 12px rgba(var(--fg-rgb),.3)}
+.d3 .md-key{display:flex;flex-wrap:wrap;gap:.5em 1.6ch;align-items:center;border:1px dashed var(--fg);padding:.45em 1.4ch}
+.d3 .md-code{flex:1 1 14em;min-width:0;font:inherit;color:var(--hot);overflow-wrap:anywhere;text-shadow:0 0 2px var(--fg),0 0 8px rgba(var(--fg-rgb),.55)}
+.d3 .md-how{margin:.8em 0 0;line-height:1.4}
+.d3 .md-ok{display:flex;justify-content:flex-end;margin-top:.9em}
+@media (max-width:860px){
+  .d3 .mx .mc{padding:.4em 1ch}
+  .d3 .mx .cl{padding-left:calc(1ch + 1ch)}
+  .d3 .mt-row{max-width:20em}
+}
+@media (max-width:720px){
+  .d3 .md{padding:8px}
+  .d3 .md-box{padding:0 1.4ch .9em}
+  .d3 .md-h{margin:0 -1.4ch .7em;padding:.25em 1.4ch}
+}
+
 </style>
 </head>
 <body>
@@ -159,66 +230,99 @@
 <script src="phosphor.js"></script>
 <script>
 (() => {
-  const { E, arr, tok, mt, seg, meter, lamp, flow, forTxt, whoOn, tm, sdet, waitTxt, pinfo, procs, qOf, headline, progress, feedWho, ui } = Board;
+  const { E, arr, seg, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf } = Board;
+  const STALE = (v, age) => age == null || age > 2 * (Number(v && v.tick_s) || 5) + 5;
+  const n = (c, k) => Number((c || {})[k]) || 0;
+
+  const meter = (l, pct, txt) => `<div class="mt-row"><span class="dim">${l}</span>${pct != null ? bar(pct, 10) : "<span></span>"}<span>${txt}</span></div>`;
 
   const cell = (mid, p) => {
     const ss = arr(p.steps).filter((s) => s.on === mid);
     if (!ss.length) return `<div class="cl empty" data-t="${E(p.title)}"><span class="faint">—</span></div>`;
-    return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => `<div class="cs s-${Board.sk(s.state)}"><i class="pip s-${Board.sk(s.state)}"></i><span class="n">${E(s.n)}</span><b>${E(s.title)}</b>${mid === "you" ? `<div class="dim d">${s.question && qOf(s.question) ? "вопрос " + E(qOf(s.question).n) + " · " : ""}${E(s.for || "")}</div>` : ""}${sdet(s) ? `<div class="dim d">${sdet(s)}</div>` : ""}</div>`).join("")}</div>`;
+    return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => {
+      const q = s.state === "wait" && s.question ? qOf(s.question) : null;
+      const d = q ? `ждёт вас ${fmtMin(q.wait_min || 0)}` : sdet(s);
+      return `<div class="cs s-${Board.sk(s.state)}"><i class="pip s-${Board.sk(s.state)}"></i><b>${E(s.title)}</b>${d ? `<span class="dim d">${d}</span>` : ""}</div>`;
+    }).join("")}</div>`;
   };
 
-  const drawer = (p) => {
-    const steps = arr(p.steps);
-    return `<div class="dr"><div class="drh"><b class="hot">${E(p.title)}</b><span class="dim">${[flow(p), forTxt(p), pinfo(p)].filter(Boolean).join(" · ")}</span></div>
-    <ol class="tl">${steps.map((s) => `<li class="s-${Board.sk(s.state)}"><span class="tm">${E(tm(s)) || "—"}</span><i class="pip s-${Board.sk(s.state)}"></i><div class="tb"><b>${E(s.title)}</b> ${tok(s.state)}${s.wave != null && steps.length > 1 ? ` <span class="dim small">волна ${E(s.wave)}</span>` : ""}<div class="dim">${[whoOn(s), s.for ? "для: " + E(s.for) : "", sdet(s), s.state === "wait" ? waitTxt(s) : ""].filter(Boolean).join(" · ")}</div></div></li>`).join("") || '<li class="none">шагов в плане нет</li>'}</ol></div>`;
+  const chip = (t) => {
+    const v = t.view2, c = (v && v.counters) || {}, nq = arr(v && v.questions).length, age = t.age_s;
+    const run = n(c, "run") + n(c, "review") + n(c, "repair"), todo = n(c, "todo") + n(c, "wait");
+    const stale = !v || STALE(v, age);
+    const lp = stale ? "warn" : nq ? "wait" : run ? "run" : "idle";
+    const when = age == null ? "сводки ещё нет" : stale ? `молчит ${fmtMin(age / 60)}` : "на связи";
+    const mach = arr(v && v.machines).map((m) => tagOf(m.id).name).join(", ");
+    const tip = [`${t.name} — ${when}`, mach, v ? `в работе ${run}, ждут ${todo}` : "", v ? (nq ? `вопросов к вам: ${nq}` : "вопросов к вам нет") : ""].filter(Boolean).join("\n");
+    return `<button type="button" class="chip" data-act="team" data-id="${E(t.id)}" aria-pressed="${t.id === ui.team}" title="${E(tip)}">${lamp(lp)}<b>${E(t.name)}</b>${v ? `<span class="cn">${run}·${todo}</span>` : ""}${nq ? `<span class="cq">?${nq}</span>` : ""}</button>`;
   };
+
+  const pane = (v) => {
+    const all = Board.procs(), act = all.filter((p) => p.state !== "done");
+    if (!all.length) return `<div class="main"><div class="none">ждём первую сводку этой команды</div></div>`;
+    const pr = v.progress;
+    const ps = all.filter((p) => p.wave != null), list = ps.length ? ps : all;
+    const eta = pr && pr.eta && pr.eta.lo_min != null ? `осталось <b class="hot">${pr.eta.lo_min}–${pr.eta.hi_min} мин</b>` : `<span class="dim">оценки пока нет</span>`;
+    const top = pr ? `<div class="top"><div class="pr"><span>готово <b class="hot">${pr.pct} %</b> · ${Math.floor(pr.done)} из ${pr.total}</span>${seg(list, "готово")}<span>${eta}${pr.spent_min != null ? ` · <span class="dim">прошло ${fmtMin(pr.spent_min)}</span>` : ""}</span></div></div>` : "";
+    const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, m }));
+    act.forEach((p) => arr(p.steps).forEach((s) => { if (s.on && s.on !== "you" && !machines.some((r) => r.id === s.on)) machines.push({ id: s.on, state: "idle", m: null }); }));
+    machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
+    const np = act.length;
+    let mx = "";
+    if (np) {
+      mx = `<div class="corner"></div>` + act.map((p, i) => {
+        const q = p.state === "todo" ? "в очереди" : p.state === "wait" ? "ждёт вас" : p.state === "bad" ? "проблема" : "";
+        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${p.for && p.for.text ? E(p.for.text) : ""}</span>${seg([p])}${q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
+      }).join("");
+      machines.forEach((r, ri) => {
+        const you = r.id === "you", last = ri === machines.length - 1, m = r.m, down = m && m.state === "down";
+        const meters = m && m.state === "ok" ? meter("CPU", m.cpu != null ? m.cpu : 0, `${m.cpu != null ? m.cpu : 0}%`) + meter("RAM", m.mem != null ? m.mem : 0, `${m.mem != null ? m.mem : 0}%`) + (m.disk_mb_s ? meter("Диск", null, `${m.disk_mb_s} МБ/с`) : "") : "";
+        mx += `<div class="mc${you ? " yr" : ""}${last ? " lr" : ""}"><div class="mh">${lamp(down ? "warn" : r.state)}<b>${you ? "вы" : E(tagOf(r.id).name)}</b>${down ? '<span class="warn small qt-w">не отвечает</span>' : ""}</div>${meters}</div>`;
+        act.forEach((p, i) => { mx += cell(r.id, p).replace('class="cl', 'class="cl' + (you ? " yr" : "") + (i === np - 1 ? " lc" : "") + (last ? " lr" : "")); });
+      });
+    }
+    const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
+    const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
+    return `${top}<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}</div>
+   <div class="rest"><div class="h4 hot">Что стало возможно</div>${sums ? `<ul class="sums">${sums}</ul>` : '<div class="none">пока ничего не закрыто</div>'}<div class="h4 hot">Недавно</div>${feed}</div>`;
+  };
+
+  const modal = `<div class="md" id="md" role="dialog" aria-modal="true" aria-labelledby="md-t" hidden><div class="md-box">
+    <div class="md-h"><span id="md-t">Подключить команду</span><button type="button" class="md-x" id="md-x" aria-label="Закрыть">×</button></div>
+    <div id="md-s1"><label class="md-l" for="md-name">Имя команды</label><input class="md-in" id="md-name" type="text" maxlength="40" placeholder="например: Инвойс" autocomplete="off">
+      <p class="md-how dim" id="md-err" hidden></p><div class="md-ok"><button type="button" class="cbtn" id="md-make">Выдать ключ</button></div></div>
+    <div id="md-s2" hidden><span class="md-l">Адрес табло</span><div class="md-key"><code class="md-code" id="md-url"></code><button type="button" class="cbtn no" data-copy="md-url">Копировать</button></div>
+      <span class="md-l">Ключ этой команды (показан один раз)</span><div class="md-key"><code class="md-code" id="md-code"></code><button type="button" class="cbtn no" data-copy="md-code">Копировать</button></div>
+      <p class="md-how dim">на том компьютере в настройках плагина укажите адрес (RPV_BOARD_URL) и ключ (RPV_BOARD_KEY) — сборщик сам начнёт присылать сводку</p>
+      <div class="md-ok"><button type="button" class="cbtn" id="md-done">Готово</button></div></div></div></div>`;
 
   Board.start({
     after() { const w = document.querySelector('.d3 .mxw'), h = document.querySelector('.d3 .mxh'); if (w && h) h.hidden = w.scrollWidth <= w.clientWidth + 1; },
-    id: "dispetcher", cls: "d3", ph: "ice", title: "Табло alpha · Диспетчерская", path: "alpha@табло:~/машины", model: "Табло · Диспетчерская",
+    id: "dispetcher", cls: "d3", ph: "ice", title: "Табло · Диспетчерская", path: "табло:~/диспетчерская", model: "Табло · Диспетчерская", extra: modal,
     render(v) {
-      const pr = progress();
-      const all = procs();
-      const act = all.filter((p) => p.state !== "done");
-      const done = all.filter((p) => p.state === "done");
-      const sel = ui.sel && all.find((p) => p.id === ui.sel) ? ui.sel : (act[0] || all[0] || {}).id;
-      const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, text: (m.now || {}).text || "", load: m.load || "", m }));
-      arr(all.flatMap((p) => arr(p.steps).map((s) => s.on))).forEach((id) => { if (id && id !== "you" && !machines.some((r) => r.id === id)) machines.push({ id, state: "idle", text: "", load: "", m: null }); });
-      const nq = arr(v.questions).length;
-      machines.push({ id: "you", state: nq ? "wait" : "idle", text: nq ? `ждут ваших ответов: ${nq}` : "ничего не ждёт", load: nq ? "ответьте в чате с CEO, и работа пойдёт дальше" : "", m: null });
-
-      const np = act.length;
-      let mx = "";
-      if (np) {
-        mx = `<div class="corner">машина · что делает</div>` + act.map((p, i) => `<button type="button" class="ch hd${i === np - 1 ? " lc" : ""}" data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}"><b>${E(p.title)}</b><span class="dim small">${forTxt(p)}</span>${seg([p])}<span class="small">${tok(p.state)} <span class="dim">${pinfo(p)}</span></span></button>`).join("");
-        machines.forEach((r, ri) => {
-          const you = r.id === "you", last = ri === machines.length - 1;
-          const m = r.m;
-          const meters = m && m.state === "ok" ? meter("процессор", m.cpu != null ? m.cpu : 0) + meter("память", m.mem != null ? m.mem : 0) + (m.disk_mb_s ? `<div class="mt-row"><span class="dim">диск</span><span>${m.disk_mb_s} МБ/с</span></div>` : "") : "";
-          const state = m && m.state === "down" ? "не отвечает" : "";
-          mx += `<div class="mc${you ? " yr" : ""}${last ? " lr" : ""}"><div class="mh">${lamp(m && m.state === "down" ? "bad" : r.state)}<b>${you ? "вы" : E(Board.tagOf(r.id).name)}</b>&nbsp;${mt(r.id)}</div><div>${E(r.text)}</div>${r.load ? `<div class="dim small">${E(r.load)}</div>` : ""}${state ? `<div class="dim small">${state}</div>` : ""}${meters}</div>`;
-          act.forEach((p, i) => { mx += cell(r.id, p).replace('class="cl', 'class="cl' + (you ? " yr" : "") + (i === np - 1 ? " lc" : "") + (last ? " lr" : "")); });
-        });
-      }
-      const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
-      const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
-      const selP = all.find((p) => p.id === sel);
-      const pick = all.length > 1 ? `<div class="pick${done.length ? " hd" : ""}"><span class="dim">подробно о задаче:</span>${all.map((p) => `<button type="button"${p.state === "done" ? "" : ' class="pa"'} data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : "";
-      return `<div class="lay">
-   <div class="top"><div class="ttl"><h1>Диспетчерская</h1>${headline()}</div><div class="pr"><span>${pr.left}</span>${pr.strip}<span>${pr.right}</span></div></div>
-   <div class="main">
-     <div class="h4 hot">Кто что делает и для чего</div>
-     ${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}
-     ${pick}
-     ${selP ? `<div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>${drawer(selP)}` : ""}
-   </div>
-   <div class="rest">
-     ${sums ? `<div class="h4 hot">Что стало возможно</div><ul class="sums">${sums}</ul>` : ""}
-     <div class="h4 hot">Недавно</div>${feed}
-   </div>
- </div>`;
+      return `<div class="hbar"><h1>Диспетчерская</h1><div class="chips" role="group" aria-label="Команды">${Board.teams().map(chip).join("")}<button type="button" class="cbtn add" id="md-open" title="Подключить команду" aria-label="Подключить команду">+</button></div></div><section class="lay">${pane(v)}</section>`;
     },
   });
+
+  const $ = (id) => document.getElementById(id), md = $("md");
+  const closeM = () => { md.hidden = true; const o = $("md-open"); if (o) o.focus(); };
+  async function make() {
+    const err = $("md-err"); err.hidden = true;
+    try {
+      const r = await fetch("teams", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("md-name").value }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "HTTP " + r.status);
+      $("md-url").textContent = location.origin + location.pathname.replace(/[^/]*$/, "");
+      $("md-code").textContent = d.key; $("md-s1").hidden = true; $("md-s2").hidden = false;
+    } catch (x) { err.textContent = "не получилось: " + x.message; err.hidden = false; }
+  }
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#md-open")) { $("md-s1").hidden = false; $("md-s2").hidden = true; $("md-err").hidden = true; $("md-name").value = ""; md.hidden = false; $("md-name").focus(); }
+    else if (e.target.closest("#md-x,#md-done") || e.target === md) { closeM(); Board.poll(); }
+    else if (e.target.closest("#md-make")) make();
+    else { const c = e.target.closest("[data-copy]"); if (c) { const t = $(c.dataset.copy).textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { c.textContent = "Скопировано"; }, () => { const r = document.createRange(); r.selectNodeContents($(c.dataset.copy)); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }); } }
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !md.hidden) closeM(); else if (e.key === "Enter" && e.target.id === "md-name") make(); });
 })();
 </script>
 </body>
