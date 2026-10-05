@@ -71,6 +71,7 @@ use crate::lob::strategy::{
 };
 
 mod compact;
+pub mod fast_book;
 pub mod fast_depth;
 #[allow(dead_code)]
 pub mod fast_hold;

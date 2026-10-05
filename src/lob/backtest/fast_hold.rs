@@ -15,7 +15,7 @@ use hftbacktest::types::{
 };
 
 /// Строка локальной стороны: те же ветки, что `Local::process` крейта (глубина; сделки — в `trades`).
-fn apply_local(book: &mut FastMarketDepth, ev: &Event) {
+pub(super) fn apply_local(book: &mut FastMarketDepth, ev: &Event) {
     if ev.is(LOCAL_BID_DEPTH_CLEAR_EVENT) {
         book.clear_depth(Side::Buy, ev.px);
     } else if ev.is(LOCAL_ASK_DEPTH_CLEAR_EVENT) {
@@ -444,6 +444,9 @@ pub(super) struct FastResume {
     /// `true`: часы стоят на точке сетки, шаг уже сделан, осталось решение (`on_event`) — первый проход цикла
     /// пропускает шаг.
     pub post_step: bool,
+    /// Почему вышли из скана (счётчики FAST_EXIT_*): 0 нет таймерного пробуждения/не Holding, 1 конец ленты,
+    /// 2 нужна заявка (`need_engine`), 3 решение не Idle, 4 круг закончен.
+    pub reason: usize,
 }
 
 /// Удержание без живых заявок на плоской книге (только `ALPHA_SKIP_NOSIGNAL`-режим с `hold_skip`, без
@@ -469,6 +472,7 @@ pub(super) fn fast_hold_scan(
                 stable,
                 sig,
                 post_step: false,
+                reason: 0,
             };
         }
         let wakeup = if decided_in_hold { wake } else { None };
@@ -479,6 +483,7 @@ pub(super) fn fast_hold_scan(
                 stable,
                 sig,
                 post_step: false,
+                reason: 1,
             };
         }
         let now = bot.current_timestamp();
@@ -489,6 +494,9 @@ pub(super) fn fast_hold_scan(
         let before = state.clone();
         let sig_before = sig;
         let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
+        if skip {
+            FAST_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let action = if skip {
             Action::Idle
         } else {
@@ -504,6 +512,7 @@ pub(super) fn fast_hold_scan(
                 stable,
                 sig: sig_before,
                 post_step: true,
+                reason: 2,
             };
         }
         if skip_on && !matches!(action, Action::Idle) {
@@ -511,6 +520,7 @@ pub(super) fn fast_hold_scan(
         }
         decided_in_hold = held_before && state.hold_wakeup_ns(now).is_some();
         stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
+        FAST_STEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if state.is_idle() || !matches!(action, Action::Idle) {
             return FastResume {
                 state: state.clone(),
@@ -518,6 +528,7 @@ pub(super) fn fast_hold_scan(
                 stable,
                 sig,
                 post_step: false,
+                reason: if state.is_idle() { 4 } else { 3 },
             };
         }
     }
@@ -543,6 +554,15 @@ thread_local! {
 pub static FAST_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static FAST_FALLBACKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static FAST_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Шагов решения в скане / из них пропущенных по подписи входов; строки окна после старта круга (всё окно) и
+/// строки, пройденные плоской книгой, и число кругов — по причине выхода (`FastResume::reason`).
+pub static FAST_STEPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_WINROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[allow(clippy::declare_interior_mutable_const)]
+const Z: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAST_EXIT_N: [std::sync::atomic::AtomicU64; 5] = [Z; 5];
+pub static FAST_EXIT_ROWS: [std::sync::atomic::AtomicU64; 5] = [Z; 5];
 
 /// Окно круга для быстрого пути: срез ленты движка (с первой строки после `t0`) и параметры сборки нового движка.
 #[derive(Clone, Copy)]
@@ -644,5 +664,11 @@ where
     let _ = bt.elapse(0);
     FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
+    FAST_WINROWS.fetch_add(
+        (rows.len() - cur) as u64,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    FAST_EXIT_N[r.reason].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    FAST_EXIT_ROWS[r.reason].fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
     FastOutcome::Swapped(Box::new(r))
 }
