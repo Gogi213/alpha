@@ -219,15 +219,24 @@ def main():
     if a.против:
         o = summarize(a.против, a.wall, a.threads)
         ma, mb = metrics(a.dir), metrics(a.против)
+        da, db = ma.get("disk_interference_pct"), mb.get("disk_interference_pct")
+        dbad = [n for n, i in (("основная", da), ("другая", db)) if isinstance(i, float) and i > 5.0]
         print("\n### Сравнение (основная − другая), слот-секунды стадий\n\n| корзина | Δ |\n|---|---|")
         for k in STAGES:
             print(f"| ЦП {k} | {s['cpu'][k]-o['cpu'][k]:+,.0f} |")
-            print(f"| ожидание {k} | {s['wait'][k]-o['wait'][k]:+,.0f} |")
+            if not dbad:
+                print(f"| ожидание {k} | {s['wait'][k]-o['wait'][k]:+,.0f} |")
+        if dbad:
+            print("\nКорзины ожидания НЕ сравниваются (дисковая помеха > 5 % своего чтения: "
+                  + ", ".join(f"{n} {(da if n == 'основная' else db):.1f} %" for n in dbad) + ").")
+            res["wait_compare"] = "refused"
         ia, ib = ma.get("interference_pct"), mb.get("interference_pct")
         bad = [n for n, i in (("основная", ia), ("другая", ib)) if not isinstance(i, float) or i > 5.0]
+        bad += [n for n in dbad if n not in bad]
         wa, wb = ma.get("wall_s"), mb.get("wall_s")
         if bad or not isinstance(wa, float) or not isinstance(wb, float):
             why = ", ".join(f"{n}: помеха {'нет данных' if not isinstance(i, float) else f'{i:.1f} %'}"
+                            + (f", дисковая {(da if n == 'основная' else db):.1f} %" if n in dbad else "")
                             for n, i in (("основная", ia), ("другая", ib)) if n in bad) or "нет wall_s в metrics.txt"
             print(f"\nСтена НЕ сравнивается ({why}; порог 5 %) — сравнимы только слот-секунды стадий.")
             res["wall_compare"] = "refused"
