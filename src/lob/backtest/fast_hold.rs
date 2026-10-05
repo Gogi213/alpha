@@ -201,3 +201,143 @@ pub fn with_backtest_from_handoff<R>(
     drop(bt);
     out
 }
+
+/// Заглушка бота для быстрого пути: часы и локальная книга из `HoldTracker`, заявок нет. Любая заявка/снятие/
+/// модификация только поднимает `need_engine` и ничего не делает — вызывающий отбрасывает результат шага и
+/// повторяет его на настоящем движке (`FastHandoff`).
+pub struct FastBot<'a> {
+    pub tracker: HoldTracker<'a>,
+    now: i64,
+    orders: hftbacktest::types::OrderMap,
+    values: hftbacktest::types::StateValues,
+    pub need_engine: bool,
+}
+
+impl<'a> FastBot<'a> {
+    pub fn new(tracker: HoldTracker<'a>, now: i64) -> Self {
+        Self {
+            tracker,
+            now,
+            orders: Default::default(),
+            values: hftbacktest::types::StateValues::default(),
+            need_engine: false,
+        }
+    }
+
+    fn deny(&mut self) -> Result<hftbacktest::types::ElapseResult, BacktestError> {
+        self.need_engine = true;
+        Ok(hftbacktest::types::ElapseResult::Ok)
+    }
+}
+
+impl hftbacktest::types::Bot<FastMarketDepth> for FastBot<'_> {
+    type Error = BacktestError;
+
+    fn current_timestamp(&self) -> i64 {
+        self.now
+    }
+    fn num_assets(&self) -> usize {
+        1
+    }
+    fn position(&self, _: usize) -> f64 {
+        0.0
+    }
+    fn state_values(&self, _: usize) -> &hftbacktest::types::StateValues {
+        &self.values
+    }
+    fn depth(&self, _: usize) -> &FastMarketDepth {
+        self.tracker.book()
+    }
+    fn last_trades(&self, _: usize) -> &[Event] {
+        &self.tracker.trades
+    }
+    fn clear_last_trades(&mut self, _: Option<usize>) {
+        self.tracker.trades.clear();
+    }
+    fn orders(&self, _: usize) -> &hftbacktest::types::OrderMap {
+        &self.orders
+    }
+    fn submit_buy_order(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: hftbacktest::types::TimeInForce,
+        _: hftbacktest::types::OrdType,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn submit_sell_order(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: hftbacktest::types::TimeInForce,
+        _: hftbacktest::types::OrdType,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn submit_order(
+        &mut self,
+        _: usize,
+        _: hftbacktest::types::OrderRequest,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn modify(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: f64,
+        _: f64,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn cancel(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: bool,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn clear_inactive_orders(&mut self, _: Option<usize>) {}
+    fn wait_order_response(
+        &mut self,
+        _: usize,
+        _: u64,
+        _: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn wait_next_feed(
+        &mut self,
+        _: bool,
+        _: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.deny()
+    }
+    fn elapse(&mut self, duration: i64) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.now += duration;
+        self.tracker.advance_to(self.now);
+        Ok(hftbacktest::types::ElapseResult::Ok)
+    }
+    fn elapse_bt(&mut self, duration: i64) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+        self.elapse(duration)
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn feed_latency(&self, _: usize) -> Option<(i64, i64)> {
+        None
+    }
+    fn order_latency(&self, _: usize) -> Option<(i64, i64, i64)> {
+        None
+    }
+}
