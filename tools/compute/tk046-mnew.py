@@ -2,7 +2,7 @@
 """TK-046: списки нового счёта месяца: <MON>-new.txt (сим сутки бинлог — нет D20 деки), <MON>-newcoins.txt (монеты без sigma240 деки).
     python3 tk046-mnew.py jan"""
 import csv, os, sys
-MON = sys.argv[1]; YM = {"jan": "2026-01", "feb": "2026-02", "aug": "2026-08"}[MON]
+MON = sys.argv[1]; YM = {"jan":"2026-01","feb":"2026-02","mar":"2026-03","apr":"2026-04","may":"2026-05","jun":"2026-06","jul":"2026-07","aug":"2026-08","sep":"2026-09","oct":"2026-10"}[MON]
 OR = f"/data/alpha/epochs/e-{MON}/root"; OS = f"/home/deck/alpha/epochs/e-{MON}/study"; VR = f"/data/tk037/vroots/e-{YM}"
 rows = [(r["sym"], r["day"]) for r in csv.DictReader(open("/data/tk044/final3/verdict.csv")) if r["day"].startswith(YM)]
 new, coins, nobin = [], set(), []

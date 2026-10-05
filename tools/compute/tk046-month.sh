@@ -1,7 +1,7 @@
 #!/bin/bash
 # tk046-month.sh <jan|feb>: месяц v171b целиком — D20 новых + свечи/σ → дом → скрипты суток (K1 + verdict-csv + merge) → счёт P=15, ra 65536 (калибровка августа).
 # Метрики этапа счёта: /data/tk046/<мес>/metrics.txt. Запуск: systemd-run --unit=tk046-<мес> --property=CPUQuota=1500% bash tk046-month.sh <мес>
-MON=$1; export MON; YM=$(python3 -c "print({'jan':'2026-01','feb':'2026-02'}['$MON'])"); B=/opt/alpha-compute/bin; M=/data/tk046/$MON
+MON=$1; export MON; YM=$(python3 -c "print({'jan':'2026-01','feb':'2026-02','mar':'2026-03','apr':'2026-04','may':'2026-05','jun':'2026-06','jul':'2026-07','aug':'2026-08','sep':'2026-09','oct':'2026-10'}['$MON'])"); B=/opt/alpha-compute/bin; M=/data/tk046/$MON
 SINCE=$(date -d "$YM-01 -1 day" +%F); UNTIL=$(date -d "$YM-01 +1 month -1 day" +%F); export SINCE UNTIL
 mkdir -p $M /data/progress; w0=$(date +%s)
 if [ -z "${SKIP_PREP:-}" ]; then

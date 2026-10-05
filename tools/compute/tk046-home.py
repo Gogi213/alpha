@@ -7,7 +7,7 @@
 import csv, glob, os, shutil, subprocess, sys
 
 MON = sys.argv[2] if len(sys.argv) > 2 else "aug"
-YM = {"jan": "2026-01", "feb": "2026-02", "aug": "2026-08"}[MON]
+YM = {"jan":"2026-01","feb":"2026-02","mar":"2026-03","apr":"2026-04","may":"2026-05","jun":"2026-06","jul":"2026-07","aug":"2026-08","sep":"2026-09","oct":"2026-10"}[MON]
 VERDICT = sys.argv[1] if len(sys.argv) > 1 else "/data/tk044/final3/verdict.csv"
 HOME = f"/data/tk046/{MON}/home"
 E = f"{HOME}/alpha/epochs/e-{MON}"
