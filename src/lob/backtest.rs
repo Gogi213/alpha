@@ -72,6 +72,8 @@ use crate::lob::strategy::{
 
 mod compact;
 pub mod fast_depth;
+#[allow(dead_code)]
+pub mod fast_hold;
 mod levels;
 #[allow(dead_code)]
 pub mod sched;
