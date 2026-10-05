@@ -48,6 +48,10 @@ PAGES = {
     "/dispetcher": ("dispetcher.html", HTML),
     "/phosphor.css": ("phosphor.css", "text/css; charset=utf-8"),
     "/phosphor.js": ("phosphor.js", "application/javascript; charset=utf-8"),
+    # версия до переделки по макету (git 27252194, владелец 06.10 02:10: «поднять ту версию на другой странице»)
+    "/old": ("dispetcher-old.html", HTML),
+    "/phosphor-old.css": ("phosphor-old.css", "text/css; charset=utf-8"),
+    "/phosphor-old.js": ("phosphor-old.js", "application/javascript; charset=utf-8"),
 }
 
 
