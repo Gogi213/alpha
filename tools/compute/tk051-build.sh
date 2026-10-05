@@ -12,6 +12,7 @@ if [ "${BG:-}" = 1 ]; then
   # сборка юнитом на VPS: ожидатель замка переживает сессию; маркеры /opt/alpha-compute/tk051-$NAME.done|fail
   ssh "${KEY[@]}" "$HOST" "cat > /opt/alpha-compute/tk051-$NAME.sh && rm -f /opt/alpha-compute/tk051-$NAME.done /opt/alpha-compute/tk051-$NAME.fail && systemctl reset-failed tk051-b-$NAME 2>/dev/null; systemd-run --quiet --unit=tk051-b-$NAME bash /opt/alpha-compute/tk051-$NAME.sh && echo юнит tk051-b-$NAME запущен" <<EOS
 set -uo pipefail
+if [ \$(df --output=avail -BG / | tail -1 | tr -dc 0-9) -lt 8 ]; then find /opt/alpha-compute -maxdepth 1 \( -name 'target-*' -o -name 'wave2-src*' \) -mtime +0 ! -name 'target-tk051-$NAME' -exec rm -rf {} +; fi
 export HOME=/root CARGO_TARGET_DIR=/opt/alpha-compute/target-tk051-$NAME RUSTFLAGS='-C target-cpu=x86-64-v3 $XFL'
 SRC=/opt/alpha-compute/wave2-srctk051-$NAME
 rm -rf \$SRC && mkdir -p \$SRC && tar -xzf /opt/alpha-compute/tk051.tgz -C \$SRC && cd \$SRC || { touch /opt/alpha-compute/tk051-$NAME.fail; exit 1; }
