@@ -89,8 +89,11 @@ impl<'a> HoldTracker<'a> {
     }
 
     /// Трекер на общей книге окна: `tape` построена над тем же срезом `rows` с базой 0; рабочая книга берётся
-    /// из неё на строке `base`. Указатель должен жить дольше трекера.
-    pub fn with_tape(rows: &'a [Event], base: usize, tape: *mut TapeBook<'static>) -> Self {
+    /// из неё на строке `base`.
+    ///
+    /// # Safety
+    /// `tape` жив дольше трекера и не имеет других ссылок на время его работы.
+    pub unsafe fn with_tape(rows: &'a [Event], base: usize, tape: *mut TapeBook<'static>) -> Self {
         // SAFETY: вызывающий держит `tape` живой и без других ссылок на время вызова.
         let book = unsafe { &mut *tape }.book_at(base);
         let mut t = Self::new(rows, base, book);
@@ -753,7 +756,8 @@ where
     let tracker = match tape {
         Some(tp) => {
             FAST_BOOK_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            HoldTracker::with_tape(rows, cur, tp)
+            // SAFETY: указатель из FastCtx живёт на время with_fast_ctx и используется только из этого потока.
+            unsafe { HoldTracker::with_tape(rows, cur, tp) }
         }
         None => HoldTracker::new(
             rows,
