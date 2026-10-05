@@ -133,8 +133,8 @@ def check_orphan_tickets(now, skip_ids=()) -> list:
 
 
 def check_no_progress_view(now) -> list:
-    """TK-060: тикет in_progress дольше NO_PLAN_MINUTES без плана табло и без авто-шагов (записей ролей, заданий с
-    сервера) — табло ничего не показывает о его ходе; сигнал CEO. Читает status.json сборщика (без LLM, без сети)."""
+    """TK-060: тикет in_progress дольше NO_PLAN_MINUTES без плана шагов (plan.py set) — у табло нет честного процента.
+    Читает status.json сборщика (без LLM, без сети); исполнителя будит notify_findings."""
     try:
         view = json.loads((D.PROJECT_ROOT / ".claude" / "pulse" / "status.json").read_text(encoding="utf-8"))["view2"]
         if now.timestamp() - float(view["built_ts"]) > 300:
@@ -149,12 +149,11 @@ def check_no_progress_view(now) -> list:
         except Exception:
             continue
         p = procs.get(tkt.id)
-        if tkt.status != "in_progress" or p is None or p.get("plan") or p.get("auto_steps"):
+        if tkt.status != "in_progress" or p is None or p.get("plan"):
             continue
         upd = T.parse_dt(tkt.header.get("updated")) if tkt.header.get("updated") else None
         if upd is not None and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
-            out.append(Finding("no-plan", tkt.id, f"{tkt.id}: в работе > {NO_PLAN_MINUTES:.0f} мин, на табло нет ни плана, "
-                                                  "ни авто-шагов (нет записей ролей и заданий)"))
+            out.append(Finding("no-plan", tkt.id, f"{tkt.id}: в работе > {NO_PLAN_MINUTES:.0f} мин без плана шагов на табло"))
     return out
 
 
@@ -544,6 +543,23 @@ def _flush_pending_summary(ws: dict, now) -> None:
     ws["last_summary_flush"] = T.now_iso(now)
 
 
+def _wake_for_plan(tid: str, now) -> None:
+    """no-plan: запись в лог тикета и `next: <владелец>` — исполнитель запишет план (plan.py set, 3–6 шагов)."""
+    path = D.TICKETS_DIR / f"{tid}.md"
+    try:
+        with T.ticket_lock(path):
+            tkt = T.read_ticket(path)
+            if tkt.owner not in ("researcher", "engineer", "judge"):
+                return
+            T.append_log(path, "ceo", "Сторож (без LLM): задача в работе дольше "
+                         f"{NO_PLAN_MINUTES:.0f} мин, а плана шагов на табло нет — табло не может показать процент. "
+                         "Запиши план: `python tools/pulse/plan.py set " + tid + " ...` (3–6 шагов по-людски, "
+                         "справка — `plan.py --help`), затем продолжай работу.")
+            T.write_header_updates(path, {"next": tkt.owner}, stamp_updated=False)
+    except Exception as e:
+        print(f"[watch] no-plan: не разбудил {tid}: {type(e).__name__}: {e}", file=sys.stderr)
+
+
 def notify_findings(findings: list, ws: dict, now) -> list:
     """Возвращает находки, по которым реально написали (для тестов). Дедуп — (kind, key) + для
     Steam Deck ещё и содержимое без времени (см. выше). Виды из WATCH_SUMMARY_KINDS не будят сразу —
@@ -572,6 +588,8 @@ def notify_findings(findings: list, ws: dict, now) -> list:
                 pending.append(f"{T.now_iso(now)} [{f.kind}] {f.message[:150]}")
             else:
                 D.append_ceo_inbox("*", f"watch-{f.kind}", f.message, now)
+                if f.kind == "no-plan":
+                    _wake_for_plan(f.key, now)
             notified[marker] = {"sig": sig, "ts": T.now_iso(now)}
             posted.append(f)
         else:

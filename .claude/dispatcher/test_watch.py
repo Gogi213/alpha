@@ -87,6 +87,19 @@ class OrphanRepeatTests(WatchSandbox):
         self.assertEqual(W.notify_findings(f, ws, self.now + timedelta(hours=5)), [])
         self.assertEqual(len(W.notify_findings(f, ws, self.now + timedelta(hours=24, minutes=1))), 1)
 
+class NoPlanWakeTests(WatchSandbox):
+    def test_no_plan_wakes_ticket_owner(self):
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Без плана", status="in_progress", now=self.now)
+        ws = {}
+        f = [W.Finding("no-plan", T.read_ticket(p).id, "x: в работе > 30 мин без плана шагов на табло")]
+        self.assertEqual(len(W.notify_findings(f, ws, self.now)), 1)
+        t = T.read_ticket(p)
+        self.assertEqual(t.next_role, "engineer")
+        self.assertIn("plan.py set", t.log[-1].text)
+        W.notify_findings(f, ws, self.now + timedelta(minutes=5))
+        self.assertEqual(len(T.read_ticket(p).log), 1)
+
+
 class BlockedNeedsOwnerTests(WatchSandbox):
     def test_blocked_and_needs_owner_are_findings(self):
         T.create_ticket(self.tickets_dir, owner="engineer", title="Застряла", status="todo")

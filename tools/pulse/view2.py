@@ -29,8 +29,8 @@ EXECUTORS = ("инженер", "исследователь")  # чьи «дел�
 ETA_LO, ETA_HI = 0.75, 1.4   # вилка «осталось»: доли суммы eta_min шагов критической цепочки
 ETA_MIN_MEASURES = 2         # меньше замеров (шагов цепочки с eta_min) — вилку не показываем
 WORK_GAP_MIN = 45            # «прошло»: промежуток между событиями длиннее — засчитывается как столько минут
-AUTO_DONE_MAX = 4            # шагов «готово» из последних записей ролей у тикета без плана
 AUTO_TITLE_LEN = 60
+BOARD_RE = re.compile(r"табло|шкал|дашборд|страниц", re.I)
 FEED_AGE_S = 86400
 _last_psum: dict = {}        # процесс → последняя строка-итог (пока модель отвечает на новое состояние — показываем её)
 
@@ -347,7 +347,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
-    # --- шаги из лога тикета (плана нет): последние записи ролей → «готово», дальше — текущее состояние и «Дальше:»
+    # --- записи ролей из лога тикета
     def role_entries(t) -> list:
         return [e for e in H.all_entries(t) if H._role_key(e.author) in ROLE_LC]
 
@@ -356,13 +356,6 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         txt = re.sub(r"^(?:Инженер|Исследователь|Судья|CEO)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
         txt = re.sub(r"^\W*Итог(?:\s+шага\s*\([^)]*\))?\W*(?:[0-9a-f]{7,40}\W+)?", "", txt, flags=re.I)
         return H.first_phrase(txt or H.clean_text(e.text), AUTO_TITLE_LEN)
-
-    def auto_done_steps(t) -> list:
-        out = []
-        for e in role_entries(t)[-AUTO_DONE_MAX:]:
-            out.append(_step(0, human(entry_title(e)), ROLE_LC[H._role_key(e.author)], "pc", "", "done",
-                             finished=e.ts.astimezone(P.TZ).strftime("%H:%M")))
-        return out
 
     # задание с чужим (закрытым/неизвестным) тикетом в /data/progress → открытый тикет, что его запустил (wait_for / лог)
     open_ids = [i for i, t in tickets.items() if t.status not in ("done", "stopped")]
@@ -378,7 +371,6 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
 
     # --- процессы-тикеты
     procs = []
-    auto_n: dict = {}
     for tid, t in tickets.items():
         if t.status in ("done", "stopped"):
             continue
@@ -391,20 +383,13 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             flow, forr, title = plan.get("flow") or [], plan.get("for") or EMPTY_FOR, plan.get("title") or ptitle(tid)
         else:
             steps, mids = synth_steps(tid, t)
-            auto_done = auto_done_steps(t)
-            auto_n[tid] = len(auto_done) + sum(1 for s in steps if s["pct"] is not None)
-            hint = H.next_hint(t)
-            tail = []
-            if hint and human(hint) != "работа идёт" and steps and steps[-1]["state"] != "done" and t.status != "in_review":
-                tail = [_step(0, human(re.sub(r"^[Дд]альше\s*[:—-]\s*", "", hint)), ROLE_LC.get(t.next_role or t.owner, "CEO"), "pc", "", "todo")]
-            steps = auto_done + steps + tail
             for i, s in enumerate(steps, 1):
                 s["n"] = i
             flow =[{"text": "идёт на", "on": m} for m in dict.fromkeys(mids)] or [{"text": "в очереди на", "on": "pc"}]
             forr, title = EMPTY_FOR, ptitle(tid)
         adjust_states(steps, t, judge_returned(H, t))
         procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps, "has_plan": bool(plan),
-                      "plan": bool(plan), "auto_steps": auto_n.get(tid, 0)})
+                      "plan": bool(plan)})
 
     # --- «без хозяина»: по одному на машину
     for mid in ("vps", "calc", "col"):
@@ -453,7 +438,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if not ph:
             return None
         _last_psum[p["id"]] = ph
-        if not (p.get("has_plan") or p.get("auto_steps")):
+        if not p.get("has_plan"):
             return ph
         return f"{ph} — {sum(1 for s in p['steps'] if s['state'] == 'done')} из {len(p['steps'])} готово"
 
@@ -489,7 +474,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                     d = P.parse(q.get(k))
                     if d:
                         stamps.append(d.timestamp())
-    progress = progress_block([p for p in procs if not p["id"].startswith("orphans-")], stamps, now)
+    progress = progress_block([p for p in procs if p.get("plan")], stamps, now)
 
     # --- вопросы (неотвеченные)
     questions = []
@@ -546,16 +531,20 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         t = tickets.get(tid)
         return bool(t and ts and any(H._role_key(e.author) == "ceo" and abs((ts - e.ts).total_seconds()) < 2 for e in H.all_entries(t)))
 
+    def about_board(tid, text) -> bool:  # про само табло в «Недавно» не пишем — только результаты счёта и задач
+        t = tickets.get(tid)
+        return bool(BOARD_RE.search(f"{text} {t.header.get('title', '') if t else ''}"))
+
     for n in plain.get("news", []):
         ts = P.parse(n.get("ts"))
-        if by_ceo(n.get("ticket"), ts):
+        if by_ceo(n.get("ticket"), ts) or about_board(n.get("ticket"), n.get("text") or ""):
             continue  # поручения и решения CEO — не результат
         feed.append((ts.timestamp() if ts else 0, {"time": n["time"], "state": "done", "on": on_at(n.get("ticket"), ts), "to": None,
                                                   "text": n["text"]}))
     for p in procs:
         for s in (plans.get(p["id"]) or {}).get("steps", []):
             f = P.parse(s.get("finished_at"))
-            if s.get("state") == "done" and f and (now_dt - f).total_seconds() < 86400:
+            if s.get("state") == "done" and f and (now_dt - f).total_seconds() < 86400 and not about_board(p["id"], s["title"]):
                 feed.append((f.timestamp(), {"time": H.news_time(f), "state": "done", "on": [s["on"]] if s["on"] in mach else ["pc"], "to": None,
                                              "text": s["title"]}))
     news_ts = [(n.get("ticket"), P.parse(n.get("ts"))) for n in plain.get("news", [])]
@@ -574,7 +563,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 if r is not None and not r.get("news"):
                     continue  # служебная запись — модель отсеяла
                 text = (r or {}).get("news")
-                if not text:
+                if not text or about_board(p["id"], text):
                     continue  # модель ещё не ответила — сырую запись не показываем
             feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
                                             "text": text or f"{ROLE_LC[H._role_key(e.author)]}: {human(entry_title(e), 10)}"}))

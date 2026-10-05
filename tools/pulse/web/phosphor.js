@@ -58,7 +58,7 @@
   };
   const mProg = (p) => arr(p.steps).filter((s) => s.state === "done").length;
   const seg = (ps, label) => {
-    const list = ps.filter((p) => arr(p.steps).length);
+    const list = ps.filter((p) => p.plan && arr(p.steps).length);
     const all = list.flatMap((p) => p.steps);
     const done = all.filter((s) => s.state === "done").length;
     if (!list.length) return `<span class="seg empty" role="img" aria-label="шагов нет"><span class="g" style="--n:1"><i></i></span></span>`;
@@ -105,7 +105,7 @@
   // общая полоса, «осталось» вилкой, «прошло»
   const progress = () => {
     const pr = V.progress;
-    const ps = procs().filter((p) => p.wave != null);
+    const ps = procs().filter((p) => p.wave != null && p.plan);
     const strip = seg(ps, "готово");
     if (!pr) return { pct: null, left: `<span class="dim">процессов с планом пока нет</span>`, strip, right: "" };
     const eta = pr.eta && pr.eta.lo_min != null ? `<b class="hot">${pr.eta.lo_min}–${pr.eta.hi_min} мин</b>${pr.eta.measured ? ` <span class="dim">по ${pr.eta.measured} замерам</span>` : ""}` : `<span class="dim">пока не оценить: мало замеров</span>`;
