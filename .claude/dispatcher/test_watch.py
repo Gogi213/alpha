@@ -155,6 +155,26 @@ class StalePlanWaitingTests(WatchSandbox):
             D.PROJECT_ROOT = orig_root
 
 
+class StalePlanLagTests(WatchSandbox):
+    def test_log_right_after_plan_update_is_not_stale(self):
+        import json
+        root = Path(self.tmp.name) / "root"
+        (root / ".claude" / "pulse" / "plans").mkdir(parents=True)
+        orig_root = D.PROJECT_ROOT
+        D.PROJECT_ROOT = root
+        try:
+            p = T.create_ticket(self.tickets_dir, owner="engineer", title="Лаг", status="in_progress",
+                                now=self.now - timedelta(hours=3))
+            tid = T.read_ticket(p).id
+            upd = self.now - timedelta(hours=2)
+            plan = {"id": tid, "steps": [{"state": "run"}], "updated": T.now_iso(upd)}
+            (root / ".claude" / "pulse" / "plans" / f"{tid}.json").write_text(json.dumps(plan), encoding="utf-8")
+            T.append_log(p, "engineer", "итог", now=upd + timedelta(minutes=2))
+            self.assertEqual(W.check_stale_plan(self.now), [])
+        finally:
+            D.PROJECT_ROOT = orig_root
+
+
 class BlockedNeedsOwnerTests(WatchSandbox):
     def test_blocked_and_needs_owner_are_findings(self):
         T.create_ticket(self.tickets_dir, owner="engineer", title="Застряла", status="todo")

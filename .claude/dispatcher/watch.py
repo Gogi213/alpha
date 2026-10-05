@@ -49,6 +49,7 @@ WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2")
 WATCH_LONG_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_LONG_REPEAT_HOURS", "24"))
 WATCH_LONG_REPEAT_KINDS = {"orphan-ticket", "deck-alert", "deck-idle-expected", "blocked", "needs_owner"}
 CLOSED_TICKET_STATUSES = ("done", "cancelled")
+PLAN_LAG_MINUTES = 5  # роль обновляет шаги чуть раньше итогового comment — это не «застыл»
 NO_PLAN_MINUTES = float(os.environ.get("ALPHA_WATCH_NO_PLAN_MIN", "30"))
 DISPATCH_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DISPATCH_STALE_MIN", "5"))
 ORPHAN_TICKET_HOURS = float(os.environ.get("ALPHA_WATCH_ORPHAN_HOURS", "2"))
@@ -174,7 +175,7 @@ def check_stale_plan(now) -> list:
         except Exception:
             continue
         role_logs = [e for e in tkt.log if not T.author_is(e.author, "ceo")]
-        if role_logs and role_logs[-1].ts > upd and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
+        if role_logs and role_logs[-1].ts - upd > timedelta(minutes=PLAN_LAG_MINUTES) and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
             out.append(Finding("plan-stale" if tkt.status == "in_progress" else "plan-stale-waiting", tkt.id,
                                f"{tkt.id}: запись роли в логе новее плана, шаги на табло не менялись > {NO_PLAN_MINUTES:.0f} мин"))
     return out
