@@ -1460,7 +1460,16 @@ fn event_steps() -> bool {
 /// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
 fn event_steps_entry() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
+    *ON.get_or_init(|| {
+        std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry" || v == "live")
+    })
+}
+
+/// Событийные шаги ещё и в удержании/выходе при живых заявках (`ALPHA_EVENT_STEPS=live` = `entry` + заявки):
+/// без заявок остаётся быстрый путь удержания (TK-049). Умолчание — выкл.
+fn event_steps_live() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "live"))
 }
 
 /// Условие быстрого пути (TK-049): пропуск пустых шагов включён, событийные шаги выключены.
@@ -1555,6 +1564,7 @@ where
     let mut decided_in_hold = false;
     let ev_steps = event_steps();
     let ev_entry = event_steps_entry();
+    let ev_live = event_steps_live();
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
@@ -1608,6 +1618,11 @@ where
                 state.step_wakeup_ns(bot.current_timestamp())
             }
             Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
+                state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_)
+                if ev_live && stable && entry_pending == 0 && has_open_orders(bot, asset_no) =>
+            {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
             Some(_)
@@ -2216,13 +2231,17 @@ where
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
     let skip_on = skip_same();
+    let ev_live = event_steps_live();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
         }
         let wakeup = match skip_cap {
-            Some(_) if ev_steps && entry_pending == 0 => {
+            Some(_)
+                if entry_pending == 0
+                    && (ev_steps || (ev_live && has_open_orders(bot, asset_no))) =>
+            {
                 let now = bot.current_timestamp();
                 let mut th: Option<i64> = None;
                 let mut all = true;
