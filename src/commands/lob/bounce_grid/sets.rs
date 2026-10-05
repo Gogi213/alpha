@@ -415,6 +415,8 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) stack_min: Option<u32>,
     pub(crate) ctx: Option<&'a [TouchContext]>,
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
+    /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы (`ALPHA_HOLDS_MEMO=1`).
+    pub(crate) holds: Option<&'a [bool]>,
 }
 
 impl<'a> TouchFilter<'a> {
@@ -435,6 +437,7 @@ impl<'a> TouchFilter<'a> {
             stack_min: p.stack_min,
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
+            holds: p.holds,
         }
     }
 
@@ -463,6 +466,7 @@ impl<'a> TouchFilter<'a> {
             stack_min: set.stack_min,
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
+            holds: None,
         }
     }
 
@@ -478,7 +482,11 @@ impl<'a> TouchFilter<'a> {
         // База E1 (В-66): плотность обязана держать порог при подходе цены,
         // а не только при рождении — иначе в сетку идут касания
         // «бывших» плотностей. Окно проверено при старте прогона.
-        if self.mode.holds_at_touch(t) != Some(true) {
+        let holds = match self.holds {
+            Some(h) => h[ti],
+            None => self.mode.holds_at_touch(t) == Some(true),
+        };
+        if !holds {
             return false;
         }
         if self.min_age_ms.is_some_and(|n| t.age_ms() < n) {

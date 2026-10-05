@@ -807,12 +807,21 @@ impl<'a> GridRun<'a> {
                 None
             };
             let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            let holds_day: Option<Vec<bool>> = std::env::var_os("ALPHA_HOLDS_MEMO")
+                .is_some_and(|v| v == "1")
+                .then(|| {
+                    day.touches
+                        .iter()
+                        .map(|t| mode.holds_at_touch(t) == Some(true))
+                        .collect()
+                });
             // TK-049 (`ALPHA_SKIP_NOSIGNAL=1`): ни один набор не пропускает ни одного касания суток — сигналов
             // нет у всех форм, круги не идут, лента на выход не влияет: не читаем её и довесок D+1.
             let no_signal = std::env::var_os("ALPHA_SKIP_NOSIGNAL").is_some()
                 && matches!(args.driver, args::DriverArg::Setups)
                 && sets.iter().all(|set| {
-                    let f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
+                    let mut f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
+                    f.holds = holds_day.as_deref();
                     !day.touches
                         .iter()
                         .enumerate()
@@ -1056,6 +1065,7 @@ impl<'a> GridRun<'a> {
                         day.approaches.as_deref(),
                         &set_forms_list,
                         DayParams {
+                            holds: holds_day.as_deref(),
                             admitted: if std::env::var_os("ALPHA_ADMIT_CACHE")
                                 .is_some_and(|v| v == "1")
                             {
