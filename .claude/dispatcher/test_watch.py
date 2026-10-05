@@ -723,6 +723,52 @@ class TriageWaitsTests(WatchSandbox):
         self.assertEqual(T.read_ticket(p).status, "in_progress")
 
 
+class TriageStallsTests(WatchSandbox):
+    def _ticket(self):
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Застой", status="todo",
+                            now=self.now - timedelta(hours=5))
+        T.write_header_updates(p, {"status": "in_progress"}, now=self.now - timedelta(hours=5))
+        return p, T.read_ticket(p).id
+
+    def _runs(self, tid, rows):
+        f = Path(self.tmp.name) / "runs.log"
+        f.write_text("".join(
+            f"{(self.now - timedelta(minutes=m)).isoformat(timespec='seconds')} {tid} engineer reason=next status={st}\n"
+            for m, st in rows), encoding="utf-8")
+        return f
+
+    def test_two_timeouts_in_a_row_block_once(self):
+        p, tid = self._ticket()
+        runs = self._runs(tid, [(60, "ok"), (40, "timeout"), (20, "timeout")])
+        ws = {}
+        self.assertEqual(W.triage_stalls(ws, self.now, runs), [tid])
+        t = T.read_ticket(p)
+        self.assertEqual((t.status, t.log[-1].author), ("blocked", "watch"))
+        T.write_header_updates(p, {"status": "in_progress"})
+        self.assertEqual(W.triage_stalls(ws, self.now, runs), [])
+
+    def test_timeout_then_ok_is_not_stall(self):
+        p, tid = self._ticket()
+        runs = self._runs(tid, [(40, "timeout"), (20, "ok")])
+        self.assertEqual(W.triage_stalls({}, self.now, runs), [])
+        self.assertEqual(T.read_ticket(p).status, "in_progress")
+
+    def test_two_idle_ok_runs_block_but_productive_run_does_not(self):
+        p, tid = self._ticket()
+        runs = self._runs(tid, [(60, "ok"), (40, "ok"), (20, "ok")])
+        T.append_log(p, "engineer", "сделал", now=self.now - timedelta(minutes=30))  # запуск в -20 не холостой
+        self.assertEqual(W.triage_stalls({}, self.now, runs), [])
+        p2, tid2 = self._ticket()
+        runs2 = self._runs(tid2, [(60, "ok"), (40, "ok"), (20, "ok")])
+        self.assertEqual(W.triage_stalls({}, self.now, runs2), [tid2])
+
+    def test_waiting_ticket_ignored(self):
+        p, tid = self._ticket()
+        T.write_header_updates(p, {"status": "waiting", "wait_for": "file:/x"})
+        runs = self._runs(tid, [(40, "timeout"), (20, "timeout")])
+        self.assertEqual(W.triage_stalls({}, self.now, runs), [])
+
+
 class RunOnceTests(WatchSandbox):
     def test_writes_heartbeat_even_with_no_findings(self):
         def fake_ssh(cmd, timeout=10.0):

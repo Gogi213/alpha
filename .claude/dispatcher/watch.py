@@ -214,6 +214,69 @@ def triage_waits(ws: dict, now, probe=probe_wait_target) -> set:
     return alive
 
 
+# --- счётчик застоя по runs.log (TK-056 п.4) -----------------------------------------------------
+STALL_RUNS = int(os.environ.get("ALPHA_WATCH_STALL_RUNS", "2"))  # подряд таймаутов / холостых запусков до блока
+_RUN_KV = re.compile(r"(\w+)=(\S+)")
+
+
+def _recent_runs(runs_path, tid: str, limit: int) -> list:
+    """Последние `limit` запусков ролей тикета из runs.log (без on_met/stopped), старые → новые: (ts, роль, статус)."""
+    try:
+        lines = Path(runs_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for ln in reversed(lines[-4000:]):
+        parts = ln.split()
+        if len(parts) < 4 or parts[1] != tid or parts[2] == "on_met":
+            continue
+        st = dict(_RUN_KV.findall(ln)).get("status", "?")
+        if st == "stopped":
+            continue
+        rows.append((T.parse_dt(parts[0]), parts[2], st))
+        if len(rows) >= limit:
+            break
+    return rows[::-1]
+
+
+def triage_stalls(ws: dict, now, runs_path=None) -> list:
+    """Застой тикета in_progress: последние STALL_RUNS запуска — все timeout (resume уже пробовался) либо все «холостые»
+    (status=ok, а роль не оставила в логе ни одной записи между концом прежнего запуска тикета и концом этого) → тикет
+    blocked с записью watch (сигнал CEO через находку blocked). Один раз на последний запуск (ws['stall'])."""
+    done = ws.setdefault("stall", {})
+    acted = []
+    for path in T.list_tickets(D.TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+        except Exception:
+            continue
+        if tkt.status != "in_progress":
+            continue
+        rows = _recent_runs(runs_path or D.RUNS_LOG, tkt.id, STALL_RUNS + 1)
+        if len(rows) < STALL_RUNS or done.get(tkt.id) == T.now_iso(rows[-1][0]):
+            continue
+        last = rows[-STALL_RUNS:]
+        if all(r[2] == "timeout" for r in last):
+            why = f"{STALL_RUNS} таймаута запуска подряд (resume уже пробовался)"
+        elif all(r[2] == "ok" for r in last) and len(rows) > STALL_RUNS:
+            idle = 0
+            for i in range(len(rows) - STALL_RUNS, len(rows)):
+                lo, hi, role = rows[i - 1][0], rows[i][0], rows[i][1]
+                if lo and hi and not any(e.author == role and lo < e.ts <= hi for e in tkt.log):
+                    idle += 1
+            if idle < STALL_RUNS:
+                continue
+            why = f"{STALL_RUNS} холостых запуска подряд (роль не оставила записи в логе)"
+        else:
+            continue
+        with T.ticket_lock(path):
+            T.append_log(path, "watch", f"сторож: {why} — тикет blocked, решение за CEO (по runs.log)", now)
+            T.write_header_updates(path, {"status": "blocked"}, now)
+        done[tkt.id] = T.now_iso(rows[-1][0])
+        acted.append(tkt.id)
+    return acted
+
+
 def deck_off() -> bool:
     """Флаг `.claude/dispatcher/deck-off` — Steam Deck выключен/не трогаем: проверки деки пропускаются."""
     return DECK_OFF_FLAG.exists()
@@ -523,6 +586,10 @@ def run_once(now=None, ssh_run=_ssh_run) -> list:
     except Exception as e:  # триаж не должен ронять цикл сторожа
         print(f"[watch] triage_waits: {type(e).__name__}: {e}", file=sys.stderr)
         alive_waits = set()
+    try:
+        triage_stalls(ws, now)
+    except Exception as e:
+        print(f"[watch] triage_stalls: {type(e).__name__}: {e}", file=sys.stderr)
     findings = collect_findings(state, now, ssh_run, started_at, hold_hint=ws.get("deck_hold"), observed=observed,
                                 alive_waits=alive_waits)
     if "hold" in observed:
