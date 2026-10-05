@@ -6,6 +6,7 @@
 
 use super::fast_book::{SeriesDepth, TapeBook, STRIDE};
 use super::*;
+use hftbacktest::depth::MarketDepth;
 use hftbacktest::types::{Side, EXCH_EVENT, LOCAL_EVENT};
 use hftbacktest::types::{
     EXCH_ASK_DEPTH_CLEAR_EVENT, EXCH_ASK_DEPTH_EVENT, EXCH_ASK_DEPTH_SNAPSHOT_EVENT,
@@ -135,6 +136,13 @@ impl<'a> HoldTracker<'a> {
 
     pub fn book(&self) -> &FastMarketDepth {
         &self.book
+    }
+
+    /// Книга на курсоре из ряда общей книги (без apply строк); `None` — ленты нет или ряд недостоверен.
+    fn series(&self) -> Option<SeriesDepth<'static, 'static>> {
+        let tp = self.tape?;
+        // SAFETY: см. `with_tape`; ряд уже выращен `advance_to`, лента на время шага не меняется.
+        SeriesDepth::new(unsafe { &*tp }, self.lcur)
     }
 
     pub fn cursor(&self) -> usize {
@@ -301,6 +309,64 @@ pub fn local_cursor_at(rows: &[Event], start: usize, t: i64) -> Option<usize> {
     (max_exch <= t).then_some(i)
 }
 
+/// Книга для решения в скане: ряд общей книги на курсоре (без apply) либо плоская рабочая книга трекера.
+pub enum HoldDepth {
+    Series(SeriesDepth<'static, 'static>),
+    Flat(*const FastMarketDepth),
+}
+
+impl HoldDepth {
+    fn flat(&self) -> Option<&FastMarketDepth> {
+        match self {
+            // SAFETY: указатель ставит `FastBot::refresh_view` на книгу трекера того же бота перед каждым решением.
+            Self::Flat(p) => Some(unsafe { &**p }),
+            Self::Series(_) => None,
+        }
+    }
+}
+
+macro_rules! hd {
+    ($self:ident, $m:ident $(, $a:expr)*) => {
+        match $self {
+            HoldDepth::Series(s) => s.$m($($a),*),
+            HoldDepth::Flat(_) => $self.flat().unwrap().$m($($a),*),
+        }
+    };
+}
+
+impl MarketDepth for HoldDepth {
+    fn best_bid(&self) -> f64 {
+        hd!(self, best_bid)
+    }
+    fn best_ask(&self) -> f64 {
+        hd!(self, best_ask)
+    }
+    fn best_bid_tick(&self) -> i64 {
+        hd!(self, best_bid_tick)
+    }
+    fn best_ask_tick(&self) -> i64 {
+        hd!(self, best_ask_tick)
+    }
+    fn best_bid_qty(&self) -> f64 {
+        hd!(self, best_bid_qty)
+    }
+    fn best_ask_qty(&self) -> f64 {
+        hd!(self, best_ask_qty)
+    }
+    fn tick_size(&self) -> f64 {
+        hd!(self, tick_size)
+    }
+    fn lot_size(&self) -> f64 {
+        hd!(self, lot_size)
+    }
+    fn bid_qty_at_tick(&self, t: i64) -> f64 {
+        hd!(self, bid_qty_at_tick, t)
+    }
+    fn ask_qty_at_tick(&self, t: i64) -> f64 {
+        hd!(self, ask_qty_at_tick, t)
+    }
+}
+
 /// Заглушка бота для быстрого пути: часы и локальная книга из `HoldTracker`, заявок нет. Любая заявка/снятие/
 /// модификация только поднимает `need_engine` и ничего не делает — вызывающий отбрасывает результат шага и
 /// повторяет его на настоящем движке (`FastHandoff`).
@@ -310,6 +376,7 @@ pub struct FastBot<'a> {
     orders: hftbacktest::types::OrderMap,
     values: hftbacktest::types::StateValues,
     pub need_engine: bool,
+    view: HoldDepth,
 }
 
 impl<'a> FastBot<'a> {
@@ -320,7 +387,18 @@ impl<'a> FastBot<'a> {
             orders: Default::default(),
             values: hftbacktest::types::StateValues::default(),
             need_engine: false,
+            view: HoldDepth::Flat(std::ptr::null()),
         }
+    }
+
+    /// Книга для следующего решения: ряд ленты, если достоверен (без apply), иначе подтянуть рабочую книгу.
+    fn refresh_view(&mut self) {
+        self.view = if let Some(sd) = self.tracker.series() {
+            HoldDepth::Series(sd)
+        } else {
+            self.tracker.sync_book();
+            HoldDepth::Flat(std::ptr::from_ref(self.tracker.book()))
+        };
     }
 
     fn deny(&mut self) -> Result<hftbacktest::types::ElapseResult, BacktestError> {
@@ -329,7 +407,7 @@ impl<'a> FastBot<'a> {
     }
 }
 
-impl hftbacktest::types::Bot<FastMarketDepth> for FastBot<'_> {
+impl hftbacktest::types::Bot<HoldDepth> for FastBot<'_> {
     type Error = BacktestError;
 
     fn current_timestamp(&self) -> i64 {
@@ -344,8 +422,8 @@ impl hftbacktest::types::Bot<FastMarketDepth> for FastBot<'_> {
     fn state_values(&self, _: usize) -> &hftbacktest::types::StateValues {
         &self.values
     }
-    fn depth(&self, _: usize) -> &FastMarketDepth {
-        self.tracker.book()
+    fn depth(&self, _: usize) -> &HoldDepth {
+        &self.view
     }
     fn last_trades(&self, _: usize) -> &[Event] {
         &self.tracker.trades
@@ -559,7 +637,7 @@ pub(super) fn fast_hold_scan(
         let action = if skip {
             Action::Idle
         } else {
-            bot.tracker.sync_book();
+            bot.refresh_view();
             match on_event(bot, state) {
                 Ok(a) => a,
                 Err(_) => Action::Idle,
