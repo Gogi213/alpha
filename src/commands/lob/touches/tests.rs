@@ -598,8 +598,11 @@ fn abin_roundtrip_matches_records() {
         a.level_birth_ms = 900 - i;
         a.strength_e2 = [i * 7 - 1, -1, 12_345];
         a.touch_start_ms = (i % 3 == 0).then_some(a.arm_ms + 5);
-        a.disarm_reason = [ApproachEnd::Touch, ApproachEnd::LevelDeath, ApproachEnd::PriceLeft]
-            [(i % 3) as usize];
+        a.disarm_reason = [
+            ApproachEnd::Touch,
+            ApproachEnd::LevelDeath,
+            ApproachEnd::PriceLeft,
+        ][(i % 3) as usize];
         a.depth_behind_lots = i * 1_000_003;
         a.frontrun_lots_at_arm = if i == 5 { -1 } else { i };
         a.p08 = (i % 2 == 0).then_some(ArmP08 {
@@ -610,7 +613,10 @@ fn abin_roundtrip_matches_records() {
             size_max_60s_lots: 9,
             depth_behind50_lots: -2,
         });
-        rows.push(ApproachRow { day: "2026-01-01".into(), approach: a });
+        rows.push(ApproachRow {
+            day: "2026-01-01".into(),
+            approach: a,
+        });
     }
     // p08 то есть то нет в файле — не кэшируется (формат либо у всех, либо ни у кого)
     assert!(abin::encode_file(&rows, 7, 8).is_none());
@@ -619,8 +625,14 @@ fn abin_roundtrip_matches_records() {
     }
     let bytes = abin::encode_file(&rows, 7, 8).unwrap();
     assert_eq!(abin::decode_file(&bytes, 7, 8).unwrap(), rows);
-    assert!(abin::decode_file(&bytes, 7, 9).is_none(), "другой mtime — кэш негоден");
-    assert!(abin::decode_file(&bytes, 6, 8).is_none(), "другой размер — кэш негоден");
+    assert!(
+        abin::decode_file(&bytes, 7, 9).is_none(),
+        "другой mtime — кэш негоден"
+    );
+    assert!(
+        abin::decode_file(&bytes, 6, 8).is_none(),
+        "другой размер — кэш негоден"
+    );
     for r in &mut rows {
         r.approach.p08 = None;
     }

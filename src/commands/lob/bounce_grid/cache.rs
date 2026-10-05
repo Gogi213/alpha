@@ -125,7 +125,9 @@ pub(crate) fn cached_approaches<'a>(
             rows
         } else if flat.is_file() {
             if flat_rows.is_none() {
-                flat_rows = Some(crate::commands::lob::touches::read_approaches_cached(&flat)?);
+                flat_rows = Some(crate::commands::lob::touches::read_approaches_cached(
+                    &flat,
+                )?);
             }
             flat_rows
                 .as_ref()
