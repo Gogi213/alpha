@@ -20,6 +20,7 @@ use crate::commands::lob::backtest::{
     deadline_ns_from_secs, early_exit_ns_from_secs, feed_compact_into, open_replay_feed, EntryForm,
     PlanShape, PoolLot,
 };
+use crate::lob::backtest::shared_driver::{drive_cells_shared, SharedCell};
 use crate::lob::backtest::{
     drive_bounce, drive_bounce_windowed, drive_bounce_windowed_memo, precompute_exit_group,
     with_backtest_over, BounceRun, BounceSignal, CompactEvent, DriveConfig, ExecLatency,
@@ -215,8 +216,13 @@ fn exit_groups(
 /// буфер с готовой ёмкостью. Рост удвоением держал старый и новый буфер
 /// вместе (пик до 3× итога) и ронял сетку на сервере по OOM на сутках в
 /// ~20 млн событий (2026-09-18); второй декод дешевле памяти.
-pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>> {
+pub(super) fn day_events(
+    parts: &[PathBuf],
+    symbol: &str,
+    day: &str,
+) -> anyhow::Result<Vec<CompactEvent>> {
     let started = Instant::now();
+    let e2e_count = super::e2e::Mark::now();
     let mut total = 0usize;
     let mut counted_parts = 0usize;
     for path in parts {
@@ -232,6 +238,14 @@ pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>>
         };
     }
     let counted = started.elapsed().as_secs_f64();
+    super::e2e::stage(
+        symbol,
+        day,
+        "ev_count",
+        e2e_count,
+        serde_json::json!({ "parts": parts.len(), "counted_parts": counted_parts }),
+    );
+    let e2e_decode = super::e2e::Mark::now();
     // Р6: сутки — компактными событиями (32 Б вместо 64); круги разворачивают свой кусок сами.
     let mut events: Vec<CompactEvent> = Vec::with_capacity(total);
     for path in parts {
@@ -240,6 +254,13 @@ pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>>
     }
     // Кэш числа событий — только ёмкость буфера: разошёлся — буфер просто
     // вырос, круги те же; сайдкары переписываются честным пересчётом.
+    super::e2e::stage(
+        symbol,
+        day,
+        "ev_decode",
+        e2e_decode,
+        serde_json::json!({ "n_events": events.len() }),
+    );
     if events.len() != total {
         eprintln!(
             "bounce-grid:   события: кэш числа врал ({total} против {}), сайдкары пересчитаны",
@@ -408,6 +429,120 @@ struct FormOrder<'a> {
     sink: &'a mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
 }
 
+/// Результат формы `i` — в очередь по порядку форм; готовый префикс уходит в `sink`.
+fn deposit(
+    order: &Mutex<FormOrder<'_>>,
+    i: usize,
+    run: BounceRun,
+    signals: Vec<BounceSignal>,
+    skipped: u64,
+) -> anyhow::Result<()> {
+    let mut o = order
+        .lock()
+        .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
+    o.pending.insert(i, (run, signals, skipped));
+    loop {
+        let form = o.next_form;
+        let Some((run, signals, skipped)) = o.pending.remove(&form) else {
+            return Ok(());
+        };
+        let res = (o.sink)(FormDayResult { form, run, skipped }, &signals);
+        o.next_form += 1;
+        o.done += 1;
+        res?;
+    }
+}
+
+/// `ALPHA_SHARED_ENGINE=1` (TK-049): формы сутки идут по одной ленте и общим книгам (`drive_cells_shared`),
+/// пачками по `ALPHA_SHARED_CELLS` форм (умолчание 8) на поток; только `prob:<n>`, без памяти кругов.
+fn drive_day_shared(
+    events: DayRows<'_>,
+    touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
+    forms: &[GridForm],
+    p: &DayParams<'_>,
+    queue_n: f64,
+    sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
+) -> anyhow::Result<usize> {
+    let rows: Vec<HbtEvent> = match events {
+        DayRows::Compact(c) => c.iter().map(CompactEvent::expand).collect(),
+        DayRows::Wide(e) => e.to_vec(),
+        DayRows::Trimmed(c, k) => k.iter().map(|&i| c[i as usize].expand()).collect(),
+    };
+    let chunk = std::env::var("ALPHA_SHARED_CELLS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(8)
+        .max(1);
+    let chunks = forms.len().div_ceil(chunk);
+    let next = AtomicUsize::new(0);
+    let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
+    let order = Mutex::new(FormOrder {
+        pending: BTreeMap::new(),
+        next_form: 0,
+        done: 0,
+        sink,
+    });
+    std::thread::scope(|scope| {
+        for _ in 0..p.threads.max(1) {
+            scope.spawn(|| loop {
+                let c = next.fetch_add(1, Ordering::Relaxed);
+                if c >= chunks || failure.lock().map(|f| f.is_some()).unwrap_or(true) {
+                    break;
+                }
+                let (lo, hi) = (c * chunk, ((c + 1) * chunk).min(forms.len()));
+                let done = (|| -> anyhow::Result<()> {
+                    let mut cells = Vec::with_capacity(hi - lo);
+                    let mut meta = Vec::with_capacity(hi - lo);
+                    for form in &forms[lo..hi] {
+                        let (signals, skipped) =
+                            signals_for(touches, approaches, p.sigma, form, p)?;
+                        let cfg = DriveConfig {
+                            order_qty: 0.0,
+                            first_order_id: 1,
+                            queue_model: p.queue_model,
+                            busy_skip: p.busy_skip,
+                            hold_skip: p.hold_skip,
+                        };
+                        cells.push(SharedCell {
+                            signals: signals.clone(),
+                            cfg,
+                        });
+                        meta.push((signals, skipped));
+                    }
+                    let runs =
+                        drive_cells_shared(rows.clone(), p.tick, p.lot, p.rtt_ns, queue_n, cells)
+                            .map_err(|e| anyhow::anyhow!("формы #{lo}..{hi}: {e}"))?;
+                    for (k, (run, (signals, skipped))) in runs.into_iter().zip(meta).enumerate() {
+                        deposit(&order, lo + k, run, signals, skipped)?;
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = done {
+                    if let Ok(mut f) = failure.lock() {
+                        if f.is_none() {
+                            *f = Some(e);
+                        }
+                    }
+                    break;
+                }
+            });
+        }
+    });
+    if let Some(e) = failure.into_inner().ok().flatten() {
+        return Err(e);
+    }
+    let o = order
+        .into_inner()
+        .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
+    anyhow::ensure!(
+        o.pending.is_empty(),
+        "формы без записи в дамп: {}",
+        o.pending.len()
+    );
+    Ok(o.done)
+}
+
 /// Все формы над одними сутками: потоки берут формы по счётчику. `Setups`
 /// — один проход книги на сутки (`SignalWindows`, общий для форм), дальше у
 /// каждой формы движок только внутри кругов; `Full` — у каждой формы свой
@@ -444,6 +579,11 @@ pub(super) fn drive_day(
     if p.exit_group && !p.busy_skip {
         if let (Some(w), Some(ms)) = (windows, p.memos) {
             exit_groups(events, w, touches, approaches, forms, &p, ms)?;
+        }
+    }
+    if windows.is_some() && p.memos.is_none() && std::env::var_os("ALPHA_SHARED_ENGINE").is_some() {
+        if let QueueModelKind::Prob { n } = p.queue_model {
+            return drive_day_shared(events, touches, approaches, forms, &p, n, sink);
         }
     }
     let next = AtomicUsize::new(0);
@@ -529,29 +669,8 @@ pub(super) fn drive_day(
                             .map_err(|e| anyhow::anyhow!("форма #{i}: {e}"))
                     },
                 );
-                let flushed = match step {
-                    Ok((run, signals, skipped)) => match order.lock() {
-                        Ok(mut o) => {
-                            o.pending.insert(i, (run, signals, skipped));
-                            let mut res = Ok(());
-                            loop {
-                                let form = o.next_form;
-                                let Some((run, signals, skipped)) = o.pending.remove(&form) else {
-                                    break;
-                                };
-                                res = (o.sink)(FormDayResult { form, run, skipped }, &signals);
-                                o.next_form += 1;
-                                o.done += 1;
-                                if res.is_err() {
-                                    break;
-                                }
-                            }
-                            res
-                        }
-                        Err(_) => Err(anyhow::anyhow!("результаты форм: мьютекс")),
-                    },
-                    Err(e) => Err(e),
-                };
+                let flushed = step
+                    .and_then(|(run, signals, skipped)| deposit(&order, i, run, signals, skipped));
                 if let Err(e) = flushed {
                     if let Ok(mut f) = failure.lock() {
                         if f.is_none() {
