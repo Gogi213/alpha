@@ -3708,6 +3708,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                     (&buf[..], i >= events.len())
                 }
             };
+            gstats::window((sig.t0_ns, attempt, w.start, rest.len()), rest.len());
             note_attempt(attempt, rest.len());
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).

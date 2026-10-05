@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::OnceLock;
 
-pub const NAMES: [&str; 36] = [
+pub const NAMES: [&str; 40] = [
     "eg_calls",
     "eg_forms",
     "sigs",
@@ -40,6 +40,10 @@ pub const NAMES: [&str; 36] = [
     "grp_ns",
     "grp_hold_ns",
     "solo_ns",
+    "win_calls",
+    "win_distinct",
+    "win_rows",
+    "win_rows_distinct",
 ];
 pub const EG_CALLS: usize = 0;
 pub const EG_FORMS: usize = 1;
@@ -71,8 +75,12 @@ pub const FAST_SWAPPED: usize = 32;
 pub const GRP_NS: usize = 33;
 pub const GRP_HOLD_NS: usize = 34;
 pub const SOLO_NS: usize = 35;
+pub const WIN_CALLS: usize = 36;
+pub const WIN_DISTINCT: usize = 37;
+pub const WIN_ROWS: usize = 38;
+pub const WIN_ROWS_DISTINCT: usize = 39;
 
-static C: [AtomicU64; 36] = [const { AtomicU64::new(0) }; 36];
+static C: [AtomicU64; 40] = [const { AtomicU64::new(0) }; 36];
 
 pub fn on() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
@@ -113,11 +121,11 @@ pub fn part_size(n: usize) {
     add(SZ1 + b, 1);
 }
 
-pub fn snapshot() -> [u64; 36] {
+pub fn snapshot() -> [u64; 40] {
     std::array::from_fn(|i| C[i].load(Relaxed))
 }
 
-pub fn line(before: &[u64; 36]) -> String {
+pub fn line(before: &[u64; 40]) -> String {
     let now = snapshot();
     NAMES
         .iter()
@@ -125,4 +133,23 @@ pub fn line(before: &[u64; 36]) -> String {
         .map(|(n, (a, b))| format!("{n}={}", a.saturating_sub(*b)))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Окно кругов (t0, попытка): сколько раз развёрнуто и сколько разных (K = calls / distinct); ключ глобальный, суток не сбрасывается.
+pub fn window(key: (i64, u32, usize, usize), rows: usize) {
+    if !on() {
+        return;
+    }
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<(i64, u32, usize, usize)>>> =
+        std::sync::Mutex::new(None);
+    let new = SEEN
+        .lock()
+        .map(|mut g| g.get_or_insert_with(Default::default).insert(key))
+        .unwrap_or(false);
+    add(WIN_CALLS, 1);
+    add(WIN_ROWS, rows as u64);
+    if new {
+        add(WIN_DISTINCT, 1);
+        add(WIN_ROWS_DISTINCT, rows as u64);
+    }
 }
