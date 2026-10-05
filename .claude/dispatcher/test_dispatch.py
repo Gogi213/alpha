@@ -688,7 +688,8 @@ class DispatchRunTests(unittest.TestCase):
         self._orig = {k: getattr(D, k) for k in
                       ("TICKETS_DIR", "PROJECT_ROOT", "STATE_FILE", "RUNS_DIR", "RUNS_LOG",
                        "CEO_INBOX", "CEO_WAKE_LOG", "CLAUDE_BIN", "MAX_PARALLEL", "RUN_TIMEOUT",
-                       "PID_EXPECT_NAME", "STOP_DIR", "STOP_VERIFY_S")}
+                       "PID_EXPECT_NAME", "STOP_DIR", "STOP_VERIFY_S", "ROLE_PARALLEL")}
+        D.ROLE_PARALLEL = {}  # предел по умолчанию (1 на роль), независимо от ALPHA_DISPATCH_ROLE_PARALLEL в окружении
         D.TICKETS_DIR = self.tickets_dir
         D.PROJECT_ROOT = self.base
         D.STATE_FILE = self.dispatcher_dir / "state.json"
@@ -941,6 +942,37 @@ class DispatchRunTests(unittest.TestCase):
         self.wait_running()
         D.tick()
         self.assertIn(second.stem, D.RUNNING, "роль освободилась — вторая задача берётся")
+
+    def test_role_parallel_limit_two_allows_second_ticket_not_third(self):
+        """ALPHA_DISPATCH_ROLE_PARALLEL=engineer:2 (CEO 05.10): две задачи роли идут параллельно, третья ждёт;
+        на тот же тикет второй запуск роли не стартует никогда (даже при большом пределе)."""
+        self.set_fake_bin(FAKE_BIN_SLOW_OK)
+        D.MAX_PARALLEL = 5
+        D.ROLE_PARALLEL = {"engineer": 2}
+        first = T.create_ticket(self.tickets_dir, owner="engineer", title="Первая")
+        second = T.create_ticket(self.tickets_dir, owner="engineer", title="Вторая")
+        third = T.create_ticket(self.tickets_dir, owner="engineer", title="Третья")
+        D.tick()
+        self.assertEqual(len(D.RUNNING), 2)
+        self.assertIn(first.stem, D.RUNNING)
+        self.assertIn(second.stem, D.RUNNING)
+        self.assertNotIn(third.stem, D.RUNNING, "предел роли 2 — третья задача ждёт")
+        pids = {tid: info["pid"] for tid, info in D.RUNNING.items()}
+        D.ROLE_PARALLEL = {"engineer": 5}
+        D.tick()  # предел больше числа задач: свободных тикетов роли — один (третий), уже идущие второй раз не берутся
+        self.assertEqual(sorted(D.RUNNING), sorted([first.stem, second.stem, third.stem]))
+        for tid, pid in pids.items():
+            self.assertEqual(D.RUNNING[tid]["pid"], pid, "на тот же тикет второй запуск роли не стартует")
+        self.wait_running()
+
+    def test_role_parallel_parse(self):
+        self.assertEqual(D._parse_role_parallel("engineer:3,researcher:1"), {"engineer": 3, "researcher": 1})
+        self.assertEqual(D._parse_role_parallel(""), {})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            parsed = D._parse_role_parallel("engineer:abc,judge:0,researcher,:2,engineer:2")
+        self.assertEqual(parsed, {"engineer": 2}, "мусор игнорируется, остальное разбирается")
+        self.assertEqual(err.getvalue().count("ALPHA_DISPATCH_ROLE_PARALLEL"), 4, "по предупреждению на каждую пару")
 
     def test_role_scope_serializes_and_shares_session(self):
         """judge со scope "role" (только по env/правке словаря): вторая задача продолжает ту же сессию;
@@ -3631,6 +3663,71 @@ class ZombieAndInstanceLockTests(unittest.TestCase):
                 D.PID_FILE, D.TICKETS_DIR, D.tick = orig
                 holder.kill()
                 holder.wait(timeout=10)
+
+
+class WaitByEventTest(unittest.TestCase):
+    """TK-055: wait_for host:… закрывается событием шины; в асинхронном режиме основной поток ssh не зовёт."""
+
+    def setUp(self):
+        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear()
+        self._run, self._async = D.subprocess.run, D.WAIT_ASYNC
+
+        def boom(*a, **k):
+            raise AssertionError("ssh в основном потоке")
+        D.subprocess.run = boom
+
+    def tearDown(self):
+        D.subprocess.run, D.WAIT_ASYNC = self._run, self._async
+        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear()
+
+    def test_unit_stopped_event(self):
+        D.WAIT_ASYNC = True
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk1-a"))
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk1-a.service", "host": "calc"}})
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk1-a"))
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk1-a.service"))
+        self.assertFalse(D.check_wait_for("host:vps:unit:tk1-a"))
+
+    def test_job_done_and_file_events(self):
+        D.WAIT_ASYNC = True
+        D.record_wait_event({"addr": "задача.TK-1.задание.готово", "payload": {"job": "j1", "host": "calc"}})
+        self.assertTrue(D.check_wait_for("host:calc:/data/progress/j1.json"))
+        D.record_wait_event({"addr": "машина.vps.файл.появился", "payload": {"path": "/x/DONE", "host": "vps"}})
+        self.assertTrue(D.check_wait_for("host:vps:/x/DONE"))
+        self.assertFalse(D.check_wait_for("host:calc:/x/DONE"))
+
+
+class TokenAccountingTest(unittest.TestCase):
+    """TK-055: токены запуска без JSON (таймаут) — из транскрипта сессии; сводка usage.py читает и старые строки."""
+
+    def test_transcript_usage_since_dedups_by_message_id(self):
+        from datetime import datetime, timezone
+        d = Path(tempfile.mkdtemp()) / "proj"
+        d.mkdir()
+        rows = [
+            {"timestamp": "2026-10-05T10:00:00Z", "message": {"id": "old", "usage": {"input_tokens": 99}}},
+            {"timestamp": "2026-10-05T12:00:01Z", "message": {"id": "m1", "usage": {"input_tokens": 1, "output_tokens": 5}}},
+            {"timestamp": "2026-10-05T12:00:02Z", "message": {"id": "m1", "usage": {
+                "input_tokens": 1, "cache_read_input_tokens": 700, "cache_creation_input_tokens": 30, "output_tokens": 9}}},
+            {"timestamp": "2026-10-05T12:01:00Z", "message": {"id": "m2", "usage": {"input_tokens": 2, "output_tokens": 1}}},
+        ]
+        (d / "sess-1.jsonl").write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        orig = D.CLAUDE_PROJECTS_DIR
+        D.CLAUDE_PROJECTS_DIR = d.parent
+        try:
+            u = D._transcript_usage_since("sess-1", datetime(2026, 10, 5, 12, 0, 0, tzinfo=timezone.utc))
+            self.assertEqual(u, {"input_tokens": 3, "cache_read_input_tokens": 700,
+                                 "cache_creation_input_tokens": 30, "output_tokens": 10})
+            self.assertEqual(D._transcript_usage_since("nope", "2026-10-05T12:00:00+00:00"), {})
+        finally:
+            D.CLAUDE_PROJECTS_DIR = orig
+
+    def test_usage_parse_old_and_new_lines(self):
+        import usage as U
+        old = U.parse("2026-10-05T23:10:30+04:00 TK-1 engineer reason=todo in_tok=16 out_tok=100 ctx_sum=1016 status=ok")
+        self.assertEqual((old["in"], old["cache_all"], old["cr"]), (16, 1000, None))
+        new = U.parse("2026-10-05T23:10:30+04:00 TK-1 engineer reason=todo in_tok=1 out_tok=2 cr_tok=30 cw_tok=4 status=timeout")
+        self.assertEqual((new["cr"], new["cw"], new["cache_all"], new["status"]), (30, 4, 34, "timeout"))
 
 
 if __name__ == "__main__":

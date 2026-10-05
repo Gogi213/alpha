@@ -469,6 +469,7 @@ fn lob_help_lists_all_subcommands() {
         "touch-profiles",
         "touches",
         "trades",
+        "validate",
         "verify",
         "watch",
     ];

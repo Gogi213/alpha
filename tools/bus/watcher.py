@@ -57,7 +57,8 @@ def is_done(o):
 
 class Watcher:
     def __init__(self, host, patterns, exclude, progress_glob, post=busclient.post, snap=snapshot, showf=show,
-                 prog=read_progress):
+                 prog=read_progress, watch_file="/data/progress/watch.list", exists=os.path.exists):
+        self.watch_file, self.exists, self.files_seen = watch_file, exists, set()
         self.host, self.patterns, self.exclude = host, patterns, exclude
         self.pg, self.post, self.snap, self.showf, self.prog = progress_glob, post, snap, showf, prog
         self.running = {}   # unit -> InvocationID
@@ -121,8 +122,29 @@ class Watcher:
                 ev.append((f"задача.{tk}.задание.ход", pl, f"prog:{self.host}:{job}:step:{step}:{stamp}"))
         return ev
 
+    def file_events(self):
+        """Пути из watch_file (по строке; их дописывает диспетчер) — появление файла = событие; проверка os.path.exists
+        по списку, без обхода каталогов."""
+        ev = []
+        try:
+            with open(self.watch_file, encoding="utf-8") as f:
+                paths = [ln.strip() for ln in f if os.path.isabs(ln.strip())]
+        except OSError:
+            return ev
+        for p in paths:
+            if p in self.files_seen or not self.exists(p):
+                continue
+            self.files_seen.add(p)
+            try:
+                stamp = int(os.stat(p).st_mtime)
+            except OSError:
+                stamp = 0
+            ev.append((f"машина.{self.host}.файл.появился", {"path": p, "host": self.host},
+                       f"file:{self.host}:{p}:{stamp}"))
+        return ev
+
     def run_once(self):
-        events = self.tick(self.prog(self.pg))
+        events = self.tick(self.prog(self.pg)) + self.file_events()
         for addr, payload, eid in events:
             self.post(addr, payload, eid, 5)
         return events
