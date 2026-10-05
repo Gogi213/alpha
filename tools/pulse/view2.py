@@ -346,12 +346,22 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
-    def fact(e) -> str:  # заголовок записи как есть: без скобок, путей, хэшей и обрывков
-        s = re.sub(r"\([^)]*\)?", " ", entry_title(e))
+    def fact(e, limit: int = 56) -> str:  # заголовок записи: без скобок, путей, хэшей; резка по границе слова/фразы
+        s = re.sub(r"[\s–—,-]*@@[\s@–—,-]*", " ", re.sub(r"\([^)]*\)?", "@@", entry_title(e)))
         s = re.sub(r"(?<![\w])[0-9a-f]{7,40}(?![\w])|коммит|п\.\d+", " ", _TECH.sub(" ", s))
-        s = re.sub(r"\s+([,.:;])", lambda m: m.group(1), re.sub(r"\s+", " ", s)).strip(" ,.;:—–-…")
+        s = re.sub(r"\s+", " ", s)
+        s = re.sub(r"\s*[–—-]\s*(?=[,.;:])|\s+[–—-]\s*$", "", s)
+        s = re.sub(r"\s+([,.:;])", lambda m: m.group(1), s).strip(" ,.;:—–-…·")
+        if len(s) > limit:
+            cut = s[: limit + 1]
+            k = max((cut.rfind(x) for x in (", ", "; ", ": ", " — ", " – ")), default=-1)
+            if k < 24:  # заголовок до первого двоеточия, если он короткий, но осмысленный
+                k = next((i for i in (s.find(": "), s.find(" — ")) if 14 <= i <= limit), k)
+            k = k if k >= 14 else -1
+            cut = cut[:k] if k >= 14 else cut[: cut.rfind(" ")] if " " in cut else cut
+            s = cut.rstrip(" ,.;:—–-·") + ("" if k >= 14 else "…")
         s = re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|юнит|–|-))+$", "", s)
-        return s.strip(" ,.;:—–-…") or "запись роли"
+        return s.strip(" ,.;:—–-…·") or "запись роли"
 
     # --- записи ролей из лога тикета
     def role_entries(t) -> list:
@@ -361,7 +371,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         txt = H.clean_text(e.text)
         txt = re.sub(r"^(?:Инженер|Исследователь|Судья|CEO)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
         txt = re.sub(r"^\W*Итог(?:\s+шага\s*\([^)]*\))?\W*(?:[0-9a-f]{7,40}\W+)?", "", txt, flags=re.I)
-        return H.first_phrase(txt or H.clean_text(e.text), AUTO_TITLE_LEN)
+        return H.first_phrase(txt or H.clean_text(e.text), 200)
 
     # задание с чужим (закрытым/неизвестным) тикетом в /data/progress → открытый тикет, что его запустил (wait_for / лог)
     open_ids = [i for i, t in tickets.items() if t.status not in ("done", "stopped")]
@@ -541,7 +551,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(p["id"], e.text):
                 continue
             feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
-                                            "text": H.clip(f"{H.short_title(p['title'], 28)}: {fact(e)}", 76)}))
+                                            "text": fact(e), "_tid": p["id"], "_title": H.short_title(p["title"], 20)}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a:
@@ -552,6 +562,14 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             feed.append((b.timestamp(), {"time": H.news_time(b), "state": "done", "on": [q.get("on", "pc")], "to": None,
                                          "text": f"ответ владельца: {q.get('answer_label')}"}))
     feed.sort(key=lambda x: x[0])
+    last = [f for _, f in feed[-6:]]
+    for i in range(len(last) - 1, -1, -1):  # префикс задачи — только у самой свежей строки подряд идущих одной задачи
+        d = last[i]
+        tid, title = d.get("_tid"), d.pop("_title", None)
+        if tid and not (i + 1 < len(last) and last[i + 1].get("_tid") == tid):
+            d["text"] = f"{title}: {d['text']}"
+    for d in last:
+        d.pop("_tid", None)
 
     # --- заголовок, счётчики
     problems = [f"нет связи: {m['name']}" for m in machines if m["id"] != "deck" and m["state"] == "down"]
@@ -573,4 +591,4 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         p.pop("has_plan", None)
     return {"time": now_dt.strftime("%H:%M"), "built_ts": round(now, 1), "tick_s": getattr(H, "TICK_S", 5), "headline": head,
             "counters": cnt, "progress": progress, "tags": TAGS, "machines": mviews, "waves": waves, "processes": procs,
-            "questions": questions, "feed": [f for _, f in feed[-6:]]}
+            "questions": questions, "feed": last}

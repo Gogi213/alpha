@@ -160,7 +160,7 @@
     let msg = null, short = "связь есть", ok = true;
     if (!loaded) { short = netFail ? "НЕТ СВЯЗИ" : "загрузка"; ok = false; if (netFail) msg = ["НЕТ СВЯЗИ", "сервер не отвечает, сводки ещё нет"]; }
     else {
-      const age = ageAt + (Date.now() - fetchedAt) / 1000, tick = Number(V.tick_s) || 5, limit = 2 * tick + 5;
+      const age = ageAt + (Date.now() - fetchedAt) / 1000, tick = Number(V.tick_s) || 5, limit = 3 * tick + 15;
       if (netFail) { short = "НЕТ СВЯЗИ"; ok = false; msg = ["НЕТ СВЯЗИ", "сервер не отвечает, показана последняя сводка"]; }
       else if (age > limit) { short = "СВОДКА УСТАРЕЛА"; ok = false; msg = ["СВОДКА УСТАРЕЛА " + fmtAge(age), "ПК не передаёт данные, показана последняя сводка"]; }
     }

@@ -943,6 +943,16 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
         t = tickets.get(tid)
         return tid in live or (t is not None and t.status in ACTIVE)
 
+    def owner_by_log(name):  # дочерний юнит (stand-…-alpha-b14flag): тикет, в чьём wait_for/свежем логе назван юнит или его метка
+        toks = [x for x in re.split(r"[-_]", name) if len(x) >= 5 and x not in ("stand", "alpha", "bench", "wave")]
+        for tid, t in tickets.items():
+            if t.status not in ACTIVE:
+                continue
+            blob = str(t.header.get("wait_for") or "") + " ".join(getattr(e, "text", "") for e in (t.log or [])[-8:])
+            if name in blob or any(x in blob for x in toks):
+                return tid
+        return None
+
     entries: list = []  # {tid, mid, kind: job|proc|build|session|unit, what, eta, text, pct, detail, minutes}
     warns: dict = {}
 
@@ -971,7 +981,8 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
         lock = m.get("lock") or {}
         for g in m.get("procs", []):
             name, mins = g["name"], g["minutes"]
-            tid = tk_norm(name, prefix=True)
+            tid = tk_norm(name, prefix=True) or (
+                owner_by_log(name) if name not in UNIT_DO and name not in legacy and not is_build_proc(name) else None)
             if tid:
                 if active(tid):
                     if (tid, mid) not in job_at:
