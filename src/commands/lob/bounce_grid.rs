@@ -156,6 +156,49 @@ struct SharedEvents {
     windows: BTreeMap<CarryKey, SharedWindows>,
     /// `t0` всех прогонов символа по суткам, заранее из кэшей касаний/подходов: окна строятся один раз на все.
     pre_t0: BTreeMap<String, Vec<i64>>,
+    /// Разобранный кэш касаний/подходов символа (TK-052): `prescan_t0` и `run_symbol` каждого прогона читали один CSV
+    /// заново; запись — ключ (каталог, подходы?, сутки), «колонки ret_* проверены», сутки.
+    touches: Vec<(TouchKey, bool, Vec<DayTouches>)>,
+}
+
+type TouchKey = (PathBuf, bool, Vec<String>);
+
+/// Кэш касаний/подходов через память символа: попадание — клон записей (memcpy), промах — разбор CSV.
+/// `need_ret` касается только касаний; запись без проверки `ret_*` не годится для запроса с `need_ret`.
+fn load_cached_days<'a>(
+    shared: Option<&mut SharedEvents>,
+    dir: &std::path::Path,
+    symbol: &str,
+    days: impl Iterator<Item = &'a String>,
+    approach: bool,
+    need_ret: bool,
+) -> anyhow::Result<Vec<DayTouches>> {
+    let day_list: Vec<String> = days.cloned().collect();
+    let key: TouchKey = (dir.to_path_buf(), approach, day_list);
+    let checked = need_ret || approach;
+    if let Some(s) = shared.as_deref() {
+        if s.symbol == symbol {
+            if let Some((_, _, v)) = s
+                .touches
+                .iter()
+                .find(|(k, ok, _)| *k == key && (*ok || !checked))
+            {
+                return Ok(v.clone());
+            }
+        }
+    }
+    let out = if approach {
+        cached_approaches(dir, symbol, key.2.iter())?
+    } else {
+        cached_touches(dir, symbol, key.2.iter(), need_ret)?
+    };
+    if let Some(s) = shared {
+        if s.symbol == symbol {
+            s.touches.retain(|(k, _, _)| *k != key);
+            s.touches.push((key, checked, out.clone()));
+        }
+    }
+    Ok(out)
 }
 
 type SharedWindows = (Vec<i64>, u64, u64, Arc<SignalWindows>);
@@ -169,11 +212,12 @@ impl SharedEvents {
         }
     }
 
-    fn set_pre(&mut self, symbol: &str, pre: BTreeMap<String, Vec<i64>>) {
+    fn reset(&mut self, symbol: &str) {
         self.symbol = symbol.to_string();
         self.map.clear();
         self.windows.clear();
-        self.pre_t0 = pre;
+        self.touches.clear();
+        self.pre_t0.clear();
     }
 
     fn put(&mut self, symbol: &str, key: CarryKey, hit: SharedHit) {
@@ -181,6 +225,7 @@ impl SharedEvents {
             self.symbol = symbol.to_string();
             self.map.clear();
             self.windows.clear();
+            self.touches.clear();
             self.pre_t0.clear();
         }
         self.map.insert(key, hit);
@@ -272,15 +317,16 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
     }
     let mut shared = SharedEvents::default();
     for symbol in &order {
+        shared.reset(symbol);
         let mut pre: BTreeMap<String, Vec<i64>> = BTreeMap::new();
         if !args.windows_check {
             for r in runs.iter().filter(|r| r.symbols.contains(symbol)) {
-                for (day, t0s) in r.prescan_t0(symbol) {
+                for (day, t0s) in r.prescan_t0(symbol, &mut shared) {
                     pre.entry(day).or_default().extend(t0s);
                 }
             }
         }
-        shared.set_pre(symbol, pre);
+        shared.pre_t0 = pre;
         for r in runs.iter_mut() {
             if r.symbols.contains(symbol) {
                 r.run_symbol(symbol, Some(&mut shared))?;
@@ -307,7 +353,7 @@ fn run_bounce_grid_inner(args: &BounceGridArgs) -> anyhow::Result<BounceGridSumm
 impl<'a> GridRun<'a> {
     /// `t0` сетапов прогона по суткам из кэша касаний/подходов (дёшево, без реплея); нет кэша — пусто:
     /// тогда окна строятся прежним объединением по ходу прогонов.
-    fn prescan_t0(&self, symbol: &str) -> BTreeMap<String, Vec<i64>> {
+    fn prescan_t0(&self, symbol: &str, shared: &mut SharedEvents) -> BTreeMap<String, Vec<i64>> {
         let args = self.args;
         let mut out = BTreeMap::new();
         let Some(dir) = args.touches_from.as_deref() else {
@@ -318,11 +364,14 @@ impl<'a> GridRun<'a> {
         };
         let days: std::collections::BTreeSet<String> =
             parts.iter().map(|p| p.day_utc.clone()).collect();
-        let got = if args.signal == SignalArg::Approach {
-            cached_approaches(dir, symbol, days.iter())
-        } else {
-            cached_touches(dir, symbol, days.iter(), false)
-        };
+        let got = load_cached_days(
+            Some(shared),
+            dir,
+            symbol,
+            days.iter(),
+            args.signal == SignalArg::Approach,
+            false,
+        );
         for d in got.unwrap_or_default() {
             let t0s = d
                 .touches
@@ -562,7 +611,14 @@ impl<'a> GridRun<'a> {
             // Суток в кэше нет — символ пропускается, а не роняет весь прогон
             // (как у `lob fill-capacity --targets approaches`, F2): реплея
             // подходов у сетки нет, полосу `D` знает только прогон F1.
-            let Ok(days) = cached_approaches(dir, symbol, parts_by_day.keys()) else {
+            let Ok(days) = load_cached_days(
+                shared.as_deref_mut(),
+                dir,
+                symbol,
+                parts_by_day.keys(),
+                true,
+                false,
+            ) else {
                 eprintln!(
                     "bounce-grid: {symbol} — кэш подходов не годится, символ пропущен (нужен прогон `lob touches --approach-bps D`)"
                 );
@@ -600,11 +656,16 @@ impl<'a> GridRun<'a> {
             summary.symbols_from_cache += 1;
             (days, SigmaSeries::from_mids(&[]))
         } else {
-            match args
-                .touches_from
-                .as_deref()
-                .map(|dir| cached_touches(dir, symbol, parts_by_day.keys(), need_ret))
-            {
+            match args.touches_from.as_deref().map(|dir| {
+                load_cached_days(
+                    shared.as_deref_mut(),
+                    dir,
+                    symbol,
+                    parts_by_day.keys(),
+                    false,
+                    need_ret,
+                )
+            }) {
                 Some(Ok(days)) => {
                     summary.symbols_from_cache += 1;
                     (days, SigmaSeries::from_mids(&[]))

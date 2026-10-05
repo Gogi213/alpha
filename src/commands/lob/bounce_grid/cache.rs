@@ -18,6 +18,7 @@ pub(super) fn eaten_pct(t: &TouchRecord) -> f64 {
 }
 
 /// Касания одних суток символа — из реплея или из кэша, форме всё равно.
+#[derive(Clone)]
 pub(crate) struct DayTouches {
     pub(crate) day: String,
     pub(crate) touches: Vec<TouchRecord>,
