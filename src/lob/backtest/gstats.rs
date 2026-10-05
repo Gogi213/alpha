@@ -92,7 +92,10 @@ pub fn t0() -> Option<std::time::Instant> {
 
 pub fn add_ns(i: usize, t: Option<std::time::Instant>) {
     if let Some(t) = t {
-        C[i].fetch_add(u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
+        C[i].fetch_add(
+            u64::try_from(t.elapsed().as_nanos()).unwrap_or(u64::MAX),
+            Relaxed,
+        );
     }
 }
 
