@@ -177,6 +177,8 @@
 .d3 .hbar h1{margin:0;font-size:calc(var(--fs)*1.25);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
 .d3 .chips{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1ch}
 .d3 .chip{font:inherit;color:inherit;text-shadow:inherit;background:transparent;border:1px solid rgba(var(--fg-rgb),.4);padding:.1em 1.1ch;cursor:pointer;display:inline-flex;align-items:center;white-space:nowrap}
+.d3 .tc{display:inline-flex}
+.d3 .chipx{border-left:0;padding:.1em .9ch}
 .d3 .chip:hover{border-color:var(--fg)}
 .d3 .chip[aria-pressed="true"]{border-color:var(--fg);background:rgba(var(--fg-rgb),.14);box-shadow:0 0 12px rgba(var(--fg-rgb),.35),inset 0 -2px 0 var(--fg)}
 .d3 .chip b{color:var(--hot)}
@@ -254,7 +256,8 @@
     const when = age == null ? "сводки ещё нет" : stale ? `молчит ${fmtMin(age / 60)}` : "на связи";
     const mach = arr(v && v.machines).map((m) => tagOf(m.id).name).join(", ");
     const tip = [`${t.name} — ${when}`, mach, v ? `в работе ${run}, ждут ${todo}` : "", v ? (nq ? `вопросов к вам: ${nq}` : "вопросов к вам нет") : ""].filter(Boolean).join("\n");
-    return `<button type="button" class="chip" data-act="team" data-id="${E(t.id)}" aria-pressed="${t.id === ui.team}" title="${E(tip)}">${lamp(lp)}<b>${E(t.name)}</b>${v ? `<span class="cn">${run}·${todo}</span>` : ""}${nq ? `<span class="cq">?${nq}</span>` : ""}</button>`;
+    const x = t.id !== "alpha" && t.id === ui.team ? `<button type="button" class="chip chipx" data-del="${E(t.id)}" data-name="${E(t.name)}" title="Удалить команду" aria-label="Удалить команду ${E(t.name)}">×</button>` : "";
+    return `${x ? '<span class="tc">' : ""}<button type="button" class="chip" data-act="team" data-id="${E(t.id)}" aria-pressed="${t.id === ui.team}" title="${E(tip)}">${lamp(lp)}<b>${E(t.name)}</b>${v ? `<span class="cn">${run}·${todo}</span>` : ""}${nq ? `<span class="cq">?${nq}</span>` : ""}</button>${x ? x + "</span>" : ""}`;
   };
 
   const pane = (v) => {
@@ -291,9 +294,10 @@
     <div class="md-h"><span id="md-t">Подключить команду</span><button type="button" class="md-x" id="md-x" aria-label="Закрыть">×</button></div>
     <div id="md-s1"><label class="md-l" for="md-name">Имя команды</label><input class="md-in" id="md-name" type="text" maxlength="40" placeholder="например: Инвойс" autocomplete="off">
       <p class="md-how dim" id="md-err" hidden></p><div class="md-ok"><button type="button" class="cbtn" id="md-make">Выдать ключ</button></div></div>
-    <div id="md-s2" hidden><span class="md-l">Адрес</span><div class="md-key"><code class="md-code" id="md-url"></code><button type="button" class="cbtn no" data-copy="md-url">Копировать</button></div>
-      <span class="md-l">Ключ этой команды (показан один раз)</span><div class="md-key"><code class="md-code" id="md-code"></code><button type="button" class="cbtn no" data-copy="md-code">Копировать</button></div>
-      <p class="md-how dim">на том компьютере в настройках плагина укажите адрес (RPV_BOARD_URL) и ключ (RPV_BOARD_KEY) — сборщик сам начнёт присылать сводку</p>
+    <div id="md-s3" hidden><p class="md-how" id="md-del-q"></p><p class="md-how dim">Ключ команды отзовётся, её сводки больше не принимаются.</p>
+      <div class="md-ok"><button type="button" class="cbtn no" id="md-del-no">Отмена</button> <button type="button" class="cbtn" id="md-del-yes">Удалить</button></div></div>
+    <div id="md-s2" hidden><span class="md-l">Строка подключения (ключ виден один раз)</span><div class="md-key"><code class="md-code" id="md-code"></code><button type="button" class="cbtn no" data-copy="md-code">Копировать</button></div>
+      <p class="md-how dim">на том компьютере положите её в настройку плагина RPV_BOARD — сборщик сам начнёт присылать сводку</p>
       <div class="md-ok"><button type="button" class="cbtn" id="md-done">Готово</button></div></div></div></div>`;
 
   Board.start({
@@ -306,18 +310,30 @@
 
   const $ = (id) => document.getElementById(id), md = $("md");
   const closeM = () => { md.hidden = true; const o = $("md-open"); if (o) o.focus(); };
+  let delId = null;
+  const show = (k) => { ["md-s1", "md-s2", "md-s3"].forEach((i) => { $(i).hidden = i !== k; }); md.hidden = false; };
+  async function del() {
+    try {
+      const r = await fetch("teams/" + delId + "/delete", { method: "POST" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      closeM(); Board.poll();
+    } catch (x) { $("md-del-q").textContent = "не получилось: " + x.message; }
+  }
   async function make() {
     const err = $("md-err"); err.hidden = true;
     try {
       const r = await fetch("teams", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("md-name").value }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "HTTP " + r.status);
-      $("md-url").textContent = location.origin + location.pathname.replace(/[^/]*$/, "");
-      $("md-code").textContent = d.key; $("md-s1").hidden = true; $("md-s2").hidden = false;
+      $("md-code").textContent = location.origin + location.pathname.replace(/[^/]*$/, "") + "#" + d.key; $("md-s1").hidden = true; $("md-s2").hidden = false;
     } catch (x) { err.textContent = "не получилось: " + x.message; err.hidden = false; }
   }
   document.addEventListener("click", (e) => {
-    if (e.target.closest("#md-open")) { $("md-s1").hidden = false; $("md-s2").hidden = true; $("md-err").hidden = true; $("md-name").value = ""; md.hidden = false; $("md-name").focus(); }
+    const dx = e.target.closest("[data-del]");
+    if (dx) { delId = dx.dataset.del; $("md-del-q").textContent = "Удалить команду «" + dx.dataset.name + "»?"; $("md-t").textContent = "Удалить команду"; show("md-s3"); $("md-del-no").focus(); }
+    else if (e.target.closest("#md-del-no")) closeM();
+    else if (e.target.closest("#md-del-yes")) del();
+    else if (e.target.closest("#md-open")) { $("md-t").textContent = "Подключить команду"; $("md-name").value = ""; $("md-err").hidden = true; show("md-s1"); $("md-name").focus(); }
     else if (e.target.closest("#md-x,#md-done") || e.target === md) { closeM(); Board.poll(); }
     else if (e.target.closest("#md-make")) make();
     else { const c = e.target.closest("[data-copy]"); if (c) { const t = $(c.dataset.copy).textContent; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { c.textContent = "Скопировано"; }, () => { const r = document.createRange(); r.selectNodeContents($(c.dataset.copy)); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }); } }

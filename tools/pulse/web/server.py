@@ -8,6 +8,7 @@
     GET  /<токен>/status.json   {teams:[{id,name,view2,built_at,age_s}], view2, built_at, age_s} — сводки команд;
                                 верхний view2/built_at/age_s — команда alpha (старый формат; её кладёт bridge.py в /data/board/status.json)
     POST /<токен>/ingest        сводка команды: заголовок X-Board-Key, тело {"view2": …, "built_at": …} → /data/board/teams/<id>.json
+    POST /<токен>/teams/<id>/delete  удалить команду: ключ отзывается, сводка стирается (alpha — 403)
     POST /<токен>/teams         {"name": "…"} → {id, name, key}: новая команда, ключ показывается один раз (хранится только его sha256)
 Остальные POST (в том числе /answer) — 404, ответы на вопросы даются в чате с CEO. Сервер ничего не исполняет.
 Команда alpha — встроенная (мост bridge.py). Реестр других — /data/board/teams.json. Токен и ключи в логи не пишутся.
@@ -134,6 +135,21 @@ def new_team(name: str) -> dict | None:
     return {"id": tid, "name": name, "key": key}
 
 
+def delete_team(team_id: str) -> bool:
+    """Снять команду с реестра (ключ отзывается) и стереть её сводку. alpha встроенная — не удаляется."""
+    with LOCK:
+        teams = load_teams()
+        rest = [t for t in teams if t["id"] != team_id]
+        if len(rest) == len(teams):
+            return False
+        atomic_write(TEAMS_FILE, json.dumps({"alpha_name": alpha_name(), "teams": rest}, ensure_ascii=False).encode("utf-8"))
+        try:
+            (TEAMS_DIR / (team_id + ".json")).unlink()
+        except OSError:
+            pass
+    return True
+
+
 def ingest(team_id: str, raw: bytes) -> bool:
     try:
         d = json.loads(raw)
@@ -232,6 +248,11 @@ class H(BaseHTTPRequestHandler):
             if t is None:
                 return self._json(409, {"error": f"не больше {MAX_TEAMS} команд"})
             return self._json(200, t)
+        m = re.fullmatch(r"/teams/(t[0-9a-f]{8})/delete", rest or "")
+        if m:
+            return self._json(200, {"ok": True}) if delete_team(m.group(1)) else self._404()
+        if rest == "/teams/alpha/delete":
+            return self._json(403, {"error": "alpha встроенная команда — не удаляется"})
         self._404()
 
     do_PUT = do_DELETE = do_PATCH = do_OPTIONS = lambda self: self._404()

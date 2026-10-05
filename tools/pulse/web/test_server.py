@@ -51,6 +51,19 @@ class TeamsTest(unittest.TestCase):
         self.assertEqual(by["alpha"]["view2"], {"a": 1})
         self.assertEqual(doc["view2"], {"a": 1})
 
+    def test_delete_revokes_key_and_drops_summary(self):
+        (self.s.DATA / "status.json").write_text(json.dumps({"view2": {"a": 1}}))
+        t, u = self.s.new_team("A"), self.s.new_team("B")
+        self.assertTrue(self.s.ingest(t["id"], b'{"view2": {"b": 2}}'))
+        self.assertTrue(self.s.delete_team(t["id"]))
+        self.assertIsNone(self.s.team_by_key(t["key"]))
+        self.assertFalse((self.s.TEAMS_DIR / (t["id"] + ".json")).exists())
+        self.assertEqual(self.s.team_by_key(u["key"])["id"], u["id"])
+        self.assertFalse(self.s.delete_team(t["id"]))
+        self.assertFalse(self.s.delete_team("alpha"))
+        doc, _ = self.s.load_status()
+        self.assertEqual([x["id"] for x in doc["teams"]], ["alpha", u["id"]])
+
     def test_team_limit(self):
         for _ in range(self.s.MAX_TEAMS):
             self.assertIsNotNone(self.s.new_team("x"))
