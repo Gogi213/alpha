@@ -1201,6 +1201,16 @@ impl<'a> GridRun<'a> {
             if skips > 0 {
                 eprintln!("bounce-grid:   удержание: пропусков пустых шагов {skips}");
             }
+            if crate::lob::backtest::fast_hold::fast_hold_on() {
+                use crate::lob::backtest::fast_hold::{FAST_FALLBACKS, FAST_ROUNDS, FAST_ROWS};
+                use std::sync::atomic::Ordering::Relaxed;
+                eprintln!(
+                    "bounce-grid:   быстрый путь удержания (с начала процесса): кругов {}, отказов {}, строк ленты {}",
+                    FAST_ROUNDS.load(Relaxed),
+                    FAST_FALLBACKS.load(Relaxed),
+                    FAST_ROWS.load(Relaxed)
+                );
+            }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
                     let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));
