@@ -100,7 +100,6 @@
 .d3 .yr{background:rgba(var(--fg-rgb),.1)}
 .d3 .cl{display:grid;gap:.45em;align-content:start}
 .d3 .cs{line-height:1.25}
-.d3 .cs b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .d3 .cs .d{margin:.1em 0 0 calc(1.05em + .6ch + 1ch)}
 .d3 .cs .n{color:rgba(var(--fg-rgb),.62);margin-right:.8ch}
 .d3 .cs.s-todo b{font-weight:400;color:rgba(var(--fg-rgb),.55)}
@@ -235,13 +234,13 @@
 (() => {
   const { E, arr, seg, bar, lamp, sdet, fmtMin, qOf, feedWho, ui, tagOf } = Board;
   const STALE = (v, age) => age == null || age > 2 * (Number(v && v.tick_s) || 5) + 5;
+  const ROLE = { engineer: "Инженер", researcher: "Исследователь", judge: "Судья", ceo: "CEO" };
   const n = (c, k) => Number((c || {})[k]) || 0;
 
   const meter = (l, pct, txt) => `<div class="mt-row"><span class="dim">${l}</span>${pct != null ? bar(pct, 10) : "<span></span>"}<span>${txt}</span></div>`;
 
   const cell = (mid, p) => {
-    const cur = arr(p.steps).filter((s) => ["run", "review", "repair", "wait", "bad"].includes(s.state));
-    const ss = (cur.length ? cur : arr(p.steps).filter((s) => s.state === "todo").slice(0, 1)).filter((s) => s.on === mid).slice(0, 1);
+    const ss = arr(p.steps).filter((s) => s.on === mid);
     if (!ss.length) return `<div class="cl empty" data-t="${E(p.title)}"><span class="faint">—</span></div>`;
     return `<div class="cl" data-t="${E(p.title)}">${ss.map((s) => {
       const q = s.state === "wait" && s.question ? qOf(s.question) : null;
@@ -276,7 +275,7 @@
     if (np) {
       mx = `<div class="corner"></div>` + act.map((p, i) => {
         const q = p.state === "todo" ? "в очереди" : p.state === "wait" ? "ждёт вас" : p.state === "bad" ? "проблема" : "";
-        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${p.for && p.for.text ? E(p.for.text) : ""}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
+        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${E([ROLE[p.role] || "", p.for && p.for.text ? p.for.text : ""].filter(Boolean).join(" · "))}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
       }).join("");
       machines.forEach((r, ri) => {
         const you = r.id === "you", last = ri === machines.length - 1, m = r.m, down = m && m.state === "down";
@@ -285,7 +284,7 @@
         act.forEach((p, i) => { mx += cell(r.id, p).replace('class="cl', 'class="cl' + (you ? " yr" : "") + (i === np - 1 ? " lc" : "") + (last ? " lr" : "")); });
       });
     }
-    const feed = arr(v.feed).map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
+    const feed = arr(v.feed).slice().reverse().map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
     const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
     return `${top}<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}</div>
    <div class="rest"><div class="h4 hot">Что стало возможно</div>${sums ? `<ul class="sums">${sums}</ul>` : '<div class="none">пока ничего не закрыто</div>'}<div class="h4 hot">Недавно</div>${feed}</div>`;

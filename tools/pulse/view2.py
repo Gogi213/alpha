@@ -31,7 +31,7 @@ ETA_MIN_MEASURES = 2         # меньше замеров (шагов цепо�
 WORK_GAP_MIN = 45            # «прошло»: промежуток между событиями длиннее — засчитывается как столько минут
 AUTO_TITLE_LEN = 60
 BOARD_RE = re.compile(r"табло|шкал|дашборд|страниц", re.I)
-FEED_AGE_S = 86400
+FEED_AGE_S = 21600
 
 
 def _mid(m: str) -> str:
@@ -346,6 +346,13 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
+    def fact(e) -> str:  # заголовок записи как есть: без скобок, путей, хэшей и обрывков
+        s = re.sub(r"\([^)]*\)?", " ", entry_title(e))
+        s = re.sub(r"(?<![\w])[0-9a-f]{7,40}(?![\w])|коммит|п\.\d+", " ", _TECH.sub(" ", s))
+        s = re.sub(r"\s+([,.:;])", lambda m: m.group(1), re.sub(r"\s+", " ", s)).strip(" ,.;:—–-…")
+        s = re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|юнит|–|-))+$", "", s)
+        return s.strip(" ,.;:—–-…") or "запись роли"
+
     # --- записи ролей из лога тикета
     def role_entries(t) -> list:
         return [e for e in H.all_entries(t) if H._role_key(e.author) in ROLE_LC]
@@ -388,7 +395,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             forr, title = EMPTY_FOR, ptitle(tid)
         adjust_states(steps, t, judge_returned(H, t))
         procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps, "has_plan": bool(plan),
-                      "plan": bool(plan)})
+                      "plan": bool(plan), "role": (t.header.get("owner") or "").strip()})
 
     # --- «без хозяина»: по одному на машину
     for mid in ("vps", "calc", "col"):
@@ -526,32 +533,15 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         t = tickets.get(tid)
         return bool(BOARD_RE.search(f"{text} {t.header.get('title', '') if t else ''}"))
 
-    for n in plain.get("news", []):
-        ts = P.parse(n.get("ts"))
-        if by_ceo(n.get("ticket"), ts) or about_board(n.get("ticket"), n.get("text") or ""):
-            continue  # поручения и решения CEO — не результат
-        feed.append((ts.timestamp() if ts else 0, {"time": n["time"], "state": "done", "on": on_at(n.get("ticket"), ts), "to": None,
-                                                  "text": n["text"]}))
-    news_ts = [(n.get("ticket"), P.parse(n.get("ts"))) for n in plain.get("news", [])]
-    for p in procs:  # записи ролей из логов тикетов (сдано, числа, решения CEO), которых ещё нет в Haiku-ленте
+    for p in procs:  # записи ролей из логов тикетов: заголовок записи без пересказа моделью, машина — по окну шага плана
         t = tickets.get(p["id"])
         if t is None or p["id"].startswith("orphans-"):
             continue
         for e in role_entries(t):
-            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or any(
-                    tk == p["id"] and d and abs((d - e.ts).total_seconds()) < 2 for tk, d in news_ts):
+            if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(p["id"], e.text):
                 continue
-            text = None
-            if H.AUTO is not None:
-                r = H.AUTO.get("entry", f"{t.id} {e.ts_raw}", {"ticket": H.short_title(t.header.get("title", ""), 70),
-                                                                "author": H.ROLE_RU[H._role_key(e.author)], "text": e.text}, 1)
-                if r is not None and not r.get("news"):
-                    continue  # служебная запись — модель отсеяла
-                text = (r or {}).get("news")
-                if not text or about_board(p["id"], text):
-                    continue  # модель ещё не ответила — сырую запись не показываем
             feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
-                                            "text": text or f"{ROLE_LC[H._role_key(e.author)]}: {human(entry_title(e), 10)}"}))
+                                            "text": H.clip(f"{H.short_title(p['title'], 28)}: {fact(e)}", 76)}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a:
@@ -583,4 +573,4 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         p.pop("has_plan", None)
     return {"time": now_dt.strftime("%H:%M"), "built_ts": round(now, 1), "tick_s": getattr(H, "TICK_S", 5), "headline": head,
             "counters": cnt, "progress": progress, "tags": TAGS, "machines": mviews, "waves": waves, "processes": procs,
-            "questions": questions, "feed": [f for _, f in feed[-8:]]}
+            "questions": questions, "feed": [f for _, f in feed[-6:]]}
