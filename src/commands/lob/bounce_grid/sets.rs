@@ -417,6 +417,40 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) ctx_ranges: [Range; CTX_AXES.len()],
     /// `holds_at_touch(t) == Some(true)` по касаниям суток, посчитано один раз на все наборы (`ALPHA_HOLDS_MEMO=1`).
     pub(crate) holds: Option<&'a [bool]>,
+    /// Скаляры касаний суток для `admits` без чтения `TouchRecord` (`ALPHA_ADMIT_SOA=1`, нужен `holds`).
+    pub(crate) rows: Option<&'a [AdmitRow]>,
+}
+
+/// Поля `TouchRecord`, нужные `TouchFilter::admits`, плотной строкой (~72 Б против ≈300 Б записи).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AdmitRow {
+    frontrun_some: bool,
+    side: Side,
+    frontrun_lots: i64,
+    age_ms: i64,
+    flow_1h_lots: i64,
+    size_at_touch: i64,
+    price_tick: i64,
+    depth_behind_lots: i64,
+    stack_levels: u32,
+    eaten_pct: f64,
+}
+
+impl AdmitRow {
+    pub(crate) fn of(t: &TouchRecord) -> Self {
+        Self {
+            frontrun_some: t.frontrun_tick.is_some(),
+            side: t.side,
+            frontrun_lots: t.frontrun_lots,
+            age_ms: t.age_ms(),
+            flow_1h_lots: t.flow_1h_lots,
+            size_at_touch: t.size_at_touch,
+            price_tick: t.price_tick,
+            depth_behind_lots: t.depth_behind_lots,
+            stack_levels: t.stack_levels,
+            eaten_pct: eaten_pct(t),
+        }
+    }
 }
 
 impl<'a> TouchFilter<'a> {
@@ -438,6 +472,7 @@ impl<'a> TouchFilter<'a> {
             ctx: p.ctx,
             ctx_ranges: p.ctx_ranges,
             holds: p.holds,
+            rows: p.rows,
         }
     }
 
@@ -467,12 +502,16 @@ impl<'a> TouchFilter<'a> {
             ctx: if set.uses_ctx() { Some(ctx) } else { None },
             ctx_ranges: set.ctx,
             holds: None,
+            rows: None,
         }
     }
 
     /// Проходит ли касание `t` с индексом `ti` (индекс — в контекст суток).
     #[allow(clippy::cast_precision_loss)]
     pub(crate) fn admits(&self, ti: usize, t: &TouchRecord) -> bool {
+        if let Some(rows) = self.rows {
+            return self.admits_row(ti, &rows[ti]);
+        }
         if self.frontrun_only && t.frontrun_tick.is_none() {
             return false;
         }
@@ -536,6 +575,64 @@ impl<'a> TouchFilter<'a> {
                 .iter()
                 .zip(&c.axes)
                 .all(|(r, v)| r.holds(*v))
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// То же, что `admits` при `holds`, по строке `AdmitRow` (порядок и арифметика те же, результат тот же).
+    #[allow(clippy::cast_precision_loss)]
+    fn admits_row(&self, ti: usize, r: &AdmitRow) -> bool {
+        if self.frontrun_only && !r.frontrun_some {
+            return false;
+        }
+        if self.frontrun_min_lots.is_some_and(|n| r.frontrun_lots < n) {
+            return false;
+        }
+        if !self.holds.is_some_and(|h| h[ti]) {
+            return false;
+        }
+        if self.min_age_ms.is_some_and(|n| r.age_ms < n) {
+            return false;
+        }
+        if let Some(s_min) = self.min_flow_pct {
+            let flow_ok = r.flow_1h_lots > 0
+                && r.size_at_touch as f64 / r.flow_1h_lots as f64 * 100.0 >= s_min;
+            if !flow_ok {
+                return false;
+            }
+        }
+        if self.side.is_some_and(|s| r.side != s) {
+            return false;
+        }
+        if self.eaten_max_pct.is_some_and(|m| r.eaten_pct > m) {
+            return false;
+        }
+        if self.eaten_min_pct.is_some_and(|m| r.eaten_pct < m) {
+            return false;
+        }
+        if self.usd_min.is_some_and(|m| {
+            r.price_tick as f64 * self.tick * r.size_at_touch as f64 * self.lot < m
+        }) {
+            return false;
+        }
+        if self.behind_min_pct.is_some_and(|pct| {
+            i128::from(r.depth_behind_lots) * 100 < i128::from(pct) * i128::from(r.size_at_touch)
+        }) {
+            return false;
+        }
+        if self.stack_min.is_some_and(|n| r.stack_levels < n) {
+            return false;
+        }
+        if let Some(ctx) = self.ctx {
+            let c = &ctx[ti];
+            if !self
+                .ctx_ranges
+                .iter()
+                .zip(&c.axes)
+                .all(|(rg, v)| rg.holds(*v))
             {
                 return false;
             }

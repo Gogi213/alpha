@@ -823,6 +823,9 @@ impl<'a> GridRun<'a> {
                         .map(|t| mode.holds_at_touch(t) == Some(true))
                         .collect()
                 });
+            let rows_day: Option<Vec<sets::AdmitRow>> = (holds_day.is_some()
+                && std::env::var_os("ALPHA_ADMIT_SOA").is_some_and(|v| v == "1"))
+            .then(|| day.touches.iter().map(sets::AdmitRow::of).collect());
             // TK-049 (`ALPHA_SKIP_NOSIGNAL=1`): ни один набор не пропускает ни одного касания суток — сигналов
             // нет у всех форм, круги не идут, лента на выход не влияет: не читаем её и довесок D+1.
             let no_signal = std::env::var_os("ALPHA_SKIP_NOSIGNAL").is_some()
@@ -830,6 +833,7 @@ impl<'a> GridRun<'a> {
                 && sets.iter().all(|set| {
                     let mut f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
                     f.holds = holds_day.as_deref();
+                    f.rows = rows_day.as_deref();
                     !day.touches
                         .iter()
                         .enumerate()
@@ -1074,6 +1078,7 @@ impl<'a> GridRun<'a> {
                         &set_forms_list,
                         DayParams {
                             holds: holds_day.as_deref(),
+                            rows: rows_day.as_deref(),
                             admitted: if std::env::var_os("ALPHA_ADMIT_CACHE")
                                 .is_some_and(|v| v == "1")
                             {
