@@ -861,80 +861,169 @@ impl<'a> GridRun<'a> {
             } else {
                 Vec::new()
             };
-            for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
-                let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
-                let forms_done = {
-                    let forms_ref = &set_forms_list;
-                    let mut sink =
-                        |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
+            let mk_params = bind_params(|set: &FilterSet, ids| DayParams {
+                memos: if memos.is_empty() {
+                    None
+                } else {
+                    Some(memos.as_slice())
+                },
+                form_ids: ids,
+                tick,
+                lot,
+                grid_e9: (tick_e9, step_e9),
+                step_schedule: step_schedule.as_ref(),
+                rtt_ns: args.median_rtt_ns,
+                queue_model,
+                busy_skip: args.busy_skip == "on",
+                hold_skip: args.hold_step == "skip",
+                exit_group: args.exit_group == "on",
+                order_qtys: &order_qtys,
+                threads,
+                post_only: args.entry_post_only(),
+                frontrun_only: set.frontrun_only,
+                min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+                min_flow_pct: set.min_flow_pct,
+                side: set.side.map(Side::from),
+                eaten_max_pct: set.eaten_max_pct,
+                eaten_min_pct: set.eaten_min_pct,
+                frontrun_min_lots: set.frontrun_min_lots,
+                usd_min: set.usd_min,
+                behind_min_pct: set.behind_min_pct,
+                stack_min: set.stack_min,
+                ctx: if set.uses_ctx() { Some(&ctx) } else { None },
+                ctx_ranges: set.ctx,
+                mode,
+                h3_usd: args.h3.h3_usd,
+                band_exit_bps,
+                sigma: &sigma_series,
+                entry_sigma: entry_sigma.as_ref(),
+            });
+            let shared_ok = windows.is_some()
+                && memos.is_empty()
+                && std::env::var_os("ALPHA_SHARED_ENGINE").is_some();
+            let lists: Vec<Vec<GridForm>> = if shared_ok {
+                set_form_ids
+                    .iter()
+                    .map(|ids| ids.iter().map(|&i| forms[i]).collect())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let shared_n = match (shared_ok, queue_model) {
+                (true, crate::lob::backtest::QueueModelKind::Prob { n }) => {
+                    let cells: Vec<(&[GridForm], DayParams<'_>)> = sets
+                        .iter()
+                        .zip(&lists)
+                        .zip(&set_form_ids)
+                        .map(|((set, list), &ids)| (list.as_slice(), mk_params(set, ids)))
+                        .collect();
+                    if drive::shared_pays_off(
+                        &rows,
+                        &day.touches,
+                        day.approaches.as_deref(),
+                        &cells,
+                    )? {
+                        Some(n)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(n) = shared_n {
+                let rounds_a = std::sync::atomic::AtomicU64::new(0);
+                let mut sinks: Vec<_> = outs
+                    .iter_mut()
+                    .zip(&lists)
+                    .map(|(out, list)| {
+                        let (rounds_a, day_label, aps) =
+                            (&rounds_a, &day_label, day.approaches.as_deref());
+                        move |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
                             let n = out.write_form(
                                 symbol,
-                                &day_label,
-                                forms_ref[r.form],
+                                day_label,
+                                list[r.form],
                                 signals,
                                 &r.run,
                                 r.skipped,
                                 carry_boundary_ns,
                                 carry_unverified,
-                                day.approaches.as_deref(),
+                                aps,
                             )?;
-                            rounds = rounds.saturating_add(n);
+                            rounds_a.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
                             Ok(())
-                        };
-                    drive_day(
-                        rows,
-                        windows.as_deref(),
-                        &day.touches,
-                        day.approaches.as_deref(),
-                        &set_forms_list,
-                        DayParams {
-                            memos: if memos.is_empty() {
-                                None
-                            } else {
-                                Some(memos.as_slice())
-                            },
-                            form_ids: ids,
-                            tick,
-                            lot,
-                            grid_e9: (tick_e9, step_e9),
-                            step_schedule: step_schedule.as_ref(),
-                            rtt_ns: args.median_rtt_ns,
-                            queue_model,
-                            busy_skip: args.busy_skip == "on",
-                            hold_skip: args.hold_step == "skip",
-                            exit_group: args.exit_group == "on",
-                            order_qtys: &order_qtys,
-                            threads,
-                            post_only: args.entry_post_only(),
-                            frontrun_only: set.frontrun_only,
-                            min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
-                            min_flow_pct: set.min_flow_pct,
-                            side: set.side.map(Side::from),
-                            eaten_max_pct: set.eaten_max_pct,
-                            eaten_min_pct: set.eaten_min_pct,
-                            frontrun_min_lots: set.frontrun_min_lots,
-                            usd_min: set.usd_min,
-                            behind_min_pct: set.behind_min_pct,
-                            stack_min: set.stack_min,
-                            ctx: if set.uses_ctx() { Some(&ctx) } else { None },
-                            ctx_ranges: set.ctx,
-                            mode,
-                            h3_usd: args.h3.h3_usd,
-                            band_exit_bps,
-                            sigma: &sigma_series,
-                            entry_sigma: entry_sigma.as_ref(),
-                        },
-                        &mut sink,
-                    )?
-                };
-                anyhow::ensure!(
-                    forms_done == set_forms_list.len(),
-                    "{symbol} {} {}: форм посчитано {}, ожидалось {}",
-                    day.day,
-                    set.name,
-                    forms_done,
-                    set_forms_list.len()
-                );
+                        }
+                    })
+                    .collect();
+                let groups: Vec<drive::SharedGroup<'_>> = sets
+                    .iter()
+                    .zip(&lists)
+                    .zip(&set_form_ids)
+                    .zip(sinks.iter_mut())
+                    .map(|(((set, list), &ids), sink)| drive::SharedGroup {
+                        forms: list,
+                        p: mk_params(set, ids),
+                        sink,
+                    })
+                    .collect();
+                let done = drive::drive_day_shared(
+                    rows,
+                    &day.touches,
+                    day.approaches.as_deref(),
+                    groups,
+                    n,
+                )?;
+                for ((set, list), d) in sets.iter().zip(&lists).zip(done) {
+                    anyhow::ensure!(
+                        d == list.len(),
+                        "{symbol} {} {}: форм посчитано {}, ожидалось {}",
+                        day.day,
+                        set.name,
+                        d,
+                        list.len()
+                    );
+                }
+                rounds = rounds.saturating_add(rounds_a.into_inner());
+            } else {
+                for ((set, out), &ids) in sets.iter().zip(outs.iter_mut()).zip(&set_form_ids) {
+                    let set_forms_list: Vec<GridForm> = ids.iter().map(|&i| forms[i]).collect();
+                    let forms_done = {
+                        let forms_ref = &set_forms_list;
+                        let mut sink =
+                            |r: FormDayResult, signals: &[BounceSignal]| -> anyhow::Result<()> {
+                                let n = out.write_form(
+                                    symbol,
+                                    &day_label,
+                                    forms_ref[r.form],
+                                    signals,
+                                    &r.run,
+                                    r.skipped,
+                                    carry_boundary_ns,
+                                    carry_unverified,
+                                    day.approaches.as_deref(),
+                                )?;
+                                rounds = rounds.saturating_add(n);
+                                Ok(())
+                            };
+                        drive_day(
+                            rows,
+                            windows.as_deref(),
+                            &day.touches,
+                            day.approaches.as_deref(),
+                            &set_forms_list,
+                            mk_params(set, ids),
+                            &mut sink,
+                        )?
+                    };
+                    anyhow::ensure!(
+                        forms_done == set_forms_list.len(),
+                        "{symbol} {} {}: форм посчитано {}, ожидалось {}",
+                        day.day,
+                        set.name,
+                        forms_done,
+                        set_forms_list.len()
+                    );
+                }
             }
             summary.rounds = summary.rounds.saturating_add(rounds);
             summary.symbol_days += 1;
@@ -1020,3 +1109,8 @@ impl<'a> GridRun<'a> {
 
 #[cfg(test)]
 mod tests;
+
+/// Подпись замыкания параметров суток: `form_ids` живёт столько же, сколько результат.
+fn bind_params<'a, F: Fn(&FilterSet, &'a [usize]) -> DayParams<'a>>(f: F) -> F {
+    f
+}
