@@ -527,17 +527,117 @@ fn deposit(
     }
 }
 
-/// `ALPHA_SHARED_ENGINE=1` (TK-049): формы сутки идут по одной ленте и общим книгам (`drive_cells_shared`),
-/// пачками по `ALPHA_SHARED_CELLS` форм (умолчание 8) на поток; только `prob:<n>`, без памяти кругов.
-fn drive_day_shared(
+/// Одна группа форм одних суток (набор `--set`): свои формы, свои параметры и свой приёмник результатов.
+pub(super) struct SharedGroup<'a> {
+    pub(super) forms: &'a [GridForm],
+    pub(super) p: DayParams<'a>,
+    pub(super) sink:
+        &'a mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
+}
+
+/// Выбор пути на символ-сутки (TK-049): общая лента платит, только если окон-путь прошёл бы строк больше
+/// `K × строк суток` (`ALPHA_SHARED_K`, умолчание 3). Строки окон — по сигналам всех клеток.
+pub(super) fn shared_pays_off(
+    events: &DayRows<'_>,
+    touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
+    cells: &[(&[GridForm], DayParams<'_>)],
+) -> anyhow::Result<bool> {
+    let k = std::env::var("ALPHA_SHARED_K")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(3.0);
+    match *events {
+        DayRows::Compact(c) => pays_off_over(c, k, touches, approaches, cells),
+        DayRows::Wide(e) => pays_off_over(e, k, touches, approaches, cells),
+        DayRows::Trimmed(c, kept) => {
+            pays_off_over(&TrimRows::new(c, kept), k, touches, approaches, cells)
+        }
+    }
+}
+
+/// Без `ALPHA_PATH_STATS` — выборка клеток (не больше `PAYS_SAMPLE`, равномерно) и масштаб на все: сигналы
+/// клетки строятся заново на каждую (дорого), точный счёт всех клеток нужен только для свода.
+const PAYS_SAMPLE: usize = 12;
+
+fn pays_off_over<R: crate::lob::backtest::EventRows + ?Sized>(
+    rows: &R,
+    k: f64,
+    touches: &[TouchRecord],
+    approaches: Option<&[crate::lob::levels::ApproachRecord]>,
+    cells: &[(&[GridForm], DayParams<'_>)],
+) -> anyhow::Result<bool> {
+    use crate::lob::backtest::shared_driver::window_row_spans;
+    let t_start = Instant::now();
+    let stats = std::env::var_os("ALPHA_PATH_STATS").is_some();
+    let flat: Vec<(&GridForm, &DayParams<'_>)> = cells
+        .iter()
+        .flat_map(|(forms, p)| forms.iter().map(move |f| (f, p)))
+        .collect();
+    let stride = if stats {
+        1
+    } else {
+        flat.len().div_ceil(PAYS_SAMPLE).max(1)
+    };
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut sampled = 0usize;
+    let mut sum_sampled = 0u64;
+    for &(f, p) in flat.iter().step_by(stride) {
+        let (signals, _) = signals_for(touches, approaches, p.sigma, f, p)?;
+        let before = spans.len();
+        window_row_spans(rows, &signals, &mut spans);
+        sum_sampled += spans[before..]
+            .iter()
+            .map(|&(a, b)| (b - a) as u64)
+            .sum::<u64>();
+        sampled += 1;
+    }
+    let sum = if sampled == 0 {
+        0
+    } else {
+        (sum_sampled as f64 * flat.len() as f64 / sampled as f64) as u64
+    };
+    let need = (k * rows.len() as f64) as u64;
+    let pays = sum > need;
+    if stats {
+        spans.sort_unstable();
+        let (mut union, mut end) = (0u64, 0usize);
+        for &(a, b) in &spans {
+            let a = a.max(end);
+            if b > a {
+                union += (b - a) as u64;
+                end = b;
+            }
+        }
+        eprintln!(
+            "PATH_STATS day_rows={} cells={} windows={} sum_rows={} union_rows={} need={} pays={} est_ms={}",
+            rows.len(),
+            flat.len(),
+            spans.len(),
+            sum,
+            union,
+            need,
+            pays,
+            t_start.elapsed().as_millis()
+        );
+    }
+    Ok(pays)
+}
+
+/// `ALPHA_SHARED_ENGINE=1` (TK-049): клетки (форма × набор) всех групп суток идут по одной ленте и общим книгам
+/// (`drive_cells_shared`) пачками по `ALPHA_SHARED_CELLS` клеток (умолчание 8) на поток; только `prob:<n>`,
+/// без памяти кругов. Форма группы отдаётся в её `sink` по порядку форм группы. Возвращает число форм по группам.
+pub(super) fn drive_day_shared(
     events: DayRows<'_>,
     touches: &[TouchRecord],
     approaches: Option<&[crate::lob::levels::ApproachRecord]>,
-    forms: &[GridForm],
-    p: &DayParams<'_>,
+    groups: Vec<SharedGroup<'_>>,
     queue_n: f64,
-    sink: &mut (dyn FnMut(FormDayResult, &[BounceSignal]) -> anyhow::Result<()> + Send),
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<Vec<usize>> {
+    let Some(first) = groups.first() else {
+        return Ok(Vec::new());
+    };
+    let p0 = first.p;
     let rows: Vec<HbtEvent> = match events {
         DayRows::Compact(c) => c.iter().map(CompactEvent::expand).collect(),
         DayRows::Wide(e) => e.to_vec(),
@@ -548,29 +648,42 @@ fn drive_day_shared(
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(8)
         .max(1);
-    let chunks = forms.len().div_ceil(chunk);
+    let flat: Vec<(usize, usize)> = groups
+        .iter()
+        .enumerate()
+        .flat_map(|(g, gr)| (0..gr.forms.len()).map(move |f| (g, f)))
+        .collect();
+    let group_forms: Vec<(&[GridForm], DayParams<'_>)> =
+        groups.iter().map(|g| (g.forms, g.p)).collect();
+    let chunks = flat.len().div_ceil(chunk);
     let next = AtomicUsize::new(0);
     let failure: Mutex<Option<anyhow::Error>> = Mutex::new(None);
-    let order = Mutex::new(FormOrder {
-        pending: BTreeMap::new(),
-        next_form: 0,
-        done: 0,
-        sink,
-    });
+    let orders: Vec<Mutex<FormOrder<'_>>> = groups
+        .into_iter()
+        .map(|g| {
+            Mutex::new(FormOrder {
+                pending: BTreeMap::new(),
+                next_form: 0,
+                done: 0,
+                sink: g.sink,
+            })
+        })
+        .collect();
     std::thread::scope(|scope| {
-        for _ in 0..p.threads.max(1) {
+        for _ in 0..p0.threads.max(1) {
             scope.spawn(|| loop {
                 let c = next.fetch_add(1, Ordering::Relaxed);
                 if c >= chunks || failure.lock().map(|f| f.is_some()).unwrap_or(true) {
                     break;
                 }
-                let (lo, hi) = (c * chunk, ((c + 1) * chunk).min(forms.len()));
+                let (lo, hi) = (c * chunk, ((c + 1) * chunk).min(flat.len()));
                 let done = (|| -> anyhow::Result<()> {
                     let mut cells = Vec::with_capacity(hi - lo);
                     let mut meta = Vec::with_capacity(hi - lo);
-                    for form in &forms[lo..hi] {
+                    for &(g, f) in &flat[lo..hi] {
+                        let (forms, p) = &group_forms[g];
                         let (signals, skipped) =
-                            signals_for(touches, approaches, p.sigma, form, p)?;
+                            signals_for(touches, approaches, p.sigma, &forms[f], p)?;
                         let cfg = DriveConfig {
                             order_qty: 0.0,
                             first_order_id: 1,
@@ -584,11 +697,19 @@ fn drive_day_shared(
                         });
                         meta.push((signals, skipped));
                     }
-                    let runs =
-                        drive_cells_shared(rows.clone(), p.tick, p.lot, p.rtt_ns, queue_n, cells)
-                            .map_err(|e| anyhow::anyhow!("формы #{lo}..{hi}: {e}"))?;
-                    for (k, (run, (signals, skipped))) in runs.into_iter().zip(meta).enumerate() {
-                        deposit(&order, lo + k, run, signals, skipped)?;
+                    let runs = drive_cells_shared(
+                        rows.clone(),
+                        p0.tick,
+                        p0.lot,
+                        p0.rtt_ns,
+                        queue_n,
+                        cells,
+                    )
+                    .map_err(|e| anyhow::anyhow!("клетки #{lo}..{hi}: {e}"))?;
+                    for ((&(g, f), run), (signals, skipped)) in
+                        flat[lo..hi].iter().zip(runs).zip(meta)
+                    {
+                        deposit(&orders[g], f, run, signals, skipped)?;
                     }
                     Ok(())
                 })();
@@ -606,15 +727,19 @@ fn drive_day_shared(
     if let Some(e) = failure.into_inner().ok().flatten() {
         return Err(e);
     }
-    let o = order
-        .into_inner()
-        .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
-    anyhow::ensure!(
-        o.pending.is_empty(),
-        "формы без записи в дамп: {}",
-        o.pending.len()
-    );
-    Ok(o.done)
+    let mut done = Vec::with_capacity(orders.len());
+    for o in orders {
+        let o = o
+            .into_inner()
+            .map_err(|_| anyhow::anyhow!("результаты форм: мьютекс"))?;
+        anyhow::ensure!(
+            o.pending.is_empty(),
+            "формы без записи в дамп: {}",
+            o.pending.len()
+        );
+        done.push(o.done);
+    }
+    Ok(done)
 }
 
 /// Все формы над одними сутками: потоки берут формы по счётчику. `Setups`
@@ -666,8 +791,12 @@ pub(super) fn drive_day(
         }
     }
     if windows.is_some() && p.memos.is_none() && std::env::var_os("ALPHA_SHARED_ENGINE").is_some() {
-        if let QueueModelKind::Prob { n } = p.queue_model {
-            return drive_day_shared(events, touches, approaches, forms, &p, n, sink);
+        if let (QueueModelKind::Prob { n }, true) = (
+            p.queue_model,
+            shared_pays_off(&events, touches, approaches, &[(forms, p)])?,
+        ) {
+            let g = SharedGroup { forms, p, sink };
+            return Ok(drive_day_shared(events, touches, approaches, vec![g], n)?[0]);
         }
     }
     let next = AtomicUsize::new(0);

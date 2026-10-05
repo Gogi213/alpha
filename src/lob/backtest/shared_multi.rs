@@ -75,6 +75,8 @@ where
     eod: bool,
     slot_ts: [i64; 3],
     slot_ver: [u32; 3],
+    /// Срок ожидания круга «до следующей ленты» (`i64::MAX` — нет); живёт вне кучи, см. `dl_min`.
+    dl: i64,
     start: Option<i64>,
     data_end: Option<i64>,
     mk: MkParts<AT, LM, QM, FM>,
@@ -456,6 +458,15 @@ where
     circles: Vec<Box<Circle<AT, LM, QM, FM>>>,
     cos: Vec<Option<Co<R>>>,
     heap: BinaryHeap<Key>,
+    /// Пробуждения «по следующей ленте» одной метки `wnf_ts`, по возрастанию номера круга, мимо кучи (с головой `wnf_head`).
+    wnf_q: Vec<(u32, u32)>,
+    wnf_head: usize,
+    wnf_ts: i64,
+    /// Наименьший срок `(ts, id)` среди кругов с `dl != MAX`; при `dl_dirty` пересчитывается сканом в `drop_stale`.
+    dl_min: (i64, u32),
+    dl_dirty: bool,
+    /// По номеру круга: 0 — не ждёт, 1 — ждёт (`Cs::Waiting`), 3 — ждёт ленту (`wnf`); плотный массив для циклов по строке.
+    wflag: Vec<u8>,
     results: Vec<(u32, R)>,
     m_cursor: usize,
 }
@@ -489,6 +500,12 @@ where
             circles: Vec::new(),
             cos: Vec::new(),
             heap: BinaryHeap::new(),
+            wnf_q: Vec::new(),
+            wnf_head: 0,
+            wnf_ts: i64::MIN,
+            dl_min: (i64::MAX, 0),
+            dl_dirty: false,
+            wflag: Vec::new(),
             results: Vec::new(),
             m_cursor: 0,
         }
@@ -635,6 +652,7 @@ where
             eod: false,
             slot_ts: [i64::MAX; 3],
             slot_ver: [0; 3],
+            dl: i64::MAX,
             start,
             data_end: self.rows.last().map(|e| e.local_ts.min(e.exch_ts)),
             mk,
@@ -644,6 +662,7 @@ where
         let ptr: *mut Circle<AT, LM, QM, FM> = &mut *c;
         let id = self.circles.len() as u32;
         self.circles.push(c);
+        self.wflag.push(0);
         let stack = DefaultStack::new(CIRCLE_STACK_BYTES)?;
         let co = Coroutine::with_stack(stack, move |y: &Yielder<(), ()>, ()| {
             body(CircleCtx {
@@ -699,6 +718,54 @@ where
         }
     }
 
+    fn dl_set(&mut self, id: usize, ts: i64) {
+        self.dl_clear(id);
+        if ts != i64::MAX {
+            self.circles[id].dl = ts;
+            if (ts, id as u32) < self.dl_min {
+                self.dl_min = (ts, id as u32);
+            }
+        }
+    }
+
+    fn dl_clear(&mut self, id: usize) {
+        let c = &mut self.circles[id];
+        if c.dl != i64::MAX {
+            c.dl = i64::MAX;
+            if self.dl_min.1 == id as u32 {
+                self.dl_dirty = true;
+            }
+        }
+    }
+
+    /// То же, что `set_slot(id, S_WAKE, ts)`, но запись — в очередь `wnf_q` (одна метка ts, ключ как у кучи: ts, K_WAKE, id).
+    fn set_wake_wnf(&mut self, id: usize, ts: i64) {
+        let c = &mut self.circles[id];
+        if c.slot_ts[S_WAKE] == ts {
+            return;
+        }
+        c.slot_ts[S_WAKE] = ts;
+        c.slot_ver[S_WAKE] += 1;
+        let tag = c.slot_ver[S_WAKE] * 4 + S_WAKE as u32;
+        if self.wnf_head < self.wnf_q.len() && self.wnf_ts != ts {
+            for &(i, t) in &self.wnf_q[self.wnf_head..] {
+                self.heap.push(Reverse((self.wnf_ts, K_WAKE, i, t)));
+            }
+            self.wnf_q.clear();
+            self.wnf_head = 0;
+        }
+        if self.wnf_head >= self.wnf_q.len() {
+            self.wnf_q.clear();
+            self.wnf_head = 0;
+        }
+        self.wnf_ts = ts;
+        let sorted = self.wnf_q.last().is_none_or(|&(i, _)| i < id as u32);
+        self.wnf_q.push((id as u32, tag));
+        if !sorted {
+            self.wnf_q[self.wnf_head..].sort_unstable();
+        }
+    }
+
     fn check_end(&mut self, id: usize, now: i64) {
         let feed_done = self.ev_ld == i64::MAX && self.ev_ed == i64::MAX;
         let c = &self.circles[id];
@@ -709,6 +776,7 @@ where
             && c.slot_ts[S_EO] == i64::MAX
         {
             self.circles[id].eod = true;
+            self.dl_clear(id);
             self.set_slot(id, S_WAKE, now);
         }
     }
@@ -737,17 +805,25 @@ where
         c.bound = req.bound;
         c.result = ElapseResult::Ok;
         c.eod = false;
+        self.wflag[id] = if c.wnf { 3 } else { 1 };
         let eo = c.local.earliest_send_order_timestamp();
         let lo = c.local.earliest_recv_order_timestamp();
         self.set_slot(id, S_EO, eo);
         self.set_slot(id, S_LO, lo);
         let b = self.circles[id].bound;
-        self.set_slot(id, S_WAKE, b);
+        if self.circles[id].wnf {
+            self.set_slot(id, S_WAKE, i64::MAX);
+            self.dl_set(id, b);
+        } else {
+            self.set_slot(id, S_WAKE, b);
+        }
         self.check_end(id, now);
     }
 
     fn resume(&mut self, id: usize, now: i64) {
         self.circles[id].cs = Cs::Running;
+        self.wflag[id] = 0;
+        self.dl_clear(id);
         let r = self.cos[id].as_mut().expect("круг жив").resume(());
         match r {
             CoroutineResult::Yield(()) => self.register(id, now),
@@ -856,6 +932,15 @@ where
     }
 
     fn drop_stale(&mut self) {
+        if self.dl_dirty {
+            self.dl_dirty = false;
+            self.dl_min = (i64::MAX, 0);
+            for (i, c) in self.circles.iter().enumerate() {
+                if c.dl != i64::MAX && (c.dl, i as u32) < self.dl_min {
+                    self.dl_min = (c.dl, i as u32);
+                }
+            }
+        }
         while let Some(&Reverse((ts, _, id, tag))) = self.heap.peek() {
             let (slot, ver) = ((tag % 4) as usize, tag / 4);
             let c = &self.circles[id as usize];
@@ -867,6 +952,51 @@ where
             }
             self.heap.pop();
         }
+        while let Some(&(id, tag)) = self.wnf_q.get(self.wnf_head) {
+            let (slot, ver) = ((tag % 4) as usize, tag / 4);
+            let c = &self.circles[id as usize];
+            if c.slot_ver[slot] == ver
+                && c.slot_ts[slot] == self.wnf_ts
+                && matches!(c.cs, Cs::Waiting | Cs::Unborn)
+            {
+                break;
+            }
+            self.wnf_head += 1;
+        }
+    }
+
+    fn top_key(&self) -> Option<(i64, u8, u32, u32)> {
+        let h = self.heap.peek().map(|Reverse(k)| *k);
+        let m = match (h, self.wnf_top()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        match (m, self.dl_top()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    fn pop_key(&mut self) -> Option<(i64, u8, u32, u32)> {
+        let k = self.top_key()?;
+        if self.dl_top() == Some(k) {
+        } else if self.wnf_top() == Some(k) {
+            self.wnf_head += 1;
+        } else {
+            self.heap.pop();
+        }
+        Some(k)
+    }
+
+    fn dl_top(&self) -> Option<(i64, u8, u32, u32)> {
+        (self.dl_min.0 != i64::MAX).then_some((self.dl_min.0, K_WAKE, self.dl_min.1, 0))
+    }
+
+    /// Ближайшее пробуждение из очереди `wnf_q` (после `drop_stale`).
+    fn wnf_top(&self) -> Option<(i64, u8, u32, u32)> {
+        self.wnf_q
+            .get(self.wnf_head)
+            .map(|&(id, tag)| (self.wnf_ts, K_WAKE, id, tag))
     }
 
     /// Прогон до конца: результаты кругов — в порядке завершения.
@@ -888,9 +1018,9 @@ where
                 K_EXCH_DATA
             };
             let feed_first = feed_ts != i64::MAX
-                && match self.heap.peek() {
+                && match self.top_key() {
                     None => true,
-                    Some(Reverse((ts, kind, _, _))) => (feed_ts, feed_kind) < (*ts, *kind),
+                    Some((ts, kind, _, _)) => (feed_ts, feed_kind) < (ts, kind),
                 };
             if feed_first {
                 let now = feed_ts;
@@ -899,11 +1029,12 @@ where
                     self.process_local(&ev);
                     self.ev_ld = self.advance_local();
                     for id in 0..self.circles.len() {
-                        let c = &mut self.circles[id];
-                        if c.cs == Cs::Waiting && c.wnf {
+                        if self.wflag[id] == 3 {
+                            let c = &mut self.circles[id];
                             c.bound = now;
                             c.result = ElapseResult::MarketFeed;
-                            self.set_slot(id, S_WAKE, now);
+                            self.dl_clear(id);
+                            self.set_wake_wnf(id, now);
                         }
                     }
                 } else {
@@ -911,7 +1042,7 @@ where
                     self.process_exch(&ev)?;
                     self.ev_ed = self.advance_exch();
                     for id in 0..self.circles.len() {
-                        if self.circles[id].cs == Cs::Waiting {
+                        if self.wflag[id] != 0 {
                             let lo = self.circles[id].exch.earliest_send_order_timestamp();
                             self.set_slot(id, S_LO, lo);
                         }
@@ -924,7 +1055,7 @@ where
                 }
                 continue;
             }
-            let Some(Reverse((ts, kind, id, _))) = self.heap.pop() else {
+            let Some((ts, kind, id, _)) = self.pop_key() else {
                 break;
             };
             let id = id as usize;
@@ -941,6 +1072,7 @@ where
                         if c.wnf {
                             c.result = ElapseResult::OrderResponse;
                         }
+                        self.dl_clear(id);
                         self.set_slot(id, S_WAKE, ts);
                     }
                     let lo = self.circles[id].local.earliest_recv_order_timestamp();
