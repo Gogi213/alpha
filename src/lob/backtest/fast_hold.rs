@@ -328,7 +328,10 @@ impl hftbacktest::types::Bot<FastMarketDepth> for FastBot<'_> {
         self.tracker.advance_to(self.now);
         Ok(hftbacktest::types::ElapseResult::Ok)
     }
-    fn elapse_bt(&mut self, duration: i64) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
+    fn elapse_bt(
+        &mut self,
+        duration: i64,
+    ) -> Result<hftbacktest::types::ElapseResult, Self::Error> {
         self.elapse(duration)
     }
     fn close(&mut self) -> Result<(), Self::Error> {
