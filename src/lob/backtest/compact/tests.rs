@@ -89,7 +89,7 @@ fn expand_until_matches_row_loop() {
                 want.push(rows[i].expand());
                 i += 1;
             }
-            let mut got = vec![Event::default(); 3];
+            let mut got = vec![legacy(EventKind::BidDepth, 0, 0, 0, 0); 3];
             let end = rows.expand_until(start, until, &mut got);
             assert_eq!(end, i, "start={start} until={until}");
             assert_eq!(got.len(), want.len());
