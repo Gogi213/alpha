@@ -2325,7 +2325,7 @@ class DispatchRunTests(unittest.TestCase):
         lines.append(json.dumps({"type": "user", "message": {"role": "user", "content": "x"}}))
         (proj / f"{session_id}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def killed_run(self, previous_tokens, turns, sid="sess-killed", stored_sid="sess-killed", result_text=""):
+    def killed_run(self, previous_tokens, turns, sid="sess-killed", stored_sid="sess-killed", result_text="", info_sid=None):
         """Запуск убит по таймауту (JSON пуст): возвращает (сохранённый контекст, команда повторного запуска)."""
         path = self.make_in_progress("Убит")
         tid = path.stem
@@ -2339,7 +2339,8 @@ class DispatchRunTests(unittest.TestCase):
         run_file.write_text(result_text, encoding="utf-8")
         info = {"role": "engineer", "popen": None, "pid": None, "started": dt("2026-10-03T10:00:00+04:00"),
                 "attempt": 0, "run_file": run_file, "err_file": run_file, "out_fh": None, "err_fh": None,
-                "reason": "in_progress-resume", "status_at_launch": "in_progress", "log_keys_at_launch": []}
+                "reason": "in_progress-resume", "status_at_launch": "in_progress", "log_keys_at_launch": [],
+                "session_id": info_sid}
         captured = []
         orig_popen, orig_dir = D._popen, D.CLAUDE_PROJECTS_DIR
         D._popen = lambda cmd, _o=orig_popen, **kw: (captured.extend(cmd), _o(cmd, **kw))[1]
@@ -2361,6 +2362,15 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(saved, 7 + 20_000 + 3_000, "последний ход из транскрипта, не прежние 150000")
         self.assertIn("--resume", captured, "контекст под порогом — повтор продолжает ту же сессию")
         self.assertIn("sess-killed", captured)
+
+    def test_killed_fresh_session_is_resumed_by_preassigned_id(self):
+        """TK-056 п.3′: новая сессия убита по таймауту до JSON — id назначен при запуске, повтор идёт --resume ею."""
+        turns = [{"input_tokens": 5, "cache_read_input_tokens": 1_000, "cache_creation_input_tokens": 0}]
+        _, captured = self.killed_run(0, turns, sid="sess-new", stored_sid=None, info_sid="sess-new")
+        self.assertIn("--resume", captured)
+        self.assertIn("sess-new", captured)
+        _, captured = self.killed_run(0, None, sid="sess-new", stored_sid=None, info_sid="sess-new")
+        self.assertNotIn("--resume", captured, "транскрипта нет — резюмировать нечего, новая сессия")
 
     def test_killed_run_with_big_transcript_makes_rotation_fire_even_if_old_number_was_small(self):
         big = [{"input_tokens": 5, "cache_read_input_tokens": D.ROTATE_TOKENS + 10_000, "cache_creation_input_tokens": 0}]

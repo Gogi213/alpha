@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -1174,6 +1175,9 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
            "--model", model, "--effort", effort]
     if sid:
         cmd += ["--resume", sid]
+    else:
+        sid = str(uuid.uuid4())  # id известен заранее: после таймаута повтор идёт --resume этой же сессии (TK-056 п.3′)
+        cmd += ["--session-id", sid]
 
     env = dict(os.environ)
     # Судья 27.09, п.4 «обязательно»: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID
@@ -1340,6 +1344,9 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
     sid_used = result.get("session_id") or store.get("session_id")  # сессия этого запуска (убит — id прежней, --resume)
     if result.get("session_id"):
         store["session_id"] = result["session_id"]
+    elif timed_out and info.get("session_id") and not store.get("session_id") and             next(CLAUDE_PROJECTS_DIR.glob(f"*/{info['session_id']}.jsonl"), None) is not None:
+        store["session_id"] = info["session_id"]  # убитая новая сессия: транскрипт есть — повтор продолжит её, не с нуля
+        sid_used = info["session_id"]
     # контекст последнего хода; нет JSON/usage (таймаут, ответ-ошибка) — прежнее значение, не ноль
     store["last_context_tokens"] = _context_tokens_for_store(result, store.get("last_context_tokens", 0), sid_used)
 
