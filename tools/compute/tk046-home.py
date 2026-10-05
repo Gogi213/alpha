@@ -50,7 +50,11 @@ for path in ("/data/tk037/instruments.csv", f"{OLDR}/instruments.csv"):
 with open(f"{E}/root/instruments.csv", "w") as f:
     f.write(head)
     f.writelines(ins[k] for k in sorted(ins))
-shutil.copy(f"{OLDR}/session.json", f"{E}/root/session.json")
+if os.path.exists(f"{OLDR}/session.json"):
+    shutil.copy(f"{OLDR}/session.json", f"{E}/root/session.json")
+else:
+    with open(f"{E}/root/session.json", "w") as f:
+        f.write('{"start_hour_utc":0,"closed":true,"binlog_files":[]}\n')
 
 missing, bysym, byday = [], {}, {}
 for s, d in rows:
@@ -96,7 +100,10 @@ for d, syms in byday.items():
     shutil.copy(f"{E}/root/session.json", R)
 
 for ref in ("BTCUSDT", "ETHUSDT"):
-    shutil.copy(f"{OLDS}/regime/ref-{ref}-1m.csv", f"{E}/study/regime/")
+    src = f"{OLDS}/regime/ref-{ref}-1m.csv"
+    if not os.path.exists(src):
+        src = "/home/deck/alpha/epochs/e-sep/study/regime/ref-%s-1m.csv" % ref  # у октября свой ref нет: файл сентября покрывает по 02.10
+    shutil.copy(src, f"{E}/study/regime/")
 for d in sorted(byday):
     subprocess.run(["python3", "/opt/alpha-compute/bin/regime.py", "--day", d, "--touches", "study/ax/D20",
                     "--regime-dir", "study/regime"], cwd=E, check=True, stdout=subprocess.DEVNULL)
