@@ -361,7 +361,13 @@ impl<'a> GridRun<'a> {
         };
         let e2e_parts = e2e::Mark::now();
         let parts = session_parts_for(&args.root, symbol);
-        e2e::stage(symbol, "*", "prescan_parts", e2e_parts, serde_json::json!({}));
+        e2e::stage(
+            symbol,
+            "*",
+            "prescan_parts",
+            e2e_parts,
+            serde_json::json!({}),
+        );
         let Ok(parts) = parts else {
             return out;
         };
@@ -376,7 +382,13 @@ impl<'a> GridRun<'a> {
             args.signal == SignalArg::Approach,
             false,
         );
-        e2e::stage(symbol, "*", "prescan_cache", e2e_cache, serde_json::json!({}));
+        e2e::stage(
+            symbol,
+            "*",
+            "prescan_cache",
+            e2e_cache,
+            serde_json::json!({}),
+        );
         for d in got.unwrap_or_default() {
             let t0s = d
                 .touches
