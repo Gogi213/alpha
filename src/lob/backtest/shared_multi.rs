@@ -103,8 +103,23 @@ where
 
 const ST_N: usize = 17;
 const ST_NAMES: [&str; ST_N] = [
-    "rows_local", "rows_exch", "deliv_local", "deliv_exch", "births", "mk_calls", "pop_lo", "pop_eo", "pop_birth",
-    "pop_wake", "stale_pops", "wnf_wakes", "ns_local", "ns_exch", "ns_resume", "upd_local", "upd_exch",
+    "rows_local",
+    "rows_exch",
+    "deliv_local",
+    "deliv_exch",
+    "births",
+    "mk_calls",
+    "pop_lo",
+    "pop_eo",
+    "pop_birth",
+    "pop_wake",
+    "stale_pops",
+    "wnf_wakes",
+    "ns_local",
+    "ns_exch",
+    "ns_resume",
+    "upd_local",
+    "upd_exch",
 ];
 
 const S_LO: usize = 0;
@@ -1011,7 +1026,11 @@ where
             }
         }
         if std::env::var_os("ALPHA_SHARED_STATS").is_some() {
-            let mut line = format!("SHARED_STATS circles={} rows={}", self.circles.len(), self.rows.len());
+            let mut line = format!(
+                "SHARED_STATS circles={} rows={}",
+                self.circles.len(),
+                self.rows.len()
+            );
             for (n, v) in ST_NAMES.iter().zip(self.st) {
                 line.push_str(&format!(" {n}={v}"));
             }
