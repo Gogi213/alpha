@@ -359,11 +359,15 @@ impl<'a> GridRun<'a> {
         let Some(dir) = args.touches_from.as_deref() else {
             return out;
         };
-        let Ok(parts) = session_parts_for(&args.root, symbol) else {
+        let e2e_parts = e2e::Mark::now();
+        let parts = session_parts_for(&args.root, symbol);
+        e2e::stage(symbol, "*", "prescan_parts", e2e_parts, serde_json::json!({}));
+        let Ok(parts) = parts else {
             return out;
         };
         let days: std::collections::BTreeSet<String> =
             parts.iter().map(|p| p.day_utc.clone()).collect();
+        let e2e_cache = e2e::Mark::now();
         let got = load_cached_days(
             Some(shared),
             dir,
@@ -372,6 +376,7 @@ impl<'a> GridRun<'a> {
             args.signal == SignalArg::Approach,
             false,
         );
+        e2e::stage(symbol, "*", "prescan_cache", e2e_cache, serde_json::json!({}));
         for d in got.unwrap_or_default() {
             let t0s = d
                 .touches

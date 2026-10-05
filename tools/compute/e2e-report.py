@@ -6,7 +6,7 @@
 import argparse, glob, json, os, sys
 from collections import defaultdict
 
-STAGES = ["setup", "touches_load", "events", "windows", "prep", "drive"]
+STAGES = ["setup", "prescan_parts", "prescan_cache", "touches_load", "events", "windows", "prep", "drive"]
 EV_SUB = ["ev_count", "ev_decode", "ev_carry"]
 
 
