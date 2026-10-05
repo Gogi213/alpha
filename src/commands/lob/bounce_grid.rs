@@ -116,7 +116,7 @@ use args::SignalArg;
 pub use args::{BounceGridArgs, BounceGridSummary};
 pub(crate) use cache::cached_touches;
 use cache::{cached_approaches, DayTouches};
-use carry::{carry_window_ns, extend_with_carry};
+use carry::{carry_boundary, carry_window_ns, extend_with_carry};
 use drive::{day_events, day_windows, drive_day, DayParams, DayRows, OrderSizing};
 use entry_sigma::EntrySigma;
 pub use forms::{grid_forms, ExitForm, GridForm};
@@ -794,11 +794,47 @@ impl<'a> GridRun<'a> {
                 crate::lob::backtest::HORIZON_RETRIES.load(std::sync::atomic::Ordering::Relaxed);
             let skips_before =
                 crate::lob::backtest::HOLD_SKIPS.load(std::sync::atomic::Ordering::Relaxed);
+            let regime = if need_regime {
+                let dir = args.regime_from.as_deref().expect("проверено выше");
+                if !regime_days.contains_key(&day.day) {
+                    regime_days.insert(
+                        day.day.clone(),
+                        read_regime_day(dir, &day.day, sets.iter().any(FilterSet::uses_btc_mid))?,
+                    );
+                }
+                regime_days.get(&day.day)
+            } else {
+                None
+            };
+            let ctx = touch_contexts(&day.rets, &day.touches, regime);
+            // TK-049 (`ALPHA_SKIP_NOSIGNAL=1`): ни один набор не пропускает ни одного касания суток — сигналов
+            // нет у всех форм, круги не идут, лента на выход не влияет: не читаем её и довесок D+1.
+            let no_signal = std::env::var_os("ALPHA_SKIP_NOSIGNAL").is_some()
+                && matches!(args.driver, args::DriverArg::Setups)
+                && sets.iter().all(|set| {
+                    let f = TouchFilter::from_set(set, mode, tick, lot, &ctx);
+                    !day.touches
+                        .iter()
+                        .enumerate()
+                        .any(|(ti, t)| f.admits(ti, t))
+                });
             // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
             // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
             let carry_key = (day.day.clone(), args.carry_root.clone(), carry_window);
             let (base, carry_boundary_ns, carry_unverified) =
                 match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
+                    _ if no_signal => {
+                        let (boundary, unverified) = match carry_window {
+                            Some(_) => carry_boundary(
+                                &day.day,
+                                args.carry_root.as_deref(),
+                                &carry_parts_by_day,
+                                symbol,
+                            )?,
+                            None => (None, false),
+                        };
+                        (Arc::new(Vec::new()), boundary, unverified)
+                    }
                     Some(hit) => hit,
                     None => {
                         let mut ev = day_events(day_parts, symbol, &day.day)?;
@@ -837,7 +873,7 @@ impl<'a> GridRun<'a> {
                 e2e_events,
                 serde_json::json!({ "n_events": base.len() }),
             );
-            if base.is_empty() {
+            if base.is_empty() && !no_signal {
                 eprintln!(
                     "bounce-grid: {symbol} {} — событий нет, сутки пропущены",
                     day.day
@@ -915,19 +951,6 @@ impl<'a> GridRun<'a> {
                 serde_json::json!({ "snapshots": windows.as_ref().map(|w| w.len()) }),
             );
             let e2e_prep = e2e::Mark::now();
-            let regime = if need_regime {
-                let dir = args.regime_from.as_deref().expect("проверено выше");
-                if !regime_days.contains_key(&day.day) {
-                    regime_days.insert(
-                        day.day.clone(),
-                        read_regime_day(dir, &day.day, sets.iter().any(FilterSet::uses_btc_mid))?,
-                    );
-                }
-                regime_days.get(&day.day)
-            } else {
-                None
-            };
-            let ctx = touch_contexts(&day.rets, &day.touches, regime);
             // В-131: сколько сигналов суток без σ на взводе (до фильтров наборов) — в итог и строкой суток.
             if let Some(es) = &entry_sigma {
                 let n = day.touches.len() as u64;
