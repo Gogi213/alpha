@@ -142,6 +142,7 @@ pub(super) fn extend_with_carry(
     carry_parts_by_day: &BTreeMap<String, Vec<PathBuf>>,
     symbol: &str,
     window_ns: i64,
+    prep_dirs: &[PathBuf],
 ) -> anyhow::Result<(Option<i64>, bool)> {
     let Some(carry_root) = carry_root else {
         return Ok((None, false));
@@ -152,7 +153,12 @@ pub(super) fn extend_with_carry(
     };
     let boundary = day_start_ns(&next_day)?;
     let until = boundary.saturating_add(window_ns);
-    let n_carry = append_carry_events(next_parts, until, events)?;
+    let n_carry = match crate::commands::lob::prep_events::prepared_carry_events(
+        prep_dirs, next_parts, until, events,
+    )? {
+        Some(n) => n,
+        None => append_carry_events(next_parts, until, events)?,
+    };
     eprintln!(
         "bounce-grid:   довесок {next_day}: событий {} за {:.1}с окна ({} частей)",
         n_carry,

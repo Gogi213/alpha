@@ -789,8 +789,12 @@ fn incremental_verifier_matches_full_pass_reference() {
         nonpositive_updates += usize::from(matches!(&got, Ok(x) if !x.is_empty()));
         assert_eq!(v.stats(), r.stats, "шаг {step}: счётчики");
         assert_eq!(
-            v.ever_held.iter().collect::<std::collections::BTreeSet<_>>(),
-            r.ever_held.iter().collect::<std::collections::BTreeSet<_>>(),
+            v.ever_held
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            r.ever_held
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>(),
             "шаг {step}: история тиков"
         );
         assert!(v.book() == &r.book, "шаг {step}: книга");

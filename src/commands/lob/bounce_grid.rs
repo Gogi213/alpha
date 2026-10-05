@@ -695,7 +695,13 @@ impl<'a> GridRun<'a> {
                 match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
                     Some(hit) => hit,
                     None => {
-                        let mut ev = day_events(day_parts)?;
+                        let mut ev = match crate::commands::lob::prep_events::prepared_day_events(
+                            &args.prep_dir,
+                            day_parts,
+                        )? {
+                            Some(ev) => ev,
+                            None => day_events(day_parts)?,
+                        };
                         // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
                         // ДО построения окон сетапов; сигналы дня от довеска не зависят.
                         let carry = match carry_window {
@@ -706,6 +712,7 @@ impl<'a> GridRun<'a> {
                                 &carry_parts_by_day,
                                 symbol,
                                 window,
+                                &args.prep_dir,
                             )?,
                             _ => (None, false),
                         };

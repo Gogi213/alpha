@@ -112,7 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             mism += 1;
         }
         for (i, &lv) in levels.iter().enumerate() {
-            let z: Vec<Vec<u8>> = cols.iter().map(|c| zstd::bulk::compress(c, lv).unwrap()).collect();
+            let z: Vec<Vec<u8>> = cols
+                .iter()
+                .map(|c| zstd::bulk::compress(c, lv).unwrap())
+                .collect();
             zsz[i] += z.iter().map(|v| v.len() as u64).sum::<u64>();
             let t = Instant::now();
             let un: Vec<Vec<u8>> = z
@@ -128,9 +131,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    println!("файлов={} записей={nrec} расхождений={mism}", env::args().count() - 1);
+    println!(
+        "файлов={} записей={nrec} расхождений={mism}",
+        env::args().count() - 1
+    );
     println!("исходные бинлоги: {:.1} МБ (1,00); чтение кадров бинлога в Vec<Record> (zstd+decode_v3): {t_src:.2} с", disk as f64 / 1e6);
-    println!("колонки без сжатия: {:.1} МБ ({:.2}); загрузка в Vec<Record>: {t_raw:.2} с", raw as f64 / 1e6, raw as f64 / disk as f64);
+    println!(
+        "колонки без сжатия: {:.1} МБ ({:.2}); загрузка в Vec<Record>: {t_raw:.2} с",
+        raw as f64 / 1e6,
+        raw as f64 / disk as f64
+    );
     for (i, &lv) in levels.iter().enumerate() {
         println!(
             "колонки+zstd{lv}: {:.1} МБ ({:.2}); распаковка+загрузка: {:.2} с ({:.1}x быстрее чтения бинлога)",

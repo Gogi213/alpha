@@ -75,6 +75,20 @@ impl CompactEvent {
         }
     }
 
+    /// Сырые поля `[local_ts, exch_ms<<2|kind, px_e9, qty_e9]` — для пробы подготовленного формата (TK-050).
+    pub fn raw(&self) -> [i64; 4] {
+        [self.local_ts, self.exch_kind, self.px_e9, self.qty_e9]
+    }
+
+    pub fn from_raw(r: [i64; 4]) -> Self {
+        Self {
+            local_ts: r[0],
+            exch_kind: r[1],
+            px_e9: r[2],
+            qty_e9: r[3],
+        }
+    }
+
     pub fn kind(&self) -> EventKind {
         EventKind::from_bits(self.exch_kind)
     }
