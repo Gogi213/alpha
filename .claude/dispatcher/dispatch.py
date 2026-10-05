@@ -17,6 +17,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -44,10 +45,32 @@ STOP_DIR = DISPATCHER_DIR / "stop"  # заявки `tickets.py stop` (<ID>.json)
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or r"C:\Users\Георгий\.local\bin\claude"
 PID_EXPECT_NAME = "claude"  # _pid_alive: подстрока имени образа процесса; тесты подменяют на "python"
 POLL_INTERVAL = float(os.environ.get("ALPHA_DISPATCH_INTERVAL", "15"))
-# v2 (02.10, аудит ролевой системы): всего параллельно ≤ 3 запусков и не больше ОДНОГО запуска на роль
+# v2 (02.10, аудит ролевой системы): всего параллельно ≤ 3 запусков и по умолчанию не больше ОДНОГО запуска на роль
 # (по всем тикетам сразу, см. _role_busy); таймаут запуска 20 мин (было 40 — фоновые помощники в `-p` висели
-# до убийства, а цена убитого запуска в учёте — $0).
+# до убийства, а цена убитого запуска в учёте — $0). Предел на роль настраивается ALPHA_DISPATCH_ROLE_PARALLEL
+# (CEO 05.10: три тикета скорости В-185 параллельно); на один тикет — по-прежнему один запуск роли.
 MAX_PARALLEL = int(os.environ.get("ALPHA_DISPATCH_MAX_PARALLEL", "3"))
+
+
+def _parse_role_parallel(spec: str) -> dict:
+    """«engineer:3,researcher:1» → {роль: предел запусков}. Роль без записи — предел 1 (см. _role_busy); пара не вида
+    «роль:целое ≥ 1» игнорируется с предупреждением в stderr."""
+    out = {}
+    for pair in (spec or "").split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        role, sep, num = pair.partition(":")
+        role, num = role.strip(), num.strip()
+        if sep and role and re.fullmatch(r"[0-9]+", num) and int(num) >= 1:
+            out[role] = int(num)
+        else:
+            print(f"[dispatch] ALPHA_DISPATCH_ROLE_PARALLEL: пара {pair!r} пропущена (нужно роль:целое≥1), предел 1",
+                  file=sys.stderr)
+    return out
+
+
+ROLE_PARALLEL = _parse_role_parallel(os.environ.get("ALPHA_DISPATCH_ROLE_PARALLEL", ""))  # тесты подменяют на модуле
 RUN_TIMEOUT = float(os.environ.get("ALPHA_DISPATCH_TIMEOUT", str(20 * 60)))
 
 # Защита от петли (владелец 27.09, v1.1). MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S — троттлинг решений (а)-(г):
@@ -140,7 +163,8 @@ ROLE_KEYS = ("researcher", "engineer", "judge")  # роли, которых ди
 # Область сессии на роль (владелец 27.09): "ticket" — сессия на (задача, роль), --resume в пределах
 # задачи; "role" — одна долгая сессия роли на ВСЕ задачи (в промпте каждый раз названа текущая задача).
 # v2 (02.10): Судья тоже "ticket" — одна сессия на все задачи копила контекст чужих тикетов (аудит).
-# Не больше одного запуска на роль теперь действует всегда (_role_busy), а не только при "role".
+# Предел запусков на роль действует всегда (_role_busy), а не только при "role"; по умолчанию 1, настраивается
+# ALPHA_DISPATCH_ROLE_PARALLEL (CEO 05.10: три тикета скорости В-185 параллельно); на один тикет — один запуск роли.
 # Переопределяемо через ALPHA_DISPATCH_SESSION_SCOPE=judge:role,engineer:ticket.
 SESSION_SCOPE = {"judge": "ticket", "researcher": "ticket", "engineer": "ticket"}
 if os.environ.get("ALPHA_DISPATCH_SESSION_SCOPE"):
@@ -257,6 +281,59 @@ WAIT_ERR_EVERY_S = 600.0  # ошибка ssh по одному условию �
 _WAIT_ERR_LAST = {}  # ключ условия -> time.time() последней строки
 _UNIT_RUNNING = ("active", "activating", "reloading", "deactivating", "refreshing")
 
+# TK-055: wait_for host:… закрывается событием сторожа машины (tools/bus/watcher.py); ssh — редкая подстраховка в потоке.
+WAIT_ASYNC = False  # True ставит main() для боевого цикла; тесты и --once — синхронный путь как раньше
+WAIT_POLL_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_POLL_S", "120"))
+WATCH_LIST = "/data/progress/watch.list"  # пути, которые сторож машины проверяет сам (по строке на путь)
+_WAIT_WATCH = set()  # ключи (алиас, what, арг), которые ждут тикеты — их опрашивает _wait_poller
+_EVENT_MET = {}      # (алиас, "unit"|"path", арг) -> time.time() прихода события
+_EVENT_LOCK = threading.Lock()
+_WAIT_NEW = threading.Event()
+
+
+def _unit_base(name: str) -> str:
+    return name[:-8] if name.endswith(".service") else name
+
+
+def record_wait_event(ev: dict) -> None:
+    """Событие шины → «условие wait_for выполнено»: машина.<алиас>.юнит.остановлен|упал, задача.*.задание.готово,
+    машина.<алиас>.файл.появился (payload.path). Вызывается из потока слушателя шины."""
+    addr, pl = ev.get("addr", ""), ev.get("payload") or {}
+    if not isinstance(pl, dict):
+        return
+    parts = addr.split(".")
+    host = pl.get("host") or (parts[1] if len(parts) > 1 else "")
+    keys = []
+    if addr.startswith("машина.") and addr.endswith((".юнит.остановлен", ".юнит.упал")) and pl.get("unit"):
+        keys.append((host, "unit", _unit_base(str(pl["unit"]))))
+    elif addr.startswith("машина.") and addr.endswith(".файл.появился") and pl.get("path"):
+        keys.append((host, "path", str(pl["path"])))
+    elif addr.startswith("задача.") and addr.endswith(".задание.готово") and pl.get("job"):
+        keys.append((host, "path", f"/data/progress/{pl['job']}.json"))
+    with _EVENT_LOCK:
+        for k in keys:
+            _EVENT_MET[k] = time.time()
+
+
+def _event_met(alias: str, what: str, arg: str) -> bool:
+    key = (alias, what, _unit_base(arg) if what == "unit" else arg)
+    with _EVENT_LOCK:
+        return key in _EVENT_MET
+
+
+def _wait_poller() -> None:
+    """Подстраховка: ssh-опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S в своём потоке, результат — в _WAIT_CACHE."""
+    while True:
+        for ckey in list(_WAIT_WATCH):
+            if _event_met(*ckey):
+                continue
+            try:
+                _host_probe(*ckey)
+            except Exception as e:
+                _wait_err(f"poller:{ckey}", f"{type(e).__name__}: {e}")
+        _WAIT_NEW.wait(WAIT_POLL_S)
+        _WAIT_NEW.clear()
+
 
 def _wait_err(key: str, msg: str) -> None:
     now_ts = time.time()
@@ -297,16 +374,33 @@ def _host_wait_met(alias: str, what: str, arg: str) -> bool:
     Судья 27.09 («можно потом»): без кэша ssh дёргается на каждый ждущий тикет каждые 15 с — результат на
     WAIT_CHECK_CACHE_S; ошибка ssh (код 255, таймаут) = «не выполнено» + строка в dispatch.err.log раз в 10 мин."""
     ckey = (alias, what, arg)
+    if _event_met(alias, what, arg):
+        return True
+    if WAIT_ASYNC:  # основной поток ssh не трогает: проверку делает _wait_poller редким шагом (TK-055)
+        if ckey not in _WAIT_WATCH:
+            _WAIT_WATCH.add(ckey)
+            _WAIT_NEW.set()  # первую проверку нового условия поток делает сразу, не через WAIT_POLL_S
+        return (_WAIT_CACHE.get(ckey) or (0, False))[1]
     cached = _WAIT_CACHE.get(ckey)
     now_ts = time.time()
     if cached and (now_ts - cached[0]) < WAIT_CHECK_CACHE_S:
         return cached[1]
+    return _host_probe(alias, what, arg)
+
+
+def _host_probe(alias: str, what: str, arg: str) -> bool:
+    ckey = (alias, what, arg)
+    now_ts = time.time()
     if what == "unit":
         remote = f"systemctl is-active {shlex.quote(arg)}"
     elif arg.endswith(".json"):
         remote = f"cat {_remote_test_arg(arg)}"
     else:
         remote = f"test -e {_remote_test_arg(arg)}"
+    if what == "path" and WAIT_ASYNC and arg.startswith("/") and not arg.endswith(".json"):
+        # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh
+        remote = (f"{{ grep -qxF {shlex.quote(arg)} {WATCH_LIST} 2>/dev/null || echo {shlex.quote(arg)} >> {WATCH_LIST}; }} "
+                  f">/dev/null 2>&1; {remote}")
     label = f"host:{alias}:{'unit:' if what == 'unit' else ''}{arg}"
     result = False
     try:
@@ -703,10 +797,11 @@ def _context_tokens_for_store(result: dict, previous: int, session_id=None) -> i
 
 
 def _role_busy(role: str) -> bool:
-    """v2 (02.10): не больше ОДНОГО активного запуска на роль по всем тикетам сразу (раньше — только при
-    scope="role"; аудит: одну задачу вели три сессии Исследователя, до 6 запусков параллельно). Занята —
-    запуск ждёт следующего тика."""
-    return any(info["role"] == role for info in RUNNING.values())
+    """v2 (02.10): активных запусков роли по всем тикетам сразу не больше её предела (по умолчанию 1; раньше — только
+    при scope="role"; аудит: одну задачу вели три сессии Исследователя, до 6 запусков параллельно). Предел на роль
+    настраивается ALPHA_DISPATCH_ROLE_PARALLEL (CEO 05.10: три тикета скорости В-185 параллельно); на один тикет —
+    по-прежнему один запуск роли (RUNNING по ключу тикета). Занята — запуск ждёт следующего тика."""
+    return sum(1 for info in RUNNING.values() if info["role"] == role) >= ROLE_PARALLEL.get(role, 1)
 
 
 # --- защита от петли и перерасхода (v1.1) --------------------------------------------------
@@ -1099,7 +1194,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         "role": role, "popen": popen, "pid": popen.pid, "started": now, "attempt": attempt,
         "run_file": run_file, "err_file": err_file, "out_fh": out_fh, "err_fh": err_fh, "reason": reason,
         "status_at_launch": status_at_launch, "executor": executor,
-        "log_keys_at_launch": log_keys_at_launch, "effort": effort,
+        "log_keys_at_launch": log_keys_at_launch, "effort": effort, "session_id": sid,
     }
     # last_woken — приоритет очереди запусков внутри роли (кто дольше не запускался — тот первый, см. tick);
     # всегда на (задачу, роль), не зависит от SESSION_SCOPE
@@ -1111,7 +1206,7 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
         "role": role, "pid": popen.pid, "started": T.now_iso(now), "attempt": attempt,
         "run_file": str(run_file), "err_file": str(err_file), "reason": reason,
         "status_at_launch": status_at_launch, "executor": executor,
-        "log_keys_at_launch": log_keys_at_launch, "effort": effort,
+        "log_keys_at_launch": log_keys_at_launch, "effort": effort, "session_id": sid,
     }
     save_state(state)
 
@@ -1124,20 +1219,62 @@ def _read_run_result(run_file: Path) -> dict:
         return {}
 
 
+def _transcript_usage_since(session_id, started) -> dict:
+    """Токены запуска по транскрипту сессии (TK-055): сумма usage ответов модели с отметкой >= started (ISO или
+    datetime), по одному на message.id (потоковые дубли — последний). Для запусков без JSON (таймаут/убит): {} —
+    сессии/транскрипта нет."""
+    if not session_id or not re.fullmatch(r"[A-Za-z0-9_-]+", str(session_id)):
+        return {}
+    try:
+        path = next(CLAUDE_PROJECTS_DIR.glob(f"*/{session_id}.jsonl"), None)
+        if path is None:
+            return {}
+        t0 = started if isinstance(started, datetime) else datetime.fromisoformat(str(started))
+        if t0.tzinfo is None:
+            t0 = t0.astimezone()
+        per = {}
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                    ts = datetime.fromisoformat(str(row["timestamp"]).replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                msg = row.get("message") or {}
+                u = msg.get("usage")
+                if ts >= t0 and isinstance(u, dict):
+                    per[msg.get("id") or row.get("uuid") or len(per)] = u
+        tot = {"input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "output_tokens": 0}
+        for u in per.values():
+            for k in tot:
+                tot[k] += int(u.get(k) or 0)
+        return tot if per else {}
+    except Exception:
+        return {}
+
+
 def _log_run_summary(tid: str, info: dict, result: dict, now, timed_out: bool, resolved_cost: float,
                       ticket_spent: float, cost_note: bool = False, stopped: bool = False) -> None:
     RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
     usage = result.get("usage") or {}
+    src = "json"
+    if not usage:  # таймаут/убит: токены — из транскрипта сессии с момента старта запуска
+        usage = _transcript_usage_since(info.get("session_id"), info.get("started")) or {}
+        src = "jsonl" if usage else "none"
     status = "stopped" if stopped else "timeout" if timed_out else ("ok" if result else "no_output")
     # cost_usd — сырой (кумулятивный за сессию) из JSON; resolved_cost — разница с прошлым итогом ТОЙ ЖЕ
     # session_id (судья TK-002 п.1) — то, что реально начислено этому запуску; cost_note=asis — не было
     # с чем сравнить (новая/ротированная сессия) или разница < 0 — использован сырой итог как есть.
     # ticket_spent — накоплено по ЭТОЙ задаче ПОСЛЕ этого запуска (колонка CEO, роль её не видит).
     line = (f"{T.now_iso(now)} {tid} {info['role']} reason={info.get('reason')} "
-            f"attempt={info.get('attempt', 0)} session={result.get('session_id', '-')} "
+            f"attempt={info.get('attempt', 0)} session={result.get('session_id') or info.get('session_id') or '-'} "
             f"cost_usd={result.get('total_cost_usd', '-')} resolved_cost={resolved_cost:.4f} "
             f"cost_note={'asis' if cost_note else 'diff'} ticket_spent={ticket_spent:.4f} "
             f"in_tok={usage.get('input_tokens', '-')} out_tok={usage.get('output_tokens', '-')} "
+            f"cr_tok={usage.get('cache_read_input_tokens', '-')} cw_tok={usage.get('cache_creation_input_tokens', '-')} "
+            f"tok_src={src} "
             f"ctx_last={_context_tokens_last(result)} ctx_sum={_context_tokens_sum(usage)} status={status}\n")
     with open(RUNS_LOG, "a", encoding="utf-8") as fh:
         fh.write(line)
@@ -1516,8 +1653,10 @@ def tick(now=None) -> int:
         tid = tkt.id
         if len(RUNNING) >= MAX_PARALLEL:
             break
+        if tid in RUNNING or path.stem in RUNNING:
+            continue  # на один тикет — один запуск роли (RUNNING по stem файла; tkt.id из шапки мог разойтись с ним)
         if _role_busy(decision.role):
-            continue  # у роли уже идёт запуск (на любой задаче) — ждёт следующего тика
+            continue  # у роли уже предел запусков (на любых задачах) — ждёт следующего тика
         if _rate_limited(state, tid, now):
             continue  # MAX_RUNS_PER_TICKET_HOUR/MIN_GAP_S — пауза, не ошибка; попробуем следующим тиком
         if decision.header_updates:
@@ -1537,7 +1676,7 @@ def _start_bus_link():
     try:
         import bus_link
         link = bus_link.Link(lambda kind, note: append_ceo_inbox(
-            kind.split(".")[1] if kind.startswith("задача.") else "bus", kind, note))
+            kind.split(".")[1] if kind.startswith("задача.") else "bus", kind, note), on_event=record_wait_event)
         link.start()
         return link
     except Exception as e:
@@ -1570,12 +1709,16 @@ def main(argv=None) -> int:
     print(f"[dispatch] v2 loop every {POLL_INTERVAL}s, MAX_PARALLEL={MAX_PARALLEL}, run timeout "
           f"{RUN_TIMEOUT / 60:.0f} min, CLAUDE_BIN={CLAUDE_BIN}")
     link = _start_bus_link()
+    global WAIT_ASYNC
+    WAIT_ASYNC = True
+    threading.Thread(target=_wait_poller, daemon=True, name="wait-poller").start()
     while True:
         acks = link.take_ack() if link else set()  # события, полученные ДО этого тика — подтверждаем после него
         try:
             tick()
             if link:
-                bus_link.ack("dispatcher", acks)
+                if not bus_link.ack("dispatcher", acks):
+                    link.give_back(acks)  # ack не дошёл — повтор на следующем тике (TK-055)
                 link.maybe_snapshot([T.read_ticket(p) for p in T.list_tickets(TICKETS_DIR)])
         except Exception as e:
             print(f"[dispatch] tick error: {type(e).__name__}: {e}", file=sys.stderr)

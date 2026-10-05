@@ -13,6 +13,23 @@ class Fake:
                          prog=lambda pg: dict(self.progress))
 
 
+class FileMarkers(unittest.TestCase):
+    def test_file_appears_once(self):
+        import os
+        import tempfile
+        d = tempfile.mkdtemp()
+        lst, marker = os.path.join(d, "watch.list"), os.path.join(d, "DONE")
+        with open(lst, "w", encoding="utf-8") as f:
+            f.write(marker + "\nrelative\n")
+        f = Fake()
+        w = W.Watcher("calc", ["tk*"], [], "x", post=lambda a, p, i, t: f.posted.append((a, i)),
+                      snap=lambda pat: {}, prog=lambda pg: {}, watch_file=lst)
+        self.assertEqual(w.run_once(), [])
+        open(marker, "w").close()
+        self.assertEqual([e[0] for e in w.run_once()], ["машина.calc.файл.появился"])
+        self.assertEqual(w.run_once(), [])
+
+
 class T(unittest.TestCase):
     def test_clean_stop_and_gc(self):
         f = Fake(); w = f.make()
