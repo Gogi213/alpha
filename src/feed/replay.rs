@@ -31,6 +31,8 @@ pub struct ReplayFeed<R: Read> {
     reader: binlog::Reader<R>,
     replayer: FileReplayer,
     pending: VecDeque<Event>,
+    ups_scratch: Vec<crate::book::Update>,
+    trades_scratch: Vec<crate::bybit::verify::TradePoint>,
     last_local_ts_ns: i64,
     done: bool,
 }
@@ -48,6 +50,8 @@ impl<R: Read> ReplayFeed<R> {
             reader,
             replayer: FileReplayer::new(),
             pending: VecDeque::new(),
+            ups_scratch: Vec::new(),
+            trades_scratch: Vec::new(),
             last_local_ts_ns: 0,
             done: false,
         })
@@ -59,8 +63,9 @@ impl<R: Read> ReplayFeed<R> {
     /// ровно так же, как `commands::lob::replay_symbol` уже это делает.
     fn push_record(&mut self, rec: &Record) {
         self.last_local_ts_ns = rec.local_ts_ns;
-        let mut ups = Vec::new();
-        let mut trade_points = Vec::new();
+        let mut ups = std::mem::take(&mut self.ups_scratch);
+        let mut trade_points = std::mem::take(&mut self.trades_scratch);
+        trade_points.clear();
         self.replayer.push_frame(
             std::slice::from_ref(rec),
             self.tick_e9,
@@ -68,7 +73,8 @@ impl<R: Read> ReplayFeed<R> {
             &mut ups,
             &mut trade_points,
         );
-        for up in ups {
+        self.trades_scratch = trade_points;
+        for up in ups.drain(..) {
             self.pending.push_back(Event::Market {
                 symbol: self.symbol,
                 local_ts_ns: rec.local_ts_ns,
@@ -76,6 +82,7 @@ impl<R: Read> ReplayFeed<R> {
                 payload: WsEvent::Book(up),
             });
         }
+        self.ups_scratch = ups;
         if is_trade_ev(rec.ev) {
             self.pending.push_back(Event::Market {
                 symbol: self.symbol,

@@ -486,12 +486,13 @@ pub(super) fn fast_hold_scan(
         bot.clear_last_trades(Some(0));
         let held_before = state.hold_wakeup_ns(now).is_some();
         let mark_before = state.phase_mark();
-        let before = state.clone();
         let sig_before = sig;
         let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
+        let mut before = None;
         let action = if skip {
             Action::Idle
         } else {
+            before = Some(state.clone());
             match on_event(bot, state) {
                 Ok(a) => a,
                 Err(_) => Action::Idle,
@@ -499,7 +500,7 @@ pub(super) fn fast_hold_scan(
         };
         if bot.need_engine {
             return FastResume {
-                state: before,
+                state: before.unwrap_or_else(|| state.clone()),
                 decided_in_hold,
                 stable,
                 sig: sig_before,
