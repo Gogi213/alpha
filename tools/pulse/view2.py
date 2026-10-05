@@ -29,6 +29,9 @@ EXECUTORS = ("инженер", "исследователь")  # чьи «дел�
 ETA_LO, ETA_HI = 0.75, 1.4   # вилка «осталось»: доли суммы eta_min шагов критической цепочки
 ETA_MIN_MEASURES = 2         # меньше замеров (шагов цепочки с eta_min) — вилку не показываем
 WORK_GAP_MIN = 45            # «прошло»: промежуток между событиями длиннее — засчитывается как столько минут
+AUTO_DONE_MAX = 4            # шагов «готово» из последних записей ролей у тикета без плана
+AUTO_TITLE_LEN = 60
+FEED_AGE_S = 86400
 _last_psum: dict = {}        # процесс → последняя строка-итог (пока модель отвечает на новое состояние — показываем её)
 
 
@@ -308,8 +311,38 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                 "wait" if t.status in ("waiting", "needs_owner") else "todo")
         return steps, mids
 
+    # --- шаги из лога тикета (плана нет): последние записи ролей → «готово», дальше — текущее состояние и «Дальше:»
+    def role_entries(t) -> list:
+        return [e for e in H.all_entries(t) if H._role_key(e.author) in ROLE_LC]
+
+    def entry_title(e) -> str:
+        txt = H.clean_text(e.text)
+        txt = re.sub(r"^(?:Инженер|Исследователь|Судья|CEO)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
+        txt = re.sub(r"^\W*Итог(?:\s+шага\s*\([^)]*\))?\W*(?:[0-9a-f]{7,40}\W+)?", "", txt, flags=re.I)
+        return H.first_phrase(txt or H.clean_text(e.text), AUTO_TITLE_LEN)
+
+    def auto_done_steps(t) -> list:
+        out = []
+        for e in role_entries(t)[-AUTO_DONE_MAX:]:
+            out.append(_step(0, entry_title(e), ROLE_LC[H._role_key(e.author)], "pc", "", "done",
+                             finished=e.ts.astimezone(P.TZ).strftime("%H:%M")))
+        return out
+
+    # задание с чужим (закрытым/неизвестным) тикетом в /data/progress → открытый тикет, что его запустил (wait_for / лог)
+    open_ids = [i for i, t in tickets.items() if t.status not in ("done", "stopped")]
+    for k in list(jobs):
+        if k in open_ids:
+            continue
+        for j in list(jobs[k]):
+            host = next((i for i in open_ids if j["job"] in (tickets[i].header.get("wait_for") or "")), None) or next(
+                (i for i in open_ids if any(j["job"] in e.text for e in tickets[i].log[-6:])), None)
+            if host:
+                jobs[k].remove(j)
+                jobs.setdefault(host, []).append(j)
+
     # --- процессы-тикеты
     procs = []
+    auto_n: dict = {}
     for tid, t in tickets.items():
         if t.status in ("done", "stopped"):
             continue
@@ -322,10 +355,20 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             flow, forr, title = plan.get("flow") or [], plan.get("for") or EMPTY_FOR, plan.get("title") or ptitle(tid)
         else:
             steps, mids = synth_steps(tid, t)
-            flow = [{"text": "идёт на", "on": m} for m in dict.fromkeys(mids)] or [{"text": "в очереди на", "on": "pc"}]
+            auto_done = auto_done_steps(t)
+            auto_n[tid] = len(auto_done) + sum(1 for s in steps if s["pct"] is not None)
+            hint = H.next_hint(t)
+            tail = []
+            if hint and steps and steps[-1]["state"] != "done" and t.status != "in_review":
+                tail = [_step(0, re.sub(r"^[Дд]альше\s*[:—-]\s*", "", hint), ROLE_LC.get(t.next_role or t.owner, "CEO"), "pc", "", "todo")]
+            steps = auto_done + steps + tail
+            for i, s in enumerate(steps, 1):
+                s["n"] = i
+            flow =[{"text": "идёт на", "on": m} for m in dict.fromkeys(mids)] or [{"text": "в очереди на", "on": "pc"}]
             forr, title = EMPTY_FOR, ptitle(tid)
         adjust_states(steps, t, judge_returned(H, t))
-        procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps, "has_plan": bool(plan)})
+        procs.append({"id": tid, "title": title, "flow": flow, "for": forr, "steps": steps, "has_plan": bool(plan),
+                      "plan": bool(plan), "auto_steps": auto_n.get(tid, 0)})
 
     # --- «без хозяина»: по одному на машину
     for mid in ("vps", "calc", "col"):
@@ -374,7 +417,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         if not ph:
             return None
         _last_psum[p["id"]] = ph
-        if not p.get("has_plan"):
+        if not (p.get("has_plan") or p.get("auto_steps")):
             return ph
         return f"{ph} — {sum(1 for s in p['steps'] if s['state'] == 'done')} из {len(p['steps'])} готово"
 
@@ -473,6 +516,24 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             if s.get("state") == "done" and f and (now_dt - f).total_seconds() < 86400:
                 feed.append((f.timestamp(), {"time": H.news_time(f), "state": "done", "on": [s["on"]] if s["on"] in mach else ["pc"], "to": None,
                                              "text": s["title"]}))
+    news_ts = [(n.get("ticket"), P.parse(n.get("ts"))) for n in plain.get("news", [])]
+    for p in procs:  # записи ролей из логов тикетов (сдано, числа, решения CEO), которых ещё нет в Haiku-ленте
+        t = tickets.get(p["id"])
+        if t is None or p["id"].startswith("orphans-"):
+            continue
+        for e in role_entries(t):
+            if now - e.ts.timestamp() > FEED_AGE_S or any(
+                    tk == p["id"] and d and abs((d - e.ts).total_seconds()) < 2 for tk, d in news_ts):
+                continue
+            text = None
+            if H.AUTO is not None:
+                r = H.AUTO.get("entry", f"{t.id} {e.ts_raw}", {"ticket": H.short_title(t.header.get("title", ""), 70),
+                                                                "author": H.ROLE_RU[H._role_key(e.author)], "text": e.text}, 1)
+                if r is not None and not r.get("news"):
+                    continue  # служебная запись — модель отсеяла
+                text = (r or {}).get("news")
+            feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(p["id"], e.ts), "to": None,
+                                            "text": text or f"{ROLE_LC[H._role_key(e.author)]}: {entry_title(e)}"}))
     for q in allq:
         a = P.parse(q.get("since"))
         if a:

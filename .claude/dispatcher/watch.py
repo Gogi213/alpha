@@ -49,6 +49,7 @@ WATCH_DEDUP_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_REPEAT_HOURS", "2")
 WATCH_LONG_REPEAT_HOURS = float(os.environ.get("ALPHA_WATCH_LONG_REPEAT_HOURS", "24"))
 WATCH_LONG_REPEAT_KINDS = {"orphan-ticket", "deck-alert", "deck-idle-expected", "blocked", "needs_owner"}
 CLOSED_TICKET_STATUSES = ("done", "cancelled")
+NO_PLAN_MINUTES = float(os.environ.get("ALPHA_WATCH_NO_PLAN_MIN", "30"))
 DISPATCH_STALE_MINUTES = float(os.environ.get("ALPHA_WATCH_DISPATCH_STALE_MIN", "5"))
 ORPHAN_TICKET_HOURS = float(os.environ.get("ALPHA_WATCH_ORPHAN_HOURS", "2"))
 # TK-016: 30 → 10 мин (простой 28.09 07:22–08:31 — очередь стояла 69 мин незамеченной)
@@ -128,6 +129,32 @@ def check_orphan_tickets(now, skip_ids=()) -> list:
         if age_h > ORPHAN_TICKET_HOURS:
             out.append(Finding("orphan-ticket", tkt.id,
                                 f"{tkt.id}: status={tkt.status} без новой записи {age_h:.1f} ч"))
+    return out
+
+
+def check_no_progress_view(now) -> list:
+    """TK-060: тикет in_progress дольше NO_PLAN_MINUTES без плана табло и без авто-шагов (записей ролей, заданий с
+    сервера) — табло ничего не показывает о его ходе; сигнал CEO. Читает status.json сборщика (без LLM, без сети)."""
+    try:
+        view = json.loads((D.PROJECT_ROOT / ".claude" / "pulse" / "status.json").read_text(encoding="utf-8"))["view2"]
+        if now.timestamp() - float(view["built_ts"]) > 300:
+            return []  # сборщик стоит — это другая находка, не эта
+        procs = {p["id"]: p for p in view["processes"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    out = []
+    for path in T.list_tickets(D.TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+        except Exception:
+            continue
+        p = procs.get(tkt.id)
+        if tkt.status != "in_progress" or p is None or p.get("plan") or p.get("auto_steps"):
+            continue
+        upd = T.parse_dt(tkt.header.get("updated")) if tkt.header.get("updated") else None
+        if upd is not None and (now - upd).total_seconds() / 60 > NO_PLAN_MINUTES:
+            out.append(Finding("no-plan", tkt.id, f"{tkt.id}: в работе > {NO_PLAN_MINUTES:.0f} мин, на табло нет ни плана, "
+                                                  "ни авто-шагов (нет записей ролей и заданий)"))
     return out
 
 
@@ -413,6 +440,7 @@ def collect_findings(state: dict, now, ssh_run=_ssh_run, started_at=None, hold_h
     findings += check_dispatcher_alive(state, now, started_at)
     findings += check_blocked_and_needs_owner(now)
     findings += check_orphan_tickets(now, alive_waits)
+    findings += check_no_progress_view(now)
     findings += check_steam_deck(ssh_run, hold_hint=hold_hint, observed=observed)
     return findings
 
