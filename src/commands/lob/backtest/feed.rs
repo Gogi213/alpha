@@ -301,6 +301,19 @@ pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
     translate_feed_until(feed, None, &mut |ev| out.push(ev.expand()));
 }
 
+/// Бинлог → компактные события полной нынешней цепочкой (чтение + zstd + decode + push_frame + перевод) — проба TK-050.
+pub fn compact_events_of_binlog(path: &Path) -> anyhow::Result<Vec<CompactEvent>> {
+    let mut feed = open_replay_feed(path)?;
+    let mut out = Vec::new();
+    feed_compact_into(&mut feed, &mut out);
+    Ok(out)
+}
+
+/// Перевод `feed` в компактные события — строка за строкой в `sink` (подготовка данных, TK-050).
+pub(crate) fn feed_compact_each(feed: &mut dyn Feed, sink: &mut impl FnMut(CompactEvent)) {
+    translate_feed_until(feed, None, sink);
+}
+
 /// Перевод `feed` в компактные события (Р6) — в готовый `Vec`.
 pub(crate) fn feed_compact_into(feed: &mut dyn Feed, out: &mut Vec<CompactEvent>) {
     translate_feed_until(feed, None, &mut |ev| out.push(ev));
