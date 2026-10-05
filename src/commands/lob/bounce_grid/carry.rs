@@ -164,6 +164,26 @@ pub(super) fn extend_with_carry(
     Ok((Some(boundary), carry_unverified))
 }
 
+/// То же, что `extend_with_carry`, без чтения довеска: граница полуночи D+1 и флаг сверки зависят
+/// только от наличия частей D+1 и маркера (`ALPHA_SKIP_NOSIGNAL`, TK-049 — сутки без единого сигнала).
+pub(super) fn carry_boundary(
+    day: &str,
+    carry_root: Option<&Path>,
+    carry_parts_by_day: &BTreeMap<String, Vec<PathBuf>>,
+    symbol: &str,
+) -> anyhow::Result<(Option<i64>, bool)> {
+    let Some(carry_root) = carry_root else {
+        return Ok((None, false));
+    };
+    let next_day = next_day_utc(day)?;
+    if !carry_parts_by_day.contains_key(&next_day) {
+        return Ok((None, false));
+    }
+    let boundary = day_start_ns(&next_day)?;
+    let marker = carry_root.join(format!("verify-{symbol}.status"));
+    Ok((Some(boundary), !read_verify_marker(&marker)))
+}
+
 /// Сайдкар `<бинлог>.events` — число событий крейта в части: `размер мтайм число`.
 /// Счёт — второй полный декод части (2.8 с из 8.2 с на сутках NEAR, замер
 /// 20.09) ради буфера точного размера; число части не меняется, пока не

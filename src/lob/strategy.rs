@@ -31,7 +31,8 @@ use hftbacktest::types::{
 };
 
 use crate::lob::backtest::{
-    entry_price, entry_side, executed_notional, executed_qty, exit_price, ENTRY_TTL_NS, HOLD_NS,
+    entry_price, entry_side, executed_notional, executed_qty, exit_price, round_half_away,
+    ENTRY_TTL_NS, HOLD_NS,
 };
 
 /// Лучшие цены стороны как `(bid, ask)`, `None` — книга неполна
@@ -118,7 +119,7 @@ fn level_shift(entry_vwap: Option<f64>, entry_px: f64, tick_px: f64) -> f64 {
     if !vwap.is_finite() || !entry_px.is_finite() || tick_px <= 0.0 {
         return 0.0;
     }
-    let snapped = (vwap / tick_px).round() * tick_px;
+    let snapped = round_half_away(vwap / tick_px) * tick_px;
     if (snapped - entry_px).abs() < tick_px * 0.5 {
         0.0
     } else {
@@ -1233,7 +1234,7 @@ impl StrategyState {
         // У лонга стену едят продажи, у шорта — покупки.
         let want_sell = entry_side == HbtSide::Buy;
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = (level_px / tick_px).round() as i64;
+        let level_tick = round_half_away(level_px / tick_px) as i64;
         let mut eaten = 0.0;
         for trade in trades {
             let hit = if want_sell {
@@ -1245,7 +1246,7 @@ impl StrategyState {
                 continue;
             }
             #[allow(clippy::cast_possible_truncation)]
-            if (trade.px / tick_px).round() as i64 == level_tick {
+            if round_half_away(trade.px / tick_px) as i64 == level_tick {
                 eaten += trade.qty;
             }
         }
@@ -1265,7 +1266,7 @@ impl StrategyState {
         };
         let want_sell = entry_side == HbtSide::Buy;
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = (level_px / tick_px).round() as i64;
+        let level_tick = round_half_away(level_px / tick_px) as i64;
         // Сторона — все биты маски: `ev & EXCH_SELL_TRADE_EVENT != 0` истинно у любой сделки
         // биржи (общие биты `TRADE_EVENT | EXCH_EVENT`) и считало бы покупки в бид-стену.
         let want = if want_sell {
@@ -1276,7 +1277,7 @@ impl StrategyState {
         for trade in trades {
             let hit = trade.ev & want == want;
             #[allow(clippy::cast_possible_truncation)]
-            let at_level = (trade.px / tick_px).round() as i64 == level_tick;
+            let at_level = round_half_away(trade.px / tick_px) as i64 == level_tick;
             if !hit || !at_level || trade.exch_ts < entry_ns {
                 continue;
             }
@@ -1325,7 +1326,7 @@ impl StrategyState {
             };
         }
         #[allow(clippy::cast_possible_truncation)]
-        let level_tick = (level_px / tick_px).round() as i64;
+        let level_tick = round_half_away(level_px / tick_px) as i64;
         crate::lob::backtest::fast_depth::set_watch_tick(level_tick);
         let qty = match entry_side {
             HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
@@ -1498,6 +1499,55 @@ impl StrategyState {
         })
     }
 
+    /// Подпись входов решения удержания (TK-050): лучшие цены, объём стены, съеденное сделками и класс
+    /// времени (пройдены ли пороги досрочного выхода и дедлайна). `None` — вне `Holding` плана `Bounce`,
+    /// а также с сиротами и кольцом стены (там решение читает больше входов).
+    pub fn hold_input_sig<MD: MarketDepth>(&self, depth: &MD, now: i64) -> Option<[u64; 5]> {
+        let (
+            Phase::Holding { entry_ns },
+            TradePlan::Bounce {
+                level_px,
+                tick_px,
+                deadline_ns,
+                early_exit_ns,
+                ..
+            },
+        ) = (self.phase, self.plan)
+        else {
+            return None;
+        };
+        if self.has_orphans() || self.wall_ring.is_some() {
+            return None;
+        }
+        let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
+        #[allow(clippy::cast_possible_truncation)]
+        let lt = if tick_px > 0.0 && level_px > 0.0 {
+            round_half_away(level_px / tick_px) as i64
+        } else {
+            0
+        };
+        let q = if self.sigma == crate::lob::backtest::SIGMA_LONG {
+            depth.bid_qty_at_tick(lt)
+        } else {
+            depth.ask_qty_at_tick(lt)
+        };
+        let early = early_exit_ns > 0 && now.saturating_sub(entry_ns) >= early_exit_ns;
+        let late = now.saturating_sub(entry_ns) >= deadline_ns;
+        #[allow(clippy::cast_sign_loss)]
+        Some([
+            bid as u64,
+            ask as u64,
+            q.to_bits(),
+            self.eaten_qty.to_bits(),
+            u64::from(early) | u64::from(late) << 1,
+        ])
+    }
+
+    /// Круг ждёт исполнения входа (заявка отправлена, `entry_ttl` не истёк).
+    pub fn is_entry_pending(&self) -> bool {
+        matches!(self.phase, Phase::EntryPending { .. })
+    }
+
     /// Метка фазы: драйвер сравнивает её до и после `on_event` — фаза не сменилась, значит вызов
     /// был повтором решения на тех же входах.
     pub fn phase_mark(&self) -> PhaseMark {
@@ -1631,7 +1681,7 @@ impl StrategyState {
         // что у входа (у лонга бид-стена, у шорта аск-стена).
         if level_floor_qty > 0.0 && tick_px > 0.0 && level_px > 0.0 {
             #[allow(clippy::cast_possible_truncation)]
-            let level_tick = (level_px / tick_px).round() as i64;
+            let level_tick = round_half_away(level_px / tick_px) as i64;
             crate::lob::backtest::fast_depth::set_watch_tick(level_tick);
             let now_qty = match entry_side {
                 HbtSide::Buy => depth.bid_qty_at_tick(level_tick),
@@ -2466,7 +2516,7 @@ fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; 
         return out;
     }
     #[allow(clippy::cast_possible_truncation)]
-    let total_steps = (qty / lot_qty).round().max(0.0) as i64;
+    let total_steps = round_half_away(qty / lot_qty).max(0.0) as i64;
     let mut base = [0i64; MAX_ENTRY_LEGS];
     let mut base_sum: i64 = 0;
     for (i, slot) in base.iter_mut().take(legs).enumerate() {
@@ -2481,8 +2531,8 @@ fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; 
         // шума f64 (~1e-15 на такой сумме) и на порядки меньше практического
         // остатка формы (доли — сотые/третьи, не миллионные).
         #[allow(clippy::cast_possible_truncation)]
-        let steps = if (ideal - ideal.round()).abs() < 1e-6 {
-            ideal.round() as i64
+        let steps = if (ideal - round_half_away(ideal)).abs() < 1e-6 {
+            round_half_away(ideal) as i64
         } else {
             ideal.floor() as i64
         };

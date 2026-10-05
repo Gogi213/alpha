@@ -826,6 +826,15 @@ where
 {
     type Error;
 
+    /// Downcast hook (alpha fork, TK-049): lets a driver replace a `Backtest` in place with a
+    /// freshly built one. `None` for every bot that does not opt in (e.g. `LiveBot`).
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any>
+    where
+        Self: 'static,
+    {
+        None
+    }
+
     /// In backtesting, this timestamp reflects the time at which the backtesting is conducted
     /// within the provided data. In a live bot, it's literally the current local timestamp.
     fn current_timestamp(&self) -> i64;

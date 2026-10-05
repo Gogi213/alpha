@@ -25,6 +25,11 @@ hmac = "0.13"
 sha2 = "0.11"
 # TK-049: стековые сопрограммы — круги общего прохода бэктеста (пересадка 10–50 нс вместо потока ОС).
 corosensei = "0.3"
+# TK-051 Г1: глобальный аллокатор под флагом; без флага — прежний счётчик на System.
+mimalloc = { version = "0.1", optional = true, default-features = false }
+
+[features]
+mimalloc = ["dep:mimalloc"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -72,6 +72,8 @@ use crate::lob::strategy::{
 
 mod compact;
 pub mod fast_depth;
+#[allow(dead_code)]
+pub mod fast_hold;
 mod levels;
 #[allow(dead_code)]
 pub mod sched;
@@ -85,6 +87,7 @@ mod trim;
 mod window_depth;
 pub use compact::{CompactEvent, EventKind, EventRows};
 pub use trim::{kept_rows, TrimRows};
+pub(crate) use window_depth::round_half_away;
 pub use window_depth::WindowDepth;
 
 /// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
@@ -1453,6 +1456,18 @@ fn event_steps() -> bool {
     *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "1"))
 }
 
+/// Событийные шаги только в ожидании исполнения входа (`ALPHA_EVENT_STEPS=entry`, TK-050): остальные фазы идут
+/// по-прежнему (быстрый путь удержания остаётся включённым). Умолчание — выкл.
+fn event_steps_entry() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_EVENT_STEPS").is_some_and(|v| v == "entry"))
+}
+
+/// Условие быстрого пути (TK-049): пропуск пустых шагов включён, событийные шаги выключены.
+fn skip_on_hold(skip_cap: Option<i64>, ev_steps: bool) -> bool {
+    skip_cap.is_some() && !ev_steps
+}
+
 /// Есть ли у круга заявки, ещё живые в крейте (не исполнены целиком, не сняты, не отвергнуты): пока есть,
 /// ответы биржи идут по своим часам — пустые шаги опроса не пропускаются (Э-04б).
 fn has_open_orders<B, MD>(bot: &B, asset_no: usize) -> bool
@@ -1539,14 +1554,60 @@ where
     // Э-04б: решение удержания уже посчитано на текущей точке сетки (см. пропуск шагов ниже).
     let mut decided_in_hold = false;
     let ev_steps = event_steps();
+    let ev_entry = event_steps_entry();
     let mut stable = false;
+    let skip_on = skip_same();
+    let mut solo_sig = SigMemo::default();
+    // TK-049 (`ALPHA_FAST_HOLD`): один заход быстрого пути на круг; записи ног входа сохраняются перед заменой движка.
+    let mut fast_tried = !fast_hold::fast_hold_on();
+    let mut post_step = false;
+    let mut saved: Vec<(u64, Order)> = Vec::new();
     loop {
+        if !fast_tried
+            && entry_pending == 0
+            && exits.is_empty()
+            && skip_on_hold(skip_cap, ev_steps)
+            && state.is_holding()
+            && state.hold_wakeup_ns(bot.current_timestamp()).is_some()
+            && !has_open_orders(bot, asset_no)
+        {
+            fast_tried = true;
+            let legs_saved: Vec<(u64, Order)> = (0..u64::from(legs.max(1)))
+                .filter_map(|i| {
+                    let id = entry_id.saturating_add(i);
+                    bot.orders(asset_no).get(&id).map(|o| (id, o.clone()))
+                })
+                .collect();
+            if let Some(cap) = skip_cap {
+                if let fast_hold::FastOutcome::Swapped(r) = fast_hold::try_fast_hold(
+                    bot,
+                    asset_no,
+                    state,
+                    cap,
+                    decided_in_hold,
+                    stable,
+                    solo_sig,
+                    skip_on,
+                ) {
+                    *state = r.state.clone();
+                    decided_in_hold = r.decided_in_hold;
+                    stable = r.stable;
+                    solo_sig = r.sig;
+                    post_step = r.post_step;
+                    saved = legs_saved;
+                }
+            }
+        }
+        let skip_step = std::mem::take(&mut post_step);
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
         // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
         // решение идёт следующим шагом и без событий (гейт 27.09: `gone50`/`eat50x80` на 03.08).
         let wakeup = match skip_cap {
             Some(_) if ev_steps && stable && entry_pending == 0 => {
+                state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_) if ev_entry && stable && entry_pending == 0 && state.is_entry_pending() => {
                 state.step_wakeup_ns(bot.current_timestamp())
             }
             Some(_)
@@ -1560,6 +1621,7 @@ where
             _ => None,
         };
         let stepped = match (wakeup, skip_cap) {
+            _ if skip_step => ElapseResult::Ok,
             (Some(th), Some(cap)) => {
                 STEP_KINDS[2].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let resp = !state.is_holding() || has_open_orders(bot, asset_no);
@@ -1615,14 +1677,23 @@ where
         // (память не растёт с длиной круга). Перед очисткой сделки этого шага
         // отдаются стратегии: F7 (Б-75) считает по ним съеденное в стену, а
         // заново буфер не открывается — считаем ровно один раз на шаг.
-        if entry_pending == 0 {
+        if entry_pending == 0 && !skip_step {
             state.observe_wall_trades(bot.last_trades(asset_no));
             bot.clear_last_trades(Some(asset_no));
         }
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         let mark_before = state.phase_mark();
-        let action = on_event(bot, state)?;
+        let skip = skip_on
+            && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+        let action = if skip {
+            Action::Idle
+        } else {
+            on_event(bot, state)?
+        };
+        if skip_on && !matches!(action, Action::Idle) {
+            solo_sig.reset();
+        }
         decided_in_hold = held_before && state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         stable = state.phase_mark() == mark_before && matches!(action, Action::Idle);
         match action {
@@ -1649,11 +1720,11 @@ where
     state.observe_wall_trades(bot.last_trades(asset_no));
     bot.clear_last_trades(Some(asset_no));
     if timed_out {
-        let entry_status = bot.orders(asset_no).get(&entry_id).map(|o| o.status);
+        let entry_status = order_of(bot, asset_no, &saved, entry_id).map(|o| o.status);
         return Ok((
             RoundOutcome::TimedOut {
                 entry_status,
-                legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+                legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                 reason: cancel_reason,
             },
             state.position(),
@@ -1679,7 +1750,7 @@ where
     let mut entry_taker = false;
     let mut ordered = 0.0;
     for i in 0..u64::from(legs.max(1)) {
-        let Some(o) = bot.orders(asset_no).get(&entry_id.saturating_add(i)) else {
+        let Some(o) = order_of(bot, asset_no, &saved, entry_id.saturating_add(i)) else {
             continue;
         };
         // Заказанное — только принятые биржей ноги: отвергнутая (`Rejected`,
@@ -1727,10 +1798,7 @@ where
     let mut exit_ts = i64::MIN;
     let mut exit_taker = false;
     for (exit_id, _, _) in &exits {
-        if let Some(o) = bot
-            .orders(asset_no)
-            .get(exit_id)
-            .filter(|o| executed_qty(o) > 0.0)
+        if let Some(o) = order_of(bot, asset_no, &saved, *exit_id).filter(|o| executed_qty(o) > 0.0)
         {
             let exec = executed_qty(o);
             exit_qty += exec;
@@ -1762,7 +1830,7 @@ where
                         entry_vwap,
                         fill_frac,
                         legs_filled: u8::try_from(entry_legs).unwrap_or(u8::MAX),
-                        legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+                        legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, &saved),
                         fill_by_cross,
                     },
                     exit_ts,
@@ -1788,11 +1856,39 @@ where
     B: Bot<MD>,
     MD: MarketDepth,
 {
+    rejected_legs_with(bot, asset_no, entry_id, legs, &[])
+}
+
+/// Заявка по номеру: у движка, а если движок заменён быстрым путём удержания — из копии, снятой до замены.
+fn order_of<'a, B, MD>(
+    bot: &'a B,
+    asset_no: usize,
+    saved: &'a [(u64, Order)],
+    id: u64,
+) -> Option<&'a Order>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    bot.orders(asset_no)
+        .get(&id)
+        .or_else(|| saved.iter().find(|(i, _)| *i == id).map(|(_, o)| o))
+}
+
+fn rejected_legs_with<B, MD>(
+    bot: &B,
+    asset_no: usize,
+    entry_id: u64,
+    legs: u8,
+    saved: &[(u64, Order)],
+) -> u8
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
     let mut n = 0u8;
     for i in 0..u64::from(legs.max(1)) {
-        if bot
-            .orders(asset_no)
-            .get(&entry_id.saturating_add(i))
+        if order_of(bot, asset_no, saved, entry_id.saturating_add(i))
             .is_some_and(|o| matches!(o.status, Status::Rejected | Status::Expired))
         {
             n = n.saturating_add(1);
@@ -1999,10 +2095,19 @@ where
     let mut entry_pending: u64 = 0;
     let mut fill_by_cross = false;
     let ev_steps = event_steps();
+    let ev_entry = event_steps_entry();
     let mut entry_stable = false;
     loop {
         let entry_wake = match skip_cap {
             Some(_) if ev_steps && entry_stable && entry_pending == 0 => {
+                entry_state.step_wakeup_ns(bot.current_timestamp())
+            }
+            Some(_)
+                if ev_entry
+                    && entry_stable
+                    && entry_pending == 0
+                    && entry_state.is_entry_pending() =>
+            {
                 entry_state.step_wakeup_ns(bot.current_timestamp())
             }
             _ => None,
@@ -2110,6 +2215,8 @@ where
     // минимум по вариантам. После форка первое решение ещё не считано (как у сольного круга).
     let mut decided: Vec<bool> = vec![false; n];
     let mut stable: Vec<bool> = vec![false; n];
+    let skip_on = skip_same();
+    let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
@@ -2220,7 +2327,17 @@ where
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
             let mark_before = states[i].phase_mark();
-            let act = on_event(bot, &mut states[i])?;
+            let skip = skip_on
+                && sigs[i]
+                    .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
+            let act = if skip {
+                Action::Idle
+            } else {
+                on_event(bot, &mut states[i])?
+            };
+            if skip_on && !matches!(act, Action::Idle) {
+                sigs[i].reset();
+            }
             stable[i] = states[i].phase_mark() == mark_before && matches!(act, Action::Idle);
             match act {
                 Action::ExitSubmitted {
@@ -2778,6 +2895,49 @@ pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
+
+/// Пропуск `on_event` в удержании, когда входы решения не менялись (`ALPHA_SKIP_SAME=1`, TK-050): решение на
+/// тех же входах повторяется; умолчание — зовём на каждом шаге.
+fn skip_same() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_SKIP_SAME").is_some_and(|v| v == "1"))
+}
+
+/// Пропущено вызовов `on_event` (процесс; на итог счёта не влияет).
+pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Подпись входов последнего вызова круга и число её повторов: пропуск — со второго повтора (первый повтор
+/// доводит накопители состояния до неподвижной точки).
+#[derive(Clone, Copy, Default)]
+struct SigMemo {
+    sig: Option<[u64; 5]>,
+    reps: u8,
+}
+
+impl SigMemo {
+    /// Можно ли пропустить вызов на этих входах.
+    fn skip(&mut self, now: Option<[u64; 5]>) -> bool {
+        match now {
+            Some(s) if self.sig == Some(s) => {
+                let skip = self.reps >= 1;
+                self.reps = self.reps.saturating_add(1);
+                if skip {
+                    SIG_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                skip
+            }
+            other => {
+                self.sig = other;
+                self.reps = 0;
+                false
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        self.sig = None;
+    }
+}
 
 fn note_attempt(attempt: u32, rows: usize) {
     let k = (attempt as usize).min(3);
@@ -3493,7 +3653,15 @@ fn windowed_with<R: EventRows + ?Sized>(
                     let s = if bt.elapse(0)? == ElapseResult::EndOfData {
                         SignalStep::EndOfData
                     } else {
-                        step(bt, data_end)?
+                        fast_hold::with_fast_ctx(
+                            std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize,
+                            rest,
+                            windows.tick_size,
+                            windows.lot_size,
+                            exec_latency,
+                            cfg.queue_model,
+                            || step(bt, data_end),
+                        )?
                     };
                     Ok((s, bt.current_timestamp()))
                 },

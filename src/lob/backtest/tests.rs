@@ -2184,6 +2184,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
         ),
     ];
     let lat = ExecLatency::uniform(1_000_000);
+    let mut fast_used = 0u64;
     for (name, feed, plan) in cases {
         let signal = |t0_ns: i64| BounceSignal {
             t0_ns,
@@ -2213,6 +2214,16 @@ fn hold_skip_matches_polling_byte_for_byte() {
                 "{name}: пропуск обязан сработать"
             );
             assert_eq!(a, b, "{name}, busy_skip {busy_skip}");
+            // TK-049: быстрый путь удержания (ALPHA_FAST_HOLD) — тот же `BounceRun`, что и без него.
+            let used = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+                + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
+            fast_hold::FORCE_ON.with(|f| f.set(true));
+            let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
+            fast_hold::FORCE_ON.with(|f| f.set(false));
+            assert_eq!(a, c.unwrap(), "{name}, busy_skip {busy_skip}: быстрый путь");
+            fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+                + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
+                - used;
             if name != "конец данных" {
                 assert!(
                     !a.fills.is_empty(),
@@ -2221,6 +2232,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
             }
         }
     }
+    assert!(fast_used > 0, "быстрый путь обязан хотя бы раз сработать");
 }
 
 /// Память кругов (G10) берёт круг только при тех же сиротах на входе (в нумерации от базы прогона): круг
@@ -2471,4 +2483,114 @@ fn group_ignores_hold_skip_flag() {
         group_poll, group_skip,
         "--hold-step не должен ничего менять в группе (Э-08 не пользуется Э-04б)"
     );
+}
+
+/// TK-049: движок, поднятый заново из `FastHandoff` посреди круга, ведёт заявки так же, как сплошной.
+fn fast_hold_handoff_case(qm: QueueModelKind, handoff_step: i64) {
+    use super::fast_hold::{with_backtest_from_handoff, HoldTracker};
+    use hftbacktest::depth::MarketDepth;
+    const LEVELS: usize = 40;
+    let mut feed = Vec::new();
+    for i in 0..LEVELS {
+        feed.push(depth_at(0, true, 1000.0 - i as f64, 3.0));
+        feed.push(depth_at(0, false, 1001.0 + i as f64, 3.0));
+    }
+    let mut x = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for k in 0..40_000i64 {
+        let r = next();
+        let ts = 4 * S + k * 100_000;
+        let mut e = if r % 3 == 0 {
+            let sell = r & 8 == 0;
+            let px = if sell {
+                1000.0 - ((r >> 12) % 6) as f64
+            } else {
+                1001.0 + ((r >> 12) % 6) as f64
+            };
+            trade_at(ts, sell, px, 1.0 + ((r >> 20) % 4) as f64)
+        } else {
+            let bid = r & 1 == 0;
+            let off = ((r >> 8) % 5) as f64;
+            let px = if bid { 1000.0 - off } else { 1001.0 + off };
+            let qty = if (r >> 20) % 4 == 0 {
+                0.0
+            } else {
+                1.0 + ((r >> 24) % 5) as f64
+            };
+            depth_at(ts, bid, px, qty)
+        };
+        e.local_ts = ts + 500 + ((r >> 30) % 6) as i64 * 10;
+        feed.push(e);
+    }
+    let t0 = 5 * S;
+    let windows = SignalWindows::build(&feed, &[t0], 1.0, 1.0);
+    let w = windows.window_at(t0).unwrap();
+    let rest = &feed[w.start..];
+    let lat = ExecLatency::uniform(1_000_000);
+    let to_t = |bt: &mut Backtest<FastMarketDepth>| {
+        bt.elapse(0).unwrap();
+        for _ in 0..handoff_step {
+            bt.elapse(ON_EVENT_POLL_STEP_NS).unwrap();
+        }
+        bt.current_timestamp()
+    };
+    let trace = |bt: &mut Backtest<FastMarketDepth>| {
+        let px = bt.depth(0).best_bid_tick() as f64;
+        let ax = bt.depth(0).best_ask_tick() as f64;
+        bt.submit_buy_order(0, 1, px, 2.0, TimeInForce::GTC, OrdType::Limit, false)
+            .unwrap();
+        bt.submit_sell_order(0, 2, ax, 2.0, TimeInForce::GTC, OrdType::Limit, false)
+            .unwrap();
+        let mut out = Vec::new();
+        for _ in 0..80 {
+            bt.elapse(ON_EVENT_POLL_STEP_NS).unwrap();
+            let o: Vec<_> = [1u64, 2]
+                .iter()
+                .map(|id| {
+                    bt.orders(0)
+                        .get(id)
+                        .map(|o| (o.status as u8, o.exec_qty.to_bits(), o.leaves_qty.to_bits()))
+                })
+                .collect();
+            out.push((
+                bt.current_timestamp(),
+                bt.depth(0).best_bid_tick(),
+                bt.depth(0).best_ask_tick(),
+                o,
+            ));
+        }
+        out
+    };
+    let (t, cont) = with_backtest_over_window(&w.depth, t0, rest, 1.0, 1.0, lat, qm, |bt| {
+        let t = to_t(bt);
+        (t, trace(bt))
+    });
+    let mut tr = HoldTracker::new(&feed, w.start, w.depth.build(1.0, 1.0));
+    tr.advance_to(t);
+    let h = tr.handoff(t, 1.0, 1.0).expect("лента чистая");
+    let restarted = with_backtest_from_handoff(&h, &feed, 1.0, 1.0, lat, qm, |bt| {
+        bt.elapse(0).unwrap();
+        assert_eq!(bt.current_timestamp(), t, "часы нового движка");
+        trace(bt)
+    });
+    assert_eq!(cont, restarted, "qm={qm:?} шаг={handoff_step}");
+    assert!(
+        cont.iter()
+            .any(|(_, _, _, o)| o.iter().flatten().any(|(_, e, _)| *e != 0)),
+        "сценарий должен давать исполнения: {:?}",
+        &cont[cont.len() - 3..]
+    );
+}
+
+#[test]
+fn fast_hold_handoff_equals_continuous() {
+    for step in [3, 40, 150] {
+        fast_hold_handoff_case(QueueModelKind::RiskAdverse, step);
+        fast_hold_handoff_case(QueueModelKind::Prob { n: 3.0 }, step);
+    }
 }
