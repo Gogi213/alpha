@@ -678,6 +678,51 @@ class DedupTests(WatchSandbox):
         self.assertEqual(len(posted3), 1)
 
 
+class TriageWaitsTests(WatchSandbox):
+    def _waiting(self, spec, hours=5):
+        p = T.create_ticket(self.tickets_dir, owner="engineer", title="Ждёт", status="todo",
+                            now=self.now - timedelta(hours=hours))
+        T.write_header_updates(p, {"status": "waiting", "wait_for": spec}, now=self.now - timedelta(hours=hours))
+        T.append_log(p, "engineer", "жду", now=self.now - timedelta(hours=hours))
+        return p
+
+    def test_alive_target_is_not_orphan(self):
+        self._waiting("host:calc:/data/progress/job-a.json")
+        ws = {}
+        alive = W.triage_waits(ws, self.now, probe=lambda *a: "producer")
+        self.assertEqual(len(alive), 1)
+        self.assertEqual(W.check_orphan_tickets(self.now, alive), [])
+        self.assertEqual(len(W.check_orphan_tickets(self.now)), 1)
+
+    def test_dead_target_two_strikes_wakes_owner_then_blocks(self):
+        p = self._waiting("host:calc:/data/progress/alpha-b12flag.json")
+        ws = {}
+        W.triage_waits(ws, self.now, probe=lambda *a: "dead")
+        self.assertEqual(T.read_ticket(p).status, "waiting")
+        W.triage_waits(ws, self.now, probe=lambda *a: "dead")
+        t = T.read_ticket(p)
+        self.assertEqual((t.status, t.header.get("wait_for", "")), ("in_progress", ""))
+        self.assertEqual(t.log[-1].author, "watch")
+        T.write_header_updates(p, {"status": "waiting", "wait_for": "host:calc:/data/progress/alpha-b12flag.json"})
+        W.triage_waits(ws, self.now, probe=lambda *a: "dead")
+        W.triage_waits(ws, self.now, probe=lambda *a: "dead")
+        self.assertEqual(T.read_ticket(p).status, "blocked")
+
+    def test_unknown_probe_does_not_count(self):
+        p = self._waiting("host:calc:/data/progress/job-a.json")
+        ws = {}
+        for _ in range(4):
+            W.triage_waits(ws, self.now, probe=lambda *a: "unknown")
+        self.assertEqual(T.read_ticket(p).status, "waiting")
+
+    def test_missing_ticket_target_is_dead(self):
+        p = self._waiting("ticket:TK-999")
+        ws = {}
+        W.triage_waits(ws, self.now)
+        W.triage_waits(ws, self.now)
+        self.assertEqual(T.read_ticket(p).status, "in_progress")
+
+
 class RunOnceTests(WatchSandbox):
     def test_writes_heartbeat_even_with_no_findings(self):
         def fake_ssh(cmd, timeout=10.0):
