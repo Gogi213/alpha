@@ -399,6 +399,7 @@ impl<'a> GridRun<'a> {
         symbol: &str,
         mut shared: Option<&mut SharedEvents>,
     ) -> anyhow::Result<()> {
+        let e2e_setup = e2e::Mark::now();
         let args = self.args;
         let queue_model = self.queue_model;
         let threads = self.threads;
@@ -551,6 +552,7 @@ impl<'a> GridRun<'a> {
                 }
             }
         }
+        e2e::stage(symbol, "*", "setup", e2e_setup, serde_json::json!({}));
         let e2e_touches = e2e::Mark::now();
         let (days, sigma_series) = if args.signal == SignalArg::Approach {
             let dir = args
@@ -721,9 +723,10 @@ impl<'a> GridRun<'a> {
                 match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
                     Some(hit) => hit,
                     None => {
-                        let mut ev = day_events(day_parts)?;
+                        let mut ev = day_events(day_parts, symbol, &day.day)?;
                         // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
                         // ДО построения окон сетапов; сигналы дня от довеска не зависят.
+                        let e2e_carry = e2e::Mark::now();
                         let carry = match carry_window {
                             Some(window) if !ev.is_empty() => extend_with_carry(
                                 &mut ev,
@@ -735,6 +738,13 @@ impl<'a> GridRun<'a> {
                             )?,
                             _ => (None, false),
                         };
+                        e2e::stage(
+                            symbol,
+                            &day.day,
+                            "ev_carry",
+                            e2e_carry,
+                            serde_json::json!({}),
+                        );
                         let hit = (Arc::new(ev), carry.0, carry.1);
                         if let Some(s) = shared.as_mut() {
                             s.put(symbol, carry_key.clone(), hit.clone());

@@ -216,8 +216,13 @@ fn exit_groups(
 /// буфер с готовой ёмкостью. Рост удвоением держал старый и новый буфер
 /// вместе (пик до 3× итога) и ронял сетку на сервере по OOM на сутках в
 /// ~20 млн событий (2026-09-18); второй декод дешевле памяти.
-pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>> {
+pub(super) fn day_events(
+    parts: &[PathBuf],
+    symbol: &str,
+    day: &str,
+) -> anyhow::Result<Vec<CompactEvent>> {
     let started = Instant::now();
+    let e2e_count = super::e2e::Mark::now();
     let mut total = 0usize;
     let mut counted_parts = 0usize;
     for path in parts {
@@ -233,6 +238,14 @@ pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>>
         };
     }
     let counted = started.elapsed().as_secs_f64();
+    super::e2e::stage(
+        symbol,
+        day,
+        "ev_count",
+        e2e_count,
+        serde_json::json!({ "parts": parts.len(), "counted_parts": counted_parts }),
+    );
+    let e2e_decode = super::e2e::Mark::now();
     // Р6: сутки — компактными событиями (32 Б вместо 64); круги разворачивают свой кусок сами.
     let mut events: Vec<CompactEvent> = Vec::with_capacity(total);
     for path in parts {
@@ -241,6 +254,13 @@ pub(super) fn day_events(parts: &[PathBuf]) -> anyhow::Result<Vec<CompactEvent>>
     }
     // Кэш числа событий — только ёмкость буфера: разошёлся — буфер просто
     // вырос, круги те же; сайдкары переписываются честным пересчётом.
+    super::e2e::stage(
+        symbol,
+        day,
+        "ev_decode",
+        e2e_decode,
+        serde_json::json!({ "n_events": events.len() }),
+    );
     if events.len() != total {
         eprintln!(
             "bounce-grid:   события: кэш числа врал ({total} против {}), сайдкары пересчитаны",

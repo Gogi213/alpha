@@ -6,7 +6,8 @@
 import argparse, glob, json, os, sys
 from collections import defaultdict
 
-STAGES = ["touches_load", "events", "windows", "prep", "drive"]
+STAGES = ["setup", "touches_load", "events", "windows", "prep", "drive"]
+EV_SUB = ["ev_count", "ev_decode", "ev_carry"]
 
 
 def load(d):
@@ -37,6 +38,11 @@ def summarize(d, wall, threads):
         cpu[k] += r["cpu"]
         wt[k] += r["wall"]
         rbytes[k] += r["rchar"]
+    ev_sub = {k: [0.0, 0.0] for k in EV_SUB}
+    for r in st:
+        if r["stage"] in ev_sub:
+            ev_sub[r["stage"]][0] += r["cpu"]
+            ev_sub[r["stage"]][1] += r["wall"]
     write = sum(r.get("write_wall", 0.0) for r in st if r["stage"] == "drive")
     cpu["drive_write_wall"] = write
     budget = wall * threads if wall else 0.0
@@ -52,7 +58,7 @@ def summarize(d, wall, threads):
     return dict(
         dir=d, runs=len(runs), days=len(days), budget=budget, wall=wall, threads=threads,
         cpu={k: cpu[k] for k in STAGES}, wait=wait, wall_by_stage={k: wt[k] for k in STAGES},
-        read_bytes={k: rbytes[k] for k in STAGES}, write_wall=write,
+        read_bytes={k: rbytes[k] for k in STAGES}, write_wall=write, ev_sub=ev_sub,
         unaccounted=(budget - used) if budget else None, used=used,
         rss_peak_kib=max([r.get("rss_peak_kib", 0) for r in days] or [0]),
         top_cpu=[[f"{s} {d}", v[0], v[1]] for (s, d), v in topcpu],
@@ -72,6 +78,7 @@ def md(s):
     for k in STAGES:
         line(f"ожидание {k} (стена−ЦП)", s["wait"][k])
     line("в т.ч. запись вывода (стена в drive)", s["write_wall"])
+    out.append("| внутри events: " + "; ".join(f"{k} ЦП {v[0]:,.0f} / стена {v[1]:,.0f} с" for k, v in s["ev_sub"].items()) + " | | |")
     if b:
         line("неразобранное (простой/оркестровка/хвост)", s["unaccounted"])
         out.append(f"| итого бюджет {s['threads']}×{s['wall']:.0f} с | {b:,.0f} | 100 |")
