@@ -80,6 +80,7 @@ pub mod shortlist;
 pub mod touch_profiles;
 pub mod touches;
 pub mod trades;
+pub mod validate;
 mod verify;
 pub mod watch;
 
@@ -90,6 +91,7 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
+pub use validate::{run_validate, ValidateArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
 /// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
@@ -283,6 +285,9 @@ pub enum LobCommand {
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
     Gaps(GapsArgs),
+    /// Проверка данных внутри часа (TK-038): минуты, тишины, откаты `exch_ts`, задержка, аномалии
+    /// темпа; CSV на монето-час и список минут-исключений. Только чтение.
+    Validate(ValidateArgs),
     /// Сутки публичного архива Bybit (поток `orderbook.200` + сделки) → суточный бинлог v3 —
     /// эпоха «история» (владелец 22.09; сверка архива с нашей записью — M21). Разбор строк —
     /// тем же `bybit::ws`, записи — как у коллектора; существующий файл не перезаписывается.
@@ -479,6 +484,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             run_gaps(&args)?;
             Ok(())
         }
+        LobCommand::Validate(args) => run_validate(&args),
         LobCommand::Archive(args) => {
             let summary = run_archive(&args)?;
             for line in archive::summary_lines(&summary) {

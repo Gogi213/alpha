@@ -76,7 +76,7 @@ impl<R: Read> Read for HashRead<'_, R> {
 }
 
 /// `<SYMBOL>-<YYYY-MM-DD>[-pN].binlog[.zst]` → (символ, день); нераспознанное — пустые строки.
-fn symbol_day_of(path: &Path) -> (String, String) {
+pub(crate) fn symbol_day_of(path: &Path) -> (String, String) {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -300,7 +300,7 @@ pub fn csv_line(r: &GapRow) -> String {
     s
 }
 
-fn collect_paths(args: &GapsArgs) -> anyhow::Result<Vec<PathBuf>> {
+pub(crate) fn collect_paths(args: &GapsArgs) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let mut inputs = args.paths.clone();
     if let Some(list) = &args.list {

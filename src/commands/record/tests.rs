@@ -447,6 +447,9 @@ fn record_cli_parses_symbol_and_defaults() {
         crate::commands::lob::LobCommand::BinlogStats(_) => {
             panic!("разобралась не та подкоманда")
         }
+        crate::commands::lob::LobCommand::Validate(_) => {
+            panic!("разобралась не та подкоманда")
+        }
         crate::commands::lob::LobCommand::Gaps(_) => {
             panic!("разобралась не та подкоманда")
         }
