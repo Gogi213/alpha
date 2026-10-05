@@ -105,7 +105,13 @@ impl Mark {
     }
 }
 
-fn emit(v: Value) {
+fn emit(mut v: Value) {
+    if let (Some(o), Ok(t)) = (
+        v.as_object_mut(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH),
+    ) {
+        o.insert("ts".into(), json!(t.as_secs_f64()));
+    }
     if let Some(m) = sink() {
         if let Ok(mut f) = m.lock() {
             let _ = writeln!(f, "{v}");
