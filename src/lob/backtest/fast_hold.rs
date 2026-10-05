@@ -108,13 +108,19 @@ impl<'a> HoldTracker<'a> {
         if self.wcur == self.lcur {
             return;
         }
+        SYNC_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if self.lcur - self.wcur <= STRIDE / 2 {
+            SYNC_APPLY_ROWS.fetch_add(
+                (self.lcur - self.wcur) as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             for ev in &self.rows[self.wcur..self.lcur] {
                 if ev.is(LOCAL_EVENT) {
                     apply_local(&mut self.book, ev);
                 }
             }
         } else {
+            SYNC_SNAPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             // SAFETY: см. `with_tape`.
             self.book = unsafe { &mut *tp }.book_at(self.lcur);
         }
@@ -130,6 +136,7 @@ impl<'a> HoldTracker<'a> {
                 return state.hold_input_sig(&sd, now);
             }
         }
+        SIG_FLAT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.sync_book();
         state.hold_input_sig(&self.book, now)
     }
@@ -394,8 +401,10 @@ impl<'a> FastBot<'a> {
     /// Книга для следующего решения: ряд ленты, если достоверен (без apply), иначе подтянуть рабочую книгу.
     fn refresh_view(&mut self) {
         self.view = if let Some(sd) = self.tracker.series() {
+            VIEW_SERIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             HoldDepth::Series(sd)
         } else {
+            VIEW_FLAT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.tracker.sync_book();
             HoldDepth::Flat(std::ptr::from_ref(self.tracker.book()))
         };
@@ -705,6 +714,12 @@ fn fast_book_check_on() -> bool {
 
 /// Кругов быстрого пути, стартовавших на общей книге окна.
 pub static FAST_BOOK_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static VIEW_SERIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static VIEW_FLAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SIG_FLAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SYNC_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SYNC_APPLY_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SYNC_SNAPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static FAST_BOOK_MISMATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(test)]
