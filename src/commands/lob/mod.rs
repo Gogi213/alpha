@@ -70,6 +70,7 @@ mod parts;
 pub mod pick;
 pub mod pilot;
 pub mod power;
+pub mod prep_events;
 pub mod probe;
 pub mod profiles;
 pub mod react;
@@ -91,7 +92,11 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
+<<<<<<< HEAD
 pub use validate::{run_validate, ValidateArgs};
+=======
+pub use prep_events::{run_prep_events, PrepEventsArgs};
+>>>>>>> 003debdc ([Инженер] TK-050: подготовленные монето-сутки — формат ALPREP01, lob prep-events, bounce-grid --prep-dir)
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
 /// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
@@ -285,9 +290,16 @@ pub enum LobCommand {
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
     Gaps(GapsArgs),
+<<<<<<< HEAD
     /// Проверка данных внутри часа (TK-038): минуты, тишины, откаты `exch_ts`, задержка, аномалии
     /// темпа; CSV на монето-час и список минут-исключений. Только чтение.
     Validate(ValidateArgs),
+=======
+    /// Подготовка монето-суток под счёт (TK-050): поток строк счёта колонками + zstd рядом с бинлогом
+    /// (`<out-dir>/<имя>.prep`); читает `bounce-grid --prep-dir`. Бинлог только читается; записанный файл
+    /// сверяется с прежним переводом строка в строку.
+    PrepEvents(PrepEventsArgs),
+>>>>>>> 003debdc ([Инженер] TK-050: подготовленные монето-сутки — формат ALPREP01, lob prep-events, bounce-grid --prep-dir)
     /// Сутки публичного архива Bybit (поток `orderbook.200` + сделки) → суточный бинлог v3 —
     /// эпоха «история» (владелец 22.09; сверка архива с нашей записью — M21). Разбор строк —
     /// тем же `bybit::ws`, записи — как у коллектора; существующий файл не перезаписывается.
@@ -484,7 +496,11 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             run_gaps(&args)?;
             Ok(())
         }
+<<<<<<< HEAD
         LobCommand::Validate(args) => run_validate(&args),
+=======
+        LobCommand::PrepEvents(args) => run_prep_events(&args),
+>>>>>>> 003debdc ([Инженер] TK-050: подготовленные монето-сутки — формат ALPREP01, lob prep-events, bounce-grid --prep-dir)
         LobCommand::Archive(args) => {
             let summary = run_archive(&args)?;
             for line in archive::summary_lines(&summary) {

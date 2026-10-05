@@ -854,7 +854,13 @@ impl<'a> GridRun<'a> {
                     }
                     Some(hit) => hit,
                     None => {
-                        let mut ev = day_events(day_parts, symbol, &day.day)?;
+                        let mut ev = match crate::commands::lob::prep_events::prepared_day_events(
+                            &args.prep_dir,
+                            day_parts,
+                        )? {
+                            Some(ev) => ev,
+                            None => day_events(day_parts, symbol, &day.day)?,
+                        };
                         // Довесок (`--carry-root`): дописывает события D+1 в окне переноса
                         // ДО построения окон сетапов; сигналы дня от довеска не зависят.
                         let e2e_carry = e2e::Mark::now();
@@ -866,6 +872,7 @@ impl<'a> GridRun<'a> {
                                 &carry_parts_by_day,
                                 symbol,
                                 window,
+                                &args.prep_dir,
                             )?,
                             _ => (None, false),
                         };
