@@ -1201,6 +1201,16 @@ impl<'a> GridRun<'a> {
             if skips > 0 {
                 eprintln!("bounce-grid:   удержание: пропусков пустых шагов {skips}");
             }
+            if std::env::var_os("ALPHA_ROUND_STATS").is_some_and(|v| v == "1") {
+                let v: Vec<String> = crate::lob::backtest::ROUND_STATS
+                    .iter()
+                    .map(|x| x.load(std::sync::atomic::Ordering::Relaxed).to_string())
+                    .collect();
+                eprintln!(
+                    "bounce-grid:   круги (нарастающим итогом процесса): прогонов/подано/потреблено/до ордера/с ордером/без ордера: {}",
+                    v.join("/")
+                );
+            }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
                     let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));

@@ -1543,7 +1543,16 @@ where
     let mut stable = false;
     let skip_on = skip_same();
     let mut solo_sig = SigMemo::default();
+    let trace_on = round_stats_on();
+    if trace_on {
+        round_trace_start(bot.current_timestamp());
+    }
     loop {
+        let trace_from = if trace_on {
+            Some((bot.current_timestamp(), has_open_orders(bot, asset_no)))
+        } else {
+            None
+        };
         // Э-04б: в удержании без заявок пустые шаги опроса пропускаются (`hold_step`), иначе — шаг 10 мс.
         // Только если решение удержания на этой точке сетки уже принято (`decided_in_hold`): шаг, на котором
         // круг **вошёл** в удержание (исполнился вход, вернулся из выхода), решения ещё не считал — первое
@@ -1574,6 +1583,9 @@ where
                 bot.elapse(ON_EVENT_POLL_STEP_NS)?
             }
         };
+        if let Some((a, open)) = trace_from {
+            round_trace_step(a, bot.current_timestamp(), open);
+        }
         if stepped == ElapseResult::EndOfData {
             // Хвост записи: круг неполон, `Fill` не строится — вердикт пути
             // исполнения не нужен.
@@ -2846,6 +2858,79 @@ impl SigMemo {
     }
 }
 
+/// Счётчик кругов (TK-049 п.4, `ALPHA_ROUND_STATS=1`; на итог не влияет): 0 прогонов движка, 1 строк подано (до
+/// горизонта), 2 потреблено до конца круга, 3 из них до первого ордера (подготовка до `t0`), 4 с живым или
+/// летящим ордером, 5 без ордера после первого (удержание позиции без заявок). Строка потреблена, если её
+/// `local_ts` не позже часов в конце шага.
+pub static ROUND_STATS: [std::sync::atomic::AtomicU64; 6] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 6];
+
+fn round_stats_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ALPHA_ROUND_STATS").is_some_and(|v| v == "1"))
+}
+
+struct RoundTrace {
+    start: i64,
+    segs: Vec<(i64, i64, bool)>,
+}
+
+thread_local! {
+    static ROUND_TRACE: std::cell::RefCell<RoundTrace> =
+        const { std::cell::RefCell::new(RoundTrace { start: i64::MIN, segs: Vec::new() }) };
+}
+
+fn round_trace_reset() {
+    ROUND_TRACE.with(|t| {
+        let mut t = t.borrow_mut();
+        t.start = i64::MIN;
+        t.segs.clear();
+    });
+}
+
+fn round_trace_start(now: i64) {
+    ROUND_TRACE.with(|t| t.borrow_mut().start = now);
+}
+
+fn round_trace_step(a: i64, b: i64, open: bool) {
+    ROUND_TRACE.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some(last) = t.segs.last_mut() {
+            if last.2 == open && last.1 == a {
+                last.1 = b;
+                return;
+            }
+        }
+        t.segs.push((a, b, open));
+    });
+}
+
+fn round_stats_record(rest: &[Event], now: i64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let pp = |t: i64| rest.partition_point(|e| e.local_ts <= t) as u64;
+    ROUND_TRACE.with(|t| {
+        let t = t.borrow();
+        let consumed = pp(now);
+        let pre = if t.start == i64::MIN {
+            consumed
+        } else {
+            pp(t.start).min(consumed)
+        };
+        let live: u64 = t
+            .segs
+            .iter()
+            .filter(|s| s.2)
+            .map(|s| pp(s.1).saturating_sub(pp(s.0)))
+            .sum();
+        ROUND_STATS[0].fetch_add(1, Relaxed);
+        ROUND_STATS[1].fetch_add(rest.len() as u64, Relaxed);
+        ROUND_STATS[2].fetch_add(consumed, Relaxed);
+        ROUND_STATS[3].fetch_add(pre, Relaxed);
+        ROUND_STATS[4].fetch_add(live, Relaxed);
+        ROUND_STATS[5].fetch_add(consumed.saturating_sub(pre + live), Relaxed);
+    });
+}
+
 fn note_attempt(attempt: u32, rows: usize) {
     let k = (attempt as usize).min(3);
     ATTEMPT_RUNS[k].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3545,6 +3630,9 @@ fn windowed_with<R: EventRows + ?Sized>(
                 }
             };
             note_attempt(attempt, rest.len());
+            if round_stats_on() {
+                round_trace_reset();
+            }
             let last = rest.last().map(|e| (e.local_ts, e.exch_ts));
             // Э-04б: конец данных круга — меньшая из меток последней строки (до неё крейт не исчерпан).
             let data_end = last.map(|(local, exch)| local.min(exch));
@@ -3566,6 +3654,9 @@ fn windowed_with<R: EventRows + ?Sized>(
                 },
             )
             .map(|(s, now)| {
+                if round_stats_on() {
+                    round_stats_record(rest, now);
+                }
                 // Крейт упёрся в конец развёрнутого — в любом из трёх видов, которыми конец данных
                 // выходит из круга; иначе (и последняя строка позже часов) он видел ровно то же, что
                 // увидел бы над всем хвостом.
