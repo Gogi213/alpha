@@ -155,15 +155,15 @@ impl<'a> HoldTracker<'a> {
 }
 
 /// Новый движок на `h.t_ns`: локальная и биржевая книги — свои снимки, лента — `middle` + `rows[tail_start..]`.
-pub fn with_backtest_from_handoff<R>(
+/// Движок читает `rows` по сырому указателю: срез должен жить дольше движка.
+pub fn build_backtest_from_handoff(
     h: &FastHandoff,
     rows: &[Event],
     tick_size: f64,
     lot_size: f64,
     exec_latency: ExecLatency,
     queue_model: QueueModelKind,
-    f: impl FnOnce(&mut Backtest<FastMarketDepth>) -> R,
-) -> R {
+) -> Backtest<FastMarketDepth> {
     let anchor = [Event {
         ev: LOCAL_BID_DEPTH_EVENT | EXCH_BID_DEPTH_EVENT,
         exch_ts: h.t_ns,
@@ -180,14 +180,14 @@ pub fn with_backtest_from_handoff<R>(
     }
     let tail = &rows[h.tail_start.min(rows.len())..];
     if !tail.is_empty() {
-        // SAFETY: `rows` жив до конца функции, `Backtest` умирает раньше (`drop(bt)`), крейт только читает.
+        // SAFETY: см. doc функции: `rows` переживает движок, крейт только читает.
         sources.push(DataSource::Data(unsafe { borrowed_data(tail) }));
     }
     // Крейт зовёт фабрику книги дважды: сначала локальная сторона, затем биржевая (`L2AssetBuilder::build`).
     let calls = std::cell::Cell::new(0u8);
     let local = h.local.clone();
     let exch = h.exch.clone();
-    let mut bt = build_backtest_from(
+    build_backtest_from(
         sources,
         exec_latency,
         move || {
@@ -196,10 +196,45 @@ pub fn with_backtest_from_handoff<R>(
             if n == 0 { &local } else { &exch }.build(tick_size, lot_size)
         },
         queue_model,
-    );
+    )
+}
+
+/// То же в замыкании (тесты): движок умирает до выхода.
+pub fn with_backtest_from_handoff<R>(
+    h: &FastHandoff,
+    rows: &[Event],
+    tick_size: f64,
+    lot_size: f64,
+    exec_latency: ExecLatency,
+    queue_model: QueueModelKind,
+    f: impl FnOnce(&mut Backtest<FastMarketDepth>) -> R,
+) -> R {
+    let mut bt =
+        build_backtest_from_handoff(h, rows, tick_size, lot_size, exec_latency, queue_model);
     let out = f(&mut bt);
     drop(bt);
     out
+}
+
+/// Локальный курсор ленты на `t` (первая строка после `start` с локальной меткой позже `t`): так же, как
+/// `HoldTracker::advance_to`, но без книги; `None`, если метки локальной стороны идут не по возрастанию
+/// (курсор по времени ненадёжен — быстрый путь не включается).
+pub fn local_cursor_at(rows: &[Event], start: usize, t: i64) -> Option<usize> {
+    let mut prev = i64::MIN;
+    let mut i = start;
+    while let Some(ev) = rows.get(i) {
+        if ev.is(LOCAL_EVENT) {
+            if ev.local_ts < prev {
+                return None;
+            }
+            prev = ev.local_ts;
+            if ev.local_ts > t {
+                break;
+            }
+        }
+        i += 1;
+    }
+    Some(i)
 }
 
 /// Заглушка бота для быстрого пути: часы и локальная книга из `HoldTracker`, заявок нет. Любая заявка/снятие/
