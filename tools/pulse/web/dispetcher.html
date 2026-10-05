@@ -265,9 +265,9 @@
   const pane = (v) => {
     const all = Board.procs(), act = all.filter((p) => p.state !== "done");
     if (!all.length) return `<div class="main"><div class="none">ждём первую сводку этой команды</div></div>`;
-    const list = all.filter((p) => p.plan), pr = list.length ? v.progress : null;
+    const list = act.filter((p) => p.plan), pr = list.length ? v.progress : null;
     const eta = pr && pr.eta && pr.eta.lo_min != null ? `осталось <b class="hot">${pr.eta.lo_min}–${pr.eta.hi_min} мин</b>` : `<span class="dim">оценки пока нет</span>`;
-    const top = pr ? `<div class="top"><div class="pr"><span>готово <b class="hot">${pr.pct} %</b> · ${Math.floor(pr.done)} из ${pr.total}</span>${seg(list, "готово")}<span>${eta}${pr.spent_min != null ? ` · <span class="dim">прошло ${fmtMin(pr.spent_min)}</span>` : ""}</span></div></div>` : `<div class="top"><div class="pr"><span class="dim">общей шкалы нет: ни у одной задачи нет плана шагов</span></div></div>`;
+    const top = pr ? `<div class="top"><div class="pr"><span>готово <b class="hot">${pr.pct} %</b> · ${Math.floor(pr.done)} из ${pr.total}</span>${seg(list, "готово")}<span>${eta}${pr.spent_min != null ? ` · <span class="dim">прошло ${fmtMin(pr.spent_min)}</span>` : ""}</span></div></div>` : "";
     const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, m }));
     act.forEach((p) => arr(p.steps).forEach((s) => { if (s.on && s.on !== "you" && !machines.some((r) => r.id === s.on)) machines.push({ id: s.on, state: "idle", m: null }); }));
     if (arr(v.questions).length || act.some((p) => arr(p.steps).some((s) => s.on === "you"))) machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
@@ -276,7 +276,7 @@
     if (np) {
       mx = `<div class="corner"></div>` + act.map((p, i) => {
         const q = p.state === "todo" ? "в очереди" : p.state === "wait" ? "ждёт вас" : p.state === "bad" ? "проблема" : "";
-        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${p.for && p.for.text ? E(p.for.text) : ""}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")} · плана шагов нет</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
+        return `<div class="ch hd${i === np - 1 ? " lc" : ""}"><b>${E(p.title)}</b><span class="dim small">${p.for && p.for.text ? E(p.for.text) : ""}</span>${p.plan ? seg([p]) : `<span class="small"><span class="dim">${E(p.state === "run" || p.state === "review" || p.state === "repair" ? "делается" : p.state === "bad" ? "проблема" : p.state === "wait" ? "ждёт" : "в очереди")}</span></span>`}${p.plan && q ? `<span class="small"><span class="dim">${q}</span></span>` : ""}</div>`;
       }).join("");
       machines.forEach((r, ri) => {
         const you = r.id === "you", last = ri === machines.length - 1, m = r.m, down = m && m.state === "down";

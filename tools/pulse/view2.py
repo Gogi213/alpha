@@ -428,7 +428,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
     def summary_of(p):
         """Строка-итог: фраза Haiku (по названию и шагам с состояниями; без смены состояний модель не зовётся) + «N из M»."""
         t = tickets.get(p["id"])
-        if H.AUTO is None or t is None:
+        if H.AUTO is None or t is None or BOARD_RE.search(p["title"]):
             return None
         es = [e for e in H.all_entries(t) if H._role_key(e.author) in H.ROLE_RU]
         payload = {"title": p["title"], "steps": "\n".join(f"{s['n']}. {s['title']} — {STATE_RU[s['state']]}" for s in p["steps"]),
@@ -474,7 +474,7 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
                     d = P.parse(q.get(k))
                     if d:
                         stamps.append(d.timestamp())
-    progress = progress_block([p for p in procs if p.get("plan")], stamps, now)
+    progress = progress_block([p for p in procs if p.get("plan") and p["state"] != "done"], stamps, now)
 
     # --- вопросы (неотвеченные)
     questions = []
