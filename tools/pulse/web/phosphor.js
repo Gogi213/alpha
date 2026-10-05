@@ -38,7 +38,7 @@
   const forTxt = (p) => (p.for && p.for.text ? `для: ${E(p.for.text)}${p.for.on ? " " + mt(p.for.on) : ""}` : "");
   const flow = (p) => arr(p.flow).map((f) => `${E(f.text)} ${mt(f.on)}`).join(" → ");
   const whoOn = (s) => (s.who === "вы" ? "вы" : `${E(s.who)} на ${mt(s.on)}`);
-  const tm = (s) => (s.finished ? `${s.started}–${s.finished}` : s.started ? `с ${s.started}` : "");
+  const tm = (s) => (s.finished ? (s.started && s.started !== s.finished ? `${s.started}–${s.finished}` : s.finished) : s.started ? `с ${s.started}` : "");
   const sdet = (s) => {
     const a = [];
     if (s.detail) a.push(E(s.detail));

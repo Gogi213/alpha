@@ -47,13 +47,13 @@
 .d3 .pip::after{font-size:11px}
 
 /* раскладка на всю ширину */
-.d3 .lay{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1em 2.4ch;align-items:start;grid-template-areas:"top" "main" "rest"}
-.d3 .top{grid-area:top;min-width:0}.d3 .main{grid-area:main;min-width:0}.d3 .rest{grid-area:rest;min-width:0}
+.d3 .lay{display:grid;grid-template-columns:minmax(0,1fr);gap:1.1em 2.4ch;align-items:start;grid-template-areas:"main" "rest"}
+.d3 .main{grid-area:main;min-width:0}.d3 .rest{grid-area:rest;min-width:0}
 @media (min-width:1100px){
-  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(23em,28em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(23em,28em);grid-template-areas:"main rest"}
 }
 @media (min-width:1700px){
-  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(22em,26em);grid-template-rows:auto 1fr;grid-template-areas:"top top" "main rest"}
+  .d3 .lay{grid-template-columns:minmax(0,1fr) minmax(22em,26em);grid-template-areas:"main rest"}
 }
 .d3 .ttl{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.4em 3ch}
 .d3 .ttl h1{margin:0;font-size:calc(var(--fs)*1.5);letter-spacing:.24em;text-transform:uppercase;color:var(--hot);text-shadow:0 0 1.5px var(--fg),0 0 9px rgba(var(--fg-rgb),.7)}
@@ -269,9 +269,6 @@
   const pane = (v) => {
     const all = Board.procs(), act = all.filter((p) => p.state !== "done");
     if (!all.length) return `<div class="main"><div class="none">ждём первую сводку этой команды</div></div>`;
-    const list = act.filter((p) => p.plan), pr = list.length ? v.progress : null;
-    const eta = pr && pr.eta && pr.eta.lo_min != null ? `осталось <b class="hot">${pr.eta.lo_min}–${pr.eta.hi_min} мин</b>` : `<span class="dim">оценки пока нет</span>`;
-    const top = pr ? `<div class="top"><div class="pr"><span>готово <b class="hot">${pr.pct} %</b> · ${Math.floor(pr.done)} из ${pr.total}</span>${seg(list, "готово")}<span>${eta}${pr.spent_min != null ? ` · <span class="dim">прошло ${fmtMin(pr.spent_min)}</span>` : ""}</span></div></div>` : "";
     const machines = arr(v.machines).map((m) => ({ id: m.id, state: (m.now || {}).state, m }));
     act.forEach((p) => arr(p.steps).forEach((s) => { if (s.on && s.on !== "you" && !machines.some((r) => r.id === s.on)) machines.push({ id: s.on, state: "idle", m: null }); }));
     if (arr(v.questions).length || act.some((p) => arr(p.steps).some((s) => s.on === "you"))) machines.push({ id: "you", state: arr(v.questions).length ? "wait" : "idle", m: null });
@@ -293,7 +290,7 @@
     const feed = arr(v.feed).slice().reverse().map((f) => `<div class="fl"><span class="dim">${E(f.time)}</span><i class="pip s-${Board.sk(f.state)}"></i><span>${feedWho(f)} ${E(f.text)}</span></div>`).join("") || `<div class="none">пока тихо</div>`;
     const pick = all.length > 1 ? `<div class="pick${done.length ? " hd" : ""}"><span class="dim">подробно о задаче:</span>${all.map((p) => `<button type="button"${p.state === "done" ? "" : ' class="pa"'} data-act="select" data-id="${E(p.id)}" aria-pressed="${p.id === sel}">${E(p.title)}</button>`).join("")}</div>` : "";
     const sums = all.filter((p) => p.summary).map((p) => `<li><b>${E(p.title)}</b><span>${E(p.summary)}</span></li>`).join("");
-    return `${top}<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}${pick}${selP ? `<div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>${drawer(selP)}` : ""}</div>
+    return `<div class="main"><div class="h4 hot">Кто что делает и для чего</div>${np ? `<div class="mxw"><div class="mx" style="--np:${np}">${mx}</div></div><div class="mxh dim small" hidden>таблица шире окна: листайте её вправо</div>` : '<div class="none">все задачи готовы</div>'}${pick}${selP ? `<div class="h4 hot">Подробно · выберите задачу в шапке таблицы</div>${drawer(selP)}` : ""}</div>
    <div class="rest"><div class="h4 hot">Что стало возможно</div>${sums ? `<ul class="sums">${sums}</ul>` : '<div class="none">пока ничего не закрыто</div>'}<div class="h4 hot">Недавно</div>${feed}</div>`;
   };
 

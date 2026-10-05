@@ -42,6 +42,16 @@ def _mid(m: str) -> str:
 HUMAN_WORDS = 6
 _TECH = re.compile(r"https?://\S+|host:\S+|\S*/\S+|(?<!\w)--?[A-Za-z][\w-]*|\bmd5\b|\bTK-?\d+\S*|\b[ВвTt]-\d+|\bветк\w*\s+\S+|\bИтог\w*", re.I)
 
+# «Недавно»: событие = итог/сдано/принято с числом результата; поправки, «запущен», коды и частоты — не события
+EV_DONE = re.compile(r"итог|принят|сдан|готов|слиян|diff 0", re.I)
+EV_NOISE = re.compile(r"^\W*(?:поправк|запущен|начат|статус|сделано \(не выложено|код готов)", re.I)
+EV_NUM = re.compile(r"[−-]?\d+(?:[.,]\d+)?(?:\s?[…–]\s?\d+(?:[.,]\d+)?)?\s?(?:%|×|с(?!\w)|сек|мин(?!\w)|ч(?!\w)|ГБ|МБ|раз(?!\w))|×\s?\d+|\b\d+\s+из\s+\d+")
+EV_NOT = re.compile(r"оц\]|оценк|прогноз|ожида|по решению|остальные тикеты|ждут|критери", re.I)
+EV_JARGON = re.compile(r"\bwall\b|\buser\b|\w+_\w+|CPUQuota|[A-Z]{3,}[+_][A-Z]|\bFF\b")
+EV_STOP = ("шага", "из", "по", "для", "итог", "готово", "сделано")
+EV_DIFF = re.compile(r"diff 0", re.I)
+EV_CUT = re.compile(r"(?<=[.;])\s+|;\s*|:\s+|\s+[—–]\s+|,\s+")
+
 
 def human(text: str, words: int = HUMAN_WORDS) -> str:
     """Текст шага для клетки табло: без скобок, путей, хэшей, номеров тикетов и флагов; не больше `words` слов."""
@@ -364,6 +374,36 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         s = re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|юнит|–|-))+$", "", s)
         return s.strip(" ,.;:—–-…·") or "запись роли"
 
+    def event_line(e):  # строка «Недавно»: что сдано/принято и число результата; None — не событие
+        txt = H.clean_text(e.text)
+        txt = re.sub(r"^(?:Инженер|Исследователь|Судья)\s*(?:\([^)]*\)|\d{1,2}:\d{2})?[\s.:—-]*", "", txt)
+        if EV_NOISE.match(txt) or not EV_DONE.search(txt[:200]):
+            return None
+        if EV_NOT.search(txt[:160]):
+            return None
+        m = re.search(r"итог\W*", txt, re.I)
+        body = txt[m.end():] if m else txt
+        gen = bool(m and ":" not in txt[m.start():m.end()])  # «ИТОГ perf-разбора b14 (…)» — после «итог» родительный падеж
+        body = re.sub(r"\((?![\d.,\s]+%\))[^)]*\)?", " ", body)
+        body = re.sub(r"(?<![\w])[0-9a-f]{7,40}(?![\w])|\bpid\s*\d+|\b\d{1,2}:\d{2}\b|\bwall\s+(\d+[.,]\d+)(?:\s*/\s*(?:user|sys)\s+\d+[.,]?\d*)*", lambda m: f"стена {m.group(1)} с" if m.group(1) else " ", _TECH.sub(" ", body))
+        body = re.sub(r"\bd0?1\b", "1 сутки", re.sub(r"\bd15\b", "15 суток", body))
+        parts = [x.strip(" ,.;:—–-…·") for x in EV_CUT.split(re.sub(r"\s+", " ", body)) if x.strip(" ,.;:—–-…·")]
+        res = next((x for x in parts if EV_NUM.search(x)), None) or next((x for x in parts if EV_DIFF.search(x)), None)
+        if not res:
+            return None
+        subj = parts[0] if parts[0] != res and not EV_NUM.search(parts[0]) and 4 <= len(parts[0]) <= 30 and parts[0].lower() not in EV_STOP and not parts[0].lower().startswith("итог") else ""
+        if subj and len(subj.split()[-1]) <= 2:
+            subj = ""
+        if subj and gen:
+            subj = "итог " + subj
+        line = f"{subj}: {res}" if subj else res
+        if EV_JARGON.search(line) or EV_NOT.search(line):
+            return None
+        if len(line) > 70:
+            line = line[:71].rsplit(" ", 1)[0]
+        line = re.sub(r"\b[А-ЯЁ]{3,}\b", lambda m: m.group(0).lower(), line)
+        return re.sub(r"(?:\s+(?:на|по|с|и|в|от|до|для|–|-))+$", "", line).strip(" ,.;:—–-…·") or None
+
     # --- записи ролей из лога тикета
     def role_entries(t) -> list:
         return [e for e in H.all_entries(t) if H._role_key(e.author) in ROLE_LC]
@@ -551,15 +591,18 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         for e in role_entries(t):
             if H._role_key(e.author) == "ceo" or now - e.ts.timestamp() > FEED_AGE_S or about_board(tid, e.text):
                 continue
+            line = event_line(e)
+            if not line:
+                continue
             feed.append((e.ts.timestamp(), {"time": H.news_time(e.ts), "state": "done", "on": on_at(tid, e.ts), "to": None,
-                                            "text": fact(e), "_tid": tid, "_title": H.short_title(ptit.get(tid) or ptitle(tid), 20)}))
+                                            "text": line, "_tid": tid, "_title": H.short_title(ptit.get(tid) or ptitle(tid), 20)}))
     for q in allq:
         a = P.parse(q.get("since"))
-        if a:
+        if a and now - a.timestamp() <= FEED_AGE_S:
             feed.append((a.timestamp(), {"time": H.news_time(a), "state": "wait", "on": [q.get("on", "pc")], "to": "you",
                                          "text": H.clip(f"вопрос: {q['text']}", 70)}))
         b = P.parse(q.get("answered_at"))
-        if b:
+        if b and now - b.timestamp() <= FEED_AGE_S:
             feed.append((b.timestamp(), {"time": H.news_time(b), "state": "done", "on": [q.get("on", "pc")], "to": None,
                                          "text": f"ответ владельца: {q.get('answer_label')}"}))
     feed.sort(key=lambda x: x[0])
