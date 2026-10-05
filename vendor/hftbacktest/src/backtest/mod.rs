@@ -867,6 +867,13 @@ where
 {
     type Error = BacktestError;
 
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any>
+    where
+        Self: 'static,
+    {
+        Some(self)
+    }
+
     #[inline]
     fn current_timestamp(&self) -> i64 {
         self.cur_ts
