@@ -32,7 +32,6 @@ WORK_GAP_MIN = 45            # «прошло»: промежуток между
 AUTO_TITLE_LEN = 60
 BOARD_RE = re.compile(r"табло|шкал|дашборд|страниц", re.I)
 FEED_AGE_S = 86400
-_last_psum: dict = {}        # процесс → последняя строка-итог (пока модель отвечает на новое состояние — показываем её)
 
 
 def _mid(m: str) -> str:
@@ -426,21 +425,13 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
         return (p["id"].startswith("orphans-"), p.get("wave") or 0, p["state"] == "done", p["id"])
 
     def summary_of(p):
-        """Строка-итог: фраза Haiku (по названию и шагам с состояниями; без смены состояний модель не зовётся) + «N из M»."""
-        t = tickets.get(p["id"])
-        if H.AUTO is None or t is None or BOARD_RE.search(p["title"]):
+        """Строка-итог только из фактов плана: последний сделанный шаг и «N из M» (без текстов модели)."""
+        if not p.get("has_plan") or BOARD_RE.search(p["title"]):
             return None
-        es = [e for e in H.all_entries(t) if H._role_key(e.author) in H.ROLE_RU]
-        payload = {"title": p["title"], "steps": "\n".join(f"{s['n']}. {s['title']} — {STATE_RU[s['state']]}" for s in p["steps"]),
-                   "entry": es[-1].text if es else ""}
-        r = H.AUTO.get("psum", p["id"], payload, 1)
-        ph = (r or {}).get("summary") or _last_psum.get(p["id"])  # ответа ещё нет — прежняя строка
-        if not ph:
+        done = [s for s in p["steps"] if s["state"] == "done"]
+        if not done:
             return None
-        _last_psum[p["id"]] = ph
-        if not p.get("has_plan"):
-            return ph
-        return f"{ph} — {sum(1 for s in p['steps'] if s['state'] == 'done')} из {len(p['steps'])} готово"
+        return f"сделано: {done[-1]['title']} — {len(done)} из {len(p['steps'])}"
 
     for p in procs:
         st = p["steps"]
@@ -541,12 +532,6 @@ def make(H, *, plain, tickets, live, machines, jobs_all, events, view, disp_ok, 
             continue  # поручения и решения CEO — не результат
         feed.append((ts.timestamp() if ts else 0, {"time": n["time"], "state": "done", "on": on_at(n.get("ticket"), ts), "to": None,
                                                   "text": n["text"]}))
-    for p in procs:
-        for s in (plans.get(p["id"]) or {}).get("steps", []):
-            f = P.parse(s.get("finished_at"))
-            if s.get("state") == "done" and f and (now_dt - f).total_seconds() < 86400 and not about_board(p["id"], s["title"]):
-                feed.append((f.timestamp(), {"time": H.news_time(f), "state": "done", "on": [s["on"]] if s["on"] in mach else ["pc"], "to": None,
-                                             "text": s["title"]}))
     news_ts = [(n.get("ticket"), P.parse(n.get("ts"))) for n in plain.get("news", [])]
     for p in procs:  # записи ролей из логов тикетов (сдано, числа, решения CEO), которых ещё нет в Haiku-ленте
         t = tickets.get(p["id"])
