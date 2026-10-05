@@ -2184,6 +2184,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
         ),
     ];
     let lat = ExecLatency::uniform(1_000_000);
+    let mut fast_used = 0u64;
     for (name, feed, plan) in cases {
         let signal = |t0_ns: i64| BounceSignal {
             t0_ns,
@@ -2213,6 +2214,16 @@ fn hold_skip_matches_polling_byte_for_byte() {
                 "{name}: пропуск обязан сработать"
             );
             assert_eq!(a, b, "{name}, busy_skip {busy_skip}");
+            // TK-049: быстрый путь удержания (ALPHA_FAST_HOLD) — тот же `BounceRun`, что и без него.
+            let used = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+                + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
+            fast_hold::FORCE_ON.with(|f| f.set(true));
+            let c = drive_bounce_windowed(&feed, &windows, &signals, &skip, lat);
+            fast_hold::FORCE_ON.with(|f| f.set(false));
+            assert_eq!(a, c.unwrap(), "{name}, busy_skip {busy_skip}: быстрый путь");
+            fast_used += fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+                + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed)
+                - used;
             if name != "конец данных" {
                 assert!(
                     !a.fills.is_empty(),
@@ -2221,6 +2232,7 @@ fn hold_skip_matches_polling_byte_for_byte() {
             }
         }
     }
+    assert!(fast_used > 0, "быстрый путь обязан хотя бы раз сработать");
 }
 
 /// Память кругов (G10) берёт круг только при тех же сиротах на входе (в нумерации от базы прогона): круг

@@ -525,8 +525,17 @@ pub(super) fn fast_hold_scan(
 
 /// `ALPHA_FAST_HOLD=1` — быстрый путь удержания в одиночном драйвере кругов; умолчание — выкл.
 pub fn fast_hold_on() -> bool {
+    #[cfg(test)]
+    if FORCE_ON.with(std::cell::Cell::get) {
+        return true;
+    }
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ALPHA_FAST_HOLD").is_some_and(|v| v == "1"))
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static FORCE_ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Кругов, где движок заменён быстрым путём / где `handoff` не удался и круг пошёл прежним путём / строк ленты,
