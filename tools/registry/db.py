@@ -42,6 +42,20 @@ def _ins(c, table, d):
               [json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in d.values()])
 
 
+def norm_ts(t):
+    """Время к одному поясу +04:00 (GMT+4): +0200/+00:00 пересчитываются, без пояса = локальное GMT+4."""
+    import datetime
+    t = (t or "").strip()
+    if not t or len(t) < 19:
+        return t
+    t = re.sub(r"([+-]\d\d)(\d\d)$", lambda m: m.group(1) + ":" + m.group(2), t)
+    t = re.sub(r"(\.\d+)(?=[+-]|$)", "", t)
+    z = datetime.timezone(datetime.timedelta(hours=4))
+    d = datetime.datetime.fromisoformat(t)
+    d = d.replace(tzinfo=z) if d.tzinfo is None else d.astimezone(z)
+    return d.strftime("%Y-%m-%dT%H:%M:%S+04:00")
+
+
 def build(rows):
     """Пересобрать data/registry.sqlite: миграции + runs-строки + hypotheses/cells/run_cells/results/verdicts из jsonl."""
     os.makedirs(os.path.dirname(DB), exist_ok=True)

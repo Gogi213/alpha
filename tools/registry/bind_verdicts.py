@@ -1,5 +1,5 @@
 """Привязка проверок Судьи к прогонам: отчётные ревью по протоколу/тикету и записи judge в логах тикетов -> verdicts.run_id + runs.judge."""
-import glob, json, os, re, sys
+import datetime, glob, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import db
 
@@ -29,7 +29,7 @@ def run(runs_path):
     for v in base.values():
         v["note"] = re.sub(r"^\[[^\]]*\] ", "", v.get("note") or "")
         keep.append(v)
-    fixed = [v for v in ver if v.get("run_id") and v["id"].startswith("V-TK-040-2026-10-06")]
+    fixed = [v for v in ver if v.get("run_id") and v["id"].startswith("V-TK-") and "@" not in v["id"]]
     new = []
 
     def hasd(r, h):
@@ -46,12 +46,12 @@ def run(runs_path):
         if METHOD.search(name) or not (pm or tm):
             v["note"] = "[методика/протокол, без прогона] " + (v.get("note") or "")
             rest.append(v); continue
-        ts = (v.get("ts") or "9999") + "T99"
+        ts = (v.get("ts") or "9999-12-31") + "T99"
         if pm:
-            sel = [r for r in runs if (r.get("protocol") or "").split(" ")[0] == pm.group(1) and r["ts"] <= ts]
+            sel = [r for r in runs if (r.get("protocol") or "").split(" ")[0] == pm.group(1) and r["ts"][:10] <= ts[:10]]
         else:
             t = "TK-" + tm.group(1)[2:]
-            sel = [r for r in runs if r.get("ticket") == t and r["ts"] <= ts]
+            sel = [r for r in runs if r.get("ticket") == t and r["ts"][:10] <= ts[:10]]
         if v.get("hyp_id") and pm:
             s2 = [r for r in sel if hasd(r, v["hyp_id"])]
             sel = s2 or sel
@@ -65,23 +65,26 @@ def run(runs_path):
         tk = re.match(r"(TK-\d+)", os.path.basename(p)).group(1)
         txt = open(p, encoding="utf-8").read()
         ents = [(m.group(1), txt[m.end():m.end() + 500]) for m in re.finditer(r"^### (\d{4}-\d\d-\d\dT[\d:+]+) judge\s*$", txt, re.M)]
-        prev = ""
+        prev = None
         for ts, body in ents:
-            sel = [r for r in runs if r.get("ticket") == tk and prev < r["ts"] <= ts]
-            prev = max(prev, ts)
+            tsn = db.norm_ts(ts); tsd = datetime.datetime.fromisoformat(tsn)
+            sel = [r for r in runs if r.get("ticket") == tk and (prev is None or prev < datetime.datetime.fromisoformat(db.norm_ts(r["ts"]))) and datetime.datetime.fromisoformat(db.norm_ts(r["ts"])) <= tsd]
+            prev = tsd if prev is None else max(prev, tsd)
             w = word(body[:250])
             for r in sel:
                 new.append({"id": f"V-{tk}-{ts[:16]}@{r['id']}", "run_id": r["id"], "hyp_id": None, "judge": "judge", "verdict": w,
                             "review_path": os.path.relpath(p, ROOT).replace("\\", "/") + "#" + ts, "ts": ts[:10],
                             "note": "запись judge в логе тикета: " + body[:160].replace("\n", " ")})
+    manual = {(v["run_id"], v["review_path"]) for v in fixed}
     seen = {}
     for v in new:
-        seen[v["id"]] = v
+        if (v["run_id"], v["review_path"]) not in manual:
+            seen[v["id"]] = v
     allv = fixed + rest + list(seen.values())
     db._wjl("verdicts.jsonl", allv)
     # runs.judge: последний по дате решающий вердикт
     by = {}
-    for v in seen.values():
+    for v in list(seen.values()) + fixed:
         by.setdefault(v["run_id"], []).append(v)
     n = 0
     for r in runs:

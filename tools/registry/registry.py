@@ -41,7 +41,7 @@ def next_id(rows, ts):
 def append(row):
     row = {k: v for k, v in row.items() if v not in (None, "")}
     rows = load()
-    row.setdefault("ts", now())
+    row["ts"] = db.norm_ts(row.get("ts") or now())
     row.setdefault("id", next_id(rows, row["ts"]))
     if any(r["id"] == row["id"] for r in rows):
         sys.exit(f"registry: id {row['id']} уже есть")
@@ -100,6 +100,7 @@ def main():
     lh = sp.add_parser("load-hdr", help="hdr-<прогон>.tsv (группа, шапка bounce-grid) -> latency/queue/h3 и params клеток")
     lh.add_argument("file"); lh.add_argument("--run", required=True)
     sp.add_parser("bind-verdicts", help="проверки Судьи (ревью по протоколу/тикету, записи judge в логах) -> verdicts.run_id + runs.judge")
+    sp.add_parser("normalize-ts", help="runs.ts канона -> один пояс +04:00 (id не меняются)")
     sp.add_parser("enrich", help="автострокам: тикет из пути, класс в статус, период/пул из команды")
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
@@ -135,6 +136,14 @@ def main():
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print("строк дополнено:", n)
+    elif ns.cmd == "normalize-ts":
+        rows = load(); n = 0
+        for r in rows:
+            t = db.norm_ts(r["ts"]); n += t != r["ts"]; r["ts"] = t
+        with open(CANON, "w", encoding="utf-8", newline="\n") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print(n, "ts пересчитано из", len(rows))
     elif ns.cmd == "bind-verdicts":
         print("вердиктов с прогоном %d, без прогона %d, runs.judge заполнено %d" % bind_verdicts.run(CANON))
     elif ns.cmd == "find":
