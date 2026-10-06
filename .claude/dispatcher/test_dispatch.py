@@ -3718,6 +3718,9 @@ class WaitByEventTest(unittest.TestCase):
     def setUp(self):
         D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear(); D._UNIT_START.clear(); D._EVENT_VERIFIED.clear()
         self._run, self._async = D.subprocess.run, D.WAIT_ASYNC
+        self._alarm, self.alarms = D.append_ceo_inbox, []
+        D.append_ceo_inbox = lambda *a, **k: self.alarms.append(a)
+        D._RECON_MISS.clear()
 
         def boom(*a, **k):
             raise AssertionError("ssh в основном потоке")
@@ -3725,6 +3728,7 @@ class WaitByEventTest(unittest.TestCase):
 
     def tearDown(self):
         D.subprocess.run, D.WAIT_ASYNC = self._run, self._async
+        D.append_ceo_inbox = self._alarm
         D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear(); D._UNIT_START.clear(); D._EVENT_VERIFIED.clear()
 
     def _probe_state(self, state: bytes):
@@ -3829,6 +3833,38 @@ class WaitByEventTest(unittest.TestCase):
         self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/p/x.json")][1])  # done 1 из 5 — не готово
         self.assertIn(("calc", "/data/tk048/chain55.done"), D._WL_REG)
         self.assertTrue(D.check_wait_for("host:calc:/data/tk048/chain55.done"))
+
+    def test_reconcile_miss_alarm_once_per_key_and_none_with_event(self):
+        """Сверка закрыла условие без события → строка «пропуск» и срочная тревога по ключу один раз; было событие — тишина."""
+        D.WAIT_ASYNC = True
+        logged = []
+        orig_log, D._log_ssh_call = D._log_ssh_call, lambda *a: logged.append(a)
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@reg\n@@rc 0\n@@1\n@@reg\n@@rc 0\n"
+        D.subprocess.run = lambda *a, **k: R()
+        try:
+            for k in (("calc", "path", "/data/a.done"), ("calc", "path", "/data/b.done")):
+                D._WAIT_WATCH.add(k)
+            D.record_wait_event({"addr": "машина.calc.файл.появился", "payload": {"path": "/data/b.done", "host": "calc"}})
+            D._reconcile()
+            D._reconcile()
+        finally:
+            D._log_ssh_call = orig_log
+        self.assertEqual([a for a in logged if a[3] == "пропуск"], [("calc", "path", "/data/a.done", "пропуск")])
+        self.assertEqual(len(self.alarms), 1)
+        self.assertEqual(self.alarms[0][1], "recon-miss")
+        self.assertEqual(D.signal_prio("recon-miss"), "urgent")
+
+    def test_reconcile_vps_no_miss_alarm(self):
+        D.WAIT_ASYNC = True
+        D._WAIT_WATCH.add(("vps", "path", "/opt/x.done"))
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@rc 0\n"
+        D.subprocess.run = lambda *a, **k: R()
+        D._reconcile()
+        self.assertEqual(self.alarms, [])
 
     def test_reconcile_missing_file_stays_unmet(self):
         D.WAIT_ASYNC = True

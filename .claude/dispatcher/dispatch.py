@@ -529,6 +529,8 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
 
 
 WAIT_RECON_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_RECON_S", "300"))  # сверка всех ждущих host:… одним ssh на машину
+WATCHED_ALIASES = {"calc"}  # машины со сторожем (на vps сторожа нет — там сверка штатный путь)
+_RECON_MISS = set()  # ключи, по которым «пропуск» уже записан и тревога уже ушла
 _WL_REG = set()  # (алиас, путь), чья регистрация у сторожа подтверждена ответом машины
 _RECON_LAST = 0.0
 
@@ -608,6 +610,12 @@ def _reconcile() -> None:
                 result = False
             else:
                 continue
+            prev = _WAIT_CACHE.get(keys[i])
+            if (result and not (prev and prev[1]) and alias in WATCHED_ALIASES and _event_ts(*keys[i]) is None
+                    and keys[i] not in _RECON_MISS):
+                _RECON_MISS.add(keys[i])  # запасной путь сработал, события не было — сторож не справился (В-192)
+                _log_ssh_call(alias, what, arg, "пропуск")
+                append_ceo_inbox("*", "recon-miss", f"сверка закрыла host:{alias}:{'unit:' if what == 'unit' else ''}{arg} без события шины — проверить сторож машины")
             _WAIT_CACHE[keys[i]] = (now_ts, result)
 
 
