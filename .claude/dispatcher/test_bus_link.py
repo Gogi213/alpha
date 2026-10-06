@@ -43,7 +43,6 @@ class LinkTest(unittest.TestCase):
 
     def tearDown(self):
         self.link.disp.stop_flag.set()
-        self.link.ceo.stop_flag.set()
         self.srv.shutdown()
         for k, v in self.env.items():
             if v is None:
@@ -60,15 +59,11 @@ class LinkTest(unittest.TestCase):
         bus_link.ack("dispatcher", seqs)
         self.assertEqual(self.b.fetch("dispatcher", 0), [])
 
-    def test_ceo_event_goes_to_line_and_is_acked(self):
+    def test_ceo_queue_is_not_drained_by_dispatcher(self):
         self.b.post("задача.TK-1.задание.упало", {"rc": 3}, "e2")
-        for _ in range(30):
-            if any("задание.упало" in k for k, _ in self.lines):
-                break
-            time.sleep(0.1)
-        self.assertTrue(any(k == "задача.TK-1.задание.упало" for k, _ in self.lines))
-        time.sleep(0.3)
-        self.assertEqual(self.b.fetch("ceo", 0), [])
+        time.sleep(1)
+        self.assertEqual(self.lines, [])
+        self.assertEqual(len(self.b.fetch("ceo", 0)), 1)  # ждёт CEO: `tickets.py inbox`
 
     def test_held_event_does_not_wake_until_unblocked(self):
         self.b.post("задача.TK-9.блокер.поставлен", {"reason": "x"}, "b1")
@@ -79,7 +74,7 @@ class LinkTest(unittest.TestCase):
 
 
 class AckRetryTest(unittest.TestCase):
-    def test_failed_ack_returns_false_and_ceo_retries(self):
+    def test_failed_ack_returns_false(self):
         orig = busclient.request
         calls = []
 
@@ -95,12 +90,6 @@ class AckRetryTest(unittest.TestCase):
         try:
             self.assertFalse(bus_link.ack("x", [1]))
             self.assertTrue(bus_link.ack("x", [1]))
-            calls.clear()
-            link = bus_link.Link(lambda k, n: None)
-            link._on_ceo([{"seq": 7, "addr": "a", "payload": ""}])
-            self.assertEqual(link.ceo_unacked, {7})
-            link.retry_ceo_ack()
-            self.assertEqual(link.ceo_unacked, set())
         finally:
             busclient.request = orig
 
@@ -115,7 +104,6 @@ class DownTest(unittest.TestCase):
             link.start()
             time.sleep(4)
             link.disp.stop_flag.set()
-            link.ceo.stop_flag.set()
             self.assertEqual(lines.count("bus-down"), 1)
         finally:
             os.environ["ALPHA_BUS_DISABLE"] = "1"

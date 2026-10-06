@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ticket as T  # noqa: E402
 import bus_link  # noqa: E402
+import busclient  # noqa: E402  (bus_link уже добавил tools/bus в sys.path)
 
 # --- конфигурация (константы — тесты подменяют их прямо на модуле) ------------------------
 
@@ -477,13 +478,31 @@ def _ssh_stderr(r) -> str:
 
 # --- ceo-inbox ---------------------------------------------------------------------------------
 
-def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
+# Стандарт сигналов (TK-074, В-192): единственный путь сигнала к CEO — событие шины `задача.<ID|общее>.к_ceo` в очередь `ceo`
+# с приоритетом (urgent — читать первым). Файлы ceo-inbox.md/ceo-wake.log — ТОЛЬКО запасной путь, когда шина недоступна
+# (строка помечена «[запасной путь]»); писать их мимо append_ceo_inbox запрещено (тест test_no_ceo_file_writes_outside_fallback).
+# Неизвестный вид — urgent (безопасная сторона). CEO читает очередь `python .claude/dispatcher/tickets.py inbox`.
+NORMAL_KINDS = {"done", "next-ceo", "wait-for", "model", "watch-summary", "summary", "bus-up"}
+
+
+def signal_prio(kind: str) -> str:
+    return "normal" if kind in NORMAL_KINDS else "urgent"
+
+
+def _ceo_file_fallback(tid: str, kind: str, note: str, now=None) -> None:
     CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
     with open(CEO_INBOX, "a", encoding="utf-8") as fh:
-        fh.write(f"- {T.now_iso(now)} {tid} [{kind}] {note}\n")
-    # ceo-wake.log — короткая (время, задача, причина) копия для Monitor CEO; ceo-inbox.md остаётся источником деталей
+        fh.write(f"- {T.now_iso(now)} {tid} [{kind}] [запасной путь] {note}\n")
     with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
         fh.write(f"{T.now_iso(now)} {tid} {kind}\n")
+
+
+def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
+    """Сигнал CEO: шина (очередь `ceo`, ack на стороне CEO); шина не принята — запасной файл без потерь."""
+    addr = f"задача.{'общее' if tid == '*' else tid}.к_ceo"
+    payload = {"kind": kind, "note": note, "prio": signal_prio(kind), "ts": T.now_iso(now)}
+    if busclient.post(addr, payload, timeout=3, spool=False) is None:
+        _ceo_file_fallback(tid, kind, note, now)
 
 
 # --- таблица правил «вид сигнала → будить / сводка» (судья TK-002 п.3, взамен привратника TypeSafe) --
@@ -505,12 +524,7 @@ def classify_signal(kind: str) -> str:
 def flush_pending_summary(state: dict, now) -> None:
     pending = state.get("pending_summary") or []
     if pending:
-        line = f"- {T.now_iso(now)} * [summary] {len(pending)} сигнал(ов): " + " | ".join(pending)
-        CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
-        with open(CEO_INBOX, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-        with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
-            fh.write(f"{T.now_iso(now)} * summary({len(pending)})\n")
+        append_ceo_inbox("*", "summary", f"{len(pending)} сигнал(ов): " + " | ".join(pending), now)
     state["pending_summary"] = []
     state["last_summary_flush"] = T.now_iso(now)
 

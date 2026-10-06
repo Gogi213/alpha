@@ -11,6 +11,7 @@
     python .claude/dispatcher/tickets.py wait TK-001 host:calc:/data/progress/<job>.json   # status: waiting + wait_for
     python .claude/dispatcher/tickets.py stop TK-001 --text "..." [--next engineer]       # только CEO: снять роль
     python .claude/dispatcher/tickets.py status                                           # потрачено по задачам
+    python .claude/dispatcher/tickets.py inbox [--peek]   # CEO: очередь «ceo» шины пачкой (срочное первым) + ack; --peek — без ack
 
 `--next researcher|engineer|judge|ceo` — единственный способ разбудить другую роль (или CEO) записью лога:
 пишет `next: <роль>` в шапку, диспетчер запускает роль ОДИН раз и очищает поле. @упоминания в тексте никого
@@ -43,6 +44,57 @@ import busclient  # noqa: E402
 def bus_emit(tid: str, kind: str, payload: dict) -> None:
     """Событие на шину (TK-045): недоступность шины не ломает команду — busclient.post не бросает, событие уходит в spool."""
     busclient.post(f"задача.{tid}.{kind}", payload, timeout=3)
+
+def _ceo_fallback_unread(peek: bool) -> list[str]:
+    """Строки запасного файла (шина лежала): ceo-inbox.md с пометкой «[запасной путь]», новее отметки .ceo-inbox-fallback-seen."""
+    inbox, seen_f = D.CEO_INBOX, D.CEO_INBOX.parent / ".ceo-inbox-fallback-seen"
+    try:
+        lines = inbox.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    try:
+        seen = int(seen_f.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        seen = 0
+    if seen > len(lines):
+        seen = 0
+    new = [ln for ln in lines[seen:] if "[запасной путь]" in ln]
+    if not peek and len(lines) != seen:
+        seen_f.write_text(str(len(lines)), encoding="utf-8")
+    return new
+
+
+def cmd_inbox(args) -> int:
+    """Очередь CEO (TK-074, В-192): читает `ceo` пачкой, срочное (prio=urgent) первым, подтверждает; запасной файл — после."""
+    events, down = [], None
+    try:
+        while True:
+            batch = busclient.request("/q/ceo?after=0&wait=0", timeout=5)["events"]
+            fresh = [e for e in batch if e["seq"] not in {x["seq"] for x in events}]
+            if not fresh:
+                break
+            events += fresh
+            if args.peek:
+                break
+            if not busclient.request("/ack", {"recipient": "ceo", "seqs": [e["seq"] for e in fresh]}, timeout=5).get("acked"):
+                break
+    except Exception as e:
+        down = f"{type(e).__name__}: {e}"
+    events.sort(key=lambda e: ((e.get("payload") or {}).get("prio") != "urgent", e["seq"]))
+    for e in events:
+        pl = e.get("payload") or {}
+        tid = e["addr"].split(".")[1] if e["addr"].startswith("задача.") else e["addr"]
+        print(f"[{'СРОЧНО' if pl.get('prio') == 'urgent' else 'обычное'}] #{e['seq']} {tid} {pl.get('kind', e['addr'])}: "
+              f"{pl.get('note', pl) if pl.get('note') is not None else pl}")
+    fb = _ceo_fallback_unread(args.peek)
+    for ln in fb:
+        print(f"[запасной путь] {ln}")
+    if down:
+        print(f"шина недоступна ({down}): очередь не прочитана; сигналы за это время — в файле ceo-inbox.md ([запасной путь])")
+        return 1
+    if not events and not fb:
+        print("очередь CEO пуста")
+    return 0
 
 TICKETS_DIR = Path(__file__).resolve().parent.parent / "tickets"
 
@@ -106,11 +158,14 @@ def cmd_comment(args) -> int:
             # v2: единственный будильник другой роли/CEO; `updated` не двигаем (маркеры уведомлений CEO по нему)
             T.write_header_updates(path, {"next": nxt}, stamp_updated=False)
         moved = T.compact_log(path)
+    payload = {"author": args.author, "next": nxt or ""}
     if args.text.lstrip().upper().startswith("ВОПРОС ВЛАДЕЛЬЦУ"):
         kind = "вопрос_владельцу"
+        payload.update(kind="owner-question", note=D._first_line(args.text), prio="urgent")  # очередь CEO, срочно (TK-074)
     else:
-        kind = "статус" if not nxt else "к_ceo" if nxt == "ceo" else "сдано"
-    bus_emit(args.id, kind, {"author": args.author, "next": nxt or ""})
+        # next: ceo — сигнал CEO даёт диспетчер (handle_next_ceo, с дедупом); второй путь здесь был бы дублем
+        kind = "статус" if not nxt else "сдано"
+    bus_emit(args.id, kind, payload)
     print(f"дописано в {path}" + (f"; next: {nxt}" if nxt else "")
           + (f"; next проставлен автоматически (запись Судьи без --next → владелец тикета: {nxt})" if auto_next else "")
           + (f"; в архив перенесено записей: {moved}" if moved else ""))
@@ -262,6 +317,10 @@ def main(argv=None) -> int:
     p_stop.add_argument("--next", choices=["researcher", "engineer", "judge"], default=None,
                         help="роль, которая стартует сразу (тикет станет todo); без --next — status: stopped, не будить")
     p_stop.set_defaults(func=cmd_stop)
+
+    p_inbox = sub.add_parser("inbox", help="CEO: прочитать и подтвердить очередь «ceo» шины (срочное первым)")
+    p_inbox.add_argument("--peek", action="store_true", help="только показать, без ack")
+    p_inbox.set_defaults(func=cmd_inbox)
 
     p_status = sub.add_parser("status")
     p_status.set_defaults(func=cmd_status)
