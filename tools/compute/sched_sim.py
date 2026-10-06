@@ -82,13 +82,16 @@ def run():
     print(f"загрузка ядер при спросе производства ≥ 16 ядер (вне окон замера): {util * 100:.1f} %")
     print(f"помеха замерам (производство не на паузе в окне): {meas_overlap:.0f} с")
     print("R1 закончен:", all(j["state"] == "done" for j in core.jobs.values()), f"в {be.t / H:.1f} ч модельного времени")
-    good = dict(wall_s=300, cpu_s=4800, own_cpu_s=4790, disk_b=1e9, own_disk_b=1e9, foreign_units=set())
+    good = dict(wall_s=300, cpu_s=4800, own_cpu_s=4790, disk_b=1e9, own_disk_b=1e9, ios=8000, own_ios=8000, foreign_units=set())
     bad_cpu = dict(good, cpu_s=4800 + 300 * 16 * 0.02, own_cpu_s=4800)
     bad_disk = dict(good, disk_b=1.2e9)
     bad_unit = dict(good, foreign_units={"tk064-pool-chain.service"})
+    bad_ios = dict(good, disk_b=1.001e9, ios=9000)       # байт +0,1 %, операций +11 %: поиски HDD
+    bad_thaw = dict(good, forced_thaw=True)
     chk = [S.judge_window(good)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
-           not S.judge_window(bad_unit)[0]]
-    print("проверка волны (годна/ЦП/диск/чужой юнит):", chk)
+           not S.judge_window(bad_unit)[0],
+           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0]]
+    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка):", chk)
     kb = SimBE(); kc = S.Core(kb, ncpu=NCPU, mem=56)
     kc.add(job("long", "long", "prod", 2, 2, "none", 10 * H, 0, mr=1800)); kc.add(job("w", "wave", "measure", NCPU, 1, "none", 600, 0, mr=300))
     for _ in range(600):

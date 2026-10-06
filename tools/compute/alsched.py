@@ -9,10 +9,11 @@
   alsched.py ps | cancel <id> | daemon
 Состояние: $SCHED_DIR (/data/sched): jobs/<id>.json (создаёт CLI, дальше пишет только демон), cancel/<id>, logs/<id>.log, rc/<id>.
 """
-import argparse, json, math, os, subprocess, sys, time
+import argparse, json, math, os, re, subprocess, sys, time
 
 DIR = os.environ.get("SCHED_DIR", "/data/sched")
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
+DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
 DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "0"))   # заданий на диск; 0 = без лимита до калибровки (В-178), число не выдумываем
 FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
               else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
@@ -96,7 +97,7 @@ class Core:
 def judge_window(d, ncpu=NCPU, tol=0.01):
     """d: cpu_s (занято на хосте за окно), own_cpu_s (юнит замера), wall_s, foreign_units (посторонние активные юниты в окне),
     disk_b (прочитано с дисков хоста), own_disk_b (читал юнит замера). Помеха = чужое ЦП / (стена × ядра) и чужое чтение
-    диска / всё чтение окна (только если замер сам читает диск); замороженные юниты не в счёт; допуск tol = 1 % (гейт TK-071). → (годна, причины)."""
+    диска / всё чтение окна и по числу операций чтения (только если замер сам читает диск); замороженные юниты не в счёт; допуск tol = 1 % (гейт TK-071). → (годна, причины)."""
     why = []
     if d["foreign_units"]:
         why.append("посторонние юниты в окне: " + ",".join(sorted(d["foreign_units"])[:5]))
@@ -105,6 +106,11 @@ def judge_window(d, ncpu=NCPU, tol=0.01):
         why.append(f"чужое ЦП {(d['cpu_s'] - d['own_cpu_s']) / cap * 100:.1f} % ядер окна")
     if d["own_disk_b"] > 0 and d["disk_b"] > 0 and (d["disk_b"] - d["own_disk_b"]) / d["disk_b"] > tol:
         why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} %")
+    ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
+    if own_ios > 0 and ios > 0 and (ios - own_ios) / ios > tol:      # мелкие чтения HDD: байт мало, поисков много
+        why.append(f"чужие чтения диска {(ios - own_ios) / ios * 100:.1f} % операций")
+    if d.get("forced_thaw"):
+        why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
 
 
@@ -141,7 +147,10 @@ class SystemdBackend:
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
         cpus = ",".join(map(str, j["cpus"]))
-        inner = f"{j['cmd']}\nrc=$?; echo $rc > {DIR}/rc/{j['id']}; exit $rc"
+        os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
+        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
+               f"> {DIR}/own/{j['id']} 2>/dev/null; ")
+        inner = f"{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
         if j["cls"] == "measure":
             self.arm_failsafe(j["max_runtime"] + 2 * TICK)
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", f"--working-directory={j['cwd']}",
@@ -172,26 +181,28 @@ class SystemdBackend:
         return (sum(map(int, f)) - int(f[3]) - int(f[4])) / os.sysconf("SC_CLK_TCK")
 
     def disk_host(self):
-        tot = 0
+        tot = n = 0
         for l in open("/proc/diskstats"):
             p = l.split()
             if len(p) > 5 and (p[2].startswith("sd") or p[2].startswith("nvme")) and not p[2][-1].isdigit():
                 tot += int(p[5]) * 512
-        return tot
+                n += int(p[3])
+        return tot, n
 
     def unit_cpu_io(self, j):
         u = self.unit(j)
         c = sh("systemctl", "show", "-p", "CPUUsageNSec", "--value", u).stdout.strip()
         cg = sh("systemctl", "show", "-p", "ControlGroup", "--value", u).stdout.strip()
-        rb = 0
+        rb = rn = 0
         try:
             if cg in ("", "/"):
                 raise OSError
             for l in open(f"/sys/fs/cgroup{cg}/io.stat"):
                 rb += sum(int(x.split("=")[1]) for x in l.split() if x.startswith("rbytes="))
+                rn += sum(int(x.split("=")[1]) for x in l.split() if x.startswith("rios="))
         except OSError:
             pass
-        return (int(c) / 1e9 if c.isdigit() else 0.0), rb
+        return (int(c) / 1e9 if c.isdigit() else 0.0), rb, rn
 
     def foreign_units(self, j):
         own = {self.unit(j) + ".service"}
@@ -199,13 +210,19 @@ class SystemdBackend:
                 and sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() != "frozen"]   # замороженный не мешает
 
     def win_begin(self, j):
-        return dict(t=time.time(), cpu=self.cpu_host(), disk=self.disk_host(), units=set(self.foreign_units(j)))
+        b, n = self.disk_host()
+        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)))
 
     def win_end(self, j, s0):
         t1 = time.time()
-        own_cpu, own_rb = self._last_own.get(j["id"], (0.0, 0))
+        own_cpu, own_rb, own_rn = self._last_own.get(j["id"], (0.0, 0, 0))
+        hb, hn = self.disk_host()
+        try:
+            forced = os.path.getmtime(f"{DIR}/forced-thaw") >= s0["t"]
+        except OSError:
+            forced = False
         d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
-                 disk_b=self.disk_host() - s0["disk"], own_disk_b=own_rb,
+                 disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
         ok, why = judge_window(d)
         os.makedirs(f"{DIR}/validity", exist_ok=True)
@@ -213,13 +230,31 @@ class SystemdBackend:
                   open(f"{DIR}/validity/{j['id']}.json", "w"), ensure_ascii=False)
         return dict(ok=ok, why=why)
 
+    def read_final(self, j):
+        try:
+            txt = open(f"{DIR}/own/{j['id']}").read()
+        except OSError:
+            return None
+        rb = rn = 0
+        for x in txt.split():
+            k, _, v = x.partition("=")
+            if k == "rbytes":
+                rb += int(v)
+            elif k == "rios":
+                rn += int(v)
+        m = re.search(r"usage_usec (\d+)", txt)
+        return (int(m.group(1)) / 1e6 if m else 0.0), rb, rn
+
     def done(self, j):
         p = f"{DIR}/rc/{j['id']}"
         if j["cls"] == "measure":      # юнит с --collect исчезает по выходу — снять ЦП/диск юнита, пока он жив
             try:
-                c, r = self.unit_cpu_io(j)
-                c0, r0 = self._last_own.get(j["id"], (0.0, 0))
-                self._last_own[j["id"]] = (max(c, c0), max(r, r0))
+                new = self.unit_cpu_io(j)
+                old = self._last_own.get(j["id"], (0.0, 0, 0))
+                self._last_own[j["id"]] = tuple(max(a, b) for a, b in zip(new, old))
+                fin = self.read_final(j)
+                if fin:
+                    self._last_own[j["id"]] = fin
             except Exception:
                 pass
         if os.path.exists(p):
@@ -316,9 +351,17 @@ def ps():
 def daemon():
     be = SystemdBackend()
     core = Core(be)
-    be.thaw_all()
     seen = {}
+    mw = [j for j in load_all() if j["state"] == "running" and j["cls"] == "measure"]
+    if mw:                       # перезапуск демона в окне замера: производство не размораживаем, окно недействительно
+        core.frozen = True
+        for j in mw:
+            j["valid"] = dict(ok=False, why=["демон перезапущен в окне замера"])
+            core.add(j)
+    else:
+        be.thaw_all()
     while True:
+        open(f"{DIR}/heartbeat", "w").write(str(time.time()))
         for j in load_all():
             if j["id"] not in core.jobs:
                 core.add(j)
@@ -352,10 +395,21 @@ def main():
                     sys.stdout.buffer.write(d)
                     sys.stdout.flush()
             if cur["state"] == "done":
-                v = cur.get("valid") or {}
-                if v and not v["ok"]:
+                v = cur.get("valid")
+                if not v:
+                    print("ВОЛНА НЕДЕЙСТВИТЕЛЬНА: окно не проверено", file=sys.stderr)
+                    return cur["rc"] or 3
+                if not v["ok"]:
                     print("ВОЛНА НЕДЕЙСТВИТЕЛЬНА: " + "; ".join(v["why"]), file=sys.stderr)
-                return cur["rc"] if not (v and not v["ok"]) else (cur["rc"] or 3)
+                    return cur["rc"] or 3
+                return cur["rc"]
+            try:
+                hb = os.path.getmtime(f"{DIR}/heartbeat")
+            except OSError:
+                hb = 0
+            if time.time() - max(hb, j["t_submit"]) > DEAD_S:
+                print(f"ВОЛНА НЕДЕЙСТВИТЕЛЬНА: демон планировщика молчит > {DEAD_S} с (окно {j['id']} не под контролем)", file=sys.stderr)
+                return 4
             time.sleep(1)
     if a[0] == "ps":
         return ps() or 0
@@ -363,7 +417,9 @@ def main():
         os.makedirs(f"{DIR}/cancel", exist_ok=True)
         open(f"{DIR}/cancel/{a[1]}", "w").close()
         return 0
-    if a[0] == "thaw":     # страховочный таймер аренды и ручная разморозка
+    if a[0] == "thaw":     # страховочный таймер аренды и ручная разморозка; метка делает идущее окно недействительным
+        os.makedirs(DIR, exist_ok=True)
+        open(f"{DIR}/forced-thaw", "w").write(str(time.time()))
         SystemdBackend().thaw_all()
         return 0
     if a[0] == "daemon":
