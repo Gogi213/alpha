@@ -84,7 +84,7 @@ def main():
     q = sp.add_parser("sql", help="SQL-запрос к базе (собирается, если нет)")
     q.add_argument("query")
     lc = sp.add_parser("load-cells", help="файл --cells -> cells.jsonl/run_cells.jsonl")
-    lc.add_argument("file"); lc.add_argument("--run", required=True); lc.add_argument("--hyp"); lc.add_argument("--logic", default="bounce-v1")
+    lc.add_argument("file"); lc.add_argument("--run", required=True); lc.add_argument("--hyp"); lc.add_argument("--logic", default="bounce-v1"); lc.add_argument("--cmd-file", help="текст команды/скрипта: опции и --set клеток")
     f = sp.add_parser("find", help="поиск по всем полям (подстрока, без регистра); несколько слов = И")
     f.add_argument("words", nargs="+")
     f.add_argument("--status")
@@ -104,12 +104,13 @@ def main():
         _, n = build(); print(f"{n} строк → {DB}")
     elif ns.cmd == "sql":
         c = sqlite3.connect(DB) if os.path.exists(DB) else build()[0]
-        cur = c.execute(ns.query)
-        print("	".join(d[0] for d in cur.description or []))
-        for r in cur:
-            print("	".join("" if v is None else str(v) for v in r))
+        for q in [x for x in ns.query.split(";") if x.strip()]:
+            cur = c.execute(q)
+            print("	".join(d[0] for d in cur.description or []))
+            for r in cur:
+                print("	".join("" if v is None else str(v) for v in r))
     elif ns.cmd == "load-cells":
-        print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic))
+        print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic, ns.cmd_file))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():

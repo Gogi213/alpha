@@ -83,8 +83,29 @@ def build(rows):
     return c
 
 
-def load_cells(path, run, hyp, logic):
-    """Файл `--cells` («<форма> <набор>» по строке) -> cells.jsonl + run_cells.jsonl, без дублей."""
+def parse_cmd(text):
+    """Из текста команды bounce-grid: глобальные опции и `--set имя:k=v,…` -> (глобальное, {набор: {k: v}})."""
+    g = {}
+    for k in ("queue-model", "h3-mode", "deadline-secs", "hold-step", "sigma-from", "exit-form", "median-rtt-ns",
+              "stop-form", "take-form", "entry-form", "side", "entry-ttl-secs"):
+        vals = re.findall(r"--" + k + r"[ =]+([^\s\\]+)", text)
+        if vals:
+            g[k] = vals[0] if len(vals) == 1 else vals
+    sets = {}
+    for name, body in re.findall(r"--set[ =]+['\"]?([^:\s'\"]+):([^\s'\"]*)", text):
+        sets[name] = {k: v for k, _, v in (x.partition("=") for x in body.split(",") if x)}
+    return g, sets
+
+
+def _pct_bps(form):
+    m = re.fullmatch(r"pct([\d.]+)", form) if isinstance(form, str) else None
+    return float(m.group(1)) * 100 if m else None
+
+
+def load_cells(path, run, hyp, logic, cmd_file=None):
+    """Файл `--cells` («<форма> <набор>» по строке) -> cells.jsonl + run_cells.jsonl, без дублей.
+    cmd_file — текст команды/скрипта: типизированные колонки и params берутся из его опций и `--set`."""
+    g, sets = parse_cmd(open(cmd_file, encoding="utf-8").read()) if cmd_file else ({}, {})
     have_c = {d["id"] for d in jl("cells.jsonl")}
     have_rc = {(d["run_id"], d["cell_id"]) for d in jl("run_cells.jsonl")}
     nc = nrc = 0
@@ -94,12 +115,20 @@ def load_cells(path, run, hyp, logic):
             p = ln.split()
             if len(p) != 2:
                 continue
-            cid = hashlib.sha256(json.dumps({"form": p[0], "set": p[1], "logic": logic}, sort_keys=True,
-                                            ensure_ascii=False).encode()).hexdigest()[:16]
+            one = lambda k: g.get(k) if isinstance(g.get(k), str) else None
+            cell = {"logic_version": logic, "form": p[0], "set_name": p[1],
+                    "stop_bps": _pct_bps(one("stop-form")), "take_bps": _pct_bps(one("take-form")),
+                    "deadline_s": _num(one("deadline-secs")), "wall_exit": one("exit-form"), "set_form": p[1],
+                    "latency_ms": (_num(one("median-rtt-ns")) or 0) / 1e6 or None, "queue": one("queue-model"),
+                    "h3_mode": one("h3-mode"), "sigma": _num(one("sigma-from")), "hold_step": one("hold-step"),
+                    "params": {"set": sets.get(p[1], {}), "cmd": {k: v for k, v in g.items() if k not in
+                               ("queue-model", "h3-mode", "deadline-secs", "hold-step", "sigma-from", "exit-form",
+                                "median-rtt-ns")}}}
+            cell = {k: v for k, v in cell.items() if v not in (None, {}, "")}
+            cid = hashlib.sha256(json.dumps(cell, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
             if cid not in have_c:
                 have_c.add(cid)
-                fc.write(json.dumps({"id": cid, "logic_version": logic, "form": p[0], "set_name": p[1]},
-                                    ensure_ascii=False) + "\n")
+                fc.write(json.dumps({"id": cid, **cell}, ensure_ascii=False) + "\n")
                 nc += 1
             if (run, cid) not in have_rc:
                 have_rc.add((run, cid))
