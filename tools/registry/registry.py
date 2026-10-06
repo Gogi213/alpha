@@ -3,12 +3,12 @@
 SQLite data/registry.sqlite собирается из него (`build`) для запросов. Команды: add | build | find | show | stats | import-auto."""
 import argparse, json, os, sqlite3, sys, datetime, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import db
+import db, enrich
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CANON = os.path.join(ROOT, "docs", "registry", "runs.jsonl")
 DB = db.DB
-STATUS = ("боевой", "проба", "недействителен", "неполно")
+STATUS = ("боевой", "замер", "производство", "проба", "недействителен", "неполно")
 FIELDS = [  # колонка -> смысл
     "id", "ts", "ticket", "protocol", "kind", "what", "hyp", "data_pool", "period", "coins", "gate", "epochs",
     "binary_md5", "commit", "flags", "machine", "wall_s", "cpu_s", "result_path", "outcome", "judge", "status",
@@ -99,6 +99,7 @@ def main():
     sp.add_parser("stats")
     lh = sp.add_parser("load-hdr", help="hdr-<прогон>.tsv (группа, шапка bounce-grid) -> latency/queue/h3 и params клеток")
     lh.add_argument("file"); lh.add_argument("--run", required=True)
+    sp.add_parser("enrich", help="автострокам: тикет из пути, класс в статус, период/пул из команды")
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
     ns = ap.parse_args()
@@ -127,6 +128,12 @@ def main():
         print("строк с $ и просадкой: %d" % db.load_usd(ns.dir, ns.run))
     elif ns.cmd == "load-hdr":
         print("клеток дополнено шапкой: %d" % db.load_hdr(ns.file, ns.run))
+    elif ns.cmd == "enrich":
+        rows = load(); n = sum(1 for r in rows if enrich.enrich_row(r))
+        with open(CANON, "w", encoding="utf-8", newline="\n") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        print("строк дополнено:", n)
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():
@@ -170,6 +177,7 @@ def main():
                 if m.get("git"): row["commit"] = m["git"]
                 bm = [b["md5"] for b in m.get("binaries", {}).values()]
                 if bm: row["binary_md5"] = ",".join(bm)
+            enrich.enrich_row(row)
             append(row)
             n += 1
         print(n, "строк добавлено")

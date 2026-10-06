@@ -29,15 +29,15 @@ JSON1 для расширения, один файл. Один источник 
 + `params`), `run_cells`, `results` (клетка×месяц), `verdicts`. `registry.py load-cells <файл --cells> --run ID --hyp Г-NN` — клетки прогона.
 Заполнены `runs` (538), `run_hypotheses`, `run_data`/`run_binaries`, `hypotheses` (148), `verdicts` (75), `cells` (243) и `results` (2 430 = 243 клетки × 10 месяцев) по полному счёту TK-040 (`R-20261006-s001`).
 Клетка TK-040 = форма + «группа/набор» (группа несёт параметры варианта). Результаты — `tools/registry/agg_tk040.py` на сервере (юнит, forms.csv → `<мес>.csv`)
-и `registry.py load-results <каталог> --run ID`; сделки = n_fills, Σnet bps в `results.ext` (pnl_usd/max_dd в forms.csv нет). Г-86 привязана к группе `p02-h9e899-market`.
-Не сделано: cells из манифестов `import-auto`, привязка остальных групп к Г-NN пула (в P-07 номера H локальные).
+и `registry.py load-results <каталог> --run ID`; сделки = n_fills, Σnet bps в `results.ext`; $ и просадка — `registry.py load-usd <каталог usd-*.csv> --run ID` (`pnl_usd`, `max_dd`; **max_dd — реализованная по моментам выхода, без потолка позиций и mark-to-market, не портфельная** — подпись в `results.ext.dd_note`); шапки bounce-grid группы → latency/queue/h3 и `params.hdr_*` клеток: `registry.py load-hdr <hdr.tsv> --run ID`; привязка групп к гипотезам — `bind-hyp` (B1 = p07b-base = Г-85б). Сумма $ по клеткам гипотезы — не итог гипотезы: клетки — варианты, не портфель.
+Не сделано: cells из `--cells`-файлов (оркестраторы строят список на лету); hold_step в шапках TK-040 не пишется. Автостроки (`import-auto`/`enrich`): тикет — из пути `/data/tkNNN`, статус по классу: **замер** (wave), **проба** (stand/gate/служебное), **производство**; период и пул — из дат команды и входа verdict.csv (v171b). Проверка Судьи — `runs.judge` + `verdicts.run_id` (есть для s001; остальные 75 вердиктов без привязки к прогону).
 6. Г-86 по месяцам: `select r.month,r.trades,json_extract(r.ext,'$.sum_net_bps') from run_cells rc join results r on r.cell_id=rc.cell_id and r.run_id=rc.run_id where rc.hyp_id='Г-86' order by r.month`
 
 Пять запросов (`registry.py sql "…"`):
 1. Где считали Г-NN и итог: `select r.id,r.ts,r.machine,r.status,r.outcome from runs r join run_hypotheses h on h.run_id=r.id where h.hyp_id='Г-85' order by r.ts`
 2. Прогоны на бинарнике X: `select r.id,r.ts,r.wall_s from runs r join run_binaries b on b.run_id=r.id where b.md5 like 'abcd%'`
 3. Конфиг прогона/клетки целиком: `select json_extract(config,'$.cmdline'),config from runs where id='R-…'`; клетки — `select c.* from run_cells rc join cells c on c.id=rc.cell_id where rc.run_id='R-…'`
-4. Что считано на пуле v171b за март: `select r.id,d.period from runs r join run_data d on d.run_id=r.id where d.pool like '%v171b%' and d.period like '%03%'`
+4. Что считано на пуле v171b за март: `select r.id,d.period_from,d.period_to from runs r join run_data d on d.run_id=r.id where d.pool='v171b' and d.period_from<='2026-03-31' and d.period_to>='2026-03-01'`
 5. Повторить прогон Z: `select cmdline, json_extract(config,'$.env'), json_extract(config,'$.files') from runs where id='Z'` (файлы по sha — `docs/registry/files/`)
 
 ## Автозапись

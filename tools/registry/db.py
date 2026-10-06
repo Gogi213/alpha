@@ -68,10 +68,10 @@ def build(rows):
             for k, v in inp.items():
                 if sub in k:
                     return v.get("sha256") if isinstance(v, dict) else v
-        if inp or any(r.get(k) for k in ("data_pool", "period", "coins", "gate", "epochs")):
-            c.execute("insert into run_data (run_id,pool,pool_sha,verdict_sha,epochs,period,coins) values (?,?,?,?,?,?,?)",
+        if inp or any(r.get(k) for k in ("data_pool", "period", "period_from", "coins", "gate", "epochs")):
+            c.execute("insert into run_data (run_id,pool,pool_sha,verdict_sha,epochs,period,coins,period_from,period_to) values (?,?,?,?,?,?,?,?,?)",
                       (r["id"], r.get("data_pool"), sha_of("pool"), sha_of("verdict") or r.get("gate"),
-                       r.get("epochs"), r.get("period"), r.get("coins")))
+                       r.get("epochs"), r.get("period"), r.get("coins"), r.get("period_from"), r.get("period_to")))
         mds = [m for m in str(r.get("binary_md5", "")).split(",") if m]
         for m in mds or ([None] if r.get("commit") or r.get("flags") else []):
             c.execute("insert into run_binaries values (?,?,?,?)", (r["id"], m, r.get("commit"), r.get("flags")))
@@ -219,6 +219,9 @@ def bind_hyp(run):
     return nb, nt
 
 
+DD_NOTE = "max_dd — реализованная просадка по моментам выхода (exit_ns), без потолка позиций и без mark-to-market; $ = qty·entry_vwap·net_bps/1e4 по rounds.csv; не портфельная"
+
+
 def load_usd(dirp, run):
     """usd-<мес>.csv (agg_tk040_usd.py) -> results.pnl_usd / max_dd (+ notional в ext)."""
     import csv, glob
@@ -234,6 +237,7 @@ def load_usd(dirp, run):
             d["pnl_usd"] = float(r["pnl_usd"]); d["max_dd"] = float(r["max_dd_usd"])
             d.setdefault("ext", {})["notional_usd"] = r["notional_usd"]
             d["ext"]["n_rounds"] = r["n_rounds"]
+            d["ext"]["dd_note"] = DD_NOTE
             n += 1
     _wjl("results.jsonl", res)
     return n
