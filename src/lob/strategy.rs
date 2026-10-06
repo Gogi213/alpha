@@ -432,10 +432,15 @@ pub enum TradePlan {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PyramidCfg {
     pub eat_parts: u8,
+    /// Г-87 (`pyfresh<N>`): вход — только `Q0/N`, остальное добавками `Q0/N` (а не `base/N`).
+    pub fresh: bool,
 }
 
 impl PyramidCfg {
-    pub const OFF: PyramidCfg = PyramidCfg { eat_parts: 0 };
+    pub const OFF: PyramidCfg = PyramidCfg {
+        eat_parts: 0,
+        fresh: false,
+    };
 }
 
 /// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
@@ -1712,7 +1717,11 @@ impl StrategyState {
         let id = self.take_order_id();
         self.add_ids[usize::from(self.adds_done)] = id;
         self.adds_done += 1;
-        let raw = self.add_base_qty / f64::from(parts);
+        let raw = if pyramid.fresh {
+            self.qty / f64::from(parts)
+        } else {
+            self.add_base_qty / f64::from(parts)
+        };
         let qty = if lot_qty > 0.0 {
             (raw / lot_qty).floor() * lot_qty
         } else {
@@ -2663,6 +2672,25 @@ where
 /// восстанавливает то же целое, что и было. `qty`, не кратный `lot_qty` (на
 /// входе этой функции не бывает), потерял бы остаток на округлении
 /// `total_steps` — не эта функция это создаёт, а не то, чем её кормят.
+/// Г-87: размер входа `Q0/N` (вниз до лота, не меньше лота); без `fresh` — `qty` как есть.
+fn fresh_entry_qty(plan: TradePlan, qty: f64) -> f64 {
+    match plan {
+        TradePlan::Bounce {
+            pyramid,
+            lot_qty,
+            ..
+        } if pyramid.fresh && pyramid.eat_parts > 0 => {
+            let raw = qty / f64::from(pyramid.eat_parts);
+            if lot_qty > 0.0 {
+                ((raw / lot_qty).floor() * lot_qty).max(lot_qty)
+            } else {
+                raw
+            }
+        }
+        _ => qty,
+    }
+}
+
 fn ladder_leg_qtys(qty: f64, lot_qty: f64, fracs: &[f64], legs: usize) -> [f64; MAX_ENTRY_LEGS] {
     let mut out = [0.0f64; MAX_ENTRY_LEGS];
     if legs == 0 {
@@ -2810,6 +2838,7 @@ where
     // числом ног не ограничен — сверх ёмкости считаем долю как раньше
     // (`qty / legs`), не по массиву.
     let rounded_legs = legs > 1 && usize::from(legs) <= MAX_ENTRY_LEGS;
+    let entry_qty = fresh_entry_qty(state.plan, state.qty);
     let leg_qtys = if rounded_legs {
         let leg_fracs: [f64; MAX_ENTRY_LEGS] = if ladder.n > 0 {
             ladder.frac
@@ -2821,7 +2850,7 @@ where
             }
             f
         };
-        ladder_leg_qtys(state.qty, lot_qty, &leg_fracs, usize::from(legs))
+        ladder_leg_qtys(entry_qty, lot_qty, &leg_fracs, usize::from(legs))
     } else {
         [0.0f64; MAX_ENTRY_LEGS]
     };
@@ -2862,11 +2891,11 @@ where
         } else if ladder.n > 0 {
             // Одна нога лестницы формы (`ladder.n == 1`) — как раньше,
             // `qty × frac[0]` (гейт «те же круги»).
-            state.qty * ladder.frac[j]
+            entry_qty * ladder.frac[j]
         } else {
             // Одна нога (`legs == 1`) или легаси `--grid-legs` сверх ёмкости
             // округления — как раньше, `qty / legs`.
-            state.qty / f64::from(legs)
+            entry_qty / f64::from(legs)
         };
         crate::lob::backtest::fast_depth::note_order_dist(
             false,

@@ -3031,7 +3031,10 @@ fn weat_mode_splits_market_and_local_by_btc_threshold() {
 fn pyr_plan(parts: u8) -> TradePlan {
     let mut plan = f7_plan(0.0, 0.0, 30.0);
     if let TradePlan::Bounce { pyramid, .. } = &mut plan {
-        *pyramid = PyramidCfg { eat_parts: parts };
+        *pyramid = PyramidCfg {
+            eat_parts: parts,
+            fresh: false,
+        };
     }
     plan
 }
@@ -3051,6 +3054,32 @@ fn pyr_state(parts: u8, eaten: f64) -> (Backtest<FastMarketDepth>, StrategyState
     state.level_qty_at_entry = 30.0;
     state.eaten_qty = eaten;
     (hbt, state)
+}
+
+#[test]
+fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
+    let mut plan = pyr_plan(3);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.fresh = true;
+        *lot_qty = 1.0;
+    }
+    assert!(close(fresh_entry_qty(plan, 10.0), 3.0), "10/3 вниз до лота");
+    assert!(close(fresh_entry_qty(plan, 2.0), 1.0), "не меньше лота");
+    let off = pyr_plan(3);
+    assert!(close(fresh_entry_qty(off, 10.0), 10.0), "без fresh — как есть");
+    let (mut hbt, mut state) = pyr_state(3, 11.0);
+    state.plan = plan;
+    state.entry_qty = 3.0;
+    state.entry_notional = 300.0;
+    state
+        .pyramid_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "Q0/N = 9/3, а не base/N = 1: {}", o.qty);
 }
 
 #[test]

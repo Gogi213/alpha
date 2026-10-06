@@ -338,7 +338,16 @@ pub(crate) fn bounce_plan(
             },
             pyramid: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
-                    crate::lob::strategy::PyramidCfg { eat_parts: parts }
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: false,
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
+                    crate::lob::strategy::PyramidCfg {
+                        eat_parts: parts,
+                        fresh: true,
+                    }
                 }
                 _ => crate::lob::strategy::PyramidCfg::OFF,
             },
