@@ -447,6 +447,10 @@ pub struct PyramidCfg {
     /// Г-114 (`halflevel`): половина закрывается по рынку при первой сделке ленты за `level_px` стены входа
     /// (лонг — ниже, шорт — выше); остаток без стопа `pct2`.
     pub half_level: bool,
+    /// Г-117 (`tsl<G>t<Q>`): тейк сползает к безубытку `take(t) = take − (take − floor)·min(1, (t/T)^γ)`,
+    /// `γ = sched_g10 / 10`, `T = sched_t4 / 4 · deadline`; `sched_g10 = 0` — выключено. Нужен `trail_bps = 0`.
+    pub sched_g10: u8,
+    pub sched_t4: u8,
     /// Г-119 (`conv<t>a<A>`): после ухода лучшей цены от `level_px` на `Dmax ≥ A` bps и возврата на
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
@@ -463,6 +467,8 @@ impl PyramidCfg {
         newwall_u3: 0,
         half_stop: false,
         half_level: false,
+        sched_g10: 0,
+        sched_t4: 0,
         converge_tol1: 0,
         converge_a_bps: 0,
     };
@@ -473,6 +479,7 @@ impl PyramidCfg {
             || self.newwall_k > 0
             || self.half_stop
             || self.half_level
+            || self.sched_g10 > 0
             || self.converge_tol1 > 0
     }
 }
@@ -2323,6 +2330,40 @@ struct Quotes {
 /// прилипание и дедлайн — последними. Вынесено из `on_event` (аудит 21.09,
 /// С2), чтобы порядок приоритетов был одной функцией и проверялся отдельно.
 ///
+/// Г-117: цена тейка в момент `t` от входа — линейно/степенью к безубытку (вход + круг комиссий, В-63),
+/// после `T` — пол; лонг округляется вверх до тика, шорт — вниз. Тейк не выше пола — без изменений.
+fn scheduled_take(
+    entry_side: HbtSide,
+    entry_px: f64,
+    take_px: f64,
+    tick_px: f64,
+    cfg: PyramidCfg,
+    t_ns: i64,
+    deadline_ns: i64,
+) -> f64 {
+    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+    let long = entry_side == HbtSide::Buy;
+    let floor = if long {
+        entry_px * (1.0 + fees)
+    } else {
+        entry_px * (1.0 - fees)
+    };
+    let horizon = deadline_ns as f64 * f64::from(cfg.sched_t4) / 4.0;
+    if entry_px <= 0.0
+        || tick_px <= 0.0
+        || horizon <= 0.0
+        || (take_px - floor) * (if long { 1.0 } else { -1.0 }) <= 0.0
+    {
+        return take_px;
+    }
+    let share = (t_ns.max(0) as f64 / horizon)
+        .powf(f64::from(cfg.sched_g10) / 10.0)
+        .min(1.0);
+    let px = take_px - (take_px - floor) * share;
+    let ticks = px / tick_px;
+    (if long { ticks.ceil() } else { ticks.floor() }) * tick_px
+}
+
 /// `maker_allowed = false` — лимитка выхода **уже стоит** в рынке
 /// (`ExitPending`, аудит 21.09 Б1): мейкерские причины (тейк 1:1, горизонт
 /// Decision 20) не рассматриваются — вторая лимитка на тот же остаток не
@@ -2387,6 +2428,20 @@ where
             // он ноль и числа прежних прогонов не меняются.
             let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
             let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
+            let take_px = match state.plan {
+                TradePlan::Bounce { pyramid, .. } if pyramid.sched_g10 > 0 && trail_bps <= 0.0 => {
+                    scheduled_take(
+                        entry_side,
+                        entry_px,
+                        take_px,
+                        tick_px,
+                        pyramid,
+                        now.saturating_sub(entry_ns),
+                        deadline_ns,
+                    )
+                }
+                _ => take_px,
+            };
             // Трейл-тейк (решение владельца 2026-09-13): следим за
             // лучшим исходом и выходим по рынку, когда цена откатилась
             // от него на `trail_bps`, но не раньше, чем прибыль дошла

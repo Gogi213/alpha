@@ -812,6 +812,45 @@ fn halflevel_closes_half_on_the_first_trade_below_the_level() {
     );
 }
 
+/// Г-117 `tsl`: тейк лонга ползёт от `take_px` к безубытку (вход + круг комиссий), до `T` — степенью `γ`, после `T` — пол;
+/// шорт зеркально; тейк ниже пола — без изменений.
+#[test]
+fn scheduled_take_slides_to_breakeven_and_mirrors_for_shorts() {
+    let mut cfg = PyramidCfg::OFF;
+    cfg.sched_g10 = 10;
+    cfg.sched_t4 = 2;
+    let fees = crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0;
+    let (entry, take, tick, dl) = (100.0, 101.0, 0.01, 1000 * S);
+    let at = |side, t| scheduled_take(side, entry, take, tick, cfg, t, dl);
+    assert!(close(at(HbtSide::Buy, 0), 101.0), "t = 0 — исходный тейк");
+    let floor = entry * (1.0 + fees);
+    assert!(
+        (at(HbtSide::Buy, 500 * S) - floor).abs() <= tick,
+        "t = T — пол"
+    );
+    assert!(
+        (at(HbtSide::Buy, 900 * S) - floor).abs() <= tick,
+        "после T — пол"
+    );
+    let mid = at(HbtSide::Buy, 250 * S);
+    assert!(
+        mid > floor && mid < 101.0 && mid >= (101.0 + floor) / 2.0 - tick,
+        "середина: {mid}"
+    );
+    let short = scheduled_take(HbtSide::Sell, entry, 99.0, tick, cfg, 500 * S, dl);
+    assert!(
+        (short - entry * (1.0 - fees)).abs() <= tick,
+        "шорт зеркально: {short}"
+    );
+    assert!(
+        close(
+            scheduled_take(HbtSide::Buy, entry, 100.0, tick, cfg, 0, dl),
+            100.0
+        ),
+        "тейк не выше пола"
+    );
+}
+
 fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
     let feed = [
         depth_at(0, true, 98.0, 5.0),

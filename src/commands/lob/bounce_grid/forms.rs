@@ -64,6 +64,8 @@ pub enum ExitForm {
     HalfStop,
     /// `halflevel` (TK-065, Г-114): половина по рынку при первой сделке за `level_px` стены входа, остаток без стопа.
     HalfLevel,
+    /// `tsl<G>t<Q>` (TK-065, Г-117): тейк сползает к безубытку; `γ = G/10`, `T = Q/4 · дедлайн`.
+    TakeSched { g10: u8, t4: u8 },
     /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
     Converge { tol: u8, a_bps: u32 },
 }
@@ -99,6 +101,7 @@ impl ExitForm {
             ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
             ExitForm::HalfStop => "halfstop".to_string(),
             ExitForm::HalfLevel => "halflevel".to_string(),
+            ExitForm::TakeSched { g10, t4 } => format!("tsl{g10}t{t4}"),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::WallEat {
                 pct,
@@ -234,6 +237,25 @@ impl ExitForm {
         }
         if spec == "halfstop" {
             return Ok(ExitForm::HalfStop);
+        }
+        if let Some(rest) = spec.strip_prefix("tsl") {
+            let bad = || {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается tsl<G>t<Q>, G ∈ [1, 99] (γ = G/10), Q ∈ [1, 4]")
+            };
+            let (g10, t4) = rest.split_once('t').ok_or_else(bad)?;
+            let g10: u8 = g10.parse().map_err(|_| bad())?;
+            let t4: u8 = t4.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=99).contains(&g10) && (1..=4).contains(&t4),
+                "tsl<G>t<Q>: G ∈ [1, 99], Q ∈ [1, 4]"
+            );
+            let form = ExitForm::TakeSched { g10, t4 };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
         }
         if spec == "halflevel" {
             return Ok(ExitForm::HalfLevel);

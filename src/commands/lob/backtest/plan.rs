@@ -377,6 +377,13 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
+                crate::commands::lob::bounce_grid::ExitForm::TakeSched { g10, t4 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        sched_g10: g10,
+                        sched_t4: t4,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
                 crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
                     crate::lob::strategy::PyramidCfg {
                         converge_tol1: tol + 1,
