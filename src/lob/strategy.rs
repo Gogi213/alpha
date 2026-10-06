@@ -1846,6 +1846,7 @@ impl StrategyState {
 
     /// Г-92: ведёт снятие/возврат стены на цене уровня (порог — `level_floor_qty` базы). Возврат —
     /// событие: счёт `N` и добавка; кадры не различаются (решение по состоянию книги на событии).
+    #[inline(never)]
     fn observe_reinstall(&mut self, wall: WallNow, floor: f64) {
         let TradePlan::Bounce { pyramid, .. } = self.plan else {
             return;
@@ -1867,6 +1868,7 @@ impl StrategyState {
     /// Г-93: убыточная позиция и на нашей стороне между стопом и лучшей ценой (строго) появился уровень
     /// размером ≥ `floor`, которого не было к первому событию удержания, — триггер добавки. Первое
     /// событие только снимает снимок известных стен. Каждая стена даёт триггер один раз.
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn observe_newwall<MD: MarketDepth>(
         &mut self,
@@ -1937,6 +1939,7 @@ impl StrategyState {
     }
 
     /// Г-92: безубыток после `N`-го возврата (мягкий: переезд, когда цена у безубытка или лучше).
+    #[inline(never)]
     fn reinstall_stop(
         &mut self,
         entry_side: HbtSide,
@@ -2332,6 +2335,7 @@ struct Quotes {
 ///
 /// Г-117: цена тейка в момент `t` от входа — линейно/степенью к безубытку (вход + круг комиссий, В-63),
 /// после `T` — пол; лонг округляется вверх до тика, шорт — вниз. Тейк не выше пола — без изменений.
+#[inline(never)]
 fn scheduled_take(
     entry_side: HbtSide,
     entry_px: f64,
@@ -2428,19 +2432,22 @@ where
             // он ноль и числа прежних прогонов не меняются.
             let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
             let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
-            let take_px = match state.plan {
-                TradePlan::Bounce { pyramid, .. } if pyramid.sched_g10 > 0 && trail_bps <= 0.0 => {
-                    scheduled_take(
-                        entry_side,
-                        entry_px,
-                        take_px,
-                        tick_px,
-                        pyramid,
-                        now.saturating_sub(entry_ns),
-                        deadline_ns,
-                    )
-                }
-                _ => take_px,
+            let pyr = match state.plan {
+                TradePlan::Bounce { pyramid, .. } => pyramid,
+                TradePlan::SpreadHold => PyramidCfg::OFF,
+            };
+            let take_px = if pyr.sched_g10 > 0 && trail_bps <= 0.0 {
+                scheduled_take(
+                    entry_side,
+                    entry_px,
+                    take_px,
+                    tick_px,
+                    pyr,
+                    now.saturating_sub(entry_ns),
+                    deadline_ns,
+                )
+            } else {
+                take_px
             };
             // Трейл-тейк (решение владельца 2026-09-13): следим за
             // лучшим исходом и выходим по рынку, когда цена откатилась
@@ -2454,17 +2461,21 @@ where
             };
             state.observe_favourable(favourable);
             let wall = state.observe_wall(bot.depth(state.asset_no), entry_side, level_px, tick_px);
-            state.observe_reinstall(wall, level_floor_qty);
-            state.observe_newwall(
-                bot.depth(state.asset_no),
-                entry_side,
-                stop_px,
-                level_px,
-                tick_px,
-                level_floor_qty,
-                bid,
-                ask,
-            );
+            if pyr.reinstall_n > 0 {
+                state.observe_reinstall(wall, level_floor_qty);
+            }
+            if pyr.newwall_k > 0 {
+                state.observe_newwall(
+                    bot.depth(state.asset_no),
+                    entry_side,
+                    stop_px,
+                    level_px,
+                    tick_px,
+                    level_floor_qty,
+                    bid,
+                    ask,
+                );
+            }
             // F7 (Б-75): формы выхода «съели» / «сняли». Накопленное
             // исполнение **в стену** (`state.eaten_qty`) зачитывает драйвер
             // (`run_round::observe_wall_trades`): буфер последних сделок
@@ -2509,7 +2520,9 @@ where
                 level_px,
             );
             let mut gone = gone;
-            gone.stop_px = state.reinstall_stop(entry_side, entry_px, favourable, gone.stop_px);
+            if pyr.reinstall_n > 0 {
+                gone.stop_px = state.reinstall_stop(entry_side, entry_px, favourable, gone.stop_px);
+            }
             let (stop_hit, take_hit) = match entry_side {
                 HbtSide::Buy => (bid <= gone.stop_px, bid >= take_px),
                 _ => (ask >= gone.stop_px, ask <= take_px),
@@ -2539,23 +2552,18 @@ where
             let eaten_all_hit = eaten_all_pct > 0.0 && wall.eaten_pct >= eaten_all_pct;
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
-            let half_stop =
-                matches!(state.plan, TradePlan::Bounce { pyramid, .. } if pyramid.half_stop);
-            let converge_hit = match state.plan {
-                TradePlan::Bounce { pyramid, .. }
-                    if pyramid.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 =>
-                {
-                    let dmax_bps =
-                        sigma_sign * (state.best_favourable - level_px) / level_px * 10_000.0;
-                    let back = sigma_sign * (favourable - level_px);
-                    dmax_bps >= f64::from(pyramid.converge_a_bps)
-                        && back <= f64::from(pyramid.converge_tol1 - 1) * tick_px
-                }
-                _ => false,
+            let half_stop = pyr.half_stop;
+            let converge_hit = if pyr.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 {
+                let dmax_bps =
+                    sigma_sign * (state.best_favourable - level_px) / level_px * 10_000.0;
+                let back = sigma_sign * (favourable - level_px);
+                dmax_bps >= f64::from(pyr.converge_a_bps)
+                    && back <= f64::from(pyr.converge_tol1 - 1) * tick_px
+            } else {
+                false
             };
             let plain_stop = gone.stop_px == stop_px;
-            let half_level =
-                matches!(state.plan, TradePlan::Bounce { pyramid, .. } if pyramid.half_level);
+            let half_level = pyr.half_level;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
             let level_half_hit = half_level
                 && !state.stop_half_done
