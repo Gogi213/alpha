@@ -237,3 +237,36 @@ def load_usd(dirp, run):
             n += 1
     _wjl("results.jsonl", res)
     return n
+
+
+def load_hdr(tsv, run):
+    """hdr-tk040.tsv (группа, TAB, шапка «# lob bounce-grid: …») -> типизированные latency_ms/queue/h3_mode клеток и params (шапка группы)."""
+    hd = {}
+    for ln in open(tsv, encoding="utf-8"):
+        if "\t" in ln:
+            g, h = ln.rstrip("\n").split("\t", 1)
+            hd[g] = h
+    def g1(h, k):
+        m = re.search(r"(?:^|\s)" + k + r"=(\S+)", h)
+        return m.group(1) if m else None
+    cells = jl("cells.jsonl")
+    n = 0
+    for c in cells:
+        p = c.get("params") or {}
+        h = hd.get(p.get("group"))
+        if not h:
+            continue
+        rtt = g1(h, "RTT") or ""
+        m = re.search(r"place=(\d+)", rtt)
+        if m:
+            c["latency_ms"] = int(m.group(1)) / 1e6
+        c["queue"] = g1(h, "queue"); c["h3_mode"] = g1(h, "h3")
+        p["rtt_ns"] = rtt.rstrip("нс")
+        for k in ("lot", "min_age_secs", "side", "ctx", "entry_ttl", "entry_post_only", "band_exit_bps", "signal", "min_flow_pct", "usd_min", "frontrun_only", "driver", "sigma_from"):
+            v = g1(h, k)
+            if v is not None:
+                p["hdr_" + k] = v
+        c["params"] = p
+        n += 1
+    _wjl("cells.jsonl", cells)
+    return n

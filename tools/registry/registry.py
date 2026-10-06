@@ -97,6 +97,8 @@ def main():
     f.add_argument("--full", action="store_true")
     s = sp.add_parser("show"); s.add_argument("id")
     sp.add_parser("stats")
+    lh = sp.add_parser("load-hdr", help="hdr-<прогон>.tsv (группа, шапка bounce-grid) -> latency/queue/h3 и params клеток")
+    lh.add_argument("file"); lh.add_argument("--run", required=True)
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
     ns = ap.parse_args()
@@ -123,6 +125,8 @@ def main():
         print("привязано гипотез %d, клеток типизировано %d" % db.bind_hyp(ns.run))
     elif ns.cmd == "load-usd":
         print("строк с $ и просадкой: %d" % db.load_usd(ns.dir, ns.run))
+    elif ns.cmd == "load-hdr":
+        print("клеток дополнено шапкой: %d" % db.load_hdr(ns.file, ns.run))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():
