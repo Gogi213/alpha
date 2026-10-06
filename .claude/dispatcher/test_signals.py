@@ -140,5 +140,37 @@ class SignalsTest(unittest.TestCase):
         self.assertIn("ceo", [x["recipient"] for x in b.stale()])
 
 
+class SshOnlyWhenBusDownTest(unittest.TestCase):
+    def setUp(self):
+        self._old = (D._LINK, dict(D._WAIT_CACHE), set(D._EVENT_VERIFIED))
+        D._WAIT_CACHE.clear()
+        D._LINK = SimpleNamespace(down_since=None, ceo_line=lambda *a: None)
+
+    def tearDown(self):
+        D._LINK = self._old[0]
+        D._WAIT_CACHE.clear(); D._WAIT_CACHE.update(self._old[1])
+
+    def test_bus_up_probes_only_new_condition(self):
+        key = ("calc", "path", "/data/x.done")
+        self.assertTrue(D._needs_probe(key), "новое условие: одна проверка и регистрация у сторожа")
+        D._WAIT_CACHE[key] = (1.0, False)
+        self.assertFalse(D._needs_probe(key), "шина жива: регулярного ssh-опроса нет")
+
+    def test_bus_down_short_no_ssh_long_ssh(self):
+        key = ("calc", "path", "/data/x.done")
+        D._WAIT_CACHE[key] = (1.0, False)
+        D._LINK.down_since = D.time.time() - 60
+        self.assertFalse(D._bus_down_long())
+        self.assertFalse(D._needs_probe(key))
+        D._LINK.down_since = D.time.time() - D.BUS_DOWN_SSH_S - 1
+        self.assertTrue(D._needs_probe(key), "шина лежит дольше порога: аварийный ssh-опрос")
+
+    def test_bus_disabled_keeps_old_polling(self):
+        key = ("calc", "path", "/data/x.done")
+        D._WAIT_CACHE[key] = (1.0, False)
+        D._LINK = None
+        self.assertTrue(D._needs_probe(key))
+
+
 if __name__ == "__main__":
     unittest.main()

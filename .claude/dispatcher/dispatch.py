@@ -355,12 +355,41 @@ def _drop_event(alias: str, what: str, arg: str) -> None:
         _EVENT_VERIFIED.discard(k)
 
 
+BUS_DOWN_SSH_S = float(os.environ.get("ALPHA_DISPATCH_BUS_DOWN_SSH_S", "600"))  # 2 интервала подстраховки: короткий обрыв сети не включает ssh
+_LINK = None  # Link шины; None — шина отключена (ALPHA_BUS_DISABLE) → ssh-опрос как раньше
+_SSH_ALERTED = False
+
+
+def _bus_down_long() -> bool:
+    """Аварийный путь (В-192): ssh-опрос ждущих условий — только когда шина недоступна дольше BUS_DOWN_SSH_S (или отключена)."""
+    if _LINK is None:
+        return True
+    since = _LINK.down_since
+    return since is not None and time.time() - since >= BUS_DOWN_SSH_S
+
+
+def _needs_probe(ckey) -> bool:
+    cached = _WAIT_CACHE.get(ckey)
+    if cached is None or _bus_down_long():
+        return True  # первая проверка нового условия (заодно регистрация пути у сторожа) либо аварийный путь
+    ev_ts = _event_ts(*ckey)  # событие остановки юнита — одна проверка, что это не прежний экземпляр с тем же именем
+    return (ckey[1] == "unit" and ev_ts is not None and cached[0] < ev_ts
+            and (ckey[0], "unit", _unit_base(ckey[2])) not in _EVENT_VERIFIED)
+
+
 def _wait_poller() -> None:
-    """Подстраховка: ssh-опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S в своём потоке, результат — в _WAIT_CACHE."""
+    """Штатно ssh не опрашивает: события шины (сторож машины) закрывают wait_for; здесь — первая проверка нового условия и
+    аварийный опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S, пока шина лежит дольше BUS_DOWN_SSH_S."""
+    global _SSH_ALERTED
     while True:
+        if _bus_down_long() and _LINK is not None and not _SSH_ALERTED:
+            _SSH_ALERTED = True
+            _LINK.ceo_line("bus-down-ssh", f"шина лежит дольше {int(BUS_DOWN_SSH_S)} с — включён аварийный ssh-опрос wait_for")
+        elif not _bus_down_long():
+            _SSH_ALERTED = False
         for ckey in list(_WAIT_WATCH):
-            if _event_met(*ckey) and ckey[1] != "unit":
-                continue  # юнит проверяем и при событии: новый запуск с тем же именем сбрасывает прежнее событие
+            if not _needs_probe(ckey):
+                continue
             try:
                 _host_probe(*ckey)
             except Exception as e:
@@ -1982,7 +2011,8 @@ def main(argv=None) -> int:
     print(f"[dispatch] v2 loop every {POLL_INTERVAL}s, MAX_PARALLEL={MAX_PARALLEL}, run timeout "
           f"{RUN_TIMEOUT / 60:.0f} min, CLAUDE_BIN={CLAUDE_BIN}")
     link = _start_bus_link()
-    global WAIT_ASYNC
+    global WAIT_ASYNC, _LINK
+    _LINK = link
     WAIT_ASYNC = True
     threading.Thread(target=_wait_poller, daemon=True, name="wait-poller").start()
     while True:

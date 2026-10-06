@@ -1,0 +1,14 @@
+[Unit]
+Description=alpha bus firewall: port 8788 only for owner PC and VPS (TK-074)
+After=network-pre.target
+Before=alpha-bus.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet alpha_bus
+ExecStart=/usr/sbin/nft -f /root/tk074/alpha-bus-fw.nft
+ExecStop=-/usr/sbin/nft delete table inet alpha_bus
+
+[Install]
+WantedBy=multi-user.target
