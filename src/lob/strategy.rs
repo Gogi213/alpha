@@ -1630,6 +1630,11 @@ impl StrategyState {
         self.qty
     }
 
+    /// R2-A: id поставленных добавок — драйвер круга зачитывает их исполнения во вход.
+    pub fn add_order_ids(&self) -> &[u64] {
+        &self.add_ids[..usize::from(self.adds_done)]
+    }
+
     /// R2-A: доливка включена — решение удержания читает добавки и сделки в стену, шаги не пропускаются.
     fn pyramid_on(&self) -> bool {
         matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eat_parts > 0)

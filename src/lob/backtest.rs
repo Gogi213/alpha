@@ -1774,6 +1774,21 @@ where
             entry_taker |= !o.maker;
         }
     }
+    // R2-A: добавки доливки — часть позиции; в среднюю равных весов (`entry_px`) не входят.
+    for &id in state.add_order_ids() {
+        let Some(o) = order_of(bot, asset_no, &saved, id) else {
+            continue;
+        };
+        if !matches!(o.status, Status::Rejected | Status::Expired) {
+            ordered += o.qty;
+        }
+        let exec = executed_qty(o);
+        if exec > 0.0 {
+            entry_qty += exec;
+            entry_notional += executed_notional(o);
+            entry_taker |= !o.maker;
+        }
+    }
     let entry_px = if entry_legs == 0 {
         None
     } else {
@@ -3549,6 +3564,9 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
         let mut parts: Vec<Vec<(usize, BounceSignal)>> = Vec::new();
         for &(k, sig) in members {
             if memos[k].contains(&sig, OrphanCarry::NONE) {
+                continue;
+            }
+            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eat_parts > 0) {
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));
