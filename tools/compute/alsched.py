@@ -109,8 +109,8 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     if d["foreign_units"]:
         why.append("посторонние юниты в окне: " + ",".join(sorted(d["foreign_units"])[:5]))
     cap = d["wall_s"] * ncpu
-    if cap > 0 and (d["cpu_s"] - d["own_cpu_s"]) / cap > tol:
-        why.append(f"чужое ЦП {(d['cpu_s'] - d['own_cpu_s']) / cap * 100:.1f} % ядер окна")
+    if cap > 0 and (d["cpu_s"] - d["own_cpu_s"] - d.get("daemon_cpu_s", 0.0)) / cap > tol:
+        why.append(f"чужое ЦП {(d['cpu_s'] - d['own_cpu_s'] - d.get('daemon_cpu_s', 0.0)) / cap * 100:.1f} % ядер окна")
     if d["own_disk_b"] > 0 and d["disk_b"] > 0 and (d["disk_b"] - d["own_disk_b"]) / d["disk_b"] > tol:
         why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} %")
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
@@ -218,9 +218,13 @@ class SystemdBackend:
         return [u for u in self.units(FREEZE_PAT) if u not in own and not u.startswith("alpha-")
                 and sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() != "frozen"]   # замороженный не мешает
 
+    def daemon_cpu(self):
+        t = os.times()          # сам демон и его systemctl/sh: не помеха замеру
+        return t[0] + t[1] + t[2] + t[3]
+
     def win_begin(self, j):
         b, n = self.disk_host()
-        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)))
+        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu())
 
     def win_end(self, j, s0):
         t1 = time.time()
@@ -231,7 +235,7 @@ class SystemdBackend:
         except OSError:
             forced = False
         d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
-                 disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
+                 daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
         ok, why = judge_window(d)
         os.makedirs(f"{DIR}/validity", exist_ok=True)
