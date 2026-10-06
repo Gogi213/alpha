@@ -27,8 +27,11 @@ JSON1 для расширения, один файл. Один источник 
 Таблицы: `hypotheses`, `runs` (+`config` JSON манифеста), `run_hypotheses`, `run_data` (пул/verdict sha, эпохи, период, монеты),
 `run_binaries` (md5/коммит/флаги), `cells` (типизированные вход/стоп/тейк/дедлайн/выход по стене/форма/задержка/очередь/h3/σ/hold-step
 + `params`), `run_cells`, `results` (клетка×месяц), `verdicts`. `registry.py load-cells <файл --cells> --run ID --hyp Г-NN` — клетки прогона.
-Пока заполнены `runs` (538), `run_hypotheses` (из текста), `run_data`/`run_binaries` (где есть); `cells`/`results`/`verdicts` — загрузчики
-по выходам bounce-grid и reviews/ ещё не написаны (канон-файлов нет).
+Заполнены `runs` (538), `run_hypotheses`, `run_data`/`run_binaries`, `hypotheses` (148), `verdicts` (75), `cells` (243) и `results` (2 430 = 243 клетки × 10 месяцев) по полному счёту TK-040 (`R-20261006-s001`).
+Клетка TK-040 = форма + «группа/набор» (группа несёт параметры варианта). Результаты — `tools/registry/agg_tk040.py` на сервере (юнит, forms.csv → `<мес>.csv`)
+и `registry.py load-results <каталог> --run ID`; сделки = n_fills, Σnet bps в `results.ext` (pnl_usd/max_dd в forms.csv нет). Г-86 привязана к группе `p02-h9e899-market`.
+Не сделано: cells из манифестов `import-auto`, привязка остальных групп к Г-NN пула (в P-07 номера H локальные).
+6. Г-86 по месяцам: `select r.month,r.trades,json_extract(r.ext,'$.sum_net_bps') from run_cells rc join results r on r.cell_id=rc.cell_id and r.run_id=rc.run_id where rc.hyp_id='Г-86' order by r.month`
 
 Пять запросов (`registry.py sql "…"`):
 1. Где считали Г-NN и итог: `select r.id,r.ts,r.machine,r.status,r.outcome from runs r join run_hypotheses h on h.run_id=r.id where h.hyp_id='Г-85' order by r.ts`
