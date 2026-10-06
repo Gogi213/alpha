@@ -388,6 +388,8 @@ class SystemdBackend:
             except Exception:
                 pass
         if os.path.exists(p):
+            if j["cls"] == "measure" and self.now() - j["t_start"] >= MIN_WALL_S:
+                open(f"{DIR}/first_real_wave", "a").write(j["id"] + "\n")     #метка для wait_for: настоящая волна под демоном кончилась
             return int(open(p).read().strip() or 0)
         if sh("systemctl", "is-active", self.unit(j)).stdout.strip() not in ("active", "activating"):
             return 143
