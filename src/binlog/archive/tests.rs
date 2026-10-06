@@ -450,7 +450,7 @@ fn columnar_container_round_trips_frames_byte_for_byte() {
     }
 }
 
-/// Обрезанное тело колоночного контейнера — ошибка, а не молчаливый хвост.
+/// Обрезанное тело колоночного контейнера — ошибка при первом чтении кадра (сборка отложена), а не молчаливый хвост.
 #[test]
 fn columnar_container_truncated_body_is_refused() {
     let plain = plain_file(&sample_frames());
@@ -460,5 +460,6 @@ fn columnar_container_truncated_body_is_refused() {
     let mut inner = zstd::stream::decode_all(&packed[..]).unwrap();
     inner.truncate(inner.len() - 3);
     let junk = zstd::stream::encode_all(&inner[..], 1).unwrap();
-    assert!(Reader::open(&junk[..]).is_err());
+    let mut r = Reader::open(&junk[..]).unwrap();
+    assert!(r.read_frame().is_err());
 }

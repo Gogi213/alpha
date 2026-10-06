@@ -1518,16 +1518,20 @@ enum Body<R: Read> {
     /// `Chain` — потому что первые байты (магия zstd) already прочитаны при
     /// опознании формата, а декодер обязан увидеть поток с самого начала:
     /// zstd читает свой заголовок именно там.
-    Archive(
-        zstd::stream::read::Decoder<
-            'static,
-            io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
-        >,
-    ),
+    Archive(ArchiveDecoder<R>),
+    /// Колоночный контейнер (версия 2), заголовок прочитан, колонки ещё нет:
+    /// сборка тел кадров идёт при первом чтении кадра, а не при `open` —
+    /// счёт открывает файл ради одного заголовка (шаг сетки) несколько раз.
+    ColumnarLazy(ArchiveDecoder<R>),
     /// Колоночный контейнер (версия 2): тела кадров уже собраны в память как
     /// поток `[u32 длина | тело]*` — для `read_body` это тот же контейнер.
     Mem(io::Cursor<Vec<u8>>),
 }
+
+type ArchiveDecoder<R> = zstd::stream::read::Decoder<
+    'static,
+    io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
+>;
 
 impl<R: Read> Body<R> {
     /// То же `read_upto`, что и у обычного файла, но по телу: у контейнера
@@ -1537,7 +1541,28 @@ impl<R: Read> Body<R> {
             Self::Plain(inner) => read_upto(inner, buf),
             Self::Archive(decoder) => read_upto(decoder, buf),
             Self::Mem(cursor) => read_upto(cursor, buf),
+            Self::ColumnarLazy(_) => {
+                self.materialize()?;
+                self.read_upto(buf)
+            }
         }
+    }
+
+    fn materialize(&mut self) -> io::Result<()> {
+        let Self::ColumnarLazy(decoder) = std::mem::replace(self, Self::Mem(io::Cursor::default()))
+        else {
+            unreachable!("собирается только отложенный колоночный контейнер")
+        };
+        let invalid = |m: String| io::Error::new(io::ErrorKind::InvalidData, m);
+        let mut blob = Vec::new();
+        let limit = HARD_PAYLOAD_CEILING as u64 + 1;
+        io::Read::read_to_end(&mut io::Read::take(decoder, limit), &mut blob)?;
+        if blob.len() as u64 >= limit {
+            return Err(invalid("колоночный контейнер больше потолка суток".into()));
+        }
+        let stream = archive::columnar_to_stream(&blob).map_err(|e| invalid(format!("{e:?}")))?;
+        *self = Self::Mem(io::Cursor::new(stream));
+        Ok(())
     }
 }
 
@@ -1700,15 +1725,7 @@ impl<R: Read> Reader<R> {
             let Body::Archive(decoder) = body else {
                 unreachable!("контейнер открывается только через Body::Archive")
             };
-            let mut blob = Vec::new();
-            let limit = HARD_PAYLOAD_CEILING as u64 + 1;
-            io::Read::read_to_end(&mut io::Read::take(decoder, limit), &mut blob)?;
-            if blob.len() as u64 >= limit {
-                return Err(BinlogError::Corrupt(
-                    "колоночный контейнер больше потолка суток".into(),
-                ));
-            }
-            Body::Mem(io::Cursor::new(archive::columnar_to_stream(&blob)?))
+            Body::ColumnarLazy(decoder)
         } else {
             body
         };
@@ -1816,7 +1833,7 @@ impl<R: Read> Reader<R> {
         // настоящий кадр этого писателя в него гарантированно укладывается),
         // сравнивается с длиной сразу, до единого байта чтения тела.
         let len_ceiling = match self.inner {
-            Body::Archive(_) | Body::Mem(_) => {
+            Body::Archive(_) | Body::ColumnarLazy(_) | Body::Mem(_) => {
                 max_frame_record_bytes(self.header.max_records_per_frame)
             }
             Body::Plain(_) => max_frame_bytes_on_disk(self.header.max_records_per_frame as usize),
@@ -1869,7 +1886,10 @@ impl<R: Read> Reader<R> {
         }
         self.frames_read += 1;
 
-        if matches!(self.inner, Body::Archive(_) | Body::Mem(_)) {
+        if matches!(
+            self.inner,
+            Body::Archive(_) | Body::ColumnarLazy(_) | Body::Mem(_)
+        ) {
             // Тело контейнера лежит несжатым: это и есть тело кадра v3.
             // Потолок уже проверен выше, до чтения (`len_ceiling`) — `stored.
             // len() == len` (цикл выше не выходит иначе) не может превысить
