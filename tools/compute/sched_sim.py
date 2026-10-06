@@ -88,10 +88,15 @@ def run():
     bad_unit = dict(good, foreign_units={"tk064-pool-chain.service"})
     bad_ios = dict(good, disk_b=1.001e9, ios=9000)       # байт +0,1 %, операций +11 %: поиски HDD
     bad_thaw = dict(good, forced_thaw=True)
+    BG = 0.75
+    bg_only = dict(good, wall_s=60, cpu_s=960, own_cpu_s=958, ios=300 + int(BG * 60), own_ios=300, disk_b=1e9 + 180000)     # тёплая: фон без чужих
+    bg_plus = dict(bg_only, ios=bg_only["ios"] + 20)                                              # фон + чужие 4К (≈ 5 % операций)
     chk = [S.judge_window(good)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
            not S.judge_window(bad_unit)[0],
-           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0]]
-    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка):", chk)
+           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0],
+           S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],
+           not S.judge_window(bg_only, bg_ops_s=0.0)[0]]
+    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет):", chk)
     kb = SimBE(); kc = S.Core(kb, ncpu=NCPU, mem=56)
     kc.add(job("long", "long", "prod", 2, 2, "none", 10 * H, 0, mr=1800)); kc.add(job("w", "wave", "measure", NCPU, 1, "none", 600, 0, mr=300))
     for _ in range(600):

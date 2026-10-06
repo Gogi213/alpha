@@ -94,7 +94,12 @@ class Core:
         return self.ncpu - sum(len(j["cpus"]) for j in self.running("prod")) - math.ceil(self.be.legacy_busy())
 
 
-def judge_window(d, ncpu=NCPU, tol=0.01):
+# Фон чужих операций чтения диска хоста (оп/с, sda+sdb), верхняя 95 % граница Пуассона по холостому окну 5 мин
+# (замер tk071-bg: validity — см. тикет TK-071); пересчитывать при calibrate.sh. До замера 0 (= без вычета).
+BG_OPS_S = 0.0
+
+
+def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     """d: cpu_s (занято на хосте за окно), own_cpu_s (юнит замера), wall_s, foreign_units (посторонние активные юниты в окне),
     disk_b (прочитано с дисков хоста), own_disk_b (читал юнит замера). Помеха = чужое ЦП / (стена × ядра) и чужое чтение
     диска / всё чтение окна и по числу операций чтения (только если замер сам читает диск); замороженные юниты не в счёт; допуск tol = 1 % (гейт TK-071). → (годна, причины)."""
@@ -107,8 +112,10 @@ def judge_window(d, ncpu=NCPU, tol=0.01):
     if d["own_disk_b"] > 0 and d["disk_b"] > 0 and (d["disk_b"] - d["own_disk_b"]) / d["disk_b"] > tol:
         why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} %")
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
-    if own_ios > 0 and ios > 0 and (ios - own_ios) / ios > tol:      # мелкие чтения HDD: байт мало, поисков много
-        why.append(f"чужие чтения диска {(ios - own_ios) / ios * 100:.1f} % операций")
+    bg = (BG_OPS_S if bg_ops_s is None else bg_ops_s) * d["wall_s"]
+    extra = ios - own_ios - bg                                         # чужие операции сверх фона
+    if own_ios > 0 and ios > 0 and extra / ios > tol:                  # мелкие чтения HDD: байт мало, поисков много
+        why.append(f"чужие чтения диска {extra / ios * 100:.1f} % операций сверх фона")
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
@@ -186,7 +193,7 @@ class SystemdBackend:
             p = l.split()
             if len(p) > 5 and (p[2].startswith("sd") or p[2].startswith("nvme")) and not p[2][-1].isdigit():
                 tot += int(p[5]) * 512
-                n += int(p[3])
+                n += int(p[3]) + int(p[4])   # завершённые + слитые: как rios у cgroup (счёт bio до слияния)
         return tot, n
 
     def unit_cpu_io(self, j):

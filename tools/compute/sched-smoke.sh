@@ -35,6 +35,13 @@ say "T1d диск, один: rc=$R5 validity=$(ls -t validity/*.json | head -1 |
 python3 $A wave --max-runtime 120s dd if=$D of=/dev/null bs=1M count=1024 skip=300000 iflag=direct >wave6.out 2>&1 & W6=$!
 sleep 2; systemd-run -q --unit smk-reader --collect dd if=$D of=/dev/null bs=4k count=1000 skip=50000000 iflag=direct
 wait $W6; R6=$?; say "T1e чужие мелкие чтения: rc=$R6 (ждём 3) вывод: $(grep НЕДЕЙСТВ wave6.out | head -c 300) validity=$(ls -t validity/*.json | head -1 | xargs cut -c1-330)"; systemctl stop smk-reader.service 2>/dev/null
+python3 $A wave --max-runtime 120s dd if=$D of=/dev/null bs=1M count=1024 skip=400000 >wave8.out 2>&1; R8=$?
+say "T1d-буф диск через кэш страниц, один: rc=$R8 (ждём 0) validity=$(ls -t validity/*.json | head -1 | xargs cut -c1-330)"
+python3 $A wave --max-runtime 120s dd if=$D of=/dev/null bs=1M count=1024 skip=500000 >wave9.out 2>&1 & W9=$!
+sleep 2; systemd-run -q --unit smk-reader --collect dd if=$D of=/dev/null bs=4k count=1000 skip=60000000 iflag=direct
+wait $W9; R9=$?; say "T1e-буф чужие мелкие чтения: rc=$R9 (ждём 3) вывод: $(grep НЕДЕЙСТВ wave9.out | head -c 300) validity=$(ls -t validity/*.json | head -1 | xargs cut -c1-330)"; systemctl stop smk-reader.service 2>/dev/null
+python3 $A wave --max-runtime 120s bash -c "dd if=$D of=/dev/null bs=1M count=50 skip=700000; sleep 55" >wave10.out 2>&1; R10=$?
+say "T1f тёплая (60 с, ~50 МБ с диска): rc=$R10 (ждём 0) validity=$(ls -t validity/*.json | head -1 | xargs cut -c1-330)"
 python3 $A wave --max-runtime 20s sleep 100 >wave3.out 2>&1 & WP=$!
 sleep 6
 say "T3 замер идёт: victim freezer=$(fz $U); failsafe timer=$(systemctl is-active alpha-sm-failsafe.timer)"
@@ -47,6 +54,7 @@ python3 $A daemon >daemon2.log 2>&1 & DPID=$!
 sleep 3
 python3 $A wave --max-runtime 60s sleep 14 >wave7.out 2>&1 & W7=$!
 sleep 6; kill -9 $DPID; python3 $A daemon >daemon3.log 2>&1 & DPID=$!
+sleep 3; say "T4 victim freezer внутри окна после перезапуска демона: $(fz $U) (ждём frozen)"
 wait $W7; say "T4 перезапуск демона в окне: rc=$? (ждём 3) вывод: $(tr '
 ' '|' <wave7.out | head -c 300) victim freezer=$(fz $U)"
 kill $DPID 2>/dev/null
