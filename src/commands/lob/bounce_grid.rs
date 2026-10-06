@@ -1240,6 +1240,12 @@ impl<'a> GridRun<'a> {
                         g(&ATTEMPT_ROWS)
                     );
                     eprintln!(
+                        "bounce-grid:   наибольший горизонт развёртки круга (с, нарастающим итогом процесса): {:.1}",
+                        crate::lob::backtest::MAX_SPAN_NS.load(std::sync::atomic::Ordering::Relaxed)
+                            as f64
+                            / 1e9
+                    );
+                    eprintln!(
                         "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
                         g(&crate::lob::backtest::STEP_KINDS)
                     );

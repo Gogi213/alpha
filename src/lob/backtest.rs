@@ -2892,6 +2892,9 @@ pub static ATTEMPT_RUNS: [std::sync::atomic::AtomicU64; 4] =
 pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
+/// Наибольший горизонт развёртки круга от `t0`, нс, за процесс (`i64::MAX` — переполнение сдвига) — выбор `H_max` хранилища окон (TK-049).
+pub static MAX_SPAN_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
@@ -3628,6 +3631,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                             .unwrap_or(i64::MAX),
                     };
                     let until = sig.t0_ns.saturating_add(span);
+                    MAX_SPAN_NS.fetch_max(span as u64, std::sync::atomic::Ordering::Relaxed);
                     let end = events.expand_until(start, until, &mut buf);
                     (&buf[..], end >= events.len())
                 }
