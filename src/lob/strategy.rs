@@ -727,7 +727,18 @@ pub struct StrategyState {
     /// TK-014 `weat*`: кольцо секундных корзин ёмкостью `W`; выделяется при постановке плана и
     /// только у формы `weat*` (иначе `None` — прежний путь).
     wall_ring: Option<Box<[WallBucket]>>,
+    /// R2-A (TK-065): id поставленных добавок (по порядку), их число `adds_done` считается при постановке.
+    add_ids: [u64; MAX_ADDS],
+    adds_done: u8,
+    /// Позиция и стоимость базового входа в момент первой добавки; `Q0` — размер базы.
+    add_base_qty: f64,
+    add_base_notional: f64,
+    /// Выход отправлен: добавки сняты и больше не ставятся.
+    adds_released: bool,
 }
+
+/// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
+pub const MAX_ADDS: usize = 9;
 
 /// Чьи ноги стали сиротами (F8c, К1): исполнение ноги **входа** — лишняя
 /// позиция, её гасят по рынку; исполнение ноги **выхода** — наш же выход, его
@@ -842,6 +853,11 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
+            add_ids: [0; MAX_ADDS],
+            adds_done: 0,
+            add_base_qty: 0.0,
+            add_base_notional: 0.0,
+            adds_released: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
             orphan_fills: 0,
@@ -1198,6 +1214,8 @@ impl StrategyState {
     fn enter_holding(&mut self, now: i64) {
         self.partial_done = false;
         self.eaten_qty = 0.0;
+        self.adds_done = 0;
+        self.adds_released = false;
         let (level_qty, level_qty_max) = match self.plan {
             TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
             TradePlan::SpreadHold => (0.0, 0.0),
@@ -1225,6 +1243,7 @@ impl StrategyState {
             tick_px,
             exit_eat_pct,
             exit_gone_pct,
+            pyramid,
             ..
         } = self.plan
         else {
@@ -1235,7 +1254,7 @@ impl StrategyState {
         }
         // `gone<W>` тоже читает накопленное (сравнение с половиной падения),
         // поэтому счётчик ведётся при любой из двух форм.
-        if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 {
+        if exit_eat_pct <= 0.0 && exit_gone_pct <= 0.0 && pyramid.eat_parts == 0 {
             return;
         }
         if tick_px <= 0.0 || level_px <= 0.0 {
@@ -1500,7 +1519,7 @@ impl StrategyState {
             return None;
         };
         // TK-014 `weat*`: окно съедания и ход BTC меняются со временем без событий — шаги не пропускаются.
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
             return None;
         }
         let deadline = entry_ns.saturating_add(deadline_ns);
@@ -1529,7 +1548,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
             return None;
         }
         let (bid, ask) = (depth.best_bid_tick(), depth.best_ask_tick());
@@ -1581,7 +1600,7 @@ impl StrategyState {
         else {
             return None;
         };
-        if self.has_orphans() || self.wall_ring.is_some() {
+        if self.has_orphans() || self.wall_ring.is_some() || self.pyramid_on() {
             return None;
         }
         let held = |entry_ns: i64| {
@@ -1611,10 +1630,119 @@ impl StrategyState {
         self.qty
     }
 
+    /// R2-A: доливка включена — решение удержания читает добавки и сделки в стену, шаги не пропускаются.
+    fn pyramid_on(&self) -> bool {
+        matches!(self.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eat_parts > 0)
+    }
+
     fn take_order_id(&mut self) -> u64 {
         let id = self.next_order_id;
         self.next_order_id = self.next_order_id.saturating_add(1);
         id
+    }
+
+    /// R2-A: зачесть исполнение добавок в позицию плана (`entry_*` = база + добавки).
+    fn pyramid_account<MD, B>(&mut self, bot: &B)
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if self.adds_done == 0 {
+            return;
+        }
+        let mut qty = self.add_base_qty;
+        let mut notional = self.add_base_notional;
+        for id in &self.add_ids[..usize::from(self.adds_done)] {
+            let Some(order) = bot.orders(self.asset_no).get(id) else {
+                continue;
+            };
+            let executed = executed_qty(order);
+            if executed > 0.0 {
+                qty += executed;
+                notional += executed_notional(order);
+            }
+        }
+        self.entry_qty = qty;
+        self.entry_notional = notional;
+    }
+
+    /// R2-A, Г-94: на съедании `j/N` стены (`j = 1..N−1`) — добавка `Q0/N` пост-онли лимитом по
+    /// лучшей цене нашей стороны; стена съедена целиком — добавки нет; не больше одной за вызов.
+    fn pyramid_step<MD, B>(&mut self, bot: &mut B, bid: f64, ask: f64, side: HbtSide) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        let TradePlan::Bounce {
+            pyramid,
+            lot_qty,
+            post_only,
+            ..
+        } = self.plan
+        else {
+            return Ok(());
+        };
+        let parts = pyramid.eat_parts;
+        if parts == 0 || self.adds_released || self.exit_qty > 0.0 || self.partial_done {
+            return Ok(());
+        }
+        let j = self.adds_done + 1;
+        if j >= parts || usize::from(self.adds_done) >= MAX_ADDS || self.level_qty_at_entry <= 0.0 {
+            return Ok(());
+        }
+        let wall = self.level_qty_at_entry;
+        if self.eaten_qty < wall * f64::from(j) / f64::from(parts) || self.eaten_qty >= wall {
+            return Ok(());
+        }
+        if self.adds_done == 0 {
+            self.add_base_qty = self.entry_qty;
+            self.add_base_notional = self.entry_notional;
+        }
+        let id = self.take_order_id();
+        self.add_ids[usize::from(self.adds_done)] = id;
+        self.adds_done += 1;
+        let raw = self.add_base_qty / f64::from(parts);
+        let qty = if lot_qty > 0.0 {
+            (raw / lot_qty).floor() * lot_qty
+        } else {
+            raw
+        };
+        if qty <= 0.0 {
+            return Ok(());
+        }
+        let tif = if post_only {
+            TimeInForce::GTX
+        } else {
+            TimeInForce::GTC
+        };
+        match side {
+            HbtSide::Buy => {
+                bot.submit_buy_order(self.asset_no, id, bid, qty, tif, OrdType::Limit, true)?;
+            }
+            _ => {
+                bot.submit_sell_order(self.asset_no, id, ask, qty, tif, OrdType::Limit, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// R2-A: выход отправлен — добавки снимаются, поздние исполнения гасятся как сироты входа.
+    fn pyramid_release<MD, B>(&mut self, bot: &mut B) -> Result<(), B::Error>
+    where
+        MD: MarketDepth,
+        B: Bot<MD>,
+    {
+        if self.adds_released || self.adds_done == 0 {
+            return Ok(());
+        }
+        self.adds_released = true;
+        for i in 0..usize::from(self.adds_done) {
+            let id = self.add_ids[i];
+            self.cancel_open(bot, id)?;
+            let executed = bot.orders(self.asset_no).get(&id).map_or(0.0, executed_qty);
+            self.adopt_orphans(id, 1, OrphanKind::Entry, executed);
+        }
+        Ok(())
     }
 
     /// Снимает живые ноги лестницы: исполненные и уже снятые трогать нельзя —
@@ -2236,9 +2364,16 @@ where
         ask,
         entry_side,
     };
+    state.pyramid_account(bot);
     match decide_exit(bot, state, entry_ns, now, quotes, true) {
-        Some(decision) => submit_exit(bot, state, entry_ns, exit_side, decision),
-        None => Ok(Action::Idle),
+        Some(decision) => {
+            state.pyramid_release(bot)?;
+            submit_exit(bot, state, entry_ns, exit_side, decision)
+        }
+        None => {
+            state.pyramid_step(bot, bid, ask, entry_side)?;
+            Ok(Action::Idle)
+        }
     }
 }
 
