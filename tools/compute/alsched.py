@@ -36,6 +36,11 @@ def prod_mem_budget_gb():
     return max(0, int(total - math.ceil(p)))
 
 
+def peak_counts(wall_s, gb, prev_gb):
+    """Пик памяти волны идёт в бюджет производства только с настоящей волны (окно ≥ MIN_WALL_S), иначе проба sleep 20 занизит пик и раздует бюджет."""
+    return wall_s >= MIN_WALL_S and gb > prev_gb
+
+
 class Core:
     """Решения без побочных эффектов: be — бэкенд (systemd или макет)."""
 
@@ -169,6 +174,7 @@ class SystemdBackend:
         self._t = time.time()
         self._legacy = 0.0
         self._last_own = {}
+        self._peak = {}
 
     def now(self):
         return time.time()
@@ -361,8 +367,9 @@ class SystemdBackend:
             return
         st = dict(l.split() for l in open(f"/sys/fs/cgroup{cg}/memory.stat"))
         gb = (int(st["anon"]) + int(st.get("shmem", 0))) / 2**30
-        if gb > mem_peak_gb():
-            open(f"{DIR}/wave_mem_peak_gb", "w").write(f"{gb:.2f}")
+        self._peak[j["id"]] = max(gb, self._peak.get(j["id"], 0.0))
+        if peak_counts(self.now() - j["t_start"], self._peak[j["id"]], mem_peak_gb()):     # пробы короче MIN_WALL_S пик не пишут
+            open(f"{DIR}/wave_mem_peak_gb", "w").write(f"{self._peak[j['id']]:.2f}")
 
     def done(self, j):
         p = f"{DIR}/rc/{j['id']}"

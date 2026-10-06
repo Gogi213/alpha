@@ -89,16 +89,17 @@ def run():
     bad_ios = dict(good, disk_b=1.001e9, ios=9000)       # байт +0,1 %, операций +11 %: поиски HDD
     bad_thaw = dict(good, forced_thaw=True)
     bad_swap = dict(good, swap_pages=120)
+    peak_ok = S.peak_counts(300, 20.0, 0.0) and not S.peak_counts(25, 0.01, 0.0) and not S.peak_counts(300, 5.0, 8.0)
     BG = 0.75
     bg_only = dict(good, wall_s=60, cpu_s=960, own_cpu_s=958, ios=300 + int(BG * 60), own_ios=300, disk_b=1e9 + 180000)     # тёплая: фон без чужих
     bg_plus = dict(bg_only, ios=bg_only["ios"] + 60)                                              # фон + чужие 4К (60 × 21,8 мс / 60 с ≈ 2,2 % времени диска)
     chk = [S.judge_window(good)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
            not S.judge_window(bad_unit)[0],
-           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], S.judge_window(dict(good, swap_pages=0))[0],
+           not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0], not S.judge_window(bad_swap)[0], peak_ok, S.judge_window(dict(good, swap_pages=0))[0],
            S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],
            not S.judge_window(bg_only, bg_ops_s=0.0)[0],
            any("кто читал диск" in w and "session-1.scope 900 оп" in w for w in S.judge_window(dict(bad_ios, culprits=[dict(cgroup="/user.slice/session-1.scope", ops=900, mb=3.6)]))[1])]
-    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/своп в окне — нет/нулевой своп — годна/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет/назван виновник):", chk)
+    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/своп в окне — нет/нулевой своп — годна/пик памяти только с настоящей волны/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет/назван виновник):", chk)
     kb = SimBE(); kc = S.Core(kb, ncpu=NCPU, mem=56)
     kc.add(job("long", "long", "prod", 2, 2, "none", 10 * H, 0, mr=1800)); kc.add(job("w", "wave", "measure", NCPU, 1, "none", 600, 0, mr=300))
     for _ in range(600):
