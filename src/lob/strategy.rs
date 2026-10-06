@@ -3138,7 +3138,14 @@ where
             }
             f
         };
-        ladder_leg_qtys(entry_qty, lot_qty, &leg_fracs, usize::from(legs))
+        if entry_qty < state.qty {
+            // Г-87: первая часть Q0/N — одна нога (первая лестницы), остальные ноги не ставятся.
+            let mut one = [0.0f64; MAX_ENTRY_LEGS];
+            one[0] = entry_qty;
+            one
+        } else {
+            ladder_leg_qtys(entry_qty, lot_qty, &leg_fracs, usize::from(legs))
+        }
     } else {
         [0.0f64; MAX_ENTRY_LEGS]
     };
