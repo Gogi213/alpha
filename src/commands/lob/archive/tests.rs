@@ -16,6 +16,7 @@ fn args_of(path: &Path) -> ArchiveArgs {
         path: path.to_path_buf(),
         level: archive::DEFAULT_LEVEL,
         out: None,
+        columnar: false,
         delete_original: false,
     }
 }

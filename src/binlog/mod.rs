@@ -150,8 +150,9 @@ pub mod archive;
 pub use archive::{
     default_out_path as archive_out_path, file_bytes as file_bytes_on_disk, is_archive_path,
     max_level as archive_max_level, read_stats as archive_stats,
-    verify_round_trip as archive_verify_round_trip, write_container as archive_write, ArchiveRead,
-    ArchiveVerify, ArchiveWrite, ARCHIVE_MAGIC, ARCHIVE_VERSION,
+    verify_round_trip as archive_verify_round_trip, write_container as archive_write,
+    write_container_columnar as archive_write_columnar, ArchiveRead, ArchiveVerify, ArchiveWrite,
+    ARCHIVE_MAGIC, ARCHIVE_VERSION, ARCHIVE_VERSION_COLUMNAR,
     DEFAULT_LEVEL as ARCHIVE_DEFAULT_LEVEL,
 };
 
@@ -1523,6 +1524,9 @@ enum Body<R: Read> {
             io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
         >,
     ),
+    /// Колоночный контейнер (версия 2): тела кадров уже собраны в память как
+    /// поток `[u32 длина | тело]*` — для `read_body` это тот же контейнер.
+    Mem(io::Cursor<Vec<u8>>),
 }
 
 impl<R: Read> Body<R> {
@@ -1532,6 +1536,7 @@ impl<R: Read> Body<R> {
         match self {
             Self::Plain(inner) => read_upto(inner, buf),
             Self::Archive(decoder) => read_upto(decoder, buf),
+            Self::Mem(cursor) => read_upto(cursor, buf),
         }
     }
 }
@@ -1653,7 +1658,7 @@ impl<R: Read> Reader<R> {
                 })
             }
         }
-        archive::validate_container_header(&container)?;
+        let container_version = archive::validate_container_header(&container)?;
         let level = container[archive::HEADER_LEVEL_AT];
         let mut magic_version = [0u8; MAGIC_VERSION_LEN];
         match body.read_upto(&mut magic_version)? {
@@ -1690,6 +1695,22 @@ impl<R: Read> Reader<R> {
             read_schedule_tail(&mut body, archive::HEADER_LEN, &header)?
         } else {
             Vec::new()
+        };
+        let body = if container_version == archive::ARCHIVE_VERSION_COLUMNAR {
+            let Body::Archive(decoder) = body else {
+                unreachable!("контейнер открывается только через Body::Archive")
+            };
+            let mut blob = Vec::new();
+            let limit = HARD_PAYLOAD_CEILING as u64 + 1;
+            io::Read::read_to_end(&mut io::Read::take(decoder, limit), &mut blob)?;
+            if blob.len() as u64 >= limit {
+                return Err(BinlogError::Corrupt(
+                    "колоночный контейнер больше потолка суток".into(),
+                ));
+            }
+            Body::Mem(io::Cursor::new(archive::columnar_to_stream(&blob)?))
+        } else {
+            body
         };
         Ok(Self {
             inner: body,
@@ -1795,7 +1816,9 @@ impl<R: Read> Reader<R> {
         // настоящий кадр этого писателя в него гарантированно укладывается),
         // сравнивается с длиной сразу, до единого байта чтения тела.
         let len_ceiling = match self.inner {
-            Body::Archive(_) => max_frame_record_bytes(self.header.max_records_per_frame),
+            Body::Archive(_) | Body::Mem(_) => {
+                max_frame_record_bytes(self.header.max_records_per_frame)
+            }
             Body::Plain(_) => max_frame_bytes_on_disk(self.header.max_records_per_frame as usize),
         };
         if len > len_ceiling {
@@ -1846,7 +1869,7 @@ impl<R: Read> Reader<R> {
         }
         self.frames_read += 1;
 
-        if matches!(self.inner, Body::Archive(_)) {
+        if matches!(self.inner, Body::Archive(_) | Body::Mem(_)) {
             // Тело контейнера лежит несжатым: это и есть тело кадра v3.
             // Потолок уже проверен выше, до чтения (`len_ceiling`) — `stored.
             // len() == len` (цикл выше не выходит иначе) не может превысить

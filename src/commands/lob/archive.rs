@@ -45,6 +45,10 @@ pub struct ArchiveArgs {
     /// дописывается, имя суток сохраняется).
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Колоночный контейнер (версия 2, TK-048): тела кадров по семи колонкам
+    /// на весь файл; замер chain62 — 66–75 % от размера файла.
+    #[arg(long, default_value_t = false)]
+    pub columnar: bool,
     /// Удалить оригинал после успешной архивации и сверки round-trip.
     /// Требует `verify-<SYMBOL>.status == ok` в каталоге оригинала: без
     /// маркера команда отказывается, архив при этом остаётся.
@@ -237,14 +241,19 @@ pub fn run_archive(args: &ArchiveArgs) -> anyhow::Result<ArchiveSummary> {
 
     let tmp = tmp_path(&out);
     let _ = std::fs::remove_file(&tmp);
-    let write =
-        match archive::write_container(&mut src_reader, args.level, std::fs::File::create(&tmp)?) {
-            Ok(w) => w,
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(anyhow::anyhow!("{}: {e:?}", src.display()));
-            }
-        };
+    let file = std::fs::File::create(&tmp)?;
+    let written = if args.columnar {
+        archive::write_container_columnar(&mut src_reader, args.level, file)
+    } else {
+        archive::write_container(&mut src_reader, args.level, file)
+    };
+    let write = match written {
+        Ok(w) => w,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(anyhow::anyhow!("{}: {e:?}", src.display()));
+        }
+    };
 
     // Сверка читает **то, что легло на диск**: исходник и временный контейнер
     // открываются заново, а не сверяются с буфером в памяти — иначе
