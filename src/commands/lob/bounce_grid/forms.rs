@@ -171,9 +171,9 @@ impl ExitForm {
             return Ok(ExitForm::None);
         }
         if let Some(rest) = spec.strip_prefix("pyeat") {
-            let parts: u8 = rest
-                .parse()
-                .map_err(|_| anyhow::anyhow!("--exit-form {spec:?}: ожидается pyeat<N>, N ∈ [2, 10]"))?;
+            let parts: u8 = rest.parse().map_err(|_| {
+                anyhow::anyhow!("--exit-form {spec:?}: ожидается pyeat<N>, N ∈ [2, 10]")
+            })?;
             anyhow::ensure!((2..=10).contains(&parts), "pyeat<N>: N ∈ [2, 10]");
             let form = ExitForm::PyrEat { parts };
             anyhow::ensure!(

@@ -1668,7 +1668,13 @@ impl StrategyState {
 
     /// R2-A, Г-94: на съедании `j/N` стены (`j = 1..N−1`) — добавка `Q0/N` пост-онли лимитом по
     /// лучшей цене нашей стороны; стена съедена целиком — добавки нет; не больше одной за вызов.
-    fn pyramid_step<MD, B>(&mut self, bot: &mut B, bid: f64, ask: f64, side: HbtSide) -> Result<(), B::Error>
+    fn pyramid_step<MD, B>(
+        &mut self,
+        bot: &mut B,
+        bid: f64,
+        ask: f64,
+        side: HbtSide,
+    ) -> Result<(), B::Error>
     where
         MD: MarketDepth,
         B: Bot<MD>,

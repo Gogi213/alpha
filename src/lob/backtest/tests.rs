@@ -2372,6 +2372,7 @@ fn with_stop_and_deadline(plan: TradePlan, stop_px: f64, deadline_ns: i64) -> Tr
             gone_trail_bps,
             gone_stop,
             wall_eat,
+            pyramid,
             ..
         } => TradePlan::Bounce {
             entry_px,
@@ -2401,6 +2402,7 @@ fn with_stop_and_deadline(plan: TradePlan, stop_px: f64, deadline_ns: i64) -> Tr
             gone_trail_bps,
             gone_stop,
             wall_eat,
+            pyramid,
         },
         TradePlan::SpreadHold => plan,
     }
