@@ -62,7 +62,8 @@ def log(msg: str) -> None:
 def wmi_command(script: Path, out: Path, env: dict) -> str:
     """Командная строка cmd: каждая переменная — `set "K=V"&` (в cmd `;` не разделитель)."""
     envs = "".join(f'set "{k}={v}"& ' for k, v in env.items())
-    return f'cmd /c {envs}"{sys.executable}" "{script}" >> "{out}" 2>&1'
+    py = Path(sys.executable).with_name("python.exe")  # не pythonw: у него нет консоли, дети получили бы окна
+    return f'cmd /c {envs}"{py}" "{script}" >> "{out}" 2>&1'
 
 
 def wmi_start(script: Path, out: Path, env: dict) -> int:

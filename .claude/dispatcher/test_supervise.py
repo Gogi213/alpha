@@ -48,10 +48,12 @@ class WmiCommandTest(unittest.TestCase):
     def test_env_set_by_cmd(self):
         import subprocess
         cmd = S.wmi_command(Path("x.py"), Path("o.log"), {"A": "engineer:6", "B": "8"})
-        tail = f'"{sys.executable}" "x.py" >> "o.log" 2>&1'
+        exe = Path(sys.executable).with_name("python.exe")
+        tail = f'"{exe}" "x.py" >> "o.log" 2>&1'
         self.assertTrue(cmd.endswith(tail))
         code = "import os;print(os.environ[chr(65)]+os.environ[chr(66)])"
-        probe = cmd[len("cmd /c "):-len(tail)] + f'"{sys.executable}" -c "{code}"'
+        probe = cmd[len("cmd /c "):-len(tail)] + f'"{exe}" -c "{code}"'
         r = subprocess.run("cmd /c " + probe, capture_output=True, text=True)
         self.assertIn("engineer:68", r.stdout)
         self.assertNotIn(";", cmd.split('"')[0])
+        self.assertNotIn("pythonw", cmd.lower())
