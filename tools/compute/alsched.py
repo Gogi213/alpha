@@ -14,7 +14,7 @@ import argparse, json, math, os, re, subprocess, sys, time
 DIR = os.environ.get("SCHED_DIR", "/data/sched")
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
 DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
-DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "0"))   # заданий на диск; 0 = без лимита до калибровки (В-178), число не выдумываем
+DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий на диск; 16 = калибровка R1 06.10 (tk071-calib: P=16 на одном HDD, 51 ед/мин, 18 МБ/с, iowait 2 %, ЦП 92 % — упор в ЦП, не в диск); 0 = без лимита
 FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
               else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
 LEGACY_PAT = FREEZE_PAT
