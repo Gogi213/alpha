@@ -30,6 +30,8 @@ pub struct FilterSet {
     pub name: String,
     pub frontrun_only: bool,
     pub min_age_secs: Option<i64>,
+    /// Г-87: возраст плотности строго меньше (`agemax=<сек>`); `None` — без верхней границы.
+    pub max_age_secs: Option<i64>,
     pub min_flow_pct: Option<f64>,
     pub side: Option<SideArg>,
     /// Состояние стены при касании (S1 плана по сторонам, [D 33:57] «не
@@ -232,6 +234,7 @@ impl FilterSet {
             name: String::new(),
             frontrun_only: args.frontrun_only,
             min_age_secs: args.min_age_secs,
+            max_age_secs: None,
             min_flow_pct: args.min_flow_pct,
             side: args.side,
             eaten_max_pct: None,
@@ -263,6 +266,7 @@ impl FilterSet {
             name: name.to_string(),
             frontrun_only: false,
             min_age_secs: None,
+            max_age_secs: None,
             min_flow_pct: None,
             side: None,
             eaten_max_pct: None,
@@ -285,6 +289,12 @@ impl FilterSet {
                     set.min_age_secs = Some(
                         v.parse()
                             .map_err(|e| anyhow::anyhow!("--set {spec:?}: age={v:?}: {e}"))?,
+                    );
+                }
+                "agemax" => {
+                    set.max_age_secs = Some(
+                        v.parse()
+                            .map_err(|e| anyhow::anyhow!("--set {spec:?}: agemax={v:?}: {e}"))?,
                     );
                 }
                 "flow" => {
@@ -405,6 +415,7 @@ pub(crate) struct TouchFilter<'a> {
     pub(crate) frontrun_only: bool,
     pub(crate) mode: H3Mode,
     pub(crate) min_age_ms: Option<i64>,
+    pub(crate) max_age_ms: Option<i64>,
     pub(crate) min_flow_pct: Option<f64>,
     pub(crate) side: Option<Side>,
     pub(crate) eaten_max_pct: Option<f64>,
@@ -461,6 +472,7 @@ impl<'a> TouchFilter<'a> {
             frontrun_only: p.frontrun_only,
             mode: p.mode,
             min_age_ms: p.min_age_ms,
+            max_age_ms: p.max_age_ms,
             min_flow_pct: p.min_flow_pct,
             side: p.side,
             eaten_max_pct: p.eaten_max_pct,
@@ -491,6 +503,7 @@ impl<'a> TouchFilter<'a> {
             frontrun_only: set.frontrun_only,
             mode,
             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
             min_flow_pct: set.min_flow_pct,
             side: set.side.map(Side::from),
             eaten_max_pct: set.eaten_max_pct,
@@ -529,6 +542,9 @@ impl<'a> TouchFilter<'a> {
             return false;
         }
         if self.min_age_ms.is_some_and(|n| t.age_ms() < n) {
+            return false;
+        }
+        if self.max_age_ms.is_some_and(|n| t.age_ms() >= n) {
             return false;
         }
         if let Some(s_min) = self.min_flow_pct {
@@ -595,6 +611,9 @@ impl<'a> TouchFilter<'a> {
             return false;
         }
         if self.min_age_ms.is_some_and(|n| r.age_ms < n) {
+            return false;
+        }
+        if self.max_age_ms.is_some_and(|n| r.age_ms >= n) {
             return false;
         }
         if let Some(s_min) = self.min_flow_pct {
