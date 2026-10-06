@@ -3801,6 +3801,56 @@ class WaitByEventTest(unittest.TestCase):
         self.assertIn("cat ", cmds[0])
         self.assertNotIn(D.WATCH_LIST, cmds[1])
 
+    def test_reconcile_one_ssh_per_machine_closes_missed_event(self):
+        """TK-074 (случай chain55): первая проверка сорвана таймаутом, регистрация у сторожа не дошла, события нет —
+        сверка одним ssh на машину закрывает все ждущие условия и подтверждает регистрацию."""
+        D.WAIT_ASYNC = True
+        D._WL_REG.clear()
+        def timeout(*a, **k):
+            raise D.subprocess.TimeoutExpired("ssh", 15)
+        D.subprocess.run = timeout
+        D._host_probe("calc", "path", "/data/tk048/chain55.done")
+        self.assertNotIn(("calc", "/data/tk048/chain55.done"), D._WL_REG)
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/tk048/chain55.done")][1])
+        for k in (("calc", "path", "/data/tk048/chain55.done"), ("calc", "unit", "u1"), ("calc", "path", "/data/p/x.json")):
+            D._WAIT_WATCH.add(k)
+        calls = []
+
+        class R:
+            returncode = 0
+            stderr = b""
+            stdout = (b"@@0\n@@reg\n{\"done\": 1, \"total\": 5}\n@@rc 0\n@@1\n@@reg\n@@rc 0\n@@2\ninactive\n@@rc 0\n")  # порядок = sorted(ключи)
+        D.subprocess.run = lambda cmd, **k: (calls.append(cmd[-1]), R())[1]
+        D._reconcile()
+        self.assertEqual(len(calls), 1)  # три условия — один ssh
+        self.assertIn(D.WATCH_LIST, calls[0])
+        self.assertTrue(D._WAIT_CACHE[("calc", "path", "/data/tk048/chain55.done")][1])
+        self.assertTrue(D._WAIT_CACHE[("calc", "unit", "u1")][1])
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/p/x.json")][1])  # done 1 из 5 — не готово
+        self.assertIn(("calc", "/data/tk048/chain55.done"), D._WL_REG)
+        self.assertTrue(D.check_wait_for("host:calc:/data/tk048/chain55.done"))
+
+    def test_reconcile_missing_file_stays_unmet(self):
+        D.WAIT_ASYNC = True
+        D._WAIT_WATCH.add(("calc", "path", "/data/a.done"))
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@reg\n@@rc 1\n"
+        D.subprocess.run = lambda *a, **k: R()
+        D._reconcile()
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/a.done")][1])
+        self.assertIn(("calc", "/data/a.done"), D._WL_REG)
+
+    def test_probe_wl_marker_confirms_registration(self):
+        D.WAIT_ASYNC = True
+        D._WL_REG.clear()
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@WL\n"
+        D.subprocess.run = lambda *a, **k: R()
+        self.assertTrue(D._host_probe("calc", "path", "/data/b.done"))
+        self.assertIn(("calc", "/data/b.done"), D._WL_REG)
+
     def test_job_done_and_file_events(self):
         D.WAIT_ASYNC = True
         D.record_wait_event({"addr": "задача.TK-1.задание.готово", "payload": {"job": "j1", "host": "calc"}})

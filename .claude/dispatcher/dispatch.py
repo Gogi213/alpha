@@ -380,7 +380,7 @@ def _needs_probe(ckey) -> bool:
 def _wait_poller() -> None:
     """Штатно ssh не опрашивает: события шины (сторож машины) закрывают wait_for; здесь — первая проверка нового условия и
     аварийный опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S, пока шина лежит дольше BUS_DOWN_SSH_S."""
-    global _SSH_ALERTED
+    global _SSH_ALERTED, _RECON_LAST
     while True:
         if _bus_down_long() and _LINK is not None and not _SSH_ALERTED:
             _SSH_ALERTED = True
@@ -394,7 +394,13 @@ def _wait_poller() -> None:
                 _host_probe(*ckey)
             except Exception as e:
                 _wait_err(f"poller:{ckey}", f"{type(e).__name__}: {e}")
-        _WAIT_NEW.wait(WAIT_POLL_S)
+        if _WAIT_WATCH and not _bus_down_long() and time.time() - _RECON_LAST >= WAIT_RECON_S:
+            _RECON_LAST = time.time()
+            try:
+                _reconcile()
+            except Exception as e:
+                _wait_err("reconcile", f"{type(e).__name__}: {e}")
+        _WAIT_NEW.wait(min(WAIT_POLL_S, WAIT_RECON_S))
         _WAIT_NEW.clear()
 
 
@@ -490,15 +496,19 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
     else:
         remote = f"test -e {_remote_test_arg(arg)}"
     if what == "path" and WAIT_ASYNC and arg.startswith("/") and not _is_progress_json(arg):
-        # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh
+        # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh;
+        # «@@WL» в ответе = регистрация подтверждена (нет — повторит сверка _reconcile)
         remote = (f"{{ grep -qxF {shlex.quote(arg)} {WATCH_LIST} 2>/dev/null || echo {shlex.quote(arg)} >> {WATCH_LIST}; }} "
-                  f">/dev/null 2>&1; {remote}")
+                  f">/dev/null 2>&1 && echo @@WL; {remote}")
     label = f"host:{alias}:{'unit:' if what == 'unit' else ''}{arg}"
     result = False
     _log_ssh_call(alias, what, arg, "аварийный" if _bus_down_long() else ("первая" if ckey not in _WAIT_CACHE else "событие-юнита"))
     try:
         r = subprocess.run(_ssh_cmd(alias, remote), capture_output=True, timeout=15)
         out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")
+        if out.startswith("@@WL\n") or out.strip() == "@@WL":
+            _WL_REG.add((alias, arg))
+            out = out[len("@@WL"):].lstrip("\r\n")
         if what == "unit":
             state = (out.strip().splitlines() or [""])[0]
             if r.returncode == 255 or not state:
@@ -516,6 +526,89 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
         _wait_err(label, f"ssh: {type(e).__name__}: {e}")
     _WAIT_CACHE[ckey] = (now_ts, result)
     return result
+
+
+WAIT_RECON_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_RECON_S", "300"))  # сверка всех ждущих host:… одним ssh на машину
+_WL_REG = set()  # (алиас, путь), чья регистрация у сторожа подтверждена ответом машины
+_RECON_LAST = 0.0
+
+
+def _recon_script(keys: list) -> str:
+    parts = []
+    for i, (alias, what, arg) in enumerate(keys):
+        q = shlex.quote(arg)
+        parts.append(f"echo @@{i}")
+        if what == "unit":
+            parts.append(f"systemctl is-active {q} 2>&1 | head -1; echo '@@rc 0'")
+            continue
+        if arg.startswith("/") and not _is_progress_json(arg):
+            parts.append(f"{{ grep -qxF {q} {WATCH_LIST} 2>/dev/null || echo {q} >> {WATCH_LIST}; }} >/dev/null 2>&1 && echo @@reg")
+        parts.append(f"{'cat' if arg.endswith('.json') else 'test -e'} {q} 2>/dev/null; echo \"@@rc $?\"")
+    return "; ".join(parts)
+
+
+def _parse_recon(out: str, n: int) -> dict:
+    """Ответ _recon_script → {i: {"reg": bool, "rc": int|None, "body": str}}."""
+    res, cur = {}, None
+    for line in out.splitlines():
+        line = line.rstrip("\r")
+        if line.startswith("@@") and line[2:].isdigit() and int(line[2:]) < n:
+            cur = int(line[2:])
+            res[cur] = {"reg": False, "rc": None, "body": []}
+        elif cur is not None and line == "@@reg":
+            res[cur]["reg"] = True
+        elif cur is not None and line.startswith("@@rc "):
+            try:
+                res[cur]["rc"] = int(line[5:])
+            except ValueError:
+                pass
+        elif cur is not None:
+            res[cur]["body"].append(line)
+    for v in res.values():
+        v["body"] = "\n".join(v["body"])
+    return res
+
+
+def _reconcile() -> None:
+    """Страховка (В-192, TK-074): раз в WAIT_RECON_S один ssh на машину проверяет ВСЕ ждущие host:… и повторяет регистрацию путей
+    у сторожа, не подтверждённую ранее. Пропущенное событие или сорванная регистрация стоят не дороже одного шага сверки."""
+    by_alias = {}
+    for k in list(_WAIT_WATCH):
+        by_alias.setdefault(k[0], []).append(k)
+    for alias, keys in by_alias.items():
+        keys.sort()
+        _log_ssh_call(alias, "сверка", f"{len(keys)} ключей", "сверка")
+        try:
+            r = subprocess.run(_ssh_cmd(alias, _recon_script(keys)), capture_output=True, timeout=45)
+        except Exception as e:
+            _wait_err(f"reconcile:{alias}", f"ssh: {type(e).__name__}: {e}")
+            continue
+        out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")
+        if r.returncode == 255 or not out.strip():
+            _wait_err(f"reconcile:{alias}", f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
+            continue
+        now_ts = time.time()
+        for i, v in _parse_recon(out, len(keys)).items():
+            if v["rc"] is None:
+                continue
+            _, what, arg = keys[i]
+            if v["reg"]:
+                _WL_REG.add((alias, arg))
+            if what == "unit":
+                state = (v["body"].strip().splitlines() or [""])[0]
+                if not state:
+                    continue
+                result = state not in _UNIT_RUNNING
+                if not result:
+                    _drop_event(alias, what, arg)
+            elif v["rc"] == 0:
+                progress = _progress_done(v["body"]) if arg.endswith(".json") else None
+                result = True if progress is None else progress
+            elif v["rc"] == 1:
+                result = False
+            else:
+                continue
+            _WAIT_CACHE[keys[i]] = (now_ts, result)
 
 
 def _ssh_stderr(r) -> str:
