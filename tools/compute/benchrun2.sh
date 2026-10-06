@@ -12,6 +12,7 @@ flock -u 8; exec 8>&-
 own_cg=$(sed s#^0::## /proc/self/cgroup); own_u=${own_cg##*/}
 case $own_u in *.service) systemctl set-property --runtime "$own_u" IOAccounting=yes </dev/null 2>/dev/null;; esac
 export BENCH_IOSTATE=/data/tk048/ioacct-$$.json
+REGM=$(python3 /data/registry/snap.py begin "$cls" "$@" 2>/dev/null) || REGM=""   # TK-068: снимок конфига прогона  # до учёта ввода-вывода — не попадает в байты волны
 python3 /data/tk052/io-acct.py run $BENCH_IOSTATE "$own_cg" </dev/null >/dev/null 2>&1 & IOPID=$!
 if [ "$cls" = wave ]; then
   own=$(sed 's#.*/##' /proc/self/cgroup)
@@ -24,7 +25,6 @@ if [ "$cls" = wave ]; then
     systemctl freeze "$u" </dev/null 2>/dev/null && echo "$u $c" >> "$BENCH_FROZEN"
   done
 fi
-REGM=$(python3 /data/registry/snap.py begin "$cls" "$@" 2>/dev/null) || REGM=""   # TK-068: снимок конфига прогона
 "$@"; rc=$?; kill $IOPID 2>/dev/null; wait $IOPID 2>/dev/null; python3 /data/tk052/io-acct.py report $BENCH_IOSTATE > /data/tk048/ioacct-$$.txt 2>&1
 [ -n "$REGM" ] && python3 /data/registry/snap.py end "$REGM" "$rc" 2>/dev/null   # TK-068
 exit $rc
