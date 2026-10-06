@@ -38,6 +38,10 @@ clear|drop`, `git push +ref|:ref|--delete|--mirror` — как `git reset --hard
 (`ALPHA_ROLE`); сессия CEO/владельца правит файлы вне проекта, кроме root/ и deep/ и закрытых узлов; (ж) `.git` — удаление,
 перенос, шаблоны вроде `.*` никому (кроме `*.lock`), запись внутрь — не запускам диспетчера; (з) настройки Claude Code
 `.claude/settings*.json` запуску диспетчера не менять (через них выключаются хуки и плагин).
+Замок замеров (CEO 06.10): на сервере счёта 89.163.242.211 тяжёлые команды из ssh-сессии (du, find, python-скрипты, md5sum/
+cmp по каталогам, tar, rsync, cp -r, vmtouch, cat бинлогов — полный перечень в `bench_guard.py`) — отказ, если они не обёрнуты
+в `systemd-run` и не идут через `/data/benchrun.sh` / `/data/tk052/benchrun2.sh`: замок не видит ssh-сессии и не замораживает
+их, замеры скорости портятся. Классификация — `bench_guard.heavy_label`, метка идёт в общий список как `Heavy`.
 Через обёртки (sudo/env/nohup/xargs/systemd-run/timeout/…), `ssh хост '<строка>'`, `bash|sh -c`, `powershell -Command`,
 `cmd /c`, eval — разбор рекурсивный. Текст в аргументах прочих команд (git commit -m, tickets.py --text, echo, grep,
 `cat > файл <<EOF`) удалением не считается. Не удалось разобрать (незакрытая кавычка) — прежний регэксп как страховка.
@@ -47,7 +51,13 @@ import base64
 import os
 import posixpath
 import re
+import sys
 import textwrap
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:                                 # bench_guard лежит рядом; страж могли загрузить по пути файла
+    sys.path.insert(0, _HERE)
+import bench_guard  # noqa: E402
 
 LOCAL_ROOTS = ("c:/visual projects/alpha/", "/c/visual projects/alpha/")
 SCRATCH = "/appdata/local/temp/claude/"
@@ -90,6 +100,14 @@ REASON_FILE = ("Запись в файл вне своей папки ({t}) за
 REASON_CRASH = ("Страж удаления упал ({e}) — отказ по умолчанию (fail-closed), а не пропуск. Исправьте "
                 "C:/visual projects/alpha/.claude/hooks/delete_guard.py (правка файла инструментом Edit/Write внутри "
                 "проекта разрешена) и повторите; не получилось — сообщите CEO.")
+REASON_BENCH = ("Тяжёлая команда на сервере счёта 89.163.242.211 вне замка замеров запрещена ({t}). Почему: замок "
+                "/data/benchrun.sh не видит ssh-сессии и не замораживает их, а du/find/tar/rsync/cp -r/vmtouch, md5sum и cmp по "
+                "каталогам, cat бинлогов и python-скрипты из ssh едят диск и ЦП во время волн и портят замеры скорости (06.10 "
+                "трижды: find, du -sh /data/tk046, tk040-complete.py). Как надо: юнитом под замком — ssh … 'systemd-run "
+                "--unit tk0NN-<имя> --collect -p CPUQuota=<N>% /data/benchrun.sh stand <команда>' (с учётом дисков — "
+                "/data/tk052/benchrun2.sh; волна — `wave`), вывод в файл в /data/tk0NN/, затем читать его tail/cat. Без юнита "
+                "можно: короткие cat/tail/head/ls/grep по файлам в /data/tk0*/, systemctl, uptime, sha256sum отдельных файлов, "
+                "python3 -m py_compile, python3 -c до 200 символов, выкладка cat > файл && mv, tar x со stdin.")
 UNKNOWN_TARGET = "<цель из кода не видна>"
 # куда писать можно всегда: не файлы (устройства-стоки, пустышка Windows/PowerShell)
 HARMLESS_SINK = re.compile(r"^(?:/dev/(?:null|stdout|stderr|tty|zero|full|fd/\d+)|/proc/self/fd/\d+|nul|con|\$null)$", re.I)
@@ -102,6 +120,10 @@ class Over(str):
 
 class Forbid(str):
     """Необратимая команда (git reset --hard и т. п.): отказ «только через CEO», путь не при чём."""
+
+
+class Heavy(str):
+    """Тяжёлая команда на сервере счёта вне замка замеров (bench_guard): отказ «через systemd-run под /data/benchrun.sh»."""
 
 
 def norm(p):
@@ -633,16 +655,17 @@ def tokenize(s, depth=0):
 # ------------------------------------------------------------------------------------------------------------
 
 class Ctx:
-    __slots__ = ("cwd", "remote", "funcs", "host")
+    __slots__ = ("cwd", "remote", "funcs", "host", "exempt")
 
-    def __init__(self, cwd=None, remote=False, funcs=frozenset(), host=None):
+    def __init__(self, cwd=None, remote=False, funcs=frozenset(), host=None, exempt=False):
         self.cwd = cwd          # нормализованный каталог или None (неизвестен)
         self.remote = remote
         self.funcs = funcs      # имена функций оболочки, объявленных в этой же команде (`rsh() { ssh …; }`)
         self.host = host        # хост ssh без `user@`, строчными (для HOST_ROOTS) или None
+        self.exempt = exempt    # команда обёрнута в systemd-run: замок замеров (bench_guard) её не трогает
 
     def copy(self):
-        return Ctx(self.cwd, self.remote, self.funcs, self.host)
+        return Ctx(self.cwd, self.remote, self.funcs, self.host, self.exempt)
 
 
 CLOSED_HOST = "<закрытый узел>"    # Ctx.host закрытого узла (Storage Box, коллектор, порт 23, хост не определён)
@@ -974,7 +997,7 @@ def find_scan(args, ctx, vars_, depth):
                 sub.append(expr[k])
                 k += 1
             inner = list(scan_one(Cmd(sub), ctx, vars_, (), depth + 1))
-            if any(not isinstance(x[0], (Over, Forbid)) for x in inner):
+            if any(not isinstance(x[0], (Over, Forbid, Heavy)) for x in inner):
                 deleting = True                     # внутри -exec удаление: целью становятся и пути find
             for x in inner:
                 if isinstance(x[0], Over) and "{}" in x[0]:
@@ -996,7 +1019,7 @@ def find_scan(args, ctx, vars_, depth):
             yield (p, ctx.copy())
         yield from extra
     else:
-        yield from (x for x in extra if isinstance(x[0], (Over, Forbid)))
+        yield from (x for x in extra if isinstance(x[0], (Over, Forbid, Heavy)))
 
 
 def rsync_scan(args, ctx):
@@ -1472,6 +1495,7 @@ def scan_one(cmd, ctx, vars_, stdin, depth):
             record_var(vars_, w, depth)
         return
     xargs = False
+    exempt = False
     i = 0
     for _ in range(40):
         if i >= len(words):
@@ -1489,6 +1513,7 @@ def scan_one(cmd, ctx, vars_, stdin, depth):
             if j is None:
                 return
             xargs = xargs or name == "xargs"
+            exempt = exempt or name == "systemd-run"
             i = j
             continue
         if w.startswith("$") and not w.startswith("$(") and expand_vars(w, vars_) != w:
@@ -1504,6 +1529,13 @@ def scan_one(cmd, ctx, vars_, stdin, depth):
     w = words[i]
     name = cmd_name(w)
     args = expand_args(words[i + 1:], vars_)
+    if exempt and not ctx.exempt:                    # `systemd-run … <команда>`: юнит под замком, внутри тоже не трогаем
+        ctx = ctx.copy()
+        ctx.exempt = True
+    if ctx.remote and ctx.host == bench_guard.BENCH_HOST and not ctx.exempt:
+        label = bench_guard.heavy_label(name, args, sin, xargs)
+        if label:
+            yield (Heavy(label), ctx.copy())
     if name in ("export", "declare", "local", "readonly", "typeset"):
         for a in words[i + 1:]:
             if ASSIGN.match(a):
@@ -1775,7 +1807,12 @@ def check(cmd, cwd):
             found = list(scan_text(cmd, start))
         except ParseError:                          # незакрытая кавычка и т. п. — прежний регэксп как страховка
             found = legacy_found(cmd, cwd)
+            heavy = bench_guard.legacy_heavy(cmd)
+            if heavy:
+                return REASON_BENCH.format(t=heavy)
         for target, ctx in found:
+            if isinstance(target, Heavy):
+                return REASON_BENCH.format(t=target)
             if isinstance(target, Forbid):
                 return REASON_IRREVERSIBLE.format(t=target)
             why = protected(target, ctx, role, deleting=not isinstance(target, Over))
