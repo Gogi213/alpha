@@ -657,7 +657,7 @@ impl ApproachEnd {
 /// дошла). Запись эмитится **на снятии**: касанием, смертью уровня или
 /// уходом цены за `2 × D` (гистерезис). Поля, кроме `disarm_*`, — состояние
 /// кадра взвода; уровень жив и в `LevelRecord` не попадает ничем.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApproachRecord {
     /// Сторона книги — сторона уровня (вход ставится за неё).
     pub side: Side,
@@ -704,7 +704,7 @@ pub struct ApproachRecord {
     pub p08: Option<ArmP08>,
     /// Признаки R1 (TK-025) на кадре взвода, у подходов любой причины конца; `None` — трекер без
     /// `--r1-cols`, кэш без колонок R1 или уровень взведён и умер в бид-проходе того же кадра.
-    pub r1: Option<crate::lob::r1::ArmR1>,
+    pub r1: Option<Box<crate::lob::r1::ArmR1>>,
     /// Кадр начала касания, если подход кончился касанием.
     pub touch_start_ms: Option<i64>,
     /// Кадр снятия подхода (касание, смерть уровня или уход цены).

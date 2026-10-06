@@ -515,13 +515,13 @@ impl Outputs {
                         row.extend(p08_cells(&p));
                     }
                     if self.with_r1 {
-                        let Some(r) = at.and_then(|a| a.r1) else {
+                        let Some(r) = at.and_then(|a| a.r1.as_deref()) else {
                             anyhow::bail!(
                                 "{symbol} {day} {}: --r1-cols — нет признаков R1 подхода arm_ms={arm_ms} тик {tick}",
                                 form.label
                             );
                         };
-                        row.extend(crate::commands::lob::touches::r1_cells(Some(&r)));
+                        row.extend(crate::commands::lob::touches::r1_cells(Some(r)));
                     }
                 }
                 w.write_record(&row)?;

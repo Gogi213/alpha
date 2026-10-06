@@ -305,7 +305,7 @@ fn approaches_csv_reads_back_the_same_records() {
         .flat_map(|d| {
             d.approaches.iter().map(move |a| ApproachRow {
                 day: d.day.clone(),
-                approach: *a,
+                approach: a.clone(),
             })
         })
         .collect();
@@ -467,7 +467,7 @@ fn write_approach_csv(path: &std::path::Path, rows: &[ApproachRecord], with_r1: 
     for a in rows {
         let row = super::row::approach_row("2026-09-08", a);
         if with_r1 {
-            w.write_record(row.into_iter().chain(super::row::r1_cells(a.r1.as_ref())))
+            w.write_record(row.into_iter().chain(super::row::r1_cells(a.r1.as_deref())))
                 .unwrap();
         } else {
             w.write_record(row).unwrap();
@@ -512,14 +512,14 @@ fn r1_cells_are_empty_for_none_and_undef_only() {
 fn r1_columns_round_trip_through_the_approaches_csv() {
     let dir = tempfile::tempdir().unwrap();
     let mut with = minimal_approach();
-    with.r1 = Some(varied_r1());
+    with.r1 = Some(Box::new(varied_r1()));
     let mut undef = minimal_approach();
     undef.approach_index = 1;
-    undef.r1 = Some(ArmR1::undefined());
+    undef.r1 = Some(Box::new(ArmR1::undefined()));
     let mut none = minimal_approach();
     none.approach_index = 2;
     none.r1 = None;
-    let rows = [with, undef, none];
+    let rows = [with.clone(), undef, none];
 
     let path = dir.path().join("with-r1.csv");
     write_approach_csv(&path, &rows, true);
@@ -533,13 +533,13 @@ fn r1_columns_round_trip_through_the_approaches_csv() {
         "значения и UNDEF возвращаются как были"
     );
     assert_eq!(
-        read[0].approach.r1.unwrap().get("since_far_ms"),
+        read[0].approach.r1.as_ref().unwrap().get("since_far_ms"),
         Some(R1_UNDEF)
     );
-    assert_eq!(read[1].approach.r1, Some(ArmR1::undefined()));
+    assert_eq!(read[1].approach.r1, Some(Box::new(ArmR1::undefined())));
     assert_eq!(
         read[2].approach.r1,
-        Some(ArmR1::undefined()),
+        Some(Box::new(ArmR1::undefined())),
         "None у кэша с колонками читается как «не определено»"
     );
 
@@ -550,7 +550,13 @@ fn r1_columns_round_trip_through_the_approaches_csv() {
     assert_eq!(old_header, APPROACHES_COLUMNS.map(str::to_string).to_vec());
     let read_old = read_approaches_csv(&old).unwrap();
     assert!(read_old.iter().all(|r| r.approach.r1.is_none()));
-    assert_eq!(read_old[0].approach, ApproachRecord { r1: None, ..with });
+    assert_eq!(
+        read_old[0].approach,
+        ApproachRecord {
+            r1: None,
+            ..with.clone()
+        }
+    );
 
     // Часть колонок — отказ: наполовину записанный кэш не читается как «без R1».
     let (header, raw) = read_rows(&path);
@@ -619,7 +625,7 @@ fn r1_cols_flag_appends_the_61_columns_and_keeps_the_old_bytes() {
     let records: Vec<ApproachRecord> = replay
         .days
         .iter()
-        .flat_map(|d| d.approaches.iter().copied())
+        .flat_map(|d| d.approaches.iter().cloned())
         .collect();
     let expected = dir.path().join("expected-old.csv");
     write_approach_csv(&expected, &records, false);

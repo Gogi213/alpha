@@ -536,7 +536,7 @@ impl R1State {
     pub(super) fn attach(&mut self, emitted: &mut [ApproachRecord]) {
         for rec in emitted {
             if let Some(r) = self.armed.remove(&(side_key(rec.side), rec.price_tick)) {
-                rec.r1 = Some(r);
+                rec.r1 = Some(Box::new(r));
             }
         }
     }

@@ -591,7 +591,7 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             for a in &band_day.approaches {
                 let row = row::approach_row(&band_day.day, a);
                 if args.r1_cols {
-                    writer.write_record(row.into_iter().chain(row::r1_cells(a.r1.as_ref())))?;
+                    writer.write_record(row.into_iter().chain(row::r1_cells(a.r1.as_deref())))?;
                 } else {
                     writer.write_record(row)?;
                 }

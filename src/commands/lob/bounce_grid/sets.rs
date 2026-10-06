@@ -596,7 +596,7 @@ impl<'a> TouchFilter<'a> {
     /// Границы R1 набора на записи подхода `a` (параллельна касаниям суток при
     /// `--signal approach`). Без ключей — всегда да; нет записи или R1 — нет.
     pub(crate) fn admits_r1(&self, a: Option<&ApproachRecord>) -> bool {
-        let r1 = a.and_then(|a| a.r1.as_ref());
+        let r1 = a.and_then(|a| a.r1.as_deref());
         self.r1.iter().all(|b| b.holds(r1))
     }
 

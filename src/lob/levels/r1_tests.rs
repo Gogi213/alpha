@@ -113,7 +113,7 @@ impl Rig {
 }
 
 fn arm_cols(a: &ApproachRecord) -> ArmR1 {
-    a.r1.expect("на кадре взвода колонки R1 заполнены")
+    *a.r1.clone().expect("на кадре взвода колонки R1 заполнены")
 }
 
 fn level_cols(a: &ApproachRecord) -> [i64; LEVEL_N] {

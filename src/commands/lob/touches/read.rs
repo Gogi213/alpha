@@ -445,7 +445,7 @@ impl ApproachCols {
                 None => None,
             },
             r1: match &self.r1 {
-                Some(c) => Some(r1_from_record(rec, c)?),
+                Some(c) => Some(Box::new(r1_from_record(rec, c)?)),
                 None => None,
             },
             touch_start_ms: csv_opt_int(rec, self.touch_start_ms)?,

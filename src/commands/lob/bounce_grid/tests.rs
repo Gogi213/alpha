@@ -3598,7 +3598,7 @@ fn r1_keys_parse_bounds_and_refuse() {
         r1.flow[at("obi1_bp")] = obi;
         r1.level[at("cancel_60m_lots") - FLOW_N] = cancel;
         crate::lob::levels::ApproachRecord {
-            r1: Some(r1),
+            r1: Some(Box::new(r1)),
             ..approach_probe()
         }
     };
@@ -3679,7 +3679,7 @@ fn r1_cols_and_keys_through_grid() {
     std::fs::write(&ap_path, &r1_text).unwrap();
     assert_eq!(
         read_approaches_csv(&ap_path).unwrap()[0].approach.r1,
-        Some(r1)
+        Some(Box::new(r1))
     );
 
     let body = |p: &std::path::Path| -> String {
