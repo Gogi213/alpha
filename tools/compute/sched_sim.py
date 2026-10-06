@@ -90,7 +90,7 @@ def run():
     bad_thaw = dict(good, forced_thaw=True)
     BG = 0.75
     bg_only = dict(good, wall_s=60, cpu_s=960, own_cpu_s=958, ios=300 + int(BG * 60), own_ios=300, disk_b=1e9 + 180000)     # тёплая: фон без чужих
-    bg_plus = dict(bg_only, ios=bg_only["ios"] + 20)                                              # фон + чужие 4К (≈ 5 % операций)
+    bg_plus = dict(bg_only, ios=bg_only["ios"] + 60)                                              # фон + чужие 4К (60 × 21,8 мс / 60 с ≈ 2,2 % времени диска)
     chk = [S.judge_window(good)[0], not S.judge_window(bad_cpu)[0], not S.judge_window(bad_disk)[0],
            not S.judge_window(bad_unit)[0],
            not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0],

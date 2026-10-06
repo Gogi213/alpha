@@ -100,11 +100,15 @@ class Core:
 # Пересчитывать при calibrate.sh.
 BG_OPS_S = 0.354
 
+# Время одного случайного чтения 4 КиБ с HDD, с (замер tk071-seek 06.10, /data/sched-test/seek.log, 1500 чтений O_DIRECT:
+# среднее sdb 21,80 мс, sda 20,98 мс). Чужие операции важны временем диска, которое они крадут, а не долей от числа операций.
+SEEK_S = 0.0218
+
 
 def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     """d: cpu_s (занято на хосте за окно), own_cpu_s (юнит замера), wall_s, foreign_units (посторонние активные юниты в окне),
     disk_b (прочитано с дисков хоста), own_disk_b (читал юнит замера). Помеха = чужое ЦП / (стена × ядра) и чужое чтение
-    диска / всё чтение окна и по числу операций чтения (только если замер сам читает диск); замороженные юниты не в счёт; допуск tol = 1 % (гейт TK-071). → (годна, причины)."""
+    диска / всё чтение окна и время диска чужих операций чтения сверх фона × SEEK_S / стена (только если замер сам читает диск); замороженные юниты не в счёт; допуск tol = 1 % (гейт TK-071). → (годна, причины)."""
     why = []
     if d["foreign_units"]:
         why.append("посторонние юниты в окне: " + ",".join(sorted(d["foreign_units"])[:5]))
@@ -116,8 +120,8 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
     bg = (BG_OPS_S if bg_ops_s is None else bg_ops_s) * d["wall_s"]
     extra = ios - own_ios - bg                                         # чужие операции сверх фона
-    if own_ios > 0 and ios > 0 and extra / ios > tol:                  # мелкие чтения HDD: байт мало, поисков много
-        why.append(f"чужие чтения диска {extra / ios * 100:.1f} % операций сверх фона")
+    if own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / d["wall_s"] > tol:     # мелкие чтения HDD: байт мало, поисков много
+        why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / d['wall_s'] * 100:.1f} % времени окна")
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
