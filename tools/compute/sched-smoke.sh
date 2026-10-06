@@ -1,6 +1,6 @@
 #!/bin/bash
 # TK-071 smoke планировщика на живом systemd: SCHED_PAT=tk0s-* — замораживаются только задания самого планировщика
-# (боевое производство не трогаем). Запуск: systemd-run --unit tk071-smoke --collect bash /data/sched/sched-smoke.sh
+# Запуск как замер: systemd-run --unit tk071-smoke --collect /data/benchrun.sh wave bash /data/sched/sched-smoke.sh
 export SCHED_DIR=/data/sched-test SCHED_PAT='tk0s-*' SCHED_TICK=2
 A=/data/sched/alsched.py
 rm -rf $SCHED_DIR; mkdir -p $SCHED_DIR; cd $SCHED_DIR
@@ -19,6 +19,13 @@ wait $WP; say "T1 wave rc=$? вывод: $(tr '\n' '|' <wave1.out)"
 sleep 4
 say "T1 после: victim freezer=$(fz $U) RuntimeMaxUSec=$(systemctl show -p RuntimeMaxUSec --value $U)"
 say "T1 validity: $(cat validity/*.json 2>&1 | head -c 700)"
+systemd-run -q --unit tk0s-ext --collect sleep 1000; systemctl freeze tk0s-ext.service
+python3 $A wave --max-runtime 30s sleep 3 >wave2.out 2>&1; say "T1b две заморозки: ext freezer после моего замера=$(fz tk0s-ext.service) (ждём frozen)"
+systemctl thaw tk0s-ext.service; systemctl stop tk0s-ext.service
+python3 $A wave --max-runtime 30s sleep 6 >wave4.out 2>&1 & W4=$!
+sleep 2; systemd-run -q --unit tk0s-late --collect bash -c 'while :; do :; done'
+wait $W4; say "T1c чужая нагрузка в окне: rc=$? (ждём 3) вывод: $(tr '
+' '|' <wave4.out)"; systemctl stop tk0s-late.service
 S1=$(python3 $A submit --name shortlived --cores 1 --mem 1 --max-runtime 12s -- sleep 1000)
 sleep 20
 say "T2 max_runtime: rc=$(cat rc/$S1 2>&1) unit-active=$(systemctl is-active tk0s-shortlived-$S1)"
