@@ -3063,6 +3063,8 @@ fn holding_decision_reads_time_only_at_the_known_thresholds() {
         [
             "now: i64,",
             "if !maker_allowed || now.saturating_sub(entry_ns) < HOLD_NS {",
+            // Г-117 `tsl`: тейк зависит от времени; пропуск шагов при форме выключен (`pyramid_on`).
+            "now.saturating_sub(entry_ns),",
             // TK-014 `weat*`: пропуск шагов при этой форме выключен (`hold_wakeup_ns` → `None`).
             "if let Some(b) = state.wall_bucket(now.div_euclid(1_000_000_000)) {",
             "let (eaten, max_qty) = state.wall_window(entry_ns, now);",
