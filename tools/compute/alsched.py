@@ -143,6 +143,8 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
         why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / max(d['wall_s'], MIN_WALL_S) * 100:.1f} % времени окна")
     if d.get("culprits") and any("диска" in w for w in why):
         why.append("кто читал диск (оп, МБ): " + "; ".join(f"{c['cgroup']} {c['ops']} оп {c['mb']} МБ" for c in d["culprits"]))
+    if d.get("swap_pages", 0) > 0:
+        why.append(f"своп в окне: {d['swap_pages']} страниц (pswpin+pswpout) — память хоста вытесняется, замер недействителен")
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
@@ -222,6 +224,14 @@ class SystemdBackend:
                 tot += int(p[5]) * 512
                 n += int(p[3]) + int(p[4])   # завершённые + слитые: как rios у cgroup (счёт bio до слияния)
         return tot, n
+
+    @staticmethod
+    def swap_pages():
+        n = 0
+        for l in open("/proc/vmstat"):
+            if l.startswith(("pswpin ", "pswpout ")):
+                n += int(l.split()[1])
+        return n
 
     def unit_cpu_io(self, j):
         u = self.unit(j)
@@ -309,7 +319,7 @@ class SystemdBackend:
 
     def win_begin(self, j):
         b, n = self.disk_host()
-        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu(), cg=self.cg_io())
+        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu(), cg=self.cg_io(), swap=self.swap_pages())
 
     def win_end(self, j, s0):
         t1 = time.time()
@@ -320,7 +330,7 @@ class SystemdBackend:
         except OSError:
             forced = False
         d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
-                 daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
+                 daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced, swap_pages=self.swap_pages() - s0["swap"],
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
         d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
         ok, why = judge_window(d)
