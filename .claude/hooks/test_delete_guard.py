@@ -1587,6 +1587,15 @@ class BenchLock(unittest.TestCase):
         self.assertNotIn(self.MARK, reason)
         self.assertIsNone(dg.check(self.remote("rm -rf /data/tk046/old"), CWD))
 
+    def test_systemd_run_short_collect_flag_has_no_value(self):
+        """`-G` у systemd-run — `--collect` без значения: раньше он «съедал» команду и `systemd-run -G rm -rf …` проходил."""
+        for cmd in ("systemd-run -G rm -rf /c/Users/x/data", "systemd-run -G --unit a rm -rf /c/Users/x/data",
+                    "sudo systemd-run -G -p CPUQuota=100% rm -rf /etc/x", "systemd-run --collect rm -rf /c/Users/x/data"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNotNone(dg.check(cmd, CWD), cmd)
+        self.assertIsNotNone(dg.check(self.remote("systemd-run -G rm -rf /data/alpha/x"), CWD))
+        self.assertIsNone(dg.check(self.remote("systemd-run -G --unit tk046-x rm -rf /data/tk046/old"), CWD))
+
     def test_heavy_label_unit(self):
         import bench_guard as bg
         self.assertEqual(bg.heavy_label("du", ["-sh", "/x"]), "du")
