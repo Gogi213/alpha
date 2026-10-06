@@ -3,8 +3,10 @@
 import re, subprocess, sys, os, bisect, collections
 files = [l.strip() for l in open(sys.argv[1]) if l.strip()]
 def cls(p):
-    if '/approaches/D20/' in p: return 'approaches'
-    if '.binlog' in p: return 'binlog'
+    m = re.search(r'(\d{4})-(\d\d)-(\d\d)', p)
+    t = '' if not m else ('-in' if (m.group(1), m.group(2)) == ('2026', '01') and int(m.group(3)) <= 15 else '-out')
+    if '/approaches/D20/' in p: return 'approaches' + t
+    if '.binlog' in p: return 'binlog' + t
     if '/regime/' in p: return 'regime'
     if '/sigma240' in p: return 'sigma240'
     return 'other'
