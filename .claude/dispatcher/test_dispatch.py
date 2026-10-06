@@ -3786,6 +3786,20 @@ class WaitByEventTest(unittest.TestCase):
         self.assertFalse(D.check_wait_for("host:calc:unit:u1"))
 
 
+    def test_json_outside_progress_is_registered_with_watcher(self):
+        """TK-074: .json вне /data/progress — обычный путь (регистрация у сторожа), в /data/progress — файл хода (без регистрации)."""
+        D.WAIT_ASYNC = True
+        cmds = []
+
+        class R:
+            returncode, stdout, stderr = 0, b"", b""
+        D.subprocess.run = lambda cmd, **k: (cmds.append(cmd[-1]), R())[1]
+        D._host_probe("calc", "path", "/data/tk074/drill.json")
+        D._host_probe("calc", "path", "/data/progress/j1.json")
+        self.assertIn(D.WATCH_LIST, cmds[0])
+        self.assertIn("cat ", cmds[0])
+        self.assertNotIn(D.WATCH_LIST, cmds[1])
+
     def test_job_done_and_file_events(self):
         D.WAIT_ASYNC = True
         D.record_wait_event({"addr": "задача.TK-1.задание.готово", "payload": {"job": "j1", "host": "calc"}})

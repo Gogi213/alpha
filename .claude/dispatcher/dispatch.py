@@ -475,6 +475,11 @@ def _log_ssh_call(alias: str, what: str, arg: str, reason: str) -> None:
         pass
 
 
+def _is_progress_json(arg: str) -> bool:
+    """Файл хода (`/data/progress/<job>.json`, done/total) сторож ведёт сам; прочие пути, в т.ч. .json вне каталога, регистрируются."""
+    return arg.endswith(".json") and arg.rsplit("/", 1)[0] == "/data/progress"
+
+
 def _host_probe(alias: str, what: str, arg: str) -> bool:
     ckey = (alias, what, arg)
     now_ts = time.time()
@@ -484,7 +489,7 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
         remote = f"cat {_remote_test_arg(arg)}"
     else:
         remote = f"test -e {_remote_test_arg(arg)}"
-    if what == "path" and WAIT_ASYNC and arg.startswith("/") and not arg.endswith(".json"):
+    if what == "path" and WAIT_ASYNC and arg.startswith("/") and not _is_progress_json(arg):
         # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh
         remote = (f"{{ grep -qxF {shlex.quote(arg)} {WATCH_LIST} 2>/dev/null || echo {shlex.quote(arg)} >> {WATCH_LIST}; }} "
                   f">/dev/null 2>&1; {remote}")

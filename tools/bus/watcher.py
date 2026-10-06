@@ -57,8 +57,9 @@ def is_done(o):
 
 class Watcher:
     def __init__(self, host, patterns, exclude, progress_glob, post=busclient.post, snap=snapshot, showf=show,
-                 prog=read_progress, watch_file="/data/progress/watch.list", exists=os.path.exists):
-        self.watch_file, self.exists, self.files_seen = watch_file, exists, set()
+                 prog=read_progress, watch_file="/data/progress/watch.list", exists=os.path.exists,
+                 flush=busclient.flush_spool):
+        self.watch_file, self.exists, self.files_seen, self.flush = watch_file, exists, set(), flush
         self.host, self.patterns, self.exclude = host, patterns, exclude
         self.pg, self.post, self.snap, self.showf, self.prog = progress_glob, post, snap, showf, prog
         self.running = {}   # unit -> InvocationID
@@ -151,6 +152,7 @@ class Watcher:
         events = self.tick(self.prog(self.pg)) + self.file_events()
         for addr, payload, eid in events:
             self.post(addr, payload, eid, 5)
+        self.flush(5)  # spool дошлётся за шаг после подъёма шины, не ждёт следующего события
         return events
 
 

@@ -30,6 +30,16 @@ class FileMarkers(unittest.TestCase):
         self.assertEqual(w.run_once(), [])
 
 
+class SpoolFlush(unittest.TestCase):
+    def test_flush_every_step_without_new_events(self):
+        calls = []
+        w = W.Watcher("calc", ["tk*"], [], "x", post=lambda a, p, i, t: None, snap=lambda pat: {}, prog=lambda pg: {},
+                      watch_file="/nonexistent", flush=lambda t: calls.append(t))
+        w.run_once()
+        w.run_once()
+        self.assertEqual(calls, [5, 5])
+
+
 class T(unittest.TestCase):
     def test_clean_stop_and_gc(self):
         f = Fake(); w = f.make()
