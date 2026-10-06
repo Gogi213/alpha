@@ -86,9 +86,7 @@ fn build_sparse_matches_full_rows_within_horizon() {
     let (ranges, kept, w) = build_sparse(&full, &t0s, h, 0, 0.01, 0.001);
     let whole = SignalWindows::build(full.as_slice(), &t0s, 0.01, 0.001);
     assert!(w.first_mismatch(&whole).is_none());
-    assert!(ranges
-        .windows(2)
-        .all(|p| p[0].1 < p[1].0 || p[0].1 == p[1].0));
+    assert!(ranges.windows(2).all(|p| p[0].1 <= p[1].0));
     let orig: Vec<u32> = ranges
         .iter()
         .flat_map(|&(a, b)| (a..b).map(|i| i as u32))

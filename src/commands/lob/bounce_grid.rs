@@ -967,6 +967,15 @@ impl<'a> GridRun<'a> {
                     w
                 }
             };
+            if let (true, Some(dir), Some(w)) = (
+                args.window_store_write,
+                args.window_store.as_ref(),
+                windows.as_ref(),
+            ) {
+                crate::commands::lob::window_store::write_day(
+                    dir, symbol, &day.day, day_parts, args, events, w,
+                )?;
+            }
             e2e::stage(
                 symbol,
                 &day.day,

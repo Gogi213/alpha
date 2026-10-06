@@ -90,6 +90,94 @@ pub fn build_sparse(
     (ranges, events, windows)
 }
 
+/// Ключ данных суток: символ, сутки, размер+mtime частей бинлога, шаг/лот, `t0` окон (FNV-1a), границы.
+fn day_key(
+    symbol: &str,
+    day: &str,
+    parts: &[std::path::PathBuf],
+    windows: &SignalWindows,
+    h_max_ns: i64,
+    back_ns: i64,
+) -> String {
+    let stamps: Vec<String> = parts
+        .iter()
+        .map(|p| match super::prep_events::file_stamp(p) {
+            Some((l, m)) => format!("{l}:{m}"),
+            None => "?".to_string(),
+        })
+        .collect();
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for w in windows.windows() {
+        for b in w.t0_ns.to_le_bytes() {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    format!(
+        "alwin1|{symbol}|{day}|{}|{:x}|{:x}|{}|{h:016x}|{h_max_ns}|{back_ns}",
+        stamps.join(","),
+        windows.tick_size.to_bits(),
+        windows.lot_size.to_bits(),
+        windows.len()
+    )
+}
+
+/// Запись хранилища окон суток из `bounce-grid --window-store-write` (окна уже построены по полной ленте):
+/// интервалы по `build_sparse`, файл, перечитывание и сверка окон и строк; в stderr — доля байт.
+pub(super) fn write_day(
+    dir: &Path,
+    symbol: &str,
+    day: &str,
+    parts: &[std::path::PathBuf],
+    args: &super::bounce_grid::BounceGridArgs,
+    full: &[CompactEvent],
+    windows: &SignalWindows,
+) -> anyhow::Result<()> {
+    let (Some(h_s), Some(b_s)) = (args.window_h_max_s, args.window_back_s) else {
+        anyhow::bail!("--window-store-write: нужны --window-h-max-s и --window-back-s");
+    };
+    let (h, back) = (h_s as i64 * 1_000_000_000, b_s as i64 * 1_000_000_000);
+    let started = std::time::Instant::now();
+    std::fs::create_dir_all(dir)?;
+    let t0s: Vec<i64> = windows.windows().iter().map(|w| w.t0_ns).collect();
+    let (ranges, kept, built) =
+        build_sparse(full, &t0s, h, back, windows.tick_size, windows.lot_size);
+    if let Some((t0, f)) = built.first_mismatch(windows) {
+        anyhow::bail!("ALWIN {symbol} {day}: окна расходятся на t0={t0}: {f}");
+    }
+    let key = day_key(symbol, day, parts, windows, h, back);
+    let path = dir.join(format!("{symbol}-{day}.alwin"));
+    write_window_file(
+        &path,
+        &key,
+        h,
+        full.len() as u64,
+        &ranges,
+        &kept,
+        windows,
+        3,
+    )?;
+    let f = read_window_file(&path, &key)?;
+    anyhow::ensure!(
+        f.events == kept,
+        "ALWIN {symbol} {day}: строки после перечитывания"
+    );
+    if let Some((t0, fld)) = f.windows.first_mismatch(windows) {
+        anyhow::bail!("ALWIN {symbol} {day}: окна после перечитывания: t0={t0} {fld}");
+    }
+    let bytes = std::fs::metadata(&path)?.len();
+    eprintln!(
+        "bounce-grid:   ALWIN: строк {} из {} ({:.2} %) · интервалов {} · окон {} · {} Б · {:.2}s",
+        kept.len(),
+        full.len(),
+        100.0 * kept.len() as f64 / full.len().max(1) as f64,
+        ranges.len(),
+        windows.len(),
+        bytes,
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
 fn put_u32(b: &mut Vec<u8>, v: u32) {
     b.extend_from_slice(&v.to_le_bytes());
 }

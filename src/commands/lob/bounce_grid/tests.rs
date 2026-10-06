@@ -131,6 +131,10 @@ fn fixture_root_approach(dir: &std::path::Path) {
 fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
     BounceGridArgs {
         prep_dir: Vec::new(),
+        window_store: None,
+        window_store_write: false,
+        window_h_max_s: None,
+        window_back_s: None,
         root: root.to_path_buf(),
         symbols: vec!["SOLUSDT".to_string()],
         median_rtt_ns: crate::lob::backtest::ExecLatency::uniform(20_000_000),
