@@ -74,3 +74,35 @@ fn bad_ranges_are_refused() {
     assert!(write_window_file(&path, "k", 1, 10, &[(5, 7), (6, 8)], &ev, &w, 3).is_err());
     assert!(write_window_file(&path, "k", 1, 10, &[(0, 3)], &ev, &w, 3).is_err());
 }
+
+#[test]
+fn build_sparse_matches_full_rows_within_horizon() {
+    let full = rows(2000);
+    let t0s: Vec<i64> = [50usize, 60, 700, 1500]
+        .iter()
+        .map(|&i| full[i].local_ts())
+        .collect();
+    let h = 30_000_000i64;
+    let (ranges, kept, w) = build_sparse(&full, &t0s, h, 0.01, 0.001);
+    let whole = SignalWindows::build(full.as_slice(), &t0s, 0.01, 0.001);
+    assert!(w.first_mismatch(&whole).is_none());
+    assert!(ranges
+        .windows(2)
+        .all(|p| p[0].1 < p[1].0 || p[0].1 == p[1].0));
+    let orig: Vec<u32> = ranges
+        .iter()
+        .flat_map(|&(a, b)| (a..b).map(|i| i as u32))
+        .collect();
+    let sp = SparseRows {
+        events: &kept,
+        orig: &orig,
+    };
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    for win in w.windows() {
+        let until = win.t0_ns + h;
+        let e = sp.expand_until(sp.skip_to(win.start), until, &mut a);
+        let f = full.as_slice().expand_until(win.start, until, &mut b);
+        assert_eq!(a, b);
+        assert_eq!(orig[e - 1] as usize, f - 1);
+    }
+}

@@ -56,6 +56,36 @@ impl EventRows for SparseRows<'_> {
     }
 }
 
+/// Подготовка суток: окна на `t0s` по полной ленте (исходные номера) и интервалы строк `[start, первая строка
+/// с local_ts > t0 + h_max_ns)` каждого окна, слитые; возвращает интервалы, склейку их строк и окна.
+pub fn build_sparse(
+    full: &[CompactEvent],
+    t0s: &[i64],
+    h_max_ns: i64,
+    tick: f64,
+    lot: f64,
+) -> (Vec<(u64, u64)>, Vec<CompactEvent>, SignalWindows) {
+    let windows = SignalWindows::build(full, t0s, tick, lot);
+    let mut ranges: Vec<(u64, u64)> = Vec::new();
+    for w in windows.windows() {
+        let until = w.t0_ns.saturating_add(h_max_ns);
+        let lo = w.start;
+        let hi = lo + full[lo..].partition_point(|e| e.local_ts() <= until);
+        if hi == lo {
+            continue;
+        }
+        match ranges.last_mut() {
+            Some(last) if last.1 >= lo as u64 => last.1 = last.1.max(hi as u64),
+            _ => ranges.push((lo as u64, hi as u64)),
+        }
+    }
+    let events = ranges
+        .iter()
+        .flat_map(|&(a, b)| full[a as usize..b as usize].iter().copied())
+        .collect();
+    (ranges, events, windows)
+}
+
 fn put_u32(b: &mut Vec<u8>, v: u32) {
     b.extend_from_slice(&v.to_le_bytes());
 }
