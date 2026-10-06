@@ -486,3 +486,38 @@ CEO: жду CI 9/9 на #18 5aaa191 (run 37524942344) → вливаю сам �
 
 ### 2026-10-07T00:21:37+04:00 ceo
 CEO: PR #20 (docs/readme, 2100b8c) — README в стиле крупных проектов (владелец: «описание вычисти и сделай красивым, убери что нового, как крупные проекты»): README 344→219 строк, «Что нового» → CHANGELOG (Keep a Changelog, версии по убыванию), детали установки/шины/табло/выпуска → docs/*.md (10 файлов). Судья, быстрая проверка фактов: каждое обещание в «Возможностях» и таблицах команд/настроек README есть в коде main; CHANGELOG 1.8.0 против git log после v1.7.1 (помощник перенёс часть пунктов в 1.7.1 по git grep тега — проверь); ссылки docs/ живые. Принято + CI 9/9 → вливаю.
+
+### 2026-10-07T00:24:21+04:00 judge
+PR #20 (docs/readme, 2100b8c) — ВЕРНУТЬ: конфликтует с main и не несёт #16. Факты, что есть, — верны.
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| PR вливаем, CI 9/9 | НЕТ | база 42f5d6b, main 28e3e27 (#16 tk077-signals влит позже): gh — CONFLICTING/DIRTY, проверок нет («no checks reported») — CI на конфликтном PR не идёт |
+| README/CHANGELOG покрывают main | НЕТ | #16 добавил в main: README-раздел «Стандарт сигналов (шина)» (при RPV_BUS_URL единственный путь к CEO — событие к_ceo в очередь ceo с приоритетом), CHANGELOG «Неизданное: Стандарт сигналов…», команду tickets.py inbox [--peek] (tickets.py:344). В #20 этого нет: таблица скриптов — new/comment/start/stop/wait/status без inbox; «Сторож … сигналы пишет в ceo-wake.log» без оговорки про шину |
+| «Возможности» и таблицы против кода main | да | 18 строк настроек = умолчания кода (DISPATCH_INTERVAL 15, MAX_PARALLEL 3, TIMEOUT 1200, MODEL claude-sonnet-5-5, ROLE_MODEL judge opus-5-5, ROTATE 120000, WATCH_INTERVAL 120, ORPHAN 2, IDLE_SLO 10, ~/.rpv-bus-token, RPV_PC/PLAIN 1, <ALIAS>_HOST, GUARD_*); команды/агенты/скрипты есть; release bump/update/rollback/check; doctor код 1/2 и --json; endurance --rounds/--hours/--idle-max/--seed/--keep/--modes; ci.yml на PR+push main, endurance.yml cron 01:00 + вручную; hooks matcher Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit; run-hook python3→python→py -3; событие служба.простой.превышен + строка idle-slo |
+| перенос части пунктов в 1.7.1 | да | supervise.py, jobrun.sh, плашка «КОМАНДА МОЛЧИТ», worktrees в страже, Ctrl+C/python.exe — все есть в теге v1.7.1 (91a0280, 3c12e47); e140764/f24774b (секреты supervise.env, плашка в поясе браузера) — после тега → верно в 1.8.0 |
+| ссылки docs/ живые | да | все относительные ссылки и якоря в README, CHANGELOG и 10 docs/*.md разобраны скриптом по дереву pr20 — битых 0 |
+
+Что сделать: перебазировать #20 на main 28e3e27; перенести #16 — раздел сигналов (в README кратко + docs/bus.md), tickets.py inbox [--peek] в таблицу скриптов, путь сигнала сторожа/CEO при шине; «Неизданное» #16 — в 1.8.0 (plugin.json уже 1.8.0); CI 9/9 → ко мне.
+Замечания (не вернуть): 1) строка «Автозапуск — Windows: вручную /rpv-start» спорит с supervise.py --install (schtasks раз в 5 мин поднимает службы после входа) — писать как у macOS/Linux: «Планировщик (supervise.py --install)»; текст унаследован. 2) 1.8.0 датирован 06.10, а тега нет: перед тегом дописать в «Исправлено» #18 (сирота после kill диспетчера, гонка метки передачи CEO) и #17 (живость по pid+времени старта), дату — днём тега.
+CEO: автор #20 — твой помощник, возврат тебе.
+
+### 2026-10-07T00:27:54+04:00 ceo
+CEO: PR #20 обновлён (1771dfc): слит с main (#16), содержание #16 — в docs/signals.md, строка в «Возможностях», CHANGELOG 1.8.0, docs/bus.md поправлен (диспетчер слушает очередь ceo без ack; tickets.py шлёт события). Конфликтов больше нет. Судья: повторно только факты по #16 + ссылки; принято + CI 9/9 → вливаю после просмотра владельцем.
+
+### 2026-10-07T00:30:41+04:00 judge
+PR #20 (docs/readme, 1771dfc) — ПРИНЯТО, влить при CI 9/9 (на 00:3x идёт, 9 клеток in_progress; PR MERGEABLE, база = main 28e3e27, меняются только .md — 13 файлов, кода нет).
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| конфликт с main снят | да | merge-base pr20 = origin/main 28e3e27; gh MERGEABLE; CI запущен |
+| #16 перенесён | да | README «Возможности» — строка «Сигналы CEO» → docs/signals.md; таблица скриптов — inbox [--peek]; CHANGELOG 1.8.0 «Добавлено/Изменено/Исправлено» несут стандарт сигналов, tickets.py-события, слушатель ceo без ack, порог 2 ч, свёртку первой пачки |
+| факты docs/signals.md против кода main | да | NORMAL_KINDS dispatch.py:521 = 7 видов, прочие urgent; append_ceo_inbox 552–564: шина → к_ceo + строка wake «(очередь шины: tickets.py inbox)», не приняла → [запасной путь]; ceo_queue_wake 537 «адрес #seq»; bus_link.py:118 «в очереди ceo N событий»; tickets.py inbox 76–114 (СРОЧНО/обычное #seq, .ceo-inbox-fallback-seen, без шины — новые строки ceo-inbox.md, шина недоступна → 1); comment 160–180 (авто-next Судьи в todo/in_progress/in_review/waiting, сдано/статус/вопрос_владельцу, к_ceo при --next ceo — диспетчер); wait 237 «статус»; ceo_signal_guard Write/Edit/Bash/PowerShell, чтение свободно; bus.py CEO_STALE_AFTER у ceo, --stale-after 600; RPV_BUS_DISABLE; команда с абс. путём — role_context.py:147 |
+| docs/bus.md | да | слушатель ceo без ack + подтверждает CEO inbox; tickets.py шлёт 3 события; порог ceo 2 ч / 600 с |
+| ссылки | да | скрипт по дереву pr20: 83 относительные ссылки и якоря в README, CHANGELOG, docs/*.md — битых 0 |
+
+Замечания (не вернуть): 1) signals.md «шина недоступна — код 1»: при шине и пустой очереди inbox тоже возвращает 1 (tickets.py:113) — дописать «пусто — тоже 1», иначе CEO примет пустую очередь за сбой. 2) docs/bus.md «задача.<TK>.к_ceo — запись с --next ceo» (унаследовано из README main:212) спорит с signals.md: к_ceo — любой сигнал append_ceo_inbox. 3) README:27/:99 «сторож пишет сигналы в ceo-wake.log» — при шине его сигналы идут через append_ceo_inbox в очередь, в wake — только будильник. 4) прежние: Windows-автозапуск «вручную /rpv-start» при supervise.py --install; 1.8.0 датирован 06.10 без тега — перед тегом дописать #18/#17 в «Исправлено» и дату дня тега.
+CEO: влить после 9/9 и просмотра владельцем; тикет — дальше ждёт tk076-pr18-merged.flag (Инженер).
+
+### 2026-10-07T00:39:56+04:00 ceo
+CEO (авто): CI на #18 5aaa191 красный (completed:failure) — разбор.
