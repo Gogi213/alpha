@@ -6,7 +6,7 @@
 
   alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
-  alsched.py ps | cancel <id> | daemon
+  alsched.py ps | cancel <id> | reprio <id> <prio> | daemon
 Состояние: $SCHED_DIR (/data/sched): jobs/<id>.json (создаёт CLI, дальше пишет только демон), cancel/<id>, logs/<id>.log, rc/<id>.
 """
 import argparse, json, math, os, re, subprocess, sys, time
@@ -14,6 +14,7 @@ import argparse, json, math, os, re, subprocess, sys, time
 DIR = os.environ.get("SCHED_DIR", "/data/sched")
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
 DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
+WAIT_ALERT_S = 600
 DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий на диск; 16 = калибровка R1 06.10 (tk071-calib: P=16 на одном HDD, 51 ед/мин, 18 МБ/с, iowait 2 %, ЦП 92 % — упор в ЦП, не в диск); 0 = без лимита
 FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
               else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
@@ -99,17 +100,56 @@ class Core:
         used = {c for j in self.running("prod") for c in j["cpus"]}
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
+        for j in self.jobs.values():                      # приоритет можно менять на ходу: prio/<id> (alsched.py reprio)
+            pj = f"{DIR}/prio/{j['id']}"
+            if j["state"] == "queued" and os.path.exists(pj):
+                try:
+                    j["prio"] = int(open(pj).read().strip())
+                except ValueError:
+                    pass
+        reserve = None                                    # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             free = [c for c in range(self.ncpu) if c not in used]
-            if len(free) - legacy < j["cores"] or mem + j["mem"] > self.mem:
+            room = len(free) - legacy
+            disk_full = bool(self.slots and j["disk"] != "none"
+                             and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots)
+            fits = room >= j["cores"] and mem + j["mem"] <= self.mem and not disk_full
+            if fits and reserve is not None and j["max_runtime"] > reserve["shadow"] \
+                    and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):
+                fits = False                              # заняла бы место первой заявки и не успела бы до её старта
+            if not fits:
+                if reserve is None and not disk_full:
+                    reserve = self.reservation(j, room, mem, now)
                 continue
-            if self.slots and j["disk"] != "none" and sum(1 for r in self.running("prod") if r["disk"] == j["disk"]) >= self.slots:
-                continue
+            if reserve is not None and j["max_runtime"] > reserve["shadow"]:
+                reserve["cores"] -= j["cores"]
+                reserve["mem"] -= j["mem"]
             j.update(state="running", t_start=now, cpus=free[: j["cores"]])
             used |= set(j["cpus"])
             mem += j["mem"]
             be.start(j)
+        self.alert_waiting(now)
+
+    def reservation(self, h, room, mem, now):
+        """Когда первая заблокированная заявка h сможет стартовать (по остаткам max_runtime идущих) и сколько ядер/памяти
+        останется сверх неё к этому времени. Не найдётся (чужие юниты держат ядра) — резерва нет."""
+        cores, gb, shadow = room, self.mem - mem, 0
+        for t, c, m in sorted((j["max_runtime"] - j.get("active_s", 0), len(j["cpus"]), j["mem"]) for j in self.running("prod")):
+            if cores >= h["cores"] and gb >= h["mem"]:
+                break
+            cores, gb, shadow = cores + c, gb + m, t
+        if cores < h["cores"] or gb < h["mem"]:
+            return None
+        return dict(shadow=shadow, cores=cores - h["cores"], mem=gb - h["mem"])
+
+    def alert_waiting(self, now):
+        """п.8(а): годная заявка (влезает в машину) ждёт старта > WAIT_ALERT_S — строка в alerts.log, один раз."""
+        for j in self.jobs.values():
+            if j["state"] == "queued" and j["cls"] == "prod" and not j.get("alerted") and now - j["t_submit"] > WAIT_ALERT_S \
+                    and j["cores"] <= self.ncpu and j["mem"] <= self.mem:
+                j["alerted"] = True
+                self.be.alert(f"заявка {j['id']} {j['name']} ({j['cores']} ядер, prio {j.get('prio', 5)}) ждёт старта {int((now - j['t_submit']) / 60)} мин")
 
     def free_cores(self):
         return self.ncpu - sum(len(j["cpus"]) for j in self.running("prod")) - math.ceil(self.be.legacy_busy())
@@ -178,6 +218,10 @@ class SystemdBackend:
 
     def now(self):
         return time.time()
+
+    def alert(self, text):
+        with open(f"{DIR}/alerts.log", "a") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + text + "\n")
 
     def cancelled(self, j):
         return os.path.exists(f"{DIR}/cancel/{j['id']}")
@@ -435,16 +479,21 @@ class SystemdBackend:
         t = time.time()
         if t - self._t < TICK and self._legacy:
             return self._legacy
-        tot = 0
+        tot, dt = 0, max(t - self._t, 1e-3)
         for u in self.units(LEGACY_PAT):
             if u.startswith("tk0s-"):
                 continue
-            v = sh("systemctl", "show", "-p", "CPUUsageNSec", "--value", u).stdout.strip()
-            if v.isdigit():
-                tot += (int(v) - self._cpu.get(u, int(v))) if u in self._cpu else 0
-                self._cpu[u] = int(v)
-        dt = max(t - self._t, 1e-3)
-        self._legacy, self._t = tot / 1e9 / dt, t
+            v = sh("systemctl", "show", "-p", "CPUUsageNSec", "-p", "CPUQuotaPerSecUSec", u).stdout
+            kv = dict(l.split("=", 1) for l in v.splitlines() if "=" in l)
+            cur = kv.get("CPUUsageNSec", "")
+            used = 0.0
+            if cur.isdigit():
+                used = (int(cur) - self._cpu.get(u, int(cur))) / 1e9 / dt if u in self._cpu else 0.0
+                self._cpu[u] = int(cur)
+            q = kv.get("CPUQuotaPerSecUSec", "infinity")
+            quota = float(q[:-1]) if q.endswith("s") and q[:-1].replace(".", "").isdigit() else 0.0   # «12s» = 1200 %
+            tot += max(used, quota)       # голый юнит держит ядра по квоте (заморожен — всё равно держит), без квоты — по факту
+        self._legacy, self._t = tot, t
         return self._legacy
 
 
@@ -563,6 +612,10 @@ def main():
             time.sleep(1)
     if a[0] == "ps":
         return ps() or 0
+    if a[0] == "reprio":     # alsched.py reprio <id> <prio>: меньше = раньше; демон читает на ближайшем такте
+        os.makedirs(f"{DIR}/prio", exist_ok=True)
+        open(f"{DIR}/prio/{a[1]}", "w").write(a[2] + "\n")
+        return 0
     if a[0] == "cancel":
         os.makedirs(f"{DIR}/cancel", exist_ok=True)
         open(f"{DIR}/cancel/{a[1]}", "w").close()

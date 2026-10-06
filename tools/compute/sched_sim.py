@@ -17,8 +17,10 @@ class SimBE:
         self.legacy = 0.0
         self.started = []
         self.killed = []
+        self.alerts = []
 
     def now(self): return self.t
+    def alert(self, t): self.alerts.append(t)
     def cancelled(self, j): return False
     def legacy_busy(self): return self.legacy
     def start(self, j): self.jobs[j["id"]] = dict(left=j["dur"])
@@ -43,6 +45,22 @@ class SimBE:
 def job(i, name, cls, cores, mem, disk, dur, t, mr=None):
     return dict(max_runtime=mr or dur * 2, active_s=0, id=i, name=name, cls=cls, cores=cores if cls == "prod" else NCPU, mem=mem, disk=disk, cmd="", cwd="/",
                 prio=0 if cls == "measure" else 5, state="queued", t_submit=t, cpus=[], dur=dur)
+
+
+def wide_behind_narrow(prio_wide):
+    """Случай 21:58: 16 узких идут, 100 узких в очереди (prio 5), позже подана широкая на 4 ядра. Backfill: широкая (prio выше)
+    стартует, когда освободятся 4 ядра, узкие не отодвигают её старт."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56)
+    for i in range(116):
+        core.add(job("n%03d" % i, "narrow", "prod", 1, 2, "none", 600, 0, mr=1200))
+    wide = job("wide", "wide", "prod", 4, 8, "none", 900, 60, mr=3600); wide["prio"] = prio_wide
+    for _ in range(int(7200 / S.TICK)):
+        if be.t == 60:
+            wide["t_submit"] = be.t; core.add(wide)
+        core.tick(); be.advance(core, S.TICK)
+        if wide["state"] != "queued":
+            break
+    return wide.get("t_start", 9e9) - 60, be.alerts
 
 
 def run():
@@ -107,6 +125,10 @@ def run():
     killed_ok = set(kb.killed) == {"long", "w"}
     print("max_runtime: убиты", sorted(kb.killed), "ок" if killed_ok else "ПРОВАЛ")
     ok = all(chk) and killed_ok and all(w <= 120 for w in waits.values()) and util >= 0.8 and meas_overlap == 0
+    w3, _ = wide_behind_narrow(3)
+    w5, al = wide_behind_narrow(5)
+    print(f"широкая 4 ядра за 100 узкими: prio 3 стартовала через {w3:.0f} с после подачи; prio 5 (FIFO) — {w5:.0f} с, сигнал ожидания: {len(al)}")
+    ok = ok and w3 <= 600 + 2 * S.TICK and len(al) >= 1
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 
