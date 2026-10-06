@@ -239,7 +239,7 @@ class SystemdBackend:
         return (int(c) / 1e9 if c.isdigit() else 0.0), rb, rn
 
     def cg_io(self):
-        """io.stat (rbytes, rios) всех cgroup от корня: v2 считает cgroup отдельно от потомков → сумма без двойного счёта."""
+        """io.stat (rbytes, rios) всех cgroup от корня (иерархические значения)."""
         out = {}
         for dp, _dn, fn in os.walk("/sys/fs/cgroup"):
             if "io.stat" not in fn:
@@ -257,22 +257,45 @@ class SystemdBackend:
             out[dp[len("/sys/fs/cgroup"):] or "/"] = (rb, rn)
         return out
 
-    def culprits(self, j, c0, c1, host_rn, host_rb):
-        """Топ чужих читателей окна: cgroup (юнит/сессия ssh), остаток = ядро, своп, исчезнувшие cgroup."""
+    def culprits(self, j, c0, c1, host_rn, host_rb, t0=None):
+        """Топ чужих читателей окна: cgroup (юнит/сессия ssh), остаток = ядро, своп. io.stat иерархичен (родитель = сам + потомки) →
+        считаем «сам» = родитель минус прямые дети; чтение исчезнувшей cgroup оседает в «сам» родителя."""
         me = self.unit(j)
+
+        def own_part(c):
+            kids = {}
+            for k, (rb, rn) in c.items():
+                par = k.rsplit("/", 1)[0] or "/"
+                if k != "/":
+                    a = kids.setdefault(par, [0, 0])
+                    a[0] += rb
+                    a[1] += rn
+            return {k: (rb - kids.get(k, (0, 0))[0], rn - kids.get(k, (0, 0))[1]) for k, (rb, rn) in c.items()}
+
+        e0, e1 = own_part(c0), own_part(c1)
+        me_alive = any(me in k for k in c1)
         rows, sn, sb = [], 0, 0
-        for k, (rb, rn) in c1.items():
-            b0, n0 = c0.get(k, (0, 0))
+        for k, (rb, rn) in e1.items():
+            b0, n0 = e0.get(k, (0, 0))
             dn, db = rn - n0, rb - b0
-            if k.startswith("/system.slice/alpha-sm-") or me in k or dn <= 0:
+            if k.startswith("/system.slice/alpha-sm-") or me in k:
                 continue
-            rows.append((dn, db, k))
+            if k == "/system.slice" and not me_alive:
+                dn, db = dn - self._last_own.get(j["id"], (0.0, 0, 0))[2], db - self._last_own.get(j["id"], (0.0, 0, 0))[1]
+            if dn <= 0:
+                continue
+            rows.append((dn, db, k + (" (сессии ssh/юниты, закрытые в окне)" if k in ("/user.slice", "/system.slice") else "")))
             sn += dn
             sb += db
         rows.sort(reverse=True)
         top = [dict(cgroup=k, ops=dn, mb=round(db / 1e6, 1)) for dn, db, k in rows[:3]]
         if host_rn - sn > 0:
-            top.append(dict(cgroup="(остаток: ядро/своп/исчезнувшие cgroup)", ops=host_rn - sn, mb=round((host_rb - sb) / 1e6, 1)))
+            top.append(dict(cgroup="(остаток: ядро/своп)", ops=host_rn - sn, mb=round((host_rb - sb) / 1e6, 1)))
+        if t0 is not None:
+            r = sh("journalctl", "-u", "ssh", "-u", "sshd", "--no-pager", "-o", "cat", "--since", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t0)))
+            ips = [l.split(" from ")[1].split()[0] for l in r.stdout.splitlines() if "Accepted " in l and " from " in l]
+            if ips:
+                top.append(dict(cgroup=f"(ssh-входов за окно: {len(ips)}; с {', '.join(sorted(set(ips))[:3])})", ops=0, mb=0.0))
         return top
 
     def foreign_units(self, j):
@@ -299,7 +322,7 @@ class SystemdBackend:
         d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
                  daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
-        d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"])
+        d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
         ok, why = judge_window(d)
         os.makedirs(f"{DIR}/validity", exist_ok=True)
         json.dump(dict(ok=ok, why=why, **{k: (sorted(v) if isinstance(v, set) else v) for k, v in d.items()}),
