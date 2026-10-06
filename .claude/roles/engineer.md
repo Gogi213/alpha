@@ -10,6 +10,7 @@
   `bash tools/vps-check.sh <дерево> all` (В-147).
 - Выкладка: сборка на VPS → бинарник на машину счёта → гейт «байт в байт» против прежнего. Ускорение без гейта не
   принимается (`docs/efficiency-register.md`).
+- Плагин команды (role-play-vibing): клон — внутри alpha, `git clone <url> .claude/worktrees/rpv`; хук `delete_guard` разрешает там `reset --hard`/`clean`/правки (TK-070 п.5). На сервере счёта работать в `/data/tk0*`, `/root/tk0*`, `/tmp/`.
 - «Раунд ревью» — по просьбе, порядок `.claude/roles/review-round.md`.
 - Денежных выводов не делаешь. Итог — в лог тикета: «Итог · хеш · тесты · что осталось». С `reviewer: judge` —
   договор первой записью и самопроверка перед `in_review` (README).
