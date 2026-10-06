@@ -325,12 +325,17 @@ def _event_met(alias: str, what: str, arg: str) -> bool:
         return key in _EVENT_MET
 
 
+def _drop_event(alias: str, what: str, arg: str) -> None:
+    with _EVENT_LOCK:
+        _EVENT_MET.pop((alias, what, _unit_base(arg) if what == "unit" else arg), None)
+
+
 def _wait_poller() -> None:
     """Подстраховка: ssh-опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S в своём потоке, результат — в _WAIT_CACHE."""
     while True:
         for ckey in list(_WAIT_WATCH):
-            if _event_met(*ckey):
-                continue
+            if _event_met(*ckey) and ckey[1] != "unit":
+                continue  # юнит проверяем и при событии: новый запуск с тем же именем сбрасывает прежнее событие
             try:
                 _host_probe(*ckey)
             except Exception as e:
@@ -416,6 +421,8 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
                 _wait_err(label, f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
             else:
                 result = state not in _UNIT_RUNNING
+                if not result:  # юнит работает — «остановлен» от прежнего экземпляра с этим именем недействительно
+                    _drop_event(alias, what, arg)
         elif r.returncode == 0:
             progress = _progress_done(out) if arg.endswith(".json") else None
             result = True if progress is None else progress
@@ -1165,6 +1172,9 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     try:
         launch_tkt = T.read_ticket(ticket_path)
         status_at_launch = launch_tkt.status
+        if role == launch_tkt.owner and status_at_launch == "todo":
+            # TK-070 п.6: «в работе» ставит диспетчер при старте владельца — роль не обязана менять todo (раньше: повтор → blocked)
+            T.write_header_updates(ticket_path, {"status": "in_progress"}, now=now)
         executor = launch_tkt.executor
         effort = effort_for(role, launch_tkt)
         # v2: «роль оставила запись» — новый заголовок записи ЭТОЙ роли (ключи на старте), а не рост лога
@@ -1358,6 +1368,14 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
         save_state(state)
         return
     tkt = T.read_ticket(path)
+    if (role == tkt.owner and tkt.status == "waiting" and not (tkt.header.get("wait_for") or "").strip()
+            and not tkt.next_role):
+        # TK-070 п.3: ожидание без условия пробуждения — отказ (иначе тикет молчит до эскалации); вернуть в работу
+        T.write_header_updates(path, {"status": "in_progress"}, now=now)
+        T.append_log(path, "dispatcher", "status: waiting без wait_for и без next — отказ: ожидание без условия "
+                     "пробуждения не принимается; тикет возвращён в in_progress. Задай условие "
+                     "`tickets.py wait <ID> <форма>` (формы — README диспетчера) или передай `--next <роль>`.", now=now)
+        tkt = T.read_ticket(path)
 
     # аудит 03.10: запуск ЛЮБОЙ роли (владелец, ревьюер, адресат `--next`) без новой записи — провал: один повтор,
     # затем blocked (раньше чужой холостой запуск молчал, и тикет `in_review` висел вечно).

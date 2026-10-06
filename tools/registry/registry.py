@@ -85,6 +85,8 @@ def main():
     q.add_argument("query")
     lc = sp.add_parser("load-cells", help="файл --cells -> cells.jsonl/run_cells.jsonl")
     lc.add_argument("file"); lc.add_argument("--run", required=True); lc.add_argument("--hyp"); lc.add_argument("--logic", default="bounce-v1"); lc.add_argument("--cmd-file", help="текст команды/скрипта: опции и --set клеток")
+    lr = sp.add_parser("load-results", help="каталог агрегатов agg_tk040.py -> results.jsonl")
+    lr.add_argument("dir"); lr.add_argument("--run", required=True); lr.add_argument("--logic", default="bounce-v1")
     f = sp.add_parser("find", help="поиск по всем полям (подстрока, без регистра); несколько слов = И")
     f.add_argument("words", nargs="+")
     f.add_argument("--status")
@@ -111,6 +113,8 @@ def main():
                 print("	".join("" if v is None else str(v) for v in r))
     elif ns.cmd == "load-cells":
         print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic, ns.cmd_file))
+    elif ns.cmd == "load-results":
+        print("результатов +%d, повторов пропущено %d" % db.load_results(ns.dir, ns.run, ns.logic))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():

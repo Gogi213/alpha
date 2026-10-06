@@ -12,7 +12,7 @@ for x in A B; do
   W=/dev/shm/alpha-run/t49-$T-$x; rm -rf $W; mkdir -p $W/b5 $W/bin
   ln -s $ST/study $W/study; ln -s $ST/root $W/root; ln -s /opt/alpha-compute/bin/$BIN $W/bin/alpha-tk044k1-new
   { sed -n 1,3p $J | sed "s#b5/.cellstmp-$D.log#$R/grid-$x.log#"; } | sed "s#--busy-skip off#--busy-skip on --round-memo off#; s#--exit-group on#--exit-group off#" > $W/run.sh
-  E=""; [ $x = B ] && E="ALPHA_SHARED_ENGINE=1 ALPHA_SHARED_STATS=1 ALPHA_SHARED_K=${ALPHA_SHARED_K:-3} ${PATHSTATS:+ALPHA_PATH_STATS=1} ${EXTRA}"
+  E="${COMMON}"; [ $x = B ] && E="$E ALPHA_SHARED_ENGINE=1 ALPHA_SHARED_STATS=1 ALPHA_SHARED_K=${ALPHA_SHARED_K:-3} ${PATHSTATS:+ALPHA_PATH_STATS=1} ${EXTRA}"
   cat > $W/unit.sh <<EOS
 cd $W || exit 2
 export HOME=$H $E
@@ -24,5 +24,5 @@ done
 wait
 for x in A B; do echo "== $x"; cat $R/time-$x.txt; done > $R/metrics.txt
 diff -rq /dev/shm/alpha-run/t49-$T-A/b5/.cellstmp-$D /dev/shm/alpha-run/t49-$T-B/b5/.cellstmp-$D > $R/diff.txt 2>&1; echo "gate diff_rc $? files $(find /dev/shm/alpha-run/t49-$T-A/b5/.cellstmp-$D -type f | wc -l)" >> $R/metrics.txt
-grep -h SHARED_STATS $R/run-B.err | wc -l | sed 's/^/shared_stats_lines /' >> $R/metrics.txt
+grep -h SHARED_STATS $R/run-B.err $R/grid-B.log | wc -l | sed 's/^/shared_stats_lines /' >> $R/metrics.txt
 rm -rf /dev/shm/alpha-run/t49-$T-A /dev/shm/alpha-run/t49-$T-B; touch $R/.done

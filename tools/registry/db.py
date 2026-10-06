@@ -135,3 +135,36 @@ def load_cells(path, run, hyp, logic, cmd_file=None):
                 fr.write(json.dumps({"run_id": run, "cell_id": cid, "hyp_id": hyp}, ensure_ascii=False) + "\n")
                 nrc += 1
     return nc, nrc
+
+
+def load_results(dirp, run, logic):
+    """Каталог агрегатов agg_tk040.py (<мес>.csv: группа,набор,форма,месяц,…) -> results.jsonl (+cells, run_cells)."""
+    import csv, glob
+    cells = {(d.get("form"), d.get("set_name")): d["id"] for d in jl("cells.jsonl")}
+    have_rc = {(d["run_id"], d["cell_id"]) for d in jl("run_cells.jsonl")}
+    have_r = {(d["run_id"], d["cell_id"], d["month"]) for d in jl("results.jsonl")}
+    n = dup = 0
+    op = lambda name: open(os.path.join(REGD, name), "a", encoding="utf-8", newline="\n")
+    with op("cells.jsonl") as fc, op("run_cells.jsonl") as fr, op("results.jsonl") as fo:
+        for fp in sorted(glob.glob(os.path.join(dirp, "*.csv"))):
+            for r in csv.DictReader(open(fp, encoding="utf-8")):
+                sn = r["group"] + "/" + r["set"]
+                key = (r["form"], sn)
+                cid = cells.get(key)
+                if cid is None:
+                    cell = {"logic_version": logic, "form": r["form"], "set_name": sn}
+                    cid = hashlib.sha256(json.dumps(cell, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+                    cells[key] = cid
+                    fc.write(json.dumps({"id": cid, **cell}, ensure_ascii=False) + "\n")
+                if (run, cid) not in have_rc:
+                    have_rc.add((run, cid))
+                    fr.write(json.dumps({"run_id": run, "cell_id": cid, "hyp_id": None}, ensure_ascii=False) + "\n")
+                if (run, cid, r["month"]) in have_r:
+                    dup += 1
+                    continue
+                have_r.add((run, cid, r["month"]))
+                ext = {k: r[k] for k in ("group", "days", "symdays", "sum_net_bps", "n_signals", "n_stop", "n_take", "n_trail", "n_deadline")}
+                fo.write(json.dumps({"run_id": run, "cell_id": cid, "month": r["month"], "trades": int(r["n_fills"]),
+                                     "ext": ext}, ensure_ascii=False) + "\n")
+                n += 1
+    return n, dup

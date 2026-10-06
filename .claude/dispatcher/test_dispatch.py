@@ -3698,6 +3698,21 @@ class WaitByEventTest(unittest.TestCase):
         self.assertTrue(D.check_wait_for("host:calc:unit:tk1-a.service"))
         self.assertFalse(D.check_wait_for("host:vps:unit:tk1-a"))
 
+    def test_stale_unit_event_dropped_when_new_instance_runs(self):
+        """TK-070: событие «остановлен» от прежнего экземпляра юнита не держит ожидание, когда юнит с тем же именем снова работает."""
+        D.WAIT_ASYNC = True
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk065-gate2.service", "host": "calc"}})
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk065-gate2"))
+
+        class R:
+            returncode, stdout, stderr = 0, b"active", b""
+        D.subprocess.run = lambda *a, **k: R()
+        D._host_probe("calc", "unit", "tk065-gate2")
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk065-gate2"))
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk065-gate2.service", "host": "calc"}})
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk065-gate2"))
+
+
     def test_job_done_and_file_events(self):
         D.WAIT_ASYNC = True
         D.record_wait_event({"addr": "задача.TK-1.задание.готово", "payload": {"job": "j1", "host": "calc"}})
