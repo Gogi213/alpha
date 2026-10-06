@@ -3069,7 +3069,10 @@ fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
     assert!(close(fresh_entry_qty(plan, 10.0), 3.0), "10/3 вниз до лота");
     assert!(close(fresh_entry_qty(plan, 2.0), 1.0), "не меньше лота");
     let off = pyr_plan(3);
-    assert!(close(fresh_entry_qty(off, 10.0), 10.0), "без fresh — как есть");
+    assert!(
+        close(fresh_entry_qty(off, 10.0), 10.0),
+        "без fresh — как есть"
+    );
     let (mut hbt, mut state) = pyr_state(3, 11.0);
     state.plan = plan;
     state.entry_qty = 3.0;

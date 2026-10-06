@@ -2676,9 +2676,7 @@ where
 fn fresh_entry_qty(plan: TradePlan, qty: f64) -> f64 {
     match plan {
         TradePlan::Bounce {
-            pyramid,
-            lot_qty,
-            ..
+            pyramid, lot_qty, ..
         } if pyramid.fresh && pyramid.eat_parts > 0 => {
             let raw = qty / f64::from(pyramid.eat_parts);
             if lot_qty > 0.0 {
