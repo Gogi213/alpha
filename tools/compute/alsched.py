@@ -185,17 +185,22 @@ class SystemdBackend:
     def unit(self, j):
         return ("alpha-sm-" if j["cls"] == "measure" else "tk0s-") + f"{j['name']}-{j['id']}"
 
+    def slice(self, j):
+        return f"alsm{j['id']}.slice"     # замер и вложенные systemd-run волны — одна cgroup: учёт ЦП/диска/памяти волны целиком
+
     def start(self, j):
         os.makedirs(f"{DIR}/logs", exist_ok=True)
         os.makedirs(f"{DIR}/rc", exist_ok=True)
         cpus = ",".join(map(str, j["cpus"]))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
-        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
+        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
-        inner = f"{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
+        pre = f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n" if j["cls"] == "measure" else ""
+        inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
         if j["cls"] == "measure":
             self.arm_failsafe(j["max_runtime"] + 2 * TICK)
-        r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", f"--working-directory={j['cwd']}",
+        sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
+        r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
                "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", f"CPUQuota={len(j['cpus']) * 100}%",
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
@@ -243,6 +248,13 @@ class SystemdBackend:
         u = self.unit(j)
         c = sh("systemctl", "show", "-p", "CPUUsageNSec", "--value", u).stdout.strip()
         cg = sh("systemctl", "show", "-p", "ControlGroup", "--value", u).stdout.strip()
+        if j["cls"] == "measure" and cg not in ("", "/"):
+            cg = "/" + self.slice(j)
+            try:
+                m = re.search(r"usage_usec (\d+)", open(f"/sys/fs/cgroup{cg}/cpu.stat").read())
+                c = str(int(m.group(1)) * 1000) if m else c
+            except OSError:
+                pass
         rb = rn = 0
         try:
             if cg in ("", "/"):
@@ -294,7 +306,7 @@ class SystemdBackend:
         for k, (rb, rn) in e1.items():
             b0, n0 = e0.get(k, (0, 0))
             dn, db = rn - n0, rb - b0
-            if k.startswith("/system.slice/alpha-sm-") or me in k:
+            if k.startswith("/system.slice/alpha-sm-") or me in k or self.slice(j) in k:
                 continue
             if k == "/system.slice" and not me_alive:
                 dn, db = dn - self._last_own.get(j["id"], (0.0, 0, 0))[2], db - self._last_own.get(j["id"], (0.0, 0, 0))[1]
@@ -317,6 +329,7 @@ class SystemdBackend:
     def foreign_units(self, j):
         own = {self.unit(j) + ".service"}
         return [u for u in self.units(FREEZE_PAT) if u not in own and not u.startswith("alpha-")
+                and sh("systemctl", "show", "-p", "Slice", "--value", u).stdout.strip() != self.slice(j)     # вложенные юниты самой волны
                 and sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() != "frozen"]   # замороженный не мешает
 
     def daemon_cpu(self):
@@ -340,6 +353,8 @@ class SystemdBackend:
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
         d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
         ok, why = judge_window(d)
+        if ok and d["wall_s"] >= 600:     # метка для wait_for Судьи: действительная настоящая волна (≥ 10 мин) под демоном
+            open(f"{DIR}/valid_real_wave", "a").write(j["id"] + "\n")
         os.makedirs(f"{DIR}/validity", exist_ok=True)
         json.dump(dict(ok=ok, why=why, **{k: (sorted(v) if isinstance(v, set) else v) for k, v in d.items()}),
                   open(f"{DIR}/validity/{j['id']}.json", "w"), ensure_ascii=False)
@@ -365,6 +380,8 @@ class SystemdBackend:
         cg = sh("systemctl", "show", "-p", "ControlGroup", "--value", self.unit(j)).stdout.strip()
         if cg in ("", "/"):
             return
+        if j["cls"] == "measure":
+            cg = "/" + self.slice(j)
         st = dict(l.split() for l in open(f"/sys/fs/cgroup{cg}/memory.stat"))
         gb = (int(st["anon"]) + int(st.get("shmem", 0))) / 2**30
         self._peak[j["id"]] = max(gb, self._peak.get(j["id"], 0.0))
