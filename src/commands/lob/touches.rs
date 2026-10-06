@@ -54,6 +54,7 @@ mod row;
 
 pub(crate) use abin::read_approaches_cached;
 pub(crate) use read::{read_approaches_csv, read_touches_csv, ApproachRow, TouchRow};
+pub(crate) use row::r1_cells;
 
 /// Аргументы `lob touches`: читает суточные файлы, пишет касания живых
 /// уровней с признаками практиков. Режим `H3` — без умолчания, как у
@@ -152,6 +153,13 @@ pub struct TouchesArgs {
     /// с `--emit-day` — только эти сутки. Отдельный проход по файлам: без флага байты прежние.
     #[arg(long)]
     pub minute_flow: Option<PathBuf>,
+    /// Пакет признаков R1 (TK-025): 61 целая колонка (FLOW_N + LEVEL_N) на кадре взвода (`arm_ms`), у всех подходов, в КОНЕЦ `approaches-<SYMBOL>.csv`, после
+    /// колонок П-08, в порядке `ArmR1::names()` (определения —
+    /// `docs/findings/tk025-design-2026-10-02.md`). Пустая клетка — «не определено». Трекер
+    /// включает счёт (`LevelTracker::enable_r1`) — цена по времени и памяти; без флага ни
+    /// состояния, ни колонок: файл подходов — прежние байты. Нужен `--approach-bps`.
+    #[arg(long, default_value_t = false)]
+    pub r1_cols: bool,
 }
 
 /// Итог `lob touches` для печати диспетчером.
@@ -464,7 +472,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             &args.root,
             &args.symbol,
             &cfgs,
-            ReplayKeep::ALL.with_carry_age(args.carry_age),
+            ReplayKeep::ALL
+                .with_carry_age(args.carry_age)
+                .with_r1(args.r1_cols),
         )?;
         anyhow::ensure!(
             stats.len() == cfgs.len(),
@@ -478,7 +488,9 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             &args.root,
             &args.symbol,
             std::slice::from_ref(&cfg),
-            ReplayKeep::ALL.with_carry_age(args.carry_age),
+            ReplayKeep::ALL
+                .with_carry_age(args.carry_age)
+                .with_r1(args.r1_cols),
         )?
     };
     // Кэш одних суток из корня с прошлыми сутками (перенос возраста): остальные сутки —
@@ -533,7 +545,16 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
     if let Some(paths) = &approaches_out {
         for path in paths {
             let mut w = csv::Writer::from_path(path)?;
-            w.write_record(APPROACHES_COLUMNS)?;
+            if args.r1_cols {
+                w.write_record(
+                    APPROACHES_COLUMNS
+                        .iter()
+                        .copied()
+                        .chain(crate::lob::r1::ArmR1::names()),
+                )?;
+            } else {
+                w.write_record(APPROACHES_COLUMNS)?;
+            }
             wa.push(w);
         }
     }
@@ -569,7 +590,11 @@ pub fn run_touches(args: &TouchesArgs) -> anyhow::Result<TouchesSummary> {
             };
             for a in &band_day.approaches {
                 let row = row::approach_row(&band_day.day, a);
-                writer.write_record(row)?;
+                if args.r1_cols {
+                    writer.write_record(row.into_iter().chain(row::r1_cells(a.r1.as_ref())))?;
+                } else {
+                    writer.write_record(row)?;
+                }
                 n_ap += 1;
             }
         }

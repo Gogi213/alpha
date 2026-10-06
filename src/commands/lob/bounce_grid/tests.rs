@@ -163,6 +163,7 @@ fn args(root: &std::path::Path, allow_unverified: bool) -> BounceGridArgs {
         hold_step: "poll".to_string(),
         exit_group: "off".to_string(),
         p08_cols: false,
+        r1_cols: false,
         regime_from: None,
         deadline_secs: Vec::new(),
         h3: H3Args {
@@ -631,6 +632,7 @@ fn touches_cache_gives_byte_identical_rounds() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     let mut a = base("grid-cache");
@@ -726,6 +728,7 @@ fn sigma_ladder_reads_entry_sigma_from_the_side_table() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1);
@@ -847,6 +850,7 @@ fn approach_signal_arms_on_the_f1_record_and_fills_the_ladder() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
@@ -1153,6 +1157,7 @@ fn filter_sets_match_separate_grids_byte_for_byte() {
             usd_min: None,
             behind_min_pct: None,
             stack_min: None,
+            r1: Vec::new(),
             ctx: [Range::default(); CTX_AXES.len()],
         }
     );
@@ -3329,6 +3334,7 @@ fn p08_cols_in_signals_csv() {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     let ap_path = summary.approaches_out[0].clone();
@@ -3416,6 +3422,441 @@ fn p08_cols_in_signals_csv() {
     assert!(err.contains("--p08-cols"), "{err}");
     let err = grid("g-busy-on", true, false).unwrap_err().to_string();
     assert!(err.contains("--busy-skip off"), "{err}");
+}
+
+fn floor_h3() -> H3Args {
+    H3Args {
+        h3_mode: H3ModeArg::Floor,
+        h3_lots: None,
+        h3_usd: None,
+        h3_strength_pct: None,
+        h3_strength_window_bps: None,
+    }
+}
+
+/// Кэш подходов `fixture_root_approach` (одна запись, полоса 750) без колонок R1;
+/// возвращает путь к суточному файлу подходов.
+fn approach_cache(dir: &std::path::Path) -> std::path::PathBuf {
+    use crate::commands::lob::touches::{run_touches, TouchesArgs};
+    fixture_root_approach(dir);
+    let out = dir
+        .join("approaches")
+        .join("2026-09-08")
+        .join("touches-SOLUSDT.csv");
+    let summary = run_touches(&TouchesArgs {
+        root: dir.to_path_buf(),
+        symbol: "SOLUSDT".to_string(),
+        h3: floor_h3(),
+        h3_k: None,
+        warmup_ms: crate::commands::lob::DEFAULT_WARMUP_MS,
+        repeat_window_ms: crate::commands::lob::DEFAULT_REPEAT_WINDOW_MS,
+        out: Some(out),
+        approach_bps: vec![750],
+        approach_min_age_secs: 0,
+        moves: None,
+        moves_window_ms: None,
+        moves_bin_ms: None,
+        numbers: None,
+        allow_unverified: false,
+        carry_age: false,
+        emit_day: None,
+        levels_out: None,
+        minute_flow: None,
+        r1_cols: false,
+    })
+    .unwrap();
+    assert_eq!(summary.approaches, 1, "фикстура взводит ровно один подход");
+    summary.approaches_out[0].clone()
+}
+
+/// Сетка по подходам (лестница, стоп «в стену», тейк 1:1) на кэше `dir/approaches`.
+fn approach_grid(
+    dir: &std::path::Path,
+    name: &str,
+    sets: &[&str],
+    r1_cols: bool,
+    p08_cols: bool,
+    busy_off: bool,
+) -> anyhow::Result<BounceGridSummary> {
+    let mut a = args(dir, false);
+    a.signal = SignalArg::Approach;
+    a.entry_form = vec!["ladder3x2..10".to_string()];
+    a.stop_form = vec!["at".to_string()];
+    a.take_form = vec!["1to1".to_string()];
+    a.take_floor_fees = None;
+    a.deadline_secs = vec![60];
+    a.h3 = floor_h3();
+    a.warmup_ms = None;
+    a.repeat_window_ms = None;
+    a.touches_from = Some(dir.join("approaches"));
+    if busy_off {
+        a.busy_skip = "off".to_string();
+    }
+    a.sets = sets.iter().map(|s| s.to_string()).collect();
+    a.r1_cols = r1_cols;
+    a.p08_cols = p08_cols;
+    a.out_dir = dir.join(name);
+    run_bounce_grid(&a)
+}
+
+fn approach_probe() -> crate::lob::levels::ApproachRecord {
+    crate::lob::levels::ApproachRecord {
+        side: crate::book::Side::Bid,
+        price_tick: 1000,
+        approach_index: 0,
+        arm_ms: 0,
+        arm_dist_bps: 10,
+        level_birth_ms: 0,
+        size_at_arm: 100,
+        best_own_tick: 999,
+        best_opp_tick: 1010,
+        flow_1h_lots: 0,
+        strength_e2: [-1, -1, -1],
+        depth_behind_lots: 0,
+        stack_levels_at_arm: 0,
+        frontrun_lots_at_arm: 0,
+        p08: None,
+        r1: None,
+        touch_start_ms: None,
+        disarm_ms: 100,
+        disarm_reason: crate::lob::levels::ApproachEnd::PriceLeft,
+    }
+}
+
+/// TK-025: ключи `r1_<колонка>_min|_max` — разбор (обе границы любой колонки, границы `i64`, порядок
+/// колонок вместо порядка записи), отказы (неизвестная колонка с перечнем, `R1_UNDEF`-порог, `min > max`,
+/// повтор, не целое), условие `admits_r1` («равно проходит», `R1_UNDEF` и запись без R1 — нет) и шапка набора.
+#[test]
+fn r1_keys_parse_bounds_and_refuse() {
+    use super::sets::{R1Bound, TouchFilter};
+    use crate::lob::r1::{ArmR1, FLOW_N, R1_UNDEF};
+    let names: Vec<&str> = ArmR1::names().collect();
+    let at = |n: &str| names.iter().position(|x| *x == n).unwrap();
+
+    let s =
+        FilterSet::parse("g:r1_obi1_bp_min=500,r1_obi1_bp_max=900,r1_tape_press_lots_30s_min=-5")
+            .unwrap();
+    assert!(s.uses_r1());
+    assert_eq!(
+        s.r1,
+        vec![
+            R1Bound {
+                col: at("tape_press_lots_30s"),
+                min: Some(-5),
+                max: None
+            },
+            R1Bound {
+                col: at("obi1_bp"),
+                min: Some(500),
+                max: Some(900)
+            },
+        ],
+        "границы — по порядку колонок, не по порядку записи"
+    );
+    assert!(!FilterSet::parse("n:").unwrap().uses_r1());
+
+    for n in &names {
+        for b in ["min", "max"] {
+            let s = FilterSet::parse(&format!("x:r1_{n}_{b}=1")).unwrap();
+            assert_eq!(s.r1.len(), 1, "{n} {b}");
+        }
+    }
+    FilterSet::parse(&format!("x:r1_obi1_bp_min={}", i64::MAX)).unwrap();
+    FilterSet::parse(&format!("x:r1_obi1_bp_max={}", R1_UNDEF + 1)).unwrap();
+
+    for bad in [
+        format!("x:r1_obi1_bp_min={R1_UNDEF}"),
+        format!("x:r1_obi1_bp_max={R1_UNDEF}"),
+        "x:r1_obi1_bp_min=5,r1_obi1_bp_max=4".to_string(),
+        "x:r1_obi1_bp_max=4,r1_obi1_bp_min=5".to_string(),
+        "x:r1_obi1_bp_min=1,r1_obi1_bp_min=2".to_string(),
+        "x:r1_obi1_bp=1".to_string(),
+        "x:r1_obi1_bp_mid=1".to_string(),
+        "x:r1_obi1_bp_min=1.5".to_string(),
+        "x:r1_obi1_bp_min=".to_string(),
+        "x:r1_obi1_bp_min=a".to_string(),
+        "x:r1_obi1_bp_min".to_string(),
+        "x:r1_min=1".to_string(),
+        "x:r1__min=1".to_string(),
+        "x:r1_=1".to_string(),
+    ] {
+        assert!(FilterSet::parse(&bad).is_err(), "{bad}");
+    }
+    let err = FilterSet::parse("x:r1_nope_min=1").unwrap_err().to_string();
+    assert!(err.contains("nope"), "{err}");
+    for n in &names {
+        assert!(err.contains(n), "в тексте отказа нет колонки {n}: {err}");
+    }
+
+    // Условие на записи подхода: [500, 900] включительно; поток и уровень — обе группы колонок.
+    let mode = crate::lob::levels::H3Mode::Floor { h3_lots: 1 };
+    let set = FilterSet::parse("g:r1_obi1_bp_min=500,r1_obi1_bp_max=900,r1_cancel_60m_lots_min=7")
+        .unwrap();
+    let f = TouchFilter::from_set(&set, mode, 0.01, 1.0, &[]);
+    let rec = |obi: i64, cancel: i64| {
+        let mut r1 = ArmR1::undefined();
+        r1.flow[at("obi1_bp")] = obi;
+        r1.level[at("cancel_60m_lots") - FLOW_N] = cancel;
+        crate::lob::levels::ApproachRecord {
+            r1: Some(r1),
+            ..approach_probe()
+        }
+    };
+    assert!(f.admits_r1(Some(&rec(500, 7))), "границы включительны");
+    assert!(f.admits_r1(Some(&rec(900, 100))));
+    assert!(!f.admits_r1(Some(&rec(499, 7))));
+    assert!(!f.admits_r1(Some(&rec(901, 7))));
+    assert!(!f.admits_r1(Some(&rec(700, 6))), "колонка уровня");
+    assert!(
+        !f.admits_r1(Some(&rec(R1_UNDEF, 7))),
+        "не определено — не проходит"
+    );
+    assert!(!f.admits_r1(Some(&rec(700, R1_UNDEF))));
+    assert!(
+        !f.admits_r1(Some(&approach_probe())),
+        "нет записи R1 — не проходит"
+    );
+    assert!(!f.admits_r1(None));
+    // Минимум ниже любого значения не пускает R1_UNDEF и в этом случае.
+    let low = FilterSet::parse("l:r1_obi1_bp_min=-1000000000000").unwrap();
+    let f = TouchFilter::from_set(&low, mode, 0.01, 1.0, &[]);
+    assert!(f.admits_r1(Some(&rec(0, 0))));
+    assert!(!f.admits_r1(Some(&rec(R1_UNDEF, 0))));
+    let none = FilterSet::parse("n:").unwrap();
+    let f = TouchFilter::from_set(&none, mode, 0.01, 1.0, &[]);
+    assert!(f.admits_r1(None), "без ключей фильтр прежний");
+    assert!(f.admits_r1(Some(&approach_probe())));
+
+    // Шапка набора: только заданные ключи, порядок канонический (идентичность не зависит от записи).
+    let a = FilterSet::parse("a:r1_obi1_bp_max=900,r1_obi1_bp_min=500,r1_cancel_60m_lots_min=7")
+        .unwrap();
+    let b = FilterSet::parse("b:r1_cancel_60m_lots_min=7,r1_obi1_bp_min=500,r1_obi1_bp_max=900")
+        .unwrap();
+    assert_eq!(
+        super::plan::r1_label(&a),
+        " r1_obi1_bp_min=500 r1_obi1_bp_max=900 r1_cancel_60m_lots_min=7"
+    );
+    assert_eq!(super::plan::r1_label(&a), super::plan::r1_label(&b));
+    assert_eq!(super::plan::r1_label(&none), "");
+}
+
+/// TK-025 сквозь сетку: значения R1 кладёт в кэш сам тест (проверяются провода — чтение, фильтр набора,
+/// `signals.csv`, а не счёт признаков). Ключи пускают/режут сигналы по границам, `R1_UNDEF` не проходит
+/// даже при сколь угодно низком минимуме; `--r1-cols` дописывает 61 колонку (FLOW_N + LEVEL_N) после колонок П-08; кэш без
+/// колонок R1 и ключи/флаг — отказ с текстом, а без них счёт тот же байт в байт; флаг без `--signal
+/// approach` / `--busy-skip off` и ключи без `--signal approach` — отказ.
+#[test]
+fn r1_cols_and_keys_through_grid() {
+    use crate::commands::lob::touches::{r1_cells, read_approaches_csv};
+    use crate::lob::r1::{ArmR1, FLOW_N, LEVEL_N};
+    let dir = tempfile::tempdir().unwrap();
+    let ap_path = approach_cache(dir.path());
+    let old_text = std::fs::read_to_string(&ap_path).unwrap();
+    let p08 = read_approaches_csv(&ap_path).unwrap()[0]
+        .approach
+        .p08
+        .expect("новый кэш несёт колонки П-08");
+
+    // Тот же файл подходов, но с колонками R1: obi1_bp = 500, cancel_60m_lots = 7, остальное не определено.
+    let names: Vec<&str> = ArmR1::names().collect();
+    let at = |n: &str| names.iter().position(|x| *x == n).unwrap();
+    let mut r1 = ArmR1::undefined();
+    r1.flow[at("obi1_bp")] = 500;
+    r1.level[at("cancel_60m_lots") - FLOW_N] = 7;
+    let mut r = csv::ReaderBuilder::new()
+        .comment(Some(b'#'))
+        .from_reader(old_text.as_bytes());
+    let head = r.headers().unwrap().clone();
+    let mut w = csv::Writer::from_writer(Vec::new());
+    w.write_record(head.iter().chain(names.iter().copied()))
+        .unwrap();
+    for rec in r.records() {
+        let rec = rec.unwrap();
+        w.write_record(rec.iter().map(str::to_string).chain(r1_cells(Some(&r1))))
+            .unwrap();
+    }
+    let r1_text = w.into_inner().unwrap();
+    std::fs::write(&ap_path, &r1_text).unwrap();
+    assert_eq!(
+        read_approaches_csv(&ap_path).unwrap()[0].approach.r1,
+        Some(r1)
+    );
+
+    let body = |p: &std::path::Path| -> String {
+        std::fs::read_to_string(p)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Ключи наборов.
+    let m = approach_grid(
+        dir.path(),
+        "g-keys",
+        &[
+            "all:",
+            "ge:r1_obi1_bp_min=500",
+            "eq:r1_obi1_bp_min=500,r1_obi1_bp_max=500",
+            "above:r1_obi1_bp_min=501",
+            "below:r1_obi1_bp_max=499",
+            "undef:r1_tape_press_lots_30s_min=-1000000000",
+            "lvl:r1_cancel_60m_lots_min=7,r1_cancel_60m_lots_max=7",
+            "lvlhi:r1_cancel_60m_lots_min=8",
+        ],
+        false,
+        false,
+        false,
+    )
+    .unwrap();
+    let by = |n: &str| m.sets.iter().find(|s| s.name == n).unwrap().clone();
+    let n_signals = |n: &str| -> u64 {
+        let (h, rows) = read_csv(&by(n).forms_path);
+        rows.iter()
+            .map(|r| col(&h, r, "n_signals").parse::<u64>().unwrap())
+            .sum()
+    };
+    let all = n_signals("all");
+    assert!(all > 0, "фикстура даёт сигнал подхода");
+    for same in ["ge", "eq", "lvl"] {
+        assert_eq!(n_signals(same), all, "{same}: граница равно проходит");
+    }
+    for none in ["above", "below", "undef", "lvlhi"] {
+        assert_eq!(n_signals(none), 0, "{none}");
+    }
+    assert_eq!(body(&by("ge").rounds_path), body(&by("all").rounds_path));
+    let head = std::fs::read_to_string(&by("eq").forms_path).unwrap();
+    assert!(
+        head.contains(" usd_min=None r1_obi1_bp_min=500 r1_obi1_bp_max=500 ctx="),
+        "{head}"
+    );
+    let head = std::fs::read_to_string(&by("all").forms_path).unwrap();
+    assert!(!head.contains("r1_"), "без ключей шапка прежняя: {head}");
+
+    // `--r1-cols`: те же 11 колонок, затем (с --p08-cols — после шести колонок П-08) 61 колонка R1 (FLOW_N + LEVEL_N).
+    let signals = |m: &BounceGridSummary, name: &str| {
+        let p = m
+            .sets
+            .iter()
+            .find(|s| s.name == name)
+            .unwrap()
+            .rounds_path
+            .with_file_name("signals.csv");
+        read_csv(&p)
+    };
+    let off = approach_grid(dir.path(), "g-off", &["all:"], false, false, true).unwrap();
+    let on = approach_grid(
+        dir.path(),
+        "g-on",
+        &["all:", "ge:r1_obi1_bp_min=500", "hi:r1_obi1_bp_min=501"],
+        true,
+        false,
+        true,
+    )
+    .unwrap();
+    let both = approach_grid(dir.path(), "g-both", &["all:"], true, true, true).unwrap();
+    let (h_off, r_off) = signals(&off, "all");
+    let (h_on, r_on) = signals(&on, "all");
+    let (h_both, r_both) = signals(&both, "all");
+    assert_eq!(h_off.len(), 11, "без флага шапка прежняя: {h_off:?}");
+    assert_eq!(h_on.len(), 11 + FLOW_N + LEVEL_N);
+    assert_eq!(h_on[..11], h_off[..]);
+    let want: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+    assert_eq!(
+        h_on[11..],
+        want[..],
+        "61 колонка R1 в порядке ArmR1::names()"
+    );
+    assert_eq!(h_both.len(), 11 + 6 + FLOW_N + LEVEL_N);
+    assert_eq!(h_both[..11], h_off[..]);
+    assert_eq!(h_both[17..], want[..], "R1 — после колонок П-08");
+    assert!(!r_off.is_empty());
+    assert_eq!(r_on.len(), r_off.len());
+    assert_eq!(r_both.len(), r_off.len());
+    for ((a, b), c) in r_on.iter().zip(&r_off).zip(&r_both) {
+        assert_eq!(a[..11], b[..]);
+        assert_eq!(a[11..], r1_cells(Some(&r1)));
+        assert_eq!(c[..11], b[..]);
+        assert_eq!(c[11..17], super::outputs::p08_cells(&p08));
+        assert_eq!(c[17..], r1_cells(Some(&r1)));
+    }
+    assert_eq!(
+        signals(&on, "ge").1,
+        r_on,
+        "ключ, пускающий запись, сигналы не режет"
+    );
+    assert!(
+        signals(&on, "hi").1.is_empty(),
+        "ключ выше значения — ни одной строки"
+    );
+
+    // Отказы флага и ключей по плану сетки.
+    let err = approach_grid(dir.path(), "g-e1", &["all:"], true, false, false)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("--busy-skip off"), "{err}");
+    let mut a = args(dir.path(), false);
+    a.r1_cols = true;
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(
+        err.contains("--r1-cols") && err.contains("--signal approach"),
+        "{err}"
+    );
+    let mut a = args(dir.path(), false);
+    a.sets = vec!["k:r1_obi1_bp_min=1".to_string()];
+    let err = run_bounce_grid(&a).unwrap_err().to_string();
+    assert!(
+        err.contains("r1_") && err.contains("--signal approach"),
+        "{err}"
+    );
+
+    // Кэш без колонок R1: флаг и ключи — отказ с текстом, без них счёт прежний.
+    std::fs::write(&ap_path, &old_text).unwrap();
+    let err = approach_grid(
+        dir.path(),
+        "g-old-key",
+        &["k:r1_obi1_bp_min=1"],
+        false,
+        false,
+        false,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("колонками R1"), "{err}");
+    let err = approach_grid(dir.path(), "g-old-flag", &["all:"], true, false, true)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("колонками R1"), "{err}");
+    let old = approach_grid(dir.path(), "g-old", &["all:"], false, false, false).unwrap();
+    assert_eq!(
+        body(&old.sets[0].rounds_path),
+        body(&by("all").rounds_path),
+        "кэш без R1 и без ключей — тот же счёт, что на кэше с R1"
+    );
+
+    // Наполовину записанные колонки R1 — отказ чтения, а не «кэш без R1».
+    let (header, raw) = {
+        std::fs::write(&ap_path, &r1_text).unwrap();
+        let mut rd = csv::Reader::from_path(&ap_path).unwrap();
+        let h: Vec<String> = rd.headers().unwrap().iter().map(str::to_string).collect();
+        let rows: Vec<Vec<String>> = rd
+            .records()
+            .map(|r| r.unwrap().iter().map(str::to_string).collect())
+            .collect();
+        (h, rows)
+    };
+    let mut w = csv::Writer::from_path(&ap_path).unwrap();
+    w.write_record(&header[..header.len() - 1]).unwrap();
+    for row in &raw {
+        w.write_record(&row[..row.len() - 1]).unwrap();
+    }
+    w.flush().unwrap();
+    drop(w);
+    // Нечитаемый кэш подходов сетка и так пропускает со счётчиком (причина — в stderr): символ не считается.
+    let skipped = approach_grid(dir.path(), "g-partial", &["all:"], false, false, false).unwrap();
+    assert_eq!(skipped.symbols_without_touches, 1);
+    assert_eq!(skipped.symbols_done, 0);
 }
 
 /// TK-014: `weat<X>s<W>{m|l|a}<Y>` — разбор, канонические имена и отказы.

@@ -82,6 +82,7 @@ fn fixture(dir: &std::path::Path) -> PathBuf {
         emit_day: None,
         levels_out: None,
         minute_flow: None,
+        r1_cols: false,
     })
     .unwrap();
     cache
@@ -275,6 +276,9 @@ fn rejects_bad_flags() {
     assert!(run_fill_capacity(&a).is_err(), "имена наборов повторяются");
     let a = args(dir.path(), &cache, &["x:pool4h_max=0"]);
     assert!(run_fill_capacity(&a).is_err(), "режим без --regime-from");
+    let a = args(dir.path(), &cache, &["x:r1_obi1_bp_min=1"]);
+    let err = run_fill_capacity(&a).unwrap_err().to_string();
+    assert!(err.contains("r1_"), "ключ R1 не молча игнорируется: {err}");
     let mut a = args(dir.path(), &cache, &["all:"]);
     a.touches_from = dir.path().join("нет-такого");
     assert!(run_fill_capacity(&a).is_err());
