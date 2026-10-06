@@ -13,9 +13,10 @@ python3 $B/tk046-home.py /data/tk044/final3/verdict.csv $MON || exit 5
 fi
 [ -n "${PREP_ONLY:-}" ] && { touch $M/.prep_done; exit 0; }
 H=$M/home; E=$H/alpha/epochs/e-$MON; mkdir -p $E/b5; for p in a1 a2 b c; do q=$H/alpha/epochs/e-aug/b5/p05-$p/2026-08-03; mkdir -p $q; ln -sf /home/deck/alpha/epochs/e-aug/b5/p05-$p/2026-08-03/manifest.txt $q/; done
-( cd $E && HOME=$H python3 /home/deck/alpha/bin/p07-all-month.py $MON --merge --bin alpha-tk044k1-new > $M/gen.log 2>&1 ) || exit 6
+( cd $E && HOME=$H python3 /home/deck/alpha/bin/p07-all-month.py $MON ${GEN_DAYS:+--days $GEN_DAYS} --merge --bin alpha-tk044k1-new > $M/gen.log 2>&1 ) || exit 6
 sed -i 's#lob bounce-grid #lob bounce-grid --verdict-csv /data/tk044/final3/verdict.csv #' $H/alpha/tmp-p07/cells-by-day/jall-$MON-*.sh
 ls $H/alpha/tmp-p07/cells-by-day/jall-$MON-*.sh | sed "s#.*jall-$MON-##; s#\.sh##" > $M/units.txt
+[ -n "${GEN_ONLY:-}" ] && { touch $M/.gen_done; exit 0; }
 dev=$(basename $(findmnt -no SOURCE -T /data)); RA=/sys/block/$dev/queue/read_ahead_kb
 ra0=$(cat $RA 2>/dev/null); [ -w "$RA" ] && echo 65536 > $RA
 cpu0=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $6, $5}' /proc/stat); rd0=$(awk -v d=$dev '$3==d{print $6}' /proc/diskstats)

@@ -20,7 +20,7 @@ ja = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ja)
 pc, T9 = ja.pc, ja.T9
 
-MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep"], 1)}
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct"], 1)}
 
 
 OLDBIN = "bin/alpha-e74f200-v3"
