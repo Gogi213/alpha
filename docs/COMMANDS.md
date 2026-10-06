@@ -539,3 +539,15 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 Сборка идёт через `/opt/alpha-compute/sweep.sh run <target> <cmd>` (репо: `tools/compute/vps-sweep.sh`): под `.build.lock` чистит осиротевшие `target-*`, отказывает (rc 75 + тревога `диск.софия` → CEO) при области+3 ГБ > 12 или свободно−3 < 20 ГБ, после сборки удаляет `target`. Таймер каждые 15 мин — транзиентный, **после перезагрузки VPS поднять**:
 `systemd-run --quiet --unit=alpha-sweep15 --on-calendar="*:0/15" bash -c "exec 9>/opt/alpha-compute/.build.lock; exec /opt/alpha-compute/sweep.sh"`.
 Список бинарников, которые не чистятся, — `/opt/alpha-compute/bin-keep.txt`; шина на VPS — `bus/busclient.py` + `bus/token`.
+
+## Сервер счёта — планировщик `alpha-sched` (TK-071, В-189)
+
+С 06.10 17:40 новое производство и замеры идут только через очередь; голый `systemd-run` — запрещён (демон не видит такое задание в бюджете ядер/памяти). Показ очереди: `python3 /data/sched/alsched.py ps`.
+
+- **Производство** (пакуется на свободные ядра в фоне, вернётся сразу, печатает id):
+  `python3 /data/sched/alsched.py submit --cls prod --name tk064-r1-feb --max-runtime 3h --cores 12 --mem 20 --disk hdd1 --cwd /data/tk064 -- bash /data/tk064/run-month.sh feb`
+  Флаги: `--name` (имя, попадает в юнит), `--max-runtime` (90s|30m|2h — активная работа, без времени под заморозкой замера; по сроку задание убивается), `--cores` (1 по умолчанию — слишком мало: ядер ≈ число воркеров), `--mem` ГБ (бюджет 56 минус пик волны), `--disk hdd1|hdd2|none` (не больше 16 заданий на диск), `--prio` (меньше — раньше, по умолчанию 5), `--cwd`. Команда — после `--`, лог — `/data/sched/logs/<id>.log`, код — `/data/sched/rc/<id>`.
+- **Замер** (эксклюзивное окно, производство замораживается, окно проверяется на помеху): `/data/benchrun.sh wave|stand …` — это обёртка над `alsched.py wave|stand --max-runtime 2h`; ждёт и печатает вывод. Волна без `validity ok` недействительна.
+- **Ждать из тикета:** `tickets.py wait <ID> host:calc:/data/sched/rc/<id>` (файл появляется по концу задания; код — внутри).
+- **Отмена:** `alsched.py cancel <id>`. Страховочная разморозка: `alsched.py thaw` (метка делает идущее окно недействительным).
+- **Правила:** сумма `--cores` производства ≤ 15–16, задание на 1 ядро при свободных 15 — предупреждение (калибровка В-178: `tools/compute/calibrate.sh`); `alpha-sched` лежит — `systemctl status alpha-sched`, heartbeat `/data/sched/heartbeat`; при молчании > 60 с волна объявляется недействительной.
