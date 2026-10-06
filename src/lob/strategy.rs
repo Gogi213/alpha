@@ -438,6 +438,10 @@ pub struct PyramidCfg {
     /// безубыток (мягкий); `0` — выключено.
     pub reinstall_n: u8,
     pub reinstall_u3: u8,
+    /// Г-93 (`pynw<K>u<k>`): в убыточной позиции на новую крупную стену между стопом и рынком — добавка
+    /// `k/3·Q0`, всего не больше `K`; `0` — выключено.
+    pub newwall_k: u8,
+    pub newwall_u3: u8,
 }
 
 impl PyramidCfg {
@@ -446,15 +450,21 @@ impl PyramidCfg {
         fresh: false,
         reinstall_n: 0,
         reinstall_u3: 0,
+        newwall_k: 0,
+        newwall_u3: 0,
     };
 
     pub fn on(self) -> bool {
-        self.eat_parts > 0 || self.reinstall_n > 0
+        self.eat_parts > 0 || self.reinstall_n > 0 || self.newwall_k > 0
     }
 }
 
 /// Г-92: потолок числа добавок за сделку (верхняя граница «3–5» источника).
 const REINSTALL_K: u8 = 5;
+
+/// Г-93: ёмкость списка «известных» стен и потолок скана тиков между стопом и рынком (страховка).
+const NW_KNOWN: usize = 16;
+const NW_SCAN_MAX: i64 = 512;
 
 /// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -759,6 +769,10 @@ pub struct StrategyState {
     reinst_trigger: bool,
     /// Г-92: стоп уже перенесён в безубыток (защёлка).
     reinst_be_active: bool,
+    /// Г-93: тики стен, существовавших к первому событию удержания (и уже использованных); снимок сделан.
+    nw_known: [i64; NW_KNOWN],
+    nw_known_n: u8,
+    nw_init: bool,
 }
 
 /// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
@@ -886,6 +900,9 @@ impl StrategyState {
             reinstalls: 0,
             reinst_trigger: false,
             reinst_be_active: false,
+            nw_known: [0; NW_KNOWN],
+            nw_known_n: 0,
+            nw_init: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
             orphan_fills: 0,
@@ -1248,6 +1265,8 @@ impl StrategyState {
         self.reinstalls = 0;
         self.reinst_trigger = false;
         self.reinst_be_active = false;
+        self.nw_known_n = 0;
+        self.nw_init = false;
         let (level_qty, level_qty_max) = match self.plan {
             TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
             TradePlan::SpreadHold => (0.0, 0.0),
@@ -1793,6 +1812,78 @@ impl StrategyState {
         }
     }
 
+    /// Г-93: убыточная позиция и на нашей стороне между стопом и лучшей ценой (строго) появился уровень
+    /// размером ≥ `floor`, которого не было к первому событию удержания, — триггер добавки. Первое
+    /// событие только снимает снимок известных стен. Каждая стена даёт триггер один раз.
+    #[allow(clippy::too_many_arguments)]
+    fn observe_newwall<MD: MarketDepth>(
+        &mut self,
+        depth: &MD,
+        side: HbtSide,
+        stop_px: f64,
+        level_px: f64,
+        tick_px: f64,
+        floor: f64,
+        bid: f64,
+        ask: f64,
+    ) {
+        let TradePlan::Bounce { pyramid, .. } = self.plan else {
+            return;
+        };
+        if pyramid.newwall_k == 0
+            || floor <= 0.0
+            || tick_px <= 0.0
+            || self.adds_released
+            || self.exit_qty > 0.0
+        {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let (stop_t, level_t) = (
+            round_half_away(stop_px / tick_px) as i64,
+            round_half_away(level_px / tick_px) as i64,
+        );
+        let buy = matches!(side, HbtSide::Buy);
+        let (from, step) = if buy {
+            (depth.best_bid_tick() - 1, -1_i64)
+        } else {
+            (depth.best_ask_tick() + 1, 1_i64)
+        };
+        let init = !self.nw_init;
+        let losing = self
+            .entry_vwap()
+            .is_some_and(|v| if buy { bid < v } else { ask > v });
+        if !init && !losing {
+            return;
+        }
+        let mut t = from;
+        let mut n = 0;
+        while n < NW_SCAN_MAX && (t - stop_t) * step < 0 {
+            n += 1;
+            let tick = t;
+            t += step;
+            if tick == level_t {
+                continue;
+            }
+            let qty = if buy {
+                depth.bid_qty_at_tick(tick)
+            } else {
+                depth.ask_qty_at_tick(tick)
+            };
+            if qty < floor || self.nw_known[..usize::from(self.nw_known_n)].contains(&tick) {
+                continue;
+            }
+            if usize::from(self.nw_known_n) < NW_KNOWN {
+                self.nw_known[usize::from(self.nw_known_n)] = tick;
+                self.nw_known_n += 1;
+            }
+            if !init {
+                self.reinst_trigger = true;
+            }
+        }
+        self.nw_init = true;
+    }
+
     /// Г-92: безубыток после `N`-го возврата (мягкий: переезд, когда цена у безубытка или лучше).
     fn reinstall_stop(
         &mut self,
@@ -1856,11 +1947,16 @@ impl StrategyState {
         else {
             return Ok(());
         };
-        if pyramid.reinstall_n == 0
+        let (cap, u3) = if pyramid.newwall_k > 0 {
+            (pyramid.newwall_k, pyramid.newwall_u3)
+        } else {
+            (REINSTALL_K, pyramid.reinstall_u3)
+        };
+        if (pyramid.reinstall_n == 0 && pyramid.newwall_k == 0)
             || self.adds_released
             || self.exit_qty > 0.0
             || self.partial_done
-            || self.adds_done >= REINSTALL_K
+            || self.adds_done >= cap
             || usize::from(self.adds_done) >= MAX_ADDS
         {
             return Ok(());
@@ -1882,7 +1978,7 @@ impl StrategyState {
             self.add_base_qty = self.entry_qty;
             self.add_base_notional = self.entry_notional;
         }
-        let raw = self.add_base_qty * f64::from(pyramid.reinstall_u3) / 3.0;
+        let raw = self.add_base_qty * f64::from(u3) / 3.0;
         let qty = if lot_qty > 0.0 {
             (raw / lot_qty).floor() * lot_qty
         } else {
@@ -2259,6 +2355,16 @@ where
             state.observe_favourable(favourable);
             let wall = state.observe_wall(bot.depth(state.asset_no), entry_side, level_px, tick_px);
             state.observe_reinstall(wall, level_floor_qty);
+            state.observe_newwall(
+                bot.depth(state.asset_no),
+                entry_side,
+                stop_px,
+                level_px,
+                tick_px,
+                level_floor_qty,
+                bid,
+                ask,
+            );
             // F7 (Б-75): формы выхода «съели» / «сняли». Накопленное
             // исполнение **в стену** (`state.eaten_qty`) зачитывает драйвер
             // (`run_round::observe_wall_trades`): буфер последних сделок

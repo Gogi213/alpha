@@ -3164,6 +3164,91 @@ fn reinstall_moves_the_stop_to_breakeven_only_after_n_returns_and_when_price_is_
     );
 }
 
+fn newwall_state(feed: &[Event], k: u8, u3: u8) -> (Backtest<FastMarketDepth>, StrategyState) {
+    let mut hbt = seam6_backtest(feed);
+    hbt.elapse(100_000_000).unwrap();
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 9.0, 1, pyr_plan(0));
+    state.entry_qty = 9.0;
+    state.entry_notional = 9.0 * 100.0;
+    state.level_qty_at_entry = 30.0;
+    if let TradePlan::Bounce { pyramid, .. } = &mut state.plan {
+        pyramid.newwall_k = k;
+        pyramid.newwall_u3 = u3;
+    }
+    (hbt, state)
+}
+
+fn observe_nw(hbt: &Backtest<FastMarketDepth>, state: &mut StrategyState, bid: f64) {
+    state.observe_newwall(
+        hbt.depth(0),
+        HbtSide::Buy,
+        90.0,
+        99.0,
+        1.0,
+        10.0,
+        bid,
+        101.0,
+    );
+}
+
+#[test]
+fn newwall_triggers_only_on_a_big_level_born_after_the_first_hold_event_between_stop_and_market() {
+    let feed = [
+        depth_at(0, true, 99.0, 30.0),
+        depth_at(0, true, 94.0, 20.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(2 * S, true, 95.0, 20.0),
+        depth_at(3 * S, true, 85.0, 50.0),
+    ];
+    let (mut hbt, mut state) = newwall_state(&feed, 2, 3);
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "первое событие — только снимок");
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "стена на 94 была к снимку");
+    hbt.elapse(2 * S).unwrap();
+    observe_nw(&hbt, &mut state, 100.5);
+    assert!(!state.reinst_trigger, "позиция не в убытке — триггера нет");
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(
+        state.reinst_trigger,
+        "новая стена на 95 в убыточной позиции"
+    );
+    state.reinst_trigger = false;
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "одна стена — один триггер");
+    hbt.elapse(2 * S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    assert!(!state.reinst_trigger, "стена за стопом (85) — не триггер");
+}
+
+#[test]
+fn newwall_add_is_u_times_q0_and_capped_by_k() {
+    let feed = [
+        depth_at(0, true, 99.0, 30.0),
+        depth_at(0, false, 101.0, 5.0),
+        depth_at(S, true, 95.0, 20.0),
+        depth_at(2 * S, true, 96.0, 20.0),
+    ];
+    let (mut hbt, mut state) = newwall_state(&feed, 1, 1);
+    observe_nw(&hbt, &mut state, 99.0);
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1);
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "u = 1/3 · Q0 = 3: {}", o.qty);
+    hbt.elapse(S).unwrap();
+    observe_nw(&hbt, &mut state, 99.0);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1, "K = 1 исчерпано");
+}
+
 #[test]
 fn pyramid_off_never_adds() {
     let (mut hbt, mut state) = pyr_state(0, 25.0);
