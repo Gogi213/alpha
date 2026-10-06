@@ -79,6 +79,7 @@ def build(rows):
                     ("verdicts", "verdicts.jsonl")):
         for d in jl(name):
             _ins(c, t, d)
+    c.execute("insert or ignore into run_hypotheses select distinct run_id, hyp_id from run_cells where hyp_id is not null")
     c.commit()
     return c
 
@@ -168,3 +169,71 @@ def load_results(dirp, run, logic):
                                      "ext": ext}, ensure_ascii=False) + "\n")
                 n += 1
     return n, dup
+
+
+GROUP_HYP = ((r"p02-h9e899-market", "Г-86"), (r"p02-h10-", "Г-105"), (r"p07a-", "Г-85а"), (r"p07b-", "Г-85б"),
+             (r"p07m-", "В-104"), (r"p05-", "П-05"))
+
+
+def _wjl(name, rows):
+    with open(os.path.join(REGD, name), "w", encoding="utf-8", newline="\n") as f:
+        for d in rows:
+            f.write(json.dumps(d, ensure_ascii=False) + "\n")
+
+
+def bind_hyp(run):
+    """hyp_id клеток прогона по группе (из results.ext.group): П-02 → Г-86/Г-105, П-07 → Г-85а/б (B1 = p07b-base), p07m → В-104, П-05 → П-05;
+    заодно типизированные колонки клеток из имени формы (стоп pctN → bps, дедлайн, TTL входа, ladder)."""
+    grp = {}
+    for d in jl("results.jsonl"):
+        if d["run_id"] == run:
+            grp[d["cell_id"]] = (d.get("ext") or {}).get("group", "")
+    rc = jl("run_cells.jsonl")
+    nb = 0
+    for d in rc:
+        if d["run_id"] == run and d["cell_id"] in grp:
+            for pat, h in GROUP_HYP:
+                if re.match(pat, grp[d["cell_id"]]):
+                    d["hyp_id"] = h; nb += 1
+                    break
+    _wjl("run_cells.jsonl", rc)
+    cells = jl("cells.jsonl")
+    nt = 0
+    for c in cells:
+        if c["id"] not in grp:
+            continue
+        f = c.get("form") or ""
+        m = re.search(r"-pct([\d.]+)-", f) or re.match(r"pct([\d.]+)-", f)
+        if m:
+            c["stop_bps"] = float(m.group(1)) * 100
+        m = re.search(r"-(\d{4,6})-ttl(\d+)", f)
+        if m:
+            c["deadline_s"] = float(m.group(1))
+            p = c.setdefault("params", {}); p["entry_ttl_s"] = int(m.group(2))
+        m = re.search(r"-(at|behind|before)-tr", f) or re.match(r"(at|behind|before)-tr", f)
+        if m:
+            c["wall_exit"] = m.group(1)
+        c.setdefault("params", {})["group"] = grp[c["id"]]
+        nt += 1
+    _wjl("cells.jsonl", cells)
+    return nb, nt
+
+
+def load_usd(dirp, run):
+    """usd-<мес>.csv (agg_tk040_usd.py) -> results.pnl_usd / max_dd (+ notional в ext)."""
+    import csv, glob
+    cells = {(d.get("form"), d.get("set_name")): d["id"] for d in jl("cells.jsonl")}
+    res = jl("results.jsonl")
+    idx = {(d["run_id"], d["cell_id"], d["month"]): d for d in res}
+    n = 0
+    for fp in sorted(glob.glob(os.path.join(dirp, "usd-*.csv"))):
+        for r in csv.DictReader(open(fp, encoding="utf-8")):
+            d = idx.get((run, cells.get((r["form"], r["group"] + "/" + r["set"])), r["month"]))
+            if d is None:
+                continue
+            d["pnl_usd"] = float(r["pnl_usd"]); d["max_dd"] = float(r["max_dd_usd"])
+            d.setdefault("ext", {})["notional_usd"] = r["notional_usd"]
+            d["ext"]["n_rounds"] = r["n_rounds"]
+            n += 1
+    _wjl("results.jsonl", res)
+    return n

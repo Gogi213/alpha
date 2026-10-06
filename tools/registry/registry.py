@@ -87,6 +87,10 @@ def main():
     lc.add_argument("file"); lc.add_argument("--run", required=True); lc.add_argument("--hyp"); lc.add_argument("--logic", default="bounce-v1"); lc.add_argument("--cmd-file", help="текст команды/скрипта: опции и --set клеток")
     lr = sp.add_parser("load-results", help="каталог агрегатов agg_tk040.py -> results.jsonl")
     lr.add_argument("dir"); lr.add_argument("--run", required=True); lr.add_argument("--logic", default="bounce-v1")
+    bh = sp.add_parser("bind-hyp", help="hyp_id клеток прогона по группе + типизированные колонки из имени формы")
+    bh.add_argument("--run", required=True)
+    lu = sp.add_parser("load-usd", help="usd-<мес>.csv (agg_tk040_usd.py) -> results.pnl_usd/max_dd")
+    lu.add_argument("dir"); lu.add_argument("--run", required=True)
     f = sp.add_parser("find", help="поиск по всем полям (подстрока, без регистра); несколько слов = И")
     f.add_argument("words", nargs="+")
     f.add_argument("--status")
@@ -115,6 +119,10 @@ def main():
         print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic, ns.cmd_file))
     elif ns.cmd == "load-results":
         print("результатов +%d, повторов пропущено %d" % db.load_results(ns.dir, ns.run, ns.logic))
+    elif ns.cmd == "bind-hyp":
+        print("привязано гипотез %d, клеток типизировано %d" % db.bind_hyp(ns.run))
+    elif ns.cmd == "load-usd":
+        print("строк с $ и просадкой: %d" % db.load_usd(ns.dir, ns.run))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():
