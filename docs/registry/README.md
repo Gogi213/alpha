@@ -45,3 +45,7 @@ JSON1 для расширения, один файл. Один источник 
 - Производство без замка: `systemd-run --unit tk0NN-… --collect /data/registry/regrun.sh prod <команда>` (источник — `tools/compute/regrun.sh`).
 - Забор на ПК: `tail -n +1 /data/registry/runs/*.json` и `cat auto.jsonl` по ssh → `registry.py import-auto <auto.jsonl>` (манифесты рядом, в `runs/`); идемпотентно.
 - Роли: `python tools/registry/registry.py add --what "…" --ticket TK-NN …`.
+
+Проверки Судьи: `registry.py bind-verdicts` — отчётные ревью по протоколу `P-NN` / тикету `tkNNN-` и записи judge в логах тикетов (раунд = прогоны тикета между прошлой и этой записью) → `verdicts.run_id` (строка на пару ревью×прогон, id `V-…@R-…`) + `runs.judge`; методические ревью (protocol/amend/plan/rule…) остаются без прогона с пометкой в note. Перезапуск идемпотентен.
+
+Мд5 s001: `alpha-b14flag` — обёртка-скрипт (env + exec), md5 9e9e2a2b…; сам бинарник `alpha-b14-pgo` md5 0deb3dc0… (оба в `run_binaries`, пометка в config.binaries). Имя выхода/юнита `tkNNN-…` старше пути оркестратора при выводе тикета.

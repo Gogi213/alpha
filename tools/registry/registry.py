@@ -3,7 +3,7 @@
 SQLite data/registry.sqlite собирается из него (`build`) для запросов. Команды: add | build | find | show | stats | import-auto."""
 import argparse, json, os, sqlite3, sys, datetime, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import db, enrich
+import db, enrich, bind_verdicts
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CANON = os.path.join(ROOT, "docs", "registry", "runs.jsonl")
@@ -99,6 +99,7 @@ def main():
     sp.add_parser("stats")
     lh = sp.add_parser("load-hdr", help="hdr-<прогон>.tsv (группа, шапка bounce-grid) -> latency/queue/h3 и params клеток")
     lh.add_argument("file"); lh.add_argument("--run", required=True)
+    sp.add_parser("bind-verdicts", help="проверки Судьи (ревью по протоколу/тикету, записи judge в логах) -> verdicts.run_id + runs.judge")
     sp.add_parser("enrich", help="автострокам: тикет из пути, класс в статус, период/пул из команды")
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
@@ -134,6 +135,8 @@ def main():
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print("строк дополнено:", n)
+    elif ns.cmd == "bind-verdicts":
+        print("вердиктов с прогоном %d, без прогона %d, runs.judge заполнено %d" % bind_verdicts.run(CANON))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():
