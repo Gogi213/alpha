@@ -39,3 +39,9 @@ JSON1 для расширения, один файл. Один источник 
 3. Конфиг прогона/клетки целиком: `select json_extract(config,'$.cmdline'),config from runs where id='R-…'`; клетки — `select c.* from run_cells rc join cells c on c.id=rc.cell_id where rc.run_id='R-…'`
 4. Что считано на пуле v171b за март: `select r.id,d.period from runs r join run_data d on d.run_id=r.id where d.pool like '%v171b%' and d.period like '%03%'`
 5. Повторить прогон Z: `select cmdline, json_extract(config,'$.env'), json_extract(config,'$.files') from runs where id='Z'` (файлы по sha — `docs/registry/files/`)
+
+## Автозапись
+- Замеры: `/data/benchrun.sh|benchrun2.sh wave|stand …` сами снимают манифест (snap.py) → `/data/registry/auto.jsonl`.
+- Производство без замка: `systemd-run --unit tk0NN-… --collect /data/registry/regrun.sh prod <команда>` (источник — `tools/compute/regrun.sh`).
+- Забор на ПК: `tail -n +1 /data/registry/runs/*.json` и `cat auto.jsonl` по ssh → `registry.py import-auto <auto.jsonl>` (манифесты рядом, в `runs/`); идемпотентно.
+- Роли: `python tools/registry/registry.py add --what "…" --ticket TK-NN …`.

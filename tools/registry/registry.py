@@ -143,7 +143,7 @@ def main():
             key = f"auto:{a['host']}:{a['start']}:{a['pid']}"
             if key in have:
                 continue
-            row = {"ts": a["start"], "kind": "speed" if a.get("cls") == "wave" else "other", "what": a["cmd"],
+            row = {"ts": a["start"], "kind": {"wave": "speed", "prod": "production"}.get(a.get("cls"), "other"), "what": a["cmd"],
                    "machine": a["host"], "wall_s": a["wall_s"], "status": "проба" if a["rc"] else "боевой",
                    "status_why": f"rc={a['rc']}" if a["rc"] else "", "source": "benchrun-auto", "note": key,
                    "config_status": "неполон: манифест не снят"}
