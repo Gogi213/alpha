@@ -19,4 +19,10 @@ if [ "$cls" = wave ]; then
     systemctl freeze "$u" </dev/null 2>/dev/null && echo "$u $c" >> "$BENCH_FROZEN"
   done
 fi
-"$@"; exit $?
+t0=$(date +%s); ts0=$(date -Iseconds)
+"$@"; rc=$?
+# TK-068: автозапись в реестр прогонов (влить: python tools/registry/registry.py import-auto <файл>)
+mkdir -p /data/registry 2>/dev/null
+printf '{"host":"%s","cls":"%s","start":"%s","pid":%s,"wall_s":%s,"rc":%s,"cmd":"%s"}
+' "$(hostname)" "$cls" "$ts0" "$$" "$(( $(date +%s) - t0 ))" "$rc" "$(printf '%s ' "$@" | sed 's/\/\\/g; s/"/\\"/g' | cut -c1-400)" >> /data/registry/auto.jsonl 2>/dev/null
+exit $rc
