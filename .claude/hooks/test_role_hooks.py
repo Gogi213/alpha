@@ -292,6 +292,8 @@ class CeoSignalGuardTest(unittest.TestCase):
         self.assertFalse(d("Bash", {"command": "tail -20 .claude/dispatcher/ceo-wake.log"}))
         self.assertFalse(d("Bash", {"command": "grep urgent ceo-inbox.md | head"}))
         self.assertFalse(d("Write", {"file_path": "C:/x/other.md"}))
+        self.assertFalse(d("Bash", {"command": 'python tickets.py comment TK-1 --author judge --text "проба >> ceo-inbox.md; rm ceo-wake.log"'}))
+        self.assertTrue(d("Bash", {"command": 'python tickets.py comment TK-1 --text "x" >> ceo-inbox.md'}))
 
 
 if __name__ == "__main__":

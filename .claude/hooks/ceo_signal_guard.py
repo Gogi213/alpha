@@ -7,6 +7,7 @@ import sys
 NAMES = ("ceo-inbox.md", "ceo-wake.log")
 WRITE_BASH = re.compile(r"(>|\btee\b|\bsed\b[^|;&]*\s-i|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bdd\b|\binstall\b|"
                         r"Set-Content|Add-Content|Out-File|Clear-Content|Remove-Item|Move-Item|Copy-Item|\.write|open\()", re.I)
+TEXT_ARG = re.compile(r"""--text(?:=|\s+)("(?:[^"\\]|\\.)*"|'[^']*')""", re.S)
 MSG = ("Сигналы команды идут только через шину: ceo-inbox.md/ceo-wake.log пишет лишь dispatch.append_ceo_inbox "
        "(запасной путь). Нужно CEO — `tickets.py comment <ID> --next ceo`; очередь читает `tickets.py inbox` (README «Стандарт сигналов»).")
 
@@ -17,6 +18,8 @@ def denied(tool, inp):
         return path.rsplit("/", 1)[-1] in NAMES
     if tool in ("Bash", "PowerShell"):
         cmd = str(inp.get("command") or "")
+        if "tickets.py" in cmd:
+            cmd = TEXT_ARG.sub("--text X", cmd)
         if not any(n in cmd.lower() for n in NAMES):
             return False
         return any(WRITE_BASH.search(part) and any(n in part.lower() for n in NAMES)
