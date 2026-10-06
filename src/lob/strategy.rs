@@ -444,6 +444,9 @@ pub struct PyramidCfg {
     pub newwall_u3: u8,
     /// Г-114 (`halfstop`): стоп закрывает ровно половину позиции один раз, остаток живёт без стопа.
     pub half_stop: bool,
+    /// Г-114 (`halflevel`): половина закрывается по рынку при первой сделке ленты за `level_px` стены входа
+    /// (лонг — ниже, шорт — выше); остаток без стопа `pct2`.
+    pub half_level: bool,
     /// Г-119 (`conv<t>a<A>`): после ухода лучшей цены от `level_px` на `Dmax ≥ A` bps и возврата на
     /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
     pub converge_tol1: u8,
@@ -459,6 +462,7 @@ impl PyramidCfg {
         newwall_k: 0,
         newwall_u3: 0,
         half_stop: false,
+        half_level: false,
         converge_tol1: 0,
         converge_a_bps: 0,
     };
@@ -468,6 +472,7 @@ impl PyramidCfg {
             || self.reinstall_n > 0
             || self.newwall_k > 0
             || self.half_stop
+            || self.half_level
             || self.converge_tol1 > 0
     }
 }
@@ -790,6 +795,8 @@ pub struct StrategyState {
     nw_init: bool,
     /// Г-114: половина по стопу уже закрыта (защёлка).
     stop_half_done: bool,
+    /// Г-114 `halflevel`: после входа прошла сделка ленты за `level_px` (защёлка до конца круга).
+    level_broken: bool,
 }
 
 /// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
@@ -921,6 +928,7 @@ impl StrategyState {
             nw_known_n: 0,
             nw_init: false,
             stop_half_done: false,
+            level_broken: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
             orphan_fills: 0,
@@ -1286,6 +1294,7 @@ impl StrategyState {
         self.nw_known_n = 0;
         self.nw_init = false;
         self.stop_half_done = false;
+        self.level_broken = false;
         let (level_qty, level_qty_max) = match self.plan {
             TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
             TradePlan::SpreadHold => (0.0, 0.0),
@@ -1321,6 +1330,23 @@ impl StrategyState {
         };
         if self.wall_ring.is_some() {
             self.record_wall_eat(trades, level_px, tick_px);
+        }
+        if let (true, false, Phase::Holding { entry_ns }) =
+            (pyramid.half_level, self.level_broken, self.phase)
+        {
+            let long = self.sigma == crate::lob::backtest::SIGMA_LONG;
+            self.level_broken = trades.iter().any(|t| {
+                t.exch_ts >= entry_ns && {
+                    let is_trade =
+                        t.ev & EXCH_SELL_TRADE_EVENT != 0 || t.ev & EXCH_BUY_TRADE_EVENT != 0;
+                    is_trade
+                        && if long {
+                            t.px < level_px
+                        } else {
+                            t.px > level_px
+                        }
+                }
+            });
         }
         // `gone<W>` тоже читает накопленное (сравнение с половиной падения),
         // поэтому счётчик ведётся при любой из двух форм.
@@ -2473,8 +2499,16 @@ where
                 _ => false,
             };
             let plain_stop = gone.stop_px == stop_px;
+            let half_level =
+                matches!(state.plan, TradePlan::Bounce { pyramid, .. } if pyramid.half_level);
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
-            if stop_hit {
+            let level_half_hit = half_level
+                && !state.stop_half_done
+                && (state.level_broken || (stop_hit && plain_stop));
+            let stop_hit = stop_hit && !(half_level && plain_stop);
+            if level_half_hit {
+                (ExitAt::Market, ExitReason::Stop, 0.5)
+            } else if stop_hit {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 let reason = if gone.stop_px != stop_px {
                     ExitReason::WallGone

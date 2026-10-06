@@ -371,6 +371,12 @@ pub(crate) fn bounce_plan(
                         ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
+                crate::commands::lob::bounce_grid::ExitForm::HalfLevel => {
+                    crate::lob::strategy::PyramidCfg {
+                        half_level: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
                 crate::commands::lob::bounce_grid::ExitForm::Converge { tol, a_bps } => {
                     crate::lob::strategy::PyramidCfg {
                         converge_tol1: tol + 1,

@@ -62,6 +62,8 @@ pub enum ExitForm {
     PyrNewWall { k: u8, u3: u8 },
     /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
     HalfStop,
+    /// `halflevel` (TK-065, Г-114): половина по рынку при первой сделке за `level_px` стены входа, остаток без стопа.
+    HalfLevel,
     /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
     Converge { tol: u8, a_bps: u32 },
 }
@@ -96,6 +98,7 @@ impl ExitForm {
             ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
             ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
             ExitForm::HalfStop => "halfstop".to_string(),
+            ExitForm::HalfLevel => "halflevel".to_string(),
             ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::WallEat {
                 pct,
@@ -231,6 +234,9 @@ impl ExitForm {
         }
         if spec == "halfstop" {
             return Ok(ExitForm::HalfStop);
+        }
+        if spec == "halflevel" {
+            return Ok(ExitForm::HalfLevel);
         }
         if let Some(rest) = spec.strip_prefix("pynw") {
             let bad = || {

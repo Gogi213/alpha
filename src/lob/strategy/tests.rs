@@ -750,6 +750,68 @@ fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
     assert!(close(exit.qty, 0.25), "половина от 0.5: {}", exit.qty);
 }
 
+/// Г-114 `halflevel`: первая сделка ленты ниже `level_px` (99) после входа закрывает половину по рынку
+/// (0.5 → 0.25), защёлка взведена; без такой сделки половины нет.
+fn halflevel_exit(trade_px: Option<f64>) -> Option<(bool, f64, bool)> {
+    let mut feed = vec![
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+    ];
+    if let Some(px) = trade_px {
+        feed.push(trade_at(8 * S, true, px, 0.1));
+    }
+    feed.push(depth_at(12 * S, false, 110.0, 5.0));
+    feed.push(depth_at(14 * S, false, 110.0, 5.0));
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(90.0, 120.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.half_level = true;
+        *lot_qty = 0.0;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    let mut actions = Vec::new();
+    loop {
+        let r = hbt.elapse(100_000_000).unwrap();
+        state.observe_wall_trades(hbt.last_trades(0));
+        hbt.clear_last_trades(Some(0));
+        actions.push(on_event(&mut hbt, &mut state).unwrap());
+        if r == ElapseResult::EndOfData {
+            break;
+        }
+    }
+    let (order_id, reason, partial) = actions.iter().find_map(|a| match a {
+        Action::ExitSubmitted {
+            order_id,
+            reason,
+            partial,
+            ..
+        } => Some((*order_id, *reason, *partial)),
+        _ => None,
+    })?;
+    assert_eq!(reason, ExitReason::Stop);
+    let qty = hbt.orders(0).get(&order_id).expect("заявка выхода").qty;
+    Some((partial, qty, state.stop_half_done))
+}
+
+#[test]
+fn halflevel_closes_half_on_the_first_trade_below_the_level() {
+    let (partial, qty, latched) = halflevel_exit(Some(98.5)).expect("половина обязана выйти");
+    assert!(partial && latched, "частичный выход и защёлка");
+    assert!(close(qty, 0.25), "половина от 0.5: {qty}");
+    assert!(
+        halflevel_exit(Some(99.0)).is_none(),
+        "сделка на цене уровня — не ниже"
+    );
+    assert!(
+        halflevel_exit(None).is_none(),
+        "нет сделки за уровнем — нет выхода"
+    );
+}
+
 fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
     let feed = [
         depth_at(0, true, 98.0, 5.0),
