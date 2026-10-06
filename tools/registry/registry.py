@@ -2,10 +2,12 @@
 """Реестр прогонов alpha (TK-068). Канон — docs/registry/runs.jsonl (одна строка = один прогон, git);
 SQLite data/registry.sqlite собирается из него (`build`) для запросов. Команды: add | build | find | show | stats | import-auto."""
 import argparse, json, os, sqlite3, sys, datetime, re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import db
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CANON = os.path.join(ROOT, "docs", "registry", "runs.jsonl")
-DB = os.path.join(ROOT, "data", "registry.sqlite")
+DB = db.DB
 STATUS = ("боевой", "проба", "недействителен", "неполно")
 FIELDS = [  # колонка -> смысл
     "id", "ts", "ticket", "protocol", "kind", "what", "hyp", "data_pool", "period", "coins", "gate", "epochs",
@@ -53,17 +55,7 @@ def append(row):
 
 
 def build():
-    rows = load()
-    os.makedirs(os.path.dirname(DB), exist_ok=True)
-    if os.path.exists(DB):
-        os.remove(DB)
-    c = sqlite3.connect(DB)
-    c.execute("create table runs (" + ",".join(f'"{k}" text' for k in FIELDS) + ")")
-    c.execute("create unique index runs_id on runs(id)")
-    for r in rows:
-        c.execute(f"insert into runs values ({','.join('?' * len(FIELDS))})", [None if r.get(k) is None else str(r[k]) for k in FIELDS])
-    c.commit()
-    return c, len(rows)
+    return db.build(load()), len(load())
 
 
 def show_row(r, full=False):
@@ -88,7 +80,11 @@ def main():
         if k not in ("id", "ts") or k == "ts":
             a.add_argument("--" + k.replace("_", "-"), dest=k)
     a.add_argument("--id", dest="id")
-    sp.add_parser("build", help="собрать data/registry.sqlite из канона")
+    sp.add_parser("build", help="собрать data/registry.sqlite из канона (миграции + все jsonl)")
+    q = sp.add_parser("sql", help="SQL-запрос к базе (собирается, если нет)")
+    q.add_argument("query")
+    lc = sp.add_parser("load-cells", help="файл --cells -> cells.jsonl/run_cells.jsonl")
+    lc.add_argument("file"); lc.add_argument("--run", required=True); lc.add_argument("--hyp"); lc.add_argument("--logic", default="bounce-v1")
     f = sp.add_parser("find", help="поиск по всем полям (подстрока, без регистра); несколько слов = И")
     f.add_argument("words", nargs="+")
     f.add_argument("--status")
@@ -106,6 +102,14 @@ def main():
         print(append(row))
     elif ns.cmd == "build":
         _, n = build(); print(f"{n} строк → {DB}")
+    elif ns.cmd == "sql":
+        c = sqlite3.connect(DB) if os.path.exists(DB) else build()[0]
+        cur = c.execute(ns.query)
+        print("	".join(d[0] for d in cur.description or []))
+        for r in cur:
+            print("	".join("" if v is None else str(v) for v in r))
+    elif ns.cmd == "load-cells":
+        print("клеток +%d, связок +%d" % db.load_cells(ns.file, ns.run, ns.hyp, ns.logic))
     elif ns.cmd == "find":
         ws = [w.lower() for w in ns.words]
         for r in load():
