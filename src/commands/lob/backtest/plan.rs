@@ -336,6 +336,12 @@ pub(crate) fn bounce_plan(
                 },
                 _ => crate::lob::strategy::WallEatExit::OFF,
             },
+            pyramid: match shape.exit_form {
+                crate::commands::lob::bounce_grid::ExitForm::PyrEat { parts } => {
+                    crate::lob::strategy::PyramidCfg { eat_parts: parts }
+                }
+                _ => crate::lob::strategy::PyramidCfg::OFF,
+            },
             // Трейл после снятия (владелец 23.09): откат в bps от входа.
             gone_trail_bps: match shape.exit_form {
                 crate::commands::lob::bounce_grid::ExitForm::GoneTrail { trail_pct, .. } => {

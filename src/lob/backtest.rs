@@ -3398,6 +3398,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         gone_trail_bps,
         gone_stop,
         wall_eat,
+        pyramid,
         ..
     } = &mut p
     {
@@ -3416,6 +3417,7 @@ fn entry_part(plan: TradePlan) -> TradePlan {
         *gone_trail_bps = 0.0;
         *gone_stop = crate::lob::strategy::GoneStop::Off;
         *wall_eat = crate::lob::strategy::WallEatExit::OFF;
+        *pyramid = crate::lob::strategy::PyramidCfg::OFF;
     }
     p
 }

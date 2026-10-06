@@ -51,6 +51,9 @@ pub enum ExitForm {
         /// Ряд BTC (`--btc-minutes`), подставляется после разбора; в имени не участвует.
         btc: Option<&'static BtcMinutes>,
     },
+    /// `pyeat<N>` (TK-065, Г-94): вход частями — стена делится на `N` долей, добавка `Q0/N` на
+    /// съедании каждой из первых `N − 1` (spec r2-spec §1; `pyeat3` = «трети»).
+    PyrEat { parts: u8 },
 }
 
 impl ExitForm {
@@ -78,6 +81,7 @@ impl ExitForm {
                 };
                 format!("gone{pct}wall{m}{buffer_bps}")
             }
+            ExitForm::PyrEat { parts } => format!("pyeat{parts}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -165,6 +169,19 @@ impl ExitForm {
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
+        }
+        if let Some(rest) = spec.strip_prefix("pyeat") {
+            let parts: u8 = rest
+                .parse()
+                .map_err(|_| anyhow::anyhow!("--exit-form {spec:?}: ожидается pyeat<N>, N ∈ [2, 10]"))?;
+            anyhow::ensure!((2..=10).contains(&parts), "pyeat<N>: N ∈ [2, 10]");
+            let form = ExitForm::PyrEat { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
         }
         if let Some(rest) = spec.strip_prefix("weat") {
             return Self::parse_wall_eat(spec, rest);

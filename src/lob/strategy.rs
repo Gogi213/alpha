@@ -422,7 +422,20 @@ pub enum TradePlan {
         /// TK-014 `weat<X>s<W>{m|l|a}<Y>`: съедание стены сделками после входа за окно `W` с,
         /// причина выхода раздельно по ходу BTC. `WallEatExit::OFF` — выключено.
         wall_eat: WallEatExit,
+        /// R2-A (TK-065, Г-94): доливка частями по мере съедания стены. `PyramidCfg::OFF` — выключено.
+        pyramid: PyramidCfg,
     },
+}
+
+/// Доливка частями (R2-A): стена делится на `eat_parts` равных долей; при съедании `j/N` стены
+/// (`j = 1..N-1`) ставится добавка `Q0/N` (spec r2-spec §1 Г-94, `K = N − 1`). `0` — выключено.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PyramidCfg {
+    pub eat_parts: u8,
+}
+
+impl PyramidCfg {
+    pub const OFF: PyramidCfg = PyramidCfg { eat_parts: 0 };
 }
 
 /// Режим формы `weat*` (TK-014): при каком ходе BTC съедание стены закрывает позицию.

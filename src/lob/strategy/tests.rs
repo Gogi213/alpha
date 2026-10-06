@@ -282,6 +282,7 @@ fn a_fill_that_races_the_cancel_becomes_a_holding_not_an_idle() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -359,6 +360,7 @@ fn eaten_thresholds_close_half_then_the_rest_in_two_market_legs() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -427,6 +429,7 @@ fn half_take_closes_half_and_the_remainder_runs_to_the_deadline() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -493,6 +496,7 @@ fn a_fraction_below_one_lot_exits_whole() {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -548,6 +552,7 @@ fn f4_plan(stop_px: f64, take_px: f64, post_only: bool, ttl_ns: i64, step: f64) 
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -851,6 +856,7 @@ fn f5_plan(ttl_ns: i64, floor: f64, band: f64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1048,6 +1054,7 @@ fn ladder_plan(ttl_ns: i64) -> TradePlan {
         // F7 (Б-75): форма выхода — не используется в тестах гейта.
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1213,6 +1220,7 @@ fn on_idle_submits_a_single_order_when_only_one_leg_gets_a_whole_lot_step() {
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -1379,6 +1387,7 @@ fn f7_plan(eat_pct: f64, gone_pct: f64, level_qty: f64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: eat_pct,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: gone_pct,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2008,6 +2017,7 @@ fn trail_plan(stop_px: f64, take_px: f64, trail_activate_bps: f64, trail_bps: f6
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
@@ -2247,6 +2257,7 @@ fn cancel_wait_plan(ttl_ns: i64) -> TradePlan {
         lot_qty: 1.0,
         exit_eat_pct: 0.0,
         wall_eat: crate::lob::strategy::WallEatExit::OFF,
+        pyramid: crate::lob::strategy::PyramidCfg::OFF,
         exit_gone_pct: 0.0,
         gone_trail_bps: 0.0,
         gone_stop: crate::lob::strategy::GoneStop::Off,
