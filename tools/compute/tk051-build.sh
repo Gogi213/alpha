@@ -12,14 +12,13 @@ if [ "${BG:-}" = 1 ]; then
   # сборка юнитом на VPS: ожидатель замка переживает сессию; маркеры /opt/alpha-compute/tk051-$NAME.done|fail
   ssh "${KEY[@]}" "$HOST" "cat > /opt/alpha-compute/tk051-$NAME.sh && rm -f /opt/alpha-compute/tk051-$NAME.done /opt/alpha-compute/tk051-$NAME.fail && systemctl reset-failed tk051-b-$NAME 2>/dev/null; systemd-run --quiet --unit=tk051-b-$NAME bash /opt/alpha-compute/tk051-$NAME.sh && echo юнит tk051-b-$NAME запущен" <<EOS
 set -uo pipefail
-if [ \$(df --output=avail -BG / | tail -1 | tr -dc 0-9) -lt 8 ]; then find /opt/alpha-compute -maxdepth 1 \( -name 'target-*' -o -name 'wave2-src*' \) -mtime +0 ! -name 'target-tk051-$NAME' -exec rm -rf {} +; fi
 export HOME=/root CARGO_TARGET_DIR=/opt/alpha-compute/target-tk051-$NAME RUSTFLAGS='-C target-cpu=x86-64-v3 $XFL'
 SRC=/opt/alpha-compute/wave2-srctk051-$NAME
 rm -rf \$SRC && mkdir -p \$SRC && tar -xzf /opt/alpha-compute/tk051.tgz -C \$SRC && cd \$SRC || { touch /opt/alpha-compute/tk051-$NAME.fail; exit 1; }
-if flock -w 14400 /opt/alpha-compute/.build.lock nice -n 5 /root/.cargo/bin/cargo build --release -j 3 --bin alpha $F > /opt/alpha-compute/tk051-$NAME.log 2>&1 && cp \$CARGO_TARGET_DIR/release/alpha /opt/alpha-compute/bin/$NAME && md5sum /opt/alpha-compute/bin/$NAME > /opt/alpha-compute/tk051-$NAME.md5; then touch /opt/alpha-compute/tk051-$NAME.done; else touch /opt/alpha-compute/tk051-$NAME.fail; fi
+if flock -w 14400 /opt/alpha-compute/.build.lock /opt/alpha-compute/sweep.sh run \$CARGO_TARGET_DIR bash -c 'nice -n 5 /root/.cargo/bin/cargo build --release -j 3 --bin alpha $F && cp \$CARGO_TARGET_DIR/release/alpha /opt/alpha-compute/bin/$NAME' >/opt/alpha-compute/tk051-$NAME.log 2>&1 && md5sum /opt/alpha-compute/bin/$NAME > /opt/alpha-compute/tk051-$NAME.md5; then touch /opt/alpha-compute/tk051-$NAME.done; else touch /opt/alpha-compute/tk051-$NAME.fail; fi
 EOS
   exit 0
 fi
 ssh "${KEY[@]}" "$HOST" "export HOME=/root CARGO_TARGET_DIR=/opt/alpha-compute/target-tk051 RUSTFLAGS='-C target-cpu=x86-64-v3 $XFL'; rm -rf $SRC && mkdir -p $SRC && tar -xzf /opt/alpha-compute/tk051.tgz -C $SRC && cd $SRC \
- && flock -w 7200 /opt/alpha-compute/.build.lock nice -n 5 /root/.cargo/bin/cargo build --release -j 3 --bin alpha $F 2>&1 | tail -4 \
- && cp \$CARGO_TARGET_DIR/release/alpha /opt/alpha-compute/bin/$NAME && md5sum /opt/alpha-compute/bin/$NAME"
+ && flock -w 7200 /opt/alpha-compute/.build.lock /opt/alpha-compute/sweep.sh run \$CARGO_TARGET_DIR bash -c 'nice -n 5 /root/.cargo/bin/cargo build --release -j 3 --bin alpha $F && cp \$CARGO_TARGET_DIR/release/alpha /opt/alpha-compute/bin/$NAME' 2>&1 | tail -4 \
+ && md5sum /opt/alpha-compute/bin/$NAME"

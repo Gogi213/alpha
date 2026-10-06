@@ -532,3 +532,8 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 - Остаток теста: `/opt/alpha/root-test-top20-1725` (10-минутный прогон), можно удалить.
 - Соседние хосты из `~/.ssh/config`: `my-server` (34.84.161.193) и `singapore-server` (38.54.17.37) —
   таймаут; `tokyo-agent` (149.104.78.63) отвечает **сменившимся host key** (доступов нет).
+## VPS София — диск (TK-075)
+
+Сборка идёт через `/opt/alpha-compute/sweep.sh run <target> <cmd>` (репо: `tools/compute/vps-sweep.sh`): под `.build.lock` чистит осиротевшие `target-*`, отказывает (rc 75 + тревога `диск.софия` → CEO) при области+3 ГБ > 12 или свободно−3 < 20 ГБ, после сборки удаляет `target`. Таймер каждые 15 мин — транзиентный, **после перезагрузки VPS поднять**:
+`systemd-run --quiet --unit=alpha-sweep15 --on-calendar="*:0/15" bash -c "exec 9>/opt/alpha-compute/.build.lock; exec /opt/alpha-compute/sweep.sh"`.
+Список бинарников, которые не чистятся, — `/opt/alpha-compute/bin-keep.txt`; шина на VPS — `bus/busclient.py` + `bus/token`.
