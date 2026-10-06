@@ -19,10 +19,7 @@ if [ "$cls" = wave ]; then
     systemctl freeze "$u" </dev/null 2>/dev/null && echo "$u $c" >> "$BENCH_FROZEN"
   done
 fi
-t0=$(date +%s); ts0=$(date -Iseconds)
+REGM=$(python3 /data/registry/snap.py begin "$cls" "$@" 2>/dev/null) || REGM=""   # TK-068: снимок конфига прогона
 "$@"; rc=$?
-# TK-068: автозапись в реестр прогонов (влить: python tools/registry/registry.py import-auto <файл>)
-mkdir -p /data/registry 2>/dev/null
-cmdj=$(printf '%s ' "$@" | tr -d '"' | tr -d '\' | tr '\n' ' ' | cut -c1-400)
-printf '{"host":"%s","cls":"%s","start":"%s","pid":%s,"wall_s":%s,"rc":%s,"cmd":"%s"}\n' "$(hostname)" "$cls" "$ts0" "$$" "$(( $(date +%s) - t0 ))" "$rc" "$cmdj" >> /data/registry/auto.jsonl 2>/dev/null
+[ -n "$REGM" ] && python3 /data/registry/snap.py end "$REGM" "$rc" 2>/dev/null   # TK-068
 exit $rc

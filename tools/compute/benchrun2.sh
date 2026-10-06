@@ -24,4 +24,7 @@ if [ "$cls" = wave ]; then
     systemctl freeze "$u" </dev/null 2>/dev/null && echo "$u $c" >> "$BENCH_FROZEN"
   done
 fi
-"$@"; rc=$?; kill $IOPID 2>/dev/null; wait $IOPID 2>/dev/null; python3 /data/tk052/io-acct.py report $BENCH_IOSTATE > /data/tk048/ioacct-$$.txt 2>&1; exit $rc
+REGM=$(python3 /data/registry/snap.py begin "$cls" "$@" 2>/dev/null) || REGM=""   # TK-068: снимок конфига прогона
+"$@"; rc=$?; kill $IOPID 2>/dev/null; wait $IOPID 2>/dev/null; python3 /data/tk052/io-acct.py report $BENCH_IOSTATE > /data/tk048/ioacct-$$.txt 2>&1
+[ -n "$REGM" ] && python3 /data/registry/snap.py end "$REGM" "$rc" 2>/dev/null   # TK-068
+exit $rc

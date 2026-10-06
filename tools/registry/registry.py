@@ -10,7 +10,7 @@ STATUS = ("боевой", "проба", "недействителен", "неп�
 FIELDS = [  # колонка -> смысл
     "id", "ts", "ticket", "protocol", "kind", "what", "hyp", "data_pool", "period", "coins", "gate", "epochs",
     "binary_md5", "commit", "flags", "machine", "wall_s", "cpu_s", "result_path", "outcome", "judge", "status",
-    "status_why", "source", "note"]
+    "status_why", "source", "note", "config", "config_status"]
 # kind: research (гипотезы/семьи/клетки) | speed (замер скорости) | data (импорт/проверка данных) | other
 
 
@@ -126,6 +126,7 @@ def main():
     elif ns.cmd == "import-auto":
         have = {r.get("note") for r in load()}
         n = 0
+        mdir = os.path.join(os.path.dirname(os.path.abspath(ns.file)), "runs")
         for ln in open(ns.file, encoding="utf-8"):
             if not ln.strip():
                 continue
@@ -133,9 +134,22 @@ def main():
             key = f"auto:{a['host']}:{a['start']}:{a['pid']}"
             if key in have:
                 continue
-            append({"ts": a["start"], "kind": "speed" if a.get("cls") == "wave" else "other", "what": a["cmd"],
-                    "machine": a["host"], "wall_s": a["wall_s"], "status": "проба" if a["rc"] else "боевой",
-                    "status_why": f"rc={a['rc']}" if a["rc"] else "", "source": "benchrun-auto", "note": key})
+            row = {"ts": a["start"], "kind": "speed" if a.get("cls") == "wave" else "other", "what": a["cmd"],
+                   "machine": a["host"], "wall_s": a["wall_s"], "status": "проба" if a["rc"] else "боевой",
+                   "status_why": f"rc={a['rc']}" if a["rc"] else "", "source": "benchrun-auto", "note": key,
+                   "config_status": "неполон: манифест не снят"}
+            mp = os.path.join(mdir, a.get("manifest", "-"))
+            if os.path.exists(mp):
+                m = json.load(open(mp, encoding="utf-8"))
+                for k in ("host", "cls", "start", "t0"):
+                    m.pop(k, None)
+                row["config"] = m
+                row["config_status"] = "полный (команда, env, файлы и входы по sha)"
+                row["flags"] = m["cmdline"][:300]
+                if m.get("git"): row["commit"] = m["git"]
+                bm = [b["md5"] for b in m.get("binaries", {}).values()]
+                if bm: row["binary_md5"] = ",".join(bm)
+            append(row)
             n += 1
         print(n, "строк добавлено")
 

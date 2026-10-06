@@ -1,0 +1,7 @@
+#!/bin/bash
+# TK-040: полный счёт пула янв–окт на b14 wide; выход /data/tk048/tk040-b14(.out)
+rm -f /data/tk048/tk040.done
+avail=$(df -BG --output=avail /data | tail -1 | tr -dc 0-9); echo "avail_GB $avail" > /data/tk048/tk040.log
+[ "$avail" -gt 100 ] || { echo LOW_DISK >> /data/tk048/tk040.log; exit 1; }
+systemd-run --wait --collect --unit tk048-tk040-b14 -p CPUQuota=1500% --setenv=PREWARM_SMALL=1 --setenv=ALPHA_SKIP_SAME=1 --setenv=EVENTS_WIDE=1 /data/tk052/benchrun2.sh wave bash /data/tk048/tk048-orch-grph.sh tk040-b14 alpha-b14flag 8 15 > /dev/null 2>&1
+touch /data/tk048/tk040.done

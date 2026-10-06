@@ -37,7 +37,7 @@ for p in files:
         row = dict(ts=ts, ticket=tid, kind="speed" if re.search(r"скорост|быстр|бэктест ×|×\d|ЦП|память", title, re.I) else "research",
                    what=f"{title[:80]}: {first[:220]}", outcome=first[:600], machine=host[0] if host else None,
                    binary_md5=md5[0] if md5 else None, commit=commit[0] if commit else None,
-                   wall_s=num(wall), cpu_s=num(cpu), judge=None, status="неполно",
+                   wall_s=num(wall), cpu_s=num(cpu), judge=None, status="неполно", config_status="конфиг неполон: восстановлен только из текста записи (команда, env, sha входов не сняты)",
                    status_why=f"запись лога {role} {ts[:16]}: поля извлечены регуляркой, свериться с текстом", source="backfill-tickets",
                    note=f"{os.path.relpath(p, R.ROOT).replace(chr(92), '/')}@{ts}")
         rows.append({k: v for k, v in row.items() if v})
