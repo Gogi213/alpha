@@ -464,6 +464,17 @@ def _host_wait_met(alias: str, what: str, arg: str) -> bool:
     return _host_probe(alias, what, arg)
 
 
+SSH_CALLS_LOG = DISPATCHER_DIR / "ssh-calls.log"  # строка на ssh-вызов диспетчера: мерка «сутки без ssh-опроса» (В-192)
+
+
+def _log_ssh_call(alias: str, what: str, arg: str, reason: str) -> None:
+    try:
+        with open(SSH_CALLS_LOG, "a", encoding="utf-8") as f:
+            f.write("\t".join((T.now_iso(), alias, what, arg, reason)) + "\n")
+    except OSError:
+        pass
+
+
 def _host_probe(alias: str, what: str, arg: str) -> bool:
     ckey = (alias, what, arg)
     now_ts = time.time()
@@ -479,6 +490,7 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
                   f">/dev/null 2>&1; {remote}")
     label = f"host:{alias}:{'unit:' if what == 'unit' else ''}{arg}"
     result = False
+    _log_ssh_call(alias, what, arg, "аварийный" if _bus_down_long() else ("первая" if ckey not in _WAIT_CACHE else "событие-юнита"))
     try:
         r = subprocess.run(_ssh_cmd(alias, remote), capture_output=True, timeout=15)
         out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")

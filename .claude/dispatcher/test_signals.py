@@ -165,6 +165,19 @@ class SshOnlyWhenBusDownTest(unittest.TestCase):
         D._LINK.down_since = D.time.time() - D.BUS_DOWN_SSH_S - 1
         self.assertTrue(D._needs_probe(key), "шина лежит дольше порога: аварийный ssh-опрос")
 
+    def test_ssh_call_logged_with_reason(self):
+        old = D.SSH_CALLS_LOG, D.subprocess.run
+        D.SSH_CALLS_LOG = Path(tempfile.mkdtemp()) / "ssh-calls.log"
+        D.subprocess.run = lambda *a, **k: SimpleNamespace(returncode=1, stdout=b"", stderr=b"")
+        try:
+            D._host_probe("calc", "path", "/data/x.done")
+            D._LINK.down_since = D.time.time() - D.BUS_DOWN_SSH_S - 1
+            D._host_probe("calc", "path", "/data/x.done")
+        finally:
+            lines = D.SSH_CALLS_LOG.read_text(encoding="utf-8").splitlines()
+            D.SSH_CALLS_LOG, D.subprocess.run = old
+        self.assertEqual([l.split("	")[-1] for l in lines], ["первая", "аварийный"])
+
     def test_bus_disabled_keeps_old_polling(self):
         key = ("calc", "path", "/data/x.done")
         D._WAIT_CACHE[key] = (1.0, False)

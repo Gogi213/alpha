@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_context.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_context.py\"",
             "timeout": 30
           }
         ]
@@ -16,7 +16,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/ceo_signal_guard.py\"",
             "timeout": 10
           }
         ]
@@ -28,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
             "timeout": 10
           }
         ]
@@ -39,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
             "timeout": 30
           }
         ]
@@ -50,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/visual projects/alpha/.claude/hooks/role_memory.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
             "timeout": 10
           }
         ]

@@ -104,6 +104,11 @@
 - Мимо стандарта писать `ceo-inbox.md`/`ceo-wake.log` нельзя — только через `dispatch.append_ceo_inbox`; тест
   `test_signals.py::test_no_ceo_file_writes_outside_fallback` это проверяет.
 - Роль в сессии сигнал CEO не пишет в файлы руками: `tickets.py comment … --next ceo` (или `ВОПРОС ВЛАДЕЛЬЦУ`).
+- Запись в эти файлы из сессии закрыта хуком `.claude/hooks/ceo_signal_guard.py` (PreToolUse в `.claude/settings.json`: Write/Edit/Bash/PowerShell).
+- **ssh-опрос диспетчера** — только первая проверка нового `wait_for host:` и аварийный путь (шина лежит ≥ 600 с → опрос раз в 300 с +
+  тревога `bus-down-ssh`); каждый вызов — строка в `.claude/dispatcher/ssh-calls.log` (причина: первая | событие-юнита | аварийный) —
+  мерка «сутки без ssh-опроса». **Исключение:** `wait_for vps:<файл>` — на VPS сторожа нет, событие не придёт, пока не поставлен сторож
+  (до тех пор такое условие закрывает только первая/аварийная проверка по ssh).
 
 ## Правила для всех
 
