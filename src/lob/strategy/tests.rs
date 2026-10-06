@@ -3033,7 +3033,7 @@ fn pyr_plan(parts: u8) -> TradePlan {
     if let TradePlan::Bounce { pyramid, .. } = &mut plan {
         *pyramid = PyramidCfg {
             eat_parts: parts,
-            fresh: false,
+            ..PyramidCfg::OFF
         };
     }
     plan
@@ -3083,6 +3083,85 @@ fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
     let id = state.add_order_ids()[0];
     let o = hbt.orders(0).get(&id).expect("добавка в рынке");
     assert!(close(o.qty, 3.0), "Q0/N = 9/3, а не base/N = 1: {}", o.qty);
+}
+
+fn reinst_state(n: u8, u3: u8) -> (Backtest<FastMarketDepth>, StrategyState) {
+    let (hbt, mut state) = pyr_state(0, 0.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut state.plan
+    {
+        pyramid.reinstall_n = n;
+        pyramid.reinstall_u3 = u3;
+        *lot_qty = 1.0;
+    }
+    (hbt, state)
+}
+
+fn wall_now(qty: f64) -> WallNow {
+    WallNow {
+        ok: true,
+        qty,
+        eaten_pct: 0.0,
+    }
+}
+
+#[test]
+fn reinstall_counts_returns_only_after_a_removal_and_adds_one_per_return() {
+    let (mut hbt, mut state) = reinst_state(3, 1);
+    state.observe_reinstall(wall_now(50.0), 10.0);
+    assert_eq!(state.reinstalls, 0, "стена не снималась — возврата нет");
+    state.observe_reinstall(wall_now(2.0), 10.0);
+    state.observe_reinstall(wall_now(3.0), 10.0);
+    assert_eq!(state.reinstalls, 0, "снята и не вернулась");
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    assert_eq!(state.reinstalls, 1);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(state.add_order_ids().len(), 1);
+    let id = state.add_order_ids()[0];
+    let o = hbt.orders(0).get(&id).expect("добавка в рынке");
+    assert!(close(o.qty, 3.0), "u = 1/3 · Q0 = 3: {}", o.qty);
+    // Второй возврат при висящей добавке: слот занят, adds_done не растёт, возврат в счёт N входит.
+    state.observe_reinstall(wall_now(1.0), 10.0);
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    assert_eq!(state.reinstalls, 2);
+    state
+        .pyramid_reinstall_step(&mut hbt, 99.0, 101.0, HbtSide::Buy)
+        .unwrap();
+    assert_eq!(
+        state.add_order_ids().len(),
+        1,
+        "висящая добавка занимает слот"
+    );
+}
+
+#[test]
+fn reinstall_moves_the_stop_to_breakeven_only_after_n_returns_and_when_price_is_there() {
+    let (_hbt, mut state) = reinst_state(1, 1);
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 105.0, 98.0), 98.0),
+        "до N-го возврата стоп прежний"
+    );
+    state.observe_reinstall(wall_now(1.0), 10.0);
+    state.observe_reinstall(wall_now(40.0), 10.0);
+    let be = 100.0 * (1.0 + crate::lob::costs::ROUNDTRIP_FEES_BPS / 10_000.0);
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 99.0, 98.0), 98.0),
+        "цена хуже безубытка — прежний стоп (мягкий режим)"
+    );
+    assert!(
+        close(
+            state.reinstall_stop(HbtSide::Buy, 100.0, be + 0.5, 98.0),
+            be
+        ),
+        "у безубытка — переезд"
+    );
+    assert!(
+        close(state.reinstall_stop(HbtSide::Buy, 100.0, 99.0, 98.0), be),
+        "защёлка: стоп остаётся в безубытке"
+    );
 }
 
 #[test]

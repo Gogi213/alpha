@@ -3566,7 +3566,7 @@ pub fn precompute_exit_group<R: EventRows + ?Sized>(
             if memos[k].contains(&sig, OrphanCarry::NONE) {
                 continue;
             }
-            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.eat_parts > 0) {
+            if matches!(sig.plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) {
                 continue;
             }
             let key = (sig.sigma, sig.qty, entry_part(sig.plan));

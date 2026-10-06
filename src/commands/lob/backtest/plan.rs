@@ -341,12 +341,21 @@ pub(crate) fn bounce_plan(
                     crate::lob::strategy::PyramidCfg {
                         eat_parts: parts,
                         fresh: false,
+                        ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
                 crate::commands::lob::bounce_grid::ExitForm::PyrFresh { parts } => {
                     crate::lob::strategy::PyramidCfg {
                         eat_parts: parts,
                         fresh: true,
+                        ..crate::lob::strategy::PyramidCfg::OFF
+                    }
+                }
+                crate::commands::lob::bounce_grid::ExitForm::PyrReinstall { n, u3 } => {
+                    crate::lob::strategy::PyramidCfg {
+                        reinstall_n: n,
+                        reinstall_u3: u3,
+                        ..crate::lob::strategy::PyramidCfg::OFF
                     }
                 }
                 _ => crate::lob::strategy::PyramidCfg::OFF,

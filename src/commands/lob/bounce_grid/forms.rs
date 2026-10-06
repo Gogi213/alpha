@@ -56,6 +56,8 @@ pub enum ExitForm {
     PyrEat { parts: u8 },
     /// `pyfresh<N>` (TK-065, Г-87): вход `Q0/N`, остальное добавками `Q0/N` на съедании `j/N`.
     PyrFresh { parts: u8 },
+    /// `pyre<N>u<k>` (TK-065, Г-92): добавка `k/3·Q0` на каждый возврат стены, после `N`-го — безубыток.
+    PyrReinstall { n: u8, u3: u8 },
 }
 
 impl ExitForm {
@@ -85,6 +87,7 @@ impl ExitForm {
             }
             ExitForm::PyrEat { parts } => format!("pyeat{parts}"),
             ExitForm::PyrFresh { parts } => format!("pyfresh{parts}"),
+            ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -192,6 +195,27 @@ impl ExitForm {
             })?;
             anyhow::ensure!((2..=10).contains(&parts), "pyfresh<N>: N ∈ [2, 10]");
             let form = ExitForm::PyrFresh { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("pyre") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается pyre<N>u<k>, N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+                )
+            };
+            let (n, u3) = rest.split_once('u').ok_or_else(bad)?;
+            let n: u8 = n.parse().map_err(|_| bad())?;
+            let u3: u8 = u3.parse().map_err(|_| bad())?;
+            anyhow::ensure!(
+                (1..=9).contains(&n) && (1..=3).contains(&u3),
+                "pyre<N>u<k>: N ∈ [1, 9], k ∈ {{1, 2, 3}}"
+            );
+            let form = ExitForm::PyrReinstall { n, u3 };
             anyhow::ensure!(
                 form.label() == spec,
                 "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
