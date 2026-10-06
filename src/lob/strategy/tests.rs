@@ -707,6 +707,49 @@ fn a_partial_leg_sets_the_position_and_the_exit_is_sized_on_it() {
     assert_eq!(exit.status, Status::Filled, "выход исполнился целиком");
 }
 
+/// Г-114 `halfstop`: стоп закрывает ровно половину позиции (0.5 → 0.25, шаг лота 0), защёлка взведена,
+/// заявка выхода помечена частичной; без флага тот же фид закрывает всё (см. соседний тест F4).
+#[test]
+fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+        depth_at(10 * S, true, 98.0, 0.0),
+        depth_at(10 * S, true, 97.0, 5.0),
+        depth_at(10 * S, false, 110.0, 5.0),
+        depth_at(12 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(96.0, 104.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce {
+        pyramid, lot_qty, ..
+    } = &mut plan
+    {
+        pyramid.half_stop = true;
+        *lot_qty = 0.0;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    let actions = drive(&mut hbt, &mut state);
+    let (order_id, reason, partial) = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::ExitSubmitted {
+                order_id,
+                reason,
+                partial,
+                ..
+            } => Some((*order_id, *reason, *partial)),
+            _ => None,
+        })
+        .expect("стоп обязан сработать");
+    assert_eq!(reason, ExitReason::Stop, "{actions:?}");
+    assert!(partial, "выход частичный");
+    assert!(state.stop_half_done, "защёлка взведена");
+    let exit = hbt.orders(0).get(&order_id).expect("заявка выхода в учёте");
+    assert!(close(exit.qty, 0.25), "половина от 0.5: {}", exit.qty);
+}
+
 /// F4 (В-78): вторая нога исполняется позже, но **до** снятия входа —
 /// позиция набирается целиком (1.0 + 1.0), средняя пересчитывается (101 по
 /// двум ногам 100 и 102), и выход идёт на всю позицию: заявка выхода несёт

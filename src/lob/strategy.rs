@@ -442,6 +442,8 @@ pub struct PyramidCfg {
     /// `k/3·Q0`, всего не больше `K`; `0` — выключено.
     pub newwall_k: u8,
     pub newwall_u3: u8,
+    /// Г-114 (`halfstop`): стоп закрывает ровно половину позиции один раз, остаток живёт без стопа.
+    pub half_stop: bool,
 }
 
 impl PyramidCfg {
@@ -452,10 +454,11 @@ impl PyramidCfg {
         reinstall_u3: 0,
         newwall_k: 0,
         newwall_u3: 0,
+        half_stop: false,
     };
 
     pub fn on(self) -> bool {
-        self.eat_parts > 0 || self.reinstall_n > 0 || self.newwall_k > 0
+        self.eat_parts > 0 || self.reinstall_n > 0 || self.newwall_k > 0 || self.half_stop
     }
 }
 
@@ -773,6 +776,8 @@ pub struct StrategyState {
     nw_known: [i64; NW_KNOWN],
     nw_known_n: u8,
     nw_init: bool,
+    /// Г-114: половина по стопу уже закрыта (защёлка).
+    stop_half_done: bool,
 }
 
 /// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
@@ -903,6 +908,7 @@ impl StrategyState {
             nw_known: [0; NW_KNOWN],
             nw_known_n: 0,
             nw_init: false,
+            stop_half_done: false,
             orphans: OrphanCarry::NONE,
             orphan_exit_open: 0.0,
             orphan_fills: 0,
@@ -1267,6 +1273,7 @@ impl StrategyState {
         self.reinst_be_active = false;
         self.nw_known_n = 0;
         self.nw_init = false;
+        self.stop_half_done = false;
         let (level_qty, level_qty_max) = match self.plan {
             TradePlan::Bounce { level_qty, .. } => (level_qty.max(0.0), level_qty.max(0.0)),
             TradePlan::SpreadHold => (0.0, 0.0),
@@ -2439,6 +2446,10 @@ where
             let eaten_all_hit = eaten_all_pct > 0.0 && wall.eaten_pct >= eaten_all_pct;
             let eaten_half_hit =
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
+            let half_stop =
+                matches!(state.plan, TradePlan::Bounce { pyramid, .. } if pyramid.half_stop);
+            let plain_stop = gone.stop_px == stop_px;
+            let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
             if stop_hit {
                 // Сработал перенесённый после снятия стоп — это защита по снятию («сняли»), а не стоп.
                 let reason = if gone.stop_px != stop_px {
@@ -2446,7 +2457,8 @@ where
                 } else {
                     ExitReason::Stop
                 };
-                (ExitAt::Taker(gone.stop_px), reason, 1.0)
+                let frac = if half_stop && plain_stop { 0.5 } else { 1.0 };
+                (ExitAt::Taker(gone.stop_px), reason, frac)
             } else if gone.stop_hard_exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if eaten_all_hit {
@@ -2567,6 +2579,9 @@ where
     };
     if partial {
         state.partial_done = true;
+        if reason == ExitReason::Stop {
+            state.stop_half_done = true;
+        }
     }
     // Стоп и дедлайн — по рынку (тейкер, IOC); тейк и горизонт —
     // лимитом (мейкер, GTC). Это не деталь реализации: издержки

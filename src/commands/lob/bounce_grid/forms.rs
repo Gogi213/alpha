@@ -60,6 +60,8 @@ pub enum ExitForm {
     PyrReinstall { n: u8, u3: u8 },
     /// `pynw<K>u<k>` (TK-065, Г-93): в убыточной позиции на новую крупную стену — добавка `k/3·Q0`, всего не больше `K`.
     PyrNewWall { k: u8, u3: u8 },
+    /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
+    HalfStop,
 }
 
 impl ExitForm {
@@ -91,6 +93,7 @@ impl ExitForm {
             ExitForm::PyrFresh { parts } => format!("pyfresh{parts}"),
             ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
             ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
+            ExitForm::HalfStop => "halfstop".to_string(),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -204,6 +207,9 @@ impl ExitForm {
                 form.label()
             );
             return Ok(form);
+        }
+        if spec == "halfstop" {
+            return Ok(ExitForm::HalfStop);
         }
         if let Some(rest) = spec.strip_prefix("pynw") {
             let bad = || {
