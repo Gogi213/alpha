@@ -561,7 +561,8 @@ fn pair_frame(
     tr.observe_frame_with_approaches(ts, Side::Ask, asks, out, touches, ap);
 }
 
-/// Горячий путь: после прогрева кадры, сделки, взводы, касания и снятия с `enable_r1` не аллоцируют.
+/// После прогрева кадры, сделки, взводы, касания и снятия с `enable_r1` не аллоцируют; единственная аллокация —
+/// `Box<ArmR1>` в записи эмитированного подхода (запись подхода не `Copy`, флаг выкл. — `None`, без аллокации).
 #[test]
 fn r1_frames_allocate_nothing_after_warmup() {
     let mut tr = LevelTracker::new(cfg_r1(Some(20)));
@@ -575,6 +576,7 @@ fn r1_frames_allocate_nothing_after_warmup() {
     let far = [lv(10060, 4), lv(10080, 20)];
     let near = [lv(10015, 4), lv(10080, 20)];
     // Один цикл: уход цены (чужая лучшая далеко) → возврат → взвод → сделка → касание → конец касания.
+    let boxed = std::cell::Cell::new(0usize);
     let mut cycle = |base: i64| {
         let mut frame = |dt: i64, bids: &[LevelObs], asks: &[LevelObs]| {
             pair_frame(
@@ -609,16 +611,22 @@ fn r1_frames_allocate_nothing_after_warmup() {
         frame(4000, &level_only, &near);
         frame(5000, &with_front, &near);
         assert!(ap.iter().any(|x| x.r1.is_some()), "подход с колонками");
+        boxed.set(boxed.get() + ap.iter().filter(|x| x.r1.is_some()).count());
         ap.clear();
         touches.clear();
         out.clear();
     };
     cycle(1_000);
     cycle(10_000);
+    boxed.set(0);
     let (_, counts) = crate::alloc_count::measure(|| {
         for i in 0..500i64 {
             cycle(20_000 + 10_000 * i);
         }
     });
-    assert_eq!(counts.allocations, 0, "R1 на горячем пути не аллоцирует");
+    assert_eq!(
+        counts.allocations,
+        boxed.get() as u64,
+        "R1 аллоцирует только Box записи подхода"
+    );
 }
