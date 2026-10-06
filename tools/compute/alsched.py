@@ -103,6 +103,9 @@ BG_OPS_S = 0.354
 # Время одного случайного чтения 4 КиБ с HDD, с (замер tk071-seek 06.10, /data/sched-test/seek.log, 1500 чтений O_DIRECT:
 # среднее sdb 21,80 мс, sda 20,98 мс). Чужие операции важны временем диска, которое они крадут, а не долей от числа операций.
 SEEK_S = 0.0218
+# Фон приходит пачками до 22 оп (≈ 0,5 с диска); на окне < 60 с одна пачка — уже > 1 %, хотя на волнах (≥ 100 с) это < 0,5 %.
+# Поэтому знаменатель критерия времени диска — не меньше MIN_WALL_S (smoke-окна по 8–10 с судятся как 60-секундные).
+MIN_WALL_S = 60.0
 
 
 def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
@@ -120,8 +123,8 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
     bg = (BG_OPS_S if bg_ops_s is None else bg_ops_s) * d["wall_s"]
     extra = ios - own_ios - bg                                         # чужие операции сверх фона
-    if own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / d["wall_s"] > tol:     # мелкие чтения HDD: байт мало, поисков много
-        why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / d['wall_s'] * 100:.1f} % времени окна")
+    if own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / max(d["wall_s"], MIN_WALL_S) > tol:     # мелкие чтения HDD: байт мало, поисков много
+        why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / max(d['wall_s'], MIN_WALL_S) * 100:.1f} % времени окна")
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
