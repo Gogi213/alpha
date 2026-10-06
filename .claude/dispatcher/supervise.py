@@ -59,10 +59,15 @@ def log(msg: str) -> None:
         f.write(f"{datetime.now().astimezone().isoformat(timespec='seconds')} {msg}\n")
 
 
+def wmi_command(script: Path, out: Path, env: dict) -> str:
+    """Командная строка cmd: каждая переменная — `set "K=V"&` (в cmd `;` не разделитель)."""
+    envs = "".join(f'set "{k}={v}"& ' for k, v in env.items())
+    return f'cmd /c {envs}"{sys.executable}" "{script}" >> "{out}" 2>&1'
+
+
 def wmi_start(script: Path, out: Path, env: dict) -> int:
     """Запуск вне job: Win32_Process.Create, CreateFlags 512 (новая группа процессов), cwd = корень репо."""
-    envs = "; ".join(f"set {k}={v}" for k, v in env.items())
-    cmd = f'cmd /c "{envs}& python {script} >> {out} 2>&1"'.replace("; &", "&")
+    cmd = wmi_command(script, out, env)
     ps = ("$s=New-CimInstance -ClientOnly -CimClass (Get-CimClass Win32_ProcessStartup) -Property @{CreateFlags=[uint32]512};"
           f"$r=Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine='{cmd}';"
           f"CurrentDirectory='{ROOT}';ProcessStartupInformation=$s}};$r.ReturnValue")
@@ -89,7 +94,8 @@ def run_once(now: float | None = None, start=wmi_start, alive=pid_alive, kill=No
 
 
 def install() -> None:
-    tr = f'pythonw "{DIR / "supervise.py"}"'
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    tr = f'"{pyw}" "{DIR / "supervise.py"}"'
     subprocess.run(["schtasks", "/Create", "/F", "/TN", TASK, "/SC", "MINUTE", "/MO", "5", "/TR", tr], check=True)
 
 
