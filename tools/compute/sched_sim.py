@@ -18,11 +18,19 @@ class SimBE:
         self.started = []
         self.killed = []
         self.alerts = []
+        self.legacy_u = {}
+        self.fz = set()
 
     def now(self): return self.t
     def alert(self, t): self.alerts.append(t)
     def cancelled(self, j): return False
-    def legacy_busy(self): return self.legacy
+    def legacy_busy(self): return self.legacy + sum(c for u, c in self.legacy_u.items() if u not in self.fz)
+    def unit(self, j): return j["id"]
+    def load_preempt(self): return {}
+    def save_preempt(self, d): pass
+    def freeze_unit(self, u): self.fz.add(u)
+    def thaw_unit(self, u): self.fz.discard(u)
+    def legacy_units(self): return [(u, c) for u, c in self.legacy_u.items() if u not in self.fz]
     def start(self, j): self.jobs[j["id"]] = dict(left=j["dur"])
     def freeze_all(self): self.frozen = True
     def thaw_all(self): self.frozen = False
@@ -37,7 +45,7 @@ class SimBE:
 
     def advance(self, core, dt):
         for j in core.jobs.values():
-            if j["state"] == "running" and (j["cls"] == "measure" or not self.frozen):
+            if j["state"] == "running" and (j["cls"] == "measure" or not self.frozen) and j["id"] not in self.fz:
                 self.jobs[j["id"]]["left"] -= dt
         self.t += dt
 
@@ -61,6 +69,29 @@ def wide_behind_narrow(prio_wide):
         if wide["state"] != "queued":
             break
     return wide.get("t_start", 9e9) - 60, be.alerts
+
+
+def preempt_case(prio=3):
+    """Случай 22:35: R1 (12 по квоте) + retry (3) + одна узкая держат машину; головная 4 ядра prio 3 не стартует ≥ PREEMPT_S —
+    замораживаются узкая и retry (не R1), головная стартует; по её концу всё оттаивает."""
+    be = SimBE(); be.legacy_u = {"R1": 12, "retry": 3}
+    core = S.Core(be, ncpu=NCPU, mem=56)
+    core.add(job("n0", "narrow", "prod", 1, 2, "none", 10 ** 6, 0, mr=10 ** 7))
+    wide = job("wide", "wide", "prod", 4, 8, "none", 900, 0, mr=3600); wide["prio"] = prio
+    core.add(wide)
+    t_start = t_thaw = None
+    for _ in range(int(5400 / S.TICK)):
+        core.tick(); be.advance(core, S.TICK)
+        if prio == 5 and be.fz and not "n0" in be.fz:
+            return None, be.fz, None, wide["state"], None
+        if t_start is None and wide["state"] == "running":
+            t_start = be.t
+            frozen_then = set(be.fz)
+        if t_start and not be.fz and t_thaw is None:
+            t_thaw = be.t
+    if prio == 5:
+        return t_start, set(be.fz), None, wide["state"], None
+    return t_start, frozen_then, t_thaw, wide["state"], core.jobs["n0"].get("frozen_for")
 
 
 def run():
@@ -128,7 +159,12 @@ def run():
     w3, _ = wide_behind_narrow(3)
     w5, al = wide_behind_narrow(5)
     print(f"широкая 4 ядра за 100 узкими: prio 3 стартовала через {w3:.0f} с после подачи; prio 5 (FIFO) — {w5:.0f} с, сигнал ожидания: {len(al)}")
-    ok = ok and w3 <= 600 + 2 * S.TICK and len(al) >= 1
+    ts, fr, tt, st, ff = preempt_case()
+    print(f"вытеснение: головная стартовала на {ts} с (порог {S.PREEMPT_S}), заморожено {sorted(fr)}, оттаяло на {tt} с, итог {st}")
+    t5, fz5, _, _, _ = preempt_case(5)
+    print(f"prio 5 (равна R1): голые юниты не заморожены: {not (fz5 - {'n0'})}")
+    ok = ok and not (fz5 - {"n0"}) and w3 <= 600 + 2 * S.TICK and len(al) >= 1
+    ok = ok and ts is not None and ts <= S.PREEMPT_S + 3 * S.TICK and fr == {"n0", "retry"} and tt and st == "done" and not ff
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 

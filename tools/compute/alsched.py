@@ -15,6 +15,8 @@ DIR = os.environ.get("SCHED_DIR", "/data/sched")
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
 DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
 WAIT_ALERT_S = 600
+BARE_PRIO = 5      # голые юниты (R1) приравнены к prio 5: вытесняются только заявками строже (prio < 5)
+PREEMPT_S = int(os.environ.get("SCHED_PREEMPT_S", "600"))   # резерв не стартовал за это время — вытеснение заморозкой
 DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий на диск; 16 = калибровка R1 06.10 (tk071-calib: P=16 на одном HDD, 51 ед/мин, 18 МБ/с, iowait 2 %, ЦП 92 % — упор в ЦП, не в диск); 0 = без лимита
 FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT")   # SCHED_PAT — только для smoke
               else ["tk0*", "t4*", "t5*", "run-*", "tk048-*"])   # как benchrun2: всё, кроме alpha-*
@@ -51,6 +53,7 @@ class Core:
         self.frozen = False
         self.last = None
         self.snaps = {}
+        self.preempt = be.load_preempt()                  # {id головной: [[вид, имя/id, ядер], ...]} — заморожено ради неё
 
     def add(self, j):
         self.jobs.setdefault(j["id"], j)
@@ -62,8 +65,12 @@ class Core:
         be, now = self.be, self.be.now()
         dt = 0 if self.last is None else now - self.last
         self.last = now
+        for hid, vs in self.preempt.items():
+            for kind, ident, _ in vs:
+                if kind == "job" and ident in self.jobs:
+                    self.jobs[ident]["frozen_for"] = hid
         for j in self.running("prod"):                    # бюджет max_runtime — время БЕЗ заморозки
-            if not self.frozen:
+            if not self.frozen and not j.get("frozen_for"):
                 j["active_s"] = j.get("active_s", 0) + dt
             if j["active_s"] > j["max_runtime"]:
                 be.kill(j)
@@ -97,7 +104,8 @@ class Core:
             self.frozen = False
             for j in self.running("prod"):
                 be.extend(j, j["max_runtime"] - j.get("active_s", 0))
-        used = {c for j in self.running("prod") for c in j["cpus"]}
+        self.thaw_victims()
+        used = {c for j in self.running("prod") if not j.get("frozen_for") for c in j["cpus"]}
         mem = sum(j["mem"] for j in self.running("prod"))
         legacy = math.ceil(be.legacy_busy())
         for j in self.jobs.values():                      # приоритет можно менять на ходу: prio/<id> (alsched.py reprio)
@@ -107,7 +115,7 @@ class Core:
                     j["prio"] = int(open(pj).read().strip())
                 except ValueError:
                     pass
-        reserve = None                                    # EASY-backfill: первой заблокированной по приоритету заявке держим место
+        reserve = head = None                             # EASY-backfill: первой заблокированной по приоритету заявке держим место
         for j in sorted((j for j in self.jobs.values() if j["state"] == "queued"),
                         key=lambda j: (j.get("prio", 5), j["t_submit"])):
             free = [c for c in range(self.ncpu) if c not in used]
@@ -119,7 +127,8 @@ class Core:
                     and (j["cores"] > reserve["cores"] or j["mem"] > reserve["mem"]):
                 fits = False                              # заняла бы место первой заявки и не успела бы до её старта
             if not fits:
-                if reserve is None and not disk_full:
+                if reserve is None and head is None and not disk_full:
+                    head = j
                     reserve = self.reservation(j, room, mem, now)
                 continue
             if reserve is not None and j["max_runtime"] > reserve["shadow"]:
@@ -129,13 +138,64 @@ class Core:
             used |= set(j["cpus"])
             mem += j["mem"]
             be.start(j)
+        if head and head["state"] == "queued" and now - head["t_submit"] > PREEMPT_S and head["id"] not in self.preempt                 and mem + head["mem"] <= self.mem:
+            self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now)
         self.alert_waiting(now)
+
+    def preempt_for(self, head, room, now):
+        """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
+        с большим prio (новейшие первыми), затем голые юниты (по возрастанию ядер) ровно на нужные ядра; оттаивают по концу головной."""
+        need = head["cores"] - room
+        if need <= 0:
+            return
+        vs, got = [], 0
+        for j in sorted((j for j in self.running("prod") if j.get("prio", 5) > head.get("prio", 5) and not j.get("frozen_for")),
+                        key=lambda j: (-j.get("prio", 5), -j["t_start"])):
+            if got >= need:
+                break
+            vs.append(["job", j["id"], len(j["cpus"])])
+            got += len(j["cpus"])
+        if got < need and head.get("prio", 5) < BARE_PRIO:
+            for u, c in sorted(self.be.legacy_units(), key=lambda x: x[1]):
+                if got >= need:
+                    break
+                vs.append(["unit", u, c])
+                got += c
+        if got < need:
+            return
+        for kind, ident, _ in vs:
+            if kind == "job":
+                self.jobs[ident]["frozen_for"] = head["id"]
+                self.be.freeze_unit(self.be.unit(self.jobs[ident]))
+            else:
+                self.be.freeze_unit(ident)
+        self.preempt[head["id"]] = vs
+        self.be.save_preempt(self.preempt)
+        self.be.alert(f"вытеснение: {head['id']} {head['name']} ждала {int((now - head['t_submit']) / 60)} мин — заморожено "
+                      + ", ".join(f"{k}:{i}({c})" for k, i, c in vs))
+
+    def thaw_victims(self):
+        for hid, vs in list(self.preempt.items()):
+            h = self.jobs.get(hid)
+            if h is not None and h["state"] != "done":
+                continue
+            for kind, ident, _ in vs:
+                if kind == "job" and ident in self.jobs:
+                    j = self.jobs[ident]
+                    j.pop("frozen_for", None)
+                    self.be.thaw_unit(self.be.unit(j))
+                    self.be.extend(j, j["max_runtime"] - j.get("active_s", 0))
+                else:
+                    self.be.thaw_unit(ident)
+            del self.preempt[hid]
+            self.be.save_preempt(self.preempt)
+            self.be.alert(f"вытеснение снято: головная {hid} закончилась, заморожённое возвращено")
 
     def reservation(self, h, room, mem, now):
         """Когда первая заблокированная заявка h сможет стартовать (по остаткам max_runtime идущих) и сколько ядер/памяти
         останется сверх неё к этому времени. Не найдётся (чужие юниты держат ядра) — резерва нет."""
         cores, gb, shadow = room, self.mem - mem, 0
-        for t, c, m in sorted((j["max_runtime"] - j.get("active_s", 0), len(j["cpus"]), j["mem"]) for j in self.running("prod")):
+        for t, c, m in sorted((j["max_runtime"] - j.get("active_s", 0), 0 if j.get("frozen_for") else len(j["cpus"]), j["mem"]) for j in self.running("prod")):
             if cores >= h["cores"] and gb >= h["mem"]:
                 break
             cores, gb, shadow = cores + c, gb + m, t
@@ -152,7 +212,7 @@ class Core:
                 self.be.alert(f"заявка {j['id']} {j['name']} ({j['cores']} ядер, prio {j.get('prio', 5)}) ждёт старта {int((now - j['t_submit']) / 60)} мин")
 
     def free_cores(self):
-        return self.ncpu - sum(len(j["cpus"]) for j in self.running("prod")) - math.ceil(self.be.legacy_busy())
+        return self.ncpu - sum(len(j["cpus"]) for j in self.running("prod") if not j.get("frozen_for")) - math.ceil(self.be.legacy_busy())
 
 
 # Фон чужих операций чтения диска хоста (оп/с, sda+sdb): пачечный (Пуассон по одному 5-мин окну 0,0885 оп/с занижал —
@@ -213,11 +273,32 @@ class SystemdBackend:
         self._cpu = {}
         self._t = time.time()
         self._legacy = 0.0
+        self._legacy_detail = {}
         self._last_own = {}
         self._peak = {}
 
     def now(self):
         return time.time()
+
+    def load_preempt(self):
+        try:
+            return json.load(open(f"{DIR}/preempt.json"))
+        except (OSError, ValueError):
+            return {}
+
+    def save_preempt(self, d):
+        json.dump(d, open(f"{DIR}/preempt.json.tmp", "w"))
+        os.replace(f"{DIR}/preempt.json.tmp", f"{DIR}/preempt.json")
+
+    def freeze_unit(self, u):
+        sh("systemctl", "freeze", u)
+
+    def thaw_unit(self, u):
+        sh("systemctl", "thaw", u)
+
+    def legacy_units(self):
+        """Голые юниты (не из очереди), идущие и не замороженные, с ядрами по квоте/факту — кандидаты на вытеснение."""
+        return [(u, math.ceil(v)) for u, v in self._legacy_detail.items() if v >= 1]
 
     def alert(self, text):
         with open(f"{DIR}/alerts.log", "a") as f:
@@ -480,9 +561,12 @@ class SystemdBackend:
         if t - self._t < TICK and self._legacy:
             return self._legacy
         tot, dt = 0, max(t - self._t, 1e-3)
+        self._legacy_detail = {}
         for u in self.units(LEGACY_PAT):
             if u.startswith("tk0s-"):
                 continue
+            if sh("systemctl", "show", "-p", "FreezerState", "--value", u).stdout.strip() == "frozen":
+                continue                  # замороженный юнит ядер не держит (вытеснен или в окне замера)
             v = sh("systemctl", "show", "-p", "CPUUsageNSec", "-p", "CPUQuotaPerSecUSec", u).stdout
             kv = dict(l.split("=", 1) for l in v.splitlines() if "=" in l)
             cur = kv.get("CPUUsageNSec", "")
@@ -492,6 +576,7 @@ class SystemdBackend:
                 self._cpu[u] = int(cur)
             q = kv.get("CPUQuotaPerSecUSec", "infinity")
             quota = float(q[:-1]) if q.endswith("s") and q[:-1].replace(".", "").isdigit() else 0.0   # «12s» = 1200 %
+            self._legacy_detail[u] = max(used, quota)
             tot += max(used, quota)       # голый юнит держит ядра по квоте (заморожен — всё равно держит), без квоты — по факту
         self._legacy, self._t = tot, t
         return self._legacy
