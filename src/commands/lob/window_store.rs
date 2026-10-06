@@ -26,6 +26,8 @@ pub struct WindowFile {
     /// Строк в полных сутках (для сверки с эталоном).
     pub n_rows: u64,
     pub ranges: Vec<(u64, u64)>,
+    /// `local_ts` первой строки полной ленты после каждого интервала (`i64::MAX` — конец суток).
+    pub ts_after: Vec<i64>,
     pub events: Vec<CompactEvent>,
     /// Исходный номер каждой сохранённой строки.
     pub orig: Vec<u32>,
@@ -36,6 +38,34 @@ pub struct WindowFile {
 pub struct SparseRows<'a> {
     pub events: &'a [CompactEvent],
     pub orig: &'a [u32],
+    /// По интервалу: (конец в `events`, `ts_after`); пусто — без защиты горизонта.
+    pub ends: &'a [(usize, i64)],
+}
+
+/// `ts_after` интервалов по полной ленте.
+pub fn ts_after_of(full: &[CompactEvent], ranges: &[(u64, u64)]) -> Vec<i64> {
+    ranges
+        .iter()
+        .map(|&(_, hi)| {
+            full.get(hi as usize)
+                .map_or(i64::MAX, CompactEvent::local_ts)
+        })
+        .collect()
+}
+
+impl WindowFile {
+    /// Концы интервалов в сжатой ленте с `ts_after` — для `SparseRows::ends`.
+    pub fn ends(&self) -> Vec<(usize, i64)> {
+        let mut at = 0usize;
+        self.ranges
+            .iter()
+            .zip(&self.ts_after)
+            .map(|(&(lo, hi), &t)| {
+                at += (hi - lo) as usize;
+                (at, t)
+            })
+            .collect()
+    }
 }
 
 impl EventRows for SparseRows<'_> {
@@ -53,6 +83,34 @@ impl EventRows for SparseRows<'_> {
     }
     fn skip_to(&self, orig_start: usize) -> usize {
         self.orig.partition_point(|&k| (k as usize) < orig_start)
+    }
+    /// Дошли до конца интервала с `until` не меньше `ts_after` — дальше в полной ленте есть строки, которых
+    /// в файле нет: громкий отказ, не тихий обход.
+    fn expand_until(&self, start: usize, until: i64, out: &mut Vec<Event>) -> usize {
+        out.clear();
+        let mut i = start;
+        let run_end = match self.ends.is_empty() {
+            true => self.events.len(),
+            false => {
+                self.ends[self
+                    .ends
+                    .partition_point(|e| e.0 <= i)
+                    .min(self.ends.len() - 1)]
+                .0
+            }
+        };
+        while i < run_end && self.events[i].local_ts() <= until {
+            out.push(self.events[i].expand());
+            i += 1;
+        }
+        if i == run_end && !self.ends.is_empty() {
+            let after = self.ends[self.ends.partition_point(|e| e.0 < run_end)].1;
+            assert!(
+                after == i64::MAX || until < after,
+                "ALWIN: until={until} за горизонтом хранилища (следующая строка полной ленты ts={after})"
+            );
+        }
+        i
     }
 }
 
@@ -152,6 +210,7 @@ pub(super) fn write_day(
         h,
         full.len() as u64,
         &ranges,
+        &ts_after_of(full, &ranges),
         &kept,
         windows,
         3,
@@ -282,10 +341,15 @@ pub fn write_window_file(
     h_max_ns: i64,
     n_rows: u64,
     ranges: &[(u64, u64)],
+    ts_after: &[i64],
     events: &[CompactEvent],
     windows: &SignalWindows,
     level: i32,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        ts_after.len() == ranges.len(),
+        "ALWIN: ts_after не по интервалам"
+    );
     let want: u64 = ranges.iter().map(|&(a, b)| b - a).sum();
     anyhow::ensure!(want == events.len() as u64, "ALWIN: строк не по интервалам");
     anyhow::ensure!(
@@ -306,6 +370,9 @@ pub fn write_window_file(
     for &(lo, hi) in ranges {
         put_u64(&mut b, lo);
         put_u64(&mut b, hi);
+    }
+    for &t in ts_after {
+        put_i64(&mut b, t);
     }
     let ev = if events.is_empty() {
         Vec::new()
@@ -349,6 +416,9 @@ pub fn read_window_file(path: &Path, expect_key: &str) -> anyhow::Result<WindowF
     let ranges: Vec<(u64, u64)> = (0..n_ranges)
         .map(|_| Ok((c.u64()?, c.u64()?)))
         .collect::<anyhow::Result<_>>()?;
+    let ts_after: Vec<i64> = (0..n_ranges)
+        .map(|_| c.i64())
+        .collect::<anyhow::Result<_>>()?;
     let n_events = c.u64()? as usize;
     let ev_len = c.u32()? as usize;
     let ev_raw = c.take(ev_len)?;
@@ -374,6 +444,7 @@ pub fn read_window_file(path: &Path, expect_key: &str) -> anyhow::Result<WindowF
         h_max_ns,
         n_rows,
         ranges,
+        ts_after,
         events,
         orig,
         windows,

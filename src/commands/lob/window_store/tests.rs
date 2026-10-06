@@ -39,7 +39,8 @@ fn round_trip_and_sparse_view_match_full_day() {
         .flat_map(|&(a, b)| full[a as usize..b as usize].iter().copied())
         .collect();
     let path = tmp("a.alwin");
-    write_window_file(&path, "k1", 5_000_000_000, 1000, &ranges, &kept, &w, 3).unwrap();
+    let ta = ts_after_of(&full, &ranges);
+    write_window_file(&path, "k1", 5_000_000_000, 1000, &ranges, &ta, &kept, &w, 3).unwrap();
     let f = read_window_file(&path, "k1").unwrap();
     assert_eq!(f.events, kept);
     assert_eq!(f.ranges, ranges);
@@ -49,6 +50,7 @@ fn round_trip_and_sparse_view_match_full_day() {
     let sp = SparseRows {
         events: &f.events,
         orig: &f.orig,
+        ends: &f.ends(),
     };
     for win in f.windows.windows() {
         let i = sp.skip_to(win.start);
@@ -61,7 +63,7 @@ fn round_trip_and_sparse_view_match_full_day() {
 fn key_mismatch_is_refused_with_both_values() {
     let w = SignalWindows::from_parts(0.01, 0.001, Vec::new());
     let path = tmp("b.alwin");
-    write_window_file(&path, "old", 1, 0, &[], &[], &w, 3).unwrap();
+    write_window_file(&path, "old", 1, 0, &[], &[], &[], &w, 3).unwrap();
     let err = read_window_file(&path, "new").err().unwrap().to_string();
     assert!(err.contains("old") && err.contains("new"), "{err}");
 }
@@ -71,8 +73,8 @@ fn bad_ranges_are_refused() {
     let w = SignalWindows::from_parts(0.01, 0.001, Vec::new());
     let path = tmp("c.alwin");
     let ev = rows(4);
-    assert!(write_window_file(&path, "k", 1, 10, &[(5, 7), (6, 8)], &ev, &w, 3).is_err());
-    assert!(write_window_file(&path, "k", 1, 10, &[(0, 3)], &ev, &w, 3).is_err());
+    assert!(write_window_file(&path, "k", 1, 10, &[(5, 7), (6, 8)], &[0, 0], &ev, &w, 3).is_err());
+    assert!(write_window_file(&path, "k", 1, 10, &[(0, 3)], &[0], &ev, &w, 3).is_err());
 }
 
 #[test]
@@ -91,9 +93,20 @@ fn build_sparse_matches_full_rows_within_horizon() {
         .iter()
         .flat_map(|&(a, b)| (a..b).map(|i| i as u32))
         .collect();
+    let ta = ts_after_of(&full, &ranges);
+    let mut at = 0usize;
+    let ends: Vec<(usize, i64)> = ranges
+        .iter()
+        .zip(&ta)
+        .map(|(&(a, b), &t)| {
+            at += (b - a) as usize;
+            (at, t)
+        })
+        .collect();
     let sp = SparseRows {
         events: &kept,
         orig: &orig,
+        ends: &ends,
     };
     let (mut a, mut b) = (Vec::new(), Vec::new());
     for win in w.windows() {
@@ -119,4 +132,27 @@ fn build_sparse_back_margin_covers_lookback() {
         kept.len() as u64,
         ranges.iter().map(|r| r.1 - r.0).sum::<u64>()
     );
+}
+
+#[test]
+#[should_panic(expected = "за горизонтом хранилища")]
+fn expand_past_interval_end_is_refused() {
+    let full = rows(2000);
+    let t0s = vec![full[700].local_ts()];
+    let h = 30_000_000i64;
+    let (ranges, kept, w) = build_sparse(&full, &t0s, h, 0, 0.01, 0.001);
+    let ta = ts_after_of(&full, &ranges);
+    let orig: Vec<u32> = ranges
+        .iter()
+        .flat_map(|&(a, b)| (a..b).map(|i| i as u32))
+        .collect();
+    let ends = vec![(kept.len(), ta[0])];
+    let sp = SparseRows {
+        events: &kept,
+        orig: &orig,
+        ends: &ends,
+    };
+    let mut out = Vec::new();
+    let start = sp.skip_to(w.windows()[0].start);
+    sp.expand_until(start, w.windows()[0].t0_ns + h + 5_000_000, &mut out);
 }
