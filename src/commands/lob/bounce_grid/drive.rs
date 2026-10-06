@@ -264,6 +264,9 @@ fn exit_groups(
                 p.rtt_ns,
                 &mut refs,
             ),
+            DayRows::Sparse(s) => {
+                precompute_exit_group(s, windows, &sig_refs, &cfg, p.rtt_ns, &mut refs)
+            }
         }
         .map_err(|e| anyhow::anyhow!("группа выходов: {e}"))?;
         drop(refs);
@@ -542,6 +545,9 @@ fn drive_day_shared(
         DayRows::Compact(c) => c.iter().map(CompactEvent::expand).collect(),
         DayRows::Wide(e) => e.to_vec(),
         DayRows::Trimmed(c, k) => k.iter().map(|&i| c[i as usize].expand()).collect(),
+        DayRows::Sparse(_) => {
+            anyhow::bail!("--window-store не работает с общим движком (ALPHA_SHARED_ENGINE)")
+        }
     };
     let chunk = std::env::var("ALPHA_SHARED_CELLS")
         .ok()
@@ -724,6 +730,9 @@ pub(super) fn drive_day(
                                         p.rtt_ns,
                                         &mut m,
                                     ),
+                                    DayRows::Sparse(s) => drive_bounce_windowed_memo(
+                                        s, w, &signals, &cfg, p.rtt_ns, &mut m,
+                                    ),
                                 }
                             }
                             None => match events {
@@ -740,6 +749,9 @@ pub(super) fn drive_day(
                                     &cfg,
                                     p.rtt_ns,
                                 ),
+                                DayRows::Sparse(s) => {
+                                    drive_bounce_windowed(s, w, &signals, &cfg, p.rtt_ns)
+                                }
                             },
                         },
                         None => {
@@ -787,6 +799,8 @@ pub(super) enum DayRows<'a> {
     Wide(&'a [HbtEvent]),
     /// Компактные строки и индекс оставленных (`ALPHA_TRIM_ROWS`, TK-049): круги читают урезанную ленту.
     Trimmed(&'a [CompactEvent], &'a [u32]),
+    /// Разреженная лента из хранилища окон (`--window-store`, TK-049): только строки окон подходов.
+    Sparse(&'a crate::commands::lob::window_store::SparseRows<'a>),
 }
 
 /// Окна сетапов суток (`--driver setups`): снимок книги на каждый `t0`
@@ -809,6 +823,7 @@ pub(super) fn day_windows(
                     SignalWindows::build(c, t0s, tick, lot)
                 }
                 DayRows::Wide(e) => SignalWindows::build(e, t0s, tick, lot),
+                DayRows::Sparse(_) => anyhow::bail!("окна по разреженной ленте не строятся"),
             };
             eprintln!(
                 "bounce-grid:   окна: снимков {} · уровней всего {} (в среднем {:.0} на снимок) · {:.2}s",
@@ -824,6 +839,7 @@ pub(super) fn day_windows(
                         SignalWindows::build_crate(c, t0s, tick, lot)
                     }
                     DayRows::Wide(e) => SignalWindows::build_crate(e, t0s, tick, lot),
+                    DayRows::Sparse(_) => anyhow::bail!("окна по разреженной ленте не строятся"),
                 };
                 if let Some((t0, field)) = w.first_mismatch(&reference) {
                     anyhow::bail!("окна: снимок на t0={t0} расходится с книгой крейта: {field}");

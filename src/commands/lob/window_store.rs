@@ -149,11 +149,14 @@ pub fn build_sparse(
 }
 
 /// Ключ данных суток: символ, сутки, размер+mtime частей бинлога, шаг/лот, `t0` окон (FNV-1a), границы.
-fn day_key(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn day_key(
     symbol: &str,
     day: &str,
     parts: &[std::path::PathBuf],
-    windows: &SignalWindows,
+    t0s: &[i64],
+    tick: f64,
+    lot: f64,
     h_max_ns: i64,
     back_ns: i64,
 ) -> String {
@@ -165,17 +168,17 @@ fn day_key(
         })
         .collect();
     let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for w in windows.windows() {
-        for b in w.t0_ns.to_le_bytes() {
+    for t in t0s {
+        for b in t.to_le_bytes() {
             h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
         }
     }
     format!(
         "alwin1|{symbol}|{day}|{}|{:x}|{:x}|{}|{h:016x}|{h_max_ns}|{back_ns}",
         stamps.join(","),
-        windows.tick_size.to_bits(),
-        windows.lot_size.to_bits(),
-        windows.len()
+        tick.to_bits(),
+        lot.to_bits(),
+        t0s.len()
     )
 }
 
@@ -202,7 +205,16 @@ pub(super) fn write_day(
     if let Some((t0, f)) = built.first_mismatch(windows) {
         anyhow::bail!("ALWIN {symbol} {day}: окна расходятся на t0={t0}: {f}");
     }
-    let key = day_key(symbol, day, parts, windows, h, back);
+    let key = day_key(
+        symbol,
+        day,
+        parts,
+        &t0s,
+        windows.tick_size,
+        windows.lot_size,
+        h,
+        back,
+    );
     let path = dir.join(format!("{symbol}-{day}.alwin"));
     write_window_file(
         &path,
@@ -235,6 +247,30 @@ pub(super) fn write_day(
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// Чтение суток из хранилища для `bounce-grid --window-store`: ключ собирается из тех же `t0` (по возрастанию,
+/// без дублей), что дали окна при записи; другой ключ — отказ.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn read_day(
+    dir: &Path,
+    symbol: &str,
+    day: &str,
+    parts: &[std::path::PathBuf],
+    own_t0s: &[i64],
+    tick: f64,
+    lot: f64,
+    args: &super::bounce_grid::BounceGridArgs,
+) -> anyhow::Result<WindowFile> {
+    let (Some(h_s), Some(b_s)) = (args.window_h_max_s, args.window_back_s) else {
+        anyhow::bail!("--window-store: нужны --window-h-max-s и --window-back-s (как при записи)");
+    };
+    let (h, back) = (h_s as i64 * 1_000_000_000, b_s as i64 * 1_000_000_000);
+    let mut t0s = own_t0s.to_vec();
+    t0s.sort_unstable();
+    t0s.dedup();
+    let key = day_key(symbol, day, parts, &t0s, tick, lot, h, back);
+    read_window_file(&dir.join(format!("{symbol}-{day}.alwin")), &key)
 }
 
 fn put_u32(b: &mut Vec<u8>, v: u32) {

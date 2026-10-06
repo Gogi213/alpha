@@ -838,9 +838,36 @@ impl<'a> GridRun<'a> {
             // S4: события одних суток, не всей сессии. TK-029: при `--extra-runs` сутки символа
             // читаются один раз на все прогоны с тем же переносом (`SharedEvents`).
             let carry_key = (day.day.clone(), args.carry_root.clone(), carry_window);
+            // TK-049: сутки из хранилища окон (`--window-store` без `--window-store-write`): строки окон,
+            // окна и `n_events` — из файла; ключ не совпал или `until` за горизонтом — отказ, не обход.
+            let own_t0s: Vec<i64> = day
+                .touches
+                .iter()
+                .map(|t| t.start_ms.saturating_mul(1_000_000))
+                .collect();
+            let alwin_file = match (&args.window_store, args.window_store_write, no_signal) {
+                (Some(dir), false, false) => {
+                    anyhow::ensure!(
+                        args.events != "wide",
+                        "--window-store не работает с --events wide"
+                    );
+                    Some(crate::commands::lob::window_store::read_day(
+                        dir, symbol, &day.day, day_parts, &own_t0s, tick, lot, args,
+                    )?)
+                }
+                _ => None,
+            };
+            let alwin_ends = alwin_file.as_ref().map(|f| f.ends());
+            let sparse = alwin_file.as_ref().zip(alwin_ends.as_ref()).map(|(f, e)| {
+                crate::commands::lob::window_store::SparseRows {
+                    events: &f.events,
+                    orig: &f.orig,
+                    ends: e,
+                }
+            });
             let (base, carry_boundary_ns, carry_unverified) =
                 match shared.as_ref().and_then(|s| s.get(symbol, &carry_key)) {
-                    _ if no_signal => {
+                    _ if no_signal || alwin_file.is_some() => {
                         let (boundary, unverified) = match carry_window {
                             Some(_) => carry_boundary(
                                 &day.day,
@@ -897,7 +924,7 @@ impl<'a> GridRun<'a> {
                 e2e_events,
                 serde_json::json!({ "n_events": base.len() }),
             );
-            if base.is_empty() && !no_signal {
+            if base.is_empty() && !no_signal && alwin_file.is_none() {
                 eprintln!(
                     "bounce-grid: {symbol} {} — событий нет, сутки пропущены",
                     day.day
@@ -906,13 +933,17 @@ impl<'a> GridRun<'a> {
             }
             let events: &[CompactEvent] = base.as_slice();
             // `--events wide` (CEO 26.09): сутки один раз в 64-байтные строки крейта; итог тот же.
-            let n_events = events.len();
+            let n_events = alwin_file
+                .as_ref()
+                .map_or(events.len(), |f| f.n_rows as usize);
             let wide: Vec<hftbacktest::types::Event> = if args.events == "wide" {
                 events.iter().map(CompactEvent::expand).collect()
             } else {
                 Vec::new()
             };
-            let rows = if args.events == "wide" {
+            let rows = if let Some(s) = sparse.as_ref() {
+                DayRows::Sparse(s)
+            } else if args.events == "wide" {
                 DayRows::Wide(&wide)
             } else {
                 DayRows::Compact(events)
@@ -921,11 +952,6 @@ impl<'a> GridRun<'a> {
             // каждой формы — сразу в дамп. Окна суток — один раз на все наборы.
             // Окна: при `--extra-runs` прогоны символ-суток делят окна. Нет всех своих `t0` в кэше —
             // строим для своих + кэшированных (одно объединение вместо отдельного прохода на прогон).
-            let own_t0s: Vec<i64> = day
-                .touches
-                .iter()
-                .map(|t| t.start_ms.saturating_mul(1_000_000))
-                .collect();
             let cache_ok = shared.is_some() && !args.windows_check;
             let cached = if cache_ok {
                 shared.as_ref().and_then(|s| {
@@ -939,6 +965,9 @@ impl<'a> GridRun<'a> {
             };
             let e2e_windows = e2e::Mark::now();
             let windows: Option<Arc<SignalWindows>> = match cached {
+                _ if alwin_file.is_some() => {
+                    alwin_file.as_ref().map(|f| Arc::new(f.windows.clone()))
+                }
                 Some((t0s, _, _, w)) if own_t0s.iter().all(|t| t0s.binary_search(t).is_ok()) => {
                     eprintln!(
                         "bounce-grid:   окна: из кэша символ-суток ({} снимков)",
