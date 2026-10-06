@@ -4029,6 +4029,19 @@ impl SignalWindows {
         })
     }
 
+    /// Окна из готового списка (хранилище окон ALWIN): по возрастанию `t0`, `start` — исходный номер строки.
+    pub fn from_parts(tick_size: f64, lot_size: f64, windows: Vec<SignalWindow>) -> Self {
+        Self {
+            tick_size,
+            lot_size,
+            windows,
+        }
+    }
+
+    pub fn windows(&self) -> &[SignalWindow] {
+        &self.windows
+    }
+
     pub fn window_at(&self, t0_ns: i64) -> Option<&SignalWindow> {
         let i = self.windows.partition_point(|w| w.t0_ns < t0_ns);
         self.windows.get(i).filter(|w| w.t0_ns == t0_ns)

@@ -84,6 +84,7 @@ pub mod trades;
 pub mod validate;
 mod verify;
 pub mod watch;
+pub mod window_store;
 
 pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};

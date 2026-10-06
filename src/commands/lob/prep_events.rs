@@ -24,7 +24,7 @@ use super::backtest::{feed_compact_each, open_replay_feed};
 
 const MAGIC: &[u8; 8] = b"ALPREP01";
 const CHUNK_EVENTS: usize = 1 << 20;
-const NCOL: usize = 5;
+pub(super) const NCOL: usize = 5;
 const HEADER_FIXED: usize = 8 + 8 + 8 + 8 + 32 + 4;
 const ENTRY_LEN: usize = 8 + 4 + 8 + 4;
 
@@ -90,7 +90,7 @@ fn get_zz(buf: &[u8], pos: &mut usize) -> i64 {
     ((v >> 1) as i64) ^ -((v & 1) as i64)
 }
 
-fn encode_chunk(evs: &[CompactEvent], level: i32) -> anyhow::Result<Vec<u8>> {
+pub(super) fn encode_chunk(evs: &[CompactEvent], level: i32) -> anyhow::Result<Vec<u8>> {
     let mut c: [Vec<u8>; NCOL] = Default::default();
     let (mut lo, mut ex) = (0i64, 0i64);
     let mut px = [0i64; 4];
@@ -118,7 +118,7 @@ fn encode_chunk(evs: &[CompactEvent], level: i32) -> anyhow::Result<Vec<u8>> {
 
 /// Распаковывает кусок из `data` и дописывает `n` строк в `out`, но не дальше первой строки с
 /// `local_ts >= until` (как перевод потока с потолком). `true` — потолок достигнут.
-fn decode_chunk(
+pub(super) fn decode_chunk(
     data: &[u8],
     n: usize,
     until: Option<i64>,
