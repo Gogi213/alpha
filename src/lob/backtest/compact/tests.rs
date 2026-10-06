@@ -65,3 +65,35 @@ fn expand_is_bit_exact_with_legacy_translation() {
     }
     assert_eq!(std::mem::size_of::<CompactEvent>(), 32);
 }
+
+/// `expand_until` — те же строки, что поштучный цикл `row` до `until`; на всех границах (пусто, всё, середина).
+#[test]
+fn expand_until_matches_row_loop() {
+    let rows: Vec<CompactEvent> = (0..40_i64)
+        .map(|i| {
+            let kind = EventKind::from_bits(i);
+            CompactEvent::new(
+                kind,
+                i / 3,
+                1_000 + i * 10,
+                1_234_567_891 + i,
+                5_000_000 + i * 7,
+            )
+        })
+        .collect();
+    for start in [0, 1, 17, 39] {
+        for until in [0, 999, 1_000, 1_005, 1_170, 1_389, 1_390, i64::MAX] {
+            let mut want = Vec::new();
+            let mut i = start;
+            while i < rows.len() && rows[i].local_ts() <= until {
+                want.push(rows[i].expand());
+                i += 1;
+            }
+            let mut got = vec![legacy(EventKind::BidDepth, 0, 0, 0, 0); 3];
+            let end = rows.expand_until(start, until, &mut got);
+            assert_eq!(end, i, "start={start} until={until}");
+            assert_eq!(got.len(), want.len());
+            assert!(got.iter().zip(&want).all(|(a, b)| same_bits(a, b)));
+        }
+    }
+}

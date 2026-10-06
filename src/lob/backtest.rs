@@ -3628,13 +3628,8 @@ fn windowed_with<R: EventRows + ?Sized>(
                             .unwrap_or(i64::MAX),
                     };
                     let until = sig.t0_ns.saturating_add(span);
-                    buf.clear();
-                    let mut i = start;
-                    while i < events.len() && events.row_local_ts(i) <= until {
-                        buf.push(events.row(i));
-                        i += 1;
-                    }
-                    (&buf[..], i >= events.len())
+                    let end = events.expand_until(start, until, &mut buf);
+                    (&buf[..], end >= events.len())
                 }
             };
             note_attempt(attempt, rest.len());

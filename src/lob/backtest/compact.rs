@@ -139,6 +139,17 @@ pub trait EventRows {
     fn as_events(&self) -> Option<&[Event]> {
         None
     }
+    /// Развернуть строки `start..` с `local_ts <= until` в `out` (после `clear`); вернуть индекс первой
+    /// неразвёрнутой строки.
+    fn expand_until(&self, start: usize, until: i64, out: &mut Vec<Event>) -> usize {
+        out.clear();
+        let mut i = start;
+        while i < self.len() && self.row_local_ts(i) <= until {
+            out.push(self.row(i));
+            i += 1;
+        }
+        i
+    }
     /// Индекс строки вида, с которой читать, если окно начинается с исходной строки `orig_start`
     /// (у урезанной ленты индексы сжаты, у полной — те же).
     fn skip_to(&self, orig_start: usize) -> usize {
@@ -177,6 +188,15 @@ impl EventRows for [CompactEvent] {
     fn row_exch_ts(&self, i: usize) -> i64 {
         self[i].exch_ts()
     }
+    fn expand_until(&self, start: usize, until: i64, out: &mut Vec<Event>) -> usize {
+        out.clear();
+        let n = self[start..]
+            .iter()
+            .take_while(|e| e.local_ts <= until)
+            .count();
+        out.extend(self[start..start + n].iter().map(CompactEvent::expand));
+        start + n
+    }
 }
 
 /// Массивы и `Vec` — те же строки, что их срез (тесты и вызывающие без явного `[..]`).
@@ -196,6 +216,9 @@ macro_rules! rows_via_slice {
         }
         fn as_events(&self) -> Option<&[Event]> {
             EventRows::as_events(self.as_slice())
+        }
+        fn expand_until(&self, start: usize, until: i64, out: &mut Vec<Event>) -> usize {
+            EventRows::expand_until(self.as_slice(), start, until, out)
         }
     };
 }
