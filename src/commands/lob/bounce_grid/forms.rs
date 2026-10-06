@@ -62,6 +62,8 @@ pub enum ExitForm {
     PyrNewWall { k: u8, u3: u8 },
     /// `halfstop` (TK-065, Г-114): стоп закрывает половину позиции, остаток без стопа.
     HalfStop,
+    /// `conv<t>a<A>` (TK-065, Г-119): уход от стены на `A` bps и возврат на ≤ `t` тиков — выход по рынку; `A` = `D` прогона подходов.
+    Converge { tol: u8, a_bps: u32 },
 }
 
 impl ExitForm {
@@ -94,6 +96,7 @@ impl ExitForm {
             ExitForm::PyrReinstall { n, u3 } => format!("pyre{n}u{u3}"),
             ExitForm::PyrNewWall { k, u3 } => format!("pynw{k}u{u3}"),
             ExitForm::HalfStop => "halfstop".to_string(),
+            ExitForm::Converge { tol, a_bps } => format!("conv{tol}a{a_bps}"),
             ExitForm::WallEat {
                 pct,
                 secs,
@@ -201,6 +204,24 @@ impl ExitForm {
             })?;
             anyhow::ensure!((2..=10).contains(&parts), "pyfresh<N>: N ∈ [2, 10]");
             let form = ExitForm::PyrFresh { parts };
+            anyhow::ensure!(
+                form.label() == spec,
+                "--exit-form {spec:?}: имя не каноническое (ожидалось {})",
+                form.label()
+            );
+            return Ok(form);
+        }
+        if let Some(rest) = spec.strip_prefix("conv") {
+            let bad = || {
+                anyhow::anyhow!(
+                    "--exit-form {spec:?}: ожидается conv<t>a<A>, t ∈ [0, 9], A — bps (D прогона)"
+                )
+            };
+            let (tol, a_bps) = rest.split_once('a').ok_or_else(bad)?;
+            let tol: u8 = tol.parse().map_err(|_| bad())?;
+            let a_bps: u32 = a_bps.parse().map_err(|_| bad())?;
+            anyhow::ensure!(tol <= 9 && a_bps > 0, "conv<t>a<A>: t ∈ [0, 9], A > 0");
+            let form = ExitForm::Converge { tol, a_bps };
             anyhow::ensure!(
                 form.label() == spec,
                 "--exit-form {spec:?}: имя не каноническое (ожидалось {})",

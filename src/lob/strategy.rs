@@ -444,6 +444,10 @@ pub struct PyramidCfg {
     pub newwall_u3: u8,
     /// Г-114 (`halfstop`): стоп закрывает ровно половину позиции один раз, остаток живёт без стопа.
     pub half_stop: bool,
+    /// Г-119 (`conv<t>a<A>`): после ухода лучшей цены от `level_px` на `Dmax ≥ A` bps и возврата на
+    /// ≤ `t` тиков — выход по рынку (`Converge`). `converge_tol1 = t + 1`, `0` — выключено.
+    pub converge_tol1: u8,
+    pub converge_a_bps: u32,
 }
 
 impl PyramidCfg {
@@ -455,10 +459,16 @@ impl PyramidCfg {
         newwall_k: 0,
         newwall_u3: 0,
         half_stop: false,
+        converge_tol1: 0,
+        converge_a_bps: 0,
     };
 
     pub fn on(self) -> bool {
-        self.eat_parts > 0 || self.reinstall_n > 0 || self.newwall_k > 0 || self.half_stop
+        self.eat_parts > 0
+            || self.reinstall_n > 0
+            || self.newwall_k > 0
+            || self.half_stop
+            || self.converge_tol1 > 0
     }
 }
 
@@ -678,6 +688,8 @@ pub enum ExitReason {
     WallEatBtc,
     /// TK-014 `weat*`: стену съели сделками после входа, BTC за окно > −Y bps («местный»).
     WallEatLocal,
+    /// Г-119: цена уходила от стены на `A` bps и вернулась к ней — выход по рынку.
+    Converge,
 }
 
 /// Состояние одного круга одной стратегии на одном активе. `sigma` — сторона
@@ -2448,6 +2460,18 @@ where
                 eaten_half_pct > 0.0 && !state.partial_done && wall.eaten_pct >= eaten_half_pct;
             let half_stop =
                 matches!(state.plan, TradePlan::Bounce { pyramid, .. } if pyramid.half_stop);
+            let converge_hit = match state.plan {
+                TradePlan::Bounce { pyramid, .. }
+                    if pyramid.converge_tol1 > 0 && level_px > 0.0 && tick_px > 0.0 =>
+                {
+                    let dmax_bps =
+                        sigma_sign * (state.best_favourable - level_px) / level_px * 10_000.0;
+                    let back = sigma_sign * (favourable - level_px);
+                    dmax_bps >= f64::from(pyramid.converge_a_bps)
+                        && back <= f64::from(pyramid.converge_tol1 - 1) * tick_px
+                }
+                _ => false,
+            };
             let plain_stop = gone.stop_px == stop_px;
             let stop_hit = stop_hit && !(half_stop && plain_stop && state.stop_half_done);
             if stop_hit {
@@ -2474,6 +2498,8 @@ where
                 (ExitAt::Market, ExitReason::EatenByTrades, 1.0)
             } else if let Some(r) = wall_eat_reason {
                 (ExitAt::Market, r, 1.0)
+            } else if converge_hit {
+                (ExitAt::Market, ExitReason::Converge, 1.0)
             } else if gone.exit {
                 (ExitAt::Market, ExitReason::WallGone, 1.0)
             } else if gone.trail_hit {

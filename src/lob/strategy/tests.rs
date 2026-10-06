@@ -750,6 +750,40 @@ fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
     assert!(close(exit.qty, 0.25), "половина от 0.5: {}", exit.qty);
 }
 
+fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
+    let feed = [
+        depth_at(0, true, 98.0, 5.0),
+        depth_at(0, false, 110.0, 5.0),
+        trade_at(2 * S, true, 101.0, 0.5),
+        depth_at(8 * S, true, 100.0, 5.0),
+        depth_at(10 * S, true, 100.0, 0.0),
+        depth_at(10 * S, true, 99.0, 5.0),
+        depth_at(12 * S, false, 110.0, 5.0),
+        depth_at(25 * S, false, 110.0, 5.0),
+    ];
+    let mut hbt = prob_backtest(&feed);
+    let mut plan = f4_plan(90.0, 120.0, false, 5 * S, 1.0);
+    if let TradePlan::Bounce { pyramid, .. } = &mut plan {
+        pyramid.converge_tol1 = 1;
+        pyramid.converge_a_bps = a_bps;
+    }
+    let mut state = StrategyState::with_plan(0, SIGMA_LONG, 2.0, 1, plan);
+    drive(&mut hbt, &mut state).iter().find_map(|a| match a {
+        Action::ExitSubmitted { reason, .. } => Some(*reason),
+        _ => None,
+    })
+}
+
+#[test]
+fn converge_exits_after_the_price_left_the_wall_by_a_and_came_back() {
+    assert_eq!(converge_exit_reason(50), Some(ExitReason::Converge));
+    assert_ne!(
+        converge_exit_reason(500),
+        Some(ExitReason::Converge),
+        "Dmax < A — правило не активно"
+    );
+}
+
 /// F4 (В-78): вторая нога исполняется позже, но **до** снятия входа —
 /// позиция набирается целиком (1.0 + 1.0), средняя пересчитывается (101 по
 /// двум ногам 100 и 102), и выход идёт на всю позицию: заявка выхода несёт
