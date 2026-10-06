@@ -57,11 +57,13 @@ impl EventRows for SparseRows<'_> {
 }
 
 /// Подготовка суток: окна на `t0s` по полной ленте (исходные номера) и интервалы строк `[start, первая строка
-/// с local_ts > t0 + h_max_ns)` каждого окна, слитые; возвращает интервалы, склейку их строк и окна.
+/// с local_ts > t0 + h_max_ns)` каждого окна, слитые; `back_ns` — запас назад (первая строка с
+/// local_ts ≥ t0 − back_ns) под признаки с окном назад; возвращает интервалы, склейку их строк и окна.
 pub fn build_sparse(
     full: &[CompactEvent],
     t0s: &[i64],
     h_max_ns: i64,
+    back_ns: i64,
     tick: f64,
     lot: f64,
 ) -> (Vec<(u64, u64)>, Vec<CompactEvent>, SignalWindows) {
@@ -69,8 +71,10 @@ pub fn build_sparse(
     let mut ranges: Vec<(u64, u64)> = Vec::new();
     for w in windows.windows() {
         let until = w.t0_ns.saturating_add(h_max_ns);
-        let lo = w.start;
-        let hi = lo + full[lo..].partition_point(|e| e.local_ts() <= until);
+        let start = w.start;
+        let hi = start + full[start..].partition_point(|e| e.local_ts() <= until);
+        let from = w.t0_ns.saturating_sub(back_ns);
+        let lo = full[..start].partition_point(|e| e.local_ts() < from);
         if hi == lo {
             continue;
         }

@@ -83,7 +83,7 @@ fn build_sparse_matches_full_rows_within_horizon() {
         .map(|&i| full[i].local_ts())
         .collect();
     let h = 30_000_000i64;
-    let (ranges, kept, w) = build_sparse(&full, &t0s, h, 0.01, 0.001);
+    let (ranges, kept, w) = build_sparse(&full, &t0s, h, 0, 0.01, 0.001);
     let whole = SignalWindows::build(full.as_slice(), &t0s, 0.01, 0.001);
     assert!(w.first_mismatch(&whole).is_none());
     assert!(ranges
@@ -105,4 +105,20 @@ fn build_sparse_matches_full_rows_within_horizon() {
         assert_eq!(a, b);
         assert_eq!(orig[e - 1] as usize, f - 1);
     }
+}
+
+#[test]
+fn build_sparse_back_margin_covers_lookback() {
+    let full = rows(2000);
+    let t0s = vec![full[700].local_ts()];
+    let back = 20_000_000i64;
+    let (ranges, kept, w) = build_sparse(&full, &t0s, 10_000_000, back, 0.01, 0.001);
+    let (lo, _) = ranges[0];
+    let need = full.partition_point(|e| e.local_ts() < t0s[0] - back) as u64;
+    assert_eq!(lo, need);
+    assert!(lo < w.windows()[0].start as u64);
+    assert_eq!(
+        kept.len() as u64,
+        ranges.iter().map(|r| r.1 - r.0).sum::<u64>()
+    );
 }
