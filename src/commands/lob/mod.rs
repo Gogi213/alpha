@@ -92,8 +92,8 @@ pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
-pub use validate::{run_validate, ValidateArgs};
 pub use prep_events::{run_prep_events, PrepEventsArgs};
+pub use validate::{run_validate, ValidateArgs};
 
 /// K1 (аудит 18.09): читатели записанных суток — fail-closed по маркеру
 /// `verify-<SYMBOL>.status == ok` в корне (В-56): `touches`, `backtest`,
