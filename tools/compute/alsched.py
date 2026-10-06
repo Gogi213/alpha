@@ -20,6 +20,22 @@ FREEZE_PAT = (os.environ["SCHED_PAT"].split(",") if os.environ.get("SCHED_PAT") 
 LEGACY_PAT = FREEZE_PAT
 
 
+def mem_peak_gb():
+    try:
+        return float(open(f"{DIR}/wave_mem_peak_gb").read())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def prod_mem_budget_gb():
+    """Память производства = MemTotal − измеренный пик волны (замороженное производство остаётся в памяти, пока идёт волна); пик не измерен → MEM_GB."""
+    p = mem_peak_gb()
+    if p <= 0:
+        return MEM_GB
+    total = int(open("/proc/meminfo").readline().split()[1]) // 2**20
+    return max(0, int(total - math.ceil(p)))
+
+
 class Core:
     """Решения без побочных эффектов: be — бэкенд (systemd или макет)."""
 
@@ -125,6 +141,8 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     extra = ios - own_ios - bg                                         # чужие операции сверх фона
     if own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / max(d["wall_s"], MIN_WALL_S) > tol:     # мелкие чтения HDD: байт мало, поисков много
         why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / max(d['wall_s'], MIN_WALL_S) * 100:.1f} % времени окна")
+    if d.get("culprits") and any("диска" in w for w in why):
+        why.append("кто читал диск (оп, МБ): " + "; ".join(f"{c['cgroup']} {c['ops']} оп {c['mb']} МБ" for c in d["culprits"]))
     if d.get("forced_thaw"):
         why.append("страховочная разморозка в окне (аренда истекла или демон не вернул окно)")
     return (not why, why)
@@ -220,6 +238,43 @@ class SystemdBackend:
             pass
         return (int(c) / 1e9 if c.isdigit() else 0.0), rb, rn
 
+    def cg_io(self):
+        """io.stat (rbytes, rios) всех cgroup от корня: v2 считает cgroup отдельно от потомков → сумма без двойного счёта."""
+        out = {}
+        for dp, _dn, fn in os.walk("/sys/fs/cgroup"):
+            if "io.stat" not in fn:
+                continue
+            rb = rn = 0
+            try:
+                for l in open(dp + "/io.stat"):
+                    for x in l.split():
+                        if x.startswith("rbytes="):
+                            rb += int(x[7:])
+                        elif x.startswith("rios="):
+                            rn += int(x[5:])
+            except OSError:
+                continue
+            out[dp[len("/sys/fs/cgroup"):] or "/"] = (rb, rn)
+        return out
+
+    def culprits(self, j, c0, c1, host_rn, host_rb):
+        """Топ чужих читателей окна: cgroup (юнит/сессия ssh), остаток = ядро, своп, исчезнувшие cgroup."""
+        me = self.unit(j)
+        rows, sn, sb = [], 0, 0
+        for k, (rb, rn) in c1.items():
+            b0, n0 = c0.get(k, (0, 0))
+            dn, db = rn - n0, rb - b0
+            if k.startswith("/system.slice/alpha-sm-") or me in k or dn <= 0:
+                continue
+            rows.append((dn, db, k))
+            sn += dn
+            sb += db
+        rows.sort(reverse=True)
+        top = [dict(cgroup=k, ops=dn, mb=round(db / 1e6, 1)) for dn, db, k in rows[:3]]
+        if host_rn - sn > 0:
+            top.append(dict(cgroup="(остаток: ядро/своп/исчезнувшие cgroup)", ops=host_rn - sn, mb=round((host_rb - sb) / 1e6, 1)))
+        return top
+
     def foreign_units(self, j):
         own = {self.unit(j) + ".service"}
         return [u for u in self.units(FREEZE_PAT) if u not in own and not u.startswith("alpha-")
@@ -231,7 +286,7 @@ class SystemdBackend:
 
     def win_begin(self, j):
         b, n = self.disk_host()
-        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu())
+        return dict(t=time.time(), cpu=self.cpu_host(), disk=b, ios=n, units=set(self.foreign_units(j)), dcpu=self.daemon_cpu(), cg=self.cg_io())
 
     def win_end(self, j, s0):
         t1 = time.time()
@@ -244,6 +299,7 @@ class SystemdBackend:
         d = dict(wall_s=t1 - s0["t"], cpu_s=self.cpu_host() - s0["cpu"], own_cpu_s=own_cpu,
                  daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced,
                  foreign_units=s0["units"] | set(self.foreign_units(j)))
+        d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"])
         ok, why = judge_window(d)
         os.makedirs(f"{DIR}/validity", exist_ok=True)
         json.dump(dict(ok=ok, why=why, **{k: (sorted(v) if isinstance(v, set) else v) for k, v in d.items()}),
@@ -265,9 +321,23 @@ class SystemdBackend:
         m = re.search(r"usage_usec (\d+)", txt)
         return (int(m.group(1)) / 1e6 if m else 0.0), rb, rn
 
+    def sample_wave_mem(self, j):
+        """Анонимная память + shmem юнита замера (кэш файлов вытесняем — в бюджет производства не входит); максимум по тактам → DIR/wave_mem_peak_gb."""
+        cg = sh("systemctl", "show", "-p", "ControlGroup", "--value", self.unit(j)).stdout.strip()
+        if cg in ("", "/"):
+            return
+        st = dict(l.split() for l in open(f"/sys/fs/cgroup{cg}/memory.stat"))
+        gb = (int(st["anon"]) + int(st.get("shmem", 0))) / 2**30
+        if gb > mem_peak_gb():
+            open(f"{DIR}/wave_mem_peak_gb", "w").write(f"{gb:.2f}")
+
     def done(self, j):
         p = f"{DIR}/rc/{j['id']}"
         if j["cls"] == "measure":      # юнит с --collect исчезает по выходу — снять ЦП/диск юнита, пока он жив
+            try:
+                self.sample_wave_mem(j)
+            except Exception:
+                pass
             try:
                 new = self.unit_cpu_io(j)
                 old = self._last_own.get(j["id"], (0.0, 0, 0))
@@ -385,6 +455,7 @@ def daemon():
         for j in load_all():
             if j["id"] not in core.jobs:
                 core.add(j)
+        core.mem = prod_mem_budget_gb()
         core.tick()
         for j in core.jobs.values():
             if seen.get(j["id"]) != (j["state"], j.get("rc")):

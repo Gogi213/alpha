@@ -95,8 +95,9 @@ def run():
            not S.judge_window(bad_unit)[0],
            not S.judge_window(bad_ios)[0], not S.judge_window(bad_thaw)[0],
            S.judge_window(bg_only, bg_ops_s=BG)[0], not S.judge_window(bg_plus, bg_ops_s=BG)[0],
-           not S.judge_window(bg_only, bg_ops_s=0.0)[0]]
-    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет):", chk)
+           not S.judge_window(bg_only, bg_ops_s=0.0)[0],
+           any("кто читал диск" in w and "session-1.scope 900 оп" in w for w in S.judge_window(dict(bad_ios, culprits=[dict(cgroup="/user.slice/session-1.scope", ops=900, mb=3.6)]))[1])]
+    print("проверка волны (годна/ЦП/диск/чужой юнит/чужие операции/страховочная разморозка/фон без чужих — годна/фон+чужие — нет/без вычета фона — нет/назван виновник):", chk)
     kb = SimBE(); kc = S.Core(kb, ncpu=NCPU, mem=56)
     kc.add(job("long", "long", "prod", 2, 2, "none", 10 * H, 0, mr=1800)); kc.add(job("w", "wave", "measure", NCPU, 1, "none", 600, 0, mr=300))
     for _ in range(600):
