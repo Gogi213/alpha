@@ -51,9 +51,11 @@ mod numbers;
 mod plan;
 mod read;
 mod row;
+mod tbin;
 
 pub(crate) use abin::read_approaches_cached;
-pub(crate) use read::{read_approaches_csv, read_touches_csv, ApproachRow, TouchRow};
+pub(crate) use read::{read_approaches_csv, ApproachRow, TouchRow};
+pub(crate) use tbin::read_touches_cached;
 
 /// Аргументы `lob touches`: читает суточные файлы, пишет касания живых
 /// уровней с признаками практиков. Режим `H3` — без умолчания, как у

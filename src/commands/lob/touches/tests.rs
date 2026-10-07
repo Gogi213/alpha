@@ -1,3 +1,4 @@
+use super::read::read_touches_csv;
 use super::*;
 use crate::book::Side;
 use crate::commands::lob::levels::{run_levels, LevelsArgs};
@@ -638,4 +639,60 @@ fn abin_roundtrip_matches_records() {
     }
     let bytes = abin::encode_file(&rows, 7, 8).unwrap();
     assert_eq!(abin::decode_file(&bytes, 7, 8).unwrap(), rows);
+}
+
+#[test]
+fn tbin_roundtrip_matches_records() {
+    let mut rows = Vec::new();
+    for i in 0..60_i64 {
+        let t = TouchRecord {
+            side: if i % 2 == 0 { Side::Bid } else { Side::Ask },
+            price_tick: 100 + i * 3,
+            touch_index: (i % 4) as u32,
+            start_ms: 5_000 + i * 411,
+            end_ms: 5_000 + i * 411 + 90 + i,
+            duration_ms: 90 + i,
+            level_birth_ms: 4_000 - i,
+            size_at_touch: i * 1_000_003,
+            size_max_before: i * 7,
+            traded_during: -i,
+            frontrun_lots: i % 5,
+            frontrun_tick: (i % 3 == 0).then_some(99 + i),
+            swept_lots: 0,
+            round_zeros: (i % 4) as u8,
+            ended_by_death: i % 2 == 1,
+            stack_levels: (i % 6) as u32,
+            stack_next_tick: (i % 4 == 0).then_some(-i),
+            traded_first_s: [i, i * 2, i * 3],
+            flow_1h_lots: i * 99,
+            strength_e2: [i * 7 - 1, -1, 12_345],
+            strength_held_e2: [-1, i, 0, 5],
+            repeat_count: (i % 3) as u32,
+            depth_behind_lots: i * 31,
+        };
+        let ret_bps = Some([
+            (i % 2 == 0).then_some(i as f64 * 0.37 - 5.0),
+            None,
+            Some(-0.0001 * i as f64),
+        ]);
+        rows.push(TouchRow {
+            day: "2026-01-01".into(),
+            touch: t,
+            ret_bps,
+        });
+    }
+    let bytes = tbin::encode_file(&rows, 7, 8).unwrap();
+    assert_eq!(tbin::decode_file(&bytes, 7, 8).unwrap(), rows);
+    assert!(tbin::decode_file(&bytes, 7, 9).is_none());
+    assert!(tbin::decode_file(&bytes, 6, 8).is_none());
+    for r in &mut rows {
+        r.ret_bps = None;
+    }
+    let bytes = tbin::encode_file(&rows, 7, 8).unwrap();
+    assert_eq!(tbin::decode_file(&bytes, 7, 8).unwrap(), rows);
+    rows[3].ret_bps = Some([None; 3]);
+    assert!(
+        tbin::encode_file(&rows, 7, 8).is_none(),
+        "ret то есть то нет — не кэшируется"
+    );
 }
