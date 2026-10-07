@@ -54,7 +54,7 @@ mod row;
 mod tbin;
 
 pub(crate) use abin::read_approaches_cached;
-pub(crate) use read::{read_approaches_csv, read_touches_csv, ApproachRow, TouchRow};
+pub(crate) use read::{read_approaches_csv, ApproachRow, TouchRow};
 pub(crate) use row::r1_cells;
 pub(crate) use tbin::read_touches_cached;
 
