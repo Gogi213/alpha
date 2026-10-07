@@ -635,7 +635,16 @@ fn write_zigzag(buf: &mut Vec<u8>, v: i64) {
 /// потому что оборванный кадр обязан дать `Corrupt`, а не читать за границей.
 #[inline(always)]
 fn read_uvarint(buf: &[u8], pos: &mut usize) -> Result<u64, BinlogError> {
-    if let Some(&b) = buf.get(*pos) {
+    if let Some([b0, b1]) = buf.get(*pos..*pos + 2) {
+        if *b0 < 0x80 {
+            *pos += 1;
+            return Ok(u64::from(*b0));
+        }
+        if *b1 < 0x80 {
+            *pos += 2;
+            return Ok(u64::from(*b0 & 0x7f) | (u64::from(*b1) << 7));
+        }
+    } else if let Some(&b) = buf.get(*pos) {
         if b < 0x80 {
             *pos += 1;
             return Ok(u64::from(b));
