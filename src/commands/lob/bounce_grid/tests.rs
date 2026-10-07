@@ -2997,6 +2997,37 @@ fn append_carry_events_grows_day_buffer_exactly() {
     );
 }
 
+/// Счёт довеска кэшируется сайдкаром по окну: второй вызов даёт те же события, чужое окно — промах.
+#[test]
+fn append_carry_events_count_sidecar_roundtrip() {
+    let next_day = "2026-09-09";
+    let start_ms = day_start_ns_for_test(next_day) / 1_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    write_day(
+        dir.path(),
+        "SOLUSDT",
+        next_day,
+        &[
+            snap_frame(start_ms, &[(99, 10)], &[(105, 10)]),
+            delta_frame(start_ms + 1_000, &[(99, 9)], &[]),
+            delta_frame(start_ms + 3_600_000_000, &[(99, 1)], &[]),
+        ],
+    );
+    let path = crate::commands::record::day_file_path(dir.path(), "SOLUSDT", next_day, 1);
+    let until_ns = day_start_ns_for_test(next_day) + 60_000_000_000;
+    assert!(super::carry::cached_carry_count(&path, until_ns).is_none());
+    let mut a = Vec::new();
+    let na =
+        super::carry::append_carry_events(std::slice::from_ref(&path), until_ns, &mut a).unwrap();
+    let cached = super::carry::cached_carry_count(&path, until_ns).expect("сайдкар записан");
+    assert_eq!(cached.0, na);
+    assert!(super::carry::cached_carry_count(&path, until_ns + 1).is_none());
+    let mut b = Vec::new();
+    let nb =
+        super::carry::append_carry_events(std::slice::from_ref(&path), until_ns, &mut b).unwrap();
+    assert_eq!((na, &a), (nb, &b));
+}
+
 /// R2 (ревью 23.09): лот `--order-usd` — по цене **каждого** касания, а не
 /// одной ценой на символ (прежде — последнего касания всей записи, то есть
 /// заглядывание вперёд). $100 при цене 10.00 — 10 монет, при 20.00 — 5; шаг

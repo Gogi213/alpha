@@ -108,9 +108,18 @@ pub(super) fn append_carry_events(
     events: &mut Vec<CompactEvent>,
 ) -> anyhow::Result<usize> {
     let mut total = 0usize;
+    let mut counted = Vec::new();
     for path in parts {
-        let mut feed = open_replay_feed(path)?;
-        let (n, hit_bound) = count_feed_events_until(&mut feed, until_ns);
+        let (n, hit_bound) = match cached_carry_count(path, until_ns) {
+            Some(c) => c,
+            None => {
+                let mut feed = open_replay_feed(path)?;
+                let c = count_feed_events_until(&mut feed, until_ns);
+                store_carry_count(path, until_ns, c);
+                c
+            }
+        };
+        counted.push(path);
         total += n;
         if hit_bound {
             break;
@@ -124,7 +133,14 @@ pub(super) fn append_carry_events(
             break;
         }
     }
-    Ok(events.len() - before)
+    let added = events.len() - before;
+    if added != total {
+        for path in counted {
+            let mut feed = open_replay_feed(path)?;
+            store_carry_count(path, until_ns, count_feed_events_until(&mut feed, until_ns));
+        }
+    }
+    Ok(added)
 }
 
 /// Довесок конца суток `day` данными D+1 (см. `carry_window_ns`): дописывает
@@ -216,6 +232,41 @@ pub(super) fn cached_event_count(path: &Path) -> Option<usize> {
         it.next()?.parse::<usize>().ok()?,
     );
     (l == len && m == mtime).then_some(n)
+}
+
+fn carry_count_sidecar(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".carry-events");
+    PathBuf::from(name)
+}
+
+/// Счёт довеска окна `until_ns` по части: сайдкар `размер мтайм until n hit`
+/// (одна строка — последнее окно); чужое окно или иной файл — промах.
+pub(super) fn cached_carry_count(path: &Path, until_ns: i64) -> Option<(usize, bool)> {
+    let (len, mtime) = file_stamp(path)?;
+    let text = std::fs::read_to_string(carry_count_sidecar(path)).ok()?;
+    let mut it = text.split_whitespace();
+    let (l, m, u, n, h) = (
+        it.next()?.parse::<u64>().ok()?,
+        it.next()?.parse::<u64>().ok()?,
+        it.next()?.parse::<i64>().ok()?,
+        it.next()?.parse::<usize>().ok()?,
+        it.next()?.parse::<u8>().ok()?,
+    );
+    (l == len && m == mtime && u == until_ns).then_some((n, h == 1))
+}
+
+pub(super) fn store_carry_count(path: &Path, until_ns: i64, (n, hit): (usize, bool)) {
+    if let Some((len, mtime)) = file_stamp(path) {
+        let _ = std::fs::write(
+            carry_count_sidecar(path),
+            format!(
+                "{len} {mtime} {until_ns} {n} {}
+",
+                u8::from(hit)
+            ),
+        );
+    }
 }
 
 /// Не смог записать — не беда: следующий прогон снова посчитает.
