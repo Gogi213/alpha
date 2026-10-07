@@ -811,29 +811,78 @@ impl FileReplayer {
                 continue;
             };
             let snap = is_snapshot_ev(r.ev);
-            // Новое сообщение — новая группа: та же метка времени и тот же
-            // вид кадра продолжают группу, всё остальное её закрывает.
-            // Два разных сообщения с одной меткой (та же миллисекунда) честно
-            // сливаются: порядок внутри миллисекунды всё равно неразличим, а
-            // атомарность спасает от ложного пересечения.
-            if self.has_open && (snap != self.cur_snapshot || r.exch_ts_ns != self.cur_ts_ns) {
+            if self.group_breaks(snap, r.exch_ts_ns) {
                 self.flush(updates);
             }
-            if snap {
-                self.next_u = 2;
-            }
-            if !self.has_open {
-                self.cur_snapshot = snap;
-                self.cur_ts_ns = r.exch_ts_ns;
-                self.has_open = true;
-            }
-            let qty_e9 = r.qty_lots * step_e9;
-            let px_e9 = r.price_ticks * tick_e9;
-            match side {
-                Side::Bid => self.bids.push((px_e9, qty_e9)),
-                Side::Ask => self.asks.push((px_e9, qty_e9)),
-            }
+            self.accept_depth(snap, side, r, tick_e9, step_e9);
         }
+    }
+
+    /// Новое сообщение — новая группа: та же метка времени и тот же
+    /// вид кадра продолжают группу, всё остальное её закрывает.
+    /// Два разных сообщения с одной меткой (та же миллисекунда) честно
+    /// сливаются: порядок внутри миллисекунды всё равно неразличим, а
+    /// атомарность спасает от ложного пересечения.
+    fn group_breaks(&self, snap: bool, ts_ns: i64) -> bool {
+        self.has_open && (snap != self.cur_snapshot || ts_ns != self.cur_ts_ns)
+    }
+
+    fn accept_depth(&mut self, snap: bool, side: Side, r: &Record, tick_e9: i64, step_e9: i64) {
+        if snap {
+            self.next_u = 2;
+        }
+        if !self.has_open {
+            self.cur_snapshot = snap;
+            self.cur_ts_ns = r.exch_ts_ns;
+            self.has_open = true;
+        }
+        let qty_e9 = r.qty_lots * step_e9;
+        let px_e9 = r.price_ticks * tick_e9;
+        match side {
+            Side::Bid => self.bids.push((px_e9, qty_e9)),
+            Side::Ask => self.asks.push((px_e9, qty_e9)),
+        }
+    }
+
+    /// Закрывает открытую группу без `Update` (без выделений): `on_group(is_snapshot, cts_ms,
+    /// bids, asks)`; буферы группы очищаются и переиспользуются. Счётчик `u` не ведёт —
+    /// потребитель берёт только цены и объёмы. Возвращает `false`, если группы не было.
+    pub fn close_group_with(
+        &mut self,
+        on_group: &mut impl FnMut(bool, i64, &[(i64, i64)], &[(i64, i64)]),
+    ) -> bool {
+        if !self.has_open {
+            return false;
+        }
+        on_group(
+            self.cur_snapshot,
+            self.cur_ts_ns / 1_000_000,
+            &self.bids,
+            &self.asks,
+        );
+        self.bids.clear();
+        self.asks.clear();
+        self.has_open = false;
+        true
+    }
+
+    /// Запись глубины как в `push_frame`, но закрытая группа отдаётся в `on_group` (см.
+    /// `close_group_with`); сделки и прочее вызывающий разбирает сам.
+    pub fn push_depth_with(
+        &mut self,
+        r: &Record,
+        tick_e9: i64,
+        step_e9: i64,
+        on_group: &mut impl FnMut(bool, i64, &[(i64, i64)], &[(i64, i64)]),
+    ) {
+        let Some(side) = depth_side(r.ev) else {
+            return;
+        };
+        let snap = is_snapshot_ev(r.ev);
+        if self.group_breaks(snap, r.exch_ts_ns) {
+            self.close_group_with(on_group);
+        }
+        self.accept_depth(snap, side, r, tick_e9, step_e9);
     }
 
     /// Закрывает остаток потока. Вызывать один раз в конце файла.
