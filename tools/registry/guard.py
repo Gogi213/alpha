@@ -90,10 +90,13 @@ def dir_fp(path):
             if n >= DIRCAP:
                 break
             try:
-                st = e.stat(follow_symlinks=False)
+                st = e.stat()   # симлинк — по цели (ферма ссылок на эпохи: смена файла-цели должна быть видна)
             except OSError:
-                continue
-            isdir = e.is_dir(follow_symlinks=False)
+                try:
+                    st = e.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+            isdir = e.is_dir()
             if isdir and os.name == "nt":   # NTFS обновляет mtime каталога в родителе лениво — отпечаток мигал бы
                 h.update(f"{d}/{e.name}/;".encode())
             else:
@@ -130,12 +133,19 @@ def _extra_runs_argvs(argv):
     return out
 
 
+def explicit_inputs(argv):
+    """Входы, названные явно: входные флаги (и строк --extra-runs) + env GUARD_INPUTS=каталог:каталог (декларация задания-скрипта)."""
+    runs = [argv] + _extra_runs_argvs(argv)
+    c = {v.rstrip("/") for r in runs for f in INPUT_FLAGS for v in _flag_values(r, f)}
+    return c | {v.rstrip("/") for v in os.environ.get("GUARD_INPUTS", "").split(":") if v}
+
+
 def input_dirs(texts, argv, out_dir):
     """Каталоги данных — только ВХОДЫ: значения входных флагов (и строк --extra-runs) и упомянутые пути внутри явных корней
     (GUARD_DATA_ROOTS). Выход (--out-dir и подкаталоги) и всё, что пишет задание, исключено — иначе прогон сам меняет свой отпечаток."""
     roots = [r for r in os.environ.get("GUARD_DATA_ROOTS", ":".join(DATA_ROOTS)).split(":") if r]
     runs = [argv] + _extra_runs_argvs(argv)
-    cand = {v.rstrip("/") for r in runs for f in INPUT_FLAGS for v in _flag_values(r, f)}
+    cand = explicit_inputs(argv)
     for t in texts:
         for m in snap.PATHRE.findall(t):
             m = m.rstrip("/")
@@ -171,7 +181,7 @@ def context(argv):
     data["dirs"] = dirs
     scripts = {p: v["sha256"] for p, v in sorted(files.items()) if p != cells}
     return {"fp": _h({"argv": rest, "env": env, "code": code, "data": data, "scripts": scripts}),
-            "code": _h(code), "data": _h(data), "cells": cells, "sets": sets, "out_dir": out_dir, "argv": argv}
+            "code": _h(code), "data": _h(data), "cells": cells, "sets": sets, "out_dir": out_dir, "argv": argv, "nodirs": not any(os.path.isdir(d) for d in explicit_inputs(rest))}
 
 
 def cell_fps(ctx):
@@ -211,6 +221,9 @@ def check(cls, argv, recompute=False, why="", repeat=0, say=print):
     if recompute:
         append({"kind": "recompute", "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "fp": ctx["fp"], "cls": cls, "why": why,
                 "cmd": shlex.join(ctx["argv"])[:400]})
+    elif cls not in ("wave", "stand", "measure") and ctx["nodirs"]:
+        say(f"guard: ВНИМАНИЕ — версия данных неизвестна (в отпечатке {ctx['fp']} нет ни одного явного входа: входного флага или GUARD_INPUTS): из реестра не берём, "
+            f"считаем заново. Объявить входы: env GUARD_INPUTS=каталог:каталог (входит в отпечаток)")
     elif cls in ("wave", "stand", "measure"):
         n = len(done_runs)
         if n and not (repeat and n < repeat):

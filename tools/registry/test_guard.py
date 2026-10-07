@@ -20,6 +20,9 @@ class GuardTest(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.cells = os.path.join(self.d, "cells.txt")
         self.out = []
+        self.root = os.path.join(self.d, "root")
+        os.makedirs(self.root)
+        put(os.path.join(self.root, "day.csv"), "v1")
         self._re, self._roots = snap.PATHRE, os.environ.get("GUARD_DATA_ROOTS")
         snap.PATHRE = re.compile("(" + re.escape(self.d) + r"[^\s\"']*)")   # как /data/… на сервере
         os.environ["GUARD_DATA_ROOTS"] = self.d
@@ -33,7 +36,7 @@ class GuardTest(unittest.TestCase):
             f.write("".join(f"form{i} set{i}\n" for i in range(n)))
 
     def argv(self):
-        return ["bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out"), "--set", "set0:a=1"]
+        return ["bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out"), "--root", self.root, "--set", "set0:a=1"]
 
     def chk(self, cls="prod", argv=None, **kw):
         return guard.check(cls, argv or self.argv(), say=self.out.append, **kw)
@@ -161,6 +164,36 @@ class GuardTest(unittest.TestCase):
         self.run_ok("wave", a)
         put(os.path.join(prog, "job.json"), "written by the job")
         self.assertEqual(self.chk("wave", a)[0], guard.SKIP)
+
+    def test_script_without_input_dirs_is_not_taken_from_registry(self):
+        self.write_cells(2)
+        a = ["bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out")]
+        self.run_ok(argv=a)
+        rc, info = self.chk(argv=a)
+        self.assertEqual(rc, 0)
+        self.assertTrue(any("ВНИМАНИЕ" in x and "версия данных неизвестна" in x for x in self.out))
+        self.assertEqual(guard.done("prod", 0, pending=info["pending"]) is not False, True)
+
+    def test_declared_inputs_and_symlink_target_change_new_fingerprint(self):
+        self.write_cells(2)
+        real = os.path.join(self.d, "real")
+        os.makedirs(real)
+        put(os.path.join(real, "x.csv"), "v1")
+        farm = os.path.join(self.d, "farm")
+        os.makedirs(farm)
+        try:
+            os.symlink(os.path.join(real, "x.csv"), os.path.join(farm, "x.csv"))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        a = ["bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out")]
+        os.environ["GUARD_INPUTS"] = farm
+        try:
+            self.run_ok(argv=a)
+            self.assertEqual(self.chk(argv=a)[0], guard.SKIP)
+            put(os.path.join(real, "x.csv"), "v2 changed target")
+            self.assertEqual(self.chk(argv=a)[0], 0)
+        finally:
+            os.environ.pop("GUARD_INPUTS")
 
     def test_recompute_needs_why(self):
         self.write_cells(2)
