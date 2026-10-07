@@ -2072,6 +2072,7 @@ fn count_prior_births(
 /// Берёт только поля, которые реально трогает, — карту живых, карту
 /// рождений, перенос возраста и буферы новорождённых/касаний кадра.
 #[allow(clippy::too_many_arguments)]
+#[inline(always)]
 fn scan_levels<const R1: bool>(
     ctx: &FrameCtx,
     ts_ms: i64,
