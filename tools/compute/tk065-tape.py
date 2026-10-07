@@ -10,6 +10,7 @@ ap.add_argument("level", type=int)
 ap.add_argument("t0", type=int)
 ap.add_argument("exit", type=int)
 ap.add_argument("--a-ticks", type=int, default=8)
+ap.add_argument("--dbg", action="store_true")
 ap.add_argument("--tail-s", type=float, default=5.0)
 a = ap.parse_args()
 
@@ -35,7 +36,11 @@ bid, ask = {}, {}
 end = a.exit + int(a.tail_s * 1e9)
 series = []  # (local_ts, best_bid, best_ask, qty_at_level_bid)
 cur = (None, None, None)
+bb = ba = None
 nfr = 0
+dbg = [] if a.dbg else None
+kinds = {}
+first = None
 done = False
 while not done:
     h = f.read(4)
@@ -64,14 +69,38 @@ while not done:
                 side = bid if ev & (1 << 29) else ask if ev & (1 << 28) else None
                 if side is None:
                     continue
+                isbid = side is bid
                 if qt <= 0:
                     side.pop(px, None)
+                    if isbid and px == bb:
+                        bb = max((k for k in bid if k <= px), default=None)
+                    elif not isbid and px == ba:
+                        ba = min((k for k in ask if k >= px), default=None)
                 else:
                     side[px] = qt
-        if kind == 3:  # DEPTH_CLEAR: сторона по битам
-            (bid if ev & (1 << 29) else ask).clear()
-        if lts >= a.t0 - 120 * 10**9 and bid and ask:
-            now = (max(bid), min(ask), bid.get(a.level, 0))
+                    # как fast_depth.rs: пересечение сдвигает противоположный указатель, а не удаляет уровни
+                    if isbid and (bb is None or px > bb):
+                        bb = px
+                        if ba is not None and bb >= ba:
+                            ba = min((k for k in ask if k > bb), default=None)
+                    elif not isbid and (ba is None or px < ba):
+                        ba = px
+                        if bb is not None and ba <= bb:
+                            bb = max((k for k in bid if k < ba), default=None)
+        if kind == 3:  # DEPTH_CLEAR: как clear_depth в бэктесте — бид: цены >= px, аск: цены <= px
+            if dbg is not None and len(dbg) < 12:
+                dbg.append((lts - a.t0, "bid" if ev & (1 << 29) else "ask", px, cnt, len(bid), len(ask)))
+            if ev & (1 << 29):
+                for k in [k for k in bid if k >= px]:
+                    del bid[k]
+                bb = max(bid, default=None)
+            else:
+                for k in [k for k in ask if k <= px]:
+                    del ask[k]
+                ba = min(ask, default=None)
+        kinds[kind] = kinds.get(kind, 0) + 1
+        if lts >= a.t0 - 120 * 10**9 and bb is not None and ba is not None:
+            now = (bb, ba, bid.get(a.level, 0))
             if now != cur:
                 cur = now
                 series.append((lts, *now))
@@ -79,6 +108,8 @@ while not done:
             done = True
             break
 
+if a.dbg:
+    print("kinds", kinds, "clears(t-t0,side,px,cnt,nbid,nask)", dbg)
 print(f"кадров прочитано {nfr}; точек {len(series)}; level={a.level} A={a.a_ticks} тиков")
 dep = None
 exp_ns = None
@@ -100,6 +131,16 @@ print(f"exit_ns = t0+{(a.exit-a.t0)/1e9:.6f}c; ряд вокруг выхода 
 for ts, bb, ba, q in series:
     if a.exit - int(a.tail_s * 1e9) <= ts <= a.exit + 10**9:
         print(f"  {(ts-a.exit)/1e6:12.3f}  {bb-a.level:4d}  {ba-a.level:4d}  {q}")
+print("переходы d=best_bid-level (t-t0 с): смена состояния hi(d>=A) / lo(d<=1) / mid:")
+st = None
+for ts, bb, ba, q in series:
+    if ts < a.t0 or ts > a.exit + 10**9:
+        continue
+    d = bb - a.level
+    k = "hi" if d >= a.a_ticks else "lo" if d <= 1 else "mid"
+    if k != st:
+        st = k
+        print(f"  t0+{(ts-a.t0)/1e9:9.3f}  d={d:3d}  {k}")
 print("qty@level: перед выходом (последние значения по возрастанию времени, до 12 смен):")
 ql = [(ts, q) for ts, bb, ba, q in series if ts <= a.exit]
 prev = None
