@@ -1995,6 +1995,9 @@ fn deadline_secs_flag_extends_the_grid_to_30min_and_4h() {
     );
     let head = std::fs::read_to_string(&m.forms_path).unwrap();
     assert!(head.contains("deadlines=[60, 1800, 14400]"), "{head}");
+    a.deadline_secs = vec![21_600, 28_800];
+    a.out_dir = dir.path().join("grid-dl-long");
+    assert_eq!(run_bounce_grid(&a).unwrap().forms, 2);
     a.deadline_secs = vec![900];
     a.out_dir = dir.path().join("grid-dl-bad");
     assert!(run_bounce_grid(&a).is_err());

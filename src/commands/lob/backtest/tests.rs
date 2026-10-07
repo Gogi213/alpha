@@ -814,6 +814,14 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
     // Дедлайн: сетка {60, 600, 3600, 7200} с.
     assert_eq!(deadline_ns_from_secs(60).unwrap(), 60 * 1_000_000_000);
     assert_eq!(deadline_ns_from_secs(7_200).unwrap(), 7_200 * 1_000_000_000);
+    assert_eq!(
+        deadline_ns_from_secs(21_600).unwrap(),
+        21_600 * 1_000_000_000
+    );
+    assert_eq!(
+        deadline_ns_from_secs(28_800).unwrap(),
+        28_800 * 1_000_000_000
+    );
     let err = deadline_ns_from_secs(120).unwrap_err().to_string();
     assert!(
         err.contains("не из предрегистрированной сетки В-58") && err.contains("120"),
