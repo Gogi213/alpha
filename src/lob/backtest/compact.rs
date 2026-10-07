@@ -87,6 +87,18 @@ impl CompactEvent {
         (self.exch_kind >> 2).saturating_mul(1_000_000)
     }
 
+    pub(crate) fn exch_ms(&self) -> i64 {
+        self.exch_kind >> 2
+    }
+
+    pub(crate) fn px_e9(&self) -> i64 {
+        self.px_e9
+    }
+
+    pub(crate) fn qty_e9(&self) -> i64 {
+        self.qty_e9
+    }
+
     pub fn px(&self) -> f64 {
         self.px_e9 as f64 / 1e9
     }
