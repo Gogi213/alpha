@@ -109,7 +109,8 @@ struct Dense {
 
 impl Dense {
     fn to_vec(&self) -> Vec<(i64, f64)> {
-        let mut out = Vec::new();
+        let n: u32 = self.mask.iter().map(|w| w.count_ones()).sum();
+        let mut out = Vec::with_capacity(n as usize);
         for (w, &word) in self.mask.iter().enumerate() {
             let mut m = word;
             while m != 0 {
