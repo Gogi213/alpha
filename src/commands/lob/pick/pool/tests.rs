@@ -267,11 +267,10 @@ fn pool_excludes_non_crypto_bases_with_reason() {
 }
 
 /// Тот же пункт 2 на золоте, ETF и второй акции из замера 2026-09-10,
-/// записанного в Decision 25: `XAUUSDT`, `SOXLUSDT`, `SNDKUSDT`.
+/// записанного в Decision 25: `SOXLUSDT`, `SNDKUSDT` (золото убрано, В-198).
 #[test]
 fn pool_excludes_gold_etf_and_stock_from_the_recorded_measurement() {
     let candidates = vec![
-        meta("XAUUSDT", "XAU", e9(8_000_000)),
         meta("SOXLUSDT", "SOXL", e9(7_000_000)),
         meta("SNDKUSDT", "SNDK", e9(6_000_000)),
         meta("TSLAUSDT", "TSLA", e9(5_000_000)),
@@ -291,7 +290,7 @@ fn pool_excludes_gold_etf_and_stock_from_the_recorded_measurement() {
             .excluded
             .iter()
             .all(|e| e.excluded_reason == EXCLUDED_NON_CRYPTO),
-        "все четыре — пункт 2: {outcome:?}"
+        "все три — пункт 2: {outcome:?}"
     );
 }
 
@@ -430,7 +429,7 @@ fn pool_tie_in_turnover_breaks_by_symbol_deterministically() {
 /// по поведению от отсутствия механизма на вселенных без этих символов.
 #[test]
 fn non_crypto_list_contains_the_bases_named_in_the_plan() {
-    for base in ["AAPL", "XAU", "SOXL", "SNDK"] {
+    for base in ["AAPL", "SOXL", "SNDK", "TSLA"] {
         assert!(
             NON_CRYPTO_BASES.contains(&base),
             "база {base} из замера Decision 25 обязана быть в списке"
@@ -438,15 +437,18 @@ fn non_crypto_list_contains_the_bases_named_in_the_plan() {
     }
 }
 
-/// Открытые места спеки: `CLUSDT` (`baseCoin = "CL"`, тикер нефти WTI)
-/// исключается по умолчанию, тем же путём, что и прочие некриптовые базы.
+/// В-198 (07.10): золото и нефть (`XAUUSDT`, `CLUSDT`) идут в пул исследования.
 #[test]
-fn clusdt_is_excluded_as_non_crypto_by_default() {
-    assert!(NON_CRYPTO_BASES.contains(&"CL"));
-    let candidates = vec![meta("CLUSDT", "CL", e9(1_000_000))];
+fn xau_and_cl_are_not_excluded_as_non_crypto() {
+    assert!(!NON_CRYPTO_BASES.contains(&"XAU"));
+    assert!(!NON_CRYPTO_BASES.contains(&"CL"));
+    let candidates = vec![
+        meta("XAUUSDT", "XAU", e9(8_000_000)),
+        meta("CLUSDT", "CL", e9(1_000_000)),
+    ];
     let outcome = build_pool(&candidates, NOW_MS, POOL_SIZE);
-    assert!(outcome.pool.is_empty());
-    assert_eq!(outcome.excluded[0].excluded_reason, EXCLUDED_NON_CRYPTO);
+    assert!(outcome.excluded.is_empty());
+    assert_eq!(outcome.pool.len(), 2);
 }
 
 // -- base_coins_considered_until_pool_complete (история 2) --------------
