@@ -1,0 +1,3 @@
+#!/bin/bash
+# TK-071: внутри окна замера вложенные systemd-run волны садятся в slice окна (учёт ЦП/диска/памяти волны целиком)
+exec /usr/bin/systemd-run ${ALSCHED_SLICE:+-p Slice=$ALSCHED_SLICE} "$@"

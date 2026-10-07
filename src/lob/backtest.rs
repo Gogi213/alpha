@@ -1918,7 +1918,13 @@ struct EntryTally {
     entry_taker: bool,
 }
 
-fn entry_tally<B, MD>(bot: &B, asset_no: usize, entry_id: u64, legs: u8) -> Option<EntryTally>
+fn entry_tally<B, MD>(
+    bot: &B,
+    asset_no: usize,
+    entry_id: u64,
+    legs: u8,
+    saved: &[(u64, Order)],
+) -> Option<EntryTally>
 where
     B: Bot<MD>,
     MD: MarketDepth,
@@ -1930,7 +1936,7 @@ where
     let mut entry_taker = false;
     let mut ordered = 0.0;
     for i in 0..u64::from(legs.max(1)) {
-        let Some(o) = bot.orders(asset_no).get(&entry_id.saturating_add(i)) else {
+        let Some(o) = order_of(bot, asset_no, saved, entry_id.saturating_add(i)) else {
             continue;
         };
         if !matches!(o.status, Status::Rejected | Status::Expired) {
@@ -1980,6 +1986,7 @@ fn build_group_outcome<B, MD>(
     fill_by_cross: bool,
     entry: &EntryTally,
     exits: &[(u64, ExitReason, bool)],
+    saved: &[(u64, Order)],
 ) -> RoundOutcome
 where
     B: Bot<MD>,
@@ -2021,7 +2028,7 @@ where
             entry_vwap: entry.entry_vwap,
             fill_frac: entry.fill_frac,
             legs_filled: u8::try_from(entry.entry_legs).unwrap_or(u8::MAX),
-            legs_rejected: rejected_legs(bot, asset_no, entry_id, legs),
+            legs_rejected: rejected_legs_with(bot, asset_no, entry_id, legs, saved),
             fill_by_cross,
         },
         exit_ts,
@@ -2217,10 +2224,47 @@ where
     let mut stable: Vec<bool> = vec![false; n];
     let skip_on = skip_same();
     let mut sigs: Vec<SigMemo> = vec![SigMemo::default(); n];
+    // TK-048 (`ALPHA_FAST_HOLD`): один заход группового быстрого пути сразу после форка; ноги входа
+    // сохраняются перед заменой движка (как `saved` сольного `run_round`).
+    let mut fast_tried = !fast_hold::fast_hold_on();
+    let mut post_step = false;
+    let mut saved: Vec<(u64, Order)> = Vec::new();
     loop {
         if outcome.iter().all(Option::is_some) {
             break;
         }
+        if !fast_tried
+            && entry_pending == 0
+            && skip_on_hold(skip_cap, ev_steps)
+            && states
+                .iter()
+                .all(|s| s.is_holding() && s.hold_wakeup_ns(bot.current_timestamp()).is_some())
+            && !has_open_orders(bot, asset_no)
+        {
+            fast_tried = true;
+            let legs_saved: Vec<(u64, Order)> = (0..u64::from(legs.max(1)))
+                .filter_map(|i| {
+                    let id = entry_id.saturating_add(i);
+                    bot.orders(asset_no).get(&id).map(|o| (id, o.clone()))
+                })
+                .collect();
+            if let Some(cap) = skip_cap {
+                if let Some(ps) = fast_hold::try_fast_hold_group(
+                    bot,
+                    asset_no,
+                    &mut states,
+                    cap,
+                    &mut decided,
+                    &mut stable,
+                    &mut sigs,
+                    skip_on,
+                ) {
+                    post_step = ps;
+                    saved = legs_saved;
+                }
+            }
+        }
+        let skip_step = std::mem::take(&mut post_step);
         let wakeup = match skip_cap {
             Some(_) if ev_steps && entry_pending == 0 => {
                 let now = bot.current_timestamp();
@@ -2261,6 +2305,7 @@ where
             _ => None,
         };
         let stepped = match (wakeup, skip_cap) {
+            _ if skip_step => ElapseResult::Ok,
             (Some(th), Some(cap)) => {
                 let resp = has_open_orders(bot, asset_no)
                     || states
@@ -2295,9 +2340,7 @@ where
             if entry_seen & bit != 0 {
                 continue;
             }
-            let Some(o) = bot
-                .orders(asset_no)
-                .get(&entry_id.saturating_add(u64::from(i)))
+            let Some(o) = order_of(bot, asset_no, &saved, entry_id.saturating_add(u64::from(i)))
             else {
                 continue;
             };
@@ -2355,9 +2398,9 @@ where
                 let fbc = fill_by_cross
                     || (entry_pending != 0
                         && pending_is_cross(bot, asset_no, entry_id, side, entry_pending, legs));
-                outcome[i] = Some(match entry_tally(bot, asset_no, entry_id, legs) {
+                outcome[i] = Some(match entry_tally(bot, asset_no, entry_id, legs, &saved) {
                     Some(entry) => build_group_outcome(
-                        bot, asset_no, entry_id, legs, side, fbc, &entry, &exits[i],
+                        bot, asset_no, entry_id, legs, side, fbc, &entry, &exits[i], &saved,
                     ),
                     None => RoundOutcome::Inconsistent,
                 });
@@ -3479,8 +3522,16 @@ fn group_round_in_window<R: EventRows + ?Sized>(
                 }
                 let mut gid = GROUP_ID_BASE;
                 let mut carries = vec![OrphanCarry::NONE; plans.len()];
-                let steps =
-                    drive_signal_group(bt, 0, rep, plans, cfg, &mut gid, &mut carries, data_end)?;
+                let bt_addr = std::ptr::from_ref::<Backtest<FastMarketDepth>>(bt) as usize;
+                let steps = fast_hold::with_fast_ctx(
+                    bt_addr,
+                    rest,
+                    windows.tick_size,
+                    windows.lot_size,
+                    exec_latency,
+                    cfg.queue_model,
+                    || drive_signal_group(bt, 0, rep, plans, cfg, &mut gid, &mut carries, data_end),
+                )?;
                 let steps = steps
                     .into_iter()
                     .zip(carries)

@@ -150,8 +150,9 @@ pub mod archive;
 pub use archive::{
     default_out_path as archive_out_path, file_bytes as file_bytes_on_disk, is_archive_path,
     max_level as archive_max_level, read_stats as archive_stats,
-    verify_round_trip as archive_verify_round_trip, write_container as archive_write, ArchiveRead,
-    ArchiveVerify, ArchiveWrite, ARCHIVE_MAGIC, ARCHIVE_VERSION,
+    verify_round_trip as archive_verify_round_trip, write_container as archive_write,
+    write_container_columnar as archive_write_columnar, ArchiveRead, ArchiveVerify, ArchiveWrite,
+    ARCHIVE_MAGIC, ARCHIVE_VERSION, ARCHIVE_VERSION_COLUMNAR,
     DEFAULT_LEVEL as ARCHIVE_DEFAULT_LEVEL,
 };
 
@@ -945,10 +946,19 @@ fn read_frame_epoch(payload: &[u8]) -> Result<i64, BinlogError> {
 /// записей больше, чем в кадре осталось байт, — порча, а не повод крутить
 /// цикл по счётчику, который пришёл с диска.
 pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
+    let mut out = Vec::new();
+    decode_frame_payload_v3_into(payload, &mut out)?;
+    Ok(out)
+}
+
+/// `decode_frame_payload_v3` в буфер вызывающего (дописывает в конец `out`).
+pub fn decode_frame_payload_v3_into(
+    payload: &[u8],
+    out: &mut Vec<Record>,
+) -> Result<(), BinlogError> {
     let epoch_ns = read_frame_epoch(payload)?;
     let mut st = DeltaState::new();
     let mut pos = FRAME_EPOCH_LEN;
-    let mut out = Vec::new();
     while pos < payload.len() {
         let ev = read_uvarint(payload, &mut pos)?;
         let exch_delta = read_zigzag(payload, &mut pos)?;
@@ -988,7 +998,7 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
             });
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 // `decode_frame_payload_v3_ev_table` (парный читатель варианта замера выше)
@@ -1492,6 +1502,8 @@ pub struct Reader<R: Read> {
     /// печати (`binlog-stats` именует источник архива) и тестам.
     archive_level: Option<u8>,
     decompressor: zstd::bulk::Decompressor<'static>,
+    scratch_stored: Vec<u8>,
+    scratch_payload: Vec<u8>,
     /// Был ли остановлен на обрезанном **хвостовом** кадре (`read_frame_soft`,
     /// A4, 2026-09-17): файл живой записи читатель может застать между
     /// `write` и полным кадром, и это не порча — см. `ShortRead` выше.
@@ -1517,13 +1529,20 @@ enum Body<R: Read> {
     /// `Chain` — потому что первые байты (магия zstd) already прочитаны при
     /// опознании формата, а декодер обязан увидеть поток с самого начала:
     /// zstd читает свой заголовок именно там.
-    Archive(
-        zstd::stream::read::Decoder<
-            'static,
-            io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
-        >,
-    ),
+    Archive(ArchiveDecoder<R>),
+    /// Колоночный контейнер (версия 2), заголовок прочитан, колонки ещё нет:
+    /// сборка тел кадров идёт при первом чтении кадра, а не при `open` —
+    /// счёт открывает файл ради одного заголовка (шаг сетки) несколько раз.
+    ColumnarLazy(ArchiveDecoder<R>),
+    /// Колоночный контейнер (версия 2): тела кадров уже собраны в память как
+    /// поток `[u32 длина | тело]*` — для `read_body` это тот же контейнер.
+    Mem(io::Cursor<Vec<u8>>),
 }
+
+type ArchiveDecoder<R> = zstd::stream::read::Decoder<
+    'static,
+    io::BufReader<io::Chain<io::Cursor<[u8; MAGIC_VERSION_LEN]>, R>>,
+>;
 
 impl<R: Read> Body<R> {
     /// То же `read_upto`, что и у обычного файла, но по телу: у контейнера
@@ -1532,7 +1551,29 @@ impl<R: Read> Body<R> {
         match self {
             Self::Plain(inner) => read_upto(inner, buf),
             Self::Archive(decoder) => read_upto(decoder, buf),
+            Self::Mem(cursor) => read_upto(cursor, buf),
+            Self::ColumnarLazy(_) => {
+                self.materialize()?;
+                self.read_upto(buf)
+            }
         }
+    }
+
+    fn materialize(&mut self) -> io::Result<()> {
+        let Self::ColumnarLazy(decoder) = std::mem::replace(self, Self::Mem(io::Cursor::default()))
+        else {
+            unreachable!("собирается только отложенный колоночный контейнер")
+        };
+        let invalid = |m: String| io::Error::new(io::ErrorKind::InvalidData, m);
+        let mut blob = Vec::new();
+        let limit = HARD_PAYLOAD_CEILING as u64 + 1;
+        io::Read::read_to_end(&mut io::Read::take(decoder, limit), &mut blob)?;
+        if blob.len() as u64 >= limit {
+            return Err(invalid("колоночный контейнер больше потолка суток".into()));
+        }
+        let stream = archive::columnar_to_stream(&blob).map_err(|e| invalid(format!("{e:?}")))?;
+        *self = Self::Mem(io::Cursor::new(stream));
+        Ok(())
     }
 }
 
@@ -1625,6 +1666,8 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: None,
             decompressor: zstd::bulk::Decompressor::new()?,
+            scratch_stored: Vec::new(),
+            scratch_payload: Vec::new(),
             truncated_tail: false,
         })
     }
@@ -1653,7 +1696,7 @@ impl<R: Read> Reader<R> {
                 })
             }
         }
-        archive::validate_container_header(&container)?;
+        let container_version = archive::validate_container_header(&container)?;
         let level = container[archive::HEADER_LEVEL_AT];
         let mut magic_version = [0u8; MAGIC_VERSION_LEN];
         match body.read_upto(&mut magic_version)? {
@@ -1691,6 +1734,14 @@ impl<R: Read> Reader<R> {
         } else {
             Vec::new()
         };
+        let body = if container_version == archive::ARCHIVE_VERSION_COLUMNAR {
+            let Body::Archive(decoder) = body else {
+                unreachable!("контейнер открывается только через Body::Archive")
+            };
+            Body::ColumnarLazy(decoder)
+        } else {
+            body
+        };
         Ok(Self {
             inner: body,
             header,
@@ -1701,6 +1752,8 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: Some(level),
             decompressor: zstd::bulk::Decompressor::new()?,
+            scratch_stored: Vec::new(),
+            scratch_payload: Vec::new(),
             truncated_tail: false,
         })
     }
@@ -1758,13 +1811,28 @@ impl<R: Read> Reader<R> {
     /// `min`, `n` из `Partial(n)` не превышает запрошенного по контракту
     /// `read_upto`; проверка через `get` в цикле ввода-вывода — мёртвый код.
     pub fn read_body(&mut self) -> Result<Option<Vec<u8>>, BinlogError> {
+        let mut stored = Vec::new();
+        let mut payload = Vec::new();
+        Ok(self
+            .read_body_into(&mut stored, &mut payload)?
+            .then_some(payload))
+    }
+
+    /// `read_body` в переиспользуемые буферы вызывающего: `stored` — сжатые
+    /// байты с диска, `payload` — тело кадра. Те же проверки и ошибки; `false`
+    /// — чистый конец потока.
+    fn read_body_into(
+        &mut self,
+        stored: &mut Vec<u8>,
+        payload: &mut Vec<u8>,
+    ) -> Result<bool, BinlogError> {
         let mut len_buf = [0u8; LEN_PREFIX];
         match self.inner.read_upto(&mut len_buf)? {
             ReadStatus::Eof => {
                 return if self.frames_read == 0 {
                     Err(BinlogError::MissingSnapshot)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 };
             }
             ReadStatus::Partial(got) => {
@@ -1795,7 +1863,9 @@ impl<R: Read> Reader<R> {
         // настоящий кадр этого писателя в него гарантированно укладывается),
         // сравнивается с длиной сразу, до единого байта чтения тела.
         let len_ceiling = match self.inner {
-            Body::Archive(_) => max_frame_record_bytes(self.header.max_records_per_frame),
+            Body::Archive(_) | Body::ColumnarLazy(_) | Body::Mem(_) => {
+                max_frame_record_bytes(self.header.max_records_per_frame)
+            }
             Body::Plain(_) => max_frame_bytes_on_disk(self.header.max_records_per_frame as usize),
         };
         if len > len_ceiling {
@@ -1813,18 +1883,16 @@ impl<R: Read> Reader<R> {
         // обрывается на `ShortRead` первого недостающего куска, а не на
         // попытке выделить впрок то, чего на диске нет.
         const READ_CHUNK: usize = 64 * 1024;
-        let mut stored = Vec::with_capacity(len.min(READ_CHUNK));
+        stored.clear();
         let mut got = 0usize;
-        let mut chunk = [0u8; READ_CHUNK];
         while got < len {
             let want = (len - got).min(READ_CHUNK);
-            match self.inner.read_upto(&mut chunk[..want])? {
+            stored.resize(got + want, 0);
+            match self.inner.read_upto(&mut stored[got..got + want])? {
                 ReadStatus::Full => {
-                    stored.extend_from_slice(&chunk[..want]);
                     got += want;
                 }
                 ReadStatus::Partial(n) => {
-                    stored.extend_from_slice(&chunk[..n]);
                     got += n;
                     return Err(BinlogError::ShortRead {
                         context: "тело кадра",
@@ -1846,7 +1914,10 @@ impl<R: Read> Reader<R> {
         }
         self.frames_read += 1;
 
-        if matches!(self.inner, Body::Archive(_)) {
+        if matches!(
+            self.inner,
+            Body::Archive(_) | Body::ColumnarLazy(_) | Body::Mem(_)
+        ) {
             // Тело контейнера лежит несжатым: это и есть тело кадра v3.
             // Потолок уже проверен выше, до чтения (`len_ceiling`) — `stored.
             // len() == len` (цикл выше не выходит иначе) не может превысить
@@ -1857,7 +1928,8 @@ impl<R: Read> Reader<R> {
                 stored.len() <= max_frame_record_bytes(self.header.max_records_per_frame),
                 "len_ceiling выше обязан был отвергнуть этот кадр раньше"
             );
-            return Ok(Some(stored));
+            std::mem::swap(stored, payload);
+            return Ok(true);
         }
 
         // `bulk::Decompressor::decompress` с явной ёмкостью, не
@@ -1895,14 +1967,19 @@ impl<R: Read> Reader<R> {
         } else {
             header_ceiling
         };
-        let payload = self
-            .decompressor
-            .decompress(&stored, ceiling_bytes)
+        // Ёмкость буфера = потолок, как у `decompress(.., ceiling)`; при
+        // насыщенном потолке (от размера кадра) — свежий буфер на кадр.
+        if header_ceiling == HARD_PAYLOAD_CEILING || payload.capacity() < ceiling_bytes {
+            *payload = Vec::with_capacity(ceiling_bytes);
+        }
+        payload.clear();
+        self.decompressor
+            .decompress_to_buffer(&stored[..], payload)
             .map_err(|_| BinlogError::FrameExceedsHeaderCeiling {
                 max_records_per_frame: self.header.max_records_per_frame,
                 ceiling_bytes,
             })?;
-        Ok(Some(payload))
+        Ok(true)
     }
 
     /// Возвращает следующий кадр как список записей — `read_body` плюс
@@ -1923,6 +2000,36 @@ impl<R: Read> Reader<R> {
             decode_frame_payload_v3(&payload)?
         };
         Ok(Some(records))
+    }
+
+    /// `read_frame` в буферы вызывающего: `records` очищается и заполняется,
+    /// сжатые и разжатые байты — в буферах читателя (без аллокации на кадр).
+    /// `false` — чистый конец потока. Записи те же, что у `read_frame`.
+    pub fn read_frame_into(&mut self, records: &mut Vec<Record>) -> Result<bool, BinlogError> {
+        let mut stored = std::mem::take(&mut self.scratch_stored);
+        let mut payload = std::mem::take(&mut self.scratch_payload);
+        let res = self.read_body_into(&mut stored, &mut payload);
+        let out = match res {
+            Ok(true) => {
+                records.clear();
+                if self.version == VERSION_V2 {
+                    let mut dead = self.legacy_dead;
+                    let r = decode_frame_payload_v2(&payload, &mut dead);
+                    self.legacy_dead = dead;
+                    r.map(|v| {
+                        *records = v;
+                        true
+                    })
+                } else {
+                    decode_frame_payload_v3_into(&payload, records).map(|()| true)
+                }
+            }
+            Ok(false) => Ok(false),
+            Err(e) => Err(e),
+        };
+        self.scratch_stored = stored;
+        self.scratch_payload = payload;
+        out
     }
 
     /// Кадр живого файла (A4, 2026-09-17): обрезанный **хвостовой** кадр —

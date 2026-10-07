@@ -19,4 +19,7 @@ if [ "$cls" = wave ]; then
     systemctl freeze "$u" </dev/null 2>/dev/null && echo "$u $c" >> "$BENCH_FROZEN"
   done
 fi
-"$@"; exit $?
+REGM=$(python3 /data/registry/snap.py begin "$cls" "$@" 2>/dev/null) || REGM=""   # TK-068: снимок конфига прогона
+"$@"; rc=$?
+[ -n "$REGM" ] && python3 /data/registry/snap.py end "$REGM" "$rc" 2>/dev/null   # TK-068
+exit $rc

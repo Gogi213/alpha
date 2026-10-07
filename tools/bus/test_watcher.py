@@ -30,6 +30,16 @@ class FileMarkers(unittest.TestCase):
         self.assertEqual(w.run_once(), [])
 
 
+class SpoolFlush(unittest.TestCase):
+    def test_flush_every_step_without_new_events(self):
+        calls = []
+        w = W.Watcher("calc", ["tk*"], [], "x", post=lambda a, p, i, t: None, snap=lambda pat: {}, prog=lambda pg: {},
+                      watch_file="/nonexistent", flush=lambda t: calls.append(t))
+        w.run_once()
+        w.run_once()
+        self.assertEqual(calls, [5, 5])
+
+
 class T(unittest.TestCase):
     def test_clean_stop_and_gc(self):
         f = Fake(); w = f.make()
@@ -38,7 +48,16 @@ class T(unittest.TestCase):
         f.units = {}                                 # юнит собран GC после успеха
         ev = w.run_once()
         self.assertEqual([e[0] for e in ev], ["машина.calc.юнит.остановлен"])
+        self.assertEqual(ev[0][1]["invocation"], "inv1")
         self.assertEqual(w.run_once(), [])          # без повторов
+
+    def test_start_event_carries_invocation(self):
+        f = Fake(); w = f.make()
+        w.run_once()                                 # baseline без юнитов
+        f.units = {"tk1-a.service": "active"}
+        ev = w.run_once()
+        self.assertEqual([(e[0], e[1]["invocation"]) for e in ev], [("машина.calc.юнит.запущен", "inv1")])
+        self.assertEqual(w.run_once(), [])
 
     def test_failure_maps_to_ticket(self):
         f = Fake(); w = f.make()

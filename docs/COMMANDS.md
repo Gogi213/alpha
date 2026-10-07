@@ -43,6 +43,8 @@
 
 **Калибровка режима счёта до прогона дольше ~15 мин (В-178, `tools/compute/calibrate.sh`, на серверах — `/opt/alpha-compute/bin/`):** `bash calibrate.sh --units units.txt --cmd 'one "$1" "$2"' --done 'test -s out/$2.csv' --out /data/<job>/calib [--P 1,2,4,8,16] [--ra cur,16384] [--secs 150] [--quota 1500] [--quick]` — поля единицы = `$1 $2 …`; `--done` = единица уже сделана (результаты калибровки остаются настоящими), без него — во временный каталог; печатает таблицу и «лучший: P=…, readahead=… КБ», пишет `<out>/calibrate.tsv` (в запись тикета); readahead возвращается.
 
+**Диски сервера счёта, `max_sectors_kb` (TK-048, 06.10):** 1280→4096 не помогает (q15 b14, янв 1–15: 263,3 против 259,1–259,5 с, запросы крупнее, стена не короче) — оставить 1280. Перенос approaches с sdb на sda копиями не ускорил (янв+фев 875 против 839 с): перенесённый файл читается полнее, чем читался на sdb, — «ГБ файла» ≠ «ГБ чтения».
+
 ## Грабли
 
 - `--h3-mode floor|percentile` обязателен, умолчания нет — у `levels`, `markout`,
@@ -532,3 +534,21 @@ printenv BYBIT_API_KEY BYBIT_API_SECRET | ssh -i ~/.ssh/id_rsa ubuntu@139.99.91.
 - Остаток теста: `/opt/alpha/root-test-top20-1725` (10-минутный прогон), можно удалить.
 - Соседние хосты из `~/.ssh/config`: `my-server` (34.84.161.193) и `singapore-server` (38.54.17.37) —
   таймаут; `tokyo-agent` (149.104.78.63) отвечает **сменившимся host key** (доступов нет).
+## VPS София — диск (TK-075)
+
+Сборка идёт через `/opt/alpha-compute/sweep.sh run <target> <cmd>` (репо: `tools/compute/vps-sweep.sh`): под `.build.lock` чистит осиротевшие `target-*`, отказывает (rc 75 + тревога `диск.софия` → CEO) при области+3 ГБ > 12 или свободно−3 < 20 ГБ, после сборки удаляет `target`. Таймер каждые 15 мин — транзиентный, **после перезагрузки VPS поднять**:
+`systemd-run --quiet --unit=alpha-sweep15 --on-calendar="*:0/15" bash -c "exec 9>/opt/alpha-compute/.build.lock; exec /opt/alpha-compute/sweep.sh"`.
+Список бинарников, которые не чистятся, — `/opt/alpha-compute/bin-keep.txt`; шина на VPS — `bus/busclient.py` + `bus/token`.
+
+## Сервер счёта — планировщик `alpha-sched` (TK-071, В-189)
+
+С 06.10 17:40 новое производство и замеры идут только через очередь; голый `systemd-run` — запрещён (демон не видит такое задание в бюджете ядер/памяти). Показ очереди: `python3 /data/sched/alsched.py ps`.
+
+- **Производство** (пакуется на свободные ядра в фоне, вернётся сразу, печатает id):
+  `python3 /data/sched/alsched.py submit --cls prod --name tk064-r1-feb --max-runtime 3h --cores 12 --mem 20 --disk hdd1 --cwd /data/tk064 -- bash /data/tk064/run-month.sh feb`
+  Флаги: `--name` (имя, попадает в юнит), `--max-runtime` (90s|30m|2h — активная работа, без времени под заморозкой замера; по сроку задание убивается), `--cores` (1 по умолчанию — слишком мало: ядер ≈ число воркеров), `--mem` ГБ (бюджет 56 минус пик волны), `--disk hdd1|hdd2|none` (не больше 16 заданий на диск), `--prio` (меньше — раньше, по умолчанию 5), `--cwd`. Команда — после `--`, лог — `/data/sched/logs/<id>.log`, код — `/data/sched/rc/<id>`.
+- **Замер** (эксклюзивное окно, производство замораживается, окно проверяется на помеху): `/data/benchrun.sh wave|stand …` — это обёртка над `alsched.py wave|stand --max-runtime 2h`; ждёт и печатает вывод. Волна без `validity ok` недействительна.
+- **Ждать из тикета:** `tickets.py wait <ID> host:calc:/data/sched/rc/<id>` (файл появляется по концу задания; код — внутри).
+- **Отмена:** `alsched.py cancel <id>`. Страховочная разморозка: `alsched.py thaw` (метка делает идущее окно недействительным).
+- **Кандидат скорости b16t-pgo (TK-048, принят Судьёй 07.10):** обёртка `tools/compute/alpha-b16tpgoflag.sh` (бинарник `alpha-b16t-pgo`, источник и PGO — `alpha-b16t-pgo.info`), `.abin` касаний `ALPHA_TOUCH_BIN=1`, `ALPHA_APPROACH_BIN_DIR` обязателен; боевой кэш в шм — `tools/compute/abin-shm.sh up <каталог abin> <тег> <сутки…>` (только чтение; `need_mb` из вывода — в `--mem` задания), `down <тег>` после. Янв+фев 59 сут: 698,3 с против 758. **Годен только для команд на формах master:** собран из master (b19e044e) без `--r1-cols` (R1, ветка tk064-r1) и без форм R2 (`pyre*`, `pyeat*`, `conv*`, `--set agemax`, ветка tk065-r2a) — R1/R2 идут на своих бинарниках, пока механики не слиты в один.
+- **Правила:** сумма `--cores` производства ≤ 15–16, задание на 1 ядро при свободных 15 — предупреждение (калибровка В-178: `tools/compute/calibrate.sh`); `alpha-sched` лежит — `systemctl status alpha-sched`, heartbeat `/data/sched/heartbeat`; при молчании > 60 с волна объявляется недействительной.

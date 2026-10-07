@@ -1,0 +1,14 @@
+[Unit]
+Description=alpha scheduler: очередь заявок, окна замеров (TK-071, В-189)
+After=local-fs.target
+
+[Service]
+Type=simple
+Environment=SCHED_DIR=/data/sched
+ExecStart=/usr/bin/python3 /data/sched/alsched.py daemon
+Restart=always
+RestartSec=3
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

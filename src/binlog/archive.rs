@@ -32,6 +32,10 @@
 //! процентных пункта при разжатии в 20–40 раз медленнее — при том, что анализ
 //! по архиву читает гигабайты на каждый прогон.
 
+mod columnar;
+pub(super) use columnar::columnar_to_stream;
+pub use columnar::{write_container_columnar, ARCHIVE_VERSION_COLUMNAR};
+
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -119,7 +123,7 @@ pub struct ArchiveRead {
 /// распакованном потоке: «это контейнер» снаружи уже решено магией zstd, а
 /// здесь проверяется, что внутри действительно наш архив, а не что-то ещё,
 /// что тем же zstd сжали.
-pub(super) fn validate_container_header(bytes: &[u8]) -> Result<(), BinlogError> {
+pub(super) fn validate_container_header(bytes: &[u8]) -> Result<u8, BinlogError> {
     let magic: [u8; 4] = bytes
         .get(..4)
         .and_then(|b| b.try_into().ok())
@@ -130,12 +134,12 @@ pub(super) fn validate_container_header(bytes: &[u8]) -> Result<(), BinlogError>
         )));
     }
     let version = bytes[4];
-    if version != ARCHIVE_VERSION {
+    if version != ARCHIVE_VERSION && version != ARCHIVE_VERSION_COLUMNAR {
         return Err(BinlogError::Corrupt(format!(
-            "версия контейнера {version}, а этот код знает {ARCHIVE_VERSION}"
+            "версия контейнера {version}, а этот код знает {ARCHIVE_VERSION} и              {ARCHIVE_VERSION_COLUMNAR}"
         )));
     }
-    Ok(())
+    Ok(version)
 }
 
 /// Приёмник, считающий записанные байты: размер контейнера нужен отчёту, а

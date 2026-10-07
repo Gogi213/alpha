@@ -1,5 +1,6 @@
-"""Клиент шины для диспетчера (TK-045): long-poll очередей dispatcher и ceo, сигнал «проснуться сейчас», ack после тика.
-Шина лежит — диспетчер работает по таймеру как раньше (обёртка не бросает), CEO получает одну строку за период."""
+"""Клиент шины для диспетчера (TK-045): long-poll очереди dispatcher, сигнал «проснуться сейчас», ack после тика.
+Очередь `ceo` диспетчер НЕ читает (TK-074): её читает и подтверждает CEO командой `tickets.py inbox`.
+Шина лежит — диспетчер работает по таймеру как раньше (обёртка не бросает), сигналы CEO — запасным файлом."""
 import os
 import sys
 import threading
@@ -85,12 +86,9 @@ class Link:
         self.down_since = None
         self.last_snapshot = 0.0
         self.disp = Listener("dispatcher", self._on_disp, self._on_state)
-        self.ceo_unacked = set()
-        self.ceo = Listener("ceo", self._on_ceo, tick=self.retry_ceo_ack)
 
     def start(self):
         self.disp.start()
-        self.ceo.start()
 
     def _on_disp(self, events):
         if self.on_event:
@@ -102,16 +100,6 @@ class Link:
         with self.lock:
             self.to_ack.update(e["seq"] for e in events)
         self.wake.set()
-
-    def _on_ceo(self, events):
-        for e in events:
-            self.ceo_line(e["addr"], f"#{e['seq']} {e.get('payload') or ''}"[:300])
-        self.ceo_unacked.update(e["seq"] for e in events)
-        self.retry_ceo_ack()
-
-    def retry_ceo_ack(self):
-        if self.ceo_unacked and ack("ceo", self.ceo_unacked):
-            self.ceo_unacked.clear()
 
     def _on_state(self, up, why):
         if not up and self.down_since is None:

@@ -19,7 +19,7 @@ pub(crate) fn enabled() -> bool {
 }
 
 /// Рядом с CSV; при `ALPHA_APPROACH_BIN_DIR` — в зеркале пути CSV под этим каталогом (входное дерево не трогаем).
-fn bin_path(csv: &Path) -> PathBuf {
+pub(super) fn bin_path(csv: &Path) -> PathBuf {
     let mut s = match std::env::var_os("ALPHA_APPROACH_BIN_DIR") {
         Some(dir) => {
             let rel: PathBuf = csv
@@ -34,7 +34,7 @@ fn bin_path(csv: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-fn stamp(csv: &Path) -> Option<(u64, u64)> {
+pub(super) fn stamp(csv: &Path) -> Option<(u64, u64)> {
     let m = std::fs::metadata(csv).ok()?;
     let t = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((
@@ -77,7 +77,7 @@ pub(crate) fn read_approaches_cached(csv: &Path) -> anyhow::Result<Vec<ApproachR
     Ok(rows)
 }
 
-fn put(out: &mut Vec<u8>, v: i64) {
+pub(super) fn put(out: &mut Vec<u8>, v: i64) {
     let mut z = ((v << 1) ^ (v >> 63)) as u64;
     while z >= 0x80 {
         out.push((z as u8) | 0x80);
@@ -86,10 +86,10 @@ fn put(out: &mut Vec<u8>, v: i64) {
     out.push(z as u8);
 }
 
-struct Rd<'a>(&'a [u8], usize);
+pub(super) struct Rd<'a>(pub(super) &'a [u8], pub(super) usize);
 
 impl Rd<'_> {
-    fn get(&mut self) -> Option<i64> {
+    pub(super) fn get(&mut self) -> Option<i64> {
         let mut z = 0u64;
         let mut shift = 0;
         loop {

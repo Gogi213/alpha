@@ -33,6 +33,7 @@ pub struct ReplayFeed<R: Read> {
     pending: VecDeque<Event>,
     ups_scratch: Vec<crate::book::Update>,
     trades_scratch: Vec<crate::bybit::verify::TradePoint>,
+    frame_scratch: Vec<Record>,
     last_local_ts_ns: i64,
     done: bool,
 }
@@ -52,6 +53,7 @@ impl<R: Read> ReplayFeed<R> {
             pending: VecDeque::new(),
             ups_scratch: Vec::new(),
             trades_scratch: Vec::new(),
+            frame_scratch: Vec::new(),
             last_local_ts_ns: 0,
             done: false,
         })
@@ -110,13 +112,17 @@ impl<R: Read> Feed for ReplayFeed<R> {
             if self.done {
                 return None;
             }
-            match self.reader.read_frame() {
-                Ok(Some(records)) => {
-                    for rec in &records {
-                        self.push_record(rec);
-                    }
+            let mut frame = std::mem::take(&mut self.frame_scratch);
+            let read = self.reader.read_frame_into(&mut frame);
+            if matches!(read, Ok(true)) {
+                for rec in &frame {
+                    self.push_record(rec);
                 }
-                Ok(None) => {
+            }
+            self.frame_scratch = frame;
+            match read {
+                Ok(true) => {}
+                Ok(false) => {
                     // Конец файла: слить незакрытую группу обновлений, если
                     // осталась (симметрично `commands::lob::replay_symbol`).
                     let mut tail = Vec::new();

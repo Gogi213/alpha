@@ -340,7 +340,7 @@ fn container_with_unknown_version_is_refused() {
     let inner = zstd::stream::decode_all(&packed[..]).unwrap();
     assert_eq!(&inner[..4], &ARCHIVE_MAGIC);
     let mut bad = inner.clone();
-    bad[4] = ARCHIVE_VERSION + 1;
+    bad[4] = ARCHIVE_VERSION_COLUMNAR + 1;
     let junk = zstd::stream::encode_all(&bad[..], 1).unwrap();
     let err = Reader::open(&junk[..]).unwrap_err();
     assert!(
@@ -427,4 +427,39 @@ fn file_name_helpers_know_both_suffixes() {
     assert!(is_binlog_file_name("SYM-2026-09-15-p2.binlog.zst"));
     assert!(!is_binlog_file_name("SYM-2026-09-15.zst"));
     assert!(!is_binlog_file_name("SYM-2026-09-15.binlog.gz"));
+}
+
+/// Колоночный контейнер (TK-048): те же тела кадров побайтово и те же записи,
+/// что у обычного файла, на каждом уровне; контейнер версии 2 опознаётся.
+#[test]
+fn columnar_container_round_trips_frames_byte_for_byte() {
+    let plain = plain_file(&sample_frames());
+    for level in [1, 9, DEFAULT_LEVEL] {
+        let mut src = Reader::open(&plain[..]).unwrap();
+        let mut packed = Vec::new();
+        let w = write_container_columnar(&mut src, level, &mut packed).unwrap();
+        assert_eq!(w.frames, 3);
+        let inner = zstd::stream::decode_all(&packed[..]).unwrap();
+        assert_eq!(inner[4], ARCHIVE_VERSION_COLUMNAR);
+        let mut src = Reader::open(&plain[..]).unwrap();
+        let mut dst = Reader::open(&packed[..]).unwrap();
+        assert_eq!(dst.archive_level(), Some(level as u8));
+        let report = verify_round_trip(&mut src, &mut dst).unwrap();
+        assert_eq!(report.frames, 3);
+        assert_eq!(report.records, 5);
+    }
+}
+
+/// Обрезанное тело колоночного контейнера — ошибка при первом чтении кадра (сборка отложена), а не молчаливый хвост.
+#[test]
+fn columnar_container_truncated_body_is_refused() {
+    let plain = plain_file(&sample_frames());
+    let mut src = Reader::open(&plain[..]).unwrap();
+    let mut packed = Vec::new();
+    write_container_columnar(&mut src, 3, &mut packed).unwrap();
+    let mut inner = zstd::stream::decode_all(&packed[..]).unwrap();
+    inner.truncate(inner.len() - 3);
+    let junk = zstd::stream::encode_all(&inner[..], 1).unwrap();
+    let mut r = Reader::open(&junk[..]).unwrap();
+    assert!(r.read_frame().is_err());
 }

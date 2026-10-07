@@ -17,6 +17,7 @@ SNAPSHOT_ADDR = "служба.блокеры.снимок"
 STALE_ADDR = "служба.не_обработано"
 MAX_WAIT = 55
 MAX_BODY = 1 << 20
+CEO_STALE_AFTER = 7200
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL,
@@ -35,10 +36,12 @@ def tk_of(addr: str):
 
 
 class Bus:
-    def __init__(self, db_path, routes_path, stale_after=600, clock=time.time):
+    def __init__(self, db_path, routes_path, stale_after=600, clock=time.time, stale_after_by=None):
         self.clock = clock
         self.routes_path = routes_path
         self.stale_after = stale_after
+        # CEO опрашивает очередь раз в 15–30 мин (TK-074): общий порог 600 с давал бы ложное «не_обработано» на каждое событие
+        self.stale_after_by = stale_after_by if stale_after_by is not None else {"ceo": CEO_STALE_AFTER}
         self.cond = threading.Condition()
         self.db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -137,8 +140,9 @@ class Bus:
     def _old_pending(self):
         return [r for r in self.db.execute(
             "SELECT d.seq,d.recipient,e.addr,d.created,d.stale FROM deliveries d JOIN events e ON e.seq=d.seq "
-            "WHERE d.state='pending' AND d.created<? ORDER BY d.seq", (self.clock() - self.stale_after,)).fetchall()
-            if not r[2].startswith(SERVICE_PREFIX)]
+            "WHERE d.state='pending' ORDER BY d.seq").fetchall()
+            if not r[2].startswith(SERVICE_PREFIX)
+            and r[3] < self.clock() - self.stale_after_by.get(r[1], self.stale_after)]
 
     def stale(self):
         with self.cond:
@@ -249,7 +253,7 @@ def main():
     ap.add_argument("--routes", default=os.path.join(here, "routes.json"))
     ap.add_argument("--token-file", default="/etc/alpha-bus/token")
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--port", type=int, default=8788)
     ap.add_argument("--stale-after", type=int, default=600)
     a = ap.parse_args()
     with open(a.token_file, encoding="utf-8") as f:

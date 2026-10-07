@@ -524,6 +524,80 @@ pub(super) fn fast_hold_scan(
     }
 }
 
+/// Групповой аналог `fast_hold_scan` (Э-08 + TK-048): К вариантов одной группы ведут удержание на одной плоской
+/// книге, шаг — по минимуму `hold_wakeup` (все `decided`), как у главного цикла `run_round_group`. Любое
+/// расхождение с плоской книгой (заявка, `Idle`, не-`Idle` действие) откатывает ВСЕ варианты к началу шага и
+/// отдаёт шаг движку (`true` = `post_step`). `false` — вышли на границе шага (нет `hold_wakeup`, конец ленты).
+pub(super) fn fast_hold_scan_group(
+    bot: &mut FastBot,
+    states: &mut [StrategyState],
+    cap: i64,
+    decided: &mut [bool],
+    stable: &mut [bool],
+    sigs: &mut [SigMemo],
+    skip_on: bool,
+) -> bool {
+    use hftbacktest::types::Bot;
+    loop {
+        let now = bot.current_timestamp();
+        let mut th: Option<i64> = None;
+        let mut all_decided = true;
+        for (i, s) in states.iter().enumerate() {
+            match (s.is_holding(), s.hold_wakeup_ns(now)) {
+                (true, Some(t)) => th = Some(th.map_or(t, |x: i64| x.min(t))),
+                _ => return false,
+            }
+            all_decided &= decided[i];
+        }
+        let wakeup = if all_decided { th } else { None };
+        if fast_step(bot, wakeup, cap).is_none() {
+            return false;
+        }
+        let now = bot.current_timestamp();
+        for s in states.iter_mut() {
+            s.observe_wall_trades(bot.last_trades(0));
+        }
+        bot.clear_last_trades(Some(0));
+        let sigs_before: Vec<SigMemo> = sigs.to_vec();
+        let decided_before: Vec<bool> = decided.to_vec();
+        let stable_before: Vec<bool> = stable.to_vec();
+        let mut before: Vec<Option<StrategyState>> = Vec::with_capacity(states.len());
+        let mut redo = false;
+        for i in 0..states.len() {
+            let held_before = states[i].hold_wakeup_ns(now).is_some();
+            let mark_before = states[i].phase_mark();
+            let skip = skip_on && sigs[i].skip(states[i].hold_input_sig(bot.depth(0), now));
+            let action = if skip {
+                before.push(None);
+                Action::Idle
+            } else {
+                before.push(Some(states[i].clone()));
+                match on_event(bot, &mut states[i]) {
+                    Ok(a) => a,
+                    Err(_) => Action::Idle,
+                }
+            };
+            if bot.need_engine || !matches!(action, Action::Idle) || states[i].is_idle() {
+                redo = true;
+                break;
+            }
+            decided[i] = held_before && states[i].hold_wakeup_ns(now).is_some();
+            stable[i] = states[i].phase_mark() == mark_before;
+        }
+        if redo {
+            for (s, b) in states.iter_mut().zip(before) {
+                if let Some(b) = b {
+                    *s = b;
+                }
+            }
+            sigs.copy_from_slice(&sigs_before);
+            decided.copy_from_slice(&decided_before);
+            stable.copy_from_slice(&stable_before);
+            return true;
+        }
+    }
+}
+
 /// `ALPHA_FAST_HOLD=1` — быстрый путь удержания в одиночном драйвере кругов; умолчание — выкл.
 pub fn fast_hold_on() -> bool {
     #[cfg(test)]
@@ -646,4 +720,55 @@ where
     FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
     FastOutcome::Swapped(Box::new(r))
+}
+
+/// Быстрый путь удержания для `run_round_group`: все К вариантов на плоской книге, затем замена движка. `None` —
+/// быстрого пути не было (состояния не тронуты); `Some(post_step)` — движок заменён, состояния продвинуты.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn try_fast_hold_group<B, MD>(
+    bot: &mut B,
+    asset_no: usize,
+    states: &mut [StrategyState],
+    cap: i64,
+    decided: &mut [bool],
+    stable: &mut [bool],
+    sigs: &mut [SigMemo],
+    skip_on: bool,
+) -> Option<bool>
+where
+    B: Bot<MD>,
+    MD: MarketDepth,
+{
+    let ctx = FAST_CTX.with(|c| c.get())?;
+    let raw = std::ptr::from_mut::<B>(bot);
+    if raw as *mut () as usize != ctx.engine {
+        return None;
+    }
+    // SAFETY: см. `try_fast_hold` — адрес совпал с движком окна, `&mut` единственный.
+    let bt = unsafe { &mut *raw.cast::<Backtest<FastMarketDepth>>() };
+    // SAFETY: срез окна живёт дольше этого вызова.
+    let rows = unsafe { std::slice::from_raw_parts(ctx.ptr, ctx.len) };
+    let t = bt.current_timestamp();
+    let cur = local_cursor_at(rows, 0, t)?;
+    let book = DepthSnapshot::of(bt.depth(asset_no)).build(ctx.tick, ctx.lot);
+    let states_start = states.to_vec();
+    let (decided_start, stable_start, sigs_start) =
+        (decided.to_vec(), stable.to_vec(), sigs.to_vec());
+    let mut fb = FastBot::new(HoldTracker::new(rows, cur, book), t);
+    let post_step = fast_hold_scan_group(&mut fb, states, cap, decided, stable, sigs, skip_on);
+    let t2 = fb.current_timestamp();
+    let Some(h) = fb.tracker.handoff(t2, ctx.tick, ctx.lot) else {
+        states.clone_from_slice(&states_start);
+        decided.copy_from_slice(&decided_start);
+        stable.copy_from_slice(&stable_start);
+        sigs.copy_from_slice(&sigs_start);
+        FAST_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        return None;
+    };
+    let used = fb.tracker.cursor().saturating_sub(cur);
+    *bt = build_backtest_from_handoff(&h, rows, ctx.tick, ctx.lot, ctx.latency, ctx.queue_model);
+    let _ = bt.elapse(0);
+    FAST_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    FAST_ROWS.fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
+    Some(post_step)
 }

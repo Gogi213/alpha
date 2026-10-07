@@ -13,7 +13,7 @@ KEY=(-i /c/Users/Георгий/.ssh/id_rsa -o UserKnownHostsFile=/c/Users/Ге�
 HOST=root@13.140.29.171
 TAG="${VPS_TAG:-}"   # непустой тег — свой каталог исходников и target: параллельные вызовы не затирают друг друга
 SRC=/opt/alpha-compute/wave2-src$TAG
-TGT=/opt/alpha-compute/target-wave2$TAG
+TGT=/opt/alpha-compute/target-wave2$TAG-$$   # TK-075: target живёт одну сборку, sweep.sh run удаляет его после
 ARCR=/opt/alpha-compute/wave2$TAG.tgz
 TMPD="${TEMP:-/tmp}"; command -v cygpath >/dev/null && TMPD="$(cygpath -u "$TMPD")"
 ARC="$TMPD/wave2-$$.tgz"
@@ -35,7 +35,7 @@ esac
 # shellcheck disable=SC2029
 set +e
 ssh "${KEY[@]}" "$HOST" "set -o pipefail; rm -rf $SRC && mkdir -p $SRC && tar -xzf $ARCR -C $SRC \
-  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 bash -c '$CMD'"
+  && cd $SRC && export PATH=\$HOME/.cargo/bin:\$PATH && flock -w 7200 /opt/alpha-compute/.build.lock env ALPHA_TICKET=$LABEL nice -n 5 /opt/alpha-compute/sweep.sh run $TGT bash -c '$CMD'"
 RC=$?
 set -e
 # шина событий (TK-045): сборка готова/упала; недоступность шины результат не меняет

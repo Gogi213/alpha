@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dispatch as D  # noqa: E402
+D.SSH_CALLS_LOG = Path(tempfile.mkdtemp()) / "ssh-calls.log"  # тесты не пишут в живой счёт ssh-вызовов (TK-074)
 import ticket as T  # noqa: E402
 os.environ["ALPHA_BUS_DISABLE"] = "1"  # тесты не шлют события на живую шину (TK-045)
 import tickets as TK  # noqa: E402  (CLI — new/comment/start/status)
@@ -768,6 +769,42 @@ class DispatchRunTests(unittest.TestCase):
         self.assertTrue(D.RUNS_LOG.exists())
         self.assertIn(path.stem, D.RUNS_LOG.read_text(encoding="utf-8"))
 
+    def test_waiting_without_condition_returns_to_in_progress(self):
+        """TK-070 п.3: владелец ушёл в waiting без wait_for и без next — диспетчер возвращает in_progress и пишет причину."""
+        now = dt("2026-10-06T12:00:00+04:00")
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Ожидание", now=now)
+        T.write_header_updates(path, {"status": "waiting", "wait_for": ""}, now=now)
+        state = D.load_state()
+        D._finish_role_part(path.stem, {"role": "engineer", "status_at_launch": "in_progress"}, state, now, False, {})
+        tkt = T.read_ticket(path)
+        self.assertEqual(tkt.status, "in_progress")
+        self.assertTrue(any(e.author == "dispatcher" and "без wait_for" in e.text for e in tkt.log))
+
+    def test_waiting_with_condition_untouched(self):
+        now = dt("2026-10-06T12:00:00+04:00")
+        path = T.create_ticket(self.tickets_dir, owner="engineer", title="Ожидание", now=now)
+        T.write_header_updates(path, {"status": "waiting", "wait_for": "file:/tmp/x"}, now=now)
+        state = D.load_state()
+        D._finish_role_part(path.stem, {"role": "engineer", "status_at_launch": "in_progress"}, state, now, False, {})
+        self.assertEqual(T.read_ticket(path).status, "waiting")
+
+    def test_unblock_limit_victims(self):
+        """TK-070: blocked по холостым ходам, чей последний запуск — 429, снимается сам; чужой блок остаётся."""
+        now = dt("2026-10-06T12:00:00+04:00")
+        victim = T.create_ticket(self.tickets_dir, owner="engineer", title="Жертва лимита", now=now)
+        other = T.create_ticket(self.tickets_dir, owner="engineer", title="Не жертва", now=now)
+        for p in (victim, other):
+            T.write_header_updates(p, {"status": "blocked"}, now=now)
+            T.append_log(p, "dispatcher", "холостой ход ×2: роль не оставила запись", now=now)
+        D.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        (D.RUNS_DIR / f"20261006-080000-{victim.stem}-engineer.json").write_text(
+            json.dumps({"api_error_status": 429, "result": "You've hit your session limit · resets 5am"}), encoding="utf-8")
+        (D.RUNS_DIR / f"20261006-080000-{other.stem}-engineer.json").write_text(
+            json.dumps({"result": "ok"}), encoding="utf-8")
+        D.unblock_limit_victims(now)
+        self.assertEqual(T.read_ticket(victim).status, "in_progress")
+        self.assertEqual(T.read_ticket(other).status, "blocked")
+
     def test_launch_run_strips_host_session_env(self):
         """(4) обязательно: без этого дочерний claude наследует CLAUDE_CODE_HOST_SESSION_ID сессии CEO —
         role_context.py/role_memory.py принимают роль за CEO (судья 27.09, пилот TK-001)."""
@@ -1053,17 +1090,17 @@ class DispatchRunTests(unittest.TestCase):
         self.assertNotIn("Начинаем новую сессию", calls[1]["prompt"])
 
     def test_stuck_todo_after_log_retries_then_blocks(self):
-        """v1.1: лог есть, но status остался todo — тоже ошибка роли (повтор → blocked)."""
+        """TK-070 п.6: роль оставила запись и не трогала status — диспетчер уже поставил in_progress при старте: ни повтора, ни blocked."""
         self.set_fake_bin(FAKE_BIN_STUCK_TODO)
         path = T.create_ticket(self.tickets_dir, owner="researcher", title="Забывчивый")
         D.tick()
         self.wait_running()
         tkt = T.read_ticket(path)
-        self.assertEqual(tkt.status, "blocked")
+        self.assertEqual(tkt.status, "in_progress")
         # 2 записи роли (исходная + повтор) + 1 запись dispatcher про блокировку
-        self.assertEqual(len(tkt.log), 3)
-        inbox = D.CEO_INBOX.read_text(encoding="utf-8")
-        self.assertIn("todo дважды подряд", inbox)
+        self.assertEqual(len(tkt.log), 1)
+        inbox = D.CEO_INBOX.read_text(encoding="utf-8") if D.CEO_INBOX.exists() else ""
+        self.assertNotIn("todo дважды подряд", inbox)
 
     def test_min_gap_prevents_immediate_relaunch_via_tick(self):
         """v1.1: MIN_GAP_S — троттлинг, не ошибка; ticket остаётся todo, просто не запускается сразу."""
@@ -1121,7 +1158,7 @@ class DispatchRunTests(unittest.TestCase):
         self.assertEqual(n, 2, "запускаются обе — расход задачи ничего не блокирует")
         self.assertIn(expensive.stem, D.RUNNING)
         self.assertIn(cheap.stem, D.RUNNING)
-        self.assertEqual(T.read_ticket(expensive).status, "todo", "статус тикета не трогаем")
+        self.assertEqual(T.read_ticket(expensive).status, "in_progress", "TK-070 п.6: старт владельца ставит in_progress, не blocked")
         self._assert_no_money_signals()
         self.wait_running()
         D.tick()
@@ -1191,10 +1228,10 @@ class DispatchRunTests(unittest.TestCase):
         path = T.create_ticket(self.tickets_dir, owner="engineer", title="Дважды холостой",
                                 now=dt("2026-09-27T12:00:00+04:00"))
         self.idle_finish(path, 0.01)
-        self.assertEqual(T.read_ticket(path).status, "todo")          # первый холостой — обычный повтор
+        self.assertEqual(T.read_ticket(path).status, "in_progress")   # первый холостой — обычный повтор (старт владельца ставит in_progress, TK-070 п.6)
         self.assertEqual(D.RUNNING[path.stem]["reason"], "retry")
         self.drop_running(path.stem)
-        self.idle_finish(path, 0.02, attempt=1)
+        self.idle_finish(path, 0.02, attempt=1, status_at_launch="in_progress")
         tkt = T.read_ticket(path)
         self.assertEqual(tkt.status, "blocked")
         self.assertIn("холостой ход", tkt.log[-1].text)
@@ -1471,7 +1508,7 @@ class DispatchRunTests(unittest.TestCase):
                       prompt)
         self.assertEqual(D.RUNNING[tid]["reason"], "next")
         tkt = T.read_ticket(path)
-        self.assertEqual((tkt.status, tkt.next_role), ("todo", ""), "next погашен запуском")
+        self.assertEqual((tkt.status, tkt.next_role), ("in_progress", ""), "next погашен запуском")
         self.assertEqual((tkt.log[-1].author, tkt.log[-1].text), ("ceo", "Новая постановка"))
         self.assertNotIn(tid, D.load_state().get("stopped_runs", {}), "пометка снята одним запуском")
 
@@ -3679,8 +3716,11 @@ class WaitByEventTest(unittest.TestCase):
     """TK-055: wait_for host:… закрывается событием шины; в асинхронном режиме основной поток ssh не зовёт."""
 
     def setUp(self):
-        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear()
+        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear(); D._UNIT_START.clear(); D._EVENT_VERIFIED.clear()
         self._run, self._async = D.subprocess.run, D.WAIT_ASYNC
+        self._alarm, self.alarms = D.append_ceo_inbox, []
+        D.append_ceo_inbox = lambda *a, **k: self.alarms.append(a)
+        D._RECON_MISS.clear()
 
         def boom(*a, **k):
             raise AssertionError("ssh в основном потоке")
@@ -3688,15 +3728,164 @@ class WaitByEventTest(unittest.TestCase):
 
     def tearDown(self):
         D.subprocess.run, D.WAIT_ASYNC = self._run, self._async
-        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear()
+        D.append_ceo_inbox = self._alarm
+        D._EVENT_MET.clear(); D._WAIT_CACHE.clear(); D._WAIT_WATCH.clear(); D._UNIT_START.clear(); D._EVENT_VERIFIED.clear()
+
+    def _probe_state(self, state: bytes):
+        class R:
+            returncode, stdout, stderr = 0, state, b""
+        D.subprocess.run = lambda *a, **k: R()
 
     def test_unit_stopped_event(self):
+        """Событие «остановлен» засчитывается только после ssh-подтверждения (поллером) «не active»."""
         D.WAIT_ASYNC = True
         self.assertFalse(D.check_wait_for("host:calc:unit:tk1-a"))
         D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk1-a.service", "host": "calc"}})
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk1-a"))  # подтверждения ещё нет
+        self.assertIn(("calc", "unit", "tk1-a"), D._WAIT_WATCH)
+        self._probe_state(b"inactive")
+        D._host_probe("calc", "unit", "tk1-a")  # тело поллера
         self.assertTrue(D.check_wait_for("host:calc:unit:tk1-a"))
-        self.assertTrue(D.check_wait_for("host:calc:unit:tk1-a.service"))
         self.assertFalse(D.check_wait_for("host:vps:unit:tk1-a"))
+
+    def test_stale_unit_event_before_wait_is_not_met(self):
+        """TK-070 (БАГ 84 побудок): событие от прежнего экземпляра пришло ДО постановки wait_for; юнит снова работает."""
+        D.WAIT_ASYNC = True
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk065-gate2.service", "host": "calc"}})
+        for _ in range(5):
+            self.assertFalse(D.check_wait_for("host:calc:unit:tk065-gate2"))
+        self._probe_state(b"active")
+        D._host_probe("calc", "unit", "tk065-gate2")  # поллер увидел работающий юнит → событие сброшено
+        for _ in range(5):
+            self.assertFalse(D.check_wait_for("host:calc:unit:tk065-gate2"))
+        self.assertIsNone(D._event_ts("calc", "unit", "tk065-gate2"))
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "tk065-gate2.service", "host": "calc"}})
+        self._probe_state(b"inactive")
+        D._host_probe("calc", "unit", "tk065-gate2")
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk065-gate2"))
+
+    def test_unit_stop_with_matching_invocation_needs_no_ssh(self):
+        """TK-072: «запущен» (inv A) + «остановлен» (inv A) — wait_for выполнен без ssh; остановка старого запуска (inv A) после
+        нового запуска (inv B) — игнорируется."""
+        D.WAIT_ASYNC = True
+        def boom(*a, **k):
+            raise AssertionError("ssh не нужен")
+        D.subprocess.run = boom
+        ev = lambda kind, inv: D.record_wait_event({"addr": f"машина.calc.юнит.{kind}", "payload": {"unit": "tk9-x.service", "host": "calc", "invocation": inv}})
+        ev("запущен", "A")
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk9-x"))
+        ev("остановлен", "A")
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk9-x"))
+        ev("запущен", "B")  # второй запуск с тем же именем
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk9-x"))
+        ev("остановлен", "A")  # запоздавшее событие старого запуска
+        self.assertFalse(D.check_wait_for("host:calc:unit:tk9-x"))
+        ev("остановлен", "B")
+        self.assertTrue(D.check_wait_for("host:calc:unit:tk9-x"))
+
+    def test_stale_unit_event_sync_mode(self):
+        D.WAIT_ASYNC = False
+        D.record_wait_event({"addr": "машина.calc.юнит.остановлен", "payload": {"unit": "u1.service", "host": "calc"}})
+        self._probe_state(b"active")
+        self.assertFalse(D.check_wait_for("host:calc:unit:u1"))
+        self.assertFalse(D.check_wait_for("host:calc:unit:u1"))
+
+
+    def test_json_outside_progress_is_registered_with_watcher(self):
+        """TK-074: .json вне /data/progress — обычный путь (регистрация у сторожа), в /data/progress — файл хода (без регистрации)."""
+        D.WAIT_ASYNC = True
+        cmds = []
+
+        class R:
+            returncode, stdout, stderr = 0, b"", b""
+        D.subprocess.run = lambda cmd, **k: (cmds.append(cmd[-1]), R())[1]
+        D._host_probe("calc", "path", "/data/tk074/drill.json")
+        D._host_probe("calc", "path", "/data/progress/j1.json")
+        self.assertIn(D.WATCH_LIST, cmds[0])
+        self.assertIn("cat ", cmds[0])
+        self.assertNotIn(D.WATCH_LIST, cmds[1])
+
+    def test_reconcile_one_ssh_per_machine_closes_missed_event(self):
+        """TK-074 (случай chain55): первая проверка сорвана таймаутом, регистрация у сторожа не дошла, события нет —
+        сверка одним ssh на машину закрывает все ждущие условия и подтверждает регистрацию."""
+        D.WAIT_ASYNC = True
+        D._WL_REG.clear()
+        def timeout(*a, **k):
+            raise D.subprocess.TimeoutExpired("ssh", 15)
+        D.subprocess.run = timeout
+        D._host_probe("calc", "path", "/data/tk048/chain55.done")
+        self.assertNotIn(("calc", "/data/tk048/chain55.done"), D._WL_REG)
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/tk048/chain55.done")][1])
+        for k in (("calc", "path", "/data/tk048/chain55.done"), ("calc", "unit", "u1"), ("calc", "path", "/data/p/x.json")):
+            D._WAIT_WATCH.add(k)
+        calls = []
+
+        class R:
+            returncode = 0
+            stderr = b""
+            stdout = (b"@@0\n@@reg\n{\"done\": 1, \"total\": 5}\n@@rc 0\n@@1\n@@reg\n@@rc 0\n@@2\ninactive\n@@rc 0\n")  # порядок = sorted(ключи)
+        D.subprocess.run = lambda cmd, **k: (calls.append(cmd[-1]), R())[1]
+        D._reconcile()
+        self.assertEqual(len(calls), 1)  # три условия — один ssh
+        self.assertIn(D.WATCH_LIST, calls[0])
+        self.assertTrue(D._WAIT_CACHE[("calc", "path", "/data/tk048/chain55.done")][1])
+        self.assertTrue(D._WAIT_CACHE[("calc", "unit", "u1")][1])
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/p/x.json")][1])  # done 1 из 5 — не готово
+        self.assertIn(("calc", "/data/tk048/chain55.done"), D._WL_REG)
+        self.assertTrue(D.check_wait_for("host:calc:/data/tk048/chain55.done"))
+
+    def test_reconcile_miss_alarm_once_per_key_and_none_with_event(self):
+        """Сверка закрыла условие без события → строка «пропуск» и срочная тревога по ключу один раз; было событие — тишина."""
+        D.WAIT_ASYNC = True
+        logged = []
+        orig_log, D._log_ssh_call = D._log_ssh_call, lambda *a: logged.append(a)
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@reg\n@@rc 0\n@@1\n@@reg\n@@rc 0\n"
+        D.subprocess.run = lambda *a, **k: R()
+        try:
+            for k in (("calc", "path", "/data/a.done"), ("calc", "path", "/data/b.done")):
+                D._WAIT_WATCH.add(k)
+            D.record_wait_event({"addr": "машина.calc.файл.появился", "payload": {"path": "/data/b.done", "host": "calc"}})
+            D._reconcile()
+            D._reconcile()
+        finally:
+            D._log_ssh_call = orig_log
+        self.assertEqual([a for a in logged if a[3] == "пропуск"], [("calc", "path", "/data/a.done", "пропуск")])
+        self.assertEqual(len(self.alarms), 1)
+        self.assertEqual(self.alarms[0][1], "recon-miss")
+        self.assertEqual(D.signal_prio("recon-miss"), "urgent")
+
+    def test_reconcile_vps_no_miss_alarm(self):
+        D.WAIT_ASYNC = True
+        D._WAIT_WATCH.add(("vps", "path", "/opt/x.done"))
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@rc 0\n"
+        D.subprocess.run = lambda *a, **k: R()
+        D._reconcile()
+        self.assertEqual(self.alarms, [])
+
+    def test_reconcile_missing_file_stays_unmet(self):
+        D.WAIT_ASYNC = True
+        D._WAIT_WATCH.add(("calc", "path", "/data/a.done"))
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@0\n@@reg\n@@rc 1\n"
+        D.subprocess.run = lambda *a, **k: R()
+        D._reconcile()
+        self.assertFalse(D._WAIT_CACHE[("calc", "path", "/data/a.done")][1])
+        self.assertIn(("calc", "/data/a.done"), D._WL_REG)
+
+    def test_probe_wl_marker_confirms_registration(self):
+        D.WAIT_ASYNC = True
+        D._WL_REG.clear()
+
+        class R:
+            returncode, stderr, stdout = 0, b"", b"@@WL\n"
+        D.subprocess.run = lambda *a, **k: R()
+        self.assertTrue(D._host_probe("calc", "path", "/data/b.done"))
+        self.assertIn(("calc", "/data/b.done"), D._WL_REG)
 
     def test_job_done_and_file_events(self):
         D.WAIT_ASYNC = True
@@ -3853,3 +4042,29 @@ class OnMetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LimitAndWaitingTK070Test(unittest.TestCase):
+    """TK-070: пауза по лимиту сессии (429), ожидание без условия — отказ."""
+
+    def test_limit_detect_and_reset_parse(self):
+        from datetime import datetime, timezone, timedelta
+        r = {"api_error_status": 429, "result": "You've hit your session limit · resets 5am (Asia/Tbilisi)"}
+        self.assertTrue(D._limit_hit(r))
+        self.assertFalse(D._limit_hit({"result": "ok"}))
+        now = datetime(2026, 10, 6, 4, 46, tzinfo=timezone(timedelta(hours=4)))
+        at = D._limit_reset_at(r, now)
+        self.assertEqual((at.hour, at.minute, at.day), (5, 1, 6))
+        late = datetime(2026, 10, 6, 6, 0, tzinfo=timezone(timedelta(hours=4)))
+        self.assertEqual(D._limit_reset_at(r, late).day, 7)
+        self.assertEqual(D._limit_reset_at({"result": "?"}, now), now + timedelta(hours=1))
+
+    def test_limit_pause_flag(self):
+        from datetime import datetime, timezone, timedelta
+        now = datetime(2026, 10, 6, 4, 46, tzinfo=timezone(timedelta(hours=4)))
+        st = {"limit_pause_until": T.now_iso(now + timedelta(minutes=10))}
+        self.assertTrue(D._limit_paused(st, now))
+        self.assertFalse(D._limit_paused(st, now + timedelta(minutes=11)))
+        self.assertFalse(D._limit_paused({}, now))
+
+

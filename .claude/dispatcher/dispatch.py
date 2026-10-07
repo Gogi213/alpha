@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ticket as T  # noqa: E402
 import bus_link  # noqa: E402
+import busclient  # noqa: E402  (bus_link уже добавил tools/bus в sys.path)
 
 # --- конфигурация (константы — тесты подменяют их прямо на модуле) ------------------------
 
@@ -287,10 +288,12 @@ _UNIT_RUNNING = ("active", "activating", "reloading", "deactivating", "refreshin
 
 # TK-055: wait_for host:… закрывается событием сторожа машины (tools/bus/watcher.py); ssh — редкая подстраховка в потоке.
 WAIT_ASYNC = False  # True ставит main() для боевого цикла; тесты и --once — синхронный путь как раньше
-WAIT_POLL_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_POLL_S", "120"))
+WAIT_POLL_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_POLL_S", "300"))
 WATCH_LIST = "/data/progress/watch.list"  # пути, которые сторож машины проверяет сам (по строке на путь)
 _WAIT_WATCH = set()  # ключи (алиас, what, арг), которые ждут тикеты — их опрашивает _wait_poller
 _EVENT_MET = {}      # (алиас, "unit"|"path", арг) -> time.time() прихода события
+_UNIT_START = {}     # (алиас, "unit", имя) -> InvocationID последнего запуска по событию «юнит.запущен» (TK-072)
+_EVENT_VERIFIED = set()  # ключи, чьё «остановлен» несёт InvocationID того же запуска: ssh-проверка не нужна
 _EVENT_LOCK = threading.Lock()
 _WAIT_NEW = threading.Event()
 
@@ -308,8 +311,22 @@ def record_wait_event(ev: dict) -> None:
     parts = addr.split(".")
     host = pl.get("host") or (parts[1] if len(parts) > 1 else "")
     keys = []
+    if addr.startswith("машина.") and addr.endswith(".юнит.запущен") and pl.get("unit") and pl.get("invocation"):
+        k = (host, "unit", _unit_base(str(pl["unit"])))
+        with _EVENT_LOCK:  # новый запуск: прежнее «остановлен» этого имени недействительно
+            _UNIT_START[k] = str(pl["invocation"])
+            _EVENT_MET.pop(k, None)
+            _EVENT_VERIFIED.discard(k)
+        return
     if addr.startswith("машина.") and addr.endswith((".юнит.остановлен", ".юнит.упал")) and pl.get("unit"):
-        keys.append((host, "unit", _unit_base(str(pl["unit"]))))
+        k = (host, "unit", _unit_base(str(pl["unit"])))
+        inv, began = str(pl.get("invocation") or ""), _UNIT_START.get(k)
+        if inv and began and inv != began:
+            return  # остановка не последнего запуска (старый экземпляр с тем же именем) — игнорируем
+        if inv and began == inv:
+            with _EVENT_LOCK:
+                _EVENT_VERIFIED.add(k)
+        keys.append(k)
     elif addr.startswith("машина.") and addr.endswith(".файл.появился") and pl.get("path"):
         keys.append((host, "path", str(pl["path"])))
     elif addr.startswith("задача.") and addr.endswith(".задание.готово") and pl.get("job"):
@@ -325,17 +342,65 @@ def _event_met(alias: str, what: str, arg: str) -> bool:
         return key in _EVENT_MET
 
 
+def _event_ts(alias: str, what: str, arg: str):
+    key = (alias, what, _unit_base(arg) if what == "unit" else arg)
+    with _EVENT_LOCK:
+        return _EVENT_MET.get(key)
+
+
+def _drop_event(alias: str, what: str, arg: str) -> None:
+    with _EVENT_LOCK:
+        k = (alias, what, _unit_base(arg) if what == "unit" else arg)
+        _EVENT_MET.pop(k, None)
+        _EVENT_VERIFIED.discard(k)
+
+
+BUS_DOWN_SSH_S = float(os.environ.get("ALPHA_DISPATCH_BUS_DOWN_SSH_S", "600"))  # 2 интервала подстраховки: короткий обрыв сети не включает ssh
+_LINK = None  # Link шины; None — шина отключена (ALPHA_BUS_DISABLE) → ssh-опрос как раньше
+_SSH_ALERTED = False
+
+
+def _bus_down_long() -> bool:
+    """Аварийный путь (В-192): ssh-опрос ждущих условий — только когда шина недоступна дольше BUS_DOWN_SSH_S (или отключена)."""
+    if _LINK is None:
+        return True
+    since = _LINK.down_since
+    return since is not None and time.time() - since >= BUS_DOWN_SSH_S
+
+
+def _needs_probe(ckey) -> bool:
+    cached = _WAIT_CACHE.get(ckey)
+    if cached is None or _bus_down_long():
+        return True  # первая проверка нового условия (заодно регистрация пути у сторожа) либо аварийный путь
+    ev_ts = _event_ts(*ckey)  # событие остановки юнита — одна проверка, что это не прежний экземпляр с тем же именем
+    return (ckey[1] == "unit" and ev_ts is not None and cached[0] < ev_ts
+            and (ckey[0], "unit", _unit_base(ckey[2])) not in _EVENT_VERIFIED)
+
+
 def _wait_poller() -> None:
-    """Подстраховка: ssh-опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S в своём потоке, результат — в _WAIT_CACHE."""
+    """Штатно ssh не опрашивает: события шины (сторож машины) закрывают wait_for; здесь — первая проверка нового условия и
+    аварийный опрос ключей из _WAIT_WATCH с шагом WAIT_POLL_S, пока шина лежит дольше BUS_DOWN_SSH_S."""
+    global _SSH_ALERTED, _RECON_LAST
     while True:
+        if _bus_down_long() and _LINK is not None and not _SSH_ALERTED:
+            _SSH_ALERTED = True
+            _LINK.ceo_line("bus-down-ssh", f"шина лежит дольше {int(BUS_DOWN_SSH_S)} с — включён аварийный ssh-опрос wait_for")
+        elif not _bus_down_long():
+            _SSH_ALERTED = False
         for ckey in list(_WAIT_WATCH):
-            if _event_met(*ckey):
+            if not _needs_probe(ckey):
                 continue
             try:
                 _host_probe(*ckey)
             except Exception as e:
                 _wait_err(f"poller:{ckey}", f"{type(e).__name__}: {e}")
-        _WAIT_NEW.wait(WAIT_POLL_S)
+        if _WAIT_WATCH and not _bus_down_long() and time.time() - _RECON_LAST >= WAIT_RECON_S:
+            _RECON_LAST = time.time()
+            try:
+                _reconcile()
+            except Exception as e:
+                _wait_err("reconcile", f"{type(e).__name__}: {e}")
+        _WAIT_NEW.wait(min(WAIT_POLL_S, WAIT_RECON_S))
         _WAIT_NEW.clear()
 
 
@@ -378,8 +443,21 @@ def _host_wait_met(alias: str, what: str, arg: str) -> bool:
     Судья 27.09 («можно потом»): без кэша ssh дёргается на каждый ждущий тикет каждые 15 с — результат на
     WAIT_CHECK_CACHE_S; ошибка ssh (код 255, таймаут) = «не выполнено» + строка в dispatch.err.log раз в 10 мин."""
     ckey = (alias, what, arg)
-    if _event_met(alias, what, arg):
-        return True
+    ev_ts = _event_ts(alias, what, arg)
+    if ev_ts is not None:
+        if what != "unit" or (alias, what, _unit_base(arg)) in _EVENT_VERIFIED:
+            return True  # путь, либо остановка того же InvocationID, что и запуск: ssh не нужен (TK-072)
+        # событие юнита может быть от прежнего экземпляра с тем же именем: засчитываем, только если проверка
+        # ПОСЛЕ прихода события видела юнит не работающим (работает — _host_probe сбросит событие)
+        cached = _WAIT_CACHE.get(ckey)
+        if not (cached and cached[0] >= ev_ts):
+            if WAIT_ASYNC:
+                _WAIT_WATCH.add(ckey)
+                _WAIT_NEW.set()
+                return False
+            _host_probe(alias, what, arg)
+            cached = _WAIT_CACHE.get(ckey)
+        return bool(cached and cached[1] and _event_met(alias, what, arg))
     if WAIT_ASYNC:  # основной поток ssh не трогает: проверку делает _wait_poller редким шагом (TK-055)
         if ckey not in _WAIT_WATCH:
             _WAIT_WATCH.add(ckey)
@@ -392,6 +470,22 @@ def _host_wait_met(alias: str, what: str, arg: str) -> bool:
     return _host_probe(alias, what, arg)
 
 
+SSH_CALLS_LOG = DISPATCHER_DIR / "ssh-calls.log"  # строка на ssh-вызов диспетчера: мерка «сутки без ssh-опроса» (В-192)
+
+
+def _log_ssh_call(alias: str, what: str, arg: str, reason: str) -> None:
+    try:
+        with open(SSH_CALLS_LOG, "a", encoding="utf-8") as f:
+            f.write("\t".join((T.now_iso(), alias, what, arg, reason)) + "\n")
+    except OSError:
+        pass
+
+
+def _is_progress_json(arg: str) -> bool:
+    """Файл хода (`/data/progress/<job>.json`, done/total) сторож ведёт сам; прочие пути, в т.ч. .json вне каталога, регистрируются."""
+    return arg.endswith(".json") and arg.rsplit("/", 1)[0] == "/data/progress"
+
+
 def _host_probe(alias: str, what: str, arg: str) -> bool:
     ckey = (alias, what, arg)
     now_ts = time.time()
@@ -401,21 +495,28 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
         remote = f"cat {_remote_test_arg(arg)}"
     else:
         remote = f"test -e {_remote_test_arg(arg)}"
-    if what == "path" and WAIT_ASYNC and arg.startswith("/") and not arg.endswith(".json"):
-        # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh
+    if what == "path" and WAIT_ASYNC and arg.startswith("/") and not _is_progress_json(arg):
+        # заодно регистрируем путь в списке сторожа машины: дальше появление файла придёт событием без ssh;
+        # «@@WL» в ответе = регистрация подтверждена (нет — повторит сверка _reconcile)
         remote = (f"{{ grep -qxF {shlex.quote(arg)} {WATCH_LIST} 2>/dev/null || echo {shlex.quote(arg)} >> {WATCH_LIST}; }} "
-                  f">/dev/null 2>&1; {remote}")
+                  f">/dev/null 2>&1 && echo @@WL; {remote}")
     label = f"host:{alias}:{'unit:' if what == 'unit' else ''}{arg}"
     result = False
+    _log_ssh_call(alias, what, arg, "аварийный" if _bus_down_long() else ("первая" if ckey not in _WAIT_CACHE else "событие-юнита"))
     try:
         r = subprocess.run(_ssh_cmd(alias, remote), capture_output=True, timeout=15)
         out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")
+        if out.startswith("@@WL\n") or out.strip() == "@@WL":
+            _WL_REG.add((alias, arg))
+            out = out[len("@@WL"):].lstrip("\r\n")
         if what == "unit":
             state = (out.strip().splitlines() or [""])[0]
             if r.returncode == 255 or not state:
                 _wait_err(label, f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
             else:
                 result = state not in _UNIT_RUNNING
+                if not result:  # юнит работает — «остановлен» от прежнего экземпляра с этим именем недействительно
+                    _drop_event(alias, what, arg)
         elif r.returncode == 0:
             progress = _progress_done(out) if arg.endswith(".json") else None
             result = True if progress is None else progress
@@ -427,19 +528,128 @@ def _host_probe(alias: str, what: str, arg: str) -> bool:
     return result
 
 
+WAIT_RECON_S = float(os.environ.get("ALPHA_DISPATCH_WAIT_RECON_S", "300"))  # сверка всех ждущих host:… одним ssh на машину
+WATCHED_ALIASES = {"calc"}  # машины со сторожем (на vps сторожа нет — там сверка штатный путь)
+_RECON_MISS = set()  # ключи, по которым «пропуск» уже записан и тревога уже ушла
+_WL_REG = set()  # (алиас, путь), чья регистрация у сторожа подтверждена ответом машины
+_RECON_LAST = 0.0
+
+
+def _recon_script(keys: list) -> str:
+    parts = []
+    for i, (alias, what, arg) in enumerate(keys):
+        q = shlex.quote(arg)
+        parts.append(f"echo @@{i}")
+        if what == "unit":
+            parts.append(f"systemctl is-active {q} 2>&1 | head -1; echo '@@rc 0'")
+            continue
+        if arg.startswith("/") and not _is_progress_json(arg):
+            parts.append(f"{{ grep -qxF {q} {WATCH_LIST} 2>/dev/null || echo {q} >> {WATCH_LIST}; }} >/dev/null 2>&1 && echo @@reg")
+        parts.append(f"{'cat' if arg.endswith('.json') else 'test -e'} {q} 2>/dev/null; echo \"@@rc $?\"")
+    return "; ".join(parts)
+
+
+def _parse_recon(out: str, n: int) -> dict:
+    """Ответ _recon_script → {i: {"reg": bool, "rc": int|None, "body": str}}."""
+    res, cur = {}, None
+    for line in out.splitlines():
+        line = line.rstrip("\r")
+        if line.startswith("@@") and line[2:].isdigit() and int(line[2:]) < n:
+            cur = int(line[2:])
+            res[cur] = {"reg": False, "rc": None, "body": []}
+        elif cur is not None and line == "@@reg":
+            res[cur]["reg"] = True
+        elif cur is not None and line.startswith("@@rc "):
+            try:
+                res[cur]["rc"] = int(line[5:])
+            except ValueError:
+                pass
+        elif cur is not None:
+            res[cur]["body"].append(line)
+    for v in res.values():
+        v["body"] = "\n".join(v["body"])
+    return res
+
+
+def _reconcile() -> None:
+    """Страховка (В-192, TK-074): раз в WAIT_RECON_S один ssh на машину проверяет ВСЕ ждущие host:… и повторяет регистрацию путей
+    у сторожа, не подтверждённую ранее. Пропущенное событие или сорванная регистрация стоят не дороже одного шага сверки."""
+    by_alias = {}
+    for k in list(_WAIT_WATCH):
+        by_alias.setdefault(k[0], []).append(k)
+    for alias, keys in by_alias.items():
+        keys.sort()
+        _log_ssh_call(alias, "сверка", f"{len(keys)} ключей", "сверка")
+        try:
+            r = subprocess.run(_ssh_cmd(alias, _recon_script(keys)), capture_output=True, timeout=45)
+        except Exception as e:
+            _wait_err(f"reconcile:{alias}", f"ssh: {type(e).__name__}: {e}")
+            continue
+        out = (getattr(r, "stdout", b"") or b"").decode("utf-8", "replace")
+        if r.returncode == 255 or not out.strip():
+            _wait_err(f"reconcile:{alias}", f"ssh: код {r.returncode}, {_ssh_stderr(r)}")
+            continue
+        now_ts = time.time()
+        for i, v in _parse_recon(out, len(keys)).items():
+            if v["rc"] is None:
+                continue
+            _, what, arg = keys[i]
+            if v["reg"]:
+                _WL_REG.add((alias, arg))
+            if what == "unit":
+                state = (v["body"].strip().splitlines() or [""])[0]
+                if not state:
+                    continue
+                result = state not in _UNIT_RUNNING
+                if not result:
+                    _drop_event(alias, what, arg)
+            elif v["rc"] == 0:
+                progress = _progress_done(v["body"]) if arg.endswith(".json") else None
+                result = True if progress is None else progress
+            elif v["rc"] == 1:
+                result = False
+            else:
+                continue
+            prev = _WAIT_CACHE.get(keys[i])
+            if (result and not (prev and prev[1]) and alias in WATCHED_ALIASES and _event_ts(*keys[i]) is None
+                    and keys[i] not in _RECON_MISS):
+                _RECON_MISS.add(keys[i])  # запасной путь сработал, события не было — сторож не справился (В-192)
+                _log_ssh_call(alias, what, arg, "пропуск")
+                append_ceo_inbox("*", "recon-miss", f"сверка закрыла host:{alias}:{'unit:' if what == 'unit' else ''}{arg} без события шины — проверить сторож машины")
+            _WAIT_CACHE[keys[i]] = (now_ts, result)
+
+
 def _ssh_stderr(r) -> str:
     return ((getattr(r, "stderr", b"") or b"").decode("utf-8", "replace").strip().splitlines() or ["—"])[-1][:200]
 
 
 # --- ceo-inbox ---------------------------------------------------------------------------------
 
-def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
+# Стандарт сигналов (TK-074, В-192): единственный путь сигнала к CEO — событие шины `задача.<ID|общее>.к_ceo` в очередь `ceo`
+# с приоритетом (urgent — читать первым). Файлы ceo-inbox.md/ceo-wake.log — ТОЛЬКО запасной путь, когда шина недоступна
+# (строка помечена «[запасной путь]»); писать их мимо append_ceo_inbox запрещено (тест test_no_ceo_file_writes_outside_fallback).
+# Неизвестный вид — urgent (безопасная сторона). CEO читает очередь `python .claude/dispatcher/tickets.py inbox`.
+NORMAL_KINDS = {"done", "next-ceo", "wait-for", "model", "watch-summary", "summary", "bus-up"}
+
+
+def signal_prio(kind: str) -> str:
+    return "normal" if kind in NORMAL_KINDS else "urgent"
+
+
+def _ceo_file_fallback(tid: str, kind: str, note: str, now=None) -> None:
     CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
     with open(CEO_INBOX, "a", encoding="utf-8") as fh:
-        fh.write(f"- {T.now_iso(now)} {tid} [{kind}] {note}\n")
-    # ceo-wake.log — короткая (время, задача, причина) копия для Monitor CEO; ceo-inbox.md остаётся источником деталей
+        fh.write(f"- {T.now_iso(now)} {tid} [{kind}] [запасной путь] {note}\n")
     with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
         fh.write(f"{T.now_iso(now)} {tid} {kind}\n")
+
+
+def append_ceo_inbox(tid: str, kind: str, note: str, now=None) -> None:
+    """Сигнал CEO: шина (очередь `ceo`, ack на стороне CEO); шина не принята — запасной файл без потерь."""
+    addr = f"задача.{'общее' if tid == '*' else tid}.к_ceo"
+    payload = {"kind": kind, "note": note, "prio": signal_prio(kind), "ts": T.now_iso(now)}
+    if busclient.post(addr, payload, timeout=3, spool=False) is None:
+        _ceo_file_fallback(tid, kind, note, now)
 
 
 # --- таблица правил «вид сигнала → будить / сводка» (судья TK-002 п.3, взамен привратника TypeSafe) --
@@ -461,12 +671,7 @@ def classify_signal(kind: str) -> str:
 def flush_pending_summary(state: dict, now) -> None:
     pending = state.get("pending_summary") or []
     if pending:
-        line = f"- {T.now_iso(now)} * [summary] {len(pending)} сигнал(ов): " + " | ".join(pending)
-        CEO_INBOX.parent.mkdir(parents=True, exist_ok=True)
-        with open(CEO_INBOX, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-        with open(CEO_WAKE_LOG, "a", encoding="utf-8") as fh:
-            fh.write(f"{T.now_iso(now)} * summary({len(pending)})\n")
+        append_ceo_inbox("*", "summary", f"{len(pending)} сигнал(ов): " + " | ".join(pending), now)
     state["pending_summary"] = []
     state["last_summary_flush"] = T.now_iso(now)
 
@@ -1165,6 +1370,10 @@ def launch_run(ticket_path, role: str, state: dict, now, reason: str, attempt: i
     try:
         launch_tkt = T.read_ticket(ticket_path)
         status_at_launch = launch_tkt.status
+        if role == launch_tkt.owner and status_at_launch == "todo":
+            # TK-070 п.6: «в работе» ставит диспетчер при старте владельца — роль не обязана менять todo (раньше: повтор → blocked)
+            T.write_header_updates(ticket_path, {"status": "in_progress"}, now=now)
+            status_at_launch = "in_progress"  # старт ≠ смена статуса ролью: холостой ход считается как раньше
         executor = launch_tkt.executor
         effort = effort_for(role, launch_tkt)
         # v2: «роль оставила запись» — новый заголовок записи ЭТОЙ роли (ключи на старте), а не рост лога
@@ -1358,6 +1567,14 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
         save_state(state)
         return
     tkt = T.read_ticket(path)
+    if (role == tkt.owner and tkt.status == "waiting" and not (tkt.header.get("wait_for") or "").strip()
+            and not tkt.next_role):
+        # TK-070 п.3: ожидание без условия пробуждения — отказ (иначе тикет молчит до эскалации); вернуть в работу
+        T.write_header_updates(path, {"status": "in_progress"}, now=now)
+        T.append_log(path, "dispatcher", "status: waiting без wait_for и без next — отказ: ожидание без условия "
+                     "пробуждения не принимается; тикет возвращён в in_progress. Задай условие "
+                     "`tickets.py wait <ID> <форма>` (формы — README диспетчера) или передай `--next <роль>`.", now=now)
+        tkt = T.read_ticket(path)
 
     # аудит 03.10: запуск ЛЮБОЙ роли (владелец, ревьюер, адресат `--next`) без новой записи — провал: один повтор,
     # затем blocked (раньше чужой холостой запуск молчал, и тикет `in_review` висел вечно).
@@ -1436,6 +1653,66 @@ def _finish_role_part(tid: str, info: dict, state: dict, now, timed_out: bool, r
     save_state(state)
 
 
+# --- лимит сессии (TK-070 п.2): ответ 429 «You've hit your session limit · resets 5am (Asia/Tbilisi)» — не холостой ход ---
+
+def _limit_hit(result: dict) -> bool:
+    text = str((result or {}).get("result") or "")
+    return (result or {}).get("api_error_status") == 429 or "hit your session limit" in text
+
+
+def _limit_reset_at(result: dict, now) -> datetime:
+    """Ближайшее «resets 5am (TZ)» / «resets 3:30pm»; не разобрали — через час (проверим снова, пауза продлится)."""
+    m = re.search(r"resets\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)(?:\s*\(([^)]+)\))?", str((result or {}).get("result") or ""), re.I)
+    if not m:
+        return now + timedelta(hours=1)
+    hour, minute = int(m.group(1)) % 12, int(m.group(2) or 0)
+    if m.group(3).lower() == "pm":
+        hour += 12
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(m.group(4)) if m.group(4) else now.tzinfo
+    except Exception:
+        tz = now.tzinfo
+    local = now.astimezone(tz)
+    at = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if at <= local:
+        at += timedelta(days=1)
+    return at + timedelta(minutes=1)
+
+
+def _limit_paused(state: dict, now) -> bool:
+    until = state.get("limit_pause_until")
+    if not until:
+        return False
+    try:
+        return now < T.parse_dt(until)
+    except ValueError:
+        return False
+
+
+def _last_run_was_limit(tid: str) -> bool:
+    runs = sorted(RUNS_DIR.glob(f"*-{tid}-*.json")) if RUNS_DIR.exists() else []
+    return bool(runs) and _limit_hit(_read_run_result(runs[-1]))
+
+
+def unblock_limit_victims(now) -> None:
+    """blocked из-за холостых запусков, чей последний запуск — 429 лимита сессии: вернуть в in_progress (тикет не виноват)."""
+    for path in T.list_tickets(TICKETS_DIR):
+        try:
+            tkt = T.read_ticket(path)
+            if tkt.status != "blocked" or tkt.id in RUNNING or not _last_run_was_limit(tkt.id):
+                continue
+            tail = (tkt.log_raw or "")[-1500:]
+            if "холост" not in tail and "не оставил запись" not in tail:
+                continue
+            T.write_header_updates(path, {"status": "in_progress"}, now=now)
+            T.append_log(path, "dispatcher", "блок снят автоматически: последний запуск оборвал лимит сессии (429), "
+                         "тикет не виноват — роль запустится после сброса лимита.", now=now)
+        except Exception:
+            continue
+
+
+
 def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool, stopped: bool = False) -> None:
     for fh in (info.get("out_fh"), info.get("err_fh")):
         try:
@@ -1467,6 +1744,17 @@ def _finish_run(tid: str, info: dict, state: dict, now, timed_out: bool, stopped
     if model_warn:
         route_ceo_signal(tid, "model", model_warn, state, now)
 
+    if _limit_hit(result) and not stopped:
+        until = _limit_reset_at(result, now)
+        state["limit_pause_until"] = T.now_iso(until)
+        key = f"{tid}::{info['role']}"
+        state.setdefault("idle_runs", {}).pop(key, None)
+        _reset_same_status(state, key)
+        state.setdefault("sessions", {}).setdefault(key, {})["retries"] = 0
+        print(f"[dispatch] {T.now_iso(now)} лимит сессии (429) на {tid}: запуски на паузе до {T.now_iso(until)}",
+              file=sys.stderr, flush=True)
+        save_state(state)
+        return  # лимит — не провал запуска: ни повтора, ни холостого хода, ни blocked
     if stopped:
         return  # остановка CEO — не провал: ни повтора, ни «не оставил запись» (след и счётчики — _apply_stop)
     _finish_role_part(tid, info, state, now, timed_out, result)
@@ -1737,6 +2025,8 @@ def tick(now=None) -> int:
     baseline_done_notified(state)  # v2: историю `done` CEO не пересказываем (один раз, ключ в state.json)
     save_state(state)
 
+    unblock_limit_victims(now)
+    paused = _limit_paused(state, now)  # TK-070 п.2: пока лимит сессии не сброшен — новых запусков нет, тикеты не трогаем
     candidates = []  # (path, ticket, decision) — кого можно запустить; порядок и лимиты — ниже
     for path in T.list_tickets(TICKETS_DIR):
         try:
@@ -1781,7 +2071,7 @@ def tick(now=None) -> int:
     launched = 0
     for path, tkt, decision in sorted(candidates, key=lambda c: _candidate_sort_key(state, c[1], c[2])):
         tid = tkt.id
-        if len(RUNNING) >= MAX_PARALLEL:
+        if paused or len(RUNNING) >= MAX_PARALLEL:
             break
         if tid in RUNNING or path.stem in RUNNING:
             continue  # на один тикет — один запуск роли (RUNNING по stem файла; tkt.id из шапки мог разойтись с ним)
@@ -1839,7 +2129,8 @@ def main(argv=None) -> int:
     print(f"[dispatch] v2 loop every {POLL_INTERVAL}s, MAX_PARALLEL={MAX_PARALLEL}, run timeout "
           f"{RUN_TIMEOUT / 60:.0f} min, CLAUDE_BIN={CLAUDE_BIN}")
     link = _start_bus_link()
-    global WAIT_ASYNC
+    global WAIT_ASYNC, _LINK
+    _LINK = link
     WAIT_ASYNC = True
     threading.Thread(target=_wait_poller, daemon=True, name="wait-poller").start()
     while True:
@@ -1862,4 +2153,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    if not sys.stdout.isatty():  # демон с перенаправленным выводом: чужой Ctrl+C общей консоли его не убивает (TK-072)
+        import signal
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
     sys.exit(main())

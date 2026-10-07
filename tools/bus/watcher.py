@@ -57,8 +57,9 @@ def is_done(o):
 
 class Watcher:
     def __init__(self, host, patterns, exclude, progress_glob, post=busclient.post, snap=snapshot, showf=show,
-                 prog=read_progress, watch_file="/data/progress/watch.list", exists=os.path.exists):
-        self.watch_file, self.exists, self.files_seen = watch_file, exists, set()
+                 prog=read_progress, watch_file="/data/progress/watch.list", exists=os.path.exists,
+                 flush=busclient.flush_spool):
+        self.watch_file, self.exists, self.files_seen, self.flush = watch_file, exists, set(), flush
         self.host, self.patterns, self.exclude = host, patterns, exclude
         self.pg, self.post, self.snap, self.showf, self.prog = progress_glob, post, snap, showf, prog
         self.running = {}   # unit -> InvocationID
@@ -75,6 +76,10 @@ class Watcher:
         for u, st in cur.items():
             if st in RUNNING and u not in self.running:
                 self.running[u] = self.showf(u).get("InvocationID", "")
+                if not self.first:
+                    events.append((f"машина.{self.host}.юнит.запущен",
+                                   {"unit": u, "host": self.host, "invocation": self.running[u]},
+                                   f"unitstart:{self.host}:{u}:{self.running[u]}"))
             if st == "failed" and (u, "f") not in self.failed_seen:
                 self.failed_seen.add((u, "f"))
                 if not self.first and u not in self.running:
@@ -94,7 +99,7 @@ class Watcher:
         ok = info.get("Result", "success") == "success"
         base = unit[:-8] if unit.endswith(".service") else unit
         payload = {"unit": unit, "host": self.host, "result": info.get("Result", "success"),
-                   "exit": info.get("ExecMainStatus", "0")}
+                   "exit": info.get("ExecMainStatus", "0"), "invocation": inv}
         ev = [(f"машина.{self.host}.юнит.{'остановлен' if ok else 'упал'}", payload,
                f"unit:{self.host}:{unit}:{inv}")]
         tk = (self.prog(self.pg).get(base) or {}).get("ticket")
@@ -147,6 +152,7 @@ class Watcher:
         events = self.tick(self.prog(self.pg)) + self.file_events()
         for addr, payload, eid in events:
             self.post(addr, payload, eid, 5)
+        self.flush(5)  # spool дошлётся за шаг после подъёма шины, не ждёт следующего события
         return events
 
 
