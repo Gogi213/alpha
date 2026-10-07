@@ -15,11 +15,11 @@ unit_touches() {
 }
 export -f unit_touches
 process_day() {
-  local d=$1 W syms f
-  f=$O/signals/$d/t-bid-btc4h-q1/signals.csv
-  [ -f "$f" ] || f=$(ls "$O"/signals-retry/$d/t-bid-btc4h-q1/signals.csv 2>/dev/null)
-  [ -f "$f" ] || { echo "$d NOSIGNALS" >> "$O/lvl-fail.txt"; return; }
-  syms=$(grep -v '^#' "$f" | awk -F, 'NR>1{print $1}' | sort -u)
+  local d=$1 W syms
+  local fs=() g
+  for g in "$O/signals/$d/t-bid-btc4h-q1/signals.csv" "$O/signals-retry/$d/t-bid-btc4h-q1/signals.csv"; do [ -f "$g" ] && fs+=("$g"); done
+  [ "${#fs[@]}" -gt 0 ] || { echo "$d NOSIGNALS" >> "$O/lvl-fail.txt"; return; }
+  syms=$(cat "${fs[@]}" | grep -v '^#' | awk -F, '$1!="symbol"{print $1}' | sort -u)
   if [ -z "$syms" ]; then printf 'symbol,arm_ms,price_tick,size_at_arm\n' > "$O/lvl/$d.csv"; return; fi
   W=$O/lw-$d; rm -rf "$W"; mkdir -p "$W/study/approaches/D20/$d"
   mkdir -p "$W/study/root-$d"; cp -rs "$(readlink -f "$E/study/root-$d")"/. "$W/study/root-$d"/
