@@ -12,6 +12,11 @@ def put(path, text):
         f.write(text)
 
 
+def guard_pending(info):
+    import json
+    return json.load(open(info["pending"], encoding="utf-8"))
+
+
 class GuardTest(unittest.TestCase):
     def setUp(self):
         for f in ("ledger.jsonl", "done-errors.log"):
@@ -194,6 +199,48 @@ class GuardTest(unittest.TestCase):
             self.assertEqual(self.chk(argv=a)[0], 0)
         finally:
             os.environ.pop("GUARD_INPUTS")
+
+    def day_argv(self, days):
+        a = ["bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out"), "--root", self.root,
+             "--verdict-csv", self.verdict]
+        for d in days:
+            a += ["--day", d]
+        return a
+
+    def setup_days(self, days):
+        os.environ["GUARD_DATA_ROOTS"] = self.root   # корень — только каталог данных, не весь tmp (иначе mtime сторонних файлов меняет отпечаток)
+        self.verdict = os.path.join(self.d, "verdict.csv")
+        put(self.verdict, "sym,day\n" + "".join(f"X,{d}\n" for d in days))
+        for d in days:
+            if not os.path.exists(os.path.join(self.root, f"X-{d}.binlog")):
+                put(os.path.join(self.root, f"X-{d}.binlog"), f"data {d}")
+
+    def test_period_plus_one_day_calcs_only_the_new_day(self):
+        self.write_cells(3)
+        days = ["2026-01-01", "2026-01-02", "2026-01-03"]
+        self.setup_days(days)
+        self.run_ok(argv=self.day_argv(days))
+        self.assertEqual(self.chk(argv=self.day_argv(days))[0], guard.SKIP)
+        self.setup_days(days + ["2026-01-05"])   # новые сутки: файл в корне и строка в verdict.csv
+        self.out.clear()
+        rc, info = self.chk(argv=self.day_argv(days + ["2026-01-05"]))
+        self.assertEqual(rc, 0)
+        a = info["argv"]
+        self.assertEqual([a[i + 1] for i, x in enumerate(a) if x == "--day"], ["2026-01-05"])
+        self.assertEqual(len(guard_pending(info)["cells"]), 3)   # три клетки × одни сутки
+        self.assertIn("out-part-", a[a.index("--out-dir") + 1])
+        self.assertIn("взято из реестра 9 пар", self.out[0])
+
+    def test_changed_data_of_one_day_recalcs_only_that_day_and_its_carry_predecessor(self):
+        self.write_cells(2)
+        days = ["2026-01-01", "2026-01-02", "2026-01-03"]
+        self.setup_days(days)
+        self.run_ok(argv=self.day_argv(days))
+        put(os.path.join(self.root, "X-2026-01-03.binlog"), "переимпорт")
+        rc, info = self.chk(argv=self.day_argv(days))
+        self.assertEqual(rc, 0)
+        a = info["argv"]
+        self.assertEqual([a[i + 1] for i, x in enumerate(a) if x == "--day"], ["2026-01-02", "2026-01-03"])   # 02 читает D+1 (перенос круга)
 
     def test_recompute_needs_why(self):
         self.write_cells(2)

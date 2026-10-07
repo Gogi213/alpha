@@ -53,6 +53,50 @@ def split_cells_args(argv):
     return out, cells, sets
 
 
+DATERE = re.compile(r"\d{4}-\d{2}-\d{2}")
+ANY = object()
+
+
+def split_days(argv):
+    """argv без `--day D` / `--day=D` -> (остаток, сутки по порядку без повторов). Сутки — измерение отпечатка единицы (клетка × сутки)."""
+    out, days, i = [], [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--day" and i + 1 < len(argv):
+            v = argv[i + 1]; i += 2
+        elif a.startswith("--day="):
+            v = a[6:]; i += 1
+        else:
+            out.append(a); i += 1; continue
+        if v not in days:
+            days.append(v)
+    return out, days
+
+
+def _day_keep(day):
+    """Данные суток: сами сутки и следующие (перенос круга через полночь, --carry-root)."""
+    import datetime
+    try:
+        d = datetime.date.fromisoformat(day)
+    except ValueError:
+        return frozenset({day})
+    return frozenset({day, (d + datetime.timedelta(days=1)).isoformat()})
+
+
+def _dated_ok(text, keep):
+    """Запись с датой чужих суток к данным этих суток не относится; без даты — относится всегда."""
+    return keep is ANY or all(x in keep for x in DATERE.findall(text))
+
+
+def csv_fp(path, keep):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for ln in f:
+            if _dated_ok(ln.decode("utf-8", "replace"), keep):
+                h.update(ln)
+    return h.hexdigest()[:16]
+
+
 WRAP = {"benchrun-inner.sh": 2, "regrun.sh": 1, "benchrun.sh": 1, "benchrun2.sh": 1, "benchrun-sched.sh": 1}
 DIRCAP = 5000
 DERIVED = re.compile(r"\.abin(\.tmp\d*)?$")   # кэши счёта во входных каталогах (abin.rs/tbin.rs): версию данных несёт сам csv
@@ -73,7 +117,7 @@ def core_argv(argv):
     return a
 
 
-def dir_fp(path):
+def dir_fp(path, keep=ANY):
     """Отпечаток каталога данных: имена, размеры и mtime на двух уровнях (не больше DIRCAP записей, срез помечается)."""
     h, n = hashlib.sha256(), 0
     stack = [(path, 0)]
@@ -84,7 +128,7 @@ def dir_fp(path):
         except OSError:
             continue
         for e in ents:
-            if DERIVED.search(e.name):
+            if DERIVED.search(e.name) or not _dated_ok(e.name, keep):
                 continue
             n += 1
             if n >= DIRCAP:
@@ -173,25 +217,45 @@ def context(argv):
     bins = {**{p: b["md5"] for p, b in bins.items()}, **_binaries(argv, env)}
     texts = [" ".join(argv)] + [open(p, encoding="utf-8", errors="replace").read() for p in files if os.path.getsize(p) < 200_000]
     rest, cells, sets = split_cells_args(argv)
+    rest, days = split_days(rest)
     out_dir = next((rest[i + 1] for i, x in enumerate(rest[:-1]) if x == "--out-dir"), None)
     rest = [x for i, x in enumerate(rest) if x != "--out-dir" and not (i and rest[i - 1] == "--out-dir")]
-    dirs = {d: dir_fp(d) for d in input_dirs(texts, rest, out_dir)}
+    dir_list = input_dirs(texts, rest, out_dir)
+    keep0 = frozenset() if days else ANY   # в режиме «сутки» общая часть — только записи без даты, даты — в отпечатке единицы
+    dirs = {d: dir_fp(d, keep0) for d in dir_list}
     code = {"bins": dict(sorted(bins.items()))}
-    data = {p: (v.get("sha256") or [v.get("size"), v.get("mtime")]) for p, v in sorted(inputs.items())}
+    csvs = [p for p in list(files) + list(inputs) if days and p.endswith(".csv") and p != cells and os.path.getsize(p) <= snap.MAXHASH]
+    data = {p: (v.get("sha256") or [v.get("size"), v.get("mtime")]) for p, v in sorted(inputs.items()) if p not in csvs}
+    data["csv"] = {p: csv_fp(p, keep0) for p in sorted(csvs)}
     data["dirs"] = dirs
-    scripts = {p: v["sha256"] for p, v in sorted(files.items()) if p != cells}
+    scripts = {p: v["sha256"] for p, v in sorted(files.items()) if p != cells and p not in csvs}
     return {"fp": _h({"argv": rest, "env": env, "code": code, "data": data, "scripts": scripts}),
-            "code": _h(code), "data": _h(data), "cells": cells, "sets": sets, "out_dir": out_dir, "argv": argv, "nodirs": not any(os.path.isdir(d) for d in explicit_inputs(rest))}
+            "code": _h(code), "data": _h(data), "cells": cells, "sets": sets, "out_dir": out_dir, "argv": argv, "days": days,
+            "day_inputs": (dir_list, sorted(csvs)),
+            "nodirs": not any(os.path.isdir(d) for d in explicit_inputs(rest))}
+
+
+def unit_data_fp(ctx, day):
+    """Версия данных ОДНИХ суток: записи входов с датой этих (и следующих) суток."""
+    keep = _day_keep(day)
+    dir_list, csvs = ctx["day_inputs"]
+    return _h({"dirs": {d: dir_fp(d, keep) for d in dir_list}, "csv": {p: csv_fp(p, keep) for p in csvs}})
 
 
 def cell_fps(ctx):
-    if not ctx["cells"] or not os.path.isfile(ctx["cells"]):
-        return {}
-    out = {}
-    for ln in open(ctx["cells"], encoding="utf-8"):
-        p = ln.split()
-        if len(p) == 2:
-            out[ln.strip()] = _h({"ctx": ctx["fp"], "line": ln.strip(), "set": ctx["sets"].get(p[1], "")})
+    """{ключ: отпечаток}. Ключ — строка клетки; с --day — «клетка @сутки» (единица = клетка × сутки × код × данные)."""
+    lines = []
+    if ctx["cells"] and os.path.isfile(ctx["cells"]):
+        lines = [ln.strip() for ln in open(ctx["cells"], encoding="utf-8") if len(ln.split()) == 2]
+    if not ctx["days"]:
+        return {ln: _h({"ctx": ctx["fp"], "line": ln, "set": ctx["sets"].get(ln.split()[1], "")}) for ln in lines}
+    out, ctx["pairs"] = {}, {}
+    for day in ctx["days"]:
+        ud = unit_data_fp(ctx, day)
+        for ln in lines or [""]:
+            k = f"{ln} @{day}"
+            out[k] = _h({"ctx": ctx["fp"], "line": ln, "set": ctx["sets"].get(ln.split()[1], "") if ln else "", "day": day, "data": ud})
+            ctx["pairs"][k] = (ln, day)
     return out
 
 
@@ -235,24 +299,35 @@ def check(cls, argv, recompute=False, why="", repeat=0, say=print):
         cfp = cell_fps(ctx)
         if cfp:
             got = {r["cell_fp"]: r for r in led if r.get("kind") == "cell" and r.get("cell_fp") in set(cfp.values())}
-            missing = {ln: f for ln, f in cfp.items() if f not in got}
+            missing = {k: f for k, f in cfp.items() if f not in got}
+            unit = "пар «клетка × сутки»" if ctx["days"] else "клеток"
             if not missing:
-                say(f"guard: взято из реестра — все {len(cfp)} клеток уже посчитаны (отпечаток {ctx['fp']}); считать нечего")
+                say(f"guard: взято из реестра — все {len(cfp)} {unit} уже посчитаны (отпечаток {ctx['fp']}); считать нечего")
                 for f in list(got)[:3]:
                     say(f"  результат: {got[f].get('result_path')}")
                 return SKIP, list(got.values())[-1]
             calc = missing
             if got:
-                part = ctx["cells"] + f".todo-{ctx['fp']}"
-                with open(part, "w", encoding="utf-8", newline="\n") as pf:
-                    pf.write("\n".join(missing) + "\n")
-                run_argv = _swap(run_argv, "--cells", ctx["cells"], part)
+                part = (ctx["cells"] or out_dir or "guard") + f".todo-{ctx['fp']}"
+                if ctx["days"]:   # выход один на запуск: считаем произведение недостающих клеток на недостающие сутки (готовые внутри — пересчёт ради простоты)
+                    mlines = list(dict.fromkeys(ctx["pairs"][k][0] for k in missing))
+                    mdays = list(dict.fromkeys(ctx["pairs"][k][1] for k in missing))
+                    calc = {k: f for k, f in cfp.items() if ctx["pairs"][k][0] in mlines and ctx["pairs"][k][1] in mdays}
+                    run_argv = [x for i, x in enumerate(run_argv) if not (x == "--day" or x.startswith("--day=") or (i and run_argv[i - 1] == "--day"))]
+                    for d in mdays:
+                        run_argv += ["--day", d]
+                else:
+                    mlines = list(missing)
+                if ctx["cells"]:
+                    with open(part, "w", encoding="utf-8", newline="\n") as pf:
+                        pf.write("\n".join(mlines) + "\n")
+                    run_argv = _swap(run_argv, "--cells", ctx["cells"], part)
                 if out_dir:   # урезанный счёт — в свой каталог: иначе перезапишет rounds.csv прежних клеток
                     out_dir = out_dir.rstrip("/") + f"-part-{ctx['fp'][:8]}"
                     run_argv = _swap(run_argv, "--out-dir", ctx["out_dir"], out_dir)
                 else:
                     say("guard: ВНИМАНИЕ — --out-dir не найден в команде, выход урезанного счёта не разведён")
-                say(f"guard: взято из реестра {len(got)} клеток из {len(cfp)}; считается {len(missing)} недостающих → {out_dir}")
+                say(f"guard: взято из реестра {len(got)} {unit} из {len(cfp)}; считается {len(calc)} → {out_dir}")
         elif done_runs:
             r = done_runs[-1]
             say(f"guard: взято из реестра — этот запуск уже посчитан (отпечаток {ctx['fp']}): {r.get('result_path') or r.get('ts')}")
