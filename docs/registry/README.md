@@ -1,4 +1,4 @@
-# Реестр прогонов (TK-068)
+# Летопись (реестр прогонов, TK-068, В-202)
 
 Канон — `docs/registry/runs.jsonl` (одна строка = один прогон, в git). SQLite `data/registry.sqlite` собирается из него
 (`python tools/registry/registry.py build`), в git не лежит. Выбор по В-170: JSONL в git — читается глазами и diff-ом,
