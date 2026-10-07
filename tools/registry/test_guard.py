@@ -1,10 +1,15 @@
-import os, sys, tempfile, unittest
+import os, re, sys, tempfile, unittest
 
 TMP = tempfile.mkdtemp()
 os.environ["REG_DIR"] = TMP
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import guard  # noqa: E402
 import snap  # noqa: E402
+
+
+def put(path, text):
+    with open(path, "w") as f:
+        f.write(text)
 
 
 class GuardTest(unittest.TestCase):
@@ -15,6 +20,13 @@ class GuardTest(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.cells = os.path.join(self.d, "cells.txt")
         self.out = []
+        self._re, self._roots = snap.PATHRE, os.environ.get("GUARD_DATA_ROOTS")
+        snap.PATHRE = re.compile("(" + re.escape(self.d) + r"[^\s\"']*)")   # как /data/… на сервере
+        os.environ["GUARD_DATA_ROOTS"] = self.d
+
+    def tearDown(self):
+        snap.PATHRE = self._re
+        os.environ.pop("GUARD_DATA_ROOTS") if self._roots is None else os.environ.update(GUARD_DATA_ROOTS=self._roots)
 
     def write_cells(self, n):
         with open(self.cells, "w") as f:
@@ -70,29 +82,49 @@ class GuardTest(unittest.TestCase):
         snap.MAXCOPY = 4
         os.environ["PATH"] = bd + os.pathsep + old_path
         try:
-            open(b, "w").write("v1-binary")
+            put(b, "v1-binary")
             os.chmod(b, 0o755)
             a = ["lob", "bounce-grid", "--cells", self.cells]
             f1 = guard.context(a)["fp"]
-            open(b, "w").write("v2-binary-changed")
+            put(b, "v2-binary-changed")
             self.assertNotEqual(f1, guard.context(a)["fp"])
         finally:
             snap.MAXCOPY, os.environ["PATH"] = old_max, old_path
 
     def test_edit_in_data_root_changes_fingerprint(self):
-        root = tempfile.mkdtemp(dir="/tmp" if os.path.isdir("/tmp") else None)
+        root = tempfile.mkdtemp()
         os.makedirs(os.path.join(root, "BTC"))
         f = os.path.join(root, "BTC", "day.bin")
-        open(f, "w").write("a")
+        put(f, "a")
         a = ["bounce-grid", "--root", root]
-        f1 = guard.context(a)["fp"] if guard.snap.PATHRE.findall(root) else None
-        if f1 is None:   # на Windows путь вне /data|/tmp — проверяем dir_fp напрямую
-            d1 = guard.dir_fp(root)
-            open(f, "w").write("changed!")
-            self.assertNotEqual(d1, guard.dir_fp(root))
-        else:
-            open(f, "w").write("changed!")
-            self.assertNotEqual(f1, guard.context(a)["fp"])
+        f1 = guard.context(a)["fp"]
+        self.assertEqual(f1, guard.context(a)["fp"])
+        put(f, "changed!")
+        self.assertNotEqual(f1, guard.context(a)["fp"])
+
+    def test_job_writing_into_out_dir_keeps_fingerprint(self):
+        self.write_cells(3)
+        root = os.path.join(self.d, "roots")
+        os.makedirs(root)
+        put(os.path.join(root, "x.bin"), "in")
+        out = os.path.join(self.d, "out")
+        a = ["lob", "bounce-grid", "--cells", self.cells, "--root", root, "--out-dir", out]
+        info = self.run_ok(argv=a)
+        os.makedirs(os.path.join(out, "set0"))
+        put(os.path.join(out, "set0", "rounds.csv"), "rows")
+        self.assertEqual(self.chk(argv=a)[0], guard.SKIP)
+        put(os.path.join(root, "x.bin"), "input changed")
+        self.assertEqual(self.chk(argv=a)[0], 0)
+
+    def test_measure_script_mentioning_output_dirs_is_refused_second_time(self):
+        prog = os.path.join(self.d, "progress")
+        os.makedirs(prog)
+        sc = os.path.join(self.d, "bench.sh")
+        put(sc, f"echo run > {prog}/job.json\n")
+        a = ["bash", sc]
+        self.run_ok("wave", a)
+        put(os.path.join(prog, "job.json"), "written by the job")
+        self.assertEqual(self.chk("wave", a)[0], guard.SKIP)
 
     def test_recompute_needs_why(self):
         self.write_cells(2)
@@ -113,7 +145,7 @@ class GuardTest(unittest.TestCase):
         core = self.argv()
         base = guard.context(core)["fp"]
         env = os.path.join(self.d, "env-123.sh")
-        open(env, "w").write("export ALPHA_X=1\n")
+        put(env, "export ALPHA_X=1\n")
         shapes = [
             ["bash", "/data/sched/benchrun-inner.sh", env, "wave"] + core,      # benchrun -> benchrun-sched -> inner
             ["/data/registry/regrun.sh", "prod"] + core,                          # regrun / jobrun
@@ -125,7 +157,7 @@ class GuardTest(unittest.TestCase):
             self.assertEqual(guard.context(s)["fp"], base)
         # другой envfile ($$ в имени) — тот же отпечаток
         env2 = os.path.join(self.d, "env-999.sh")
-        open(env2, "w").write("export ALPHA_X=1\n")
+        put(env2, "export ALPHA_X=1\n")
         self.assertEqual(guard.context(["bash", "/data/sched/benchrun-inner.sh", env2, "wave"] + core)["fp"], base)
 
     def test_check_then_done_via_wrapper_hits_cache(self):

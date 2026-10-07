@@ -90,10 +90,43 @@ def dir_fp(path):
                 st = e.stat(follow_symlinks=False)
             except OSError:
                 continue
-            h.update(f"{d}/{e.name}|{st.st_size}|{st.st_mtime_ns};".encode())
-            if e.is_dir(follow_symlinks=False) and lvl < 1:
+            isdir = e.is_dir(follow_symlinks=False)
+            if isdir and os.name == "nt":   # NTFS обновляет mtime каталога в родителе лениво — отпечаток мигал бы
+                h.update(f"{d}/{e.name}/;".encode())
+            else:
+                h.update(f"{d}/{e.name}|{st.st_size}|{st.st_mtime_ns};".encode())
+            if isdir and lvl < 1:
                 stack.append((e.path, lvl + 1))
     return h.hexdigest()[:16] + ("+cap" if n >= DIRCAP else "")
+
+
+DATA_ROOTS = ("/data/alpha/epochs", "/data/tk037/roots")
+INPUT_FLAGS = ("--root", "--touches-dir", "--verdict-csv", "--moves", "--numbers", "--minute-flow", "--epochs", "--input-dir")
+
+
+def _under(p, base):
+    return p == base or p.startswith(base.rstrip("/") + "/")
+
+
+def input_dirs(texts, argv, out_dir):
+    """Каталоги данных — только ВХОДЫ: значения входных флагов и упомянутые пути внутри явных корней (GUARD_DATA_ROOTS).
+    Выход (--out-dir и подкаталоги) и всё, что пишет задание, исключено — иначе прогон сам меняет свой отпечаток."""
+    roots = [r for r in os.environ.get("GUARD_DATA_ROOTS", ":".join(DATA_ROOTS)).split(":") if r]
+    cand = set()
+    for i, a in enumerate(argv[:-1]):
+        if a in INPUT_FLAGS:
+            cand.add(argv[i + 1].rstrip("/"))
+    for a in argv:
+        for f in INPUT_FLAGS:
+            if a.startswith(f + "="):
+                cand.add(a[len(f) + 1:].rstrip("/"))
+    for t in texts:
+        for m in snap.PATHRE.findall(t):
+            m = m.rstrip("/")
+            if any(_under(m, r) or _under(r, m) for r in roots):
+                cand.add(m)
+    out = out_dir.rstrip("/") if out_dir else None
+    return sorted(d for d in cand if os.path.isdir(d) and not (out and (_under(d, out) or _under(out, d))))
 
 
 def _binaries(argv, env):
@@ -113,10 +146,10 @@ def context(argv):
     files, inputs, bins = snap.collect(argv)
     bins = {**{p: b["md5"] for p, b in bins.items()}, **_binaries(argv, env)}
     texts = [" ".join(argv)] + [open(p, encoding="utf-8", errors="replace").read() for p in files if os.path.getsize(p) < 200_000]
-    dirs = {d: dir_fp(d) for d in sorted({m.rstrip("/") for t in texts for m in snap.PATHRE.findall(t) if os.path.isdir(m)})}
     rest, cells, sets = split_cells_args(argv)
     out_dir = next((rest[i + 1] for i, x in enumerate(rest[:-1]) if x == "--out-dir"), None)
     rest = [x for i, x in enumerate(rest) if x != "--out-dir" and not (i and rest[i - 1] == "--out-dir")]
+    dirs = {d: dir_fp(d) for d in input_dirs(texts, rest, out_dir)}
     code = {"bins": dict(sorted(bins.items()))}
     data = {p: (v.get("sha256") or [v.get("size"), v.get("mtime")]) for p, v in sorted(inputs.items())}
     data["dirs"] = dirs
