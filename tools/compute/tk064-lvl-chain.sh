@@ -7,4 +7,4 @@ for m in jan feb mar apr may jun jul aug sep oct; do
   # shellcheck disable=SC2086
   D=${D:-3} TP=${TP:-4} bash /data/tk064/tk064-lvl.sh m-$m $m $days
 done
-touch /data/tk064/lvl-all.done
+touch /data/tk064/lvl-all2.done

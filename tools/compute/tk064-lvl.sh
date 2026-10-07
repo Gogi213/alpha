@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TK-064 п.5: size_at_arm (= level_qty, лоты) для сигналов B1 пула — в signals.csv его нет, подходы D20 после чистки удалены.
 #   tk064-lvl.sh <метка pool/m-..> <мес> <сутки>...   env: BIN D TP   выход: $O/lvl/<сутки>.csv = symbol,arm_ms,price_tick,size_at_arm (bid)
-# Монеты — только те, что есть в signals.csv суток; touches без --r1-cols (флаг выкл. = старый формат, size_at_arm в нём).
+# Монеты — только те, что есть в signals.csv суток; touches без --r1-cols; size_at_arm берётся из approaches-<SYM>.csv (в touches-<SYM>.csv его нет).
 set -uo pipefail
 lab=$1; MON=$2; shift 2
 BIN=${BIN:-/data/tk064/bin/alpha-tk064-r1}; TP=${TP:-4}; D=${D:-3}
@@ -25,8 +25,8 @@ process_day() {
   mkdir -p "$W/study/root-$d"; cp -rs "$(readlink -f "$E/study/root-$d")"/. "$W/study/root-$d"/
   echo "$syms" | xargs -P "$TP" -I{} bash -c 'unit_touches "$0" "$1" "$2"' "$W" "$d" {}
   { printf 'symbol,arm_ms,price_tick,size_at_arm\n'
-    for g in "$W"/study/approaches/D20/$d/touches-*.csv; do
-      s=$(basename "$g" .csv); s=${s#touches-}
+    for g in "$W"/study/approaches/D20/$d/approaches-*.csv; do
+      s=$(basename "$g" .csv); s=${s#approaches-}
       grep -v '^#' "$g" | awk -F, -v s="$s" 'NR==1{for(i=1;i<=NF;i++)c[$i]=i;next} $c["side"]=="bid"{print s","$c["arm_ms"]","$c["price_tick"]","$c["size_at_arm"]}'
     done; } > "$O/lvl/$d.csv"
   rm -rf "$W"
