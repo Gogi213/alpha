@@ -20,7 +20,12 @@ class SimBE:
         self.alerts = []
         self.legacy_u = {}
         self.fz = set()
+        self.cpu = {}
+        self.cpu_rate = {}
+        self.tickets = []
 
+    def job_cpu(self, j): return self.cpu.get(j["id"], 0.0)
+    def waiting_tickets(self): return self.tickets
     def now(self): return self.t
     def alert(self, t): self.alerts.append(t)
     def cancelled(self, j): return False
@@ -47,6 +52,7 @@ class SimBE:
         for j in core.jobs.values():
             if j["state"] == "running" and (j["cls"] == "measure" or not self.frozen) and j["id"] not in self.fz:
                 self.jobs[j["id"]]["left"] -= dt
+                self.cpu[j["id"]] = self.cpu.get(j["id"], 0.0) + dt * self.cpu_rate.get(j["id"], j["cores"])
         self.t += dt
 
 
@@ -92,6 +98,36 @@ def preempt_case(prio=3):
     if prio == 5:
         return t_start, set(be.fz), None, wide["state"], None
     return t_start, frozen_then, t_thaw, wide["state"], core.jobs["n0"].get("frozen_for")
+
+
+def underuse_case():
+    """п.8(б): заявка на 8 ядер занимает 2 (25 %) — сигнал после UNDER_S; заявка на 8 занимает 7 — сигнала нет; заморозка выборку сбрасывает."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56)
+    be.cpu_rate = {"low": 2, "ok": 7}
+    core.add(job("low", "low", "prod", 8, 4, "none", 10 ** 6, 0, mr=10 ** 7))
+    core.add(job("ok", "ok", "prod", 8, 4, "none", 10 ** 6, 0, mr=10 ** 7))
+    t_alert = None
+    for _ in range(int(7200 / S.TICK)):
+        core.tick(); be.advance(core, S.TICK)
+        if t_alert is None and any("low" in a and "занято" in a for a in be.alerts):
+            t_alert = be.t
+    return t_alert, [a for a in be.alerts if "занято" in a]
+
+
+def idle_case():
+    """п.8(в): очередь пуста, тикеты ждут — сигнал после IDLE_S, один раз; пока тикетов нет — тишина."""
+    be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56)
+    t_alert = None
+    for _ in range(int(3600 / S.TICK)):
+        if be.t == 600:
+            be.tickets = ["TK-099"]
+        core.tick(); be.advance(core, S.TICK)
+        if t_alert is None and any("очередь пуста" in a for a in be.alerts):
+            t_alert = be.t
+    quiet = SimBE(); qc = S.Core(quiet, ncpu=NCPU, mem=56)
+    for _ in range(int(3600 / S.TICK)):
+        qc.tick(); quiet.advance(qc, S.TICK)
+    return t_alert, [a for a in be.alerts if "очередь пуста" in a], quiet.alerts
 
 
 def run():
@@ -165,6 +201,11 @@ def run():
     print(f"prio 5 (равна R1): голые юниты не заморожены: {not (fz5 - {'n0'})}")
     ok = ok and not (fz5 - {"n0"}) and w3 <= 600 + 2 * S.TICK and len(al) >= 1
     ok = ok and ts is not None and ts <= S.PREEMPT_S + 3 * S.TICK and fr == {"n0", "retry"} and tt and st == "done" and not ff
+    tu, au = underuse_case()
+    ti, ai, aq = idle_case()
+    print(f"недогруз: сигнал на {tu} с (окно {S.UNDER_S}), только на «low»: {len(au) == 1}; пустая очередь при ждущих тикетах: сигнал на {ti} с, штук {len(ai)}, без тикетов тишина: {not aq}")
+    ok = ok and tu is not None and S.UNDER_S <= tu <= S.UNDER_S + 2 * S.SAMPLE_S and len(au) == 1
+    ok = ok and ti is not None and 600 + S.IDLE_S <= ti <= 600 + S.IDLE_S + 2 * S.TICK and len(ai) == 1 and not aq
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")
     return 0 if ok else 1
 
