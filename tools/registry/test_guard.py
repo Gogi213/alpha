@@ -116,6 +116,29 @@ class GuardTest(unittest.TestCase):
         put(os.path.join(root, "x.bin"), "input changed")
         self.assertEqual(self.chk(argv=a)[0], 0)
 
+    def test_touches_from_carry_root_and_extra_runs_inputs_in_fingerprint(self):
+        self.write_cells(2)
+        dirs = {}
+        for n in ("touches", "carry", "xtouches"):
+            dirs[n] = os.path.join(self.d, n)
+            os.makedirs(dirs[n])
+            put(os.path.join(dirs[n], "touches-BTC.csv"), "v1")
+        xout = os.path.join(self.d, "xout")
+        os.makedirs(xout)
+        er = os.path.join(self.d, "extra.txt")
+        put(er, f"# c\n--touches-from {dirs['xtouches']} --out-dir {xout}\n")
+        base = ["lob", "bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out"),
+                "--touches-from", dirs["touches"], "--carry-root", dirs["carry"], "--extra-runs", er]
+        f0 = guard.context(base)["fp"]
+        self.assertEqual(f0, guard.context(base)["fp"])
+        for n in dirs:
+            put(os.path.join(dirs[n], "touches-BTC.csv"), "v2 changed " + n)
+            f1 = guard.context(base)["fp"]
+            self.assertNotEqual(f0, f1, n)
+            f0 = f1
+        put(os.path.join(xout, "rounds.csv"), "out written by the job")
+        self.assertEqual(f0, guard.context(base)["fp"])
+
     def test_measure_script_mentioning_output_dirs_is_refused_second_time(self):
         prog = os.path.join(self.d, "progress")
         os.makedirs(prog)

@@ -101,32 +101,45 @@ def dir_fp(path):
 
 
 DATA_ROOTS = ("/data/alpha/epochs", "/data/tk037/roots")
-INPUT_FLAGS = ("--root", "--touches-dir", "--verdict-csv", "--moves", "--numbers", "--minute-flow", "--epochs", "--input-dir")
+# входы bounce-grid (args.rs: root, touches_from, carry_root, sigma_from, regime_from, btc_minutes, verdict_csv) и touches (root, moves, numbers, minute_flow)
+INPUT_FLAGS = ("--root", "--touches-from", "--carry-root", "--sigma-from", "--regime-from", "--btc-minutes", "--verdict-csv",
+               "--touches-dir", "--moves", "--numbers", "--minute-flow")
 
 
 def _under(p, base):
     return p == base or p.startswith(base.rstrip("/") + "/")
 
 
+def _flag_values(argv, flag):
+    vals = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == flag]
+    return vals + [x[len(flag) + 1:] for x in argv if x.startswith(flag + "=")]
+
+
+def _extra_runs_argvs(argv):
+    """Строки --extra-runs <файл> несут свои входы и выходы: разбираются так же, как argv."""
+    out = []
+    for f in _flag_values(argv, "--extra-runs"):
+        try:
+            lines = open(f, encoding="utf-8").read().splitlines()
+        except OSError:
+            continue
+        out += [shlex.split(ln.split("#", 1)[0], posix=os.name != "nt") for ln in lines if ln.split("#", 1)[0].strip()]
+    return out
+
+
 def input_dirs(texts, argv, out_dir):
-    """Каталоги данных — только ВХОДЫ: значения входных флагов и упомянутые пути внутри явных корней (GUARD_DATA_ROOTS).
-    Выход (--out-dir и подкаталоги) и всё, что пишет задание, исключено — иначе прогон сам меняет свой отпечаток."""
+    """Каталоги данных — только ВХОДЫ: значения входных флагов (и строк --extra-runs) и упомянутые пути внутри явных корней
+    (GUARD_DATA_ROOTS). Выход (--out-dir и подкаталоги) и всё, что пишет задание, исключено — иначе прогон сам меняет свой отпечаток."""
     roots = [r for r in os.environ.get("GUARD_DATA_ROOTS", ":".join(DATA_ROOTS)).split(":") if r]
-    cand = set()
-    for i, a in enumerate(argv[:-1]):
-        if a in INPUT_FLAGS:
-            cand.add(argv[i + 1].rstrip("/"))
-    for a in argv:
-        for f in INPUT_FLAGS:
-            if a.startswith(f + "="):
-                cand.add(a[len(f) + 1:].rstrip("/"))
+    runs = [argv] + _extra_runs_argvs(argv)
+    cand = {v.rstrip("/") for r in runs for f in INPUT_FLAGS for v in _flag_values(r, f)}
     for t in texts:
         for m in snap.PATHRE.findall(t):
             m = m.rstrip("/")
             if any(_under(m, r) or _under(r, m) for r in roots):
                 cand.add(m)
-    out = out_dir.rstrip("/") if out_dir else None
-    return sorted(d for d in cand if os.path.isdir(d) and not (out and (_under(d, out) or _under(out, d))))
+    outs = {o.rstrip("/") for r in runs for o in _flag_values(r, "--out-dir")} | ({out_dir.rstrip("/")} if out_dir else set())
+    return sorted(d for d in cand if os.path.isdir(d) and not any(_under(d, o) or _under(o, d) for o in outs))
 
 
 def _binaries(argv, env):
