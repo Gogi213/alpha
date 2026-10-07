@@ -2,7 +2,8 @@
 """TK-064 п.5: клетки R1 как фильтры на signals.csv пула (r2-spec §2 и §4 R1, П-11 §3).
 
   tk064-r1cells.py thresholds --pool /data/tk064/pool --out DIR     # e-thresholds-<мес>.csv: только колонки признаков, без исхода
-  tk064-r1cells.py apply      --pool /data/tk064/pool --out DIR     # cells/<мес>/<клетка>.csv + coverage.json
+  tk064-r1cells.py coverage   --pool /data/tk064/pool --out DIR     # coverage-r1.json: охват, масса в нуле (январь), группы совпавших; исходы НЕ читает
+  tk064-r1cells.py apply      --pool /data/tk064/pool --out DIR     # cells/<мес>/<клетка>.csv (с исходами из rounds.csv)
 
 Порог месяца m = квантиль по определённым сигналам B1 ВСЕХ предыдущих полных месяцев (янв — калибровка, клетки с фев).
 Меры *_lots делятся на size_at_arm (lvl/<сутки>.csv, лоты книги — безразмерно). Пустая клетка = не определено:
@@ -34,7 +35,7 @@ FAM = {
     "g04": (["wall_add_max_lots"], True, +1),
     "g39": (["cancel_life_lots"], True, -1),
 }
-ZERO_FORM = {"g35", "g04", "g39", "g63"}  # масса в нуле: добавляется форма «0 / не 0»
+ZERO_FAMS_COLS = sorted({c for cols, _, _ in FAM.values() for c in cols})
 BIN = {  # клетка -> (колонка, предикат «оставить»; None = не определено -> оставить)
     "g100-micro0": ("micro_off_cbps", lambda v: v is not None and v > 0),
     "g34-notmoved": ("born_shift_cbps", lambda v: v is None or v >= 0),
@@ -75,10 +76,13 @@ def num(s):
 
 def load_month(pool, mon):
     """-> список сигналов: dict(key, feats{col: float|None}); size_at_arm подставлен; без колонок исхода."""
-    lvl = {}
+    lvl, dups = {}, set()
     for p in glob.glob(os.path.join(pool, f"m-{mon}", "lvl", "*.csv")):
         for r in rows(p):
-            lvl[(r["symbol"], int(r["arm_ms"]), int(r["price_tick"]))] = float(r["size_at_arm"])
+            k = (r["symbol"], int(r["arm_ms"]), int(r["price_tick"]))
+            if k in lvl:
+                dups.add(k)
+            lvl[k] = float(r["size_at_arm"])
     seen, sigs = set(), []
     for d, sp, _ in day_files(pool, mon):
         for r in rows(sp):
@@ -94,7 +98,24 @@ def load_month(pool, mon):
                     v = v / size if size and size > 0 else None
                 f[c] = v
             sigs.append({"key": key, "f": f, "lvl_ok": size is not None})
-    return sigs
+    return sigs, len(dups)
+
+
+def zero_cols(jan):
+    """П-11 §4: масса в нуле = терциль вырождается (q33 = q67 = 0) по определённым значениям января-калибровки; одно решение на все месяцы."""
+    out, info = set(), {}
+    for c in ZERO_FAMS_COLS:
+        vals = sorted(s["f"][c] for s in jan if s["f"][c] is not None)
+        if not vals:
+            info[c] = {"jan_n_defined": 0, "zero_form": False}
+            continue
+        q33, q67 = nearest_rank(vals, 0.33), nearest_rank(vals, 0.67)
+        z = q33 == 0 and q67 == 0
+        info[c] = {"jan_n_defined": len(vals), "jan_zero_share": round(sum(1 for v in vals if v == 0) / len(vals), 4),
+                   "q33": q33, "q67": q67, "zero_form": z}
+        if z:
+            out.add(c)
+    return out, info
 
 
 def nearest_rank(sorted_vals, q):
@@ -117,7 +138,7 @@ def thresholds(history):
     return thr, cnt
 
 
-def cells_for_month(thr):
+def cells_for_month(thr, zc):
     """-> {имя клетки: предикат(feats)}; без порога (нет истории по колонке) клетка не строится."""
     cells = {}
 
@@ -130,7 +151,7 @@ def cells_for_month(thr):
                 continue  # колонка burst на 60 с не заведена в R1
             tag = fam if len(cols) == 1 else f"{fam}-{c}"
             for p in LEVELS:
-                kind = "nz" if fam in ZERO_FORM else "all"
+                kind = "nz" if c in zc else "all"
                 key = (c, p, kind, "hi" if sign > 0 else "lo")
                 if key not in thr:
                     continue
@@ -139,7 +160,7 @@ def cells_for_month(thr):
                     add(f"{tag}-k{p}", lambda f, c=c, t=t: f[c] is not None and f[c] >= t)
                 else:
                     add(f"{tag}-k{p}", lambda f, c=c, t=t: f[c] is not None and f[c] <= t)
-            if fam in ZERO_FORM:
+            if c in zc:
                 if sign > 0:
                     add(f"{tag}-nz", lambda f, c=c: f[c] is not None and f[c] > 0)
                 else:
@@ -167,13 +188,24 @@ def cells_for_month(thr):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["thresholds", "apply"])
+    ap.add_argument("mode", choices=["thresholds", "coverage", "apply"])
     ap.add_argument("--pool", default="/data/tk064/pool")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    data = {m: load_month(a.pool, m) for m in MONTHS}
-    cov = {"months": {}, "cells_per_month": {}}
+    loaded = {m: load_month(a.pool, m) for m in MONTHS}
+    data = {m: v[0] for m, v in loaded.items()}
+    zc, zinfo = zero_cols(data["jan"])
+    cov = {"zero_mass_rule": "П-11 §4: q33 = q67 = 0 по определённым значениям января-калибровки; одно решение на все месяцы",
+           "zero_mass_columns": sorted(zc), "zero_mass_by_column": zinfo,
+           "defined_share": {c: {m: round(sum(1 for s in data[m] if s["f"][c] is not None) / len(data[m]), 4) if data[m] else None
+                                 for m in MONTHS} for c in FEATS},
+           "undefined_lt30pct": {m: sorted(c for c in FEATS if data[m] and sum(1 for s in data[m] if s["f"][c] is not None) / len(data[m]) < 0.30)
+                                 for m in MONTHS},
+           "lvl_duplicate_keys": {m: loaded[m][1] for m in MONTHS},
+           "new_instruments_rows": {m: {sym: sum(1 for s in data[m] if s["key"][0] == sym) for sym in ("TRXUSDT", "XAUUSDT", "CLUSDT")}
+                                    for m in MONTHS},
+           "months": {}}
     for i, mon in enumerate(MONTHS):
         if i == 0:
             continue  # январь — только калибровка
@@ -186,31 +218,33 @@ def main():
                 for (c, p, kind, d), t in sorted(thr.items()):
                     w.writerow([c, p, kind, d, repr(t), cnt[c][0], cnt[c][1]])
             continue
-        cells = cells_for_month(thr)
+        cells = cells_for_month(thr, zc)
         sigs = data[mon]
         odir = os.path.join(a.out, "cells", mon)
-        os.makedirs(odir, exist_ok=True)
         rounds = {}
-        for d, _, rp in day_files(a.pool, mon):
-            for r in rows(rp):
-                rounds.setdefault((r["symbol"], r["day_utc"], int(r["signal_index"])), r)
-        kept_sets, summary = {}, []
+        if a.mode == "apply":
+            os.makedirs(odir, exist_ok=True)
+            for d, _, rp in day_files(a.pool, mon):
+                for r in rows(rp):
+                    rounds.setdefault((r["symbol"], r["day_utc"], int(r["signal_index"])), r)
+        kept_sets, n_kept = {}, {}
         for name, fn in sorted(cells.items()):
             kept = [s["key"] for s in sigs if fn(s["f"])]
             kept_sets.setdefault(tuple(kept), []).append(name)
+            n_kept[name] = len(kept)
+            if a.mode != "apply":
+                continue
             with open(os.path.join(odir, f"{name}.csv"), "w", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["symbol", "day_utc", "signal_index", "t0_ns", "net_bps", "reason", "exit_ns", "qty"])
                 for k in kept:
                     r = rounds.get(k, {})
                     w.writerow([k[0], k[1], k[2], r.get("t0_ns", ""), r.get("net_bps", ""), r.get("reason", ""), r.get("exit_ns", ""), r.get("qty", "")])
-            summary.append({"cell": name, "n_kept": len(kept)})
         cov["months"][mon] = {"n_b1": len(sigs), "n_lvl_missing": sum(1 for s in sigs if not s["lvl_ok"]),
                               "n_cells": len(cells), "n_distinct_keep_sets": len(kept_sets),
-                              "identical_cells": [v for v in kept_sets.values() if len(v) > 1]}
-        cov["cells_per_month"][mon] = summary
-    if a.mode == "apply":
-        with open(os.path.join(a.out, "coverage.json"), "w") as f:
+                              "identical_cells": [v for v in kept_sets.values() if len(v) > 1], "n_kept": n_kept}
+    if a.mode == "coverage":
+        with open(os.path.join(a.out, "coverage-r1.json"), "w", encoding="utf-8") as f:
             json.dump(cov, f, ensure_ascii=False, indent=1)
     print("ok", a.mode, file=sys.stderr)
 
