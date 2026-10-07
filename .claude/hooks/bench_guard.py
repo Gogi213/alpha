@@ -14,7 +14,8 @@ systemd-run; `/data/benchrun.sh` и `/data/tk052/benchrun2.sh` — скрипт�
 `tar` кроме распаковки со stdin (`tar xzf - -C …` — выкладка файлов с этой машины, ограничена каналом); md5sum/sha*sum/b3sum/
 cksum/cmp/`diff -r` — если аргумент каталог, маска, неизвестная переменная, список из xargs, `-c`, либо файл `*.binlog|*.abin`;
 `cat`/`cp` файлов `*.binlog|*.abin` и масок под /data/alpha/; `python3 <файл>`, `python3 -m <не py_compile>`,
-`python3 -c`/stdin длиннее 200 символов. Всё прочее (cat/tail/head/ls/grep по файлам, systemctl, uptime, sha256sum отдельных
+`python3 -c`/stdin длиннее 200 символов; исключение — `python3 /data/sched/alsched.py submit|ps|cancel|reprio|wave|stand`
+(короткие команды демона). Всё прочее (cat/tail/head/ls/grep по файлам, systemctl, uptime, sha256sum отдельных
 файлов, `cat > файл && mv`, `python3 -m py_compile`, `python3 -c '<короткое>'`) — свободно.
 """
 import re
@@ -25,6 +26,8 @@ PY_ONELINER_MAX = 200
 ALWAYS = {"du", "find", "rsync", "vmtouch", "tree", "ncdu", "locate", "plocate", "mlocate", "updatedb", "fd", "fdfind"}
 HASH = {"md5sum", "sha1sum", "sha224sum", "sha256sum", "sha384sum", "sha512sum", "b3sum", "cksum", "shasum", "xxhsum",
         "cmp"}
+SCHED_CLI = "/data/sched/alsched.py"                         # клиент демона alpha-sched: подача и показ, сам ничего не считает
+SCHED_SHORT = {"submit", "ps", "cancel", "reprio", "wave", "stand"}
 GREPS = {"grep", "egrep", "fgrep"}
 BIG_FILE = re.compile(r"\.(?:binlog|abin)\b", re.I)          # бинлоги и .abin — многогигабайтные файлы данных
 TAR_MODES = {"c": "c", "t": "t", "d": "d", "r": "r", "u": "u", "A": "A", "x": "x"}
@@ -75,6 +78,8 @@ def python_label(args, stdin):
         elif a.startswith("-"):
             k += 1
         else:
+            if a == SCHED_CLI and k + 1 < len(args) and args[k + 1] in SCHED_SHORT:
+                return None
             return f"python3 {a}"                            # скрипт-файл
     if code is None:                                       # `python3 -` / без аргументов: код читается со stdin
         code = list(stdin)

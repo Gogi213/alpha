@@ -1154,7 +1154,7 @@ class SecondAudit(unittest.TestCase):
                     "git switch -c new", "git switch -", "git restore --staged x", "git restore -S .",
                     "git restore --staged --source=HEAD x", "git branch", "git branch -a", "git branch -vv",
                     "git branch -d merged", "git branch new-branch", "git branch --list", "git branch -r",
-                    "git stash", "git stash list", "git stash pop", "git stash push -m x", "git stash apply",
+                    "git stash", "git stash cancel 1006170854926", "git stash pop", "git stash push -m x", "git stash apply",
                     "git push origin main", "git push origin HEAD:refs/heads/x", "git push -u origin feature",
                     "git push --tags", "git checkout --help", "git restore --help"):
             self.ok(cmd)
@@ -1383,7 +1383,7 @@ class ThirdAudit(unittest.TestCase):
         self.as_role("engineer")
         for cmd in ("rm -f .git/index.lock", "rm -f .git/refs/heads/main.lock", "rm -rf .github/old",
                     "rm -f .gitignore.bak", "rm -rf node_modules/.cache", "rm -rf .claude/worktrees/agent-1",
-                    "rm -f .*.swp", "rm -rf /tmp/clone/.git", "git status", "echo x >> .git/info/exclude"):
+                    "rm -f .*.swp", "rm -rf /tmp/clone/.git", "git ps", "echo x >> .git/info/exclude"):
             self.assertIsNone(dg.check(cmd, CWD), cmd)
 
     def test_git_dir_writes(self):
@@ -1478,6 +1478,20 @@ class BenchLock(unittest.TestCase):
                     "timeout 600 python3 /data/x.py", "sudo -u nobody nice python3 /data/x.py", "python3 -m cProfile x.py",
                     "python3 -m http.server", "python3 -c '" + "x=1;" * 60 + "'", "python3", "python3 -",
                     "python3 - <<'EOF'\n" + "y = 2\n" * 60 + "EOF"):
+            with self.subTest(cmd=cmd):
+                self.no(cmd)
+
+    def test_alsched_cli_allowed(self):
+        S = "/data/sched/alsched.py"
+        for cmd in (f"python3 {S} ps", f"python3 {S} cancel 1006170854926", f"python3 {S} reprio 100617 3",
+                    f"python3 {S} submit --cls prod --name x --max-runtime 3h --cores 2 --mem 4 -- rm -rf /data/tk048/col1",
+                    f"python3 -u {S} ps", f"cd /data/sched && python3 {S} ps | tail -20",
+                    f"python3 {S} wave --max-runtime 30m /data/x.sh"):
+            with self.subTest(cmd=cmd):
+                self.ok(cmd)
+        for cmd in (f"python3 {S}", f"python3 {S} serve", f"python3 /data/sched/other.py ps",
+                    f"python3 /tmp/alsched.py ps", f"python3 {S} ps && python3 /data/x.py",
+                    f"python3 {S} ps; find /data -name x", f"python3 {S} status"):
             with self.subTest(cmd=cmd):
                 self.no(cmd)
 
