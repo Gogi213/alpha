@@ -1815,22 +1815,41 @@ impl LevelTracker {
         // а не один вложенный метод: каждая берёт только то состояние, что
         // реально трогает, вызовы идут строго по очереди, поэтому ни одна
         // пара заимствований не пересекается во времени.
-        scan_levels(
-            &ctx,
-            ts_ms,
-            levels,
-            &self.strength_ok,
-            &self.strength_prefix,
-            &mut self.live,
-            &mut self.births,
-            &mut self.carry,
-            carry_open_s,
-            &mut self.newborns,
-            &mut self.touched,
-            &mut self.armed,
-            approaches,
-            self.r1.as_deref_mut(),
-        );
+        if self.r1.is_some() {
+            scan_levels::<true>(
+                &ctx,
+                ts_ms,
+                levels,
+                &self.strength_ok,
+                &self.strength_prefix,
+                &mut self.live,
+                &mut self.births,
+                &mut self.carry,
+                carry_open_s,
+                &mut self.newborns,
+                &mut self.touched,
+                &mut self.armed,
+                approaches,
+                self.r1.as_deref_mut(),
+            );
+        } else {
+            scan_levels::<false>(
+                &ctx,
+                ts_ms,
+                levels,
+                &self.strength_ok,
+                &self.strength_prefix,
+                &mut self.live,
+                &mut self.births,
+                &mut self.carry,
+                carry_open_s,
+                &mut self.newborns,
+                &mut self.touched,
+                &mut self.armed,
+                approaches,
+                self.r1.as_deref_mut(),
+            );
+        }
         if let Some(r1) = self.r1.as_deref_mut() {
             r1.finish_frame(ctx.s, &self.live);
         }
@@ -2052,7 +2071,7 @@ fn count_prior_births(
 /// Берёт только поля, которые реально трогает, — карту живых, карту
 /// рождений, перенос возраста и буферы новорождённых/касаний кадра.
 #[allow(clippy::too_many_arguments)]
-fn scan_levels(
+fn scan_levels<const R1: bool>(
     ctx: &FrameCtx,
     ts_ms: i64,
     levels: &[LevelObs],
@@ -2066,8 +2085,10 @@ fn scan_levels(
     touched: &mut Vec<Touched>,
     armed: &mut Vec<(u8, i64)>,
     approaches: &mut Vec<ApproachRecord>,
-    mut r1: Option<&mut R1State>,
+    r1: Option<&mut R1State>,
 ) {
+    // Константа вместо проверки на уровне: у выключенного R1 цикл без его ветвей и счётчиков.
+    let mut r1 = if R1 { r1 } else { None };
     let FrameCtx {
         s,
         frame,
