@@ -1,0 +1,7 @@
+alpha-b16t-pgo — боевой кандидат TK-048 (скорость волны), сборка 07.10
+исходник: коммит b19e044e (src/, Cargo.* без правок после него), цель x86-64-v3, сборка VPS tools/compute/tk051-build.sh
+бинарник md5: caeff92b4da8e4198ed964c5232fdfb3 (/opt/alpha-compute/bin/alpha-b16t-pgo на VPS и сервере счёта)
+PGO: gen-сборка alpha-b16t-gen (md5 08a47bf9f91fbdb0b60da007b083b28f), обучение pgo-cycle.sh gen (режимы atom d01, TRAIN_ENV = флаги обёртки без ALPHA_APPROACH_BIN/TOUCH_BIN),
+     профиль /opt/alpha-compute/pgo/b16t/merged.profdata sha256 378800a3726b395f369bfdf73784e47e836e9b82fc76937defcac6c2d206c5e6 (VPS)
+обёртка: tools/compute/alpha-b16tpgoflag.sh (флаги волны + ALPHA_TOUCH_BIN=1; ALPHA_APPROACH_BIN_DIR обязателен)
+замер: 698,3 с на 59 сутках янв+фев (P=20, G=8, abin в шм), gate 43 011 файлов diff 0 (TK-048, chain81)
