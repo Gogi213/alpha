@@ -1115,6 +1115,7 @@ impl<'a> GridRun<'a> {
                             post_only: args.entry_post_only(),
                             frontrun_only: set.frontrun_only,
                             min_age_ms: set.min_age_secs.map(|s| s.saturating_mul(1_000)),
+                            max_age_ms: set.max_age_secs.map(|s| s.saturating_mul(1_000)),
                             min_flow_pct: set.min_flow_pct,
                             side: set.side.map(Side::from),
                             eaten_max_pct: set.eaten_max_pct,

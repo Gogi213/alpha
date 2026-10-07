@@ -471,6 +471,7 @@ pub(super) struct DayParams<'a> {
     pub(super) entry_sigma: Option<&'a EntrySigma>,
     /// Фильтры базы в момент касания: возраст плотности и сила «×поток».
     pub(super) min_age_ms: Option<i64>,
+    pub(super) max_age_ms: Option<i64>,
     pub(super) min_flow_pct: Option<f64>,
     /// Ось стороны (`--side`): `None` — обе стороны.
     pub(super) side: Option<Side>,
