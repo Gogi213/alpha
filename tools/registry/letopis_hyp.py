@@ -46,6 +46,15 @@ for h, forms in r2.items():
 p12 = collections.Counter(("Г-" + re.sub(r"\D.*", "", x["family"][1:]) if x["family"][0] in "ge" and x["family"][1:2].isdigit() else x["family"]) + "|" + x["class"]
                           for x in csv.DictReader(open(os.path.join(F, "p12-cells-2026-10-06.csv"), encoding="utf-8")))
 p12n = {k.split("|")[0]: (v, k.split("|")[1]) for k, v in p12.items()}
+# --- R1 (TK-064): клетки отобраны по порогам П-11 §4 на январе, файлы клеток feb…oct; исходы не читались (JSON охвата 7b2a76c1) ---
+r1cov = json.load(open(os.path.join(F, "tk064-r1-coverage-2026-10-08.json"), encoding="utf-8"))["months"]
+r1 = {}
+for mo, d in r1cov.items():
+    for cell, kept in d["n_kept"].items():
+        h = "Г-%02d" % int(re.match(r"g(\d+)", cell).group(1))
+        e = r1.setdefault(h, {"cells": set(), "months": set(), "kept": {}})
+        e["cells"].add(cell); e["months"].add(mo); e["kept"].setdefault(cell, []).append(kept)
+MON_RU = {"jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06", "jul": "07", "aug": "08", "sep": "09", "oct": "10"}
 WHY = {"Д": "класс Д: посчитана на авг/сен (TK-009, П-02…П-08), янв–июл и окт в Летописи нет",
        "П": "класс П: Python на сигналах/свечах, результата в Летописи нет",
        "Н": "класс Н: не операционализируема (нет данных или определения)", "О": "класс О: отложена владельцем",
@@ -73,6 +82,13 @@ for h in hyps:
         n, cl = p12n[i]; grid = grid or f"{n} клеток {cl} в П-12 (план)"
         note = ("R1: колонки признаков на весь пул янв–окт посчитаны (TK-064, /data/tk064/pool); исходы клеток не посчитаны — ждут lvl-all2.done"
                 if cl == "R1" else "R2: клетки в плане П-12, в r2-pool-summary (TK-065) их нет — не посчитаны либо вне сводки")
+    r1m = r1c = ""
+    if i in r1:
+        e = r1[i]; r1m = ",".join(MON_RU[m] for m in sorted(e["months"], key=list(MON_RU).index)); r1c = len(e["cells"])
+        lo = min(min(v) for v in e["kept"].values()); hi = max(max(v) for v in e["kept"].values())
+        grid = grid or f"{r1c} клеток R1 (пороги q20…q80), отобрано строк {lo}…{hi}/мес"
+        note = note or ("R1: пороги по январю (П-11 §4), клетки-файлы feb…oct построены (TK-064, принято Судьёй 08.10 до чтения исходов); "
+                        "исходов нет — не посчитаны (lvl-all2 / приём TK-064)")
     vs = q("select judge,verdict,review_path,ts from verdicts where hyp_id=?", i)
     ver = "; ".join(f"{v[1]} ({v[0]}, {v[3]})" for v in vs if v[1] != "см. текст") or ""
     miss = [m for m in MONTHS if m not in mon]
@@ -83,7 +99,7 @@ for h in hyps:
                  "месяцы_в_Летописи": ",".join(m[5:] for m in mon), "сетка": grid,
                  "вердикт_Летописи": ver, "статус_пула_25.09": h["ext"].get("status_pool_0925", "")[:160],
                  "не_хватает_до_01.01-02.10": (WHY.get(cls, "нет данных в Летописи") if not mon else ",".join(m[5:] for m in miss) if miss else "—"),
-                 "итог_по_данным": note, "прогонов": len(runs)})
+                 "клеток_R1": r1c, "месяцы_отбор_R1_исходов_нет": r1m, "итог_по_данным": note, "прогонов": len(runs)})
 with open(OUT + ".csv", "w", encoding="utf-8", newline="") as f:
     w = csv.DictWriter(f, fieldnames=list(rows[0]), delimiter=";"); w.writeheader(); w.writerows(rows)
 n = len(rows); have = sum(1 for r in rows if r["месяцы_в_Летописи"])
@@ -93,5 +109,5 @@ with open(OUT + ".md", "w", encoding="utf-8") as f:
             "Δ к базе — разность суммарных сырых bps клетки и базы (B1 / B3 для Г-117) по r2-pool-summary, без равной экспозиции, KPI-часов, Холма — это не вердикт. Генератор — `python tools/registry/letopis_hyp.py`; .csv — `;`.\n\n"
             "| id | семья | класс | месяцы | сетка | итог по данным | вердикт | не хватает |\n|---|---|---|---|---|---|---|---|\n")
     for r in rows:
-        f.write(f"| {r['id']} | {r['семья']} | {r['класс_TK024']} | {r['месяцы_в_Летописи']} | {r['сетка']} | {r['итог_по_данным']} | {r['вердикт_Летописи']} | {r['не_хватает_до_01.01-02.10']} |\n")
+        f.write(f"| {r['id']} | {r['семья']} | {r['класс_TK024']} | {r['месяцы_в_Летописи']} | {r['сетка']} | {r['месяцы_отбор_R1_исходов_нет']} | {r['итог_по_данным']} | {r['вердикт_Летописи']} | {r['не_хватает_до_01.01-02.10']} |\n")
 print(n, have)
