@@ -77,7 +77,9 @@ for h in hyps:
     ver = "; ".join(f"{v[1]} ({v[0]}, {v[3]})" for v in vs if v[1] != "см. текст") or ""
     miss = [m for m in MONTHS if m not in mon]
     cls = inv.get(i, {}).get("класс_TK024", "")
-    rows.append({"id": i, "семья": h["family"], "класс_TK024": cls, "формулировка": h["title"],
+    where = inv.get(i, {}).get("где_или_что_нужно", "")
+    pm = [m for w, m in (("авг", "08"), ("сен", "09")) if w in where] if cls == "Д" else []
+    rows.append({"id": i, "месяцы_по_протоколу": ",".join(pm) + (" (П-02…П-08, TK-024)" if pm else ""), "семья": h["family"], "класс_TK024": cls, "формулировка": h["title"],
                  "месяцы_в_Летописи": ",".join(m[5:] for m in mon), "сетка": grid,
                  "вердикт_Летописи": ver, "статус_пула_25.09": h["ext"].get("status_pool_0925", "")[:160],
                  "не_хватает_до_01.01-02.10": (WHY.get(cls, "нет данных в Летописи") if not mon else ",".join(m[5:] for m in miss) if miss else "—"),

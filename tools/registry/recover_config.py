@@ -17,6 +17,24 @@ SCR = {os.path.basename(p): os.path.relpath(p, R.ROOT).replace("\\", "/")
        for p in glob.glob(os.path.join(R.ROOT, "tools", "**", "*.*"), recursive=True) if p.endswith((".sh", ".py"))}
 HDR = re.compile(r"^### (\d{4}-\d\d-\d\dT[\d:+]+) (\w+)", re.M)
 _cache = {}
+OUT = json.load(open(os.path.join(R.ROOT, "docs", "registry", "files", "tk089-outputs-2026-10-08.json"), encoding="utf-8"))  # опись выходов сервера счёта 08.10 (alsched tk089-inspect)
+DATE = re.compile(r"20\d\d-\d\d-\d\d")
+MON = re.compile(r"(?<![a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct)(?![a-z])")
+
+
+def from_outputs(text):
+    """Выходы, названные в записи: есть ли на диске, сколько файлов, период/пул/команда из имён и мелких файлов."""
+    found, gone, per, scr = {}, [], set(), []
+    for p in sorted(set(x.rstrip(".,;)") for x in re.findall(r"/data/[\w./-]+", text))):
+        d = OUT.get(p)
+        if d is None: continue
+        if not d["exists"]: gone.append(p); continue
+        names = d.get("names", [])
+        found[p] = {"files": d.get("n", 1)}
+        per |= set(DATE.findall(p + " " + " ".join(names))) | set(MON.findall(p))
+        scr += [n for n in names if re.match(r"(cmd|run|B)\d*.*\.sh$", n, re.I)][:3]
+        if "verify" in " ".join(d.get("small", {})): found[p]["small"] = {k: v[:60] for k, v in d["small"].items()}
+    return found, gone, sorted(per), scr
 
 
 def entry_text(note):
@@ -59,8 +77,14 @@ def recover(r):
     for n in SCRIPT.findall(text):
         if n in SCR: scripts[SCR[n]] = git_sha(SCR[n])
     if scripts: cfg["scripts"] = scripts
+    found, gone, oper, oscr = from_outputs(text)
+    if found: cfg["outputs"] = found
+    if oscr: cfg["output_scripts"] = oscr
+    if oper:
+        cfg["period"] = sorted(set(cfg.get("period", [])) | set(oper))[:8]
+    cfg["outputs_checked"] = "выходы из записи сверены с описью сервера счёта 08.10 (tk089-outputs-2026-10-08.json)" + (f"; исчезли с диска: {', '.join(gone[:3])}" if gone else "")
     cfg["source"] = src
-    got = [k for k in ("flags", "pool", "binaries", "binary_md5", "commit", "period", "machine", "scripts") if k in cfg]
+    got = [k for k in ("flags", "pool", "binaries", "binary_md5", "commit", "period", "machine", "scripts", "outputs") if k in cfg]
     s = r["source"]
     if s == "backfill-runs":
         why = "строка runs.csv (до 22.09, тогда реестра не было): в ней итог, но не команда и не входы; файла-источника команды в репо нет"
@@ -72,6 +96,9 @@ def recover(r):
         why = "запись лога описывает результат словами; команда и sha входов не приведены, в репо скрипт по имени не найден" if not scripts else \
               "запись лога без полной командной строки и sha входов; скрипт найден, но параметры запуска (env) не записаны"
     absent = [k for k in ("flags", "pool", "binary_md5", "period", "machine") if k not in cfg and not (k == "binary_md5" and "binaries" in cfg)]
+    if found or gone:
+        why = ("выход на диске есть (%d), но команда в нём не записана (имена/мелкие файлы дают период, не флаги и sha входов)" % len(found) if found
+               else "выход, названный в записи, удалён с диска (проверено 08.10) — команду взять неоткуда") + "; " + why
     if got:
         st = f"восстановлено из текста: {', '.join(got)}; нет: {', '.join(absent) or '—'}; причина остатка: {why}"
     else:
@@ -84,7 +111,7 @@ def main():
     for r in rows:
         if r.get("status") != "неполно": continue
         cfg, st = recover(r)
-        r["config"] = cfg if len(cfg) > 1 else r.get("config")
+        r["config"] = cfg if len(cfg) > 2 else r.get("config")
         r["config"] = r["config"] or None
         r["config_status"] = st
         n += 1; ok += st.startswith("восстановлено")
