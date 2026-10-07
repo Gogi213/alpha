@@ -55,6 +55,7 @@ def split_cells_args(argv):
 
 WRAP = {"benchrun-inner.sh": 2, "regrun.sh": 1, "benchrun.sh": 1, "benchrun2.sh": 1, "benchrun-sched.sh": 1}
 DIRCAP = 5000
+DERIVED = re.compile(r"\.abin(\.tmp\d*)?$")   # кэши счёта во входных каталогах (abin.rs/tbin.rs): версию данных несёт сам csv
 
 
 def core_argv(argv):
@@ -83,6 +84,8 @@ def dir_fp(path):
         except OSError:
             continue
         for e in ents:
+            if DERIVED.search(e.name):
+                continue
             n += 1
             if n >= DIRCAP:
                 break

@@ -139,6 +139,19 @@ class GuardTest(unittest.TestCase):
         put(os.path.join(xout, "rounds.csv"), "out written by the job")
         self.assertEqual(f0, guard.context(base)["fp"])
 
+    def test_derived_abin_cache_in_touches_dir_keeps_fingerprint(self):
+        self.write_cells(2)
+        td = os.path.join(self.d, "touches")
+        os.makedirs(td)
+        put(os.path.join(td, "touches-A.csv"), "v1")
+        a = ["lob", "bounce-grid", "--cells", self.cells, "--out-dir", os.path.join(self.d, "out"), "--touches-from", td]
+        self.run_ok(argv=a)
+        put(os.path.join(td, "touches-A.csv.abin"), "cache")
+        put(os.path.join(td, "touches-A.csv.abin.tmp123"), "partial")
+        self.assertEqual(self.chk(argv=a)[0], guard.SKIP)
+        put(os.path.join(td, "touches-A.csv"), "v2 changed")
+        self.assertEqual(self.chk(argv=a)[0], 0)
+
     def test_measure_script_mentioning_output_dirs_is_refused_second_time(self):
         prog = os.path.join(self.d, "progress")
         os.makedirs(prog)
