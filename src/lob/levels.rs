@@ -1216,6 +1216,7 @@ impl<K: Ord + Copy, V> SortedVec<K, V> {
     /// `get_mut` с пальцем (К1): ищет от `*finger` и ставит палец на ответ —
     /// индекс ключа или его точку вставки (после `insert` в неё там же и лежит
     /// новый ключ, палец остаётся верным).
+    #[inline(always)]
     fn get_mut_from(&mut self, finger: &mut usize, key: &K) -> Option<&mut V> {
         let found = self.find_from(*finger, key);
         debug_assert_eq!(found, self.find(key), "поиск с пальца разошёлся с двоичным");
