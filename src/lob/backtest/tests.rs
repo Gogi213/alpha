@@ -2453,6 +2453,46 @@ fn group_round_matches_three_solo_runs_with_divergent_exits() {
     );
 }
 
+/// TK-048: групповой круг с быстрым путём удержания (`ALPHA_FAST_HOLD`) даёт те же шаги, что без него.
+#[test]
+fn group_fast_hold_matches_group_without_it() {
+    let (feed, base_plan) = windowed_fixture();
+    let variants = [
+        base_plan,
+        with_stop_and_deadline(base_plan, 99.0, S),
+        with_stop_and_deadline(base_plan, 102.0, 60 * S),
+    ];
+    let sig = BounceSignal {
+        t0_ns: S,
+        sigma: SIGMA_LONG,
+        plan: base_plan,
+        profile: 0,
+        qty: None,
+    };
+    let cfg = DriveConfig {
+        busy_skip: false,
+        hold_skip: true,
+        ..drive_cfg()
+    };
+    let lat = ExecLatency::uniform(1_000_000);
+    let windows = SignalWindows::build(&feed, &[S], 1.0, 1.0);
+    let run = || {
+        let mut buf = Vec::new();
+        group_round_in_window(&feed[..], &windows, &sig, &variants, &cfg, lat, &mut buf).unwrap()
+    };
+    let a = run();
+    let used = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+        + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
+    fast_hold::FORCE_ON.with(|f| f.set(true));
+    let b = run();
+    fast_hold::FORCE_ON.with(|f| f.set(false));
+    assert_eq!(a, b, "быстрый путь изменил групповой круг");
+    assert!(a.is_some(), "групповой круг обязан посчитаться");
+    let after = fast_hold::FAST_ROUNDS.load(std::sync::atomic::Ordering::Relaxed)
+        + fast_hold::FAST_FALLBACKS.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(after > used, "групповой быстрый путь обязан сработать");
+}
+
 /// Группа не читает `--hold-step` вовсе (см. `run_round_group`): итог не зависит от него.
 /// Вместе с `group_round_matches_three_solo_runs_with_divergent_exits` (группа == сольно с
 /// `poll`, `data_end_ns = None`) это и есть условие Судьи к Э-08: `skip + group on == poll +
