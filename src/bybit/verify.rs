@@ -771,14 +771,15 @@ impl FileReplayer {
         // Глубина — потока основного файла (T45): реплей читает
         // `<root>/<SYMBOL>-<день>.binlog`, глубокий файл лежит отдельно и
         // этого признака в формате не несёт (v3 заморожен, В-49).
+        let (nb, na) = (self.bids.len(), self.asks.len());
         updates.push(Update {
             is_snapshot: self.cur_snapshot,
             depth: ORDERBOOK_DEPTH,
             u,
             seq: u,
             cts_ms: self.cur_ts_ns / 1_000_000,
-            bids: std::mem::take(&mut self.bids),
-            asks: std::mem::take(&mut self.asks),
+            bids: std::mem::replace(&mut self.bids, Vec::with_capacity(nb)),
+            asks: std::mem::replace(&mut self.asks, Vec::with_capacity(na)),
         });
         self.has_open = false;
     }

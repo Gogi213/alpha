@@ -946,10 +946,19 @@ fn read_frame_epoch(payload: &[u8]) -> Result<i64, BinlogError> {
 /// записей больше, чем в кадре осталось байт, — порча, а не повод крутить
 /// цикл по счётчику, который пришёл с диска.
 pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogError> {
+    let mut out = Vec::new();
+    decode_frame_payload_v3_into(payload, &mut out)?;
+    Ok(out)
+}
+
+/// `decode_frame_payload_v3` в буфер вызывающего (дописывает в конец `out`).
+pub fn decode_frame_payload_v3_into(
+    payload: &[u8],
+    out: &mut Vec<Record>,
+) -> Result<(), BinlogError> {
     let epoch_ns = read_frame_epoch(payload)?;
     let mut st = DeltaState::new();
     let mut pos = FRAME_EPOCH_LEN;
-    let mut out = Vec::new();
     while pos < payload.len() {
         let ev = read_uvarint(payload, &mut pos)?;
         let exch_delta = read_zigzag(payload, &mut pos)?;
@@ -989,7 +998,7 @@ pub fn decode_frame_payload_v3(payload: &[u8]) -> Result<Vec<Record>, BinlogErro
             });
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 // `decode_frame_payload_v3_ev_table` (парный читатель варианта замера выше)
@@ -1493,6 +1502,8 @@ pub struct Reader<R: Read> {
     /// печати (`binlog-stats` именует источник архива) и тестам.
     archive_level: Option<u8>,
     decompressor: zstd::bulk::Decompressor<'static>,
+    scratch_stored: Vec<u8>,
+    scratch_payload: Vec<u8>,
     /// Был ли остановлен на обрезанном **хвостовом** кадре (`read_frame_soft`,
     /// A4, 2026-09-17): файл живой записи читатель может застать между
     /// `write` и полным кадром, и это не порча — см. `ShortRead` выше.
@@ -1655,6 +1666,8 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: None,
             decompressor: zstd::bulk::Decompressor::new()?,
+            scratch_stored: Vec::new(),
+            scratch_payload: Vec::new(),
             truncated_tail: false,
         })
     }
@@ -1739,6 +1752,8 @@ impl<R: Read> Reader<R> {
             last_frame_bytes: 0,
             archive_level: Some(level),
             decompressor: zstd::bulk::Decompressor::new()?,
+            scratch_stored: Vec::new(),
+            scratch_payload: Vec::new(),
             truncated_tail: false,
         })
     }
@@ -1796,13 +1811,28 @@ impl<R: Read> Reader<R> {
     /// `min`, `n` из `Partial(n)` не превышает запрошенного по контракту
     /// `read_upto`; проверка через `get` в цикле ввода-вывода — мёртвый код.
     pub fn read_body(&mut self) -> Result<Option<Vec<u8>>, BinlogError> {
+        let mut stored = Vec::new();
+        let mut payload = Vec::new();
+        Ok(self
+            .read_body_into(&mut stored, &mut payload)?
+            .then_some(payload))
+    }
+
+    /// `read_body` в переиспользуемые буферы вызывающего: `stored` — сжатые
+    /// байты с диска, `payload` — тело кадра. Те же проверки и ошибки; `false`
+    /// — чистый конец потока.
+    fn read_body_into(
+        &mut self,
+        stored: &mut Vec<u8>,
+        payload: &mut Vec<u8>,
+    ) -> Result<bool, BinlogError> {
         let mut len_buf = [0u8; LEN_PREFIX];
         match self.inner.read_upto(&mut len_buf)? {
             ReadStatus::Eof => {
                 return if self.frames_read == 0 {
                     Err(BinlogError::MissingSnapshot)
                 } else {
-                    Ok(None)
+                    Ok(false)
                 };
             }
             ReadStatus::Partial(got) => {
@@ -1853,18 +1883,16 @@ impl<R: Read> Reader<R> {
         // обрывается на `ShortRead` первого недостающего куска, а не на
         // попытке выделить впрок то, чего на диске нет.
         const READ_CHUNK: usize = 64 * 1024;
-        let mut stored = Vec::with_capacity(len.min(READ_CHUNK));
+        stored.clear();
         let mut got = 0usize;
-        let mut chunk = [0u8; READ_CHUNK];
         while got < len {
             let want = (len - got).min(READ_CHUNK);
-            match self.inner.read_upto(&mut chunk[..want])? {
+            stored.resize(got + want, 0);
+            match self.inner.read_upto(&mut stored[got..got + want])? {
                 ReadStatus::Full => {
-                    stored.extend_from_slice(&chunk[..want]);
                     got += want;
                 }
                 ReadStatus::Partial(n) => {
-                    stored.extend_from_slice(&chunk[..n]);
                     got += n;
                     return Err(BinlogError::ShortRead {
                         context: "тело кадра",
@@ -1900,7 +1928,8 @@ impl<R: Read> Reader<R> {
                 stored.len() <= max_frame_record_bytes(self.header.max_records_per_frame),
                 "len_ceiling выше обязан был отвергнуть этот кадр раньше"
             );
-            return Ok(Some(stored));
+            std::mem::swap(stored, payload);
+            return Ok(true);
         }
 
         // `bulk::Decompressor::decompress` с явной ёмкостью, не
@@ -1938,14 +1967,19 @@ impl<R: Read> Reader<R> {
         } else {
             header_ceiling
         };
-        let payload = self
-            .decompressor
-            .decompress(&stored, ceiling_bytes)
+        // Ёмкость буфера = потолок, как у `decompress(.., ceiling)`; при
+        // насыщенном потолке (от размера кадра) — свежий буфер на кадр.
+        if header_ceiling == HARD_PAYLOAD_CEILING || payload.capacity() < ceiling_bytes {
+            *payload = Vec::with_capacity(ceiling_bytes);
+        }
+        payload.clear();
+        self.decompressor
+            .decompress_to_buffer(&stored[..], payload)
             .map_err(|_| BinlogError::FrameExceedsHeaderCeiling {
                 max_records_per_frame: self.header.max_records_per_frame,
                 ceiling_bytes,
             })?;
-        Ok(Some(payload))
+        Ok(true)
     }
 
     /// Возвращает следующий кадр как список записей — `read_body` плюс
@@ -1966,6 +2000,36 @@ impl<R: Read> Reader<R> {
             decode_frame_payload_v3(&payload)?
         };
         Ok(Some(records))
+    }
+
+    /// `read_frame` в буферы вызывающего: `records` очищается и заполняется,
+    /// сжатые и разжатые байты — в буферах читателя (без аллокации на кадр).
+    /// `false` — чистый конец потока. Записи те же, что у `read_frame`.
+    pub fn read_frame_into(&mut self, records: &mut Vec<Record>) -> Result<bool, BinlogError> {
+        let mut stored = std::mem::take(&mut self.scratch_stored);
+        let mut payload = std::mem::take(&mut self.scratch_payload);
+        let res = self.read_body_into(&mut stored, &mut payload);
+        let out = match res {
+            Ok(true) => {
+                records.clear();
+                if self.version == VERSION_V2 {
+                    let mut dead = self.legacy_dead;
+                    let r = decode_frame_payload_v2(&payload, &mut dead);
+                    self.legacy_dead = dead;
+                    r.map(|v| {
+                        *records = v;
+                        true
+                    })
+                } else {
+                    decode_frame_payload_v3_into(&payload, records).map(|()| true)
+                }
+            }
+            Ok(false) => Ok(false),
+            Err(e) => Err(e),
+        };
+        self.scratch_stored = stored;
+        self.scratch_payload = payload;
+        out
     }
 
     /// Кадр живого файла (A4, 2026-09-17): обрезанный **хвостовой** кадр —
