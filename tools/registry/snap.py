@@ -89,14 +89,16 @@ def end(path, rc):
     with open(f"{REG}/auto.jsonl", "a") as f:
         f.write(json.dumps({"host": man["host"], "cls": man["cls"], "start": man["start"], "pid": int(re.search(r"-(\d+)\.json$", path)[1]),
                             "wall_s": man["wall_s"], "rc": man["rc"], "cmd": man["cmdline"][:400], "manifest": os.path.basename(path)}, ensure_ascii=False) + "\n")
-    try:     # TK-081: результат — в журнал отпечатков автоматически
+    if os.environ.get("GUARD_PENDING"):     # TK-081: запись делает хвост задания alsched (тот же отпечаток, что у check)
+        return
+    try:
         import guard
         os.chdir(man.get("cwd") or ".")
-        guard.done(man["cls"], man["rc"], shlex.split(man["cmdline"]), wall_s=man["wall_s"],
-                   result=os.environ.get("GUARD_RESULT") or man.get("cwd"))
+        guard.done(man["cls"], man["rc"], shlex.split(man["cmdline"]), wall_s=man["wall_s"])
     except Exception as e:
         print(f"snap: журнал отпечатков не записан: {e}", file=sys.stderr)
-
+        with open(f"{REG}/done-errors.log", "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} snap end {path}: {e!r}\n")
 
 if __name__ == "__main__":
     if sys.argv[1] == "begin":

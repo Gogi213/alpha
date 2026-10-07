@@ -672,10 +672,10 @@ def main():
         if len(a) < 4 or a[1] != "--max-runtime":
             print(f"alsched.py {a[0]} --max-runtime <срок: 90s|30m|2h> команда… (срок обязателен: окно замера = аренда с TTL)")
             return 2
-        grc, _ = guard_check(g, a[3:])
+        grc, gcmd = guard_check(g, a[3:])
         if grc:
             return grc
-        j = submit("measure", a[0], NCPU, 56, "none", os.getcwd(), " ".join(map(shell_quote, a[3:])), parse_dur(a[2]), prio=0)
+        j = submit("measure", a[0], NCPU, 56, "none", os.getcwd(), gcmd, parse_dur(a[2]), prio=0)
         log = f"{DIR}/logs/{j['id']}.log"
         pos = 0
         while True:
@@ -736,13 +736,10 @@ def main():
         p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
         p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
         o = p.parse_args(a[1:sep])
-        cmd_argv = a[sep + 1:]
-        rc, info = guard_check(o, cmd_argv)       # TK-081, В-196: реестр спрашивается до постановки в очередь
+        rc, cmd = guard_check(o, a[sep + 1:])       # TK-081, В-196: реестр спрашивается до постановки в очередь
         if rc:
             return rc
-        if info and info.get("cells"):
-            cmd_argv = [info["cells"] if x == info["old_cells"] else x for x in cmd_argv]
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, " ".join(map(shell_quote, cmd_argv)), parse_dur(o.max_runtime), o.prio)
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, cmd, parse_dur(o.max_runtime), o.prio)
         print(j["id"])
         return 0
     print(__doc__)
@@ -750,16 +747,19 @@ def main():
 
 
 def guard_check(o, argv):
+    """TK-081: реестр спрашивается до очереди. -> (rc, команда для очереди: с хвостом записи результата)."""
     sys.path.insert(0, os.environ.get("REG_TOOLS", "/data/registry"))
     import guard
     cwd = os.getcwd()
     try:
         os.chdir(o.cwd)
-        cls = "measure" if o.cls == "measure" else "prod"
-        rc, info = guard.check(cls, argv, o.recompute, o.why, o.repeat)
-        if info and info.get("cells"):
-            info["old_cells"] = guard.context(argv)["cells"]
-        return rc, info
+        rc, info = guard.check("measure" if o.cls == "measure" else "prod", argv, o.recompute, o.why, o.repeat)
+        if rc:
+            return rc, None
+        pend = shell_quote(info["pending"])
+        tail = (f"; __grc=$?; python3 {os.path.dirname(os.path.abspath(guard.__file__))}/guard.py done {o.cls} $__grc --pending {pend}"
+                f" || echo 'guard: done не записан (см. done-errors.log)' >&2; (exit $__grc)")
+        return 0, f"env GUARD_PENDING={pend} " + " ".join(map(shell_quote, info["argv"])) + tail
     finally:
         os.chdir(cwd)
 
