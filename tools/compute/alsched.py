@@ -4,7 +4,7 @@
 Заявка: класс prod (производство: ядра/память/диск по заявке, пакуется на свободные ядра) или measure (замер: эксклюзивное
 окно — всё производство на freeze, замер получает все ядра, по выходу размораживается). Всё запускается через него.
 
-  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] -- команда…
+  alsched.py submit --name N --max-runtime 2h [--cls prod|measure] [--cores 4] [--mem 8] [--disk hdd1|hdd2|none] [--cwd D] [--recompute --why ТЕКСТ] [--repeat N] -- команда…
   alsched.py wave|stand --max-runtime 30m команда…   # = замер: подать, дождаться окна, показать вывод, вернуть код (обёртка вместо benchrun)
   alsched.py ps | cancel <id> | reprio <id> <prio> | daemon
 Состояние: $SCHED_DIR (/data/sched): jobs/<id>.json (создаёт CLI, дальше пишет только демон), cancel/<id>, logs/<id>.log, rc/<id>.
@@ -663,9 +663,18 @@ def main():
         print(__doc__)
         return 2
     if a[0] in ("wave", "stand"):
+        g = argparse.Namespace(recompute=False, why="", repeat=0, cls="measure", cwd=os.getcwd())
+        while a[1:2] and a[1] in ("--recompute", "--why", "--repeat"):     # TK-081: повтор замера — только явно
+            if a[1] == "--recompute":
+                g.recompute = True; a = a[:1] + a[2:]
+            else:
+                g.__dict__[a[1][2:]] = int(a[2]) if a[1] == "--repeat" else a[2]; a = a[:1] + a[3:]
         if len(a) < 4 or a[1] != "--max-runtime":
             print(f"alsched.py {a[0]} --max-runtime <срок: 90s|30m|2h> команда… (срок обязателен: окно замера = аренда с TTL)")
             return 2
+        grc, _ = guard_check(g, a[3:])
+        if grc:
+            return grc
         j = submit("measure", a[0], NCPU, 56, "none", os.getcwd(), " ".join(map(shell_quote, a[3:])), parse_dur(a[2]), prio=0)
         log = f"{DIR}/logs/{j['id']}.log"
         pos = 0
@@ -723,12 +732,36 @@ def main():
         p.add_argument("--disk", default="none")
         p.add_argument("--cwd", default=os.getcwd())
         p.add_argument("--prio", type=int, default=5)
+        p.add_argument("--recompute", action="store_true", help="пересчитать уже посчитанное (нужен --why)")
+        p.add_argument("--why", default="", help="причина пересчёта; пишется в реестр")
+        p.add_argument("--repeat", type=int, default=0, help="замер: всего N прогонов с тем же отпечатком (против шума)")
         o = p.parse_args(a[1:sep])
-        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, " ".join(map(shell_quote, a[sep + 1:])), parse_dur(o.max_runtime), o.prio)
+        cmd_argv = a[sep + 1:]
+        rc, info = guard_check(o, cmd_argv)       # TK-081, В-196: реестр спрашивается до постановки в очередь
+        if rc:
+            return rc
+        if info and info.get("cells"):
+            cmd_argv = [info["cells"] if x == info["old_cells"] else x for x in cmd_argv]
+        j = submit(o.cls, o.name, o.cores, o.mem, o.disk, o.cwd, " ".join(map(shell_quote, cmd_argv)), parse_dur(o.max_runtime), o.prio)
         print(j["id"])
         return 0
     print(__doc__)
     return 2
+
+
+def guard_check(o, argv):
+    sys.path.insert(0, os.environ.get("REG_TOOLS", "/data/registry"))
+    import guard
+    cwd = os.getcwd()
+    try:
+        os.chdir(o.cwd)
+        cls = "measure" if o.cls == "measure" else "prod"
+        rc, info = guard.check(cls, argv, o.recompute, o.why, o.repeat)
+        if info and info.get("cells"):
+            info["old_cells"] = guard.context(argv)["cells"]
+        return rc, info
+    finally:
+        os.chdir(cwd)
 
 
 def shell_quote(s):

@@ -89,6 +89,13 @@ def end(path, rc):
     with open(f"{REG}/auto.jsonl", "a") as f:
         f.write(json.dumps({"host": man["host"], "cls": man["cls"], "start": man["start"], "pid": int(re.search(r"-(\d+)\.json$", path)[1]),
                             "wall_s": man["wall_s"], "rc": man["rc"], "cmd": man["cmdline"][:400], "manifest": os.path.basename(path)}, ensure_ascii=False) + "\n")
+    try:     # TK-081: результат — в журнал отпечатков автоматически
+        import guard
+        os.chdir(man.get("cwd") or ".")
+        guard.done(man["cls"], man["rc"], shlex.split(man["cmdline"]), wall_s=man["wall_s"],
+                   result=os.environ.get("GUARD_RESULT") or man.get("cwd"))
+    except Exception as e:
+        print(f"snap: журнал отпечатков не записан: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
