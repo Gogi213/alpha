@@ -15,6 +15,18 @@ def word(text):
     return {"в": "вернуть", "п": "принято", "о": "отклонено"}[m.group(0)[0]]
 
 
+NORM = {"в": "вернуть", "п": "принято", "о": "отклонено", "н": "отклонено"}
+
+
+def word_any(note, txt):
+    """TK-089: слово вердикта — сперва «— слово —» в note, затем первое вхождение в note, затем в начале файла; иначе явная причина."""
+    for src in (note or "", txt or ""):
+        m = re.search(r"— (вернуть|принято|принята|принят|отклонено|не принят)", src.lower()) or             re.search(r"вернуть|возврат|принят[оа]?|принимаю|отклон\w+|не принят", src.lower())
+        if m:
+            return NORM[(m.group(1) if m.lastindex else m.group(0))[0]]
+    return "слова вердикта в тексте нет (методика/решение, не приёмка прогона)"
+
+
 def run(runs_path):
     runs = [json.loads(l) for l in open(runs_path, encoding="utf-8") if l.strip()]
     ver = db.jl("verdicts.jsonl")
@@ -43,6 +55,9 @@ def run(runs_path):
         head = open(os.path.join(ROOT, v["review_path"]), encoding="utf-8").readline() if os.path.exists(os.path.join(ROOT, v["review_path"])) else ""
         if v["verdict"] == "см. текст" and word(head) != "см. текст":
             v["verdict"] = word(head)
+        if v["verdict"] == "см. текст":
+            fp = os.path.join(ROOT, v["review_path"].split("#")[0])
+            v["verdict"] = word_any(v.get("note"), open(fp, encoding="utf-8").read(4000) if os.path.isfile(fp) else "")
         if METHOD.search(name) or not (pm or tm):
             v["note"] = "[методика/протокол, без прогона] " + (v.get("note") or "")
             rest.append(v); continue
