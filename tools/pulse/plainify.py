@@ -316,7 +316,7 @@ class Translator:
     def _call(self, kind: str, prompt: str):
         cmd = [self.bin, "-p", "--model", MODEL, "--output-format", "json", "--tools", "", "--system-prompt", SYSTEM,
                "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
-               "--effort", "low"]  # Haiku 5.5 размышляет и при MAX_THINKING_TOKENS=0 (400–1000 токенов); low — ~25 токенов
+               "--effort", "xhigh"]  # Haiku 5.5 размышляет и при MAX_THINKING_TOKENS=0 (400–1000 токенов); low — ~25 токенов
         t0 = time.time()
         r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=CALL_TIMEOUT_S, cwd=str(self.cwd), env=_env(),
