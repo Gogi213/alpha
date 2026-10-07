@@ -68,6 +68,12 @@ for ln in open(os.path.join(F, "p02-summary-2026-09-26.md"), encoding="utf-8"):
     m = re.match(r"\| (Г-\d+) \([^)]*\)[^|]*\|([^|]+)\|([^|]+)\|", ln)
     if m: p02as[m.group(1)] = (m.group(2).strip(), m.group(3).strip())
 cls_inv = lambda i: inv.get(i, {}).get("класс_TK024", "")
+# --- R2 без клеток в пуле: решения спецификации r2-spec §1b–1d (принято Судьёй 06.10, Q-9); код кандидата 86aa821e, гейт G1 март идёт (TK-065) ---
+_n = "Н: исключена из счёта (r2-spec §1d): "
+R2NO = {"Г-21": _n + "пробой стены = шорт (О, отложено владельцем) либо нет базы side=ask для лонга", "Г-79": _n + "у базы возраст стены ≥ 2700 с, окна «1–2 с» на сигнале нет",
+        "Г-84": _n + "окно максимума и таймфрейм MACD источником не заданы", "Г-99": _n + "вероятность исполнения только в модели очереди бэктеста, в живом боте нет (A1)",
+        "Г-101": _n + "не R2: стоп/тейк в σ уже В-62, режим BTC — фильтр B1; асимметрия без чисел", "Г-125": _n + "не кодируется (r2-spec §1c)"}
+R2WAIT = {"Г-112", "Г-116", "Г-132", "Г-106", "Г-133", "Г-65"}
 rows = []
 for h in hyps:
     i = h["id"]
@@ -105,6 +111,9 @@ for h in hyps:
     if i in p02as and cls_inv(i) == "Д":
         mon = sorted(set(mon) | {"2026-08", "2026-09"})
         note = (note + "; " if note else "") + "авг (p02-summary): %s; сен: %s; п.п., Холм m=11, §10" % p02as[i]
+    if cls_inv(i) == "R2" and i not in r2info:
+        if i in R2NO: note = R2NO[i]
+        elif i in R2WAIT: note = "R2: код в кандидате TK-065 (86aa821e), клетки по спецификации §1b–1d; гейт G1 март идёт (/data/tk065/gchain.done), пул 10 мес не считан"
     vs = q("select judge,verdict,review_path,ts from verdicts where hyp_id=?", i)
     ver = "; ".join(f"{v[1]} ({v[0]}, {v[3]})" for v in vs if v[1] != "см. текст") or ""
     miss = [m for m in MONTHS if m not in mon]
@@ -114,7 +123,7 @@ for h in hyps:
     rows.append({"id": i, "месяцы_по_протоколу": ",".join(pm) + (" (П-02…П-08, TK-024)" if pm else ""), "семья": h["family"], "класс_TK024": cls, "формулировка": h["title"],
                  "месяцы_в_Летописи": ",".join(m[5:] for m in mon), "сетка": grid,
                  "вердикт_Летописи": ver, "статус_пула_25.09": h["ext"].get("status_pool_0925", "")[:160],
-                 "не_хватает_до_01.01-02.10": (WHY.get(cls, "нет данных в Летописи") if not mon else ",".join(m[5:] for m in miss) if miss else "—"),
+                 "не_хватает_до_01.01-02.10": (("не считается (причина в «итог по данным»)" if i in R2NO else "счёт пула 01.01–02.10 после гейтов G1–G3 TK-065" if i in R2WAIT else WHY.get(cls, "нет данных в Летописи")) if not mon else ",".join(m[5:] for m in miss) if miss else "—"),
                  "клеток_R1": r1c, "месяцы_отбор_R1_исходов_нет": r1m, "итог_по_данным": note, "прогонов": len(runs)})
 with open(OUT + ".csv", "w", encoding="utf-8", newline="") as f:
     w = csv.DictWriter(f, fieldnames=list(rows[0]), delimiter=";"); w.writeheader(); w.writerows(rows)
