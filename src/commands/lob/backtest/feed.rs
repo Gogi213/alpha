@@ -2,7 +2,7 @@
 //! bounce-grid`: заголовок бинлога и `ReplayFeed` (`read_tick_step`/
 //! `open_replay_feed`), перевод `Feed` в события крейта
 //! (`events_from_feed`/`count_feed_events`/`feed_events_into`/
-//! `count_feed_events_until`/`feed_compact_into_until`/`translate_feed_until`/
+//! `count_feed_events_until`/`replay_compact_into_until`/`translate_feed_until`/
 //! `push_side`) и модель исполнения `BacktestFillModel` (`profiles::FillModel`
 //! поверх `lob::backtest`, таск 16). Вынесено из `backtest` при разрезке B3
 //! (ревью 23.09), поведение не менялось.
@@ -16,8 +16,11 @@ use hftbacktest::types::Event as HbtEvent;
 
 use crate::binlog;
 use crate::book::Side;
-use crate::bybit::ws::Event as WsEvent;
-use crate::feed::{replay::ReplayFeed, Event as FeedEvent, Feed};
+use crate::bybit::ws::{Event as WsEvent, Trade};
+use crate::feed::{
+    replay::{RawMarket, ReplayFeed},
+    Event as FeedEvent, Feed,
+};
 use crate::lob::backtest::{
     build_backtest, drive_profile, CompactEvent, DriveConfig, EventKind, ExecLatency,
     QueueModelKind, Signal, SIGMA_LONG, SIGMA_SHORT,
@@ -301,20 +304,6 @@ pub(crate) fn feed_events_into(feed: &mut dyn Feed, out: &mut Vec<HbtEvent>) {
     translate_feed_until(feed, None, &mut |ev| out.push(ev.expand()));
 }
 
-/// Перевод `feed` в компактные события (Р6) — в готовый `Vec`.
-pub(crate) fn feed_compact_into(feed: &mut dyn Feed, out: &mut Vec<CompactEvent>) {
-    translate_feed_until(feed, None, &mut |ev| out.push(ev));
-}
-
-/// Как `feed_compact_into`, но с потолком времени (см. `count_feed_events_until`).
-pub(crate) fn feed_compact_into_until(
-    feed: &mut dyn Feed,
-    until_ns: i64,
-    out: &mut Vec<CompactEvent>,
-) -> bool {
-    translate_feed_until(feed, Some(until_ns), &mut |ev| out.push(ev))
-}
-
 /// Как `count_feed_events`, но с потолком времени (`until_ns`, исключая):
 /// перенос круга через полночь (`bounce_grid::carry_events`) читает сутки
 /// D+1 не целиком, а только окно, нужное дочитать уже открытые круги суток
@@ -359,46 +348,124 @@ fn translate_feed_until(
             }
         }
         match payload {
-            WsEvent::Book(up) => {
-                // Р6: метка биржи — в мс, как пришла; `× 10⁶` делает `CompactEvent::expand`.
-                let exch_ms = up.cts_ms;
-                push_side(
-                    sink,
-                    &mut known_bids,
-                    &up.bids,
-                    up.is_snapshot,
-                    exch_ms,
-                    local_ts_ns,
-                    true,
-                );
-                push_side(
-                    sink,
-                    &mut known_asks,
-                    &up.asks,
-                    up.is_snapshot,
-                    exch_ms,
-                    local_ts_ns,
-                    false,
-                );
-            }
-            WsEvent::Trade(t) => {
-                let kind = if t.aggressor_is_buy {
-                    EventKind::BuyTrade
-                } else {
-                    EventKind::SellTrade
-                };
-                sink(CompactEvent::new(
-                    kind,
-                    t.exch_ms,
-                    local_ts_ns,
-                    t.price_e9,
-                    t.qty_e9,
-                ));
-            }
+            // Р6: метка биржи — в мс, как пришла; `× 10⁶` делает `CompactEvent::expand`.
+            WsEvent::Book(up) => emit_book(
+                sink,
+                &mut known_bids,
+                &mut known_asks,
+                up.is_snapshot,
+                up.cts_ms,
+                local_ts_ns,
+                &up.bids,
+                &up.asks,
+            ),
+            WsEvent::Trade(t) => emit_trade(sink, &t, local_ts_ns),
             WsEvent::Other | WsEvent::SubscribeFailed { .. } => {}
         }
     }
     false
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_book(
+    sink: &mut impl FnMut(CompactEvent),
+    known_bids: &mut PriceSet,
+    known_asks: &mut PriceSet,
+    is_snapshot: bool,
+    exch_ms: i64,
+    local_ts_ns: i64,
+    bids: &[(i64, i64)],
+    asks: &[(i64, i64)],
+) {
+    push_side(
+        sink,
+        known_bids,
+        bids,
+        is_snapshot,
+        exch_ms,
+        local_ts_ns,
+        true,
+    );
+    push_side(
+        sink,
+        known_asks,
+        asks,
+        is_snapshot,
+        exch_ms,
+        local_ts_ns,
+        false,
+    );
+}
+
+fn emit_trade(sink: &mut impl FnMut(CompactEvent), t: &Trade, local_ts_ns: i64) {
+    let kind = if t.aggressor_is_buy {
+        EventKind::BuyTrade
+    } else {
+        EventKind::SellTrade
+    };
+    sink(CompactEvent::new(
+        kind,
+        t.exch_ms,
+        local_ts_ns,
+        t.price_e9,
+        t.qty_e9,
+    ));
+}
+
+/// Сутки из `ReplayFeed` в компактные события напрямую (`ReplayFeed::drive_raw`), без `Event`,
+/// `Update` и очереди: тот же перевод (`emit_book`/`emit_trade`), те же события и порядок.
+/// `ALPHA_DIRECT_FEED=1` включает; без флага — прежний путь `translate_feed_until`.
+pub(crate) fn replay_compact_into_until<R: std::io::Read>(
+    feed: &mut ReplayFeed<R>,
+    until_ns: Option<i64>,
+    out: &mut Vec<CompactEvent>,
+) -> bool {
+    if std::env::var_os("ALPHA_DIRECT_FEED").is_none_or(|v| v != "1") {
+        return replay_compact_via_feed(feed, until_ns, out);
+    }
+    replay_compact_direct(feed, until_ns, out)
+}
+
+pub(super) fn replay_compact_via_feed(
+    feed: &mut dyn Feed,
+    until_ns: Option<i64>,
+    out: &mut Vec<CompactEvent>,
+) -> bool {
+    translate_feed_until(feed, until_ns, &mut |ev| out.push(ev))
+}
+
+pub(super) fn replay_compact_direct<R: std::io::Read>(
+    feed: &mut ReplayFeed<R>,
+    until_ns: Option<i64>,
+    out: &mut Vec<CompactEvent>,
+) -> bool {
+    let mut known_bids = PriceSet::default();
+    let mut known_asks = PriceSet::default();
+    let mut sink = |ev| out.push(ev);
+    feed.drive_raw(&mut |local_ts_ns, ev| {
+        if until_ns.is_some_and(|until| local_ts_ns >= until) {
+            return true;
+        }
+        match ev {
+            RawMarket::Book {
+                is_snapshot,
+                cts_ms,
+                bids,
+                asks,
+            } => emit_book(
+                &mut sink,
+                &mut known_bids,
+                &mut known_asks,
+                is_snapshot,
+                cts_ms,
+                local_ts_ns,
+                bids,
+                asks,
+            ),
+            RawMarket::Trade(t) => emit_trade(&mut sink, &t, local_ts_ns),
+        }
+        false
+    })
 }
 
 /// Множество цен известных уровней: нужно только «есть ли»; порядок обхода

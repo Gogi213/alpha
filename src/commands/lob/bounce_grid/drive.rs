@@ -17,8 +17,8 @@ use hftbacktest::types::Event as HbtEvent;
 use crate::book::Side;
 use crate::commands::lob::backtest::{
     approach_plan, approach_plan_sched, bounce_plan, bounce_plan_sched, count_feed_events,
-    deadline_ns_from_secs, early_exit_ns_from_secs, feed_compact_into, open_replay_feed, EntryForm,
-    PlanShape, PoolLot,
+    deadline_ns_from_secs, early_exit_ns_from_secs, open_replay_feed, replay_compact_into_until,
+    EntryForm, PlanShape, PoolLot,
 };
 use crate::lob::backtest::shared_driver::{drive_cells_shared, SharedCell};
 use crate::lob::backtest::{
@@ -317,7 +317,7 @@ pub(super) fn day_events(
     let mut events: Vec<CompactEvent> = Vec::with_capacity(total);
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        feed_compact_into(&mut feed, &mut events);
+        replay_compact_into_until(&mut feed, None, &mut events);
     }
     // Кэш числа событий — только ёмкость буфера: разошёлся — буфер просто
     // вырос, круги те же; сайдкары переписываются честным пересчётом.
