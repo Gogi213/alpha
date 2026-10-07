@@ -1,10 +1,10 @@
-family,class,cell,axes,code
-x-stop,R2,x-stop-pct2.5,entry=ladder3x2..20w2;stop=pct2.5;take=tr1x1;dl=14400,нет кода
-x-stop,R2,x-stop-pct3,entry=ladder3x2..20w2;stop=pct3;take=tr1x1;dl=14400,нет кода
-x-stop,R2,x-stop-pct4,entry=ladder3x2..20w2;stop=pct4;take=tr1x1;dl=14400,нет кода
-x-deadline,R2,x-dl-21600,entry=ladder3x2..20w2;stop=pct2;take=tr1x1;dl=21600,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED
-x-deadline,R2,x-dl-28800,entry=ladder3x2..20w2;stop=pct2;take=tr1x1;dl=28800,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED
-x-entry,R2,x-entry-3x2..10w2,entry=ladder3x2..10w2;stop=pct2;take=tr1x1;dl=14400,нет кода
-x-entry,R2,x-entry-3x2..40w2,entry=ladder3x2..40w2;stop=pct2;take=tr1x1;dl=14400,нет кода
-x-entry,R2,x-entry-3x5..10w2,entry=ladder3x5..10w2;stop=pct2;take=tr1x1;dl=14400,нет кода
-x-entry,R2,x-entry-3x5..40w2,entry=ladder3x5..40w2;stop=pct2;take=tr1x1;dl=14400,нет кода
+family,class,cell,diff_from_B1,full_row,code
+x-stop,R2,x-stop-pct2.5,stop pct2→pct2.5,entry=ladder3x0..0.0409sw2;stop=pct2.5;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-stop,R2,x-stop-pct3,stop pct2→pct3,entry=ladder3x0..0.0409sw2;stop=pct3;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-stop,R2,x-stop-pct4,stop pct2→pct4,entry=ladder3x0..0.0409sw2;stop=pct4;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-deadline,R2,x-dl-21600,dl 14400→21600,entry=ladder3x0..0.0409sw2;stop=pct2;take=tr1x1;dl=21600;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED (TK-084)
+x-deadline,R2,x-dl-28800,dl 14400→28800,entry=ladder3x0..0.0409sw2;stop=pct2;take=tr1x1;dl=28800;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED (TK-084)
+x-entry,R2,x-entry-n.1-t.5,entry 0..0.0409s→0.00409..0.02045s (ближняя ×.1·верх B1, верх ×.5·верх B1),entry=ladder3x0.00409..0.02045sw2;stop=pct2;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-entry,R2,x-entry-n.1-t2,entry 0..0.0409s→0.00409..0.0818s (ближняя ×.1·верх B1, верх ×2·верх B1),entry=ladder3x0.00409..0.0818sw2;stop=pct2;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-entry,R2,x-entry-n.25-t.5,entry 0..0.0409s→0.01022..0.02045s (ближняя ×.25·верх B1, верх ×.5·верх B1),entry=ladder3x0.01022..0.02045sw2;stop=pct2;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
+x-entry,R2,x-entry-n.25-t2,entry 0..0.0409s→0.01022..0.0818s (ближняя ×.25·верх B1, верх ×2·верх B1),entry=ladder3x0.01022..0.0818sw2;stop=pct2;take=tr1x1;dl=14400;ttl=1800;set=t-bid-btc4h-q1(age=2700,side=bid,btc4h_max=-44.55);busy-skip=off;sigma-from=study/sigma240,нет кода
