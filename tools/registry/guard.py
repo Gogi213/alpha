@@ -268,7 +268,8 @@ def _pending(ctx, cls, calc_cells, out_dir, argv):
     os.makedirs(d, exist_ok=True)
     path = os.path.join(d, f"{ctx['fp']}-{int(time.time() * 1000)}.json")
     json.dump({"fp": ctx["fp"], "cls": cls, "cells": calc_cells, "out_dir": out_dir, "code": ctx["code"], "data": ctx["data"],
-               "cmd": shlex.join(argv)[:400]}, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+               "cmd": shlex.join(argv)[:400],
+               "declared": os.environ.get("GUARD_CELLS_DECLARED")}, open(path, "w", encoding="utf-8"), ensure_ascii=False)
     return path
 
 
@@ -344,13 +345,16 @@ def done(cls, rc, argv=None, result=None, wall_s=None, pending=None, say=print):
         pj = json.load(open(pending, encoding="utf-8"))
         fp, cells, code, data, cmd = pj["fp"], pj.get("cells") or {}, pj.get("code"), pj.get("data"), pj.get("cmd")
         result = result or pj.get("out_dir")
+        declared = pj.get("declared")
     else:
         ctx = context(argv)
         fp, cells, code, data, cmd = ctx["fp"], {ln: f for ln, f in cell_fps(ctx).items()}, ctx["code"], ctx["data"], shlex.join(ctx["argv"])[:400]
         result = result or ctx["out_dir"]
-    if not cells and result and os.path.isfile(os.path.join(result, "cells-declared.txt")):
-        # TK-089 п.2: оркестратор (R1/R2/П-12/TK-084) строит клетки на лету и объявляет их в <выход>/cells-declared.txt («форма набор» по строке)
-        lines = [ln.strip() for ln in open(os.path.join(result, "cells-declared.txt"), encoding="utf-8") if len(ln.split()) == 2]
+        declared = os.environ.get("GUARD_CELLS_DECLARED")
+    declared = declared if declared and os.path.isfile(declared) else (os.path.join(result, "cells-declared.txt") if result else None)
+    if not cells and declared and os.path.isfile(declared):
+        # TK-089 п.2: оркестратор (R1/R2/П-12/TK-084) строит клетки на лету и объявляет их в файле GUARD_CELLS_DECLARED (env при подаче) или <выход>/cells-declared.txt («форма набор» по строке)
+        lines = [ln.strip() for ln in open(declared, encoding="utf-8") if len(ln.split()) == 2]
         cells = {ln: _h({"ctx": fp, "line": ln}) for ln in lines}
     append({"kind": "run", "ts": ts, "fp": fp, "code": code, "data": data, "cls": cls, "rc": int(rc),
             "result_path": result, "wall_s": wall_s, "cmd": cmd})

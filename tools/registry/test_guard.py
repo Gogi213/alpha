@@ -287,6 +287,19 @@ class GuardTest(unittest.TestCase):
         guard.log_failure("тест")
         self.assertIn("тест", open(os.path.join(TMP, "done-errors.log"), encoding="utf-8").read())
 
+    def test_declared_cells_written(self):
+        """TK-089 п.2: оркестратор без --cells объявляет клетки в GUARD_CELLS_DECLARED -> done пишет их поклеточно."""
+        import json
+        decl = os.path.join(self.d, "declared.txt")
+        put(decl, "formA setX" + chr(10) + "formB setX" + chr(10) + "bad" + chr(10))
+        os.environ["GUARD_CELLS_DECLARED"] = decl
+        try:
+            guard.done("prod", 0, ["bash", "orch.sh"], result=self.d)
+        finally:
+            del os.environ["GUARD_CELLS_DECLARED"]
+        led = [json.loads(x) for x in open(os.path.join(TMP, "ledger.jsonl"), encoding="utf-8")]
+        self.assertEqual(sorted(e["cell"] for e in led if e["kind"] == "cell"), ["formA setX", "formB setX"])
+
 
 if __name__ == "__main__":
     unittest.main()

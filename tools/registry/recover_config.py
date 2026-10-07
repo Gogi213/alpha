@@ -95,6 +95,13 @@ def recover(r):
     else:
         why = "запись лога описывает результат словами; команда и sha входов не приведены, в репо скрипт по имени не найден" if not scripts else \
               "запись лога без полной командной строки и sha входов; скрипт найден, но параметры запуска (env) не записаны"
+    if found:  # выход на диске есть: по каждому недостающему полю — отдельная причина (TK-089, Судья 08.10)
+        fr = {}
+        if "pool" not in cfg: fr["pool"] = "ни запись, ни имена и мелкие файлы выхода не называют пул (v171b и т.п.); guard.json/cells-файлы в выходе не найдены"
+        if "flags" not in cfg: fr["flags"] = "флаги запуска в выходе не сохранены (в описи только имена и файлы <2 КБ; cmd*.sh не прочитаны в описи)" if not oscr else "в выходе есть cmd/run-скрипт (output_scripts), его текст описью не снимался"
+        if "period" not in cfg: fr["period"] = "в именах выхода нет дат и месяцев"
+        if "binary_md5" not in cfg and "binaries" not in cfg: fr["binary"] = "ни md5, ни имя бинарника в записи и выходе"
+        cfg["field_reasons"] = fr
     absent = [k for k in ("flags", "pool", "binary_md5", "period", "machine") if k not in cfg and not (k == "binary_md5" and "binaries" in cfg)]
     if found or gone:
         why = ("выход на диске есть (%d), но команда в нём не записана (имена/мелкие файлы дают период, не флаги и sha входов)" % len(found) if found
