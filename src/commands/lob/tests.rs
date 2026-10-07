@@ -450,6 +450,7 @@ fn lob_help_lists_all_subcommands() {
         "bounce-verdict",
         "clock",
         "dashboard",
+        "event-cache-probe",
         "fee-rate",
         "fill-capacity",
         "gaps",

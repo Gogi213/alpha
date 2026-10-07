@@ -57,6 +57,7 @@ pub mod bounce_grid;
 pub mod bounce_verdict;
 pub mod clock;
 pub mod dashboard;
+pub mod event_cache_probe;
 pub mod fee_rate;
 pub mod fill_capacity;
 pub mod gaps;
@@ -88,6 +89,7 @@ pub use archive::{run_archive, ArchiveArgs, ArchiveSummary};
 pub use backtest::{run_backtest, BacktestArgs};
 pub use binlog_stats::{run_binlog_stats, BinlogStatsArgs};
 pub use bounce_grid::{run_bounce_grid, BounceGridArgs, BounceGridSummary};
+pub use event_cache_probe::{run_event_cache_probe, EventCacheProbeArgs};
 pub use fill_capacity::{run_fill_capacity, FillCapacityArgs, FillCapacitySummary};
 pub use gaps::{run_gaps, GapsArgs};
 pub use import_archive::{run_import_archive, ImportArchiveArgs};
@@ -285,6 +287,10 @@ pub enum LobCommand {
     /// тишина, число тишин > 1 мин / 10 мин / 1 ч, события по часам; `--sha256` — хеш тем же
     /// проходом. Только чтение, v2/v3 и `*.binlog.zst`.
     Gaps(GapsArgs),
+    /// Проба TK-048 п.0а: суточные части → `CompactEvent`, форматы «плоский» (32 Б) и «дельта-варинт»,
+    /// размер и время zstd 1/3, разбор обратно со сверкой; одна строка `key=value` и `--out-json`.
+    /// Только чтение.
+    EventCacheProbe(EventCacheProbeArgs),
     /// Проверка данных внутри часа (TK-038): минуты, тишины, откаты `exch_ts`, задержка, аномалии
     /// темпа; CSV на монето-час и список минут-исключений. Только чтение.
     Validate(ValidateArgs),
@@ -484,6 +490,7 @@ pub fn dispatch(cmd: LobCommand) -> anyhow::Result<()> {
             run_gaps(&args)?;
             Ok(())
         }
+        LobCommand::EventCacheProbe(args) => run_event_cache_probe(&args),
         LobCommand::Validate(args) => run_validate(&args),
         LobCommand::Archive(args) => {
             let summary = run_archive(&args)?;
