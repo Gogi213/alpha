@@ -638,9 +638,9 @@ def jpath(i):
     return f"{DIR}/jobs/{i}.json"
 
 
-def load_all():
+def load_all(known=()):
     os.makedirs(f"{DIR}/jobs", exist_ok=True)
-    return [json.load(open(f"{DIR}/jobs/{f}")) for f in sorted(os.listdir(f"{DIR}/jobs")) if f.endswith(".json")]
+    return [json.load(open(f"{DIR}/jobs/{f}")) for f in sorted(os.listdir(f"{DIR}/jobs")) if f.endswith(".json") and f[:-5] not in known]
 
 
 def write_job(j):
@@ -696,16 +696,15 @@ def daemon():
         be.thaw_all()
     while True:
         open(f"{DIR}/heartbeat", "w").write(str(time.time()))
-        for j in load_all():
-            if j["id"] not in core.jobs:
-                core.add(j)
+        for j in load_all(core.jobs):                     # читаем только новые заявки: на волне кэш файлов вытеснен, каждый json — поиск HDD
+            core.add(j)
         core.mem = prod_mem_budget_gb()
         core.tick()
         for j in core.jobs.values():
             if seen.get(j["id"]) != (j["state"], j.get("rc")):
                 seen[j["id"]] = (j["state"], j.get("rc"))
                 write_job(j)
-        time.sleep(TICK)
+        time.sleep(TICK * 3 if core.running("measure") else TICK)   # в окне замера демон тише: чужие чтения демона — помеха волне
 
 
 def main():
