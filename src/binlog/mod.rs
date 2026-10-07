@@ -633,7 +633,19 @@ fn write_zigzag(buf: &mut Vec<u8>, v: i64) {
 /// Читает varint из `buf`, начиная с `*pos`, и продвигает `*pos`. Ошибка —
 /// не паника: `buf.get` вместо индексации, явный предел на число байт,
 /// потому что оборванный кадр обязан дать `Corrupt`, а не читать за границей.
+#[inline(always)]
 fn read_uvarint(buf: &[u8], pos: &mut usize) -> Result<u64, BinlogError> {
+    if let Some(&b) = buf.get(*pos) {
+        if b < 0x80 {
+            *pos += 1;
+            return Ok(u64::from(b));
+        }
+    }
+    read_uvarint_slow(buf, pos)
+}
+
+#[inline(never)]
+fn read_uvarint_slow(buf: &[u8], pos: &mut usize) -> Result<u64, BinlogError> {
     let mut result: u64 = 0;
     let mut shift = 0u32;
     loop {
