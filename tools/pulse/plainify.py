@@ -41,7 +41,7 @@ CACHE = PULSE_DIR / "plain-auto.json"
 LOG = PULSE_DIR / "plainify.log"
 TZ = timezone(timedelta(hours=4))  # GMT+4
 
-MODEL = os.environ.get("ALPHA_PULSE_MODEL", "claude-haiku-4-5-20251001")
+MODEL = os.environ.get("ALPHA_PULSE_MODEL", "claude-haiku-5-5")
 PROMPT_V = 4            # смена текста промптов — меняет хэши и пересчитывает кэш
 CALL_TIMEOUT_S = 90
 MAX_PER_HOUR = 60
