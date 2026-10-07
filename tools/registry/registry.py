@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Реестр прогонов alpha (TK-068). Канон — docs/registry/runs.jsonl (одна строка = один прогон, git);
+"""Летопись (реестр прогонов) alpha (TK-068, имя — В-202). Канон — docs/registry/runs.jsonl (одна строка = один прогон, git);
 SQLite data/registry.sqlite собирается из него (`build`) для запросов. Команды: add | build | find | show | stats | import-auto."""
 import argparse, json, os, sqlite3, sys, datetime, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
