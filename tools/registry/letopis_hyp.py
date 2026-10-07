@@ -62,6 +62,12 @@ WHY = {"Д": "класс Д: посчитана на авг/сен (TK-009, П-0
        "R1": "класс R1: исходы клеток ждут TK-064 lvl-all2", "R2": "класс R2: в сводке TK-065 клеток нет"}
 # --- июль Д-класса (TK-018, p02-jul: описание, не проверка) ---
 jul = {k.split(" ")[0]: v for k, v in json.load(open(os.path.join(F, "p02-jul-2026-09-28.json"), encoding="utf-8")).items() if k != "_meta"}
+# --- авг/сен П-02: таблица итогов p02-summary (эффект [95 %], p Холм) ---
+p02as = {}
+for ln in open(os.path.join(F, "p02-summary-2026-09-26.md"), encoding="utf-8"):
+    m = re.match(r"\| (Г-\d+) \([^)]*\)[^|]*\|([^|]+)\|([^|]+)\|", ln)
+    if m: p02as[m.group(1)] = (m.group(2).strip(), m.group(3).strip())
+cls_inv = lambda i: inv.get(i, {}).get("класс_TK024", "")
 rows = []
 for h in hyps:
     i = h["id"]
@@ -94,8 +100,11 @@ for h in hyps:
     if i in jul:
         j = jul[i]; mon = sorted(set(mon) | {"2026-07"})
         grid = grid or "П-02, b=%s" % j["b"]
-        note = note or ("июль (TK-018, p02-jul, описание, не проверка): %d сут, оценка %+.2f, ДИ95 [%+.2f; %+.2f], p_boot %.3f; авг/сен — по протоколу П-02…П-08, не из выходов Летописи"
+        note = note or ("июль (TK-018, p02-jul, описание, не проверка): %d сут, оценка %+.2f, ДИ95 [%+.2f; %+.2f], p_boot %.3f"
                         % (j["n_days"], j["est"], j["ci95"][0], j["ci95"][1], j["p_boot"]))
+    if i in p02as and cls_inv(i) == "Д":
+        mon = sorted(set(mon) | {"2026-08", "2026-09"})
+        note = (note + "; " if note else "") + "авг (p02-summary): %s; сен: %s; п.п., Холм m=11, §10" % p02as[i]
     vs = q("select judge,verdict,review_path,ts from verdicts where hyp_id=?", i)
     ver = "; ".join(f"{v[1]} ({v[0]}, {v[3]})" for v in vs if v[1] != "см. текст") or ""
     miss = [m for m in MONTHS if m not in mon]
