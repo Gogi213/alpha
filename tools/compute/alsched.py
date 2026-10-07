@@ -15,6 +15,10 @@ DIR = os.environ.get("SCHED_DIR", "/data/sched")
 NCPU, MEM_GB, TICK = 16, 56, int(os.environ.get("SCHED_TICK", "5"))
 DEAD_S = int(os.environ.get("SCHED_DEAD_S", str(max(60, 10 * TICK))))
 WAIT_ALERT_S = 600
+UNDER_S = 1800     # п.8(б): окно недогруза заявки
+UNDER_FRAC = 0.5   # «заметно меньше» объявленного — меньше половины заявленных ядер
+IDLE_S = 600       # п.8(в): очередь пуста при ждущих тикетах дольше этого
+SAMPLE_S = 120
 BARE_PRIO = 5      # голые юниты (R1) приравнены к prio 5: вытесняются только заявками строже (prio < 5)
 PREEMPT_S = int(os.environ.get("SCHED_PREEMPT_S", "600"))   # резерв не стартовал за это время — вытеснение заморозкой
 DISK_SLOTS = int(os.environ.get("SCHED_DISK_SLOTS", "16"))   # заданий на диск; 16 = калибровка R1 06.10 (tk071-calib: P=16 на одном HDD, 51 ед/мин, 18 МБ/с, iowait 2 %, ЦП 92 % — упор в ЦП, не в диск); 0 = без лимита
@@ -141,6 +145,8 @@ class Core:
         if head and head["state"] == "queued" and now - head["t_submit"] > PREEMPT_S and head["id"] not in self.preempt                 and mem + head["mem"] <= self.mem:
             self.preempt_for(head, len(range(self.ncpu)) - len(used) - legacy, now)
         self.alert_waiting(now)
+        self.alert_underuse(now)
+        self.alert_idle(now)
 
     def preempt_for(self, head, room, now):
         """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
@@ -210,6 +216,41 @@ class Core:
                     and j["cores"] <= self.ncpu and j["mem"] <= self.mem:
                 j["alerted"] = True
                 self.be.alert(f"заявка {j['id']} {j['name']} ({j['cores']} ядер, prio {j.get('prio', 5)}) ждёт старта {int((now - j['t_submit']) / 60)} мин")
+
+    def alert_underuse(self, now):
+        """п.8(б): заявка объявила N ядер, а за UNDER_S реально занимала меньше UNDER_FRAC·N — строка в alerts.log, один раз.
+        Заморозка (окно замера, вытеснение) сбрасывает выборку: недогруз считается только по активному времени."""
+        for j in self.running("prod"):
+            if self.frozen or j.get("frozen_for"):
+                j["cpu_samples"] = []
+                continue
+            sm = j.setdefault("cpu_samples", [])
+            if sm and now - sm[-1][0] < SAMPLE_S:
+                continue
+            sm.append((now, self.be.job_cpu(j)))
+            while len(sm) > 2 and now - sm[1][0] >= UNDER_S:
+                sm.pop(0)
+            t0, c0 = sm[0]
+            if not j.get("under_alerted") and now - t0 >= UNDER_S:
+                used = (sm[-1][1] - c0) / (now - t0)
+                if used < UNDER_FRAC * j["cores"]:
+                    j["under_alerted"] = True
+                    self.be.alert(f"заявка {j['id']} {j['name']}: объявлено {j['cores']} ядер, за {int((now - t0) / 60)} мин занято {used:.2f} — сократить заявку")
+
+    def alert_idle(self, now):
+        """п.8(в): нет ни идущих, ни ждущих заявок, а тикеты ждут вычислений (be.waiting_tickets()) дольше IDLE_S — строка, один раз за простой."""
+        if any(j["state"] in ("queued", "running") for j in self.jobs.values()):
+            self.idle_since = None
+            self.idle_alerted = False
+            return
+        if getattr(self, "idle_since", None) is None:
+            self.idle_since = now
+        waiting = self.be.waiting_tickets()
+        if waiting and now - self.idle_since > IDLE_S and not getattr(self, "idle_alerted", False):
+            self.idle_alerted = True
+            self.be.alert(f"очередь пуста {int((now - self.idle_since) / 60)} мин, тикеты ждут вычислений: {', '.join(waiting)}")
+        elif not waiting:
+            self.idle_since = now
 
     def free_cores(self):
         return self.ncpu - sum(len(j["cpus"]) for j in self.running("prod") if not j.get("frozen_for")) - math.ceil(self.be.legacy_busy())
@@ -390,6 +431,16 @@ class SystemdBackend:
         except OSError:
             pass
         return (int(c) / 1e9 if c.isdigit() else 0.0), rb, rn
+
+    def job_cpu(self, j):
+        return self.unit_cpu_io(j)[0]
+
+    def waiting_tickets(self):
+        """Тикеты, ждущие вычислений: строки файла DIR/waiting_tickets (пишет CEO/диспетчер); файла нет — никто."""
+        try:
+            return [l.strip() for l in open(f"{DIR}/waiting_tickets") if l.strip()]
+        except OSError:
+            return []
 
     def cg_io(self):
         """io.stat (rbytes, rios) всех cgroup от корня (иерархические значения)."""

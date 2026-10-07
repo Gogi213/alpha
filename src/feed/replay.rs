@@ -23,6 +23,18 @@ use crate::bybit::ws::{Event as WsEvent, Trade};
 use super::live::{LayoutError, PoolMember};
 use super::{DynamicPool, Event, Feed};
 
+/// Рыночное событие потока без `Event`/`Update`: закрытая группа книги — срезами буфера
+/// (живут только внутри вызова), сделка — как есть.
+pub enum RawMarket<'a> {
+    Book {
+        is_snapshot: bool,
+        cts_ms: i64,
+        bids: &'a [(i64, i64)],
+        asks: &'a [(i64, i64)],
+    },
+    Trade(Trade),
+}
+
 /// `Feed` с одного суточного файла бинлога одного инструмента пула.
 pub struct ReplayFeed<R: Read> {
     symbol: u16,
@@ -100,6 +112,90 @@ impl<R: Read> ReplayFeed<R> {
                 }),
             });
         }
+    }
+}
+
+impl<R: Read> ReplayFeed<R> {
+    /// Тот же поток, что отдаёт `next_event`, но без `Event`, `Update` и очереди: `f(local_ts_ns,
+    /// событие)` на каждое рыночное событие в том же порядке; `true` из `f` — остановиться
+    /// (результат — остановились ли). Годится только на свежем потоке (очередь `next_event` пуста).
+    pub fn drive_raw(&mut self, f: &mut impl FnMut(i64, RawMarket<'_>) -> bool) -> bool {
+        debug_assert!(self.pending.is_empty());
+        let (tick_e9, step_e9) = (self.tick_e9, self.step_e9);
+        let mut frame = std::mem::take(&mut self.frame_scratch);
+        let mut stop = false;
+        while !stop && !self.done {
+            match self.reader.read_frame_into(&mut frame) {
+                Ok(true) => {
+                    for rec in &frame {
+                        self.last_local_ts_ns = rec.local_ts_ns;
+                        let local = rec.local_ts_ns;
+                        let mut on_group =
+                            |is_snapshot: bool,
+                             cts_ms: i64,
+                             bids: &[(i64, i64)],
+                             asks: &[(i64, i64)]| {
+                                stop = stop
+                                    || f(
+                                        local,
+                                        RawMarket::Book {
+                                            is_snapshot,
+                                            cts_ms,
+                                            bids,
+                                            asks,
+                                        },
+                                    );
+                            };
+                        let trade = is_trade_ev(rec.ev);
+                        if trade {
+                            self.replayer.close_group_with(&mut on_group);
+                        } else {
+                            self.replayer
+                                .push_depth_with(rec, tick_e9, step_e9, &mut on_group);
+                        }
+                        if trade && !stop {
+                            stop = f(
+                                local,
+                                RawMarket::Trade(Trade {
+                                    exch_ms: rec.exch_ts_ns / 1_000_000,
+                                    price_e9: rec.price_ticks * tick_e9,
+                                    qty_e9: rec.qty_lots * step_e9,
+                                    aggressor_is_buy: rec.ev == LOCAL_BUY_TRADE_EVENT,
+                                    block: rec.block,
+                                    rpi: rec.rpi,
+                                }),
+                            );
+                        }
+                        if stop {
+                            break;
+                        }
+                    }
+                }
+                Ok(false) => {
+                    let local = self.last_local_ts_ns;
+                    self.replayer.close_group_with(
+                        &mut |is_snapshot: bool,
+                              cts_ms: i64,
+                              bids: &[(i64, i64)],
+                              asks: &[(i64, i64)]| {
+                            stop = f(
+                                local,
+                                RawMarket::Book {
+                                    is_snapshot,
+                                    cts_ms,
+                                    bids,
+                                    asks,
+                                },
+                            );
+                        },
+                    );
+                    self.done = true;
+                }
+                Err(_) => self.done = true,
+            }
+        }
+        self.frame_scratch = frame;
+        stop
     }
 }
 

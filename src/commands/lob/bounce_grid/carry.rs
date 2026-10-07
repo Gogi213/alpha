@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::commands::lob::backtest::{
-    count_feed_events_until, feed_compact_into_until, open_replay_feed, EntryTtl,
+    count_feed_events_until, open_replay_feed, replay_compact_into_until, EntryTtl,
 };
 use crate::commands::lob::profiles::read_verify_marker;
 use crate::lob::backtest::CompactEvent;
@@ -86,7 +86,7 @@ pub(super) fn day_start_ns(day: &str) -> anyhow::Result<i64> {
 /// точный `Vec` `day_events` (её doc), только предел здесь не «конец файла»,
 /// а окно. Части хронологичны (`session_parts_for`: день, потом часть) — как
 /// только одна упёрлась в потолок, следующие начнутся ещё позже, читать их
-/// незачем (`count_feed_events_until`/`feed_compact_into_until` уже говорят,
+/// незачем (`count_feed_events_until`/`replay_compact_into_until` уже говорят,
 /// уткнулись ли).
 #[cfg(test)]
 pub(super) fn carry_events(parts: &[PathBuf], until_ns: i64) -> anyhow::Result<Vec<CompactEvent>> {
@@ -129,7 +129,7 @@ pub(super) fn append_carry_events(
     let before = events.len();
     for path in parts {
         let mut feed = open_replay_feed(path)?;
-        if feed_compact_into_until(&mut feed, until_ns, events) {
+        if replay_compact_into_until(&mut feed, Some(until_ns), events) {
             break;
         }
     }

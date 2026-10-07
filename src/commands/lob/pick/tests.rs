@@ -65,7 +65,7 @@ fn full_pipeline_from_synthetic_universe_matches_hand_computed_result() {
         meta("BTCUSDT", "BTC", e9(20_000_000)),
         meta("ETHUSDT", "ETH", e9(19_000_000)),
         meta("AAPLUSDT", "AAPL", e9(18_000_000)),
-        meta("XAUUSDT", "XAU", e9(17_000_000)),
+        meta("TSLAUSDT", "TSLA", e9(17_000_000)),
         meta("SOXLUSDT", "SOXL", e9(16_000_000)),
         meta("SNDKUSDT", "SNDK", e9(15_000_000)),
     ];
@@ -154,7 +154,7 @@ fn full_pipeline_from_synthetic_universe_matches_hand_computed_result() {
     assert!(reasons.contains(&("BTCUSDT", EXCLUDED_BTC_ETH)));
     assert!(reasons.contains(&("ETHUSDT", EXCLUDED_BTC_ETH)));
     assert!(reasons.contains(&("AAPLUSDT", EXCLUDED_NON_CRYPTO)));
-    assert!(reasons.contains(&("XAUUSDT", EXCLUDED_NON_CRYPTO)));
+    assert!(reasons.contains(&("TSLAUSDT", EXCLUDED_NON_CRYPTO)));
     assert!(reasons.contains(&("SOXLUSDT", EXCLUDED_NON_CRYPTO)));
     assert!(reasons.contains(&("SNDKUSDT", EXCLUDED_NON_CRYPTO)));
     assert!(reasons.contains(&("PONSUSDT", EXCLUDED_TOO_YOUNG)));

@@ -814,6 +814,14 @@ fn deadline_and_early_exit_values_outside_the_preregistered_grid_are_refused() {
     // Дедлайн: сетка {60, 600, 3600, 7200} с.
     assert_eq!(deadline_ns_from_secs(60).unwrap(), 60 * 1_000_000_000);
     assert_eq!(deadline_ns_from_secs(7_200).unwrap(), 7_200 * 1_000_000_000);
+    assert_eq!(
+        deadline_ns_from_secs(21_600).unwrap(),
+        21_600 * 1_000_000_000
+    );
+    assert_eq!(
+        deadline_ns_from_secs(28_800).unwrap(),
+        28_800 * 1_000_000_000
+    );
     let err = deadline_ns_from_secs(120).unwrap_err().to_string();
     assert!(
         err.contains("не из предрегистрированной сетки В-58") && err.contains("120"),
@@ -1824,4 +1832,75 @@ fn read_day_schedule_none_for_v3_some_for_v4_and_fails_closed() {
     // две части в сутках с v4 и сетка символа не равна заголовку — отказ
     assert!(read_day_schedule(&[v3, v4.clone()], 1_000_000, 1_000_000).is_err());
     assert!(read_day_schedule(&[v4], 2_000_000, 1_000_000).is_err());
+}
+
+/// Прямой путь `ReplayFeed::drive_raw` (`ALPHA_DIRECT_FEED`) даёт те же компактные события в том же
+/// порядке, что `translate_feed_until` через `next_event`: снапшоты, дельты, сделки, группы через
+/// границу кадра, потолок времени.
+#[test]
+fn direct_replay_path_matches_feed_translation() {
+    use crate::binlog::{Header, Record, Writer};
+    use crate::feed::replay::ReplayFeed;
+    use hftbacktest::types::{LOCAL_ASK_DEPTH_SNAPSHOT_EVENT, LOCAL_BID_DEPTH_SNAPSHOT_EVENT};
+
+    let header = Header {
+        tick_e9: 10_000_000,
+        step_e9: 1_000_000,
+        max_records_per_frame: 100,
+    };
+    let mut seed = 0x1234_5678_9abc_def0_u64;
+    let mut rnd = move |m: u64| {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) % m
+    };
+    let (mut exch, mut local) = (1_000_000_000_i64, 1_000_000_500_i64);
+    let mut recs = Vec::new();
+    for _ in 0..3000 {
+        local += 1 + rnd(5) as i64;
+        if rnd(3) == 0 {
+            exch += 1_000_000 * (1 + rnd(3) as i64);
+        }
+        let k = rnd(20);
+        let ev = match k {
+            0 => LOCAL_BID_DEPTH_SNAPSHOT_EVENT,
+            1 => LOCAL_ASK_DEPTH_SNAPSHOT_EVENT,
+            2 | 3 => LOCAL_BUY_TRADE_EVENT,
+            4 => LOCAL_SELL_TRADE_EVENT,
+            5..=12 => LOCAL_BID_DEPTH_EVENT,
+            _ => LOCAL_ASK_DEPTH_EVENT,
+        };
+        recs.push(Record {
+            ev,
+            exch_ts_ns: exch,
+            local_ts_ns: local,
+            price_ticks: 100 + rnd(12) as i64,
+            qty_lots: if rnd(4) == 0 { 0 } else { 1 + rnd(50) as i64 },
+            block: rnd(9) == 0,
+            rpi: rnd(11) == 0,
+        });
+    }
+    let mut buf = Vec::new();
+    let mut w = Writer::create(&mut buf, header, 0).unwrap();
+    let mut i = 0;
+    while i < recs.len() {
+        let n = (1 + rnd(7) as usize).min(recs.len() - i);
+        w.write_frame(&recs[i..i + n]).unwrap();
+        i += n;
+    }
+    w.flush().unwrap();
+    drop(w);
+
+    for until in [None, Some(local / 2), Some(1_000_000_600), Some(i64::MAX)] {
+        let mut old = Vec::new();
+        let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
+        let hit_old = super::feed::replay_compact_via_feed(&mut f, until, &mut old);
+        let mut new = Vec::new();
+        let mut f = ReplayFeed::open(0, &buf[..]).unwrap();
+        let hit_new = super::feed::replay_compact_direct(&mut f, until, &mut new);
+        assert!(!matches!(until, None | Some(i64::MAX)) || !old.is_empty());
+        assert_eq!(hit_old, hit_new, "until {until:?}");
+        assert_eq!(old, new, "until {until:?}");
+    }
 }

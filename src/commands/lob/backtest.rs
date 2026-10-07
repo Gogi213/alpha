@@ -37,8 +37,8 @@ use csv_out::{write_backtest_csv, write_pnl_csv, write_trades_csv};
 use feed::events_from_paths;
 pub use feed::BacktestFillModel;
 pub(crate) use feed::{
-    count_feed_events, count_feed_events_until, feed_compact_into, feed_compact_into_until,
-    open_replay_feed, read_day_schedule, read_tick_step,
+    count_feed_events, count_feed_events_until, open_replay_feed, read_day_schedule,
+    read_tick_step, replay_compact_into_until,
 };
 pub(crate) use forms::PlanShape;
 pub use forms::{
