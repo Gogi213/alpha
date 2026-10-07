@@ -1159,6 +1159,7 @@ impl<K: Ord + Copy, V> SortedVec<K, V> {
     /// уникальны и отсортированы, поэтому ответ тот же, что у `find`, при любой
     /// подсказке — немонотонный обход только дороже: `Ok` — единственный индекс
     /// ключа, `Err` — единственная точка вставки.
+    #[inline(always)]
     fn find_from(&self, hint: usize, key: &K) -> Result<usize, usize> {
         let items = &self.items;
         let n = items.len();
