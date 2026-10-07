@@ -1,0 +1,10 @@
+family,class,cell,axes,code
+x-stop,R2,x-stop-pct2.5,entry=ladder3x2..20w2;stop=pct2.5;take=tr1x1;dl=14400,нет кода
+x-stop,R2,x-stop-pct3,entry=ladder3x2..20w2;stop=pct3;take=tr1x1;dl=14400,нет кода
+x-stop,R2,x-stop-pct4,entry=ladder3x2..20w2;stop=pct4;take=tr1x1;dl=14400,нет кода
+x-deadline,R2,x-dl-21600,entry=ladder3x2..20w2;stop=pct2;take=tr1x1;dl=21600,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED
+x-deadline,R2,x-dl-28800,entry=ladder3x2..20w2;stop=pct2;take=tr1x1;dl=28800,нужен код: DEADLINES_S/DEADLINE_SECS_ALLOWED
+x-entry,R2,x-entry-3x2..10w2,entry=ladder3x2..10w2;stop=pct2;take=tr1x1;dl=14400,нет кода
+x-entry,R2,x-entry-3x2..40w2,entry=ladder3x2..40w2;stop=pct2;take=tr1x1;dl=14400,нет кода
+x-entry,R2,x-entry-3x5..10w2,entry=ladder3x5..10w2;stop=pct2;take=tr1x1;dl=14400,нет кода
+x-entry,R2,x-entry-3x5..40w2,entry=ladder3x5..40w2;stop=pct2;take=tr1x1;dl=14400,нет кода
