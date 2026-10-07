@@ -1,0 +1,6 @@
+#!/bin/bash
+export ALPHA_SKIP_NOSIGNAL=1 ALPHA_FAST_HOLD=1 ALPHA_EVENT_STEPS=entry ALPHA_SIG_CACHE=3000000 ALPHA_APPROACH_BIN=1 ALPHA_ADMIT_CACHE=1 ALPHA_HOLDS_MEMO=1 ALPHA_ADMIT_SOA=1 ALPHA_BAND_COUNT_OFF=1
+: "${ALPHA_APPROACH_BIN_DIR:?каталог abin обязателен (tools/compute/abin-shm.sh up)}"
+export ALPHA_APPROACH_BIN_DIR
+export ALPHA_TOUCH_BIN=1
+exec /opt/alpha-compute/bin/alpha-b21-pgo "$@"
