@@ -348,6 +348,10 @@ def done(cls, rc, argv=None, result=None, wall_s=None, pending=None, say=print):
         ctx = context(argv)
         fp, cells, code, data, cmd = ctx["fp"], {ln: f for ln, f in cell_fps(ctx).items()}, ctx["code"], ctx["data"], shlex.join(ctx["argv"])[:400]
         result = result or ctx["out_dir"]
+    if not cells and result and os.path.isfile(os.path.join(result, "cells-declared.txt")):
+        # TK-089 п.2: оркестратор (R1/R2/П-12/TK-084) строит клетки на лету и объявляет их в <выход>/cells-declared.txt («форма набор» по строке)
+        lines = [ln.strip() for ln in open(os.path.join(result, "cells-declared.txt"), encoding="utf-8") if len(ln.split()) == 2]
+        cells = {ln: _h({"ctx": fp, "line": ln}) for ln in lines}
     append({"kind": "run", "ts": ts, "fp": fp, "code": code, "data": data, "cls": cls, "rc": int(rc),
             "result_path": result, "wall_s": wall_s, "cmd": cmd})
     if int(rc) == 0:

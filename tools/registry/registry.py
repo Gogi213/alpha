@@ -102,6 +102,8 @@ def main():
     sp.add_parser("bind-verdicts", help="проверки Судьи (ревью по протоколу/тикету, записи judge в логах) -> verdicts.run_id + runs.judge")
     sp.add_parser("normalize-ts", help="runs.ts канона -> один пояс +04:00 (id не меняются)")
     sp.add_parser("enrich", help="автострокам: тикет из пути, класс в статус, период/пул из команды")
+    ig = sp.add_parser("import-guard-cells", help="клетки из журнала отпечатков сервера -> cells/run_cells")
+    ig.add_argument("file"); ig.add_argument("--hyp"); ig.add_argument("--logic", default="")
     ia = sp.add_parser("import-auto", help="влить строки автозаписи benchrun (jsonl) в канон")
     ia.add_argument("file")
     ns = ap.parse_args()
@@ -163,6 +165,21 @@ def main():
             for r in rows:
                 cnt[r.get(key, "—")] = cnt.get(r.get(key, "—"), 0) + 1
             print(key, cnt)
+    elif ns.cmd == "import-guard-cells":
+        # TK-089 п.2: клетки из журнала отпечатков сервера (kind=cell) -> cells/run_cells канона; прогон — строка с тем же result_path
+        led = [json.loads(x) for x in open(ns.file, encoding="utf-8") if x.strip()]
+        byrun = {}
+        for e in led:
+            if e.get("kind") == "cell": byrun.setdefault((e["run_fp"], e.get("result_path")), []).append(e["cell"].split(" @")[0])
+        runs, tot = load(), [0, 0]
+        for (fp, rp), lines in byrun.items():
+            hit = [r for r in runs if rp and r.get("result_path") and r["result_path"].rstrip("/") == rp.rstrip("/")]
+            if not hit:
+                print("нет строки прогона для", rp); continue
+            tmp = os.path.join(ROOT, "data", f"cells-{fp}.txt"); os.makedirs(os.path.dirname(tmp), exist_ok=True)
+            open(tmp, "w", encoding="utf-8").write(chr(10).join(sorted(set(lines))) + chr(10))
+            a, b = db.load_cells(tmp, hit[-1]["id"], ns.hyp, ns.logic, None); tot[0] += a; tot[1] += b
+        print("клеток +%d, связок +%d" % tuple(tot))
     elif ns.cmd == "import-auto":
         have = {r.get("note") for r in load()}
         n = 0
