@@ -584,3 +584,135 @@ PR #17 голова 0a4bfb2 (диф 2ae0e3c..0a4bfb2, dispatch.py +11/-2, test_d
 
 Замечание (не возврат, в коммит тега): test_recover_drops_intent_mirror_when_role_never_started не различает ветки — если has_output станет всегда True, реальный _finish_run тоже снимет зеркало и тест останется зелёным; добавить assert, что _finish_run не вызван (мок, как в соседнем). Косметика: в _find_by_session и новом recover-тесте пропал перенос строки после запятой в with (одна длинная строка с пробелами) — синтаксически верно.
 Дальше: CEO вливает #17 при 9/9 на 0a4bfb2 и ставит .claude/dispatcher/tk076-pr17-merged.flag → Инженер: повтор отладки 10×60 macOS на main+#18+#17 (state.json до/после kill в артефакт, 0 lost_signals), CHANGELOG 1.8.0 «Исправлено» #18/#17 с датой дня тега, тег v1.8.0 → Судье. Шапка: waiting на флаг tk076-pr17-merged.
+
+### 2026-10-07T02:11:37+04:00 ceo
+CEO (авто): #17 0a4bfb2 — CI 9/9, принят Судьёй — ВЛИТ (state MERGED). Флаг tk076-pr17-merged.flag создан.
+
+### 2026-10-07T02:12:41+04:00 engineer
+#17 влит (CEO 02:11), main f264797 = #18+#17+#19+#21. Повтор отладки запущен на кандидате: ветка debug/tk076-cand (0d3f1b8 = main f264797 + логи решений инварианта + снимки state.json до/после kill диспетчера: state.before-kill-N.json / state.after-kill-N.json в артефакте repN-proj/.claude/dispatcher), workflow debug-invariant.yml: macOS 3.12/3.13 × base/bus/watch × 10 повторов = 60 раундов, run 37539081022 (на 02:2x в очереди раннеров). Приёмка (Судья): 0 нарушений lost_signals из 60, строки «подхват … найден по session_id / вывод есть / запуск не состоялся» сверены со снимками state.json. Дальше (Инженер): разбор артефактов → CHANGELOG 1.8.0 «Исправлено» #18/#17 + дата дня тега + замечание Судьи (assert «_finish_run не вызван» в test_recover_drops_intent_mirror…) → тег v1.8.0 → Судье. Ожидание: шапка wait_for = file:.claude/dispatcher/tk076-dbg2-done.flag — CEO, поставь флаг, когда run 37539081022 завершится (gh run view 37539081022 --repo Gogi213/role-play-vibing); в GitHub-прогон wait_for формы нет.
+
+### 2026-10-07T03:39:38+04:00 ceo
+CEO (авто): отладка кандидата run 37539081022 завершена (success) — флаг tk076-dbg2-done.flag создан. Инженер: разбор (красных N из 60) → --next judge на приёмку 0/60 → тег v1.8.0.
+
+### 2026-10-07T03:41:36+04:00 engineer
+Разбор отладки run 37539081022 (кандидат main f264797 = #18+#17): 6/6 заданий зелёные, 60/60 раундов macOS (3.12/3.13 × base/bus/watch × 10): красных 0, lost_signals=[] во всех 60, blocked=[], max_idle_s малый (rep1 base: 1.7 с), сбои в каждом раунде — 429 с рестартом диспетчера и kill диспетчера при живой роли. НО: артефакт без снимков state.json и без логов решений — actions/upload-artifact@v4 не берёт скрытые каталоги (out/repN-proj/.claude), поэтому 'state.json до/после kill' из условия тега НЕ предъявлен. Чиню: ветка debug/tk076-cand2 (0d3f1b8 + include-hidden-files: true), повтор 60 раундов — run 37547872263 (в очереди раннеров на 03:45). Параллельно PR #29 (fix/tk076-release от main 4c82dfd): CHANGELOG 1.8.0 «Исправлено» (подхват сироты #17/#18), дата 2026-10-07, замечание Судьи 01:31 (assert _finish_run не вызван, recover/find_pid тесты 10/10, release.py check ок); CI запущен. Дальше: после run 37547872263 — сверить строки подхвата со state.before/after-kill-N.json, CI #29 9/9 → Судье (приёмка 0/60 + #29) → CEO вливает → тег v1.8.0 (Инженер). CEO: когда run 37547872263 завершится (gh run view 37547872263 --repo Gogi213/role-play-vibing) — поставь флаг .claude/dispatcher/tk076-dbg3-done.flag.
+
+### 2026-10-07T04:51:25+04:00 ceo
+CEO (авто): отладка run 37547872263 завершена (success) — флаг tk076-dbg3-done.flag создан.
+
+### 2026-10-07T04:52:16+04:00 engineer
+Судье: приёмка повтора отладки 10×60 на кандидате main f264797 (#18+#17) + PR #29. Run 37547872263 (ветка debug/tk076-cand2, артефакты с .claude теперь есть): 6/6 заданий success (macOS 3.12/3.13 × base/bus/watch × 10) = 60/60 раундов ok:true, lost_signals=[] ×60, blocked=[] ×60, красных 0. Снимки: 198 пар state.before-kill-N/after-kill-N.json — во всех 302 активных запусках до kill запись сохранена после kill (302 kept / 0 dropped), у 3 было pid=None (зеркало-намерение до Popen) — одна из них подхвачена 'найден по session_id (зеркало было без pid)'. Строки подхвата в runs.log/endurance-dispatch.log: 'жив — слежу' 123 (старт записан = текущая метка), 'не найден … разбираю как завершённый' 177 (роль успела закончить), 'процесса нет, вывод есть — разбираю как завершённый' 2 (ветка #17 п.1, зеркало без pid + run_file непуст), 'найден по session_id' 1. Ни одного ложного подхвата чужого pid, ни одной потерянной роли. PR #29 (CHANGELOG 1.8.0 «Исправлено» #17/#18, дата 2026-10-07, assert _finish_run не вызван в test_recover_drops_intent_mirror_when_role_never_started): CI 10/10 зелёный на 6ddd1c17-голове ветки fix/tk076-release (release.py check ок). Условия тега из 01:31 выполнены. Дальше: Судья принимает #29 + 0/60 → CEO вливает #29 → Инженер тегирует v1.8.0 (release.py bump/tag с main) → Судье на финал TK-076. Шапка: waiting на флаг tk076-pr29-merged.flag (CEO — поставь после слияния).
+
+### 2026-10-07T04:55:55+04:00 ceo
+CEO 05:00: #29 (CHANGELOG 1.8.0 + assert в тесте recover, голова f5fffd0) — CI 9/9 зелёный, вердикта Судьи нет, а инженер ждёт флаг влития — бужу Судью. Принято на f5fffd0 → вливаю и создаю tk076-pr29-merged.flag (→ тег v1.8.0).
+
+### 2026-10-07T04:56:17+04:00 judge
+Приёмка отладки 10×60 (run 37547872263) — ПРИНЯТО; PR #29 f5fffd02 — ВЕРНУТЬ: CHANGELOG не совпадёт с содержимым тега v1.8.0.
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| кандидат отладки = main f264797 + только отладка | да | git diff f264797..6ddd1c17: dispatch.py — _dbg (под RPV_DEBUG_INVARIANT) и параметр why у _drop_ceo_handoff, логика не тронута; endurance.py — снимки state.json вокруг kill; debug-invariant.yml |
+| 60/60, lost_signals=[], blocked=[] | да | артефакты скачаны (6×dbg-*), разобраны все rep*.stdout: 60 раундов ok:true, lost_signals=[] и blocked=[] во всех |
+| подхват сверен со снимками | да | свой разбор: 198 kill, в state.after-kill 302 активных запуска (3 без pid), по каждому rep мультимножество тикетов в снимках = мультимножеству строк исхода «подхват» в endurance-dispatch.log; исходы 177 «не найден — как завершённый» + 123 «жив — слежу» + 2 «процесса нет, вывод есть» = 302; 1 «найден по session_id» (TK-009) далее даёт строку жив/мёртв; во всех 123 «жив» метка старта записанная = текущей; прочих строк 0 |
+| #29: assert _finish_run не вызван | да | test_recover_drops_intent_mirror_when_role_never_started: мок _find_pid_by_session/_finish_run + fin.assert_not_called() |
+| #29: CI на голове | да | f5fffd02: 10/10 SUCCESS (в записи 04:52 назван 6ddd1c17 — это голова debug/tk076-cand2, не #29; на исход не влияет) |
+| #29: CHANGELOG 1.8.0 = то, что войдёт в тег | НЕТ | над «## 1.8.0 — 2026-10-07» остался «## Не выпущено» с 3 «Добавлено» (замок замеров RPV_GUARD_HEAVY_HOST/heavy_guard.py; ожидание host:… без ssh-опроса WAIT_RECON_S; проверки плана no-plan/plan-stale WATCH_NO_PLAN_MIN) и 1 «Исправлено» (-G у systemd-run) — всё уже в коде main 94f2254 (dispatch.py:344, watch.py:78, hooks/heavy_guard.py). release.py bump раздел «Не выпущено» не трогает и коммитит HEAD main → v1.8.0 (и release.py update у пользователей) поставит эти изменения под 1.8.0, а в журнале они «не выпущены» и всплывут как новые в следующей версии |
+
+Что сделать (одним коммитом в #29, затем CI 9/9 → --next judge): перенести содержимое «Не выпущено» в разделы «Добавлено»/«Исправлено» 1.8.0 (заголовок «Не выпущено» оставить пустым или убрать); release.py check — ок. Больше ничего.
+Тег: кандидат = main после #29 (отличается от отладочного f264797 на #26/#27 TK-079 — они приняты по своим PR, CI по PR; для тега принимаю). Финальный гейт TK-076 (выносливость ≥ 2 ч без нарушений + /rpv-doctor на чистом проекте) — на ровно том коммите, где стоит v1.8.0, с указанием sha.
+Замечание к отладке: снимок after-kill берётся сразу после kill, до рестарта, поэтому «302 kept / 0 dropped» до/после почти тождественно; доказательная часть — снимок ↔ строки подхвата (сверено выше).
+
+### 2026-10-07T04:57:08+04:00 engineer
+#29 по замечанию Судьи 04:56: коммит 3a4c8d7 в fix/tk076-release — содержимое «Не выпущено» (3 «Добавлено»: замок замеров, ожидание host:… без ssh, проверки плана; 1 «Исправлено»: -G у systemd-run) перенесено в разделы 1.8.0, «Не выпущено» пусто; ветка слита с main, диф к main — только CHANGELOG + assert в test_dispatch; release.py check ок (1.8.0). CI на 3a4c8d7 запущен (9 клеток + ci-ok, ~13 мин, раннеры могут стоять в очереди). Дальше: CEO при CI 9/9 — влить #29 (Судья принял остальное, нужен только повтор по CHANGELOG), поставить tk076-pr29-merged.flag → Инженер тегирует v1.8.0 с main, Судья — финальный гейт на sha тега (выносливость ≥ 2 ч + /rpv-doctor на чистом проекте). Шапка: waiting на tk076-pr29-merged.flag.
+
+### 2026-10-07T04:59:00+04:00 judge
+PR #29 голова 3a4c8d7 — ВЕРНУТЬ (повторно, по моей неполной сверке 04:56): перенос «Не выпущено» → 1.8.0 сделан верно, но в 1.8.0 нет пяти влитых в main PR TK-079 — они уйдут в тег v1.8.0 без строки в журнале. CI на 3a4c8d7 на 05:0x — 8 IN_PROGRESS, 1 QUEUED.
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| «Не выпущено» перенесено в 1.8.0, раздел пуст | да | git diff main...fix/tk076-release: 3 «Добавлено» + «-G у systemd-run» в 1.8.0; первый «## X.Y.Z» — 1.8.0 (release.py read_versions) |
+| диф к main — только CHANGELOG + assert | да | --stat: CHANGELOG.md +8/−10 (по сути перенос), test_dispatch.py +4/−1 |
+| 1.8.0 покрывает всё влитое с v1.7.1 | НЕТ | git log --merges v1.7.1..origin/main (94f2254) против разделов 1.8.0: нет #22 fix(watch) ложные watch-orphan-ticket на годном wait_for; #23 ci_watch — события CI в шину и форма wait_for ci:; #24 merge_rule — вливание по правилу, команда accept; #26 tickets.py result — итог шага и таблица маршрутов (routes.py); #27 plan-stale/no-plan не будят CEO, автор записей сторожа — watch (строка #21 в 1.8.0 этого не говорит). grep 'ci:', ci_watch, merge_rule, accept, result, orphan по CHANGELOG — 0. #25 — только docs, можно без строки |
+
+Мой промах 04:56: сверила раздел «Не выпущено», а не список влитого с прошлого тега — отсюда второй круг.
+Что сделать (одним коммитом в #29, затем CI 9/9 → --next judge): по строке на #22/#23/#24/#26/#27 в «Добавлено»/«Изменено»/«Исправлено» 1.8.0 (что видит пользователь: новые команды/формы wait_for и переменные окружения, если есть); сверить себя тем же git log --merges v1.7.1..main. Остальное в #29 принято (assert, дата 2026-10-07, release.py check).
+Дальше без изменений: CEO вливает #29 при 9/9 на принятой голове → tk076-pr29-merged.flag → Инженер ставит v1.8.0 с main → финальный гейт на sha тега (выносливость ≥ 2 ч + /rpv-doctor на чистом проекте).
+
+### 2026-10-07T05:00:04+04:00 engineer
+#29 по замечанию Судьи 04:59: коммит a24de5f в fix/tk076-release — в 1.8.0 добавлены строки по #22 (сторож: waiting с file:/host:..:unit:/недоступным ssh не сирота), #23 (ci_watch.py, wait_for ci:<репо>#<PR>, RPV_CI_REPO), #24 (tickets.py accept, merge_rule.py — вливание по правилу), #26 (tickets.py result + routes.py), #27 (plan-stale/no-plan не будят CEO, автор записей сторожа — watch); #25 — docs, без строки. Названия сверены с кодом (RESULTS в routes.py, p_accept/p_result в tickets.py, RPV_CI_REPO). Список влитого с v1.7.1 сверен git log --merges v1.7.1..origin/main (94f2254). release.py check ок (1.8.0), диф к прошлой голове — +5 строк CHANGELOG. CI на a24de5f запущен (9 клеток + ci-ok, ~13 мин). Дальше: Судья принимает на a24de5f (accept) → CEO вливает при 9/9 → tk076-pr29-merged.flag → Инженер тег v1.8.0 → финальный гейт на sha тега. Шапка: waiting на tk076-pr29-merged.flag.
+
+### 2026-10-07T05:01:45+04:00 judge
+PR #29 голова a24de5f — ПРИНЯТО по содержанию; вливать только при CI 9/9 + ci-ok на a24de5f (run 37554867408 на 05:05 — pending).
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| 1.8.0 покрывает всё влитое с v1.7.1 | да | git log --merges v1.7.1..origin/main (94f2254): #10–#16 — строки были; #17/#18 — «подхват роли-сироты»; #21/#27 — проверки плана + «не пишутся в ceo-inbox, автор watch»; #22 — «waiting с file:/host:…:unit:/недоступным ssh не сирота»; #23 — ci_watch.py, wait_for ci:, RPV_CI_REPO; #24 — accept + merge_rule.py; #26 — result + routes.py; #28 — замок замеров; #19 — сверка host: без ssh; #20/#25 — docs; #9 — содержимое уже в v1.7.1 (jobrun.sh в дереве тега, строка в 1.7.1) |
+| названия в строках = код main | да | tickets.py:405 add_parser("accept"), :413 "result"; routes.py:8 RESULTS (done/pr/accept/return/blocked/ask-owner/wait — как в строке); ci_watch.py/merge_rule.py — RPV_CI_REPO; watch.py:78–79 WATCH_NO_PLAN_MIN/WATCH_PLAN_LAG_MIN; tickets.py:262–265 accepted: N@sha |
+| «Не выпущено» пуст, первый раздел — 1.8.0 — 2026-10-07 | да | git show origin/fix/tk076-release:CHANGELOG.md |
+| диф к main — CHANGELOG + assert | да | --stat: CHANGELOG.md 18 строк, test_dispatch.py +4/−1 (принято 04:56) |
+| CI на голове | ждёт | run 37554867408 (a24de5f) pending; прошлые головы не в счёт |
+
+accept в alpha нет (tickets.py alpha: new/comment/start/wait/stop/inbox/status) — вердикт этой записью. CEO: влить #29 при 9/9 на a24de5f (любой новый коммит — снова ко мне) → tk076-pr29-merged.flag → Инженер ставит v1.8.0 с main → финальный гейт на sha тега (выносливость ≥ 2 ч без нарушений + /rpv-doctor на чистом проекте). Шапка без изменений: waiting на tk076-pr29-merged.flag.
+
+### 2026-10-07T05:26:00+04:00 ceo
+CEO 05:27: тикет без хода с 05:01. #29 после возврата — новая голова a24de5f. Судья: проверь, закрыт ли возврат (CHANGELOG = содержимое будущего тега v1.8.0); принято + CI 9/9 → вливаю, флаг, тег.
+
+### 2026-10-07T05:26:31+04:00 judge
+CEO 05:27 — вердикт уже в записи 05:01 (выше): возврат закрыт, #29 на голове a24de5f ПРИНЯТ — CHANGELOG 1.8.0 = всё влитое с v1.7.1 (сверено git log --merges v1.7.1..main + названия с кодом main). Голова на 05:27 та же (a24de5f). CI run 37554867408: 8/9 success (Win/Linux 3.11–3.13, macOS 3.11/3.12), macOS 3.13 и ci-ok ещё идут. Вливать при 9/9 + ci-ok на a24de5f; новый коммит — снова ко мне. Дальше без изменений: флаг tk076-pr29-merged.flag → Инженер ставит v1.8.0 → финальный гейт на sha тега.
+
+### 2026-10-07T05:47:29+04:00 ceo
+CEO 05:50: #29 a24de5f принят Судьёй, CI зелёный, но теперь CONFLICTING — после влития #30 (TK-079: хук Stop, e5e9a28) в main. Слить main в ветку #29, в CHANGELOG 1.8.0 добавить пункт #30, CI → --next judge (диф a24de5f..голова: только слияние + пункт #30) → я вливаю → тег v1.8.0.
+
+### 2026-10-07T05:48:18+04:00 engineer
+#29: main (#30, e5e9a28) слит в ветку — голова 2800e5a, PR снова MERGEABLE. Конфликт был только в CHANGELOG (#30 писал в «Не выпущено»): разрешён — в 1.8.0 «Добавлено» пункт хука Stop (stop_result.py), в «Исправлено» пункт merged:<репо>#<PR> 404; раздела «Не выпущено» с содержимым и второго заголовка 1.8.0 нет, release.py check ок. Диф a24de5f..2800e5a = содержимое #30 (merge_rule, stop_result.py, hooks.json, тесты) + 2 строки CHANGELOG, моего кода сверх нет. CI на 2800e5a запущен (9 клеток + ci-ok). Судье: принять диф; CEO вливает при 9/9 → tk076-pr29-merged.flag → тег v1.8.0. Шапка: waiting на tk076-pr29-merged.flag.
+
+### 2026-10-07T05:49:19+04:00 judge
+PR #29 голова 2800e5a — ПРИНЯТО; вливать при CI 9/9 + ci-ok на 2800e5a (run 37558891961 на 05:50 — in_progress).
+
+| пункт | да/нет | на чём проверено |
+|---|---|---|
+| диф к main — только CHANGELOG + assert | да | git diff origin/main origin/fix/tk076-release --stat: CHANGELOG.md 20 строк, test_dispatch.py +4/−1; merge-base = e5e9a28 (#30) — кода сверх main нет |
+| диф a24de5f..2800e5a = #30 + строки CHANGELOG | да | --stat: merge_rule.py, test_merge_rule.py, hooks/stop_result.py, test_role_hooks.py, hooks.json, CHANGELOG — ровно файлы e5e9a28 |
+| #30 в 1.8.0 | да | CHANGELOG:11 «Добавлено» хук Stop (stop_result.py, RPV_STOP_STRICT), :41 «Исправлено» merged:<репо>#<PR> 404 — тексты = раздел «Не выпущено» main; «Не выпущено» пуст, заголовок 1.8.0 один (2026-10-07) |
+| 1.8.0 = всё влитое с v1.7.1 | да | git log --merges v1.7.1..main (сверено 05:01) + git log --first-parent --no-merges v1.7.1..main: единственный сквош — e5e9a28 (#30), покрыт |
+| #30 принят Судьёй | да | TK-079: принят на 27781ee, влит сквошем e5e9a28 при CI 10/10 |
+| CI на голове | ждёт | run 37558891961 (2800e5a) in_progress; a24de5f был 9/9 success |
+
+CEO: влить при 9/9 + ci-ok на 2800e5a (--match-head-commit 2800e5a); если до слияния main снова уйдёт — новый коммит ко мне. Дальше: tk076-pr29-merged.flag → Инженер ставит v1.8.0 → финальный гейт на sha тега (выносливость ≥ 2 ч + /rpv-doctor на чистом проекте).
+
+### 2026-10-07T06:03:09+04:00 ceo
+CEO (авто): #29 2800e5a — принят Судьёй, CI 9/9 — ВЛИТ (state MERGED). Флаг tk076-pr29-merged.flag → тег v1.8.0 + живой update/rollback.
+
+### 2026-10-07T06:04:15+04:00 engineer
+Тег v1.8.0 поставлен и отправлен: аннотированный тег на main 3d43e95 (Merge #29; в нём #18+#17+#30+TK-079/077, plugin.json=marketplace.json=CHANGELOG=1.8.0, release.py check ок; release.py bump не понадобился — версии были 1.8.0 с PR #29). Финальный гейт на sha тега 3d43e95: (1) выносливость 2 ч — workflow endurance, ref=v1.8.0, run 37560166752 (ubuntu, 3.12, --hours 2 --idle-max 30, запущен 06:05, ждать ~2–2,5 ч); критерий — 0 lost_signals, 0 blocked, простой ≤ 30 с/сбой; (2) /rpv-doctor на чистом проекте с кода тега (doctor.py --project <пустой git-проект с .claude/tickets>): таблица OK/FAIL/WARN/— выведена, rc=1 — диспетчер и сторож не запущены (FAIL, ожидаемо для чистого проекта без служб), присмотр ОС WARN не установлен, шина — выключена, очередь/запуски/ошибки OK; падений и исключений нет. (3) Живой release.py update/rollback на этой машине не гонял: плагин role-play-vibing в Installed plugins:
+
+  ❯ hindsight-memory@hindsight
+    Version: 0.7.5
+    Scope: user
+    Status: ✘ disabled
+
+  ❯ superpowers@superpowers-marketplace
+    Version: 6.1.1
+    Scope: user
+    Status: ✘ disabled
+
+  ❯ typesafe@typesafe-ai
+    Version: 0.5.7
+    Scope: user
+    Status: ✔ enabled
+
+Synced from claude.ai:
+
+  ❯ exa@synced
+    Version: 3.4.1
+    Path: C:\Users\Георгий\.claude\plugins\synced\2dfd993a-1431-4201-894c-ab31a8d76622_a04df0a8-92e3-4c89-bc72-bc845b673515\exa~g2
+    Status: ✔ loaded не установлен (проверка тега на GitHub и откат покрыты тестами test_release в CI; на машине с установленным плагином — первое обновление). Дальше: CEO — когда run 37560166752 завершится (gh run view 37560166752 --repo Gogi213/role-play-vibing), поставь флаг .claude/dispatcher/tk076-end-tag-done.flag; Инженер разберёт итог и передаст Судье на финал TK-076 (sha тега 3d43e95). Шапка: waiting на этот флаг.
+
+### 2026-10-07T08:07:07+04:00 ceo
+CEO (авто): выносливость 2 ч на теге v1.8.0 (run 37560166752) завершена (failure) — флаг tk076-end-tag-done.flag создан.
+
+### 2026-10-07T08:07:41+04:00 ceo
+CEO 08:05: ФИНАЛЬНЫЙ ГЕЙТ v1.8.0 НЕ ПРОЙДЕН — выносливость 2 ч (run 37560166752) failure: 34 раунда, красных 3, все в режиме bus — раунды 26, 30, 34 (каждый 4-й bus-раунд с 26-го, нарастает к концу): done:false, lost_signals пачкой TK-397…408 + «--next ceo не дошёл», в логе [bus] «шина недоступна (URLError)» на подъёме. На 60-раундовой отладке (короткой) было 0 — значит дефект накопительный: что растёт за 2 ч в bus-режиме (bus.db/spool, открытые файлы/сокеты, курсор seq, таймауты подъёма шины после kill). Причина по логу/артефактам → починка в продукте → короткий тест, воспроизводящий накопление (N раундов bus подряд) → выпуск 1.8.1 через Судью → повтор выносливости 2 ч. Переключение alpha (TK-077) — после зелёной выносливости.
+
+### 2026-10-07T08:12:46+04:00 engineer
+Выносливость 2 ч на теге v1.8.0 (run 37560166752): КРАСНЫЙ, но причина — в harness, не в плагине. Раунды 1–25 и 27–29 зелёные (простой ≤ 2,6 с, blocked 0). Падения: bus-раунды 26, 30, 34 (потерянные сигналы done/нет-хода/next-ceo) и каскад 31–33 (done:false, таймауты по 7 мин). Причина: Harness.inbox() читал очередь ceo шины /q/ceo?after=0 без ack, а bus.fetch отдаёт LIMIT 100; bus.db общий, очередь копится по раундам — после ~6 bus-раундов хвост невидим: сигналы 'потеряны', симулятор CEO не отвечает на next-ceo, тикет TK-357 раунда 30 не done, и statuses() по всем тикетам держит все следующие раунды до таймаута. Правка: PR #31 (Gogi213/role-play-vibing, fix/tk076-endurance-inbox-page, 1 коммит, +32/−4): inbox() листает по seq; тест test_inbox_pages_past_100_events (130 событий) красный без правки, зелёный с ней; test_bus_round зелёный локально; CHANGELOG 'Не выпущено/Исправлено'. Дальше: Судье — принять #31 (CI 9/9 → CEO вливает по правилу); после влития — тег v1.8.1 и повтор выносливости 2 ч на его sha + финальный /rpv-doctor (последний уже выведен на 3d43e95, FAIL только 'службы не запущены' на чистом проекте). Живой release.py update/rollback на этой машине не гонялся (плагин не установлен; покрыт test_release).

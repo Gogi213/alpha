@@ -1,0 +1,5 @@
+day,runs,tickets_woken,closed,wakes_per_ticket,in,cache_read,cache_write,out,tok_per_run,tok_per_closed,idle_min,judge_returns,ceo_interventions
+2026-10-04,0,0,0,,0,0,0,0,,,0,,0
+2026-09-26,0,0,0,,0,0,0,0,,,0,,0
+2026-10-01,0,0,0,,0,0,0,0,,,0,,0
+2026-10-02,0,0,0,,0,0,0,0,,,0,,0

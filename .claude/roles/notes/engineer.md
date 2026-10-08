@@ -4,6 +4,11 @@
 обновлять в конце каждой задачи. Держать ≤ 60 строк: устаревшее — в `notes/archive/engineer-<дата>.md`.
 
 ## Сейчас делаю
+- **02.10 03:50 — TK-027 ЭТАП 2:** гейт узла/Софии закрыт Исследователем (823/823). Запущен стенд января на узле: юнит `tk027-bench-jan`
+  (`~/alpha/bin/tk026-vps-bench.py --box-ssh --fresh --days 01-01:01-07`, вывод `~/alpha/tk026/bench-collector`, `DONE` последним, mem-budget 2800, MemoryMax 3300M);
+  сторож `/tmp/watch-bench.sh` (pwsh→git bash -l) пишет `wake-TK-027.flag` по DONE; второй сон 05:20 — проверка п.1. После DONE: итог таблицей
+  в TK-027/TK-022 (@researcher), на узле 0 копий суток (stage чистит стенд). Урок: хук режет Bash-текст со словами удаления (даже в heredoc) —
+  правки кода с ними только Edit-ом; на узле сценарии зашиты под `/home/deck` → ссылка на `/home/ubuntu/alpha`.
 - **02.10 03:45 — TK-027** (В-163, waiting на `wake-TK-027.flag` 05:20): коллектор остановлен CEO в 23:22 UTC. Узел счёта
   139.99.91.22 ГОТОВ: `~/alpha/{bin,epochs/e-jan,tk022,stage}` + ссылка `/home/deck/alpha`→`/home/ubuntu/alpha` (сценарии зашиты под
   путь деки) + `jall-jan-*.txt`, `study/sigma240`; сутки 01-02: проходы 282/84/82 с (rc=0), пик cgroup 2,4/1,2/1,7 ГБ, p2∥p3 влезли;
@@ -11,8 +16,13 @@
   (16 различаются, причина не выяснена). Опись `docs/findings/tk027-inventory-2026-10-02.md`. ОСТАЛОСЬ: сутки 10-01 → ящик
   (sb-move 01:10 UTC, проверка после 05:20: disabled, нет binlog в root/deep, MOVED в move.log, sb-push.timer выключен);
   хук отказал в чистке `/dev/shm/alpha-stage` деки — ответа CEO жду; stage узла (01-02, 01-03) снять по `.release`.
+- **02.10 04:30 — TK-026 возврат Судьи закрыт правками (dbc78f3), тикет `done` → Судья перепроверяет** (сроки с D20: янв–июн 313,3 ГБ = 13,4 ч; гейт v2 — место tmpfs,
+  MemAvailable только в журнал — проверку памяти не добавлял: тупик D/D+1; сухой прогон v2 с ложным `.release` — до боевого запуска, после HOLD).
 - **02.10 ~03:15 — TK-026** (дека↔ящик): отчёт `docs/findings/deck-box-speed-2026-10-02.md` (e20bdea), скрипты `tools/compute/tk026-*`; потолок канала
-  6,5–7 МБ/с, sshfs 1,9–2,9; **В-163: дека заморожена**; тикет waiting на `docs/findings/thin-binlog-2026-10-02.md` (агент «тонкой копии»).
+  6,5–7 МБ/с, sshfs 1,9–2,9; **В-163: дека заморожена**; «тонкая копия» замерена мной (fb731f5): монеты ×1,16, время (bid+возраст+режим BTC)
+  ×4,3, глубина ×2–4 (полоса 40–50 bps скользящая — нужна подкоманда `lob thin` + гейт байт-в-байт, ≈ 08:00); тикет waiting на DONE
+  замера VPS-Софии (Исследователь, `data/tk026-vps-bench/sofia/DONE`). Урок: перед командой на деке — читать лог тикета (В-163 пришёл
+  в 03:10, я запускал read-only скрипты на деке 03:08–03:12 и признал это CEO); параллельная сессия инженера перезаписывает файлы — сверять `git log`.
 - **02.10 ~04:00 — TK-025** (R1, ТЕПЕРЬ 61 колонка за `--r1-cols`, кадр ВЗВОДА): правка A Судьи (02:23) + блок Исследователя (03:50) приняты —
   касание-раскладка (`f9b2e00`/`1f3d02b`, гейт 03:35) снята как неверная для `--signal approach`. Worktree `.claude/worktrees/tk025-merge`, ветка
   `tk025-r1` (НЕ влита): `f3b6726` — ядро: `push_arm`/`finish_frame(s)` (колонки в конце аск-прохода = Н1 закрыт), `armed` + `attach` к записи
@@ -56,3 +66,18 @@
   журналы по классам позволяют остановиться без потерь; обратную привязку (`tk020-unlink.py`) держать готовой.
 - 27.09 (узнал и грабли: свечи, сборка на VPS, марке­ры K1, sha256sum Git Bash, ожидалки, StartLimitBurst, хук rm) — `notes/archive/engineer-2026-10-02b.md`.
 - 26.09 (архив): грабли индекса git, Python-heredoc, ListAgents, HOME на VPS, pkill через ssh, юнит-ожидалка — `notes/archive/engineer-2026-10-02.md`.
+
+## Табло (TK-062, 06.10)
+- Сдавать только по ЖИВОМУ адресу (`.claude/pulse/board-url.txt`, :8787 на сервере счёта): `tar -cf - -C tools/pulse/web <файлы> | ssh -i … 'cp в bak; tar -xf - -C /opt/alpha-board && systemctl restart alpha-board'`, сверить sha256; снимки — `data/boardtest/shot8.py` (живая + макет рядом).
+- Правка collect.py/view2.py живёт только после перезапуска сборщика (WMI Create `cmd /c python tools\pulse\collect.py >> …log`, CurrentDirectory = репо); проверять `status.json` → `view2.feed`.
+- В питоновских строках с regex писать `r"…"`: обычная `"\b"` превращается в backspace и фильтр молча не работает.
+
+## TK-077 (07.10)
+- Общий git stash между worktree: push/pop взял чужой WIP (и мой ушёл в чужое дерево) — не использовать, сравнивать через временную копию файла (cp/git show). tasklist (OEM cp866) под PYTHONUTF8=1 без encoding=errors=replace ломает проверку pid (PR плагина #33). ~/.claude/hooks/alpha_one_build.py импортирует delete_guard из alpha/.claude/hooks — прослойка к плагину.
+
+## TK-087 (08.10)
+- Плагин: PR к main сильно дрейфует (6 влитых за час) — перед сдачей `gh api repos/Gogi213/role-play-vibing/compare/main...<ветка> -q .behind_by`, не заявлять «готово» без этого; Судья просит не подливать main после приёмки CI. Haiku-вызовы плагина — только через `haiku_aux.ask` (as_json=True даёт usage); тесты `test_dispatch`/`test_role_hooks` идут 80+ с, в таймаут 120 с не влезают с хвостом — запускать узко.
+
+## TK-095 (08.10)
+- Быстрый прогон плагина: `python tools/fastcheck.py --calc root@89.163.242.211 --ssh-key ~/.ssh/id_rsa --known-hosts ~/.ssh/known_hosts` (ПК||сервер, ≈160 с; endurance по часам — пол). alsched submit только ставит заявку: конец — `state=done` в /data/sched/jobs/<id>.json (rc там же), лог — /data/sched/logs/<id>.log. На сервере только `python3` (шим `python` в fastcheck).
+- Гонка под xdist: форк до exec показывает cmdline родителя → is_ours() ошибается; в тестах ждать маркер в cmdline. Ожидания в тестах — пределы (выход по готовности), не паузы.

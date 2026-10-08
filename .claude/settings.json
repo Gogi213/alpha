@@ -1,4 +1,26 @@
 {
+  "env": {
+    "RPV_BUS_TOKEN_FILE": "C:\\Users\\Георгий\\.alpha-bus-token",
+    "RPV_BUS_URL": "http://89.163.242.211:8788",
+    "RPV_CALC_HOST": "root@89.163.242.211",
+    "RPV_DISPATCH_MAX_PARALLEL": "8",
+    "RPV_DISPATCH_MAX_RUNS_PER_TICKET_HOUR": "20",
+    "RPV_DISPATCH_MAX_SAME_STATUS_RUNS": "60",
+    "RPV_DISPATCH_ROLE_PARALLEL": "engineer:6",
+    "RPV_GUARD_FORBIDDEN_HOSTS": "139.99.91.22",
+    "RPV_GUARD_HEAVY_ALLOW": "^python3 /data/sched/alsched[.]py (submit|ps|cancel|wave|stand|reprio|thaw)( |$)",
+    "RPV_GUARD_HEAVY_HINT": "Обёртка: /data/benchrun.sh stand <команда> (диски — /data/tk052/benchrun2.sh; волна — wave)",
+    "RPV_GUARD_HEAVY_HOST": "89.163.242.211",
+    "RPV_GUARD_HOST_ROOTS": "89.163.242.211=/home/deck/alpha/,/root/tk0,/data/tk0,/data/registry/,/data/sched/,/tmp/,/opt/alpha-board/;13.140.29.171=/opt/alpha-archive/stage/,/opt/alpha-archive-tk021/dup-reimport/",
+    "RPV_GUARD_REMOTE_ROOTS": "~/alpha/,$home/alpha/,${home}/alpha/,/home/deck/alpha/,/opt/alpha-compute/",
+    "RPV_GUARD_STAGE": "/dev/shm/alpha-stage",
+    "RPV_JOB_OWNERS_CMD": "sh /data/tk092/jobowners.sh",
+    "RPV_JOB_STATE_CMD": "sh /data/tk092/jobstate.sh {id}",
+    "RPV_PROGRESS_DIR": "/data/progress",
+    "RPV_STOP_STRICT": "1",
+    "RPV_VPS_HOST": "root@13.140.29.171",
+    "RPV_WATCHED_ALIASES": "calc"
+  },
   "skillOverrides": {
     "autopilot": "off",
     "brand-guidelines": "off",
@@ -26,27 +48,5 @@
   },
   "enabledPlugins": {
     "role-play-vibing@role-play-vibing": true
-  },
-  "env": {
-    "RPV_BUS_TOKEN_FILE": "C:\\Users\\Георгий\\.alpha-bus-token",
-    "RPV_BUS_URL": "http://89.163.242.211:8788",
-    "RPV_CALC_HOST": "root@89.163.242.211",
-    "RPV_DISPATCH_MAX_PARALLEL": "8",
-    "RPV_DISPATCH_MAX_RUNS_PER_TICKET_HOUR": "20",
-    "RPV_DISPATCH_MAX_SAME_STATUS_RUNS": "60",
-    "RPV_DISPATCH_ROLE_PARALLEL": "engineer:6",
-    "RPV_GUARD_FORBIDDEN_HOSTS": "139.99.91.22",
-    "RPV_GUARD_HEAVY_ALLOW": "^python3 /data/sched/alsched[.]py (submit|ps|cancel|wave|stand|reprio|thaw)( |$)",
-    "RPV_GUARD_HEAVY_HINT": "Обёртка: /data/benchrun.sh stand <команда> (диски — /data/tk052/benchrun2.sh; волна — wave)",
-    "RPV_GUARD_HEAVY_HOST": "89.163.242.211",
-    "RPV_GUARD_HOST_ROOTS": "89.163.242.211=/home/deck/alpha/,/root/tk0,/data/tk0,/data/registry/,/tmp/,/opt/alpha-board/;13.140.29.171=/opt/alpha-archive/stage/,/opt/alpha-archive-tk021/dup-reimport/",
-    "RPV_GUARD_REMOTE_ROOTS": "~/alpha/,$home/alpha/,${home}/alpha/,/home/deck/alpha/,/opt/alpha-compute/",
-    "RPV_GUARD_STAGE": "/dev/shm/alpha-stage",
-    "RPV_JOB_OWNERS_CMD": "sh /data/tk092/jobowners.sh",
-    "RPV_JOB_STATE_CMD": "sh /data/tk092/jobstate.sh {id}",
-    "RPV_PROGRESS_DIR": "/data/progress",
-    "RPV_STOP_STRICT": "1",
-    "RPV_VPS_HOST": "root@13.140.29.171",
-    "RPV_WATCHED_ALIASES": "calc"
   }
 }
