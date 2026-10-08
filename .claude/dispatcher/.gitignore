@@ -17,3 +17,22 @@ watch.*.log
 stop/
 runs/*
 !runs/.gitkeep
+# TK-090 Д-6: мусор переноса на плагин и рантайм служб плагина
+*.flag
+*.pre-*
+ssh-calls.log
+supervise.log
+supervise.env.json
+ceo-digest.md
+.ceo-digest-seen
+.ceo-inbox-fallback-seen
+ci-heartbeat.json
+ci-state.json
+ci_watch.*
+job-owners.json
+job-state.json
+merge-state.json
+ceo_triage.*
+triage-*
+triage.jsonl
+tk077-deck-quiet.txt

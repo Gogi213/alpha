@@ -1,0 +1,100 @@
+{
+  "skillOverrides": {
+    "autopilot": "off",
+    "brand-guidelines": "off",
+    "canvas-design": "off",
+    "domain-modeling": "off",
+    "frontend-design": "off",
+    "grill-me": "off",
+    "grill-with-docs": "off",
+    "grilling": "off",
+    "implement": "off",
+    "setup-matt-pocock-skills": "off",
+    "theme-factory": "off",
+    "to-spec": "off",
+    "to-tickets": "off",
+    "typesafe-ai": "off",
+    "ui-ux-pro-max": "off",
+    "wayfinder": "off",
+    "mp-code-review": "off",
+    "plan-autopilot": "off",
+    "keybindings-help": "off",
+    "fewer-permission-prompts": "off",
+    "init": "off",
+    "security-review": "off",
+    "claude-api": "off"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_context.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/ceo_signal_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/role_memory.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "role-play-vibing@role-play-vibing": true
+  }
+}
