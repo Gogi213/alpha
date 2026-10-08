@@ -1252,6 +1252,15 @@ impl<'a> GridRun<'a> {
                     FAST_ROWS.load(Relaxed)
                 );
             }
+            if std::env::var_os("ALPHA_TICK_STATS").is_some_and(|v| v == "1") {
+                use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
+                use std::sync::atomic::Ordering::Relaxed;
+                eprintln!(
+                    "bounce-grid:   тик/лот без деления (Э-17; по уже закрытым книгам, нарастающим итогом): вызовов {}, откатов на деление {}",
+                    QUANT_CALLS.load(Relaxed),
+                    QUANT_SLOW.load(Relaxed)
+                );
+            }
             if !memos.is_empty() {
                 let (hits, misses) = memos.iter().fold((0u64, 0u64), |(h, m), x| {
                     let (a, b) = x.lock().map(|g| g.stats()).unwrap_or((0, 0));

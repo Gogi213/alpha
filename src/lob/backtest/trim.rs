@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use hftbacktest::depth::INVALID_MAX;
 use hftbacktest::types::{LOCAL_ASK_DEPTH_EVENT, LOCAL_BID_DEPTH_EVENT};
 
-use super::window_depth::round_half_away;
+use super::window_depth::Quant;
 use super::{EventRows, WindowDepth};
 use hftbacktest::types::Event;
 
@@ -65,6 +65,7 @@ pub fn kept_rows<R: EventRows + ?Sized>(
 ) -> Vec<u32> {
     let n = events.len();
     let mut book = WindowDepth::new(tick_size, lot_size);
+    let tick_q = Quant::new(tick_size);
     let mut side = vec![0u8; n];
     let mut tick = vec![0i64; n];
     // Состояния s_0..s_n: лучший бид как есть; лучший аск с обратным знаком (минимум = максимум аска).
@@ -78,11 +79,11 @@ pub fn kept_rows<R: EventRows + ?Sized>(
         let ev: Event = events.row(j);
         if ev.is(LOCAL_BID_DEPTH_EVENT) {
             side[j] = BID;
-            tick[j] = round_half_away(ev.px / tick_size) as i64;
+            tick[j] = tick_q.of(ev.px);
             book.update_bid_depth(ev.px, ev.qty);
         } else if ev.is(LOCAL_ASK_DEPTH_EVENT) {
             side[j] = ASK;
-            tick[j] = round_half_away(ev.px / tick_size) as i64;
+            tick[j] = tick_q.of(ev.px);
             book.update_ask_depth(ev.px, ev.qty);
         }
     }

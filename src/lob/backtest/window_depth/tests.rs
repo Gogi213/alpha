@@ -262,3 +262,62 @@ fn wide_tick_range_matches_the_crate_book() {
         }
     }
 }
+
+/// Э-17: `Quant::of` побитно равен `round_half_away(x / step) as i64` на случайных и краевых входах.
+#[test]
+fn quant_matches_division_path() {
+    let steps = [
+        0.1, 0.01, 0.001, 0.0001, 0.5, 1.0, 0.05, 0.00001, 3e-7, 0.3, 7.0, 1e-9,
+    ];
+    let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    for &step in &steps {
+        let q = Quant::new(step);
+        let check = |x: f64| {
+            let want = round_half_away(x / step) as i64;
+            assert_eq!(q.of(x), want, "step {step} x {x:e}");
+        };
+        for _ in 0..90_000 {
+            let r = rng.next();
+            let k = (r % 2_000_000_000_000) as i64 - 1_000_000_000_000;
+            // как в бинлоге: целые тики через 1e9 (px_e9 / 1e9) и напрямую k·step
+            let tick_e9 = (step * 1e9).round() as i64;
+            check((k % 1_000_000_000).wrapping_mul(tick_e9) as f64 / 1e9);
+            check(k as f64 * step);
+            // нецелые и ничьи
+            check((k as f64 + 0.5) * step);
+            check((k as f64 + 0.25) * step);
+            check((k as f64 + 0.75) * step);
+            check((k as f64 + 0.2499) * step);
+            check(f64::from_bits(r));
+            check(((r >> 11) as f64 / (1u64 << 53) as f64) * 1e6 * step);
+        }
+        for x in [
+            0.0,
+            -0.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::MIN_POSITIVE,
+            1e300,
+            -1e300,
+            step * 1_099_511_627_775.0,
+            step * 1_099_511_627_776.0,
+            step * 1_099_511_627_777.0,
+            step * 4_503_599_627_370_496.0,
+            step * 0.5,
+            step * -0.5,
+            step * 1.5,
+            step * -1.5,
+        ] {
+            let want = round_half_away(x / step) as i64;
+            assert_eq!(q.of(x), want, "step {step} x {x:e}");
+        }
+    }
+    // нулевой и отрицательный шаг — всегда прежний путь
+    for step in [0.0, -0.1, f64::NAN, f64::INFINITY] {
+        let q = Quant::new(step);
+        for x in [1.0, 0.3, -2.0, 0.0] {
+            assert_eq!(q.of(x), round_half_away(x / step) as i64);
+        }
+    }
+}

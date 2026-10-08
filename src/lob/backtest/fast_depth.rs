@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
 use super::levels::Levels;
-use super::window_depth::round_half_away;
+use super::window_depth::Quant;
 use hftbacktest::backtest::data::Data;
 use hftbacktest::depth::{ApplySnapshot, L2MarketDepth, MarketDepth, INVALID_MAX, INVALID_MIN};
 use hftbacktest::types::{
@@ -56,6 +56,8 @@ pub struct FastMarketDepth {
     pub best_ask_tick: i64,
     pub low_bid_tick: i64,
     pub high_ask_tick: i64,
+    tick_q: Quant,
+    lot_q: Quant,
 }
 
 impl FastMarketDepth {
@@ -70,6 +72,8 @@ impl FastMarketDepth {
             best_ask_tick: INVALID_MAX,
             low_bid_tick: INVALID_MAX,
             high_ask_tick: INVALID_MIN,
+            tick_q: Quant::new(tick_size),
+            lot_q: Quant::new(lot_size),
         }
     }
 }
@@ -168,8 +172,8 @@ impl L2MarketDepth for FastMarketDepth {
         qty: f64,
         timestamp: i64,
     ) -> (i64, i64, i64, f64, f64, i64) {
-        let price_tick = round_half_away(price / self.tick_size) as i64;
-        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        let price_tick = self.tick_q.of(price);
+        let qty_lot = self.lot_q.of(qty);
         let prev_best_bid_tick = self.best_bid_tick;
         note_band(
             price_tick,
@@ -217,8 +221,8 @@ impl L2MarketDepth for FastMarketDepth {
         qty: f64,
         timestamp: i64,
     ) -> (i64, i64, i64, f64, f64, i64) {
-        let price_tick = round_half_away(price / self.tick_size) as i64;
-        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        let price_tick = self.tick_q.of(price);
+        let qty_lot = self.lot_q.of(qty);
         let prev_best_ask_tick = self.best_ask_tick;
         note_band(
             price_tick,
@@ -385,7 +389,7 @@ impl ApplySnapshot for FastMarketDepth {
             let price = data[row_num].px;
             let qty = data[row_num].qty;
 
-            let price_tick = round_half_away(price / self.tick_size) as i64;
+            let price_tick = self.tick_q.of(price);
             if data[row_num].ev & BUY_EVENT == BUY_EVENT {
                 self.best_bid_tick = self.best_bid_tick.max(price_tick);
                 self.low_bid_tick = self.low_bid_tick.min(price_tick);

@@ -31,8 +31,8 @@ use super::DepthSnapshot;
 /// асков — в начале); значения — исходные `qty` событий, все `> 0`.
 #[derive(Debug, Clone)]
 pub struct WindowDepth {
-    tick_size: f64,
-    lot_size: f64,
+    tick: Quant,
+    lot: Quant,
     bids: Side,
     asks: Side,
     best_bid_tick: i64,
@@ -56,6 +56,76 @@ pub(crate) fn round_half_away(x: f64) -> f64 {
         r += 1.0;
     }
     r.copysign(x)
+}
+
+/// Самый большой `|px/шаг|`, при котором невязка умножения на обратный шаг заведомо мала: относительная
+/// ошибка `px·(1/шаг)` против `px/шаг` ≤ 3·2^-53, при `|m| < 2^40` это ≤ 4·10^-4 ≪ 0,25.
+const QUANT_LIM: f64 = 1_099_511_627_776.0;
+
+/// Счёт вызовов `Quant::of` и откатов на деление (суммируется при `Drop` книги; печать — `ALPHA_TICK_STATS=1`).
+pub static QUANT_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static QUANT_SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Перевод цены/объёма в целое число тиков/лотов без деления (Э-17, TK-048). Результат тот же, что у
+/// `round_half_away(x / step) as i64`: `m = x · fl(1/step)`, `c` — ближайшее целое к `m`; если `|m − c| < 0,25` и
+/// `|m| < 2^40`, то `|x/step − c| < 0,5`, значит прежнее округление даёт тот же `c`. Иначе (нецелое, NaN, inf,
+/// огромное, `1/step` не нормальное) — прежний путь с делением.
+#[derive(Debug)]
+pub struct Quant {
+    step: f64,
+    inv: f64,
+    calls: std::cell::Cell<u64>,
+    slow: std::cell::Cell<u64>,
+}
+
+impl Clone for Quant {
+    fn clone(&self) -> Self {
+        Self::new(self.step)
+    }
+}
+
+impl Drop for Quant {
+    fn drop(&mut self) {
+        QUANT_CALLS.fetch_add(self.calls.get(), std::sync::atomic::Ordering::Relaxed);
+        QUANT_SLOW.fetch_add(self.slow.get(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+impl Quant {
+    pub fn new(step: f64) -> Self {
+        let inv = 1.0 / step;
+        Self {
+            step,
+            inv: if inv.is_normal() { inv } else { f64::NAN },
+            calls: std::cell::Cell::new(0),
+            slow: std::cell::Cell::new(0),
+        }
+    }
+
+    pub fn step(&self) -> f64 {
+        self.step
+    }
+
+    #[inline(always)]
+    pub fn of(&self, x: f64) -> i64 {
+        self.calls.set(self.calls.get() + 1);
+        let m = x * self.inv;
+        if m.abs() < QUANT_LIM {
+            let c = (m + 0.5f64.copysign(m)) as i64;
+            if (m - c as f64).abs() < 0.25 {
+                return c;
+            }
+        }
+        self.of_slow(x)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn of_slow(&self, x: f64) -> i64 {
+        self.slow.set(self.slow.get() + 1);
+        round_half_away(x / self.step) as i64
+    }
 }
 
 /// Наибольший тик в `[end, start)` или `INVALID_MIN` — `depth_below` крейта: он обходит
@@ -298,8 +368,8 @@ impl Side {
 impl WindowDepth {
     pub fn new(tick_size: f64, lot_size: f64) -> Self {
         Self {
-            tick_size,
-            lot_size,
+            tick: Quant::new(tick_size),
+            lot: Quant::new(lot_size),
             bids: Side::new(),
             asks: Side::new(),
             best_bid_tick: INVALID_MIN,
@@ -311,8 +381,8 @@ impl WindowDepth {
 
     /// `HashMapMarketDepth::update_bid_depth` крейта, строка в строку по смыслу.
     pub fn update_bid_depth(&mut self, price: f64, qty: f64) {
-        let price_tick = round_half_away(price / self.tick_size) as i64;
-        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        let price_tick = self.tick.of(price);
+        let qty_lot = self.lot.of(qty);
         self.bids.set(price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_bid_tick {
@@ -334,8 +404,8 @@ impl WindowDepth {
 
     /// `HashMapMarketDepth::update_ask_depth` крейта, строка в строку по смыслу.
     pub fn update_ask_depth(&mut self, price: f64, qty: f64) {
-        let price_tick = round_half_away(price / self.tick_size) as i64;
-        let qty_lot = round_half_away(qty / self.lot_size) as i64;
+        let price_tick = self.tick.of(price);
+        let qty_lot = self.lot.of(qty);
         self.asks.set(price_tick, qty, qty_lot);
         if qty_lot == 0 {
             if price_tick == self.best_ask_tick {
