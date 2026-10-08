@@ -2936,6 +2936,11 @@ pub static ATTEMPT_RUNS: [std::sync::atomic::AtomicU64; 4] =
 pub static ATTEMPT_ROWS: [std::sync::atomic::AtomicU64; 4] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 4];
 
+/// Строки развёртки, до которых круг дошёл по часам (`local_ts <= now`), по попыткам (0, 1, 2, 3+) — замер TK-048
+/// против `ATTEMPT_ROWS` (зря развёрнутое); считается только под `ALPHA_ATTEMPT_STATS`, на итог не влияет.
+pub static ATTEMPT_USED: [std::sync::atomic::AtomicU64; 4] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 4];
+
 /// Шаги `run_round` по виду (0 — пошаговый без заявок, 1 — пошаговый с открытыми заявками, 2 — прыжок удержания) — замер TK-049.
 pub static STEP_KINDS: [std::sync::atomic::AtomicU64; 3] =
     [const { std::sync::atomic::AtomicU64::new(0) }; 3];
@@ -2980,6 +2985,14 @@ impl SigMemo {
 
     fn reset(&mut self) {
         self.sig = None;
+    }
+}
+
+fn note_used(attempt: u32, rest: &[Event], now: i64) {
+    if fast_depth::BAND_STATS_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        let used = rest.partition_point(|e| e.local_ts <= now);
+        ATTEMPT_USED[(attempt as usize).min(3)]
+            .fetch_add(used as u64, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -3570,6 +3583,7 @@ fn group_round_in_window<R: EventRows + ?Sized>(
         let Some(steps) = steps else {
             return Ok(None);
         };
+        note_used(attempt, rest, now);
         let enough = whole_tail
             || (!steps.iter().any(step_hit_end_of_data)
                 && last.is_some_and(|(local, exch)| local > now && exch > now));
@@ -3758,6 +3772,7 @@ fn windowed_with<R: EventRows + ?Sized>(
                 )
             })
             .map(|(s, now)| {
+                note_used(attempt, rest, now);
                 // Крейт упёрся в конец развёрнутого — в любом из трёх видов, которыми конец данных
                 // выходит из круга; иначе (и последняя строка позже часов) он видел ровно то же, что
                 // увидел бы над всем хвостом.

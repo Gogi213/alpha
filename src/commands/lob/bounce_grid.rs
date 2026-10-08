@@ -1196,7 +1196,7 @@ impl<'a> GridRun<'a> {
             if retries > 0 {
                 eprintln!("bounce-grid:   горизонт развёртки: пересчётов кругов {retries}");
                 if std::env::var_os("ALPHA_ATTEMPT_STATS").is_some() {
-                    use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS};
+                    use crate::lob::backtest::{ATTEMPT_ROWS, ATTEMPT_RUNS, ATTEMPT_USED};
                     let g = |a: &[std::sync::atomic::AtomicU64]| {
                         a.iter()
                             .map(|x| x.load(std::sync::atomic::Ordering::Relaxed).to_string())
@@ -1207,6 +1207,10 @@ impl<'a> GridRun<'a> {
                         "bounce-grid:   попытки (0/1/2/3+, нарастающим итогом процесса): прогонов {} строк {}",
                         g(&ATTEMPT_RUNS),
                         g(&ATTEMPT_ROWS)
+                    );
+                    eprintln!(
+                        "bounce-grid:   дошли по часам (local_ts <= now, 0/1/2/3+): {}",
+                        g(&ATTEMPT_USED)
                     );
                     eprintln!(
                         "bounce-grid:   шаги кругов (без заявок/с заявками/прыжок, нарастающим итогом): {}",
