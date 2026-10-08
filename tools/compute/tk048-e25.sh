@@ -27,6 +27,7 @@ cat > /data/tk048/e25-d15/run.sh <<'EOS'
 #!/bin/bash
 cd /data/tk051
 /data/benchrun.sh stand bash stand.sh pair alpha-e22 alpha-e25 d15 ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 > /data/tk048/e25-d15/out.txt 2>&1
+/data/benchrun.sh stand bash stand.sh pair alpha-e25 alpha-e22 d15 ALPHA_SKIP_SAME=1 ALPHA_EVENT_STEPS=1 > /data/tk048/e25-d15/outr.txt 2>&1
 touch /data/tk048/e25-d15/done
 EOS
 systemctl reset-failed tk048-e25 2>/dev/null; systemd-run --quiet --unit tk048-e25 --collect bash /data/tk048/e25-d15/run.sh && echo юнит tk048-e25 запущен" ;;
