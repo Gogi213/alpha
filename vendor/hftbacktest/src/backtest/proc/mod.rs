@@ -98,7 +98,23 @@ where
     fn order_latency(&self) -> Option<(i64, i64, i64)>;
 }
 
+/// How [Processor::event_seen_timestamp] filters events; lets the reader scan rows without a
+/// virtual call per row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SeenKind {
+    /// Unknown: call [Processor::event_seen_timestamp].
+    Dyn,
+    /// `event.is(LOCAL_EVENT).then_some(event.local_ts)`.
+    Local,
+    /// `event.is(EXCH_EVENT).then_some(event.exch_ts)`.
+    Exch,
+}
+
 impl<P: Processor + ?Sized> Processor for Box<P> {
+    fn seen_kind(&self) -> SeenKind {
+        P::seen_kind(self)
+    }
+
     fn event_seen_timestamp(&self, event: &Event) -> Option<i64> {
         P::event_seen_timestamp(self, event)
     }
@@ -132,6 +148,11 @@ pub trait Processor {
     /// `None` should be returned if this processor wouldn't have seen this event (i.e. it only
     /// occurred remotely).
     fn event_seen_timestamp(&self, event: &Event) -> Option<i64>;
+
+    /// Declares that [Processor::event_seen_timestamp] is one of the stock filters.
+    fn seen_kind(&self) -> SeenKind {
+        SeenKind::Dyn
+    }
 
     /// Process an event and advance the state of this processor.
     fn process(&mut self, event: &Event) -> Result<(), BacktestError>;

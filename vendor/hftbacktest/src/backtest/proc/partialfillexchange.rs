@@ -861,6 +861,10 @@ where
     MD: MarketDepth + L2MarketDepth,
     FM: FeeModel,
 {
+    fn seen_kind(&self) -> super::SeenKind {
+        super::SeenKind::Exch
+    }
+
     fn event_seen_timestamp(&self, event: &Event) -> Option<i64> {
         event.is(EXCH_EVENT).then_some(event.exch_ts)
     }

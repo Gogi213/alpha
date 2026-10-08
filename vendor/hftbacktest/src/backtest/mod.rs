@@ -19,7 +19,9 @@ use crate::{
         evs::{EventIntentKind, EventSet},
         models::{LatencyModel, QueueModel},
         order::order_bus,
-        proc::{Local, LocalProcessor, NoPartialFillExchange, PartialFillExchange, Processor},
+        proc::{
+            Local, LocalProcessor, NoPartialFillExchange, PartialFillExchange, Processor, SeenKind,
+        },
         state::State,
     },
     depth::{L2MarketDepth, L3MarketDepth, MarketDepth},
@@ -34,7 +36,7 @@ use crate::{
         UNTIL_END_OF_DATA,
         WaitOrderResponse,
     },
-    types::{BuildError, ElapseResult, Event},
+    types::{BuildError, ElapseResult, EXCH_EVENT, Event, LOCAL_EVENT},
 };
 
 /// Provides asset types.
@@ -626,12 +628,14 @@ pub struct BacktestProcessorState<P: Processor> {
     processor: P,
     reader: Reader<Event>,
     row: Option<usize>,
+    seen: SeenKind,
 }
 
 impl<P: Processor> BacktestProcessorState<P> {
     fn new(processor: P, reader: Reader<Event>) -> BacktestProcessorState<P> {
         Self {
             data: Data::empty(),
+            seen: processor.seen_kind(),
             processor,
             reader,
             row: None,
@@ -654,11 +658,25 @@ impl<P: Processor> BacktestProcessorState<P> {
         loop {
             let start = self.row.map(|rn| rn + 1).unwrap_or(0);
 
-            for rn in start..self.data.len() {
-                if let Some(ts) = self.processor.event_seen_timestamp(&self.data[rn]) {
-                    self.row = Some(rn);
-                    return Ok(ts);
-                }
+            // Stock filters are scanned inline (no virtual call per row); same rows, same result.
+            let found = match self.seen {
+                SeenKind::Local => (start..self.data.len()).find_map(|rn| {
+                    let ev = &self.data[rn];
+                    ev.is(LOCAL_EVENT).then_some((rn, ev.local_ts))
+                }),
+                SeenKind::Exch => (start..self.data.len()).find_map(|rn| {
+                    let ev = &self.data[rn];
+                    ev.is(EXCH_EVENT).then_some((rn, ev.exch_ts))
+                }),
+                SeenKind::Dyn => (start..self.data.len()).find_map(|rn| {
+                    self.processor
+                        .event_seen_timestamp(&self.data[rn])
+                        .map(|ts| (rn, ts))
+                }),
+            };
+            if let Some((rn, ts)) = found {
+                self.row = Some(rn);
+                return Ok(ts);
             }
 
             let next = self.reader.next_data()?;
