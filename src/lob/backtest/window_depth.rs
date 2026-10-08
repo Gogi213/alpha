@@ -62,8 +62,8 @@ pub(crate) fn round_half_away(x: f64) -> f64 {
 /// ошибка `px·(1/шаг)` против `px/шаг` ≤ 3·2^-53, при `|m| < 2^40` это ≤ 4·10^-4 ≪ 0,25.
 const QUANT_LIM: f64 = 1_099_511_627_776.0;
 
-/// Счёт вызовов `Quant::of` и откатов на деление (суммируется при `Drop` книги; печать — `ALPHA_TICK_STATS=1`).
-pub static QUANT_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Счёт откатов `Quant::of` на деление (суммируется при `Drop` книги; печать — `ALPHA_TICK_STATS=1`). Вызовы не
+/// считаются: запись счётчика на каждый вызов стояла в горячем цикле (TK-048, строки 111–112 ≈ 5,6 %).
 pub static QUANT_SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Перевод цены/объёма в целое число тиков/лотов без деления (Э-17, TK-048). Результат тот же, что у
@@ -74,7 +74,6 @@ pub static QUANT_SLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 pub struct Quant {
     step: f64,
     inv: f64,
-    calls: std::cell::Cell<u64>,
     slow: std::cell::Cell<u64>,
 }
 
@@ -86,7 +85,6 @@ impl Clone for Quant {
 
 impl Drop for Quant {
     fn drop(&mut self) {
-        QUANT_CALLS.fetch_add(self.calls.get(), std::sync::atomic::Ordering::Relaxed);
         QUANT_SLOW.fetch_add(self.slow.get(), std::sync::atomic::Ordering::Relaxed);
     }
 }
@@ -98,14 +96,12 @@ impl Quant {
         Self {
             step,
             inv: if inv.is_normal() { inv } else { f64::NAN },
-            calls: std::cell::Cell::new(0),
             slow: std::cell::Cell::new(0),
         }
     }
 
     #[inline(always)]
     pub fn of(&self, x: f64) -> i64 {
-        self.calls.set(self.calls.get() + 1);
         let m = x * self.inv;
         if m.abs() < QUANT_LIM {
             let c = (m + 0.5f64.copysign(m)) as i64;

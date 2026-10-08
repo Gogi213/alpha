@@ -1264,11 +1264,10 @@ impl<'a> GridRun<'a> {
                 );
             }
             if std::env::var_os("ALPHA_TICK_STATS").is_some_and(|v| v == "1") {
-                use crate::lob::backtest::{QUANT_CALLS, QUANT_SLOW};
+                use crate::lob::backtest::QUANT_SLOW;
                 use std::sync::atomic::Ordering::Relaxed;
                 eprintln!(
-                    "bounce-grid:   тик/лот без деления (Э-17; по уже закрытым книгам, нарастающим итогом): вызовов {}, откатов на деление {}",
-                    QUANT_CALLS.load(Relaxed),
+                    "bounce-grid:   тик/лот без деления (Э-17; по уже закрытым книгам, нарастающим итогом): откатов на деление {}",
                     QUANT_SLOW.load(Relaxed)
                 );
             }
