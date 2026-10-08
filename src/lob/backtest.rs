@@ -89,7 +89,7 @@ pub use compact::{CompactEvent, EventKind, EventRows};
 pub use trim::{kept_rows, TrimRows};
 pub(crate) use window_depth::round_half_away;
 pub use window_depth::WindowDepth;
-pub use window_depth::QUANT_SLOW;
+pub use window_depth::{QUANT_CALLS, QUANT_SLOW};
 
 /// Шаг номеров заявок между сигналами: круг тратит до `MAX_ENTRY_LEGS` ног входа,
 /// заявку выхода, тейкерское добивание и гашение сироты (F8c) — прежний запас
