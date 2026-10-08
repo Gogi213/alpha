@@ -782,8 +782,10 @@ pub struct StrategyState {
     /// TK-014 `weat*`: кольцо секундных корзин ёмкостью `W`; выделяется при постановке плана и
     /// только у формы `weat*` (иначе `None` — прежний путь).
     wall_ring: Option<Box<[WallBucket]>>,
-    /// R2-A (TK-065): id поставленных добавок (по порядку), их число `adds_done` считается при постановке.
-    add_ids: [u64; MAX_ADDS],
+    /// R2 (TK-065): крупные массивы добавок и известных стен — в куче и только у плана с `pyramid.on()`:
+    /// клон состояния на каждом событии удержания (откат `fast_hold`) не таскает ≈ 200 Б, когда R2 выключен.
+    r2: Option<Box<R2Bufs>>,
+    /// R2-A: число поставленных добавок (их id — `R2Bufs::add_ids`).
     adds_done: u8,
     /// Позиция и стоимость базового входа в момент первой добавки; `Q0` — размер базы.
     add_base_qty: f64,
@@ -797,13 +799,28 @@ pub struct StrategyState {
     /// Г-92: стоп уже перенесён в безубыток (защёлка).
     reinst_be_active: bool,
     /// Г-93: тики стен, существовавших к первому событию удержания (и уже использованных); снимок сделан.
-    nw_known: [i64; NW_KNOWN],
     nw_known_n: u8,
     nw_init: bool,
     /// Г-114: половина по стопу уже закрыта (защёлка).
     stop_half_done: bool,
     /// Г-114 `halflevel`: после входа прошла сделка ленты за `level_px` (защёлка до конца круга).
     level_broken: bool,
+}
+
+/// R2: id добавок (по порядку) и тики стен, существовавших к первому событию удержания.
+#[derive(Debug, Clone, PartialEq)]
+struct R2Bufs {
+    add_ids: [u64; MAX_ADDS],
+    nw_known: [i64; NW_KNOWN],
+}
+
+impl R2Bufs {
+    fn boxed() -> Box<Self> {
+        Box::new(Self {
+            add_ids: [0; MAX_ADDS],
+            nw_known: [0; NW_KNOWN],
+        })
+    }
 }
 
 /// Ёмкость списка добавок на круг (`pyeat<N>` ограничено `N ≤ 10` ⇒ `K = N − 1 ≤ 9`).
@@ -922,7 +939,10 @@ impl StrategyState {
             exit_qty: 0.0,
             exit_accounted: 0.0,
             exit_cancel_timeouts: 0,
-            add_ids: [0; MAX_ADDS],
+            r2: match plan {
+                TradePlan::Bounce { pyramid, .. } if pyramid.on() => Some(R2Bufs::boxed()),
+                _ => None,
+            },
             adds_done: 0,
             add_base_qty: 0.0,
             add_base_notional: 0.0,
@@ -931,7 +951,6 @@ impl StrategyState {
             reinstalls: 0,
             reinst_trigger: false,
             reinst_be_active: false,
-            nw_known: [0; NW_KNOWN],
             nw_known_n: 0,
             nw_init: false,
             stop_half_done: false,
@@ -1029,6 +1048,9 @@ impl StrategyState {
     /// а он отработал до форка), так что подмена безопасна.
     pub(crate) fn set_plan(&mut self, plan: TradePlan) {
         self.plan = plan;
+        if matches!(plan, TradePlan::Bounce { pyramid, .. } if pyramid.on()) && self.r2.is_none() {
+            self.r2 = Some(R2Bufs::boxed());
+        }
         // TK-014: клон общего входа группы получает кольцо `weat*` своего плана (раз на круг).
         if let TradePlan::Bounce { wall_eat, .. } = plan {
             if wall_eat.on()
@@ -1735,7 +1757,9 @@ impl StrategyState {
 
     /// R2-A: id поставленных добавок — драйвер круга зачитывает их исполнения во вход.
     pub fn add_order_ids(&self) -> &[u64] {
-        &self.add_ids[..usize::from(self.adds_done)]
+        self.r2
+            .as_deref()
+            .map_or(&[][..], |r| &r.add_ids[..usize::from(self.adds_done)])
     }
 
     /// R2-A: доливка включена — решение удержания читает добавки и сделки в стену, шаги не пропускаются.
@@ -1761,7 +1785,7 @@ impl StrategyState {
         }
         let mut qty = self.add_base_qty;
         let mut notional = self.add_base_notional;
-        for id in &self.add_ids[..usize::from(self.adds_done)] {
+        for id in self.add_order_ids() {
             let Some(order) = bot.orders(self.asset_no).get(id) else {
                 continue;
             };
@@ -1815,7 +1839,7 @@ impl StrategyState {
             self.add_base_notional = self.entry_notional;
         }
         let id = self.take_order_id();
-        self.add_ids[usize::from(self.adds_done)] = id;
+        self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
         self.adds_done += 1;
         let raw = if pyramid.fresh {
             self.qty / f64::from(parts)
@@ -1926,11 +1950,12 @@ impl StrategyState {
             } else {
                 depth.ask_qty_at_tick(tick)
             };
-            if qty < floor || self.nw_known[..usize::from(self.nw_known_n)].contains(&tick) {
+            let known = &mut self.r2.get_or_insert_with(R2Bufs::boxed).nw_known;
+            if qty < floor || known[..usize::from(self.nw_known_n)].contains(&tick) {
                 continue;
             }
             if usize::from(self.nw_known_n) < NW_KNOWN {
-                self.nw_known[usize::from(self.nw_known_n)] = tick;
+                known[usize::from(self.nw_known_n)] = tick;
                 self.nw_known_n += 1;
             }
             if !init {
@@ -2022,7 +2047,7 @@ impl StrategyState {
         let busy = self.adds_done > 0
             && bot
                 .orders(self.asset_no)
-                .get(&self.add_ids[usize::from(self.adds_done) - 1])
+                .get(&self.add_order_ids()[usize::from(self.adds_done) - 1])
                 .is_some_and(|o| {
                     matches!(
                         o.status,
@@ -2046,7 +2071,7 @@ impl StrategyState {
             return Ok(());
         }
         let id = self.take_order_id();
-        self.add_ids[usize::from(self.adds_done)] = id;
+        self.r2.get_or_insert_with(R2Bufs::boxed).add_ids[usize::from(self.adds_done)] = id;
         self.adds_done += 1;
         let tif = if post_only {
             TimeInForce::GTX
@@ -2076,7 +2101,7 @@ impl StrategyState {
         }
         self.adds_released = true;
         for i in 0..usize::from(self.adds_done) {
-            let id = self.add_ids[i];
+            let id = self.add_order_ids()[i];
             self.cancel_open(bot, id)?;
             let executed = bot.orders(self.asset_no).get(&id).map_or(0.0, executed_qty);
             self.adopt_orphans(id, 1, OrphanKind::Entry, executed);
