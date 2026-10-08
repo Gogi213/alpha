@@ -953,6 +953,15 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
                 return tid
         return None
 
+    unit_owner: dict = {}  # {(машина, юнит): тикет} — общее сопоставление «задание → тикет» (сторож жизни, TK-092)
+    try:
+        for mid_, lst in json.loads((DISP / "job-owners.json").read_text(encoding="utf-8")).items():
+            for j_ in lst:
+                if j_.get("ticket") and j_.get("unit"):
+                    unit_owner[(mid_, j_["unit"])] = j_["ticket"]
+    except (OSError, ValueError, AttributeError):
+        pass
+
     entries: list = []  # {tid, mid, kind: job|proc|build|session|unit, what, eta, text, pct, detail, minutes}
     warns: dict = {}
 
@@ -981,7 +990,7 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
         lock = m.get("lock") or {}
         for g in m.get("procs", []):
             name, mins = g["name"], g["minutes"]
-            tid = tk_norm(name, prefix=True) or (
+            tid = unit_owner.get((mid, name)) or tk_norm(name, prefix=True) or (
                 owner_by_log(name) if name not in UNIT_DO and name not in legacy and not is_build_proc(name) else None)
             if tid:
                 if active(tid):
