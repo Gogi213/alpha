@@ -1750,6 +1750,7 @@ impl StrategyState {
     }
 
     /// R2-A: зачесть исполнение добавок в позицию плана (`entry_*` = база + добавки).
+    #[inline(never)]
     fn pyramid_account<MD, B>(&mut self, bot: &B)
     where
         MD: MarketDepth,
@@ -1776,6 +1777,7 @@ impl StrategyState {
 
     /// R2-A, Г-94: на съедании `j/N` стены (`j = 1..N−1`) — добавка `Q0/N` пост-онли лимитом по
     /// лучшей цене нашей стороны; стена съедена целиком — добавки нет; не больше одной за вызов.
+    #[inline(never)]
     fn pyramid_step<MD, B>(
         &mut self,
         bot: &mut B,
@@ -1978,6 +1980,7 @@ impl StrategyState {
 
     /// Г-92: возврат стены — одна добавка `u·Q0` по лучшей цене нашей стороны; висящая прошлая
     /// добавка занимает слот (новая не ставится, `adds_done` не растёт); не больше `K`.
+    #[inline(never)]
     fn pyramid_reinstall_step<MD, B>(
         &mut self,
         bot: &mut B,
@@ -2062,6 +2065,7 @@ impl StrategyState {
     }
 
     /// R2-A: выход отправлен — добавки снимаются, поздние исполнения гасятся как сироты входа.
+    #[inline(never)]
     fn pyramid_release<MD, B>(&mut self, bot: &mut B) -> Result<(), B::Error>
     where
         MD: MarketDepth,
