@@ -58,7 +58,7 @@ raw = {"v": defaultdict(dict), "vt": defaultdict(dict)}   # вид -> форма
 rawusd = defaultdict(float)   # форма -> сырые $ (справочно)
 for kind in raw:
     for m in MONTHS:
-        for pre in (("vn", kind) if NORM and kind == "v" else (kind,)):
+        for pre in (("vn",) if NORM and kind == "v" else (kind,)):
             j = json.load(open(f"{D}closes-{pre}-cap{CAP}-{m}.json"))
             for form, per in j.items():
                 for _p, caps in per.items():
