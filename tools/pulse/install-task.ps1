@@ -3,9 +3,10 @@
 # Веб табло здесь не поднимается: живёт юнитом alpha-board на сервере счёта (адрес — .claude/pulse/board-url.txt, выкладка — блокнот инженера, «Табло»).
 # Запуск: pwsh -File tools/pulse/install-task.ps1   (идемпотентно: пересоздаёт задание)
 $repo = (Resolve-Path "$PSScriptRoot\..\..").Path
+# pythonw напрямую, не cmd.exe /c start: cmd каждые 5 минут мигал видимым окном (TK-105); консольного вывода у pythonw нет
 $py = (Get-Command python).Source
-$arg = "/c cd /d `"$repo`" && start `"`" /b `"$py`" tools\pulse\collect.py >> .claude\pulse\collect.log 2>&1"
-$act = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument $arg -WorkingDirectory $repo
+$pyw = Join-Path (Split-Path $py) 'pythonw.exe'
+$act = New-ScheduledTaskAction -Execute $pyw -Argument 'tools\pulse\collect.py' -WorkingDirectory $repo
 $t2 = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
 $pr = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
