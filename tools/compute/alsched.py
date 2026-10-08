@@ -161,6 +161,7 @@ class Core:
         self.alert_waiting(now)
         self.alert_underuse(now)
         self.alert_idle(now)
+        self.log_util(now, legacy)
 
     def preempt_for(self, head, room, now):
         """Вытеснение заморозкой (Slurm PreemptMode=SUSPEND): резерв не стартует за PREEMPT_S — замораживаем идущие заявки
@@ -250,6 +251,18 @@ class Core:
                 if used < UNDER_FRAC * j["cores"]:
                     j["under_alerted"] = True
                     self.be.alert(f"заявка {j['id']} {j['name']}: объявлено {j['cores']} ядер, за {int((now - t0) / 60)} мин занято {used:.2f} — сократить заявку")
+
+    def log_util(self, now, legacy):
+        """Гейт описания «загрузка ядер ≥ 80 % при производстве»: раз в минуту строка util.log — доля занятых ядер хоста
+        (/proc/stat), заявки prod (идут/ждут), голые юниты (ядер), окно замера. Нет be.host_busy (макет) — молчим."""
+        if not hasattr(self.be, "host_busy") or now - getattr(self, "_util_t", 0) < 60:
+            return
+        self._util_t = now
+        run = [j for j in self.running("prod") if not j.get("frozen_for")]
+        q = sum(1 for j in self.jobs.values() if j["state"] == "queued" and j["cls"] == "prod")
+        meas = int(bool(self.running("measure")) or self.frozen)
+        self.be.util_log(f"host={self.be.host_busy():.3f} prod_run={len(run)} prod_cores={sum(j['cores'] for j in run)} "
+                         f"queued={q} legacy={legacy} measure={meas}")
 
     def alert_idle(self, now):
         """п.8(в): нет ни идущих, ни ждущих заявок, а тикеты ждут вычислений (be.waiting_tickets()) дольше IDLE_S — строка, один раз за простой."""
@@ -361,6 +374,18 @@ class SystemdBackend:
 
     def alert(self, text):
         with open(f"{DIR}/alerts.log", "a") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + text + "\n")
+
+    def host_busy(self):
+        """Доля занятых ядер хоста с прошлого вызова (/proc/stat: 1 − (idle+iowait)/сумма)."""
+        v = [int(x) for x in open("/proc/stat").readline().split()[1:]]
+        tot, idle = sum(v), v[3] + v[4]
+        t0, i0 = getattr(self, "_hb", (tot, idle))
+        self._hb = (tot, idle)
+        return 1 - (idle - i0) / (tot - t0) if tot > t0 else 0.0
+
+    def util_log(self, text):
+        with open(f"{DIR}/util.log", "a") as f:
             f.write(time.strftime("%Y-%m-%dT%H:%M:%S ") + text + "\n")
 
     def cancelled(self, j):
