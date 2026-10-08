@@ -23,6 +23,7 @@ class SimBE:
         self.cpu = {}
         self.cpu_rate = {}
         self.tickets = []
+        self.mem_used = {}
 
     def job_cpu(self, j): return self.cpu.get(j["id"], 0.0)
     def waiting_tickets(self): return self.tickets
@@ -44,6 +45,7 @@ class SimBE:
     def extend(self, j, remaining): pass
     mem_av, mem_swap = 36.0, 0.0
     def mem_state(self): return self.mem_av, self.mem_swap
+    def job_mem(self, j): return self.mem_used.get(j["id"], 0.0)
     def win_begin(self, j): return None
     def win_end(self, j, s): return dict(ok=True, why=[])
 
@@ -159,6 +161,17 @@ def fact_case(pack):
     return len(core.running("prod"))
 
 
+def mem_case():
+    """v2 п.1: 20 заданий × 1 ядро, заявлено 4 ГБ, факт 1,2 ГБ, MemAvailable 27 — недобор считается только для молодых (< MEM_RAMP_S): за 15 мин идут все 16 ядер."""
+    be = SimBE(); be.mem_av = 27.0; core = S.Core(be, ncpu=NCPU, mem=56, pack="fact")
+    for i in range(20):
+        j = job("m%02d" % i, "m%d" % i, "prod", 1, 4, "none", 3600, 0)
+        core.add(j); be.cpu_rate[j["id"]] = 1; be.mem_used[j["id"]] = 1.2
+    for _ in range(180):
+        core.tick(); be.advance(core, S.TICK)
+    return len(core.running("prod"))
+
+
 def seq_case():
     """v2 п.2: два seq на одном диске — второй ждёт; seq на другом диске и не-seq на том же — идут."""
     be = SimBE(); core = S.Core(be, ncpu=NCPU, mem=56)
@@ -247,6 +260,9 @@ def run():
     ok = ok and tu is not None and S.UNDER_S <= tu <= S.UNDER_S + 2 * S.SAMPLE_S and len(au) == 1
     ok = ok and ti is not None and 600 + S.IDLE_S <= ti <= 600 + S.IDLE_S + 2 * S.TICK and len(ai) == 1 and not aq
     nc, nf, sq, hs = fact_case("claim"), fact_case("fact"), seq_case(), honest_case()
+    mc = mem_case()
+    print(f"v2 память: заявка 4 ГБ, факт 1,2, MemAvailable 27 — идут {mc} из 16 ядер")
+    ok = ok and mc == 16
     print(f"v2 пакование: заявка 4 ядра, факт 1 — claim идут {nc}, fact идут {nf}; seq-диск: идут {sq}; 3×4 честных + честное 8: {hs[0]}, сверх заявки {hs[1]}")
     ok = ok and nc == 4 and nf == 11 and sq == ["s0", "s2", "s3"] and hs == ("queued", False)
     print("ГЕЙТ:", "ок" if ok else "ПРОВАЛ")

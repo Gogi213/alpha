@@ -28,6 +28,7 @@ LEGACY_PAT = FREEZE_PAT
 PACK = os.environ.get("SCHED_PACK", "claim")   # claim (как было) | fact: пускать из очереди по факту ЦП/памяти, заявка --cores — нижняя оценка (TK-071 v2, п.1)
 FACT_BUSY = float(os.environ.get("SCHED_FACT_BUSY", "0.90"))      # старт сверх заявленных ядер, пока загрузка ЦП (EWMA 60 с) ниже этого
 FACT_SETTLE_S = int(os.environ.get("SCHED_FACT_SETTLE_S", "30"))  # между стартами по факту: новая задача набирает ЦП не сразу
+MEM_RAMP_S = int(os.environ.get("SCHED_MEM_RAMP_S", "180"))      # возраст, до которого задание «добирает» заявленную память
 FACT_MEM_GAP_GB = float(os.environ.get("SCHED_FACT_MEM_GAP_GB", "2"))   # запас MemAvailable сверх заявки и недобранного идущими
 
 
@@ -197,7 +198,9 @@ class Core:
     def mem_fits(self, j):
         """Память не эластична: MemAvailable (в нём и tmpfs) покрывает заявку j и недобранное идущими до их заявки (max(заявка, факт))."""
         av, _ = self.be.mem_state()
-        gap = sum(max(0.0, r["mem"] - (self.be.job_mem(r) if hasattr(self.be, "job_mem") else 0.0)) for r in self.running("prod"))
+        now = self.be.now()
+        gap = sum(max(0.0, r["mem"] - (self.be.job_mem(r) if hasattr(self.be, "job_mem") else 0.0)) for r in self.running("prod")
+                  if now - r["t_start"] < MEM_RAMP_S)   # старше MEM_RAMP_S — факт уже в MemAvailable (23:08: по заявке 41 ГБ против факта 17,5 стоял весь счёт)
         return av >= j["mem"] + gap + FACT_MEM_GAP_GB
 
     def preempt_for(self, head, room, now):
@@ -472,7 +475,7 @@ class SystemdBackend:
         sl = ["-p", f"Slice={self.slice(j)}"] if j["cls"] == "measure" else []
         r = sh("systemd-run", f"--unit={self.unit(j)}", "--collect", *sl, f"--working-directory={j['cwd']}",
                "-p", f"RuntimeMaxSec={int(j['max_runtime'])}", "-p", "IOAccounting=yes", "-p", "CPUAccounting=yes",
-               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
+               "-p", f"AllowedCPUs={cpus}", "-p", f"MemoryMax={j['mem']}G", "-p", "MemorySwapMax=0", "-p", f"CPUQuota={j['cores'] * 100 if j.get('unpinned') else len(j['cpus']) * 100}%",
                "-p", f"StandardOutput=append:{DIR}/logs/{j['id']}.log", "-p", "StandardError=inherit",
                "bash", "-c", inner)
         if r.returncode:
