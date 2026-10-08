@@ -2634,3 +2634,83 @@ fn fast_hold_handoff_equals_continuous() {
         fast_hold_handoff_case(QueueModelKind::Prob { n: 3.0 }, step);
     }
 }
+
+/// TK-048 К-4а: индекс суток отдаёт те же лучшие цены, объём тика и сделки, что `HoldTracker` в каждом узле.
+#[test]
+fn hold_index_matches_tracker() {
+    use super::fast_hold::HoldTracker;
+    use super::hold_index::{BookSide, HoldIdx};
+    use hftbacktest::depth::{L2MarketDepth, MarketDepth};
+    let mut rows = Vec::new();
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut rnd = |m: u64| {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x % m
+    };
+    let mut ts = 1_000_000_i64;
+    for _ in 0..400 {
+        ts += 1 + rnd(30_000_000) as i64;
+        let px = 100.0 + rnd(9) as f64;
+        let qty = if rnd(4) == 0 {
+            0.0
+        } else {
+            1.0 + rnd(20) as f64
+        };
+        match rnd(5) {
+            0 | 1 => rows.push(depth_at(ts, true, px - 4.0, qty)),
+            2 | 3 => rows.push(depth_at(ts, false, px + 1.0, qty)),
+            _ => rows.push(trade_at(ts, rnd(2) == 0, px - 2.0, 1.0 + rnd(5) as f64)),
+        }
+    }
+    let mut base = FastMarketDepth::new(1.0, 1.0);
+    base.update_bid_depth(97.0, 5.0, 0);
+    base.update_ask_depth(102.0, 5.0, 0);
+    let snap = DepthSnapshot::of(&base);
+    let idx = HoldIdx::build(&rows, 0, &snap, 1.0, 1.0).expect("лента без очисток");
+    let mut tr = HoldTracker::new(&rows, 0, base);
+    let mut t0 = 0;
+    let mut t = 0;
+    while t < ts + 20_000_000 {
+        t += 10_000_000;
+        tr.advance_to(t);
+        let (b, a) = idx.best_at(t);
+        assert_eq!(
+            (b, a),
+            (tr.book().best_bid_tick(), tr.book().best_ask_tick()),
+            "t={t}"
+        );
+        for tick in 92..=106 {
+            assert_eq!(
+                idx.qty_at(BookSide::Bid, tick, t),
+                tr.book().bid_qty_at_tick(tick),
+                "bid {tick} t={t}"
+            );
+            assert_eq!(
+                idx.qty_at(BookSide::Ask, tick, t),
+                tr.book().ask_qty_at_tick(tick),
+                "ask {tick} t={t}"
+            );
+            for sell in [true, false] {
+                let mut want = 0.0;
+                for e in tr.trades.iter().filter(|e| {
+                    (e.ev
+                        & if sell {
+                            EXCH_SELL_TRADE_EVENT
+                        } else {
+                            EXCH_BUY_TRADE_EVENT
+                        })
+                        != 0
+                        && e.px.round() as i64 == tick
+                }) {
+                    want += e.qty;
+                }
+                let got: f64 = idx.trades_in(sell, tick, t0, t).iter().map(|x| x.qty).sum();
+                assert_eq!(got, want, "trades {tick} sell={sell} t={t}");
+            }
+        }
+        tr.take_trades().for_each(drop);
+        t0 = t;
+    }
+}

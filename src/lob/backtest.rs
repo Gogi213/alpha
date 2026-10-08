@@ -74,6 +74,8 @@ mod compact;
 pub mod fast_depth;
 #[allow(dead_code)]
 pub mod fast_hold;
+#[allow(dead_code)]
+pub mod hold_index;
 mod levels;
 #[allow(dead_code)]
 pub mod sched;
