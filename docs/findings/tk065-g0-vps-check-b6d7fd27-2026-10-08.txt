@@ -1,0 +1,20 @@
+    Checking futures v0.3.34
+    Checking reqwest v0.12.28
+    Checking tokio-tungstenite v0.30.0
+    Checking clap v4.6.6
+    Checking hmac v0.13.0
+    Checking sha2 v0.11.0
+    Checking linux-raw-sys v0.12.1
+    Checking fastrand v2.5.0
+    Checking tempfile v3.27.0
+    Checking zstd v0.13.3
+    Checking zstd v0.14.0
+    Checking zip v6.0.0
+    Checking hftbacktest v0.9.4 (/opt/alpha-compute/wave2-src65d/vendor/hftbacktest)
+    Checking alpha v0.1.0 (/opt/alpha-compute/wave2-src65d)
+    Finished `release` profile [optimized] target(s) in 1m 44s
+test bybit::rest::tests::api_rejection_is_returned_not_panicked ... ok
+test result: ok. 1224 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 13.84s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
