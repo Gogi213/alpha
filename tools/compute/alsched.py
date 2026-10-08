@@ -502,7 +502,7 @@ class SystemdBackend:
         cpus = ",".join(map(str, range(NCPU) if j.get("unpinned") else j["cpus"]))
         iso = bool(j.get("iso_cpus"))
         os.makedirs(f"{DIR}/own", exist_ok=True)     # итог ЦП/диска юнита снимает сам юнит перед выходом (после выхода cgroup исчезает)
-        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; }} "
+        fin = (f"cg=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); [ -n \"$ALSCHED_SLICE\" ] && cg=/sys/fs/cgroup/$ALSCHED_SLICE; {{ cat $cg/io.stat; grep usage_usec $cg/cpu.stat; grep '^oom_kill ' $cg/memory.events; }} "
                f"> {DIR}/own/{j['id']} 2>/dev/null; ")
         pre = f"export ALSCHED_SLICE={self.slice(j)} PATH={DIR}/shim:$PATH\n" if j["cls"] == "measure" else ""
         inner = f"{pre}{j['cmd']}\nrc=$?; {fin}echo $rc > {DIR}/rc/{j['id']}; exit $rc"
@@ -700,7 +700,11 @@ class SystemdBackend:
         d["disk_sens"] = not iso or j.get("disk", "none") != "none"
         ok, why = judge_window(d, ncpu=len(iso) if iso else NCPU)
         if iso and ok:       # П4: OOM-убийств за окно нет
-            oom = self.oom_kills() - s0.get("oom", 0)
+            d["oom_host"] = self.oom_kills() - s0.get("oom", 0)      # справочно: чужой memcg-OOM на других ядрах замеру не помеха
+            try:
+                oom = sum(int(l.split()[1]) for l in open(f"{DIR}/own/{j['id']}") if l.startswith("oom_kill "))   # убийства внутри слайса замера
+            except (OSError, ValueError, IndexError):
+                oom = 0
             if oom:
                 ok, why = False, [f"oom_kill в окне: {oom}"]
         if ok and d["wall_s"] >= 600:     # метка для wait_for Судьи: действительная настоящая волна (≥ 10 мин) под демоном
