@@ -8,6 +8,7 @@ import csv
 import datetime as dt
 import json
 import math
+import os
 import sys
 from collections import defaultdict
 
@@ -49,14 +50,26 @@ def day_of(ms):
     return dt.datetime.fromtimestamp(ms / 1000, UTC).strftime("%Y-%m-%d")
 
 
+# NORM=1 (по умолчанию): $ семей g92/g93/g94/g87 на равной экспозиции §6(2) (closes-vn-*, p12-r2-expo.py); NORM=0 — сырые $
+NORM = os.environ.get("NORM", "1") == "1"
+EXPO = json.load(open(D + "expo.json"))["fired"] if NORM else {}
+NEEDF = 10   # §8 R2: >= 10 срабатываний механики клетки в месяце
 raw = {"v": defaultdict(dict), "vt": defaultdict(dict)}   # вид -> форма -> месяц -> [(мс, $)]
+rawusd = defaultdict(float)   # форма -> сырые $ (справочно)
 for kind in raw:
     for m in MONTHS:
-        j = json.load(open(f"{D}closes-{kind}-cap{CAP}-{m}.json"))
-        for form, per in j.items():
-            for _p, caps in per.items():
-                for _c, lst in caps.items():
-                    raw[kind][form][m] = [(int(a), float(b)) for a, b in lst]
+        for pre in (("vn", kind) if NORM and kind == "v" else (kind,)):
+            j = json.load(open(f"{D}closes-{pre}-cap{CAP}-{m}.json"))
+            for form, per in j.items():
+                for _p, caps in per.items():
+                    for _c, lst in caps.items():
+                        raw[kind][form][m] = [(int(a), float(b)) for a, b in lst]
+        if NORM and kind == "v":
+            j = json.load(open(f"{D}closes-v-cap{CAP}-{m}.json"))
+            for form, per in j.items():
+                for _p, caps in per.items():
+                    for _c, lst in caps.items():
+                        rawusd[form] += sum(float(b) for _a, b in lst)
 cal = [(dt.date(2026, 1, 1) + dt.timedelta(i)).isoformat() for i in range((dt.date(2026, 10, 2) - dt.date(2026, 1, 1)).days + 1)]
 di = {d: i for i, d in enumerate(cal)}
 
@@ -92,8 +105,8 @@ def kpi_share(lst, m):
     return bad / (t1 - t0), eq
 
 
-def defined_of(nt, dtr):
-    return [m for m in MONTHS if nt[m] >= 10 and len(dtr[m]) >= 10]
+def defined_of(nt, dtr, form=None):
+    return [m for m in MONTHS if nt[m] >= 10 and len(dtr[m]) >= 10 and (form not in EXPO or EXPO[form].get(m, 0) >= NEEDF)]
 
 
 raw["vg"] = raw["v"]
@@ -104,6 +117,7 @@ for c, (f, kind, suf) in CELLS.items():
     form = BASE[kind] + suf
     if form in raw[kind]:
         S[c] = series(kind, form)
+        S[c] = S[c] + (form,)
     else:
         print("НЕТ формы", c, form)
 cells = [c for c in CELLS if c in S]
@@ -124,7 +138,7 @@ res = {}
 for c in cells:
     f, kind, _ = CELLS[c]
     b = BN[kind]
-    defc = defined_of(S[c][1], S[c][2])
+    defc = defined_of(S[c][1], S[c][2], S[c][4])
     defb = defined_of(S[b][1], S[b][2])
     mk = np.array([d[:7] in defc and d[:7] in defb for d in cal])
     dl = S[c][0] - S[b][0]
@@ -168,7 +182,7 @@ for k, (f, p) in enumerate(ps):
 rows = []
 for c in ["B1", "B3", "B1g"] + cells:
     nt, dtr, lsts = S[c][1], S[c][2], S[c][3]
-    dfc = defined_of(nt, dtr)
+    dfc = defined_of(nt, dtr, S[c][4] if len(S[c]) > 4 else None)
     for m in MONTHS:
         s, eq = kpi_share(lsts.get(m, []), m)
         rows.append([MODE, c, m, nt[m], round(eq, 1), round(s, 4), int(m in dfc)])
@@ -201,7 +215,7 @@ for c in cells:
     print(f"{c} | {r['tot']:+.0f} ({r['totb']:+.0f}) | {r['mean']:+.2f} [{r['lo']:+.2f};{r['hi']:+.2f}] | {r['T']:.2f} | {r['p1']:.3f} | "
           f"{r['pwy']:.3f} | {r['pharm']:.3f} | {kpi_mean(c):.3f} | {w}/{n} | {m2:+.2f}")
     out.append([MODE, c, CELLS[c][0], round(r["tot"], 1), round(r["totb"], 1), round(r["mean"], 3), round(r["lo"], 3), round(r["hi"], 3),
-                round(r["T"], 3), round(r["p1"], 4), round(r["pwy"], 4), round(r["pharm"], 4), round(kpi_mean(c), 4), w, n, round(m2, 3), r["n"]])
+                round(r["T"], 3), round(r["p1"], 4), round(r["pwy"], 4), round(r["pharm"], 4), round(kpi_mean(c), 4), w, n, round(m2, 3), r["n"], round(rawusd.get(S[c][4], float("nan")), 1) if NORM and CELLS[c][1] in ("v", "vg") else "", len(r["defc"])])
 print("\nсемьи: p семьи (min WY) -> порог Холма α/2/(39-k) -> проходит")
 for f, (p, thr, ok) in holm.items():
     print(f"{f}: p={p:.4f} thr={thr:.2e} {'ПРОХОДИТ п.1' if ok else 'нет'}")
@@ -210,7 +224,7 @@ print("доля Δ̄>0:", sum(res[c]["mean"] > 0 for c in cells), "из", len(ce
 with open(f"docs/findings/p12-r2-kpi-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
     w = csv.writer(fh, lineterminator="\n")
     w.writerow(["mode", "cell", "family", "total_usd", "base_total_usd", "d_mean_usd_day", "ci_lo", "ci_hi", "T", "p1", "p_wy", "p_harm_wy",
-                "kpi_share_mean", "months_kpi_worse", "months_defined", "c2_wo_top2days", "n_days"])
+                "kpi_share_mean", "months_kpi_worse", "months_defined", "c2_wo_top2days", "n_days", "raw_total_usd", "months_defined_p8"])
     w.writerows(out)
 with open(f"docs/findings/p12-r2-kpi-monthly-{MODE}-2026-10-08.csv", "w", encoding="utf-8", newline="") as fh:
     w = csv.writer(fh, lineterminator="\n")
