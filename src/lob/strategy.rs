@@ -478,7 +478,11 @@ impl PyramidCfg {
 
     /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
     pub fn eff(self) -> PyramidCfg {
-        if R2 { self } else { PyramidCfg::OFF }
+        if R2 {
+            self
+        } else {
+            PyramidCfg::OFF
+        }
     }
 
     pub fn on(self) -> bool {
