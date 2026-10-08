@@ -372,12 +372,13 @@ def judge_window(d, ncpu=NCPU, tol=0.01, bg_ops_s=None):
     if cap > 0 and (d["cpu_s"] - d["own_cpu_s"] - d.get("daemon_cpu_s", 0.0)) / cap > tol:
         why.append(f"чужое ЦП {(d['cpu_s'] - d['own_cpu_s'] - d.get('daemon_cpu_s', 0.0)) / cap * 100:.1f} % ядер окна")
     foreign_t = (d["disk_b"] - d["own_disk_b"]) / DISK_BPS / max(d["wall_s"], MIN_WALL_S)      # доля времени окна, занятая чужими байтами
-    if d["own_disk_b"] > 0 and d["disk_b"] > 0 and foreign_t > tol:
+    sens = d.get("disk_sens", True)                                    # изолированный замер без --disk (не читает диск): чужое чтение ему не помеха
+    if sens and d["own_disk_b"] > 0 and d["disk_b"] > 0 and foreign_t > tol:
         why.append(f"чужое чтение диска {(d['disk_b'] - d['own_disk_b']) / d['disk_b'] * 100:.1f} % байт = {foreign_t * 100:.1f} % времени окна")
     ios, own_ios = d.get("ios", 0), d.get("own_ios", 0)
     bg = (BG_OPS_S if bg_ops_s is None else bg_ops_s) * d["wall_s"]
     extra = ios - own_ios - bg                                         # чужие операции сверх фона
-    if own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / max(d["wall_s"], MIN_WALL_S) > tol:     # мелкие чтения HDD: байт мало, поисков много
+    if sens and own_ios > 0 and d["wall_s"] > 0 and extra * SEEK_S / max(d["wall_s"], MIN_WALL_S) > tol:     # мелкие чтения HDD: байт мало, поисков много
         why.append(f"чужие чтения диска: {extra:.0f} оп сверх фона × {SEEK_S * 1000:.1f} мс = {extra * SEEK_S / max(d['wall_s'], MIN_WALL_S) * 100:.1f} % времени окна")
     if d.get("culprits") and any("диска" in w for w in why):
         why.append("кто читал диск (оп, МБ): " + "; ".join(f"{c['cgroup']} {c['ops']} оп {c['mb']} МБ" for c in d["culprits"]))
@@ -696,6 +697,7 @@ class SystemdBackend:
                  daemon_cpu_s=self.daemon_cpu() - s0["dcpu"], disk_b=hb - s0["disk"], own_disk_b=own_rb, ios=hn - s0["ios"], own_ios=own_rn, forced_thaw=forced, swap_pages=self.swap_pages() - s0["swap"],
                  foreign_units=set() if iso else s0["units"] | set(self.foreign_units(j)))
         d["culprits"] = self.culprits(j, s0["cg"], self.cg_io(), d["ios"] - d["own_ios"], d["disk_b"] - d["own_disk_b"], s0["t"])
+        d["disk_sens"] = not iso or j.get("disk", "none") != "none"
         ok, why = judge_window(d, ncpu=len(iso) if iso else NCPU)
         if iso and ok:       # П4: OOM-убийств за окно нет
             oom = self.oom_kills() - s0.get("oom", 0)
