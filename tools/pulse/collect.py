@@ -33,7 +33,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DISP = ROOT / ".claude" / "dispatcher"
-sys.path.insert(0, str(DISP))  # ticket.py — разбор тикетов (stdlib)
+
+
+def _plugin_dispatcher() -> Path:
+    """ticket.py с 08.10 живёт в плагине команды (В-194): installPath из installed_plugins.json."""
+    try:
+        d = json.loads((Path.home() / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
+        for k, v in d.get("plugins", {}).items():
+            if k.startswith("role-play-vibing@"):
+                for e in v:
+                    p = Path(e["installPath"]) / ".claude" / "dispatcher"
+                    if (p / "ticket.py").exists():
+                        return p
+    except (OSError, ValueError, KeyError):
+        pass
+    return DISP
+
+
+# состояние диспетчера (state.json, логи) — в DISP проекта; ticket.py — рядом или в плагине
+CODE_DISP = DISP if (DISP / "ticket.py").exists() else _plugin_dispatcher()
+sys.path.insert(0, str(CODE_DISP))  # ticket.py — разбор тикетов (stdlib)
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # plainify.py — переводчик строк (Haiku)
 import plainify  # noqa: E402  (переводчик строк, Haiku)
 import view2  # noqa: E402  (раздел view2: процессы, шаги, вопросы — контракт VIEW2.md)
@@ -1129,7 +1148,7 @@ def make_view(plain: dict, tickets: dict, live: dict, machines: list, jobs: dict
 
 
 # --- будильник: конец серверного задания будит исполнителя тикета -----------------------------------------------------------
-TICKETS_PY = DISP / "tickets.py"
+TICKETS_PY = CODE_DISP / "tickets.py"
 WOKEN = PULSE_DIR / "woken.json"    # «машина:job:updated» → что сделано; защита от повторов, переживает перезапуск сборщика
 WOKE_LOG = PULSE_DIR / "wake.log"
 STALL_S = 600                       # файл хода не обновлялся дольше — при неактивном юните это «остановилось, не дойдя»
