@@ -1222,6 +1222,10 @@ impl<'a> GridRun<'a> {
                         g(&crate::lob::backtest::STEP_KINDS)
                     );
                     eprintln!(
+                        "bounce-grid:   шаги удержания по подписи (быстрый путь: всего/та же/сменилась/нет; движок: всего/та же/сменилась/нет): {}",
+                        g(&crate::lob::backtest::SIG_STATS)
+                    );
+                    eprintln!(
                         "bounce-grid:   пропущено вызовов on_event (входы те же): {}",
                         crate::lob::backtest::SIG_SKIPS.load(std::sync::atomic::Ordering::Relaxed)
                     );

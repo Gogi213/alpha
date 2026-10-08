@@ -487,6 +487,7 @@ pub(super) fn fast_hold_scan(
         let held_before = state.hold_wakeup_ns(now).is_some();
         let mark_before = state.phase_mark();
         let sig_before = sig;
+        sig.stat_step(true, || state.hold_input_sig(bot.depth(0), now));
         let skip = skip_on && sig.skip(state.hold_input_sig(bot.depth(0), now));
         let mut before = None;
         let action = if skip {
@@ -566,6 +567,7 @@ pub(super) fn fast_hold_scan_group(
         for i in 0..states.len() {
             let held_before = states[i].hold_wakeup_ns(now).is_some();
             let mark_before = states[i].phase_mark();
+            sigs[i].stat_step(true, || states[i].hold_input_sig(bot.depth(0), now));
             let skip = skip_on && sigs[i].skip(states[i].hold_input_sig(bot.depth(0), now));
             let action = if skip {
                 before.push(None);

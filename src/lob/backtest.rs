@@ -1691,6 +1691,9 @@ where
         // Решение удержания принято на этой точке, только если круг был в удержании **до** вызова и остался.
         let held_before = state.hold_wakeup_ns(bot.current_timestamp()).is_some();
         let mark_before = state.phase_mark();
+        solo_sig.stat_step(false, || {
+            state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
+        });
         let skip = skip_on
             && solo_sig.skip(state.hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
         let action = if skip {
@@ -2377,6 +2380,9 @@ where
             }
             let held_before = states[i].hold_wakeup_ns(bot.current_timestamp()).is_some();
             let mark_before = states[i].phase_mark();
+            sigs[i].stat_step(false, || {
+                states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp())
+            });
             let skip = skip_on
                 && sigs[i]
                     .skip(states[i].hold_input_sig(bot.depth(asset_no), bot.current_timestamp()));
@@ -2967,7 +2973,15 @@ pub static SIG_SKIPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 struct SigMemo {
     sig: Option<[u64; 5]>,
     reps: u8,
+    /// Подпись прошлого шага удержания для счёта `SIG_STATS` (только под `ALPHA_ATTEMPT_STATS`).
+    stat_sig: Option<[u64; 5]>,
 }
+
+/// Шаги удержания по подписи входов решения (замер TK-048, `ALPHA_ATTEMPT_STATS`, на итог не влияет): для быстрого
+/// пути (HoldTracker) и пути движка — [шагов, подпись та же, сменилась, нет подписи (`None`)]; в групповом круге
+/// шаг считается по варианту.
+pub static SIG_STATS: [std::sync::atomic::AtomicU64; 8] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; 8];
 
 impl SigMemo {
     /// Можно ли пропустить вызов на этих входах.
@@ -2991,6 +3005,24 @@ impl SigMemo {
 
     fn reset(&mut self) {
         self.sig = None;
+    }
+
+    /// Счёт шага удержания в `SIG_STATS` (`fast` — быстрый путь); подпись считается, только если счёт включён.
+    fn stat_step(&mut self, fast: bool, sig: impl FnOnce() -> Option<[u64; 5]>) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !fast_depth::BAND_STATS_ON.load(Relaxed) {
+            return;
+        }
+        let now = sig();
+        let b = if fast { 0 } else { 4 };
+        SIG_STATS[b].fetch_add(1, Relaxed);
+        let k = match now {
+            None => 3,
+            Some(s) if self.stat_sig == Some(s) => 1,
+            Some(_) => 2,
+        };
+        SIG_STATS[b + k].fetch_add(1, Relaxed);
+        self.stat_sig = now;
     }
 }
 
