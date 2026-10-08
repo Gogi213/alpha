@@ -40,6 +40,20 @@ def pack(ns, r1):
     return out
 
 
+def pack_ext(mode):
+    """ext-клетки TK-083 (7 кл., x-stop/x-deadline/x-entry): closes data/tk083/kpi/closes[B2]-<мес>.json; $ без нормировки (t2 ≤ 1,25 × B1, вердикт ext)."""
+    path = "tools/compute/tk083-kpi-analyze.py"
+    src = open(path, encoding="utf-8").read()
+    sys.argv = ["x", "" if mode == "free" else "B2"]
+    ns = {"__name__": "x"}
+    exec(compile(src[:src.index("rng = np.random.default_rng(83)")], path, "exec"), ns)
+    out = {}
+    for c, a in ns["daily"].items():
+        out[c] = dict(arr=a, lst=ns["cl"][c], dfn=set(ns["defined"][c]), fam="B1" if c == "B1" else ns["CELLS"][c][0], base=None if c == "B1" else "B1",
+                      cal=ns["cal"], months=ns["MONTHS"], kpi=lambda l, m, k=ns["kpi_share"]: (lambda r: (r[0], r[2]))(k(l, m)))
+    return out
+
+
 def sr(x, m):
     n = m.sum(-1)
     mean = (x * m).sum(-1) / np.maximum(n, 1)
@@ -121,8 +135,9 @@ def analyse(P, seed):
 def main():
     A, fa = analyse(pack(load("tools/compute/p12-r1-analyze.py", MODE), True), 63)
     Bz, fb = analyse(pack(load("tools/compute/p12-r2-analyze.py", MODE), False), 64)
-    res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}}
-    fams = {**fa, **fb}
+    Ex, fe = analyse(pack_ext(MODE), 65)
+    res = {**{c: dict(r, pk="R1") for c, r in A.items() if r}, **{c: dict(r, pk="R2") for c, r in Bz.items() if r}, **{c: dict(r, pk="ext") for c, r in Ex.items() if r}}
+    fams = {**fa, **fb, **fe}
     famp = {f: min(res[c]["pwy"] for c in cs) for f, cs in fams.items()}
     famh = {f: min(res[c]["pharm"] for c in cs) for f, cs in fams.items()}
     holm = {}
@@ -130,7 +145,7 @@ def main():
         alive = True
         for k, (f, p) in enumerate(sorted(store.items(), key=lambda kv: kv[1])):
             thr = 0.025 / (M_FAM - k); alive = alive and p <= thr; holm[(nm, f)] = (p, thr, alive)
-    print(f"== П-12 Шарп (В-208), режим {MODE}; клеток R1 {sum(1 for r in res.values() if r['pk']=='R1')} R2 {sum(1 for r in res.values() if r['pk']=='R2')}; семей {len(fams)}, m={M_FAM}")
+    print(f"== П-12 Шарп (В-208), режим {MODE}; клеток R1 {sum(1 for r in res.values() if r['pk']=='R1')} R2 {sum(1 for r in res.values() if r['pk']=='R2')} ext {sum(1 for r in res.values() if r['pk']=='ext')}; семей {len(fams)}, m={M_FAM}")
     rows = []
     for c, r in res.items():
         g1 = bool(holm[("польза", r["fam"])][2] and r["pwy"] <= holm[("польза", r["fam"])][1])
