@@ -753,6 +753,7 @@ fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
 
 /// Г-114 `halflevel`: первая сделка ленты ниже `level_px` (99) после входа закрывает половину по рынку
 /// (0.5 → 0.25), защёлка взведена; без такой сделки половины нет.
+#[cfg(feature = "r2")]
 fn halflevel_exit(trade_px: Option<f64>) -> Option<(bool, f64, bool)> {
     let mut feed = vec![
         depth_at(0, true, 98.0, 5.0),
@@ -853,6 +854,7 @@ fn scheduled_take_slides_to_breakeven_and_mirrors_for_shorts() {
     );
 }
 
+#[cfg(feature = "r2")]
 fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
     let feed = [
         depth_at(0, true, 98.0, 5.0),
