@@ -188,6 +188,29 @@ impl ExitForm {
     }
 
     pub fn parse(spec: &str) -> anyhow::Result<Self> {
+        let form = Self::parse_any(spec)?;
+        anyhow::ensure!(
+            crate::lob::strategy::R2 || !form.is_r2(),
+            "--exit-form {spec:?}: форма R2 — только в исследовательском бинарнике (cargo feature r2)"
+        );
+        Ok(form)
+    }
+
+    fn is_r2(&self) -> bool {
+        matches!(
+            self,
+            ExitForm::PyrEat { .. }
+                | ExitForm::PyrFresh { .. }
+                | ExitForm::PyrReinstall { .. }
+                | ExitForm::PyrNewWall { .. }
+                | ExitForm::HalfStop
+                | ExitForm::HalfLevel
+                | ExitForm::TakeSched { .. }
+                | ExitForm::Converge { .. }
+        )
+    }
+
+    fn parse_any(spec: &str) -> anyhow::Result<Self> {
         if spec == "none" {
             return Ok(ExitForm::None);
         }

@@ -24,12 +24,14 @@ LABEL="$(printf '%s' "${ALPHA_TICKET:-$(basename "$PWD")}" | tr -c 'A-Za-z0-9._-
 git ls-files -z --cached --others --exclude-standard | tar --force-local --null -T - -czf "$ARC"
 scp -q "${KEY[@]}" "$ARC" "$HOST:$ARCR"
 rm -f "$ARC"
+# cargo-фичи (TK-065: R2 — `VPS_FEATURES=r2`); пусто = боевой набор без фич
+FEAT="${VPS_FEATURES:+--features $VPS_FEATURES}"
 case "$WHAT" in
-  test)   CMD="cargo test --release --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
-  clippy) CMD="cargo clippy --release --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -25" ;;
+  test)   CMD="cargo test --release $FEAT --target-dir $TGT -j 3 $FILTER 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
+  clippy) CMD="cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -25" ;;
   fmt)    CMD="cargo fmt --check 2>&1 | tail -25" ;;
-  build)  CMD="cargo build --release --target-dir $TGT -j 3 2>&1 | tail -5" ;;
-  all)    CMD="cargo fmt --check 2>&1 | tail -10 && cargo clippy --release --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
+  build)  CMD="cargo build --release $FEAT --target-dir $TGT -j 3 2>&1 | tail -5" ;;
+  all)    CMD="cargo fmt --check 2>&1 | tail -10 && cargo clippy --release $FEAT --target-dir $TGT --all-targets -j 3 -- -D warnings 2>&1 | tail -15 && cargo test --release $FEAT --target-dir $TGT -j 3 2>&1 | grep -E \"^test result|FAILED|panicked|^error|^warning: unused\" | tail -40" ;;
   *) echo "неизвестно: $WHAT"; exit 2 ;;
 esac
 # shellcheck disable=SC2029

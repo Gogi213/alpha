@@ -710,6 +710,7 @@ fn a_partial_leg_sets_the_position_and_the_exit_is_sized_on_it() {
 /// Г-114 `halfstop`: стоп закрывает ровно половину позиции (0.5 → 0.25, шаг лота 0), защёлка взведена,
 /// заявка выхода помечена частичной; без флага тот же фид закрывает всё (см. соседний тест F4).
 #[test]
+#[cfg(feature = "r2")]
 fn halfstop_closes_half_of_the_position_on_the_stop_and_latches() {
     let feed = [
         depth_at(0, true, 98.0, 5.0),
@@ -798,6 +799,7 @@ fn halflevel_exit(trade_px: Option<f64>) -> Option<(bool, f64, bool)> {
 }
 
 #[test]
+#[cfg(feature = "r2")]
 fn halflevel_closes_half_on_the_first_trade_below_the_level() {
     let (partial, qty, latched) = halflevel_exit(Some(98.5)).expect("половина обязана выйти");
     assert!(partial && latched, "частичный выход и защёлка");
@@ -876,6 +878,7 @@ fn converge_exit_reason(a_bps: u32) -> Option<ExitReason> {
 }
 
 #[test]
+#[cfg(feature = "r2")]
 fn converge_exits_after_the_price_left_the_wall_by_a_and_came_back() {
     assert_eq!(converge_exit_reason(50), Some(ExitReason::Converge));
     assert_ne!(
@@ -3237,6 +3240,7 @@ fn pyr_state(parts: u8, eaten: f64) -> (Backtest<FastMarketDepth>, StrategyState
 }
 
 #[test]
+#[cfg(feature = "r2")]
 fn fresh_entry_is_one_part_floored_to_the_lot_and_adds_are_q0_over_n() {
     let mut plan = pyr_plan(3);
     if let TradePlan::Bounce {

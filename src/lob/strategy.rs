@@ -427,6 +427,9 @@ pub enum TradePlan {
     },
 }
 
+/// R2 (TK-065) собирается только с feature `r2` (исследовательский бинарник); боевой PGO-бинарник — без неё.
+pub const R2: bool = cfg!(feature = "r2");
+
 /// Доливка частями (R2-A): стена делится на `eat_parts` равных долей; при съедании `j/N` стены
 /// (`j = 1..N-1`) ставится добавка `Q0/N` (spec r2-spec §1 Г-94, `K = N − 1`). `0` — выключено.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -473,14 +476,19 @@ impl PyramidCfg {
         converge_a_bps: 0,
     };
 
+    /// Без feature `r2` настройка всегда выключена: код R2 не доходит до боевого бинарника (TK-065, решение CEO 08.10).
+    pub fn eff(self) -> PyramidCfg {
+        if R2 { self } else { PyramidCfg::OFF }
+    }
+
     pub fn on(self) -> bool {
-        self.eat_parts > 0
+        R2 && (self.eat_parts > 0
             || self.reinstall_n > 0
             || self.newwall_k > 0
             || self.half_stop
             || self.half_level
             || self.sched_g10 > 0
-            || self.converge_tol1 > 0
+            || self.converge_tol1 > 0)
     }
 }
 
@@ -1357,6 +1365,7 @@ impl StrategyState {
         else {
             return;
         };
+        let pyramid = pyramid.eff();
         if self.wall_ring.is_some() {
             self.record_wall_eat(trades, level_px, tick_px);
         }
@@ -2462,7 +2471,7 @@ where
             let shift = level_shift(state.entry_vwap(), entry_px, tick_px);
             let (stop_px, take_px, entry_px) = (stop_px + shift, take_px + shift, entry_px + shift);
             let pyr = match state.plan {
-                TradePlan::Bounce { pyramid, .. } => pyramid,
+                TradePlan::Bounce { pyramid, .. } => pyramid.eff(),
                 TradePlan::SpreadHold => PyramidCfg::OFF,
             };
             let take_px = if pyr.sched_g10 > 0 && trail_bps <= 0.0 {
@@ -3129,7 +3138,7 @@ fn fresh_entry_qty(plan: TradePlan, qty: f64) -> f64 {
     match plan {
         TradePlan::Bounce {
             pyramid, lot_qty, ..
-        } if pyramid.fresh && pyramid.eat_parts > 0 => {
+        } if R2 && pyramid.fresh && pyramid.eat_parts > 0 => {
             let raw = qty / f64::from(pyramid.eat_parts);
             if lot_qty > 0.0 {
                 ((raw / lot_qty).floor() * lot_qty).max(lot_qty)
