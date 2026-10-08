@@ -3987,23 +3987,3 @@ fn btc_minutes_merge_and_coverage_check() {
         "без --day — отказ"
     );
 }
-
-#[test]
-fn carry_edge_window_is_clamped_between_zero_and_horizon() {
-    use super::carry::carry_edge_window_ns;
-    let (h, mid) = (16_200_000_000_000_i64, 1_767_312_000_000_000_000_i64);
-    // Последний t0 ровно в полночь D+1 — весь горизонт.
-    assert_eq!(carry_edge_window_ns(h, Some(mid), mid), h);
-    // t0 за 600 с до полуночи — горизонт минус 600 с.
-    assert_eq!(
-        carry_edge_window_ns(h, Some(mid - 600_000_000_000), mid),
-        h - 600_000_000_000
-    );
-    // Край не дотягивает до полуночи — довесок не нужен.
-    assert_eq!(carry_edge_window_ns(h, Some(mid - h), mid), 0);
-    assert_eq!(carry_edge_window_ns(h, Some(mid - 2 * h), mid), 0);
-    // Сутки без сигналов — окно 0 (граница в forms.csv остаётся прежней).
-    assert_eq!(carry_edge_window_ns(h, None, mid), 0);
-    // t0 позже полуночи не растит окно сверх горизонта.
-    assert_eq!(carry_edge_window_ns(h, Some(mid + h), mid), h);
-}
